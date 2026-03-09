@@ -1,17 +1,1193 @@
 <!DOCTYPE html>
 <html lang="da">
 <head>
-  <meta charset="UTF-8">
-  <title>Bon v2 — Kitchen Today</title>
-  <link rel="stylesheet" href="../shared/tokens.css">
-  <link rel="stylesheet" href="../shared/components.css">
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Køkken I Dag — Bon v2</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Lato:ital,wght@0,400;0,700;1,400;1,700&display=swap" rel="stylesheet">
+    <style>
+        :root {
+            --brown:        #8e631f;
+            --yellow:       #f1e6b2;
+            --yellow-light: #f7f2d9;
+            --yellow-pale:  #fdfbf3;
+            --blue:         #7594b3;
+            --blue-light:   #e8f0f6;
+            --green:        #a5bf75;
+            --green-dark:   #7a9c54;
+            --green-light:  #e8f2dc;
+            --gray:         #d7d1ca;
+            --gray-light:   #f5f4f2;
+            --gray-dark:    #8a8580;
+            --white:        #ffffff;
+            --black:        #333333;
+            --s-igang:      #d4781a;
+            --s-klar:       #6ab04c;
+            --s-leveret:    #a0a0b0;
+        }
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+        body { font-family: 'Lato', sans-serif; background: var(--gray-light); color: var(--black); min-height: 100vh; }
+
+        /* ═══ TOPBAR ═══ */
+        .topbar {
+            background: var(--brown); color: white;
+            padding: 0 24px; height: 44px;
+            display: flex; align-items: center; justify-content: space-between;
+            position: sticky; top: 0; z-index: 300;
+        }
+        .topbar-left  { display: flex; align-items: center; gap: 4px; }
+        .topbar-logo  { font-size: 15px; font-weight: 700; margin-right: 16px; }
+        .topbar-nav a {
+            color: rgba(255,255,255,0.65); text-decoration: none;
+            font-size: 13px; font-weight: 700; padding: 0 12px;
+            height: 44px; display: inline-flex; align-items: center;
+            border-bottom: 3px solid transparent; transition: all 0.15s;
+        }
+        .topbar-nav a:hover  { color: white; }
+        .topbar-nav a.active { color: white; border-bottom-color: rgba(255,255,255,0.55); }
+        .topbar-right { display: flex; align-items: center; gap: 12px; font-size: 13px; }
+        .live-dot { display: flex; align-items: center; gap: 5px; opacity: 0.8; }
+        .live-dot::before { content: ''; width: 7px; height: 7px; border-radius: 50%; background: #7cdb5e; display: block; }
+
+        /* ═══ TODAY HEADER ═══ */
+        .today-header {
+            background: white; border-bottom: 1px solid rgba(142,99,31,0.15);
+            padding: 10px 24px; position: sticky; top: 44px; z-index: 200;
+            display: flex; align-items: center; gap: 16px;
+        }
+        .today-title { font-size: 18px; font-weight: 700; }
+        .today-count { font-size: 13px; color: var(--gray-dark); }
+        .view-filters { margin-left: auto; display: flex; gap: 8px; align-items: center; }
+
+        /* Filter buttons — tap=8sek peek, hold=lock */
+        .filter-btn {
+            padding: 7px 16px; border: 1.5px solid var(--gray); border-radius: 6px;
+            background: white; font-family: 'Lato', sans-serif; font-size: 13px;
+            font-weight: 700; color: var(--gray-dark); cursor: pointer;
+            transition: background 0.15s, color 0.15s, border-color 0.15s;
+            user-select: none; -webkit-user-select: none;
+            position: relative; overflow: hidden;
+        }
+        /* Peek progress bar */
+        .filter-btn .peek-bar {
+            position: absolute; bottom: 0; left: 0; height: 3px;
+            background: rgba(255,255,255,0.6); width: 0;
+            pointer-events: none;
+        }
+        .filter-btn.peek .peek-bar { animation: peekProgress 8s linear forwards; }
+        @keyframes peekProgress { from { width: 100%; } to { width: 0%; } }
+
+        .filter-btn:hover:not(.on-igang):not(.on-klar):not(.on-lev):not(.peek-igang):not(.peek-klar):not(.peek-lev) {
+            border-color: var(--brown); color: var(--brown);
+        }
+        .filter-btn.on-igang,   .filter-btn.peek-igang { background: var(--s-igang); color: white; border-color: var(--s-igang); }
+        .filter-btn.on-klar,    .filter-btn.peek-klar  { background: var(--s-klar);  color: white; border-color: var(--s-klar); }
+        .filter-btn.on-lev,     .filter-btn.peek-lev   { background: var(--gray-dark); color: white; border-color: var(--gray-dark); }
+        .filter-btn.locked::after {
+            content: ' 🔒'; font-size: 11px;
+        }
+
+        .kiosk-btn {
+            padding: 7px 14px; border: 1.5px solid var(--gray); border-radius: 6px;
+            background: white; font-family: 'Lato', sans-serif; font-size: 13px;
+            font-weight: 700; color: var(--gray-dark); cursor: pointer;
+        }
+
+        /* ═══ FILTER BODY STATES ═══ */
+        body.filter-igang .bon-card[data-status="klar"]    { display: none !important; }
+        body.filter-klar  .bon-card[data-status="igang"]   { display: none !important; }
+        body:not(.show-lev) .bon-card[data-status="leveret"] { display: none !important; }
+
+        /* ═══ LAYOUT ═══ */
+        .view-content { padding: 20px 24px; }
+        .cards-grid   { display: flex; flex-wrap: wrap; gap: 20px; align-items: flex-start; }
+
+        /* ═══ BON CARD ═══ */
+        .bon-card {
+            background: var(--yellow-pale); border-radius: 12px; width: 360px;
+            box-shadow: 0 1px 3px rgba(0,0,0,0.08), 0 4px 12px rgba(0,0,0,0.05);
+            overflow: hidden; position: relative;
+            transition: box-shadow 0.2s, opacity 0.7s ease, transform 0.7s ease;
+        }
+        .bon-card:hover { box-shadow: 0 2px 8px rgba(0,0,0,0.12), 0 8px 24px rgba(0,0,0,0.08); }
+        .bon-card::before {
+            content: ''; position: absolute; left: 0; top: 0; bottom: 0; width: 6px;
+        }
+        .bon-card[data-status="igang"]::before   { background: var(--s-igang); }
+        .bon-card[data-status="klar"]::before    { background: var(--s-klar); }
+        .bon-card[data-status="leveret"]::before { background: var(--s-leveret); }
+
+        /* Leveret fade */
+        .bon-card.leveret-fading { opacity: 0.22; transform: scale(0.985); }
+        .bon-card.leveret-fading .fortryd-overlay { display: flex; }
+        .fortryd-overlay {
+            display: none; position: absolute; inset: 0; z-index: 50;
+            background: transparent; cursor: pointer;
+            align-items: center; justify-content: center;
+        }
+        .fortryd-pill {
+            background: rgba(30,30,30,0.88); color: white;
+            padding: 11px 24px; border-radius: 30px;
+            font-size: 14px; font-weight: 700;
+            display: flex; align-items: center; gap: 10px;
+            box-shadow: 0 4px 16px rgba(0,0,0,0.3);
+        }
+        .fortryd-cd {
+            background: rgba(255,255,255,0.18); border-radius: 50%;
+            width: 30px; height: 30px; display: flex; align-items: center;
+            justify-content: center; font-size: 15px; font-weight: 900;
+        }
+
+        /* ── HEADER ── */
+        .bon-header {
+            padding: 14px 16px 12px 22px;
+            display: flex; justify-content: space-between; align-items: flex-start;
+            border-bottom: 1px solid rgba(142,99,31,0.15);
+        }
+        .bon-header-left  { display: flex; flex-direction: column; gap: 2px; }
+        .bon-id           { font-size: 26px; font-weight: 700; color: var(--brown); line-height: 1; }
+        .bon-time-row     { display: flex; align-items: baseline; gap: 8px; margin-top: 4px; }
+        .bon-pickup       { font-size: 28px; font-weight: 700; color: var(--black); }
+        .bon-lev-time     { font-size: 14px; color: var(--gray-dark); }
+        .bon-date         { font-size: 13px; color: var(--gray-dark); margin-top: 2px; }
+        .bon-header-right { text-align: right; }
+        .unit-primary   { font-size: 38px; font-weight: 700; color: var(--brown); line-height: 1; display: block; }
+        .unit-label     { font-size: 11px; color: var(--gray-dark); text-transform: uppercase; letter-spacing: 0.5px; }
+        .unit-secondary { font-size: 13px; color: var(--gray-dark); margin-top: 2px; display: block; }
+
+        /* ── STATUS TABS ── */
+        .bon-status-tabs { display: flex; border-bottom: 1px solid rgba(142,99,31,0.15); }
+        .stab {
+            flex: 1; padding: 11px 8px; border: none; background: var(--yellow-light);
+            font-family: 'Lato', sans-serif; font-size: 13px; font-weight: 700; cursor: pointer;
+            transition: all 0.15s; display: flex; align-items: center; justify-content: center; gap: 5px;
+            color: var(--brown); border-right: 1px solid rgba(142,99,31,0.15);
+        }
+        .stab:last-child { border-right: none; }
+        .stab:hover:not([class*="active"]) { background: var(--yellow); }
+        .stab svg { width: 13px; height: 13px; }
+        .stab.active-igang   { background: var(--s-igang); color: white; }
+        .stab.active-klar    { background: var(--s-klar);  color: white; }
+        .stab.active-leveret { background: var(--s-leveret); color: #444; }
+
+        /* ── PREP (afdæmpet) ── */
+        .bon-prep {
+            display: flex; gap: 8px; padding: 8px 16px 8px 22px;
+            background: var(--gray-light); border-bottom: 1px solid rgba(142,99,31,0.08);
+        }
+        .prep-badge {
+            display: flex; align-items: center; gap: 7px; padding: 5px 12px;
+            background: var(--white); border-radius: 6px; font-size: 13px; font-weight: 600;
+            color: var(--gray-dark); cursor: pointer; transition: all 0.18s;
+            border: 1.5px solid var(--gray); flex: 1; justify-content: center;
+        }
+        .prep-badge:hover  { border-color: #bbb; }
+        .prep-badge.checked { background: var(--green-light); color: var(--green-dark); border-color: var(--green); }
+        .prep-check {
+            width: 15px; height: 15px; border: 1.5px solid currentColor; border-radius: 3px;
+            flex-shrink: 0; display: flex; align-items: center; justify-content: center; font-size: 10px;
+        }
+        .prep-badge.checked .prep-check::after { content: '✓'; font-weight: 900; }
+
+        /* ── KUNDE + LEVERINGSINFO (folder ud sammen) ── */
+        .bon-customer {
+            padding: 9px 16px 9px 22px; display: flex; justify-content: space-between; align-items: center;
+            cursor: pointer; transition: background 0.12s;
+            border-bottom: 1px solid rgba(142,99,31,0.1);
+        }
+        .bon-customer:hover { background: rgba(142,99,31,0.04); }
+        .customer-name    { font-weight: 700; font-size: 15px; }
+        .customer-addr    { font-size: 13px; color: var(--gray-dark); margin-top: 1px; }
+        .customer-chevron { color: var(--gray-dark); font-size: 11px; transition: transform 0.2s; flex-shrink: 0; margin-left: 8px; }
+        .bon-customer.open .customer-chevron { transform: rotate(180deg); }
+
+        /* Dropdown — telefon, mail OG leveringsinfo */
+        .bon-customer-details {
+            display: none; padding: 6px 16px 12px 22px;
+            border-bottom: 1px solid rgba(142,99,31,0.1);
+            background: rgba(142,99,31,0.025);
+        }
+        .bon-customer-details.show { display: block; }
+        .detail-row { display: flex; align-items: center; gap: 8px; padding: 3px 0; font-size: 13px; color: var(--gray-dark); }
+        .detail-row a { color: var(--brown); text-decoration: none; }
+
+        /* Leveringsinfo inde i customer-details */
+        .delivery-block {
+            margin-top: 8px; padding: 7px 10px 8px 10px;
+            background: var(--blue-light); border-radius: 6px;
+            border-left: 3px solid var(--blue);
+        }
+        .delivery-label {
+            font-size: 10px; font-weight: 700; text-transform: uppercase;
+            letter-spacing: 0.7px; color: #2e5478; margin-bottom: 4px;
+            display: flex; align-items: center; gap: 5px;
+        }
+        .delivery-label::before {
+            content: ''; width: 6px; height: 6px; border-radius: 50%;
+            background: var(--blue); flex-shrink: 0;
+        }
+        .delivery-text { font-size: 13px; color: var(--black); line-height: 1.45; }
+
+        /* ── KØKKENINFO — fast åben, kan IKKE klappes ── */
+        .bon-kitchen {
+            margin: 8px 16px 4px 22px; border-radius: 7px; overflow: hidden;
+        }
+        .kitchen-header {
+            display: flex; align-items: center; gap: 6px;
+            padding: 6px 10px 6px 12px;
+            background: #f0e0a8;
+            font-size: 10px; font-weight: 700; text-transform: uppercase;
+            letter-spacing: 0.7px; color: #6b4800;
+        }
+        .kitchen-header::before {
+            content: ''; width: 7px; height: 7px; border-radius: 50%;
+            background: #b07a00; flex-shrink: 0;
+        }
+        .kitchen-body { background: var(--yellow-light); }
+        .kitchen-text {
+            padding: 9px 12px 8px;
+            font-size: 14px; line-height: 1.5; color: var(--black);
+        }
+        /* Tom køkkeninfo */
+        .kitchen-text.empty { color: var(--gray-dark); font-style: italic; }
+
+        /* Kommentarfelt indeni køkkeninfo */
+        .kitchen-comment {
+            padding: 0 12px 10px;
+            border-top: 1px dashed rgba(142,99,31,0.25);
+            padding-top: 8px;
+        }
+        .prev-comments { margin-bottom: 6px; }
+        .prev-comment-item {
+            font-size: 13px; color: var(--black);
+            padding: 5px 8px; background: rgba(255,255,255,0.65);
+            border-radius: 5px; border-left: 3px solid var(--brown); margin-bottom: 4px;
+        }
+        .prev-comment-meta {
+            font-size: 10px; color: var(--gray-dark);
+            text-transform: uppercase; letter-spacing: 0.4px; margin-bottom: 2px;
+        }
+        .comment-input {
+            width: 100%; border: 1.5px solid rgba(142,99,31,0.25); border-radius: 6px;
+            padding: 7px 10px; font-family: 'Lato', sans-serif; font-size: 13px;
+            background: rgba(255,255,255,0.75); resize: none; outline: none;
+            color: var(--black); min-height: 48px; line-height: 1.45;
+            transition: border-color 0.15s;
+        }
+        .comment-input::placeholder { color: #b8a882; font-style: italic; }
+        .comment-input:focus { border-color: var(--brown); background: white; }
+        .comment-footer { display: flex; align-items: center; justify-content: space-between; margin-top: 6px; }
+        .comment-save {
+            padding: 5px 14px; border-radius: 5px;
+            border: 1.5px solid var(--brown); background: white;
+            font-family: 'Lato', sans-serif; font-size: 12px; font-weight: 700;
+            color: var(--brown); cursor: pointer; transition: all 0.15s; display: none;
+        }
+        .comment-save:hover { background: var(--brown); color: white; }
+        .comment-save.show  { display: inline-block; }
+        .comment-saved      { font-size: 12px; color: var(--green-dark); font-weight: 700; display: none; }
+        .comment-saved.show { display: inline-block; }
+
+        /* ── MENU ── */
+        .bon-menu { padding: 10px 0; background: var(--white); }
+        .select-toolbar {
+            display: none; align-items: center; justify-content: space-between;
+            padding: 8px 16px 8px 22px; background: var(--blue-light);
+            border-bottom: 1px solid rgba(117,148,179,0.3); font-size: 13px; color: var(--blue);
+        }
+        .select-toolbar.visible { display: flex; }
+        .sel-btn {
+            padding: 4px 12px; border: 1px solid var(--blue); border-radius: 6px;
+            background: white; color: var(--blue); font-size: 12px; font-weight: 700;
+            cursor: pointer; font-family: 'Lato', sans-serif; transition: all 0.15s;
+        }
+        .sel-btn:hover { background: var(--blue); color: white; }
+        .sel-btn.cancel { border-color: var(--gray-dark); color: var(--gray-dark); }
+        .sel-btn.cancel:hover { background: var(--gray-dark); color: white; }
+        .drag-handle {
+            color: var(--gray); margin-right: 8px; cursor: grab; flex-shrink: 0;
+            opacity: 0; transition: opacity 0.15s; display: flex; align-items: center;
+        }
+        .drag-handle svg { width: 14px; height: 14px; }
+        .item-select, .group-select {
+            display: none; width: 18px; height: 18px; border: 2px solid var(--gray);
+            border-radius: 4px; flex-shrink: 0; cursor: pointer; align-items: center;
+            justify-content: center; transition: all 0.15s; background: white; font-size: 11px;
+        }
+        .item-select.checked, .group-select.checked { background: var(--brown); border-color: var(--brown); color: white; }
+        .item-select::after, .group-select::after { content: ''; }
+        .item-select.checked::after, .group-select.checked::after { content: '✓'; font-weight: 900; }
+        .bon-menu-item {
+            display: flex; align-items: center; padding: 7px 16px 7px 22px;
+            font-size: 18px; cursor: default; transition: background 0.12s; user-select: none;
+        }
+        .bon-menu-item:hover { background: rgba(142,99,31,0.04); }
+        .bon-menu-item:hover .drag-handle { opacity: 1; }
+        .bon-menu-item.dragging  { opacity: 0.35; }
+        .bon-menu-item.drag-over { border-top: 2px solid var(--brown); }
+        .bon-menu-qty  { font-weight: 700; color: var(--brown); min-width: 50px; flex-shrink: 0; }
+        .bon-menu-name { flex: 1; font-style: italic; }
+        .bon-menu-item.emballage .bon-menu-name { font-style: normal; color: var(--gray-dark); font-size: 15px; }
+        .bon-menu-item.emballage .bon-menu-qty  { font-size: 15px; color: var(--gray-dark); }
+        .bon-menu-divider { height: 1px; background: var(--gray); margin: 6px 16px 6px 22px; opacity: 0.4; }
+        .select-mode .item-select       { display: flex; margin-right: 10px; }
+        .select-mode .drag-handle       { display: none !important; }
+        .select-mode .group-select      { display: flex; }
+        .select-mode .group-drag-handle { display: none; }
+
+        /* ── GRUPPE ── */
+        .bon-menu-group {
+            margin: 6px 16px 6px 22px; border: 1.5px solid rgba(142,99,31,0.28);
+            border-radius: 8px; overflow: visible; background: var(--yellow-pale);
+        }
+        .bon-menu-group.dragging        { opacity: 0.35; }
+        .bon-menu-group.drag-over-group { outline: 2px solid var(--brown); }
+        .group-header {
+            display: flex; align-items: center; gap: 8px; padding: 7px 10px;
+            background: rgba(142,99,31,0.09); border-bottom: 1px solid rgba(142,99,31,0.15); cursor: grab;
+        }
+        .group-drag-handle { color: var(--gray-dark); display: flex; align-items: center; flex-shrink: 0; opacity: 0.5; }
+        .group-drag-handle svg { width: 14px; height: 14px; }
+        .group-title {
+            font-size: 11px; font-weight: 700; text-transform: uppercase;
+            letter-spacing: 0.9px; color: var(--brown); flex: 1;
+        }
+        .group-title-input {
+            font-size: 11px; font-weight: 700; text-transform: uppercase;
+            letter-spacing: 0.9px; color: var(--brown); flex: 1;
+            border: none; background: rgba(255,255,255,0.7); font-family: 'Lato', sans-serif;
+            outline: none; padding: 1px 4px; border-radius: 3px; display: none;
+        }
+        .group-title.hidden        { display: none; }
+        .group-title-input.visible { display: block; }
+        .group-note-btn {
+            width: 22px; height: 22px; border: none; background: transparent; cursor: pointer;
+            border-radius: 4px; display: flex; align-items: center; justify-content: center;
+            transition: all 0.15s; flex-shrink: 0; position: relative;
+        }
+        .group-note-btn svg { width: 14px; height: 14px; }
+        .group-note-btn.empty     { color: var(--gray-dark); opacity: 0.4; }
+        .group-note-btn.empty:hover { opacity: 1; color: var(--brown); }
+        .group-note-btn.has-note  { color: var(--brown); }
+        .group-note-btn.has-note::after {
+            content: ''; position: absolute; top: 2px; right: 2px;
+            width: 5px; height: 5px; border-radius: 50%; background: var(--s-igang);
+        }
+        .group-edit-btn {
+            width: 20px; height: 20px; border: none; background: transparent; cursor: pointer;
+            color: var(--gray-dark); border-radius: 3px; display: flex; align-items: center;
+            justify-content: center; opacity: 0; transition: opacity 0.15s; flex-shrink: 0;
+        }
+        .group-header:hover .group-edit-btn { opacity: 0.7; }
+        .group-edit-btn:hover { opacity: 1 !important; color: var(--brown); }
+        .group-edit-btn svg { width: 12px; height: 12px; }
+        .group-note-area { display: none; padding: 8px 10px; border-bottom: 1px dashed rgba(142,99,31,0.2); background: rgba(241,230,178,0.25); }
+        .group-note-area.open { display: block; }
+        .group-note-input {
+            width: 100%; border: none; background: transparent; font-family: 'Lato', sans-serif;
+            font-size: 13px; color: var(--black); resize: none; outline: none; line-height: 1.5; min-height: 28px;
+        }
+        .group-note-input::placeholder { color: var(--gray-dark); font-style: italic; }
+        .bon-menu-group .bon-menu-item { padding: 6px 10px; font-size: 17px; background: transparent; }
+        .bon-menu-group .bon-menu-item:hover { background: rgba(142,99,50,0.05); }
+        .bon-menu-group .bon-menu-qty { min-width: 44px; }
+
+        /* ── CO2 ── */
+        .bon-co2 {
+            display: flex; align-items: center; justify-content: flex-end; gap: 6px;
+            padding: 7px 16px; font-size: 12px; color: var(--green-dark); background: var(--green-light);
+        }
+        .bon-co2 svg { width: 13px; height: 13px; }
+        .bon-co2-value { font-weight: 700; }
+
+        /* ── ACTIONS ── */
+        .bon-actions {
+            display: flex; justify-content: space-between; align-items: center;
+            padding: 10px 14px; background: rgba(142,99,31,0.04);
+            border-top: 1px solid rgba(142,99,31,0.08);
+            position: relative;
+        }
+        .bon-actions-left { display: flex; gap: 2px; }
+        .action-btn {
+            width: 38px; height: 38px; border: none; background: transparent; border-radius: 8px;
+            cursor: pointer; display: flex; align-items: center; justify-content: center;
+            color: var(--brown); transition: all 0.15s; position: relative;
+        }
+        .action-btn:hover { background: var(--yellow); }
+        .action-btn svg { width: 20px; height: 20px; }
+        .action-btn[data-tooltip]::after {
+            content: attr(data-tooltip); position: absolute; bottom: calc(100% + 6px); left: 50%;
+            transform: translateX(-50%); background: rgba(30,30,30,0.9); color: white;
+            padding: 5px 10px; border-radius: 6px; font-size: 12px; white-space: nowrap;
+            opacity: 0; pointer-events: none; transition: opacity 0.15s; z-index: 100;
+        }
+        .action-btn:hover::after { opacity: 1; }
+        .select-toggle-btn {
+            width: 38px; height: 38px; border: none; background: transparent; border-radius: 8px;
+            cursor: pointer; display: flex; align-items: center; justify-content: center;
+            color: var(--gray-dark); transition: all 0.15s;
+        }
+        .select-toggle-btn:hover, .select-toggle-btn.active { background: var(--yellow); color: var(--brown); }
+        .select-toggle-btn svg { width: 20px; height: 20px; }
+
+        /* ── SAMMENTÆLLING PANEL ── */
+        .summary-panel {
+            display: none; position: absolute; bottom: 58px; left: 14px; right: 14px;
+            background: white; border: 1.5px solid rgba(142,99,31,0.25);
+            border-radius: 10px; box-shadow: 0 4px 20px rgba(0,0,0,0.12);
+            z-index: 40; overflow: hidden;
+        }
+        .summary-panel.open { display: block; }
+        .summary-header {
+            padding: 8px 12px; background: var(--yellow-light);
+            font-size: 10px; font-weight: 700; text-transform: uppercase;
+            letter-spacing: 0.7px; color: var(--brown);
+            display: flex; justify-content: space-between; align-items: center;
+            border-bottom: 1px solid rgba(142,99,31,0.15);
+        }
+        .summary-close {
+            background: none; border: none; cursor: pointer; color: var(--brown);
+            font-size: 16px; line-height: 1; padding: 0 2px;
+        }
+        .summary-row {
+            display: flex; justify-content: space-between; align-items: baseline;
+            padding: 5px 12px; font-size: 14px; border-bottom: 1px solid rgba(142,99,31,0.06);
+        }
+        .summary-row:last-child { border-bottom: none; }
+        .summary-cat  { color: var(--gray-dark); font-size: 12px; }
+        .summary-qty  { font-weight: 700; color: var(--brown); }
+        .summary-name { flex: 1; padding: 0 8px; }
+    </style>
 </head>
-<body class="zone-kitchen">
-  <main>
-    <h1>Today</h1>
-    <!-- TODO -->
-  </main>
-  <script src="../shared/api.js"></script>
-  <script src="../shared/sidekick.js"></script>
+<body>
+
+<!-- TOPBAR -->
+<header class="topbar">
+    <div class="topbar-left">
+        <span class="topbar-logo">Ristet Rug</span>
+        <nav class="topbar-nav">
+            <a href="#" class="active">I DAG</a>
+            <a href="#">SENERE</a>
+            <a href="#">PLANLÆGNING</a>
+            <a href="#">MERE ▾</a>
+        </nav>
+    </div>
+    <div class="topbar-right">
+        <span class="live-dot">Live</span>
+        <button class="kiosk-btn">KIOSK</button>
+    </div>
+</header>
+
+<!-- TODAY HEADER -->
+<header class="today-header">
+    <div class="today-title">Man 9. marts</div>
+    <span class="today-count" id="todayCount">2 bons tilbage</span>
+    <div class="view-filters">
+        <button class="filter-btn" id="btnLev"
+            onmousedown="holdStart('lev')" onmouseup="holdEnd('lev')" onmouseleave="holdCancel('lev')"
+            ontouchstart="holdStart('lev')" ontouchend="holdEnd('lev')">
+            VIS LEVEREDE (2)<span class="peek-bar"></span>
+        </button>
+        <button class="filter-btn" id="btnIgang"
+            onmousedown="holdStart('igang')" onmouseup="holdEnd('igang')" onmouseleave="holdCancel('igang')"
+            ontouchstart="holdStart('igang')" ontouchend="holdEnd('igang')">
+            IGANG<span class="peek-bar"></span>
+        </button>
+        <button class="filter-btn" id="btnKlar"
+            onmousedown="holdStart('klar')" onmouseup="holdEnd('klar')" onmouseleave="holdCancel('klar')"
+            ontouchstart="holdStart('klar')" ontouchend="holdEnd('klar')">
+            KLAR<span class="peek-bar"></span>
+        </button>
+    </div>
+</header>
+
+<!-- CONTENT -->
+<div class="view-content"><div class="cards-grid">
+
+<!-- ══════════ BON #3288 · IGANG ══════════ -->
+<div class="bon-card" data-status="igang" id="bon3288">
+    <div class="fortryd-overlay" onclick="fortryd('bon3288')">
+        <div class="fortryd-pill">Fortryd levering <span class="fortryd-cd" id="cd3288">8</span></div>
+    </div>
+    <div class="bon-header">
+        <div class="bon-header-left">
+            <span class="bon-id">#3288</span>
+            <div class="bon-time-row">
+                <span class="bon-pickup">10:30</span>
+                <span class="bon-lev-time">→ Lev 11:00</span>
+            </div>
+            <div class="bon-date">Man 9. marts · Levering</div>
+        </div>
+        <div class="bon-header-right">
+            <span class="unit-primary">45</span>
+            <span class="unit-label">STK</span>
+            <span class="unit-secondary">24 pax</span>
+        </div>
+    </div>
+    <div class="bon-status-tabs">
+        <button class="stab active-igang" onclick="setStatus(this,'igang','bon3288')">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><polygon points="5 3 19 12 5 21 5 3"/></svg>IGANG
+        </button>
+        <button class="stab" onclick="setStatus(this,'klar','bon3288')">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><polyline points="20 6 9 17 4 12"/></svg>KLAR
+        </button>
+        <button class="stab" onclick="setStatus(this,'leveret','bon3288')">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M5 12l5 5L20 7"/></svg>LEV
+        </button>
+    </div>
+    <div class="bon-prep">
+        <div class="prep-badge" onclick="this.classList.toggle('checked')">
+            <span class="prep-check"></span> Råvarer
+        </div>
+        <div class="prep-badge" onclick="this.classList.toggle('checked')">
+            <span class="prep-check"></span> Emballage
+        </div>
+    </div>
+
+    <!-- KUNDE + LEVERINGSINFO folder ud sammen -->
+    <div class="bon-customer" onclick="toggleCustomer(this)">
+        <div>
+            <div class="customer-name">Mette Soendergaard · DR Byen</div>
+            <div class="customer-addr">Orestads Blvd. 1, 2300</div>
+        </div>
+        <span class="customer-chevron">▼</span>
+    </div>
+    <div class="bon-customer-details">
+        <div class="detail-row">📞 <a href="tel:20345678">20 34 56 78</a></div>
+        <div class="detail-row">✉ <a href="mailto:mette@drby.dk">mette@drby.dk</a></div>
+        <div class="delivery-block">
+            <div class="delivery-label">Leveringsinfo</div>
+            <div class="delivery-text">Lever til receptionen – spørg efter Mette.</div>
+        </div>
+    </div>
+
+    <!-- KØKKENINFO — fast åben, kan ikke klappes -->
+    <div class="bon-kitchen">
+        <div class="kitchen-header">Køkkeninfo</div>
+        <div class="kitchen-body">
+            <div class="kitchen-text">Ingen løg pga. allergi. Ring ved tvivl.</div>
+            <div class="kitchen-comment">
+                <div class="prev-comments" id="prevComments3288"></div>
+                <textarea class="comment-input" id="commentInput3288"
+                    placeholder="Skriv kommentar til denne ordre…"
+                    oninput="onCommentInput('3288')"></textarea>
+                <div class="comment-footer">
+                    <button class="comment-save" id="commentSave3288" onclick="saveComment('3288')">Gem kommentar</button>
+                    <span class="comment-saved" id="commentSaved3288">✓ Gemt</span>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- MENU -->
+    <div class="bon-menu select-mode-container" id="menu3288">
+        <div class="select-toolbar" id="toolbar3288">
+            <span id="selCount3288">0 valgt</span>
+            <div style="display:flex;gap:8px">
+                <button class="sel-btn" onclick="groupSelected('menu3288')">Ny gruppe</button>
+                <button class="sel-btn cancel" onclick="exitSelect('bon3288')">Annuller</button>
+            </div>
+        </div>
+        <div class="bon-menu-group">
+            <div class="group-header" draggable="true" data-drag="group">
+                <div class="group-drag-handle"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="9" cy="5" r="1" fill="currentColor"/><circle cx="9" cy="12" r="1" fill="currentColor"/><circle cx="9" cy="19" r="1" fill="currentColor"/><circle cx="15" cy="5" r="1" fill="currentColor"/><circle cx="15" cy="12" r="1" fill="currentColor"/><circle cx="15" cy="19" r="1" fill="currentColor"/></svg></div>
+                <div class="group-select" onclick="toggleGroupSelect(this,'menu3288')"></div>
+                <span class="group-title">Frokost</span>
+                <input class="group-title-input" type="text" value="Frokost" onblur="finishTitle(this)" onkeydown="titleKey(event,this)">
+                <button class="group-note-btn has-note" onclick="toggleNote(this)"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M14 2H6a2 2 0 00-2 2v16a2 2 0 002 2h12a2 2 0 002-2V8z"/><polyline points="14 2 14 8 20 8"/><line x1="16" y1="13" x2="8" y2="13"/><line x1="16" y1="17" x2="8" y2="17"/></svg></button>
+                <button class="group-edit-btn" onclick="editTitle(this)"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M11 4H4a2 2 0 00-2 2v14a2 2 0 002 2h14a2 2 0 002-2v-7"/><path d="M18.5 2.5a2.121 2.121 0 013 3L12 15l-4 1 1-4 9.5-9.5z"/></svg></button>
+            </div>
+            <div class="group-note-area open">
+                <textarea class="group-note-input" rows="1" oninput="noteChanged(this)">Ekstra dressing ved siden af</textarea>
+            </div>
+            <div class="bon-menu-item" draggable="true" data-drag="item">
+                <div class="drag-handle"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="9" cy="5" r="1" fill="currentColor"/><circle cx="9" cy="12" r="1" fill="currentColor"/><circle cx="9" cy="19" r="1" fill="currentColor"/><circle cx="15" cy="5" r="1" fill="currentColor"/><circle cx="15" cy="12" r="1" fill="currentColor"/><circle cx="15" cy="19" r="1" fill="currentColor"/></svg></div>
+                <div class="item-select" onclick="toggleItem(this,'menu3288')"></div>
+                <span class="bon-menu-qty">12 stk</span><span class="bon-menu-name">Smørrebrød med laks</span>
+            </div>
+            <div class="bon-menu-item" draggable="true" data-drag="item">
+                <div class="drag-handle"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="9" cy="5" r="1" fill="currentColor"/><circle cx="9" cy="12" r="1" fill="currentColor"/><circle cx="9" cy="19" r="1" fill="currentColor"/><circle cx="15" cy="5" r="1" fill="currentColor"/><circle cx="15" cy="12" r="1" fill="currentColor"/><circle cx="15" cy="19" r="1" fill="currentColor"/></svg></div>
+                <div class="item-select" onclick="toggleItem(this,'menu3288')"></div>
+                <span class="bon-menu-qty">12 stk</span><span class="bon-menu-name">Smørrebrød med æg &amp; rejer</span>
+            </div>
+        </div>
+        <div class="bon-menu-item" draggable="true" data-drag="item">
+            <div class="drag-handle"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="9" cy="5" r="1" fill="currentColor"/><circle cx="9" cy="12" r="1" fill="currentColor"/><circle cx="9" cy="19" r="1" fill="currentColor"/><circle cx="15" cy="5" r="1" fill="currentColor"/><circle cx="15" cy="12" r="1" fill="currentColor"/><circle cx="15" cy="19" r="1" fill="currentColor"/></svg></div>
+            <div class="item-select" onclick="toggleItem(this,'menu3288')"></div>
+            <span class="bon-menu-qty">24 stk</span><span class="bon-menu-name">Vegansk wrap</span>
+        </div>
+        <div class="bon-menu-divider"></div>
+        <div class="bon-menu-item emballage" draggable="true" data-drag="item">
+            <div class="drag-handle"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="9" cy="5" r="1" fill="currentColor"/><circle cx="9" cy="12" r="1" fill="currentColor"/><circle cx="9" cy="19" r="1" fill="currentColor"/><circle cx="15" cy="5" r="1" fill="currentColor"/><circle cx="15" cy="12" r="1" fill="currentColor"/><circle cx="15" cy="19" r="1" fill="currentColor"/></svg></div>
+            <div class="item-select" onclick="toggleItem(this,'menu3288')"></div>
+            <span class="bon-menu-qty">2 stk</span><span class="bon-menu-name">Emballage large</span>
+        </div>
+    </div>
+    <div class="bon-co2">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/></svg>
+        <span class="bon-co2-value">5.41 kg CO₂e</span>
+    </div>
+    <div class="bon-actions">
+        <div class="bon-actions-left">
+            <button class="action-btn" data-tooltip="Tilføj vare"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg></button>
+            <button class="action-btn" data-tooltip="Send flyver"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M22 2L11 13"/><path d="M22 2l-7 20-4-9-9-4 20-7z"/></svg></button>
+            <button class="action-btn" data-tooltip="Send mail"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M4 4h16c1.1 0 2 .9 2 2v12c0 1.1-.9 2-2 2H4c-1.1 0-2-.9-2-2V6c0-1.1.9-2 2-2z"/><polyline points="22,6 12,13 2,6"/></svg></button>
+            <button class="action-btn" data-tooltip="Info"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><line x1="12" y1="16" x2="12" y2="12"/><line x1="12" y1="8" x2="12.01" y2="8"/></svg></button>
+            <button class="action-btn" data-tooltip="Kort"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 10c0 7-9 13-9 13s-9-6-9-13a9 9 0 0118 0z"/><circle cx="12" cy="10" r="3"/></svg></button>
+            <button class="action-btn" data-tooltip="Historik"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></svg></button>
+            <button class="action-btn" data-tooltip="Sammentælling" onclick="showSummary('bon3288')"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="4" y1="6" x2="20" y2="6"/><line x1="4" y1="10" x2="14" y2="10"/><line x1="4" y1="14" x2="20" y2="14"/><line x1="4" y1="18" x2="14" y2="18"/><polyline points="17 14 20 17 17 20"/></svg></button>
+        </div>
+        <button class="select-toggle-btn" id="selBtn3288" onclick="enterSelect('bon3288')" title="Lav gruppe">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="3" width="7" height="7" rx="1"/><rect x="14" y="3" width="7" height="7" rx="1"/><rect x="3" y="14" width="7" height="7" rx="1"/><rect x="14" y="14" width="7" height="7" rx="1"/></svg>
+        </button>
+        <div class="summary-panel" id="summary3288">
+            <div class="summary-header">Sammentælling <button class="summary-close" onclick="closeSummary('bon3288')">×</button></div>
+            <div id="summaryRows3288"></div>
+        </div>
+    </div>
+</div>
+
+<!-- ══════════ BON #3291 · KLAR ══════════ -->
+<div class="bon-card" data-status="klar" id="bon3291">
+    <div class="fortryd-overlay" onclick="fortryd('bon3291')">
+        <div class="fortryd-pill">Fortryd levering <span class="fortryd-cd" id="cd3291">8</span></div>
+    </div>
+    <div class="bon-header">
+        <div class="bon-header-left">
+            <span class="bon-id">#3291</span>
+            <div class="bon-time-row">
+                <span class="bon-pickup">11:15</span>
+                <span class="bon-lev-time">→ Lev 11:45</span>
+            </div>
+            <div class="bon-date">Man 9. marts · Levering</div>
+        </div>
+        <div class="bon-header-right">
+            <span class="unit-primary">30</span>
+            <span class="unit-label">PS</span>
+            <span class="unit-secondary">30 pax</span>
+        </div>
+    </div>
+    <div class="bon-status-tabs">
+        <button class="stab" onclick="setStatus(this,'igang','bon3291')">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><polygon points="5 3 19 12 5 21 5 3"/></svg>IGANG
+        </button>
+        <button class="stab active-klar" onclick="setStatus(this,'klar','bon3291')">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><polyline points="20 6 9 17 4 12"/></svg>KLAR
+        </button>
+        <button class="stab" onclick="setStatus(this,'leveret','bon3291')">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M5 12l5 5L20 7"/></svg>LEV
+        </button>
+    </div>
+    <div class="bon-prep">
+        <div class="prep-badge checked" onclick="this.classList.toggle('checked')">
+            <span class="prep-check"></span> Råvarer
+        </div>
+        <div class="prep-badge" onclick="this.classList.toggle('checked')">
+            <span class="prep-check"></span> Emballage
+        </div>
+    </div>
+    <div class="bon-customer" onclick="toggleCustomer(this)">
+        <div>
+            <div class="customer-name">Lars Bjerrum · Novo Nordisk</div>
+            <div class="customer-addr">Hagedornsvej 1, 2820</div>
+        </div>
+        <span class="customer-chevron">▼</span>
+    </div>
+    <div class="bon-customer-details">
+        <div class="detail-row">📞 <a href="tel:31456789">31 45 67 89</a></div>
+        <div class="detail-row">✉ <a href="mailto:lbj@novonordisk.com">lbj@novonordisk.com</a></div>
+        <div class="delivery-block">
+            <div class="delivery-label">Leveringsinfo</div>
+            <div class="delivery-text">Indgang B, 2. sal — ring 31 45 67 89 ved ankomst.</div>
+        </div>
+    </div>
+
+    <!-- KØKKENINFO — ingen note på denne bon -->
+    <div class="bon-kitchen">
+        <div class="kitchen-header">Køkkeninfo</div>
+        <div class="kitchen-body">
+            <div class="kitchen-text empty">Ingen særlige noter.</div>
+            <div class="kitchen-comment">
+                <div class="prev-comments" id="prevComments3291"></div>
+                <textarea class="comment-input" id="commentInput3291"
+                    placeholder="Skriv kommentar til denne ordre…"
+                    oninput="onCommentInput('3291')"></textarea>
+                <div class="comment-footer">
+                    <button class="comment-save" id="commentSave3291" onclick="saveComment('3291')">Gem kommentar</button>
+                    <span class="comment-saved" id="commentSaved3291">✓ Gemt</span>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <div class="bon-menu select-mode-container" id="menu3291">
+        <div class="select-toolbar" id="toolbar3291">
+            <span id="selCount3291">0 valgt</span>
+            <div style="display:flex;gap:8px">
+                <button class="sel-btn" onclick="groupSelected('menu3291')">Ny gruppe</button>
+                <button class="sel-btn cancel" onclick="exitSelect('bon3291')">Annuller</button>
+            </div>
+        </div>
+        <div class="bon-menu-item" draggable="true" data-drag="item">
+            <div class="drag-handle"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="9" cy="5" r="1" fill="currentColor"/><circle cx="9" cy="12" r="1" fill="currentColor"/><circle cx="9" cy="19" r="1" fill="currentColor"/><circle cx="15" cy="5" r="1" fill="currentColor"/><circle cx="15" cy="12" r="1" fill="currentColor"/><circle cx="15" cy="19" r="1" fill="currentColor"/></svg></div>
+            <div class="item-select" onclick="toggleItem(this,'menu3291')"></div>
+            <span class="bon-menu-qty">30 ps</span><span class="bon-menu-name">Klassisk frokostpakke</span>
+        </div>
+        <div class="bon-menu-item" draggable="true" data-drag="item">
+            <div class="drag-handle"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="9" cy="5" r="1" fill="currentColor"/><circle cx="9" cy="12" r="1" fill="currentColor"/><circle cx="9" cy="19" r="1" fill="currentColor"/><circle cx="15" cy="5" r="1" fill="currentColor"/><circle cx="15" cy="12" r="1" fill="currentColor"/><circle cx="15" cy="19" r="1" fill="currentColor"/></svg></div>
+            <div class="item-select" onclick="toggleItem(this,'menu3291')"></div>
+            <span class="bon-menu-qty">10 stk</span><span class="bon-menu-name">Vegansk tilvalg</span>
+        </div>
+        <div class="bon-menu-divider"></div>
+        <div class="bon-menu-item emballage" draggable="true" data-drag="item">
+            <div class="drag-handle"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="9" cy="5" r="1" fill="currentColor"/><circle cx="9" cy="12" r="1" fill="currentColor"/><circle cx="9" cy="19" r="1" fill="currentColor"/><circle cx="15" cy="5" r="1" fill="currentColor"/><circle cx="15" cy="12" r="1" fill="currentColor"/><circle cx="15" cy="19" r="1" fill="currentColor"/></svg></div>
+            <div class="item-select" onclick="toggleItem(this,'menu3291')"></div>
+            <span class="bon-menu-qty">2 stk</span><span class="bon-menu-name">Emballage medium</span>
+        </div>
+    </div>
+    <div class="bon-actions">
+        <div class="bon-actions-left">
+            <button class="action-btn" data-tooltip="Tilføj vare"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg></button>
+            <button class="action-btn" data-tooltip="Send flyver"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M22 2L11 13"/><path d="M22 2l-7 20-4-9-9-4 20-7z"/></svg></button>
+            <button class="action-btn" data-tooltip="Send mail"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M4 4h16c1.1 0 2 .9 2 2v12c0 1.1-.9 2-2 2H4c-1.1 0-2-.9-2-2V6c0-1.1.9-2 2-2z"/><polyline points="22,6 12,13 2,6"/></svg></button>
+            <button class="action-btn" data-tooltip="Info"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><line x1="12" y1="16" x2="12" y2="12"/><line x1="12" y1="8" x2="12.01" y2="8"/></svg></button>
+            <button class="action-btn" data-tooltip="Kort"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 10c0 7-9 13-9 13s-9-6-9-13a9 9 0 0118 0z"/><circle cx="12" cy="10" r="3"/></svg></button>
+            <button class="action-btn" data-tooltip="Historik"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></svg></button>
+            <button class="action-btn" data-tooltip="Sammentælling" onclick="showSummary('bon3291')"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="4" y1="6" x2="20" y2="6"/><line x1="4" y1="10" x2="14" y2="10"/><line x1="4" y1="14" x2="20" y2="14"/><line x1="4" y1="18" x2="14" y2="18"/><polyline points="17 14 20 17 17 20"/></svg></button>
+        </div>
+        <button class="select-toggle-btn" id="selBtn3291" onclick="enterSelect('bon3291')" title="Lav gruppe">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="3" width="7" height="7" rx="1"/><rect x="14" y="3" width="7" height="7" rx="1"/><rect x="3" y="14" width="7" height="7" rx="1"/><rect x="14" y="14" width="7" height="7" rx="1"/></svg>
+        </button>
+        <div class="summary-panel" id="summary3291">
+            <div class="summary-header">Sammentælling <button class="summary-close" onclick="closeSummary('bon3291')">×</button></div>
+            <div id="summaryRows3291"></div>
+        </div>
+    </div>
+</div>
+
+<!-- ══════════ LEVEREDE (skjult default) ══════════ -->
+<div class="bon-card" data-status="leveret" id="bon3285">
+    <div class="bon-header">
+        <div class="bon-header-left">
+            <span class="bon-id" style="color:var(--gray-dark)">#3285</span>
+            <div class="bon-time-row">
+                <span class="bon-pickup" style="color:var(--gray-dark);font-size:22px">09:00</span>
+                <span class="bon-lev-time">Leveret 09:45 ✓</span>
+            </div>
+            <div class="bon-date">Man 9. marts · Levering</div>
+        </div>
+        <div class="bon-header-right">
+            <span class="unit-primary" style="color:var(--gray-dark)">18</span>
+            <span class="unit-label">PS</span>
+            <span class="unit-secondary">18 pax</span>
+        </div>
+    </div>
+    <div class="bon-prep" style="opacity:0.55">
+        <div class="prep-badge checked"><span class="prep-check"></span> Råvarer</div>
+        <div class="prep-badge checked"><span class="prep-check"></span> Emballage</div>
+    </div>
+    <div class="bon-customer">
+        <div>
+            <div class="customer-name">Jørgensen A/S</div>
+            <div class="customer-addr">Vesterbrogade 44, 1620</div>
+        </div>
+    </div>
+    <div style="padding:12px 22px;color:var(--gray-dark);font-size:14px;background:white">18 ps · Klassisk frokostpakke</div>
+</div>
+
+<div class="bon-card" data-status="leveret" id="bon3286">
+    <div class="bon-header">
+        <div class="bon-header-left">
+            <span class="bon-id" style="color:var(--gray-dark)">#3286</span>
+            <div class="bon-time-row">
+                <span class="bon-pickup" style="color:var(--gray-dark);font-size:22px">09:30</span>
+                <span class="bon-lev-time">Leveret 10:15 ✓</span>
+            </div>
+            <div class="bon-date">Man 9. marts · Afhentes</div>
+        </div>
+        <div class="bon-header-right">
+            <span class="unit-primary" style="color:var(--gray-dark)">8</span>
+            <span class="unit-label">STK</span>
+            <span class="unit-secondary">8 pax</span>
+        </div>
+    </div>
+    <div class="bon-prep" style="opacity:0.55">
+        <div class="prep-badge checked"><span class="prep-check"></span> Råvarer</div>
+        <div class="prep-badge checked"><span class="prep-check"></span> Emballage</div>
+    </div>
+    <div class="bon-customer">
+        <div>
+            <div class="customer-name">Marianne Bech</div>
+            <div class="customer-addr">Afhentes</div>
+        </div>
+    </div>
+    <div style="padding:12px 22px;color:var(--gray-dark);font-size:14px;background:white">8 stk · Mixed pakke</div>
+</div>
+
+</div></div><!-- /cards-grid /view-content -->
+
+<script>
+// ═══════════════════════════════════════════════════════════════
+//  FILTER KNAPPER — tap = 8 sek peek, hold ≥ 600ms = permanent
+// ═══════════════════════════════════════════════════════════════
+const HOLD_MS  = 600;
+const PEEK_SEC = 8;
+
+const filterLocked = { igang: false, klar: false, lev: false };
+const filterPeek   = { igang: false, klar: false, lev: false };
+const holdTimers   = {};
+const peekTimers   = {};
+
+function btnId(f) {
+    return document.getElementById('btn' + f.charAt(0).toUpperCase() + f.slice(1));
+}
+function applyFilter(f, on) {
+    if (f === 'lev') document.body.classList.toggle('show-lev', on);
+    else document.body.classList.toggle('filter-' + f, on);
+}
+
+function holdStart(f) {
+    holdTimers[f] = setTimeout(() => {
+        // Hold = permanent lock toggle
+        holdTimers[f] = null;
+        const wasLocked = filterLocked[f];
+
+        // Afbryd peek hvis aktiv
+        if (filterPeek[f]) endPeek(f);
+
+        filterLocked[f] = !wasLocked;
+        applyFilter(f, filterLocked[f]);
+        const btn = btnId(f);
+        btn.classList.remove('peek-'+f);
+        btn.classList.toggle('on-'+f, filterLocked[f]);
+        btn.classList.toggle('locked', filterLocked[f]);
+    }, HOLD_MS);
+}
+
+function holdEnd(f) {
+    if (!holdTimers[f]) return; // Hold allerede udløst
+    clearTimeout(holdTimers[f]);
+    holdTimers[f] = null;
+
+    // Kort tap
+    if (filterLocked[f]) {
+        // Allerede låst — lås op
+        filterLocked[f] = false;
+        applyFilter(f, false);
+        const btn = btnId(f);
+        btn.classList.remove('on-'+f, 'locked');
+    } else if (filterPeek[f]) {
+        // Allerede i peek — afbryd
+        endPeek(f);
+    } else {
+        // Start peek
+        startPeek(f);
+    }
+}
+
+function holdCancel(f) {
+    if (holdTimers[f]) { clearTimeout(holdTimers[f]); holdTimers[f] = null; }
+}
+
+function startPeek(f) {
+    filterPeek[f] = true;
+    applyFilter(f, true);
+    const btn = btnId(f);
+    btn.classList.add('peek-'+f);
+    btn.classList.remove('peek');
+    void btn.offsetWidth;
+    btn.classList.add('peek');
+
+    let s = PEEK_SEC;
+    peekTimers[f] = setInterval(() => {
+        s--;
+        if (s <= 0) endPeek(f);
+    }, 1000);
+}
+
+function endPeek(f) {
+    clearInterval(peekTimers[f]);
+    filterPeek[f] = false;
+    applyFilter(f, filterLocked[f]);
+    const btn = btnId(f);
+    btn.classList.remove('peek-'+f, 'peek');
+    if (!filterLocked[f]) btn.classList.remove('on-'+f);
+}
+
+// ═══════════════════════════════════════════════════════════════
+//  CARD STATUS + LEVERET FADE
+// ═══════════════════════════════════════════════════════════════
+const fadeTimers = {};
+
+function setStatus(btn, status, cardId) {
+    const card = document.getElementById(cardId);
+    card.querySelectorAll('.stab').forEach(b =>
+        b.className = b.className.replace(/\bactive-\w+\b/g, '').trim()
+    );
+    btn.classList.add('active-' + status);
+    card.dataset.status = status;
+    if (status === 'leveret') startFade(cardId);
+    else cancelFade(cardId);
+    updateCount();
+}
+
+function startFade(cardId) {
+    const card = document.getElementById(cardId);
+    const cdEl = document.getElementById('cd' + cardId.replace('bon',''));
+    card.classList.add('leveret-fading');
+    let s = 8;
+    if (cdEl) cdEl.textContent = s;
+    fadeTimers[cardId] = setInterval(() => {
+        s--;
+        if (cdEl) cdEl.textContent = s;
+        if (s <= 0) {
+            clearInterval(fadeTimers[cardId]);
+            card.style.transition = 'opacity 0.5s, transform 0.5s';
+            card.style.opacity    = '0';
+            card.style.transform  = 'scale(0.95)';
+            setTimeout(() => { card.style.display = 'none'; updateCount(); }, 520);
+        }
+    }, 1000);
+}
+
+function fortryd(cardId) {
+    cancelFade(cardId);
+    const card = document.getElementById(cardId);
+    card.dataset.status = 'igang';
+    card.querySelectorAll('.stab').forEach(b =>
+        b.className = b.className.replace(/\bactive-\w+\b/g, '').trim()
+    );
+    const ib = [...card.querySelectorAll('.stab')].find(b => b.textContent.trim() === 'IGANG');
+    if (ib) ib.classList.add('active-igang');
+    updateCount();
+}
+
+function cancelFade(cardId) {
+    clearInterval(fadeTimers[cardId]);
+    const card = document.getElementById(cardId);
+    card.classList.remove('leveret-fading');
+    card.style.opacity = card.style.transform = '';
+}
+
+function updateCount() {
+    const n = document.querySelectorAll('.bon-card[data-status="igang"],.bon-card[data-status="klar"]').length;
+    const el = document.getElementById('todayCount');
+    if (el) el.textContent = n + (n === 1 ? ' bon tilbage' : ' bons tilbage');
+}
+
+// ═══════════════════════════════════════════════════════════════
+//  KUNDE EXPAND
+// ═══════════════════════════════════════════════════════════════
+function toggleCustomer(el) {
+    el.classList.toggle('open');
+    const d = el.nextElementSibling;
+    if (d?.classList.contains('bon-customer-details')) d.classList.toggle('show');
+}
+
+// ═══════════════════════════════════════════════════════════════
+//  KOMMENTAR
+// ═══════════════════════════════════════════════════════════════
+function onCommentInput(num) {
+    const val = document.getElementById('commentInput'+num).value.trim();
+    document.getElementById('commentSave'+num).classList.toggle('show', val.length > 0);
+    document.getElementById('commentSaved'+num).classList.remove('show');
+}
+function saveComment(num) {
+    const input = document.getElementById('commentInput'+num);
+    const val   = input.value.trim();
+    if (!val) return;
+    const prev = document.getElementById('prevComments'+num);
+    const item = document.createElement('div');
+    item.className = 'prev-comment-item';
+    const now = new Date();
+    const tid = now.getHours().toString().padStart(2,'0') + ':' + now.getMinutes().toString().padStart(2,'0');
+    item.innerHTML = '<div class="prev-comment-meta">' + tid + '</div>' + esc(val);
+    prev.appendChild(item);
+    input.value = '';
+    document.getElementById('commentSave'+num).classList.remove('show');
+    const saved = document.getElementById('commentSaved'+num);
+    saved.classList.add('show');
+    setTimeout(() => saved.classList.remove('show'), 2000);
+}
+function esc(s) { return s.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;'); }
+
+// ═══════════════════════════════════════════════════════════════
+//  SAMMENTÆLLING AF KATEGORIER
+// ═══════════════════════════════════════════════════════════════
+function showSummary(cardId) {
+    const num    = cardId.replace('bon','');
+    const panel  = document.getElementById('summary'+num);
+    const rows   = document.getElementById('summaryRows'+num);
+    const isOpen = panel.classList.contains('open');
+
+    // Luk alle andre
+    document.querySelectorAll('.summary-panel.open').forEach(p => p.classList.remove('open'));
+    if (isOpen) return;
+
+    // Tæl varer op — summer dubletter, hold kategori
+    const totals = {};  // key = name, value = { qty, unit, cat }
+    const card   = document.getElementById(cardId);
+    card.querySelectorAll('.bon-menu-item').forEach(item => {
+        const qtyEl  = item.querySelector('.bon-menu-qty');
+        const nameEl = item.querySelector('.bon-menu-name');
+        if (!qtyEl || !nameEl) return;
+        const qtyText = qtyEl.textContent.trim();
+        const name    = nameEl.textContent.trim();
+        const match   = qtyText.match(/^([\d.,]+)\s*(.*)$/);
+        const qty     = match ? parseFloat(match[1].replace(',','.')) : 0;
+        const unit    = match ? match[2].trim() : '';
+        const cat     = item.classList.contains('emballage') ? 'emballage' : 'menu';
+        const key     = name + '||' + unit + '||' + cat;
+        if (totals[key]) totals[key].qty += qty;
+        else totals[key] = { qty, unit, name, cat };
+    });
+
+    const entries = Object.values(totals);
+    if (!entries.length) { rows.innerHTML = '<div class="summary-row"><span style="color:var(--gray-dark);font-style:italic;font-size:13px;padding:4px 0">Ingen varer</span></div>'; }
+    else {
+        // Menu-varer først, emballage til sidst
+        entries.sort((a,b) => {
+            if (a.cat !== b.cat) return a.cat === 'emballage' ? 1 : -1;
+            return a.name.localeCompare(b.name, 'da');
+        });
+        rows.innerHTML = entries.map(e => {
+            const qtyStr = Number.isInteger(e.qty) ? e.qty : e.qty.toFixed(1);
+            return `<div class="summary-row">
+                <span class="summary-qty">${qtyStr} ${e.unit}</span>
+                <span class="summary-name">${esc(e.name)}</span>
+                ${e.cat === 'emballage' ? '<span class="summary-cat">emballage</span>' : ''}
+            </div>`;
+        }).join('');
+    }
+    panel.classList.add('open');
+}
+function closeSummary(cardId) {
+    document.getElementById('summary'+cardId.replace('bon','')).classList.remove('open');
+}
+
+// ═══════════════════════════════════════════════════════════════
+//  SELECT / GRUPPE
+// ═══════════════════════════════════════════════════════════════
+function enterSelect(cardId) {
+    const num = cardId.replace('bon','');
+    document.getElementById(cardId).querySelector('.select-mode-container').classList.add('select-mode');
+    document.getElementById('toolbar'+num).classList.add('visible');
+    document.getElementById('selBtn'+num).classList.add('active');
+}
+function exitSelect(cardId) {
+    const num  = cardId.replace('bon','');
+    const menu = document.getElementById(cardId).querySelector('.select-mode-container');
+    menu.classList.remove('select-mode');
+    document.getElementById('toolbar'+num).classList.remove('visible');
+    document.getElementById('selBtn'+num).classList.remove('active');
+    menu.querySelectorAll('.item-select.checked,.group-select.checked').forEach(e => e.classList.remove('checked'));
+    updateSelCount(menu, num);
+}
+function toggleItem(el, menuId) {
+    el.classList.toggle('checked');
+    updateSelCount(document.getElementById(menuId), menuId.replace('menu',''));
+}
+function toggleGroupSelect(el, menuId) {
+    el.classList.toggle('checked');
+    const on = el.classList.contains('checked');
+    el.closest('.bon-menu-group').querySelectorAll('.item-select').forEach(i => i.classList.toggle('checked', on));
+    updateSelCount(document.getElementById(menuId), menuId.replace('menu',''));
+}
+function updateSelCount(menu, num) {
+    const n = menu.querySelectorAll('.item-select.checked').length;
+    const el = document.getElementById('selCount'+num);
+    if (el) el.textContent = n + ' valgt';
+}
+const GRIP = `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="9" cy="5" r="1" fill="currentColor"/><circle cx="9" cy="12" r="1" fill="currentColor"/><circle cx="9" cy="19" r="1" fill="currentColor"/><circle cx="15" cy="5" r="1" fill="currentColor"/><circle cx="15" cy="12" r="1" fill="currentColor"/><circle cx="15" cy="19" r="1" fill="currentColor"/></svg>`;
+function groupSelected(menuId) {
+    const menu  = document.getElementById(menuId);
+    const items = [...menu.querySelectorAll('.bon-menu-item')].filter(i =>
+        i.querySelector('.item-select')?.classList.contains('checked') && !i.closest('.bon-menu-group')
+    );
+    if (!items.length) {
+        const el = document.getElementById('selCount'+menuId.replace('menu',''));
+        const orig = el.textContent; el.textContent = 'Vælg løse linjer';
+        setTimeout(() => el.textContent = orig, 2000); return;
+    }
+    const grp = document.createElement('div');
+    grp.className = 'bon-menu-group';
+    grp.innerHTML = `
+        <div class="group-header" draggable="true" data-drag="group">
+            <div class="group-drag-handle">${GRIP}</div>
+            <div class="group-select" onclick="toggleGroupSelect(this,'${menuId}')"></div>
+            <span class="group-title hidden"></span>
+            <input class="group-title-input visible" type="text" placeholder="Gruppenavn…" onblur="finishTitle(this)" onkeydown="titleKey(event,this)">
+            <button class="group-note-btn empty" onclick="toggleNote(this)"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M14 2H6a2 2 0 00-2 2v16a2 2 0 002 2h12a2 2 0 002-2V8z"/><polyline points="14 2 14 8 20 8"/><line x1="16" y1="13" x2="8" y2="13"/><line x1="16" y1="17" x2="8" y2="17"/></svg></button>
+            <button class="group-edit-btn" onclick="editTitle(this)"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M11 4H4a2 2 0 00-2 2v14a2 2 0 002 2h14a2 2 0 002-2v-7"/><path d="M18.5 2.5a2.121 2.121 0 013 3L12 15l-4 1 1-4 9.5-9.5z"/></svg></button>
+        </div>
+        <div class="group-note-area"><textarea class="group-note-input" rows="1" placeholder="Note til denne gruppe…" oninput="noteChanged(this)"></textarea></div>`;
+    menu.insertBefore(grp, items[0]);
+    items.forEach(i => { i.querySelector('.item-select')?.classList.remove('checked'); grp.appendChild(i); });
+    grp.querySelector('.group-title-input').focus();
+    updateSelCount(menu, menuId.replace('menu',''));
+}
+
+// ═══════════════════════════════════════════════════════════════
+//  GRUPPE: NOTE / TITEL
+// ═══════════════════════════════════════════════════════════════
+function toggleNote(btn) {
+    const area = btn.closest('.bon-menu-group').querySelector('.group-note-area');
+    const open = area.classList.toggle('open');
+    if (open) area.querySelector('.group-note-input').focus();
+}
+function noteChanged(ta) {
+    const btn = ta.closest('.bon-menu-group')?.querySelector('.group-note-btn');
+    if (!btn) return;
+    ta.value.trim() ? (btn.classList.remove('empty'), btn.classList.add('has-note'))
+                    : (btn.classList.remove('has-note'), btn.classList.add('empty'));
+}
+function editTitle(btn) {
+    const h = btn.closest('.group-header');
+    h.querySelector('.group-title').classList.add('hidden');
+    const inp = h.querySelector('.group-title-input');
+    inp.classList.add('visible'); inp.value = h.querySelector('.group-title').textContent;
+    inp.select(); inp.focus();
+}
+function finishTitle(inp) {
+    const h = inp.closest('.group-header'), t = h.querySelector('.group-title');
+    t.textContent = inp.value.trim() || 'Gruppe';
+    t.classList.remove('hidden'); inp.classList.remove('visible');
+}
+function titleKey(e, inp) {
+    if (e.key === 'Enter')  { e.preventDefault(); inp.blur(); }
+    if (e.key === 'Escape') { inp.blur(); }
+}
+
+// ═══════════════════════════════════════════════════════════════
+//  DRAG AND DROP
+// ═══════════════════════════════════════════════════════════════
+let dragEl = null, dragType = null;
+document.addEventListener('dragstart', e => {
+    const gh = e.target.closest('[data-drag="group"]'), item = e.target.closest('[data-drag="item"]');
+    if (gh && !item) { dragEl = gh.closest('.bon-menu-group'); dragType = 'group'; }
+    else if (item)   { dragEl = item; dragType = 'item'; }
+    if (dragEl) { e.dataTransfer.effectAllowed = 'move'; setTimeout(() => dragEl?.classList.add('dragging'), 0); }
+});
+document.addEventListener('dragend', () => {
+    dragEl?.classList.remove('dragging');
+    document.querySelectorAll('.drag-over,.drag-over-group').forEach(el => el.classList.remove('drag-over','drag-over-group'));
+    dragEl = null; dragType = null;
+});
+document.addEventListener('dragover', e => {
+    if (!dragEl) return; e.preventDefault();
+    document.querySelectorAll('.drag-over,.drag-over-group').forEach(el => el.classList.remove('drag-over','drag-over-group'));
+    if (dragType === 'group') { const tg = e.target.closest('.bon-menu-group'); if (tg && tg !== dragEl) tg.classList.add('drag-over-group'); }
+    else { const ti = e.target.closest('[data-drag="item"]'); if (ti && ti !== dragEl) ti.classList.add('drag-over'); }
+});
+document.addEventListener('drop', e => {
+    if (!dragEl) return; e.preventDefault();
+    const tg = document.querySelector('.drag-over-group'), ti = document.querySelector('.drag-over');
+    if (tg) tg.parentNode.insertBefore(dragEl, tg);
+    else if (ti) ti.parentNode.insertBefore(dragEl, ti);
+    document.querySelectorAll('.drag-over,.drag-over-group').forEach(el => el.classList.remove('drag-over','drag-over-group'));
+});
+</script>
 </body>
 </html>

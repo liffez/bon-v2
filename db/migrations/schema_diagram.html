@@ -1,0 +1,570 @@
+<!DOCTYPE html>
+<html lang="da">
+<head>
+<meta charset="UTF-8">
+<title>Bon v2 – Database Schema</title>
+<style>
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body { 
+    font-family: 'Segoe UI', sans-serif; 
+    background: #f5f0e8; 
+    padding: 20px;
+    color: #333;
+  }
+  h1 { 
+    font-size: 18px; 
+    color: #8e631f; 
+    margin-bottom: 6px;
+    font-weight: 700;
+  }
+  .subtitle { font-size: 12px; color: #888; margin-bottom: 20px; }
+
+  .diagram {
+    display: grid;
+    grid-template-columns: repeat(5, 220px);
+    grid-template-rows: auto;
+    gap: 16px;
+    align-items: start;
+  }
+
+  .table {
+    background: white;
+    border-radius: 6px;
+    overflow: hidden;
+    box-shadow: 0 1px 4px rgba(0,0,0,0.12);
+    font-size: 11px;
+  }
+  .table-header {
+    padding: 7px 10px;
+    font-weight: 700;
+    font-size: 12px;
+    color: white;
+    display: flex;
+    align-items: center;
+    gap: 6px;
+  }
+  .table-header .icon { font-size: 14px; }
+  .table-body { padding: 4px 0; }
+  .field {
+    padding: 3px 10px;
+    display: flex;
+    align-items: baseline;
+    gap: 6px;
+    border-bottom: 1px solid #f5f0e8;
+    line-height: 1.4;
+  }
+  .field:last-child { border-bottom: none; }
+  .field-name { 
+    color: #333; 
+    font-weight: 500;
+    min-width: 0;
+    flex: 1;
+  }
+  .field-type { 
+    color: #aaa; 
+    font-size: 10px; 
+    white-space: nowrap;
+  }
+  .field.pk .field-name { color: #8e631f; font-weight: 700; }
+  .field.fk .field-name { color: #7594b3; }
+  .field.important .field-name { color: #555; font-weight: 600; }
+  .field-badge {
+    font-size: 9px;
+    padding: 1px 4px;
+    border-radius: 3px;
+    font-weight: 600;
+    white-space: nowrap;
+  }
+  .badge-pk { background: #f1e6b2; color: #8e631f; }
+  .badge-fk { background: #e8eef5; color: #7594b3; }
+  .badge-idx { background: #edf5e8; color: #5a8a3a; }
+
+  /* Farver per gruppe */
+  .color-core    { background: #8e631f; }
+  .color-bon     { background: #b5631f; }
+  .color-mail    { background: #7594b3; }
+  .color-crm     { background: #5a8a3a; }
+  .color-settings{ background: #888; }
+  .color-view    { background: #9b59b6; }
+  .color-grocy   { background: #2980b9; }
+
+  .section-label {
+    font-size: 10px;
+    font-weight: 700;
+    text-transform: uppercase;
+    letter-spacing: 0.08em;
+    color: #888;
+    padding: 4px 0 2px;
+    grid-column: 1 / -1;
+    border-top: 1px solid #ddd;
+    margin-top: 4px;
+  }
+  .section-label:first-child { border-top: none; margin-top: 0; }
+
+  .divider { 
+    grid-column: 1 / -1; 
+    border-top: 2px solid #ddd; 
+    margin: 4px 0;
+  }
+
+  .legend {
+    display: flex;
+    gap: 16px;
+    margin-bottom: 16px;
+    flex-wrap: wrap;
+  }
+  .legend-item {
+    display: flex;
+    align-items: center;
+    gap: 5px;
+    font-size: 11px;
+    color: #555;
+  }
+  .legend-dot {
+    width: 10px; height: 10px; border-radius: 2px;
+  }
+
+  .migration-badge {
+    display: inline-block;
+    font-size: 9px;
+    padding: 1px 5px;
+    background: rgba(255,255,255,0.25);
+    border-radius: 3px;
+    margin-left: auto;
+  }
+
+  .field.section-divider {
+    background: #fafafa;
+    color: #999;
+    font-size: 9px;
+    text-transform: uppercase;
+    letter-spacing: 0.06em;
+    padding: 2px 10px;
+    font-style: normal;
+    font-weight: 600;
+  }
+</style>
+</head>
+<body>
+
+<h1>Bon v2 — Database Schema</h1>
+<p class="subtitle">6 migrations · SQLite · single-tenant</p>
+
+<div class="legend">
+  <div class="legend-item"><div class="legend-dot" style="background:#8e631f"></div> 001 Kernetabeller</div>
+  <div class="legend-item"><div class="legend-dot" style="background:#b5631f"></div> 002 Bons</div>
+  <div class="legend-item"><div class="legend-dot" style="background:#7594b3"></div> 003 Mail</div>
+  <div class="legend-item"><div class="legend-dot" style="background:#5a8a3a"></div> 004 CRM</div>
+  <div class="legend-item"><div class="legend-dot" style="background:#888"></div> 005 Settings</div>
+  <div class="legend-item"><div class="legend-dot" style="background:#9b59b6"></div> 006 Views</div>
+</div>
+
+<div class="diagram">
+
+  <!-- ===== 001 CORE ===== -->
+
+  <!-- USERS -->
+  <div class="table">
+    <div class="table-header color-core">
+      <span class="icon">👤</span> users
+      <span class="migration-badge">001</span>
+    </div>
+    <div class="table-body">
+      <div class="field pk"><span class="field-name">id</span><span class="field-badge badge-pk">PK</span></div>
+      <div class="field important"><span class="field-name">name</span></div>
+      <div class="field important"><span class="field-name">email</span><span class="field-badge badge-idx">UNIQUE</span></div>
+      <div class="field"><span class="field-name">password_hash</span></div>
+      <div class="field important"><span class="field-name">role</span><span class="field-type">admin|office|kitchen|delivery|staff</span></div>
+      <div class="field"><span class="field-name">smartplan_id</span></div>
+      <div class="field"><span class="field-name">is_active</span><span class="field-type">DEFAULT 1</span></div>
+      <div class="field"><span class="field-name">created_at / updated_at</span></div>
+    </div>
+  </div>
+
+  <!-- ADDRESSES -->
+  <div class="table">
+    <div class="table-header color-core">
+      <span class="icon">📍</span> addresses
+      <span class="migration-badge">001</span>
+    </div>
+    <div class="table-body">
+      <div class="field pk"><span class="field-name">id</span><span class="field-badge badge-pk">PK</span></div>
+      <div class="field"><span class="field-name">label</span><span class="field-type">"Indgang B"</span></div>
+      <div class="field"><span class="field-name">co</span><span class="field-type">C/O</span></div>
+      <div class="field important"><span class="field-name">street_name + street_nr</span></div>
+      <div class="field important"><span class="field-name">zip + city</span></div>
+      <div class="field section-divider">Geocoding</div>
+      <div class="field"><span class="field-name">lat + lon</span></div>
+      <div class="field important"><span class="field-name">distance_from_hq_km</span></div>
+      <div class="field important"><span class="field-name">duration_from_hq_min</span></div>
+      <div class="field"><span class="field-name">geocoded_at</span></div>
+      <div class="field"><span class="field-name">instructions</span></div>
+    </div>
+  </div>
+
+  <!-- COMPANIES -->
+  <div class="table">
+    <div class="table-header color-core">
+      <span class="icon">🏢</span> companies
+      <span class="migration-badge">001</span>
+    </div>
+    <div class="table-body">
+      <div class="field pk"><span class="field-name">id</span><span class="field-badge badge-pk">PK</span></div>
+      <div class="field important"><span class="field-name">name</span></div>
+      <div class="field"><span class="field-name">cvr</span><span class="field-badge badge-idx">IDX</span></div>
+      <div class="field important"><span class="field-name">ean</span><span class="field-type">offentlige inst.</span></div>
+      <div class="field fk"><span class="field-name">address_id</span><span class="field-badge badge-fk">FK→addresses</span></div>
+      <div class="field"><span class="field-name">phone + email</span></div>
+      <div class="field"><span class="field-name">invoice_email</span></div>
+      <div class="field"><span class="field-name">invoice_ean</span></div>
+      <div class="field"><span class="field-name">discount_pct</span></div>
+      <div class="field"><span class="field-name">notes</span></div>
+    </div>
+  </div>
+
+  <!-- CUSTOMERS -->
+  <div class="table">
+    <div class="table-header color-core">
+      <span class="icon">🙋</span> customers
+      <span class="migration-badge">001</span>
+    </div>
+    <div class="table-body">
+      <div class="field pk"><span class="field-name">id</span><span class="field-badge badge-pk">PK</span></div>
+      <div class="field important"><span class="field-name">customer_number</span><span class="field-badge badge-idx">UNIQUE</span></div>
+      <div class="field important"><span class="field-name">forename + surname</span></div>
+      <div class="field important"><span class="field-name">email + phone_nr</span></div>
+      <div class="field fk"><span class="field-name">company_id</span><span class="field-badge badge-fk">FK→companies</span></div>
+      <div class="field fk"><span class="field-name">address_id</span><span class="field-badge badge-fk">FK→addresses</span></div>
+      <div class="field"><span class="field-name">notes + is_active</span></div>
+    </div>
+  </div>
+
+  <!-- DELIVERY_ADDRESSES -->
+  <div class="table">
+    <div class="table-header color-core">
+      <span class="icon">🗂️</span> delivery_addresses
+      <span class="migration-badge">001</span>
+    </div>
+    <div class="table-body">
+      <div class="field pk"><span class="field-name">id</span><span class="field-badge badge-pk">PK</span></div>
+      <div class="field fk"><span class="field-name">address_id</span><span class="field-badge badge-fk">FK→addresses</span></div>
+      <div class="field fk"><span class="field-name">company_id</span><span class="field-badge badge-fk">FK→companies</span></div>
+      <div class="field fk"><span class="field-name">customer_id</span><span class="field-badge badge-fk">FK→customers</span></div>
+      <div class="field"><span class="field-name">is_default</span></div>
+      <div class="field"><span class="field-type" style="padding-left:0;color:#c0392b;font-size:10px">CHECK: company_id OR customer_id</span></div>
+    </div>
+  </div>
+
+  <!-- ===== 002 BONS ===== -->
+
+  <!-- BONS -->
+  <div class="table" style="grid-column: 1 / 3;">
+    <div class="table-header color-bon">
+      <span class="icon">🧾</span> bons
+      <span class="migration-badge">002 — CENTRAL TABEL</span>
+    </div>
+    <div class="table-body" style="display:grid;grid-template-columns:1fr 1fr;">
+      <div class="field pk" style="grid-column:1/-1"><span class="field-name">id</span><span class="field-badge badge-pk">PK</span><span style="margin-left:4px" class="field-badge badge-idx">UNIQUE</span><span class="field-name" style="margin-left:4px">bon_number</span></div>
+
+      <div class="field section-divider" style="grid-column:1/-1">Relationer</div>
+      <div class="field fk"><span class="field-name">customer_id</span><span class="field-badge badge-fk">FK</span></div>
+      <div class="field fk"><span class="field-name">company_id</span><span class="field-badge badge-fk">FK</span></div>
+
+      <div class="field section-divider" style="grid-column:1/-1">Status & Type</div>
+      <div class="field important"><span class="field-name">status</span><span class="field-type">ny|venter_info|godkendt| igang|klar|leveret| faktureret|betalt|afsluttet|aflyst</span></div>
+      <div class="field important"><span class="field-name">bon_type</span><span class="field-type">catering|festival| produktion|tilbud</span></div>
+      <div class="field important"><span class="field-name">ingredients_checked</span></div>
+      <div class="field important"><span class="field-name">packaging_checked</span></div>
+
+      <div class="field section-divider" style="grid-column:1/-1">Tidspunkter</div>
+      <div class="field important"><span class="field-name">delivery_date</span></div>
+      <div class="field important"><span class="field-name">customer_delivery_time</span></div>
+      <div class="field important"><span class="field-name">kitchen_ready_time</span><span class="field-type">beregnet</span></div>
+      <div class="field"><span class="field-name">actual_delivery_time</span></div>
+
+      <div class="field section-divider" style="grid-column:1/-1">Leveringsadresse (snapshot)</div>
+      <div class="field important"><span class="field-name">delivery_address + zip + city</span></div>
+      <div class="field"><span class="field-name">delivery_instructions</span></div>
+      <div class="field"><span class="field-name">delivery_lat + lon</span></div>
+      <div class="field important"><span class="field-name">delivery_distance_km</span></div>
+      <div class="field important"><span class="field-name">delivery_duration_min</span></div>
+      <div class="field important"><span class="field-name">delivery_type</span><span class="field-type">afhentes|cykel|bil|taxa</span></div>
+      <div class="field"><span class="field-name">delivery_price</span></div>
+
+      <div class="field section-divider" style="grid-column:1/-1">Pax & Enheder</div>
+      <div class="field important"><span class="field-name">pax</span><span class="field-type">antal pers. fra kunde</span></div>
+      <div class="field important"><span class="field-name">nr_of_servings</span><span class="field-type">enheder køkkenet laver</span></div>
+      <div class="field important"><span class="field-name">kitchen_selects</span><span class="field-type">køkkenet vælger</span></div>
+
+      <div class="field section-divider" style="grid-column:1/-1">Økonomi</div>
+      <div class="field important"><span class="field-name">price_category</span><span class="field-type">Store|Festival|Intern</span></div>
+      <div class="field important"><span class="field-name">payment_type</span><span class="field-type">Faktura|EAN|Kort</span></div>
+      <div class="field"><span class="field-name">invoice_ean_ref</span></div>
+      <div class="field important"><span class="field-name">total_price</span><span class="field-type">cache</span></div>
+      <div class="field"><span class="field-name">paid_amount</span></div>
+
+      <div class="field section-divider" style="grid-column:1/-1">Noter & Meta</div>
+      <div class="field"><span class="field-name">kitchen_info</span></div>
+      <div class="field"><span class="field-name">customer_info</span></div>
+      <div class="field"><span class="field-name">co2_kg</span><span class="field-type">cache</span></div>
+      <div class="field"><span class="field-name">source</span><span class="field-type">manual|form|mail|event</span></div>
+    </div>
+  </div>
+
+  <!-- BON_LINES -->
+  <div class="table">
+    <div class="table-header color-bon">
+      <span class="icon">📋</span> bon_lines
+      <span class="migration-badge">002</span>
+    </div>
+    <div class="table-body">
+      <div class="field pk"><span class="field-name">id</span><span class="field-badge badge-pk">PK</span></div>
+      <div class="field fk"><span class="field-name">bon_id</span><span class="field-badge badge-fk">FK CASCADE</span></div>
+      <div class="field"><span class="field-name">sort_order</span></div>
+      <div class="field important"><span class="field-name">grocy_recipe_id</span><span class="field-type">alt er opskrift</span></div>
+      <div class="field important"><span class="field-name">recipe_name</span><span class="field-type">snapshot</span></div>
+      <div class="field important"><span class="field-name">quantity + unit</span></div>
+      <div class="field"><span class="field-name">unit_price + line_total</span></div>
+      <div class="field"><span class="field-name">cost_price + co2e</span></div>
+      <div class="field important"><span class="field-name">category</span><span class="field-type">snapshot fra Grocy</span></div>
+      <div class="field"><span class="field-name">is_packaging</span></div>
+      <div class="field"><span class="field-name">is_delivery</span></div>
+      <div class="field important"><span class="field-name">group_name</span><span class="field-type">"GLUTENFRI"</span></div>
+      <div class="field"><span class="field-name">group_note</span></div>
+      <div class="field"><span class="field-name">special_request</span></div>
+    </div>
+  </div>
+
+  <!-- BON_CHANGELOG -->
+  <div class="table">
+    <div class="table-header color-bon">
+      <span class="icon">📝</span> bon_changelog
+      <span class="migration-badge">002</span>
+    </div>
+    <div class="table-body">
+      <div class="field pk"><span class="field-name">id</span><span class="field-badge badge-pk">PK</span></div>
+      <div class="field fk"><span class="field-name">bon_id</span><span class="field-badge badge-fk">FK CASCADE</span></div>
+      <div class="field fk"><span class="field-name">user_id</span><span class="field-badge badge-fk">FK</span></div>
+      <div class="field important"><span class="field-name">action</span><span class="field-type">status_change|field_update| line_added|mail_sent…</span></div>
+      <div class="field"><span class="field-name">field</span></div>
+      <div class="field"><span class="field-name">old_value → new_value</span></div>
+      <div class="field"><span class="field-name">note</span></div>
+      <div class="field"><span class="field-name">created_at</span></div>
+    </div>
+  </div>
+
+  <!-- NOTIFIED_BONS -->
+  <div class="table">
+    <div class="table-header color-bon">
+      <span class="icon">🔔</span> notified_bons
+      <span class="migration-badge">002</span>
+    </div>
+    <div class="table-body">
+      <div class="field pk"><span class="field-name">id</span><span class="field-badge badge-pk">PK</span></div>
+      <div class="field fk"><span class="field-name">bon_id</span><span class="field-badge badge-fk">FK CASCADE</span></div>
+      <div class="field fk"><span class="field-name">user_id</span><span class="field-badge badge-fk">FK (afsender)</span></div>
+      <div class="field important"><span class="field-name">message</span></div>
+      <div class="field"><span class="field-name">notify_date</span></div>
+      <div class="field"><span class="field-name">seen_by_json</span><span class="field-type">[] user_ids</span></div>
+    </div>
+  </div>
+
+  <!-- SALESPRICE_CATEGORIES -->
+  <div class="table">
+    <div class="table-header color-bon">
+      <span class="icon">💰</span> salesprice_categories
+      <span class="migration-badge">002</span>
+    </div>
+    <div class="table-body">
+      <div class="field pk"><span class="field-name">id</span><span class="field-badge badge-pk">PK</span></div>
+      <div class="field important"><span class="field-name">grocy_recipe_id</span></div>
+      <div class="field important"><span class="field-name">price_category</span><span class="field-type">Store|Festival|Intern</span></div>
+      <div class="field important"><span class="field-name">price</span></div>
+      <div class="field"><span class="field-badge badge-idx" style="margin-left:0">UNIQUE</span><span class="field-type" style="margin-left:4px">recipe_id + category</span></div>
+    </div>
+  </div>
+
+  <!-- ===== 003 MAIL ===== -->
+
+  <!-- MAIL_THREADS -->
+  <div class="table">
+    <div class="table-header color-mail">
+      <span class="icon">📨</span> mail_threads
+      <span class="migration-badge">003</span>
+    </div>
+    <div class="table-body">
+      <div class="field pk"><span class="field-name">id</span><span class="field-badge badge-pk">PK</span></div>
+      <div class="field important"><span class="field-name">subject</span><span class="field-type">uden #B tags</span></div>
+      <div class="field fk"><span class="field-name">bon_id</span><span class="field-badge badge-fk">FK</span></div>
+      <div class="field fk"><span class="field-name">customer_id</span><span class="field-badge badge-fk">FK</span></div>
+      <div class="field"><span class="field-name">status</span><span class="field-type">active|closed|archived</span></div>
+    </div>
+  </div>
+
+  <!-- MAIL_MESSAGES -->
+  <div class="table">
+    <div class="table-header color-mail">
+      <span class="icon">✉️</span> mail_messages
+      <span class="migration-badge">003</span>
+    </div>
+    <div class="table-body">
+      <div class="field pk"><span class="field-name">id</span><span class="field-badge badge-pk">PK</span></div>
+      <div class="field fk"><span class="field-name">thread_id</span><span class="field-badge badge-fk">FK</span></div>
+      <div class="field"><span class="field-name">message_id</span><span class="field-type">email header</span></div>
+      <div class="field"><span class="field-name">in_reply_to</span></div>
+      <div class="field important"><span class="field-name">direction</span><span class="field-type">in|out</span></div>
+      <div class="field important"><span class="field-name">from_email + from_name</span></div>
+      <div class="field"><span class="field-name">to_email + to_name</span></div>
+      <div class="field"><span class="field-name">cc (JSON)</span></div>
+      <div class="field"><span class="field-name">subject</span></div>
+      <div class="field"><span class="field-name">body_text + body_html</span></div>
+      <div class="field"><span class="field-name">sent_at / received_at</span></div>
+    </div>
+  </div>
+
+  <!-- MAIL_ATTACHMENTS + UNMATCHED -->
+  <div class="table">
+    <div class="table-header color-mail">
+      <span class="icon">📎</span> mail_attachments
+      <span class="migration-badge">003</span>
+    </div>
+    <div class="table-body">
+      <div class="field pk"><span class="field-name">id</span><span class="field-badge badge-pk">PK</span></div>
+      <div class="field fk"><span class="field-name">message_id</span><span class="field-badge badge-fk">FK</span></div>
+      <div class="field"><span class="field-name">filename + mime_type</span></div>
+      <div class="field"><span class="field-name">size_bytes + file_path</span></div>
+    </div>
+  </div>
+
+  <div class="table">
+    <div class="table-header color-mail">
+      <span class="icon">📥</span> mail_unmatched
+      <span class="migration-badge">003</span>
+    </div>
+    <div class="table-body">
+      <div class="field pk"><span class="field-name">id</span><span class="field-badge badge-pk">PK</span></div>
+      <div class="field"><span class="field-name">from_email + subject</span></div>
+      <div class="field"><span class="field-name">received_at + body_text</span></div>
+      <div class="field important"><span class="field-name">status</span><span class="field-type">open|linked|ignored</span></div>
+      <div class="field fk"><span class="field-name">linked_customer_id</span><span class="field-badge badge-fk">FK</span></div>
+      <div class="field fk"><span class="field-name">linked_bon_id</span><span class="field-badge badge-fk">FK</span></div>
+    </div>
+  </div>
+
+  <!-- ===== 004 CRM ===== -->
+
+  <div class="table">
+    <div class="table-header color-crm">
+      <span class="icon">🤝</span> crm_customer_meta
+      <span class="migration-badge">004</span>
+    </div>
+    <div class="table-body">
+      <div class="field pk fk"><span class="field-name">customer_id</span><span class="field-badge badge-pk">PK+FK</span></div>
+      <div class="field fk"><span class="field-name">owner_user_id</span><span class="field-badge badge-fk">FK</span></div>
+      <div class="field important"><span class="field-name">stage</span><span class="field-type">lead|active|dormant|vip</span></div>
+      <div class="field"><span class="field-name">tags (JSON)</span></div>
+      <div class="field"><span class="field-name">marketing_consent</span></div>
+      <div class="field"><span class="field-name">last_contact_at</span></div>
+      <div class="field"><span class="field-name">next_followup_at</span></div>
+    </div>
+  </div>
+
+  <div class="table">
+    <div class="table-header color-crm">
+      <span class="icon">📌</span> crm_activities
+      <span class="migration-badge">004</span>
+    </div>
+    <div class="table-body">
+      <div class="field pk"><span class="field-name">id</span><span class="field-badge badge-pk">PK</span></div>
+      <div class="field fk"><span class="field-name">customer_id</span><span class="field-badge badge-fk">FK</span></div>
+      <div class="field fk"><span class="field-name">bon_id</span><span class="field-badge badge-fk">FK</span></div>
+      <div class="field important"><span class="field-name">type</span><span class="field-type">call|meeting|task|note| followup|offer_sent…</span></div>
+      <div class="field important"><span class="field-name">text</span></div>
+      <div class="field"><span class="field-name">due_at + done_at</span></div>
+      <div class="field fk"><span class="field-name">owner_user_id</span><span class="field-badge badge-fk">FK</span></div>
+    </div>
+  </div>
+
+  <div class="table">
+    <div class="table-header color-crm">
+      <span class="icon">🏷️</span> crm_custom_fields / values
+      <span class="migration-badge">004</span>
+    </div>
+    <div class="table-body">
+      <div class="field section-divider">crm_custom_fields</div>
+      <div class="field pk"><span class="field-name">id</span><span class="field-badge badge-pk">PK</span></div>
+      <div class="field important"><span class="field-name">entity_type</span><span class="field-type">customer|company|bon</span></div>
+      <div class="field"><span class="field-name">key + label</span></div>
+      <div class="field"><span class="field-name">field_type + options_json</span></div>
+      <div class="field section-divider">crm_custom_values</div>
+      <div class="field important"><span class="field-name">entity_type + entity_id + field_id</span><span class="field-badge badge-pk">PK</span></div>
+      <div class="field"><span class="field-name">value_text</span></div>
+    </div>
+  </div>
+
+  <!-- ===== 005 SETTINGS ===== -->
+
+  <div class="table">
+    <div class="table-header color-settings">
+      <span class="icon">⚙️</span> system_settings
+      <span class="migration-badge">005</span>
+    </div>
+    <div class="table-body">
+      <div class="field pk"><span class="field-name">key</span><span class="field-badge badge-pk">PK</span></div>
+      <div class="field important"><span class="field-name">value</span></div>
+      <div class="field important"><span class="field-name">category</span><span class="field-type">company|mail|bon|grocy|modules</span></div>
+      <div class="field"><span class="field-name">label + field_type</span></div>
+      <div class="field section-divider">Forudfyldte værdier</div>
+      <div class="field"><span class="field-type" style="padding-left:0">company_name, hq_lat/lon</span></div>
+      <div class="field"><span class="field-type" style="padding-left:0">mail_imap/smtp settings</span></div>
+      <div class="field"><span class="field-type" style="padding-left:0">bon_number_prefix/next</span></div>
+      <div class="field"><span class="field-type" style="padding-left:0">grocy_url / api_key</span></div>
+      <div class="field"><span class="field-type" style="padding-left:0">module toggles</span></div>
+    </div>
+  </div>
+
+  <div class="table">
+    <div class="table-header color-grocy">
+      <span class="icon">🥦</span> grocy_cache
+      <span class="migration-badge">005</span>
+    </div>
+    <div class="table-body">
+      <div class="field pk"><span class="field-name">cache_key</span><span class="field-badge badge-pk">PK</span></div>
+      <div class="field important"><span class="field-name">data_json</span><span class="field-type">hele Grocy-svaret</span></div>
+      <div class="field important"><span class="field-name">cached_at</span></div>
+      <div class="field section-divider">Nøgler</div>
+      <div class="field"><span class="field-type" style="padding-left:0">"products"</span></div>
+      <div class="field"><span class="field-type" style="padding-left:0">"recipes"</span></div>
+      <div class="field"><span class="field-type" style="padding-left:0">"stock"</span></div>
+    </div>
+  </div>
+
+  <!-- ===== 006 VIEWS ===== -->
+
+  <div class="table" style="grid-column: 1 / 3;">
+    <div class="table-header color-view">
+      <span class="icon">👁️</span> SQL Views (006)
+      <span class="migration-badge">006</span>
+    </div>
+    <div class="table-body" style="display:grid;grid-template-columns:1fr 1fr;">
+      <div class="field important"><span class="field-name">v_bons_today</span><span class="field-type">Køkken I Dag — dagens boner m. kunde+firma</span></div>
+      <div class="field important"><span class="field-name">v_calendar</span><span class="field-type">Alle boner m. dato og enheder til kalender</span></div>
+      <div class="field important"><span class="field-name">v_day_totals</span><span class="field-type">SUM(MAX(pax, nr_of_servings)) per dag</span></div>
+      <div class="field important"><span class="field-name">v_active_notifications</span><span class="field-type">Aktive flyvere der ikke er set</span></div>
+    </div>
+  </div>
+
+</div>
+
+<div style="margin-top:24px; font-size:11px; color:#888; border-top:1px solid #ddd; padding-top:12px;">
+  <strong>Nøgleregler:</strong> &nbsp;
+  PRAGMA foreign_keys = ON &nbsp;·&nbsp;
+  PRAGMA journal_mode = WAL &nbsp;·&nbsp;
+  Leveringsadresse på bon er altid snapshot &nbsp;·&nbsp;
+  Alt på bon_lines er en Grocy-opskrift &nbsp;·&nbsp;
+  total_price og co2_kg er beregnede caches &nbsp;·&nbsp;
+  calendar_units = MAX(pax, nr_of_servings)
+</div>
+
+</body>
+</html>

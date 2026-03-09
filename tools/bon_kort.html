@@ -1,0 +1,709 @@
+<!DOCTYPE html>
+<html lang="da">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Bon-kort — Komponent</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Lato:ital,wght@0,400;0,700;1,400;1,700&display=swap" rel="stylesheet">
+    <!--
+    ╔══════════════════════════════════════════════════════════════════╗
+    ║  BON-KORT — KOMPONENT-FIL                                       ║
+    ║  Dette er den autoritative kilde for bon-kortets design og logik ║
+    ║                                                                  ║
+    ║  BRUG I ANDRE VIEWS — inkluder disse filer:                     ║
+    ║    <link rel="stylesheet" href="bon_kort.css">                  ║
+    ║    <script src="BonConfig.js"></script>                         ║
+    ║    <script src="BonConfigBar.js"></script>                      ║
+    ║    <script src="bon_kort.js"></script>                          ║
+    ║                                                                  ║
+    ║  Sæt data-view på container-elementet:                          ║
+    ║    <div data-view="kitchen-today"> ... </div>                   ║
+    ║                                                                  ║
+    ║  VIEW-NAVNE:                                                     ║
+    ║    kitchen-today   → igang, klar, lev                           ║
+    ║    kitchen-later   → tilbud, venter, godkendt, igang, klar      ║
+    ║    invoice         → lev, faktureret, betalt, afsluttet         ║
+    ║    all             → alle statusser (kalender, planlægning)     ║
+    ╚══════════════════════════════════════════════════════════════════╝
+    -->
+    <link rel="stylesheet" href="bon_kort.css">
+    <!-- Showcase-only styling (ikke del af kortkomponenten) -->
+    <style>
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+        body { font-family: 'Lato', sans-serif; background: #f5f4f2; color: #333; min-height: 100vh; padding: 32px 24px; }
+        .showcase-header { margin-bottom: 40px; padding-bottom: 20px; border-bottom: 2px solid #d7d1ca; }
+        .showcase-title { font-size: 11px; font-weight: 700; color: #8e631f; text-transform: uppercase; letter-spacing: 2px; margin-bottom: 4px; }
+        .showcase-name  { font-size: 22px; font-weight: 700; color: #333; margin-bottom: 4px; }
+        .showcase-desc  { font-size: 13px; color: #8a8580; line-height: 1.6; max-width: 640px; }
+        .section        { margin-bottom: 60px; }
+        .section-label  { font-size: 11px; text-transform: uppercase; letter-spacing: 1.2px; color: #8a8580; margin-bottom: 16px; display: flex; align-items: center; gap: 8px; }
+        .section-label .dot { width: 8px; height: 8px; border-radius: 50%; flex-shrink: 0; }
+        .section-desc   { font-size: 12px; color: #8a8580; margin-bottom: 16px; margin-top: -8px; font-style: italic; }
+        .cards          { display: flex; flex-wrap: wrap; gap: 20px; align-items: flex-start; }
+    </style>
+</head>
+<body>
+
+<!-- ══════════════════════════════════════════════
+     SHOWCASE-HEADER
+     ══════════════════════════════════════════════ -->
+<div class="showcase-header">
+    <div class="showcase-title">Bon v2 · Komponent</div>
+    <div class="showcase-name">Bon-kort</div>
+    <div class="showcase-desc">
+        Den centrale, genanvendelige kortkomponent. Statusvinduet styres af det omgivende view
+        via <code>data-view="..."</code>. Bunden med actions er altid synlig.
+        Modulerne prep-checks, kunde, alerts og CO₂ tændes/slukkes per view.
+    </div>
+</div>
+
+
+<!-- ══════════════════════════════════════════════
+     SEKTION 1: KØKKEN I DAG
+     data-view="kitchen-today" → igang · klar · lev
+     ══════════════════════════════════════════════ -->
+<div class="section" data-view="kitchen-today">
+    <div class="section-label">
+        <span class="dot" style="background:var(--s-igang)"></span>
+        Køkken I Dag · man. 23. feb
+    </div>
+    <div class="section-desc">Vindue: IGANG · KLAR · LEV — prep-checks og alerts aktive</div>
+    <div class="cards">
+
+        <!-- #3288 · IGANG — fuld version med grupper, note, alert -->
+        <div class="bon-card" data-status="igang" id="bon3288">
+            <div class="bon-header">
+                <div class="bon-header-left">
+                    <span class="bon-id">#3288</span>
+                    <div class="bon-time-row">
+                        <span class="bon-pickup">12:30</span>
+                        <span class="bon-lev">→ lev. 13:15</span>
+                    </div>
+                </div>
+                <div class="bon-header-right">
+                    <span class="unit-primary">70</span>
+                    <span class="unit-primary-label">enheder</span>
+                    <span class="unit-secondary">(28 pax)</span>
+                </div>
+            </div>
+
+            <div class="bon-status-bar" id="sbar3288"><!-- bygges af JS --></div>
+            <div class="fortryd-bar" id="fortryd3288">
+                <span>Fortryd status-skift?</span>
+                <button class="fortryd-btn" onclick="fortryd('bon3288')">Fortryd</button>
+            </div>
+
+            <!-- PREP-CHECKS modul -->
+            <div class="bon-prep">
+                <div class="prep-badge checked" onclick="this.classList.toggle('checked')">
+                    <span class="prep-check"></span> Råvarer
+                </div>
+                <div class="prep-badge" onclick="this.classList.toggle('checked')">
+                    <span class="prep-check"></span> Emballage
+                </div>
+            </div>
+
+            <!-- KUNDE modul -->
+            <div class="bon-customer" onclick="toggleCustomer(this)">
+                <div>
+                    <div class="customer-name">Finansforbundet</div>
+                    <div class="customer-address">Applebys Plads 5, 1411 Kbh K</div>
+                </div>
+                <span class="customer-expand">▼</span>
+            </div>
+            <div class="bon-customer-details">
+                <div class="detail-row"><span>👤</span><span>Rasmus Vinther-Schmidt</span></div>
+                <div class="detail-row"><span>📞</span><a href="tel:23818329">23 81 83 29</a></div>
+            </div>
+
+            <!-- ALERTS modul -->
+            <div class="bon-alerts">
+                <div class="bon-alert kitchen-info">
+                    <div class="bon-alert-label">Køkken info</div>
+                    Æggesalat mangler — erstat med ekstra hønsesalat
+                </div>
+            </div>
+
+            <!-- MENU -->
+            <div class="bon-menu select-mode-container" id="menu3288">
+                <div class="select-toolbar" id="toolbar3288">
+                    <span id="selCount3288">0 valgt</span>
+                    <div style="display:flex;gap:8px">
+                        <button class="sel-btn" onclick="groupSelected('menu3288')">Ny gruppe</button>
+                        <button class="sel-btn cancel" onclick="exitSelect('bon3288')">Annuller</button>
+                    </div>
+                </div>
+
+                <!-- Gruppe: Glutenfri (med note) -->
+                <div class="bon-menu-group">
+                    <div class="group-header" draggable="true" data-drag="group">
+                        <div class="group-drag-handle"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="9" cy="5" r="1" fill="currentColor"/><circle cx="9" cy="12" r="1" fill="currentColor"/><circle cx="9" cy="19" r="1" fill="currentColor"/><circle cx="15" cy="5" r="1" fill="currentColor"/><circle cx="15" cy="12" r="1" fill="currentColor"/><circle cx="15" cy="19" r="1" fill="currentColor"/></svg></div>
+                        <div class="group-select" onclick="toggleGroupSelect(this,'menu3288')"></div>
+                        <span class="group-title">Glutenfri</span>
+                        <input class="group-title-input" type="text" value="Glutenfri" onblur="finishTitle(this)" onkeydown="titleKey(event,this)">
+                        <button class="group-note-btn has-note" onclick="toggleNote(this)"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M14 2H6a2 2 0 00-2 2v16a2 2 0 002 2h12a2 2 0 002-2V8z"/><polyline points="14 2 14 8 20 8"/><line x1="16" y1="13" x2="8" y2="13"/><line x1="16" y1="17" x2="8" y2="17"/></svg></button>
+                        <button class="group-edit-btn" onclick="editTitle(this)"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M11 4H4a2 2 0 00-2 2v14a2 2 0 002 2h14a2 2 0 002-2v-7"/><path d="M18.5 2.5a2.121 2.121 0 013 3L12 15l-4 1 1-4 9.5-9.5z"/></svg></button>
+                    </div>
+                    <div class="group-note-area open">
+                        <textarea class="group-note-input" rows="1" oninput="noteChanged(this)">Separate bakker – sæt FORREST i kassen</textarea>
+                    </div>
+                    <div class="bon-menu-item" draggable="true" data-drag="item">
+                        <div class="drag-handle"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="9" cy="5" r="1" fill="currentColor"/><circle cx="9" cy="12" r="1" fill="currentColor"/><circle cx="9" cy="19" r="1" fill="currentColor"/><circle cx="15" cy="5" r="1" fill="currentColor"/><circle cx="15" cy="12" r="1" fill="currentColor"/><circle cx="15" cy="19" r="1" fill="currentColor"/></svg></div>
+                        <div class="item-select" onclick="toggleItem(this,'menu3288')"></div>
+                        <span class="bon-menu-qty">4 x</span><span class="bon-menu-name">Falaflen GF slider</span>
+                    </div>
+                    <div class="bon-menu-item" draggable="true" data-drag="item">
+                        <div class="drag-handle"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="9" cy="5" r="1" fill="currentColor"/><circle cx="9" cy="12" r="1" fill="currentColor"/><circle cx="9" cy="19" r="1" fill="currentColor"/><circle cx="15" cy="5" r="1" fill="currentColor"/><circle cx="15" cy="12" r="1" fill="currentColor"/><circle cx="15" cy="19" r="1" fill="currentColor"/></svg></div>
+                        <div class="item-select" onclick="toggleItem(this,'menu3288')"></div>
+                        <span class="bon-menu-qty">4 x</span><span class="bon-menu-name">Kyllingen GF slider</span>
+                    </div>
+                </div>
+
+                <!-- Gruppe: Boks 1 (ingen note) -->
+                <div class="bon-menu-group">
+                    <div class="group-header" draggable="true" data-drag="group">
+                        <div class="group-drag-handle"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="9" cy="5" r="1" fill="currentColor"/><circle cx="9" cy="12" r="1" fill="currentColor"/><circle cx="9" cy="19" r="1" fill="currentColor"/><circle cx="15" cy="5" r="1" fill="currentColor"/><circle cx="15" cy="12" r="1" fill="currentColor"/><circle cx="15" cy="19" r="1" fill="currentColor"/></svg></div>
+                        <div class="group-select" onclick="toggleGroupSelect(this,'menu3288')"></div>
+                        <span class="group-title">Boks 1 – Kød</span>
+                        <input class="group-title-input" type="text" value="Boks 1 – Kød" onblur="finishTitle(this)" onkeydown="titleKey(event,this)">
+                        <button class="group-note-btn empty" onclick="toggleNote(this)"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M14 2H6a2 2 0 00-2 2v16a2 2 0 002 2h12a2 2 0 002-2V8z"/><polyline points="14 2 14 8 20 8"/><line x1="16" y1="13" x2="8" y2="13"/><line x1="16" y1="17" x2="8" y2="17"/></svg></button>
+                        <button class="group-edit-btn" onclick="editTitle(this)"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M11 4H4a2 2 0 00-2 2v14a2 2 0 002 2h14a2 2 0 002-2v-7"/><path d="M18.5 2.5a2.121 2.121 0 013 3L12 15l-4 1 1-4 9.5-9.5z"/></svg></button>
+                    </div>
+                    <div class="group-note-area">
+                        <textarea class="group-note-input" rows="1" placeholder="Note til denne gruppe…" oninput="noteChanged(this)"></textarea>
+                    </div>
+                    <div class="bon-menu-item" draggable="true" data-drag="item">
+                        <div class="drag-handle"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="9" cy="5" r="1" fill="currentColor"/><circle cx="9" cy="12" r="1" fill="currentColor"/><circle cx="9" cy="19" r="1" fill="currentColor"/><circle cx="15" cy="5" r="1" fill="currentColor"/><circle cx="15" cy="12" r="1" fill="currentColor"/><circle cx="15" cy="19" r="1" fill="currentColor"/></svg></div>
+                        <div class="item-select" onclick="toggleItem(this,'menu3288')"></div>
+                        <span class="bon-menu-qty">7 x</span><span class="bon-menu-name">"Tunen" Spicy slider</span>
+                    </div>
+                    <div class="bon-menu-item" draggable="true" data-drag="item">
+                        <div class="drag-handle"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="9" cy="5" r="1" fill="currentColor"/><circle cx="9" cy="12" r="1" fill="currentColor"/><circle cx="9" cy="19" r="1" fill="currentColor"/><circle cx="15" cy="5" r="1" fill="currentColor"/><circle cx="15" cy="12" r="1" fill="currentColor"/><circle cx="15" cy="19" r="1" fill="currentColor"/></svg></div>
+                        <div class="item-select" onclick="toggleItem(this,'menu3288')"></div>
+                        <span class="bon-menu-qty">7 x</span><span class="bon-menu-name">Kyllingen slider</span>
+                    </div>
+                </div>
+
+                <!-- Løs linje -->
+                <div class="bon-menu-item" draggable="true" data-drag="item">
+                    <div class="drag-handle"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="9" cy="5" r="1" fill="currentColor"/><circle cx="9" cy="12" r="1" fill="currentColor"/><circle cx="9" cy="19" r="1" fill="currentColor"/><circle cx="15" cy="5" r="1" fill="currentColor"/><circle cx="15" cy="12" r="1" fill="currentColor"/><circle cx="15" cy="19" r="1" fill="currentColor"/></svg></div>
+                    <div class="item-select" onclick="toggleItem(this,'menu3288')"></div>
+                    <span class="bon-menu-qty">10 x</span><span class="bon-menu-name">Receptions Skinker</span>
+                </div>
+                <div class="bon-menu-divider"></div>
+                <div class="bon-menu-item emballage" draggable="true" data-drag="item">
+                    <div class="drag-handle"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="9" cy="5" r="1" fill="currentColor"/><circle cx="9" cy="12" r="1" fill="currentColor"/><circle cx="9" cy="19" r="1" fill="currentColor"/><circle cx="15" cy="5" r="1" fill="currentColor"/><circle cx="15" cy="12" r="1" fill="currentColor"/><circle cx="15" cy="19" r="1" fill="currentColor"/></svg></div>
+                    <div class="item-select" onclick="toggleItem(this,'menu3288')"></div>
+                    <span class="bon-menu-qty">2 x</span><span class="bon-menu-name">Transportkasse m låg</span>
+                </div>
+            </div>
+
+            <div class="bon-co2">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/></svg>
+                <span class="bon-co2-value">7.24 kg CO₂e</span>
+            </div>
+            <div class="bon-actions">
+                <div class="bon-actions-left">
+                    <button class="action-btn" data-tooltip="Tilføj vare"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg></button>
+                    <button class="action-btn" data-tooltip="Send mail"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M4 4h16c1.1 0 2 .9 2 2v12c0 1.1-.9 2-2 2H4c-1.1 0-2-.9-2-2V6c0-1.1.9-2 2-2z"/><polyline points="22,6 12,13 2,6"/></svg></button>
+                    <button class="action-btn" data-tooltip="Send flyver"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M22 2L11 13"/><path d="M22 2l-7 20-4-9-9-4 20-7z"/></svg></button>
+                    <button class="action-btn" data-tooltip="Råvarer"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><line x1="12" y1="16" x2="12" y2="12"/><line x1="12" y1="8" x2="12.01" y2="8"/></svg></button>
+                    <button class="action-btn" data-tooltip="Historik"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></svg></button>
+                </div>
+                <button class="select-toggle-btn" id="selBtn3288" onclick="enterSelect('bon3288')">
+                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="3" width="7" height="7" rx="1"/><rect x="14" y="3" width="7" height="7" rx="1"/><rect x="3" y="14" width="7" height="7" rx="1"/><rect x="14" y="14" width="7" height="7" rx="1"/></svg>
+                </button>
+            </div>
+        </div>
+
+        <!-- #3291 · KLAR — simpel version -->
+        <div class="bon-card" data-status="klar" id="bon3291">
+            <div class="bon-header">
+                <div class="bon-header-left">
+                    <span class="bon-id">#3291</span>
+                    <div class="bon-time-row">
+                        <span class="bon-pickup">14:00</span>
+                        <span class="bon-lev">→ lev. 14:45</span>
+                    </div>
+                </div>
+                <div class="bon-header-right">
+                    <span class="unit-primary">25</span>
+                    <span class="unit-primary-label">enheder</span>
+                    <span class="unit-secondary">(25 pax)</span>
+                </div>
+            </div>
+
+            <div class="bon-status-bar" id="sbar3291"><!-- bygges af JS --></div>
+            <div class="fortryd-bar" id="fortryd3291">
+                <span>Fortryd status-skift?</span>
+                <button class="fortryd-btn" onclick="fortryd('bon3291')">Fortryd</button>
+            </div>
+
+            <div class="bon-prep">
+                <div class="prep-badge checked" onclick="this.classList.toggle('checked')">
+                    <span class="prep-check"></span> Råvarer
+                </div>
+                <div class="prep-badge checked" onclick="this.classList.toggle('checked')">
+                    <span class="prep-check"></span> Emballage
+                </div>
+            </div>
+
+            <div class="bon-customer" onclick="toggleCustomer(this)">
+                <div>
+                    <div class="customer-name">Nora Ottens</div>
+                    <div class="customer-address">Stigbøjlen 4, 1870 Frederiksberg</div>
+                </div>
+                <span class="customer-expand">▼</span>
+            </div>
+            <div class="bon-customer-details">
+                <div class="detail-row"><span>👤</span><span>Nora Ottens</span></div>
+                <div class="detail-row"><span>📞</span><a href="tel:40123456">40 12 34 56</a></div>
+            </div>
+
+            <div class="bon-menu select-mode-container" id="menu3291">
+                <div class="select-toolbar" id="toolbar3291">
+                    <span id="selCount3291">0 valgt</span>
+                    <div style="display:flex;gap:8px">
+                        <button class="sel-btn" onclick="groupSelected('menu3291')">Ny gruppe</button>
+                        <button class="sel-btn cancel" onclick="exitSelect('bon3291')">Annuller</button>
+                    </div>
+                </div>
+                <div class="bon-menu-item" draggable="true" data-drag="item">
+                    <div class="drag-handle"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="9" cy="5" r="1" fill="currentColor"/><circle cx="9" cy="12" r="1" fill="currentColor"/><circle cx="9" cy="19" r="1" fill="currentColor"/><circle cx="15" cy="5" r="1" fill="currentColor"/><circle cx="15" cy="12" r="1" fill="currentColor"/><circle cx="15" cy="19" r="1" fill="currentColor"/></svg></div>
+                    <div class="item-select" onclick="toggleItem(this,'menu3291')"></div>
+                    <span class="bon-menu-qty">12 x</span><span class="bon-menu-name">Grisen på Rug</span>
+                </div>
+                <div class="bon-menu-item" draggable="true" data-drag="item">
+                    <div class="drag-handle"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="9" cy="5" r="1" fill="currentColor"/><circle cx="9" cy="12" r="1" fill="currentColor"/><circle cx="9" cy="19" r="1" fill="currentColor"/><circle cx="15" cy="5" r="1" fill="currentColor"/><circle cx="15" cy="12" r="1" fill="currentColor"/><circle cx="15" cy="19" r="1" fill="currentColor"/></svg></div>
+                    <div class="item-select" onclick="toggleItem(this,'menu3291')"></div>
+                    <span class="bon-menu-qty">13 x</span><span class="bon-menu-name">Falaflen</span>
+                </div>
+                <div class="bon-menu-divider"></div>
+                <div class="bon-menu-item emballage" draggable="true" data-drag="item">
+                    <div class="drag-handle"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="9" cy="5" r="1" fill="currentColor"/><circle cx="9" cy="12" r="1" fill="currentColor"/><circle cx="9" cy="19" r="1" fill="currentColor"/><circle cx="15" cy="5" r="1" fill="currentColor"/><circle cx="15" cy="12" r="1" fill="currentColor"/><circle cx="15" cy="19" r="1" fill="currentColor"/></svg></div>
+                    <div class="item-select" onclick="toggleItem(this,'menu3291')"></div>
+                    <span class="bon-menu-qty">1 x</span><span class="bon-menu-name">RR leverer</span>
+                </div>
+            </div>
+
+            <div class="bon-actions">
+                <div class="bon-actions-left">
+                    <button class="action-btn" data-tooltip="Tilføj vare"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg></button>
+                    <button class="action-btn" data-tooltip="Send mail"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M4 4h16c1.1 0 2 .9 2 2v12c0 1.1-.9 2-2 2H4c-1.1 0-2-.9-2-2V6c0-1.1.9-2 2-2z"/><polyline points="22,6 12,13 2,6"/></svg></button>
+                    <button class="action-btn" data-tooltip="Send flyver"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M22 2L11 13"/><path d="M22 2l-7 20-4-9-9-4 20-7z"/></svg></button>
+                    <button class="action-btn" data-tooltip="Råvarer"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><line x1="12" y1="16" x2="12" y2="12"/><line x1="12" y1="8" x2="12.01" y2="8"/></svg></button>
+                    <button class="action-btn" data-tooltip="Historik"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></svg></button>
+                </div>
+                <button class="select-toggle-btn" id="selBtn3291" onclick="enterSelect('bon3291')">
+                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="3" width="7" height="7" rx="1"/><rect x="14" y="3" width="7" height="7" rx="1"/><rect x="3" y="14" width="7" height="7" rx="1"/><rect x="14" y="14" width="7" height="7" rx="1"/></svg>
+                </button>
+            </div>
+        </div>
+
+    </div><!-- /cards -->
+</div><!-- /section kitchen-today -->
+
+
+<!-- ══════════════════════════════════════════════
+     SEKTION 2: KØKKEN SENERE
+     data-view="kitchen-later" → tilbud · venter · godkendt · igang · klar
+     ══════════════════════════════════════════════ -->
+<div class="section" data-view="kitchen-later">
+    <div class="section-label">
+        <span class="dot" style="background:var(--s-godkendt)"></span>
+        Køkken Senere · tir. 24. feb
+    </div>
+    <div class="section-desc">Vindue: TILBUD · VENTER INFO · GODKENDT · IGANG · KLAR</div>
+    <div class="cards">
+
+        <!-- #3295 · VENTER -->
+        <div class="bon-card" data-status="venter" id="bon3295">
+            <div class="bon-header">
+                <div class="bon-header-left">
+                    <span class="bon-id">#3295</span>
+                    <div class="bon-time-row">
+                        <span class="bon-pickup">10:30</span>
+                        <span class="bon-lev">→ lev. 11:15</span>
+                    </div>
+                    <span class="bon-date">tir. 24. feb</span>
+                </div>
+                <div class="bon-header-right">
+                    <span class="unit-primary">48</span>
+                    <span class="unit-primary-label">enheder</span>
+                    <span class="unit-secondary">(24 pax)</span>
+                </div>
+            </div>
+
+            <div class="bon-status-bar" id="sbar3295"><!-- bygges af JS --></div>
+            <div class="fortryd-bar" id="fortryd3295">
+                <span>Fortryd status-skift?</span>
+                <button class="fortryd-btn" onclick="fortryd('bon3295')">Fortryd</button>
+            </div>
+
+            <div class="bon-customer" onclick="toggleCustomer(this)">
+                <div>
+                    <div class="customer-name">Kapital Invest A/S</div>
+                    <div class="customer-address">Gl. Strand 40, 1202 Kbh K</div>
+                </div>
+                <span class="customer-expand">▼</span>
+            </div>
+            <div class="bon-customer-details">
+                <div class="detail-row"><span>👤</span><span>Mette Bjerg</span></div>
+                <div class="detail-row"><span>📞</span><a href="tel:33112233">33 11 22 33</a></div>
+            </div>
+
+            <div class="bon-alerts">
+                <div class="bon-alert delivery-info">
+                    <div class="bon-alert-label">Levering</div>
+                    Byekspressen · sendes 10:00 · 3. sal, ring på 12
+                </div>
+            </div>
+
+            <div class="bon-menu select-mode-container" id="menu3295">
+                <div class="select-toolbar" id="toolbar3295">
+                    <span id="selCount3295">0 valgt</span>
+                    <div style="display:flex;gap:8px">
+                        <button class="sel-btn" onclick="groupSelected('menu3295')">Ny gruppe</button>
+                        <button class="sel-btn cancel" onclick="exitSelect('bon3295')">Annuller</button>
+                    </div>
+                </div>
+                <div class="bon-menu-item" draggable="true" data-drag="item">
+                    <div class="drag-handle"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="9" cy="5" r="1" fill="currentColor"/><circle cx="9" cy="12" r="1" fill="currentColor"/><circle cx="9" cy="19" r="1" fill="currentColor"/><circle cx="15" cy="5" r="1" fill="currentColor"/><circle cx="15" cy="12" r="1" fill="currentColor"/><circle cx="15" cy="19" r="1" fill="currentColor"/></svg></div>
+                    <div class="item-select" onclick="toggleItem(this,'menu3295')"></div>
+                    <span class="bon-menu-qty">24 x</span><span class="bon-menu-name">Skinken</span>
+                </div>
+                <div class="bon-menu-item" draggable="true" data-drag="item">
+                    <div class="drag-handle"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="9" cy="5" r="1" fill="currentColor"/><circle cx="9" cy="12" r="1" fill="currentColor"/><circle cx="9" cy="19" r="1" fill="currentColor"/><circle cx="15" cy="5" r="1" fill="currentColor"/><circle cx="15" cy="12" r="1" fill="currentColor"/><circle cx="15" cy="19" r="1" fill="currentColor"/></svg></div>
+                    <div class="item-select" onclick="toggleItem(this,'menu3295')"></div>
+                    <span class="bon-menu-qty">24 x</span><span class="bon-menu-name">Trøflen</span>
+                </div>
+            </div>
+
+            <div class="bon-actions">
+                <div class="bon-actions-left">
+                    <button class="action-btn" data-tooltip="Tilføj vare"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg></button>
+                    <button class="action-btn" data-tooltip="Send mail"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M4 4h16c1.1 0 2 .9 2 2v12c0 1.1-.9 2-2 2H4c-1.1 0-2-.9-2-2V6c0-1.1.9-2 2-2z"/><polyline points="22,6 12,13 2,6"/></svg></button>
+                    <button class="action-btn" data-tooltip="Send flyver"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M22 2L11 13"/><path d="M22 2l-7 20-4-9-9-4 20-7z"/></svg></button>
+                    <button class="action-btn" data-tooltip="Råvarer"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><line x1="12" y1="16" x2="12" y2="12"/><line x1="12" y1="8" x2="12.01" y2="8"/></svg></button>
+                    <button class="action-btn" data-tooltip="Historik"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></svg></button>
+                </div>
+                <button class="select-toggle-btn" id="selBtn3295" onclick="enterSelect('bon3295')">
+                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="3" width="7" height="7" rx="1"/><rect x="14" y="3" width="7" height="7" rx="1"/><rect x="3" y="14" width="7" height="7" rx="1"/><rect x="14" y="14" width="7" height="7" rx="1"/></svg>
+                </button>
+            </div>
+        </div>
+
+        <!-- #3302 · TILBUD — konverteres til godkendt -->
+        <div class="bon-card" data-status="tilbud" id="bon3302">
+            <div class="bon-header">
+                <div class="bon-header-left">
+                    <span class="bon-id">#3302</span>
+                    <div class="bon-time-row">
+                        <span class="bon-pickup">11:00</span>
+                        <span class="bon-lev">→ lev. 11:45</span>
+                    </div>
+                    <span class="bon-date">tir. 24. feb</span>
+                </div>
+                <div class="bon-header-right">
+                    <span class="unit-primary">60</span>
+                    <span class="unit-primary-label">enheder</span>
+                    <span class="unit-secondary">(60 pax)</span>
+                </div>
+            </div>
+
+            <div class="bon-status-bar" id="sbar3302"><!-- bygges af JS --></div>
+            <div class="fortryd-bar" id="fortryd3302">
+                <span>Fortryd status-skift?</span>
+                <button class="fortryd-btn" onclick="fortryd('bon3302')">Fortryd</button>
+            </div>
+
+            <div class="bon-customer" onclick="toggleCustomer(this)">
+                <div>
+                    <div class="customer-name">DR Byen</div>
+                    <div class="customer-address">Emil Holms Kanal 20, 0999 Kbh C</div>
+                </div>
+                <span class="customer-expand">▼</span>
+            </div>
+            <div class="bon-customer-details">
+                <div class="detail-row"><span>👤</span><span>Lars Mikkelsen</span></div>
+                <div class="detail-row"><span>📞</span><a href="tel:35202020">35 20 20 20</a></div>
+            </div>
+
+            <div class="bon-menu select-mode-container" id="menu3302">
+                <div class="select-toolbar" id="toolbar3302">
+                    <span id="selCount3302">0 valgt</span>
+                    <div style="display:flex;gap:8px">
+                        <button class="sel-btn" onclick="groupSelected('menu3302')">Ny gruppe</button>
+                        <button class="sel-btn cancel" onclick="exitSelect('bon3302')">Annuller</button>
+                    </div>
+                </div>
+                <div class="bon-menu-item" draggable="true" data-drag="item">
+                    <div class="drag-handle"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="9" cy="5" r="1" fill="currentColor"/><circle cx="9" cy="12" r="1" fill="currentColor"/><circle cx="9" cy="19" r="1" fill="currentColor"/><circle cx="15" cy="5" r="1" fill="currentColor"/><circle cx="15" cy="12" r="1" fill="currentColor"/><circle cx="15" cy="19" r="1" fill="currentColor"/></svg></div>
+                    <div class="item-select" onclick="toggleItem(this,'menu3302')"></div>
+                    <span class="bon-menu-qty">30 x</span><span class="bon-menu-name">Grisen på Rug</span>
+                </div>
+                <div class="bon-menu-item" draggable="true" data-drag="item">
+                    <div class="drag-handle"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="9" cy="5" r="1" fill="currentColor"/><circle cx="9" cy="12" r="1" fill="currentColor"/><circle cx="9" cy="19" r="1" fill="currentColor"/><circle cx="15" cy="5" r="1" fill="currentColor"/><circle cx="15" cy="12" r="1" fill="currentColor"/><circle cx="15" cy="19" r="1" fill="currentColor"/></svg></div>
+                    <div class="item-select" onclick="toggleItem(this,'menu3302')"></div>
+                    <span class="bon-menu-qty">30 x</span><span class="bon-menu-name">Italieneren</span>
+                </div>
+            </div>
+
+            <div class="bon-actions">
+                <div class="bon-actions-left">
+                    <button class="action-btn" data-tooltip="Tilføj vare"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg></button>
+                    <button class="action-btn" data-tooltip="Send mail"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M4 4h16c1.1 0 2 .9 2 2v12c0 1.1-.9 2-2 2H4c-1.1 0-2-.9-2-2V6c0-1.1.9-2 2-2z"/><polyline points="22,6 12,13 2,6"/></svg></button>
+                    <button class="action-btn" data-tooltip="Send flyver"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M22 2L11 13"/><path d="M22 2l-7 20-4-9-9-4 20-7z"/></svg></button>
+                    <button class="action-btn" data-tooltip="Råvarer"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><line x1="12" y1="16" x2="12" y2="12"/><line x1="12" y1="8" x2="12.01" y2="8"/></svg></button>
+                    <button class="action-btn" data-tooltip="Historik"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></svg></button>
+                </div>
+                <button class="select-toggle-btn" id="selBtn3302" onclick="enterSelect('bon3302')">
+                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="3" width="7" height="7" rx="1"/><rect x="14" y="3" width="7" height="7" rx="1"/><rect x="3" y="14" width="7" height="7" rx="1"/><rect x="14" y="14" width="7" height="7" rx="1"/></svg>
+                </button>
+            </div>
+        </div>
+
+    </div><!-- /cards -->
+</div><!-- /section kitchen-later -->
+
+
+<!-- ══════════════════════════════════════════════
+     SEKTION 3: FAKTURA
+     data-view="invoice" → lev · faktureret · betalt · afsluttet
+     data-payment styre om "faktureret" vises
+     ══════════════════════════════════════════════ -->
+<div class="section" data-view="invoice">
+    <div class="section-label">
+        <span class="dot" style="background:var(--s-faktureret)"></span>
+        Faktura
+    </div>
+    <div class="section-desc">Vindue: LEV · FAKTURERET · BETALT · AFSLUTTET — ved kontant springes faktureret over</div>
+    <div class="cards">
+
+        <!-- #3280 · FAKTURERET -->
+        <div class="bon-card" data-status="faktureret" data-payment="faktura" id="bon3280">
+            <div class="bon-header">
+                <div class="bon-header-left">
+                    <span class="bon-id">#3280</span>
+                    <div class="bon-time-row">
+                        <span class="bon-pickup">09:00</span>
+                    </div>
+                    <span class="bon-date">fre. 21. feb</span>
+                </div>
+                <div class="bon-header-right">
+                    <span class="unit-primary">40</span>
+                    <span class="unit-primary-label">enheder</span>
+                    <span class="unit-secondary">(20 pax)</span>
+                </div>
+            </div>
+
+            <div class="bon-status-bar" id="sbar3280"><!-- bygges af JS --></div>
+            <div class="fortryd-bar" id="fortryd3280">
+                <span>Fortryd status-skift?</span>
+                <button class="fortryd-btn" onclick="fortryd('bon3280')">Fortryd</button>
+            </div>
+
+            <div class="bon-customer" onclick="toggleCustomer(this)">
+                <div>
+                    <div class="customer-name">Novo Nordisk A/S</div>
+                    <div class="customer-address">Novo Allé 1, 2880 Bagsværd</div>
+                </div>
+                <span class="customer-expand">▼</span>
+            </div>
+            <div class="bon-customer-details">
+                <div class="detail-row"><span>🏢</span><span>EAN: 5790002754295</span></div>
+                <div class="detail-row"><span>👤</span><span>Hanne Sørensen · ref: 4421</span></div>
+            </div>
+
+            <div class="bon-menu select-mode-container" id="menu3280">
+                <div class="select-toolbar" id="toolbar3280">
+                    <span id="selCount3280">0 valgt</span>
+                    <div style="display:flex;gap:8px">
+                        <button class="sel-btn" onclick="groupSelected('menu3280')">Ny gruppe</button>
+                        <button class="sel-btn cancel" onclick="exitSelect('bon3280')">Annuller</button>
+                    </div>
+                </div>
+                <div class="bon-menu-item">
+                    <div class="drag-handle"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="9" cy="5" r="1" fill="currentColor"/><circle cx="9" cy="12" r="1" fill="currentColor"/><circle cx="9" cy="19" r="1" fill="currentColor"/><circle cx="15" cy="5" r="1" fill="currentColor"/><circle cx="15" cy="12" r="1" fill="currentColor"/><circle cx="15" cy="19" r="1" fill="currentColor"/></svg></div>
+                    <div class="item-select" onclick="toggleItem(this,'menu3280')"></div>
+                    <span class="bon-menu-qty">20 x</span><span class="bon-menu-name">Kyllingen</span>
+                </div>
+                <div class="bon-menu-item">
+                    <div class="drag-handle"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="9" cy="5" r="1" fill="currentColor"/><circle cx="9" cy="12" r="1" fill="currentColor"/><circle cx="9" cy="19" r="1" fill="currentColor"/><circle cx="15" cy="5" r="1" fill="currentColor"/><circle cx="15" cy="12" r="1" fill="currentColor"/><circle cx="15" cy="19" r="1" fill="currentColor"/></svg></div>
+                    <div class="item-select" onclick="toggleItem(this,'menu3280')"></div>
+                    <span class="bon-menu-qty">20 x</span><span class="bon-menu-name">Fisken</span>
+                </div>
+            </div>
+
+            <div class="bon-actions">
+                <div class="bon-actions-left">
+                    <button class="action-btn" data-tooltip="Tilføj vare"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg></button>
+                    <button class="action-btn" data-tooltip="Send mail"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M4 4h16c1.1 0 2 .9 2 2v12c0 1.1-.9 2-2 2H4c-1.1 0-2-.9-2-2V6c0-1.1.9-2 2-2z"/><polyline points="22,6 12,13 2,6"/></svg></button>
+                    <button class="action-btn" data-tooltip="Send flyver"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M22 2L11 13"/><path d="M22 2l-7 20-4-9-9-4 20-7z"/></svg></button>
+                    <button class="action-btn" data-tooltip="Råvarer"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><line x1="12" y1="16" x2="12" y2="12"/><line x1="12" y1="8" x2="12.01" y2="8"/></svg></button>
+                    <button class="action-btn" data-tooltip="Historik"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></svg></button>
+                </div>
+                <button class="select-toggle-btn" id="selBtn3280" onclick="enterSelect('bon3280')">
+                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="3" width="7" height="7" rx="1"/><rect x="14" y="3" width="7" height="7" rx="1"/><rect x="3" y="14" width="7" height="7" rx="1"/><rect x="14" y="14" width="7" height="7" rx="1"/></svg>
+                </button>
+            </div>
+        </div>
+
+        <!-- #3278 · KONTANT — faktureret springes over -->
+        <div class="bon-card" data-status="lev" data-payment="kontant" id="bon3278">
+            <div class="bon-header">
+                <div class="bon-header-left">
+                    <span class="bon-id">#3278</span>
+                    <div class="bon-time-row">
+                        <span class="bon-pickup">13:00</span>
+                    </div>
+                    <span class="bon-date">tor. 20. feb · <em style="color:var(--green-dark)">kontant</em></span>
+                </div>
+                <div class="bon-header-right">
+                    <span class="unit-primary">8</span>
+                    <span class="unit-primary-label">enheder</span>
+                    <span class="unit-secondary">(8 pax)</span>
+                </div>
+            </div>
+
+            <div class="bon-status-bar" id="sbar3278"><!-- bygges af JS --></div>
+            <div class="fortryd-bar" id="fortryd3278">
+                <span>Fortryd status-skift?</span>
+                <button class="fortryd-btn" onclick="fortryd('bon3278')">Fortryd</button>
+            </div>
+
+            <div class="bon-customer" onclick="toggleCustomer(this)">
+                <div>
+                    <div class="customer-name">Privat · Louise Andersen</div>
+                    <div class="customer-address">Afhentning i butik</div>
+                </div>
+                <span class="customer-expand">▼</span>
+            </div>
+            <div class="bon-customer-details">
+                <div class="detail-row"><span>📞</span><a href="tel:28441122">28 44 11 22</a></div>
+            </div>
+
+            <div class="bon-menu select-mode-container" id="menu3278">
+                <div class="select-toolbar" id="toolbar3278">
+                    <span id="selCount3278">0 valgt</span>
+                    <div style="display:flex;gap:8px">
+                        <button class="sel-btn" onclick="groupSelected('menu3278')">Ny gruppe</button>
+                        <button class="sel-btn cancel" onclick="exitSelect('bon3278')">Annuller</button>
+                    </div>
+                </div>
+                <div class="bon-menu-item">
+                    <div class="drag-handle"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="9" cy="5" r="1" fill="currentColor"/><circle cx="9" cy="12" r="1" fill="currentColor"/><circle cx="9" cy="19" r="1" fill="currentColor"/><circle cx="15" cy="5" r="1" fill="currentColor"/><circle cx="15" cy="12" r="1" fill="currentColor"/><circle cx="15" cy="19" r="1" fill="currentColor"/></svg></div>
+                    <div class="item-select" onclick="toggleItem(this,'menu3278')"></div>
+                    <span class="bon-menu-qty">8 x</span><span class="bon-menu-name">Grisen på Rug</span>
+                </div>
+            </div>
+
+            <div class="bon-actions">
+                <div class="bon-actions-left">
+                    <button class="action-btn" data-tooltip="Tilføj vare"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg></button>
+                    <button class="action-btn" data-tooltip="Send mail"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M4 4h16c1.1 0 2 .9 2 2v12c0 1.1-.9 2-2 2H4c-1.1 0-2-.9-2-2V6c0-1.1.9-2 2-2z"/><polyline points="22,6 12,13 2,6"/></svg></button>
+                    <button class="action-btn" data-tooltip="Send flyver"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M22 2L11 13"/><path d="M22 2l-7 20-4-9-9-4 20-7z"/></svg></button>
+                    <button class="action-btn" data-tooltip="Råvarer"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><line x1="12" y1="16" x2="12" y2="12"/><line x1="12" y1="8" x2="12.01" y2="8"/></svg></button>
+                    <button class="action-btn" data-tooltip="Historik"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></svg></button>
+                </div>
+                <button class="select-toggle-btn" id="selBtn3278" onclick="enterSelect('bon3278')">
+                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="3" width="7" height="7" rx="1"/><rect x="14" y="3" width="7" height="7" rx="1"/><rect x="3" y="14" width="7" height="7" rx="1"/><rect x="14" y="14" width="7" height="7" rx="1"/></svg>
+                </button>
+            </div>
+        </div>
+
+    </div><!-- /cards -->
+</div><!-- /section invoice -->
+
+
+<!-- ══════════════════════════════════════════════
+     SEKTION 4: ALLE STATUSSER (kalender / planlægning)
+     data-view="all" → ingen filtrering
+     ══════════════════════════════════════════════ -->
+<div class="section" data-view="all">
+    <div class="section-label">
+        <span class="dot" style="background:var(--s-ny)"></span>
+        Alle statusser · kalender / planlægning
+    </div>
+    <div class="section-desc">Vindue: ALLE — toggle-filter styres på view-niveau</div>
+    <div class="cards">
+
+        <!-- #3310 · NY -->
+        <div class="bon-card" data-status="ny" id="bon3310">
+            <div class="bon-header">
+                <div class="bon-header-left">
+                    <span class="bon-id">#3310</span>
+                    <div class="bon-time-row">
+                        <span class="bon-pickup">09:30</span>
+                        <span class="bon-lev">→ lev. 10:15</span>
+                    </div>
+                    <span class="bon-date">ons. 26. feb</span>
+                </div>
+                <div class="bon-header-right">
+                    <span class="unit-primary">35</span>
+                    <span class="unit-primary-label">enheder</span>
+                    <span class="unit-secondary">(35 pax)</span>
+                </div>
+            </div>
+
+            <div class="bon-status-bar" id="sbar3310"><!-- bygges af JS --></div>
+            <div class="fortryd-bar" id="fortryd3310">
+                <span>Fortryd status-skift?</span>
+                <button class="fortryd-btn" onclick="fortryd('bon3310')">Fortryd</button>
+            </div>
+
+            <div class="bon-customer" onclick="toggleCustomer(this)">
+                <div>
+                    <div class="customer-name">Tryg Forsikring</div>
+                    <div class="customer-address">Klausdalsbrovej 601, 2750 Ballerup</div>
+                </div>
+                <span class="customer-expand">▼</span>
+            </div>
+            <div class="bon-customer-details">
+                <div class="detail-row"><span>👤</span><span>Peter Holm</span></div>
+                <div class="detail-row"><span>📞</span><a href="tel:44201000">44 20 10 00</a></div>
+            </div>
+
+            <div class="bon-menu select-mode-container" id="menu3310">
+                <div class="select-toolbar" id="toolbar3310">
+                    <span id="selCount3310">0 valgt</span>
+                    <div style="display:flex;gap:8px">
+                        <button class="sel-btn" onclick="groupSelected('menu3310')">Ny gruppe</button>
+                        <button class="sel-btn cancel" onclick="exitSelect('bon3310')">Annuller</button>
+                    </div>
+                </div>
+                <div class="bon-menu-item">
+                    <div class="drag-handle"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="9" cy="5" r="1" fill="currentColor"/><circle cx="9" cy="12" r="1" fill="currentColor"/><circle cx="9" cy="19" r="1" fill="currentColor"/><circle cx="15" cy="5" r="1" fill="currentColor"/><circle cx="15" cy="12" r="1" fill="currentColor"/><circle cx="15" cy="19" r="1" fill="currentColor"/></svg></div>
+                    <div class="item-select" onclick="toggleItem(this,'menu3310')"></div>
+                    <span class="bon-menu-qty">35 x</span><span class="bon-menu-name">Kyllingen</span>
+                </div>
+            </div>
+
+            <div class="bon-actions">
+                <div class="bon-actions-left">
+                    <button class="action-btn" data-tooltip="Tilføj vare"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg></button>
+                    <button class="action-btn" data-tooltip="Send mail"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M4 4h16c1.1 0 2 .9 2 2v12c0 1.1-.9 2-2 2H4c-1.1 0-2-.9-2-2V6c0-1.1.9-2 2-2z"/><polyline points="22,6 12,13 2,6"/></svg></button>
+                    <button class="action-btn" data-tooltip="Send flyver"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M22 2L11 13"/><path d="M22 2l-7 20-4-9-9-4 20-7z"/></svg></button>
+                    <button class="action-btn" data-tooltip="Råvarer"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><line x1="12" y1="16" x2="12" y2="12"/><line x1="12" y1="8" x2="12.01" y2="8"/></svg></button>
+                    <button class="action-btn" data-tooltip="Historik"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></svg></button>
+                </div>
+                <button class="select-toggle-btn" id="selBtn3310" onclick="enterSelect('bon3310')">
+                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="3" width="7" height="7" rx="1"/><rect x="14" y="3" width="7" height="7" rx="1"/><rect x="3" y="14" width="7" height="7" rx="1"/><rect x="14" y="14" width="7" height="7" rx="1"/></svg>
+                </button>
+            </div>
+        </div>
+
+    </div><!-- /cards -->
+</div><!-- /section all -->
+
+
+<!-- ══════════════════════════════════════════════
+     BON-KORT JAVASCRIPT
+     ══════════════════════════════════════════════ -->
+    <script src="BonConfig.js"></script>
+    <script src="BonConfigBar.js"></script>
+    <script src="bon_kort.js"></script>
+</body>
+</html>
