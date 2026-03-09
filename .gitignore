@@ -1,0 +1,13 @@
+# Miljøvariabler — aldrig i git!
+.env
+
+# Node
+node_modules/
+npm-debug.log*
+
+# Database
+*.db
+*.sqlite
+
+# Mac
+.DS_Store

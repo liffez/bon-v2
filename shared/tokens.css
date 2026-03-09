@@ -1,0 +1,43 @@
+/* ===================================================
+   BON V2 — Design Tokens
+   Alle farver, spacing og typografi defineres her.
+   Alle andre CSS-filer bruger kun disse tokens.
+=================================================== */
+:root {
+  /* Brand (overskrives pr. installation via settings) */
+  --brand-primary:       #8e631f;
+  --brand-primary-light: #f1e6b2;
+  --brand-name:          "Ristet Rug";
+
+  /* Systemfarver */
+  --color-surface:     #ffffff;
+  --color-background:  #f5f4f2;
+  --color-border:      #d7d1ca;
+  --color-text:        #333333;
+  --color-text-dim:    #8a8580;
+
+  /* Statusfarver */
+  --color-green:       #a5bf75;
+  --color-green-dark:  #7a9c54;
+  --color-red:         #bc181b;
+  --color-blue:        #7594b3;
+  --color-orange:      #e8a832;
+
+  /* Spacing */
+  --space-xs:   4px;
+  --space-s:    8px;
+  --space-m:   16px;
+  --space-l:   24px;
+  --space-xl:  40px;
+
+  /* Typografi */
+  --font-body:    'Lato', sans-serif;
+  --font-size-s:  13px;
+  --font-size-m:  15px;
+  --font-size-l:  18px;
+  --font-size-xl: 24px;
+
+  /* UI-densitet */
+  --touch-target-min:  44px;
+  --touch-target-desk: 32px;
+}
