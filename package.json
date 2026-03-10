@@ -1,16 +1,17 @@
 {
   "name": "bon-v2",
   "version": "2.0.0",
-  "description": "Ristet Rug – Bon System v2",
+  "description": "Ristet Rug — Bon v2 Order Management System",
   "main": "server.js",
+  "engines": {
+    "node": ">=22 <23"
+  },
   "scripts": {
     "start":   "node server.js",
     "dev":     "node --watch server.js",
     "migrate": "node db/migrate.js",
-    "seed":    "node seed.js"
-  },
-  "engines": {
-    "node": ">=22 <23"
+    "seed":    "node db/seed.js",
+    "setup":   "node db/migrate.js && node db/seed.js"
   },
   "dependencies": {
     "better-sqlite3": "^9.4.3",
