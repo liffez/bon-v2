@@ -9,7 +9,7 @@ npm install
 npm run dev
 ```
 
-Åbn http://localhost:3000
+Åbn http://localhost:4321
 
 ## Zoner
 
