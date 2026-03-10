@@ -505,6 +505,7 @@ app.listen(PORT, () => {
 ║              Bon v2 Server                               ║
 ╠══════════════════════════════════════════════════════════╣
 ║  http://localhost:${PORT}                                    ║
+║  http://localhost:${PORT}/kitchen/today.html                 ║
 ║  Database: ${DB.padEnd(44)} ║
 ╠══════════════════════════════════════════════════════════╣
 ║  GET  /api/bons/today                                    ║

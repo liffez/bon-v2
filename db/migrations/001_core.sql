@@ -250,6 +250,11 @@ INSERT INTO status_transitions (from_status_id, to_status_id, requires_confirmat
     ((SELECT id FROM status_definitions WHERE code='IGANG'),
      (SELECT id FROM status_definitions WHERE code='KLAR'), 0, NULL, NULL),
 
+    ((SELECT id FROM status_definitions WHERE code='IGANG'),
+     (SELECT id FROM status_definitions WHERE code='LEVERET'),
+     1, 'Spring KLAR over og markér som leveret?',
+     '["offer_undo","deduct_inventory"]'),
+
     ((SELECT id FROM status_definitions WHERE code='KLAR'),
      (SELECT id FROM status_definitions WHERE code='LEVERET'),
      1, 'Træk varer fra lager?',
@@ -304,7 +309,11 @@ INSERT INTO status_transitions (from_status_id, to_status_id, requires_confirmat
 
     ((SELECT id FROM status_definitions WHERE code='LEVERET'),
      (SELECT id FROM status_definitions WHERE code='KLAR'),
-     1, 'Fortryd levering? Tilbagefør lagertræk?', '["reverse_inventory"]');
+     1, 'Fortryd levering? Tilbagefør lagertræk?', '["reverse_inventory"]'),
+
+    ((SELECT id FROM status_definitions WHERE code='LEVERET'),
+     (SELECT id FROM status_definitions WHERE code='IGANG'),
+     1, 'Fortryd levering og sæt tilbage til igang?', '["reverse_inventory"]');
 
 -- Terminal → Afsluttet
 INSERT INTO status_transitions (from_status_id, to_status_id, requires_confirmation, confirmation_message) VALUES

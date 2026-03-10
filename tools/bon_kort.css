@@ -267,8 +267,8 @@
 .bon-menu-item:hover .drag-handle { opacity: 1; }
 .bon-menu-item.dragging  { opacity: 0.35; }
 .bon-menu-item.drag-over { border-top: 2px solid var(--brown); }
-.bon-menu-qty  { font-weight: 700; color: var(--brown); min-width: 32px; flex-shrink: 0; text-align: right; }
-.bon-menu-name { flex: 1; font-style: italic; margin-left: 6px; }
+.bon-menu-qty  { font-weight: 700; color: var(--brown); min-width: 50px; flex-shrink: 0; }
+.bon-menu-name { flex: 1; font-style: italic; }
 .bon-menu-item.emballage .bon-menu-name { font-style: normal; color: var(--gray-dark); font-size: 15px; }
 .bon-menu-item.emballage .bon-menu-qty  { font-size: 15px; color: var(--gray-dark); }
 .bon-menu-divider {
@@ -354,9 +354,9 @@
 }
 .group-note-input::placeholder { color: var(--gray-dark); font-style: italic; }
 
-.bon-menu-group .bon-menu-item { padding: 6px 10px 6px 3px; font-size: 17px; background: transparent; }
+.bon-menu-group .bon-menu-item { padding: 6px 10px; font-size: 17px; background: transparent; }
 .bon-menu-group .bon-menu-item:hover { background: rgba(142,99,31,0.05); }
-.bon-menu-group .bon-menu-qty { min-width: 28px; }
+.bon-menu-group .bon-menu-qty { min-width: 44px; }
 
 /* ── CO2 (modul) ───────────────────────────────────────────── */
 .bon-co2 {
@@ -400,141 +400,3 @@
     background: var(--yellow); color: var(--brown);
 }
 .select-toggle-btn svg { width: 20px; height: 20px; }
-
-/* ── KØKKENINFO (modul) ──────────────────────────────────── */
-.bon-kitchen { margin: 4px 16px 4px 22px; }
-
-/* Pill (lukket tilstand med tekst) */
-.kitchen-pill {
-    display: flex; align-items: flex-start; gap: 8px;
-    padding: 7px 10px 7px 12px;
-    background: var(--yellow-light); border-radius: 7px;
-    cursor: pointer; transition: background 0.15s;
-}
-.kitchen-pill:hover { background: #f0e0a8; }
-.kitchen-pill::before {
-    content: ''; width: 7px; height: 7px; border-radius: 50%;
-    background: #b07a00; flex-shrink: 0; margin-top: 5px;
-}
-.kitchen-pill-text {
-    flex: 1; font-size: 13px; line-height: 1.5; color: var(--black);
-}
-.kitchen-pill-edit {
-    flex-shrink: 0; color: var(--gray-dark); font-size: 14px;
-    opacity: 0.4; transition: opacity 0.15s;
-}
-.kitchen-pill:hover .kitchen-pill-edit { opacity: 1; color: var(--brown); }
-
-/* Tom: vis add-knap, skjul pill */
-.bon-kitchen.empty .kitchen-pill { display: none; }
-.kitchen-add-btn {
-    display: none; width: 100%; padding: 6px 10px;
-    border: none; background: transparent;
-    font-family: 'Lato', sans-serif; font-size: 12px; font-weight: 700;
-    color: var(--gray-dark); cursor: pointer;
-    text-align: left; letter-spacing: 0.3px;
-    transition: color 0.15s;
-}
-.kitchen-add-btn:hover { color: var(--brown); }
-.bon-kitchen.empty .kitchen-add-btn { display: block; }
-
-/* Edit-mode: vis textarea, skjul pill/knap */
-.kitchen-edit { display: none; }
-.bon-kitchen.editing .kitchen-edit { display: block; }
-.bon-kitchen.editing .kitchen-pill { display: none !important; }
-.bon-kitchen.editing .kitchen-add-btn { display: none !important; }
-
-.kitchen-edit-input {
-    width: 100%; border: 1.5px solid var(--brown); border-radius: 7px;
-    padding: 8px 10px; font-family: 'Lato', sans-serif; font-size: 13px;
-    background: white; resize: none; outline: none;
-    color: var(--black); min-height: 44px; line-height: 1.5;
-    overflow: hidden;
-}
-.kitchen-edit-actions {
-    display: flex; gap: 8px; margin-top: 6px; justify-content: flex-end;
-}
-.kitchen-save-btn, .kitchen-cancel-btn {
-    padding: 4px 14px; border-radius: 5px;
-    font-family: 'Lato', sans-serif; font-size: 12px; font-weight: 700;
-    cursor: pointer; transition: all 0.15s;
-}
-.kitchen-save-btn {
-    border: 1.5px solid var(--brown); background: var(--brown); color: white;
-}
-.kitchen-save-btn:hover { background: #6b4800; }
-.kitchen-cancel-btn {
-    border: 1.5px solid var(--gray); background: white; color: var(--gray-dark);
-}
-.kitchen-cancel-btn:hover { background: var(--gray-light); }
-
-/* ── LEVERINGSINFO (modul) ────────────────────────────────── */
-.delivery-block {
-    margin-top: 8px; padding: 7px 10px 8px 10px;
-    background: var(--blue-light); border-radius: 6px;
-    border-left: 3px solid var(--blue);
-}
-.delivery-label {
-    font-size: 10px; font-weight: 700; text-transform: uppercase;
-    letter-spacing: 0.7px; color: #2e5478; margin-bottom: 4px;
-    display: flex; align-items: center; gap: 5px;
-}
-.delivery-label::before {
-    content: ''; width: 6px; height: 6px; border-radius: 50%;
-    background: var(--blue); flex-shrink: 0;
-}
-.delivery-text { font-size: 13px; color: var(--black); line-height: 1.45; }
-
-/* ── SAMMENTÆLLING PANEL ──────────────────────────────────── */
-.summary-panel {
-    display: none; position: absolute; bottom: 58px; left: 14px; right: 14px;
-    background: white; border: 1.5px solid rgba(142,99,31,0.25);
-    border-radius: 10px; box-shadow: 0 4px 20px rgba(0,0,0,0.12);
-    z-index: 40; overflow: hidden;
-}
-.summary-panel.open { display: block; }
-.summary-header {
-    padding: 8px 12px; background: var(--yellow-light);
-    font-size: 10px; font-weight: 700; text-transform: uppercase;
-    letter-spacing: 0.7px; color: var(--brown);
-    display: flex; justify-content: space-between; align-items: center;
-    border-bottom: 1px solid rgba(142,99,31,0.15);
-}
-.summary-close {
-    background: none; border: none; cursor: pointer; color: var(--brown);
-    font-size: 16px; line-height: 1; padding: 0 2px;
-}
-.summary-row {
-    display: flex; justify-content: space-between; align-items: baseline;
-    padding: 5px 12px; font-size: 14px; border-bottom: 1px solid rgba(142,99,31,0.06);
-}
-.summary-row:last-child { border-bottom: none; }
-.summary-qty  { font-weight: 700; color: var(--brown); }
-.summary-name { flex: 1; padding: 0 8px; }
-.summary-cat  { color: var(--gray-dark); font-size: 12px; }
-
-/* ── FORTRYD-OVERLAY (kitchen-today) ──────────────────────── */
-.fortryd-overlay {
-    display: none; position: absolute; inset: 0; z-index: 50;
-    background: transparent; cursor: pointer;
-    align-items: center; justify-content: center;
-}
-.bon-card.leveret-fading .fortryd-overlay { display: flex; }
-.fortryd-pill {
-    background: rgba(30,30,30,0.88); color: white;
-    padding: 11px 24px; border-radius: 30px;
-    font-size: 14px; font-weight: 700;
-    display: flex; align-items: center; gap: 10px;
-    box-shadow: 0 4px 16px rgba(0,0,0,0.3);
-}
-.fortryd-cd {
-    background: rgba(255,255,255,0.18); border-radius: 50%;
-    width: 30px; height: 30px; display: flex; align-items: center;
-    justify-content: center; font-size: 15px; font-weight: 900;
-}
-
-/* Leveret-fade state */
-.bon-card.leveret-fading {
-    opacity: 0.22; transform: scale(0.985);
-    transition: opacity 0.7s ease, transform 0.7s ease;
-}

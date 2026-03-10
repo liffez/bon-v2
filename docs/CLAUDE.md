@@ -87,27 +87,53 @@ Nye filer placeres præcis der de hører hjemme — kopieres ikke.
 ### Blok A — Fundament
 - [x] Status-flow defineret
 - [x] Datamodel finaliseret (bon_v2_datamodel_v2.md)
-- [ ] SQLite database oprettet med migrations
-- [ ] Seed data indsat
+- [x] SQLite database oprettet med migrations (`db/migrations/001_core.sql`)
+- [x] Seed data indsat (9 statusser, testdata med 4+ bons)
 
 ### Blok B — Kerne-backend
-- [ ] `db/migrations/001_core.sql` (status, adresser, lokationer)
-- [ ] `db/migrations/002_customers.sql`
-- [ ] `db/migrations/003_bons.sql`
-- [ ] `db/migrations/004_changelog.sql`
-- [ ] GET /api/bons/today
-- [ ] GET /api/bons
-- [ ] GET /api/bons/:id
-- [ ] POST /api/bons
-- [ ] PATCH /api/bons/:id/status
-- [ ] PATCH /api/bons/:id/prep
-- [ ] GET /api/sse
+- [x] `db/migrations/001_core.sql` — Samlet migration (status, adresser, kunder, bons, changelog)
+- [x] GET /api/bons/today
+- [x] GET /api/bons
+- [x] GET /api/bons/:id
+- [x] POST /api/bons
+- [x] PATCH /api/bons/:id/status (med dynamisk validering via `status_transitions`)
+- [x] PATCH /api/bons/:id/prep
+- [x] PATCH /api/bons/:id/kitchen-info
+- [x] GET /api/sse (realtid med auto-reconnect)
 - [ ] Grocy adapter (læs opskrifter, lager)
 
 ### Blok C — Første views
-- [ ] kitchen/today.html — Køkken I dag
+- [x] kitchen/today.html — Køkken I dag (fuldt dynamisk)
 - [ ] kitchen/later.html — Køkken Senere
 - [ ] Kalender-view (shared)
+
+### Shared komponenter
+- [x] `shared/bon_kort.js` + `shared/bon_kort.css` — Genbrugelig kort-komponent
+  - Status-bar med klikbare knapper (styret af VIEW_WINDOWS i BonConfigBar.js)
+  - Prep-checks (Råvarer / Emballage badges)
+  - Kunde-sektion med fold-ud detaljer
+  - Køkkeninfo pill (lukket: viser tekst + ✎, klik åbner inline textarea, Gem/Annuller)
+  - Menu-liste med grupper (select-mode → vælg items → Gruppér → titel + note)
+  - Drag-and-drop af grupper og items
+  - Leveret-fading med fortryd-overlay (8s countdown)
+  - Sammentællings-panel
+  - Action-bar med modulære knapper
+- [x] `shared/utils.js` — Status-mapping, dato-formattering, SSE-helper, `mapApiBonToCardData()`
+- [x] `shared/api.js` — API-funktioner (fetch, patch status/prep/kitchen-info)
+- [x] `BonConfig.js` — Status-definitioner (koder, labels, farver)
+- [x] `BonConfigBar.js` — VIEW_WINDOWS per view
+
+### kitchen/today.html — Features
+- Dynamisk rendering fra API-data via `createCard(data, 'kitchen-today')`
+- Filter-system: tap = 8s peek-preview, hold = permanent lock (IGANG/KLAR/VIS LEVEREDE)
+- VIS LEVEREDE med tæller, eksklusivt filter
+- Leveret-fading: IGANG/KLAR → LEV med 8s fortryd-countdown, fade-out animation
+- Fortryd med SSE-suppress (undgår race condition ved optimistisk UI + SSE)
+- Status-transitions: IGANG → KLAR → LEV + direkte IGANG → LEV og LEV → IGANG
+- Prep-badge toggle med API-kald
+- Køkkeninfo inline-edit (pill → textarea → gem)
+- SSE realtidsopdatering af kort-status
+- Sammentælling (aggregerer varer fra menu-items)
 
 ---
 
@@ -115,17 +141,11 @@ Nye filer placeres præcis der de hører hjemme — kopieres ikke.
 
 > ✏️ Opdater denne sektion FØR du starter en ny session i Claude Code.
 
-**Ingen aktiv opgave sat endnu.**
-
-Eksempel på udfyldt:
-```
-OPGAVE: Opret migrations og seed
-- Skriv db/migrations/001_core.sql (status_definitions, addresses, locations)
-- Skriv db/migrations/002_customers.sql
-- Skriv db/migrate.js der kører nye filer fortløbende
-- Kør npm run setup og verificér med sqlite3
-Acceptkriterium: `SELECT * FROM status_definitions` returnerer 9 rækker
-```
+Mulige næste trin:
+- `kitchen/later.html` — Køkken Senere (genbruger bon_kort.js med view `kitchen-later`)
+- Kalender-view
+- Grocy adapter
+- Persistering af grupper (gemmes i DB, ikke kun klient-side)
 
 ---
 

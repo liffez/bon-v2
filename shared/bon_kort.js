@@ -229,7 +229,9 @@ function _updateCount(menu, num) {
    ══════════════════════════════════════════════════════════════ */
 function groupSelected(menuId) {
     const menu  = document.getElementById(menuId);
-    const items = [...menu.querySelectorAll('.bon-menu-item')].filter(item =>
+    // Items live inside .select-mode-container (nested child), not directly in menu
+    const container = menu.querySelector('.select-mode-container') || menu;
+    const items = [...container.querySelectorAll('.bon-menu-item')].filter(item =>
         item.querySelector('.item-select')?.classList.contains('checked') &&
         !item.closest('.bon-menu-group')
     );
@@ -283,7 +285,7 @@ function groupSelected(menuId) {
                       oninput="noteChanged(this)"></textarea>
         </div>`;
 
-    menu.insertBefore(grp, items[0]);
+    container.insertBefore(grp, items[0]);
     items.forEach(item => {
         item.querySelector('.item-select')?.classList.remove('checked');
         grp.appendChild(item);
@@ -346,8 +348,12 @@ document.addEventListener('dragover', e => {
     document.querySelectorAll('.drag-over, .drag-over-group')
         .forEach(el => el.classList.remove('drag-over', 'drag-over-group'));
     if (_dragType === 'group') {
+        // Grupper kan droppes ved andre grupper…
         const tg = e.target.closest('.bon-menu-group');
-        if (tg && tg !== _dragEl) tg.classList.add('drag-over-group');
+        if (tg && tg !== _dragEl) { tg.classList.add('drag-over-group'); return; }
+        // …eller ved løse (ugrupperede) menu-items
+        const ti = e.target.closest('.bon-menu-item');
+        if (ti && !ti.closest('.bon-menu-group')) ti.classList.add('drag-over');
     } else {
         const ti = e.target.closest('[data-drag="item"]');
         if (ti && ti !== _dragEl) ti.classList.add('drag-over');
@@ -417,7 +423,7 @@ document.addEventListener('drop', e => {
    ══════════════════════════════════════════════════════════════ */
 
 const VIEW_MODULES = {
-    'kitchen-today':  { prep: true,  customer: true,  alerts: true,  co2: false, select: false },
+    'kitchen-today':  { prep: true,  customer: true,  alerts: false, co2: false, select: true,  kitchenInfo: true, deliveryBlock: true, summary: true },
     'kitchen-later':  { prep: false, customer: true,  alerts: true,  co2: false, select: false },
     'invoice':        { prep: false, customer: true,  alerts: false, co2: false, select: true  },
     'all':            { prep: false, customer: true,  alerts: true,  co2: true,  select: true  },
@@ -436,6 +442,7 @@ const VIEW_ACTIONS = {
         { tooltip: 'Råvarer',       icon: '<circle cx="12" cy="12" r="10"/><line x1="12" y1="16" x2="12" y2="12"/><line x1="12" y1="8" x2="12.01" y2="8"/>' },
         { tooltip: 'Kort',          icon: '<path d="M21 10c0 7-9 13-9 13s-9-6-9-13a9 9 0 0118 0z"/><circle cx="12" cy="10" r="3"/>' },
         { tooltip: 'Historik',      icon: '<circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/>' },
+        { tooltip: 'Sammentælling', icon: '<line x1="4" y1="6" x2="20" y2="6"/><line x1="4" y1="10" x2="14" y2="10"/><line x1="4" y1="14" x2="20" y2="14"/><line x1="4" y1="18" x2="14" y2="18"/><polyline points="17 14 20 17 17 20"/>', onclick: 'showSummary' },
     ],
     'kitchen-later': [
         { tooltip: 'Åbn bon',       icon: '<path d="M14 2H6a2 2 0 00-2 2v16a2 2 0 002 2h12a2 2 0 002-2V8z"/><polyline points="14 2 14 8 20 8"/>' },
@@ -455,12 +462,14 @@ const VIEW_ACTIONS = {
     ],
 };
 
-function _buildActions(viewName) {
+function _buildActions(viewName, cardId) {
     const actions = VIEW_ACTIONS[viewName] || VIEW_ACTIONS['all'];
-    return actions.map(a => `
-        <button class="action-btn" data-tooltip="${a.tooltip}">
+    return actions.map(a => {
+        const click = a.onclick ? ` onclick="${a.onclick}('${cardId}')"` : '';
+        return `<button class="action-btn" data-tooltip="${a.tooltip}"${click}>
             <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">${a.icon}</svg>
-        </button>`).join('');
+        </button>`;
+    }).join('');
 }
 
 function createCard(bonData, viewName) {
@@ -485,10 +494,28 @@ function createCard(bonData, viewName) {
     const levStr = bonData.delivery_time ? ` → Lev ${bonData.delivery_time}` : '';
     const paxStr = bonData.pax ? `${bonData.pax} pax` : '';
 
+    // Fortryd: overlay for kitchen-today, generisk bar for andre views
+    const isKitchenToday = viewName === 'kitchen-today';
+    const fortrydHtml = isKitchenToday
+        ? `<div class="fortryd-overlay" onclick="fortrydLevering('${cardId}')">
+               <div class="fortryd-pill">Fortryd levering <span class="fortryd-cd" id="cd${num}">8</span></div>
+           </div>`
+        : `<div class="fortryd-bar" id="fortryd${num}">
+               <span>Forsvinder om <strong><span id="countdown${num}">8</span>s</strong></span>
+               <button class="fortryd-btn" onclick="fortryd('${cardId}')">Fortryd</button>
+           </div>`;
+
+    // Kunde med delivery-block
+    const customerHtml = mods.customer && bonData.customer
+        ? _buildCustomer(bonData.customer, num, mods.deliveryBlock ? bonData : null)
+        : '';
+
     el.innerHTML = `
+        ${fortrydHtml}
+
         <div class="bon-header">
             <div class="bon-header-left">
-                <div class="bon-id">#${id}</div>
+                <div class="bon-id">#${bonData.bon_number || id}</div>
                 <div class="bon-time-row">
                     <span class="bon-pickup">${bonData.pickup_time || ''}</span>
                     <span class="bon-lev">${levStr}</span>
@@ -505,14 +532,9 @@ function createCard(bonData, viewName) {
         <!-- Status-bar (bygges dynamisk) -->
         <div class="bon-status-bar" id="sbar${num}"></div>
 
-        <!-- Fortryd-bar (med countdown) -->
-        <div class="fortryd-bar" id="fortryd${num}">
-            <span>Forsvinder om <strong><span id="countdown${num}">8</span>s</strong></span>
-            <button class="fortryd-btn" onclick="fortryd('${cardId}')">Fortryd</button>
-        </div>
-
         ${mods.prep && bonData.prep ? _buildPrep(bonData.prep, num) : ''}
-        ${mods.customer && bonData.customer ? _buildCustomer(bonData.customer, num) : ''}
+        ${customerHtml}
+        ${mods.kitchenInfo ? _buildKitchenInfo(bonData, num) : ''}
         ${mods.alerts && bonData.alerts && bonData.alerts.length ? _buildAlerts(bonData.alerts) : ''}
 
         <!-- Menu -->
@@ -534,7 +556,7 @@ function createCard(bonData, viewName) {
         <!-- Actions — sæt per view -->
         <div class="bon-actions">
             <div class="bon-actions-left">
-                ${_buildActions(viewName)}
+                ${_buildActions(viewName, cardId)}
             </div>
             ${mods.select ? `
             <button class="select-toggle-btn" id="selBtn${num}" onclick="enterSelect('${cardId}')">
@@ -545,6 +567,7 @@ function createCard(bonData, viewName) {
                     <rect x="14" y="14" width="7" height="7" rx="1"/>
                 </svg>
             </button>` : ''}
+            ${mods.summary ? _buildSummaryPanel(num, cardId) : ''}
         </div>
     `;
 
@@ -558,21 +581,24 @@ function createCard(bonData, viewName) {
 
 function _buildPrep(prepItems, num) {
     const badges = prepItems.map(p => `
-        <div class="prep-badge${p.checked ? ' checked' : ''}" onclick="this.classList.toggle('checked')">
+        <div class="prep-badge${p.checked ? ' checked' : ''}" data-prep-id="${p.id}">
             <div class="prep-check"></div>
             ${p.label}
         </div>`).join('');
     return `<div class="bon-prep">${badges}</div>`;
 }
 
-function _buildCustomer(c, num) {
+function _buildCustomer(c, num, bonDataForDelivery) {
     const company = c.company ? ` · ${c.company}` : '';
-    const detailItems = [
+    const detailParts = [
         c.phone ? `<div class="detail-row">📞 <a href="tel:${c.phone}">${c.phone}</a></div>` : '',
         c.email ? `<div class="detail-row">✉ <a href="mailto:${c.email}">${c.email}</a></div>` : '',
     ].filter(Boolean).join('');
 
-    const hasDetails = detailItems.length > 0;
+    // Delivery block inde i customer details
+    const deliveryHtml = bonDataForDelivery ? _buildDeliveryBlock(bonDataForDelivery) : '';
+    const allDetails = detailParts + deliveryHtml;
+    const hasDetails = allDetails.length > 0;
 
     return `
         <div class="bon-customer${hasDetails ? '' : ' no-expand'}"
@@ -583,7 +609,93 @@ function _buildCustomer(c, num) {
             </div>
             ${hasDetails ? '<div class="customer-expand">▾</div>' : ''}
         </div>
-        ${hasDetails ? `<div class="bon-customer-details">${detailItems}</div>` : ''}`;
+        ${hasDetails ? `<div class="bon-customer-details">${allDetails}</div>` : ''}`;
+}
+
+function _buildKitchenInfo(bonData, num) {
+    const text = bonData.kitchen_info || '';
+    const hasContent = text.trim().length > 0;
+    const _esc = typeof esc === 'function' ? esc : (s) => String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
+
+    return `
+        <div class="bon-kitchen${hasContent ? '' : ' empty'}" id="kitchen${num}">
+            <div class="kitchen-pill" onclick="openKitchenEdit('${num}')">
+                <span class="kitchen-pill-text">${hasContent ? _esc(text) : ''}</span>
+                <span class="kitchen-pill-edit">✎</span>
+            </div>
+            <button class="kitchen-add-btn" onclick="openKitchenEdit('${num}')">+ Køkkeninfo</button>
+            <div class="kitchen-edit">
+                <textarea class="kitchen-edit-input" id="kitchenInput${num}"
+                    oninput="autoResizeKitchen(this)">${hasContent ? _esc(text) : ''}</textarea>
+                <div class="kitchen-edit-actions">
+                    <button class="kitchen-save-btn" onclick="saveKitchenEdit('${num}')">Gem</button>
+                    <button class="kitchen-cancel-btn" onclick="cancelKitchenEdit('${num}')">Annuller</button>
+                </div>
+            </div>
+        </div>`;
+}
+
+function openKitchenEdit(num) {
+    const el = document.getElementById('kitchen' + num);
+    el.classList.add('editing');
+    const input = document.getElementById('kitchenInput' + num);
+    input.focus();
+    input.selectionStart = input.selectionEnd = input.value.length;
+    autoResizeKitchen(input);
+}
+
+function saveKitchenEdit(num) {
+    const el = document.getElementById('kitchen' + num);
+    const input = document.getElementById('kitchenInput' + num);
+    const val = input.value.trim();
+
+    // Opdater pill-tekst
+    el.querySelector('.kitchen-pill-text').textContent = val;
+    el.classList.toggle('empty', !val);
+    el.classList.remove('editing');
+
+    // Gem via API
+    patchBonKitchenInfo(num, val || null).catch(err => {
+        console.error('Køkkeninfo gem fejlede:', err);
+    });
+}
+
+function cancelKitchenEdit(num) {
+    const el = document.getElementById('kitchen' + num);
+    const input = document.getElementById('kitchenInput' + num);
+    // Gendan original tekst fra pill
+    input.value = el.querySelector('.kitchen-pill-text').textContent;
+    el.classList.remove('editing');
+}
+
+function autoResizeKitchen(ta) {
+    ta.style.height = 'auto';
+    ta.style.height = ta.scrollHeight + 'px';
+}
+
+function _buildDeliveryBlock(bonData) {
+    const notes = bonData.delivery_notes || '';
+    const method = bonData.delivery_method || '';
+    if (!notes && !method) return '';
+    const _esc = typeof esc === 'function' ? esc : (s) => String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
+    const parts = [];
+    if (method) parts.push(method);
+    if (notes) parts.push(_esc(notes));
+    return `
+        <div class="delivery-block">
+            <div class="delivery-label">Leveringsinfo</div>
+            <div class="delivery-text">${parts.join(' · ')}</div>
+        </div>`;
+}
+
+function _buildSummaryPanel(num, cardId) {
+    return `
+        <div class="summary-panel" id="summary${num}">
+            <div class="summary-header">Sammentælling
+                <button class="summary-close" onclick="closeSummary('${cardId}')">×</button>
+            </div>
+            <div id="summaryRows${num}"></div>
+        </div>`;
 }
 
 function _buildAlerts(alerts) {

@@ -1,13 +1,78 @@
-// BON V2 — API-klient
+/**
+ * shared/api.js
+ * ════════════════════════════════════════════════════════════
+ * API-klient for Bon v2 frontend.
+ * Alle funktioner returnerer Promises.
+ * ════════════════════════════════════════════════════════════
+ */
+
 const API_BASE = '/api';
 
 async function apiFetch(path, options = {}) {
-  const res = await fetch(API_BASE + path, {
-    headers: { 'Content-Type': 'application/json' },
-    ...options
-  });
-  if (!res.ok) throw new Error(`API fejl: ${res.status} ${res.statusText}`);
-  return res.json();
+    const res = await fetch(API_BASE + path, {
+        headers: { 'Content-Type': 'application/json' },
+        ...options,
+    });
+    if (!res.ok) {
+        const body = await res.json().catch(() => ({}));
+        throw new Error(body.error || `API fejl: ${res.status}`);
+    }
+    return res.json();
 }
 
-// TODO: Tilføj API-funktioner her
+/* ── BONS ─────────────────────────────────────────────────── */
+
+function fetchBonsToday() {
+    return apiFetch('/bons/today');
+}
+
+function fetchBons(params) {
+    const qs = new URLSearchParams(params).toString();
+    return apiFetch('/bons' + (qs ? '?' + qs : ''));
+}
+
+function fetchBon(id) {
+    return apiFetch('/bons/' + id);
+}
+
+function patchBonStatus(id, statusCode, userId) {
+    return apiFetch('/bons/' + id + '/status', {
+        method: 'PATCH',
+        body: JSON.stringify({ status_code: statusCode, user_id: userId }),
+    });
+}
+
+function patchBonPrep(id, ingredientsReady, suppliesReady) {
+    return apiFetch('/bons/' + id + '/prep', {
+        method: 'PATCH',
+        body: JSON.stringify({
+            ingredients_ready: ingredientsReady,
+            supplies_ready:    suppliesReady,
+        }),
+    });
+}
+
+function patchBonKitchenInfo(id, text, userId) {
+    return apiFetch('/bons/' + id + '/kitchen-info', {
+        method: 'PATCH',
+        body: JSON.stringify({ text: text, user_id: userId }),
+    });
+}
+
+/* ── STATUSES ─────────────────────────────────────────────── */
+
+function fetchStatuses() {
+    return apiFetch('/statuses');
+}
+
+/* ── CUSTOMERS ────────────────────────────────────────────── */
+
+function fetchCustomers(q) {
+    return apiFetch('/customers' + (q ? '?q=' + encodeURIComponent(q) : ''));
+}
+
+/* ── CHANGELOG ────────────────────────────────────────────── */
+
+function fetchBonChangelog(id) {
+    return apiFetch('/bons/' + id + '/changelog');
+}
