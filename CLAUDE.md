@@ -141,6 +141,10 @@ Nye filer placeres præcis der de hører hjemme — kopieres ikke.
   - Action-bar med modulære knapper
 - [x] `shared/utils.js` — Status-mapping, dato-formattering, `connectSSE()` (named events), `mapApiBonToCardData()`
 - [x] `shared/api.js` — API-funktioner (fetch, patch status/prep/kitchen-info)
+- [x] `shared/modal.js` + `shared/modal.css` — Genbrugelig modal-komponent
+  - `openModal({ title, bodyHtml })` / `closeModal()` API
+  - Luk med ×, overlay-klik eller Escape
+  - `showHistorik(cardId)` — henter changelog via API, viser formateret med danske labels
 - [x] `BonConfig.js` — Status-definitioner (koder, labels, farver)
 - [x] `BonConfigBar.js` — VIEW_WINDOWS per view
 
@@ -155,6 +159,7 @@ Nye filer placeres præcis der de hører hjemme — kopieres ikke.
 - Køkkeninfo inline-edit (pill → textarea → gem)
 - SSE realtidsopdatering via named events (`bon_status`, `notification`)
 - Sammentælling (aggregerer varer fra menu-items)
+- Historik-knap åbner shared modal med changelog
 
 ### kitchen/later.html — Features
 - Dynamisk rendering fra API-data via `createCard(data, 'kitchen-later')`
@@ -167,24 +172,17 @@ Nye filer placeres præcis der de hører hjemme — kopieres ikke.
 - Count badge opdateres ved ændringer
 - Samme action-knapper som today: Tilføj vare, Send flyver, Send mail, Råvarer, Kort, Historik, Sammentælling
 - Select-mode + sammentællings-panel (identisk med today)
+- Historik-knap åbner shared modal med changelog
 
 ---
 
 ## Næste opgave
 
-> ✏️ Opdater denne sektion FØR du starter en ny session i Claude Code.
-### 2. `historik`-knap
+> ✏️ Opdateret efter session marts 2026.
 
-Ingen nye backend-endpoints nødvendige — `GET /api/bons/:id/changelog` eksisterer.
+### Prioriteret rækkefølge
 
-- Knap i action-bar på bon-kort åbner en modal
-- Modal henter og viser changelog for bonen i kronologisk rækkefølge
-- Samme modal-komponent genbruges til `info`-knap senere
-- Implementeres i `shared/bon_kort.js`
-
----
-
-### 3. Grocy adapter — readonly
+**1. Grocy adapter (readonly)**
 
 **Fil:** `services/grocyAdapter.js`
 

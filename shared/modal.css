@@ -1,0 +1,148 @@
+/**
+ * shared/modal.css
+ * ════════════════════════════════════════════════════════════
+ * Genbrugelig modal-komponent.
+ * Bruges af shared/modal.js — openModal() / closeModal().
+ * ════════════════════════════════════════════════════════════
+ */
+
+/* ── OVERLAY ──────────────────────────────────────────────── */
+.modal-overlay {
+    position: fixed; inset: 0;
+    background: rgba(0,0,0,0.45);
+    z-index: 1000;
+    display: flex; align-items: center; justify-content: center;
+    opacity: 0;
+    transition: opacity 0.2s ease;
+}
+.modal-overlay.open {
+    opacity: 1;
+}
+
+/* ── PANEL ────────────────────────────────────────────────── */
+.modal-panel {
+    background: var(--color-surface, #ffffff);
+    border-radius: 14px;
+    width: 90vw; max-width: 520px;
+    max-height: 80vh;
+    display: flex; flex-direction: column;
+    box-shadow: 0 8px 32px rgba(0,0,0,0.18), 0 2px 8px rgba(0,0,0,0.1);
+    transform: translateY(16px);
+    transition: transform 0.2s ease;
+}
+.modal-overlay.open .modal-panel {
+    transform: translateY(0);
+}
+
+/* ── HEADER ───────────────────────────────────────────────── */
+.modal-header {
+    display: flex; align-items: center; justify-content: space-between;
+    padding: 16px 20px;
+    border-bottom: 1px solid var(--color-border, #d7d1ca);
+    flex-shrink: 0;
+}
+.modal-title {
+    font-size: 16px; font-weight: 700;
+    color: var(--brand-primary, #8e631f);
+}
+.modal-close {
+    width: 32px; height: 32px;
+    border: none; background: none; cursor: pointer;
+    font-size: 20px; color: var(--color-text-dim, #8a8580);
+    border-radius: 6px;
+    display: flex; align-items: center; justify-content: center;
+    transition: background 0.15s, color 0.15s;
+}
+.modal-close:hover {
+    background: var(--color-background, #f5f4f2);
+    color: var(--color-text, #333);
+}
+
+/* ── BODY ─────────────────────────────────────────────────── */
+.modal-body {
+    padding: 16px 20px;
+    overflow-y: auto;
+    flex: 1;
+}
+
+/* ══════════════════════════════════════════════════════════════
+   HISTORIK / CHANGELOG
+   ══════════════════════════════════════════════════════════════ */
+
+.changelog-empty {
+    text-align: center;
+    color: var(--color-text-dim, #8a8580);
+    font-size: 14px;
+    padding: 24px 0;
+    font-style: italic;
+}
+
+.changelog-list {
+    display: flex; flex-direction: column;
+    gap: 0;
+}
+
+.changelog-entry {
+    display: flex; gap: 12px;
+    padding: 12px 0;
+    border-bottom: 1px solid var(--color-border, #d7d1ca);
+}
+.changelog-entry:last-child {
+    border-bottom: none;
+}
+
+/* Ikon / badge */
+.changelog-icon {
+    flex-shrink: 0;
+    width: 28px; height: 28px;
+    border-radius: 50%;
+    display: flex; align-items: center; justify-content: center;
+    font-size: 13px;
+    margin-top: 1px;
+}
+.changelog-icon.action-create        { background: #e8f2dc; color: #5a8a3a; }
+.changelog-icon.action-status_change { background: #e8f0f6; color: #4a7a9e; }
+.changelog-icon.action-update        { background: #fef3d6; color: #9a7020; }
+.changelog-icon.action-delete        { background: #fde8e8; color: #bc181b; }
+
+/* Indhold */
+.changelog-content {
+    flex: 1; min-width: 0;
+}
+.changelog-action-label {
+    font-size: 13px; font-weight: 700;
+    color: var(--color-text, #333);
+}
+.changelog-detail {
+    font-size: 13px;
+    color: var(--color-text-dim, #8a8580);
+    margin-top: 2px;
+    word-break: break-word;
+}
+.changelog-detail .old-value {
+    text-decoration: line-through;
+    opacity: 0.7;
+}
+.changelog-detail .new-value {
+    font-weight: 600;
+    color: var(--color-text, #333);
+}
+.changelog-detail .arrow {
+    margin: 0 4px;
+    color: var(--color-text-dim, #8a8580);
+}
+
+/* Meta: tid + bruger */
+.changelog-meta {
+    display: flex; gap: 8px; align-items: center;
+    margin-top: 4px;
+}
+.changelog-time {
+    font-size: 11px;
+    color: var(--color-text-dim, #8a8580);
+}
+.changelog-user {
+    font-size: 11px;
+    color: var(--color-text-dim, #8a8580);
+    font-style: italic;
+}
