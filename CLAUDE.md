@@ -182,13 +182,15 @@ Nye filer placeres præcis der de hører hjemme — kopieres ikke.
 
 ### Prioriteret rækkefølge
 
-**1. Action-knapper**
-- `info` — vis bon-detalje i modal (genbruger shared/modal.js)
-- `kort` — åbn Google Maps med leveringsadressen
+**1. Action-knap: `+` Tilføj vare**
+- Søg i Grocy-opskrifter (`/api/grocy/recipes`) — opskrifter = produkter i Bon v2
+- Kategorier (grupper) kommer fra Grocy userfield `grupper`
+- Tilføj til bon_lines med `grocy_recipe_id`, korrekt `product_name`, `category`
+- Seed-data har forkerte produktnavne — denne opgave retter op på det ved at bruge Grocy som kilde
 
-**2. Action-knap: `+` Tilføj vare**
-- Søg i Grocy-produkter via `/api/grocy/products`
-- Tilføj til bon_lines
+**2. Action-knapper**
+- `info` — vis bon-detalje i modal (genbruger shared/modal.js). Kræver korrekte bon_lines fra Grocy
+- `kort` — åbn Google Maps med leveringsadressen (uafhængig, kan laves når som helst)
 
 **3. `kitchen/today.html` — efterbehandling**
 - Løbende ur i header (højrejusteret, `--color-text-dim`, opdateres hvert minut)
