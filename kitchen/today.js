@@ -54,10 +54,12 @@ function updateTodayHeader() {
 const _suppressSSE = {};
 
 function initSSE() {
-    connectSSE('/api/sse', (data) => {
-        if (data.type === 'connected') return;
+    connectSSE('/api/sse', {
+        connected: () => {
+            console.log('SSE tilsluttet');
+        },
 
-        if (data.type === 'bon_status') {
+        bon_status: (data) => {
             // Spring over hvis bon har aktiv SSE-suppress (fortryd pågår)
             if (_suppressSSE[data.bon_id] && Date.now() - _suppressSSE[data.bon_id] < 3000) return;
             delete _suppressSSE[data.bon_id];
@@ -70,10 +72,9 @@ function initSSE() {
             buildStatusBar(card);
             if (newFe === 'lev') startLeveretFade(card);
             updateCount();
-        }
+        },
 
-        if (data.type === 'notification') {
-            // Vis notifikation som alert på kortet
+        notification: (data) => {
             const card = document.getElementById('bon' + data.bon_id);
             if (!card) return;
             const alertsEl = card.querySelector('.bon-alerts');
@@ -372,8 +373,8 @@ function endPeek(f) {
    ══════════════════════════════════════════════════════════════ */
 
 function updateCount() {
-    const visible = document.querySelectorAll('.bon-card[data-status="igang"], .bon-card[data-status="klar"]');
-    const n = [...visible].filter(c => c.style.display !== 'none').length;
+    const all = document.querySelectorAll('.bon-card:not([data-status="lev"])');
+    const n = [...all].filter(c => c.style.display !== 'none').length;
     const el = document.getElementById('todayCount');
     if (el) el.textContent = n + (n === 1 ? ' bon tilbage' : ' bons tilbage');
 

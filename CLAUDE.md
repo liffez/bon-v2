@@ -56,14 +56,32 @@ Disse er sandheden. Al kode skal passe med dem.
 
 ```
 bon-v2/
-├── shared/           ← tokens.css, components.css, api.js, utils.js
+├── server.js         ← App setup, middleware, mount routes, listen — intet andet
+├── routes/
+│   ├── kitchen.js    ← GET /api/bons/today  (monteres FØR bons.js)
+│   ├── bons.js       ← /api/bons/* (CRUD, status, lines, changelog, notifications)
+│   ├── statuses.js   ← /api/statuses/*
+│   ├── customers.js  ← /api/customers/*
+│   └── settings.js   ← /api/settings/*
+├── db/
+│   ├── database.js   ← getDb() singleton (lazy init + migrations)
+│   ├── helpers.js    ← logChange, handle, getBon, getBonLines, getStatusId, nextBonNumber
+│   ├── migrate.js    ← Kører migrations fra db/migrations/
+│   ├── seed.js       ← Testdata (11 bons, 7 kunder, 5 firmaer)
+│   └── migrations/   ← 001_core.sql, ...
+├── shared/
+│   ├── sse.js        ← SSE router + broadcast(), sendTo() — named events
+│   ├── tokens.css    ← Design tokens
+│   ├── components.css
+│   ├── bon_kort.js + bon_kort.css
+│   ├── api.js        ← Frontend API-funktioner
+│   └── utils.js      ← Status-mapping, connectSSE(), mapApiBonToCardData()
 ├── kitchen/          ← MPA: index.html, today.html, later.html, ...
 ├── office/           ← SPA-shell: index.html + views/*.js
 ├── settings/         ← index.html (eget shell)
-├── db/               ← migrate.js, seed.js, helpers, migrations/
 ├── assets/           ← logo.svg, icons/, fonts/
-├── server.js         ← ÉN server
 ├── BonConfig.js
+├── BonConfigBar.js
 ├── package.json
 └── .env              ← aldrig i git
 ```
@@ -77,7 +95,9 @@ Nye filer placeres præcis der de hører hjemme — kopieres ikke.
 - **Changelog skrives af serveren** — aldrig af frontenden
 - **Validering sker i serveren** — frontenden er convenience
 - **Grocy læses via adapter** — skriv aldrig direkte til Grocy's database
-- **SSE på `/api/sse`** — kitchen-views abonnerer her
+- **SSE på `/api/sse`** — named events via `addEventListener`, aldrig `onmessage`
+- **Route-filer bruger `getDb()`** — aldrig global `db`-variabel
+- **`logChange({...})`** — objekt-API, aldrig positionelle argumenter
 - **Nye npm-pakker kræver godkendelse** — spørg først
 
 ---
@@ -88,18 +108,19 @@ Nye filer placeres præcis der de hører hjemme — kopieres ikke.
 - [x] Status-flow defineret
 - [x] Datamodel finaliseret (bon_v2_datamodel_v2.md)
 - [x] SQLite database oprettet med migrations (`db/migrations/001_core.sql`)
-- [x] Seed data indsat (9 statusser, testdata med 4+ bons)
+- [x] Seed data (11 bons over 5 dage, 7 kunder, 5 firmaer, blandede statusser)
 
 ### Blok B — Kerne-backend
 - [x] `db/migrations/001_core.sql` — Samlet migration (status, adresser, kunder, bons, changelog)
-- [x] GET /api/bons/today
-- [x] GET /api/bons
-- [x] GET /api/bons/:id
-- [x] POST /api/bons
-- [x] PATCH /api/bons/:id/status (med dynamisk validering via `status_transitions`)
-- [x] PATCH /api/bons/:id/prep
-- [x] PATCH /api/bons/:id/kitchen-info
-- [x] GET /api/sse (realtid med auto-reconnect)
+- [x] Backend refaktoreret: `server.js` → `routes/` + `db/` + `shared/sse.js`
+- [x] `db/database.js` — `getDb()` singleton med lazy init + auto-migrations
+- [x] `db/helpers.js` — `logChange`, `handle`, `getBon`, `getBonLines`, `getStatusId`, `nextBonNumber`
+- [x] `shared/sse.js` — Named events, multi-client, heartbeat, `broadcast()` + `sendTo()`
+- [x] `routes/kitchen.js` — GET /api/bons/today
+- [x] `routes/bons.js` — CRUD, status (m/ triggers_json stub), prep, kitchen-info, lines, changelog, notifications
+- [x] `routes/statuses.js` — GET statuses + transitions
+- [x] `routes/customers.js` — GET customers
+- [x] `routes/settings.js` — GET/PATCH settings
 - [ ] Grocy adapter (læs opskrifter, lager)
 
 ### Blok C — Første views
@@ -118,7 +139,7 @@ Nye filer placeres præcis der de hører hjemme — kopieres ikke.
   - Leveret-fading med fortryd-overlay (8s countdown)
   - Sammentællings-panel
   - Action-bar med modulære knapper
-- [x] `shared/utils.js` — Status-mapping, dato-formattering, SSE-helper, `mapApiBonToCardData()`
+- [x] `shared/utils.js` — Status-mapping, dato-formattering, `connectSSE()` (named events), `mapApiBonToCardData()`
 - [x] `shared/api.js` — API-funktioner (fetch, patch status/prep/kitchen-info)
 - [x] `BonConfig.js` — Status-definitioner (koder, labels, farver)
 - [x] `BonConfigBar.js` — VIEW_WINDOWS per view
@@ -129,10 +150,10 @@ Nye filer placeres præcis der de hører hjemme — kopieres ikke.
 - VIS LEVEREDE med tæller, eksklusivt filter
 - Leveret-fading: IGANG/KLAR → LEV med 8s fortryd-countdown, fade-out animation
 - Fortryd med SSE-suppress (undgår race condition ved optimistisk UI + SSE)
-- Status-transitions: IGANG → KLAR → LEV + direkte IGANG → LEV og LEV → IGANG
+- Status-transitions: GODKENDT/IGANG/KLAR → LEV (alle kan springe direkte) + LEV → IGANG (fortryd)
 - Prep-badge toggle med API-kald
 - Køkkeninfo inline-edit (pill → textarea → gem)
-- SSE realtidsopdatering af kort-status
+- SSE realtidsopdatering via named events (`bon_status`, `notification`)
 - Sammentælling (aggregerer varer fra menu-items)
 
 ---
@@ -141,28 +162,59 @@ Nye filer placeres præcis der de hører hjemme — kopieres ikke.
 
 > ✏️ Opdater denne sektion FØR du starter en ny session i Claude Code.
 
-Mulige næste trin:
-- `kitchen/later.html` — Køkken Senere (genbruger bon_kort.js med view `kitchen-later`)
-- Kalender-view
-- Grocy adapter
-- Persistering af grupper (gemmes i DB, ikke kun klient-side)
+### Prioriteret rækkefølge
+
+**1. `kitchen/later.html`** — Køkken Senere
+- Genbruger `shared/bon_kort.js` med `VIEW_WINDOW = 'kitchen-later'`
+- Henter fra `GET /api/bons?status=GODKENDT,VENTER_INFO&from=tomorrow` (ikke dagens dato)
+- Grupperet efter dato
+- Ingen filter-bar (ikke relevant her)
+
+**2. Action-knapper (ingen Grocy-dependency)**
+- `info` — vis bon-detalje/changelog i modal
+- `kort` — åbn Google Maps med leveringsadressen
+- `historik` — vis changelog for bon
+
+**3. Grocy adapter (readonly)**
+- `GET /api/grocy/products` — produktliste
+- `GET /api/grocy/stock` — lagerstatus
+- `GET /api/grocy/recipes` — opskrifter
+- Fundament for alt videre Grocy-arbejde
+
+**4. Action-knap: `+` Tilføj vare**
+- Kræver Grocy adapter
+- Søg i Grocy-produkter, tilføj til bon_lines
+
+**Moduloversigt (se `bon_v2_zoner_og_layout.md` sektion 3):**
+- Indkøb = `kitchen/purchasing.html` — liste + hvad afventer
+- Bestilling = `kitchen/orders.html` — PO, leverandørpriser, varemodtagelse (faner)
+- Varemodtagelse er en fane i Bestilling — 2 trin: Fødevarekontrol → Lager (Grocy)
 
 ---
 
 ## API-base reference
 
 ```
-GET  /api/bons/today
-GET  /api/bons?date=&status=&q=&location=
-GET  /api/bons/:id
-POST /api/bons
-PATCH /api/bons/:id/status       { status_code, user_id, force? }
-PATCH /api/bons/:id/prep         { ingredients_ready, supplies_ready }
-PATCH /api/bons/:id/kitchen-info { text }
-GET  /api/bons/:id/changelog
-GET  /api/sse
-GET  /api/statuses
-GET  /api/customers
+GET    /api/bons/today                                   routes/kitchen.js
+GET    /api/bons?date=&status=&q=&location=              routes/bons.js
+GET    /api/bons/:id                                     routes/bons.js
+POST   /api/bons                                         routes/bons.js
+PATCH  /api/bons/:id/status     { status_code, user_id } routes/bons.js
+PATCH  /api/bons/:id/prep       { ingredients_ready, supplies_ready }
+PATCH  /api/bons/:id/kitchen-info { text }
+POST   /api/bons/:id/lines                               routes/bons.js
+PUT    /api/bons/:id/lines/:lid                          routes/bons.js
+DELETE /api/bons/:id/lines/:lid                          routes/bons.js
+GET    /api/bons/:id/changelog                           routes/bons.js
+POST   /api/bons/:id/notifications                       routes/bons.js
+GET    /api/bons/:id/notifications                       routes/bons.js
+GET    /api/sse                                          shared/sse.js
+GET    /api/statuses                                     routes/statuses.js
+GET    /api/statuses/:code/transitions                   routes/statuses.js
+GET    /api/customers                                    routes/customers.js
+GET    /api/customers/:id                                routes/customers.js
+GET    /api/settings                                     routes/settings.js
+PATCH  /api/settings/:key                                routes/settings.js
 ```
 
 ---

@@ -71,15 +71,33 @@ function esc(s) {
    SSE KLIENT-HELPER
    ══════════════════════════════════════════════════════════════ */
 
-function connectSSE(url, onMessage) {
+/**
+ * Opret SSE-forbindelse med named event handlers.
+ *
+ * @param {string} url       SSE endpoint (default: '/api/sse')
+ * @param {Object} handlers  { eventName: fn(parsedData) }
+ * @returns {EventSource}
+ *
+ * Eksempel:
+ *   connectSSE('/api/sse', {
+ *       connected:    (data) => console.log('SSE ok', data),
+ *       bon_status:   (data) => handleStatus(data),
+ *       notification: (data) => handleNotification(data),
+ *   });
+ */
+function connectSSE(url, handlers) {
     const es = new EventSource(url || '/api/sse');
-    es.onmessage = (e) => {
-        try {
-            onMessage(JSON.parse(e.data));
-        } catch (err) {
-            console.error('SSE parse error:', err);
-        }
-    };
+
+    for (const [eventName, handler] of Object.entries(handlers)) {
+        es.addEventListener(eventName, (e) => {
+            try {
+                handler(JSON.parse(e.data));
+            } catch (err) {
+                console.error(`SSE parse error (${eventName}):`, err);
+            }
+        });
+    }
+
     es.onerror = () => {
         console.warn('SSE forbindelse tabt — genopkobler automatisk…');
     };

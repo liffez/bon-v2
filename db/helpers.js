@@ -81,4 +81,60 @@ function handle(fn) {
     };
 }
 
-module.exports = { nextBonNumber, nextQuoteNumber, logChange, handle };
+// ─── QUERY HELPERS ──────────────────────────────────────────
+
+function getBonLines(bonId) {
+    return getDb().prepare(`
+        SELECT id, bon_id, grocy_recipe_id, product_name, category, quantity, unit,
+               cost_price, unit_price, line_total, sort_order,
+               is_accessory, special_request, co2e, pos_product_id, notes
+        FROM bon_lines
+        WHERE bon_id = ?
+        ORDER BY sort_order, id
+    `).all(bonId);
+}
+
+function getBon(id) {
+    const db = getDb();
+    const bon = db.prepare(`
+        SELECT
+            b.*,
+            sd.code   AS status_code,
+            sd.label  AS status_label,
+            sd.color  AS status_color,
+            sd.icon   AS status_icon,
+            l.name    AS location_name,
+            l.code    AS location_code,
+            c.first_name || ' ' || COALESCE(c.last_name,'') AS contact_name_full,
+            c.phone   AS contact_phone,
+            c.email   AS contact_email,
+            co.name   AS company_name
+        FROM bons b
+        JOIN   status_definitions sd ON b.status_id  = sd.id
+        JOIN   locations l           ON b.location_id = l.id
+        LEFT JOIN customers c        ON b.customer_id = c.id
+        LEFT JOIN companies co       ON b.company_id  = co.id
+        WHERE b.id = ?
+    `).get(id);
+    if (!bon) return null;
+
+    if (bon.delivery_address_id) {
+        bon.delivery_address = db.prepare(`
+            SELECT street_name, street_name2, street_nr, postal_code, city, lat, lon
+            FROM addresses WHERE id = ?
+        `).get(bon.delivery_address_id);
+    }
+
+    bon.lines = getBonLines(id);
+    return bon;
+}
+
+function getStatusId(code) {
+    return getDb().prepare(`SELECT id FROM status_definitions WHERE code = ?`).get(code)?.id;
+}
+
+function getDefaultLocationId() {
+    return getDb().prepare(`SELECT id FROM locations WHERE is_active = 1 ORDER BY id LIMIT 1`).get()?.id;
+}
+
+module.exports = { nextBonNumber, nextQuoteNumber, logChange, handle, getBon, getBonLines, getStatusId, getDefaultLocationId };
