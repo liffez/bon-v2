@@ -424,7 +424,7 @@ document.addEventListener('drop', e => {
 
 const VIEW_MODULES = {
     'kitchen-today':  { prep: true,  customer: true,  alerts: false, co2: false, select: true,  kitchenInfo: true, deliveryBlock: true, summary: true },
-    'kitchen-later':  { prep: false, customer: true,  alerts: true,  co2: false, select: false },
+    'kitchen-later':  { prep: true,  customer: true,  alerts: true,  co2: false, select: true,  kitchenInfo: true, deliveryBlock: true, summary: true },
     'invoice':        { prep: false, customer: true,  alerts: false, co2: false, select: true  },
     'all':            { prep: false, customer: true,  alerts: true,  co2: true,  select: true  },
 };
@@ -445,9 +445,13 @@ const VIEW_ACTIONS = {
         { tooltip: 'Sammentælling', icon: '<line x1="4" y1="6" x2="20" y2="6"/><line x1="4" y1="10" x2="14" y2="10"/><line x1="4" y1="14" x2="20" y2="14"/><line x1="4" y1="18" x2="14" y2="18"/><polyline points="17 14 20 17 17 20"/>', onclick: 'showSummary' },
     ],
     'kitchen-later': [
-        { tooltip: 'Åbn bon',       icon: '<path d="M14 2H6a2 2 0 00-2 2v16a2 2 0 002 2h12a2 2 0 002-2V8z"/><polyline points="14 2 14 8 20 8"/>' },
+        { tooltip: 'Tilføj vare',   icon: '<line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/>' },
+        { tooltip: 'Send flyver',   icon: '<path d="M22 2L11 13"/><path d="M22 2l-7 20-4-9-9-4 20-7z"/>' },
         { tooltip: 'Send mail',     icon: '<path d="M4 4h16c1.1 0 2 .9 2 2v12c0 1.1-.9 2-2 2H4c-1.1 0-2-.9-2-2V6c0-1.1.9-2 2-2z"/><polyline points="22,6 12,13 2,6"/>' },
+        { tooltip: 'Råvarer',       icon: '<circle cx="12" cy="12" r="10"/><line x1="12" y1="16" x2="12" y2="12"/><line x1="12" y1="8" x2="12.01" y2="8"/>' },
+        { tooltip: 'Kort',          icon: '<path d="M21 10c0 7-9 13-9 13s-9-6-9-13a9 9 0 0118 0z"/><circle cx="12" cy="10" r="3"/>' },
         { tooltip: 'Historik',      icon: '<circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/>' },
+        { tooltip: 'Sammentælling', icon: '<line x1="4" y1="6" x2="20" y2="6"/><line x1="4" y1="10" x2="14" y2="10"/><line x1="4" y1="14" x2="20" y2="14"/><line x1="4" y1="18" x2="14" y2="18"/><polyline points="17 14 20 17 17 20"/>', onclick: 'showSummary' },
     ],
     'invoice': [
         { tooltip: 'Åbn bon',       icon: '<path d="M14 2H6a2 2 0 00-2 2v16a2 2 0 002 2h12a2 2 0 002-2V8z"/><polyline points="14 2 14 8 20 8"/>' },

@@ -26,6 +26,11 @@ function fetchBonsToday() {
     return apiFetch('/bons/today');
 }
 
+function fetchBonsLater(days) {
+    const qs = days ? '?days=' + days : '';
+    return apiFetch('/bons/later' + qs);
+}
+
 function fetchBons(params) {
     const qs = new URLSearchParams(params).toString();
     return apiFetch('/bons' + (qs ? '?' + qs : ''));

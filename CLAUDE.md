@@ -116,7 +116,7 @@ Nye filer placeres præcis der de hører hjemme — kopieres ikke.
 - [x] `db/database.js` — `getDb()` singleton med lazy init + auto-migrations
 - [x] `db/helpers.js` — `logChange`, `handle`, `getBon`, `getBonLines`, `getStatusId`, `nextBonNumber`
 - [x] `shared/sse.js` — Named events, multi-client, heartbeat, `broadcast()` + `sendTo()`
-- [x] `routes/kitchen.js` — GET /api/bons/today
+- [x] `routes/kitchen.js` — GET /api/bons/today + GET /api/bons/later
 - [x] `routes/bons.js` — CRUD, status (m/ triggers_json stub), prep, kitchen-info, lines, changelog, notifications
 - [x] `routes/statuses.js` — GET statuses + transitions
 - [x] `routes/customers.js` — GET customers
@@ -125,7 +125,7 @@ Nye filer placeres præcis der de hører hjemme — kopieres ikke.
 
 ### Blok C — Første views
 - [x] kitchen/today.html — Køkken I dag (fuldt dynamisk)
-- [ ] kitchen/later.html — Køkken Senere
+- [x] kitchen/later.html — Køkken Senere (fuldt dynamisk)
 - [ ] Kalender-view (shared)
 
 ### Shared komponenter
@@ -156,34 +156,149 @@ Nye filer placeres præcis der de hører hjemme — kopieres ikke.
 - SSE realtidsopdatering via named events (`bon_status`, `notification`)
 - Sammentælling (aggregerer varer fra menu-items)
 
+### kitchen/later.html — Features
+- Dynamisk rendering fra API-data via `createCard(data, 'kitchen-later')`
+- Grupperet efter `delivery_date` med dato-overskrifter og bon-tæller per dag
+- Tilbud (`is_offer=1`) vises i separat sektion nederst
+- Ingen filter-bar, ingen statusknapper (VIEW_WINDOWS = [])
+- Prep-badge toggle med API-kald
+- Køkkeninfo inline-edit (pill → textarea → gem)
+- SSE realtidsopdatering: kort fjernes ved terminal status (LEVERET/AFLYST)
+- Count badge opdateres ved ændringer
+- Samme action-knapper som today: Tilføj vare, Send flyver, Send mail, Råvarer, Kort, Historik, Sammentælling
+- Select-mode + sammentællings-panel (identisk med today)
+
 ---
 
 ## Næste opgave
 
 > ✏️ Opdater denne sektion FØR du starter en ny session i Claude Code.
+### 2. `historik`-knap
+
+Ingen nye backend-endpoints nødvendige — `GET /api/bons/:id/changelog` eksisterer.
+
+- Knap i action-bar på bon-kort åbner en modal
+- Modal henter og viser changelog for bonen i kronologisk rækkefølge
+- Samme modal-komponent genbruges til `info`-knap senere
+- Implementeres i `shared/bon_kort.js`
+
+---
+
+### 3. Grocy adapter — readonly
+
+**Fil:** `services/grocyAdapter.js`
+
+#### Arkitektur
+- Én fil — ikke en route. Eksporterer funktioner der kaldes fra routes.
+- Henter Grocy-URL og API-nøgle fra `locations`-tabellen via `location_id`
+- I første omgang: brug altid den lokation der svarer til `system_settings.default_grocy_location_id`
+- Multi-lokation pr. bruger/bon udskydes til et senere tidspunkt
+
+#### Caching
+- In-memory `Map` med 10 minutters TTL pr. cache-nøgle
+- Ingen aktiv invalidering — acceptabelt da data ikke er kritisk realtidsdata
+- Cache nulstilles ved server-restart
+```js
+// Eksempel på cache-pattern
+const cache = new Map(); // { key: { data, expires } }
+
+function getCached(key) {
+  const entry = cache.get(key);
+  if (entry && entry.expires > Date.now()) return entry.data;
+  return null;
+}
+
+function setCached(key, data, ttlMs = 10 * 60 * 1000) {
+  cache.set(key, { data, expires: Date.now() + ttlMs });
+}
+```
+
+#### Funktioner der skal implementeres
+```js
+getRecipes()
+// GET /api/objects/recipes
+// Returnerer alle opskrifter
+
+getRecipeIngredients(recipeId)
+// GET /api/objects/recipes_pos?query[]=recipe_id=<id>
+// Returnerer ingredienser for én opskrift
+
+getProducts()
+// GET /api/objects/products
+// Returnerer alle produkter (bruges til navne-lookup)
+
+getStock()
+// GET /api/stock
+// Returnerer lagerstatus for alle produkter
+```
+
+#### Routes der eksponerer adapteren
+
+Tilføj i ny fil `routes/grocy.js`:
+```
+GET /api/grocy/recipes              → getRecipes()
+GET /api/grocy/recipes/:id/ingredients → getRecipeIngredients(id)
+GET /api/grocy/products             → getProducts()
+GET /api/grocy/stock                → getStock()
+```
+
+Monteres i `server.js` som `/api/grocy`.
+
+#### Ikke i denne omgang
+- `consumeRecipe()` — udskydes til `triggers_json`-handleren er klar
+- Multi-lokation pr. bruger — udskydes
+- Skriveoperationer til Grocy — udskydes
+
+
+### 1b. `kitchen/today.html` — efterbehandling
+
+Små tilføjelser til det eksisterende view.
+
+#### Løbende ur i header
+Vis aktuelt tidspunkt ved siden af datoen i page-headeren:
+```
+Tor 12. marts  5 bons tilbage          14:23
+```
+
+- Placering: højrejusteret i samme linje som dato/tæller
+- Stil: `--color-text-dim`, `--font-size-s` — diskret, ikke fremhævet
+- Opdateres hvert minut med `setInterval`
+- Kun på `today.html` — ikke på `later.html`
+```js
+function updateClock() {
+  const now = new Date();
+  document.getElementById('live-clock').textContent =
+    now.toLocaleTimeString('da-DK', { hour: '2-digit', minute: '2-digit' });
+}
+updateClock();
+setInterval(updateClock, 60000);
+```
+
+#### Kiosk-mode
+- Aktiveres via URL-parameter `?kiosk=1` eller knap i headeren (samme knap toggler frem/tilbage)
+- Skjuler topbar (`display: none` på `.kitchen-topbar`)
+- Kalder `document.documentElement.requestFullscreen()` ved aktivering
+- Kalder `document.exitFullscreen()` ved deaktivering
+- Knappen i headeren vises altid — også i kiosk-mode — så man kan komme ud igen
 
 ### Prioriteret rækkefølge
 
-**1. `kitchen/later.html`** — Køkken Senere
-- Genbruger `shared/bon_kort.js` med `VIEW_WINDOW = 'kitchen-later'`
-- Henter fra `GET /api/bons?status=GODKENDT,VENTER_INFO&from=tomorrow` (ikke dagens dato)
-- Grupperet efter dato
-- Ingen filter-bar (ikke relevant her)
-
-**2. Action-knapper (ingen Grocy-dependency)**
+**1. Action-knapper (ingen Grocy-dependency)**
 - `info` — vis bon-detalje/changelog i modal
 - `kort` — åbn Google Maps med leveringsadressen
 - `historik` — vis changelog for bon
 
-**3. Grocy adapter (readonly)**
+**2. Grocy adapter (readonly)**
 - `GET /api/grocy/products` — produktliste
 - `GET /api/grocy/stock` — lagerstatus
 - `GET /api/grocy/recipes` — opskrifter
 - Fundament for alt videre Grocy-arbejde
 
-**4. Action-knap: `+` Tilføj vare**
+**3. Action-knap: `+` Tilføj vare**
 - Kræver Grocy adapter
 - Søg i Grocy-produkter, tilføj til bon_lines
+
+**4. Kalender-view (shared)**
 
 **Moduloversigt (se `bon_v2_zoner_og_layout.md` sektion 3):**
 - Indkøb = `kitchen/purchasing.html` — liste + hvad afventer
@@ -196,6 +311,7 @@ Nye filer placeres præcis der de hører hjemme — kopieres ikke.
 
 ```
 GET    /api/bons/today                                   routes/kitchen.js
+GET    /api/bons/later?days=28                            routes/kitchen.js
 GET    /api/bons?date=&status=&q=&location=              routes/bons.js
 GET    /api/bons/:id                                     routes/bons.js
 POST   /api/bons                                         routes/bons.js

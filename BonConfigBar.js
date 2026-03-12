@@ -23,9 +23,9 @@ const VIEW_WINDOWS = {
     /**
      * Køkken Senere
      * Fremtidige bons køkkenet skal kende til.
-     * Inkluderer tilbud så køkkenet kan planlægge.
+     * Ingen statusknapper — kun prep-checks og køkkeninfo.
      */
-    'kitchen-later': ['tilbud', 'venter', 'godkendt', 'igang', 'klar'],
+    'kitchen-later': [],
 
     /**
      * Faktura
