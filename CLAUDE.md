@@ -121,7 +121,7 @@ Nye filer placeres præcis der de hører hjemme — kopieres ikke.
 - [x] `routes/statuses.js` — GET statuses + transitions
 - [x] `routes/customers.js` — GET customers
 - [x] `routes/settings.js` — GET/PATCH settings
-- [ ] Grocy adapter (læs opskrifter, lager)
+- [x] Grocy adapter (readonly) — `services/grocyAdapter.js` + `routes/grocy.js`
 
 ### Blok C — Første views
 - [x] kitchen/today.html — Køkken I dag (fuldt dynamisk)
@@ -182,119 +182,17 @@ Nye filer placeres præcis der de hører hjemme — kopieres ikke.
 
 ### Prioriteret rækkefølge
 
-**1. Grocy adapter (readonly)**
-
-**Fil:** `services/grocyAdapter.js`
-
-#### Arkitektur
-- Én fil — ikke en route. Eksporterer funktioner der kaldes fra routes.
-- Henter Grocy-URL og API-nøgle fra `locations`-tabellen via `location_id`
-- I første omgang: brug altid den lokation der svarer til `system_settings.default_grocy_location_id`
-- Multi-lokation pr. bruger/bon udskydes til et senere tidspunkt
-
-#### Caching
-- In-memory `Map` med 10 minutters TTL pr. cache-nøgle
-- Ingen aktiv invalidering — acceptabelt da data ikke er kritisk realtidsdata
-- Cache nulstilles ved server-restart
-```js
-// Eksempel på cache-pattern
-const cache = new Map(); // { key: { data, expires } }
-
-function getCached(key) {
-  const entry = cache.get(key);
-  if (entry && entry.expires > Date.now()) return entry.data;
-  return null;
-}
-
-function setCached(key, data, ttlMs = 10 * 60 * 1000) {
-  cache.set(key, { data, expires: Date.now() + ttlMs });
-}
-```
-
-#### Funktioner der skal implementeres
-```js
-getRecipes()
-// GET /api/objects/recipes
-// Returnerer alle opskrifter
-
-getRecipeIngredients(recipeId)
-// GET /api/objects/recipes_pos?query[]=recipe_id=<id>
-// Returnerer ingredienser for én opskrift
-
-getProducts()
-// GET /api/objects/products
-// Returnerer alle produkter (bruges til navne-lookup)
-
-getStock()
-// GET /api/stock
-// Returnerer lagerstatus for alle produkter
-```
-
-#### Routes der eksponerer adapteren
-
-Tilføj i ny fil `routes/grocy.js`:
-```
-GET /api/grocy/recipes              → getRecipes()
-GET /api/grocy/recipes/:id/ingredients → getRecipeIngredients(id)
-GET /api/grocy/products             → getProducts()
-GET /api/grocy/stock                → getStock()
-```
-
-Monteres i `server.js` som `/api/grocy`.
-
-#### Ikke i denne omgang
-- `consumeRecipe()` — udskydes til `triggers_json`-handleren er klar
-- Multi-lokation pr. bruger — udskydes
-- Skriveoperationer til Grocy — udskydes
-
-
-### 1b. `kitchen/today.html` — efterbehandling
-
-Små tilføjelser til det eksisterende view.
-
-#### Løbende ur i header
-Vis aktuelt tidspunkt ved siden af datoen i page-headeren:
-```
-Tor 12. marts  5 bons tilbage          14:23
-```
-
-- Placering: højrejusteret i samme linje som dato/tæller
-- Stil: `--color-text-dim`, `--font-size-s` — diskret, ikke fremhævet
-- Opdateres hvert minut med `setInterval`
-- Kun på `today.html` — ikke på `later.html`
-```js
-function updateClock() {
-  const now = new Date();
-  document.getElementById('live-clock').textContent =
-    now.toLocaleTimeString('da-DK', { hour: '2-digit', minute: '2-digit' });
-}
-updateClock();
-setInterval(updateClock, 60000);
-```
-
-#### Kiosk-mode
-- Aktiveres via URL-parameter `?kiosk=1` eller knap i headeren (samme knap toggler frem/tilbage)
-- Skjuler topbar (`display: none` på `.kitchen-topbar`)
-- Kalder `document.documentElement.requestFullscreen()` ved aktivering
-- Kalder `document.exitFullscreen()` ved deaktivering
-- Knappen i headeren vises altid — også i kiosk-mode — så man kan komme ud igen
-
-### Prioriteret rækkefølge
-
-**1. Action-knapper (ingen Grocy-dependency)**
-- `info` — vis bon-detalje/changelog i modal
+**1. Action-knapper**
+- `info` — vis bon-detalje i modal (genbruger shared/modal.js)
 - `kort` — åbn Google Maps med leveringsadressen
-- `historik` — vis changelog for bon
 
-**2. Grocy adapter (readonly)**
-- `GET /api/grocy/products` — produktliste
-- `GET /api/grocy/stock` — lagerstatus
-- `GET /api/grocy/recipes` — opskrifter
-- Fundament for alt videre Grocy-arbejde
+**2. Action-knap: `+` Tilføj vare**
+- Søg i Grocy-produkter via `/api/grocy/products`
+- Tilføj til bon_lines
 
-**3. Action-knap: `+` Tilføj vare**
-- Kræver Grocy adapter
-- Søg i Grocy-produkter, tilføj til bon_lines
+**3. `kitchen/today.html` — efterbehandling**
+- Løbende ur i header (højrejusteret, `--color-text-dim`, opdateres hvert minut)
+- Kiosk-mode (fullscreen, skjul topbar, toggle via knap/URL-param)
 
 **4. Kalender-view (shared)**
 
@@ -329,6 +227,12 @@ GET    /api/customers                                    routes/customers.js
 GET    /api/customers/:id                                routes/customers.js
 GET    /api/settings                                     routes/settings.js
 PATCH  /api/settings/:key                                routes/settings.js
+GET    /api/grocy/recipes                                routes/grocy.js → grocyAdapter
+GET    /api/grocy/recipes/fulfillment                    routes/grocy.js → grocyAdapter
+GET    /api/grocy/recipes/:id/ingredients                routes/grocy.js → grocyAdapter
+GET    /api/grocy/products                               routes/grocy.js → grocyAdapter
+GET    /api/grocy/stock                                  routes/grocy.js → grocyAdapter
+DELETE /api/grocy/cache                                  routes/grocy.js (ryd cache)
 ```
 
 ---

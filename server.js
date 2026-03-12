@@ -26,6 +26,7 @@ app.use('/api/bons',      require('./routes/bons'));
 app.use('/api/statuses',  require('./routes/statuses'));
 app.use('/api/customers', require('./routes/customers'));
 app.use('/api/settings',  require('./routes/settings'));
+app.use('/api/grocy',     require('./routes/grocy'));
 
 // ─── START ─────────────────────────────────────────────────────────────────
 
@@ -54,6 +55,7 @@ app.listen(PORT, () => {
 ║    GET  /api/statuses        Statusser               ║
 ║    GET  /api/customers       Kunder                  ║
 ║    GET  /api/settings        Indstillinger           ║
+║    GET  /api/grocy/*         Grocy proxy (readonly)  ║
 ║    GET  /api/sse             Server-Sent Events      ║
 ╠──────────────────────────────────────────────────────╣
 ║  Database                                            ║
