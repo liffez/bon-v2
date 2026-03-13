@@ -448,7 +448,7 @@ router.get('/:id/changelog', handle((req, res) => {
 router.post('/:id/notifications', handle((req, res) => {
     const db    = getDb();
     const bonId = parseInt(req.params.id);
-    const { type, message, priority, sent_by_user_id } = req.body;
+    const { type, message, priority, sent_by_user_id, client_id } = req.body;
     if (!message) return res.status(400).json({ error: 'message er påkrævet' });
 
     const result = db.prepare(`
@@ -457,12 +457,49 @@ router.post('/:id/notifications', handle((req, res) => {
     `).run(bonId, type ?? 'flyver', message, priority ?? 'normal', sent_by_user_id ?? null);
 
     const notif = db.prepare(`SELECT * FROM notifications WHERE id = ?`).get(result.lastInsertRowid);
-    broadcast('notification', { bon_id: bonId, notification: notif });
+
+    logChange({
+        entityType: 'bon',
+        entityId:   bonId,
+        action:     'create',
+        fieldName:  'notification',
+        newValue:   `flyver: ${message}`,
+        userId:     sent_by_user_id ?? null,
+        notes:      message,
+    });
+
+    // Auto-kvittér for afsender så de ikke ser egen flyver ved reload
+    if (client_id) {
+        db.prepare(`INSERT OR IGNORE INTO notification_reads (notification_id, client_id) VALUES (?, ?)`)
+            .run(notif.id, client_id);
+    }
+
+    broadcast('notification', { bon_id: bonId, notification: notif, sender_client_id: client_id ?? null });
     res.status(201).json(notif);
 }));
 
 router.get('/:id/notifications', handle((req, res) => {
     res.json(getDb().prepare(`SELECT * FROM notifications WHERE bon_id = ? ORDER BY created_at DESC`).all(parseInt(req.params.id)));
+}));
+
+// ─── KVITTERING (flyver læst) ──────────────────────────────────────────────
+
+router.post('/:id/notifications/:nid/read', handle((req, res) => {
+    const db      = getDb();
+    const bonId   = parseInt(req.params.id);
+    const notifId = parseInt(req.params.nid);
+    const { client_id } = req.body;
+    if (!client_id) return res.status(400).json({ error: 'client_id er påkrævet' });
+
+    const notif = db.prepare(`SELECT id FROM notifications WHERE id = ? AND bon_id = ?`).get(notifId, bonId);
+    if (!notif) return res.status(404).json({ error: 'Notifikation ikke fundet' });
+
+    db.prepare(`
+        INSERT OR IGNORE INTO notification_reads (notification_id, client_id)
+        VALUES (?, ?)
+    `).run(notifId, client_id);
+
+    res.json({ ok: true });
 }));
 
 module.exports = router;

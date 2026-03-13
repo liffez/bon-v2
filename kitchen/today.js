@@ -20,11 +20,13 @@ document.addEventListener('DOMContentLoaded', async () => {
     updateTodayHeader();
     startClock();
     initKiosk();
+    initFlyverBanner();
     try {
         const bons = await fetchBonsToday();
         renderBons(bons);
         updateCount();
         initSSE();
+        scrollToBonHash();
     } catch (err) {
         console.error('Fejl ved indlæsning af bons:', err);
         const grid = document.getElementById('cardsGrid');
@@ -120,7 +122,7 @@ function exitKiosk() {
 const _suppressSSE = {};
 
 function initSSE() {
-    connectSSE('/api/sse', {
+    connectSSE('/api/sse?client_id=' + getClientId(), {
         connected: () => {
             console.log('SSE tilsluttet');
         },
@@ -141,16 +143,20 @@ function initSSE() {
         },
 
         notification: (data) => {
+            // Card-level alert
             const card = document.getElementById('bon' + data.bon_id);
-            if (!card) return;
-            const alertsEl = card.querySelector('.bon-alerts');
-            if (alertsEl) {
-                const n = data.notification;
-                const div = document.createElement('div');
-                div.className = 'bon-alert kitchen-info';
-                div.innerHTML = `<div class="bon-alert-label">Flyver</div>${esc(n.message)}`;
-                alertsEl.prepend(div);
+            if (card) {
+                const alertsEl = card.querySelector('.bon-alerts');
+                if (alertsEl) {
+                    const n = data.notification;
+                    const div = document.createElement('div');
+                    div.className = 'bon-alert kitchen-info';
+                    div.innerHTML = `<div class="bon-alert-label">Flyver</div>${esc(n.message)}`;
+                    alertsEl.prepend(div);
+                }
             }
+            // Globalt flyver-banner
+            handleFlyverSSE(data);
         },
 
         bon_updated: (data) => {

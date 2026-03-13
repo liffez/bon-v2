@@ -1,0 +1,402 @@
+/* ══════════════════════════════════════════════════════════════
+   CALENDAR + LIST VIEW — shared/calendar.css
+   Zone-neutral. Bruger tokens fra shared/tokens.css.
+   ══════════════════════════════════════════════════════════════ */
+
+/* ── HEADER ──────────────────────────────────────────────── */
+
+.cal-header {
+    background: white;
+    border-bottom: 1px solid var(--color-border);
+    padding: 10px 20px;
+    position: sticky;
+    top: 44px; /* under topbar */
+    z-index: 200;
+    display: flex;
+    align-items: center;
+    gap: 16px;
+    flex-wrap: wrap;
+}
+
+.cal-month-nav {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+}
+
+.cal-month-nav button {
+    background: none;
+    border: 1px solid var(--color-border);
+    border-radius: 4px;
+    width: 32px;
+    height: 32px;
+    font-size: 16px;
+    cursor: pointer;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    color: var(--color-text);
+}
+.cal-month-nav button:hover {
+    background: var(--color-background);
+}
+
+.cal-month-label {
+    font-size: 18px;
+    font-weight: 700;
+    min-width: 160px;
+    text-align: center;
+}
+
+.cal-header-right {
+    margin-left: auto;
+    display: flex;
+    align-items: center;
+    gap: 8px;
+}
+
+.cal-view-btn {
+    background: none;
+    border: 1px solid var(--color-border);
+    border-radius: 4px;
+    width: 32px;
+    height: 32px;
+    font-size: 15px;
+    cursor: pointer;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    color: var(--color-text-dim);
+}
+.cal-view-btn.active {
+    background: var(--brand-primary);
+    border-color: var(--brand-primary);
+    color: white;
+}
+.cal-view-btn:hover:not(.active) {
+    background: var(--color-background);
+}
+
+/* ── STATUS FILTER BAR ───────────────────────────────────── */
+
+.cal-status-filters {
+    display: flex;
+    gap: 4px;
+    flex-wrap: wrap;
+    padding: 6px 20px 10px;
+    background: white;
+    border-bottom: 1px solid var(--color-border);
+}
+
+.cal-filter-btn {
+    padding: 4px 10px;
+    border: 2px solid var(--filter-color, #999);
+    border-radius: 4px;
+    background: white;
+    color: var(--color-text);
+    font-size: 11px;
+    font-weight: 700;
+    text-transform: uppercase;
+    cursor: pointer;
+    transition: all 0.15s;
+}
+.cal-filter-btn.active {
+    background: var(--filter-color, #999);
+    color: var(--filter-text, #fff);
+}
+.cal-filter-btn:hover:not(.active) {
+    background: color-mix(in srgb, var(--filter-color, #999) 15%, white);
+}
+
+/* ── KALENDER GRID ───────────────────────────────────────── */
+
+.cal-content {
+    padding: 12px 20px 40px;
+}
+
+.cal-grid {
+    display: grid;
+    grid-template-columns: 40px repeat(7, 1fr) auto;
+    border: 1px solid var(--color-border);
+    background: var(--color-border);
+    gap: 1px;
+}
+
+/* Weekday headers */
+.cal-weekday-header {
+    background: var(--brand-primary);
+    color: white;
+    font-size: 12px;
+    font-weight: 700;
+    text-align: center;
+    padding: 6px 4px;
+    text-transform: uppercase;
+}
+
+.cal-week-label-header {
+    background: var(--brand-primary);
+    color: white;
+    font-size: 10px;
+    font-weight: 700;
+    padding: 6px 2px;
+    text-align: center;
+}
+
+.cal-week-total-header {
+    min-width: 80px;
+}
+
+/* Week number label (leftmost column) */
+.cal-week-label {
+    background: #f0ede9;
+    font-size: 11px;
+    font-weight: 700;
+    color: var(--color-text-dim);
+    text-align: center;
+    padding: 6px 2px;
+    display: flex;
+    align-items: flex-start;
+    justify-content: center;
+}
+
+/* Day cells */
+.cal-day-cell {
+    background: white;
+    min-height: 90px;
+    padding: 4px;
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+    overflow: hidden;
+    position: relative;
+}
+
+.cal-day-cell.cal-outside-month {
+    background: #faf9f7;
+}
+.cal-day-cell.cal-outside-month .cal-date-num {
+    color: var(--color-border);
+}
+
+.cal-day-cell.cal-today {
+    outline: 2px solid var(--brand-primary);
+    outline-offset: -2px;
+}
+
+/* Date row: number + staff badge */
+.cal-date-row {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    margin-bottom: 2px;
+}
+
+.cal-date-num {
+    font-size: 13px;
+    font-weight: 700;
+    color: var(--color-text);
+}
+
+/* Staff badge (compact) */
+.cal-staff-badge {
+    font-size: 10px;
+    font-weight: 600;
+    color: var(--brand-primary);
+    background: var(--brand-primary-light);
+    padding: 1px 5px;
+    border-radius: 8px;
+    cursor: default;
+    white-space: nowrap;
+}
+.cal-staff-badge:hover {
+    background: var(--brand-primary);
+    color: white;
+}
+
+/* Bon entries in calendar */
+.cal-bons {
+    display: flex;
+    flex-direction: column;
+    gap: 1px;
+    flex: 1;
+    overflow-y: auto;
+}
+
+.cal-bon-entry {
+    display: flex;
+    align-items: baseline;
+    gap: 4px;
+    padding: 2px 4px;
+    border-left: 3px solid var(--bon-color, #999);
+    border-radius: 0 3px 3px 0;
+    background: #faf9f7;
+    font-size: 11px;
+    cursor: pointer;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+.cal-bon-entry:hover {
+    background: var(--brand-primary-light);
+}
+
+.cal-bon-entry[data-hidden="true"] {
+    display: none;
+}
+
+.cal-bon-time {
+    font-weight: 700;
+    color: var(--color-text);
+    min-width: 35px;
+}
+
+.cal-bon-id {
+    color: var(--brand-primary);
+    font-weight: 600;
+}
+
+.cal-bon-name {
+    color: var(--color-text-dim);
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+
+.cal-bon-pax {
+    margin-left: auto;
+    font-weight: 700;
+    color: var(--color-text);
+    white-space: nowrap;
+}
+
+/* Day totals */
+.cal-day-totals {
+    margin-top: auto;
+    padding-top: 2px;
+    border-top: 1px solid var(--color-border);
+    font-size: 11px;
+    font-weight: 600;
+    color: var(--color-text-dim);
+    display: flex;
+    justify-content: space-between;
+}
+
+/* Week total cell */
+.cal-week-total {
+    background: #f0ede9;
+    padding: 6px;
+    min-width: 80px;
+    font-size: 12px;
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+    justify-content: flex-start;
+}
+
+.cal-week-total-line {
+    font-weight: 600;
+    color: var(--color-text);
+    white-space: nowrap;
+}
+
+.cal-week-total-line.count {
+    font-weight: 400;
+    color: var(--color-text-dim);
+    font-size: 11px;
+}
+
+/* ── LISTE-TABEL ─────────────────────────────────────────── */
+
+.cal-list-table {
+    width: 100%;
+    border-collapse: collapse;
+    font-size: 13px;
+}
+
+.cal-list-table thead {
+    position: sticky;
+    top: 100px; /* under topbar + header */
+    z-index: 100;
+}
+
+.cal-list-th {
+    background: var(--brand-primary);
+    color: white;
+    text-align: left;
+    padding: 8px 10px;
+    font-size: 12px;
+    font-weight: 700;
+    text-transform: uppercase;
+    cursor: pointer;
+    user-select: none;
+    white-space: nowrap;
+}
+.cal-list-th:hover {
+    background: #7a5519;
+}
+.cal-list-th.sorted::after {
+    margin-left: 4px;
+}
+.cal-list-th.sorted.asc::after { content: ' \u25B2'; }
+.cal-list-th.sorted.desc::after { content: ' \u25BC'; }
+
+.cal-list-row {
+    cursor: pointer;
+    border-bottom: 1px solid var(--color-border);
+}
+.cal-list-row:hover {
+    background: var(--brand-primary-light);
+}
+
+.cal-list-row td {
+    padding: 8px 10px;
+    white-space: nowrap;
+}
+
+.cal-list-row[data-hidden="true"] {
+    display: none;
+}
+
+.cal-status-badge {
+    display: inline-block;
+    padding: 2px 8px;
+    border-radius: 4px;
+    font-size: 11px;
+    font-weight: 700;
+    text-transform: uppercase;
+}
+
+/* ── INFO GOTO (i modal) ─────────────────────────────────── */
+
+.info-goto-section {
+    display: flex;
+    justify-content: center;
+    padding-top: 16px;
+    border-top: 1px solid var(--color-border);
+    margin-top: 12px;
+}
+
+.info-goto-btn {
+    padding: 10px 24px;
+    background: var(--brand-primary, #8e631f);
+    color: white;
+    border: none;
+    border-radius: 6px;
+    font-weight: 700;
+    font-size: 15px;
+    cursor: pointer;
+}
+.info-goto-btn:hover { background: #7a5519; }
+
+/* ── EMPTY STATE ─────────────────────────────────────────── */
+
+.cal-empty {
+    padding: 40px;
+    color: var(--color-text-dim);
+    font-size: 15px;
+    text-align: center;
+}
+
+/* ── ZONE-AWARE SIZING ───────────────────────────────────── */
+
+.zone-kitchen .cal-day-cell { min-height: 100px; }
+.zone-office  .cal-day-cell { min-height: 70px; }

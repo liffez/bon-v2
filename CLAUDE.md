@@ -68,11 +68,12 @@ Lokationer defineres i `locations`-tabellen: HQ=grocycafe, Trailer=grocytrailer,
 bon-v2/
 ├── server.js         ← App setup, middleware, mount routes, listen — intet andet
 ├── routes/
-│   ├── kitchen.js    ← GET /api/bons/today  (monteres FØR bons.js)
+│   ├── kitchen.js    ← GET /api/bons/today, /later, /calendar  (monteres FØR bons.js)
 │   ├── bons.js       ← /api/bons/* (CRUD, status, lines, changelog, notifications)
 │   ├── statuses.js   ← /api/statuses/*
 │   ├── customers.js  ← /api/customers/*
-│   └── settings.js   ← /api/settings/*
+│   ├── settings.js   ← /api/settings/*
+│   └── smartplan.js  ← /api/smartplan/* (shifts, employees)
 ├── db/
 │   ├── database.js   ← getDb() singleton (lazy init + migrations)
 │   ├── helpers.js    ← logChange, handle, getBon, getBonLines, getStatusId, nextBonNumber
@@ -84,8 +85,9 @@ bon-v2/
 │   ├── tokens.css    ← Design tokens
 │   ├── components.css
 │   ├── bon_kort.js + bon_kort.css
+│   ├── calendar.js + calendar.css  ← Kalender/liste komponent
 │   ├── api.js        ← Frontend API-funktioner
-│   └── utils.js      ← Status-mapping, connectSSE(), mapApiBonToCardData()
+│   └── utils.js      ← Status-mapping, connectSSE(), mapApiBonToCardData(), scrollToBonHash()
 ├── kitchen/          ← MPA: index.html, today.html, later.html, ...
 ├── office/           ← SPA-shell: index.html + views/*.js
 ├── settings/         ← index.html (eget shell)
@@ -136,7 +138,7 @@ Nye filer placeres præcis der de hører hjemme — kopieres ikke.
 ### Blok C — Første views
 - [x] kitchen/today.html — Køkken I dag (fuldt dynamisk)
 - [x] kitchen/later.html — Køkken Senere (fuldt dynamisk)
-- [ ] Kalender-view (shared)
+- [x] Kalender-view (shared) — `kitchen/calendar.html` + `shared/calendar.js` + `shared/calendar.css`
 
 ### Shared komponenter
 - [x] `shared/bon_kort.js` + `shared/bon_kort.css` — Genbrugelig kort-komponent
@@ -149,13 +151,30 @@ Nye filer placeres præcis der de hører hjemme — kopieres ikke.
   - Leveret-fading med fortryd-overlay (8s countdown)
   - Sammentællings-panel
   - Action-bar med modulære knapper
-- [x] `shared/utils.js` — Status-mapping, dato-formattering, `connectSSE()` (named events), `mapApiBonToCardData()`
-- [x] `shared/api.js` — API-funktioner (fetch, patch status/prep/kitchen-info)
+- [x] `shared/calendar.js` + `shared/calendar.css` — Kalender/liste komponent
+  - Månedsoversigt med 8-kolonne grid (uge + man–søn + total)
+  - Liste-view med sortérbare kolonner (toggle med localStorage)
+  - Status-filtre fra BonConfig (toggle on/off)
+  - Workload-totaler per dag/uge (`total_units > 0 ? units : pax`)
+  - Smartplan bemanding: kompakt `👤 N` badge med tooltip
+  - Bon-klik → info-modal med "Gå til bon →" navigation
+  - SSE realtidsopdatering
+  - Graceful degradation uden Smartplan
+- [x] `shared/utils.js` — Status-mapping, dato-formattering, `connectSSE()` (named events), `mapApiBonToCardData()`, `scrollToBonHash()`, `getClientId()`
+- [x] `shared/api.js` — API-funktioner (fetch, patch status/prep/kitchen-info, flyver)
+- [x] `shared/flyver.js` + `shared/flyver.css` — Flyver-system (urgente beskeder)
+  - `sendFlyver(cardId)` — send-modal med textarea
+  - `initFlyverBanner()` — globalt blinkende rødt banner for ulæste flyvere
+  - `handleFlyverSSE(data)` — realtid via SSE, afsender ekskluderes
+  - Detail-modal med bon-data, navigation mellem køede flyvere, "Forstået"-kvittering
+  - Auto-kvittering for afsender (server-side)
+  - `getClientId()` — UUID i localStorage som midlertidig identitet (fremtidskompatibel med auth)
 - [x] `shared/modal.js` + `shared/modal.css` — Genbrugelig modal-komponent
   - `openModal({ title, bodyHtml })` / `closeModal()` API
   - Luk med ×, overlay-klik eller Escape
   - `showHistorik(cardId)` — henter changelog via API, viser formateret med danske labels
-  - `showBonInfo(cardId)` — fuld bon-detalje med kunde, linjer, priser (moms-beregning)
+  - `showBonInfo(cardId|bonId, opts)` — fuld bon-detalje med kunde, linjer, priser (moms-beregning)
+    - Fra kalender: `showBonInfo(bonId, { showGotoButton: true })` → navigerer til today/later + scroll-highlight
   - `showRavarer(cardId)` — ingrediensbehov med lagerstatus fra Grocy
     - Grupperet efter Grocy `ingredient_group` (Emballage sidst)
     - Status-dots (🔴 mangler / 🟡 lav / 🟢 ok) per ingredient
@@ -193,14 +212,29 @@ Nye filer placeres præcis der de hører hjemme — kopieres ikke.
 - Select-mode + sammentællings-panel (identisk med today)
 - Historik-knap åbner shared modal med changelog
 
+### kitchen/calendar.html — Features
+- Kalender-view: månedsoversigt med bons på datoer (8-kolonne grid: uge + man–søn + total)
+- Liste-view: sortérbar tabel med alle bons i måneden (toggle via localStorage)
+- Status-filtre: farvede knapper fra BonConfig, toggle on/off
+- Workload-totaler per dag og uge (bruger `total_units` hvis > 0, ellers `pax`)
+- Smartplan-integration: `👤 N` badge per dag med hover-tooltip (navne + vagttider)
+- Bon-klik åbner info-modal med "Gå til bon →" knap
+- "Gå til bon →" navigerer til today.html (i dag/fortid) eller later.html (fremtid), scroller til bon og highlighter med 4s puls-animation
+- Måned-navigation ◀/▶
+- I dag markeret med outline
+- Dage uden for måneden dæmpet
+- SSE realtidsopdatering
+- API: `GET /api/bons/calendar?year=&month=&status=`
+- Smartplan adapter: `services/smartplanAdapter.js` + `routes/smartplan.js`
+
 ---
 
 ## Næste opgave
 
 > ✏️ Opdateret 13. marts 2026.
 >
-> **Blok C køkken-views er færdige.** Opgave 1–5 done.
-> Næste store opgave er Opgave 6 (Kalender/Indkøb/Bestilling).
+> **Blok C køkken-views er færdige.** Opgave 1–5 done. Flyver-funktion done. Kalender-view done.
+> Næste store opgave er Opgave 6 (Indkøb/Bestilling — kalender er done).
 > Småting til senere: Pris-visning i Råvarer som setting, Kort erstattes af logistik-modul.
 
 ---
@@ -381,6 +415,19 @@ Kyllingefilet     2,4 kg      8,2 kg
 
 ---
 
+### ~~OPGAVE Flyver (done): Nødbesked-system~~
+
+**Formål:** Send urgente beskeder fra en bon, modtages som blinkende rødt banner på alle kitchen-views.
+
+- `shared/flyver.js` + `shared/flyver.css` — send-modal, banner, detail-modal, SSE-handler
+- `db/migrations/009_notification_client_reads.sql` — client_id på notification_reads
+- `routes/notifications.js` — GET /api/notifications/unread
+- `routes/bons.js` — POST .../notifications/:nid/read + logChange + auto-kvittering for afsender
+- `shared/utils.js` — `getClientId()` (UUID i localStorage, fremtidskompatibel med auth)
+- Flyver-entries i historik med ✈-ikon
+
+---
+
 ### OPGAVE 6 (bagefter): Kalender-view (shared)
 
 **Moduloversigt (se `bon_v2_zoner_og_layout.md` sektion 3):**
@@ -395,6 +442,7 @@ Kyllingefilet     2,4 kg      8,2 kg
 ```
 GET    /api/bons/today                                   routes/kitchen.js
 GET    /api/bons/later?days=28                            routes/kitchen.js
+GET    /api/bons/calendar?year=&month=&status=            routes/kitchen.js
 GET    /api/bons?date=&status=&q=&location=              routes/bons.js
 GET    /api/bons/:id                                     routes/bons.js
 POST   /api/bons                                         routes/bons.js
@@ -420,6 +468,11 @@ GET    /api/grocy/recipes/:id/ingredients                routes/grocy.js → gro
 GET    /api/grocy/products                               routes/grocy.js → grocyAdapter
 GET    /api/grocy/stock                                  routes/grocy.js → grocyAdapter
 DELETE /api/grocy/cache                                  routes/grocy.js (ryd cache)
+GET    /api/smartplan/shifts?from=&to=                    routes/smartplan.js
+GET    /api/smartplan/employees                           routes/smartplan.js
+DELETE /api/smartplan/cache                               routes/smartplan.js
+POST   /api/bons/:id/notifications/:nid/read             routes/bons.js
+GET    /api/notifications/unread?client_id=               routes/notifications.js
 ```
 
 ---

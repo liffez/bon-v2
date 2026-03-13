@@ -96,4 +96,111 @@ router.get('/later', handle((req, res) => {
     res.json(bons);
 }));
 
+// GET /api/bons/calendar — kalender-view (bons grupperet per dato med totaler)
+router.get('/calendar', handle((req, res) => {
+    const db    = getDb();
+    const year  = parseInt(req.query.year)  || new Date().getFullYear();
+    const month = parseInt(req.query.month) || (new Date().getMonth() + 1);
+
+    // Valgfri status-filter (kommasepareret)
+    const statusFilter = req.query.status ? req.query.status.split(',') : null;
+
+    // Beregn månedens grænser
+    const startDate = `${year}-${String(month).padStart(2, '0')}-01`;
+    const nextMonth = month === 12 ? 1 : month + 1;
+    const nextYear  = month === 12 ? year + 1 : year;
+
+    // Udvid til fulde ISO-uger (man–søn)
+    const startDt  = new Date(startDate + 'T00:00:00');
+    const startDow = startDt.getDay(); // 0=søn, 1=man, ...
+    const daysBack = startDow === 0 ? 6 : startDow - 1; // dage tilbage til mandag
+    startDt.setDate(startDt.getDate() - daysBack);
+    const calStart = _localDateStr(startDt);
+
+    const lastDay = new Date(nextYear, nextMonth - 1, 0); // sidste dag i måneden
+    const endDow  = lastDay.getDay();
+    const daysFwd = endDow === 0 ? 0 : 7 - endDow; // dage frem til søndag
+    lastDay.setDate(lastDay.getDate() + daysFwd);
+    const calEnd = _localDateStr(lastDay);
+
+    // Byg WHERE
+    const where = ['b.delivery_date >= ?', 'b.delivery_date <= ?'];
+    const args  = [calStart, calEnd];
+
+    if (statusFilter) {
+        where.push(`sd.code IN (${statusFilter.map(() => '?').join(',')})`);
+        args.push(...statusFilter);
+    }
+
+    const bons = db.prepare(`
+        SELECT
+            b.id, b.bon_number, b.delivery_date, b.pickup_time, b.delivery_time,
+            b.pax, b.total_units, b.delivery_type, b.payment_type, b.is_offer,
+            sd.code  AS status_code,
+            sd.label AS status_label,
+            sd.color AS status_color,
+            c.first_name || ' ' || COALESCE(c.last_name, '') AS contact_name_full,
+            co.name  AS company_name
+        FROM bons b
+        JOIN   status_definitions sd ON b.status_id  = sd.id
+        LEFT JOIN customers c        ON b.customer_id = c.id
+        LEFT JOIN companies co       ON b.company_id  = co.id
+        WHERE ${where.join(' AND ')}
+        ORDER BY b.delivery_date ASC, b.pickup_time ASC, b.id ASC
+    `).all(...args);
+
+    // Gruppér per dato
+    const days = {};
+    for (const bon of bons) {
+        const d = bon.delivery_date;
+        if (!days[d]) {
+            days[d] = { bons: [], totals: { pax: 0, units: 0, workload: 0, count: 0, offers: 0 } };
+        }
+        days[d].bons.push(bon);
+        if (bon.is_offer) {
+            days[d].totals.offers++;
+        } else {
+            const pax   = bon.pax || 0;
+            const units = bon.total_units || 0;
+            days[d].totals.pax      += pax;
+            days[d].totals.units    += units;
+            // Workload: enheder afspejler reel arbejdsbyrde bedre end pax
+            // (fx 3 slidere per kuvert = 3x arbejde vs. 1 sandwich per kuvert)
+            days[d].totals.workload += units > 0 ? units : pax;
+            days[d].totals.count++;
+        }
+    }
+
+    // Uge-totaler (ISO-uger, mandag-baseret)
+    const weekTotals = {};
+    for (const [dateStr, dayData] of Object.entries(days)) {
+        const dt      = new Date(dateStr + 'T00:00:00');
+        const weekNum = _getISOWeek(dt);
+        const weekKey = `${dt.getFullYear()}-W${String(weekNum).padStart(2, '0')}`;
+        if (!weekTotals[weekKey]) {
+            weekTotals[weekKey] = { pax: 0, units: 0, workload: 0, count: 0 };
+        }
+        weekTotals[weekKey].pax      += dayData.totals.pax;
+        weekTotals[weekKey].units    += dayData.totals.units;
+        weekTotals[weekKey].workload += dayData.totals.workload;
+        weekTotals[weekKey].count    += dayData.totals.count;
+    }
+
+    res.json({ year, month, calStart, calEnd, days, weekTotals });
+}));
+
+/** Lokal dato som YYYY-MM-DD (undgår toISOString() UTC-forskydning) */
+function _localDateStr(d) {
+    return d.getFullYear() + '-' + String(d.getMonth() + 1).padStart(2, '0') + '-' + String(d.getDate()).padStart(2, '0');
+}
+
+/** ISO-ugenummer (mandag = start) */
+function _getISOWeek(date) {
+    const d = new Date(Date.UTC(date.getFullYear(), date.getMonth(), date.getDate()));
+    const dayNum = d.getUTCDay() || 7;
+    d.setUTCDate(d.getUTCDate() + 4 - dayNum);
+    const yearStart = new Date(Date.UTC(d.getUTCFullYear(), 0, 1));
+    return Math.ceil((((d - yearStart) / 86400000) + 1) / 7);
+}
+
 module.exports = router;

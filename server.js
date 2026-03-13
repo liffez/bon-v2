@@ -26,7 +26,9 @@ app.use('/api/bons',      require('./routes/bons'));
 app.use('/api/statuses',  require('./routes/statuses'));
 app.use('/api/customers', require('./routes/customers'));
 app.use('/api/settings',  require('./routes/settings'));
-app.use('/api/grocy',     require('./routes/grocy'));
+app.use('/api/grocy',          require('./routes/grocy'));
+app.use('/api/smartplan',      require('./routes/smartplan'));
+app.use('/api/notifications',  require('./routes/notifications'));
 
 // ─── START ─────────────────────────────────────────────────────────────────
 

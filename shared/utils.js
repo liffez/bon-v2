@@ -68,6 +68,19 @@ function esc(s) {
 }
 
 /* ══════════════════════════════════════════════════════════════
+   CLIENT ID (midlertidig identitet uden auth)
+   ══════════════════════════════════════════════════════════════ */
+
+function getClientId() {
+    let id = localStorage.getItem('bon_client_id');
+    if (!id) {
+        id = crypto.randomUUID();
+        localStorage.setItem('bon_client_id', id);
+    }
+    return id;
+}
+
+/* ══════════════════════════════════════════════════════════════
    SSE KLIENT-HELPER
    ══════════════════════════════════════════════════════════════ */
 
@@ -249,4 +262,28 @@ function mapApiBonToCardData(apiBon) {
         delivery_method: apiBon.delivery_method || '',
         price_category:  apiBon.price_category || 'catering',
     };
+}
+
+/* ══════════════════════════════════════════════════════════════
+   SCROLL TO BON VIA URL HASH
+   Bruges af today.js og later.js til at scrolle til og
+   highlighte en bon når man navigerer fra kalender-modal.
+   Kald efter bons er renderet.
+   ══════════════════════════════════════════════════════════════ */
+
+function scrollToBonHash() {
+    var hash = window.location.hash;
+    if (!hash || !hash.startsWith('#bon')) return;
+
+    var el = document.getElementById(hash.slice(1));
+    if (!el) return;
+
+    // Scroll med offset for sticky headers
+    setTimeout(function() {
+        el.scrollIntoView({ behavior: 'smooth', block: 'center' });
+        el.classList.add('bon-highlight');
+        setTimeout(function() { el.classList.remove('bon-highlight'); }, 4500);
+        // Ryd hash så refresh ikke gentager
+        history.replaceState(null, '', window.location.pathname);
+    }, 300);
 }

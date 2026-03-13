@@ -72,6 +72,16 @@
 .bon-card[data-status="tilbud"]::before      { background: var(--s-tilbud); }
 .bon-card.fading-out { opacity: 0.3; transform: scale(0.98); pointer-events: none; }
 
+/* Highlight-animation når man navigerer til en bon via URL-hash */
+.bon-card.bon-highlight {
+    animation: bon-highlight-pulse 4s ease-out;
+}
+@keyframes bon-highlight-pulse {
+    0%   { box-shadow: 0 0 0 5px var(--brand-primary, #8e631f), 0 2px 12px rgba(142,99,31,0.3); }
+    70%  { box-shadow: 0 0 0 5px var(--brand-primary, #8e631f), 0 2px 12px rgba(142,99,31,0.3); }
+    100% { box-shadow: 0 1px 3px rgba(0,0,0,0.08), 0 4px 12px rgba(0,0,0,0.05); }
+}
+
 /* ── HEADER ────────────────────────────────────────────────── */
 .bon-header {
     padding: 14px 16px 12px 22px;

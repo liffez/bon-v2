@@ -109,3 +109,42 @@ function postBonLine(bonId, lineData) {
         body: JSON.stringify(lineData),
     });
 }
+
+/* ── FLYVERE / NOTIFIKATIONER ────────────────────────────── */
+
+function postFlyver(bonId, message, clientId) {
+    return apiFetch('/bons/' + bonId + '/notifications', {
+        method: 'POST',
+        body: JSON.stringify({
+            type: 'flyver',
+            message: message,
+            priority: 'urgent',
+            client_id: clientId,
+        }),
+    });
+}
+
+function markNotificationRead(bonId, notifId, clientId) {
+    return apiFetch('/bons/' + bonId + '/notifications/' + notifId + '/read', {
+        method: 'POST',
+        body: JSON.stringify({ client_id: clientId }),
+    });
+}
+
+function fetchUnreadNotifications(clientId) {
+    return apiFetch('/notifications/unread?client_id=' + encodeURIComponent(clientId));
+}
+
+/* ── KALENDER ─────────────────────────────────────────────── */
+
+function fetchBonsCalendar(year, month, status) {
+    var qs = '?year=' + year + '&month=' + month;
+    if (status) qs += '&status=' + encodeURIComponent(status);
+    return apiFetch('/bons/calendar' + qs);
+}
+
+/* ── SMARTPLAN ────────────────────────────────────────────── */
+
+function fetchSmartplanShifts(from, to) {
+    return apiFetch('/smartplan/shifts?from=' + encodeURIComponent(from) + '&to=' + encodeURIComponent(to));
+}

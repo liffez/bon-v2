@@ -1,0 +1,167 @@
+/* ══════════════════════════════════════════════════════════════
+   FLYVER BANNER — sticky blinkende bar
+   ══════════════════════════════════════════════════════════════ */
+
+.flyver-banner {
+    position: fixed;
+    top: 0; left: 0; right: 0;
+    z-index: 2000;
+    background: #bc181b;
+    color: white;
+    padding: 12px 20px;
+    font-size: 15px;
+    font-weight: 700;
+    cursor: pointer;
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    animation: flyverBlink 1s ease-in-out infinite;
+    user-select: none;
+}
+.flyver-banner.hidden { display: none; }
+
+@keyframes flyverBlink {
+    0%, 100% { opacity: 1; }
+    50%      { opacity: 0.6; }
+}
+
+.flyver-banner-icon { font-size: 18px; }
+.flyver-banner-text { flex: 1; }
+
+/* ══════════════════════════════════════════════════════════════
+   SEND FLYVER (i modal)
+   ══════════════════════════════════════════════════════════════ */
+
+.flyver-send {
+    display: flex;
+    flex-direction: column;
+    gap: 12px;
+}
+
+.flyver-textarea {
+    width: 100%;
+    padding: 10px;
+    border: 1px solid var(--color-border, #d7d1ca);
+    border-radius: 6px;
+    font-family: inherit;
+    font-size: 14px;
+    resize: vertical;
+    min-height: 80px;
+}
+.flyver-textarea:focus {
+    border-color: var(--brand-primary, #8e631f);
+    outline: none;
+}
+
+.flyver-send-actions {
+    display: flex;
+    justify-content: flex-end;
+    gap: 8px;
+}
+
+.flyver-send-btn {
+    padding: 8px 20px;
+    background: #bc181b;
+    color: white;
+    border: none;
+    border-radius: 6px;
+    font-weight: 700;
+    font-size: 14px;
+    cursor: pointer;
+}
+.flyver-send-btn:disabled { opacity: 0.6; cursor: default; }
+
+.flyver-cancel-btn {
+    padding: 8px 16px;
+    background: var(--color-background, #f5f4f2);
+    color: var(--color-text-dim, #777);
+    border: 1px solid var(--color-border, #d7d1ca);
+    border-radius: 6px;
+    font-size: 14px;
+    cursor: pointer;
+}
+
+/* ══════════════════════════════════════════════════════════════
+   DETAIL-MODAL
+   ══════════════════════════════════════════════════════════════ */
+
+.flyver-detail {
+    display: flex;
+    flex-direction: column;
+    gap: 12px;
+}
+
+.flyver-detail-time {
+    font-size: 12px;
+    color: var(--color-text-dim, #777);
+}
+
+.flyver-detail-message {
+    font-size: 16px;
+    font-weight: 600;
+    color: var(--color-text, #333);
+    padding: 12px;
+    background: #fde8e8;
+    border-radius: 8px;
+    border-left: 4px solid #bc181b;
+}
+
+.flyver-bon-summary { font-size: 14px; }
+.flyver-bon-header  { font-weight: 600; margin-bottom: 6px; }
+.flyver-bon-line    { font-size: 13px; color: var(--color-text-dim, #777); padding: 1px 0; }
+
+.flyver-nav {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 8px;
+    padding: 8px 0;
+}
+.flyver-nav button {
+    padding: 6px 12px;
+    border: 1px solid var(--color-border, #d7d1ca);
+    border-radius: 6px;
+    background: white;
+    cursor: pointer;
+    font-size: 13px;
+}
+.flyver-nav button:disabled { opacity: 0.4; cursor: default; }
+.flyver-nav span { font-size: 13px; color: var(--color-text-dim, #777); }
+
+.flyver-detail-actions {
+    display: flex;
+    justify-content: center;
+    gap: 10px;
+    padding-top: 4px;
+}
+
+.flyver-goto-btn {
+    padding: 10px 24px;
+    background: var(--brand-primary, #8e631f);
+    color: white;
+    border: none;
+    border-radius: 6px;
+    font-weight: 700;
+    font-size: 15px;
+    cursor: pointer;
+}
+.flyver-goto-btn:hover { background: #7a5519; }
+
+.flyver-ack-btn {
+    padding: 10px 32px;
+    background: #2e7d32;
+    color: white;
+    border: none;
+    border-radius: 6px;
+    font-weight: 700;
+    font-size: 15px;
+    cursor: pointer;
+}
+.flyver-ack-btn:hover { background: #256b28; }
+
+/* ── Highlight-animation når man navigerer til en bon ── */
+@keyframes flyverHighlight {
+    0%, 100% { box-shadow: none; }
+    20%, 80% { box-shadow: 0 0 0 3px #bc181b; }
+}
+.flyver-highlight { animation: flyverHighlight 2s ease-in-out; }

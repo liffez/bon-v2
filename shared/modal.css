@@ -104,6 +104,7 @@
 .changelog-icon.action-status_change { background: #e8f0f6; color: #4a7a9e; }
 .changelog-icon.action-update        { background: #fef3d6; color: #9a7020; }
 .changelog-icon.action-delete        { background: #fde8e8; color: #bc181b; }
+.changelog-icon.action-flyver        { background: #fde8e8; color: #bc181b; }
 
 /* Indhold */
 .changelog-content {

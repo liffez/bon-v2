@@ -158,6 +158,23 @@ function _buildChangelogEntry(entry) {
 
     let detailHtml = '';
 
+    // Flyver-entries: speciel rendering med ✈-ikon
+    if (entry.field_name === 'notification') {
+        const timeStr = _formatChangelogDate(entry.created_at);
+        const userStr = entry.user_name ? esc(entry.user_name) : '';
+        return '<div class="changelog-entry">'
+            + '<div class="changelog-icon action-flyver">\u2708</div>'
+            + '<div class="changelog-content">'
+            +     '<div class="changelog-action-label">Flyver</div>'
+            +     '<div class="changelog-detail">' + esc(entry.notes || entry.new_value || '') + '</div>'
+            +     '<div class="changelog-meta">'
+            +         '<span class="changelog-time">' + timeStr + '</span>'
+            +         (userStr ? '<span class="changelog-user">\u2014 ' + userStr + '</span>' : '')
+            +     '</div>'
+            + '</div>'
+            + '</div>';
+    }
+
     if (entry.action === 'create') {
         detailHtml = '<span class="changelog-detail">Bon oprettet</span>';
     } else if (entry.action === 'status_change') {
@@ -255,16 +272,27 @@ function _fmtKr(v) {
 }
 
 /**
- * Åbn info-modal for et bon-kort.
+ * Åbn info-modal for et bon-kort eller direkte med bonId.
  * Henter fuld bon via GET /api/bons/:id og viser alle detaljer.
- * Kaldes fra action-bar: onclick="showBonInfo('bon123')"
+ *
+ * Kald fra action-bar:  showBonInfo('bon123')
+ * Kald fra kalender:    showBonInfo(123, { showGotoButton: true, bonNumber: '3305' })
  */
-async function showBonInfo(cardId) {
-    const card = document.getElementById(cardId);
-    if (!card) return;
+async function showBonInfo(cardIdOrBonId, options) {
+    var opts = options || {};
+    var bonId, bonNr;
 
-    const bonId = cardId.replace('bon', '');
-    const bonNr = card.querySelector('.bon-id')?.textContent?.trim() || '#' + bonId;
+    if (typeof cardIdOrBonId === 'string' && cardIdOrBonId.startsWith('bon')) {
+        // Kaldt fra bon-kort: cardId = 'bon123'
+        var card = document.getElementById(cardIdOrBonId);
+        if (!card) return;
+        bonId = cardIdOrBonId.replace('bon', '');
+        bonNr = card.querySelector('.bon-id')?.textContent?.trim() || '#' + bonId;
+    } else {
+        // Kaldt fra kalender: bonId = 123
+        bonId = cardIdOrBonId;
+        bonNr = opts.bonNumber ? '#' + opts.bonNumber : '#' + bonId;
+    }
 
     // Vis loading
     openModal({
@@ -274,11 +302,33 @@ async function showBonInfo(cardId) {
 
     try {
         const bon = await fetchBon(bonId);
-        const body = document.querySelector('.modal-body');
-        if (body) body.innerHTML = _buildBonInfoHtml(bon);
+        const overlay = document.querySelector('.modal-overlay:last-of-type') || document.querySelector('.modal-overlay');
+        const body = overlay && overlay.querySelector('.modal-body');
+        if (body) {
+            body.innerHTML = _buildBonInfoHtml(bon);
+
+            // "Gå til bon →" knap (fra kalender)
+            if (opts.showGotoButton) {
+                var now = new Date();
+                var today = now.getFullYear() + '-' + String(now.getMonth() + 1).padStart(2, '0') + '-' + String(now.getDate()).padStart(2, '0');
+                var targetPage = (bon.delivery_date <= today) ? '/kitchen/today.html' : '/kitchen/later.html';
+                var gotoDiv = document.createElement('div');
+                gotoDiv.className = 'info-goto-section';
+                var gotoBtn = document.createElement('button');
+                gotoBtn.className = 'info-goto-btn';
+                gotoBtn.textContent = 'Gå til bon \u2192';
+                gotoBtn.addEventListener('click', function() {
+                    closeModal();
+                    window.location.href = targetPage + '#bon' + bonId;
+                });
+                gotoDiv.appendChild(gotoBtn);
+                body.appendChild(gotoDiv);
+            }
+        }
     } catch (err) {
         console.error('Fejl ved hentning af bon-info:', err);
-        const body = document.querySelector('.modal-body');
+        const overlay = document.querySelector('.modal-overlay:last-of-type') || document.querySelector('.modal-overlay');
+        const body = overlay && overlay.querySelector('.modal-body');
         if (body) body.innerHTML = '<div class="changelog-empty">Kunne ikke hente bon-data. Prøv igen.</div>';
     }
 }

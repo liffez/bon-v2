@@ -24,7 +24,7 @@ const clients = new Map();  // userId → Set<res>
 
 // GET /api/sse
 router.get('/', (req, res) => {
-    const userId = String(req.query.user_id || 'anon');
+    const userId = String(req.query.client_id || req.query.user_id || 'anon');
 
     res.setHeader('Content-Type',  'text/event-stream');
     res.setHeader('Cache-Control', 'no-cache');
