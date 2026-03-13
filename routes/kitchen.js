@@ -13,7 +13,7 @@ router.get('/today', handle((req, res) => {
             b.id, b.bon_number, b.delivery_date, b.pickup_time, b.delivery_time,
             b.pax, b.total_units, b.kitchen_info, b.delivery_type, b.delivery_method,
             b.prep_ingredients_ready, b.prep_supplies_ready,
-            b.kitchen_selects, b.customer_collects,
+            b.kitchen_selects, b.customer_collects, b.price_category,
             sd.code  AS status_code,
             sd.label AS status_label,
             sd.color AS status_color,
@@ -21,6 +21,7 @@ router.get('/today', handle((req, res) => {
             c.first_name || ' ' || COALESCE(c.last_name, '') AS contact_name_full,
             c.phone  AS contact_phone,
             co.name  AS company_name,
+            co.phone AS company_phone,
             a.street_name || ' ' || COALESCE(a.street_nr,'') AS delivery_street,
             a.city   AS delivery_city,
             a.postal_code AS delivery_postal
@@ -61,7 +62,7 @@ router.get('/later', handle((req, res) => {
             b.id, b.bon_number, b.delivery_date, b.pickup_time, b.delivery_time,
             b.pax, b.total_units, b.kitchen_info, b.delivery_type, b.delivery_method,
             b.prep_ingredients_ready, b.prep_supplies_ready,
-            b.kitchen_selects, b.customer_collects, b.is_offer,
+            b.kitchen_selects, b.customer_collects, b.is_offer, b.price_category,
             sd.code  AS status_code,
             sd.label AS status_label,
             sd.color AS status_color,
@@ -69,6 +70,7 @@ router.get('/later', handle((req, res) => {
             c.first_name || ' ' || COALESCE(c.last_name, '') AS contact_name_full,
             c.phone  AS contact_phone,
             co.name  AS company_name,
+            co.phone AS company_phone,
             a.street_name || ' ' || COALESCE(a.street_nr,'') AS delivery_street,
             a.city   AS delivery_city,
             a.postal_code AS delivery_postal

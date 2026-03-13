@@ -7,10 +7,12 @@
  *   openModal({ title, bodyHtml })  → vis modal
  *   closeModal()                    → luk modal
  *   showHistorik(cardId)            → hent changelog + vis i modal
+ *   showBonInfo(cardId)             → hent fuld bon + vis i modal
+ *   showRavarer(cardId)             → hent ingredienser + vis i modal
  *
  * Afhænger af:
- *   shared/api.js    → fetchBonChangelog()
- *   shared/utils.js  → esc()
+ *   shared/api.js    → fetchBon(), fetchBonChangelog(), fetchBonIngredients(), postGrocyShoppingList()
+ *   shared/utils.js  → esc(), statusToFrontend(), formatDanishDate()
  *   BonConfig.js     → BON_CONFIG (til status-labels)
  * ════════════════════════════════════════════════════════════
  */
@@ -233,5 +235,378 @@ async function showHistorik(cardId) {
         console.error('Fejl ved hentning af historik:', err);
         const body = document.querySelector('.modal-body');
         if (body) body.innerHTML = '<div class="changelog-empty">Kunne ikke hente historik. Prøv igen.</div>';
+    }
+}
+
+/* ══════════════════════════════════════════════════════════════
+   BON INFO — FULD DETALJEVISNING
+   ══════════════════════════════════════════════════════════════ */
+
+/** Danske labels for info-modal */
+const _PAY_LABELS       = { invoice: 'Faktura', card: 'Kort', mobilepay: 'MobilePay', cash: 'Kontant', pos: 'POS' };
+const _DEL_TYPE_LABELS  = { delivery: 'Levering', pickup: 'Afhentning', event: 'Event' };
+const _DEL_METHOD_LABELS = { bike: 'Cykel', taxi: 'Taxa', volvo: 'Volvo', pickup: 'Afhentning' };
+const _PRICE_CAT_LABELS = { store: 'Butik', catering: 'Catering', festival: 'Festival', produktion: 'Produktion', waiste: 'Waiste' };
+
+/** Formatér beløb som dansk kr */
+function _fmtKr(v) {
+    if (v == null) return '—';
+    return Number(v).toLocaleString('da-DK', { minimumFractionDigits: 2, maximumFractionDigits: 2 }) + ' kr';
+}
+
+/**
+ * Åbn info-modal for et bon-kort.
+ * Henter fuld bon via GET /api/bons/:id og viser alle detaljer.
+ * Kaldes fra action-bar: onclick="showBonInfo('bon123')"
+ */
+async function showBonInfo(cardId) {
+    const card = document.getElementById(cardId);
+    if (!card) return;
+
+    const bonId = cardId.replace('bon', '');
+    const bonNr = card.querySelector('.bon-id')?.textContent?.trim() || '#' + bonId;
+
+    // Vis loading
+    openModal({
+        title: `Info — ${esc(bonNr)}`,
+        bodyHtml: '<div class="changelog-empty">Henter bon-data…</div>',
+    });
+
+    try {
+        const bon = await fetchBon(bonId);
+        const body = document.querySelector('.modal-body');
+        if (body) body.innerHTML = _buildBonInfoHtml(bon);
+    } catch (err) {
+        console.error('Fejl ved hentning af bon-info:', err);
+        const body = document.querySelector('.modal-body');
+        if (body) body.innerHTML = '<div class="changelog-empty">Kunne ikke hente bon-data. Prøv igen.</div>';
+    }
+}
+
+/**
+ * Byg HTML for fuld bon-info modal.
+ */
+function _buildBonInfoHtml(bon) {
+    const _esc = typeof esc === 'function' ? esc : (s) => String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
+
+    // Status
+    const statusFe  = statusToFrontend(bon.status_code);
+    const statusCfg = BON_CONFIG && BON_CONFIG.statuses && BON_CONFIG.statuses[statusFe];
+    const statusLabel = statusCfg ? statusCfg.label : (bon.status_label || bon.status_code);
+    const statusColor = statusCfg ? statusCfg.color : (bon.status_color || '#999');
+    const statusText  = statusCfg ? statusCfg.text  : '#fff';
+
+    // Leveringsadresse
+    let addrStr = '';
+    if (bon.delivery_address) {
+        const a = bon.delivery_address;
+        addrStr = [a.street_name, a.street_nr].filter(Boolean).join(' ');
+        if (a.street_name2) addrStr += ', ' + a.street_name2;
+        if (a.postal_code || a.city) addrStr += ', ' + [a.postal_code, a.city].filter(Boolean).join(' ');
+    } else if (bon.customer_collects) {
+        addrStr = 'Afhentes';
+    }
+
+    // Leveringstype + metode
+    const delType   = _DEL_TYPE_LABELS[bon.delivery_type] || bon.delivery_type || '';
+    const delMethod = _DEL_METHOD_LABELS[bon.delivery_method] || bon.delivery_method || '';
+    const deliveryStr = [delType, delMethod].filter(Boolean).join(' · ');
+
+    // Dato
+    const dateStr = bon.delivery_date ? formatDanishDate(bon.delivery_date) : '';
+
+    let html = '';
+
+    // ── Overblik ──────────────────────────────────────────────
+    html += '<div class="info-section">';
+    html += `<div class="info-row">
+        <span class="info-label">Status</span>
+        <span class="info-value"><span class="info-status-badge" style="background:${statusColor};color:${statusText}">${_esc(statusLabel)}</span></span>
+    </div>`;
+    if (dateStr)           html += `<div class="info-row"><span class="info-label">Dato</span><span class="info-value">${_esc(dateStr)}</span></div>`;
+    if (bon.pickup_time)   html += `<div class="info-row"><span class="info-label">Afhentning</span><span class="info-value">${_esc(bon.pickup_time)}</span></div>`;
+    if (bon.delivery_time) html += `<div class="info-row"><span class="info-label">Levering kl.</span><span class="info-value">${_esc(bon.delivery_time)}</span></div>`;
+    if (deliveryStr)       html += `<div class="info-row"><span class="info-label">Type</span><span class="info-value">${_esc(deliveryStr)}</span></div>`;
+    if (bon.pax)           html += `<div class="info-row"><span class="info-label">Kuverter</span><span class="info-value">${bon.pax}</span></div>`;
+    if (bon.total_units)   html += `<div class="info-row"><span class="info-label">Enheder</span><span class="info-value">${bon.total_units}</span></div>`;
+    if (bon.boxes)         html += `<div class="info-row"><span class="info-label">Kasser</span><span class="info-value">${bon.boxes}</span></div>`;
+    html += '</div>';
+
+    // ── Kunde ─────────────────────────────────────────────────
+    const custName = (bon.contact_name_full || '').trim();
+    const compName = bon.company_name || '';
+    if (custName || compName) {
+        html += '<div class="info-section">';
+        html += '<div class="info-section-title">Kunde</div>';
+        const nameParts = [custName, compName].filter(Boolean);
+        html += `<div class="info-customer-name">${_esc(nameParts.join(' · '))}</div>`;
+        if (addrStr) html += `<div class="info-customer-detail">${_esc(addrStr)}</div>`;
+        // Telefonnumre: bestiller + dagskontakt
+        if (bon.contact_phone) {
+            const label = bon.company_phone && bon.company_phone !== bon.contact_phone ? ' <span class="info-phone-label">Bestiller</span>' : '';
+            html += `<div class="info-customer-detail">📞 ${_esc(bon.contact_phone)}${label}</div>`;
+        }
+        if (bon.company_phone && bon.company_phone !== bon.contact_phone) {
+            html += `<div class="info-customer-detail">📞 ${_esc(bon.company_phone)} <span class="info-phone-label">Dagskontakt</span></div>`;
+        }
+        if (bon.contact_email) html += `<div class="info-customer-detail">✉ ${_esc(bon.contact_email)}</div>`;
+        html += '</div>';
+    }
+
+    // ── Menulinjer ────────────────────────────────────────────
+    const lines = bon.lines || [];
+    if (lines.length > 0) {
+        const mainLines = lines.filter(l => !l.is_accessory);
+        const accLines  = lines.filter(l => l.is_accessory);
+
+        html += '<div class="info-section">';
+        html += '<div class="info-section-title">Menulinjer</div>';
+        html += '<div class="info-lines">';
+
+        for (const l of mainLines) {
+            html += _buildInfoLine(l, _esc);
+        }
+        if (accLines.length > 0) {
+            html += '<div class="info-lines-divider"></div>';
+            for (const l of accLines) {
+                html += _buildInfoLine(l, _esc);
+            }
+        }
+        html += '</div>';
+
+        // Totals
+        const lineSum = lines.reduce((s, l) => s + (l.line_total || 0), 0);
+        html += '<div class="info-totals">';
+        if (bon.delivery_price != null && bon.delivery_price > 0) {
+            html += `<div class="info-total-row"><span>Levering</span><span>${_fmtKr(bon.delivery_price)}</span></div>`;
+        }
+        const grand = (bon.total_with_delivery != null) ? bon.total_with_delivery
+                     : (lineSum + (bon.delivery_price || 0));
+        if (grand > 0) {
+            // Moms: 25% dansk moms (inkluderet i priserne) → moms = total * 25/125
+            const moms = grand * 25 / 125;
+            html += `<div class="info-total-row"><span>Heraf moms</span><span>${_fmtKr(moms)}</span></div>`;
+            html += `<div class="info-total-row info-total-grand"><span>I alt</span><span>${_fmtKr(grand)}</span></div>`;
+        }
+        html += '</div>';
+        html += '</div>';
+    }
+
+    // ── Noter ─────────────────────────────────────────────────
+    const hasNotes = bon.kitchen_info || bon.customer_wishes || bon.internal_notes || bon.delivery_notes;
+    if (hasNotes) {
+        html += '<div class="info-section">';
+        html += '<div class="info-section-title">Noter</div>';
+        if (bon.kitchen_info)    html += `<div class="info-note"><span class="info-note-label">Køkkeninfo</span><div class="info-note-text">${_esc(bon.kitchen_info)}</div></div>`;
+        if (bon.customer_wishes) html += `<div class="info-note"><span class="info-note-label">Kundeønsker</span><div class="info-note-text">${_esc(bon.customer_wishes)}</div></div>`;
+        if (bon.delivery_notes)  html += `<div class="info-note"><span class="info-note-label">Leveringsnoter</span><div class="info-note-text">${_esc(bon.delivery_notes)}</div></div>`;
+        if (bon.internal_notes)  html += `<div class="info-note"><span class="info-note-label">Intern note</span><div class="info-note-text">${_esc(bon.internal_notes)}</div></div>`;
+        html += '</div>';
+    }
+
+    // ── Betaling ──────────────────────────────────────────────
+    const payLabel  = _PAY_LABELS[bon.payment_type] || bon.payment_type || '';
+    const priceCat  = _PRICE_CAT_LABELS[bon.price_category] || bon.price_category || '';
+    if (payLabel || priceCat) {
+        html += '<div class="info-section">';
+        html += '<div class="info-section-title">Betaling</div>';
+        const parts = [payLabel, priceCat ? priceCat + '-priser' : ''].filter(Boolean);
+        html += `<div class="info-payment">${_esc(parts.join(' · '))}</div>`;
+        html += '</div>';
+    }
+
+    // ── Bud / kurerinfo ───────────────────────────────────────
+    if (bon.courier_provider || bon.courier_arrival_time || (bon.delivery_cost != null && bon.delivery_cost > 0)) {
+        html += '<div class="info-section">';
+        html += '<div class="info-section-title">Bud</div>';
+        if (bon.courier_provider)      html += `<div class="info-row"><span class="info-label">Firma</span><span class="info-value">${_esc(bon.courier_provider)}</span></div>`;
+        if (bon.courier_arrival_time)  html += `<div class="info-row"><span class="info-label">Ankomst</span><span class="info-value">${_esc(bon.courier_arrival_time)}</span></div>`;
+        if (bon.delivery_cost != null && bon.delivery_cost > 0) html += `<div class="info-row"><span class="info-label">Omkostning</span><span class="info-value">${_fmtKr(bon.delivery_cost)}</span></div>`;
+        html += '</div>';
+    }
+
+    return html;
+}
+
+/**
+ * Byg HTML for én menulinje i info-modalen.
+ */
+function _buildInfoLine(line, _esc) {
+    const special = line.special_request
+        ? `<div class="info-line-special">${_esc(line.special_request)}</div>`
+        : '';
+    const priceStr = line.line_total != null
+        ? `<span class="info-line-total">${_fmtKr(line.line_total)}</span>`
+        : '';
+    const accessoryCls = line.is_accessory ? ' accessory' : '';
+
+    return `<div class="info-line${accessoryCls}">
+        <span class="info-line-qty">${line.quantity}</span>
+        <span class="info-line-name">${_esc(line.product_name)}${special}</span>
+        ${priceStr}
+    </div>`;
+}
+
+/* ══════════════════════════════════════════════════════════════
+   RÅVARER — INGREDIENSBEHOV
+   ══════════════════════════════════════════════════════════════ */
+
+const _STATUS_DOT = {
+    mangler: { dot: '🔴', cls: 'ing-status-mangler' },
+    lav:     { dot: '🟡', cls: 'ing-status-lav' },
+    ok:      { dot: '🟢', cls: 'ing-status-ok' },
+};
+
+/**
+ * Åbn råvarer-modal for et bon-kort.
+ * Henter aggregerede ingredienser med lagerstatus.
+ * Kaldes fra action-bar: onclick="showRavarer('bon123')"
+ */
+async function showRavarer(cardId) {
+    const card = document.getElementById(cardId);
+    if (!card) return;
+
+    const bonId = cardId.replace('bon', '');
+    const bonNr = card.querySelector('.bon-id')?.textContent?.trim() || '#' + bonId;
+
+    openModal({
+        title: `Råvarer — ${esc(bonNr)}`,
+        bodyHtml: '<div class="changelog-empty">Henter ingrediensbehov…</div>',
+    });
+
+    try {
+        const data = await fetchBonIngredients(bonId);
+        const body = document.querySelector('.modal-body');
+        if (body) body.innerHTML = _buildRavarerHtml(data);
+    } catch (err) {
+        console.error('Fejl ved hentning af ingredienser:', err);
+        const body = document.querySelector('.modal-body');
+        if (body) body.innerHTML = `<div class="changelog-empty">Kunne ikke hente ingredienser. Prøv igen.</div>`;
+    }
+}
+
+/**
+ * Formatér tal til dansk (1.234,56)
+ */
+function _fmtNum(v) {
+    if (v == null) return '—';
+    const n = Math.round(v * 100) / 100;
+    return n.toLocaleString('da-DK', { minimumFractionDigits: 0, maximumFractionDigits: 2 });
+}
+
+/**
+ * Byg HTML for ingrediens-modal.
+ * Grupperet efter Grocy ingredient_group med status-dots per linje.
+ */
+function _buildRavarerHtml(data) {
+    const _esc = typeof esc === 'function' ? esc : (s) => String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
+
+    if (!data.groups || data.groups.length === 0) {
+        let msg = 'Ingen ingredienser fundet.';
+        if (data.lines_without_recipe && data.lines_without_recipe.length > 0) {
+            msg += ' Ingen linjer har en Grocy-opskrift.';
+        }
+        return `<div class="changelog-empty">${msg}</div>`;
+    }
+
+    // Søgefelt
+    let html = `<div class="ing-search-wrap">
+        <input type="text" class="ing-search" placeholder="Søg ingrediens…"
+               oninput="_filterIngredients(this.value)">
+    </div>`;
+
+    // Render per Grocy-gruppe
+    for (const group of data.groups) {
+        const groupTitle = group.name || 'Øvrige';
+
+        html += '<div class="ing-group">';
+        html += `<div class="ing-group-header" onclick="_toggleIngGroup(this)">
+            <span class="ing-group-label">${_esc(groupTitle)}</span>
+            <span class="ing-group-toggle">▾</span>
+        </div>`;
+
+        html += '<div class="ing-table">';
+        for (const ing of group.ingredients) {
+            const st = _STATUS_DOT[ing.status] || _STATUS_DOT.ok;
+            const showCart = ing.status === 'mangler' || ing.status === 'lav';
+            const purchaseAmount = ing.shortfall_purchase || 0;
+            const purchaseUnit = ing.purchase_unit || '';
+            const cartTitle = purchaseAmount > 0
+                ? `Tilføj ${_fmtNum(purchaseAmount)} ${purchaseUnit} til indkøbsliste`
+                : 'Tilføj til indkøbsliste';
+            const cartBtn = showCart
+                ? `<button class="ing-btn-cart" onclick="_addToShoppingList(this, ${ing.product_id}, ${purchaseAmount}, '${_esc(ing.product_name)}')" title="${cartTitle}">🛒</button>`
+                : '';
+
+            html += `<div class="ing-row ${st.cls}" data-ing-name="${_esc(ing.product_name.toLowerCase())}">
+                <span class="ing-dot">${st.dot}</span>
+                <span class="ing-name">${_esc(ing.product_name)}</span>
+                <span class="ing-amount">${_fmtNum(ing.amount_needed)}</span>
+                <span class="ing-unit">${_esc(ing.unit)}</span>
+                <span class="ing-stock">${_fmtNum(ing.amount_stock)}</span>
+                <span class="ing-stock-unit">${_esc(ing.stock_unit || ing.unit)}</span>
+                <span class="ing-action">${cartBtn}</span>
+            </div>`;
+        }
+        html += '</div></div>';
+    }
+
+    // Linjer uden opskrift
+    if (data.lines_without_recipe && data.lines_without_recipe.length > 0) {
+        html += `<div class="ing-note">Uden Grocy-opskrift: ${data.lines_without_recipe.map(n => _esc(n)).join(', ')}</div>`;
+    }
+
+    return html;
+}
+
+/**
+ * Filtrér ingredienser i Råvarer-modal baseret på søgeterm.
+ * Skjuler rækker der ikke matcher og grupper uden synlige rækker.
+ */
+function _filterIngredients(term) {
+    const q = term.toLowerCase().trim();
+    const groups = document.querySelectorAll('.ing-group');
+
+    for (const group of groups) {
+        const rows = group.querySelectorAll('.ing-row');
+        let visibleCount = 0;
+
+        for (const row of rows) {
+            const name = row.getAttribute('data-ing-name') || '';
+            const match = !q || name.includes(q);
+            row.style.display = match ? '' : 'none';
+            if (match) visibleCount++;
+        }
+
+        // Skjul hele gruppen hvis ingen synlige rækker
+        group.style.display = visibleCount > 0 ? '' : 'none';
+    }
+}
+
+/**
+ * Toggle fold/unfold af en gruppe.
+ */
+function _toggleIngGroup(headerEl) {
+    const group = headerEl.closest('.ing-group');
+    if (group) group.classList.toggle('collapsed');
+}
+
+/**
+ * Tilføj til Grocy indkøbsliste.
+ * Bruger shortfall_stock (i lager-enheder) som mængde.
+ */
+async function _addToShoppingList(btnEl, productId, amount, name) {
+    btnEl.disabled = true;
+    btnEl.textContent = '…';
+
+    try {
+        await postGrocyShoppingList([{ product_id: productId, amount: amount, note: name }]);
+        btnEl.textContent = '✓';
+        btnEl.classList.add('ing-btn-done');
+    } catch (err) {
+        console.error('Indkøbsliste fejl:', err);
+        btnEl.textContent = '✗';
+        btnEl.disabled = false;
+        setTimeout(() => { btnEl.textContent = '🛒'; }, 2000);
     }
 }

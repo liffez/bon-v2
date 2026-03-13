@@ -85,6 +85,10 @@ const run = db.transaction(() => {
     anna:   insertC.run(null,               'Anna',   'Bjerre',          '28 19 45 67', 'anna.bjerre@gmail.com',     0).lastInsertRowid,
   };
 
+  // ── SYSTEMBRUGER ────────────────────────────────────────────────
+  db.exec(`DELETE FROM users`);
+  db.prepare(`INSERT INTO users (id, name, email, role) VALUES (1, 'System', 'system@ristetrug.dk', 'admin')`).run();
+
   // ── STATUS IDs ──────────────────────────────────────────────────
   const statusId = (code) => db.prepare(`SELECT id FROM status_definitions WHERE code = ?`).get(code)?.id;
   const locId    = db.prepare(`SELECT id FROM locations WHERE code = 'hq'`).get()?.id ?? 1;
@@ -99,8 +103,8 @@ const run = db.transaction(() => {
       pax, total_units, kitchen_info,
       prep_ingredients_ready, prep_supplies_ready,
       kitchen_selects, customer_collects,
-      payment_type, created_by_user_id
-    ) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,1)
+      payment_type, price_category, created_by_user_id
+    ) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,1)
   `);
 
   // ── I GÅR — leverede ordrer ─────────────────────────────────
@@ -109,7 +113,7 @@ const run = db.transaction(() => {
     yesterday, yesterday, '10:00', null,
     'pickup', null, null,
     8, 16, null,
-    1, 1, 0, 1, 'mobilepay'
+    1, 1, 0, 1, 'mobilepay', 'store'
   ).lastInsertRowid;
 
   // ── I DAG — blandet status ──────────────────────────────────
@@ -118,7 +122,7 @@ const run = db.transaction(() => {
     today, today, '12:30', '12:12',
     'delivery', 'bike', addr.nora,
     28, 70, null,
-    1, 0, 0, 0, 'invoice'
+    1, 0, 0, 0, 'invoice', 'catering'
   ).lastInsertRowid;
 
   const bon3291 = insertBon.run(
@@ -126,7 +130,7 @@ const run = db.transaction(() => {
     today, today, '11:00', '11:45',
     'delivery', 'bike', addr.maersk,
     20, 20, null,
-    1, 1, 0, 0, 'invoice'
+    1, 1, 0, 0, 'invoice', 'catering'
   ).lastInsertRowid;
 
   const bon3295 = insertBon.run(
@@ -134,7 +138,7 @@ const run = db.transaction(() => {
     today, today, '13:00', '13:30',
     'delivery', 'bike', addr.finansforbundet,
     40, 100, 'Æggepandekager mangler – erstat med ekstra hønsesalat',
-    0, 0, 0, 0, 'invoice'
+    0, 0, 0, 0, 'invoice', 'catering'
   ).lastInsertRowid;
 
   const bon3301 = insertBon.run(
@@ -142,7 +146,7 @@ const run = db.transaction(() => {
     today, today, '14:30', '15:00',
     'delivery', 'taxi', addr.kk,
     15, 30, null,
-    0, 0, 0, 0, 'invoice'
+    0, 0, 0, 0, 'invoice', 'catering'
   ).lastInsertRowid;
 
   const bon3305 = insertBon.run(
@@ -150,7 +154,7 @@ const run = db.transaction(() => {
     today, today, '09:30', '10:00',
     'delivery', 'bike', addr.dr,
     12, 24, 'Vegansk fokus — intet kød',
-    1, 1, 0, 0, 'invoice'
+    1, 1, 0, 0, 'invoice', 'catering'
   ).lastInsertRowid;
 
   const bon3308 = insertBon.run(
@@ -158,7 +162,7 @@ const run = db.transaction(() => {
     today, today, '15:00', null,
     'pickup', null, null,
     6, 12, null,
-    1, 0, 1, 1, 'mobilepay'
+    1, 0, 1, 1, 'mobilepay', 'store'
   ).lastInsertRowid;
 
   // ── I MORGEN ────────────────────────────────────────────────
@@ -167,7 +171,7 @@ const run = db.transaction(() => {
     today, tomorrow, '12:00', '12:30',
     'delivery', 'taxi', addr.novo,
     60, 150, 'Stort ledermøde — extra pæn anretning',
-    0, 0, 0, 0, 'invoice'
+    0, 0, 0, 0, 'invoice', 'catering'
   ).lastInsertRowid;
 
   const bon3315 = insertBon.run(
@@ -175,7 +179,7 @@ const run = db.transaction(() => {
     today, tomorrow, '11:00', '11:30',
     'delivery', 'bike', addr.finansforbundet,
     25, 50, null,
-    0, 0, 0, 0, 'invoice'
+    0, 0, 0, 0, 'invoice', 'catering'
   ).lastInsertRowid;
 
   const bon3318 = insertBon.run(
@@ -183,7 +187,7 @@ const run = db.transaction(() => {
     today, tomorrow, '14:00', null,
     'pickup', null, null,
     10, 20, 'Fødselsdagsfest — skal bekræftes i dag',
-    0, 0, 1, 1, 'mobilepay'
+    0, 0, 1, 1, 'mobilepay', 'store'
   ).lastInsertRowid;
 
   // ── OM 2-3 DAGE ────────────────────────────────────────────
@@ -192,7 +196,7 @@ const run = db.transaction(() => {
     today, in2days, '11:30', '12:00',
     'delivery', 'bike', addr.dr,
     30, 60, null,
-    0, 0, 0, 0, 'invoice'
+    0, 0, 0, 0, 'invoice', 'catering'
   ).lastInsertRowid;
 
   const bon3325 = insertBon.run(
@@ -200,7 +204,7 @@ const run = db.transaction(() => {
     today, in3days, '12:00', '12:30',
     'delivery', 'taxi', addr.maersk,
     50, 0, null,
-    0, 0, 0, 0, 'invoice'
+    0, 0, 0, 0, 'invoice', 'catering'
   ).lastInsertRowid;
 
   // ── BON LINES ────────────────────────────────────────────────────

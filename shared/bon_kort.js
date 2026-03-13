@@ -423,10 +423,10 @@ document.addEventListener('drop', e => {
    ══════════════════════════════════════════════════════════════ */
 
 const VIEW_MODULES = {
-    'kitchen-today':  { prep: true,  customer: true,  alerts: false, co2: false, select: true,  kitchenInfo: true, deliveryBlock: true, summary: true },
-    'kitchen-later':  { prep: true,  customer: true,  alerts: true,  co2: false, select: true,  kitchenInfo: true, deliveryBlock: true, summary: true },
-    'invoice':        { prep: false, customer: true,  alerts: false, co2: false, select: true  },
-    'all':            { prep: false, customer: true,  alerts: true,  co2: true,  select: true  },
+    'kitchen-today':  { prep: true,  customer: true,  alerts: false, co2: false, select: true,  kitchenInfo: true, deliveryBlock: true, summary: true, showRecipePrices: false },
+    'kitchen-later':  { prep: true,  customer: true,  alerts: true,  co2: false, select: true,  kitchenInfo: true, deliveryBlock: true, summary: true, showRecipePrices: false },
+    'invoice':        { prep: false, customer: true,  alerts: false, co2: false, select: true,  showRecipePrices: true },
+    'all':            { prep: false, customer: true,  alerts: true,  co2: true,  select: true,  showRecipePrices: true },
 };
 
 
@@ -436,31 +436,35 @@ const VIEW_MODULES = {
    ────────────────────────────────────────────────────────── */
 const VIEW_ACTIONS = {
     'kitchen-today': [
-        { tooltip: 'Tilføj vare',   icon: '<line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/>' },
+        { tooltip: 'Tilføj vare',   icon: '<line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/>', onclick: 'openRecipePicker' },
+        { tooltip: 'Info',          icon: '<path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/><circle cx="12" cy="12" r="3"/>', onclick: 'showBonInfo' },
         { tooltip: 'Send flyver',   icon: '<path d="M22 2L11 13"/><path d="M22 2l-7 20-4-9-9-4 20-7z"/>' },
         { tooltip: 'Send mail',     icon: '<path d="M4 4h16c1.1 0 2 .9 2 2v12c0 1.1-.9 2-2 2H4c-1.1 0-2-.9-2-2V6c0-1.1.9-2 2-2z"/><polyline points="22,6 12,13 2,6"/>' },
-        { tooltip: 'Råvarer',       icon: '<circle cx="12" cy="12" r="10"/><line x1="12" y1="16" x2="12" y2="12"/><line x1="12" y1="8" x2="12.01" y2="8"/>' },
-        { tooltip: 'Kort',          icon: '<path d="M21 10c0 7-9 13-9 13s-9-6-9-13a9 9 0 0118 0z"/><circle cx="12" cy="10" r="3"/>' },
+        { tooltip: 'Råvarer',       icon: '<line x1="16.5" y1="9.4" x2="7.5" y2="4.21"/><path d="M21 16V8a2 2 0 00-1-1.73l-7-4a2 2 0 00-2 0l-7 4A2 2 0 003 8v8a2 2 0 001 1.73l7 4a2 2 0 002 0l7-4A2 2 0 0021 16z"/><polyline points="3.27 6.96 12 12.01 20.73 6.96"/><line x1="12" y1="22.08" x2="12" y2="12"/>', onclick: 'showRavarer' },
+        { tooltip: 'Kort',          icon: '<path d="M21 10c0 7-9 13-9 13s-9-6-9-13a9 9 0 0118 0z"/><circle cx="12" cy="10" r="3"/>', onclick: 'openMap' },
         { tooltip: 'Historik',      icon: '<circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/>', onclick: 'showHistorik' },
         { tooltip: 'Sammentælling', icon: '<line x1="4" y1="6" x2="20" y2="6"/><line x1="4" y1="10" x2="14" y2="10"/><line x1="4" y1="14" x2="20" y2="14"/><line x1="4" y1="18" x2="14" y2="18"/><polyline points="17 14 20 17 17 20"/>', onclick: 'showSummary' },
     ],
     'kitchen-later': [
-        { tooltip: 'Tilføj vare',   icon: '<line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/>' },
+        { tooltip: 'Tilføj vare',   icon: '<line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/>', onclick: 'openRecipePicker' },
+        { tooltip: 'Info',          icon: '<path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/><circle cx="12" cy="12" r="3"/>', onclick: 'showBonInfo' },
         { tooltip: 'Send flyver',   icon: '<path d="M22 2L11 13"/><path d="M22 2l-7 20-4-9-9-4 20-7z"/>' },
         { tooltip: 'Send mail',     icon: '<path d="M4 4h16c1.1 0 2 .9 2 2v12c0 1.1-.9 2-2 2H4c-1.1 0-2-.9-2-2V6c0-1.1.9-2 2-2z"/><polyline points="22,6 12,13 2,6"/>' },
-        { tooltip: 'Råvarer',       icon: '<circle cx="12" cy="12" r="10"/><line x1="12" y1="16" x2="12" y2="12"/><line x1="12" y1="8" x2="12.01" y2="8"/>' },
-        { tooltip: 'Kort',          icon: '<path d="M21 10c0 7-9 13-9 13s-9-6-9-13a9 9 0 0118 0z"/><circle cx="12" cy="10" r="3"/>' },
+        { tooltip: 'Råvarer',       icon: '<line x1="16.5" y1="9.4" x2="7.5" y2="4.21"/><path d="M21 16V8a2 2 0 00-1-1.73l-7-4a2 2 0 00-2 0l-7 4A2 2 0 003 8v8a2 2 0 001 1.73l7 4a2 2 0 002 0l7-4A2 2 0 0021 16z"/><polyline points="3.27 6.96 12 12.01 20.73 6.96"/><line x1="12" y1="22.08" x2="12" y2="12"/>', onclick: 'showRavarer' },
+        { tooltip: 'Kort',          icon: '<path d="M21 10c0 7-9 13-9 13s-9-6-9-13a9 9 0 0118 0z"/><circle cx="12" cy="10" r="3"/>', onclick: 'openMap' },
         { tooltip: 'Historik',      icon: '<circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/>', onclick: 'showHistorik' },
         { tooltip: 'Sammentælling', icon: '<line x1="4" y1="6" x2="20" y2="6"/><line x1="4" y1="10" x2="14" y2="10"/><line x1="4" y1="14" x2="20" y2="14"/><line x1="4" y1="18" x2="14" y2="18"/><polyline points="17 14 20 17 17 20"/>', onclick: 'showSummary' },
     ],
     'invoice': [
         { tooltip: 'Åbn bon',       icon: '<path d="M14 2H6a2 2 0 00-2 2v16a2 2 0 002 2h12a2 2 0 002-2V8z"/><polyline points="14 2 14 8 20 8"/>' },
+        { tooltip: 'Info',          icon: '<path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/><circle cx="12" cy="12" r="3"/>', onclick: 'showBonInfo' },
         { tooltip: 'Fakturér',      icon: '<rect x="1" y="4" width="22" height="16" rx="2" ry="2"/><line x1="1" y1="10" x2="23" y2="10"/>' },
         { tooltip: 'Send mail',     icon: '<path d="M4 4h16c1.1 0 2 .9 2 2v12c0 1.1-.9 2-2 2H4c-1.1 0-2-.9-2-2V6c0-1.1.9-2 2-2z"/><polyline points="22,6 12,13 2,6"/>' },
         { tooltip: 'Historik',      icon: '<circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/>', onclick: 'showHistorik' },
     ],
     'all': [
         { tooltip: 'Åbn bon',       icon: '<path d="M14 2H6a2 2 0 00-2 2v16a2 2 0 002 2h12a2 2 0 002-2V8z"/><polyline points="14 2 14 8 20 8"/>' },
+        { tooltip: 'Info',          icon: '<path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/><circle cx="12" cy="12" r="3"/>', onclick: 'showBonInfo' },
         { tooltip: 'Send mail',     icon: '<path d="M4 4h16c1.1 0 2 .9 2 2v12c0 1.1-.9 2-2 2H4c-1.1 0-2-.9-2-2V6c0-1.1.9-2 2-2z"/><polyline points="22,6 12,13 2,6"/>' },
         { tooltip: 'Historik',      icon: '<circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/>', onclick: 'showHistorik' },
     ],
@@ -488,9 +492,10 @@ function createCard(bonData, viewName) {
     const el = document.createElement('div');
     el.className   = 'bon-card';
     el.id          = cardId;
-    el.dataset.status  = bonData.status;
-    el.dataset.payment = bonData.payment || 'faktura';
-    el.dataset.view    = viewName || 'all';   // bruges af buildStatusBar
+    el.dataset.status        = bonData.status;
+    el.dataset.payment       = bonData.payment || 'faktura';
+    el.dataset.view          = viewName || 'all';   // bruges af buildStatusBar
+    el.dataset.priceCategory = bonData.price_category || 'catering';
 
     // ── HEADER ──────────────────────────────────────────────────
     const orderTypeLabel = bonData.order_type === 'pickup' ? 'Afhentning' :
@@ -573,6 +578,9 @@ function createCard(bonData, viewName) {
             </button>` : ''}
             ${mods.summary ? _buildSummaryPanel(num, cardId) : ''}
         </div>
+
+        <!-- Recipe picker (åbnes via + knap) -->
+        <div class="recipe-picker" id="rp${num}"></div>
     `;
 
     // Byg status-bar nu hvor elementet eksisterer
@@ -594,8 +602,11 @@ function _buildPrep(prepItems, num) {
 
 function _buildCustomer(c, num, bonDataForDelivery) {
     const company = c.company ? ` · ${c.company}` : '';
+
+    // Telefonnumre i fold-ud med navne
     const detailParts = [
-        c.phone ? `<div class="detail-row">📞 <a href="tel:${c.phone}">${c.phone}</a></div>` : '',
+        c.phone ? `<div class="detail-row">📞 <a href="tel:${c.phone}" onclick="event.stopPropagation()">${c.phone}</a> <span class="detail-label">${c.name} · Bestiller</span></div>` : '',
+        c.company_phone && c.company_phone !== c.phone ? `<div class="detail-row">📞 <a href="tel:${c.company_phone}" onclick="event.stopPropagation()">${c.company_phone}</a> <span class="detail-label">${c.company || c.name} · Dagskontakt</span></div>` : '',
         c.email ? `<div class="detail-row">✉ <a href="mailto:${c.email}">${c.email}</a></div>` : '',
     ].filter(Boolean).join('');
 
@@ -765,6 +776,9 @@ function _buildMenu(menuItems, num) {
 
 function _buildMenuItem(item, num) {
     const cls = item.style === 'emballage' ? ' emballage' : '';
+    const special = item.special_request
+        ? `<div class="bon-menu-special">${esc(item.special_request)}</div>`
+        : '';
     return `
         <div class="bon-menu-item${cls}" draggable="true" data-drag="item">
             <div class="drag-handle">
@@ -779,7 +793,7 @@ function _buildMenuItem(item, num) {
             </div>
             <div class="item-select" onclick="toggleItem(this,'menu${num}')"></div>
             <span class="bon-menu-qty">${item.qty}</span>
-            <span class="bon-menu-name">${item.name}</span>
+            <span class="bon-menu-name">${item.name}${special}</span>
         </div>`;
 }
 
@@ -792,6 +806,292 @@ function _buildCo2(co2str) {
             </svg>
             <span class="bon-co2-value">${co2str}</span>
         </div>`;
+}
+
+/* ══════════════════════════════════════════════════════════════
+   RECIPE PICKER
+   ══════════════════════════════════════════════════════════════ */
+
+let _recipesCache = null;
+
+async function _loadRecipes() {
+    if (!_recipesCache) _recipesCache = await fetchGrocyRecipes();
+    return _recipesCache;
+}
+
+function _rpShowPrices(viewName) {
+    const key = 'rp-show-prices-' + viewName;
+    const stored = localStorage.getItem(key);
+    if (stored !== null) return stored === '1';
+    const mods = VIEW_MODULES[viewName] || VIEW_MODULES['all'];
+    return !!mods.showRecipePrices;
+}
+
+function _rpTogglePrices(cardId) {
+    const card = document.getElementById(cardId);
+    const viewName = card.dataset.view;
+    const key = 'rp-show-prices-' + viewName;
+    const current = _rpShowPrices(viewName);
+    localStorage.setItem(key, current ? '0' : '1');
+    const picker = card.querySelector('.recipe-picker');
+    picker.classList.toggle('rp-hide-prices', current);
+    // Opdater toggle-ikon
+    const btn = picker.querySelector('.rp-price-toggle');
+    if (btn) btn.textContent = current ? '◉' : '◎';
+}
+
+/**
+ * Åbn Google Maps med bonens leveringsadresse.
+ * Simpel placeholder — erstattes af logistikmodul senere.
+ */
+function openMap(cardId) {
+    const card = document.getElementById(cardId);
+    if (!card) return;
+    const addrEl = card.querySelector('.customer-address');
+    const addr = addrEl ? addrEl.textContent.trim() : '';
+    if (!addr || addr === 'Afhentes') return;
+    const q = encodeURIComponent(addr);
+    window.open(`https://www.google.com/maps/search/?api=1&query=${q}`, '_blank');
+}
+
+async function openRecipePicker(cardId) {
+    const card   = document.getElementById(cardId);
+    const num    = cardId.replace('bon', '');
+    const picker = document.getElementById('rp' + num);
+
+    // Toggle: luk hvis allerede åben
+    if (picker.classList.contains('open')) {
+        closeRecipePicker(cardId);
+        return;
+    }
+
+    // Luk andre åbne pickers
+    document.querySelectorAll('.recipe-picker.open').forEach(p => {
+        p.classList.remove('open');
+        p.innerHTML = '';
+    });
+
+    picker.classList.add('open');
+
+    const priceCat  = card.dataset.priceCategory || 'catering';
+    const viewName  = card.dataset.view || 'all';
+    const showPrice = _rpShowPrices(viewName);
+
+    // Loading
+    picker.innerHTML = '<div class="rp-loading">Henter opskrifter…</div>';
+
+    try {
+        const recipes = await _loadRecipes();
+
+        // Grupper efter kategori
+        const cats = {};
+        recipes.forEach(r => {
+            const cat = r.category || 'Andet';
+            if (!cats[cat]) cats[cat] = [];
+            cats[cat].push(r);
+        });
+        const catNames = Object.keys(cats);
+        if (!catNames.length) {
+            picker.innerHTML = '<div class="rp-loading">Ingen opskrifter fundet</div>';
+            return;
+        }
+
+        const priceToggleIcon = showPrice ? '◎' : '◉';
+        const hideCls = showPrice ? '' : ' rp-hide-prices';
+
+        picker.className = 'recipe-picker open' + hideCls;
+        picker.innerHTML = `
+            <div class="rp-header">
+                <span class="rp-title">Tilføj vare</span>
+                <button class="rp-price-toggle" onclick="event.stopPropagation();_rpTogglePrices('${cardId}')"
+                    title="Vis/skjul priser">${priceToggleIcon}</button>
+                <button class="rp-close" onclick="closeRecipePicker('${cardId}')">×</button>
+            </div>
+            <div class="rp-body">
+                <div class="rp-categories">
+                    ${catNames.map((c, i) => `<button class="rp-cat${i === 0 ? ' active' : ''}"
+                        onclick="_rpSelectCat(this,'${cardId}')">${c}</button>`).join('')}
+                </div>
+                <div class="rp-items" id="rpItems${num}">
+                    ${_rpRenderItems(cats[catNames[0]], priceCat)}
+                </div>
+            </div>
+            <div class="rp-expand-slot" id="rpExpandSlot${num}"></div>
+        `;
+
+        // Gem data på picker for kategori-navigation
+        picker._cats = cats;
+        picker._priceCat = priceCat;
+
+        // Escape lukker
+        picker._escHandler = (e) => {
+            if (e.key === 'Escape') closeRecipePicker(cardId);
+        };
+        document.addEventListener('keydown', picker._escHandler);
+
+    } catch (err) {
+        picker.innerHTML = `<div class="rp-loading">Fejl: ${err.message}</div>`;
+    }
+}
+
+function closeRecipePicker(cardId) {
+    const card   = document.getElementById(cardId);
+    const num    = cardId.replace('bon', '');
+    const picker = document.getElementById('rp' + num);
+    if (!picker) return;
+
+    if (picker._escHandler) {
+        document.removeEventListener('keydown', picker._escHandler);
+        picker._escHandler = null;
+    }
+    picker.classList.remove('open');
+    picker.innerHTML = '';
+    picker._cats = null;
+}
+
+function _rpSelectCat(btn, cardId) {
+    const num    = cardId.replace('bon', '');
+    const picker = document.getElementById('rp' + num);
+    const catName = btn.textContent;
+
+    // Opdater aktiv kategori
+    picker.querySelectorAll('.rp-cat').forEach(b => b.classList.remove('active'));
+    btn.classList.add('active');
+
+    // Ryd expand + highlight
+    _rpRemoveExpand(picker);
+    picker.querySelectorAll('.rp-item.selected').forEach(el => el.classList.remove('selected'));
+
+    // Render items
+    const items = (picker._cats || {})[catName] || [];
+    const itemsEl = document.getElementById('rpItems' + num);
+    itemsEl.innerHTML = _rpRenderItems(items, picker._priceCat);
+}
+
+function _rpRenderItems(items, priceCat) {
+    return items.map(r => {
+        const price = r.prices[priceCat] || 0;
+        const name = (r.name || '').trim();
+        return `<div class="rp-item" data-recipe-id="${r.id}" onclick="_rpSelectItem(this)">
+            <span class="rp-item-name">${name}</span>
+            <span class="rp-item-price">${price} kr</span>
+        </div>`;
+    }).join('');
+}
+
+function _rpSelectItem(itemEl) {
+    const picker = itemEl.closest('.recipe-picker');
+    const num    = picker.id.replace('rp', '');
+    const cardId = 'bon' + num;
+    const recipeId = parseInt(itemEl.dataset.recipeId);
+    const priceCat = picker._priceCat;
+
+    // Find recipe data
+    let recipe = null;
+    const cats = picker._cats || {};
+    for (const items of Object.values(cats)) {
+        recipe = items.find(r => r.id === recipeId);
+        if (recipe) break;
+    }
+    if (!recipe) return;
+
+    // Ryd tidligere expand + highlight
+    _rpRemoveExpand(picker);
+    picker.querySelectorAll('.rp-item.selected').forEach(el => el.classList.remove('selected'));
+    itemEl.classList.add('selected');
+
+    // Render expand i fuld-bredde slot under picker-body
+    const price = recipe.prices[priceCat] || 0;
+    const name  = (recipe.name || '').trim();
+    const slot  = document.getElementById('rpExpandSlot' + num);
+    slot.innerHTML = `
+        <div class="rp-expand">
+            <div class="rp-expand-row">
+                <button class="rp-qty-btn" onclick="_rpQty(this,-1)">−</button>
+                <input class="rp-qty-input" type="number" value="1" min="1"
+                       onchange="_rpClampQty(this)">
+                <button class="rp-qty-btn" onclick="_rpQty(this,1)">+</button>
+                <span class="rp-expand-name">× ${name}</span>
+            </div>
+            <input class="rp-special" type="text" placeholder="Extra info…">
+            <div class="rp-expand-actions">
+                <button class="rp-save" onclick="_rpSave('${cardId}',${recipeId})">GEM</button>
+                <button class="rp-cancel" onclick="_rpCancelExpand('${cardId}')">AFBRYD</button>
+            </div>
+        </div>
+    `;
+    slot.querySelector('.rp-qty-input').focus();
+    slot.querySelector('.rp-qty-input').select();
+}
+
+/** Ryd expand-slot */
+function _rpRemoveExpand(picker) {
+    const slot = picker.querySelector('.rp-expand-slot');
+    if (slot) slot.innerHTML = '';
+}
+
+function _rpQty(btn, delta) {
+    const input = btn.parentElement.querySelector('.rp-qty-input');
+    const val = Math.max(1, parseInt(input.value || '1') + delta);
+    input.value = val;
+}
+
+function _rpClampQty(input) {
+    if (parseInt(input.value) < 1 || isNaN(parseInt(input.value))) input.value = 1;
+}
+
+function _rpCancelExpand(cardId) {
+    const num = cardId.replace('bon', '');
+    const picker = document.getElementById('rp' + num);
+    _rpRemoveExpand(picker);
+    picker.querySelectorAll('.rp-item.selected').forEach(el => el.classList.remove('selected'));
+}
+
+async function _rpSave(cardId, recipeId) {
+    const num    = cardId.replace('bon', '');
+    const picker = document.getElementById('rp' + num);
+    const expand = picker.querySelector('.rp-expand');
+    if (!expand) return;
+    const priceCat = picker._priceCat;
+
+    // Find recipe
+    let recipe = null;
+    for (const items of Object.values(picker._cats || {})) {
+        recipe = items.find(r => r.id === recipeId);
+        if (recipe) break;
+    }
+    if (!recipe) return;
+
+    const qty     = Math.max(1, parseInt(expand.querySelector('.rp-qty-input').value) || 1);
+    const special = expand.querySelector('.rp-special').value.trim() || null;
+    const price   = recipe.prices[priceCat] || 0;
+
+    // Disable save-knap
+    const saveBtn = expand.querySelector('.rp-save');
+    saveBtn.disabled = true;
+    saveBtn.textContent = '…';
+
+    try {
+        await postBonLine(num, {
+            grocy_recipe_id: recipe.id,
+            product_name:    (recipe.name || '').trim(),
+            category:        recipe.category || null,
+            quantity:         qty,
+            unit:            recipe.unit || 'stk',
+            unit_price:      price,
+            cost_price:      recipe.cost_price || 0,
+            co2e:            recipe.co2e || 0,
+            special_request: special,
+        });
+
+        // Luk picker efter gem
+        closeRecipePicker(cardId);
+
+    } catch (err) {
+        saveBtn.disabled = false;
+        saveBtn.textContent = 'GEM';
+        console.error('Tilføj vare fejlede:', err);
+    }
 }
 
 /* ══════════════════════════════════════════════════════════════

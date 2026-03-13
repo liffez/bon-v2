@@ -1,13 +1,13 @@
 /**
  * services/grocyAdapter.js
  * ════════════════════════════════════════════════════════════
- * Readonly adapter til Grocy API.
+ * Adapter til Grocy API.
  *
  * Eksporterer funktioner der kaldes fra routes/grocy.js.
  * Henter credentials fra locations-tabellen (med .env fallback).
  * In-memory cache med 10 min TTL.
  *
- * Bon v2 læser kun fra Grocy — skriver aldrig.
+ * Primært readonly — skriver kun til shopping_list.
  * ════════════════════════════════════════════════════════════
  */
 
@@ -122,13 +122,74 @@ async function cachedFetch(cacheKey, path) {
     return data;
 }
 
+/**
+ * POST til Grocy API (bruges til shopping_list).
+ * @param {string} path  Sti relativt til API-rod
+ * @param {Object} body  Request body
+ */
+async function grocyPost(path, body) {
+    const { url, key } = getGrocyConfig();
+    const base = url.replace(/\/+$/, '');
+    const route = path.startsWith('/') ? path : '/' + path;
+
+    const res = await fetch(base + route, {
+        method: 'POST',
+        headers: {
+            'GROCY-API-KEY': key,
+            'Content-Type': 'application/json',
+            'Accept': 'application/json',
+        },
+        body: JSON.stringify(body),
+    });
+
+    if (!res.ok) {
+        const text = await res.text().catch(() => '');
+        throw new Error(`Grocy POST fejl ${res.status}: ${text.slice(0, 200)}`);
+    }
+
+    return res.json();
+}
+
 /* ══════════════════════════════════════════════════════════════
    EKSPORTEREDE FUNKTIONER
    ══════════════════════════════════════════════════════════════ */
 
-/** Alle opskrifter */
-function getRecipes() {
+/** Alle opskrifter (rå Grocy-data) */
+function getRecipesRaw() {
     return cachedFetch('recipes', '/objects/recipes');
+}
+
+/**
+ * Opskrifter transformeret til picker-format.
+ * Filtrerer til sellable=1 og mapper userfields til struktureret objekt.
+ */
+async function getRecipes() {
+    const raw = await getRecipesRaw();
+    return raw
+        .filter(r => {
+            const uf = r.userfields || {};
+            return String(uf.sellable) === '1';
+        })
+        .map(r => {
+            const uf = r.userfields || {};
+            return {
+                id: r.id,
+                name: r.name,
+                category: uf.grupper || null,
+                unit: uf.recipeunit || 'stk',
+                unit_number: parseFloat(uf.recipeunitnumber) || 1,
+                prices: {
+                    store:      parseFloat(uf.SalespriceStore) || 0,
+                    catering:   parseFloat(uf.SalespriceCatering) || 0,
+                    festival:   parseFloat(uf.SalespriceFestival) || 0,
+                    produktion: parseFloat(uf.SalespriceProduktion) || 0,
+                    waiste:     parseFloat(uf.SalespriceWaiste) || 0,
+                },
+                cost_price: parseFloat(uf.costprice) || 0,
+                co2e: parseFloat(uf.Co2e) || 0,
+            };
+        })
+        .sort((a, b) => (a.category || '').localeCompare(b.category || '') || a.name.localeCompare(b.name));
 }
 
 /** Lagerstatus for alle opskrifter (om ingredienserne er på lager) */
@@ -154,13 +215,50 @@ function getStock() {
     return cachedFetch('stock', '/stock');
 }
 
+/** Alle enhedstyper (stk, kg, liter …) */
+function getQuantityUnits() {
+    return cachedFetch('quantity_units', '/objects/quantity_units');
+}
+
+/** Enhedskonverteringer (produkt-specifikke + globale) */
+function getQuantityUnitConversions() {
+    return cachedFetch('qu_conversions', '/objects/quantity_unit_conversions');
+}
+
+/** Alle opskriftsingredienser (på tværs af alle opskrifter) */
+function getAllRecipesPos() {
+    return cachedFetch('all_recipes_pos', '/objects/recipes_pos');
+}
+
+/**
+ * Tilføj varer til Grocy indkøbsliste.
+ * @param {Array<{product_id: number, amount: number, note?: string}>} items
+ */
+async function addToShoppingList(items) {
+    const results = [];
+    for (const item of items) {
+        const r = await grocyPost('/objects/shopping_list', {
+            product_id: item.product_id,
+            amount:     item.amount,
+            note:       item.note || '',
+        });
+        results.push(r);
+    }
+    return results;
+}
+
 /* ══════════════════════════════════════════════════════════════ */
 
 module.exports = {
     getRecipes,
+    getRecipesRaw,
     getRecipeFulfillment,
     getRecipeIngredients,
     getProducts,
     getStock,
+    getQuantityUnits,
+    getQuantityUnitConversions,
+    getAllRecipesPos,
+    addToShoppingList,
     clearCache,
 };

@@ -18,6 +18,8 @@
 
 document.addEventListener('DOMContentLoaded', async () => {
     updateTodayHeader();
+    startClock();
+    initKiosk();
     try {
         const bons = await fetchBonsToday();
         renderBons(bons);
@@ -44,6 +46,70 @@ function renderBons(bons) {
 function updateTodayHeader() {
     const el = document.getElementById('todayTitle');
     if (el) el.textContent = formatDanishDate(new Date().toISOString().slice(0, 10));
+}
+
+/* ══════════════════════════════════════════════════════════════
+   UR — opdateres hvert minut
+   ══════════════════════════════════════════════════════════════ */
+
+function startClock() {
+    const el = document.getElementById('todayClock');
+    if (!el) return;
+
+    function tick() {
+        const now = new Date();
+        el.textContent = now.toLocaleTimeString('da-DK', { hour: '2-digit', minute: '2-digit' });
+    }
+
+    tick();
+    // Synkronisér til næste hele minut, derefter hver 60 s
+    const secsToNextMin = 60 - new Date().getSeconds();
+    setTimeout(() => { tick(); setInterval(tick, 60000); }, secsToNextMin * 1000);
+}
+
+/* ══════════════════════════════════════════════════════════════
+   KIOSK MODE — fullscreen, skjul topbar
+   Toggle via KIOSK-knap eller URL-param ?kiosk
+   ══════════════════════════════════════════════════════════════ */
+
+function initKiosk() {
+    // Auto-aktiver fra URL-param
+    if (new URLSearchParams(location.search).has('kiosk')) {
+        enterKiosk();
+    }
+
+    // Knap-toggle
+    const btn = document.querySelector('.kiosk-btn');
+    if (btn) btn.addEventListener('click', toggleKiosk);
+
+    // Lyt på fullscreen-ændringer (så kiosk deaktiveres ved Escape)
+    document.addEventListener('fullscreenchange', () => {
+        if (!document.fullscreenElement) {
+            document.body.classList.remove('kiosk');
+        }
+    });
+}
+
+function toggleKiosk() {
+    if (document.body.classList.contains('kiosk')) {
+        exitKiosk();
+    } else {
+        enterKiosk();
+    }
+}
+
+function enterKiosk() {
+    document.body.classList.add('kiosk');
+    if (document.documentElement.requestFullscreen) {
+        document.documentElement.requestFullscreen().catch(() => {});
+    }
+}
+
+function exitKiosk() {
+    document.body.classList.remove('kiosk');
+    if (document.fullscreenElement) {
+        document.exitFullscreen().catch(() => {});
+    }
 }
 
 /* ══════════════════════════════════════════════════════════════
@@ -85,6 +151,18 @@ function initSSE() {
                 div.innerHTML = `<div class="bon-alert-label">Flyver</div>${esc(n.message)}`;
                 alertsEl.prepend(div);
             }
+        },
+
+        bon_updated: (data) => {
+            fetchBon(data.bon_id).then(apiBon => {
+                const card = document.getElementById('bon' + data.bon_id);
+                if (!card) return;
+                const cardData = mapApiBonToCardData(apiBon);
+                const menuEl = card.querySelector('.select-mode-container');
+                if (menuEl) menuEl.innerHTML = _buildMenu(cardData.menu, data.bon_id);
+                const unitsEl = card.querySelector('.unit-primary');
+                if (unitsEl) unitsEl.textContent = cardData.units;
+            }).catch(err => console.error('bon_updated fejl:', err));
         }
     });
 }

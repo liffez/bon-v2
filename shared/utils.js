@@ -105,6 +105,73 @@ function connectSSE(url, handlers) {
 }
 
 /* ══════════════════════════════════════════════════════════════
+   MENU SORT + MERGE
+   ══════════════════════════════════════════════════════════════
+   Sorterer menu-items efter kategori-prioritet og samler ens varer.
+   Items med special_request beholdes separate men placeres
+   umiddelbart efter det samlede item.
+   ══════════════════════════════════════════════════════════════ */
+
+function _sortAndMergeMenu(items) {
+    if (!items || items.length === 0) return items;
+
+    // Fast bundrækkefølge: 06 Emballage → x-service → x-levering
+    const BOTTOM_ORDER = { '06 emballage': 10, 'x-service': 11, 'x-levering': 12 };
+
+    function catPriority(item) {
+        // Normalisér: lowercase, trim, og fjern mellemrum efter "x-" (Grocy sender "x- Service")
+        const cat = (item.category || '').toLowerCase().trim().replace(/^x-\s+/, 'x-');
+        const isAccessory = item.style === 'emballage';
+        if (cat.startsWith('03') || cat.startsWith('05')) return 0;  // top
+        if (BOTTOM_ORDER[cat] !== undefined) return BOTTOM_ORDER[cat]; // fast bund
+        if (isAccessory) return 10;  // emballage-flag → sammen med 06
+        return 1;  // midt
+    }
+
+    // 1. Sortér: prioritet → kategori → navn
+    const sorted = [...items].sort((a, b) => {
+        const pa = catPriority(a), pb = catPriority(b);
+        if (pa !== pb) return pa - pb;
+        const ca = (a.category || ''), cb = (b.category || '');
+        if (ca !== cb) return ca.localeCompare(cb, 'da');
+        return (a.name || '').localeCompare(b.name || '', 'da');
+    });
+
+    // 2. Giv bund-items emballage-styling (dim farve, normal font)
+    for (const item of sorted) {
+        if (catPriority(item) >= 10) item.style = 'emballage';
+    }
+
+    // 3. Gruppér efter navn: saml qty for items UDEN special_request
+    const grouped = new Map();
+    for (const item of sorted) {
+        const key = item.name;
+        if (!grouped.has(key)) grouped.set(key, { base: null, specials: [] });
+        const g = grouped.get(key);
+
+        if (item.special_request) {
+            g.specials.push(item);
+        } else if (!g.base) {
+            g.base = Object.assign({}, item);
+        } else {
+            g.base.qty = `${parseInt(g.base.qty) + parseInt(item.qty)}`;
+        }
+    }
+
+    // 4. Emit i sorteret rækkefølge: base først, derefter specials
+    const result = [];
+    const emitted = new Set();
+    for (const item of sorted) {
+        if (emitted.has(item.name)) continue;
+        emitted.add(item.name);
+        const g = grouped.get(item.name);
+        if (g.base) result.push(g.base);
+        for (const s of g.specials) result.push(s);
+    }
+    return result;
+}
+
+/* ══════════════════════════════════════════════════════════════
    API-RESPONSE → createCard() MAPPER
    ══════════════════════════════════════════════════════════════
    Oversætter et bon-objekt fra GET /api/bons/today
@@ -120,20 +187,24 @@ function mapApiBonToCardData(apiBon) {
 
     // Kunde
     const customer = {
-        name:    (apiBon.contact_name_full || '').trim() || 'Ukendt',
-        company: apiBon.company_name || '',
-        address: addr,
-        phone:   apiBon.contact_phone || '',
-        email:   apiBon.contact_email || '',
+        name:          (apiBon.contact_name_full || '').trim() || 'Ukendt',
+        company:       apiBon.company_name || '',
+        address:       addr,
+        phone:         apiBon.contact_phone || '',
+        company_phone: apiBon.company_phone || '',
+        email:         apiBon.contact_email || '',
     };
 
-    // Menu-linjer
-    const menu = (apiBon.lines || []).map(line => ({
-        type:  'item',
-        qty:   `${line.quantity}`,
-        name:  line.product_name,
-        style: line.is_accessory ? 'emballage' : undefined,
+    // Menu-linjer — med kategori + special_request, sorteret og sammenlagt
+    const menuRaw = (apiBon.lines || []).map(line => ({
+        type:            'item',
+        qty:             `${line.quantity}`,
+        name:            line.product_name,
+        style:           line.is_accessory ? 'emballage' : undefined,
+        category:        line.category || null,
+        special_request: line.special_request || null,
     }));
+    const menu = _sortAndMergeMenu(menuRaw);
 
     // Prep
     const prep = [
@@ -176,5 +247,6 @@ function mapApiBonToCardData(apiBon) {
         kitchen_info:    apiBon.kitchen_info || '',
         delivery_notes:  apiBon.delivery_notes || '',
         delivery_method: apiBon.delivery_method || '',
+        price_category:  apiBon.price_category || 'catering',
     };
 }

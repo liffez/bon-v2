@@ -81,3 +81,31 @@ function fetchCustomers(q) {
 function fetchBonChangelog(id) {
     return apiFetch('/bons/' + id + '/changelog');
 }
+
+/* ── GROCY ────────────────────────────────────────────────── */
+
+function fetchGrocyRecipes() {
+    return apiFetch('/grocy/recipes');
+}
+
+function postGrocyShoppingList(items) {
+    return apiFetch('/grocy/shoppinglist', {
+        method: 'POST',
+        body: JSON.stringify({ items }),
+    });
+}
+
+/* ── INGREDIENSER ────────────────────────────────────────── */
+
+function fetchBonIngredients(id) {
+    return apiFetch('/bons/' + id + '/ingredients');
+}
+
+/* ── BON LINES ───────────────────────────────────────────── */
+
+function postBonLine(bonId, lineData) {
+    return apiFetch('/bons/' + bonId + '/lines', {
+        method: 'POST',
+        body: JSON.stringify(lineData),
+    });
+}

@@ -170,6 +170,18 @@ function initSSE() {
                 div.innerHTML = `<div class="bon-alert-label">Flyver</div>${esc(n.message)}`;
                 alertsEl.prepend(div);
             }
+        },
+
+        bon_updated: (data) => {
+            fetchBon(data.bon_id).then(apiBon => {
+                const card = document.getElementById('bon' + data.bon_id);
+                if (!card) return;
+                const cardData = mapApiBonToCardData(apiBon);
+                const menuEl = card.querySelector('.select-mode-container');
+                if (menuEl) menuEl.innerHTML = _buildMenu(cardData.menu, data.bon_id);
+                const unitsEl = card.querySelector('.unit-primary');
+                if (unitsEl) unitsEl.textContent = cardData.units;
+            }).catch(err => console.error('bon_updated fejl:', err));
         }
     });
 }

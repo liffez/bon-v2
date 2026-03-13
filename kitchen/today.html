@@ -54,7 +54,12 @@
         }
         .today-title { font-size: 18px; font-weight: 700; }
         .today-count { font-size: 13px; color: var(--color-text-dim); }
-        .view-filters { margin-left: auto; display: flex; gap: 8px; align-items: center; }
+        .today-clock { font-size: 14px; color: var(--color-text-dim); margin-left: auto; font-variant-numeric: tabular-nums; }
+        .view-filters { display: flex; gap: 8px; align-items: center; }
+
+        /* ═══ KIOSK MODE ═══ */
+        body.kiosk .topbar { display: none; }
+        body.kiosk .today-header { top: 0; }
 
         /* ═══ FILTER BUTTONS ═══ */
         .filter-btn {
@@ -117,6 +122,7 @@
 <header class="today-header">
     <div class="today-title" id="todayTitle">I dag</div>
     <span class="today-count" id="todayCount">0 bons</span>
+    <time class="today-clock" id="todayClock"></time>
     <div class="view-filters">
         <button class="filter-btn" id="btnLev"
             onmousedown="holdStart('lev')" onmouseup="holdEnd('lev')" onmouseleave="holdCancel('lev')"

@@ -146,3 +146,327 @@
     color: var(--color-text-dim, #8a8580);
     font-style: italic;
 }
+
+/* ══════════════════════════════════════════════════════════════
+   BON INFO
+   ══════════════════════════════════════════════════════════════ */
+
+/* Sektioner */
+.info-section {
+    padding: 12px 0;
+    border-bottom: 1px solid var(--color-border, #d7d1ca);
+}
+.info-section:last-child {
+    border-bottom: none;
+}
+.info-section-title {
+    font-size: 11px;
+    font-weight: 700;
+    text-transform: uppercase;
+    letter-spacing: 0.06em;
+    color: var(--color-text-dim, #8a8580);
+    margin-bottom: 8px;
+}
+
+/* Nøgle/værdi-rækker */
+.info-row {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    padding: 3px 0;
+    font-size: 14px;
+}
+.info-label {
+    color: var(--color-text-dim, #8a8580);
+    font-size: 13px;
+}
+.info-value {
+    font-weight: 500;
+    color: var(--color-text, #333);
+    text-align: right;
+}
+
+/* Status-badge */
+.info-status-badge {
+    display: inline-block;
+    padding: 2px 10px;
+    border-radius: 10px;
+    font-size: 12px;
+    font-weight: 700;
+}
+
+/* Kunde */
+.info-customer-name {
+    font-size: 15px;
+    font-weight: 600;
+    color: var(--color-text, #333);
+}
+.info-customer-detail {
+    font-size: 13px;
+    color: var(--color-text-dim, #8a8580);
+    margin-top: 2px;
+}
+.info-phone-label {
+    font-size: 11px;
+    font-style: italic;
+    opacity: 0.8;
+    margin-left: 4px;
+}
+
+/* Menulinjer */
+.info-lines {
+    display: flex;
+    flex-direction: column;
+    gap: 0;
+}
+.info-line {
+    display: flex;
+    align-items: flex-start;
+    padding: 4px 0;
+    font-size: 14px;
+    gap: 8px;
+}
+.info-line.accessory {
+    color: var(--color-text-dim, #8a8580);
+    font-size: 13px;
+}
+.info-line-qty {
+    flex-shrink: 0;
+    width: 28px;
+    text-align: right;
+    font-weight: 600;
+    font-variant-numeric: tabular-nums;
+}
+.info-line-name {
+    flex: 1;
+    min-width: 0;
+}
+.info-line-special {
+    display: block;
+    font-style: italic;
+    font-weight: 400;
+    font-size: 12px;
+    color: var(--color-text-dim, #8a8580);
+    margin-top: 1px;
+}
+.info-line-total {
+    flex-shrink: 0;
+    text-align: right;
+    font-variant-numeric: tabular-nums;
+    color: var(--color-text-dim, #8a8580);
+    font-size: 13px;
+    white-space: nowrap;
+}
+.info-lines-divider {
+    height: 1px;
+    background: var(--color-border, #d7d1ca);
+    margin: 6px 0;
+}
+
+/* Totals */
+.info-totals {
+    margin-top: 8px;
+    padding-top: 8px;
+    border-top: 1px solid var(--color-border, #d7d1ca);
+}
+.info-total-row {
+    display: flex;
+    justify-content: space-between;
+    padding: 2px 0;
+    font-size: 13px;
+    color: var(--color-text-dim, #8a8580);
+}
+.info-total-grand {
+    font-weight: 700;
+    font-size: 15px;
+    color: var(--color-text, #333);
+    padding-top: 4px;
+    margin-top: 2px;
+    border-top: 1px solid var(--color-border, #d7d1ca);
+}
+
+/* Noter */
+.info-note {
+    margin-bottom: 8px;
+}
+.info-note:last-child {
+    margin-bottom: 0;
+}
+.info-note-label {
+    display: block;
+    font-size: 12px;
+    font-weight: 600;
+    color: var(--color-text-dim, #8a8580);
+    margin-bottom: 2px;
+}
+.info-note-text {
+    font-size: 14px;
+    color: var(--color-text, #333);
+    white-space: pre-line;
+}
+
+/* Betaling */
+.info-payment {
+    font-size: 14px;
+    color: var(--color-text, #333);
+}
+
+/* ══════════════════════════════════════════════════════════════
+   RÅVARER / INGREDIENSER
+   ══════════════════════════════════════════════════════════════ */
+
+/* Søgefelt */
+.ing-search-wrap {
+    position: sticky;
+    top: 0;
+    background: var(--color-background, #fff);
+    padding: 0 0 8px;
+    z-index: 1;
+}
+.ing-search {
+    width: 100%;
+    padding: 6px 10px;
+    border: 1px solid var(--color-border, #d7d1ca);
+    border-radius: 6px;
+    font-size: 14px;
+    outline: none;
+    box-sizing: border-box;
+}
+.ing-search:focus {
+    border-color: var(--brand-primary, #8e631f);
+}
+
+/* Gruppe-container */
+.ing-group {
+    margin-bottom: 4px;
+}
+
+/* Gruppeheader */
+.ing-group-header {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    padding: 8px 0 4px;
+    cursor: pointer;
+    user-select: none;
+    border-bottom: 1px solid var(--color-border, #d7d1ca);
+}
+.ing-group-label {
+    font-size: 12px;
+    font-weight: 700;
+    text-transform: uppercase;
+    letter-spacing: 0.04em;
+    color: var(--brand-primary, #8e631f);
+    flex: 1;
+}
+.ing-group-toggle {
+    font-size: 12px;
+    color: var(--color-text-dim, #8a8580);
+    transition: transform 0.2s;
+}
+
+/* Collapse */
+.ing-group.collapsed .ing-table {
+    display: none;
+}
+.ing-group.collapsed .ing-group-toggle {
+    transform: rotate(-90deg);
+}
+
+/* Tabel — 7 kolonner: dot | navn | behov-tal | behov-unit | lager-tal | lager-unit | action */
+.ing-table {
+    display: flex;
+    flex-direction: column;
+}
+.ing-row {
+    display: grid;
+    grid-template-columns: 20px 1fr 50px 36px 50px 36px 32px;
+    gap: 2px;
+    align-items: center;
+    padding: 3px 0;
+    font-size: 13px;
+    border-bottom: 1px solid color-mix(in srgb, var(--color-border, #eee) 50%, transparent);
+}
+.ing-row:last-child {
+    border-bottom: none;
+}
+
+/* Status-dot */
+.ing-dot {
+    font-size: 8px;
+    text-align: center;
+}
+
+/* Varenavn */
+.ing-name {
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+/* Tal-kolonner: højrejusterede, tabular */
+.ing-amount, .ing-stock {
+    text-align: right;
+    white-space: nowrap;
+    font-variant-numeric: tabular-nums;
+    font-size: 13px;
+}
+
+/* Enhedskolonner */
+.ing-unit, .ing-stock-unit {
+    font-size: 11px;
+    color: var(--color-text-dim, #8a8580);
+    white-space: nowrap;
+}
+
+/* Lagertal farve efter status */
+.ing-status-mangler .ing-stock {
+    color: #c62828;
+    font-weight: 600;
+}
+.ing-status-lav .ing-stock {
+    color: #e65100;
+    font-weight: 600;
+}
+.ing-status-ok .ing-stock {
+    color: #2e7d32;
+}
+
+/* Action-kolonne */
+.ing-action {
+    display: flex;
+    justify-content: center;
+}
+
+/* Indkøbsliste-knap */
+.ing-btn-cart {
+    width: 26px; height: 26px;
+    border: none; background: none;
+    cursor: pointer;
+    font-size: 13px;
+    border-radius: 6px;
+    display: flex; align-items: center; justify-content: center;
+    transition: background 0.15s;
+}
+.ing-btn-cart:hover {
+    background: var(--color-background, #f5f4f2);
+}
+.ing-btn-cart.ing-btn-done {
+    color: #2e7d32;
+    cursor: default;
+}
+.ing-btn-cart:disabled {
+    opacity: 0.5;
+    cursor: default;
+}
+
+/* Note om varer uden opskrift */
+.ing-note {
+    margin-top: 10px;
+    font-size: 12px;
+    color: var(--color-text-dim, #8a8580);
+    font-style: italic;
+    padding: 8px 0;
+    border-top: 1px solid var(--color-border, #eee);
+}

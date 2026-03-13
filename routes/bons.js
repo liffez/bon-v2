@@ -3,6 +3,8 @@ const router  = express.Router();
 const { getDb } = require('../db/database');
 const { handle, logChange, getBon, getBonLines, getStatusId, getDefaultLocationId, nextBonNumber } = require('../db/helpers');
 const { broadcast } = require('../shared/sse');
+const grocy   = require('../services/grocyAdapter');
+const { findConversionFactor, convertAndFormat } = require('../services/quConvert');
 
 // ─── GET /api/bons — liste med filter ────────────────────────────────────────
 
@@ -201,6 +203,13 @@ router.post('/:id/lines', handle((req, res) => {
     const l     = req.body;
     if (!l.product_name) return res.status(400).json({ error: 'product_name er påkrævet' });
 
+    const bon = db.prepare(`SELECT id FROM bons WHERE id = ?`).get(bonId);
+    if (!bon) return res.status(404).json({ error: 'Bon ikke fundet' });
+
+    const qty       = l.quantity ?? 1;
+    const unitPrice = l.unit_price ?? null;
+    const lineTotal = (unitPrice != null && qty) ? qty * unitPrice : null;
+
     const maxSort = db.prepare(`SELECT COALESCE(MAX(sort_order), 0) as mx FROM bon_lines WHERE bon_id = ?`).get(bonId).mx;
 
     const result = db.prepare(`
@@ -209,9 +218,9 @@ router.post('/:id/lines', handle((req, res) => {
         VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?)
     `).run(
         bonId, l.grocy_recipe_id ?? null, l.product_name,
-        l.category ?? null, l.quantity ?? 1, l.unit ?? 'stk',
-        l.cost_price ?? null, l.unit_price ?? null,
-        l.line_total ?? null, maxSort + 1,
+        l.category ?? null, qty, l.unit ?? 'stk',
+        l.cost_price ?? null, unitPrice,
+        lineTotal, maxSort + 1,
         l.is_accessory ? 1 : 0, l.special_request ?? null,
         l.co2e ?? null, l.notes ?? null
     );
@@ -220,7 +229,8 @@ router.post('/:id/lines', handle((req, res) => {
     const total = db.prepare(`SELECT COALESCE(SUM(quantity),0) as t FROM bon_lines WHERE bon_id = ? AND (is_accessory = 0 OR is_accessory IS NULL)`).get(bonId).t;
     db.prepare(`UPDATE bons SET total_units = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?`).run(total, bonId);
 
-    logChange({ entityType: 'bon', entityId: bonId, action: 'update', fieldName: 'bon_lines', newValue: `tilføjet: ${l.quantity ?? 1}x ${l.product_name}`, userId: l.user_id ?? null });
+    logChange({ entityType: 'bon', entityId: bonId, action: 'update', fieldName: 'bon_lines', newValue: `tilføjet: ${qty}x ${l.product_name}`, userId: l.user_id ?? null });
+    broadcast('bon_updated', { bon_id: bonId });
     res.status(201).json(db.prepare(`SELECT * FROM bon_lines WHERE id = ?`).get(result.lastInsertRowid));
 }));
 
@@ -257,6 +267,166 @@ router.delete('/:id/lines/:lid', handle((req, res) => {
     db.prepare(`UPDATE bons SET total_units = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?`).run(total, bonId);
     logChange({ entityType: 'bon', entityId: bonId, action: 'update', fieldName: 'bon_lines', oldValue: `${line.quantity}x ${line.product_name}`, notes: 'linje slettet' });
     res.json({ deleted: lineId });
+}));
+
+// ─── INGREDIENSER (aggregeret fra Grocy) ────────────────────────────────────
+
+router.get('/:id/ingredients', handle(async (req, res) => {
+    const bon = getBon(parseInt(req.params.id));
+    if (!bon) return res.status(404).json({ error: 'Bon ikke fundet' });
+
+    const recipeLines = (bon.lines || []).filter(l => l.grocy_recipe_id);
+    const linesWithoutRecipe = (bon.lines || [])
+        .filter(l => !l.grocy_recipe_id && !l.is_accessory)
+        .map(l => l.product_name);
+
+    if (recipeLines.length === 0) {
+        return res.json({
+            bon_id: bon.id,
+            bon_number: bon.bon_number,
+            ingredients: [],
+            groups: [],
+            lines_without_recipe: linesWithoutRecipe,
+        });
+    }
+
+    // Hent recipes for unit_number
+    const recipes = await grocy.getRecipes();
+    const recipeMap = new Map(recipes.map(r => [r.id, r]));
+
+    // Hent ALT parallelt (som recipe-viewer gør)
+    const uniqueRecipeIds = [...new Set(recipeLines.map(l => l.grocy_recipe_id))];
+    const [ingredientsByRecipe, stockArr, products, quantityUnits, quConversions] = await Promise.all([
+        Promise.all(uniqueRecipeIds.map(async id => ({ id, items: await grocy.getRecipeIngredients(id) }))),
+        grocy.getStock(),
+        grocy.getProducts(),
+        grocy.getQuantityUnits(),
+        grocy.getQuantityUnitConversions(),
+    ]);
+
+    // Lookup-maps
+    const ingMap = new Map(ingredientsByRecipe.map(r => [r.id, r.items]));
+    const stockMap = {};            // product_id → stock amount (i stock-unit)
+    stockArr.forEach(s => { stockMap[s.product_id] = parseFloat(s.amount) || 0; });
+    const productMap = new Map(products.map(p => [p.id, p]));
+    const unitMap = new Map(quantityUnits.map(u => [u.id, u]));
+
+    // Aggregér ingredienser: key = product_id
+    // recipes_pos.amount er i STOCK-unit (qu_id_stock)
+    // recipes_pos.qu_id er DISPLAY-unit (den enhed opskriften viser, fx Gram)
+    // Lagersammenligning sker i stock-units; visning konverteres stock → display
+    const aggregated = new Map();
+
+    for (const line of recipeLines) {
+        const recipe = recipeMap.get(line.grocy_recipe_id);
+        const unitNumber = recipe ? recipe.unit_number : 1;
+        const scaleFactor = line.quantity / unitNumber;
+        const ings = ingMap.get(line.grocy_recipe_id) || [];
+
+        for (const ing of ings) {
+            const pid = ing.product_id;
+            const baseAmount = parseFloat(ing.amount) || 0;    // i stock-unit
+            const scaledStock = baseAmount * scaleFactor;       // behov i stock-unit
+
+            if (aggregated.has(pid)) {
+                aggregated.get(pid).needed_stock += scaledStock;
+            } else {
+                const product = productMap.get(pid) || {};
+                aggregated.set(pid, {
+                    product_id:       pid,
+                    product_name:     product.name || `Produkt #${pid}`,
+                    needed_stock:     scaledStock,              // i stock-unit
+                    qu_id_stock:      product.qu_id_stock,      // produktets lager-unit
+                    qu_id_purchase:   product.qu_id_purchase,    // indkøbs-enhed
+                    qu_id_display:    ing.qu_id,                // opskriftens display-unit
+                    ingredient_group: ing.ingredient_group || '',
+                });
+            }
+        }
+    }
+
+    // Konvertér til display-units og klassificér
+    const ingredients = [...aggregated.values()].map(ing => {
+        const stockAmount = stockMap[ing.product_id] || 0;  // i stock-unit
+
+        // Status baseret på stock-units (begge i samme enhed)
+        let status;
+        if (stockAmount >= ing.needed_stock)       status = 'ok';
+        else if (stockAmount > 0)                  status = 'lav';
+        else                                       status = 'mangler';
+
+        // Konvertér behov + lager til display-unit med auto-format
+        const convOpts = { productId: ing.product_id, fromQuId: ing.qu_id_stock, toQuId: ing.qu_id_display, conversions: quConversions, unitMap };
+        const fmtNeeded = convertAndFormat(ing.needed_stock, convOpts);
+        const fmtStock  = convertAndFormat(stockAmount, convOpts);
+
+        // Shortfall → purchase-unit for indkøbsliste
+        const shortfallStock = Math.max(0, ing.needed_stock - stockAmount);
+        let shortfallPurchase = shortfallStock;
+        let purchaseUnitName = '';
+
+        if (ing.qu_id_purchase && ing.qu_id_purchase !== ing.qu_id_stock) {
+            const toPurchaseFactor = findConversionFactor(
+                quConversions, ing.product_id, ing.qu_id_stock, ing.qu_id_purchase
+            );
+            if (toPurchaseFactor !== null) shortfallPurchase = shortfallStock * toPurchaseFactor;
+            const puUnit = unitMap.get(ing.qu_id_purchase);
+            purchaseUnitName = puUnit ? (puUnit.name_short || puUnit.name || '') : '';
+        } else {
+            const stUnit = unitMap.get(ing.qu_id_stock);
+            purchaseUnitName = stUnit ? (stUnit.name_short || stUnit.name || '') : '';
+        }
+
+        return {
+            product_id:       ing.product_id,
+            product_name:     ing.product_name,
+            amount_needed:    fmtNeeded.amount,
+            amount_stock:     fmtStock.amount,
+            unit:             fmtNeeded.unit,
+            stock_unit:       fmtStock.unit,
+            status,
+            ingredient_group: ing.ingredient_group,
+            // Til shopping-list: shortfall i purchase-units (afrundet op)
+            shortfall_purchase: Math.ceil(shortfallPurchase * 100) / 100,
+            purchase_unit:      purchaseUnitName,
+        };
+    });
+
+    // Byg grupperet struktur
+    const groupsMap = {};
+    for (const ing of ingredients) {
+        const g = ing.ingredient_group || '';
+        if (!groupsMap[g]) groupsMap[g] = [];
+        groupsMap[g].push(ing);
+    }
+
+    // Sortér grupper: tom først, derefter alfabetisk, 'emballage' sidst
+    const groupNames = Object.keys(groupsMap).sort((a, b) => {
+        const aLow = a.toLowerCase(), bLow = b.toLowerCase();
+        if (aLow === 'emballage') return 1;
+        if (bLow === 'emballage') return -1;
+        if (a === '') return -1;
+        if (b === '') return 1;
+        return a.localeCompare(b, 'da');
+    });
+
+    // Sortér ingredienser inden for gruppe: mangler → lav → ok, derefter navn
+    const statusOrder = { mangler: 0, lav: 1, ok: 2 };
+    const groups = groupNames.map(name => ({
+        name,
+        ingredients: groupsMap[name].sort((a, b) =>
+            (statusOrder[a.status] - statusOrder[b.status]) ||
+            a.product_name.localeCompare(b.product_name, 'da')
+        ),
+    }));
+
+    res.json({
+        bon_id:               bon.id,
+        bon_number:           bon.bon_number,
+        ingredients,
+        groups,
+        lines_without_recipe: linesWithoutRecipe,
+    });
 }));
 
 // ─── CHANGELOG ──────────────────────────────────────────────────────────────

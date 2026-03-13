@@ -37,6 +37,16 @@ Disse er sandheden. Al kode skal passe med dem.
 
 ---
 
+## Grocy-instans
+
+Under udvikling bruges **grocytest** (`https://grocytest.ristetrug.dk/api`).
+Skift til produktion (`grocycafe`) sker først ved release.
+
+`default_grocy_location_id = 3` (Test) i settings-tabellen styrer dette.
+Lokationer defineres i `locations`-tabellen: HQ=grocycafe, Trailer=grocytrailer, Test=grocytest.
+
+---
+
 ## Kolonnenavne der ofte forveksles
 
 | Korrekt navn | Må IKKE kaldes |
@@ -145,6 +155,13 @@ Nye filer placeres præcis der de hører hjemme — kopieres ikke.
   - `openModal({ title, bodyHtml })` / `closeModal()` API
   - Luk med ×, overlay-klik eller Escape
   - `showHistorik(cardId)` — henter changelog via API, viser formateret med danske labels
+  - `showBonInfo(cardId)` — fuld bon-detalje med kunde, linjer, priser (moms-beregning)
+  - `showRavarer(cardId)` — ingrediensbehov med lagerstatus fra Grocy
+    - Grupperet efter Grocy `ingredient_group` (Emballage sidst)
+    - Status-dots (🔴 mangler / 🟡 lav / 🟢 ok) per ingredient
+    - Søgefelt til filtrering
+    - Indkøbsliste-knap (🛒) — tilføjer til Grocy shopping_list i purchase-enhed
+    - `recipes_pos.amount` er i stock-unit, konverteres stock→display via `quantity_unit_conversions`
 - [x] `BonConfig.js` — Status-definitioner (koder, labels, farver)
 - [x] `BonConfigBar.js` — VIEW_WINDOWS per view
 
@@ -160,6 +177,8 @@ Nye filer placeres præcis der de hører hjemme — kopieres ikke.
 - SSE realtidsopdatering via named events (`bon_status`, `notification`)
 - Sammentælling (aggregerer varer fra menu-items)
 - Historik-knap åbner shared modal med changelog
+- Løbende ur i header (synkroniseret til hele minutter, tabular-nums)
+- Kiosk-mode: fullscreen + skjul topbar (KIOSK-knap, `?kiosk` URL-param, Escape lukker)
 
 ### kitchen/later.html — Features
 - Dynamisk rendering fra API-data via `createCard(data, 'kitchen-later')`
@@ -178,25 +197,191 @@ Nye filer placeres præcis der de hører hjemme — kopieres ikke.
 
 ## Næste opgave
 
-> ✏️ Opdateret efter session marts 2026.
+> ✏️ Opdateret 13. marts 2026.
+>
+> **Blok C køkken-views er færdige.** Opgave 1–5 done.
+> Næste store opgave er Opgave 6 (Kalender/Indkøb/Bestilling).
+> Småting til senere: Pris-visning i Råvarer som setting, Kort erstattes af logistik-modul.
 
-### Prioriteret rækkefølge
+---
 
-**1. Action-knap: `+` Tilføj vare**
-- Søg i Grocy-opskrifter (`/api/grocy/recipes`) — opskrifter = produkter i Bon v2
-- Kategorier (grupper) kommer fra Grocy userfield `grupper`
-- Tilføj til bon_lines med `grocy_recipe_id`, korrekt `product_name`, `category`
-- Seed-data har forkerte produktnavne — denne opgave retter op på det ved at bruge Grocy som kilde
+### ~~OPGAVE 1 (done): Action-knap `+` Tilføj vare~~
 
-**2. Action-knapper**
-- `info` — vis bon-detalje i modal (genbruger shared/modal.js). Kræver korrekte bon_lines fra Grocy
-- `kort` — åbn Google Maps med leveringsadressen (uafhængig, kan laves når som helst)
+**Formål:** Tilføj menupunkter til en bon direkte fra Grocy-opskrifter.
+Løser også at seed-data har forkerte produktnavne — herefter er Grocy kilden til sandhed.
 
-**3. `kitchen/today.html` — efterbehandling**
-- Løbende ur i header (højrejusteret, `--color-text-dim`, opdateres hvert minut)
-- Kiosk-mode (fullscreen, skjul topbar, toggle via knap/URL-param)
+---
 
-**4. Kalender-view (shared)**
+#### 1a. Migration: `db/migrations/007_price_category.sql`
+
+```sql
+ALTER TABLE bons ADD COLUMN price_category TEXT NOT NULL DEFAULT 'store'
+    CHECK (price_category IN ('store','catering','festival','produktion','waiste'));
+```
+
+Seed-data i `db/seed.js`: fordel eksisterende 11 bons på `store` og `catering`.
+
+---
+
+#### 1b. Backend: Opdater `GET /api/grocy/recipes`
+
+Returnér følgende felter per opskrift (kun `sellable = 1`):
+
+```json
+{
+  "id": 42,
+  "name": "Kyllingen",
+  "category": "01 Sandwich",
+  "unit": "stk",
+  "unit_number": 1,
+  "prices": {
+    "store":      94,
+    "catering":   94,
+    "festival":   98,
+    "produktion":  0,
+    "waiste":      0
+  },
+  "cost_price": 23.55,
+  "co2e": 0.42
+}
+```
+
+Mapping fra Grocy userfields:
+| Felt | Grocy userfield |
+|------|----------------|
+| `category` | `grupper` |
+| `unit` | `recipeunit` |
+| `unit_number` | `recipeunitnumber` |
+| `prices.store` | `SalespriceStore` |
+| `prices.catering` | `SalespriceCatering` |
+| `prices.festival` | `SalespriceFestival` |
+| `prices.produktion` | `SalespriceProduktion` |
+| `prices.waiste` | `SalespriceWaiste` |
+| `cost_price` | `costprice` |
+| `co2e` | `Co2e` |
+| (filter) | `sellable = 1` |
+
+**Tilføj også** `price_category` til responset fra `GET /api/bons/:id`.
+
+---
+
+#### 1c. Backend: Opdater `POST /api/bons/:id/lines`
+
+Request body:
+```json
+{
+  "grocy_recipe_id": 42,
+  "product_name": "Kyllingen",
+  "category": "01 Sandwich",
+  "quantity": 12,
+  "unit": "stk",
+  "special_request": "uden løg",
+  "unit_price": 94,
+  "cost_price": 23.55,
+  "co2e": 0.42
+}
+```
+
+Server gemmer alle felter som **snapshot** — værdier må ikke slås op igen bagefter.
+Server beregner `line_total = quantity × unit_price`.
+Server kalder `logChange(...)` og broadcaster SSE-event `bon_updated`.
+
+---
+
+#### 1d. Frontend: Picker i `shared/bon_kort.js`
+
+**Placering:** Inline under `.bon-actions` — ikke modal, ikke popup.
+Åbnes/lukkes ved klik på `+`-knappen. Lukkes også ved Escape.
+
+**Layout — to kolonner:**
+```
+┌─────────────────────────────────────────┐
+│ [01 Sandwich]  Falaflen        94 kr    │
+│ [02 Salat   ]  "Tunen"         94 kr  ← valgt
+│ [03 Kager   ]  Fisken          94 kr    │
+│ [04 Slider  ]  Frikadellen     94 kr    │
+│ ...            ...                      │
+└─────────────────────────────────────────┘
+```
+
+- Venstre kolonne: kategorier hentet fra API, sorteret som de kommer fra Grocy
+- Højre kolonne: varer i valgt kategori — navn + salgspris fra bonens `price_category`
+- Priser kan skjules via toggle-knap øverst i pickeren (huskes i `localStorage`)
+- Første kategori vælges automatisk ved åbning
+
+**Trin 2 — inline expand under valgt vare:**
+```
+  Kyllingen   94 kr
+  ┌──────────────────────────────┐
+  │  [−]  12  [+]   × Kyllingen │
+  │  Extra info: ____________    │
+  │  [GEM]  [AFBRYD]             │
+  └──────────────────────────────┘
+```
+
+- `+`/`−` knapper, minimum 1
+- Tal kan redigeres direkte (click-to-edit input)
+- "Extra info" → `special_request`
+- GEM → `POST /api/bons/:id/lines` → luk picker → bon-kort re-renderes via SSE
+- AFBRYD → luk expand, vare afmarkeres
+
+**Vigtigt:** Pickeren kender bonens `price_category` og viser korrekt salgspris.
+Prisen der gemmes på linjen er snapshot fra det tidspunkt brugeren trykker GEM.
+
+---
+
+### ~~OPGAVE 2 (done): Action-knap `ℹ Info`~~
+
+**Formål:** Vis fuld bon-detalje i modal — til kontoret og køkkenet når man hurtigt vil se alt.
+
+Genbruger `shared/modal.js` — `openModal({ title, bodyHtml })`.
+Henter `GET /api/bons/:id` og renderer: kunde, firma, adresse, alle linjer med priser, betalingstype, køkkeninfo, notes.
+**Kræver:** Korrekte bon_lines (dvs. Opgave 1 skal være done først).
+
+---
+
+### ~~OPGAVE 3 (done): Action-knap `🗺 Kort`~~
+
+Simpel Google Maps-link fra `.customer-address`. Erstattes af logistikmodul senere.
+
+---
+
+### ~~OPGAVE 4 (done): Action-knap `📦 Råvarer`~~
+
+**Formål:** Vis ingrediensbehov for alle linjer på bonen, med lagerstatus fra Grocy.
+
+Åbner i `shared/modal.js`.
+
+**Data:** Kald `GET /api/grocy/recipes/:id/ingredients` for hver linje med `grocy_recipe_id`,
+skalér mængder med `quantity` fra bon_lines.
+Kombiner med `GET /api/grocy/stock` for lagerstatus.
+
+**Visning — grupperet efter status:**
+```
+● MANGLER (røde)     ← øverst, kræver handling
+● LAV (orange)
+● OK (grønne)        ← sammenfoldelige
+─────────────────────────────────────────────
+Vare              Behov       Lager    [+liste]
+Falaffel          35 stk      0 stk     🛒
+Kyllingefilet     2,4 kg      8,2 kg
+```
+
+- `[+liste]` knap per rød/lav vare → tilføjer til Grocy shoppinglist
+- Kostpris aggregeret i bunden (eks. moms)
+- Salgspris aggregeret i bunden (inkl. moms, fra bonens price_category)
+
+**Kræver:** At bon_lines har korrekte `grocy_recipe_id` (dvs. Opgave 1 skal være done først).
+
+---
+
+### ~~OPGAVE 5 (done): `kitchen/today.html` efterbehandling~~
+- Løbende ur i header (højrejusteret, `--color-text-dim`, tabular-nums, synk til hele minutter)
+- Kiosk-mode (fullscreen, skjul topbar, toggle via KIOSK-knap + `?kiosk` URL-param, Escape lukker)
+
+---
+
+### OPGAVE 6 (bagefter): Kalender-view (shared)
 
 **Moduloversigt (se `bon_v2_zoner_og_layout.md` sektion 3):**
 - Indkøb = `kitchen/purchasing.html` — liste + hvad afventer

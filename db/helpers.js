@@ -108,7 +108,8 @@ function getBon(id) {
             c.first_name || ' ' || COALESCE(c.last_name,'') AS contact_name_full,
             c.phone   AS contact_phone,
             c.email   AS contact_email,
-            co.name   AS company_name
+            co.name   AS company_name,
+            co.phone  AS company_phone
         FROM bons b
         JOIN   status_definitions sd ON b.status_id  = sd.id
         JOIN   locations l           ON b.location_id = l.id

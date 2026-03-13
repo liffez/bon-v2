@@ -20,6 +20,10 @@ router.get('/recipes', handle(async (req, res) => {
     res.json(await grocy.getRecipes());
 }));
 
+router.get('/recipes/raw', handle(async (req, res) => {
+    res.json(await grocy.getRecipesRaw());
+}));
+
 router.get('/recipes/fulfillment', handle(async (req, res) => {
     res.json(await grocy.getRecipeFulfillment());
 }));
@@ -36,6 +40,25 @@ router.get('/products', handle(async (req, res) => {
 
 router.get('/stock', handle(async (req, res) => {
     res.json(await grocy.getStock());
+}));
+
+router.get('/quantity-units', handle(async (req, res) => {
+    res.json(await grocy.getQuantityUnits());
+}));
+
+router.get('/quantity-unit-conversions', handle(async (req, res) => {
+    res.json(await grocy.getQuantityUnitConversions());
+}));
+
+/* ── Indkøbsliste (write) ────────────────────────────────── */
+
+router.post('/shoppinglist', handle(async (req, res) => {
+    const items = req.body.items;
+    if (!Array.isArray(items) || items.length === 0) {
+        return res.status(400).json({ error: 'items[] er påkrævet' });
+    }
+    const result = await grocy.addToShoppingList(items);
+    res.json({ ok: true, added: result.length });
 }));
 
 /* ── Cache-styring ────────────────────────────────────────── */
