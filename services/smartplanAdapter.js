@@ -1,11 +1,11 @@
 /**
  * services/smartplanAdapter.js
  * ════════════════════════════════════════════════════════════
- * Adapter til Smartplan.dk vagtplan-API.
+ * Adapter til Smartplan.dk vagtplan-API (OAuth2).
  *
  * Eksporterer funktioner der kaldes fra routes/smartplan.js.
- * Henter credentials fra settings-tabellen (med .env fallback).
- * In-memory cache med 5 min TTL.
+ * Henter credentials fra .env (SMARTPLAN_CLIENT_ID, SMARTPLAN_CLIENT_SECRET).
+ * In-memory cache med 5 min TTL for shifts, 9 min for token, 1 time for account.
  *
  * Readonly — læser kun vagter og medarbejdere.
  * ════════════════════════════════════════════════════════════
@@ -35,30 +35,86 @@ function clearCache() {
 }
 
 /* ══════════════════════════════════════════════════════════════
-   SMARTPLAN CONFIG
+   OAUTH2 TOKEN
    ══════════════════════════════════════════════════════════════ */
 
+const TOKEN_URL = process.env.SMARTPLAN_TOKEN_URL || 'https://api.smartplanapp.io/o/token/';
+const API_BASE  = process.env.SMARTPLAN_API_BASE  || 'https://api.smartplanapp.io/v2';
+
 /**
- * Hent Smartplan-konfiguration fra settings-tabellen.
- * Fallback til .env-variabler (SMARTPLAN_API_URL, SMARTPLAN_API_KEY).
+ * Hent OAuth2 access token via client_credentials grant.
  */
-function getSmartplanConfig() {
-    const db = getDb();
+async function getAccessToken() {
+    const cached = getCached('_token');
+    if (cached) return cached;
 
-    const urlSetting = db.prepare(`SELECT value FROM settings WHERE key = 'smartplan_api_url'`).get();
-    const keySetting = db.prepare(`SELECT value FROM settings WHERE key = 'smartplan_api_key'`).get();
+    const clientId     = process.env.SMARTPLAN_CLIENT_ID;
+    const clientSecret = process.env.SMARTPLAN_CLIENT_SECRET;
 
-    const url = (urlSetting?.value) || process.env.SMARTPLAN_API_URL || '';
-    const key = (keySetting?.value) || process.env.SMARTPLAN_API_KEY || '';
-
-    if (!url) {
-        throw new Error('Smartplan API ikke konfigureret. Sæt smartplan_api_url i settings eller SMARTPLAN_API_URL i .env.');
-    }
-    if (!key) {
-        throw new Error('Smartplan API-nøgle mangler. Sæt smartplan_api_key i settings eller SMARTPLAN_API_KEY i .env.');
+    if (!clientId || !clientSecret) {
+        throw new Error('Smartplan ikke konfigureret. Sæt SMARTPLAN_CLIENT_ID og SMARTPLAN_CLIENT_SECRET i .env.');
     }
 
-    return { url, key };
+    const body = new URLSearchParams({
+        grant_type: 'client_credentials',
+        client_id: clientId,
+        client_secret: clientSecret,
+    });
+
+    const res = await fetch(TOKEN_URL, {
+        method: 'POST',
+        headers: { 'content-type': 'application/x-www-form-urlencoded' },
+        body,
+    });
+
+    const text = await res.text();
+    if (!res.ok) {
+        throw new Error(`Smartplan token fejl ${res.status}: ${text.slice(0, 300)}`);
+    }
+
+    let json;
+    try { json = JSON.parse(text); } catch {
+        throw new Error(`Smartplan token: uventet ikke-JSON svar: ${text.slice(0, 300)}`);
+    }
+
+    const token = json?.access_token;
+    if (!token) throw new Error('Smartplan: access_token mangler i svar');
+
+    // Token gyldighed ~10 min, cache i 9 min
+    setCached('_token', token, 9 * 60 * 1000);
+    return token;
+}
+
+/* ══════════════════════════════════════════════════════════════
+   ACCOUNT UUID
+   ══════════════════════════════════════════════════════════════ */
+
+async function getAccountUUID() {
+    const cached = getCached('_accountUUID');
+    if (cached) return cached;
+
+    const token = await getAccessToken();
+    const res = await fetch(`${API_BASE}/accounts/`, {
+        headers: {
+            accept: 'application/json',
+            authorization: `Bearer ${token}`,
+        },
+    });
+
+    const text = await res.text();
+    if (!res.ok) throw new Error(`Smartplan accounts fejl ${res.status}: ${text.slice(0, 300)}`);
+
+    let json;
+    try { json = JSON.parse(text); } catch {
+        throw new Error(`Smartplan accounts: uventet svar: ${text.slice(0, 300)}`);
+    }
+
+    const uuid = json?.results?.[0]?.uuid;
+    if (!uuid) throw new Error('Smartplan: ingen account UUID fundet');
+
+    // Cache 1 time
+    setCached('_accountUUID', uuid, 60 * 60 * 1000);
+    return uuid;
 }
 
 /* ══════════════════════════════════════════════════════════════
@@ -66,71 +122,92 @@ function getSmartplanConfig() {
    ══════════════════════════════════════════════════════════════ */
 
 /**
- * Fetch fra Smartplan API med autentificering.
- * @param {string} path  Sti relativt til API-rod
+ * Authenticated fetch mod Smartplan API med pagination.
+ * Returnerer alle results samlet.
  */
 async function smartplanFetch(path) {
-    const { url, key } = getSmartplanConfig();
+    const token = await getAccessToken();
+    const accountUUID = await getAccountUUID();
 
-    const base = url.replace(/\/+$/, '');
-    const route = path.startsWith('/') ? path : '/' + path;
+    let url = `${API_BASE}/accounts/${accountUUID}${path}`;
+    const all = [];
 
-    const res = await fetch(base + route, {
-        headers: {
-            'Authorization': `Bearer ${key}`,
-            'Accept': 'application/json',
-        },
-    });
+    while (url) {
+        const res = await fetch(url, {
+            headers: {
+                accept: 'application/json',
+                authorization: `Bearer ${token}`,
+            },
+        });
 
-    if (!res.ok) {
-        const body = await res.text().catch(() => '');
-        throw new Error(`Smartplan API fejl ${res.status}: ${body.slice(0, 200)}`);
+        const text = await res.text();
+        if (!res.ok) {
+            throw new Error(`Smartplan API fejl ${res.status}: ${text.slice(0, 200)}`);
+        }
+
+        const json = JSON.parse(text);
+        if (Array.isArray(json.results)) {
+            all.push(...json.results);
+        }
+        // Smartplan paginerer med next-URL
+        url = json.next || null;
     }
 
-    return res.json();
-}
-
-/**
- * Fetch med cache-lag.
- */
-async function cachedFetch(cacheKey, path) {
-    const cached = getCached(cacheKey);
-    if (cached) return cached;
-
-    const data = await smartplanFetch(path);
-    setCached(cacheKey, data);
-    return data;
+    return all;
 }
 
 /* ══════════════════════════════════════════════════════════════
-   NORMALISERINGSLAG
-   ══════════════════════════════════════════════════════════════
-   Smartplan API-formatet er ikke fuldt dokumenteret.
-   Normaliseringen mapper response → fast format.
-   Kun dette lag skal justeres når det faktiske API-format kendes.
+   NORMALISERING
    ══════════════════════════════════════════════════════════════ */
 
 /**
- * Normalisér et enkelt vagt-objekt til vores faste format.
- * Felterne forsøges i flere varianter for at håndtere API-ændringer.
+ * Normalisér et Smartplan shift-objekt til vores faste format.
+ * Smartplan v2 returnerer: owner.first_name/last_name, jobtype.title, location.title
  */
 function _normalizeShift(shift) {
+    const startDt = shift.start_dt || '';
+    const endDt   = shift.end_dt   || '';
+    const owner   = shift.owner || {};
+
+    const name = [owner.first_name, owner.last_name].filter(Boolean).join(' ') || 'Ukendt';
+
     return {
-        employee_id:   shift.employee_id || shift.member_id || shift.id || null,
-        employee_name: shift.employee_name || shift.member_name || shift.name || 'Ukendt',
-        date:          shift.date || (shift.start_time ? shift.start_time.slice(0, 10) : null),
-        start_time:    _extractTime(shift.start || shift.start_time || shift.from || ''),
-        end_time:      _extractTime(shift.end || shift.end_time || shift.to || ''),
-        job_type:      shift.job_type || shift.position || shift.role || '',
-        location:      shift.location || shift.department || '',
+        employee_id:   owner.uuid || null,
+        employee_name: name,
+        date:          shift.display_date || (startDt ? startDt.slice(0, 10) : null),
+        start_time:    _extractTime(startDt),
+        end_time:      _extractTime(endDt),
+        job_type:      shift.jobtype?.title || '',
+        location:      shift.location?.title || '',
     };
 }
 
-/** Ekstrahér HH:MM fra enten "HH:MM" eller ISO datetime */
+/**
+ * Normalisér et Smartplan worklog-objekt (arkiverede vagter).
+ * Bruger planned_start_dt/planned_end_dt i stedet for start_dt/end_dt.
+ */
+function _normalizeWorklog(wl) {
+    const startDt = wl.planned_start_dt || '';
+    const endDt   = wl.planned_end_dt   || '';
+    const owner   = wl.owner || {};
+
+    const name = [owner.first_name, owner.last_name].filter(Boolean).join(' ') || 'Ukendt';
+
+    return {
+        employee_id:   owner.uuid || null,
+        employee_name: name,
+        date:          wl.display_date || (startDt ? startDt.slice(0, 10) : null),
+        start_time:    _extractTime(startDt),
+        end_time:      _extractTime(endDt),
+        job_type:      wl.jobtype?.title || '',
+        location:      wl.location?.title || '',
+    };
+}
+
+/** Ekstrahér HH:MM fra ISO datetime eller "HH:MM" */
 function _extractTime(val) {
     if (!val) return '';
     if (val.includes('T')) {
-        // ISO format: "2026-03-13T09:00:00"
         const match = val.match(/T(\d{2}:\d{2})/);
         return match ? match[1] : val;
     }
@@ -143,6 +220,7 @@ function _extractTime(val) {
 
 /**
  * Hent vagter for et datointerval.
+ * Kombinerer fremtidige shifts + arkiverede worklogs for at dække alle datoer.
  * @param {string} fromDate  YYYY-MM-DD
  * @param {string} toDate    YYYY-MM-DD
  * @returns {Promise<Array>} Normaliserede vagt-objekter
@@ -152,14 +230,37 @@ async function getShifts(fromDate, toDate) {
     const cached = getCached(cacheKey);
     if (cached) return cached;
 
-    // Endpoint-sti tilpasses efter faktisk Smartplan API
-    const data = await smartplanFetch(`/shifts?from=${fromDate}&to=${toDate}`);
+    // Hent begge parallelt: shifts (fremtidige) + worklogs (arkiverede/fortidige)
+    const [shifts, worklogs] = await Promise.all([
+        smartplanFetch(
+            `/shifts/?start_date=${encodeURIComponent(fromDate)}&end_date=${encodeURIComponent(toDate)}`
+        ).catch(() => []),
+        smartplanFetch(
+            `/worklogs/?start_date=${encodeURIComponent(fromDate)}&end_date=${encodeURIComponent(toDate)}&ordering=planned_start_dt`
+        ).catch(() => []),
+    ]);
 
-    const shifts = (Array.isArray(data) ? data : data.shifts || data.hours || data.data || []);
-    const normalized = shifts.map(_normalizeShift).filter(s => s.date);
+    const normalizedShifts = shifts.map(_normalizeShift);
+    const normalizedWorklogs = worklogs.map(_normalizeWorklog);
 
-    setCached(cacheKey, normalized);
-    return normalized;
+    // Kombiner — worklogs dækker fortid, shifts dækker fremtid.
+    // Dedupliker via employee_id+date (shifts har forrang)
+    const seen = new Set();
+    const all = [];
+    for (const s of normalizedShifts) {
+        if (!s.date) continue;
+        const key = (s.employee_id || '') + '_' + s.date + '_' + s.start_time;
+        seen.add(key);
+        all.push(s);
+    }
+    for (const w of normalizedWorklogs) {
+        if (!w.date) continue;
+        const key = (w.employee_id || '') + '_' + w.date + '_' + w.start_time;
+        if (!seen.has(key)) all.push(w);
+    }
+
+    setCached(cacheKey, all);
+    return all;
 }
 
 /**
@@ -167,7 +268,13 @@ async function getShifts(fromDate, toDate) {
  * @returns {Promise<Array>}
  */
 async function getEmployees() {
-    return cachedFetch('employees', '/employees');
+    const cacheKey = 'employees';
+    const cached = getCached(cacheKey);
+    if (cached) return cached;
+
+    const employees = await smartplanFetch('/employees/');
+    setCached(cacheKey, employees);
+    return employees;
 }
 
 /* ══════════════════════════════════════════════════════════════ */

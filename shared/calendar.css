@@ -226,10 +226,10 @@
     display: flex;
     align-items: baseline;
     gap: 4px;
-    padding: 2px 4px;
-    border-left: 3px solid var(--bon-color, #999);
+    padding: 3px 6px;
+    border-left: 5px solid var(--bon-color, #999);
     border-radius: 0 3px 3px 0;
-    background: #faf9f7;
+    background: color-mix(in srgb, var(--bon-color, #999) 10%, white);
     font-size: 11px;
     cursor: pointer;
     white-space: nowrap;
@@ -237,7 +237,7 @@
     text-overflow: ellipsis;
 }
 .cal-bon-entry:hover {
-    background: var(--brand-primary-light);
+    background: color-mix(in srgb, var(--bon-color, #999) 22%, white);
 }
 
 .cal-bon-entry[data-hidden="true"] {
@@ -304,6 +304,26 @@
     font-size: 11px;
 }
 
+/* ── LISTE SØGEFELT ──────────────────────────────────────── */
+
+.cal-list-search {
+    margin-bottom: 10px;
+}
+
+.cal-list-search-input {
+    width: 100%;
+    max-width: 360px;
+    padding: 8px 12px;
+    border: 1px solid var(--color-border);
+    border-radius: 6px;
+    font-size: 14px;
+    outline: none;
+}
+.cal-list-search-input:focus {
+    border-color: var(--brand-primary);
+    box-shadow: 0 0 0 2px color-mix(in srgb, var(--brand-primary) 20%, transparent);
+}
+
 /* ── LISTE-TABEL ─────────────────────────────────────────── */
 
 .cal-list-table {
@@ -336,12 +356,13 @@
 .cal-list-th.sorted::after {
     margin-left: 4px;
 }
-.cal-list-th.sorted.asc::after { content: ' \u25B2'; }
-.cal-list-th.sorted.desc::after { content: ' \u25BC'; }
+.cal-list-th.sorted.asc::after { content: ' \25B2'; }
+.cal-list-th.sorted.desc::after { content: ' \25BC'; }
 
 .cal-list-row {
     cursor: pointer;
     border-bottom: 1px solid var(--color-border);
+    border-left: 4px solid var(--row-color, transparent);
 }
 .cal-list-row:hover {
     background: var(--brand-primary-light);

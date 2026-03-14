@@ -283,13 +283,13 @@ function _renderCalendar() {
     var startDate   = new Date(_calendarData.calStart + 'T00:00:00');
     var endDate     = new Date(_calendarData.calEnd + 'T00:00:00');
     var currentDate = new Date(startDate);
-    var todayStr    = new Date().toISOString().slice(0, 10);
+    var todayStr    = _localDateStr(new Date());
     var weekPax     = 0;
     var weekUnits   = 0;
     var weekCount   = 0;
 
     while (currentDate <= endDate) {
-        var dateStr = currentDate.toISOString().slice(0, 10);
+        var dateStr = _localDateStr(currentDate);
         var dow     = currentDate.getDay(); // 0=søn, 1=man
         var isoDow  = dow === 0 ? 7 : dow;  // 1=man, 7=søn
 
@@ -325,7 +325,10 @@ function _renderCalendar() {
             var wtCell   = document.createElement('div');
             wtCell.className = 'cal-week-total';
             if (wt && wt.count > 0) {
-                wtCell.innerHTML = '<div class="cal-week-total-line">Total: ' + wt.workload + '</div>'
+                var wtParts = [];
+                if (wt.pax > 0) wtParts.push(wt.pax + ' pax');
+                if (wt.units > 0) wtParts.push('(' + wt.units + ' enh.)');
+                wtCell.innerHTML = '<div class="cal-week-total-line">' + (wtParts.join(' ') || wt.count + ' bons') + '</div>'
                     + '<div class="cal-week-total-line count">' + wt.count + ' bons</div>';
             }
             grid.appendChild(wtCell);
@@ -361,10 +364,11 @@ function _buildDayCell(dateStr, dayData, isCurrentMonth, isToday) {
             badge.className = 'cal-staff-badge';
             badge.textContent = '\uD83D\uDC64 ' + shifts.length;
 
-            // Tooltip med navne + tider
+            // Tooltip: tid først, kun fornavn
             var lines = [];
             for (var i = 0; i < shifts.length; i++) {
-                lines.push(shifts[i].employee_name + '  ' + shifts[i].start_time + '\u2013' + shifts[i].end_time);
+                var firstName = (shifts[i].employee_name || '').split(' ')[0];
+                lines.push(shifts[i].start_time + '\u2013' + shifts[i].end_time + '  ' + firstName);
             }
             badge.title = lines.join('\n');
             dateRow.appendChild(badge);
@@ -394,8 +398,19 @@ function _buildDayCell(dateStr, dayData, isCurrentMonth, isToday) {
 
             var timeStr = bon.pickup_time || bon.delivery_time || '';
 
+            // Pax/enheder — vis det største, enheder i parentes
+            var bonPax = bon.pax || 0;
+            var bonUnits = bon.total_units || 0;
+            var bonLoad = '';
+            if (bonUnits > 0 && bonUnits >= bonPax) {
+                bonLoad = '(' + bonUnits + ')';
+            } else if (bonPax > 0) {
+                bonLoad = String(bonPax);
+            }
+
             entry.innerHTML = '<span class="cal-bon-time">' + esc(timeStr) + '</span>'
-                + '<span class="cal-bon-id">#' + esc(bon.bon_number) + '</span>';
+                + '<span class="cal-bon-id">#' + esc(bon.bon_number) + '</span>'
+                + (bonLoad ? '<span class="cal-bon-pax">' + bonLoad + '</span>' : '');
 
             // Klik → bon-info modal
             (function(b) {
@@ -409,11 +424,14 @@ function _buildDayCell(dateStr, dayData, isCurrentMonth, isToday) {
         cell.appendChild(bonsDiv);
     }
 
-    // Dag-totaler (workload = enheder hvis angivet, ellers pax)
+    // Dag-totaler — pax + (enheder)
     if (dayData && dayData.totals.count > 0) {
         var totals = document.createElement('div');
         totals.className = 'cal-day-totals';
-        totals.innerHTML = '<span>Total: ' + dayData.totals.workload + '</span>'
+        var totalParts = [];
+        if (dayData.totals.pax > 0) totalParts.push(dayData.totals.pax + ' pax');
+        if (dayData.totals.units > 0) totalParts.push('(' + dayData.totals.units + ' enh.)');
+        totals.innerHTML = '<span>' + (totalParts.join(' ') || dayData.totals.count + ' bons') + '</span>'
             + '<span>' + dayData.totals.count + ' bons</span>';
         cell.appendChild(totals);
     }
@@ -429,8 +447,8 @@ var _LIST_COLUMNS = [
     { key: 'bon_number',        label: 'Bon#' },
     { key: 'delivery_date',     label: 'Dato' },
     { key: 'status_code',       label: 'Status' },
-    { key: 'pax',               label: 'Pax' },
-    { key: 'total_units',       label: 'Enheder' },
+    { key: 'pax',               label: 'PAX' },
+    { key: 'total_units',       label: 'ENHEDER' },
     { key: 'contact_name_full', label: 'Kunde' },
     { key: 'company_name',      label: 'Firma' },
     { key: 'payment_type',      label: 'Betaling' },
@@ -438,10 +456,27 @@ var _LIST_COLUMNS = [
     { key: 'delivery_type',     label: 'Type' },
 ];
 
+var _searchTerm = '';
+
 function _renderList() {
     var content = document.getElementById('calContent');
     if (!content || !_calendarData) return;
     content.innerHTML = '';
+
+    // Søgefelt
+    var searchWrap = document.createElement('div');
+    searchWrap.className = 'cal-list-search';
+    var searchInput = document.createElement('input');
+    searchInput.type = 'text';
+    searchInput.placeholder = 'Søg bon#, kunde, firma...';
+    searchInput.className = 'cal-list-search-input';
+    searchInput.value = _searchTerm;
+    searchInput.addEventListener('input', function() {
+        _searchTerm = this.value;
+        _renderList();
+    });
+    searchWrap.appendChild(searchInput);
+    content.appendChild(searchWrap);
 
     // Samle alle bons
     var allBons = [];
@@ -451,6 +486,18 @@ function _renderList() {
         for (var i = 0; i < dayBons.length; i++) {
             allBons.push(dayBons[i]);
         }
+    }
+
+    // Filtrer med søgeterm
+    if (_searchTerm.trim()) {
+        var q = _searchTerm.trim().toLowerCase();
+        allBons = allBons.filter(function(bon) {
+            return (bon.bon_number && String(bon.bon_number).toLowerCase().indexOf(q) !== -1)
+                || (bon.contact_name_full && bon.contact_name_full.toLowerCase().indexOf(q) !== -1)
+                || (bon.company_name && bon.company_name.toLowerCase().indexOf(q) !== -1)
+                || (bon.delivery_date && bon.delivery_date.indexOf(q) !== -1)
+                || (bon.status_code && bon.status_code.toLowerCase().indexOf(q) !== -1);
+        });
     }
 
     // Sortér
@@ -500,11 +547,14 @@ function _renderList() {
     for (var r = 0; r < allBons.length; r++) {
         var bon = allBons[r];
         var feStatus = statusToFrontend(bon.status_code);
+        var rowStatusCfg = (typeof BON_CONFIG !== 'undefined' && BON_CONFIG.statuses)
+            ? BON_CONFIG.statuses[feStatus] : null;
         var tr = document.createElement('tr');
         tr.className = 'cal-list-row';
         tr.dataset.bonId  = bon.id;
         tr.dataset.status = feStatus;
         tr.dataset.offer  = bon.is_offer ? 'true' : 'false';
+        if (rowStatusCfg) tr.style.setProperty('--row-color', rowStatusCfg.color);
 
         (function(b) {
             tr.addEventListener('click', function() {
@@ -563,6 +613,11 @@ function _initSSE() {
 /* ══════════════════════════════════════════════════════════════
    HELPERS
    ══════════════════════════════════════════════════════════════ */
+
+/** Lokal dato-streng YYYY-MM-DD (undgår UTC-forskydning fra toISOString) */
+function _localDateStr(d) {
+    return d.getFullYear() + '-' + String(d.getMonth() + 1).padStart(2, '0') + '-' + String(d.getDate()).padStart(2, '0');
+}
 
 function _getISOWeek(date) {
     var d = new Date(Date.UTC(date.getFullYear(), date.getMonth(), date.getDate()));

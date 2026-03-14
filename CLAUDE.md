@@ -45,6 +45,9 @@ Skift til produktion (`grocycafe`) sker først ved release.
 `default_grocy_location_id = 3` (Test) i settings-tabellen styrer dette.
 Lokationer defineres i `locations`-tabellen: HQ=grocycafe, Trailer=grocytrailer, Test=grocytest.
 
+**Smartplan:** OAuth2 via `SMARTPLAN_CLIENT_ID` + `SMARTPLAN_CLIENT_SECRET` i `.env`.
+API base: `https://api.smartplanapp.io/v2`. Token-endpoint: `/o/token/`.
+
 ---
 
 ## Kolonnenavne der ofte forveksles
@@ -156,10 +159,11 @@ Nye filer placeres præcis der de hører hjemme — kopieres ikke.
   - Liste-view med sortérbare kolonner (toggle med localStorage)
   - Status-filtre fra BonConfig (toggle on/off)
   - Workload-totaler per dag/uge (`total_units > 0 ? units : pax`)
-  - Smartplan bemanding: kompakt `👤 N` badge med tooltip
+  - Smartplan bemanding: kompakt `👤 N` badge med tooltip (tid + fornavn)
   - Bon-klik → info-modal med "Gå til bon →" navigation
   - SSE realtidsopdatering
   - Graceful degradation uden Smartplan
+  - Søgefelt i liste-view (bon#, kunde, firma)
 - [x] `shared/utils.js` — Status-mapping, dato-formattering, `connectSSE()` (named events), `mapApiBonToCardData()`, `scrollToBonHash()`, `getClientId()`
 - [x] `shared/api.js` — API-funktioner (fetch, patch status/prep/kitchen-info, flyver)
 - [x] `shared/flyver.js` + `shared/flyver.css` — Flyver-system (urgente beskeder)
@@ -226,6 +230,9 @@ Nye filer placeres præcis der de hører hjemme — kopieres ikke.
 - SSE realtidsopdatering
 - API: `GET /api/bons/calendar?year=&month=&status=`
 - Smartplan adapter: `services/smartplanAdapter.js` + `routes/smartplan.js`
+  - OAuth2 auth (client_credentials grant) med token-cache
+  - Kombinerer `/shifts/` (fremtidige) + `/worklogs/` (arkiverede) for fuld dækning
+  - Normalisering: `owner.first_name/last_name`, `jobtype.title`, `location.title`
 
 ---
 
