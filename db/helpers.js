@@ -110,12 +110,14 @@ function getBon(id) {
             c.phone   AS contact_phone,
             c.email   AS contact_email,
             co.name   AS company_name,
-            co.phone  AS company_phone
+            co.phone  AS company_phone,
+            pc.code   AS price_category_code
         FROM bons b
         JOIN   status_definitions sd ON b.status_id  = sd.id
         JOIN   locations l           ON b.location_id = l.id
         LEFT JOIN customers c        ON b.customer_id = c.id
         LEFT JOIN companies co       ON b.company_id  = co.id
+        LEFT JOIN price_categories pc ON b.price_category_id = pc.id
         WHERE b.id = ?
     `).get(id);
     if (!bon) return null;

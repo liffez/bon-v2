@@ -135,6 +135,16 @@ class BonDrawer {
                     </div>
                 </div>
 
+                <!-- VARER -->
+                <div class="drawer-section">
+                    <div class="drawer-label-row">
+                        <label class="drawer-label">Varer</label>
+                        <button type="button" class="btn-drawer-tilfoej-vare">+ Tilføj vare</button>
+                    </div>
+                    <div class="drawer-vare-picker-slot"></div>
+                    <div class="drawer-lines-list"></div>
+                </div>
+
                 <!-- FIRMA -->
                 <div class="drawer-section drawer-firma-section">
                     <label class="drawer-label">Firma</label>
@@ -169,6 +179,15 @@ class BonDrawer {
 
         document.body.appendChild(this.overlayEl);
         document.body.appendChild(this.el);
+
+        // VarePicker
+        this.varePicker = new VarePicker({
+            bonId: null,
+            priceCategory: 'catering',
+            container: this.el.querySelector('.drawer-vare-picker-slot'),
+            viewName: 'drawer',
+            onAdded: () => this.load(this.bonId)
+        });
 
         // KundeSoeg
         this.kundeSoeg = new KundeSoeg({
@@ -220,6 +239,9 @@ class BonDrawer {
 
         // Slet
         this.el.querySelector('.btn-drawer-slet').addEventListener('click', () => this._handleDelete());
+
+        // Tilføj vare
+        this.el.querySelector('.btn-drawer-tilfoej-vare').addEventListener('click', () => this.varePicker.toggle());
 
         // DAWA autocomplete
         this._bindDAWA();
@@ -329,6 +351,13 @@ class BonDrawer {
         // Firma
         this._renderFirma(d.company_name);
 
+        // Varer — update picker + render lines
+        this.varePicker.update({
+            bonId: this.bonId,
+            priceCategory: d.price_category_code || 'catering'
+        });
+        this._renderLines(d.lines || []);
+
         // Noter
         this._setFieldValue('customer_wishes', d.customer_wishes || '');
         this._setFieldValue('invoice_info', d.invoice_info || '');
@@ -385,6 +414,49 @@ class BonDrawer {
         } else {
             nameEl.textContent = '';
             section.style.display = 'none';
+        }
+    }
+
+    /* ══════════════════════════════════════════════════════
+       BON LINES
+       ══════════════════════════════════════════════════════ */
+
+    _renderLines(lines) {
+        var list = this.el.querySelector('.drawer-lines-list');
+        if (!list) return;
+        if (!lines || lines.length === 0) {
+            list.innerHTML = '<div class="drawer-lines-empty">Ingen varer tilføjet</div>';
+            return;
+        }
+        var _esc = typeof esc === 'function' ? esc : function(s) { return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;'); };
+        list.innerHTML = lines.map(function(l) {
+            var special = l.special_request ? '<div class="drawer-line-special">' + _esc(l.special_request) + '</div>' : '';
+            var price = l.line_total != null ? l.line_total + ' kr' : '';
+            return '<div class="drawer-line-item" data-line-id="' + l.id + '">' +
+                '<span class="drawer-line-qty">' + (l.quantity || 1) + '</span>' +
+                '<span class="drawer-line-name">' + _esc(l.product_name || '') + special + '</span>' +
+                '<span class="drawer-line-price">' + price + '</span>' +
+                '<button class="drawer-line-del" title="Fjern">&times;</button>' +
+            '</div>';
+        }).join('');
+
+        // Delete line handlers
+        var self = this;
+        list.querySelectorAll('.drawer-line-del').forEach(function(btn) {
+            btn.addEventListener('click', function() {
+                var lineId = btn.closest('.drawer-line-item').dataset.lineId;
+                self._deleteLine(lineId);
+            });
+        });
+    }
+
+    async _deleteLine(lineId) {
+        if (!confirm('Fjern denne vare?')) return;
+        try {
+            await deleteBonLine(this.bonId, lineId);
+            await this.load(this.bonId);
+        } catch (err) {
+            alert(err.message || 'Kunne ikke fjerne vare');
         }
     }
 

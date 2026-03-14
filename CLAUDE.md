@@ -79,7 +79,10 @@ bon-v2/
 │   ├── notifications.js ← /api/notifications/*
 │   ├── smartplan.js  ← /api/smartplan/* (shifts, employees)
 │   ├── auth.js       ← /api/auth/* (login, pin, logout, me)
-│   └── payment_types.js ← /api/payment-types
+│   ├── payment_types.js ← /api/payment-types
+│   ├── price_categories.js ← /api/price-categories
+│   ├── addresses.js  ← /api/addresses (POST)
+│   └── webhooks.js   ← /api/webhooks/bestilling (ingen auth)
 ├── services/
 │   ├── grocyAdapter.js  ← Readonly Grocy API adapter med cache
 │   ├── smartplanAdapter.js ← Smartplan OAuth2 adapter (shifts + worklogs)
@@ -98,6 +101,10 @@ bon-v2/
 │   ├── calendar.js + calendar.css  ← Kalender/liste komponent
 │   ├── flyver.js + flyver.css      ← Nødbesked-system
 │   ├── modal.js + modal.css        ← Genbrugelig modal (historik, info, råvarer)
+│   ├── vare_picker.js + vare_picker.css ← Standalone VarePicker (bruges i kort + drawer)
+│   ├── bon_opret_modal.js + bon_opret_modal.css ← Hurtig bon-oprettelse
+│   ├── bon_drawer.js + bon_drawer.css   ← Bon-detalje drawer (fuld redigering)
+│   ├── kunde_soeg.js + kunde_soeg.css   ← Kunde/firma-søgekomponent
 │   ├── kitchen-topbar.html         ← Fælles topbar for kitchen-views
 │   ├── api.js        ← Frontend API-funktioner
 │   ├── utils.js      ← Status-mapping, connectSSE(), mapApiBonToCardData(), scrollToBonHash()
@@ -287,15 +294,48 @@ Nye filer placeres præcis der de hører hjemme — kopieres ikke.
 - [x] `shared/kunde_soeg.css` — Styling med designsystem-tokens
 - [x] `office/test-kunde-soeg.html` — Testside
 
+### Fase 1c — Bon-opret modal + Bon-detalje drawer
+- [x] `routes/price_categories.js` — GET /api/price-categories
+- [x] `routes/addresses.js` — POST /api/addresses
+- [x] `routes/bons.js` — PATCH /:id (alle felter, per-felt changelog) + SSE broadcast på POST
+- [x] `shared/bon_opret_modal.js` + CSS — Hurtig bon-oprettelse (kunde, dato, tid, type, pax, priskategori)
+- [x] `shared/bon_drawer.js` + CSS — Fuld redigering af bon i drawer fra højre
+  - Status-bar, levering (dato/tid/type/DAWA-adresse), kunde (KundeSoeg), dagskontakt
+  - Køkken (pax, enheder, priskategori, betaling), firma, noter (4 textareas)
+  - Dirty-tracking, confirm ved ugemte ændringer, URL-sync (?bon=ID)
+  - SSE realtidsopdatering (bon_updated, bon_status)
+- [x] Monteret i office/index.html + kitchen/calendar.html
+- [x] "Rediger" knap i kalender info-modal → åbner drawer
+
+### Fase 1d — Formbuilder webhook + VarePicker refaktorering
+- [x] `routes/webhooks.js` — POST /api/webhooks/bestilling (altid 200)
+  - Honeypot-tjek, påkrævede felter (f2, f7_date, f7_time)
+  - Find/opret firma + kunde (email-match)
+  - EAN-udtræk fra f12 (13 cifre via regex)
+  - DAWA-adresse parsing fra validatedAddress JSON
+  - Bon-oprettelse med status NY, changelog + SSE broadcast
+  - Dagskontakt (f11_navn/f11_tlf → day_contact_name/day_contact_phone)
+- [x] `tools/bestilling_v2.html` — f12 textarea tilføjet (Faktura info / EAN)
+- [x] `shared/vare_picker.js` + CSS — Standalone VarePicker klasse
+  - Refaktoreret fra inline picker i bon_kort.js (~280 linjer fjernet)
+  - Constructor: `{ bonId, priceCategory, container, viewName, onAdded }`
+  - Recipe fetch + cache, kategori-navigation, item-selection, expand-form, POST
+  - Bruges i bon_kort.js (lazy VarePicker-instanser) + bon_drawer.js (VARER-sektion)
+- [x] Drawer: VARER-sektion med linjeliste, "+ Tilføj vare" knap, slet-linje
+- [x] `db/helpers.js` — getBon() joiner price_categories for price_category_code
+- [x] `shared/api.js` — deleteBonLine() tilføjet
+- [x] Smartplan-loading gjort asynkron i kalender (renderes bagefter)
+
 ---
 
 ## Næste opgave
 
-> ✏️ Opdateret 14. marts 2026.
+> ✏️ Opdateret 15. marts 2026.
 >
-> **Fase 1a + 1b komplet.** Auth + kunde/firma-søg er på plads.
-> Næste: Fase 1c (bon-opret) eller Opgave 6 (Indkøb/Bestilling).
+> **Fase 1a–1d komplet.** Auth, kunde-søg, bon-opret/drawer, webhook, VarePicker er på plads.
+> Næste: Opgave 6 (Indkøb/Bestilling) eller office listview.
 > Småting til senere: Pris-visning i Råvarer som setting, Kort erstattes af logistik-modul.
+> Webhook-URL skal sættes i formbuilder admin-panel + ny HTML publiceres til ristetrug.dk/bestil.
 
 ---
 
@@ -490,7 +530,7 @@ Kyllingefilet     2,4 kg      8,2 kg
 
 ### OPGAVE (næste)
 
-læs CLAUDE_FASE1c.md
+læs CLAUDE_FASE1d.md
 
 
 
@@ -549,6 +589,11 @@ GET    /api/companies/:id                                routes/companies.js
 POST   /api/companies                                    routes/companies.js
 GET    /api/cvr/:cvr                                     routes/cvr.js
 GET    /api/cvr/search?q=                                routes/cvr.js
+GET    /api/price-categories                             routes/price_categories.js
+POST   /api/addresses                                    routes/addresses.js
+PATCH  /api/bons/:id            { ...fields }            routes/bons.js
+DELETE /api/bons/:id/lines/:lid                          routes/bons.js
+POST   /api/webhooks/bestilling  (ingen auth, altid 200) routes/webhooks.js
 ```
 
 ---

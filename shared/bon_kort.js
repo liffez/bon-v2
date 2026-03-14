@@ -579,8 +579,8 @@ function createCard(bonData, viewName) {
             ${mods.summary ? _buildSummaryPanel(num, cardId) : ''}
         </div>
 
-        <!-- Recipe picker (åbnes via + knap) -->
-        <div class="recipe-picker" id="rp${num}"></div>
+        <!-- Vare picker slot (åbnes via + knap) -->
+        <div class="vare-picker-slot" id="vpSlot${num}"></div>
     `;
 
     // Byg status-bar nu hvor elementet eksisterer
@@ -809,36 +809,11 @@ function _buildCo2(co2str) {
 }
 
 /* ══════════════════════════════════════════════════════════════
-   RECIPE PICKER
+   RECIPE PICKER — delegerer til VarePicker (shared/vare_picker.js)
    ══════════════════════════════════════════════════════════════ */
 
-let _recipesCache = null;
-
-async function _loadRecipes() {
-    if (!_recipesCache) _recipesCache = await fetchGrocyRecipes();
-    return _recipesCache;
-}
-
-function _rpShowPrices(viewName) {
-    const key = 'rp-show-prices-' + viewName;
-    const stored = localStorage.getItem(key);
-    if (stored !== null) return stored === '1';
-    const mods = VIEW_MODULES[viewName] || VIEW_MODULES['all'];
-    return !!mods.showRecipePrices;
-}
-
-function _rpTogglePrices(cardId) {
-    const card = document.getElementById(cardId);
-    const viewName = card.dataset.view;
-    const key = 'rp-show-prices-' + viewName;
-    const current = _rpShowPrices(viewName);
-    localStorage.setItem(key, current ? '0' : '1');
-    const picker = card.querySelector('.recipe-picker');
-    picker.classList.toggle('rp-hide-prices', current);
-    // Opdater toggle-ikon
-    const btn = picker.querySelector('.rp-price-toggle');
-    if (btn) btn.textContent = current ? '◉' : '◎';
-}
+// VarePicker-instanser per kort (bonId → VarePicker)
+var _cardPickers = {};
 
 /**
  * Åbn Google Maps med bonens leveringsadresse.
@@ -854,244 +829,29 @@ function openMap(cardId) {
     window.open(`https://www.google.com/maps/search/?api=1&query=${q}`, '_blank');
 }
 
-async function openRecipePicker(cardId) {
-    const card   = document.getElementById(cardId);
-    const num    = cardId.replace('bon', '');
-    const picker = document.getElementById('rp' + num);
+function openRecipePicker(cardId) {
+    const card = document.getElementById(cardId);
+    if (!card) return;
+    const num = cardId.replace('bon', '');
+    const slot = document.getElementById('vpSlot' + num);
+    if (!slot) return;
 
-    // Toggle: luk hvis allerede åben
-    if (picker.classList.contains('open')) {
-        closeRecipePicker(cardId);
-        return;
-    }
-
-    // Luk andre åbne pickers
-    document.querySelectorAll('.recipe-picker.open').forEach(p => {
-        p.classList.remove('open');
-        p.innerHTML = '';
-    });
-
-    picker.classList.add('open');
-
-    const priceCat  = card.dataset.priceCategory || 'catering';
-    const viewName  = card.dataset.view || 'all';
-    const showPrice = _rpShowPrices(viewName);
-
-    // Loading
-    picker.innerHTML = '<div class="rp-loading">Henter opskrifter…</div>';
-
-    try {
-        const recipes = await _loadRecipes();
-
-        // Grupper efter kategori
-        const cats = {};
-        recipes.forEach(r => {
-            const cat = r.category || 'Andet';
-            if (!cats[cat]) cats[cat] = [];
-            cats[cat].push(r);
+    // Lazy-create VarePicker instance
+    if (!_cardPickers[num]) {
+        _cardPickers[num] = new VarePicker({
+            bonId: parseInt(num),
+            priceCategory: card.dataset.priceCategory || 'catering',
+            container: slot,
+            viewName: card.dataset.view || 'all',
+            onAdded: function() { /* SSE handles re-render */ }
         });
-        const catNames = Object.keys(cats);
-        if (!catNames.length) {
-            picker.innerHTML = '<div class="rp-loading">Ingen opskrifter fundet</div>';
-            return;
-        }
-
-        const priceToggleIcon = showPrice ? '◎' : '◉';
-        const hideCls = showPrice ? '' : ' rp-hide-prices';
-
-        picker.className = 'recipe-picker open' + hideCls;
-        picker.innerHTML = `
-            <div class="rp-header">
-                <span class="rp-title">Tilføj vare</span>
-                <button class="rp-price-toggle" onclick="event.stopPropagation();_rpTogglePrices('${cardId}')"
-                    title="Vis/skjul priser">${priceToggleIcon}</button>
-                <button class="rp-close" onclick="closeRecipePicker('${cardId}')">×</button>
-            </div>
-            <div class="rp-body">
-                <div class="rp-categories">
-                    ${catNames.map((c, i) => `<button class="rp-cat${i === 0 ? ' active' : ''}"
-                        onclick="_rpSelectCat(this,'${cardId}')">${c}</button>`).join('')}
-                </div>
-                <div class="rp-items" id="rpItems${num}">
-                    ${_rpRenderItems(cats[catNames[0]], priceCat)}
-                </div>
-            </div>
-            <div class="rp-expand-slot" id="rpExpandSlot${num}"></div>
-        `;
-
-        // Gem data på picker for kategori-navigation
-        picker._cats = cats;
-        picker._priceCat = priceCat;
-
-        // Escape lukker
-        picker._escHandler = (e) => {
-            if (e.key === 'Escape') closeRecipePicker(cardId);
-        };
-        document.addEventListener('keydown', picker._escHandler);
-
-    } catch (err) {
-        picker.innerHTML = `<div class="rp-loading">Fejl: ${err.message}</div>`;
     }
+    _cardPickers[num].toggle();
 }
 
 function closeRecipePicker(cardId) {
-    const card   = document.getElementById(cardId);
-    const num    = cardId.replace('bon', '');
-    const picker = document.getElementById('rp' + num);
-    if (!picker) return;
-
-    if (picker._escHandler) {
-        document.removeEventListener('keydown', picker._escHandler);
-        picker._escHandler = null;
-    }
-    picker.classList.remove('open');
-    picker.innerHTML = '';
-    picker._cats = null;
-}
-
-function _rpSelectCat(btn, cardId) {
-    const num    = cardId.replace('bon', '');
-    const picker = document.getElementById('rp' + num);
-    const catName = btn.textContent;
-
-    // Opdater aktiv kategori
-    picker.querySelectorAll('.rp-cat').forEach(b => b.classList.remove('active'));
-    btn.classList.add('active');
-
-    // Ryd expand + highlight
-    _rpRemoveExpand(picker);
-    picker.querySelectorAll('.rp-item.selected').forEach(el => el.classList.remove('selected'));
-
-    // Render items
-    const items = (picker._cats || {})[catName] || [];
-    const itemsEl = document.getElementById('rpItems' + num);
-    itemsEl.innerHTML = _rpRenderItems(items, picker._priceCat);
-}
-
-function _rpRenderItems(items, priceCat) {
-    return items.map(r => {
-        const price = r.prices[priceCat] || 0;
-        const name = (r.name || '').trim();
-        return `<div class="rp-item" data-recipe-id="${r.id}" onclick="_rpSelectItem(this)">
-            <span class="rp-item-name">${name}</span>
-            <span class="rp-item-price">${price} kr</span>
-        </div>`;
-    }).join('');
-}
-
-function _rpSelectItem(itemEl) {
-    const picker = itemEl.closest('.recipe-picker');
-    const num    = picker.id.replace('rp', '');
-    const cardId = 'bon' + num;
-    const recipeId = parseInt(itemEl.dataset.recipeId);
-    const priceCat = picker._priceCat;
-
-    // Find recipe data
-    let recipe = null;
-    const cats = picker._cats || {};
-    for (const items of Object.values(cats)) {
-        recipe = items.find(r => r.id === recipeId);
-        if (recipe) break;
-    }
-    if (!recipe) return;
-
-    // Ryd tidligere expand + highlight
-    _rpRemoveExpand(picker);
-    picker.querySelectorAll('.rp-item.selected').forEach(el => el.classList.remove('selected'));
-    itemEl.classList.add('selected');
-
-    // Render expand i fuld-bredde slot under picker-body
-    const price = recipe.prices[priceCat] || 0;
-    const name  = (recipe.name || '').trim();
-    const slot  = document.getElementById('rpExpandSlot' + num);
-    slot.innerHTML = `
-        <div class="rp-expand">
-            <div class="rp-expand-row">
-                <button class="rp-qty-btn" onclick="_rpQty(this,-1)">−</button>
-                <input class="rp-qty-input" type="number" value="1" min="1"
-                       onchange="_rpClampQty(this)">
-                <button class="rp-qty-btn" onclick="_rpQty(this,1)">+</button>
-                <span class="rp-expand-name">× ${name}</span>
-            </div>
-            <input class="rp-special" type="text" placeholder="Extra info…">
-            <div class="rp-expand-actions">
-                <button class="rp-save" onclick="_rpSave('${cardId}',${recipeId})">GEM</button>
-                <button class="rp-cancel" onclick="_rpCancelExpand('${cardId}')">AFBRYD</button>
-            </div>
-        </div>
-    `;
-    slot.querySelector('.rp-qty-input').focus();
-    slot.querySelector('.rp-qty-input').select();
-}
-
-/** Ryd expand-slot */
-function _rpRemoveExpand(picker) {
-    const slot = picker.querySelector('.rp-expand-slot');
-    if (slot) slot.innerHTML = '';
-}
-
-function _rpQty(btn, delta) {
-    const input = btn.parentElement.querySelector('.rp-qty-input');
-    const val = Math.max(1, parseInt(input.value || '1') + delta);
-    input.value = val;
-}
-
-function _rpClampQty(input) {
-    if (parseInt(input.value) < 1 || isNaN(parseInt(input.value))) input.value = 1;
-}
-
-function _rpCancelExpand(cardId) {
     const num = cardId.replace('bon', '');
-    const picker = document.getElementById('rp' + num);
-    _rpRemoveExpand(picker);
-    picker.querySelectorAll('.rp-item.selected').forEach(el => el.classList.remove('selected'));
-}
-
-async function _rpSave(cardId, recipeId) {
-    const num    = cardId.replace('bon', '');
-    const picker = document.getElementById('rp' + num);
-    const expand = picker.querySelector('.rp-expand');
-    if (!expand) return;
-    const priceCat = picker._priceCat;
-
-    // Find recipe
-    let recipe = null;
-    for (const items of Object.values(picker._cats || {})) {
-        recipe = items.find(r => r.id === recipeId);
-        if (recipe) break;
-    }
-    if (!recipe) return;
-
-    const qty     = Math.max(1, parseInt(expand.querySelector('.rp-qty-input').value) || 1);
-    const special = expand.querySelector('.rp-special').value.trim() || null;
-    const price   = recipe.prices[priceCat] || 0;
-
-    // Disable save-knap
-    const saveBtn = expand.querySelector('.rp-save');
-    saveBtn.disabled = true;
-    saveBtn.textContent = '…';
-
-    try {
-        await postBonLine(num, {
-            grocy_recipe_id: recipe.id,
-            product_name:    (recipe.name || '').trim(),
-            category:        recipe.category || null,
-            quantity:         qty,
-            unit:            recipe.unit || 'stk',
-            unit_price:      price,
-            cost_price:      recipe.cost_price || 0,
-            co2e:            recipe.co2e || 0,
-            special_request: special,
-        });
-
-        // Luk picker efter gem
-        closeRecipePicker(cardId);
-
-    } catch (err) {
-        saveBtn.disabled = false;
-        saveBtn.textContent = 'GEM';
-        console.error('Tilføj vare fejlede:', err);
-    }
+    if (_cardPickers[num]) _cardPickers[num].close();
 }
 
 /* ══════════════════════════════════════════════════════════════

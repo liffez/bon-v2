@@ -1,0 +1,303 @@
+<!DOCTYPE html>
+<html lang="da">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Ristet Rug - Bestillingsformular</title>
+  <link rel="stylesheet" href="../../shared/bon-base.css">
+  <style>
+    :root { --brand-primary: #c9a227; --brand-secondary: #2c3e50; }
+    * { box-sizing: border-box; }
+    body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; background: #f5f5f5; margin: 0; padding: 1rem; }
+    .form-container { max-width: 600px; margin: 0 auto; background: white; border-radius: 8px; box-shadow: 0 2px 8px rgba(0,0,0,0.1); padding: 2rem; }
+    .form-header { text-align: center; margin-bottom: 2rem; padding-bottom: 1rem; border-bottom: 2px solid #f0f0f0; }
+    .form-logo { max-height: 60px; margin-bottom: 0.5rem; }
+    .form-header h1 { margin: 0; color: var(--brand-secondary); font-size: 1.5rem; }
+    .form-header p { margin: 0.5rem 0 0; color: #666; }
+    .form-field { margin-bottom: 1.5rem; }
+    .form-field.hidden { display: none; }
+    .form-field label { display: block; font-weight: 600; margin-bottom: 0.5rem; color: var(--brand-secondary); }
+    .form-field label .required { color: #c0392b; }
+    .form-field input, .form-field textarea, .form-field select { width: 100%; padding: 0.75rem; border: 2px solid #e0e0e0; border-radius: 8px; font-size: 1rem; }
+    .form-field input:focus, .form-field textarea:focus, .form-field select:focus { outline: none; border-color: var(--brand-primary); }
+    .form-field textarea { min-height: 100px; resize: vertical; }
+    .field-hint { font-size: 0.8rem; color: #888; margin-top: 0.25rem; }
+    .form-field.honeypot { position: absolute; left: -9999px; }
+    .ordertype-selector { display: flex; gap: 0.5rem; flex-wrap: wrap; }
+    .ordertype-option { flex: 1; min-width: 120px; padding: 1rem; background: #f8f9fa; border: 2px solid #e0e0e0; border-radius: 8px; cursor: pointer; text-align: center; }
+    .ordertype-option:hover { border-color: var(--brand-primary); }
+    .ordertype-option.selected { border-color: var(--brand-primary); background: #fef9e7; }
+    .ordertype-option .icon { font-size: 1.5rem; }
+    .ordertype-option .label { font-weight: 600; color: var(--brand-secondary); }
+    .ordertype-option .description { font-size: 0.8rem; color: #666; margin-top: 0.25rem; }
+    .checkbox-field { display: flex; align-items: flex-start; gap: 0.75rem; }
+    .checkbox-field input { width: auto; margin-top: 0.25rem; }
+    .checkbox-field .checkbox-label { font-weight: normal; }
+    .info-field { background: #e8f4f8; border-left: 4px solid #3498db; padding: 1rem; border-radius: 0 8px 8px 0; }
+    .info-field.warning { background: #fef9e7; border-left-color: #f1c40f; }
+    .info-field.success { background: #e8f8f0; border-left-color: #27ae60; }
+    .info-field .info-title { font-weight: 600; margin-bottom: 0.5rem; }
+    .autocomplete-wrapper { position: relative; }
+    .suggestions { position: absolute; top: 100%; left: 0; right: 0; background: white; border: 2px solid #e0e0e0; border-top: none; border-radius: 0 0 8px 8px; list-style: none; margin: 0; padding: 0; z-index: 100; max-height: 200px; overflow-y: auto; }
+    .suggestions li { padding: 0.75rem; cursor: pointer; }
+    .suggestions li:hover { background: #f8f9fa; }
+    .datetime-wrapper { display: grid; grid-template-columns: 1fr 120px; gap: 0.5rem; }
+    .delivery-estimate { background: #f8f9fa; border-radius: 8px; padding: 1rem; margin-top: 0.5rem; }
+    .delivery-estimate-row { display: flex; justify-content: space-between; align-items: center; }
+    .delivery-method { display: flex; align-items: center; gap: 0.5rem; }
+    .delivery-price { font-size: 1.25rem; font-weight: bold; color: var(--brand-primary); }
+    .cutoff-warning { background: #fff3cd; border: 1px solid #ffc107; border-radius: 6px; padding: 0.75rem; margin-top: 0.5rem; font-size: 0.85rem; color: #856404; }
+    .cutoff-error { background: #f8d7da; border-color: #f5c6cb; color: #721c24; }
+    .address-status { font-size: 0.8rem; margin-top: 0.25rem; }
+    .address-status.verified { color: #27ae60; }
+    .address-status.unverified { color: #e74c3c; }
+    .address-status.verifying { color: #f39c12; }
+    .form-submit { margin-top: 2rem; padding-top: 1.5rem; border-top: 2px solid #f0f0f0; }
+    .submit-btn { width: 100%; padding: 1rem; background: var(--brand-primary); color: white; border: none; border-radius: 8px; font-size: 1.1rem; font-weight: 600; cursor: pointer; }
+    .submit-btn:hover:not(:disabled) { filter: brightness(1.1); }
+    .submit-btn:disabled { opacity: 0.7; }
+    .submit-btn .spinner { display: none; width: 20px; height: 20px; border: 2px solid transparent; border-top-color: white; border-radius: 50%; animation: spin 0.8s linear infinite; margin-right: 0.5rem; }
+    .submit-btn.loading .spinner { display: inline-block; }
+    @keyframes spin { to { transform: rotate(360deg); } }
+    .thank-you { text-align: center; padding: 3rem 1rem; }
+    .thank-you .icon { font-size: 4rem; }
+    .thank-you h2 { color: var(--brand-secondary); }
+    .contactperson-wrapper input { width: 100%; padding: 0.75rem; border: 2px solid #e0e0e0; border-radius: 8px; font-size: 1rem; box-sizing: border-box; }
+    .contactperson-wrapper input:focus { outline: none; border-color: var(--brand-primary); }
+  </style>
+</head>
+<body>
+  <div class="form-container">
+    <div class="form-header">
+      
+      <h1>🥪 Ristet Rug</h1>
+      <p>Bestillingsformular</p>
+    </div>
+    <form id="order-form">
+      <div id="form-fields"></div>
+      <div class="form-field honeypot"><input type="text" name="website" tabindex="-1" autocomplete="off"></div>
+      <div class="form-submit">
+        <button type="submit" class="submit-btn"><span class="spinner"></span><span class="btn-text">Send forespørgsel</span></button>
+      </div>
+    </form>
+    <div class="thank-you" id="thank-you" style="display:none;">
+      <div class="icon">✅</div>
+      <h2>Tak for din bestilling!</h2>
+      <p>Vi har modtaget din forespørgsel og vender tilbage hurtigst muligt.</p>
+    </div>
+  </div>
+
+  <script src="../../BonConfigBar.js" data-tool="Bestilling" data-type="standalone"></script>
+  <script>
+    const CONFIG = {"base":{"lat":55.6961,"lon":12.5574},"cutoff":{"time":12,"daysBefore":1},"delivery":{"cykel":{"basisPris":154,"ekstraKassePris":50,"gratisKasser":2,"maxKasser":4,"maxAfstand":8,"paxPerKasse":16},"taxa":{"zone3":{"postnumre":["2300","2720","2730","2820"],"pris":425},"zone4":{"postnumre":["2800","2600","2605","2625","2610","2650"],"pris":575},"zone5":{"postnumre":["2620","2760","2770","2750"],"pris":650}}}};
+    const FIELDS = [{"id":"f1","type":"ordertype","label":"Hvad ønsker du?","hint":"","required":true,"config":{"options":[{"value":"catering","label":"Catering","icon":"🚚","description":"Vi leverer til dig"},{"value":"pickup","label":"Pickup","icon":"🏃","description":"Hent selv i butikken"}]}},{"id":"f2","type":"text","label":"Navn","placeholder":"","hint":"","required":true,"showWhen":null},{"id":"f3","type":"email","label":"Email","placeholder":"din@email.dk","hint":"","required":true,"showWhen":null},{"id":"f4","type":"tel","label":"Telefon","placeholder":"12 34 56 78","hint":"","required":true,"showWhen":null},{"id":"f5","type":"text","label":"Firma","placeholder":"Valgfrit","hint":"","required":false,"showWhen":null},{"id":"f12","type":"textarea","label":"Faktura info / EAN","placeholder":"EAN-nummer, faktura-adresse, att. person...","hint":"Angiv EAN-nummer (13 cifre) og evt. anden faktura-information","required":false,"showWhen":null},{"id":"f6","type":"address","label":"Leveringsadresse","hint":"","required":true,"showWhen":{"field":"ordertype","value":"catering"}},{"id":"f7","type":"datetime","label":"Ønsket leveringstidspunkt","hint":"","required":true,"showWhen":null},{"id":"f8","type":"number","label":"Antal personer","placeholder":"f.eks. 25","hint":"Bruges til at beregne leveringspris","required":true,"min":1,"max":500,"showWhen":null},{"id":"f9","type":"textarea","label":"Ønsker & bemærkninger","placeholder":"Allergier, særlige ønsker...","hint":"","required":false,"showWhen":null},{"id":"f11","type":"contactperson","label":"Kontaktperson på dagen","hint":"Person der kan kontaktes ved leveringen","required":false,"showWhen":null},{"id":"f10","type":"checkbox","label":"Jeg accepterer at bestillingen er bindende efter bekræftelse","hint":"","required":true,"showWhen":null}];
+    const SETTINGS = {"logo":"","company":"Ristet Rug","subtitle":"Bestillingsformular","colorPrimary":"#c9a227","webhook":"","webhookEnabled":false,"thankyouTitle":"Tak for din bestilling!","thankyouMessage":"Vi har modtaget din forespørgsel og vender tilbage hurtigst muligt.","honeypot":true};
+    let validatedAddress = null;
+    let currentOrderType = 'catering';
+
+    function esc(s) { return s ? s.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;') : ''; }
+    function timeOpts() { let h=''; for(let i=7;i<=18;i++) for(let m=0;m<60;m+=15) { const t=String(i).padStart(2,'0')+':'+String(m).padStart(2,'0'); h+='<option value="'+t+'">'+t+'</option>'; } return h; }
+
+    function renderForm() {
+      document.getElementById('form-fields').innerHTML = FIELDS.map(f => {
+        const req = f.required ? '<span class="required">*</span>' : '';
+        const hint = f.hint ? '<div class="field-hint">'+esc(f.hint)+'</div>' : '';
+        const sw = f.showWhen ? 'data-show-when-field="'+f.showWhen.field+'" data-show-when-value="'+f.showWhen.value+'"' : '';
+        switch(f.type) {
+          case 'ordertype':
+            const opts = f.config?.options || [];
+            return '<div class="form-field" data-field-id="'+f.id+'"><label>'+esc(f.label)+'</label><div class="ordertype-selector">'+opts.map((o,i)=>'<div class="ordertype-option '+(i===0?'selected':'')+'" data-value="'+esc(o.value)+'"><div class="icon">'+(o.icon||'📦')+'</div><div class="label">'+esc(o.label)+'</div>'+(o.description?'<div class="description">'+esc(o.description)+'</div>':'')+'</div>').join('')+'</div><input type="hidden" name="ordertype" value="'+(opts[0]?.value||'')+'">'+hint+'</div>';
+          case 'text': case 'email': case 'tel':
+            return '<div class="form-field" data-field-id="'+f.id+'" '+sw+'><label>'+esc(f.label)+' '+req+'</label><input type="'+f.type+'" name="'+f.id+'" placeholder="'+esc(f.placeholder||'')+'" '+(f.required?'required':'')+'>'+hint+'</div>';
+          case 'number':
+            return '<div class="form-field" data-field-id="'+f.id+'" '+sw+'><label>'+esc(f.label)+' '+req+'</label><input type="number" name="'+f.id+'" placeholder="'+esc(f.placeholder||'')+'" '+(f.min?'min="'+f.min+'"':'')+' '+(f.max?'max="'+f.max+'"':'')+' '+(f.required?'required':'')+'>'+hint+'</div>';
+          case 'textarea':
+            return '<div class="form-field" data-field-id="'+f.id+'" '+sw+'><label>'+esc(f.label)+' '+req+'</label><textarea name="'+f.id+'" placeholder="'+esc(f.placeholder||'')+'" '+(f.required?'required':'')+'></textarea>'+hint+'</div>';
+          case 'contactperson':
+            return '<div class="form-field" data-field-id="'+f.id+'" '+sw+'><label>'+esc(f.label)+'</label><div class="contactperson-wrapper"><input type="text" name="'+f.id+'_navn" id="contactperson-navn" placeholder="Navn" style="margin-bottom:0.5rem;"><input type="tel" name="'+f.id+'_tlf" id="contactperson-tlf" placeholder="Telefonnummer"></div>'+hint+'</div>';
+          case 'address':
+            return '<div class="form-field" data-field-id="'+f.id+'" '+sw+'><label>'+esc(f.label)+' '+req+'</label><div class="autocomplete-wrapper"><input type="text" name="'+f.id+'" id="address-input" placeholder="Indtast adresse..." autocomplete="off" '+(f.required?'required':'')+'><ul class="suggestions" id="address-suggestions" style="display:none;"></ul></div><div class="address-status" id="address-status"></div><div id="delivery-estimate"></div>'+hint+'</div>';
+          case 'datetime':
+            const min = new Date(); min.setDate(min.getDate()+2);
+            return '<div class="form-field" data-field-id="'+f.id+'" '+sw+'><label>'+esc(f.label)+' '+req+'</label><div class="datetime-wrapper"><input type="date" name="'+f.id+'_date" id="date-input" min="'+min.toISOString().split('T')[0]+'" '+(f.required?'required':'')+'><select name="'+f.id+'_time" id="time-input" '+(f.required?'required':'')+'><option value="">Tid</option>'+timeOpts()+'</select></div><div id="cutoff-warning"></div><div class="field-hint">Bestilling senest kl. '+CONFIG.cutoff.time+':00 dagen før</div></div>';
+          case 'checkbox':
+            return '<div class="form-field" data-field-id="'+f.id+'" '+sw+'><div class="checkbox-field"><input type="checkbox" name="'+f.id+'" id="cb-'+f.id+'" '+(f.required?'required':'')+'><label class="checkbox-label" for="cb-'+f.id+'">'+esc(f.label)+' '+req+'</label></div>'+hint+'</div>';
+          case 'info':
+            return '<div class="form-field" data-field-id="'+f.id+'" '+sw+'><div class="info-field '+(f.style||'info')+'">'+(f.label?'<div class="info-title">'+esc(f.label)+'</div>':'')+(f.content||'')+'</div></div>';
+          default: return '';
+        }
+      }).join('');
+      updateConditional();
+      attachListeners();
+      attachContactPersonAutocopy();
+    }
+
+    function updateConditional() {
+      const ot = document.querySelector('input[name="ordertype"]');
+      currentOrderType = ot?.value || 'catering';
+      document.querySelectorAll('.form-field[data-show-when-field]').forEach(el => {
+        const show = currentOrderType === el.dataset.showWhenValue;
+        el.classList.toggle('hidden', !show);
+        el.querySelectorAll('input,select,textarea').forEach(inp => {
+          if (!show) inp.removeAttribute('required');
+          else { const fc = FIELDS.find(f => f.id === el.dataset.fieldId); if (fc?.required) inp.setAttribute('required',''); }
+        });
+      });
+    }
+
+    function attachListeners() {
+      document.querySelectorAll('.ordertype-option').forEach(o => {
+        o.onclick = () => {
+          o.parentElement.querySelectorAll('.ordertype-option').forEach(x => x.classList.remove('selected'));
+          o.classList.add('selected');
+          o.parentElement.parentElement.querySelector('input[type="hidden"]').value = o.dataset.value;
+          updateConditional(); updateDelivery();
+        };
+      });
+      const ai = document.getElementById('address-input');
+      if (ai) { 
+        let db; 
+        ai.oninput = e => { 
+          clearTimeout(db);
+          if (validatedAddress && ai.value !== validatedAddress.tekst) {
+            validatedAddress = null;
+            const st = document.getElementById('address-status');
+            if (st) { st.textContent = '⚠️ Vælg en adresse fra listen'; st.className = 'address-status unverified'; }
+            const de = document.getElementById('delivery-estimate'); if (de) de.innerHTML = '';
+          }
+          db = setTimeout(() => searchDAWA(e.target.value), 300); 
+        }; 
+      }
+      const sg = document.getElementById('address-suggestions');
+      if (sg) sg.onclick = e => { if (e.target.tagName === 'LI') selectAddr(e.target.dataset.id, e.target.textContent); };
+      FIELDS.forEach(f => { if (f.type === 'number' && f.label?.toLowerCase().includes('person')) { const inp = document.querySelector('input[name="'+f.id+'"]'); if (inp) inp.oninput = updateDelivery; } });
+      const di = document.getElementById('date-input'), ti = document.getElementById('time-input');
+      if (di) di.onchange = checkCutoff; if (ti) ti.onchange = checkCutoff;
+      document.onclick = e => { if (!e.target.closest('.autocomplete-wrapper')) { const s = document.getElementById('address-suggestions'); if (s) s.style.display = 'none'; } };
+    }
+
+    async function searchDAWA(q) {
+      const sg = document.getElementById('address-suggestions');
+      if (!sg || q.length < 2) { if (sg) sg.style.display = 'none'; return; }
+      try {
+        const r = await fetch('https://api.dataforsyningen.dk/adresser/autocomplete?q='+encodeURIComponent(q)+'&per_side=7&fuzzy=true');
+        const d = await r.json();
+        if (d.length) { sg.innerHTML = d.map(x => '<li data-id="'+x.adresse.id+'">'+x.tekst+'</li>').join(''); sg.style.display = 'block'; }
+        else sg.style.display = 'none';
+      } catch(e) {}
+    }
+
+    async function selectAddr(id, txt) {
+      document.getElementById('address-input').value = txt;
+      document.getElementById('address-suggestions').style.display = 'none';
+      const st = document.getElementById('address-status');
+      if (st) { st.textContent = '⏳ Verificerer adresse...'; st.className = 'address-status verifying'; }
+      try {
+        const r = await fetch('https://api.dataforsyningen.dk/adresser/'+id);
+        if (!r.ok) throw new Error('Ikke fundet');
+        const d = await r.json();
+        validatedAddress = { id: id, tekst: txt, postnr: d.adgangsadresse.postnummer.nr, by: d.adgangsadresse.postnummer.navn, lat: d.adgangsadresse.adgangspunkt.koordinater[1], lon: d.adgangsadresse.adgangspunkt.koordinater[0] };
+        if (st) { st.textContent = '✅ Adresse verificeret'; st.className = 'address-status verified'; }
+        updateDelivery();
+      } catch(e) {
+        validatedAddress = null;
+        if (st) { st.textContent = '❌ Kunne ikke verificere adresse'; st.className = 'address-status unverified'; }
+      }
+    }
+
+    async function updateDelivery() {
+      const el = document.getElementById('delivery-estimate'); if (!el) return;
+      if (currentOrderType !== 'catering') { el.innerHTML = ''; return; }
+      if (!validatedAddress) return;
+      let pax = null;
+      FIELDS.forEach(f => { if (f.type === 'number' && f.label?.toLowerCase().includes('person')) { const inp = document.querySelector('input[name="'+f.id+'"]'); if (inp?.value) pax = parseInt(inp.value); } });
+      if (!pax) { el.innerHTML = ''; return; }
+      el.innerHTML = '<div class="delivery-estimate">Beregner...</div>';
+      let dist = null;
+      try {
+        const r = await fetch('https://router.project-osrm.org/route/v1/driving/'+CONFIG.base.lon+','+CONFIG.base.lat+';'+validatedAddress.lon+','+validatedAddress.lat+'?overview=false');
+        const d = await r.json();
+        if (d.routes?.length) dist = parseFloat((d.routes[0].distance/1000).toFixed(1));
+      } catch(e) {}
+      const kasser = Math.ceil(pax / CONFIG.delivery.cykel.paxPerKasse);
+      let method, price, icon;
+      const { cykel, taxa } = CONFIG.delivery;
+      let found = false;
+      for (const z of Object.values(taxa)) { if (z.postnumre.includes(validatedAddress.postnr)) { method='Taxa'; price=z.pris; icon='🚕'; found=true; break; } }
+      if (!found) {
+        const ok = kasser <= cykel.maxKasser && (!dist || dist <= cykel.maxAfstand);
+        if (ok) { const ek = Math.max(0, kasser - cykel.gratisKasser); method='Byekspressen'; price=cykel.basisPris+ek*cykel.ekstraKassePris; icon='🚴'; }
+        else { method='Taxa'; price=taxa.zone3.pris; icon='🚕'; }
+      }
+      el.innerHTML = '<div class="delivery-estimate"><div class="delivery-estimate-row"><div class="delivery-method"><span class="icon">'+icon+'</span><span>'+method+' • '+(dist||'?')+' km • '+kasser+' kasse'+(kasser>1?'r':'')+'</span></div><div class="delivery-price">'+price+' kr</div></div></div>';
+    }
+
+    function checkCutoff() {
+      const w = document.getElementById('cutoff-warning'); if (!w) return;
+      const di = document.getElementById('date-input'), ti = document.getElementById('time-input');
+      if (!di?.value || !ti?.value) { w.innerHTML = ''; return; }
+      const dd = new Date(di.value + 'T' + ti.value), now = new Date();
+      const cd = new Date(dd); cd.setDate(cd.getDate() - CONFIG.cutoff.daysBefore); cd.setHours(CONFIG.cutoff.time, 0, 0, 0);
+      if (now > cd) w.innerHTML = '<div class="cutoff-warning cutoff-error">⚠️ Deadline overskredet!</div>';
+      else { const h = Math.round((cd - now) / 3600000); w.innerHTML = h < 24 ? '<div class="cutoff-warning">⏰ Bestil inden '+h+' timer</div>' : ''; }
+    }
+
+    document.getElementById('order-form').onsubmit = async e => {
+      e.preventDefault();
+      const hp = document.querySelector('input[name="website"]'); if (hp?.value) return;
+
+      // Verificér adresse hvis synlig og required
+      const addrField = FIELDS.find(f => f.type === 'address');
+      const addrEl = addrField ? document.querySelector('[data-field-id="'+addrField.id+'"]') : null;
+      const addrVisible = addrEl && !addrEl.classList.contains('hidden');
+      if (addrField && addrVisible && addrField.required) {
+        if (!validatedAddress || !validatedAddress.id) {
+          const st = document.getElementById('address-status');
+          if (st) { st.textContent = '❌ Vælg en gyldig adresse fra listen'; st.className = 'address-status unverified'; }
+          var ai = document.getElementById('address-input'); if (ai) ai.focus();
+          return;
+        }
+        const st = document.getElementById('address-status');
+        if (st) { st.textContent = '⏳ Verificerer adresse...'; st.className = 'address-status verifying'; }
+        try {
+          const vr = await fetch('https://api.dataforsyningen.dk/adresser/'+validatedAddress.id);
+          if (!vr.ok) { validatedAddress = null; if (st) { st.textContent = '❌ Adresse kunne ikke verificeres - vælg igen'; st.className = 'address-status unverified'; } return; }
+          if (st) { st.textContent = '✅ Adresse verificeret'; st.className = 'address-status verified'; }
+        } catch(err) { if (st) { st.textContent = '❌ Kunne ikke kontakte adresseservice'; st.className = 'address-status unverified'; } return; }
+      }
+
+      const btn = document.querySelector('.submit-btn'); btn.classList.add('loading'); btn.disabled = true;
+      const fd = new FormData(e.target), data = Object.fromEntries(fd.entries());
+      data.validatedAddress = validatedAddress; data.submittedAt = new Date().toISOString(); delete data.website;
+      // Saml kontaktperson som struktureret objekt
+      data.contactPerson = {
+        navn: data['f11_navn'] || '',
+        tlf:  data['f11_tlf']  || ''
+      };
+      
+      btn.classList.remove('loading'); btn.disabled = false;
+      document.getElementById('order-form').style.display = 'none';
+      document.getElementById('thank-you').style.display = 'block';
+    };
+
+    function attachContactPersonAutocopy() {
+      // Kopierer bestillerens navn og telefon til kontaktperson-felterne
+      // — men kun hvis de endnu ikke er udfyldt (brugeren kan altid overskrive)
+      const navnInput = document.querySelector('input[name="f2"]');
+      const tlfInput  = document.querySelector('input[name="f4"]');
+      const cpNavn    = document.getElementById('contactperson-navn');
+      const cpTlf     = document.getElementById('contactperson-tlf');
+      if (!navnInput || !cpNavn || !cpTlf) return;
+
+      navnInput.addEventListener('change', e => {
+        if (!cpNavn.value) cpNavn.value = e.target.value.trim();
+      });
+      tlfInput?.addEventListener('change', e => {
+        if (!cpTlf.value) cpTlf.value = e.target.value.trim();
+      });
+    }
+
+    renderForm();
+  </script>
+</body>
+</html>

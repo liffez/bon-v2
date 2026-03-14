@@ -51,6 +51,7 @@ app.use('/api/smartplan',      require('./routes/smartplan'));
 app.use('/api/notifications',  require('./routes/notifications'));
 app.use('/api/price-categories', require('./routes/price_categories'));
 app.use('/api/addresses',     require('./routes/addresses'));
+app.use('/api/webhooks',      require('./routes/webhooks'));
 
 // ─── START ─────────────────────────────────────────────────────────────────
 

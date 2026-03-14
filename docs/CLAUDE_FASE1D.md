@@ -1,4 +1,4 @@
-# CLAUDE_FASE1D.md — Fase 1d: Formbuilder webhook
+# CLAUDE_FASE1D.md — Fase 1d: Formbuilder webhook + VarePicker refaktorering
 > Læs CLAUDE.md og docs/bon_v2_datamodel_v2.md FØR du starter.
 > Fase 1a (auth) + Fase 1b (kunde_soeg) + Fase 1c (bon-opret) skal være på plads først.
 > Opdateret: marts 2026
@@ -7,8 +7,10 @@
 
 ## Hvad denne opgave dækker
 
-Et enkelt webhook-endpoint der modtager data fra bestillingsformularen
-(ristetrug.dk/bestil) og opretter en bon i Bon v2.
+To ting:
+
+1. **Formbuilder webhook** — modtager data fra bestillingsformularen og opretter bon
+2. **`shared/vare_picker.js`** — refaktorering af picker ud af `bon_kort.js` + montering i drawer
 
 Formbuilderen sender en POST til en webhook-URL ved submit.
 URL'en sættes i formbuilderens admin-panel og bages ind i den publicerede HTML.
@@ -40,19 +42,20 @@ Formbuilderen sender følgende felter (fra bestilling_v2.html):
 
 | Formular-felt | Navn i POST-body | Mapper til |
 |---------------|-----------------|------------|
-| Ordertype | `f1` | `delivery_type` (`catering` → `delivery`, `pickup` → `pickup`) |
+| Ordertype | `ordertype` (hidden input, fallback `f1`) | `delivery_type` (`catering` → `delivery`, `pickup` → `pickup`) |
 | Navn | `f2` | `customers.first_name` + `last_name` (split på mellemrum) |
 | Email | `f3` | `customers.email` |
 | Telefon | `f4` | `customers.phone` |
 | Firma | `f5` | `companies.name` |
+| Faktura info / EAN | `f12` | `bons.invoice_info` + udtræk 13-cifret EAN til `companies.ean` |
 | Leveringsadresse | `validatedAddress` | `addresses`-tabel (objekt med postnr, by, lat, lon) |
 | Dato | `f7_date` | `delivery_date` |
 | Tid | `f7_time` | `delivery_time` |
 | Antal personer | `f8` | `bons.pax` |
 | Ønsker | `f9` | `bons.customer_wishes` |
-| Kontaktperson navn | `f11_navn` | Tilføjes til `bons.delivery_notes` |
-| Kontaktperson tlf | `f11_tlf` | Tilføjes til `bons.delivery_notes` |
-| EAN/faktura info | `f10_ean` (eller felt-id — tjek i HTML) | `bons.invoice_info` + udtræk til `companies.ean` |
+| Kontaktperson navn | `f11_navn` | `bons.day_contact_name` |
+| Kontaktperson tlf | `f11_tlf` | `bons.day_contact_phone` |
+| Acceptér vilkår | `f10` | Checkbox — bruges ikke i webhook |
 | Honeypot | `website` | Kassér hvis udfyldt |
 | Tidsstempel | `submittedAt` | Log — bruges ikke til bon |
 
@@ -264,18 +267,12 @@ Monteres uden auth-middleware — formularen har ingen session.
 
 ---
 
-## Trin 3 — Tjek faktisk felt-ID for faktura/EAN
+## Trin 3 — Felt-ID'er verificeret ✅
 
-Inden Simon implementerer skal vi verificere hvilke felt-ID der bruges til
-faktura/EAN-feltet i den publicerede bestilling.html.
-
-Se i `bestilling_v2.html` — FIELDS-arrayet. Feltet med label "EAN/faktura info"
-har et ID (f.eks. `f10_ean` eller andet) — det ID bruges i webhook-handleren.
-
-Opdater linje i `handleBestilling`:
-```js
-const invoiceInfo = data.FAKTISK_FELT_ID || '';
-```
+Faktura/EAN-felt tilføjet som `f12` (textarea) i `tools/bestilling_v2.html`.
+Kontaktperson mapper til `day_contact_name` / `day_contact_phone` (ikke delivery_notes).
+Ordertype-felt hedder `ordertype` i FormData (hidden input), med fallback til `f1`.
+`f10` er checkbox (acceptér vilkår) — bruges ikke i webhook.
 
 ---
 
@@ -308,6 +305,88 @@ Overvej at tilføje til en `webhook_errors`-tabel på sigt (ikke Fase 1d).
 | Ingen adresse (pickup) | `delivery_address_id = null` — OK |
 | Ingen EAN i faktura-felt | `companies.ean` ændres ikke |
 | Dobbeltsend (kunden trykker to gange) | To bonner oprettes — acceptabelt, opdages let i listview |
+
+---
+
+## Del 2 — `shared/vare_picker.js` refaktorering
+
+### Baggrund
+
+`+`-pickeren er i dag bygget ind i `bon_kort.js` (Opgave 1 fra Fase 2).
+Den skal trækkes ud som selvstændig komponent så både bon-kort og drawer
+kan bruge den identisk.
+
+### Arbejdsgang for Simon
+
+**Trin A — Identificer picker-koden i `bon_kort.js`**
+
+Find alt der vedrører:
+- Åbn/luk `+`-knappen
+- Kategori-kolonne (venstre)
+- Vare-kolonne (højre) med priser
+- Trin 2: inline expand med antal + special_request
+- GEM / AFBRYD
+- `POST /api/bons/:id/lines`
+
+**Trin B — Flyt til `shared/vare_picker.js`**
+
+```js
+export class VarePicker {
+  constructor({ bonId, priceCategory, container, onAdded }) {
+    // bonId        — hvilken bon tilføjes til
+    // priceCategory — bruges til at vise korrekt salgspris
+    // container    — DOM-element picker renderes i
+    // onAdded(line) — callback når linje er gemt succesfuldt
+    this.bonId = bonId;
+    this.priceCategory = priceCategory;
+    this.container = container;
+    this.onAdded = onAdded;
+    this._visible = false;
+  }
+
+  toggle() { this._visible ? this.close() : this.open(); }
+  open()   { this._visible = true;  this._render(); }
+  close()  { this._visible = false; this.container.innerHTML = ''; }
+}
+```
+
+**Trin C — Opdater `bon_kort.js`**
+
+Erstat den interne picker-kode med:
+```js
+import { VarePicker } from '/shared/vare_picker.js';
+
+// I createCard():
+const picker = new VarePicker({
+  bonId: data.id,
+  priceCategory: data.price_category,
+  container: card.querySelector('.vare-picker-slot'),
+  onAdded: () => { /* SSE håndterer re-render */ }
+});
+card.querySelector('.btn-tilfoej').onclick = () => picker.toggle();
+```
+
+Tilføj `<div class="vare-picker-slot"></div>` i kort-skabelonen der hvor pickeren skal renderes.
+
+**Trin D — Montér i `bon_drawer.js`**
+
+```js
+import { VarePicker } from '/shared/vare_picker.js';
+
+// I _render():
+const picker = new VarePicker({
+  bonId: this.bonId,
+  priceCategory: this.data.price_category,
+  container: this.el.querySelector('.vare-picker-slot'),
+  onAdded: () => this.load(this.bonId) // re-load drawer efter tilføjelse
+});
+this.el.querySelector('.btn-tilfoej-vare').onclick = () => picker.toggle();
+```
+
+### Vigtig regel
+
+`VarePicker` kalder selv `POST /api/bons/:id/lines` — det er ikke drawerens ansvar.
+Draweren lytter kun på `onAdded`-callbacket og re-loader data.
 
 ---
 
@@ -380,3 +459,11 @@ curl -X POST http://localhost:4321/api/webhooks/bestilling \
 - [ ] Alle 5 curl-kommandoer giver forventet output
 - [ ] Manuel test fra browser OK
 - [ ] Dobbeltsend testet — to bonner oprettes, ingen fejl
+
+VarePicker refaktorering:
+- [ ] Picker-kode identificeret og trukket ud af bon_kort.js
+- [ ] shared/vare_picker.js oprettet med VarePicker-klasse
+- [ ] bon_kort.js opdateret til at bruge VarePicker
+- [ ] bon_drawer.js monterer VarePicker via .btn-tilfoej-vare
+- [ ] Picker virker identisk i kort og drawer
+- [ ] onAdded-callback re-loader drawer korrekt

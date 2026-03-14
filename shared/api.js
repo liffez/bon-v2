@@ -145,6 +145,12 @@ function postBonLine(bonId, lineData) {
     });
 }
 
+function deleteBonLine(bonId, lineId) {
+    return apiFetch('/bons/' + bonId + '/lines/' + lineId, {
+        method: 'DELETE',
+    });
+}
+
 /* ── FLYVERE / NOTIFIKATIONER ────────────────────────────── */
 
 function postFlyver(bonId, message, clientId) {
