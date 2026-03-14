@@ -77,14 +77,16 @@ bon-v2/
 │   ├── customers.js  ← /api/customers/*
 │   ├── settings.js   ← /api/settings/*
 │   ├── notifications.js ← /api/notifications/*
-│   └── smartplan.js  ← /api/smartplan/* (shifts, employees)
+│   ├── smartplan.js  ← /api/smartplan/* (shifts, employees)
+│   ├── auth.js       ← /api/auth/* (login, pin, logout, me)
+│   └── payment_types.js ← /api/payment-types
 ├── services/
 │   ├── grocyAdapter.js  ← Readonly Grocy API adapter med cache
 │   ├── smartplanAdapter.js ← Smartplan OAuth2 adapter (shifts + worklogs)
 │   └── quConvert.js     ← Grocy quantity unit conversions
 ├── db/
 │   ├── database.js   ← getDb() singleton (lazy init + migrations)
-│   ├── helpers.js    ← logChange, handle, getBon, getBonLines, getStatusId, nextBonNumber
+│   ├── helpers.js    ← logChange, handle, getBon, getBonLines, getStatusId, nextBonNumber, auth-helpers
 │   ├── migrate.js    ← Kører migrations fra db/migrations/
 │   ├── seed.js       ← Testdata (11 bons, 7 kunder, 5 firmaer)
 │   └── migrations/   ← 001_core.sql, ...
@@ -98,11 +100,15 @@ bon-v2/
 │   ├── modal.js + modal.css        ← Genbrugelig modal (historik, info, råvarer)
 │   ├── kitchen-topbar.html         ← Fælles topbar for kitchen-views
 │   ├── api.js        ← Frontend API-funktioner
-│   └── utils.js      ← Status-mapping, connectSSE(), mapApiBonToCardData(), scrollToBonHash()
+│   ├── utils.js      ← Status-mapping, connectSSE(), mapApiBonToCardData(), scrollToBonHash()
+│   ├── auth.js       ← requireAuth() middleware (server-side)
+│   └── login.html    ← Fælles login-side (PIN + email auto-detect)
 ├── kitchen/          ← MPA: index.html, today.html, later.html, ...
 ├── office/           ← SPA-shell: index.html + views/*.js
 ├── settings/         ← index.html (eget shell)
 ├── assets/           ← logo.svg, icons/, fonts/
+├── scripts/
+│   └── set-password.js ← Sæt password for bruger (engangsbrug)
 ├── BonConfig.js
 ├── BonConfigBar.js
 ├── package.json
@@ -176,7 +182,7 @@ Nye filer placeres præcis der de hører hjemme — kopieres ikke.
   - SSE realtidsopdatering
   - Graceful degradation uden Smartplan
   - Søgefelt i liste-view (bon#, kunde, firma)
-- [x] `shared/utils.js` — Status-mapping, dato-formattering, `connectSSE()` (named events), `mapApiBonToCardData()`, `scrollToBonHash()`, `getClientId()`
+- [x] `shared/utils.js` — Status-mapping, dato-formattering, `connectSSE()` (named events), `mapApiBonToCardData()`, `scrollToBonHash()`, `getClientId()`, `checkAuth()`
 - [x] `shared/api.js` — API-funktioner (fetch, patch status/prep/kitchen-info, flyver)
 - [x] `shared/flyver.js` + `shared/flyver.css` — Flyver-system (urgente beskeder)
   - `sendFlyver(cardId)` — send-modal med textarea
@@ -200,6 +206,8 @@ Nye filer placeres præcis der de hører hjemme — kopieres ikke.
 - [x] `shared/kitchen-topbar.html` — Fælles topbar for kitchen-views (logo, nav, kalender-link)
 - [x] `shared/tokens.css` — Design tokens (farver, spacing, typografi)
 - [x] `shared/components.css` — Fælles komponent-styles
+- [x] `shared/auth.js` — `requireAuth()` middleware (server-side, rolle-baseret)
+- [x] `shared/login.html` — Fælles login-side (PIN + email/password auto-detect, rolle-baseret redirect)
 - [x] `BonConfig.js` — Status-definitioner (koder, labels, farver)
 - [x] `BonConfigBar.js` — VIEW_WINDOWS per view
 
@@ -249,14 +257,29 @@ Nye filer placeres præcis der de hører hjemme — kopieres ikke.
   - Kombinerer `/shifts/` (fremtidige) + `/worklogs/` (arkiverede) for fuld dækning
   - Normalisering: `owner.first_name/last_name`, `jobtype.title`, `location.title`
 
+### Fase 1a — Auth & Payment Types
+- [x] Migration 011: `payment_types`-tabel + `users.password_hash`
+- [x] npm: bcrypt, express-session, connect-sqlite3
+- [x] Session-middleware i `server.js` (SQLiteStore → `db/sessions.db`)
+- [x] `routes/auth.js` — POST login (email+pw), POST pin, POST logout, GET me
+- [x] `routes/payment_types.js` — GET /api/payment-types
+- [x] `shared/auth.js` — `requireAuth(role)` middleware
+- [x] `db/helpers.js` — hashPassword, verifyPassword, getUserByEmail, getUserById
+- [x] `shared/login.html` — Fælles login med auto-detect (cifre→PIN, @→email+password)
+- [x] `shared/utils.js` — `checkAuth()` auth-guard
+- [x] Auth-guard i alle views: kitchen/today, kitchen/later, kitchen/calendar, office
+- [x] `scripts/set-password.js` — CLI-script til at sætte passwords
+- [x] Seed-brugere: Admin (admin@ristetrug.dk) + Køkken (kitchen@ristetrug.dk, PIN 1234)
+- [x] Session-varighed konfigurerbar per rolle via settings
+
 ---
 
 ## Næste opgave
 
 > ✏️ Opdateret 14. marts 2026.
 >
-> **Blok C køkken-views er færdige.** Opgave 1–5 done. Flyver-funktion done. Kalender-view done.
-> Næste store opgave er Opgave 6 (Indkøb/Bestilling — kalender er done).
+> **Fase 1a komplet.** Auth-system virker med PIN + email/password login. Alle views beskyttet.
+> Næste opgave: Læs CLAUDE_FASE1A.md → done. Næste store opgave er Opgave 6 (Indkøb/Bestilling).
 > Småting til senere: Pris-visning i Råvarer som setting, Kort erstattes af logistik-modul.
 
 ---
@@ -450,6 +473,12 @@ Kyllingefilet     2,4 kg      8,2 kg
 
 ---
 
+### OPGAVE (næste)
+
+læs CLAUDE_FASE1A.md
+
+
+
 ### OPGAVE 6 (næste): Indkøb & Bestilling
 
 **Moduloversigt (se `bon_v2_zoner_og_layout.md` sektion 3):**
@@ -495,6 +524,11 @@ GET    /api/smartplan/employees                           routes/smartplan.js
 DELETE /api/smartplan/cache                               routes/smartplan.js
 POST   /api/bons/:id/notifications/:nid/read             routes/bons.js
 GET    /api/notifications/unread?client_id=               routes/notifications.js
+POST   /api/auth/login          { email, password }      routes/auth.js
+POST   /api/auth/pin            { pin }                  routes/auth.js
+POST   /api/auth/logout                                  routes/auth.js
+GET    /api/auth/me                                      routes/auth.js
+GET    /api/payment-types                                routes/payment_types.js
 ```
 
 ---

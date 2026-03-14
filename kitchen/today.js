@@ -17,6 +17,9 @@
    ══════════════════════════════════════════════════════════════ */
 
 document.addEventListener('DOMContentLoaded', async () => {
+    const currentUser = await checkAuth();
+    if (!currentUser) return;
+
     updateTodayHeader();
     startClock();
     initKiosk();

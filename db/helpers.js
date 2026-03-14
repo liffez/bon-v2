@@ -9,6 +9,7 @@
 // ==========================================
 
 const { getDb } = require('./database');
+const bcrypt = require('bcrypt');
 
 /**
  * Næste bon-nummer (atomisk, transaction-sikret).
@@ -138,4 +139,22 @@ function getDefaultLocationId() {
     return getDb().prepare(`SELECT id FROM locations WHERE is_active = 1 ORDER BY id LIMIT 1`).get()?.id;
 }
 
-module.exports = { nextBonNumber, nextQuoteNumber, logChange, handle, getBon, getBonLines, getStatusId, getDefaultLocationId };
+// ─── AUTH HELPERS ──────────────────────────────────────────
+
+async function hashPassword(plain) {
+    return bcrypt.hash(plain, 12);
+}
+
+async function verifyPassword(plain, hash) {
+    return bcrypt.compare(plain, hash);
+}
+
+function getUserByEmail(email) {
+    return getDb().prepare('SELECT * FROM users WHERE email = ? AND is_active = 1').get(email);
+}
+
+function getUserById(id) {
+    return getDb().prepare('SELECT id, name, email, role, pin FROM users WHERE id = ? AND is_active = 1').get(id);
+}
+
+module.exports = { nextBonNumber, nextQuoteNumber, logChange, handle, getBon, getBonLines, getStatusId, getDefaultLocationId, hashPassword, verifyPassword, getUserByEmail, getUserById };

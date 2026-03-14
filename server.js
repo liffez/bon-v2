@@ -16,11 +16,29 @@ const PORT = process.env.PORT || 4321;
 // ─── MIDDLEWARE ─────────────────────────────────────────────────────────────
 
 app.use(express.json());
+
+const session = require('express-session');
+const SQLiteStore = require('connect-sqlite3')(session);
+
+app.use(session({
+  store: new SQLiteStore({ db: 'sessions.db', dir: './db' }),
+  secret: process.env.SESSION_SECRET || 'dev-secret-change-me',
+  resave: false,
+  saveUninitialized: false,
+  cookie: {
+    maxAge: 7 * 24 * 60 * 60 * 1000,
+    httpOnly: true,
+    sameSite: 'lax'
+  }
+}));
+
 app.use(express.static(path.join(__dirname)));
 
 // ─── ROUTES ────────────────────────────────────────────────────────────────
 
-app.use('/api/sse',       require('./shared/sse'));
+app.use('/api/auth',           require('./routes/auth'));
+app.use('/api/payment-types',  require('./routes/payment_types'));
+app.use('/api/sse',            require('./shared/sse'));
 app.use('/api/bons',      require('./routes/kitchen'));   // /today matcher først
 app.use('/api/bons',      require('./routes/bons'));
 app.use('/api/statuses',  require('./routes/statuses'));

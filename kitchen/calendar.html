@@ -72,7 +72,10 @@
 <script src="/shared/modal.js"></script>
 <script src="/shared/calendar.js"></script>
 <script>
-    document.addEventListener('DOMContentLoaded', function() {
+    document.addEventListener('DOMContentLoaded', async function() {
+        const currentUser = await checkAuth();
+        if (!currentUser) return;
+
         initCalendar(document.getElementById('calendarContainer'), {
             zone: 'kitchen',
             showStaff: true,

@@ -1,0 +1,200 @@
+<!DOCTYPE html>
+<html lang="da">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Log ind — Bon v2</title>
+    <link rel="stylesheet" href="/shared/tokens.css">
+    <style>
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+
+        body {
+            font-family: var(--font-body);
+            background: var(--color-background);
+            min-height: 100dvh;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+        }
+
+        .login-card {
+            background: var(--color-surface);
+            border: 1px solid var(--color-border);
+            border-radius: 12px;
+            padding: var(--space-xl) var(--space-l);
+            width: 100%;
+            max-width: 400px;
+            margin: var(--space-m);
+            text-align: center;
+        }
+
+        .login-card img {
+            width: 180px;
+            margin-bottom: var(--space-m);
+        }
+
+        .login-card .subtitle {
+            color: var(--color-text-dim);
+            font-size: var(--font-size-m);
+            margin-bottom: var(--space-l);
+        }
+
+        .login-card input {
+            display: block;
+            width: 100%;
+            padding: 12px 16px;
+            font-size: var(--font-size-l);
+            border: 1px solid var(--color-border);
+            border-radius: 8px;
+            background: var(--color-background);
+            color: var(--color-text);
+            font-family: var(--font-body);
+            outline: none;
+            transition: border-color 0.2s;
+        }
+
+        .login-card input:focus {
+            border-color: var(--brand-primary);
+        }
+
+        #password-field {
+            margin-top: var(--space-s);
+            display: none;
+            transition: opacity 0.2s;
+        }
+
+        #password-field.visible {
+            display: block;
+        }
+
+        .login-card button {
+            display: block;
+            width: 100%;
+            margin-top: var(--space-m);
+            padding: 12px;
+            font-size: var(--font-size-l);
+            font-weight: 600;
+            color: #fff;
+            background: var(--brand-primary);
+            border: none;
+            border-radius: 8px;
+            cursor: pointer;
+            font-family: var(--font-body);
+            transition: opacity 0.2s;
+        }
+
+        .login-card button:hover { opacity: 0.9; }
+        .login-card button:disabled { opacity: 0.5; cursor: not-allowed; }
+
+        .error-msg {
+            margin-top: var(--space-s);
+            color: var(--color-red);
+            font-size: var(--font-size-s);
+            min-height: 1.4em;
+        }
+    </style>
+</head>
+<body>
+    <div class="login-card">
+        <img src="/assets/logo.svg" alt="Ristet Rug">
+        <div class="subtitle">Bon v2</div>
+
+        <form id="login-form" autocomplete="on">
+            <input type="text" id="identity" placeholder="PIN eller email" autocomplete="username" autofocus>
+            <input type="password" id="password-field" placeholder="Password" autocomplete="current-password">
+            <button type="submit">Log ind</button>
+            <div class="error-msg" id="error-msg"></div>
+        </form>
+    </div>
+
+    <script>
+        const identityEl = document.getElementById('identity');
+        const passwordEl = document.getElementById('password-field');
+        const errorEl    = document.getElementById('error-msg');
+        const form       = document.getElementById('login-form');
+
+        // Auto-detect: kun cifre = PIN, ellers email
+        identityEl.addEventListener('input', () => {
+            const val = identityEl.value.trim();
+            const isEmail = val.includes('@');
+            if (isEmail) {
+                passwordEl.classList.add('visible');
+            } else {
+                passwordEl.classList.remove('visible');
+                passwordEl.value = '';
+            }
+            errorEl.textContent = '';
+        });
+
+        form.addEventListener('submit', async (e) => {
+            e.preventDefault();
+            errorEl.textContent = '';
+
+            const val = identityEl.value.trim();
+            if (!val) return;
+
+            const isPin = /^\d+$/.test(val);
+            const btn = form.querySelector('button');
+            btn.disabled = true;
+
+            try {
+                let res;
+                if (isPin) {
+                    res = await fetch('/api/auth/pin', {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify({ pin: val })
+                    });
+                } else {
+                    const pw = passwordEl.value;
+                    if (!pw) {
+                        passwordEl.classList.add('visible');
+                        passwordEl.focus();
+                        btn.disabled = false;
+                        return;
+                    }
+                    res = await fetch('/api/auth/login', {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify({ email: val, password: pw })
+                    });
+                }
+
+                if (!res.ok) {
+                    const data = await res.json();
+                    errorEl.textContent = data.error || 'Login fejlede';
+                    btn.disabled = false;
+                    return;
+                }
+
+                const user = await res.json();
+
+                // Redirect baseret på rolle
+                if (user.role === 'admin' || user.role === 'office') {
+                    window.location.href = '/office/index.html';
+                } else {
+                    window.location.href = '/kitchen/today.html';
+                }
+            } catch (err) {
+                errorEl.textContent = 'Netværksfejl — prøv igen';
+                btn.disabled = false;
+            }
+        });
+
+        // Tjek om allerede logget ind
+        (async () => {
+            try {
+                const res = await fetch('/api/auth/me');
+                if (res.ok) {
+                    const user = await res.json();
+                    if (user.role === 'admin' || user.role === 'office') {
+                        window.location.href = '/office/index.html';
+                    } else {
+                        window.location.href = '/kitchen/today.html';
+                    }
+                }
+            } catch {}
+        })();
+    </script>
+</body>
+</html>

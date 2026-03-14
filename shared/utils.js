@@ -287,3 +287,24 @@ function scrollToBonHash() {
         history.replaceState(null, '', window.location.pathname);
     }, 300);
 }
+
+/* ══════════════════════════════════════════════════════════════
+   AUTH CHECK
+   Tjekker /api/auth/me — redirecter til login hvis 401.
+   Returnerer user-objekt { id, name, role } ved success.
+   ══════════════════════════════════════════════════════════════ */
+
+async function checkAuth(redirectTo) {
+    if (redirectTo === undefined) redirectTo = '/shared/login.html';
+    try {
+        var res = await fetch('/api/auth/me');
+        if (!res.ok) {
+            window.location.href = redirectTo;
+            return null;
+        }
+        return await res.json();
+    } catch (e) {
+        window.location.href = redirectTo;
+        return null;
+    }
+}
