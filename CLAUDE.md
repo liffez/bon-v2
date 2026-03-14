@@ -76,7 +76,12 @@ bon-v2/
 │   ├── statuses.js   ← /api/statuses/*
 │   ├── customers.js  ← /api/customers/*
 │   ├── settings.js   ← /api/settings/*
+│   ├── notifications.js ← /api/notifications/*
 │   └── smartplan.js  ← /api/smartplan/* (shifts, employees)
+├── services/
+│   ├── grocyAdapter.js  ← Readonly Grocy API adapter med cache
+│   ├── smartplanAdapter.js ← Smartplan OAuth2 adapter (shifts + worklogs)
+│   └── quConvert.js     ← Grocy quantity unit conversions
 ├── db/
 │   ├── database.js   ← getDb() singleton (lazy init + migrations)
 │   ├── helpers.js    ← logChange, handle, getBon, getBonLines, getStatusId, nextBonNumber
@@ -89,6 +94,9 @@ bon-v2/
 │   ├── components.css
 │   ├── bon_kort.js + bon_kort.css
 │   ├── calendar.js + calendar.css  ← Kalender/liste komponent
+│   ├── flyver.js + flyver.css      ← Nødbesked-system
+│   ├── modal.js + modal.css        ← Genbrugelig modal (historik, info, råvarer)
+│   ├── kitchen-topbar.html         ← Fælles topbar for kitchen-views
 │   ├── api.js        ← Frontend API-funktioner
 │   └── utils.js      ← Status-mapping, connectSSE(), mapApiBonToCardData(), scrollToBonHash()
 ├── kitchen/          ← MPA: index.html, today.html, later.html, ...
@@ -126,17 +134,21 @@ Nye filer placeres præcis der de hører hjemme — kopieres ikke.
 - [x] Seed data (11 bons over 5 dage, 7 kunder, 5 firmaer, blandede statusser)
 
 ### Blok B — Kerne-backend
-- [x] `db/migrations/001_core.sql` — Samlet migration (status, adresser, kunder, bons, changelog)
+- [x] Migrations 001–010 (core, bons, events, crm, purchasing, views, kitchen_transitions, price_category, notification_client_reads, smartplan_settings)
 - [x] Backend refaktoreret: `server.js` → `routes/` + `db/` + `shared/sse.js`
 - [x] `db/database.js` — `getDb()` singleton med lazy init + auto-migrations
 - [x] `db/helpers.js` — `logChange`, `handle`, `getBon`, `getBonLines`, `getStatusId`, `nextBonNumber`
 - [x] `shared/sse.js` — Named events, multi-client, heartbeat, `broadcast()` + `sendTo()`
-- [x] `routes/kitchen.js` — GET /api/bons/today + GET /api/bons/later
+- [x] `routes/kitchen.js` — GET /api/bons/today, /later, /calendar
 - [x] `routes/bons.js` — CRUD, status (m/ triggers_json stub), prep, kitchen-info, lines, changelog, notifications
 - [x] `routes/statuses.js` — GET statuses + transitions
 - [x] `routes/customers.js` — GET customers
 - [x] `routes/settings.js` — GET/PATCH settings
+- [x] `routes/notifications.js` — GET /api/notifications/unread
+- [x] `routes/smartplan.js` — GET /api/smartplan/shifts, /employees, DELETE /cache
 - [x] Grocy adapter (readonly) — `services/grocyAdapter.js` + `routes/grocy.js`
+- [x] Smartplan adapter — `services/smartplanAdapter.js` (OAuth2, shifts + worklogs)
+- [x] `services/quConvert.js` — Grocy quantity unit conversions
 
 ### Blok C — Første views
 - [x] kitchen/today.html — Køkken I dag (fuldt dynamisk)
@@ -185,6 +197,9 @@ Nye filer placeres præcis der de hører hjemme — kopieres ikke.
     - Søgefelt til filtrering
     - Indkøbsliste-knap (🛒) — tilføjer til Grocy shopping_list i purchase-enhed
     - `recipes_pos.amount` er i stock-unit, konverteres stock→display via `quantity_unit_conversions`
+- [x] `shared/kitchen-topbar.html` — Fælles topbar for kitchen-views (logo, nav, kalender-link)
+- [x] `shared/tokens.css` — Design tokens (farver, spacing, typografi)
+- [x] `shared/components.css` — Fælles komponent-styles
 - [x] `BonConfig.js` — Status-definitioner (koder, labels, farver)
 - [x] `BonConfigBar.js` — VIEW_WINDOWS per view
 
@@ -238,7 +253,7 @@ Nye filer placeres præcis der de hører hjemme — kopieres ikke.
 
 ## Næste opgave
 
-> ✏️ Opdateret 13. marts 2026.
+> ✏️ Opdateret 14. marts 2026.
 >
 > **Blok C køkken-views er færdige.** Opgave 1–5 done. Flyver-funktion done. Kalender-view done.
 > Næste store opgave er Opgave 6 (Indkøb/Bestilling — kalender er done).
@@ -435,7 +450,7 @@ Kyllingefilet     2,4 kg      8,2 kg
 
 ---
 
-### OPGAVE 6 (bagefter): Kalender-view (shared)
+### OPGAVE 6 (næste): Indkøb & Bestilling
 
 **Moduloversigt (se `bon_v2_zoner_og_layout.md` sektion 3):**
 - Indkøb = `kitchen/purchasing.html` — liste + hvad afventer
