@@ -3,20 +3,62 @@ const router     = express.Router();
 const { getDb }  = require('../db/database');
 const { handle } = require('../db/helpers');
 
-// GET /api/customers
+// GET /api/customers?q=&company_id=
 router.get('/', handle((req, res) => {
     const db = getDb();
-    const { q } = req.query;
-    const where = q ? `WHERE c.first_name LIKE ? OR c.last_name LIKE ? OR co.name LIKE ? OR c.email LIKE ?` : '';
-    const args  = q ? [`%${q}%`, `%${q}%`, `%${q}%`, `%${q}%`] : [];
+    const { q, company_id } = req.query;
+
+    let where = 'WHERE c.is_active = 1';
+    const args = [];
+
+    if (q && q.length >= 2) {
+        where += ` AND (
+            c.first_name LIKE '%'||?||'%' OR
+            c.last_name  LIKE '%'||?||'%' OR
+            c.email      LIKE '%'||?||'%' OR
+            co.name      LIKE '%'||?||'%' OR
+            co.cvr       LIKE '%'||?||'%'
+        )`;
+        args.push(q, q, q, q, q);
+    }
+
+    if (company_id) {
+        where += ' AND c.company_id = ?';
+        args.push(parseInt(company_id));
+    }
+
     res.json(db.prepare(`
-        SELECT c.id, c.first_name, c.last_name, c.phone, c.email, c.is_active,
-               co.name AS company_name, co.id AS company_id
+        SELECT
+            c.id AS customer_id,
+            c.first_name, c.last_name,
+            c.phone, c.email,
+            co.id AS company_id,
+            co.name AS company_name,
+            co.cvr, co.ean,
+            co.default_payment_type,
+            co.default_price_category_id,
+            co.discount_percent
         FROM customers c
         LEFT JOIN companies co ON c.company_id = co.id
         ${where}
-        ORDER BY c.first_name LIMIT 100
+        ORDER BY co.name, c.last_name, c.first_name
+        LIMIT 20
     `).all(...args));
+}));
+
+// POST /api/customers — opret ny
+router.post('/', handle((req, res) => {
+    const db = getDb();
+    const { first_name, last_name, phone, email, company_id, notes } = req.body;
+    if (!first_name) return res.status(400).json({ error: 'Fornavn mangler' });
+
+    const result = db.prepare(`
+        INSERT INTO customers (first_name, last_name, phone, email, company_id, notes)
+        VALUES (?, ?, ?, ?, ?, ?)
+    `).run(first_name, last_name || null, phone || null, email || null,
+           company_id || null, notes || null);
+
+    res.json({ id: result.lastInsertRowid });
 }));
 
 // GET /api/customers/:id

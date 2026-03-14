@@ -272,14 +272,29 @@ Nye filer placeres præcis der de hører hjemme — kopieres ikke.
 - [x] Seed-brugere: Admin (admin@ristetrug.dk) + Køkken (kitchen@ristetrug.dk, PIN 1234)
 - [x] Session-varighed konfigurerbar per rolle via settings
 
+### Fase 1b — Kunde/firma-søgekomponent
+- [x] `GET /api/customers?q=` udvidet med firma-join (company_name, cvr, payment_type, price_category)
+- [x] `POST /api/customers` — opret ny kunde
+- [x] `routes/companies.js` — GET `/`, GET `/:id`, POST `/`
+- [x] `routes/cvr.js` — GET `/api/cvr/:cvr` (CVR-opslag) + GET `/api/cvr/search?q=` (søg på firmanavn)
+- [x] `shared/kunde_soeg.js` — Genbrugelig søgekomponent med 5 states (IDLE, SEARCHING, RESULTS, SELECTED, CREATING)
+  - Live-søgning med debounce (250ms, min 2 tegn)
+  - Resultater med firma + kontaktperson
+  - Valgt kunde som pill med ✕-knap
+  - Opret ny: to-trins flow (Firma → Kontakt) med CVR-opslag
+  - Privatkunde-checkbox (springer firma-trin over)
+  - `onSelect` callback med customer_id, company_id, payment_type etc.
+- [x] `shared/kunde_soeg.css` — Styling med designsystem-tokens
+- [x] `office/test-kunde-soeg.html` — Testside
+
 ---
 
 ## Næste opgave
 
 > ✏️ Opdateret 14. marts 2026.
 >
-> **Fase 1a komplet.** Auth-system virker med PIN + email/password login. Alle views beskyttet.
-> Næste opgave: Læs CLAUDE_FASE1A.md → done. Næste store opgave er Opgave 6 (Indkøb/Bestilling).
+> **Fase 1a + 1b komplet.** Auth + kunde/firma-søg er på plads.
+> Næste: Fase 1c (bon-opret) eller Opgave 6 (Indkøb/Bestilling).
 > Småting til senere: Pris-visning i Råvarer som setting, Kort erstattes af logistik-modul.
 
 ---
@@ -475,7 +490,7 @@ Kyllingefilet     2,4 kg      8,2 kg
 
 ### OPGAVE (næste)
 
-læs CLAUDE_FASE1A.md
+læs CLAUDE_FASE1b.md
 
 
 
@@ -529,6 +544,11 @@ POST   /api/auth/pin            { pin }                  routes/auth.js
 POST   /api/auth/logout                                  routes/auth.js
 GET    /api/auth/me                                      routes/auth.js
 GET    /api/payment-types                                routes/payment_types.js
+GET    /api/companies?q=                                 routes/companies.js
+GET    /api/companies/:id                                routes/companies.js
+POST   /api/companies                                    routes/companies.js
+GET    /api/cvr/:cvr                                     routes/cvr.js
+GET    /api/cvr/search?q=                                routes/cvr.js
 ```
 
 ---

@@ -1,0 +1,271 @@
+/* ════════════════════════════════════════════════════════════
+   shared/kunde_soeg.css — Kunde/firma-søgekomponent
+   ════════════════════════════════════════════════════════════ */
+
+.ks-wrapper {
+    position: relative;
+}
+
+/* ── Søgefelt ──────────────────────────────────────────── */
+
+.ks-input {
+    width: 100%;
+    padding: 0.6rem 0.85rem;
+    border: 1px solid var(--color-border);
+    border-radius: 8px;
+    background: var(--color-surface, #fff);
+    font-size: 0.95rem;
+    box-sizing: border-box;
+}
+
+.ks-input:focus {
+    outline: none;
+    border-color: var(--brand-primary);
+}
+
+/* ── Spinner ───────────────────────────────────────────── */
+
+.ks-spinner {
+    padding: 0.5rem 0.85rem;
+    color: var(--color-text-dim);
+    font-size: 0.85rem;
+    font-style: italic;
+}
+
+/* ── Dropdown ──────────────────────────────────────────── */
+
+.ks-dropdown {
+    position: absolute;
+    top: calc(100% + 4px);
+    left: 0;
+    right: 0;
+    background: var(--color-surface, #fff);
+    border: 1px solid var(--color-border);
+    border-radius: 8px;
+    box-shadow: 0 4px 12px rgba(0, 0, 0, 0.1);
+    z-index: 200;
+    overflow: hidden;
+    max-height: 350px;
+    overflow-y: auto;
+}
+
+.ks-empty {
+    padding: 0.65rem 1rem;
+    color: var(--color-text-dim);
+    font-size: 0.85rem;
+    font-style: italic;
+}
+
+/* ── Resultat-rækker ───────────────────────────────────── */
+
+.ks-result {
+    padding: 0.65rem 1rem;
+    cursor: pointer;
+    border-bottom: 1px solid var(--color-border);
+}
+
+.ks-result:last-child {
+    border-bottom: none;
+}
+
+.ks-result:hover {
+    background: var(--brand-primary-light, #f1e6b2);
+}
+
+.ks-result-firma {
+    font-weight: 600;
+    color: var(--color-text);
+    font-size: 0.9rem;
+}
+
+.ks-result-kontakt {
+    color: var(--color-text-dim);
+    font-size: 0.8rem;
+    margin-top: 0.1rem;
+}
+
+/* ── Opret ny-knap ─────────────────────────────────────── */
+
+.ks-create-btn {
+    padding: 0.65rem 1rem;
+    color: var(--brand-primary);
+    font-weight: 600;
+    font-size: 0.875rem;
+    cursor: pointer;
+    border-top: 1px solid var(--color-border);
+}
+
+.ks-create-btn:hover {
+    background: var(--brand-primary-light, #f1e6b2);
+}
+
+/* ── Valgt kunde (pill) ────────────────────────────────── */
+
+.ks-selected {
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+    padding: 0.5rem 0.85rem;
+    background: var(--brand-primary-light, #f1e6b2);
+    border: 1px solid var(--brand-primary);
+    border-radius: 8px;
+    font-size: 0.9rem;
+}
+
+.ks-selected-clear {
+    margin-left: auto;
+    background: none;
+    border: none;
+    cursor: pointer;
+    color: var(--color-text-dim);
+    font-size: 1rem;
+    line-height: 1;
+    padding: 0.2rem 0.4rem;
+    border-radius: 4px;
+}
+
+.ks-selected-clear:hover {
+    background: rgba(0, 0, 0, 0.08);
+    color: var(--color-text);
+}
+
+/* ── Opret-formular ────────────────────────────────────── */
+
+.ks-form {
+    padding: 1rem;
+    border: 1px solid var(--color-border);
+    border-radius: 8px;
+    background: var(--color-surface, #fff);
+}
+
+.ks-form-title {
+    margin: 0 0 1rem;
+    font-size: 1rem;
+    font-weight: 600;
+    color: var(--brand-primary);
+}
+
+.ks-form-field {
+    margin-bottom: 0.85rem;
+}
+
+.ks-form-field label {
+    display: block;
+    font-size: 0.75rem;
+    font-weight: 600;
+    text-transform: uppercase;
+    letter-spacing: 0.04em;
+    color: var(--color-text-dim);
+    margin-bottom: 0.3rem;
+}
+
+.ks-form-field input[type="text"] {
+    width: 100%;
+    padding: 0.5rem 0.75rem;
+    border: 1px solid var(--color-border);
+    border-radius: 6px;
+    font-size: 0.9rem;
+    box-sizing: border-box;
+}
+
+.ks-form-field input[type="text"]:focus {
+    outline: none;
+    border-color: var(--brand-primary);
+}
+
+/* ── CVR-række ─────────────────────────────────────────── */
+
+.ks-cvr-inner {
+    display: flex;
+    gap: 0.5rem;
+}
+
+.ks-cvr-inner input {
+    flex: 1;
+    padding: 0.5rem 0.75rem;
+    border: 1px solid var(--color-border);
+    border-radius: 6px;
+    font-size: 0.9rem;
+    box-sizing: border-box;
+}
+
+.ks-cvr-inner input:focus {
+    outline: none;
+    border-color: var(--brand-primary);
+}
+
+.ks-cvr-btn {
+    padding: 0.5rem 1rem;
+    background: var(--brand-primary);
+    color: #fff;
+    border: none;
+    border-radius: 6px;
+    font-size: 0.85rem;
+    font-weight: 600;
+    cursor: pointer;
+    white-space: nowrap;
+}
+
+.ks-cvr-btn:hover {
+    opacity: 0.9;
+}
+
+.ks-cvr-btn:disabled {
+    opacity: 0.5;
+    cursor: not-allowed;
+}
+
+/* ── Privatkunde ───────────────────────────────────────── */
+
+.ks-privat-label {
+    display: flex !important;
+    align-items: center;
+    gap: 0.5rem;
+    font-size: 0.9rem !important;
+    text-transform: none !important;
+    letter-spacing: normal !important;
+    color: var(--color-text) !important;
+    cursor: pointer;
+}
+
+.ks-privat-label input[type="checkbox"] {
+    width: auto;
+}
+
+/* ── Formular-knapper ──────────────────────────────────── */
+
+.ks-form-actions {
+    display: flex;
+    gap: 0.5rem;
+    justify-content: flex-end;
+    margin-top: 1rem;
+}
+
+.ks-btn-primary {
+    padding: 0.5rem 1.2rem;
+    background: var(--brand-primary);
+    color: #fff;
+    border: none;
+    border-radius: 6px;
+    font-size: 0.9rem;
+    font-weight: 600;
+    cursor: pointer;
+}
+
+.ks-btn-primary:hover {
+    opacity: 0.9;
+}
+
+.ks-btn-secondary {
+    padding: 0.5rem 1.2rem;
+    background: transparent;
+    color: var(--color-text-dim);
+    border: 1px solid var(--color-border);
+    border-radius: 6px;
+    font-size: 0.9rem;
+    cursor: pointer;
+}
+
+.ks-btn-secondary:hover {
+    background: var(--color-background, #f5f4f2);
+}

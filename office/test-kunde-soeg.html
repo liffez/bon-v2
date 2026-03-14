@@ -1,0 +1,76 @@
+<!DOCTYPE html>
+<html lang="da">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Test — Kunde-s\u00f8g</title>
+    <link rel="stylesheet" href="/shared/tokens.css">
+    <link rel="stylesheet" href="/shared/kunde_soeg.css">
+    <style>
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+            background: var(--color-background, #f5f4f2);
+            padding: 2rem;
+            margin: 0;
+        }
+        .test-container {
+            max-width: 500px;
+            margin: 0 auto;
+        }
+        h1 {
+            color: var(--brand-primary);
+            font-size: 1.2rem;
+            margin-bottom: 1.5rem;
+        }
+        .output {
+            margin-top: 2rem;
+            padding: 1rem;
+            background: #fff;
+            border: 1px solid var(--color-border);
+            border-radius: 8px;
+            font-family: monospace;
+            font-size: 0.85rem;
+            white-space: pre-wrap;
+            color: var(--color-text-dim);
+            min-height: 60px;
+        }
+        .output-label {
+            font-size: 0.75rem;
+            text-transform: uppercase;
+            letter-spacing: 0.04em;
+            color: var(--color-text-dim);
+            margin-bottom: 0.3rem;
+            font-weight: 600;
+        }
+    </style>
+</head>
+<body>
+    <div class="test-container">
+        <h1>Test: KundeSoeg-komponent</h1>
+
+        <div id="kunde-soeg-container"></div>
+
+        <div class="output-label">onSelect callback output:</div>
+        <div class="output" id="output">Ingen valgt endnu...</div>
+    </div>
+
+    <script type="module">
+        import { KundeSoeg } from '/shared/kunde_soeg.js';
+
+        const output = document.getElementById('output');
+
+        const soeg = new KundeSoeg({
+            container: document.getElementById('kunde-soeg-container'),
+            onSelect: (data) => {
+                if (data) {
+                    output.textContent = JSON.stringify(data, null, 2);
+                    console.log('Valgt:', data);
+                } else {
+                    output.textContent = 'Valg fjernet (null)';
+                    console.log('Valg fjernet');
+                }
+            }
+        });
+    </script>
+</body>
+</html>
