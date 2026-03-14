@@ -307,21 +307,36 @@ async function showBonInfo(cardIdOrBonId, options) {
         if (body) {
             body.innerHTML = _buildBonInfoHtml(bon);
 
-            // "Gå til bon →" knap (fra kalender)
-            if (opts.showGotoButton) {
-                var now = new Date();
-                var today = now.getFullYear() + '-' + String(now.getMonth() + 1).padStart(2, '0') + '-' + String(now.getDate()).padStart(2, '0');
-                var targetPage = (bon.delivery_date <= today) ? '/kitchen/today.html' : '/kitchen/later.html';
+            // Knap-sektion (Gå til bon + Rediger)
+            if (opts.showGotoButton || opts.showEditButton) {
                 var gotoDiv = document.createElement('div');
                 gotoDiv.className = 'info-goto-section';
-                var gotoBtn = document.createElement('button');
-                gotoBtn.className = 'info-goto-btn';
-                gotoBtn.textContent = 'Gå til bon \u2192';
-                gotoBtn.addEventListener('click', function() {
-                    closeModal();
-                    window.location.href = targetPage + '#bon' + bonId;
-                });
-                gotoDiv.appendChild(gotoBtn);
+
+                if (opts.showGotoButton) {
+                    var now = new Date();
+                    var today = now.getFullYear() + '-' + String(now.getMonth() + 1).padStart(2, '0') + '-' + String(now.getDate()).padStart(2, '0');
+                    var targetPage = (bon.delivery_date <= today) ? '/kitchen/today.html' : '/kitchen/later.html';
+                    var gotoBtn = document.createElement('button');
+                    gotoBtn.className = 'info-goto-btn';
+                    gotoBtn.textContent = 'Gå til bon \u2192';
+                    gotoBtn.addEventListener('click', function() {
+                        closeModal();
+                        window.location.href = targetPage + '#bon' + bonId;
+                    });
+                    gotoDiv.appendChild(gotoBtn);
+                }
+
+                if (opts.showEditButton && typeof opts.onEdit === 'function') {
+                    var editBtn = document.createElement('button');
+                    editBtn.className = 'info-goto-btn info-edit-btn';
+                    editBtn.textContent = 'Rediger';
+                    editBtn.addEventListener('click', function() {
+                        closeModal();
+                        opts.onEdit(bonId);
+                    });
+                    gotoDiv.appendChild(editBtn);
+                }
+
                 body.appendChild(gotoDiv);
             }
         }

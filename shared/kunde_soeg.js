@@ -14,7 +14,7 @@
  * ════════════════════════════════════════════════════════════
  */
 
-export class KundeSoeg {
+class KundeSoeg {
     constructor({ container, onSelect }) {
         this.container = container;
         this.onSelect = onSelect;
@@ -504,4 +504,15 @@ export class KundeSoeg {
     getSelected() {
         return this.selected;
     }
+
+    /** Programmatisk: sæt valgt kunde (til drawer/edit) */
+    setSelected(data) {
+        if (!data) { this.clear(); return; }
+        this.selected = data;
+        this.setState('SELECTED');
+        // Kald IKKE onSelect — det er en ekstern sæt-operation
+    }
 }
+
+// Global alias for non-module scripts
+if (typeof window !== 'undefined') window.KundeSoeg = KundeSoeg;

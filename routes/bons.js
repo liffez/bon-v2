@@ -106,7 +106,63 @@ router.post('/', handle((req, res) => {
     );
 
     logChange({ entityType: 'bon', entityId: result.lastInsertRowid, action: 'create', newValue: bonNumber, userId: b.created_by_user_id });
-    res.status(201).json(getBon(result.lastInsertRowid));
+    const newBon = getBon(result.lastInsertRowid);
+    broadcast('bon_created', { id: newBon.id, bon_number: newBon.bon_number });
+    res.status(201).json(newBon);
+}));
+
+// ─── PATCH /api/bons/:id — opdater felter ───────────────────────────────────
+
+router.patch('/:id', handle((req, res) => {
+    const db = getDb();
+    const id = parseInt(req.params.id);
+
+    const allowed = [
+        'delivery_date', 'delivery_time', 'pickup_time',
+        'delivery_type', 'delivery_method', 'delivery_address_id',
+        'delivery_notes', 'delivery_cost', 'delivery_price',
+        'courier_provider', 'courier_arrival_time',
+        'customer_id', 'company_id', 'price_category_id',
+        'pax', 'total_units', 'boxes',
+        'payment_type', 'kitchen_selects', 'customer_collects',
+        'kitchen_info', 'customer_wishes', 'internal_notes', 'invoice_info',
+        'day_contact_name', 'day_contact_phone'
+    ];
+
+    const updates = Object.fromEntries(
+        Object.entries(req.body).filter(([k]) => allowed.includes(k))
+    );
+
+    if (Object.keys(updates).length === 0)
+        return res.status(400).json({ error: 'Ingen gyldige felter' });
+
+    const bon = db.prepare('SELECT * FROM bons WHERE id = ?').get(id);
+    if (!bon) return res.status(404).json({ error: 'Bon ikke fundet' });
+
+    // Konvertér booleans til integers for SQLite
+    if ('kitchen_selects' in updates) updates.kitchen_selects = updates.kitchen_selects ? 1 : 0;
+    if ('customer_collects' in updates) updates.customer_collects = updates.customer_collects ? 1 : 0;
+
+    const sets = Object.keys(updates).map(k => `${k} = ?`).join(', ');
+    const values = [...Object.values(updates), id];
+    db.prepare(`UPDATE bons SET ${sets}, updated_at = CURRENT_TIMESTAMP WHERE id = ?`).run(...values);
+
+    // Log hvert ændret felt
+    for (const [field, newVal] of Object.entries(updates)) {
+        const oldVal = bon[field];
+        if (String(oldVal ?? '') !== String(newVal ?? '')) {
+            logChange({
+                entityType: 'bon', entityId: id,
+                action: 'update', fieldName: field,
+                oldValue: String(oldVal ?? ''),
+                newValue: String(newVal ?? ''),
+                userId: req.session?.userId ?? null
+            });
+        }
+    }
+
+    broadcast('bon_updated', { id });
+    res.json({ ok: true });
 }));
 
 // ─── PATCH /api/bons/:id/status — skift status ─────────────────────────────

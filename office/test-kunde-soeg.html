@@ -54,9 +54,8 @@
         <div class="output" id="output">Ingen valgt endnu...</div>
     </div>
 
-    <script type="module">
-        import { KundeSoeg } from '/shared/kunde_soeg.js';
-
+    <script src="/shared/kunde_soeg.js"></script>
+    <script>
         const output = document.getElementById('output');
 
         const soeg = new KundeSoeg({

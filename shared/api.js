@@ -64,6 +64,41 @@ function patchBonKitchenInfo(id, text, userId) {
     });
 }
 
+function createBon(data) {
+    return apiFetch('/bons', {
+        method: 'POST',
+        body: JSON.stringify(data),
+    });
+}
+
+function patchBon(id, fields) {
+    return apiFetch('/bons/' + id, {
+        method: 'PATCH',
+        body: JSON.stringify(fields),
+    });
+}
+
+/* ── PRICE CATEGORIES ────────────────────────────────────── */
+
+function fetchPriceCategories() {
+    return apiFetch('/price-categories');
+}
+
+/* ── ADDRESSES ───────────────────────────────────────────── */
+
+function createAddress(data) {
+    return apiFetch('/addresses', {
+        method: 'POST',
+        body: JSON.stringify(data),
+    });
+}
+
+/* ── PAYMENT TYPES ───────────────────────────────────────── */
+
+function fetchPaymentTypes() {
+    return apiFetch('/payment-types');
+}
+
 /* ── STATUSES ─────────────────────────────────────────────── */
 
 function fetchStatuses() {

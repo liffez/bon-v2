@@ -190,26 +190,20 @@ function _applyFilters() {
 function _loadData() {
     _updateMonthDisplay();
 
-    var calPromise = fetchBonsCalendar(_currentYear, _currentMonth);
-    var staffPromise = (_options.showStaff !== false)
-        ? fetchSmartplanShifts(
-            _currentYear + '-' + String(_currentMonth).padStart(2, '0') + '-01',
-            _currentYear + '-' + String(_currentMonth).padStart(2, '0') + '-28'
-          ).catch(function() { return null; })
-        : Promise.resolve(null);
+    // Render kalender med det samme — Smartplan hentes asynkront bagefter
+    fetchBonsCalendar(_currentYear, _currentMonth).then(function(data) {
+        _calendarData = data;
+        _render();
 
-    Promise.all([calPromise, staffPromise]).then(function(results) {
-        _calendarData = results[0];
-        _staffData    = results[1];
-
-        // Opdater Smartplan fetch-range til den faktiske kalenderperiode
-        if (_options.showStaff !== false && _calendarData && !_staffData) {
-            fetchSmartplanShifts(_calendarData.calStart, _calendarData.calEnd)
-                .then(function(data) { _staffData = data; _render(); })
+        // Hent Smartplan i baggrunden (blokerer ikke kalender-render)
+        if (_options.showStaff !== false) {
+            var lastDay = new Date(_currentYear, _currentMonth, 0).getDate();
+            var from = _currentYear + '-' + String(_currentMonth).padStart(2, '0') + '-01';
+            var to   = _currentYear + '-' + String(_currentMonth).padStart(2, '0') + '-' + String(lastDay).padStart(2, '0');
+            fetchSmartplanShifts(from, to)
+                .then(function(staff) { _staffData = staff; _render(); })
                 .catch(function() { /* Smartplan ikke tilgængelig */ });
         }
-
-        _render();
     }).catch(function(err) {
         console.error('Kalenderfejl:', err);
         var content = document.getElementById('calContent');
@@ -415,7 +409,9 @@ function _buildDayCell(dateStr, dayData, isCurrentMonth, isToday) {
             // Klik → bon-info modal
             (function(b) {
                 entry.addEventListener('click', function() {
-                    showBonInfo(b.id, { showGotoButton: true, bonNumber: b.bon_number });
+                    var infoOpts = { showGotoButton: true, bonNumber: b.bon_number };
+                    if (_options.onEdit) { infoOpts.showEditButton = true; infoOpts.onEdit = _options.onEdit; }
+                    showBonInfo(b.id, infoOpts);
                 });
             })(bon);
 
@@ -558,7 +554,9 @@ function _renderList() {
 
         (function(b) {
             tr.addEventListener('click', function() {
-                showBonInfo(b.id, { showGotoButton: true, bonNumber: b.bon_number });
+                var infoOpts = { showGotoButton: true, bonNumber: b.bon_number };
+                if (_options.onEdit) { infoOpts.showEditButton = true; infoOpts.onEdit = _options.onEdit; }
+                showBonInfo(b.id, infoOpts);
             });
         })(bon);
 

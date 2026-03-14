@@ -2,21 +2,128 @@
 <html lang="da">
 <head>
   <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>Bon v2 — Office</title>
   <link rel="stylesheet" href="../shared/tokens.css">
   <link rel="stylesheet" href="../shared/components.css">
+  <link rel="stylesheet" href="../shared/kunde_soeg.css">
+  <link rel="stylesheet" href="../shared/bon_opret_modal.css">
+  <link rel="stylesheet" href="../shared/bon_drawer.css">
+  <style>
+    .office-topbar {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      padding: var(--space-m, 16px) var(--space-l, 24px);
+      border-bottom: 1px solid var(--color-border, #d7d1ca);
+      background: var(--color-surface, #fff);
+    }
+    .office-topbar h1 {
+      font-size: var(--font-size-l, 18px);
+      margin: 0;
+      font-weight: 700;
+    }
+    .btn-ny-bon {
+      padding: 8px 20px;
+      border: none;
+      border-radius: 6px;
+      background: var(--brand-primary, #8e631f);
+      color: #fff;
+      font-size: var(--font-size-m, 15px);
+      font-weight: 600;
+      cursor: pointer;
+      font-family: inherit;
+    }
+    .btn-ny-bon:hover {
+      filter: brightness(1.1);
+    }
+    #office-content {
+      padding: var(--space-l, 24px);
+    }
+  </style>
 </head>
 <body class="zone-office">
-  <nav class="office-sidebar"><!-- TODO: Sidebar --></nav>
-  <main id="office-content"><!-- Views loades dynamisk --></main>
+  <div class="office-topbar">
+    <h1>Bon v2 — Office</h1>
+    <button class="btn-ny-bon" id="btn-ny-bon">+ Ny bon</button>
+  </div>
+  <main id="office-content">
+    <!-- Views loades dynamisk -->
+  </main>
+
+  <!-- Scripts: globals først, derefter komponenter -->
   <script src="/shared/utils.js"></script>
   <script src="../shared/api.js"></script>
+  <script src="../BonConfig.js"></script>
+  <script src="../BonConfigBar.js"></script>
+  <script src="../shared/kunde_soeg.js"></script>
+  <script src="../shared/bon_opret_modal.js"></script>
+  <script src="../shared/bon_drawer.js"></script>
+
   <script>
     (async () => {
       const currentUser = await checkAuth();
       if (!currentUser) return;
+
+      // ─── Drawer ──────────────────────────────────────────
+      const drawer = new BonDrawer();
+
+      function openDrawer(bonId) {
+        const url = new URL(window.location);
+        url.searchParams.set('bon', bonId);
+        history.pushState({}, '', url);
+        drawer.load(bonId);
+        drawer.show();
+      }
+
+      function closeDrawer() {
+        const url = new URL(window.location);
+        url.searchParams.delete('bon');
+        history.pushState({}, '', url);
+        drawer.hide();
+      }
+
+      // Override drawer hide to sync URL
+      const origHide = drawer.hide.bind(drawer);
+      drawer.hide = function() {
+        origHide();
+        const url = new URL(window.location);
+        if (url.searchParams.has('bon')) {
+          url.searchParams.delete('bon');
+          history.pushState({}, '', url);
+        }
+      };
+
+      // ─── Modal ───────────────────────────────────────────
+      const modal = new BonOpretModal({
+        onCreated: (bonId) => openDrawer(bonId)
+      });
+
+      document.getElementById('btn-ny-bon').addEventListener('click', () => modal.open());
+
+      // ─── URL-sync ────────────────────────────────────────
+      const bonIdFromUrl = new URLSearchParams(window.location.search).get('bon');
+      if (bonIdFromUrl) openDrawer(bonIdFromUrl);
+
+      window.addEventListener('popstate', () => {
+        const bonId = new URLSearchParams(window.location.search).get('bon');
+        if (bonId) {
+          drawer.load(bonId);
+          drawer.show();
+        } else {
+          drawer.el.classList.remove('open');
+          drawer.overlayEl.classList.remove('open');
+          document.body.style.overflow = '';
+          drawer.dirty = false;
+        }
+      });
+
+      // ─── SSE ─────────────────────────────────────────────
+      connectSSE('/api/sse', {
+        bon_created: () => { /* Kan opdatere listview når det bygges */ },
+        bon_updated: () => { /* Kan opdatere listview når det bygges */ },
+      });
     })();
   </script>
-  <script src="../shared/sidekick.js"></script>
 </body>
 </html>

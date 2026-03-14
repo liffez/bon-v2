@@ -10,6 +10,9 @@
     <link rel="stylesheet" href="/shared/tokens.css">
     <link rel="stylesheet" href="/shared/modal.css">
     <link rel="stylesheet" href="/shared/calendar.css">
+    <link rel="stylesheet" href="/shared/kunde_soeg.css">
+    <link rel="stylesheet" href="/shared/bon_opret_modal.css">
+    <link rel="stylesheet" href="/shared/bon_drawer.css">
     <style>
         /* ═══ RESET + BASE ═══ */
         * { margin: 0; padding: 0; box-sizing: border-box; }
@@ -40,6 +43,12 @@
         .topbar-right { display: flex; align-items: center; gap: 12px; font-size: 13px; }
         .live-dot { display: flex; align-items: center; gap: 5px; opacity: 0.8; }
         .live-dot::before { content: ''; width: 7px; height: 7px; border-radius: 50%; background: #7cdb5e; display: block; }
+        .btn-ny-bon-topbar {
+            padding: 4px 14px; border: 1px solid rgba(255,255,255,0.4); border-radius: 5px;
+            background: transparent; color: #fff; font-size: 13px; font-weight: 700;
+            cursor: pointer; font-family: inherit;
+        }
+        .btn-ny-bon-topbar:hover { background: rgba(255,255,255,0.12); }
     </style>
 </head>
 <body class="zone-kitchen">
@@ -57,6 +66,7 @@
         </nav>
     </div>
     <div class="topbar-right">
+        <button class="btn-ny-bon-topbar" id="btn-ny-bon">+ Ny bon</button>
         <span class="live-dot">Live</span>
     </div>
 </header>
@@ -71,14 +81,64 @@
 <script src="/shared/api.js"></script>
 <script src="/shared/modal.js"></script>
 <script src="/shared/calendar.js"></script>
+<script src="/shared/kunde_soeg.js"></script>
+<script src="/shared/bon_opret_modal.js"></script>
+<script src="/shared/bon_drawer.js"></script>
 <script>
     document.addEventListener('DOMContentLoaded', async function() {
         const currentUser = await checkAuth();
         if (!currentUser) return;
 
+        // ─── Drawer ──────────────────────────────────────
+        const drawer = new BonDrawer();
+
+        function openDrawer(bonId) {
+            const url = new URL(window.location);
+            url.searchParams.set('bon', bonId);
+            history.pushState({}, '', url);
+            drawer.load(bonId);
+            drawer.show();
+        }
+
+        // Override drawer hide for URL-sync
+        const origHide = drawer.hide.bind(drawer);
+        drawer.hide = function() {
+            origHide();
+            const url = new URL(window.location);
+            if (url.searchParams.has('bon')) {
+                url.searchParams.delete('bon');
+                history.pushState({}, '', url);
+            }
+        };
+
+        // ─── Modal ───────────────────────────────────────
+        const modal = new BonOpretModal({
+            onCreated: (bonId) => openDrawer(bonId)
+        });
+        document.getElementById('btn-ny-bon').addEventListener('click', () => modal.open());
+
+        // ─── Kalender (med onEdit callback) ──────────────
         initCalendar(document.getElementById('calendarContainer'), {
             zone: 'kitchen',
             showStaff: true,
+            onEdit: (bonId) => openDrawer(bonId),
+        });
+
+        // ─── URL-sync ────────────────────────────────────
+        const bonIdFromUrl = new URLSearchParams(window.location.search).get('bon');
+        if (bonIdFromUrl) openDrawer(bonIdFromUrl);
+
+        window.addEventListener('popstate', function() {
+            const bonId = new URLSearchParams(window.location.search).get('bon');
+            if (bonId) {
+                drawer.load(bonId);
+                drawer.show();
+            } else {
+                drawer.el.classList.remove('open');
+                drawer.overlayEl.classList.remove('open');
+                document.body.style.overflow = '';
+                drawer.dirty = false;
+            }
         });
     });
 </script>

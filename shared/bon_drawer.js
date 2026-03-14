@@ -1,0 +1,666 @@
+/**
+ * shared/bon_drawer.js
+ * ════════════════════════════════════════════════════════════
+ * Bon-detalje drawer — glider ind fra højre.
+ * Fuld redigering af alle felter. URL-synkroniseret.
+ *
+ * Kræver: utils.js, api.js, kunde_soeg.js, BonConfig.js (alle globale scripts)
+ *
+ * Brug:
+ *   const drawer = new BonDrawer();
+ *   drawer.load(bonId);
+ *   drawer.show();
+ * ════════════════════════════════════════════════════════════
+ */
+
+class BonDrawer {
+    constructor() {
+        this.bonId = null;
+        this.data = null;
+        this.dirty = false;
+        this.priceCategories = [];
+        this.paymentTypes = [];
+        this._buildDOM();
+        this._loadDropdowns();
+        this._bindSSE();
+    }
+
+    /* ══════════════════════════════════════════════════════
+       DOM
+       ══════════════════════════════════════════════════════ */
+
+    _buildDOM() {
+        // Overlay
+        this.overlayEl = document.createElement('div');
+        this.overlayEl.className = 'bon-drawer-overlay';
+
+        // Drawer
+        this.el = document.createElement('div');
+        this.el.className = 'bon-drawer';
+
+        // Kvartersintervaller
+        const timeOpts = ['<option value="">--:--</option>'];
+        for (let h = 6; h <= 22; h++) {
+            for (let m = 0; m < 60; m += 15) {
+                const t = String(h).padStart(2, '0') + ':' + String(m).padStart(2, '0');
+                timeOpts.push(`<option value="${t}">${t}</option>`);
+            }
+        }
+        const timeHtml = timeOpts.join('');
+
+        this.el.innerHTML = `
+            <div class="drawer-header">
+                <span class="drawer-title">Bon #---</span>
+                <button class="drawer-close" type="button">&times;</button>
+            </div>
+
+            <div class="drawer-body">
+                <!-- STATUS -->
+                <div class="drawer-section">
+                    <div class="drawer-status-bar"></div>
+                </div>
+
+                <!-- LEVERING -->
+                <div class="drawer-section">
+                    <label class="drawer-label">Levering</label>
+                    <div class="drawer-row">
+                        <input type="date" class="drawer-field" data-field="delivery_date">
+                        <select class="drawer-field" data-field="delivery_time">${timeHtml}</select>
+                    </div>
+                    <div class="drawer-row">
+                        <label class="drawer-sublabel">Pickup-tid</label>
+                        <select class="drawer-field drawer-half" data-field="pickup_time">${timeHtml}</select>
+                    </div>
+                    <label class="drawer-sublabel">Type</label>
+                    <div class="drawer-type-toggle">
+                        <button type="button" class="drawer-type" data-type="delivery">Levering</button>
+                        <button type="button" class="drawer-type" data-type="pickup">Afhentning</button>
+                        <button type="button" class="drawer-type" data-type="event">Event</button>
+                    </div>
+                    <div class="drawer-delivery-fields">
+                        <label class="drawer-sublabel">Adresse</label>
+                        <input type="text" class="drawer-field drawer-dawa-input" placeholder="Søg adresse..." autocomplete="off">
+                        <div class="drawer-dawa-results"></div>
+                        <div class="drawer-address-display" style="display:none"></div>
+                        <label class="drawer-sublabel">Leveringsinfo</label>
+                        <input type="text" class="drawer-field" data-field="delivery_notes" placeholder="Etage, port, kode...">
+                        <label class="drawer-sublabel">Leveringsmetode</label>
+                        <select class="drawer-field" data-field="delivery_method">
+                            <option value="">Vælg...</option>
+                            <option value="cykel">Cykel</option>
+                            <option value="taxa">Taxa</option>
+                            <option value="volvo">Volvo</option>
+                            <option value="afhentning">Afhentning</option>
+                        </select>
+                    </div>
+                </div>
+
+                <!-- KUNDE -->
+                <div class="drawer-section">
+                    <label class="drawer-label">Kunde</label>
+                    <div class="drawer-kunde-container"></div>
+                    <label class="drawer-sublabel" style="margin-top:12px">Dagskontakt</label>
+                    <div class="drawer-row">
+                        <input type="text" class="drawer-field" data-field="day_contact_name" placeholder="Kontaktperson på dagen">
+                        <input type="tel" class="drawer-field" data-field="day_contact_phone" placeholder="Telefon">
+                    </div>
+                </div>
+
+                <!-- KØKKEN -->
+                <div class="drawer-section">
+                    <label class="drawer-label">Køkken</label>
+                    <label class="drawer-check-row">
+                        <input type="checkbox" class="drawer-field" data-field="kitchen_selects">
+                        <span>Køkkenet vælger menu</span>
+                    </label>
+                    <div class="drawer-row">
+                        <div class="drawer-field-group">
+                            <label class="drawer-sublabel">Pax</label>
+                            <input type="number" class="drawer-field" data-field="pax" min="0">
+                        </div>
+                        <div class="drawer-field-group">
+                            <label class="drawer-sublabel">Enheder</label>
+                            <input type="number" class="drawer-field" data-field="total_units" min="0">
+                        </div>
+                    </div>
+                    <div class="drawer-row">
+                        <div class="drawer-field-group">
+                            <label class="drawer-sublabel">Priskategori</label>
+                            <select class="drawer-field" data-field="price_category_id"></select>
+                        </div>
+                        <div class="drawer-field-group">
+                            <label class="drawer-sublabel">Betaling</label>
+                            <select class="drawer-field" data-field="payment_type"></select>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- FIRMA -->
+                <div class="drawer-section drawer-firma-section">
+                    <label class="drawer-label">Firma</label>
+                    <div class="drawer-firma-name"></div>
+                    <div class="drawer-row">
+                        <div class="drawer-field-group">
+                            <label class="drawer-sublabel">EAN</label>
+                            <input type="text" class="drawer-field" data-field="ean" placeholder="EAN-nummer">
+                        </div>
+                    </div>
+                </div>
+
+                <!-- NOTER -->
+                <div class="drawer-section">
+                    <label class="drawer-label">Noter</label>
+                    <label class="drawer-sublabel">Kundeønsker</label>
+                    <textarea class="drawer-field drawer-textarea" data-field="customer_wishes" rows="2"></textarea>
+                    <label class="drawer-sublabel">Faktura info</label>
+                    <textarea class="drawer-field drawer-textarea" data-field="invoice_info" rows="2"></textarea>
+                    <label class="drawer-sublabel">Køkken info</label>
+                    <textarea class="drawer-field drawer-textarea" data-field="kitchen_info" rows="2"></textarea>
+                    <label class="drawer-sublabel">Interne noter</label>
+                    <textarea class="drawer-field drawer-textarea" data-field="internal_notes" rows="2"></textarea>
+                </div>
+            </div>
+
+            <div class="drawer-footer">
+                <button type="button" class="btn-drawer-slet">Slet bon</button>
+                <button type="button" class="btn-drawer-gem" disabled>Gem</button>
+            </div>
+        `;
+
+        document.body.appendChild(this.overlayEl);
+        document.body.appendChild(this.el);
+
+        // KundeSoeg
+        this.kundeSoeg = new KundeSoeg({
+            container: this.el.querySelector('.drawer-kunde-container'),
+            onSelect: (data) => {
+                if (!data) {
+                    this._updateField('customer_id', null);
+                    this._updateField('company_id', null);
+                    return;
+                }
+                this._updateField('customer_id', data.customer_id);
+                this._updateField('company_id', data.company_id);
+                this._renderFirma(data.company_name);
+            }
+        });
+
+        // Event listeners
+        this._bindEvents();
+    }
+
+    _bindEvents() {
+        // Close
+        this.el.querySelector('.drawer-close').addEventListener('click', () => this.hide());
+        this.overlayEl.addEventListener('click', () => this.hide());
+
+        // Escape
+        document.addEventListener('keydown', (e) => {
+            if (e.key === 'Escape' && this.el.classList.contains('open')) this.hide();
+        });
+
+        // Dirty tracking on all fields
+        this.el.querySelectorAll('.drawer-field').forEach(field => {
+            const event = field.tagName === 'SELECT' || field.type === 'checkbox' ? 'change' : 'input';
+            field.addEventListener(event, () => this._markDirty());
+        });
+
+        // Type toggle
+        this.el.querySelectorAll('.drawer-type').forEach(btn => {
+            btn.addEventListener('click', () => {
+                this.el.querySelectorAll('.drawer-type').forEach(b => b.classList.remove('active'));
+                btn.classList.add('active');
+                this._toggleDeliveryFields(btn.dataset.type);
+                this._markDirty();
+            });
+        });
+
+        // Gem
+        this.el.querySelector('.btn-drawer-gem').addEventListener('click', () => this._save());
+
+        // Slet
+        this.el.querySelector('.btn-drawer-slet').addEventListener('click', () => this._handleDelete());
+
+        // DAWA autocomplete
+        this._bindDAWA();
+
+        // Status bar clicks
+        this.el.querySelector('.drawer-status-bar').addEventListener('click', (e) => {
+            const btn = e.target.closest('.sbar-btn');
+            if (!btn) return;
+            this._setStatus(btn.dataset.target);
+        });
+    }
+
+    /* ══════════════════════════════════════════════════════
+       LOAD & RENDER
+       ══════════════════════════════════════════════════════ */
+
+    async load(bonId) {
+        this.bonId = bonId;
+        this.dirty = false;
+        this._pendingChanges = {};
+        try {
+            this.data = await fetchBon(bonId);
+            this._render();
+        } catch (err) {
+            console.error('Kunne ikke hente bon:', err);
+        }
+    }
+
+    _render() {
+        const d = this.data;
+        if (!d) return;
+
+        // Header
+        this.el.querySelector('.drawer-title').textContent = `Bon #${d.bon_number}`;
+        this.el.querySelector('.drawer-header').classList.remove('has-changes');
+        this.el.querySelector('.btn-drawer-gem').disabled = true;
+
+        // Status bar
+        this._renderStatusBar();
+
+        // Levering
+        this._setFieldValue('delivery_date', d.delivery_date || '');
+        this._setFieldValue('delivery_time', d.delivery_time || '');
+        this._setFieldValue('pickup_time', d.pickup_time || '');
+
+        // Type
+        const dtype = d.delivery_type || 'delivery';
+        this.el.querySelectorAll('.drawer-type').forEach(b => {
+            b.classList.toggle('active', b.dataset.type === dtype);
+        });
+        this._toggleDeliveryFields(dtype);
+
+        // Delivery fields
+        this._setFieldValue('delivery_notes', d.delivery_notes || '');
+        this._setFieldValue('delivery_method', d.delivery_method || '');
+
+        // Address display
+        if (d.delivery_address) {
+            const addr = d.delivery_address;
+            const display = this.el.querySelector('.drawer-address-display');
+            display.textContent = [addr.street_name, addr.street_nr, addr.postal_code, addr.city].filter(Boolean).join(' ');
+            display.style.display = 'block';
+            this.el.querySelector('.drawer-dawa-input').style.display = 'none';
+            // Allow clearing
+            display.innerHTML += ' <button class="drawer-addr-clear" type="button">&times;</button>';
+            display.querySelector('.drawer-addr-clear').addEventListener('click', () => {
+                this._updateField('delivery_address_id', null);
+                display.style.display = 'none';
+                this.el.querySelector('.drawer-dawa-input').style.display = '';
+                this.el.querySelector('.drawer-dawa-input').value = '';
+                this._markDirty();
+            });
+        } else {
+            this.el.querySelector('.drawer-address-display').style.display = 'none';
+            this.el.querySelector('.drawer-dawa-input').style.display = '';
+            this.el.querySelector('.drawer-dawa-input').value = '';
+        }
+
+        // Kunde
+        if (d.customer_id) {
+            this.kundeSoeg.select({
+                customer_id: d.customer_id,
+                company_id: d.company_id,
+                first_name: d.contact_name_full?.split(' ')[0] || '',
+                last_name: d.contact_name_full?.split(' ').slice(1).join(' ') || '',
+                company_name: d.company_name || null,
+                phone: d.customer_phone || '',
+                email: d.customer_email || '',
+                default_payment_type: d.payment_type,
+                default_price_category_id: d.price_category_id,
+            });
+        } else {
+            this.kundeSoeg.clear();
+        }
+
+        // Dagskontakt — pre-fill fra kunde hvis tom
+        this._setFieldValue('day_contact_name', d.day_contact_name || d.contact_name_full || '');
+        this._setFieldValue('day_contact_phone', d.day_contact_phone || d.contact_phone || '');
+
+        // Køkken
+        this._setCheckbox('kitchen_selects', d.kitchen_selects);
+        this._setFieldValue('pax', d.pax || '');
+        this._setFieldValue('total_units', d.total_units || '');
+        this._setFieldValue('price_category_id', d.price_category_id || '');
+        this._setFieldValue('payment_type', d.payment_type || '');
+
+        // Firma
+        this._renderFirma(d.company_name);
+
+        // Noter
+        this._setFieldValue('customer_wishes', d.customer_wishes || '');
+        this._setFieldValue('invoice_info', d.invoice_info || '');
+        this._setFieldValue('kitchen_info', d.kitchen_info || '');
+        this._setFieldValue('internal_notes', d.internal_notes || '');
+
+        this.dirty = false;
+        this._pendingChanges = {};
+    }
+
+    _renderStatusBar() {
+        const bar = this.el.querySelector('.drawer-status-bar');
+        bar.innerHTML = '';
+        if (!this.data) return;
+
+        const curStatus = (this.data.status_code || '').toLowerCase();
+        const allStatuses = Object.keys(BON_CONFIG.statuses);
+
+        allStatuses.forEach(key => {
+            const s = BON_CONFIG.statuses[key];
+            const isActive = key === curStatus;
+            const btn = document.createElement('button');
+            btn.className = 'sbar-btn' + (isActive ? ' active' : '');
+            btn.textContent = s.label;
+            btn.dataset.target = key;
+            if (isActive) {
+                btn.style.background = s.color;
+                btn.style.color = s.text;
+            }
+            bar.appendChild(btn);
+        });
+    }
+
+    async _setStatus(statusKey) {
+        if (!this.data) return;
+        const curStatus = (this.data.status_code || '').toLowerCase();
+        if (statusKey === curStatus) return;
+        try {
+            await patchBonStatus(this.bonId, statusKey.toUpperCase());
+            // SSE will update, but update locally too
+            this.data.status_code = statusKey.toUpperCase();
+            this._renderStatusBar();
+        } catch (err) {
+            alert(err.message || 'Kunne ikke skifte status');
+        }
+    }
+
+    _renderFirma(companyName) {
+        const section = this.el.querySelector('.drawer-firma-section');
+        const nameEl = this.el.querySelector('.drawer-firma-name');
+        if (companyName) {
+            nameEl.textContent = companyName;
+            section.style.display = '';
+        } else {
+            nameEl.textContent = '';
+            section.style.display = 'none';
+        }
+    }
+
+    /* ══════════════════════════════════════════════════════
+       FIELD HELPERS
+       ══════════════════════════════════════════════════════ */
+
+    _setFieldValue(fieldName, value) {
+        const el = this.el.querySelector(`[data-field="${fieldName}"]`);
+        if (!el) return;
+        el.value = value;
+    }
+
+    _setCheckbox(fieldName, value) {
+        const el = this.el.querySelector(`[data-field="${fieldName}"]`);
+        if (!el) return;
+        el.checked = !!value;
+    }
+
+    _getFieldValue(fieldName) {
+        const el = this.el.querySelector(`[data-field="${fieldName}"]`);
+        if (!el) return undefined;
+        if (el.type === 'checkbox') return el.checked ? 1 : 0;
+        if (el.type === 'number') return el.value ? parseInt(el.value) : 0;
+        return el.value || null;
+    }
+
+    _updateField(fieldName, value) {
+        if (!this._pendingChanges) this._pendingChanges = {};
+        this._pendingChanges[fieldName] = value;
+    }
+
+    _toggleDeliveryFields(type) {
+        const deliveryFields = this.el.querySelector('.drawer-delivery-fields');
+        deliveryFields.style.display = type === 'delivery' ? '' : 'none';
+    }
+
+    /* ══════════════════════════════════════════════════════
+       DIRTY TRACKING
+       ══════════════════════════════════════════════════════ */
+
+    _markDirty() {
+        this.dirty = true;
+        this.el.querySelector('.drawer-header').classList.add('has-changes');
+        this.el.querySelector('.btn-drawer-gem').disabled = false;
+    }
+
+    /* ══════════════════════════════════════════════════════
+       SAVE
+       ══════════════════════════════════════════════════════ */
+
+    async _save() {
+        const payload = this._collectFields();
+        if (Object.keys(payload).length === 0) return;
+
+        const btn = this.el.querySelector('.btn-drawer-gem');
+        btn.disabled = true;
+        btn.textContent = 'Gemmer...';
+
+        try {
+            await patchBon(this.bonId, payload);
+            this.dirty = false;
+            this._pendingChanges = {};
+            this.el.querySelector('.drawer-header').classList.remove('has-changes');
+            // Reload data
+            await this.load(this.bonId);
+        } catch (err) {
+            alert(err.message || 'Kunne ikke gemme');
+        } finally {
+            btn.disabled = false;
+            btn.textContent = 'Gem';
+        }
+    }
+
+    _collectFields() {
+        const fields = {};
+
+        // Standard fields from data-field elements
+        const fieldNames = [
+            'delivery_date', 'delivery_time', 'pickup_time',
+            'delivery_notes', 'delivery_method',
+            'pax', 'total_units',
+            'price_category_id', 'payment_type',
+            'kitchen_selects',
+            'day_contact_name', 'day_contact_phone',
+            'customer_wishes', 'invoice_info', 'kitchen_info', 'internal_notes'
+        ];
+
+        for (const name of fieldNames) {
+            const val = this._getFieldValue(name);
+            if (val !== undefined) fields[name] = val;
+        }
+
+        // Delivery type from toggle
+        const activeType = this.el.querySelector('.drawer-type.active');
+        if (activeType) fields.delivery_type = activeType.dataset.type;
+
+        // Pending changes (customer_id, company_id, delivery_address_id)
+        if (this._pendingChanges) {
+            Object.assign(fields, this._pendingChanges);
+        }
+
+        return fields;
+    }
+
+    /* ══════════════════════════════════════════════════════
+       DELETE
+       ══════════════════════════════════════════════════════ */
+
+    async _handleDelete() {
+        if (!confirm('Er du sikker på du vil slette denne bon? Handlingen kan ikke fortrydes.')) return;
+        try {
+            await patchBonStatus(this.bonId, 'AFLYST');
+            this.hide();
+        } catch (err) {
+            alert(err.message || 'Kunne ikke slette/aflyse bon');
+        }
+    }
+
+    /* ══════════════════════════════════════════════════════
+       SHOW / HIDE
+       ══════════════════════════════════════════════════════ */
+
+    show() {
+        this.el.classList.add('open');
+        this.overlayEl.classList.add('open');
+        document.body.style.overflow = 'hidden';
+    }
+
+    hide() {
+        if (this.dirty && !confirm('Du har ugemte ændringer. Luk alligevel?')) return;
+        this.el.classList.remove('open');
+        this.overlayEl.classList.remove('open');
+        document.body.style.overflow = '';
+        this.dirty = false;
+    }
+
+    get isOpen() {
+        return this.el.classList.contains('open');
+    }
+
+    /* ══════════════════════════════════════════════════════
+       SSE
+       ══════════════════════════════════════════════════════ */
+
+    _bindSSE() {
+        window.addEventListener('sse:bon_updated', (e) => {
+            const data = e.detail || {};
+            if ((data.id == this.bonId || data.bon_id == this.bonId) && !this.dirty) {
+                this.load(this.bonId);
+            }
+        });
+        window.addEventListener('sse:bon_status', (e) => {
+            const data = e.detail || {};
+            if (data.bon_id == this.bonId && !this.dirty) {
+                this.load(this.bonId);
+            }
+        });
+    }
+
+    /* ══════════════════════════════════════════════════════
+       DAWA AUTOCOMPLETE
+       ══════════════════════════════════════════════════════ */
+
+    _bindDAWA() {
+        const input = this.el.querySelector('.drawer-dawa-input');
+        const results = this.el.querySelector('.drawer-dawa-results');
+        let timer = null;
+
+        input.addEventListener('input', () => {
+            clearTimeout(timer);
+            const q = input.value.trim();
+            if (q.length < 3) {
+                results.innerHTML = '';
+                results.style.display = 'none';
+                return;
+            }
+            timer = setTimeout(async () => {
+                try {
+                    const resp = await fetch(`https://api.dataforsyningen.dk/adresser/autocomplete?q=${encodeURIComponent(q)}&per_side=5`);
+                    const data = await resp.json();
+                    results.innerHTML = '';
+                    if (data.length === 0) {
+                        results.style.display = 'none';
+                        return;
+                    }
+                    results.style.display = 'block';
+                    for (const item of data) {
+                        const div = document.createElement('div');
+                        div.className = 'drawer-dawa-item';
+                        div.textContent = item.tekst;
+                        div.addEventListener('click', () => this._selectDAWA(item));
+                        results.appendChild(div);
+                    }
+                } catch (err) {
+                    console.error('DAWA fejl:', err);
+                }
+            }, 300);
+        });
+
+        // Close results on outside click
+        document.addEventListener('click', (e) => {
+            if (!input.contains(e.target) && !results.contains(e.target)) {
+                results.style.display = 'none';
+            }
+        });
+    }
+
+    async _selectDAWA(item) {
+        const results = this.el.querySelector('.drawer-dawa-results');
+        results.style.display = 'none';
+
+        // Hent fuld adresse-data
+        try {
+            const resp = await fetch(item.adresse?.href || `https://api.dataforsyningen.dk/adresser/${item.adresse?.id}`);
+            const addr = await resp.json();
+
+            const addressData = {
+                street_name: addr.vejnavn || item.tekst.split(' ')[0],
+                street_nr: addr.husnr || '',
+                postal_code: addr.postnr || '',
+                city: addr.postnrnavn || '',
+                lat: addr.adgangsadresse?.adgangspunkt?.koordinater?.[1] || null,
+                lon: addr.adgangsadresse?.adgangspunkt?.koordinater?.[0] || null,
+            };
+
+            // Gem adresse
+            const result = await createAddress(addressData);
+            this._updateField('delivery_address_id', result.id);
+
+            // Vis
+            const display = this.el.querySelector('.drawer-address-display');
+            display.textContent = item.tekst;
+            display.style.display = 'block';
+            display.innerHTML += ' <button class="drawer-addr-clear" type="button">&times;</button>';
+            display.querySelector('.drawer-addr-clear').addEventListener('click', () => {
+                this._updateField('delivery_address_id', null);
+                display.style.display = 'none';
+                this.el.querySelector('.drawer-dawa-input').style.display = '';
+                this.el.querySelector('.drawer-dawa-input').value = '';
+                this._markDirty();
+            });
+
+            this.el.querySelector('.drawer-dawa-input').style.display = 'none';
+            this._markDirty();
+        } catch (err) {
+            console.error('Adresse-fejl:', err);
+        }
+    }
+
+    /* ══════════════════════════════════════════════════════
+       DROPDOWNS
+       ══════════════════════════════════════════════════════ */
+
+    async _loadDropdowns() {
+        try {
+            const [cats, types] = await Promise.all([
+                fetchPriceCategories(),
+                fetchPaymentTypes()
+            ]);
+            this.priceCategories = cats;
+            this.paymentTypes = types;
+
+            const pcSel = this.el.querySelector('[data-field="price_category_id"]');
+            pcSel.innerHTML = '<option value="">Vælg...</option>';
+            for (const pc of cats) {
+                pcSel.innerHTML += `<option value="${pc.id}">${esc(pc.label)}</option>`;
+            }
+
+            const ptSel = this.el.querySelector('[data-field="payment_type"]');
+            ptSel.innerHTML = '<option value="">Vælg...</option>';
+            for (const pt of types) {
+                ptSel.innerHTML += `<option value="${pt.code}">${esc(pt.label)}</option>`;
+            }
+        } catch (err) {
+            console.error('Kunne ikke hente dropdown-data:', err);
+        }
+    }
+}

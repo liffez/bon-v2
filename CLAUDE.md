@@ -490,7 +490,7 @@ Kyllingefilet     2,4 kg      8,2 kg
 
 ### OPGAVE (næste)
 
-læs CLAUDE_FASE1b.md
+læs CLAUDE_FASE1c.md
 
 
 
