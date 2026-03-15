@@ -2,15 +2,920 @@
 <html lang="da">
 <head>
   <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>Bon v2 — Settings</title>
   <link rel="stylesheet" href="../shared/tokens.css">
   <link rel="stylesheet" href="../shared/components.css">
+  <style>
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+
+    body {
+      font-family: var(--font-body);
+      font-size: var(--font-size-m);
+      color: var(--color-text);
+      background: var(--color-background);
+    }
+
+    /* ─── TOPBAR ──────────────────────────────────── */
+    .st-topbar {
+      display: flex; align-items: center; justify-content: space-between;
+      padding: var(--space-m) var(--space-l);
+      border-bottom: 1px solid var(--color-border);
+      background: var(--color-surface);
+    }
+    .st-topbar h1 { font-size: var(--font-size-xl); font-weight: 700; }
+    .st-topbar-right { display: flex; align-items: center; gap: var(--space-m); }
+    .st-topbar-user { font-size: var(--font-size-s); color: var(--color-text-dim); }
+
+    /* ─── LAYOUT ──────────────────────────────────── */
+    .st-layout {
+      display: flex; min-height: calc(100vh - 60px);
+    }
+    .st-sidebar {
+      width: 180px; flex-shrink: 0;
+      border-right: 1px solid var(--color-border);
+      background: var(--color-surface);
+      padding: var(--space-m) 0;
+    }
+    .st-nav-item {
+      display: block; width: 100%;
+      padding: 10px var(--space-l);
+      border: none; background: none;
+      font-size: var(--font-size-m); font-family: var(--font-body);
+      text-align: left; cursor: pointer;
+      color: var(--color-text);
+      transition: background 0.15s;
+    }
+    .st-nav-item:hover { background: var(--color-background); }
+    .st-nav-item.active {
+      background: var(--brand-primary-light);
+      font-weight: 600;
+      border-left: 3px solid var(--brand-primary);
+    }
+    .st-nav-sep {
+      height: 1px; background: var(--color-border);
+      margin: var(--space-s) var(--space-l);
+    }
+    .st-nav-label {
+      font-size: 11px; text-transform: uppercase; letter-spacing: 0.5px;
+      color: var(--color-text-dim); padding: var(--space-s) var(--space-l) 4px;
+      font-weight: 600;
+    }
+
+    .st-content {
+      flex: 1; padding: var(--space-l);
+      max-width: 900px;
+    }
+    .st-section { display: none; }
+    .st-section.active { display: block; }
+    .st-section h2 {
+      font-size: var(--font-size-l); margin-bottom: var(--space-m);
+    }
+
+    /* ─── TABLE ───────────────────────────────────── */
+    .st-table {
+      width: 100%; border-collapse: collapse;
+      background: var(--color-surface);
+      border-radius: 8px; overflow: hidden;
+      border: 1px solid var(--color-border);
+    }
+    .st-table th {
+      text-align: left; font-size: var(--font-size-s);
+      font-weight: 600; color: var(--color-text-dim);
+      padding: 8px 12px; background: var(--color-background);
+      border-bottom: 1px solid var(--color-border);
+    }
+    .st-table td {
+      padding: 8px 12px;
+      border-bottom: 1px solid var(--color-border);
+      vertical-align: middle;
+    }
+    .st-table tr:last-child td { border-bottom: none; }
+
+    /* ─── INPUTS ──────────────────────────────────── */
+    .st-input, .st-select, .st-textarea {
+      padding: 6px 10px;
+      border: 1px solid var(--color-border);
+      border-radius: 6px; font-size: 14px;
+      font-family: var(--font-body);
+      background: var(--color-surface);
+    }
+    .st-input:focus, .st-select:focus, .st-textarea:focus {
+      outline: 2px solid var(--brand-primary);
+      outline-offset: -1px;
+    }
+    .st-input { width: 100%; }
+    .st-textarea { width: 100%; min-height: 80px; resize: vertical; }
+    .st-input-sm { width: 80px; }
+    .st-input-pw { width: 200px; }
+    .st-input.locked {
+      background: var(--color-background);
+      color: var(--color-text-dim);
+      cursor: not-allowed;
+    }
+
+    /* ─── BUTTONS ─────────────────────────────────── */
+    .st-btn {
+      padding: 6px 16px; border: none; border-radius: 6px;
+      font-size: 13px; font-weight: 600; cursor: pointer;
+      font-family: var(--font-body);
+      transition: background 0.15s, opacity 0.15s;
+    }
+    .st-btn-primary {
+      background: var(--brand-primary); color: #fff;
+    }
+    .st-btn-primary:hover { opacity: 0.9; }
+    .st-btn-secondary {
+      background: var(--color-background);
+      border: 1px solid var(--color-border);
+      color: var(--color-text);
+    }
+    .st-btn-secondary:hover { background: var(--color-border); }
+    .st-btn-danger {
+      background: var(--color-red); color: #fff;
+    }
+    .st-btn-sm { padding: 4px 10px; font-size: 12px; }
+    .st-btn-add {
+      margin-top: var(--space-m);
+    }
+
+    /* ─── TOGGLE ──────────────────────────────────── */
+    .st-toggle {
+      position: relative; display: inline-block;
+      width: 40px; height: 22px;
+    }
+    .st-toggle input { opacity: 0; width: 0; height: 0; }
+    .st-toggle-slider {
+      position: absolute; inset: 0;
+      background: var(--color-border); border-radius: 22px;
+      cursor: pointer; transition: background 0.2s;
+    }
+    .st-toggle-slider::before {
+      content: ''; position: absolute;
+      width: 16px; height: 16px; left: 3px; bottom: 3px;
+      background: #fff; border-radius: 50%;
+      transition: transform 0.2s;
+    }
+    .st-toggle input:checked + .st-toggle-slider {
+      background: var(--color-green);
+    }
+    .st-toggle input:checked + .st-toggle-slider::before {
+      transform: translateX(18px);
+    }
+
+    /* ─── PASSWORD FIELD ──────────────────────────── */
+    .st-pw-wrap {
+      display: inline-flex; align-items: center; gap: 4px;
+    }
+    .st-pw-toggle {
+      background: none; border: none; cursor: pointer;
+      font-size: 16px; color: var(--color-text-dim);
+      padding: 2px;
+    }
+
+    /* ─── INLINE FORM ─────────────────────────────── */
+    .st-inline-form {
+      background: var(--brand-primary-light);
+      padding: var(--space-m);
+      border-radius: 8px;
+      margin-top: var(--space-m);
+      display: flex; flex-wrap: wrap; gap: var(--space-s); align-items: end;
+    }
+    .st-inline-form label {
+      font-size: 12px; font-weight: 600;
+      display: block; margin-bottom: 2px;
+    }
+
+    /* ─── BADGE ───────────────────────────────────── */
+    .st-badge {
+      display: inline-block; padding: 2px 8px;
+      border-radius: 12px; font-size: 11px; font-weight: 600;
+    }
+    .st-badge-ok { background: #d4edda; color: #155724; }
+    .st-badge-err { background: #f8d7da; color: #721c24; }
+    .st-badge-off { background: var(--color-background); color: var(--color-text-dim); }
+
+    /* ─── MAIL SECTION ────────────────────────────── */
+    .st-mail-group {
+      background: var(--color-surface);
+      border: 1px solid var(--color-border);
+      border-radius: 8px; padding: var(--space-m);
+      margin-bottom: var(--space-m);
+    }
+    .st-mail-group h3 {
+      font-size: var(--font-size-m); margin-bottom: var(--space-s);
+    }
+    .st-mail-grid {
+      display: grid; grid-template-columns: 120px 1fr;
+      gap: 8px 12px; align-items: center;
+    }
+    .st-mail-grid label { font-size: 13px; font-weight: 500; }
+
+    /* ─── TEMPLATE VARS ───────────────────────────── */
+    .st-vars {
+      display: flex; flex-wrap: wrap; gap: 4px;
+      margin-top: var(--space-s);
+    }
+    .st-var-tag {
+      background: var(--color-background);
+      padding: 2px 8px; border-radius: 4px;
+      font-size: 12px; font-family: monospace;
+      cursor: pointer;
+    }
+    .st-var-tag:hover { background: var(--brand-primary-light); }
+
+    /* ─── FORMBUILDER ─────────────────────────────── */
+    .st-fb-row { display: flex; gap: 8px; align-items: center; margin-bottom: 6px; }
+    .st-fb-arrow { color: var(--color-text-dim); font-size: 16px; }
+
+    /* ─── STATUS MSG ──────────────────────────────── */
+    .st-msg {
+      position: fixed; bottom: 20px; right: 20px;
+      padding: 10px 20px; border-radius: 8px;
+      font-size: 14px; font-weight: 500;
+      box-shadow: 0 4px 12px rgba(0,0,0,0.15);
+      z-index: 999; opacity: 0; transition: opacity 0.3s;
+      pointer-events: none;
+    }
+    .st-msg.show { opacity: 1; }
+    .st-msg-ok { background: #d4edda; color: #155724; }
+    .st-msg-err { background: #f8d7da; color: #721c24; }
+
+    /* ─── LOG UD ──────────────────────────────────── */
+    .st-logout {
+      background: none; border: 1px solid var(--color-border);
+      padding: 6px 14px; border-radius: 6px;
+      font-size: 13px; cursor: pointer; color: var(--color-text);
+      font-family: var(--font-body);
+    }
+    .st-logout:hover { background: var(--color-background); }
+  </style>
 </head>
-<body class="zone-settings">
-  <main>
-    <h1>Indstillinger</h1>
-    <!-- TODO: Firma, moduler, brugere, integrationer -->
-  </main>
-  <script src="../shared/api.js"></script>
+<body class="zone-office">
+
+<div class="st-topbar">
+  <h1>Settings</h1>
+  <div class="st-topbar-right">
+    <span class="st-topbar-user" id="st-user-name"></span>
+    <button class="st-logout" onclick="doLogout()">Log ud</button>
+  </div>
+</div>
+
+<div class="st-layout">
+  <nav class="st-sidebar" id="st-sidebar">
+    <button class="st-nav-item active" data-section="users">Brugere</button>
+    <button class="st-nav-item" data-section="price-cats">Priskategorier</button>
+    <button class="st-nav-item" data-section="pay-types">Betalingstyper</button>
+    <div class="st-nav-sep" id="st-admin-sep"></div>
+    <div class="st-nav-label" id="st-admin-label">Admin</div>
+    <button class="st-nav-item st-admin-only" data-section="grocy">Grocy</button>
+    <button class="st-nav-item st-admin-only" data-section="mail">Mail</button>
+    <button class="st-nav-item st-admin-only" data-section="formbuilder">Formbuilder</button>
+    <button class="st-nav-item st-admin-only" data-section="system">System</button>
+  </nav>
+
+  <div class="st-content">
+    <!-- ════ BRUGERE ════ -->
+    <div class="st-section active" id="sec-users">
+      <h2>Brugere</h2>
+      <table class="st-table" id="users-table">
+        <thead><tr>
+          <th>Navn</th><th>Email</th><th>Rolle</th><th>PIN</th><th>Aktiv</th><th></th>
+        </tr></thead>
+        <tbody id="users-body"></tbody>
+      </table>
+      <button class="st-btn st-btn-primary st-btn-add" onclick="showNewUserForm()">+ Ny bruger</button>
+      <div id="new-user-form" style="display:none"></div>
+    </div>
+
+    <!-- ════ PRISKATEGORIER ════ -->
+    <div class="st-section" id="sec-price-cats">
+      <h2>Priskategorier</h2>
+      <table class="st-table">
+        <thead><tr><th>Kode</th><th>Label</th><th></th></tr></thead>
+        <tbody id="pcats-body"></tbody>
+      </table>
+      <button class="st-btn st-btn-primary st-btn-add" onclick="showNewPriceCatForm()">+ Ny</button>
+      <div id="new-pcat-form" style="display:none"></div>
+    </div>
+
+    <!-- ════ BETALINGSTYPER ════ -->
+    <div class="st-section" id="sec-pay-types">
+      <h2>Betalingstyper</h2>
+      <table class="st-table">
+        <thead><tr><th>Kode</th><th>Label</th><th></th></tr></thead>
+        <tbody id="ptypes-body"></tbody>
+      </table>
+      <button class="st-btn st-btn-primary st-btn-add" onclick="showNewPayTypeForm()">+ Ny</button>
+      <div id="new-ptype-form" style="display:none"></div>
+    </div>
+
+    <!-- ════ GROCY ════ -->
+    <div class="st-section st-admin-only" id="sec-grocy">
+      <h2>Grocy-forbindelser</h2>
+      <div id="grocy-locations"></div>
+    </div>
+
+    <!-- ════ MAIL ════ -->
+    <div class="st-section st-admin-only" id="sec-mail">
+      <h2>Mail</h2>
+      <div id="mail-content"></div>
+    </div>
+
+    <!-- ════ FORMBUILDER ════ -->
+    <div class="st-section st-admin-only" id="sec-formbuilder">
+      <h2>Formbuilder — Feltmapping</h2>
+      <p style="font-size:13px;color:var(--color-text-dim);margin-bottom:var(--space-m)">Mapping fra formular-felter (f2, f3 …) til bon-felter i databasen.</p>
+      <div id="fb-rows"></div>
+      <div style="margin-top:var(--space-m);display:flex;gap:8px">
+        <button class="st-btn st-btn-primary" onclick="saveFieldMap()">Gem</button>
+        <button class="st-btn st-btn-secondary" onclick="resetFieldMap()">Nulstil til standard</button>
+      </div>
+    </div>
+
+    <!-- ════ SYSTEM ════ -->
+    <div class="st-section st-admin-only" id="sec-system">
+      <h2>System</h2>
+      <div id="system-fields"></div>
+    </div>
+  </div>
+</div>
+
+<div class="st-msg" id="st-msg"></div>
+
+<script src="../shared/api.js"></script>
+<script src="../shared/utils.js"></script>
+<script>
+// ═══════════════════════════════════════════════════════════
+// Settings UI — vanilla JS
+// ═══════════════════════════════════════════════════════════
+
+let currentUser = null;
+let allSettings = {};  // key→value map
+let fieldMap = {};
+
+// DEFAULT_FIELD_MAP (synkroniseret med webhooks.js)
+const DEFAULT_FIELD_MAP = {
+  f2: 'customer_name', f3: 'customer_email', f4: 'customer_phone',
+  f5: 'company_name', f7_date: 'delivery_date', f7_time: 'delivery_time',
+  f8: 'pax', f9: 'customer_wishes', f11_navn: 'day_contact_name',
+  f11_tlf: 'day_contact_phone', f12: 'invoice_info'
+};
+
+// ─── INIT ────────────────────────────────────────────────
+async function init() {
+  currentUser = await checkAuth('/shared/login.html');
+  if (!currentUser) return;
+
+  document.getElementById('st-user-name').textContent = currentUser.name;
+
+  // Skjul admin-sektioner for ikke-admins
+  if (currentUser.role !== 'admin') {
+    document.querySelectorAll('.st-admin-only').forEach(function(el) { el.style.display = 'none'; });
+    document.getElementById('st-admin-sep').style.display = 'none';
+    document.getElementById('st-admin-label').style.display = 'none';
+  }
+
+  // Nav-klik
+  document.querySelectorAll('.st-nav-item').forEach(function(btn) {
+    btn.addEventListener('click', function() {
+      var sec = btn.dataset.section;
+      document.querySelectorAll('.st-nav-item').forEach(function(b) { b.classList.remove('active'); });
+      btn.classList.add('active');
+      document.querySelectorAll('.st-section').forEach(function(s) { s.classList.remove('active'); });
+      document.getElementById('sec-' + sec).classList.add('active');
+    });
+  });
+
+  // Load data — settings først (bruges af mail, formbuilder, system)
+  await loadSettings();
+  loadUsers();
+  loadPriceCategories();
+  loadPaymentTypes();
+  if (currentUser.role === 'admin') {
+    loadGrocyLocations();
+    loadMailSection();
+    loadFormbuilder();
+    loadSystemSection();
+  }
+}
+
+// ─── TOAST ───────────────────────────────────────────────
+function toast(msg, type) {
+  var el = document.getElementById('st-msg');
+  el.textContent = msg;
+  el.className = 'st-msg show ' + (type === 'error' ? 'st-msg-err' : 'st-msg-ok');
+  clearTimeout(el._t);
+  el._t = setTimeout(function() { el.classList.remove('show'); }, 3000);
+}
+
+// ─── LOGOUT ──────────────────────────────────────────────
+async function doLogout() {
+  await fetch('/api/auth/logout', { method: 'POST' });
+  window.location.href = '/shared/login.html';
+}
+
+// ─── SETTINGS ────────────────────────────────────────────
+async function loadSettings() {
+  var rows = await fetchSettings();
+  allSettings = {};
+  rows.forEach(function(r) { allSettings[r.key] = r.value; });
+}
+
+async function saveSetting(key, value) {
+  await patchSetting(key, value);
+  allSettings[key] = value;
+  toast('Gemt');
+}
+
+// ═══════════════════════════════════════════════════════════
+// BRUGERE
+// ═══════════════════════════════════════════════════════════
+
+async function loadUsers() {
+  var users = await fetchUsers();
+  var tbody = document.getElementById('users-body');
+  tbody.innerHTML = '';
+  users.forEach(function(u) {
+    var tr = document.createElement('tr');
+    tr.innerHTML =
+      '<td>' + esc(u.name) + '</td>' +
+      '<td>' + esc(u.email || '') + '</td>' +
+      '<td><select class="st-select" onchange="updateUser(' + u.id + ',\'role\',this.value)">' +
+        roleOptions(u.role) +
+      '</select></td>' +
+      '<td>' + esc(u.pin || '') + '</td>' +
+      '<td><label class="st-toggle"><input type="checkbox" ' + (u.is_active ? 'checked' : '') +
+        ' onchange="updateUser(' + u.id + ',\'is_active\',this.checked)"><span class="st-toggle-slider"></span></label></td>' +
+      '<td><button class="st-btn st-btn-sm st-btn-secondary" onclick="togglePwForm(' + u.id + ')">Password</button>' +
+        '<div id="pw-form-' + u.id + '" style="display:none;margin-top:4px">' +
+          '<input type="password" class="st-input st-input-pw" id="pw-input-' + u.id + '" placeholder="Nyt password">' +
+          ' <button class="st-btn st-btn-sm st-btn-primary" onclick="savePassword(' + u.id + ')">Gem</button>' +
+        '</div></td>';
+    tbody.appendChild(tr);
+  });
+}
+
+function roleOptions(current) {
+  var roles = ['admin','office','kitchen','delivery'];
+  return roles.map(function(r) {
+    return '<option value="' + r + '"' + (r === current ? ' selected' : '') + '>' + r + '</option>';
+  }).join('');
+}
+
+async function updateUser(id, field, value) {
+  var fields = {};
+  fields[field] = value;
+  await patchUser(id, fields);
+  toast('Bruger opdateret');
+}
+
+function togglePwForm(id) {
+  var el = document.getElementById('pw-form-' + id);
+  el.style.display = el.style.display === 'none' ? 'block' : 'none';
+}
+
+async function savePassword(id) {
+  var pw = document.getElementById('pw-input-' + id).value;
+  if (!pw) return toast('Angiv et password', 'error');
+  await setUserPassword(id, pw);
+  document.getElementById('pw-form-' + id).style.display = 'none';
+  toast('Password opdateret');
+}
+
+function showNewUserForm() {
+  var el = document.getElementById('new-user-form');
+  if (el.style.display !== 'none') { el.style.display = 'none'; return; }
+  el.style.display = 'block';
+  el.innerHTML =
+    '<div class="st-inline-form">' +
+      '<div><label>Navn</label><input class="st-input" id="nu-name" style="width:150px"></div>' +
+      '<div><label>Email</label><input class="st-input" id="nu-email" style="width:200px"></div>' +
+      '<div><label>Rolle</label><select class="st-select" id="nu-role">' + roleOptions('office') + '</select></div>' +
+      '<div><label>PIN</label><input class="st-input" id="nu-pin" style="width:80px" placeholder="Valgfri"></div>' +
+      '<div><label>Password</label><input type="password" class="st-input" id="nu-pw" style="width:150px"></div>' +
+      '<div><label>&nbsp;</label><button class="st-btn st-btn-primary" onclick="doCreateUser()">Opret</button></div>' +
+    '</div>';
+}
+
+async function doCreateUser() {
+  var name = document.getElementById('nu-name').value.trim();
+  var email = document.getElementById('nu-email').value.trim();
+  var role = document.getElementById('nu-role').value;
+  var pin = document.getElementById('nu-pin').value.trim();
+  var pw = document.getElementById('nu-pw').value;
+  if (!name) return toast('Navn er påkrævet', 'error');
+  await createUser({ name: name, email: email || undefined, role: role, pin: pin || undefined, password: pw || undefined });
+  document.getElementById('new-user-form').style.display = 'none';
+  toast('Bruger oprettet');
+  loadUsers();
+}
+
+// ═══════════════════════════════════════════════════════════
+// PRISKATEGORIER
+// ═══════════════════════════════════════════════════════════
+
+async function loadPriceCategories() {
+  var cats = await fetchPriceCategories();
+  var tbody = document.getElementById('pcats-body');
+  tbody.innerHTML = '';
+  cats.forEach(function(c) {
+    var tr = document.createElement('tr');
+    tr.innerHTML =
+      '<td><input class="st-input locked" value="' + esc(c.code) + '" readonly></td>' +
+      '<td><input class="st-input" id="pcat-label-' + c.id + '" value="' + esc(c.label) + '"></td>' +
+      '<td><button class="st-btn st-btn-sm st-btn-primary" onclick="savePriceCat(' + c.id + ')">Gem</button></td>';
+    tbody.appendChild(tr);
+  });
+}
+
+async function savePriceCat(id) {
+  var label = document.getElementById('pcat-label-' + id).value.trim();
+  if (!label) return toast('Label er påkrævet', 'error');
+  await patchPriceCategory(id, { label: label });
+  toast('Priskategori opdateret');
+}
+
+function showNewPriceCatForm() {
+  var el = document.getElementById('new-pcat-form');
+  if (el.style.display !== 'none') { el.style.display = 'none'; return; }
+  el.style.display = 'block';
+  el.innerHTML =
+    '<div class="st-inline-form">' +
+      '<div><label>Kode</label><input class="st-input" id="npc-code" style="width:120px" placeholder="fx custom"></div>' +
+      '<div><label>Label</label><input class="st-input" id="npc-label" style="width:150px"></div>' +
+      '<div><label>&nbsp;</label><button class="st-btn st-btn-primary" onclick="doCreatePriceCat()">Opret</button></div>' +
+    '</div>';
+}
+
+async function doCreatePriceCat() {
+  var code = document.getElementById('npc-code').value.trim();
+  var label = document.getElementById('npc-label').value.trim();
+  if (!code || !label) return toast('Kode og label er påkrævet', 'error');
+  await createPriceCategory({ code: code, label: label });
+  document.getElementById('new-pcat-form').style.display = 'none';
+  toast('Priskategori oprettet');
+  loadPriceCategories();
+}
+
+// ═══════════════════════════════════════════════════════════
+// BETALINGSTYPER
+// ═══════════════════════════════════════════════════════════
+
+async function loadPaymentTypes() {
+  var types = await fetchPaymentTypes();
+  var tbody = document.getElementById('ptypes-body');
+  tbody.innerHTML = '';
+  types.forEach(function(t) {
+    var tr = document.createElement('tr');
+    tr.innerHTML =
+      '<td><input class="st-input locked" value="' + esc(t.code) + '" readonly></td>' +
+      '<td><input class="st-input" id="ptype-label-' + t.id + '" value="' + esc(t.label) + '"></td>' +
+      '<td><button class="st-btn st-btn-sm st-btn-primary" onclick="savePayType(' + t.id + ')">Gem</button></td>';
+    tbody.appendChild(tr);
+  });
+}
+
+async function savePayType(id) {
+  var label = document.getElementById('ptype-label-' + id).value.trim();
+  if (!label) return toast('Label er påkrævet', 'error');
+  await patchPaymentType(id, { label: label });
+  toast('Betalingstype opdateret');
+}
+
+function showNewPayTypeForm() {
+  var el = document.getElementById('new-ptype-form');
+  if (el.style.display !== 'none') { el.style.display = 'none'; return; }
+  el.style.display = 'block';
+  el.innerHTML =
+    '<div class="st-inline-form">' +
+      '<div><label>Kode</label><input class="st-input" id="npt-code" style="width:120px" placeholder="fx check"></div>' +
+      '<div><label>Label</label><input class="st-input" id="npt-label" style="width:150px"></div>' +
+      '<div><label>&nbsp;</label><button class="st-btn st-btn-primary" onclick="doCreatePayType()">Opret</button></div>' +
+    '</div>';
+}
+
+async function doCreatePayType() {
+  var code = document.getElementById('npt-code').value.trim();
+  var label = document.getElementById('npt-label').value.trim();
+  if (!code || !label) return toast('Kode og label er påkrævet', 'error');
+  await createPaymentType({ code: code, label: label });
+  document.getElementById('new-ptype-form').style.display = 'none';
+  toast('Betalingstype oprettet');
+  loadPaymentTypes();
+}
+
+// ═══════════════════════════════════════════════════════════
+// GROCY
+// ═══════════════════════════════════════════════════════════
+
+async function loadGrocyLocations() {
+  var locs = await fetchLocations();
+  var container = document.getElementById('grocy-locations');
+  container.innerHTML = '';
+
+  if (!locs.length) {
+    container.innerHTML = '<p style="color:var(--color-text-dim)">Ingen lokationer fundet.</p>';
+    return;
+  }
+
+  locs.forEach(function(loc) {
+    var div = document.createElement('div');
+    div.className = 'st-mail-group';
+    div.innerHTML =
+      '<h3>' + esc(loc.name) + ' <span class="st-badge st-badge-off">' + esc(loc.code) + '</span></h3>' +
+      '<div class="st-mail-grid" style="margin-top:8px">' +
+        '<label>API URL</label>' +
+        '<div><input class="st-input locked" value="' + esc(loc.grocy_api_url || '') + '" readonly></div>' +
+        '<label>API Key</label>' +
+        '<div><code style="font-size:12px;color:var(--color-text-dim)">(konfigureret i .env)</code></div>' +
+        '<label>Status</label>' +
+        '<div><span id="grocy-status-' + loc.id + '" class="st-badge st-badge-off">Ikke testet</span> ' +
+          '<button class="st-btn st-btn-sm st-btn-secondary" onclick="testGrocyConnection(' + loc.id + ',\'' + esc(loc.code) + '\')">Test forbindelse</button></div>' +
+      '</div>';
+    container.appendChild(div);
+  });
+}
+
+async function testGrocyConnection(locId, code) {
+  var badge = document.getElementById('grocy-status-' + locId);
+  badge.className = 'st-badge st-badge-off';
+  badge.textContent = 'Tester...';
+  try {
+    await apiFetch('/grocy/products?limit=1');
+    badge.className = 'st-badge st-badge-ok';
+    badge.textContent = 'Forbundet';
+  } catch (e) {
+    badge.className = 'st-badge st-badge-err';
+    badge.textContent = 'Fejl: ' + e.message;
+  }
+}
+
+// ═══════════════════════════════════════════════════════════
+// MAIL
+// ═══════════════════════════════════════════════════════════
+
+async function loadMailSection() {
+  await loadSettings();
+  var container = document.getElementById('mail-content');
+
+  var html = '';
+
+  // SMTP
+  html += '<div class="st-mail-group"><h3>Udgående (SMTP)</h3><div class="st-mail-grid">';
+  html += mailField('smtp_host', 'Host', 'text');
+  html += mailField('smtp_port', 'Port', 'text');
+  html += mailField('smtp_user', 'Brugernavn', 'text');
+  html += '<label>Password</label><div><code style="font-size:12px;color:var(--color-text-dim)">SMTP_PASSWORD i .env</code></div>';
+  html += mailField('smtp_from', 'Fra-adresse', 'text');
+  html += mailToggle('smtp_enabled', 'Aktiv');
+  html += '</div>';
+  html += '<div style="margin-top:var(--space-s);display:flex;gap:8px;align-items:center">' +
+    '<button class="st-btn st-btn-primary st-btn-sm" onclick="saveMailSettings(\'smtp\')">Gem SMTP</button>' +
+    '<input class="st-input" id="test-mail-to" style="width:200px" placeholder="test@eksempel.dk">' +
+    '<button class="st-btn st-btn-sm st-btn-secondary" onclick="doSendTestMail()">Send test-mail</button>' +
+    '<span id="test-mail-status"></span></div></div>';
+
+  // SMTP kontakt@
+  html += '<div class="st-mail-group"><h3>Udgående — kontakt@ (SMTP)</h3><div class="st-mail-grid">';
+  html += mailField('smtp_kontakt_host', 'Host', 'text');
+  html += mailField('smtp_kontakt_port', 'Port', 'text');
+  html += mailField('smtp_kontakt_user', 'Brugernavn', 'text');
+  html += '<label>Password</label><div><code style="font-size:12px;color:var(--color-text-dim)">SMTP_KONTAKT_PASSWORD i .env</code></div>';
+  html += mailField('smtp_kontakt_from', 'Fra-adresse', 'text');
+  html += mailToggle('smtp_kontakt_enabled', 'Aktiv');
+  html += '</div>';
+  html += '<div style="margin-top:var(--space-s)"><button class="st-btn st-btn-primary st-btn-sm" onclick="saveMailSettings(\'smtp_kontakt\')">Gem kontakt@ SMTP</button></div></div>';
+
+  // IMAP bon@
+  html += '<div class="st-mail-group"><h3>Indgående — bon@</h3><div class="st-mail-grid">';
+  html += mailField('imap_bon_host', 'Host', 'text');
+  html += mailField('imap_bon_port', 'Port', 'text');
+  html += mailField('imap_bon_user', 'Brugernavn', 'text');
+  html += '<label>Password</label><div><code style="font-size:12px;color:var(--color-text-dim)">IMAP_BON_PASSWORD i .env</code></div>';
+  html += mailField('imap_bon_interval', 'Interval (min)', 'text');
+  html += mailToggle('imap_bon_enabled', 'Aktiv');
+  html += '</div><div style="margin-top:var(--space-s)"><button class="st-btn st-btn-primary st-btn-sm" onclick="saveMailSettings(\'imap_bon\')">Gem bon@</button></div></div>';
+
+  // IMAP kontakt@
+  html += '<div class="st-mail-group"><h3>Indgående — kontakt@</h3><div class="st-mail-grid">';
+  html += mailField('imap_kontakt_host', 'Host', 'text');
+  html += mailField('imap_kontakt_port', 'Port', 'text');
+  html += mailField('imap_kontakt_user', 'Brugernavn', 'text');
+  html += '<label>Password</label><div><code style="font-size:12px;color:var(--color-text-dim)">IMAP_KONTAKT_PASSWORD i .env</code></div>';
+  html += mailField('imap_kontakt_interval', 'Interval (min)', 'text');
+  html += mailToggle('imap_kontakt_enabled', 'Aktiv');
+  html += '</div><div style="margin-top:var(--space-s)"><button class="st-btn st-btn-primary st-btn-sm" onclick="saveMailSettings(\'imap_kontakt\')">Gem kontakt@</button></div></div>';
+
+  // Signatur
+  html += '<div class="st-mail-group"><h3>Signatur</h3>' +
+    '<textarea class="st-textarea" id="mail-sig" rows="4">' + esc(allSettings.mail_signature || '') + '</textarea>' +
+    '<div style="margin-top:var(--space-s)"><button class="st-btn st-btn-primary st-btn-sm" onclick="saveSignature()">Gem signatur</button></div></div>';
+
+  // Skabelon
+  var templates = await fetchMailTemplates();
+  var tmpl = templates.find(function(t) { return t.key === 'booking_confirmation'; });
+  if (tmpl) {
+    html += '<div class="st-mail-group"><h3>Skabelon: ' + esc(tmpl.label) + '</h3>';
+    html += '<div style="margin-bottom:8px"><label style="font-size:13px;font-weight:500">Emne</label><br>' +
+      '<input class="st-input" id="tmpl-subject" value="' + esc(tmpl.subject) + '"></div>';
+    html += '<label style="font-size:13px;font-weight:500">Brødtekst</label>' +
+      '<textarea class="st-textarea" id="tmpl-body" rows="10">' + esc(tmpl.body_text) + '</textarea>';
+    html += '<div class="st-vars"><span style="font-size:12px;margin-right:4px;color:var(--color-text-dim)">Variabler:</span>';
+    var vars = ['kundeNavn','bonNummer','leveringsDato','leveringsTidspunkt','leveringsAdresse','pax','ekstraInfo','firmanavn'];
+    vars.forEach(function(v) {
+      html += '<span class="st-var-tag" onclick="insertVar(\'' + v + '\')">{{' + v + '}}</span>';
+    });
+    html += '</div>';
+    html += '<div style="margin-top:var(--space-s)"><button class="st-btn st-btn-primary st-btn-sm" onclick="saveTemplate()">Gem skabelon</button></div></div>';
+  }
+
+  container.innerHTML = html;
+}
+
+function mailField(key, label, type) {
+  var val = allSettings[key] || '';
+  return '<label>' + label + '</label><div><input class="st-input" id="mail-' + key + '" value="' + esc(val) + '" type="' + type + '" style="max-width:300px"></div>';
+}
+
+function mailToggle(key, label) {
+  var checked = allSettings[key] === '1' ? 'checked' : '';
+  return '<label>' + label + '</label><div><label class="st-toggle"><input type="checkbox" id="mail-' + key + '" ' + checked + '><span class="st-toggle-slider"></span></label></div>';
+}
+
+async function saveMailSettings(prefix) {
+  var keys;
+  if (prefix === 'smtp') {
+    keys = ['smtp_host','smtp_port','smtp_user','smtp_from','smtp_enabled'];
+  } else if (prefix === 'smtp_kontakt') {
+    keys = ['smtp_kontakt_host','smtp_kontakt_port','smtp_kontakt_user','smtp_kontakt_from','smtp_kontakt_enabled'];
+  } else if (prefix === 'imap_bon') {
+    keys = ['imap_bon_host','imap_bon_port','imap_bon_user','imap_bon_interval','imap_bon_enabled'];
+  } else {
+    keys = ['imap_kontakt_host','imap_kontakt_port','imap_kontakt_user','imap_kontakt_interval','imap_kontakt_enabled'];
+  }
+
+  for (var i = 0; i < keys.length; i++) {
+    var k = keys[i];
+    var el = document.getElementById('mail-' + k);
+    var val = el.type === 'checkbox' ? (el.checked ? '1' : '0') : el.value;
+    await patchSetting(k, val);
+    allSettings[k] = val;
+  }
+  toast('Mail-indstillinger gemt');
+}
+
+async function saveSignature() {
+  await saveSetting('mail_signature', document.getElementById('mail-sig').value);
+}
+
+async function saveTemplate() {
+  var subject = document.getElementById('tmpl-subject').value;
+  var body = document.getElementById('tmpl-body').value;
+  await patchMailTemplate('booking_confirmation', { subject: subject, body_text: body });
+  toast('Skabelon gemt');
+}
+
+function insertVar(name) {
+  var ta = document.getElementById('tmpl-body');
+  if (!ta) return;
+  var start = ta.selectionStart;
+  var end = ta.selectionEnd;
+  var text = ta.value;
+  var insert = '{{' + name + '}}';
+  ta.value = text.substring(0, start) + insert + text.substring(end);
+  ta.selectionStart = ta.selectionEnd = start + insert.length;
+  ta.focus();
+}
+
+async function doSendTestMail() {
+  var to = document.getElementById('test-mail-to').value.trim();
+  var status = document.getElementById('test-mail-status');
+  if (!to) return toast('Angiv en modtager', 'error');
+  status.textContent = 'Sender...';
+  try {
+    await sendTestMail(to, 'booking_confirmation');
+    status.innerHTML = '<span class="st-badge st-badge-ok">Sendt!</span>';
+    toast('Test-mail sendt');
+  } catch (e) {
+    status.innerHTML = '<span class="st-badge st-badge-err">' + esc(e.message) + '</span>';
+    toast('Fejl: ' + e.message, 'error');
+  }
+}
+
+// ═══════════════════════════════════════════════════════════
+// FORMBUILDER
+// ═══════════════════════════════════════════════════════════
+
+async function loadFormbuilder() {
+  await loadSettings();
+  try {
+    fieldMap = JSON.parse(allSettings.formbuilder_field_map || '{}');
+  } catch (e) {
+    fieldMap = {};
+  }
+  renderFieldMap();
+}
+
+function renderFieldMap() {
+  var container = document.getElementById('fb-rows');
+  container.innerHTML = '';
+  var keys = Object.keys(fieldMap);
+  keys.forEach(function(k) {
+    var div = document.createElement('div');
+    div.className = 'st-fb-row';
+    div.innerHTML =
+      '<input class="st-input" style="width:120px" value="' + esc(k) + '" data-fb-key="' + esc(k) + '" onchange="renameFieldMapKey(this,\'' + esc(k) + '\')">' +
+      '<span class="st-fb-arrow">\u2192</span>' +
+      '<input class="st-input" style="width:200px" value="' + esc(fieldMap[k]) + '" onchange="fieldMap[\'' + esc(k) + '\']=this.value">' +
+      '<button class="st-btn st-btn-sm st-btn-danger" onclick="deleteFieldMapRow(\'' + esc(k) + '\')" title="Fjern">\u00d7</button>';
+    container.appendChild(div);
+  });
+
+  // Add-knap
+  var addDiv = document.createElement('div');
+  addDiv.className = 'st-fb-row';
+  addDiv.innerHTML = '<button class="st-btn st-btn-sm st-btn-secondary" onclick="addFieldMapRow()">+ Tilf\u00f8j felt</button>';
+  container.appendChild(addDiv);
+}
+
+function renameFieldMapKey(input, oldKey) {
+  var newKey = input.value.trim();
+  if (!newKey || newKey === oldKey) return;
+  var val = fieldMap[oldKey];
+  delete fieldMap[oldKey];
+  fieldMap[newKey] = val;
+  renderFieldMap();
+}
+
+function deleteFieldMapRow(key) {
+  delete fieldMap[key];
+  renderFieldMap();
+}
+
+function addFieldMapRow() {
+  var n = 'f_ny';
+  var i = 1;
+  while (fieldMap[n]) { n = 'f_ny' + (++i); }
+  fieldMap[n] = '';
+  renderFieldMap();
+}
+
+async function saveFieldMap() {
+  await saveSetting('formbuilder_field_map', JSON.stringify(fieldMap));
+  toast('Feltmapping gemt');
+}
+
+async function resetFieldMap() {
+  fieldMap = JSON.parse(JSON.stringify(DEFAULT_FIELD_MAP));
+  renderFieldMap();
+  await saveSetting('formbuilder_field_map', JSON.stringify(fieldMap));
+  toast('Nulstillet til standard');
+}
+
+// ═══════════════════════════════════════════════════════════
+// SYSTEM
+// ═══════════════════════════════════════════════════════════
+
+function loadSystemSection() {
+  var fields = [
+    { key: 'company_name',               label: 'Firmanavn',                    type: 'text' },
+    { key: 'bon_number_prefix',          label: 'Bon-nummer pr\u00e6fiks',      type: 'text' },
+    { key: 'bon_number_next',            label: 'N\u00e6ste bon-nummer',        type: 'number' },
+    { key: 'default_pax_per_box',        label: 'Pax per kasse',                type: 'number' },
+    { key: 'session_duration_office',    label: 'Session kontor (dage)',         type: 'number' },
+    { key: 'session_duration_kitchen',   label: 'Session k\u00f8kken (dage)',    type: 'number' },
+  ];
+
+  var container = document.getElementById('system-fields');
+  container.innerHTML = '';
+
+  fields.forEach(function(f) {
+    var val = allSettings[f.key] || '';
+    var div = document.createElement('div');
+    div.style.cssText = 'display:flex;gap:12px;align-items:center;margin-bottom:10px';
+    div.innerHTML =
+      '<label style="width:180px;font-size:14px;font-weight:500">' + f.label + '</label>' +
+      '<input class="st-input" id="sys-' + f.key + '" type="' + f.type + '" value="' + esc(val) + '" style="width:200px">' +
+      '<button class="st-btn st-btn-sm st-btn-primary" onclick="saveSystemField(\'' + f.key + '\')">Gem</button>';
+    container.appendChild(div);
+  });
+}
+
+async function saveSystemField(key) {
+  var val = document.getElementById('sys-' + key).value;
+  await saveSetting(key, val);
+}
+
+// ─── HELPERS ─────────────────────────────────────────────
+
+function esc(str) {
+  if (str == null) return '';
+  return String(str).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
+}
+
+// ─── START ───────────────────────────────────────────────
+init();
+</script>
 </body>
 </html>

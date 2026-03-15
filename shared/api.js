@@ -189,3 +189,101 @@ function fetchBonsCalendar(year, month, status) {
 function fetchSmartplanShifts(from, to) {
     return apiFetch('/smartplan/shifts?from=' + encodeURIComponent(from) + '&to=' + encodeURIComponent(to));
 }
+
+/* ── SETTINGS ────────────────────────────────────────────── */
+
+function fetchSettings() {
+    return apiFetch('/settings');
+}
+
+function patchSetting(key, value) {
+    return apiFetch('/settings/' + encodeURIComponent(key), {
+        method: 'PATCH',
+        body: JSON.stringify({ value }),
+    });
+}
+
+/* ── USERS ───────────────────────────────────────────────── */
+
+function fetchUsers() {
+    return apiFetch('/users');
+}
+
+function createUser(data) {
+    return apiFetch('/users', {
+        method: 'POST',
+        body: JSON.stringify(data),
+    });
+}
+
+function patchUser(id, fields) {
+    return apiFetch('/users/' + id, {
+        method: 'PATCH',
+        body: JSON.stringify(fields),
+    });
+}
+
+function setUserPassword(id, password) {
+    return apiFetch('/users/' + id + '/password', {
+        method: 'POST',
+        body: JSON.stringify({ password }),
+    });
+}
+
+/* ── MAIL ────────────────────────────────────────────────── */
+
+function fetchMailTemplates() {
+    return apiFetch('/mail/templates');
+}
+
+function patchMailTemplate(key, fields) {
+    return apiFetch('/mail/templates/' + encodeURIComponent(key), {
+        method: 'PATCH',
+        body: JSON.stringify(fields),
+    });
+}
+
+function sendTestMail(to, templateKey) {
+    return apiFetch('/mail/test', {
+        method: 'POST',
+        body: JSON.stringify({ to, templateKey }),
+    });
+}
+
+/* ── PRICE CATEGORIES (CRUD) ─────────────────────────────── */
+
+function createPriceCategory(data) {
+    return apiFetch('/price-categories', {
+        method: 'POST',
+        body: JSON.stringify(data),
+    });
+}
+
+function patchPriceCategory(id, fields) {
+    return apiFetch('/price-categories/' + id, {
+        method: 'PATCH',
+        body: JSON.stringify(fields),
+    });
+}
+
+/* ── PAYMENT TYPES (CRUD) ────────────────────────────────── */
+
+function createPaymentType(data) {
+    return apiFetch('/payment-types', {
+        method: 'POST',
+        body: JSON.stringify(data),
+    });
+}
+
+function patchPaymentType(id, fields) {
+    return apiFetch('/payment-types/' + id, {
+        method: 'PATCH',
+        body: JSON.stringify(fields),
+    });
+}
+
+/* ── LOCATIONS ───────────────────────────────────────────── */
+
+function fetchLocations() {
+    return apiFetch('/settings/locations');
+}

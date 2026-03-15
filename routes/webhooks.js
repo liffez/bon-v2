@@ -4,6 +4,21 @@ const { getDb } = require('../db/database');
 const { logChange, nextBonNumber, getStatusId } = require('../db/helpers');
 const { broadcast } = require('../shared/sse');
 
+// Default formular-felt → bon-felt mapping (bruges i Settings UI til nulstilling)
+const DEFAULT_FIELD_MAP = {
+    f2: 'customer_name',
+    f3: 'customer_email',
+    f4: 'customer_phone',
+    f5: 'company_name',
+    f7_date: 'delivery_date',
+    f7_time: 'delivery_time',
+    f8: 'pax',
+    f9: 'customer_wishes',
+    f11_navn: 'day_contact_name',
+    f11_tlf: 'day_contact_phone',
+    f12: 'invoice_info'
+};
+
 // POST /api/webhooks/bestilling
 // Altid 200 retur — fejl logges, vises ikke til kunden
 router.post('/bestilling', async (req, res) => {
@@ -172,3 +187,4 @@ async function handleBestilling(data) {
 }
 
 module.exports = router;
+module.exports.DEFAULT_FIELD_MAP = DEFAULT_FIELD_MAP;

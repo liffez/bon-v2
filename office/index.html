@@ -277,6 +277,10 @@
 <body class="zone-office">
   <div class="office-topbar">
     <h1>Bon v2 — Office</h1>
+    <div style="display:flex;align-items:center;gap:12px;">
+      <a href="/settings/index.html" style="color:var(--color-text-dim,#888);font-size:20px;text-decoration:none;display:flex;align-items:center;" title="Settings">&#9881;</a>
+      <button id="topbar-logout" style="padding:6px 14px;border:1px solid var(--color-border,#d7d1ca);border-radius:6px;background:var(--color-surface,#fff);font-size:13px;cursor:pointer;font-family:inherit;">Log ud</button>
+    </div>
   </div>
   <main id="office-content">
     <!-- Listview mounts here -->
@@ -297,6 +301,12 @@
     (async () => {
       const currentUser = await checkAuth();
       if (!currentUser) return;
+
+      // ─── Topbar ─────────────────────────────────────────
+      document.getElementById('topbar-logout').addEventListener('click', async () => {
+        await fetch('/api/auth/logout', { method: 'POST' });
+        location.href = '/shared/login.html';
+      });
 
       // ─── Drawer ──────────────────────────────────────────
       const drawer = new BonDrawer();

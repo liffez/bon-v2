@@ -52,6 +52,13 @@ app.use('/api/notifications',  require('./routes/notifications'));
 app.use('/api/price-categories', require('./routes/price_categories'));
 app.use('/api/addresses',     require('./routes/addresses'));
 app.use('/api/webhooks',      require('./routes/webhooks'));
+app.use('/api/users',         require('./routes/users'));
+app.use('/api/mail',          require('./routes/mail'));
+
+// ─── MAIL POLLING ───────────────────────────────────────────────────────────
+
+const { startPolling } = require('./services/mailService');
+startPolling().catch(err => console.error('[mail] Polling fejl ved opstart:', err.message));
 
 // ─── START ─────────────────────────────────────────────────────────────────
 
@@ -73,6 +80,7 @@ app.listen(PORT, () => {
 ║    Køkken I Dag   /kitchen/today.html                ║
 ║    Køkken Senere  /kitchen/later.html                ║
 ║    Office         /office/index.html                 ║
+║    Settings       /settings/index.html               ║
 ╠──────────────────────────────────────────────────────╣
 ║  API                                                 ║
 ║    GET  /api/bons/today      Dagens bonner           ║

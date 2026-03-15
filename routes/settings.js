@@ -8,6 +8,12 @@ router.get('/', handle((req, res) => {
     res.json(getDb().prepare(`SELECT key, value, description FROM settings`).all());
 }));
 
+// GET /api/settings/locations
+router.get('/locations', handle((req, res) => {
+    const rows = getDb().prepare('SELECT id, name, code, grocy_api_url, address, is_active FROM locations ORDER BY id').all();
+    res.json(rows);
+}));
+
 // PATCH /api/settings/:key
 router.patch('/:key', handle((req, res) => {
     const { value } = req.body;

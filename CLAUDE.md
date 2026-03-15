@@ -82,10 +82,13 @@ bon-v2/
 │   ├── payment_types.js ← /api/payment-types
 │   ├── price_categories.js ← /api/price-categories
 │   ├── addresses.js  ← /api/addresses (POST)
-│   └── webhooks.js   ← /api/webhooks/bestilling (ingen auth)
+│   ├── webhooks.js   ← /api/webhooks/bestilling (ingen auth)
+│   ├── users.js      ← /api/users (admin CRUD)
+│   └── mail.js       ← /api/mail/* (admin, skabeloner + test)
 ├── services/
 │   ├── grocyAdapter.js  ← Readonly Grocy API adapter med cache
 │   ├── smartplanAdapter.js ← Smartplan OAuth2 adapter (shifts + worklogs)
+│   ├── mailService.js   ← SMTP afsendelse + IMAP polling + tag-routing
 │   └── quConvert.js     ← Grocy quantity unit conversions
 ├── db/
 │   ├── database.js   ← getDb() singleton (lazy init + migrations)
@@ -344,7 +347,36 @@ Nye filer placeres præcis der de hører hjemme — kopieres ikke.
   - Smartplan bemanding (async, non-blocking) for I DAG og dato-filter
   - SSE: bon_created/bon_updated → re-fetch
   - Klik → åbner BonDrawer
-- [x] `office/index.html` — Monteret listview, CSS, SSE-handlers
+- [x] `office/index.html` — Monteret listview, CSS, SSE-handlers, Settings-link + Log ud-knap i topbar
+
+### Fase 1e — Settings UI + Mail
+- [x] Migration 013: `mail_templates`, `customer_mails`, `bon_mails.matched_by`, settings seed (SMTP/IMAP/signatur/formbuilder/session)
+- [x] Migration 014: SMTP kontakt@ settings seed
+- [x] npm: nodemailer, imapflow
+- [x] `services/mailService.js` — SMTP afsendelse (2 transports: bon@ + kontakt@) + IMAP polling + tag-routing (#B/#K)
+  - `parseTag(subject)` — regex for `#B{num}` og `#K{num}`
+  - `renderTemplate(body, vars)` — `{{variabel}}` substitution + signatur
+  - `sendMail({ to, subject, bodyText, bonId, smtpPrefix })` — SMTP send, gem i bon_mails
+  - `sendFromTemplate({ templateKey, to, vars, bonId })` — skabelon-baseret afsendelse
+  - `pollMailbox(config)` — IMAP polling, route via tags til bon_mails/customer_mails
+  - `startPolling()` — interval-baseret polling for bon@ og kontakt@
+- [x] `routes/users.js` — CRUD (admin-only): GET/POST/PATCH + POST password
+- [x] `routes/mail.js` — Mail-skabeloner (admin-only): GET/PATCH templates + POST test
+- [x] `routes/price_categories.js` — Udvidet med POST/PATCH (admin-only)
+- [x] `routes/payment_types.js` — Udvidet med POST/PATCH (admin-only)
+- [x] `routes/webhooks.js` — DEFAULT_FIELD_MAP eksport
+- [x] `routes/settings.js` — GET /api/settings/locations
+- [x] `server.js` — Mount /api/users, /api/mail + startPolling()
+- [x] `shared/api.js` — 14 nye funktioner (users, mail, settings, price-cats, pay-types, locations)
+- [x] `settings/index.html` — Fuld Settings UI med 7 sektioner:
+  - Brugere (CRUD, rolle, aktiv-toggle, password)
+  - Priskategorier (label-redigering, opret ny)
+  - Betalingstyper (label-redigering, opret ny)
+  - Grocy (read-only lokationer, test-forbindelse)
+  - Mail (2× SMTP: bon@ + kontakt@, 2× IMAP, signatur, skabelon med variabel-tags, test-mail)
+  - Formbuilder (feltmapping redigering, nulstil til standard)
+  - System (6 nøgler: company_name, bon_number_prefix/next, pax_per_box, session_duration)
+- [x] `.env` / `.env.example` — SMTP_PASSWORD, SMTP_KONTAKT_PASSWORD, IMAP_BON_PASSWORD, IMAP_KONTAKT_PASSWORD
 
 ---
 
@@ -352,7 +384,7 @@ Nye filer placeres præcis der de hører hjemme — kopieres ikke.
 
 > ✏️ Opdateret 15. marts 2026.
 >
-> **Fase 1a–1d + 3A komplet.** Auth, kunde-søg, bon-opret/drawer, webhook, VarePicker, office listview er på plads.
+> **Fase 1a–1e + 3A komplet.** Auth, kunde-søg, bon-opret/drawer, webhook, VarePicker, office listview, settings UI + mail er på plads.
 > Næste: Opgave 6 (Indkøb/Bestilling) eller videre office-features.
 > Småting til senere: Pris-visning i Råvarer som setting, Kort erstattes af logistik-modul, leveringsmetode-ikoner til settings-tabel (fase 4+).
 > Webhook-URL skal sættes i formbuilder admin-panel + ny HTML publiceres til ristetrug.dk/bestil.
@@ -614,6 +646,18 @@ POST   /api/addresses                                    routes/addresses.js
 PATCH  /api/bons/:id            { ...fields }            routes/bons.js
 DELETE /api/bons/:id/lines/:lid                          routes/bons.js
 POST   /api/webhooks/bestilling  (ingen auth, altid 200) routes/webhooks.js
+GET    /api/users                                       routes/users.js (admin)
+POST   /api/users                                       routes/users.js (admin)
+PATCH  /api/users/:id                                   routes/users.js (admin)
+POST   /api/users/:id/password                          routes/users.js (admin)
+GET    /api/mail/templates                               routes/mail.js (admin)
+PATCH  /api/mail/templates/:key                          routes/mail.js (admin)
+POST   /api/mail/test                                    routes/mail.js (admin)
+GET    /api/settings/locations                           routes/settings.js
+POST   /api/price-categories                             routes/price_categories.js (admin)
+PATCH  /api/price-categories/:id                         routes/price_categories.js (admin)
+POST   /api/payment-types                                routes/payment_types.js (admin)
+PATCH  /api/payment-types/:id                            routes/payment_types.js (admin)
 ```
 
 ---
