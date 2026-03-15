@@ -24,35 +24,265 @@
       margin: 0;
       font-weight: 700;
     }
-    .btn-ny-bon {
+    #office-content {
+      padding: var(--space-l, 24px);
+    }
+
+    /* ── Bons List ─────────────────────────────────────────── */
+
+    .bl-toolbar {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 12px;
+      margin-bottom: 12px;
+      flex-wrap: wrap;
+    }
+    .bl-search-wrap { flex: 1; min-width: 200px; }
+    .bl-search {
+      width: 100%;
+      padding: 8px 12px;
+      border: 1px solid var(--color-border, #d7d1ca);
+      border-radius: 6px;
+      font-size: 14px;
+      font-family: inherit;
+      background: var(--color-surface, #fff);
+    }
+    .bl-search:focus { outline: 2px solid var(--brand-primary, #8e631f); outline-offset: -1px; }
+    .bl-toolbar-right { display: flex; align-items: center; gap: 8px; }
+    .bl-ny-btn {
       padding: 8px 20px;
       border: none;
       border-radius: 6px;
       background: var(--brand-primary, #8e631f);
       color: #fff;
-      font-size: var(--font-size-m, 15px);
+      font-size: 14px;
       font-weight: 600;
       cursor: pointer;
       font-family: inherit;
+      white-space: nowrap;
     }
-    .btn-ny-bon:hover {
-      filter: brightness(1.1);
+    .bl-ny-btn:hover { filter: brightness(1.1); }
+
+    /* Column chooser */
+    .bl-col-chooser { position: relative; }
+    .bl-col-btn {
+      padding: 8px 14px;
+      border: 1px solid var(--color-border, #d7d1ca);
+      border-radius: 6px;
+      background: var(--color-surface, #fff);
+      font-size: 13px;
+      cursor: pointer;
+      font-family: inherit;
+      white-space: nowrap;
     }
-    #office-content {
-      padding: var(--space-l, 24px);
+    .bl-col-btn:hover { background: var(--color-background, #f5f4f2); }
+    .bl-col-dropdown {
+      display: none;
+      position: absolute;
+      top: 100%;
+      right: 0;
+      margin-top: 4px;
+      background: var(--color-surface, #fff);
+      border: 1px solid var(--color-border, #d7d1ca);
+      border-radius: 8px;
+      box-shadow: 0 4px 16px rgba(0,0,0,0.12);
+      padding: 8px;
+      z-index: 100;
+      min-width: 180px;
+    }
+    .bl-col-dropdown.open { display: block; }
+    .bl-col-item {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      padding: 6px 8px;
+      font-size: 13px;
+      cursor: pointer;
+      border-radius: 4px;
+      white-space: nowrap;
+    }
+    .bl-col-item:hover { background: var(--color-background, #f5f4f2); }
+
+    /* Filters */
+    .bl-filters {
+      display: flex;
+      align-items: center;
+      gap: 6px;
+      margin-bottom: 12px;
+      flex-wrap: wrap;
+    }
+    .bl-filter-btn {
+      padding: 6px 14px;
+      border: 1px solid var(--color-border, #d7d1ca);
+      border-radius: 20px;
+      background: var(--color-surface, #fff);
+      font-size: 13px;
+      font-weight: 500;
+      cursor: pointer;
+      font-family: inherit;
+      white-space: nowrap;
+      transition: background 0.15s, border-color 0.15s;
+    }
+    .bl-filter-btn:hover { background: var(--color-background, #f5f4f2); }
+    .bl-filter-btn.active {
+      background: var(--brand-primary, #8e631f);
+      color: #fff;
+      border-color: var(--brand-primary, #8e631f);
+    }
+    .bl-date-wrap {
+      display: flex;
+      align-items: center;
+      gap: 4px;
+      font-size: 13px;
+    }
+    .bl-date-wrap label { color: var(--color-text-dim, #888); white-space: nowrap; }
+    .bl-date-input {
+      padding: 5px 8px;
+      border: 1px solid var(--color-border, #d7d1ca);
+      border-radius: 6px;
+      font-size: 13px;
+      font-family: inherit;
+    }
+
+    /* Summary */
+    .bl-summary {
+      padding: 10px 16px;
+      background: var(--brand-primary-light, #f1e6b2);
+      border-radius: 8px;
+      font-size: 14px;
+      font-weight: 600;
+      color: var(--brand-primary, #8e631f);
+      margin-bottom: 12px;
+    }
+
+    /* Table */
+    .bl-table-wrap { overflow-x: auto; }
+    .bl-table {
+      width: 100%;
+      border-collapse: collapse;
+      font-size: 14px;
+    }
+    .bl-th {
+      padding: 8px 12px;
+      text-align: left;
+      font-size: 12px;
+      font-weight: 600;
+      text-transform: uppercase;
+      letter-spacing: 0.03em;
+      color: var(--color-text-dim, #888);
+      border-bottom: 2px solid var(--color-border, #d7d1ca);
+      white-space: nowrap;
+      user-select: none;
+    }
+    .bl-th.bl-sortable { cursor: pointer; }
+    .bl-th.bl-sortable:hover { color: var(--brand-primary, #8e631f); }
+    .bl-th.bl-sorted::after {
+      content: ' \25B2';
+      font-size: 10px;
+    }
+    .bl-th.bl-sorted.desc::after {
+      content: ' \25BC';
+    }
+
+    /* Rows */
+    .bl-row { cursor: pointer; }
+    .bl-row-main td {
+      padding: 10px 12px 2px;
+      border-top: 1px solid var(--color-border, #d7d1ca);
+    }
+    .bl-row-sub td {
+      padding: 0 12px 8px;
+      font-size: 13px;
+    }
+    .bl-row-main:first-child td { border-top: none; }
+    .bl-row:hover td { background: var(--color-background, #f5f4f2); }
+    .bl-row-main:hover + .bl-row-sub td { background: var(--color-background, #f5f4f2); }
+
+    /* Production */
+    .bl-production { border-left: 3px solid #3a7bd5; }
+    .bl-prod-icon { font-size: 12px; }
+
+    /* Cells */
+    .bl-td-bon { font-weight: 700; white-space: nowrap; vertical-align: top; }
+    .bl-bon-number { font-variant-numeric: tabular-nums; }
+    .bl-td-date { white-space: nowrap; }
+    .bl-td-date.bl-today { font-weight: 600; color: var(--brand-primary, #8e631f); }
+    .bl-td-time { white-space: nowrap; font-variant-numeric: tabular-nums; }
+    .bl-td-status { vertical-align: top; white-space: nowrap; }
+    .bl-td-num { text-align: right; font-variant-numeric: tabular-nums; }
+    .bl-td-dim { color: var(--color-text-dim, #888); }
+    .bl-td-opt { white-space: nowrap; }
+
+    /* Status badge */
+    .bl-status-badge {
+      display: inline-block;
+      padding: 3px 10px;
+      border-radius: 12px;
+      font-size: 11px;
+      font-weight: 700;
+      letter-spacing: 0.03em;
+    }
+
+    /* Mail */
+    .bl-mail-icon {
+      color: #d4781a;
+      font-size: 13px;
+      margin-left: 4px;
+    }
+    .bl-mail-badge {
+      display: inline-block;
+      padding: 2px 8px;
+      border-radius: 10px;
+      background: #d4781a;
+      color: #fff;
+      font-size: 11px;
+      font-weight: 600;
+    }
+
+    /* Staff badge */
+    .bl-staff-badge {
+      display: inline-block;
+      margin-left: 12px;
+      padding: 2px 10px;
+      border-radius: 10px;
+      background: var(--brand-primary, #8e631f);
+      color: #fff;
+      font-size: 12px;
+      font-weight: 600;
+      cursor: default;
+      vertical-align: middle;
+    }
+
+    /* Empty state */
+    .bl-empty {
+      text-align: center;
+      padding: 40px 12px;
+      color: var(--color-text-dim, #888);
+      font-size: 15px;
+    }
+
+    /* ── Responsive ─────────────────────────────────────── */
+    @media (max-width: 768px) {
+      #office-content { padding: var(--space-s, 8px); }
+      .bl-toolbar { flex-direction: column; }
+      .bl-search-wrap { width: 100%; }
+      .bl-filters { overflow-x: auto; flex-wrap: nowrap; padding-bottom: 4px; }
+      .bl-row-sub { display: none; }
+      .bl-td-bon { font-size: 13px; }
+      .bl-th, .bl-row-main td { padding: 6px 8px 2px; }
     }
   </style>
 </head>
 <body class="zone-office">
   <div class="office-topbar">
     <h1>Bon v2 — Office</h1>
-    <button class="btn-ny-bon" id="btn-ny-bon">+ Ny bon</button>
   </div>
   <main id="office-content">
-    <!-- Views loades dynamisk -->
+    <!-- Listview mounts here -->
   </main>
 
-  <!-- Scripts: globals først, derefter komponenter -->
+  <!-- Scripts: globals first, then components -->
   <script src="/shared/utils.js"></script>
   <script src="../shared/api.js"></script>
   <script src="../BonConfig.js"></script>
@@ -61,6 +291,7 @@
   <script src="../shared/bon_opret_modal.js"></script>
   <script src="../shared/vare_picker.js"></script>
   <script src="../shared/bon_drawer.js"></script>
+  <script src="views/bons-list.js"></script>
 
   <script>
     (async () => {
@@ -101,7 +332,11 @@
         onCreated: (bonId) => openDrawer(bonId)
       });
 
-      document.getElementById('btn-ny-bon').addEventListener('click', () => modal.open());
+      // ─── Listview ────────────────────────────────────────
+      initBonsList(document.getElementById('office-content'), {
+        openDrawer: openDrawer,
+        openNewBon: () => modal.open(),
+      });
 
       // ─── URL-sync ────────────────────────────────────────
       const bonIdFromUrl = new URLSearchParams(window.location.search).get('bon');
@@ -122,8 +357,8 @@
 
       // ─── SSE ─────────────────────────────────────────────
       connectSSE('/api/sse', {
-        bon_created: () => { /* Kan opdatere listview når det bygges */ },
-        bon_updated: () => { /* Kan opdatere listview når det bygges */ },
+        bon_created: (data) => _blHandleBonCreated(data),
+        bon_updated: (data) => _blHandleBonUpdated(data),
       });
     })();
   </script>

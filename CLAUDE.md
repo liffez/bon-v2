@@ -326,15 +326,35 @@ Nye filer placeres præcis der de hører hjemme — kopieres ikke.
 - [x] `shared/api.js` — deleteBonLine() tilføjet
 - [x] Smartplan-loading gjort asynkron i kalender (renderes bagefter)
 
+### Fase 3A — Office Listview
+- [x] `routes/bons.js` — GET /api/bons udvidet med server-side filtre, sortering, pagination
+  - Kommasepareret status-filter, `date=today` special case, smart search (cifre→prefix, tekst→contains)
+  - SORT_WHITELIST mod SQL injection, `unread_mail=1` filter
+  - Nye joins: price_categories, subqueries for unread_mail_count + latest_delivery_event
+  - Nye felter: delivery_time, courier_arrival_time, total_price, payment_type, delivery_method, etc.
+- [x] `office/views/bons-list.js` — Komplet listview-komponent
+  - Mutex-filtre: I DAG (default), NY, ULÆST MAIL, Dato-picker, Alle
+  - Debounced søgning (300ms), ESC rydder
+  - Kolonnevælger med localStorage persistens
+  - Sortering via header-klik med localStorage persistens
+  - To-linje rækker (kunde+firma, bon#+status med rowspan)
+  - Pax/Enheder kombineret kolonne ("25 / 60 enh.")
+  - Bud-kolonne med leveringsmetode-ikon (🚲/🚕/🚛/🏠) + budtidspunkt, hover viser label
+  - Belastningsoverblik for enkelt-dags views
+  - Smartplan bemanding (async, non-blocking) for I DAG og dato-filter
+  - SSE: bon_created/bon_updated → re-fetch
+  - Klik → åbner BonDrawer
+- [x] `office/index.html` — Monteret listview, CSS, SSE-handlers
+
 ---
 
 ## Næste opgave
 
 > ✏️ Opdateret 15. marts 2026.
 >
-> **Fase 1a–1d komplet.** Auth, kunde-søg, bon-opret/drawer, webhook, VarePicker er på plads.
-> Næste: Opgave 6 (Indkøb/Bestilling) eller office listview.
-> Småting til senere: Pris-visning i Råvarer som setting, Kort erstattes af logistik-modul.
+> **Fase 1a–1d + 3A komplet.** Auth, kunde-søg, bon-opret/drawer, webhook, VarePicker, office listview er på plads.
+> Næste: Opgave 6 (Indkøb/Bestilling) eller videre office-features.
+> Småting til senere: Pris-visning i Råvarer som setting, Kort erstattes af logistik-modul, leveringsmetode-ikoner til settings-tabel (fase 4+).
 > Webhook-URL skal sættes i formbuilder admin-panel + ny HTML publiceres til ristetrug.dk/bestil.
 
 ---

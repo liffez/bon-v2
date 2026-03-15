@@ -8,39 +8,111 @@ const { findConversionFactor, convertAndFormat } = require('../services/quConver
 
 // ─── GET /api/bons — liste med filter ────────────────────────────────────────
 
+const SORT_WHITELIST = {
+    delivery_date: 'b.delivery_date',
+    delivery_time: 'b.delivery_time',
+    bon_number: 'b.bon_number',
+    customer_name: 'contact_name_full',
+    company_name: 'co.name',
+    pax: 'b.pax',
+    status: 'sd.code',
+    courier_arrival_time: 'b.courier_arrival_time',
+    total_price: 'b.total_price',
+};
+
 router.get('/', handle((req, res) => {
     const db = getDb();
-    const { status, date, from, to, q, location } = req.query;
+    const { status, date, date_from, date_to, q, location, unread_mail, sort, dir, limit, offset } = req.query;
     const where = ['1=1'];
     const args  = [];
 
-    if (status)   { where.push('sd.code = ?');          args.push(status); }
-    if (date)     { where.push('b.delivery_date = ?');   args.push(date); }
-    if (from)     { where.push('b.delivery_date >= ?');  args.push(from); }
-    if (to)       { where.push('b.delivery_date <= ?');  args.push(to); }
-    if (location) { where.push('l.code = ?');            args.push(location); }
-    if (q) {
-        where.push('(b.bon_number LIKE ? OR co.name LIKE ? OR c.first_name LIKE ?)');
-        args.push(`%${q}%`, `%${q}%`, `%${q}%`);
+    // Status — kommasepareret
+    if (status) {
+        const codes = status.split(',').map(s => s.trim()).filter(Boolean);
+        if (codes.length === 1) {
+            where.push('sd.code = ?');
+            args.push(codes[0]);
+        } else if (codes.length > 1) {
+            where.push('sd.code IN (' + codes.map(() => '?').join(',') + ')');
+            args.push(...codes);
+        }
     }
+
+    // Dato — 'today' oversættes
+    if (date) {
+        const d = date === 'today' ? new Date().toISOString().slice(0, 10) : date;
+        where.push('b.delivery_date = ?');
+        args.push(d);
+    }
+    if (date_from) { where.push('b.delivery_date >= ?'); args.push(date_from); }
+    if (date_to)   { where.push('b.delivery_date <= ?'); args.push(date_to); }
+
+    if (location) { where.push('l.code = ?'); args.push(location); }
+
+    // Søgning
+    if (q) {
+        const isDigits = /^\d+$/.test(q);
+        if (isDigits) {
+            where.push('(b.bon_number LIKE ?)');
+            args.push(`${q}%`);
+        } else {
+            const like = `%${q}%`;
+            where.push("(b.bon_number LIKE ? OR c.first_name || ' ' || COALESCE(c.last_name,'') LIKE ? OR co.name LIKE ?)");
+            args.push(like, like, like);
+        }
+    }
+
+    // Ulæst mail
+    if (unread_mail === '1') {
+        where.push(`(SELECT COUNT(*) FROM bon_mails m WHERE m.bon_id = b.id AND m.direction = 'inbound' AND m.is_read = 0) > 0`);
+    }
+
+    // Sortering
+    const sortCol = SORT_WHITELIST[sort] || 'b.delivery_date';
+    const sortDir = dir === 'desc' ? 'DESC' : 'ASC';
+    const secondarySort = sort === 'delivery_date' ? `, b.delivery_time ${sortDir}` : '';
+
+    // Pagination
+    const lim = Math.min(parseInt(limit) || 100, 500);
+    const off = parseInt(offset) || 0;
 
     const rows = db.prepare(`
         SELECT
-            b.id, b.bon_number, b.delivery_date, b.pickup_time,
-            b.pax, b.total_units, b.delivery_type,
-            sd.code AS status_code, sd.label AS status_label, sd.color AS status_color,
-            co.name AS company_name,
+            b.id, b.bon_number, b.delivery_date, b.delivery_time, b.pickup_time,
+            b.courier_arrival_time,
+            b.pax, b.total_units, b.total_price,
+            b.payment_type, b.delivery_type, b.delivery_method, b.kitchen_selects,
+            b.price_category_id,
+            pc.code  AS price_category_code,
+            pc.label AS price_category_label,
+            sd.code  AS status_code,
+            sd.label AS status_label,
+            sd.color AS status_color,
             c.first_name || ' ' || COALESCE(c.last_name,'') AS contact_name_full,
-            l.name AS location_name
+            c.phone  AS customer_phone,
+            c.email  AS customer_email,
+            co.name  AS company_name,
+            co.ean   AS company_ean,
+            l.name   AS location_name,
+            (SELECT COUNT(*) FROM bon_mails m
+             WHERE m.bon_id = b.id AND m.direction = 'inbound' AND m.is_read = 0
+            ) AS unread_mail_count,
+            (SELECT de.event_type FROM delivery_events de
+             WHERE de.bon_id = b.id ORDER BY de.event_time DESC LIMIT 1
+            ) AS latest_delivery_event,
+            (SELECT de.event_time FROM delivery_events de
+             WHERE de.bon_id = b.id ORDER BY de.event_time DESC LIMIT 1
+            ) AS latest_delivery_event_time
         FROM bons b
         JOIN   status_definitions sd ON b.status_id  = sd.id
         JOIN   locations l           ON b.location_id = l.id
         LEFT JOIN customers c        ON b.customer_id = c.id
         LEFT JOIN companies co       ON b.company_id  = co.id
+        LEFT JOIN price_categories pc ON b.price_category_id = pc.id
         WHERE ${where.join(' AND ')}
-        ORDER BY b.delivery_date DESC, b.pickup_time
-        LIMIT 200
-    `).all(...args);
+        ORDER BY ${sortCol} ${sortDir}${secondarySort}
+        LIMIT ? OFFSET ?
+    `).all(...args, lim, off);
 
     res.json(rows);
 }));
