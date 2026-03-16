@@ -10,7 +10,15 @@
   <link rel="stylesheet" href="../shared/bon_opret_modal.css">
   <link rel="stylesheet" href="../shared/bon_drawer.css">
   <link rel="stylesheet" href="../shared/vare_picker.css">
+  <link rel="stylesheet" href="../shared/dashboard_chart.css">
+  <!-- Chart.js removed — custom canvas chart in shared/dashboard_chart.js -->
   <style>
+    /* ── Shell layout ───────────────────────────────────────── */
+    .office-shell {
+      display: flex;
+      height: 100vh;
+      flex-direction: column;
+    }
     .office-topbar {
       display: flex;
       align-items: center;
@@ -18,13 +26,115 @@
       padding: var(--space-m, 16px) var(--space-l, 24px);
       border-bottom: 1px solid var(--color-border, #d7d1ca);
       background: var(--color-surface, #fff);
+      flex-shrink: 0;
     }
     .office-topbar h1 {
       font-size: var(--font-size-l, 18px);
       margin: 0;
       font-weight: 700;
     }
+    .office-body {
+      display: flex;
+      flex: 1;
+      overflow: hidden;
+    }
+
+    /* ── Sidebar ────────────────────────────────────────────── */
+    .office-sidebar {
+      width: 200px;
+      flex-shrink: 0;
+      background: #3d2a0f;
+      display: flex;
+      flex-direction: column;
+      padding: 0;
+      color: rgba(255,255,255,0.75);
+    }
+    .sidebar-brand {
+      padding: 14px 16px 10px;
+      font-size: 14px;
+      font-weight: 900;
+      color: rgba(255,255,255,0.9);
+      border-bottom: 1px solid rgba(255,255,255,0.08);
+    }
+    .sidebar-nav {
+      flex: 1;
+      display: flex;
+      flex-direction: column;
+      gap: 0;
+      padding: 8px 8px;
+      overflow-y: auto;
+    }
+    .sidebar-group-label {
+      font-size: 9px;
+      font-weight: 700;
+      text-transform: uppercase;
+      letter-spacing: .6px;
+      color: rgba(255,255,255,0.3);
+      padding: 12px 12px 4px;
+    }
+    .sidebar-link {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      padding: 8px 12px;
+      border-radius: 6px;
+      text-decoration: none;
+      color: rgba(255,255,255,0.7);
+      font-size: 13px;
+      font-weight: 500;
+      cursor: pointer;
+      border: none;
+      background: none;
+      font-family: inherit;
+      width: 100%;
+      text-align: left;
+      transition: background 0.12s;
+    }
+    .sidebar-link:hover {
+      background: rgba(255,255,255,0.08);
+      color: rgba(255,255,255,0.95);
+    }
+    .sidebar-link.active {
+      background: rgba(255,255,255,0.12);
+      color: #f1e6b2;
+      font-weight: 700;
+    }
+    .sidebar-link.disabled {
+      opacity: 0.3;
+      cursor: default;
+      pointer-events: none;
+    }
+    .sidebar-link .sidebar-icon {
+      font-size: 14px;
+      width: 18px;
+      text-align: center;
+    }
+    .sidebar-bottom {
+      border-top: 1px solid rgba(255,255,255,0.08);
+      padding: 10px 8px;
+      display: flex;
+      flex-direction: column;
+      gap: 2px;
+    }
+    .sidebar-user {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      padding: 8px 12px;
+    }
+    .sidebar-user-av {
+      width: 28px; height: 28px; border-radius: 50%;
+      background: rgba(255,255,255,0.15);
+      display: flex; align-items: center; justify-content: center;
+      font-size: 11px; font-weight: 700; color: rgba(255,255,255,0.8);
+    }
+    .sidebar-user-name { font-size: 12px; font-weight: 700; color: rgba(255,255,255,0.8); }
+    .sidebar-user-role { font-size: 9px; color: rgba(255,255,255,0.4); }
+
+    /* ── Content ────────────────────────────────────────────── */
     #office-content {
+      flex: 1;
+      overflow-y: auto;
       padding: var(--space-l, 24px);
     }
 
@@ -264,6 +374,7 @@
 
     /* ── Responsive ─────────────────────────────────────── */
     @media (max-width: 768px) {
+      .office-sidebar { display: none; }
       #office-content { padding: var(--space-s, 8px); }
       .bl-toolbar { flex-direction: column; }
       .bl-search-wrap { width: 100%; }
@@ -275,16 +386,84 @@
   </style>
 </head>
 <body class="zone-office">
-  <div class="office-topbar">
-    <h1>Bon v2 — Office</h1>
-    <div style="display:flex;align-items:center;gap:12px;">
-      <a href="/settings/index.html" style="color:var(--color-text-dim,#888);font-size:20px;text-decoration:none;display:flex;align-items:center;" title="Settings">&#9881;</a>
-      <button id="topbar-logout" style="padding:6px 14px;border:1px solid var(--color-border,#d7d1ca);border-radius:6px;background:var(--color-surface,#fff);font-size:13px;cursor:pointer;font-family:inherit;">Log ud</button>
+  <div class="office-shell">
+    <div class="office-topbar">
+      <h1 id="office-topbar-title">Bon v2 — Office</h1>
+      <div id="office-topbar-right" style="display:flex;align-items:center;gap:12px;font-size:13px;"></div>
+    </div>
+    <div class="office-body">
+      <nav class="office-sidebar">
+        <div class="sidebar-brand">🍞 Ristet Rug</div>
+        <div class="sidebar-nav">
+          <div class="sidebar-group-label">Overblik</div>
+          <button class="sidebar-link" data-view="dashboard">
+            <span class="sidebar-icon">📊</span> Dashboard
+          </button>
+
+          <div class="sidebar-group-label">Ordrer</div>
+          <button class="sidebar-link" data-view="bons">
+            <span class="sidebar-icon">📋</span> Bons
+          </button>
+          <button class="sidebar-link" data-view="calendar">
+            <span class="sidebar-icon">📅</span> Kalender
+          </button>
+
+          <div class="sidebar-group-label">CRM</div>
+          <button class="sidebar-link disabled">
+            <span class="sidebar-icon">🔀</span> Pipeline
+          </button>
+          <button class="sidebar-link disabled">
+            <span class="sidebar-icon">📝</span> Tilbud
+          </button>
+          <button class="sidebar-link disabled">
+            <span class="sidebar-icon">👤</span> Kunder
+          </button>
+          <button class="sidebar-link disabled">
+            <span class="sidebar-icon">📞</span> Serviceopkald
+          </button>
+
+          <div class="sidebar-group-label">Drift</div>
+          <button class="sidebar-link disabled">
+            <span class="sidebar-icon">🚛</span> Logistik
+          </button>
+          <button class="sidebar-link disabled">
+            <span class="sidebar-icon">🍽️</span> Køkken
+          </button>
+          <button class="sidebar-link disabled">
+            <span class="sidebar-icon">🛒</span> Indkøb
+          </button>
+
+          <div class="sidebar-group-label">Økonomi</div>
+          <button class="sidebar-link disabled">
+            <span class="sidebar-icon">💰</span> Fakturering
+          </button>
+          <button class="sidebar-link disabled">
+            <span class="sidebar-icon">📈</span> Rapporter
+          </button>
+
+          <div class="sidebar-group-label">Team</div>
+          <button class="sidebar-link disabled">
+            <span class="sidebar-icon">🕐</span> Vagtplan
+          </button>
+          <button class="sidebar-link disabled">
+            <span class="sidebar-icon">📝</span> Whiteboard
+          </button>
+        </div>
+        <div class="sidebar-bottom">
+          <a href="/settings/index.html" class="sidebar-link">
+            <span class="sidebar-icon">⚙️</span> Settings
+          </a>
+          <button class="sidebar-link" id="sidebar-logout">
+            <span class="sidebar-icon">↩</span> Log ud
+          </button>
+          <div class="sidebar-user" id="sidebar-user"></div>
+        </div>
+      </nav>
+      <main id="office-content">
+        <!-- View mounts here -->
+      </main>
     </div>
   </div>
-  <main id="office-content">
-    <!-- Listview mounts here -->
-  </main>
 
   <!-- Scripts: globals first, then components -->
   <script src="/shared/utils.js"></script>
@@ -295,20 +474,34 @@
   <script src="../shared/bon_opret_modal.js"></script>
   <script src="../shared/vare_picker.js"></script>
   <script src="../shared/bon_drawer.js"></script>
+  <script src="../shared/dashboard_chart.js"></script>
   <script src="views/bons-list.js"></script>
+  <script src="views/dashboard.js"></script>
 
   <script>
     (async () => {
       const currentUser = await checkAuth();
       if (!currentUser) return;
 
-      // ─── Topbar ─────────────────────────────────────────
-      document.getElementById('topbar-logout').addEventListener('click', async () => {
+      // ─── Sidebar user ──────────────────────────────────────
+      const userEl = document.getElementById('sidebar-user');
+      if (userEl && currentUser) {
+        const name = currentUser.name || currentUser.email || '';
+        const init = name.charAt(0).toUpperCase();
+        const role = currentUser.role === 'admin' ? 'Administrator' : currentUser.role === 'kitchen' ? 'Køkken' : currentUser.role || '';
+        userEl.innerHTML = `
+          <div class="sidebar-user-av">${init}</div>
+          <div><div class="sidebar-user-name">${name}</div><div class="sidebar-user-role">${role}</div></div>
+        `;
+      }
+
+      // ─── Logout ──────────────────────────────────────────
+      document.getElementById('sidebar-logout').addEventListener('click', async () => {
         await fetch('/api/auth/logout', { method: 'POST' });
         location.href = '/shared/login.html';
       });
 
-      // ─── Drawer ──────────────────────────────────────────
+      // ─── Drawer (shared across views) ────────────────────
       const drawer = new BonDrawer();
 
       function openDrawer(bonId) {
@@ -317,13 +510,6 @@
         history.pushState({}, '', url);
         drawer.load(bonId);
         drawer.show();
-      }
-
-      function closeDrawer() {
-        const url = new URL(window.location);
-        url.searchParams.delete('bon');
-        history.pushState({}, '', url);
-        drawer.hide();
       }
 
       // Override drawer hide to sync URL
@@ -342,18 +528,76 @@
         onCreated: (bonId) => openDrawer(bonId)
       });
 
-      // ─── Listview ────────────────────────────────────────
-      initBonsList(document.getElementById('office-content'), {
-        openDrawer: openDrawer,
-        openNewBon: () => modal.open(),
+      // ─── View switching ──────────────────────────────────
+      const contentEl = document.getElementById('office-content');
+      let _currentView = null;
+
+      const views = {
+        dashboard: {
+          init: () => initOfficeDashboard(contentEl, { openDrawer }),
+          cleanup: () => { if (typeof cleanupOfficeDashboard === 'function') cleanupOfficeDashboard(); },
+        },
+        bons: {
+          init: () => initBonsList(contentEl, { openDrawer, openNewBon: () => modal.open() }),
+          cleanup: () => {},
+        },
+        calendar: {
+          init: () => {
+            contentEl.innerHTML = '<div style="text-align:center;padding:60px 20px;color:var(--color-text-dim,#888);font-size:15px;">Kalender kommer snart...</div>';
+          },
+          cleanup: () => {},
+        },
+      };
+
+      function switchView(viewName) {
+        if (_currentView === viewName) return;
+
+        // Cleanup previous
+        if (_currentView && views[_currentView]?.cleanup) {
+          views[_currentView].cleanup();
+        }
+
+        // Clear content
+        contentEl.innerHTML = '';
+        _currentView = viewName;
+
+        // Update sidebar active state
+        document.querySelectorAll('.sidebar-link[data-view]').forEach(btn => {
+          btn.classList.toggle('active', btn.dataset.view === viewName);
+        });
+
+        // Update URL
+        const url = new URL(window.location);
+        url.searchParams.set('view', viewName);
+        if (!url.searchParams.has('bon')) {
+          history.replaceState({}, '', url);
+        }
+
+        // Init view
+        views[viewName]?.init();
+      }
+
+      // Sidebar click handlers
+      document.querySelectorAll('.sidebar-link[data-view]').forEach(btn => {
+        btn.addEventListener('click', () => switchView(btn.dataset.view));
       });
 
-      // ─── URL-sync ────────────────────────────────────────
-      const bonIdFromUrl = new URLSearchParams(window.location.search).get('bon');
+      // Determine initial view from URL
+      const params = new URLSearchParams(window.location.search);
+      const initialView = params.get('view') || 'dashboard';
+      switchView(views[initialView] ? initialView : 'dashboard');
+
+      // Open drawer from URL
+      const bonIdFromUrl = params.get('bon');
       if (bonIdFromUrl) openDrawer(bonIdFromUrl);
 
+      // ─── Popstate ────────────────────────────────────────
       window.addEventListener('popstate', () => {
-        const bonId = new URLSearchParams(window.location.search).get('bon');
+        const p = new URLSearchParams(window.location.search);
+        const v = p.get('view') || 'dashboard';
+        if (v !== _currentView) switchView(v);
+
+        const bonId = p.get('bon');
         if (bonId) {
           drawer.load(bonId);
           drawer.show();
@@ -365,10 +609,19 @@
         }
       });
 
-      // ─── SSE ─────────────────────────────────────────────
+      // ─── SSE (always active) ─────────────────────────────
       connectSSE('/api/sse', {
-        bon_created: (data) => _blHandleBonCreated(data),
-        bon_updated: (data) => _blHandleBonUpdated(data),
+        bon_created: (data) => {
+          if (typeof _blHandleBonCreated === 'function') _blHandleBonCreated(data);
+          if (typeof _dashHandleSSE === 'function') _dashHandleSSE('bon_created', data);
+        },
+        bon_updated: (data) => {
+          if (typeof _blHandleBonUpdated === 'function') _blHandleBonUpdated(data);
+          if (typeof _dashHandleSSE === 'function') _dashHandleSSE('bon_updated', data);
+        },
+        bon_status: (data) => {
+          if (typeof _dashHandleSSE === 'function') _dashHandleSSE('bon_status', data);
+        },
       });
     })();
   </script>

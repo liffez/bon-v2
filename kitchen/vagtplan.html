@@ -1,0 +1,250 @@
+<!doctype html>
+<html lang="da">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Vagtplan — Ristet Rug</title>
+  <link href="https://fonts.googleapis.com/css2?family=Lato:wght@400;700;900&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="/shared/tokens.css">
+  <style>
+  :root {
+    --bg:           #f5f4f2;
+    --card:         #fff;
+    --border:       #d7d1ca;
+    --border-light: #ebe7e2;
+    --muted:        #8a8580;
+    --brown:        #8e631f;
+    --brown-dark:   #6d4c16;
+    --brown-light:  #f1e6b2;
+    --today-bg:     #fdfbf3;
+    --today-border: #c49a45;
+    --radius:       10px;
+  }
+  * { margin:0; padding:0; box-sizing:border-box; }
+  html, body { background:var(--bg); font:14px/1.35 'Lato', sans-serif; color:#333; }
+  body { padding-bottom:24px; }
+
+  /* ══ TOPBAR ══ */
+  .topbar {
+    background:var(--brown); color:white;
+    height:50px; display:flex; align-items:center;
+    padding:0 16px; gap:12px;
+    box-shadow:0 2px 6px rgba(0,0,0,0.15);
+  }
+  .topbar-logo { font-size:16px; font-weight:900; text-decoration:none; color:inherit; }
+  .topbar-div  { width:1px; height:20px; background:rgba(255,255,255,0.25); }
+  .topbar-title { font-size:14px; font-weight:700; opacity:.9; }
+  .topbar-nav  { margin-left:auto; display:flex; gap:6px; align-items:center; }
+  .nav-link {
+    font-size:12px; font-weight:700;
+    background:rgba(255,255,255,0.12); border:1px solid rgba(255,255,255,0.18);
+    border-radius:20px; padding:4px 12px;
+    text-decoration:none; color:inherit; transition:background .1s;
+  }
+  .nav-link:hover { background:rgba(255,255,255,0.22); }
+  .period-label { font-size:12px; font-weight:700; opacity:.85; margin:0 4px; }
+
+  /* ══ WEEK GRID ══ */
+  .week-controls {
+    display:flex; align-items:center; gap:10px;
+    padding:12px 16px 8px;
+  }
+  .wc-btn {
+    font-size:12px; font-weight:700; font-family:'Lato',sans-serif;
+    background:var(--card); border:1px solid var(--border);
+    border-radius:20px; padding:5px 12px; cursor:pointer;
+    transition:background .1s;
+  }
+  .wc-btn:hover { background:var(--brown-light); }
+  .wc-period { font-size:13px; font-weight:700; color:var(--muted); }
+  .wc-sp-link {
+    margin-left:auto; font-size:11px; font-weight:700;
+    color:var(--brown); text-decoration:none;
+  }
+  .wc-sp-link:hover { text-decoration:underline; }
+
+  .week {
+    display:grid; grid-template-columns:repeat(7, minmax(160px, 1fr));
+    gap:10px; padding:0 16px;
+  }
+  @media (max-width:1024px) { .week { grid-template-columns:repeat(3,1fr); } }
+  @media (max-width:640px)  { .week { grid-template-columns:repeat(2,1fr); } }
+
+  .day {
+    background:var(--card); border:1px solid var(--border-light);
+    border-radius:var(--radius); padding:8px 10px 12px;
+    box-shadow:0 1px 3px rgba(0,0,0,0.05);
+  }
+  .day.is-today {
+    background:var(--today-bg); border-color:var(--today-border);
+    box-shadow:0 0 0 1px var(--today-border) inset, 0 1px 3px rgba(0,0,0,0.05);
+  }
+  .day-head { display:flex; justify-content:space-between; align-items:baseline; margin-bottom:6px; }
+  .day-head .dow  { font-weight:700; font-size:13px; }
+  .day-head .date { font-size:11px; color:var(--muted); }
+  .day-head .count { font-size:10px; font-weight:700; color:var(--brown); background:var(--brown-light); padding:1px 6px; border-radius:8px; }
+
+  .liste { display:flex; flex-direction:column; gap:4px; }
+
+  .pill {
+    background:var(--bg); border:1px solid var(--border-light);
+    border-radius:8px; padding:5px 9px;
+    font-size:13px; line-height:1.4;
+    display:flex; align-items:center; gap:6px;
+  }
+  .pill-time { font-size:11px; font-weight:700; color:var(--brown); font-variant-numeric:tabular-nums; min-width:66px; }
+  .pill-name { font-weight:700; }
+  .pill-job  { font-size:10px; color:var(--muted); margin-left:auto; }
+  .no-shifts { font-size:12px; color:var(--muted); padding:8px 0; }
+  </style>
+</head>
+<body>
+
+<header class="topbar">
+  <a class="topbar-logo" href="/kitchen/">🍞 Ristet Rug</a>
+  <div class="topbar-div"></div>
+  <div class="topbar-title">Vagtplan — uge</div>
+  <div class="topbar-nav">
+    <a class="nav-link" href="/kitchen/">← Dashboard</a>
+  </div>
+</header>
+
+<div class="week-controls">
+  <button id="prev" class="wc-btn" type="button">← Forrige</button>
+  <div id="period" class="wc-period">Henter…</div>
+  <button id="next" class="wc-btn" type="button">Næste →</button>
+  <a class="wc-sp-link" href="https://app.smartplanapp.io/" target="_blank" rel="noopener">Åbn i Smartplan ↗</a>
+</div>
+
+<div id="week" class="week" aria-live="polite">Henter…</div>
+
+<script src="/shared/utils.js"></script>
+<script>
+(async () => {
+    const currentUser = await checkAuth();
+    if (!currentUser) return;
+
+    const fmtDK   = new Intl.DateTimeFormat('da-DK', { day:'2-digit', month:'2-digit', year:'numeric' });
+    const fmtWeek = new Intl.DateTimeFormat('da-DK', { weekday:'short' });
+
+    const weekEl   = document.getElementById('week');
+    const periodEl = document.getElementById('period');
+
+    let weekOffset = 0;
+
+    function startOfWeek(date) {
+        const d = new Date(Date.UTC(date.getFullYear(), date.getMonth(), date.getDate()));
+        const wd = (d.getUTCDay() + 6) % 7;
+        d.setUTCDate(d.getUTCDate() - wd);
+        return d;
+    }
+    function addDays(d, n) { const x = new Date(d); x.setUTCDate(x.getUTCDate() + n); return x; }
+    function ymd(d) { return d.toISOString().slice(0, 10); }
+
+    function buildWeekBoxes(monday) {
+        weekEl.innerHTML = '';
+        const todayKey = new Date().toISOString().slice(0, 10);
+
+        for (let i = 0; i < 7; i++) {
+            const d = addDays(monday, i);
+            const key = d.toISOString().slice(0, 10);
+
+            const day = document.createElement('div');
+            day.className = 'day' + (key === todayKey ? ' is-today' : '');
+            day.setAttribute('data-day', key);
+
+            const head = document.createElement('div');
+            head.className = 'day-head';
+            head.innerHTML = `<div class="dow">${fmtWeek.format(d)}</div><div class="date">${fmtDK.format(d)}</div>`;
+
+            const list = document.createElement('div');
+            list.className = 'liste';
+
+            day.appendChild(head);
+            day.appendChild(list);
+            weekEl.appendChild(day);
+        }
+    }
+
+    async function loadWeek() {
+        const base   = startOfWeek(new Date());
+        const monday = addDays(base, weekOffset * 7);
+        const sunday = addDays(monday, 6);
+
+        periodEl.textContent = `${fmtDK.format(monday)} — ${fmtDK.format(sunday)}`;
+        buildWeekBoxes(monday);
+
+        const from = ymd(monday);
+        const to   = ymd(sunday);
+
+        try {
+            const r = await fetch(`/api/smartplan/shifts?from=${from}&to=${to}`);
+            if (!r.ok) throw new Error(`${r.status}`);
+            const shifts = await r.json();
+
+            // Group by date
+            const byDate = {};
+            for (const s of shifts) {
+                if (!s.date) continue;
+                if (!byDate[s.date]) byDate[s.date] = [];
+                byDate[s.date].push(s);
+            }
+
+            // Render per day
+            for (let i = 0; i < 7; i++) {
+                const d   = addDays(monday, i);
+                const key = ymd(d);
+                const box = document.querySelector(`[data-day="${key}"]`);
+                if (!box) continue;
+
+                const items = (byDate[key] || []).sort((a, b) =>
+                    (a.start_time || '').localeCompare(b.start_time || '')
+                );
+
+                const head = box.querySelector('.day-head');
+                if (items.length > 0 && head) {
+                    const badge = document.createElement('span');
+                    badge.className = 'count';
+                    badge.textContent = items.length;
+                    head.appendChild(badge);
+                }
+
+                const liste = box.querySelector('.liste');
+                if (items.length === 0) {
+                    liste.innerHTML = '<div class="no-shifts">Ingen vagter</div>';
+                    continue;
+                }
+
+                for (const v of items) {
+                    const time = v.start_time && v.end_time
+                        ? `${v.start_time.slice(0,5)}–${v.end_time.slice(0,5)}`
+                        : (v.start_time || '');
+                    const name = v.employee_name || v.first_name || 'Ukendt';
+                    const job  = v.job_type || '';
+
+                    const div = document.createElement('div');
+                    div.className = 'pill';
+                    div.innerHTML = `
+                        <span class="pill-time">${time}</span>
+                        <span class="pill-name">${name}</span>
+                        ${job ? `<span class="pill-job">${job}</span>` : ''}
+                    `;
+                    liste.appendChild(div);
+                }
+            }
+        } catch (err) {
+            console.error('[vagtplan]', err);
+            periodEl.textContent = 'Fejl: kunne ikke hente data';
+            const first = weekEl.querySelector('.liste');
+            if (first) first.innerHTML = '<div class="no-shifts">Tjek server/Smartplan…</div>';
+        }
+    }
+
+    document.getElementById('prev').addEventListener('click', () => { weekOffset--; loadWeek(); });
+    document.getElementById('next').addEventListener('click', () => { weekOffset++; loadWeek(); });
+
+    loadWeek();
+})();
+</script>
+</body>
+</html>

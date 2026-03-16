@@ -4,16 +4,10 @@
  * Standalone varepicker — vælg opskrift fra Grocy, angiv antal,
  * og POST til /api/bons/:id/lines.
  *
- * Kræver: api.js (fetchGrocyRecipes, postBonLine) som globale funktioner.
+ * Flow: Klik vare → fast antal-bar vises under listen i fuld bredde →
+ * Enter eller klik "Tilføj" sender med det samme. Pickeren forbliver åben.
  *
- * Brug:
- *   const picker = new VarePicker({
- *     bonId: 42,
- *     priceCategory: 'catering',
- *     container: document.getElementById('slot'),
- *     onAdded: (line) => { … }
- *   });
- *   picker.toggle();
+ * Kræver: api.js (fetchGrocyRecipes, postBonLine) som globale funktioner.
  * ════════════════════════════════════════════════════════════
  */
 
@@ -30,6 +24,8 @@ class VarePicker {
         this._cats = null;
         this._priceCat = this.priceCategory;
         this._escHandler = null;
+        this._saving = false;
+        this._selectedRecipeId = null;
     }
 
     /* ── Public API ──────────────────────────────────────── */
@@ -44,6 +40,7 @@ class VarePicker {
         });
 
         this._visible = true;
+        this._selectedRecipeId = null;
         this.container.innerHTML = '<div class="vp-picker open"><div class="vp-loading">Henter opskrifter\u2026</div></div>';
 
         try {
@@ -88,7 +85,17 @@ class VarePicker {
                         self._renderItems(cats[catNames[0]], self._priceCat) +
                     '</div>' +
                 '</div>' +
-                '<div class="vp-expand-slot"></div>';
+                '<div class="vp-action-bar" style="display:none">' +
+                    '<div class="vp-action-row">' +
+                        '<button class="vp-qty-btn" data-delta="-1">\u2212</button>' +
+                        '<input class="vp-qty-input" type="number" value="1" min="1">' +
+                        '<button class="vp-qty-btn" data-delta="1">+</button>' +
+                        '<span class="vp-action-name"></span>' +
+                        '<button class="vp-action-add">Tilf\u00f8j</button>' +
+                    '</div>' +
+                    '<input class="vp-special" type="text" placeholder="Extra info\u2026">' +
+                '</div>' +
+                '<div class="vp-flash-slot"></div>';
 
             // Event delegation
             picker.addEventListener('click', function(e) {
@@ -100,14 +107,22 @@ class VarePicker {
                     self._togglePrices();
                 } else if (target.classList.contains('vp-cat')) {
                     self._selectCat(target);
-                } else if (target.closest('.vp-item') && !target.closest('.vp-expand')) {
-                    self._selectItem(target.closest('.vp-item'));
                 } else if (target.classList.contains('vp-qty-btn')) {
+                    e.stopPropagation();
                     self._adjustQty(target);
-                } else if (target.classList.contains('vp-save')) {
-                    self._save();
-                } else if (target.classList.contains('vp-cancel')) {
-                    self._cancelExpand();
+                } else if (target.classList.contains('vp-action-add')) {
+                    e.stopPropagation();
+                    self._addSelected();
+                } else if (target.closest('.vp-item')) {
+                    self._selectItem(target.closest('.vp-item'));
+                }
+            });
+
+            // Enter in qty input → add
+            picker.addEventListener('keydown', function(e) {
+                if (e.key === 'Enter' && e.target.classList.contains('vp-qty-input')) {
+                    e.preventDefault();
+                    self._addSelected();
                 }
             });
 
@@ -124,6 +139,7 @@ class VarePicker {
 
     close() {
         this._visible = false;
+        this._selectedRecipeId = null;
         if (this._escHandler) {
             document.removeEventListener('keydown', this._escHandler);
             this._escHandler = null;
@@ -177,124 +193,126 @@ class VarePicker {
         picker.querySelectorAll('.vp-cat').forEach(function(b) { b.classList.remove('active'); });
         btn.classList.add('active');
 
-        // Clear expand + selection
-        this._removeExpand();
-        picker.querySelectorAll('.vp-item.selected').forEach(function(el) { el.classList.remove('selected'); });
-
         var items = (this._cats || {})[catName] || [];
         var itemsEl = picker.querySelector('.vp-items');
         if (itemsEl) itemsEl.innerHTML = this._renderItems(items, this._priceCat);
+
+        // Behold action-bar synlig hvis der er en selected recipe i denne kategori
+        this._syncItemHighlight(picker);
     }
 
     /* ── Render items ────────────────────────────────────── */
 
     _renderItems(items, priceCat) {
+        var selectedId = this._selectedRecipeId;
         return items.map(function(r) {
             var price = r.prices[priceCat] || 0;
             var name = (r.name || '').trim();
-            return '<div class="vp-item" data-recipe-id="' + r.id + '">' +
+            var cls = 'vp-item' + (r.id === selectedId ? ' selected' : '');
+            return '<div class="' + cls + '" data-recipe-id="' + r.id + '">' +
                 '<span class="vp-item-name">' + name + '</span>' +
                 '<span class="vp-item-price">' + price + ' kr</span>' +
             '</div>';
         }).join('');
     }
 
-    /* ── Item selection → expand ──────────────────────────── */
+    /* ── Item selection → show action bar ─────────────────── */
 
     _selectItem(itemEl) {
         var picker = this.container.querySelector('.vp-picker');
-        if (!picker) return;
+        if (!picker || this._saving) return;
         var recipeId = parseInt(itemEl.dataset.recipeId);
 
         // Find recipe
-        var recipe = null;
-        var cats = this._cats || {};
-        for (var key in cats) {
-            recipe = cats[key].find(function(r) { return r.id === recipeId; });
-            if (recipe) break;
-        }
+        var recipe = this._findRecipe(recipeId);
         if (!recipe) return;
 
-        // Clear prev
-        this._removeExpand();
+        // Toggle off if same
+        if (this._selectedRecipeId === recipeId) {
+            this._selectedRecipeId = null;
+            this._hideActionBar(picker);
+            picker.querySelectorAll('.vp-item.selected').forEach(function(el) { el.classList.remove('selected'); });
+            return;
+        }
+
+        this._selectedRecipeId = recipeId;
+
+        // Highlight
         picker.querySelectorAll('.vp-item.selected').forEach(function(el) { el.classList.remove('selected'); });
         itemEl.classList.add('selected');
 
-        var price = recipe.prices[this._priceCat] || 0;
-        var name = (recipe.name || '').trim();
-        var slot = picker.querySelector('.vp-expand-slot');
-        slot.innerHTML =
-            '<div class="vp-expand" data-recipe-id="' + recipeId + '">' +
-                '<div class="vp-expand-row">' +
-                    '<button class="vp-qty-btn" data-delta="-1">\u2212</button>' +
-                    '<input class="vp-qty-input" type="number" value="1" min="1">' +
-                    '<button class="vp-qty-btn" data-delta="1">+</button>' +
-                    '<span class="vp-expand-name">\u00d7 ' + name + '</span>' +
-                '</div>' +
-                '<input class="vp-special" type="text" placeholder="Extra info\u2026">' +
-                '<div class="vp-expand-actions">' +
-                    '<button class="vp-save">GEM</button>' +
-                    '<button class="vp-cancel">AFBRYD</button>' +
-                '</div>' +
-            '</div>';
+        // Show action bar
+        var bar = picker.querySelector('.vp-action-bar');
+        var nameEl = bar.querySelector('.vp-action-name');
+        nameEl.textContent = '\u00d7 ' + (recipe.name || '').trim();
+        bar.style.display = '';
 
-        var qtyInput = slot.querySelector('.vp-qty-input');
+        // Reset qty
+        var qtyInput = bar.querySelector('.vp-qty-input');
+        qtyInput.value = 1;
         qtyInput.focus();
         qtyInput.select();
-
-        // Clamp on change
-        qtyInput.addEventListener('change', function() {
-            if (parseInt(qtyInput.value) < 1 || isNaN(parseInt(qtyInput.value))) qtyInput.value = 1;
-        });
     }
 
-    /* ── Expand helpers ──────────────────────────────────── */
-
-    _removeExpand() {
-        var picker = this.container.querySelector('.vp-picker');
-        if (!picker) return;
-        var slot = picker.querySelector('.vp-expand-slot');
-        if (slot) slot.innerHTML = '';
+    _hideActionBar(picker) {
+        var bar = picker.querySelector('.vp-action-bar');
+        if (bar) bar.style.display = 'none';
     }
+
+    _syncItemHighlight(picker) {
+        // After category switch, re-highlight if selected recipe is in current items
+        var id = this._selectedRecipeId;
+        if (!id) return;
+        var found = picker.querySelector('.vp-item[data-recipe-id="' + id + '"]');
+        if (found) {
+            found.classList.add('selected');
+        }
+    }
+
+    _findRecipe(recipeId) {
+        var cats = this._cats || {};
+        for (var key in cats) {
+            var r = cats[key].find(function(r) { return r.id === recipeId; });
+            if (r) return r;
+        }
+        return null;
+    }
+
+    /* ── Adjust qty ──────────────────────────────────────── */
 
     _adjustQty(btn) {
         var delta = parseInt(btn.dataset.delta) || 0;
-        var input = btn.parentElement.querySelector('.vp-qty-input');
+        var bar = btn.closest('.vp-action-bar');
+        if (!bar) return;
+        var input = bar.querySelector('.vp-qty-input');
+        if (!input) return;
         var val = Math.max(1, parseInt(input.value || '1') + delta);
         input.value = val;
+        input.focus();
+        input.select();
     }
 
-    _cancelExpand() {
+    /* ── Add selected item ──────────────────────────────── */
+
+    async _addSelected() {
+        if (this._saving || !this._selectedRecipeId) return;
         var picker = this.container.querySelector('.vp-picker');
         if (!picker) return;
-        this._removeExpand();
-        picker.querySelectorAll('.vp-item.selected').forEach(function(el) { el.classList.remove('selected'); });
-    }
 
-    /* ── Save ────────────────────────────────────────────── */
-
-    async _save() {
-        var picker = this.container.querySelector('.vp-picker');
-        if (!picker) return;
-        var expand = picker.querySelector('.vp-expand');
-        if (!expand) return;
-
-        var recipeId = parseInt(expand.dataset.recipeId);
-        var recipe = null;
-        var cats = this._cats || {};
-        for (var key in cats) {
-            recipe = cats[key].find(function(r) { return r.id === recipeId; });
-            if (recipe) break;
-        }
+        var recipe = this._findRecipe(this._selectedRecipeId);
         if (!recipe) return;
 
-        var qty = Math.max(1, parseInt(expand.querySelector('.vp-qty-input').value) || 1);
-        var special = expand.querySelector('.vp-special').value.trim() || null;
+        var bar = picker.querySelector('.vp-action-bar');
+        var qtyInput = bar.querySelector('.vp-qty-input');
+        var qty = Math.max(1, parseInt(qtyInput ? qtyInput.value : '1') || 1);
         var price = recipe.prices[this._priceCat] || 0;
+        var specialInput = bar.querySelector('.vp-special');
+        var specialText = (specialInput && specialInput.value) ? specialInput.value.trim() : null;
 
-        var saveBtn = expand.querySelector('.vp-save');
-        saveBtn.disabled = true;
-        saveBtn.textContent = '\u2026';
+        // Disable while saving
+        this._saving = true;
+        var addBtn = bar.querySelector('.vp-action-add');
+        if (addBtn) { addBtn.disabled = true; addBtn.textContent = '\u2026'; }
 
         try {
             await postBonLine(this.bonId, {
@@ -306,16 +324,30 @@ class VarePicker {
                 unit_price:      price,
                 cost_price:      recipe.cost_price || 0,
                 co2e:            recipe.co2e || 0,
-                special_request: special,
+                special_request: specialText,
             });
 
-            this.close();
+            // Reset add button, clear selection, hide action bar, reset special input
+            if (addBtn) { addBtn.disabled = false; addBtn.textContent = 'Tilf\u00f8j'; }
+            this._selectedRecipeId = null;
+            picker.querySelectorAll('.vp-item.selected').forEach(function(el) { el.classList.remove('selected'); });
+            if (specialInput) specialInput.value = '';
+            this._hideActionBar(picker);
+
+            // Flash confirmation
+            var flashSlot = picker.querySelector('.vp-flash-slot');
+            if (flashSlot) {
+                flashSlot.innerHTML = '<div class="vp-added-flash">\u2714 ' + qty + '\u00d7 ' + (recipe.name || '').trim() + '</div>';
+                setTimeout(function() { if (flashSlot) flashSlot.innerHTML = ''; }, 1500);
+            }
+
             this.onAdded();
 
         } catch (err) {
-            saveBtn.disabled = false;
-            saveBtn.textContent = 'GEM';
+            if (addBtn) { addBtn.disabled = false; addBtn.textContent = 'Tilf\u00f8j'; }
             console.error('Tilf\u00f8j vare fejlede:', err);
+        } finally {
+            this._saving = false;
         }
     }
 }

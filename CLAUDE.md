@@ -84,12 +84,15 @@ bon-v2/
 │   ├── addresses.js  ← /api/addresses (POST)
 │   ├── webhooks.js   ← /api/webhooks/bestilling (ingen auth)
 │   ├── users.js      ← /api/users (admin CRUD)
-│   └── mail.js       ← /api/mail/* (admin, skabeloner + test)
+│   ├── mail.js       ← /api/mail/* (admin, skabeloner + test)
+│   └── dashboard.js  ← /api/dashboard/* (today, stats, top-products, weather)
 ├── services/
 │   ├── grocyAdapter.js  ← Readonly Grocy API adapter med cache
 │   ├── smartplanAdapter.js ← Smartplan OAuth2 adapter (shifts + worklogs)
 │   ├── mailService.js   ← SMTP afsendelse + IMAP polling + tag-routing
 │   └── quConvert.js     ← Grocy quantity unit conversions
+├── routes/
+│   └── dashboard.js  ← /api/dashboard/* (today, stats, top-products)
 ├── db/
 │   ├── database.js   ← getDb() singleton (lazy init + migrations)
 │   ├── helpers.js    ← logChange, handle, getBon, getBonLines, getStatusId, nextBonNumber, auth-helpers
@@ -108,12 +111,13 @@ bon-v2/
 │   ├── bon_opret_modal.js + bon_opret_modal.css ← Hurtig bon-oprettelse
 │   ├── bon_drawer.js + bon_drawer.css   ← Bon-detalje drawer (fuld redigering)
 │   ├── kunde_soeg.js + kunde_soeg.css   ← Kunde/firma-søgekomponent
+│   ├── dashboard_chart.js + dashboard_chart.css ← Custom canvas legoklods-chart
 │   ├── kitchen-topbar.html         ← Fælles topbar for kitchen-views
 │   ├── api.js        ← Frontend API-funktioner
 │   ├── utils.js      ← Status-mapping, connectSSE(), mapApiBonToCardData(), scrollToBonHash()
 │   ├── auth.js       ← requireAuth() middleware (server-side)
 │   └── login.html    ← Fælles login-side (PIN + email auto-detect)
-├── kitchen/          ← MPA: index.html, today.html, later.html, ...
+├── kitchen/          ← MPA: index.html, today.html, later.html, vagtplan.html, ...
 ├── office/           ← SPA-shell: index.html + views/*.js
 ├── settings/         ← index.html (eget shell)
 ├── assets/           ← logo.svg, icons/, fonts/
@@ -378,16 +382,53 @@ Nye filer placeres præcis der de hører hjemme — kopieres ikke.
   - System (6 nøgler: company_name, bon_number_prefix/next, pax_per_box, session_duration)
 - [x] `.env` / `.env.example` — SMTP_PASSWORD, SMTP_KONTAKT_PASSWORD, IMAP_BON_PASSWORD, IMAP_KONTAKT_PASSWORD
 
+### Fase 3B — Dashboards
+- [x] `routes/dashboard.js` — Dashboard API med 3 endpoints:
+  - `GET /api/dashboard/today` — dagsoverblik, totals, categories, alerts, prep, MTD KPIs
+  - `GET /api/dashboard/stats` — individuelle bons per dag for legoklods-chart, forrige-år data, Smartplan shifts
+  - `GET /api/dashboard/top-products` — top produkter MTD (enheder + kr)
+- [x] `shared/dashboard_chart.js` — Custom canvas legoklods-chart (erstattet Chart.js)
+  - `initDashboardChart()` — søjlediagram med individuelle bon-bricks, hover-tooltip, touch-support
+  - `initAccumChart()` — akkumuleret area chart under søjlediagram
+  - `buildStaffBadges()` — Smartplan medarbejder-badges under chart
+  - `buildChartLegend()` — kategori-legend
+  - Enheder/Kr toggle, forrige-år dashed overlay, i dag highlight
+- [x] `shared/dashboard_chart.css` — Chart styling (canvas, staff badges, tooltip, toggle, prod-table)
+- [x] `kitchen/index.html` — Komplet redesign:
+  - 2-kolonne grid: venstre (I dag + Prep), højre (chart 260px + 3×2 nav-kort grid)
+  - Brun topbar med logo, dato, vagt-pills, vejr, vagtplan-badge
+  - Open-Meteo vejr-integration (ingen API-nøgle)
+  - SSE realtidsopdatering
+- [x] `kitchen/vagtplan.html` — Ny side: ugeoversigt med Smartplan-vagter
+  - 7-kolonne grid, uge-navigation, auth-beskyttet
+  - Bruger `/api/smartplan/shifts` API
+- [x] `office/views/dashboard.js` — Komplet redesign:
+  - KPI strip (Omsætning MTD, Enheder MTD, Åbne bons, Ufaktureret) med YoY delta
+  - Legoklods-chart med Enheder/Kr toggle + forrige-år overlay + akkumuleret chart
+  - Top produkter tabel, I dag + Prep cards, CRM placeholder
+  - Topbar: dato + vagt-pills + vejr
+- [x] `office/index.html` — Dark sidebar med nav-grupper, Chart.js CDN fjernet
+
 ---
 
 ## Næste opgave
 
-> ✏️ Opdateret 15. marts 2026.
+> ✏️ Opdateret 16. marts 2026.
 >
-> **Fase 1a–1e + 3A komplet.** Auth, kunde-søg, bon-opret/drawer, webhook, VarePicker, office listview, settings UI + mail er på plads.
-> Næste: Opgave 6 (Indkøb/Bestilling) eller videre office-features.
-> Småting til senere: Pris-visning i Råvarer som setting, Kort erstattes af logistik-modul, leveringsmetode-ikoner til settings-tabel (fase 4+).
-> Webhook-URL skal sættes i formbuilder admin-panel + ny HTML publiceres til ristetrug.dk/bestil.
+> **Fase 1a–1e + 3A + 3B komplet.** Dashboards (kitchen + office) er færdige
+> med custom canvas legoklods-chart, vagtplan-side, nav-kort grid.
+>
+> **Næste:** office/calendar.html (lille — genbruger shared/calendar.js),
+> derefter Tilbud og Ugeoversigt. Så er Bon v1 klar til nedlukning.
+>
+> **Åbne afhængigheder:**
+> - DMI API-nøgle (vejr på dashboards) — Leif finder frem til eksisterende nøgle (Open-Meteo bruges midlertidigt)
+> - Bon v1-datamigration — bør ske inden dashboards tages i produktion (kræves til "sidste år"-sammenligning)
+> - Byekspressen credentials — ryk sebastian@by-expressen.dk (Fase 5)
+> - Formbuilder webhook-URL + HTML til ristetrug.dk/bestil — sættes når 1c er stabilt
+>
+> **Beslutning:**
+> - Kalender er separat sidebar-punkt i office (ikke fane i listview)
 
 ---
 
@@ -654,6 +695,10 @@ GET    /api/mail/templates                               routes/mail.js (admin)
 PATCH  /api/mail/templates/:key                          routes/mail.js (admin)
 POST   /api/mail/test                                    routes/mail.js (admin)
 GET    /api/settings/locations                           routes/settings.js
+GET    /api/dashboard/today                              routes/dashboard.js
+GET    /api/dashboard/stats?days_back=&days_forward=     routes/dashboard.js
+GET    /api/dashboard/top-products?from=&to=             routes/dashboard.js
+GET    /api/dashboard/weather                            routes/dashboard.js (placeholder)
 POST   /api/price-categories                             routes/price_categories.js (admin)
 PATCH  /api/price-categories/:id                         routes/price_categories.js (admin)
 POST   /api/payment-types                                routes/payment_types.js (admin)

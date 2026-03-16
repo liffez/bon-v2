@@ -273,10 +273,27 @@ router.patch('/:id/status', handle((req, res) => {
         ? JSON.parse(transition.triggers_json)
         : [];
 
-    for (const trigger of triggers) {
-        if (trigger.action === 'grocy_consume') {
-            console.log(`[trigger] grocy_consume for bon ${id} — ikke implementeret endnu`);
+    // Grocy auto-consume ved LEVERET (uafhængigt af triggers_json)
+    if (status_code === 'LEVERET') {
+        const autoDeduct = db.prepare(`SELECT value FROM settings WHERE key = 'inventory_auto_deduct'`).get();
+        if (autoDeduct && autoDeduct.value === '1') {
+            const lines = getBonLines(id);
+            const { consumeRecipes } = require('../services/grocyAdapter');
+            consumeRecipes(lines).then(results => {
+                const failed = results.filter(r => !r.success);
+                if (failed.length) {
+                    console.warn(`[grocy_consume] bon ${id}: ${failed.length} fejl:`, failed);
+                } else {
+                    console.log(`[grocy_consume] bon ${id}: ${results.length} opskrifter forbrugt fra lager`);
+                }
+                logChange({ entityType: 'bon', entityId: id, action: 'grocy_consume', fieldName: 'stock', oldValue: null, newValue: JSON.stringify(results) });
+            }).catch(err => {
+                console.error(`[grocy_consume] bon ${id}: fejl:`, err.message);
+            });
         }
+    }
+
+    for (const trigger of triggers) {
         if (trigger.action === 'send_mail') {
             console.log(`[trigger] send_mail for bon ${id} — ikke implementeret endnu`);
         }

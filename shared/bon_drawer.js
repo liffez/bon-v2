@@ -186,7 +186,7 @@ class BonDrawer {
             priceCategory: 'catering',
             container: this.el.querySelector('.drawer-vare-picker-slot'),
             viewName: 'drawer',
-            onAdded: () => this.load(this.bonId)
+            onAdded: () => this._reloadLines()
         });
 
         // KundeSoeg
@@ -373,7 +373,7 @@ class BonDrawer {
         bar.innerHTML = '';
         if (!this.data) return;
 
-        const curStatus = (this.data.status_code || '').toLowerCase();
+        const curStatus = statusToFrontend(this.data.status_code || '');
         const allStatuses = Object.keys(BON_CONFIG.statuses);
 
         allStatuses.forEach(key => {
@@ -393,16 +393,28 @@ class BonDrawer {
 
     async _setStatus(statusKey) {
         if (!this.data) return;
-        const curStatus = (this.data.status_code || '').toLowerCase();
+        const curStatus = statusToFrontend(this.data.status_code || '');
         if (statusKey === curStatus) return;
+        const backendCode = statusToBackend(statusKey);
         try {
-            await patchBonStatus(this.bonId, statusKey.toUpperCase());
-            // SSE will update, but update locally too
-            this.data.status_code = statusKey.toUpperCase();
+            await patchBonStatus(this.bonId, backendCode);
+            this.data.status_code = backendCode;
             this._renderStatusBar();
+            this._showStatusFlash();
         } catch (err) {
             alert(err.message || 'Kunne ikke skifte status');
         }
+    }
+
+    _showStatusFlash() {
+        const old = this.el.querySelector('.drawer-status-flash');
+        if (old) old.remove();
+        const flash = document.createElement('div');
+        flash.className = 'drawer-status-flash';
+        flash.textContent = '\u2713 Status gemt';
+        const bar = this.el.querySelector('.drawer-status-bar');
+        bar.parentElement.appendChild(flash);
+        setTimeout(() => flash.remove(), 2000);
     }
 
     _renderFirma(companyName) {
@@ -448,6 +460,18 @@ class BonDrawer {
                 self._deleteLine(lineId);
             });
         });
+    }
+
+    /** Reload only lines list without re-rendering entire drawer (preserves picker state) */
+    async _reloadLines() {
+        if (!this.bonId) return;
+        try {
+            var bon = await fetchBon(this.bonId);
+            this.data = bon;
+            this._renderLines(bon.lines || []);
+        } catch (err) {
+            console.error('Kunne ikke genindlæse linjer:', err);
+        }
     }
 
     async _deleteLine(lineId) {
@@ -579,6 +603,12 @@ class BonDrawer {
     /* ══════════════════════════════════════════════════════
        SHOW / HIDE
        ══════════════════════════════════════════════════════ */
+
+    /** Convenience: load + show i ét kald */
+    async open(bonId) {
+        await this.load(bonId);
+        this.show();
+    }
 
     show() {
         this.el.classList.add('open');

@@ -3,157 +3,146 @@
 
 ---
 
-## Hvad der allerede eksisterer
+## Princip: Bon v1 kan lukkes ned efter Fase 3
 
-### Fundament (klar til brug)
+Rækkefølgen er styret af ét mål: at Bon v2 kan overtage Bon v1's rolle hurtigst muligt.
+Køkkenet er selvforsynende fra Fase 2. Kontoret er selvforsynende fra Fase 3.
+
+---
+
+## Hvad der er bygget
+
+### Fundament og backend ✅
 | Artefakt | Status |
 |----------|--------|
-| Databaseskema — 6 migrationsfiler | ✅ Færdigt |
-| Express server, SQLite, SSE, statusflow, changelog | ✅ Kører |
-| Arkitekturbeslutninger (mail, settings, moduler, Grocy) | ✅ Besluttet |
-| Designsystem + zone-struktur | ✅ Dokumenteret |
-| Nano CRM prototype (`crm_server.py`) | ✅ Fungerende |
-| CVR/EAN lookup tool | ✅ Bygget |
+| Databaseskema — 14 migrationsfiler | ✅ |
+| Express server, SQLite, SSE, statusflow, changelog | ✅ |
+| Modulær route-struktur (`routes/`, `db/`, `services/`) | ✅ |
+| Grocy adapter (readonly) — recipes, products, stock, unit conversions | ✅ |
+| Smartplan adapter — OAuth2, shifts + worklogs | ✅ |
+| Auth — email+password, sessions, roller (admin/office/kitchen/delivery) | ✅ |
+| Mail service — SMTP udgående (2 transports) + IMAP polling + tag-routing | ✅ |
+| CVR/EAN lookup — Virk ES + NemHandel scraping | ✅ |
+| Formbuilder webhook — honeypot, firma/kunde find/opret, EAN-udtræk, DAWA | ✅ |
 
-### Mockups (reference for implementation)
-| Mockup | Version |
-|--------|---------|
-| Køkken I dag | v3.4 → implementeret |
-| Dashboard | v1 |
-| Varemodtagelse | v2 |
-| Tilbud (office) | v3b |
-| Bon-kort | v3.6 → implementeret |
-| Nano CRM | mockup + overblik |
+### Shared komponenter ✅
+| Komponent | Status |
+|-----------|--------|
+| `shared/bon_kort.js` — kort-komponent med action-bar, prep, køkkeninfo, drag-drop | ✅ |
+| `shared/calendar.js` — kalender + listevisning, Smartplan, SSE | ✅ |
+| `shared/modal.js` — historik, bon-info, råvarer (Grocy + lager) | ✅ |
+| `shared/flyver.js` — nødbesked-system, SSE, banner, kvittering | ✅ |
+| `shared/vare_picker.js` — Grocy-opskriftspicker, kategori-nav, snapshot-gem | ✅ |
+| `shared/bon_opret_modal.js` — hurtig bon-oprettelse | ✅ |
+| `shared/bon_drawer.js` — fuld bon-redigering, URL-sync, dirty-tracking, VARER | ✅ |
+| `shared/kunde_soeg.js` — kunde/firma-søg, CVR-opslag, to-trins opret | ✅ |
+| `shared/login.html` — fælles login (email+pw auto-detect) | ✅ |
 
-### Standalone tools (skal integreres)
-| Tool | Integration |
-|------|-------------|
-| Formbuilder v6 | → Fase 4 |
-| Leveringsberegner (intern + kunde) | → Fase 5 |
-| Byekspressen prisberegner | → Fase 5 |
-| Smartplan vagtplan-UI | → Fase 2 (dashboard) |
-| Nano CRM prototype | → Fase 4 |
-| CVR enrichment service + `cvr-opslag.html` | → Fase 4 (i brug som standalone allerede) |
-| IMAP fetch-prototype (`fetch-mails.js`, imapflow) | → Fase 4 (forbindelse virker, parsing mangler) |
+### Kitchen-views ✅ / 🔲
+| View | Status |
+|------|--------|
+| `kitchen/today.html` — Køkken I dag | ✅ |
+| `kitchen/later.html` — Køkken Senere | ✅ |
+| `kitchen/calendar.html` — Kalender (delt med office) | ✅ |
+| `kitchen/index.html` — Kitchen Dashboard | 🔲 |
+| Kategori-overblik (totaler pr. kategori for dagen) | 🔲 |
+| `kitchen/recipes.html` — Opskrifter (Grocy, skalering) | 🟡 Prototype klar |
+| `kitchen/stock.html` — Lagerstatus | 🟡 Prototype klar |
+| `kitchen/goods-receipt.html` — Varemodtagelse | 🟡 Mockup v2 klar |
+| `kitchen/purchasing.html` — Indkøbsliste | 🔲 |
+| `kitchen/orders.html` — Bestilling/PO | 🔲 |
+
+### Office-views ✅ / 🔲
+| View | Status |
+|------|--------|
+| `office/index.html` + `office/views/bons-list.js` — Listview | ✅ |
+| `office/calendar.html` — Kalender (sidebar-punkt, genbruger shared/calendar.js) | 🔲 |
+| `office/dashboard.html` — Office Dashboard | 🔲 |
+| Ugeoversigt (Smartplan + bonner) | 🔲 |
+| Tilbud (pipeline, is_offer, mockup klar) | 🔲 |
+
+### Settings ✅
+| Modul | Status |
+|-------|--------|
+| `settings/index.html` — 7 sektioner | ✅ |
+| Brugere, Priskategorier, Betalingstyper | ✅ |
+| Grocy-konfiguration per lokation | ✅ |
+| Mail (SMTP × 2, IMAP × 2, signatur, skabelon) | ✅ |
+| Formbuilder feltmapping | ✅ |
+| System-indstillinger | ✅ |
 
 ---
 
-## Arkitekturlag
-*Backend-services der er delt på tværs af zoner — bygges inden de bruges*
-
-| Lag | Indhold | Bruges af |
-|-----|---------|-----------|
-| **Infrastruktur** | Express, SQLite, SSE, auth, roller | Alt |
-| **Bon-kerne** | CRUD bons/linjer/kunder, statusflow, changelog | Alt |
-| **Grocy adapter** | `getRecipes()`, `getProducts()`, `consumeRecipe()` | Køkken + Office |
-| **Mail service** | SMTP udgående (bon-mail), IMAP polling (ind) | Køkken + Office |
-| **Settings/admin** | Brugere, mail-skabeloner, Grocy-config | Alt |
-
----
-
-## Udviklingsplan
+## Udviklingsplan fremad
 
 ### ✅ Fase 0 — Fundament
-*Gennemført*
+*Komplet*
 
-- Express app, SQLite, migrations, SSE
-- Bon-kerne API (CRUD, statusflow, changelog, prep, notifications)
-- `BonConfig.js` + `BonConfigBar.js` — konfigurerbart status-system
-- `shared/sse.js`, `shared/api.js`, `shared/utils.js`, `shared/bon_kort.js`
+### ✅ Fase 0b — Backend refaktorering
+*Komplet*
 
----
+### ✅ Fase 1 — Bon-kerne + Auth + Settings
+*Komplet*
+- Auth + roller, bon-opret, drawer, kunde-søg, VarePicker
+- Formbuilder webhook
+- Settings UI + mail service
 
-### 🔧 Fase 0b — Backend refaktorering
-*Gøres nu inden Fase 2 fortsætter — se separat opgavespec*
+### 🔧 Fase 2 — Køkken komplet
+*Delvist — today/later/calendar er i produktion. Resten afventer.*
 
-`server.js` splittes til modulær struktur:
+Resterende views (rækkefølge efter prioritet):
+1. **Kitchen Dashboard** (`kitchen/index.html`) — dagens tal, vagter, alerts, quick links
+2. **Kategori-overblik** — totaler pr. kategori for hele dagen (nyttigt til morgenbriefing)
+3. **Opskrifter** (`kitchen/recipes.html`) — Grocy, skalering, ingredienser *(prototype klar)*
+4. **Lagerstatus** (`kitchen/stock.html`) *(prototype klar)*
+5. **Varemodtagelse** (`kitchen/goods-receipt.html`) *(mockup v2 klar)*
+6. **Indkøb + Bestilling** (`kitchen/purchasing.html` + `kitchen/orders.html`)
 
-```
-db/database.js + db/helpers.js
-routes/kitchen.js   ← /api/bons/today (monteres før bons.js)
-routes/bons.js
-routes/customers.js
-routes/statuses.js
-routes/settings.js
-shared/sse.js       ← tages i brug (erstatter inline Set)
-```
+Delte services der stadig mangler:
+- `consumeRecipe()` — trigger ved LEVERET via `triggers_json`-handleren
+- `addToShoppingList()` — til Indkøb (Fase 6)
 
-`triggers_json`-stub tilføjes i `routes/bons.js` — strukturen er klar til Grocy og mail.
-
----
-
-### 🔲 Fase 1 — Bon-kerne komplet
-*Systemet kan oprette og redigere rigtige bonner*
-
-- Bon-opret formular (samme form som kunden bruger via Formbuilder)
-- Kunde/firma-søgning ved bonoprettelse
-- Auth + roller (admin, office, kitchen, logistics)
-- Settings UI: brugere, Grocy-config, mail-skabeloner
-
----
-
-### 🔲 Fase 2 — Køkken komplet *(i gang)*
-*Køkkenet er selvforsynende — kan droppe Bon v1*
-
-**Views:**
-- **Køkken I dag** — bon-kort, SSE, statusknapper, prep-checks *(næsten klar)*
-- **Kategori-overblik** — totaler pr. kategori for hele dagen
-- **Køkken Dashboard** — tal for i dag, nærmeste dage frem/tilbage, vagter (Smartplan)
-- **Køkken Senere** — kommende bonner til planlægning
-- **Køkken Listview** — søgning på tværs af datoer
-- **Opskrifter** — Grocy-data, skalering, ingredienser
-- **Lager** — lagerstatus, tjek
-- **Varemodtagelse** — temp-tjek, foto, 4 statusser (fødevarestyrelse-dok)
-- **Indkøb** — shopping list fra Grocy, bedre UI end Grocy's built-in
-
-**Delte services der bygges i denne fase:**
-- **Grocy adapter** — `getRecipes()`, `getProducts()`, `getStock()`
-- **`consumeRecipe()`** — trigger ved LEVERET (via `triggers_json`-handleren)
-- **SMTP mail service** — udgående bon-mail til kunden (bekræftelse + ændringer)
-- **Action-knapper på bon** — mail, lager, print m.fl. (nogle grayed out til senere)
+*Fase 2 behøver ikke være 100% komplet inden Bon v1 lukkes ned.*
 
 ---
 
 ### 🔲 Fase 3 — Office basis
-*Kontoret kan arbejde fuldt ud — Bon v1 kan lukkes ned*
+*Mål: Bon v1 kan lukkes ned*
 
-- **Listview** — søg, filtrer, opret ny bon
-- **Kalender** — totaler pr. dag, alle roller
-- **Ugeoversigt** — vagter (Smartplan) + bonner
-- **Office Dashboard** — dagens tal, alerts, leveringer, quick links
-- **Tilbud** — tilbudsmodul med pipeline (is_offer felter i skema, mockup klar)
-- Bon-opret/rediger fra office (genbruger Fase 1-formularen)
+| Opgave | Note |
+|--------|------|
+| `office/calendar.html` | Lille — genbruger shared/calendar.js, sidebar-punkt |
+| `office/dashboard.html` | Mockup klar (`11_dashboard.html`) |
+| Ugeoversigt | Smartplan vagter + bonner kombineret |
+| Tilbud | Mockup klar (`tilbud-v3b.html`), skema klar (`is_offer`) |
+
+**Rækkefølge:** Kalender → Dashboard → Tilbud → Ugeoversigt
 
 ---
 
 ### 🔲 Fase 4 — Mail ind + CRM + Formbuilder
 *Ordrer ind automatisk, salg og opfølgning i systemet*
 
-**Mail ind:**
-- IMAP polling: `bon@ristetrug.dk` (#B) + `kontakt@ristetrug.dk` (#K)
-- Mail → bon/kunde matching via token-parsing
-- Manuel indbakke for umatched mails
+**Mail ind (UI):**
+- Manuel indbakke for umatched mails (routing-backend er bygget i Fase 1e)
+- Mail-tråd i drawer (bon_mails) og på kundekort (customer_mails)
+- ✉-ikon + tæller i listview og kalender
 
 **CRM:**
 - CRM-aktiviteter (opkald, noter, møder, opgaver, opfølgning)
 - Nano CRM migration fra prototype til Bon v2
-- CVR-lookup integration (Virk ElasticSearch API — afventer godkendelse)
+- CVR-lookup integration (Virk ElasticSearch — credentials afventer erst.dk)
 - Smart suggestions: overdue regulars, sæsonpåmindelser, ubesvarede leads
 
 **Formbuilder:**
-- Formbuilder v6 integration (webhook → ny bon)
+- Formbuilder v6 HTML publiceres til ristetrug.dk/bestil
+- Webhook-URL sættes i formbuilder admin-panel
 
 ---
 
 ### 🔲 Fase 5 — Levering
-*Logistik i systemet — arkitektur besluttet, se `leveringsbooking_beslutning.md`*
+*Arkitektur besluttet (se `leveringsbooking_beslutning.md`)*
 
-**Kernebeslutninger:**
-- Leveringsbooking er separat spor fra bon-statusflow
-- Trigger: leveringsvare tilføjes → automatisk bestilling (ikke statusskift)
-- Én leverandørbestilling pr. bon
-
-**Udbydere:**
 | Udbyder | Metode |
 |---------|--------|
 | Byekspressen | Lobo API v3 — automatisk |
@@ -161,19 +150,16 @@ shared/sse.js       ← tages i brug (erstatter inline Set)
 | Volvo | Intern log |
 | Afhentning | Flag på bon |
 
-**UI:** Leverings-strip altid synlig på bon-kort · Modal ved GODKENDT uden levering (ikke-blokerende)
+UI: Leverings-strip på alle bon-kort · Modal ved GODKENDT uden levering (ikke-blokerende)
 
-**Database:** `delivery_bookings`-tabel inkl. `snapshot_json` — klar til migration
-
-**Inden implementering:** Credentials + kundernr + produkt-ID fra Martin Ross (sebastian@by-expressen.dk) · Afklar webhook-support
-
-**Views:** Bud-view med leveringsrækkefølge · Leveringsberegner (intern + kunde)
+**Blokeret af:** Credentials + kundernr + produkt-ID fra Martin Ross (sebastian@by-expressen.dk)
 
 ---
 
 ### 🔲 Fase 6 — Grocy skriv + Indkøb
-*Lager og fødevarestyrelse-dokumentation — bygger på Grocy-adapteren fra Fase 2*
+*Bygger på Grocy-adapteren fra Fase 2*
 
+- `consumeRecipe()` trigger ved LEVERET
 - `addToShoppingList()` — indkøbsbehov fra bonner
 - Purchase order flow: bestilling → bekræftelse → modtagelse
 - Indkøbsliste UI (kobles til Grocy shopping list)
@@ -185,9 +171,9 @@ shared/sse.js       ← tages i brug (erstatter inline Set)
 ### 🔲 Fase 7 — Integrationer
 *Fakturering uden manuel håndtering*
 
-- e-conomic integration: bon → faktura
-- EAN-validering ved ordreregistrering (ikke ved fakturering)
-- EAN learning system: fang succesfulde mønstre pr. EAN-nummer
+- e-conomic: bon → faktura
+- EAN-validering ved ordreregistrering
+- EAN learning system (lærer mønstre per EAN-nummer)
 - Statistik: omsætning, populære produkter, leveringsdata
 
 ---
@@ -195,31 +181,40 @@ shared/sse.js       ← tages i brug (erstatter inline Set)
 ## Parallelle spor
 *Kan bygges uafhængigt af faserækkefølgen*
 
-| Spor | Afhænger af | Note |
-|------|-------------|------|
-| **Whiteboard** (daglige opgaver, rengøring) | Intet | Selvstændigt system |
-| **Opskrift-UI** (Vue.js, Grocy-data) | Grocy-oprydning | Prototype klar, data mangler |
-| **Settings UI** | Fase 1 | Bygges løbende |
-| **SOP-system** | Intet | Kører allerede |
+| Spor | Status | Note |
+|------|--------|------|
+| **Whiteboard** (daglige opgaver, rengøring) | 🔲 | Selvstændigt system |
+| **SOP-system** | ✅ Kører | Excalidraw-baseret |
+| **Cash flow dashboard** | 🔲 Spec klar | `/cashflow` mini-app, spec i CLAUDE_cashflow.md |
+| **Bud-app** | 🔲 | Browser-baseret, QR-kode, Fase 5+ |
+| **Opskrift-UI** | 🟡 Prototype | Afventer Grocy-dataoprydning |
+| **Menu-agent (AI)** | 🔲 Spec klar | Spec i CLAUDE_MENU_AGENT.md — kan bygges når Fase 3B er i gang |
 
 ---
 
-## Vigtige deadlines og åbne punkter
+## Åbne punkter og afhængigheder
 
-| Punkt | Deadline / status |
-|-------|-------------------|
-| DAWA lukker 1. juli 2026 — formbuilder bruger allerede `api.dataforsyningen.dk` | ✅ Ingen handling nødvendig |
-| CVR enrichment service (`cvrEnrichment.js`) | ✅ Bygget — klar til integration i Fase 4 |
-| Virk ElasticSearch credentials | ⏳ Afventer godkendelse hos erst.dk (~3 uger) — fallback til cvrapi.dk virker allerede |
-| Datafordeler HentCVRData — udfases | ✅ Ikke i brug — Virk ES er valgt i stedet |
-node | Multi-lokation lageroverførsler (festival trailer) | 🔵 Udskudt til praktisk behov |
+| Punkt | Status |
+|-------|--------|
+| Byekspressen credentials (Martin Ross / sebastian@by-expressen.dk) | ⏳ Ikke rykket endnu |
+| Virk ElasticSearch credentials (erst.dk) | ⏳ Afventer godkendelse |
+| Formbuilder webhook-URL sat + HTML publiceret til ristetrug.dk/bestil | ⏳ Afventer |
+| Ny server deployment (Hetzner/DO + Nginx + SSL) | ⏳ Planlægges |
+| Datamigration Bon v1 → v2 | ⏳ Planlægges parallelt med Fase 3 |
+| Leveringsmetode-ikoner til settings-tabel | 🔵 Fase 4+ (nu hardcodet i bons-list.js) |
+| `consumeRecipe()` trigger ved LEVERET | 🔵 Fase 6 |
+| Menu-agent: `ANTHROPIC_API_KEY` i `.env` | ⏳ Simon tilføjer når klar til implementering |
+| Menu-agent: `menuAgentPromptBase.txt` redigeres fra systemdokument | ⏳ Leif/Simon gennemgår inden implementering |
 
 ---
 
-## Principper der styrer rækkefølgen
+## Designsystem — nøglefarver
 
-1. **Brugsværdi hurtigst muligt** — Fase 2 giver køkkenet noget de kan bruge nu
-2. **Bon v1 kan droppes efter Fase 3** — det er det reelle mål for første release
-3. **Delte services bygges én gang** — Grocy-adapter og mail-service hører i egne moduler, ikke i zoner
-4. **`triggers_json` er knudepunktet** — Grocy og mail kobles på statusflow via triggers, ingen hardkodning
-5. **Prototype-kode migreres, ikke genskrives** — CRM og CVR-tool er skemakompatible
+```css
+--brand-primary:       #8e631f;
+--brand-primary-light: #f1e6b2;
+--color-background:    #f5f4f2;
+--color-border:        #d7d1ca;
+```
+
+Font: Lato. Body-klasse: `zone-kitchen` eller `zone-office`.

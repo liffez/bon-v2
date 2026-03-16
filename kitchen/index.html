@@ -1,17 +1,582 @@
 <!DOCTYPE html>
 <html lang="da">
 <head>
-  <meta charset="UTF-8">
-  <title>Bon v2 — Kitchen Index</title>
-  <link rel="stylesheet" href="../shared/tokens.css">
-  <link rel="stylesheet" href="../shared/components.css">
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Køkken Dashboard — Bon v2</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Lato:wght@300;400;700;900&display=swap" rel="stylesheet">
+    <link rel="stylesheet" href="/shared/tokens.css">
+    <link rel="stylesheet" href="/shared/dashboard_chart.css">
+    <style>
+        * { margin:0; padding:0; box-sizing:border-box; }
+        html, body { height:100%; overflow:hidden; }
+        body {
+            font-family:'Lato', sans-serif;
+            font-size:14px; color:var(--color-text, #333);
+            background:var(--color-background, #f5f4f2);
+            display:flex; flex-direction:column; height:100vh;
+        }
+
+        /* ══ TOPBAR ══════════════════════════════════════════════ */
+        .topbar {
+            background:var(--brand-primary, #8e631f); color:white;
+            height:50px; display:flex; align-items:center;
+            padding:0 14px; gap:10px; flex-shrink:0;
+            box-shadow:0 2px 6px rgba(0,0,0,0.15);
+        }
+        .topbar-logo { font-size:16px; font-weight:900; flex-shrink:0; }
+        .topbar-div  { width:1px; height:20px; background:rgba(255,255,255,0.25); flex-shrink:0; }
+        .topbar-date { font-size:12px; font-weight:700; opacity:.85; flex-shrink:0; }
+
+        /* Vagt pills */
+        .topbar-vagt { margin-left:auto; display:flex; align-items:center; gap:5px; }
+        .vagt-label  { font-size:9px; font-weight:700; letter-spacing:.5px; text-transform:uppercase; opacity:.4; margin-right:2px; flex-shrink:0; }
+        .vagt-pill {
+            display:flex; align-items:center; gap:5px;
+            background:rgba(255,255,255,0.12); border:1px solid rgba(255,255,255,0.18);
+            border-radius:20px; padding:3px 9px 3px 4px;
+            cursor:default; position:relative;
+        }
+        .vagt-pill:hover .vagt-tooltip { display:block; }
+        .vagt-av {
+            width:22px; height:22px; border-radius:50%;
+            background:rgba(255,255,255,0.2);
+            display:flex; align-items:center; justify-content:center;
+            font-size:9px; font-weight:700; flex-shrink:0;
+        }
+        .vagt-name { font-size:11px; font-weight:700; line-height:1.1; }
+        .vagt-tid  { font-size:9px; opacity:.6; line-height:1; }
+        .vagt-tooltip {
+            display:none; position:absolute; top:calc(100% + 7px); left:50%; transform:translateX(-50%);
+            background:var(--brand-primary-dark, #6d4c16); color:white; font-size:11px; font-weight:700;
+            padding:5px 10px; border-radius:6px; white-space:nowrap;
+            z-index:200; pointer-events:none; box-shadow:0 3px 10px rgba(0,0,0,0.25);
+        }
+        .vagt-tooltip::before {
+            content:''; position:absolute; bottom:100%; left:50%; transform:translateX(-50%);
+            border:5px solid transparent; border-bottom-color:var(--brand-primary-dark, #6d4c16);
+        }
+        .vagt-count-pill {
+            display:flex; align-items:center; gap:4px;
+            background:rgba(255,255,255,0.12); border:1px solid rgba(255,255,255,0.18);
+            border-radius:20px; padding:3px 9px;
+            cursor:default; position:relative; font-size:11px; font-weight:700;
+        }
+        .vagt-count-pill:hover .vagt-tooltip { display:block; }
+
+        /* Weather chip */
+        .weather-chip {
+            display:flex; align-items:center; gap:5px;
+            background:rgba(255,255,255,0.1); border:1px solid rgba(255,255,255,0.15);
+            border-radius:7px; padding:4px 10px;
+            font-size:12px; font-weight:700; flex-shrink:0; cursor:default;
+        }
+        .weather-chip .wt-temp { font-size:13px; }
+        .weather-chip .wt-desc { font-size:9px; opacity:.55; line-height:1; margin-top:1px; }
+
+        /* Whiteboard/Vagtplan badge */
+        .wb-badge {
+            display:flex; align-items:center; gap:5px;
+            background:rgba(255,255,255,0.1); border:1px solid rgba(255,255,255,0.15);
+            border-radius:7px; padding:4px 9px; cursor:pointer; flex-shrink:0;
+            transition:background .1s; text-decoration:none; color:inherit;
+        }
+        .wb-badge:hover { background:rgba(255,255,255,0.2); }
+        .wb-count { font-size:11px; font-weight:700; }
+        .wb-sub   { font-size:9px; opacity:.5; }
+
+        /* ══ CONTENT ══════════════════════════════════════════════ */
+        .content {
+            flex:1; display:grid; grid-template-columns:1fr 1fr;
+            gap:9px; padding:9px; overflow:hidden; min-height:0;
+        }
+        .col { display:flex; flex-direction:column; gap:8px; min-height:0; }
+
+        /* ══ CARDS ════════════════════════════════════════════════ */
+        .card {
+            background:var(--color-surface, #fff); border-radius:10px;
+            display:flex; flex-direction:column;
+            overflow:hidden; box-shadow:0 1px 4px rgba(0,0,0,0.07), 0 0 0 1px rgba(0,0,0,0.04);
+            min-height:0;
+        }
+        .card-head {
+            padding:8px 12px; font-size:10px; font-weight:700;
+            letter-spacing:.7px; text-transform:uppercase;
+            display:flex; align-items:center; gap:7px;
+            flex-shrink:0; color:var(--color-text-dim, #888);
+            border-bottom:1px solid var(--color-border-light, #ebe7e2);
+        }
+        .card-head.h-brown {
+            background:var(--brand-primary, #8e631f); color:rgba(255,255,255,.95); border-bottom:none;
+            cursor:pointer; text-decoration:none; transition:background .12s;
+        }
+        .card-head.h-brown:hover { background:var(--brand-primary-dark, #6d4c16); }
+        .card-head.h-blue {
+            background:#7594b3; color:rgba(255,255,255,.95); border-bottom:none;
+            cursor:pointer; text-decoration:none; transition:background .12s;
+        }
+        .card-head.h-blue:hover { background:#5a7a99; }
+        .card-head-r { margin-left:auto; font-weight:400; opacity:.75; font-size:10px; letter-spacing:0; }
+        .head-arrow  { margin-left:auto; opacity:.5; font-size:12px; font-style:normal; font-weight:400; letter-spacing:0; text-transform:none; }
+        .card-body { padding:10px 12px; overflow:hidden; min-height:0; flex:1; }
+
+        /* ══ SUMMARY STRIP ════════════════════════════════════════ */
+        .summary-strip {
+            display:flex; margin-bottom:8px;
+            border-radius:6px; overflow:hidden;
+            border:1px solid var(--color-border-light, #ebe7e2);
+        }
+        .sum-cell {
+            flex:1; text-align:center; padding:6px 4px;
+            border-right:1px solid var(--color-border-light, #ebe7e2);
+            background:var(--yellow-pale, #fdfbf3);
+        }
+        .sum-cell:last-child { border-right:none; }
+        .sum-val { font-size:22px; font-weight:900; color:var(--brand-primary, #8e631f); line-height:1; letter-spacing:-1px; }
+        .sum-lbl { font-size:9px; font-weight:700; color:var(--color-text-dim, #888); text-transform:uppercase; letter-spacing:.4px; margin-top:1px; }
+
+        /* ══ AMBER ALERT BAR ══════════════════════════════════════ */
+        .alert-bar {
+            display:flex; align-items:center; gap:6px;
+            padding:6px 10px; margin-bottom:8px;
+            background:#fffaed; border:1px solid #f0d080;
+            border-radius:6px; cursor:pointer;
+            font-size:11px; font-weight:700; color:#8a6400;
+            transition:background .1s;
+        }
+        .alert-bar:hover { background:#fff4cc; }
+        .alert-bar .ab-sep { opacity:.4; }
+        .alert-bar .ab-link { margin-left:auto; font-size:10px; opacity:.6; white-space:nowrap; }
+        .alert-ok {
+            display:flex; align-items:center; gap:6px;
+            padding:5px 10px; margin-bottom:8px;
+            background:#e8f2dc; border:1px solid #c5dfa0;
+            border-radius:6px;
+            font-size:11px; font-weight:700; color:#7a9c54;
+        }
+
+        /* ══ KATEGORI TABEL ═══════════════════════════════════════ */
+        .cat-table { width:100%; border-collapse:collapse; font-size:12px; }
+        .cat-table th {
+            text-align:left; font-size:9px; font-weight:700; color:var(--color-text-dim, #888);
+            text-transform:uppercase; letter-spacing:.4px;
+            padding:2px 6px 4px; border-bottom:1px solid var(--color-border, #d7d1ca);
+        }
+        .cat-table th.r { text-align:right; }
+        .cat-table td { padding:5px 6px; border-bottom:1px solid var(--color-border-light, #ebe7e2); }
+        .cat-table td.num { font-variant-numeric:tabular-nums; font-weight:700; color:var(--brand-primary, #8e631f); text-align:right; }
+        .cat-table tr:last-child td { border-bottom:none; }
+        .cat-total td {
+            font-weight:900; color:var(--brand-primary, #8e631f);
+            border-top:2px solid var(--color-border, #d7d1ca); border-bottom:none !important; padding-top:7px;
+        }
+
+        /* ══ PREP LISTE ═══════════════════════════════════════════ */
+        .prep-scroll { overflow-y:auto; height:100%; }
+        .prep-list { list-style:none; display:flex; flex-direction:column; gap:4px; padding-right:2px; }
+        .prep-row {
+            display:flex; align-items:center; gap:7px;
+            padding:6px 9px; border-radius:6px;
+            background:var(--color-background, #f5f4f2);
+            border-left:3px solid transparent; font-size:12px;
+        }
+        .prep-row.warn { background:#fff9f0; border-left-color:#e8a832; }
+        .prep-row.ok   { background:#e8f2dc; border-left-color:#7a9c54; }
+        .prep-bon  { font-weight:900; color:var(--brand-primary, #8e631f); font-size:10px; flex-shrink:0; min-width:38px; }
+        .prep-cust { flex:1; color:var(--color-text-dim, #888); white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+        .prep-enh  { font-variant-numeric:tabular-nums; font-weight:700; font-size:12px; min-width:36px; text-align:right; flex-shrink:0; }
+        .prep-chips { display:flex; gap:3px; flex-shrink:0; }
+        .chip      { font-size:9px; font-weight:700; padding:2px 5px; border-radius:8px; white-space:nowrap; }
+        .chip-ok   { background:#e8f2dc; color:#7a9c54; }
+        .chip-warn { background:#fde8e8; color:#bc181b; }
+        .chip-part { background:#fff3d0; color:#a06800; }
+
+        /* ══ CHART CARD ═══════════════════════════════════════════ */
+        .card-chart { flex-shrink:0; }
+        .card-chart .chart-canvas-area { padding:5px 10px 0; }
+        .card-chart #actChart { display:block; width:100%; height:260px; }
+        .card-chart .staff-row { padding:2px 10px 3px; height:26px; }
+
+        /* ══ RIGHT COLUMN ════════════════════════════════════════ */
+        .right-col { display:flex; flex-direction:column; gap:8px; min-height:0; }
+
+        /* ══ NAV-KORT GRID ════════════════════════════════════════ */
+        .nav-grid {
+            display:grid;
+            grid-template-columns:repeat(3, 1fr);
+            grid-template-rows:1fr 1fr;
+            gap:8px;
+            flex:1; min-height:0;
+            padding:4px 4px 4px;
+        }
+        .nav-card {
+            background:var(--color-surface, #fff);
+            border-radius:12px;
+            box-shadow:0 1px 4px rgba(0,0,0,0.07), 0 0 0 1px rgba(0,0,0,0.04);
+            display:flex; flex-direction:column;
+            align-items:center; justify-content:center;
+            padding:0; gap:2px;
+            cursor:pointer; text-decoration:none; color:inherit;
+            transition:box-shadow .12s, transform .1s, background .1s;
+            position:relative; overflow:hidden;
+            border:1px solid var(--color-border-light, #ebe7e2);
+            min-height:0; text-align:center;
+        }
+        .nav-card:hover {
+            background:#fdfbf3;
+            box-shadow:0 4px 14px rgba(0,0,0,0.10), 0 0 0 1.5px #e8d5a8;
+            border-color:#e8d5a8;
+            transform:translateY(-2px);
+        }
+        .nav-card:active { transform:translateY(0); background:#f7f2d9; }
+        .nav-card::before {
+            content:''; position:absolute; top:0; left:0; right:0; height:4px;
+        }
+        .nc-brown::before  { background:var(--brand-primary, #8e631f); }
+        .nc-blue::before   { background:#7594b3; }
+        .nc-green::before  { background:#7a9c54; }
+        .nc-orange::before { background:#e8a832; }
+        .nc-gray::before   { background:#8a8580; }
+        .nc-teal::before   { background:#4a9a8a; }
+        .nav-card-icon  { font-size:20px; line-height:1; margin-top:2px; }
+        .nav-card-label {
+            font-size:8px; font-weight:900; letter-spacing:.4px; text-transform:uppercase;
+            color:var(--color-text-dim, #888); padding-bottom:3px;
+        }
+
+        /* ══ EMPTY / LOADING ══════════════════════════════════════ */
+        .loading { text-align:center; padding:40px; color:var(--color-text-dim, #888); font-size:13px; }
+    </style>
 </head>
 <body class="zone-kitchen">
-  <main>
-    <h1>Index</h1>
-    <!-- TODO -->
-  </main>
-  <script src="../shared/api.js"></script>
-  <script src="../shared/sidekick.js"></script>
+
+<!-- ══ TOPBAR ══ -->
+<header class="topbar">
+    <div class="topbar-logo">🍞 Ristet Rug</div>
+    <div class="topbar-div"></div>
+    <div class="topbar-date" id="topbarDate">—</div>
+
+    <div class="topbar-vagt" id="topbarVagt">
+        <span class="vagt-label">På vagt</span>
+    </div>
+
+    <div class="weather-chip" id="weatherChip" style="display:none">
+        <span id="weatherIcon">⛅</span>
+        <div>
+            <div class="wt-temp" id="weatherTemp">—°</div>
+            <div class="wt-desc" id="weatherDesc">henter...</div>
+        </div>
+    </div>
+
+    <a class="wb-badge" href="vagtplan.html">
+        <span style="font-size:13px">📋</span>
+        <div><div class="wb-count" id="wbCount">Vagtplan</div><div class="wb-sub">Ugeplan</div></div>
+    </a>
+</header>
+
+<!-- ══ CONTENT ══ -->
+<main class="content">
+
+    <!-- VENSTRE -->
+    <div class="col">
+
+        <!-- I DAG -->
+        <div class="card" style="flex-shrink:0;" id="cardToday">
+            <a class="card-head h-brown" href="today.html" id="todayHead">
+                📋 I dag
+                <span class="head-arrow">→</span>
+            </a>
+            <div class="card-body" id="todayBody">
+                <div class="loading">Henter data...</div>
+            </div>
+        </div>
+
+        <!-- PREP I MORGEN -->
+        <div class="card" style="flex:1; min-height:0;" id="cardPrep">
+            <a class="card-head h-blue" href="later.html" id="prepHead">
+                ⏳ Prep i morgen
+                <span class="card-head-r" id="prepSummary"></span>
+                <span class="head-arrow">→</span>
+            </a>
+            <div class="card-body" style="padding:7px 10px; overflow-y:auto;" id="prepBody">
+                <div class="loading">Henter data...</div>
+            </div>
+        </div>
+
+    </div>
+
+    <!-- HØJRE: graf + nav-kort -->
+    <div class="right-col">
+        <div class="card card-chart">
+            <div class="card-head" style="justify-content:space-between;flex-shrink:0;">
+                <span>📦 Bons · 10 dage</span>
+                <span style="margin-left:auto;font-weight:400;opacity:.65;font-size:10px;letter-spacing:0;">hover for detaljer</span>
+            </div>
+            <div class="chart-canvas-area">
+                <canvas id="actChart"></canvas>
+            </div>
+            <div class="staff-row" id="staffRow" style="flex-shrink:0;"></div>
+            <div class="chart-legend" id="chartLegend" style="flex-shrink:0;"></div>
+        </div>
+
+        <!-- NAV-KORT 6 kompakte -->
+        <div class="nav-grid">
+            <a class="nav-card nc-brown" href="today.html">
+                <div class="nav-card-icon">🍽️</div>
+                <div class="nav-card-label">I Dag</div>
+            </a>
+            <a class="nav-card nc-blue" href="later.html">
+                <div class="nav-card-icon">⏰</div>
+                <div class="nav-card-label">Senere</div>
+            </a>
+            <a class="nav-card nc-teal" href="calendar.html">
+                <div class="nav-card-icon">📅</div>
+                <div class="nav-card-label">Kalender</div>
+            </a>
+            <a class="nav-card nc-orange" href="#">
+                <div class="nav-card-icon">📦</div>
+                <div class="nav-card-label">Lager</div>
+            </a>
+            <a class="nav-card nc-green" href="#">
+                <div class="nav-card-icon">📖</div>
+                <div class="nav-card-label">Opskrifter</div>
+            </a>
+            <a class="nav-card nc-gray" href="#">
+                <div class="nav-card-icon">🚛</div>
+                <div class="nav-card-label">Varemod.</div>
+            </a>
+        </div>
+    </div>
+
+</main>
+
+<!-- Scripts -->
+<script src="/shared/utils.js"></script>
+<script src="/shared/api.js"></script>
+<script src="/BonConfig.js"></script>
+<script src="/shared/dashboard_chart.js"></script>
+
+<script>
+(async () => {
+    const currentUser = await checkAuth();
+    if (!currentUser) return;
+
+    const DAY_NAMES = ['Søndag','Mandag','Tirsdag','Onsdag','Torsdag','Fredag','Lørdag'];
+    const MONTH_NAMES = ['januar','februar','marts','april','maj','juni','juli','august','september','oktober','november','december'];
+
+    function fmtDateLong(dateStr) {
+        const d = new Date(dateStr + 'T12:00:00');
+        return `${DAY_NAMES[d.getDay()]} ${d.getDate()}. ${MONTH_NAMES[d.getMonth()]} ${d.getFullYear()}`;
+    }
+    function fmtDateShort(dateStr) {
+        const d = new Date(dateStr + 'T12:00:00');
+        return `${DAY_NAMES[d.getDay()]} ${d.getDate()}. ${MONTH_NAMES[d.getMonth()]}`;
+    }
+
+    // ── WMO weather icons ──
+    const WMO_ICONS = {
+        0:'☀️', 1:'🌤', 2:'⛅', 3:'☁️',
+        45:'🌫', 48:'🌫', 51:'🌦', 53:'🌦', 55:'🌧',
+        61:'🌧', 63:'🌧', 65:'🌧', 71:'🌨', 73:'🌨', 75:'❄️',
+        80:'🌦', 81:'🌧', 82:'🌧', 95:'⛈', 96:'⛈', 99:'⛈',
+    };
+
+    let chartHandle = null;
+    let statsData = null;
+
+    // ── Load all data ──
+    async function loadDashboard() {
+        try {
+            const [todayData, stats] = await Promise.all([
+                fetch('/api/dashboard/today').then(r => r.json()),
+                fetch('/api/dashboard/stats?days_back=4&days_forward=5').then(r => r.json()),
+            ]);
+            statsData = stats;
+
+            // Topbar date
+            document.getElementById('topbarDate').textContent = fmtDateLong(todayData.date);
+
+            // I dag header
+            document.getElementById('todayHead').childNodes[0].textContent =
+                `📋 I dag · ${fmtDateShort(todayData.date)} `;
+
+            renderToday(todayData);
+            renderPrep(todayData.tomorrow_prep);
+            renderChart(stats);
+            renderVagtPills(todayData.date, stats);
+        } catch (err) {
+            console.error('[kitchen-dash]', err);
+        }
+    }
+
+    // ── Render: I dag card ──
+    function renderToday(data) {
+        const body = document.getElementById('todayBody');
+
+        // Summary strip
+        const firstPickup = data.next_pickup || '—';
+        let html = `<div class="summary-strip">
+            <div class="sum-cell"><div class="sum-val">${data.totals.bon_count}</div><div class="sum-lbl">Bons</div></div>
+            <div class="sum-cell"><div class="sum-val">${data.totals.total_units}</div><div class="sum-lbl">Enheder</div></div>
+            <div class="sum-cell"><div class="sum-val">${data.totals.total_pax}</div><div class="sum-lbl">Pax</div></div>
+            <div class="sum-cell"><div class="sum-val">${firstPickup ? firstPickup.slice(0,5) : '—'}</div><div class="sum-lbl">1. pickup</div></div>
+        </div>`;
+
+        // Alert bar
+        const prepAlerts = data.alerts.filter(a => a.type === 'prep_missing');
+        const missingEmb = prepAlerts.filter(a => a.message.includes('emballage')).length;
+        const missingRav = prepAlerts.filter(a => a.message.includes('råvarer')).length;
+        if (missingEmb || missingRav) {
+            const parts = [];
+            if (missingEmb) parts.push(`${missingEmb} bon${missingEmb > 1 ? 's' : ''} mangler emballage`);
+            if (missingRav) parts.push(`${missingRav} bon${missingRav > 1 ? 's' : ''} mangler råvarer`);
+            html += `<div class="alert-bar" onclick="location.href='today.html'">
+                <span>⚠</span>
+                ${parts.map(p => `<span>${p}</span>`).join('<span class="ab-sep">·</span>')}
+                <span class="ab-link">Se bons →</span>
+            </div>`;
+        } else if (data.totals.bon_count > 0) {
+            html += `<div class="alert-ok"><span>✅</span> Alt klar — ingen mangler</div>`;
+        }
+
+        // Category table
+        if (data.categories.length > 0) {
+            html += `<table class="cat-table">
+                <thead><tr><th>Kategori</th><th class="r">Bons</th><th class="r">Enh</th><th class="r">Pax</th></tr></thead>
+                <tbody>`;
+
+            // We need bons count per category — approximate from line categories
+            for (const cat of data.categories) {
+                html += `<tr><td>${cat.name}</td><td class="num">—</td><td class="num">${cat.units}</td><td class="num">—</td></tr>`;
+            }
+
+            html += `<tr class="cat-total">
+                <td>Total</td>
+                <td class="num">${data.totals.bon_count}</td>
+                <td class="num">${data.totals.total_units}</td>
+                <td class="num">${data.totals.total_pax}</td>
+            </tr></tbody></table>`;
+        }
+
+        body.innerHTML = html;
+    }
+
+    // ── Render: Prep card ──
+    function renderPrep(prep) {
+        const head = document.getElementById('prepHead');
+        const summary = document.getElementById('prepSummary');
+        const body = document.getElementById('prepBody');
+
+        if (!prep || prep.bon_count === 0) {
+            const d = new Date(); d.setDate(d.getDate() + 1);
+            const ds = d.toISOString().slice(0, 10);
+            head.childNodes[0].textContent = `⏳ Prep i morgen · ${fmtDateShort(ds)} `;
+            summary.textContent = '0 enh · 0 bons';
+            body.innerHTML = '<div class="loading">Ingen bons i morgen</div>';
+            return;
+        }
+
+        head.childNodes[0].textContent = `⏳ Prep i morgen · ${fmtDateShort(prep.date)} `;
+        const totalUnits = prep.total_units || prep.total_pax || 0;
+        summary.textContent = `${totalUnits} enh · ${prep.bon_count} bons`;
+
+        let html = '<ul class="prep-list">';
+        for (const b of prep.bons) {
+            const ingOk = b.prep_ingredients_ready;
+            const supOk = b.prep_supplies_ready;
+            const cls = (ingOk && supOk) ? 'ok' : 'warn';
+            const chipIng = ingOk ? '<span class="chip chip-ok">Råv ✓</span>' : '<span class="chip chip-warn">Råv ✗</span>';
+            const chipSup = supOk ? '<span class="chip chip-ok">Emb ✓</span>' : '<span class="chip chip-warn">Emb ✗</span>';
+            const units = b.total_units || b.pax || 0;
+            html += `<li class="prep-row ${cls}">
+                <span class="prep-bon">#${b.bon_number}</span>
+                <span class="prep-cust">${b.customer_name || ''}</span>
+                <span class="prep-enh">${units} enh</span>
+                <div class="prep-chips">${chipIng}${chipSup}</div>
+            </li>`;
+        }
+        html += '</ul>';
+        body.innerHTML = html;
+    }
+
+    // ── Render: Chart ──
+    function renderChart(data) {
+        buildChartLegend('chartLegend');
+        if (chartHandle) chartHandle.destroy();
+        chartHandle = initDashboardChart('actChart', data, {
+            showLastYear: false,
+        });
+        // Staff badges after chart geometry is calculated
+        setTimeout(() => buildStaffBadges('staffRow', 'actChart', data.days), 50);
+    }
+
+    // ── Render: Vagt pills in topbar ──
+    function renderVagtPills(todayStr, stats) {
+        const container = document.getElementById('topbarVagt');
+        container.innerHTML = '<span class="vagt-label">På vagt</span>';
+
+        // Get today's shifts from stats
+        const todayDay = stats.days.find(d => d.is_today);
+        if (!todayDay || !todayDay.shifts || todayDay.shifts.length === 0) return;
+
+        const shifts = todayDay.shifts;
+        if (shifts.length <= 4) {
+            for (const s of shifts) {
+                const pill = document.createElement('div');
+                pill.className = 'vagt-pill';
+                pill.innerHTML = `
+                    <div class="vagt-av">${s.init || ''}</div>
+                    <div><div class="vagt-name">${s.first_name || ''}</div><div class="vagt-tid">${s.tid || ''}</div></div>
+                    <div class="vagt-tooltip">${s.name || ''} · ${s.tid || ''}</div>
+                `;
+                container.appendChild(pill);
+            }
+        } else {
+            // Show count badge with hover list
+            const pill = document.createElement('div');
+            pill.className = 'vagt-count-pill';
+            pill.innerHTML = `
+                👤 ${shifts.length} på vagt
+                <div class="vagt-tooltip">${shifts.map(s => `${s.name || ''} <span style="opacity:.6">${s.tid || ''}</span>`).join('<br>')}</div>
+            `;
+            container.appendChild(pill);
+        }
+    }
+
+    // ── Weather (Open-Meteo) ──
+    async function loadWeather() {
+        try {
+            const r = await fetch('https://api.open-meteo.com/v1/forecast?latitude=55.70&longitude=12.55&current=temperature_2m,weather_code&timezone=Europe/Copenhagen');
+            const data = await r.json();
+            if (!data.current) return;
+            const temp = Math.round(data.current.temperature_2m);
+            const icon = WMO_ICONS[data.current.weather_code] || '🌡';
+            document.getElementById('weatherIcon').textContent = icon;
+            document.getElementById('weatherTemp').textContent = temp + '°';
+            document.getElementById('weatherDesc').textContent = 'København';
+            document.getElementById('weatherChip').style.display = '';
+        } catch (e) { /* stille fejl */ }
+    }
+
+    // ── SSE ──
+    connectSSE('/api/sse', {
+        bon_created: () => loadDashboard(),
+        bon_status:  () => loadDashboard(),
+        bon_updated: () => loadDashboard(),
+    });
+
+    // ── Resize handler ──
+    window.addEventListener('resize', () => {
+        if (chartHandle) chartHandle.redraw();
+        if (statsData) setTimeout(() => buildStaffBadges('staffRow', 'actChart', statsData.days), 50);
+    });
+
+    // ── Init ──
+    loadDashboard();
+    loadWeather();
+})();
+</script>
 </body>
 </html>

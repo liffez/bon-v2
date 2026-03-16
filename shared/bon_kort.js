@@ -776,11 +776,12 @@ function _buildMenu(menuItems, num) {
 
 function _buildMenuItem(item, num) {
     const cls = item.style === 'emballage' ? ' emballage' : '';
+    const cat = item.category || '';
     const special = item.special_request
         ? `<div class="bon-menu-special">${esc(item.special_request)}</div>`
         : '';
     return `
-        <div class="bon-menu-item${cls}" draggable="true" data-drag="item">
+        <div class="bon-menu-item${cls}" draggable="true" data-drag="item" data-category="${esc(cat)}">
             <div class="drag-handle">
                 <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
                     <circle cx="9" cy="5" r="1" fill="currentColor"/>

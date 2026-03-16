@@ -471,3 +471,32 @@
     padding: 8px 0;
     border-top: 1px solid var(--color-border, #eee);
 }
+
+/* ── INFO GOTO / REDIGER (i bon-info modal) ── */
+.info-goto-section {
+    display: flex;
+    justify-content: center;
+    gap: 16px;
+    padding-top: 20px;
+    border-top: 1px solid var(--color-border);
+    margin-top: 16px;
+}
+.info-goto-btn {
+    padding: 12px 28px;
+    background: var(--brand-primary, #8e631f);
+    color: white;
+    border: none;
+    border-radius: 6px;
+    font-weight: 700;
+    font-size: 15px;
+    cursor: pointer;
+}
+.info-goto-btn:hover { background: #7a5519; }
+.info-edit-btn {
+    background: var(--color-surface, #fff);
+    color: var(--brand-primary, #8e631f);
+    border: 2px solid var(--brand-primary, #8e631f);
+}
+.info-edit-btn:hover {
+    background: var(--brand-primary-light, #f1e6b2);
+}

@@ -31,7 +31,7 @@ router.get('/today', handle((req, res) => {
         LEFT JOIN companies co       ON b.company_id  = co.id
         LEFT JOIN addresses a        ON b.delivery_address_id = a.id
         WHERE b.delivery_date = ?
-          AND sd.code NOT IN ('AFLYST', 'FAKTURERET', 'BETALT', 'AFSLUTTET')
+          AND sd.code IN ('GODKENDT', 'IGANG', 'KLAR', 'LEVERET')
         ORDER BY b.pickup_time, b.id
     `).all(today);
 
@@ -79,9 +79,9 @@ router.get('/later', handle((req, res) => {
         LEFT JOIN customers c        ON b.customer_id = c.id
         LEFT JOIN companies co       ON b.company_id  = co.id
         LEFT JOIN addresses a        ON b.delivery_address_id = a.id
-        WHERE b.delivery_date > ?
+        WHERE b.delivery_date >= ?
           AND b.delivery_date <= ?
-          AND sd.code NOT IN ('AFLYST', 'FAKTURERET', 'BETALT', 'AFSLUTTET', 'LEVERET')
+          AND sd.code IN ('VENTER', 'GODKENDT', 'IGANG', 'KLAR')
         ORDER BY b.is_offer ASC, b.delivery_date ASC, b.pickup_time ASC, b.id ASC
     `).all(today, endDate);
 

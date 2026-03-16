@@ -1,0 +1,244 @@
+/* shared/dashboard_chart.css — Custom canvas legoklods chart */
+
+/* ══ CHART CANVAS ═════════════════════════════════════════ */
+.chart-canvas-area {
+    flex: 1;
+    min-height: 0;
+    padding: 4px 10px 0;
+    position: relative;
+}
+
+.chart-canvas-area canvas {
+    display: block;
+    width: 100%;
+    height: 100%;
+}
+
+/* ══ STAFF BADGES ═════════════════════════════════════════ */
+.staff-row {
+    padding: 2px 10px 4px;
+    position: relative;
+    height: 28px;
+    flex-shrink: 0;
+}
+
+.sb {
+    position: absolute;
+    transform: translateX(-50%);
+    display: flex;
+    align-items: center;
+    gap: 2px;
+    border-radius: 11px;
+    padding: 2px 5px 2px 2px;
+    font-size: 9px;
+    font-weight: 700;
+    cursor: default;
+    white-space: nowrap;
+    top: 2px;
+    transition: opacity .1s;
+}
+
+.sb.type-today   { background: var(--yellow-light, #fdfbf3); border: 1px solid #d9c88a; color: var(--brown, #8e631f); }
+.sb.type-future  { background: #eef4e8; border: 1px solid #c5dfa0; color: var(--green-dark, #3d7a0a); }
+.sb.type-history { background: var(--gray-mid, #ece9e4); border: 1px solid var(--gray, #d7d1ca); color: var(--gray-dark, #8a8078); }
+
+.sb .sb-av {
+    width: 17px;
+    height: 17px;
+    border-radius: 50%;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 7px;
+    font-weight: 700;
+    flex-shrink: 0;
+}
+
+.type-today   .sb-av { background: var(--brown, #8e631f); color: white; }
+.type-future  .sb-av { background: var(--green-dark, #3d7a0a); color: white; }
+.type-history .sb-av { background: var(--gray-dark, #8a8078); color: white; }
+
+/* Staff tooltip */
+.sb-tt {
+    display: none;
+    position: absolute;
+    bottom: calc(100% + 5px);
+    left: 50%;
+    transform: translateX(-50%);
+    background: var(--brown-dark, #5a3d10);
+    color: white;
+    font-size: 10px;
+    padding: 5px 10px;
+    border-radius: 6px;
+    white-space: nowrap;
+    z-index: 300;
+    pointer-events: none;
+    box-shadow: 0 2px 10px rgba(0,0,0,0.25);
+    line-height: 1.7;
+    text-align: left;
+}
+
+.sb-tt::after {
+    content: '';
+    position: absolute;
+    top: 100%;
+    left: 50%;
+    transform: translateX(-50%);
+    border: 4px solid transparent;
+    border-top-color: var(--brown-dark, #5a3d10);
+}
+
+.sb:hover .sb-tt { display: block; }
+
+/* ══ LEGEND ═══════════════════════════════════════════════ */
+.chart-legend {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 2px 7px;
+    padding: 2px 10px 6px;
+    flex-shrink: 0;
+}
+
+.leg-item {
+    display: flex;
+    align-items: center;
+    gap: 3px;
+    font-size: 9px;
+    font-weight: 700;
+    color: var(--gray-dark, #8a8078);
+    text-transform: uppercase;
+    letter-spacing: .3px;
+}
+
+.leg-sw {
+    width: 9px;
+    height: 9px;
+    border-radius: 2px;
+    flex-shrink: 0;
+}
+
+/* ══ CANVAS TOOLTIP ═══════════════════════════════════════ */
+.chart-tooltip {
+    display: none;
+    position: fixed;
+    background: var(--brown-dark, #5a3d10);
+    color: white;
+    border-radius: 8px;
+    padding: 8px 12px;
+    font-size: 11px;
+    line-height: 1.6;
+    pointer-events: none;
+    z-index: 400;
+    box-shadow: 0 4px 16px rgba(0,0,0,0.3);
+    max-width: 190px;
+}
+
+.tt-kat {
+    font-size: 9px;
+    font-weight: 700;
+    letter-spacing: .5px;
+    text-transform: uppercase;
+    opacity: .65;
+    margin-bottom: 2px;
+}
+
+.tt-enh {
+    font-size: 17px;
+    font-weight: 900;
+    letter-spacing: -1px;
+    line-height: 1;
+}
+
+.tt-sub {
+    font-size: 10px;
+    opacity: .55;
+}
+
+.tt-row {
+    display: flex;
+    justify-content: space-between;
+    gap: 10px;
+    margin-top: 3px;
+}
+
+.tt-dim { opacity: .6; }
+.tt-val { font-weight: 700; text-align: right; }
+
+/* ══ TOGGLE (office) ══════════════════════════════════════ */
+.graf-toggle {
+    display: flex;
+    gap: 0;
+    align-self: flex-end;
+    margin: 5px 12px 0;
+    border: 1px solid var(--gray, #d7d1ca);
+    border-radius: 5px;
+    overflow: hidden;
+    flex-shrink: 0;
+}
+
+.tog-btn {
+    padding: 3px 10px;
+    font-size: 10px;
+    font-weight: 700;
+    background: var(--white, #fff);
+    color: var(--gray-dark, #8a8078);
+    border: none;
+    cursor: pointer;
+    font-family: 'Lato', sans-serif;
+    transition: all .1s;
+}
+
+.tog-btn.active {
+    background: var(--brown, #8e631f);
+    color: white;
+}
+
+/* ══ TOP PRODUKTER TABLE ══════════════════════════════════ */
+.prod-table {
+    width: 100%;
+    border-collapse: collapse;
+    font-size: 12px;
+}
+
+.prod-table th {
+    text-align: left;
+    font-size: 9px;
+    font-weight: 700;
+    color: var(--gray-dark, #8a8078);
+    text-transform: uppercase;
+    letter-spacing: .4px;
+    padding: 2px 6px 5px;
+    border-bottom: 1px solid var(--gray, #d7d1ca);
+}
+
+.prod-table th.r { text-align: right; }
+
+.prod-table td {
+    padding: 5px 6px;
+    border-bottom: 1px solid var(--gray-mid, #ece9e4);
+}
+
+.prod-table td.num {
+    font-variant-numeric: tabular-nums;
+    font-weight: 700;
+    color: var(--brown, #8e631f);
+    text-align: right;
+}
+
+.prod-table td.pct { text-align: right; }
+
+.prod-table tr:last-child td { border-bottom: none; }
+
+.pct-bar-wrap {
+    width: 48px;
+    height: 6px;
+    background: var(--gray-mid, #ece9e4);
+    border-radius: 3px;
+    margin-left: auto;
+}
+
+.pct-bar {
+    height: 6px;
+    background: var(--brown-light, #c49a45);
+    border-radius: 3px;
+}

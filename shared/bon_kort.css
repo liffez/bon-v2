@@ -534,9 +534,20 @@
     padding: 5px 12px; font-size: 14px; border-bottom: 1px solid rgba(142,99,31,0.06);
 }
 .summary-row:last-child { border-bottom: none; }
-.summary-qty  { font-weight: 700; color: var(--brown); }
+.summary-qty  { font-weight: 700; color: var(--brown); min-width: 32px; text-align: right; }
 .summary-name { flex: 1; padding: 0 8px; }
 .summary-cat  { color: var(--gray-dark); font-size: 12px; }
+.summary-cat-header {
+    padding: 6px 12px 3px;
+    font-size: 11px;
+    font-weight: 700;
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+    color: var(--color-text-dim, #8a8580);
+    border-bottom: 1px solid rgba(142,99,31,0.1);
+    margin-top: 2px;
+}
+.summary-cat-header:first-child { margin-top: 0; }
 
 /* ── FORTRYD-OVERLAY (kitchen-today) ──────────────────────── */
 .fortryd-overlay {

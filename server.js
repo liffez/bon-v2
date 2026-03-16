@@ -54,6 +54,7 @@ app.use('/api/addresses',     require('./routes/addresses'));
 app.use('/api/webhooks',      require('./routes/webhooks'));
 app.use('/api/users',         require('./routes/users'));
 app.use('/api/mail',          require('./routes/mail'));
+app.use('/api/dashboard',    require('./routes/dashboard'));
 
 // ─── MAIL POLLING ───────────────────────────────────────────────────────────
 

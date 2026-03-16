@@ -262,9 +262,9 @@ function showSummary(cardId) {
     document.querySelectorAll('.summary-panel.open').forEach(p => p.classList.remove('open'));
     if (isOpen) return;
 
-    // Tæl varer op
-    const totals = {};
-    const card   = document.getElementById(cardId);
+    // Tæl varer op, grupperet per kategori
+    const categories = {};
+    const card = document.getElementById(cardId);
     card.querySelectorAll('.bon-menu-item').forEach(item => {
         const qtyEl  = item.querySelector('.bon-menu-qty');
         const nameEl = item.querySelector('.bon-menu-name');
@@ -274,28 +274,31 @@ function showSummary(cardId) {
         const match   = qtyText.match(/^([\d.,]+)\s*(.*)$/);
         const qty     = match ? parseFloat(match[1].replace(',', '.')) : 0;
         const unit    = match ? match[2].trim() : '';
-        const cat     = item.classList.contains('emballage') ? 'emballage' : 'menu';
-        const key     = name + '||' + unit + '||' + cat;
-        if (totals[key]) totals[key].qty += qty;
-        else totals[key] = { qty, unit, name, cat };
+        const cat     = (item.dataset.category || '').trim() || 'Andet';
+        const key     = name + '||' + unit;
+
+        if (!categories[cat]) categories[cat] = {};
+        if (categories[cat][key]) categories[cat][key].qty += qty;
+        else categories[cat][key] = { qty, unit, name };
     });
 
-    const entries = Object.values(totals);
-    if (!entries.length) {
+    const catNames = Object.keys(categories).sort((a, b) => a.localeCompare(b, 'da'));
+    if (!catNames.length) {
         rows.innerHTML = '<div class="summary-row"><span style="color:var(--gray-dark);font-style:italic;font-size:13px;padding:4px 0">Ingen varer</span></div>';
     } else {
-        entries.sort((a, b) => {
-            if (a.cat !== b.cat) return a.cat === 'emballage' ? 1 : -1;
-            return a.name.localeCompare(b.name, 'da');
-        });
-        rows.innerHTML = entries.map(e => {
-            const qtyStr = Number.isInteger(e.qty) ? e.qty : e.qty.toFixed(1);
-            return `<div class="summary-row">
-                <span class="summary-qty">${qtyStr} ${e.unit}</span>
-                <span class="summary-name">${esc(e.name)}</span>
-                ${e.cat === 'emballage' ? '<span class="summary-cat">emballage</span>' : ''}
-            </div>`;
-        }).join('');
+        let html = '';
+        for (const cat of catNames) {
+            const entries = Object.values(categories[cat]).sort((a, b) => a.name.localeCompare(b.name, 'da'));
+            html += `<div class="summary-cat-header">${esc(cat)}</div>`;
+            html += entries.map(e => {
+                const qtyStr = Number.isInteger(e.qty) ? e.qty : e.qty.toFixed(1);
+                return `<div class="summary-row">
+                    <span class="summary-qty">${qtyStr} ${e.unit}</span>
+                    <span class="summary-name">${esc(e.name)}</span>
+                </div>`;
+            }).join('');
+        }
+        rows.innerHTML = html;
     }
     panel.classList.add('open');
 }

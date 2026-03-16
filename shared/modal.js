@@ -294,6 +294,13 @@ async function showBonInfo(cardIdOrBonId, options) {
         bonNr = opts.bonNumber ? '#' + opts.bonNumber : '#' + bonId;
     }
 
+    // Brug global edit-handler hvis view har registreret en
+    if (!opts.showEditButton && typeof window._bonInfoEditHandler === 'function') {
+        opts.showEditButton = true;
+        opts.showGotoButton = true;
+        opts.onEdit = window._bonInfoEditHandler;
+    }
+
     // Vis loading
     openModal({
         title: `Info — ${esc(bonNr)}`,

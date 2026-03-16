@@ -230,6 +230,23 @@
     border-color: transparent;
 }
 
+/* Status saved flash */
+.drawer-status-flash {
+    font-size: 12px;
+    font-weight: 600;
+    color: #2e7d32;
+    margin-top: 6px;
+    animation: drawer-flash-in 0.2s ease-out, drawer-flash-out 0.4s ease-in 1.5s forwards;
+}
+@keyframes drawer-flash-in {
+    from { opacity: 0; transform: translateY(-4px); }
+    to   { opacity: 1; transform: translateY(0); }
+}
+@keyframes drawer-flash-out {
+    from { opacity: 1; }
+    to   { opacity: 0; }
+}
+
 /* Firma section */
 .drawer-firma-name {
     font-size: var(--font-size-m, 15px);

@@ -12,6 +12,8 @@
     <link rel="stylesheet" href="/shared/vare_picker.css">
     <link rel="stylesheet" href="/shared/modal.css">
     <link rel="stylesheet" href="/shared/flyver.css">
+    <link rel="stylesheet" href="/shared/bon_drawer.css">
+    <link rel="stylesheet" href="/shared/kunde_soeg.css">
     <style>
         /* ═══ RESET + BASE ═══ */
         * { margin: 0; padding: 0; box-sizing: border-box; }
@@ -95,6 +97,7 @@
     <div class="topbar-left">
         <span class="topbar-logo">Ristet Rug</span>
         <nav class="topbar-nav">
+            <a href="/kitchen/">DASHBOARD</a>
             <a href="/kitchen/today.html">I DAG</a>
             <a href="/kitchen/later.html" class="active">SENERE</a>
             <a href="/kitchen/calendar.html">KALENDER</a>
@@ -128,6 +131,14 @@
 <script src="/shared/bon_kort.js"></script>
 <script src="/shared/modal.js"></script>
 <script src="/shared/flyver.js"></script>
+<script src="/shared/kunde_soeg.js"></script>
+<script src="/shared/bon_drawer.js"></script>
+<script>
+    var _laterDrawer = new BonDrawer();
+    window._bonInfoEditHandler = function(bonId) {
+        _laterDrawer.open(bonId);
+    };
+</script>
 <script src="/kitchen/later.js"></script>
 
 </body>

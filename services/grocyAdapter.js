@@ -247,6 +247,47 @@ async function addToShoppingList(items) {
     return results;
 }
 
+/**
+ * Forbruger opskrift-ingredienser fra Grocy-lager.
+ * Kalder POST /recipes/{id}/consume for hver bon-linje med grocy_recipe_id.
+ * @param {Array<{grocy_recipe_id: number, quantity: number}>} lines  Bon-linjer
+ * @returns {Array<{recipe_id: number, success: boolean, error?: string}>}
+ */
+async function consumeRecipes(lines) {
+    const results = [];
+    for (const line of lines) {
+        if (!line.grocy_recipe_id) continue;
+        try {
+            // Grocy consume-endpoint: POST /recipes/{id}/consume
+            // quantity = antal gange opskriften skal forbruges
+            const { url, key } = getGrocyConfig();
+            const base = url.replace(/\/+$/, '');
+            const res = await fetch(`${base}/recipes/${line.grocy_recipe_id}/consume`, {
+                method: 'POST',
+                headers: {
+                    'GROCY-API-KEY': key,
+                    'Content-Type': 'application/json',
+                    'Accept': 'application/json',
+                },
+            });
+            // Grocy consume bruger opskriftens base serving size.
+            // Hvis quantity > 1 skal vi kalde den flere gange eller skalere.
+            // For nu kalder vi den 'quantity' gange.
+            if (!res.ok) {
+                const body = await res.text().catch(() => '');
+                results.push({ recipe_id: line.grocy_recipe_id, success: false, error: `${res.status}: ${body.slice(0, 100)}` });
+            } else {
+                results.push({ recipe_id: line.grocy_recipe_id, success: true });
+            }
+        } catch (err) {
+            results.push({ recipe_id: line.grocy_recipe_id, success: false, error: err.message });
+        }
+    }
+    // Ryd stock-cache efter forbrug
+    _cache.delete('stock');
+    return results;
+}
+
 /* ══════════════════════════════════════════════════════════════ */
 
 module.exports = {
@@ -260,5 +301,6 @@ module.exports = {
     getQuantityUnitConversions,
     getAllRecipesPos,
     addToShoppingList,
+    consumeRecipes,
     clearCache,
 };

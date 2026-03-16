@@ -169,11 +169,12 @@ function _normalizeShift(shift) {
     const endDt   = shift.end_dt   || '';
     const owner   = shift.owner || {};
 
-    const name = [owner.first_name, owner.last_name].filter(Boolean).join(' ') || 'Ukendt';
+    const name = [owner.first_name, owner.last_name].filter(Boolean).join(' ') || null;
 
     return {
         employee_id:   owner.uuid || null,
         employee_name: name,
+        first_name:    owner.first_name || null,
         date:          shift.display_date || (startDt ? startDt.slice(0, 10) : null),
         start_time:    _extractTime(startDt),
         end_time:      _extractTime(endDt),
@@ -191,11 +192,12 @@ function _normalizeWorklog(wl) {
     const endDt   = wl.planned_end_dt   || '';
     const owner   = wl.owner || {};
 
-    const name = [owner.first_name, owner.last_name].filter(Boolean).join(' ') || 'Ukendt';
+    const name = [owner.first_name, owner.last_name].filter(Boolean).join(' ') || null;
 
     return {
         employee_id:   owner.uuid || null,
         employee_name: name,
+        first_name:    owner.first_name || null,
         date:          wl.display_date || (startDt ? startDt.slice(0, 10) : null),
         start_time:    _extractTime(startDt),
         end_time:      _extractTime(endDt),
