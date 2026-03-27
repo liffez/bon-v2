@@ -659,7 +659,23 @@ async function _rvConsumeRecipe() {
         if (result.ok) {
             _rvShowConsumeResult('Alle ' + result.consumed + ' varer trukket fra lager!', 'success');
         } else {
-            _rvShowConsumeResult(result.consumed + ' OK, ' + result.failed + ' fejlede.', 'error');
+            // Byg pæn fejlbesked med produktnavne
+            var failedItems = (result.results || []).filter(function(r) { return !r.success; });
+            var failedNames = failedItems.map(function(r) {
+                // Find produktnavn fra merged consume-liste
+                var item = consumeLines.find(function(c) { return c.product_id === r.product_id; });
+                var name = item ? (merged[r.product_id] || {}).name || ('Produkt #' + r.product_id) : ('Produkt #' + r.product_id);
+                // Parse Grocy fejl til dansk
+                var reason = '';
+                if (r.error && r.error.indexOf('Amount to be consumed') !== -1) {
+                    reason = ' (ikke nok på lager)';
+                } else if (r.error && r.error.indexOf('No transaction') !== -1) {
+                    reason = ' (ikke på lager)';
+                }
+                return name + reason;
+            });
+            var msg = result.consumed + ' trukket fra lager. ' + result.failed + ' fejlede: ' + failedNames.join(', ');
+            _rvShowConsumeResult(msg, 'error');
         }
 
         // Refresh stock
