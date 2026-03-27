@@ -111,9 +111,6 @@
         const modal = new BonOpretModal({
             onCreated: (bonId) => openDrawer(bonId)
         });
-        // Ny bon button (rendered inside calendar header by calendar.js)
-        const nyBonBtn = document.getElementById('calNyBon');
-        if (nyBonBtn) nyBonBtn.addEventListener('click', () => modal.open());
 
         // ─── Kalender (med onEdit callback) ──────────────
         initCalendar(document.getElementById('calendarContainer'), {
@@ -121,6 +118,10 @@
             showStaff: true,
             onEdit: (bonId) => openDrawer(bonId),
         });
+
+        // Ny bon button (rendered inside calendar header by calendar.js — skal wires EFTER initCalendar)
+        const nyBonBtn = document.getElementById('calNyBon');
+        if (nyBonBtn) nyBonBtn.addEventListener('click', () => modal.open());
 
         // ─── URL-sync ────────────────────────────────────
         const bonIdFromUrl = new URLSearchParams(window.location.search).get('bon');

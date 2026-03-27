@@ -11,6 +11,8 @@
   <link rel="stylesheet" href="../shared/bon_drawer.css">
   <link rel="stylesheet" href="../shared/vare_picker.css">
   <link rel="stylesheet" href="../shared/dashboard_chart.css">
+  <link rel="stylesheet" href="../shared/calendar.css">
+  <link rel="stylesheet" href="../shared/modal.css">
   <!-- Chart.js removed — custom canvas chart in shared/dashboard_chart.js -->
   <style>
     /* ── Shell layout ───────────────────────────────────────── */
@@ -43,7 +45,7 @@
     .office-sidebar {
       width: 200px;
       flex-shrink: 0;
-      background: #3d2a0f;
+      background: #5c4020;
       display: flex;
       flex-direction: column;
       padding: 0;
@@ -475,7 +477,10 @@
   <script src="../shared/vare_picker.js"></script>
   <script src="../shared/bon_drawer.js"></script>
   <script src="../shared/dashboard_chart.js"></script>
+  <script src="../shared/modal.js"></script>
+  <script src="../shared/calendar.js"></script>
   <script src="views/bons-list.js"></script>
+  <script src="views/bons-calendar.js"></script>
   <script src="views/dashboard.js"></script>
 
   <script>
@@ -542,10 +547,8 @@
           cleanup: () => {},
         },
         calendar: {
-          init: () => {
-            contentEl.innerHTML = '<div style="text-align:center;padding:60px 20px;color:var(--color-text-dim,#888);font-size:15px;">Kalender kommer snart...</div>';
-          },
-          cleanup: () => {},
+          init: () => initOfficeCalendar(contentEl, { openDrawer, openNewBon: () => modal.open() }),
+          cleanup: () => { if (typeof cleanupOfficeCalendar === 'function') cleanupOfficeCalendar(); },
         },
       };
 
