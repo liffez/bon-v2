@@ -103,7 +103,9 @@ bon-v2/
 │   ├── sse.js        ← SSE router + broadcast(), sendTo() — named events
 │   ├── tokens.css    ← Design tokens
 │   ├── components.css
-│   ├── bon_kort.js + bon_kort.css
+│   ├── bon_kort.js          ← Adfærd og state (status, DnD, select, groups, editing)
+│   ├── bon_kort_builder.js  ← DOM-bygning (createCard, VIEW_MODULES, VIEW_ACTIONS, _build*)
+│   ├── bon_kort.css
 │   ├── calendar.js + calendar.css  ← Kalender/liste komponent
 │   ├── flyver.js + flyver.css      ← Nødbesked-system
 │   ├── modal.js + modal.css        ← Genbrugelig modal (historik, info, råvarer)
@@ -176,7 +178,7 @@ Nye filer placeres præcis der de hører hjemme — kopieres ikke.
 - [x] Kalender-view (shared) — `kitchen/calendar.html` + `shared/calendar.js` + `shared/calendar.css`
 
 ### Shared komponenter
-- [x] `shared/bon_kort.js` + `shared/bon_kort.css` — Genbrugelig kort-komponent
+- [x] `shared/bon_kort.js` + `shared/bon_kort_builder.js` + `shared/bon_kort.css` — Bon-kort komponent (splittet: builder = DOM-bygning, bon_kort = adfærd/state)
   - Status-bar med klikbare knapper (styret af VIEW_WINDOWS i BonConfigBar.js)
   - Prep-checks (Råvarer / Emballage badges)
   - Kunde-sektion med fold-ud detaljer
@@ -409,17 +411,27 @@ Nye filer placeres præcis der de hører hjemme — kopieres ikke.
   - Topbar: dato + vagt-pills + vejr
 - [x] `office/index.html` — Dark sidebar med nav-grupper, Chart.js CDN fjernet
 
+### UI-rettelser (marts 2026)
+- [x] Flyver-banner z-index fikset (blokerede ikke længere topbar-navigation)
+- [x] Kalender statusfiltre: toggle én ad gangen (ikke eksklusivt), fyldte farver=aktiv, gennemsigtig=inaktiv
+- [x] "Ny bon"-knap flyttet fra topbar til kalender/liste view-specifik placering
+- [x] Dashboard topbar: vagt-pills fjernet (vises allerede i vagtplan-kort)
+- [x] Dashboard: "Åbn vagtplan →" link i stedet for Smartplan-link
+- [x] Seed-data udvidet med flere bons for bedre test-dækning
+- [x] Gradient på kitchen dashboard gjort lysere
+- [x] `shared/bon_kort.js` splittet → `bon_kort_builder.js` (DOM) + `bon_kort.js` (adfærd)
+
 ---
 
 ## Næste opgave
 
-> ✏️ Opdateret 16. marts 2026.
+> ✏️ Opdateret 27. marts 2026.
 >
-> **Fase 1a–1e + 3A + 3B komplet.** Dashboards (kitchen + office) er færdige
-> med custom canvas legoklods-chart, vagtplan-side, nav-kort grid.
+> **Fase 1a–1e + 3A + 3B komplet.** bon_kort.js splittet i builder + adfærd.
+> Dashboard topbar, flyver-z-index, kalender-statusfiltre og seed-data fikset.
 >
-> **Næste:** office/calendar.html (lille — genbruger shared/calendar.js),
-> derefter Tilbud og Ugeoversigt. Så er Bon v1 klar til nedlukning.
+> **Næste:** Office kalender-view + office listview (begge som sidebar-punkter).
+> Derefter Tilbud og Ugeoversigt. Så er Bon v1 klar til nedlukning.
 >
 > **Åbne afhængigheder:**
 > - DMI API-nøgle (vejr på dashboards) — Leif finder frem til eksisterende nøgle (Open-Meteo bruges midlertidigt)
@@ -621,9 +633,10 @@ Kyllingefilet     2,4 kg      8,2 kg
 
 ---
 
-### OPGAVE (næste)
-
-læs CLAUDE_FASE1d.md
+### ~~Refaktorering: Split bon_kort.js (done)~~
+- [x] `shared/bon_kort_builder.js` — DOM-bygning (VIEW_MODULES, VIEW_ACTIONS, createCard, 12 _build* funktioner)
+- [x] `shared/bon_kort.js` — Adfærd/state (buildStatusBar, setStatus, DnD, select, kitchen-edit, picker, sammentælling)
+- [x] HTML-filer opdateret (today.html, later.html)
 
 
 

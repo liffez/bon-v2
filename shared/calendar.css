@@ -55,6 +55,23 @@
     gap: 8px;
 }
 
+.cal-ny-bon-btn {
+    padding: 5px 14px;
+    border: 2px solid var(--brand-primary);
+    border-radius: 6px;
+    background: white;
+    color: var(--brand-primary);
+    font-size: 13px;
+    font-weight: 700;
+    cursor: pointer;
+    font-family: inherit;
+    transition: all 0.15s;
+}
+.cal-ny-bon-btn:hover {
+    background: var(--brand-primary);
+    color: white;
+}
+
 .cal-view-btn {
     background: none;
     border: 1px solid var(--color-border);
@@ -92,20 +109,24 @@
     padding: 4px 10px;
     border: 2px solid var(--filter-color, #999);
     border-radius: 4px;
-    background: white;
-    color: var(--color-text);
+    background: var(--filter-color, #999);
+    color: var(--filter-text, #fff);
     font-size: 11px;
     font-weight: 700;
     text-transform: uppercase;
     cursor: pointer;
     transition: all 0.15s;
 }
-.cal-filter-btn.active {
-    background: var(--filter-color, #999);
-    color: var(--filter-text, #fff);
+/* Hidden status = faded out */
+.cal-filter-btn.hidden {
+    background: color-mix(in srgb, var(--filter-color, #999) 12%, white);
+    color: color-mix(in srgb, var(--filter-color, #999) 40%, #aaa);
+    border-color: color-mix(in srgb, var(--filter-color, #999) 25%, #ddd);
+    opacity: 0.5;
 }
-.cal-filter-btn:hover:not(.active) {
-    background: color-mix(in srgb, var(--filter-color, #999) 15%, white);
+.cal-filter-btn:hover {
+    opacity: 1 !important;
+    filter: brightness(1.05);
 }
 
 /* ── KALENDER GRID ───────────────────────────────────────── */

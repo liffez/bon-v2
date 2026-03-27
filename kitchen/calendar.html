@@ -44,12 +44,6 @@
         .topbar-right { display: flex; align-items: center; gap: 12px; font-size: 13px; }
         .live-dot { display: flex; align-items: center; gap: 5px; opacity: 0.8; }
         .live-dot::before { content: ''; width: 7px; height: 7px; border-radius: 50%; background: #7cdb5e; display: block; }
-        .btn-ny-bon-topbar {
-            padding: 4px 14px; border: 1px solid rgba(255,255,255,0.4); border-radius: 5px;
-            background: transparent; color: #fff; font-size: 13px; font-weight: 700;
-            cursor: pointer; font-family: inherit;
-        }
-        .btn-ny-bon-topbar:hover { background: rgba(255,255,255,0.12); }
     </style>
 </head>
 <body class="zone-kitchen">
@@ -68,7 +62,6 @@
         </nav>
     </div>
     <div class="topbar-right">
-        <button class="btn-ny-bon-topbar" id="btn-ny-bon">+ Ny bon</button>
         <span class="live-dot">Live</span>
     </div>
 </header>
@@ -118,7 +111,9 @@
         const modal = new BonOpretModal({
             onCreated: (bonId) => openDrawer(bonId)
         });
-        document.getElementById('btn-ny-bon').addEventListener('click', () => modal.open());
+        // Ny bon button (rendered inside calendar header by calendar.js)
+        const nyBonBtn = document.getElementById('calNyBon');
+        if (nyBonBtn) nyBonBtn.addEventListener('click', () => modal.open());
 
         // ─── Kalender (med onEdit callback) ──────────────
         initCalendar(document.getElementById('calendarContainer'), {

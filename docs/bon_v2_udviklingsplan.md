@@ -1,5 +1,5 @@
 # Bon v2 — Overordnet udviklingsplan
-*Opdateret: marts 2026*
+*Opdateret: 17. marts 2026*
 
 ---
 
@@ -44,7 +44,8 @@ Køkkenet er selvforsynende fra Fase 2. Kontoret er selvforsynende fra Fase 3.
 | `kitchen/today.html` — Køkken I dag | ✅ |
 | `kitchen/later.html` — Køkken Senere | ✅ |
 | `kitchen/calendar.html` — Kalender (delt med office) | ✅ |
-| `kitchen/index.html` — Kitchen Dashboard | 🔲 |
+| `kitchen/index.html` — Kitchen Dashboard | ✅ |
+| `kitchen/vagtplan.html` — Ugeoversigt (Smartplan-vagter) | ✅ |
 | Kategori-overblik (totaler pr. kategori for dagen) | 🔲 |
 | `kitchen/recipes.html` — Opskrifter (Grocy, skalering) | 🟡 Prototype klar |
 | `kitchen/stock.html` — Lagerstatus | 🟡 Prototype klar |
@@ -56,8 +57,8 @@ Køkkenet er selvforsynende fra Fase 2. Kontoret er selvforsynende fra Fase 3.
 | View | Status |
 |------|--------|
 | `office/index.html` + `office/views/bons-list.js` — Listview | ✅ |
+| `office/views/dashboard.js` — Office Dashboard | ✅ |
 | `office/calendar.html` — Kalender (sidebar-punkt, genbruger shared/calendar.js) | 🔲 |
-| `office/dashboard.html` — Office Dashboard | 🔲 |
 | Ugeoversigt (Smartplan + bonner) | 🔲 |
 | Tilbud (pipeline, is_offer, mockup klar) | 🔲 |
 
@@ -87,16 +88,15 @@ Køkkenet er selvforsynende fra Fase 2. Kontoret er selvforsynende fra Fase 3.
 - Formbuilder webhook
 - Settings UI + mail service
 
-### 🔧 Fase 2 — Køkken komplet
-*Delvist — today/later/calendar er i produktion. Resten afventer.*
+### ✅ Fase 2 — Køkken komplet (delvist)
+*today/later/calendar/dashboard/vagtplan er i produktion. Resten afventer.*
 
 Resterende views (rækkefølge efter prioritet):
-1. **Kitchen Dashboard** (`kitchen/index.html`) — dagens tal, vagter, alerts, quick links
-2. **Kategori-overblik** — totaler pr. kategori for hele dagen (nyttigt til morgenbriefing)
-3. **Opskrifter** (`kitchen/recipes.html`) — Grocy, skalering, ingredienser *(prototype klar)*
-4. **Lagerstatus** (`kitchen/stock.html`) *(prototype klar)*
-5. **Varemodtagelse** (`kitchen/goods-receipt.html`) *(mockup v2 klar)*
-6. **Indkøb + Bestilling** (`kitchen/purchasing.html` + `kitchen/orders.html`)
+1. **Kategori-overblik** — totaler pr. kategori for hele dagen (nyttigt til morgenbriefing)
+2. **Opskrifter** (`kitchen/recipes.html`) — Grocy, skalering, ingredienser *(prototype klar)*
+3. **Lagerstatus** (`kitchen/stock.html`) *(prototype klar)*
+4. **Varemodtagelse** (`kitchen/goods-receipt.html`) *(mockup v2 klar)*
+5. **Indkøb + Bestilling** (`kitchen/purchasing.html` + `kitchen/orders.html`)
 
 Delte services der stadig mangler:
 - `consumeRecipe()` — trigger ved LEVERET via `triggers_json`-handleren
@@ -106,17 +106,30 @@ Delte services der stadig mangler:
 
 ---
 
-### 🔲 Fase 3 — Office basis
+### ✅ Fase 3A — Office Listview
+*Komplet*
+- GET /api/bons udvidet med filtre, sortering, pagination, unread_mail, delivery_event
+- `office/views/bons-list.js` — 5 filtre, kolonnevælger, sortering, SSE, BonDrawer
+- `office/index.html` — dark sidebar, nav-grupper
+
+### ✅ Fase 3B — Dashboards
+*Komplet*
+- `routes/dashboard.js` — today, stats, top-products API
+- `shared/dashboard_chart.js` — custom canvas legoklods-chart (erstattet Chart.js)
+- `kitchen/index.html` — komplet redesign med chart, vejr, vagter, nav-grid
+- `kitchen/vagtplan.html` — ugeoversigt med Smartplan-vagter
+- `office/views/dashboard.js` — KPI strip, chart, top-produkter, vejr
+
+### 🔲 Fase 3C — Office resterende
 *Mål: Bon v1 kan lukkes ned*
 
 | Opgave | Note |
 |--------|------|
 | `office/calendar.html` | Lille — genbruger shared/calendar.js, sidebar-punkt |
-| `office/dashboard.html` | Mockup klar (`11_dashboard.html`) |
 | Ugeoversigt | Smartplan vagter + bonner kombineret |
 | Tilbud | Mockup klar (`tilbud-v3b.html`), skema klar (`is_offer`) |
 
-**Rækkefølge:** Kalender → Dashboard → Tilbud → Ugeoversigt
+**Rækkefølge:** Kalender → Tilbud → Ugeoversigt
 
 ---
 
@@ -188,7 +201,7 @@ UI: Leverings-strip på alle bon-kort · Modal ved GODKENDT uden levering (ikke-
 | **Cash flow dashboard** | 🔲 Spec klar | `/cashflow` mini-app, spec i CLAUDE_cashflow.md |
 | **Bud-app** | 🔲 | Browser-baseret, QR-kode, Fase 5+ |
 | **Opskrift-UI** | 🟡 Prototype | Afventer Grocy-dataoprydning |
-| **Menu-agent (AI)** | 🔲 Spec klar | Spec i CLAUDE_MENU_AGENT.md — kan bygges når Fase 3B er i gang |
+| **Menu-agent (AI)** | 🔲 Spec klar | Spec i CLAUDE_MENU_AGENT.md — kan bygges parallelt med Fase 3C |
 
 ---
 

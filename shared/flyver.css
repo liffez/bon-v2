@@ -4,11 +4,11 @@
 
 .flyver-banner {
     position: fixed;
-    top: 0; left: 0; right: 0;
+    top: 44px; left: 0; right: 0;
     z-index: 2000;
     background: #bc181b;
     color: white;
-    padding: 12px 20px;
+    padding: 10px 20px;
     font-size: 15px;
     font-weight: 700;
     cursor: pointer;
@@ -17,6 +17,7 @@
     gap: 10px;
     animation: flyverBlink 1s ease-in-out infinite;
     user-select: none;
+    box-shadow: 0 2px 8px rgba(188,24,27,0.4);
 }
 .flyver-banner.hidden { display: none; }
 

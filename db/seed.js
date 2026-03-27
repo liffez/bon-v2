@@ -20,14 +20,22 @@ function dayOffset(days) {
 }
 const today     = dayOffset(0);
 const yesterday = dayOffset(-1);
+const twoDaysAgo = dayOffset(-2);
+const threeDaysAgo = dayOffset(-3);
+const fourDaysAgo = dayOffset(-4);
 const tomorrow  = dayOffset(1);
 const in2days   = dayOffset(2);
 const in3days   = dayOffset(3);
+const in4days   = dayOffset(4);
+const in5days   = dayOffset(5);
 
 const run = db.transaction(() => {
 
-  // Ryd eksisterende seed-data (sikker rækkefølge)
+  // Ryd eksisterende seed-data (sikker rækkefølge, FK-venlig)
   db.exec(`
+    DELETE FROM notification_reads;
+    DELETE FROM bon_mails;
+    DELETE FROM customer_mails;
     DELETE FROM bon_lines;
     DELETE FROM changelog;
     DELETE FROM notifications;
@@ -85,9 +93,14 @@ const run = db.transaction(() => {
     anna:   insertC.run(null,               'Anna',   'Bjerre',          '28 19 45 67', 'anna.bjerre@gmail.com',     0).lastInsertRowid,
   };
 
-  // ── SYSTEMBRUGER ────────────────────────────────────────────────
+  // ── BRUGERE ─────────────────────────────────────────────────────
   db.exec(`DELETE FROM users`);
   db.prepare(`INSERT INTO users (id, name, email, role) VALUES (1, 'System', 'system@ristetrug.dk', 'admin')`).run();
+
+  const bcrypt = require('bcrypt');
+  const adminHash = bcrypt.hashSync('admin123', 10);
+  db.prepare(`INSERT INTO users (id, name, email, role, password_hash) VALUES (2, 'Admin', 'admin@ristetrug.dk', 'admin', ?)`).run(adminHash);
+  db.prepare(`INSERT INTO users (id, name, email, role, pin) VALUES (3, 'Køkken', 'kitchen@ristetrug.dk', 'kitchen', '1234')`).run();
 
   // ── STATUS IDs ──────────────────────────────────────────────────
   const statusId = (code) => db.prepare(`SELECT id FROM status_definitions WHERE code = ?`).get(code)?.id;
@@ -207,6 +220,121 @@ const run = db.transaction(() => {
     0, 0, 0, 0, 'invoice', 'catering'
   ).lastInsertRowid;
 
+  // ── HISTORISKE BONS (chart-data) ────────────────────────────
+  const storeCatId = db.prepare(`SELECT id FROM price_categories WHERE code = 'store'`).get()?.id ?? catId;
+  const festCatId  = db.prepare(`SELECT id FROM price_categories WHERE code = 'festival'`).get()?.id ?? catId;
+
+  // 4 dage siden — 3 bons (leveret)
+  const bon3270 = insertBon.run(
+    '3270', statusId('LEVERET'), locId, cust.lise, co.novo, catId,
+    fourDaysAgo, fourDaysAgo, '11:00', '11:30',
+    'delivery', 'bike', addr.novo,
+    35, 80, null,
+    1, 1, 0, 0, 'invoice', 'catering'
+  ).lastInsertRowid;
+
+  const bon3271 = insertBon.run(
+    '3271', statusId('LEVERET'), locId, cust.anna, null, storeCatId,
+    fourDaysAgo, fourDaysAgo, '10:00', null,
+    'pickup', null, null,
+    8, 16, null,
+    1, 1, 0, 1, 'mobilepay', 'store'
+  ).lastInsertRowid;
+
+  const bon3272 = insertBon.run(
+    '3272', statusId('LEVERET'), locId, cust.morten, co.dr, catId,
+    fourDaysAgo, fourDaysAgo, '12:00', '12:30',
+    'delivery', 'taxi', addr.dr,
+    20, 45, null,
+    1, 1, 0, 0, 'invoice', 'catering'
+  ).lastInsertRowid;
+
+  // 3 dage siden — 4 bons (leveret)
+  const bon3275 = insertBon.run(
+    '3275', statusId('LEVERET'), locId, cust.rasmus, co.finansforbundet, catId,
+    threeDaysAgo, threeDaysAgo, '11:30', '12:00',
+    'delivery', 'bike', addr.finansforbundet,
+    50, 120, 'Bestyrelsesmøde — stor ordre',
+    1, 1, 0, 0, 'invoice', 'catering'
+  ).lastInsertRowid;
+
+  const bon3276 = insertBon.run(
+    '3276', statusId('LEVERET'), locId, cust.sara, co.maersk, catId,
+    threeDaysAgo, threeDaysAgo, '12:00', '12:30',
+    'delivery', 'taxi', addr.maersk,
+    30, 60, null,
+    1, 1, 0, 0, 'invoice', 'catering'
+  ).lastInsertRowid;
+
+  const bon3277 = insertBon.run(
+    '3277', statusId('LEVERET'), locId, cust.jens, co.kk, festCatId,
+    threeDaysAgo, threeDaysAgo, '10:00', '10:30',
+    'delivery', 'bike', addr.tivoli,
+    25, 50, 'Festival-priser',
+    1, 1, 0, 0, 'invoice', 'festival'
+  ).lastInsertRowid;
+
+  const bon3278 = insertBon.run(
+    '3278', statusId('LEVERET'), locId, cust.nora, null, storeCatId,
+    threeDaysAgo, threeDaysAgo, '14:00', null,
+    'pickup', null, null,
+    6, 12, null,
+    1, 1, 0, 1, 'mobilepay', 'store'
+  ).lastInsertRowid;
+
+  // 2 dage siden — 3 bons (leveret)
+  const bon3280 = insertBon.run(
+    '3280', statusId('LEVERET'), locId, cust.lise, co.novo, catId,
+    twoDaysAgo, twoDaysAgo, '11:30', '12:00',
+    'delivery', 'taxi', addr.novo,
+    45, 100, null,
+    1, 1, 0, 0, 'invoice', 'catering'
+  ).lastInsertRowid;
+
+  const bon3281 = insertBon.run(
+    '3281', statusId('LEVERET'), locId, cust.morten, co.dr, catId,
+    twoDaysAgo, twoDaysAgo, '10:00', '10:30',
+    'delivery', 'bike', addr.dr,
+    18, 36, null,
+    1, 1, 0, 0, 'invoice', 'catering'
+  ).lastInsertRowid;
+
+  const bon3282 = insertBon.run(
+    '3282', statusId('LEVERET'), locId, cust.anna, null, storeCatId,
+    twoDaysAgo, twoDaysAgo, '15:00', null,
+    'pickup', null, null,
+    10, 20, null,
+    1, 1, 0, 1, 'mobilepay', 'store'
+  ).lastInsertRowid;
+
+  // ── EKSTRA FREMTIDIGE BONS ──────────────────────────────────
+
+  // Om 4 dage — 2 bons
+  const bon3330 = insertBon.run(
+    '3330', statusId('GODKENDT'), locId, cust.lise, co.novo, catId,
+    today, in4days, '11:00', '11:30',
+    'delivery', 'taxi', addr.novo,
+    40, 90, 'Fredag morgenmøde',
+    0, 0, 0, 0, 'invoice', 'catering'
+  ).lastInsertRowid;
+
+  const bon3331 = insertBon.run(
+    '3331', statusId('GODKENDT'), locId, cust.jens, co.kk, festCatId,
+    today, in4days, '12:00', '12:30',
+    'delivery', 'bike', addr.kk,
+    25, 55, null,
+    0, 0, 0, 0, 'invoice', 'festival'
+  ).lastInsertRowid;
+
+  // Om 5 dage — 1 bon
+  const bon3335 = insertBon.run(
+    '3335', statusId('GODKENDT'), locId, cust.rasmus, co.finansforbundet, catId,
+    today, in5days, '10:00', '10:30',
+    'delivery', 'bike', addr.finansforbundet,
+    15, 30, null,
+    0, 0, 0, 0, 'invoice', 'catering'
+  ).lastInsertRowid;
+
   // ── BON LINES ────────────────────────────────────────────────────
   const insertLine = db.prepare(`
     INSERT INTO bon_lines (bon_id, product_name, category, quantity, unit, sort_order, is_accessory, co2e)
@@ -311,6 +439,89 @@ const run = db.transaction(() => {
 
   // B3325 (om 3 dage, ny — ingen linjer endnu)
 
+  // ── HISTORISKE BON LINES ─────────────────────────────────────────
+
+  // B3270 (4 dage siden, Novo)
+  [[20,'Kyllingen slider','mad',0,1.21],
+   [20,'Falaflen slider','mad',0,1.44],
+   [20,'"Tunen" slider','mad',0,0.82],
+   [20,'Receptions Skinner','mad',0,0.44],
+  ].forEach(([qty,name,cat,acc,co2e],i) => insertLine.run(bon3270,name,cat,qty,'stk',i+1,acc,co2e));
+
+  // B3271 (4 dage siden, store pickup)
+  [[8,'Kyllingen slider','mad',0,1.21],
+   [8,'Granola shot','mad',0,0.35],
+  ].forEach(([qty,name,cat,acc,co2e],i) => insertLine.run(bon3271,name,cat,qty,'stk',i+1,acc,co2e));
+
+  // B3272 (4 dage siden, DR)
+  [[15,'Falaflen slider','mad',0,1.44],
+   [15,'Smørrebrød mix','mad',0,0.90],
+   [15,'Kyllingesalat','mad',0,1.10],
+  ].forEach(([qty,name,cat,acc,co2e],i) => insertLine.run(bon3272,name,cat,qty,'stk',i+1,acc,co2e));
+
+  // B3275 (3 dage siden, Finansforbundet stor)
+  [[25,'Kyllingen slider','mad',0,1.21],
+   [25,'Falaflen slider','mad',0,1.44],
+   [25,'"Tunen" Spicy slider','mad',0,0.82],
+   [25,'Receptions Skinner','mad',0,0.44],
+   [20,'Granola shot','mad',0,0.35],
+  ].forEach(([qty,name,cat,acc,co2e],i) => insertLine.run(bon3275,name,cat,qty,'stk',i+1,acc,co2e));
+
+  // B3276 (3 dage siden, Mærsk)
+  [[15,'Falaflen slider','mad',0,1.44],
+   [15,'Kyllingen slider','mad',0,1.21],
+   [15,'Ægget slider','mad',0,1.02],
+   [15,'Vegansk wrap','mad',0,0.65],
+  ].forEach(([qty,name,cat,acc,co2e],i) => insertLine.run(bon3276,name,cat,qty,'stk',i+1,acc,co2e));
+
+  // B3277 (3 dage siden, KK festival)
+  [[25,'Kyllingen slider','mad',0,1.21],
+   [25,'Falaflen slider','mad',0,1.44],
+  ].forEach(([qty,name,cat,acc,co2e],i) => insertLine.run(bon3277,name,cat,qty,'stk',i+1,acc,co2e));
+
+  // B3278 (3 dage siden, pickup)
+  [[6,'Kyllingen slider','mad',0,1.21],
+   [6,'Granola shot','mad',0,0.35],
+  ].forEach(([qty,name,cat,acc,co2e],i) => insertLine.run(bon3278,name,cat,qty,'stk',i+1,acc,co2e));
+
+  // B3280 (2 dage siden, Novo)
+  [[25,'Kyllingen slider','mad',0,1.21],
+   [25,'Falaflen slider','mad',0,1.44],
+   [25,'"Tunen" slider','mad',0,0.82],
+   [25,'Receptions Skinner','mad',0,0.44],
+  ].forEach(([qty,name,cat,acc,co2e],i) => insertLine.run(bon3280,name,cat,qty,'stk',i+1,acc,co2e));
+
+  // B3281 (2 dage siden, DR)
+  [[12,'Smørrebrød mix','mad',0,0.90],
+   [12,'Kyllingesalat','mad',0,1.10],
+   [12,'Falaflen slider','mad',0,1.44],
+  ].forEach(([qty,name,cat,acc,co2e],i) => insertLine.run(bon3281,name,cat,qty,'stk',i+1,acc,co2e));
+
+  // B3282 (2 dage siden, pickup)
+  [[10,'Kyllingen slider','mad',0,1.21],
+   [10,'Frugtsalat bæger','mad',0,0.28],
+  ].forEach(([qty,name,cat,acc,co2e],i) => insertLine.run(bon3282,name,cat,qty,'stk',i+1,acc,co2e));
+
+  // B3330 (om 4 dage, Novo)
+  [[20,'Kyllingen slider','mad',0,1.21],
+   [20,'Falaflen slider','mad',0,1.44],
+   [20,'"Tunen" Spicy slider','mad',0,0.82],
+   [15,'Granola shot','mad',0,0.35],
+   [15,'Frugtsalat bæger','mad',0,0.28],
+  ].forEach(([qty,name,cat,acc,co2e],i) => insertLine.run(bon3330,name,cat,qty,'stk',i+1,acc,co2e));
+
+  // B3331 (om 4 dage, KK festival)
+  [[20,'Kyllingen slider','mad',0,1.21],
+   [20,'Falaflen slider','mad',0,1.44],
+   [15,'Ægget slider','mad',0,1.02],
+  ].forEach(([qty,name,cat,acc,co2e],i) => insertLine.run(bon3331,name,cat,qty,'stk',i+1,acc,co2e));
+
+  // B3335 (om 5 dage, Finansforbundet)
+  [[10,'Kyllingen slider','mad',0,1.21],
+   [10,'Falaflen slider','mad',0,1.44],
+   [10,'Smørrebrød mix','mad',0,0.90],
+  ].forEach(([qty,name,cat,acc,co2e],i) => insertLine.run(bon3335,name,cat,qty,'stk',i+1,acc,co2e));
+
   // ── CHANGELOG ────────────────────────────────────────────────────
   const logStmt = db.prepare(`
     INSERT INTO changelog (entity_type, entity_id, action, field_name, old_value, new_value, user_id)
@@ -337,12 +548,41 @@ const run = db.transaction(() => {
   logStmt.run('bon', bon3308, 'create',        null,     null,      '3308');
   logStmt.run('bon', bon3308, 'status_change',  'status', 'GODKENDT','IGANG');
 
+  // Historiske (4 dage siden)
+  logStmt.run('bon', bon3270, 'create',        null,     null,      '3270');
+  logStmt.run('bon', bon3270, 'status_change',  'status', 'NY',      'LEVERET');
+  logStmt.run('bon', bon3271, 'create',        null,     null,      '3271');
+  logStmt.run('bon', bon3271, 'status_change',  'status', 'NY',      'LEVERET');
+  logStmt.run('bon', bon3272, 'create',        null,     null,      '3272');
+  logStmt.run('bon', bon3272, 'status_change',  'status', 'NY',      'LEVERET');
+
+  // Historiske (3 dage siden)
+  logStmt.run('bon', bon3275, 'create',        null,     null,      '3275');
+  logStmt.run('bon', bon3275, 'status_change',  'status', 'NY',      'LEVERET');
+  logStmt.run('bon', bon3276, 'create',        null,     null,      '3276');
+  logStmt.run('bon', bon3276, 'status_change',  'status', 'NY',      'LEVERET');
+  logStmt.run('bon', bon3277, 'create',        null,     null,      '3277');
+  logStmt.run('bon', bon3277, 'status_change',  'status', 'NY',      'LEVERET');
+  logStmt.run('bon', bon3278, 'create',        null,     null,      '3278');
+  logStmt.run('bon', bon3278, 'status_change',  'status', 'NY',      'LEVERET');
+
+  // Historiske (2 dage siden)
+  logStmt.run('bon', bon3280, 'create',        null,     null,      '3280');
+  logStmt.run('bon', bon3280, 'status_change',  'status', 'NY',      'LEVERET');
+  logStmt.run('bon', bon3281, 'create',        null,     null,      '3281');
+  logStmt.run('bon', bon3281, 'status_change',  'status', 'NY',      'LEVERET');
+  logStmt.run('bon', bon3282, 'create',        null,     null,      '3282');
+  logStmt.run('bon', bon3282, 'status_change',  'status', 'NY',      'LEVERET');
+
   // Fremtidige
   logStmt.run('bon', bon3312, 'create',        null,     null,      '3312');
   logStmt.run('bon', bon3315, 'create',        null,     null,      '3315');
   logStmt.run('bon', bon3318, 'create',        null,     null,      '3318');
   logStmt.run('bon', bon3322, 'create',        null,     null,      '3322');
   logStmt.run('bon', bon3325, 'create',        null,     null,      '3325');
+  logStmt.run('bon', bon3330, 'create',        null,     null,      '3330');
+  logStmt.run('bon', bon3331, 'create',        null,     null,      '3331');
+  logStmt.run('bon', bon3335, 'create',        null,     null,      '3335');
 
   // ── FLYVER ───────────────────────────────────────────────────────
   const insertNotif = db.prepare(`
@@ -353,27 +593,24 @@ const run = db.transaction(() => {
   insertNotif.run(bon3305, 'flyver', 'Bud ankommer kl 09:50', 'normal');
 
   // ── OPSUMMERING ──────────────────────────────────────────────────
-  const counts = {
-    addr:     Object.keys(addr).length,
-    co:       Object.keys(co).length,
-    cust:     Object.keys(cust).length,
-    igår:     1,
-    idag:     5,
-    imorgen:  3,
-    senere:   2,
-  };
-
+  const totalBons = 1 + 10 + 5 + 3 + 2 + 3;
   console.log(`
 ✅ Seed data indsat
-   Adresser:  ${counts.addr}
-   Firmaer:   ${counts.co}
-   Kunder:    ${counts.cust}
-   Bonner:    ${counts.igår + counts.idag + counts.imorgen + counts.senere} total
-     I går:     ${counts.igår}  (LEVERET)
-     I dag:     ${counts.idag}  (3× IGANG, 1× KLAR, 2× GODKENDT, 1× afhentning)
-     I morgen:  ${counts.imorgen}  (2× GODKENDT, 1× VENTER)
-     Senere:    ${counts.senere}  (1× GODKENDT, 1× NY)
-   Datoer:    ${yesterday}, ${today}, ${tomorrow}, ${in2days}, ${in3days}
+   Adresser:  ${Object.keys(addr).length}
+   Firmaer:   ${Object.keys(co).length}
+   Kunder:    ${Object.keys(cust).length}
+   Bonner:    ${totalBons} total
+     4 dage siden: 3  (LEVERET)
+     3 dage siden: 4  (LEVERET)
+     2 dage siden: 3  (LEVERET)
+     I går:        1  (LEVERET)
+     I dag:        5  (3× IGANG, 1× KLAR, 2× GODKENDT)
+     I morgen:     3  (2× GODKENDT, 1× VENTER)
+     Om 2 dage:    1  (GODKENDT)
+     Om 3 dage:    1  (NY)
+     Om 4 dage:    2  (GODKENDT)
+     Om 5 dage:    1  (GODKENDT)
+   Datoer:    ${fourDaysAgo} → ${in5days}
 `);
 });
 

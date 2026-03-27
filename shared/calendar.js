@@ -75,10 +75,11 @@ function _renderShell() {
         + '<button id="calNext">\u25B6</button>';
     header.appendChild(monthNav);
 
-    // Right side: view toggle
+    // Right side: ny bon + view toggle
     var right = document.createElement('div');
     right.className = 'cal-header-right';
-    right.innerHTML = '<button class="cal-view-btn" data-view="calendar" title="Kalender">\uD83D\uDCC5</button>'
+    right.innerHTML = '<button class="cal-ny-bon-btn" id="calNyBon">+ Ny bon</button>'
+        + '<button class="cal-view-btn" data-view="calendar" title="Kalender">\uD83D\uDCC5</button>'
         + '<button class="cal-view-btn" data-view="list" title="Liste">\u2261</button>';
     header.appendChild(right);
 
@@ -146,14 +147,17 @@ function _buildStatusFilters() {
         btn.addEventListener('click', function() {
             var st = this.dataset.status;
             if (_activeFilters[st]) {
+                // Re-enable: remove from hidden set
                 delete _activeFilters[st];
                 _filterCount--;
-                this.classList.remove('active');
+                this.classList.remove('hidden');
             } else {
+                // Disable: add to hidden set
                 _activeFilters[st] = true;
                 _filterCount++;
-                this.classList.add('active');
+                this.classList.add('hidden');
             }
+            bar.classList.toggle('has-filter', _filterCount > 0);
             _applyFilters();
         });
 
@@ -164,7 +168,7 @@ function _buildStatusFilters() {
 }
 
 function _applyFilters() {
-    // Vis/skjul bon-entries i DOM
+    // _activeFilters now contains statuses to HIDE (subtractive)
     var entries = _container.querySelectorAll('.cal-bon-entry, .cal-list-row');
     for (var i = 0; i < entries.length; i++) {
         var entry = entries[i];
@@ -172,13 +176,16 @@ function _applyFilters() {
         var isOffer = entry.dataset.offer === 'true';
 
         if (_filterCount === 0) {
-            entry.dataset.hidden = 'false';
-        } else if (_activeFilters['tilbud'] && isOffer) {
+            // No filters = show everything
             entry.dataset.hidden = 'false';
         } else if (_activeFilters[status]) {
-            entry.dataset.hidden = 'false';
-        } else {
+            // This status is in the hidden set
             entry.dataset.hidden = 'true';
+        } else if (_activeFilters['tilbud'] && isOffer) {
+            // Tilbud is hidden
+            entry.dataset.hidden = 'true';
+        } else {
+            entry.dataset.hidden = 'false';
         }
     }
 }

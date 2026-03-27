@@ -305,65 +305,7 @@ document.addEventListener('click', async (e) => {
     }
 });
 
-/* ══════════════════════════════════════════════════════════════
-   SAMMENTÆLLING
-   ══════════════════════════════════════════════════════════════ */
-
-function showSummary(cardId) {
-    const num    = cardId.replace('bon', '');
-    const panel  = document.getElementById('summary' + num);
-    const rows   = document.getElementById('summaryRows' + num);
-    const isOpen = panel.classList.contains('open');
-
-    // Luk alle andre
-    document.querySelectorAll('.summary-panel.open').forEach(p => p.classList.remove('open'));
-    if (isOpen) return;
-
-    // Tæl varer op, grupperet per kategori
-    const categories = {};  // { catName: { items: { key: {qty,unit,name} } } }
-    const card = document.getElementById(cardId);
-    card.querySelectorAll('.bon-menu-item').forEach(item => {
-        const qtyEl  = item.querySelector('.bon-menu-qty');
-        const nameEl = item.querySelector('.bon-menu-name');
-        if (!qtyEl || !nameEl) return;
-        const qtyText = qtyEl.textContent.trim();
-        const name    = nameEl.textContent.trim();
-        const match   = qtyText.match(/^([\d.,]+)\s*(.*)$/);
-        const qty     = match ? parseFloat(match[1].replace(',', '.')) : 0;
-        const unit    = match ? match[2].trim() : '';
-        const cat     = (item.dataset.category || '').trim() || 'Andet';
-        const key     = name + '||' + unit;
-
-        if (!categories[cat]) categories[cat] = {};
-        if (categories[cat][key]) categories[cat][key].qty += qty;
-        else categories[cat][key] = { qty, unit, name };
-    });
-
-    const catNames = Object.keys(categories).sort((a, b) => a.localeCompare(b, 'da'));
-    if (!catNames.length) {
-        rows.innerHTML = '<div class="summary-row"><span style="color:var(--gray-dark);font-style:italic;font-size:13px;padding:4px 0">Ingen varer</span></div>';
-    } else {
-        let html = '';
-        for (const cat of catNames) {
-            const entries = Object.values(categories[cat]).sort((a, b) => a.name.localeCompare(b.name, 'da'));
-            html += `<div class="summary-cat-header">${esc(cat)}</div>`;
-            html += entries.map(e => {
-                const qtyStr = Number.isInteger(e.qty) ? e.qty : e.qty.toFixed(1);
-                return `<div class="summary-row">
-                    <span class="summary-qty">${qtyStr} ${e.unit}</span>
-                    <span class="summary-name">${esc(e.name)}</span>
-                </div>`;
-            }).join('');
-        }
-        rows.innerHTML = html;
-    }
-    panel.classList.add('open');
-}
-
-function closeSummary(cardId) {
-    const num = cardId.replace('bon', '');
-    document.getElementById('summary' + num)?.classList.remove('open');
-}
+/* Sammentælling — nu i shared/bon_kort.js */
 
 /* ══════════════════════════════════════════════════════════════
    FILTER-SYSTEM (tap=peek 8s, hold=lock)
