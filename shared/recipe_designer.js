@@ -390,7 +390,7 @@ function _rdShowDesigner() {
             '</div>' +
 
             // Ingredients
-            '<div class="rd-section">' +
+            '<div class="rd-section rd-section--ingredients">' +
                 '<div class="rd-section-title-row">' +
                     '<span class="rd-section-label">Ingredienser</span>' +
                     '<button class="rd-add-btn" id="rdToggleAddPanel">+ Tilf&#248;j ingrediens</button>' +
@@ -838,6 +838,13 @@ function _rdOnAcInput(q) {
             '<span class="rd-ac-item-meta"><span style="' + dotStyle + '">&#9679;</span> ' + _rdRound(stockAmt, 1) + ' ' + esc(unitName) + '</span>' +
         '</div>';
     }).join('');
+    // Position fixed dropdown under input
+    var inputRect = document.getElementById('rdAcInput').getBoundingClientRect();
+    dd.style.top = inputRect.bottom + 'px';
+    dd.style.left = inputRect.left + 'px';
+    dd.style.right = 'auto';
+    dd.style.width = inputRect.width + 'px';
+    dd.style.maxWidth = inputRect.width + 'px';
     dd.classList.add('rd-open');
 
     // Bind selection
@@ -996,6 +1003,14 @@ function _rdOnNestAcInput(q) {
             '<span class="rd-ac-item-meta">' + esc(r._group) + ' &middot; ' + r.base_servings + ' ' + esc(r._unit) + '</span>' +
         '</div>';
     }).join('');
+    // Position fixed dropdown under input
+    var nestInput = document.getElementById('rdNestAcInput');
+    var nestRect = nestInput.getBoundingClientRect();
+    dd.style.top = nestRect.bottom + 'px';
+    dd.style.left = nestRect.left + 'px';
+    dd.style.right = 'auto';
+    dd.style.width = nestRect.width + 'px';
+    dd.style.maxWidth = nestRect.width + 'px';
     dd.classList.add('rd-open');
 
     dd.onclick = function(e) {

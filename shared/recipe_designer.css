@@ -450,7 +450,8 @@
 
 /* ═══ SECTIONS ═══ */
 
-.rd-section { margin-bottom: 20px; }
+.rd-section { margin-bottom: 20px; position: relative; }
+.rd-section--ingredients { z-index: 50; }
 
 .rd-section-title-row {
     display: flex;
@@ -613,6 +614,8 @@
     padding: 12px;
     background: rgba(142,99,31,0.06);
     border-top: 2px dashed var(--brand-primary);
+    position: relative;
+    z-index: 100;
 }
 
 .rd-add-panel.rd-visible { display: block; }
@@ -646,16 +649,17 @@
 
 .rd-ac-dropdown {
     display: none;
-    position: absolute;
-    top: 100%; left: 0; right: 0;
-    background: var(--color-surface);
-    border: 1px solid var(--brand-primary);
-    border-top: none;
-    border-radius: 0 0 8px 8px;
-    max-height: 200px;
+    position: fixed;
+    left: 0; right: 0;
+    max-width: 500px;
+    margin: 0 auto;
+    background: var(--color-surface, #fff);
+    border: 2px solid var(--brand-primary);
+    border-radius: 0 0 10px 10px;
+    max-height: 220px;
     overflow-y: auto;
-    z-index: 10;
-    box-shadow: 0 8px 20px rgba(0,0,0,0.1);
+    z-index: 9999;
+    box-shadow: 0 8px 24px rgba(0,0,0,0.2);
 }
 
 .rd-ac-dropdown.rd-open { display: block; }
