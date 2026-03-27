@@ -1,17 +1,90 @@
 <!DOCTYPE html>
 <html lang="da">
 <head>
-  <meta charset="UTF-8">
-  <title>Bon v2 — Kitchen Planning</title>
-  <link rel="stylesheet" href="../shared/tokens.css">
-  <link rel="stylesheet" href="../shared/components.css">
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Planlægning — Bon v2</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Lato:wght@400;700&display=swap" rel="stylesheet">
+    <link rel="stylesheet" href="/shared/tokens.css">
+    <link rel="stylesheet" href="/shared/planning.css">
+    <link rel="stylesheet" href="/shared/modal.css">
+    <style>
+        /* ═══ RESET + BASE ═══ */
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+        body {
+            font-family: 'Lato', sans-serif;
+            background: var(--color-background);
+            color: var(--color-text);
+            min-height: 100vh;
+        }
+
+        /* ═══ TOPBAR ═══ */
+        .topbar {
+            background: var(--brand-primary); color: white;
+            padding: 0 24px; height: 44px;
+            display: flex; align-items: center; justify-content: space-between;
+            position: sticky; top: 0; z-index: 300;
+        }
+        .topbar-left  { display: flex; align-items: center; gap: 4px; }
+        .topbar-logo  { font-size: 15px; font-weight: 700; margin-right: 16px; }
+        .topbar-nav a {
+            color: rgba(255,255,255,0.65); text-decoration: none;
+            font-size: 13px; font-weight: 700; padding: 0 12px;
+            height: 44px; display: inline-flex; align-items: center;
+            border-bottom: 3px solid transparent; transition: all 0.15s;
+        }
+        .topbar-nav a:hover  { color: white; }
+        .topbar-nav a.active { color: white; border-bottom-color: rgba(255,255,255,0.55); }
+        .topbar-right { display: flex; align-items: center; gap: 12px; font-size: 13px; }
+        .live-dot { display: flex; align-items: center; gap: 5px; opacity: 0.8; }
+        .live-dot::before { content: ''; width: 7px; height: 7px; border-radius: 50%; background: #7cdb5e; display: block; }
+
+        #planningContainer {
+            padding: 20px 24px;
+        }
+    </style>
 </head>
 <body class="zone-kitchen">
-  <main>
-    <h1>Planning</h1>
-    <!-- TODO -->
-  </main>
-  <script src="../shared/api.js"></script>
-  <script src="../shared/sidekick.js"></script>
+
+<!-- TOPBAR -->
+<header class="topbar">
+    <div class="topbar-left">
+        <span class="topbar-logo">Ristet Rug</span>
+        <nav class="topbar-nav">
+            <a href="/kitchen/">DASHBOARD</a>
+            <a href="/kitchen/today.html">I DAG</a>
+            <a href="/kitchen/later.html">SENERE</a>
+            <a href="/kitchen/calendar.html">KALENDER</a>
+            <a href="/kitchen/planning.html" class="active">PLANLÆGNING</a>
+            <a href="/kitchen/orders.html">MERE ▾</a>
+        </nav>
+    </div>
+    <div class="topbar-right">
+        <span class="live-dot">Live</span>
+    </div>
+</header>
+
+<!-- PLANLÆGNING RENDERES HER -->
+<div id="planningContainer"></div>
+
+<!-- SCRIPTS (rækkefølge er vigtig) -->
+<script src="/BonConfig.js"></script>
+<script src="/BonConfigBar.js"></script>
+<script src="/shared/utils.js"></script>
+<script src="/shared/api.js"></script>
+<script src="/shared/modal.js"></script>
+<script src="/shared/planning.js"></script>
+<script>
+    document.addEventListener('DOMContentLoaded', async function() {
+        const currentUser = await checkAuth();
+        if (!currentUser) return;
+
+        initPlanning(document.getElementById('planningContainer'), {
+            zone: 'kitchen',
+        });
+    });
+</script>
 </body>
 </html>

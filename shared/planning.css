@@ -1,0 +1,364 @@
+/* ══════════════════════════════════════════════════════════════
+   planning.css — Planlægningsbon styling
+   ══════════════════════════════════════════════════════════════ */
+
+.planning-wrap {
+    max-width: 1000px;
+    margin: 0 auto;
+}
+
+/* ── Periode ──────────────────────────────────────────────── */
+.pl-periode {
+    margin-bottom: 12px;
+}
+.pl-periode-row {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    flex-wrap: wrap;
+}
+.pl-periode-row label {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    font-size: 13px;
+    font-weight: 600;
+    color: var(--color-text-dim, #666);
+}
+.pl-periode-row input[type="date"] {
+    padding: 6px 10px;
+    border: 1px solid var(--color-border, #d7d1ca);
+    border-radius: 6px;
+    font-family: inherit;
+    font-size: 14px;
+    background: var(--color-surface, #fff);
+}
+.pl-week-btn {
+    padding: 6px 12px;
+    border: 1px solid var(--color-border, #d7d1ca);
+    border-radius: 6px;
+    background: var(--color-surface, #fff);
+    cursor: pointer;
+    font-size: 14px;
+    font-family: inherit;
+}
+.pl-week-btn:hover {
+    background: var(--color-background, #f5f4f2);
+}
+
+/* ── Status-filtre ────────────────────────────────────────── */
+.pl-status-filters {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 6px;
+    margin-bottom: 16px;
+}
+.pl-filter-btn {
+    padding: 4px 12px;
+    border-radius: 20px;
+    font-size: 11px;
+    font-weight: 700;
+    text-transform: uppercase;
+    letter-spacing: .3px;
+    cursor: pointer;
+    font-family: inherit;
+    transition: all 0.15s;
+    border: 1px solid transparent;
+}
+.pl-filter-btn:hover {
+    filter: brightness(1.1);
+}
+
+/* ── Bon-liste ────────────────────────────────────────────── */
+.pl-bon-list-wrap {
+    background: var(--color-surface, #fff);
+    border: 1px solid var(--color-border, #d7d1ca);
+    border-radius: 8px;
+    margin-bottom: 20px;
+    overflow: hidden;
+}
+.pl-bon-list-header {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    padding: 10px 14px;
+    border-bottom: 1px solid var(--color-border, #d7d1ca);
+    background: var(--color-background, #f5f4f2);
+}
+.pl-bon-list-title {
+    font-size: 11px;
+    font-weight: 700;
+    text-transform: uppercase;
+    letter-spacing: .5px;
+    color: var(--color-text-dim, #888);
+}
+.pl-bon-list-count {
+    font-size: 12px;
+    color: var(--color-text-dim, #888);
+    flex: 1;
+}
+.pl-select-all-btn {
+    padding: 4px 12px;
+    border: 1px solid var(--color-border, #d7d1ca);
+    border-radius: 4px;
+    background: var(--color-surface, #fff);
+    font-size: 12px;
+    cursor: pointer;
+    font-family: inherit;
+}
+.pl-select-all-btn:hover {
+    background: var(--color-background, #f5f4f2);
+}
+.pl-bon-list {
+    max-height: 280px;
+    overflow-y: auto;
+}
+.pl-bon-row {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    padding: 7px 14px;
+    cursor: pointer;
+    border-bottom: 1px solid rgba(0,0,0,0.04);
+    font-size: 13px;
+    transition: background 0.1s;
+}
+.pl-bon-row:hover {
+    background: rgba(0,0,0,0.02);
+}
+.pl-bon-row.pl-offer {
+    opacity: 0.5;
+}
+.pl-bon-check {
+    width: 16px;
+    height: 16px;
+    accent-color: var(--brand-primary, #8e631f);
+}
+.pl-bon-nr {
+    font-weight: 700;
+    min-width: 60px;
+    color: var(--brand-primary, #8e631f);
+}
+.pl-bon-status {
+    padding: 1px 8px;
+    border-radius: 3px;
+    font-size: 10px;
+    font-weight: 700;
+    text-transform: uppercase;
+    letter-spacing: .3px;
+    white-space: nowrap;
+}
+.pl-bon-customer {
+    flex: 1;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+.pl-bon-date {
+    color: var(--color-text-dim, #888);
+    min-width: 60px;
+}
+.pl-bon-units {
+    font-weight: 600;
+    min-width: 50px;
+    text-align: right;
+}
+
+/* ── Vagtplan toggle ──────────────────────────────────────── */
+.pl-vagtplan-wrap {
+    margin-bottom: 16px;
+    background: var(--color-surface, #fff);
+    border: 1px solid var(--color-border, #d7d1ca);
+    border-radius: 8px;
+    overflow: hidden;
+}
+.pl-vagtplan-toggle {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    width: 100%;
+    padding: 10px 14px;
+    border: none;
+    background: var(--color-background, #f5f4f2);
+    font-size: 13px;
+    font-weight: 700;
+    text-transform: uppercase;
+    letter-spacing: .3px;
+    color: var(--color-text-dim, #888);
+    cursor: pointer;
+    font-family: inherit;
+    text-align: left;
+}
+.pl-vagtplan-toggle:hover {
+    background: var(--color-border, #d7d1ca);
+}
+.pl-vagtplan-arrow {
+    font-size: 10px;
+    width: 14px;
+}
+.pl-vagtplan-content {
+    display: none;
+    padding: 12px 14px;
+    border-top: 1px solid var(--color-border, #d7d1ca);
+}
+.pl-vagtplan-content.open {
+    display: block;
+}
+.pl-vagtplan-empty {
+    color: var(--color-text-dim, #888);
+    font-style: italic;
+    font-size: 13px;
+}
+.pl-vagtplan-grid {
+    display: flex;
+    gap: 12px;
+    overflow-x: auto;
+    padding-bottom: 4px;
+}
+.pl-vagtplan-day {
+    min-width: 110px;
+    flex-shrink: 0;
+}
+.pl-vagtplan-day-label {
+    font-size: 12px;
+    font-weight: 700;
+    color: var(--brand-primary, #8e631f);
+    margin-bottom: 6px;
+    padding-bottom: 4px;
+    border-bottom: 1px solid var(--color-border, #d7d1ca);
+}
+.pl-vagtplan-shift {
+    font-size: 12px;
+    padding: 2px 0;
+    white-space: nowrap;
+}
+.pl-shift-time {
+    color: var(--color-text-dim, #888);
+    font-size: 11px;
+}
+.pl-shift-name {
+    font-weight: 600;
+}
+
+/* ── Action buttons ───────────────────────────────────────── */
+.pl-result-actions {
+    display: flex;
+    gap: 8px;
+    margin-left: auto;
+}
+.pl-action-btn {
+    display: inline-flex;
+    align-items: center;
+    gap: 4px;
+    padding: 5px 12px;
+    border: 1px solid var(--color-border, #d7d1ca);
+    border-radius: 6px;
+    background: var(--color-surface, #fff);
+    font-size: 12px;
+    font-weight: 600;
+    cursor: pointer;
+    font-family: inherit;
+    color: var(--brand-primary, #8e631f);
+    transition: all 0.12s;
+}
+.pl-action-btn:hover {
+    background: var(--color-background, #f5f4f2);
+    border-color: var(--brand-primary, #8e631f);
+}
+.pl-action-btn svg {
+    width: 14px;
+    height: 14px;
+    stroke: currentColor;
+}
+
+/* ── Empty state ──────────────────────────────────────────── */
+.pl-empty {
+    text-align: center;
+    padding: 32px 16px;
+    color: var(--color-text-dim, #888);
+    font-size: 14px;
+    font-style: italic;
+}
+
+/* ── Resultat-tabel ───────────────────────────────────────── */
+.pl-result {
+    background: var(--color-surface, #fff);
+    border: 1px solid var(--color-border, #d7d1ca);
+    border-radius: 8px;
+    overflow: hidden;
+}
+.pl-result-header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 10px 14px;
+    border-bottom: 1px solid var(--color-border, #d7d1ca);
+    background: var(--color-background, #f5f4f2);
+}
+.pl-result-title {
+    font-size: 11px;
+    font-weight: 700;
+    text-transform: uppercase;
+    letter-spacing: .5px;
+    color: var(--color-text-dim, #888);
+}
+.pl-result-meta {
+    font-size: 12px;
+    color: var(--color-text-dim, #888);
+}
+.pl-result-table {
+    width: 100%;
+    border-collapse: collapse;
+    font-size: 14px;
+}
+.pl-result-table th {
+    text-align: left;
+    padding: 8px 14px;
+    font-size: 11px;
+    font-weight: 700;
+    text-transform: uppercase;
+    letter-spacing: .3px;
+    color: var(--color-text-dim, #888);
+    border-bottom: 1px solid var(--color-border, #d7d1ca);
+    background: var(--color-background, #f5f4f2);
+}
+.pl-result-row td {
+    padding: 6px 14px;
+    border-bottom: 1px solid rgba(0,0,0,0.04);
+}
+.pl-result-row.pl-accessory td {
+    color: var(--color-text-dim, #888);
+    font-style: italic;
+}
+.pl-col-qty {
+    width: 90px;
+    white-space: nowrap;
+}
+.pl-col-qty strong {
+    font-size: 16px;
+    color: var(--brand-primary, #8e631f);
+}
+.pl-col-cat {
+    color: var(--color-text-dim, #888);
+    font-size: 12px;
+}
+.pl-col-price,
+.pl-col-total {
+    text-align: right;
+    white-space: nowrap;
+}
+.pl-result-total td {
+    padding: 10px 14px;
+    font-weight: 700;
+    border-top: 2px solid var(--color-border, #d7d1ca);
+    background: var(--color-background, #f5f4f2);
+}
+
+/* ── Kitchen zone tweaks ──────────────────────────────────── */
+.zone-kitchen .pl-result-table {
+    font-size: 15px;
+}
+.zone-kitchen .pl-bon-row {
+    padding: 10px 14px;
+    font-size: 14px;
+}

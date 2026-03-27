@@ -2,6 +2,8 @@ const express       = require('express');
 const router        = express.Router();
 const { getDb }     = require('../db/database');
 const { handle, getBonLines } = require('../db/helpers');
+const grocy         = require('../services/grocyAdapter');
+const { findConversionFactor, convertAndFormat } = require('../services/quConvert');
 
 // GET /api/bons/today — køkken i dag
 router.get('/today', handle((req, res) => {
@@ -94,6 +96,189 @@ router.get('/later', handle((req, res) => {
     }
 
     res.json(bons);
+}));
+
+// GET /api/bons/planning — planlægningsview (bons med lines, for client-side aggregering)
+router.get('/planning', handle((req, res) => {
+    const db = getDb();
+
+    // Default: indeværende uge (mandag–søndag)
+    const now   = new Date();
+    const dow   = now.getDay() || 7; // søndag = 7
+    const mon   = new Date(now);
+    mon.setDate(mon.getDate() - dow + 1);
+    const sun   = new Date(mon);
+    sun.setDate(sun.getDate() + 6);
+
+    const from = req.query.from || mon.toISOString().slice(0, 10);
+    const to   = req.query.to   || sun.toISOString().slice(0, 10);
+
+    // Status-filter (kommasepareret, default: produktions-relevante)
+    const statusCodes = req.query.status
+        ? req.query.status.split(',').map(s => s.trim().toUpperCase())
+        : ['GODKENDT', 'IGANG', 'KLAR', 'LEVERET'];
+
+    const placeholders = statusCodes.map(() => '?').join(',');
+
+    const bons = db.prepare(`
+        SELECT
+            b.id, b.bon_number, b.delivery_date, b.pickup_time, b.delivery_time,
+            b.pax, b.total_units, b.is_offer, b.price_category,
+            b.delivery_type, b.delivery_method,
+            sd.code  AS status_code,
+            sd.label AS status_label,
+            sd.color AS status_color,
+            c.first_name || ' ' || COALESCE(c.last_name, '') AS contact_name_full,
+            co.name  AS company_name,
+            pc.code  AS price_category_code
+        FROM bons b
+        JOIN   status_definitions sd ON b.status_id  = sd.id
+        LEFT JOIN customers c        ON b.customer_id = c.id
+        LEFT JOIN companies co       ON b.company_id  = co.id
+        LEFT JOIN price_categories pc ON b.price_category = pc.id
+        WHERE b.delivery_date >= ?
+          AND b.delivery_date <= ?
+          AND (sd.code IN (${placeholders}) OR b.is_offer = 1)
+        ORDER BY b.delivery_date ASC, b.pickup_time ASC, b.id ASC
+    `).all(from, to, ...statusCodes);
+
+    for (const bon of bons) {
+        bon.lines = getBonLines(bon.id);
+    }
+
+    res.json(bons);
+}));
+
+// GET /api/bons/planning/ingredients?ids=3305,3291,3288
+// Aggregerer ingrediensbehov for flere bons i ét kald
+router.get('/planning/ingredients', handle(async (req, res) => {
+    if (!req.query.ids) return res.status(400).json({ error: 'ids param påkrævet' });
+
+    const db = getDb();
+    const bonIds = req.query.ids.split(',').map(s => parseInt(s.trim())).filter(n => !isNaN(n));
+    if (!bonIds.length) return res.json({ ingredients: [], groups: [], lines_without_recipe: [] });
+
+    // Hent alle bon_lines for de valgte bons
+    const allLines = [];
+    const linesWithoutRecipe = [];
+    for (const id of bonIds) {
+        const lines = getBonLines(id);
+        lines.forEach(l => {
+            if (l.grocy_recipe_id) allLines.push(l);
+            else if (!l.is_accessory) linesWithoutRecipe.push(l.product_name);
+        });
+    }
+
+    if (!allLines.length) {
+        return res.json({ bon_ids: bonIds, ingredients: [], groups: [], lines_without_recipe: linesWithoutRecipe });
+    }
+
+    // Hent Grocy-data parallelt
+    const uniqueRecipeIds = [...new Set(allLines.map(l => l.grocy_recipe_id))];
+    const [recipes, ingredientsByRecipe, stockArr, products, quantityUnits, quConversions] = await Promise.all([
+        grocy.getRecipes(),
+        Promise.all(uniqueRecipeIds.map(async id => ({ id, items: await grocy.getRecipeIngredients(id) }))),
+        grocy.getStock(),
+        grocy.getProducts(),
+        grocy.getQuantityUnits(),
+        grocy.getQuantityUnitConversions(),
+    ]);
+
+    // Lookup-maps
+    const recipeMap = new Map(recipes.map(r => [r.id, r]));
+    const ingMap = new Map(ingredientsByRecipe.map(r => [r.id, r.items]));
+    const stockMap = {};
+    stockArr.forEach(s => { stockMap[s.product_id] = parseFloat(s.amount) || 0; });
+    const productMap = new Map(products.map(p => [p.id, p]));
+    const unitMap = new Map(quantityUnits.map(u => [u.id, u]));
+
+    // Aggregér ingredienser fra ALLE linjer
+    const aggregated = new Map();
+    for (const line of allLines) {
+        const recipe = recipeMap.get(line.grocy_recipe_id);
+        const unitNumber = recipe ? recipe.unit_number : 1;
+        const scaleFactor = line.quantity / unitNumber;
+        const ings = ingMap.get(line.grocy_recipe_id) || [];
+
+        for (const ing of ings) {
+            const pid = ing.product_id;
+            const baseAmount = parseFloat(ing.amount) || 0;
+            const scaledStock = baseAmount * scaleFactor;
+
+            if (aggregated.has(pid)) {
+                aggregated.get(pid).needed_stock += scaledStock;
+            } else {
+                const product = productMap.get(pid) || {};
+                aggregated.set(pid, {
+                    product_id:       pid,
+                    product_name:     product.name || `Produkt #${pid}`,
+                    needed_stock:     scaledStock,
+                    qu_id_stock:      product.qu_id_stock,
+                    qu_id_purchase:   product.qu_id_purchase,
+                    qu_id_display:    ing.qu_id,
+                    ingredient_group: ing.ingredient_group || '',
+                });
+            }
+        }
+    }
+
+    // Konvertér og klassificér
+    const ingredients = [...aggregated.values()].map(ing => {
+        const stockAmount = stockMap[ing.product_id] || 0;
+        let status;
+        if (stockAmount >= ing.needed_stock)       status = 'ok';
+        else if (stockAmount > 0)                  status = 'lav';
+        else                                       status = 'mangler';
+
+        const convOpts = { productId: ing.product_id, fromQuId: ing.qu_id_stock, toQuId: ing.qu_id_display, conversions: quConversions, unitMap };
+        const fmtNeeded = convertAndFormat(ing.needed_stock, convOpts);
+        const fmtStock  = convertAndFormat(stockAmount, convOpts);
+
+        const shortfallStock = Math.max(0, ing.needed_stock - stockAmount);
+        let shortfallPurchase = shortfallStock;
+        let purchaseUnitName = '';
+        if (ing.qu_id_purchase && ing.qu_id_purchase !== ing.qu_id_stock) {
+            const toPurchaseFactor = findConversionFactor(quConversions, ing.product_id, ing.qu_id_stock, ing.qu_id_purchase);
+            if (toPurchaseFactor !== null) shortfallPurchase = shortfallStock * toPurchaseFactor;
+            const puUnit = unitMap.get(ing.qu_id_purchase);
+            purchaseUnitName = puUnit ? (puUnit.name_short || puUnit.name || '') : '';
+        } else {
+            const stUnit = unitMap.get(ing.qu_id_stock);
+            purchaseUnitName = stUnit ? (stUnit.name_short || stUnit.name || '') : '';
+        }
+
+        return {
+            product_id: ing.product_id, product_name: ing.product_name,
+            amount_needed: fmtNeeded.amount, amount_stock: fmtStock.amount,
+            unit: fmtNeeded.unit, stock_unit: fmtStock.unit,
+            status, ingredient_group: ing.ingredient_group,
+            shortfall_purchase: Math.ceil(shortfallPurchase * 100) / 100,
+            purchase_unit: purchaseUnitName,
+        };
+    });
+
+    // Gruppér
+    const groupsMap = {};
+    for (const ing of ingredients) {
+        const g = ing.ingredient_group || '';
+        if (!groupsMap[g]) groupsMap[g] = [];
+        groupsMap[g].push(ing);
+    }
+    const groupNames = Object.keys(groupsMap).sort((a, b) => {
+        const aL = a.toLowerCase(), bL = b.toLowerCase();
+        if (aL === 'emballage') return 1;  if (bL === 'emballage') return -1;
+        if (a === '') return -1;  if (b === '') return 1;
+        return a.localeCompare(b, 'da');
+    });
+    const statusOrder = { mangler: 0, lav: 1, ok: 2 };
+    const groups = groupNames.map(name => ({
+        name,
+        ingredients: groupsMap[name].sort((a, b) =>
+            (statusOrder[a.status] - statusOrder[b.status]) || a.product_name.localeCompare(b.product_name, 'da')
+        ),
+    }));
+
+    res.json({ bon_ids: bonIds, ingredients, groups, lines_without_recipe: linesWithoutRecipe });
 }));
 
 // GET /api/bons/calendar — kalender-view (bons grupperet per dato med totaler)

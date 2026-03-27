@@ -12,6 +12,7 @@
   <link rel="stylesheet" href="../shared/vare_picker.css">
   <link rel="stylesheet" href="../shared/dashboard_chart.css">
   <link rel="stylesheet" href="../shared/calendar.css">
+  <link rel="stylesheet" href="../shared/planning.css">
   <link rel="stylesheet" href="../shared/modal.css">
   <!-- Chart.js removed — custom canvas chart in shared/dashboard_chart.js -->
   <style>
@@ -409,6 +410,9 @@
           <button class="sidebar-link" data-view="calendar">
             <span class="sidebar-icon">📅</span> Kalender
           </button>
+          <button class="sidebar-link" data-view="planning">
+            <span class="sidebar-icon">📦</span> Planlægning
+          </button>
 
           <div class="sidebar-group-label">CRM</div>
           <button class="sidebar-link disabled">
@@ -479,8 +483,10 @@
   <script src="../shared/dashboard_chart.js"></script>
   <script src="../shared/modal.js"></script>
   <script src="../shared/calendar.js"></script>
+  <script src="../shared/planning.js"></script>
   <script src="views/bons-list.js"></script>
   <script src="views/bons-calendar.js"></script>
+  <script src="views/planning.js"></script>
   <script src="views/dashboard.js"></script>
 
   <script>
@@ -549,6 +555,10 @@
         calendar: {
           init: () => initOfficeCalendar(contentEl, { openDrawer, openNewBon: () => modal.open() }),
           cleanup: () => { if (typeof cleanupOfficeCalendar === 'function') cleanupOfficeCalendar(); },
+        },
+        planning: {
+          init: () => initOfficePlanning(contentEl, { openDrawer }),
+          cleanup: () => { if (typeof cleanupOfficePlanning === 'function') cleanupOfficePlanning(); },
         },
       };
 

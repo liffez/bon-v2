@@ -107,6 +107,7 @@ bon-v2/
 │   ├── bon_kort_builder.js  ← DOM-bygning (createCard, VIEW_MODULES, VIEW_ACTIONS, _build*)
 │   ├── bon_kort.css
 │   ├── calendar.js + calendar.css  ← Kalender/liste komponent
+│   ├── planning.js + planning.css  ← Planlægningsbon (aggregering, vagtplan, action-knapper)
 │   ├── flyver.js + flyver.css      ← Nødbesked-system
 │   ├── modal.js + modal.css        ← Genbrugelig modal (historik, info, råvarer)
 │   ├── vare_picker.js + vare_picker.css ← Standalone VarePicker (bruges i kort + drawer)
@@ -421,16 +422,32 @@ Nye filer placeres præcis der de hører hjemme — kopieres ikke.
 - [x] Gradient på kitchen dashboard gjort lysere
 - [x] `shared/bon_kort.js` splittet → `bon_kort_builder.js` (DOM) + `bon_kort.js` (adfærd)
 
+### Fase 3D — Planlægningsbon
+- [x] `GET /api/bons/planning?from=&to=&status=` — bons med inline lines for client-side aggregering
+- [x] `GET /api/bons/planning/ingredients?ids=` — merged ingrediensbehov for flere bons i ét kald
+- [x] `shared/planning.js` + `shared/planning.css` — hovedkomponent
+  - Periode-valg med uge-navigation (◀/▶)
+  - Status-filtre med localStorage persistens
+  - Bon-liste med checkboxes, "Vælg alle"/"Fravælg alle"
+  - Client-side aggregering (grocy_recipe_id nøgle, fallback product_name+unit)
+  - Aggregeret produktionsoversigt-tabel
+  - Action-knapper: Råvarer (multi-bon merged via planning/ingredients endpoint) + Sammentælling (modal)
+  - Vagtplan-toggle foroven (kollapset default, Smartplan shifts per dag)
+  - SSE realtidsopdatering
+- [x] `kitchen/planning.html` — kitchen shell med topbar
+- [x] `office/views/planning.js` — office wrapper
+- [x] Monteret i office sidebar + view-switcher
+- [x] `shared/api.js` — `fetchBonsPlanning()` + `fetchPlanningIngredients()`
+
 ---
 
 ## Næste opgave
 
 > ✏️ Opdateret 27. marts 2026.
 >
-> **Fase 1a–1e + 3A + 3B komplet.** bon_kort.js splittet i builder + adfærd.
-> Dashboard topbar, flyver-z-index, kalender-statusfiltre og seed-data fikset.
+> **Fase 1a–1e + 3A + 3B + 3D komplet.** Planlægningsbon done i kitchen + office.
 >
-> **Næste:** Office kalender-view + office listview (begge som sidebar-punkter).
+> **Næste:** Priser-setting i planlægningsbon (`show_prices_in_planning`).
 > Derefter Tilbud og Ugeoversigt. Så er Bon v1 klar til nedlukning.
 >
 > **Åbne afhængigheder:**
@@ -439,8 +456,12 @@ Nye filer placeres præcis der de hører hjemme — kopieres ikke.
 > - Byekspressen credentials — ryk sebastian@by-expressen.dk (Fase 5)
 > - Formbuilder webhook-URL + HTML til ristetrug.dk/bestil — sættes når 1c er stabilt
 >
+> **Åbne design-beslutninger:**
+> - Priser i planlægningsbon: setting `show_prices_in_planning` (default false) — styrer om salgspris/kostpris/margin vises
+>
 > **Beslutning:**
 > - Kalender er separat sidebar-punkt i office (ikke fane i listview)
+> - Planlægning er separat sidebar-punkt i office + topbar-link i kitchen
 
 ---
 
@@ -655,6 +676,8 @@ Kyllingefilet     2,4 kg      8,2 kg
 GET    /api/bons/today                                   routes/kitchen.js
 GET    /api/bons/later?days=28                            routes/kitchen.js
 GET    /api/bons/calendar?year=&month=&status=            routes/kitchen.js
+GET    /api/bons/planning?from=&to=&status=              routes/kitchen.js
+GET    /api/bons/planning/ingredients?ids=               routes/kitchen.js
 GET    /api/bons?date=&status=&q=&location=              routes/bons.js
 GET    /api/bons/:id                                     routes/bons.js
 POST   /api/bons                                         routes/bons.js

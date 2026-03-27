@@ -184,6 +184,16 @@ function fetchBonsCalendar(year, month, status) {
     return apiFetch('/bons/calendar' + qs);
 }
 
+function fetchPlanningIngredients(bonIds) {
+    return apiFetch('/bons/planning/ingredients?ids=' + bonIds.join(','));
+}
+
+function fetchBonsPlanning(from, to, statuses) {
+    var qs = '?from=' + encodeURIComponent(from) + '&to=' + encodeURIComponent(to);
+    if (statuses) qs += '&status=' + encodeURIComponent(statuses);
+    return apiFetch('/bons/planning' + qs);
+}
+
 /* ── SMARTPLAN ────────────────────────────────────────────── */
 
 function fetchSmartplanShifts(from, to) {
