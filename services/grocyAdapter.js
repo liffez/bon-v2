@@ -150,8 +150,128 @@ async function grocyPost(path, body) {
     return res.json();
 }
 
+/**
+ * PUT til Grocy API.
+ */
+async function grocyPut(path, body) {
+    const { url, key } = getGrocyConfig();
+    const base = url.replace(/\/+$/, '');
+    const route = path.startsWith('/') ? path : '/' + path;
+
+    const res = await fetch(base + route, {
+        method: 'PUT',
+        headers: {
+            'GROCY-API-KEY': key,
+            'Content-Type': 'application/json',
+            'Accept': 'application/json',
+        },
+        body: JSON.stringify(body),
+    });
+
+    if (!res.ok) {
+        const text = await res.text().catch(() => '');
+        throw new Error(`Grocy PUT fejl ${res.status}: ${text.slice(0, 200)}`);
+    }
+
+    // PUT returnerer ofte tom body
+    const text = await res.text();
+    return text ? JSON.parse(text) : {};
+}
+
+/**
+ * DELETE fra Grocy API.
+ */
+async function grocyDelete(path) {
+    const { url, key } = getGrocyConfig();
+    const base = url.replace(/\/+$/, '');
+    const route = path.startsWith('/') ? path : '/' + path;
+
+    const res = await fetch(base + route, {
+        method: 'DELETE',
+        headers: {
+            'GROCY-API-KEY': key,
+            'Accept': 'application/json',
+        },
+    });
+
+    if (!res.ok) {
+        const text = await res.text().catch(() => '');
+        throw new Error(`Grocy DELETE fejl ${res.status}: ${text.slice(0, 200)}`);
+    }
+
+    return {};
+}
+
 /* ══════════════════════════════════════════════════════════════
-   EKSPORTEREDE FUNKTIONER
+   RECIPE CRUD — skriver til Grocy via proxy
+   ══════════════════════════════════════════════════════════════ */
+
+/** Opret ny opskrift */
+async function createRecipe(body) {
+    const result = await grocyPost('/objects/recipes', body);
+    _cache.delete('recipes');
+    return result;
+}
+
+/** Opdater eksisterende opskrift */
+async function updateRecipe(id, body) {
+    const result = await grocyPut(`/objects/recipes/${id}`, body);
+    _cache.delete('recipes');
+    return result;
+}
+
+/** Opdater userfields på opskrift */
+async function updateRecipeUserfields(id, fields) {
+    const result = await grocyPut(`/userfields/recipes/${id}`, fields);
+    _cache.delete('recipes');
+    return result;
+}
+
+/** Opret ingrediens-position */
+async function createRecipePos(body) {
+    const result = await grocyPost('/objects/recipes_pos', body);
+    _cache.delete('all_recipes_pos');
+    _cache.delete(`recipe_ing_${body.recipe_id}`);
+    return result;
+}
+
+/** Opdater ingrediens-position */
+async function updateRecipePos(id, body) {
+    const result = await grocyPut(`/objects/recipes_pos/${id}`, body);
+    _cache.delete('all_recipes_pos');
+    return result;
+}
+
+/** Slet ingrediens-position */
+async function deleteRecipePos(id) {
+    const result = await grocyDelete(`/objects/recipes_pos/${id}`);
+    _cache.delete('all_recipes_pos');
+    return result;
+}
+
+/** Opret underopskrift-relation */
+async function createRecipeNesting(body) {
+    const result = await grocyPost('/objects/recipes_nestings', body);
+    _cache.delete('recipes_nestings');
+    return result;
+}
+
+/** Opdater underopskrift-relation */
+async function updateRecipeNesting(id, body) {
+    const result = await grocyPut(`/objects/recipes_nestings/${id}`, body);
+    _cache.delete('recipes_nestings');
+    return result;
+}
+
+/** Slet underopskrift-relation */
+async function deleteRecipeNesting(id) {
+    const result = await grocyDelete(`/objects/recipes_nestings/${id}`);
+    _cache.delete('recipes_nestings');
+    return result;
+}
+
+/* ══════════════════════════════════════════════════════════════
+   READ-FUNKTIONER
    ══════════════════════════════════════════════════════════════ */
 
 /** Alle opskrifter (rå Grocy-data) */
@@ -324,6 +444,7 @@ async function consumeRecipes(lines) {
 /* ══════════════════════════════════════════════════════════════ */
 
 module.exports = {
+    // Read
     getRecipes,
     getRecipesRaw,
     getRecipesRawMap,
@@ -335,7 +456,21 @@ module.exports = {
     getQuantityUnits,
     getQuantityUnitConversions,
     getAllRecipesPos,
-    addToShoppingList,
+    // Write — recipes
+    createRecipe,
+    updateRecipe,
+    updateRecipeUserfields,
+    // Write — recipe positions (ingredients)
+    createRecipePos,
+    updateRecipePos,
+    deleteRecipePos,
+    // Write — recipe nestings (sub-recipes)
+    createRecipeNesting,
+    updateRecipeNesting,
+    deleteRecipeNesting,
+    // Write — stock + shopping
     consumeRecipes,
+    addToShoppingList,
+    // Cache
     clearCache,
 };

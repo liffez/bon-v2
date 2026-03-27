@@ -73,6 +73,54 @@ router.post('/consume', handle(async (req, res) => {
     res.json({ ok: failed === 0, consumed: success, failed, results });
 }));
 
+/* ── Recipe CRUD (write) ─────────────────────────────────── */
+
+router.post('/recipes', handle(async (req, res) => {
+    res.json(await grocy.createRecipe(req.body));
+}));
+
+router.put('/recipes/:id', handle(async (req, res) => {
+    await grocy.updateRecipe(parseInt(req.params.id), req.body);
+    res.json({ ok: true });
+}));
+
+router.put('/recipes/:id/userfields', handle(async (req, res) => {
+    await grocy.updateRecipeUserfields(parseInt(req.params.id), req.body);
+    res.json({ ok: true });
+}));
+
+/* ── Recipe positions (ingredients) CRUD ─────────────────── */
+
+router.post('/recipes-pos', handle(async (req, res) => {
+    res.json(await grocy.createRecipePos(req.body));
+}));
+
+router.put('/recipes-pos/:id', handle(async (req, res) => {
+    await grocy.updateRecipePos(parseInt(req.params.id), req.body);
+    res.json({ ok: true });
+}));
+
+router.delete('/recipes-pos/:id', handle(async (req, res) => {
+    await grocy.deleteRecipePos(parseInt(req.params.id));
+    res.json({ ok: true });
+}));
+
+/* ── Recipe nestings (sub-recipes) CRUD ──────────────────── */
+
+router.post('/recipes-nestings', handle(async (req, res) => {
+    res.json(await grocy.createRecipeNesting(req.body));
+}));
+
+router.put('/recipes-nestings/:id', handle(async (req, res) => {
+    await grocy.updateRecipeNesting(parseInt(req.params.id), req.body);
+    res.json({ ok: true });
+}));
+
+router.delete('/recipes-nestings/:id', handle(async (req, res) => {
+    await grocy.deleteRecipeNesting(parseInt(req.params.id));
+    res.json({ ok: true });
+}));
+
 /* ── Indkøbsliste (write) ────────────────────────────────── */
 
 router.post('/shoppinglist', handle(async (req, res) => {
