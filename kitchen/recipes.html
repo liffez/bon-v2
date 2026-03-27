@@ -9,6 +9,7 @@
     <link href="https://fonts.googleapis.com/css2?family=Lato:wght@400;700&display=swap" rel="stylesheet">
     <link rel="stylesheet" href="/shared/tokens.css">
     <link rel="stylesheet" href="/shared/recipe_viewer.css">
+    <link rel="stylesheet" href="/shared/recipe_designer.css">
     <style>
         /* RESET + BASE */
         * { margin: 0; padding: 0; box-sizing: border-box; }
@@ -105,6 +106,12 @@
             padding: 20px 24px;
             max-width: 900px;
         }
+        #recipeDesignerContainer {
+            padding: 0;
+            max-width: 900px;
+            display: none;
+        }
+        .tab-bar a { cursor: pointer; }
     </style>
 </head>
 <body class="zone-kitchen">
@@ -135,23 +142,64 @@
 
 <!-- TAB BAR -->
 <div class="tab-bar">
-    <a href="/kitchen/recipes.html" class="active">Opskrifter</a>
-    <a href="#" style="opacity:0.4; pointer-events:none;">Designer</a>
+    <a href="#" id="tabViewer" class="active">Opskrifter</a>
+    <a href="#" id="tabDesigner">Designer</a>
 </div>
 
 <!-- RECIPE VIEWER RENDERES HER -->
 <div id="recipeViewerContainer"></div>
+<div id="recipeDesignerContainer"></div>
 
 <!-- SCRIPTS -->
 <script src="/shared/utils.js"></script>
 <script src="/shared/api.js"></script>
 <script src="/shared/recipe_viewer.js"></script>
+<script src="/shared/recipe_designer.js"></script>
 <script>
+    var _designerInitialized = false;
+
     document.addEventListener('DOMContentLoaded', async function() {
         var currentUser = await checkAuth();
         if (!currentUser) return;
 
-        initRecipeViewer(document.getElementById('recipeViewerContainer'));
+        var viewerContainer = document.getElementById('recipeViewerContainer');
+        var designerContainer = document.getElementById('recipeDesignerContainer');
+        var tabViewer = document.getElementById('tabViewer');
+        var tabDesigner = document.getElementById('tabDesigner');
+
+        // Init viewer by default
+        initRecipeViewer(viewerContainer);
+
+        // Check URL hash for initial tab
+        if (window.location.hash === '#designer') {
+            switchToDesigner();
+        }
+
+        tabViewer.addEventListener('click', function(e) {
+            e.preventDefault();
+            tabViewer.classList.add('active');
+            tabDesigner.classList.remove('active');
+            viewerContainer.style.display = 'block';
+            designerContainer.style.display = 'none';
+            window.location.hash = '';
+        });
+
+        tabDesigner.addEventListener('click', function(e) {
+            e.preventDefault();
+            switchToDesigner();
+        });
+
+        function switchToDesigner() {
+            tabDesigner.classList.add('active');
+            tabViewer.classList.remove('active');
+            viewerContainer.style.display = 'none';
+            designerContainer.style.display = 'block';
+            window.location.hash = 'designer';
+            if (!_designerInitialized) {
+                initRecipeDesigner(designerContainer);
+                _designerInitialized = true;
+            }
+        }
     });
 
     // Close MERE dropdown when clicking outside
