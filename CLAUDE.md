@@ -87,7 +87,7 @@ bon-v2/
 │   ├── mail.js       ← /api/mail/* (admin, skabeloner + test)
 │   └── dashboard.js  ← /api/dashboard/* (today, stats, top-products, weather)
 ├── services/
-│   ├── grocyAdapter.js       ← Readonly Grocy API adapter med cache
+│   ├── grocyAdapter.js       ← Grocy API adapter med cache + CRUD + consume
 │   ├── ingredientResolver.js ← Rekursiv ingrediens-opløsning inkl. underopskrifter
 │   ├── smartplanAdapter.js   ← Smartplan OAuth2 adapter (shifts + worklogs)
 │   ├── mailService.js        ← SMTP afsendelse + IMAP polling + tag-routing
@@ -116,6 +116,8 @@ bon-v2/
 │   ├── bon_drawer.js + bon_drawer.css   ← Bon-detalje drawer (fuld redigering)
 │   ├── kunde_soeg.js + kunde_soeg.css   ← Kunde/firma-søgekomponent
 │   ├── dashboard_chart.js + dashboard_chart.css ← Custom canvas legoklods-chart
+│   ├── recipe_viewer.js + recipe_viewer.css    ← Opskrift-browser (ingredienser, consume)
+│   ├── recipe_designer.js + recipe_designer.css ← Opskrift-editor (CRUD mod Grocy)
 │   ├── kitchen-topbar.html         ← Fælles topbar for kitchen-views
 │   ├── api.js        ← Frontend API-funktioner
 │   ├── utils.js      ← Status-mapping, connectSSE(), mapApiBonToCardData(), scrollToBonHash()
@@ -458,17 +460,45 @@ Nye filer placeres præcis der de hører hjemme — kopieres ikke.
 - [x] Monteret i office sidebar + view-switcher
 - [x] `shared/api.js` — `fetchBonsPlanning()` + `fetchPlanningIngredients()`
 
+### Fase 4 — Opskrifter + Lager-forbrug
+- [x] **Consume-fix**: `resolveConsumeItems()` i ingredientResolver.js
+  - Per-produkt forbrug via `POST /stock/products/{id}/consume` (erstatter broken recipe-level consume)
+  - Inkl. underopskrifter rekursivt + emballage
+  - Partial success ved fejl (fortsætter med næste produkt)
+- [x] **Grocy write-proxy**: `grocyPut()`, `grocyDelete()` + 9 CRUD-funktioner i grocyAdapter
+  - Recipes, positions (ingredienser), nestings (underopskrifter)
+  - Cache-invalidering efter writes
+  - 12 nye routes i grocy.js (POST/PUT/DELETE)
+- [x] `POST /api/grocy/consume` — consume via recipe lines (auto-consume ved LEVERET)
+- [x] `POST /api/grocy/consume-products` — consume via per-produkt mængder (recipe viewer)
+- [x] `shared/api.js` — ~20 nye Grocy CRUD-funktioner
+- [x] `kitchen/recipes.html` — Komplet opskrift-side med to tabs:
+  - **Viewer tab**: Opskrift-browser portet fra bontools recipe-viewer
+    - Søgning, kategori-chips, opskriftsliste
+    - Detaljevisning med portionsskalering, ingredienser med lagerstatus
+    - Underopskrifter med klikbar navigation + navigation-stack
+    - Træk fra lager med toast notification + pæne fejlbeskeder
+  - **Designer tab**: Opskrift-editor portet fra bontools recipe-designer
+    - Start-skærm med Tilpas/Ny valg
+    - Recipe picker med søgning og kategori-chips
+    - Editor: ingrediens-tabel med inline steppers, underopskrifter, noter
+    - Gem (PUT) og Gem som ny (POST) via Grocy write-proxy
+    - Autocomplete produkt-søg med lagerstatus-dots
+- [x] `shared/recipe_viewer.js` + `shared/recipe_viewer.css`
+- [x] `shared/recipe_designer.js` + `shared/recipe_designer.css`
+- [x] Kitchen topbar: MERE dropdown standardiseret på alle views (Opskrifter + Vagtplan)
+- [x] Dashboard: Opskrifter-kort linker til `/kitchen/recipes.html`
+
 ---
 
 ## Næste opgave
 
 > ✏️ Opdateret 27. marts 2026.
 >
-> **Fase 1a–1e + 3A + 3B + 3D komplet.** Planlægningsbon done i kitchen + office.
-> Ingrediens-resolver med underopskrifter implementeret.
+> **Fase 1a–1e + 3A + 3B + 3D + 4 komplet.** Opskrifter + consume integreret.
 >
-> **Næste:** Priser-setting i planlægningsbon (`show_prices_in_planning`).
-> Derefter Tilbud og Ugeoversigt. Så er Bon v1 klar til nedlukning.
+> **Næste:** LEVERET auto-consume end-to-end test.
+> Derefter Priser-setting, Tilbud og Ugeoversigt. Så er Bon v1 klar til nedlukning.
 >
 > **Åbne afhængigheder:**
 > - DMI API-nøgle (vejr på dashboards) — Leif finder frem til eksisterende nøgle (Open-Meteo bruges midlertidigt)
@@ -486,6 +516,7 @@ Nye filer placeres præcis der de hører hjemme — kopieres ikke.
 > - Kalender er separat sidebar-punkt i office (ikke fane i listview)
 > - Planlægning er separat sidebar-punkt i office + topbar-link i kitchen
 > - Ingrediens-opløsning inkluderer underopskrifter rekursivt (emballage og levering vises nederst, ikke skjult)
+> - Lager-forbrug: per-produkt consume (ikke recipe-level), inkl. emballage
 
 ---
 
@@ -726,6 +757,19 @@ GET    /api/grocy/recipes/fulfillment                    routes/grocy.js → gro
 GET    /api/grocy/recipes/:id/ingredients                routes/grocy.js → grocyAdapter
 GET    /api/grocy/products                               routes/grocy.js → grocyAdapter
 GET    /api/grocy/stock                                  routes/grocy.js → grocyAdapter
+GET    /api/grocy/recipes-nestings                       routes/grocy.js → grocyAdapter
+GET    /api/grocy/recipes-pos/all                        routes/grocy.js → grocyAdapter
+POST   /api/grocy/recipes                                routes/grocy.js (opret opskrift)
+PUT    /api/grocy/recipes/:id                            routes/grocy.js (opdater opskrift)
+PUT    /api/grocy/recipes/:id/userfields                 routes/grocy.js (opdater userfields)
+POST   /api/grocy/recipes-pos                            routes/grocy.js (tilføj ingrediens)
+PUT    /api/grocy/recipes-pos/:id                        routes/grocy.js (opdater ingrediens)
+DELETE /api/grocy/recipes-pos/:id                        routes/grocy.js (slet ingrediens)
+POST   /api/grocy/recipes-nestings                       routes/grocy.js (tilføj underopskrift)
+PUT    /api/grocy/recipes-nestings/:id                   routes/grocy.js (opdater underopskrift)
+DELETE /api/grocy/recipes-nestings/:id                   routes/grocy.js (slet underopskrift)
+POST   /api/grocy/consume                                routes/grocy.js (consume via recipe lines)
+POST   /api/grocy/consume-products                       routes/grocy.js (consume via per-produkt)
 DELETE /api/grocy/cache                                  routes/grocy.js (ryd cache)
 GET    /api/smartplan/shifts?from=&to=                    routes/smartplan.js
 GET    /api/smartplan/employees                           routes/smartplan.js
