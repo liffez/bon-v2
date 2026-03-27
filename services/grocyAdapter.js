@@ -230,6 +230,20 @@ function getAllRecipesPos() {
     return cachedFetch('all_recipes_pos', '/objects/recipes_pos');
 }
 
+/** Underopskrift-relationer (recipes_nestings) */
+function getRecipeNestings() {
+    return cachedFetch('recipes_nestings', '/objects/recipes_nestings');
+}
+
+/** Rå opskrift-data inkl. base_servings (til sub-recipe beregning) */
+function getRecipesRawMap() {
+    return getRecipesRaw().then(arr => {
+        const m = new Map();
+        arr.forEach(r => m.set(r.id, r));
+        return m;
+    });
+}
+
 /**
  * Tilføj varer til Grocy indkøbsliste.
  * @param {Array<{product_id: number, amount: number, note?: string}>} items
@@ -293,8 +307,10 @@ async function consumeRecipes(lines) {
 module.exports = {
     getRecipes,
     getRecipesRaw,
+    getRecipesRawMap,
     getRecipeFulfillment,
     getRecipeIngredients,
+    getRecipeNestings,
     getProducts,
     getStock,
     getQuantityUnits,

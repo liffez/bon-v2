@@ -87,10 +87,11 @@ bon-v2/
 │   ├── mail.js       ← /api/mail/* (admin, skabeloner + test)
 │   └── dashboard.js  ← /api/dashboard/* (today, stats, top-products, weather)
 ├── services/
-│   ├── grocyAdapter.js  ← Readonly Grocy API adapter med cache
-│   ├── smartplanAdapter.js ← Smartplan OAuth2 adapter (shifts + worklogs)
-│   ├── mailService.js   ← SMTP afsendelse + IMAP polling + tag-routing
-│   └── quConvert.js     ← Grocy quantity unit conversions
+│   ├── grocyAdapter.js       ← Readonly Grocy API adapter med cache
+│   ├── ingredientResolver.js ← Rekursiv ingrediens-opløsning inkl. underopskrifter
+│   ├── smartplanAdapter.js   ← Smartplan OAuth2 adapter (shifts + worklogs)
+│   ├── mailService.js        ← SMTP afsendelse + IMAP polling + tag-routing
+│   └── quConvert.js          ← Grocy quantity unit conversions
 ├── routes/
 │   └── dashboard.js  ← /api/dashboard/* (today, stats, top-products)
 ├── db/
@@ -412,6 +413,15 @@ Nye filer placeres præcis der de hører hjemme — kopieres ikke.
   - Topbar: dato + vagt-pills + vejr
 - [x] `office/index.html` — Dark sidebar med nav-grupper, Chart.js CDN fjernet
 
+### Ingrediens-resolver (underopskrifter)
+- [x] `services/ingredientResolver.js` — Delt service for ingrediens-aggregering
+  - Rekursiv opløsning af underopskrifter via Grocy `recipes_nestings`
+  - `collectSubRecipeIngredients()` mønster fra bontools recipe-viewer
+  - Visited-set forhindrer cirkulære referencer
+  - Bruges af både `GET /api/bons/:id/ingredients` og `GET /api/bons/planning/ingredients`
+- [x] `services/grocyAdapter.js` — `getRecipeNestings()`, `getRecipesRawMap()` tilføjet
+- [x] Duplikeret aggregeringslogik fjernet fra `routes/bons.js` + `routes/kitchen.js`
+
 ### UI-rettelser (marts 2026)
 - [x] Flyver-banner z-index fikset (blokerede ikke længere topbar-navigation)
 - [x] Kalender statusfiltre: toggle én ad gangen (ikke eksklusivt), fyldte farver=aktiv, gennemsigtig=inaktiv
@@ -446,6 +456,7 @@ Nye filer placeres præcis der de hører hjemme — kopieres ikke.
 > ✏️ Opdateret 27. marts 2026.
 >
 > **Fase 1a–1e + 3A + 3B + 3D komplet.** Planlægningsbon done i kitchen + office.
+> Ingrediens-resolver med underopskrifter implementeret.
 >
 > **Næste:** Priser-setting i planlægningsbon (`show_prices_in_planning`).
 > Derefter Tilbud og Ugeoversigt. Så er Bon v1 klar til nedlukning.
@@ -457,11 +468,15 @@ Nye filer placeres præcis der de hører hjemme — kopieres ikke.
 > - Formbuilder webhook-URL + HTML til ristetrug.dk/bestil — sættes når 1c er stabilt
 >
 > **Åbne design-beslutninger:**
-> - Priser i planlægningsbon: setting `show_prices_in_planning` (default false) — styrer om salgspris/kostpris/margin vises
+> - Priser i planlægningsbon: setting `show_prices_in_planning` (default false)
+>   Styrer om salgspris/kostpris/margin vises i planlægningsbon.
+>   Implementeres som setting i settings-tabellen, bruges i planning.js til at vise/skjule priskolonner.
+> - shared/-mappe opdeling i undermapper — udskydes til senere refaktorering
 >
-> **Beslutning:**
+> **Beslutninger taget:**
 > - Kalender er separat sidebar-punkt i office (ikke fane i listview)
 > - Planlægning er separat sidebar-punkt i office + topbar-link i kitchen
+> - Ingrediens-opløsning inkluderer underopskrifter rekursivt (emballage og levering vises nederst, ikke skjult)
 
 ---
 

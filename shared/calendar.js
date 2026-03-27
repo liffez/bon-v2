@@ -51,6 +51,15 @@ function initCalendar(containerEl, options) {
     _currentMonth = _options.month || (new Date().getMonth() + 1);
     _currentView  = localStorage.getItem('bon_cal_view') || _options.view || 'calendar';
 
+    // Restore filter state from localStorage
+    var savedFilters = localStorage.getItem('cal_status_filter');
+    if (savedFilters) {
+        try {
+            _activeFilters = JSON.parse(savedFilters);
+            _filterCount = Object.keys(_activeFilters).length;
+        } catch(e) { _activeFilters = {}; _filterCount = 0; }
+    }
+
     _renderShell();
     _loadData();
     _initSSE();
@@ -138,7 +147,7 @@ function _buildStatusFilters() {
         var cfg = statuses[key];
 
         var btn = document.createElement('button');
-        btn.className = 'cal-filter-btn';
+        btn.className = 'cal-filter-btn' + (_activeFilters[key] ? ' hidden' : '');
         btn.dataset.status = key;
         btn.textContent = cfg.label;
         btn.style.setProperty('--filter-color', cfg.color);
@@ -158,12 +167,14 @@ function _buildStatusFilters() {
                 this.classList.add('hidden');
             }
             bar.classList.toggle('has-filter', _filterCount > 0);
+            localStorage.setItem('cal_status_filter', JSON.stringify(_activeFilters));
             _applyFilters();
         });
 
         bar.appendChild(btn);
     }
 
+    if (_filterCount > 0) bar.classList.add('has-filter');
     return bar;
 }
 

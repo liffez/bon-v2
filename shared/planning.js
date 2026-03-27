@@ -588,55 +588,18 @@ async function _plShowRavarer() {
 
     openModal({
         title: 'Råvarer — ' + bonIds.length + ' bons',
-        bodyHtml: '<div style="text-align:center;padding:20px;color:#888">Henter ingrediensbehov…</div>'
+        bodyHtml: '<div class="changelog-empty">Henter ingrediensbehov…</div>'
     });
 
     try {
-        // Ét API-kald for alle valgte bons
         var data = await fetchPlanningIngredients(bonIds);
-
-        var statusDot = { mangler: '🔴', lav: '🟡', ok: '🟢' };
-        var html = '';
-
-        if (!data.groups || !data.groups.length) {
-            html = '<div style="text-align:center;padding:20px;color:#888;font-style:italic">Ingen opskrifter med ingredienser fundet</div>';
-        } else {
-            html = '<div style="max-height:60vh;overflow-y:auto">';
-
-            // Vis per gruppe
-            data.groups.forEach(function(group) {
-                var groupLabel = group.name || 'Ingredienser';
-                html += '<div style="margin-bottom:12px">' +
-                    '<div style="font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:.3px;color:var(--color-text-dim,#888);padding:6px 0;border-bottom:1px solid var(--color-border,#d7d1ca)">' + esc(groupLabel) + '</div>';
-
-                group.ingredients.forEach(function(ing) {
-                    html += '<div style="display:flex;align-items:center;gap:8px;padding:5px 0;border-bottom:1px solid rgba(0,0,0,0.04);font-size:13px">' +
-                        '<span style="width:20px;text-align:center">' + (statusDot[ing.status] || '⚪') + '</span>' +
-                        '<span style="flex:1">' + esc(ing.product_name) + '</span>' +
-                        '<span style="text-align:right;min-width:80px;font-weight:600">' + ing.amount_needed + ' ' + esc(ing.unit || '') + '</span>' +
-                        '<span style="text-align:right;min-width:80px;color:var(--color-text-dim,#888)">' + ing.amount_stock + ' ' + esc(ing.stock_unit || '') + '</span>' +
-                    '</div>';
-                });
-
-                html += '</div>';
-            });
-
-            // Linjer uden opskrift
-            if (data.lines_without_recipe && data.lines_without_recipe.length) {
-                html += '<div style="margin-top:12px;padding:8px 0;border-top:1px solid var(--color-border,#d7d1ca);font-size:12px;color:var(--color-text-dim,#888)">' +
-                    '<strong>Uden opskrift:</strong> ' + data.lines_without_recipe.map(function(n) { return esc(n); }).join(', ') +
-                '</div>';
-            }
-
-            html += '</div>';
-        }
-
+        // Genbrug _buildRavarerHtml fra modal.js — identisk response-format
         var body = document.querySelector('.modal-body');
-        if (body) body.innerHTML = html;
+        if (body) body.innerHTML = _buildRavarerHtml(data);
     } catch(err) {
         console.error('Råvarer-fejl:', err);
         var body = document.querySelector('.modal-body');
-        if (body) body.innerHTML = '<div style="text-align:center;padding:20px;color:#c00">Kunne ikke hente ingredienser. Prøv igen.</div>';
+        if (body) body.innerHTML = '<div class="changelog-empty">Kunne ikke hente ingredienser. Prøv igen.</div>';
     }
 }
 
