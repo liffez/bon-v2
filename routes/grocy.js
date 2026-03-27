@@ -50,6 +50,29 @@ router.get('/quantity-unit-conversions', handle(async (req, res) => {
     res.json(await grocy.getQuantityUnitConversions());
 }));
 
+/* ── Opskrift-data (nestings + positions) ────────────────── */
+
+router.get('/recipes-nestings', handle(async (req, res) => {
+    res.json(await grocy.getRecipeNestings());
+}));
+
+router.get('/recipes-pos/all', handle(async (req, res) => {
+    res.json(await grocy.getAllRecipesPos());
+}));
+
+/* ── Lager-forbrug (consume) ─────────────────────────────── */
+
+router.post('/consume', handle(async (req, res) => {
+    const { lines } = req.body;
+    if (!Array.isArray(lines) || lines.length === 0) {
+        return res.status(400).json({ error: 'lines[] er påkrævet (grocy_recipe_id + quantity)' });
+    }
+    const results = await grocy.consumeRecipes(lines);
+    const success = results.filter(r => r.success).length;
+    const failed  = results.filter(r => !r.success).length;
+    res.json({ ok: failed === 0, consumed: success, failed, results });
+}));
+
 /* ── Indkøbsliste (write) ────────────────────────────────── */
 
 router.post('/shoppinglist', handle(async (req, res) => {

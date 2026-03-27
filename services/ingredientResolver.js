@@ -385,4 +385,113 @@ function findConversionFactorToGrams(conversions, productId, fromQuId, unitMap) 
     return findConversionFactor(conversions, productId, fromQuId, gramQuId);
 }
 
-module.exports = { resolveIngredients };
+/**
+ * Resolve consume items for inventory deduction.
+ * Returnerer flad liste af produkter med mængder i stock-units,
+ * aggregeret per product_id, inkl. underopskrifter og emballage.
+ *
+ * Bruges af consumeRecipes() i grocyAdapter.js og
+ * POST /api/grocy/consume endpoint.
+ *
+ * @param {Array} recipeLines  Bon-linjer med grocy_recipe_id + quantity
+ * @returns {Array<{ product_id, amount_stock, product_name }>}
+ */
+async function resolveConsumeItems(recipeLines) {
+    if (!recipeLines.length) return [];
+
+    const [
+        recipes,
+        allRecipesPos,
+        nestings,
+        rawRecipeMap,
+        products,
+    ] = await Promise.all([
+        grocy.getRecipes(),
+        grocy.getAllRecipesPos(),
+        grocy.getRecipeNestings(),
+        grocy.getRecipesRawMap(),
+        grocy.getProducts(),
+    ]);
+
+    const recipeMap = new Map(recipes.map(r => [r.id, r]));
+    const productMap = new Map(products.map(p => [p.id, p]));
+
+    // Gruppér per recipe_id
+    const posByRecipe = {};
+    allRecipesPos.forEach(p => {
+        const rid = p.recipe_id;
+        if (!posByRecipe[rid]) posByRecipe[rid] = [];
+        posByRecipe[rid].push(p);
+    });
+
+    const nestingsByRecipe = {};
+    nestings.forEach(n => {
+        const rid = n.recipe_id;
+        if (!nestingsByRecipe[rid]) nestingsByRecipe[rid] = [];
+        nestingsByRecipe[rid].push(n);
+    });
+
+    // Aggregér: product_id → total amount i stock-units
+    const aggregated = new Map();
+
+    function addAmount(pid, amount) {
+        if (amount <= 0) return;
+        if (aggregated.has(pid)) {
+            aggregated.get(pid).amount_stock += amount;
+        } else {
+            const product = productMap.get(pid) || {};
+            aggregated.set(pid, {
+                product_id:   pid,
+                product_name: product.name || `Produkt #${pid}`,
+                amount_stock: amount,
+            });
+        }
+    }
+
+    function resolveNestings(recipeId, parentMultiplier, visited) {
+        if (visited.has(recipeId)) return;
+        visited.add(recipeId);
+
+        const subNestings = nestingsByRecipe[recipeId] || [];
+        for (const nesting of subNestings) {
+            const subRecipeId = nesting.includes_recipe_id;
+            const subRaw = rawRecipeMap.get(subRecipeId);
+            if (!subRaw) continue;
+
+            const subBaseServings = parseInt(subRaw.base_servings) || 1;
+            const nestingServings = parseFloat(nesting.servings) || 1;
+            const subMultiplier = (nestingServings * parentMultiplier) / subBaseServings;
+
+            const subIngs = posByRecipe[subRecipeId] || [];
+            for (const ing of subIngs) {
+                const baseAmount = parseFloat(ing.amount) || 0;
+                addAmount(ing.product_id, baseAmount * subMultiplier);
+            }
+
+            resolveNestings(subRecipeId, subMultiplier * subBaseServings, visited);
+        }
+    }
+
+    // Behandl bon-linjer
+    for (const line of recipeLines) {
+        const recipe = recipeMap.get(line.grocy_recipe_id);
+        const unitNumber = recipe ? recipe.unit_number : 1;
+        const scaleFactor = line.quantity / unitNumber;
+
+        // Direkte ingredienser (inkl. emballage)
+        const ings = posByRecipe[line.grocy_recipe_id] || [];
+        for (const ing of ings) {
+            const baseAmount = parseFloat(ing.amount) || 0;
+            addAmount(ing.product_id, baseAmount * scaleFactor);
+        }
+
+        // Underopskrifter rekursivt
+        const rawRecipe = rawRecipeMap.get(line.grocy_recipe_id);
+        const baseServings = rawRecipe ? (parseInt(rawRecipe.base_servings) || 1) : 1;
+        resolveNestings(line.grocy_recipe_id, scaleFactor * baseServings / baseServings, new Set());
+    }
+
+    return [...aggregated.values()];
+}
+
+module.exports = { resolveIngredients, resolveConsumeItems };

@@ -262,41 +262,60 @@ async function addToShoppingList(items) {
 }
 
 /**
- * Forbruger opskrift-ingredienser fra Grocy-lager.
- * Kalder POST /recipes/{id}/consume for hver bon-linje med grocy_recipe_id.
+ * Forbruger ingredienser fra Grocy-lager for en liste bon-linjer.
+ *
+ * Ny tilgang (erstatter gammel recipe-level consume):
+ * 1. Resolver ALLE ingredienser inkl. underopskrifter via ingredientResolver
+ * 2. Aggregerer per product_id (inkl. emballage)
+ * 3. Kalder POST /stock/products/{id}/consume per produkt
+ * 4. Returnerer per-produkt results (partial success ved fejl)
+ *
  * @param {Array<{grocy_recipe_id: number, quantity: number}>} lines  Bon-linjer
- * @returns {Array<{recipe_id: number, success: boolean, error?: string}>}
+ * @returns {Array<{product_id: number, product_name: string, amount: number, success: boolean, error?: string}>}
  */
 async function consumeRecipes(lines) {
+    const validLines = lines.filter(l => l.grocy_recipe_id);
+    if (!validLines.length) return [];
+
+    // Lazy require for at undgå cirkulær dependency
+    const { resolveConsumeItems } = require('./ingredientResolver');
+
+    let items;
+    try {
+        items = await resolveConsumeItems(validLines);
+    } catch (err) {
+        console.error('[consume] Fejl ved ingredient-opløsning:', err);
+        return [{ product_id: 0, product_name: '(resolver fejl)', amount: 0, success: false, error: err.message }];
+    }
+
+    if (!items.length) return [];
+
+    // Consume hvert produkt — fortsæt ved fejl (partial success)
     const results = [];
-    for (const line of lines) {
-        if (!line.grocy_recipe_id) continue;
+    for (const item of items) {
         try {
-            // Grocy consume-endpoint: POST /recipes/{id}/consume
-            // quantity = antal gange opskriften skal forbruges
-            const { url, key } = getGrocyConfig();
-            const base = url.replace(/\/+$/, '');
-            const res = await fetch(`${base}/recipes/${line.grocy_recipe_id}/consume`, {
-                method: 'POST',
-                headers: {
-                    'GROCY-API-KEY': key,
-                    'Content-Type': 'application/json',
-                    'Accept': 'application/json',
-                },
+            await grocyPost(`/stock/products/${item.product_id}/consume`, {
+                amount:           item.amount_stock,
+                transaction_type: 'consume',
+                spoiled:          false,
             });
-            // Grocy consume bruger opskriftens base serving size.
-            // Hvis quantity > 1 skal vi kalde den flere gange eller skalere.
-            // For nu kalder vi den 'quantity' gange.
-            if (!res.ok) {
-                const body = await res.text().catch(() => '');
-                results.push({ recipe_id: line.grocy_recipe_id, success: false, error: `${res.status}: ${body.slice(0, 100)}` });
-            } else {
-                results.push({ recipe_id: line.grocy_recipe_id, success: true });
-            }
+            results.push({
+                product_id:   item.product_id,
+                product_name: item.product_name,
+                amount:       item.amount_stock,
+                success:      true,
+            });
         } catch (err) {
-            results.push({ recipe_id: line.grocy_recipe_id, success: false, error: err.message });
+            results.push({
+                product_id:   item.product_id,
+                product_name: item.product_name,
+                amount:       item.amount_stock,
+                success:      false,
+                error:        err.message,
+            });
         }
     }
+
     // Ryd stock-cache efter forbrug
     _cache.delete('stock');
     return results;
