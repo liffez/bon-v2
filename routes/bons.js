@@ -426,23 +426,27 @@ router.get('/:id/ingredients', handle(async (req, res) => {
         .map(l => l.product_name);
 
     if (recipeLines.length === 0) {
+        const empty = { ingredients: [], groups: [], sub_recipes: [] };
         return res.json({
             bon_id: bon.id,
             bon_number: bon.bon_number,
-            ingredients: [],
-            groups: [],
+            production: empty,
+            raw: empty,
             lines_without_recipe: linesWithoutRecipe,
         });
     }
 
     const { resolveIngredients } = require('../services/ingredientResolver');
-    const { ingredients, groups } = await resolveIngredients(recipeLines);
+    const { production, raw } = await resolveIngredients(recipeLines);
 
     res.json({
         bon_id:               bon.id,
         bon_number:           bon.bon_number,
-        ingredients,
-        groups,
+        production,
+        raw,
+        // Bagudkompatibilitet: ingredients/groups = raw-niveau
+        ingredients:          raw.ingredients,
+        groups:               raw.groups,
         lines_without_recipe: linesWithoutRecipe,
     });
 }));

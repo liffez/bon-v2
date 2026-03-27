@@ -316,6 +316,49 @@
    RÅVARER / INGREDIENSER
    ══════════════════════════════════════════════════════════════ */
 
+/* Niveau-toggle (Produktion / Råvarer) */
+.ing-level-toggle {
+    display: flex;
+    gap: 4px;
+    margin-bottom: 10px;
+    padding: 3px;
+    background: var(--color-border, #d7d1ca);
+    border-radius: 8px;
+}
+.ing-level-btn {
+    flex: 1;
+    padding: 7px 12px;
+    border: none;
+    border-radius: 6px;
+    background: transparent;
+    font: inherit;
+    font-size: 13px;
+    font-weight: 600;
+    color: var(--color-text-dim, #888);
+    cursor: pointer;
+    transition: all 0.15s;
+}
+.ing-level-btn.active {
+    background: #fff;
+    color: var(--brand-primary, #8e631f);
+    box-shadow: 0 1px 3px rgba(0,0,0,0.1);
+}
+.ing-level-btn:hover:not(.active) {
+    color: var(--color-text, #333);
+}
+
+/* Underopskrift-rækker (produktion-niveau) */
+.ing-sub-recipe {
+    background: var(--brand-primary-light, #f1e6b2);
+    border-radius: 6px;
+    padding: 6px 8px !important;
+    margin: 2px 0;
+}
+.ing-sub-recipe .ing-name {
+    font-weight: 600;
+    color: var(--brand-primary, #8e631f);
+}
+
 /* Søgefelt */
 .ing-search-wrap {
     position: sticky;

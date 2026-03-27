@@ -593,7 +593,9 @@ async function _plShowRavarer() {
 
     try {
         var data = await fetchPlanningIngredients(bonIds);
-        // Genbrug _buildRavarerHtml fra modal.js — identisk response-format
+        // Gem data for toggle og genbrug _buildRavarerHtml fra modal.js
+        _ravarerData = data;
+        _ravarerLevel = 'production';
         var body = document.querySelector('.modal-body');
         if (body) body.innerHTML = _buildRavarerHtml(data);
     } catch(err) {

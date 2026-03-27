@@ -169,13 +169,22 @@ router.get('/planning/ingredients', handle(async (req, res) => {
     }
 
     if (!allLines.length) {
-        return res.json({ bon_ids: bonIds, ingredients: [], groups: [], lines_without_recipe: linesWithoutRecipe });
+        const empty = { ingredients: [], groups: [], sub_recipes: [] };
+        return res.json({ bon_ids: bonIds, production: empty, raw: empty, ingredients: [], groups: [], lines_without_recipe: linesWithoutRecipe });
     }
 
     const { resolveIngredients } = require('../services/ingredientResolver');
-    const { ingredients, groups } = await resolveIngredients(allLines);
+    const { production, raw } = await resolveIngredients(allLines);
 
-    res.json({ bon_ids: bonIds, ingredients, groups, lines_without_recipe: linesWithoutRecipe });
+    res.json({
+        bon_ids: bonIds,
+        production,
+        raw,
+        // Bagudkompatibilitet
+        ingredients: raw.ingredients,
+        groups: raw.groups,
+        lines_without_recipe: linesWithoutRecipe,
+    });
 }));
 
 // GET /api/bons/calendar — kalender-view (bons grupperet per dato med totaler)

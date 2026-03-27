@@ -529,6 +529,10 @@ const _STATUS_DOT = {
     ok:      { dot: '🟢', cls: 'ing-status-ok' },
 };
 
+// Gem seneste råvare-data for toggle
+let _ravarerData = null;
+let _ravarerLevel = 'production'; // 'production' | 'raw'
+
 /**
  * Åbn råvarer-modal for et bon-kort.
  * Henter aggregerede ingredienser med lagerstatus.
@@ -548,6 +552,8 @@ async function showRavarer(cardId) {
 
     try {
         const data = await fetchBonIngredients(bonId);
+        _ravarerData = data;
+        _ravarerLevel = 'production';
         const body = document.querySelector('.modal-body');
         if (body) body.innerHTML = _buildRavarerHtml(data);
     } catch (err) {
@@ -555,6 +561,16 @@ async function showRavarer(cardId) {
         const body = document.querySelector('.modal-body');
         if (body) body.innerHTML = `<div class="changelog-empty">Kunne ikke hente ingredienser. Prøv igen.</div>`;
     }
+}
+
+/**
+ * Sæt råvarer-niveau og re-render modal.
+ */
+function _setRavarerLevel(level) {
+    if (!_ravarerData) return;
+    _ravarerLevel = level;
+    const body = document.querySelector('.modal-body');
+    if (body) body.innerHTML = _buildRavarerHtml(_ravarerData);
 }
 
 /**
@@ -568,12 +584,19 @@ function _fmtNum(v) {
 
 /**
  * Byg HTML for ingrediens-modal.
+ * Understøtter to niveauer: produktion (direkte + underopskrifter) og råvarer (alt fladt).
  * Grupperet efter Grocy ingredient_group med status-dots per linje.
  */
 function _buildRavarerHtml(data) {
     const _esc = typeof esc === 'function' ? esc : (s) => String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
 
-    if (!data.groups || data.groups.length === 0) {
+    // Vælg aktivt niveau — brug production/raw hvis tilgængelig, ellers bagudkompatibelt
+    const hasLevels = data.production && data.raw;
+    const level = hasLevels ? ((_ravarerLevel === 'raw') ? data.raw : data.production) : data;
+    const groups = level.groups || data.groups || [];
+    const subRecipes = level.sub_recipes || [];
+
+    if (groups.length === 0 && subRecipes.length === 0) {
         let msg = 'Ingen ingredienser fundet.';
         if (data.lines_without_recipe && data.lines_without_recipe.length > 0) {
             msg += ' Ingen linjer har en Grocy-opskrift.';
@@ -581,14 +604,26 @@ function _buildRavarerHtml(data) {
         return `<div class="changelog-empty">${msg}</div>`;
     }
 
+    let html = '';
+
+    // Toggle-knapper (kun hvis begge niveauer er tilgængelige)
+    if (hasLevels) {
+        const prodActive = _ravarerLevel === 'production' ? ' active' : '';
+        const rawActive  = _ravarerLevel === 'raw' ? ' active' : '';
+        html += `<div class="ing-level-toggle">
+            <button class="ing-level-btn${prodActive}" onclick="_setRavarerLevel('production')">🔧 Produktion</button>
+            <button class="ing-level-btn${rawActive}" onclick="_setRavarerLevel('raw')">📦 Råvarer</button>
+        </div>`;
+    }
+
     // Søgefelt
-    let html = `<div class="ing-search-wrap">
+    html += `<div class="ing-search-wrap">
         <input type="text" class="ing-search" placeholder="Søg ingrediens…"
                oninput="_filterIngredients(this.value)">
     </div>`;
 
-    // Render per Grocy-gruppe
-    for (const group of data.groups) {
+    // Render ingrediens-grupper
+    for (const group of groups) {
         const groupTitle = group.name || 'Øvrige';
 
         html += '<div class="ing-group">';
@@ -618,6 +653,28 @@ function _buildRavarerHtml(data) {
                 <span class="ing-stock">${_fmtNum(ing.amount_stock)}</span>
                 <span class="ing-stock-unit">${_esc(ing.stock_unit || ing.unit)}</span>
                 <span class="ing-action">${cartBtn}</span>
+            </div>`;
+        }
+        html += '</div></div>';
+    }
+
+    // Underopskrifter (kun produktion-niveau)
+    if (subRecipes.length > 0) {
+        html += '<div class="ing-group">';
+        html += `<div class="ing-group-header" onclick="_toggleIngGroup(this)">
+            <span class="ing-group-label">🔗 Underopskrifter</span>
+            <span class="ing-group-toggle">▾</span>
+        </div>`;
+        html += '<div class="ing-table">';
+        for (const sr of subRecipes) {
+            html += `<div class="ing-row ing-sub-recipe" data-ing-name="${_esc(sr.recipe_name.toLowerCase())}">
+                <span class="ing-dot">🟢</span>
+                <span class="ing-name">${_esc(sr.recipe_name)}</span>
+                <span class="ing-amount">${_esc(sr.amount)}</span>
+                <span class="ing-unit"></span>
+                <span class="ing-stock"></span>
+                <span class="ing-stock-unit"></span>
+                <span class="ing-action"></span>
             </div>`;
         }
         html += '</div></div>';
