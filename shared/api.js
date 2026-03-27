@@ -297,3 +297,65 @@ function patchPaymentType(id, fields) {
 function fetchLocations() {
     return apiFetch('/settings/locations');
 }
+
+/* ── GROCY — udvidet (recipe viewer + designer) ──────────── */
+
+function fetchGrocyRecipesRaw() {
+    return apiFetch('/grocy/recipes/raw');
+}
+function fetchGrocyRecipesPos() {
+    return apiFetch('/grocy/recipes-pos/all');
+}
+function fetchGrocyRecipesNestings() {
+    return apiFetch('/grocy/recipes-nestings');
+}
+function fetchGrocyProducts() {
+    return apiFetch('/grocy/products');
+}
+function fetchGrocyStock() {
+    return apiFetch('/grocy/stock');
+}
+function fetchGrocyQuantityUnits() {
+    return apiFetch('/grocy/quantity-units');
+}
+function fetchGrocyQuantityUnitConversions() {
+    return apiFetch('/grocy/quantity-unit-conversions');
+}
+
+// Write — recipes
+function postGrocyRecipe(body) {
+    return apiFetch('/grocy/recipes', { method: 'POST', body: JSON.stringify(body) });
+}
+function putGrocyRecipe(id, body) {
+    return apiFetch('/grocy/recipes/' + id, { method: 'PUT', body: JSON.stringify(body) });
+}
+function putGrocyRecipeUserfields(id, fields) {
+    return apiFetch('/grocy/recipes/' + id + '/userfields', { method: 'PUT', body: JSON.stringify(fields) });
+}
+
+// Write — recipe positions
+function postGrocyRecipePos(body) {
+    return apiFetch('/grocy/recipes-pos', { method: 'POST', body: JSON.stringify(body) });
+}
+function putGrocyRecipePos(id, body) {
+    return apiFetch('/grocy/recipes-pos/' + id, { method: 'PUT', body: JSON.stringify(body) });
+}
+function deleteGrocyRecipePos(id) {
+    return apiFetch('/grocy/recipes-pos/' + id, { method: 'DELETE' });
+}
+
+// Write — recipe nestings
+function postGrocyRecipeNesting(body) {
+    return apiFetch('/grocy/recipes-nestings', { method: 'POST', body: JSON.stringify(body) });
+}
+function putGrocyRecipeNesting(id, body) {
+    return apiFetch('/grocy/recipes-nestings/' + id, { method: 'PUT', body: JSON.stringify(body) });
+}
+function deleteGrocyRecipeNesting(id) {
+    return apiFetch('/grocy/recipes-nestings/' + id, { method: 'DELETE' });
+}
+
+// Consume
+function postGrocyConsume(lines) {
+    return apiFetch('/grocy/consume', { method: 'POST', body: JSON.stringify({ lines }) });
+}

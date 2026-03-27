@@ -1,17 +1,166 @@
 <!DOCTYPE html>
 <html lang="da">
 <head>
-  <meta charset="UTF-8">
-  <title>Bon v2 — Kitchen Recipes</title>
-  <link rel="stylesheet" href="../shared/tokens.css">
-  <link rel="stylesheet" href="../shared/components.css">
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Opskrifter — Bon v2</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Lato:wght@400;700&display=swap" rel="stylesheet">
+    <link rel="stylesheet" href="/shared/tokens.css">
+    <link rel="stylesheet" href="/shared/recipe_viewer.css">
+    <style>
+        /* RESET + BASE */
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+        body {
+            font-family: 'Lato', sans-serif;
+            background: var(--color-background);
+            color: var(--color-text);
+            min-height: 100vh;
+        }
+
+        /* TOPBAR */
+        .topbar {
+            background: var(--brand-primary); color: white;
+            padding: 0 24px; height: 44px;
+            display: flex; align-items: center; justify-content: space-between;
+            position: sticky; top: 0; z-index: 300;
+        }
+        .topbar-left  { display: flex; align-items: center; gap: 4px; }
+        .topbar-logo  { font-size: 15px; font-weight: 700; margin-right: 16px; }
+        .topbar-nav a {
+            color: rgba(255,255,255,0.65); text-decoration: none;
+            font-size: 13px; font-weight: 700; padding: 0 12px;
+            height: 44px; display: inline-flex; align-items: center;
+            border-bottom: 3px solid transparent; transition: all 0.15s;
+        }
+        .topbar-nav a:hover  { color: white; }
+        .topbar-nav a.active { color: white; border-bottom-color: rgba(255,255,255,0.55); }
+
+        /* MERE dropdown */
+        .topbar-more {
+            position: relative;
+            display: inline-flex;
+            align-items: center;
+        }
+        .topbar-more summary {
+            color: white; border-bottom-color: rgba(255,255,255,0.55);
+            font-size: 13px; font-weight: 700; padding: 0 12px;
+            height: 44px; display: inline-flex; align-items: center;
+            border-bottom: 3px solid transparent;
+            cursor: pointer; list-style: none;
+        }
+        .topbar-more summary::-webkit-details-marker { display: none; }
+        .topbar-more[open] summary {
+            border-bottom-color: rgba(255,255,255,0.55);
+        }
+        .topbar-more .dropdown {
+            position: absolute; top: 44px; right: 0;
+            background: white; border: 1px solid var(--color-border);
+            border-radius: 6px; box-shadow: 0 4px 16px rgba(0,0,0,0.15);
+            min-width: 180px; z-index: 400;
+            padding: 4px 0;
+        }
+        .topbar-more .dropdown a {
+            color: var(--color-text); display: block;
+            padding: 10px 16px; font-size: 14px; font-weight: 600;
+            border-bottom: none; height: auto;
+            transition: background 0.1s;
+        }
+        .topbar-more .dropdown a:hover {
+            background: var(--color-background);
+        }
+        .topbar-more .dropdown a.active-sub {
+            color: var(--brand-primary);
+            background: var(--brand-primary-light);
+        }
+
+        .topbar-right { display: flex; align-items: center; gap: 12px; font-size: 13px; }
+        .live-dot { display: flex; align-items: center; gap: 5px; opacity: 0.8; }
+        .live-dot::before { content: ''; width: 7px; height: 7px; border-radius: 50%; background: #7cdb5e; display: block; }
+
+        /* TAB BAR */
+        .tab-bar {
+            background: var(--color-surface);
+            border-bottom: 1px solid var(--color-border);
+            padding: 0 24px;
+            display: flex; gap: 0;
+        }
+        .tab-bar a {
+            padding: 12px 20px;
+            font-size: 14px; font-weight: 700;
+            color: var(--color-text-dim);
+            text-decoration: none;
+            border-bottom: 3px solid transparent;
+            transition: all 0.15s;
+        }
+        .tab-bar a:hover { color: var(--color-text); }
+        .tab-bar a.active {
+            color: var(--brand-primary);
+            border-bottom-color: var(--brand-primary);
+        }
+
+        /* CONTENT */
+        #recipeViewerContainer {
+            padding: 20px 24px;
+            max-width: 900px;
+        }
+    </style>
 </head>
 <body class="zone-kitchen">
-  <main>
-    <h1>Recipes</h1>
-    <!-- TODO -->
-  </main>
-  <script src="../shared/api.js"></script>
-  <script src="../shared/sidekick.js"></script>
+
+<!-- TOPBAR -->
+<header class="topbar">
+    <div class="topbar-left">
+        <span class="topbar-logo">Ristet Rug</span>
+        <nav class="topbar-nav">
+            <a href="/kitchen/">DASHBOARD</a>
+            <a href="/kitchen/today.html">I DAG</a>
+            <a href="/kitchen/later.html">SENERE</a>
+            <a href="/kitchen/calendar.html">KALENDER</a>
+            <a href="/kitchen/planning.html">PLANL&AElig;GNING</a>
+            <details class="topbar-more">
+                <summary>MERE &#9662;</summary>
+                <div class="dropdown">
+                    <a href="/kitchen/recipes.html" class="active-sub">Opskrifter</a>
+                    <a href="/kitchen/vagtplan.html">Vagtplan</a>
+                </div>
+            </details>
+        </nav>
+    </div>
+    <div class="topbar-right">
+        <span class="live-dot">Live</span>
+    </div>
+</header>
+
+<!-- TAB BAR -->
+<div class="tab-bar">
+    <a href="/kitchen/recipes.html" class="active">Opskrifter</a>
+    <a href="#" style="opacity:0.4; pointer-events:none;">Designer</a>
+</div>
+
+<!-- RECIPE VIEWER RENDERES HER -->
+<div id="recipeViewerContainer"></div>
+
+<!-- SCRIPTS -->
+<script src="/shared/utils.js"></script>
+<script src="/shared/api.js"></script>
+<script src="/shared/recipe_viewer.js"></script>
+<script>
+    document.addEventListener('DOMContentLoaded', async function() {
+        var currentUser = await checkAuth();
+        if (!currentUser) return;
+
+        initRecipeViewer(document.getElementById('recipeViewerContainer'));
+    });
+
+    // Close MERE dropdown when clicking outside
+    document.addEventListener('click', function(e) {
+        var details = document.querySelector('.topbar-more');
+        if (details && details.open && !details.contains(e.target)) {
+            details.removeAttribute('open');
+        }
+    });
+</script>
 </body>
 </html>
