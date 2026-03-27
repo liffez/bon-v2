@@ -419,8 +419,17 @@ Nye filer placeres præcis der de hører hjemme — kopieres ikke.
   - `collectSubRecipeIngredients()` mønster fra bontools recipe-viewer
   - Visited-set forhindrer cirkulære referencer
   - Bruges af både `GET /api/bons/:id/ingredients` og `GET /api/bons/planning/ingredients`
+  - **To niveauer** returneres i ét kald: `{ production, raw }`
+    - Produktion: direkte ingredienser + underopskrifter som kompakte rækker (beregnet vægt i gram)
+    - Råvarer: alt fladt — underopskrifters ingredienser rekursivt opløst
+  - Bagudkompatibelt: `ingredients`/`groups` på top-level = raw-niveau
 - [x] `services/grocyAdapter.js` — `getRecipeNestings()`, `getRecipesRawMap()` tilføjet
 - [x] Duplikeret aggregeringslogik fjernet fra `routes/bons.js` + `routes/kitchen.js`
+- [x] `shared/modal.js` — Råvarer-modal med toggle: 🔧 Produktion / 📦 Råvarer
+  - Segmented control, default Produktion
+  - Underopskrifter vises som gyldne rækker med navn + vægt
+  - Toggle re-renderer uden ny API-kald
+  - Virker i både enkelt-bon og planlægnings-råvarer
 
 ### UI-rettelser (marts 2026)
 - [x] Flyver-banner z-index fikset (blokerede ikke længere topbar-navigation)
