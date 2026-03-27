@@ -355,7 +355,12 @@ function deleteGrocyRecipeNesting(id) {
     return apiFetch('/grocy/recipes-nestings/' + id, { method: 'DELETE' });
 }
 
-// Consume
+// Consume — via recipe lines (auto-consume ved LEVERET)
 function postGrocyConsume(lines) {
     return apiFetch('/grocy/consume', { method: 'POST', body: JSON.stringify({ lines }) });
+}
+
+// Consume — via per-produkt mængder (recipe viewer)
+function postGrocyConsumeProducts(items) {
+    return apiFetch('/grocy/consume-products', { method: 'POST', body: JSON.stringify({ items }) });
 }

@@ -441,6 +441,20 @@ async function consumeRecipes(lines) {
     return results;
 }
 
+/**
+ * Consume ét produkt fra Grocy-lager.
+ * @param {number} productId  Grocy product ID
+ * @param {number} amount     Mængde i stock-units
+ */
+async function consumeProduct(productId, amount) {
+    await grocyPost(`/stock/products/${productId}/consume`, {
+        amount,
+        transaction_type: 'consume',
+        spoiled: false,
+    });
+    _cache.delete('stock');
+}
+
 /* ══════════════════════════════════════════════════════════════ */
 
 module.exports = {
@@ -470,6 +484,7 @@ module.exports = {
     deleteRecipeNesting,
     // Write — stock + shopping
     consumeRecipes,
+    consumeProduct,
     addToShoppingList,
     // Cache
     clearCache,

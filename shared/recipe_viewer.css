@@ -453,3 +453,33 @@
         display: none;
     }
 }
+
+/* ══ TOAST ════════════════════════════════════════════════════ */
+.rv-toast {
+    position: fixed;
+    bottom: 24px;
+    left: 50%;
+    transform: translateX(-50%) translateY(20px);
+    padding: 12px 24px;
+    border-radius: 10px;
+    font-size: 14px;
+    font-weight: 600;
+    color: white;
+    z-index: 9999;
+    opacity: 0;
+    transition: opacity 0.3s, transform 0.3s;
+    pointer-events: none;
+    box-shadow: 0 4px 16px rgba(0,0,0,0.2);
+    max-width: 90vw;
+    text-align: center;
+}
+.rv-toast-visible {
+    opacity: 1;
+    transform: translateX(-50%) translateY(0);
+}
+.rv-toast-success {
+    background: #2d7d46;
+}
+.rv-toast-error {
+    background: #c0392b;
+}

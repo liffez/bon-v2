@@ -592,10 +592,8 @@ async function _rvConsumeRecipe() {
     // Build items to consume
     var itemsToConsume = [];
 
-    // Direct ingredients (skip emballage)
+    // Direct ingredients (inkl. emballage — vi tracker emballage-lager)
     _rvIngredients.forEach(function(ing) {
-        var group = (ing.ingredient_group || '').toLowerCase();
-        if (group === 'emballage') return;
         var baseAmount = parseFloat(ing.amount) || 0;
         var amount = _rvRound(baseAmount * multiplier);
         if (amount <= 0) return;
@@ -652,8 +650,8 @@ async function _rvConsumeRecipe() {
             return { product_id: m.product_id, amount: _rvRound(m.amount) };
         });
 
-        // Use the bon-v2 consume endpoint
-        var result = await postGrocyConsume(consumeLines);
+        // Use the bon-v2 per-produkt consume endpoint
+        var result = await postGrocyConsumeProducts(consumeLines);
 
         btn.disabled = false;
         btn.textContent = 'Traek fra lager';
@@ -724,13 +722,39 @@ function _rvGetUnitForProduct(productId) {
 }
 
 function _rvShowConsumeResult(message, type) {
+    // Inline result under knap
     var el = document.getElementById('rvConsumeResult');
-    if (!el) return;
-    el.textContent = message;
-    el.className = 'rv-consume-result ' + type;
-    if (type === 'success') {
-        setTimeout(function() { el.style.display = 'none'; }, 5000);
+    if (el) {
+        el.textContent = message;
+        el.className = 'rv-consume-result ' + type;
+        el.style.display = '';
+        if (type === 'success') {
+            setTimeout(function() { el.style.display = 'none'; }, 5000);
+        }
     }
+    // Toast overlay
+    _rvShowToast(message, type);
+}
+
+function _rvShowToast(message, type) {
+    // Fjern evt. eksisterende toast
+    var old = document.getElementById('rvToast');
+    if (old) old.remove();
+
+    var toast = document.createElement('div');
+    toast.id = 'rvToast';
+    toast.className = 'rv-toast rv-toast-' + type;
+    toast.textContent = (type === 'success' ? '✓ ' : '⚠ ') + message;
+    document.body.appendChild(toast);
+
+    // Animate in
+    requestAnimationFrame(function() { toast.classList.add('rv-toast-visible'); });
+
+    // Auto-dismiss
+    setTimeout(function() {
+        toast.classList.remove('rv-toast-visible');
+        setTimeout(function() { toast.remove(); }, 300);
+    }, type === 'success' ? 4000 : 8000);
 }
 
 // ════════════════════════════════════════════════════════════

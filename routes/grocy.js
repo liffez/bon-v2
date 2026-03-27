@@ -62,12 +62,34 @@ router.get('/recipes-pos/all', handle(async (req, res) => {
 
 /* ── Lager-forbrug (consume) ─────────────────────────────── */
 
+// Consume via recipe lines (resolver-based: bruges af auto-consume ved LEVERET)
 router.post('/consume', handle(async (req, res) => {
     const { lines } = req.body;
     if (!Array.isArray(lines) || lines.length === 0) {
         return res.status(400).json({ error: 'lines[] er påkrævet (grocy_recipe_id + quantity)' });
     }
     const results = await grocy.consumeRecipes(lines);
+    const success = results.filter(r => r.success).length;
+    const failed  = results.filter(r => !r.success).length;
+    res.json({ ok: failed === 0, consumed: success, failed, results });
+}));
+
+// Consume via per-produkt mængder (bruges af recipe-viewer frontend)
+router.post('/consume-products', handle(async (req, res) => {
+    const { items } = req.body;
+    if (!Array.isArray(items) || items.length === 0) {
+        return res.status(400).json({ error: 'items[] er påkrævet (product_id + amount)' });
+    }
+    const results = [];
+    for (const item of items) {
+        try {
+            await grocy.consumeProduct(item.product_id, item.amount);
+            results.push({ product_id: item.product_id, success: true });
+        } catch (err) {
+            results.push({ product_id: item.product_id, success: false, error: err.message });
+        }
+    }
+    grocy.clearCache(); // Ryd stock-cache
     const success = results.filter(r => r.success).length;
     const failed  = results.filter(r => !r.success).length;
     res.json({ ok: failed === 0, consumed: success, failed, results });
