@@ -197,7 +197,7 @@ function _rvRenderShell() {
     document.getElementById('rvShoppingAllBtn').addEventListener('click', _rvAddAllMissingToShoppingList);
 
     // Delegated click for cart buttons
-    containerEl.addEventListener('click', function(e) {
+    _rvContainer.addEventListener('click', function(e) {
         var cartBtn = e.target.closest('.rv-cart-btn');
         if (cartBtn) {
             e.stopPropagation();
