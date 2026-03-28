@@ -390,6 +390,41 @@
     padding-right: 16px;
 }
 
+/* Action row */
+.rv-action-row {
+    display: flex;
+    gap: 10px;
+    flex-wrap: wrap;
+    align-items: center;
+}
+
+/* Cart button per ingredient */
+.rv-cart-btn {
+    background: none; border: none;
+    font-size: 16px; cursor: pointer;
+    padding: 4px 6px; border-radius: 4px;
+    opacity: 0.7; transition: all 0.15s;
+    flex-shrink: 0;
+}
+.rv-cart-btn:hover { opacity: 1; background: var(--brand-primary-light); }
+
+/* Shopping all missing button */
+.rv-shopping-all-btn {
+    padding: 10px 18px;
+    border: 2px solid var(--brand-primary);
+    border-radius: 8px;
+    font: inherit;
+    font-size: 14px;
+    font-weight: 700;
+    cursor: pointer;
+    background: white;
+    color: var(--brand-primary);
+    transition: all 0.15s;
+}
+.rv-shopping-all-btn:hover {
+    background: var(--brand-primary-light);
+}
+
 .rv-consume-btn {
     padding: 12px 24px;
     border: none;

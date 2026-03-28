@@ -170,8 +170,10 @@ function _rvRenderShell() {
                 '<ul class="rv-ingredient-list" id="rvIngredientList"></ul>' +
             '</div>' +
             '<div class="rv-consume-section" id="rvConsumeSection">' +
-                '<button class="rv-consume-btn" id="rvConsumeBtn">Traek fra lager</button>' +
-                '<span class="rv-consume-info">Traekker ingredienser (inkl. underopskrifter) fra lageret</span>' +
+                '<div class="rv-action-row">' +
+                    '<button class="rv-consume-btn" id="rvConsumeBtn">Traek fra lager</button>' +
+                    '<button class="rv-shopping-all-btn" id="rvShoppingAllBtn">🛒 Tilfoej manglende til indkoeb</button>' +
+                '</div>' +
                 '<div class="rv-consume-result" id="rvConsumeResult"></div>' +
             '</div>' +
             '<div class="rv-note-section" id="rvNoteSection" style="display:none;">' +
@@ -192,6 +194,17 @@ function _rvRenderShell() {
     document.getElementById('rvPortionsMinus').addEventListener('click', function() { _rvAdjustPortions(-1); });
     document.getElementById('rvPortionsPlus').addEventListener('click', function() { _rvAdjustPortions(1); });
     document.getElementById('rvConsumeBtn').addEventListener('click', _rvConsumeRecipe);
+    document.getElementById('rvShoppingAllBtn').addEventListener('click', _rvAddAllMissingToShoppingList);
+
+    // Delegated click for cart buttons
+    containerEl.addEventListener('click', function(e) {
+        var cartBtn = e.target.closest('.rv-cart-btn');
+        if (cartBtn) {
+            e.stopPropagation();
+            var info = JSON.parse(cartBtn.getAttribute('data-rv-stock-info'));
+            _rvOnStockDotClick(info.productId, info.productName, info.needed, info.stock, info.unit);
+        }
+    });
 }
 
 // ════════════════════════════════════════════════════════════
@@ -523,11 +536,16 @@ function _rvRenderIngredientItem(ing, multiplier) {
 
     var fmt = _rvFormatAmount(amount, unitName);
 
+    var cartBtn = (statusClass === 'rv-status-missing' || statusClass === 'rv-status-low')
+        ? '<button class="rv-cart-btn" data-rv-stock-info="' + stockInfoJson + '" title="Tilfoej til indkoebsliste">🛒</button>'
+        : '';
+
     return '<li class="rv-ingredient-item">' +
         '<div class="rv-stock-dot ' + statusClass + '" data-rv-stock-info="' + stockInfoJson + '" title="Lager: ' + stockAmount + '"></div>' +
         '<div class="rv-ingredient-name">' + nameHtml + '</div>' +
         '<div class="rv-ingredient-amount">' + esc(String(fmt.amount)) + ' ' + esc(fmt.unit) + '</div>' +
         '<div class="rv-ingredient-stock">lager: ' + stockAmount + '</div>' +
+        cartBtn +
     '</li>';
 }
 
@@ -574,6 +592,45 @@ async function _rvAddToShoppingList(productId, amount, productName) {
             note: 'Fra opskrift: ' + (_rvCurrentRecipe ? _rvCurrentRecipe.name : '')
         }]);
         _rvShowAlert('Tilfojet til indkoebsliste: ' + productName, 'success');
+    } catch (err) {
+        _rvShowAlert('Fejl: ' + err.message, 'error');
+    }
+}
+
+// ════════════════════════════════════════════════════════════
+// ADD ALL MISSING TO SHOPPING LIST
+// ════════════════════════════════════════════════════════════
+
+async function _rvAddAllMissingToShoppingList() {
+    if (!_rvCurrentRecipe) return;
+    var multiplier = _rvCurrentPortions / _rvBaseServings;
+    var items = [];
+
+    _rvIngredients.forEach(function(ing) {
+        var baseAmount = parseFloat(ing.amount) || 0;
+        var neededStock = baseAmount * multiplier;
+        var stockAmount = _rvStock[ing.product_id] || 0;
+        if (stockAmount >= neededStock) return; // nok på lager
+
+        var missing = _rvRound(Math.max(0, neededStock - stockAmount));
+        if (missing <= 0) return;
+
+        var product = _rvProducts[ing.product_id] || {};
+        items.push({
+            product_id: ing.product_id,
+            amount: missing,
+            note: 'Fra opskrift: ' + _rvCurrentRecipe.name
+        });
+    });
+
+    if (items.length === 0) {
+        _rvShowAlert('Alle ingredienser er paa lager!', 'success');
+        return;
+    }
+
+    try {
+        await postGrocyShoppingList(items);
+        _rvShowAlert(items.length + ' varer tilfojet til indkoebsliste', 'success');
     } catch (err) {
         _rvShowAlert('Fejl: ' + err.message, 'error');
     }

@@ -700,6 +700,10 @@ function _rdRenderIngredients() {
             var rawScaled = (parseFloat(ing.amount) || 0) * mult;
             var stockClass = stockAmt >= rawScaled ? 'rd-ok' : (stockAmt > 0 ? 'rd-low' : 'rd-missing');
 
+            var cartHtml = (stockClass === 'rd-missing' || stockClass === 'rd-low')
+                ? '<button class="rd-ing-cart" data-pid="' + ing.product_id + '" data-name="' + esc(name) + '" data-amount="' + _rdRound(Math.max(0, rawScaled - stockAmt), 2) + '" title="Tilfoej til indkoebsliste">🛒</button>'
+                : '';
+
             html += '<div class="rd-ing-row">' +
                 '<div class="rd-stock-dot ' + stockClass + '" title="Lager: ' + _rdRound(stockAmt, 1) + '"></div>' +
                 '<div class="rd-ing-name">' + esc(name) + '</div>' +
@@ -711,6 +715,7 @@ function _rdRenderIngredients() {
                     '</div>' +
                     '<span class="rd-ing-unit">' + esc(fmt.unit) + '</span>' +
                 '</div>' +
+                cartHtml +
                 '<button class="rd-ing-remove" data-idx="' + idx + '">&#10005;</button>' +
             '</div>';
         });
@@ -737,6 +742,14 @@ function _rdRenderIngredients() {
         var removeBtn = e.target.closest('.rd-ing-remove');
         if (removeBtn) {
             _rdRemoveIng(parseInt(removeBtn.getAttribute('data-idx')));
+            return;
+        }
+        var cartBtn = e.target.closest('.rd-ing-cart');
+        if (cartBtn) {
+            var pid = parseInt(cartBtn.getAttribute('data-pid'));
+            var pname = cartBtn.getAttribute('data-name');
+            var amt = parseFloat(cartBtn.getAttribute('data-amount')) || 1;
+            _rdAddToShoppingList(pid, amt, pname);
             return;
         }
     };
@@ -1047,6 +1060,22 @@ function _rdConfirmAddNesting() {
 }
 
 // ═══════════════════���═════════════════════════════════════���══
+// SHOPPING LIST (from designer)
+// ════════════════════════════════════════════════════════════
+
+async function _rdAddToShoppingList(productId, amount, productName) {
+    try {
+        await postGrocyShoppingList([{
+            product_id: productId,
+            amount: amount,
+            note: 'Fra opskrift: ' + (_rdDs.name || '')
+        }]);
+        _rdShowAlert('Tilfojet til indkoebsliste: ' + productName, 'success');
+    } catch (err) {
+        _rdShowAlert('Fejl: ' + err.message, 'error');
+    }
+}
+
 // SAVE — Update existing
 // ════════════════════════════════════════════════════════════
 
