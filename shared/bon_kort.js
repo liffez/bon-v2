@@ -515,9 +515,9 @@ function _buildMailVars(bon) {
     const co2Total = menuLines.reduce((s, l) => s + ((l.co2e || 0) * l.quantity), 0).toFixed(2);
 
     // Address/postnummer
-    const addr = bon.delivery_address || bon.customer_address || '';
-    const postMatch = addr.match(/(\d{4})\s/);
-    const postnummer = postMatch ? postMatch[1] : '';
+    const addrObj = bon.delivery_address || {};
+    const addr = typeof addrObj === 'string' ? addrObj : [addrObj.street_name, addrObj.street_nr, addrObj.postal_code, addrObj.city].filter(Boolean).join(' ');
+    const postnummer = (typeof addrObj === 'object' && addrObj.postal_code) ? String(addrObj.postal_code) : (addr.match(/(\d{4})\s/) || [])[1] || '';
 
     return {
         kundeNavn: bon.customer_name || bon.contact_name || '',

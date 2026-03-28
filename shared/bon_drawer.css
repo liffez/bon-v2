@@ -417,3 +417,35 @@
 .drawer-line-del:hover {
     color: var(--color-red, #bc181b);
 }
+
+/* ── DRAWER MAIL SECTION ─────────────────────────────────── */
+
+.drawer-mail-section .drawer-mail-content { display: none; }
+.drawer-mail-section.open .drawer-mail-content { display: block; }
+
+.drawer-mail-toggle { cursor: pointer; user-select: none; display: flex; align-items: center; gap: 6px; }
+.drawer-mail-arrow { font-size: 12px; transition: transform 0.2s; margin-left: auto; }
+.drawer-mail-section.open .drawer-mail-arrow { transform: rotate(180deg); }
+
+.drawer-mail-badge {
+    font-size: 11px; background: var(--color-red, #e74c3c); color: white;
+    padding: 1px 6px; border-radius: 8px; font-weight: 600;
+}
+.drawer-mail-badge:empty { display: none; }
+
+.drawer-mail-history { max-height: 250px; overflow-y: auto; margin-bottom: 8px; }
+.drawer-mail-history .bm-msg { margin-bottom: 4px; font-size: 12px; }
+
+.drawer-mail-compose-toggle {
+    font-size: 13px; font-weight: 600; color: var(--brand-primary, #8e631f);
+    cursor: pointer; padding: 6px 0; user-select: none;
+}
+.drawer-mail-compose-toggle:hover { text-decoration: underline; }
+.drawer-mail-compose-toggle.open { margin-bottom: 8px; }
+
+.drawer-mail-compose-form { display: none; }
+.drawer-mail-compose-form.open { display: block; }
+.drawer-mail-compose-form .bm-field { margin-bottom: 6px; }
+.drawer-mail-compose-form .bm-field label { font-size: 10px; }
+.drawer-mail-compose-form .drawer-field { font-size: 13px; padding: 6px 8px; }
+.drawer-mail-compose-form .drawer-textarea { min-height: 80px; }

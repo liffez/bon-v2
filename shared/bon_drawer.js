@@ -20,9 +20,12 @@ class BonDrawer {
         this.dirty = false;
         this.priceCategories = [];
         this.paymentTypes = [];
+        this._mailVars = {};
+        this._mailTemplates = null;
         this._buildDOM();
         this._loadDropdowns();
         this._bindSSE();
+        _drawerInstance = this; // Global reference for drawer mail helpers
     }
 
     /* ══════════════════════════════════════════════════════
@@ -168,6 +171,45 @@ class BonDrawer {
                     <textarea class="drawer-field drawer-textarea" data-field="kitchen_info" rows="2"></textarea>
                     <label class="drawer-sublabel">Interne noter</label>
                     <textarea class="drawer-field drawer-textarea" data-field="internal_notes" rows="2"></textarea>
+                </div>
+
+                <!-- MAIL -->
+                <div class="drawer-section drawer-mail-section">
+                    <label class="drawer-label drawer-mail-toggle" onclick="this.closest('.drawer-mail-section').classList.toggle('open')">
+                        ✉ Mail <span class="drawer-mail-badge" id="drawerMailBadge"></span>
+                        <span class="drawer-mail-arrow">▾</span>
+                    </label>
+                    <div class="drawer-mail-content">
+                        <div id="drawerMailHistory" class="drawer-mail-history"></div>
+                        <div class="drawer-mail-compose">
+                            <div class="drawer-mail-compose-toggle" onclick="this.nextElementSibling.classList.toggle('open'); this.classList.toggle('open')">
+                                + Skriv mail
+                            </div>
+                            <div class="drawer-mail-compose-form">
+                                <div class="bm-field">
+                                    <label>Til</label>
+                                    <input type="email" id="drawerMailTo" class="drawer-field" placeholder="email@example.com">
+                                </div>
+                                <div class="bm-field">
+                                    <label>Skabelon</label>
+                                    <select id="drawerMailTemplate" class="drawer-field" onchange="_drawerApplyTemplate()">
+                                        <option value="">— Ingen skabelon —</option>
+                                    </select>
+                                </div>
+                                <div class="bm-field">
+                                    <label>Emne</label>
+                                    <input type="text" id="drawerMailSubject" class="drawer-field" placeholder="Emne…">
+                                </div>
+                                <div class="bm-field">
+                                    <label>Besked</label>
+                                    <textarea id="drawerMailBody" class="drawer-field drawer-textarea" rows="6" placeholder="Skriv besked…"></textarea>
+                                </div>
+                                <div class="bm-compose-actions">
+                                    <button type="button" class="bm-send" id="drawerMailSendBtn" onclick="_drawerSendMail()">✉ Send</button>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
                 </div>
             </div>
 
@@ -364,8 +406,69 @@ class BonDrawer {
         this._setFieldValue('kitchen_info', d.kitchen_info || '');
         this._setFieldValue('internal_notes', d.internal_notes || '');
 
+        // Mail — load async (non-blocking)
+        this._loadMail(d);
+
         this.dirty = false;
         this._pendingChanges = {};
+    }
+
+    async _loadMail(bon) {
+        const histEl = this.el.querySelector('#drawerMailHistory');
+        const badgeEl = this.el.querySelector('#drawerMailBadge');
+        const toEl = this.el.querySelector('#drawerMailTo');
+        const tmplSel = this.el.querySelector('#drawerMailTemplate');
+
+        if (!histEl) return;
+        histEl.innerHTML = '<div style="color:var(--color-text-dim);font-size:12px;padding:4px">Henter…</div>';
+
+        try {
+            const [mailData, templates] = await Promise.all([
+                fetchBonMail(this.bonId),
+                _mailTemplates || fetchMailTemplates().then(t => { _mailTemplates = t; return t; })
+            ]);
+
+            // Store vars + templates on drawer for send
+            this._mailVars = _buildMailVars(bon);
+            this._mailTemplates = templates;
+
+            // Prefill to
+            if (toEl) toEl.value = bon.contact_email || '';
+
+            // Templates dropdown
+            if (tmplSel) {
+                tmplSel.innerHTML = '<option value="">— Ingen skabelon —</option>'
+                    + (templates || []).map(t => '<option value="' + esc(t.key) + '">' + esc(t.label || t.key) + '</option>').join('');
+            }
+
+            // Render history
+            const allMsgs = [];
+            (mailData.threads || []).forEach(t => (t.messages || []).forEach(m => allMsgs.push(m)));
+            allMsgs.sort((a, b) => new Date(b.received_at || b.sent_at || b.created_at) - new Date(a.received_at || a.sent_at || a.created_at));
+
+            const unread = allMsgs.filter(m => m.direction === 'in' && !m.is_read).length;
+            if (badgeEl) badgeEl.textContent = unread ? unread + ' ulæst' : '';
+
+            if (allMsgs.length === 0) {
+                histEl.innerHTML = '<div style="color:var(--color-text-dim);font-size:12px;padding:4px;font-style:italic">Ingen mails endnu</div>';
+            } else {
+                histEl.innerHTML = allMsgs.map(m => {
+                    const isIn = m.direction === 'in';
+                    const isUnread = isIn && !m.is_read;
+                    const from = isIn ? (m.from_name || m.from_email || '?') : 'Ristet Rug';
+                    const dateStr = _fmtMailDate(m.received_at || m.sent_at || m.created_at);
+                    const body = (m.body_text || '').slice(0, 150).replace(/\n/g, ' ');
+                    return '<div class="bm-msg ' + (isIn ? 'bm-in' : 'bm-out') + (isUnread ? ' bm-unread' : '') + '"'
+                        + (isUnread ? ' onclick="_markMailRead(\'' + this.bonId + '\',' + m.id + ',this)"' : '') + '>'
+                        + '<div class="bm-msg-header"><span class="bm-msg-from">' + (isIn ? '← ' : '→ ') + esc(from) + '</span><span class="bm-msg-date">' + dateStr + '</span></div>'
+                        + '<div class="bm-msg-subject">' + esc(m.subject || '') + '</div>'
+                        + '<div class="bm-msg-body">' + esc(body) + (body.length >= 150 ? '…' : '') + '</div>'
+                        + '</div>';
+                }).join('');
+            }
+        } catch (err) {
+            histEl.innerHTML = '<div style="color:var(--color-red);font-size:12px;padding:4px">Fejl: ' + esc(err.message) + '</div>';
+        }
     }
 
     _renderStatusBar() {
@@ -764,5 +867,62 @@ class BonDrawer {
         } catch (err) {
             console.error('Kunne ikke hente dropdown-data:', err);
         }
+    }
+}
+
+/* ── Drawer Mail helpers (global — called from onclick i DOM) ── */
+
+var _drawerInstance = null; // Set by the page that creates BonDrawer
+
+function _drawerApplyTemplate() {
+    const sel = document.getElementById('drawerMailTemplate');
+    if (!sel || !_drawerInstance) return;
+    const key = sel.value;
+    if (!key) {
+        document.getElementById('drawerMailSubject').value = '';
+        document.getElementById('drawerMailBody').value = '';
+        return;
+    }
+    const tmpl = (_drawerInstance._mailTemplates || []).find(t => t.key === key);
+    if (!tmpl) return;
+    const vars = _drawerInstance._mailVars || {};
+    const subst = (str) => {
+        let r = str || '';
+        for (const [k, v] of Object.entries(vars)) {
+            r = r.replace(new RegExp('\\{\\{' + k + '\\}\\}', 'g'), v || '');
+        }
+        return r;
+    };
+    document.getElementById('drawerMailSubject').value = subst(tmpl.subject);
+    document.getElementById('drawerMailBody').value = subst(tmpl.body_text);
+}
+
+async function _drawerSendMail() {
+    if (!_drawerInstance || !_drawerInstance.bonId) return;
+    const to = document.getElementById('drawerMailTo').value.trim();
+    const subject = document.getElementById('drawerMailSubject').value.trim();
+    const text = document.getElementById('drawerMailBody').value.trim();
+    const btn = document.getElementById('drawerMailSendBtn');
+
+    if (!to) { document.getElementById('drawerMailTo').focus(); return; }
+    if (!text && !subject) { document.getElementById('drawerMailSubject').focus(); return; }
+
+    btn.disabled = true;
+    btn.textContent = 'Sender…';
+
+    try {
+        await sendBonMail(_drawerInstance.bonId, { to, subject, text });
+        // Clear compose
+        document.getElementById('drawerMailSubject').value = '';
+        document.getElementById('drawerMailBody').value = '';
+        document.getElementById('drawerMailTemplate').value = '';
+        btn.textContent = '✉ Sendt!';
+        setTimeout(() => { btn.textContent = '✉ Send'; btn.disabled = false; }, 2000);
+        // Reload mail section
+        if (_drawerInstance.data) _drawerInstance._loadMail(_drawerInstance.data);
+    } catch (err) {
+        console.error('[drawer-mail] Send fejl:', err);
+        btn.textContent = 'Fejl — prøv igen';
+        btn.disabled = false;
     }
 }
