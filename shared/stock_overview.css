@@ -1,0 +1,457 @@
+/* shared/stock_overview.css
+   ==========================================
+   Stock Overview component styling.
+   Uses design tokens from shared/tokens.css.
+   All classes prefixed `so-`.
+   ========================================== */
+
+/* ── Loading / empty ────────────────────── */
+
+.so-loading, .so-empty {
+    text-align: center;
+    padding: 60px 20px;
+    color: var(--color-text-dim);
+}
+
+.so-spinner {
+    width: 32px;
+    height: 32px;
+    border: 3px solid var(--color-border);
+    border-top-color: var(--brand-primary);
+    border-radius: 50%;
+    animation: soSpin 0.7s linear infinite;
+    margin: 0 auto 16px;
+}
+
+@keyframes soSpin { to { transform: rotate(360deg); } }
+
+/* ── Status bar (sticky) ────────────────── */
+
+.so-status-bar {
+    position: sticky;
+    top: 0;
+    z-index: 10;
+    background: var(--color-background);
+    padding: var(--space-s) var(--space-m);
+    display: flex;
+    flex-wrap: wrap;
+    gap: var(--space-s);
+    align-items: center;
+    border-bottom: 1px solid var(--color-border);
+}
+
+.so-status-pill {
+    display: inline-flex;
+    align-items: center;
+    gap: 5px;
+    padding: 4px 12px;
+    border-radius: 20px;
+    font-size: var(--font-size-s);
+    font-weight: 600;
+    cursor: pointer;
+    transition: all 0.15s;
+    user-select: none;
+}
+
+.so-status-pill:hover { filter: brightness(0.95); }
+
+.so-pill-total   { background: rgba(142,99,31,0.1); color: var(--brand-primary); cursor: default; }
+.so-pill-expired { background: rgba(188,24,27,0.12); color: var(--color-red); }
+.so-pill-duesoon { background: rgba(232,168,50,0.15); color: var(--color-orange); }
+.so-pill-low     { background: rgba(117,148,179,0.15); color: var(--color-blue); }
+
+.so-status-pill.active {
+    outline: 2px solid currentColor;
+    outline-offset: -2px;
+}
+
+/* ── Filter bar ─────────────────────────── */
+
+.so-filter-bar {
+    position: sticky;
+    top: 42px; /* below status bar */
+    z-index: 9;
+    background: var(--color-surface);
+    border-bottom: 1px solid var(--color-border);
+    padding: var(--space-s) var(--space-m);
+    display: flex;
+    flex-wrap: wrap;
+    gap: var(--space-s);
+    align-items: center;
+}
+
+.so-search {
+    flex: 1;
+    min-width: 160px;
+    padding: 10px 12px;
+    border: 1px solid var(--color-border);
+    border-radius: 6px;
+    background: var(--color-background);
+    color: var(--color-text);
+    font: inherit;
+    font-size: 14px;
+    min-height: var(--touch-target-min, 44px);
+    box-sizing: border-box;
+}
+
+.so-search:focus { outline: none; border-color: var(--brand-primary); }
+.so-search::placeholder { color: var(--color-text-dim); }
+
+.so-select {
+    padding: 10px 12px;
+    border: 1px solid var(--color-border);
+    border-radius: 6px;
+    background: var(--color-background);
+    color: var(--color-text);
+    font: inherit;
+    font-size: var(--font-size-s);
+    cursor: pointer;
+    min-width: 120px;
+    min-height: var(--touch-target-min, 44px);
+    box-sizing: border-box;
+    -webkit-appearance: none;
+}
+
+.so-select:focus { outline: none; border-color: var(--brand-primary); }
+
+.so-filter-btn {
+    min-width: var(--touch-target-min, 44px);
+    min-height: var(--touch-target-min, 44px);
+    padding: 8px 12px;
+    border: 1px solid var(--color-border);
+    border-radius: 6px;
+    background: none;
+    color: var(--color-text-dim);
+    font: inherit;
+    font-size: 16px;
+    font-weight: 600;
+    cursor: pointer;
+    transition: all 0.15s;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+}
+
+.so-filter-btn:hover { border-color: var(--brand-primary); color: var(--color-text); }
+.so-filter-btn.active { border-color: var(--brand-primary); color: var(--brand-primary); background: var(--brand-primary-light); }
+
+/* ── Selection bar ──────────────────────── */
+
+.so-selection-bar {
+    padding: var(--space-s) var(--space-m);
+    display: none;
+    align-items: center;
+    gap: 10px;
+    font-size: var(--font-size-s);
+    background: var(--color-surface);
+    border-bottom: 1px solid var(--color-border);
+    animation: soFadeUp 0.2s ease-out;
+}
+
+.so-selection-bar.so-visible { display: flex; }
+
+@keyframes soFadeUp {
+    from { opacity: 0; transform: translateY(6px); }
+    to   { opacity: 1; transform: translateY(0); }
+}
+
+.so-sel-count {
+    color: var(--brand-primary);
+    font-weight: 700;
+}
+
+.so-sel-btn {
+    padding: 8px 14px;
+    border: 1px solid var(--color-border);
+    border-radius: 6px;
+    background: none;
+    color: var(--color-text-dim);
+    font: inherit;
+    font-size: var(--font-size-s);
+    font-weight: 600;
+    cursor: pointer;
+    transition: all 0.15s;
+    min-height: var(--touch-target-min, 44px);
+    box-sizing: border-box;
+}
+
+.so-sel-btn:hover { border-color: var(--brand-primary); color: var(--color-text); }
+.so-sel-shopping { border-color: rgba(165,191,117,0.5); color: var(--color-green-dark); }
+.so-sel-shopping:hover { background: rgba(165,191,117,0.15); }
+
+/* ── Toast area ─────────────────────────── */
+
+.so-toast-area {
+    position: fixed;
+    bottom: 20px;
+    right: 20px;
+    z-index: 1000;
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+    pointer-events: none;
+}
+
+.so-toast {
+    padding: 10px 16px;
+    border-radius: 8px;
+    font-size: var(--font-size-s);
+    font-weight: 500;
+    pointer-events: auto;
+    animation: soFadeUp 0.3s ease-out;
+    max-width: 360px;
+}
+
+.so-toast-success { background: rgba(165,191,117,0.2); color: var(--color-green-dark); border: 1px solid var(--color-green); }
+.so-toast-error   { background: rgba(188,24,27,0.12); color: var(--color-red); border: 1px solid var(--color-red); }
+.so-toast-warn    { background: rgba(232,168,50,0.15); color: var(--color-orange); border: 1px solid var(--color-orange); }
+.so-toast-info    { background: rgba(117,148,179,0.15); color: var(--color-blue); border: 1px solid var(--color-blue); }
+
+/* ── Group header ───────────────────────── */
+
+.so-group-header {
+    font-weight: 600;
+    font-size: 1rem;
+    color: var(--color-text-dim);
+    padding: var(--space-m) 0 var(--space-s);
+    border-bottom: 1px solid var(--color-border);
+    margin-bottom: var(--space-s);
+    letter-spacing: -0.01em;
+}
+
+.so-group-header:first-child { margin-top: 0; }
+
+/* ── Product grid ───────────────────────── */
+
+.so-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(300px, 1fr));
+    gap: 6px;
+    margin-bottom: var(--space-s);
+}
+
+/* ── Product card ───────────────────────── */
+
+.so-card {
+    background: var(--color-surface);
+    border-radius: 8px;
+    border-left: 3px solid var(--color-border);
+    transition: background 0.15s;
+    cursor: pointer;
+    position: relative;
+    min-height: 56px;
+    overflow: hidden;
+}
+
+.so-card:hover { background: var(--color-background); }
+
+.so-card.so-status-ok      { border-left-color: var(--color-green); }
+.so-card.so-status-expired  { border-left-color: var(--color-red); }
+.so-card.so-status-duesoon  { border-left-color: var(--color-orange); }
+.so-card.so-status-low      { border-left-color: var(--color-blue); }
+.so-card.so-selected        { outline: 2px solid var(--brand-primary); outline-offset: -2px; }
+
+/* ── Card main row ──────────────────────── */
+
+.so-card-main {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    padding: 12px 14px;
+    min-height: var(--touch-target-min, 44px);
+}
+
+.so-card-info {
+    flex: 1;
+    min-width: 0;
+}
+
+.so-card-name {
+    font-weight: 600;
+    font-size: 14px;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+
+.so-card-meta {
+    font-size: 12px;
+    color: var(--color-text-dim);
+    display: flex;
+    gap: var(--space-s);
+    flex-wrap: wrap;
+    margin-top: 2px;
+}
+
+.so-card-amount {
+    color: var(--brand-primary);
+    font-weight: 600;
+}
+
+/* ── Expiry badge ───────────────────────── */
+
+.so-expiry { font-weight: 500; }
+.so-expiry-danger { color: var(--color-red); }
+.so-expiry-warn   { color: var(--color-orange); }
+.so-expiry-ok     { color: var(--color-green-dark); }
+
+/* ── Min stock warning ──────────────────── */
+
+.so-min-warn {
+    color: var(--color-orange);
+    font-weight: 500;
+    font-size: 11px;
+}
+
+/* ── Select box ─────────────────────────── */
+
+.so-select-box {
+    width: 22px;
+    height: 22px;
+    border-radius: 4px;
+    border: 2px solid var(--color-border);
+    flex-shrink: 0;
+    display: none;
+    align-items: center;
+    justify-content: center;
+    font-size: 11px;
+    cursor: pointer;
+    transition: all 0.15s;
+}
+
+.so-select-mode .so-select-box { display: flex; }
+.so-select-box.so-selected {
+    background: var(--brand-primary);
+    border-color: var(--brand-primary);
+    color: #fff;
+}
+
+/* ── Expand panel ───────────────────────── */
+
+.so-expand-panel {
+    display: none;
+    border-top: 1px solid var(--color-border);
+    padding: 10px 14px;
+    background: var(--color-background);
+}
+
+.so-card.so-expanded .so-expand-panel { display: block; }
+
+.so-expand-row {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    flex-wrap: wrap;
+}
+
+.so-expand-row label {
+    font-size: var(--font-size-s);
+    color: var(--color-text-dim);
+    font-weight: 600;
+}
+
+.so-adj-input {
+    width: 80px;
+    padding: 8px;
+    border: 1px solid var(--color-border);
+    border-radius: 6px;
+    background: var(--color-surface);
+    color: var(--color-text);
+    font: inherit;
+    font-size: 14px;
+    font-weight: 700;
+    text-align: center;
+    min-height: var(--touch-target-min, 44px);
+    box-sizing: border-box;
+}
+
+.so-adj-input:focus { outline: none; border-color: var(--brand-primary); }
+
+.so-adj-btn {
+    width: var(--touch-target-min, 44px);
+    height: var(--touch-target-min, 44px);
+    border: 1px solid var(--color-border);
+    border-radius: 6px;
+    background: var(--color-surface);
+    color: var(--color-text-dim);
+    font-size: 12px;
+    cursor: pointer;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    transition: all 0.15s;
+}
+
+.so-adj-btn:hover { border-color: var(--brand-primary); color: var(--brand-primary); }
+
+.so-adj-unit {
+    color: var(--color-text-dim);
+    font-size: var(--font-size-s);
+}
+
+.so-expand-actions {
+    display: flex;
+    gap: var(--space-s);
+    margin-top: var(--space-s);
+}
+
+.so-save-btn,
+.so-shop-btn {
+    padding: 8px 16px;
+    border: none;
+    border-radius: 6px;
+    font: inherit;
+    font-size: var(--font-size-s);
+    font-weight: 600;
+    cursor: pointer;
+    transition: all 0.15s;
+    min-height: var(--touch-target-min, 44px);
+    box-sizing: border-box;
+}
+
+.so-save-btn {
+    background: var(--brand-primary);
+    color: #fff;
+}
+
+.so-save-btn:hover { filter: brightness(1.1); }
+
+.so-shop-btn {
+    background: rgba(165,191,117,0.2);
+    color: var(--color-green-dark);
+    border: 1px solid rgba(165,191,117,0.4);
+}
+
+.so-shop-btn:hover { background: rgba(165,191,117,0.35); }
+
+/* ── Content area ───────────────────────── */
+
+.so-content {
+    padding: 0 var(--space-m) 80px;
+}
+
+/* ── Responsive ─────────────────────────── */
+
+@media (max-width: 640px) {
+    .so-filter-bar {
+        position: relative;
+        top: auto;
+    }
+
+    .so-search { min-width: 100%; }
+    .so-select { min-width: calc(50% - 4px); flex: 1; }
+
+    .so-grid {
+        grid-template-columns: 1fr;
+    }
+
+    .so-selection-bar { flex-wrap: wrap; }
+
+    .so-toast-area {
+        left: 12px;
+        right: 12px;
+        bottom: 12px;
+    }
+
+    .so-toast { max-width: 100%; }
+}
