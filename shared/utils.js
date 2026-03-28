@@ -111,10 +111,49 @@ function connectSSE(url, handlers) {
         });
     }
 
+    // ── Global mail-received handler ──
+    es.addEventListener('mail_received', (e) => {
+        try {
+            const data = JSON.parse(e.data);
+            // Opdater mail-badge på bon-kort
+            const card = document.getElementById('bon' + data.bon_id);
+            if (card) {
+                const idEl = card.querySelector('.bon-id');
+                if (idEl && !idEl.querySelector('.bon-mail-badge')) {
+                    idEl.insertAdjacentHTML('beforeend', ' <span class="bon-mail-badge" title="Ulæst mail">✉</span>');
+                }
+            }
+            // Toast notification
+            _showMailToast(data);
+        } catch (err) { console.error('SSE mail_received error:', err); }
+    });
+
+    es.addEventListener('mail_unmatched', (e) => {
+        try {
+            const data = JSON.parse(e.data);
+            _showMailToast({ unmatched: true, count: data.count });
+        } catch (err) { /* stille */ }
+    });
+
     es.onerror = () => {
         console.warn('SSE forbindelse tabt — genopkobler automatisk…');
     };
     return es;
+}
+
+function _showMailToast(data) {
+    if (typeof document === 'undefined') return;
+    var existing = document.querySelector('.mail-toast');
+    if (existing) existing.remove();
+    var msg = data.unmatched
+        ? '✉ ' + data.count + ' ufordelt' + (data.count > 1 ? 'e' : '') + ' mail'
+        : '✉ Ny mail på bon #' + (data.bon_id || '?');
+    var toast = document.createElement('div');
+    toast.className = 'mail-toast';
+    toast.textContent = msg;
+    toast.onclick = function() { toast.remove(); };
+    document.body.appendChild(toast);
+    setTimeout(function() { if (toast.parentNode) toast.remove(); }, 6000);
 }
 
 /* ══════════════════════════════════════════════════════════════

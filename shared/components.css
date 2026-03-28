@@ -3,4 +3,18 @@
 =================================================== */
 @import './tokens.css';
 
-/* TODO: Tilføj komponenter her */
+/* ── Mail toast notification ─────────────────────────────── */
+.mail-toast {
+    position: fixed; bottom: 24px; left: 50%; transform: translateX(-50%);
+    z-index: 10000;
+    background: var(--brand-primary, #8e631f); color: white;
+    padding: 10px 24px; border-radius: 8px;
+    font-size: 14px; font-weight: 600;
+    box-shadow: 0 4px 16px rgba(0,0,0,0.2);
+    cursor: pointer;
+    animation: mailToastSlide 0.3s ease;
+}
+@keyframes mailToastSlide {
+    from { opacity: 0; transform: translateX(-50%) translateY(20px); }
+    to   { opacity: 1; transform: translateX(-50%) translateY(0); }
+}
