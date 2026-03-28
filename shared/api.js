@@ -380,3 +380,32 @@ function postGrocyConsume(lines) {
 function postGrocyConsumeProducts(items) {
     return apiFetch('/grocy/consume-products', { method: 'POST', body: JSON.stringify({ items }) });
 }
+
+/* ── INDKØBSLISTE ────────────────────────────────────────── */
+
+function fetchShoppingList() { return apiFetch('/grocy/shopping-list'); }
+function deleteShoppingListItem(id) { return apiFetch('/grocy/shopping-list/' + id, { method: 'DELETE' }); }
+function addShoppingListProduct(productId, amount, listId) {
+    return apiFetch('/grocy/shopping-list/add-product', {
+        method: 'POST', body: JSON.stringify({ product_id: productId, product_amount: amount, list_id: listId || 1 })
+    });
+}
+function removeShoppingListProduct(productId, amount, listId) {
+    return apiFetch('/grocy/shopping-list/remove-product', {
+        method: 'POST', body: JSON.stringify({ product_id: productId, product_amount: amount, list_id: listId || 1 })
+    });
+}
+function addMissingProducts(listId) {
+    return apiFetch('/grocy/shopping-list/add-missing', { method: 'POST', body: JSON.stringify({ list_id: listId || 1 }) });
+}
+function addExpiredProducts(listId) {
+    return apiFetch('/grocy/shopping-list/add-expired', { method: 'POST', body: JSON.stringify({ list_id: listId || 1 }) });
+}
+function addOverdueProducts(listId) {
+    return apiFetch('/grocy/shopping-list/add-overdue', { method: 'POST', body: JSON.stringify({ list_id: listId || 1 }) });
+}
+function clearShoppingList(listId) {
+    return apiFetch('/grocy/shopping-list/clear', { method: 'POST', body: JSON.stringify({ list_id: listId || 1 }) });
+}
+function fetchProductGroups() { return apiFetch('/grocy/product-groups'); }
+function fetchShoppingLocations() { return apiFetch('/grocy/shopping-locations'); }

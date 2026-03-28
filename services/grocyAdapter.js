@@ -147,7 +147,11 @@ async function grocyPost(path, body) {
         throw new Error(`Grocy POST fejl ${res.status}: ${text.slice(0, 200)}`);
     }
 
-    return res.json();
+    // Grocy returnerer ofte 204 No Content (ingen body)
+    if (res.status === 204 || res.headers.get('content-length') === '0') {
+        return {};
+    }
+    return res.json().catch(() => ({}));
 }
 
 /**
@@ -381,6 +385,71 @@ async function addToShoppingList(items) {
     return results;
 }
 
+/* ══════════════════════════════════════════════════════════════
+   INDKØBSLISTE — udvidede endpoints
+   ══════════════════════════════════════════════════════════════ */
+
+/** Hent hele indkøbslisten (ikke cached — ændres hyppigt) */
+function getShoppingList() {
+    return grocyFetch('/objects/shopping_list');
+}
+
+/** Slet enkelt indkøbsliste-item */
+function deleteShoppingListItem(id) {
+    return grocyDelete(`/objects/shopping_list/${id}`);
+}
+
+/** Tilføj produkt til indkøbsliste via Grocy's smart endpoint */
+async function addShoppingListProduct(productId, amount, listId) {
+    return grocyPost('/stock/shoppinglist/add-product', {
+        product_id: productId,
+        product_amount: amount,
+        list_id: listId || 1,
+    });
+}
+
+/** Fjern produkt fra indkøbsliste */
+async function removeShoppingListProduct(productId, amount, listId) {
+    return grocyPost('/stock/shoppinglist/remove-product', {
+        product_id: productId,
+        product_amount: amount,
+        list_id: listId || 1,
+    });
+}
+
+/** Tilføj manglende produkter til indkøbsliste */
+async function addMissingProducts(listId) {
+    return grocyPost('/stock/shoppinglist/add-missing-products', {
+        list_id: listId || 1,
+    });
+}
+
+/** Tilføj udløbne produkter til indkøbsliste */
+async function addExpiredProducts(listId) {
+    return grocyPost('/stock/shoppinglist/add-expired-products', {
+        list_id: listId || 1,
+    });
+}
+
+/** Tilføj forfaldne produkter til indkøbsliste */
+async function addOverdueProducts(listId) {
+    return grocyPost('/stock/shoppinglist/add-overdue-products', {
+        list_id: listId || 1,
+    });
+}
+
+/** Ryd hele indkøbslisten */
+async function clearShoppingList(listId) {
+    return grocyPost('/stock/shoppinglist/clear', {
+        list_id: listId || 1,
+    });
+}
+
+/** Alle indkøbslokationer */
+function getShoppingLocations() {
+    return cachedFetch('shopping_locations', '/objects/shopping_locations');
+}
+
 /**
  * Forbruger ingredienser fra Grocy-lager for en liste bon-linjer.
  *
@@ -541,6 +610,16 @@ module.exports = {
     setInventory,
     updateProductUserfields,
     addToShoppingList,
+    // Indkøbsliste — udvidede endpoints
+    getShoppingList,
+    deleteShoppingListItem,
+    addShoppingListProduct,
+    removeShoppingListProduct,
+    addMissingProducts,
+    addExpiredProducts,
+    addOverdueProducts,
+    clearShoppingList,
+    getShoppingLocations,
     // Cache
     clearCache,
 };

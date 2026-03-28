@@ -170,7 +170,64 @@ router.put('/products/:id/userfields', handle(async (req, res) => {
     res.json({ ok: true });
 }));
 
-/* ── Indkøbsliste (write) ────────────────────────────────── */
+/* ── Indkøbsliste ────────────────────────────────────────── */
+
+router.get('/shopping-list', handle(async (req, res) => {
+    res.json(await grocy.getShoppingList());
+}));
+
+router.delete('/shopping-list/:id', handle(async (req, res) => {
+    await grocy.deleteShoppingListItem(parseInt(req.params.id));
+    res.json({ ok: true });
+}));
+
+router.post('/shopping-list/add-product', handle(async (req, res) => {
+    const { product_id, product_amount, list_id } = req.body;
+    if (!product_id || !product_amount) {
+        return res.status(400).json({ error: 'product_id og product_amount er påkrævet' });
+    }
+    await grocy.addShoppingListProduct(product_id, product_amount, list_id);
+    res.json({ ok: true });
+}));
+
+router.post('/shopping-list/remove-product', handle(async (req, res) => {
+    const { product_id, product_amount, list_id } = req.body;
+    if (!product_id || !product_amount) {
+        return res.status(400).json({ error: 'product_id og product_amount er påkrævet' });
+    }
+    await grocy.removeShoppingListProduct(product_id, product_amount, list_id);
+    res.json({ ok: true });
+}));
+
+router.post('/shopping-list/add-missing', handle(async (req, res) => {
+    const { list_id } = req.body || {};
+    await grocy.addMissingProducts(list_id);
+    res.json({ ok: true });
+}));
+
+router.post('/shopping-list/add-expired', handle(async (req, res) => {
+    const { list_id } = req.body || {};
+    await grocy.addExpiredProducts(list_id);
+    res.json({ ok: true });
+}));
+
+router.post('/shopping-list/add-overdue', handle(async (req, res) => {
+    const { list_id } = req.body || {};
+    await grocy.addOverdueProducts(list_id);
+    res.json({ ok: true });
+}));
+
+router.post('/shopping-list/clear', handle(async (req, res) => {
+    const { list_id } = req.body || {};
+    await grocy.clearShoppingList(list_id);
+    res.json({ ok: true });
+}));
+
+router.get('/shopping-locations', handle(async (req, res) => {
+    res.json(await grocy.getShoppingLocations());
+}));
+
+/* ── Indkøbsliste (legacy) ──────────────────────────────── */
 
 router.post('/shoppinglist', handle(async (req, res) => {
     const items = req.body.items;

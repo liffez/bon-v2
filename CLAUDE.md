@@ -509,34 +509,70 @@ Nye filer placeres præcis der de hører hjemme — kopieres ikke.
 - [x] Dashboard Lager-kort linker til `/kitchen/stock.html`
 - [x] Lager tilføjet i MERE dropdown på alle kitchen views
 
+### Fase 6 — Indkøb & Bestilling (påbegyndt)
+- [x] **Indkøbsliste**: `shared/shopping_list.js` + `shared/shopping_list.css`
+  - Henter Grocy shopping list + produkter + grupper + leverandører + enheder
+  - Gruppering: efter leverandør, produktgruppe, eller ingen
+  - Søgning med debounce
+  - Quick actions: Tilføj manglende (📉), Udløbende (⏰), Overskredet (📅)
+  - Afkrydsning med localStorage persistens
+  - Expand per vare med "Ret antal" og "Fjern"
+  - Tilføj vare manuelt med produkt-autocomplete
+  - Ryd afkrydsede / Ryd hele listen
+- [x] **Backend**: 10 nye Grocy proxy-endpoints i `routes/grocy.js`
+  - `GET /api/grocy/shopping-list`, `DELETE /api/grocy/shopping-list/:id`
+  - `POST /api/grocy/shopping-list/add-product`, `remove-product`, `add-missing`, `add-expired`, `add-overdue`, `clear`
+  - `GET /api/grocy/shopping-locations`
+  - grocyAdapter: håndterer Grocy's 204 No Content svar korrekt
+- [x] **`kitchen/purchasing.html`** — Indkøbs-side med 3 tabs:
+  - Indkøbsliste (aktiv), Bestilling (placeholder), Varemodtagelse (placeholder)
+  - Dashboard Indkøb-kort + MERE dropdown linker hertil
+- [x] `shared/api.js` — 10 nye shopping list funktioner
+- [x] **Grocy QU-verifikation** — grundig analyse af quantity unit konverteringer
+  - `recipes_pos.amount` er i stock-units, `qu_id` er display-enhed
+  - Grocy konverterer selv ved visning: `amount × factor(stock→display)`
+  - Consume sender stock-units direkte (korrekt)
+  - Display konverterer via `convertAndFormat()` (korrekt)
+  - `scripts/fix-grocy-qu.js` — migrations-script til reference (ikke anvendt, DB var korrekt)
+- [ ] **Bestilling** — Hørkram integration (`hokaAdapter.js` + `orders.js` klar i `tools/bestiliing/`)
+- [ ] **Varemodtagelse** — fusion-endpoint (Grocy lager + Whiteboard FVST-log)
+
 ## Næste opgave
 
 > ✏️ Opdateret 28. marts 2026.
 >
-> **Fase 1a–1e + 3A + 3B + 3D + 4 + 5 komplet.**
-> Opskrifter, consume, lager (overview + optælling) integreret.
+> **Fase 1a–1e + 3A + 3B + 3D + 4 + 5 + 6 (indkøbsliste) komplet.**
+> Opskrifter, consume, lager (overview + optælling), indkøbsliste integreret.
 > LEVERET auto-consume verificeret end-to-end.
+> Grocy QU-kæde verificeret: stock→display→consume→purchase alle korrekte.
 >
-> **Næste:** Priser-setting i planlægningsbon, Tilbud og Ugeoversigt.
+> **Næste:** Bestilling (Hørkram montering), Varemodtagelse (fusion-endpoint),
+> Priser-setting i planlægningsbon, Tilbud og Ugeoversigt.
 > Så er Bon v1 klar til nedlukning.
 >
 > **Åbne afhængigheder:**
 > - DMI API-nøgle (vejr på dashboards) — Leif finder frem til eksisterende nøgle (Open-Meteo bruges midlertidigt)
 > - Bon v1-datamigration — bør ske inden dashboards tages i produktion (kræves til "sidste år"-sammenligning)
-> - Byekspressen credentials — ryk sebastian@by-expressen.dk (Fase 5)
+> - Byekspressen credentials — ryk sebastian@by-expressen.dk
 > - Formbuilder webhook-URL + HTML til ristetrug.dk/bestil — sættes når 1c er stabilt
+> - Whiteboard API URL — `https://whiteboard.ristetrug.dk` (localhost til test)
+> - Hørkram credentials — `HOKA_USERNAME` + `HOKA_PASSWORD` i `.env`
 >
 > **Åbne design-beslutninger:**
 > - Priser i planlægningsbon: setting `show_prices_in_planning` (default false)
 >   Styrer om salgspris/kostpris/margin vises i planlægningsbon.
 >   Implementeres som setting i settings-tabellen, bruges i planning.js til at vise/skjule priskolonner.
 > - shared/-mappe opdeling i undermapper — udskydes til senere refaktorering
+> - orders.js migrering fra JSON-fil til SQLite — bør ske inden bestilling tages i brug
+> - Varemodtagelse fusion-endpoint arkitektur: `POST /api/receiving/complete` → Grocy + Whiteboard + lokal log
 >
 > **Beslutninger taget:**
 > - Kalender er separat sidebar-punkt i office (ikke fane i listview)
 > - Planlægning er separat sidebar-punkt i office + topbar-link i kitchen
 > - Ingrediens-opløsning inkluderer underopskrifter rekursivt (emballage og levering vises nederst, ikke skjult)
 > - Lager-forbrug: per-produkt consume (ikke recipe-level), inkl. emballage
+> - Grocy QU: `recipes_pos.amount` er i stock-units, `qu_id` er display-enhed — DB skal IKKE ændres
+> - Indkøbsliste bruger purchase-enhed med oprunding ved tilføjelse til Grocy shopping list
 
 ---
 
