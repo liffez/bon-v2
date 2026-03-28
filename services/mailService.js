@@ -110,7 +110,7 @@ async function sendMail({ to, subject, text, context, bonId = null, customerId =
 
     // Insert outbound message
     const msgIns = db.prepare(
-        `INSERT INTO mail_messages (thread_id, direction, from_address, from_name, to_address, subject, body_text, message_id, in_reply_to, "references", is_read, sent_at, created_by_user_id, created_at)
+        `INSERT INTO mail_messages (thread_id, direction, from_email, from_name, to_email, subject, body_text, message_id, in_reply_to, "references", is_read, sent_at, created_by_user_id, created_at)
          VALUES (?, 'out', ?, ?, ?, ?, ?, NULL, ?, ?, 1, datetime('now'), ?, datetime('now'))`
     ).run(threadId, from, null, to, finalSubject, text, inReplyTo, references, userId);
     const messageDbId = msgIns.lastInsertRowid;
@@ -324,7 +324,7 @@ async function processInboundMail(parsed, uid, mailbox) {
     if (!threadId) {
         const forwardInfo = parseForwardedSender(bodyText);
         db.prepare(
-            `INSERT INTO mail_unmatched (imap_uid, mailbox, message_id, from_address, from_name, to_address, subject, body_text, body_html, received_at,
+            `INSERT INTO mail_unmatched (imap_uid, mailbox, message_id, from_email, from_name, to_email, subject, body_text, body_html, received_at,
              forward_email, forward_name, forward_company, created_at)
              VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, datetime('now'))`
         ).run(
@@ -343,7 +343,7 @@ async function processInboundMail(parsed, uid, mailbox) {
     // ── Insert message ──
 
     const msgIns = db.prepare(
-        `INSERT INTO mail_messages (thread_id, direction, from_address, from_name, to_address, subject, body_text, body_html, message_id, in_reply_to, "references", imap_uid, mailbox, is_read, received_at, created_at)
+        `INSERT INTO mail_messages (thread_id, direction, from_email, from_name, to_email, subject, body_text, body_html, message_id, in_reply_to, "references", imap_uid, mailbox, is_read, received_at, created_at)
          VALUES (?, 'in', ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 0, ?, datetime('now'))`
     ).run(threadId, fromAddr, fromName, toAddr, subject, bodyText, bodyHtml, messageId, inReplyTo, references, uid, mailbox, receivedAt);
     const messageDbId = msgIns.lastInsertRowid;

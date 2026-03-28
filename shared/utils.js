@@ -261,6 +261,7 @@ function mapApiBonToCardData(apiBon) {
         delivery_notes:  apiBon.delivery_notes || '',
         delivery_method: apiBon.delivery_method || '',
         price_category:  apiBon.price_category || 'catering',
+        unread_mail_count: apiBon.unread_mail_count || 0,
     };
 }
 

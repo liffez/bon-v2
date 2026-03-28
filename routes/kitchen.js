@@ -26,7 +26,8 @@ router.get('/today', handle((req, res) => {
             co.phone AS company_phone,
             a.street_name || ' ' || COALESCE(a.street_nr,'') AS delivery_street,
             a.city   AS delivery_city,
-            a.postal_code AS delivery_postal
+            a.postal_code AS delivery_postal,
+            (SELECT COUNT(*) FROM mail_messages mm JOIN mail_threads mt ON mm.thread_id = mt.id WHERE mt.bon_id = b.id AND mm.direction = 'in' AND mm.is_read = 0) AS unread_mail_count
         FROM bons b
         JOIN   status_definitions sd ON b.status_id  = sd.id
         LEFT JOIN customers c        ON b.customer_id = c.id
@@ -75,7 +76,8 @@ router.get('/later', handle((req, res) => {
             co.phone AS company_phone,
             a.street_name || ' ' || COALESCE(a.street_nr,'') AS delivery_street,
             a.city   AS delivery_city,
-            a.postal_code AS delivery_postal
+            a.postal_code AS delivery_postal,
+            (SELECT COUNT(*) FROM mail_messages mm JOIN mail_threads mt ON mm.thread_id = mt.id WHERE mt.bon_id = b.id AND mm.direction = 'in' AND mm.is_read = 0) AS unread_mail_count
         FROM bons b
         JOIN   status_definitions sd ON b.status_id  = sd.id
         LEFT JOIN customers c        ON b.customer_id = c.id
@@ -130,7 +132,8 @@ router.get('/planning', handle((req, res) => {
             sd.color AS status_color,
             c.first_name || ' ' || COALESCE(c.last_name, '') AS contact_name_full,
             co.name  AS company_name,
-            pc.code  AS price_category_code
+            pc.code  AS price_category_code,
+            (SELECT COUNT(*) FROM mail_messages mm JOIN mail_threads mt ON mm.thread_id = mt.id WHERE mt.bon_id = b.id AND mm.direction = 'in' AND mm.is_read = 0) AS unread_mail_count
         FROM bons b
         JOIN   status_definitions sd ON b.status_id  = sd.id
         LEFT JOIN customers c        ON b.customer_id = c.id

@@ -420,8 +420,9 @@ function _buildDayCell(dateStr, dayData, isCurrentMonth, isToday) {
                 bonLoad = String(bonPax);
             }
 
+            var mailIcon = bon.unread_mail_count ? ' <span class="bon-mail-badge" title="' + bon.unread_mail_count + ' ulæst mail">✉</span>' : '';
             entry.innerHTML = '<span class="cal-bon-time">' + esc(timeStr) + '</span>'
-                + '<span class="cal-bon-id">#' + esc(bon.bon_number) + '</span>'
+                + '<span class="cal-bon-id">#' + esc(bon.bon_number) + mailIcon + '</span>'
                 + (bonLoad ? '<span class="cal-bon-pax">' + bonLoad + '</span>' : '');
 
             // Klik → bon-info modal
@@ -594,6 +595,9 @@ function _renderList() {
                 td.textContent = formatDanishDate(bon.delivery_date);
             } else if (col2.key === 'pickup_time') {
                 td.textContent = bon.pickup_time || bon.delivery_time || '';
+            } else if (col2.key === 'bon_number') {
+                td.innerHTML = '#' + esc(String(bon.bon_number || ''))
+                    + (bon.unread_mail_count ? ' <span class="bon-mail-badge">✉</span>' : '');
             } else {
                 td.textContent = bon[col2.key] != null ? bon[col2.key] : '';
             }
