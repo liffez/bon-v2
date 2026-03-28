@@ -429,7 +429,7 @@ class BonDrawer {
             ]);
 
             // Store vars + templates on drawer for send
-            this._mailVars = _buildMailVars(bon);
+            this._mailVars = typeof _buildMailVars === 'function' ? _buildMailVars(bon) : {};
             this._mailTemplates = templates;
 
             // Prefill to
@@ -873,6 +873,37 @@ class BonDrawer {
 /* ── Drawer Mail helpers (global — called from onclick i DOM) ── */
 
 var _drawerInstance = null; // Set by the page that creates BonDrawer
+if (typeof _mailTemplates === 'undefined') var _mailTemplates = null; // Shared cache — may also be defined in bon_kort.js
+if (typeof _fmtMailDate === 'undefined') {
+    var _fmtMailDate = function(isoStr) {
+        if (!isoStr) return '';
+        var d = new Date(isoStr);
+        return d.getDate() + '/' + (d.getMonth()+1) + ' ' + String(d.getHours()).padStart(2,'0') + ':' + String(d.getMinutes()).padStart(2,'0');
+    };
+}
+if (typeof _buildMailVars === 'undefined') {
+    var _buildMailVars = function(bon) {
+        var lines = bon.lines || [];
+        var menuLines = lines.filter(function(l) { var c = (l.category||'').toLowerCase(); return c !== 'emballage' && c !== 'levering'; });
+        var totalExMoms = lines.reduce(function(s,l) { return s + (l.line_total||0); }, 0);
+        var moms = Math.round(totalExMoms * 0.25 * 100) / 100;
+        var addrObj = bon.delivery_address || {};
+        var addr = typeof addrObj === 'string' ? addrObj : [addrObj.street_name, addrObj.street_nr, addrObj.postal_code, addrObj.city].filter(Boolean).join(' ');
+        return {
+            kundeNavn: bon.contact_name_full || '', bonNummer: bon.bon_number || '',
+            leveringsDato: bon.delivery_date || '', leveringsTidspunkt: bon.delivery_time || bon.pickup_time || '',
+            leveringsAdresse: addr, postnummer: (addrObj.postal_code || ''),
+            telefon: bon.contact_phone || '', pax: String(bon.pax || ''), firmanavn: bon.company_name || '',
+            menuUdenPriser: menuLines.map(function(l) { return l.quantity + '× ' + l.product_name; }).join('\n'),
+            menuMedPriser: menuLines.map(function(l) { var p = l.unit_price ? (l.quantity*l.unit_price).toLocaleString('da-DK')+' kr' : ''; return l.quantity+'× '+l.product_name+(p?' '+p:''); }).join('\n'),
+            totalPris: (totalExMoms+moms).toLocaleString('da-DK',{minimumFractionDigits:2})+' kr',
+            totalExMoms: totalExMoms.toLocaleString('da-DK',{minimumFractionDigits:2})+' kr',
+            momsBeloeb: moms.toLocaleString('da-DK',{minimumFractionDigits:2})+' kr',
+            co2PerLinje: menuLines.filter(function(l){return l.co2e;}).map(function(l){return l.product_name+': '+l.co2e+' kg × '+l.quantity+' = '+(l.co2e*l.quantity).toFixed(2);}).join('\n'),
+            co2Total: menuLines.reduce(function(s,l){return s+((l.co2e||0)*l.quantity);},0).toFixed(2)+' kg CO₂e',
+        };
+    };
+}
 
 function _drawerApplyTemplate() {
     const sel = document.getElementById('drawerMailTemplate');

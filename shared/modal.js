@@ -314,6 +314,9 @@ async function showBonInfo(cardIdOrBonId, options) {
         if (body) {
             body.innerHTML = _buildBonInfoHtml(bon);
 
+            // Mail-historik (async, non-blocking)
+            _loadInfoMail(bonId, body);
+
             // Knap-sektion (Gå til bon + Rediger)
             if (opts.showGotoButton || opts.showEditButton) {
                 var gotoDiv = document.createElement('div');
@@ -352,6 +355,49 @@ async function showBonInfo(cardIdOrBonId, options) {
         const overlay = document.querySelector('.modal-overlay:last-of-type') || document.querySelector('.modal-overlay');
         const body = overlay && overlay.querySelector('.modal-body');
         if (body) body.innerHTML = '<div class="changelog-empty">Kunne ikke hente bon-data. Prøv igen.</div>';
+    }
+}
+
+/**
+ * Hent og vis mail-historik i info-modal (non-blocking).
+ */
+async function _loadInfoMail(bonId, bodyEl) {
+    if (typeof fetchBonMail !== 'function') return;
+    try {
+        const mailData = await fetchBonMail(bonId);
+        const allMsgs = [];
+        (mailData.threads || []).forEach(t => (t.messages || []).forEach(m => allMsgs.push(m)));
+        if (allMsgs.length === 0) return; // Ingen mails — vis intet
+
+        allMsgs.sort((a, b) => new Date(b.received_at || b.sent_at || b.created_at) - new Date(a.received_at || a.sent_at || a.created_at));
+        const unread = allMsgs.filter(m => m.direction === 'in' && !m.is_read).length;
+
+        var section = document.createElement('div');
+        section.className = 'info-mail-section';
+        section.innerHTML = '<div class="bm-history-header">✉ Mail' + (unread ? ' <span class="bm-badge">' + unread + ' ulæst</span>' : '') + '</div>'
+            + '<div class="bm-messages" style="max-height:200px">'
+            + allMsgs.slice(0, 10).map(function(m) {
+                var isIn = m.direction === 'in';
+                var isUnread = isIn && !m.is_read;
+                var from = isIn ? (m.from_name || m.from_email || '?') : 'Ristet Rug';
+                var d = new Date(m.received_at || m.sent_at || m.created_at);
+                var dateStr = d.getDate() + '/' + (d.getMonth()+1) + ' ' + String(d.getHours()).padStart(2,'0') + ':' + String(d.getMinutes()).padStart(2,'0');
+                var body = (m.body_text || '').slice(0, 120).replace(/\n/g, ' ');
+                return '<div class="bm-msg ' + (isIn ? 'bm-in' : 'bm-out') + (isUnread ? ' bm-unread' : '') + '">'
+                    + '<div class="bm-msg-header"><span class="bm-msg-from">' + (isIn ? '← ' : '→ ') + esc(from) + '</span><span class="bm-msg-date">' + dateStr + '</span></div>'
+                    + '<div class="bm-msg-subject">' + esc(m.subject || '') + '</div>'
+                    + '<div class="bm-msg-body">' + esc(body) + (body.length >= 120 ? '…' : '') + '</div>'
+                    + '</div>';
+            }).join('')
+            + '</div>';
+
+        // Indsæt før knap-sektionen (eller til sidst)
+        var gotoSection = bodyEl.querySelector('.info-goto-section');
+        if (gotoSection) bodyEl.insertBefore(section, gotoSection);
+        else bodyEl.appendChild(section);
+    } catch (err) {
+        // Stille fejl — mail er ikke kritisk for info-modal
+        console.warn('[info-mail]', err.message);
     }
 }
 
