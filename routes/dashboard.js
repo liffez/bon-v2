@@ -152,7 +152,7 @@ router.get('/today', handle(async (req, res) => {
     }
 
     // unread_mail
-    const unreadMail = db.prepare(`SELECT COUNT(*) AS cnt FROM bon_mails WHERE is_read = 0`).get();
+    const unreadMail = db.prepare(`SELECT COUNT(*) AS cnt FROM mail_messages mm JOIN mail_threads mt ON mm.thread_id = mt.id WHERE mm.direction = 'in' AND mm.is_read = 0`).get();
     if (unreadMail.cnt > 0) {
         alerts.push({
             type: 'unread_mail',

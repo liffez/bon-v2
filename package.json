@@ -21,6 +21,7 @@
     "express": "^4.18.3",
     "express-session": "^1.19.0",
     "imapflow": "^1.2.13",
+    "mailparser": "^3.7.1",
     "nodemailer": "^8.0.2"
   }
 }

@@ -80,4 +80,36 @@ router.get('/:id', handle((req, res) => {
     res.json(c);
 }));
 
+/* ── CUSTOMER MAIL ────────────────────────────────────────── */
+
+// GET /api/customers/:id/mail
+router.get('/:id/mail', handle(async (req, res) => {
+    const customerId = parseInt(req.params.id);
+    const db = getDb();
+    const threads = db.prepare(`
+        SELECT * FROM mail_threads WHERE customer_id = ? ORDER BY updated_at DESC
+    `).all(customerId);
+
+    for (const t of threads) {
+        t.messages = db.prepare(`
+            SELECT * FROM mail_messages WHERE thread_id = ? ORDER BY created_at ASC
+        `).all(t.id);
+    }
+    res.json({ threads });
+}));
+
+// POST /api/customers/:id/mail
+router.post('/:id/mail', handle(async (req, res) => {
+    const customerId = parseInt(req.params.id);
+    const { to, subject, text } = req.body;
+    if (!to || !text) return res.status(400).json({ error: 'to og text er påkrævet' });
+
+    const { sendMail } = require('../services/mailService');
+    const context = { type: 'customer', number: customerId };
+    const userId = req.session?.user?.id || null;
+
+    const result = await sendMail({ to, subject: subject || '', text, customerId, context, smtpPrefix: 'smtp_kontakt', userId });
+    res.json({ ok: true, messageId: result.messageId, threadId: result.threadId });
+}));
+
 module.exports = router;

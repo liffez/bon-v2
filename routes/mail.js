@@ -68,4 +68,64 @@ router.post('/test', handle(async (req, res) => {
     }
 }));
 
+/* ── UFORDELT INDBAKKE ────────────────────────────────────── */
+
+router.get('/unmatched', handle(async (req, res) => {
+    const status = req.query.status || 'open';
+    const db = getDb();
+    const items = db.prepare(`
+        SELECT * FROM mail_unmatched WHERE status = ? ORDER BY created_at DESC
+    `).all(status);
+    res.json(items);
+}));
+
+router.patch('/unmatched/:id', handle(async (req, res) => {
+    const id = parseInt(req.params.id);
+    const { status, linked_customer_id, linked_bon_id } = req.body;
+    const db = getDb();
+    const userId = req.session?.user?.id || null;
+
+    if (status === 'linked') {
+        // Create thread + message from unmatched
+        const um = db.prepare('SELECT * FROM mail_unmatched WHERE id = ?').get(id);
+        if (!um) return res.status(404).json({ error: 'Ikke fundet' });
+
+        const threadId = db.prepare(`
+            INSERT INTO mail_threads (subject, bon_id, customer_id) VALUES (?, ?, ?)
+        `).run(um.subject || '', linked_bon_id || null, linked_customer_id || null).lastInsertRowid;
+
+        db.prepare(`
+            INSERT INTO mail_messages (thread_id, message_id, direction, from_email, from_name, to_email, subject, body_text, is_read, imap_uid, mailbox, received_at)
+            VALUES (?, ?, 'in', ?, ?, ?, ?, ?, 0, ?, ?, ?)
+        `).run(threadId, um.message_id, um.from_email, um.from_name, um.mailbox, um.subject, um.body_text, um.imap_uid, um.mailbox, um.received_at);
+
+        db.prepare(`
+            UPDATE mail_unmatched SET status = 'linked', linked_customer_id = ?, linked_bon_id = ?, handled_by_user_id = ?, handled_at = CURRENT_TIMESTAMP
+            WHERE id = ?
+        `).run(linked_customer_id || null, linked_bon_id || null, userId, id);
+
+        res.json({ ok: true, thread_id: Number(threadId) });
+    } else if (status === 'ignored') {
+        db.prepare(`
+            UPDATE mail_unmatched SET status = 'ignored', handled_by_user_id = ?, handled_at = CURRENT_TIMESTAMP WHERE id = ?
+        `).run(userId, id);
+        res.json({ ok: true });
+    } else {
+        res.status(400).json({ error: 'status skal være linked eller ignored' });
+    }
+}));
+
+/* ── POLL KONTROL ─────────────────────────────────────────── */
+
+router.post('/poll', handle(async (req, res) => {
+    const { getPollState } = require('../services/mailService');
+    const state = getPollState();
+    res.json({ ok: true, state });
+}));
+
+router.get('/status', handle(async (req, res) => {
+    const { getPollState } = require('../services/mailService');
+    res.json(getPollState());
+}));
+
 module.exports = router;

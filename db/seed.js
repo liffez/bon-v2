@@ -34,8 +34,10 @@ const run = db.transaction(() => {
   // Ryd eksisterende seed-data (sikker rækkefølge, FK-venlig)
   db.exec(`
     DELETE FROM notification_reads;
-    DELETE FROM bon_mails;
-    DELETE FROM customer_mails;
+    DELETE FROM mail_attachments;
+    DELETE FROM mail_messages;
+    DELETE FROM mail_threads;
+    DELETE FROM mail_unmatched;
     DELETE FROM bon_lines;
     DELETE FROM changelog;
     DELETE FROM notifications;

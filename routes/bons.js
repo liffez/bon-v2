@@ -64,7 +64,7 @@ router.get('/', handle((req, res) => {
 
     // Ulæst mail
     if (unread_mail === '1') {
-        where.push(`(SELECT COUNT(*) FROM bon_mails m WHERE m.bon_id = b.id AND m.direction = 'inbound' AND m.is_read = 0) > 0`);
+        where.push(`(SELECT COUNT(*) FROM mail_messages mm JOIN mail_threads mt ON mm.thread_id = mt.id WHERE mt.bon_id = b.id AND mm.direction = 'in' AND mm.is_read = 0) > 0`);
     }
 
     // Sortering
@@ -94,8 +94,9 @@ router.get('/', handle((req, res) => {
             co.name  AS company_name,
             co.ean   AS company_ean,
             l.name   AS location_name,
-            (SELECT COUNT(*) FROM bon_mails m
-             WHERE m.bon_id = b.id AND m.direction = 'inbound' AND m.is_read = 0
+            (SELECT COUNT(*) FROM mail_messages mm
+             JOIN mail_threads mt ON mm.thread_id = mt.id
+             WHERE mt.bon_id = b.id AND mm.direction = 'in' AND mm.is_read = 0
             ) AS unread_mail_count,
             (SELECT de.event_type FROM delivery_events de
              WHERE de.bon_id = b.id ORDER BY de.event_time DESC LIMIT 1
@@ -522,6 +523,78 @@ router.post('/:id/notifications/:nid/read', handle((req, res) => {
     `).run(notifId, client_id);
 
     res.json({ ok: true });
+}));
+
+/* ── BON MAIL ─────────────────────────────────────────────── */
+
+// GET /api/bons/:id/mail — tråde med beskeder
+router.get('/:id/mail', handle(async (req, res) => {
+    const bonId = parseInt(req.params.id);
+    const db = getDb();
+    const threads = db.prepare(`
+        SELECT * FROM mail_threads WHERE bon_id = ? ORDER BY updated_at DESC
+    `).all(bonId);
+
+    for (const t of threads) {
+        t.messages = db.prepare(`
+            SELECT mm.*,
+                   (SELECT json_group_array(json_object('id', ma.id, 'filename', ma.filename, 'mime_type', ma.mime_type, 'size_bytes', ma.size_bytes))
+                    FROM mail_attachments ma WHERE ma.message_id = mm.id) as attachments_json
+            FROM mail_messages mm WHERE mm.thread_id = ? ORDER BY mm.created_at ASC
+        `).all(t.id);
+        t.messages.forEach(m => {
+            m.attachments = m.attachments_json ? JSON.parse(m.attachments_json) : [];
+            delete m.attachments_json;
+        });
+    }
+    res.json({ threads });
+}));
+
+// POST /api/bons/:id/mail — send udgående mail
+router.post('/:id/mail', handle(async (req, res) => {
+    const bonId = parseInt(req.params.id);
+    const { to, subject, text, templateKey, inReplyTo } = req.body;
+    if (!to || (!text && !templateKey)) {
+        return res.status(400).json({ error: 'to og text/templateKey er påkrævet' });
+    }
+
+    const db = getDb();
+    const bon = db.prepare('SELECT bon_number FROM bons WHERE id = ?').get(bonId);
+    if (!bon) return res.status(404).json({ error: 'Bon ikke fundet' });
+
+    const { sendMail, sendFromTemplate } = require('../services/mailService');
+    const context = { type: 'bon', number: parseInt(bon.bon_number) };
+    const userId = req.session?.user?.id || null;
+
+    let result;
+    if (templateKey) {
+        const vars = req.body.vars || {};
+        result = await sendFromTemplate({ templateKey, to, vars, bonId, context, userId });
+    } else {
+        result = await sendMail({ to, subject: subject || '', text, bonId, context, inReplyTo, smtpPrefix: 'smtp', userId });
+    }
+
+    res.json({ ok: true, messageId: result.messageId, threadId: result.threadId });
+}));
+
+// PATCH /api/bons/:id/mail/:msgId/read — marker som læst
+router.patch('/:id/mail/:msgId/read', handle(async (req, res) => {
+    const bonId = parseInt(req.params.id);
+    const msgId = parseInt(req.params.msgId);
+    const db = getDb();
+
+    db.prepare('UPDATE mail_messages SET is_read = 1 WHERE id = ?').run(msgId);
+
+    // Count remaining unread
+    const unread = db.prepare(`
+        SELECT COUNT(*) as n FROM mail_messages mm
+        JOIN mail_threads mt ON mm.thread_id = mt.id
+        WHERE mt.bon_id = ? AND mm.direction = 'in' AND mm.is_read = 0
+    `).get(bonId).n;
+
+    broadcast('bon_updated', { id: bonId, unread_mail_count: unread });
+
+    res.json({ ok: true, unread_mail_count: unread });
 }));
 
 module.exports = router;
