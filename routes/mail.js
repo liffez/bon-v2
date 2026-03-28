@@ -115,9 +115,11 @@ router.patch('/unmatched/:id', requireAuth('admin'), handle(async (req, res) => 
 /* ── POLL KONTROL ─────────────────────────────────────────── */
 
 router.post('/poll', requireAuth('admin'), handle(async (req, res) => {
-    const { getPollState } = require('../services/mailService');
-    const state = getPollState();
-    res.json({ ok: true, state });
+    const { triggerPoll, getPollState } = require('../services/mailService');
+    if (typeof triggerPoll === 'function') {
+        await triggerPoll();
+    }
+    res.json({ ok: true, state: getPollState() });
 }));
 
 router.get('/status', requireAuth('admin'), handle(async (req, res) => {

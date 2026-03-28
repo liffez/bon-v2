@@ -187,10 +187,14 @@ async function pollMailbox(config) {
                 source: true
             });
 
+            let totalMsgs = 0;
+            let uidSkipped = 0;
+
             for await (const msg of msgs) {
+                totalMsgs++;
                 try {
-                    // Skip already-seen messages
-                    if (msg.flags && msg.flags.has('\\Seen')) continue;
+                    // UID-dedup er vores filter — IKKE Seen-flag
+                    // (Bon v1 markerer mails som Seen, så vi kan ikke bruge det)
 
                     // Skip if UID already processed
                     const db = getDb();
@@ -199,7 +203,7 @@ async function pollMailbox(config) {
                          UNION
                          SELECT 1 FROM mail_unmatched WHERE imap_uid = ? AND mailbox = ?`
                     ).get(msg.uid, user, msg.uid, user);
-                    if (known) continue;
+                    if (known) { uidSkipped++; continue; }
 
                     // Parse full message with simpleParser
                     const parsed = await simpleParser(msg.source);
@@ -216,6 +220,7 @@ async function pollMailbox(config) {
             }
 
             // NEVER mark as Seen — read-only IMAP
+            console.log(`[mail] Poll ${user}: ${totalMsgs} total, ${uidSkipped} already known, ${newCount} new, ${errors} errors`);
         } finally {
             lock.release();
         }
@@ -359,6 +364,7 @@ async function processInboundMail(parsed, uid, mailbox) {
         `SELECT COUNT(*) as n FROM mail_messages WHERE thread_id = ? AND is_read = 0`
     ).get(threadId).n;
 
+    console.log(`[mail] 📨 Broadcasting mail_received: bon_id=${bonId}, thread=${threadId}, unread=${unreadCount}`);
     broadcast('mail_received', { bon_id: bonId, customer_id: customerId, thread_id: threadId, unread_count: unreadCount });
 
     console.log(`[mail] Indgående mail → thread ${threadId} (bon=${bonId}, customer=${customerId})`);
@@ -442,13 +448,43 @@ async function startPolling() {
     }
 }
 
+/**
+ * Manuel poll af alle aktive postkasser.
+ */
+async function triggerPoll() {
+    const configs = [];
+    if (getSetting('imap_bon_enabled') === '1') {
+        configs.push({
+            host: getSetting('imap_bon_host'),
+            port: getSetting('imap_bon_port'),
+            user: getSetting('imap_bon_user'),
+            password: process.env.IMAP_BON_PASSWORD || '',
+            prefix: 'bon'
+        });
+    }
+    if (getSetting('imap_kontakt_enabled') === '1') {
+        configs.push({
+            host: getSetting('imap_kontakt_host'),
+            port: getSetting('imap_kontakt_port'),
+            user: getSetting('imap_kontakt_user'),
+            password: process.env.IMAP_KONTAKT_PASSWORD || '',
+            prefix: 'kontakt'
+        });
+    }
+    for (const cfg of configs) {
+        try { await pollMailbox(cfg); }
+        catch (err) { console.error(`[mail] triggerPoll ${cfg.prefix}:`, err.message); }
+    }
+}
+
 module.exports = {
     sendMail,
     sendFromTemplate,
     startPolling,
+    triggerPoll,
     renderTemplate,
     getPollState,
-    // Legacy compat (for routes/mail.js test endpoint)
+    // Legacy compat
     parseTag: (subject) => {
         const r = parseSubject(subject);
         if (r.bonNumber) return { type: 'bon', ref: r.bonNumber };
