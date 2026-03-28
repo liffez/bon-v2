@@ -118,6 +118,8 @@ bon-v2/
 │   ├── dashboard_chart.js + dashboard_chart.css ← Custom canvas legoklods-chart
 │   ├── recipe_viewer.js + recipe_viewer.css    ← Opskrift-browser (ingredienser, consume)
 │   ├── recipe_designer.js + recipe_designer.css ← Opskrift-editor (CRUD mod Grocy)
+│   ├── stock_overview.js + stock_overview.css  ← Lageroversigt (filtre, status-pills, inline-edit)
+│   ├── inventory_check.js + inventory_check.css ← Fysisk optælling (multi-unit, progress, summary)
 │   ├── kitchen-topbar.html         ← Fælles topbar for kitchen-views
 │   ├── api.js        ← Frontend API-funktioner
 │   ├── utils.js      ← Status-mapping, connectSSE(), mapApiBonToCardData(), scrollToBonHash()
@@ -491,14 +493,32 @@ Nye filer placeres præcis der de hører hjemme — kopieres ikke.
 
 ---
 
+### Fase 5 — Lager (Stock Overview + Inventory Check)
+- [x] Backend: `setInventory()`, `getLocations()`, `getProductGroups()`, `updateProductUserfields()`
+- [x] Routes: `POST /api/grocy/stock/:id/inventory`, `GET /api/grocy/locations`, `GET /api/grocy/product-groups`, `PUT /api/grocy/products/:id/userfields`
+- [x] `kitchen/stock.html` — Shell med to tabs:
+  - **Lageroversigt tab**: Produkt-grid med filtre, status-pills (udløbet/lav), inline-redigering
+  - **Optælling tab**: Fysisk lageroptælling per lokation/enhed
+    - Konfigurerbare fysiske enheder (KØL-1, FRYS-2 etc.)
+    - Smart sortering: prioritet → udløb → sidst-tjekket
+    - ✔ godkend (ét klik) / ⏭ skip (huskes per enhed)
+    - Expand med brøk-knapper (¼ ½ ¾)
+    - Opsummeringsmodal med afvigelser + batch-gem
+- [x] `shared/stock_overview.js` + `shared/stock_overview.css`
+- [x] `shared/inventory_check.js` + `shared/inventory_check.css`
+- [x] Dashboard Lager-kort linker til `/kitchen/stock.html`
+- [x] Lager tilføjet i MERE dropdown på alle kitchen views
+
 ## Næste opgave
 
-> ✏️ Opdateret 27. marts 2026.
+> ✏️ Opdateret 28. marts 2026.
 >
-> **Fase 1a–1e + 3A + 3B + 3D + 4 komplet.** Opskrifter + consume integreret.
+> **Fase 1a–1e + 3A + 3B + 3D + 4 + 5 komplet.**
+> Opskrifter, consume, lager (overview + optælling) integreret.
+> LEVERET auto-consume verificeret end-to-end.
 >
-> **Næste:** LEVERET auto-consume end-to-end test.
-> Derefter Priser-setting, Tilbud og Ugeoversigt. Så er Bon v1 klar til nedlukning.
+> **Næste:** Priser-setting i planlægningsbon, Tilbud og Ugeoversigt.
+> Så er Bon v1 klar til nedlukning.
 >
 > **Åbne afhængigheder:**
 > - DMI API-nøgle (vejr på dashboards) — Leif finder frem til eksisterende nøgle (Open-Meteo bruges midlertidigt)
