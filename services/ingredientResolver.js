@@ -304,7 +304,10 @@ function formatLevel(aggregated, stockMap, quConversions, unitMap, subRecipeAgg)
             stock_unit:       fmtStock.unit,
             status,
             ingredient_group: ing.ingredient_group,
-            shortfall_purchase: Math.ceil(shortfallPurchase * 100) / 100,
+            // Rund op til hele purchase-enheder (1 Kasse, 1 Pakke — ikke 0.01)
+            shortfall_purchase: ing.qu_id_purchase && ing.qu_id_purchase !== ing.qu_id_stock
+                ? Math.ceil(shortfallPurchase)
+                : Math.ceil(shortfallPurchase * 100) / 100,
             purchase_unit:      purchaseUnitName,
         };
     });
