@@ -456,6 +456,21 @@ async function consumeProduct(productId, amount) {
 }
 
 /**
+ * Tilføj til lagerbeholdning (ved varemodtagelse).
+ * @param {number} productId         Grocy product ID
+ * @param {number} amount            Mængde i stock-units
+ * @param {string} [bestBeforeDate]  Udløbsdato (YYYY-MM-DD)
+ * @param {number} [locationId]      Grocy location ID
+ */
+async function addToStock(productId, amount, bestBeforeDate, locationId) {
+    const body = { amount };
+    if (bestBeforeDate) body.best_before_date = bestBeforeDate;
+    if (locationId) body.location_id = locationId;
+    await grocyPost(`/stock/products/${productId}/add`, body);
+    _cache.delete('stock');
+}
+
+/**
  * Sæt eksakt lagerbeholdning for et produkt (inventory correction).
  * @param {number} productId       Grocy product ID
  * @param {number} amount          Ny mængde i stock-units
@@ -522,6 +537,7 @@ module.exports = {
     // Write — stock + shopping
     consumeRecipes,
     consumeProduct,
+    addToStock,
     setInventory,
     updateProductUserfields,
     addToShoppingList,
