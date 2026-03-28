@@ -5,23 +5,20 @@ const { handle } = require('../db/helpers');
 const { requireAuth } = require('../shared/auth');
 const { sendFromTemplate } = require('../services/mailService');
 
-router.use(requireAuth('admin'));
-
-// GET /api/mail/templates
-router.get('/templates', handle((req, res) => {
+// GET /api/mail/templates — tilgængelig for alle auth'd brugere
+router.get('/templates', requireAuth(), handle((req, res) => {
     const rows = getDb().prepare('SELECT id, key, label, subject, body_text, updated_at FROM mail_templates ORDER BY id').all();
     res.json(rows);
 }));
 
-// GET /api/mail/templates/:key
-router.get('/templates/:key', handle((req, res) => {
+router.get('/templates/:key', requireAuth(), handle((req, res) => {
     const tmpl = getDb().prepare('SELECT * FROM mail_templates WHERE key = ?').get(req.params.key);
     if (!tmpl) return res.status(404).json({ error: 'Skabelon ikke fundet' });
     res.json(tmpl);
 }));
 
-// PATCH /api/mail/templates/:key
-router.patch('/templates/:key', handle((req, res) => {
+// PATCH /api/mail/templates/:key (admin)
+router.patch('/templates/:key', requireAuth('admin'), handle((req, res) => {
     const { subject, body_text } = req.body;
     const db = getDb();
     const tmpl = db.prepare('SELECT id FROM mail_templates WHERE key = ?').get(req.params.key);
@@ -42,8 +39,8 @@ router.patch('/templates/:key', handle((req, res) => {
     res.json(updated);
 }));
 
-// POST /api/mail/test
-router.post('/test', handle(async (req, res) => {
+// Admin-only endpoints below
+router.post('/test', requireAuth('admin'), handle(async (req, res) => {
     const { to, templateKey } = req.body;
     if (!to) return res.status(400).json({ error: 'to er påkrævet' });
 
@@ -70,7 +67,7 @@ router.post('/test', handle(async (req, res) => {
 
 /* ── UFORDELT INDBAKKE ────────────────────────────────────── */
 
-router.get('/unmatched', handle(async (req, res) => {
+router.get('/unmatched', requireAuth('admin'), handle(async (req, res) => {
     const status = req.query.status || 'open';
     const db = getDb();
     const items = db.prepare(`
@@ -79,7 +76,7 @@ router.get('/unmatched', handle(async (req, res) => {
     res.json(items);
 }));
 
-router.patch('/unmatched/:id', handle(async (req, res) => {
+router.patch('/unmatched/:id', requireAuth('admin'), handle(async (req, res) => {
     const id = parseInt(req.params.id);
     const { status, linked_customer_id, linked_bon_id } = req.body;
     const db = getDb();
@@ -117,13 +114,13 @@ router.patch('/unmatched/:id', handle(async (req, res) => {
 
 /* ── POLL KONTROL ─────────────────────────────────────────── */
 
-router.post('/poll', handle(async (req, res) => {
+router.post('/poll', requireAuth('admin'), handle(async (req, res) => {
     const { getPollState } = require('../services/mailService');
     const state = getPollState();
     res.json({ ok: true, state });
 }));
 
-router.get('/status', handle(async (req, res) => {
+router.get('/status', requireAuth('admin'), handle(async (req, res) => {
     const { getPollState } = require('../services/mailService');
     res.json(getPollState());
 }));

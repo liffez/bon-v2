@@ -459,6 +459,240 @@ function closeRecipePicker(cardId) {
 }
 
 /* ══════════════════════════════════════════════════════════════
+   BON MAIL — modal med historik + compose
+   ══════════════════════════════════════════════════════════════ */
+
+var _mailTemplates = null; // cache
+
+async function openBonMail(cardId) {
+    const bonId = cardId.replace('bon', '');
+    openModal({ title: 'Mail — Henter...', bodyHtml: '<div style="text-align:center;padding:24px;color:var(--color-text-dim)">Henter mails…</div>' });
+
+    try {
+        const [bon, mailData, templates] = await Promise.all([
+            fetchBon(bonId),
+            fetchBonMail(bonId),
+            _mailTemplates || fetchMailTemplates().then(t => { _mailTemplates = t; return t; })
+        ]);
+
+        const email = bon.contact_email || bon.customer_email || '';
+        const bonNr = bon.bon_number || bonId;
+        const threads = mailData.threads || [];
+
+        // Build template vars from bon data
+        const vars = _buildMailVars(bon);
+
+        openModal({
+            title: '✉ Mail — #' + esc(String(bonNr)),
+            bodyHtml: _renderMailModal(bonId, email, threads, templates, vars)
+        });
+    } catch (err) {
+        openModal({ title: '✉ Mail', bodyHtml: '<div class="bm-error">Fejl: ' + esc(err.message) + '</div>' });
+    }
+}
+
+function _buildMailVars(bon) {
+    const lines = bon.lines || [];
+    const _esc = typeof esc === 'function' ? esc : (s) => String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
+
+    // Menu lines
+    const menuLines = lines.filter(l => (l.category || '').toLowerCase() !== 'emballage' && (l.category || '').toLowerCase() !== 'levering');
+    const menuUdenPriser = menuLines.map(l => l.quantity + '× ' + l.product_name).join('\n');
+    const menuMedPriser = menuLines.map(l => {
+        const price = l.unit_price ? (l.quantity * l.unit_price).toLocaleString('da-DK') + ' kr' : '';
+        return l.quantity + '× ' + l.product_name + (price ? '  ' + price : '');
+    }).join('\n');
+
+    // Totals
+    const totalExMoms = lines.reduce((s, l) => s + (l.line_total || 0), 0);
+    const moms = Math.round(totalExMoms * 0.25 * 100) / 100;
+    const totalInkl = totalExMoms + moms;
+
+    // CO2
+    const co2Lines = menuLines.filter(l => l.co2e).map(l =>
+        l.product_name + ': ' + l.co2e + ' kg CO₂e × ' + l.quantity + ' = ' + (l.co2e * l.quantity).toFixed(2)
+    ).join('\n');
+    const co2Total = menuLines.reduce((s, l) => s + ((l.co2e || 0) * l.quantity), 0).toFixed(2);
+
+    // Address/postnummer
+    const addr = bon.delivery_address || bon.customer_address || '';
+    const postMatch = addr.match(/(\d{4})\s/);
+    const postnummer = postMatch ? postMatch[1] : '';
+
+    return {
+        kundeNavn: bon.customer_name || bon.contact_name || '',
+        bonNummer: bon.bon_number || '',
+        leveringsDato: bon.delivery_date || '',
+        leveringsTidspunkt: bon.delivery_time || bon.pickup_time || '',
+        leveringsAdresse: addr,
+        postnummer: postnummer,
+        telefon: bon.customer_phone || '',
+        pax: String(bon.pax || ''),
+        firmanavn: bon.company_name || '',
+        menuUdenPriser: menuUdenPriser,
+        menuMedPriser: menuMedPriser,
+        totalPris: totalInkl.toLocaleString('da-DK', { minimumFractionDigits: 2 }) + ' kr',
+        totalExMoms: totalExMoms.toLocaleString('da-DK', { minimumFractionDigits: 2 }) + ' kr',
+        momsBeloeb: moms.toLocaleString('da-DK', { minimumFractionDigits: 2 }) + ' kr',
+        co2PerLinje: co2Lines,
+        co2Total: co2Total + ' kg CO₂e',
+    };
+}
+
+function _renderMailModal(bonId, email, threads, templates, vars) {
+    const _esc = typeof esc === 'function' ? esc : (s) => String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
+
+    // ── HISTORIK ──────────────────────────────────────────
+    let histHtml = '';
+    let totalUnread = 0;
+    const allMsgs = [];
+    threads.forEach(t => (t.messages || []).forEach(m => { m._threadSubject = t.subject; allMsgs.push(m); }));
+    allMsgs.sort((a, b) => new Date(b.received_at || b.sent_at || b.created_at) - new Date(a.received_at || a.sent_at || a.created_at));
+
+    if (allMsgs.length > 0) {
+        const unread = allMsgs.filter(m => m.direction === 'in' && !m.is_read);
+        totalUnread = unread.length;
+
+        histHtml = '<div class="bm-history">';
+        histHtml += '<div class="bm-history-header">Korrespondance' + (totalUnread ? ' <span class="bm-badge">' + totalUnread + ' ulæst</span>' : '') + '</div>';
+        histHtml += '<div class="bm-messages">';
+        allMsgs.forEach(m => {
+            const isIn = m.direction === 'in';
+            const isUnread = isIn && !m.is_read;
+            const dateStr = _fmtMailDate(m.received_at || m.sent_at || m.created_at);
+            const from = isIn ? (m.from_name || m.from_email || '?') : 'Ristet Rug';
+            const bodyPreview = (m.body_text || '').slice(0, 200).replace(/\n/g, ' ');
+            const readClick = isUnread ? ' onclick="_markMailRead(\'' + bonId + '\',' + m.id + ',this)"' : '';
+
+            histHtml += '<div class="bm-msg ' + (isIn ? 'bm-in' : 'bm-out') + (isUnread ? ' bm-unread' : '') + '"' + readClick + '>';
+            histHtml += '<div class="bm-msg-header"><span class="bm-msg-from">' + (isIn ? '← ' : '→ ') + _esc(from) + '</span><span class="bm-msg-date">' + dateStr + '</span></div>';
+            histHtml += '<div class="bm-msg-subject">' + _esc(m.subject || '') + '</div>';
+            histHtml += '<div class="bm-msg-body">' + _esc(bodyPreview) + (bodyPreview.length >= 200 ? '…' : '') + '</div>';
+            if (m.attachments && m.attachments.length > 0) {
+                histHtml += '<div class="bm-msg-attach">📎 ' + m.attachments.map(a => _esc(a.filename)).join(', ') + '</div>';
+            }
+            histHtml += '</div>';
+        });
+        histHtml += '</div></div>';
+    } else {
+        histHtml = '<div class="bm-no-mail">Ingen korrespondance endnu</div>';
+    }
+
+    // ── COMPOSE ──────────────────────────────────────────
+    const tmplOptions = (templates || []).map(t =>
+        '<option value="' + _esc(t.key) + '">' + _esc(t.label || t.key) + '</option>'
+    ).join('');
+
+    const composeHtml = `
+        <div class="bm-compose">
+            <div class="bm-compose-header">Skriv mail</div>
+            <div class="bm-field">
+                <label>Til</label>
+                <input type="email" id="bmTo" value="${_esc(email)}" placeholder="email@example.com">
+            </div>
+            <div class="bm-field">
+                <label>Skabelon</label>
+                <select id="bmTemplate" onchange="_applyMailTemplate('${bonId}')">
+                    <option value="">— Ingen skabelon —</option>
+                    ${tmplOptions}
+                </select>
+            </div>
+            <div class="bm-field">
+                <label>Emne</label>
+                <input type="text" id="bmSubject" placeholder="Emne…">
+            </div>
+            <div class="bm-field">
+                <label>Besked</label>
+                <textarea id="bmBody" rows="8" placeholder="Skriv besked…"></textarea>
+            </div>
+            <div class="bm-compose-actions">
+                <button class="bm-cancel" onclick="closeModal()">Annuller</button>
+                <button class="bm-send" id="bmSendBtn" onclick="_doSendBonMail('${bonId}')">✉ Send</button>
+            </div>
+        </div>`;
+
+    // Store vars for template application
+    return '<div class="bm-container" data-vars=\'' + JSON.stringify(vars).replace(/'/g, '&#39;') + '\'>'
+        + histHtml + composeHtml + '</div>';
+}
+
+function _fmtMailDate(isoStr) {
+    if (!isoStr) return '';
+    const d = new Date(isoStr);
+    const day = d.getDate();
+    const mon = d.getMonth() + 1;
+    const hr = String(d.getHours()).padStart(2, '0');
+    const min = String(d.getMinutes()).padStart(2, '0');
+    return day + '/' + mon + ' ' + hr + ':' + min;
+}
+
+async function _markMailRead(bonId, msgId, el) {
+    if (el) el.classList.remove('bm-unread');
+    try {
+        await markBonMailRead(bonId, msgId);
+    } catch (err) {
+        console.error('[mail] Markér læst fejl:', err);
+    }
+}
+
+async function _applyMailTemplate(bonId) {
+    const sel = document.getElementById('bmTemplate');
+    const key = sel.value;
+    if (!key) {
+        document.getElementById('bmSubject').value = '';
+        document.getElementById('bmBody').value = '';
+        return;
+    }
+
+    const container = document.querySelector('.bm-container');
+    const vars = container ? JSON.parse(container.dataset.vars || '{}') : {};
+
+    // Find template
+    const tmpl = (_mailTemplates || []).find(t => t.key === key);
+    if (!tmpl) return;
+
+    // Substitute vars
+    const subst = (str) => {
+        let r = str || '';
+        for (const [k, v] of Object.entries(vars)) {
+            r = r.replace(new RegExp('\\{\\{' + k + '\\}\\}', 'g'), v || '');
+        }
+        return r;
+    };
+
+    document.getElementById('bmSubject').value = subst(tmpl.subject);
+    document.getElementById('bmBody').value = subst(tmpl.body_text);
+}
+
+async function _doSendBonMail(bonId) {
+    const to = document.getElementById('bmTo').value.trim();
+    const subject = document.getElementById('bmSubject').value.trim();
+    const text = document.getElementById('bmBody').value.trim();
+    const btn = document.getElementById('bmSendBtn');
+
+    if (!to) { document.getElementById('bmTo').focus(); return; }
+    if (!text && !subject) { document.getElementById('bmSubject').focus(); return; }
+
+    btn.disabled = true;
+    btn.textContent = 'Sender…';
+
+    try {
+        await sendBonMail(bonId, { to, subject, text });
+        closeModal();
+        // Toast
+        const toast = document.createElement('div');
+        toast.className = 'bm-toast';
+        toast.textContent = '✉ Mail sendt til ' + to;
+        document.body.appendChild(toast);
+        setTimeout(() => toast.remove(), 4000);
+    } catch (err) {
+        console.error('[mail] Send fejl:', err);
+        btn.textContent = 'Fejl — prøv igen';
+        btn.disabled = false;
+    }
+}
+
+/* ══════════════════════════════════════════════════════════════
    updateCard(id, changes)
    ══════════════════════════════════════════════════════════════
    Opdaterer et eksisterende kort i DOM'en.

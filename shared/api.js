@@ -409,3 +409,23 @@ function clearShoppingList(listId) {
 }
 function fetchProductGroups() { return apiFetch('/grocy/product-groups'); }
 function fetchShoppingLocations() { return apiFetch('/grocy/shopping-locations'); }
+
+/* ── BON MAIL ───────────────────────────────────────────── */
+
+function fetchBonMail(bonId) {
+    return apiFetch('/bons/' + bonId + '/mail');
+}
+
+function sendBonMail(bonId, data) {
+    return apiFetch('/bons/' + bonId + '/mail', {
+        method: 'POST',
+        body: JSON.stringify(data),
+    });
+}
+
+function markBonMailRead(bonId, msgId) {
+    return apiFetch('/bons/' + bonId + '/mail/' + msgId + '/read', {
+        method: 'PATCH',
+        body: JSON.stringify({ is_read: 1 }),
+    });
+}

@@ -584,3 +584,64 @@
 }
 
 /* Recipe picker styles moved to shared/vare_picker.css */
+
+/* ══════════════════════════════════════════════════════════════
+   BON MAIL MODAL
+   ══════════════════════════════════════════════════════════════ */
+
+.bm-container { max-width: 600px; margin: 0 auto; }
+
+.bm-error { color: var(--color-red, #c0392b); padding: 16px; text-align: center; }
+.bm-no-mail { color: var(--color-text-dim, #999); text-align: center; padding: 16px; font-style: italic; }
+
+/* ── Historik ─────────────────────────────────────────────── */
+.bm-history { margin-bottom: 20px; }
+.bm-history-header { font-weight: 700; font-size: 14px; margin-bottom: 8px; color: var(--brand-primary, #8e631f); }
+.bm-badge { background: var(--color-red, #e74c3c); color: white; font-size: 11px; padding: 2px 7px; border-radius: 10px; margin-left: 6px; font-weight: 600; }
+
+.bm-messages { max-height: 300px; overflow-y: auto; display: flex; flex-direction: column; gap: 6px; }
+
+.bm-msg { padding: 10px 12px; border-radius: 8px; border-left: 3px solid transparent; cursor: default; font-size: 13px; }
+.bm-msg.bm-in { background: #fdf8ee; border-left-color: var(--brand-primary, #8e631f); }
+.bm-msg.bm-out { background: #f0f7f0; border-left-color: #27ae60; }
+.bm-msg.bm-unread { background: #fff3e0; font-weight: 500; cursor: pointer; }
+.bm-msg.bm-unread:hover { background: #ffe8cc; }
+
+.bm-msg-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 2px; }
+.bm-msg-from { font-weight: 700; font-size: 12px; }
+.bm-msg-date { color: var(--color-text-dim, #999); font-size: 11px; }
+.bm-msg-subject { font-weight: 600; font-size: 13px; margin-bottom: 4px; }
+.bm-msg-body { color: var(--color-text-dim, #666); font-size: 12px; line-height: 1.4; white-space: pre-wrap; word-break: break-word; }
+.bm-msg-attach { font-size: 11px; color: var(--color-text-dim, #999); margin-top: 4px; }
+
+/* ── Compose ─────────────────────────────────────────────── */
+.bm-compose { border-top: 1px solid var(--color-border, #d7d1ca); padding-top: 16px; }
+.bm-compose-header { font-weight: 700; font-size: 14px; margin-bottom: 12px; color: var(--brand-primary, #8e631f); }
+
+.bm-field { margin-bottom: 10px; }
+.bm-field label { display: block; font-size: 11px; font-weight: 700; text-transform: uppercase; color: var(--color-text-dim, #999); margin-bottom: 3px; }
+.bm-field input, .bm-field select, .bm-field textarea {
+    width: 100%; padding: 8px 10px; border: 1px solid var(--color-border, #d7d1ca);
+    border-radius: 6px; font: inherit; font-size: 14px; background: white;
+}
+.bm-field input:focus, .bm-field select:focus, .bm-field textarea:focus {
+    outline: none; border-color: var(--brand-primary, #8e631f);
+}
+.bm-field textarea { resize: vertical; min-height: 120px; line-height: 1.5; }
+
+.bm-compose-actions { display: flex; gap: 8px; justify-content: flex-end; margin-top: 12px; }
+.bm-cancel { padding: 8px 16px; border: 1px solid var(--color-border, #d7d1ca); border-radius: 6px; background: white; cursor: pointer; font: inherit; font-size: 14px; }
+.bm-cancel:hover { background: #f5f4f2; }
+.bm-send { padding: 8px 20px; border: none; border-radius: 6px; background: var(--brand-primary, #8e631f); color: white; cursor: pointer; font: inherit; font-size: 14px; font-weight: 700; }
+.bm-send:hover { opacity: 0.9; }
+.bm-send:disabled { opacity: 0.5; cursor: not-allowed; }
+
+/* ── Toast ────────────────────────────────────────────────── */
+.bm-toast {
+    position: fixed; bottom: 24px; right: 24px; z-index: 10000;
+    background: #27ae60; color: white; padding: 12px 20px;
+    border-radius: 8px; font-size: 14px; font-weight: 600;
+    box-shadow: 0 4px 12px rgba(0,0,0,0.15);
+    animation: bmToastIn 0.3s ease;
+}
+@keyframes bmToastIn { from { opacity: 0; transform: translateY(10px); } to { opacity: 1; transform: translateY(0); } }
