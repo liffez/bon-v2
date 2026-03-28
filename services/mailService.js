@@ -163,10 +163,11 @@ async function pollMailbox(config) {
     state.lastPollAt = new Date().toISOString();
     state.pollCount++;
 
+    const portNum = parseInt(port || '993');
     const client = new ImapFlow({
         host,
-        port: parseInt(port || '993'),
-        secure: true,
+        port: portNum,
+        secure: portNum === 993,  // 993 = implicit TLS, 143 = STARTTLS
         auth: { user, pass: password },
         logger: false
     });
@@ -324,16 +325,16 @@ async function processInboundMail(parsed, uid, mailbox) {
     if (!threadId) {
         const forwardInfo = parseForwardedSender(bodyText);
         db.prepare(
-            `INSERT INTO mail_unmatched (imap_uid, mailbox, message_id, from_email, from_name, to_email, subject, body_text, body_html, received_at,
-             forward_email, forward_name, forward_company, created_at)
-             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, datetime('now'))`
+            `INSERT INTO mail_unmatched (imap_uid, mailbox, message_id, from_email, from_name, subject, body_text, received_at,
+             parsed_email, parsed_name, parsed_company, created_at)
+             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, datetime('now'))`
         ).run(
-            uid, mailbox, messageId, fromAddr, fromName, toAddr, subject, bodyText, bodyHtml, receivedAt,
+            uid, mailbox, messageId, fromAddr, fromName, subject, bodyText, receivedAt,
             forwardInfo?.email || null, forwardInfo?.name || null, forwardInfo?.company || null
         );
 
         // Count unmatched for SSE
-        const count = db.prepare(`SELECT COUNT(*) as n FROM mail_unmatched WHERE resolved_at IS NULL`).get().n;
+        const count = db.prepare(`SELECT COUNT(*) as n FROM mail_unmatched WHERE status = 'open'`).get().n;
         broadcast('mail_unmatched', { count });
 
         console.log(`[mail] Ulæst mail uden match: "${subject}" fra ${fromAddr}`);
