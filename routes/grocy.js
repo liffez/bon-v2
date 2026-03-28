@@ -143,6 +143,33 @@ router.delete('/recipes-nestings/:id', handle(async (req, res) => {
     res.json({ ok: true });
 }));
 
+/* ── Lokationer + produktgrupper ──────────────────────────── */
+
+router.get('/locations', handle(async (req, res) => {
+    res.json(await grocy.getLocations());
+}));
+
+router.get('/product-groups', handle(async (req, res) => {
+    res.json(await grocy.getProductGroups());
+}));
+
+/* ── Stock inventory (sæt eksakt mængde) ─────────────────── */
+
+router.post('/stock/:id/inventory', handle(async (req, res) => {
+    const productId = parseInt(req.params.id);
+    const { amount, best_before_date } = req.body;
+    if (amount == null) return res.status(400).json({ error: 'amount er påkrævet' });
+    await grocy.setInventory(productId, amount, best_before_date || null);
+    res.json({ ok: true, product_id: productId, new_amount: amount });
+}));
+
+/* ── Produkt userfields (LastCheckedAt etc.) ─────────────── */
+
+router.put('/products/:id/userfields', handle(async (req, res) => {
+    await grocy.updateProductUserfields(parseInt(req.params.id), req.body);
+    res.json({ ok: true });
+}));
+
 /* ── Indkøbsliste (write) ────────────────────────────────── */
 
 router.post('/shoppinglist', handle(async (req, res) => {

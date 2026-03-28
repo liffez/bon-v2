@@ -455,6 +455,41 @@ async function consumeProduct(productId, amount) {
     _cache.delete('stock');
 }
 
+/**
+ * Sæt eksakt lagerbeholdning for et produkt (inventory correction).
+ * @param {number} productId       Grocy product ID
+ * @param {number} amount          Ny mængde i stock-units
+ * @param {string} [bestBeforeDate] Udløbsdato (YYYY-MM-DD), valgfri
+ */
+async function setInventory(productId, amount, bestBeforeDate) {
+    const body = {
+        new_amount: amount,
+    };
+    if (bestBeforeDate) body.best_before_date = bestBeforeDate;
+    await grocyPost(`/stock/products/${productId}/inventory`, body);
+    _cache.delete('stock');
+}
+
+/** Alle lokationer */
+function getLocations() {
+    return cachedFetch('locations_grocy', '/objects/locations');
+}
+
+/** Alle produktgrupper */
+function getProductGroups() {
+    return cachedFetch('product_groups', '/objects/product_groups');
+}
+
+/**
+ * Opdater userfields på et produkt (fx LastCheckedAt).
+ * @param {number} productId  Grocy product ID
+ * @param {Object} fields     Felter at opdatere
+ */
+async function updateProductUserfields(productId, fields) {
+    await grocyPut(`/userfields/products/${productId}`, fields);
+    _cache.delete('products');
+}
+
 /* ══════════════════════════════════════════════════════════════ */
 
 module.exports = {
@@ -467,6 +502,8 @@ module.exports = {
     getRecipeNestings,
     getProducts,
     getStock,
+    getLocations,
+    getProductGroups,
     getQuantityUnits,
     getQuantityUnitConversions,
     getAllRecipesPos,
@@ -485,6 +522,8 @@ module.exports = {
     // Write — stock + shopping
     consumeRecipes,
     consumeProduct,
+    setInventory,
+    updateProductUserfields,
     addToShoppingList,
     // Cache
     clearCache,

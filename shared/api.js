@@ -355,6 +355,22 @@ function deleteGrocyRecipeNesting(id) {
     return apiFetch('/grocy/recipes-nestings/' + id, { method: 'DELETE' });
 }
 
+// Stock — locations, groups, inventory
+function fetchGrocyLocations() {
+    return apiFetch('/grocy/locations');
+}
+function fetchGrocyProductGroups() {
+    return apiFetch('/grocy/product-groups');
+}
+function postGrocyInventory(productId, amount, bestBeforeDate) {
+    var body = { amount: amount };
+    if (bestBeforeDate) body.best_before_date = bestBeforeDate;
+    return apiFetch('/grocy/stock/' + productId + '/inventory', { method: 'POST', body: JSON.stringify(body) });
+}
+function putGrocyProductUserfields(productId, fields) {
+    return apiFetch('/grocy/products/' + productId + '/userfields', { method: 'PUT', body: JSON.stringify(fields) });
+}
+
 // Consume — via recipe lines (auto-consume ved LEVERET)
 function postGrocyConsume(lines) {
     return apiFetch('/grocy/consume', { method: 'POST', body: JSON.stringify({ lines }) });
