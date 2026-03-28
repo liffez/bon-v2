@@ -128,7 +128,7 @@
 <div class="tab-bar">
     <a href="#" id="tabShopping" class="active">Indkøbsliste</a>
     <a href="#" id="tabOrders" class="disabled">Bestilling</a>
-    <a href="#" id="tabReceiving" class="disabled">Varemodtagelse</a>
+    <a href="#" id="tabReceiving">Varemodtagelse ↗</a>
 </div>
 
 <!-- CONTENT -->
@@ -190,8 +190,7 @@
 
         tabReceiving.addEventListener('click', function(e) {
             e.preventDefault();
-            if (tabReceiving.classList.contains('disabled')) return;
-            switchTo('receiving');
+            window.open('https://whiteboard.ristetrug.dk?open=varemodtagelse', '_blank');
         });
 
         function switchTo(tab) {
