@@ -616,9 +616,12 @@ async function _rvAddAllMissingToShoppingList() {
         if (missing <= 0) return;
 
         var product = _rvProducts[ing.product_id] || {};
+        var unitName = _rvQuantityUnits[product.qu_id_stock] || '';
         items.push({
             product_id: ing.product_id,
             amount: missing,
+            name: product.name || 'Produkt #' + ing.product_id,
+            unit: unitName,
             note: 'Fra opskrift: ' + _rvCurrentRecipe.name
         });
     });
@@ -628,9 +631,17 @@ async function _rvAddAllMissingToShoppingList() {
         return;
     }
 
+    // Vis confirmation med detaljer
+    var summary = items.map(function(item) {
+        return '  \u2022 ' + item.name + ': ' + _rvRound(item.amount, 2) + ' ' + item.unit;
+    }).join('\n');
+
+    if (!confirm('Tilfoej ' + items.length + ' varer til indkoebsliste?\n\n' + summary)) return;
+
     try {
         await postGrocyShoppingList(items);
-        _rvShowAlert(items.length + ' varer tilfojet til indkoebsliste', 'success');
+        var names = items.map(function(i) { return i.name; }).join(', ');
+        _rvShowToast(items.length + ' tilfojet til indkoeb: ' + names, 'success');
     } catch (err) {
         _rvShowAlert('Fejl: ' + err.message, 'error');
     }
