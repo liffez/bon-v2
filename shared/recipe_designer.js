@@ -1063,17 +1063,53 @@ function _rdConfirmAddNesting() {
 // SHOPPING LIST (from designer)
 // ════════════════════════════════════════════════════════════
 
-async function _rdAddToShoppingList(productId, amount, productName) {
+async function _rdAddToShoppingList(productId, stockAmount, productName) {
+    // Konvertér til purchase-enhed
+    var product = _rdProductMap[productId];
+    var purchaseAmount = stockAmount;
+    var purchaseUnit = '';
+
+    if (product) {
+        var stockQuId = product.qu_id_stock;
+        var purchaseQuId = product.qu_id_purchase;
+        purchaseUnit = _rdQuantityUnits[stockQuId] || '';
+
+        if (purchaseQuId && purchaseQuId !== stockQuId) {
+            // Find konverteringsfaktor stock → purchase
+            var factor = _rdGetConversionFactor(productId, stockQuId, purchaseQuId);
+            if (factor !== null) {
+                purchaseAmount = Math.ceil(stockAmount * factor);
+                purchaseUnit = _rdQuantityUnits[purchaseQuId] || '';
+            }
+        } else {
+            purchaseAmount = Math.ceil(stockAmount * 100) / 100;
+        }
+    }
+
     try {
         await postGrocyShoppingList([{
             product_id: productId,
-            amount: amount,
+            amount: purchaseAmount,
             note: 'Fra opskrift: ' + (_rdDs.name || '')
         }]);
-        _rdShowAlert('Tilfojet til indkoebsliste: ' + productName, 'success');
+        _rdShowAlert('Tilfojet til indkoeb: ' + purchaseAmount + ' ' + purchaseUnit + ' ' + productName, 'success');
     } catch (err) {
         _rdShowAlert('Fejl: ' + err.message, 'error');
     }
+}
+
+function _rdGetConversionFactor(productId, fromQuId, toQuId) {
+    if (fromQuId == toQuId) return 1.0;
+    var convs = _rdQuConversions || [];
+    var pf = convs.find(function(c) { return c.product_id == productId && c.from_qu_id == fromQuId && c.to_qu_id == toQuId; });
+    if (pf) return pf.factor;
+    var pr = convs.find(function(c) { return c.product_id == productId && c.from_qu_id == toQuId && c.to_qu_id == fromQuId; });
+    if (pr && pr.factor !== 0) return 1.0 / pr.factor;
+    var gf = convs.find(function(c) { return (c.product_id === null || c.product_id === undefined) && c.from_qu_id == fromQuId && c.to_qu_id == toQuId; });
+    if (gf) return gf.factor;
+    var gr = convs.find(function(c) { return (c.product_id === null || c.product_id === undefined) && c.from_qu_id == toQuId && c.to_qu_id == fromQuId; });
+    if (gr && gr.factor !== 0) return 1.0 / gr.factor;
+    return null;
 }
 
 // SAVE — Update existing

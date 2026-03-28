@@ -564,34 +564,33 @@ function _rvAdjustPortions(delta) {
 // ════════════════════════════════════════════════════════════
 
 function _rvOnStockDotClick(productId, productName, neededAmount, stockAmount, unitName) {
+    var missingStock = _rvRound(Math.max(0, neededAmount - stockAmount));
+    var purchase = _rvToPurchaseUnit(productId, missingStock > 0 ? missingStock : neededAmount);
+
     if (stockAmount >= neededAmount) {
         var extra = confirm(productName + '\n\nNok paa lager!\nPaa lager: ' + stockAmount + ' ' + unitName + '\nBrug for: ' + neededAmount + ' ' + unitName + '\n\nVil du alligevel tilfoeje til indkoebsliste?');
         if (extra) {
-            var amt = prompt('Hvor meget vil du bestille?\n(' + unitName + ')', neededAmount);
-            if (amt && parseFloat(amt) > 0) {
-                _rvAddToShoppingList(productId, parseFloat(amt), productName);
-            }
+            _rvAddToShoppingList(productId, purchase.amount, productName, purchase.unit);
         }
     } else if (stockAmount > 0) {
-        var missing = _rvRound(neededAmount - stockAmount);
-        if (confirm(productName + '\n\nLavt lager!\nPaa lager: ' + stockAmount + ' ' + unitName + '\nBrug for: ' + neededAmount + ' ' + unitName + '\nMangler: ' + missing + ' ' + unitName + '\n\nTilfoej ' + missing + ' ' + unitName + ' til indkoebsliste?')) {
-            _rvAddToShoppingList(productId, missing, productName);
+        if (confirm(productName + '\n\nLavt lager!\nPaa lager: ' + stockAmount + ' ' + unitName + '\nBrug for: ' + neededAmount + ' ' + unitName + '\nMangler: ' + missingStock + ' ' + unitName + '\nIndkoeb: ' + purchase.amount + ' ' + purchase.unit + '\n\nTilfoej til indkoebsliste?')) {
+            _rvAddToShoppingList(productId, purchase.amount, productName, purchase.unit);
         }
     } else {
-        if (confirm(productName + '\n\nIkke paa lager!\nBrug for: ' + neededAmount + ' ' + unitName + '\n\nTilfoej til indkoebsliste?')) {
-            _rvAddToShoppingList(productId, neededAmount, productName);
+        if (confirm(productName + '\n\nIkke paa lager!\nBrug for: ' + neededAmount + ' ' + unitName + '\nIndkoeb: ' + purchase.amount + ' ' + purchase.unit + '\n\nTilfoej til indkoebsliste?')) {
+            _rvAddToShoppingList(productId, purchase.amount, productName, purchase.unit);
         }
     }
 }
 
-async function _rvAddToShoppingList(productId, amount, productName) {
+async function _rvAddToShoppingList(productId, amount, productName, unitName) {
     try {
         await postGrocyShoppingList([{
             product_id: productId,
             amount: amount,
             note: 'Fra opskrift: ' + (_rvCurrentRecipe ? _rvCurrentRecipe.name : '')
         }]);
-        _rvShowAlert('Tilfojet til indkoebsliste: ' + productName, 'success');
+        _rvShowToast('Tilfojet til indkoeb: ' + amount + ' ' + (unitName || '') + ' ' + productName, 'success');
     } catch (err) {
         _rvShowAlert('Fejl: ' + err.message, 'error');
     }
@@ -616,12 +615,12 @@ async function _rvAddAllMissingToShoppingList() {
         if (missing <= 0) return;
 
         var product = _rvProducts[ing.product_id] || {};
-        var unitName = _rvQuantityUnits[product.qu_id_stock] || '';
+        var purchase = _rvToPurchaseUnit(ing.product_id, missing);
         items.push({
             product_id: ing.product_id,
-            amount: missing,
+            amount: purchase.amount,
             name: product.name || 'Produkt #' + ing.product_id,
-            unit: unitName,
+            unit: purchase.unit,
             note: 'Fra opskrift: ' + _rvCurrentRecipe.name
         });
     });
@@ -645,6 +644,41 @@ async function _rvAddAllMissingToShoppingList() {
     } catch (err) {
         _rvShowAlert('Fejl: ' + err.message, 'error');
     }
+}
+
+// ════════════════════════════════════════════════════════════
+// PURCHASE UNIT CONVERSION
+// ════════════════════════════════════════════════════════════
+
+/**
+ * Konvertér en mængde i stock-units til purchase-units (oprundet).
+ * Returnerer { amount, unit, product_id } klar til shopping list.
+ */
+function _rvToPurchaseUnit(productId, stockAmount) {
+    var product = _rvProducts[productId];
+    if (!product) return { amount: Math.ceil(stockAmount), unit: '', qu_id: null };
+
+    var stockQuId = product.qu_id_stock;
+    var purchaseQuId = product.qu_id_purchase;
+    var stockUnitName = _rvQuantityUnits[stockQuId] || '';
+
+    // Hvis stock == purchase, ingen konvertering nødvendig
+    if (!purchaseQuId || purchaseQuId === stockQuId) {
+        return { amount: Math.ceil(stockAmount * 100) / 100, unit: stockUnitName, qu_id: stockQuId };
+    }
+
+    // Konvertér stock → purchase
+    var factor = _rvGetConversionFactor(productId, stockQuId, purchaseQuId);
+    if (factor === null) {
+        // Ingen konvertering mulig — brug stock-unit
+        return { amount: Math.ceil(stockAmount * 100) / 100, unit: stockUnitName, qu_id: stockQuId };
+    }
+
+    var purchaseAmount = stockAmount * factor;
+    var purchaseUnitName = _rvQuantityUnits[purchaseQuId] || '';
+
+    // Rund op til nærmeste hele purchase-enhed
+    return { amount: Math.ceil(purchaseAmount), unit: purchaseUnitName, qu_id: purchaseQuId };
 }
 
 // ════════════════════════════════════════════════════════════
