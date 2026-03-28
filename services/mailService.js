@@ -421,8 +421,7 @@ async function startPolling() {
             prefix: 'bon'
         };
 
-        // Poll med det samme
-        pollMailbox(config).catch(err => console.error('[mail] Første bon-poll fejl:', err.message));
+        // Ingen umiddelbar poll — vent til første interval (giver SSE-klienter tid til at connecte)
         pollingTimers.push(setInterval(() => pollMailbox(config).catch(err => console.error('[mail] bon-poll:', err.message)), interval));
         console.log(`[mail] Bon@-polling startet (hvert ${interval / 60000} min)`);
     }
@@ -438,7 +437,6 @@ async function startPolling() {
             prefix: 'kontakt'
         };
 
-        pollMailbox(config).catch(err => console.error('[mail] Første kontakt-poll fejl:', err.message));
         pollingTimers.push(setInterval(() => pollMailbox(config).catch(err => console.error('[mail] kontakt-poll:', err.message)), interval));
         console.log(`[mail] Kontakt@-polling startet (hvert ${interval / 60000} min)`);
     }

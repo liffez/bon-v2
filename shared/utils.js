@@ -153,7 +153,7 @@ function _showMailToast(data) {
     toast.textContent = msg;
     toast.onclick = function() { toast.remove(); };
     document.body.appendChild(toast);
-    setTimeout(function() { if (toast.parentNode) toast.remove(); }, 6000);
+    setTimeout(function() { if (toast.parentNode) toast.remove(); }, 10000);
 }
 
 /* ══════════════════════════════════════════════════════════════

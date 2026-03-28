@@ -122,6 +122,13 @@ router.post('/poll', requireAuth('admin'), handle(async (req, res) => {
     res.json({ ok: true, state: getPollState() });
 }));
 
+// POST /api/mail/test-sse — test broadcast (admin, midlertidigt)
+router.post('/test-sse', requireAuth('admin'), handle(async (req, res) => {
+    const { broadcast } = require('../shared/sse');
+    broadcast('mail_received', { bon_id: 50, customer_id: null, thread_id: 2, unread_count: 5 });
+    res.json({ ok: true, broadcasted: 'mail_received' });
+}));
+
 router.get('/status', requireAuth('admin'), handle(async (req, res) => {
     const { getPollState } = require('../services/mailService');
     res.json(getPollState());
