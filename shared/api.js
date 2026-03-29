@@ -429,3 +429,103 @@ function markBonMailRead(bonId, msgId) {
         body: JSON.stringify({ is_read: 1 }),
     });
 }
+
+/* ── DASHBOARD ────────────────────────────────────────────── */
+
+function fetchDashboardToday() {
+    return apiFetch('/dashboard/today');
+}
+
+function fetchDashboardStats(daysBack, daysForward) {
+    var params = [];
+    if (daysBack != null) params.push('days_back=' + daysBack);
+    if (daysForward != null) params.push('days_forward=' + daysForward);
+    var qs = params.length ? '?' + params.join('&') : '';
+    return apiFetch('/dashboard/stats' + qs);
+}
+
+function fetchDashboardTopProducts(from, to) {
+    var params = [];
+    if (from) params.push('from=' + from);
+    if (to) params.push('to=' + to);
+    var qs = params.length ? '?' + params.join('&') : '';
+    return apiFetch('/dashboard/top-products' + qs);
+}
+
+/* ── CRM ──────────────────────────────────────────────────── */
+
+function fetchCrmStats() {
+    return apiFetch('/crm/stats');
+}
+
+function fetchCrmBriefing() {
+    return apiFetch('/crm/briefing');
+}
+
+function fetchCrmSuggestions(category) {
+    var qs = category ? '?category=' + category : '';
+    return apiFetch('/crm/suggestions' + qs);
+}
+
+function fetchCrmServiceCalls(days) {
+    var qs = days ? '?days=' + days : '';
+    return apiFetch('/crm/service-calls' + qs);
+}
+
+function fetchCrmCustomers(params) {
+    var qs = params ? '?' + new URLSearchParams(params).toString() : '';
+    return apiFetch('/crm/customers' + qs);
+}
+
+function fetchCrmCustomer(id) {
+    return apiFetch('/crm/customer/' + id);
+}
+
+function fetchCrmCustomerOrders(id, limit) {
+    var qs = limit ? '?limit=' + limit : '';
+    return apiFetch('/crm/customer-orders/' + id + qs);
+}
+
+function fetchCrmCallbacks() {
+    return apiFetch('/crm/callbacks');
+}
+
+function fetchCrmDormant(params) {
+    var qs = params ? '?' + new URLSearchParams(params).toString() : '';
+    return apiFetch('/crm/dormant' + qs);
+}
+
+function fetchCrmCallLog(params) {
+    var qs = params ? '?' + new URLSearchParams(params).toString() : '';
+    return apiFetch('/crm/call-log' + qs);
+}
+
+function fetchCrmCallStats() {
+    return apiFetch('/crm/call-stats');
+}
+
+function postCrmActivity(data) {
+    return apiFetch('/crm/activity', {
+        method: 'POST',
+        body: JSON.stringify(data),
+    });
+}
+
+function patchCrmCustomerStage(id, stage) {
+    return apiFetch('/crm/customer/' + id + '/stage', {
+        method: 'PATCH',
+        body: JSON.stringify({ stage: stage }),
+    });
+}
+
+function fetchUnmatchedMails(status) {
+    var qs = status ? '?status=' + status : '';
+    return apiFetch('/mail/unmatched' + qs);
+}
+
+function patchUnmatchedMail(id, data) {
+    return apiFetch('/mail/unmatched/' + id, {
+        method: 'PATCH',
+        body: JSON.stringify(data),
+    });
+}

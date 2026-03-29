@@ -415,17 +415,14 @@
           </button>
 
           <div class="sidebar-group-label">CRM</div>
-          <button class="sidebar-link disabled">
-            <span class="sidebar-icon">🔀</span> Pipeline
+          <button class="sidebar-link" data-view="crm-dashboard">
+            <span class="sidebar-icon">📊</span> CRM
           </button>
-          <button class="sidebar-link disabled">
-            <span class="sidebar-icon">📝</span> Tilbud
-          </button>
-          <button class="sidebar-link disabled">
+          <button class="sidebar-link" data-view="crm-kunde360">
             <span class="sidebar-icon">👤</span> Kunder
           </button>
-          <button class="sidebar-link disabled">
-            <span class="sidebar-icon">📞</span> Serviceopkald
+          <button class="sidebar-link" data-view="crm-inbox">
+            <span class="sidebar-icon">📬</span> Indbakke
           </button>
 
           <div class="sidebar-group-label">Drift</div>
@@ -488,6 +485,9 @@
   <script src="views/bons-calendar.js"></script>
   <script src="views/planning.js"></script>
   <script src="views/dashboard.js"></script>
+  <script src="views/crm-dashboard.js"></script>
+  <script src="views/crm-kunde360.js"></script>
+  <script src="views/crm-inbox.js"></script>
 
   <script>
     (async () => {
@@ -560,7 +560,27 @@
           init: () => initOfficePlanning(contentEl, { openDrawer }),
           cleanup: () => { if (typeof cleanupOfficePlanning === 'function') cleanupOfficePlanning(); },
         },
+        'crm-dashboard': {
+          init: () => initCrmDashboard(contentEl, { openDrawer, openKunde360 }),
+          cleanup: () => { if (typeof cleanupCrmDashboard === 'function') cleanupCrmDashboard(); },
+        },
+        'crm-kunde360': {
+          init: () => initCrmKunde360(contentEl, { openDrawer }),
+          cleanup: () => { if (typeof cleanupCrmKunde360 === 'function') cleanupCrmKunde360(); },
+        },
+        'crm-inbox': {
+          init: () => initCrmInbox(contentEl, {}),
+          cleanup: () => { if (typeof cleanupCrmInbox === 'function') cleanupCrmInbox(); },
+        },
       };
+
+      function openKunde360(customerId) {
+        const url = new URL(window.location);
+        url.searchParams.set('view', 'crm-kunde360');
+        url.searchParams.set('customer', customerId);
+        history.replaceState({}, '', url);
+        switchView('crm-kunde360');
+      }
 
       function switchView(viewName) {
         if (_currentView === viewName) return;
@@ -634,6 +654,16 @@
         },
         bon_status: (data) => {
           if (typeof _dashHandleSSE === 'function') _dashHandleSSE('bon_status', data);
+        },
+        crm_activity_created: (data) => {
+          if (typeof _crmDashHandleSSE === 'function') _crmDashHandleSSE('crm_activity_created', data);
+          if (typeof _k3HandleSSE === 'function') _k3HandleSSE('crm_activity_created', data);
+        },
+        crm_stage_changed: (data) => {
+          if (typeof _k3HandleSSE === 'function') _k3HandleSSE('crm_stage_changed', data);
+        },
+        mail_unmatched: (data) => {
+          if (typeof _inbHandleSSE === 'function') _inbHandleSSE('mail_unmatched', data);
         },
       });
     })();

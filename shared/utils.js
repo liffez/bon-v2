@@ -147,7 +147,7 @@ function _showMailToast(data) {
     if (existing) existing.remove();
     var msg = data.unmatched
         ? '✉ ' + data.count + ' ufordelt' + (data.count > 1 ? 'e' : '') + ' mail'
-        : '✉ Ny mail på bon #' + (data.bon_id || '?');
+        : '✉ Ny mail på bon #' + (data.bon_number || data.bon_id || '?');
     var toast = document.createElement('div');
     toast.className = 'mail-toast';
     toast.textContent = msg;

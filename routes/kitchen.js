@@ -234,7 +234,8 @@ router.get('/calendar', handle((req, res) => {
             sd.label AS status_label,
             sd.color AS status_color,
             c.first_name || ' ' || COALESCE(c.last_name, '') AS contact_name_full,
-            co.name  AS company_name
+            co.name  AS company_name,
+            (SELECT COUNT(*) FROM mail_messages mm JOIN mail_threads mt ON mm.thread_id = mt.id WHERE mt.bon_id = b.id AND mm.direction = 'in' AND mm.is_read = 0) AS unread_mail_count
         FROM bons b
         JOIN   status_definitions sd ON b.status_id  = sd.id
         LEFT JOIN customers c        ON b.customer_id = c.id

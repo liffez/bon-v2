@@ -364,8 +364,15 @@ async function processInboundMail(parsed, uid, mailbox) {
         `SELECT COUNT(*) as n FROM mail_messages WHERE thread_id = ? AND is_read = 0`
     ).get(threadId).n;
 
-    console.log(`[mail] 📨 Broadcasting mail_received: bon_id=${bonId}, thread=${threadId}, unread=${unreadCount}`);
-    broadcast('mail_received', { bon_id: bonId, customer_id: customerId, thread_id: threadId, unread_count: unreadCount });
+    // Look up bon_number for SSE payload
+    let bonNumber = null;
+    if (bonId) {
+        const bon = db.prepare(`SELECT bon_number FROM bons WHERE id = ?`).get(bonId);
+        if (bon) bonNumber = bon.bon_number;
+    }
+
+    console.log(`[mail] 📨 Broadcasting mail_received: bon_id=${bonId}, bon_number=${bonNumber}, thread=${threadId}, unread=${unreadCount}`);
+    broadcast('mail_received', { bon_id: bonId, bon_number: bonNumber, customer_id: customerId, thread_id: threadId, unread_count: unreadCount });
 
     console.log(`[mail] Indgående mail → thread ${threadId} (bon=${bonId}, customer=${customerId})`);
 }
@@ -392,7 +399,7 @@ async function saveAttachments(messageDbId, attachments, emailMessageId) {
             fs.writeFileSync(filepath, att.content);
 
             db.prepare(
-                `INSERT INTO mail_attachments (message_id, filename, filepath, content_type, size_bytes, created_at)
+                `INSERT INTO mail_attachments (message_id, filename, file_path, mime_type, size_bytes, created_at)
                  VALUES (?, ?, ?, ?, ?, datetime('now'))`
             ).run(messageDbId, filename, filepath, att.contentType || 'application/octet-stream', att.size || att.content.length);
         } catch (err) {

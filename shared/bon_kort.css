@@ -648,7 +648,13 @@
 
 /* ── Mail badge on bon header ────────────────────────────── */
 .bon-mail-badge {
-    font-size: 12px; color: var(--brand-primary, #8e631f);
+    font-size: 20px; color: var(--brand-primary, #8e631f);
+    margin-left: 4px; vertical-align: middle;
     animation: bonMailPulse 2s ease-in-out infinite;
+}
+/* Kalender: badge skal være tydeligt synlig */
+.cal-list-row .bon-mail-badge,
+.cal-bon-id .bon-mail-badge {
+    font-size: 2em;
 }
 @keyframes bonMailPulse { 0%, 100% { opacity: 1; } 50% { opacity: 0.4; } }

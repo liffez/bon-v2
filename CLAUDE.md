@@ -537,14 +537,59 @@ Nye filer placeres præcis der de hører hjemme — kopieres ikke.
 - [ ] **Bestilling** — Hørkram integration (`hokaAdapter.js` + `orders.js` klar i `tools/bestiliing/`)
 - [ ] **Varemodtagelse** — fusion-endpoint (Grocy lager + Whiteboard FVST-log)
 
+### Fase 7 — CRM-modul
+- [x] Migration 019: `crm_activities` genskabt med `service_call`/`result`/`sentiment`, `bons.is_internal`, `companies.is_internal`
+- [x] 4 SQL views: `v_service_calls_pending`, `v_callbacks_pending`, `v_hard_to_reach`, `v_call_stats_weekly`
+- [x] `routes/crm.js` — 13 endpoints portet fra Python-prototype:
+  - `GET /api/crm/stats` — KPIs (service-kald, callbacks, reach rate, bons i dag)
+  - `GET /api/crm/briefing` — Daglig briefing (max 6 prioriterede items)
+  - `GET /api/crm/suggestions` — Smart forslag (overdue, sæson, leads, tilbud, dormant)
+  - `GET /api/crm/service-calls?days=` — Ventende service-kald
+  - `GET /api/crm/customers?stage=&q=&category=` — Kundeliste med filtre
+  - `GET /api/crm/customer/:id` — 360° profil (stats, ordrer, aktiviteter, produkter)
+  - `GET /api/crm/customer-orders/:id` — Ordrehistorik med linjer
+  - `POST /api/crm/activity` — Log aktivitet (call, service_call, note, meeting, task, followup)
+  - `PATCH /api/crm/customer/:id/stage` — Opdater stadie (lead/active/dormant/vip)
+  - `GET /api/crm/callbacks` — Ventende callbacks + svære at nå
+  - `GET /api/crm/dormant` — Sovende kunder
+  - `GET /api/crm/call-log` — Opkaldslog med sentiment-filter
+  - `GET /api/crm/call-stats` — Ugentlig statistik, per-bruger, resultater
+- [x] `office/views/crm-dashboard.js` — CRM Dashboard:
+  - KPI-strip (5 kort), daglig briefing, smart forslag med ring/profil-knapper
+  - Service-kald ventende med kunde-navigation
+  - SSE: `crm_activity_created` → auto-refresh
+- [x] `office/views/crm-kunde360.js` — Kunde 360°:
+  - Søgning med stage-filtre (VIP/Aktive/Sovende/Leads)
+  - 2-kolonne profil: kundeinfo + stage-badge + nøgletal + top produkter
+  - 4 tabs: Ordrer, Aktivitet, Tilbud, Mail
+  - Aktivitetslog med type/result/sentiment-emojis + tidslinje
+  - Mail compose med pre-filled email + mail-historik fra bons
+  - Stage-ændring via dropdown
+- [x] `office/views/crm-inbox.js` — CRM Indbakke:
+  - 2-panel: mail-liste + preview
+  - Actions: Link til Bon (nummer-søg), Link til Kunde (KundeSoeg), Ignorer
+  - Bruger eksisterende `GET/PATCH /api/mail/unmatched` endpoints
+- [x] Office sidebar: 3 CRM-punkter aktiveret (CRM, Kunder, Indbakke)
+- [x] SSE-handlers: `crm_activity_created`, `crm_stage_changed`, `mail_unmatched`
+- [x] `shared/api.js` — 16 nye CRM + dashboard wrapper-funktioner
+
+### Mail-fixes (marts 2026)
+- [x] `mailService.js` — attachment INSERT: `filepath`→`file_path`, `content_type`→`mime_type`
+- [x] `mail.js` — unmatched linking: manglende `to_email` parameter
+- [x] `kitchen/today.html` + `later.html` — tilføjet `components.css` (mail-toast var usynlig)
+- [x] Mail toast viser `bon_number` i stedet for `bon_id`
+- [x] `office/views/dashboard.js` — erstattet rå `fetch()` med `apiFetch()` + fejlvisning
+- [x] `routes/kitchen.js` — calendar-endpoint manglede `unread_mail_count` subquery
+- [x] Mail-badge ✉ størrelse øget (20px bon-kort, 2em kalender/liste)
+- [x] Office zone font-size øget: 13px→14px / 15px→16px
+
 ## Næste opgave
 
-> ✏️ Opdateret 28. marts 2026.
+> ✏️ Opdateret 29. marts 2026.
 >
-> **Fase 1a–1e + 3A + 3B + 3D + 4 + 5 + 6 (indkøbsliste) komplet.**
-> Opskrifter, consume, lager (overview + optælling), indkøbsliste integreret.
-> LEVERET auto-consume verificeret end-to-end.
-> Grocy QU-kæde verificeret: stock→display→consume→purchase alle korrekte.
+> **Fase 1a–1e + 3A + 3B + 3D + 4 + 5 + 6 (indkøbsliste) + 7 (CRM) komplet.**
+> CRM med dashboard, kunde360, aktivitetslog, mail compose, indbakke integreret.
+> Mail-system fixet (attachments, unmatched linking, badges, toast).
 >
 > **Næste:** Bestilling (Hørkram montering), Varemodtagelse (fusion-endpoint),
 > Priser-setting i planlægningsbon, Tilbud og Ugeoversigt.

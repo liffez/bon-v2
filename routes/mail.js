@@ -94,7 +94,7 @@ router.patch('/unmatched/:id', requireAuth('admin'), handle(async (req, res) => 
         db.prepare(`
             INSERT INTO mail_messages (thread_id, message_id, direction, from_email, from_name, to_email, subject, body_text, is_read, imap_uid, mailbox, received_at)
             VALUES (?, ?, 'in', ?, ?, ?, ?, ?, 0, ?, ?, ?)
-        `).run(threadId, um.message_id, um.from_email, um.from_name, um.mailbox, um.subject, um.body_text, um.imap_uid, um.mailbox, um.received_at);
+        `).run(threadId, um.message_id, um.from_email, um.from_name, um.to_email || um.mailbox, um.subject, um.body_text, um.imap_uid, um.mailbox, um.received_at);
 
         db.prepare(`
             UPDATE mail_unmatched SET status = 'linked', linked_customer_id = ?, linked_bon_id = ?, handled_by_user_id = ?, handled_at = CURRENT_TIMESTAMP
@@ -125,7 +125,11 @@ router.post('/poll', requireAuth('admin'), handle(async (req, res) => {
 // POST /api/mail/test-sse — test broadcast (admin, midlertidigt)
 router.post('/test-sse', requireAuth('admin'), handle(async (req, res) => {
     const { broadcast } = require('../shared/sse');
-    broadcast('mail_received', { bon_id: 50, customer_id: null, thread_id: 2, unread_count: 5 });
+    const db = getDb();
+    // Brug en bon fra i dag hvis muligt (så badge kan ses i kitchen today)
+    const bon = db.prepare(`SELECT id, bon_number FROM bons WHERE delivery_date = date('now') LIMIT 1`).get()
+             || db.prepare(`SELECT id, bon_number FROM bons LIMIT 1`).get();
+    broadcast('mail_received', { bon_id: bon ? bon.id : 50, bon_number: bon ? bon.bon_number : '0000', customer_id: null, thread_id: 2, unread_count: 5 });
     res.json({ ok: true, broadcasted: 'mail_received' });
 }));
 

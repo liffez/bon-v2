@@ -55,7 +55,7 @@
 /* Office-zone: informationstæt */
 .zone-office {
     --btn-height:    var(--touch-target-desk);
-    --font-size-m:   13px;
-    --font-size-l:   15px;
+    --font-size-m:   14px;
+    --font-size-l:   16px;
     --card-padding:  12px;
 }

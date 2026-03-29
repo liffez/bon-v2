@@ -55,6 +55,7 @@ app.use('/api/webhooks',      require('./routes/webhooks'));
 app.use('/api/users',         require('./routes/users'));
 app.use('/api/mail',          require('./routes/mail'));
 app.use('/api/dashboard',    require('./routes/dashboard'));
+app.use('/api/crm',          require('./routes/crm'));
 app.use('/api/horkram',      require('./routes/horkram'));
 app.use('/api/orders',       require('./routes/orders'));
 app.use('/api/receiving',    require('./routes/receiving'));

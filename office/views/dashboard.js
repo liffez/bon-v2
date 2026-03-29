@@ -387,9 +387,9 @@ async function _dashLoadData() {
 
     try {
         const [todayData, statsData, topProducts] = await Promise.all([
-            fetch('/api/dashboard/today').then(r => r.json()),
-            fetch('/api/dashboard/stats?days_back=4&days_forward=5').then(r => r.json()),
-            fetch('/api/dashboard/top-products').then(r => r.json()),
+            fetchDashboardToday(),
+            fetchDashboardStats(4, 5),
+            fetchDashboardTopProducts(),
         ]);
 
         _dashTopProducts = topProducts;
@@ -403,6 +403,15 @@ async function _dashLoadData() {
         _dashRenderTopbar(todayData.date, statsData);
     } catch (err) {
         console.error('[dashboard] Load error:', err);
+        if (!_dashActive) return;
+        const grid = _dashContainer && _dashContainer.querySelector('.od-grid');
+        if (grid) {
+            grid.innerHTML = `<div style="grid-column:1/-1;padding:40px;text-align:center;color:var(--color-text-dim,#888);">
+                <p style="font-size:18px;margin-bottom:8px;">Kunne ikke hente dashboard-data</p>
+                <p style="font-size:13px;">${err.message || 'Ukendt fejl'}</p>
+                <button onclick="_dashLoadData()" style="margin-top:16px;padding:8px 20px;border-radius:6px;border:1px solid var(--color-border,#d7d1ca);background:var(--color-surface,#fff);cursor:pointer;font-size:13px;">Prøv igen</button>
+            </div>`;
+        }
     }
 }
 
