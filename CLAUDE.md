@@ -413,7 +413,7 @@ Nye filer placeres præcis der de hører hjemme — kopieres ikke.
 - [x] `office/views/dashboard.js` — Komplet redesign:
   - KPI strip (Omsætning MTD, Enheder MTD, Åbne bons, Ufaktureret) med YoY delta
   - Legoklods-chart med Enheder/Kr toggle + forrige-år overlay + akkumuleret chart
-  - Top produkter tabel, I dag + Prep cards, CRM placeholder
+  - Top produkter tabel, I dag + Prep cards, CRM panels (Ring tilbage + Seneste aktivitet)
   - Topbar: dato + vagt-pills + vejr
 - [x] `office/index.html` — Dark sidebar med nav-grupper, Chart.js CDN fjernet
 
@@ -583,15 +583,47 @@ Nye filer placeres præcis der de hører hjemme — kopieres ikke.
 - [x] Mail-badge ✉ størrelse øget (20px bon-kort, 2em kalender/liste)
 - [x] Office zone font-size øget: 13px→14px / 15px→16px
 
+### Office CRM redesign (marts 2026)
+- [x] Typografi: Playfair Display (headings/KPI-tal) + DM Sans (body) via Google Fonts
+- [x] `shared/tokens.css` — `--font-heading`, `--font-body`, sentiment-farver (`--color-sentiment-pos/neu/neg`)
+- [x] `office/index.html` — Sidebar varmere brun (#6B4C2A), guld accent, "Bon v2 · Office" subtitle
+  - Team-links aktive: Vagtplan → `/kitchen/vagtplan.html`, Whiteboard → `whiteboard.ristetrug.dk`, SOP → `sop.ristetrug.dk`
+  - Sidebar badge-support (`.sidebar-badge` klasse)
+- [x] `office/views/dashboard.js` — CRM-placeholder erstattet med:
+  - Ring tilbage panel (callbacks med avatar-initialer)
+  - Seneste aktivitet feed (farvede dots + timestamps)
+  - KPI-tal: Playfair Display 28px med hover
+- [x] `office/views/crm-dashboard.js` — Komplet redesign:
+  - 2-kolonne grid: hovedindhold + side-paneler
+  - Pipeline board (Lead / Tilbud sendt / Forhandling / Vundet) med kategori-filtre
+  - Callbacks panel med gradient-avatarer
+  - Aktivitetsfeed med farvede dots
+  - Hover-reveal actions på smart forslag
+  - Service-kald: 📞 tel: + 📧 mailto: ghost-knapper
+- [x] `office/views/crm-kunde360.js` — Komplet redesign:
+  - Avatar-tile med gradient initial (52px)
+  - Sentiment trendline (6 prikker, fortolkningsbanner, sammenfatning)
+  - Stat strip over tabs: Ordrer, Omsætning, Stemning (emoji), Næste event (Playfair Display)
+  - Typiske produkter som farvede chips
+  - Hurtig note inline textarea
+  - Aktivitetstimeline: farvede ikon-cirkler med connector-linjer, card-layout, who-badges
+  - Filter chips: Alle, Opkald, Noter, Møder, Med smiley
+  - Månedsdividere i timeline
+  - Sentiment-badges med danske labels (God/Neutral/Dårlig)
+- [x] `office/views/crm-inbox.js` — Keyboard navigation (↑↓), focus-states, bedre styling
+- [x] `routes/crm.js` — `GET /api/crm/pipeline` endpoint + `customer_email` i service-calls
+- [x] `shared/api.js` — `fetchCrmPipeline()` tilføjet
+
 ## Næste opgave
 
 > ✏️ Opdateret 29. marts 2026.
 >
-> **Fase 1a–1e + 3A + 3B + 3D + 4 + 5 + 6 (indkøbsliste) + 7 (CRM) komplet.**
+> **Fase 1a–1e + 3A + 3B + 3D + 4 + 5 + 6 (indkøbsliste) + 7 (CRM) + Office CRM redesign komplet.**
 > CRM med dashboard, kunde360, aktivitetslog, mail compose, indbakke integreret.
+> Office redesignet med Playfair Display/DM Sans, sentiment trendline, pipeline board, aktivitetstimeline.
 > Mail-system fixet (attachments, unmatched linking, badges, toast).
 >
-> **Næste:** Bestilling (Hørkram montering), Varemodtagelse (fusion-endpoint),
+> **Næste:** Pipeline drag-drop (kanban), Bestilling (Hørkram montering), Varemodtagelse (fusion-endpoint),
 > Priser-setting i planlægningsbon, Tilbud og Ugeoversigt.
 > Så er Bon v1 klar til nedlukning.
 >
@@ -904,6 +936,7 @@ GET    /api/dashboard/today                              routes/dashboard.js
 GET    /api/dashboard/stats?days_back=&days_forward=     routes/dashboard.js
 GET    /api/dashboard/top-products?from=&to=             routes/dashboard.js
 GET    /api/dashboard/weather                            routes/dashboard.js (placeholder)
+GET    /api/crm/pipeline?category=                      routes/crm.js
 POST   /api/price-categories                             routes/price_categories.js (admin)
 PATCH  /api/price-categories/:id                         routes/price_categories.js (admin)
 POST   /api/payment-types                                routes/payment_types.js (admin)
