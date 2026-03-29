@@ -1,7 +1,7 @@
 /**
  * office/views/crm-dashboard.js
  * ════════════════════════════════════════════════════════════
- * CRM Dashboard — briefing, stats, suggestions, service calls
+ * CRM Dashboard — KPIs, briefing, suggestions, pipeline, callbacks, activity
  * ════════════════════════════════════════════════════════════
  */
 
@@ -34,23 +34,33 @@ function _crmRenderShell() {
 
     _crmContainer.innerHTML = `
         <style>
-            .crm-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; padding: 0; }
-            @media (max-width: 800px) { .crm-grid { grid-template-columns: 1fr; } }
+            .crm-grid {
+                display: grid;
+                grid-template-columns: 1fr 340px;
+                grid-template-rows: auto auto auto 1fr;
+                gap: 12px; padding: 0;
+            }
+            @media (max-width: 900px) { .crm-grid { grid-template-columns: 1fr; } }
 
             .crm-kpi-strip { grid-column: 1 / -1; display: flex; gap: 9px; flex-wrap: wrap; }
             .crm-kpi {
-                flex: 1; min-width: 130px;
+                flex: 1; min-width: 120px;
                 background: var(--color-surface, #fff);
                 border-radius: 10px; padding: 14px 16px;
                 box-shadow: 0 1px 4px rgba(0,0,0,0.07), 0 0 0 1px rgba(0,0,0,0.04);
+                transition: box-shadow .12s;
             }
+            .crm-kpi:hover { box-shadow: 0 2px 8px rgba(0,0,0,0.1), 0 0 0 1px rgba(142,99,31,0.15); }
             .crm-kpi-value {
-                font-size: 28px; font-weight: 900; line-height: 1.1;
+                font-family: var(--font-heading, 'Playfair Display', Georgia, serif);
+                font-size: 28px; font-weight: 700; line-height: 1.1;
                 color: var(--brand-primary, #8e631f);
                 font-variant-numeric: tabular-nums;
             }
-            .crm-kpi-value.warn { color: #c94040; }
+            .crm-kpi-value.warn { color: #C94040; }
+            .crm-kpi-value.green { color: var(--color-sentiment-pos, #2E9E6B); }
             .crm-kpi-label {
+                font-family: var(--font-body, 'DM Sans', system-ui, sans-serif);
                 font-size: 10px; font-weight: 700; color: var(--color-text-dim, #888);
                 text-transform: uppercase; letter-spacing: .4px; margin-top: 2px;
             }
@@ -61,11 +71,12 @@ function _crmRenderShell() {
                 box-shadow: 0 1px 4px rgba(0,0,0,0.07), 0 0 0 1px rgba(0,0,0,0.04);
             }
             .crm-card h3 {
-                font-size: 13px; font-weight: 700; text-transform: uppercase;
-                letter-spacing: .4px; color: var(--color-text-dim, #888);
+                font-size: 10px; font-weight: 700; text-transform: uppercase;
+                letter-spacing: .5px; color: var(--color-text-dim, #888);
                 margin: 0 0 12px 0;
             }
 
+            /* Briefing */
             .crm-briefing-item {
                 display: flex; align-items: center; gap: 10px;
                 padding: 8px 0; border-bottom: 1px solid var(--color-border, #eee);
@@ -84,10 +95,12 @@ function _crmRenderShell() {
             .crm-briefing-type.progress { background: #e0ecf5; color: #2a6fb0; }
             .crm-briefing-type.motivation { background: #f5f0e0; color: #8e631f; }
 
+            /* Suggestions with hover-actions */
             .crm-suggestion {
                 padding: 12px; margin-bottom: 8px; border-radius: 8px;
                 border: 1px solid var(--color-border, #eee);
                 cursor: pointer; transition: border-color .15s;
+                position: relative;
             }
             .crm-suggestion:hover { border-color: var(--brand-primary, #8e631f); }
             .crm-sug-header { display: flex; align-items: center; gap: 8px; margin-bottom: 4px; }
@@ -95,16 +108,107 @@ function _crmRenderShell() {
             .crm-sug-title { font-size: 14px; font-weight: 600; }
             .crm-sug-detail { font-size: 12px; color: var(--color-text-dim, #888); }
             .crm-sug-reason { font-size: 11px; color: var(--color-text-dim, #aaa); margin-top: 4px; }
-            .crm-sug-actions { display: flex; gap: 6px; margin-top: 8px; }
+            .crm-sug-actions {
+                display: flex; gap: 6px; margin-top: 8px;
+                opacity: 0; transition: opacity .15s;
+            }
+            .crm-suggestion:hover .crm-sug-actions { opacity: 1; }
             .crm-sug-btn {
                 padding: 4px 12px; border-radius: 6px; border: 1px solid var(--color-border, #ddd);
                 background: var(--color-surface, #fff); font-size: 12px; cursor: pointer;
+                font-family: inherit; transition: background .1s;
             }
             .crm-sug-btn:hover { background: var(--brand-primary-light, #f1e6b2); }
             .crm-sug-btn.primary {
                 background: var(--brand-primary, #8e631f); color: white; border-color: transparent;
             }
+            .crm-sug-btn.primary:hover { filter: brightness(1.1); }
 
+            /* Pipeline board */
+            .crm-pipeline { grid-column: 1 / -1; }
+            .crm-pipe-filters { display: flex; gap: 5px; margin-bottom: 12px; }
+            .crm-pipe-filter {
+                padding: 4px 12px; border-radius: 16px; border: 1px solid var(--color-border);
+                background: var(--color-surface); font-size: 12px; cursor: pointer; font-family: inherit;
+            }
+            .crm-pipe-filter.active { background: var(--brand-primary); color: white; border-color: transparent; }
+            .crm-pipe-board {
+                display: grid; grid-template-columns: repeat(4, 1fr); gap: 10px;
+                min-height: 120px;
+            }
+            @media (max-width: 900px) { .crm-pipe-board { grid-template-columns: repeat(2, 1fr); } }
+            .crm-pipe-col { }
+            .crm-pipe-col-head {
+                font-size: 11px; font-weight: 700; text-transform: uppercase; letter-spacing: .4px;
+                color: var(--color-text-dim); padding: 6px 0; margin-bottom: 6px;
+                border-bottom: 2px solid var(--color-border);
+                display: flex; justify-content: space-between; align-items: center;
+            }
+            .crm-pipe-count {
+                background: var(--color-background); padding: 1px 7px; border-radius: 8px;
+                font-size: 10px; font-weight: 700;
+            }
+            .crm-pipe-card {
+                background: var(--color-background, #f5f4f2); border: 1px solid var(--color-border);
+                border-radius: 8px; padding: 10px 12px; margin-bottom: 8px;
+                cursor: pointer; transition: all .15s;
+                font-size: 12px;
+            }
+            .crm-pipe-card:hover { border-color: var(--brand-primary); background: var(--brand-primary-light, #f1e6b2); }
+            .crm-pipe-name { font-weight: 600; font-size: 13px; margin-bottom: 2px; }
+            .crm-pipe-meta { color: var(--color-text-dim); font-size: 11px; }
+            .crm-pipe-footer { display: flex; justify-content: space-between; align-items: center; margin-top: 6px; }
+            .crm-pipe-tag {
+                padding: 1px 8px; border-radius: 8px; font-size: 10px; font-weight: 700;
+            }
+            .crm-pipe-tag.catering { background: var(--color-sentiment-pos-bg); color: var(--color-sentiment-pos); }
+            .crm-pipe-tag.festival { background: var(--color-sentiment-neu-bg); color: var(--color-sentiment-neu); }
+            .crm-pipe-tag.produktion { background: #EEF0FB; color: #5B5EA6; }
+            .crm-pipe-tag.store { background: var(--brand-primary-light); color: var(--brand-primary); }
+            .crm-pipe-pax { font-size: 11px; color: var(--color-text-dim); }
+
+            /* Callbacks panel */
+            .crm-cb-item {
+                display: flex; align-items: center; gap: 10px;
+                padding: 8px 0; border-bottom: 1px solid var(--color-border, #eee);
+            }
+            .crm-cb-item:last-child { border-bottom: none; }
+            .crm-cb-av {
+                width: 32px; height: 32px; border-radius: 50%;
+                display: flex; align-items: center; justify-content: center;
+                font-size: 12px; font-weight: 700; color: #fff; flex-shrink: 0;
+            }
+            .crm-cb-av.av-0 { background: linear-gradient(135deg, #2E9E6B, #1a7a50); }
+            .crm-cb-av.av-1 { background: linear-gradient(135deg, #C8962A, #a07020); }
+            .crm-cb-av.av-2 { background: linear-gradient(135deg, #8a8580, #6b6560); }
+            .crm-cb-info { flex: 1; min-width: 0; }
+            .crm-cb-name { font-size: 13px; font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+            .crm-cb-company { font-size: 11px; color: var(--color-text-dim); }
+            .crm-cb-badge {
+                padding: 2px 8px; border-radius: 10px; font-size: 10px; font-weight: 700;
+                white-space: nowrap; flex-shrink: 0;
+            }
+            .crm-cb-badge.urgent { background: var(--color-sentiment-neg-bg); color: var(--color-sentiment-neg); }
+            .crm-cb-badge.today { background: var(--color-sentiment-neu-bg); color: var(--color-sentiment-neu); }
+
+            /* Activity feed */
+            .crm-act-item {
+                display: flex; align-items: flex-start; gap: 10px;
+                padding: 6px 0; font-size: 12px;
+            }
+            .crm-act-dot {
+                width: 8px; height: 8px; border-radius: 50%;
+                margin-top: 4px; flex-shrink: 0;
+            }
+            .crm-act-dot.dot-green { background: var(--color-sentiment-pos); }
+            .crm-act-dot.dot-gold { background: var(--color-sentiment-neu); }
+            .crm-act-dot.dot-gray { background: var(--color-text-dim); }
+            .crm-act-dot.dot-red { background: var(--color-sentiment-neg); }
+            .crm-act-text { flex: 1; color: var(--color-text); }
+            .crm-act-type { font-weight: 600; }
+            .crm-act-time { font-size: 10px; color: var(--color-text-dim, #aaa); white-space: nowrap; }
+
+            /* Service calls */
             .crm-svc-row {
                 display: grid; grid-template-columns: auto 1fr auto auto;
                 gap: 8px; align-items: center;
@@ -117,6 +221,18 @@ function _crmRenderShell() {
             .crm-svc-customer:hover { text-decoration: underline; }
             .crm-svc-days { font-size: 11px; color: var(--color-text-dim, #888); text-align: right; }
             .crm-svc-phone { font-size: 12px; color: var(--color-text-dim, #888); }
+            .crm-svc-actions { display: flex; gap: 6px; align-items: center; }
+            .crm-svc-action-btn {
+                display: inline-flex; align-items: center; justify-content: center;
+                width: 30px; height: 30px; border-radius: 6px;
+                border: 1px solid var(--color-border, #ddd);
+                background: transparent; text-decoration: none;
+                font-size: 15px; cursor: pointer; transition: all .12s;
+            }
+            .crm-svc-action-btn:hover {
+                background: var(--brand-primary-light, #f1e6b2);
+                border-color: var(--brand-primary, #8e631f);
+            }
 
             .crm-empty { text-align: center; padding: 20px; color: var(--color-text-dim, #aaa); font-size: 13px; }
         </style>
@@ -129,9 +245,30 @@ function _crmRenderShell() {
                 <div id="crmBriefingList"></div>
             </div>
 
+            <div class="crm-card" id="crmCallbacksPanel">
+                <h3>📞 Ring tilbage</h3>
+                <div id="crmCallbacksList"></div>
+            </div>
+
             <div class="crm-card" id="crmSuggestions">
                 <h3>Smart forslag</h3>
                 <div id="crmSuggestionsList"></div>
+            </div>
+
+            <div class="crm-card" id="crmActivityPanel">
+                <h3>🔀 Seneste aktivitet</h3>
+                <div id="crmActivityList"></div>
+            </div>
+
+            <div class="crm-card crm-pipeline" id="crmPipeline">
+                <h3>Pipeline</h3>
+                <div class="crm-pipe-filters" id="crmPipeFilters">
+                    <button class="crm-pipe-filter active" data-cat="">Alle</button>
+                    <button class="crm-pipe-filter" data-cat="catering">Catering</button>
+                    <button class="crm-pipe-filter" data-cat="festival">Festival</button>
+                    <button class="crm-pipe-filter" data-cat="produktion">Produktion</button>
+                </div>
+                <div class="crm-pipe-board" id="crmPipeBoard"></div>
             </div>
 
             <div class="crm-card" style="grid-column: 1 / -1;" id="crmServiceCalls">
@@ -140,6 +277,14 @@ function _crmRenderShell() {
             </div>
         </div>
     `;
+
+    // Pipeline filter clicks
+    document.getElementById('crmPipeFilters')?.addEventListener('click', (e) => {
+        const btn = e.target.closest('.crm-pipe-filter');
+        if (!btn) return;
+        document.querySelectorAll('.crm-pipe-filter').forEach(b => b.classList.toggle('active', b === btn));
+        _crmLoadPipeline(btn.dataset.cat || '');
+    });
 }
 
 // ─── Data loading ───────────────────────────────────────────
@@ -148,17 +293,22 @@ async function _crmLoadData() {
     if (!_crmActive) return;
 
     try {
-        const [stats, briefing, suggestions, serviceCalls] = await Promise.all([
+        const [stats, briefing, suggestions, serviceCalls, callbacks, callLog] = await Promise.all([
             fetchCrmStats(),
             fetchCrmBriefing(),
             fetchCrmSuggestions(),
             fetchCrmServiceCalls(7),
+            fetchCrmCallbacks(),
+            fetchCrmCallLog({ limit: 6 }),
         ]);
 
         _crmRenderKPIs(stats);
         _crmRenderBriefing(briefing);
         _crmRenderSuggestions(suggestions);
         _crmRenderServiceCalls(serviceCalls);
+        _crmRenderCallbacks(callbacks);
+        _crmRenderActivityFeed(Array.isArray(callLog) ? callLog : (callLog.rows || []));
+        _crmLoadPipeline('');
     } catch (err) {
         console.error('[crm] Load error:', err);
         if (!_crmActive) return;
@@ -183,13 +333,13 @@ function _crmRenderKPIs(stats) {
         { label: 'Service-kald', value: stats.service_calls_pending, warn: stats.service_calls_pending > 0 },
         { label: 'Callbacks', value: stats.callbacks_pending, warn: stats.callbacks_pending > 0 },
         { label: 'Svær at nå', value: stats.hard_to_reach, warn: stats.hard_to_reach > 0 },
-        { label: 'Reach rate', value: stats.reach_rate + '%', warn: false },
+        { label: 'Reach rate', value: stats.reach_rate + '%', warn: false, green: parseInt(stats.reach_rate) > 60 },
         { label: 'Bons i dag', value: stats.bons_today, warn: false },
     ];
 
     el.innerHTML = kpis.map(k =>
         '<div class="crm-kpi">' +
-            '<div class="crm-kpi-value' + (k.warn ? ' warn' : '') + '">' + k.value + '</div>' +
+            '<div class="crm-kpi-value' + (k.warn ? ' warn' : k.green ? ' green' : '') + '">' + k.value + '</div>' +
             '<div class="crm-kpi-label">' + k.label + '</div>' +
         '</div>'
     ).join('');
@@ -247,14 +397,113 @@ function _crmRenderServiceCalls(calls) {
         return;
     }
 
-    el.innerHTML = calls.map(c =>
-        '<div class="crm-svc-row">' +
+    el.innerHTML = calls.map(c => {
+        const phone = (c.customer_phone || '').replace(/\s/g, '');
+        const email = c.customer_email || '';
+        return '<div class="crm-svc-row">' +
             '<span class="crm-svc-bon">#' + c.bon_number + '</span>' +
             '<span class="crm-svc-customer" onclick="_crmOpenKunde(' + c.customer_id + ')">' +
                 c.customer_name + (c.company_name ? ' · ' + c.company_name : '') +
             '</span>' +
-            '<span class="crm-svc-phone">' + (c.customer_phone || '') + '</span>' +
+            '<span class="crm-svc-actions">' +
+                (phone ? '<a href="tel:' + phone + '" class="crm-svc-action-btn" title="Ring ' + (c.customer_phone || '') + '">📞</a>' : '') +
+                (email ? '<a href="mailto:' + email + '" class="crm-svc-action-btn" title="Send mail">📧</a>' : '') +
+            '</span>' +
             '<span class="crm-svc-days">' + c.days_since_delivery + 'd siden</span>' +
+        '</div>';
+    }).join('');
+}
+
+function _crmRenderCallbacks(data) {
+    const el = document.getElementById('crmCallbacksList');
+    if (!el) return;
+    const items = Array.isArray(data) ? data : (data.callbacks || []);
+    if (!items.length) {
+        el.innerHTML = '<div class="crm-empty">Ingen ventende callbacks</div>';
+        return;
+    }
+    el.innerHTML = items.slice(0, 5).map((c, i) => {
+        const name = c.customer_name || c.name || 'Ukendt';
+        const init = name.charAt(0).toUpperCase();
+        const avClass = 'av-' + (i % 3);
+        const badgeClass = (c.attempts || 0) >= 3 ? 'urgent' : 'today';
+        const badgeText = (c.attempts || 0) >= 3 ? 'Svarer ikke' : 'Ringes';
+        return '<div class="crm-cb-item">' +
+            '<div class="crm-cb-av ' + avClass + '">' + init + '</div>' +
+            '<div class="crm-cb-info">' +
+                '<div class="crm-cb-name" style="cursor:pointer;" onclick="_crmOpenKunde(' + (c.customer_id || '') + ')">' + name + '</div>' +
+                (c.company_name ? '<div class="crm-cb-company">' + c.company_name + '</div>' : '') +
+            '</div>' +
+            '<span class="crm-cb-badge ' + badgeClass + '">' + badgeText + '</span>' +
+        '</div>';
+    }).join('');
+}
+
+function _crmRenderActivityFeed(items) {
+    const el = document.getElementById('crmActivityList');
+    if (!el) return;
+    if (!items.length) {
+        el.innerHTML = '<div class="crm-empty">Ingen seneste aktivitet</div>';
+        return;
+    }
+    const typeDots = { call: 'dot-green', service_call: 'dot-green', meeting: 'dot-gold', note: 'dot-gold', followup: 'dot-gray', task: 'dot-gray', email_in: 'dot-gray', email_out: 'dot-gray' };
+    const typeLabels = { call: 'Opkald', service_call: 'Service', meeting: 'Møde', task: 'Opgave', note: 'Note', followup: 'Opfølgning', email_in: 'Mail ind', email_out: 'Mail ud' };
+
+    el.innerHTML = items.slice(0, 6).map(a => {
+        const dotClass = typeDots[a.type] || 'dot-gray';
+        const label = typeLabels[a.type] || a.type;
+        const name = a.customer_name || '';
+        const time = (a.created_at || '').substring(5, 16).replace('T', ' ');
+        const text = a.text ? ' — ' + (a.text.length > 35 ? a.text.substring(0, 35) + '...' : a.text) : '';
+        return '<div class="crm-act-item">' +
+            '<div class="crm-act-dot ' + dotClass + '"></div>' +
+            '<div class="crm-act-text"><span class="crm-act-type">' + label + '</span> ' + name + text + '</div>' +
+            '<span class="crm-act-time">' + time + '</span>' +
+        '</div>';
+    }).join('');
+}
+
+// ─── Pipeline ───────────────────────────────────────────────
+
+async function _crmLoadPipeline(category) {
+    if (!_crmActive) return;
+    try {
+        const data = await fetchCrmPipeline(category || undefined);
+        _crmRenderPipeline(data);
+    } catch (err) {
+        console.error('[crm] Pipeline error:', err);
+        const el = document.getElementById('crmPipeBoard');
+        if (el) el.innerHTML = '<div class="crm-empty" style="grid-column:1/-1;">Kunne ikke hente pipeline</div>';
+    }
+}
+
+function _crmRenderPipeline(columns) {
+    const el = document.getElementById('crmPipeBoard');
+    if (!el) return;
+
+    const catTagClass = { catering: 'catering', festival: 'festival', produktion: 'produktion', store: 'store' };
+
+    el.innerHTML = Object.entries(columns).map(([key, col]) =>
+        '<div class="crm-pipe-col">' +
+            '<div class="crm-pipe-col-head">' +
+                '<span>' + col.label + '</span>' +
+                '<span class="crm-pipe-count">' + col.items.length + '</span>' +
+            '</div>' +
+            (col.items.length ? col.items.map(item =>
+                '<div class="crm-pipe-card" onclick="_crmOpenKunde(' + (item.id || '') + ')">' +
+                    '<div class="crm-pipe-name">' + (item.company_name || item.customer_name || 'Ukendt') + '</div>' +
+                    '<div class="crm-pipe-meta">' +
+                        (item.delivery_date || '') +
+                        (item.customer_name && item.company_name ? ' · ' + item.customer_name : '') +
+                    '</div>' +
+                    '<div class="crm-pipe-footer">' +
+                        '<span class="crm-pipe-tag ' + (catTagClass[item.price_category] || 'store') + '">' +
+                            (item.price_category || 'store') +
+                        '</span>' +
+                        (item.pax ? '<span class="crm-pipe-pax">👥 ' + item.pax + '</span>' : '') +
+                    '</div>' +
+                '</div>'
+            ).join('') : '<div class="crm-empty" style="padding:10px;font-size:11px;">Ingen</div>') +
         '</div>'
     ).join('');
 }

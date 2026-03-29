@@ -4,6 +4,9 @@
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>Bon v2 — Office</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=DM+Sans:wght@400;500;600;700&family=Playfair+Display:wght@700&display=swap" rel="stylesheet">
   <link rel="stylesheet" href="../shared/tokens.css">
   <link rel="stylesheet" href="../shared/components.css">
   <link rel="stylesheet" href="../shared/kunde_soeg.css">
@@ -32,6 +35,7 @@
       flex-shrink: 0;
     }
     .office-topbar h1 {
+      font-family: var(--font-heading, 'Playfair Display', Georgia, serif);
       font-size: var(--font-size-l, 18px);
       margin: 0;
       font-weight: 700;
@@ -44,20 +48,33 @@
 
     /* ── Sidebar ────────────────────────────────────────────── */
     .office-sidebar {
-      width: 200px;
+      width: 210px;
       flex-shrink: 0;
-      background: #5c4020;
+      background: #6B4C2A;
       display: flex;
       flex-direction: column;
       padding: 0;
-      color: rgba(255,255,255,0.75);
+      color: rgba(255,255,255,0.78);
+      font-family: var(--font-body, 'DM Sans', system-ui, sans-serif);
     }
     .sidebar-brand {
-      padding: 14px 16px 10px;
-      font-size: 14px;
-      font-weight: 900;
-      color: rgba(255,255,255,0.9);
-      border-bottom: 1px solid rgba(255,255,255,0.08);
+      padding: 16px 18px 8px;
+      border-bottom: 1px solid rgba(255,255,255,0.1);
+    }
+    .sidebar-brand-name {
+      font-family: var(--font-heading, 'Playfair Display', Georgia, serif);
+      font-size: 17px;
+      font-weight: 700;
+      color: rgba(255,255,255,0.95);
+      line-height: 1.2;
+    }
+    .sidebar-brand-sub {
+      font-size: 10px;
+      font-weight: 600;
+      text-transform: uppercase;
+      letter-spacing: 1.2px;
+      color: #C8962A;
+      margin-top: 2px;
     }
     .sidebar-nav {
       flex: 1;
@@ -68,12 +85,12 @@
       overflow-y: auto;
     }
     .sidebar-group-label {
-      font-size: 9px;
+      font-size: 10px;
       font-weight: 700;
       text-transform: uppercase;
-      letter-spacing: .6px;
-      color: rgba(255,255,255,0.3);
-      padding: 12px 12px 4px;
+      letter-spacing: .8px;
+      color: rgba(255,255,255,0.35);
+      padding: 14px 12px 5px;
     }
     .sidebar-link {
       display: flex;
@@ -82,8 +99,8 @@
       padding: 8px 12px;
       border-radius: 6px;
       text-decoration: none;
-      color: rgba(255,255,255,0.7);
-      font-size: 13px;
+      color: rgba(255,255,255,0.72);
+      font-size: 14px;
       font-weight: 500;
       cursor: pointer;
       border: none;
@@ -91,16 +108,19 @@
       font-family: inherit;
       width: 100%;
       text-align: left;
-      transition: background 0.12s;
+      transition: background 0.12s, color 0.12s;
+      position: relative;
     }
     .sidebar-link:hover {
-      background: rgba(255,255,255,0.08);
-      color: rgba(255,255,255,0.95);
+      background: rgba(255,255,255,0.09);
+      color: rgba(255,255,255,0.97);
     }
     .sidebar-link.active {
-      background: rgba(255,255,255,0.12);
-      color: #f1e6b2;
+      background: rgba(255,255,255,0.13);
+      color: #F1E6B2;
       font-weight: 700;
+      border-left: 3px solid #C8962A;
+      padding-left: 9px;
     }
     .sidebar-link.disabled {
       opacity: 0.3;
@@ -108,12 +128,28 @@
       pointer-events: none;
     }
     .sidebar-link .sidebar-icon {
-      font-size: 14px;
-      width: 18px;
+      font-size: 15px;
+      width: 20px;
       text-align: center;
     }
+    .sidebar-badge {
+      margin-left: auto;
+      min-width: 18px;
+      height: 18px;
+      padding: 0 5px;
+      border-radius: 9px;
+      background: #C94040;
+      color: #fff;
+      font-size: 10px;
+      font-weight: 700;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      line-height: 1;
+    }
+    .sidebar-badge.gold { background: #C8962A; }
     .sidebar-bottom {
-      border-top: 1px solid rgba(255,255,255,0.08);
+      border-top: 1px solid rgba(255,255,255,0.1);
       padding: 10px 8px;
       display: flex;
       flex-direction: column;
@@ -126,13 +162,13 @@
       padding: 8px 12px;
     }
     .sidebar-user-av {
-      width: 28px; height: 28px; border-radius: 50%;
-      background: rgba(255,255,255,0.15);
+      width: 30px; height: 30px; border-radius: 50%;
+      background: linear-gradient(135deg, #C8962A 0%, #8e631f 100%);
       display: flex; align-items: center; justify-content: center;
-      font-size: 11px; font-weight: 700; color: rgba(255,255,255,0.8);
+      font-size: 12px; font-weight: 700; color: #fff;
     }
-    .sidebar-user-name { font-size: 12px; font-weight: 700; color: rgba(255,255,255,0.8); }
-    .sidebar-user-role { font-size: 9px; color: rgba(255,255,255,0.4); }
+    .sidebar-user-name { font-size: 13px; font-weight: 600; color: rgba(255,255,255,0.85); }
+    .sidebar-user-role { font-size: 10px; color: rgba(255,255,255,0.45); }
 
     /* ── Content ────────────────────────────────────────────── */
     #office-content {
@@ -377,7 +413,7 @@
 
     /* ── Responsive ─────────────────────────────────────── */
     @media (max-width: 768px) {
-      .office-sidebar { display: none; }
+      .office-sidebar { display: none !important; }
       #office-content { padding: var(--space-s, 8px); }
       .bl-toolbar { flex-direction: column; }
       .bl-search-wrap { width: 100%; }
@@ -388,7 +424,7 @@
     }
   </style>
 </head>
-<body class="zone-office">
+<body class="zone-office" style="font-family: var(--font-body, 'DM Sans', system-ui, sans-serif);">
   <div class="office-shell">
     <div class="office-topbar">
       <h1 id="office-topbar-title">Bon v2 — Office</h1>
@@ -396,7 +432,10 @@
     </div>
     <div class="office-body">
       <nav class="office-sidebar">
-        <div class="sidebar-brand">🍞 Ristet Rug</div>
+        <div class="sidebar-brand">
+          <div class="sidebar-brand-name">🍞 Ristet Rug</div>
+          <div class="sidebar-brand-sub">Bon v2 &middot; Office</div>
+        </div>
         <div class="sidebar-nav">
           <div class="sidebar-group-label">Overblik</div>
           <button class="sidebar-link" data-view="dashboard">
@@ -445,12 +484,15 @@
           </button>
 
           <div class="sidebar-group-label">Team</div>
-          <button class="sidebar-link disabled">
+          <a class="sidebar-link" href="/kitchen/vagtplan.html" target="_blank">
             <span class="sidebar-icon">🕐</span> Vagtplan
-          </button>
-          <button class="sidebar-link disabled">
+          </a>
+          <a class="sidebar-link" href="https://whiteboard.ristetrug.dk" target="_blank" rel="noopener">
             <span class="sidebar-icon">📝</span> Whiteboard
-          </button>
+          </a>
+          <a class="sidebar-link" href="https://sop.ristetrug.dk" target="_blank" rel="noopener">
+            <span class="sidebar-icon">📋</span> SOP
+          </a>
         </div>
         <div class="sidebar-bottom">
           <a href="/settings/index.html" class="sidebar-link">

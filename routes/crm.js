@@ -400,6 +400,7 @@ router.get('/service-calls', handle((req, res) => {
             c.id AS customer_id,
             c.first_name || ' ' || COALESCE(c.last_name, '') AS customer_name,
             c.phone AS customer_phone,
+            c.email AS customer_email,
             co.name AS company_name,
             CAST(julianday('now') - julianday(b.delivery_date) AS INTEGER) AS days_since_delivery
         FROM bons b
@@ -727,6 +728,63 @@ router.get('/call-stats', handle((req, res) => {
     `).all();
 
     res.json({ weekly, per_user: perUser, results, sentiments });
+}));
+
+// ─── GET /pipeline ──────────────────────────────────────────
+router.get('/pipeline', handle((req, res) => {
+    const db = getDb();
+    const category = req.query.category;
+
+    let where = 'WHERE (b.is_offer = 1 OR sd.code IN (\'NY\',\'VENTER\'))';
+    const args = [];
+    if (category) {
+        where += ' AND b.price_category = ?';
+        args.push(category);
+    }
+
+    const rows = db.prepare(`
+        SELECT b.id, b.bon_number, b.delivery_date, b.pax, b.total_price,
+               b.price_category, b.is_offer, b.offer_status, b.offer_sent_at,
+               sd.code as status, sd.label as status_label,
+               c.first_name, c.last_name, co.name as company_name
+        FROM bons b
+        JOIN status_definitions sd ON b.status_id = sd.id
+        LEFT JOIN customers c ON b.customer_id = c.id
+        LEFT JOIN companies co ON c.company_id = co.id
+        ${where}
+        ORDER BY b.delivery_date ASC
+    `).all(...args);
+
+    // Group into pipeline columns
+    const columns = {
+        ny: { label: 'Lead', items: [] },
+        tilbud_sendt: { label: 'Tilbud sendt', items: [] },
+        forhandling: { label: 'Forhandling', items: [] },
+        vundet: { label: 'Vundet', items: [] },
+    };
+
+    for (const r of rows) {
+        const item = {
+            id: r.id,
+            bon_number: r.bon_number,
+            customer_name: ((r.first_name || '') + ' ' + (r.last_name || '')).trim(),
+            company_name: r.company_name,
+            delivery_date: r.delivery_date,
+            pax: r.pax,
+            total_price: r.total_price,
+            price_category: r.price_category,
+            status: r.status,
+            offer_status: r.offer_status,
+        };
+
+        if (r.is_offer && r.offer_status === 'sent') columns.tilbud_sendt.items.push(item);
+        else if (r.is_offer && r.offer_status === 'draft') columns.ny.items.push(item);
+        else if (r.status === 'VENTER') columns.forhandling.items.push(item);
+        else if (r.status === 'GODKENDT' || (r.is_offer && r.offer_status === 'won')) columns.vundet.items.push(item);
+        else columns.ny.items.push(item);
+    }
+
+    res.json(columns);
 }));
 
 module.exports = router;

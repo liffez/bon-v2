@@ -41,56 +41,67 @@ function _inbRenderShell() {
             }
             .inb-list-header {
                 padding: 14px 16px; border-bottom: 1px solid var(--color-border, #eee);
-                font-size: 13px; font-weight: 700; text-transform: uppercase;
-                letter-spacing: .4px; color: var(--color-text-dim, #888);
+                font-size: 11px; font-weight: 700; text-transform: uppercase;
+                letter-spacing: .5px; color: var(--color-text-dim, #888);
                 display: flex; justify-content: space-between; align-items: center;
             }
             .inb-count {
                 background: var(--brand-primary); color: white;
-                padding: 1px 8px; border-radius: 10px; font-size: 11px;
+                padding: 2px 9px; border-radius: 10px; font-size: 11px; font-weight: 700;
             }
             .inb-mail-row {
                 padding: 12px 16px; border-bottom: 1px solid var(--color-border, #eee);
                 cursor: pointer; transition: background .1s;
+                outline: none;
             }
-            .inb-mail-row:hover { background: #fafafa; }
+            .inb-mail-row:hover { background: var(--color-background, #f5f4f2); }
             .inb-mail-row.selected { background: var(--brand-primary-light, #f1e6b2); }
-            .inb-mail-from { font-size: 13px; font-weight: 600; }
-            .inb-mail-subject { font-size: 13px; color: var(--color-text, #333); margin-top: 2px; }
-            .inb-mail-meta { font-size: 11px; color: var(--color-text-dim, #aaa); margin-top: 3px; display: flex; justify-content: space-between; }
-            .inb-mail-parsed { font-size: 11px; color: var(--brand-primary); margin-top: 2px; }
+            .inb-mail-row:focus { box-shadow: inset 0 0 0 2px var(--brand-primary, #8e631f); }
+            .inb-mail-from { font-size: 14px; font-weight: 600; }
+            .inb-mail-subject { font-size: 13px; color: var(--color-text, #333); margin-top: 3px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+            .inb-mail-meta { font-size: 11px; color: var(--color-text-dim, #aaa); margin-top: 4px; display: flex; justify-content: space-between; }
+            .inb-mail-parsed { font-size: 11px; color: var(--brand-primary); margin-top: 2px; font-weight: 600; }
 
             .inb-preview-panel {
                 background: var(--color-surface, #fff); border-radius: 10px;
-                box-shadow: 0 1px 4px rgba(0,0,0,0.07); padding: 20px; overflow-y: auto;
+                box-shadow: 0 1px 4px rgba(0,0,0,0.07); padding: 24px; overflow-y: auto;
             }
             .inb-preview-header { margin-bottom: 16px; }
-            .inb-preview-from { font-size: 15px; font-weight: 700; }
-            .inb-preview-subject { font-size: 14px; margin-top: 4px; }
-            .inb-preview-date { font-size: 12px; color: var(--color-text-dim); margin-top: 4px; }
+            .inb-preview-from {
+                font-family: var(--font-heading, 'Playfair Display', Georgia, serif);
+                font-size: 17px; font-weight: 700;
+            }
+            .inb-preview-subject { font-size: 15px; margin-top: 6px; font-weight: 500; }
+            .inb-preview-date { font-size: 12px; color: var(--color-text-dim); margin-top: 6px; }
             .inb-preview-body {
-                white-space: pre-wrap; font-size: 13px; line-height: 1.6;
+                white-space: pre-wrap; font-size: 14px; line-height: 1.7;
                 padding: 16px 0; border-top: 1px solid var(--color-border);
                 border-bottom: 1px solid var(--color-border);
                 max-height: 400px; overflow-y: auto;
             }
             .inb-actions { display: flex; gap: 8px; margin-top: 16px; flex-wrap: wrap; }
             .inb-action-btn {
-                padding: 8px 16px; border-radius: 8px; border: 1px solid var(--color-border, #ddd);
+                padding: 8px 18px; border-radius: 8px; border: 1px solid var(--color-border, #ddd);
                 background: var(--color-surface); font-size: 13px; cursor: pointer; font-weight: 600;
+                font-family: inherit; transition: background .1s;
             }
             .inb-action-btn:hover { background: var(--brand-primary-light); }
             .inb-action-btn.danger { color: #c94040; }
+            .inb-action-btn.danger:hover { background: var(--color-sentiment-neg-bg); }
             .inb-action-btn.primary { background: var(--brand-primary); color: white; border-color: transparent; }
+            .inb-action-btn.primary:hover { filter: brightness(1.1); }
 
-            .inb-link-form { margin-top: 12px; padding: 12px; background: #fafafa; border-radius: 8px; border: 1px solid var(--color-border); }
+            .inb-link-form { margin-top: 12px; padding: 14px; background: var(--color-background, #f5f4f2); border-radius: 10px; border: 1px solid var(--color-border); }
             .inb-link-input {
                 width: 100%; padding: 8px 12px; border-radius: 6px;
                 border: 1px solid var(--color-border); font-size: 13px; margin-top: 6px;
+                font-family: inherit;
             }
+            .inb-link-input:focus { border-color: var(--brand-primary); outline: none; }
             .inb-link-submit { margin-top: 8px; }
 
             .inb-empty { text-align: center; padding: 40px; color: var(--color-text-dim); font-size: 14px; }
+            .inb-hint { font-size: 11px; color: var(--color-text-dim); padding: 8px 16px; text-align: center; }
         </style>
 
         <div class="inb-layout">
@@ -103,6 +114,7 @@ function _inbRenderShell() {
             </div>
             <div class="inb-preview-panel" id="inbPreview">
                 <div class="inb-empty">Vælg en mail fra listen</div>
+                <div class="inb-hint">↑↓ piltaster for navigation</div>
             </div>
         </div>
     `;
@@ -134,7 +146,7 @@ function _inbRenderList() {
     }
 
     el.innerHTML = _inbMails.map(m =>
-        '<div class="inb-mail-row' + (_inbSelected && _inbSelected.id === m.id ? ' selected' : '') + '" data-id="' + m.id + '">' +
+        '<div class="inb-mail-row' + (_inbSelected && _inbSelected.id === m.id ? ' selected' : '') + '" data-id="' + m.id + '" tabindex="0">' +
             '<div class="inb-mail-from">' + (m.from_name || m.from_email || 'Ukendt') + '</div>' +
             '<div class="inb-mail-subject">' + (m.subject || '(intet emne)') + '</div>' +
             '<div class="inb-mail-meta">' +
@@ -146,17 +158,38 @@ function _inbRenderList() {
     ).join('');
 
     el.querySelectorAll('.inb-mail-row').forEach(row => {
-        row.addEventListener('click', () => {
-            const id = parseInt(row.dataset.id);
-            const mail = _inbMails.find(m => m.id === id);
-            if (mail) {
-                _inbSelected = mail;
-                el.querySelectorAll('.inb-mail-row').forEach(r => r.classList.remove('selected'));
-                row.classList.add('selected');
-                _inbRenderPreview(mail);
+        row.addEventListener('click', () => _inbSelectRow(row));
+        row.addEventListener('keydown', (e) => {
+            if (e.key === 'ArrowDown') {
+                e.preventDefault();
+                const next = row.nextElementSibling;
+                if (next && next.classList.contains('inb-mail-row')) {
+                    next.focus();
+                    _inbSelectRow(next);
+                }
+            } else if (e.key === 'ArrowUp') {
+                e.preventDefault();
+                const prev = row.previousElementSibling;
+                if (prev && prev.classList.contains('inb-mail-row')) {
+                    prev.focus();
+                    _inbSelectRow(prev);
+                }
+            } else if (e.key === 'Enter') {
+                _inbSelectRow(row);
             }
         });
     });
+}
+
+function _inbSelectRow(row) {
+    const id = parseInt(row.dataset.id);
+    const mail = _inbMails.find(m => m.id === id);
+    if (mail) {
+        _inbSelected = mail;
+        document.querySelectorAll('.inb-mail-row').forEach(r => r.classList.remove('selected'));
+        row.classList.add('selected');
+        _inbRenderPreview(mail);
+    }
 }
 
 function _inbRenderPreview(mail) {

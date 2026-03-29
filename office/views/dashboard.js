@@ -99,15 +99,18 @@ function _dashRenderShell() {
                 box-shadow: 0 1px 4px rgba(0,0,0,0.07), 0 0 0 1px rgba(0,0,0,0.04);
             }
             .od-kpi-value {
-                font-size: 24px; font-weight: 900; line-height: 1.1;
+                font-family: var(--font-heading, 'Playfair Display', Georgia, serif);
+                font-size: 28px; font-weight: 700; line-height: 1.1;
                 color: var(--brand-primary, #8e631f);
                 font-variant-numeric: tabular-nums;
             }
-            .od-kpi-value.warn { color: #e8a832; }
+            .od-kpi-value.warn { color: #C94040; }
             .od-kpi-label {
+                font-family: var(--font-body, 'DM Sans', system-ui, sans-serif);
                 font-size: 10px; font-weight: 700; color: var(--color-text-dim, #888);
                 text-transform: uppercase; letter-spacing: .4px; margin-top: 2px;
             }
+            .od-kpi:hover { box-shadow: 0 2px 8px rgba(0,0,0,0.1), 0 0 0 1px rgba(142,99,31,0.15); }
             .od-kpi-sub { font-size: 11px; color: var(--color-text-dim, #888); margin-top: 3px; }
             .kpi-delta {
                 display: inline-block; padding: 1px 7px; border-radius: 10px;
@@ -235,16 +238,46 @@ function _dashRenderShell() {
             .od-chip-ok   { background: #e8f2dc; color: #7a9c54; }
             .od-chip-warn { background: #fde8e8; color: #bc181b; }
 
-            /* ══ CRM PLACEHOLDER ═══════════════════════════════════ */
-            .od-crm {
-                text-align: center; padding: 20px 14px;
-                color: var(--color-text-dim, #888);
+            /* ══ CRM PANEL ═════════════════════════════════════════ */
+            .od-crm-empty { text-align: center; padding: 16px; color: var(--color-text-dim, #888); font-size: 12px; }
+            .od-cb-item {
+                display: flex; align-items: center; gap: 10px;
+                padding: 8px 0; border-bottom: 1px solid var(--color-border, #eee);
             }
-            .od-crm-icon { font-size: 24px; margin-bottom: 6px; }
-            .od-crm-title { font-size: 12px; font-weight: 600; margin-bottom: 3px; }
-            .od-crm-sub { font-size: 10px; margin-bottom: 6px; }
-            .od-crm-tags { display: flex; flex-wrap: wrap; gap: 3px; justify-content: center; }
-            .od-crm-tag { padding: 2px 8px; border-radius: 8px; background: var(--color-border, #d7d1ca); color: var(--color-text-dim, #888); font-size: 10px; }
+            .od-cb-item:last-child { border-bottom: none; }
+            .od-cb-av {
+                width: 32px; height: 32px; border-radius: 50%;
+                display: flex; align-items: center; justify-content: center;
+                font-size: 12px; font-weight: 700; color: #fff; flex-shrink: 0;
+            }
+            .od-cb-av.av-green { background: linear-gradient(135deg, #2E9E6B, #1a7a50); }
+            .od-cb-av.av-gold  { background: linear-gradient(135deg, #C8962A, #a07020); }
+            .od-cb-av.av-gray  { background: linear-gradient(135deg, #8a8580, #6b6560); }
+            .od-cb-info { flex: 1; min-width: 0; }
+            .od-cb-name { font-size: 13px; font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+            .od-cb-company { font-size: 11px; color: var(--color-text-dim, #888); }
+            .od-cb-badge {
+                padding: 2px 8px; border-radius: 10px; font-size: 10px; font-weight: 700;
+                white-space: nowrap; flex-shrink: 0;
+            }
+            .od-cb-badge.urgent { background: var(--color-sentiment-neg-bg, #FBE9E9); color: var(--color-sentiment-neg, #C94040); }
+            .od-cb-badge.today  { background: var(--color-sentiment-neu-bg, #FBF3E2); color: var(--color-sentiment-neu, #C8962A); }
+
+            .od-act-item {
+                display: flex; align-items: flex-start; gap: 10px;
+                padding: 6px 0; font-size: 12px;
+            }
+            .od-act-dot {
+                width: 8px; height: 8px; border-radius: 50%;
+                margin-top: 4px; flex-shrink: 0;
+            }
+            .od-act-dot.dot-green { background: var(--color-sentiment-pos, #2E9E6B); }
+            .od-act-dot.dot-gold  { background: var(--color-sentiment-neu, #C8962A); }
+            .od-act-dot.dot-gray  { background: var(--color-text-dim, #888); }
+            .od-act-dot.dot-red   { background: var(--color-sentiment-neg, #C94040); }
+            .od-act-text { flex: 1; color: var(--color-text, #333); }
+            .od-act-type { font-weight: 600; }
+            .od-act-time { font-size: 10px; color: var(--color-text-dim, #aaa); white-space: nowrap; }
 
             /* ══ TOPBAR VAGT ═══════════════════════════════════════ */
             .od-topbar-vagt { display: flex; align-items: center; gap: 5px; }
@@ -346,21 +379,24 @@ function _dashRenderShell() {
                     </a>
                     <div class="od-card-body" style="padding:6px 10px;overflow-y:auto;" id="od-prep-body"><div class="od-loading">Henter...</div></div>
                 </div>
-                <!-- CRM -->
+                <!-- CRM: Ring tilbage -->
                 <div class="od-card" style="flex-shrink:0;">
-                    <div class="od-card-head">🔀 CRM · Opfølgning</div>
-                    <div class="od-card-body">
-                        <div class="od-crm">
-                            <div class="od-crm-icon">📞</div>
-                            <div class="od-crm-title">CRM kommer i næste fase</div>
-                            <div class="od-crm-sub">Serviceopkald · tilbud · kunder · pipeline</div>
-                            <div class="od-crm-tags">
-                                <span class="od-crm-tag">Serviceopkald</span>
-                                <span class="od-crm-tag">Tilbud</span>
-                                <span class="od-crm-tag">Kunder</span>
-                                <span class="od-crm-tag">Pipeline</span>
-                            </div>
-                        </div>
+                    <a class="od-card-head" href="?view=crm-dashboard" style="cursor:pointer;text-decoration:none;color:inherit;">
+                        📞 Ring tilbage
+                        <span class="od-head-arrow">→</span>
+                    </a>
+                    <div class="od-card-body" id="od-crm-callbacks" style="padding:8px 12px;max-height:160px;overflow-y:auto;">
+                        <div class="od-crm-empty">Henter...</div>
+                    </div>
+                </div>
+                <!-- CRM: Seneste aktivitet -->
+                <div class="od-card" style="flex:1;min-height:0;">
+                    <a class="od-card-head" href="?view=crm-dashboard" style="cursor:pointer;text-decoration:none;color:inherit;">
+                        🔀 Seneste aktivitet
+                        <span class="od-head-arrow">→</span>
+                    </a>
+                    <div class="od-card-body" id="od-crm-activity" style="padding:8px 12px;overflow-y:auto;">
+                        <div class="od-crm-empty">Henter...</div>
                     </div>
                 </div>
             </div>
@@ -401,6 +437,7 @@ async function _dashLoadData() {
         _dashRenderChart(statsData);
         _dashRenderTopProducts();
         _dashRenderTopbar(todayData.date, statsData);
+        _dashLoadCRM();
     } catch (err) {
         console.error('[dashboard] Load error:', err);
         if (!_dashActive) return;
@@ -677,6 +714,76 @@ window.addEventListener('resize', () => {
         }, 50);
     }
 });
+
+// ─── CRM panels ─────────────────────────────────────────────
+
+const _CB_AVATAR_COLORS = ['av-green', 'av-gold', 'av-gray'];
+
+async function _dashLoadCRM() {
+    if (!_dashActive) return;
+    try {
+        const [callbacks, callLog] = await Promise.all([
+            fetchCrmCallbacks(),
+            fetchCrmCallLog({ limit: 8 }),
+        ]);
+        _dashRenderCallbacks(callbacks);
+        _dashRenderActivityFeed(Array.isArray(callLog) ? callLog : (callLog.rows || []));
+    } catch (e) {
+        console.error('[dashboard] CRM load:', e);
+        const cbEl = document.getElementById('od-crm-callbacks');
+        if (cbEl) cbEl.innerHTML = '<div class="od-crm-empty">Kunne ikke hente CRM-data</div>';
+    }
+}
+
+function _dashRenderCallbacks(data) {
+    const el = document.getElementById('od-crm-callbacks');
+    if (!el) return;
+    const items = Array.isArray(data) ? data : (data.callbacks || []);
+    if (!items.length) {
+        el.innerHTML = '<div class="od-crm-empty">Ingen ventende callbacks</div>';
+        return;
+    }
+    el.innerHTML = items.slice(0, 5).map((c, i) => {
+        const name = c.customer_name || c.name || 'Ukendt';
+        const init = name.charAt(0).toUpperCase();
+        const avClass = _CB_AVATAR_COLORS[i % _CB_AVATAR_COLORS.length];
+        const badgeClass = (c.attempts || 0) >= 3 ? 'urgent' : 'today';
+        const badgeText = (c.attempts || 0) >= 3 ? 'Svarer ikke' : 'Ringes';
+        return '<div class="od-cb-item">' +
+            '<div class="od-cb-av ' + avClass + '">' + init + '</div>' +
+            '<div class="od-cb-info">' +
+                '<div class="od-cb-name">' + name + '</div>' +
+                (c.company_name ? '<div class="od-cb-company">' + c.company_name + '</div>' : '') +
+            '</div>' +
+            '<span class="od-cb-badge ' + badgeClass + '">' + badgeText + '</span>' +
+        '</div>';
+    }).join('');
+}
+
+function _dashRenderActivityFeed(items) {
+    const el = document.getElementById('od-crm-activity');
+    if (!el) return;
+    if (!items.length) {
+        el.innerHTML = '<div class="od-crm-empty">Ingen seneste aktivitet</div>';
+        return;
+    }
+    const typeIcons = { call: '📞', service_call: '📞', meeting: '🤝', task: '📋', note: '📝', followup: '🔔', email_in: '📥', email_out: '📤' };
+    const typeDots = { call: 'dot-green', service_call: 'dot-green', meeting: 'dot-gold', note: 'dot-gold', followup: 'dot-gray', task: 'dot-gray', email_in: 'dot-gray', email_out: 'dot-gray' };
+    const typeLabels = { call: 'Opkald', service_call: 'Service', meeting: 'Møde', task: 'Opgave', note: 'Note', followup: 'Opfølgning', email_in: 'Mail ind', email_out: 'Mail ud' };
+
+    el.innerHTML = items.slice(0, 6).map(a => {
+        const dotClass = typeDots[a.type] || 'dot-gray';
+        const label = typeLabels[a.type] || a.type;
+        const name = a.customer_name || '';
+        const time = (a.created_at || '').substring(5, 16).replace('T', ' ');
+        const text = a.text ? ' — ' + (a.text.length > 40 ? a.text.substring(0, 40) + '...' : a.text) : '';
+        return '<div class="od-act-item">' +
+            '<div class="od-act-dot ' + dotClass + '"></div>' +
+            '<div class="od-act-text"><span class="od-act-type">' + label + '</span> ' + name + text + '</div>' +
+            '<span class="od-act-time">' + time + '</span>' +
+        '</div>';
+    }).join('');
+}
 
 // ─── SSE handler ────────────────────────────────────────────
 

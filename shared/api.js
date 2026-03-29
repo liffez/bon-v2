@@ -504,6 +504,11 @@ function fetchCrmCallStats() {
     return apiFetch('/crm/call-stats');
 }
 
+function fetchCrmPipeline(category) {
+    var qs = category ? '?category=' + category : '';
+    return apiFetch('/crm/pipeline' + qs);
+}
+
 function postCrmActivity(data) {
     return apiFetch('/crm/activity', {
         method: 'POST',
