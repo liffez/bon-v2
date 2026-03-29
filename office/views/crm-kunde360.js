@@ -36,13 +36,23 @@ function cleanupCrmKunde360() {
 
 // ─── Search (no customer selected) ──────────────────────────
 
+let _k3CreateMode = false;
+
 function _k3RenderSearch() {
     const topTitle = document.getElementById('office-topbar-title');
     if (topTitle) topTitle.textContent = 'Kunder';
+    _k3CreateMode = false;
 
     _k3Container.innerHTML = `
         <style>
             .k3-search-wrap { max-width: 640px; margin: 40px auto; }
+            .k3-search-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 12px; }
+            .k3-new-btn {
+                padding: 8px 18px; border-radius: 8px; border: none;
+                background: var(--brand-primary, #8e631f); color: white;
+                font-size: 14px; font-weight: 600; cursor: pointer; font-family: inherit;
+            }
+            .k3-new-btn:hover { filter: brightness(1.1); }
             .k3-search-input {
                 width: 100%; padding: 12px 16px; font-size: 15px;
                 border: 2px solid var(--color-border, #d7d1ca); border-radius: 10px;
@@ -68,19 +78,122 @@ function _k3RenderSearch() {
             }
             .k3-stage-btn:hover { background: var(--color-background, #f5f4f2); }
             .k3-stage-btn.active { background: var(--brand-primary, #8e631f); color: white; border-color: transparent; }
+
+            /* Create form */
+            .k3-create { background: var(--color-surface); border-radius: 12px; padding: 24px; box-shadow: 0 1px 4px rgba(0,0,0,0.07); }
+            .k3-create-title {
+                font-family: var(--font-heading, 'Playfair Display', Georgia, serif);
+                font-size: 20px; font-weight: 700; margin-bottom: 20px;
+            }
+            .k3-create-section {
+                font-size: 11px; font-weight: 700; text-transform: uppercase; letter-spacing: .5px;
+                color: var(--color-text-dim); margin: 20px 0 10px; padding-bottom: 6px;
+                border-bottom: 1px solid var(--color-border);
+            }
+            .k3-create-section:first-of-type { margin-top: 0; }
+            .k3-form-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
+            .k3-form-full { grid-column: 1 / -1; }
+            .k3-form-group { display: flex; flex-direction: column; gap: 3px; }
+            .k3-form-label { font-size: 11px; font-weight: 600; color: var(--color-text-dim); }
+            .k3-form-input {
+                padding: 8px 12px; border-radius: 6px; border: 1px solid var(--color-border);
+                font-size: 14px; font-family: inherit; background: var(--color-surface);
+            }
+            .k3-form-input:focus { border-color: var(--brand-primary); outline: none; }
+            .k3-form-input::placeholder { color: var(--color-text-dim); opacity: 0.5; }
+            .k3-form-check { display: flex; align-items: center; gap: 8px; font-size: 13px; cursor: pointer; margin: 8px 0; }
+            .k3-form-check input { width: 16px; height: 16px; accent-color: var(--brand-primary); }
+
+            /* CVR lookup */
+            .k3-cvr-row { display: flex; gap: 8px; align-items: flex-end; }
+            .k3-cvr-row .k3-form-group { flex: 1; }
+            .k3-cvr-btn {
+                padding: 8px 14px; border-radius: 6px; border: 1px solid var(--color-border);
+                background: var(--color-surface); font-size: 13px; font-weight: 600; cursor: pointer;
+                font-family: inherit; white-space: nowrap; height: 38px;
+            }
+            .k3-cvr-btn:hover { background: var(--brand-primary-light); }
+            .k3-cvr-results {
+                margin-top: 6px; border: 1px solid var(--color-border); border-radius: 8px;
+                max-height: 200px; overflow-y: auto; display: none;
+            }
+            .k3-cvr-item {
+                padding: 8px 12px; cursor: pointer; border-bottom: 1px solid var(--color-border);
+                font-size: 13px;
+            }
+            .k3-cvr-item:last-child { border-bottom: none; }
+            .k3-cvr-item:hover { background: var(--brand-primary-light); }
+            .k3-cvr-item-name { font-weight: 600; }
+            .k3-cvr-item-detail { font-size: 11px; color: var(--color-text-dim); }
+            .k3-cvr-selected {
+                padding: 10px 12px; border-radius: 8px; background: var(--brand-primary-light);
+                display: flex; justify-content: space-between; align-items: center;
+                margin-top: 8px; font-size: 13px;
+            }
+            .k3-cvr-selected-name { font-weight: 600; }
+            .k3-cvr-selected-clear { cursor: pointer; font-size: 16px; color: var(--color-text-dim); }
+
+            /* DAWA */
+            .k3-dawa-wrap { position: relative; }
+            .k3-dawa-results {
+                position: absolute; top: 100%; left: 0; right: 0; z-index: 50;
+                background: var(--color-surface); border: 1px solid var(--color-border);
+                border-radius: 8px; box-shadow: 0 4px 12px rgba(0,0,0,0.1);
+                max-height: 200px; overflow-y: auto; display: none;
+            }
+            .k3-dawa-item { padding: 8px 12px; cursor: pointer; font-size: 13px; }
+            .k3-dawa-item:hover { background: var(--brand-primary-light); }
+
+            /* Actions */
+            .k3-create-actions { display: flex; gap: 10px; margin-top: 20px; justify-content: flex-end; }
+            .k3-create-cancel {
+                padding: 8px 18px; border-radius: 8px; border: 1px solid var(--color-border);
+                background: var(--color-surface); font-size: 14px; cursor: pointer; font-family: inherit;
+            }
+            .k3-create-save {
+                padding: 8px 24px; border-radius: 8px; border: none;
+                background: var(--brand-primary); color: white;
+                font-size: 14px; font-weight: 600; cursor: pointer; font-family: inherit;
+            }
+            .k3-create-save:hover { filter: brightness(1.1); }
+            .k3-create-save:disabled { opacity: 0.5; cursor: default; filter: none; }
         </style>
         <div class="k3-search-wrap">
-            <input type="text" class="k3-search-input" placeholder="Søg kunde, firma, email, telefon..." id="k3SearchInput" autofocus>
-            <div class="k3-stage-filters" id="k3StageFilters">
-                <button class="k3-stage-btn active" data-stage="all">Alle</button>
-                <button class="k3-stage-btn" data-stage="vip">VIP</button>
-                <button class="k3-stage-btn" data-stage="active">Aktive</button>
-                <button class="k3-stage-btn" data-stage="dormant">Sovende</button>
-                <button class="k3-stage-btn" data-stage="lead">Leads</button>
+            <div class="k3-search-header">
+                <div></div>
+                <button class="k3-new-btn" id="k3NewBtn">+ Ny kunde</button>
             </div>
-            <div class="k3-search-results" id="k3SearchResults"></div>
+            <div id="k3SearchArea">
+                <input type="text" class="k3-search-input" placeholder="Søg kunde, firma, email, telefon..." id="k3SearchInput" autofocus>
+                <div class="k3-stage-filters" id="k3StageFilters">
+                    <button class="k3-stage-btn active" data-stage="all">Alle</button>
+                    <button class="k3-stage-btn" data-stage="vip">VIP</button>
+                    <button class="k3-stage-btn" data-stage="active">Aktive</button>
+                    <button class="k3-stage-btn" data-stage="dormant">Sovende</button>
+                    <button class="k3-stage-btn" data-stage="lead">Leads</button>
+                </div>
+                <div class="k3-search-results" id="k3SearchResults"></div>
+            </div>
+            <div id="k3CreateArea" style="display:none;"></div>
         </div>
     `;
+
+    // "+ Ny kunde" button
+    document.getElementById('k3NewBtn').addEventListener('click', () => {
+        if (_k3CreateMode) {
+            _k3CreateMode = false;
+            document.getElementById('k3SearchArea').style.display = '';
+            document.getElementById('k3CreateArea').style.display = 'none';
+            document.getElementById('k3NewBtn').textContent = '+ Ny kunde';
+            document.getElementById('k3SearchInput').focus();
+        } else {
+            _k3CreateMode = true;
+            document.getElementById('k3SearchArea').style.display = 'none';
+            document.getElementById('k3CreateArea').style.display = '';
+            document.getElementById('k3NewBtn').textContent = '← Tilbage til søg';
+            _k3RenderCreateForm();
+        }
+    });
 
     let _debounce = null;
     let _stage = 'all';
@@ -100,6 +213,331 @@ function _k3RenderSearch() {
     });
 
     _k3DoSearch('', 'all');
+}
+
+// ─── Create customer form ───────────────────────────────────
+
+let _k3CvrData = null; // selected company from CVR
+
+function _k3RenderCreateForm() {
+    const area = document.getElementById('k3CreateArea');
+    if (!area) return;
+    _k3CvrData = null;
+
+    area.innerHTML = `
+        <div class="k3-create">
+            <div class="k3-create-title">Opret ny kunde</div>
+
+            <label class="k3-form-check">
+                <input type="checkbox" id="k3Privat"> Privatkunde (intet firma)
+            </label>
+
+            <div id="k3FirmaSection">
+                <div class="k3-create-section">Firma</div>
+                <div class="k3-cvr-row">
+                    <div class="k3-form-group">
+                        <label class="k3-form-label">Søg firma (navn eller CVR)</label>
+                        <input type="text" class="k3-form-input" id="k3CvrSearch" placeholder="Fx Novo Nordisk eller 12345678">
+                    </div>
+                    <button class="k3-cvr-btn" id="k3CvrBtn">Slå op</button>
+                </div>
+                <div class="k3-cvr-results" id="k3CvrResults"></div>
+                <div id="k3CvrSelected" style="display:none;"></div>
+                <div class="k3-form-grid" style="margin-top:10px;">
+                    <div class="k3-form-group">
+                        <label class="k3-form-label">Firmanavn</label>
+                        <input type="text" class="k3-form-input" id="k3FirmaNavn" placeholder="Firmanavn">
+                    </div>
+                    <div class="k3-form-group">
+                        <label class="k3-form-label">CVR</label>
+                        <input type="text" class="k3-form-input" id="k3FirmaCvr" placeholder="12345678">
+                    </div>
+                    <div class="k3-form-group">
+                        <label class="k3-form-label">Firma email</label>
+                        <input type="email" class="k3-form-input" id="k3FirmaEmail" placeholder="info@firma.dk">
+                    </div>
+                    <div class="k3-form-group">
+                        <label class="k3-form-label">Firma telefon</label>
+                        <input type="tel" class="k3-form-input" id="k3FirmaTlf" placeholder="12 34 56 78">
+                    </div>
+                    <div class="k3-form-group">
+                        <label class="k3-form-label">EAN</label>
+                        <input type="text" class="k3-form-input" id="k3FirmaEan" placeholder="13 cifre (valgfrit)">
+                    </div>
+                </div>
+            </div>
+
+            <div class="k3-create-section">Kontaktperson</div>
+            <div class="k3-form-grid">
+                <div class="k3-form-group">
+                    <label class="k3-form-label">Fornavn *</label>
+                    <input type="text" class="k3-form-input" id="k3KontaktFornavn" placeholder="Fornavn" autofocus>
+                </div>
+                <div class="k3-form-group">
+                    <label class="k3-form-label">Efternavn</label>
+                    <input type="text" class="k3-form-input" id="k3KontaktEfternavn" placeholder="Efternavn">
+                </div>
+                <div class="k3-form-group">
+                    <label class="k3-form-label">Email</label>
+                    <input type="email" class="k3-form-input" id="k3KontaktEmail" placeholder="email@firma.dk">
+                </div>
+                <div class="k3-form-group">
+                    <label class="k3-form-label">Telefon</label>
+                    <input type="tel" class="k3-form-input" id="k3KontaktTlf" placeholder="12 34 56 78">
+                </div>
+            </div>
+
+            <div class="k3-create-section">Adresse (valgfrit)</div>
+            <div class="k3-dawa-wrap">
+                <input type="text" class="k3-form-input" id="k3DawaInput" placeholder="Søg adresse..." style="width:100%;">
+                <div class="k3-dawa-results" id="k3DawaResults"></div>
+            </div>
+            <div id="k3DawaSelected" style="display:none;margin-top:8px;"></div>
+
+            <div class="k3-create-actions">
+                <button class="k3-create-cancel" onclick="_k3CancelCreate()">Annuller</button>
+                <button class="k3-create-save" id="k3SaveBtn" onclick="_k3SaveNewCustomer()">Opret kunde</button>
+            </div>
+        </div>
+    `;
+
+    // Privat checkbox — hide firma section
+    document.getElementById('k3Privat').addEventListener('change', (e) => {
+        document.getElementById('k3FirmaSection').style.display = e.target.checked ? 'none' : '';
+    });
+
+    // CVR search
+    _k3BindCvrSearch();
+
+    // DAWA autocomplete
+    _k3BindDawa();
+}
+
+function _k3BindCvrSearch() {
+    const input = document.getElementById('k3CvrSearch');
+    const btn = document.getElementById('k3CvrBtn');
+    const resultsEl = document.getElementById('k3CvrResults');
+
+    async function doLookup() {
+        const q = (input.value || '').trim();
+        if (q.length < 2) return;
+
+        try {
+            let results;
+            if (/^\d{8}$/.test(q.replace(/\s/g, ''))) {
+                // CVR number lookup
+                const r = await apiFetch('/cvr/' + q.replace(/\s/g, ''));
+                results = r ? [r] : [];
+            } else {
+                // Name search
+                results = await apiFetch('/cvr/search?q=' + encodeURIComponent(q));
+            }
+
+            if (!results.length) {
+                resultsEl.innerHTML = '<div class="k3-cvr-item" style="color:var(--color-text-dim);">Ingen resultater</div>';
+                resultsEl.style.display = 'block';
+                return;
+            }
+
+            resultsEl.innerHTML = results.slice(0, 8).map(r =>
+                '<div class="k3-cvr-item" data-cvr=\'' + JSON.stringify(r).replace(/'/g, '&#39;') + '\'>' +
+                    '<div class="k3-cvr-item-name">' + (r.name || '') + '</div>' +
+                    '<div class="k3-cvr-item-detail">CVR: ' + (r.cvr || '—') + ' · ' + (r.address || '') + ' ' + (r.zipcode || '') + ' ' + (r.city || '') + '</div>' +
+                '</div>'
+            ).join('');
+            resultsEl.style.display = 'block';
+
+            resultsEl.querySelectorAll('.k3-cvr-item[data-cvr]').forEach(item => {
+                item.addEventListener('click', () => {
+                    const data = JSON.parse(item.dataset.cvr);
+                    _k3SelectCvr(data);
+                });
+            });
+        } catch (err) {
+            console.error('[k3] CVR lookup:', err);
+            resultsEl.innerHTML = '<div class="k3-cvr-item" style="color:var(--color-sentiment-neg);">Fejl: ' + err.message + '</div>';
+            resultsEl.style.display = 'block';
+        }
+    }
+
+    btn.addEventListener('click', doLookup);
+    input.addEventListener('keydown', (e) => { if (e.key === 'Enter') { e.preventDefault(); doLookup(); } });
+}
+
+function _k3SelectCvr(data) {
+    _k3CvrData = data;
+    document.getElementById('k3CvrResults').style.display = 'none';
+
+    // Fill firma fields
+    if (data.name) document.getElementById('k3FirmaNavn').value = data.name;
+    if (data.cvr) document.getElementById('k3FirmaCvr').value = data.cvr;
+    if (data.email) document.getElementById('k3FirmaEmail').value = data.email;
+    if (data.phone) document.getElementById('k3FirmaTlf').value = data.phone;
+
+    // Show selected badge
+    const sel = document.getElementById('k3CvrSelected');
+    sel.style.display = '';
+    sel.innerHTML = '<div class="k3-cvr-selected">' +
+        '<div><span class="k3-cvr-selected-name">' + data.name + '</span>' +
+        '<span style="margin-left:8px;font-size:11px;color:var(--color-text-dim);">CVR: ' + (data.cvr || '') + '</span></div>' +
+        '<span class="k3-cvr-selected-clear" onclick="_k3ClearCvr()">✕</span>' +
+    '</div>';
+
+    // If address from CVR, pre-fill DAWA
+    if (data.address) {
+        const addrStr = (data.address || '') + ' ' + (data.zipcode || '') + ' ' + (data.city || '');
+        document.getElementById('k3DawaInput').value = addrStr.trim();
+    }
+}
+
+function _k3ClearCvr() {
+    _k3CvrData = null;
+    document.getElementById('k3CvrSelected').style.display = 'none';
+    document.getElementById('k3CvrSelected').innerHTML = '';
+    document.getElementById('k3CvrSearch').value = '';
+}
+
+// ─── DAWA autocomplete ──────────────────────────────────────
+
+let _k3DawaAddress = null;
+
+function _k3BindDawa() {
+    const input = document.getElementById('k3DawaInput');
+    const resultsEl = document.getElementById('k3DawaResults');
+    let timer = null;
+    _k3DawaAddress = null;
+
+    input.addEventListener('input', () => {
+        clearTimeout(timer);
+        const q = input.value.trim();
+        if (q.length < 3) { resultsEl.style.display = 'none'; return; }
+
+        timer = setTimeout(async () => {
+            try {
+                const resp = await fetch('https://api.dataforsyningen.dk/adresser/autocomplete?q=' + encodeURIComponent(q) + '&per_side=5');
+                const data = await resp.json();
+                if (!data.length) { resultsEl.style.display = 'none'; return; }
+                resultsEl.innerHTML = data.map(item =>
+                    '<div class="k3-dawa-item">' + item.tekst + '</div>'
+                ).join('');
+                resultsEl.style.display = 'block';
+
+                resultsEl.querySelectorAll('.k3-dawa-item').forEach((el, i) => {
+                    el.addEventListener('click', () => _k3SelectDawa(data[i]));
+                });
+            } catch (err) {
+                console.error('[k3] DAWA:', err);
+            }
+        }, 300);
+    });
+
+    document.addEventListener('click', (e) => {
+        if (!input.contains(e.target) && !resultsEl.contains(e.target)) {
+            resultsEl.style.display = 'none';
+        }
+    });
+}
+
+async function _k3SelectDawa(item) {
+    document.getElementById('k3DawaResults').style.display = 'none';
+    document.getElementById('k3DawaInput').value = item.tekst;
+
+    try {
+        const resp = await fetch(item.adresse?.href || 'https://api.dataforsyningen.dk/adresser/' + item.adresse?.id);
+        const addr = await resp.json();
+        _k3DawaAddress = {
+            street_name: addr.vejnavn || '',
+            street_nr: addr.husnr || '',
+            postal_code: addr.postnr || '',
+            city: addr.postnrnavn || '',
+            lat: addr.adgangsadresse?.adgangspunkt?.koordinater?.[1] || null,
+            lon: addr.adgangsadresse?.adgangspunkt?.koordinater?.[0] || null,
+            label: item.tekst,
+        };
+
+        // Show selected
+        const sel = document.getElementById('k3DawaSelected');
+        sel.style.display = '';
+        sel.innerHTML = '<div class="k3-cvr-selected">' +
+            '<span>✓ ' + item.tekst + '</span>' +
+            '<span class="k3-cvr-selected-clear" onclick="_k3ClearDawa()">✕</span>' +
+        '</div>';
+        document.getElementById('k3DawaInput').style.display = 'none';
+    } catch (err) {
+        console.error('[k3] DAWA select:', err);
+    }
+}
+
+function _k3ClearDawa() {
+    _k3DawaAddress = null;
+    document.getElementById('k3DawaSelected').style.display = 'none';
+    document.getElementById('k3DawaInput').style.display = '';
+    document.getElementById('k3DawaInput').value = '';
+}
+
+// ─── Save new customer ──────────────────────────────────────
+
+async function _k3SaveNewCustomer() {
+    const isPrivat = document.getElementById('k3Privat').checked;
+    const firstName = document.getElementById('k3KontaktFornavn').value.trim();
+    const lastName = document.getElementById('k3KontaktEfternavn').value.trim();
+    const email = document.getElementById('k3KontaktEmail').value.trim();
+    const phone = document.getElementById('k3KontaktTlf').value.trim();
+
+    if (!firstName) { alert('Fornavn er påkrævet'); document.getElementById('k3KontaktFornavn').focus(); return; }
+
+    const saveBtn = document.getElementById('k3SaveBtn');
+    saveBtn.disabled = true;
+    saveBtn.textContent = 'Opretter...';
+
+    try {
+        let companyId = null;
+
+        // Create company if not privat
+        if (!isPrivat) {
+            const firmaName = document.getElementById('k3FirmaNavn').value.trim();
+            if (firmaName) {
+                const companyResult = await apiFetch('/companies', {
+                    method: 'POST',
+                    body: JSON.stringify({
+                        name: firmaName,
+                        cvr: document.getElementById('k3FirmaCvr').value.trim() || null,
+                        ean: document.getElementById('k3FirmaEan').value.trim() || null,
+                        email: document.getElementById('k3FirmaEmail').value.trim() || null,
+                        phone: document.getElementById('k3FirmaTlf').value.trim() || null,
+                    }),
+                });
+                companyId = companyResult.id;
+            }
+        }
+
+        // Create customer
+        const customerResult = await apiFetch('/customers', {
+            method: 'POST',
+            body: JSON.stringify({
+                first_name: firstName,
+                last_name: lastName || null,
+                email: email || null,
+                phone: phone || null,
+                company_id: companyId,
+            }),
+        });
+
+        // Navigate to new customer profile
+        _k3Navigate(customerResult.id);
+    } catch (err) {
+        console.error('[k3] Save error:', err);
+        alert('Fejl ved oprettelse: ' + err.message);
+        saveBtn.disabled = false;
+        saveBtn.textContent = 'Opret kunde';
+    }
+}
+
+function _k3CancelCreate() {
+    _k3CreateMode = false;
+    document.getElementById('k3SearchArea').style.display = '';
+    document.getElementById('k3CreateArea').style.display = 'none';
+    document.getElementById('k3NewBtn').textContent = '+ Ny kunde';
 }
 
 async function _k3DoSearch(q, stage) {
