@@ -509,6 +509,13 @@ function fetchCrmPipeline(category) {
     return apiFetch('/crm/pipeline' + qs);
 }
 
+function movePipelineCard(bonId, column) {
+    return apiFetch('/crm/pipeline/' + bonId + '/move', {
+        method: 'PATCH',
+        body: JSON.stringify({ column: column }),
+    });
+}
+
 function postCrmActivity(data) {
     return apiFetch('/crm/activity', {
         method: 'POST',

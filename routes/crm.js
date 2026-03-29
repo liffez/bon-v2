@@ -777,14 +777,64 @@ router.get('/pipeline', handle((req, res) => {
             offer_status: r.offer_status,
         };
 
-        if (r.is_offer && r.offer_status === 'sent') columns.tilbud_sendt.items.push(item);
-        else if (r.is_offer && r.offer_status === 'draft') columns.ny.items.push(item);
+        // Status-baseret sortering har højere prioritet end offer_status
+        if (r.status === 'GODKENDT' || (r.is_offer && r.offer_status === 'won')) columns.vundet.items.push(item);
         else if (r.status === 'VENTER') columns.forhandling.items.push(item);
-        else if (r.status === 'GODKENDT' || (r.is_offer && r.offer_status === 'won')) columns.vundet.items.push(item);
+        else if (r.is_offer && r.offer_status === 'sent') columns.tilbud_sendt.items.push(item);
         else columns.ny.items.push(item);
     }
 
     res.json(columns);
+}));
+
+// ─── PATCH /pipeline/:id/move ────────────────────────────────
+router.patch('/pipeline/:id/move', handle((req, res) => {
+    const db = getDb();
+    const bonId = parseInt(req.params.id);
+    const { column } = req.body;
+    if (!column) return res.status(400).json({ error: 'column er påkrævet' });
+
+    const bon = db.prepare('SELECT b.*, sd.code as status FROM bons b JOIN status_definitions sd ON b.status_id = sd.id WHERE b.id = ?').get(bonId);
+    if (!bon) return res.status(404).json({ error: 'Bon ikke fundet' });
+
+    // Map column → status/offer_status changes
+    const columnMap = {
+        ny:            { status_code: 'NY', offer_status: bon.is_offer ? 'draft' : null },
+        tilbud_sendt:  { status_code: null, offer_status: 'sent' },
+        forhandling:   { status_code: 'VENTER', offer_status: null },
+        vundet:        { status_code: 'GODKENDT', offer_status: bon.is_offer ? 'won' : null },
+    };
+
+    const mapping = columnMap[column];
+    if (!mapping) return res.status(400).json({ error: 'Ugyldig kolonne: ' + column });
+
+    // Update status if needed
+    if (mapping.status_code && bon.status !== mapping.status_code) {
+        const newStatus = db.prepare('SELECT id FROM status_definitions WHERE code = ?').get(mapping.status_code);
+        if (newStatus) {
+            db.prepare('UPDATE bons SET status_id = ? WHERE id = ?').run(newStatus.id, bonId);
+            logChange({ entityType: 'bon', entityId: bonId, action: 'update', fieldName: 'status', oldValue: bon.status, newValue: mapping.status_code, userId: req.session?.userId });
+        }
+    }
+
+    // Update offer_status if needed
+    if (mapping.offer_status && bon.offer_status !== mapping.offer_status) {
+        db.prepare('UPDATE bons SET offer_status = ? WHERE id = ?').run(mapping.offer_status, bonId);
+        logChange({ entityType: 'bon', entityId: bonId, action: 'update', fieldName: 'offer_status', oldValue: bon.offer_status, newValue: mapping.offer_status, userId: req.session?.userId });
+        if (mapping.offer_status === 'sent' && !bon.offer_sent_at) {
+            db.prepare("UPDATE bons SET offer_sent_at = datetime('now') WHERE id = ?").run(bonId);
+        }
+    }
+
+    // Ensure is_offer is set for tilbud columns
+    if ((column === 'tilbud_sendt') && !bon.is_offer) {
+        db.prepare('UPDATE bons SET is_offer = 1 WHERE id = ?').run(bonId);
+    }
+
+    const { broadcast } = require('../shared/sse');
+    broadcast('bon_updated', { id: bonId });
+
+    res.json({ success: true });
 }));
 
 module.exports = router;

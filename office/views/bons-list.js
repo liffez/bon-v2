@@ -258,6 +258,7 @@ function _blOnFilterClick(e) {
 }
 
 function _blUpdateFilterButtons() {
+    if (!_blContainer) return;
     var btns = _blContainer.querySelectorAll('.bl-filter-btn');
     for (var i = 0; i < btns.length; i++) {
         btns[i].classList.toggle('active', btns[i].dataset.filter === _blFilter);

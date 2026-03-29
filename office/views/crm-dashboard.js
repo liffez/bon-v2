@@ -167,6 +167,19 @@ function _crmRenderShell() {
             .crm-pipe-tag.store { background: var(--brand-primary-light); color: var(--brand-primary); }
             .crm-pipe-pax { font-size: 11px; color: var(--color-text-dim); }
 
+            /* Drag & drop */
+            .crm-pipe-card[draggable="true"] { cursor: grab; }
+            .crm-pipe-card.dragging { opacity: 0.4; transform: scale(0.95); }
+            .crm-pipe-col.drag-over { background: var(--brand-primary-light, #f1e6b2); border-radius: 8px; }
+            .crm-pipe-drop-zone {
+                min-height: 40px; border: 2px dashed transparent; border-radius: 8px;
+                transition: border-color .15s, background .15s;
+            }
+            .crm-pipe-col.drag-over .crm-pipe-drop-zone {
+                border-color: var(--brand-primary, #8e631f);
+                background: rgba(142,99,31,0.05);
+            }
+
             /* Callbacks panel */
             .crm-cb-item {
                 display: flex; align-items: center; gap: 10px;
@@ -477,6 +490,8 @@ async function _crmLoadPipeline(category) {
     }
 }
 
+let _crmDragBonId = null;
+
 function _crmRenderPipeline(columns) {
     const el = document.getElementById('crmPipeBoard');
     if (!el) return;
@@ -484,16 +499,17 @@ function _crmRenderPipeline(columns) {
     const catTagClass = { catering: 'catering', festival: 'festival', produktion: 'produktion', store: 'store' };
 
     el.innerHTML = Object.entries(columns).map(([key, col]) =>
-        '<div class="crm-pipe-col">' +
+        '<div class="crm-pipe-col" data-column="' + key + '">' +
             '<div class="crm-pipe-col-head">' +
                 '<span>' + col.label + '</span>' +
                 '<span class="crm-pipe-count">' + col.items.length + '</span>' +
             '</div>' +
+            '<div class="crm-pipe-drop-zone">' +
             (col.items.length ? col.items.map(item =>
-                '<div class="crm-pipe-card" onclick="_crmOpenKunde(' + (item.id || '') + ')">' +
+                '<div class="crm-pipe-card" draggable="true" data-bon-id="' + item.id + '">' +
                     '<div class="crm-pipe-name">' + (item.company_name || item.customer_name || 'Ukendt') + '</div>' +
                     '<div class="crm-pipe-meta">' +
-                        (item.delivery_date || '') +
+                        '#' + (item.bon_number || '') + ' · ' + (item.delivery_date || '') +
                         (item.customer_name && item.company_name ? ' · ' + item.customer_name : '') +
                     '</div>' +
                     '<div class="crm-pipe-footer">' +
@@ -503,9 +519,61 @@ function _crmRenderPipeline(columns) {
                         (item.pax ? '<span class="crm-pipe-pax">👥 ' + item.pax + '</span>' : '') +
                     '</div>' +
                 '</div>'
-            ).join('') : '<div class="crm-empty" style="padding:10px;font-size:11px;">Ingen</div>') +
+            ).join('') : '<div class="crm-empty" style="padding:10px;font-size:11px;">Slip her</div>') +
+            '</div>' +
         '</div>'
     ).join('');
+
+    // Wire drag & drop
+    el.querySelectorAll('.crm-pipe-card[draggable]').forEach(card => {
+        card.addEventListener('dragstart', (e) => {
+            _crmDragBonId = parseInt(card.dataset.bonId);
+            card.classList.add('dragging');
+            e.dataTransfer.effectAllowed = 'move';
+            e.dataTransfer.setData('text/plain', card.dataset.bonId);
+        });
+        card.addEventListener('dragend', () => {
+            card.classList.remove('dragging');
+            el.querySelectorAll('.crm-pipe-col').forEach(c => c.classList.remove('drag-over'));
+            _crmDragBonId = null;
+        });
+        // Click → open drawer (only if not dragging)
+        card.addEventListener('click', (e) => {
+            if (_crmDragBonId) return;
+            const bonId = parseInt(card.dataset.bonId);
+            if (_crmOpts.openDrawer) _crmOpts.openDrawer(bonId);
+        });
+    });
+
+    el.querySelectorAll('.crm-pipe-col').forEach(col => {
+        col.addEventListener('dragover', (e) => {
+            e.preventDefault();
+            e.dataTransfer.dropEffect = 'move';
+            col.classList.add('drag-over');
+        });
+        col.addEventListener('dragleave', (e) => {
+            if (!col.contains(e.relatedTarget)) {
+                col.classList.remove('drag-over');
+            }
+        });
+        col.addEventListener('drop', async (e) => {
+            e.preventDefault();
+            col.classList.remove('drag-over');
+            const bonId = parseInt(e.dataTransfer.getData('text/plain'));
+            const targetColumn = col.dataset.column;
+            if (!bonId || !targetColumn) return;
+
+            try {
+                await movePipelineCard(bonId, targetColumn);
+                // Re-fetch pipeline to reflect new state
+                const activeFilter = document.querySelector('.crm-pipe-filter.active');
+                _crmLoadPipeline(activeFilter ? activeFilter.dataset.cat || '' : '');
+            } catch (err) {
+                console.error('[crm] Pipeline move error:', err);
+                alert('Kunne ikke flytte: ' + (err.message || 'Ukendt fejl'));
+            }
+        });
+    });
 }
 
 // ─── Navigation helpers ─────────────────────────────────────
