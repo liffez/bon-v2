@@ -611,8 +611,16 @@ Nye filer placeres præcis der de hører hjemme — kopieres ikke.
   - Månedsdividere i timeline
   - Sentiment-badges med danske labels (God/Neutral/Dårlig)
 - [x] `office/views/crm-inbox.js` — Keyboard navigation (↑↓), focus-states, bedre styling
-- [x] `routes/crm.js` — `GET /api/crm/pipeline` endpoint + `customer_email` i service-calls
-- [x] `shared/api.js` — `fetchCrmPipeline()` tilføjet
+- [x] `routes/crm.js` — `GET /api/crm/pipeline` + `PATCH /api/crm/pipeline/:id/move` + `customer_email` i service-calls
+- [x] `shared/api.js` — `fetchCrmPipeline()` + `movePipelineCard()` tilføjet
+- [x] Pipeline drag-drop: HTML5 drag API, visuelt feedback, status-opdatering via API
+- [x] Opret kunde flow på Kunder-siden:
+  - "+ Ny kunde" knap med toggle til formular
+  - CVR-opslag via navn eller nummer (cvrapi.dk), autofyld alle firma-felter
+  - Privatkunde-checkbox springer firma over
+  - DAWA autocomplete adresse-validering (api.dataforsyningen.dk)
+  - Opret → POST companies + POST customers → navigér til Kunde 360°
+- [x] `office/views/bons-list.js` — SSE guard fix (_blUpdateFilterButtons null-check)
 
 ## Næste opgave
 
@@ -623,7 +631,7 @@ Nye filer placeres præcis der de hører hjemme — kopieres ikke.
 > Office redesignet med Playfair Display/DM Sans, sentiment trendline, pipeline board, aktivitetstimeline.
 > Mail-system fixet (attachments, unmatched linking, badges, toast).
 >
-> **Næste:** Pipeline drag-drop (kanban), Bestilling (Hørkram montering), Varemodtagelse (fusion-endpoint),
+> **Næste:** Bestilling (Hørkram montering), Varemodtagelse (fusion-endpoint),
 > Priser-setting i planlægningsbon, Tilbud og Ugeoversigt.
 > Så er Bon v1 klar til nedlukning.
 >
@@ -937,6 +945,7 @@ GET    /api/dashboard/stats?days_back=&days_forward=     routes/dashboard.js
 GET    /api/dashboard/top-products?from=&to=             routes/dashboard.js
 GET    /api/dashboard/weather                            routes/dashboard.js (placeholder)
 GET    /api/crm/pipeline?category=                      routes/crm.js
+PATCH  /api/crm/pipeline/:id/move  { column }          routes/crm.js
 POST   /api/price-categories                             routes/price_categories.js (admin)
 PATCH  /api/price-categories/:id                         routes/price_categories.js (admin)
 POST   /api/payment-types                                routes/payment_types.js (admin)
