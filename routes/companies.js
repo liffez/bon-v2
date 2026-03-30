@@ -1,7 +1,7 @@
 const express = require('express');
 const router = express.Router();
 const { getDb } = require('../db/database');
-const { handle } = require('../db/helpers');
+const { handle, logChange } = require('../db/helpers');
 
 // GET /api/companies?q=
 router.get('/', handle((req, res) => {
@@ -49,6 +49,31 @@ router.post('/', handle((req, res) => {
            default_price_category_id || null, notes || null);
 
     res.json({ id: result.lastInsertRowid });
+}));
+
+// PATCH /api/companies/:id/economic — opdater e-conomic firma-nr
+router.patch('/:id/economic', handle((req, res) => {
+    const db = getDb();
+    const { id } = req.params;
+    const { economic_customer_id } = req.body;
+
+    const existing = db.prepare('SELECT economic_customer_id FROM companies WHERE id = ?').get(id);
+    if (!existing) return res.status(404).json({ error: 'Firma ikke fundet' });
+
+    db.prepare('UPDATE companies SET economic_customer_id = ? WHERE id = ?')
+      .run(economic_customer_id || null, id);
+
+    logChange({
+        entityType: 'company',
+        entityId: Number(id),
+        action: 'update',
+        fieldName: 'economic_customer_id',
+        oldValue: existing.economic_customer_id,
+        newValue: economic_customer_id,
+        userId: req.session?.user?.id,
+    });
+
+    res.json({ ok: true });
 }));
 
 module.exports = router;

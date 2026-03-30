@@ -530,6 +530,29 @@ function patchCrmCustomerStage(id, stage) {
     });
 }
 
+/* ── FAKTURERING ─────────────────────────────────────────── */
+
+function fetchInvoiceQueue(includeDone) {
+    var qs = includeDone ? '?include_done=1' : '';
+    return apiFetch('/invoices/queue' + qs);
+}
+
+function patchCompanyEconomic(companyId, economicCustomerId) {
+    return apiFetch('/companies/' + companyId + '/economic', {
+        method: 'PATCH',
+        body: JSON.stringify({ economic_customer_id: economicCustomerId }),
+    });
+}
+
+function patchCustomerEconomic(customerId, fields) {
+    return apiFetch('/customers/' + customerId + '/economic', {
+        method: 'PATCH',
+        body: JSON.stringify(fields),
+    });
+}
+
+/* ── MAIL (UNMATCHED) ───────────────────────────────────── */
+
 function fetchUnmatchedMails(status) {
     var qs = status ? '?status=' + status : '';
     return apiFetch('/mail/unmatched' + qs);

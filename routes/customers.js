@@ -1,7 +1,7 @@
 const express    = require('express');
 const router     = express.Router();
 const { getDb }  = require('../db/database');
-const { handle } = require('../db/helpers');
+const { handle, logChange } = require('../db/helpers');
 
 // GET /api/customers?q=&company_id=
 router.get('/', handle((req, res) => {
@@ -78,6 +78,40 @@ router.get('/:id', handle((req, res) => {
     `).all(c.id);
 
     res.json(c);
+}));
+
+// PATCH /api/customers/:id/economic — opdater e-conomic kontakt/kunde-nr
+router.patch('/:id/economic', handle((req, res) => {
+    const db = getDb();
+    const { id } = req.params;
+    const { economic_contact_id, economic_customer_id } = req.body;
+
+    const existing = db.prepare('SELECT economic_contact_id, economic_customer_id FROM customers WHERE id = ?').get(id);
+    if (!existing) return res.status(404).json({ error: 'Kunde ikke fundet' });
+
+    if (economic_contact_id !== undefined) {
+        db.prepare('UPDATE customers SET economic_contact_id = ? WHERE id = ?')
+          .run(economic_contact_id || null, id);
+        logChange({
+            entityType: 'customer', entityId: Number(id), action: 'update',
+            fieldName: 'economic_contact_id',
+            oldValue: existing.economic_contact_id, newValue: economic_contact_id,
+            userId: req.session?.user?.id,
+        });
+    }
+
+    if (economic_customer_id !== undefined) {
+        db.prepare('UPDATE customers SET economic_customer_id = ? WHERE id = ?')
+          .run(economic_customer_id || null, id);
+        logChange({
+            entityType: 'customer', entityId: Number(id), action: 'update',
+            fieldName: 'economic_customer_id',
+            oldValue: existing.economic_customer_id, newValue: economic_customer_id,
+            userId: req.session?.user?.id,
+        });
+    }
+
+    res.json({ ok: true });
 }));
 
 /* ── CUSTOMER MAIL ────────────────────────────────────────── */

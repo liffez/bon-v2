@@ -17,6 +17,7 @@
   <link rel="stylesheet" href="../shared/calendar.css">
   <link rel="stylesheet" href="../shared/planning.css">
   <link rel="stylesheet" href="../shared/modal.css">
+  <link rel="stylesheet" href="views/fakturering.css">
   <!-- Chart.js removed — custom canvas chart in shared/dashboard_chart.js -->
   <style>
     /* ── Shell layout ───────────────────────────────────────── */
@@ -476,8 +477,9 @@
           </button>
 
           <div class="sidebar-group-label">Økonomi</div>
-          <button class="sidebar-link disabled">
+          <button class="sidebar-link" data-view="fakturering">
             <span class="sidebar-icon">💰</span> Fakturering
+            <span class="sidebar-badge gold" id="invoice-badge" style="display:none"></span>
           </button>
           <button class="sidebar-link disabled">
             <span class="sidebar-icon">📈</span> Rapporter
@@ -530,6 +532,7 @@
   <script src="views/crm-dashboard.js"></script>
   <script src="views/crm-kunde360.js"></script>
   <script src="views/crm-inbox.js"></script>
+  <script src="views/fakturering.js"></script>
 
   <script>
     (async () => {
@@ -614,6 +617,10 @@
           init: () => initCrmInbox(contentEl, {}),
           cleanup: () => { if (typeof cleanupCrmInbox === 'function') cleanupCrmInbox(); },
         },
+        fakturering: {
+          init: () => initFakturering(contentEl, { openDrawer }),
+          cleanup: () => { if (typeof cleanupFakturering === 'function') cleanupFakturering(); },
+        },
       };
 
       function openKunde360(customerId) {
@@ -657,6 +664,21 @@
         btn.addEventListener('click', () => switchView(btn.dataset.view));
       });
 
+      // Invoice badge
+      async function updateInvoiceBadge() {
+        try {
+          const data = await fetchInvoiceQueue(false);
+          const badge = document.getElementById('invoice-badge');
+          if (badge && data.summary.pending_count > 0) {
+            badge.textContent = data.summary.pending_count;
+            badge.style.display = '';
+          } else if (badge) {
+            badge.style.display = 'none';
+          }
+        } catch (_) {}
+      }
+      updateInvoiceBadge();
+
       // Determine initial view from URL
       const params = new URLSearchParams(window.location.search);
       const initialView = params.get('view') || 'dashboard';
@@ -689,13 +711,16 @@
         bon_created: (data) => {
           if (typeof _blHandleBonCreated === 'function') _blHandleBonCreated(data);
           if (typeof _dashHandleSSE === 'function') _dashHandleSSE('bon_created', data);
+          if (typeof _faktHandleSSE === 'function') _faktHandleSSE('bon_created', data);
         },
         bon_updated: (data) => {
           if (typeof _blHandleBonUpdated === 'function') _blHandleBonUpdated(data);
           if (typeof _dashHandleSSE === 'function') _dashHandleSSE('bon_updated', data);
+          if (typeof _faktHandleSSE === 'function') _faktHandleSSE('bon_updated', data);
         },
         bon_status: (data) => {
           if (typeof _dashHandleSSE === 'function') _dashHandleSSE('bon_status', data);
+          if (typeof _faktHandleSSE === 'function') _faktHandleSSE('bon_status', data);
         },
         crm_activity_created: (data) => {
           if (typeof _crmDashHandleSSE === 'function') _crmDashHandleSSE('crm_activity_created', data);

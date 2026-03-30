@@ -85,7 +85,8 @@ bon-v2/
 │   ├── webhooks.js   ← /api/webhooks/bestilling (ingen auth)
 │   ├── users.js      ← /api/users (admin CRUD)
 │   ├── mail.js       ← /api/mail/* (admin, skabeloner + test)
-│   └── dashboard.js  ← /api/dashboard/* (today, stats, top-products, weather)
+│   ├── dashboard.js  ← /api/dashboard/* (today, stats, top-products, weather)
+│   └── invoices.js   ← /api/invoices/queue (fakturerings-arbejdsliste)
 ├── services/
 │   ├── grocyAdapter.js       ← Grocy API adapter med cache + CRUD + consume
 │   ├── ingredientResolver.js ← Rekursiv ingrediens-opløsning inkl. underopskrifter
@@ -622,16 +623,43 @@ Nye filer placeres præcis der de hører hjemme — kopieres ikke.
   - Opret → POST companies + POST customers → navigér til Kunde 360°
 - [x] `office/views/bons-list.js` — SSE guard fix (_blUpdateFilterButtons null-check)
 
+### Fase 8 — Fakturering
+- [x] `routes/invoices.js` — `GET /api/invoices/queue` (pending + done + summary)
+  - Pending: LEVERET + payment_type = 'invoice', sorteret ældste først
+  - Done: FAKTURERET/AFSLUTTET, seneste 60 dage (optional via `?include_done=1`)
+  - Summary: pending_count, pending_amount, ean_count, done_count_month, done_amount_month
+  - Inline bon_lines per bon, formatBon() med nested customer/company/address
+- [x] `routes/companies.js` — `PATCH /api/companies/:id/economic` (e-conomic firma-nr med changelog)
+- [x] `routes/customers.js` — `PATCH /api/customers/:id/economic` (e-conomic kontakt/kunde-nr med changelog)
+- [x] `server.js` — Mount `/api/invoices`
+- [x] `shared/api.js` — `fetchInvoiceQueue()`, `patchCompanyEconomic()`, `patchCustomerEconomic()`
+- [x] `office/views/fakturering.js` + `fakturering.css` — Komplet master-detail view
+  - Summary-strip (4 kort: afventer, beløb, EAN, faktureret denne måned)
+  - Liste-panel (380px) med aldersprikker (grøn 0–3d / orange 4–7d / rød 8+d)
+  - Søgning med debounce, filtrerer på bon_number + kunde + firma
+  - Afventer-sektion (ældste øverst) + Faktureret-sektion (dæmpet, gennemstreget)
+  - Auto-select første afventer bon ved load
+  - Detail-panel: read-only bon med levering, kunde/firma, e-conomic inline-edit, ordre, varer, noter
+  - E-conomic inline-edit: firma-nr + kontakt-nr (firma) eller kunde-nr (privat), Enter/Escape/Gem/Annuller
+  - "Markér faktureret" med custom confirm-dialog + valgfrit fakturanummer
+  - Fakturanummer gemmes i invoice_note
+  - Fade-animation ved markering + auto-select næste bon
+  - e-conomic teaser ("integration kommer")
+  - "Åbn bon" → åbner BonDrawer
+  - SSE realtidsopdatering (bon_status, bon_updated, bon_created)
+- [x] `office/index.html` — Sidebar aktiveret (data-view="fakturering"), guld badge med pending count
+  - View-switcher: `initFakturering()` / `cleanupFakturering()`
+  - SSE-handlers: `_faktHandleSSE` på bon_created/bon_updated/bon_status
+
 ## Næste opgave
 
-> ✏️ Opdateret 29. marts 2026.
+> ✏️ Opdateret 30. marts 2026.
 >
-> **Fase 1a–1e + 3A + 3B + 3D + 4 + 5 + 6 (indkøbsliste) + 7 (CRM) + Office CRM redesign komplet.**
-> CRM med dashboard, kunde360, aktivitetslog, mail compose, indbakke integreret.
-> Office redesignet med Playfair Display/DM Sans, sentiment trendline, pipeline board, aktivitetstimeline.
-> Mail-system fixet (attachments, unmatched linking, badges, toast).
+> **Fase 1a–1e + 3A + 3B + 3D + 4 + 5 + 6 (indkøbsliste) + 7 (CRM) + Office CRM redesign + 8 (Fakturering) komplet.**
+> Fakturering: master-detail med arbejdsliste, e-conomic inline-edit, markér faktureret med dialog.
 >
-> **Næste:** Bestilling (Hørkram montering), Varemodtagelse (fusion-endpoint),
+> **Næste:** Rapporter (office/views/rapporter.js — 5 API-endpoints + KPI/chart/tabel),
+> Bestilling (Hørkram montering), Varemodtagelse (fusion-endpoint),
 > Priser-setting i planlægningsbon, Tilbud og Ugeoversigt.
 > Så er Bon v1 klar til nedlukning.
 >
@@ -650,6 +678,7 @@ Nye filer placeres præcis der de hører hjemme — kopieres ikke.
 > - shared/-mappe opdeling i undermapper — udskydes til senere refaktorering
 > - orders.js migrering fra JSON-fil til SQLite — bør ske inden bestilling tages i brug
 > - Varemodtagelse fusion-endpoint arkitektur: `POST /api/receiving/complete` → Grocy + Whiteboard + lokal log
+> - Rapporter: LEVERET skal medtages i omsætningstal (ikke kun terminal-statusser)
 >
 > **Beslutninger taget:**
 > - Kalender er separat sidebar-punkt i office (ikke fane i listview)
@@ -658,6 +687,8 @@ Nye filer placeres præcis der de hører hjemme — kopieres ikke.
 > - Lager-forbrug: per-produkt consume (ikke recipe-level), inkl. emballage
 > - Grocy QU: `recipes_pos.amount` er i stock-units, `qu_id` er display-enhed — DB skal IKKE ændres
 > - Indkøbsliste bruger purchase-enhed med oprunding ved tilføjelse til Grocy shopping list
+> - Fakturering og Rapporter er separate sidebar-punkter (ikke tabs)
+> - Rapporter bruger custom canvas chart (som dashboard), ikke Chart.js
 
 ---
 
@@ -950,6 +981,9 @@ POST   /api/price-categories                             routes/price_categories
 PATCH  /api/price-categories/:id                         routes/price_categories.js (admin)
 POST   /api/payment-types                                routes/payment_types.js (admin)
 PATCH  /api/payment-types/:id                            routes/payment_types.js (admin)
+GET    /api/invoices/queue?include_done=1                routes/invoices.js
+PATCH  /api/companies/:id/economic                       routes/companies.js
+PATCH  /api/customers/:id/economic                       routes/customers.js
 ```
 
 ---
