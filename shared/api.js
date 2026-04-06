@@ -564,3 +564,47 @@ function patchUnmatchedMail(id, data) {
         body: JSON.stringify(data),
     });
 }
+
+/* ── TILBUD ─────────────────────────────────────────────── */
+
+function fetchQuotes(params) {
+    var qs = params ? '?' + new URLSearchParams(params).toString() : '';
+    return apiFetch('/quotes' + qs);
+}
+
+function fetchQuote(id) {
+    return apiFetch('/quotes/' + id);
+}
+
+function createQuote(data) {
+    return apiFetch('/quotes', {
+        method: 'POST',
+        body: JSON.stringify(data),
+    });
+}
+
+function updateQuote(id, data) {
+    return apiFetch('/quotes/' + id, {
+        method: 'PATCH',
+        body: JSON.stringify(data),
+    });
+}
+
+function deleteQuote(id) {
+    return apiFetch('/quotes/' + id, { method: 'DELETE' });
+}
+
+function patchQuoteStatus(id, status) {
+    return apiFetch('/quotes/' + id + '/status', {
+        method: 'PATCH',
+        body: JSON.stringify({ status: status }),
+    });
+}
+
+function convertQuoteToBon(id) {
+    return apiFetch('/quotes/' + id + '/convert', { method: 'POST' });
+}
+
+function fetchNextQuoteNumber() {
+    return apiFetch('/quotes/next-number');
+}

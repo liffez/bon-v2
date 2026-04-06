@@ -23,7 +23,7 @@ const SORT_WHITELIST = {
 router.get('/', handle((req, res) => {
     const db = getDb();
     const { status, date, date_from, date_to, q, location, unread_mail, sort, dir, limit, offset } = req.query;
-    const where = ['1=1'];
+    const where = ['(b.is_offer = 0 OR b.is_offer IS NULL)'];
     const args  = [];
 
     // Status — kommasepareret

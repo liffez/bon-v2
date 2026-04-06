@@ -250,19 +250,25 @@ erDiagram
 
     quotes {
         int id PK
-        text quote_number UK "T-0001, T-0002..."
+        text quote_number UK "T-0042"
         int customer_id FK
         int company_id FK
-        int price_category_id FK
+        text price_category "catering, store, festival..."
         date quote_date
         date valid_until "Gyldig til"
         date delivery_date "Ønsket leveringsdato"
+        text delivery_time "HH:MM"
         int pax
-        text delivery_type
+        text delivery_type "delivery, pickup"
         int delivery_address_id FK
+        real delivery_price "Leveringspris"
+        text delivery_note "Bud-info"
+        text template "event, single, custom"
+        text price_mode "total, block, line"
+        real discount_percent "Rabat i procent"
         real total_price
         text notes "Intern note"
-        text customer_message "Tekst til kunden"
+        text customer_wishes "Kundens ønsker"
         text status "draft | sent | accepted | declined | expired"
         int converted_to_bon_id FK "Null indtil konverteret"
         int created_by_user_id FK
@@ -273,11 +279,13 @@ erDiagram
     quote_lines {
         int id PK
         int quote_id FK
+        text block_type "morning, lunch, amsnack, pmsnack"
         int grocy_recipe_id
         text product_name
         int quantity
         text unit
         real unit_price
+        real cost_price
         real line_total
         int sort_order
         text notes
@@ -712,16 +720,24 @@ CREATE TABLE quotes (
     quote_number TEXT NOT NULL UNIQUE,
     customer_id INTEGER REFERENCES customers(id),
     company_id INTEGER REFERENCES companies(id),
-    price_category_id INTEGER REFERENCES price_categories(id),
-    quote_date DATE NOT NULL,
+    price_category TEXT NOT NULL DEFAULT 'catering',
+    quote_date DATE NOT NULL DEFAULT (DATE('now')),
     valid_until DATE,
     delivery_date DATE,
+    delivery_time TEXT,
     pax INTEGER,
     delivery_type TEXT DEFAULT 'delivery',
     delivery_address_id INTEGER REFERENCES addresses(id),
+    delivery_price REAL DEFAULT 0,
+    delivery_note TEXT,
+    template TEXT NOT NULL DEFAULT 'event'
+        CHECK (template IN ('event', 'single', 'custom')),
+    price_mode TEXT NOT NULL DEFAULT 'total'
+        CHECK (price_mode IN ('total', 'block', 'line')),
+    discount_percent REAL DEFAULT 0,
     total_price REAL,
     notes TEXT,
-    customer_message TEXT,
+    customer_wishes TEXT,
     status TEXT NOT NULL DEFAULT 'draft'
         CHECK (status IN ('draft', 'sent', 'accepted', 'declined', 'expired')),
     converted_to_bon_id INTEGER REFERENCES bons(id),
@@ -733,11 +749,13 @@ CREATE TABLE quotes (
 CREATE TABLE quote_lines (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     quote_id INTEGER NOT NULL REFERENCES quotes(id) ON DELETE CASCADE,
+    block_type TEXT,
     grocy_recipe_id INTEGER,
     product_name TEXT NOT NULL,
-    quantity INTEGER NOT NULL,
+    quantity INTEGER NOT NULL DEFAULT 1,
     unit TEXT NOT NULL DEFAULT 'stk',
     unit_price REAL,
+    cost_price REAL,
     line_total REAL,
     sort_order INTEGER NOT NULL DEFAULT 0,
     notes TEXT

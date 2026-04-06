@@ -18,6 +18,8 @@
   <link rel="stylesheet" href="../shared/planning.css">
   <link rel="stylesheet" href="../shared/modal.css">
   <link rel="stylesheet" href="views/fakturering.css">
+  <link rel="stylesheet" href="views/tilbud.css">
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.2/jspdf.umd.min.js"></script>
   <!-- Chart.js removed — custom canvas chart in shared/dashboard_chart.js -->
   <style>
     /* ── Shell layout ───────────────────────────────────────── */
@@ -465,6 +467,11 @@
             <span class="sidebar-icon">📬</span> Indbakke
           </button>
 
+          <button class="sidebar-link" data-view="tilbud">
+            <span class="sidebar-icon">📋</span> Tilbud
+            <span class="sidebar-badge gold" id="quotes-badge" style="display:none"></span>
+          </button>
+
           <div class="sidebar-group-label">Drift</div>
           <button class="sidebar-link disabled">
             <span class="sidebar-icon">🚛</span> Logistik
@@ -533,6 +540,7 @@
   <script src="views/crm-kunde360.js"></script>
   <script src="views/crm-inbox.js"></script>
   <script src="views/fakturering.js"></script>
+  <script src="views/tilbud.js"></script>
 
   <script>
     (async () => {
@@ -620,6 +628,13 @@
         fakturering: {
           init: () => initFakturering(contentEl, { openDrawer }),
           cleanup: () => { if (typeof cleanupFakturering === 'function') cleanupFakturering(); },
+        },
+        tilbud: {
+          init: () => {
+            const p = new URLSearchParams(window.location.search);
+            initTilbud(contentEl, { openDrawer, customer_id: p.get('customer') ? parseInt(p.get('customer')) : null, id: p.get('quote') ? parseInt(p.get('quote')) : null });
+          },
+          cleanup: () => { if (typeof cleanupTilbud === 'function') cleanupTilbud(); },
         },
       };
 
@@ -731,6 +746,12 @@
         },
         mail_unmatched: (data) => {
           if (typeof _inbHandleSSE === 'function') _inbHandleSSE('mail_unmatched', data);
+        },
+        quote_created: (data) => {
+          if (typeof _tilbudHandleSSE === 'function') _tilbudHandleSSE('quote_created', data);
+        },
+        quote_updated: (data) => {
+          if (typeof _tilbudHandleSSE === 'function') _tilbudHandleSSE('quote_updated', data);
         },
       });
     })();

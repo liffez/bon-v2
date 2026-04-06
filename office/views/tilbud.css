@@ -1,0 +1,674 @@
+/* ── Tilbud — Liste + Wizard ───────────────────────────── */
+
+/* ── Liste ────────────────────────────────────────────── */
+
+.tilbud-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 16px;
+}
+.tilbud-header h2 {
+  font-family: var(--font-heading, 'Playfair Display', serif);
+  font-size: 1.4rem;
+  font-weight: 700;
+  margin: 0;
+}
+.tilbud-filters {
+  display: flex;
+  gap: 6px;
+  flex-wrap: wrap;
+  margin-bottom: 16px;
+}
+.tilbud-filter {
+  padding: 5px 14px;
+  border: 1.5px solid var(--color-border, #d7d1ca);
+  border-radius: 18px;
+  background: var(--color-surface, #fff);
+  cursor: pointer;
+  font-size: .8rem;
+  font-weight: 500;
+  color: var(--color-text-dim, #7a6f5f);
+  font-family: var(--font-body, 'DM Sans', sans-serif);
+  transition: all .2s;
+}
+.tilbud-filter:hover { border-color: var(--brand-primary, #8e631f); }
+.tilbud-filter.active {
+  background: var(--brand-primary, #8e631f);
+  color: #fff;
+  border-color: var(--brand-primary, #8e631f);
+}
+
+.tilbud-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: .85rem;
+}
+.tilbud-table th {
+  text-align: left;
+  font-size: .7rem;
+  text-transform: uppercase;
+  letter-spacing: .04em;
+  color: var(--color-text-dim, #7a6f5f);
+  padding: 8px 10px;
+  border-bottom: 2px solid var(--color-border, #d7d1ca);
+  font-weight: 600;
+}
+.tilbud-table td {
+  padding: 10px;
+  border-bottom: 1px solid var(--color-border-light, #ede8dd);
+}
+.tilbud-table tr { cursor: pointer; transition: background .12s; }
+.tilbud-table tr:hover td { background: var(--color-background, #f5f4f2); }
+.tilbud-table .r { text-align: right; }
+.tilbud-table .mono { font-family: 'JetBrains Mono', monospace; font-size: .8rem; }
+
+.tilbud-status {
+  display: inline-block;
+  padding: 2px 10px;
+  border-radius: 12px;
+  font-size: .72rem;
+  font-weight: 600;
+  letter-spacing: .03em;
+  text-transform: uppercase;
+}
+
+.tilbud-empty {
+  text-align: center;
+  padding: 60px 20px;
+  color: var(--color-text-dim, #7a6f5f);
+}
+.tilbud-empty .icon { font-size: 2.5rem; margin-bottom: 12px; }
+.tilbud-empty p { font-size: .9rem; margin-bottom: 16px; }
+
+/* ── Wizard ───────────────────────────────────────────── */
+
+.tilbud-wizard { animation: tilbud-fi .25s ease; }
+@keyframes tilbud-fi { from { opacity: 0; transform: translateY(6px); } to { opacity: 1; transform: translateY(0); } }
+
+.tilbud-steps {
+  display: flex;
+  padding: 0 0 0 0;
+  background: var(--color-background, #f5f4f2);
+  border-bottom: 1px solid var(--color-border, #d7d1ca);
+  border-radius: 8px 8px 0 0;
+  overflow-x: auto;
+  margin-bottom: 0;
+}
+.tilbud-step-ind {
+  flex: 1;
+  padding: 12px 8px;
+  text-align: center;
+  font-size: .76rem;
+  font-weight: 500;
+  color: var(--color-text-dim, #a69e8e);
+  position: relative;
+  cursor: pointer;
+  white-space: nowrap;
+  transition: color .2s;
+}
+.tilbud-step-ind.active { color: var(--brand-primary, #8e631f); }
+.tilbud-step-ind.done { color: #6ab04c; }
+.tilbud-step-ind.active::after {
+  content: '';
+  position: absolute;
+  bottom: 0; left: 18%; right: 18%;
+  height: 2.5px;
+  background: var(--brand-primary, #8e631f);
+  border-radius: 2px 2px 0 0;
+}
+.tilbud-step-num {
+  display: inline-flex;
+  width: 21px; height: 21px;
+  align-items: center; justify-content: center;
+  border-radius: 50%;
+  background: var(--color-border, #d7d1ca);
+  color: var(--color-text-dim, #7a6f5f);
+  font-size: .66rem;
+  font-weight: 700;
+  margin-right: 5px;
+}
+.tilbud-step-ind.active .tilbud-step-num { background: var(--brand-primary, #8e631f); color: #fff; }
+.tilbud-step-ind.done .tilbud-step-num { background: #6ab04c; color: #fff; }
+
+.tilbud-step-content { padding: 24px; }
+.tilbud-step-content h2 {
+  font-family: var(--font-heading, 'Playfair Display', serif);
+  font-weight: 500;
+  font-size: 1.3rem;
+  margin-bottom: .4rem;
+}
+.tilbud-step-desc {
+  color: var(--color-text-dim, #7a6f5f);
+  font-size: .86rem;
+  margin-bottom: 1.3rem;
+}
+
+/* ── Skabelon-kort (step 0) ──────────────────────────── */
+
+.tilbud-tpl-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 14px;
+  margin-bottom: 1.4rem;
+}
+.tilbud-tpl-card {
+  border: 2px solid var(--color-border, #d7d1ca);
+  border-radius: 12px;
+  padding: 22px;
+  cursor: pointer;
+  transition: all .2s;
+  background: var(--color-surface, #fff);
+}
+.tilbud-tpl-card:hover {
+  border-color: var(--brand-primary-light, #a67d1a);
+  box-shadow: 0 4px 12px rgba(44,36,22,.1);
+}
+.tilbud-tpl-card.selected {
+  border-color: var(--brand-primary, #8e631f);
+  box-shadow: 0 0 0 1px var(--brand-primary, #8e631f);
+}
+.tilbud-tpl-icon { font-size: 1.8rem; margin-bottom: 8px; }
+.tilbud-tpl-name {
+  font-family: var(--font-heading, 'Playfair Display', serif);
+  font-weight: 600;
+  font-size: 1rem;
+  margin-bottom: 3px;
+}
+.tilbud-tpl-desc { font-size: .78rem; color: var(--color-text-dim, #7a6f5f); line-height: 1.5; }
+
+/* ── Formularer (step 1) ─────────────────────────────── */
+
+.tilbud-form-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 13px; }
+.tilbud-form-group { display: flex; flex-direction: column; gap: 4px; }
+.tilbud-form-group.full { grid-column: 1 / -1; }
+.tilbud-form-group label {
+  font-size: .74rem;
+  font-weight: 600;
+  color: var(--color-text-dim, #7a6f5f);
+  text-transform: uppercase;
+  letter-spacing: .04em;
+}
+.tilbud-form-group input,
+.tilbud-form-group select,
+.tilbud-form-group textarea {
+  font-family: var(--font-body, 'DM Sans', sans-serif);
+  font-size: .88rem;
+  padding: 9px 12px;
+  border: 1.5px solid var(--color-border, #d7d1ca);
+  border-radius: 8px;
+  background: var(--color-surface, #fff);
+  color: var(--color-text, #2c2416);
+  outline: none;
+  transition: border-color .2s;
+}
+.tilbud-form-group input:focus,
+.tilbud-form-group select:focus,
+.tilbud-form-group textarea:focus {
+  border-color: var(--brand-primary, #8e631f);
+}
+.tilbud-form-group textarea { resize: vertical; min-height: 65px; }
+
+.tilbud-event-fields { display: none; }
+.tilbud-event-fields.show { display: grid; grid-template-columns: 1fr 1fr; gap: 13px; margin-top: 14px; }
+
+/* ── Ordrehistorik ───────────────────────────────────── */
+
+.tilbud-oh { margin-top: 12px; display: none; }
+.tilbud-oh.show { display: block; }
+.tilbud-oh-title {
+  font-family: var(--font-heading, 'Playfair Display', serif);
+  font-weight: 600;
+  font-size: .85rem;
+  margin-bottom: 8px;
+  color: var(--brand-primary, #8e631f);
+}
+.tilbud-oh-tbl { width: 100%; border-collapse: collapse; font-size: .8rem; }
+.tilbud-oh-tbl th {
+  text-align: left; font-size: .68rem; text-transform: uppercase;
+  letter-spacing: .04em; color: var(--color-text-dim, #7a6f5f);
+  padding: 5px 7px; border-bottom: 1.5px solid var(--color-border, #d7d1ca);
+  font-weight: 600;
+}
+.tilbud-oh-tbl td { padding: 6px 7px; border-bottom: 1px solid var(--color-border-light, #ede8dd); }
+.tilbud-oh-tbl tr:hover td { background: rgba(142,99,31,.02); }
+.tilbud-copy-btn {
+  font-size: .7rem; padding: 3px 9px;
+  border: 1px solid var(--color-border, #d7d1ca);
+  border-radius: 10px; background: var(--color-surface, #fff);
+  cursor: pointer; color: var(--color-text-dim, #7a6f5f);
+}
+.tilbud-copy-btn:hover { border-color: var(--brand-primary, #8e631f); color: var(--brand-primary, #8e631f); }
+
+/* ── DAWA adresse ────────────────────────────────────── */
+
+.tilbud-dawa-wrap { position: relative; }
+.tilbud-dawa-results {
+  position: absolute; top: 100%; left: 0; right: 0;
+  background: var(--color-surface, #fff);
+  border: 1.5px solid var(--color-border, #d7d1ca);
+  border-top: none;
+  border-radius: 0 0 8px 8px;
+  max-height: 200px; overflow-y: auto;
+  z-index: 50; display: none;
+}
+.tilbud-dawa-results.show { display: block; }
+.tilbud-dawa-item {
+  padding: 8px 12px; cursor: pointer;
+  font-size: .84rem; border-bottom: 1px solid var(--color-border-light, #ede8dd);
+}
+.tilbud-dawa-item:hover { background: var(--color-background, #f5f4f2); }
+
+/* ── Stats bar ───────────────────────────────────────── */
+
+.tilbud-stats {
+  display: flex; gap: 5px;
+  padding: 9px 12px;
+  background: var(--color-background, #f5f4f2);
+  border-radius: 8px;
+  margin-bottom: 12px;
+  flex-wrap: wrap;
+}
+.tilbud-stat {
+  display: flex; align-items: center; gap: 5px;
+  padding: 3px 10px;
+  background: var(--color-surface, #fff);
+  border-radius: 18px;
+  font-size: .78rem;
+}
+.tilbud-stat-label { color: var(--color-text-dim, #7a6f5f); }
+.tilbud-stat-value { font-family: 'JetBrains Mono', monospace; font-weight: 600; color: var(--brand-primary, #8e631f); }
+
+/* ── Block chips (step 2, event) ─────────────────────── */
+
+.tilbud-block-chips { display: flex; flex-wrap: wrap; gap: 7px; margin-bottom: 14px; }
+.tilbud-chip {
+  padding: 7px 15px; border: 2px solid var(--color-border, #d7d1ca);
+  border-radius: 22px; font-size: .82rem; font-weight: 500;
+  cursor: pointer; transition: all .2s;
+  background: var(--color-surface, #fff); color: var(--color-text-dim, #7a6f5f);
+  user-select: none;
+}
+.tilbud-chip:hover { border-color: var(--brand-primary-light, #a67d1a); }
+.tilbud-chip.a-morning { background: #FFF8E7; border-color: #D4A017; color: #D4A017; }
+.tilbud-chip.a-amsnack { background: #FFF3E8; border-color: #C2722E; color: #C2722E; }
+.tilbud-chip.a-lunch   { background: #EFF6F1; border-color: #4A7C59; color: #4A7C59; }
+.tilbud-chip.a-pmsnack  { background: #FFF3E8; border-color: #C2722E; color: #C2722E; }
+
+/* ── Blocks ──────────────────────────────────────────── */
+
+.tilbud-block {
+  border-radius: 12px; margin-bottom: 12px;
+  overflow: hidden; border: 1.5px solid var(--color-border, #d7d1ca);
+}
+.tilbud-block-morning  { border-color: #F0D97A; }
+.tilbud-block-amsnack  { border-color: #E8B887; }
+.tilbud-block-lunch    { border-color: #9DC5A7; }
+.tilbud-block-pmsnack  { border-color: #E8B887; }
+
+.tilbud-block-hdr {
+  padding: 10px 16px;
+  display: flex; align-items: center; justify-content: space-between;
+  cursor: pointer; user-select: none;
+}
+.tilbud-block-morning .tilbud-block-hdr  { background: #FFF8E7; }
+.tilbud-block-amsnack .tilbud-block-hdr  { background: #FFF3E8; }
+.tilbud-block-lunch .tilbud-block-hdr    { background: #EFF6F1; }
+.tilbud-block-pmsnack .tilbud-block-hdr  { background: #FFF3E8; }
+.tilbud-block-hdr-left {
+  display: flex; align-items: center; gap: 8px;
+  font-family: var(--font-heading, 'Playfair Display', serif);
+  font-weight: 600; font-size: .92rem;
+}
+.tilbud-chevron { transition: transform .2s; font-size: .75rem; color: var(--color-text-dim, #7a6f5f); }
+.tilbud-chevron.collapsed { transform: rotate(-90deg); }
+.tilbud-block-hdr-right { display: flex; align-items: center; gap: 12px; font-size: .78rem; }
+.tilbud-block-count { font-family: 'JetBrains Mono', monospace; font-size: .75rem; color: var(--color-text-dim, #7a6f5f); }
+.tilbud-block-price { font-family: 'JetBrains Mono', monospace; font-weight: 600; font-size: .82rem; }
+.tilbud-block-morning .tilbud-block-price  { color: #D4A017; }
+.tilbud-block-amsnack .tilbud-block-price  { color: #C2722E; }
+.tilbud-block-lunch .tilbud-block-price    { color: #4A7C59; }
+.tilbud-block-pmsnack .tilbud-block-price  { color: #C2722E; }
+.tilbud-block-body { padding: 3px 0; }
+.tilbud-block-body.collapsed { display: none; }
+
+/* ── Menuvarer ───────────────────────────────────────── */
+
+.tilbud-cat-title {
+  font-family: var(--font-heading, 'Playfair Display', serif);
+  font-weight: 600; font-size: .82rem;
+  color: var(--brand-primary, #8e631f);
+  padding: 7px 16px 2px;
+}
+.tilbud-menu-item {
+  display: flex; align-items: center;
+  padding: 6px 16px; gap: 9px;
+  cursor: pointer; transition: background .12s;
+}
+.tilbud-menu-item:hover { background: var(--color-background, #f5f4f2); }
+.tilbud-menu-item.selected { background: rgba(142,99,31,.04); }
+.tilbud-menu-item input[type=checkbox] { width: 16px; height: 16px; accent-color: var(--brand-primary, #8e631f); flex-shrink: 0; }
+.tilbud-mi-info { flex: 1; min-width: 0; }
+.tilbud-mi-name { font-weight: 500; font-size: .84rem; }
+.tilbud-mi-price { font-family: 'JetBrains Mono', monospace; font-size: .78rem; color: var(--color-text-dim, #7a6f5f); white-space: nowrap; }
+
+/* ── Mængde-kontroller ───────────────────────────────── */
+
+.tilbud-qty-ctrl { display: flex; align-items: center; gap: 2px; }
+.tilbud-qty-btn {
+  width: 24px; height: 24px;
+  border: 1.5px solid var(--color-border, #d7d1ca);
+  border-radius: 5px; background: var(--color-surface, #fff);
+  cursor: pointer; display: flex; align-items: center; justify-content: center;
+  font-size: .8rem; color: var(--color-text-dim, #7a6f5f); padding: 0;
+}
+.tilbud-qty-btn:hover { border-color: var(--brand-primary, #8e631f); color: var(--brand-primary, #8e631f); }
+.tilbud-qty-input {
+  width: 34px; text-align: center; padding: 2px;
+  font-family: 'JetBrains Mono', monospace; font-size: .78rem;
+  border: 1.5px solid var(--color-border, #d7d1ca); border-radius: 5px;
+}
+
+/* ── Søgefelt ────────────────────────────────────────── */
+
+.tilbud-search-box { position: relative; margin-bottom: 9px; }
+.tilbud-search-box input { width: 100%; padding-left: 32px; }
+.tilbud-search-box::before {
+  content: '\1F50D'; position: absolute; left: 10px; top: 50%;
+  transform: translateY(-50%); font-size: .72rem;
+}
+
+/* ── Custom items ────────────────────────────────────── */
+
+.tilbud-custom-row {
+  display: flex; gap: 7px; padding: 9px 16px;
+  border-top: 1px dashed var(--color-border, #d7d1ca);
+  align-items: flex-end;
+}
+.tilbud-custom-row .tilbud-form-group { gap: 2px; }
+.tilbud-custom-row .tilbud-form-group label { font-size: .66rem; }
+.tilbud-custom-row input { font-size: .8rem; padding: 6px 9px; }
+.tilbud-custom-row .grow { flex: 1; }
+.tilbud-custom-row .short { width: 70px; }
+
+/* ── Pristabel (step 3) ──────────────────────────────── */
+
+.tilbud-price-tbl { width: 100%; border-collapse: collapse; margin: .7rem 0; }
+.tilbud-price-tbl th {
+  text-align: left; font-size: .68rem; text-transform: uppercase;
+  letter-spacing: .04em; color: var(--color-text-dim, #7a6f5f);
+  padding: 6px 9px; border-bottom: 2px solid var(--color-border, #d7d1ca);
+  font-weight: 600;
+}
+.tilbud-price-tbl th.r,
+.tilbud-price-tbl td.r { text-align: right; }
+.tilbud-price-tbl td { padding: 7px 9px; border-bottom: 1px solid var(--color-border-light, #ede8dd); font-size: .82rem; }
+.tilbud-price-tbl tr:hover td { background: var(--color-background, #f5f4f2); }
+.tilbud-price-tbl .chapter td {
+  font-weight: 600; font-family: var(--font-heading, 'Playfair Display', serif);
+  font-size: .78rem; padding-top: 12px; background: none !important;
+}
+.tilbud-price-tbl .subtotal td { color: var(--color-text-dim, #7a6f5f); font-size: .78rem; border-bottom: none; }
+.tilbud-price-tbl .total-row td {
+  font-weight: 700; border-top: 2px solid var(--color-text, #2c2416);
+  border-bottom: none; padding-top: 9px; font-size: .9rem;
+}
+
+/* ── Prismode segmented ──────────────────────────────── */
+
+.tilbud-pm {
+  display: flex; gap: 3px;
+  background: var(--color-surface, #fff);
+  border-radius: 8px; padding: 2px;
+  border: 1.5px solid var(--color-border, #d7d1ca);
+  display: inline-flex;
+}
+.tilbud-pm-opt {
+  padding: 5px 12px; font-size: .76rem; font-weight: 500;
+  border-radius: 5px; cursor: pointer;
+  color: var(--color-text-dim, #7a6f5f); border: none; background: none;
+  font-family: var(--font-body, 'DM Sans', sans-serif);
+}
+.tilbud-pm-opt.active { background: var(--brand-primary, #8e631f); color: #fff; }
+.tilbud-pm-opt:hover:not(.active) { background: var(--color-background, #f5f4f2); }
+
+/* ── Rabat ───────────────────────────────────────────── */
+
+.tilbud-discount {
+  display: flex; align-items: center; gap: 7px;
+}
+.tilbud-discount input {
+  width: 52px; text-align: center;
+  font-family: 'JetBrains Mono', monospace;
+  padding: 4px 6px;
+}
+
+/* ── Options-boks ────────────────────────────────────── */
+
+.tilbud-options {
+  background: var(--color-background, #f5f4f2);
+  border-radius: 8px; padding: 13px 16px;
+  margin: 12px 0; display: flex; flex-direction: column; gap: 7px;
+}
+.tilbud-options-title {
+  font-family: var(--font-heading, 'Playfair Display', serif);
+  font-weight: 600; font-size: .85rem; margin-bottom: 2px;
+}
+
+/* ── Toggle switch ───────────────────────────────────── */
+
+.tilbud-toggle { position: relative; width: 38px; height: 21px; cursor: pointer; flex-shrink: 0; }
+.tilbud-toggle input { opacity: 0; width: 0; height: 0; }
+.tilbud-toggle-slider {
+  position: absolute; inset: 0;
+  background: var(--color-border, #d7d1ca);
+  border-radius: 21px; transition: .2s;
+}
+.tilbud-toggle-slider::before {
+  content: ''; position: absolute;
+  width: 15px; height: 15px; border-radius: 50%;
+  background: #fff; top: 3px; left: 3px; transition: .2s;
+}
+.tilbud-toggle input:checked + .tilbud-toggle-slider { background: var(--brand-primary, #8e631f); }
+.tilbud-toggle input:checked + .tilbud-toggle-slider::before { transform: translateX(17px); }
+.tilbud-toggle-label { font-size: .82rem; color: var(--color-text-dim, #7a6f5f); }
+
+.tilbud-toggle-row { display: flex; align-items: center; gap: 9px; margin: 3px 0; }
+
+/* ── Leverings-sektion ───────────────────────────────── */
+
+.tilbud-delivery-card {
+  border: 1.5px solid var(--color-border, #d7d1ca);
+  border-radius: 8px; padding: 12px 16px;
+  margin: 12px 0; display: flex;
+  align-items: center; justify-content: space-between; gap: 12px;
+}
+.tilbud-delivery-info { flex: 1; }
+.tilbud-delivery-title { font-weight: 600; font-size: .86rem; }
+.tilbud-delivery-desc { font-size: .76rem; color: var(--color-text-dim, #7a6f5f); }
+.tilbud-delivery-price {
+  font-family: 'JetBrains Mono', monospace;
+  font-size: .95rem; font-weight: 600;
+  color: var(--brand-primary, #8e631f);
+}
+
+/* ── Preview (step 4) ────────────────────────────────── */
+
+.tilbud-preview {
+  background: #fff;
+  border: 1px solid var(--color-border, #d7d1ca);
+  border-radius: 12px;
+  padding: 42px 38px;
+  box-shadow: 0 8px 30px rgba(44,36,22,.12);
+}
+.tilbud-pv-header {
+  display: flex; justify-content: space-between; align-items: flex-start;
+  margin-bottom: 26px; padding-bottom: 13px;
+  border-bottom: 2px solid var(--brand-primary, #8e631f);
+}
+.tilbud-pv-logo {
+  font-family: var(--font-heading, 'Playfair Display', serif);
+  font-size: 1.4rem; font-weight: 700;
+  color: var(--brand-primary, #8e631f); line-height: 1.1;
+}
+.tilbud-pv-logo img {
+  height: 55px;
+  width: auto;
+  display: block;
+}
+.tilbud-pv-logo small {
+  display: block;
+  font-family: var(--font-body, 'DM Sans', sans-serif);
+  font-size: .66rem; font-weight: 400;
+  color: var(--color-text-dim, #7a6f5f);
+  letter-spacing: .06em; text-transform: uppercase; margin-top: 3px;
+}
+.tilbud-pv-meta {
+  text-align: right; font-size: .78rem;
+  color: var(--color-text-dim, #7a6f5f); line-height: 1.7;
+}
+.tilbud-pv-meta strong { color: var(--color-text, #2c2416); }
+.tilbud-pv-customer {
+  background: var(--color-background, #f5f4f2);
+  border-radius: 8px; padding: 11px 15px;
+  margin-bottom: 16px; line-height: 1.6; font-size: .84rem;
+}
+.tilbud-pv-title {
+  font-family: var(--font-heading, 'Playfair Display', serif);
+  font-size: 1.25rem; font-weight: 600; margin-bottom: 3px;
+}
+.tilbud-pv-subtitle { color: var(--color-text-dim, #7a6f5f); font-size: .82rem; margin-bottom: 18px; }
+.tilbud-pv-block-hdr {
+  font-family: var(--font-heading, 'Playfair Display', serif);
+  font-weight: 600; font-size: .95rem;
+  margin: 18px 0 5px; padding: 5px 0 2px;
+  display: flex; justify-content: space-between; align-items: baseline;
+}
+.tilbud-pv-block-hdr .bt { font-family: 'JetBrains Mono', monospace; font-size: .82rem; }
+.tilbud-pv-cat {
+  font-size: .72rem; font-weight: 600;
+  color: var(--brand-primary, #8e631f);
+  margin: 8px 0 2px; text-transform: uppercase; letter-spacing: .03em;
+}
+.tilbud-pv-row {
+  display: flex; justify-content: space-between;
+  padding: 3px 0; font-size: .82rem;
+  border-bottom: 1px solid var(--color-border-light, #ede8dd);
+}
+.tilbud-pv-row .rn { flex: 1; }
+.tilbud-pv-row .rp { font-family: 'JetBrains Mono', monospace; font-size: .78rem; width: 75px; text-align: right; }
+.tilbud-pv-totals {
+  margin-top: 18px; border-top: 2px solid var(--color-text, #2c2416);
+  padding-top: 9px;
+}
+.tilbud-pv-tl {
+  display: flex; justify-content: flex-end; gap: 32px;
+  padding: 2px 0; font-size: .8rem; color: var(--color-text-dim, #7a6f5f);
+}
+.tilbud-pv-tl.big { font-size: .95rem; font-weight: 700; color: var(--color-text, #2c2416); padding-top: 5px; }
+.tilbud-pv-tl .tl { min-width: 100px; text-align: right; }
+.tilbud-pv-tl .tv { font-family: 'JetBrains Mono', monospace; min-width: 80px; text-align: right; }
+.tilbud-pv-pax { text-align: right; font-size: .78rem; color: var(--color-text-dim, #7a6f5f); margin-top: 3px; }
+.tilbud-pv-notes {
+  background: var(--color-background, #f5f4f2);
+  border-radius: 8px; padding: 11px 15px;
+  margin-top: 16px; font-size: .8rem;
+  color: var(--color-text-dim, #7a6f5f); line-height: 1.5;
+}
+.tilbud-pv-notes strong { color: var(--color-text, #2c2416); }
+.tilbud-pv-footer {
+  margin-top: 28px; padding-top: 12px;
+  border-top: 1px solid var(--color-border, #d7d1ca);
+  display: flex; justify-content: space-between;
+  font-size: .72rem; color: var(--color-text-dim, #7a6f5f);
+}
+
+/* ── Wishes callout ──────────────────────────────────── */
+
+.tilbud-wishes {
+  background: var(--color-background, #f5f4f2);
+  border-left: 3px solid var(--brand-primary, #8e631f);
+  border-radius: 0 8px 8px 0;
+  padding: 9px 14px; margin-bottom: 12px;
+  font-size: .82rem; color: var(--color-text-dim, #7a6f5f);
+}
+.tilbud-wishes strong {
+  color: var(--color-text, #2c2416);
+  font-size: .74rem; text-transform: uppercase; letter-spacing: .03em;
+}
+
+/* ── Buttons ─────────────────────────────────────────── */
+
+.tilbud-btn-row {
+  display: flex; justify-content: space-between; align-items: center;
+  margin-top: 1.6rem; padding-top: 1.2rem;
+  border-top: 1px solid var(--color-border-light, #ede8dd);
+}
+.tilbud-btn {
+  font-family: var(--font-body, 'DM Sans', sans-serif);
+  font-size: .84rem; font-weight: 600;
+  padding: 9px 20px; border: none; border-radius: 8px;
+  cursor: pointer; transition: all .2s;
+  display: inline-flex; align-items: center; gap: 6px;
+}
+.tilbud-btn-primary { background: var(--brand-primary, #8e631f); color: #fff; }
+.tilbud-btn-primary:hover { background: #6B5010; box-shadow: 0 4px 12px rgba(44,36,22,.1); }
+.tilbud-btn-primary:disabled { opacity: .4; cursor: not-allowed; }
+.tilbud-btn-secondary {
+  background: var(--color-background, #f5f4f2);
+  color: var(--color-text, #2c2416);
+  border: 1.5px solid var(--color-border, #d7d1ca);
+}
+.tilbud-btn-secondary:hover { background: var(--color-border-light, #ede8dd); }
+.tilbud-btn-ghost { background: none; color: var(--color-text-dim, #7a6f5f); }
+.tilbud-btn-ghost:hover { background: var(--color-background, #f5f4f2); }
+.tilbud-btn-sm { padding: 5px 12px; font-size: .76rem; }
+.tilbud-btn-icon {
+  width: 26px; height: 26px; border-radius: 5px;
+  display: flex; align-items: center; justify-content: center;
+  background: none; border: 1px solid var(--color-border, #d7d1ca);
+  cursor: pointer; font-size: .76rem; color: var(--color-text-dim, #7a6f5f); padding: 0;
+}
+.tilbud-btn-icon:hover { border-color: var(--brand-primary, #8e631f); color: var(--brand-primary, #8e631f); }
+.tilbud-btn-icon.danger:hover { border-color: #bc181b; color: #bc181b; }
+
+/* ── Delivery modal ──────────────────────────────────── */
+
+.tilbud-modal-overlay {
+  display: none; position: fixed; inset: 0;
+  background: rgba(44,36,22,.5); z-index: 1000;
+  justify-content: center; align-items: center;
+}
+.tilbud-modal-overlay.show { display: flex; }
+.tilbud-modal {
+  background: var(--color-surface, #fff);
+  border-radius: 12px; box-shadow: 0 8px 30px rgba(44,36,22,.12);
+  width: 90%; max-width: 440px; padding: 24px;
+  max-height: 90vh; overflow-y: auto;
+}
+.tilbud-modal h3 {
+  font-family: var(--font-heading, 'Playfair Display', serif);
+  font-weight: 600; margin-bottom: 12px;
+}
+.tilbud-modal-actions { display: flex; justify-content: flex-end; gap: 9px; margin-top: 16px; }
+
+/* ── Toast ───────────────────────────────────────────── */
+
+.tilbud-toast {
+  position: fixed; bottom: 24px; right: 24px;
+  background: var(--brand-primary, #8e631f); color: #fff;
+  padding: 10px 20px; border-radius: 8px;
+  font-size: .85rem; font-weight: 500;
+  box-shadow: 0 4px 12px rgba(44,36,22,.2);
+  z-index: 2000; animation: tilbud-fi .3s ease;
+}
+
+/* ── Responsive ──────────────────────────────────────── */
+
+@media (max-width: 640px) {
+  .tilbud-tpl-grid,
+  .tilbud-form-grid,
+  .tilbud-event-fields.show { grid-template-columns: 1fr; }
+  .tilbud-step-content { padding: 16px 12px; }
+  .tilbud-preview { padding: 22px 16px; }
+}

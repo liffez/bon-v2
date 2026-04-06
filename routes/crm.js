@@ -505,7 +505,7 @@ router.get('/customer/:id', handle((req, res) => {
             ROUND(AVG(b.total_price),0) as avg_order,
             MAX(b.delivery_date) as last_order,
             MIN(b.delivery_date) as first_order
-        FROM bons b WHERE b.customer_id = ? AND b.is_internal = 0
+        FROM bons b WHERE b.customer_id = ? AND b.is_internal = 0 AND (b.is_offer = 0 OR b.is_offer IS NULL)
     `).get(id);
 
     const orders = db.prepare(`
@@ -513,7 +513,7 @@ router.get('/customer/:id', handle((req, res) => {
                sd.code as status, sd.label as status_label
         FROM bons b
         JOIN status_definitions sd ON b.status_id = sd.id
-        WHERE b.customer_id = ? AND b.is_internal = 0
+        WHERE b.customer_id = ? AND b.is_internal = 0 AND (b.is_offer = 0 OR b.is_offer IS NULL)
         ORDER BY b.delivery_date DESC LIMIT 10
     `).all(id);
 
@@ -550,7 +550,7 @@ router.get('/customer-orders/:id', handle((req, res) => {
                sd.code as status, sd.label as status_label
         FROM bons b
         JOIN status_definitions sd ON b.status_id = sd.id
-        WHERE b.customer_id = ? AND b.is_internal = 0
+        WHERE b.customer_id = ? AND b.is_internal = 0 AND (b.is_offer = 0 OR b.is_offer IS NULL)
         ORDER BY b.delivery_date DESC LIMIT ?
     `).all(id, limit);
 

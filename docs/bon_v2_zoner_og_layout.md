@@ -131,10 +131,11 @@ OFFICE SIDEBAR
 │
 ├── CRM
 │   ├── Pipeline                 ← kanban på forespørgsler og tilbud
-│   ├── Tilbud                   ← filtreret bon-visning (is_offer=1), PDF, send
 │   ├── Kunder                   ← liste, 360°-profil, sovende
 │   ├── Serviceopkald            ← mandagsliste, callbacks, svære-at-nå
 │   └── Aktiviteter              ← mine opgaver i dag
+│
+├── Tilbud                       ← wizard (5 trin), PDF, gem/send, konvertér til bon
 │
 ├── Planlægning / Logistik       ← ruter, leveringer, tracking, bud-QR (senere)
 │
@@ -283,7 +284,7 @@ bon-v2/                          ← rod (ny server, adskilt fra bon v1)
 │       ├── bons-calendar.js     ← Kalender og ugeoversigt
 │       ├── bon-detail.js        ← Enkelt bon (edit, historik, mail)
 │       ├── crm.js               ← Kunder, aktiviteter, pipeline
-│       ├── offers.js            ← Tilbudshåndtering
+│       ├── tilbud.js             ← Tilbudswizard + liste (separat sidebar-punkt)
 │       ├── mail.js              ← Mailtråde og indbakke
 │       ├── logistics.js         ← Logistik og ruteplanlægning
 │       ├── purchasing.js        ← Leverandørpriser, aftaler, Hørkram
@@ -425,6 +426,6 @@ Implementeret via CSS-klasse på body: `<body class="zone-kitchen">` eller `<bod
 | Marts 2026 | White-label theming via CSS-tokens genereret fra settings-tabel |
 | Marts 2026 | Kalender og bonliste er delte views — placeres i shared/, bruges af både kitchen og office |
 | Marts 2026 | Office sidebar fastlagt — se sektion 4 |
-| Marts 2026 | Tilbud er en side inden i CRM-sektionen, ikke et selvstændigt punkt i sidebaren |
+| April 2026 | Tilbud er et selvstændigt sidebar-punkt — efter CRM, før Fakturering (wizard-flow passer ikke som CRM-underside) |
 | Marts 2026 | Serviceopkald bor under CRM men vises fremtrædende på office-dashboard |
 | Marts 2026 | Køkken-views (opskrifter, lager) tilgængelige read-only fra office-sidebar |

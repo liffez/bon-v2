@@ -1191,21 +1191,59 @@ function _k3RenderActivity(el) {
     });
 }
 
-function _k3RenderOffers(el) {
+async function _k3RenderOffers(el) {
     if (!_k3Data) { el.innerHTML = ''; return; }
-    const offers = _k3Data.orders.filter(o => o.is_offer);
-    if (!offers.length) {
-        el.innerHTML = '<div style="text-align:center;padding:20px;color:var(--color-text-dim);">Ingen tilbud for denne kunde</div>';
+    const customerId = _k3Data.customer?.id || _k3Data.id || _k3Data.customer_id;
+    const statusLabels = { draft: 'Kladde', sent: 'Sendt', won: 'Vundet', lost: 'Tabt', expired: 'Udl\u00f8bet' };
+    const statusColors = { draft: '#8a8580', sent: '#7594b3', won: '#6ab04c', lost: '#bc181b', expired: '#d7d1ca' };
+
+    // Hent tilbud via quotes API (som er bons med is_offer=1)
+    let quotes = [];
+    try {
+        quotes = await fetchQuotes({ customer_id: customerId });
+    } catch (_) {}
+
+    let h = '<div style="display:flex;justify-content:flex-end;margin-bottom:12px">' +
+        '<button onclick="_k3NewQuote()" style="font-size:.78rem;padding:5px 14px;border:1.5px solid var(--color-border);border-radius:8px;background:var(--color-surface);cursor:pointer;font-weight:600;color:var(--brand-primary)">+ Opret tilbud</button></div>';
+
+    if (!quotes.length) {
+        h += '<div style="text-align:center;padding:20px;color:var(--color-text-dim);">Ingen tilbud for denne kunde</div>';
+        el.innerHTML = h;
         return;
     }
-    el.innerHTML = offers.map(o =>
-        '<div class="k3-order-row">' +
-            '<span class="k3-order-bon">#' + o.bon_number + '</span>' +
-            '<span>' + o.delivery_date + '</span>' +
-            '<span>' + (o.total_price ? Math.round(o.total_price).toLocaleString('da-DK') + ' kr' : '—') + '</span>' +
-            '<span class="k3-order-status">' + (o.offer_status || o.status) + '</span>' +
-        '</div>'
-    ).join('');
+    h += quotes.map(q => {
+        const s = statusLabels[q.status] || q.status;
+        const c = statusColors[q.status] || '#8a8580';
+        return '<div class="k3-order-row" style="cursor:pointer" onclick="_k3OpenQuote(' + q.id + ')">' +
+            '<span class="k3-order-bon">' + (q.quote_number || '') + '</span>' +
+            '<span>' + (q.delivery_date || q.quote_date || '\u2014') + '</span>' +
+            '<span>' + (q.total_price != null ? Math.round(q.total_price).toLocaleString('da-DK') + ' kr' : '\u2014') + '</span>' +
+            '<span style="display:inline-block;padding:2px 8px;border-radius:10px;font-size:.7rem;font-weight:600;background:' + c + '20;color:' + c + '">' + s + '</span>' +
+        '</div>';
+    }).join('');
+    el.innerHTML = h;
+}
+
+function _k3NewQuote() {
+    if (!_k3Data) return;
+    const customerId = _k3Data.customer?.id || _k3Data.id || _k3Data.customer_id;
+    if (typeof switchView === 'function') {
+        const url = new URL(window.location);
+        url.searchParams.set('view', 'tilbud');
+        url.searchParams.set('customer', customerId);
+        history.replaceState({}, '', url);
+        switchView('tilbud');
+    }
+}
+
+function _k3OpenQuote(quoteId) {
+    if (typeof switchView === 'function') {
+        const url = new URL(window.location);
+        url.searchParams.set('view', 'tilbud');
+        url.searchParams.set('quote', quoteId);
+        history.replaceState({}, '', url);
+        switchView('tilbud');
+    }
 }
 
 // ─── Activity form helpers ──────────────────────────────────

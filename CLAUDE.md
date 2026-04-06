@@ -658,16 +658,48 @@ Nye filer placeres præcis der de hører hjemme — kopieres ikke.
   - View-switcher: `initFakturering()` / `cleanupFakturering()`
   - SSE-handlers: `_faktHandleSSE` på bon_created/bon_updated/bon_status
 
+### Fase 9 — Tilbudsmodul
+- [x] Migration 020–023: `quotes`/`quote_lines` tabeller (midlertidigt) → omskrevet til `is_offer=1` på bons
+  - 022: `offer_template`, `offer_price_mode`, `offer_discount_percent` på bons + `block_type` på bon_lines
+  - 023: `TILBUD` status i `status_definitions` med transitions (→ GODKENDT, → AFLYST, → NY)
+- [x] **Arkitektur: tilbud = bon med `is_offer=1`** — fungerer med hele det eksisterende system
+  - Tilbud bruger TILBUD-status (ikke NY) → korrekt filtrering i alle views
+  - T-nummerserie via `quote_number_prefix` + `quote_number_next` i settings
+  - Bons-listen (`GET /api/bons`) ekskluderer `is_offer=1`
+  - CRM ordrer/stats ekskluderer `is_offer=1`
+  - Konvertering = `UPDATE SET is_offer=0, offer_status='won', status_id=GODKENDT`
+- [x] `routes/quotes.js` — 11 endpoints (opererer på bons med `is_offer=1`):
+  - CRUD: GET liste (filtre: status, customer_id, q), GET /:id med linjer, POST, PATCH, DELETE (kun draft)
+  - Linjer: POST/PUT/DELETE /:id/lines/:lid
+  - Status: PATCH /:id/status (draft/sent/won/lost/expired)
+  - Convert: POST /:id/convert → sæt is_offer=0
+  - Next-number: GET /next-number
+- [x] `office/views/tilbud.js` + `tilbud.css` — Tilbudsliste + 5-trins wizard
+  - **Liste**: status-filtre (Kladde/Sendt/Vundet/Tabt), søgning, klik åbner wizard
+  - **Step 0**: Skabelon (Event/Enkeltbestilling)
+  - **Step 1**: Kunde & levering — KundeSoeg, dagskontakt, dato, tid, pax, enheder,
+    leveringstype/-metode, DAWA-adresse, priskategori, betaling, noter (kundeønsker, faktura, køkken, intern)
+  - **Step 2**: Sammensæt — Grocy-recipes, event-blokke (morgen/snack/frokost), single-liste, fritekst-items
+  - **Step 3**: Priser — prismode (total/blok/linje), rabat, gyldighed, levering, pristabel
+  - **Step 4**: Preview + Gem + Download PDF + Konvertér til bon
+  - Alle steps klikbare for eksisterende tilbud, ordrehistorik med kopiér-bon
+- [x] PDF-generering med Ristet Rug logo (base64 PNG fra `assets/logo-b64.txt`)
+- [x] `office/index.html` — Sidebar "Tilbud" punkt (efter CRM, før Drift), jsPDF CDN, view-switcher, SSE
+- [x] `shared/api.js` — 8 nye funktioner (fetchQuotes, createQuote, updateQuote, deleteQuote, patchQuoteStatus, convertQuoteToBon, fetchNextQuoteNumber)
+- [x] CRM Kunde 360° — Tilbud-tab henter via quotes API, "+ Opret tilbud" deep link
+- [x] Kitchen later-view: `OR b.is_offer = 1` tilføjet (tilbud vises uanset bon-status)
+- [x] Kalender: tilbud vises med TILBUD-status badge
+
 ## Næste opgave
 
-> ✏️ Opdateret 30. marts 2026.
+> ✏️ Opdateret 7. april 2026.
 >
-> **Fase 1a–1e + 3A + 3B + 3D + 4 + 5 + 6 (indkøbsliste) + 7 (CRM) + Office CRM redesign + 8 (Fakturering) komplet.**
-> Fakturering: master-detail med arbejdsliste, e-conomic inline-edit, markér faktureret med dialog.
+> **Fase 1a–1e + 3A + 3B + 3D + 4 + 5 + 6 (indkøbsliste) + 7 (CRM) + Office CRM redesign + 8 (Fakturering) + 9 (Tilbud) komplet.**
+> Tilbud: 5-trins wizard, PDF, tilbud=bon med is_offer=1, TILBUD-status, T-nummerserie.
 >
 > **Næste:** Rapporter (office/views/rapporter.js — 5 API-endpoints + KPI/chart/tabel),
 > Bestilling (Hørkram montering), Varemodtagelse (fusion-endpoint),
-> Priser-setting i planlægningsbon, Tilbud og Ugeoversigt.
+> Priser-setting i planlægningsbon, Ugeoversigt.
 > Så er Bon v1 klar til nedlukning.
 >
 > **Åbne afhængigheder:**
@@ -696,6 +728,10 @@ Nye filer placeres præcis der de hører hjemme — kopieres ikke.
 > - Indkøbsliste bruger purchase-enhed med oprunding ved tilføjelse til Grocy shopping list
 > - Fakturering og Rapporter er separate sidebar-punkter (ikke tabs)
 > - Rapporter bruger custom canvas chart (som dashboard), ikke Chart.js
+> - Tilbud = bon med `is_offer=1` (ikke separat tabel) — integrerer med kalender, planlægning, CRM pipeline
+> - Tilbud er separat sidebar-punkt i office (efter CRM, før Drift)
+> - Tilbud bruger TILBUD-status (dedikeret status_definition) — ikke NY
+> - Tilbudsnumre bruger separat T-nummerserie (quote_number_prefix + quote_number_next)
 
 ---
 
@@ -991,6 +1027,17 @@ PATCH  /api/payment-types/:id                            routes/payment_types.js
 GET    /api/invoices/queue?include_done=1                routes/invoices.js
 PATCH  /api/companies/:id/economic                       routes/companies.js
 PATCH  /api/customers/:id/economic                       routes/customers.js
+GET    /api/quotes                                       routes/quotes.js (is_offer=1 bons)
+GET    /api/quotes/next-number                           routes/quotes.js
+GET    /api/quotes/:id                                   routes/quotes.js
+POST   /api/quotes                                       routes/quotes.js (opret tilbud)
+PATCH  /api/quotes/:id                                   routes/quotes.js (opdater tilbud)
+DELETE /api/quotes/:id                                   routes/quotes.js (kun draft)
+POST   /api/quotes/:id/lines                             routes/quotes.js
+PUT    /api/quotes/:id/lines/:lid                        routes/quotes.js
+DELETE /api/quotes/:id/lines/:lid                        routes/quotes.js
+PATCH  /api/quotes/:id/status                            routes/quotes.js
+POST   /api/quotes/:id/convert                           routes/quotes.js (tilbud → bon)
 ```
 
 ---

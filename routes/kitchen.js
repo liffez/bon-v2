@@ -85,7 +85,7 @@ router.get('/later', handle((req, res) => {
         LEFT JOIN addresses a        ON b.delivery_address_id = a.id
         WHERE b.delivery_date >= ?
           AND b.delivery_date <= ?
-          AND sd.code IN ('VENTER', 'GODKENDT', 'IGANG', 'KLAR')
+          AND (sd.code IN ('VENTER', 'GODKENDT', 'IGANG', 'KLAR') OR b.is_offer = 1)
         ORDER BY b.is_offer ASC, b.delivery_date ASC, b.pickup_time ASC, b.id ASC
     `).all(today, endDate);
 
