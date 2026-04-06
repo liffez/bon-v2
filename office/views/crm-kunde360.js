@@ -1183,11 +1183,12 @@ function _k3RenderActivity(el) {
     typeEl.addEventListener('change', () => {
         const isCall = ['call', 'service_call'].includes(typeEl.value);
         resultEl.style.display = isCall ? '' : 'none';
-        if (!isCall) { resultEl.value = ''; sentEl.style.display = 'none'; }
+        if (!isCall) resultEl.value = '';
+        // Sentiment er altid tilgængeligt — uanset aktivitetstype
+        sentEl.style.display = typeEl.value ? 'flex' : 'none';
     });
     resultEl.addEventListener('change', () => {
-        const show = ['reached', 'callback'].includes(resultEl.value);
-        sentEl.style.display = show ? 'flex' : 'none';
+        // Sentiment forbliver synligt — result-valg påvirker det ikke
     });
 }
 

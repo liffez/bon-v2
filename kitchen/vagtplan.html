@@ -219,15 +219,13 @@
                     const time = v.start_time && v.end_time
                         ? `${v.start_time.slice(0,5)}–${v.end_time.slice(0,5)}`
                         : (v.start_time || '');
-                    const name = v.employee_name || v.first_name || 'Ukendt';
-                    const job  = v.job_type || '';
+                    const name = v.first_name || (v.employee_name || 'Ukendt').split(' ')[0];
 
                     const div = document.createElement('div');
                     div.className = 'pill';
                     div.innerHTML = `
                         <span class="pill-time">${time}</span>
                         <span class="pill-name">${name}</span>
-                        ${job ? `<span class="pill-job">${job}</span>` : ''}
                     `;
                     liste.appendChild(div);
                 }
