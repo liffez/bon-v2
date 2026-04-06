@@ -8,7 +8,7 @@
 //   require('./db/migrate')         ← fra server.js
 // ==========================================
 
-const Database = require('better-sqlite3');
+const { openDb } = require('./compat');
 const fs       = require('fs');
 const path     = require('path');
 
@@ -20,11 +20,11 @@ function runMigrations(dbPath = DB_PATH) {
     const dir = path.dirname(dbPath);
     if (!fs.existsSync(dir)) fs.mkdirSync(dir, { recursive: true });
 
-    const db = new Database(dbPath);
+    const db = openDb(dbPath);
 
     // Kritiske SQLite-indstillinger
-    db.pragma('foreign_keys = ON');    // SKAL aktiveres — SQLite har dem fra som default
-    db.pragma('journal_mode = WAL');   // Bedre concurrent read-performance
+    db.exec('PRAGMA foreign_keys = ON');    // SKAL aktiveres — SQLite har dem fra som default
+    db.exec('PRAGMA journal_mode = WAL');   // Bedre concurrent read-performance
 
     // Tabel til at tracke hvilke migrations er kørt
     db.exec(`

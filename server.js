@@ -1,6 +1,6 @@
 /**
  * Bon v2 — Backend Server
- * Node.js / Express / better-sqlite3
+ * Node.js / Express / node:sqlite
  *
  * Start: node server.js
  */
@@ -18,10 +18,10 @@ const PORT = process.env.PORT || 4321;
 app.use(express.json());
 
 const session = require('express-session');
-const SQLiteStore = require('connect-sqlite3')(session);
+const SqliteSessionStore = require('./db/session-store')(session);
 
 app.use(session({
-  store: new SQLiteStore({ db: 'sessions.db', dir: './db' }),
+  store: new SqliteSessionStore({ db: 'sessions.db', dir: './db' }),
   secret: process.env.SESSION_SECRET || 'dev-secret-change-me',
   resave: false,
   saveUninitialized: false,

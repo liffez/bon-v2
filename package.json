@@ -4,19 +4,17 @@
   "description": "Ristet Rug — Bon v2 Order Management System",
   "main": "server.js",
   "engines": {
-    "node": ">=22 <23"
+    "node": ">=22"
   },
   "scripts": {
-    "start": "node server.js",
-    "dev": "node --watch server.js",
-    "migrate": "node db/migrate.js",
-    "seed": "node db/seed.js",
-    "setup": "node db/migrate.js && node db/seed.js"
+    "start": "node --experimental-sqlite server.js",
+    "dev": "node --experimental-sqlite --watch server.js",
+    "migrate": "node --experimental-sqlite db/migrate.js",
+    "seed": "node --experimental-sqlite db/seed.js",
+    "setup": "node --experimental-sqlite db/migrate.js && node --experimental-sqlite db/seed.js"
   },
   "dependencies": {
-    "bcrypt": "^6.0.0",
-    "better-sqlite3": "^9.4.3",
-    "connect-sqlite3": "^0.9.16",
+    "bcryptjs": "^2.4.3",
     "dotenv": "^16.4.5",
     "express": "^4.18.3",
     "express-session": "^1.19.0",

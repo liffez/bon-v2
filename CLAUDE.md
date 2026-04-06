@@ -27,13 +27,13 @@ Disse er sandheden. Al kode skal passe med dem.
 | Lag | Valg |
 |-----|------|
 | Backend | Node.js / Express |
-| Database | SQLite via `better-sqlite3` |
+| Database | SQLite via `node:sqlite` (indbygget Node 22+) |
 | Frontend kitchen | Vanilla HTML/CSS/JS (MPA) |
 | Frontend office | Vanilla JS + selektiv Vue.js |
 | Realtid | SSE — aldrig polling, aldrig WebSockets |
 | Styling | Vanilla CSS med tokens fra `shared/tokens.css` |
 
-**Ingen React, ingen Tailwind, ingen Python, ingen ORM, ingen build-step.**
+**Ingen React, ingen Tailwind, ingen Python, ingen ORM, ingen build-step, ingen native npm-pakker.**
 
 ---
 
@@ -96,11 +96,13 @@ bon-v2/
 ├── routes/
 │   └── dashboard.js  ← /api/dashboard/* (today, stats, top-products)
 ├── db/
-│   ├── database.js   ← getDb() singleton (lazy init + migrations)
-│   ├── helpers.js    ← logChange, handle, getBon, getBonLines, getStatusId, nextBonNumber, auth-helpers
-│   ├── migrate.js    ← Kører migrations fra db/migrations/
-│   ├── seed.js       ← Testdata (11 bons, 7 kunder, 5 firmaer)
-│   └── migrations/   ← 001_core.sql, ...
+│   ├── database.js      ← getDb() singleton (lazy init + migrations)
+│   ├── compat.js        ← openDb() wrapper + transaction() helper (node:sqlite kompatibilitet)
+│   ├── session-store.js ← Express session store baseret på node:sqlite
+│   ├── helpers.js       ← logChange, handle, getBon, getBonLines, getStatusId, nextBonNumber, auth-helpers
+│   ├── migrate.js       ← Kører migrations fra db/migrations/
+│   ├── seed.js          ← Testdata (11 bons, 7 kunder, 5 firmaer)
+│   └── migrations/      ← 001_core.sql, ...
 ├── shared/
 │   ├── sse.js        ← SSE router + broadcast(), sendTo() — named events
 │   ├── tokens.css    ← Design tokens
@@ -149,8 +151,10 @@ Nye filer placeres præcis der de hører hjemme — kopieres ikke.
 - **Grocy læses via adapter** — skriv aldrig direkte til Grocy's database
 - **SSE på `/api/sse`** — named events via `addEventListener`, aldrig `onmessage`
 - **Route-filer bruger `getDb()`** — aldrig global `db`-variabel
+- **Standalone scripts bruger `openDb()`** fra `db/compat.js` — aldrig `DatabaseSync` direkte
+- **Transactions via `transaction(db, fn)`** — aldrig `db.transaction()` (eksisterer ikke i node:sqlite)
 - **`logChange({...})`** — objekt-API, aldrig positionelle argumenter
-- **Nye npm-pakker kræver godkendelse** — spørg først
+- **Nye npm-pakker kræver godkendelse** — spørg først, og ingen native/compiled pakker
 
 ---
 
@@ -282,7 +286,7 @@ Nye filer placeres præcis der de hører hjemme — kopieres ikke.
 
 ### Fase 1a — Auth & Payment Types
 - [x] Migration 011: `payment_types`-tabel + `users.password_hash`
-- [x] npm: bcrypt, express-session, connect-sqlite3
+- [x] npm: bcryptjs, express-session (ingen native pakker)
 - [x] Session-middleware i `server.js` (SQLiteStore → `db/sessions.db`)
 - [x] `routes/auth.js` — POST login (email+pw), POST pin, POST logout, GET me
 - [x] `routes/payment_types.js` — GET /api/payment-types

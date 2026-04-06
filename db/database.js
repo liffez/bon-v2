@@ -3,9 +3,11 @@
 // Åbner databasen og returnerer et db-objekt
 // klar til brug. Singleton — samme instans
 // deles i hele processen.
+//
+// Bruger node:sqlite (indbygget i Node 22+)
+// — ingen native compilation nødvendig.
 // ==========================================
 
-const Database = require('better-sqlite3');
 const path     = require('path');
 const { runMigrations } = require('./migrate');
 
@@ -19,8 +21,8 @@ function getDb() {
 
         // Pragmas køres igen her i tilfælde af at
         // migrate.js returnerer en eksisterende forbindelse
-        _db.pragma('foreign_keys = ON');
-        _db.pragma('journal_mode = WAL');
+        _db.exec('PRAGMA foreign_keys = ON');
+        _db.exec('PRAGMA journal_mode = WAL');
     }
     return _db;
 }

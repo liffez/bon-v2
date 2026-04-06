@@ -1,8 +1,8 @@
-const bcrypt = require('bcrypt');
-const Database = require('better-sqlite3');
+const bcrypt = require('bcryptjs');
+const { openDb } = require('../db/compat');
 
 const dbPath = process.env.DB_PATH || './data/bon.db';
-const db = new Database(dbPath);
+const db = openDb(dbPath);
 
 const email = process.argv[2];
 const plain = process.argv[3];

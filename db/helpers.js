@@ -9,7 +9,8 @@
 // ==========================================
 
 const { getDb } = require('./database');
-const bcrypt = require('bcrypt');
+const { transaction } = require('./compat');
+const bcrypt = require('bcryptjs');
 
 /**
  * Næste bon-nummer (atomisk, transaction-sikret).
@@ -17,12 +18,12 @@ const bcrypt = require('bcrypt');
  */
 function nextBonNumber() {
     const db = getDb();
-    return db.transaction(() => {
+    return transaction(db, () => {
         const prefix  = db.prepare(`SELECT value FROM settings WHERE key='bon_number_prefix'`).get()?.value ?? '';
         const current = parseInt(db.prepare(`SELECT value FROM settings WHERE key='bon_number_next'`).get()?.value ?? '1');
         db.prepare(`UPDATE settings SET value=? WHERE key='bon_number_next'`).run(String(current + 1));
         return `${prefix}${current}`;
-    })();
+    });
 }
 
 /**
@@ -30,12 +31,12 @@ function nextBonNumber() {
  */
 function nextQuoteNumber() {
     const db = getDb();
-    return db.transaction(() => {
+    return transaction(db, () => {
         const prefix  = db.prepare(`SELECT value FROM settings WHERE key='quote_number_prefix'`).get()?.value ?? 'T-';
         const current = parseInt(db.prepare(`SELECT value FROM settings WHERE key='quote_number_next'`).get()?.value ?? '1');
         db.prepare(`UPDATE settings SET value=? WHERE key='quote_number_next'`).run(String(current + 1));
         return `${prefix}${current}`;
-    })();
+    });
 }
 
 /**
@@ -159,4 +160,4 @@ function getUserById(id) {
     return getDb().prepare('SELECT id, name, email, role, pin FROM users WHERE id = ? AND is_active = 1').get(id);
 }
 
-module.exports = { nextBonNumber, nextQuoteNumber, logChange, handle, getBon, getBonLines, getStatusId, getDefaultLocationId, hashPassword, verifyPassword, getUserByEmail, getUserById };
+module.exports = { nextBonNumber, nextQuoteNumber, logChange, handle, getBon, getBonLines, getStatusId, getDefaultLocationId, hashPassword, verifyPassword, getUserByEmail, getUserById, transaction };

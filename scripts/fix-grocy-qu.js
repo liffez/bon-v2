@@ -18,7 +18,7 @@
  * ═══════════════════════════════════════════════════════════
  */
 
-const Database = require('better-sqlite3');
+const { openDb } = require('../db/compat');
 const path = require('path');
 
 const dbPath = process.argv[2];
@@ -34,7 +34,7 @@ console.log(`  Grocy QU Migration ${apply ? '🔧 APPLY MODE' : '👁  DRY RUN'}
 console.log(`  Database: ${path.basename(dbPath)}`);
 console.log(`${'═'.repeat(60)}\n`);
 
-const db = new Database(dbPath, { readonly: !apply });
+const db = openDb(dbPath);
 
 // ── Hent data ────────────────────────────────────────────────
 
@@ -200,7 +200,8 @@ if (apply) {
     console.log(`${'═'.repeat(60)}\n`);
 
     const stmt = db.prepare('UPDATE recipes_pos SET amount = ?, qu_id = ? WHERE id = ?');
-    const transaction = db.transaction(() => {
+    const { transaction: txn } = require('../db/compat');
+    const count = txn(db, () => {
         let updated = 0;
         for (const f of fixed) {
             stmt.run(f.newAmount, f.quId, f.id);
@@ -208,8 +209,6 @@ if (apply) {
         }
         return updated;
     });
-
-    const count = transaction();
     console.log(`✅ ${count} recipes_pos rækker opdateret\n`);
 
     // Verify

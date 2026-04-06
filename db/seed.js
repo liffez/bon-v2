@@ -6,11 +6,11 @@
  */
 
 const path     = require('path');
-const Database = require('better-sqlite3');
+const { openDb, transaction } = require('./compat');
 
 const DB_PATH = process.env.DB_PATH || path.join(__dirname, '..', 'data', 'bon.db');
-const db = new Database(DB_PATH);
-db.pragma('foreign_keys = ON');
+const db = openDb(DB_PATH);
+db.exec('PRAGMA foreign_keys = ON');
 
 // ── Dato-helpers ─────────────────────────────────────────────
 function dayOffset(days) {
@@ -29,7 +29,7 @@ const in3days   = dayOffset(3);
 const in4days   = dayOffset(4);
 const in5days   = dayOffset(5);
 
-const run = db.transaction(() => {
+const run = () => transaction(db, () => { /* seed-transaction */
 
   // Ryd eksisterende seed-data (sikker rækkefølge, FK-venlig)
   db.exec(`
@@ -99,7 +99,7 @@ const run = db.transaction(() => {
   db.exec(`DELETE FROM users`);
   db.prepare(`INSERT INTO users (id, name, email, role) VALUES (1, 'System', 'system@ristetrug.dk', 'admin')`).run();
 
-  const bcrypt = require('bcrypt');
+  const bcrypt = require('bcryptjs');
   const adminHash = bcrypt.hashSync('admin123', 10);
   db.prepare(`INSERT INTO users (id, name, email, role, password_hash) VALUES (2, 'Admin', 'admin@ristetrug.dk', 'admin', ?)`).run(adminHash);
   db.prepare(`INSERT INTO users (id, name, email, role, pin) VALUES (3, 'Køkken', 'kitchen@ristetrug.dk', 'kitchen', '1234')`).run();
