@@ -440,7 +440,7 @@ Nye filer placeres præcis der de hører hjemme — kopieres ikke.
   - Toggle re-renderer uden ny API-kald
   - Virker i både enkelt-bon og planlægnings-råvarer
 
-### UI-rettelser (marts 2026)
+### UI-rettelser (marts–april 2026)
 - [x] Flyver-banner z-index fikset (blokerede ikke længere topbar-navigation)
 - [x] Kalender statusfiltre: toggle én ad gangen (ikke eksklusivt), fyldte farver=aktiv, gennemsigtig=inaktiv
 - [x] "Ny bon"-knap flyttet fra topbar til kalender/liste view-specifik placering
@@ -449,6 +449,9 @@ Nye filer placeres præcis der de hører hjemme — kopieres ikke.
 - [x] Seed-data udvidet med flere bons for bedre test-dækning
 - [x] Gradient på kitchen dashboard gjort lysere
 - [x] `shared/bon_kort.js` splittet → `bon_kort_builder.js` (DOM) + `bon_kort.js` (adfærd)
+- [x] Vagtplan: pills viser kun fornavn (ikke fuldt navn), jobtype-label fjernet
+- [x] CRM Kunde 360°: sentiment-valg synligt for alle aktivitetstyper (ikke kun opkald)
+- [x] IMAP-porte rettet fra 143 → 993 i settings (Simply.com kræver implicit TLS)
 
 ### Fase 3D — Planlægningsbon
 - [x] `GET /api/bons/planning?from=&to=&status=` — bons med inline lines for client-side aggregering
