@@ -401,6 +401,18 @@
 .ic-expiry-warn { color: var(--color-red); font-weight: 700; }
 .ic-expiry-soon { color: var(--color-orange); font-weight: 700; }
 
+/* ── Check-status badges (HverDag) ──────────── */
+
+.ic-check-badge {
+    display: inline-block;
+    font-size: 0.85em;
+    margin-left: 4px;
+    vertical-align: middle;
+    cursor: help;
+}
+.ic-check-overdue { color: var(--color-red); }
+.ic-check-soon    { color: var(--color-orange); }
+
 /* ── Action buttons (64px touch targets) ──── */
 
 .ic-card-actions {

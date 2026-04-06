@@ -505,7 +505,10 @@ Nye filer placeres præcis der de hører hjemme — kopieres ikke.
   - **Lageroversigt tab**: Produkt-grid med filtre, status-pills (udløbet/lav), inline-redigering
   - **Optælling tab**: Fysisk lageroptælling per lokation/enhed
     - Konfigurerbare fysiske enheder (KØL-1, FRYS-2 etc.)
-    - Smart sortering: prioritet → udløb → sidst-tjekket
+    - Smart sortering: prioritet → check-status (HverDag overdue/soon) → udløb → sidst-tjekket
+    - `HverDag` userfield: interval i dage, beregner overdue/soon/ok/neutral status
+    - `LastCheckedUnit` vises i "Sidst: dato (enhed)" + bruges til checkedTodayHere logik
+    - Check-badges: ⏰ overdue (rød) og ⏳ soon (orange) med tooltip
     - ✔ godkend (ét klik) / ⏭ skip (huskes per enhed)
     - Expand med brøk-knapper (¼ ½ ¾)
     - Opsummeringsmodal med afvigelser + batch-gem

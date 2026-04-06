@@ -550,6 +550,37 @@ function _icSwitchUnit() {
 // CATEGORIZE PRODUCTS (sort logic)
 // ════════════════════════════════════════════════════════════
 
+/**
+ * Parse HverDag userfield — interval in days between checks.
+ * Returns positive number or null if not set / invalid.
+ */
+function _icParseIntervalDays(uf) {
+    if (!uf) return null;
+    var v = uf.HverDag;
+    if (v === null || v === undefined || v === '') return null;
+    var n = Number(v);
+    if (!isFinite(n) || n <= 0) return null;
+    return n;
+}
+
+/**
+ * Compute check-status based on HverDag interval and LastCheckedAt.
+ * Returns { status: 'overdue'|'soon'|'ok'|'neutral', ratio, daysSince }
+ */
+function _icComputeCheckStatus(intervalDays, lastChecked, now) {
+    if (!intervalDays) {
+        return { status: 'neutral', ratio: 0, daysSince: null };
+    }
+    if (!lastChecked) {
+        return { status: 'overdue', ratio: Infinity, daysSince: Infinity };
+    }
+    var ds = Math.floor((now - lastChecked) / (1000 * 60 * 60 * 24));
+    var ratio = ds / intervalDays;
+    if (ds > intervalDays) return { status: 'overdue', ratio: ratio, daysSince: ds };
+    if (ratio > 0.8)       return { status: 'soon',    ratio: ratio, daysSince: ds };
+    return { status: 'ok', ratio: ratio, daysSince: ds };
+}
+
 function _icCategorize() {
     var now = new Date();
     var unchecked = [];
@@ -558,6 +589,9 @@ function _icCategorize() {
     _ic.products.forEach(function(product) {
         var uf = product.userfields || {};
         var lastChecked = uf.LastCheckedAt ? new Date(uf.LastCheckedAt) : null;
+        var lastCheckedUnit = uf.LastCheckedUnit || null;
+        var intervalDays = _icParseIntervalDays(uf);
+        var checkStatus = _icComputeCheckStatus(intervalDays, lastChecked, now);
 
         var countData = _ic.counts[product.id];
         var countedInThisUnit = countData && countData.units && countData.units[_ic.physicalUnit] !== undefined;
@@ -588,12 +622,21 @@ function _icCategorize() {
             daysUntilExpiry = Math.ceil((expiry - now) / (1000 * 60 * 60 * 24));
         }
 
+        // checkedTodayHere: true if checked today in this specific physical unit
+        var todayStr = now.toISOString().slice(0, 10);
+        var lastStr = lastChecked ? lastChecked.toISOString().slice(0, 10) : null;
+        var checkedTodayHere = lastStr === todayStr && lastCheckedUnit === _ic.physicalUnit;
+
         unchecked.push({
             id:               product.id,
             name:             product.name,
             userfields:       product.userfields,
             location_id:      product.location_id,
             lastChecked:      lastChecked,
+            lastCheckedUnit:  lastCheckedUnit,
+            intervalDays:     intervalDays,
+            checkStatus:      checkStatus,
+            checkedTodayHere: checkedTodayHere,
             daysUntilExpiry:  daysUntilExpiry,
             grocyAmount:      grocyAmount,
             countedTotal:     countedTotal,
@@ -601,25 +644,39 @@ function _icCategorize() {
         });
     });
 
-    // Sort: priority -> expiry urgency -> never-checked -> alpha
+    // Sort: priority -> check-status (overdue/soon) -> expiry urgency -> never-checked -> oldest-checked -> alpha
     var prioOrder = { high: 0, normal: 1, low: 2 };
+    var statusOrder = { overdue: 0, soon: 1, ok: 2, neutral: 3 };
 
     unchecked.sort(function(a, b) {
+        // 1. Manual priority
         var aPrio = prioOrder[_ic.priorities[a.id] || 'normal'];
         var bPrio = prioOrder[_ic.priorities[b.id] || 'normal'];
-
         if (aPrio !== bPrio) return aPrio - bPrio;
 
+        // 2. Check-status from HverDag (overdue first, then soon)
+        var aCS = statusOrder[a.checkStatus.status];
+        var bCS = statusOrder[b.checkStatus.status];
+        if (aCS !== bCS) return aCS - bCS;
+
+        // 3. Within same check-status: higher ratio = more urgent
+        var aRatio = a.checkStatus.ratio === Infinity ? 9999 : (a.checkStatus.ratio || 0);
+        var bRatio = b.checkStatus.ratio === Infinity ? 9999 : (b.checkStatus.ratio || 0);
+        if (aRatio !== bRatio) return bRatio - aRatio;
+
+        // 4. Expiry urgency
         var aUrgent = a.daysUntilExpiry <= 3;
         var bUrgent = b.daysUntilExpiry <= 3;
         if (aUrgent && !bUrgent) return -1;
         if (!aUrgent && bUrgent) return 1;
         if (aUrgent && bUrgent) return a.daysUntilExpiry - b.daysUntilExpiry;
 
+        // 5. Never checked first
         if (!a.lastChecked && !b.lastChecked) return a.name.localeCompare(b.name, 'da');
         if (!a.lastChecked) return -1;
         if (!b.lastChecked) return 1;
 
+        // 6. Oldest checked first
         return a.lastChecked - b.lastChecked;
     });
 
@@ -724,10 +781,25 @@ function _icCreateCard(product, isChecked) {
         }
     }
 
-    // Last checked text
+    // Last checked text + unit
     var uf = product.userfields || {};
     var lastChecked = uf.LastCheckedAt ? new Date(uf.LastCheckedAt) : null;
+    var lastUnit = uf.LastCheckedUnit || null;
     var lastText = lastChecked ? 'Sidst: ' + _icFormatDate(lastChecked) : 'Aldrig tjekket';
+    if (lastChecked && lastUnit) {
+        lastText += ' (' + esc(lastUnit) + ')';
+    }
+
+    // HverDag check-status badge
+    var intervalDays = _icParseIntervalDays(uf);
+    var checkStatus = product.checkStatus || _icComputeCheckStatus(intervalDays, lastChecked, new Date());
+    var checkBadgeHtml = '';
+    if (checkStatus.status === 'overdue') {
+        var overdueText = checkStatus.daysSince === Infinity ? 'Aldrig' : checkStatus.daysSince + 'd';
+        checkBadgeHtml = ' <span class="ic-check-badge ic-check-overdue" title="Overdue — sidst ' + overdueText + ' siden (interval: ' + (intervalDays || '?') + 'd)">&#x23F0;</span>';
+    } else if (checkStatus.status === 'soon') {
+        checkBadgeHtml = ' <span class="ic-check-badge ic-check-soon" title="Snart — ' + (checkStatus.daysSince || 0) + 'd siden (interval: ' + intervalDays + 'd)">&#x23F3;</span>';
+    }
 
     // Expiry info
     var expiryHtml = '';
@@ -749,12 +821,14 @@ function _icCreateCard(product, isChecked) {
     var prioIcon = prio === 'high' ? '\u2B50' : prio === 'low' ? '\uD83D\uDCA4' : '\u00B7';
     var prioClass = prio !== 'normal' ? ' ic-prio-' + prio : '';
 
-    // Expiry status class on card
+    // Status class on card — use check-status (HverDag) when available, fall back to expiry
     if (!isChecked) {
-        if (days !== undefined && days < 0)       card.className += ' ic-status-overdue';
-        else if (days !== undefined && days <= 3)  card.className += ' ic-status-soon';
-        else if (grocyAmount > 0)                  card.className += ' ic-status-ok';
-        else                                        card.className += ' ic-status-neutral';
+        if (checkStatus.status === 'overdue')          card.className += ' ic-status-overdue';
+        else if (checkStatus.status === 'soon')        card.className += ' ic-status-soon';
+        else if (days !== undefined && days < 0)       card.className += ' ic-status-overdue';
+        else if (days !== undefined && days <= 3)      card.className += ' ic-status-soon';
+        else if (grocyAmount > 0)                      card.className += ' ic-status-ok';
+        else                                            card.className += ' ic-status-neutral';
     } else {
         card.className += ' ic-status-checked';
     }
@@ -776,7 +850,7 @@ function _icCreateCard(product, isChecked) {
             '<div class="ic-card-info" data-action="expand">' +
                 '<div class="ic-card-name">' +
                     '<button class="ic-priority-btn' + prioClass + '" data-action="priority" title="Skift prioritet">' + prioIcon + '</button> ' +
-                    esc(product.name) + expiryHtml +
+                    esc(product.name) + checkBadgeHtml + expiryHtml +
                 '</div>' +
                 '<div class="ic-card-meta">' + lastText + '</div>' +
                 '<div class="ic-card-stock">' + stockText + '</div>' +
