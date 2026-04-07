@@ -83,6 +83,7 @@ bon-v2/
 │   ├── price_categories.js ← /api/price-categories
 │   ├── addresses.js  ← /api/addresses (POST)
 │   ├── webhooks.js   ← /api/webhooks/bestilling (ingen auth)
+│   ├── attachments.js ← /api/attachments (upload/download)
 │   ├── users.js      ← /api/users (admin CRUD)
 │   ├── mail.js       ← /api/mail/* (admin, skabeloner + test)
 │   ├── dashboard.js  ← /api/dashboard/* (today, stats, top-products, weather)
@@ -711,15 +712,37 @@ Nye filer placeres præcis der de hører hjemme — kopieres ikke.
 - [x] CRM Kunde 360° — klik på tilbud åbner wizard
 - [x] `window.switchView` global (tilgængelig for CRM deep links)
 
+### Mail-vedhæftninger + tilbuds-fixes (april 2026)
+- [x] npm: `busboy@^1.6.0` (rent JS, ingen native)
+- [x] `routes/attachments.js` — **NY FIL**: upload (multipart/busboy) + download endpoints
+  - `POST /api/attachments/upload` — max 10 MB, PDF/billeder/Office tilladt
+  - `GET /api/attachments/:id/download` — generisk attachment
+  - `GET /api/attachments/mail/:id/download` — mail attachment
+- [x] `server.js` — mount `/api/attachments`
+- [x] `services/mailService.js` — `sendMail()` udvid med `attachments = []` parameter
+  - Resolver `attachment_id` → `file_path` via `attachments`-tabel
+  - Sætter `has_attachments` flag på `mail_messages`
+  - Inserter `mail_attachments`-rækker for historik
+  - Sender via nodemailer (native attachment-support)
+- [x] `routes/bons.js` — POST /:id/mail accepterer `attachments[]` med validering (max 5, integer IDs)
+- [x] `shared/api.js` — `uploadAttachment()`, `mailAttachmentUrl()`, `attachmentUrl()`
+- [x] `shared/bon_drawer.js` — "📎 Vedhæft"-knap, fil-upload, pills, send med attachments, visning i mail-historik
+- [x] `shared/bon_drawer.css` — attachment pill/knap/historik styling
+- [x] `office/views/crm-kunde360.js` — samme attachment-mønster i CRM Kunde360 mail-compose
+- [x] `office/views/tilbud.js` — "✉ Send til kunde" i step 4 (genererer PDF → upload → mail)
+- [x] Tilbuds-fix: `pax` ReferenceError i `_tBuildStats()` der crashede step 2 rendering
+- [x] Tilbuds-fix: `_tNewQuote()` nulstiller `_tMenu` for friske priser
+- [x] Kostpris-fix: `getRecipes()` henter nu fra Grocy fulfillment (`costs`) i stedet for gammelt `costprice` userfield
+- [x] jsPDF selvhostet i `assets/jspdf.umd.min.js` (CDN 2.5.2 returnerede 404)
+- [x] Spec-opdateringer: `CLAUDE_MAIL.md` (sekt. 14–15), `CLAUDE_MAIL_IMPL.md`, `CLAUDE_TILBUD.md` Fase 2
+
 ## Næste opgave
 
 > ✏️ Opdateret 7. april 2026.
 >
-> **Fase 1a–1e + 3A + 3B + 3D + 4 + 5 + 6 (indkøbsliste) + 7 (CRM) + Office CRM redesign + 8 (Fakturering) + 9 (Tilbud) komplet.**
-> Tilbud: 5-trins wizard, PDF, tilbud=bon med is_offer=1, TILBUD-status, T-nummerserie.
+> **Fase 1a–1e + 3A + 3B + 3D + 4 + 5 + 6 (indkøbsliste) + 7 (CRM) + Office CRM redesign + 8 (Fakturering) + 9 (Tilbud) + Mail-vedhæftninger komplet.**
 >
-> **Næste:** Rapporter (office/views/rapporter.js — 8 API-endpoints + KPI/chart/tabel),
-> Bestilling (Hørkram montering), Varemodtagelse (fusion-endpoint),
+> **Næste:** Bestilling (Hørkram montering), Varemodtagelse (fusion-endpoint),
 > Priser-setting i planlægningsbon, Ugeoversigt.
 > Så er Bon v1 klar til nedlukning.
 >
@@ -755,6 +778,11 @@ Nye filer placeres præcis der de hører hjemme — kopieres ikke.
 > - Tilbud er separat sidebar-punkt i office (efter CRM, før Drift)
 > - Tilbud bruger TILBUD-status (dedikeret status_definition) — ikke NY
 > - Tilbudsnumre bruger separat T-nummerserie (quote_number_prefix + quote_number_next)
+> - Mail-vedhæftninger: separat upload-endpoint (`/api/attachments/upload`) → `attachment_id` reference i JSON mail-send
+> - To attachment-tabeller: `attachments` (generisk) + `mail_attachments` (mail-specifik) — begge bruges ved udgående mail
+> - busboy (rent JS) til multipart parsing — godkendt npm-pakke
+> - jsPDF selvhostet i `assets/` (CDN ustabil)
+> - Kostpris fra Grocy fulfillment `costs` (beregnet fra ingredienser), ikke `costprice` userfield
 
 ---
 
@@ -1061,6 +1089,9 @@ PUT    /api/quotes/:id/lines/:lid                        routes/quotes.js
 DELETE /api/quotes/:id/lines/:lid                        routes/quotes.js
 PATCH  /api/quotes/:id/status                            routes/quotes.js
 POST   /api/quotes/:id/convert                           routes/quotes.js (tilbud → bon)
+POST   /api/attachments/upload                             routes/attachments.js (multipart)
+GET    /api/attachments/:id/download                       routes/attachments.js
+GET    /api/attachments/mail/:id/download                  routes/attachments.js
 ```
 
 ---
