@@ -288,7 +288,12 @@ function getRecipesRaw() {
  * Filtrerer til sellable=1 og mapper userfields til struktureret objekt.
  */
 async function getRecipes() {
-    const raw = await getRecipesRaw();
+    const [raw, fulfillment] = await Promise.all([getRecipesRaw(), getRecipeFulfillment()]);
+    // Build lookup: recipe_id → calculated costs from Grocy fulfillment
+    const costMap = {};
+    for (const f of fulfillment) {
+        costMap[f.recipe_id] = f.costs || 0;
+    }
     return raw
         .filter(r => {
             const uf = r.userfields || {};
@@ -309,7 +314,7 @@ async function getRecipes() {
                     produktion: parseFloat(uf.SalespriceProduktion) || 0,
                     waiste:     parseFloat(uf.SalespriceWaiste) || 0,
                 },
-                cost_price: parseFloat(uf.costprice) || 0,
+                cost_price: costMap[r.id] ?? (parseFloat(uf.costprice) || 0),
                 co2e: parseFloat(uf.Co2e) || 0,
             };
         })

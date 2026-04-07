@@ -319,9 +319,41 @@ Felter der indgar (spring over hvis tomme):
 
 ---
 
-## Fase 2 (ikke i denne spec)
+## Fase 2 — Send tilbud som mail med PDF
 
-- Send mail med PDF som vedhaegtning (via mailService)
-- `#T-NNN` email-tag-routing i mailService
+> Se `CLAUDE_MAIL.md` sektion 14–15 for den fulde vedhæftnings-spec.
+
+### "Send som mail" i tilbuds-wizard step 4
+
+**Knap:** `✉ Send til kunde` — placeret ved siden af "Download PDF" i step 4 preview.
+
+**Flow:**
+1. Bruger klikker "Send til kunde"
+2. Frontend genererer PDF via jsPDF (som nu, client-side)
+3. Frontend uploader PDF som Blob: `POST /api/attachments/upload`
+   - `entity_type = 'bon'`, `entity_id = {bonId}` (tilbud er bon med is_offer=1)
+   - Returnerer `{ attachment_id, filename, size_bytes }`
+4. Frontend åbner mail-compose (inline eller modal) med pre-filled:
+   - `to`: kundens email fra tilbuddet
+   - `subject`: pre-filled med tilbudsnavn (tag tilføjes af backend)
+   - `text`: standard-skabelon fra `mail_templates` (f.eks. `tilbud_sendt`)
+   - `attachments`: `[{ attachment_id }]` — PDF'en
+5. Bruger kan redigere tekst og tilføje flere vedhæftninger
+6. Bruger klikker Send → `POST /api/bons/:id/mail` med `attachments[]`
+7. Backend sender via `sendMail()` med `#t-{nummer}` tag (da `is_offer=1`)
+
+**Vigtigt:**
+- PDF genereres client-side (jsPDF) — ingen server-side PDF-generering nødvendig
+- Upload sker via det generelle `/api/attachments/upload` endpoint (se CLAUDE_MAIL.md)
+- Mail-send er standard JSON (ikke multipart) — attachment_id referencer
+
+### `#t-` tag i mails
+
+Allerede understøttet: `sendMail()` bruger `mail_tag_offer_prefix` fra settings når `is_offer=1`.
+Parser genkender `#t-{nummer}` og matcher til `bons` (is_offer=1).
+Ved konvertering (tilbud → bon) skifter nye udgående mails automatisk til `#b-{nummer}`.
+
+### Andre Fase 2 opgaver
+
 - Priskategori-valg per tilbud (dropdown i step 1)
 - Tilbud som "ghost"-blokke i kalender-view

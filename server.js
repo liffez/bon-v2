@@ -62,6 +62,7 @@ app.use('/api/quotes',       require('./routes/quotes'));
 app.use('/api/horkram',      require('./routes/horkram'));
 app.use('/api/orders',       require('./routes/orders'));
 app.use('/api/receiving',    require('./routes/receiving'));
+app.use('/api/attachments',  require('./routes/attachments'));
 
 // ─── MAIL POLLING ───────────────────────────────────────────────────────────
 

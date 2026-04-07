@@ -430,6 +430,33 @@ function markBonMailRead(bonId, msgId) {
     });
 }
 
+/* ── ATTACHMENTS ─────────────────────────────────────────── */
+
+async function uploadAttachment(file, entityType, entityId, filename) {
+    var fd = new FormData();
+    if (filename) {
+        fd.append('file', file, filename);
+    } else {
+        fd.append('file', file);
+    }
+    if (entityType) fd.append('entity_type', entityType);
+    if (entityId) fd.append('entity_id', String(entityId));
+    var res = await fetch(API_BASE + '/attachments/upload', { method: 'POST', body: fd });
+    if (!res.ok) {
+        var body = await res.json().catch(function() { return {}; });
+        throw new Error(body.error || 'Upload fejl: ' + res.status);
+    }
+    return res.json();
+}
+
+function mailAttachmentUrl(mailAttachmentId) {
+    return API_BASE + '/attachments/mail/' + mailAttachmentId + '/download';
+}
+
+function attachmentUrl(attachmentId) {
+    return API_BASE + '/attachments/' + attachmentId + '/download';
+}
+
 /* ── DASHBOARD ────────────────────────────────────────────── */
 
 function fetchDashboardToday() {

@@ -550,12 +550,24 @@ router.get('/:id/mail', handle(async (req, res) => {
     res.json({ threads });
 }));
 
-// POST /api/bons/:id/mail — send udgående mail
+// POST /api/bons/:id/mail — send udgående mail (med valgfri vedhæftninger)
 router.post('/:id/mail', handle(async (req, res) => {
     const bonId = parseInt(req.params.id);
-    const { to, subject, text, templateKey, inReplyTo } = req.body;
+    const { to, subject, text, templateKey, inReplyTo, attachments } = req.body;
     if (!to || (!text && !templateKey)) {
         return res.status(400).json({ error: 'to og text/templateKey er påkrævet' });
+    }
+
+    // Validate attachments
+    const validatedAttachments = [];
+    if (attachments) {
+        if (!Array.isArray(attachments)) return res.status(400).json({ error: 'attachments skal være et array' });
+        if (attachments.length > 5) return res.status(400).json({ error: 'Max 5 vedhæftninger per mail' });
+        for (const att of attachments) {
+            const id = parseInt(att.attachment_id);
+            if (!id || id <= 0) return res.status(400).json({ error: 'Ugyldigt attachment_id' });
+            validatedAttachments.push({ attachment_id: id });
+        }
     }
 
     const db = getDb();
@@ -569,9 +581,9 @@ router.post('/:id/mail', handle(async (req, res) => {
     let result;
     if (templateKey) {
         const vars = req.body.vars || {};
-        result = await sendFromTemplate({ templateKey, to, vars, bonId, context, userId });
+        result = await sendFromTemplate({ templateKey, to, vars, bonId, context, userId, attachments: validatedAttachments });
     } else {
-        result = await sendMail({ to, subject: subject || '', text, bonId, context, inReplyTo, smtpPrefix: 'smtp', userId });
+        result = await sendMail({ to, subject: subject || '', text, bonId, context, inReplyTo, smtpPrefix: 'smtp', userId, attachments: validatedAttachments });
     }
 
     res.json({ ok: true, messageId: result.messageId, threadId: result.threadId });

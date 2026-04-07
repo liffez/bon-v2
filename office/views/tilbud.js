@@ -293,6 +293,7 @@ function _tSetFilter(f) {
 
 function _tNewQuote() {
     _tResetWizard();
+    _tMenu = null; // force reload for fresh prices
     _tMode = 'wizard';
     _tLoadMenuAndRender();
 }
@@ -827,7 +828,7 @@ function _tBuildStats() {
     }
 
     let h = '<div class="tilbud-stats">';
-    if (isEv) h += `<div class="tilbud-stat"><span class="tilbud-stat-label">Pax:</span><span class="tilbud-stat-value">${pax || '\u2014'}</span></div>`;
+    if (isEv) h += `<div class="tilbud-stat"><span class="tilbud-stat-label">Pax:</span><span class="tilbud-stat-value">${parseInt(_tPax) || '\u2014'}</span></div>`;
     h += `<div class="tilbud-stat"><span class="tilbud-stat-label">Valgt:</span><span class="tilbud-stat-value">${cnt}</span></div>`;
     h += `<div class="tilbud-stat"><span class="tilbud-stat-label">Pris:</span><span class="tilbud-stat-value">${_tFk(sale)}</span></div>`;
     if (_tShowDB) {
@@ -1165,6 +1166,7 @@ function _tBuildStep4() {
     let h = `<div style="display:flex;gap:12px;margin-bottom:16px;flex-wrap:wrap">
         <button class="tilbud-btn tilbud-btn-primary" onclick="_tSaveQuote()">Gem tilbud</button>
         <button class="tilbud-btn tilbud-btn-secondary" onclick="_tGenPDF()">Download PDF</button>
+        <button class="tilbud-btn tilbud-btn-secondary" onclick="_tSendQuoteMail()">✉ Send til kunde</button>
         ${_tQuoteId ? `<button class="tilbud-btn tilbud-btn-secondary" onclick="_tConvertToBon()">Opret som bon</button>` : ''}
     </div>`;
 
@@ -1560,4 +1562,116 @@ function _tGenPDF() {
     doc.text(`Gyldigt i ${_tValidDays} dage. Priser i DKK.`, pw - mr, fy + 5, { align: 'right' });
 
     doc.save(`Tilbud_${qi}_${cn.replace(/\s+/g, '_')}.pdf`);
+}
+
+/** Send tilbud som mail med PDF vedhæftet */
+async function _tSendQuoteMail() {
+    if (!_tQuoteId) { _tToast('Gem tilbuddet først', 'warning'); return; }
+    const email = _tCust?.email;
+    if (!email) { _tToast('Kunden har ingen email', 'warning'); return; }
+
+    // Show send form if not visible
+    let container = document.getElementById('tilbudMailSend');
+    if (container && container.style.display !== 'none') {
+        container.style.display = 'none';
+        return;
+    }
+    if (!container) {
+        container = document.createElement('div');
+        container.id = 'tilbudMailSend';
+        container.className = 'tilbud-mail-send';
+        // Insert after the button row
+        const btnRow = document.querySelector('.tilbud-step-content > div:first-child');
+        if (btnRow) btnRow.after(container);
+        else return;
+    }
+    container.style.display = 'block';
+
+    const cn = _tCust?.company_name || _tCust?.customer_name || 'Kunde';
+    container.innerHTML = `
+        <div style="background:var(--color-background, #f5f4f2);border:1px solid var(--color-border, #d7d1ca);border-radius:8px;padding:12px;margin-bottom:16px;">
+            <div style="font-weight:600;margin-bottom:8px;">✉ Send tilbud til kunde</div>
+            <div style="margin-bottom:6px;">
+                <label style="font-size:11px;display:block;">Til</label>
+                <input type="email" id="tMailTo" value="${_tEsc(email)}" style="width:100%;padding:6px 8px;border:1px solid var(--color-border);border-radius:4px;font-size:13px;">
+            </div>
+            <div style="margin-bottom:6px;">
+                <label style="font-size:11px;display:block;">Emne</label>
+                <input type="text" id="tMailSubject" value="Tilbud ${_tEsc(_tQuoteNumber || '')}" style="width:100%;padding:6px 8px;border:1px solid var(--color-border);border-radius:4px;font-size:13px;">
+            </div>
+            <div style="margin-bottom:6px;">
+                <label style="font-size:11px;display:block;">Besked</label>
+                <textarea id="tMailBody" rows="4" style="width:100%;padding:6px 8px;border:1px solid var(--color-border);border-radius:4px;font-size:13px;resize:vertical;">Kære ${_tEsc(cn)},
+
+Vedhæftet finder du vores tilbud ${_tEsc(_tQuoteNumber || '')}.
+
+Vi ser frem til at høre fra jer.
+
+Med venlig hilsen
+Ristet Rug</textarea>
+            </div>
+            <div class="bm-attachments" id="tMailAttachments">
+                <span class="bm-att-pill">📎 Tilbud_${_tEsc(_tQuoteNumber || 'ny')}.pdf <span style="color:var(--color-text-dim);font-size:10px;">(genereres ved send)</span></span>
+            </div>
+            <div style="display:flex;gap:8px;margin-top:8px;">
+                <button class="tilbud-btn tilbud-btn-primary" id="tMailSendBtn" onclick="_tDoSendMail()">✉ Send</button>
+                <button class="tilbud-btn tilbud-btn-secondary" onclick="document.getElementById('tilbudMailSend').style.display='none'">Annuller</button>
+            </div>
+        </div>`;
+}
+
+async function _tDoSendMail() {
+    const to = document.getElementById('tMailTo').value.trim();
+    const subject = document.getElementById('tMailSubject').value.trim();
+    const text = document.getElementById('tMailBody').value.trim();
+    const btn = document.getElementById('tMailSendBtn');
+
+    if (!to) { alert('Indtast email-adresse'); return; }
+    if (!text) { alert('Skriv en besked'); return; }
+
+    btn.disabled = true;
+    btn.textContent = 'Genererer PDF…';
+
+    try {
+        // 1. Generate PDF blob — call _tGenPDF logic but get blob instead of saving
+        _tSaveStepFields();
+        const { jsPDF } = window.jspdf;
+        // We need to re-run the PDF generation but output as blob
+        // Easiest: temporarily override doc.save, call _tGenPDF, restore
+        let pdfDoc = null;
+        const origSave = jsPDF.prototype.save;
+        jsPDF.prototype.save = function() { pdfDoc = this; };
+        _tGenPDF();
+        jsPDF.prototype.save = origSave;
+        if (!pdfDoc) throw new Error('PDF generering fejlede');
+        const blob = pdfDoc.output('blob');
+
+        // 2. Upload PDF
+        btn.textContent = 'Uploader PDF…';
+        const cn = _tCust?.company_name || _tCust?.customer_name || 'Kunde';
+        const filename = `Tilbud_${_tQuoteNumber || 'ny'}_${cn.replace(/\s+/g, '_')}.pdf`;
+        const uploadResult = await uploadAttachment(blob, 'bon', _tQuoteId, filename);
+
+        // 3. Send mail with attachment
+        btn.textContent = 'Sender mail…';
+        const bonId = _tQuoteId; // Tilbud er bon med is_offer=1
+        await sendBonMail(bonId, {
+            to, subject, text,
+            attachments: [{ attachment_id: uploadResult.attachment_id }]
+        });
+
+        // 4. Success
+        btn.textContent = '✉ Sendt!';
+        _tToast('Tilbud sendt til ' + to, 'success');
+        setTimeout(() => {
+            const container = document.getElementById('tilbudMailSend');
+            if (container) container.style.display = 'none';
+        }, 2000);
+
+    } catch (err) {
+        console.error('[tilbud] Send mail fejl:', err);
+        alert('Fejl ved afsendelse: ' + err.message);
+        btn.disabled = false;
+        btn.textContent = '✉ Send';
+    }
 }

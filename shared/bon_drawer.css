@@ -449,3 +449,33 @@
 .drawer-mail-compose-form .bm-field label { font-size: 10px; }
 .drawer-mail-compose-form .drawer-field { font-size: 13px; padding: 6px 8px; }
 .drawer-mail-compose-form .drawer-textarea { min-height: 80px; }
+
+/* Attachment compose UI */
+.bm-compose-actions { display: flex; gap: 8px; margin-top: 6px; }
+.bm-send, .bm-attach {
+    padding: 6px 14px; border: none; border-radius: 6px;
+    font-size: 13px; cursor: pointer;
+}
+.bm-send { background: var(--brand-primary, #8e631f); color: #fff; }
+.bm-send:hover { opacity: 0.9; }
+.bm-send:disabled { opacity: 0.5; cursor: default; }
+.bm-attach { background: var(--color-background, #f5f4f2); color: var(--color-text, #333); border: 1px solid var(--color-border, #d7d1ca); }
+.bm-attach:hover { background: var(--color-border, #d7d1ca); }
+.bm-attachments { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 6px; }
+.bm-att-pill {
+    display: inline-flex; align-items: center; gap: 4px;
+    background: var(--color-background, #f5f4f2); border: 1px solid var(--color-border, #d7d1ca);
+    border-radius: 12px; padding: 3px 10px; font-size: 11px; color: var(--color-text, #333);
+}
+.bm-att-remove { cursor: pointer; color: #c44; font-weight: bold; margin-left: 2px; }
+.bm-att-remove:hover { color: #a00; }
+
+/* Attachment display in mail history */
+.bm-msg-attachments { margin-top: 4px; display: flex; flex-wrap: wrap; gap: 4px; }
+.bm-msg-att {
+    display: inline-flex; align-items: center; gap: 3px;
+    font-size: 11px; color: var(--brand-primary, #8e631f);
+    text-decoration: none; padding: 2px 8px;
+    background: var(--color-background, #f5f4f2); border-radius: 8px;
+}
+.bm-msg-att:hover { text-decoration: underline; }

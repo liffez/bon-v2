@@ -1325,7 +1325,12 @@ async function _k3RenderMail(el) {
             '<label>Besked</label>' +
             '<textarea class="k3-mail-body" id="k3MailBody" placeholder="Skriv din besked..."></textarea>' +
         '</div>' +
-        '<button class="k3-mail-send" onclick="_k3SendMail()">Send mail</button>' +
+        '<input type="file" id="k3MailFile" accept=".pdf,.jpg,.jpeg,.png,.gif,.xlsx,.docx" style="display:none" onchange="_k3OnFileSelected(this)">' +
+        '<div id="k3MailAttachments" class="bm-attachments"></div>' +
+        '<div style="display:flex;gap:8px;margin-top:6px;">' +
+            '<button class="bm-attach" id="k3AttachBtn" onclick="_k3AttachFile()">📎 Vedhæft</button>' +
+            '<button class="k3-mail-send" onclick="_k3SendMail()">Send mail</button>' +
+        '</div>' +
     '</div>';
 
     // Load existing mail threads for this customer's bons
@@ -1360,6 +1365,11 @@ async function _k3RenderMail(el) {
                     '</div>' +
                     '<div style="font-size:12px;font-weight:600;margin-bottom:2px;">' + (m.subject || '') + '</div>' +
                     '<div class="k3-mail-msg-body">' + ((m.body_text || '').substring(0, 300)) + '</div>' +
+                    (m.attachments && m.attachments.filter(a => a.id).length
+                        ? '<div class="bm-msg-attachments">' + m.attachments.filter(a => a.id).map(a =>
+                            '<a href="' + mailAttachmentUrl(a.id) + '" class="bm-msg-att" target="_blank">📎 ' + (a.filename || 'fil') + ' (' + Math.round((a.size_bytes||0)/1024) + ' KB)</a>'
+                        ).join('') + '</div>'
+                        : '') +
                 '</div>';
             }).join('');
         }
@@ -1368,6 +1378,45 @@ async function _k3RenderMail(el) {
     }
 
     el.innerHTML = html;
+}
+
+let _k3Attachments = [];
+
+function _k3AttachFile() {
+    if (_k3Attachments.length >= 5) { alert('Max 5 vedhæftninger per mail'); return; }
+    document.getElementById('k3MailFile').click();
+}
+
+async function _k3OnFileSelected(input) {
+    const file = input.files[0];
+    if (!file) return;
+    input.value = '';
+    if (file.size > 10 * 1024 * 1024) { alert('Fil er for stor (max 10 MB)'); return; }
+    const btn = document.getElementById('k3AttachBtn');
+    if (btn) { btn.disabled = true; btn.textContent = 'Uploader…'; }
+    try {
+        const result = await uploadAttachment(file, 'customer', _k3CustomerId);
+        _k3Attachments.push(result);
+        _k3RenderAttPills();
+    } catch (err) {
+        alert('Upload fejl: ' + err.message);
+    } finally {
+        if (btn) { btn.disabled = false; btn.textContent = '📎 Vedhæft'; }
+    }
+}
+
+function _k3RenderAttPills() {
+    const el = document.getElementById('k3MailAttachments');
+    if (!el) return;
+    el.innerHTML = _k3Attachments.map((a, i) =>
+        '<span class="bm-att-pill">📎 ' + (a.filename || 'fil') + ' (' + Math.round((a.size_bytes || 0) / 1024) + ' KB)'
+        + '<span class="bm-att-remove" onclick="_k3RemoveAtt(' + i + ')"> ✕</span></span>'
+    ).join('');
+}
+
+function _k3RemoveAtt(index) {
+    _k3Attachments.splice(index, 1);
+    _k3RenderAttPills();
 }
 
 async function _k3SendMail() {
@@ -1382,7 +1431,12 @@ async function _k3SendMail() {
     if (!bonId) { alert('Ingen bon fundet at knytte mail til'); return; }
 
     try {
-        await sendBonMail(bonId, { to, subject, text });
+        const data = { to, subject, text };
+        if (_k3Attachments.length > 0) {
+            data.attachments = _k3Attachments.map(a => ({ attachment_id: a.attachment_id }));
+        }
+        await sendBonMail(bonId, data);
+        _k3Attachments = [];
         alert('Mail sendt!');
         _k3RenderTab();
     } catch (err) {

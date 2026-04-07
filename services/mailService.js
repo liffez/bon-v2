@@ -67,7 +67,7 @@ function createTransport(prefix = 'smtp') {
 /**
  * Send en mail via SMTP. Gemmer i mail_threads + mail_messages.
  */
-async function sendMail({ to, subject, text, context, bonId = null, customerId = null, inReplyTo = null, references = null, smtpPrefix = 'smtp', userId = null }) {
+async function sendMail({ to, subject, text, context, bonId = null, customerId = null, inReplyTo = null, references = null, smtpPrefix = 'smtp', userId = null, attachments = [] }) {
     const enabledKey = smtpPrefix === 'smtp_kontakt' ? 'smtp_kontakt_enabled' : 'smtp_enabled';
     if (getSetting(enabledKey) !== '1') {
         throw new Error(`SMTP (${smtpPrefix}) er ikke aktiveret`);
@@ -115,6 +115,35 @@ async function sendMail({ to, subject, text, context, bonId = null, customerId =
     ).run(threadId, from, null, to, finalSubject, text, inReplyTo, userId);
     const messageDbId = msgIns.lastInsertRowid;
 
+    // Resolve attachments (attachment_id → file on disk)
+    let resolvedAttachments = [];
+    if (attachments.length > 0) {
+        for (const att of attachments) {
+            const row = db.prepare('SELECT file_name, file_path, file_type FROM attachments WHERE id = ?')
+                .get(att.attachment_id);
+            if (!row) throw new Error(`Vedhæftning ${att.attachment_id} ikke fundet`);
+            if (!fs.existsSync(row.file_path)) throw new Error(`Fil ikke fundet på disk: ${row.file_name}`);
+            const stat = fs.statSync(row.file_path);
+            const mime = row.file_type === 'pdf' ? 'application/pdf'
+                : row.file_type === 'image' ? 'image/png'
+                : 'application/octet-stream';
+            resolvedAttachments.push({
+                path: row.file_path,
+                filename: row.file_name,
+                contentType: mime,
+                size: stat.size
+            });
+        }
+        // Update has_attachments flag
+        db.prepare('UPDATE mail_messages SET has_attachments = 1 WHERE id = ?').run(messageDbId);
+        // Insert mail_attachments rows for history
+        for (const ra of resolvedAttachments) {
+            db.prepare(`INSERT INTO mail_attachments (message_id, filename, file_path, mime_type, size_bytes, created_at)
+                VALUES (?, ?, ?, ?, ?, datetime('now'))`)
+                .run(messageDbId, ra.filename, ra.path, ra.contentType, ra.size);
+        }
+    }
+
     // Send via SMTP
     const mailOptions = {
         from,
@@ -124,6 +153,9 @@ async function sendMail({ to, subject, text, context, bonId = null, customerId =
     };
     if (inReplyTo) mailOptions.inReplyTo = inReplyTo;
     if (references) mailOptions.references = references;
+    if (resolvedAttachments.length > 0) {
+        mailOptions.attachments = resolvedAttachments;
+    }
 
     const info = await transport.sendMail(mailOptions);
 
@@ -139,14 +171,14 @@ async function sendMail({ to, subject, text, context, bonId = null, customerId =
 /**
  * Send mail fra skabelon.
  */
-async function sendFromTemplate({ templateKey, to, vars, bonId = null, customerId = null, context = null, userId = null }) {
+async function sendFromTemplate({ templateKey, to, vars, bonId = null, customerId = null, context = null, userId = null, attachments = [] }) {
     const tmpl = getDb().prepare('SELECT subject, body_text FROM mail_templates WHERE key = ?').get(templateKey);
     if (!tmpl) throw new Error(`Skabelon '${templateKey}' ikke fundet`);
 
     const subject = renderTemplate(tmpl.subject, vars);
     const text    = renderTemplate(tmpl.body_text, vars);
 
-    return sendMail({ to, subject, text, context, bonId, customerId, userId });
+    return sendMail({ to, subject, text, context, bonId, customerId, userId, attachments });
 }
 
 // ─── IMAP ───────────────────────────────────────────────

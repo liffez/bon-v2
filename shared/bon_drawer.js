@@ -204,7 +204,10 @@ class BonDrawer {
                                     <label>Besked</label>
                                     <textarea id="drawerMailBody" class="drawer-field drawer-textarea" rows="6" placeholder="Skriv besked…"></textarea>
                                 </div>
+                                <input type="file" id="drawerMailFile" accept=".pdf,.jpg,.jpeg,.png,.gif,.xlsx,.docx" style="display:none" onchange="_drawerOnFileSelected(this)">
+                                <div id="drawerMailAttachments" class="bm-attachments"></div>
                                 <div class="bm-compose-actions">
+                                    <button type="button" class="bm-attach" onclick="_drawerAttachFile()">📎 Vedhæft</button>
                                     <button type="button" class="bm-send" id="drawerMailSendBtn" onclick="_drawerSendMail()">✉ Send</button>
                                 </div>
                             </div>
@@ -463,6 +466,11 @@ class BonDrawer {
                         + '<div class="bm-msg-header"><span class="bm-msg-from">' + (isIn ? '← ' : '→ ') + esc(from) + '</span><span class="bm-msg-date">' + dateStr + '</span></div>'
                         + '<div class="bm-msg-subject">' + esc(m.subject || '') + '</div>'
                         + '<div class="bm-msg-body">' + esc(body) + (body.length >= 150 ? '…' : '') + '</div>'
+                        + (m.attachments && m.attachments.filter(a => a.id).length
+                            ? '<div class="bm-msg-attachments">' + m.attachments.filter(a => a.id).map(a =>
+                                '<a href="' + mailAttachmentUrl(a.id) + '" class="bm-msg-att" target="_blank">📎 ' + esc(a.filename) + ' (' + Math.round((a.size_bytes||0)/1024) + ' KB)</a>'
+                            ).join('') + '</div>'
+                            : '')
                         + '</div>';
                 }).join('');
             }
@@ -928,6 +936,60 @@ function _drawerApplyTemplate() {
     document.getElementById('drawerMailBody').value = subst(tmpl.body_text);
 }
 
+// ─── ATTACHMENT HANDLING ────────────────────────────────────────────────────
+
+let _drawerAttachments = [];
+
+function _drawerAttachFile() {
+    if (_drawerAttachments.length >= 5) {
+        alert('Max 5 vedhæftninger per mail');
+        return;
+    }
+    document.getElementById('drawerMailFile').click();
+}
+
+async function _drawerOnFileSelected(input) {
+    const file = input.files[0];
+    if (!file) return;
+    input.value = ''; // reset for re-select
+
+    if (file.size > 10 * 1024 * 1024) {
+        alert('Fil er for stor (max 10 MB)');
+        return;
+    }
+
+    const attachBtn = document.querySelector('.bm-attach');
+    if (attachBtn) { attachBtn.disabled = true; attachBtn.textContent = 'Uploader…'; }
+
+    try {
+        const entityType = _drawerInstance?.bonId ? 'bon' : 'temp';
+        const entityId = _drawerInstance?.bonId || null;
+        const result = await uploadAttachment(file, entityType, entityId);
+        _drawerAttachments.push(result);
+        _drawerRenderAttachmentPills();
+    } catch (err) {
+        alert('Upload fejl: ' + err.message);
+    } finally {
+        if (attachBtn) { attachBtn.disabled = false; attachBtn.textContent = '📎 Vedhæft'; }
+    }
+}
+
+function _drawerRenderAttachmentPills() {
+    const el = document.getElementById('drawerMailAttachments');
+    if (!el) return;
+    el.innerHTML = _drawerAttachments.map((a, i) =>
+        '<span class="bm-att-pill">📎 ' + esc(a.filename) + ' (' + Math.round((a.size_bytes || 0) / 1024) + ' KB)'
+        + '<span class="bm-att-remove" onclick="_drawerRemoveAttachment(' + i + ')"> ✕</span></span>'
+    ).join('');
+}
+
+function _drawerRemoveAttachment(index) {
+    _drawerAttachments.splice(index, 1);
+    _drawerRenderAttachmentPills();
+}
+
+// ─── SEND MAIL ──────────────────────────────────────────────────────────────
+
 async function _drawerSendMail() {
     if (!_drawerInstance || !_drawerInstance.bonId) return;
     const to = document.getElementById('drawerMailTo').value.trim();
@@ -942,11 +1004,17 @@ async function _drawerSendMail() {
     btn.textContent = 'Sender…';
 
     try {
-        await sendBonMail(_drawerInstance.bonId, { to, subject, text });
+        const data = { to, subject, text };
+        if (_drawerAttachments.length > 0) {
+            data.attachments = _drawerAttachments.map(a => ({ attachment_id: a.attachment_id }));
+        }
+        await sendBonMail(_drawerInstance.bonId, data);
         // Clear compose
         document.getElementById('drawerMailSubject').value = '';
         document.getElementById('drawerMailBody').value = '';
         document.getElementById('drawerMailTemplate').value = '';
+        _drawerAttachments = [];
+        _drawerRenderAttachmentPills();
         btn.textContent = '✉ Sendt!';
         setTimeout(() => { btn.textContent = '✉ Send'; btn.disabled = false; }, 2000);
         // Reload mail section
