@@ -170,6 +170,8 @@ router.get('/:id', handle((req, res) => {
         customer_wishes: bon.customer_wishes,
         invoice_info: bon.invoice_info,
         kitchen_info: bon.kitchen_info,
+        offer_note: bon.offer_note,
+        offer_block_metadata: bon.offer_block_metadata ? JSON.parse(bon.offer_block_metadata) : null,
         valid_until: bon.offer_valid_until,
         quote_date: bon.order_date,
         notes: bon.internal_notes,
@@ -207,9 +209,10 @@ router.post('/', handle((req, res) => {
             price_category, day_contact_name, day_contact_phone,
             is_offer, offer_status, offer_valid_until,
             offer_template, offer_price_mode, offer_discount_percent,
+            offer_note, offer_block_metadata,
             prep_ingredients_ready, prep_supplies_ready,
             created_by_user_id
-        ) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,0,0,?,?,?,?,?,?,?,?,1,?,?,?,?,?,0,0,?)
+        ) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,0,0,?,?,?,?,?,?,?,?,1,?,?,?,?,?,?,?,0,0,?)
     `).run(
         bonNumber, statusId, locationId,
         b.customer_id ?? null, b.company_id ?? null,
@@ -221,6 +224,8 @@ router.post('/', handle((req, res) => {
         b.price_category ?? 'catering', b.day_contact_name ?? null, b.day_contact_phone ?? null,
         'draft', validUntil,
         b.template ?? 'event', b.price_mode ?? 'total', b.discount_percent ?? 0,
+        b.offer_note ?? null,
+        b.offer_block_metadata ? JSON.stringify(b.offer_block_metadata) : null,
         req.session?.userId ?? null
     );
 
@@ -285,12 +290,27 @@ router.patch('/:id', handle((req, res) => {
         discount_percent: 'offer_discount_percent',
         customer_wishes: 'customer_wishes', valid_until: 'offer_valid_until',
         invoice_info: 'invoice_info', kitchen_info: 'kitchen_info',
-        notes: 'internal_notes',
+        notes: 'internal_notes', offer_note: 'offer_note',
     };
 
     const updates = {};
     for (const [inputKey, dbCol] of Object.entries(fieldMap)) {
         if (inputKey in b) updates[dbCol] = b[inputKey] ?? null;
+    }
+
+    // offer_block_metadata — validér JSON
+    if ('offer_block_metadata' in b) {
+        if (b.offer_block_metadata) {
+            try {
+                const parsed = typeof b.offer_block_metadata === 'string' ? JSON.parse(b.offer_block_metadata) : b.offer_block_metadata;
+                if (typeof parsed !== 'object' || Array.isArray(parsed)) throw new Error('Skal være et objekt');
+                updates.offer_block_metadata = JSON.stringify(parsed);
+            } catch (_) {
+                return res.status(400).json({ error: 'offer_block_metadata skal være valid JSON-objekt' });
+            }
+        } else {
+            updates.offer_block_metadata = null;
+        }
     }
 
     // Update fields

@@ -271,6 +271,7 @@
     <button class="st-nav-item st-admin-only" data-section="grocy">Grocy</button>
     <button class="st-nav-item st-admin-only" data-section="mail">Mail</button>
     <button class="st-nav-item st-admin-only" data-section="formbuilder">Formbuilder</button>
+    <button class="st-nav-item st-admin-only" data-section="tilbud">Tilbud</button>
     <button class="st-nav-item st-admin-only" data-section="system">System</button>
   </nav>
 
@@ -330,6 +331,21 @@
       <div style="margin-top:var(--space-m);display:flex;gap:8px">
         <button class="st-btn st-btn-primary" onclick="saveFieldMap()">Gem</button>
         <button class="st-btn st-btn-secondary" onclick="resetFieldMap()">Nulstil til standard</button>
+      </div>
+    </div>
+
+    <!-- ════ TILBUD ════ -->
+    <div class="st-section st-admin-only" id="sec-tilbud">
+      <h2>Tilbud</h2>
+      <div class="st-card">
+        <h3>Blok-typer til event-tilbud</h3>
+        <p style="font-size:.82rem;color:var(--color-text-dim,#7a6f5f);margin-bottom:12px">Definer tidsblokke der bruges i event-skabelonen. R&aelig;kkef&oslash;lgen styrer visning i wizard og p&aring; PDF.</p>
+        <div id="tilbud-blocks-list"></div>
+        <div style="display:flex;gap:8px;margin-top:10px">
+          <button class="st-btn st-btn-sm st-btn-secondary" onclick="addOfferBlock()">+ Tilf&oslash;j blok</button>
+          <button class="st-btn st-btn-sm st-btn-primary" onclick="saveOfferBlocks()">Gem</button>
+        </div>
+        <div id="tilbud-blocks-msg" style="font-size:.82rem;margin-top:8px"></div>
       </div>
     </div>
 
@@ -396,6 +412,7 @@ async function init() {
     loadGrocyLocations();
     loadMailSection();
     loadFormbuilder();
+    loadOfferBlocks();
     loadSystemSection();
   }
 }
@@ -912,6 +929,70 @@ async function saveSystemField(key) {
 function esc(str) {
   if (str == null) return '';
   return String(str).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
+}
+
+// ═══════════════════════════════════════════════════════════
+// TILBUD — blok-type editor
+// ═══════════════════════════════════════════════════════════
+
+var offerBlocks = [];
+
+function loadOfferBlocks() {
+  var raw = allSettings['offer_block_types'];
+  try { offerBlocks = JSON.parse(raw); } catch (_) { offerBlocks = []; }
+  if (!Array.isArray(offerBlocks)) offerBlocks = [];
+  renderOfferBlocks();
+}
+
+function renderOfferBlocks() {
+  var container = document.getElementById('tilbud-blocks-list');
+  if (!offerBlocks.length) {
+    container.innerHTML = '<p style="font-size:.82rem;color:var(--color-text-dim)">Ingen blokke defineret.</p>';
+    return;
+  }
+  container.innerHTML = offerBlocks.map(function(b, i) {
+    return '<div style="display:flex;gap:8px;align-items:center;margin-bottom:6px">' +
+      '<span style="font-size:.72rem;color:var(--color-text-dim);width:60px;font-family:monospace">' + esc(b.key) + '</span>' +
+      '<input class="st-input" value="' + esc(b.label) + '" style="flex:1" onchange="offerBlocks[' + i + '].label=this.value">' +
+      '<button class="st-btn st-btn-sm" onclick="moveOfferBlock(' + i + ',-1)" ' + (i === 0 ? 'disabled' : '') + '>\u25B2</button>' +
+      '<button class="st-btn st-btn-sm" onclick="moveOfferBlock(' + i + ',1)" ' + (i === offerBlocks.length - 1 ? 'disabled' : '') + '>\u25BC</button>' +
+      '<button class="st-btn st-btn-sm" onclick="removeOfferBlock(' + i + ')" style="color:#bc181b">\u2715</button>' +
+      '</div>';
+  }).join('');
+}
+
+function addOfferBlock() {
+  var maxN = 0;
+  offerBlocks.forEach(function(b) {
+    var m = b.key.match(/^custom(\d+)$/);
+    if (m) maxN = Math.max(maxN, parseInt(m[1]));
+  });
+  offerBlocks.push({ key: 'custom' + (maxN + 1), label: 'Ny blok', sort_order: offerBlocks.length + 1 });
+  renderOfferBlocks();
+}
+
+function removeOfferBlock(idx) {
+  if (!confirm('Slet blokken "' + offerBlocks[idx].label + '"?')) return;
+  offerBlocks.splice(idx, 1);
+  offerBlocks.forEach(function(b, i) { b.sort_order = i + 1; });
+  renderOfferBlocks();
+}
+
+function moveOfferBlock(idx, dir) {
+  var newIdx = idx + dir;
+  if (newIdx < 0 || newIdx >= offerBlocks.length) return;
+  var tmp = offerBlocks[idx];
+  offerBlocks[idx] = offerBlocks[newIdx];
+  offerBlocks[newIdx] = tmp;
+  offerBlocks.forEach(function(b, i) { b.sort_order = i + 1; });
+  renderOfferBlocks();
+}
+
+async function saveOfferBlocks() {
+  offerBlocks.forEach(function(b, i) { b.sort_order = i + 1; });
+  await saveSetting('offer_block_types', JSON.stringify(offerBlocks));
+  document.getElementById('tilbud-blocks-msg').textContent = '\u2713 Gemt';
+  setTimeout(function() { document.getElementById('tilbud-blocks-msg').textContent = ''; }, 2000);
 }
 
 // ─── START ───────────────────────────────────────────────

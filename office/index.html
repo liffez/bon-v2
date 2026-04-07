@@ -646,7 +646,7 @@
         switchView('crm-kunde360');
       }
 
-      function switchView(viewName) {
+      window.switchView = function switchView(viewName) {
         if (_currentView === viewName) return;
 
         // Cleanup previous

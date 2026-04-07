@@ -693,6 +693,24 @@ Nye filer placeres præcis der de hører hjemme — kopieres ikke.
 - [x] Kitchen later-view: `OR b.is_offer = 1` tilføjet (tilbud vises uanset bon-status)
 - [x] Kalender: tilbud vises med TILBUD-status badge
 
+### Fase 9b — Tilbud v2 (konfigurerbare blokke, pax pr. blok, PDF-forbedringer)
+- [x] Migration 024: `offer_note`, `offer_block_metadata` på bons
+- [x] Migration 025: `company_cvr`, `company_address`, `company_phone`, `company_email` i settings
+- [x] `offer_block_types` setting (JSON-array med key, label, sort_order) — konfigurerbare blok-typer
+- [x] `settings/index.html` — Tilbud-sektion med blok-type editor (omdøb, tilføj, slet, rækkefølge)
+- [x] `office/views/tilbud.js`:
+  - Blok-types hentes fra settings ved init (cached i modulscope, ikke ved hvert step-skift)
+  - Pax pr. blok i step 1 (event-skabelon) — tom = global pax
+  - Pax-pill på blok-headers i step 2
+  - Kundenote textarea i step 3 (vises på PDF, adskilt fra interne noter)
+  - Blokpris pr. pax i pristabel (kun block/line mode)
+  - Pris pr. pax for enkeltbestillinger (ikke kun event)
+  - Leveringsadresse med ugedag på preview + PDF
+  - Firmaoplysninger i footer (CVR, adresse, email fra settings)
+- [x] `routes/quotes.js` — `offer_note` + `offer_block_metadata` i POST/PATCH/GET
+- [x] CRM Kunde 360° — klik på tilbud åbner wizard
+- [x] `window.switchView` global (tilgængelig for CRM deep links)
+
 ## Næste opgave
 
 > ✏️ Opdateret 7. april 2026.

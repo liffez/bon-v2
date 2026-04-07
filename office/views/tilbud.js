@@ -48,14 +48,20 @@ let _tCustomerWishes = '';
 let _tInvoiceInfo = '';
 let _tKitchenInfo = '';
 let _tInternalNotes = '';
+let _tOfferNote = '';
+let _tBlockMeta = {};    // { blockKey: { pax: N } }
 let _tValidDays = 30;
 
-const _tBLOCKS = [
-    { id: 'morning', label: 'Morgenmad', icon: '\u{1F305}', color: 'morning' },
-    { id: 'amsnack', label: 'Formiddagssnack', icon: '\u2615', color: 'amsnack' },
-    { id: 'lunch', label: 'Frokost', icon: '\u{1F37D}\uFE0F', color: 'lunch' },
-    { id: 'pmsnack', label: 'Eftermiddagssnack', icon: '\u{1F36A}', color: 'pmsnack' },
-];
+// Block types + company info — loaded from settings, cached in module scope
+let _tBLOCKS = [];
+let _tBlocksLoaded = false;
+let _tCompany = { name: 'Ristet Rug', cvr: '', address: '', phone: '', email: 'info@ristetrug.dk' };
+
+// Default block icons (matched by key prefix)
+const _tBLOCK_ICONS = { morning: '\u{1F305}', amsnack: '\u2615', lunch: '\u{1F37D}\uFE0F', pmsnack: '\u{1F36A}' };
+const _tBLOCK_COLORS = { morning: 'morning', amsnack: 'amsnack', lunch: 'lunch', pmsnack: 'pmsnack' };
+const _tDEFAULT_ICON = '\u{1F4CB}';
+const _tDEFAULT_COLOR = 'morning'; // fallback color class
 
 const _tCAT_ORDER = ['01 Sandwich','04 Slider','02 Salat','03 Kager','05 Drikke',
     'Sandwich','Slider','Salat','Kager','Drikke','Burger','Frugt'];
@@ -98,9 +104,12 @@ function initTilbud(container, opts) {
     _tMode = 'list';
     _tListFilter = 'all';
 
-    // Load logo async (fire-and-forget)
+    // Load logo + block types (fire-and-forget, cached)
     if (!_tLogoB64) {
         fetch('/assets/logo-b64.txt').then(r => r.text()).then(t => { _tLogoB64 = t.trim(); }).catch(() => {});
+    }
+    if (!_tBlocksLoaded) {
+        _tLoadBlockTypes();
     }
 
     // Deep link: ?customer=ID → new wizard with customer pre-loaded
@@ -127,6 +136,40 @@ function cleanupTilbud() {
     _tC = null;
     _tKS = null;
     _tMenu = null;
+}
+
+async function _tLoadBlockTypes() {
+    try {
+        const settings = await apiFetch('/settings');
+        const raw = settings.find(s => s.key === 'offer_block_types');
+        if (raw) {
+            const arr = JSON.parse(raw.value);
+            _tBLOCKS = arr.sort((a, b) => (a.sort_order || 0) - (b.sort_order || 0)).map(b => ({
+                id: b.key,
+                label: b.label,
+                icon: _tBLOCK_ICONS[b.key] || _tDEFAULT_ICON,
+                color: _tBLOCK_COLORS[b.key] || _tDEFAULT_COLOR,
+            }));
+        }
+        // Company info
+        const sv = (key, fallback) => { const s = settings.find(x => x.key === key); return s ? s.value : fallback; };
+        _tCompany = {
+            name: sv('company_name', 'Ristet Rug'),
+            cvr: sv('company_cvr', ''),
+            address: sv('company_address', ''),
+            phone: sv('company_phone', ''),
+            email: sv('company_email', 'info@ristetrug.dk'),
+        };
+    } catch (_) {}
+    if (!_tBLOCKS.length) {
+        _tBLOCKS = [
+            { id: 'morning', label: 'Morgenmad', icon: '\u{1F305}', color: 'morning' },
+            { id: 'amsnack', label: 'Formiddagssnack', icon: '\u2615', color: 'amsnack' },
+            { id: 'lunch', label: 'Frokost', icon: '\u{1F37D}\uFE0F', color: 'lunch' },
+            { id: 'pmsnack', label: 'Eftermiddagssnack', icon: '\u{1F36A}', color: 'pmsnack' },
+        ];
+    }
+    _tBlocksLoaded = true;
 }
 
 function _tilbudHandleSSE(event, data) {
@@ -281,6 +324,8 @@ async function _tOpenQuote(id) {
         _tInvoiceInfo = q.invoice_info || '';
         _tKitchenInfo = q.kitchen_info || '';
         _tInternalNotes = q.notes || '';
+        _tOfferNote = q.offer_note || '';
+        _tBlockMeta = q.offer_block_metadata || {};
         _tValidDays = 30;
         _tDel = {
             type: q.delivery_price > 0 ? 'custom' : null,
@@ -374,6 +419,8 @@ function _tResetWizard() {
     _tInvoiceInfo = '';
     _tKitchenInfo = '';
     _tInternalNotes = '';
+    _tOfferNote = '';
+    _tBlockMeta = {};
     _tValidDays = 30;
 }
 
@@ -438,10 +485,19 @@ function _tSaveStepFields() {
         const ii = v('t-invoice-info');if (ii !== undefined) _tInvoiceInfo = ii;
         const ki = v('t-kitchen-info');if (ki !== undefined) _tKitchenInfo = ki;
         const in_ = v('t-internal-notes'); if (in_ !== undefined) _tInternalNotes = in_;
+        // Pax per blok
+        if (_tTpl === 'event') {
+            _tBlockMeta = {};
+            _tBLOCKS.forEach(b => {
+                const bpax = v('t-bpax-' + b.id);
+                if (bpax && parseInt(bpax) > 0) _tBlockMeta[b.id] = { pax: parseInt(bpax) };
+            });
+        }
     }
     if (_tStep === 3) {
         const dp = v('t-disc-pct');  if (dp !== undefined) _tDiscountPct = parseFloat(dp) || 0;
         const vd = v('t-val-days');  if (vd !== undefined) _tValidDays = parseInt(vd) || 30;
+        const on = v('t-offer-note'); if (on !== undefined) _tOfferNote = on;
     }
 }
 
@@ -498,6 +554,13 @@ function _tBuildStep1() {
                 <div class="tilbud-form-group"><label>Pax</label><input type="number" id="t-ev-pax" value="${_tPax}" min="0" placeholder="Antal personer"></div>
                 <div class="tilbud-form-group"><label>Enheder</label><input type="number" id="t-ev-units" value="${_tTotalUnits}" min="0" placeholder="Total enheder"></div>
             </div>
+            ${_tTpl === 'event' && _tBLOCKS.length ? `
+            <div style="margin-top:10px">
+                <label style="font-size:.74rem;font-weight:600;color:var(--color-text-dim);text-transform:uppercase;letter-spacing:.04em">Pax pr. blok <span style="font-weight:400;text-transform:none;letter-spacing:0">(tom = samlet pax)</span></label>
+                <div class="tilbud-form-grid" style="margin-top:6px">
+                    ${_tBLOCKS.map(b => `<div class="tilbud-form-group"><label>${_tEsc(b.label)}</label><input type="number" id="t-bpax-${b.id}" value="${_tBlockMeta[b.id]?.pax || ''}" min="0" placeholder="${_tPax || '\u2014'}"></div>`).join('')}
+                </div>
+            </div>` : ''}
             <div class="tilbud-form-grid" style="margin-top:10px">
                 <div class="tilbud-form-group"><label>Leveringstype</label>
                     <select id="t-del-type-sel" onchange="_tDeliveryType=this.value">
@@ -753,15 +816,15 @@ function _tSetupStep2() {
 
 function _tBuildStats() {
     const isEv = _tTpl === 'event';
-    const pax = parseInt(_tPax) || 0;
     let cnt = 0, sale = 0, cost = 0;
-    const items = isEv ? Object.values(_tEvBlk).flat() : _tSiItems;
-    items.forEach(it => {
-        cnt += it.qty;
-        const m = isEv ? (pax || 1) : 1;
-        sale += it.unitPrice * it.qty * m;
-        cost += it.costPrice * it.qty * m;
-    });
+    if (isEv) {
+        for (const [blockKey, items] of Object.entries(_tEvBlk)) {
+            const bPax = _tEffectivePax(blockKey);
+            items.forEach(it => { cnt += it.qty; sale += it.unitPrice * it.qty * bPax; cost += it.costPrice * it.qty * bPax; });
+        }
+    } else {
+        _tSiItems.forEach(it => { cnt += it.qty; sale += it.unitPrice * it.qty; cost += it.costPrice * it.qty; });
+    }
 
     let h = '<div class="tilbud-stats">';
     if (isEv) h += `<div class="tilbud-stat"><span class="tilbud-stat-label">Pax:</span><span class="tilbud-stat-value">${pax || '\u2014'}</span></div>`;
@@ -774,6 +837,16 @@ function _tBuildStats() {
     h += `<div style="margin-left:auto"><button class="tilbud-btn tilbud-btn-secondary tilbud-btn-sm" onclick="_tShowDB=!_tShowDB;_tRenderWizard()" style="font-size:.7rem">${_tShowDB ? 'Skjul DB' : 'Vis DB'}</button></div>`;
     h += '</div>';
     return h;
+}
+
+function _tEffectivePax(blockKey) {
+    const meta = _tBlockMeta[blockKey];
+    return (meta?.pax > 0) ? meta.pax : (parseInt(_tPax) || 1);
+}
+
+function _tBlockLabel(blockKey) {
+    const b = _tBLOCKS.find(x => x.id === blockKey);
+    return b ? b.label : blockKey;
 }
 
 function _tBuildEventUI() {
@@ -794,12 +867,14 @@ function _tBuildEventUI() {
         if (!_tActBlk.has(b.id)) return;
         const its = _tEvBlk[b.id] || [];
         const cnt = its.reduce((s, i) => s + i.qty, 0);
-        const bp = its.reduce((s, i) => s + i.unitPrice * i.qty * pax, 0);
+        const bPax = _tEffectivePax(b.id);
+        const bp = its.reduce((s, i) => s + i.unitPrice * i.qty * bPax, 0);
         const col = _tColBlk.has(b.id);
+        const paxPill = `<span style="font-size:.7rem;background:rgba(142,99,31,.1);padding:2px 7px;border-radius:10px;margin-left:6px">${bPax} pax</span>`;
 
         h += `<div class="tilbud-block tilbud-block-${b.color}">
             <div class="tilbud-block-hdr" onclick="_tTogCol('${b.id}')">
-                <div class="tilbud-block-hdr-left"><span class="tilbud-chevron ${col ? 'collapsed' : ''}">\u25BC</span>${b.icon} ${b.label}</div>
+                <div class="tilbud-block-hdr-left"><span class="tilbud-chevron ${col ? 'collapsed' : ''}">\u25BC</span>${b.icon} ${b.label}${paxPill}</div>
                 <div class="tilbud-block-hdr-right"><span class="tilbud-block-count">${cnt} vare${cnt !== 1 ? 'r' : ''}</span><span class="tilbud-block-price">${_tFk(bp)}</span></div>
             </div>
             <div class="tilbud-block-body ${col ? 'collapsed' : ''}">`;
@@ -967,6 +1042,12 @@ function _tBuildStep3() {
         </div>
     </div>`;
 
+    // Kundenote (vises på PDF)
+    h += `<div class="tilbud-options">
+        <div class="tilbud-options-title">Note til kunden (vises p\u00e5 tilbuddet)</div>
+        <textarea id="t-offer-note" rows="3" placeholder="Fx 'Vi ser frem til at byde jer velkommen...'" style="width:100%;font-family:var(--font-body);font-size:.88rem;padding:9px 12px;border:1.5px solid var(--color-border);border-radius:8px;resize:vertical">${_tEsc(_tOfferNote)}</textarea>
+    </div>`;
+
     // Price table
     h += _tBuildPriceTable();
 
@@ -987,38 +1068,51 @@ function _tUpdateDel() {
 }
 
 function _tBuildPriceTable() {
-    const isEv = _tTpl === 'event', pax = parseInt(_tPax) || 1;
-    const sL = _tPriceMode === 'line';
+    const isEv = _tTpl === 'event';
+    const sL = _tPriceMode === 'line', sBT = _tPriceMode === 'block';
 
-    let all = [];
+    let h = `<table class="tilbud-price-tbl"><thead><tr><th>Post</th>${sL ? '<th class="r">Antal</th><th class="r">Pris</th>' : ''}<th class="r">Intern</th><th style="width:36px"></th></tr></thead><tbody>`;
+    let sub = 0, costT = 0;
+
     if (isEv) {
         _tBLOCKS.forEach(b => {
             if (!_tActBlk.has(b.id)) return;
-            (_tEvBlk[b.id] || []).forEach(it => all.push({ ...it, block: b.id, blockLabel: b.label, blockIcon: b.icon }));
+            const its = _tEvBlk[b.id] || [];
+            if (!its.length) return;
+            const bPax = _tEffectivePax(b.id);
+            let blockTotal = 0;
+
+            h += `<tr class="chapter"><td colspan="${sL ? 5 : 3}">${b.icon} ${b.label} <span style="font-size:.72rem;font-weight:400;color:var(--color-text-dim)">${bPax} pax</span></td></tr>`;
+
+            its.forEach(it => {
+                const lt = it.unitPrice * bPax * it.qty;
+                const lc = it.costPrice * bPax * it.qty;
+                sub += lt; costT += lc; blockTotal += lt;
+                const dbP = lt > 0 ? ((lt - lc) / lt * 100) : 0;
+                h += `<tr><td><strong>${_tEsc(it.name)}</strong></td>`;
+                if (sL) h += `<td class="r">${bPax}\u00d7${it.qty}</td><td class="r" style="font-family:'JetBrains Mono',monospace">${_tFk(lt)}</td>`;
+                h += `<td class="r" style="font-size:.73rem;color:var(--color-text-dim);font-family:'JetBrains Mono',monospace">${_tFk(lc)} (${dbP.toFixed(0)}%)</td>`;
+                h += `<td><button class="tilbud-btn-icon danger" onclick="_tRemP(${it.id},'${b.id}')">\u2715</button></td></tr>`;
+            });
+
+            // Blokpris pr. pax (kun block/line mode)
+            if ((sBT || sL) && bPax > 0) {
+                const perPax = Math.round(blockTotal / bPax);
+                h += `<tr class="subtotal"><td colspan="${sL ? 2 : 1}"></td><td class="r" style="font-family:'JetBrains Mono',monospace;font-size:.73rem">${_tFk(blockTotal)} <span style="color:var(--color-text-dim)">(${perPax} kr/pax)</span></td><td></td><td></td></tr>`;
+            }
         });
     } else {
-        all = _tSiItems.map(it => ({ ...it, block: null }));
+        _tSiItems.forEach(it => {
+            const lt = it.unitPrice * it.qty;
+            const lc = it.costPrice * it.qty;
+            sub += lt; costT += lc;
+            const dbP = lt > 0 ? ((lt - lc) / lt * 100) : 0;
+            h += `<tr><td><strong>${_tEsc(it.name)}</strong></td>`;
+            if (sL) h += `<td class="r">${it.qty}</td><td class="r" style="font-family:'JetBrains Mono',monospace">${_tFk(lt)}</td>`;
+            h += `<td class="r" style="font-size:.73rem;color:var(--color-text-dim);font-family:'JetBrains Mono',monospace">${_tFk(lc)} (${dbP.toFixed(0)}%)</td>`;
+            h += `<td><button class="tilbud-btn-icon danger" onclick="_tRemP(${it.id},'')">\u2715</button></td></tr>`;
+        });
     }
-
-    let h = `<table class="tilbud-price-tbl"><thead><tr><th>Post</th>${sL ? '<th class="r">Antal</th><th class="r">Pris</th>' : ''}<th class="r">Intern</th><th style="width:36px"></th></tr></thead><tbody>`;
-    let sub = 0, costT = 0, lastB = null;
-
-    all.forEach(it => {
-        if (isEv && it.block !== lastB) {
-            lastB = it.block;
-            const bd = _tBLOCKS.find(b => b.id === it.block);
-            h += `<tr class="chapter"><td colspan="${sL ? 5 : 3}">${bd.icon} ${bd.label}</td></tr>`;
-        }
-        const lt = isEv ? it.unitPrice * pax * it.qty : it.unitPrice * it.qty;
-        const lc = isEv ? it.costPrice * pax * it.qty : it.costPrice * it.qty;
-        sub += lt; costT += lc;
-        const dbP = lt > 0 ? ((lt - lc) / lt * 100) : 0;
-
-        h += `<tr><td><strong>${_tEsc(it.name)}</strong></td>`;
-        if (sL) h += `<td class="r">${isEv ? pax + '\u00d7' + it.qty : it.qty}</td><td class="r" style="font-family:'JetBrains Mono',monospace">${_tFk(lt)}</td>`;
-        h += `<td class="r" style="font-size:.73rem;color:var(--color-text-dim);font-family:'JetBrains Mono',monospace">${_tFk(lc)} (${dbP.toFixed(0)}%)</td>`;
-        h += `<td><button class="tilbud-btn-icon danger" onclick="_tRemP(${it.id},'${it.block || ''}')">\u2715</button></td></tr>`;
-    });
 
     // Custom items
     _tCxItems.forEach((ci, i) => {
@@ -1037,12 +1131,13 @@ function _tBuildPriceTable() {
     const pre = sub - dA;
     const moms = pre * 0.25;
     const tot = pre + moms;
+    const globalPax = parseInt(_tPax) || 0;
 
     h += `<tr class="subtotal"><td colspan="${sL ? 2 : 1}">Subtotal</td><td class="r" style="font-family:'JetBrains Mono',monospace">${_tFk(sub)}</td><td></td><td></td></tr>`;
     if (_tDiscountPct > 0) h += `<tr class="subtotal"><td colspan="${sL ? 2 : 1}">Rabat (${_tDiscountPct}%)</td><td class="r" style="font-family:'JetBrains Mono',monospace;color:#6ab04c">\u2212${_tFk(dA)}</td><td></td><td></td></tr>`;
     h += `<tr class="subtotal"><td colspan="${sL ? 2 : 1}">Moms (25%)</td><td class="r" style="font-family:'JetBrains Mono',monospace">${_tFk(moms)}</td><td></td><td></td></tr>`;
     h += `<tr class="total-row"><td colspan="${sL ? 2 : 1}">Total inkl. moms</td><td class="r" style="font-family:'JetBrains Mono',monospace">${_tFk(tot)}</td><td></td><td></td></tr>`;
-    if (isEv && pax > 0) h += `<tr class="subtotal"><td colspan="${sL ? 2 : 1}"></td><td class="r" style="font-family:'JetBrains Mono',monospace;font-size:.74rem">${_tFk(tot / pax)} pr. pax</td><td></td><td></td></tr>`;
+    if (globalPax > 0) h += `<tr class="subtotal"><td colspan="${sL ? 2 : 1}"></td><td class="r" style="font-family:'JetBrains Mono',monospace;font-size:.74rem">${_tFk(tot / globalPax)} pr. pax</td><td></td><td></td></tr>`;
 
     h += '</tbody></table>';
     return h;
@@ -1059,7 +1154,7 @@ function _tRemCx(i) { _tCxItems.splice(i, 1); _tRenderWizard(); }
 /* ── Step 4: Preview ─────────────────────────────────── */
 
 function _tBuildStep4() {
-    const isEv = _tTpl === 'event', pax = parseInt(_tPax) || 1;
+    const isEv = _tTpl === 'event', globalPax = parseInt(_tPax) || 1;
     const sL = _tPriceMode === 'line', sBT = _tPriceMode === 'block';
     const today = new Date().toISOString().slice(0, 10);
     const exp = new Date(); exp.setDate(exp.getDate() + _tValidDays);
@@ -1081,9 +1176,32 @@ function _tBuildStep4() {
         <div class="tilbud-pv-customer">
             <strong>${_tEsc(cn)}</strong><br>
             ${_tCust?.email ? _tEsc(_tCust.email) : ''}${_tCust?.phone ? ' \u00b7 ' + _tEsc(_tCust.phone) : ''}
-            ${isEv ? '<br>Pax: ' + pax : ''}${isEv && _tDeliveryTime ? '<br>Levering kl. ' + _tDeliveryTime : ''}
-        </div>
-        <div class="tilbud-pv-title">${isEv ? 'Tilbud p\u00e5 catering' : 'Tilbud'}</div>
+            ${isEv ? '<br>Pax: ' + globalPax : ''}
+        </div>`;
+
+    // Leveringsadresse
+    if (_tDeliveryDate || _tDeliveryAddress) {
+        const isPickup = _tDeliveryType === 'pickup';
+        h += `<div class="tilbud-pv-notes" style="margin-top:12px;margin-bottom:16px"><strong>${isPickup ? 'Afhentning' : 'Levering'}</strong><br>`;
+        if (_tDeliveryDate) {
+            const dayNames = ['S\u00f8ndag','Mandag','Tirsdag','Onsdag','Torsdag','Fredag','L\u00f8rdag'];
+            const d = new Date(_tDeliveryDate + 'T00:00:00');
+            h += dayNames[d.getDay()] + ' ' + _tFd(_tDeliveryDate);
+            if (_tDeliveryTime) h += ' kl. ' + _tDeliveryTime;
+            h += '<br>';
+        }
+        if (_tDeliveryAddress) h += _tEsc(_tDeliveryAddress) + '<br>';
+        if (_tDeliveryNotes) h += _tEsc(_tDeliveryNotes) + '<br>';
+        if (_tDel.type && _tDel.price > 0 && !_tDel.free) h += (dTypes[_tDel.type] || 'Levering') + ' ' + _tFk(_tDel.price);
+        h += '</div>';
+    }
+
+    // Kundenote
+    if (_tOfferNote) {
+        h += `<div style="margin-bottom:16px;font-size:.86rem;line-height:1.6;color:var(--color-text)">${_tOfferNote.replace(/\n/g, '<br>')}</div>`;
+    }
+
+    h += `<div class="tilbud-pv-title">${isEv ? 'Tilbud p\u00e5 catering' : 'Tilbud'}</div>
         <div class="tilbud-pv-subtitle">${isEv && _tDeliveryDate ? _tFd(_tDeliveryDate) : ''}${isEv && _tDeliveryAddress ? ' \u00b7 ' + _tEsc(_tDeliveryAddress) : ''}</div>`;
 
     let sub = 0;
@@ -1093,14 +1211,20 @@ function _tBuildStep4() {
             if (!_tActBlk.has(b.id)) return;
             const its = _tEvBlk[b.id] || [];
             if (!its.length) return;
-            const bt = its.reduce((s, i) => s + i.unitPrice * i.qty * pax, 0);
+            const bPax = _tEffectivePax(b.id);
+            const bt = its.reduce((s, i) => s + i.unitPrice * i.qty * bPax, 0);
             sub += bt;
-            h += `<div class="tilbud-pv-block-hdr">${b.icon} ${b.label}${sBT || sL ? `<span class="bt">${_tFk(bt)}</span>` : ''}</div>`;
+            let blockHdr = `${b.icon} ${b.label}`;
+            if (sBT || sL) {
+                const perPax = bPax > 0 ? Math.round(bt / bPax) : 0;
+                blockHdr += `<span class="bt">${_tFk(bt)}${perPax ? ` (${perPax} kr/pax)` : ''}</span>`;
+            }
+            h += `<div class="tilbud-pv-block-hdr">${blockHdr}</div>`;
             const cats = {};
             its.forEach(i => { const c = i.category || 'Ukendt'; if (!cats[c]) cats[c] = []; cats[c].push(i); });
             Object.keys(cats).forEach(cat => {
                 cats[cat].forEach(i => {
-                    h += `<div class="tilbud-pv-row"><span class="rn">${i.qty > 1 ? i.qty + '\u00d7 ' : ''}${_tEsc(i.name)}</span>${sL ? `<span class="rp">${_tFk(i.unitPrice * i.qty * pax)}</span>` : ''}</div>`;
+                    h += `<div class="tilbud-pv-row"><span class="rn">${i.qty > 1 ? i.qty + '\u00d7 ' : ''}${_tEsc(i.name)}</span>${sL ? `<span class="rp">${_tFk(i.unitPrice * i.qty * bPax)}</span>` : ''}</div>`;
                 });
             });
         });
@@ -1123,7 +1247,7 @@ function _tBuildStep4() {
     if (_tDel.type) {
         const dp = _tDel.free ? 0 : _tDel.price;
         sub += dp;
-        h += `<div class="tilbud-pv-row"><span class="rn">\u{1F69A} Levering: ${dTypes[_tDel.type] || ''}${_tDel.note ? ' \u00b7 ' + _tEsc(_tDel.note) : ''}</span><span class="rp"></span></div>`;
+        if (dp > 0) h += `<div class="tilbud-pv-row"><span class="rn">\u{1F69A} Levering: ${dTypes[_tDel.type] || ''}${_tDel.note ? ' \u00b7 ' + _tEsc(_tDel.note) : ''}</span><span class="rp">${_tFk(dp)}</span></div>`;
     }
 
     const dA = sub * (_tDiscountPct / 100), pre = sub - dA, moms = pre * 0.25, tot = pre + moms;
@@ -1133,9 +1257,10 @@ function _tBuildStep4() {
         <div class="tilbud-pv-tl"><span class="tl">Moms (25%)</span><span class="tv">${_tFk(moms)}</span></div>
         <div class="tilbud-pv-tl big"><span class="tl">Total inkl. moms</span><span class="tv">${_tFk(tot)}</span></div>
     </div>`;
-    if (isEv && pax > 0) h += `<div class="tilbud-pv-pax">Svarende til <strong>${_tFk(tot / pax)}</strong> pr. pax inkl. moms</div>`;
+    if (globalPax > 0) h += `<div class="tilbud-pv-pax">Svarende til <strong>${_tFk(tot / globalPax)}</strong> pr. pax inkl. moms</div>`;
     if (_tCustomerWishes) h += `<div class="tilbud-pv-notes"><strong>Kunde \u00f8nsker:</strong><br>${_tEsc(_tCustomerWishes)}</div>`;
-    h += `<div class="tilbud-pv-footer"><div><strong>Ristet Rug</strong><br>info@ristetrug.dk \u00b7 K\u00f8benhavn</div><div style="text-align:right">Gyldigt i ${_tValidDays} dage. Priser i DKK.</div></div>`;
+    const _fc = _tCompany;
+    h += `<div class="tilbud-pv-footer"><div><strong>${_tEsc(_fc.name)}</strong>${_fc.cvr ? ' \u00b7 CVR: ' + _tEsc(_fc.cvr) : ''}<br>${_tEsc(_fc.address || '')}${_fc.email ? ' \u00b7 ' + _tEsc(_fc.email) : ''}${_fc.phone ? ' \u00b7 ' + _tEsc(_fc.phone) : ''}</div><div style="text-align:right">Gyldigt i ${_tValidDays} dage.<br>Priser i DKK.</div></div>`;
     h += '</div>';
 
     h += `<div class="tilbud-btn-row">
@@ -1229,6 +1354,8 @@ async function _tSaveQuote() {
         invoice_info: _tInvoiceInfo || null,
         kitchen_info: _tKitchenInfo || null,
         notes: _tInternalNotes || null,
+        offer_note: _tOfferNote || null,
+        offer_block_metadata: Object.keys(_tBlockMeta).length ? _tBlockMeta : null,
         valid_until: (() => {
             const d = new Date();
             d.setDate(d.getDate() + _tValidDays);
@@ -1273,7 +1400,7 @@ function _tGenPDF() {
     const doc = new jsPDF({ unit: 'mm', format: 'a4' });
     const pw = 210, ph = 297, ml = 25, mr = 25, mt = 25, cw = pw - ml - mr;
     let y = mt;
-    const isEv = _tTpl === 'event', pax = parseInt(_tPax) || 1;
+    const isEv = _tTpl === 'event', globalPax = parseInt(_tPax) || 1;
     const sL = _tPriceMode === 'line', sBT = _tPriceMode === 'block';
     const cn = _tCust?.company_name || _tCust?.customer_name || 'Kunde';
     const qi = _tQuoteNumber || 'Ny';
@@ -1281,6 +1408,7 @@ function _tGenPDF() {
     const br = [142, 99, 31], tx = [44, 36, 22], dm = [122, 111, 95], cr = [245, 244, 242], gn = [106, 176, 76];
     const bc = { morning: [212, 160, 23], amsnack: [194, 114, 46], lunch: [74, 124, 89], pmsnack: [194, 114, 46] };
     const dTy = { byx: 'Byekspressen', taxa: 'El-taxa', rr: 'RR leverer', custom: 'Levering' };
+    const dayNames = ['s\u00f8ndag','mandag','tirsdag','onsdag','torsdag','fredag','l\u00f8rdag'];
 
     function chk(n) { if (y + n > ph - 28) { doc.addPage(); y = mt; } }
     function fD(d) { return d.toLocaleDateString('da-DK', { day: 'numeric', month: 'long', year: 'numeric' }); }
@@ -1304,7 +1432,7 @@ function _tGenPDF() {
     y += 17; doc.setDrawColor(...br); doc.setLineWidth(0.6); doc.line(ml, y, pw - mr, y); y += 8;
 
     // Customer box
-    const custH = isEv ? 24 : 18;
+    const custH = isEv ? 18 : 12;
     doc.setFillColor(...cr); doc.roundedRect(ml, y, cw, custH, 2, 2, 'F');
     doc.setFontSize(10); doc.setFont('helvetica', 'bold'); doc.setTextColor(...tx); doc.text(cn, ml + 5, y + 6);
     doc.setFont('helvetica', 'normal'); doc.setFontSize(8.5); doc.setTextColor(...dm);
@@ -1312,20 +1440,41 @@ function _tGenPDF() {
     if (_tCust?.email) cl += _tCust.email + '  ';
     if (_tCust?.phone) cl += _tCust.phone;
     doc.text(cl, ml + 5, y + 12);
-    if (isEv) doc.text(`Pax: ${pax}${_tDeliveryTime ? ' \u00b7 Levering kl. ' + _tDeliveryTime : ''}`, ml + 5, y + 18);
+    if (isEv) doc.text(`Pax: ${globalPax}`, ml + 5, y + 18);
     y += custH + 6;
+
+    // Leveringsadresse
+    if (_tDeliveryDate || _tDeliveryAddress) {
+        chk(20);
+        const isPickup = _tDeliveryType === 'pickup';
+        doc.setFontSize(9); doc.setFont('helvetica', 'bold'); doc.setTextColor(...tx);
+        doc.text(isPickup ? 'Afhentning' : 'Levering', ml, y); y += 5;
+        doc.setFontSize(8.5); doc.setFont('helvetica', 'normal'); doc.setTextColor(...dm);
+        if (_tDeliveryDate) {
+            const dd = new Date(_tDeliveryDate + 'T00:00:00');
+            let dStr = dayNames[dd.getDay()].charAt(0).toUpperCase() + dayNames[dd.getDay()].slice(1) + ' ' + fD(dd);
+            if (_tDeliveryTime) dStr += ' kl. ' + _tDeliveryTime;
+            doc.text(dStr, ml, y); y += 4.5;
+        }
+        if (_tDeliveryAddress) { doc.text(_tDeliveryAddress, ml, y); y += 4.5; }
+        if (_tDeliveryNotes) { doc.text(_tDeliveryNotes, ml, y); y += 4.5; }
+        if (_tDel.type && _tDel.price > 0 && !_tDel.free) {
+            doc.text((dTy[_tDel.type] || 'Levering') + '  ' + fK(_tDel.price), ml, y); y += 4.5;
+        }
+        y += 3;
+    }
+
+    // Kundenote
+    if (_tOfferNote) {
+        chk(15);
+        const noteLines = doc.splitTextToSize(_tOfferNote, cw);
+        doc.setFontSize(9); doc.setFont('helvetica', 'normal'); doc.setTextColor(...tx);
+        doc.text(noteLines, ml, y); y += noteLines.length * 4.5 + 4;
+    }
 
     // Title
     doc.setFontSize(14); doc.setFont('helvetica', 'bold'); doc.setTextColor(...tx);
-    doc.text(isEv ? 'Tilbud p\u00e5 catering' : 'Tilbud', ml, y); y += 5;
-    doc.setFontSize(8.5); doc.setFont('helvetica', 'normal'); doc.setTextColor(...dm);
-    if (isEv) {
-        let e = '';
-        if (_tDeliveryDate) e += fD(new Date(_tDeliveryDate + 'T00:00:00'));
-        if (_tDeliveryAddress) e += ' \u00b7 ' + _tDeliveryAddress;
-        doc.text(e, ml, y);
-    }
-    y += 10;
+    doc.text(isEv ? 'Tilbud p\u00e5 catering' : 'Tilbud', ml, y); y += 8;
 
     let sub = 0;
 
@@ -1334,15 +1483,19 @@ function _tGenPDF() {
         _tBLOCKS.forEach(b => {
             if (!_tActBlk.has(b.id)) return;
             const its = _tEvBlk[b.id] || []; if (!its.length) return;
-            const bt = its.reduce((s, i) => s + i.unitPrice * i.qty * pax, 0); sub += bt;
+            const bPax = _tEffectivePax(b.id);
+            const bt = its.reduce((s, i) => s + i.unitPrice * i.qty * bPax, 0); sub += bt;
             chk(14); doc.setFontSize(10); doc.setFont('helvetica', 'bold'); doc.setTextColor(...(bc[b.id] || br));
             doc.text(b.label, ml, y);
-            if (sBT || sL) { doc.setFontSize(9); doc.text(fK(bt), pw - mr, y, { align: 'right' }); }
+            if (sBT || sL) {
+                const perPax = bPax > 0 ? Math.round(bt / bPax) : 0;
+                doc.setFontSize(9); doc.text(fK(bt) + (perPax ? `  (${perPax} kr/pax)` : ''), pw - mr, y, { align: 'right' });
+            }
             y += 1.5; doc.setDrawColor(...(bc[b.id] || br)); doc.setLineWidth(0.4); doc.line(ml, y, pw - mr, y); y += 5;
             its.forEach(it => {
                 chk(7); doc.setFontSize(8.5); doc.setFont('helvetica', 'normal'); doc.setTextColor(...tx);
                 doc.text(`${it.qty > 1 ? it.qty + '\u00d7 ' : ''}${it.name}`, ml, y);
-                if (sL) doc.text(fK(it.unitPrice * it.qty * pax), pw - mr, y, { align: 'right' });
+                if (sL) doc.text(fK(it.unitPrice * it.qty * bPax), pw - mr, y, { align: 'right' });
                 y += 5.5;
             });
             y += 3;
@@ -1386,7 +1539,7 @@ function _tGenPDF() {
     doc.setDrawColor(...tx); doc.setLineWidth(0.5); doc.line(ttx, y, pw - mr, y); y += 5;
     doc.setFontSize(11); doc.setFont('helvetica', 'bold'); doc.setTextColor(...tx);
     doc.text('Total inkl. moms', ttx, y); doc.text(fK(tot), pw - mr, y, { align: 'right' }); y += 5;
-    if (isEv && pax > 0) { doc.setFontSize(7.5); doc.setFont('helvetica', 'normal'); doc.setTextColor(...dm); doc.text(`Svarende til ${fK(tot / pax)} pr. pax inkl. moms`, pw - mr, y, { align: 'right' }); y += 6; }
+    if (globalPax > 0) { doc.setFontSize(7.5); doc.setFont('helvetica', 'normal'); doc.setTextColor(...dm); doc.text(`Svarende til ${fK(tot / globalPax)} pr. pax inkl. moms`, pw - mr, y, { align: 'right' }); y += 6; }
 
     // Wishes
     if (_tCustomerWishes) {
@@ -1399,8 +1552,11 @@ function _tGenPDF() {
 
     // Footer
     const fy = ph - 18; doc.setDrawColor(200, 195, 185); doc.setLineWidth(0.2); doc.line(ml, fy, pw - mr, fy);
-    doc.setFontSize(7); doc.setFont('helvetica', 'bold'); doc.setTextColor(...tx); doc.text('Ristet Rug', ml, fy + 5);
-    doc.setFont('helvetica', 'normal'); doc.setTextColor(...dm); doc.text('info@ristetrug.dk \u00b7 K\u00f8benhavn', ml, fy + 9);
+    doc.setFontSize(7); doc.setFont('helvetica', 'bold'); doc.setTextColor(...tx);
+    doc.text(_tCompany.name + (_tCompany.cvr ? ' \u00b7 CVR: ' + _tCompany.cvr : ''), ml, fy + 5);
+    doc.setFont('helvetica', 'normal'); doc.setTextColor(...dm);
+    const footParts = [_tCompany.address, _tCompany.email, _tCompany.phone].filter(Boolean);
+    doc.text(footParts.join(' \u00b7 '), ml, fy + 9);
     doc.text(`Gyldigt i ${_tValidDays} dage. Priser i DKK.`, pw - mr, fy + 5, { align: 'right' });
 
     doc.save(`Tilbud_${qi}_${cn.replace(/\s+/g, '_')}.pdf`);

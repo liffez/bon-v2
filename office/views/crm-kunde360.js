@@ -1238,12 +1238,15 @@ function _k3NewQuote() {
 }
 
 function _k3OpenQuote(quoteId) {
-    if (typeof switchView === 'function') {
+    // Navigér til tilbud-view og åbn tilbuddet i wizard
+    if (typeof _tOpenQuote === 'function' && typeof switchView === 'function') {
         const url = new URL(window.location);
         url.searchParams.set('view', 'tilbud');
-        url.searchParams.set('quote', quoteId);
+        url.searchParams.delete('quote');
         history.replaceState({}, '', url);
         switchView('tilbud');
+        // Åbn efter init har renderet listen
+        setTimeout(() => _tOpenQuote(quoteId), 100);
     }
 }
 
