@@ -70,9 +70,21 @@ router.post('/test', requireAuth('admin'), handle(async (req, res) => {
 router.get('/unmatched', requireAuth('admin'), handle(async (req, res) => {
     const status = req.query.status || 'open';
     const db = getDb();
+    const where = ['status = ?'];
+    const args = [status];
+
+    if (req.query.from_date) {
+        where.push('COALESCE(received_at, created_at) >= ?');
+        args.push(req.query.from_date);
+    }
+    if (req.query.mailbox) {
+        where.push('mailbox LIKE ?');
+        args.push('%' + req.query.mailbox + '%');
+    }
+
     const items = db.prepare(`
-        SELECT * FROM mail_unmatched WHERE status = ? ORDER BY created_at DESC
-    `).all(status);
+        SELECT * FROM mail_unmatched WHERE ${where.join(' AND ')} ORDER BY COALESCE(received_at, created_at) DESC
+    `).all(...args);
     res.json(items);
 }));
 

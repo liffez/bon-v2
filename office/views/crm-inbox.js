@@ -10,6 +10,8 @@ let _inbOpts = {};
 let _inbActive = false;
 let _inbMails = [];
 let _inbSelected = null;
+let _inbMailbox = '';        // '' = alle, 'bon' = bon@, 'kontakt' = kontakt@
+let _inbFromDate = '2026-01-01';
 
 function initCrmInbox(containerEl, opts) {
     _inbContainer = containerEl;
@@ -24,6 +26,8 @@ function cleanupCrmInbox() {
     _inbContainer = null;
     _inbMails = [];
     _inbSelected = null;
+    _inbMailbox = '';
+    _inbFromDate = '2026-01-01';
 }
 
 function _inbRenderShell() {
@@ -102,8 +106,22 @@ function _inbRenderShell() {
 
             .inb-empty { text-align: center; padding: 40px; color: var(--color-text-dim); font-size: 14px; }
             .inb-hint { font-size: 11px; color: var(--color-text-dim); padding: 8px 16px; text-align: center; }
+            .inb-filter-btn { font-size: 12px; padding: 4px 12px; border: 1.5px solid var(--color-border, #d7d1ca); border-radius: 14px; background: var(--color-surface, #fff); cursor: pointer; color: var(--color-text-dim); font-family: inherit; }
+            .inb-filter-btn:hover { border-color: var(--brand-primary); }
+            .inb-filter-btn.active { background: var(--brand-primary, #8e631f); color: #fff; border-color: var(--brand-primary); }
         </style>
 
+        <div style="display:flex;gap:10px;align-items:center;margin-bottom:12px;flex-wrap:wrap;padding:0 4px">
+            <div style="display:flex;gap:4px">
+                <button class="inb-filter-btn ${_inbMailbox === '' ? 'active' : ''}" onclick="_inbSetMailbox('')">Alle</button>
+                <button class="inb-filter-btn ${_inbMailbox === 'bon' ? 'active' : ''}" onclick="_inbSetMailbox('bon')">bon@</button>
+                <button class="inb-filter-btn ${_inbMailbox === 'kontakt' ? 'active' : ''}" onclick="_inbSetMailbox('kontakt')">kontakt@</button>
+            </div>
+            <div style="display:flex;gap:6px;align-items:center;margin-left:auto">
+                <label style="font-size:12px;color:var(--color-text-dim)">Fra:</label>
+                <input type="date" id="inbFromDate" value="${_inbFromDate}" onchange="_inbSetFromDate(this.value)" oninput="_inbSetFromDate(this.value)" style="font-size:12px;padding:4px 8px;border:1px solid var(--color-border);border-radius:6px">
+            </div>
+        </div>
         <div class="inb-layout">
             <div class="inb-list-panel">
                 <div class="inb-list-header">
@@ -123,7 +141,10 @@ function _inbRenderShell() {
 async function _inbLoadData() {
     if (!_inbActive) return;
     try {
-        _inbMails = await fetchUnmatchedMails('open');
+        const params = new URLSearchParams({ status: 'open' });
+        if (_inbFromDate) params.set('from_date', _inbFromDate);
+        if (_inbMailbox) params.set('mailbox', _inbMailbox);
+        _inbMails = await apiFetch('/mail/unmatched?' + params.toString());
         _inbRenderList();
         document.getElementById('inbCount').textContent = _inbMails.length;
         if (_inbSelected) {
@@ -302,6 +323,23 @@ async function _inbIgnore() {
     } catch (err) {
         alert('Fejl: ' + err.message);
     }
+}
+
+// ─── Filter handlers ────────────────────────────────────────
+
+function _inbSetMailbox(mb) {
+    _inbMailbox = mb;
+    _inbSelected = null;
+    _inbRenderShell();
+    _inbLoadData();
+}
+
+function _inbSetFromDate(d) {
+    _inbFromDate = d || '';
+    _inbSelected = null;
+    const el = document.getElementById('inbFromDate');
+    if (el) el.value = _inbFromDate;
+    _inbLoadData();
 }
 
 // ─── SSE handler ────────────────────────────────────────────
