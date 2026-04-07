@@ -3,7 +3,7 @@
   "configurations": [
     {
       "name": "bon-v2",
-      "runtimeExecutable": "/opt/homebrew/Cellar/node@22/22.22.1_1/bin/node",
+      "runtimeExecutable": "/usr/local/bin/node",
       "runtimeArgs": ["server.js"],
       "port": 4321,
       "autoPort": true

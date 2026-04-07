@@ -608,3 +608,43 @@ function convertQuoteToBon(id) {
 function fetchNextQuoteNumber() {
     return apiFetch('/quotes/next-number');
 }
+
+/* ── REPORTS ──────────────────────────────────────────── */
+
+function fetchReportsSummary() {
+    return apiFetch('/reports/summary');
+}
+
+function fetchReportsMonthly() {
+    return apiFetch('/reports/monthly');
+}
+
+function fetchReportsTopCustomers(by) {
+    var qs = by ? '?by=' + by : '';
+    return apiFetch('/reports/top-customers' + qs);
+}
+
+function fetchReportsCategories() {
+    return apiFetch('/reports/categories');
+}
+
+function fetchReportsMonthlyTable() {
+    return apiFetch('/reports/monthly-table');
+}
+
+function fetchReportsLego(months, year) {
+    var params = [];
+    if (months && months.length) params.push('months=' + months.join(','));
+    if (year) params.push('year=' + year);
+    var qs = params.length ? '?' + params.join('&') : '';
+    return apiFetch('/reports/lego' + qs);
+}
+
+function fetchReportsCumulative(years) {
+    var qs = years && years.length ? '?years=' + years.join(',') : '';
+    return apiFetch('/reports/cumulative' + qs);
+}
+
+function fetchReportsTopCategories() {
+    return apiFetch('/reports/top-categories');
+}

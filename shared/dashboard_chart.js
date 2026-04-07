@@ -583,3 +583,675 @@ function initAccumChart(canvasId, mainCanvasId, data, opts = {}) {
         update(newData) { state.data = newData; draw(); },
     };
 }
+
+/* ── Monthly Bar Chart (12 months, this year vs prev year) ──── */
+
+/**
+ * 12-month bar chart: this year vs previous year side by side.
+ * @param {string} canvasId
+ * @param {object} data — { this_year: [{month, revenue, units, orders}], prev_year: [...] }
+ * @param {object} opts — { mode: 'kr'|'enh' }
+ * @returns {{ destroy, setMode, update, redraw }}
+ */
+function initMonthlyBarChart(canvasId, data, opts = {}) {
+    const canvas = document.getElementById(canvasId);
+    if (!canvas) return null;
+
+    const MONTH_LABELS = ['Jan', 'Feb', 'Mar', 'Apr', 'Maj', 'Jun', 'Jul', 'Aug', 'Sep', 'Okt', 'Nov', 'Dec'];
+    const COLOR_THIS = '#8e631f';
+    const COLOR_PREV = '#d0c8c0';
+
+    const state = { mode: opts.mode || 'kr', data };
+    let tooltip = document.getElementById(canvasId + 'Tooltip');
+    if (!tooltip) {
+        tooltip = document.createElement('div');
+        tooltip.id = canvasId + 'Tooltip';
+        tooltip.className = 'chart-tooltip';
+        document.body.appendChild(tooltip);
+    }
+
+    let hitBoxes = [];
+    let activeHit = null;
+
+    function niceMax(v) {
+        if (v <= 0) return 100;
+        const mag = Math.pow(10, Math.floor(Math.log10(v)));
+        const norm = v / mag;
+        const steps = [1, 1.5, 2, 3, 5, 7.5, 10];
+        for (const s of steps) { if (norm <= s) return s * mag; }
+        return 10 * mag;
+    }
+
+    function getVal(entry) {
+        return state.mode === 'kr' ? (entry.revenue || 0) : (entry.units || 0);
+    }
+
+    function draw() {
+        const dpr = window.devicePixelRatio || 1;
+        const rect = canvas.getBoundingClientRect();
+        canvas.width = rect.width * dpr;
+        canvas.height = rect.height * dpr;
+        const ctx = canvas.getContext('2d');
+        ctx.scale(dpr, dpr);
+        const W = rect.width, H = rect.height;
+
+        const PAD_L = 42, PAD_R = 10, PAD_T = 16, PAD_B = 24;
+        const chartW = W - PAD_L - PAD_R, chartH = H - PAD_T - PAD_B;
+
+        const thisYear = state.data.this_year || [];
+        const prevYear = state.data.prev_year || [];
+        const months = [...new Set([...thisYear.map(e => e.month), ...prevYear.map(e => e.month)])].sort((a, b) => a - b);
+        const N = months.length;
+        if (N === 0) return;
+
+        const thisMap = {}; thisYear.forEach(e => { thisMap[e.month] = e; });
+        const prevMap = {}; prevYear.forEach(e => { prevMap[e.month] = e; });
+
+        // Current month detection
+        const currentMonth = new Date().getMonth() + 1;
+
+        // yMax
+        let maxVal = 1;
+        months.forEach(m => {
+            if (thisMap[m]) maxVal = Math.max(maxVal, getVal(thisMap[m]));
+            if (prevMap[m]) maxVal = Math.max(maxVal, getVal(prevMap[m]));
+        });
+        const yMax = niceMax(maxVal * 1.1);
+
+        // Grid lines
+        const gridCount = 4;
+        hitBoxes = [];
+        ctx.font = "9px 'Lato',sans-serif";
+        for (let i = 1; i <= gridCount; i++) {
+            const val = Math.round((yMax / gridCount) * i);
+            const gy = PAD_T + chartH - (val / yMax) * chartH;
+            ctx.strokeStyle = '#ebebeb'; ctx.lineWidth = 1;
+            ctx.beginPath(); ctx.moveTo(PAD_L, gy); ctx.lineTo(W - PAD_R, gy); ctx.stroke();
+            ctx.fillStyle = '#c0b9b2';
+            ctx.textAlign = 'right'; ctx.textBaseline = 'middle';
+            ctx.fillText(fmtKr(val), PAD_L - 4, gy);
+        }
+        // Baseline
+        ctx.strokeStyle = '#d7d1ca'; ctx.lineWidth = 1;
+        ctx.beginPath(); ctx.moveTo(PAD_L, PAD_T + chartH); ctx.lineTo(W - PAD_R, PAD_T + chartH); ctx.stroke();
+
+        const slotW = chartW / N;
+        const barW = slotW * 0.32;
+        const gap = 2;
+        const baseY = PAD_T + chartH;
+
+        months.forEach((m, i) => {
+            const cx = PAD_L + (i + 0.5) * slotW;
+
+            // Prev year bar (left)
+            const pv = prevMap[m] ? getVal(prevMap[m]) : 0;
+            if (pv > 0) {
+                const bh = (pv / yMax) * chartH;
+                const bx = cx - barW - gap / 2;
+                const by = baseY - bh;
+                ctx.fillStyle = COLOR_PREV;
+                rrect(ctx, bx, by, barW, bh, 2); ctx.fill();
+                hitBoxes.push({ x: bx, y: by, w: barW, h: bh, month: m, year: 'prev', val: pv });
+            }
+
+            // This year bar (right)
+            const tv = thisMap[m] ? getVal(thisMap[m]) : 0;
+            if (tv > 0) {
+                const bh = (tv / yMax) * chartH;
+                const bx = cx + gap / 2;
+                const by = baseY - bh;
+                ctx.globalAlpha = (m === currentMonth) ? 0.5 : 1;
+                ctx.fillStyle = COLOR_THIS;
+                rrect(ctx, bx, by, barW, bh, 2); ctx.fill();
+                ctx.globalAlpha = 1;
+                hitBoxes.push({ x: bx, y: by, w: barW, h: bh, month: m, year: 'this', val: tv });
+            }
+
+            // Month label
+            ctx.fillStyle = '#b0a898';
+            ctx.font = "9px 'Lato',sans-serif";
+            ctx.textAlign = 'center'; ctx.textBaseline = 'top';
+            ctx.fillText(MONTH_LABELS[m - 1] || '', cx, baseY + 6);
+        });
+    }
+
+    function getHit(x, y) {
+        for (let i = hitBoxes.length - 1; i >= 0; i--) {
+            const h = hitBoxes[i];
+            if (x >= h.x && x <= h.x + h.w && y >= h.y && y <= h.y + h.h) return h;
+        }
+        return null;
+    }
+
+    function showTT(hit, px, py) {
+        const label = MONTH_LABELS[hit.month - 1] || '';
+        const yearLabel = hit.year === 'this' ? 'I år' : 'Sidste år';
+        const valStr = state.mode === 'kr' ? hit.val.toLocaleString('da-DK') + ' kr' : hit.val.toLocaleString('da-DK') + ' enh';
+        tooltip.innerHTML = `<div class="tt-kat">${label} — ${yearLabel}</div><div class="tt-enh">${valStr}</div>`;
+        tooltip.style.display = 'block';
+        const tw = tooltip.offsetWidth, th = tooltip.offsetHeight;
+        let tx = px + 14, ty = py - th / 2;
+        if (tx + tw > window.innerWidth - 8) tx = px - tw - 14;
+        if (ty < 4) ty = 4;
+        tooltip.style.left = tx + 'px'; tooltip.style.top = ty + 'px';
+    }
+
+    function hideTT() { tooltip.style.display = 'none'; activeHit = null; }
+
+    function onMousemove(e) {
+        const r = canvas.getBoundingClientRect();
+        const hit = getHit(e.clientX - r.left, e.clientY - r.top);
+        if (hit) { activeHit = hit; showTT(hit, e.clientX, e.clientY); canvas.style.cursor = 'pointer'; }
+        else if (activeHit) { hideTT(); canvas.style.cursor = 'default'; }
+    }
+    function onMouseleave() { hideTT(); }
+    function onResize() { draw(); }
+
+    canvas.addEventListener('mousemove', onMousemove);
+    canvas.addEventListener('mouseleave', onMouseleave);
+    window.addEventListener('resize', onResize);
+
+    const listeners = [
+        ['mousemove', onMousemove, canvas],
+        ['mouseleave', onMouseleave, canvas],
+        ['resize', onResize, window],
+    ];
+
+    draw();
+
+    return {
+        destroy() {
+            for (const [evt, fn, el] of listeners) el.removeEventListener(evt, fn);
+            if (tooltip.parentNode) tooltip.parentNode.removeChild(tooltip);
+        },
+        setMode(mode) { state.mode = mode; draw(); },
+        update(newData) { state.data = newData; draw(); },
+        redraw() { draw(); },
+    };
+}
+
+/* ── Lego Stacked Chart (period comparison with stacked categories) ── */
+
+/**
+ * Stacked bar chart: split canvas into two halves (revenue left, orders right).
+ * Each half shows one stacked bar per period.
+ * @param {string} canvasId
+ * @param {object} data — { periods: [{label, stacks: [{key, label, color, orders, revenue}]}], categories: [{key, label, color}] }
+ * @param {object} opts — { mode: 'revenue'|'orders' } (default: split view showing both)
+ * @returns {{ destroy, update, redraw }}
+ */
+function initLegoStackedChart(canvasId, data, opts = {}) {
+    const canvas = document.getElementById(canvasId);
+    if (!canvas) return null;
+
+    const state = { mode: opts.mode || null, data };
+    let tooltip = document.getElementById(canvasId + 'Tooltip');
+    if (!tooltip) {
+        tooltip = document.createElement('div');
+        tooltip.id = canvasId + 'Tooltip';
+        tooltip.className = 'chart-tooltip';
+        document.body.appendChild(tooltip);
+    }
+
+    let hitBoxes = [];
+    let activeHit = null;
+
+    function niceMax(v) {
+        if (v <= 0) return 100;
+        const mag = Math.pow(10, Math.floor(Math.log10(v)));
+        const norm = v / mag;
+        const steps = [1, 1.5, 2, 3, 5, 7.5, 10];
+        for (const s of steps) { if (norm <= s) return s * mag; }
+        return 10 * mag;
+    }
+
+    function drawHalf(ctx, field, title, ox, ow, PAD_T, chartH, PAD_B, periods) {
+        const PAD_L_INNER = 42, PAD_R_INNER = 10;
+        const areaW = ow - PAD_L_INNER - PAD_R_INNER;
+        const baseY = PAD_T + chartH;
+
+        // Compute max stacked total for this field
+        let maxVal = 1;
+        periods.forEach(p => {
+            let total = 0;
+            (p.stacks || []).forEach(s => { total += (s[field] || 0); });
+            if (total > maxVal) maxVal = total;
+        });
+        const yMax = niceMax(maxVal * 1.1);
+
+        // Title
+        ctx.fillStyle = '#8e631f';
+        ctx.font = "bold 10px 'Lato',sans-serif";
+        ctx.textAlign = 'center';
+        ctx.textBaseline = 'top';
+        ctx.fillText(title, ox + PAD_L_INNER + areaW / 2, 2);
+
+        // Grid lines + y-axis labels
+        const gridCount = 4;
+        ctx.font = "9px 'Lato',sans-serif";
+        for (let i = 1; i <= gridCount; i++) {
+            const val = Math.round((yMax / gridCount) * i);
+            const gy = PAD_T + chartH - (val / yMax) * chartH;
+            ctx.strokeStyle = '#ebebeb'; ctx.lineWidth = 1;
+            ctx.beginPath();
+            ctx.moveTo(ox + PAD_L_INNER, gy);
+            ctx.lineTo(ox + PAD_L_INNER + areaW, gy);
+            ctx.stroke();
+            ctx.fillStyle = '#c0b9b2';
+            ctx.textAlign = 'right'; ctx.textBaseline = 'middle';
+            ctx.fillText(field === 'revenue' ? fmtKr(val) : val + '', ox + PAD_L_INNER - 4, gy);
+        }
+
+        // Baseline
+        ctx.strokeStyle = '#d7d1ca'; ctx.lineWidth = 1;
+        ctx.beginPath();
+        ctx.moveTo(ox + PAD_L_INNER, baseY);
+        ctx.lineTo(ox + PAD_L_INNER + areaW, baseY);
+        ctx.stroke();
+
+        // Bars
+        const N = periods.length;
+        if (N === 0) return;
+        const slotW = areaW / N;
+        const barW = Math.min(slotW * 0.55, 60);
+
+        periods.forEach((period, pi) => {
+            const cx = ox + PAD_L_INNER + (pi + 0.5) * slotW;
+            const bx = cx - barW / 2;
+            let curY = baseY;
+
+            (period.stacks || []).forEach(seg => {
+                const val = seg[field] || 0;
+                if (val <= 0) return;
+                const segH = (val / yMax) * chartH;
+                const sy = curY - segH;
+                ctx.fillStyle = seg.color || CATS[seg.label]?.color || '#aaa';
+                rrect(ctx, bx, sy, barW, segH, 2); ctx.fill();
+
+                // Value label inside segment (white if tall enough, else above)
+                const labelText = field === 'revenue' ? fmtKr(val) : val + '';
+                if (segH >= 16) {
+                    ctx.fillStyle = '#fff';
+                    ctx.font = "bold 9px 'Lato',sans-serif";
+                    ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+                    ctx.fillText(labelText, bx + barW / 2, sy + segH / 2);
+                } else if (segH >= 6) {
+                    ctx.fillStyle = '#8e631f';
+                    ctx.font = "8px 'Lato',sans-serif";
+                    ctx.textAlign = 'center'; ctx.textBaseline = 'alphabetic';
+                    ctx.fillText(labelText, bx + barW / 2, sy - 2);
+                }
+
+                hitBoxes.push({ x: bx, y: sy, w: barW, h: segH, segLabel: seg.label, segKey: seg.key, periodLabel: period.label, field, val });
+                curY = sy;
+            });
+
+            // Period label below x-axis
+            ctx.fillStyle = '#8e631f';
+            ctx.font = "10px 'Lato',sans-serif";
+            ctx.textAlign = 'center'; ctx.textBaseline = 'top';
+            ctx.fillText(period.label, cx, baseY + 6);
+        });
+    }
+
+    function draw() {
+        const dpr = window.devicePixelRatio || 1;
+        const rect = canvas.getBoundingClientRect();
+        canvas.width = rect.width * dpr;
+        canvas.height = rect.height * dpr;
+        const ctx = canvas.getContext('2d');
+        ctx.scale(dpr, dpr);
+        const W = rect.width, H = rect.height;
+
+        const PAD_T = 18, PAD_B = 44; // extra bottom for legend
+        const chartH = H - PAD_T - PAD_B;
+        const periods = state.data.periods || [];
+
+        hitBoxes = [];
+
+        if (state.mode === 'revenue') {
+            drawHalf(ctx, 'revenue', 'OMSÆT KR', 0, W, PAD_T, chartH, PAD_B, periods);
+        } else if (state.mode === 'orders') {
+            drawHalf(ctx, 'orders', 'ANTAL ORDRER', 0, W, PAD_T, chartH, PAD_B, periods);
+        } else {
+            // Split view: left = revenue, right = orders
+            const halfW = Math.floor(W / 2);
+            // Divider line
+            ctx.strokeStyle = '#e0dbd5'; ctx.lineWidth = 1;
+            ctx.beginPath(); ctx.moveTo(halfW, PAD_T - 4); ctx.lineTo(halfW, PAD_T + chartH + 20); ctx.stroke();
+
+            drawHalf(ctx, 'revenue', 'OMSÆT KR', 0, halfW, PAD_T, chartH, PAD_B, periods);
+            drawHalf(ctx, 'orders', 'ANTAL ORDRER', halfW, W - halfW, PAD_T, chartH, PAD_B, periods);
+        }
+
+        // Legend at bottom
+        const cats = state.data.categories || [];
+        if (cats.length > 0) {
+            const legendY = H - 16;
+            ctx.font = "9px 'Lato',sans-serif";
+            ctx.textBaseline = 'middle';
+            let lx = 12;
+            cats.forEach(cat => {
+                ctx.fillStyle = cat.color || CATS[cat.label]?.color || '#aaa';
+                ctx.fillRect(lx, legendY - 5, 10, 10);
+                lx += 14;
+                ctx.fillStyle = '#8e631f';
+                ctx.textAlign = 'left';
+                const tw = ctx.measureText(cat.label).width;
+                ctx.fillText(cat.label, lx, legendY);
+                lx += tw + 14;
+            });
+        }
+    }
+
+    function getHit(x, y) {
+        for (let i = hitBoxes.length - 1; i >= 0; i--) {
+            const h = hitBoxes[i];
+            if (x >= h.x && x <= h.x + h.w && y >= h.y && y <= h.y + h.h) return h;
+        }
+        return null;
+    }
+
+    function showTT(hit, px, py) {
+        const fieldLabel = hit.field === 'revenue' ? 'kr' : 'ordrer';
+        const valStr = hit.val.toLocaleString('da-DK') + ' ' + fieldLabel;
+        tooltip.innerHTML = `<div class="tt-kat" style="color:${hit.color || CATS[hit.segLabel]?.color || '#aaa'}">${hit.segLabel} — ${hit.periodLabel}</div><div class="tt-enh">${valStr}</div>`;
+        tooltip.style.display = 'block';
+        const tw = tooltip.offsetWidth, th = tooltip.offsetHeight;
+        let tx = px + 14, ty = py - th / 2;
+        if (tx + tw > window.innerWidth - 8) tx = px - tw - 14;
+        if (ty < 4) ty = 4;
+        tooltip.style.left = tx + 'px'; tooltip.style.top = ty + 'px';
+    }
+
+    function hideTT() { tooltip.style.display = 'none'; activeHit = null; }
+
+    function onMousemove(e) {
+        const r = canvas.getBoundingClientRect();
+        const hit = getHit(e.clientX - r.left, e.clientY - r.top);
+        if (hit) { activeHit = hit; showTT(hit, e.clientX, e.clientY); canvas.style.cursor = 'pointer'; }
+        else if (activeHit) { hideTT(); canvas.style.cursor = 'default'; }
+    }
+    function onMouseleave() { hideTT(); }
+    function onResize() { draw(); }
+
+    canvas.addEventListener('mousemove', onMousemove);
+    canvas.addEventListener('mouseleave', onMouseleave);
+    window.addEventListener('resize', onResize);
+
+    const listeners = [
+        ['mousemove', onMousemove, canvas],
+        ['mouseleave', onMouseleave, canvas],
+        ['resize', onResize, window],
+    ];
+
+    draw();
+
+    return {
+        destroy() {
+            for (const [evt, fn, el] of listeners) el.removeEventListener(evt, fn);
+            if (tooltip.parentNode) tooltip.parentNode.removeChild(tooltip);
+        },
+        update(newData) { state.data = newData; draw(); },
+        redraw() { draw(); },
+    };
+}
+
+/* ── Multi-Year Accumulated Revenue Chart ─────────────────────── */
+
+/**
+ * Multi-year cumulative revenue chart (standalone).
+ * @param {string} canvasId
+ * @param {object} data — { years: { "2023": [{week, cumulative}], "2024": [...], ... } }
+ * @param {object} opts — { currentYear: '2025' }
+ * @returns {{ destroy, setMode, update, redraw }}
+ */
+function initMultiYearAccumChart(canvasId, data, opts = {}) {
+    const canvas = document.getElementById(canvasId);
+    if (!canvas) return null;
+
+    const state = { data, currentYear: opts.currentYear || String(new Date().getFullYear()) };
+    let tooltip = document.getElementById(canvasId + 'Tooltip');
+    if (!tooltip) {
+        tooltip = document.createElement('div');
+        tooltip.id = canvasId + 'Tooltip';
+        tooltip.className = 'chart-tooltip';
+        document.body.appendChild(tooltip);
+    }
+
+    let hoverWeek = null;
+    let yearLines = []; // cached for hover: [{year, points: [{week, cum, x, y}]}]
+
+    const PREV_COLORS = ['rgba(180,170,160,0.6)', 'rgba(180,170,160,0.35)', 'rgba(180,170,160,0.2)'];
+
+    function draw() {
+        const dpr = window.devicePixelRatio || 1;
+        const rect = canvas.getBoundingClientRect();
+        canvas.width = rect.width * dpr;
+        canvas.height = rect.height * dpr;
+        const ctx = canvas.getContext('2d');
+        ctx.scale(dpr, dpr);
+        const W = rect.width, H = rect.height;
+
+        const PAD_L = 48, PAD_R = 50, PAD_T = 16, PAD_B = 24;
+        const chartW = W - PAD_L - PAD_R, chartH = H - PAD_T - PAD_B;
+
+        const years = state.data.years || {};
+        const yearKeys = Object.keys(years).sort();
+        if (yearKeys.length === 0) return;
+
+        // yMax across all years
+        let maxCum = 1;
+        yearKeys.forEach(yk => {
+            const pts = years[yk] || [];
+            pts.forEach(p => { maxCum = Math.max(maxCum, p.cumulative || 0); });
+        });
+        const yMax = Math.ceil(maxCum / 50000) * 50000 + 20000 || maxCum * 1.15;
+
+        // Grid lines
+        const gridCount = 4;
+        ctx.font = "9px 'Lato',sans-serif";
+        for (let i = 1; i <= gridCount; i++) {
+            const val = Math.round((yMax / gridCount) * i);
+            const gy = PAD_T + chartH - (val / yMax) * chartH;
+            ctx.strokeStyle = '#ebebeb'; ctx.lineWidth = 1;
+            ctx.beginPath(); ctx.moveTo(PAD_L, gy); ctx.lineTo(W - PAD_R, gy); ctx.stroke();
+            ctx.fillStyle = '#c0b9b2';
+            ctx.textAlign = 'right'; ctx.textBaseline = 'middle';
+            ctx.fillText(fmtKr(val), PAD_L - 4, gy);
+        }
+
+        // Baseline
+        ctx.strokeStyle = '#d7d1ca'; ctx.lineWidth = 1;
+        ctx.beginPath(); ctx.moveTo(PAD_L, PAD_T + chartH); ctx.lineTo(W - PAD_R, PAD_T + chartH); ctx.stroke();
+
+        // X-axis: weeks 1-52, labels every 4 weeks
+        const weekToX = w => PAD_L + ((w - 1) / 51) * chartW;
+        ctx.fillStyle = '#b0a898';
+        ctx.font = "8px 'Lato',sans-serif";
+        ctx.textAlign = 'center'; ctx.textBaseline = 'top';
+        for (let w = 4; w <= 52; w += 4) {
+            ctx.fillText('U' + w, weekToX(w), PAD_T + chartH + 6);
+        }
+
+        const valToY = v => PAD_T + chartH - (v / yMax) * chartH;
+
+        yearLines = [];
+
+        // Draw previous years first (behind)
+        let prevColorIdx = 0;
+        const sortedYears = [...yearKeys].sort((a, b) => {
+            if (a === state.currentYear) return 1; // draw current last
+            if (b === state.currentYear) return -1;
+            return a.localeCompare(b);
+        });
+
+        sortedYears.forEach(yk => {
+            const pts = years[yk] || [];
+            if (pts.length === 0) return;
+            const isCurrent = yk === state.currentYear;
+
+            const linePoints = pts.map(p => ({
+                week: p.week,
+                cum: p.cumulative || 0,
+                x: weekToX(p.week),
+                y: valToY(p.cumulative || 0),
+            }));
+            yearLines.push({ year: yk, points: linePoints });
+
+            if (isCurrent) {
+                // Filled area
+                ctx.save();
+                ctx.beginPath();
+                ctx.moveTo(linePoints[0].x, PAD_T + chartH);
+                linePoints.forEach(p => ctx.lineTo(p.x, p.y));
+                ctx.lineTo(linePoints[linePoints.length - 1].x, PAD_T + chartH);
+                ctx.closePath();
+                ctx.fillStyle = 'rgba(142,99,31,0.15)';
+                ctx.fill();
+                ctx.restore();
+
+                // Solid line
+                ctx.save();
+                ctx.strokeStyle = '#8e631f';
+                ctx.lineWidth = 2;
+                ctx.lineJoin = 'round';
+                ctx.beginPath();
+                linePoints.forEach((p, i) => { if (i === 0) ctx.moveTo(p.x, p.y); else ctx.lineTo(p.x, p.y); });
+                ctx.stroke();
+                ctx.restore();
+            } else {
+                // Dashed line
+                const color = PREV_COLORS[prevColorIdx % PREV_COLORS.length];
+                prevColorIdx++;
+                ctx.save();
+                ctx.strokeStyle = color;
+                ctx.lineWidth = 1;
+                ctx.setLineDash([4, 3]);
+                ctx.lineJoin = 'round';
+                ctx.beginPath();
+                linePoints.forEach((p, i) => { if (i === 0) ctx.moveTo(p.x, p.y); else ctx.lineTo(p.x, p.y); });
+                ctx.stroke();
+                ctx.restore();
+            }
+
+            // Dot at last data point
+            const last = linePoints[linePoints.length - 1];
+            ctx.fillStyle = isCurrent ? '#8e631f' : 'rgba(180,170,160,0.6)';
+            ctx.beginPath();
+            ctx.arc(last.x, last.y, isCurrent ? 3.5 : 2.5, 0, Math.PI * 2);
+            ctx.fill();
+
+            // Year label at end
+            ctx.fillStyle = isCurrent ? '#8e631f' : 'rgba(160,150,140,0.7)';
+            ctx.font = isCurrent ? "bold 9px 'Lato',sans-serif" : "italic 8px 'Lato',sans-serif";
+            ctx.textAlign = 'left'; ctx.textBaseline = 'middle';
+            ctx.fillText(yk, last.x + 6, last.y);
+        });
+
+        // Hover indicator
+        if (hoverWeek !== null) {
+            const hx = weekToX(hoverWeek);
+            ctx.save();
+            ctx.strokeStyle = 'rgba(142,99,31,0.25)';
+            ctx.lineWidth = 1;
+            ctx.setLineDash([2, 2]);
+            ctx.beginPath(); ctx.moveTo(hx, PAD_T); ctx.lineTo(hx, PAD_T + chartH); ctx.stroke();
+            ctx.restore();
+
+            // Dots on each line at hover week
+            yearLines.forEach(yl => {
+                const pt = yl.points.find(p => p.week === hoverWeek);
+                if (pt) {
+                    const isCurrent = yl.year === state.currentYear;
+                    ctx.fillStyle = isCurrent ? '#8e631f' : 'rgba(180,170,160,0.8)';
+                    ctx.beginPath(); ctx.arc(pt.x, pt.y, 4, 0, Math.PI * 2); ctx.fill();
+                }
+            });
+        }
+    }
+
+    function weekFromX(mx) {
+        const rect = canvas.getBoundingClientRect();
+        const PAD_L = 48, PAD_R = 50;
+        const chartW = rect.width - PAD_L - PAD_R;
+        const relX = mx - PAD_L;
+        if (relX < 0 || relX > chartW) return null;
+        return Math.round((relX / chartW) * 51) + 1;
+    }
+
+    function showTT(week, px, py) {
+        let rows = `<div class="tt-kat">Uge ${week}</div>`;
+        yearLines.forEach(yl => {
+            const pt = yl.points.find(p => p.week === week);
+            // Find closest if exact week missing
+            let val = 0;
+            if (pt) {
+                val = pt.cum;
+            } else {
+                // Interpolate: find nearest below
+                const below = yl.points.filter(p => p.week <= week);
+                if (below.length > 0) val = below[below.length - 1].cum;
+            }
+            const isCurrent = yl.year === state.currentYear;
+            const style = isCurrent ? 'font-weight:bold' : 'opacity:0.7';
+            rows += `<div class="tt-row" style="${style}"><span>${yl.year}</span><span class="tt-val">${val.toLocaleString('da-DK')} kr</span></div>`;
+        });
+        tooltip.innerHTML = rows;
+        tooltip.style.display = 'block';
+        const tw = tooltip.offsetWidth, th = tooltip.offsetHeight;
+        let tx = px + 14, ty = py - th / 2;
+        if (tx + tw > window.innerWidth - 8) tx = px - tw - 14;
+        if (ty < 4) ty = 4;
+        tooltip.style.left = tx + 'px'; tooltip.style.top = ty + 'px';
+    }
+
+    function hideTT() { tooltip.style.display = 'none'; hoverWeek = null; }
+
+    function onMousemove(e) {
+        const r = canvas.getBoundingClientRect();
+        const mx = e.clientX - r.left;
+        const week = weekFromX(mx);
+        if (week && week >= 1 && week <= 52) {
+            hoverWeek = week;
+            draw();
+            showTT(week, e.clientX, e.clientY);
+            canvas.style.cursor = 'crosshair';
+        } else if (hoverWeek !== null) {
+            hoverWeek = null;
+            draw();
+            hideTT();
+            canvas.style.cursor = 'default';
+        }
+    }
+
+    function onMouseleave() {
+        hoverWeek = null;
+        draw();
+        hideTT();
+    }
+
+    function onResize() { draw(); }
+
+    canvas.addEventListener('mousemove', onMousemove);
+    canvas.addEventListener('mouseleave', onMouseleave);
+    window.addEventListener('resize', onResize);
+
+    const listeners = [
+        ['mousemove', onMousemove, canvas],
+        ['mouseleave', onMouseleave, canvas],
+        ['resize', onResize, window],
+    ];
+
+    draw();
+
+    return {
+        destroy() {
+            for (const [evt, fn, el] of listeners) el.removeEventListener(evt, fn);
+            if (tooltip.parentNode) tooltip.parentNode.removeChild(tooltip);
+        },
+        setMode() { /* single mode — no-op for API consistency */ },
+        update(newData) { state.data = newData; draw(); },
+        redraw() { draw(); },
+    };
+}

@@ -83,6 +83,8 @@ router.get('/today', handle(async (req, res) => {
         JOIN status_definitions sd ON b.status_id = sd.id
         WHERE b.delivery_date = ?
           AND sd.code NOT IN ('AFLYST')
+          AND COALESCE(b.is_offer, 0) = 0
+          AND COALESCE(b.is_internal, 0) = 0
     `).all(today);
 
     const totals = {
@@ -218,6 +220,8 @@ router.get('/today', handle(async (req, res) => {
         JOIN status_definitions sd ON b.status_id = sd.id
         WHERE b.delivery_date >= ? AND b.delivery_date <= ?
           AND sd.code IN (${DELIVERED_CODES.map(() => '?').join(',')})
+          AND COALESCE(b.is_offer, 0) = 0
+          AND COALESCE(b.is_internal, 0) = 0
     `).get(monthStart, today, ...DELIVERED_CODES);
 
     const mtdOpen = db.prepare(`
@@ -232,6 +236,8 @@ router.get('/today', handle(async (req, res) => {
         FROM bons b
         JOIN status_definitions sd ON b.status_id = sd.id
         WHERE sd.code = 'LEVERET'
+          AND COALESCE(b.is_offer, 0) = 0
+          AND COALESCE(b.is_internal, 0) = 0
     `).get();
 
     // Last year same MTD period
@@ -246,6 +252,8 @@ router.get('/today', handle(async (req, res) => {
         JOIN status_definitions sd ON b.status_id = sd.id
         WHERE b.delivery_date >= ? AND b.delivery_date <= ?
           AND sd.code IN (${DELIVERED_CODES.map(() => '?').join(',')})
+          AND COALESCE(b.is_offer, 0) = 0
+          AND COALESCE(b.is_internal, 0) = 0
     `).get(lyMonthStart, lyToday, ...DELIVERED_CODES);
 
     const mtd = {
@@ -307,6 +315,8 @@ router.get('/stats', handle(async (req, res) => {
         LEFT JOIN companies co ON b.company_id  = co.id
         WHERE b.delivery_date >= ? AND b.delivery_date <= ?
           AND sd.code NOT IN ('AFLYST')
+          AND COALESCE(b.is_offer, 0) = 0
+          AND COALESCE(b.is_internal, 0) = 0
         ORDER BY b.delivery_date, b.total_units ASC
     `).all(startDate, endDate);
 
@@ -319,6 +329,8 @@ router.get('/stats', handle(async (req, res) => {
         JOIN status_definitions sd ON b.status_id = sd.id
         WHERE b.delivery_date >= ? AND b.delivery_date <= ?
           AND sd.code NOT IN ('AFLYST')
+          AND COALESCE(b.is_offer, 0) = 0
+          AND COALESCE(b.is_internal, 0) = 0
         GROUP BY b.delivery_date
     `).all(lyStartDate, lyEndDate);
 
@@ -417,6 +429,8 @@ router.get('/top-products', handle(async (req, res) => {
         JOIN status_definitions sd ON b.status_id = sd.id
         WHERE b.delivery_date >= ? AND b.delivery_date <= ?
           AND sd.code != 'AFLYST'
+          AND COALESCE(b.is_offer, 0) = 0
+          AND COALESCE(b.is_internal, 0) = 0
           AND bl.product_name IS NOT NULL AND bl.product_name != ''
           AND bl.is_accessory = 0
         GROUP BY bl.product_name

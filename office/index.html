@@ -19,6 +19,7 @@
   <link rel="stylesheet" href="../shared/modal.css">
   <link rel="stylesheet" href="views/fakturering.css">
   <link rel="stylesheet" href="views/tilbud.css">
+  <link rel="stylesheet" href="views/rapporter.css">
   <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.2/jspdf.umd.min.js"></script>
   <!-- Chart.js removed — custom canvas chart in shared/dashboard_chart.js -->
   <style>
@@ -488,7 +489,7 @@
             <span class="sidebar-icon">💰</span> Fakturering
             <span class="sidebar-badge gold" id="invoice-badge" style="display:none"></span>
           </button>
-          <button class="sidebar-link disabled">
+          <button class="sidebar-link" data-view="rapporter">
             <span class="sidebar-icon">📈</span> Rapporter
           </button>
 
@@ -541,6 +542,7 @@
   <script src="views/crm-inbox.js"></script>
   <script src="views/fakturering.js"></script>
   <script src="views/tilbud.js"></script>
+  <script src="views/rapporter.js"></script>
 
   <script>
     (async () => {
@@ -636,6 +638,10 @@
           },
           cleanup: () => { if (typeof cleanupTilbud === 'function') cleanupTilbud(); },
         },
+        rapporter: {
+          init: () => initRapporter(contentEl, { openDrawer }),
+          cleanup: () => { if (typeof cleanupRapporter === 'function') cleanupRapporter(); },
+        },
       };
 
       function openKunde360(customerId) {
@@ -727,15 +733,18 @@
           if (typeof _blHandleBonCreated === 'function') _blHandleBonCreated(data);
           if (typeof _dashHandleSSE === 'function') _dashHandleSSE('bon_created', data);
           if (typeof _faktHandleSSE === 'function') _faktHandleSSE('bon_created', data);
+          if (typeof _rapportHandleSSE === 'function') _rapportHandleSSE('bon_created', data);
         },
         bon_updated: (data) => {
           if (typeof _blHandleBonUpdated === 'function') _blHandleBonUpdated(data);
           if (typeof _dashHandleSSE === 'function') _dashHandleSSE('bon_updated', data);
           if (typeof _faktHandleSSE === 'function') _faktHandleSSE('bon_updated', data);
+          if (typeof _rapportHandleSSE === 'function') _rapportHandleSSE('bon_updated', data);
         },
         bon_status: (data) => {
           if (typeof _dashHandleSSE === 'function') _dashHandleSSE('bon_status', data);
           if (typeof _faktHandleSSE === 'function') _faktHandleSSE('bon_status', data);
+          if (typeof _rapportHandleSSE === 'function') _rapportHandleSSE('bon_status', data);
         },
         crm_activity_created: (data) => {
           if (typeof _crmDashHandleSSE === 'function') _crmDashHandleSSE('crm_activity_created', data);

@@ -38,6 +38,12 @@ const run = () => transaction(db, () => { /* seed-transaction */
     DELETE FROM mail_messages;
     DELETE FROM mail_threads;
     DELETE FROM mail_unmatched;
+    DELETE FROM crm_activities;
+    DELETE FROM crm_unmatched_emails;
+    DELETE FROM delivery_events;
+    DELETE FROM geo_calculations;
+    DELETE FROM shopping_list;
+    DELETE FROM quotes;
     DELETE FROM bon_lines;
     DELETE FROM changelog;
     DELETE FROM notifications;
@@ -339,190 +345,248 @@ const run = () => transaction(db, () => { /* seed-transaction */
 
   // ── BON LINES ────────────────────────────────────────────────────
   const insertLine = db.prepare(`
-    INSERT INTO bon_lines (bon_id, product_name, category, quantity, unit, sort_order, is_accessory, co2e)
-    VALUES (?,?,?,?,?,?,?,?)
+    INSERT INTO bon_lines (bon_id, product_name, category, quantity, unit, sort_order, is_accessory, co2e, unit_price, line_total)
+    VALUES (?,?,?,?,?,?,?,?,?,?)
   `);
 
-  // B3285 (igår, afhentning)
-  [[8,'Kyllingen slider','mad',0,1.21],
-   [8,'Falaflen slider','mad',0,1.44],
-  ].forEach(([qty,name,cat,acc,co2e],i) => insertLine.run(bon3285,name,cat,qty,'stk',i+1,acc,co2e));
+  // Prismap: produkt → { store, catering, festival } salgspriser
+  const PRICES = {
+    'Kyllingen slider':       { store: 45, catering: 45, festival: 48 },
+    'Falaflen slider':        { store: 45, catering: 45, festival: 48 },
+    'Falaflen GF slider':     { store: 48, catering: 48, festival: 50 },
+    'Kyllingen GF slider':    { store: 48, catering: 48, festival: 50 },
+    'Ægget GF slider':        { store: 48, catering: 48, festival: 50 },
+    '"Tunen" Spicy slider':   { store: 45, catering: 45, festival: 48 },
+    '"Tunen" slider':         { store: 45, catering: 45, festival: 48 },
+    'Ægget slider':           { store: 45, catering: 45, festival: 48 },
+    'Receptions Skinner':     { store: 35, catering: 35, festival: 38 },
+    'Granola shot':           { store: 32, catering: 32, festival: 35 },
+    'Frugtsalat bæger':       { store: 38, catering: 38, festival: 40 },
+    'Smørrebrød mix':         { store: 89, catering: 89, festival: 95 },
+    'Kyllingesalat':          { store: 89, catering: 89, festival: 95 },
+    'Vegansk wrap':           { store: 75, catering: 75, festival: 80 },
+    'Hummus & grønt wrap':    { store: 75, catering: 75, festival: 80 },
+    'Transportkasse m låg':   { store: 0, catering: 0, festival: 0 },
+    'Byekspressen leverer':   { store: 0, catering: 0, festival: 0 },
+    'Taxa leverer':           { store: 0, catering: 0, festival: 0 },
+  };
 
-  // B3288 (i dag, IGANG)
-  [[4,'Falaflen GF slider','mad',0,1.44],
-   [4,'Kyllingen GF slider','mad',0,1.21],
-   [4,'Ægget GF slider','mad',0,1.02],
-   [7,'"Tunen" Spicy slider','mad',0,0.82],
-   [7,'Kyllingen slider','mad',0,1.21],
-   [10,'Receptions Skinner','mad',0,0.44],
-   [2,'Transportkasse m låg','emballage',1,0],
-   [1,'Byekspressen leverer','levering',1,0.02]
-  ].forEach(([qty,name,cat,acc,co2e],i) => insertLine.run(bon3288,name,cat,qty,'stk',i+1,acc,co2e));
+  // Helper: indsæt linje med pris baseret på bonId → price_category lookup
+  const bonPriceCat = {};  // bonId → price_category code
+  function addLines(bonId, priceCat, lines) {
+    bonPriceCat[bonId] = priceCat;
+    lines.forEach(([qty, name, cat, acc, co2e], i) => {
+      const prices = PRICES[name] || { store: 0, catering: 0, festival: 0 };
+      const unitPrice = prices[priceCat] || prices.catering || 0;
+      const lineTotal = qty * unitPrice;
+      insertLine.run(bonId, name, cat, qty, 'stk', i + 1, acc, co2e, unitPrice, lineTotal);
+    });
+  }
 
-  // B3291 (i dag, IGANG)
-  [[5,'Falaflen slider','mad',0,1.44],
-   [5,'"Tunen" slider','mad',0,0.82],
-   [5,'Kyllingen slider','mad',0,1.21],
-   [5,'Ægget slider','mad',0,1.02],
-   [1,'Transportkasse m låg','emballage',1,0],
-   [1,'Byekspressen leverer','levering',1,0.02]
-  ].forEach(([qty,name,cat,acc,co2e],i) => insertLine.run(bon3291,name,cat,qty,'stk',i+1,acc,co2e));
+  // B3285 (igår, afhentning, store)
+  addLines(bon3285, 'store', [
+    [8,'Kyllingen slider','mad',0,1.21],
+    [8,'Falaflen slider','mad',0,1.44],
+  ]);
 
-  // B3295 (i dag, GODKENDT, stort event)
-  [[15,'Falaflen slider','mad',0,1.44],
-   [15,'Kyllingen slider','mad',0,1.21],
-   [15,'"Tunen" Spicy slider','mad',0,0.82],
-   [15,'Ægget slider','mad',0,1.02],
-   [20,'Receptions Skinner','mad',0,0.44],
-   [10,'Granola shot','mad',0,0.35],
-   [10,'Frugtsalat bæger','mad',0,0.28],
-   [3,'Transportkasse m låg','emballage',1,0],
-   [1,'Byekspressen leverer','levering',1,0.02]
-  ].forEach(([qty,name,cat,acc,co2e],i) => insertLine.run(bon3295,name,cat,qty,'stk',i+1,acc,co2e));
+  // B3288 (i dag, IGANG, catering)
+  addLines(bon3288, 'catering', [
+    [4,'Falaflen GF slider','mad',0,1.44],
+    [4,'Kyllingen GF slider','mad',0,1.21],
+    [4,'Ægget GF slider','mad',0,1.02],
+    [7,'"Tunen" Spicy slider','mad',0,0.82],
+    [7,'Kyllingen slider','mad',0,1.21],
+    [10,'Receptions Skinner','mad',0,0.44],
+    [2,'Transportkasse m låg','emballage',1,0],
+    [1,'Byekspressen leverer','levering',1,0.02],
+  ]);
 
-  // B3301 (i dag, GODKENDT)
-  [[10,'Smørrebrød mix','mad',0,0.90],
-   [10,'Vegansk wrap','mad',0,0.65],
-   [10,'Kyllingesalat','mad',0,1.10],
-   [2,'Transportkasse m låg','emballage',1,0],
-   [1,'Taxa leverer','levering',1,0.80]
-  ].forEach(([qty,name,cat,acc,co2e],i) => insertLine.run(bon3301,name,cat,qty,'stk',i+1,acc,co2e));
+  // B3291 (i dag, IGANG, catering)
+  addLines(bon3291, 'catering', [
+    [5,'Falaflen slider','mad',0,1.44],
+    [5,'"Tunen" slider','mad',0,0.82],
+    [5,'Kyllingen slider','mad',0,1.21],
+    [5,'Ægget slider','mad',0,1.02],
+    [1,'Transportkasse m låg','emballage',1,0],
+    [1,'Byekspressen leverer','levering',1,0.02],
+  ]);
 
-  // B3305 (i dag, KLAR, vegansk)
-  [[6,'Falaflen slider','mad',0,1.44],
-   [6,'Ægget slider','mad',0,1.02],
-   [6,'"Tunen" slider','mad',0,0.82],
-   [6,'Hummus & grønt wrap','mad',0,0.55],
-   [1,'Transportkasse m låg','emballage',1,0],
-   [1,'Byekspressen leverer','levering',1,0.02]
-  ].forEach(([qty,name,cat,acc,co2e],i) => insertLine.run(bon3305,name,cat,qty,'stk',i+1,acc,co2e));
+  // B3295 (i dag, GODKENDT, catering, stort event)
+  addLines(bon3295, 'catering', [
+    [15,'Falaflen slider','mad',0,1.44],
+    [15,'Kyllingen slider','mad',0,1.21],
+    [15,'"Tunen" Spicy slider','mad',0,0.82],
+    [15,'Ægget slider','mad',0,1.02],
+    [20,'Receptions Skinner','mad',0,0.44],
+    [10,'Granola shot','mad',0,0.35],
+    [10,'Frugtsalat bæger','mad',0,0.28],
+    [3,'Transportkasse m låg','emballage',1,0],
+    [1,'Byekspressen leverer','levering',1,0.02],
+  ]);
 
-  // B3308 (i dag, IGANG, afhentning)
-  [[4,'Kyllingen slider','mad',0,1.21],
-   [4,'Falaflen slider','mad',0,1.44],
-   [4,'Granola shot','mad',0,0.35],
-  ].forEach(([qty,name,cat,acc,co2e],i) => insertLine.run(bon3308,name,cat,qty,'stk',i+1,acc,co2e));
+  // B3301 (i dag, GODKENDT, catering)
+  addLines(bon3301, 'catering', [
+    [10,'Smørrebrød mix','mad',0,0.90],
+    [10,'Vegansk wrap','mad',0,0.65],
+    [10,'Kyllingesalat','mad',0,1.10],
+    [2,'Transportkasse m låg','emballage',1,0],
+    [1,'Taxa leverer','levering',1,0.80],
+  ]);
 
-  // B3312 (i morgen, stort Novo-møde)
-  [[20,'Kyllingen slider','mad',0,1.21],
-   [20,'Falaflen slider','mad',0,1.44],
-   [20,'"Tunen" Spicy slider','mad',0,0.82],
-   [20,'Ægget slider','mad',0,1.02],
-   [30,'Receptions Skinner','mad',0,0.44],
-   [20,'Granola shot','mad',0,0.35],
-   [20,'Frugtsalat bæger','mad',0,0.28],
-   [4,'Transportkasse m låg','emballage',1,0],
-   [1,'Taxa leverer','levering',1,0.80]
-  ].forEach(([qty,name,cat,acc,co2e],i) => insertLine.run(bon3312,name,cat,qty,'stk',i+1,acc,co2e));
+  // B3305 (i dag, KLAR, catering, vegansk)
+  addLines(bon3305, 'catering', [
+    [6,'Falaflen slider','mad',0,1.44],
+    [6,'Ægget slider','mad',0,1.02],
+    [6,'"Tunen" slider','mad',0,0.82],
+    [6,'Hummus & grønt wrap','mad',0,0.55],
+    [1,'Transportkasse m låg','emballage',1,0],
+    [1,'Byekspressen leverer','levering',1,0.02],
+  ]);
 
-  // B3315 (i morgen, Finansforbundet)
-  [[10,'Falaflen slider','mad',0,1.44],
-   [10,'Kyllingen slider','mad',0,1.21],
-   [10,'"Tunen" slider','mad',0,0.82],
-   [10,'Ægget slider','mad',0,1.02],
-   [10,'Smørrebrød mix','mad',0,0.90],
-   [2,'Transportkasse m låg','emballage',1,0],
-   [1,'Byekspressen leverer','levering',1,0.02]
-  ].forEach(([qty,name,cat,acc,co2e],i) => insertLine.run(bon3315,name,cat,qty,'stk',i+1,acc,co2e));
+  // B3308 (i dag, IGANG, store, afhentning)
+  addLines(bon3308, 'store', [
+    [4,'Kyllingen slider','mad',0,1.21],
+    [4,'Falaflen slider','mad',0,1.44],
+    [4,'Granola shot','mad',0,0.35],
+  ]);
 
-  // B3318 (i morgen, afhentning, VENTER)
-  [[10,'Kyllingen slider','mad',0,1.21],
-   [10,'Vegansk wrap','mad',0,0.65],
-  ].forEach(([qty,name,cat,acc,co2e],i) => insertLine.run(bon3318,name,cat,qty,'stk',i+1,acc,co2e));
+  // B3312 (i morgen, catering, stort Novo-møde)
+  addLines(bon3312, 'catering', [
+    [20,'Kyllingen slider','mad',0,1.21],
+    [20,'Falaflen slider','mad',0,1.44],
+    [20,'"Tunen" Spicy slider','mad',0,0.82],
+    [20,'Ægget slider','mad',0,1.02],
+    [30,'Receptions Skinner','mad',0,0.44],
+    [20,'Granola shot','mad',0,0.35],
+    [20,'Frugtsalat bæger','mad',0,0.28],
+    [4,'Transportkasse m låg','emballage',1,0],
+    [1,'Taxa leverer','levering',1,0.80],
+  ]);
 
-  // B3322 (om 2 dage, DR)
-  [[15,'Falaflen slider','mad',0,1.44],
-   [15,'Kyllingen slider','mad',0,1.21],
-   [15,'"Tunen" Spicy slider','mad',0,0.82],
-   [15,'Receptions Skinner','mad',0,0.44],
-   [2,'Transportkasse m låg','emballage',1,0],
-   [1,'Byekspressen leverer','levering',1,0.02]
-  ].forEach(([qty,name,cat,acc,co2e],i) => insertLine.run(bon3322,name,cat,qty,'stk',i+1,acc,co2e));
+  // B3315 (i morgen, catering, Finansforbundet)
+  addLines(bon3315, 'catering', [
+    [10,'Falaflen slider','mad',0,1.44],
+    [10,'Kyllingen slider','mad',0,1.21],
+    [10,'"Tunen" slider','mad',0,0.82],
+    [10,'Ægget slider','mad',0,1.02],
+    [10,'Smørrebrød mix','mad',0,0.90],
+    [2,'Transportkasse m låg','emballage',1,0],
+    [1,'Byekspressen leverer','levering',1,0.02],
+  ]);
+
+  // B3318 (i morgen, store, afhentning, VENTER)
+  addLines(bon3318, 'store', [
+    [10,'Kyllingen slider','mad',0,1.21],
+    [10,'Vegansk wrap','mad',0,0.65],
+  ]);
+
+  // B3322 (om 2 dage, catering, DR)
+  addLines(bon3322, 'catering', [
+    [15,'Falaflen slider','mad',0,1.44],
+    [15,'Kyllingen slider','mad',0,1.21],
+    [15,'"Tunen" Spicy slider','mad',0,0.82],
+    [15,'Receptions Skinner','mad',0,0.44],
+    [2,'Transportkasse m låg','emballage',1,0],
+    [1,'Byekspressen leverer','levering',1,0.02],
+  ]);
 
   // B3325 (om 3 dage, ny — ingen linjer endnu)
 
   // ── HISTORISKE BON LINES ─────────────────────────────────────────
 
-  // B3270 (4 dage siden, Novo)
-  [[20,'Kyllingen slider','mad',0,1.21],
-   [20,'Falaflen slider','mad',0,1.44],
-   [20,'"Tunen" slider','mad',0,0.82],
-   [20,'Receptions Skinner','mad',0,0.44],
-  ].forEach(([qty,name,cat,acc,co2e],i) => insertLine.run(bon3270,name,cat,qty,'stk',i+1,acc,co2e));
+  // B3270 (4 dage siden, catering, Novo)
+  addLines(bon3270, 'catering', [
+    [20,'Kyllingen slider','mad',0,1.21],
+    [20,'Falaflen slider','mad',0,1.44],
+    [20,'"Tunen" slider','mad',0,0.82],
+    [20,'Receptions Skinner','mad',0,0.44],
+  ]);
 
-  // B3271 (4 dage siden, store pickup)
-  [[8,'Kyllingen slider','mad',0,1.21],
-   [8,'Granola shot','mad',0,0.35],
-  ].forEach(([qty,name,cat,acc,co2e],i) => insertLine.run(bon3271,name,cat,qty,'stk',i+1,acc,co2e));
+  // B3271 (4 dage siden, store, pickup)
+  addLines(bon3271, 'store', [
+    [8,'Kyllingen slider','mad',0,1.21],
+    [8,'Granola shot','mad',0,0.35],
+  ]);
 
-  // B3272 (4 dage siden, DR)
-  [[15,'Falaflen slider','mad',0,1.44],
-   [15,'Smørrebrød mix','mad',0,0.90],
-   [15,'Kyllingesalat','mad',0,1.10],
-  ].forEach(([qty,name,cat,acc,co2e],i) => insertLine.run(bon3272,name,cat,qty,'stk',i+1,acc,co2e));
+  // B3272 (4 dage siden, catering, DR)
+  addLines(bon3272, 'catering', [
+    [15,'Falaflen slider','mad',0,1.44],
+    [15,'Smørrebrød mix','mad',0,0.90],
+    [15,'Kyllingesalat','mad',0,1.10],
+  ]);
 
-  // B3275 (3 dage siden, Finansforbundet stor)
-  [[25,'Kyllingen slider','mad',0,1.21],
-   [25,'Falaflen slider','mad',0,1.44],
-   [25,'"Tunen" Spicy slider','mad',0,0.82],
-   [25,'Receptions Skinner','mad',0,0.44],
-   [20,'Granola shot','mad',0,0.35],
-  ].forEach(([qty,name,cat,acc,co2e],i) => insertLine.run(bon3275,name,cat,qty,'stk',i+1,acc,co2e));
+  // B3275 (3 dage siden, catering, Finansforbundet stor)
+  addLines(bon3275, 'catering', [
+    [25,'Kyllingen slider','mad',0,1.21],
+    [25,'Falaflen slider','mad',0,1.44],
+    [25,'"Tunen" Spicy slider','mad',0,0.82],
+    [25,'Receptions Skinner','mad',0,0.44],
+    [20,'Granola shot','mad',0,0.35],
+  ]);
 
-  // B3276 (3 dage siden, Mærsk)
-  [[15,'Falaflen slider','mad',0,1.44],
-   [15,'Kyllingen slider','mad',0,1.21],
-   [15,'Ægget slider','mad',0,1.02],
-   [15,'Vegansk wrap','mad',0,0.65],
-  ].forEach(([qty,name,cat,acc,co2e],i) => insertLine.run(bon3276,name,cat,qty,'stk',i+1,acc,co2e));
+  // B3276 (3 dage siden, catering, Mærsk)
+  addLines(bon3276, 'catering', [
+    [15,'Falaflen slider','mad',0,1.44],
+    [15,'Kyllingen slider','mad',0,1.21],
+    [15,'Ægget slider','mad',0,1.02],
+    [15,'Vegansk wrap','mad',0,0.65],
+  ]);
 
-  // B3277 (3 dage siden, KK festival)
-  [[25,'Kyllingen slider','mad',0,1.21],
-   [25,'Falaflen slider','mad',0,1.44],
-  ].forEach(([qty,name,cat,acc,co2e],i) => insertLine.run(bon3277,name,cat,qty,'stk',i+1,acc,co2e));
+  // B3277 (3 dage siden, festival, KK)
+  addLines(bon3277, 'festival', [
+    [25,'Kyllingen slider','mad',0,1.21],
+    [25,'Falaflen slider','mad',0,1.44],
+  ]);
 
-  // B3278 (3 dage siden, pickup)
-  [[6,'Kyllingen slider','mad',0,1.21],
-   [6,'Granola shot','mad',0,0.35],
-  ].forEach(([qty,name,cat,acc,co2e],i) => insertLine.run(bon3278,name,cat,qty,'stk',i+1,acc,co2e));
+  // B3278 (3 dage siden, store, pickup)
+  addLines(bon3278, 'store', [
+    [6,'Kyllingen slider','mad',0,1.21],
+    [6,'Granola shot','mad',0,0.35],
+  ]);
 
-  // B3280 (2 dage siden, Novo)
-  [[25,'Kyllingen slider','mad',0,1.21],
-   [25,'Falaflen slider','mad',0,1.44],
-   [25,'"Tunen" slider','mad',0,0.82],
-   [25,'Receptions Skinner','mad',0,0.44],
-  ].forEach(([qty,name,cat,acc,co2e],i) => insertLine.run(bon3280,name,cat,qty,'stk',i+1,acc,co2e));
+  // B3280 (2 dage siden, catering, Novo)
+  addLines(bon3280, 'catering', [
+    [25,'Kyllingen slider','mad',0,1.21],
+    [25,'Falaflen slider','mad',0,1.44],
+    [25,'"Tunen" slider','mad',0,0.82],
+    [25,'Receptions Skinner','mad',0,0.44],
+  ]);
 
-  // B3281 (2 dage siden, DR)
-  [[12,'Smørrebrød mix','mad',0,0.90],
-   [12,'Kyllingesalat','mad',0,1.10],
-   [12,'Falaflen slider','mad',0,1.44],
-  ].forEach(([qty,name,cat,acc,co2e],i) => insertLine.run(bon3281,name,cat,qty,'stk',i+1,acc,co2e));
+  // B3281 (2 dage siden, catering, DR)
+  addLines(bon3281, 'catering', [
+    [12,'Smørrebrød mix','mad',0,0.90],
+    [12,'Kyllingesalat','mad',0,1.10],
+    [12,'Falaflen slider','mad',0,1.44],
+  ]);
 
-  // B3282 (2 dage siden, pickup)
-  [[10,'Kyllingen slider','mad',0,1.21],
-   [10,'Frugtsalat bæger','mad',0,0.28],
-  ].forEach(([qty,name,cat,acc,co2e],i) => insertLine.run(bon3282,name,cat,qty,'stk',i+1,acc,co2e));
+  // B3282 (2 dage siden, store, pickup)
+  addLines(bon3282, 'store', [
+    [10,'Kyllingen slider','mad',0,1.21],
+    [10,'Frugtsalat bæger','mad',0,0.28],
+  ]);
 
-  // B3330 (om 4 dage, Novo)
-  [[20,'Kyllingen slider','mad',0,1.21],
-   [20,'Falaflen slider','mad',0,1.44],
-   [20,'"Tunen" Spicy slider','mad',0,0.82],
-   [15,'Granola shot','mad',0,0.35],
-   [15,'Frugtsalat bæger','mad',0,0.28],
-  ].forEach(([qty,name,cat,acc,co2e],i) => insertLine.run(bon3330,name,cat,qty,'stk',i+1,acc,co2e));
+  // B3330 (om 4 dage, catering, Novo)
+  addLines(bon3330, 'catering', [
+    [20,'Kyllingen slider','mad',0,1.21],
+    [20,'Falaflen slider','mad',0,1.44],
+    [20,'"Tunen" Spicy slider','mad',0,0.82],
+    [15,'Granola shot','mad',0,0.35],
+    [15,'Frugtsalat bæger','mad',0,0.28],
+  ]);
 
-  // B3331 (om 4 dage, KK festival)
-  [[20,'Kyllingen slider','mad',0,1.21],
-   [20,'Falaflen slider','mad',0,1.44],
-   [15,'Ægget slider','mad',0,1.02],
-  ].forEach(([qty,name,cat,acc,co2e],i) => insertLine.run(bon3331,name,cat,qty,'stk',i+1,acc,co2e));
+  // B3331 (om 4 dage, festival, KK)
+  addLines(bon3331, 'festival', [
+    [20,'Kyllingen slider','mad',0,1.21],
+    [20,'Falaflen slider','mad',0,1.44],
+    [15,'Ægget slider','mad',0,1.02],
+  ]);
 
-  // B3335 (om 5 dage, Finansforbundet)
-  [[10,'Kyllingen slider','mad',0,1.21],
-   [10,'Falaflen slider','mad',0,1.44],
-   [10,'Smørrebrød mix','mad',0,0.90],
-  ].forEach(([qty,name,cat,acc,co2e],i) => insertLine.run(bon3335,name,cat,qty,'stk',i+1,acc,co2e));
+  // B3335 (om 5 dage, catering, Finansforbundet)
+  addLines(bon3335, 'catering', [
+    [10,'Kyllingen slider','mad',0,1.21],
+    [10,'Falaflen slider','mad',0,1.44],
+    [10,'Smørrebrød mix','mad',0,0.90],
+  ]);
 
   // ── CHANGELOG ────────────────────────────────────────────────────
   const logStmt = db.prepare(`

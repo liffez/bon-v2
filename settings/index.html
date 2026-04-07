@@ -272,6 +272,7 @@
     <button class="st-nav-item st-admin-only" data-section="mail">Mail</button>
     <button class="st-nav-item st-admin-only" data-section="formbuilder">Formbuilder</button>
     <button class="st-nav-item st-admin-only" data-section="tilbud">Tilbud</button>
+    <button class="st-nav-item st-admin-only" data-section="lego">Legoklods</button>
     <button class="st-nav-item st-admin-only" data-section="system">System</button>
   </nav>
 
@@ -349,6 +350,24 @@
       </div>
     </div>
 
+    <!-- ════ LEGOKLODS ════ -->
+    <div class="st-section st-admin-only" id="sec-lego">
+      <h2>Legoklods-rapport</h2>
+      <div class="st-card">
+        <h3>Pax-st&oslash;rrelseskategorier</h3>
+        <p style="font-size:.82rem;color:var(--color-text-dim,#7a6f5f);margin-bottom:12px">
+          Definer st&oslash;rrelseskategorier til legoklods-rapporten. Ordrer inddeles efter antal pax.
+          &laquo;Festival&raquo; matcher p&aring; priskategori (ikke pax). R&aelig;kkef&oslash;lgen styrer stabling.
+        </p>
+        <div id="lego-cats-list"></div>
+        <div style="display:flex;gap:8px;margin-top:10px">
+          <button class="st-btn st-btn-sm st-btn-secondary" onclick="addLegoCat()">+ Tilf&oslash;j kategori</button>
+          <button class="st-btn st-btn-sm st-btn-primary" onclick="saveLegoCats()">Gem</button>
+        </div>
+        <div id="lego-cats-msg" style="font-size:.82rem;margin-top:8px"></div>
+      </div>
+    </div>
+
     <!-- ════ SYSTEM ════ -->
     <div class="st-section st-admin-only" id="sec-system">
       <h2>System</h2>
@@ -413,6 +432,7 @@ async function init() {
     loadMailSection();
     loadFormbuilder();
     loadOfferBlocks();
+    loadLegoCats();
     loadSystemSection();
   }
 }
@@ -993,6 +1013,77 @@ async function saveOfferBlocks() {
   await saveSetting('offer_block_types', JSON.stringify(offerBlocks));
   document.getElementById('tilbud-blocks-msg').textContent = '\u2713 Gemt';
   setTimeout(function() { document.getElementById('tilbud-blocks-msg').textContent = ''; }, 2000);
+}
+
+// ═══════════════════════════════════════════════════════════
+// LEGOKLODS — pax-kategori editor
+// ═══════════════════════════════════════════════════════════
+
+var legoCats = [];
+
+function loadLegoCats() {
+  var raw = allSettings['lego_pax_categories'];
+  try { legoCats = JSON.parse(raw); } catch (_) { legoCats = []; }
+  if (!Array.isArray(legoCats)) legoCats = [];
+  renderLegoCats();
+}
+
+function renderLegoCats() {
+  var container = document.getElementById('lego-cats-list');
+  if (!container) return;
+  if (!legoCats.length) {
+    container.innerHTML = '<p style="font-size:.82rem;color:var(--color-text-dim)">Ingen kategorier defineret.</p>';
+    return;
+  }
+  container.innerHTML = legoCats.map(function(c, i) {
+    var isFestival = c.key === 'festival';
+    var maxPaxVal = c.max_pax != null ? c.max_pax : '';
+    return '<div style="display:flex;gap:6px;align-items:center;margin-bottom:6px;flex-wrap:wrap">' +
+      '<input type="color" value="' + esc(c.color || '#999999') + '" style="width:32px;height:28px;border:none;padding:0;cursor:pointer" onchange="legoCats[' + i + '].color=this.value">' +
+      '<input class="st-input" value="' + esc(c.label) + '" style="width:100px" placeholder="Label" onchange="legoCats[' + i + '].label=this.value">' +
+      (isFestival
+        ? '<span style="font-size:.78rem;color:var(--color-text-dim);width:120px">Matcher price_category</span>'
+        : '<input class="st-input" type="number" value="' + maxPaxVal + '" style="width:80px" placeholder="Max pax" onchange="legoCats[' + i + '].max_pax=this.value?parseInt(this.value):null" min="1">') +
+      '<span style="font-size:.72rem;color:var(--color-text-dim);width:50px;font-family:monospace">' + esc(c.key) + '</span>' +
+      '<button class="st-btn st-btn-sm" onclick="moveLegoCat(' + i + ',-1)" ' + (i === 0 ? 'disabled' : '') + '>\u25B2</button>' +
+      '<button class="st-btn st-btn-sm" onclick="moveLegoCat(' + i + ',1)" ' + (i === legoCats.length - 1 ? 'disabled' : '') + '>\u25BC</button>' +
+      '<button class="st-btn st-btn-sm" onclick="removeLegoCat(' + i + ')" style="color:#bc181b">\u2715</button>' +
+      '</div>';
+  }).join('');
+}
+
+function addLegoCat() {
+  var maxN = 0;
+  legoCats.forEach(function(c) {
+    var m = c.key.match(/^cat(\d+)$/);
+    if (m) maxN = Math.max(maxN, parseInt(m[1]));
+  });
+  legoCats.push({ key: 'cat' + (maxN + 1), label: 'Ny kategori', max_pax: 100, color: '#888888', sort_order: legoCats.length + 1 });
+  renderLegoCats();
+}
+
+function removeLegoCat(idx) {
+  if (!confirm('Slet kategorien "' + legoCats[idx].label + '"?')) return;
+  legoCats.splice(idx, 1);
+  legoCats.forEach(function(c, i) { c.sort_order = i + 1; });
+  renderLegoCats();
+}
+
+function moveLegoCat(idx, dir) {
+  var newIdx = idx + dir;
+  if (newIdx < 0 || newIdx >= legoCats.length) return;
+  var tmp = legoCats[idx];
+  legoCats[idx] = legoCats[newIdx];
+  legoCats[newIdx] = tmp;
+  legoCats.forEach(function(c, i) { c.sort_order = i + 1; });
+  renderLegoCats();
+}
+
+async function saveLegoCats() {
+  legoCats.forEach(function(c, i) { c.sort_order = i + 1; });
+  await saveSetting('lego_pax_categories', JSON.stringify(legoCats));
+  document.getElementById('lego-cats-msg').textContent = '\u2713 Gemt';
+  setTimeout(function() { document.getElementById('lego-cats-msg').textContent = ''; }, 2000);
 }
 
 // ─── START ───────────────────────────────────────────────

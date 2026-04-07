@@ -1,0 +1,523 @@
+/**
+ * routes/reports.js
+ * ════════════════════════════════════════════════════════════
+ * Rapport-endpoints til Office rapportmodul.
+ *
+ * GET /api/reports/summary        — KPI strip YTD
+ * GET /api/reports/monthly        — 12 months bar data
+ * GET /api/reports/top-customers  — Top 10 kunder
+ * GET /api/reports/categories     — Priskategori-fordeling YTD
+ * GET /api/reports/monthly-table  — Månedlig KPI-tabel
+ * GET /api/reports/lego           — Lego-sammenligning per kategori
+ * GET /api/reports/cumulative     — Ugentlig kumulativ kurve
+ * GET /api/reports/top-categories — Top 10 produktkategorier YTD
+ * ════════════════════════════════════════════════════════════
+ */
+
+const express       = require('express');
+const router        = express.Router();
+const { getDb }     = require('../db/database');
+const { handle }    = require('../db/helpers');
+const { requireAuth } = require('../shared/auth');
+
+// ─── Auth on all routes ──────────────────────────────────────
+router.use(requireAuth());
+
+// ─── Shared constants ────────────────────────────────────────
+
+const REVENUE_CODES = ['LEVERET', 'FAKTURERET', 'BETALT', 'AFSLUTTET'];
+const OFFER_INTERNAL_FILTER = 'AND COALESCE(b.is_offer, 0) = 0 AND COALESCE(b.is_internal, 0) = 0';
+
+const MONTH_LABELS = [
+    'Januar', 'Februar', 'Marts', 'April', 'Maj', 'Juni',
+    'Juli', 'August', 'September', 'Oktober', 'November', 'December'
+];
+
+// ─── Helpers ─────────────────────────────────────────────────
+
+function _thisYear() {
+    return new Date().getFullYear().toString();
+}
+
+function _statusPlaceholders(codes) {
+    return codes.map(() => '?').join(',');
+}
+
+// ─── GET /summary — KPI strip YTD ───────────────────────────
+
+router.get('/summary', handle(async (req, res) => {
+    const db = getDb();
+    const thisYear = _thisYear();
+    const prevYear = (parseInt(thisYear) - 1).toString();
+
+    // Revenue + orders YTD this year
+    const ytd = db.prepare(`
+        SELECT
+            COALESCE(SUM(bl.quantity * bl.unit_price), 0) AS revenue,
+            COUNT(DISTINCT b.id) AS orders
+        FROM bons b
+        JOIN status_definitions sd ON b.status_id = sd.id
+        JOIN bon_lines bl ON bl.bon_id = b.id
+        WHERE sd.code IN (${_statusPlaceholders(REVENUE_CODES)})
+          ${OFFER_INTERNAL_FILTER}
+          AND strftime('%Y', b.delivery_date) = ?
+    `).get(...REVENUE_CODES, thisYear);
+
+    // Revenue + orders YTD prev year
+    const ytdPrev = db.prepare(`
+        SELECT
+            COALESCE(SUM(bl.quantity * bl.unit_price), 0) AS revenue,
+            COUNT(DISTINCT b.id) AS orders
+        FROM bons b
+        JOIN status_definitions sd ON b.status_id = sd.id
+        JOIN bon_lines bl ON bl.bon_id = b.id
+        WHERE sd.code IN (${_statusPlaceholders(REVENUE_CODES)})
+          ${OFFER_INTERNAL_FILTER}
+          AND strftime('%Y', b.delivery_date) = ?
+    `).get(...REVENUE_CODES, prevYear);
+
+    // Pending invoice (LEVERET this year)
+    const pending = db.prepare(`
+        SELECT
+            COUNT(DISTINCT b.id) AS cnt,
+            COALESCE(SUM(b.total_price), 0) AS amount
+        FROM bons b
+        JOIN status_definitions sd ON b.status_id = sd.id
+        WHERE sd.code = 'LEVERET'
+          ${OFFER_INTERNAL_FILTER}
+          AND strftime('%Y', b.delivery_date) = ?
+    `).get(thisYear);
+
+    const avgThis = ytd.orders > 0 ? Math.round(ytd.revenue / ytd.orders) : 0;
+    const avgPrev = ytdPrev.orders > 0 ? Math.round(ytdPrev.revenue / ytdPrev.orders) : 0;
+
+    res.json({
+        revenue_ytd:       ytd.revenue,
+        revenue_ytd_prev:  ytdPrev.revenue,
+        orders_ytd:        ytd.orders,
+        orders_ytd_prev:   ytdPrev.orders,
+        avg_order_value:   avgThis,
+        avg_order_prev:    avgPrev,
+        pending_invoice:   pending.amount,
+        pending_count:     pending.cnt,
+    });
+}));
+
+// ─── GET /monthly — 12 month bars ───────────────────────────
+
+router.get('/monthly', handle(async (req, res) => {
+    const db = getDb();
+    const now = new Date();
+    const thisYear = now.getFullYear();
+
+    // Last 12 months range
+    const endMonth = `${thisYear}-${String(now.getMonth() + 1).padStart(2, '0')}`;
+    const startDate = new Date(thisYear, now.getMonth() - 11, 1);
+    const startMonth = `${startDate.getFullYear()}-${String(startDate.getMonth() + 1).padStart(2, '0')}`;
+
+    // Prev year range (offset by 12 months)
+    const prevStartDate = new Date(startDate.getFullYear() - 1, startDate.getMonth(), 1);
+    const prevEndDate = new Date(thisYear - 1, now.getMonth(), 1);
+    const prevStartMonth = `${prevStartDate.getFullYear()}-${String(prevStartDate.getMonth() + 1).padStart(2, '0')}`;
+    const prevEndMonth = `${prevEndDate.getFullYear()}-${String(prevEndDate.getMonth() + 1).padStart(2, '0')}`;
+
+    const thisYearRows = db.prepare(`
+        SELECT
+            strftime('%Y-%m', b.delivery_date) AS month,
+            COALESCE(SUM(bl.quantity * bl.unit_price), 0) AS revenue,
+            COALESCE(SUM(bl.quantity), 0) AS units,
+            COUNT(DISTINCT b.id) AS orders
+        FROM bons b
+        JOIN status_definitions sd ON b.status_id = sd.id
+        JOIN bon_lines bl ON bl.bon_id = b.id
+        WHERE sd.code IN (${_statusPlaceholders(REVENUE_CODES)})
+          ${OFFER_INTERNAL_FILTER}
+          AND strftime('%Y-%m', b.delivery_date) >= ?
+          AND strftime('%Y-%m', b.delivery_date) <= ?
+        GROUP BY strftime('%Y-%m', b.delivery_date)
+        ORDER BY month
+    `).all(...REVENUE_CODES, startMonth, endMonth);
+
+    const prevYearRows = db.prepare(`
+        SELECT
+            strftime('%Y-%m', b.delivery_date) AS month,
+            COALESCE(SUM(bl.quantity * bl.unit_price), 0) AS revenue,
+            COALESCE(SUM(bl.quantity), 0) AS units,
+            COUNT(DISTINCT b.id) AS orders
+        FROM bons b
+        JOIN status_definitions sd ON b.status_id = sd.id
+        JOIN bon_lines bl ON bl.bon_id = b.id
+        WHERE sd.code IN (${_statusPlaceholders(REVENUE_CODES)})
+          ${OFFER_INTERNAL_FILTER}
+          AND strftime('%Y-%m', b.delivery_date) >= ?
+          AND strftime('%Y-%m', b.delivery_date) <= ?
+        GROUP BY strftime('%Y-%m', b.delivery_date)
+        ORDER BY month
+    `).all(...REVENUE_CODES, prevStartMonth, prevEndMonth);
+
+    res.json({
+        this_year: thisYearRows,
+        prev_year: prevYearRows,
+    });
+}));
+
+// ─── GET /top-customers — Top 10 kunder ─────────────────────
+
+router.get('/top-customers', handle(async (req, res) => {
+    const db = getDb();
+    const by = req.query.by === 'orders' ? 'orders' : 'revenue';
+    const thisYear = _thisYear();
+
+    const rows = db.prepare(`
+        SELECT
+            b.customer_id AS id,
+            COALESCE(co.name, c.first_name || ' ' || COALESCE(c.last_name, '')) AS display_name,
+            COALESCE(SUM(bl.quantity * bl.unit_price), 0) AS revenue,
+            COUNT(DISTINCT b.id) AS orders
+        FROM bons b
+        JOIN status_definitions sd ON b.status_id = sd.id
+        JOIN bon_lines bl ON bl.bon_id = b.id
+        LEFT JOIN customers c ON b.customer_id = c.id
+        LEFT JOIN companies co ON b.company_id = co.id
+        WHERE sd.code IN (${_statusPlaceholders(REVENUE_CODES)})
+          ${OFFER_INTERNAL_FILTER}
+          AND strftime('%Y', b.delivery_date) = ?
+          AND b.customer_id IS NOT NULL
+        GROUP BY b.customer_id
+        ORDER BY ${by === 'orders' ? 'orders' : 'revenue'} DESC
+        LIMIT 10
+    `).all(...REVENUE_CODES, thisYear);
+
+    // Compute total for pct
+    const total = db.prepare(`
+        SELECT COALESCE(SUM(bl.quantity * bl.unit_price), 0) AS total_revenue,
+               COUNT(DISTINCT b.id) AS total_orders
+        FROM bons b
+        JOIN status_definitions sd ON b.status_id = sd.id
+        JOIN bon_lines bl ON bl.bon_id = b.id
+        WHERE sd.code IN (${_statusPlaceholders(REVENUE_CODES)})
+          ${OFFER_INTERNAL_FILTER}
+          AND strftime('%Y', b.delivery_date) = ?
+    `).get(...REVENUE_CODES, thisYear);
+
+    const totalVal = by === 'orders' ? (total.total_orders || 1) : (total.total_revenue || 1);
+
+    const customers = rows.map(r => ({
+        id:            r.id,
+        display_name:  (r.display_name || '').trim(),
+        revenue:       r.revenue,
+        orders:        r.orders,
+        pct_of_total:  Math.round(((by === 'orders' ? r.orders : r.revenue) / totalVal) * 1000) / 10,
+    }));
+
+    res.json({ by, customers });
+}));
+
+// ─── GET /categories — Priskategori-fordeling YTD ────────────
+
+router.get('/categories', handle(async (req, res) => {
+    const db = getDb();
+    const thisYear = _thisYear();
+    const prevYear = (parseInt(thisYear) - 1).toString();
+
+    function fetchCategories(year) {
+        const rows = db.prepare(`
+            SELECT
+                pc.code,
+                pc.label,
+                COALESCE(SUM(bl.quantity), 0) AS units,
+                COALESCE(SUM(bl.quantity * bl.unit_price), 0) AS revenue
+            FROM bons b
+            JOIN status_definitions sd ON b.status_id = sd.id
+            JOIN bon_lines bl ON bl.bon_id = b.id
+            LEFT JOIN price_categories pc ON pc.code = b.price_category
+            WHERE sd.code IN (${_statusPlaceholders(REVENUE_CODES)})
+              ${OFFER_INTERNAL_FILTER}
+              AND strftime('%Y', b.delivery_date) = ?
+            GROUP BY pc.code
+            ORDER BY pc.sort_order, pc.code
+        `).all(...REVENUE_CODES, year);
+
+        const totalRevenue = rows.reduce((s, r) => s + r.revenue, 0) || 1;
+        return rows.map(r => ({
+            code:    r.code,
+            label:   r.label || r.code,
+            units:   r.units,
+            revenue: r.revenue,
+            pct:     Math.round((r.revenue / totalRevenue) * 1000) / 10,
+        }));
+    }
+
+    res.json({
+        this_year: fetchCategories(thisYear),
+        prev_year: fetchCategories(prevYear),
+    });
+}));
+
+// ─── GET /monthly-table — Månedlig KPI-tabel ─────────────────
+
+router.get('/monthly-table', handle(async (req, res) => {
+    const db = getDb();
+    const now = new Date();
+    const thisYear = now.getFullYear();
+    const currentMonth = now.getMonth() + 1; // 1-based
+    const prevYear = thisYear - 1;
+
+    // Fetch monthly data for a given year
+    function fetchMonthly(year) {
+        return db.prepare(`
+            SELECT
+                CAST(strftime('%m', b.delivery_date) AS INTEGER) AS month_nr,
+                COALESCE(SUM(bl.quantity * bl.unit_price), 0) AS revenue,
+                COUNT(DISTINCT b.id) AS orders,
+                COALESCE(SUM(bl.quantity), 0) AS units
+            FROM bons b
+            JOIN status_definitions sd ON b.status_id = sd.id
+            JOIN bon_lines bl ON bl.bon_id = b.id
+            WHERE sd.code IN (${_statusPlaceholders(REVENUE_CODES)})
+              ${OFFER_INTERNAL_FILTER}
+              AND strftime('%Y', b.delivery_date) = ?
+            GROUP BY CAST(strftime('%m', b.delivery_date) AS INTEGER)
+        `).all(...REVENUE_CODES, year.toString());
+    }
+
+    const thisData = fetchMonthly(thisYear);
+    const prevData = fetchMonthly(prevYear);
+
+    // Index by month
+    const thisMap = {};
+    for (const r of thisData) thisMap[r.month_nr] = r;
+    const prevMap = {};
+    for (const r of prevData) prevMap[r.month_nr] = r;
+
+    // Pending invoice for current month
+    const monthStart = `${thisYear}-${String(currentMonth).padStart(2, '0')}-01`;
+    const monthEnd = currentMonth === 12
+        ? `${thisYear}-12-31`
+        : `${thisYear}-${String(currentMonth + 1).padStart(2, '0')}-01`;
+
+    const pendingRow = db.prepare(`
+        SELECT COALESCE(SUM(b.total_price), 0) AS amount
+        FROM bons b
+        JOIN status_definitions sd ON b.status_id = sd.id
+        WHERE sd.code = 'LEVERET'
+          ${OFFER_INTERNAL_FILTER}
+          AND b.delivery_date >= ? AND b.delivery_date < ?
+    `).get(monthStart, monthEnd);
+
+    const rows = [];
+    for (let m = 1; m <= 12; m++) {
+        const t = thisMap[m] || { revenue: 0, orders: 0, units: 0 };
+        const p = prevMap[m] || { revenue: 0, orders: 0, units: 0 };
+        const isCurrent = m === currentMonth;
+
+        const deltaPct = p.revenue > 0
+            ? Math.round(((t.revenue - p.revenue) / p.revenue) * 1000) / 10
+            : (t.revenue > 0 ? 100 : 0);
+
+        rows.push({
+            month_label:      MONTH_LABELS[m - 1],
+            is_current:       isCurrent,
+            revenue_this:     t.revenue,
+            revenue_prev:     p.revenue,
+            delta_pct:        deltaPct,
+            orders:           t.orders,
+            units:            t.units,
+            avg_order_value:  t.orders > 0 ? Math.round(t.revenue / t.orders) : 0,
+            pending_invoice:  isCurrent ? pendingRow.amount : null,
+        });
+    }
+
+    res.json({ rows });
+}));
+
+// ─── GET /lego — Pax-baseret legoklods-rapport ────────────────
+//
+// Query params:
+//   ?months=6,7  — 1 måned = 1 periode, 2 måneder = 2 perioder side om side
+//   ?year=2025   — default: indeværende år
+//
+// Hvert bon tildeles en pax-kategori fra settings ('lego_pax_categories').
+// Festival-bons (price_category='festival') → 'festival' uanset pax.
+
+router.get('/lego', handle(async (req, res) => {
+    const db = getDb();
+    const now = new Date();
+    const year = parseInt(req.query.year) || now.getFullYear();
+
+    // Parse months
+    let months;
+    if (req.query.months) {
+        months = req.query.months.split(',').map(m => parseInt(m.trim())).filter(m => m >= 1 && m <= 12);
+    } else {
+        months = [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12];
+    }
+
+    // Load pax categories from settings
+    const catRow = db.prepare(`SELECT value FROM settings WHERE key = 'lego_pax_categories'`).get();
+    let paxCats;
+    try { paxCats = JSON.parse(catRow?.value); } catch (_) { paxCats = []; }
+    if (!Array.isArray(paxCats) || !paxCats.length) {
+        paxCats = [
+            { key: 'smaa', label: 'Små', max_pax: 20, color: '#4a90d9', sort_order: 1 },
+            { key: 'mellem', label: 'Mellem', max_pax: 80, color: '#c49a45', sort_order: 2 },
+            { key: 'store', label: 'Store', max_pax: 120, color: '#6d4c16', sort_order: 3 },
+            { key: 'events', label: 'Events', max_pax: 180, color: '#7a9c54', sort_order: 4 },
+            { key: 'festival', label: 'Festival', max_pax: null, color: '#d4652a', sort_order: 5 },
+        ];
+    }
+    paxCats.sort((a, b) => (a.sort_order || 0) - (b.sort_order || 0));
+
+    // Classify a bon into a pax category key
+    function classify(pax, priceCategory) {
+        if (priceCategory === 'festival') return 'festival';
+        for (const cat of paxCats) {
+            if (cat.key === 'festival') continue;
+            if (cat.max_pax != null && (pax || 0) <= cat.max_pax) return cat.key;
+        }
+        // Fallback: last non-festival category
+        const nonFest = paxCats.filter(c => c.key !== 'festival');
+        return nonFest.length ? nonFest[nonFest.length - 1].key : 'other';
+    }
+
+    // Fetch individual bons with revenue for a given year + months
+    function fetchBons(yr, filterMonths) {
+        const monthPlaceholders = filterMonths.map(() => '?').join(',');
+        return db.prepare(`
+            SELECT
+                b.id, b.pax, b.price_category,
+                COALESCE(SUM(bl.quantity * bl.unit_price), 0) AS revenue
+            FROM bons b
+            JOIN status_definitions sd ON b.status_id = sd.id
+            LEFT JOIN bon_lines bl ON bl.bon_id = b.id
+            WHERE sd.code IN (${_statusPlaceholders(REVENUE_CODES)})
+              ${OFFER_INTERNAL_FILTER}
+              AND strftime('%Y', b.delivery_date) = ?
+              AND CAST(strftime('%m', b.delivery_date) AS INTEGER) IN (${monthPlaceholders})
+            GROUP BY b.id
+        `).all(...REVENUE_CODES, yr.toString(), ...filterMonths);
+    }
+
+    // Aggregate bons into stacks by pax category
+    function aggregate(bons) {
+        const buckets = {};
+        for (const cat of paxCats) {
+            buckets[cat.key] = { key: cat.key, label: cat.label, color: cat.color, orders: 0, revenue: 0 };
+        }
+        for (const bon of bons) {
+            const catKey = classify(bon.pax, bon.price_category);
+            if (!buckets[catKey]) buckets[catKey] = { key: catKey, label: catKey, color: '#999', orders: 0, revenue: 0 };
+            buckets[catKey].orders++;
+            buckets[catKey].revenue += bon.revenue || 0;
+        }
+        return paxCats.map(c => buckets[c.key]).filter(b => b);
+    }
+
+    // Build periods: each selected month = 1 period (max 2 for side-by-side comparison)
+    const periodsMonths = months.length <= 2
+        ? months.map(m => [m])     // 1-2 months → 1 period each
+        : [months];                 // 3+ months → aggregate into 1 period
+
+    const periods = periodsMonths.map(pMonths => {
+        const bons = fetchBons(year, pMonths);
+        const label = pMonths.length === 1
+            ? MONTH_LABELS[pMonths[0] - 1] + ' ' + year
+            : (pMonths.length === 12 ? 'Hele ' + year : pMonths.map(m => MONTH_LABELS[m - 1]).join(' + ') + ' ' + year);
+        return { label, months: pMonths, year, stacks: aggregate(bons) };
+    });
+
+    res.json({ periods, categories: paxCats });
+}));
+
+// ─── GET /cumulative — Ugentlig kumulativ kurve ──────────────
+
+router.get('/cumulative', handle(async (req, res) => {
+    const db = getDb();
+    const thisYear = parseInt(_thisYear());
+
+    // Parse years param or default to current + 2 previous
+    let years;
+    if (req.query.years) {
+        years = req.query.years.split(',').map(y => parseInt(y.trim())).filter(y => y > 2000 && y <= thisYear + 1);
+    } else {
+        years = [thisYear - 2, thisYear - 1, thisYear];
+    }
+
+    const result = {};
+
+    for (const year of years) {
+        const rows = db.prepare(`
+            SELECT
+                week_nr,
+                revenue,
+                SUM(revenue) OVER (ORDER BY week_nr) AS cumulative
+            FROM (
+                SELECT
+                    CAST(strftime('%W', b.delivery_date) AS INTEGER) AS week_nr,
+                    COALESCE(SUM(bl.quantity * bl.unit_price), 0) AS revenue
+                FROM bons b
+                JOIN status_definitions sd ON b.status_id = sd.id
+                JOIN bon_lines bl ON bl.bon_id = b.id
+                WHERE sd.code IN (${_statusPlaceholders(REVENUE_CODES)})
+                  ${OFFER_INTERNAL_FILTER}
+                  AND strftime('%Y', b.delivery_date) = ?
+                GROUP BY CAST(strftime('%W', b.delivery_date) AS INTEGER)
+            )
+            ORDER BY week_nr
+        `).all(...REVENUE_CODES, year.toString());
+
+        result[year.toString()] = rows.map(r => ({
+            week:       r.week_nr,
+            cumulative: r.cumulative,
+        }));
+    }
+
+    res.json({ years: result });
+}));
+
+// ─── GET /top-categories — Top 10 produktkategorier YTD ──────
+
+router.get('/top-categories', handle(async (req, res) => {
+    const db = getDb();
+    const thisYear = _thisYear();
+
+    const rows = db.prepare(`
+        SELECT
+            COALESCE(bl.category, 'Uden kategori') AS category,
+            COALESCE(SUM(bl.quantity), 0) AS units
+        FROM bon_lines bl
+        JOIN bons b ON bl.bon_id = b.id
+        JOIN status_definitions sd ON b.status_id = sd.id
+        WHERE sd.code IN (${_statusPlaceholders(REVENUE_CODES)})
+          ${OFFER_INTERNAL_FILTER}
+          AND bl.is_accessory = 0
+          AND strftime('%Y', b.delivery_date) = ?
+        GROUP BY COALESCE(bl.category, 'Uden kategori')
+        ORDER BY units DESC
+        LIMIT 10
+    `).all(...REVENUE_CODES, thisYear);
+
+    // Compute total units for pct
+    const totalRow = db.prepare(`
+        SELECT COALESCE(SUM(bl.quantity), 0) AS total
+        FROM bon_lines bl
+        JOIN bons b ON bl.bon_id = b.id
+        JOIN status_definitions sd ON b.status_id = sd.id
+        WHERE sd.code IN (${_statusPlaceholders(REVENUE_CODES)})
+          ${OFFER_INTERNAL_FILTER}
+          AND bl.is_accessory = 0
+          AND strftime('%Y', b.delivery_date) = ?
+    `).get(...REVENUE_CODES, thisYear);
+
+    const totalUnits = totalRow.total || 1;
+
+    const categories = rows.map(r => ({
+        category: r.category,
+        units:    r.units,
+        pct:      Math.round((r.units / totalUnits) * 1000) / 10,
+    }));
+
+    res.json({ categories });
+}));
+
+module.exports = router;

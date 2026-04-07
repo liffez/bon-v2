@@ -718,7 +718,7 @@ Nye filer placeres præcis der de hører hjemme — kopieres ikke.
 > **Fase 1a–1e + 3A + 3B + 3D + 4 + 5 + 6 (indkøbsliste) + 7 (CRM) + Office CRM redesign + 8 (Fakturering) + 9 (Tilbud) komplet.**
 > Tilbud: 5-trins wizard, PDF, tilbud=bon med is_offer=1, TILBUD-status, T-nummerserie.
 >
-> **Næste:** Rapporter (office/views/rapporter.js — 5 API-endpoints + KPI/chart/tabel),
+> **Næste:** Rapporter (office/views/rapporter.js — 8 API-endpoints + KPI/chart/tabel),
 > Bestilling (Hørkram montering), Varemodtagelse (fusion-endpoint),
 > Priser-setting i planlægningsbon, Ugeoversigt.
 > Så er Bon v1 klar til nedlukning.
@@ -738,7 +738,6 @@ Nye filer placeres præcis der de hører hjemme — kopieres ikke.
 > - shared/-mappe opdeling i undermapper — udskydes til senere refaktorering
 > - orders.js migrering fra JSON-fil til SQLite — bør ske inden bestilling tages i brug
 > - Varemodtagelse fusion-endpoint arkitektur: `POST /api/receiving/complete` → Grocy + Whiteboard + lokal log
-> - Rapporter: LEVERET skal medtages i omsætningstal (ikke kun terminal-statusser)
 >
 > **Beslutninger taget:**
 > - Kalender er separat sidebar-punkt i office (ikke fane i listview)
@@ -748,7 +747,10 @@ Nye filer placeres præcis der de hører hjemme — kopieres ikke.
 > - Grocy QU: `recipes_pos.amount` er i stock-units, `qu_id` er display-enhed — DB skal IKKE ændres
 > - Indkøbsliste bruger purchase-enhed med oprunding ved tilføjelse til Grocy shopping list
 > - Fakturering og Rapporter er separate sidebar-punkter (ikke tabs)
-> - Rapporter bruger custom canvas chart (som dashboard), ikke Chart.js
+> - Rapporter bruger custom canvas chart (som dashboard), ikke Chart.js — genbrug `initDashboardChart()` og `initAccumChart()` fra `shared/dashboard_chart.js`
+> - Rapporter: LEVERET medtages i omsætningstal (ikke kun terminal-statusser) + is_offer og is_internal ekskluderes
+> - Rapporter: revenue = `SUM(bl.quantity * bl.unit_price)` (linje-sum), IKKE `b.total_price`
+> - Dashboard bør også filtrere `is_offer`/`is_internal` fra revenue-tal (rettes sammen med rapporter)
 > - Tilbud = bon med `is_offer=1` (ikke separat tabel) — integrerer med kalender, planlægning, CRM pipeline
 > - Tilbud er separat sidebar-punkt i office (efter CRM, før Drift)
 > - Tilbud bruger TILBUD-status (dedikeret status_definition) — ikke NY
