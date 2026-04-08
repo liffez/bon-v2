@@ -344,9 +344,20 @@ function _crmRenderShell() {
                 <div id="crmCallbacksList"></div>
             </div>
 
-            <div class="crm-card" id="crmSuggestions">
-                <h3>Smart forslag</h3>
-                <div id="crmSuggestionsList"></div>
+            <div class="crm-card" style="grid-column: 1 / -1;" id="crmServiceCalls">
+                <h3>📞 Service-kald</h3>
+                <div class="crm-svc-header">
+                    <span class="crm-svc-label">Leveringer fra de seneste</span>
+                    <select id="crmSvcDaysSelect" onchange="_crmChangeSvcDays(+this.value)">
+                        <option value="7">7 dage</option>
+                        <option value="10">10 dage</option>
+                        <option value="14">14 dage</option>
+                        <option value="21">21 dage</option>
+                        <option value="30">30 dage</option>
+                    </select>
+                    <span class="crm-svc-count" id="crmSvcCount"></span>
+                </div>
+                <div id="crmServiceCallsList"></div>
             </div>
 
             <div class="crm-card" id="crmActivityPanel">
@@ -365,20 +376,9 @@ function _crmRenderShell() {
                 <div class="crm-pipe-board" id="crmPipeBoard"></div>
             </div>
 
-            <div class="crm-card" style="grid-column: 1 / -1;" id="crmServiceCalls">
-                <h3>📞 Service-kald</h3>
-                <div class="crm-svc-header">
-                    <span class="crm-svc-label">Leveringer fra de seneste</span>
-                    <select id="crmSvcDaysSelect" onchange="_crmChangeSvcDays(+this.value)">
-                        <option value="7">7 dage</option>
-                        <option value="10">10 dage</option>
-                        <option value="14">14 dage</option>
-                        <option value="21">21 dage</option>
-                        <option value="30">30 dage</option>
-                    </select>
-                    <span class="crm-svc-count" id="crmSvcCount"></span>
-                </div>
-                <div id="crmServiceCallsList"></div>
+            <div class="crm-card" id="crmSuggestions">
+                <h3>Smart forslag</h3>
+                <div id="crmSuggestionsList"></div>
             </div>
         </div>
     `;
