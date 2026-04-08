@@ -134,7 +134,11 @@ bon-v2/
 ├── settings/         ← index.html (eget shell)
 ├── assets/           ← logo.svg, icons/, fonts/
 ├── scripts/
-│   └── set-password.js ← Sæt password for bruger (engangsbrug)
+│   ├── set-password.js        ← Sæt password for bruger (engangsbrug)
+│   ├── sync-v1.js             ← Daglig sync fra Bon v1 (cron)
+│   ├── merge-ean-duplicates.js ← Merger firmaer med samme EAN
+│   ├── enrich-cvr.js          ← CVR-berigelse via Virk ES + NemHandel
+│   └── fix-cvr.js             ← Manuel CVR-rettelse
 ├── BonConfig.js
 ├── BonConfigBar.js
 ├── package.json
@@ -736,11 +740,48 @@ Nye filer placeres præcis der de hører hjemme — kopieres ikke.
 - [x] jsPDF selvhostet i `assets/jspdf.umd.min.js` (CDN 2.5.2 returnerede 404)
 - [x] Spec-opdateringer: `CLAUDE_MAIL.md` (sekt. 14–15), `CLAUDE_MAIL_IMPL.md`, `CLAUDE_TILBUD.md` Fase 2
 
+### CRM Service-kald opgradering (april 2026)
+- [x] Service-kald listen opgraderet fra simpel liste til interaktivt workflow
+  - Dage-dropdown (7/10/14/21/30) med live reload
+  - Pax + pris inline per række
+  - Farvede dage-badges (grøn 0–3d, gul 4–7d, rød 8+d)
+  - Ring-knap: åbner `tel:` link (Mac telefon-app) + inline log-form
+  - Håndteret quick-knap (✓) markerer direkte som done
+  - Ordrehistorik expand (seneste 5 ordrer med linjer + special_request)
+  - Log-form med resultat (6 valg), stemning (3 valg) og note
+  - Kunder uden telefonnummer → "Log" knap (kun form)
+- [x] CRM dashboard layout: Service-kald øverst → Pipeline → Smart forslag nederst
+- [x] `routes/crm.js` — `special_request` tilføjet til customer-orders query
+
+### Firma-oprydning og CVR-berigelse (april 2026)
+- [x] Migration 029: `legal_name` på companies (juridisk navn fra CVR)
+- [x] `scripts/merge-ean-duplicates.js` — Merger firmaer med samme EAN
+  - Beholder firma med flest bons, gemmer alternative navne i notes
+  - Flytter kunder og bons, overtager kontaktinfo
+  - 91 EAN-grupper, 250 firmaer slettet (1230 → 980)
+- [x] `scripts/enrich-cvr.js` — CVR-berigelse via Virk ElasticSearch + NemHandel
+  - Strategi 1: EAN → NemHandel (GLN→CVR, sikrest for institutioner)
+  - Strategi 2: Kendte institutioner via email-domæne
+  - Strategi 3: Virk ES navnesøgning med fuzzy matching (ingen rate limit)
+  - Juridiske suffixer (I/S, A/S, ApS etc.) ignoreres i similarity
+  - Gemmer CVR + legal_name, rører ikke eksisterende data
+  - Review-log i `data/cvr-enrich-log.json`
+  - 167 via NemHandel + ~455 via Virk ES = 622 firmaer med CVR
+- [x] `scripts/fix-cvr.js` — Manuel CVR-rettelse (--id, --search, --list, --clear)
+- [x] `routes/invoices.js` — `legal_name` i API-response
+- [x] `office/views/fakturering.js` — Viser legal_name under firmanavn (når forskelligt)
+- [x] `scripts/sync-v1.js` — Opdateret til at bevare CVR-data og håndtere EAN-merges
+  - Company-mapping: v1_id → EAN-match → ny insert
+  - Firmaer med CVR: kun adresse opdateres (navn/ean/notes bevares)
+  - `resolveV2CompanyId()` bruges i customers og bons
+  - Forhindrer at EAN-mergede firmaer genopstår som dubletter
+- [x] `.env.example` — `VIRK_ES_USER` + `VIRK_ES_PASS` tilføjet
+
 ## Næste opgave
 
-> ✏️ Opdateret 7. april 2026.
+> ✏️ Opdateret 8. april 2026.
 >
-> **Fase 1a–1e + 3A + 3B + 3D + 4 + 5 + 6 (indkøbsliste) + 7 (CRM) + Office CRM redesign + 8 (Fakturering) + 9 (Tilbud) + Mail-vedhæftninger komplet.**
+> **Fase 1a–1e + 3A + 3B + 3D + 4 + 5 + 6 (indkøbsliste) + 7 (CRM) + Office CRM redesign + 8 (Fakturering) + 9 (Tilbud) + Mail-vedhæftninger + CRM service-kald + Firma-oprydning komplet.**
 >
 > **Næste:** Bestilling (Hørkram montering), Varemodtagelse (fusion-endpoint),
 > Priser-setting i planlægningsbon, Ugeoversigt.
@@ -748,11 +789,12 @@ Nye filer placeres præcis der de hører hjemme — kopieres ikke.
 >
 > **Åbne afhængigheder:**
 > - DMI API-nøgle (vejr på dashboards) — Leif finder frem til eksisterende nøgle (Open-Meteo bruges midlertidigt)
-> - Bon v1-datamigration — bør ske inden dashboards tages i produktion (kræves til "sidste år"-sammenligning)
+> - ~~Bon v1-datamigration~~ — sync-v1.js kører dagligt via cron, CVR-beriget
 > - Byekspressen credentials — ryk sebastian@by-expressen.dk
 > - Formbuilder webhook-URL + HTML til ristetrug.dk/bestil — sættes når 1c er stabilt
 > - Whiteboard API URL — `https://whiteboard.ristetrug.dk` (localhost til test)
 > - Hørkram credentials — `HOKA_USERNAME` + `HOKA_PASSWORD` i `.env`
+> - CVR review: ~622 auto-matchede firmaer bør gennemgås for fejl (brug `fix-cvr.js`)
 >
 > **Åbne design-beslutninger:**
 > - Priser i planlægningsbon: setting `show_prices_in_planning` (default false)
@@ -783,6 +825,10 @@ Nye filer placeres præcis der de hører hjemme — kopieres ikke.
 > - busboy (rent JS) til multipart parsing — godkendt npm-pakke
 > - jsPDF selvhostet i `assets/` (CDN ustabil)
 > - Kostpris fra Grocy fulfillment `costs` (beregnet fra ingredienser), ikke `costprice` userfield
+> - Firma-dedup: EAN-merge først (sikkert), derefter CVR-berigelse — merge IKKE på CVR (afdelinger under samme juridiske enhed er separate firmaer)
+> - CVR-opslag: Virk ElasticSearch (primær, ingen rate limit) + NemHandel (EAN) + cvrapi.dk (fallback, har rate limit)
+> - `legal_name` på companies: juridisk navn fra CVR, vises i fakturering
+> - sync-v1.js: bevarer CVR/legal_name/notes ved update, matcher på EAN for mergede firmaer
 
 ---
 
