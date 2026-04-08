@@ -64,8 +64,14 @@ if (VIRK_USER && VIRK_PASS) {
 
 function sleep(ms) { return new Promise(r => setTimeout(r, ms)); }
 
+// Juridiske suffixer der skal ignoreres ved sammenligning
+const LEGAL_SUFFIXES = /\b(i\/s|a\/s|aps|s\/i|a\.m\.b\.a|f\.m\.b\.a|fond|forening|smba|ivs|p\/s|k\/s|holding|group|as|is)\b/gi;
+const PARENS = /\(.*?\)/g;
+
 function normalize(name) {
   return (name || '').toLowerCase()
+    .replace(PARENS, '')           // fjern parenteser: "(FOND)", "(ODM)"
+    .replace(LEGAL_SUFFIXES, '')   // fjern juridiske suffixer
     .replace(/[^a-zæøåé0-9]/g, ' ')
     .replace(/\s+/g, ' ')
     .trim();
@@ -75,12 +81,16 @@ function similarity(a, b) {
   const na = normalize(a);
   const nb = normalize(b);
   if (na === nb) return 1.0;
-  if (na.includes(nb) || nb.includes(na)) return 0.85;
+  // "Ristet Rug" contained in "Ristet Rug I/S" → høj score
+  if (na.includes(nb) || nb.includes(na)) return 0.95;
   const tokA = new Set(na.split(' ').filter(t => t.length > 1));
   const tokB = new Set(nb.split(' ').filter(t => t.length > 1));
   if (tokA.size === 0 || tokB.size === 0) return 0;
   let overlap = 0;
   for (const t of tokA) { if (tokB.has(t)) overlap++; }
+  // Alle tokens fra den korteste side matcher → høj score
+  const smaller = Math.min(tokA.size, tokB.size);
+  if (overlap === smaller && smaller >= 1) return 0.90;
   return (2 * overlap) / (tokA.size + tokB.size);
 }
 
@@ -344,9 +354,10 @@ async function main() {
 
       const best = scored[0];
 
-      // Korte navne (1-2 ord) kræver højere match for at undgå falske positiver
-      const wordCount = co.name.split(/\s+/).length;
-      const threshold = wordCount <= 2 ? 0.9 : 0.75;
+      // Korte navne (1 ord) kræver højere match for at undgå falske positiver
+      // Men normalize() fjerner suffixer, så "AS3" vs "AS3 A/S" → begge "as3" → 1.0
+      const normWords = normalize(co.name).split(' ').filter(w => w.length > 1).length;
+      const threshold = normWords <= 1 ? 0.90 : 0.75;
 
       if (best.sim >= threshold) {
         const activeNote = best.status === 'NORMAL' ? '' : ` [${best.status}]`;
