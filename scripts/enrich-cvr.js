@@ -297,19 +297,26 @@ async function main() {
     console.log(`\n🔧 Gemmer ${totalMatched} CVR-numre...`);
 
     transaction(db, () => {
-      const update = db.prepare(`
+      const updateCvr = db.prepare(`
         UPDATE companies SET cvr = ?, updated_at = datetime('now')
         WHERE id = ? AND (cvr IS NULL OR cvr = '')
       `);
+      const updateLegal = db.prepare(`
+        UPDATE companies SET legal_name = ?, updated_at = datetime('now')
+        WHERE id = ?
+      `);
 
       for (const m of results.nemhandel) {
-        update.run(m.cvr, m.company.id);
+        updateCvr.run(m.cvr, m.company.id);
+        if (m.officialName) updateLegal.run(m.officialName, m.company.id);
       }
       for (const m of results.known) {
-        update.run(m.cvr, m.company.id);
+        updateCvr.run(m.cvr, m.company.id);
+        if (m.officialName) updateLegal.run(m.officialName, m.company.id);
       }
       for (const m of results.cvrapi) {
-        update.run(m.cvr, m.company.id);
+        updateCvr.run(m.cvr, m.company.id);
+        if (m.officialName) updateLegal.run(m.officialName, m.company.id);
       }
     });
 

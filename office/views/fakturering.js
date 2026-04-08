@@ -313,7 +313,7 @@ function _faktSelectBon(bon) {
                     ${bon.company ? `
                     <div class="fakt-info-row">
                         <div class="fakt-info-label">Firma</div>
-                        <div class="fakt-info-val"><strong>${_escHtml(bon.company.name)}</strong>${bon.company.cvr ? '<br>CVR ' + _escHtml(bon.company.cvr) : ''}</div>
+                        <div class="fakt-info-val"><strong>${_escHtml(bon.company.name)}</strong>${bon.company.legal_name && bon.company.legal_name !== bon.company.name ? '<br><span style="font-size:11px;color:var(--color-text-dim);">' + _escHtml(bon.company.legal_name) + '</span>' : ''}${bon.company.cvr ? '<br>CVR ' + _escHtml(bon.company.cvr) : ''}</div>
                     </div>
                     ${bon.company.ean ? `
                     <div class="fakt-info-row">

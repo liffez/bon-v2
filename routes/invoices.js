@@ -47,6 +47,7 @@ router.get('/queue', handle((req, res) => {
             -- Company
             co.id           AS company_id,
             co.name         AS company_name,
+            co.legal_name   AS company_legal_name,
             co.cvr          AS company_cvr,
             co.ean          AS company_ean,
             co.invoice_method AS company_invoice_method,
@@ -176,6 +177,7 @@ function formatBon(row) {
         company: row.company_id ? {
             id:                   row.company_id,
             name:                 row.company_name,
+            legal_name:           row.company_legal_name,
             cvr:                  row.company_cvr,
             ean:                  row.company_ean,
             invoice_method:       row.company_invoice_method,
