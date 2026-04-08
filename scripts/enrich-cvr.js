@@ -421,6 +421,19 @@ async function main() {
       console.log(`\n⚠ ${cvrDups.length} CVR-duplikat-grupper:`);
       cvrDups.forEach(d => console.log(`  CVR ${d.cvr} (${d.c}x): ${d.names}`));
     }
+    // Gem review-log
+    const logPath = path.join(__dirname, '..', 'data', 'cvr-enrich-log.json');
+    const log = [...results.nemhandel, ...results.known, ...results.virk, ...results.cvrapi].map(m => ({
+      id: m.company.id,
+      name: m.company.name,
+      bons: m.company.bon_count,
+      cvr: m.cvr,
+      legal_name: m.officialName || null,
+      source: m.enhedsnavn ? 'nemhandel' : m.domain ? 'known' : m.score ? `virk (${Math.round(m.score * 100)}%)` : 'cvrapi',
+    }));
+    require('fs').writeFileSync(logPath, JSON.stringify(log, null, 2));
+    console.log(`📋 Review-log gemt: ${logPath} (${log.length} entries)`);
+    console.log('   Ret fejl med: node scripts/fix-cvr.js --id=X --cvr=Y --legal="Z"');
   } else if (dryRun) {
     console.log('\n🔍 DRY RUN — intet ændret.');
   }
