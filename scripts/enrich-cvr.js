@@ -1,25 +1,43 @@
 /**
- * enrich-cvr.js — Berig firmaer med CVR-nummer
+ * enrich-cvr.js — Berig firmaer med CVR-nummer via Virk ElasticSearch
  *
  * Kør: node scripts/enrich-cvr.js --dry-run              # Vis matches uden at ændre
  * Kør: node scripts/enrich-cvr.js --run                   # Udfør CVR-berigelse
  * Kør: node scripts/enrich-cvr.js --run --batch=50        # Kun de første 50
  * Kør: node scripts/enrich-cvr.js --ean-only --dry-run    # Kun EAN→NemHandel opslag
  *
- * Strategi (inspireret af bontools CVR opslag):
+ * Strategi (prioriteret):
  * 1. EAN → NemHandel opslag (GLN→CVR, sikrest for institutioner)
- * 2. Kunders email-domæne → hjemmeside CVR-scraping + cvrapi.dk
- * 3. Firmanavn → cvrapi.dk søgning
+ * 2. Kendte institutioner via email-domæne
+ * 3. Virk ElasticSearch navnesøgning (ingen rate limit)
  *
- * Firmaer med flest bons behandles først.
- * 1 sek delay mellem requests.
+ * Kræver VIRK_ES_USER + VIRK_ES_PASS i .env (eller cvrapi.dk som fallback).
  */
 
 const path = require('path');
 const { openDb, transaction } = require('../db/compat');
 
+// Load .env
+try {
+  const envPath = path.join(__dirname, '..', '.env');
+  const fs = require('fs');
+  if (fs.existsSync(envPath)) {
+    const lines = fs.readFileSync(envPath, 'utf8').split('\n');
+    for (const line of lines) {
+      const match = line.match(/^([^#=]+)=(.*)$/);
+      if (match && !process.env[match[1].trim()]) {
+        process.env[match[1].trim()] = match[2].trim();
+      }
+    }
+  }
+} catch (e) { /* ignore */ }
+
 const DB_PATH = process.env.DB_PATH || path.join(__dirname, '..', 'data', 'bon.db');
 const db = openDb(DB_PATH);
+
+const VIRK_USER = process.env.VIRK_ES_USER;
+const VIRK_PASS = process.env.VIRK_ES_PASS;
+const VIRK_URL = 'http://distribution.virk.dk/cvr-permanent/_search';
 
 const args = process.argv.slice(2);
 const dryRun = args.includes('--dry-run');
@@ -34,6 +52,12 @@ if (!dryRun && !run) {
   console.log('      node scripts/enrich-cvr.js --run --batch=50        (kun 50 firmaer)');
   console.log('      node scripts/enrich-cvr.js --ean-only --dry-run    (kun EAN-opslag)');
   process.exit(0);
+}
+
+if (VIRK_USER && VIRK_PASS) {
+  console.log('✓ Virk ElasticSearch credentials fundet');
+} else {
+  console.log('⚠ Ingen Virk ES credentials — bruger cvrapi.dk (har rate limit!)');
 }
 
 // ─── Hjælpere ─────────────────────────────────────────────────
@@ -51,6 +75,7 @@ function similarity(a, b) {
   const na = normalize(a);
   const nb = normalize(b);
   if (na === nb) return 1.0;
+  if (na.includes(nb) || nb.includes(na)) return 0.85;
   const tokA = new Set(na.split(' ').filter(t => t.length > 1));
   const tokB = new Set(nb.split(' ').filter(t => t.length > 1));
   if (tokA.size === 0 || tokB.size === 0) return 0;
@@ -59,7 +84,92 @@ function similarity(a, b) {
   return (2 * overlap) / (tokA.size + tokB.size);
 }
 
-// ─── NemHandel EAN→CVR opslag ─────────────────────────────────
+// ─── Virk ElasticSearch ───────────────────────────────────────
+
+function parseVirkHit(hit) {
+  const v = hit._source?.Vrvirksomhed;
+  if (!v) return null;
+  const meta = v.virksomhedMetadata || {};
+  const navn = meta.nyesteNavn?.navn;
+  const cvr = v.cvrNummer ? String(v.cvrNummer) : null;
+  const adr = meta.nyesteBeliggenhedsadresse;
+  const branche = meta.nyesteHovedbranche?.branchetekst;
+  // Check om virksomheden er aktiv
+  const status = meta.sammensatStatus;
+  return {
+    cvr,
+    navn,
+    adresse: adr ? `${adr.vejnavn || ''} ${adr.husnummerFra || ''}`.trim() : null,
+    postnr: adr?.postnummer ? String(adr.postnummer) : null,
+    by: adr?.postdistrikt || null,
+    branche,
+    status,
+    score: hit._score,
+  };
+}
+
+async function virkSearch(query) {
+  if (!VIRK_USER || !VIRK_PASS) return [];
+  try {
+    const body = {
+      query: {
+        bool: {
+          must: {
+            match: {
+              'Vrvirksomhed.virksomhedMetadata.nyesteNavn.navn': {
+                query: query,
+                fuzziness: 'AUTO',
+              }
+            }
+          }
+        }
+      },
+      size: 5,
+    };
+    const r = await fetch(VIRK_URL, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'Authorization': 'Basic ' + Buffer.from(`${VIRK_USER}:${VIRK_PASS}`).toString('base64'),
+      },
+      body: JSON.stringify(body),
+      signal: AbortSignal.timeout(10000),
+    });
+    if (!r.ok) return [];
+    const data = await r.json();
+    return (data.hits?.hits || []).map(parseVirkHit).filter(Boolean);
+  } catch (err) {
+    console.error(`  ⚠ Virk ES fejl: ${err.message}`);
+    return [];
+  }
+}
+
+async function virkLookupCvr(cvr) {
+  if (!VIRK_USER || !VIRK_PASS) return null;
+  try {
+    const body = {
+      query: { term: { 'Vrvirksomhed.cvrNummer': parseInt(cvr) } },
+      size: 1,
+    };
+    const r = await fetch(VIRK_URL, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'Authorization': 'Basic ' + Buffer.from(`${VIRK_USER}:${VIRK_PASS}`).toString('base64'),
+      },
+      body: JSON.stringify(body),
+      signal: AbortSignal.timeout(10000),
+    });
+    if (!r.ok) return null;
+    const data = await r.json();
+    const hit = data.hits?.hits?.[0];
+    return hit ? parseVirkHit(hit) : null;
+  } catch (err) {
+    return null;
+  }
+}
+
+// ─── NemHandel EAN→CVR ───────────────────────────────────────
 
 async function nemhandelLookup(ean) {
   const url = `https://registration.nemhandel.dk/NemHandelRegisterWeb/public/participant/info?keytype=GLN&key=${ean}&lang=da`;
@@ -70,17 +180,10 @@ async function nemhandelLookup(ean) {
     });
     if (!r.ok) return null;
     const html = await r.text();
-
-    // Afskær alt efter "Registrering foretaget af" — registranten er ikke det vi søger
     const relevant = html.split(/Registrering foretaget af/i)[0];
-
-    // Find enhedsnavn: <h4>, <h5>, <h6> heading
     const navnMatch = relevant.match(/<h[456][^>]*>\s*([^<]{2,120})\s*<\/h[456]>/i);
-
-    // Find CVR: unitcvr= parameter i link
     const cvrMatch = relevant.match(/unitcvr=(\d{8})/i)
                   || relevant.match(/CVR[:\s]*(\d{8})/i);
-
     if (!navnMatch && !cvrMatch) return null;
     return {
       enhedsnavn: navnMatch?.[1]?.trim() || null,
@@ -91,7 +194,7 @@ async function nemhandelLookup(ean) {
   }
 }
 
-// ─── cvrapi.dk opslag ─────────────────────────────────────────
+// ─── cvrapi.dk fallback ──────────────────────────────────────
 
 async function cvrApiSearch(query) {
   try {
@@ -101,6 +204,7 @@ async function cvrApiSearch(query) {
     );
     if (!r.ok) return [];
     const data = await r.json();
+    if (data.error) return []; // quota exceeded
     if (Array.isArray(data)) return data;
     if (data && data.vat) return [data];
     return [];
@@ -109,20 +213,7 @@ async function cvrApiSearch(query) {
   }
 }
 
-async function cvrApiLookup(cvr) {
-  try {
-    const r = await fetch(
-      `https://cvrapi.dk/api?country=dk&vat=${cvr}`,
-      { headers: { 'User-Agent': 'Bon v2 - ristetrug.dk' } }
-    );
-    if (!r.ok) return null;
-    return await r.json();
-  } catch (err) {
-    return null;
-  }
-}
-
-// ─── Kendte institutioner (email-domæne → CVR) ────────────────
+// ─── Kendte institutioner ────────────────────────────────────
 
 const KENDTE = {
   'kk.dk':             { cvr: '64942212', navn: 'Københavns Kommune' },
@@ -139,7 +230,6 @@ const KENDTE = {
 // ═══════════════════════════════════════════════════════════════
 
 async function main() {
-  // Hent firmaer uden CVR
   let companies = db.prepare(`
     SELECT co.id, co.name, co.ean, co.phone, co.email,
            COUNT(b.id) as bon_count
@@ -151,17 +241,16 @@ async function main() {
   `).all();
 
   if (eanOnly) {
-    companies = companies.filter(c => c.ean && c.ean.length === 13);
+    companies = companies.filter(c => c.ean && c.ean.replace(/\s/g, '').length === 13);
   }
 
   console.log(`Firmaer at behandle: ${companies.length}${eanOnly ? ' (kun med EAN)' : ''}`);
-
   if (batchSize) {
     companies = companies.slice(0, batchSize);
     console.log(`Begrænset til batch: ${companies.length}`);
   }
 
-  // Hent email-domæner fra kunders emails (for strategi 2)
+  // Hent email-domæner fra kunder
   const customerEmails = {};
   if (!eanOnly) {
     const rows = db.prepare(`
@@ -172,18 +261,17 @@ async function main() {
     for (const row of rows) {
       if (!customerEmails[row.company_id]) customerEmails[row.company_id] = [];
       const domain = row.email.split('@')[1]?.toLowerCase();
-      if (domain && !domain.includes('gmail') && !domain.includes('hotmail') &&
-          !domain.includes('yahoo') && !domain.includes('outlook') &&
-          !domain.includes('icloud') && !domain.includes('live.')) {
+      if (domain && !/(gmail|hotmail|yahoo|outlook|icloud|live\.)/.test(domain)) {
         customerEmails[row.company_id].push(domain);
       }
     }
   }
 
   const results = {
-    nemhandel: [],   // EAN→NemHandel match
-    cvrapi: [],      // cvrapi.dk match
-    known: [],       // Kendt institution
+    nemhandel: [],
+    virk: [],
+    cvrapi: [],
+    known: [],
     no_match: [],
   };
 
@@ -191,102 +279,99 @@ async function main() {
     const co = companies[i];
     const progress = `[${i + 1}/${companies.length}]`;
 
-    // Skip rene nummer-navne
     if (/^\d{6,}$/.test(co.name.replace(/\s/g, ''))) {
       results.no_match.push({ company: co, reason: 'nummer-navn' });
       continue;
     }
 
-    // ── Strategi 1: EAN → NemHandel ─────────────────────────────
+    // ── 1. EAN → NemHandel ──────────────────────────────────────
     if (co.ean && co.ean.replace(/\s/g, '').length === 13) {
       const ean = co.ean.replace(/\s/g, '');
-      process.stdout.write(`${progress} NemHandel EAN ${ean} "${co.name}"...`);
+      process.stdout.write(`${progress} NemHandel EAN ${ean}...`);
       const nhr = await nemhandelLookup(ean);
 
       if (nhr && nhr.cvr) {
-        // Hent fuldt CVR-data fra cvrapi
-        const cvrData = await cvrApiLookup(nhr.cvr);
-        const officialName = cvrData?.name || nhr.enhedsnavn;
-        console.log(` ✓ CVR:${nhr.cvr} "${officialName}" (enhed: "${nhr.enhedsnavn}")`);
-        results.nemhandel.push({
-          company: co,
-          cvr: nhr.cvr,
-          enhedsnavn: nhr.enhedsnavn,
-          officialName,
-          cvrData,
-        });
-        await sleep(1000);
+        // Hent officielt navn fra Virk ES
+        const virkData = await virkLookupCvr(nhr.cvr);
+        const officialName = virkData?.navn || nhr.enhedsnavn;
+        console.log(` ✓ CVR:${nhr.cvr} "${officialName}"`);
+        results.nemhandel.push({ company: co, cvr: nhr.cvr, officialName, enhedsnavn: nhr.enhedsnavn });
+        await sleep(500);
         continue;
       }
       console.log(' ✗ ikke fundet');
-      await sleep(1000);
+      await sleep(500);
     }
 
     if (eanOnly) {
-      results.no_match.push({ company: co, reason: 'EAN ikke fundet i NemHandel' });
+      results.no_match.push({ company: co, reason: 'EAN ikke i NemHandel' });
       continue;
     }
 
-    // ── Strategi 2: Kendt institution via email-domæne ───────────
+    // ── 2. Kendt institution via email ───────────────────────────
     const domains = [...new Set(customerEmails[co.id] || [])];
+    let foundKnown = false;
     for (const domain of domains) {
       const known = KENDTE[domain];
       if (known) {
-        process.stdout.write(`${progress} Kendt: ${domain}...`);
-        console.log(` ✓ CVR:${known.cvr} "${known.navn}"`);
-        results.known.push({ company: co, cvr: known.cvr, officialName: known.navn, domain });
+        console.log(`${progress} Kendt: ${domain} → CVR:${known.cvr} "${known.navn}"`);
+        results.known.push({ company: co, cvr: known.cvr, officialName: known.navn });
+        foundKnown = true;
         break;
       }
     }
-    if (results.known.find(r => r.company.id === co.id)) continue;
+    if (foundKnown) continue;
 
-    // ── Strategi 3: cvrapi.dk navnesøgning ──────────────────────
+    // ── 3. Virk ElasticSearch navnesøgning ──────────────────────
     let searchName = co.name
       .replace(/\(.*?\)/g, '')
       .replace(/,\s*$/, '')
       .replace(/\s+/g, ' ')
       .trim();
     const words = searchName.split(' ');
-    if (words.length > 5) searchName = words.slice(0, 5).join(' ');
+    if (words.length > 6) searchName = words.slice(0, 6).join(' ');
 
-    process.stdout.write(`${progress} cvrapi "${searchName}" (${co.bon_count} bons)...`);
-    const apiResults = await cvrApiSearch(searchName);
+    process.stdout.write(`${progress} Virk "${searchName}" (${co.bon_count} bons)...`);
 
-    if (apiResults.length > 0) {
-      const scored = apiResults
-        .filter(r => r.vat)
-        .map(r => ({
-          cvr: String(r.vat),
-          name: r.name,
-          score: similarity(co.name, r.name),
-        }))
-        .sort((a, b) => b.score - a.score);
+    const virkResults = await virkSearch(searchName);
 
-      if (scored.length > 0 && scored[0].score >= 0.8) {
-        console.log(` ✓ CVR:${scored[0].cvr} "${scored[0].name}" (${Math.round(scored[0].score * 100)}%)`);
-        results.cvrapi.push({ company: co, cvr: scored[0].cvr, officialName: scored[0].name, score: scored[0].score });
-      } else if (scored.length > 0) {
-        console.log(` ? "${scored[0].name}" (${Math.round(scored[0].score * 100)}%) — for lav`);
-        results.no_match.push({ company: co, reason: `lav: "${scored[0].name}" ${Math.round(scored[0].score * 100)}%` });
+    if (virkResults.length > 0) {
+      // Score og find bedste match
+      const scored = virkResults.map(r => ({
+        ...r,
+        sim: similarity(co.name, r.navn),
+      })).sort((a, b) => b.sim - a.sim);
+
+      const best = scored[0];
+
+      // Korte navne (1-2 ord) kræver højere match for at undgå falske positiver
+      const wordCount = co.name.split(/\s+/).length;
+      const threshold = wordCount <= 2 ? 0.9 : 0.75;
+
+      if (best.sim >= threshold) {
+        const activeNote = best.status === 'NORMAL' ? '' : ` [${best.status}]`;
+        console.log(` ✓ CVR:${best.cvr} "${best.navn}" (${Math.round(best.sim * 100)}%)${activeNote}`);
+        results.virk.push({ company: co, cvr: best.cvr, officialName: best.navn, score: best.sim });
       } else {
-        console.log(' ✗ ingen CVR');
-        results.no_match.push({ company: co, reason: 'ingen CVR i resultater' });
+        console.log(` ? "${best.navn}" (${Math.round(best.sim * 100)}%) — for lav`);
+        results.no_match.push({ company: co, reason: `lav: "${best.navn}" ${Math.round(best.sim * 100)}%` });
       }
     } else {
       console.log(' ✗ ingen resultater');
       results.no_match.push({ company: co, reason: 'ingen resultater' });
     }
 
-    await sleep(1000);
+    await sleep(200); // Virk ES tåler mere end cvrapi
   }
 
   // ─── Opsummering ──────────────────────────────────────────────
 
-  const totalMatched = results.nemhandel.length + results.cvrapi.length + results.known.length;
+  const totalMatched = results.nemhandel.length + results.virk.length + results.cvrapi.length + results.known.length;
   console.log('\n═══════════════════════════════════════');
   console.log(`NemHandel (EAN):      ${results.nemhandel.length}`);
   console.log(`Kendte institutioner: ${results.known.length}`);
-  console.log(`cvrapi.dk (>80%):     ${results.cvrapi.length}`);
+  console.log(`Virk ES (>70%):       ${results.virk.length}`);
+  if (results.cvrapi.length) console.log(`cvrapi.dk:            ${results.cvrapi.length}`);
   console.log(`Ingen match:          ${results.no_match.length}`);
   console.log(`Total beriget:        ${totalMatched}`);
   console.log('═══════════════════════════════════════');
@@ -306,15 +391,7 @@ async function main() {
         WHERE id = ?
       `);
 
-      for (const m of results.nemhandel) {
-        updateCvr.run(m.cvr, m.company.id);
-        if (m.officialName) updateLegal.run(m.officialName, m.company.id);
-      }
-      for (const m of results.known) {
-        updateCvr.run(m.cvr, m.company.id);
-        if (m.officialName) updateLegal.run(m.officialName, m.company.id);
-      }
-      for (const m of results.cvrapi) {
+      for (const m of [...results.nemhandel, ...results.known, ...results.virk, ...results.cvrapi]) {
         updateCvr.run(m.cvr, m.company.id);
         if (m.officialName) updateLegal.run(m.officialName, m.company.id);
       }
@@ -323,15 +400,14 @@ async function main() {
     const withCvr = db.prepare("SELECT COUNT(*) as c FROM companies WHERE cvr IS NOT NULL AND cvr != ''").get().c;
     console.log(`✅ Fuldført! Firmaer med CVR nu: ${withCvr}`);
 
-    // Tjek for nye CVR-duplikater (kan merges efterfølgende)
+    // CVR-duplikater
     const cvrDups = db.prepare(`
       SELECT cvr, GROUP_CONCAT(id) as ids, GROUP_CONCAT(name, ' | ') as names, COUNT(*) as c
       FROM companies WHERE cvr IS NOT NULL AND cvr != ''
       GROUP BY cvr HAVING c > 1
     `).all();
-
     if (cvrDups.length) {
-      console.log(`\n⚠ ${cvrDups.length} CVR-duplikat-grupper fundet (kan merges med merge-cvr-duplicates.js):`);
+      console.log(`\n⚠ ${cvrDups.length} CVR-duplikat-grupper:`);
       cvrDups.forEach(d => console.log(`  CVR ${d.cvr} (${d.c}x): ${d.names}`));
     }
   } else if (dryRun) {
