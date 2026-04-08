@@ -3,9 +3,10 @@
 <head>
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
-  <title>Vagtplan — Ristet Rug</title>
+  <title>Vagtplan — Bon v2</title>
   <link href="https://fonts.googleapis.com/css2?family=Lato:wght@400;700;900&display=swap" rel="stylesheet">
   <link rel="stylesheet" href="/shared/tokens.css">
+  <link rel="stylesheet" href="/shared/kitchen_topbar.css">
   <style>
   :root {
     --bg:           #f5f4f2;
@@ -23,26 +24,6 @@
   * { margin:0; padding:0; box-sizing:border-box; }
   html, body { background:var(--bg); font:14px/1.35 'Lato', sans-serif; color:#333; }
   body { padding-bottom:24px; }
-
-  /* ══ TOPBAR ══ */
-  .topbar {
-    background:var(--brown); color:white;
-    height:50px; display:flex; align-items:center;
-    padding:0 16px; gap:12px;
-    box-shadow:0 2px 6px rgba(0,0,0,0.15);
-  }
-  .topbar-logo { font-size:16px; font-weight:900; text-decoration:none; color:inherit; }
-  .topbar-div  { width:1px; height:20px; background:rgba(255,255,255,0.25); }
-  .topbar-title { font-size:14px; font-weight:700; opacity:.9; }
-  .topbar-nav  { margin-left:auto; display:flex; gap:6px; align-items:center; }
-  .nav-link {
-    font-size:12px; font-weight:700;
-    background:rgba(255,255,255,0.12); border:1px solid rgba(255,255,255,0.18);
-    border-radius:20px; padding:4px 12px;
-    text-decoration:none; color:inherit; transition:background .1s;
-  }
-  .nav-link:hover { background:rgba(255,255,255,0.22); }
-  .period-label { font-size:12px; font-weight:700; opacity:.85; margin:0 4px; }
 
   /* ══ WEEK GRID ══ */
   .week-controls {
@@ -100,15 +81,6 @@
 </head>
 <body>
 
-<header class="topbar">
-  <a class="topbar-logo" href="/kitchen/">🍞 Ristet Rug</a>
-  <div class="topbar-div"></div>
-  <div class="topbar-title">Vagtplan — uge</div>
-  <div class="topbar-nav">
-    <a class="nav-link" href="/kitchen/">← Dashboard</a>
-  </div>
-</header>
-
 <div class="week-controls">
   <button id="prev" class="wc-btn" type="button">← Forrige</button>
   <div id="period" class="wc-period">Henter…</div>
@@ -119,12 +91,13 @@
 <div id="week" class="week" aria-live="polite">Henter…</div>
 
 <script src="/shared/zone_switcher.js"></script>
+<script src="/shared/kitchen_topbar.js"></script>
 <script src="/shared/utils.js"></script>
 <script>
 (async () => {
     const currentUser = await checkAuth();
     if (!currentUser) return;
-    renderZoneSwitcher('kitchen', currentUser.role, document.querySelector('.topbar-left'));
+    renderKitchenTopbar(document.body, { user: currentUser });
 
     const fmtDK   = new Intl.DateTimeFormat('da-DK', { day:'2-digit', month:'2-digit', year:'numeric' });
     const fmtWeek = new Intl.DateTimeFormat('da-DK', { weekday:'short' });

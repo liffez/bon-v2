@@ -19,7 +19,10 @@
 document.addEventListener('DOMContentLoaded', async () => {
     const currentUser = await checkAuth();
     if (!currentUser) return;
-    renderZoneSwitcher('kitchen', currentUser.role, document.querySelector('.topbar-left'));
+    renderKitchenTopbar(document.body, {
+        user: currentUser,
+        rightSlot: '<button class="kiosk-btn" id="kioskBtn">KIOSK</button>'
+    });
 
     updateTodayHeader();
     startClock();

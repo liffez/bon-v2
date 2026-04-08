@@ -8,6 +8,7 @@
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
     <link href="https://fonts.googleapis.com/css2?family=Lato:wght@400;700&display=swap" rel="stylesheet">
     <link rel="stylesheet" href="/shared/tokens.css">
+    <link rel="stylesheet" href="/shared/kitchen_topbar.css">
     <link rel="stylesheet" href="/shared/components.css">
     <link rel="stylesheet" href="/shared/bon_kort.css">
     <link rel="stylesheet" href="/shared/vare_picker.css">
@@ -25,33 +26,6 @@
             min-height: 100vh;
         }
 
-        /* ═══ TOPBAR ═══ */
-        .topbar {
-            background: var(--brand-primary); color: white;
-            padding: 0 24px; height: 44px;
-            display: flex; align-items: center; justify-content: space-between;
-            position: sticky; top: 0; z-index: 300;
-        }
-        .topbar-left  { display: flex; align-items: center; gap: 4px; }
-        .topbar-logo  { font-size: 15px; font-weight: 700; margin-right: 16px; }
-        .topbar-nav a {
-            color: rgba(255,255,255,0.65); text-decoration: none;
-            font-size: 13px; font-weight: 700; padding: 0 12px;
-            height: 44px; display: inline-flex; align-items: center;
-            border-bottom: 3px solid transparent; transition: all 0.15s;
-        }
-        .topbar-nav a:hover  { color: white; }
-        .topbar-nav a.active { color: white; border-bottom-color: rgba(255,255,255,0.55); }
-        .topbar-more { display:inline-flex; align-items:center; position:relative; }
-        .topbar-more summary { color:rgba(255,255,255,0.65); font-size:13px; font-weight:700; padding:0 12px; height:44px; display:inline-flex; align-items:center; cursor:pointer; list-style:none; border-bottom:3px solid transparent; }
-        .topbar-more summary:hover { color:white; }
-        .topbar-more summary::-webkit-details-marker { display:none; }
-        .topbar-dropdown { position:absolute; top:44px; left:0; min-width:160px; background:white; border-radius:0 0 8px 8px; box-shadow:0 4px 12px rgba(0,0,0,0.15); z-index:400; overflow:hidden; }
-        .topbar-dropdown a { display:block !important; padding:10px 16px !important; color:var(--color-text) !important; font-size:13px !important; font-weight:600 !important; text-decoration:none; border-bottom:none !important; height:auto !important; }
-        .topbar-dropdown a:hover { background:var(--brand-primary-light); }
-        .topbar-right { display: flex; align-items: center; gap: 12px; font-size: 13px; }
-        .live-dot { display: flex; align-items: center; gap: 5px; opacity: 0.8; }
-        .live-dot::before { content: ''; width: 7px; height: 7px; border-radius: 50%; background: #7cdb5e; display: block; }
         /* ═══ LATER HEADER ═══ */
         .later-header {
             background: white; border-bottom: 1px solid var(--color-border);
@@ -100,31 +74,6 @@
 </head>
 <body class="zone-kitchen">
 
-<!-- TOPBAR -->
-<header class="topbar">
-    <div class="topbar-left">
-        <span class="topbar-logo">Ristet Rug</span>
-        <nav class="topbar-nav">
-            <a href="/kitchen/">DASHBOARD</a>
-            <a href="/kitchen/today.html">I DAG</a>
-            <a href="/kitchen/later.html" class="active">SENERE</a>
-            <a href="/kitchen/calendar.html">KALENDER</a>
-            <a href="/kitchen/planning.html">PLANLÆGNING</a>
-            <details class="topbar-more">
-                <summary>MERE ▾</summary>
-                <div class="topbar-dropdown">
-                    <a href="/kitchen/recipes.html">Opskrifter</a>
-                    <a href="/kitchen/stock.html">Lager</a>
-                    <a href="/kitchen/vagtplan.html">Vagtplan</a>
-                </div>
-            </details>
-        </nav>
-    </div>
-    <div class="topbar-right">
-        <span class="live-dot">Live</span>
-    </div>
-</header>
-
 <!-- LATER HEADER -->
 <header class="later-header">
     <div class="later-title">Senere</div>
@@ -141,6 +90,7 @@
 <script src="/BonConfig.js"></script>
 <script src="/BonConfigBar.js"></script>
 <script src="/shared/zone_switcher.js"></script>
+<script src="/shared/kitchen_topbar.js"></script>
 <script src="/shared/utils.js"></script>
 <script src="/shared/api.js"></script>
 <script src="/shared/vare_picker.js"></script>

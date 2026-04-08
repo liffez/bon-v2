@@ -2,16 +2,30 @@
 <html lang="da">
 <head>
   <meta charset="UTF-8">
-  <title>Bon v2 — Kitchen Goods Receipt</title>
-  <link rel="stylesheet" href="../shared/tokens.css">
-  <link rel="stylesheet" href="../shared/components.css">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Varemodtagelse — Bon v2</title>
+  <link rel="stylesheet" href="/shared/tokens.css">
+  <link rel="stylesheet" href="/shared/kitchen_topbar.css">
+  <style>
+    * { margin:0; padding:0; box-sizing:border-box; }
+    body { font-family:'Lato',sans-serif; background:var(--color-background); color:var(--color-text); }
+    main { padding:24px; }
+  </style>
 </head>
 <body class="zone-kitchen">
   <main>
-    <h1>Goods Receipt</h1>
-    <!-- TODO -->
+    <h1>Varemodtagelse</h1>
+    <p style="color:var(--color-text-dim);margin-top:12px;">Kommer snart.</p>
   </main>
-  <script src="../shared/api.js"></script>
-  <script src="../shared/sidekick.js"></script>
+  <script src="/shared/zone_switcher.js"></script>
+  <script src="/shared/kitchen_topbar.js"></script>
+  <script src="/shared/utils.js"></script>
+  <script>
+    (async () => {
+      const currentUser = await checkAuth();
+      if (!currentUser) return;
+      renderKitchenTopbar(document.body, { user: currentUser });
+    })();
+  </script>
 </body>
 </html>

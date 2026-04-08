@@ -67,7 +67,7 @@
 })();
 
 function getAccessibleZones(role) {
-    if (role === 'admin')  return ['kitchen', 'office', 'settings'];
+    if (role === 'admin')  return ['kitchen', 'office'];
     if (role === 'office') return ['kitchen', 'office'];
     return [role || 'kitchen'];
 }
