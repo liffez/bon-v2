@@ -164,8 +164,6 @@ transaction(db, () => {
       db.prepare('UPDATE customers SET company_id = ? WHERE company_id = ?').run(primaryId, dup.id);
       db.prepare('UPDATE bons SET company_id = ? WHERE company_id = ?').run(primaryId, dup.id);
 
-      // Flyt evt. CRM-aktiviteter
-      db.prepare('UPDATE crm_activities SET company_id = ? WHERE company_id = ?').run(primaryId, dup.id);
     }
 
     // 4. Slet duplikater (FK-safe: ingen kunder/bons peger på dem længere)
