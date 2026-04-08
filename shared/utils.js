@@ -335,7 +335,7 @@ function scrollToBonHash() {
    ══════════════════════════════════════════════════════════════ */
 
 async function checkAuth(redirectTo) {
-    if (redirectTo === undefined) redirectTo = '/shared/login.html';
+    if (redirectTo === undefined) redirectTo = '/login.html';
     try {
         var res = await fetch('/api/auth/me');
         if (!res.ok) {

@@ -118,11 +118,13 @@
 
 <div id="week" class="week" aria-live="polite">Henter…</div>
 
+<script src="/shared/zone_switcher.js"></script>
 <script src="/shared/utils.js"></script>
 <script>
 (async () => {
     const currentUser = await checkAuth();
     if (!currentUser) return;
+    renderZoneSwitcher('kitchen', currentUser.role, document.querySelector('.topbar-left'));
 
     const fmtDK   = new Intl.DateTimeFormat('da-DK', { day:'2-digit', month:'2-digit', year:'numeric' });
     const fmtWeek = new Intl.DateTimeFormat('da-DK', { weekday:'short' });

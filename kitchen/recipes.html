@@ -152,6 +152,7 @@
 <div id="recipeDesignerContainer"></div>
 
 <!-- SCRIPTS -->
+<script src="/shared/zone_switcher.js"></script>
 <script src="/shared/utils.js"></script>
 <script src="/shared/api.js"></script>
 <script src="/shared/recipe_viewer.js"></script>
@@ -162,6 +163,7 @@
     document.addEventListener('DOMContentLoaded', async function() {
         var currentUser = await checkAuth();
         if (!currentUser) return;
+        renderZoneSwitcher('kitchen', currentUser.role, document.querySelector('.topbar-left'));
 
         var viewerContainer = document.getElementById('recipeViewerContainer');
         var designerContainer = document.getElementById('recipeDesignerContainer');

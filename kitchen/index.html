@@ -416,6 +416,7 @@
 </main>
 
 <!-- Scripts -->
+<script src="/shared/zone_switcher.js"></script>
 <script src="/shared/utils.js"></script>
 <script src="/shared/api.js"></script>
 <script src="/BonConfig.js"></script>
@@ -425,6 +426,7 @@
 (async () => {
     const currentUser = await checkAuth();
     if (!currentUser) return;
+    renderZoneSwitcher('kitchen', currentUser.role, document.querySelector('.topbar-left'));
 
     const DAY_NAMES = ['Søndag','Mandag','Tirsdag','Onsdag','Torsdag','Fredag','Lørdag'];
     const DAY_SHORT = ['Søn','Man','Tir','Ons','Tor','Fre','Lør'];

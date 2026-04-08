@@ -19,6 +19,7 @@
 document.addEventListener('DOMContentLoaded', async () => {
     const currentUser = await checkAuth();
     if (!currentUser) return;
+    renderZoneSwitcher('kitchen', currentUser.role, document.querySelector('.topbar-left'));
 
     updateTodayHeader();
     startClock();

@@ -86,6 +86,7 @@
 <!-- SCRIPTS (rækkefølge er vigtig) -->
 <script src="/BonConfig.js"></script>
 <script src="/BonConfigBar.js"></script>
+<script src="/shared/zone_switcher.js"></script>
 <script src="/shared/utils.js"></script>
 <script src="/shared/api.js"></script>
 <script src="/shared/modal.js"></script>
@@ -98,6 +99,7 @@
     document.addEventListener('DOMContentLoaded', async function() {
         const currentUser = await checkAuth();
         if (!currentUser) return;
+        renderZoneSwitcher('kitchen', currentUser.role, document.querySelector('.topbar-left'));
 
         // ─── Drawer ──────────────────────────────────────
         const drawer = new BonDrawer();

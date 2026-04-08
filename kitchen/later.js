@@ -22,6 +22,7 @@ const TERMINAL_STATUSES = new Set(['lev', 'faktureret', 'betalt', 'afsluttet', '
 document.addEventListener('DOMContentLoaded', async () => {
     const currentUser = await checkAuth();
     if (!currentUser) return;
+    renderZoneSwitcher('kitchen', currentUser.role, document.querySelector('.topbar-left'));
 
     initFlyverBanner();
     try {

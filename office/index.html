@@ -521,6 +521,7 @@
   </div>
 
   <!-- Scripts: globals first, then components -->
+  <script src="/shared/zone_switcher.js"></script>
   <script src="/shared/utils.js"></script>
   <script src="../shared/api.js"></script>
   <script src="../BonConfig.js"></script>
@@ -554,17 +555,20 @@
       if (userEl && currentUser) {
         const name = currentUser.name || currentUser.email || '';
         const init = name.charAt(0).toUpperCase();
-        const role = currentUser.role === 'admin' ? 'Administrator' : currentUser.role === 'kitchen' ? 'Køkken' : currentUser.role || '';
+        const role = currentUser.role === 'admin' ? 'Administrator' : currentUser.role === 'office' ? 'Kontor' : currentUser.role === 'kitchen' ? 'Køkken' : currentUser.role || '';
         userEl.innerHTML = `
           <div class="sidebar-user-av">${init}</div>
           <div><div class="sidebar-user-name">${name}</div><div class="sidebar-user-role">${role}</div></div>
         `;
       }
 
+      // ─── Zone switcher ──────────────────────────────────
+      renderZoneSwitcher('office', currentUser.role, document.querySelector('.sidebar-bottom'), { style: 'sidebar' });
+
       // ─── Logout ──────────────────────────────────────────
       document.getElementById('sidebar-logout').addEventListener('click', async () => {
         await fetch('/api/auth/logout', { method: 'POST' });
-        location.href = '/shared/login.html';
+        location.href = '/login.html';
       });
 
       // ─── Drawer (shared across views) ────────────────────

@@ -32,6 +32,18 @@ app.use(session({
   }
 }));
 
+// ─── ROOT REDIRECT ─────────────────────────────────────────────────────────
+// Redirect / til login eller default zone baseret på session
+
+app.get('/', (req, res) => {
+  if (req.session?.userId) {
+    const role = req.session.userRole || 'kitchen';
+    if (role === 'admin' || role === 'office') return res.redirect('/office/');
+    return res.redirect('/kitchen/');
+  }
+  res.redirect('/login.html');
+});
+
 app.use(express.static(path.join(__dirname)));
 
 // ─── ROUTES ────────────────────────────────────────────────────────────────

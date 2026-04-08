@@ -124,6 +124,7 @@
 <div id="inventoryCheckContainer"></div>
 
 <!-- SCRIPTS -->
+<script src="/shared/zone_switcher.js"></script>
 <script src="/shared/utils.js"></script>
 <script src="/shared/api.js"></script>
 <script src="/shared/stock_overview.js"></script>
@@ -134,6 +135,7 @@
     document.addEventListener('DOMContentLoaded', async function() {
         var currentUser = await checkAuth();
         if (!currentUser) return;
+        renderZoneSwitcher('kitchen', currentUser.role, document.querySelector('.topbar-left'));
 
         var overviewContainer = document.getElementById('stockOverviewContainer');
         var checkContainer = document.getElementById('inventoryCheckContainer');
