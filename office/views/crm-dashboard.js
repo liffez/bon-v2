@@ -8,6 +8,7 @@
 let _crmContainer = null;
 let _crmOpts = {};
 let _crmActive = false;
+let _crmSvcDays = 7;
 
 function initCrmDashboard(containerEl, opts) {
     _crmContainer = containerEl;
@@ -222,30 +223,110 @@ function _crmRenderShell() {
             .crm-act-time { font-size: 10px; color: var(--color-text-dim, #aaa); white-space: nowrap; }
 
             /* Service calls */
-            .crm-svc-row {
-                display: grid; grid-template-columns: auto 1fr auto auto;
-                gap: 8px; align-items: center;
-                padding: 8px 0; border-bottom: 1px solid var(--color-border, #eee);
-                font-size: 13px;
+            .crm-svc-header {
+                display: flex; align-items: center; gap: 10px; margin-bottom: 12px;
             }
-            .crm-svc-row:last-child { border-bottom: none; }
+            .crm-svc-header select {
+                padding: 4px 8px; border-radius: 6px; border: 1px solid var(--color-border, #ddd);
+                font-size: 12px; background: var(--color-surface, #fff); font-family: inherit;
+            }
+            .crm-svc-header .crm-svc-label {
+                font-size: 12px; color: var(--color-text-dim, #888);
+            }
+            .crm-svc-header .crm-svc-count {
+                margin-left: auto; font-size: 12px; font-weight: 700;
+                color: var(--brand-primary, #8e631f);
+            }
+            .crm-svc-item {
+                border: 1px solid var(--color-border, #eee); border-radius: 8px;
+                padding: 10px 12px; margin-bottom: 8px;
+                transition: border-color .15s;
+            }
+            .crm-svc-item:hover { border-color: var(--brand-primary, #8e631f); }
+            .crm-svc-top {
+                display: grid; grid-template-columns: auto 1fr auto auto auto;
+                gap: 8px; align-items: center; font-size: 13px;
+            }
             .crm-svc-bon { font-weight: 600; color: var(--brand-primary, #8e631f); }
             .crm-svc-customer { cursor: pointer; }
             .crm-svc-customer:hover { text-decoration: underline; }
-            .crm-svc-days { font-size: 11px; color: var(--color-text-dim, #888); text-align: right; }
-            .crm-svc-phone { font-size: 12px; color: var(--color-text-dim, #888); }
-            .crm-svc-actions { display: flex; gap: 6px; align-items: center; }
+            .crm-svc-meta { font-size: 11px; color: var(--color-text-dim, #888); white-space: nowrap; }
+            .crm-svc-days { font-size: 10px; padding: 2px 8px; border-radius: 10px; font-weight: 700; white-space: nowrap; }
+            .crm-svc-days.d-ok { background: #e8f2dc; color: #3d7a0a; }
+            .crm-svc-days.d-warn { background: #fef3cd; color: #856404; }
+            .crm-svc-days.d-late { background: #fde8e8; color: #c94040; }
+            .crm-svc-actions { display: flex; gap: 4px; align-items: center; }
             .crm-svc-action-btn {
                 display: inline-flex; align-items: center; justify-content: center;
-                width: 30px; height: 30px; border-radius: 6px;
+                padding: 4px 10px; border-radius: 6px;
                 border: 1px solid var(--color-border, #ddd);
                 background: transparent; text-decoration: none;
-                font-size: 15px; cursor: pointer; transition: all .12s;
+                font-size: 12px; cursor: pointer; transition: all .12s;
+                font-family: inherit; white-space: nowrap; color: inherit;
             }
             .crm-svc-action-btn:hover {
                 background: var(--brand-primary-light, #f1e6b2);
                 border-color: var(--brand-primary, #8e631f);
             }
+            .crm-svc-action-btn.primary {
+                background: var(--brand-primary, #8e631f); color: #fff; border-color: transparent;
+            }
+            .crm-svc-action-btn.primary:hover { filter: brightness(1.1); }
+            .crm-svc-action-btn.success {
+                background: var(--color-sentiment-pos, #2E9E6B); color: #fff; border-color: transparent;
+            }
+            .crm-svc-action-btn.success:hover { filter: brightness(1.1); }
+            .crm-svc-expand { cursor: pointer; font-size: 11px; color: var(--color-text-dim, #888); }
+            .crm-svc-expand:hover { color: var(--brand-primary, #8e631f); }
+            .crm-svc-orders {
+                margin-top: 10px; padding-top: 10px;
+                border-top: 1px solid var(--color-border, #eee);
+            }
+            .crm-svc-order {
+                margin-bottom: 8px; font-size: 12px;
+            }
+            .crm-svc-order-head {
+                display: flex; align-items: center; gap: 8px; margin-bottom: 3px;
+            }
+            .crm-svc-order-bon { font-family: monospace; font-weight: 700; color: var(--brand-primary, #8e631f); font-size: 12px; }
+            .crm-svc-order-lines {
+                padding-left: 12px; border-left: 2px solid var(--brand-primary-light, #f1e6b2);
+            }
+            .crm-svc-order-line { padding: 1px 0; color: #555; font-size: 12px; }
+            .crm-svc-order-qty { color: var(--brand-primary, #8e631f); font-weight: 700; }
+            .crm-svc-order-extra { color: var(--color-text-dim, #aaa); font-style: italic; }
+            /* Log form */
+            .crm-svc-logform {
+                margin-top: 10px; padding: 12px;
+                border-top: 1px solid var(--color-border, #eee);
+                background: var(--color-background, #f5f4f2); border-radius: 0 0 8px 8px;
+            }
+            .crm-svc-logform label { font-size: 11px; font-weight: 700; color: var(--color-text-dim, #888); text-transform: uppercase; letter-spacing: .3px; }
+            .crm-svc-result-btns { display: flex; gap: 4px; flex-wrap: wrap; margin: 6px 0 10px; }
+            .crm-svc-result-btn {
+                padding: 4px 10px; border-radius: 16px; border: 1px solid var(--color-border, #ddd);
+                background: var(--color-surface, #fff); font-size: 11px; cursor: pointer; font-family: inherit;
+                transition: all .12s;
+            }
+            .crm-svc-result-btn:hover { border-color: var(--brand-primary, #8e631f); }
+            .crm-svc-result-btn.active { background: var(--brand-primary, #8e631f); color: #fff; border-color: transparent; }
+            .crm-svc-sentiment-btns { display: flex; gap: 6px; margin: 6px 0 10px; }
+            .crm-svc-sentiment-btn {
+                padding: 4px 10px; border-radius: 16px; border: 1px solid var(--color-border, #ddd);
+                background: var(--color-surface, #fff); font-size: 12px; cursor: pointer;
+                transition: all .12s;
+            }
+            .crm-svc-sentiment-btn:hover { border-color: var(--brand-primary, #8e631f); }
+            .crm-svc-sentiment-btn.active { border-width: 2px; }
+            .crm-svc-sentiment-btn.active[data-s="positive"] { border-color: var(--color-sentiment-pos, #2E9E6B); background: var(--color-sentiment-pos-bg, #e8f2dc); }
+            .crm-svc-sentiment-btn.active[data-s="neutral"] { border-color: var(--color-sentiment-neu, #C8962A); background: var(--color-sentiment-neu-bg, #fef3cd); }
+            .crm-svc-sentiment-btn.active[data-s="negative"] { border-color: var(--color-sentiment-neg, #C94040); background: var(--color-sentiment-neg-bg, #fde8e8); }
+            .crm-svc-logform textarea {
+                width: 100%; padding: 6px 8px; border: 1px solid var(--color-border, #ddd);
+                border-radius: 6px; font-size: 12px; font-family: inherit; resize: vertical;
+                min-height: 40px; box-sizing: border-box;
+            }
+            .crm-svc-logform-actions { display: flex; gap: 6px; margin-top: 8px; justify-content: flex-end; }
 
             .crm-empty { text-align: center; padding: 20px; color: var(--color-text-dim, #aaa); font-size: 13px; }
         </style>
@@ -285,7 +366,18 @@ function _crmRenderShell() {
             </div>
 
             <div class="crm-card" style="grid-column: 1 / -1;" id="crmServiceCalls">
-                <h3>Service-kald ventende</h3>
+                <h3>📞 Service-kald</h3>
+                <div class="crm-svc-header">
+                    <span class="crm-svc-label">Leveringer fra de seneste</span>
+                    <select id="crmSvcDaysSelect" onchange="_crmChangeSvcDays(+this.value)">
+                        <option value="7">7 dage</option>
+                        <option value="10">10 dage</option>
+                        <option value="14">14 dage</option>
+                        <option value="21">21 dage</option>
+                        <option value="30">30 dage</option>
+                    </select>
+                    <span class="crm-svc-count" id="crmSvcCount"></span>
+                </div>
                 <div id="crmServiceCallsList"></div>
             </div>
         </div>
@@ -405,26 +497,217 @@ function _crmRenderServiceCalls(calls) {
     const el = document.getElementById('crmServiceCallsList');
     if (!el) return;
 
+    // Update count badge
+    const countEl = document.getElementById('crmSvcCount');
+    if (countEl) countEl.textContent = calls.length ? calls.length + ' ventende' : '';
+
     if (!calls.length) {
-        el.innerHTML = '<div class="crm-empty">Ingen ventende service-kald</div>';
+        el.innerHTML = '<div class="crm-empty">🎉 Alle service-kald er håndteret!</div>';
         return;
     }
 
-    el.innerHTML = calls.map(c => {
+    el.innerHTML = calls.map((c, i) => {
         const phone = (c.customer_phone || '').replace(/\s/g, '');
         const email = c.customer_email || '';
-        return '<div class="crm-svc-row">' +
-            '<span class="crm-svc-bon">#' + c.bon_number + '</span>' +
-            '<span class="crm-svc-customer" onclick="_crmOpenKunde(' + c.customer_id + ')">' +
-                c.customer_name + (c.company_name ? ' · ' + c.company_name : '') +
-            '</span>' +
-            '<span class="crm-svc-actions">' +
-                (phone ? '<a href="tel:' + phone + '" class="crm-svc-action-btn" title="Ring ' + (c.customer_phone || '') + '">📞</a>' : '') +
-                (email ? '<a href="mailto:' + email + '" class="crm-svc-action-btn" title="Send mail">📧</a>' : '') +
-            '</span>' +
-            '<span class="crm-svc-days">' + c.days_since_delivery + 'd siden</span>' +
+        const d = c.days_since_delivery || 0;
+        const dClass = d <= 3 ? 'd-ok' : d <= 7 ? 'd-warn' : 'd-late';
+        const dLabel = d === 0 ? 'I dag' : d === 1 ? '1 dag' : d + ' dage';
+        const paxUnits = [];
+        if (c.pax) paxUnits.push(c.pax + ' pax');
+        if (c.total_units) paxUnits.push(c.total_units + ' enh.');
+        const priceStr = c.total_price ? Math.round(c.total_price).toLocaleString('da-DK') + ' kr' : '';
+
+        return '<div class="crm-svc-item" id="crmSvc' + i + '">' +
+            '<div class="crm-svc-top">' +
+                '<span class="crm-svc-bon">#' + c.bon_number + '</span>' +
+                '<span>' +
+                    '<span class="crm-svc-customer" onclick="_crmOpenKunde(' + c.customer_id + ')">' +
+                        c.customer_name + (c.company_name ? ' · ' + c.company_name : '') +
+                    '</span>' +
+                    (paxUnits.length || priceStr ?
+                        '<span class="crm-svc-meta" style="margin-left:8px;">' +
+                            (paxUnits.join(' / ') + (priceStr ? ' · ' + priceStr : '')) +
+                        '</span>' : '') +
+                '</span>' +
+                '<span class="crm-svc-days ' + dClass + '">' + dLabel + '</span>' +
+                '<span class="crm-svc-actions">' +
+                    (phone ?
+                        '<a href="tel:' + phone + '" class="crm-svc-action-btn primary" onclick="_crmRingOgLog(event,' + i + ',' + c.customer_id + ',' + (c.bon_id || 'null') + ')">📞 Ring</a>' :
+                        '<button class="crm-svc-action-btn primary" onclick="_crmOpenLogForm(' + i + ',' + c.customer_id + ',' + (c.bon_id || 'null') + ')" title="Intet telefonnummer">📞 Log</button>') +
+                    '<button class="crm-svc-action-btn success" onclick="_crmMarkHandled(' + c.customer_id + ',' + (c.bon_id || 'null') + ')" title="Markér håndteret">✓</button>' +
+                    (email ? '<a href="mailto:' + email + '" class="crm-svc-action-btn" title="Send mail">📧</a>' : '') +
+                '</span>' +
+                '<span class="crm-svc-expand" onclick="_crmToggleOrders(' + c.customer_id + ',' + i + ')">' +
+                    '▼ ordrer' +
+                '</span>' +
+            '</div>' +
+            '<div id="crmSvcOrders' + i + '" style="display:none;"></div>' +
+            '<div id="crmSvcLogForm' + i + '" style="display:none;"></div>' +
         '</div>';
     }).join('');
+}
+
+async function _crmChangeSvcDays(days) {
+    _crmSvcDays = days;
+    _crmReloadServiceCalls();
+}
+
+async function _crmReloadServiceCalls() {
+    if (!_crmActive) return;
+    try {
+        const calls = await fetchCrmServiceCalls(_crmSvcDays);
+        _crmRenderServiceCalls(calls);
+    } catch (err) {
+        console.error('[crm] Service calls reload error:', err);
+    }
+}
+
+async function _crmToggleOrders(customerId, idx) {
+    const el = document.getElementById('crmSvcOrders' + idx);
+    if (!el) return;
+    if (el.style.display !== 'none') { el.style.display = 'none'; return; }
+    el.style.display = 'block';
+    el.innerHTML = '<div class="crm-svc-orders"><span style="font-size:12px;color:var(--color-text-dim);">Henter ordrer...</span></div>';
+    try {
+        const orders = await fetchCrmCustomerOrders(customerId, 5);
+        if (!orders.length) {
+            el.innerHTML = '<div class="crm-svc-orders"><span style="font-size:12px;color:var(--color-text-dim);">Ingen tidligere ordrer</span></div>';
+            return;
+        }
+        el.innerHTML = '<div class="crm-svc-orders">' + orders.map(o => {
+            const statusLabel = o.status_label || o.status || '';
+            return '<div class="crm-svc-order">' +
+                '<div class="crm-svc-order-head">' +
+                    '<span class="crm-svc-order-bon">' + (o.bon_number || '') + '</span>' +
+                    '<span style="font-size:12px;color:var(--color-text-dim);">' + (o.delivery_date || '') + '</span>' +
+                    (o.pax ? '<span style="font-size:12px;">' + o.pax + ' pax</span>' : '') +
+                    '<span style="font-size:13px;font-weight:700;margin-left:auto;">' +
+                        (o.total_price ? Math.round(o.total_price).toLocaleString('da-DK') + ' kr' : '') +
+                    '</span>' +
+                    (statusLabel ? '<span style="font-size:10px;padding:1px 6px;border-radius:8px;background:var(--color-background);font-weight:700;">' + statusLabel + '</span>' : '') +
+                '</div>' +
+                (o.lines && o.lines.length ? '<div class="crm-svc-order-lines">' +
+                    o.lines.map(l =>
+                        '<div class="crm-svc-order-line">' +
+                            '<span class="crm-svc-order-qty">' + l.quantity + '×</span> ' +
+                            (l.product_name || '') +
+                            (l.special_request ? ' <span class="crm-svc-order-extra"> — ' + l.special_request + '</span>' : '') +
+                        '</div>'
+                    ).join('') +
+                '</div>' : '') +
+            '</div>';
+        }).join('') + '</div>';
+    } catch (err) {
+        el.innerHTML = '<div class="crm-svc-orders"><span style="font-size:12px;color:var(--color-sentiment-neg);">Fejl: ' + (err.message || 'ukendt') + '</span></div>';
+    }
+}
+
+function _crmRingOgLog(event, idx, customerId, bonId) {
+    // tel: link opens natively (FaceTime/Phone on Mac), then open log form
+    _crmOpenLogForm(idx, customerId, bonId);
+}
+
+function _crmOpenLogForm(idx, customerId, bonId) {
+    const el = document.getElementById('crmSvcLogForm' + idx);
+    if (!el) return;
+    if (el.style.display !== 'none') { el.style.display = 'none'; return; }
+    el.style.display = 'block';
+    el.innerHTML =
+        '<div class="crm-svc-logform">' +
+            '<label>Resultat</label>' +
+            '<div class="crm-svc-result-btns">' +
+                '<button class="crm-svc-result-btn" data-r="reached" onclick="_crmSelResult(this)">✓ Svar</button>' +
+                '<button class="crm-svc-result-btn" data-r="no_answer" onclick="_crmSelResult(this)">✗ Intet svar</button>' +
+                '<button class="crm-svc-result-btn" data-r="busy" onclick="_crmSelResult(this)">📵 Optaget</button>' +
+                '<button class="crm-svc-result-btn" data-r="voicemail" onclick="_crmSelResult(this)">📩 Besked</button>' +
+                '<button class="crm-svc-result-btn" data-r="callback" onclick="_crmSelResult(this)">⏎ Callback</button>' +
+                '<button class="crm-svc-result-btn" data-r="email_instead" onclick="_crmSelResult(this)">✉️ Mail</button>' +
+            '</div>' +
+            '<div id="crmSvcSentiment' + idx + '" style="display:none;">' +
+                '<label>Stemning</label>' +
+                '<div class="crm-svc-sentiment-btns">' +
+                    '<button class="crm-svc-sentiment-btn" data-s="positive" onclick="_crmSelSentiment(this)">😊 God</button>' +
+                    '<button class="crm-svc-sentiment-btn" data-s="neutral" onclick="_crmSelSentiment(this)">😐 Neutral</button>' +
+                    '<button class="crm-svc-sentiment-btn" data-s="negative" onclick="_crmSelSentiment(this)">😟 Dårlig</button>' +
+                '</div>' +
+            '</div>' +
+            '<label style="margin-top:6px;display:block;">Note</label>' +
+            '<textarea id="crmSvcNote' + idx + '" placeholder="Valgfrit..."></textarea>' +
+            '<div class="crm-svc-logform-actions">' +
+                '<button class="crm-svc-action-btn" onclick="document.getElementById(\'crmSvcLogForm' + idx + '\').style.display=\'none\'">Annuller</button>' +
+                '<button class="crm-svc-action-btn primary" id="crmSvcSaveBtn' + idx + '" disabled onclick="_crmSaveLog(' + idx + ',' + customerId + ',' + bonId + ')">Gem</button>' +
+            '</div>' +
+        '</div>';
+}
+
+function _crmSelResult(btn) {
+    const container = btn.closest('.crm-svc-logform');
+    if (!container) return;
+    container.querySelectorAll('.crm-svc-result-btn').forEach(b => b.classList.remove('active'));
+    btn.classList.add('active');
+    // Show sentiment for reached/callback
+    const r = btn.dataset.r;
+    const sentimentEl = container.querySelector('[id^="crmSvcSentiment"]');
+    if (sentimentEl) sentimentEl.style.display = (r === 'reached' || r === 'callback') ? 'block' : 'none';
+    // Enable save button
+    const saveBtn = container.querySelector('[id^="crmSvcSaveBtn"]');
+    if (saveBtn) saveBtn.disabled = false;
+}
+
+function _crmSelSentiment(btn) {
+    const container = btn.closest('.crm-svc-sentiment-btns');
+    if (!container) return;
+    container.querySelectorAll('.crm-svc-sentiment-btn').forEach(b => b.classList.remove('active'));
+    btn.classList.add('active');
+}
+
+async function _crmSaveLog(idx, customerId, bonId) {
+    const container = document.getElementById('crmSvcLogForm' + idx);
+    if (!container) return;
+    const resultBtn = container.querySelector('.crm-svc-result-btn.active');
+    if (!resultBtn) return;
+    const result = resultBtn.dataset.r;
+    const sentimentBtn = container.querySelector('.crm-svc-sentiment-btn.active');
+    const sentiment = sentimentBtn ? sentimentBtn.dataset.s : null;
+    const note = (document.getElementById('crmSvcNote' + idx) || {}).value || '';
+
+    const saveBtn = document.getElementById('crmSvcSaveBtn' + idx);
+    if (saveBtn) { saveBtn.disabled = true; saveBtn.textContent = 'Gemmer...'; }
+
+    try {
+        const data = {
+            customer_id: customerId,
+            type: 'service_call',
+            result: result,
+            text: note || undefined,
+        };
+        if (bonId) data.bon_id = bonId;
+        if (sentiment) data.sentiment = sentiment;
+        await postCrmActivity(data);
+        // Reload service calls
+        _crmReloadServiceCalls();
+    } catch (err) {
+        console.error('[crm] Save log error:', err);
+        alert('Kunne ikke gemme: ' + (err.message || 'Ukendt fejl'));
+        if (saveBtn) { saveBtn.disabled = false; saveBtn.textContent = 'Gem'; }
+    }
+}
+
+async function _crmMarkHandled(customerId, bonId) {
+    try {
+        const data = {
+            customer_id: customerId,
+            type: 'service_call',
+            result: 'reached',
+            text: 'Markeret håndteret (hurtig)',
+        };
+        if (bonId) data.bon_id = bonId;
+        await postCrmActivity(data);
+        _crmReloadServiceCalls();
+    } catch (err) {
+        console.error('[crm] Mark handled error:', err);
+        alert('Kunne ikke markere: ' + (err.message || 'Ukendt fejl'));
+    }
 }
 
 function _crmRenderCallbacks(data) {

@@ -556,7 +556,7 @@ router.get('/customer-orders/:id', handle((req, res) => {
 
     const result = orders.map(o => {
         const lines = db.prepare(`
-            SELECT product_name, category, quantity, unit_price
+            SELECT product_name, category, quantity, unit_price, special_request
             FROM bon_lines
             WHERE bon_id = ?
               AND COALESCE(category,'') NOT IN ('06 Emballage','x-Levering','Emballage','x- Service')
