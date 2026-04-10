@@ -923,17 +923,12 @@ Oprettes under Grocy → Manage master data → Userfields.
 >
 > **Fase 1a–1e + 3A + 3B + 3D + 4 + 5 + 6-fundament (shopping_list, bestilling, varemodtagelse, horkram) + 7 (CRM) + Office CRM redesign + 8 (Fakturering) + 9 (Tilbud) + Mail-vedhæftninger + CRM service-kald + Firma-oprydning komplet.**
 >
-> **Aktiv sprint:** Fase 6b — `shared/indkob.js` (merged indkøbsliste + bestilling).
-> Spec: `docs/CLAUDE_INDKOB.md` · Mockup: `docs/indkob_mockup_v3.html` · Test: `docs/CLAUDE_TEST_INDKOB.md`
-> Læs alle tre FØR du starter.
+> **Fase 6b komplet** — `shared/indkob.js` implementeret og Hoka basket-API verificeret.
+> Kendte begrænsninger i 6b (lavere prioritet): "Tilføj vare" dialog, produktionsbon-oprettelse, INT-varenumre.
 >
-> **OBS — kendte begrænsninger i 6b der skal implementeres (ikke bare placeholder):**
-> - "Tilføj vare" dialog (høj prioritet)
-> - `_ibEnsureUserfields()` skal med som safety check
-> - Test INT-varenumre og multi-leverandør chips med reelle grocytest-data
->
-> **Derefter:** Fase 6c (indkøbsindstillinger-panel + office settings).
-> Spec: `docs/CLAUDE_SETTINGS_INDKOB.md` · Mockup: `docs/settings_mockup.html`
+> **Aktiv sprint:** Fase 6c — Settings: Indkøbsindstillinger.
+> Spec: `docs/CLAUDE_SETTINGS_INDKOB.md` · Mockup: `docs/settings_mockup.html` · Test: `docs/CLAUDE_TEST_INDKOB.md` (sektionerne 6A–6D + 7)
+> Læs spec OG mockup FØR du begynder.
 >
 > **Så:** Fase 6d (e-mail ordrer, dropsize), Priser i planlægningsbon, Ugeoversigt.
 > Så er Bon v1 klar til nedlukning.
@@ -1005,6 +1000,7 @@ Oprettes under Grocy → Manage master data → Userfields.
 > - Settings produkter: konfigurerbar tabel med kolonne-chips — præferencer gemmes i localStorage
 > - Settings Hørkram: prisopdatering er manuelt trigger ("Opdater nu") + valgfri daglig cron via `system_settings`
 > - `routes/purchasing.js` mangler CRUD endpoints (GET/:id, POST, PATCH, DELETE) — tilføjes i Fase 6c
+> - Hoka basket PUT format: `SalesUnit: { Code, Quantity }` — bekræftet fra hoka.dk's egen frontend (IKKE `SalesUnitIndex`). Eksisterende varer i kurven re-sendes UDEN SalesUnit (Hoka bevarer den valgte enhed). Nye varer sendes med SalesUnit fra snapshot. Basket-ID caches i `sessionCache.basketId`. PUT erstatter hele kurven → altid merge eksisterende + nye.
 
 ---
 
