@@ -75,6 +75,7 @@ router.post('/pending', handle((req, res) => {
     const db = getDb();
     const {
         supplier_id, supplier_name, location_id,
+        grocy_location_id,
         order_reference, expected_delivery_date,
         notes, items, sent_via,
     } = req.body;
@@ -91,17 +92,23 @@ router.post('/pending', handle((req, res) => {
         }
     }
 
-    const locId = location_id || null;
+    // location_id = Ristet Rugs siteId (HQ/Trailer). NOT NULL i DB.
+    // Fald-back til default_grocy_location_id fra settings hvis ikke angivet.
+    let locId = location_id || null;
+    if (!locId) {
+        const setting = db.prepare(`SELECT value FROM settings WHERE key = 'default_grocy_location_id'`).get();
+        locId = setting ? parseInt(setting.value) : 1; // 1 = HQ fallback
+    }
     const userId = req.session?.user?.id || null;
 
     const result = db.prepare(`
         INSERT INTO purchase_orders (
-            location_id, supplier_id, order_reference, status,
+            location_id, supplier_id, grocy_location_id, order_reference, status,
             expected_delivery_date, notes, sent_via,
             created_by_user_id, sent_at, created_at, updated_at
-        ) VALUES (?, ?, ?, 'sent', ?, ?, ?, ?, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)
+        ) VALUES (?, ?, ?, ?, 'sent', ?, ?, ?, ?, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)
     `).run(
-        locId, supId, order_reference || null,
+        locId, supId, grocy_location_id || null, order_reference || null,
         expected_delivery_date || null,
         notes || null, sent_via || 'manual', userId
     );
@@ -114,20 +121,22 @@ router.post('/pending', handle((req, res) => {
             INSERT INTO purchase_order_lines (
                 purchase_order_id, supplier_product_id, item_id,
                 quantity_ordered, unit_quantity, price_per_pack, line_total,
-                shopping_list_id
-            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+                shopping_list_id, grocy_product_id, grocy_shopping_list_id
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
         `);
 
         for (const item of items) {
             insertLine.run(
                 orderId,
                 item.supplier_product_id || null,
-                item.item_id || item.product_id || null,
+                item.item_id || item.product_id || item.grocy_product_id || null,
                 item.quantity_ordered || item.quantity || 0,
                 item.unit_quantity || null,
                 item.price_per_pack || null,
                 item.line_total || null,
-                item.shopping_list_id || null
+                null, // shopping_list_id (v2 lokal tabel — bruges ikke, har FK)
+                item.grocy_product_id || null,
+                item.grocy_shopping_list_id || null
             );
         }
     }

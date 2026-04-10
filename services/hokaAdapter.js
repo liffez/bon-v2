@@ -18,9 +18,11 @@ const HOKA_BASE = (process.env.HOKA_BASE_URL || 'https://www.hoka.dk').replace(/
 
 // ─── Cookie-jar ─────────────────────────────────────────────────────────────
 
-let _cookies       = {};   // { name: { value, expires } }
-let _basketId      = null; // caches LastSelectedBasketId
-let _loginPromise  = null; // promise-lock mod dobbelt-login
+let _cookies            = {};   // { name: { value, expires } }
+let _basketId           = null; // caches LastSelectedBasketId
+let _loginPromise       = null; // promise-lock mod dobbelt-login
+let _antiForgeryToken   = null; // CSRF token fra login-side (nødvendig for basket PUT)
+let _antiForgeryHeader  = 'RequestVerificationToken';
 
 function _parseCookies(headers) {
     const raw = headers.getSetCookie?.() ?? [];
@@ -100,12 +102,24 @@ async function _login() {
     console.log('[hoka] Logger ind...');
     _clearSession();
 
-    // Hent startside for at få initielle cookies (CSRF o.lign.)
-    const homeRes = await fetch(`${HOKA_BASE}/da-dk`, {
-        headers: { 'User-Agent': 'Mozilla/5.0 BonTool/2.0' },
+    // Hent login-side for initielle cookies + anti-forgery token (CSRF)
+    const homeRes = await fetch(`${HOKA_BASE}/da-dk/login`, {
+        headers: { 'User-Agent': 'Mozilla/5.0 BonTool/2.0', Accept: 'text/html' },
         redirect: 'follow',
     });
     _parseCookies(homeRes.headers);
+
+    // Udtræk anti-forgery token fra $$ModernClientContext (nødvendig for basket PUT)
+    const pageBody = await homeRes.text();
+    const tokenMatch = pageBody.match(/"antiForgery"\s*:\s*\{[^}]*"token"\s*:\s*"([^"]+)"/);
+    const headerMatch = pageBody.match(/"antiForgery"\s*:\s*\{[^}]*"headerName"\s*:\s*"([^"]+)"/);
+    _antiForgeryToken = tokenMatch?.[1] || null;
+    _antiForgeryHeader = headerMatch?.[1] || 'RequestVerificationToken';
+    if (_antiForgeryToken) {
+        console.log(`[hoka] ✓ Anti-forgery token hentet`);
+    } else {
+        console.log(`[hoka] ⚠ Ingen anti-forgery token fundet — basket PUT kan fejle`);
+    }
 
     // POST login — bekræftet via HAR-analyse 2026-03-28
     // Endpoint: POST /api/auth/login
@@ -254,8 +268,17 @@ async function putBasketProducts(products) {
         } : {}),
     }));
 
+    // Basket PUT kræver anti-forgery token (CSRF)
+    const headers = {};
+    if (_antiForgeryToken) {
+        headers[_antiForgeryHeader] = _antiForgeryToken;
+        headers['Origin'] = HOKA_BASE;
+        headers['Referer'] = `${HOKA_BASE}/da-dk/checkout/basket`;
+    }
+
     return callJson(`/api/checkout/basket?id=${id}&validate=false`, {
         method: 'PUT',
+        headers,
         body:   JSON.stringify({ Products: hokaProducts }),
     });
 }
@@ -359,15 +382,38 @@ async function getBasketCO2() {
 // ─── Søgning & favoritter (bruges af horkram-scraper) ───────────────────────
 
 async function searchProducts(query) {
-    return callJson(`/api/catalog/search?q=${encodeURIComponent(query)}`);
+    const today = new Date().toISOString().split('T')[0] + 'T00:00:00';
+    return callJson(`/api/catalog/search?q=${encodeURIComponent(query)}&Last=q&term=${encodeURIComponent(query)}&expectedDeliveryDate=${encodeURIComponent(today)}`);
 }
 
 async function getFavoriteLists() {
     return callJson('/api/navigation/favorites');
 }
 
+async function getCustomFavoriteLists() {
+    return callJson('/api/favorites');
+}
+
 async function getFavoriteList(listId, page = 1) {
-    return callJson(`/api/catalog/favorites/${encodeURIComponent(listId)}?page=${page}`);
+    return callJson(`/api/favorites/${encodeURIComponent(listId)}?page=${page}`);
+}
+
+/**
+ * Sidst bestilte varer (auto-genereret "favorit-liste" fra Hørkram).
+ * Bruges som primær kilde til kobling af umatchede varer.
+ * @param {number} page  Sidenummer (default 1)
+ */
+async function getSalesStatistics(page = 1) {
+    return callJson(`/api/accounting/salesstatistics?page=${page}`);
+}
+
+/**
+ * Hent enkelt produkt med fulde detaljer.
+ * @param {string|number} varenr  Hørkram varenummer
+ */
+async function getProductByVarenr(varenr) {
+    const tomorrow = new Date(Date.now() + 86400000).toISOString().split('T')[0] + 'T00:00:00';
+    return callJson(`/api/catalog/products/${varenr}?expectedDeliveryDate=${encodeURIComponent(tomorrow)}`);
 }
 
 // ─── Health ──────────────────────────────────────────────────────────────────
@@ -401,5 +447,8 @@ module.exports = {
     // Scraper-endpoints
     searchProducts,
     getFavoriteLists,
+    getCustomFavoriteLists,
     getFavoriteList,
+    getSalesStatistics,
+    getProductByVarenr,
 };

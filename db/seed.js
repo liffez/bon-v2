@@ -1,7 +1,9 @@
 /**
  * seed.js — Realistiske testdata til Bon v2
- * Kør: node db/seed.js
+ * Kør: node db/seed.js --seed      # Indsæt testdata
+ * Kør: node db/seed.js --clear     # Ryd testdata uden at indsætte nyt
  *
+ * Uden flag: viser hjælp og gør intet.
  * Forudsætter at migrate.js allerede er kørt.
  */
 
@@ -680,9 +682,47 @@ const run = () => transaction(db, () => { /* seed-transaction */
 `);
 });
 
-try {
-  run();
-} catch (e) {
-  console.error('❌ Seed fejlede:', e.message);
-  process.exit(1);
+// ── CLI ──────────────────────────────────────────────────────
+const cliArgs = process.argv.slice(2);
+
+if (cliArgs.includes('--seed')) {
+  try {
+    run();
+  } catch (e) {
+    console.error('❌ Seed fejlede:', e.message);
+    process.exit(1);
+  }
+} else if (cliArgs.includes('--clear')) {
+  try {
+    transaction(db, () => {
+      db.exec(`
+        DELETE FROM notification_reads;
+        DELETE FROM mail_attachments;
+        DELETE FROM mail_messages;
+        DELETE FROM mail_threads;
+        DELETE FROM mail_unmatched;
+        DELETE FROM crm_activities;
+        DELETE FROM crm_unmatched_emails;
+        DELETE FROM delivery_events;
+        DELETE FROM geo_calculations;
+        DELETE FROM shopping_list;
+        DELETE FROM quotes;
+        DELETE FROM bon_lines;
+        DELETE FROM changelog;
+        DELETE FROM notifications;
+        DELETE FROM bons;
+        DELETE FROM customers;
+        DELETE FROM companies;
+        DELETE FROM addresses;
+      `);
+    });
+    console.log('✅ Testdata ryddet.');
+  } catch (e) {
+    console.error('❌ Clear fejlede:', e.message);
+    process.exit(1);
+  }
+} else {
+  console.log('Brug: node db/seed.js --seed    (indsæt testdata)');
+  console.log('      node db/seed.js --clear   (ryd testdata)');
+  process.exit(0);
 }
