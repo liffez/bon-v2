@@ -10,6 +10,7 @@
     <link rel="stylesheet" href="/shared/tokens.css">
     <link rel="stylesheet" href="/shared/kitchen_topbar.css">
     <link rel="stylesheet" href="/shared/indkob.css">
+    <link rel="stylesheet" href="/shared/indkob_settings.css">
     <link rel="stylesheet" href="/shared/varemodtagelse.css">
     <style>
         * { margin: 0; padding: 0; box-sizing: border-box; }
@@ -54,21 +55,58 @@
 <div id="indkobContainer"></div>
 <div id="receivingContainer"></div>
 
+<!-- SETTINGS SLIDE-IN -->
+<div class="is-overlay" id="isOverlay" onclick="toggleIndkobSettings()"></div>
+<div class="is-panel" id="isPanel"></div>
+
 <!-- SCRIPTS -->
 <script src="/shared/zone_switcher.js"></script>
 <script src="/shared/kitchen_topbar.js"></script>
 <script src="/shared/utils.js"></script>
 <script src="/shared/api.js"></script>
 <script src="/shared/indkob.js"></script>
+<script src="/shared/indkob_settings.js"></script>
 <script src="/shared/varemodtagelse.js"></script>
 <script>
     var _indkobInitialized = false;
     var _varemodtagelseInitialized = false;
+    var _ibSettingsOpen = false;
+    var _ibSettingsInitialized = false;
+
+    function toggleIndkobSettings() {
+        _ibSettingsOpen = !_ibSettingsOpen;
+        document.getElementById('isPanel').classList.toggle('on', _ibSettingsOpen);
+        document.getElementById('isOverlay').classList.toggle('on', _ibSettingsOpen);
+        var gearBtn = document.getElementById('ibGearBtn');
+        if (gearBtn) gearBtn.classList.toggle('active', _ibSettingsOpen);
+
+        if (_ibSettingsOpen && !_ibSettingsInitialized) {
+            initIndkobSettings(document.getElementById('isPanel'), { mode: 'panel' });
+            _ibSettingsInitialized = true;
+        }
+    }
+
+    document.addEventListener('keydown', function(e) {
+        if (e.key === 'Escape' && _ibSettingsOpen) toggleIndkobSettings();
+    });
 
     document.addEventListener('DOMContentLoaded', async function() {
         var currentUser = await checkAuth();
         if (!currentUser) return;
         renderKitchenTopbar(document.body, { user: currentUser });
+
+        // Inject gear button into tab-bar
+        var tabBar = document.querySelector('.tab-bar');
+        if (tabBar) {
+            var gear = document.createElement('button');
+            gear.className = 'is-gear-btn';
+            gear.id = 'ibGearBtn';
+            gear.title = 'Indkøbsindstillinger';
+            gear.textContent = '⚙';
+            gear.style.marginLeft = 'auto';
+            gear.onclick = function(e) { e.stopPropagation(); toggleIndkobSettings(); };
+            tabBar.appendChild(gear);
+        }
 
         var indkobContainer = document.getElementById('indkobContainer');
         var receivingContainer = document.getElementById('receivingContainer');

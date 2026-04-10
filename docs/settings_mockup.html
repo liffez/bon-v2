@@ -1,0 +1,680 @@
+<!DOCTYPE html>
+<html lang="da">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Bon v2 — Indkøbsindstillinger (Mockup)</title>
+<link href="https://fonts.googleapis.com/css2?family=Lato:wght@400;700&display=swap" rel="stylesheet">
+<style>
+*{box-sizing:border-box;margin:0;padding:0}
+:root{
+  --br:#8e631f;--brl:#a67c3d;--brd:rgba(142,99,31,.08);
+  --gd:#6a8f3a;--gl:#e8f2dc;
+  --or:#e8a832;--orl:#fef3d6;
+  --bl:#3a6a9a;--bll:#e8f0f6;
+  --pu:#5040b0;--pul:#eeecfc;
+  --gy:#d7d1ca;--gyl:#f5f4f2;--gym:#e8e4e0;
+  --dim:#888;--blk:#2a2520;--wh:#fff;
+  --panel-w:880px;
+}
+body{font-family:'Lato',sans-serif;background:var(--gyl);color:var(--blk);min-height:100vh}
+
+/* ── FAKE TOPBAR + TOOLBAR (context) ── */
+.topbar{background:var(--br);color:#fff;padding:0 20px;height:48px;display:flex;align-items:center;gap:12px;position:sticky;top:0;z-index:50}
+.topbar-logo{font-size:15px;font-weight:700}
+.tt{padding:0 16px;height:48px;display:flex;align-items:center;font-size:13px;font-weight:700;color:rgba(255,255,255,.6);cursor:pointer;border-bottom:3px solid transparent}
+.tt.on{color:#fff;border-bottom-color:#fff}
+.toolbar{background:var(--wh);border-bottom:1.5px solid var(--gym);padding:10px 20px;display:flex;align-items:center;gap:8px;position:sticky;top:48px;z-index:49;box-shadow:0 2px 6px rgba(0,0,0,.04)}
+.tb-search{flex:1;max-width:240px;padding:7px 12px;border:1.5px solid var(--gy);border-radius:8px;font-size:13px;background:var(--gyl);font-family:'Lato',sans-serif;outline:none}
+.tb-btn{display:flex;align-items:center;gap:5px;padding:7px 13px;border-radius:8px;border:1.5px solid var(--gy);background:#fff;font-size:12px;font-weight:700;cursor:pointer;font-family:'Lato',sans-serif}
+.tb-btn.primary{background:var(--br);color:#fff;border-color:var(--br)}
+.tb-sep{width:1px;height:22px;background:var(--gym);flex-shrink:0}
+.tb-right{margin-left:auto;display:flex;gap:6px;align-items:center}
+.vt-wrap{display:flex;border:1.5px solid var(--gy);border-radius:8px;overflow:hidden}
+.vt{padding:6px 11px;font-size:12px;font-weight:700;background:#fff;border:none;cursor:pointer;font-family:'Lato',sans-serif;color:var(--dim)}
+.vt.on{background:var(--br);color:#fff}
+
+/* ── GEAR BUTTON ── */
+.gear-btn{width:32px;height:32px;border-radius:8px;border:1.5px solid var(--gy);background:#fff;cursor:pointer;display:flex;align-items:center;justify-content:center;font-size:15px;transition:all .15s;flex-shrink:0}
+.gear-btn:hover{border-color:var(--br);background:var(--brd)}
+.gear-btn.active{background:var(--br);border-color:var(--br);color:#fff}
+
+/* ── OVERLAY ── */
+.overlay{position:fixed;inset:0;background:rgba(0,0,0,.25);z-index:200;opacity:0;pointer-events:none;transition:opacity .25s}
+.overlay.on{opacity:1;pointer-events:all}
+
+/* ── SLIDE-IN PANEL ── */
+.panel{
+  position:fixed;top:0;right:0;height:100vh;width:var(--panel-w);max-width:95vw;
+  background:var(--wh);z-index:201;
+  box-shadow:-4px 0 32px rgba(0,0,0,.15);
+  transform:translateX(100%);transition:transform .28s cubic-bezier(.32,.72,0,1);
+  display:flex;flex-direction:column;
+}
+.panel.on{transform:translateX(0)}
+
+.panel-hdr{
+  background:var(--br);color:#fff;
+  padding:0 20px;height:52px;
+  display:flex;align-items:center;gap:12px;
+  flex-shrink:0;
+}
+.panel-title{font-size:15px;font-weight:700;flex:1}
+.panel-close{width:28px;height:28px;border-radius:7px;border:none;background:rgba(255,255,255,.2);color:#fff;cursor:pointer;font-size:18px;display:flex;align-items:center;justify-content:center;line-height:1}
+.panel-close:hover{background:rgba(255,255,255,.35)}
+
+/* ── PANEL TABS ── */
+.panel-tabs{display:flex;border-bottom:1.5px solid var(--gym);background:var(--wh);flex-shrink:0;padding:0 20px}
+.ptab{padding:11px 18px;font-size:13px;font-weight:700;color:var(--dim);cursor:pointer;border-bottom:3px solid transparent;transition:all .12s;white-space:nowrap}
+.ptab:hover{color:var(--blk)}
+.ptab.on{color:var(--br);border-bottom-color:var(--br)}
+
+/* ── PANEL BODY ── */
+.panel-body{flex:1;overflow-y:auto;padding:0}
+
+/* ══════════════════════════════════════
+   TAB 1 — LEVERANDØRER
+══════════════════════════════════════ */
+.sec{padding:20px}
+.sec-title{font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:.07em;color:var(--dim);margin-bottom:12px}
+
+.sup-table{width:100%;border-collapse:collapse;font-size:13px}
+.sup-table th{text-align:left;font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:.06em;color:var(--dim);padding:6px 10px;border-bottom:1.5px solid var(--gym);background:var(--gyl)}
+.sup-table td{padding:9px 10px;border-bottom:.5px solid var(--gym);vertical-align:middle}
+.sup-table tr:last-child td{border-bottom:none}
+.sup-table tr:hover td{background:var(--gyl)}
+.sup-name{font-weight:700}
+.sup-note{font-size:11px;color:var(--dim);margin-top:2px}
+.it-badge{font-size:10px;font-weight:700;padding:2px 7px;border-radius:6px;white-space:nowrap}
+.it-api{background:var(--gl);color:var(--gd)}
+.it-email{background:var(--bll);color:var(--bl)}
+.it-manual{background:var(--gym);color:var(--dim)}
+.it-webshop{background:#fff3e0;color:#e65100}
+.it-intern{background:var(--pul);color:var(--pu)}
+.loc-chip{display:inline-flex;align-items:center;gap:4px;font-size:11px;padding:2px 7px;border-radius:6px;background:var(--gyl);border:.5px solid var(--gym);margin:2px;color:var(--blk)}
+.sup-actions{display:flex;gap:5px}
+.icon-btn{width:28px;height:28px;border-radius:6px;border:1px solid var(--gy);background:none;cursor:pointer;display:flex;align-items:center;justify-content:center;font-size:13px;color:var(--dim);transition:all .1s}
+.icon-btn:hover{border-color:var(--br);color:var(--br)}
+.icon-btn.del:hover{border-color:#bc181b;color:#bc181b}
+
+.add-sup-btn{display:flex;align-items:center;gap:6px;padding:8px 14px;border-radius:8px;border:1.5px dashed var(--gy);background:none;font-size:12px;font-weight:700;color:var(--dim);cursor:pointer;margin-top:12px;transition:all .12s}
+.add-sup-btn:hover{border-color:var(--br);color:var(--br);background:var(--brd)}
+
+/* Grocy-location kobling */
+.gloc-section{margin-top:20px;padding-top:16px;border-top:1px solid var(--gym)}
+.gloc-row{display:flex;align-items:center;gap:10px;padding:8px 0;border-bottom:.5px solid var(--gym);font-size:12px}
+.gloc-row:last-child{border-bottom:none}
+.gloc-name{flex:1;font-weight:600}
+.gloc-linked{font-size:11px;color:var(--gd);font-weight:700}
+.gloc-unlinked{font-size:11px;color:var(--or)}
+.gloc-sel{padding:4px 8px;border:1px solid var(--gy);border-radius:6px;font-size:12px;font-family:'Lato',sans-serif;background:var(--wh)}
+
+/* ══════════════════════════════════════
+   TAB 2 — PRODUKTER (konfigurerbar tabel)
+══════════════════════════════════════ */
+
+/* Kolonne-vælger */
+.col-picker{padding:16px 20px;border-bottom:1px solid var(--gym);background:var(--gyl)}
+.col-picker-title{font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:.06em;color:var(--dim);margin-bottom:10px}
+.col-chips{display:flex;gap:5px;flex-wrap:wrap}
+.col-chip{display:flex;align-items:center;gap:5px;padding:4px 10px;border-radius:20px;border:1.5px solid var(--gy);background:#fff;font-size:11px;font-weight:700;cursor:pointer;color:var(--dim);transition:all .1s;user-select:none}
+.col-chip:hover{border-color:var(--br)}
+.col-chip.on{background:var(--br);border-color:var(--br);color:#fff}
+.col-chip.on .cc-dot{background:#fff}
+.cc-dot{width:6px;height:6px;border-radius:50%;background:var(--gy);transition:background .1s}
+
+/* Product filter bar */
+.prod-filterbar{padding:10px 20px;display:flex;gap:8px;align-items:center;border-bottom:1px solid var(--gym);background:var(--wh)}
+.pf-search{flex:1;padding:6px 11px;border:1.5px solid var(--gy);border-radius:7px;font-size:12px;font-family:'Lato',sans-serif;background:var(--gyl);outline:none}
+.pf-search:focus{border-color:var(--br);background:#fff}
+.pf-sel{padding:6px 9px;border:1.5px solid var(--gy);border-radius:7px;font-size:12px;font-family:'Lato',sans-serif;background:var(--wh)}
+.pf-stat{font-size:11px;color:var(--dim);white-space:nowrap}
+.pf-save{padding:6px 13px;background:var(--gd);color:#fff;border:none;border-radius:7px;font-size:12px;font-weight:700;cursor:pointer;font-family:'Lato',sans-serif;display:none}
+.pf-save.show{display:block}
+
+/* Product table */
+.prod-tbl-wrap{overflow-x:auto}
+.prod-tbl{width:100%;border-collapse:collapse;font-size:12px;min-width:500px}
+.prod-tbl th{
+  text-align:left;font-size:10px;font-weight:700;text-transform:uppercase;
+  letter-spacing:.06em;color:var(--dim);padding:7px 10px;
+  border-bottom:1.5px solid var(--gym);background:var(--gyl);
+  white-space:nowrap;position:sticky;top:0;z-index:1;
+}
+.prod-tbl td{padding:7px 10px;border-bottom:.5px solid var(--gym);vertical-align:middle}
+.prod-tbl tr.changed td{background:#fffbf0}
+.prod-tbl tr:hover td{background:var(--gyl)}
+.prod-tbl tr.changed:hover td{background:#fff5d0}
+.pt-name{font-weight:700;font-size:12px}
+.pt-group{font-size:10px;color:var(--dim)}
+
+/* Inline edit cells */
+.cell-sel{
+  padding:3px 6px;border:1px solid var(--gy);border-radius:5px;
+  font-size:12px;font-family:'Lato',sans-serif;background:#fff;
+  width:100%;transition:border-color .1s;
+}
+.cell-sel:focus{border-color:var(--br);outline:none;background:var(--brd)}
+.cell-num{
+  width:72px;padding:3px 6px;border:1px solid var(--gy);border-radius:5px;
+  font-size:12px;font-family:'Lato',sans-serif;text-align:right;background:#fff;
+}
+.cell-num:focus{border-color:var(--br);outline:none}
+.cell-tog{
+  width:40px;height:22px;border-radius:11px;border:none;cursor:pointer;
+  display:flex;align-items:center;padding:2px;transition:background .15s;
+}
+.cell-tog.on{background:var(--gd);justify-content:flex-end}
+.cell-tog.off{background:var(--gy);justify-content:flex-start}
+.tog-knob{width:18px;height:18px;border-radius:50%;background:#fff;box-shadow:0 1px 3px rgba(0,0,0,.2)}
+.changed-dot{width:6px;height:6px;border-radius:50%;background:var(--or);display:inline-block;margin-right:4px;vertical-align:middle}
+
+/* Bulk actions bar */
+.bulk-bar{
+  position:sticky;bottom:0;background:#fff;border-top:1.5px solid var(--gym);
+  padding:10px 20px;display:flex;align-items:center;gap:10px;
+  box-shadow:0 -2px 8px rgba(0,0,0,.06);
+}
+.bulk-info{font-size:12px;color:var(--dim);flex:1}
+.bulk-info strong{color:var(--blk)}
+.bulk-save{padding:7px 16px;background:var(--gd);color:#fff;border:none;border-radius:7px;font-size:12px;font-weight:700;cursor:pointer;font-family:'Lato',sans-serif}
+.bulk-discard{padding:7px 12px;background:none;border:1px solid var(--gy);border-radius:7px;font-size:12px;cursor:pointer;font-family:'Lato',sans-serif;color:var(--dim)}
+
+/* ══════════════════════════════════════
+   TAB 3 — HØRKRAM
+══════════════════════════════════════ */
+.hk-tabs{display:flex;gap:0;border-bottom:1px solid var(--gym);padding:0 20px;background:var(--wh)}
+.hktab{padding:9px 14px;font-size:12px;font-weight:700;color:var(--dim);cursor:pointer;border-bottom:2px solid transparent;transition:all .1s}
+.hktab:hover{color:var(--blk)}
+.hktab.on{color:var(--br);border-bottom-color:var(--br)}
+
+.hk-status{display:flex;align-items:center;gap:8px;padding:12px 20px;font-size:12px;color:var(--dim);border-bottom:1px solid var(--gym)}
+.sdot{width:8px;height:8px;border-radius:50%;flex-shrink:0}
+.sdot.ok{background:#4caf50}
+.sdot.err{background:#bc181b}
+
+.hk-lookup{padding:16px 20px}
+.hk-search-row{display:flex;gap:8px;margin-bottom:14px}
+.hk-inp{flex:1;padding:8px 12px;border:1.5px solid var(--gy);border-radius:8px;font-size:13px;font-family:'Lato',sans-serif;outline:none}
+.hk-inp:focus{border-color:var(--br);background:#fff}
+.hk-srch-btn{padding:8px 16px;background:var(--br);color:#fff;border:none;border-radius:8px;font-size:13px;font-weight:700;cursor:pointer;font-family:'Lato',sans-serif}
+
+.hk-result{background:var(--gyl);border:1px solid var(--gym);border-radius:10px;padding:14px}
+.hkr-top{display:flex;gap:12px;align-items:flex-start;margin-bottom:10px}
+.hkr-img{width:56px;height:56px;border-radius:8px;background:#fff;border:1px solid var(--gym);display:flex;align-items:center;justify-content:center;font-size:24px;flex-shrink:0}
+.hkr-info{flex:1}
+.hkr-name{font-size:14px;font-weight:700}
+.hkr-meta{font-size:11px;color:var(--dim);margin-top:3px}
+.hkr-badges{display:flex;gap:4px;margin-top:6px;flex-wrap:wrap}
+.hkr-price{font-size:13px;font-weight:700;color:var(--br);white-space:nowrap}
+.hkr-actions{display:flex;gap:8px;padding-top:10px;border-top:1px solid var(--gym)}
+.hkr-btn{padding:6px 13px;border-radius:7px;font-size:12px;font-weight:700;cursor:pointer;font-family:'Lato',sans-serif;border:none}
+.hkr-link{background:var(--br);color:#fff}
+.hkr-link2{background:var(--gl);color:var(--gd)}
+
+.hk-favlist{padding:0 0 8px}
+.hkfl-row{display:flex;align-items:center;gap:10px;padding:10px 20px;border-bottom:.5px solid var(--gym);cursor:pointer;transition:background .1s}
+.hkfl-row:hover{background:var(--gyl)}
+.hkfl-name{font-size:13px;font-weight:700;flex:1}
+.hkfl-meta{font-size:11px;color:var(--dim)}
+.hkfl-badge{font-size:10px;font-weight:700;padding:2px 7px;border-radius:6px;background:var(--gl);color:var(--gd)}
+.hkfl-badge.warn{background:var(--orl);color:#7a5200}
+.hkfl-act{padding:5px 11px;border-radius:6px;border:1px solid var(--gy);background:#fff;font-size:11px;font-weight:700;cursor:pointer;font-family:'Lato',sans-serif;white-space:nowrap}
+.hkfl-act:hover{border-color:var(--br);color:var(--br)}
+
+.hk-pricebar{display:flex;align-items:center;gap:10px;padding:12px 20px;border-bottom:1px solid var(--gym);background:var(--gyl)}
+.hk-pricebar-text{flex:1;font-size:12px;color:var(--dim)}
+.hk-pricebar-text strong{color:var(--blk)}
+.hk-update-btn{padding:7px 14px;background:var(--br);color:#fff;border:none;border-radius:7px;font-size:12px;font-weight:700;cursor:pointer;font-family:'Lato',sans-serif}
+.hk-sched-btn{padding:7px 12px;background:none;border:1px solid var(--gy);border-radius:7px;font-size:12px;cursor:pointer;font-family:'Lato',sans-serif;color:var(--dim)}
+
+/* toast */
+.toast{position:fixed;bottom:20px;right:20px;background:var(--gd);color:#fff;padding:10px 18px;border-radius:8px;font-size:13px;font-weight:700;z-index:999;animation:tf .2s}
+@keyframes tf{from{opacity:0;transform:translateY(8px)}to{opacity:1}}
+
+/* content placeholder */
+.page-content{padding:80px 20px;text-align:center;color:var(--dim);font-size:13px}
+</style>
+</head>
+<body>
+
+<!-- TOPBAR -->
+<div class="topbar">
+  <div class="topbar-logo">Bon v2</div>
+  <div class="tt on">Indkøb</div>
+  <div class="tt">Varemodtagelse</div>
+</div>
+
+<!-- TOOLBAR -->
+<div class="toolbar">
+  <input class="tb-search" placeholder="Søg vare...">
+  <div class="tb-sep"></div>
+  <button class="tb-btn primary">+ Tilføj vare</button>
+  <button class="tb-btn">📉 Manglende <span style="background:var(--or);color:#fff;padding:1px 6px;border-radius:8px;font-size:10px;margin-left:2px">3</span></button>
+  <button class="tb-btn">⏰ Udløbende <span style="background:#bc181b;color:#fff;padding:1px 6px;border-radius:8px;font-size:10px;margin-left:2px">2</span></button>
+  <div class="tb-right">
+    <div class="vt-wrap">
+      <button class="vt on">≡ Liste</button>
+      <button class="vt">⊡ Fokus</button>
+    </div>
+    <button class="gear-btn" id="gearBtn" onclick="togglePanel()" title="Indkøbsindstillinger">⚙</button>
+  </div>
+</div>
+
+<div class="page-content">
+  <div style="font-size:32px;margin-bottom:12px">🛒</div>
+  Indkøbslisten vises her<br>
+  <span style="font-size:11px;margin-top:8px;display:block">Klik ⚙ øverst til højre for at åbne indstillinger</span>
+</div>
+
+<!-- OVERLAY -->
+<div class="overlay" id="overlay" onclick="togglePanel()"></div>
+
+<!-- SETTINGS PANEL -->
+<div class="panel" id="panel">
+  <div class="panel-hdr">
+    <span style="font-size:16px">⚙</span>
+    <span class="panel-title">Indkøbsindstillinger</span>
+    <button class="panel-close" onclick="togglePanel()">✕</button>
+  </div>
+
+  <div class="panel-tabs">
+    <div class="ptab on" onclick="setTab(0,this)">Leverandører</div>
+    <div class="ptab" onclick="setTab(1,this)">Produkter</div>
+    <div class="ptab" onclick="setTab(2,this)">Hørkram</div>
+  </div>
+
+  <div class="panel-body">
+
+    <!-- ═══ TAB 0: LEVERANDØRER ═══ -->
+    <div id="tab0">
+
+      <!-- Leverandør CRUD -->
+      <div class="sec">
+        <div class="sec-title">Leverandører</div>
+        <table class="sup-table">
+          <thead>
+            <tr>
+              <th>Navn / Note</th>
+              <th>Type</th>
+              <th>Kontakt</th>
+              <th>Grocy-lokationer</th>
+              <th></th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr>
+              <td><div class="sup-name">Hørkram</div><div class="sup-note">hoka.dk · API-integration</div></td>
+              <td><span class="it-badge it-api">api</span></td>
+              <td><div style="font-size:11px">ordre@hoka.dk</div><div style="font-size:11px;color:var(--dim)">44 33 22 11</div></td>
+              <td>
+                <span class="loc-chip">2 Hørkram</span>
+                <span class="loc-chip">5 Drikkevarer</span>
+                <span class="loc-chip">9 Convifood</span>
+              </td>
+              <td><div class="sup-actions"><button class="icon-btn" onclick="showToast('Redigér Hørkram')">✏</button><button class="icon-btn del">✕</button></div></td>
+            </tr>
+            <tr>
+              <td><div class="sup-name">Inco</div><div class="sup-note">inco.dk · Webshop + afhentning</div></td>
+              <td><span class="it-badge it-webshop">webshop</span></td>
+              <td><div style="font-size:11px">bestil@inco.dk</div></td>
+              <td><span class="loc-chip">3 Inco</span></td>
+              <td><div class="sup-actions"><button class="icon-btn" onclick="showToast('Redigér Inco')">✏</button><button class="icon-btn del">✕</button></div></td>
+            </tr>
+            <tr>
+              <td><div class="sup-name">Serviwet</div><div class="sup-note">Leverer tirsdage og torsdage</div></td>
+              <td><span class="it-badge it-manual">manual</span></td>
+              <td><div style="font-size:11px">40 12 34 56</div><div style="font-size:11px;color:var(--dim)">Vivil Hansen</div></td>
+              <td><span class="loc-chip" style="border-color:var(--or);color:#7a5200;background:var(--orl)">Ikke koblet</span></td>
+              <td><div class="sup-actions"><button class="icon-btn" onclick="showToast('Redigér Serviwet')">✏</button><button class="icon-btn del">✕</button></div></td>
+            </tr>
+            <tr>
+              <td><div class="sup-name">Trykkerifriheden</div><div class="sup-note">Oluf · Specialemballage RR</div></td>
+              <td><span class="it-badge it-manual">manual</span></td>
+              <td><div style="font-size:11px">40 22 33 44</div><div style="font-size:11px;color:var(--dim)">Oluf Petersen</div></td>
+              <td><span class="loc-chip" style="border-color:var(--or);color:#7a5200;background:var(--orl)">Ikke koblet</span></td>
+              <td><div class="sup-actions"><button class="icon-btn" onclick="showToast('Redigér Trykkerifriheden')">✏</button><button class="icon-btn del">✕</button></div></td>
+            </tr>
+            <tr>
+              <td><div class="sup-name">RR Produktion</div><div class="sup-note">Intern produktion</div></td>
+              <td><span class="it-badge it-intern">intern</span></td>
+              <td><div style="font-size:11px;color:var(--dim)">—</div></td>
+              <td><span class="loc-chip">6 RR Produktion</span></td>
+              <td><div class="sup-actions"><button class="icon-btn" onclick="showToast('Redigér RR Produktion')">✏</button><button class="icon-btn del">✕</button></div></td>
+            </tr>
+          </tbody>
+        </table>
+        <button class="add-sup-btn" onclick="showToast('+ Ny leverandør')">+ Tilføj leverandør</button>
+      </div>
+
+      <!-- Grocy-location kobling -->
+      <div class="sec" style="padding-top:0">
+        <div class="gloc-section">
+          <div class="sec-title">Grocy-lokationer — kobling til leverandør</div>
+          <div style="font-size:11px;color:var(--dim);margin-bottom:10px">Ukoblede lokationer vises som "type: none" i indkøb</div>
+          <div class="gloc-row">
+            <span class="gloc-name">1 · Madsynergi</span>
+            <span class="gloc-unlinked">Ikke koblet</span>
+            <select class="gloc-sel" onchange="showToast('Koblet: '+this.value)"><option value="">— Vælg leverandør —</option><option>Hørkram</option><option>Inco</option><option>Serviwet</option></select>
+          </div>
+          <div class="gloc-row">
+            <span class="gloc-name">2 · Hørkram</span>
+            <span class="gloc-linked">✓ Hørkram (api)</span>
+            <select class="gloc-sel"><option>Hørkram</option><option value="">— Fjern kobling —</option></select>
+          </div>
+          <div class="gloc-row">
+            <span class="gloc-name">3 · Inco</span>
+            <span class="gloc-linked">✓ Inco (webshop)</span>
+            <select class="gloc-sel"><option>Inco</option><option value="">— Fjern kobling —</option></select>
+          </div>
+          <div class="gloc-row">
+            <span class="gloc-name">4 · Dagligvare</span>
+            <span class="gloc-unlinked">Ikke koblet</span>
+            <select class="gloc-sel" onchange="showToast('Koblet: '+this.value)"><option value="">— Vælg leverandør —</option><option>Hørkram</option><option>Inco</option></select>
+          </div>
+          <div class="gloc-row">
+            <span class="gloc-name">5 · Drikkevarer</span>
+            <span class="gloc-linked">✓ Hørkram (api)</span>
+            <select class="gloc-sel"><option>Hørkram · Drikkevarer</option><option value="">— Fjern kobling —</option></select>
+          </div>
+          <div class="gloc-row">
+            <span class="gloc-name">6 · RR Produktion</span>
+            <span class="gloc-linked">✓ RR Produktion (intern)</span>
+            <select class="gloc-sel"><option>RR Produktion</option><option value="">— Fjern kobling —</option></select>
+          </div>
+          <div class="gloc-row">
+            <span class="gloc-name">7 · Emballage</span>
+            <span class="gloc-unlinked">Ikke koblet</span>
+            <select class="gloc-sel" onchange="showToast('Koblet: '+this.value)"><option value="">— Vælg leverandør —</option><option>Serviwet</option><option>Trykkerifriheden</option></select>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- ═══ TAB 1: PRODUKTER ═══ -->
+    <div id="tab1" style="display:none">
+
+      <!-- Kolonne-vælger -->
+      <div class="col-picker">
+        <div class="col-picker-title">Vis kolonner</div>
+        <div class="col-chips">
+          <div class="col-chip on" onclick="togCol(this)"><span class="cc-dot"></span>Leverandør</div>
+          <div class="col-chip on" onclick="togCol(this)"><span class="cc-dot"></span>Minimumsgrænse</div>
+          <div class="col-chip on" onclick="togCol(this)"><span class="cc-dot"></span>Enhed (lager)</div>
+          <div class="col-chip" onclick="togCol(this)"><span class="cc-dot"></span>Produktgruppe</div>
+          <div class="col-chip" onclick="togCol(this)"><span class="cc-dot"></span>Pris pr. kg</div>
+          <div class="col-chip" onclick="togCol(this)"><span class="cc-dot"></span>Sidst opdateret</div>
+          <div class="col-chip" onclick="togCol(this)"><span class="cc-dot"></span>Forbrug pr. uge</div>
+        </div>
+      </div>
+
+      <!-- Filter + save bar -->
+      <div class="prod-filterbar">
+        <input class="pf-search" placeholder="Søg produkt...">
+        <select class="pf-sel">
+          <option>Alle leverandører</option>
+          <option>Hørkram</option>
+          <option>Inco</option>
+          <option>Emballage</option>
+          <option>Ingen leverandør</option>
+        </select>
+        <select class="pf-sel">
+          <option>Alle grupper</option>
+          <option>Mejeriprodukter</option>
+          <option>Grøntsager</option>
+          <option>Emballage</option>
+        </select>
+        <span class="pf-stat" id="pChanges" style="color:var(--or);display:none">3 ændringer</span>
+        <button class="pf-save show" onclick="showToast('3 ændringer gemt i Grocy')">Gem ændringer</button>
+      </div>
+
+      <!-- Table -->
+      <div class="prod-tbl-wrap">
+        <table class="prod-tbl">
+          <thead>
+            <tr>
+              <th>Produkt</th>
+              <th>Leverandør</th>
+              <th>Min. grænse</th>
+              <th>Enhed</th>
+              <th></th>
+            </tr>
+          </thead>
+          <tbody id="prodTbody">
+            <!-- Rendered by JS -->
+          </tbody>
+        </table>
+      </div>
+
+      <div class="bulk-bar">
+        <div class="bulk-info"><strong id="bulkCount">3</strong> ændringer venter på at blive gemt</div>
+        <button class="bulk-discard" onclick="discardChanges()">Fortryd alle</button>
+        <button class="bulk-save" onclick="showToast('3 ændringer gemt i Grocy ✓')">Gem i Grocy</button>
+      </div>
+    </div>
+
+    <!-- ═══ TAB 2: HØRKRAM ═══ -->
+    <div id="tab2" style="display:none">
+
+      <div class="hk-status">
+        <div class="sdot ok"></div>
+        <span>Proxy OK · Logget ind · Session udløber om 24 min</span>
+        <span style="margin-left:auto;font-size:11px;color:var(--dim)">Sidst synkroniseret: i dag 08:32</span>
+      </div>
+
+      <div class="hk-pricebar">
+        <div class="hk-pricebar-text"><strong>203 produkter</strong> med Hørkram-barcodes · <strong>187</strong> har aktuel pris</div>
+        <button class="hk-sched-btn" onclick="showToast('Prisopdate sat til daglig kl. 06:00')">⏱ Planlæg daglig</button>
+        <button class="hk-update-btn" onclick="showToast('Opdaterer priser...')">↻ Opdater priser nu</button>
+      </div>
+
+      <div class="hk-tabs">
+        <div class="hktab on" onclick="setHkTab(0,this)">Opslag</div>
+        <div class="hktab" onclick="setHkTab(1,this)">Favoritter</div>
+        <div class="hktab" onclick="setHkTab(2,this)">Ny kobling <span style="background:var(--orl);color:#7a5200;font-size:10px;padding:1px 5px;border-radius:6px;font-weight:700;margin-left:3px">8</span></div>
+        <div class="hktab" onclick="setHkTab(3,this)">Alle koblinger</div>
+      </div>
+
+      <div id="hktab0">
+        <div class="hk-lookup">
+          <div class="hk-search-row">
+            <input class="hk-inp" id="hkSearchInp" placeholder="Varenr. (fx 245801) eller produktnavn..." value="245801">
+            <button class="hk-srch-btn" onclick="showHkResult()">Søg</button>
+          </div>
+          <div id="hkResultArea"></div>
+        </div>
+      </div>
+
+      <div id="hktab1" style="display:none">
+        <div class="hk-favlist">
+          <div class="hkfl-row" onclick="showToast('Henter Standardvarer...')">
+            <div style="font-size:16px;flex-shrink:0">📋</div>
+            <div class="hkfl-name">Standardvarer<div class="hkfl-meta">Auto-genereret · 156 produkter</div></div>
+            <span class="hkfl-badge">142 i Grocy</span>
+            <button class="hkfl-act">Importer priser</button>
+          </div>
+          <div class="hkfl-row" onclick="showToast('Henter Aftalevarer...')">
+            <div style="font-size:16px;flex-shrink:0">⭐</div>
+            <div class="hkfl-name">Aftalevarer<div class="hkfl-meta">Brugerdefineret · 48 produkter</div></div>
+            <span class="hkfl-badge">44 i Grocy</span>
+            <button class="hkfl-act">Importer priser</button>
+          </div>
+          <div class="hkfl-row" onclick="showToast('Henter Mejeriprodukter...')">
+            <div style="font-size:16px;flex-shrink:0">🥛</div>
+            <div class="hkfl-name">Mejeriprodukter<div class="hkfl-meta">Brugerdefineret · 32 produkter</div></div>
+            <span class="hkfl-badge warn">12 mangler kobling</span>
+            <button class="hkfl-act">Kobl ukoblede</button>
+          </div>
+          <div class="hkfl-row" onclick="showToast('Henter Grøntsager...')">
+            <div style="font-size:16px;flex-shrink:0">🥦</div>
+            <div class="hkfl-name">Grøntsager og frugt<div class="hkfl-meta">Brugerdefineret · 28 produkter</div></div>
+            <span class="hkfl-badge">28 i Grocy</span>
+            <button class="hkfl-act">Importer priser</button>
+          </div>
+        </div>
+      </div>
+
+      <div id="hktab2" style="display:none">
+        <div style="padding:14px 20px;border-bottom:1px solid var(--gym);display:flex;gap:8px;background:var(--wh)">
+          <input class="pf-search" placeholder="Søg umatched Grocy-produkt..." style="flex:1">
+          <select class="pf-sel"><option>Alle grupper</option><option>Mejeriprodukter</option><option>Grøntsager</option></select>
+        </div>
+        <div style="font-size:12px;color:var(--dim);padding:10px 20px;border-bottom:1px solid var(--gym)">8 Grocy-produkter uden Hørkram-barcode</div>
+        <div class="hkfl-row">
+          <div style="font-size:16px">🧴</div>
+          <div class="hkfl-name">Rapsfrøolie, neutral<div class="hkfl-meta">Fedtstoffer · ingen HK-barcode</div></div>
+          <button class="hkfl-act" onclick="showToast('Søger Hørkram...')">Søg og kobl →</button>
+        </div>
+        <div class="hkfl-row">
+          <div style="font-size:16px">🌿</div>
+          <div class="hkfl-name">Timian, frisk<div class="hkfl-meta">Urter · ingen HK-barcode</div></div>
+          <button class="hkfl-act" onclick="showToast('Søger Hørkram...')">Søg og kobl →</button>
+        </div>
+        <div class="hkfl-row">
+          <div style="font-size:16px">🍋</div>
+          <div class="hkfl-name">Citroner, ubehandlede<div class="hkfl-meta">Frugt · ingen HK-barcode</div></div>
+          <button class="hkfl-act" onclick="showToast('Søger Hørkram...')">Søg og kobl →</button>
+        </div>
+      </div>
+
+      <div id="hktab3" style="display:none">
+        <div style="padding:12px 20px;border-bottom:1px solid var(--gym);display:flex;gap:8px;background:var(--wh)">
+          <input class="pf-search" placeholder="Søg barcode eller produkt..." style="flex:1">
+          <select class="pf-sel"><option>Alle lokationer</option><option>Hørkram (2)</option><option>Drikkevarer (5)</option></select>
+        </div>
+        <table class="prod-tbl">
+          <thead><tr><th>Grocy-produkt</th><th>Varenr.</th><th>Pakkeform</th><th>Enhed-kode</th><th>Pris/kg</th><th>Foretrukket</th><th></th></tr></thead>
+          <tbody>
+            <tr><td><div class="pt-name">Smør, usaltet Lurpak</div><div class="pt-group">Mejeriprodukter</div></td><td style="font-family:monospace;font-size:11px">245801</td><td><input class="cell-num" value="500g×20" style="width:80px"></td><td><select class="cell-sel" style="width:60px"><option>ks</option><option>st</option><option>kg</option></select></td><td><input class="cell-num" value="8.9"></td><td><button class="cell-tog on" onclick="togTog(this)"><div class="tog-knob"></div></button></td><td><button class="icon-btn" onclick="showToast('Rediger barcode')">✏</button></td></tr>
+            <tr class="changed"><td><div class="pt-name">Fløde 38% Arla</div><div class="pt-group">Mejeriprodukter</div></td><td style="font-family:monospace;font-size:11px">118342</td><td><input class="cell-num" value="1 liter" style="width:80px"></td><td><select class="cell-sel" style="width:60px"><option>st</option><option>ks</option><option>kg</option></select></td><td><input class="cell-num" value="18.0" style="border-color:var(--or)"></td><td><button class="cell-tog on" onclick="togTog(this)"><div class="tog-knob"></div></button></td><td><button class="icon-btn" onclick="showToast('Rediger barcode')">✏</button></td></tr>
+            <tr><td><div class="pt-name">Æg, friland M/L</div><div class="pt-group">Æg og fjerkræ</div></td><td style="font-family:monospace;font-size:11px">334201</td><td><input class="cell-num" value="Bakke 30" style="width:80px"></td><td><select class="cell-sel" style="width:60px"><option>ks</option><option>st</option><option>kg</option></select></td><td><input class="cell-num" value="62.0"></td><td><button class="cell-tog off" onclick="togTog(this)"><div class="tog-knob"></div></button></td><td><button class="icon-btn" onclick="showToast('Rediger barcode')">✏</button></td></tr>
+          </tbody>
+        </table>
+      </div>
+    </div>
+
+  </div><!-- /panel-body -->
+</div><!-- /panel -->
+
+<script>
+// Panel toggle
+var panelOpen = false;
+function togglePanel() {
+  panelOpen = !panelOpen;
+  document.getElementById('panel').classList.toggle('on', panelOpen);
+  document.getElementById('overlay').classList.toggle('on', panelOpen);
+  document.getElementById('gearBtn').classList.toggle('active', panelOpen);
+}
+
+// Tab switching
+function setTab(idx, el) {
+  [0,1,2].forEach(i => document.getElementById('tab'+i).style.display = i===idx?'block':'none');
+  el.closest('.panel-tabs').querySelectorAll('.ptab').forEach(t => t.classList.remove('on'));
+  el.classList.add('on');
+}
+
+function setHkTab(idx, el) {
+  [0,1,2,3].forEach(i => document.getElementById('hktab'+i).style.display = i===idx?'block':'none');
+  el.closest('.hk-tabs').querySelectorAll('.hktab').forEach(t => t.classList.remove('on'));
+  el.classList.add('on');
+}
+
+// Column chip toggle
+function togCol(chip) {
+  chip.classList.toggle('on');
+  var on = chip.classList.contains('on');
+  chip.querySelector('.cc-dot').style.background = on ? '#fff' : 'var(--gy)';
+}
+
+// Toggle toggle button
+function togTog(btn) {
+  btn.classList.toggle('on');
+  btn.classList.toggle('off');
+}
+
+// Product table data
+var prodData = [
+  { name:'Smør, usaltet Lurpak', group:'Mejeriprodukter', supplier:'Hørkram', min:5, unit:'kg', changed:false },
+  { name:'Fløde 38% Arla', group:'Mejeriprodukter', supplier:'Hørkram', min:10, unit:'liter', changed:true },
+  { name:'Æg, friland M/L', group:'Æg og fjerkræ', supplier:'Hørkram', min:60, unit:'stk', changed:false },
+  { name:'Olivenolie, extra virgin', group:'Fedtstoffer', supplier:'Hørkram', min:3, unit:'liter', changed:true },
+  { name:'PP-bæger 250ml', group:'Emballage', supplier:'Emballage', min:500, unit:'stk', changed:true },
+  { name:'Kartofler, bagekartofler', group:'Grøntsager', supplier:'Dagligvare', min:8, unit:'kg', changed:false },
+  { name:'Citroner, ubehandlede', group:'Frugt', supplier:'Dagligvare', min:2, unit:'kg', changed:false },
+  { name:'Creme fraiche 38%', group:'Mejeriprodukter', supplier:'Hørkram', min:4, unit:'liter', changed:false },
+  { name:'Timian, frisk', group:'Urter', supplier:'', min:0, unit:'bundter', changed:false },
+  { name:'Transportkasse RR custom', group:'Emballage', supplier:'Trykkerifriheden', min:10, unit:'stk', changed:false },
+];
+
+var suppliers = ['', 'Hørkram', 'Inco', 'Emballage', 'Dagligvare', 'Serviwet', 'Trykkerifriheden', 'RR Produktion'];
+
+function renderProdTable() {
+  var tbody = document.getElementById('prodTbody');
+  tbody.innerHTML = prodData.map(function(p, idx) {
+    return '<tr class="' + (p.changed ? 'changed' : '') + '">' +
+      '<td><div class="pt-name">' + (p.changed ? '<span class="changed-dot"></span>' : '') + p.name + '</div><div class="pt-group">' + p.group + '</div></td>' +
+      '<td><select class="cell-sel" onchange="markChanged('+idx+',\'supplier\',this.value)">' +
+        suppliers.map(function(s){return '<option'+(s===p.supplier?' selected':'')+'>'+s+'</option>';}).join('') +
+      '</select></td>' +
+      '<td><input class="cell-num" value="' + (p.min||'') + '" onchange="markChanged('+idx+',\'min\',this.value)"></td>' +
+      '<td style="font-size:11px;color:var(--dim)">' + p.unit + '</td>' +
+      '<td></td>' +
+    '</tr>';
+  }).join('');
+}
+
+function markChanged(idx, field, val) {
+  prodData[idx].changed = true;
+  prodData[idx][field] = val;
+  var rows = document.querySelectorAll('#prodTbody tr');
+  rows[idx].classList.add('changed');
+  var count = prodData.filter(function(p){return p.changed}).length;
+  document.getElementById('bulkCount').textContent = count;
+}
+
+function discardChanges() {
+  prodData.forEach(function(p){p.changed=false});
+  renderProdTable();
+  document.getElementById('bulkCount').textContent = '0';
+}
+
+renderProdTable();
+
+// HK result
+function showHkResult() {
+  var el = document.getElementById('hkResultArea');
+  el.innerHTML = '<div class="hk-result">' +
+    '<div class="hkr-top">' +
+      '<div class="hkr-img">🧈</div>' +
+      '<div class="hkr-info">' +
+        '<div class="hkr-name">Smør, usaltet Lurpak 500g×20</div>' +
+        '<div class="hkr-meta">Varenr. 245801 · Arla · Mejeriprodukter</div>' +
+        '<div class="hkr-badges">' +
+          '<span class="it-badge it-api" style="font-size:9px">★ Aftale</span>' +
+          '<span class="it-badge" style="background:var(--bll);color:var(--bl);font-size:9px">🇩🇰 DK</span>' +
+        '</div>' +
+      '</div>' +
+      '<div class="hkr-price">89 kr<br><span style="font-size:10px;color:var(--dim)">8,9 kr/kg</span></div>' +
+    '</div>' +
+    '<div class="hkr-actions">' +
+      '<button class="hkr-btn hkr-link" onclick="showToast(\'Koblet til Smør Lurpak i Grocy ✓\')">Kobl til Grocy-produkt</button>' +
+      '<button class="hkr-btn hkr-link2" onclick="showToast(\'Pris opdateret ✓\')">Opdater pris</button>' +
+      '<button class="hkr-btn" style="background:var(--gyl);border:1px solid var(--gy)" onclick="showToast(\'supplier_unit_code sat til ks ✓\')">Sæt enhed-kode</button>' +
+    '</div>' +
+  '</div>';
+}
+
+// Toast
+var _tt;
+function showToast(msg) {
+  var e = document.querySelector('.toast');
+  if(e) e.remove();
+  clearTimeout(_tt);
+  var t = document.createElement('div');
+  t.className='toast';t.textContent=msg;
+  document.body.appendChild(t);
+  _tt=setTimeout(function(){if(t.parentNode)t.remove()},2500);
+}
+</script>
+</body>
+</html>

@@ -498,6 +498,9 @@
     transition: border-color .15s;
 }
 .ib-qi:focus { border-color: var(--brand-primary); background: #fff; }
+.ib-qi::-webkit-inner-spin-button,
+.ib-qi::-webkit-outer-spin-button { -webkit-appearance: none; margin: 0; }
+.ib-qi { -moz-appearance: textfield; }
 .ib-kb {
     padding: 8px 14px;
     border-radius: 7px;

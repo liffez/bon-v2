@@ -6,6 +6,7 @@
   <title>Bon v2 — Settings</title>
   <link rel="stylesheet" href="../shared/tokens.css">
   <link rel="stylesheet" href="../shared/components.css">
+  <link rel="stylesheet" href="../shared/indkob_settings.css">
   <style>
     * { box-sizing: border-box; margin: 0; padding: 0; }
 
@@ -268,6 +269,7 @@
     <button class="st-nav-item" data-section="pay-types">Betalingstyper</button>
     <div class="st-nav-sep" id="st-admin-sep"></div>
     <div class="st-nav-label" id="st-admin-label">Admin</div>
+    <button class="st-nav-item st-admin-only" data-section="indkob">Indkøb</button>
     <button class="st-nav-item st-admin-only" data-section="grocy">Grocy</button>
     <button class="st-nav-item st-admin-only" data-section="mail">Mail</button>
     <button class="st-nav-item st-admin-only" data-section="formbuilder">Formbuilder</button>
@@ -311,6 +313,12 @@
       </table>
       <button class="st-btn st-btn-primary st-btn-add" onclick="showNewPayTypeForm()">+ Ny</button>
       <div id="new-ptype-form" style="display:none"></div>
+    </div>
+
+    <!-- ════ INDKØB ════ -->
+    <div class="st-section st-admin-only" id="sec-indkob">
+      <h2>Indkøb</h2>
+      <div id="indkob-settings-container" class="is-mode-page"></div>
     </div>
 
     <!-- ════ GROCY ════ -->
@@ -407,6 +415,7 @@
 
 <script src="../shared/api.js"></script>
 <script src="../shared/utils.js"></script>
+<script src="../shared/indkob_settings.js"></script>
 <script>
 // ═══════════════════════════════════════════════════════════
 // Settings UI — vanilla JS
@@ -439,6 +448,7 @@ async function init() {
   }
 
   // Nav-klik
+  var _indkobSettingsInit = false;
   document.querySelectorAll('.st-nav-item').forEach(function(btn) {
     btn.addEventListener('click', function() {
       var sec = btn.dataset.section;
@@ -446,6 +456,12 @@ async function init() {
       btn.classList.add('active');
       document.querySelectorAll('.st-section').forEach(function(s) { s.classList.remove('active'); });
       document.getElementById('sec-' + sec).classList.add('active');
+
+      // Lazy init indkøb settings
+      if (sec === 'indkob' && !_indkobSettingsInit) {
+        _indkobSettingsInit = true;
+        initIndkobSettings(document.getElementById('indkob-settings-container'), { mode: 'page' });
+      }
     });
   });
 
