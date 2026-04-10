@@ -177,6 +177,8 @@ class BonOpretModal {
         const catering = this.priceCategories.find(p => p.code === 'catering');
         if (catering) this.overlay.querySelector('.bon-opret-priskategori').value = catering.id;
         this._hideError();
+        // Reset visibility (vigtigt efter produktion-mode)
+        this._onPriceCategoryChange();
     }
 
     _isProductionMode() {
