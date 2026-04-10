@@ -128,6 +128,7 @@ bon-v2/
 │   ├── stock_overview.js + stock_overview.css  ← Lageroversigt (filtre, status-pills, inline-edit)
 │   ├── inventory_check.js + inventory_check.css ← Fysisk optælling (multi-unit, progress, summary)
 │   ├── indkob.js + indkob.css                  ← Indkøb (merged: indkøbsliste + bestilling, accordion UI)
+│   ├── indkob_settings.js + indkob_settings.css ← Indkøbsindstillinger (3 tabs: leverandører, produkter, Hørkram)
 │   ├── varemodtagelse.js + varemodtagelse.css  ← Varemodtagelse (ordremodtagelse, Grocy add-stock)
 │   │   [shopping_list.js + bestilling.js udgår når indkob.js er verificeret]
 │   ├── kitchen-topbar.html         ← Fælles topbar for kitchen-views
@@ -667,26 +668,26 @@ Oprettes under Grocy → Manage master data → Userfields.
 | Multi-leverandør chips | Virker via barcodes | OK — test med reelle data fra grocytest |
 | `_ibEnsureUserfields()` | Skippet (userfields eksisterer) | Tilføj som safety check alligevel |
 
-#### Fase 6c — Settings: Indkøbsindstillinger (efter 6b verificeret)
+#### Fase 6c — Settings: Indkøbsindstillinger (komplet)
 > Spec: `docs/CLAUDE_SETTINGS_INDKOB.md` · Mockup: `docs/settings_mockup.html`
 > Test: `docs/CLAUDE_TEST_INDKOB.md` sektionerne 6A–6D + 7
-> Læs spec OG mockup FØR du begynder.
 
-- [ ] **Migration 032**: `integration_type` CHECK udvides med `'intern'` *(flyttes her fra 6b hvis ikke allerede gjort)*
-- [ ] **`routes/purchasing.js`** — tilføj CRUD endpoints:
-  - `GET /api/purchasing/suppliers/:id`
-  - `POST /api/purchasing/suppliers`
-  - `PATCH /api/purchasing/suppliers/:id`
-  - `DELETE /api/purchasing/suppliers/:id` (soft delete: `is_active = 0`)
-- [ ] **`shared/indkob_settings.js`** + `indkob_settings.css` — fælles settings-komponent
+- [x] **Migration 032**: `integration_type` CHECK udvides med `'intern'`, RR Produktion seeded
+- [x] **`routes/purchasing.js`** — fuld CRUD: GET/:id, POST, PATCH, DELETE (soft delete)
+- [x] **`shared/indkob_settings.js`** + `indkob_settings.css` — fælles settings-komponent (1400 linjer, 43 funktioner)
   - Entry: `initIndkobSettings(containerEl, { mode: 'panel'|'page' })`
   - State-prefix: `_is`
-  - **Tab 1 — Leverandører**: CRUD-tabel + inline redigering + Grocy-location kobling (auto-save dropdown)
-  - **Tab 2 — Produkter**: konfigurerbar batch-tabel (kolonne-chips, localStorage-præferencer, bulk-gem til Grocy)
-  - **Tab 3 — Hørkram**: opslag · favoritter · ny kobling · alle koblinger · prisopdatering
-- [ ] **`kitchen/purchasing.html`** — tilføj ⚙ gear-knap i toolbar + slide-in container
-  - `toggleIndkobSettings()` — lazy init, Escape lukker
-- [ ] **`office/views/settings.js`** — tilføj "Indkøb" sektion der mounter `indkob_settings.js` i `mode: 'page'`
+  - **Tab 1 — Leverandører**: CRUD-tabel med type-badges, inline edit-form, Grocy-location auto-save kobling
+  - **Tab 2 — Produkter**: kolonne-chips (localStorage), filter (søg + leverandør), dirty-tracking, bulk-save (max 5 concurrent)
+  - **Tab 3 — Hørkram**: 4 sub-tabs (Opslag, Favoritter, Ny kobling, Alle koblinger)
+    - Opslag: smart søg (tal→direkte lookup, tekst→søgning), produktkort med link/pris-actions
+    - Favoritter: lister med "Importer priser" (batch snapshot→userfields)
+    - Ny kobling: Grocy-produkter uden HK-barcode, auto-søg med confidence-scoring (Dice bigram)
+    - Alle koblinger: tabel med foretrukket-toggle, udgået-detection via batch snapshots
+  - Batch prisopdatering med progress-bar, dead-product tracking som sideeffekt
+  - Udgået-warning: rød "Udgået" badge, banner, sorteret øverst
+- [x] **`kitchen/purchasing.html`** — ⚙ gear-knap i tab-bar, slide-in panel (880px), overlay, Escape lukker
+- [x] **`settings/index.html`** — "Indkøb" nav-punkt (admin), lazy init i page-mode
 
 #### Fase 6d — E-mail ordrer + dropsize (efter 6c)
 - [ ] Dropsize-check ved Hørkram-bestilling (`GET /api/horkram/dropsize`)
@@ -921,16 +922,15 @@ Oprettes under Grocy → Manage master data → Userfields.
 
 > ✏️ Opdateret 10. april 2026.
 >
-> **Fase 1a–1e + 3A + 3B + 3D + 4 + 5 + 6-fundament (shopping_list, bestilling, varemodtagelse, horkram) + 7 (CRM) + Office CRM redesign + 8 (Fakturering) + 9 (Tilbud) + Mail-vedhæftninger + CRM service-kald + Firma-oprydning komplet.**
+> **Fase 1a–1e + 3A + 3B + 3D + 4 + 5 + 6-fundament + 6b + 6c + 7 (CRM) + Office CRM redesign + 8 (Fakturering) + 9 (Tilbud) + Mail-vedhæftninger + CRM service-kald + Firma-oprydning komplet.**
 >
-> **Fase 6b komplet** — `shared/indkob.js` implementeret og Hoka basket-API verificeret.
+> **Fase 6c komplet** — `shared/indkob_settings.js` (1400 linjer) monteret i kitchen (slide-in) og office (fuld side).
+> Inkl. udgået-detection, batch prisopdatering, confidence-scoring ved ny kobling.
 > Kendte begrænsninger i 6b (lavere prioritet): "Tilføj vare" dialog, produktionsbon-oprettelse, INT-varenumre.
 >
-> **Aktiv sprint:** Fase 6c — Settings: Indkøbsindstillinger.
-> Spec: `docs/CLAUDE_SETTINGS_INDKOB.md` · Mockup: `docs/settings_mockup.html` · Test: `docs/CLAUDE_TEST_INDKOB.md` (sektionerne 6A–6D + 7)
-> Læs spec OG mockup FØR du begynder.
+> **Næste sprint:** Fase 6d — E-mail ordrer + dropsize.
 >
-> **Så:** Fase 6d (e-mail ordrer, dropsize), Priser i planlægningsbon, Ugeoversigt.
+> **Så:** Priser i planlægningsbon, Ugeoversigt.
 > Så er Bon v1 klar til nedlukning.
 >
 > **Åbne afhængigheder:**
@@ -999,7 +999,7 @@ Oprettes under Grocy → Manage master data → Userfields.
 > - Settings: kitchen-panel er zone-aware (viser kun indkøbs-relevante settings), office viser det samme + systemindstillinger
 > - Settings produkter: konfigurerbar tabel med kolonne-chips — præferencer gemmes i localStorage
 > - Settings Hørkram: prisopdatering er manuelt trigger ("Opdater nu") + valgfri daglig cron via `system_settings`
-> - `routes/purchasing.js` mangler CRUD endpoints (GET/:id, POST, PATCH, DELETE) — tilføjes i Fase 6c
+> - ~~`routes/purchasing.js` mangler CRUD endpoints~~ — implementeret i Fase 6c
 > - Hoka basket PUT format: `SalesUnit: { Code, Quantity }` — bekræftet fra hoka.dk's egen frontend (IKKE `SalesUnitIndex`). Eksisterende varer i kurven re-sendes UDEN SalesUnit (Hoka bevarer den valgte enhed). Nye varer sendes med SalesUnit fra snapshot. Basket-ID caches i `sessionCache.basketId`. PUT erstatter hele kurven → altid merge eksisterende + nye.
 
 ---
