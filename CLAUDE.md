@@ -658,13 +658,16 @@ Oprettes under Grocy → Manage master data → Userfields.
 - [ ] **Verificér** `routes/horkram.js` endpoint er `/snapshots` (ikke `/products/snapshots`)
 - [ ] `shared/shopping_list.js` + `shopping_list.css` + `bestilling.js` + `bestilling.css` **udgår**
 
-**Kendte begrænsninger der skal løses under implementering:**
+**Kendte begrænsninger (løst):**
 
-| Feature | Status | Prioritet |
-|---------|--------|-----------|
-| "Tilføj vare" dialog | Placeholder toast → skal implementeres | Høj — bruger skal kunne tilføje manuelt |
-| Produktionsbon-oprettelse | Placeholder toast → `createBon({type:'intern',...})` | Medium |
-| INT-varenumre (auto-genereret) | Kode skrevet, ikke testet | Lav — test med rigtige data |
+| Feature | Status | Løsning |
+|---------|--------|---------|
+| ~~"Tilføj vare" dialog~~ | ✅ Implementeret | Inline panel med Grocy-produkt autocomplete + antal |
+| ~~Produktionsbon-oprettelse~~ | ✅ Implementeret | `createBon()` med is_internal=1, status GODKENDT, priskategori produktion |
+| ~~INT-varenumre~~ | ✅ Implementeret | Lilla "INT-nr" knap i link-panel, auto-genererer INT-XXXX |
+| ~~Produktionsbon fra "Ny bon"~~ | ✅ Implementeret | Modal forenkler til produktionsmode (skjuler kunde/type) |
+| ~~is_internal i API~~ | ✅ Fixet | POST + PATCH /api/bons accepterer is_internal |
+| ~~Blå farve + 🔧 ikon~~ | ✅ Implementeret | bon-kort, kalender, bons-liste |
 | Multi-leverandør chips | Virker via barcodes | OK — test med reelle data fra grocytest |
 | `_ibEnsureUserfields()` | Skippet (userfields eksisterer) | Tilføj som safety check alligevel |
 
@@ -926,7 +929,9 @@ Oprettes under Grocy → Manage master data → Userfields.
 >
 > **Fase 6c komplet** — `shared/indkob_settings.js` (1400 linjer) monteret i kitchen (slide-in) og office (fuld side).
 > Inkl. udgået-detection, batch prisopdatering, confidence-scoring ved ny kobling.
-> Kendte begrænsninger i 6b (lavere prioritet): "Tilføj vare" dialog, produktionsbon-oprettelse, INT-varenumre.
+>
+> **6b begrænsninger løst** — "Tilføj vare" dialog, produktionsbon-oprettelse (inkl. "Ny bon" modal),
+> INT-varenumre, `is_internal` i API, blå farve + 🔧 ikon for produktionsbons.
 >
 > **Næste sprint:** Fase 6d — E-mail ordrer + dropsize.
 >
