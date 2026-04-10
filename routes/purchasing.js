@@ -6,14 +6,18 @@
  * Monteres i server.js som:
  *   app.use('/api/purchasing', require('./routes/purchasing'));
  *
- * Endpoints:
- *   GET    /api/purchasing/suppliers             Leverandører med grocy-locations
- *   GET    /api/purchasing/suppliers/grocy-locations  Grocy shopping_locations + link-status
- *   POST   /api/purchasing/suppliers/grocy-locations  Link grocy-location til supplier
- *   DELETE /api/purchasing/suppliers/grocy-locations/:id  Unlink
+ * VIGTIGT: /suppliers/grocy-locations routes SKAL stå FØR /suppliers/:id
+ * ellers matcher Express ":id" = "grocy-locations".
  *
- * Ordrer og varemodtagelse håndteres af routes/orders.js
- * og routes/receiving.js — duplikeres IKKE her.
+ * Endpoints:
+ *   GET    /api/purchasing/suppliers                         Leverandører med grocy-locations
+ *   GET    /api/purchasing/suppliers/grocy-locations          Grocy shopping_locations + link-status
+ *   POST   /api/purchasing/suppliers/grocy-locations          Link grocy-location til supplier
+ *   DELETE /api/purchasing/suppliers/grocy-locations/:id      Unlink
+ *   GET    /api/purchasing/suppliers/:id                      Enkelt leverandør
+ *   POST   /api/purchasing/suppliers                          Opret leverandør
+ *   PATCH  /api/purchasing/suppliers/:id                      Opdater leverandør
+ *   DELETE /api/purchasing/suppliers/:id                      Deaktiver leverandør
  * ════════════════════════════════════════════════════════════
  */
 
@@ -67,6 +71,101 @@ router.get('/suppliers', handle((req, res) => {
     const rows = db.prepare(sql).all(...params);
     res.json(rows);
 }));
+
+/* ══════════════════════════════════════════════════════════════
+   GROCY-LOCATION ROUTES — SKAL stå FØR /suppliers/:id
+   ══════════════════════════════════════════════════════════════ */
+
+/* ── GET /suppliers/grocy-locations ─────────────────────── */
+
+/**
+ * Henter alle Grocy shopping_locations + eksisterende koblings-status.
+ * Bruges af bestillings-tabbens inline setup-bar.
+ */
+router.get('/suppliers/grocy-locations', handle(async (req, res) => {
+    const db = getDb();
+
+    // Hent fra Grocy
+    const grocyLocs = await grocy.getShoppingLocations();
+
+    // Hent eksisterende koblinger
+    const linked = db.prepare(`
+        SELECT sgl.*, s.name AS supplier_name
+        FROM supplier_grocy_locations sgl
+        JOIN suppliers s ON s.id = sgl.supplier_id
+    `).all();
+
+    const linkedMap = {};
+    for (const l of linked) {
+        linkedMap[l.grocy_location_id] = l;
+    }
+
+    // Hent alle suppliers til dropdown
+    const suppliers = db.prepare(`
+        SELECT id, name, integration_type FROM suppliers WHERE is_active = 1 ORDER BY name
+    `).all();
+
+    // Merge
+    const result = grocyLocs.map(gl => {
+        const link = linkedMap[gl.id] || null;
+        return {
+            grocy_location_id: gl.id,
+            grocy_location_name: gl.name || gl.description || `Lokation ${gl.id}`,
+            linked_supplier_id: link ? link.supplier_id : null,
+            linked_supplier_name: link ? link.supplier_name : null,
+            display_name: link ? link.display_name : null,
+        };
+    });
+
+    res.json({ locations: result, suppliers });
+}));
+
+/* ── POST /suppliers/grocy-locations ────────────────────── */
+
+/**
+ * Link en Grocy shopping_location til en v2 supplier.
+ * Body: { grocy_location_id, supplier_id, display_name? }
+ */
+router.post('/suppliers/grocy-locations', handle((req, res) => {
+    const db = getDb();
+    const { grocy_location_id, supplier_id, display_name } = req.body;
+
+    if (!grocy_location_id || !supplier_id) {
+        return res.status(400).json({ error: 'grocy_location_id og supplier_id er påkrævet' });
+    }
+
+    db.prepare(`
+        INSERT OR REPLACE INTO supplier_grocy_locations (supplier_id, grocy_location_id, display_name)
+        VALUES (?, ?, ?)
+    `).run(supplier_id, grocy_location_id, display_name || null);
+
+    res.json({ ok: true, grocy_location_id, supplier_id });
+}));
+
+/* ── DELETE /suppliers/grocy-locations/:id ───────────────── */
+
+/**
+ * Fjern kobling mellem Grocy shopping_location og supplier.
+ * :id er grocy_location_id (ikke tabel-PK).
+ */
+router.delete('/suppliers/grocy-locations/:id', handle((req, res) => {
+    const db = getDb();
+    const grocyLocId = parseInt(req.params.id);
+
+    const result = db.prepare(`
+        DELETE FROM supplier_grocy_locations WHERE grocy_location_id = ?
+    `).run(grocyLocId);
+
+    if (result.changes === 0) {
+        return res.status(404).json({ error: 'Kobling ikke fundet' });
+    }
+
+    res.json({ ok: true, grocy_location_id: grocyLocId });
+}));
+
+/* ══════════════════════════════════════════════════════════════
+   SUPPLIER :id ROUTES — EFTER grocy-locations
+   ══════════════════════════════════════════════════════════════ */
 
 /* ── GET /suppliers/:id ─────────────────────────────────── */
 
@@ -159,93 +258,6 @@ router.delete('/suppliers/:id', handle((req, res) => {
     db.prepare('UPDATE suppliers SET is_active = 0 WHERE id = ?').run(id);
 
     res.json({ ok: true, deactivated: true, linked_locations: linkCount });
-}));
-
-/* ── GET /suppliers/grocy-locations ─────────────────────── */
-
-/**
- * Henter alle Grocy shopping_locations + eksisterende koblings-status.
- * Bruges af bestillings-tabbens inline setup-bar.
- */
-router.get('/suppliers/grocy-locations', handle(async (req, res) => {
-    const db = getDb();
-
-    // Hent fra Grocy
-    const grocyLocs = await grocy.getShoppingLocations();
-
-    // Hent eksisterende koblinger
-    const linked = db.prepare(`
-        SELECT sgl.*, s.name AS supplier_name
-        FROM supplier_grocy_locations sgl
-        JOIN suppliers s ON s.id = sgl.supplier_id
-    `).all();
-
-    const linkedMap = {};
-    for (const l of linked) {
-        linkedMap[l.grocy_location_id] = l;
-    }
-
-    // Hent alle suppliers til dropdown
-    const suppliers = db.prepare(`
-        SELECT id, name, integration_type FROM suppliers WHERE is_active = 1 ORDER BY name
-    `).all();
-
-    // Merge
-    const result = grocyLocs.map(gl => {
-        const link = linkedMap[gl.id] || null;
-        return {
-            grocy_location_id: gl.id,
-            grocy_location_name: gl.name || gl.description || `Lokation ${gl.id}`,
-            linked_supplier_id: link ? link.supplier_id : null,
-            linked_supplier_name: link ? link.supplier_name : null,
-            display_name: link ? link.display_name : null,
-        };
-    });
-
-    res.json({ locations: result, suppliers });
-}));
-
-/* ── POST /suppliers/grocy-locations ────────────────────── */
-
-/**
- * Link en Grocy shopping_location til en v2 supplier.
- * Body: { grocy_location_id, supplier_id, display_name? }
- */
-router.post('/suppliers/grocy-locations', handle((req, res) => {
-    const db = getDb();
-    const { grocy_location_id, supplier_id, display_name } = req.body;
-
-    if (!grocy_location_id || !supplier_id) {
-        return res.status(400).json({ error: 'grocy_location_id og supplier_id er påkrævet' });
-    }
-
-    db.prepare(`
-        INSERT OR REPLACE INTO supplier_grocy_locations (supplier_id, grocy_location_id, display_name)
-        VALUES (?, ?, ?)
-    `).run(supplier_id, grocy_location_id, display_name || null);
-
-    res.json({ ok: true, grocy_location_id, supplier_id });
-}));
-
-/* ── DELETE /suppliers/grocy-locations/:id ───────────────── */
-
-/**
- * Fjern kobling mellem Grocy shopping_location og supplier.
- * :id er grocy_location_id (ikke tabel-PK).
- */
-router.delete('/suppliers/grocy-locations/:id', handle((req, res) => {
-    const db = getDb();
-    const grocyLocId = parseInt(req.params.id);
-
-    const result = db.prepare(`
-        DELETE FROM supplier_grocy_locations WHERE grocy_location_id = ?
-    `).run(grocyLocId);
-
-    if (result.changes === 0) {
-        return res.status(404).json({ error: 'Kobling ikke fundet' });
-    }
-
-    res.json({ ok: true, grocy_location_id: grocyLocId });
 }));
 
 module.exports = router;
