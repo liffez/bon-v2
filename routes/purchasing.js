@@ -68,6 +68,99 @@ router.get('/suppliers', handle((req, res) => {
     res.json(rows);
 }));
 
+/* ── GET /suppliers/:id ─────────────────────────────────── */
+
+router.get('/suppliers/:id', handle((req, res) => {
+    const db = getDb();
+    const id = parseInt(req.params.id);
+    const supplier = db.prepare('SELECT * FROM suppliers WHERE id = ?').get(id);
+    if (!supplier) return res.status(404).json({ error: 'Leverandør ikke fundet' });
+
+    // Include grocy-location links
+    const links = db.prepare(`
+        SELECT grocy_location_id, display_name
+        FROM supplier_grocy_locations WHERE supplier_id = ?
+    `).all(id);
+    supplier.grocy_locations = links;
+
+    res.json(supplier);
+}));
+
+/* ── POST /suppliers ───────────────────────────────────── */
+
+router.post('/suppliers', handle((req, res) => {
+    const db = getDb();
+    const { name, integration_type, contact_email, contact_phone, webshop_url, notes } = req.body;
+
+    if (!name || !name.trim()) {
+        return res.status(400).json({ error: 'Navn er påkrævet' });
+    }
+
+    const validTypes = ['api', 'form', 'email', 'manual', 'webshop', 'intern'];
+    const type = validTypes.includes(integration_type) ? integration_type : 'manual';
+
+    const result = db.prepare(`
+        INSERT INTO suppliers (name, integration_type, contact_email, contact_phone, webshop_url, notes)
+        VALUES (?, ?, ?, ?, ?, ?)
+    `).run(name.trim(), type, contact_email || null, contact_phone || null, webshop_url || null, notes || null);
+
+    const newSupplier = db.prepare('SELECT * FROM suppliers WHERE id = ?').get(result.lastInsertRowid);
+    res.status(201).json(newSupplier);
+}));
+
+/* ── PATCH /suppliers/:id ──────────────────────────────── */
+
+router.patch('/suppliers/:id', handle((req, res) => {
+    const db = getDb();
+    const id = parseInt(req.params.id);
+
+    const existing = db.prepare('SELECT * FROM suppliers WHERE id = ?').get(id);
+    if (!existing) return res.status(404).json({ error: 'Leverandør ikke fundet' });
+
+    const validTypes = ['api', 'form', 'email', 'manual', 'webshop', 'intern'];
+    const fields = {};
+    const allowed = ['name', 'integration_type', 'contact_email', 'contact_phone', 'webshop_url', 'notes', 'is_active'];
+
+    for (const key of allowed) {
+        if (req.body[key] !== undefined) {
+            if (key === 'integration_type' && !validTypes.includes(req.body[key])) continue;
+            if (key === 'name' && !req.body[key].trim()) continue;
+            fields[key] = req.body[key];
+        }
+    }
+
+    if (Object.keys(fields).length === 0) {
+        return res.status(400).json({ error: 'Ingen gyldige felter at opdatere' });
+    }
+
+    const sets = Object.keys(fields).map(k => `${k} = ?`).join(', ');
+    const vals = Object.values(fields);
+    db.prepare(`UPDATE suppliers SET ${sets} WHERE id = ?`).run(...vals, id);
+
+    const updated = db.prepare('SELECT * FROM suppliers WHERE id = ?').get(id);
+    res.json(updated);
+}));
+
+/* ── DELETE /suppliers/:id ─────────────────────────────── */
+
+router.delete('/suppliers/:id', handle((req, res) => {
+    const db = getDb();
+    const id = parseInt(req.params.id);
+
+    const existing = db.prepare('SELECT * FROM suppliers WHERE id = ?').get(id);
+    if (!existing) return res.status(404).json({ error: 'Leverandør ikke fundet' });
+
+    // Count linked grocy-locations for warning
+    const linkCount = db.prepare(
+        'SELECT COUNT(*) as cnt FROM supplier_grocy_locations WHERE supplier_id = ?'
+    ).get(id).cnt;
+
+    // Soft delete
+    db.prepare('UPDATE suppliers SET is_active = 0 WHERE id = ?').run(id);
+
+    res.json({ ok: true, deactivated: true, linked_locations: linkCount });
+}));
+
 /* ── GET /suppliers/grocy-locations ─────────────────────── */
 
 /**

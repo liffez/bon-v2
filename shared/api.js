@@ -667,6 +667,30 @@ function unlinkGrocyLocation(grocyLocationId) {
     return apiFetch('/purchasing/suppliers/grocy-locations/' + grocyLocationId, { method: 'DELETE' });
 }
 
+function createSupplier(data) {
+    return apiFetch('/purchasing/suppliers', { method: 'POST', body: JSON.stringify(data) });
+}
+
+function updateSupplier(id, data) {
+    return apiFetch('/purchasing/suppliers/' + id, { method: 'PATCH', body: JSON.stringify(data) });
+}
+
+function deleteSupplier(id) {
+    return apiFetch('/purchasing/suppliers/' + id, { method: 'DELETE' });
+}
+
+function updateProductBarcode(id, body) {
+    return apiFetch('/grocy/product-barcodes/' + id, { method: 'PUT', body: JSON.stringify(body) });
+}
+
+function updateProductBarcodeUserfields(id, body) {
+    return apiFetch('/grocy/userfields/product_barcodes/' + id, { method: 'PUT', body: JSON.stringify(body) });
+}
+
+function putGrocyProduct(id, body) {
+    return apiFetch('/grocy/products/' + id, { method: 'PUT', body: JSON.stringify(body) });
+}
+
 /* ── HOKA (Hørkram via /api/horkram — parsed data) ───── */
 
 function fetchHokaStatus() { return apiFetch('/horkram/health'); }

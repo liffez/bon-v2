@@ -478,6 +478,24 @@ async function createProductBarcode(body) {
     return result;
 }
 
+/** Opdater produkt-barcode (last_price, note, qu_id, amount etc.) */
+async function updateProductBarcode(id, body) {
+    await grocyPut(`/objects/product_barcodes/${id}`, body);
+    _cache.delete('product_barcodes');
+}
+
+/** Opdater userfields på produkt-barcode (is_preferred, supplier_unit_code etc.) */
+async function updateProductBarcodeUserfields(id, fields) {
+    await grocyPut(`/userfields/product_barcodes/${id}`, fields);
+    _cache.delete('product_barcodes');
+}
+
+/** Opdater produkt (shopping_location_id, min_stock_amount etc.) */
+async function updateProduct(id, body) {
+    await grocyPut(`/objects/products/${id}`, body);
+    _cache.delete('products');
+}
+
 /** Slet produkt-barcode (bruges ved flytning af kobling) */
 async function deleteProductBarcode(id) {
     await grocyDelete(`/objects/product_barcodes/${id}`);
@@ -674,6 +692,9 @@ module.exports = {
     getShoppingLocations,
     getProductBarcodes,
     createProductBarcode,
+    updateProductBarcode,
+    updateProductBarcodeUserfields,
+    updateProduct,
     deleteProductBarcode,
     updateShoppingListItem,
     // Cache

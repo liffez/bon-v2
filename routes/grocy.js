@@ -243,8 +243,23 @@ router.post('/product-barcodes', handle(async (req, res) => {
     res.json(result);
 }));
 
+router.put('/product-barcodes/:id', handle(async (req, res) => {
+    await grocy.updateProductBarcode(parseInt(req.params.id), req.body);
+    res.json({ ok: true });
+}));
+
 router.delete('/product-barcodes/:id', handle(async (req, res) => {
     await grocy.deleteProductBarcode(parseInt(req.params.id));
+    res.json({ ok: true });
+}));
+
+router.put('/userfields/product_barcodes/:id', handle(async (req, res) => {
+    await grocy.updateProductBarcodeUserfields(parseInt(req.params.id), req.body);
+    res.json({ ok: true });
+}));
+
+router.put('/products/:id', handle(async (req, res) => {
+    await grocy.updateProduct(parseInt(req.params.id), req.body);
     res.json({ ok: true });
 }));
 
