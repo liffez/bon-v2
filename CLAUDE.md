@@ -87,15 +87,18 @@ bon-v2/
 │   ├── users.js      ← /api/users (admin CRUD)
 │   ├── mail.js       ← /api/mail/* (admin, skabeloner + test)
 │   ├── dashboard.js  ← /api/dashboard/* (today, stats, top-products, weather)
-│   └── invoices.js   ← /api/invoices/queue (fakturerings-arbejdsliste)
+│   ├── invoices.js   ← /api/invoices/queue (fakturerings-arbejdsliste)
+│   ├── horkram.js    ← /api/horkram/* (Hørkram API proxy: basket, search, orders)
+│   ├── purchasing.js ← /api/purchasing/* (suppliers, grocy-locations CRUD)
+│   ├── orders.js     ← /api/orders/* (purchase_orders CRUD)
+│   └── receiving.js  ← /api/receiving/complete (fusion: Grocy + Whiteboard + PO)
 ├── services/
-│   ├── grocyAdapter.js       ← Grocy API adapter med cache + CRUD + consume
+│   ├── grocyAdapter.js       ← Grocy API adapter med cache + CRUD + consume + barcodes
+│   ├── hokaAdapter.js        ← Hørkram (hoka.dk) API adapter med cookie-jar auth
 │   ├── ingredientResolver.js ← Rekursiv ingrediens-opløsning inkl. underopskrifter
 │   ├── smartplanAdapter.js   ← Smartplan OAuth2 adapter (shifts + worklogs)
 │   ├── mailService.js        ← SMTP afsendelse + IMAP polling + tag-routing
 │   └── quConvert.js          ← Grocy quantity unit conversions
-├── routes/
-│   └── dashboard.js  ← /api/dashboard/* (today, stats, top-products)
 ├── db/
 │   ├── database.js      ← getDb() singleton (lazy init + migrations)
 │   ├── compat.js        ← openDb() wrapper + transaction() helper (node:sqlite kompatibilitet)
@@ -124,6 +127,9 @@ bon-v2/
 │   ├── recipe_designer.js + recipe_designer.css ← Opskrift-editor (CRUD mod Grocy)
 │   ├── stock_overview.js + stock_overview.css  ← Lageroversigt (filtre, status-pills, inline-edit)
 │   ├── inventory_check.js + inventory_check.css ← Fysisk optælling (multi-unit, progress, summary)
+│   ├── indkob.js + indkob.css                  ← Indkøb (merged: indkøbsliste + bestilling, accordion UI)
+│   ├── varemodtagelse.js + varemodtagelse.css  ← Varemodtagelse (ordremodtagelse, Grocy add-stock)
+│   │   [shopping_list.js + bestilling.js udgår når indkob.js er verificeret]
 │   ├── kitchen-topbar.html         ← Fælles topbar for kitchen-views
 │   ├── api.js        ← Frontend API-funktioner
 │   ├── utils.js      ← Status-mapping, connectSSE(), mapApiBonToCardData(), scrollToBonHash()
@@ -160,6 +166,65 @@ Nye filer placeres præcis der de hører hjemme — kopieres ikke.
 - **Transactions via `transaction(db, fn)`** — aldrig `db.transaction()` (eksisterer ikke i node:sqlite)
 - **`logChange({...})`** — objekt-API, aldrig positionelle argumenter
 - **Nye npm-pakker kræver godkendelse** — spørg først, og ingen native/compiled pakker
+
+---
+
+## Grocy userfields (skal oprettes manuelt i Grocy)
+
+Disse userfields skal eksistere i Grocy for at systemet fungerer korrekt.
+Oprettes under Grocy → Manage master data → Userfields.
+
+### product_barcodes (entity: product_barcodes)
+
+| Userfield | Type | Bruges af | Beskrivelse |
+|-----------|------|-----------|-------------|
+| `is_agreement_item` | text_single_line | Indkøb (chips) | `'1'` = aftalepris. Sættes af Hørkram scraper eller fra live snapshot. Aftale-chips sorteres fremfor billigste. |
+| `pack_size_stock_unit` | text_single_line | Indkøb (beregning, fallback) | Pakke-størrelse i stock-enhed (kg). Fallback når live snapshot ikke er tilgængeligt. |
+| `supplier_unit_code` | text_single_line | Indkøb → Hoka kurv | Hokas salesUnit code (fx `'ks'`, `'st'`). Bruges ved PUT /api/horkram/basket/add. Sættes ved barcode-kobling. |
+| `supplier_unit_qty` | text_single_line | Indkøb → Hoka kurv | Antal base-enheder pr. salesUnit. Bruges sammen med supplier_unit_code. |
+| `is_preferred` | text_single_line | Indkøb (chip-sortering) | `'1'` = foretrukken leverandør for dette produkt. Vises med lilla "Foretrukket" badge. Sorteres allerførst — før aftale og pris. |
+| `hk_scraped_at` | text_single_line | Hørkram scraper | ISO timestamp for seneste scraping af denne barcode. |
+
+### recipes (entity: recipes)
+
+| Userfield | Type (Grocy) | Bruges af | Beskrivelse |
+|-----------|-------------|-----------|-------------|
+| `grupper` | preset-checklist | Opskrifter, VarePicker | Kategori/gruppe (fx "01 Sandwich", "02 Salat") |
+| `recipeunit` | preset-checklist | Opskrifter | Opskrift-enhed (stk, portion) |
+| `recipeunitnumber` | number-decimal | Opskrifter | Antal enheder pr. opskrift |
+| `SalespriceStore` | number-decimal | VarePicker | Salgspris butik |
+| `SalespriceCatering` | number-decimal | VarePicker | Salgspris catering |
+| `SalespriceFestival` | number-decimal | VarePicker | Salgspris festival |
+| `SalespriceProduktion` | number-integral | VarePicker | Salgspris produktion |
+| `SalespriceWaiste` | number-integral | VarePicker | Salgspris waiste |
+| `sellable` | checkbox | VarePicker | Salgbar (vises i picker) |
+| `sellableZettle` | checkbox | POS | Salg via Zettle |
+| `Co2e` | number-decimal | VarePicker | CO2-aftryk per enhed |
+| `costprice` | number-decimal | VarePicker | Kostpris (fallback — primært bruges Grocy fulfillment `costs`) |
+| `Oeko` | checkbox | VarePicker | Økologisk markering |
+
+### products (entity: products)
+
+| Userfield | Type (Grocy) | Bruges af | Beskrivelse |
+|-----------|-------------|-----------|-------------|
+| `HverDag` | text-single-line | Lageroptælling | Interval i dage for check-frekvens |
+| `LastCheckedAt` | datetime | Lageroptælling | ISO timestamp for sidst-tjekket |
+| `LastCheckedUnit` | text-single-line | Lageroptælling | Hvilken fysisk enhed der sidst blev talt |
+| `Co2e` | number-decimal | VarePicker | CO2-aftryk per enhed |
+| `supplier_price_per_kg` | text_single_line | Hørkram scraper | Indkøbspris pr. kg fra leverandør |
+| `price_updated_at` | text_single_line | Hørkram scraper | Timestamp for prisopdatering |
+| `hk_organic` | text_single_line | Hørkram scraper | Økologisk status fra Hørkram |
+| `hk_country` | text_single_line | Hørkram scraper | Oprindelsesland fra Hørkram |
+| `hk_allergens` | text_single_line | Hørkram scraper | Allergener fra Hørkram |
+
+### shopping_list (entity: shopping_list)
+
+| Userfield | Type | Bruges af | Beskrivelse |
+|-----------|------|-----------|-------------|
+| `ordered_at` | text_single_line | Bestilling | ISO timestamp for hvornår varen blev bestilt |
+| `ordered_qty` | text_single_line | Bestilling | Bestilt antal |
+| `ordered_supplier` | text_single_line | Bestilling | Leverandørnavn |
+| `ordered_varenr` | text_single_line | Bestilling | Leverandørens varenummer |
 
 ---
 
@@ -525,33 +590,108 @@ Nye filer placeres præcis der de hører hjemme — kopieres ikke.
 - [x] Dashboard Lager-kort linker til `/kitchen/stock.html`
 - [x] Lager tilføjet i MERE dropdown på alle kitchen views
 
-### Fase 6 — Indkøb & Bestilling (påbegyndt)
-- [x] **Indkøbsliste**: `shared/shopping_list.js` + `shared/shopping_list.css`
-  - Henter Grocy shopping list + produkter + grupper + leverandører + enheder
-  - Gruppering: efter leverandør, produktgruppe, eller ingen
-  - Søgning med debounce
-  - Quick actions: Tilføj manglende (📉), Udløbende (⏰), Overskredet (📅)
-  - Afkrydsning med localStorage persistens
-  - Expand per vare med "Ret antal" og "Fjern"
-  - Tilføj vare manuelt med produkt-autocomplete
-  - Ryd afkrydsede / Ryd hele listen
-- [x] **Backend**: 10 nye Grocy proxy-endpoints i `routes/grocy.js`
+### Fase 6 — Indkøb & Bestilling
+
+#### Fase 6 — Fundament (komplet)
+- [x] **Backend Grocy proxy-endpoints** i `routes/grocy.js`:
   - `GET /api/grocy/shopping-list`, `DELETE /api/grocy/shopping-list/:id`
   - `POST /api/grocy/shopping-list/add-product`, `remove-product`, `add-missing`, `add-expired`, `add-overdue`, `clear`
   - `GET /api/grocy/shopping-locations`
-  - grocyAdapter: håndterer Grocy's 204 No Content svar korrekt
-- [x] **`kitchen/purchasing.html`** — Indkøbs-side med 3 tabs:
-  - Indkøbsliste (aktiv), Bestilling (placeholder), Varemodtagelse (placeholder)
-  - Dashboard Indkøb-kort + MERE dropdown linker hertil
-- [x] `shared/api.js` — 10 nye shopping list funktioner
-- [x] **Grocy QU-verifikation** — grundig analyse af quantity unit konverteringer
-  - `recipes_pos.amount` er i stock-units, `qu_id` er display-enhed
-  - Grocy konverterer selv ved visning: `amount × factor(stock→display)`
-  - Consume sender stock-units direkte (korrekt)
-  - Display konverterer via `convertAndFormat()` (korrekt)
-  - `scripts/fix-grocy-qu.js` — migrations-script til reference (ikke anvendt, DB var korrekt)
-- [ ] **Bestilling** — Hørkram integration (`hokaAdapter.js` + `orders.js` klar i `tools/bestiliing/`)
-- [ ] **Varemodtagelse** — fusion-endpoint (Grocy lager + Whiteboard FVST-log)
+  - `GET/POST /api/grocy/product-barcodes`, `PUT /api/grocy/shopping-list/:id`
+  - `PUT /api/grocy/products/:id/userfields`
+- [x] **`routes/purchasing.js`** — leverandør-/grocy-location management
+  - `GET /api/purchasing/suppliers?location_id=` — leverandører med grocy-locations
+  - `GET/POST /api/purchasing/suppliers/grocy-locations` — kobling-status + link
+  - `DELETE /api/purchasing/suppliers/grocy-locations/:id` — unlink
+- [x] **`routes/horkram.js`** — komplet selvstændig Hørkram proxy (ingen hokaAdapter-afhængighed)
+  - Anti-forgery CSRF-token, cookie-jar auth, auto-retry ved 401/403
+  - `GET /api/horkram/snapshots?ids=` — batch snapshot, max 20 pr. kald, auto-chunking
+  - `PUT /api/horkram/basket/add` — CSRF-token + auto-basket-ID + salesUnit
+  - `GET /api/horkram/favorites/:id/all` — auto-pagineret favorit-hentning
+  - `GET /api/horkram/product/:varenr`, `/search`, `/favorites`, `/delivery-dates`, `/orders`
+  - Env-vars: `HORKRAM_USER` + `HORKRAM_PASS`
+- [x] **`services/hokaParser.js`** — normaliserer Hoka API-data (parseProduct, parseSearchResults, parseFavoriteProducts, parseSnapshotToSummary)
+- [x] **`services/grocyAdapter.js`** — `getProductBarcodes()`, `createProductBarcode()`, `updateShoppingListItem()`
+- [x] **Migration 030_purchasing_v2.sql** — `supplier_grocy_locations`, `webshop_url`, `integration_type` udvidet med `'webshop'`
+- [x] **Migration 031_duplicate_candidates.sql** — duplikat-logging ved barcode-flytning
+- [x] **Duplikat-detection** — Settings → Duplikater admin-oversigt med filter + action-knapper
+- [x] **`shared/varemodtagelse.js`** + `varemodtagelse.css`
+  - Ordreliste med ventende purchase_orders, pre-udfyldte qty, auto-detect afvigelsestype
+  - `POST /api/receiving/complete` → Grocy add-stock + Whiteboard FVST
+  - Delvis modtagelse: reducer shopping_list qty (slet ikke hele linjen)
+- [x] **Grocy QU-verifikation** — `recipes_pos.amount` er i stock-units (korrekt)
+- [x] `shared/api.js` — alle purchasing/hoka/barcodes/orders/receiving-funktioner
+
+#### Fase 6b — Nyt indkøbskomponent `shared/indkob.js` (AKTIV SPRINT)
+> Spec: `docs/CLAUDE_INDKOB.md` · Mockup: `docs/indkob_mockup_v3.html`
+> Test: `docs/CLAUDE_TEST_INDKOB.md`
+> Erstatter `shared/shopping_list.js` + `shared/bestilling.js` fuldstændigt.
+> Læs spec OG mockup FØR du skriver en linje kode.
+
+- [ ] **`shared/indkob.js`** — merged indkøbsliste + bestilling, accordion UI
+  - State-prefix: `_ib` · Entry: `initIndkob(containerEl)`
+  - Init-flow: `_ibEnsureUserfields` → `_ibLoadAll` → `_ibBuildGroups` → `_ibEnrichSnapshots` → `_ibRender` → `_ibLoadFavCache` (non-blocking)
+  - **Sticky toolbar**: Søg · + Tilføj vare · 📉 Manglende (N) · ⏰ Udløbende (N) · ≡/⊡ toggle
+  - **Inline panels**: Manglende + Udløbende som expandable banners under toolbar
+  - **Accordion** med toggle til Fokus-visning (én leverandørgruppe fylder skærmen)
+  - **Fire leverandørgruppe-typer**:
+    - `api` (Hørkram): grøn, "Gå til kurv →", per-vare "Læg i kurv"
+    - `email`/`manual`: blå, "Registrér bestilling" → kopiér/mail/ring-dialog
+    - `intern` (RR Produktion): lilla, "Opret produktionsbon →"
+  - **Chips** (inline pakkeform/leverandør) — sortering: `is_preferred` → aftale → billigst/kg
+    - Viser: pakkeform · pris · kr/kg · varenr · leveringsinfo
+    - Multi-leverandør per vare (fx Burgerlommer: Serviwet + Hørkram + Inco)
+  - **Antal-kontrol**: `[−]` · `[input type=number]` · `[+]` — direkte redigérbart
+  - **Calc-linje**: `= 10 kg · dækker 3 kg behov · 8,9 kr/kg valgt`
+  - **Pris pr. kg** som standard (alle varer har kg som grundenhed i Grocy)
+  - **Bestilt-sektion** kollapseret nederst i gruppe, "Fortryd"-knap
+  - **Kobling af umatchede varer**: inline link-panel, favorites-first søgning
+  - **Auto-genererede INT-varenumre** for leverandører uden katalog (fx Oluf/Trykkerifriheden)
+  - `_ibEnsureUserfields()` — auto-opret `ordered_*` userfields i Grocy ved første kørsel
+  - `_ibLoadFavCache()` — baggrunds-load af Hoka-favoritter til instant-søgning
+- [ ] **`shared/indkob.css`**
+- [ ] **`kitchen/purchasing.html`** omskrives til 2 tabs: `[ Indkøb ]  [ Varemodtagelse ]`
+  - Init-guard: `initIndkob()` køres én gang
+  - Container uden padding (indkob.js håndterer layout)
+- [ ] **Migration 032**: `integration_type` CHECK udvides med `'intern'` på suppliers
+- [ ] **Verificér** `routes/horkram.js` endpoint er `/snapshots` (ikke `/products/snapshots`)
+- [ ] `shared/shopping_list.js` + `shopping_list.css` + `bestilling.js` + `bestilling.css` **udgår**
+
+**Kendte begrænsninger der skal løses under implementering:**
+
+| Feature | Status | Prioritet |
+|---------|--------|-----------|
+| "Tilføj vare" dialog | Placeholder toast → skal implementeres | Høj — bruger skal kunne tilføje manuelt |
+| Produktionsbon-oprettelse | Placeholder toast → `createBon({type:'intern',...})` | Medium |
+| INT-varenumre (auto-genereret) | Kode skrevet, ikke testet | Lav — test med rigtige data |
+| Multi-leverandør chips | Virker via barcodes | OK — test med reelle data fra grocytest |
+| `_ibEnsureUserfields()` | Skippet (userfields eksisterer) | Tilføj som safety check alligevel |
+
+#### Fase 6c — Settings: Indkøbsindstillinger (efter 6b verificeret)
+> Spec: `docs/CLAUDE_SETTINGS_INDKOB.md` · Mockup: `docs/settings_mockup.html`
+> Test: `docs/CLAUDE_TEST_INDKOB.md` sektionerne 6A–6D + 7
+> Læs spec OG mockup FØR du begynder.
+
+- [ ] **Migration 032**: `integration_type` CHECK udvides med `'intern'` *(flyttes her fra 6b hvis ikke allerede gjort)*
+- [ ] **`routes/purchasing.js`** — tilføj CRUD endpoints:
+  - `GET /api/purchasing/suppliers/:id`
+  - `POST /api/purchasing/suppliers`
+  - `PATCH /api/purchasing/suppliers/:id`
+  - `DELETE /api/purchasing/suppliers/:id` (soft delete: `is_active = 0`)
+- [ ] **`shared/indkob_settings.js`** + `indkob_settings.css` — fælles settings-komponent
+  - Entry: `initIndkobSettings(containerEl, { mode: 'panel'|'page' })`
+  - State-prefix: `_is`
+  - **Tab 1 — Leverandører**: CRUD-tabel + inline redigering + Grocy-location kobling (auto-save dropdown)
+  - **Tab 2 — Produkter**: konfigurerbar batch-tabel (kolonne-chips, localStorage-præferencer, bulk-gem til Grocy)
+  - **Tab 3 — Hørkram**: opslag · favoritter · ny kobling · alle koblinger · prisopdatering
+- [ ] **`kitchen/purchasing.html`** — tilføj ⚙ gear-knap i toolbar + slide-in container
+  - `toggleIndkobSettings()` — lazy init, Escape lukker
+- [ ] **`office/views/settings.js`** — tilføj "Indkøb" sektion der mounter `indkob_settings.js` i `mode: 'page'`
+
+#### Fase 6d — E-mail ordrer + dropsize (efter 6c)
+- [ ] Dropsize-check ved Hørkram-bestilling (`GET /api/horkram/dropsize`)
+- [ ] Auto-genereret ordremail til leverandør ved "Registrér bestilling"
+- [ ] CO2-rapport på Hørkram-ordrer
 
 ### Fase 7 — CRM-modul
 - [x] Migration 019: `crm_activities` genskabt med `service_call`/`result`/`sentiment`, `bons.is_internal`, `companies.is_internal`
@@ -779,12 +919,23 @@ Nye filer placeres præcis der de hører hjemme — kopieres ikke.
 
 ## Næste opgave
 
-> ✏️ Opdateret 8. april 2026.
+> ✏️ Opdateret 10. april 2026.
 >
-> **Fase 1a–1e + 3A + 3B + 3D + 4 + 5 + 6 (indkøbsliste) + 7 (CRM) + Office CRM redesign + 8 (Fakturering) + 9 (Tilbud) + Mail-vedhæftninger + CRM service-kald + Firma-oprydning komplet.**
+> **Fase 1a–1e + 3A + 3B + 3D + 4 + 5 + 6-fundament (shopping_list, bestilling, varemodtagelse, horkram) + 7 (CRM) + Office CRM redesign + 8 (Fakturering) + 9 (Tilbud) + Mail-vedhæftninger + CRM service-kald + Firma-oprydning komplet.**
 >
-> **Næste:** Bestilling (Hørkram montering), Varemodtagelse (fusion-endpoint),
-> Priser-setting i planlægningsbon, Ugeoversigt.
+> **Aktiv sprint:** Fase 6b — `shared/indkob.js` (merged indkøbsliste + bestilling).
+> Spec: `docs/CLAUDE_INDKOB.md` · Mockup: `docs/indkob_mockup_v3.html` · Test: `docs/CLAUDE_TEST_INDKOB.md`
+> Læs alle tre FØR du starter.
+>
+> **OBS — kendte begrænsninger i 6b der skal implementeres (ikke bare placeholder):**
+> - "Tilføj vare" dialog (høj prioritet)
+> - `_ibEnsureUserfields()` skal med som safety check
+> - Test INT-varenumre og multi-leverandør chips med reelle grocytest-data
+>
+> **Derefter:** Fase 6c (indkøbsindstillinger-panel + office settings).
+> Spec: `docs/CLAUDE_SETTINGS_INDKOB.md` · Mockup: `docs/settings_mockup.html`
+>
+> **Så:** Fase 6d (e-mail ordrer, dropsize), Priser i planlægningsbon, Ugeoversigt.
 > Så er Bon v1 klar til nedlukning.
 >
 > **Åbne afhængigheder:**
@@ -793,16 +944,17 @@ Nye filer placeres præcis der de hører hjemme — kopieres ikke.
 > - Byekspressen credentials — ryk sebastian@by-expressen.dk
 > - Formbuilder webhook-URL + HTML til ristetrug.dk/bestil — sættes når 1c er stabilt
 > - Whiteboard API URL — `https://whiteboard.ristetrug.dk` (localhost til test)
-> - Hørkram credentials — `HOKA_USERNAME` + `HOKA_PASSWORD` i `.env`
+> - ~~Hørkram credentials~~ — `HOKA_USERNAME` + `HOKA_PASSWORD` sat i `.env`
 > - CVR review: ~622 auto-matchede firmaer bør gennemgås for fejl (brug `fix-cvr.js`)
+> - Inco credentials — til webshop-login (har også API, men bruges ikke endnu)
+> - `services/hokaAdapter.js` — bruges ikke af bestillingsflowet (erstattet af proxy-logik i `routes/horkram.js`). Review om den skal slettes eller beholdes til andre formål.
 >
 > **Åbne design-beslutninger:**
 > - Priser i planlægningsbon: setting `show_prices_in_planning` (default false)
 >   Styrer om salgspris/kostpris/margin vises i planlægningsbon.
 >   Implementeres som setting i settings-tabellen, bruges i planning.js til at vise/skjule priskolonner.
 > - shared/-mappe opdeling i undermapper — udskydes til senere refaktorering
-> - orders.js migrering fra JSON-fil til SQLite — bør ske inden bestilling tages i brug
-> - Varemodtagelse fusion-endpoint arkitektur: `POST /api/receiving/complete` → Grocy + Whiteboard + lokal log
+> - ~~orders.js migrering fra JSON-fil til SQLite~~ — routes/orders.js bruger SQLite (tools/bestiliing/orders.js JSON-version er deprecated)
 >
 > **Beslutninger taget:**
 > - Kalender er separat sidebar-punkt i office (ikke fane i listview)
@@ -829,6 +981,30 @@ Nye filer placeres præcis der de hører hjemme — kopieres ikke.
 > - CVR-opslag: Virk ElasticSearch (primær, ingen rate limit) + NemHandel (EAN) + cvrapi.dk (fallback, har rate limit)
 > - `legal_name` på companies: juridisk navn fra CVR, vises i fakturering
 > - sync-v1.js: bevarer CVR/legal_name/notes ved update, matcher på EAN for mergede firmaer
+> - Bestilling: `siteId` i JS = Ristet Rugs lokation (HQ/Trailer), `grocyLocationId` = Grocy shopping_location — DB-kolonner forbliver `location_id`/`grocy_location_id`
+> - Bestilling: ét leverandørkort pr. `grocy_location_id` (ikke pr. supplier) — Inco har 2 handelssteder = 2 kort
+> - Bestilling: `integration_type` driver adfærd — `api` (Hørkram kurv), `webshop` (åbn URL), `email`/`manual` (kopiér/mail/ring), `intern` (produktionsbon)
+> - Bestilling: V2 afgiver ALDRIG ordren — kun `putBasketProducts()`, brugeren godkender på hoka.dk
+> - Bestilling: inline leverandør-kobling i indkøbsvisning (link-panel med favorites-first søgning)
+> - Indkøb: `shopping_list.js` + `bestilling.js` erstattes af `indkob.js` — kunstig opdeling fjernes
+> - Indkøb: to tabs i purchasing.html — `[ Indkøb ]` og `[ Varemodtagelse ]` (3 tabs → 2)
+> - Indkøb: accordion som standard, toggle til fokus-visning per leverandørgruppe
+> - Indkøb: chips (inline pakkeform/leverandør) efter varenavn — ikke separate pills nedenunder
+> - Indkøb: multi-leverandør per vare via chips — Burgerlommer viser Serviwet + Hørkram + Inco
+> - Indkøb: barcode-sortering — `is_preferred` → aftale → billigst pr. kg
+> - Indkøb: pris pr. kg som standard (Grocy har kg som grundenhed på alle varer)
+> - Indkøb: auto-genererede INT-varenumre for leverandører uden katalog (fx Oluf/Trykkerifriheden)
+> - Indkøb: `integration_type: 'intern'` på suppliers (RR Produktion) — kun i V2, ikke Grocy
+> - Indkøb: bestilte varer forbliver på listen med "Bestilt"-badge + dato, kollapseret i bunden af gruppe
+> - Indkøb: Manglende + Udløbende er inline expandable banners (mini-lister, ikke modaler)
+> - Varemodtagelse: delvis modtagelse reducerer Grocy shopping_list qty (slet IKKE hele linjen)
+> - Varemodtagelse: bruger eksisterende `POST /api/receiving/complete` fusion-endpoint
+> - Varemodtagelse: FVST-registrering forbliver på Whiteboard (sekundær link), Grocy lager-registrering i Bon v2
+> - Settings: indkøbsindstillinger er ét fælles komponent (`indkob_settings.js`) monteret to steder — slide-in panel i kitchen (⚙ knap), fuld side i office Settings → Indkøb
+> - Settings: kitchen-panel er zone-aware (viser kun indkøbs-relevante settings), office viser det samme + systemindstillinger
+> - Settings produkter: konfigurerbar tabel med kolonne-chips — præferencer gemmes i localStorage
+> - Settings Hørkram: prisopdatering er manuelt trigger ("Opdater nu") + valgfri daglig cron via `system_settings`
+> - `routes/purchasing.js` mangler CRUD endpoints (GET/:id, POST, PATCH, DELETE) — tilføjes i Fase 6c
 
 ---
 
@@ -1028,12 +1204,11 @@ Kyllingefilet     2,4 kg      8,2 kg
 
 
 
-### OPGAVE 6 (næste): Indkøb & Bestilling
+### ~~OPGAVE 6 (done): Indkøb & Bestilling~~
 
-**Moduloversigt (se `bon_v2_zoner_og_layout.md` sektion 3):**
-- Indkøb = `kitchen/purchasing.html` — liste + hvad afventer
-- Bestilling = `kitchen/orders.html` — PO, leverandørpriser, varemodtagelse (faner)
-- Varemodtagelse er en fane i Bestilling — 2 trin: Fødevarekontrol → Lager (Grocy)
+**Implementeret som Fase 6a.** Se "Fase 6 — Indkøb & Bestilling" sektionen ovenfor.
+`kitchen/purchasing.html` har 3 tabs: Indkøbsliste, Bestilling, Varemodtagelse.
+Bestilling og Varemodtagelse er nye i denne fase.
 
 ---
 
@@ -1138,6 +1313,28 @@ POST   /api/quotes/:id/convert                           routes/quotes.js (tilbu
 POST   /api/attachments/upload                             routes/attachments.js (multipart)
 GET    /api/attachments/:id/download                       routes/attachments.js
 GET    /api/attachments/mail/:id/download                  routes/attachments.js
+GET    /api/purchasing/suppliers?location_id=               routes/purchasing.js
+GET    /api/purchasing/suppliers/grocy-locations            routes/purchasing.js
+POST   /api/purchasing/suppliers/grocy-locations            routes/purchasing.js
+DELETE /api/purchasing/suppliers/grocy-locations/:id        routes/purchasing.js
+GET    /api/horkram/health                                 routes/horkram.js
+GET    /api/horkram/search?q=                              routes/horkram.js
+GET    /api/horkram/products/snapshots?ids=&date=          routes/horkram.js
+PUT    /api/horkram/basket                                 routes/horkram.js
+GET    /api/horkram/delivery-dates                         routes/horkram.js
+POST   /api/horkram/order                                  routes/horkram.js
+GET    /api/horkram/orders                                 routes/horkram.js
+GET    /api/orders/pending                                 routes/orders.js
+GET    /api/orders/pending/:id                             routes/orders.js
+POST   /api/orders/pending                                 routes/orders.js
+PUT    /api/orders/pending/:id                             routes/orders.js
+DELETE /api/orders/pending/:id                             routes/orders.js
+GET    /api/orders/archive                                 routes/orders.js
+POST   /api/receiving/complete                             routes/receiving.js
+GET    /api/receiving/log                                  routes/receiving.js
+GET    /api/grocy/product-barcodes                         routes/grocy.js
+POST   /api/grocy/product-barcodes                         routes/grocy.js
+PUT    /api/grocy/shopping-list/:id                        routes/grocy.js
 ```
 
 ---

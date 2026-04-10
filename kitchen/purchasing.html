@@ -9,9 +9,9 @@
     <link href="https://fonts.googleapis.com/css2?family=Lato:wght@400;700&display=swap" rel="stylesheet">
     <link rel="stylesheet" href="/shared/tokens.css">
     <link rel="stylesheet" href="/shared/kitchen_topbar.css">
-    <link rel="stylesheet" href="/shared/shopping_list.css">
+    <link rel="stylesheet" href="/shared/indkob.css">
+    <link rel="stylesheet" href="/shared/varemodtagelse.css">
     <style>
-        /* RESET + BASE */
         * { margin: 0; padding: 0; box-sizing: border-box; }
         body {
             font-family: 'Lato', sans-serif;
@@ -19,127 +19,98 @@
             color: var(--color-text);
             min-height: 100vh;
         }
-
-        /* TAB BAR */
         .tab-bar {
             background: var(--color-surface);
             border-bottom: 1px solid var(--color-border);
-            padding: 0 24px; display: flex; gap: 0;
+            padding: 0 24px;
+            display: flex;
+            gap: 0;
         }
         .tab-bar a {
-            padding: 12px 20px; font-size: 14px; font-weight: 700;
-            color: var(--color-text-dim); text-decoration: none;
-            border-bottom: 3px solid transparent; transition: all 0.15s; cursor: pointer;
+            padding: 12px 20px;
+            font-size: 14px;
+            font-weight: 700;
+            color: var(--color-text-dim);
+            text-decoration: none;
+            border-bottom: 3px solid transparent;
+            transition: all 0.15s;
+            cursor: pointer;
         }
         .tab-bar a:hover { color: var(--color-text); }
         .tab-bar a.active { color: var(--brand-primary); border-bottom-color: var(--brand-primary); }
-        .tab-bar a.disabled {
-            opacity: 0.35; pointer-events: none; cursor: default;
-        }
-
-        /* CONTENT */
-        #shoppingListContainer { padding: 0; }
-        #orderContainer { padding: 20px 24px; display: none; }
+        #indkobContainer { /* no padding — indkob.js handles layout */ }
         #receivingContainer { padding: 20px 24px; display: none; }
-
-        .placeholder-msg {
-            text-align: center; padding: 60px 20px;
-            color: var(--color-text-dim);
-        }
-        .placeholder-msg .ph-icon { font-size: 42px; margin-bottom: 12px; }
-        .placeholder-msg .ph-title { font-size: 16px; font-weight: 700; color: var(--color-text); margin-bottom: 6px; }
-        .placeholder-msg .ph-sub { font-size: 14px; }
     </style>
 </head>
 <body class="zone-kitchen">
 
 <!-- TAB BAR -->
 <div class="tab-bar">
-    <a href="#" id="tabShopping" class="active">Indkøbsliste</a>
-    <a href="#" id="tabOrders" class="disabled">Bestilling</a>
-    <a href="#" id="tabReceiving">Varemodtagelse ↗</a>
+    <a href="#" id="tabIndkob" class="active">Indkøb</a>
+    <a href="#" id="tabReceiving">Varemodtagelse</a>
 </div>
 
 <!-- CONTENT -->
-<div id="shoppingListContainer"></div>
-<div id="orderContainer">
-    <div class="placeholder-msg">
-        <div class="ph-icon">📋</div>
-        <div class="ph-title">Bestilling</div>
-        <div class="ph-sub">Kommer snart — PO, leverandørpriser, ordreflow</div>
-    </div>
-</div>
-<div id="receivingContainer">
-    <div class="placeholder-msg">
-        <div class="ph-icon">🚛</div>
-        <div class="ph-title">Varemodtagelse</div>
-        <div class="ph-sub">Kommer snart — Fødevarekontrol + lager</div>
-    </div>
-</div>
+<div id="indkobContainer"></div>
+<div id="receivingContainer"></div>
 
 <!-- SCRIPTS -->
 <script src="/shared/zone_switcher.js"></script>
 <script src="/shared/kitchen_topbar.js"></script>
 <script src="/shared/utils.js"></script>
 <script src="/shared/api.js"></script>
-<script src="/shared/shopping_list.js"></script>
+<script src="/shared/indkob.js"></script>
+<script src="/shared/varemodtagelse.js"></script>
 <script>
-    var _shoppingInitialized = false;
+    var _indkobInitialized = false;
+    var _varemodtagelseInitialized = false;
 
     document.addEventListener('DOMContentLoaded', async function() {
         var currentUser = await checkAuth();
         if (!currentUser) return;
         renderKitchenTopbar(document.body, { user: currentUser });
 
-        var shoppingContainer = document.getElementById('shoppingListContainer');
-        var orderContainer = document.getElementById('orderContainer');
+        var indkobContainer = document.getElementById('indkobContainer');
         var receivingContainer = document.getElementById('receivingContainer');
-        var tabShopping = document.getElementById('tabShopping');
-        var tabOrders = document.getElementById('tabOrders');
+        var tabIndkob = document.getElementById('tabIndkob');
         var tabReceiving = document.getElementById('tabReceiving');
 
-        // Init shopping list by default
-        initShoppingList(shoppingContainer);
-        _shoppingInitialized = true;
+        // Init indkob by default
+        initIndkob(indkobContainer);
+        _indkobInitialized = true;
 
         // Check URL hash
-        if (window.location.hash === '#bestilling') {
-            switchTo('orders');
-        } else if (window.location.hash === '#varemodtagelse') {
+        if (window.location.hash === '#varemodtagelse') {
             switchTo('receiving');
         }
 
-        tabShopping.addEventListener('click', function(e) {
+        tabIndkob.addEventListener('click', function(e) {
             e.preventDefault();
-            switchTo('shopping');
-        });
-
-        tabOrders.addEventListener('click', function(e) {
-            e.preventDefault();
-            if (tabOrders.classList.contains('disabled')) return;
-            switchTo('orders');
+            switchTo('indkob');
         });
 
         tabReceiving.addEventListener('click', function(e) {
             e.preventDefault();
-            window.open('https://whiteboard.ristetrug.dk?open=varemodtagelse', '_blank');
+            switchTo('receiving');
         });
 
         function switchTo(tab) {
-            tabShopping.classList.toggle('active', tab === 'shopping');
-            tabOrders.classList.toggle('active', tab === 'orders');
+            tabIndkob.classList.toggle('active', tab === 'indkob');
             tabReceiving.classList.toggle('active', tab === 'receiving');
 
-            shoppingContainer.style.display = tab === 'shopping' ? 'block' : 'none';
-            orderContainer.style.display = tab === 'orders' ? 'block' : 'none';
+            indkobContainer.style.display = tab === 'indkob' ? 'block' : 'none';
             receivingContainer.style.display = tab === 'receiving' ? 'block' : 'none';
 
-            if (tab === 'shopping') window.location.hash = '';
-            if (tab === 'orders') window.location.hash = 'bestilling';
+            if (tab === 'indkob') window.location.hash = '';
             if (tab === 'receiving') window.location.hash = 'varemodtagelse';
+
+            // Varemodtagelse: reload ved hvert tab-skift
+            if (tab === 'receiving') {
+                initVaremodtagelse(receivingContainer);
+                _varemodtagelseInitialized = true;
+            }
         }
     });
-
 </script>
 </body>
 </html>

@@ -315,6 +315,9 @@ function fetchGrocyProducts() {
 function fetchGrocyStock() {
     return apiFetch('/grocy/stock');
 }
+function fetchGrocyStockVolatile(dueSoonDays) {
+    return apiFetch('/grocy/stock/volatile?due_soon_days=' + (dueSoonDays || 5));
+}
 function fetchGrocyQuantityUnits() {
     return apiFetch('/grocy/quantity-units');
 }
@@ -409,6 +412,13 @@ function clearShoppingList(listId) {
 }
 function fetchProductGroups() { return apiFetch('/grocy/product-groups'); }
 function fetchShoppingLocations() { return apiFetch('/grocy/shopping-locations'); }
+function fetchProductBarcodes() { return apiFetch('/grocy/product-barcodes'); }
+function createProductBarcode(data) {
+    return apiFetch('/grocy/product-barcodes', { method: 'POST', body: JSON.stringify(data) });
+}
+function updateShoppingListItem(id, fields) {
+    return apiFetch('/grocy/shopping-list/' + id, { method: 'PUT', body: JSON.stringify(fields) });
+}
 
 /* ── BON MAIL ───────────────────────────────────────────── */
 
@@ -634,6 +644,88 @@ function convertQuoteToBon(id) {
 
 function fetchNextQuoteNumber() {
     return apiFetch('/quotes/next-number');
+}
+
+/* ── PURCHASING (leverandører + grocy-locations) ──────── */
+
+function fetchPurchasingSuppliers(siteId) {
+    var qs = siteId ? '?location_id=' + siteId : '';
+    return apiFetch('/purchasing/suppliers' + qs);
+}
+
+function fetchPurchasingGrocyLocations() {
+    return apiFetch('/purchasing/suppliers/grocy-locations');
+}
+
+function linkGrocyLocation(data) {
+    return apiFetch('/purchasing/suppliers/grocy-locations', {
+        method: 'POST', body: JSON.stringify(data),
+    });
+}
+
+function unlinkGrocyLocation(grocyLocationId) {
+    return apiFetch('/purchasing/suppliers/grocy-locations/' + grocyLocationId, { method: 'DELETE' });
+}
+
+/* ── HOKA (Hørkram via /api/horkram — parsed data) ───── */
+
+function fetchHokaStatus() { return apiFetch('/horkram/health'); }
+
+/** Søg i Hoka-katalog — returnerer { totalResults, results: [{varenummer, name, ...}] } */
+function fetchHokaSearch(q) { return apiFetch('/horkram/search?q=' + encodeURIComponent(q)); }
+
+/** Hent enkelt produkt med fulde detaljer — returnerer parsed produkt */
+function fetchHokaProduct(varenr) { return apiFetch('/horkram/product/' + varenr); }
+
+/** Batch snapshots — returnerer { products: [{varenummer, name, salesUnits, ...}] } */
+function fetchHokaSnapshots(ids, date) {
+    var qs = 'ids=' + ids.join(',');
+    if (date) qs += '&date=' + date;
+    return apiFetch('/horkram/snapshots?' + qs);
+}
+
+/** Favorit-lister — returnerer { lists: [{id, name, type}] } */
+function fetchHokaFavorites() { return apiFetch('/horkram/favorites'); }
+
+/** ALLE produkter i en favorit-liste (auto-pagineret) — returnerer { products: [...] } */
+function fetchHokaFavoritesAll(listId) { return apiFetch('/horkram/favorites/' + encodeURIComponent(listId) + '/all'); }
+
+/** Leveringsdatoer */
+function fetchHokaDeliveryDates() { return apiFetch('/horkram/delivery-dates'); }
+
+/** Læg varer i kurv — PUT /api/horkram/basket/add med CSRF-token */
+function putHokaBasket(products) {
+    return apiFetch('/horkram/basket/add', {
+        method: 'PUT', body: JSON.stringify({ products: products }),
+    });
+}
+
+function fetchHokaOrders() { return apiFetch('/horkram/orders'); }
+
+/* ── PURCHASE ORDERS (/api/orders) ───────────────────── */
+
+function fetchPendingOrders() { return apiFetch('/orders/pending'); }
+
+function fetchPendingOrder(id) { return apiFetch('/orders/pending/' + id); }
+
+function createPendingOrder(data) {
+    return apiFetch('/orders/pending', {
+        method: 'POST', body: JSON.stringify(data),
+    });
+}
+
+function updatePendingOrder(id, data) {
+    return apiFetch('/orders/pending/' + id, {
+        method: 'PUT', body: JSON.stringify(data),
+    });
+}
+
+/* ── RECEIVING (/api/receiving) ──────────────────────── */
+
+function postReceivingComplete(data) {
+    return apiFetch('/receiving/complete', {
+        method: 'POST', body: JSON.stringify(data),
+    });
 }
 
 /* ── REPORTS ──────────────────────────────────────────── */

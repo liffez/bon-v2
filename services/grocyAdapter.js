@@ -344,6 +344,17 @@ function getStock() {
     return cachedFetch('stock', '/stock');
 }
 
+/** Udløbende, overskredet og manglende varer (ikke cached — volatile data) */
+async function getStockVolatile(dueSoonDays) {
+    var days = dueSoonDays || 5;
+    var { url, key } = await getGrocyConfig();
+    var res = await fetch(url + '/stock/volatile?due_soon_days=' + days, {
+        headers: { 'GROCY-API-KEY': key, 'Accept': 'application/json' },
+    });
+    if (!res.ok) throw new Error('Grocy stock/volatile: ' + res.status);
+    return res.json();
+}
+
 /** Alle enhedstyper (stk, kg, liter …) */
 function getQuantityUnits() {
     return cachedFetch('quantity_units', '/objects/quantity_units');
@@ -453,6 +464,41 @@ async function clearShoppingList(listId) {
 /** Alle indkøbslokationer */
 function getShoppingLocations() {
     return cachedFetch('shopping_locations', '/objects/shopping_locations');
+}
+
+/** Alle produkt-barcodes (cached, bruges til leverandør-matching i bestilling) */
+function getProductBarcodes() {
+    return cachedFetch('product_barcodes', '/objects/product_barcodes');
+}
+
+/** Opret ny produkt-barcode (kobl vare til leverandør-varenr.) */
+async function createProductBarcode(body) {
+    const result = await grocyPost('/objects/product_barcodes', body);
+    _cache.delete('product_barcodes');
+    return result;
+}
+
+/** Slet produkt-barcode (bruges ved flytning af kobling) */
+async function deleteProductBarcode(id) {
+    await grocyDelete(`/objects/product_barcodes/${id}`);
+    _cache.delete('product_barcodes');
+}
+
+/**
+ * Opdater userfields på en shopping_list-linje (fx ordered_* userfields).
+ * Grocy kræver at userfields opdateres via /userfields/ endpoint — ikke via /objects/.
+ */
+async function updateShoppingListItem(id, fields) {
+    // Hvis der er userfields, send dem via userfields-endpoint
+    if (fields.userfields) {
+        await grocyPut(`/userfields/shopping_list/${id}`, fields.userfields);
+    }
+    // Hvis der er andre felter (amount etc.), send via objects-endpoint
+    const otherFields = Object.assign({}, fields);
+    delete otherFields.userfields;
+    if (Object.keys(otherFields).length > 0) {
+        await grocyPut(`/objects/shopping_list/${id}`, otherFields);
+    }
 }
 
 /**
@@ -591,6 +637,7 @@ module.exports = {
     getRecipeNestings,
     getProducts,
     getStock,
+    getStockVolatile,
     getLocations,
     getProductGroups,
     getQuantityUnits,
@@ -625,6 +672,10 @@ module.exports = {
     addOverdueProducts,
     clearShoppingList,
     getShoppingLocations,
+    getProductBarcodes,
+    createProductBarcode,
+    deleteProductBarcode,
+    updateShoppingListItem,
     // Cache
     clearCache,
 };

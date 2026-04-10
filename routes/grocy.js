@@ -42,6 +42,11 @@ router.get('/stock', handle(async (req, res) => {
     res.json(await grocy.getStock());
 }));
 
+router.get('/stock/volatile', handle(async (req, res) => {
+    var days = parseInt(req.query.due_soon_days) || 5;
+    res.json(await grocy.getStockVolatile(days));
+}));
+
 router.get('/quantity-units', handle(async (req, res) => {
     res.json(await grocy.getQuantityUnits());
 }));
@@ -225,6 +230,29 @@ router.post('/shopping-list/clear', handle(async (req, res) => {
 
 router.get('/shopping-locations', handle(async (req, res) => {
     res.json(await grocy.getShoppingLocations());
+}));
+
+/* ── Produkt-barcodes ────────────────────────────────────── */
+
+router.get('/product-barcodes', handle(async (req, res) => {
+    res.json(await grocy.getProductBarcodes());
+}));
+
+router.post('/product-barcodes', handle(async (req, res) => {
+    const result = await grocy.createProductBarcode(req.body);
+    res.json(result);
+}));
+
+router.delete('/product-barcodes/:id', handle(async (req, res) => {
+    await grocy.deleteProductBarcode(parseInt(req.params.id));
+    res.json({ ok: true });
+}));
+
+/* ── Shopping list item update ───────────────────────────── */
+
+router.put('/shopping-list/:id', handle(async (req, res) => {
+    await grocy.updateShoppingListItem(parseInt(req.params.id), req.body);
+    res.json({ ok: true });
 }));
 
 /* ── Indkøbsliste (legacy) ──────────────────────────────── */
