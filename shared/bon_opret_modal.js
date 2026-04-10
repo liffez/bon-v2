@@ -115,6 +115,9 @@ class BonOpretModal {
             if (e.target === this.overlay) this.close();
         });
 
+        // Priskategori change → hide/show fields for produktion
+        this.overlay.querySelector('.bon-opret-priskategori').addEventListener('change', () => this._onPriceCategoryChange());
+
         // Submit
         this.overlay.querySelector('.btn-opret').addEventListener('click', () => this._submit());
 
@@ -176,6 +179,41 @@ class BonOpretModal {
         this._hideError();
     }
 
+    _isProductionMode() {
+        const sel = this.overlay.querySelector('.bon-opret-priskategori');
+        const pcId = parseInt(sel.value);
+        const pc = this.priceCategories.find(p => p.id === pcId);
+        return pc && pc.code === 'produktion';
+    }
+
+    _onPriceCategoryChange() {
+        const isProd = this._isProductionMode();
+        // Hide/show sections
+        const kundeLabel = this.overlay.querySelector('.bon-opret-label'); // first label = "Kunde"
+        const kundeContainer = this.overlay.querySelector('.bon-opret-kunde-container');
+        const typeLabel = this.overlay.querySelectorAll('.bon-opret-label')[2]; // "Type"
+        const typeToggle = this.overlay.querySelector('.bon-opret-type-toggle');
+
+        // Find all labels
+        const labels = this.overlay.querySelectorAll('.bon-opret-label');
+        // labels[0] = Kunde, labels[1] = Levering, labels[2] = Type, labels[3] = Pax & Priskategori
+
+        // Hide Kunde
+        if (labels[0]) labels[0].style.display = isProd ? 'none' : '';
+        if (kundeContainer) kundeContainer.style.display = isProd ? 'none' : '';
+
+        // Hide Type
+        if (labels[2]) labels[2].style.display = isProd ? 'none' : '';
+        if (typeToggle) typeToggle.style.display = isProd ? 'none' : '';
+
+        // Change "Levering" label to "Dato"
+        if (labels[1]) labels[1].textContent = isProd ? 'Produktionsdato' : 'Levering';
+
+        // Change tid to optional
+        const tidSel = this.overlay.querySelector('.bon-opret-tid');
+        if (isProd && tidSel && !tidSel.value) tidSel.value = '08:00';
+    }
+
     /* ══════════════════════════════════════════════════════
        SUBMIT
        ══════════════════════════════════════════════════════ */
@@ -183,22 +221,34 @@ class BonOpretModal {
     async _submit() {
         this._hideError();
 
+        const isProd = this._isProductionMode();
+
         // Valider
-        if (!this.selectedCustomer) return this._showError('Vælg en kunde');
+        if (!isProd && !this.selectedCustomer) return this._showError('Vælg en kunde');
         const dato = this.overlay.querySelector('.bon-opret-dato').value;
-        if (!dato) return this._showError('Vælg leveringsdato');
+        if (!dato) return this._showError(isProd ? 'Vælg produktionsdato' : 'Vælg leveringsdato');
         const tid = this.overlay.querySelector('.bon-opret-tid').value;
-        if (!tid) return this._showError('Vælg leveringstidspunkt');
 
         const deliveryType = this.overlay.querySelector('.bon-opret-type.active')?.dataset.type || 'delivery';
         const pax = parseInt(this.overlay.querySelector('.bon-opret-pax').value) || 0;
         const priceCatId = parseInt(this.overlay.querySelector('.bon-opret-priskategori').value) || null;
 
-        const payload = {
+        const payload = isProd ? {
+            delivery_date: dato,
+            delivery_time: tid || null,
+            delivery_type: 'pickup',
+            customer_collects: 1,
+            kitchen_selects: 1,
+            is_internal: 1,
+            pax: pax,
+            price_category_id: priceCatId,
+            status_id: 3, // GODKENDT
+            internal_notes: 'Produktionsbon',
+        } : {
             customer_id: this.selectedCustomer.customer_id,
             company_id: this.selectedCustomer.company_id || null,
             delivery_date: dato,
-            delivery_time: tid,
+            delivery_time: tid || null,
             delivery_type: deliveryType,
             pax: pax,
             price_category_id: priceCatId,

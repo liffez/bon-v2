@@ -420,9 +420,10 @@ function _buildDayCell(dateStr, dayData, isCurrentMonth, isToday) {
                 bonLoad = String(bonPax);
             }
 
+            var prodIcon = (bon.price_category === 'produktion' || bon.price_category_code === 'produktion') ? ' <span class="bon-prod-badge" title="Produktionsbon">🔧</span>' : '';
             var mailIcon = bon.unread_mail_count ? ' <span class="bon-mail-badge" title="' + bon.unread_mail_count + ' ulæst mail">✉</span>' : '';
             entry.innerHTML = '<span class="cal-bon-time">' + esc(timeStr) + '</span>'
-                + '<span class="cal-bon-id">#' + esc(bon.bon_number) + mailIcon + '</span>'
+                + '<span class="cal-bon-id">#' + esc(bon.bon_number) + prodIcon + mailIcon + '</span>'
                 + (bonLoad ? '<span class="cal-bon-pax">' + bonLoad + '</span>' : '');
 
             // Klik → bon-info modal

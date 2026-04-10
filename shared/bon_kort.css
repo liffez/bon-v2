@@ -646,6 +646,16 @@
 }
 @keyframes bmToastIn { from { opacity: 0; transform: translateY(10px); } to { opacity: 1; transform: translateY(0); } }
 
+/* ── Production bon styling ──────────────────────────────── */
+.bon-production {
+    border-left: 4px solid #4a7ab0 !important;
+    background: linear-gradient(135deg, #f0f4fa 0%, var(--color-surface, #fff) 40%);
+}
+.bon-prod-badge {
+    font-size: 14px; margin-left: 3px; vertical-align: middle;
+}
+.cal-bon-id .bon-prod-badge { font-size: 1.2em; }
+
 /* ── Mail badge on bon header ────────────────────────────── */
 .bon-mail-badge {
     font-size: 20px; color: var(--brand-primary, #8e631f);

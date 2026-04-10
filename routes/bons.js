@@ -148,7 +148,7 @@ router.post('/', handle((req, res) => {
             payment_type, kitchen_selects, customer_collects,
             kitchen_info, customer_wishes, internal_notes, invoice_info,
             prep_ingredients_ready, prep_supplies_ready,
-            created_by_user_id
+            created_by_user_id, is_internal
         ) VALUES (
             ?,?,?,?,?,?,
             ?,?,?,?,
@@ -159,7 +159,7 @@ router.post('/', handle((req, res) => {
             ?,?,?,
             ?,?,?,?,
             ?,?,
-            ?
+            ?,?
         )
     `).run(
         bonNumber, statusId, locationId,
@@ -175,7 +175,7 @@ router.post('/', handle((req, res) => {
         b.kitchen_info ?? null, b.customer_wishes ?? null,
         b.internal_notes ?? null, b.invoice_info ?? null,
         0, 0,
-        b.created_by_user_id ?? null
+        b.created_by_user_id ?? null, b.is_internal ? 1 : 0
     );
 
     logChange({ entityType: 'bon', entityId: result.lastInsertRowid, action: 'create', newValue: bonNumber, userId: b.created_by_user_id });
@@ -199,7 +199,8 @@ router.patch('/:id', handle((req, res) => {
         'pax', 'total_units', 'boxes',
         'payment_type', 'kitchen_selects', 'customer_collects',
         'kitchen_info', 'customer_wishes', 'internal_notes', 'invoice_info',
-        'day_contact_name', 'day_contact_phone'
+        'day_contact_name', 'day_contact_phone',
+        'is_internal'
     ];
 
     const updates = Object.fromEntries(
@@ -215,6 +216,7 @@ router.patch('/:id', handle((req, res) => {
     // Konvertér booleans til integers for SQLite
     if ('kitchen_selects' in updates) updates.kitchen_selects = updates.kitchen_selects ? 1 : 0;
     if ('customer_collects' in updates) updates.customer_collects = updates.customer_collects ? 1 : 0;
+    if ('is_internal' in updates) updates.is_internal = updates.is_internal ? 1 : 0;
 
     const sets = Object.keys(updates).map(k => `${k} = ?`).join(', ');
     const values = [...Object.values(updates), id];

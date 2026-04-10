@@ -143,6 +143,7 @@ function createCard(bonData, viewName) {
     el.dataset.payment       = bonData.payment || 'faktura';
     el.dataset.view          = viewName || 'all';   // bruges af buildStatusBar
     el.dataset.priceCategory = bonData.price_category || 'catering';
+    if (bonData.price_category === 'produktion') el.classList.add('bon-production');
 
     // ── HEADER ──────────────────────────────────────────────────
     const orderTypeLabel = bonData.order_type === 'pickup' ? 'Afhentning' :
@@ -171,7 +172,7 @@ function createCard(bonData, viewName) {
 
         <div class="bon-header">
             <div class="bon-header-left">
-                <div class="bon-id">#${bonData.bon_number || id}${bonData.unread_mail_count ? ' <span class="bon-mail-badge" title="' + bonData.unread_mail_count + ' ulæst mail">✉</span>' : ''}</div>
+                <div class="bon-id">#${bonData.bon_number || id}${bonData.price_category === 'produktion' ? ' <span class="bon-prod-badge" title="Produktionsbon">🔧</span>' : ''}${bonData.unread_mail_count ? ' <span class="bon-mail-badge" title="' + bonData.unread_mail_count + ' ulæst mail">✉</span>' : ''}</div>
                 <div class="bon-time-row">
                     <span class="bon-pickup">${bonData.pickup_time || ''}</span>
                     <span class="bon-lev">${levStr}</span>

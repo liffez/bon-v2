@@ -560,6 +560,22 @@ function _ibRenderPanels() {
         h += '</div></div>';
     }
 
+    // Add product panel
+    if (_ibPanelOpen === 'add-product') {
+        h += '<div class="ib-panel open" data-ib-panel="add-product">';
+        h += '<div class="ib-panel-inner">';
+        h += '<div style="display:flex;gap:8px;align-items:center;margin-bottom:10px">';
+        h += '<div style="position:relative;flex:1">';
+        h += '<input class="ib-panel-qi" style="width:100%;padding:8px 10px;font-size:13px" id="ibAddProdQ" placeholder="Søg Grocy-produkt..." data-ib="add-product-search">';
+        h += '<div id="ibAddProdAC" class="ib-add-ac" style="display:none"></div>';
+        h += '</div>';
+        h += '<input class="ib-panel-qi" type="number" min="1" value="1" style="width:60px;text-align:center" id="ibAddProdQty">';
+        h += '<button class="ib-panel-add" data-ib="add-product-confirm" style="white-space:nowrap">Tilføj</button>';
+        h += '</div>';
+        h += '<div id="ibAddProdSel" style="font-size:12px;color:var(--color-text-dim,#777)">Søg efter produktnavn...</div>';
+        h += '</div></div>';
+    }
+
     return h;
 }
 
@@ -867,10 +883,11 @@ function _ibGetBadges(entry) {
 /* ── Link panel ────────────────────────────────────────────── */
 function _ibRenderLinkPanel(entry) {
     var h = '<div class="ib-lp" data-lp-product="' + entry.product.id + '">';
-    h += '<div class="ib-lp-note">Indtast varenr. fra <a href="https://www.hoka.dk" target="_blank">hoka.dk</a>, eller søg:</div>';
+    h += '<div class="ib-lp-note">Indtast varenr. eller søg — eller generer et internt nummer:</div>';
     h += '<div class="ib-lp-row">';
     h += '<input class="ib-lp-inp" placeholder="Varenr. eller søg produktnavn..." data-ib="lp-input" data-product-id="' + entry.product.id + '" value="' + _ibEsc(entry.product.name || '') + '">';
     h += '<button class="ib-lp-btn" data-ib="lp-search" data-product-id="' + entry.product.id + '">Søg</button>';
+    h += '<button class="ib-lp-btn" style="background:#5040b0;border-color:#5040b0" data-ib="lp-gen-int" data-product-id="' + entry.product.id + '">INT-nr</button>';
     h += '</div>';
     h += '<div data-ib="lp-results" data-product-id="' + entry.product.id + '"></div>';
     h += '</div>';
@@ -1048,6 +1065,10 @@ function _ibHandleClick(e) {
             _ibLinkSearch(parseInt(productId));
             break;
 
+        case 'lp-gen-int':
+            _ibGenerateIntBarcode(parseInt(productId));
+            break;
+
         case 'undo-order':
             _ibUndoOrder(productId);
             break;
@@ -1089,7 +1110,11 @@ function _ibHandleClick(e) {
             break;
 
         case 'prod-create':
-            _ibToast('Produktionsbons — kommer snart');
+            _ibCreateProductionBon(group);
+            break;
+
+        case 'create-single-bon':
+            _ibCreateProductionBon(group, productId);
             break;
 
         case 'prod-check':
@@ -1115,7 +1140,12 @@ function _ibHandleClick(e) {
             break;
 
         case 'add-product':
-            _ibToast('Tilføj vare — kommer snart');
+            _ibPanelOpen = _ibPanelOpen === 'add-product' ? null : 'add-product';
+            _ibRender();
+            break;
+
+        case 'add-product-confirm':
+            _ibAddProductConfirm();
             break;
     }
 }
@@ -1126,6 +1156,11 @@ function _ibHandleInput(e) {
         _ibSearchTerm = el.value;
         clearTimeout(el._debounce);
         el._debounce = setTimeout(function() { _ibRender(); }, 250);
+        return;
+    }
+    if (el.getAttribute('data-ib') === 'add-product-search') {
+        clearTimeout(el._debounce);
+        el._debounce = setTimeout(function() { _ibAddProductAutocomplete(el.value); }, 200);
         return;
     }
     if (el.getAttribute('data-ib') === 'qty-input') {
@@ -1556,6 +1591,195 @@ function _ibFmtDate(isoStr) {
     var d = new Date(isoStr);
     if (isNaN(d.getTime())) return isoStr;
     return d.getDate() + '. ' + ['jan','feb','mar','apr','maj','jun','jul','aug','sep','okt','nov','dec'][d.getMonth()];
+}
+
+/* ── INT-varenumre ─────────────────────────────────────────── */
+function _ibNextIntNumber() {
+    var max = 0;
+    _ibBarcodes.forEach(function(bc) {
+        if (bc.barcode && /^INT-\d+$/.test(bc.barcode)) {
+            var num = parseInt(bc.barcode.substring(4));
+            if (num > max) max = num;
+        }
+    });
+    return 'INT-' + String(max + 1).padStart(4, '0');
+}
+
+async function _ibGenerateIntBarcode(grocyProductId) {
+    var p = _ibProducts[grocyProductId];
+    if (!p) { _ibToast('Produkt ikke fundet', true); return; }
+
+    // Find the shopping_location_id for this product
+    var shopLocId = p.shopping_location_id || null;
+
+    var intNr = _ibNextIntNumber();
+
+    try {
+        await createProductBarcode({
+            product_id: grocyProductId,
+            barcode: intNr,
+            shopping_location_id: shopLocId,
+        });
+
+        _ibToast(p.name + ' → ' + intNr);
+
+        // Reload barcodes and rebuild
+        _ibBarcodes = await fetchProductBarcodes();
+        _ibBuildGroups();
+        _ibLinkPanelId = null;
+        _ibRender();
+    } catch (err) {
+        _ibToast('Fejl: ' + (err.message || ''), true);
+    }
+}
+
+/* ── Produktionsbon ────────────────────────────────────────── */
+async function _ibCreateProductionBon(groupKey, singleProductId) {
+    var g = _ibGroups[groupKey];
+    if (!g) return;
+
+    // Collect items — either a single product or all non-ordered items
+    var items = [];
+    g.items.forEach(function(entry) {
+        if (entry.isOrdered) return;
+        if (singleProductId && entry.product_id != singleProductId) return;
+        var p = _ibProducts[entry.product_id];
+        if (!p) return;
+        // Use qty if set, otherwise fall back to shopping list need amount
+        var qty = entry.qty || Math.ceil(parseFloat(entry.needAmount) || 1);
+        items.push({ entry: entry, product: p, qty: qty });
+    });
+
+    if (!items.length) { _ibToast('Ingen varer at oprette bon for', true); return; }
+
+    // Default: i morgen
+    var tomorrow = new Date();
+    tomorrow.setDate(tomorrow.getDate() + 1);
+    var dateStr = tomorrow.toISOString().slice(0, 10);
+
+    // Prompt for date
+    var chosen = prompt('Produktionsbon dato (ÅÅÅÅ-MM-DD):', dateStr);
+    if (!chosen) return;
+
+    try {
+        // Create bon — intern produktion, ingen kunde/levering
+        var bon = await createBon({
+            delivery_date: chosen,
+            status_id: 3, // GODKENDT
+            price_category_id: 4, // produktion
+            is_internal: 1,
+            delivery_type: 'pickup',
+            customer_collects: 1,
+            kitchen_selects: 1,
+            internal_notes: 'Produktionsbon oprettet fra indkøb',
+        });
+
+        if (!bon || !bon.id) { _ibToast('Fejl ved oprettelse af bon', true); return; }
+
+        // Add lines
+        var lineCount = 0;
+        for (var i = 0; i < items.length; i++) {
+            var item = items[i];
+            var p = item.product;
+            var entry = item.entry;
+
+            try {
+                await postBonLine(bon.id, {
+                    product_name: p.name,
+                    grocy_recipe_id: entry.grocy_recipe_id || null,
+                    quantity: item.qty,
+                    unit: entry.needUnit || p.qu_id_stock_name || 'stk',
+                    unit_price: 0,
+                    cost_price: 0,
+                });
+                lineCount++;
+            } catch (e) {
+                console.error('[indkob] line error:', e);
+            }
+
+            // Remove from Grocy shopping list
+            if (entry.shopping_list_id) {
+                try { await deleteShoppingListItem(entry.shopping_list_id); } catch (e) { /* */ }
+            }
+        }
+
+        _ibToast('Produktionsbon #' + bon.bon_number + ' oprettet (' + lineCount + ' linjer)');
+
+        // Reload
+        _ibShoppingList = await fetchShoppingList();
+        _ibBuildGroups();
+        _ibMoOpen = null;
+        _ibRender();
+    } catch (err) {
+        _ibToast('Fejl: ' + (err.message || ''), true);
+    }
+}
+
+/* ── Tilføj vare: autocomplete + confirm ───────────────────── */
+var _ibAddProdSelected = null; // { id, name }
+
+function _ibAddProductAutocomplete(q) {
+    var ac = document.getElementById('ibAddProdAC');
+    if (!ac) return;
+    if (!q || q.trim().length < 2) { ac.style.display = 'none'; return; }
+
+    q = q.trim().toLowerCase();
+    var matches = [];
+    var productIds = Object.keys(_ibProducts);
+    for (var i = 0; i < productIds.length && matches.length < 12; i++) {
+        var p = _ibProducts[productIds[i]];
+        if (p && p.name && p.name.toLowerCase().indexOf(q) >= 0) {
+            matches.push(p);
+        }
+    }
+
+    if (!matches.length) { ac.style.display = 'none'; return; }
+
+    ac.innerHTML = matches.map(function(p) {
+        var group = p.product_group || '';
+        return '<div class="ib-add-ac-item" data-pid="' + p.id + '">'
+            + '<span class="ib-add-ac-name">' + _ibEsc(p.name) + '</span>'
+            + (group ? '<span class="ib-add-ac-meta">' + _ibEsc(group) + '</span>' : '')
+            + '</div>';
+    }).join('');
+    ac.style.display = 'block';
+
+    ac.querySelectorAll('.ib-add-ac-item').forEach(function(item) {
+        item.addEventListener('click', function() {
+            var pid = parseInt(item.dataset.pid);
+            var prod = _ibProducts[pid];
+            _ibAddProdSelected = prod ? { id: prod.id, name: prod.name } : null;
+            var inp = document.getElementById('ibAddProdQ');
+            if (inp) inp.value = prod ? prod.name : '';
+            ac.style.display = 'none';
+            var selEl = document.getElementById('ibAddProdSel');
+            if (selEl) selEl.innerHTML = prod
+                ? '<span style="color:#6a8f3a;font-weight:700">✓ ' + _ibEsc(prod.name) + '</span>'
+                : 'Søg efter produktnavn...';
+            var qtyInp = document.getElementById('ibAddProdQty');
+            if (qtyInp) qtyInp.focus();
+        });
+    });
+}
+
+async function _ibAddProductConfirm() {
+    if (!_ibAddProdSelected) { _ibToast('Vælg et produkt først', true); return; }
+    var qtyInp = document.getElementById('ibAddProdQty');
+    var qty = parseInt(qtyInp ? qtyInp.value : 1) || 1;
+
+    try {
+        await addShoppingListProduct(_ibAddProdSelected.id, qty, 1);
+        _ibToast(_ibAddProdSelected.name + ' tilføjet (' + qty + ')');
+        _ibAddProdSelected = null;
+        _ibPanelOpen = null;
+
+        // Reload shopping list and re-render
+        _ibShoppingList = await fetchShoppingList();
+        _ibBuildGroups();
+        _ibRender();
+    } catch (err) {
+        _ibToast('Fejl: ' + (err.message || ''), true);
+    }
 }
 
 function _ibToast(msg, isError) {
