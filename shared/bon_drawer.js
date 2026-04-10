@@ -64,7 +64,7 @@ class BonDrawer {
                 </div>
 
                 <!-- LEVERING -->
-                <div class="drawer-section">
+                <div class="drawer-section" data-drawer-section="levering">
                     <label class="drawer-label">Levering</label>
                     <div class="drawer-row">
                         <input type="date" class="drawer-field" data-field="delivery_date">
@@ -99,7 +99,7 @@ class BonDrawer {
                 </div>
 
                 <!-- KUNDE -->
-                <div class="drawer-section">
+                <div class="drawer-section" data-drawer-section="kunde">
                     <label class="drawer-label">Kunde</label>
                     <div class="drawer-kunde-container"></div>
                     <label class="drawer-sublabel" style="margin-top:12px">Dagskontakt</label>
@@ -149,7 +149,7 @@ class BonDrawer {
                 </div>
 
                 <!-- FIRMA -->
-                <div class="drawer-section drawer-firma-section">
+                <div class="drawer-section drawer-firma-section" data-drawer-section="firma">
                     <label class="drawer-label">Firma</label>
                     <div class="drawer-firma-name"></div>
                     <div class="drawer-row">
@@ -320,9 +320,33 @@ class BonDrawer {
         if (!d) return;
 
         // Header
-        this.el.querySelector('.drawer-title').textContent = `Bon #${d.bon_number}`;
+        const isInternal = d.is_internal === 1 || d.is_internal === true;
+        this.el.querySelector('.drawer-title').textContent = `Bon #${d.bon_number}${isInternal ? ' 🔧' : ''}`;
         this.el.querySelector('.drawer-header').classList.remove('has-changes');
         this.el.querySelector('.btn-drawer-gem').disabled = true;
+
+        // Hide/show sections for internal production bons
+        const levSection = this.el.querySelector('[data-drawer-section="levering"]');
+        const kundeSection = this.el.querySelector('[data-drawer-section="kunde"]');
+        const firmaSection = this.el.querySelector('[data-drawer-section="firma"]');
+        if (levSection) {
+            if (isInternal) {
+                // Show only date, hide type/address/method
+                levSection.querySelector('.drawer-label').textContent = 'Produktionsdato';
+                levSection.querySelector('.drawer-type-toggle').style.display = 'none';
+                levSection.querySelector('.drawer-delivery-fields').style.display = 'none';
+                const pickupRow = levSection.querySelector('[data-field="pickup_time"]')?.closest('.drawer-row');
+                if (pickupRow) pickupRow.style.display = 'none';
+            } else {
+                levSection.querySelector('.drawer-label').textContent = 'Levering';
+                levSection.querySelector('.drawer-type-toggle').style.display = '';
+                levSection.querySelector('.drawer-delivery-fields').style.display = '';
+                const pickupRow = levSection.querySelector('[data-field="pickup_time"]')?.closest('.drawer-row');
+                if (pickupRow) pickupRow.style.display = '';
+            }
+        }
+        if (kundeSection) kundeSection.style.display = isInternal ? 'none' : '';
+        if (firmaSection) firmaSection.style.display = isInternal ? 'none' : '';
 
         // Status bar
         this._renderStatusBar();
