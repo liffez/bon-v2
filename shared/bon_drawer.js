@@ -740,15 +740,31 @@ class BonDrawer {
        ══════════════════════════════════════════════════════ */
 
     /** Convenience: load + show i ét kald */
-    async open(bonId) {
+    async open(bonId, opts) {
         await this.load(bonId);
         this.show();
+        if (opts && opts.justCreated) this._showCreatedBanner();
     }
 
     show() {
         this.el.classList.add('open');
         this.overlayEl.classList.add('open');
         document.body.style.overflow = 'hidden';
+    }
+
+    _showCreatedBanner() {
+        // Remove any existing banner
+        const old = this.el.querySelector('.drawer-created-banner');
+        if (old) old.remove();
+
+        const banner = document.createElement('div');
+        banner.className = 'drawer-created-banner';
+        banner.innerHTML = '✓ Bon oprettet — tilføj varer og detaljer, eller luk draweren';
+        const body = this.el.querySelector('.drawer-body');
+        if (body) body.insertBefore(banner, body.firstChild);
+
+        // Auto-remove after 8s
+        setTimeout(() => { if (banner.parentNode) banner.remove(); }, 8000);
     }
 
     hide() {

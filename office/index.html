@@ -595,7 +595,7 @@
 
       // ─── Modal ───────────────────────────────────────────
       const modal = new BonOpretModal({
-        onCreated: (bonId) => openDrawer(bonId)
+        onCreated: (bonId) => { drawer.open(bonId, { justCreated: true }); }
       });
 
       // ─── View switching ──────────────────────────────────

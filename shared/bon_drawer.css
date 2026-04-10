@@ -79,6 +79,19 @@
     color: var(--color-text, #333);
 }
 
+/* Created banner */
+.drawer-created-banner {
+    background: #e8f2dc;
+    color: #3a5a1a;
+    padding: 10px 16px;
+    border-radius: 8px;
+    font-size: 13px;
+    font-weight: 700;
+    margin-bottom: 12px;
+    animation: drawerBannerIn 0.3s ease;
+}
+@keyframes drawerBannerIn { from { opacity: 0; transform: translateY(-8px); } to { opacity: 1; } }
+
 /* Body — scrollable */
 .drawer-body {
     flex: 1;
