@@ -789,6 +789,32 @@ function postReceivingComplete(data) {
     });
 }
 
+/* ── GOODS RECEIPTS (/api/goods-receipts) ────────────── */
+
+function postGoodsReceiptPhoto(formData) {
+    return fetch(API_BASE + '/goods-receipts/photo', {
+        method: 'POST', body: formData,
+    }).then(function(r) {
+        if (!r.ok) return r.json().then(function(b) { throw new Error(b.error || 'Upload fejl'); });
+        return r.json();
+    });
+}
+
+function postGoodsReceipt(data) {
+    return apiFetch('/goods-receipts', {
+        method: 'POST', body: JSON.stringify(data),
+    });
+}
+
+function fetchGoodsReceipts(params) {
+    var qs = params ? '?' + new URLSearchParams(params).toString() : '';
+    return apiFetch('/goods-receipts' + qs);
+}
+
+function fetchGoodsReceiptUsers() {
+    return apiFetch('/goods-receipts/users');
+}
+
 /* ── REPORTS ──────────────────────────────────────────── */
 
 function fetchReportsSummary() {

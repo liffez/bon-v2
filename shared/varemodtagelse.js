@@ -1,507 +1,1175 @@
 /**
  * shared/varemodtagelse.js
  * ════════════════════════════════════════════════════════════
- * Varemodtagelses-komponent — Tab 3 i kitchen/purchasing.html.
+ * Varemodtagelse v3 — fødevarekontrol + lager-opdatering.
  *
  * Entry: initVaremodtagelse(containerEl)
- * Prefix: _vm  (private globals)
+ * Prefix: _vm
  *
- * Flow:
- *   1. Henter ventende purchase_orders (status=sent/confirmed)
- *   2. Viser ordrekort → klik åbner detalje
- *   3. Detalje: linjer med modtaget/skadet felter
- *   4. Godkend → POST /api/receiving/complete
- *   5. Succesview med opsummering
- *
- * Bruger eksisterende routes/receiving.js fusion-endpoint.
+ * Baseret på mockup varemodtagelse_v4.html og spec CLAUDE_VAREMODTAGELSE_v3.md
  * ════════════════════════════════════════════════════════════
  */
 
 /* ── State ───────────────────────────────────────────────── */
 
-var _vmContainer    = null;
-var _vmOrders       = [];     // ventende purchase_orders
-var _vmCurrentOrder = null;   // valgt ordre med linjer
-var _vmLines        = [];     // redigerbar linje-state
-var _vmBusy         = false;
+var _vmContainer = null;
+var _vmState = {
+    userId: null,
+    userName: '',
+    supplierName: '',
+    supplierKey: '',
+    locationId: null,
+
+    koelEnabled: true,
+    koelValue: 3,
+    koelOk: true,
+
+    frysEnabled: true,
+    frysValue: -20,
+    frysOk: true,
+
+    dateCheck: true,
+    labelCheck: true,
+    packCheck: true,
+
+    hasDeviation: false,
+    deviationType: null,
+    deviationNote: '',
+
+    photoPath: null,
+    notes: '',
+
+    items: [],
+    allApproved: false,
+    itemListOpen: false,
+    busy: false,
+};
+
+var _vmUsers = [];
+var _vmSuppliers = [];       // { key, label, count, supplierName }
+var _vmShoppingList = [];    // raw Grocy shopping list
+var _vmProductNames = {};    // grocy product_id → name
+var _vmProductStockQu = {};  // grocy product_id → qu_id_stock
+var _vmQuNames = {};         // grocy qu_id → name
+var _vmDom = {};             // cached DOM refs
 
 /* ── Entry point ─────────────────────────────────────────── */
 
 async function initVaremodtagelse(el) {
     _vmContainer = el;
-    _vmContainer.innerHTML = '<div class="vm-container"><div class="vm-loading">Henter ordrer...</div></div>';
+    _vmContainer.innerHTML = '<div class="vm-app"><div class="vm-loading">Henter data...</div></div>';
+
+    // Reset state
+    _vmState = {
+        userId: null, userName: '', supplierName: '', supplierKey: '', locationId: null,
+        koelEnabled: true, koelValue: 3, koelOk: true,
+        frysEnabled: true, frysValue: -20, frysOk: true,
+        dateCheck: true, labelCheck: true, packCheck: true,
+        hasDeviation: false, deviationType: null, deviationNote: '',
+        photoPath: null, notes: '',
+        items: [], allApproved: false, itemListOpen: false, busy: false,
+    };
+    _vmDom = {};
 
     try {
-        await _vmLoadOrders();
-        _vmRenderOrderList();
+        // Hent current user, users, suppliers, shopping list i parallel
+        var currentUser = await checkAuth('/shared/login.html');
+        if (!currentUser) return;
+
+        var results = await Promise.all([
+            fetchGoodsReceiptUsers(),
+            fetchPurchasingSuppliers(),
+            fetchShoppingList(),
+            fetchGrocyProducts(),
+            fetchGrocyQuantityUnits(),
+        ]);
+
+        _vmUsers = results[0] || [];
+        var allSuppliers = results[1] || [];
+        _vmShoppingList = results[2] || [];
+        var products = results[3] || [];
+        var qus = results[4] || [];
+
+        // Build product name + stock unit lookup
+        _vmProductNames = {};
+        _vmProductStockQu = {};
+        for (var p = 0; p < products.length; p++) {
+            _vmProductNames[products[p].id] = products[p].name;
+            _vmProductStockQu[products[p].id] = products[p].qu_id_stock;
+        }
+
+        // Build QU name lookup
+        _vmQuNames = {};
+        for (var q = 0; q < qus.length; q++) {
+            _vmQuNames[qus[q].id] = qus[q].name;
+        }
+
+        // Auto-select current user
+        _vmState.userId = currentUser.id;
+        _vmState.userName = currentUser.name || '';
+
+        // Build leverandør-dropdown: match suppliers mod shopping list ordered_supplier
+        _vmBuildSupplierOptions(allSuppliers, _vmShoppingList);
+
+        _vmBuildPage();
     } catch (err) {
         console.error('[varemodtagelse] Init fejl:', err);
-        _vmContainer.innerHTML = '<div class="vm-container"><div class="vm-loading" style="color:#c62828;">Fejl: ' + err.message + '</div></div>';
+        _vmContainer.innerHTML = '<div class="vm-app"><div class="vm-loading" style="color:#c0392b;">Fejl: ' + _vmEsc(err.message) + '</div></div>';
     }
 }
 
-/* ── Data loading ────────────────────────────────────────── */
+/* ── Build supplier options ──────────────────────────────── */
 
-async function _vmLoadOrders() {
-    _vmOrders = await fetchPendingOrders();
-    // Filtrer til relevante statusser
-    _vmOrders = _vmOrders.filter(function(o) {
-        return o.status === 'sent' || o.status === 'confirmed' || o.status === 'draft';
+function _vmBuildSupplierOptions(suppliers, shoppingList) {
+    // Find bestilte items: has ordered_at + ordered_varenr
+    var ordered = shoppingList.filter(function(sl) {
+        var uf = sl.userfields || {};
+        return uf.ordered_at && uf.ordered_varenr;
     });
+
+    // Unique ordered_supplier values
+    var orderedSuppliers = {};
+    for (var i = 0; i < ordered.length; i++) {
+        var sup = (ordered[i].userfields || {}).ordered_supplier || '';
+        if (!sup) continue;
+        if (!orderedSuppliers[sup]) orderedSuppliers[sup] = 0;
+        orderedSuppliers[sup]++;
+    }
+
+    // Match against suppliers table
+    _vmSuppliers = [];
+    var matched = {};
+
+    for (var j = 0; j < suppliers.length; j++) {
+        var s = suppliers[j];
+        var name = s.supplier_name || '';
+        var grocyName = s.grocy_location_display_name || '';
+
+        // Match on supplier_name or grocy_location_display_name
+        var matchKey = null;
+        if (orderedSuppliers[name] && !matched[name]) {
+            matchKey = name;
+        } else if (grocyName && orderedSuppliers[grocyName] && !matched[grocyName]) {
+            matchKey = grocyName;
+        }
+
+        if (matchKey) {
+            matched[matchKey] = true;
+            _vmSuppliers.push({
+                key: matchKey,
+                label: matchKey + ' \u2014 ' + orderedSuppliers[matchKey] + ' varer klar',
+                count: orderedSuppliers[matchKey],
+                supplierName: name,
+                grocyName: grocyName,
+            });
+        }
+    }
 }
 
-/* ── Order list ──────────────────────────────────────────── */
+/* ── Build page ──────────────────────────────────────────── */
 
-function _vmRenderOrderList() {
-    var root = document.createElement('div');
-    root.className = 'vm-container';
+function _vmBuildPage() {
+    var app = document.createElement('div');
+    app.className = 'vm-app';
+
+    var content = document.createElement('div');
+    content.className = 'vm-content';
+
+    // ── FØDEVAREKONTROL divider
+    content.appendChild(_vmDivider('F\u00f8devarekontrol'));
+
+    // ── Bruger
+    content.appendChild(_vmBuildUserCard());
+
+    // ── Leverandør
+    content.appendChild(_vmBuildSupplierCard());
+
+    // ── Temperaturer
+    content.appendChild(_vmBuildTempCard());
+
+    // ── FVST toggles
+    _vmDom.toggleDate = _vmBuildToggleRow('Dato/holdbarhed kontrolleret', _vmState.dateCheck, function(v) { _vmState.dateCheck = v; _vmCheckDeviation(); _vmUpdateBtn(); });
+    _vmDom.toggleLabel = _vmBuildToggleRow('M\u00e6rkning kontrolleret', _vmState.labelCheck, function(v) { _vmState.labelCheck = v; _vmCheckDeviation(); _vmUpdateBtn(); });
+    _vmDom.togglePack = _vmBuildToggleRow('Emballage kontrolleret', _vmState.packCheck, function(v) { _vmState.packCheck = v; _vmCheckDeviation(); _vmUpdateBtn(); });
+    content.appendChild(_vmDom.toggleDate);
+    content.appendChild(_vmDom.toggleLabel);
+    content.appendChild(_vmDom.togglePack);
+
+    // ── Foto
+    content.appendChild(_vmBuildPhotoBtn());
+
+    // ── Afvigelse
+    content.appendChild(_vmBuildDeviationBox());
+
+    // ── Bemærkning
+    content.appendChild(_vmBuildRemarkSection());
+
+    // ── LAGER divider
+    content.appendChild(_vmDivider('Lager'));
+
+    // ── No-supplier placeholder
+    _vmDom.noSupplierMsg = document.createElement('div');
+    _vmDom.noSupplierMsg.className = 'vm-no-supplier-msg';
+    _vmDom.noSupplierMsg.textContent = 'V\u00e6lg leverand\u00f8r ovenfor for at se bestilte varer';
+    content.appendChild(_vmDom.noSupplierMsg);
+
+    // ── Lager content (hidden)
+    _vmDom.lagerContent = document.createElement('div');
+    _vmDom.lagerContent.style.display = 'none';
+    _vmDom.lagerContent.style.cssText = 'display:none;flex-direction:column;gap:8px;';
+    content.appendChild(_vmDom.lagerContent);
+
+    app.appendChild(content);
+
+    // ── Bottom bar
+    app.appendChild(_vmBuildBottomBar());
+
+    // ── Success overlay
+    _vmDom.successOverlay = _vmBuildSuccessOverlay();
+    app.appendChild(_vmDom.successOverlay);
+
+    _vmContainer.innerHTML = '';
+    _vmContainer.appendChild(app);
+
+    // Init temp badges
+    _vmUpdateTempBadge('koel');
+    _vmUpdateTempBadge('frys');
+    _vmUpdateBtn();
+}
+
+/* ── Section divider ─────────────────────────────────────── */
+
+function _vmDivider(text) {
+    var d = document.createElement('div');
+    d.className = 'vm-section-divider';
+    d.innerHTML = '<div class="vm-section-divider-line"></div>' +
+        '<div class="vm-section-divider-text">' + _vmEsc(text) + '</div>' +
+        '<div class="vm-section-divider-line"></div>';
+    return d;
+}
+
+/* ── User card ───────────────────────────────────────────── */
+
+function _vmBuildUserCard() {
+    var card = document.createElement('div');
+    card.className = 'vm-card';
+
+    var row = document.createElement('div');
+    row.className = 'vm-user-row';
+
+    row.innerHTML = '<div class="vm-user-avatar">\ud83d\udc64</div>';
+
+    var info = document.createElement('div');
+    info.className = 'vm-user-info';
+    info.innerHTML = '<div class="vm-user-info-label">Registreret af</div>';
+
+    var sel = document.createElement('select');
+    sel.className = 'vm-user-select';
+
+    for (var i = 0; i < _vmUsers.length; i++) {
+        var opt = document.createElement('option');
+        opt.value = _vmUsers[i].id;
+        opt.textContent = _vmUsers[i].name;
+        if (_vmUsers[i].id === _vmState.userId) opt.selected = true;
+        sel.appendChild(opt);
+    }
+
+    sel.addEventListener('change', function() {
+        _vmState.userId = parseInt(this.value);
+        var found = _vmUsers.find(function(u) { return u.id === _vmState.userId; });
+        _vmState.userName = found ? found.name : '';
+        _vmUpdateBtn();
+    });
+
+    info.appendChild(sel);
+    row.appendChild(info);
+    card.appendChild(row);
+    return card;
+}
+
+/* ── Supplier card ───────────────────────────────────────── */
+
+function _vmBuildSupplierCard() {
+    var card = document.createElement('div');
+    card.className = 'vm-card';
+
+    var label = document.createElement('div');
+    label.className = 'vm-field-label';
+    label.innerHTML = 'Leverand\u00f8r <span class="vm-grocy-tag">\ud83d\udce1 Grocy</span>';
+    card.appendChild(label);
+
+    var wrap = document.createElement('div');
+    wrap.className = 'vm-select-wrap';
+
+    var sel = document.createElement('select');
+    sel.className = 'vm-field-input';
+
+    var emptyOpt = document.createElement('option');
+    emptyOpt.value = '';
+    emptyOpt.textContent = _vmSuppliers.length > 0 ? 'V\u00e6lg leverand\u00f8r...' : 'Ingen bestilte leverancer at modtage';
+    sel.appendChild(emptyOpt);
+
+    for (var i = 0; i < _vmSuppliers.length; i++) {
+        var opt = document.createElement('option');
+        opt.value = _vmSuppliers[i].key;
+        opt.textContent = _vmSuppliers[i].label;
+        sel.appendChild(opt);
+    }
+
+    sel.addEventListener('change', function() { _vmOnSupplierChange(this.value); });
+    wrap.appendChild(sel);
+    card.appendChild(wrap);
+    return card;
+}
+
+function _vmOnSupplierChange(key) {
+    _vmState.supplierKey = key;
+    _vmState.supplierName = key; // ordered_supplier matches key
+
+    if (!key) {
+        _vmDom.noSupplierMsg.style.display = 'block';
+        _vmDom.lagerContent.style.display = 'none';
+        _vmState.items = [];
+    } else {
+        _vmDom.noSupplierMsg.style.display = 'none';
+        _vmDom.lagerContent.style.display = 'flex';
+
+        // Build items from shopping list
+        _vmBuildItemsFromShoppingList(key);
+        _vmRenderLagerContent();
+    }
+
+    _vmUpdateBtn();
+}
+
+function _vmBuildItemsFromShoppingList(supplierKey) {
+    // Filter shopping list for this supplier
+    var matching = _vmShoppingList.filter(function(sl) {
+        var uf = sl.userfields || {};
+        return uf.ordered_supplier === supplierKey && uf.ordered_varenr;
+    });
+
+    // Aggregate by product_id
+    var byProduct = {};
+    for (var i = 0; i < matching.length; i++) {
+        var sl = matching[i];
+        var pid = sl.product_id;
+        if (!byProduct[pid]) {
+            byProduct[pid] = {
+                grocy_product_id: pid,
+                product_name: _vmProductNames[pid] || sl.product_name || 'Produkt #' + pid,
+                expected: 0,
+                received: 0,
+                unit: _vmQuNames[sl.qu_id] || _vmQuNames[_vmProductStockQu[pid]] || '',
+                status: 'ok',
+                notes: '',
+                slIds: [],
+            };
+        }
+        byProduct[pid].expected += (sl.amount || 0);
+        byProduct[pid].slIds.push(sl.id);
+    }
+
+    _vmState.items = [];
+    var keys = Object.keys(byProduct);
+    for (var j = 0; j < keys.length; j++) {
+        var item = byProduct[keys[j]];
+        item.received = item.expected; // default: alt modtaget
+        _vmState.items.push(item);
+    }
+}
+
+/* ── Temperature card ────────────────────────────────────── */
+
+function _vmBuildTempCard() {
+    var card = document.createElement('div');
+    card.className = 'vm-card';
+
+    var grid = document.createElement('div');
+    grid.className = 'vm-temp-grid';
+
+    // Køl
+    grid.appendChild(_vmBuildTempRow('koel', '\uD83E\uDDCA', 'K\u00f8levarer', 'max. 5\u00b0C', 3, 0.1));
+
+    // Separator
+    var sep = document.createElement('div');
+    sep.className = 'vm-temp-separator';
+    grid.appendChild(sep);
+
+    // Frys
+    grid.appendChild(_vmBuildTempRow('frys', '\u2744\ufe0f', 'Frysvarer', 'max. -18\u00b0C', -20, 0.5));
+
+    card.appendChild(grid);
+    return card;
+}
+
+function _vmBuildTempRow(type, emoji, title, hint, defaultVal, step) {
+    var row = document.createElement('div');
+    row.className = 'vm-temp-row-item';
 
     // Header
     var header = document.createElement('div');
-    header.className = 'vm-header';
+    header.className = 'vm-temp-row-header';
 
-    var h2 = document.createElement('h2');
-    h2.textContent = 'Varemodtagelse';
-    header.appendChild(h2);
+    var titleEl = document.createElement('div');
+    titleEl.className = 'vm-temp-row-title';
+    titleEl.innerHTML = '<span class="vm-emoji">' + emoji + '</span> ' + _vmEsc(title) +
+        ' <span class="vm-field-hint">' + _vmEsc(hint) + '</span>';
+    header.appendChild(titleEl);
 
-    // Whiteboard link (sekundær)
-    var wbLink = document.createElement('a');
-    wbLink.className = 'vm-wb-link';
-    wbLink.href = 'https://whiteboard.ristetrug.dk?open=varemodtagelse';
-    wbLink.target = '_blank';
-    wbLink.innerHTML = '📋 Åbn FVST-registrering';
-    header.appendChild(wbLink);
+    var toggle = document.createElement('label');
+    toggle.className = 'vm-mini-toggle';
+    toggle.title = 'Sl\u00e5 fra hvis ingen ' + title.toLowerCase();
+    var cb = document.createElement('input');
+    cb.type = 'checkbox';
+    cb.checked = true;
+    cb.addEventListener('change', function() { _vmOnTempEnabled(type, this.checked); });
+    toggle.appendChild(cb);
+    var slider = document.createElement('span');
+    slider.className = 'vm-mini-slider';
+    toggle.appendChild(slider);
+    header.appendChild(toggle);
 
-    root.appendChild(header);
+    row.appendChild(header);
 
-    // Empty state
-    if (_vmOrders.length === 0) {
+    // Input group
+    var group = document.createElement('div');
+    group.className = 'vm-temp-input-group';
+
+    var wrap = document.createElement('div');
+    wrap.className = 'vm-temp-input-wrap';
+
+    var input = document.createElement('input');
+    input.type = 'number';
+    input.step = String(step);
+    input.value = String(defaultVal);
+    input.inputMode = 'decimal';
+    input.addEventListener('input', function() { _vmOnTempChange(type, this.value); });
+    _vmDom[type + 'Input'] = input;
+    wrap.appendChild(input);
+
+    var unit = document.createElement('span');
+    unit.className = 'vm-temp-unit';
+    unit.textContent = '\u00b0C';
+    wrap.appendChild(unit);
+
+    group.appendChild(wrap);
+
+    var badge = document.createElement('div');
+    badge.className = 'vm-temp-badge';
+    badge.innerHTML = '<span class="vm-temp-badge-icon">\ud83c\udf21</span><span>\u2014</span>';
+    _vmDom[type + 'Badge'] = badge;
+    group.appendChild(badge);
+
+    row.appendChild(group);
+    return row;
+}
+
+function _vmOnTempEnabled(type, enabled) {
+    _vmState[type + 'Enabled'] = enabled;
+    var input = _vmDom[type + 'Input'];
+    var badge = _vmDom[type + 'Badge'];
+    input.disabled = !enabled;
+
+    if (!enabled) {
+        badge.className = 'vm-temp-badge vm-disabled';
+        badge.innerHTML = '<span class="vm-temp-badge-icon">\u2014</span><span>Ingen</span>';
+        _vmState[type + 'Ok'] = null;
+    } else {
+        _vmOnTempChange(type, input.value);
+    }
+    _vmCheckDeviation();
+    _vmUpdateBtn();
+}
+
+function _vmOnTempChange(type, val) {
+    var num = parseFloat(val);
+    var badge = _vmDom[type + 'Badge'];
+    var limit = type === 'koel' ? 5 : -18;
+
+    if (isNaN(num)) {
+        _vmState[type + 'Ok'] = null;
+        _vmState[type + 'Value'] = null;
+        badge.className = 'vm-temp-badge';
+        badge.innerHTML = '<span class="vm-temp-badge-icon">\ud83c\udf21</span><span>\u2014</span>';
+    } else {
+        var ok = num <= limit;
+        _vmState[type + 'Ok'] = ok;
+        _vmState[type + 'Value'] = num;
+        if (ok) {
+            badge.className = 'vm-temp-badge vm-ok';
+            badge.innerHTML = '<span class="vm-temp-badge-icon">\u2705</span><span>OK</span>';
+        } else {
+            badge.className = 'vm-temp-badge vm-warn';
+            badge.innerHTML = '<span class="vm-temp-badge-icon">\u274c</span><span>FEJL</span>';
+        }
+    }
+
+    _vmCheckDeviation();
+    _vmUpdateBtn();
+}
+
+function _vmUpdateTempBadge(type) {
+    var input = _vmDom[type + 'Input'];
+    if (input) _vmOnTempChange(type, input.value);
+}
+
+/* ── FVST toggle row ─────────────────────────────────────── */
+
+function _vmBuildToggleRow(label, defaultOn, onChange) {
+    var row = document.createElement('div');
+    row.className = 'vm-toggle-row';
+
+    var span = document.createElement('span');
+    span.className = 'vm-toggle-label';
+    span.textContent = label;
+    row.appendChild(span);
+
+    var toggle = document.createElement('label');
+    toggle.className = 'vm-toggle';
+    var cb = document.createElement('input');
+    cb.type = 'checkbox';
+    cb.checked = defaultOn;
+    cb.addEventListener('change', function() {
+        var v = this.checked;
+        row.classList.toggle('vm-off', !v);
+        onChange(v);
+    });
+    toggle.appendChild(cb);
+    var slider = document.createElement('span');
+    slider.className = 'vm-toggle-slider';
+    toggle.appendChild(slider);
+    row.appendChild(toggle);
+
+    return row;
+}
+
+/* ── Photo button ────────────────────────────────────────── */
+
+function _vmBuildPhotoBtn() {
+    var btn = document.createElement('button');
+    btn.className = 'vm-photo-btn';
+    btn.type = 'button';
+
+    btn.innerHTML = '<span class="vm-photo-btn-icon">\ud83d\udcf7</span>' +
+        '<div><div class="vm-photo-btn-text">Tag foto af f\u00f8lgeseddel</div>' +
+        '<div class="vm-photo-btn-sub">Anbefalet \u2014 gemmes p\u00e5 serveren</div></div>';
+
+    _vmDom.photoBtn = btn;
+
+    // Hidden file input
+    var fileInput = document.createElement('input');
+    fileInput.type = 'file';
+    fileInput.accept = 'image/*';
+    fileInput.capture = 'environment';
+    fileInput.style.display = 'none';
+    _vmDom.photoInput = fileInput;
+
+    btn.addEventListener('click', function() { fileInput.click(); });
+
+    fileInput.addEventListener('change', async function() {
+        if (!this.files || !this.files[0]) return;
+        var file = this.files[0];
+
+        btn.querySelector('.vm-photo-btn-text').textContent = 'Uploader...';
+
+        try {
+            var fd = new FormData();
+            fd.append('photo', file);
+            var result = await postGoodsReceiptPhoto(fd);
+            _vmState.photoPath = result.path;
+
+            btn.classList.add('vm-taken');
+            btn.querySelector('.vm-photo-btn-icon').textContent = '\u2705';
+            btn.querySelector('.vm-photo-btn-text').textContent = 'Foto taget';
+        } catch (err) {
+            btn.querySelector('.vm-photo-btn-text').textContent = 'Fejl: ' + err.message;
+            setTimeout(function() {
+                btn.querySelector('.vm-photo-btn-text').textContent = 'Tag foto af f\u00f8lgeseddel';
+            }, 3000);
+        }
+    });
+
+    var wrapper = document.createElement('div');
+    wrapper.appendChild(btn);
+    wrapper.appendChild(fileInput);
+    return wrapper;
+}
+
+/* ── Deviation box ───────────────────────────────────────── */
+
+function _vmBuildDeviationBox() {
+    var box = document.createElement('div');
+    box.className = 'vm-deviation-box';
+    _vmDom.deviationBox = box;
+
+    box.innerHTML =
+        '<div><div class="vm-deviation-title">\u26a0\ufe0f Afvigelse registreret</div>' +
+        '<div class="vm-deviation-sub">Udfyldes kun ved afvigelse</div></div>';
+
+    // Options
+    var optWrap = document.createElement('div');
+    var noteLabel = document.createElement('div');
+    noteLabel.className = 'vm-deviation-note-label';
+    noteLabel.textContent = 'Hvad skete der?';
+    optWrap.appendChild(noteLabel);
+
+    var options = document.createElement('div');
+    options.className = 'vm-deviation-options';
+
+    var deviationTypes = [
+        { value: 'returned', label: 'Returneret til leverand\u00f8r' },
+        { value: 'no_risk', label: 'Ingen reel risiko \u2014 anvendes' },
+        { value: 'discarded', label: 'Kasseret' },
+        { value: 'supplier_contacted', label: 'Leverand\u00f8r kontaktet' },
+        { value: 'other', label: 'Andet' },
+    ];
+
+    for (var i = 0; i < deviationTypes.length; i++) {
+        var dt = deviationTypes[i];
+        var lbl = document.createElement('label');
+        lbl.className = 'vm-deviation-option';
+
+        var radio = document.createElement('input');
+        radio.type = 'radio';
+        radio.name = 'vm-deviation';
+        radio.value = dt.value;
+
+        radio.addEventListener('change', (function(val, label) {
+            return function() {
+                _vmState.deviationType = val;
+                options.querySelectorAll('.vm-deviation-option').forEach(function(o) { o.classList.remove('vm-selected'); });
+                label.classList.add('vm-selected');
+                _vmUpdateBtn();
+            };
+        })(dt.value, lbl));
+
+        lbl.appendChild(radio);
+        lbl.appendChild(document.createTextNode(' ' + dt.label));
+        options.appendChild(lbl);
+    }
+
+    optWrap.appendChild(options);
+    box.appendChild(optWrap);
+
+    // Note textarea
+    var noteSection = document.createElement('div');
+    noteSection.innerHTML = '<div class="vm-deviation-note-label">Bem\u00e6rkning ved afvigelse</div>';
+    var textarea = document.createElement('textarea');
+    textarea.className = 'vm-deviation-note';
+    textarea.placeholder = 'Beskriv afvigelsen og hvad der blev gjort';
+    textarea.addEventListener('input', function() { _vmState.deviationNote = this.value; });
+    noteSection.appendChild(textarea);
+    box.appendChild(noteSection);
+
+    return box;
+}
+
+function _vmCheckDeviation() {
+    var allChecksOk = _vmState.dateCheck && _vmState.labelCheck && _vmState.packCheck;
+    var koelOk = !_vmState.koelEnabled || _vmState.koelOk !== false;
+    var frysOk = !_vmState.frysEnabled || _vmState.frysOk !== false;
+    _vmState.hasDeviation = !allChecksOk || !koelOk || !frysOk;
+    _vmDom.deviationBox.classList.toggle('vm-show', _vmState.hasDeviation);
+
+    // Reset deviation selection if no longer needed
+    if (!_vmState.hasDeviation) {
+        _vmState.deviationType = null;
+        _vmState.deviationNote = '';
+    }
+}
+
+/* ── Remark section ──────────────────────────────────────── */
+
+function _vmBuildRemarkSection() {
+    var div = document.createElement('div');
+
+    var link = document.createElement('button');
+    link.className = 'vm-remark-link';
+    link.type = 'button';
+    link.innerHTML = '<span>\uff0b</span> Tilf\u00f8j bem\u00e6rkning';
+
+    var area = document.createElement('div');
+    area.className = 'vm-remark-area';
+
+    var ta = document.createElement('textarea');
+    ta.className = 'vm-remark-textarea';
+    ta.placeholder = 'Generel bem\u00e6rkning til leverancen...';
+    ta.addEventListener('input', function() { _vmState.notes = this.value; });
+    area.appendChild(ta);
+
+    link.addEventListener('click', function() {
+        var showing = area.classList.toggle('vm-show');
+        link.querySelector('span').textContent = showing ? '\u2212' : '\uff0b';
+    });
+
+    div.appendChild(link);
+    div.appendChild(area);
+    return div;
+}
+
+/* ── Lager content ───────────────────────────────────────── */
+
+function _vmRenderLagerContent() {
+    var el = _vmDom.lagerContent;
+    el.innerHTML = '';
+
+    // Header
+    var header = document.createElement('div');
+    header.className = 'vm-lager-header';
+    header.innerHTML = '<div><div class="vm-lager-title">' + _vmEsc(_vmState.supplierName) +
+        ' \u2014 ' + _vmState.items.length + ' varer</div>' +
+        '<div class="vm-lager-meta">Fra indk\u00f8b</div></div>';
+    el.appendChild(header);
+
+    if (_vmState.items.length === 0) {
         var empty = document.createElement('div');
-        empty.className = 'vm-empty';
-        empty.innerHTML =
-            '<div class="vm-empty-icon">📭</div>' +
-            '<div>Ingen ventende ordrer</div>' +
-            '<div style="font-size:13px;margin-top:4px;">Bestil varer i Bestilling-tabben for at se dem her.</div>';
-        root.appendChild(empty);
-        _vmContainer.innerHTML = '';
-        _vmContainer.appendChild(root);
+        empty.className = 'vm-no-supplier-msg';
+        empty.textContent = 'Ingen bestilte varer for denne leverand\u00f8r';
+        el.appendChild(empty);
         return;
     }
 
-    // Order grid
-    var grid = document.createElement('div');
-    grid.className = 'vm-order-grid';
+    // Godkend alt banner
+    var banner = document.createElement('div');
+    banner.className = 'vm-godkend-alt-banner';
+    _vmDom.godkendBanner = banner;
 
-    for (var i = 0; i < _vmOrders.length; i++) {
-        var order = _vmOrders[i];
-        var card = document.createElement('div');
-        card.className = 'vm-order-card';
+    var top = document.createElement('div');
+    top.className = 'vm-godkend-alt-top';
+    top.innerHTML = '<div><div class="vm-godkend-alt-text">\u2713 Alt modtaget som bestilt</div>' +
+        '<div class="vm-godkend-alt-sub">Alle varer l\u00e6gges p\u00e5 lager med forventet m\u00e6ngde</div></div>';
 
-        var supplierName = order.supplier_name || 'Ukendt leverandør';
-        var lineCount = order.line_count || order.lines?.length || '?';
-        var dateStr = order.expected_delivery_date
-            ? new Date(order.expected_delivery_date).toLocaleDateString('da-DK', { weekday: 'short', day: 'numeric', month: 'short' })
-            : 'Ukendt dato';
+    var godkendBtn = document.createElement('button');
+    godkendBtn.className = 'vm-btn-godkend-alt';
+    godkendBtn.textContent = 'Godkend alt';
+    godkendBtn.addEventListener('click', _vmGodkendAlt);
+    top.appendChild(godkendBtn);
+    banner.appendChild(top);
 
-        card.innerHTML =
-            '<div class="vm-oc-supplier">' + _vmEsc(supplierName) + '</div>' +
-            '<div class="vm-oc-meta">' +
-                '<span>📅 ' + dateStr + '</span>' +
-                '<span>📦 ' + lineCount + ' varer</span>' +
-            '</div>' +
-            '<span class="vm-oc-badge">' + (order.status || 'sent') + '</span>';
+    var detailBtn = document.createElement('button');
+    detailBtn.className = 'vm-detail-toggle';
+    _vmDom.detailToggleBtn = detailBtn;
+    detailBtn.textContent = '\u25b8 Juster enkeltvis hvis noget afviger';
+    detailBtn.addEventListener('click', _vmToggleItemList);
+    banner.appendChild(detailBtn);
 
-        card.addEventListener('click', (function(o) {
-            return function() { _vmOpenOrder(o); };
-        })(order));
+    el.appendChild(banner);
 
-        grid.appendChild(card);
+    // Item list (collapsed)
+    var list = document.createElement('div');
+    list.className = 'vm-item-list';
+    _vmDom.itemList = list;
+
+    for (var i = 0; i < _vmState.items.length; i++) {
+        list.appendChild(_vmBuildItemCard(i));
     }
 
-    root.appendChild(grid);
-    _vmContainer.innerHTML = '';
-    _vmContainer.appendChild(root);
+    // Add manual item button
+    var addBtn = document.createElement('button');
+    addBtn.className = 'vm-add-item-btn';
+    addBtn.type = 'button';
+    addBtn.textContent = '\uff0b Tilf\u00f8j vare manuelt';
+    addBtn.addEventListener('click', _vmAddManualItem);
+    list.appendChild(addBtn);
+
+    // Summary
+    _vmDom.summaryCard = _vmBuildSummaryCard();
+    list.appendChild(_vmDom.summaryCard);
+
+    el.appendChild(list);
 }
 
-/* ── Order detail ────────────────────────────────────────── */
+function _vmBuildItemCard(index) {
+    var item = _vmState.items[index];
+    var card = document.createElement('div');
+    card.className = 'vm-item-card vm-s-' + item.status;
+    card.dataset.index = index;
 
-async function _vmOpenOrder(order) {
-    _vmContainer.innerHTML = '<div class="vm-container"><div class="vm-loading">Henter ordrelinjer...</div></div>';
+    card.innerHTML = '<div class="vm-item-name">' + _vmEsc(item.product_name) + '</div>' +
+        '<div class="vm-item-expected">Forventet: ' + item.expected + ' ' + _vmEsc(item.unit) + '</div>';
 
-    try {
-        _vmCurrentOrder = await fetchPendingOrder(order.id);
+    // Qty row
+    var qtyRow = document.createElement('div');
+    qtyRow.className = 'vm-qty-row';
 
-        // Build editable lines
-        var orderLines = _vmCurrentOrder.lines || [];
-        _vmLines = orderLines.map(function(line) {
-            var expected = line.quantity_ordered || line.unit_quantity || 0;
-            return {
-                line: line,
-                productName: line.supplier_product_name || line.product_name || 'Produkt #' + (line.item_id || line.grocy_product_id || '?'),
-                expected: expected,
-                received: expected,   // pre-fill = bestilt (default: alt ok)
-                damaged: 0,
-                discrepancyType: 'none',
-                note: '',
+    qtyRow.innerHTML = '<span class="vm-qty-label">Modtaget</span>';
+
+    var ctrl = document.createElement('div');
+    ctrl.className = 'vm-qty-ctrl';
+
+    var minusBtn = document.createElement('button');
+    minusBtn.className = 'vm-qty-btn';
+    minusBtn.textContent = '\u2212';
+    minusBtn.type = 'button';
+
+    var input = document.createElement('input');
+    input.className = 'vm-qty-input';
+    input.type = 'number';
+    input.value = item.received;
+    input.min = '0';
+    input.step = 'any';
+
+    var plusBtn = document.createElement('button');
+    plusBtn.className = 'vm-qty-btn';
+    plusBtn.textContent = '+';
+    plusBtn.type = 'button';
+
+    var stepSize = item.unit === 'kg' ? 0.5 : 1;
+
+    minusBtn.addEventListener('click', (function(idx, inp, s) {
+        return function() {
+            var v = Math.max(0, Math.round((parseFloat(inp.value) || 0) - s) * 10 / 10);
+            inp.value = v;
+            _vmState.items[idx].received = v;
+            _vmUpdateSummary();
+        };
+    })(index, input, stepSize));
+
+    plusBtn.addEventListener('click', (function(idx, inp, s) {
+        return function() {
+            var v = Math.round(((parseFloat(inp.value) || 0) + s) * 10) / 10;
+            inp.value = v;
+            _vmState.items[idx].received = v;
+            _vmUpdateSummary();
+        };
+    })(index, input, stepSize));
+
+    input.addEventListener('change', (function(idx) {
+        return function() {
+            _vmState.items[idx].received = parseFloat(this.value) || 0;
+            _vmUpdateSummary();
+        };
+    })(index));
+
+    ctrl.appendChild(minusBtn);
+    ctrl.appendChild(input);
+    ctrl.appendChild(plusBtn);
+    qtyRow.appendChild(ctrl);
+
+    qtyRow.innerHTML += '<span class="vm-qty-unit">' + _vmEsc(item.unit) + '</span>';
+    // Replace last span with proper one since innerHTML clobbered it
+    var unitSpan = document.createElement('span');
+    unitSpan.className = 'vm-qty-unit';
+    unitSpan.textContent = item.unit;
+
+    // Rebuild properly
+    qtyRow.innerHTML = '';
+    var ql = document.createElement('span');
+    ql.className = 'vm-qty-label';
+    ql.textContent = 'Modtaget';
+    qtyRow.appendChild(ql);
+    qtyRow.appendChild(ctrl);
+    qtyRow.appendChild(unitSpan);
+
+    card.appendChild(qtyRow);
+
+    // Status buttons
+    var statusBtns = document.createElement('div');
+    statusBtns.className = 'vm-status-btns';
+
+    var statuses = [
+        { key: 'ok', icon: '\u2713', label: 'OK' },
+        { key: 'missing', icon: '\u2212', label: 'Mangler' },
+        { key: 'wrong', icon: '\u2194', label: 'Forkert' },
+        { key: 'damaged', icon: '\u2715', label: 'Skadet' },
+    ];
+
+    for (var s = 0; s < statuses.length; s++) {
+        var st = statuses[s];
+        var btn = document.createElement('button');
+        btn.className = 'vm-status-btn' + (item.status === st.key ? ' vm-sel-' + st.key : '');
+        btn.type = 'button';
+        btn.innerHTML = '<span class="vm-status-btn-icon">' + st.icon + '</span>' + st.label;
+
+        btn.addEventListener('click', (function(idx, key, cardEl, btnsEl) {
+            return function() {
+                _vmState.items[idx].status = key;
+                cardEl.className = 'vm-item-card vm-s-' + key;
+                btnsEl.querySelectorAll('.vm-status-btn').forEach(function(b) {
+                    b.className = 'vm-status-btn';
+                });
+                this.classList.add('vm-sel-' + key);
+
+                // Show/hide note
+                var noteArea = cardEl.querySelector('.vm-item-note-area');
+                if (noteArea) noteArea.classList.toggle('vm-show', key !== 'ok');
+
+                // Set received to 0 if missing
+                if (key === 'missing') {
+                    _vmState.items[idx].received = 0;
+                    var inp = cardEl.querySelector('.vm-qty-input');
+                    if (inp) inp.value = '0';
+                }
+
+                _vmUpdateSummary();
             };
-        });
+        })(index, st.key, card, statusBtns));
 
-        _vmRenderDetail();
-    } catch (err) {
-        _vmContainer.innerHTML = '<div class="vm-container"><div class="vm-loading" style="color:#c62828;">Fejl: ' + err.message + '</div></div>';
+        statusBtns.appendChild(btn);
     }
+
+    card.appendChild(statusBtns);
+
+    // Note area (hidden by default)
+    var noteArea = document.createElement('div');
+    noteArea.className = 'vm-item-note-area' + (item.status !== 'ok' ? ' vm-show' : '');
+    noteArea.innerHTML = '<div class="vm-item-note-label">Beskriv problemet</div>';
+    var noteTA = document.createElement('textarea');
+    noteTA.placeholder = 'Hvad var problemet?';
+    noteTA.addEventListener('input', (function(idx) {
+        return function() { _vmState.items[idx].notes = this.value; };
+    })(index));
+    noteArea.appendChild(noteTA);
+    card.appendChild(noteArea);
+
+    return card;
 }
 
-function _vmRenderDetail() {
-    var root = document.createElement('div');
-    root.className = 'vm-container';
+function _vmBuildSummaryCard() {
+    var card = document.createElement('div');
+    card.className = 'vm-summary-card';
+    card.innerHTML = '<div class="vm-summary-title">Opsummering</div><div class="vm-summary-lines"></div>';
+    return card;
+}
 
-    // Topbar
-    var topbar = document.createElement('div');
-    topbar.className = 'vm-detail-topbar';
+function _vmUpdateSummary() {
+    if (!_vmDom.summaryCard) return;
+    var lines = _vmDom.summaryCard.querySelector('.vm-summary-lines');
+    if (!lines) return;
 
-    var backBtn = document.createElement('button');
-    backBtn.className = 'vm-back-btn';
-    backBtn.textContent = '← Tilbage';
-    backBtn.addEventListener('click', function() {
-        _vmCurrentOrder = null;
-        _vmLines = [];
-        _vmRenderOrderList();
+    var counts = { ok: 0, missing: 0, wrong: 0, damaged: 0 };
+    for (var i = 0; i < _vmState.items.length; i++) {
+        var s = _vmState.items[i].status;
+        if (counts[s] !== undefined) counts[s]++;
+    }
+
+    var html = '';
+    if (counts.ok) html += '<div class="vm-summary-line vm-ok">\u2713 ' + counts.ok + ' varer OK \u2192 lager</div>';
+    if (counts.missing) html += '<div class="vm-summary-line vm-warn-line">\u26a0 ' + counts.missing + ' mangler</div>';
+    if (counts.wrong) html += '<div class="vm-summary-line vm-warn-line">\u2194 ' + counts.wrong + ' forkert</div>';
+    if (counts.damaged) html += '<div class="vm-summary-line vm-err-line">\u2715 ' + counts.damaged + ' skadet</div>';
+
+    lines.innerHTML = html;
+}
+
+/* ── Godkend alt ─────────────────────────────────────────── */
+
+function _vmGodkendAlt() {
+    _vmState.allApproved = true;
+    for (var i = 0; i < _vmState.items.length; i++) {
+        _vmState.items[i].status = 'ok';
+        _vmState.items[i].received = _vmState.items[i].expected;
+    }
+
+    // Update banner
+    if (_vmDom.godkendBanner) {
+        var textEl = _vmDom.godkendBanner.querySelector('.vm-godkend-alt-text');
+        if (textEl) textEl.textContent = '\u2713 Alle varer godkendt';
+    }
+
+    // Re-render item cards if list is open
+    if (_vmDom.itemList && _vmState.itemListOpen) {
+        _vmRenderLagerContent();
+        _vmDom.itemList.classList.add('vm-open');
+        _vmState.itemListOpen = true;
+    }
+
+    _vmUpdateSummary();
+    _vmUpdateBtn();
+}
+
+function _vmToggleItemList() {
+    _vmState.itemListOpen = !_vmState.itemListOpen;
+    if (_vmDom.itemList) _vmDom.itemList.classList.toggle('vm-open', _vmState.itemListOpen);
+    if (_vmDom.detailToggleBtn) {
+        _vmDom.detailToggleBtn.textContent = _vmState.itemListOpen
+            ? '\u25be Skjul vareliste'
+            : '\u25b8 Juster enkeltvis hvis noget afviger';
+    }
+    _vmUpdateSummary();
+}
+
+/* ── Add manual item ─────────────────────────────────────── */
+
+function _vmAddManualItem() {
+    var name = prompt('Varenavn:');
+    if (!name) return;
+    var qty = parseFloat(prompt('Antal:') || '1') || 1;
+    var unit = prompt('Enhed (fx kg, stk):') || '';
+
+    _vmState.items.push({
+        grocy_product_id: null,
+        product_name: name,
+        expected: qty,
+        received: qty,
+        unit: unit,
+        status: 'ok',
+        notes: '',
+        slIds: [],
     });
-    topbar.appendChild(backBtn);
 
-    var title = document.createElement('span');
-    title.className = 'vm-detail-title';
-    title.textContent = (_vmCurrentOrder.supplier_name || 'Ordre') + ' #' + _vmCurrentOrder.id;
-    topbar.appendChild(title);
-
-    root.appendChild(topbar);
-
-    // Info
-    if (_vmCurrentOrder.expected_delivery_date) {
-        var info = document.createElement('p');
-        info.style.cssText = 'font-size:13px;color:var(--color-text-dim);margin-bottom:16px;';
-        info.textContent = 'Forventet levering: ' + new Date(_vmCurrentOrder.expected_delivery_date).toLocaleDateString('da-DK');
-        root.appendChild(info);
-    }
-
-    // Lines table
-    if (_vmLines.length === 0) {
-        var empty = document.createElement('div');
-        empty.className = 'vm-empty';
-        empty.textContent = 'Ingen linjer på denne ordre.';
-        root.appendChild(empty);
-    } else {
-        var table = document.createElement('table');
-        table.className = 'vm-lines-table';
-
-        var thead = document.createElement('thead');
-        thead.innerHTML =
-            '<tr>' +
-            '<th>Produkt</th>' +
-            '<th>Bestilt</th>' +
-            '<th>Modtaget</th>' +
-            '<th>Skadet</th>' +
-            '<th>Status</th>' +
-            '</tr>';
-        table.appendChild(thead);
-
-        var tbody = document.createElement('tbody');
-        for (var i = 0; i < _vmLines.length; i++) {
-            tbody.appendChild(_vmRenderLine(i));
-        }
-        table.appendChild(tbody);
-        root.appendChild(table);
-    }
-
-    // Approve bar
-    root.appendChild(_vmRenderApproveBar());
-
-    _vmContainer.innerHTML = '';
-    _vmContainer.appendChild(root);
+    _vmRenderLagerContent();
+    _vmDom.itemList.classList.add('vm-open');
+    _vmState.itemListOpen = true;
+    if (_vmDom.detailToggleBtn) _vmDom.detailToggleBtn.textContent = '\u25be Skjul vareliste';
+    _vmUpdateSummary();
 }
 
-function _vmRenderLine(index) {
-    var l = _vmLines[index];
-    var tr = document.createElement('tr');
+/* ── Bottom bar ──────────────────────────────────────────── */
 
-    if (l.discrepancyType === 'missing') {
-        tr.className = 'vm-missing';
-    } else if (l.discrepancyType !== 'none') {
-        tr.className = 'vm-discrepancy';
-    }
-
-    // Product name
-    var tdName = document.createElement('td');
-    tdName.style.fontWeight = '600';
-    tdName.textContent = l.productName;
-    tr.appendChild(tdName);
-
-    // Expected
-    var tdExpected = document.createElement('td');
-    tdExpected.textContent = l.expected;
-    tr.appendChild(tdExpected);
-
-    // Received input
-    var tdReceived = document.createElement('td');
-    var recInput = document.createElement('input');
-    recInput.className = 'vm-qty-input';
-    recInput.type = 'number';
-    recInput.min = '0';
-    recInput.value = l.received;
-    recInput.addEventListener('change', (function(idx) {
-        return function() {
-            _vmLines[idx].received = parseInt(this.value) || 0;
-            _vmUpdateDiscrepancy(idx);
-            _vmRenderDetail();
-        };
-    })(index));
-    tdReceived.appendChild(recInput);
-    tr.appendChild(tdReceived);
-
-    // Damaged input
-    var tdDamaged = document.createElement('td');
-    var dmgInput = document.createElement('input');
-    dmgInput.className = 'vm-qty-input';
-    dmgInput.type = 'number';
-    dmgInput.min = '0';
-    dmgInput.value = l.damaged;
-    dmgInput.addEventListener('change', (function(idx) {
-        return function() {
-            _vmLines[idx].damaged = parseInt(this.value) || 0;
-            _vmUpdateDiscrepancy(idx);
-            _vmRenderDetail();
-        };
-    })(index));
-    tdDamaged.appendChild(dmgInput);
-    tr.appendChild(tdDamaged);
-
-    // Discrepancy type
-    var tdDisc = document.createElement('td');
-    if (l.discrepancyType !== 'none') {
-        var badge = document.createElement('span');
-        badge.className = 'vm-disc-type vm-disc--' + l.discrepancyType;
-        var labels = { short: 'Mangler', over: 'For mange', damaged: 'Beskadiget', missing: 'Mangler helt' };
-        badge.textContent = labels[l.discrepancyType] || l.discrepancyType;
-        tdDisc.appendChild(badge);
-    } else {
-        tdDisc.innerHTML = '<span style="color:#4caf50;font-weight:600;">✓ OK</span>';
-    }
-    tr.appendChild(tdDisc);
-
-    return tr;
-}
-
-function _vmUpdateDiscrepancy(index) {
-    var l = _vmLines[index];
-    if (l.received === 0 && l.expected > 0) {
-        l.discrepancyType = 'missing';
-    } else if (l.damaged > 0) {
-        l.discrepancyType = 'damaged';
-    } else if (l.received < l.expected) {
-        l.discrepancyType = 'short';
-    } else if (l.received > l.expected) {
-        l.discrepancyType = 'over';
-    } else {
-        l.discrepancyType = 'none';
-    }
-}
-
-/* ── Approve bar ─────────────────────────────────────────── */
-
-function _vmRenderApproveBar() {
+function _vmBuildBottomBar() {
     var bar = document.createElement('div');
-    bar.className = 'vm-approve-bar';
+    bar.className = 'vm-bottom-bar';
 
-    var discCount = _vmLines.filter(function(l) { return l.discrepancyType !== 'none'; }).length;
-    var totalItems = _vmLines.length;
+    var cancelBtn = document.createElement('button');
+    cancelBtn.className = 'vm-btn vm-btn-secondary';
+    cancelBtn.textContent = 'Annuller';
+    cancelBtn.type = 'button';
+    cancelBtn.addEventListener('click', function() {
+        if (confirm('Afbryd varemodtagelse?')) {
+            initVaremodtagelse(_vmContainer);
+        }
+    });
+    bar.appendChild(cancelBtn);
 
-    var summary = document.createElement('div');
-    summary.className = 'vm-approve-summary';
-    summary.innerHTML = '<strong>' + totalItems + ' varer</strong>' +
-        (discCount > 0 ? ', <span style="color:#e65100;">' + discCount + ' med afvigelse</span>' : ', alle OK');
-    bar.appendChild(summary);
-
-    var btn = document.createElement('button');
-    btn.className = 'vm-approve-btn';
-    btn.textContent = 'Godkend modtagelse';
-    btn.disabled = _vmBusy;
-    btn.addEventListener('click', _vmConfirmApprove);
-    bar.appendChild(btn);
+    var submitBtn = document.createElement('button');
+    submitBtn.className = 'vm-btn vm-btn-primary';
+    submitBtn.textContent = '\u2713 Registr\u00e9r varemodtagelse';
+    submitBtn.disabled = true;
+    submitBtn.type = 'button';
+    submitBtn.addEventListener('click', _vmSubmit);
+    _vmDom.submitBtn = submitBtn;
+    bar.appendChild(submitBtn);
 
     return bar;
 }
 
-/* ── Confirm + Approve ───────────────────────────────────── */
+function _vmUpdateBtn() {
+    if (!_vmDom.submitBtn) return;
 
-function _vmConfirmApprove() {
-    var overlay = document.createElement('div');
-    overlay.className = 'vm-confirm-overlay';
+    var koelOk = !_vmState.koelEnabled || (_vmState.koelOk !== null && _vmState.koelOk !== false);
+    var frysOk = !_vmState.frysEnabled || (_vmState.frysOk !== null && _vmState.frysOk !== false);
+    var tempFilled = (!_vmState.koelEnabled || _vmState.koelValue !== null) &&
+                     (!_vmState.frysEnabled || _vmState.frysValue !== null);
+    var deviationOk = !_vmState.hasDeviation || _vmState.deviationType;
 
-    var dialog = document.createElement('div');
-    dialog.className = 'vm-confirm-dialog';
-    dialog.innerHTML =
-        '<h3>Godkend modtagelse?</h3>' +
-        '<p>Dette opdaterer lageret i Grocy og kan ikke fortrydes.</p>';
+    var valid = _vmState.userId &&
+                _vmState.supplierKey &&
+                tempFilled &&
+                deviationOk;
 
-    var actions = document.createElement('div');
-    actions.className = 'vm-confirm-actions';
-
-    var cancelBtn = document.createElement('button');
-    cancelBtn.className = 'vm-confirm-cancel';
-    cancelBtn.textContent = 'Annuller';
-    cancelBtn.addEventListener('click', function() { overlay.remove(); });
-
-    var okBtn = document.createElement('button');
-    okBtn.className = 'vm-confirm-ok';
-    okBtn.textContent = 'Godkend';
-    okBtn.addEventListener('click', function() {
-        overlay.remove();
-        _vmDoApprove();
-    });
-
-    actions.appendChild(cancelBtn);
-    actions.appendChild(okBtn);
-    dialog.appendChild(actions);
-    overlay.appendChild(dialog);
-    document.body.appendChild(overlay);
+    _vmDom.submitBtn.disabled = !valid || _vmState.busy;
 }
 
-async function _vmDoApprove() {
-    if (_vmBusy) return;
-    _vmBusy = true;
+/* ── Submit ──────────────────────────────────────────────── */
+
+async function _vmSubmit() {
+    if (_vmState.busy) return;
+    _vmState.busy = true;
+    _vmDom.submitBtn.disabled = true;
+    _vmDom.submitBtn.textContent = 'Registrerer...';
 
     try {
-        // Build items for receiving/complete endpoint
-        var items = _vmLines.map(function(l) {
-            var stockQty = l.received - l.damaged;
+        // Build items payload
+        var items = _vmState.items.map(function(item) {
             return {
-                product_id: l.line.item_id || l.line.grocy_product_id,
-                quantity_expected: l.expected,
-                quantity_received: stockQty > 0 ? stockQty : 0,
-                quantity_damaged: l.damaged,
-                status: l.discrepancyType === 'none' ? 'ok'
-                    : l.discrepancyType === 'missing' ? 'missing'
-                    : l.discrepancyType === 'damaged' ? 'damaged'
-                    : l.discrepancyType === 'short' ? 'short'
-                    : 'ok',
-                note: l.note || null,
+                grocy_product_id: item.grocy_product_id,
+                product_name: item.product_name,
+                expected_quantity: item.expected,
+                received_quantity: item.received,
+                unit: item.unit,
+                status: item.status,
+                notes: item.notes || null,
+                shopping_list_id: item.slIds && item.slIds.length > 0 ? item.slIds[0] : null,
             };
         });
 
-        var result = await postReceivingComplete({
-            purchase_order_id: _vmCurrentOrder.id,
-            supplier: _vmCurrentOrder.supplier_name || 'Ukendt',
-            receiver: 'Køkken', // TODO: brugerens navn fra auth
+        var payload = {
+            supplier_name: _vmState.supplierName,
+            received_by_user_id: _vmState.userId,
+            location_id: _vmState.locationId,
+
+            temperature_cool_enabled: _vmState.koelEnabled,
+            temperature_cool_value: _vmState.koelEnabled ? _vmState.koelValue : null,
+            temperature_cool_ok: _vmState.koelEnabled ? _vmState.koelOk : null,
+
+            temperature_frozen_enabled: _vmState.frysEnabled,
+            temperature_frozen_value: _vmState.frysEnabled ? _vmState.frysValue : null,
+            temperature_frozen_ok: _vmState.frysEnabled ? _vmState.frysOk : null,
+
+            date_check_ok: _vmState.dateCheck,
+            labeling_check_ok: _vmState.labelCheck,
+            packaging_check_ok: _vmState.packCheck,
+
+            has_deviation: _vmState.hasDeviation,
+            deviation_type: _vmState.hasDeviation ? _vmState.deviationType : null,
+            deviation_note: _vmState.hasDeviation ? _vmState.deviationNote : null,
+
+            photo_path: _vmState.photoPath,
+            notes: _vmState.notes || null,
             items: items,
-        });
+        };
 
-        // Handle partial shopping_list updates for partial deliveries
-        for (var i = 0; i < _vmLines.length; i++) {
-            var l = _vmLines[i];
-            var slId = l.line.shopping_list_id || l.line.grocy_shopping_list_id;
-            if (!slId) continue;
-
-            if (l.received < l.expected && l.received > 0) {
-                // Delvis modtagelse: reducer qty i stedet for at slette
-                var remaining = l.expected - l.received;
-                try {
-                    await updateShoppingListItem(slId, { amount: remaining });
-                } catch (e) {
-                    console.warn('[varemodtagelse] Kunne ikke opdatere shopping list:', e.message);
-                }
-            } else if (l.received >= l.expected) {
-                // Fuld modtagelse: slet fra shopping list
-                try {
-                    await deleteShoppingListItem(slId);
-                } catch (e) {
-                    console.warn('[varemodtagelse] Kunne ikke slette shopping list item:', e.message);
-                }
-            }
-            // Hvis received === 0 (missing): behold på listen (gør intet)
-        }
-
-        _vmRenderSuccess(result);
+        var result = await postGoodsReceipt(payload);
+        _vmShowSuccess(result);
     } catch (err) {
-        alert('Fejl ved godkendelse: ' + err.message);
-    } finally {
-        _vmBusy = false;
+        alert('Fejl ved registrering: ' + err.message);
+        _vmState.busy = false;
+        _vmDom.submitBtn.disabled = false;
+        _vmDom.submitBtn.textContent = '\u2713 Registr\u00e9r varemodtagelse';
     }
 }
 
-/* ── Success view ────────────────────────────────────────── */
+/* ── Success overlay ─────────────────────────────────────── */
 
-function _vmRenderSuccess(result) {
-    var root = document.createElement('div');
-    root.className = 'vm-container';
+function _vmBuildSuccessOverlay() {
+    var overlay = document.createElement('div');
+    overlay.className = 'vm-success-overlay';
 
-    var success = document.createElement('div');
-    success.className = 'vm-success';
+    overlay.innerHTML =
+        '<div class="vm-success-icon">\u2705</div>' +
+        '<div class="vm-success-title">Varemodtagelse registreret</div>' +
+        '<div class="vm-success-sub">Lager opdateret</div>' +
+        '<div class="vm-success-details"></div>' +
+        '<button class="vm-success-btn" type="button">Ny varemodtagelse</button>';
 
-    success.innerHTML = '<div class="vm-success-icon">✅</div>';
-
-    var title = document.createElement('div');
-    title.className = 'vm-success-title';
-    title.textContent = 'Modtagelse godkendt';
-    success.appendChild(title);
-
-    var grocyAdded = result.grocy ? result.grocy.added : 0;
-    var grocyFailed = result.grocy ? result.grocy.failed : 0;
-
-    var details = document.createElement('div');
-    details.className = 'vm-success-details';
-    details.textContent = grocyAdded + ' varer lagt på lager' +
-        (grocyFailed > 0 ? ', ' + grocyFailed + ' fejlede' : '');
-    success.appendChild(details);
-
-    // Discrepancies
-    var discLines = _vmLines.filter(function(l) { return l.discrepancyType !== 'none'; });
-    if (discLines.length > 0) {
-        var discDiv = document.createElement('div');
-        discDiv.className = 'vm-success-discrepancies';
-        discDiv.innerHTML = '<strong>Afvigelser:</strong>';
-        for (var i = 0; i < discLines.length; i++) {
-            var d = discLines[i];
-            var labels = { short: 'Mangler', over: 'For mange', damaged: 'Beskadiget', missing: 'Mangler helt' };
-            var p = document.createElement('div');
-            p.style.cssText = 'margin-top:4px;';
-            p.textContent = '• ' + d.productName + ' — ' + (labels[d.discrepancyType] || d.discrepancyType) +
-                ' (bestilt: ' + d.expected + ', modtaget: ' + d.received + ')';
-            discDiv.appendChild(p);
-        }
-        success.appendChild(discDiv);
-    }
-
-    // Grocy errors
-    if (grocyFailed > 0 && result.grocy && result.grocy.results) {
-        var errDiv = document.createElement('div');
-        errDiv.className = 'vm-success-discrepancies';
-        errDiv.style.background = '#ffebee';
-        errDiv.innerHTML = '<strong>Grocy-fejl:</strong>';
-        var errs = result.grocy.results.filter(function(r) { return !r.success; });
-        for (var e = 0; e < errs.length; e++) {
-            var ep = document.createElement('div');
-            ep.style.cssText = 'margin-top:4px;color:#c62828;';
-            ep.textContent = '• Produkt #' + errs[e].product_id + ': ' + (errs[e].error || 'Ukendt fejl');
-            errDiv.appendChild(ep);
-        }
-        success.appendChild(errDiv);
-    }
-
-    var backBtn = document.createElement('button');
-    backBtn.className = 'vm-success-back';
-    backBtn.textContent = 'Tilbage til indkøbsliste';
-    backBtn.addEventListener('click', async function() {
-        _vmCurrentOrder = null;
-        _vmLines = [];
-        await _vmLoadOrders();
-        _vmRenderOrderList();
+    overlay.querySelector('.vm-success-btn').addEventListener('click', function() {
+        initVaremodtagelse(_vmContainer);
     });
-    success.appendChild(backBtn);
 
-    root.appendChild(success);
-    _vmContainer.innerHTML = '';
-    _vmContainer.appendChild(root);
+    return overlay;
+}
+
+function _vmShowSuccess(result) {
+    var overlay = _vmDom.successOverlay;
+    if (!overlay) return;
+
+    var details = [];
+    var grocyResults = result.grocy_results || [];
+    var added = grocyResults.filter(function(r) { return r.grocy_added; }).length;
+    var failed = grocyResults.filter(function(r) { return !r.grocy_added && !r.skipped; }).length;
+
+    details.push('\ud83d\udce6 ' + result.receipt_number);
+    if (added > 0) details.push('\u2705 ' + added + ' varer lagt p\u00e5 lager');
+    if (failed > 0) {
+        var failedNames = grocyResults.filter(function(r) { return !r.grocy_added && !r.skipped && r.error; })
+            .map(function(r) { return r.product_name; }).join(', ');
+        details.push('\u26a0\ufe0f ' + failed + ' fejlede (' + failedNames + ') \u2014 ret manuelt i Grocy');
+    }
+
+    var missing = _vmState.items.filter(function(i) { return i.status === 'missing'; });
+    if (missing.length > 0) details.push('\u26a0 ' + missing.length + ' varer forbliver p\u00e5 indk\u00f8bslisten');
+
+    if (_vmState.koelEnabled) details.push('\ud83e\uddc8 K\u00f8l: ' + _vmState.koelValue + '\u00b0C');
+    if (_vmState.frysEnabled) details.push('\u2744\ufe0f Frys: ' + _vmState.frysValue + '\u00b0C');
+    if (_vmState.photoPath) details.push('\ud83d\udcf8 Foto af f\u00f8lgeseddel gemt');
+    if (_vmState.hasDeviation) details.push('\u26a0 Afvigelse logget');
+
+    var detailsEl = overlay.querySelector('.vm-success-details');
+    detailsEl.innerHTML = details.join('<br>');
+
+    overlay.classList.add('vm-show');
 }
 
 /* ── Utilities ───────────────────────────────────────────── */

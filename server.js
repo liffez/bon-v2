@@ -75,7 +75,11 @@ app.use('/api/horkram',      require('./routes/horkram'));
 app.use('/api/purchasing',   require('./routes/purchasing'));
 app.use('/api/orders',       require('./routes/orders'));
 app.use('/api/receiving',    require('./routes/receiving'));
-app.use('/api/attachments',  require('./routes/attachments'));
+app.use('/api/attachments',      require('./routes/attachments'));
+app.use('/api/goods-receipts',   require('./routes/goods-receipts'));
+
+// Statisk serving af receipt-fotos (for Whiteboard link-only access)
+app.use('/uploads/receipts', express.static(path.join(__dirname, 'data', 'uploads', 'receipts')));
 
 // ─── MAIL POLLING ───────────────────────────────────────────────────────────
 
