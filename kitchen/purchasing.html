@@ -41,6 +41,12 @@
         .tab-bar a.active { color: var(--brand-primary); border-bottom-color: var(--brand-primary); }
         #indkobContainer { /* no padding — indkob.js handles layout */ }
         #receivingContainer { padding: 20px 24px; display: none; }
+        .tab-badge {
+            background: #e53e3e; color: #fff;
+            font-size: 10px; font-weight: 700;
+            padding: 1px 6px; border-radius: 8px;
+            margin-left: 4px; vertical-align: middle;
+        }
     </style>
 </head>
 <body class="zone-kitchen">
@@ -49,11 +55,13 @@
 <div class="tab-bar">
     <a href="#" id="tabIndkob" class="active">Indkøb</a>
     <a href="#" id="tabReceiving">Varemodtagelse</a>
+    <a href="#" id="tabPost">Post <span id="postBadge" class="tab-badge" style="display:none"></span></a>
 </div>
 
 <!-- CONTENT -->
 <div id="indkobContainer"></div>
 <div id="receivingContainer"></div>
+<div id="postContainer" style="display:none;padding:20px 24px"></div>
 
 <!-- SETTINGS SLIDE-IN -->
 <div class="is-overlay" id="isOverlay" onclick="toggleIndkobSettings()"></div>
@@ -67,9 +75,11 @@
 <script src="/shared/indkob.js"></script>
 <script src="/shared/indkob_settings.js"></script>
 <script src="/shared/varemodtagelse.js"></script>
+<script src="/shared/supplier_inbox.js"></script>
 <script>
     var _indkobInitialized = false;
     var _varemodtagelseInitialized = false;
+    var _postInitialized = false;
     var _ibSettingsOpen = false;
     var _ibSettingsInitialized = false;
 
@@ -110,8 +120,10 @@
 
         var indkobContainer = document.getElementById('indkobContainer');
         var receivingContainer = document.getElementById('receivingContainer');
+        var postContainer = document.getElementById('postContainer');
         var tabIndkob = document.getElementById('tabIndkob');
         var tabReceiving = document.getElementById('tabReceiving');
+        var tabPost = document.getElementById('tabPost');
 
         // Init indkob by default
         initIndkob(indkobContainer);
@@ -120,6 +132,8 @@
         // Check URL hash
         if (window.location.hash === '#varemodtagelse') {
             switchTo('receiving');
+        } else if (window.location.hash === '#post') {
+            switchTo('post');
         }
 
         tabIndkob.addEventListener('click', function(e) {
@@ -132,21 +146,66 @@
             switchTo('receiving');
         });
 
+        tabPost.addEventListener('click', function(e) {
+            e.preventDefault();
+            switchTo('post');
+        });
+
         function switchTo(tab) {
             tabIndkob.classList.toggle('active', tab === 'indkob');
             tabReceiving.classList.toggle('active', tab === 'receiving');
+            tabPost.classList.toggle('active', tab === 'post');
 
             indkobContainer.style.display = tab === 'indkob' ? 'block' : 'none';
             receivingContainer.style.display = tab === 'receiving' ? 'block' : 'none';
+            postContainer.style.display = tab === 'post' ? 'block' : 'none';
 
             if (tab === 'indkob') window.location.hash = '';
             if (tab === 'receiving') window.location.hash = 'varemodtagelse';
+            if (tab === 'post') window.location.hash = 'post';
 
             // Varemodtagelse: reload ved hvert tab-skift
             if (tab === 'receiving') {
                 initVaremodtagelse(receivingContainer);
                 _varemodtagelseInitialized = true;
             }
+
+            // Post: init or refresh
+            if (tab === 'post') {
+                if (_postInitialized) {
+                    // Refresh data when switching back
+                    if (typeof _siLoadData === 'function') _siLoadData();
+                } else {
+                    initSupplierInbox(postContainer, {});
+                    _postInitialized = true;
+                }
+            }
+        }
+
+        // SSE for post badge (runs regardless of active tab)
+        var postSSE = new EventSource('/api/sse');
+        postSSE.addEventListener('po_mail_received', function(e) {
+            updatePostBadge();
+            if (typeof _siHandleSSE === 'function') _siHandleSSE('po_mail_received', JSON.parse(e.data));
+        });
+        postSSE.addEventListener('po_mail_sent', function(e) {
+            if (typeof _siHandleSSE === 'function') _siHandleSSE('po_mail_sent', JSON.parse(e.data));
+        });
+
+        // Initial badge load
+        updatePostBadge();
+
+        async function updatePostBadge() {
+            try {
+                var threads = await fetchOrderMailThreads({ unread_only: true });
+                var total = 0;
+                for (var i = 0; i < threads.length; i++) total += (threads[i].unread_count || 0);
+                var badge = document.getElementById('postBadge');
+                if (badge) {
+                    badge.textContent = total;
+                    badge.style.display = total > 0 ? '' : 'none';
+                }
+            } catch (e) {}
         }
     });
 </script>
