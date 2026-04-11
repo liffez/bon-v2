@@ -28,13 +28,14 @@ function getPrefixes() {
     const db = getDb();
     const rows = db.prepare(
         `SELECT key, value FROM settings
-         WHERE key IN ('mail_tag_bon_prefix', 'mail_tag_offer_prefix', 'mail_tag_customer_prefix')`
+         WHERE key IN ('mail_tag_bon_prefix', 'mail_tag_offer_prefix', 'mail_tag_customer_prefix', 'mail_tag_purchase_order_prefix')`
     ).all();
     const map = Object.fromEntries(rows.map(r => [r.key, r.value]));
     return {
-        bon:      map.mail_tag_bon_prefix      || 'b-',
-        offer:    map.mail_tag_offer_prefix     || 't-',
-        customer: map.mail_tag_customer_prefix  || 'k-',
+        bon:            map.mail_tag_bon_prefix            || 'b-',
+        offer:          map.mail_tag_offer_prefix          || 't-',
+        customer:       map.mail_tag_customer_prefix       || 'k-',
+        purchase_order: map.mail_tag_purchase_order_prefix || 'po-',
     };
 }
 
@@ -43,16 +44,16 @@ function getPrefixes() {
  * # er fast markør, prefix er konfigurerbart.
  *
  * @param {string} subject
- * @param {object} [prefixes] - { bon, offer, customer } — hentes fra DB hvis udeladt
- * @returns {{ isV1: boolean, routing: string, bonNumber: number|null, offerNumber: number|null, customerNumber: number|null, raw: string }}
+ * @param {object} [prefixes] - { bon, offer, customer, purchase_order } — hentes fra DB hvis udeladt
+ * @returns {{ isV1: boolean, routing: string, bonNumber: number|null, offerNumber: number|null, customerNumber: number|null, purchaseOrderNumber: number|null, raw: string }}
  */
 function parseSubject(subject, prefixes) {
     if (!subject) {
-        return { isV1: false, routing: 'unmatched', bonNumber: null, offerNumber: null, customerNumber: null, raw: '' };
+        return { isV1: false, routing: 'unmatched', bonNumber: null, offerNumber: null, customerNumber: null, purchaseOrderNumber: null, raw: '' };
     }
 
     if (isBonV1(subject)) {
-        return { isV1: true, routing: 'ignore', bonNumber: null, offerNumber: null, customerNumber: null, raw: subject };
+        return { isV1: true, routing: 'ignore', bonNumber: null, offerNumber: null, customerNumber: null, purchaseOrderNumber: null, raw: subject };
     }
 
     const p = prefixes || getPrefixes();
@@ -61,27 +62,29 @@ function parseSubject(subject, prefixes) {
     const bonMatch      = new RegExp(`#${esc(p.bon)}(\\d+)`, 'i').exec(subject);
     const offerMatch    = new RegExp(`#${esc(p.offer)}(\\d+)`, 'i').exec(subject);
     const customerMatch = new RegExp(`#${esc(p.customer)}(\\d+)`, 'i').exec(subject);
+    const poMatch       = new RegExp(`#${esc(p.purchase_order)}(\\d+)`, 'i').exec(subject);
 
-    const bonNumber      = bonMatch      ? parseInt(bonMatch[1])      : null;
-    const offerNumber    = offerMatch    ? parseInt(offerMatch[1])    : null;
-    const customerNumber = customerMatch ? parseInt(customerMatch[1]) : null;
+    const bonNumber            = bonMatch      ? parseInt(bonMatch[1])      : null;
+    const offerNumber          = offerMatch    ? parseInt(offerMatch[1])    : null;
+    const customerNumber       = customerMatch ? parseInt(customerMatch[1]) : null;
+    const purchaseOrderNumber  = poMatch       ? parseInt(poMatch[1])      : null;
 
     let routing;
-    if (!bonNumber && !offerNumber && !customerNumber) {
-        routing = 'unmatched';
-    } else if (offerNumber && !bonNumber) {
-        routing = 'offer';
-    } else if (bonNumber && customerNumber) {
+    if (bonNumber && customerNumber) {
         routing = 'bon+customer';
     } else if (bonNumber) {
         routing = 'bon';
+    } else if (offerNumber) {
+        routing = 'offer';
+    } else if (purchaseOrderNumber) {
+        routing = 'purchase_order';
     } else if (customerNumber) {
         routing = 'customer';
     } else {
         routing = 'unmatched';
     }
 
-    return { isV1: false, routing, bonNumber, offerNumber, customerNumber, raw: subject };
+    return { isV1: false, routing, bonNumber, offerNumber, customerNumber, purchaseOrderNumber, raw: subject };
 }
 
 /**
@@ -93,7 +96,7 @@ function parseSubject(subject, prefixes) {
 function buildTag(context, prefixes) {
     if (!context || !context.type || !context.number) return '';
     const p = prefixes || getPrefixes();
-    const prefixMap = { bon: p.bon, offer: p.offer, customer: p.customer };
+    const prefixMap = { bon: p.bon, offer: p.offer, customer: p.customer, purchase_order: p.purchase_order };
     const prefix = prefixMap[context.type];
     if (!prefix) return '';
     return `#${prefix}${context.number}`;

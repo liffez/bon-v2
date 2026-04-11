@@ -483,6 +483,10 @@
           <button class="sidebar-link disabled">
             <span class="sidebar-icon">🛒</span> Indkøb
           </button>
+          <button class="sidebar-link" data-view="leverandorpost">
+            <span class="sidebar-icon">📧</span> Leverandørpost
+            <span class="sidebar-badge" id="si-badge" style="display:none"></span>
+          </button>
 
           <div class="sidebar-group-label">Økonomi</div>
           <button class="sidebar-link" data-view="fakturering">
@@ -544,6 +548,7 @@
   <script src="views/fakturering.js"></script>
   <script src="views/tilbud.js"></script>
   <script src="views/rapporter.js"></script>
+  <script src="/shared/supplier_inbox.js"></script>
 
   <script>
     (async () => {
@@ -646,6 +651,10 @@
           init: () => initRapporter(contentEl, { openDrawer }),
           cleanup: () => { if (typeof cleanupRapporter === 'function') cleanupRapporter(); },
         },
+        leverandorpost: {
+          init: () => initSupplierInbox(contentEl, { openDrawer }),
+          cleanup: () => { if (typeof cleanupSupplierInbox === 'function') cleanupSupplierInbox(); },
+        },
       };
 
       function openKunde360(customerId) {
@@ -703,6 +712,23 @@
         } catch (_) {}
       }
       updateInvoiceBadge();
+
+      // Supplier inbox badge
+      async function updateSiBadge() {
+        try {
+          const threads = await fetchOrderMailThreads({ unread_only: true });
+          const badge = document.getElementById('si-badge');
+          if (badge && threads.length > 0) {
+            let total = 0;
+            threads.forEach(t => total += (t.unread_count || 0));
+            badge.textContent = total;
+            badge.style.display = total > 0 ? '' : 'none';
+          } else if (badge) {
+            badge.style.display = 'none';
+          }
+        } catch (_) {}
+      }
+      updateSiBadge();
 
       // Determine initial view from URL
       const params = new URLSearchParams(window.location.search);
@@ -765,6 +791,12 @@
         },
         quote_updated: (data) => {
           if (typeof _tilbudHandleSSE === 'function') _tilbudHandleSSE('quote_updated', data);
+        },
+        po_mail_received: (data) => {
+          if (typeof _siHandleSSE === 'function') _siHandleSSE('po_mail_received', data);
+        },
+        po_mail_sent: (data) => {
+          if (typeof _siHandleSSE === 'function') _siHandleSSE('po_mail_sent', data);
         },
       });
     })();

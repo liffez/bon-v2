@@ -751,6 +751,32 @@ function updatePendingOrder(id, data) {
     });
 }
 
+/** Hent mail-tråd for en purchase order */
+function fetchOrderMailThread(orderId) {
+    return apiFetch('/orders/pending/' + orderId + '/mail');
+}
+
+/** Send svar i PO-mail-tråd */
+function sendOrderReply(orderId, bodyText) {
+    return apiFetch('/orders/pending/' + orderId + '/mail', {
+        method: 'POST', body: JSON.stringify({ body_text: bodyText }),
+    });
+}
+
+/** Markér PO-mails som læst */
+function markOrderMailRead(orderId) {
+    return apiFetch('/orders/pending/' + orderId + '/mail/read', {
+        method: 'PATCH',
+    });
+}
+
+/** Alle PO-tråde med mail (til supplier-inbox) */
+function fetchOrderMailThreads(params) {
+    var qs = '';
+    if (params && params.unread_only) qs = '?unread_only=1';
+    return apiFetch('/orders/mail-threads' + qs);
+}
+
 /* ── RECEIVING (/api/receiving) ──────────────────────── */
 
 function postReceivingComplete(data) {

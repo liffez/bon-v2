@@ -30,6 +30,11 @@ var _ibGroups          = {};
 var _ibMissingProducts = [];
 var _ibDueProducts     = [];
 
+// Purchase orders
+var _ibPendingOrders   = [];
+var _ibMailThreadOpen  = null;  // PO id with open mail thread
+var _ibMailThreadData  = {};    // PO id → { thread, messages }
+
 // UI state
 var _ibOpenGroups      = {};
 var _ibCartItems       = [];
@@ -42,6 +47,7 @@ var _ibFocusGroup      = null;  // grocy_location_id in focus mode
 var _ibFocusMode       = false;
 var _ibSearchTerm      = '';
 var _ibToastTimer      = null;
+var _ibSSE             = null;
 
 /* ── Init ──────────────────────────────────────────────────── */
 async function initIndkob(el) {
@@ -63,6 +69,17 @@ async function initIndkob(el) {
         _ibEnrichSnapshots();
         _ibLoadFavCache();
         _ibLoadVolatile();
+
+        // SSE for PO mail events
+        _ibSSE = new EventSource('/api/sse');
+        _ibSSE.addEventListener('po_mail_received', function(e) {
+            var data = JSON.parse(e.data);
+            _ibHandlePoMail(data);
+        });
+        _ibSSE.addEventListener('po_mail_sent', function(e) {
+            var data = JSON.parse(e.data);
+            _ibHandlePoMail(data);
+        });
     } catch (err) {
         console.error('[indkob] init fejl:', err);
         _ibContainer.innerHTML = '<div class="ib-empty"><div class="ib-empty-icon">⚠️</div>'
@@ -110,6 +127,14 @@ async function _ibLoadAll() {
 
     _ibHandelssteder = results[5] || [];
     _ibHokaOk = !!(results[6] && results[6].ok);
+
+    // Load pending orders (non-blocking — don't fail init if this errors)
+    try {
+        _ibPendingOrders = await fetchPendingOrders() || [];
+    } catch (e) {
+        console.warn('[indkob] PO-load fejl:', e.message);
+        _ibPendingOrders = [];
+    }
 }
 
 async function _ibReloadShoppingList() {
@@ -150,16 +175,21 @@ async function _ibLoadFavCache() {
 async function _ibEnrichSnapshots() {
     if (!_ibHokaOk) return;
 
-    // Collect all hoka barcodes
+    // Collect all hoka barcodes (by shopping_location OR numeric barcode format)
     var hokaIds = [];
+    var seen = {};
     for (var key in _ibGroups) {
         var g = _ibGroups[key];
         for (var i = 0; i < g.items.length; i++) {
             var entry = g.items[i];
             for (var b = 0; b < entry.barcodes.length; b++) {
                 var bc = entry.barcodes[b];
-                if (_ibIsHokaBarcode(bc)) {
-                    hokaIds.push(bc.barcode);
+                var id = String(bc.barcode);
+                if (seen[id]) continue;
+                // Include if it's on a Hørkram location OR is a pure numeric barcode (likely Hørkram varenr)
+                if (_ibIsHokaBarcode(bc) || /^\d{4,9}$/.test(id)) {
+                    hokaIds.push(id);
+                    seen[id] = true;
                 }
             }
         }
@@ -340,6 +370,19 @@ function _ibBuildGroups() {
             if (a.isOrdered !== b.isOrdered) return a.isOrdered ? 1 : -1;
             return (a.product.name || '').localeCompare(b.product.name || '', 'da');
         });
+    }
+
+    // Match pending orders to groups by grocy_location_id
+    for (var gk2 in _ibGroups) {
+        var grp = _ibGroups[gk2];
+        grp.pendingOrders = _ibPendingOrders.filter(function(po) {
+            return String(po.grocy_location_id) === String(gk2);
+        });
+        // Calculate total unread mail across POs
+        grp.totalUnreadMail = 0;
+        for (var pi = 0; pi < grp.pendingOrders.length; pi++) {
+            grp.totalUnreadMail += (grp.pendingOrders[pi].unread_mail || 0);
+        }
     }
 }
 
@@ -696,11 +739,25 @@ function _ibRenderGroup(key) {
         h += '<div class="ib-bs-tog" data-ib="toggle-ordered" data-group="' + key + '">';
         h += '<span class="ib-bs-chev' + (showOrd ? ' open' : '') + '">›</span>';
         h += '<span>' + orderedItems.length + ' vare' + (orderedItems.length !== 1 ? 'r' : '') + ' bestilt — ' + (showOrd ? 'skjul' : 'vis') + '</span>';
+        if (g.totalUnreadMail > 0) {
+            h += '<span class="ib-mail-badge" title="' + g.totalUnreadMail + ' ulæst mail">✉ ' + g.totalUnreadMail + '</span>';
+        } else if (g.pendingOrders && g.pendingOrders.some(function(po) { return po.sent_via === 'email'; })) {
+            h += '<span class="ib-mail-icon" title="Mail sendt">✉</span>';
+        }
         h += '</div>';
         h += '<div class="ib-bs-section' + (showOrd ? ' open' : '') + '">';
         h += '<div class="ib-shdr">Bestilt</div>';
         for (var oi = 0; oi < orderedItems.length; oi++) {
             h += _ibRenderOrderedItem(orderedItems[oi]);
+        }
+        // PO mail threads (per PO with sent_via=email)
+        if (g.pendingOrders) {
+            for (var poi = 0; poi < g.pendingOrders.length; poi++) {
+                var po = g.pendingOrders[poi];
+                if (po.sent_via === 'email' && po.mail_thread_id) {
+                    h += _ibRenderPoMailSection(po);
+                }
+            }
         }
         h += '</div>';
     }
@@ -824,7 +881,11 @@ function _ibRenderItem(entry, group) {
         h += '<input class="ib-qi" type="number" min="0" value="' + entry.qty + '" data-ib="qty-input" data-product-id="' + p.id + '">';
         h += '<button class="ib-qb" data-ib="qty-plus" data-product-id="' + p.id + '">+</button>';
 
-        if (group.integrationType === 'api') {
+        // Show "Læg i kurv" if group is api-type OR the selected barcode is a Hørkram barcode
+        // _ibIsHokaBarcode checks shopping_location, _hoka checks enrichment data
+        var canAddToCart = group.integrationType === 'api' ||
+            (entry.selectedBarcode && (_ibIsHokaBarcode(entry.selectedBarcode) || entry.selectedBarcode._hoka));
+        if (canAddToCart) {
             if (entry.inCart) {
                 h += '<button class="ib-kb done">I kurv ✓</button>';
             } else {
@@ -898,7 +959,7 @@ function _ibGetBadges(entry) {
 /* ── Link panel ────────────────────────────────────────────── */
 function _ibRenderLinkPanel(entry) {
     var h = '<div class="ib-lp" data-lp-product="' + entry.product.id + '">';
-    h += '<div class="ib-lp-note">Indtast varenr. eller søg — eller generer et internt nummer:</div>';
+    h += '<div class="ib-lp-note">Søg i Hørkram-katalog eller indtast varenr. — eller generer et internt nummer:</div>';
     h += '<div class="ib-lp-row">';
     h += '<input class="ib-lp-inp" placeholder="Varenr. eller søg produktnavn..." data-ib="lp-input" data-product-id="' + entry.product.id + '" value="' + _ibEsc(entry.product.name || '') + '">';
     h += '<button class="ib-lp-btn" data-ib="lp-search" data-product-id="' + entry.product.id + '">Søg</button>';
@@ -1086,6 +1147,14 @@ function _ibHandleClick(e) {
 
         case 'undo-order':
             _ibUndoOrder(productId);
+            break;
+
+        case 'toggle-po-mail':
+            _ibTogglePoMail(parseInt(btn.getAttribute('data-po-id')));
+            break;
+
+        case 'po-mail-send':
+            _ibSendPoMailReply(parseInt(btn.getAttribute('data-po-id')));
             break;
 
         case 'goto-cart':
@@ -1468,7 +1537,7 @@ async function _ibLinkSearch(productId) {
     var q = inp.value.trim();
     if (!q) return;
 
-    resultsEl.innerHTML = '<div class="ib-lp-loading">Søger...</div>';
+    resultsEl.innerHTML = '<div class="ib-lp-loading">Søger i Hørkram-katalog...</div>';
 
     // Search favorites first
     var favResults = [];
@@ -1488,10 +1557,10 @@ async function _ibLinkSearch(productId) {
         console.warn('[indkob] hoka search fejl:', e.message);
     }
 
-    var html = '';
+    var html = '<div class="ib-lp-source">Søgning i Hørkram-katalog (hoka.dk)</div>';
 
     if (favResults.length) {
-        html += '<div class="ib-lp-note" style="margin-top:6px">Fra dine favoritter:</div>';
+        html += '<div class="ib-lp-note" style="margin-top:6px">Fra dine Hørkram-favoritter:</div>';
         for (var f = 0; f < favResults.length; f++) {
             html += _ibRenderLinkResult(favResults[f], productId, true);
         }
@@ -1505,7 +1574,7 @@ async function _ibLinkSearch(productId) {
     }
 
     if (!favResults.length && !catalogResults.length) {
-        html = '<div class="ib-lp-loading">Ingen resultater for "' + _ibEsc(q) + '"</div>';
+        html = '<div class="ib-lp-loading">Ingen resultater for "' + _ibEsc(q) + '" i Hørkram-katalog</div>';
     }
 
     resultsEl.innerHTML = html;
@@ -1538,10 +1607,24 @@ async function _ibLinkBarcode(productId, varenr, name) {
     _ibBusy = true;
 
     try {
-        // Determine shopping_location_id from group
+        // Determine shopping_location_id:
+        // If varenr is numeric (Hørkram catalog), use the first Hørkram shopping_location
+        // so the barcode lands in the right group and can be added to cart.
+        // Otherwise (INT-nr), use the current group's location.
         var entry = _ibFindEntry(productId);
         var groupKey = _ibFindGroupForEntry(entry);
         var locId = parseInt(groupKey) || null;
+
+        var isNumericVarenr = /^\d+$/.test(String(varenr));
+        if (isNumericVarenr) {
+            // Find first Hørkram shopping_location
+            for (var hi = 0; hi < _ibHandelssteder.length; hi++) {
+                if (_ibHandelssteder[hi].integration_type === 'api' && _ibHandelssteder[hi].grocy_location_id) {
+                    locId = _ibHandelssteder[hi].grocy_location_id;
+                    break;
+                }
+            }
+        }
 
         await createProductBarcode({
             product_id: parseInt(productId),
@@ -1836,6 +1919,152 @@ async function _ibAddProductConfirm() {
         _ibRender();
     } catch (err) {
         _ibToast('Fejl: ' + (err.message || ''), true);
+    }
+}
+
+/* ── PO Mail thread ────────────────────────────────────────── */
+
+function _ibRenderPoMailSection(po) {
+    var isOpen = _ibMailThreadOpen === po.id;
+    var h = '<div class="ib-po-mail" data-po-id="' + po.id + '">';
+    h += '<div class="ib-po-mail-header" data-ib="toggle-po-mail" data-po-id="' + po.id + '">';
+    h += '<span class="ib-po-mail-icon' + (po.unread_mail > 0 ? ' unread' : '') + '">✉</span>';
+    h += '<span class="ib-po-mail-label">Bestillingsmail</span>';
+    if (po.unread_mail > 0) {
+        h += '<span class="ib-po-mail-count">' + po.unread_mail + ' ny' + (po.unread_mail !== 1 ? 'e' : '') + '</span>';
+    }
+    if (po.expected_delivery_date) {
+        h += '<span class="ib-po-mail-date">Lev. ' + _ibFmtDate(po.expected_delivery_date) + '</span>';
+    }
+    h += '<span class="ib-po-mail-chev' + (isOpen ? ' open' : '') + '">›</span>';
+    h += '</div>';
+
+    if (isOpen) {
+        var threadData = _ibMailThreadData[po.id];
+        h += '<div class="ib-po-mail-body">';
+        if (!threadData) {
+            h += '<div class="ib-po-mail-loading">Indlæser...</div>';
+        } else {
+            h += _ibRenderMailMessages(threadData.messages || []);
+            h += '<div class="ib-po-mail-reply">';
+            h += '<textarea class="ib-po-mail-input" data-po-id="' + po.id + '" placeholder="Skriv svar..."></textarea>';
+            h += '<button class="ib-btn ib-btn-sm" data-ib="po-mail-send" data-po-id="' + po.id + '">Send</button>';
+            h += '</div>';
+        }
+        h += '</div>';
+    }
+
+    h += '</div>';
+    return h;
+}
+
+function _ibRenderMailMessages(messages) {
+    if (!messages.length) return '<div class="ib-po-mail-empty">Ingen beskeder endnu</div>';
+    var h = '<div class="ib-po-mail-msgs">';
+    for (var i = 0; i < messages.length; i++) {
+        var m = messages[i];
+        var isOut = m.direction === 'out';
+        var time = m.sent_at || m.received_at || m.created_at;
+        var timeStr = time ? _ibFmtDateTime(time) : '';
+        h += '<div class="ib-po-msg ' + (isOut ? 'out' : 'in') + '">';
+        h += '<div class="ib-po-msg-meta">';
+        h += '<span class="ib-po-msg-dir">' + (isOut ? '→ Du' : '← ' + _ibEsc(m.from_name || m.from_email || 'Leverandør')) + '</span>';
+        h += '<span class="ib-po-msg-time">' + timeStr + '</span>';
+        if (!isOut && !m.is_read) h += '<span class="ib-po-msg-new">Ny</span>';
+        h += '</div>';
+        h += '<div class="ib-po-msg-text">' + _ibEsc(m.body_text || '').replace(/\n/g, '<br>') + '</div>';
+        h += '</div>';
+    }
+    h += '</div>';
+    return h;
+}
+
+function _ibFmtDateTime(iso) {
+    if (!iso) return '';
+    try {
+        var d = new Date(iso);
+        var day = d.getDate();
+        var months = ['jan', 'feb', 'mar', 'apr', 'maj', 'jun', 'jul', 'aug', 'sep', 'okt', 'nov', 'dec'];
+        var mon = months[d.getMonth()];
+        var hrs = String(d.getHours()).padStart(2, '0');
+        var min = String(d.getMinutes()).padStart(2, '0');
+        return day + '. ' + mon + ' ' + hrs + ':' + min;
+    } catch (e) { return iso.slice(0, 16); }
+}
+
+async function _ibTogglePoMail(poId) {
+    if (_ibMailThreadOpen === poId) {
+        _ibMailThreadOpen = null;
+        _ibRender();
+        return;
+    }
+    _ibMailThreadOpen = poId;
+    _ibRender(); // Show loading state
+
+    try {
+        var data = await fetchOrderMailThread(poId);
+        _ibMailThreadData[poId] = data;
+
+        // Mark as read
+        if (data.messages && data.messages.some(function(m) { return m.direction === 'in' && !m.is_read; })) {
+            await markOrderMailRead(poId);
+            // Update local PO data
+            for (var i = 0; i < _ibPendingOrders.length; i++) {
+                if (_ibPendingOrders[i].id === poId) {
+                    _ibPendingOrders[i].unread_mail = 0;
+                    break;
+                }
+            }
+            _ibBuildGroups();
+        }
+    } catch (err) {
+        _ibMailThreadData[poId] = { thread: null, messages: [] };
+        console.error('[indkob] PO mail load fejl:', err);
+    }
+    _ibRender();
+}
+
+async function _ibSendPoMailReply(poId) {
+    var textarea = _ibContainer.querySelector('textarea[data-po-id="' + poId + '"]');
+    if (!textarea) return;
+    var text = textarea.value.trim();
+    if (!text) return;
+
+    try {
+        await sendOrderReply(poId, text);
+        // Reload thread
+        var data = await fetchOrderMailThread(poId);
+        _ibMailThreadData[poId] = data;
+        _ibToast('Svar sendt');
+        _ibRender();
+    } catch (err) {
+        _ibToast('Fejl: ' + (err.message || 'Kunne ikke sende'), true);
+    }
+}
+
+async function _ibHandlePoMail(data) {
+    // Refresh pending orders to get updated unread_mail counts
+    try {
+        _ibPendingOrders = await fetchPendingOrders() || [];
+        _ibBuildGroups();
+
+        // If thread is open, reload it
+        if (_ibMailThreadOpen && data.purchase_order_id === _ibMailThreadOpen) {
+            var threadData = await fetchOrderMailThread(_ibMailThreadOpen);
+            _ibMailThreadData[_ibMailThreadOpen] = threadData;
+            await markOrderMailRead(_ibMailThreadOpen);
+            for (var i = 0; i < _ibPendingOrders.length; i++) {
+                if (_ibPendingOrders[i].id === _ibMailThreadOpen) {
+                    _ibPendingOrders[i].unread_mail = 0;
+                    break;
+                }
+            }
+            _ibBuildGroups();
+        }
+
+        _ibRender();
+    } catch (err) {
+        console.warn('[indkob] PO mail SSE reload fejl:', err.message);
     }
 }
 

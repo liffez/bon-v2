@@ -1,19 +1,24 @@
 /**
  * routes/orders.js
  * ════════════════════════════════════════════════════════════
- * Purchase orders — CRUD for bestillinger.
+ * Purchase orders — CRUD for bestillinger + mail-tråd per PO.
  * Bruger purchase_orders + purchase_order_lines tabeller (migration 005).
+ * Mail-tråde via mail_threads + mail_messages (migration 018 + 034).
  *
  * Monteres i server.js som:
  *   app.use('/api/orders', require('./routes/orders'));
  *
  * Endpoints:
- *   GET    /api/orders/pending          Ventende ordrer
- *   GET    /api/orders/pending/:id      Én ordre med linjer
- *   POST   /api/orders/pending          Opret ny ordre
- *   PUT    /api/orders/pending/:id      Opdatér ordre
- *   DELETE /api/orders/pending/:id      Marker som modtaget
- *   GET    /api/orders/archive          Modtagne/afsluttede ordrer
+ *   GET    /api/orders/pending              Ventende ordrer (med unread_mail)
+ *   GET    /api/orders/pending/:id          Én ordre med linjer
+ *   POST   /api/orders/pending              Opret ny ordre (+ mail-tråd)
+ *   PUT    /api/orders/pending/:id          Opdatér ordre
+ *   DELETE /api/orders/pending/:id          Marker som modtaget
+ *   GET    /api/orders/archive              Modtagne/afsluttede ordrer
+ *   GET    /api/orders/pending/:id/mail     Hent mail-tråd for PO
+ *   POST   /api/orders/pending/:id/mail     Send svar i PO-tråd
+ *   PATCH  /api/orders/pending/:id/mail/read  Markér PO-mails som læst
+ *   GET    /api/orders/mail-threads         Alle PO-tråde med mail
  * ════════════════════════════════════════════════════════════
  */
 
@@ -49,8 +54,15 @@ function getOrderWithLines(db, orderId) {
 router.get('/pending', handle((req, res) => {
     const db = getDb();
     const orders = db.prepare(`
-        SELECT po.*, s.name as supplier_name,
-               (SELECT COUNT(*) FROM purchase_order_lines WHERE purchase_order_id = po.id) as line_count
+        SELECT po.*, s.name as supplier_name, s.contact_email as supplier_email,
+               (SELECT COUNT(*) FROM purchase_order_lines WHERE purchase_order_id = po.id) as line_count,
+               COALESCE((
+                   SELECT COUNT(*) FROM mail_messages mm
+                   JOIN mail_threads mt ON mm.thread_id = mt.id
+                   WHERE mt.purchase_order_id = po.id
+                     AND mm.direction = 'in'
+                     AND mm.is_read = 0
+               ), 0) as unread_mail
         FROM purchase_orders po
         LEFT JOIN suppliers s ON po.supplier_id = s.id
         WHERE po.status IN ('draft', 'sent', 'confirmed', 'partially_received')
@@ -164,7 +176,7 @@ router.post('/pending', handle(async (req, res) => {
                     return `• ${name} — ${qty} ${unit}${nr ? ' (nr. ' + nr + ')' : ''}`;
                 }).join('\n');
 
-                await mail.sendFromTemplate({
+                const mailResult = await mail.sendFromTemplate({
                     templateKey: 'order_email',
                     to: supplier.contact_email,
                     vars: {
@@ -173,13 +185,15 @@ router.post('/pending', handle(async (req, res) => {
                         vareliste: vareliste,
                         leveringsdato: expected_delivery_date || 'Hurtigst muligt',
                     },
-                    context: 'purchase_order',
+                    purchaseOrderId: orderId,
+                    context: { type: 'purchase_order', number: orderId },
                     userId,
-                    smtpPrefix: 'kontakt',
+                    smtpPrefix: 'smtp_kontakt',
                 });
 
-                // Update order: sent_via = email, sent_at
-                db.prepare(`UPDATE purchase_orders SET sent_via = 'email', sent_at = CURRENT_TIMESTAMP WHERE id = ?`).run(orderId);
+                // Update order: sent_via = email, sent_at + mail_thread_id
+                db.prepare(`UPDATE purchase_orders SET sent_via = 'email', sent_at = CURRENT_TIMESTAMP, mail_thread_id = ? WHERE id = ?`)
+                    .run(mailResult.threadId, orderId);
                 emailSent = true;
             }
         } catch (mailErr) {
@@ -188,8 +202,10 @@ router.post('/pending', handle(async (req, res) => {
         }
     }
 
-    order.email_sent = emailSent;
-    res.status(201).json(order);
+    // Re-fetch to include mail_thread_id
+    const finalOrder = getOrderWithLines(db, orderId);
+    finalOrder.email_sent = emailSent;
+    res.status(201).json(finalOrder);
 }));
 
 /* ── PUT /pending/:id ────────────────────────────────────── */
@@ -234,6 +250,146 @@ router.delete('/pending/:id', handle((req, res) => {
     logChange({ entityType: 'purchase_order', entityId: id, action: 'update', fieldName: 'status', oldValue: order.status, newValue: 'received' });
 
     res.json({ ok: true, id, previous_status: order.status });
+}));
+
+/* ── GET /pending/:id/mail ───────────────────────────────── */
+
+router.get('/pending/:id/mail', handle((req, res) => {
+    const db = getDb();
+    const poId = parseInt(req.params.id);
+    const po = db.prepare('SELECT mail_thread_id FROM purchase_orders WHERE id = ?').get(poId);
+    if (!po) return res.status(404).json({ error: 'Ordre ikke fundet' });
+
+    if (!po.mail_thread_id) {
+        return res.json({ thread: null, messages: [] });
+    }
+
+    const thread = db.prepare('SELECT * FROM mail_threads WHERE id = ?').get(po.mail_thread_id);
+    const messages = db.prepare(`
+        SELECT id, thread_id, direction, from_email, from_name, to_email, subject,
+               body_text, is_read, has_attachments, sent_at, received_at, created_at
+        FROM mail_messages
+        WHERE thread_id = ?
+        ORDER BY COALESCE(sent_at, received_at, created_at) ASC
+    `).all(po.mail_thread_id);
+
+    res.json({ thread, messages });
+}));
+
+/* ── POST /pending/:id/mail ─────────────────────────────── */
+
+router.post('/pending/:id/mail', handle(async (req, res) => {
+    const db = getDb();
+    const poId = parseInt(req.params.id);
+    const { body_text } = req.body;
+
+    if (!body_text || !body_text.trim()) {
+        return res.status(400).json({ error: 'body_text er påkrævet' });
+    }
+
+    const po = db.prepare(`
+        SELECT po.*, s.name as supplier_name, s.contact_email
+        FROM purchase_orders po
+        LEFT JOIN suppliers s ON po.supplier_id = s.id
+        WHERE po.id = ?
+    `).get(poId);
+    if (!po) return res.status(404).json({ error: 'Ordre ikke fundet' });
+    if (!po.contact_email) return res.status(400).json({ error: 'Leverandøren har ingen e-mail' });
+
+    const userId = req.session?.user?.id || null;
+
+    // Find latest inbound message_id for In-Reply-To header
+    let inReplyTo = null;
+    if (po.mail_thread_id) {
+        const latest = db.prepare(`
+            SELECT message_id FROM mail_messages
+            WHERE thread_id = ? AND direction = 'in' AND message_id IS NOT NULL
+            ORDER BY COALESCE(received_at, created_at) DESC LIMIT 1
+        `).get(po.mail_thread_id);
+        if (latest) inReplyTo = latest.message_id;
+    }
+
+    const mail = require('../services/mailService');
+    const result = await mail.sendMail({
+        to: po.contact_email,
+        subject: `Re: Bestilling fra Ristet Rug`,
+        text: body_text.trim(),
+        context: { type: 'purchase_order', number: poId },
+        purchaseOrderId: poId,
+        inReplyTo,
+        smtpPrefix: 'smtp_kontakt',
+        userId,
+    });
+
+    // Ensure mail_thread_id is set on PO
+    if (!po.mail_thread_id && result.threadId) {
+        db.prepare('UPDATE purchase_orders SET mail_thread_id = ? WHERE id = ?').run(result.threadId, poId);
+    }
+
+    res.json({ ok: true, messageId: result.messageId, threadId: result.threadId });
+}));
+
+/* ── PATCH /pending/:id/mail/read ───────────────────────── */
+
+router.patch('/pending/:id/mail/read', handle((req, res) => {
+    const db = getDb();
+    const poId = parseInt(req.params.id);
+    const po = db.prepare('SELECT mail_thread_id FROM purchase_orders WHERE id = ?').get(poId);
+    if (!po) return res.status(404).json({ error: 'Ordre ikke fundet' });
+    if (!po.mail_thread_id) return res.json({ ok: true, updated: 0 });
+
+    const result = db.prepare(`
+        UPDATE mail_messages SET is_read = 1
+        WHERE thread_id = ? AND direction = 'in' AND is_read = 0
+    `).run(po.mail_thread_id);
+
+    res.json({ ok: true, updated: result.changes });
+}));
+
+/* ── GET /mail-threads ──────────────────────────────────── */
+
+router.get('/mail-threads', handle((req, res) => {
+    const db = getDb();
+    const unreadOnly = req.query.unread_only === '1';
+
+    let sql = `
+        SELECT po.id as purchase_order_id,
+               po.expected_delivery_date,
+               po.status as po_status,
+               po.sent_at,
+               s.name as supplier_name,
+               s.contact_email as supplier_email,
+               mt.id as thread_id,
+               mt.subject as thread_subject,
+               mt.updated_at as thread_updated_at,
+               (SELECT COUNT(*) FROM purchase_order_lines WHERE purchase_order_id = po.id) as line_count,
+               (SELECT COUNT(*) FROM mail_messages mm WHERE mm.thread_id = mt.id AND mm.direction = 'in' AND mm.is_read = 0) as unread_count,
+               (SELECT mm2.body_text FROM mail_messages mm2 WHERE mm2.thread_id = mt.id ORDER BY COALESCE(mm2.sent_at, mm2.received_at, mm2.created_at) DESC LIMIT 1) as latest_snippet,
+               (SELECT COUNT(*) FROM mail_messages mm3 WHERE mm3.thread_id = mt.id) as message_count
+        FROM purchase_orders po
+        JOIN mail_threads mt ON mt.purchase_order_id = po.id
+        LEFT JOIN suppliers s ON po.supplier_id = s.id
+        WHERE mt.status = 'active'
+    `;
+
+    if (unreadOnly) {
+        sql += ` AND (SELECT COUNT(*) FROM mail_messages mm WHERE mm.thread_id = mt.id AND mm.direction = 'in' AND mm.is_read = 0) > 0`;
+    }
+
+    sql += ` ORDER BY
+        (SELECT COUNT(*) FROM mail_messages mm WHERE mm.thread_id = mt.id AND mm.direction = 'in' AND mm.is_read = 0) > 0 DESC,
+        mt.updated_at DESC`;
+
+    const threads = db.prepare(sql).all();
+
+    // Truncate snippets
+    for (const t of threads) {
+        if (t.latest_snippet && t.latest_snippet.length > 120) {
+            t.latest_snippet = t.latest_snippet.slice(0, 117) + '...';
+        }
+    }
+
+    res.json(threads);
 }));
 
 /* ── GET /archive ────────────────────────────────────────── */

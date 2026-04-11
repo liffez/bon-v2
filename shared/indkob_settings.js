@@ -417,8 +417,9 @@ function _isEditForm(s) {
             '<select class="is-edit-select" id="isEdType">' + typeOpts + '</select>' +
         '</div>' +
         '<div class="is-edit-row">' +
-            '<label class="is-edit-label">Email</label>' +
-            '<input class="is-edit-input" id="isEdEmail" value="' + _isEsc(s.email || '') + '">' +
+            '<label class="is-edit-label">Bestillingsmail</label>' +
+            '<input class="is-edit-input" id="isEdEmail" value="' + _isEsc(s.email || '') + '" placeholder="bestilling@leverandoer.dk">' +
+            (!s.email && s.id !== -1 ? '<div class="is-edit-hint">Ingen mail — bestilling sker manuelt</div>' : '') +
         '</div>' +
         '<div class="is-edit-row">' +
             '<label class="is-edit-label">Telefon</label>' +

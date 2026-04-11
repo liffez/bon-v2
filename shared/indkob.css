@@ -570,6 +570,71 @@
 .ib-bs-section { display: none; }
 .ib-bs-section.open { display: block; }
 
+/* ── MAIL BADGE & THREAD ── */
+.ib-mail-badge {
+    margin-left: auto;
+    background: #e53e3e; color: #fff;
+    font-size: 11px; font-weight: 700;
+    padding: 2px 8px; border-radius: 10px;
+    animation: bonMailPulse 2s ease-in-out infinite;
+}
+.ib-mail-icon {
+    margin-left: auto;
+    font-size: 14px; color: var(--color-text-dim, #999);
+}
+.ib-po-mail { border-top: .5px solid var(--color-border-light, #e8e4e0); }
+.ib-po-mail-header {
+    display: flex; align-items: center; gap: 8px;
+    padding: 8px 16px; cursor: pointer; font-size: 13px;
+    transition: background .1s;
+}
+.ib-po-mail-header:hover { background: #fafafa; }
+.ib-po-mail-icon { font-size: 16px; color: var(--color-text-dim); }
+.ib-po-mail-icon.unread { color: #e53e3e; animation: bonMailPulse 2s ease-in-out infinite; }
+.ib-po-mail-label { font-weight: 600; }
+.ib-po-mail-count {
+    background: #e53e3e; color: #fff;
+    font-size: 10px; font-weight: 700;
+    padding: 1px 6px; border-radius: 8px;
+}
+.ib-po-mail-date { color: var(--color-text-dim); font-size: 11px; margin-left: auto; }
+.ib-po-mail-chev {
+    font-size: 14px; color: var(--color-text-dim);
+    display: inline-block; transition: transform .15s;
+}
+.ib-po-mail-chev.open { transform: rotate(90deg); }
+.ib-po-mail-body { padding: 0 16px 12px; }
+.ib-po-mail-loading { font-size: 12px; color: var(--color-text-dim); padding: 8px 0; }
+.ib-po-mail-empty { font-size: 12px; color: var(--color-text-dim); padding: 8px 0; font-style: italic; }
+.ib-po-mail-msgs { display: flex; flex-direction: column; gap: 8px; margin-bottom: 10px; }
+.ib-po-msg {
+    padding: 8px 12px; border-radius: 8px; font-size: 12px;
+    max-width: 90%;
+}
+.ib-po-msg.out { background: #edf5ff; align-self: flex-end; border: 1px solid #c3dafe; }
+.ib-po-msg.in { background: #fff; align-self: flex-start; border: 1px solid var(--color-border-light, #e8e4e0); }
+.ib-po-msg-meta { display: flex; gap: 8px; align-items: center; margin-bottom: 4px; font-size: 11px; }
+.ib-po-msg-dir { font-weight: 600; color: var(--color-text-dim); }
+.ib-po-msg-time { color: var(--color-text-dim); }
+.ib-po-msg-new {
+    background: #e53e3e; color: #fff;
+    font-size: 9px; font-weight: 700;
+    padding: 1px 5px; border-radius: 6px;
+}
+.ib-po-msg-text { white-space: pre-wrap; word-break: break-word; line-height: 1.4; }
+.ib-po-mail-reply { display: flex; gap: 8px; align-items: flex-end; }
+.ib-po-mail-input {
+    flex: 1; min-height: 40px; max-height: 100px; resize: vertical;
+    padding: 8px 10px; border: 1px solid var(--color-border, #d7d1ca);
+    border-radius: 8px; font-family: inherit; font-size: 12px;
+}
+.ib-po-mail-input:focus { border-color: var(--brand-primary); outline: none; }
+.ib-btn-sm { padding: 6px 14px; font-size: 12px; font-weight: 600; border-radius: 8px; cursor: pointer;
+    background: var(--brand-primary, #8e631f); color: #fff; border: none; }
+.ib-btn-sm:hover { opacity: 0.85; }
+
+@keyframes bonMailPulse { 0%, 100% { opacity: 1; } 50% { opacity: 0.4; } }
+
 /* ── MANUAL ORDER DIALOG ── */
 .ib-mo-dlg {
     background: #fff;
@@ -670,6 +735,7 @@
     font-family: inherit;
     font-weight: 700;
 }
+.ib-lp-source { font-size: 10px; font-weight: 700; text-transform: uppercase; letter-spacing: .3px; color: var(--color-text-dim, #999); margin-bottom: 8px; }
 .ib-lp-note { font-size: 11px; color: var(--color-text-dim, #777); margin-bottom: 6px; }
 .ib-lp-note a { color: var(--brand-primary); font-weight: 700; }
 .ib-lp-res {

@@ -67,7 +67,7 @@ function createTransport(prefix = 'smtp') {
 /**
  * Send en mail via SMTP. Gemmer i mail_threads + mail_messages.
  */
-async function sendMail({ to, subject, text, context, bonId = null, customerId = null, inReplyTo = null, references = null, smtpPrefix = 'smtp', userId = null, attachments = [] }) {
+async function sendMail({ to, subject, text, context, bonId = null, customerId = null, purchaseOrderId = null, inReplyTo = null, references = null, smtpPrefix = 'smtp', userId = null, attachments = [] }) {
     const enabledKey = smtpPrefix === 'smtp_kontakt' ? 'smtp_kontakt_enabled' : 'smtp_enabled';
     if (getSetting(enabledKey) !== '1') {
         throw new Error(`SMTP (${smtpPrefix}) er ikke aktiveret`);
@@ -86,7 +86,12 @@ async function sendMail({ to, subject, text, context, bonId = null, customerId =
     const db = getDb();
     let threadId;
 
-    if (bonId) {
+    if (purchaseOrderId) {
+        const existing = db.prepare(
+            `SELECT id FROM mail_threads WHERE purchase_order_id = ? AND status = 'active' ORDER BY updated_at DESC LIMIT 1`
+        ).get(purchaseOrderId);
+        threadId = existing?.id;
+    } else if (bonId) {
         const existing = db.prepare(
             `SELECT id FROM mail_threads WHERE bon_id = ? AND status = 'active' ORDER BY updated_at DESC LIMIT 1`
         ).get(bonId);
@@ -100,9 +105,9 @@ async function sendMail({ to, subject, text, context, bonId = null, customerId =
 
     if (!threadId) {
         const ins = db.prepare(
-            `INSERT INTO mail_threads (bon_id, customer_id, subject, status, created_at, updated_at)
-             VALUES (?, ?, ?, 'active', datetime('now'), datetime('now'))`
-        ).run(bonId, customerId, finalSubject);
+            `INSERT INTO mail_threads (bon_id, customer_id, purchase_order_id, subject, status, created_at, updated_at)
+             VALUES (?, ?, ?, ?, 'active', datetime('now'), datetime('now'))`
+        ).run(bonId, customerId, purchaseOrderId, finalSubject);
         threadId = ins.lastInsertRowid;
     } else {
         db.prepare(`UPDATE mail_threads SET updated_at = datetime('now') WHERE id = ?`).run(threadId);
@@ -163,7 +168,10 @@ async function sendMail({ to, subject, text, context, bonId = null, customerId =
     db.prepare(`UPDATE mail_messages SET message_id = ? WHERE id = ?`).run(info.messageId, messageDbId);
 
     // SSE broadcast
-    broadcast('mail_sent', { bon_id: bonId, customer_id: customerId, thread_id: threadId });
+    broadcast('mail_sent', { bon_id: bonId, customer_id: customerId, purchase_order_id: purchaseOrderId, thread_id: threadId });
+    if (purchaseOrderId) {
+        broadcast('po_mail_sent', { purchase_order_id: purchaseOrderId, thread_id: threadId });
+    }
 
     return { messageId: info.messageId, threadId, subject: finalSubject };
 }
@@ -171,14 +179,14 @@ async function sendMail({ to, subject, text, context, bonId = null, customerId =
 /**
  * Send mail fra skabelon.
  */
-async function sendFromTemplate({ templateKey, to, vars, bonId = null, customerId = null, context = null, userId = null, attachments = [] }) {
+async function sendFromTemplate({ templateKey, to, vars, bonId = null, customerId = null, purchaseOrderId = null, context = null, userId = null, attachments = [] }) {
     const tmpl = getDb().prepare('SELECT subject, body_text FROM mail_templates WHERE key = ?').get(templateKey);
     if (!tmpl) throw new Error(`Skabelon '${templateKey}' ikke fundet`);
 
     const subject = renderTemplate(tmpl.subject, vars);
     const text    = renderTemplate(tmpl.body_text, vars);
 
-    return sendMail({ to, subject, text, context, bonId, customerId, userId, attachments });
+    return sendMail({ to, subject, text, context, bonId, customerId, purchaseOrderId, userId, attachments });
 }
 
 // ─── IMAP ───────────────────────────────────────────────
@@ -298,6 +306,7 @@ async function processInboundMail(parsed, uid, mailbox) {
     let threadId = null;
     let bonId = null;
     let customerId = null;
+    let purchaseOrderId = null;
 
     // 1. In-Reply-To matching
     if (inReplyTo && !threadId) {
@@ -306,11 +315,12 @@ async function processInboundMail(parsed, uid, mailbox) {
         ).get(inReplyTo);
         if (ref) {
             threadId = ref.thread_id;
-            // Load bon_id/customer_id from thread
-            const thread = db.prepare(`SELECT bon_id, customer_id FROM mail_threads WHERE id = ?`).get(threadId);
+            // Load bon_id/customer_id/purchase_order_id from thread
+            const thread = db.prepare(`SELECT bon_id, customer_id, purchase_order_id FROM mail_threads WHERE id = ?`).get(threadId);
             if (thread) {
                 bonId = thread.bon_id;
                 customerId = thread.customer_id;
+                purchaseOrderId = thread.purchase_order_id;
             }
         }
     }
@@ -326,14 +336,23 @@ async function processInboundMail(parsed, uid, mailbox) {
         } else if (tagResult.routing === 'offer') {
             const bon = db.prepare('SELECT id FROM bons WHERE bon_number = ? AND is_offer = 1').get(String(tagResult.offerNumber));
             if (bon) bonId = bon.id;
+        } else if (tagResult.routing === 'purchase_order') {
+            const po = db.prepare('SELECT id FROM purchase_orders WHERE id = ?').get(tagResult.purchaseOrderNumber);
+            if (po) purchaseOrderId = po.id;
         } else if (tagResult.routing === 'customer') {
             customerId = tagResult.customerNumber;
         }
 
         // Find or create thread if we have a match
-        if (bonId || customerId) {
+        if (bonId || customerId || purchaseOrderId) {
             // Try to find existing active thread
-            if (bonId) {
+            if (purchaseOrderId) {
+                const existing = db.prepare(
+                    `SELECT id FROM mail_threads WHERE purchase_order_id = ? AND status = 'active' ORDER BY updated_at DESC LIMIT 1`
+                ).get(purchaseOrderId);
+                threadId = existing?.id;
+            }
+            if (!threadId && bonId) {
                 const existing = db.prepare(
                     `SELECT id FROM mail_threads WHERE bon_id = ? AND status = 'active' ORDER BY updated_at DESC LIMIT 1`
                 ).get(bonId);
@@ -348,9 +367,9 @@ async function processInboundMail(parsed, uid, mailbox) {
 
             if (!threadId) {
                 const ins = db.prepare(
-                    `INSERT INTO mail_threads (bon_id, customer_id, subject, status, created_at, updated_at)
-                     VALUES (?, ?, ?, 'active', datetime('now'), datetime('now'))`
-                ).run(bonId, customerId, subject);
+                    `INSERT INTO mail_threads (bon_id, customer_id, purchase_order_id, subject, status, created_at, updated_at)
+                     VALUES (?, ?, ?, ?, 'active', datetime('now'), datetime('now'))`
+                ).run(bonId, customerId, purchaseOrderId, subject);
                 threadId = ins.lastInsertRowid;
             } else {
                 db.prepare(`UPDATE mail_threads SET updated_at = datetime('now') WHERE id = ?`).run(threadId);
@@ -403,10 +422,21 @@ async function processInboundMail(parsed, uid, mailbox) {
         if (bon) bonNumber = bon.bon_number;
     }
 
-    console.log(`[mail] 📨 Broadcasting mail_received: bon_id=${bonId}, bon_number=${bonNumber}, thread=${threadId}, unread=${unreadCount}`);
-    broadcast('mail_received', { bon_id: bonId, bon_number: bonNumber, customer_id: customerId, thread_id: threadId, unread_count: unreadCount });
+    // Look up supplier_name for PO SSE payload
+    let supplierName = null;
+    if (purchaseOrderId) {
+        const po = db.prepare(`SELECT s.name FROM purchase_orders po LEFT JOIN suppliers s ON po.supplier_id = s.id WHERE po.id = ?`).get(purchaseOrderId);
+        if (po) supplierName = po.name;
+    }
 
-    console.log(`[mail] Indgående mail → thread ${threadId} (bon=${bonId}, customer=${customerId})`);
+    console.log(`[mail] 📨 Broadcasting mail_received: bon_id=${bonId}, bon_number=${bonNumber}, po=${purchaseOrderId}, thread=${threadId}, unread=${unreadCount}`);
+    broadcast('mail_received', { bon_id: bonId, bon_number: bonNumber, customer_id: customerId, purchase_order_id: purchaseOrderId, thread_id: threadId, unread_count: unreadCount });
+
+    if (purchaseOrderId) {
+        broadcast('po_mail_received', { purchase_order_id: purchaseOrderId, thread_id: threadId, supplier_name: supplierName, unread_count: unreadCount });
+    }
+
+    console.log(`[mail] Indgående mail → thread ${threadId} (bon=${bonId}, customer=${customerId}, po=${purchaseOrderId})`);
 }
 
 /**

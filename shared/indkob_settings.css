@@ -162,6 +162,7 @@
     font-size: 13px; font-family: inherit; background: #fff;
 }
 .is-edit-input:focus { border-color: var(--brand-primary); outline: none; }
+.is-edit-hint { font-size: 11px; color: var(--color-text-dim, #999); margin-top: 2px; font-style: italic; }
 .is-edit-select {
     padding: 6px 10px; border: 1px solid var(--color-border, #d7d1ca);
     border-radius: 6px; font-size: 13px; font-family: inherit; background: #fff;
