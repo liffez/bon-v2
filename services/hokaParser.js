@@ -215,6 +215,8 @@ function parseSnapshotToSummary(snap) {
         salesPriceSource: snap.SalesPriceSource?.Text || null,
         isAgreementItem: snap.SalesPriceSource?.TrackingId === 'Fixed',
 
+        co2e: snap.Co2Equivalent || snap.EnvironmentalImpact?.CO2Equivalent || null,
+
         image: snap.Image?.Small || null,
         url: snap.Url ? `https://www.hoka.dk${snap.Url}` : null,
     };

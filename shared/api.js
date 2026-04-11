@@ -717,6 +717,13 @@ function fetchHokaFavoritesAll(listId) { return apiFetch('/horkram/favorites/' +
 /** Leveringsdatoer */
 function fetchHokaDeliveryDates() { return apiFetch('/horkram/delivery-dates'); }
 
+/** Dropsize-check — minimum ordrebeløb for levering */
+function fetchHokaDropsize(subtotal, date) {
+    var qs = 'subtotal=' + (subtotal || 0);
+    if (date) qs += '&date=' + encodeURIComponent(date);
+    return apiFetch('/horkram/dropsize?' + qs);
+}
+
 /** Læg varer i kurv — PUT /api/horkram/basket/add med CSRF-token */
 function putHokaBasket(products) {
     return apiFetch('/horkram/basket/add', {

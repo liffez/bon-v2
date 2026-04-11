@@ -733,6 +733,23 @@ router.get('/delivery-dates', async (req, res) => {
     }
 });
 
+router.get('/dropsize', async (req, res) => {
+    try {
+        const subtotal = parseFloat(req.query.subtotal) || 0;
+        const date = req.query.date || new Date().toISOString();
+        const dateStr = encodeURIComponent(new Date(date).toISOString());
+        const apiRes = await fetchWithAuth(
+            `${HOKA_BASE}/api/delivery/dropsize/ofbasket?basketSubTotal=${subtotal}&expectedDeliveryDate=${dateStr}`
+        );
+        if (!apiRes.ok) return res.status(apiRes.status).json({ error: `HTTP ${apiRes.status}` });
+        const data = await apiRes.json();
+        res.json(data);
+    } catch (err) {
+        console.error('[Hørkram dropsize]', err.message);
+        res.status(500).json({ error: err.message });
+    }
+});
+
 /* ══════════════════════════════════════════════════════════
    ROUTES — ORDREHISTORIK
    ══════════════════════════════════════════════════════════ */

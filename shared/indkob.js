@@ -196,6 +196,9 @@ async function _ibEnrichSnapshots() {
     }
 
     _ibRender();
+
+    // Check dropsize for api groups (non-blocking, after DOM is ready)
+    setTimeout(function() { _ibCheckDropsize(); }, 100);
 }
 
 function _ibAttachSnapshot(snap) {
@@ -626,10 +629,13 @@ function _ibRenderGroup(key) {
     var unmatchedItems = allItems.filter(function(e) { return !e.isOrdered && !e.matched; });
     var orderedItems = allItems.filter(function(e) { return e.isOrdered; });
 
-    // Count and estimate
+    // Count, estimate price, and CO2
     var estTotal = 0;
+    var co2Total = 0;
     for (var r = 0; r < readyItems.length; r++) {
         estTotal += _ibPackPrice(readyItems[r].selectedBarcode, readyItems[r].qty);
+        var hoka = readyItems[r].selectedBarcode && readyItems[r].selectedBarcode._hoka;
+        if (hoka && hoka.co2e) co2Total += hoka.co2e * (readyItems[r].qty || 1);
     }
 
     // Icon
@@ -651,6 +657,7 @@ function _ibRenderGroup(key) {
     if (unmatchedItems.length) h += '<span class="ib-sgp um">' + unmatchedItems.length + ' umatched</span>';
     if (orderedItems.length) h += '<span class="ib-sgp bs">' + orderedItems.length + ' bestilt</span>';
     if (estTotal > 0) h += '<span class="ib-sgp es">ca. ' + Math.round(estTotal) + ' kr</span>';
+    if (co2Total > 0) h += '<span class="ib-sgp co2">🌱 ' + co2Total.toFixed(1) + ' kg CO₂e</span>';
     h += '</div>';
 
     // Action button
@@ -661,6 +668,11 @@ function _ibRenderGroup(key) {
 
     // Body
     h += '<div class="ib-group-body' + (isOpen ? ' open' : '') + '" data-group-body="' + key + '">';
+
+    // Dropsize banner placeholder (filled async for api groups)
+    if (g.integrationType === 'api') {
+        h += '<div class="ib-dropsize" id="ibDropsize_' + key + '"></div>';
+    }
 
     // Ready items
     if (readyItems.length) {
@@ -876,6 +888,9 @@ function _ibGetBadges(entry) {
         if (hoka.countryCode === 'DK' || (bc.userfields && bc.userfields.hk_country === 'DK')) {
             badges.push('<span class="ib-badge land">🇩🇰 DK</span>');
         }
+        if (hoka.co2e) {
+            badges.push('<span class="ib-badge co2">🌱 ' + hoka.co2e.toFixed(1) + ' kg CO₂e</span>');
+        }
     }
     return badges;
 }
@@ -912,8 +927,8 @@ function _ibRenderManualDialog(g, key, readyItems) {
     h += '</div>';
     h += '<div class="ib-mo-acts">';
     h += '<button class="ib-mo-btn ib-mo-copy" data-ib="mo-copy" data-group="' + key + '">📋 Kopiér liste</button>';
-    if (g.contactEmail) h += '<button class="ib-mo-btn ib-mo-mail" data-ib="mo-mail" data-group="' + key + '">✉ Send mail</button>';
-    if (g.contactPhone) h += '<button class="ib-mo-btn ib-mo-tlf" data-ib="mo-phone" data-group="' + key + '">📞 Ring ' + _ibEsc(g.displayName) + '</button>';
+    if (g.contactPhone) h += '<button class="ib-mo-btn ib-mo-tlf" data-ib="mo-phone" data-group="' + key + '">📞 Ring</button>';
+    if (g.contactEmail) h += '<button class="ib-mo-btn ib-mo-mail" data-ib="mo-mail" data-group="' + key + '">✉ Send &amp; bestil</button>';
     h += '<button class="ib-mo-btn ib-mo-ok" data-ib="mo-confirm" data-group="' + key + '">✓ Bekræft bestilt</button>';
     h += '</div></div>';
     return h;
@@ -1299,7 +1314,7 @@ async function _ibGotoCart(groupKey) {
     }
 }
 
-async function _ibConfirmManualOrder(groupKey) {
+async function _ibConfirmManualOrder(groupKey, sendEmail) {
     var g = _ibGroups[groupKey];
     if (!g || _ibBusy) return;
 
@@ -1317,14 +1332,17 @@ async function _ibConfirmManualOrder(groupKey) {
                 product_id: e.product.id,
                 product_name: e.product.name,
                 quantity: e.qty,
+                unit: e.needUnit || 'stk',
                 barcode: e.selectedBarcode ? e.selectedBarcode.barcode : null,
+                varenr: e.selectedBarcode ? e.selectedBarcode.barcode : null,
             };
         });
 
-        await createPendingOrder({
+        var result = await createPendingOrder({
             supplier_id: g.supplierId,
             grocy_location_id: parseInt(groupKey) || null,
-            lines: lines,
+            items: lines,
+            send_email: sendEmail ? true : false,
         });
 
         var now = new Date().toISOString();
@@ -1347,7 +1365,11 @@ async function _ibConfirmManualOrder(groupKey) {
         }
 
         _ibMoOpen = null;
-        _ibToast('Bestilling registreret — ' + items.length + ' varer');
+        if (result && result.email_sent) {
+            _ibToast('Bestilling sendt til ' + g.displayName + ' ✉ (' + items.length + ' varer)');
+        } else {
+            _ibToast('Bestilling registreret — ' + items.length + ' varer');
+        }
         await _ibReloadShoppingList();
     } catch (err) {
         _ibToast('Fejl: ' + (err.message || 'Kunne ikke registrere'), true);
@@ -1433,15 +1455,8 @@ function _ibCopyOrderList(groupKey) {
 }
 
 function _ibMailOrder(groupKey) {
-    var g = _ibGroups[groupKey];
-    if (!g || !g.contactEmail) return;
-
-    var items = g.items.filter(function(e) { return !e.isOrdered && (e._marked || e.matched); });
-    var body = items.map(function(e) {
-        return e.product.name + ' — ' + e.qty + ' ' + e.needUnit;
-    }).join('\n');
-
-    window.open('mailto:' + g.contactEmail + '?subject=' + encodeURIComponent('Bestilling fra Ristet Rug') + '&body=' + encodeURIComponent(body));
+    // Send & bestil: SMTP-mail + registrér ordre i ét klik
+    _ibConfirmManualOrder(groupKey, true);
 }
 
 /* ── Link/search panel ─────────────────────────────────────── */
@@ -1591,6 +1606,48 @@ function _ibFmtDate(isoStr) {
     var d = new Date(isoStr);
     if (isNaN(d.getTime())) return isoStr;
     return d.getDate() + '. ' + ['jan','feb','mar','apr','maj','jun','jul','aug','sep','okt','nov','dec'][d.getMonth()];
+}
+
+/* ── Dropsize check ────────────────────────────────────────── */
+async function _ibCheckDropsize() {
+    for (var key in _ibGroups) {
+        var g = _ibGroups[key];
+        if (g.integrationType !== 'api') continue;
+
+        var el = document.getElementById('ibDropsize_' + key);
+        if (!el) continue;
+
+        // Calculate subtotal for this group
+        var subtotal = 0;
+        g.items.forEach(function(entry) {
+            if (!entry.isOrdered && entry.matched) {
+                subtotal += _ibPackPrice(entry.selectedBarcode, entry.qty);
+            }
+        });
+
+        try {
+            var ds = await fetchHokaDropsize(subtotal);
+            // Parse Hoka response — Model.HasReachedLimit, Model.MinimumDropSize (Danish format "1.500,00")
+            var model = ds.Model || ds;
+            var reached = model.HasReachedLimit || model.hasReachedLimit || false;
+            var minStr = model.MinimumDropSize || model.minimumDropSize || '0';
+            var missStr = model.MissingAmount || model.missingAmount || '0';
+            // Parse Danish number format: "1.500,00" → 1500
+            var minimum = parseFloat(String(minStr).replace(/\./g, '').replace(',', '.')) || 0;
+            var missing = parseFloat(String(missStr).replace(/\./g, '').replace(',', '.')) || 0;
+
+            if (!reached && minimum > 0) {
+                el.innerHTML = '<div class="ib-dropsize-warn">'
+                    + '⚠ Minimumsbeløb ikke nået — mangler <strong>' + Math.round(missing) + ' kr</strong>'
+                    + ' (minimum ' + Math.round(minimum) + ' kr)</div>';
+            } else {
+                el.innerHTML = '';
+            }
+        } catch (e) {
+            // Silently ignore — dropsize is non-critical
+            el.innerHTML = '';
+        }
+    }
 }
 
 /* ── INT-varenumre ─────────────────────────────────────────── */

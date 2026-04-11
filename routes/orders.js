@@ -71,13 +71,13 @@ router.get('/pending/:id', handle((req, res) => {
 
 /* ── POST /pending ───────────────────────────────────────── */
 
-router.post('/pending', handle((req, res) => {
+router.post('/pending', handle(async (req, res) => {
     const db = getDb();
     const {
         supplier_id, supplier_name, location_id,
         grocy_location_id,
         order_reference, expected_delivery_date,
-        notes, items, sent_via,
+        notes, items, sent_via, send_email,
     } = req.body;
 
     // Find eller opret leverandør
@@ -145,6 +145,50 @@ router.post('/pending', handle((req, res) => {
     broadcast('order_created', { id: orderId });
 
     const order = getOrderWithLines(db, orderId);
+
+    // Send email if requested
+    let emailSent = false;
+    if (send_email && supId) {
+        try {
+            const supplier = db.prepare('SELECT * FROM suppliers WHERE id = ?').get(supId);
+            if (supplier && supplier.contact_email) {
+                const mail = require('../services/mailService');
+                const today = new Date().toISOString().slice(0, 10);
+
+                // Build vareliste
+                const vareliste = (items || []).map(it => {
+                    const name = it.product_name || it.name || 'Ukendt';
+                    const qty  = it.quantity_ordered || it.quantity || 0;
+                    const unit = it.unit || 'stk';
+                    const nr   = it.barcode || it.varenr || '';
+                    return `• ${name} — ${qty} ${unit}${nr ? ' (nr. ' + nr + ')' : ''}`;
+                }).join('\n');
+
+                await mail.sendFromTemplate({
+                    templateKey: 'order_email',
+                    to: supplier.contact_email,
+                    vars: {
+                        leverandoer: supplier.name,
+                        dato: today,
+                        vareliste: vareliste,
+                        leveringsdato: expected_delivery_date || 'Hurtigst muligt',
+                    },
+                    context: 'purchase_order',
+                    userId,
+                    smtpPrefix: 'kontakt',
+                });
+
+                // Update order: sent_via = email, sent_at
+                db.prepare(`UPDATE purchase_orders SET sent_via = 'email', sent_at = CURRENT_TIMESTAMP WHERE id = ?`).run(orderId);
+                emailSent = true;
+            }
+        } catch (mailErr) {
+            console.error('[orders] Mail fejl:', mailErr.message);
+            // Order is still created — mail failure is non-fatal
+        }
+    }
+
+    order.email_sent = emailSent;
     res.status(201).json(order);
 }));
 

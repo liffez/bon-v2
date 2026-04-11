@@ -316,6 +316,16 @@
 .ib-sgp.bs { background: #f0f0f0; color: var(--color-text-dim, #777); }
 .ib-sgp.um { background: var(--ib-orange-light); color: #7a5200; }
 .ib-sgp.es { background: rgba(142,99,31,.08); color: var(--brand-primary); }
+.ib-sgp.co2 { background: #e8f2dc; color: #3a5a1a; }
+
+/* Dropsize warning */
+.ib-dropsize-warn {
+    background: #fef3d6; border: 1px solid #e8a832; border-radius: 8px;
+    padding: 8px 14px; font-size: 12px; color: #7a5200; margin: 8px 16px 4px;
+}
+
+/* CO2 badge on items */
+.ib-badge.co2 { background: #e8f2dc; color: #3a5a1a; }
 
 .ib-group-act {
     padding: 6px 12px;

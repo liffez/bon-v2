@@ -48,6 +48,20 @@ Lokationer defineres i `locations`-tabellen: HQ=grocycafe, Trailer=grocytrailer,
 **Smartplan:** OAuth2 via `SMARTPLAN_CLIENT_ID` + `SMARTPLAN_CLIENT_SECRET` i `.env`.
 API base: `https://api.smartplanapp.io/v2`. Token-endpoint: `/o/token/`.
 
+**Mail:** 2 SMTP-transports + 2 IMAP-mailboxes via Simply.com (port 993, implicit TLS):
+
+| Transport | Afsender | Bruges til | `.env`-variable |
+|-----------|----------|------------|-----------------|
+| `smtp` (bon@) | bon@ristetrug.dk | Ordrebekræftelser, bon-relateret mail | `SMTP_PASSWORD` |
+| `smtp_kontakt` (kontakt@) | kontakt@ristetrug.dk | Leverandør-bestillinger, CRM-mail | `SMTP_KONTAKT_PASSWORD` |
+
+Mail-skabeloner i `mail_templates`-tabellen:
+- `booking_confirmation` — ordrebekræftelse til kunde ({{kundeNavn}}, {{bonNummer}}, ...)
+- `order_email` — bestilling til leverandør ({{leverandoer}}, {{vareliste}}, {{leveringsdato}})
+
+`smtpPrefix`-parameter i `sendMail()` styrer transport: `'smtp'` = bon@, `'smtp_kontakt'` eller `'kontakt'` = kontakt@.
+IMAP polling hvert 5. minut — router mails via `#B{num}` og `#K{num}` tags i emne.
+
 ---
 
 ## Kolonnenavne der ofte forveksles
@@ -692,10 +706,23 @@ Oprettes under Grocy → Manage master data → Userfields.
 - [x] **`kitchen/purchasing.html`** — ⚙ gear-knap i tab-bar, slide-in panel (880px), overlay, Escape lukker
 - [x] **`settings/index.html`** — "Indkøb" nav-punkt (admin), lazy init i page-mode
 
-#### Fase 6d — E-mail ordrer + dropsize (efter 6c)
-- [ ] Dropsize-check ved Hørkram-bestilling (`GET /api/horkram/dropsize`)
-- [ ] Auto-genereret ordremail til leverandør ved "Registrér bestilling"
-- [ ] CO2-rapport på Hørkram-ordrer
+#### Fase 6d — E-mail ordrer + dropsize + CO2 (komplet)
+- [x] Migration 033: `order_email` mail-skabelon i `mail_templates`
+- [x] `GET /api/horkram/dropsize?subtotal=N&date=ISO` — proxy til Hoka dropsize API
+  - Parser dansk talformat (`"1.500,00"` → 1500)
+  - Gult banner under Hørkram-gruppe hvis minimum ikke nået
+  - Advarsel kun — bestilling blokeres ikke
+- [x] SMTP ordremail til leverandør via `kontakt@`-transport
+  - `POST /api/orders/pending` udvid med `send_email: true`
+  - Renderer `order_email` skabelon med `{{leverandoer}}`, `{{vareliste}}`, `{{dato}}`, `{{leveringsdato}}`
+  - Sender via `mailService.sendFromTemplate()`, sætter `sent_via='email'` + `sent_at`
+  - Frontend: "Send & bestil" knap erstatter separate "Send mail" + "Bekræft bestilt"
+  - Leverandører uden email: fallback til manuelt flow (Kopiér + Ring + Bekræft)
+- [x] CO2 per vare + total i Hørkram-grupper
+  - `hokaParser.parseSnapshotToSummary()` udvidet med `co2e` felt
+  - Per-vare: grøn `🌱 X,X kg CO₂e` badge (via `_ibGetBadges`)
+  - Gruppe-header: samlet CO2 pill `🌱 49,9 kg CO₂e`
+  - Graceful: varer uden CO2-data viser intet
 
 ### Fase 7 — CRM-modul
 - [x] Migration 019: `crm_activities` genskabt med `service_call`/`result`/`sentiment`, `bons.is_internal`, `companies.is_internal`
@@ -923,19 +950,17 @@ Oprettes under Grocy → Manage master data → Userfields.
 
 ## Næste opgave
 
-> ✏️ Opdateret 10. april 2026.
+> ✏️ Opdateret 11. april 2026.
 >
-> **Fase 1a–1e + 3A + 3B + 3D + 4 + 5 + 6-fundament + 6b + 6c + 7 (CRM) + Office CRM redesign + 8 (Fakturering) + 9 (Tilbud) + Mail-vedhæftninger + CRM service-kald + Firma-oprydning komplet.**
+> **Fase 1a–1e + 3A + 3B + 3D + 4 + 5 + 6 (komplet inkl. 6d) + 7 (CRM) + Office CRM redesign + 8 (Fakturering) + 9 (Tilbud) + Mail-vedhæftninger + CRM service-kald + Firma-oprydning komplet.**
 >
-> **Fase 6c komplet** — `shared/indkob_settings.js` (1400 linjer) monteret i kitchen (slide-in) og office (fuld side).
-> Inkl. udgået-detection, batch prisopdatering, confidence-scoring ved ny kobling.
+> **Fase 6 komplet** — Hele indkøbsmodulet er færdigt:
+> - 6a: Fundament (shopping list, bestilling, varemodtagelse, Hoka proxy)
+> - 6b: `indkob.js` (accordion UI, chips, multi-leverandør, produktionsbon, INT-numre)
+> - 6c: `indkob_settings.js` (leverandører, produkter, Hørkram-kobling, udgået-detection)
+> - 6d: SMTP ordremail, dropsize-advarsel, CO2-badges
 >
-> **6b begrænsninger løst** — "Tilføj vare" dialog, produktionsbon-oprettelse (inkl. "Ny bon" modal),
-> INT-varenumre, `is_internal` i API, blå farve + 🔧 ikon for produktionsbons.
->
-> **Næste sprint:** Fase 6d — E-mail ordrer + dropsize.
->
-> **Så:** Priser i planlægningsbon, Ugeoversigt.
+> **Næste sprint:** Priser i planlægningsbon, Ugeoversigt.
 > Så er Bon v1 klar til nedlukning.
 >
 > **Åbne afhængigheder:**
@@ -1006,6 +1031,9 @@ Oprettes under Grocy → Manage master data → Userfields.
 > - Settings Hørkram: prisopdatering er manuelt trigger ("Opdater nu") + valgfri daglig cron via `system_settings`
 > - ~~`routes/purchasing.js` mangler CRUD endpoints~~ — implementeret i Fase 6c
 > - Hoka basket PUT format: `SalesUnit: { Code, Quantity }` — bekræftet fra hoka.dk's egen frontend (IKKE `SalesUnitIndex`). Eksisterende varer i kurven re-sendes UDEN SalesUnit (Hoka bevarer den valgte enhed). Nye varer sendes med SalesUnit fra snapshot. Basket-ID caches i `sessionCache.basketId`. PUT erstatter hele kurven → altid merge eksisterende + nye.
+> - Ordremail til leverandør: rigtig SMTP via kontakt@ristetrug.dk (ikke mailto-link). Sendes automatisk ved "Send & bestil". Skabelon `order_email` redigerbar i Settings → Mail.
+> - Dropsize: advarsel kun (gult banner), blokerer IKKE bestilling. Parser Hoka's danske talformat.
+> - CO2: vises per vare (🌱 badge) + samlet i gruppe-header. Data fra Hoka snapshot `Co2Equivalent`.
 
 ---
 
