@@ -1,0 +1,349 @@
+<!DOCTYPE html>
+<html lang="da">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+    <meta name="theme-color" content="#8e631f">
+    <title>Bon v2 — Log ind</title>
+    <link rel="stylesheet" href="/shared/tokens.css">
+    <link rel="manifest" href="/mobile/manifest.json">
+    <style>
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+        body {
+            font-family: var(--font-body);
+            background: var(--color-background);
+            color: var(--color-text);
+            min-height: 100vh;
+            min-height: 100dvh;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            padding: env(safe-area-inset-top) 16px env(safe-area-inset-bottom);
+        }
+        .login-logo {
+            width: 80px; height: 80px; margin-bottom: 12px;
+        }
+        .login-title {
+            font-family: var(--font-heading);
+            font-size: 24px; font-weight: 600;
+            margin-bottom: 4px;
+        }
+        .login-subtitle {
+            font-size: 14px; color: var(--color-text-dim);
+            margin-bottom: 32px;
+        }
+
+        /* -- User select grid -- */
+        .user-grid {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 12px;
+            width: 100%; max-width: 360px;
+            margin-bottom: 24px;
+        }
+        .user-btn {
+            background: var(--color-surface);
+            border: 2px solid var(--color-border);
+            border-radius: 12px;
+            padding: 16px 8px;
+            font-size: 16px; font-weight: 500;
+            cursor: pointer;
+            transition: border-color .15s, background .15s;
+            min-height: 56px;
+            display: flex; align-items: center; justify-content: center;
+            text-align: center;
+        }
+        .user-btn:active, .user-btn.selected {
+            border-color: var(--brand-primary);
+            background: var(--brand-primary-light);
+        }
+
+        /* -- PIN pad -- */
+        .pin-section {
+            display: none;
+            flex-direction: column; align-items: center;
+            width: 100%; max-width: 300px;
+        }
+        .pin-section.visible { display: flex; }
+        .pin-user-name {
+            font-size: 18px; font-weight: 600; margin-bottom: 16px;
+        }
+        .pin-dots {
+            display: flex; gap: 12px; margin-bottom: 24px; height: 20px;
+        }
+        .pin-dot {
+            width: 16px; height: 16px; border-radius: 50%;
+            border: 2px solid var(--color-border);
+            transition: background .1s, border-color .1s;
+        }
+        .pin-dot.filled {
+            background: var(--brand-primary);
+            border-color: var(--brand-primary);
+        }
+        .pin-pad {
+            display: grid;
+            grid-template-columns: repeat(3, 1fr);
+            gap: 12px;
+            width: 100%;
+        }
+        .pin-key {
+            background: var(--color-surface);
+            border: 1px solid var(--color-border);
+            border-radius: 12px;
+            font-size: 28px; font-weight: 500;
+            min-height: 72px;
+            cursor: pointer;
+            transition: background .1s;
+            display: flex; align-items: center; justify-content: center;
+        }
+        .pin-key:active {
+            background: var(--brand-primary-light);
+        }
+        .pin-key.empty { visibility: hidden; }
+        .pin-key.back { font-size: 20px; }
+
+        .pin-error {
+            color: var(--color-red);
+            font-size: 14px;
+            margin-top: 16px;
+            min-height: 20px;
+            text-align: center;
+        }
+        .pin-lockout {
+            color: var(--color-red);
+            font-size: 16px; font-weight: 600;
+            margin-top: 16px;
+        }
+        .pin-alt {
+            margin-top: 24px;
+            font-size: 13px; color: var(--color-text-dim);
+        }
+        .pin-alt a { color: var(--brand-primary); }
+        .pin-back-link {
+            margin-top: 12px;
+            font-size: 14px; color: var(--color-text-dim);
+            cursor: pointer; text-decoration: underline;
+        }
+
+        /* Shake animation */
+        @keyframes shake {
+            0%, 100% { transform: translateX(0); }
+            20%, 60% { transform: translateX(-8px); }
+            40%, 80% { transform: translateX(8px); }
+        }
+        .shake { animation: shake .4s ease-in-out; }
+
+        /* Desktop banner */
+        .desktop-banner {
+            position: fixed; top: 0; left: 0; right: 0;
+            background: var(--brand-primary);
+            color: #fff; text-align: center;
+            padding: 10px 16px; font-size: 14px;
+            display: none; z-index: 100;
+        }
+        .desktop-banner a { color: var(--brand-primary-light); margin-left: 8px; }
+    </style>
+</head>
+<body>
+    <div class="desktop-banner" id="desktopBanner">
+        Du er på en stor skærm
+        <a href="/login.html">Åbn fuld version</a>
+    </div>
+
+    <img src="/assets/logo.svg" alt="Ristet Rug" class="login-logo">
+    <div class="login-title">Bon v2</div>
+    <div class="login-subtitle">Vælg dit navn</div>
+
+    <div class="user-grid" id="userGrid">
+        <div style="grid-column: 1/-1; text-align:center; color: var(--color-text-dim)">Henter brugere...</div>
+    </div>
+
+    <div class="pin-section" id="pinSection">
+        <div class="pin-user-name" id="pinUserName"></div>
+        <div class="pin-dots" id="pinDots"></div>
+        <div class="pin-pad" id="pinPad">
+            <button class="pin-key" data-key="1">1</button>
+            <button class="pin-key" data-key="2">2</button>
+            <button class="pin-key" data-key="3">3</button>
+            <button class="pin-key" data-key="4">4</button>
+            <button class="pin-key" data-key="5">5</button>
+            <button class="pin-key" data-key="6">6</button>
+            <button class="pin-key" data-key="7">7</button>
+            <button class="pin-key" data-key="8">8</button>
+            <button class="pin-key" data-key="9">9</button>
+            <button class="pin-key empty"></button>
+            <button class="pin-key" data-key="0">0</button>
+            <button class="pin-key back" data-key="back">&#9003;</button>
+        </div>
+        <div class="pin-error" id="pinError"></div>
+        <div class="pin-back-link" id="pinBack">&#8592; Vælg anden bruger</div>
+    </div>
+
+    <div class="pin-alt">
+        <a href="/login.html">Log ind med adgangskode</a>
+    </div>
+
+    <script>
+    (function() {
+        var _users = [];
+        var _selectedUser = null;
+        var _pin = '';
+        var _busy = false;
+        var _lockoutTimer = null;
+        var PIN_LENGTH = 4;
+
+        var grid      = document.getElementById('userGrid');
+        var pinSec    = document.getElementById('pinSection');
+        var pinName   = document.getElementById('pinUserName');
+        var pinDots   = document.getElementById('pinDots');
+        var pinError  = document.getElementById('pinError');
+        var pinBack   = document.getElementById('pinBack');
+        var subtitle  = document.querySelector('.login-subtitle');
+
+        // Desktop detect
+        if (window.innerWidth >= 1024) {
+            document.getElementById('desktopBanner').style.display = 'block';
+        }
+
+        // Check if already logged in
+        fetch('/api/auth/me').then(function(r) {
+            if (r.ok) window.location.href = '/mobile/';
+        }).catch(function() {});
+
+        // Load users (public endpoint — no auth required)
+        fetch('/api/auth/pin-users')
+            .then(function(r) { return r.json(); })
+            .then(function(users) {
+                _users = users;
+                renderUsers();
+            })
+            .catch(function() {
+                grid.innerHTML = '<div style="grid-column:1/-1;text-align:center;color:var(--color-red)">Kunne ikke hente brugere</div>';
+            });
+
+        function renderUsers() {
+            grid.innerHTML = '';
+            _users.forEach(function(u) {
+                var btn = document.createElement('button');
+                btn.className = 'user-btn';
+                btn.textContent = u.name;
+                btn.onclick = function() { selectUser(u); };
+                grid.appendChild(btn);
+            });
+        }
+
+        function selectUser(user) {
+            _selectedUser = user;
+            _pin = '';
+            pinError.textContent = '';
+            grid.style.display = 'none';
+            subtitle.textContent = 'Tast PIN';
+            pinSec.classList.add('visible');
+            pinName.textContent = user.name;
+            renderDots();
+        }
+
+        pinBack.onclick = function() {
+            _selectedUser = null;
+            _pin = '';
+            pinSec.classList.remove('visible');
+            grid.style.display = 'grid';
+            subtitle.textContent = 'Vælg dit navn';
+            pinError.textContent = '';
+            if (_lockoutTimer) { clearInterval(_lockoutTimer); _lockoutTimer = null; }
+        };
+
+        function renderDots() {
+            pinDots.innerHTML = '';
+            for (var i = 0; i < PIN_LENGTH; i++) {
+                var dot = document.createElement('div');
+                dot.className = 'pin-dot' + (i < _pin.length ? ' filled' : '');
+                pinDots.appendChild(dot);
+            }
+        }
+
+        // PIN pad clicks
+        document.getElementById('pinPad').addEventListener('click', function(e) {
+            var btn = e.target.closest('.pin-key');
+            if (!btn || _busy) return;
+            var key = btn.dataset.key;
+            if (!key) return;
+
+            if (key === 'back') {
+                _pin = _pin.slice(0, -1);
+                pinError.textContent = '';
+                renderDots();
+                return;
+            }
+
+            if (_pin.length >= PIN_LENGTH) return;
+            _pin += key;
+            renderDots();
+
+            if (_pin.length === PIN_LENGTH) {
+                submitPin();
+            }
+        });
+
+        function submitPin() {
+            _busy = true;
+            pinError.textContent = '';
+
+            fetch('/api/auth/pin', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ user_id: _selectedUser.id, pin: _pin })
+            })
+            .then(function(r) { return r.json().then(function(d) { return { ok: r.ok, status: r.status, data: d }; }); })
+            .then(function(result) {
+                _busy = false;
+                if (result.ok) {
+                    window.location.href = '/mobile/';
+                    return;
+                }
+
+                // Lockout
+                if (result.status === 423 && result.data.lockout_seconds) {
+                    startLockout(result.data.lockout_seconds);
+                    return;
+                }
+
+                // Wrong PIN — shake
+                _pin = '';
+                renderDots();
+                pinError.textContent = 'Forkert PIN — prøv igen';
+                pinDots.classList.add('shake');
+                setTimeout(function() { pinDots.classList.remove('shake'); }, 500);
+            })
+            .catch(function() {
+                _busy = false;
+                _pin = '';
+                renderDots();
+                pinError.textContent = 'Fejl — prøv igen';
+            });
+        }
+
+        function startLockout(secs) {
+            _pin = '';
+            renderDots();
+            var remaining = secs;
+            pinError.innerHTML = '<span class="pin-lockout">Låst i ' + remaining + 's</span>';
+
+            if (_lockoutTimer) clearInterval(_lockoutTimer);
+            _lockoutTimer = setInterval(function() {
+                remaining--;
+                if (remaining <= 0) {
+                    clearInterval(_lockoutTimer);
+                    _lockoutTimer = null;
+                    pinError.textContent = '';
+                    _busy = false;
+                } else {
+                    pinError.innerHTML = '<span class="pin-lockout">Låst i ' + remaining + 's</span>';
+                }
+            }, 1000);
+        }
+    })();
+    </script>
+</body>
+</html>

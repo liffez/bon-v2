@@ -92,6 +92,26 @@
             font-size: var(--font-size-s);
             min-height: 1.4em;
         }
+
+        .mobile-banner {
+            position: fixed; bottom: 0; left: 0; right: 0;
+            background: var(--brand-primary);
+            color: #fff; text-align: center;
+            padding: 12px 16px; font-size: 14px;
+            display: none; z-index: 100;
+        }
+        .mobile-banner a {
+            display: inline-block;
+            background: #fff; color: var(--brand-primary);
+            padding: 6px 16px; border-radius: 6px;
+            text-decoration: none; font-weight: 600;
+            margin-left: 8px;
+        }
+        .mobile-banner .dismiss {
+            background: none; color: rgba(255,255,255,.7);
+            border: none; font-size: 13px; cursor: pointer;
+            margin-left: 8px;
+        }
     </style>
 </head>
 <body>
@@ -189,6 +209,20 @@
                 }
             } catch {}
         })();
+
+        // Mobil-detect banner
+        if (window.innerWidth < 640 && 'ontouchstart' in window && !localStorage.getItem('preferDesktop')) {
+            const banner = document.createElement('div');
+            banner.className = 'mobile-banner';
+            banner.innerHTML = 'Mobilvisning tilgængelig <a href="/mobile/login.html">Åbn</a>' +
+                '<button class="dismiss" id="dismissMobile">Nej tak</button>';
+            document.body.appendChild(banner);
+            banner.style.display = 'block';
+            document.getElementById('dismissMobile').addEventListener('click', () => {
+                localStorage.setItem('preferDesktop', '1');
+                banner.style.display = 'none';
+            });
+        }
     </script>
 </body>
 </html>

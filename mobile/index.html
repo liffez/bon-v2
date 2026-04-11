@@ -1,0 +1,208 @@
+<!DOCTYPE html>
+<html lang="da">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+    <meta name="theme-color" content="#8e631f">
+    <meta name="apple-mobile-web-app-capable" content="yes">
+    <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+    <title>Bon v2</title>
+    <link rel="manifest" href="/mobile/manifest.json">
+    <link rel="stylesheet" href="/shared/tokens.css">
+    <link rel="stylesheet" href="/shared/components.css">
+    <link rel="stylesheet" href="/shared/varemodtagelse.css">
+    <link rel="stylesheet" href="/mobile/mobile.css">
+</head>
+<body class="zone-mobile">
+
+    <!-- Header -->
+    <header class="m-header">
+        <div class="m-header-logo">
+            <img src="/assets/logo.svg" alt="">
+            Bon v2
+        </div>
+        <div class="m-header-user" id="headerUser">
+            <span id="headerUserName"></span> &#9662;
+            <div class="m-header-dropdown" id="headerDropdown">
+                <a href="/office/" id="linkFullVersion">Fuld version</a>
+                <a href="#" id="linkLogout">Log ud</a>
+            </div>
+        </div>
+    </header>
+
+    <!-- Content -->
+    <main class="m-content" id="mContent"></main>
+
+    <!-- Bottom nav -->
+    <nav class="m-nav">
+        <button class="m-nav-btn active" data-view="bons">
+            <span class="m-nav-icon">&#128203;</span>
+            Bons
+        </button>
+        <button class="m-nav-btn" data-view="modtag">
+            <span class="m-nav-icon">&#128230;</span>
+            Modtag
+        </button>
+        <button class="m-nav-btn" data-view="crm">
+            <span class="m-nav-icon">&#128222;</span>
+            CRM
+        </button>
+        <button class="m-nav-btn" data-view="oversigt">
+            <span class="m-nav-icon">&#128202;</span>
+            Overblik
+        </button>
+        <button class="m-nav-btn" data-view="mig">
+            <span class="m-nav-icon">&#128100;</span>
+            Mig
+        </button>
+    </nav>
+
+    <!-- Offline banner -->
+    <div class="m-offline" id="offlineBanner" hidden>Ingen forbindelse</div>
+
+    <!-- Toast -->
+    <div class="m-toast" id="mToast"></div>
+
+    <!-- Scripts -->
+    <script src="/BonConfig.js"></script>
+    <script src="/shared/utils.js"></script>
+    <script src="/shared/api.js"></script>
+    <script src="/shared/varemodtagelse.js"></script>
+    <script src="/mobile/views/bons.js"></script>
+    <script src="/mobile/views/modtag.js"></script>
+    <script src="/mobile/views/crm.js"></script>
+    <script src="/mobile/views/oversigt.js"></script>
+    <script>
+    (async function() {
+        /* ── Auth ── */
+        var _mUser = await checkAuth('/mobile/login.html');
+        if (!_mUser) return;
+
+        document.getElementById('headerUserName').textContent = _mUser.name;
+
+        // Redirect link based on role
+        var fullLink = document.getElementById('linkFullVersion');
+        if (_mUser.role === 'kitchen') fullLink.href = '/kitchen/';
+
+        /* ── Header dropdown ── */
+        var userEl = document.getElementById('headerUser');
+        var dropdown = document.getElementById('headerDropdown');
+        userEl.addEventListener('click', function(e) {
+            e.stopPropagation();
+            dropdown.classList.toggle('open');
+        });
+        document.addEventListener('click', function() {
+            dropdown.classList.remove('open');
+        });
+
+        document.getElementById('linkLogout').addEventListener('click', async function(e) {
+            e.preventDefault();
+            await fetch('/api/auth/logout', { method: 'POST' });
+            window.location.href = '/mobile/login.html';
+        });
+
+        /* ── Offline detection ── */
+        var offlineBanner = document.getElementById('offlineBanner');
+        window.addEventListener('online',  function() { offlineBanner.hidden = true; });
+        window.addEventListener('offline', function() { offlineBanner.hidden = false; });
+
+        /* ── View router ── */
+        var _mContent = document.getElementById('mContent');
+        var _mCurrentView = null;
+        var _mViews = {
+            bons:     { init: initMobileBons,     cleanup: typeof cleanupMobileBons === 'function' ? cleanupMobileBons : null },
+            modtag:   { init: initMobileModtag,   cleanup: null },
+            crm:      { init: initMobileCrm,      cleanup: null },
+            oversigt: { init: initMobileOversigt, cleanup: null },
+            mig:      { init: _initMig,           cleanup: null },
+        };
+
+        function switchView(name) {
+            if (_mCurrentView && _mViews[_mCurrentView] && _mViews[_mCurrentView].cleanup) {
+                _mViews[_mCurrentView].cleanup();
+            }
+            _mContent.innerHTML = '';
+            _mCurrentView = name;
+
+            // Update nav
+            document.querySelectorAll('.m-nav-btn').forEach(function(b) {
+                b.classList.toggle('active', b.dataset.view === name);
+            });
+
+            // Update URL
+            var params = new URLSearchParams(window.location.search);
+            params.set('view', name);
+            // Remove bon detail param when switching views
+            if (name !== 'bons') params.delete('bon');
+            history.replaceState(null, '', '?' + params.toString());
+
+            // Init
+            if (_mViews[name]) {
+                _mViews[name].init(_mContent, _mUser);
+            }
+        }
+
+        // Expose for deep-linking from views
+        window._mSwitchView = switchView;
+        window._mUser = _mUser;
+
+        // Nav clicks
+        document.querySelectorAll('.m-nav-btn').forEach(function(btn) {
+            btn.addEventListener('click', function() {
+                switchView(btn.dataset.view);
+            });
+        });
+
+        // Toast helper
+        window._mToast = function(msg, ms) {
+            var t = document.getElementById('mToast');
+            t.textContent = msg;
+            t.classList.add('show');
+            setTimeout(function() { t.classList.remove('show'); }, ms || 2500);
+        };
+
+        // Popstate
+        window.addEventListener('popstate', function() {
+            var p = new URLSearchParams(window.location.search);
+            var v = p.get('view') || 'bons';
+            if (v !== _mCurrentView) switchView(v);
+        });
+
+        /* ── "Mig" inline view ── */
+        function _initMig(container) {
+            container.innerHTML =
+                '<div class="m-card" style="margin-top:16px;text-align:center">' +
+                    '<div style="font-size:48px;margin-bottom:8px">&#128100;</div>' +
+                    '<div style="font-size:18px;font-weight:600">' + _mUser.name + '</div>' +
+                    '<div style="font-size:13px;color:var(--color-text-dim);margin-top:4px">' + (_mUser.role || '') + '</div>' +
+                '</div>' +
+                '<div style="background:var(--color-surface);margin-top:12px">' +
+                    '<a class="m-mig-item" href="' + (_mUser.role === 'kitchen' ? '/kitchen/' : '/office/') + '">' +
+                        '<span class="m-mig-icon">&#128421;</span>' +
+                        '<span class="m-mig-label">Åbn fuld version</span>' +
+                        '<span class="m-mig-chevron">&#8250;</span>' +
+                    '</a>' +
+                    '<a class="m-mig-item" href="#" id="migLogout">' +
+                        '<span class="m-mig-icon">&#128682;</span>' +
+                        '<span class="m-mig-label">Log ud</span>' +
+                        '<span class="m-mig-chevron">&#8250;</span>' +
+                    '</a>' +
+                '</div>';
+
+            document.getElementById('migLogout').addEventListener('click', async function(e) {
+                e.preventDefault();
+                await fetch('/api/auth/logout', { method: 'POST' });
+                window.location.href = '/mobile/login.html';
+            });
+        }
+
+        /* ── Boot ── */
+        var params = new URLSearchParams(window.location.search);
+        var initial = params.get('view') || 'bons';
+        // Deep-link support
+        if (params.get('open') === 'modtag') initial = 'modtag';
+        switchView(initial);
+    })();
+    </script>
+</body>
+</html>
