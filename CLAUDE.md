@@ -105,13 +105,16 @@ bon-v2/
 │   ├── horkram.js    ← /api/horkram/* (Hørkram API proxy: basket, search, orders)
 │   ├── purchasing.js ← /api/purchasing/* (suppliers, grocy-locations CRUD)
 │   ├── orders.js     ← /api/orders/* (purchase_orders CRUD + mail-tråd per PO)
-│   └── receiving.js  ← /api/receiving/complete (fusion: Grocy + Whiteboard + PO)
+│   ├── receiving.js  ← /api/receiving/complete (legacy fusion-endpoint, bruges ikke af ny varemodtagelse)
+│   ├── goods-receipts.js ← /api/goods-receipts/* (varemodtagelse v3: FVST + lager)
+│   └── staff.js      ← /api/staff/* (medarbejder-CRUD)
 ├── services/
 │   ├── grocyAdapter.js       ← Grocy API adapter med cache + CRUD + consume + barcodes
 │   ├── hokaAdapter.js        ← Hørkram (hoka.dk) API adapter med cookie-jar auth
 │   ├── ingredientResolver.js ← Rekursiv ingrediens-opløsning inkl. underopskrifter
-│   ├── smartplanAdapter.js   ← Smartplan OAuth2 adapter (shifts + worklogs)
+│   ├── smartplanAdapter.js   ← Smartplan OAuth2 adapter (shifts + worklogs + employees)
 │   ├── mailService.js        ← SMTP afsendelse + IMAP polling + tag-routing
+│   ├── goodsReceiptWebhook.js ← Whiteboard webhook for varemodtagelse (fire-and-forget)
 │   └── quConvert.js          ← Grocy quantity unit conversions
 ├── db/
 │   ├── database.js      ← getDb() singleton (lazy init + migrations)
@@ -143,9 +146,8 @@ bon-v2/
 │   ├── inventory_check.js + inventory_check.css ← Fysisk optælling (multi-unit, progress, summary)
 │   ├── indkob.js + indkob.css                  ← Indkøb (merged: indkøbsliste + bestilling, accordion UI)
 │   ├── indkob_settings.js + indkob_settings.css ← Indkøbsindstillinger (3 tabs: leverandører, produkter, Hørkram)
-│   ├── varemodtagelse.js + varemodtagelse.css  ← Varemodtagelse (ordremodtagelse, Grocy add-stock)
+│   ├── varemodtagelse.js + varemodtagelse.css  ← Varemodtagelse v3 (fødevarekontrol + Grocy lager, touch-first)
 │   ├── supplier_inbox.js                      ← Leverandørpost (office sidebar-view + kitchen Post-tab)
-│   │   [shopping_list.js + bestilling.js udgår når indkob.js er verificeret]
 │   ├── kitchen-topbar.html         ← Fælles topbar for kitchen-views
 │   ├── api.js        ← Frontend API-funktioner
 │   ├── utils.js      ← Status-mapping, connectSSE(), mapApiBonToCardData(), scrollToBonHash()
@@ -631,10 +633,7 @@ Oprettes under Grocy → Manage master data → Userfields.
 - [x] **Migration 030_purchasing_v2.sql** — `supplier_grocy_locations`, `webshop_url`, `integration_type` udvidet med `'webshop'`
 - [x] **Migration 031_duplicate_candidates.sql** — duplikat-logging ved barcode-flytning
 - [x] **Duplikat-detection** — Settings → Duplikater admin-oversigt med filter + action-knapper
-- [x] **`shared/varemodtagelse.js`** + `varemodtagelse.css`
-  - Ordreliste med ventende purchase_orders, pre-udfyldte qty, auto-detect afvigelsestype
-  - `POST /api/receiving/complete` → Grocy add-stock + Whiteboard FVST
-  - Delvis modtagelse: reducer shopping_list qty (slet ikke hele linjen)
+- [x] **`shared/varemodtagelse.js`** + `varemodtagelse.css` — **Omskrevet i v3** (se Fase 6g nedenfor)
 - [x] **Grocy QU-verifikation** — `recipes_pos.amount` er i stock-units (korrekt)
 - [x] `shared/api.js` — alle purchasing/hoka/barcodes/orders/receiving-funktioner
 
@@ -725,6 +724,37 @@ Oprettes under Grocy → Manage master data → Userfields.
 - [x] `shared/indkob_settings.js` — "Bestillingsmail" label + placeholder + hint
 - [x] `shared/api.js` — `fetchOrderMailThread`, `sendOrderReply`, `markOrderMailRead`, `fetchOrderMailThreads`, `deleteProductBarcode`
 - [x] Bonus: "Søg i Hørkram-katalog" label i link-panel, "Læg i kurv" for Hørkram-barcodes uanset gruppe
+
+#### Fase 6g — Varemodtagelse v3 + Staff (komplet)
+> Spec: `docs/CLAUDE_VAREMODTAGELSE_v3.md` · Mockup: `docs/varemodtagelse_v4.html`
+
+- [x] Migration 036: `goods_receipts` + `goods_receipt_items` nyt skema (to temperaturer, FVST-toggles, afvigelse, receipt_number)
+- [x] Migration 037: `staff`-tabel (medarbejdernavne, adskilt fra auth-brugere)
+- [x] Migration 038: `smartplan_id` + `source` på staff
+- [x] Migration 039: `received_by_name` TEXT på goods_receipts
+- [x] `routes/goods-receipts.js` — 5 endpoints:
+  - `GET /users` — aktive brugere til dropdown
+  - `POST /photo` — busboy foto-upload til `/data/uploads/receipts/`
+  - `POST /` — opret receipt + sekventiel Grocy addStock + shopping list cleanup + webhook
+  - `GET /` — liste med from/to/supplier/location filtre
+  - `GET /:id` — detalje inkl. items
+- [x] `services/goodsReceiptWebhook.js` — Whiteboard webhook (fire-and-forget, link-only foto)
+- [x] `routes/staff.js` — CRUD for manuelle medarbejdere (GET/POST/PATCH/DELETE)
+- [x] `shared/varemodtagelse.js` — komplet ny UI fra mockup v4:
+  - Touch-first (max 500px), to sektioner: Fødevarekontrol + Lager
+  - Bruger-dropdown: merger staff + Smartplan employees (som Whiteboard)
+  - Leverandør-dropdown: matcher suppliers mod Grocy shopping list `ordered_supplier`
+  - Temperaturer (køl+frys) med toggles, live badges (OK/FEJL), auto-afvigelse
+  - FVST-toggles (dato, mærkning, emballage)
+  - Foto-upload (kamera/fil), afvigelse-sektion (radioknapper + note)
+  - Lager: "Godkend alt" / "Juster enkeltvis", varekort med qty+status
+  - Per-vare regler: ok→addStock+slet, delvis→addStock+reducer, missing→behold
+  - Validering, success overlay med per-vare Grocy-resultater
+- [x] `shared/varemodtagelse.css` — styling fra mockup v4
+- [x] `services/smartplanAdapter.js` — `getEmployees()` fikset til at udtrække fra shifts (ikke /employees/)
+- [x] `settings/index.html` — Medarbejdere-sektion (tilføj/omdøb/aktiver/ejer-toggle)
+- [x] `server.js` — mount goods-receipts + staff routes, statisk `/uploads/receipts/`
+- [x] End-to-end verificeret: Grocy addStock + shopping list cleanup + DB-registrering
 
 ### Fase 7 — CRM-modul
 - [x] Migration 019: `crm_activities` genskabt med `service_call`/`result`/`sentiment`, `bons.is_internal`, `companies.is_internal`
@@ -954,15 +984,16 @@ Oprettes under Grocy → Manage master data → Userfields.
 
 > ✏️ Opdateret 11. april 2026.
 >
-> **Fase 1a–1e + 3A + 3B + 3D + 4 + 5 + 6 (komplet inkl. 6f) + 7 (CRM) + Office CRM redesign + 8 (Fakturering) + 9 (Tilbud) + Mail-vedhæftninger + CRM service-kald + Firma-oprydning komplet.**
+> **Fase 1a–1e + 3A + 3B + 3D + 4 + 5 + 6 (komplet inkl. 6g) + 7 (CRM) + Office CRM redesign + 8 (Fakturering) + 9 (Tilbud) + Mail-vedhæftninger + CRM service-kald + Firma-oprydning komplet.**
 >
 > **Fase 6 komplet** — Hele indkøbsmodulet er færdigt:
-> - 6a: Fundament (shopping list, bestilling, varemodtagelse, Hoka proxy)
+> - 6a: Fundament (shopping list, bestilling, Hoka proxy)
 > - 6b: `indkob.js` (accordion UI, chips, multi-leverandør, produktionsbon, INT-numre)
 > - 6c: `indkob_settings.js` (leverandører, produkter, Hørkram-kobling, udgået-detection)
 > - 6d: SMTP ordremail, dropsize-advarsel, CO2-badges
-> - 6e: Bugfixes (lines→items, barcode_value, SalesUnitIndex, grupperet koblinger, goods_receipts)
+> - 6e: Bugfixes (lines→items, barcode_value, SalesUnitIndex, grupperet koblinger)
 > - 6f: Leverandørpost (PO mail-tråde, `#po-` tags, supplier-inbox, kitchen Post-tab)
+> - 6g: Varemodtagelse v3 (fødevarekontrol + Grocy lager, staff, Smartplan-merge, webhook)
 >
 > **Næste sprint:** Priser i planlægningsbon, Ugeoversigt.
 > Så er Bon v1 klar til nedlukning.
@@ -1027,8 +1058,11 @@ Oprettes under Grocy → Manage master data → Userfields.
 > - Indkøb: bestilte varer forbliver på listen med "Bestilt"-badge + dato, kollapseret i bunden af gruppe
 > - Indkøb: Manglende + Udløbende er inline expandable banners (mini-lister, ikke modaler)
 > - Varemodtagelse: delvis modtagelse reducerer Grocy shopping_list qty (slet IKKE hele linjen)
-> - Varemodtagelse: bruger eksisterende `POST /api/receiving/complete` fusion-endpoint
-> - Varemodtagelse: FVST-registrering forbliver på Whiteboard (sekundær link), Grocy lager-registrering i Bon v2
+> - Varemodtagelse v3: `POST /api/goods-receipts` (ét kald) — erstatter gammel `receiving/complete`
+> - Varemodtagelse: fødevarekontrol + Grocy lager i ét flow, data fra shopping list (ikke PO)
+> - Varemodtagelse: Whiteboard notificeres via webhook (link-only foto), fejl blokerer ikke
+> - Staff-tabel: manuelle medarbejdere, merged med Smartplan employees i frontend (som Whiteboard)
+> - Staff: `received_by_name` TEXT snapshot (ikke FK), Smartplan-brugere gemmes ikke i DB
 > - Settings: indkøbsindstillinger er ét fælles komponent (`indkob_settings.js`) monteret to steder — slide-in panel i kitchen (⚙ knap), fuld side i office Settings → Indkøb
 > - Settings: kitchen-panel er zone-aware (viser kun indkøbs-relevante settings), office viser det samme + systemindstillinger
 > - Settings produkter: konfigurerbar tabel med kolonne-chips — præferencer gemmes i localStorage
@@ -1367,8 +1401,17 @@ GET    /api/orders/pending/:id/mail                        routes/orders.js
 POST   /api/orders/pending/:id/mail                        routes/orders.js
 PATCH  /api/orders/pending/:id/mail/read                   routes/orders.js
 GET    /api/orders/mail-threads?unread_only=               routes/orders.js
-POST   /api/receiving/complete                             routes/receiving.js
-GET    /api/receiving/log                                  routes/receiving.js
+POST   /api/receiving/complete                             routes/receiving.js (legacy)
+GET    /api/receiving/log                                  routes/receiving.js (legacy)
+GET    /api/goods-receipts/users                           routes/goods-receipts.js
+POST   /api/goods-receipts/photo                           routes/goods-receipts.js
+POST   /api/goods-receipts                                 routes/goods-receipts.js
+GET    /api/goods-receipts                                 routes/goods-receipts.js
+GET    /api/goods-receipts/:id                             routes/goods-receipts.js
+GET    /api/staff                                          routes/staff.js
+POST   /api/staff                                          routes/staff.js (admin)
+PATCH  /api/staff/:id                                      routes/staff.js (admin)
+DELETE /api/staff/:id                                      routes/staff.js (admin)
 GET    /api/grocy/product-barcodes                         routes/grocy.js
 POST   /api/grocy/product-barcodes                         routes/grocy.js
 DELETE /api/grocy/product-barcodes/:id                     routes/grocy.js
