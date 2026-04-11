@@ -1167,6 +1167,8 @@ async function _isHkUnlinkedPick(btnEl) {
 }
 
 /* ── Hørkram: Alle koblinger (grupperet per produkt) ──────── */
+var _isHkAllFilter = '';
+
 function _isRenderHkAllLinks(el) {
     var bcs = _isAllBarcodes.filter(_isIsHkBarcode);
     var deadCount = 0;
@@ -1183,13 +1185,22 @@ function _isRenderHkAllLinks(el) {
     });
 
     var html = '<div class="is-section">';
-    html += '<div style="font-size:12px;color:var(--color-text-dim);margin-bottom:12px">' + bcs.length + ' koblinger på ' + Object.keys(groups).length + ' produkter';
+
+    // Search bar + Tjek udgåede
+    html += '<div style="display:flex;gap:8px;margin-bottom:12px;align-items:center">';
+    html += '<input class="is-hk-inp" id="isHkAllQ" placeholder="Søg produkt eller varenr..." value="' + _isEsc(_isHkAllFilter) + '" style="flex:1">';
+    if (!_isDeadChecked && bcs.length > 0) {
+        html += '<button class="is-btn is-btn-secondary" data-is="hk-check-dead" style="font-size:11px;padding:4px 10px">Tjek udgåede</button>';
+    }
+    html += '</div>';
+
+    // Summary line
+    html += '<div style="font-size:11px;color:var(--color-text-dim,#999);margin-bottom:10px">';
+    html += bcs.length + ' koblinger på ' + Object.keys(groups).length + ' produkter';
     if (deadCount > 0) {
         html += ' · <span style="color:#bc181b;font-weight:700">' + deadCount + ' udgåede</span>';
     }
-    if (!_isDeadChecked && bcs.length > 0) {
-        html += ' · <button class="is-btn is-btn-secondary" data-is="hk-check-dead" style="font-size:10px;padding:2px 8px;margin-left:6px">Tjek udgåede</button>';
-    }
+    html += ' · Alle priser ekskl. moms';
     html += '</div>';
 
     // Warning banner for dead products
@@ -1214,18 +1225,40 @@ function _isRenderHkAllLinks(el) {
             return aName.localeCompare(bName, 'da');
         });
 
+        // Filter by search
+        var filterLc = _isHkAllFilter.toLowerCase();
+
         sortedPids.forEach(function(pid) {
             var g = groups[pid];
             var prodName = g.product ? g.product.name : 'Produkt #' + pid;
 
-            html += '<div class="is-hk-group">';
-            html += '<div class="is-hk-group-header">';
-            html += '<span class="is-hk-group-name">' + _isEsc(prodName) + '</span>';
-            html += '<button class="is-btn is-btn-secondary" data-is="hk-add-pack" data-id="' + pid + '" style="font-size:10px;padding:2px 10px">+ Pakstørrelse</button>';
+            // Filter: match product name or any barcode number
+            if (filterLc) {
+                var nameMatch = prodName.toLowerCase().indexOf(filterLc) >= 0;
+                var bcMatch = g.barcodes.some(function(bc) { return (bc.barcode || '').indexOf(filterLc) >= 0; });
+                if (!nameMatch && !bcMatch) return;
+            }
+
+            // Count dead barcodes in this group
+            var groupDeadCount = 0;
+            g.barcodes.forEach(function(bc) { if (_isDeadBarcodes[bc.barcode]) groupDeadCount++; });
+
+            var groupBorderStyle = groupDeadCount > 0 ? ' style="border-color:#f5c6c6"' : '';
+            html += '<div class="is-hk-group"' + groupBorderStyle + '>';
+
+            // Group header
+            var hdrBg = groupDeadCount > 0 ? ' style="background:#fef5f5"' : '';
+            html += '<div class="is-hk-group-header"' + hdrBg + '>';
+            html += '<span class="is-hk-group-name">' + _isEsc(prodName);
+            if (groupDeadCount > 0) {
+                html += ' <span class="is-hk-dead-badge">' + groupDeadCount + ' udgået</span>';
+            }
+            html += '</span>';
+            html += '<button class="is-btn is-btn-secondary" data-is="hk-add-pack" data-id="' + pid + '" style="font-size:10px;padding:2px 10px">+ Vare variant</button>';
             html += '</div>';
 
             html += '<table class="is-prod-tbl" style="margin-bottom:0"><thead><tr>' +
-                '<th>Varenr.</th><th>Pakkeform</th><th>Status</th><th>Pris/kg</th><th>Foretr.</th><th style="width:30px"></th>' +
+                '<th>Varenr.</th><th>Beskrivelse</th><th>Enhed</th><th>Kr/kg ekskl. moms</th><th>Opdateret</th><th>Foretr.</th><th style="width:30px"></th>' +
                 '</tr></thead><tbody>';
 
             g.barcodes.forEach(function(bc) {
@@ -1233,23 +1266,38 @@ function _isRenderHkAllLinks(el) {
                 var pref = bcUf.is_preferred === '1';
                 var isDead = _isDeadBarcodes[bc.barcode];
                 var packNote = bc.note || '';
+                var unitCode = bcUf.supplier_unit_code || '';
                 var priceKg = (g.product && g.product.userfields && g.product.userfields.supplier_price_per_kg) || '';
+                var scrapedAt = bcUf.hk_scraped_at || '';
 
                 var rowStyle = isDead ? ' style="background:#fef0f0"' : '';
                 html += '<tr' + rowStyle + '>';
-                html += '<td style="font-size:12px;font-family:monospace">' + _isEsc(bc.barcode || '') + '</td>';
-                html += '<td style="font-size:12px">' + _isEsc(packNote) + '</td>';
-                html += '<td>';
+
+                // Varenr + dead badge
+                html += '<td style="font-size:12px;font-family:monospace">';
                 if (isDead) {
-                    html += '<span class="is-it-badge" style="background:#fde8e8;color:#bc181b">Udgået</span>';
-                } else if (_isDeadChecked) {
-                    html += '<span style="color:#6a8f3a;font-size:11px">✓</span>';
+                    html += '<span style="color:#bc181b">' + _isEsc(bc.barcode || '') + '</span> <span class="is-hk-dead-badge">Udgået</span>';
                 } else {
-                    html += '<span style="color:var(--color-text-dim);font-size:11px">—</span>';
+                    html += _isEsc(bc.barcode || '');
                 }
                 html += '</td>';
+
+                // Beskrivelse (pakkeform)
+                html += '<td style="font-size:12px;' + (isDead ? 'color:var(--color-text-dim)' : '') + '">' + _isEsc(packNote) + '</td>';
+
+                // Enhed
+                html += '<td style="font-size:12px;color:var(--color-text-dim)">' + _isEsc(unitCode || '—') + '</td>';
+
+                // Pris/kg
                 html += '<td style="font-size:12px;text-align:right">' + (priceKg ? priceKg + ' kr' : '—') + '</td>';
+
+                // Opdateret (relative dato)
+                html += '<td>' + _isHkFmtAge(scrapedAt) + '</td>';
+
+                // Foretrukket
                 html += '<td><button class="is-btn' + (pref ? ' is-btn-success' : ' is-btn-secondary') + '" data-is="hk-bc-pref" data-id="' + bc.id + '" style="font-size:10px;padding:2px 6px">' + (pref ? '★' : '☆') + '</button></td>';
+
+                // Slet
                 html += '<td><button class="is-icon-btn del" data-is="hk-bc-delete" data-id="' + bc.id + '" title="Fjern kobling" style="font-size:11px">✕</button></td>';
                 html += '</tr>';
             });
@@ -1273,11 +1321,47 @@ function _isRenderHkAllLinks(el) {
     html += '</div>';
     el.innerHTML = html;
 
+    // Bind search filter
+    var filterInp = el.querySelector('#isHkAllQ');
+    if (filterInp) {
+        var debounce = null;
+        filterInp.addEventListener('input', function() {
+            clearTimeout(debounce);
+            debounce = setTimeout(function() {
+                _isHkAllFilter = filterInp.value.trim();
+                _isRenderHkAllLinks(el);
+                // Restore focus + cursor
+                var inp2 = el.querySelector('#isHkAllQ');
+                if (inp2) { inp2.focus(); inp2.setSelectionRange(inp2.value.length, inp2.value.length); }
+            }, 200);
+        });
+    }
+
     // Bind Enter key on pack search input
     var packInp = el.querySelector('#isPackQ');
     if (packInp) packInp.addEventListener('keydown', function(e) {
         if (e.key === 'Enter') _isHkPackSearch(parseInt(packInp.dataset.pid));
     });
+}
+
+/** Format scraped-at dato som relativ aldring med farve */
+function _isHkFmtAge(iso) {
+    if (!iso) return '<span style="font-size:11px;color:var(--color-text-dim)">—</span>';
+    try {
+        var d = new Date(iso);
+        var now = new Date();
+        var diffMs = now - d;
+        var diffDays = Math.floor(diffMs / (1000 * 60 * 60 * 24));
+
+        if (diffDays === 0) return '<span style="font-size:11px;color:var(--color-text-dim)">i dag</span>';
+        if (diffDays === 1) return '<span style="font-size:11px;color:var(--color-text-dim)">i går</span>';
+        if (diffDays < 7) return '<span style="font-size:11px;color:var(--color-text-dim)">' + diffDays + ' dage siden</span>';
+        if (diffDays < 30) return '<span style="font-size:11px;color:#ba7517;font-weight:600">' + diffDays + ' dage siden</span>';
+        var months = Math.floor(diffDays / 30);
+        return '<span style="font-size:11px;color:#bc181b;font-weight:600">' + months + ' mdr. siden</span>';
+    } catch (e) {
+        return '<span style="font-size:11px;color:var(--color-text-dim)">—</span>';
+    }
 }
 
 function _isHkAddPackToggle(productId) {

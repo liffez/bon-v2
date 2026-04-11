@@ -406,7 +406,8 @@
     padding: 8px 12px; background: var(--color-background, #f5f4f2);
     border-bottom: 1px solid var(--color-border-light, #e8e4e0);
 }
-.is-hk-group-name { font-size: 13px; font-weight: 700; }
+.is-hk-group-name { font-size: 13px; font-weight: 700; display: flex; align-items: center; gap: 8px; }
+.is-hk-dead-badge { background: #fde8e8; color: #bc181b; font-size: 11px; font-weight: 600; padding: 2px 7px; border-radius: 4px; }
 .is-hk-pack-panel {
     padding: 10px 12px; background: #fafaf7;
     border-top: 1px solid var(--color-border-light, #e8e4e0);
