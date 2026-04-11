@@ -16,6 +16,7 @@ const router  = express.Router();
 const { getDb }       = require('../db/database');
 const { handle }      = require('../db/helpers');
 const { requireAuth } = require('../shared/auth');
+const smartplan       = require('../services/smartplanAdapter');
 
 /* ── GET / — liste ───────────────────────────────────────── */
 
@@ -98,6 +99,70 @@ router.delete('/:id', requireAuth('admin'), handle((req, res) => {
 
     db.prepare('UPDATE staff SET is_active = 0 WHERE id = ?').run(id);
     res.json({ success: true });
+}));
+
+/* ── POST /sync-smartplan — synk medarbejdere fra Smartplan ── */
+
+router.post('/sync-smartplan', requireAuth('admin'), handle(async (req, res) => {
+    const db = getDb();
+
+    // Hent medarbejdere fra Smartplan (via shifts de seneste 30 dage)
+    const employees = await smartplan.getEmployees();
+
+    // employees fra Smartplan API: { uuid, first_name, last_name, ... }
+    const seen = new Map();
+    for (const emp of employees) {
+        const id = emp.uuid;
+        const name = emp.first_name || [emp.first_name, emp.last_name].filter(Boolean).join(' ');
+        if (id && name && !seen.has(id)) {
+            seen.set(id, name);
+        }
+    }
+
+    let added = 0;
+    let updated = 0;
+    let skipped = 0;
+
+    for (const [spId, name] of seen) {
+        // Tjek om allerede i staff via smartplan_id
+        const existing = db.prepare('SELECT * FROM staff WHERE smartplan_id = ?').get(spId);
+        if (existing) {
+            // Opdater navn hvis ændret
+            if (existing.name !== name) {
+                db.prepare('UPDATE staff SET name = ? WHERE id = ?').run(name, existing.id);
+                updated++;
+            } else {
+                skipped++;
+            }
+            // Reaktiver hvis deaktiveret
+            if (!existing.is_active) {
+                db.prepare('UPDATE staff SET is_active = 1 WHERE id = ?').run(existing.id);
+            }
+            continue;
+        }
+
+        // Tjek om navn allerede eksisterer (manuelt tilføjet)
+        const byName = db.prepare('SELECT * FROM staff WHERE name = ? AND smartplan_id IS NULL').get(name);
+        if (byName) {
+            // Kobl eksisterende til Smartplan
+            db.prepare('UPDATE staff SET smartplan_id = ?, source = ? WHERE id = ?')
+                .run(spId, 'smartplan', byName.id);
+            updated++;
+            continue;
+        }
+
+        // Ny medarbejder
+        db.prepare('INSERT INTO staff (name, smartplan_id, source) VALUES (?, ?, ?)')
+            .run(name, spId, 'smartplan');
+        added++;
+    }
+
+    res.json({
+        total: seen.size,
+        added,
+        updated,
+        skipped,
+    });
 }));
 
 module.exports = router;

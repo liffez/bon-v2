@@ -310,6 +310,10 @@
         <input type="text" id="staff-new-name" placeholder="Nyt navn..." class="st-input" style="flex:1;padding:8px 10px;border:1px solid var(--color-border);border-radius:6px;font-size:14px;">
         <button class="st-btn st-btn-primary" onclick="addStaffMember()">+ Tilføj</button>
       </div>
+      <div style="margin-top:16px;padding-top:12px;border-top:1px solid var(--color-border);">
+        <button class="st-btn st-btn-secondary" onclick="syncSmartplan()" id="staff-sync-btn">📡 Synk fra Smartplan</button>
+        <span id="staff-sync-result" style="font-size:13px;color:var(--color-text-dim);margin-left:8px;"></span>
+      </div>
     </div>
 
     <!-- ════ PRISKATEGORIER ════ -->
@@ -623,8 +627,9 @@ async function loadStaffMembers() {
   staff.forEach(function(s) {
     var tr = document.createElement('tr');
     if (!s.is_active) tr.style.opacity = '0.5';
+    var srcBadge = s.source === 'smartplan' ? ' <span style="font-size:10px;background:#ebf5fb;color:#2471a3;padding:1px 5px;border-radius:3px;">SP</span>' : '';
     tr.innerHTML =
-      '<td>' + esc(s.name) + (s.is_owner ? ' <span style="color:var(--brand-primary);font-size:11px;">(ejer)</span>' : '') + '</td>' +
+      '<td>' + esc(s.name) + (s.is_owner ? ' <span style="color:var(--brand-primary);font-size:11px;">(ejer)</span>' : '') + srcBadge + '</td>' +
       '<td><label class="st-toggle"><input type="checkbox" ' + (s.is_owner ? 'checked' : '') +
         ' onchange="toggleStaffOwner(' + s.id + ',this.checked)"><span class="st-toggle-slider"></span></label></td>' +
       '<td><label class="st-toggle"><input type="checkbox" ' + (s.is_active ? 'checked' : '') +
@@ -661,10 +666,30 @@ async function addStaffMember() {
   try {
     await createStaff({ name: name });
     input.value = '';
-    toast('Medarbejder tilfojet');
+    toast('Medarbejder tilføjet');
     loadStaffMembers();
   } catch (err) {
     toast(err.message || 'Fejl', 'error');
+  }
+}
+
+async function syncSmartplan() {
+  var btn = document.getElementById('staff-sync-btn');
+  var result = document.getElementById('staff-sync-result');
+  btn.disabled = true;
+  btn.textContent = 'Synkroniserer...';
+  result.textContent = '';
+  try {
+    var data = await apiFetch('/staff/sync-smartplan', { method: 'POST' });
+    result.textContent = data.total + ' medarbejdere fra Smartplan — ' + data.added + ' nye, ' + data.updated + ' opdateret';
+    toast('Smartplan synk fuldført');
+    loadStaffMembers();
+  } catch (err) {
+    result.textContent = 'Fejl: ' + (err.message || 'Ukendt');
+    toast('Smartplan sync fejlede', 'error');
+  } finally {
+    btn.disabled = false;
+    btn.textContent = '📡 Synk fra Smartplan';
   }
 }
 
