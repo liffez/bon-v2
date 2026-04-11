@@ -155,6 +155,12 @@ bon-v2/
 │   └── login.html    ← Fælles login-side (PIN + email auto-detect)
 ├── kitchen/          ← MPA: index.html, today.html, later.html, vagtplan.html, ...
 ├── office/           ← SPA-shell: index.html + views/*.js
+├── mobile/           ← Mobil-shell: index.html + views/*.js (touch-first, bottom nav)
+│   ├── index.html    ← Shell + 5-tab bottom nav + view-router
+│   ├── login.html    ← PIN-pad login (bruger-vælger → PIN)
+│   ├── manifest.json ← PWA manifest (standalone)
+│   ├── mobile.css    ← Mobilspecifik CSS
+│   └── views/        ← bons.js, modtag.js, crm.js, oversigt.js
 ├── settings/         ← index.html (eget shell)
 ├── assets/           ← logo.svg, icons/, fonts/
 ├── scripts/
@@ -980,20 +986,46 @@ Oprettes under Grocy → Manage master data → Userfields.
   - Forhindrer at EAN-mergede firmaer genopstår som dubletter
 - [x] `.env.example` — `VIRK_ES_USER` + `VIRK_ES_PASS` tilføjet
 
+### Fase 10 — Mobil Shell
+- [x] Migration 040: `mobile_pin_enabled`, `mobile_pin_min_length` settings
+- [x] `routes/auth.js` — PIN-endpoint udvidet med `user_id` parameter (bagudkompatibelt)
+  - In-memory lockout: 3 fejl → 30s spærring per bruger
+  - Nyt public endpoint `GET /api/auth/pin-users` (aktive brugere med PIN)
+- [x] `mobile/login.html` — Touch-venlig PIN-pad login
+  - Bruger-grid → PIN-input (72px knapper) → session → redirect
+  - Lockout-nedtælling, ryst-animation ved fejl
+  - Desktop-detect: "Åbn fuld version?" banner
+- [x] `mobile/index.html` — Shell med 5-tab bottom nav + view-router
+  - Header: logo + brugernavn + logout dropdown
+  - Bottom nav: Bons, Modtag, CRM, Overblik, Mig
+  - Offline-banner (online/offline events)
+  - URL-state: `?view=` + `?bon=` for deep-linking
+  - PWA: manifest.json (standalone, add-to-homescreen)
+- [x] `mobile/views/bons.js` — Bonliste + bon-detalje
+  - To tabs: I dag / I morgen (parallelle API-kald)
+  - Kompakte kort: tid, kunde, bonnr, status-badge, enheder
+  - Detalje: kunde (tel:/maps-link), levering, adresse, varer, køkkeninfo
+  - Statusskift med transitions + haptic feedback
+- [x] `mobile/views/modtag.js` — Varemodtagelse wrapper
+  - Kalder `initVaremodtagelse(container)` direkte — ingen ændringer i shared-kode
+  - Auth håndteres i shell inden montering
+- [x] `mobile/views/crm.js` — CRM mobil
+  - Service calls: liste med Ring/Udført knapper, inline note-form
+  - Kundeliste: fuld alfabetisk liste + søgefelt med debounce
+  - Kundekort: kontaktinfo, seneste ordrer, log samtale
+- [x] `mobile/views/oversigt.js` — Travlhed + Smartplan
+  - 3 kort: I dag / I morgen / Overmorgen (bons, enheder, status-badges)
+  - Smartplan vagter: fornavn + møde-/sluttid
+- [x] `mobile/mobile.css` — Komplet mobilspecifik CSS
+  - Bottom nav med safe-area padding (notch)
+  - Touch-targets (min 44px), bonliste-kort, detalje, CRM, overblik
+- [x] `login.html` — Mobil-detect banner (ikke-blokerende, "Nej tak" huskes)
+
 ## Næste opgave
 
 > ✏️ Opdateret 11. april 2026.
 >
-> **Fase 1a–1e + 3A + 3B + 3D + 4 + 5 + 6 (komplet inkl. 6g) + 7 (CRM) + Office CRM redesign + 8 (Fakturering) + 9 (Tilbud) + Mail-vedhæftninger + CRM service-kald + Firma-oprydning komplet.**
->
-> **Fase 6 komplet** — Hele indkøbsmodulet er færdigt:
-> - 6a: Fundament (shopping list, bestilling, Hoka proxy)
-> - 6b: `indkob.js` (accordion UI, chips, multi-leverandør, produktionsbon, INT-numre)
-> - 6c: `indkob_settings.js` (leverandører, produkter, Hørkram-kobling, udgået-detection)
-> - 6d: SMTP ordremail, dropsize-advarsel, CO2-badges
-> - 6e: Bugfixes (lines→items, barcode_value, SalesUnitIndex, grupperet koblinger)
-> - 6f: Leverandørpost (PO mail-tråde, `#po-` tags, supplier-inbox, kitchen Post-tab)
-> - 6g: Varemodtagelse v3 (fødevarekontrol + Grocy lager, staff, Smartplan-merge, webhook)
+> **Fase 1a–1e + 3A + 3B + 3D + 4 + 5 + 6 (komplet inkl. 6g) + 7 (CRM) + Office CRM redesign + 8 (Fakturering) + 9 (Tilbud) + Mail-vedhæftninger + CRM service-kald + Firma-oprydning + 10 (Mobil Shell) komplet.**
 >
 > **Næste sprint:** Priser i planlægningsbon, Ugeoversigt.
 > Så er Bon v1 klar til nedlukning.
@@ -1331,7 +1363,8 @@ DELETE /api/smartplan/cache                               routes/smartplan.js
 POST   /api/bons/:id/notifications/:nid/read             routes/bons.js
 GET    /api/notifications/unread?client_id=               routes/notifications.js
 POST   /api/auth/login          { email, password }      routes/auth.js
-POST   /api/auth/pin            { pin }                  routes/auth.js
+POST   /api/auth/pin            { pin, user_id? }        routes/auth.js
+GET    /api/auth/pin-users                               routes/auth.js (public)
 POST   /api/auth/logout                                  routes/auth.js
 GET    /api/auth/me                                      routes/auth.js
 GET    /api/payment-types                                routes/payment_types.js
