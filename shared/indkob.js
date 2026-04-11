@@ -1346,7 +1346,7 @@ async function _ibGotoCart(groupKey) {
         await createPendingOrder({
             supplier_id: g.supplierId,
             grocy_location_id: parseInt(groupKey),
-            lines: lines,
+            items: lines,
         });
 
         // Set ordered_* userfields in Grocy

@@ -396,6 +396,22 @@
 .is-ac-item .is-ac-name { font-weight: 700; }
 .is-ac-item .is-ac-meta { font-size: 10px; color: var(--color-text-dim, #777); }
 
+/* ── HK GROUPED LINKS ── */
+.is-hk-group {
+    border: 1px solid var(--color-border-light, #e8e4e0);
+    border-radius: 8px; margin-bottom: 10px; overflow: hidden;
+}
+.is-hk-group-header {
+    display: flex; justify-content: space-between; align-items: center;
+    padding: 8px 12px; background: var(--color-background, #f5f4f2);
+    border-bottom: 1px solid var(--color-border-light, #e8e4e0);
+}
+.is-hk-group-name { font-size: 13px; font-weight: 700; }
+.is-hk-pack-panel {
+    padding: 10px 12px; background: #fafaf7;
+    border-top: 1px solid var(--color-border-light, #e8e4e0);
+}
+
 /* ── MODE: PAGE (office) ── */
 .is-mode-page .is-hdr { display: none; }
 .is-mode-page .is-tabs { padding: 0; }

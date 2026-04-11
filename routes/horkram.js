@@ -588,9 +588,9 @@ router.put('/basket/add', async (req, res) => {
                 const curData = await curRes.json();
                 const curLines = curData?.Model?.LineItems || [];
                 existingProducts = curLines.map(li => ({
-                    ProductId: li.Product?.Id,
-                    Quantity:  li.Quantity,
-                    // Omit SalesUnit — Hoka bevarer den sidst valgte enhed
+                    ProductId:      li.Product?.Id,
+                    Quantity:       li.Quantity,
+                    SalesUnitIndex: li.SalesUnitIndex ?? 0,
                 })).filter(p => p.ProductId);
                 console.log(`[Hørkram] Eksisterende kurv: ${existingProducts.length} gyldige linjer`);
             }
@@ -598,7 +598,7 @@ router.put('/basket/add', async (req, res) => {
             console.log('[Hørkram] ⚠ Kunne ikke hente eksisterende kurv:', e.message);
         }
 
-        // Byg nye varer med SalesUnit { Code, Quantity } (Hokas eget format)
+        // Byg nye varer med SalesUnitIndex (konsekvent format for alle varer)
         const newProducts = [];
         for (const p of products) {
             const pid = parseInt(p.varenummer || p.productId);
@@ -606,15 +606,14 @@ router.put('/basket/add', async (req, res) => {
                 console.warn('[Hørkram] ⚠ Springer over produkt med ugyldigt varenummer:', p.varenummer, p.productId);
                 continue;
             }
-            const item = { ProductId: pid, Quantity: parseFloat(p.quantity) || 1 };
-            // Tilføj SalesUnit kun hvis vi har en Code (fra snapshot eller frontend)
-            if (p.salesUnitCode) {
-                item.SalesUnit = { Code: p.salesUnitCode, Quantity: p.salesUnitQuantity || 1 };
-            }
-            newProducts.push(item);
+            newProducts.push({
+                ProductId:      pid,
+                Quantity:       parseFloat(p.quantity) || 1,
+                SalesUnitIndex: p._salesUnitIndex ?? 0,
+            });
         }
 
-        // Merge: eksisterende (uden SalesUnit) + nye (med SalesUnit)
+        // Merge: eksisterende + nye — begge bruger SalesUnitIndex-format
         const newIds = new Set(newProducts.map(p => p.ProductId));
         const merged = existingProducts
             .filter(p => !newIds.has(p.ProductId))

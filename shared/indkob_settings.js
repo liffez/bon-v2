@@ -32,6 +32,7 @@ var _isUnlinked     = [];
 var _isAllBarcodes  = [];
 var _isDeadBarcodes = {};  // varenr → true (udgåede hos Hoka)
 var _isDeadChecked  = false;
+var _isAddPackProductId = null;  // product_id with open pack-size search panel
 
 var _isToastTimer   = null;
 
@@ -185,6 +186,10 @@ function _isHandleClick(e) {
     if (action === 'hk-check-dead') { _isHkCheckDead(); return; }
     if (action === 'hk-bc-save')     { _isHkBcSave(); return; }
     if (action === 'hk-bc-pref')     { _isHkBcTogglePref(id); return; }
+    if (action === 'hk-add-pack')    { _isHkAddPackToggle(parseInt(id)); return; }
+    if (action === 'hk-pack-search') { _isHkPackSearch(parseInt(id)); return; }
+    if (action === 'hk-pack-link')   { _isHkPackLink(t); return; }
+    if (action === 'hk-bc-delete')   { _isHkBcDelete(parseInt(id)); return; }
 }
 
 function _isHandleChange(e) {
@@ -1161,14 +1166,24 @@ async function _isHkUnlinkedPick(btnEl) {
     }
 }
 
-/* ── Hørkram: Alle koblinger ───────────────────────────────── */
+/* ── Hørkram: Alle koblinger (grupperet per produkt) ──────── */
 function _isRenderHkAllLinks(el) {
     var bcs = _isAllBarcodes.filter(_isIsHkBarcode);
     var deadCount = 0;
     bcs.forEach(function(bc) { if (_isDeadBarcodes[bc.barcode]) deadCount++; });
 
+    // Build product groups
+    var groups = {};
+    bcs.forEach(function(bc) {
+        if (!groups[bc.product_id]) {
+            var prod = _isAllProducts.find(function(p) { return p.id === bc.product_id; });
+            groups[bc.product_id] = { product: prod, barcodes: [] };
+        }
+        groups[bc.product_id].barcodes.push(bc);
+    });
+
     var html = '<div class="is-section">';
-    html += '<div style="font-size:12px;color:var(--color-text-dim);margin-bottom:12px">' + bcs.length + ' Hørkram-koblinger';
+    html += '<div style="font-size:12px;color:var(--color-text-dim);margin-bottom:12px">' + bcs.length + ' koblinger på ' + Object.keys(groups).length + ' produkter';
     if (deadCount > 0) {
         html += ' · <span style="color:#bc181b;font-weight:700">' + deadCount + ' udgåede</span>';
     }
@@ -1188,50 +1203,190 @@ function _isRenderHkAllLinks(el) {
     if (!bcs.length) {
         html += '<div class="is-loading">Ingen Hørkram-barcodes fundet</div>';
     } else {
-        // Sort: dead first
-        var sorted = bcs.slice().sort(function(a, b) {
-            var aDead = _isDeadBarcodes[a.barcode] ? 0 : 1;
-            var bDead = _isDeadBarcodes[b.barcode] ? 0 : 1;
-            return aDead - bDead;
+        // Sort groups: dead first, then alphabetically
+        var sortedPids = Object.keys(groups).sort(function(a, b) {
+            var ga = groups[a], gb = groups[b];
+            var aDead = ga.barcodes.some(function(bc) { return _isDeadBarcodes[bc.barcode]; }) ? 0 : 1;
+            var bDead = gb.barcodes.some(function(bc) { return _isDeadBarcodes[bc.barcode]; }) ? 0 : 1;
+            if (aDead !== bDead) return aDead - bDead;
+            var aName = ga.product ? ga.product.name : '';
+            var bName = gb.product ? gb.product.name : '';
+            return aName.localeCompare(bName, 'da');
         });
 
-        html += '<table class="is-prod-tbl"><thead><tr>' +
-            '<th>Grocy-produkt</th><th>Varenr.</th><th>Status</th><th>Pris/kg</th><th>Foretr.</th>' +
-            '</tr></thead><tbody>';
+        sortedPids.forEach(function(pid) {
+            var g = groups[pid];
+            var prodName = g.product ? g.product.name : 'Produkt #' + pid;
 
-        sorted.forEach(function(bc) {
-            var prodName = '';
-            var prod = _isAllProducts.find(function(p) { return p.id === bc.product_id; });
-            if (prod) prodName = prod.name;
+            html += '<div class="is-hk-group">';
+            html += '<div class="is-hk-group-header">';
+            html += '<span class="is-hk-group-name">' + _isEsc(prodName) + '</span>';
+            html += '<button class="is-btn is-btn-secondary" data-is="hk-add-pack" data-id="' + pid + '" style="font-size:10px;padding:2px 10px">+ Pakstørrelse</button>';
+            html += '</div>';
 
-            var bcUf = bc.userfields || {};
-            var prodUf = (prod && prod.userfields) || {};
-            var priceKg = prodUf.supplier_price_per_kg || '';
-            var pref = bcUf.is_preferred === '1';
-            var isDead = _isDeadBarcodes[bc.barcode];
+            html += '<table class="is-prod-tbl" style="margin-bottom:0"><thead><tr>' +
+                '<th>Varenr.</th><th>Pakkeform</th><th>Status</th><th>Pris/kg</th><th>Foretr.</th><th style="width:30px"></th>' +
+                '</tr></thead><tbody>';
 
-            var rowStyle = isDead ? ' style="background:#fef0f0"' : '';
-            html += '<tr' + rowStyle + '>';
-            html += '<td class="is-prod-name">' + _isEsc(prodName || 'Produkt #' + bc.product_id) + '</td>';
-            html += '<td style="font-size:12px">' + _isEsc(bc.barcode || '') + '</td>';
-            // Status
-            html += '<td>';
-            if (isDead) {
-                html += '<span class="is-it-badge" style="background:#fde8e8;color:#bc181b">Udgået</span>';
-            } else if (_isDeadChecked) {
-                html += '<span style="color:#6a8f3a;font-size:11px">✓</span>';
-            } else {
-                html += '<span style="color:var(--color-text-dim);font-size:11px">—</span>';
+            g.barcodes.forEach(function(bc) {
+                var bcUf = bc.userfields || {};
+                var pref = bcUf.is_preferred === '1';
+                var isDead = _isDeadBarcodes[bc.barcode];
+                var packNote = bc.note || '';
+                var priceKg = (g.product && g.product.userfields && g.product.userfields.supplier_price_per_kg) || '';
+
+                var rowStyle = isDead ? ' style="background:#fef0f0"' : '';
+                html += '<tr' + rowStyle + '>';
+                html += '<td style="font-size:12px;font-family:monospace">' + _isEsc(bc.barcode || '') + '</td>';
+                html += '<td style="font-size:12px">' + _isEsc(packNote) + '</td>';
+                html += '<td>';
+                if (isDead) {
+                    html += '<span class="is-it-badge" style="background:#fde8e8;color:#bc181b">Udgået</span>';
+                } else if (_isDeadChecked) {
+                    html += '<span style="color:#6a8f3a;font-size:11px">✓</span>';
+                } else {
+                    html += '<span style="color:var(--color-text-dim);font-size:11px">—</span>';
+                }
+                html += '</td>';
+                html += '<td style="font-size:12px;text-align:right">' + (priceKg ? priceKg + ' kr' : '—') + '</td>';
+                html += '<td><button class="is-btn' + (pref ? ' is-btn-success' : ' is-btn-secondary') + '" data-is="hk-bc-pref" data-id="' + bc.id + '" style="font-size:10px;padding:2px 6px">' + (pref ? '★' : '☆') + '</button></td>';
+                html += '<td><button class="is-icon-btn del" data-is="hk-bc-delete" data-id="' + bc.id + '" title="Fjern kobling" style="font-size:11px">✕</button></td>';
+                html += '</tr>';
+            });
+            html += '</tbody></table>';
+
+            // Inline pack-size search panel
+            if (_isAddPackProductId === parseInt(pid)) {
+                html += '<div class="is-hk-pack-panel">' +
+                    '<div style="font-size:12px;font-weight:700;margin-bottom:6px">Søg i Hørkram-katalog:</div>' +
+                    '<div style="display:flex;gap:6px">' +
+                        '<input class="is-hk-inp" id="isPackQ" data-pid="' + pid + '" placeholder="Varenr. eller produktnavn..." style="flex:1">' +
+                        '<button class="is-btn is-btn-primary" data-is="hk-pack-search" data-id="' + pid + '" style="font-size:11px">Søg</button>' +
+                    '</div>' +
+                    '<div id="isPackResults"></div>' +
+                '</div>';
             }
-            html += '</td>';
-            html += '<td style="font-size:12px;text-align:right">' + (priceKg ? priceKg + ' kr' : '—') + '</td>';
-            html += '<td><button class="is-btn' + (pref ? ' is-btn-success' : ' is-btn-secondary') + '" data-is="hk-bc-pref" data-id="' + bc.id + '" style="font-size:10px;padding:2px 6px">' + (pref ? '★' : '☆') + '</button></td>';
-            html += '</tr>';
+
+            html += '</div>';
         });
-        html += '</tbody></table>';
     }
     html += '</div>';
     el.innerHTML = html;
+
+    // Bind Enter key on pack search input
+    var packInp = el.querySelector('#isPackQ');
+    if (packInp) packInp.addEventListener('keydown', function(e) {
+        if (e.key === 'Enter') _isHkPackSearch(parseInt(packInp.dataset.pid));
+    });
+}
+
+function _isHkAddPackToggle(productId) {
+    _isAddPackProductId = (_isAddPackProductId === productId) ? null : productId;
+    _isRenderHkAllLinks(document.getElementById('isHkBody'));
+    if (_isAddPackProductId) {
+        var inp = document.getElementById('isPackQ');
+        if (inp) inp.focus();
+    }
+}
+
+async function _isHkPackSearch(productId) {
+    var inp = document.getElementById('isPackQ');
+    var resultsEl = document.getElementById('isPackResults');
+    if (!inp || !resultsEl) return;
+    var q = inp.value.trim();
+    if (!q) return;
+
+    resultsEl.innerHTML = '<div class="is-loading">Søger i Hørkram...</div>';
+
+    try {
+        var isNumeric = /^\d{3,}$/.test(q);
+        var results = [];
+        if (isNumeric) {
+            var prod = await fetchHokaProduct(q);
+            if (prod) results = [prod];
+        } else {
+            var data = await fetchHokaSearch(q);
+            results = (data.results || data || []).slice(0, 8);
+        }
+
+        if (!results.length) {
+            resultsEl.innerHTML = '<div class="is-loading">Ingen resultater for "' + _isEsc(q) + '"</div>';
+            return;
+        }
+
+        var html = '';
+        results.forEach(function(p) {
+            var varenr = p.varenummer || p.productNumber || p.id || '';
+            var name = p.name || p.productName || '';
+            var pack = p.packSize ? p.packSize + ' ' + (p.packUnit || '') : '';
+            var price = p.pricePerKg ? p.pricePerKg.toFixed(2) + ' kr/kg' : '';
+            html += '<div style="display:flex;gap:8px;align-items:center;padding:6px 0;border-bottom:1px solid var(--color-border-light,#eee)">';
+            html += '<div style="flex:1"><div style="font-size:12px;font-weight:600">' + _isEsc(name) + '</div>';
+            html += '<div style="font-size:11px;color:var(--color-text-dim)">Nr. ' + _isEsc(String(varenr)) + (pack ? ' · ' + pack : '') + (price ? ' · ' + price : '') + '</div></div>';
+            html += '<button class="is-btn is-btn-primary" data-is="hk-pack-link" data-varenr="' + _isEsc(String(varenr)) + '" data-name="' + _isEsc(name) + '" data-pid="' + productId + '" style="font-size:10px;padding:3px 10px">+ Kobl</button>';
+            html += '</div>';
+        });
+        resultsEl.innerHTML = html;
+    } catch (err) {
+        resultsEl.innerHTML = '<div class="is-loading" style="color:#bc181b">Fejl: ' + _isEsc(err.message || '') + '</div>';
+    }
+}
+
+async function _isHkPackLink(btn) {
+    var varenr = btn.dataset.varenr;
+    var name = btn.dataset.name;
+    var productId = parseInt(btn.dataset.pid);
+    if (!varenr || !productId) return;
+
+    // Find Hørkram shopping_location_id
+    var hkLocs = _isGrocyLocs.filter(function(l) {
+        return l.linked_supplier_name && /hørkram|hoka/i.test(l.linked_supplier_name);
+    });
+    var shopLocId = hkLocs.length ? hkLocs[0].grocy_location_id : null;
+
+    try {
+        var bcData = { product_id: productId, barcode: String(varenr), note: name };
+        if (shopLocId) bcData.shopping_location_id = shopLocId;
+        var bc = await createProductBarcode(bcData);
+
+        // Set userfields from snapshot
+        if (bc && bc.id) {
+            try {
+                var snap = await fetchHokaSnapshots([varenr]);
+                var items = snap.products || snap.items || [];
+                if (items.length && items[0].salesUnits && items[0].salesUnits.length) {
+                    var su = items[0].salesUnits[0];
+                    var uf = {};
+                    if (su.code) uf.supplier_unit_code = su.code;
+                    if (su.quantity) uf.supplier_unit_qty = String(su.quantity);
+                    if (items[0].isAgreementItem) uf.is_agreement_item = '1';
+                    if (Object.keys(uf).length) await updateProductBarcodeUserfields(bc.id, uf);
+                }
+            } catch (e) { console.warn('[settings] Userfield-sæt fejl:', e.message); }
+        }
+
+        _isToast('Pakstørrelse koblet: ' + name);
+        _isAddPackProductId = null;
+        _isAllBarcodes = await fetchProductBarcodes();
+        _isRenderHkAllLinks(document.getElementById('isHkBody'));
+    } catch (err) {
+        _isToast('Fejl: ' + (err.message || ''), true);
+    }
+}
+
+async function _isHkBcDelete(bcId) {
+    var bc = _isAllBarcodes.find(function(b) { return b.id === bcId; });
+    var label = bc ? 'varenr. ' + bc.barcode : 'barcode #' + bcId;
+    if (!confirm('Fjern koblingen til ' + label + '?')) return;
+
+    try {
+        await deleteProductBarcode(bcId);
+        _isToast('Kobling fjernet');
+        _isAllBarcodes = await fetchProductBarcodes();
+        _isRenderHkAllLinks(document.getElementById('isHkBody'));
+    } catch (err) {
+        _isToast('Fejl: ' + (err.message || ''), true);
+    }
 }
 
 async function _isHkBcTogglePref(bcId) {

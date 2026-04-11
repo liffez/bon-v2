@@ -637,53 +637,25 @@ Oprettes under Grocy → Manage master data → Userfields.
 - [x] **Grocy QU-verifikation** — `recipes_pos.amount` er i stock-units (korrekt)
 - [x] `shared/api.js` — alle purchasing/hoka/barcodes/orders/receiving-funktioner
 
-#### Fase 6b — Nyt indkøbskomponent `shared/indkob.js` (AKTIV SPRINT)
+#### Fase 6b — Nyt indkøbskomponent `shared/indkob.js` (komplet)
 > Spec: `docs/CLAUDE_INDKOB.md` · Mockup: `docs/indkob_mockup_v3.html`
-> Test: `docs/CLAUDE_TEST_INDKOB.md`
-> Erstatter `shared/shopping_list.js` + `shared/bestilling.js` fuldstændigt.
-> Læs spec OG mockup FØR du skriver en linje kode.
 
-- [ ] **`shared/indkob.js`** — merged indkøbsliste + bestilling, accordion UI
+- [x] **`shared/indkob.js`** — merged indkøbsliste + bestilling, accordion UI
   - State-prefix: `_ib` · Entry: `initIndkob(containerEl)`
-  - Init-flow: `_ibEnsureUserfields` → `_ibLoadAll` → `_ibBuildGroups` → `_ibEnrichSnapshots` → `_ibRender` → `_ibLoadFavCache` (non-blocking)
+  - Init-flow: `_ibLoadAll` → `_ibBuildGroups` → `_ibEnrichSnapshots` → `_ibRender` → `_ibLoadFavCache` (non-blocking)
   - **Sticky toolbar**: Søg · + Tilføj vare · 📉 Manglende (N) · ⏰ Udløbende (N) · ≡/⊡ toggle
-  - **Inline panels**: Manglende + Udløbende som expandable banners under toolbar
-  - **Accordion** med toggle til Fokus-visning (én leverandørgruppe fylder skærmen)
-  - **Fire leverandørgruppe-typer**:
-    - `api` (Hørkram): grøn, "Gå til kurv →", per-vare "Læg i kurv"
-    - `email`/`manual`: blå, "Registrér bestilling" → kopiér/mail/ring-dialog
-    - `intern` (RR Produktion): lilla, "Opret produktionsbon →"
-  - **Chips** (inline pakkeform/leverandør) — sortering: `is_preferred` → aftale → billigst/kg
-    - Viser: pakkeform · pris · kr/kg · varenr · leveringsinfo
-    - Multi-leverandør per vare (fx Burgerlommer: Serviwet + Hørkram + Inco)
-  - **Antal-kontrol**: `[−]` · `[input type=number]` · `[+]` — direkte redigérbart
-  - **Calc-linje**: `= 10 kg · dækker 3 kg behov · 8,9 kr/kg valgt`
-  - **Pris pr. kg** som standard (alle varer har kg som grundenhed i Grocy)
-  - **Bestilt-sektion** kollapseret nederst i gruppe, "Fortryd"-knap
-  - **Kobling af umatchede varer**: inline link-panel, favorites-first søgning
-  - **Auto-genererede INT-varenumre** for leverandører uden katalog (fx Oluf/Trykkerifriheden)
-  - `_ibEnsureUserfields()` — auto-opret `ordered_*` userfields i Grocy ved første kørsel
-  - `_ibLoadFavCache()` — baggrunds-load af Hoka-favoritter til instant-søgning
-- [ ] **`shared/indkob.css`**
-- [ ] **`kitchen/purchasing.html`** omskrives til 2 tabs: `[ Indkøb ]  [ Varemodtagelse ]`
-  - Init-guard: `initIndkob()` køres én gang
-  - Container uden padding (indkob.js håndterer layout)
-- [ ] **Migration 032**: `integration_type` CHECK udvides med `'intern'` på suppliers
-- [ ] **Verificér** `routes/horkram.js` endpoint er `/snapshots` (ikke `/products/snapshots`)
-- [ ] `shared/shopping_list.js` + `shopping_list.css` + `bestilling.js` + `bestilling.css` **udgår**
+  - **Accordion** med Fokus-visning, fire leverandørgruppe-typer (api/email/manual/intern)
+  - **Chips** med sortering: `is_preferred` → aftale → billigst/kg
+  - **Multi-leverandør per vare** (fx Burgerlommer: Serviwet + Hørkram + Inco)
+  - **Manuel bestilling**: kopiér/mail/ring-dialog med "Send & bestil" knap
+  - **Intern (RR Produktion)**: produktionsbon-flow
+  - **Kobling af umatchede varer**: inline link-panel, INT-varenumre
+  - **PO mail-tråde**: SSE-drevet ulæst-badge + inline mail-compose
+- [x] **`shared/indkob.css`**
+- [x] **`kitchen/purchasing.html`** — 2 tabs: `[ Indkøb ]  [ Varemodtagelse ]`
+- [x] **Migration 032**: `integration_type` CHECK udvides med `'intern'`, RR Produktion seeded
+- [x] `shared/shopping_list.js` + `shopping_list.css` + `bestilling.js` + `bestilling.css` **udgår**
 
-**Kendte begrænsninger (løst):**
-
-| Feature | Status | Løsning |
-|---------|--------|---------|
-| ~~"Tilføj vare" dialog~~ | ✅ Implementeret | Inline panel med Grocy-produkt autocomplete + antal |
-| ~~Produktionsbon-oprettelse~~ | ✅ Implementeret | `createBon()` med is_internal=1, status GODKENDT, priskategori produktion |
-| ~~INT-varenumre~~ | ✅ Implementeret | Lilla "INT-nr" knap i link-panel, auto-genererer INT-XXXX |
-| ~~Produktionsbon fra "Ny bon"~~ | ✅ Implementeret | Modal forenkler til produktionsmode (skjuler kunde/type) |
-| ~~is_internal i API~~ | ✅ Fixet | POST + PATCH /api/bons accepterer is_internal |
-| ~~Blå farve + 🔧 ikon~~ | ✅ Implementeret | bon-kort, kalender, bons-liste |
-| Multi-leverandør chips | Virker via barcodes | OK — test med reelle data fra grocytest |
-| `_ibEnsureUserfields()` | Skippet (userfields eksisterer) | Tilføj som safety check alligevel |
 
 #### Fase 6c — Settings: Indkøbsindstillinger (komplet)
 > Spec: `docs/CLAUDE_SETTINGS_INDKOB.md` · Mockup: `docs/settings_mockup.html`
@@ -723,6 +695,19 @@ Oprettes under Grocy → Manage master data → Userfields.
   - Per-vare: grøn `🌱 X,X kg CO₂e` badge (via `_ibGetBadges`)
   - Gruppe-header: samlet CO2 pill `🌱 49,9 kg CO₂e`
   - Graceful: varer uden CO2-data viser intet
+
+#### Fase 6e — Indkøb bugfixes
+> Spec: `docs/CLAUDE_INDKOB_6E.md`
+
+- [ ] Migration `035_indkob_fixes.sql`
+- [ ] Fix 1: `shared/indkob.js` — `_ibGotoCart` `lines` → `items`
+- [ ] Fix 2: `routes/orders.js` — `barcode_value` på `purchase_order_lines`
+- [ ] Fix 3: `routes/horkram.js` — kurv mixed-format fix (se `docs/FIX_horkram_basket.md`)
+- [ ] Fix 4: `shared/indkob_settings.js` — "Alle koblinger" grupperet per produkt + tilføj pakstørrelse
+- [ ] Fix 4: `routes/grocy.js` — `DELETE /api/grocy/product-barcodes/:id`
+- [ ] Fix 4: `services/grocyAdapter.js` — `deleteProductBarcode()`
+- [ ] Fix 5: `goods_receipts` + `goods_receipt_items` + `webhook_log` tabeller (migration 035)
+- [ ] Verificering: multi-barcode chips på grocytest
 
 ### Fase 7 — CRM-modul
 - [x] Migration 019: `crm_activities` genskabt med `service_call`/`result`/`sentiment`, `bons.is_internal`, `companies.is_internal`
@@ -1363,6 +1348,7 @@ POST   /api/receiving/complete                             routes/receiving.js
 GET    /api/receiving/log                                  routes/receiving.js
 GET    /api/grocy/product-barcodes                         routes/grocy.js
 POST   /api/grocy/product-barcodes                         routes/grocy.js
+DELETE /api/grocy/product-barcodes/:id                     routes/grocy.js
 PUT    /api/grocy/shopping-list/:id                        routes/grocy.js
 ```
 

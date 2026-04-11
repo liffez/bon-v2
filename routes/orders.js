@@ -133,8 +133,9 @@ router.post('/pending', handle(async (req, res) => {
             INSERT INTO purchase_order_lines (
                 purchase_order_id, supplier_product_id, item_id,
                 quantity_ordered, unit_quantity, price_per_pack, line_total,
-                shopping_list_id, grocy_product_id, grocy_shopping_list_id
-            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                shopping_list_id, grocy_product_id, grocy_shopping_list_id,
+                barcode_value
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
         `);
 
         for (const item of items) {
@@ -148,7 +149,8 @@ router.post('/pending', handle(async (req, res) => {
                 item.line_total || null,
                 null, // shopping_list_id (v2 lokal tabel — bruges ikke, har FK)
                 item.grocy_product_id || null,
-                item.grocy_shopping_list_id || null
+                item.grocy_shopping_list_id || null,
+                item.barcode || item.varenr || null
             );
         }
     }

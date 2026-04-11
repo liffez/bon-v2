@@ -687,6 +687,10 @@ function updateProductBarcodeUserfields(id, body) {
     return apiFetch('/grocy/userfields/product_barcodes/' + id, { method: 'PUT', body: JSON.stringify(body) });
 }
 
+function deleteProductBarcode(id) {
+    return apiFetch('/grocy/product-barcodes/' + id, { method: 'DELETE' });
+}
+
 function putGrocyProduct(id, body) {
     return apiFetch('/grocy/products/' + id, { method: 'PUT', body: JSON.stringify(body) });
 }
