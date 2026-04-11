@@ -104,7 +104,7 @@ bon-v2/
 │   ├── invoices.js   ← /api/invoices/queue (fakturerings-arbejdsliste)
 │   ├── horkram.js    ← /api/horkram/* (Hørkram API proxy: basket, search, orders)
 │   ├── purchasing.js ← /api/purchasing/* (suppliers, grocy-locations CRUD)
-│   ├── orders.js     ← /api/orders/* (purchase_orders CRUD)
+│   ├── orders.js     ← /api/orders/* (purchase_orders CRUD + mail-tråd per PO)
 │   └── receiving.js  ← /api/receiving/complete (fusion: Grocy + Whiteboard + PO)
 ├── services/
 │   ├── grocyAdapter.js       ← Grocy API adapter med cache + CRUD + consume + barcodes
@@ -144,6 +144,7 @@ bon-v2/
 │   ├── indkob.js + indkob.css                  ← Indkøb (merged: indkøbsliste + bestilling, accordion UI)
 │   ├── indkob_settings.js + indkob_settings.css ← Indkøbsindstillinger (3 tabs: leverandører, produkter, Hørkram)
 │   ├── varemodtagelse.js + varemodtagelse.css  ← Varemodtagelse (ordremodtagelse, Grocy add-stock)
+│   ├── supplier_inbox.js                      ← Leverandørpost (office sidebar-view + kitchen Post-tab)
 │   │   [shopping_list.js + bestilling.js udgår når indkob.js er verificeret]
 │   ├── kitchen-topbar.html         ← Fælles topbar for kitchen-views
 │   ├── api.js        ← Frontend API-funktioner
@@ -652,7 +653,7 @@ Oprettes under Grocy → Manage master data → Userfields.
   - **Kobling af umatchede varer**: inline link-panel, INT-varenumre
   - **PO mail-tråde**: SSE-drevet ulæst-badge + inline mail-compose
 - [x] **`shared/indkob.css`**
-- [x] **`kitchen/purchasing.html`** — 2 tabs: `[ Indkøb ]  [ Varemodtagelse ]`
+- [x] **`kitchen/purchasing.html`** — 3 tabs: `[ Indkøb ]  [ Varemodtagelse ]  [ Post ]`
 - [x] **Migration 032**: `integration_type` CHECK udvides med `'intern'`, RR Produktion seeded
 - [x] `shared/shopping_list.js` + `shopping_list.css` + `bestilling.js` + `bestilling.css` **udgår**
 
@@ -696,18 +697,34 @@ Oprettes under Grocy → Manage master data → Userfields.
   - Gruppe-header: samlet CO2 pill `🌱 49,9 kg CO₂e`
   - Graceful: varer uden CO2-data viser intet
 
-#### Fase 6e — Indkøb bugfixes
+#### Fase 6e — Indkøb bugfixes, sporbarhed, varemodtagelse-forberedelse (komplet)
 > Spec: `docs/CLAUDE_INDKOB_6E.md`
 
-- [ ] Migration `035_indkob_fixes.sql`
-- [ ] Fix 1: `shared/indkob.js` — `_ibGotoCart` `lines` → `items`
-- [ ] Fix 2: `routes/orders.js` — `barcode_value` på `purchase_order_lines`
-- [ ] Fix 3: `routes/horkram.js` — kurv mixed-format fix (se `docs/FIX_horkram_basket.md`)
-- [ ] Fix 4: `shared/indkob_settings.js` — "Alle koblinger" grupperet per produkt + tilføj pakstørrelse
-- [ ] Fix 4: `routes/grocy.js` — `DELETE /api/grocy/product-barcodes/:id`
-- [ ] Fix 4: `services/grocyAdapter.js` — `deleteProductBarcode()`
-- [ ] Fix 5: `goods_receipts` + `goods_receipt_items` + `webhook_log` tabeller (migration 035)
+- [x] Migration `035_indkob_fixes.sql`
+- [x] Fix 1: `shared/indkob.js` — `_ibGotoCart` `lines` → `items`
+- [x] Fix 2: `routes/orders.js` — `barcode_value` på `purchase_order_lines`
+- [x] Fix 3: `routes/horkram.js` — kurv mixed-format fix (se `docs/FIX_horkram_basket.md`)
+- [x] Fix 4: `shared/indkob_settings.js` — "Alle koblinger" grupperet per produkt + tilføj pakstørrelse
+- [x] Fix 4: `routes/grocy.js` — `DELETE /api/grocy/product-barcodes/:id`
+- [x] Fix 4: `services/grocyAdapter.js` — `deleteProductBarcode()`
+- [x] Fix 5: `goods_receipts` + `goods_receipt_items` + `webhook_log` tabeller (migration 035)
 - [ ] Verificering: multi-barcode chips på grocytest
+
+#### Fase 6f — Leverandørpost (komplet)
+> Spec: `docs/CLAUDE_LEVERANDOR_MAIL.md`
+
+- [x] Migration 034: `mail_threads.purchase_order_id` + `purchase_orders.mail_thread_id`
+- [x] Tag-prefix `po-` i settings (harmoniseret med `b-`, `t-`, `k-`)
+- [x] `utils/mail-parser.js` — PO-tag parsing + buildTag support
+- [x] `services/mailService.js` — `purchaseOrderId` i sendMail/sendFromTemplate, IMAP `#po-` routing, SSE `po_mail_received`/`po_mail_sent`
+- [x] `routes/orders.js` — 4 nye endpoints (GET/POST mail, PATCH read, GET mail-threads), `unread_mail` subquery, PO-tag + thread ved `send_email`
+- [x] `shared/supplier_inbox.js` — Office view (to-kolonne: liste + tråd-preview + svar)
+- [x] `office/index.html` — "Leverandørpost" sidebar-punkt med ulæst-badge, view-registration, SSE
+- [x] `kitchen/purchasing.html` — "Post" tab med supplier_inbox.js, ulæst-badge, SSE
+- [x] `shared/indkob.js` — mail-badge på bestilt-sektion, inline tråd-expand, SSE handler
+- [x] `shared/indkob_settings.js` — "Bestillingsmail" label + placeholder + hint
+- [x] `shared/api.js` — `fetchOrderMailThread`, `sendOrderReply`, `markOrderMailRead`, `fetchOrderMailThreads`, `deleteProductBarcode`
+- [x] Bonus: "Søg i Hørkram-katalog" label i link-panel, "Læg i kurv" for Hørkram-barcodes uanset gruppe
 
 ### Fase 7 — CRM-modul
 - [x] Migration 019: `crm_activities` genskabt med `service_call`/`result`/`sentiment`, `bons.is_internal`, `companies.is_internal`
@@ -937,13 +954,15 @@ Oprettes under Grocy → Manage master data → Userfields.
 
 > ✏️ Opdateret 11. april 2026.
 >
-> **Fase 1a–1e + 3A + 3B + 3D + 4 + 5 + 6 (komplet inkl. 6d) + 7 (CRM) + Office CRM redesign + 8 (Fakturering) + 9 (Tilbud) + Mail-vedhæftninger + CRM service-kald + Firma-oprydning komplet.**
+> **Fase 1a–1e + 3A + 3B + 3D + 4 + 5 + 6 (komplet inkl. 6f) + 7 (CRM) + Office CRM redesign + 8 (Fakturering) + 9 (Tilbud) + Mail-vedhæftninger + CRM service-kald + Firma-oprydning komplet.**
 >
 > **Fase 6 komplet** — Hele indkøbsmodulet er færdigt:
 > - 6a: Fundament (shopping list, bestilling, varemodtagelse, Hoka proxy)
 > - 6b: `indkob.js` (accordion UI, chips, multi-leverandør, produktionsbon, INT-numre)
 > - 6c: `indkob_settings.js` (leverandører, produkter, Hørkram-kobling, udgået-detection)
 > - 6d: SMTP ordremail, dropsize-advarsel, CO2-badges
+> - 6e: Bugfixes (lines→items, barcode_value, SalesUnitIndex, grupperet koblinger, goods_receipts)
+> - 6f: Leverandørpost (PO mail-tråde, `#po-` tags, supplier-inbox, kitchen Post-tab)
 >
 > **Næste sprint:** Priser i planlægningsbon, Ugeoversigt.
 > Så er Bon v1 klar til nedlukning.
@@ -1344,6 +1363,10 @@ POST   /api/orders/pending                                 routes/orders.js
 PUT    /api/orders/pending/:id                             routes/orders.js
 DELETE /api/orders/pending/:id                             routes/orders.js
 GET    /api/orders/archive                                 routes/orders.js
+GET    /api/orders/pending/:id/mail                        routes/orders.js
+POST   /api/orders/pending/:id/mail                        routes/orders.js
+PATCH  /api/orders/pending/:id/mail/read                   routes/orders.js
+GET    /api/orders/mail-threads?unread_only=               routes/orders.js
 POST   /api/receiving/complete                             routes/receiving.js
 GET    /api/receiving/log                                  routes/receiving.js
 GET    /api/grocy/product-barcodes                         routes/grocy.js
