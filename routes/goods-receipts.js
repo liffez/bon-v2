@@ -122,6 +122,7 @@ router.post('/', requireAuth(), handle(async (req, res) => {
     const {
         supplier_name,
         received_by_user_id,
+        received_by_name,
         location_id,
 
         temperature_cool_enabled,
@@ -147,7 +148,7 @@ router.post('/', requireAuth(), handle(async (req, res) => {
 
     // Validering
     if (!supplier_name) return res.status(400).json({ error: 'supplier_name er påkrævet' });
-    if (!received_by_user_id) return res.status(400).json({ error: 'received_by_user_id er påkrævet' });
+    if (!received_by_name && !received_by_user_id) return res.status(400).json({ error: 'received_by_name er påkrævet' });
     if (!Array.isArray(items) || items.length === 0) {
         return res.status(400).json({ error: 'items[] er påkrævet' });
     }
@@ -156,15 +157,16 @@ router.post('/', requireAuth(), handle(async (req, res) => {
     const receiptNumber = nextReceiptNumber();
 
     // 2. INSERT goods_receipt
+    const receiverName = received_by_name || null;
     const grResult = db.prepare(`
         INSERT INTO goods_receipts (
-            receipt_number, supplier_name, location_id, received_by, received_at,
+            receipt_number, supplier_name, location_id, received_by, received_by_name, received_at,
             temperature_cool_enabled, temperature_cool_value, temperature_cool_ok,
             temperature_frozen_enabled, temperature_frozen_value, temperature_frozen_ok,
             date_check_ok, labeling_check_ok, packaging_check_ok,
             has_deviation, deviation_type, deviation_note,
             photo_path, notes, status
-        ) VALUES (?, ?, ?, ?, datetime('now'),
+        ) VALUES (?, ?, ?, ?, ?, datetime('now'),
                   ?, ?, ?,
                   ?, ?, ?,
                   ?, ?, ?,
@@ -174,7 +176,8 @@ router.post('/', requireAuth(), handle(async (req, res) => {
         receiptNumber,
         supplier_name,
         location_id || null,
-        received_by_user_id,
+        received_by_user_id || null,
+        receiverName,
         temperature_cool_enabled ? 1 : 0,
         temperature_cool_enabled ? temperature_cool_value : null,
         temperature_cool_enabled ? (temperature_cool_ok ? 1 : 0) : null,
@@ -317,7 +320,7 @@ router.post('/', requireAuth(), handle(async (req, res) => {
     }
 
     // 6. Fire-and-forget webhook
-    const userName = db.prepare(`SELECT name FROM users WHERE id = ?`).get(received_by_user_id)?.name || 'Ukendt';
+    const userName = receiverName || 'Ukendt';
     const receiptRow = db.prepare(`SELECT * FROM goods_receipts WHERE id = ?`).get(receiptId);
     webhook.send(receiptRow, userName).catch(err => {
         console.warn('[goods-receipts] Webhook fejl (non-blocking):', err.message);

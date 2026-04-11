@@ -82,13 +82,30 @@ async function initVaremodtagelse(el) {
             fetchShoppingList(),
             fetchGrocyProducts(),
             fetchGrocyQuantityUnits(),
+            fetch('/api/smartplan/employees').then(function(r) { return r.ok ? r.json() : []; }).catch(function() { return []; }),
         ]);
 
-        _vmUsers = results[0] || [];
+        var localStaff = results[0] || [];
         var allSuppliers = results[1] || [];
         _vmShoppingList = results[2] || [];
         var products = results[3] || [];
         var qus = results[4] || [];
+        var spRaw = results[5];
+        var spEmployees = Array.isArray(spRaw) ? spRaw : (spRaw && spRaw.employees ? spRaw.employees : []);
+
+        // Merge: lokale staff + Smartplan (filtrér duplikater på navn)
+        var localNames = {};
+        _vmUsers = [];
+        for (var li = 0; li < localStaff.length; li++) {
+            _vmUsers.push({ name: localStaff[li].name, isOwner: !!localStaff[li].is_owner });
+            localNames[localStaff[li].name] = true;
+        }
+        for (var si = 0; si < spEmployees.length; si++) {
+            var spName = spEmployees[si].first_name || spEmployees[si].name;
+            if (spName && !localNames[spName]) {
+                _vmUsers.push({ name: spName, isOwner: false });
+            }
+        }
 
         // Build product name + stock unit lookup
         _vmProductNames = {};
@@ -104,11 +121,11 @@ async function initVaremodtagelse(el) {
             _vmQuNames[qus[q].id] = qus[q].name;
         }
 
-        // Auto-select staff: check localStorage, then match on auth user name
-        var savedStaff = localStorage.getItem('vm_staff_id');
+        // Auto-select: localStorage → auth user name → første
+        var savedName = localStorage.getItem('vm_staff_name');
         var matched = null;
-        if (savedStaff) {
-            matched = _vmUsers.find(function(u) { return u.id === parseInt(savedStaff); });
+        if (savedName) {
+            matched = _vmUsers.find(function(u) { return u.name === savedName; });
         }
         if (!matched) {
             matched = _vmUsers.find(function(u) { return u.name === currentUser.name; });
@@ -117,7 +134,6 @@ async function initVaremodtagelse(el) {
             matched = _vmUsers[0];
         }
         if (matched) {
-            _vmState.userId = matched.id;
             _vmState.userName = matched.name;
         }
 
@@ -281,17 +297,15 @@ function _vmBuildUserCard() {
 
     for (var i = 0; i < _vmUsers.length; i++) {
         var opt = document.createElement('option');
-        opt.value = _vmUsers[i].id;
-        opt.textContent = _vmUsers[i].name;
-        if (_vmUsers[i].id === _vmState.userId) opt.selected = true;
+        opt.value = _vmUsers[i].name;
+        opt.textContent = _vmUsers[i].name + (_vmUsers[i].isOwner ? ' (ejer)' : '');
+        if (_vmUsers[i].name === _vmState.userName) opt.selected = true;
         sel.appendChild(opt);
     }
 
     sel.addEventListener('change', function() {
-        _vmState.userId = parseInt(this.value);
-        var found = _vmUsers.find(function(u) { return u.id === _vmState.userId; });
-        _vmState.userName = found ? found.name : '';
-        localStorage.setItem('vm_staff_id', String(_vmState.userId));
+        _vmState.userName = this.value;
+        localStorage.setItem('vm_staff_name', _vmState.userName);
         _vmUpdateBtn();
     });
 
@@ -1068,7 +1082,7 @@ function _vmUpdateBtn() {
                      (!_vmState.frysEnabled || _vmState.frysValue !== null);
     var deviationOk = !_vmState.hasDeviation || _vmState.deviationType;
 
-    var valid = _vmState.userId &&
+    var valid = _vmState.userName &&
                 _vmState.supplierKey &&
                 tempFilled &&
                 deviationOk;
@@ -1101,7 +1115,7 @@ async function _vmSubmit() {
 
         var payload = {
             supplier_name: _vmState.supplierName,
-            received_by_user_id: _vmState.userId,
+            received_by_name: _vmState.userName,
             location_id: _vmState.locationId,
 
             temperature_cool_enabled: _vmState.koelEnabled,

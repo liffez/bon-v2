@@ -310,10 +310,9 @@
         <input type="text" id="staff-new-name" placeholder="Nyt navn..." class="st-input" style="flex:1;padding:8px 10px;border:1px solid var(--color-border);border-radius:6px;font-size:14px;">
         <button class="st-btn st-btn-primary" onclick="addStaffMember()">+ Tilføj</button>
       </div>
-      <div style="margin-top:16px;padding-top:12px;border-top:1px solid var(--color-border);">
-        <button class="st-btn st-btn-secondary" onclick="syncSmartplan()" id="staff-sync-btn">📡 Synk fra Smartplan</button>
-        <span id="staff-sync-result" style="font-size:13px;color:var(--color-text-dim);margin-left:8px;"></span>
-      </div>
+      <p style="font-size:12px;color:var(--color-text-dim);margin-top:12px;">
+        Smartplan-medarbejdere vises automatisk i varemodtagelse. Tilføj manuelt her for personer uden Smartplan-adgang.
+      </p>
     </div>
 
     <!-- ════ PRISKATEGORIER ════ -->
@@ -673,25 +672,6 @@ async function addStaffMember() {
   }
 }
 
-async function syncSmartplan() {
-  var btn = document.getElementById('staff-sync-btn');
-  var result = document.getElementById('staff-sync-result');
-  btn.disabled = true;
-  btn.textContent = 'Synkroniserer...';
-  result.textContent = '';
-  try {
-    var data = await apiFetch('/staff/sync-smartplan', { method: 'POST' });
-    result.textContent = data.total + ' medarbejdere fra Smartplan — ' + data.added + ' nye, ' + data.updated + ' opdateret';
-    toast('Smartplan synk fuldført');
-    loadStaffMembers();
-  } catch (err) {
-    result.textContent = 'Fejl: ' + (err.message || 'Ukendt');
-    toast('Smartplan sync fejlede', 'error');
-  } finally {
-    btn.disabled = false;
-    btn.textContent = '📡 Synk fra Smartplan';
-  }
-}
 
 // ═══════════════════════════════════════════════════════════
 // PRISKATEGORIER
