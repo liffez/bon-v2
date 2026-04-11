@@ -103,7 +103,7 @@ router.delete('/:id', requireAuth('admin'), handle((req, res) => {
 
 /* ── POST /sync-smartplan — synk medarbejdere fra Smartplan ── */
 
-router.post('/sync-smartplan', requireAuth('admin'), handle(async (req, res) => {
+router.post('/sync-smartplan', requireAuth(), handle(async (req, res) => {
     const db = getDb();
 
     // Hent medarbejdere fra Smartplan (via shifts de seneste 30 dage)

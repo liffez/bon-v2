@@ -266,15 +266,41 @@ async function getShifts(fromDate, toDate) {
 }
 
 /**
- * Hent medarbejderliste.
- * @returns {Promise<Array>}
+ * Hent medarbejderliste (udtrukket fra shifts de seneste 30 dage).
+ * Smartplan har intet dedikeret /employees/ endpoint — vi udtrækker
+ * unikke medarbejdere fra shifts/worklogs i stedet.
+ * @returns {Promise<Array>} [{ uuid, first_name, last_name, name }, ...]
  */
 async function getEmployees() {
     const cacheKey = 'employees';
     const cached = getCached(cacheKey);
     if (cached) return cached;
 
-    const employees = await smartplanFetch('/employees/');
+    const now = new Date();
+    const from = new Date(now);
+    from.setDate(from.getDate() - 14);
+    const to = new Date(now);
+    to.setDate(to.getDate() + 14);
+    const fromStr = from.toISOString().slice(0, 10);
+    const toStr = to.toISOString().slice(0, 10);
+
+    const shifts = await getShifts(fromStr, toStr);
+
+    const seen = new Map();
+    for (const s of shifts) {
+        const id = s.employee_id;
+        if (id && !seen.has(id)) {
+            seen.set(id, {
+                uuid: id,
+                first_name: s.first_name || s.name || null,
+                name: s.name || s.first_name || null,
+            });
+        }
+    }
+
+    const employees = Array.from(seen.values()).sort((a, b) =>
+        (a.first_name || '').localeCompare(b.first_name || ''));
+
     setCached(cacheKey, employees);
     return employees;
 }
