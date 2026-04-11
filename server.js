@@ -87,6 +87,40 @@ app.use('/uploads/receipts', express.static(path.join(__dirname, 'data', 'upload
 const { startPolling } = require('./services/mailService');
 startPolling().catch(err => console.error('[mail] Polling fejl ved opstart:', err.message));
 
+// ─── STAFF SYNC FRA SMARTPLAN ──────────────────────────────────────────────
+
+const smartplan = require('./services/smartplanAdapter');
+(async function syncStaffOnStartup() {
+    try {
+        const { getDb } = require('./db/database');
+        const db = getDb();
+        const employees = await smartplan.getEmployees();
+
+        const seen = new Map();
+        for (const emp of employees) {
+            const id = emp.uuid;
+            const name = emp.first_name || emp.name;
+            if (id && name && !seen.has(id)) seen.set(id, name);
+        }
+
+        let added = 0;
+        for (const [spId, name] of seen) {
+            const existing = db.prepare('SELECT id FROM staff WHERE smartplan_id = ?').get(spId);
+            if (existing) continue;
+            const byName = db.prepare('SELECT id FROM staff WHERE name = ? AND smartplan_id IS NULL').get(name);
+            if (byName) {
+                db.prepare('UPDATE staff SET smartplan_id = ?, source = ? WHERE id = ?').run(spId, 'smartplan', byName.id);
+            } else {
+                db.prepare('INSERT INTO staff (name, smartplan_id, source) VALUES (?, ?, ?)').run(name, spId, 'smartplan');
+                added++;
+            }
+        }
+        if (added > 0) console.log(`[staff] ${added} nye medarbejdere synket fra Smartplan`);
+    } catch (err) {
+        console.warn('[staff] Smartplan sync ved opstart fejlede:', err.message);
+    }
+})();
+
 // ─── START ─────────────────────────────────────────────────────────────────
 
 app.listen(PORT, () => {
