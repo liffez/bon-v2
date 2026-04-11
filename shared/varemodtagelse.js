@@ -77,7 +77,7 @@ async function initVaremodtagelse(el) {
         if (!currentUser) return;
 
         var results = await Promise.all([
-            fetchGoodsReceiptUsers(),
+            fetchStaff(),
             fetchPurchasingSuppliers(),
             fetchShoppingList(),
             fetchGrocyProducts(),
@@ -104,9 +104,22 @@ async function initVaremodtagelse(el) {
             _vmQuNames[qus[q].id] = qus[q].name;
         }
 
-        // Auto-select current user
-        _vmState.userId = currentUser.id;
-        _vmState.userName = currentUser.name || '';
+        // Auto-select staff: check localStorage, then match on auth user name
+        var savedStaff = localStorage.getItem('vm_staff_id');
+        var matched = null;
+        if (savedStaff) {
+            matched = _vmUsers.find(function(u) { return u.id === parseInt(savedStaff); });
+        }
+        if (!matched) {
+            matched = _vmUsers.find(function(u) { return u.name === currentUser.name; });
+        }
+        if (!matched && _vmUsers.length > 0) {
+            matched = _vmUsers[0];
+        }
+        if (matched) {
+            _vmState.userId = matched.id;
+            _vmState.userName = matched.name;
+        }
 
         // Build leverandør-dropdown: match suppliers mod shopping list ordered_supplier
         _vmBuildSupplierOptions(allSuppliers, _vmShoppingList);
@@ -278,6 +291,7 @@ function _vmBuildUserCard() {
         _vmState.userId = parseInt(this.value);
         var found = _vmUsers.find(function(u) { return u.id === _vmState.userId; });
         _vmState.userName = found ? found.name : '';
+        localStorage.setItem('vm_staff_id', String(_vmState.userId));
         _vmUpdateBtn();
     });
 

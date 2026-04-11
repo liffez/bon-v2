@@ -76,6 +76,7 @@ app.use('/api/purchasing',   require('./routes/purchasing'));
 app.use('/api/orders',       require('./routes/orders'));
 app.use('/api/receiving',    require('./routes/receiving'));
 app.use('/api/attachments',      require('./routes/attachments'));
+app.use('/api/staff',            require('./routes/staff'));
 app.use('/api/goods-receipts',   require('./routes/goods-receipts'));
 
 // Statisk serving af receipt-fotos (for Whiteboard link-only access)

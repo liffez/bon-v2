@@ -265,6 +265,7 @@
 <div class="st-layout">
   <nav class="st-sidebar" id="st-sidebar">
     <button class="st-nav-item active" data-section="users">Brugere</button>
+    <button class="st-nav-item" data-section="staff">Medarbejdere</button>
     <button class="st-nav-item" data-section="price-cats">Priskategorier</button>
     <button class="st-nav-item" data-section="pay-types">Betalingstyper</button>
     <div class="st-nav-sep" id="st-admin-sep"></div>
@@ -291,6 +292,24 @@
       </table>
       <button class="st-btn st-btn-primary st-btn-add" onclick="showNewUserForm()">+ Ny bruger</button>
       <div id="new-user-form" style="display:none"></div>
+    </div>
+
+    <!-- ════ MEDARBEJDERE ════ -->
+    <div class="st-section" id="sec-staff">
+      <h2>Medarbejdere</h2>
+      <p style="font-size:13px;color:var(--color-text-dim);margin-bottom:12px;">
+        Bruges i varemodtagelse, planlægning m.fl. Adskilt fra login-brugere.
+      </p>
+      <table class="st-table" id="staff-table">
+        <thead><tr>
+          <th>Navn</th><th>Ejer</th><th>Aktiv</th><th></th>
+        </tr></thead>
+        <tbody id="staff-body"></tbody>
+      </table>
+      <div id="staff-add-row" style="margin-top:8px;display:flex;gap:8px;align-items:center;">
+        <input type="text" id="staff-new-name" placeholder="Nyt navn..." class="st-input" style="flex:1;padding:8px 10px;border:1px solid var(--color-border);border-radius:6px;font-size:14px;">
+        <button class="st-btn st-btn-primary" onclick="addStaffMember()">+ Tilføj</button>
+      </div>
     </div>
 
     <!-- ════ PRISKATEGORIER ════ -->
@@ -468,6 +487,7 @@ async function init() {
   // Load data — settings først (bruges af mail, formbuilder, system)
   await loadSettings();
   loadUsers();
+  loadStaffMembers();
   loadPriceCategories();
   loadPaymentTypes();
   if (currentUser.role === 'admin') {
@@ -590,6 +610,62 @@ async function doCreateUser() {
   document.getElementById('new-user-form').style.display = 'none';
   toast('Bruger oprettet');
   loadUsers();
+}
+
+// ═══════════════════════════════════════════════════════════
+// MEDARBEJDERE
+// ═══════════════════════════════════════════════════════════
+
+async function loadStaffMembers() {
+  var staff = await fetchStaff(true); // inkl. inaktive
+  var tbody = document.getElementById('staff-body');
+  tbody.innerHTML = '';
+  staff.forEach(function(s) {
+    var tr = document.createElement('tr');
+    if (!s.is_active) tr.style.opacity = '0.5';
+    tr.innerHTML =
+      '<td>' + esc(s.name) + (s.is_owner ? ' <span style="color:var(--brand-primary);font-size:11px;">(ejer)</span>' : '') + '</td>' +
+      '<td><label class="st-toggle"><input type="checkbox" ' + (s.is_owner ? 'checked' : '') +
+        ' onchange="toggleStaffOwner(' + s.id + ',this.checked)"><span class="st-toggle-slider"></span></label></td>' +
+      '<td><label class="st-toggle"><input type="checkbox" ' + (s.is_active ? 'checked' : '') +
+        ' onchange="toggleStaffActive(' + s.id + ',this.checked)"><span class="st-toggle-slider"></span></label></td>' +
+      '<td><button class="st-btn st-btn-sm st-btn-secondary" onclick="renameStaff(' + s.id + ',\'' + esc(s.name).replace(/'/g, "\\'") + '\')">Omdob</button></td>';
+    tbody.appendChild(tr);
+  });
+}
+
+async function toggleStaffOwner(id, val) {
+  await updateStaff(id, { is_owner: val });
+  toast('Medarbejder opdateret');
+  loadStaffMembers();
+}
+
+async function toggleStaffActive(id, val) {
+  await updateStaff(id, { is_active: val });
+  toast(val ? 'Medarbejder aktiveret' : 'Medarbejder deaktiveret');
+  loadStaffMembers();
+}
+
+async function renameStaff(id, currentName) {
+  var newName = prompt('Nyt navn:', currentName);
+  if (!newName || newName.trim() === currentName) return;
+  await updateStaff(id, { name: newName.trim() });
+  toast('Navn opdateret');
+  loadStaffMembers();
+}
+
+async function addStaffMember() {
+  var input = document.getElementById('staff-new-name');
+  var name = input.value.trim();
+  if (!name) return toast('Angiv et navn', 'error');
+  try {
+    await createStaff({ name: name });
+    input.value = '';
+    toast('Medarbejder tilfojet');
+    loadStaffMembers();
+  } catch (err) {
+    toast(err.message || 'Fejl', 'error');
+  }
 }
 
 // ═══════════════════════════════════════════════════════════

@@ -815,6 +815,29 @@ function fetchGoodsReceiptUsers() {
     return apiFetch('/goods-receipts/users');
 }
 
+/* ── STAFF (/api/staff) ─────────────────────────────── */
+
+function fetchStaff(includeInactive) {
+    var qs = includeInactive ? '?all=1' : '';
+    return apiFetch('/staff' + qs);
+}
+
+function createStaff(data) {
+    return apiFetch('/staff', {
+        method: 'POST', body: JSON.stringify(data),
+    });
+}
+
+function updateStaff(id, data) {
+    return apiFetch('/staff/' + id, {
+        method: 'PATCH', body: JSON.stringify(data),
+    });
+}
+
+function deleteStaff(id) {
+    return apiFetch('/staff/' + id, { method: 'DELETE' });
+}
+
 /* ── REPORTS ──────────────────────────────────────────── */
 
 function fetchReportsSummary() {
