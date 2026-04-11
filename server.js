@@ -90,7 +90,7 @@ startPolling().catch(err => console.error('[mail] Polling fejl ved opstart:', er
 // ─── STAFF SYNC FRA SMARTPLAN ──────────────────────────────────────────────
 
 const smartplan = require('./services/smartplanAdapter');
-(async function syncStaffOnStartup() {
+async function syncStaffFromSmartplan() {
     try {
         const { getDb } = require('./db/database');
         const db = getDb();
@@ -117,9 +117,13 @@ const smartplan = require('./services/smartplanAdapter');
         }
         if (added > 0) console.log(`[staff] ${added} nye medarbejdere synket fra Smartplan`);
     } catch (err) {
-        console.warn('[staff] Smartplan sync ved opstart fejlede:', err.message);
+        console.warn('[staff] Smartplan sync fejlede:', err.message);
     }
-})();
+}
+
+// Sync ved opstart + hver time
+syncStaffFromSmartplan();
+setInterval(syncStaffFromSmartplan, 60 * 60 * 1000);
 
 // ─── START ─────────────────────────────────────────────────────────────────
 
