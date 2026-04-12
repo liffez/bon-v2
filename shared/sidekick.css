@@ -22,14 +22,14 @@
 .sk-icon {
   position: fixed; bottom: 24px; right: 24px; z-index: 7000;
   width: 56px; height: 56px; border-radius: 16px;
-  background: var(--wb-surface); border: 1px solid var(--wb-border);
-  box-shadow: 0 4px 20px rgba(0,0,0,0.12);
+  background: #2c3e50; border: 2px solid var(--wb-accent, #e8a44a);
+  color: #fff; box-shadow: 0 4px 20px rgba(0,0,0,0.2);
   cursor: pointer; display: flex; align-items: center; justify-content: center;
   transition: all 0.2s; opacity: 0; pointer-events: none;
 }
 .sk-icon.visible { opacity: 1; pointer-events: all; }
 .sk-icon:hover { transform: scale(1.08); box-shadow: 0 6px 28px rgba(0,0,0,0.18); }
-.sk-icon svg { width: 26px; height: 26px; color: var(--wb-text-dim); }
+.sk-icon svg { width: 26px; height: 26px; color: #fff; }
 
 .sk-badge {
   position: absolute; top: -4px; right: -4px;
