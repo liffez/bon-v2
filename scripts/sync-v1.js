@@ -102,9 +102,17 @@ function parseV1Date(dt) {
   if (!dt) return { date: null, time: null };
   const d = new Date(dt);
   if (isNaN(d.getTime())) return { date: null, time: null };
+  // V1 gemmer tider i UTC, men de repræsenterer dansk lokal tid.
+  // Brug lokale getters (getFullYear/getMonth/getDate/getHours/getMinutes)
+  // så tidszonen (CET/CEST) håndteres korrekt.
+  const year = d.getFullYear();
+  const month = String(d.getMonth() + 1).padStart(2, '0');
+  const day = String(d.getDate()).padStart(2, '0');
+  const hours = String(d.getHours()).padStart(2, '0');
+  const mins = String(d.getMinutes()).padStart(2, '0');
   return {
-    date: d.toISOString().slice(0, 10),
-    time: d.toISOString().slice(11, 16),
+    date: `${year}-${month}-${day}`,
+    time: `${hours}:${mins}`,
   };
 }
 

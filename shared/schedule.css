@@ -1,0 +1,402 @@
+/* ══════════════════════════════════════════════════════════
+   shared/schedule.css — Ugeoversigt styles
+   ══════════════════════════════════════════════════════════ */
+
+/* ── Wrapper ────────────────────────────────────────────── */
+.uge-wrap {
+  max-width: 1100px;
+}
+
+/* ── Navigation ─────────────────────────────────────────── */
+.uge-nav {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin-bottom: 16px;
+}
+.uge-nav-btn {
+  width: 30px; height: 30px;
+  border: 1px solid var(--color-border);
+  border-radius: 6px;
+  background: var(--color-surface, #fff);
+  cursor: pointer;
+  font-size: 13px;
+  display: flex; align-items: center; justify-content: center;
+  color: var(--color-text-dim);
+  font-family: inherit;
+}
+.uge-nav-btn:hover { background: var(--color-background); }
+.uge-heading {
+  font-size: 15px;
+  font-weight: 700;
+}
+.uge-today-btn {
+  padding: 4px 12px;
+  border: 1px solid var(--color-border);
+  border-radius: 6px;
+  background: var(--color-surface, #fff);
+  font-size: 12px;
+  font-weight: 700;
+  cursor: pointer;
+  color: var(--brand-primary);
+  font-family: inherit;
+  margin-left: 4px;
+}
+.uge-today-btn:hover { background: var(--color-background); }
+
+/* ── Status-filtre ──────────────────────────────────────── */
+.uge-filters {
+  display: flex;
+  gap: 6px;
+  margin-bottom: 10px;
+  flex-wrap: wrap;
+}
+.uge-filter-btn {
+  padding: 3px 10px;
+  border: 2px solid var(--filter-color);
+  border-radius: 14px;
+  font-size: 11px;
+  font-weight: 700;
+  cursor: pointer;
+  font-family: inherit;
+  background: var(--filter-color);
+  color: var(--filter-text);
+  transition: all .15s;
+}
+.uge-filter-btn.hidden {
+  background: transparent;
+  color: var(--filter-color);
+  opacity: .5;
+}
+.uge-filter-btn:hover {
+  opacity: .85;
+}
+
+/* ── Legende ────────────────────────────────────────────── */
+.uge-legend {
+  display: flex;
+  gap: 16px;
+  margin-bottom: 12px;
+  font-size: 11px;
+  color: var(--color-text-dim);
+  flex-wrap: wrap;
+}
+.uge-legend-item {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+}
+.legend-dot {
+  width: 8px; height: 8px;
+  border-radius: 50%;
+}
+
+/* ── Grid ───────────────────────────────────────────────── */
+.uge-grid {
+  display: grid;
+  grid-template-columns: 84px repeat(7, 1fr);
+  border: 1px solid var(--color-border);
+  border-radius: 8px;
+  overflow: hidden;
+  background: var(--color-surface, #fff);
+  margin-bottom: 20px;
+}
+
+/* Kolonne-headere */
+.uge-col-header {
+  padding: 10px 10px 8px;
+  text-align: center;
+  border-bottom: 1px solid var(--color-border);
+  border-left: 1px solid var(--color-border);
+  background: var(--color-background);
+}
+.uge-col-header:first-child {
+  border-left: none;
+  background: transparent;
+}
+.uge-day-name {
+  font-size: 11px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: .5px;
+  color: var(--color-text-dim);
+}
+.uge-day-date {
+  font-size: 20px;
+  font-weight: 900;
+  color: var(--color-text);
+  line-height: 1.1;
+  margin-top: 2px;
+}
+.uge-col-header.today {
+  background: var(--brand-primary);
+}
+.uge-col-header.today .uge-day-name,
+.uge-col-header.today .uge-day-date {
+  color: #fff;
+}
+.uge-col-header.weekend {
+  background: #f9f8f6;
+}
+.uge-col-header.weekend .uge-day-name,
+.uge-col-header.weekend .uge-day-date {
+  color: var(--color-text-dim);
+}
+
+/* Række-labels */
+.uge-row-label {
+  display: flex;
+  align-items: center;
+  padding: 0 10px;
+  border-bottom: 1px solid var(--color-border);
+  border-right: 1px solid var(--color-border);
+  background: var(--color-background);
+}
+.uge-row-label-text {
+  font-size: 10px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: .5px;
+  color: var(--color-text-dim);
+  display: flex;
+  align-items: center;
+  gap: 4px;
+}
+.uge-row-icon { font-size: 14px; }
+
+/* Celler */
+.uge-cell {
+  padding: 8px 10px;
+  border-bottom: 1px solid var(--color-border);
+  border-left: 1px solid var(--color-border);
+  cursor: pointer;
+  transition: background .1s;
+  min-height: 72px;
+  position: relative;
+}
+.uge-cell:hover { background: rgba(0,0,0,.02); }
+.uge-cell.today-col { background: rgba(142,99,31,.03); }
+.uge-cell.weekend-col { background: #fafaf8; }
+.uge-cell.empty { cursor: default; }
+
+/* Status-badge i celle */
+.uge-status {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 2px 7px;
+  border-radius: 10px;
+  font-size: 10px;
+  font-weight: 700;
+  margin-bottom: 5px;
+}
+.uge-status.green { background: var(--color-green-bg, #f0f5e8); color: var(--color-green-dark, #7a9c54); }
+.uge-status.orange { background: var(--color-orange-bg, #fdf6e8); color: #a06010; }
+.uge-status.red { background: var(--color-red-bg, #fdf0f0); color: var(--color-red, #bc181b); }
+.uge-status.none { background: var(--color-background); color: var(--color-text-dim); }
+
+.uge-status-dot {
+  width: 6px; height: 6px;
+  border-radius: 50%;
+  flex-shrink: 0;
+}
+.green .uge-status-dot { background: var(--color-green-dark, #7a9c54); }
+.orange .uge-status-dot { background: var(--color-orange, #e8a832); }
+.red .uge-status-dot { background: var(--color-red, #bc181b); }
+.none .uge-status-dot { background: var(--color-text-dim); }
+
+/* Celle-indhold */
+.uge-cell-main {
+  font-size: 18px;
+  font-weight: 900;
+  color: var(--color-text);
+  line-height: 1;
+  margin-bottom: 2px;
+}
+.uge-cell-sub {
+  font-size: 11px;
+  color: var(--color-text-dim);
+  line-height: 1.3;
+}
+.uge-cell-empty-txt {
+  font-size: 11px;
+  color: var(--color-border);
+  font-style: italic;
+  padding-top: 18px;
+  text-align: center;
+}
+
+/* Ratio chip */
+.uge-ratio {
+  position: absolute;
+  bottom: 6px;
+  right: 8px;
+  font-size: 10px;
+  font-weight: 700;
+  color: var(--color-text-dim);
+  background: var(--color-background);
+  padding: 1px 5px;
+  border-radius: 4px;
+  border: 1px solid var(--color-border);
+}
+
+/* ── Dag-detalje ────────────────────────────────────────── */
+.uge-detail {
+  background: var(--color-surface, #fff);
+  border: 1px solid var(--color-border);
+  border-radius: 8px;
+  overflow: hidden;
+  margin-bottom: 20px;
+}
+.uge-detail-header {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 10px 14px;
+  border-bottom: 1px solid var(--color-border);
+  background: var(--color-background);
+}
+.uge-detail-title {
+  font-size: 13px;
+  font-weight: 700;
+}
+.uge-detail-close {
+  margin-left: auto;
+  font-size: 16px;
+  cursor: pointer;
+  color: var(--color-text-dim);
+  line-height: 1;
+  padding: 2px 6px;
+  border-radius: 4px;
+}
+.uge-detail-close:hover { background: var(--color-border); }
+
+.uge-detail-body {
+  display: grid;
+  grid-template-columns: 1fr 1fr 1fr;
+  gap: 0;
+}
+.uge-detail-section {
+  padding: 14px 16px;
+  border-right: 1px solid var(--color-border);
+}
+.uge-detail-section:last-child { border-right: none; }
+.uge-detail-sec-title {
+  font-size: 10px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: .5px;
+  color: var(--color-text-dim);
+  margin-bottom: 10px;
+  display: flex;
+  align-items: center;
+  gap: 5px;
+}
+
+/* Bon-liste i detalje */
+.uge-bon-item {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 5px 0;
+  border-bottom: 1px solid rgba(0,0,0,.04);
+  font-size: 12px;
+}
+.uge-bon-item:last-child { border-bottom: none; }
+.uge-bon-nr {
+  font-weight: 700;
+  color: var(--brand-primary);
+  min-width: 45px;
+  font-size: 11px;
+}
+.uge-bon-customer {
+  flex: 1;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.uge-bon-units {
+  font-weight: 700;
+  font-size: 12px;
+  min-width: 35px;
+  text-align: right;
+}
+.uge-bon-status {
+  padding: 1px 6px;
+  border-radius: 3px;
+  font-size: 9px;
+  font-weight: 700;
+  text-transform: uppercase;
+}
+
+/* Status chips til bon-status */
+.s-godkendt { background: #dff0d8; color: #5a8a3a; }
+.s-igang    { background: #d0e4f0; color: #3a6a8a; }
+.s-klar     { background: #f0e8d0; color: #8a6a2a; }
+.s-venter   { background: #eee; color: #888; }
+
+/* Vagtliste i detalje */
+.uge-shift-item {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 5px 0;
+  border-bottom: 1px solid rgba(0,0,0,.04);
+  font-size: 12px;
+}
+.uge-shift-item:last-child { border-bottom: none; }
+.uge-shift-avatar {
+  width: 26px; height: 26px;
+  border-radius: 50%;
+  background: var(--brand-primary-light);
+  color: var(--brand-primary);
+  font-size: 10px;
+  font-weight: 700;
+  display: flex; align-items: center; justify-content: center;
+  flex-shrink: 0;
+}
+.uge-shift-name { flex: 1; font-weight: 700; }
+.uge-shift-time { color: var(--color-text-dim); font-size: 11px; }
+
+/* Lager-status i detalje */
+.uge-lager-item {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 5px 0;
+  border-bottom: 1px solid rgba(0,0,0,.04);
+  font-size: 12px;
+}
+.uge-lager-item:last-child { border-bottom: none; }
+.uge-lager-ok { color: var(--color-green-dark, #7a9c54); font-weight: 700; font-size: 11px; }
+.uge-lager-warn { color: var(--color-orange, #e8a832); font-weight: 700; font-size: 11px; }
+.uge-lager-na { color: var(--color-text-dim); font-style: italic; font-size: 11px; }
+
+/* Detalje actions */
+.uge-detail-action {
+  padding: 10px 14px;
+  border-top: 1px solid var(--color-border);
+  background: var(--color-background);
+  display: flex;
+  gap: 8px;
+}
+
+/* Knapper (genbruger office btn-sm hvis tilgængelig, ellers definér) */
+.uge-detail-action .btn-sm {
+  padding: 5px 12px;
+  border: 1px solid var(--color-border);
+  border-radius: 6px;
+  background: var(--color-surface, #fff);
+  font-size: 12px;
+  font-weight: 700;
+  cursor: pointer;
+  font-family: inherit;
+  color: var(--brand-primary);
+}
+.uge-detail-action .btn-sm:hover { background: var(--color-background); border-color: var(--brand-primary); }
+.uge-detail-action .btn-sm.primary {
+  background: var(--brand-primary);
+  color: #fff;
+  border-color: var(--brand-primary);
+}
+.uge-detail-action .btn-sm.primary:hover { background: #7a5419; }

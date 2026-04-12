@@ -445,6 +445,44 @@
     <div class="st-section st-admin-only" id="sec-system">
       <h2>System</h2>
       <div id="system-fields"></div>
+
+      <h3 style="margin-top:24px;font-size:15px;font-weight:700">Kapacitetsplanlægning</h3>
+      <div style="font-size:12px;color:var(--color-text-dim);margin-bottom:14px;line-height:1.6;max-width:600px;background:var(--color-background);padding:10px 14px;border-radius:6px;border:1px solid var(--color-border)">
+        <strong style="color:var(--color-text)">Belastning = enheder / persontimer</strong><br>
+        For hver dag beregnes: samlet antal enheder (eller pax) divideret med tilgængelige persontimer.<br>
+        Persontimer = vagttimer der overlapper med produktionsvinduet (fra produktionsstart til seneste pickup/levering).<br>
+        <span style="margin-top:4px;display:inline-block">Eksempel: 120 enheder, 2 folk i 3 timer = 120 / 6 = <strong>20 enh/t/p</strong></span>
+      </div>
+      <div style="display:flex;gap:12px;align-items:center;margin-bottom:14px">
+        <label style="width:280px;font-size:14px;font-weight:500">Vis kapacitetsratio i ugeoversigt</label>
+        <label class="st-toggle">
+          <input type="checkbox" id="cap-enabled" onchange="toggleCapacity()">
+          <span class="st-toggle-slider"></span>
+        </label>
+      </div>
+      <div style="display:flex;gap:12px;align-items:center;margin-bottom:14px">
+        <label style="width:280px;font-size:14px;font-weight:500">Produktionsstart</label>
+        <input class="st-input" id="cap-prod-start" type="time" style="width:120px" onchange="saveCapThreshold('production_start_time', this.value)">
+        <span style="font-size:11px;color:var(--color-text-dim)">Tidligste produktionstid (normalt 08:00)</span>
+      </div>
+      <div id="cap-thresholds" style="display:none">
+        <p style="font-size:12px;color:var(--color-text-dim);margin-bottom:8px">Grænseværdier (enheder/time/person):</p>
+        <div style="display:flex;gap:12px;align-items:center;margin-bottom:8px">
+          <label style="width:180px;font-size:14px">Ledig kapacitet (blå)</label>
+          <input class="st-input" id="cap-low" type="number" style="width:80px" onchange="saveCapThreshold('capacity_threshold_low', this.value)">
+          <span style="font-size:11px;color:var(--color-text-dim)">under dette</span>
+        </div>
+        <div style="display:flex;gap:12px;align-items:center;margin-bottom:8px">
+          <label style="width:180px;font-size:14px">OK (grøn)</label>
+          <input class="st-input" id="cap-green" type="number" style="width:80px" onchange="saveCapThreshold('capacity_threshold_green', this.value)">
+          <span style="font-size:11px;color:var(--color-text-dim)">under dette</span>
+        </div>
+        <div style="display:flex;gap:12px;align-items:center;margin-bottom:8px">
+          <label style="width:180px;font-size:14px">Advarsel (gul/rød)</label>
+          <input class="st-input" id="cap-yellow" type="number" style="width:80px" onchange="saveCapThreshold('capacity_threshold_yellow', this.value)">
+          <span style="font-size:11px;color:var(--color-text-dim)">under dette = gul, over = rød</span>
+        </div>
+      </div>
     </div>
   </div>
 </div>
@@ -522,6 +560,7 @@ async function init() {
     loadOfferBlocks();
     loadLegoCats();
     loadSystemSection();
+    loadCapacitySettings();
     loadDuplicates();
   }
 }
@@ -1150,6 +1189,31 @@ function loadSystemSection() {
 async function saveSystemField(key) {
   var val = document.getElementById('sys-' + key).value;
   await saveSetting(key, val);
+}
+
+// ─── KAPACITET ──────────────────────────────────────────
+
+function loadCapacitySettings() {
+  var enabled = allSettings['capacity_ratio_enabled'] === 'true';
+  var el = document.getElementById('cap-enabled');
+  if (el) el.checked = enabled;
+  document.getElementById('cap-low').value = allSettings['capacity_threshold_low'] || '20';
+  document.getElementById('cap-green').value = allSettings['capacity_threshold_green'] || '35';
+  document.getElementById('cap-yellow').value = allSettings['capacity_threshold_yellow'] || '45';
+  document.getElementById('cap-thresholds').style.display = enabled ? 'block' : 'none';
+  document.getElementById('cap-prod-start').value = allSettings['production_start_time'] || '08:00';
+}
+
+async function toggleCapacity() {
+  var enabled = document.getElementById('cap-enabled').checked;
+  await saveSetting('capacity_ratio_enabled', enabled ? 'true' : 'false');
+  allSettings['capacity_ratio_enabled'] = enabled ? 'true' : 'false';
+  document.getElementById('cap-thresholds').style.display = enabled ? 'block' : 'none';
+}
+
+async function saveCapThreshold(key, val) {
+  await saveSetting(key, val);
+  allSettings[key] = val;
 }
 
 // ─── HELPERS ─────────────────────────────────────────────

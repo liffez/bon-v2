@@ -500,6 +500,14 @@ function fetchDashboardTopProducts(from, to) {
     return apiFetch('/dashboard/top-products' + qs);
 }
 
+/* ── Schedule (Ugeoversigt) ───────────────────────────────── */
+
+function fetchScheduleWeek(from, to, status) {
+    var qs = '?from=' + encodeURIComponent(from) + '&to=' + encodeURIComponent(to);
+    if (status) qs += '&status=' + encodeURIComponent(status);
+    return apiFetch('/schedule/week' + qs);
+}
+
 /* ── CRM ──────────────────────────────────────────────────── */
 
 function fetchCrmStats() {

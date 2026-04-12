@@ -1035,13 +1035,38 @@ Oprettes under Grocy → Manage master data → Userfields.
   - `kitchen_personal` tilføjet i rolle-dropdown ved bruger-oprettelse/redigering
 - [x] `shared/api.js` — `fetchRolePermissions()` + `patchRolePermissions()`
 
+### Fase 11 — Ugeoversigt
+- [x] Migration 042: `capacity_ratio_enabled`, `capacity_threshold_low/green/yellow` settings
+- [x] `routes/schedule.js` — `GET /api/schedule/week?from=&to=`
+  - Bons: delivery_date BETWEEN, ekskl. AFLYST/AFSLUTTET/FAKTURERET/BETALT, is_offer=0
+  - Smartplan shifts: grupperet per dag med initialer + timer
+  - Lager-status: per bon `grocy_recipe_id` tjek (ok/missing/no_lines)
+  - Kapacitetsberegning bag feature-flag: slot-ratio per time, day_ratio = max(slot_ratio)
+  - Tærskelværdier fra settings: blå < 20, grøn < 35, gul < 45, rød ≥ 45
+- [x] `server.js` — mount `/api/schedule`
+- [x] `office/views/ugeoversigt.js` — Komplet ugeoversigt-view
+  - Uge-navigation (◀/▶/I dag), ISO ugenummer + datointernal
+  - 8-kolonne grid (label + 7 dage) × 3 rækker (Produktion/Personale/Lager)
+  - I dag-kolonne fremhævet, weekend dæmpet
+  - Status-badges (grøn/orange/rød) per celle
+  - Kapacitets-ratio chip i personaleceller
+  - Klik på kolonne → dagdetalje under grid
+    - 3-kolonne panel: bonliste, vagtliste med avatarer, lager per bon
+    - Kapacitets-advarsel ved højt ratio
+    - Footer: "Åbn planlægning →" + "Se alle bonner"
+  - SSE realtidsopdatering (debounced re-fetch)
+- [x] `shared/schedule.css` — Ugeoversigt styling baseret på mockup
+- [x] `office/index.html` — Sidebar "Ugeoversigt" punkt, view-registrering, SSE-handlers
+- [x] `shared/api.js` — `fetchScheduleWeek(from, to)`
+- [x] `settings/index.html` — Kapacitetsplanlægning-sektion (toggle + 3 tærskelfelter, auto-save)
+
 ## Næste opgave
 
 > ✏️ Opdateret 12. april 2026.
 >
-> **Fase 1a–1e + 3A + 3B + 3D + 4 + 5 + 6 (komplet inkl. 6g) + 7 (CRM) + Office CRM redesign + 8 (Fakturering) + 9 (Tilbud) + Mail-vedhæftninger + CRM service-kald + Firma-oprydning + 10 (Mobil Shell) + 10b (Roller & Rettigheder) komplet.**
+> **Fase 1a–1e + 3A + 3B + 3D + 4 + 5 + 6 (komplet inkl. 6g) + 7 (CRM) + Office CRM redesign + 8 (Fakturering) + 9 (Tilbud) + Mail-vedhæftninger + CRM service-kald + Firma-oprydning + 10 (Mobil Shell) + 10b (Roller & Rettigheder) + 11 (Ugeoversigt) komplet.**
 >
-> **Næste sprint:** Priser i planlægningsbon, Ugeoversigt.
+> **Næste sprint:** Priser i planlægningsbon.
 > Så er Bon v1 klar til nedlukning.
 >
 > **Åbne afhængigheder:**
@@ -1463,6 +1488,7 @@ GET    /api/grocy/product-barcodes                         routes/grocy.js
 POST   /api/grocy/product-barcodes                         routes/grocy.js
 DELETE /api/grocy/product-barcodes/:id                     routes/grocy.js
 PUT    /api/grocy/shopping-list/:id                        routes/grocy.js
+GET    /api/schedule/week?from=&to=                        routes/schedule.js
 ```
 
 ---

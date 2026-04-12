@@ -20,6 +20,7 @@
   <link rel="stylesheet" href="views/fakturering.css">
   <link rel="stylesheet" href="views/tilbud.css">
   <link rel="stylesheet" href="views/rapporter.css">
+  <link rel="stylesheet" href="../shared/schedule.css">
   <script src="/assets/jspdf.umd.min.js"></script>
   <!-- Chart.js removed — custom canvas chart in shared/dashboard_chart.js -->
   <style>
@@ -453,6 +454,9 @@
           <button class="sidebar-link" data-view="calendar">
             <span class="sidebar-icon">📅</span> Kalender
           </button>
+          <button class="sidebar-link" data-view="ugeoversigt">
+            <span class="sidebar-icon">📊</span> Ugeoversigt
+          </button>
           <button class="sidebar-link" data-view="planning">
             <span class="sidebar-icon">📦</span> Planlægning
           </button>
@@ -549,6 +553,7 @@
   <script src="views/tilbud.js"></script>
   <script src="views/rapporter.js"></script>
   <script src="/shared/supplier_inbox.js"></script>
+  <script src="views/ugeoversigt.js"></script>
 
   <script>
     (async () => {
@@ -619,6 +624,10 @@
         calendar: {
           init: () => initOfficeCalendar(contentEl, { openDrawer, openNewBon: () => modal.open() }),
           cleanup: () => { if (typeof cleanupOfficeCalendar === 'function') cleanupOfficeCalendar(); },
+        },
+        ugeoversigt: {
+          init: () => initUgeoversigt(contentEl, { openDrawer }),
+          cleanup: () => { if (typeof cleanupUgeoversigt === 'function') cleanupUgeoversigt(); },
         },
         planning: {
           init: () => initOfficePlanning(contentEl, { openDrawer }),
@@ -764,17 +773,20 @@
           if (typeof _dashHandleSSE === 'function') _dashHandleSSE('bon_created', data);
           if (typeof _faktHandleSSE === 'function') _faktHandleSSE('bon_created', data);
           if (typeof _rapportHandleSSE === 'function') _rapportHandleSSE('bon_created', data);
+          if (typeof _uoHandleSSE === 'function') _uoHandleSSE('bon_created', data);
         },
         bon_updated: (data) => {
           if (typeof _blHandleBonUpdated === 'function') _blHandleBonUpdated(data);
           if (typeof _dashHandleSSE === 'function') _dashHandleSSE('bon_updated', data);
           if (typeof _faktHandleSSE === 'function') _faktHandleSSE('bon_updated', data);
           if (typeof _rapportHandleSSE === 'function') _rapportHandleSSE('bon_updated', data);
+          if (typeof _uoHandleSSE === 'function') _uoHandleSSE('bon_updated', data);
         },
         bon_status: (data) => {
           if (typeof _dashHandleSSE === 'function') _dashHandleSSE('bon_status', data);
           if (typeof _faktHandleSSE === 'function') _faktHandleSSE('bon_status', data);
           if (typeof _rapportHandleSSE === 'function') _rapportHandleSSE('bon_status', data);
+          if (typeof _uoHandleSSE === 'function') _uoHandleSSE('bon_status', data);
         },
         crm_activity_created: (data) => {
           if (typeof _crmDashHandleSSE === 'function') _crmDashHandleSSE('crm_activity_created', data);
