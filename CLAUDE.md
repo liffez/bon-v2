@@ -1036,29 +1036,44 @@ Oprettes under Grocy → Manage master data → Userfields.
 - [x] `shared/api.js` — `fetchRolePermissions()` + `patchRolePermissions()`
 
 ### Fase 11 — Ugeoversigt
-- [x] Migration 042: `capacity_ratio_enabled`, `capacity_threshold_low/green/yellow` settings
-- [x] `routes/schedule.js` — `GET /api/schedule/week?from=&to=`
-  - Bons: delivery_date BETWEEN, ekskl. AFLYST/AFSLUTTET/FAKTURERET/BETALT, is_offer=0
+- [x] Migration 042: `capacity_ratio_enabled`, `capacity_threshold_low/green/yellow`, `production_start_time` settings
+- [x] `routes/schedule.js` — `GET /api/schedule/week?from=&to=&status=`
+  - Bons: delivery_date BETWEEN, valgfrit status-filter (default: alle ekskl. AFLYST), is_offer=0
   - Smartplan shifts: grupperet per dag med initialer + timer
   - Lager-status: per bon `grocy_recipe_id` tjek (ok/missing/no_lines)
-  - Kapacitetsberegning bag feature-flag: slot-ratio per time, day_ratio = max(slot_ratio)
+  - Kapacitetsberegning (kører altid): dagsniveau workload/persontimer
+    - Produktionsvindue: `production_start_time` → seneste pickup/delivery (min 1 time)
+    - Persontimer: vagters overlap med produktionsvinduet
+    - `day_ratio = total_workload / available_person_hours`
+    - Workload: `total_units > 0 ? total_units : pax` (som kalenderen)
+  - Feature-flag `capacity_ratio_enabled` styrer kun om detaljerede slot-data returneres
   - Tærskelværdier fra settings: blå < 20, grøn < 35, gul < 45, rød ≥ 45
 - [x] `server.js` — mount `/api/schedule`
 - [x] `office/views/ugeoversigt.js` — Komplet ugeoversigt-view
-  - Uge-navigation (◀/▶/I dag), ISO ugenummer + datointernal
+  - Uge-navigation (◀/▶/I dag), ISO ugenummer + datointerval
+  - Status-filterknapper (BonConfig, toggle on/off, localStorage persistens)
   - 8-kolonne grid (label + 7 dage) × 3 rækker (Produktion/Personale/Lager)
   - I dag-kolonne fremhævet, weekend dæmpet
-  - Status-badges (grøn/orange/rød) per celle
-  - Kapacitets-ratio chip i personaleceller
+  - Status-badges (grøn/orange/rød) + ratio-chip per celle
   - Klik på kolonne → dagdetalje under grid
     - 3-kolonne panel: bonliste, vagtliste med avatarer, lager per bon
     - Kapacitets-advarsel ved højt ratio
     - Footer: "Åbn planlægning →" + "Se alle bonner"
   - SSE realtidsopdatering (debounced re-fetch)
-- [x] `shared/schedule.css` — Ugeoversigt styling baseret på mockup
+- [x] `shared/schedule.css` — Ugeoversigt styling baseret på mockup + filterknapper
 - [x] `office/index.html` — Sidebar "Ugeoversigt" punkt, view-registrering, SSE-handlers
-- [x] `shared/api.js` — `fetchScheduleWeek(from, to)`
-- [x] `settings/index.html` — Kapacitetsplanlægning-sektion (toggle + 3 tærskelfelter, auto-save)
+- [x] `shared/api.js` — `fetchScheduleWeek(from, to, status)`
+- [x] `settings/index.html` — Kapacitetsplanlægning-sektion
+  - Forklaringsboks med formel og eksempel
+  - Produktionsstart tid-input (default 08:00)
+  - Feature-flag toggle + 3 tærskelfelter (synlige når toggle on), auto-save
+
+### Sync-v1 timezone-fix
+- [x] `scripts/sync-v1.js` — `parseV1Date()` fikset fra UTC til lokal tid
+  - V1 gemmer tider i UTC, men de repræsenterer dansk lokal tid (CET/CEST)
+  - Rettet fra `toISOString()` (UTC) til `getHours()`/`getMinutes()` (lokal)
+  - Alle pickup/delivery-tider var forskudt 1-2 timer — nu korrekte
+  - Kræver `--full` sync efter deploy for at rette eksisterende data
 
 ## Næste opgave
 
@@ -1143,6 +1158,12 @@ Oprettes under Grocy → Manage master data → Userfields.
 > - Ordremail til leverandør: rigtig SMTP via kontakt@ristetrug.dk (ikke mailto-link). Sendes automatisk ved "Send & bestil". Skabelon `order_email` redigerbar i Settings → Mail.
 > - Dropsize: advarsel kun (gult banner), blokerer IKKE bestilling. Parser Hoka's danske talformat.
 > - CO2: vises per vare (🌱 badge) + samlet i gruppe-header. Data fra Hoka snapshot `Co2Equivalent`.
+> - Ugeoversigt: selvstændigt office-view (ikke tab i kalender) — `office/views/ugeoversigt.js`
+> - Ugeoversigt: kapacitetsberegning kører ALTID (dagsniveau: workload/persontimer). Feature-flag styrer kun detaljerede slots.
+> - Ugeoversigt: workload = `total_units > 0 ? total_units : pax` (som kalenderen)
+> - Ugeoversigt: produktionsvindue = `production_start_time` → seneste pickup/delivery, minimum 1 time
+> - Ugeoversigt: status-filtre med localStorage persistens — brugeren vælger selv (default: alle ekskl. AFLYST)
+> - Sync-v1: `parseV1Date()` bruger lokale getters (ikke UTC `toISOString`) — v1 gemmer UTC men repræsenterer dansk lokal tid
 
 ---
 
