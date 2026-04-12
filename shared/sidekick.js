@@ -257,10 +257,18 @@ function _skUpdateBadge() {
   var dot = document.getElementById('sk-dot');
   if (!badge) return;
 
-  var count = _sk.tasks.filter(function(t) { return t.status !== 'done'; }).length;
-  badge.textContent = count;
-  badge.style.display = count > 0 ? 'flex' : 'none';
-  badge.className = 'sk-badge' + (count > 3 ? ' alert' : '');
+  var taskCount = _sk.tasks.filter(function(t) { return t.status !== 'done'; }).length;
+  var msgCount = _sk.messages.length;
+  var total = taskCount + msgCount;
+
+  // Vis som "opgaver · beskeder" eller bare tallet
+  if (taskCount > 0 && msgCount > 0) {
+    badge.textContent = taskCount + '·' + msgCount;
+  } else {
+    badge.textContent = total;
+  }
+  badge.style.display = total > 0 ? 'flex' : 'none';
+  badge.className = 'sk-badge' + (taskCount > 3 ? ' alert' : '');
 
   if (dot) {
     dot.className = 'sk-status-dot' + (_sk.ok ? '' : ' error');
