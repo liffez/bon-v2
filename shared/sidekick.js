@@ -81,13 +81,15 @@ function _skLoadAll() {
     _skFetch('/api/users').catch(function() { return []; }),
     _skFetch('/api/smartplan/today').catch(function() { return []; })
   ]).then(function(results) {
-    // Filtrér tasks: i dag + forfaldne + uden dato (daglige driftsopgaver)
+    // Filtrér tasks som Whiteboard's dagvisning: i dag + forfaldne (kræver due_date)
     var allTasks = results[0] || [];
     var todayStr = new Date().toISOString().slice(0, 10);
     _sk.tasks = allTasks.filter(function(t) {
-      if (!t.due_date) return true;                        // daglige (ingen dato)
+      if (!t.due_date) return false;                       // uden dato vises ikke i dagvisning
       var d = t.due_date.slice(0, 10);
-      return d <= todayStr;                                // i dag eller forfaldne
+      if (d === todayStr) return true;                     // i dag
+      if (d < todayStr && t.status !== 'done') return true; // forfalden
+      return false;
     });
     _sk.lists = results[1] || [];
     _sk.messages = (results[2] && results[2].messages) ? results[2].messages : (Array.isArray(results[2]) ? results[2] : []);
