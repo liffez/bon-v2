@@ -265,6 +265,7 @@
 <div class="st-layout">
   <nav class="st-sidebar" id="st-sidebar">
     <button class="st-nav-item active" data-section="users">Brugere</button>
+    <button class="st-nav-item" data-section="roles">Rollerettigheder</button>
     <button class="st-nav-item" data-section="staff">Medarbejdere</button>
     <button class="st-nav-item" data-section="price-cats">Priskategorier</button>
     <button class="st-nav-item" data-section="pay-types">Betalingstyper</button>
@@ -292,6 +293,21 @@
       </table>
       <button class="st-btn st-btn-primary st-btn-add" onclick="showNewUserForm()">+ Ny bruger</button>
       <div id="new-user-form" style="display:none"></div>
+    </div>
+
+    <!-- ════ ROLLERETTIGHEDER ════ -->
+    <div class="st-section" id="sec-roles">
+      <h2>Rollerettigheder</h2>
+      <p style="font-size:13px;color:var(--color-text-dim);margin-bottom:12px;">
+        Styrer hvilke moduler hver rolle har adgang til i mobilzonen og office.
+      </p>
+      <table class="st-table" id="roles-matrix">
+        <thead><tr>
+          <th>Rolle</th><th>CRM</th><th>Tilbud</th><th>Økonomi</th><th>Rapporter</th><th>Settings</th><th>Modtag</th>
+        </tr></thead>
+        <tbody id="roles-matrix-body"></tbody>
+      </table>
+      <div id="roles-overrides" style="margin-top:20px"></div>
     </div>
 
     <!-- ════ MEDARBEJDERE ════ -->
@@ -471,6 +487,7 @@ async function init() {
 
   // Nav-klik
   var _indkobSettingsInit = false;
+  var _rolesLoaded = false;
   document.querySelectorAll('.st-nav-item').forEach(function(btn) {
     btn.addEventListener('click', function() {
       var sec = btn.dataset.section;
@@ -483,6 +500,11 @@ async function init() {
       if (sec === 'indkob' && !_indkobSettingsInit) {
         _indkobSettingsInit = true;
         initIndkobSettings(document.getElementById('indkob-settings-container'), { mode: 'page' });
+      }
+      // Lazy load roles matrix
+      if (sec === 'roles' && !_rolesLoaded) {
+        _rolesLoaded = true;
+        loadRolesMatrix();
       }
     });
   });
@@ -561,7 +583,7 @@ async function loadUsers() {
 }
 
 function roleOptions(current) {
-  var roles = ['admin','office','kitchen','delivery'];
+  var roles = ['admin','office','kitchen','kitchen_personal','delivery'];
   return roles.map(function(r) {
     return '<option value="' + r + '"' + (r === current ? ' selected' : '') + '>' + r + '</option>';
   }).join('');
@@ -613,6 +635,67 @@ async function doCreateUser() {
   document.getElementById('new-user-form').style.display = 'none';
   toast('Bruger oprettet');
   loadUsers();
+}
+
+// ═══════════════════════════════════════════════════════════
+// ROLLERETTIGHEDER
+// ═══════════════════════════════════════════════════════════
+
+var ROLE_LABELS = {
+  admin: 'Admin',
+  office: 'Office',
+  kitchen: 'Kitchen',
+  kitchen_personal: 'K. personlig',
+  delivery: 'Levering'
+};
+var PERM_MODULES = ['crm', 'tilbud', 'okonomi', 'rapporter', 'settings', 'modtag'];
+
+async function loadRolesMatrix() {
+  var perms = await fetchRolePermissions();
+  var tbody = document.getElementById('roles-matrix-body');
+  tbody.innerHTML = '';
+  var roles = ['admin', 'office', 'kitchen', 'kitchen_personal', 'delivery'];
+  roles.forEach(function(role) {
+    var rp = perms[role] || {};
+    var tr = document.createElement('tr');
+    var isAdmin = role === 'admin';
+    var cells = '<td><strong>' + esc(ROLE_LABELS[role]) + '</strong></td>';
+    PERM_MODULES.forEach(function(mod) {
+      var checked = rp[mod] ? 'checked' : '';
+      if (isAdmin) {
+        cells += '<td style="text-align:center;color:var(--color-success)">&#10003;</td>';
+      } else {
+        cells += '<td style="text-align:center"><label class="st-toggle"><input type="checkbox" ' + checked +
+          ' onchange="toggleRolePerm(\'' + role + '\',\'' + mod + '\',this.checked)">' +
+          '<span class="st-toggle-slider"></span></label></td>';
+      }
+    });
+    tr.innerHTML = cells;
+    tbody.appendChild(tr);
+  });
+
+  // Individuelle overrides
+  var users = await fetchUsers();
+  var overrideUsers = users.filter(function(u) { return u.modules_json; });
+  var overridesDiv = document.getElementById('roles-overrides');
+  if (overrideUsers.length > 0) {
+    overridesDiv.innerHTML = '<h3>Individuelle overrides</h3>' +
+      '<p style="font-size:13px;color:var(--color-text-dim);margin-bottom:8px;">' +
+        'Brugere med individuelle moduladgange der afviger fra rollens standard.</p>' +
+      '<ul>' + overrideUsers.map(function(u) {
+        return '<li><strong>' + esc(u.name) + '</strong> (' + u.role + '): <code>' + esc(u.modules_json) + '</code></li>';
+      }).join('') + '</ul>';
+  } else {
+    overridesDiv.innerHTML = '';
+  }
+}
+
+async function toggleRolePerm(role, mod, value) {
+  var perms = await fetchRolePermissions();
+  var rp = perms[role] || {};
+  rp[mod] = value;
+  await patchRolePermissions(role, rp);
+  toast('Rettighed opdateret');
 }
 
 // ═══════════════════════════════════════════════════════════

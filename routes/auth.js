@@ -1,6 +1,7 @@
 const express = require('express');
 const router = express.Router();
 const { getUserByEmail, getUserById, verifyPassword } = require('../db/helpers');
+const { userCan } = require('../shared/auth');
 const { getDb } = require('../db/database');
 
 // Hjælpefunktion: sæt session med korrekt varighed fra settings
@@ -93,12 +94,18 @@ router.post('/logout', (req, res) => {
   res.json({ ok: true });
 });
 
-// GET /api/auth/me — hvem er jeg?
+// GET /api/auth/me — hvem er jeg? (med permissions)
+const MODULES = ['crm', 'tilbud', 'okonomi', 'rapporter', 'settings', 'modtag'];
+
 router.get('/me', (req, res) => {
   if (!req.session.userId) return res.status(401).json({ error: 'Ikke logget ind' });
   const user = getUserById(req.session.userId);
   if (!user) return res.status(401).json({ error: 'Bruger ikke fundet' });
-  res.json(user);
+
+  const permissions = {};
+  MODULES.forEach(m => { permissions[m] = userCan(user, m); });
+
+  res.json({ ...user, permissions });
 });
 
 module.exports = router;

@@ -2,6 +2,7 @@ const express    = require('express');
 const router     = express.Router();
 const { getDb }  = require('../db/database');
 const { handle } = require('../db/helpers');
+const { requireAuth, invalidatePermCache } = require('../shared/auth');
 
 // GET /api/settings
 router.get('/', handle((req, res) => {
@@ -19,6 +20,37 @@ router.patch('/:key', handle((req, res) => {
     const { value } = req.body;
     getDb().prepare(`INSERT INTO settings (key, value) VALUES (?,?) ON CONFLICT(key) DO UPDATE SET value = ?, updated_at = CURRENT_TIMESTAMP`).run(req.params.key, value, value);
     res.json({ key: req.params.key, value });
+}));
+
+/* ── Rollerettigheder (admin) ────────────────────────── */
+
+// GET /api/settings/role-permissions
+router.get('/role-permissions', requireAuth('admin'), handle((req, res) => {
+    const db = getDb();
+    const roles = ['admin', 'office', 'kitchen', 'kitchen_personal', 'delivery'];
+    const result = {};
+    roles.forEach(role => {
+        const row = db.prepare('SELECT value FROM settings WHERE key = ?')
+            .get(`role_permissions_${role}`);
+        try { result[role] = row ? JSON.parse(row.value) : {}; }
+        catch { result[role] = {}; }
+    });
+    res.json(result);
+}));
+
+// PATCH /api/settings/role-permissions/:role
+router.patch('/role-permissions/:role', requireAuth('admin'), handle((req, res) => {
+    const VALID_ROLES = ['office', 'kitchen', 'kitchen_personal', 'delivery'];
+    if (!VALID_ROLES.includes(req.params.role)) {
+        return res.status(400).json({ error: 'Ugyldig rolle eller admin kan ikke begrænses' });
+    }
+    const db = getDb();
+    db.prepare(
+        'UPDATE settings SET value = ?, updated_at = CURRENT_TIMESTAMP WHERE key = ?'
+    ).run(JSON.stringify(req.body), `role_permissions_${req.params.role}`);
+
+    invalidatePermCache();
+    res.json({ ok: true });
 }));
 
 /* ── Duplikat-kandidater (admin) ──────────────────────── */

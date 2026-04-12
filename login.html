@@ -130,6 +130,7 @@
     <script>
         function getDefaultZone(role) {
             if (role === 'admin' || role === 'office') return '/office/';
+            if (role === 'kitchen_personal') return '/mobile/';
             return '/kitchen/';
         }
 

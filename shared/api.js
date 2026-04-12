@@ -240,6 +240,17 @@ function setUserPassword(id, password) {
     });
 }
 
+function fetchRolePermissions() {
+    return apiFetch('/settings/role-permissions');
+}
+
+function patchRolePermissions(role, perms) {
+    return apiFetch('/settings/role-permissions/' + role, {
+        method: 'PATCH',
+        body: JSON.stringify(perms),
+    });
+}
+
 /* ── MAIL ────────────────────────────────────────────────── */
 
 function fetchMailTemplates() {

@@ -39,6 +39,7 @@ app.get('/', (req, res) => {
   if (req.session?.userId) {
     const role = req.session.userRole || 'kitchen';
     if (role === 'admin' || role === 'office') return res.redirect('/office/');
+    if (role === 'kitchen_personal') return res.redirect('/mobile/');
     return res.redirect('/kitchen/');
   }
   res.redirect('/login.html');

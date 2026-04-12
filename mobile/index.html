@@ -33,29 +33,8 @@
     <!-- Content -->
     <main class="m-content" id="mContent"></main>
 
-    <!-- Bottom nav -->
-    <nav class="m-nav">
-        <button class="m-nav-btn active" data-view="bons">
-            <span class="m-nav-icon">&#128203;</span>
-            Bons
-        </button>
-        <button class="m-nav-btn" data-view="modtag">
-            <span class="m-nav-icon">&#128230;</span>
-            Modtag
-        </button>
-        <button class="m-nav-btn" data-view="crm">
-            <span class="m-nav-icon">&#128222;</span>
-            CRM
-        </button>
-        <button class="m-nav-btn" data-view="oversigt">
-            <span class="m-nav-icon">&#128202;</span>
-            Overblik
-        </button>
-        <button class="m-nav-btn" data-view="mig">
-            <span class="m-nav-icon">&#128100;</span>
-            Mig
-        </button>
-    </nav>
+    <!-- Bottom nav (renderes dynamisk efter auth) -->
+    <nav class="m-nav" id="mNav"></nav>
 
     <!-- Offline banner -->
     <div class="m-offline" id="offlineBanner" hidden>Ingen forbindelse</div>
@@ -82,7 +61,30 @@
 
         // Redirect link based on role
         var fullLink = document.getElementById('linkFullVersion');
-        if (_mUser.role === 'kitchen') fullLink.href = '/kitchen/';
+        if (_mUser.role === 'kitchen' || _mUser.role === 'kitchen_personal') fullLink.href = '/kitchen/';
+
+        /* ── Dynamisk nav baseret på permissions ── */
+        var NAV_DEFS = [
+            { view: 'bons',     icon: '&#128203;', label: 'Bons',     requires: null },
+            { view: 'modtag',   icon: '&#128230;', label: 'Modtag',   requires: 'modtag' },
+            { view: 'crm',      icon: '&#128222;', label: 'CRM',      requires: 'crm' },
+            { view: 'oversigt', icon: '&#128202;', label: 'Overblik', requires: null },
+            { view: 'mig',      icon: '&#128100;', label: 'Mig',      requires: null },
+        ];
+        var _mPerms = _mUser.permissions || {};
+        var _mAllowedViews = NAV_DEFS
+            .filter(function(d) { return d.requires === null || _mPerms[d.requires]; })
+            .map(function(d) { return d.view; });
+
+        var nav = document.getElementById('mNav');
+        NAV_DEFS.forEach(function(d) {
+            if (!_mAllowedViews.includes(d.view)) return;
+            var btn = document.createElement('button');
+            btn.className = 'm-nav-btn' + (d.view === 'bons' ? ' active' : '');
+            btn.dataset.view = d.view;
+            btn.innerHTML = '<span class="m-nav-icon">' + d.icon + '</span>' + d.label;
+            nav.appendChild(btn);
+        });
 
         /* ── Header dropdown ── */
         var userEl = document.getElementById('headerUser');
