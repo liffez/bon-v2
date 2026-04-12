@@ -14,6 +14,8 @@
   font-family: monospace;
 }
 #help-hint:hover { color: var(--brand-primary, #8e631f); border-color: var(--brand-primary, #8e631f); }
+/* Skjul flydende ?-knap i kitchen-zonen (vises i topbaren i stedet) */
+.zone-kitchen #help-hint { display: none; }
 #help-hint.active {
   background: var(--brand-primary, #8e631f); color: #fff;
   border-color: var(--brand-primary, #8e631f);

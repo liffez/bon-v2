@@ -122,6 +122,16 @@ function renderKitchenTopbar(container, opts) {
         right.appendChild(dot);
     }
 
+    // Hjælp-knap i topbar
+    var helpBtn = document.createElement('button');
+    helpBtn.className = 'topbar-help-btn';
+    helpBtn.textContent = '?';
+    helpBtn.title = 'Hjælp (H)';
+    helpBtn.addEventListener('click', function() {
+        if (typeof HelpSystem !== 'undefined') HelpSystem.toggle();
+    });
+    right.appendChild(helpBtn);
+
     // rightSlot
     if (opts.rightSlot) {
         if (typeof opts.rightSlot === 'function') {

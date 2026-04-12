@@ -72,15 +72,23 @@ function _skPatch(path, body) {
    DATA LOADING
    ══════════════════════════════════════════════════════════ */
 function _skLoadAll() {
-  var today = new Date().toISOString().slice(0, 10);
+  // Hent alle tasks (Whiteboard filtrerer daglige ud ved date=)
+  // Sidekick filtrerer client-side: i dag + forfaldne + uden dato
   return Promise.all([
-    _skFetch('/api/tasks?date=' + today).catch(function() { return []; }),
+    _skFetch('/api/tasks').catch(function() { return []; }),
     _skFetch('/api/tasks/lists').catch(function() { return []; }),
     _skFetch('/api/board/messages?limit=20').catch(function() { return { messages: [] }; }),
     _skFetch('/api/users').catch(function() { return []; }),
     _skFetch('/api/smartplan/today').catch(function() { return []; })
   ]).then(function(results) {
-    _sk.tasks = results[0] || [];
+    // Filtrér tasks: i dag + forfaldne + uden dato (daglige driftsopgaver)
+    var allTasks = results[0] || [];
+    var todayStr = new Date().toISOString().slice(0, 10);
+    _sk.tasks = allTasks.filter(function(t) {
+      if (!t.due_date) return true;                        // daglige (ingen dato)
+      var d = t.due_date.slice(0, 10);
+      return d <= todayStr;                                // i dag eller forfaldne
+    });
     _sk.lists = results[1] || [];
     _sk.messages = (results[2] && results[2].messages) ? results[2].messages : (Array.isArray(results[2]) ? results[2] : []);
     _sk.users = results[3] || [];
