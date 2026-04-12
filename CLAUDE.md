@@ -1068,6 +1068,17 @@ Oprettes under Grocy → Manage master data → Userfields.
   - Produktionsstart tid-input (default 08:00)
   - Feature-flag toggle + 3 tærskelfelter (synlige når toggle on), auto-save
 
+### Priser i planlægningsbon
+- [x] Migration 043: `show_prices_in_planning` setting (default '0')
+- [x] `shared/planning.js` — pris-toggle knap i toolbar
+  - Henter setting fra server ved init, persisterer via `patchSetting()`
+  - Moms-toggle (m/moms ↔ u/moms) i kolonneheader — salgspriser divideres med 1.25
+  - 6 kolonner: Antal, Vare, Kategori, Stk-pris, Kostpris, Total
+  - Footer i faktura-format: Netto, Moms 25%, Total inkl. moms, Kostpris, Margin %
+  - Margin beregnes korrekt på salg u/moms vs. kostpris u/moms
+- [x] `shared/planning.css` — vat-toggle knap, subtotal/margin styling
+- [x] `settings/index.html` — "Vis priser i planlægningsbon" toggle under System
+
 ### Sync-v1 timezone-fix
 - [x] `scripts/sync-v1.js` — `parseV1Date()` fikset fra UTC til lokal tid
   - V1 gemmer tider i UTC, men de repræsenterer dansk lokal tid (CET/CEST)
@@ -1079,10 +1090,9 @@ Oprettes under Grocy → Manage master data → Userfields.
 
 > ✏️ Opdateret 12. april 2026.
 >
-> **Fase 1a–1e + 3A + 3B + 3D + 4 + 5 + 6 (komplet inkl. 6g) + 7 (CRM) + Office CRM redesign + 8 (Fakturering) + 9 (Tilbud) + Mail-vedhæftninger + CRM service-kald + Firma-oprydning + 10 (Mobil Shell) + 10b (Roller & Rettigheder) + 11 (Ugeoversigt) komplet.**
+> **Fase 1a–1e + 3A + 3B + 3D + 4 + 5 + 6 (komplet inkl. 6g) + 7 (CRM) + Office CRM redesign + 8 (Fakturering) + 9 (Tilbud) + Mail-vedhæftninger + CRM service-kald + Firma-oprydning + 10 (Mobil Shell) + 10b (Roller & Rettigheder) + 11 (Ugeoversigt) + Priser i planlægningsbon komplet.**
 >
-> **Næste sprint:** Priser i planlægningsbon.
-> Så er Bon v1 klar til nedlukning.
+> **Bon v1 er klar til nedlukning.**
 >
 > **Åbne afhængigheder:**
 > - DMI API-nøgle (vejr på dashboards) — Leif finder frem til eksisterende nøgle (Open-Meteo bruges midlertidigt)
@@ -1096,9 +1106,6 @@ Oprettes under Grocy → Manage master data → Userfields.
 > - `services/hokaAdapter.js` — bruges ikke af bestillingsflowet (erstattet af proxy-logik i `routes/horkram.js`). Review om den skal slettes eller beholdes til andre formål.
 >
 > **Åbne design-beslutninger:**
-> - Priser i planlægningsbon: setting `show_prices_in_planning` (default false)
->   Styrer om salgspris/kostpris/margin vises i planlægningsbon.
->   Implementeres som setting i settings-tabellen, bruges i planning.js til at vise/skjule priskolonner.
 > - shared/-mappe opdeling i undermapper — udskydes til senere refaktorering
 > - ~~orders.js migrering fra JSON-fil til SQLite~~ — routes/orders.js bruger SQLite (tools/bestiliing/orders.js JSON-version er deprecated)
 >
@@ -1164,6 +1171,8 @@ Oprettes under Grocy → Manage master data → Userfields.
 > - Ugeoversigt: produktionsvindue = `production_start_time` → seneste pickup/delivery, minimum 1 time
 > - Ugeoversigt: status-filtre med localStorage persistens — brugeren vælger selv (default: alle ekskl. AFLYST)
 > - Sync-v1: `parseV1Date()` bruger lokale getters (ikke UTC `toISOString`) — v1 gemmer UTC men repræsenterer dansk lokal tid
+> - Planlægningsbon priser: salgspriser fra Grocy er INKL. moms (25%), kostpriser er EKSKL. moms — margin beregnes altid på salg u/moms vs. kostpris
+> - Planlægningsbon: moms-toggle (m/moms ↔ u/moms) på linje-priser, footer altid faktura-format (Netto, Moms 25%, Total inkl. moms, Kostpris, Margin %)
 
 ---
 

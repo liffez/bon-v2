@@ -29,6 +29,7 @@ var _plSelectedIds = new Set(); // bon-id'er der er checked
 var _plBons        = [];       // rådata fra API
 var _plAggregated  = [];       // beregnede linjer
 var _plShowPrices  = false;
+var _plVatMode     = 'incl';   // 'incl' = m/moms, 'excl' = u/moms (linje-priser)
 var _plLoading     = false;
 var _plStaffData   = null;
 
@@ -64,9 +65,20 @@ function initPlanning(containerEl, options) {
 
     _plShowOffers = localStorage.getItem('planning_show_offers') === 'true';
 
+    // Hent pris-setting fra server, render shell imens
     _plRenderShell();
     _plLoadData();
     _plInitSSE();
+
+    fetchSettings().then(function(settings) {
+        var s = (settings || []).find(function(r) { return r.key === 'show_prices_in_planning'; });
+        var val = s ? s.value === '1' : false;
+        if (val !== _plShowPrices) {
+            _plShowPrices = val;
+            _plUpdatePriceToggle();
+            _plRenderResult();
+        }
+    }).catch(function() {});
 }
 
 /* ══════════════════════════════════════════════════════════════
@@ -431,6 +443,10 @@ function _plRenderResult() {
         '<span class="pl-result-title">AGGREGERET PRODUKTIONSOVERSIGT</span>' +
         '<span class="pl-result-meta">' + _plAggregated.length + ' varer · ' + totalQty + ' enheder</span>' +
         '<div class="pl-result-actions">' +
+            '<button class="pl-action-btn' + (_plShowPrices ? ' pl-price-toggle-active' : '') + '" id="plBtnPrices" title="' + (_plShowPrices ? 'Skjul priser' : 'Vis priser') + '">' +
+                '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 1v22M17 5H9.5a3.5 3.5 0 000 7h5a3.5 3.5 0 010 7H6"/></svg>' +
+                ' Priser' +
+            '</button>' +
             '<button class="pl-action-btn" id="plBtnRavarer" title="Råvarer">' +
                 '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="16.5" y1="9.4" x2="7.5" y2="4.21"/><path d="M21 16V8a2 2 0 00-1-1.73l-7-4a2 2 0 00-2 0l-7 4A2 2 0 003 8v8a2 2 0 001 1.73l7 4a2 2 0 002 0l7-4A2 2 0 0021 16z"/><polyline points="3.27 6.96 12 12.01 20.73 6.96"/><line x1="12" y1="22.08" x2="12" y2="12"/></svg>' +
                 ' Råvarer' +
@@ -442,12 +458,19 @@ function _plRenderResult() {
         '</div>' +
     '</div>';
 
+    var isExcl = _plVatMode === 'excl';
+    var vatDiv = isExcl ? 1.25 : 1;
+    var vatLabel = isExcl ? 'u/moms' : 'm/moms';
+
     html += '<table class="pl-result-table"><thead><tr>' +
         '<th class="pl-col-qty">Antal</th>' +
         '<th class="pl-col-name">Vare</th>' +
         '<th class="pl-col-cat">Kategori</th>';
     if (_plShowPrices) {
-        html += '<th class="pl-col-price">Stk-pris</th>' +
+        html += '<th class="pl-col-price">Stk-pris' +
+                    ' <button class="pl-vat-toggle" id="plVatToggle" title="Skift moms-visning">' + vatLabel + '</button>' +
+                '</th>' +
+                '<th class="pl-col-cost">Kostpris</th>' +
                 '<th class="pl-col-total">Total</th>';
     }
     html += '</tr></thead><tbody>';
@@ -463,28 +486,70 @@ function _plRenderResult() {
                 '<td class="pl-col-name">' + esc(line.product_name) + '</td>' +
                 '<td class="pl-col-cat">' + esc(catDisplay) + '</td>';
             if (_plShowPrices) {
-                html += '<td class="pl-col-price">' + (line.unit_price ? line.unit_price.toFixed(0) + ' kr' : '') + '</td>' +
-                        '<td class="pl-col-total">' + (line.unit_price ? (line.unit_price * line.quantity).toFixed(0) + ' kr' : '') + '</td>';
+                var uPrice = line.unit_price ? (line.unit_price / vatDiv) : 0;
+                var lineTotal = line.unit_price ? (line.unit_price * line.quantity / vatDiv) : 0;
+                html += '<td class="pl-col-price">' + (uPrice ? uPrice.toFixed(0) + ' kr' : '') + '</td>' +
+                        '<td class="pl-col-cost">' + (line.cost_price ? line.cost_price.toFixed(0) + ' kr' : '') + '</td>' +
+                        '<td class="pl-col-total">' + (lineTotal ? lineTotal.toFixed(0) + ' kr' : '') + '</td>';
             }
             html += '</tr>';
         });
     });
 
-    // Totaler
-    html += '</tbody><tfoot><tr class="pl-result-total">' +
-        '<td class="pl-col-qty"><strong>' + totalQty + '</strong></td>' +
-        '<td class="pl-col-name">Total</td>' +
-        '<td></td>';
+    // Footer — altid faktura-format: Netto, Moms, Total, Kostpris, Margin
+    html += '</tbody><tfoot>';
     if (_plShowPrices) {
-        var margin = totalSales > 0 ? ((1 - totalCost / totalSales) * 100).toFixed(0) : 0;
-        html += '<td class="pl-col-price">Kostpris: ' + totalCost.toFixed(0) + ' kr</td>' +
-                '<td class="pl-col-total">' + totalSales.toFixed(0) + ' kr (' + margin + '% margin)</td>';
+        var salesExVat = totalSales / 1.25;
+        var vatAmount = totalSales - salesExVat;
+        var margin = salesExVat > 0 ? ((1 - totalCost / salesExVat) * 100).toFixed(0) : 0;
+        html += '<tr class="pl-result-total">' +
+            '<td class="pl-col-qty"><strong>' + totalQty + '</strong></td>' +
+            '<td class="pl-col-name">Total</td>' +
+            '<td></td>' +
+            '<td class="pl-col-price">Netto</td>' +
+            '<td class="pl-col-cost"></td>' +
+            '<td class="pl-col-total">' + salesExVat.toFixed(0) + ' kr</td>' +
+        '</tr>' +
+        '<tr class="pl-result-subtotal">' +
+            '<td></td><td></td><td></td>' +
+            '<td class="pl-col-price">Moms 25%</td>' +
+            '<td></td>' +
+            '<td class="pl-col-total">' + vatAmount.toFixed(0) + ' kr</td>' +
+        '</tr>' +
+        '<tr class="pl-result-total">' +
+            '<td></td><td></td><td></td>' +
+            '<td class="pl-col-price">Total inkl. moms</td>' +
+            '<td></td>' +
+            '<td class="pl-col-total"><strong>' + totalSales.toFixed(0) + ' kr</strong></td>' +
+        '</tr>' +
+        '<tr class="pl-result-subtotal">' +
+            '<td></td><td></td><td></td>' +
+            '<td class="pl-col-price">Kostpris</td>' +
+            '<td></td>' +
+            '<td class="pl-col-total">' + totalCost.toFixed(0) + ' kr</td>' +
+        '</tr>' +
+        '<tr class="pl-result-margin">' +
+            '<td></td><td></td><td></td>' +
+            '<td class="pl-col-price">Margin</td>' +
+            '<td></td>' +
+            '<td class="pl-col-total"><strong>' + margin + '%</strong></td>' +
+        '</tr>';
+    } else {
+        html += '<tr class="pl-result-total">' +
+            '<td class="pl-col-qty"><strong>' + totalQty + '</strong></td>' +
+            '<td class="pl-col-name">Total</td>' +
+            '<td></td>' +
+        '</tr>';
     }
-    html += '</tr></tfoot></table>';
+    html += '</tfoot></table>';
 
     el.innerHTML = html;
 
     // Wire action buttons
+    var btnPrices = document.getElementById('plBtnPrices');
+    if (btnPrices) btnPrices.addEventListener('click', _plTogglePrices);
+    var btnVat = document.getElementById('plVatToggle');
+    if (btnVat) btnVat.addEventListener('click', _plToggleVat);
     var btnRav = document.getElementById('plBtnRavarer');
     if (btnRav) btnRav.addEventListener('click', _plShowRavarer);
     var btnSum = document.getElementById('plBtnSummary');
@@ -602,6 +667,36 @@ async function _plShowRavarer() {
         console.error('Råvarer-fejl:', err);
         var body = document.querySelector('.modal-body');
         if (body) body.innerHTML = '<div class="changelog-empty">Kunne ikke hente ingredienser. Prøv igen.</div>';
+    }
+}
+
+/* ══════════════════════════════════════════════════════════════
+   PRIS-TOGGLE
+   ══════════════════════════════════════════════════════════════ */
+function _plTogglePrices() {
+    _plShowPrices = !_plShowPrices;
+    // Persistér til server-setting
+    if (typeof patchSetting === 'function') {
+        patchSetting('show_prices_in_planning', _plShowPrices ? '1' : '0').catch(function() {});
+    }
+    _plUpdatePriceToggle();
+    _plRenderResult();
+}
+
+function _plToggleVat(e) {
+    e.stopPropagation();
+    _plVatMode = _plVatMode === 'incl' ? 'excl' : 'incl';
+    _plRenderResult();
+}
+
+function _plUpdatePriceToggle() {
+    var btn = document.getElementById('plBtnPrices');
+    if (!btn) return;
+    btn.title = _plShowPrices ? 'Skjul priser' : 'Vis priser';
+    if (_plShowPrices) {
+        btn.classList.add('pl-price-toggle-active');
+    } else {
+        btn.classList.remove('pl-price-toggle-active');
     }
 }
 

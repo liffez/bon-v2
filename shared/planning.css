@@ -343,15 +343,57 @@
     font-size: 12px;
 }
 .pl-col-price,
+.pl-col-cost,
 .pl-col-total {
     text-align: right;
     white-space: nowrap;
+}
+.pl-col-cost {
+    color: var(--color-text-dim, #888);
+    font-size: 13px;
+}
+.pl-vat-toggle {
+    display: inline-block;
+    font-size: 10px;
+    font-weight: 600;
+    padding: 1px 6px;
+    margin-left: 4px;
+    border: 1px solid var(--brand-primary, #8e631f);
+    border-radius: 3px;
+    background: var(--brand-primary-light, #f1e6b2);
+    color: var(--brand-primary, #8e631f);
+    cursor: pointer;
+    vertical-align: middle;
+    line-height: 1.4;
+}
+.pl-vat-toggle:hover {
+    background: var(--brand-primary, #8e631f);
+    color: #fff;
 }
 .pl-result-total td {
     padding: 10px 14px;
     font-weight: 700;
     border-top: 2px solid var(--color-border, #d7d1ca);
     background: var(--color-background, #f5f4f2);
+}
+.pl-result-subtotal td {
+    padding: 4px 14px;
+    color: var(--color-text-dim, #888);
+    font-size: 13px;
+}
+.pl-result-margin td {
+    padding: 6px 14px;
+    font-size: 14px;
+    border-top: 1px solid var(--color-border, #d7d1ca);
+}
+.pl-col-price small,
+.pl-col-total small {
+    font-weight: 400;
+    opacity: 0.7;
+}
+.pl-price-toggle-active {
+    background: var(--brand-primary, #8e631f) !important;
+    color: #fff !important;
 }
 
 /* ── Kitchen zone tweaks ──────────────────────────────────── */

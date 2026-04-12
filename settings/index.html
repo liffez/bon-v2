@@ -483,6 +483,16 @@
           <span style="font-size:11px;color:var(--color-text-dim)">under dette = gul, over = rød</span>
         </div>
       </div>
+
+      <h3 style="margin-top:24px;font-size:15px;font-weight:700">Planlægningsbon</h3>
+      <div style="display:flex;gap:12px;align-items:center;margin-bottom:14px">
+        <label style="width:280px;font-size:14px;font-weight:500">Vis priser i planlægningsbon</label>
+        <label class="st-toggle">
+          <input type="checkbox" id="planning-prices-enabled" onchange="togglePlanningPrices()">
+          <span class="st-toggle-slider"></span>
+        </label>
+        <span style="font-size:11px;color:var(--color-text-dim)">Salgspris (m/moms), kostpris, margin</span>
+      </div>
     </div>
   </div>
 </div>
@@ -561,6 +571,7 @@ async function init() {
     loadLegoCats();
     loadSystemSection();
     loadCapacitySettings();
+    loadPlanningPricesSettings();
     loadDuplicates();
   }
 }
@@ -1214,6 +1225,20 @@ async function toggleCapacity() {
 async function saveCapThreshold(key, val) {
   await saveSetting(key, val);
   allSettings[key] = val;
+}
+
+// ─── PLANLÆGNINGSBON PRISER ─────────────────────────────
+
+function loadPlanningPricesSettings() {
+  var enabled = allSettings['show_prices_in_planning'] === '1';
+  var el = document.getElementById('planning-prices-enabled');
+  if (el) el.checked = enabled;
+}
+
+async function togglePlanningPrices() {
+  var enabled = document.getElementById('planning-prices-enabled').checked;
+  await saveSetting('show_prices_in_planning', enabled ? '1' : '0');
+  allSettings['show_prices_in_planning'] = enabled ? '1' : '0';
 }
 
 // ─── HELPERS ─────────────────────────────────────────────
