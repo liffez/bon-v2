@@ -1079,6 +1079,36 @@ Oprettes under Grocy → Manage master data → Userfields.
 - [x] `shared/planning.css` — vat-toggle knap, subtotal/margin styling
 - [x] `settings/index.html` — "Vis priser i planlægningsbon" toggle under System
 
+### Hjælpesystem
+- [x] `shared/help-system.js` (~370 linjer) — HelpSystem + MapMode moduler
+  - Selector-baseret mapping (CSS-selectorer i JSON, ikke data-attributter)
+  - H = hjælpepanel med nummererede badges + sidepanel
+  - Ctrl+Shift+H = kortlægningstilstand (klik element → udfyld tekst → gem)
+  - Auto-genereret CSS-selector (id > klasser > nth-child)
+  - SPA-support via `HelpSystem.setPage(key, name)`
+  - Floating `?`-knap nederst højre
+- [x] `shared/help-system.css` (~230 linjer) — overlay, badges, panel, tooltip, mapping-UI
+- [x] `routes/help.js` — GET/POST `/api/help-content` (POST admin-only)
+- [x] `data/help-content.json` — hjælpetekster for 9 kitchen-sider + planlægning
+- [x] Integreret i 9 kitchen HTML-filer + office SPA (dynamisk setPage ved view-switch)
+- [x] Kopieret til Whiteboard-projektet med 18 hjælpetekster for tavle-siden
+
+### Whiteboard Sidekick
+- [x] `shared/sidekick.js` (~620 linjer) — tre-trins overlay i kitchen-zone
+  - Trin 1: Flydende ikon med badge (antal uafsluttede opgaver)
+  - Trin 2: Sidepanel (320px) — dagens opgaver, hurtig-tilføj, beskeder
+  - Trin 3: Fuld skærm — lister, alle opgaver, beskeder, vagtplan
+  - Cross-origin fetch til Whiteboard API (`WHITEBOARD_BASE_URL`)
+  - Config via `/api/sidekick/config` (env vars)
+  - Polling hvert 30s (kun når mode !== 'icon')
+  - Optimistisk UI + 8s fortryd-toast ved opgave-afslutning
+  - Hurtig-tilføj opgave direkte fra panelet
+  - Lydløs degradering ved manglende config eller API-fejl
+- [x] `shared/sidekick.css` (~250 linjer) — whiteboard-palette, ikon, panel, fuld skærm
+- [x] `routes/sidekick.js` — GET `/api/sidekick/config`
+- [x] Integreret i `kitchen/today.html` + `kitchen/index.html`
+- [x] `.env.example` — `WHITEBOARD_BASE_URL`, `SOP_BASE_URL`
+
 ### Sync-v1 timezone-fix
 - [x] `scripts/sync-v1.js` — `parseV1Date()` fikset fra UTC til lokal tid
   - V1 gemmer tider i UTC, men de repræsenterer dansk lokal tid (CET/CEST)
@@ -1090,7 +1120,7 @@ Oprettes under Grocy → Manage master data → Userfields.
 
 > ✏️ Opdateret 12. april 2026.
 >
-> **Fase 1a–1e + 3A + 3B + 3D + 4 + 5 + 6 (komplet inkl. 6g) + 7 (CRM) + Office CRM redesign + 8 (Fakturering) + 9 (Tilbud) + Mail-vedhæftninger + CRM service-kald + Firma-oprydning + 10 (Mobil Shell) + 10b (Roller & Rettigheder) + 11 (Ugeoversigt) + Priser i planlægningsbon komplet.**
+> **Fase 1a–1e + 3A + 3B + 3D + 4 + 5 + 6 (komplet inkl. 6g) + 7 (CRM) + Office CRM redesign + 8 (Fakturering) + 9 (Tilbud) + Mail-vedhæftninger + CRM service-kald + Firma-oprydning + 10 (Mobil Shell) + 10b (Roller & Rettigheder) + 11 (Ugeoversigt) + Priser i planlægningsbon + Hjælpesystem + Whiteboard Sidekick komplet.**
 >
 > **Bon v1 er klar til nedlukning.**
 >
@@ -1099,7 +1129,8 @@ Oprettes under Grocy → Manage master data → Userfields.
 > - ~~Bon v1-datamigration~~ — sync-v1.js kører dagligt via cron, CVR-beriget
 > - Byekspressen credentials — ryk sebastian@by-expressen.dk
 > - Formbuilder webhook-URL + HTML til ristetrug.dk/bestil — sættes når 1c er stabilt
-> - Whiteboard API URL — `https://whiteboard.ristetrug.dk` (localhost til test)
+> - ~~Whiteboard API URL~~ — `WHITEBOARD_BASE_URL` i `.env`, Sidekick henter via `/api/sidekick/config`
+> - Whiteboard CORS: tilføj `https://bon.ristetrug.dk` til `ALLOWED_ORIGINS` i Whiteboard's `.env` ved deploy
 > - ~~Hørkram credentials~~ — `HOKA_USERNAME` + `HOKA_PASSWORD` sat i `.env`
 > - CVR review: ~622 auto-matchede firmaer bør gennemgås for fejl (brug `fix-cvr.js`)
 > - Inco credentials — til webshop-login (har også API, men bruges ikke endnu)
@@ -1519,6 +1550,9 @@ POST   /api/grocy/product-barcodes                         routes/grocy.js
 DELETE /api/grocy/product-barcodes/:id                     routes/grocy.js
 PUT    /api/grocy/shopping-list/:id                        routes/grocy.js
 GET    /api/schedule/week?from=&to=                        routes/schedule.js
+GET    /api/help-content                                   routes/help.js
+POST   /api/help-content                                   routes/help.js (admin)
+GET    /api/sidekick/config                                routes/sidekick.js
 ```
 
 ---
