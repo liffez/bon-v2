@@ -332,7 +332,7 @@ function _uoRenderGrid() {
             var stockLabel = '';
             if (stock.missing > 0 || stock.no_lines > 0) {
                 var n = (stock.missing || 0) + (stock.no_lines || 0);
-                stockLabel = n + ' mangler';
+                stockLabel = n + ' uden opskrift';
             } else {
                 stockLabel = 'Klar';
             }
@@ -478,11 +478,11 @@ function _uoRenderDetail(dayIdx) {
             var bon = day.bons[b];
             var stockHtml = '';
             if (bon.stock_status === 'ok') {
-                stockHtml = '<span class="uge-lager-ok">✓ OK</span>';
+                stockHtml = '<span class="uge-lager-ok">✓ Opskrifter koblet</span>';
             } else if (bon.stock_status === 'missing') {
-                stockHtml = '<span class="uge-lager-warn">⚠ Mangler Grocy-kobling</span>';
+                stockHtml = '<span class="uge-lager-warn">⚠ Varer uden opskrift</span>';
             } else {
-                stockHtml = '<span class="uge-lager-na">Ingen linjer endnu</span>';
+                stockHtml = '<span class="uge-lager-warn">⚠ Ingen varer tilføjet</span>';
             }
             var shortName = (bon.customer_name || '—');
             if (shortName.length > 15) shortName = shortName.slice(0, 15) + '…';
