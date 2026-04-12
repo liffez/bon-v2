@@ -11,6 +11,7 @@
     <link rel="stylesheet" href="/shared/kitchen_topbar.css">
     <link rel="stylesheet" href="/shared/recipe_viewer.css">
     <link rel="stylesheet" href="/shared/recipe_designer.css">
+    <link rel="stylesheet" href="/shared/help-system.css">
     <style>
         /* RESET + BASE */
         * { margin: 0; padding: 0; box-sizing: border-box; }
@@ -55,7 +56,7 @@
         .tab-bar a { cursor: pointer; }
     </style>
 </head>
-<body class="zone-kitchen">
+<body class="zone-kitchen" data-help-page="kitchen-recipes" data-help-page-name="Køkken — Opskrifter">
 
 <!-- TAB BAR -->
 <div class="tab-bar">
@@ -123,5 +124,6 @@
     });
 
 </script>
+<script src="/shared/help-system.js"></script>
 </body>
 </html>

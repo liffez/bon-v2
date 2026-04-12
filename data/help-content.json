@@ -1,0 +1,151 @@
+{
+  "kitchen-today": {
+    "_pageName": "Køkken — I dag",
+    "elements": {
+      "filter-leverede": {
+        "selector": "#btnLev",
+        "label": "Vis leverede",
+        "text": "Viser bons der allerede er markeret som leveret. Tryk kort for at kigge (8 sek), hold nede for at låse filteret."
+      },
+      "filter-igang": {
+        "selector": "#btnIgang",
+        "label": "I gang",
+        "text": "Filtrerer til bons der er i gang med produktion. Tryk kort for at kigge, hold nede for at låse."
+      },
+      "filter-klar": {
+        "selector": "#btnKlar",
+        "label": "Klar",
+        "text": "Filtrerer til bons der er klar til afhentning eller levering."
+      },
+      "bon-count": {
+        "selector": "#todayCount",
+        "label": "Antal bons",
+        "text": "Viser hvor mange bons der er i dag. Opdateres automatisk når nye bons kommer ind."
+      },
+      "clock": {
+        "selector": "#todayClock",
+        "label": "Ur",
+        "text": "Løbende ur synkroniseret til hele minutter. Bruges til at holde styr på leveringstider."
+      },
+      "cards-grid": {
+        "selector": "#cardsGrid",
+        "label": "Bon-oversigt",
+        "text": "Her vises alle dagens bons som kort. Hvert kort har status, kunde, leveringstid og menuliste. Klik på statusknapperne for at rykke bonnen videre."
+      }
+    }
+  },
+  "kitchen-later": {
+    "_pageName": "Køkken — Senere",
+    "elements": {
+      "later-list": {
+        "selector": "#laterContent",
+        "label": "Kommende bons",
+        "text": "Viser bons for de næste 4 uger, grupperet efter leveringsdato. Tilbud vises i en separat sektion nederst."
+      }
+    }
+  },
+  "kitchen-dashboard": {
+    "_pageName": "Køkken — Dashboard",
+    "elements": {
+      "today-card": {
+        "selector": ".dash-today",
+        "label": "I dag",
+        "text": "Overblik over dagens bons: antal, enheder og status-fordeling. Klik for at gå til I dag-visningen."
+      },
+      "prep-card": {
+        "selector": ".dash-prep",
+        "label": "Forberedelse",
+        "text": "Viser hvilke bons der mangler forberedelse af råvarer eller emballage."
+      }
+    }
+  },
+  "kitchen-calendar": {
+    "_pageName": "Køkken — Kalender",
+    "elements": {
+      "cal-grid": {
+        "selector": ".cal-grid",
+        "label": "Månedsoversigt",
+        "text": "Viser alle bons i måneden. Tal i cellerne er samlet belastning (enheder eller pax). Klik på en bon for at se detaljer."
+      },
+      "cal-filters": {
+        "selector": ".cal-status-bar",
+        "label": "Statusfiltre",
+        "text": "Filtrér kalendervisningen efter bon-status. Klik for at slå et filter til eller fra. Farvet = aktiv."
+      }
+    }
+  },
+  "kitchen-planning": {
+    "_pageName": "Køkken — Planlægning",
+    "elements": {
+      "pl-periode": {
+        "selector": ".pl-periode",
+        "label": "Periode",
+        "text": "Vælg tidsperiode med datofelter eller pilene til uge-navigation. Standard er indeværende uge."
+      },
+      "pl-filters": {
+        "selector": "#plFilters",
+        "label": "Statusfiltre",
+        "text": "Vælg hvilke statusser der skal medtages i planlægningen. Klik for at slå til/fra. Gemmes automatisk."
+      },
+      "pl-bon-list": {
+        "selector": ".pl-bon-list",
+        "label": "Bonliste",
+        "text": "Alle bons i perioden. Sæt flueben ved de bons du vil have med i beregningen. 'Vælg alle' markerer/afmarkerer alle."
+      },
+      "pl-btn-prices": {
+        "selector": "#plBtnPrices",
+        "label": "Priser",
+        "text": "Vis eller skjul priskolonner i oversigten. Viser salgspris, kostpris og margin. Klik m/moms-knappen i tabellen for at skifte mellem priser med og uden moms."
+      },
+      "pl-btn-ravarer": {
+        "selector": "#plBtnRavarer",
+        "label": "Råvarer",
+        "text": "Viser samlet ingrediensbehov for alle valgte bons. Grupperet med lagerstatus (mangler/lav/ok). Du kan tilføje manglende varer til indkøbslisten."
+      },
+      "pl-btn-summary": {
+        "selector": "#plBtnSummary",
+        "label": "Sammentælling",
+        "text": "Viser samlet antal pr. kategori (sandwich, slider, salat osv.) for de valgte bons. Bruges til hurtig produktionsoversigt."
+      },
+      "pl-vagtplan": {
+        "selector": "#plVagtToggle",
+        "label": "Vagtplan",
+        "text": "Fold ud for at se Smartplan-vagter i perioden. Viser hvem der arbejder hvilke dage med møde- og sluttider."
+      }
+    }
+  },
+  "kitchen-purchasing": {
+    "_pageName": "Køkken — Indkøb",
+    "elements": {
+      "purchasing-tabs": {
+        "selector": ".purch-tabs",
+        "label": "Faner",
+        "text": "Skift mellem Indkøb (bestilling af varer), Varemodtagelse (modtag leverancer) og Post (kommunikation med leverandører)."
+      }
+    }
+  },
+  "kitchen-stock": {
+    "_pageName": "Køkken — Lager",
+    "elements": {
+      "stock-tabs": {
+        "selector": ".stock-tabs",
+        "label": "Faner",
+        "text": "Skift mellem Lageroversigt (søg og rediger beholdning) og Optælling (fysisk lageroptælling)."
+      }
+    }
+  },
+  "kitchen-recipes": {
+    "_pageName": "Køkken — Opskrifter",
+    "elements": {
+      "recipe-tabs": {
+        "selector": ".recipe-tabs",
+        "label": "Faner",
+        "text": "Skift mellem Opskrifter (se og brug opskrifter) og Designer (opret og rediger opskrifter)."
+      }
+    }
+  },
+  "kitchen-vagtplan": {
+    "_pageName": "Køkken — Vagtplan",
+    "elements": {}
+  }
+}

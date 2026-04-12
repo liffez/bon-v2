@@ -21,6 +21,7 @@
   <link rel="stylesheet" href="views/tilbud.css">
   <link rel="stylesheet" href="views/rapporter.css">
   <link rel="stylesheet" href="../shared/schedule.css">
+  <link rel="stylesheet" href="../shared/help-system.css">
   <script src="/assets/jspdf.umd.min.js"></script>
   <!-- Chart.js removed — custom canvas chart in shared/dashboard_chart.js -->
   <style>
@@ -429,7 +430,7 @@
     }
   </style>
 </head>
-<body class="zone-office" style="font-family: var(--font-body, 'DM Sans', system-ui, sans-serif);">
+<body class="zone-office" data-help-page="office-dashboard" data-help-page-name="Office — Dashboard" style="font-family: var(--font-body, 'DM Sans', system-ui, sans-serif);">
   <div class="office-shell">
     <div class="office-topbar">
       <h1 id="office-topbar-title">Bon v2 — Office</h1>
@@ -698,6 +699,18 @@
           history.replaceState({}, '', url);
         }
 
+        // Update help system page context
+        var helpNames = {
+          'dashboard':'Office — Dashboard', 'bons-list':'Office — Bonliste',
+          'planning':'Office — Planlægning', 'calendar':'Office — Kalender',
+          'crm-dashboard':'Office — CRM', 'crm-kunde360':'Office — Kunder',
+          'crm-inbox':'Office — CRM Indbakke', 'fakturering':'Office — Fakturering',
+          'tilbud':'Office — Tilbud', 'ugeoversigt':'Office — Ugeoversigt'
+        };
+        if (typeof HelpSystem !== 'undefined') {
+          HelpSystem.setPage('office-' + viewName, helpNames[viewName] || 'Office — ' + viewName);
+        }
+
         // Init view
         views[viewName]?.init();
       }
@@ -813,5 +826,6 @@
       });
     })();
   </script>
+  <script src="/shared/help-system.js"></script>
 </body>
 </html>

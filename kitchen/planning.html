@@ -11,6 +11,7 @@
     <link rel="stylesheet" href="/shared/kitchen_topbar.css">
     <link rel="stylesheet" href="/shared/planning.css">
     <link rel="stylesheet" href="/shared/modal.css">
+    <link rel="stylesheet" href="/shared/help-system.css">
     <style>
         /* ═══ RESET + BASE ═══ */
         * { margin: 0; padding: 0; box-sizing: border-box; }
@@ -26,7 +27,7 @@
         }
     </style>
 </head>
-<body class="zone-kitchen">
+<body class="zone-kitchen" data-help-page="kitchen-planning" data-help-page-name="Køkken — Planlægning">
 
 <!-- PLANLÆGNING RENDERES HER -->
 <div id="planningContainer"></div>
@@ -51,5 +52,6 @@
         });
     });
 </script>
+<script src="/shared/help-system.js"></script>
 </body>
 </html>

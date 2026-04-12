@@ -7,6 +7,7 @@
   <link href="https://fonts.googleapis.com/css2?family=Lato:wght@400;700;900&display=swap" rel="stylesheet">
   <link rel="stylesheet" href="/shared/tokens.css">
   <link rel="stylesheet" href="/shared/kitchen_topbar.css">
+  <link rel="stylesheet" href="/shared/help-system.css">
   <style>
   :root {
     --bg:           #f5f4f2;
@@ -79,7 +80,7 @@
   .no-shifts { font-size:12px; color:var(--muted); padding:8px 0; }
   </style>
 </head>
-<body>
+<body data-help-page="kitchen-vagtplan" data-help-page-name="Køkken — Vagtplan">
 
 <div class="week-controls">
   <button id="prev" class="wc-btn" type="button">← Forrige</button>
@@ -219,5 +220,6 @@
     loadWeek();
 })();
 </script>
+<script src="/shared/help-system.js"></script>
 </body>
 </html>
