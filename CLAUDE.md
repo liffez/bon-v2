@@ -1021,11 +1021,25 @@ Oprettes under Grocy → Manage master data → Userfields.
   - Touch-targets (min 44px), bonliste-kort, detalje, CRM, overblik
 - [x] `login.html` — Mobil-detect banner (ikke-blokerende, "Nej tak" huskes)
 
+### Fase 10b — Roller & Rettigheder
+- [x] Migration 041: `users`-tabel genskabt med `kitchen_personal` i role CHECK + `modules_json` kolonne
+  - Views (`v_active_notifications`) droppes/genskabes for at undgå SQLite RENAME-blokering
+- [x] Settings-rækker: `role_permissions_*` per rolle (JSON i settings-tabellen), `session_days_kitchen_personal`
+- [x] `shared/auth.js` — `userCan(user, module)` med 60s cache + `invalidatePermCache()`
+  - Per-bruger overrides via `modules_json` på users
+- [x] `routes/auth.js` — `GET /me` returnerer `permissions` objekt (6 moduler: crm, tilbud, okonomi, rapporter, settings, modtag)
+- [x] `routes/settings.js` — `GET/PATCH /api/settings/role-permissions/:role` (admin-only, admin kan ikke begrænses)
+- [x] `login.html` + `server.js` — `kitchen_personal` → `/mobile/` redirect
+- [x] `mobile/index.html` — Dynamisk nav baseret på `permissions` (NAV_DEFS med `requires` per tab)
+- [x] `settings/index.html` — Permission matrix UI (roller × moduler, checkboxes, admin read-only)
+  - `kitchen_personal` tilføjet i rolle-dropdown ved bruger-oprettelse/redigering
+- [x] `shared/api.js` — `fetchRolePermissions()` + `patchRolePermissions()`
+
 ## Næste opgave
 
-> ✏️ Opdateret 11. april 2026.
+> ✏️ Opdateret 12. april 2026.
 >
-> **Fase 1a–1e + 3A + 3B + 3D + 4 + 5 + 6 (komplet inkl. 6g) + 7 (CRM) + Office CRM redesign + 8 (Fakturering) + 9 (Tilbud) + Mail-vedhæftninger + CRM service-kald + Firma-oprydning + 10 (Mobil Shell) komplet.**
+> **Fase 1a–1e + 3A + 3B + 3D + 4 + 5 + 6 (komplet inkl. 6g) + 7 (CRM) + Office CRM redesign + 8 (Fakturering) + 9 (Tilbud) + Mail-vedhæftninger + CRM service-kald + Firma-oprydning + 10 (Mobil Shell) + 10b (Roller & Rettigheder) komplet.**
 >
 > **Næste sprint:** Priser i planlægningsbon, Ugeoversigt.
 > Så er Bon v1 klar til nedlukning.
