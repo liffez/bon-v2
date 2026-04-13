@@ -239,48 +239,44 @@ async function handleWebOrder(data) {
   // 11. SSE broadcast
   broadcast('bon_created', { id: bonId, bon_number: bonNumber, source: 'web_order' });
 
-  // 12. Send bekræftelsesmail til kunden
+  // 12. Send bekræftelsesmail til kunden (fire-and-forget — blokerer ikke response)
   if (data.email?.trim()) {
-    try {
-      const { sendFromTemplate } = require('../services/mailService');
+    const dagnavne = ['søndag','mandag','tirsdag','onsdag','torsdag','fredag','lørdag'];
+    const maaneder = ['januar','februar','marts','april','maj','juni','juli','august','september','oktober','november','december'];
+    const d = new Date(data.delivery_date + 'T12:00:00');
+    const pænDato = `${dagnavne[d.getDay()]} d. ${d.getDate()}. ${maaneder[d.getMonth()]} ${d.getFullYear()}`;
 
-      // Formatér dato pænt (fx "tirsdag d. 17. juni 2026")
-      const dagnavne = ['søndag','mandag','tirsdag','onsdag','torsdag','fredag','lørdag'];
-      const maaneder = ['januar','februar','marts','april','maj','juni','juli','august','september','oktober','november','december'];
-      const d = new Date(data.delivery_date + 'T12:00:00');
-      const pænDato = `${dagnavne[d.getDay()]} d. ${d.getDate()}. ${maaneder[d.getMonth()]} ${d.getFullYear()}`;
-
-      const adresseBlok = deliveryType === 'delivery' && (addr.tekst || data.address_text)
-        ? `Leveringsadresse: ${addr.tekst || data.address_text}`
-        : deliveryType === 'pickup'
-          ? 'Afhentning: Prinsesse Charlottesgade 16, 2200 København N'
-          : '';
-
-      const oenskerBlok = data.wishes?.trim()
-        ? `Dine ønsker: ${data.wishes.trim()}`
+    const adresseBlok = deliveryType === 'delivery' && (addr.tekst || data.address_text)
+      ? `Leveringsadresse: ${addr.tekst || data.address_text}`
+      : deliveryType === 'pickup'
+        ? 'Afhentning: Prinsesse Charlottesgade 16, 2200 København N'
         : '';
 
-      await sendFromTemplate({
-        templateKey: 'web_order_confirmation',
-        to: data.email.trim(),
-        vars: {
-          kundeNavn: fullName,
-          bonNummer: bonNumber,
-          ordreType: orderType === 'pickup' ? 'Afhentning' : 'Levering',
-          leveringsDato: pænDato,
-          leveringsTid: data.delivery_time,
-          pax: String(pax || '?'),
+    const oenskerBlok = data.wishes?.trim()
+      ? `Dine ønsker: ${data.wishes.trim()}`
+      : '';
+
+    // Fire-and-forget: mailen sendes i baggrunden
+    const { sendFromTemplate } = require('../services/mailService');
+    sendFromTemplate({
+      templateKey: 'web_order_confirmation',
+      to: data.email.trim(),
+      vars: {
+        kundeNavn: fullName,
+        bonNummer: bonNumber,
+        ordreType: orderType === 'pickup' ? 'Afhentning' : 'Levering',
+        leveringsDato: pænDato,
+        leveringsTid: data.delivery_time,
+        pax: String(pax || '?'),
           adresseBlok,
           oenskerBlok
         },
         bonId
+      }).then(() => {
+        console.log(`[web-order] Bekræftelsesmail sendt til ${data.email.trim()} for bon #${bonNumber}`);
+      }).catch(mailErr => {
+        console.error('[web-order] Kunne ikke sende bekræftelsesmail:', mailErr.message);
       });
-
-      console.log(`[web-order] Bekræftelsesmail sendt til ${data.email.trim()} for bon #${bonNumber}`);
-    } catch (mailErr) {
-      // Mail-fejl blokerer ikke ordren
-      console.error('[web-order] Kunne ikke sende bekræftelsesmail:', mailErr.message);
-    }
   }
 
   console.log(`[web-order] Bon #${bonNumber} oprettet (id=${bonId}, kunde=${fullName})`);
