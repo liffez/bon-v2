@@ -49,6 +49,20 @@ app.use(express.static(path.join(__dirname)));
 
 // ─── ROUTES ────────────────────────────────────────────────────────────────
 
+// ─── WEB ORDER WEBHOOK (public, CORS for ristetrug.dk) ─────────────────────
+const webOrdersRouter = require('./routes/web-orders');
+app.use('/webhook', (req, res, next) => {
+  const origin = req.headers.origin;
+  if (origin === 'https://www.ristetrug.dk' || origin === 'https://ristetrug.dk') {
+    res.setHeader('Access-Control-Allow-Origin', origin);
+    res.setHeader('Access-Control-Allow-Methods', 'POST, OPTIONS');
+    res.setHeader('Access-Control-Allow-Headers', 'Content-Type, x-webhook-secret');
+  }
+  if (req.method === 'OPTIONS') return res.sendStatus(204);
+  next();
+}, webOrdersRouter);
+app.use('/api/web-orders', webOrdersRouter);
+
 app.use('/api/auth',           require('./routes/auth'));
 app.use('/api/payment-types',  require('./routes/payment_types'));
 app.use('/api/sse',            require('./shared/sse'));

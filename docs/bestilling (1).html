@@ -1,0 +1,871 @@
+<!DOCTYPE html>
+<html lang="da">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Ristet Rug – Bestil mad</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link href="https://fonts.googleapis.com/css2?family=Lato:wght@400;600;700&family=Playfair+Display:wght@600&display=swap" rel="stylesheet">
+  <style>
+    :root {
+      --brand:       #8e631f;
+      --brand-light: #f5eddd;
+      --brand-dark:  #6b4a16;
+      --text:        #2c3e50;
+      --text-muted:  #6b7280;
+      --border:      #ddd;
+      --focus:       #8e631f;
+      --ok:          #16a34a;
+      --err:         #dc2626;
+      --warn-bg:     #fefce8;
+      --warn-border: #f59e0b;
+      --err-bg:      #fef2f2;
+      --err-border:  #fca5a5;
+    }
+
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+
+    body {
+      font-family: 'Lato', sans-serif;
+      background: #f9f7f4;
+      color: var(--text);
+      padding: 2rem 1rem;
+      min-height: 100vh;
+    }
+
+    .form-wrap {
+      max-width: 620px;
+      margin: 0 auto;
+      background: #fff;
+      border-radius: 12px;
+      box-shadow: 0 4px 24px rgba(0,0,0,.08);
+      overflow: hidden;
+    }
+
+    /* Header */
+    .form-head {
+      background: var(--brand);
+      color: #fff;
+      text-align: center;
+      padding: 2rem 2rem 1.5rem;
+    }
+    .form-head img.logo {
+      height: 56px;
+      margin-bottom: .75rem;
+    }
+    .form-head h1 {
+      font-family: 'Playfair Display', serif;
+      font-size: 1.6rem;
+      font-weight: 600;
+      margin-bottom: .35rem;
+    }
+    .form-head p {
+      font-size: .9rem;
+      opacity: .88;
+      line-height: 1.5;
+    }
+    .form-head .cutoff-note {
+      display: inline-flex;
+      align-items: center;
+      gap: .4rem;
+      background: rgba(255,255,255,.18);
+      border-radius: 20px;
+      padding: .3rem .9rem;
+      font-size: .82rem;
+      margin-top: .75rem;
+      font-weight: 600;
+    }
+
+    /* Body */
+    .form-body { padding: 2rem; }
+
+    .section-label {
+      font-size: .7rem;
+      font-weight: 700;
+      letter-spacing: .08em;
+      text-transform: uppercase;
+      color: var(--brand);
+      margin: 1.75rem 0 1rem;
+      padding-bottom: .4rem;
+      border-bottom: 1px solid var(--brand-light);
+    }
+    .section-label:first-child { margin-top: 0; }
+
+    .field { margin-bottom: 1.25rem; }
+    .field label {
+      display: block;
+      font-weight: 600;
+      font-size: .88rem;
+      margin-bottom: .4rem;
+      color: var(--text);
+    }
+    .field label .req { color: var(--err); }
+    .field input[type=text],
+    .field input[type=email],
+    .field input[type=tel],
+    .field input[type=number],
+    .field input[type=date],
+    .field select,
+    .field textarea {
+      width: 100%;
+      padding: .7rem .9rem;
+      border: 2px solid var(--border);
+      border-radius: 8px;
+      font-family: inherit;
+      font-size: .95rem;
+      color: var(--text);
+      background: #fff;
+      transition: border-color .15s;
+      appearance: none;
+    }
+    .field input:focus,
+    .field select:focus,
+    .field textarea:focus {
+      outline: none;
+      border-color: var(--focus);
+    }
+    .field textarea { min-height: 90px; resize: vertical; }
+    .field-hint { font-size: .78rem; color: var(--text-muted); margin-top: .3rem; }
+
+    /* Two-col row */
+    .row2 { display: grid; grid-template-columns: 1fr 1fr; gap: .75rem; }
+    @media (max-width: 500px) { .row2 { grid-template-columns: 1fr; } }
+
+    /* Order type */
+    .ordertype { display: flex; gap: .5rem; }
+    .ot-option {
+      display: flex;
+      align-items: center;
+      gap: .5rem;
+      border: 2px solid var(--border);
+      border-radius: 8px;
+      padding: .5rem .9rem;
+      cursor: pointer;
+      transition: all .15s;
+      user-select: none;
+      background: #fafafa;
+      font-size: .88rem;
+    }
+    .ot-option:hover { border-color: var(--brand); }
+    .ot-option.sel {
+      border-color: var(--brand);
+      background: var(--brand-light);
+    }
+    .ot-option .ot-icon { font-size: 1.1rem; }
+    .ot-option .ot-label { font-weight: 700; }
+    .ot-option .ot-desc { display: none; }
+
+    /* Conditional */
+    .cond { transition: all .2s; }
+    .cond.hidden { display: none; }
+
+    /* Address autocomplete */
+    .autocomplete-wrap { position: relative; }
+    .addr-suggestions {
+      position: absolute; top: 100%; left: 0; right: 0;
+      background: #fff; border: 2px solid var(--brand); border-top: none;
+      border-radius: 0 0 8px 8px; list-style: none;
+      max-height: 200px; overflow-y: auto; z-index: 200;
+      box-shadow: 0 4px 12px rgba(0,0,0,.1);
+    }
+    .addr-suggestions li { padding: .65rem .9rem; cursor: pointer; font-size: .9rem; border-bottom: 1px solid #f0f0f0; }
+    .addr-suggestions li:last-child { border-bottom: none; }
+    .addr-suggestions li:hover { background: var(--brand-light); }
+    .addr-status { font-size: .78rem; margin-top: .3rem; }
+    .addr-status.ok { color: var(--ok); }
+    .addr-status.err { color: var(--err); }
+    .addr-status.checking { color: #f59e0b; }
+
+    /* Delivery estimate */
+    .delivery-est {
+      background: var(--brand-light);
+      border-radius: 8px;
+      padding: .6rem .9rem;
+      margin-top: .5rem;
+      font-size: .85rem;
+      color: var(--text-muted);
+    }
+
+    /* Cutoff / date warnings */
+    .date-notice {
+      border-radius: 8px;
+      padding: .7rem .9rem;
+      margin-top: .5rem;
+      font-size: .82rem;
+      line-height: 1.5;
+    }
+    .date-notice.warn { background: var(--warn-bg); border: 1px solid var(--warn-border); color: #92400e; }
+    .date-notice.err  { background: var(--err-bg);  border: 1px solid var(--err-border);  color: #7f1d1d; }
+
+    /* Time select */
+    .datetime-grid { display: grid; grid-template-columns: 1fr 130px; gap: .75rem; }
+    @media (max-width: 400px) { .datetime-grid { grid-template-columns: 1fr; } }
+
+    /* Checkbox fields */
+    .check-field {
+      display: flex;
+      align-items: flex-start;
+      gap: .6rem;
+      margin-bottom: .75rem;
+    }
+    .check-field input[type=checkbox] {
+      width: 18px; height: 18px;
+      flex-shrink: 0;
+      margin-top: .1rem;
+      accent-color: var(--brand);
+      cursor: pointer;
+    }
+    .check-field label {
+      font-size: .88rem;
+      font-weight: 400;
+      color: var(--text);
+      cursor: pointer;
+      line-height: 1.4;
+    }
+    .check-field label a { color: var(--brand); }
+
+    /* Sandwich choice */
+    .sandwich-choice { display: flex; gap: .5rem; flex-wrap: wrap; }
+    .sc-opt {
+      flex: 1; min-width: 130px;
+      border: 2px solid var(--border);
+      border-radius: 8px;
+      padding: .65rem .9rem;
+      cursor: pointer;
+      font-size: .88rem;
+      text-align: center;
+      transition: all .15s;
+      user-select: none;
+      background: #fafafa;
+    }
+    .sc-opt:hover { border-color: var(--brand); }
+    .sc-opt.sel { border-color: var(--brand); background: var(--brand-light); font-weight: 600; }
+
+    /* Menu link */
+    .menu-link {
+      display: inline-flex;
+      align-items: center;
+      gap: .4rem;
+      color: var(--brand);
+      font-weight: 700;
+      font-size: .9rem;
+      text-decoration: none;
+      border-bottom: 2px solid currentColor;
+      padding-bottom: 1px;
+    }
+    .menu-link:hover { color: var(--brand-dark); }
+
+    /* Info block */
+    .info-block {
+      background: #f0f9ff;
+      border-left: 4px solid #0ea5e9;
+      border-radius: 0 8px 8px 0;
+      padding: .75rem 1rem;
+      font-size: .85rem;
+      margin-bottom: 1.25rem;
+      color: var(--text);
+    }
+
+    /* Submit */
+    .form-submit { margin-top: 1.75rem; padding-top: 1.5rem; border-top: 2px solid #f0f0f0; }
+    .submit-btn {
+      width: 100%;
+      padding: 1rem;
+      background: var(--brand);
+      color: #fff;
+      border: none;
+      border-radius: 10px;
+      font-family: inherit;
+      font-size: 1.05rem;
+      font-weight: 700;
+      cursor: pointer;
+      transition: background .15s;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      gap: .5rem;
+    }
+    .submit-btn:hover:not(:disabled) { background: var(--brand-dark); }
+    .submit-btn:disabled { opacity: .65; cursor: not-allowed; }
+    .spinner {
+      display: none;
+      width: 18px; height: 18px;
+      border: 2px solid transparent;
+      border-top-color: #fff;
+      border-radius: 50%;
+      animation: spin .7s linear infinite;
+    }
+    .submit-btn.loading .spinner { display: inline-block; }
+    @keyframes spin { to { transform: rotate(360deg); } }
+
+    .payment-note {
+      text-align: center;
+      font-size: .78rem;
+      color: var(--text-muted);
+      margin-top: .75rem;
+    }
+
+    /* Thank you */
+    .thank-you {
+      text-align: center;
+      padding: 3rem 2rem;
+    }
+    .thank-you .ty-icon { font-size: 3.5rem; margin-bottom: 1rem; }
+    .thank-you h2 {
+      font-family: 'Playfair Display', serif;
+      font-size: 1.5rem;
+      color: var(--brand);
+      margin-bottom: .5rem;
+    }
+    .thank-you p { color: var(--text-muted); line-height: 1.6; }
+
+    /* Honeypot */
+    .hp { position: absolute; left: -9999px; opacity: 0; pointer-events: none; }
+  </style>
+</head>
+<body>
+
+<div class="form-wrap">
+
+  <!-- Header -->
+  <div class="form-head">
+    <!-- Skift til: <img class="logo" src="/assets/logo.svg" alt="Ristet Rug"> -->
+    <h1>🌾 Bestil din mad</h1>
+    <p>Frisk og velsmagende catering leveret til dit møde.<br>Ingen mindstemængde — I får en faktura bagefter.</p>
+    <div class="cutoff-note">⏰ Bestil senest kl. 12 hverdagen inden levering</div>
+  </div>
+
+  <!-- Form -->
+  <div class="form-body">
+    <form id="order-form" novalidate>
+
+      <!-- Honeypot -->
+      <div class="hp"><input type="text" name="website" tabindex="-1" autocomplete="off"></div>
+
+      <!-- === ORDRETYPE === -->
+      <div class="section-label">Hvad ønsker du?</div>
+      <div class="field">
+        <div class="ordertype" id="ordertype-selector">
+          <div class="ot-option sel" data-value="catering">
+            <div class="ot-icon">🚚</div>
+            <div class="ot-label">Levering</div>
+            <div class="ot-desc">Vi leverer til dig</div>
+          </div>
+          <div class="ot-option" data-value="pickup">
+            <div class="ot-icon">🏃</div>
+            <div class="ot-label">Afhentning</div>
+            <div class="ot-desc">Hent i Prinsesse Charlottesgade 16</div>
+          </div>
+        </div>
+        <input type="hidden" name="ordertype" id="ordertype-val" value="catering">
+      </div>
+
+      <!-- === KONTAKTINFO === -->
+      <div class="section-label">Dine kontaktoplysninger</div>
+
+      <div class="row2">
+        <div class="field">
+          <label for="first_name">Fornavn <span class="req">*</span></label>
+          <input type="text" id="first_name" name="first_name" autocomplete="given-name" required>
+        </div>
+        <div class="field">
+          <label for="last_name">Efternavn <span class="req">*</span></label>
+          <input type="text" id="last_name" name="last_name" autocomplete="family-name" required>
+        </div>
+      </div>
+
+      <div class="field">
+        <label for="email">Email <span class="req">*</span></label>
+        <input type="email" id="email" name="email" placeholder="din@email.dk" autocomplete="email" required>
+      </div>
+
+      <div class="row2">
+        <div class="field">
+          <label for="phone">Telefon <span class="req">*</span></label>
+          <input type="tel" id="phone" name="phone" placeholder="12 34 56 78" autocomplete="tel" required>
+        </div>
+        <div class="field">
+          <label for="company">Firma</label>
+          <input type="text" id="company" name="company" placeholder="Valgfrit" autocomplete="organization">
+        </div>
+      </div>
+
+      <!-- === LEVERING === -->
+      <div class="section-label cond catering-only" id="section-levering">Leveringsadresse</div>
+
+      <div class="field cond catering-only" id="field-address">
+        <label for="address-input">Adresse <span class="req">*</span></label>
+        <div class="autocomplete-wrap">
+          <input type="text" id="address-input" name="address_text" placeholder="Skriv adresse..." autocomplete="off">
+          <ul class="addr-suggestions" id="addr-suggestions" style="display:none;"></ul>
+        </div>
+        <div class="addr-status" id="addr-status"></div>
+        <div id="delivery-estimate"></div>
+      </div>
+
+      <div class="field cond catering-only" id="field-extra-delivery">
+        <label for="delivery_extra">Yderligere leveringsinfo</label>
+        <input type="text" id="delivery_extra" name="delivery_extra" placeholder="Etage, afdeling, porttelefon, indgang...">
+        <div class="field-hint">Skriv her hvis vi skal ind gennem en bestemt indgang eller kontakte nogen ved levering.</div>
+      </div>
+
+      <!-- === BESTILLING === -->
+      <div class="section-label">Din bestilling</div>
+
+      <div class="field">
+        <label>Dato og tidspunkt for levering <span class="req">*</span></label>
+        <div class="datetime-grid">
+          <input type="date" id="date-input" name="delivery_date" required>
+          <select id="time-input" name="delivery_time" required>
+            <option value="">Vælg tid</option>
+          </select>
+        </div>
+        <div id="cutoff-notice"></div>
+        <div class="field-hint">Bestilling senest kl. 12:00 hverdagen inden leveringsdagen.</div>
+      </div>
+
+      <div class="row2">
+        <div class="field">
+          <label for="pax">Antal gæster (pax) <span class="req">*</span></label>
+          <input type="number" id="pax" name="pax" placeholder="f.eks. 25" min="1" max="1600" required>
+          <div class="field-hint">Det største antal vi har leveret: 1600 stk.</div>
+        </div>
+        <div class="field">
+          <label>Sandwichvalg</label>
+          <div class="sandwich-choice" id="sandwich-choice">
+            <div class="sc-opt sel" data-value="rr_vælger">🌟 Ristet Rug vælger</div>
+            <div class="sc-opt" data-value="eget_valg">✏️ Eget valg</div>
+          </div>
+          <input type="hidden" name="sandwich_choice" id="sandwich-choice-val" value="rr_vælger">
+        </div>
+      </div>
+
+      <!-- === KONTAKT PÅ DAGEN === -->
+      <div class="row2 cond catering-only" id="field-contact">
+        <div class="field">
+          <label for="contact_person">Kontakt person på dagen</label>
+          <input type="text" id="contact_person" name="contact_person" placeholder="Navn på kontaktperson">
+          <div class="field-hint">Person vi kan kontakte ved levering.</div>
+        </div>
+        <div class="field">
+          <label for="contact_phone">Mobilnummer</label>
+          <input type="tel" id="contact_phone" name="contact_phone" placeholder="00 00 00 00">
+          <div class="field-hint">HUSK at have telefonen åben.</div>
+        </div>
+      </div>
+
+      <!-- === ØNSKER === -->
+      <div class="section-label">Ønsker og bemærkninger</div>
+
+      <div class="field">
+        <div class="info-block">
+          👉 Se vores menu: <a class="menu-link" href="https://www.ristetrug.dk/menu" target="_blank">ristetrug.dk/menu →</a>
+        </div>
+        <label for="wishes">Specielle ønsker</label>
+        <textarea id="wishes" name="wishes" placeholder="Skriv her hvis du har specielle ønsker som antallet der skal være veganske, vegetariske, laktosefri eller Glutenfri. Du kan også skrive her hvis du ved præcis hvad du vil have fra menuen — eller hvis der er allergener vi skal tage højde for."></textarea>
+      </div>
+
+      <!-- === FAKTURA === -->
+      <div class="section-label">Faktura og betaling</div>
+
+      <div class="field">
+        <label for="ean_info">EAN / faktura info</label>
+        <textarea id="ean_info" name="ean_info" placeholder="Evt. EAN-nummer, rekvisitionsnummer, kontaktperson for faktura, eller andre fakturaoplysninger." style="min-height:70px;"></textarea>
+        <div class="field-hint">Vi tager imod kontant, kort, MobilePay samt faktura og EAN.</div>
+      </div>
+
+      <!-- === ACCEPT === -->
+      <div class="section-label">Accepter betingelser</div>
+
+      <div class="check-field">
+        <input type="checkbox" id="cb-privacy" name="cb_privacy" required>
+        <label for="cb-privacy">
+          Jeg accepterer at Ristet Rug gemmer og behandler mine personoplysninger til brug for denne bestilling.
+          Læs vores <a href="https://www.ristetrug.dk/privatlivspolitik" target="_blank">privatlivspolitik</a>. <span class="req">*</span>
+        </label>
+      </div>
+
+      <div class="check-field">
+        <input type="checkbox" id="cb-terms" name="cb_terms" required>
+        <label for="cb-terms">
+          Jeg accepterer Ristet Rugs <a href="https://www.ristetrug.dk/handelsbetingelser" target="_blank">handelsbetingelser</a>.
+          Bestillingen er bindende efter skriftlig bekræftelse. <span class="req">*</span>
+        </label>
+      </div>
+
+      <!-- Webhook fejlbesked -->
+      <div id="webhook-error" style="display:none; background:var(--err-bg); border:1px solid var(--err-border); border-radius:8px; padding:.75rem 1rem; margin-top:1rem; font-size:.85rem; color:#7f1d1d; line-height:1.5;"></div>
+
+      <!-- Submit -->
+      <div class="form-submit">
+        <button type="submit" class="submit-btn" id="submit-btn">
+          <span class="spinner"></span>
+          <span class="btn-text">Send forespørgsel</span>
+        </button>
+        <p class="payment-note">Vi vender tilbage med bekræftelse hurtigst muligt.</p>
+      </div>
+
+    </form>
+
+    <!-- Thank you -->
+    <div class="thank-you" id="thank-you" style="display:none;">
+      <div class="ty-icon">✅</div>
+      <h2>Tak for din forespørgsel!</h2>
+      <p>Vi har modtaget din bestilling og vender tilbage hurtigst muligt med bekræftelse og pris.</p>
+    </div>
+
+  </div><!-- /form-body -->
+</div><!-- /form-wrap -->
+
+<script>
+// ============================================================
+// KONFIGURATION — justér efter behov
+// ============================================================
+const CFG = {
+  webhookUrl:    'https://bon.ristetrug.dk/webhook/bestilling',
+  base: { lat: 55.6961, lon: 12.5574 },    // Prinsesse Charlottesgade 16
+  cutoff: { time: 12, daysBefore: 1 },
+  deliveryDays: [1, 2, 3, 4, 5],           // man–fre
+  email: 'bestilling@ristetrug.dk',
+  delivery: {
+    paxPerKasse: 16,
+    afstandsGraense: 5.5,
+    byekspressen: { kortBasis: 100, langTillaeg: 82, sizeTillaeg: 50, sizeGraense: 2, maxKasser: 6, maxAfstand: 15 },
+    taxa: {
+      zone3: { postnumre: ['2300','2720','2730','2820'], pris: 425 },
+      zone4: { postnumre: ['2800','2600','2605','2625','2610','2650'], pris: 575 },
+      zone5: { postnumre: ['2620','2760','2770','2750'], pris: 650 }
+    }
+  }
+};
+
+// ============================================================
+// STATE
+// ============================================================
+let orderType        = 'catering';
+let validatedAddress = null;
+let addrDebounce     = null;
+
+// ============================================================
+// ORDER TYPE
+// ============================================================
+document.getElementById('ordertype-selector').addEventListener('click', e => {
+  const opt = e.target.closest('.ot-option');
+  if (!opt) return;
+  document.querySelectorAll('.ot-option').forEach(o => o.classList.remove('sel'));
+  opt.classList.add('sel');
+  orderType = opt.dataset.value;
+  document.getElementById('ordertype-val').value = orderType;
+  updateConditional();
+  updateDeliveryEstimate();
+});
+
+function updateConditional() {
+  const isCatering = orderType === 'catering';
+  document.querySelectorAll('.catering-only').forEach(el => {
+    el.classList.toggle('hidden', !isCatering);
+    el.querySelectorAll('input[required], select[required], textarea[required]').forEach(inp => {
+      if (!isCatering) inp.removeAttribute('required');
+      else inp.setAttribute('required', '');
+    });
+  });
+  // Address is required only for catering
+  const addrInp = document.getElementById('address-input');
+  if (addrInp) {
+    if (isCatering) addrInp.setAttribute('required', '');
+    else { addrInp.removeAttribute('required'); validatedAddress = null; }
+  }
+}
+
+// ============================================================
+// SANDWICH CHOICE
+// ============================================================
+document.getElementById('sandwich-choice').addEventListener('click', e => {
+  const opt = e.target.closest('.sc-opt');
+  if (!opt) return;
+  document.querySelectorAll('.sc-opt').forEach(o => o.classList.remove('sel'));
+  opt.classList.add('sel');
+  document.getElementById('sandwich-choice-val').value = opt.dataset.value;
+});
+
+// ============================================================
+// TIME OPTIONS
+// ============================================================
+(function buildTimeOptions() {
+  const sel = document.getElementById('time-input');
+  for (let h = 7; h <= 18; h++) {
+    for (let m = 0; m < 60; m += 15) {
+      const t = `${String(h).padStart(2,'0')}:${String(m).padStart(2,'0')}`;
+      const opt = document.createElement('option');
+      opt.value = t; opt.textContent = t;
+      if (t === '11:30') opt.selected = true;
+      sel.appendChild(opt);
+    }
+  }
+})();
+
+// ============================================================
+// CUTOFF CHECK
+// ============================================================
+document.getElementById('date-input').addEventListener('change', checkCutoff);
+
+function getCutoffDate(delivDate) {
+  const c = new Date(delivDate);
+  let days = CFG.cutoff.daysBefore;
+  while (days > 0) {
+    c.setDate(c.getDate() - 1);
+    if (c.getDay() !== 0 && c.getDay() !== 6) days--;
+  }
+  c.setHours(CFG.cutoff.time, 0, 0, 0);
+  return c;
+}
+
+function checkCutoff() {
+  const el = document.getElementById('cutoff-notice');
+  const di = document.getElementById('date-input');
+  const submitBtn = document.getElementById('submit-btn');
+  if (!di.value) { el.innerHTML = ''; if (submitBtn) submitBtn.disabled = false; return; }
+
+  const day = new Date(di.value + 'T12:00:00');
+  const dow = day.getDay();
+  const dayNames = ['søndag','mandag','tirsdag','onsdag','torsdag','fredag','lørdag'];
+  const now = new Date();
+
+  if (!CFG.deliveryDays.includes(dow)) {
+    el.innerHTML = `<div class="date-notice err"><strong>📅 Vi leverer normalt ikke om ${dayNames[dow]}en</strong><br>
+    <span style="font-size:.82em">Via formularen kan du bestille til: mandag–fredag.<br>
+    Brug for weekend-levering? <a href="mailto:${CFG.email}?subject=Weekend-levering ${di.value}" style="color:inherit;font-weight:700;">Kontakt os direkte →</a></span></div>`;
+    if (submitBtn) submitBtn.disabled = true;
+    return;
+  }
+
+  const cutoff = getCutoffDate(day);
+  if (now > cutoff) {
+    el.innerHTML = `<div class="date-notice err"><strong>⚠️ Deadline passeret for denne dato</strong><br>
+    <span style="font-size:.82em">Deadline var ${dayNames[cutoff.getDay()]} kl. ${CFG.cutoff.time}:00.<br>
+    Hastebestilling? <a href="mailto:${CFG.email}?subject=Hastebestilling ${di.value}" style="color:inherit;font-weight:700;">Skriv til os direkte →</a></span></div>`;
+    if (submitBtn) submitBtn.disabled = true;
+  } else {
+    const hoursLeft = Math.round((cutoff - now) / 3600000);
+    if (hoursLeft < 48) {
+      el.innerHTML = `<div class="date-notice warn">⏰ Bestil senest ${dayNames[cutoff.getDay()]} kl. ${CFG.cutoff.time}:00 — ${hoursLeft} timer tilbage</div>`;
+    } else {
+      el.innerHTML = '';
+    }
+    if (submitBtn) submitBtn.disabled = false;
+  }
+}
+
+// ============================================================
+// ADDRESS AUTOCOMPLETE
+// ============================================================
+const addrInput = document.getElementById('address-input');
+const addrSugg  = document.getElementById('addr-suggestions');
+const addrStatus = document.getElementById('addr-status');
+
+if (addrInput) {
+  addrInput.addEventListener('input', e => {
+    if (validatedAddress && e.target.value !== validatedAddress.tekst) {
+      validatedAddress = null;
+      setAddrStatus('warn', '⚠️ Vælg en adresse fra listen');
+      clearDeliveryEstimate();
+    }
+    clearTimeout(addrDebounce);
+    addrDebounce = setTimeout(() => searchAddr(e.target.value), 300);
+  });
+}
+
+if (addrSugg) {
+  addrSugg.addEventListener('click', e => {
+    const li = e.target.closest('li');
+    if (li) selectAddr(li.dataset.id, li.textContent);
+  });
+}
+
+document.addEventListener('click', e => {
+  if (!e.target.closest('.autocomplete-wrap')) addrSugg.style.display = 'none';
+});
+
+async function searchAddr(q) {
+  if (q.length < 2) { addrSugg.style.display = 'none'; return; }
+  try {
+    const r = await fetch(`https://api.dataforsyningen.dk/adresser/autocomplete?q=${encodeURIComponent(q)}&per_side=7&fuzzy=true`);
+    const d = await r.json();
+    if (d.length) {
+      addrSugg.innerHTML = d.map(x => `<li data-id="${x.adresse.id}">${x.tekst}</li>`).join('');
+      addrSugg.style.display = 'block';
+    } else {
+      addrSugg.style.display = 'none';
+    }
+  } catch { addrSugg.style.display = 'none'; }
+}
+
+async function selectAddr(id, txt) {
+  addrInput.value = txt;
+  addrSugg.style.display = 'none';
+  setAddrStatus('checking', '⏳ Verificerer adresse...');
+  try {
+    const r = await fetch(`https://api.dataforsyningen.dk/adresser/${id}`);
+    if (!r.ok) throw new Error();
+    const d = await r.json();
+    validatedAddress = {
+      id, tekst: txt,
+      postnr: d.adgangsadresse.postnummer.nr,
+      by:     d.adgangsadresse.postnummer.navn,
+      lat:    d.adgangsadresse.adgangspunkt.koordinater[1],
+      lon:    d.adgangsadresse.adgangspunkt.koordinater[0]
+    };
+    setAddrStatus('ok', '✅ Adresse verificeret');
+    updateDeliveryEstimate();
+  } catch {
+    validatedAddress = null;
+    setAddrStatus('err', '❌ Kunne ikke verificere adresse');
+  }
+}
+
+function setAddrStatus(type, msg) {
+  addrStatus.className = 'addr-status ' + (type === 'ok' ? 'ok' : type === 'err' ? 'err' : 'checking');
+  addrStatus.textContent = msg;
+}
+
+// ============================================================
+// DELIVERY ESTIMATE
+// ============================================================
+document.getElementById('pax').addEventListener('input', updateDeliveryEstimate);
+
+async function updateDeliveryEstimate() {
+  const el = document.getElementById('delivery-estimate');
+  if (!el) return;
+  if (orderType !== 'catering' || !validatedAddress) { el.innerHTML = ''; return; }
+  const pax = parseInt(document.getElementById('pax').value) || 0;
+  if (!pax) { el.innerHTML = ''; return; }
+
+  const kasser = Math.ceil(pax / CFG.delivery.paxPerKasse);
+  let dist = null;
+  try {
+    const r = await fetch(`https://router.project-osrm.org/route/v1/driving/${CFG.base.lon},${CFG.base.lat};${validatedAddress.lon},${validatedAddress.lat}?overview=false`);
+    const d = await r.json();
+    if (d.routes?.length) dist = parseFloat((d.routes[0].distance / 1000).toFixed(1));
+  } catch {}
+
+  let method, price, icon;
+  const { byekspressen: byk, taxa } = CFG.delivery;
+  let found = false;
+  for (const z of Object.values(taxa)) {
+    if (z.postnumre.includes(validatedAddress.postnr)) {
+      method = 'Taxa'; price = z.pris; icon = '🚕'; found = true; break;
+    }
+  }
+  if (!found) {
+    if (dist && dist <= byk.maxAfstand && kasser <= byk.maxKasser) {
+      price = byk.kortBasis;
+      if (dist > CFG.delivery.afstandsGraense) price += byk.langTillaeg;
+      if (kasser > byk.sizeGraense) price += (kasser - byk.sizeGraense) * byk.sizeTillaeg;
+      price = Math.round(price); method = 'Levering'; icon = '🚴';
+    } else { method = 'Taxa'; price = taxa.zone3?.pris || 425; icon = '🚕'; }
+  }
+
+  const distLabel = dist ? (dist <= CFG.delivery.afstandsGraense ? 'kort' : 'langt') : '?';
+  el.innerHTML = `<div class="delivery-est">${icon} ${dist ?? '?'} km (${distLabel}) · ${kasser} kasse${kasser > 1 ? 'r' : ''} · levering beregnes ved bekræftelse</div>`;
+}
+
+function clearDeliveryEstimate() {
+  const el = document.getElementById('delivery-estimate');
+  if (el) el.innerHTML = '';
+}
+
+// ============================================================
+// FORM SUBMIT
+// ============================================================
+document.getElementById('order-form').addEventListener('submit', async e => {
+  e.preventDefault();
+
+  // Honeypot
+  const hp = document.querySelector('input[name="website"]');
+  if (hp?.value) return;
+
+  // Adresse validering
+  if (orderType === 'catering') {
+    if (!validatedAddress?.id) {
+      setAddrStatus('err', '❌ Vælg en gyldig adresse fra listen');
+      document.getElementById('address-input')?.focus();
+      return;
+    }
+  }
+
+  const btn = document.getElementById('submit-btn');
+  btn.classList.add('loading'); btn.disabled = true;
+
+  const fd = new FormData(e.target);
+  const data = Object.fromEntries(fd.entries());
+  data.validatedAddress = validatedAddress;
+  data.submittedAt = new Date().toISOString();
+  delete data.website;
+
+  // Webhook
+  if (CFG.webhookUrl && CFG.webhookUrl !== 'WEBHOOK_URL_PLACEHOLDER') {
+    try {
+      const res = await fetch(CFG.webhookUrl, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json'
+        },
+        body: JSON.stringify(data)
+      });
+      if (!res.ok) throw new Error('Server svarede ' + res.status);
+    } catch (err) {
+      // Webhook fejlede — vis fejlbesked med fallback til email
+      btn.classList.remove('loading'); btn.disabled = false;
+      const subject = encodeURIComponent('Bestilling ' + (data.delivery_date || '') + ' – ' + (data.first_name || '') + ' ' + (data.last_name || ''));
+      const body = encodeURIComponent(JSON.stringify(data, null, 2));
+      const errorDiv = document.getElementById('webhook-error');
+      if (errorDiv) {
+        errorDiv.innerHTML = `
+          <strong>⚠️ Der opstod en fejl ved afsendelse</strong><br>
+          Din bestilling blev ikke sendt. Prøv igen, eller
+          <a href="mailto:${CFG.email}?subject=${subject}&body=${body}" style="color:inherit;font-weight:700;">send os en email direkte →</a>
+        `;
+        errorDiv.style.display = 'block';
+      }
+      return;
+    }
+  }
+
+  btn.classList.remove('loading'); btn.disabled = false;
+  document.getElementById('order-form').style.display = 'none';
+  document.getElementById('thank-you').style.display = 'block';
+});
+
+// Pre-fill kontaktperson fra bestilleren
+function syncContactFields() {
+  const cpInp = document.getElementById('contact_person');
+  const ctInp = document.getElementById('contact_phone');
+  if (!cpInp || !ctInp) return;
+  // Kun auto-udfyld hvis feltet ikke er manuelt ændret
+  if (!cpInp.dataset.manuallyEdited) {
+    const fn = document.getElementById('first_name').value.trim();
+    const ln = document.getElementById('last_name').value.trim();
+    const full = [fn, ln].filter(Boolean).join(' ');
+    cpInp.value = full;
+  }
+  if (!ctInp.dataset.manuallyEdited) {
+    ctInp.value = document.getElementById('phone').value;
+  }
+}
+
+['first_name','last_name'].forEach(id => {
+  document.getElementById(id).addEventListener('input', syncContactFields);
+});
+document.getElementById('phone').addEventListener('input', syncContactFields);
+
+// Marker som manuelt ændret hvis brugeren selv retter
+['contact_person','contact_phone'].forEach(id => {
+  const el = document.getElementById(id);
+  if (el) el.addEventListener('input', () => { el.dataset.manuallyEdited = '1'; });
+});
+
+// Init
+updateConditional();
+</script>
+</body>
+</html>

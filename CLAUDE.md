@@ -1109,6 +1109,20 @@ Oprettes under Grocy → Manage master data → Userfields.
 - [x] Integreret i `kitchen/today.html` + `kitchen/index.html`
 - [x] `.env.example` — `WHITEBOARD_BASE_URL`, `SOP_BASE_URL`
 
+### Web-bestillinger (webhook fra hjemmesiden)
+- [x] Migration 044: `web_orders`-tabel + `web_order_confirmation` mail-skabelon + `webhook_secret` setting
+- [x] `routes/web-orders.js` — webhook + API
+  - `POST /webhook/bestilling` — modtager formular-data (nyt felt-format: `first_name`, `email`, `delivery_date` osv.)
+  - Honeypot-tjek, valgfri secret-validering via settings
+  - Find/opret firma + kunde (email-match), EAN-udtræk, DAWA-adresse
+  - Opret bon (status NY) + gem i `web_orders` (med `bon_id` reference)
+  - Send bekræftelsesmail via `web_order_confirmation`-skabelon (bonnummer, dato, tid, pax, adresse)
+  - SSE broadcast `bon_created` med `source: 'web_order'`
+  - `GET /` — liste over web-bestillinger (status-filter)
+- [x] `server.js` — webhook mountet med CORS for `ristetrug.dk` / `www.ristetrug.dk`
+- [x] `docs/bestilling (1).html` — opdateret (secret fjernet fra klient-kode)
+- [ ] Formbuilder (`docs/formbuilder.html`) skal tilpasses til nyt felt-format og integreres i Bon v2 (admin/settings)
+
 ### Sync-v1 timezone-fix
 - [x] `scripts/sync-v1.js` — `parseV1Date()` fikset fra UTC til lokal tid
   - V1 gemmer tider i UTC, men de repræsenterer dansk lokal tid (CET/CEST)
@@ -1120,7 +1134,7 @@ Oprettes under Grocy → Manage master data → Userfields.
 
 > ✏️ Opdateret 12. april 2026.
 >
-> **Fase 1a–1e + 3A + 3B + 3D + 4 + 5 + 6 (komplet inkl. 6g) + 7 (CRM) + Office CRM redesign + 8 (Fakturering) + 9 (Tilbud) + Mail-vedhæftninger + CRM service-kald + Firma-oprydning + 10 (Mobil Shell) + 10b (Roller & Rettigheder) + 11 (Ugeoversigt) + Priser i planlægningsbon + Hjælpesystem + Whiteboard Sidekick komplet.**
+> **Fase 1a–1e + 3A + 3B + 3D + 4 + 5 + 6 (komplet inkl. 6g) + 7 (CRM) + Office CRM redesign + 8 (Fakturering) + 9 (Tilbud) + Mail-vedhæftninger + CRM service-kald + Firma-oprydning + 10 (Mobil Shell) + 10b (Roller & Rettigheder) + 11 (Ugeoversigt) + Priser i planlægningsbon + Hjælpesystem + Whiteboard Sidekick + Web-bestillinger (webhook) komplet.**
 >
 > **Bon v1 er klar til nedlukning.**
 >
@@ -1128,7 +1142,8 @@ Oprettes under Grocy → Manage master data → Userfields.
 > - DMI API-nøgle (vejr på dashboards) — Leif finder frem til eksisterende nøgle (Open-Meteo bruges midlertidigt)
 > - ~~Bon v1-datamigration~~ — sync-v1.js kører dagligt via cron, CVR-beriget
 > - Byekspressen credentials — ryk sebastian@by-expressen.dk
-> - Formbuilder webhook-URL + HTML til ristetrug.dk/bestil — sættes når 1c er stabilt
+> - ~~Formbuilder webhook-URL + HTML til ristetrug.dk/bestil~~ — webhook klar (`POST /webhook/bestilling`), formular i `docs/bestilling (1).html`
+> - Formbuilder (`docs/formbuilder.html`): tilpas output til nyt felt-format (`first_name`, `email` i stedet for `f2`, `f3`) + fjern `x-webhook-secret` header. Integrér i Bon v2 admin/settings som formular-editor
 > - ~~Whiteboard API URL~~ — `WHITEBOARD_BASE_URL` i `.env`, Sidekick henter via `/api/sidekick/config`
 > - Whiteboard CORS: tilføj `https://bon.ristetrug.dk` til `ALLOWED_ORIGINS` i Whiteboard's `.env` ved deploy
 > - ~~Hørkram credentials~~ — `HOKA_USERNAME` + `HOKA_PASSWORD` sat i `.env`
@@ -1553,6 +1568,8 @@ GET    /api/schedule/week?from=&to=                        routes/schedule.js
 GET    /api/help-content                                   routes/help.js
 POST   /api/help-content                                   routes/help.js (admin)
 GET    /api/sidekick/config                                routes/sidekick.js
+POST   /webhook/bestilling                                 routes/web-orders.js (public, CORS)
+GET    /api/web-orders?status=                             routes/web-orders.js
 ```
 
 ---
