@@ -49,14 +49,19 @@ app.use(express.static(path.join(__dirname)));
 
 // ─── ROUTES ────────────────────────────────────────────────────────────────
 
-// ─── WEB ORDER WEBHOOK (public, CORS for ristetrug.dk) ─────────────────────
+// ─── WEB ORDER WEBHOOK (public, CORS for ristetrug.dk + test-origins) ───────
 const webOrdersRouter = require('./routes/web-orders');
+const WEBHOOK_ALLOWED_ORIGINS = [
+  'https://www.ristetrug.dk',
+  'https://ristetrug.dk',
+  'https://bestil-form.netlify.app'
+];
 app.use('/webhook', (req, res, next) => {
   const origin = req.headers.origin;
-  if (origin === 'https://www.ristetrug.dk' || origin === 'https://ristetrug.dk') {
+  if (origin && WEBHOOK_ALLOWED_ORIGINS.includes(origin)) {
     res.setHeader('Access-Control-Allow-Origin', origin);
     res.setHeader('Access-Control-Allow-Methods', 'POST, OPTIONS');
-    res.setHeader('Access-Control-Allow-Headers', 'Content-Type, x-webhook-secret');
+    res.setHeader('Access-Control-Allow-Headers', 'Content-Type');
   }
   if (req.method === 'OPTIONS') return res.sendStatus(204);
   next();
