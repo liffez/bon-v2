@@ -264,6 +264,7 @@ async function handleWebOrder(data) {
       vars: {
         kundeNavn: fullName,
         bonNummer: bonNumber,
+        bonNummerTal: bonNumber.replace(/\D/g, ''),
         ordreType: orderType === 'pickup' ? 'Afhentning' : 'Levering',
         leveringsDato: pænDato,
         leveringsTid: data.delivery_time,
