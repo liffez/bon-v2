@@ -257,6 +257,17 @@ function fetchMailTemplates() {
     return apiFetch('/mail/templates');
 }
 
+function createMailTemplate(data) {
+    return apiFetch('/mail/templates', {
+        method: 'POST',
+        body: JSON.stringify(data),
+    });
+}
+
+function deleteMailTemplate(key) {
+    return apiFetch('/mail/templates/' + encodeURIComponent(key), { method: 'DELETE' });
+}
+
 function patchMailTemplate(key, fields) {
     return apiFetch('/mail/templates/' + encodeURIComponent(key), {
         method: 'PATCH',

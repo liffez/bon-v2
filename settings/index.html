@@ -225,6 +225,26 @@
     }
     .st-var-tag:hover { background: var(--brand-primary-light); }
 
+    /* ─── TEMPLATE CARDS ─────────────────────────── */
+    .st-tmpl-card {
+      border: 1px solid var(--color-border, #d7d1ca);
+      border-radius: 8px; padding: 16px; margin-bottom: 12px;
+      background: #fff;
+    }
+    .st-tmpl-card.st-tmpl-system { border-left: 3px solid var(--brand-primary, #8e631f); }
+    .st-tmpl-header {
+      display: flex; justify-content: space-between; align-items: center; margin-bottom: 10px;
+    }
+    .st-tmpl-header h3 { margin: 0; font-size: 15px; }
+    .st-tmpl-key {
+      font-size: 11px; font-family: monospace; color: var(--color-text-dim, #7a6f5f);
+      background: var(--color-background, #f5f4f2); padding: 1px 6px; border-radius: 3px;
+    }
+    .st-tmpl-actions { display: flex; gap: 6px; align-items: center; }
+    .st-tmpl-ctx {
+      font-size: 11px; color: var(--color-text-dim, #7a6f5f); margin-bottom: 8px;
+    }
+
     /* ─── FORMBUILDER ─────────────────────────────── */
     .st-fb-row { display: flex; gap: 8px; align-items: center; margin-bottom: 6px; }
     .st-fb-arrow { color: var(--color-text-dim); font-size: 16px; }
@@ -1007,25 +1027,39 @@ async function loadMailSection() {
     '<textarea class="st-textarea" id="mail-sig" rows="4">' + esc(allSettings.mail_signature || '') + '</textarea>' +
     '<div style="margin-top:var(--space-s)"><button class="st-btn st-btn-primary st-btn-sm" onclick="saveSignature()">Gem signatur</button></div></div>';
 
-  // Skabelon
+  // Skabeloner — dropdown + editor
   var templates = await fetchMailTemplates();
-  var tmpl = templates.find(function(t) { return t.key === 'booking_confirmation'; });
-  if (tmpl) {
-    html += '<div class="st-mail-group"><h3>Skabelon: ' + esc(tmpl.label) + '</h3>';
-    html += '<div style="margin-bottom:8px"><label style="font-size:13px;font-weight:500">Emne</label><br>' +
-      '<input class="st-input" id="tmpl-subject" value="' + esc(tmpl.subject) + '"></div>';
-    html += '<label style="font-size:13px;font-weight:500">Brødtekst</label>' +
-      '<textarea class="st-textarea" id="tmpl-body" rows="10">' + esc(tmpl.body_text) + '</textarea>';
-    html += '<div class="st-vars"><span style="font-size:12px;margin-right:4px;color:var(--color-text-dim)">Variabler:</span>';
-    var vars = ['kundeNavn','bonNummer','leveringsDato','leveringsTidspunkt','leveringsAdresse','pax','ekstraInfo','firmanavn'];
-    vars.forEach(function(v) {
-      html += '<span class="st-var-tag" onclick="insertVar(\'' + v + '\')">{{' + v + '}}</span>';
-    });
-    html += '</div>';
-    html += '<div style="margin-top:var(--space-s)"><button class="st-btn st-btn-primary st-btn-sm" onclick="saveTemplate()">Gem skabelon</button></div></div>';
-  }
+  _mailTemplatesCache = templates; // cache til switchTemplate()
+
+  html += '<div class="st-mail-group"><h3>Skabeloner</h3>';
+  html += '<p style="font-size:.82rem;color:var(--color-text-dim);margin-bottom:12px">Mail-skabeloner bruges fra bon-draweren og automatiske mails. <code>{{variabel}}</code> erstattes med data. <code>{{tag}}</code> genereres fra kontekst og sikrer at svar routes korrekt.</p>';
+
+  // Dropdown
+  html += '<div style="display:flex;gap:8px;align-items:center;margin-bottom:12px">';
+  html += '<select class="st-input" id="tmpl-selector" onchange="switchTemplate()" style="flex:1;max-width:350px">';
+  templates.forEach(function(tmpl, i) {
+    html += '<option value="' + esc(tmpl.key) + '"' + (i===0?' selected':'') + '>' + esc(tmpl.label || tmpl.key) + ' (' + esc(tmpl.key) + ')</option>';
+  });
+  html += '</select>';
+  html += '<button class="st-btn st-btn-sm st-btn-secondary" onclick="showNewTemplateForm()">+ Ny skabelon</button>';
+  html += '</div>';
+
+  // Opret-form (skjult som default)
+  html += '<div id="new-tmpl-form" style="display:none;padding:12px;border:1px dashed var(--color-border);border-radius:8px;margin-bottom:12px">';
+  html += '<div style="display:flex;gap:8px;flex-wrap:wrap;align-items:end">';
+  html += '<div><label style="font-size:13px">Nøgle</label><br><input class="st-input" id="new-tmpl-key" placeholder="fx custom_reminder" style="width:180px;font-family:monospace"></div>';
+  html += '<div><label style="font-size:13px">Label</label><br><input class="st-input" id="new-tmpl-label" placeholder="Påmindelse" style="width:200px"></div>';
+  html += '<button class="st-btn st-btn-primary st-btn-sm" onclick="createNewTemplate()">Opret</button>';
+  html += '<button class="st-btn st-btn-sm" onclick="document.getElementById(\'new-tmpl-form\').style.display=\'none\'">Annuller</button>';
+  html += '</div></div>';
+
+  // Editor-område (fyldes af switchTemplate)
+  html += '<div id="tmpl-editor"></div>';
+  html += '</div>';
 
   container.innerHTML = html;
+  // Vis første skabelon
+  if (templates.length > 0) switchTemplate();
 }
 
 function mailField(key, label, type) {
@@ -1064,11 +1098,110 @@ async function saveSignature() {
   await saveSetting('mail_signature', document.getElementById('mail-sig').value);
 }
 
-async function saveTemplate() {
+var _mailTemplatesCache = [];
+var SYSTEM_KEYS = ['booking_confirmation', 'web_order_confirmation', 'order_email'];
+var TEMPLATE_VARS = {
+  'booking_confirmation': ['kundeNavn','bonNummer','leveringsDato','leveringsTidspunkt','leveringsAdresse','pax','firmanavn','tag',
+      'menuUdenPriser','menuMedPriser','totalPris','totalExMoms','momsBeloeb','co2Total'],
+  'web_order_confirmation': ['kundeNavn','bonNummer','ordreType','leveringsDato','leveringsTid','pax','adresseBlok','oenskerBlok','tag'],
+  'order_email': ['leverandoer','vareliste','dato','leveringsdato','tag'],
+  '_default': ['kundeNavn','bonNummer','leveringsDato','leveringsTidspunkt','leveringsAdresse','pax','firmanavn','tag',
+      'menuUdenPriser','menuMedPriser','totalPris','totalExMoms','momsBeloeb']
+};
+
+function switchTemplate() {
+  var sel = document.getElementById('tmpl-selector');
+  if (!sel) return;
+  var key = sel.value;
+  var tmpl = _mailTemplatesCache.find(function(t) { return t.key === key; });
+  if (!tmpl) return;
+
+  var isSystem = SYSTEM_KEYS.indexOf(key) >= 0;
+  var vars = TEMPLATE_VARS[key] || TEMPLATE_VARS['_default'];
+  var ed = document.getElementById('tmpl-editor');
+
+  var h = '<div class="st-tmpl-card' + (isSystem ? ' st-tmpl-system' : '') + '">';
+  h += '<div class="st-tmpl-header"><div>';
+  h += '<span class="st-tmpl-key">' + esc(key) + '</span>';
+  if (isSystem) h += ' <span style="font-size:11px;color:var(--brand-primary)">system</span>';
+  h += '</div><div class="st-tmpl-actions">';
+  h += '<button class="st-btn st-btn-primary st-btn-sm" onclick="saveCurrentTemplate()">Gem</button>';
+  h += '<button class="st-btn st-btn-sm st-btn-secondary" onclick="testCurrentTemplate()">Send test</button>';
+  if (!isSystem) h += '<button class="st-btn st-btn-sm" style="color:#c0392b" onclick="deleteCurrentTemplate()">Slet</button>';
+  h += '</div></div>';
+  h += '<div style="margin-bottom:8px"><label style="font-size:13px;font-weight:500">Label</label><br>' +
+    '<input class="st-input" id="tmpl-label" value="' + esc(tmpl.label || '') + '" style="max-width:300px"></div>';
+  h += '<div style="margin-bottom:8px"><label style="font-size:13px;font-weight:500">Emne</label><br>' +
+    '<input class="st-input" id="tmpl-subject" value="' + esc(tmpl.subject || '') + '"></div>';
+  h += '<label style="font-size:13px;font-weight:500">Brødtekst</label>' +
+    '<textarea class="st-textarea" id="tmpl-body" rows="10">' + esc(tmpl.body_text || '') + '</textarea>';
+  h += '<div class="st-vars"><span style="font-size:12px;margin-right:4px;color:var(--color-text-dim)">Variabler:</span>';
+  vars.forEach(function(v) {
+    h += '<span class="st-var-tag" onclick="insertVar(\'' + v + '\')">{{' + v + '}}</span>';
+  });
+  h += '</div></div>';
+  ed.innerHTML = h;
+}
+
+async function saveCurrentTemplate() {
+  var key = document.getElementById('tmpl-selector').value;
+  var label = document.getElementById('tmpl-label').value;
   var subject = document.getElementById('tmpl-subject').value;
   var body = document.getElementById('tmpl-body').value;
-  await patchMailTemplate('booking_confirmation', { subject: subject, body_text: body });
+  await patchMailTemplate(key, { label: label, subject: subject, body_text: body });
+  // Opdater cache + dropdown-label
+  var tmpl = _mailTemplatesCache.find(function(t) { return t.key === key; });
+  if (tmpl) { tmpl.label = label; tmpl.subject = subject; tmpl.body_text = body; }
+  var opt = document.querySelector('#tmpl-selector option[value="' + key + '"]');
+  if (opt) opt.textContent = label + ' (' + key + ')';
   toast('Skabelon gemt');
+}
+
+async function testCurrentTemplate() {
+  var key = document.getElementById('tmpl-selector').value;
+  var to = prompt('Send test-mail til:', '');
+  if (!to) return;
+  try {
+    await sendTestMail(to, key);
+    toast('Test-mail sendt til ' + to);
+  } catch (e) {
+    toast('Fejl: ' + e.message, 'error');
+  }
+}
+
+async function deleteCurrentTemplate() {
+  var key = document.getElementById('tmpl-selector').value;
+  if (!confirm('Slet skabelon "' + key + '"?')) return;
+  try {
+    await deleteMailTemplate(key);
+    toast('Skabelon slettet');
+    loadMailSection();
+  } catch (e) {
+    toast('Fejl: ' + e.message, 'error');
+  }
+}
+
+function showNewTemplateForm() {
+  var form = document.getElementById('new-tmpl-form');
+  if (form) { form.style.display = 'block'; document.getElementById('new-tmpl-key').focus(); }
+}
+
+async function createNewTemplate() {
+  var key = document.getElementById('new-tmpl-key').value.trim();
+  var label = document.getElementById('new-tmpl-label').value.trim();
+  if (!key || !label) return toast('Angiv både nøgle og label', 'error');
+  try {
+    await createMailTemplate({ key: key, label: label, subject: '', body_text: '' });
+    toast('Skabelon oprettet');
+    loadMailSection();
+    // Vælg den nye skabelon efter reload
+    setTimeout(function() {
+      var sel = document.getElementById('tmpl-selector');
+      if (sel) { sel.value = key; switchTemplate(); }
+    }, 100);
+  } catch (e) {
+    toast('Fejl: ' + e.message, 'error');
+  }
 }
 
 function insertVar(name) {
