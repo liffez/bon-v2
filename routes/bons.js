@@ -577,7 +577,7 @@ router.post('/:id/mail', handle(async (req, res) => {
     if (!bon) return res.status(404).json({ error: 'Bon ikke fundet' });
 
     const { sendMail, sendFromTemplate } = require('../services/mailService');
-    const context = { type: 'bon', number: parseInt(bon.bon_number) };
+    const context = { type: 'bon', number: parseInt(bon.bon_number.replace(/\D/g, '')) };
     const userId = req.session?.user?.id || null;
 
     let result;

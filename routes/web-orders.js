@@ -258,16 +258,15 @@ async function handleWebOrder(data) {
 
     // Fire-and-forget: mailen sendes i baggrunden
     const { sendFromTemplate } = require('../services/mailService');
-    const { buildTag } = require('../utils/mail-parser');
-    const bonTag = buildTag({ type: 'bon', number: bonNumber.replace(/\D/g, '') });
+    const bonContext = { type: 'bon', number: parseInt(bonNumber.replace(/\D/g, '')) };
 
     sendFromTemplate({
       templateKey: 'web_order_confirmation',
       to: data.email.trim(),
+      context: bonContext,
       vars: {
         kundeNavn: fullName,
         bonNummer: bonNumber,
-        bonTag,
         ordreType: orderType === 'pickup' ? 'Afhentning' : 'Levering',
         leveringsDato: pænDato,
         leveringsTid: data.delivery_time,
