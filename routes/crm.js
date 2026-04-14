@@ -535,7 +535,18 @@ router.get('/customer/:id', handle((req, res) => {
         ORDER BY total_qty DESC LIMIT 8
     `).all(id);
 
-    res.json({ customer, stats, orders, activities, products });
+    // RFM-data for firmaet
+    let rfm = null;
+    if (customer.company_id) {
+        rfm = db.prepare(`
+            SELECT r_score, f_score, m_score, rfm_total, stage AS rfm_stage,
+                   stage_locked, order_count AS rfm_orders, total_guests AS rfm_guests,
+                   total_revenue AS rfm_revenue, computed_at AS rfm_computed_at
+            FROM rfm_scores WHERE company_id = ?
+        `).get(customer.company_id);
+    }
+
+    res.json({ customer, stats, orders, activities, products, rfm });
 }));
 
 // ─── GET /customer-orders/:id ───────────────────────────────
@@ -571,7 +582,7 @@ router.get('/customer-orders/:id', handle((req, res) => {
 // ─── POST /activity ─────────────────────────────────────────
 router.post('/activity', handle((req, res) => {
     const db = getDb();
-    const { customer_id, bon_id, type, result, sentiment, text, due_at } = req.body;
+    const { customer_id, bon_id, type, result, sentiment, text, due_at, purpose_id } = req.body;
     const userId = req.session.user?.id || null;
 
     if (!customer_id || !type || !text) {
@@ -579,9 +590,9 @@ router.post('/activity', handle((req, res) => {
     }
 
     const ins = db.prepare(`
-        INSERT INTO crm_activities (customer_id, bon_id, type, result, sentiment, text, due_at, owner_user_id)
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?)
-    `).run(customer_id, bon_id || null, type, result || null, sentiment || null, text, due_at || null, userId);
+        INSERT INTO crm_activities (customer_id, bon_id, type, result, sentiment, text, due_at, owner_user_id, purpose_id)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+    `).run(customer_id, bon_id || null, type, result || null, sentiment || null, text, due_at || null, userId, purpose_id || null);
 
     const activityId = ins.lastInsertRowid;
 
@@ -616,6 +627,24 @@ router.patch('/customer/:id/stage', handle((req, res) => {
         db.prepare("UPDATE crm_customer_meta SET stage = ?, updated_at = CURRENT_TIMESTAMP WHERE customer_id = ?").run(stage, id);
     } else {
         db.prepare("INSERT INTO crm_customer_meta (customer_id, stage) VALUES (?, ?)").run(id, stage);
+    }
+
+    // Sync til rfm_scores (sæt stage_locked så RFM batch-job respekterer manuelt valg)
+    const customer = db.prepare("SELECT company_id FROM customers WHERE id = ?").get(id);
+    if (customer?.company_id) {
+        const userId = req.session.user?.id || null;
+        const rfmExists = db.prepare("SELECT 1 FROM rfm_scores WHERE company_id = ?").get(customer.company_id);
+        if (rfmExists) {
+            db.prepare(`
+                UPDATE rfm_scores SET stage = ?, stage_locked = 1, stage_locked_by = ?, stage_locked_at = datetime('now')
+                WHERE company_id = ?
+            `).run(stage, userId, customer.company_id);
+        } else {
+            db.prepare(`
+                INSERT INTO rfm_scores (company_id, stage, stage_locked, stage_locked_by, stage_locked_at)
+                VALUES (?, ?, 1, ?, datetime('now'))
+            `).run(customer.company_id, stage, userId);
+        }
     }
 
     broadcast('crm_stage_changed', { customer_id: id, stage });

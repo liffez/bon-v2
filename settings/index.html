@@ -299,6 +299,7 @@
     <button class="st-nav-item st-admin-only" data-section="lego">Legoklods</button>
     <button class="st-nav-item st-admin-only" data-section="duplicates">Duplikater</button>
     <button class="st-nav-item st-admin-only" data-section="system">System</button>
+    <button class="st-nav-item st-admin-only" data-section="activity-purposes">Aktivitetsformål</button>
   </nav>
 
   <div class="st-content">
@@ -514,6 +515,28 @@
         <span style="font-size:11px;color:var(--color-text-dim)">Salgspris (m/moms), kostpris, margin</span>
       </div>
     </div>
+
+    <!-- ════ AKTIVITETSFORMÅL ════ -->
+    <div class="st-section st-admin-only" id="sec-activity-purposes">
+      <h2>Aktivitetsformål</h2>
+      <p style="font-size:13px;color:#888;margin-bottom:16px">
+        Formål bruges til at kategorisere opkald og aktiviteter i CRM. Systemformål kan ikke slettes.
+      </p>
+      <table class="st-table" id="ap-table">
+        <thead><tr><th style="width:40px">Ikon</th><th>Navn</th><th>Nøgle</th><th style="width:60px">Type</th><th style="width:70px">Aktiv</th><th style="width:80px"></th></tr></thead>
+        <tbody id="ap-body"></tbody>
+      </table>
+      <button class="st-btn st-btn-primary" style="margin-top:12px" onclick="apShowNew()">+ Nyt formål</button>
+      <div id="ap-new-form" style="display:none;margin-top:12px;padding:14px;background:#faf8f5;border-radius:8px;border:1px solid var(--color-border)">
+        <div style="display:flex;gap:8px;flex-wrap:wrap;align-items:center">
+          <input id="ap-new-emoji" placeholder="Emoji" style="width:50px;padding:6px;border:1px solid #ccc;border-radius:4px;font-size:16px;text-align:center">
+          <input id="ap-new-label" placeholder="Navn" style="flex:1;min-width:140px;padding:6px;border:1px solid #ccc;border-radius:4px;font-size:13px">
+          <input id="ap-new-desc" placeholder="Beskrivelse (valgfri)" style="flex:2;min-width:200px;padding:6px;border:1px solid #ccc;border-radius:4px;font-size:13px">
+          <button class="st-btn st-btn-primary" onclick="apSaveNew()">Gem</button>
+          <button class="st-btn" onclick="apHideNew()">Annuller</button>
+        </div>
+      </div>
+    </div>
   </div>
 </div>
 
@@ -593,6 +616,7 @@ async function init() {
     loadCapacitySettings();
     loadPlanningPricesSettings();
     loadDuplicates();
+    loadActivityPurposes();
   }
 }
 
@@ -1642,6 +1666,77 @@ async function updateDuplicate(id, status) {
 document.getElementById('dup-filter')?.addEventListener('change', function() {
     loadDuplicates(this.value);
 });
+
+// ─── AKTIVITETSFORMÅL ────────────────────────────────────
+
+async function loadActivityPurposes() {
+    try {
+        const data = await fetchActivityPurposes(true);
+        const tbody = document.getElementById('ap-body');
+        if (!tbody) return;
+        tbody.innerHTML = data.map(p => `
+            <tr>
+                <td style="font-size:18px;text-align:center">${p.emoji || ''}</td>
+                <td>
+                    <input value="${esc(p.label)}" style="border:1px solid #ddd;padding:4px 6px;border-radius:4px;width:140px;font-size:13px"
+                        onchange="apPatch(${p.id}, 'label', this.value)" ${p.is_system ? '' : ''}>
+                    ${p.description ? '<div style=\"font-size:11px;color:#888;margin-top:2px\">' + esc(p.description) + '</div>' : ''}
+                </td>
+                <td style="font-size:12px;color:#888;font-family:monospace">${esc(p.key)}</td>
+                <td><span style="font-size:11px;padding:2px 6px;border-radius:8px;background:${p.is_system ? '#f5f0e0' : '#e8f2dc'}">${p.is_system ? 'System' : 'Bruger'}</span></td>
+                <td>
+                    ${p.is_system ? '<span style="color:#3d7a0a">✓</span>' :
+                        '<label class="st-toggle" style="transform:scale(0.8)"><input type="checkbox" ' + (p.is_active ? 'checked' : '') +
+                        ' onchange="apPatch(' + p.id + ', \'is_active\', this.checked ? 1 : 0)"><span class="st-toggle-slider"></span></label>'}
+                </td>
+                <td>
+                    ${!p.is_system ? '<button class="st-btn" style="font-size:11px;padding:2px 8px" onclick="apPatch(' + p.id + ', \'emoji\', prompt(\'Emoji:\', \'' + esc(p.emoji || '') + '\'))">Ikon</button>' : ''}
+                </td>
+            </tr>
+        `).join('');
+    } catch (err) {
+        toast('Fejl ved indlæsning af formål: ' + err.message, 'err');
+    }
+}
+
+async function apPatch(id, field, value) {
+    if (value === null) return; // prompt cancelled
+    try {
+        await patchActivityPurpose(id, { [field]: value });
+        toast('Gemt');
+        loadActivityPurposes();
+    } catch (err) {
+        toast('Fejl: ' + err.message, 'err');
+    }
+}
+
+function apShowNew() {
+    document.getElementById('ap-new-form').style.display = 'block';
+    document.getElementById('ap-new-label').focus();
+}
+
+function apHideNew() {
+    document.getElementById('ap-new-form').style.display = 'none';
+    document.getElementById('ap-new-label').value = '';
+    document.getElementById('ap-new-emoji').value = '';
+    document.getElementById('ap-new-desc').value = '';
+}
+
+async function apSaveNew() {
+    const label = document.getElementById('ap-new-label').value.trim();
+    const emoji = document.getElementById('ap-new-emoji').value.trim();
+    const description = document.getElementById('ap-new-desc').value.trim();
+    if (!label) { toast('Navn er påkrævet', 'err'); return; }
+    const key = label.toLowerCase().replace(/[^a-zæøå0-9]/g, '_').replace(/_+/g, '_').replace(/^_|_$/g, '');
+    try {
+        await createActivityPurpose({ key, label, emoji: emoji || null, description: description || null });
+        toast('Formål oprettet');
+        apHideNew();
+        loadActivityPurposes();
+    } catch (err) {
+        toast('Fejl: ' + err.message, 'err');
+    }
+}
 
 // ─── START ───────────────────────────────────────────────
 init();

@@ -473,6 +473,15 @@
           <button class="sidebar-link" data-view="crm-inbox">
             <span class="sidebar-icon">📬</span> Indbakke
           </button>
+          <button class="sidebar-link" data-view="crm-reaktivering">
+            <span class="sidebar-icon">💤</span> Re-aktivering
+          </button>
+          <button class="sidebar-link" data-view="crm-prospekter">
+            <span class="sidebar-icon">🎯</span> Prospekter
+          </button>
+          <button class="sidebar-link" data-view="crm-kundeindsigt">
+            <span class="sidebar-icon">📊</span> Kundeindsigt
+          </button>
 
           <button class="sidebar-link" data-view="tilbud">
             <span class="sidebar-icon">📋</span> Tilbud
@@ -554,6 +563,9 @@
   <script src="views/crm-dashboard.js"></script>
   <script src="views/crm-kunde360.js"></script>
   <script src="views/crm-inbox.js"></script>
+  <script src="views/crm-kundeindsigt.js"></script>
+  <script src="views/crm-reaktivering.js"></script>
+  <script src="views/crm-prospekter.js"></script>
   <script src="views/fakturering.js"></script>
   <script src="views/tilbud.js"></script>
   <script src="views/rapporter.js"></script>
@@ -651,6 +663,18 @@
           init: () => initCrmInbox(contentEl, {}),
           cleanup: () => { if (typeof cleanupCrmInbox === 'function') cleanupCrmInbox(); },
         },
+        'crm-kundeindsigt': {
+          init: () => initCrmKundeindsigt(contentEl),
+          cleanup: () => { if (typeof cleanupCrmKundeindsigt === 'function') cleanupCrmKundeindsigt(); },
+        },
+        'crm-reaktivering': {
+          init: () => initCrmReaktivering(contentEl),
+          cleanup: () => { if (typeof cleanupCrmReaktivering === 'function') cleanupCrmReaktivering(); },
+        },
+        'crm-prospekter': {
+          init: () => initCrmProspekter(contentEl),
+          cleanup: () => { if (typeof cleanupCrmProspekter === 'function') cleanupCrmProspekter(); },
+        },
         fakturering: {
           init: () => initFakturering(contentEl, { openDrawer }),
           cleanup: () => { if (typeof cleanupFakturering === 'function') cleanupFakturering(); },
@@ -715,7 +739,10 @@
           'crm-dashboard':'Office — CRM', 'crm-kunde360':'Office — Kunder',
           'crm-inbox':'Office — CRM Indbakke', 'fakturering':'Office — Fakturering',
           'tilbud':'Office — Tilbud', 'ugeoversigt':'Office — Ugeoversigt',
-          'cashflow':'Office — Pengestrøm'
+          'cashflow':'Office — Pengestrøm',
+          'crm-kundeindsigt':'Office — Kundeindsigt',
+          'crm-reaktivering':'Office — Re-aktivering',
+          'crm-prospekter':'Office — Prospekter'
         };
         if (typeof HelpSystem !== 'undefined') {
           HelpSystem.setPage('office-' + viewName, helpNames[viewName] || 'Office — ' + viewName);
@@ -814,9 +841,19 @@
         crm_activity_created: (data) => {
           if (typeof _crmDashHandleSSE === 'function') _crmDashHandleSSE('crm_activity_created', data);
           if (typeof _k3HandleSSE === 'function') _k3HandleSSE('crm_activity_created', data);
+          if (typeof _reakHandleSSE === 'function') _reakHandleSSE('crm_activity_created', data);
         },
         crm_stage_changed: (data) => {
           if (typeof _k3HandleSSE === 'function') _k3HandleSSE('crm_stage_changed', data);
+          if (typeof _prosHandleSSE === 'function') _prosHandleSSE('crm_stage_changed', data);
+        },
+        rfm_computed: (data) => {
+          if (typeof _kiHandleSSE === 'function') _kiHandleSSE('rfm_computed', data);
+          if (typeof _reakHandleSSE === 'function') _reakHandleSSE('rfm_computed', data);
+          if (typeof _prosHandleSSE === 'function') _prosHandleSSE('rfm_computed', data);
+        },
+        rfm_config_changed: (data) => {
+          if (typeof _kiHandleSSE === 'function') _kiHandleSSE('rfm_config_changed', data);
         },
         mail_unmatched: (data) => {
           if (typeof _inbHandleSSE === 'function') _inbHandleSSE('mail_unmatched', data);

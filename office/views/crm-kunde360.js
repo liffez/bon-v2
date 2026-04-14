@@ -11,6 +11,7 @@ let _k3Active = false;
 let _k3CustomerId = null;
 let _k3Data = null;
 let _k3Tab = 'orders';
+let _k3Purposes = null;
 
 function initCrmKunde360(containerEl, opts) {
     _k3Container = containerEl;
@@ -19,6 +20,11 @@ function initCrmKunde360(containerEl, opts) {
 
     const params = new URLSearchParams(window.location.search);
     _k3CustomerId = params.get('customer') ? parseInt(params.get('customer')) : null;
+
+    // Hent aktivitetsformål (én gang)
+    if (!_k3Purposes) {
+        fetchActivityPurposes().then(p => { _k3Purposes = p; }).catch(() => {});
+    }
 
     if (_k3CustomerId) {
         _k3RenderShell();
@@ -911,6 +917,23 @@ function _k3RenderProfile() {
         '</div>' +
     '</div>';
 
+    // RFM badge (if available)
+    if (_k3Data.rfm) {
+        const rfm = _k3Data.rfm;
+        html += '<div style="margin:8px 0;padding:8px 12px;background:#faf8f5;border-radius:6px;border:1px solid #eee;font-size:12px">' +
+            '<div style="display:flex;align-items:center;gap:10px">' +
+                '<span style="font-size:16px;font-weight:700;font-family:var(--font-heading,serif)">' + rfm.rfm_total + '</span>' +
+                '<span style="color:#888">RFM</span>' +
+                '<span style="display:inline-flex;gap:4px">' +
+                    '<span title="Recency" style="color:#4a90d9">R:' + rfm.r_score + '</span>' +
+                    '<span title="Frequency" style="color:#5cb85c">F:' + rfm.f_score + '</span>' +
+                    '<span title="Monetary" style="color:#f0ad4e">M:' + rfm.m_score + '</span>' +
+                '</span>' +
+                (rfm.stage_locked ? '<span style="font-size:10px" title="Manuelt sat stadie">🔒</span>' : '') +
+            '</div>' +
+        '</div>';
+    }
+
     // Contact info
     html += '<div class="k3-contact-section">' +
         '<div class="k3-contact-row"><span class="k3-contact-icon">📞</span>' +
@@ -1073,6 +1096,12 @@ function _k3RenderActivity(el) {
                 '<option value="meeting">Møde</option>' +
                 '<option value="task">Opgave</option>' +
                 '<option value="followup">Opfølgning</option>' +
+            '</select>' +
+            '<select class="k3-af-select" id="k3ActPurpose" style="min-width:120px">' +
+                '<option value="">— Formål —</option>' +
+                (_k3Purposes || []).map(p =>
+                    '<option value="' + p.id + '">' + (p.emoji || '') + ' ' + p.label + '</option>'
+                ).join('') +
             '</select>' +
             '<select class="k3-af-select" id="k3ActResult" style="display:none;">' +
                 '<option value="">— Resultat —</option>' +
@@ -1263,13 +1292,15 @@ async function _k3SubmitActivity() {
     const text = document.getElementById('k3ActText').value.trim();
     const sentBtn = document.querySelector('.k3-sent-btn.selected');
     const sentiment = sentBtn ? sentBtn.dataset.s : null;
+    const purposeEl = document.getElementById('k3ActPurpose');
+    const purpose_id = purposeEl?.value ? parseInt(purposeEl.value) : null;
 
     if (!text) { alert('Skriv en note'); return; }
 
     try {
         await postCrmActivity({
             customer_id: _k3CustomerId,
-            type, result, sentiment, text,
+            type, result, sentiment, text, purpose_id,
         });
         _k3LoadData();
     } catch (err) {

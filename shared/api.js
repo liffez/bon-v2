@@ -975,3 +975,58 @@ function fetchCfPaymentBehavior() {
 function fetchCfUpcoming() {
     return apiFetch('/cashflow/upcoming');
 }
+
+/* ── RFM & KUNDEINDSIGT ────────────────────────────────────── */
+
+function fetchRfmScores(params) {
+    var qs = params ? '?' + new URLSearchParams(params).toString() : '';
+    return apiFetch('/rfm/scores' + qs);
+}
+
+function fetchRfmConfig() {
+    return apiFetch('/rfm/config');
+}
+
+function patchRfmConfig(updates) {
+    return apiFetch('/rfm/config', { method: 'PATCH', body: JSON.stringify(updates) });
+}
+
+function triggerRfmCompute() {
+    return apiFetch('/rfm/compute', { method: 'POST' });
+}
+
+function patchRfmStage(companyId, stage) {
+    return apiFetch('/rfm/scores/' + companyId + '/stage', {
+        method: 'PATCH', body: JSON.stringify({ stage: stage })
+    });
+}
+
+function unlockRfmStage(companyId) {
+    return apiFetch('/rfm/scores/' + companyId + '/unlock', { method: 'PATCH' });
+}
+
+function fetchRfmReactivation() {
+    return apiFetch('/rfm/reactivation');
+}
+
+function fetchRfmProspects() {
+    return apiFetch('/rfm/prospects');
+}
+
+function fetchRfmIcp(source) {
+    return apiFetch('/rfm/icp?source=' + (source || 'vip'));
+}
+
+/* ── AKTIVITETSFORMÅL ──────────────────────────────────────── */
+
+function fetchActivityPurposes(all) {
+    return apiFetch('/activity-purposes' + (all ? '?all=1' : ''));
+}
+
+function createActivityPurpose(data) {
+    return apiFetch('/activity-purposes', { method: 'POST', body: JSON.stringify(data) });
+}
+
+function patchActivityPurpose(id, data) {
+    return apiFetch('/activity-purposes/' + id, { method: 'PATCH', body: JSON.stringify(data) });
+}

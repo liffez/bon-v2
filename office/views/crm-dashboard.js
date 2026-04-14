@@ -447,7 +447,11 @@ function _crmRenderKPIs(stats) {
             '<div class="crm-kpi-value' + (k.warn ? ' warn' : k.green ? ' green' : '') + '">' + k.value + '</div>' +
             '<div class="crm-kpi-label">' + k.label + '</div>' +
         '</div>'
-    ).join('');
+    ).join('') +
+    '<div class="crm-kpi" style="cursor:pointer;opacity:0.7" onclick="if(typeof switchView===\'function\')switchView(\'crm-kundeindsigt\')">' +
+        '<div class="crm-kpi-value" style="font-size:16px">📊</div>' +
+        '<div class="crm-kpi-label">Kundeindsigt</div>' +
+    '</div>';
 }
 
 function _crmRenderBriefing(items) {
