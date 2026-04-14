@@ -319,6 +319,17 @@
     }
     .thank-you p { color: var(--text-muted); line-height: 1.6; }
 
+    /* Validation error highlight */
+    .field-error input,
+    .field-error textarea,
+    .field-error select {
+      border-color: var(--err) !important;
+      background: var(--err-bg);
+    }
+    .field-error label { color: var(--err); }
+    .check-field.field-error label { color: var(--err); }
+    .check-field.field-error input[type=checkbox] { outline: 2px solid var(--err); outline-offset: 2px; }
+
     /* Honeypot */
     .hp { position: absolute; left: -9999px; opacity: 0; pointer-events: none; }
   </style>
@@ -511,7 +522,7 @@
     <div class="thank-you" id="thank-you" style="display:none;">
       <div class="ty-icon">✅</div>
       <h2>Tak for din forespørgsel!</h2>
-      <p>Vi har modtaget din bestilling og vender tilbage hurtigst muligt med bekræftelse og pris.</p>
+      <p>Vi har modtaget din bestilling og vender tilbage hurtigst muligt med en bekræftelse.</p>
     </div>
 
   </div><!-- /form-body -->
@@ -646,12 +657,7 @@ function checkCutoff() {
     Hastebestilling? <a href="mailto:${CFG.email}?subject=Hastebestilling ${di.value}" style="color:inherit;font-weight:700;">Skriv til os direkte →</a></span></div>`;
     if (submitBtn) submitBtn.disabled = true;
   } else {
-    const hoursLeft = Math.round((cutoff - now) / 3600000);
-    if (hoursLeft < 48) {
-      el.innerHTML = `<div class="date-notice warn">⏰ Bestil senest ${dayNames[cutoff.getDay()]} kl. ${CFG.cutoff.time}:00 — ${hoursLeft} timer tilbage</div>`;
-    } else {
-      el.innerHTML = '';
-    }
+    el.innerHTML = '';
     if (submitBtn) submitBtn.disabled = false;
   }
 }
@@ -775,6 +781,109 @@ function clearDeliveryEstimate() {
 }
 
 // ============================================================
+// LOCALSTORAGE — husk kontaktinfo til næste gang
+// ============================================================
+const REMEMBER_FIELDS = ['first_name','last_name','email','phone','company','ean_info'];
+const REMEMBER_KEY = 'rr_bestilling_saved';
+
+function loadSavedFields() {
+  try {
+    const saved = JSON.parse(localStorage.getItem(REMEMBER_KEY) || '{}');
+    REMEMBER_FIELDS.forEach(id => {
+      const el = document.getElementById(id);
+      if (el && saved[id]) el.value = saved[id];
+    });
+    // Adresse separat (tekst + valideret objekt)
+    if (saved._address_text) {
+      const ai = document.getElementById('address-input');
+      if (ai) ai.value = saved._address_text;
+    }
+    if (saved._validatedAddress) {
+      validatedAddress = saved._validatedAddress;
+      setAddrStatus('ok', '✅ Adresse fra sidst (redigér hvis nødvendigt)');
+    }
+    // Sync kontaktperson-felter fra huskede værdier
+    syncContactFields();
+  } catch {}
+}
+
+function saveFields() {
+  try {
+    const obj = {};
+    REMEMBER_FIELDS.forEach(id => {
+      const el = document.getElementById(id);
+      if (el?.value?.trim()) obj[id] = el.value.trim();
+    });
+    if (validatedAddress) {
+      obj._address_text = validatedAddress.tekst;
+      obj._validatedAddress = validatedAddress;
+    }
+    localStorage.setItem(REMEMBER_KEY, JSON.stringify(obj));
+  } catch {}
+}
+
+// ============================================================
+// VALIDERING — markér tomme obligatoriske felter
+// ============================================================
+function validateForm() {
+  // Ryd tidligere fejl
+  document.querySelectorAll('.field-error').forEach(el => el.classList.remove('field-error'));
+
+  let firstError = null;
+  let valid = true;
+
+  // Påkrævede input-felter
+  const form = document.getElementById('order-form');
+  form.querySelectorAll('[required]').forEach(inp => {
+    // Spring skjulte felter over (betinget synlighed)
+    if (inp.closest('.cond.hidden')) return;
+    if (!inp.value?.trim()) {
+      const field = inp.closest('.field') || inp.closest('.check-field');
+      if (field) field.classList.add('field-error');
+      if (!firstError) firstError = inp;
+      valid = false;
+    }
+  });
+
+  // Adresse-validering (catering)
+  if (orderType === 'catering' && !validatedAddress?.id) {
+    const field = document.getElementById('field-address');
+    if (field) field.classList.add('field-error');
+    setAddrStatus('err', '❌ Vælg en gyldig adresse fra listen');
+    if (!firstError) firstError = document.getElementById('address-input');
+    valid = false;
+  }
+
+  // Checkboxes
+  ['cb-privacy','cb-terms'].forEach(id => {
+    const cb = document.getElementById(id);
+    if (cb && !cb.checked) {
+      const field = cb.closest('.check-field');
+      if (field) field.classList.add('field-error');
+      if (!firstError) firstError = cb;
+      valid = false;
+    }
+  });
+
+  if (firstError) {
+    firstError.focus();
+    firstError.scrollIntoView({ behavior: 'smooth', block: 'center' });
+  }
+
+  return valid;
+}
+
+// Ryd fejl-markering når brugeren retter feltet
+document.getElementById('order-form').addEventListener('input', e => {
+  const field = e.target.closest('.field') || e.target.closest('.check-field');
+  if (field) field.classList.remove('field-error');
+});
+document.getElementById('order-form').addEventListener('change', e => {
+  const field = e.target.closest('.field') || e.target.closest('.check-field');
+  if (field) field.classList.remove('field-error');
+});
+
+// ============================================================
 // FORM SUBMIT
 // ============================================================
 document.getElementById('order-form').addEventListener('submit', async e => {
@@ -784,14 +893,8 @@ document.getElementById('order-form').addEventListener('submit', async e => {
   const hp = document.querySelector('input[name="website"]');
   if (hp?.value) return;
 
-  // Adresse validering
-  if (orderType === 'catering') {
-    if (!validatedAddress?.id) {
-      setAddrStatus('err', '❌ Vælg en gyldig adresse fra listen');
-      document.getElementById('address-input')?.focus();
-      return;
-    }
-  }
+  // Validering (inkl. checkboxes)
+  if (!validateForm()) return;
 
   const btn = document.getElementById('submit-btn');
   btn.classList.add('loading'); btn.disabled = true;
@@ -801,6 +904,9 @@ document.getElementById('order-form').addEventListener('submit', async e => {
   data.validatedAddress = validatedAddress;
   data.submittedAt = new Date().toISOString();
   delete data.website;
+
+  // Gem kontaktinfo til næste gang
+  saveFields();
 
   // Webhook
   if (CFG.webhookUrl && CFG.webhookUrl !== 'WEBHOOK_URL_PLACEHOLDER') {
@@ -814,7 +920,6 @@ document.getElementById('order-form').addEventListener('submit', async e => {
       });
       if (!res.ok) throw new Error('Server svarede ' + res.status);
     } catch (err) {
-      // Webhook fejlede — vis fejlbesked med fallback til email
       btn.classList.remove('loading'); btn.disabled = false;
       const subject = encodeURIComponent('Bestilling ' + (data.delivery_date || '') + ' – ' + (data.first_name || '') + ' ' + (data.last_name || ''));
       const body = encodeURIComponent(JSON.stringify(data, null, 2));
@@ -866,6 +971,7 @@ document.getElementById('phone').addEventListener('input', syncContactFields);
 
 // Init
 updateConditional();
+loadSavedFields();
 </script>
 </body>
 </html>
