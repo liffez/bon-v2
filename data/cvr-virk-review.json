@@ -1,0 +1,6252 @@
+[
+  {
+    "id": 81,
+    "company_name": "Ristet Rug",
+    "bon_count": 164,
+    "ean": null,
+    "cvr": "40140255",
+    "virk_name": "Ristet Rug I/S",
+    "confidence": 100,
+    "status": "Ophørt"
+  },
+  {
+    "id": 474,
+    "company_name": "Arkitektforeningen",
+    "bon_count": 111,
+    "ean": null,
+    "cvr": "35564195",
+    "virk_name": "Arkitektforeningen, Vestjyllandsafdeling",
+    "confidence": 95,
+    "status": "Ophørt"
+  },
+  {
+    "id": 310,
+    "company_name": "Dansk Arkitektur Center",
+    "bon_count": 100,
+    "ean": null,
+    "cvr": "78805218",
+    "virk_name": "DANSK ARKITEKTUR CENTER (FOND)",
+    "confidence": 100,
+    "status": "NORMAL"
+  },
+  {
+    "id": 90,
+    "company_name": "Danner",
+    "bon_count": 68,
+    "ean": null,
+    "cvr": "78818212",
+    "virk_name": "DANNER A/S",
+    "confidence": 100,
+    "status": "OPLØSTEFTERERKLÆRING"
+  },
+  {
+    "id": 51,
+    "company_name": "Landbrug og Fødevarer",
+    "bon_count": 68,
+    "ean": null,
+    "cvr": "41956011",
+    "virk_name": "Ministeriet for Fødevarer, Landbrug og Fiskeri",
+    "confidence": 90,
+    "status": "Aktiv"
+  },
+  {
+    "id": 1163,
+    "company_name": "Danske Museer, ODM",
+    "bon_count": 64,
+    "ean": null,
+    "cvr": "28439725",
+    "virk_name": "Danske Museer (ODM)",
+    "confidence": 95,
+    "status": "Aktiv"
+  },
+  {
+    "id": 67,
+    "company_name": "Gate 21",
+    "bon_count": 60,
+    "ean": null,
+    "cvr": "32112846",
+    "virk_name": "Gate 21",
+    "confidence": 100,
+    "status": "Aktiv"
+  },
+  {
+    "id": 1245,
+    "company_name": "Brunata / able",
+    "bon_count": 55,
+    "ean": null,
+    "cvr": "22166514",
+    "virk_name": "BRUNATA A/S",
+    "confidence": 95,
+    "status": "NORMAL"
+  },
+  {
+    "id": 221,
+    "company_name": "DAC",
+    "bon_count": 29,
+    "ean": null,
+    "cvr": "43942530",
+    "virk_name": "DAC",
+    "confidence": 100,
+    "status": "Aktiv"
+  },
+  {
+    "id": 1135,
+    "company_name": "Landbrug & Fødevarer A.m.b.A",
+    "bon_count": 24,
+    "ean": null,
+    "cvr": "25529529",
+    "virk_name": "LANDBRUG & FØDEVARER F.M.B.A.",
+    "confidence": 100,
+    "status": "Aktiv"
+  },
+  {
+    "id": 403,
+    "company_name": "Erhvervshus Hovedstaden",
+    "bon_count": 17,
+    "ean": null,
+    "cvr": "40084711",
+    "virk_name": "Erhvervshus Hovedstaden S/I",
+    "confidence": 100,
+    "status": "Aktiv"
+  },
+  {
+    "id": 973,
+    "company_name": "Sankt Jakobs sogn",
+    "bon_count": 16,
+    "ean": null,
+    "cvr": "39291436",
+    "virk_name": "Sankt Jakobs sogns Menighedspleje",
+    "confidence": 95,
+    "status": "Aktiv"
+  },
+  {
+    "id": 969,
+    "company_name": "Finansforbundet",
+    "bon_count": 16,
+    "ean": null,
+    "cvr": "15320613",
+    "virk_name": "FINANSFORBUNDET",
+    "confidence": 100,
+    "status": "Aktiv"
+  },
+  {
+    "id": 396,
+    "company_name": "Merkur Andelskasse",
+    "bon_count": 15,
+    "ean": null,
+    "cvr": "24255689",
+    "virk_name": "MERKUR ANDELSKASSE",
+    "confidence": 100,
+    "status": "NORMAL"
+  },
+  {
+    "id": 589,
+    "company_name": "AS3",
+    "bon_count": 14,
+    "ean": null,
+    "cvr": "26017297",
+    "virk_name": "AS3  A/S",
+    "confidence": 100,
+    "status": "NORMAL"
+  },
+  {
+    "id": 441,
+    "company_name": "Grundtvigsk Forum",
+    "bon_count": 12,
+    "ean": null,
+    "cvr": "31902177",
+    "virk_name": "Grundtvigsk Forum",
+    "confidence": 100,
+    "status": "Aktiv"
+  },
+  {
+    "id": 688,
+    "company_name": "Københavns Stift",
+    "bon_count": 11,
+    "ean": null,
+    "cvr": "78143118",
+    "virk_name": "Københavns Stift",
+    "confidence": 100,
+    "status": "Aktiv"
+  },
+  {
+    "id": 181,
+    "company_name": "Hans Egedes kirke",
+    "bon_count": 11,
+    "ean": null,
+    "cvr": "34293813",
+    "virk_name": "HANS EGEDES KIRKE",
+    "confidence": 100,
+    "status": "Aktiv"
+  },
+  {
+    "id": 173,
+    "company_name": "Zentropa",
+    "bon_count": 11,
+    "ean": null,
+    "cvr": "15243333",
+    "virk_name": "ZENTROPA ENTERTAINMENTS16 ApS",
+    "confidence": 95,
+    "status": "OPLØSTEFTERFUSION"
+  },
+  {
+    "id": 1149,
+    "company_name": "Læderstræde 20 aps",
+    "bon_count": 10,
+    "ean": null,
+    "cvr": "42103195",
+    "virk_name": "Læderstræde 20 ApS",
+    "confidence": 100,
+    "status": "NORMAL"
+  },
+  {
+    "id": 889,
+    "company_name": "Roskilde Festival",
+    "bon_count": 10,
+    "ean": null,
+    "cvr": "87481018",
+    "virk_name": "Foreningen Roskilde Festival",
+    "confidence": 95,
+    "status": "Ophørt"
+  },
+  {
+    "id": 813,
+    "company_name": "FERN ApS",
+    "bon_count": 10,
+    "ean": null,
+    "cvr": "41622903",
+    "virk_name": "Fern ApS",
+    "confidence": 100,
+    "status": "NORMAL"
+  },
+  {
+    "id": 661,
+    "company_name": "Bygherreforeningen",
+    "bon_count": 10,
+    "ean": null,
+    "cvr": "24202674",
+    "virk_name": "BYGHERREFORENINGEN I DANMARK (BID)",
+    "confidence": 95,
+    "status": "NORMAL"
+  },
+  {
+    "id": 45,
+    "company_name": "Det Sociale Netværk",
+    "bon_count": 10,
+    "ean": null,
+    "cvr": "39918323",
+    "virk_name": "Det sociale netværk",
+    "confidence": 100,
+    "status": "Ophørt"
+  },
+  {
+    "id": 712,
+    "company_name": "VACCS ApS",
+    "bon_count": 9,
+    "ean": null,
+    "cvr": "42228141",
+    "virk_name": "VACCS ApS",
+    "confidence": 100,
+    "status": "NORMAL"
+  },
+  {
+    "id": 884,
+    "company_name": "MASAI CLOTHING COMPANY",
+    "bon_count": 8,
+    "ean": null,
+    "cvr": "10279488",
+    "virk_name": "MASAI CLOTHING COMPANY ApS",
+    "confidence": 100,
+    "status": "NORMAL"
+  },
+  {
+    "id": 970,
+    "company_name": "SDTN - Danner",
+    "bon_count": 7,
+    "ean": null,
+    "cvr": "78818212",
+    "virk_name": "DANNER A/S",
+    "confidence": 95,
+    "status": "OPLØSTEFTERERKLÆRING"
+  },
+  {
+    "id": 658,
+    "company_name": "KEA - Københavns Erhvervsakademi",
+    "bon_count": 7,
+    "ean": "5798000560291",
+    "cvr": "31656206",
+    "virk_name": "Københavns Erhvervsakademi",
+    "confidence": 95,
+    "status": "Aktiv"
+  },
+  {
+    "id": 582,
+    "company_name": "Mejlshede Låse A/S",
+    "bon_count": 7,
+    "ean": null,
+    "cvr": "83059311",
+    "virk_name": "MEJLSHEDE LÅSE/NØGLER A/S",
+    "confidence": 95,
+    "status": "NORMAL"
+  },
+  {
+    "id": 302,
+    "company_name": "Institut for Neurovidenskab",
+    "bon_count": 7,
+    "ean": null,
+    "cvr": "34010641",
+    "virk_name": "Institut for Neurovidenskab og Medicinsk Optimering I/S",
+    "confidence": 95,
+    "status": "Ophørt"
+  },
+  {
+    "id": 105,
+    "company_name": "Enhedslisten",
+    "bon_count": 7,
+    "ean": null,
+    "cvr": "17446495",
+    "virk_name": "ENHEDSLISTEN",
+    "confidence": 100,
+    "status": "Ophørt"
+  },
+  {
+    "id": 83,
+    "company_name": "Lauritzen Fonden",
+    "bon_count": 7,
+    "ean": null,
+    "cvr": "15453613",
+    "virk_name": "LAURITZEN FONDEN",
+    "confidence": 100,
+    "status": "NORMAL"
+  },
+  {
+    "id": 905,
+    "company_name": "Heartlandt",
+    "bon_count": 6,
+    "ean": null,
+    "cvr": "28502370",
+    "virk_name": "HEARTLAND A/S",
+    "confidence": 95,
+    "status": "NORMAL"
+  },
+  {
+    "id": 624,
+    "company_name": "Hellerup Kirke",
+    "bon_count": 6,
+    "ean": null,
+    "cvr": "25692519",
+    "virk_name": "Hellerup Kirke",
+    "confidence": 100,
+    "status": "Aktiv"
+  },
+  {
+    "id": 333,
+    "company_name": "Anna Kirke",
+    "bon_count": 6,
+    "ean": null,
+    "cvr": "15157410",
+    "virk_name": "ANNA KIRKE",
+    "confidence": 100,
+    "status": "Aktiv"
+  },
+  {
+    "id": 245,
+    "company_name": "Lær For Livet",
+    "bon_count": 6,
+    "ean": null,
+    "cvr": "35422544",
+    "virk_name": "Lær for Livet (fond) S/I",
+    "confidence": 100,
+    "status": "Aktiv"
+  },
+  {
+    "id": 1086,
+    "company_name": "Måløvgård",
+    "bon_count": 5,
+    "ean": null,
+    "cvr": "25529839",
+    "virk_name": "Måløvgård",
+    "confidence": 100,
+    "status": "Aktiv"
+  },
+  {
+    "id": 730,
+    "company_name": "Ristet Rug / Nordic Fast Food",
+    "bon_count": 5,
+    "ean": null,
+    "cvr": "27606644",
+    "virk_name": "Nordic Fast Food",
+    "confidence": 95,
+    "status": "Aktiv"
+  },
+  {
+    "id": 523,
+    "company_name": "HAUT",
+    "bon_count": 5,
+    "ean": null,
+    "cvr": "35686541",
+    "virk_name": "HAUT",
+    "confidence": 100,
+    "status": "Aktiv"
+  },
+  {
+    "id": 436,
+    "company_name": "Københavns Universitet, Institut for Matematiske Fag, QMATh",
+    "bon_count": 5,
+    "ean": null,
+    "cvr": "29979812",
+    "virk_name": "Københavns Universitet",
+    "confidence": 95,
+    "status": "Aktiv"
+  },
+  {
+    "id": 294,
+    "company_name": "Djøf",
+    "bon_count": 5,
+    "ean": null,
+    "cvr": "17517112",
+    "virk_name": "Djøf",
+    "confidence": 100,
+    "status": "Aktiv"
+  },
+  {
+    "id": 223,
+    "company_name": "Retten i Glostrup",
+    "bon_count": 5,
+    "ean": null,
+    "cvr": "41516976",
+    "virk_name": "HK lokalklubben ved Retten i Glostrup",
+    "confidence": 95,
+    "status": "Aktiv"
+  },
+  {
+    "id": 118,
+    "company_name": "Danmarks biblioteksforening",
+    "bon_count": 5,
+    "ean": null,
+    "cvr": "55618410",
+    "virk_name": "DANMARKS BIBLIOTEKSFORENING",
+    "confidence": 100,
+    "status": "Aktiv"
+  },
+  {
+    "id": 109,
+    "company_name": "KEA",
+    "bon_count": 5,
+    "ean": "5798000560291",
+    "cvr": "13625875",
+    "virk_name": "Kea-Skilte/ Kea Andersen Bruun",
+    "confidence": 95,
+    "status": "Ophørt"
+  },
+  {
+    "id": 47,
+    "company_name": "Børns Vilkår",
+    "bon_count": 5,
+    "ean": null,
+    "cvr": "10634792",
+    "virk_name": "Børns Vilkår",
+    "confidence": 100,
+    "status": "Aktiv"
+  },
+  {
+    "id": 41,
+    "company_name": "Nordal Design",
+    "bon_count": 5,
+    "ean": null,
+    "cvr": "25092759",
+    "virk_name": "Nordal",
+    "confidence": 95,
+    "status": "Ophørt"
+  },
+  {
+    "id": 1251,
+    "company_name": "PWS Danmark A/S",
+    "bon_count": 4,
+    "ean": null,
+    "cvr": "31482631",
+    "virk_name": "PWS DANMARK A/S",
+    "confidence": 100,
+    "status": "NORMAL"
+  },
+  {
+    "id": 1222,
+    "company_name": "Gode Penge",
+    "bon_count": 4,
+    "ean": null,
+    "cvr": "35705961",
+    "virk_name": "Gode Penge",
+    "confidence": 100,
+    "status": "Aktiv"
+  },
+  {
+    "id": 1087,
+    "company_name": "Erhvervsakademi København",
+    "bon_count": 4,
+    "ean": null,
+    "cvr": "45360644",
+    "virk_name": "Erhvervsakademi København S/I",
+    "confidence": 100,
+    "status": "Aktiv"
+  },
+  {
+    "id": 1019,
+    "company_name": "IFRO Københavns Universitet",
+    "bon_count": 4,
+    "ean": null,
+    "cvr": "29979812",
+    "virk_name": "Københavns Universitet",
+    "confidence": 95,
+    "status": "Aktiv"
+  },
+  {
+    "id": 900,
+    "company_name": "Streetfood om søerne",
+    "bon_count": 4,
+    "ean": null,
+    "cvr": "36690585",
+    "virk_name": "Streetfood ApS",
+    "confidence": 95,
+    "status": "OPLØSTEFTERKONKURS"
+  },
+  {
+    "id": 875,
+    "company_name": "Filmgreb.",
+    "bon_count": 4,
+    "ean": null,
+    "cvr": "40694358",
+    "virk_name": "Filmgreb",
+    "confidence": 100,
+    "status": "Ophørt"
+  },
+  {
+    "id": 825,
+    "company_name": "Dansk Musiker Forbund",
+    "bon_count": 4,
+    "ean": null,
+    "cvr": "21940089",
+    "virk_name": "DANSK MUSIKER FORBUND",
+    "confidence": 100,
+    "status": "Ophørt"
+  },
+  {
+    "id": 812,
+    "company_name": "Nordisk Kirkemusiksymposium 2024",
+    "bon_count": 4,
+    "ean": null,
+    "cvr": "37722030",
+    "virk_name": "Nordisk Kirkemusiksymposium 2024",
+    "confidence": 100,
+    "status": "Ophørt"
+  },
+  {
+    "id": 809,
+    "company_name": "Foreningen Spiseforstyrrelser og Selvskade",
+    "bon_count": 4,
+    "ean": null,
+    "cvr": "16881171",
+    "virk_name": "Foreningen Spiseforstyrrelser og Selvskade",
+    "confidence": 100,
+    "status": "Aktiv"
+  },
+  {
+    "id": 801,
+    "company_name": "FORCE Technology",
+    "bon_count": 4,
+    "ean": null,
+    "cvr": "55117314",
+    "virk_name": "FORCE Technology",
+    "confidence": 100,
+    "status": "Aktiv"
+  },
+  {
+    "id": 782,
+    "company_name": "Utterslev Moses Venner",
+    "bon_count": 4,
+    "ean": null,
+    "cvr": "42909505",
+    "virk_name": "Utterslev Moses Venner",
+    "confidence": 100,
+    "status": "Aktiv"
+  },
+  {
+    "id": 749,
+    "company_name": "Café Henning",
+    "bon_count": 4,
+    "ean": null,
+    "cvr": "42990442",
+    "virk_name": "Café Henning",
+    "confidence": 100,
+    "status": "Aktiv"
+  },
+  {
+    "id": 740,
+    "company_name": "Keolis Danmark A/S",
+    "bon_count": 4,
+    "ean": null,
+    "cvr": "13399433",
+    "virk_name": "KEOLIS DANMARK A/S",
+    "confidence": 100,
+    "status": "NORMAL"
+  },
+  {
+    "id": 652,
+    "company_name": "Appia Klinikken",
+    "bon_count": 4,
+    "ean": null,
+    "cvr": "38446142",
+    "virk_name": "Appia Klinikken ApS",
+    "confidence": 100,
+    "status": "NORMAL"
+  },
+  {
+    "id": 599,
+    "company_name": "Forhandlingsfællesskabet",
+    "bon_count": 4,
+    "ean": null,
+    "cvr": "52592011",
+    "virk_name": "Forhandlingsfællesskabet",
+    "confidence": 100,
+    "status": "Aktiv"
+  },
+  {
+    "id": 570,
+    "company_name": "FERN Studio",
+    "bon_count": 4,
+    "ean": null,
+    "cvr": "41622903",
+    "virk_name": "Fern ApS",
+    "confidence": 95,
+    "status": "NORMAL"
+  },
+  {
+    "id": 483,
+    "company_name": "JP/Politikens Forlag - Arnold Busck",
+    "bon_count": 4,
+    "ean": null,
+    "cvr": "31950651",
+    "virk_name": "JP-FORLAG",
+    "confidence": 90,
+    "status": "Aktiv"
+  },
+  {
+    "id": 462,
+    "company_name": "Tænketanken Frej",
+    "bon_count": 4,
+    "ean": "5797200073891",
+    "cvr": "37905739",
+    "virk_name": "Tænketanken Frej",
+    "confidence": 100,
+    "status": "Aktiv"
+  },
+  {
+    "id": 166,
+    "company_name": "Kursuslex",
+    "bon_count": 4,
+    "ean": null,
+    "cvr": "14881638",
+    "virk_name": "Kursuslex",
+    "confidence": 100,
+    "status": "Ophørt"
+  },
+  {
+    "id": 139,
+    "company_name": "KØBENHAVNS KOMMUNE  Børne- og Ungdomsforvaltningen  Område Nørrebro/Bispebjerg",
+    "bon_count": 4,
+    "ean": null,
+    "cvr": "64942212",
+    "virk_name": "Københavns Kommune",
+    "confidence": 95,
+    "status": "Aktiv"
+  },
+  {
+    "id": 112,
+    "company_name": "Niels Brock",
+    "bon_count": 4,
+    "ean": null,
+    "cvr": "11649491",
+    "virk_name": "Niels Brock Fonden",
+    "confidence": 95,
+    "status": "Aktiv"
+  },
+  {
+    "id": 1200,
+    "company_name": "Tænketanken Fremtidens Biblioteker/ CO Danmarks Biblioteksforening",
+    "bon_count": 3,
+    "ean": null,
+    "cvr": "55618410",
+    "virk_name": "DANMARKS BIBLIOTEKSFORENING",
+    "confidence": 95,
+    "status": "Aktiv"
+  },
+  {
+    "id": 1107,
+    "company_name": "Empano",
+    "bon_count": 3,
+    "ean": null,
+    "cvr": "38330357",
+    "virk_name": "Empano ApS",
+    "confidence": 100,
+    "status": "NORMAL"
+  },
+  {
+    "id": 1066,
+    "company_name": "Sophia lærerseminariet",
+    "bon_count": 3,
+    "ean": null,
+    "cvr": "41321067",
+    "virk_name": "Sophia",
+    "confidence": 95,
+    "status": "Aktiv"
+  },
+  {
+    "id": 1043,
+    "company_name": "Den Frie",
+    "bon_count": 3,
+    "ean": null,
+    "cvr": "36915641",
+    "virk_name": "Den Frie Tempelridderorden.",
+    "confidence": 95,
+    "status": "Aktiv"
+  },
+  {
+    "id": 1005,
+    "company_name": "Kor72",
+    "bon_count": 3,
+    "ean": null,
+    "cvr": "69904416",
+    "virk_name": "Kor72",
+    "confidence": 100,
+    "status": "Aktiv"
+  },
+  {
+    "id": 960,
+    "company_name": "Presse og Kommunikation - Københavns Stift",
+    "bon_count": 3,
+    "ean": null,
+    "cvr": "78143118",
+    "virk_name": "Københavns Stift",
+    "confidence": 95,
+    "status": "Aktiv"
+  },
+  {
+    "id": 895,
+    "company_name": "Vig festival",
+    "bon_count": 3,
+    "ean": null,
+    "cvr": "21074845",
+    "virk_name": "VIG FESTIVAL",
+    "confidence": 100,
+    "status": "Aktiv"
+  },
+  {
+    "id": 786,
+    "company_name": "Danske Kirkers Råd",
+    "bon_count": 3,
+    "ean": null,
+    "cvr": "18724413",
+    "virk_name": "Danske Kirkers Råd",
+    "confidence": 100,
+    "status": "Aktiv"
+  },
+  {
+    "id": 776,
+    "company_name": "Klimabevægelsen",
+    "bon_count": 3,
+    "ean": null,
+    "cvr": "32503101",
+    "virk_name": "Klimabevægelsen i Danmark",
+    "confidence": 95,
+    "status": "Ophørt"
+  },
+  {
+    "id": 710,
+    "company_name": "Bech-Bruun",
+    "bon_count": 3,
+    "ean": null,
+    "cvr": "25089944",
+    "virk_name": "Bech-Bruun",
+    "confidence": 100,
+    "status": "Aktiv"
+  },
+  {
+    "id": 621,
+    "company_name": "Plen",
+    "bon_count": 3,
+    "ean": null,
+    "cvr": "57511516",
+    "virk_name": "PLEN HOLDING A/S",
+    "confidence": 100,
+    "status": "OPLØSTEFTERFRIVILLIGLIKVIDATION"
+  },
+  {
+    "id": 602,
+    "company_name": "Tempty",
+    "bon_count": 3,
+    "ean": null,
+    "cvr": "42594962",
+    "virk_name": "Tempty Foods ApS",
+    "confidence": 95,
+    "status": "NORMAL"
+  },
+  {
+    "id": 515,
+    "company_name": "FERN",
+    "bon_count": 3,
+    "ean": null,
+    "cvr": "41622903",
+    "virk_name": "Fern ApS",
+    "confidence": 100,
+    "status": "NORMAL"
+  },
+  {
+    "id": 508,
+    "company_name": "DR",
+    "bon_count": 3,
+    "ean": null,
+    "cvr": "35341625",
+    "virk_name": "DR",
+    "confidence": 100,
+    "status": "Ophørt"
+  },
+  {
+    "id": 361,
+    "company_name": "Landinspektørfirmaet LE34 A/S",
+    "bon_count": 3,
+    "ean": null,
+    "cvr": "20683880",
+    "virk_name": "LANDINSPEKTØRFIRMAET LE34 A/S",
+    "confidence": 100,
+    "status": "NORMAL"
+  },
+  {
+    "id": 341,
+    "company_name": "Landbrug & Fødevarer",
+    "bon_count": 3,
+    "ean": null,
+    "cvr": "31681898",
+    "virk_name": "Landbrug & Fødevarer Østjylland",
+    "confidence": 95,
+    "status": "Ophørt"
+  },
+  {
+    "id": 340,
+    "company_name": "Red Barnet Ungdom",
+    "bon_count": 3,
+    "ean": null,
+    "cvr": "27336604",
+    "virk_name": "Red Barnet Ungdom",
+    "confidence": 100,
+    "status": "Aktiv"
+  },
+  {
+    "id": 325,
+    "company_name": "Ungdomsbureauet",
+    "bon_count": 3,
+    "ean": null,
+    "cvr": "35309179",
+    "virk_name": "UngdomsBureauet",
+    "confidence": 100,
+    "status": "Ophørt"
+  },
+  {
+    "id": 303,
+    "company_name": "DIS",
+    "bon_count": 3,
+    "ean": null,
+    "cvr": "26832039",
+    "virk_name": "DIs Personaleforening, DIP",
+    "confidence": 95,
+    "status": "Aktiv"
+  },
+  {
+    "id": 285,
+    "company_name": "Molecule Consultancy",
+    "bon_count": 3,
+    "ean": null,
+    "cvr": "28515766",
+    "virk_name": "MOLECULE CONSULTANCY A/S",
+    "confidence": 100,
+    "status": "NORMAL"
+  },
+  {
+    "id": 1233,
+    "company_name": "Foreningen for Integreret Moderne Dans i Danmark",
+    "bon_count": 2,
+    "ean": null,
+    "cvr": "38716298",
+    "virk_name": "Foreningen for Integreret Moderne Dans i Danmark",
+    "confidence": 100,
+    "status": "Aktiv"
+  },
+  {
+    "id": 1219,
+    "company_name": "Gefion Group A/S",
+    "bon_count": 2,
+    "ean": null,
+    "cvr": "37042560",
+    "virk_name": "Gefion Group A/S",
+    "confidence": 100,
+    "status": "NORMAL"
+  },
+  {
+    "id": 1181,
+    "company_name": "Hoffmann",
+    "bon_count": 2,
+    "ean": null,
+    "cvr": "27083382",
+    "virk_name": "Hoffmann&Hoffmann",
+    "confidence": 95,
+    "status": "Ophørt"
+  },
+  {
+    "id": 1175,
+    "company_name": "Foreningen Byens Hus",
+    "bon_count": 2,
+    "ean": null,
+    "cvr": "40978704",
+    "virk_name": "Foreningen Byens Hus",
+    "confidence": 100,
+    "status": "Aktiv"
+  },
+  {
+    "id": 1155,
+    "company_name": "Den Danske Scenekunstskole",
+    "bon_count": 2,
+    "ean": null,
+    "cvr": "51531817",
+    "virk_name": "Den Danske Scenekunstskole",
+    "confidence": 100,
+    "status": "Aktiv"
+  },
+  {
+    "id": 1151,
+    "company_name": "Accelerace Management A/S",
+    "bon_count": 2,
+    "ean": null,
+    "cvr": "32163289",
+    "virk_name": "ACCELERACE MANAGEMENT A/S",
+    "confidence": 100,
+    "status": "NORMAL"
+  },
+  {
+    "id": 1125,
+    "company_name": "Region Midtjylland",
+    "bon_count": 2,
+    "ean": null,
+    "cvr": "29190925",
+    "virk_name": "Region Midtjylland",
+    "confidence": 100,
+    "status": "Aktiv"
+  },
+  {
+    "id": 1102,
+    "company_name": "Center for tro, tab og traumer. c/o Sankt Jakobs Kirke",
+    "bon_count": 2,
+    "ean": null,
+    "cvr": "44179946",
+    "virk_name": "Center for tro, tab og traumer S/I",
+    "confidence": 95,
+    "status": "Aktiv"
+  },
+  {
+    "id": 1082,
+    "company_name": "DEN KONGELIGE LIVGARDE",
+    "bon_count": 2,
+    "ean": null,
+    "cvr": "29715726",
+    "virk_name": "Tambourforeningen Den Kongelige Livgarde",
+    "confidence": 95,
+    "status": "Aktiv"
+  },
+  {
+    "id": 1029,
+    "company_name": "Juul Frost Arkitekter",
+    "bon_count": 2,
+    "ean": null,
+    "cvr": "31515335",
+    "virk_name": "JUUL FROST ARKITEKTER A/S",
+    "confidence": 100,
+    "status": "NORMAL"
+  },
+  {
+    "id": 1006,
+    "company_name": "Lær For Livet Ung",
+    "bon_count": 2,
+    "ean": null,
+    "cvr": "35422544",
+    "virk_name": "Lær for Livet (fond) S/I",
+    "confidence": 95,
+    "status": "Aktiv"
+  },
+  {
+    "id": 1004,
+    "company_name": "Marjatta",
+    "bon_count": 2,
+    "ean": null,
+    "cvr": "31754194",
+    "virk_name": "Marjatta",
+    "confidence": 100,
+    "status": "Ophørt"
+  },
+  {
+    "id": 998,
+    "company_name": "Bakkegårdsskolen",
+    "bon_count": 2,
+    "ean": null,
+    "cvr": "45558878",
+    "virk_name": "Bakkegårdsskolens personaleforening",
+    "confidence": 95,
+    "status": "Aktiv"
+  },
+  {
+    "id": 988,
+    "company_name": "Tivoli",
+    "bon_count": 2,
+    "ean": null,
+    "cvr": "45698777",
+    "virk_name": "Andersens tivoli",
+    "confidence": 95,
+    "status": "Aktiv"
+  },
+  {
+    "id": 987,
+    "company_name": "Østrigs Ambassade+Østrigs Turistbureau",
+    "bon_count": 2,
+    "ean": null,
+    "cvr": "55257728",
+    "virk_name": "ØSTRIGS TURISTBUREAU",
+    "confidence": 95,
+    "status": "Ophørt"
+  },
+  {
+    "id": 980,
+    "company_name": "Bonsai Institute",
+    "bon_count": 2,
+    "ean": null,
+    "cvr": "40589945",
+    "virk_name": "Bonsai Institute ApS",
+    "confidence": 100,
+    "status": "NORMAL"
+  },
+  {
+    "id": 937,
+    "company_name": "MUNTHE A/S",
+    "bon_count": 2,
+    "ean": null,
+    "cvr": "21848182",
+    "virk_name": "MUNTHE A/S",
+    "confidence": 100,
+    "status": "NORMAL"
+  },
+  {
+    "id": 928,
+    "company_name": "Dyrenes beskyttelse",
+    "bon_count": 2,
+    "ean": null,
+    "cvr": "27016332",
+    "virk_name": "Personaleforeningen i Dyrenes Beskyttelse",
+    "confidence": 95,
+    "status": "Aktiv"
+  },
+  {
+    "id": 906,
+    "company_name": "Skvulp",
+    "bon_count": 2,
+    "ean": null,
+    "cvr": "42403717",
+    "virk_name": "Skvulp ApS",
+    "confidence": 100,
+    "status": "NORMAL"
+  },
+  {
+    "id": 904,
+    "company_name": "Dans på tværs",
+    "bon_count": 2,
+    "ean": null,
+    "cvr": "38619128",
+    "virk_name": "På Tværs",
+    "confidence": 95,
+    "status": "Ophørt"
+  },
+  {
+    "id": 886,
+    "company_name": "Flügger Group A/S",
+    "bon_count": 2,
+    "ean": null,
+    "cvr": "32788718",
+    "virk_name": "Flügger group A/S",
+    "confidence": 100,
+    "status": "NORMAL"
+  },
+  {
+    "id": 873,
+    "company_name": "Sund KU",
+    "bon_count": 2,
+    "ean": null,
+    "cvr": "43858181",
+    "virk_name": "HK - SUND - KU",
+    "confidence": 95,
+    "status": "Ophørt"
+  },
+  {
+    "id": 860,
+    "company_name": "Zonta Julemarked",
+    "bon_count": 2,
+    "ean": null,
+    "cvr": "40793186",
+    "virk_name": "Julemarked",
+    "confidence": 95,
+    "status": "Aktiv"
+  },
+  {
+    "id": 853,
+    "company_name": "Lauritzen Fonden Holding ApS",
+    "bon_count": 2,
+    "ean": null,
+    "cvr": "22042017",
+    "virk_name": "Lauritzen Fonden Holding ApS",
+    "confidence": 100,
+    "status": "NORMAL"
+  },
+  {
+    "id": 840,
+    "company_name": "Billedkunstnernes Forbund",
+    "bon_count": 2,
+    "ean": null,
+    "cvr": "25899512",
+    "virk_name": "BILLEDKUNSTNERNES FORBUND",
+    "confidence": 100,
+    "status": "Aktiv"
+  },
+  {
+    "id": 838,
+    "company_name": "Copenhagen Distillery",
+    "bon_count": 2,
+    "ean": null,
+    "cvr": "35664653",
+    "virk_name": "Copenhagen Distillery ApS",
+    "confidence": 100,
+    "status": "NORMAL"
+  },
+  {
+    "id": 822,
+    "company_name": "Filmbyen",
+    "bon_count": 2,
+    "ean": null,
+    "cvr": "26097703",
+    "virk_name": "Filmbyen I/S",
+    "confidence": 100,
+    "status": "Aktiv"
+  },
+  {
+    "id": 797,
+    "company_name": "Butcher's Lab ApS",
+    "bon_count": 2,
+    "ean": null,
+    "cvr": "31620708",
+    "virk_name": "BUTCHER'S LAB ApS",
+    "confidence": 100,
+    "status": "NORMAL"
+  },
+  {
+    "id": 787,
+    "company_name": "Advice Agency",
+    "bon_count": 2,
+    "ean": null,
+    "cvr": "26498406",
+    "virk_name": "Advice",
+    "confidence": 95,
+    "status": "Ophørt"
+  },
+  {
+    "id": 774,
+    "company_name": "Thin Green Line Productions",
+    "bon_count": 2,
+    "ean": null,
+    "cvr": "38836633",
+    "virk_name": "Thin Green Line Productions ApS",
+    "confidence": 100,
+    "status": "NORMAL"
+  },
+  {
+    "id": 773,
+    "company_name": "Velux fonden",
+    "bon_count": 2,
+    "ean": null,
+    "cvr": "61023917",
+    "virk_name": "VELUX FONDEN",
+    "confidence": 100,
+    "status": "Aktiv"
+  },
+  {
+    "id": 769,
+    "company_name": "Sophia lærerseminariet / Michaelskolen",
+    "bon_count": 2,
+    "ean": null,
+    "cvr": "41321067",
+    "virk_name": "Sophia",
+    "confidence": 95,
+    "status": "Aktiv"
+  },
+  {
+    "id": 766,
+    "company_name": "Maker",
+    "bon_count": 2,
+    "ean": null,
+    "cvr": "36576871",
+    "virk_name": "Maker",
+    "confidence": 100,
+    "status": "Aktiv"
+  },
+  {
+    "id": 731,
+    "company_name": "Dansk Selskab for Sårheling",
+    "bon_count": 2,
+    "ean": null,
+    "cvr": "19026434",
+    "virk_name": "DANSK SELSKAB FOR SÅRHELING",
+    "confidence": 100,
+    "status": "Aktiv"
+  },
+  {
+    "id": 726,
+    "company_name": "MERKUR",
+    "bon_count": 2,
+    "ean": null,
+    "cvr": "39612879",
+    "virk_name": "merkur",
+    "confidence": 100,
+    "status": "Ophørt"
+  },
+  {
+    "id": 720,
+    "company_name": "Christensen &amp; Co. Arkitekter A/S",
+    "bon_count": 2,
+    "ean": null,
+    "cvr": "20042478",
+    "virk_name": "AMP & CO. ApS",
+    "confidence": 95,
+    "status": "OPLØSTEFTERKONKURS"
+  },
+  {
+    "id": 702,
+    "company_name": "Second Foundation",
+    "bon_count": 2,
+    "ean": null,
+    "cvr": "42295167",
+    "virk_name": "Second Foundation ApS",
+    "confidence": 100,
+    "status": "NORMAL"
+  },
+  {
+    "id": 696,
+    "company_name": "Virksomhedsskolen",
+    "bon_count": 2,
+    "ean": null,
+    "cvr": "12425481",
+    "virk_name": "VIRKSOMHEDSSKOLEN A/S",
+    "confidence": 100,
+    "status": "NORMAL"
+  },
+  {
+    "id": 683,
+    "company_name": "DTU Science Park",
+    "bon_count": 2,
+    "ean": null,
+    "cvr": "27546439",
+    "virk_name": "DTU Science Park a/s",
+    "confidence": 100,
+    "status": "NORMAL"
+  },
+  {
+    "id": 670,
+    "company_name": "Jeanett Gtau Engstrøm",
+    "bon_count": 2,
+    "ean": null,
+    "cvr": "26829100",
+    "virk_name": "Engstrøm",
+    "confidence": 95,
+    "status": "Aktiv"
+  },
+  {
+    "id": 663,
+    "company_name": "Dansk-Fransk Handelskammer",
+    "bon_count": 2,
+    "ean": null,
+    "cvr": "72689917",
+    "virk_name": "Dansk-Fransk Handelskammer",
+    "confidence": 100,
+    "status": "Aktiv"
+  },
+  {
+    "id": 639,
+    "company_name": "EtOH Spirits",
+    "bon_count": 2,
+    "ean": null,
+    "cvr": "39014521",
+    "virk_name": "EtOH Spirits ApS",
+    "confidence": 100,
+    "status": "NORMAL"
+  },
+  {
+    "id": 632,
+    "company_name": "Palantir Technologies",
+    "bon_count": 2,
+    "ean": null,
+    "cvr": "37654205",
+    "virk_name": "Palantir Technologies Denmark ApS",
+    "confidence": 95,
+    "status": "NORMAL"
+  },
+  {
+    "id": 629,
+    "company_name": "CEFA CBS",
+    "bon_count": 2,
+    "ean": null,
+    "cvr": "38554166",
+    "virk_name": "CEFA ApS",
+    "confidence": 95,
+    "status": "OPLØSTEFTERERKLÆRING"
+  },
+  {
+    "id": 617,
+    "company_name": "BioInnovation Institute",
+    "bon_count": 2,
+    "ean": null,
+    "cvr": "41898666",
+    "virk_name": "BioInnovation Institute Fonden",
+    "confidence": 95,
+    "status": "NORMAL"
+  },
+  {
+    "id": 572,
+    "company_name": "Københavns Universitet - Institut for Matematiske Fag",
+    "bon_count": 2,
+    "ean": null,
+    "cvr": "29979812",
+    "virk_name": "Københavns Universitet",
+    "confidence": 95,
+    "status": "Aktiv"
+  },
+  {
+    "id": 542,
+    "company_name": "Skiklubben Hareskov",
+    "bon_count": 2,
+    "ean": null,
+    "cvr": "29703442",
+    "virk_name": "Skiklubben Hareskov",
+    "confidence": 100,
+    "status": "Aktiv"
+  },
+  {
+    "id": 531,
+    "company_name": "AJ Vaccines",
+    "bon_count": 2,
+    "ean": null,
+    "cvr": "37911143",
+    "virk_name": "AJ Vaccines A/S",
+    "confidence": 100,
+    "status": "NORMAL"
+  },
+  {
+    "id": 529,
+    "company_name": "Knorr-Bremse Rail Systems Denmark",
+    "bon_count": 2,
+    "ean": null,
+    "cvr": "41777583",
+    "virk_name": "Knorr-Bremse Rail Systems Denmark ApS",
+    "confidence": 100,
+    "status": "NORMAL"
+  },
+  {
+    "id": 451,
+    "company_name": "Novo Nordisk",
+    "bon_count": 2,
+    "ean": null,
+    "cvr": "35177175",
+    "virk_name": "GolfTeam Novo Nordisk",
+    "confidence": 95,
+    "status": "Aktiv"
+  },
+  {
+    "id": 439,
+    "company_name": "Teaterspektrum",
+    "bon_count": 2,
+    "ean": null,
+    "cvr": "28919735",
+    "virk_name": "TeaterSpektrum",
+    "confidence": 100,
+    "status": "Ophørt"
+  },
+  {
+    "id": 409,
+    "company_name": "Mino Danmark",
+    "bon_count": 2,
+    "ean": null,
+    "cvr": "37528382",
+    "virk_name": "Mino Danmark",
+    "confidence": 100,
+    "status": "Aktiv"
+  },
+  {
+    "id": 381,
+    "company_name": "Byens Landhandel",
+    "bon_count": 2,
+    "ean": null,
+    "cvr": "42054194",
+    "virk_name": "Byens Landhandel ApS",
+    "confidence": 100,
+    "status": "NORMAL"
+  },
+  {
+    "id": 369,
+    "company_name": "Wunderman Thompson Studios Copenhagen",
+    "bon_count": 2,
+    "ean": null,
+    "cvr": "45687244",
+    "virk_name": "Copenhagen Studios ApS",
+    "confidence": 90,
+    "status": "NORMAL"
+  },
+  {
+    "id": 362,
+    "company_name": "Lean Akademiet",
+    "bon_count": 2,
+    "ean": null,
+    "cvr": "34697388",
+    "virk_name": "LEAN AKADEMIET ApS",
+    "confidence": 100,
+    "status": "NORMAL"
+  },
+  {
+    "id": 354,
+    "company_name": "Danmarks Ishockey Union",
+    "bon_count": 2,
+    "ean": null,
+    "cvr": "35440828",
+    "virk_name": "Danmarks Ishockey Union",
+    "confidence": 100,
+    "status": "Aktiv"
+  },
+  {
+    "id": 327,
+    "company_name": "Kingsland",
+    "bon_count": 2,
+    "ean": null,
+    "cvr": "35412751",
+    "virk_name": "KINGSLAND DK ApS",
+    "confidence": 95,
+    "status": "NORMAL"
+  },
+  {
+    "id": 267,
+    "company_name": "Energistyrelsen",
+    "bon_count": 2,
+    "ean": null,
+    "cvr": "59778714",
+    "virk_name": "Energistyrelsen",
+    "confidence": 100,
+    "status": "Aktiv"
+  },
+  {
+    "id": 213,
+    "company_name": "Dansk Vegetarisk Forening",
+    "bon_count": 2,
+    "ean": null,
+    "cvr": "34640122",
+    "virk_name": "Dansk Vegetarisk Forening (DVF)",
+    "confidence": 100,
+    "status": "Aktiv"
+  },
+  {
+    "id": 182,
+    "company_name": "The Archive House",
+    "bon_count": 2,
+    "ean": null,
+    "cvr": "41230932",
+    "virk_name": "The Archive House OpCo ApS",
+    "confidence": 95,
+    "status": "UNDERFRIVILLIGLIKVIDATION"
+  },
+  {
+    "id": 155,
+    "company_name": "Dagskolen VIKASKU",
+    "bon_count": 2,
+    "ean": null,
+    "cvr": "40579885",
+    "virk_name": "Dagskolen ApS",
+    "confidence": 95,
+    "status": "OPLØSTEFTERKONKURS"
+  },
+  {
+    "id": 107,
+    "company_name": "Schmidt Hammer Lassen",
+    "bon_count": 2,
+    "ean": "Faktura sendes til kah@shl.dk",
+    "cvr": "20728132",
+    "virk_name": "SCHMIDT HAMMER LASSEN ARCHITECTS K/S",
+    "confidence": 95,
+    "status": "NORMAL"
+  },
+  {
+    "id": 98,
+    "company_name": "Normann Copenhagen",
+    "bon_count": 2,
+    "ean": "Faktura sendes til Regitze",
+    "cvr": "10008824",
+    "virk_name": "NORMANN COPENHAGEN ApS",
+    "confidence": 100,
+    "status": "NORMAL"
+  },
+  {
+    "id": 94,
+    "company_name": "Food &amp; BIo Cluster Denmark",
+    "bon_count": 2,
+    "ean": null,
+    "cvr": "41413670",
+    "virk_name": "Food & Bio Cluster Denmark F.M.B.A.",
+    "confidence": 90,
+    "status": "NORMAL"
+  },
+  {
+    "id": 87,
+    "company_name": "Institut for Naturfagenes Didaktik, Københavns Universitet",
+    "bon_count": 2,
+    "ean": "EAN nr.: 5790000279326",
+    "cvr": "29979812",
+    "virk_name": "Københavns Universitet",
+    "confidence": 95,
+    "status": "Aktiv"
+  },
+  {
+    "id": 75,
+    "company_name": "Rebel Food",
+    "bon_count": 2,
+    "ean": null,
+    "cvr": "36500336",
+    "virk_name": "REBEL FOOD ApS",
+    "confidence": 100,
+    "status": "NORMAL"
+  },
+  {
+    "id": 74,
+    "company_name": "Health Tech Hub Copenhagen",
+    "bon_count": 2,
+    "ean": null,
+    "cvr": "40479007",
+    "virk_name": "Health Tech Hub Copenhagen",
+    "confidence": 100,
+    "status": "Aktiv"
+  },
+  {
+    "id": 61,
+    "company_name": "Skodbevægelsen",
+    "bon_count": 2,
+    "ean": "CVR: 64514628  ",
+    "cvr": "41327480",
+    "virk_name": "Skodbevægelsen",
+    "confidence": 100,
+    "status": "Aktiv"
+  },
+  {
+    "id": 40,
+    "company_name": "KEA – Copenhagen School of Design and Technology",
+    "bon_count": 2,
+    "ean": null,
+    "cvr": "14642889",
+    "virk_name": "DESIGN OF COPENHAGEN ApS",
+    "confidence": 90,
+    "status": "TVANGSOPLØST"
+  },
+  {
+    "id": 33,
+    "company_name": "Vega",
+    "bon_count": 2,
+    "ean": null,
+    "cvr": "45940519",
+    "virk_name": "VEGA",
+    "confidence": 100,
+    "status": "Aktiv"
+  },
+  {
+    "id": 2483,
+    "company_name": "DYNACAP A/S",
+    "bon_count": 1,
+    "ean": null,
+    "cvr": "41846046",
+    "virk_name": "DYNACAP A/S",
+    "confidence": 100,
+    "status": "NORMAL"
+  },
+  {
+    "id": 1249,
+    "company_name": "APOTEKEREN A.m.b.a.",
+    "bon_count": 1,
+    "ean": null,
+    "cvr": "16938106",
+    "virk_name": "APOTEKEREN A.M.B.A.",
+    "confidence": 100,
+    "status": "NORMAL"
+  },
+  {
+    "id": 1243,
+    "company_name": "Københavns Skolehaver",
+    "bon_count": 1,
+    "ean": null,
+    "cvr": "32584349",
+    "virk_name": "Københavns Skolehaver",
+    "confidence": 100,
+    "status": "Aktiv"
+  },
+  {
+    "id": 1231,
+    "company_name": "UNG krisecenter",
+    "bon_count": 1,
+    "ean": null,
+    "cvr": "42494313",
+    "virk_name": "Fonden Ung Krisecenter",
+    "confidence": 95,
+    "status": "Aktiv"
+  },
+  {
+    "id": 1230,
+    "company_name": "CPH Village Holding ApS",
+    "bon_count": 1,
+    "ean": null,
+    "cvr": "36203161",
+    "virk_name": "CPH Village Holding ApS",
+    "confidence": 100,
+    "status": "NORMAL"
+  },
+  {
+    "id": 1229,
+    "company_name": "Væksthuset",
+    "bon_count": 1,
+    "ean": null,
+    "cvr": "36998849",
+    "virk_name": "Væksthuset",
+    "confidence": 100,
+    "status": "Aktiv"
+  },
+  {
+    "id": 1226,
+    "company_name": "Keramik i Byens Hus",
+    "bon_count": 1,
+    "ean": null,
+    "cvr": "44274345",
+    "virk_name": "Keramik i Byens Hus",
+    "confidence": 100,
+    "status": "Aktiv"
+  },
+  {
+    "id": 1223,
+    "company_name": "Rebel Food ApS",
+    "bon_count": 1,
+    "ean": null,
+    "cvr": "36500336",
+    "virk_name": "REBEL FOOD ApS",
+    "confidence": 100,
+    "status": "NORMAL"
+  },
+  {
+    "id": 1220,
+    "company_name": "Normkritiske Læger",
+    "bon_count": 1,
+    "ean": null,
+    "cvr": "44403226",
+    "virk_name": "Normkritiske Læger",
+    "confidence": 100,
+    "status": "Aktiv"
+  },
+  {
+    "id": 1218,
+    "company_name": "Dansk AM Hub",
+    "bon_count": 1,
+    "ean": null,
+    "cvr": "39144344",
+    "virk_name": "Fonden Dansk AM Hub",
+    "confidence": 95,
+    "status": "NORMAL"
+  },
+  {
+    "id": 1216,
+    "company_name": "Videncenter for Helbred & Forsikring",
+    "bon_count": 1,
+    "ean": null,
+    "cvr": "76836310",
+    "virk_name": "Videncenter for Helbred og Forsikring",
+    "confidence": 90,
+    "status": "Aktiv"
+  },
+  {
+    "id": 1214,
+    "company_name": "1 Community",
+    "bon_count": 1,
+    "ean": null,
+    "cvr": "41090723",
+    "virk_name": "1 Community ApS",
+    "confidence": 100,
+    "status": "NORMAL"
+  },
+  {
+    "id": 1213,
+    "company_name": "Madkulturen",
+    "bon_count": 1,
+    "ean": null,
+    "cvr": "33560338",
+    "virk_name": "Madkulturen",
+    "confidence": 100,
+    "status": "Aktiv"
+  },
+  {
+    "id": 1206,
+    "company_name": "TPU",
+    "bon_count": 1,
+    "ean": null,
+    "cvr": "26017122",
+    "virk_name": "TPU HOLDING ApS",
+    "confidence": 100,
+    "status": "OPLØSTEFTERSPALTNING"
+  },
+  {
+    "id": 1201,
+    "company_name": "N/A",
+    "bon_count": 1,
+    "ean": null,
+    "cvr": "70904128",
+    "virk_name": "A.N.N.A. FILM ApS",
+    "confidence": 95,
+    "status": "TVANGSOPLØST"
+  },
+  {
+    "id": 1192,
+    "company_name": "Nadia Wire",
+    "bon_count": 1,
+    "ean": null,
+    "cvr": "40081275",
+    "virk_name": "Nadia Wire ApS",
+    "confidence": 100,
+    "status": "NORMAL"
+  },
+  {
+    "id": 1190,
+    "company_name": "Be2Green Furniture ApS",
+    "bon_count": 1,
+    "ean": null,
+    "cvr": "45307778",
+    "virk_name": "Be2Green Holding ApS",
+    "confidence": 95,
+    "status": "NORMAL"
+  },
+  {
+    "id": 1186,
+    "company_name": "Brancherådet for scenedans i Danmark",
+    "bon_count": 1,
+    "ean": null,
+    "cvr": "34555095",
+    "virk_name": "Brancherådet for Scenedans",
+    "confidence": 95,
+    "status": "Aktiv"
+  },
+  {
+    "id": 1166,
+    "company_name": "By-, Land- og Kirkeministeriet",
+    "bon_count": 1,
+    "ean": null,
+    "cvr": "59743228",
+    "virk_name": "By-, Land- og Kirkeministeriet",
+    "confidence": 100,
+    "status": "Aktiv"
+  },
+  {
+    "id": 1162,
+    "company_name": "Grønne Nabofællesskaber",
+    "bon_count": 1,
+    "ean": null,
+    "cvr": "43772872",
+    "virk_name": "Grønne Nabofællesskaber",
+    "confidence": 100,
+    "status": "Aktiv"
+  },
+  {
+    "id": 1159,
+    "company_name": "DYNACAP",
+    "bon_count": 1,
+    "ean": null,
+    "cvr": "41846046",
+    "virk_name": "DYNACAP A/S",
+    "confidence": 100,
+    "status": "NORMAL"
+  },
+  {
+    "id": 1156,
+    "company_name": "Herstedvester Menighedsråd",
+    "bon_count": 1,
+    "ean": null,
+    "cvr": "53373011",
+    "virk_name": "Herstedvester Sogns Menighedsråd",
+    "confidence": 90,
+    "status": "Aktiv"
+  },
+  {
+    "id": 1148,
+    "company_name": "Læs for Livet",
+    "bon_count": 1,
+    "ean": null,
+    "cvr": "34632405",
+    "virk_name": "Læs for livet",
+    "confidence": 100,
+    "status": "Aktiv"
+  },
+  {
+    "id": 1144,
+    "company_name": "Låsesmede Foreningen",
+    "bon_count": 1,
+    "ean": null,
+    "cvr": "69236219",
+    "virk_name": "Låsesmede Foreningen",
+    "confidence": 100,
+    "status": "Aktiv"
+  },
+  {
+    "id": 1143,
+    "company_name": "Tænketanken Fremtidens Biblioteker c/o Danmarks Biblioteksforening",
+    "bon_count": 1,
+    "ean": null,
+    "cvr": "55618410",
+    "virk_name": "DANMARKS BIBLIOTEKSFORENING",
+    "confidence": 95,
+    "status": "Aktiv"
+  },
+  {
+    "id": 1137,
+    "company_name": "Nordnet",
+    "bon_count": 1,
+    "ean": null,
+    "cvr": "25649591",
+    "virk_name": "NORDNET, FILIAL AF NORDNET        AKTIEBOLAG, SVERIGE",
+    "confidence": 95,
+    "status": "SLETTET"
+  },
+  {
+    "id": 1136,
+    "company_name": "Center for Frivilligt Socialt Arbejde",
+    "bon_count": 1,
+    "ean": null,
+    "cvr": "26759129",
+    "virk_name": "Center for frivilligt             socialt arbejde",
+    "confidence": 100,
+    "status": "Ophørt"
+  },
+  {
+    "id": 1133,
+    "company_name": "Effective People",
+    "bon_count": 1,
+    "ean": null,
+    "cvr": "27132154",
+    "virk_name": "Effective People A/S",
+    "confidence": 100,
+    "status": "NORMAL"
+  },
+  {
+    "id": 1131,
+    "company_name": "Jakobsenkonsulenterne",
+    "bon_count": 1,
+    "ean": null,
+    "cvr": "44887266",
+    "virk_name": "Jakobsenkonsulenterne",
+    "confidence": 100,
+    "status": "Aktiv"
+  },
+  {
+    "id": 1126,
+    "company_name": "Andelsboligforeningen JoJo",
+    "bon_count": 1,
+    "ean": null,
+    "cvr": "20576782",
+    "virk_name": "ANDELSBOLIGFORENINGEN JOJO",
+    "confidence": 100,
+    "status": "Aktiv"
+  },
+  {
+    "id": 1118,
+    "company_name": "Københavns Universitet - Farmaci",
+    "bon_count": 1,
+    "ean": null,
+    "cvr": "29979812",
+    "virk_name": "Københavns Universitet",
+    "confidence": 95,
+    "status": "Aktiv"
+  },
+  {
+    "id": 1117,
+    "company_name": "Lahme",
+    "bon_count": 1,
+    "ean": null,
+    "cvr": "33764006",
+    "virk_name": "LAHME ApS",
+    "confidence": 100,
+    "status": "NORMAL"
+  },
+  {
+    "id": 1111,
+    "company_name": "Psykolog Mette Kyung",
+    "bon_count": 1,
+    "ean": null,
+    "cvr": "34819378",
+    "virk_name": "Psykolog Mette Kyung",
+    "confidence": 100,
+    "status": "Aktiv"
+  },
+  {
+    "id": 1101,
+    "company_name": "Forca",
+    "bon_count": 1,
+    "ean": null,
+    "cvr": "29850550",
+    "virk_name": "FORCA A/S",
+    "confidence": 100,
+    "status": "NORMAL"
+  },
+  {
+    "id": 1099,
+    "company_name": "projekt monstret",
+    "bon_count": 1,
+    "ean": null,
+    "cvr": "35558101",
+    "virk_name": "Projekt Monstret",
+    "confidence": 100,
+    "status": "Aktiv"
+  },
+  {
+    "id": 1098,
+    "company_name": "Stirnimann",
+    "bon_count": 1,
+    "ean": null,
+    "cvr": "42559296",
+    "virk_name": "Stirnimann A/S",
+    "confidence": 100,
+    "status": "NORMAL"
+  },
+  {
+    "id": 1092,
+    "company_name": "Vildtbanegård",
+    "bon_count": 1,
+    "ean": null,
+    "cvr": "28620993",
+    "virk_name": "Vildtbanegård I",
+    "confidence": 95,
+    "status": "Ophørt"
+  },
+  {
+    "id": 1089,
+    "company_name": "Necto",
+    "bon_count": 1,
+    "ean": null,
+    "cvr": "44043009",
+    "virk_name": "NECTO",
+    "confidence": 100,
+    "status": "Aktiv"
+  },
+  {
+    "id": 1088,
+    "company_name": "Stevns Klint",
+    "bon_count": 1,
+    "ean": null,
+    "cvr": "30755464",
+    "virk_name": "Naturfagsefterskolen Stevns Klint",
+    "confidence": 95,
+    "status": "Ophørt"
+  },
+  {
+    "id": 1081,
+    "company_name": "Novo Nordisk A/S",
+    "bon_count": 1,
+    "ean": null,
+    "cvr": "24256790",
+    "virk_name": "NOVO NORDISK A/S",
+    "confidence": 100,
+    "status": "NORMAL"
+  },
+  {
+    "id": 1080,
+    "company_name": "Scanomat A/S",
+    "bon_count": 1,
+    "ean": null,
+    "cvr": "20050535",
+    "virk_name": "SCANOMAT A/S",
+    "confidence": 100,
+    "status": "NORMAL"
+  },
+  {
+    "id": 1077,
+    "company_name": "Kultursalonerne Giselfeldt",
+    "bon_count": 1,
+    "ean": null,
+    "cvr": "45080285",
+    "virk_name": "Kultursalonerne ApS",
+    "confidence": 95,
+    "status": "NORMAL"
+  },
+  {
+    "id": 1072,
+    "company_name": "Pension Danmark",
+    "bon_count": 1,
+    "ean": null,
+    "cvr": "61097511",
+    "virk_name": "NORDEA PENSION DANMARK,           PENSIONSFORSIKRINGSSELSKAB A/S",
+    "confidence": 95,
+    "status": "OPLØSTEFTERFUSION"
+  },
+  {
+    "id": 1068,
+    "company_name": "Østrigs Ambassade - Handelsafdelingen",
+    "bon_count": 1,
+    "ean": null,
+    "cvr": "49592019",
+    "virk_name": "Østrigs Ambassade Handelsafdeling",
+    "confidence": 95,
+    "status": "Aktiv"
+  },
+  {
+    "id": 1057,
+    "company_name": "Advantage Austria / Østrigs Ambassade - Handelsafdeling",
+    "bon_count": 1,
+    "ean": null,
+    "cvr": "49592019",
+    "virk_name": "Østrigs Ambassade Handelsafdeling",
+    "confidence": 95,
+    "status": "Aktiv"
+  },
+  {
+    "id": 1054,
+    "company_name": "CONCITO",
+    "bon_count": 1,
+    "ean": null,
+    "cvr": "31679001",
+    "virk_name": "Foreningen Tænketanken CONCITO",
+    "confidence": 95,
+    "status": "Aktiv"
+  },
+  {
+    "id": 1046,
+    "company_name": "BioInnovation Institute Fonden",
+    "bon_count": 1,
+    "ean": null,
+    "cvr": "41898666",
+    "virk_name": "BioInnovation Institute Fonden",
+    "confidence": 100,
+    "status": "NORMAL"
+  },
+  {
+    "id": 1033,
+    "company_name": "Essensen",
+    "bon_count": 1,
+    "ean": null,
+    "cvr": "26399726",
+    "virk_name": "Essensen I/S",
+    "confidence": 100,
+    "status": "Ophørt"
+  },
+  {
+    "id": 1032,
+    "company_name": "Center for Bygningsbevaring",
+    "bon_count": 1,
+    "ean": null,
+    "cvr": "44003112",
+    "virk_name": "Center for Bygningsbevaring ApS",
+    "confidence": 100,
+    "status": "NORMAL"
+  },
+  {
+    "id": 1027,
+    "company_name": "Erhvervshus Hovedstaden S/I",
+    "bon_count": 1,
+    "ean": null,
+    "cvr": "40084711",
+    "virk_name": "Erhvervshus Hovedstaden S/I",
+    "confidence": 100,
+    "status": "Aktiv"
+  },
+  {
+    "id": 1025,
+    "company_name": "Biotekundervisere i Danmark",
+    "bon_count": 1,
+    "ean": null,
+    "cvr": "39953978",
+    "virk_name": "Biotekundervisere i Danmark",
+    "confidence": 100,
+    "status": "Aktiv"
+  },
+  {
+    "id": 1020,
+    "company_name": "Danske Shoppingcentre P/S",
+    "bon_count": 1,
+    "ean": null,
+    "cvr": "37070726",
+    "virk_name": "Danske Shoppingcentre P/S",
+    "confidence": 100,
+    "status": "NORMAL"
+  },
+  {
+    "id": 1017,
+    "company_name": "Nordic Connective",
+    "bon_count": 1,
+    "ean": null,
+    "cvr": "43000969",
+    "virk_name": "Nordic Connective",
+    "confidence": 100,
+    "status": "Aktiv"
+  },
+  {
+    "id": 1014,
+    "company_name": "Vokal Kapital",
+    "bon_count": 1,
+    "ean": null,
+    "cvr": "30018656",
+    "virk_name": "Vokal Kapital",
+    "confidence": 100,
+    "status": "Aktiv"
+  },
+  {
+    "id": 1013,
+    "company_name": "AB Brødhusene",
+    "bon_count": 1,
+    "ean": null,
+    "cvr": "24983080",
+    "virk_name": "A/B Brødhusene",
+    "confidence": 90,
+    "status": "Aktiv"
+  },
+  {
+    "id": 1012,
+    "company_name": "Diabetesforeningen",
+    "bon_count": 1,
+    "ean": null,
+    "cvr": "37121940",
+    "virk_name": "Diabetesforeningen STEVNS",
+    "confidence": 95,
+    "status": "Aktiv"
+  },
+  {
+    "id": 1010,
+    "company_name": "Perspectiv",
+    "bon_count": 1,
+    "ean": null,
+    "cvr": "33943164",
+    "virk_name": "Perspective",
+    "confidence": 95,
+    "status": "Ophørt"
+  },
+  {
+    "id": 1009,
+    "company_name": "Hofor",
+    "bon_count": 1,
+    "ean": null,
+    "cvr": "10073022",
+    "virk_name": "HOFOR A/S",
+    "confidence": 100,
+    "status": "NORMAL"
+  },
+  {
+    "id": 1003,
+    "company_name": "Frydenlund",
+    "bon_count": 1,
+    "ean": null,
+    "cvr": "60185557",
+    "virk_name": "Frydenlund",
+    "confidence": 100,
+    "status": "Ophørt"
+  },
+  {
+    "id": 996,
+    "company_name": "Tryg Forsikring A/S",
+    "bon_count": 1,
+    "ean": null,
+    "cvr": "24260666",
+    "virk_name": "TRYG FORSIKRING A/S",
+    "confidence": 100,
+    "status": "NORMAL"
+  },
+  {
+    "id": 992,
+    "company_name": "Over Byen Arkitekter",
+    "bon_count": 1,
+    "ean": null,
+    "cvr": "34697094",
+    "virk_name": "OVER BYEN ARKITEKTER ApS",
+    "confidence": 100,
+    "status": "NORMAL"
+  },
+  {
+    "id": 991,
+    "company_name": "Stenberg Transport",
+    "bon_count": 1,
+    "ean": null,
+    "cvr": "52468752",
+    "virk_name": "PST PETER STENBERG TRANSPORT      V/PETER STENBERG",
+    "confidence": 95,
+    "status": "Ophørt"
+  },
+  {
+    "id": 990,
+    "company_name": "Rådet for sund mad",
+    "bon_count": 1,
+    "ean": null,
+    "cvr": "34771162",
+    "virk_name": "Rådet for sund mad",
+    "confidence": 100,
+    "status": "Aktiv"
+  },
+  {
+    "id": 984,
+    "company_name": "Globalt Fokus",
+    "bon_count": 1,
+    "ean": null,
+    "cvr": "35429867",
+    "virk_name": "Globalt Fokus",
+    "confidence": 100,
+    "status": "Aktiv"
+  },
+  {
+    "id": 977,
+    "company_name": "Roche Pharmaceuticals A/S",
+    "bon_count": 1,
+    "ean": null,
+    "cvr": "25230515",
+    "virk_name": "Roche Pharmaceuticals A/S",
+    "confidence": 100,
+    "status": "NORMAL"
+  },
+  {
+    "id": 972,
+    "company_name": "Nordstjernen",
+    "bon_count": 1,
+    "ean": null,
+    "cvr": "17558889",
+    "virk_name": "NORDSTJERNEN",
+    "confidence": 100,
+    "status": "Ophørt"
+  },
+  {
+    "id": 967,
+    "company_name": "Daquma",
+    "bon_count": 1,
+    "ean": null,
+    "cvr": "42479977",
+    "virk_name": "DAQUMA ApS",
+    "confidence": 100,
+    "status": "NORMAL"
+  },
+  {
+    "id": 965,
+    "company_name": "Zonta",
+    "bon_count": 1,
+    "ean": null,
+    "cvr": "35614958",
+    "virk_name": "Zonta Næstved",
+    "confidence": 95,
+    "status": "Aktiv"
+  },
+  {
+    "id": 961,
+    "company_name": "Den 3. Revle",
+    "bon_count": 1,
+    "ean": null,
+    "cvr": "34756996",
+    "virk_name": "Den 3. Revle",
+    "confidence": 100,
+    "status": "Aktiv"
+  },
+  {
+    "id": 956,
+    "company_name": "Kunstforeningen Rigshospitalet",
+    "bon_count": 1,
+    "ean": null,
+    "cvr": "30341988",
+    "virk_name": "Kunstforeningen Rigshospitalet",
+    "confidence": 100,
+    "status": "Aktiv"
+  },
+  {
+    "id": 953,
+    "company_name": "L'Oréal Danmark",
+    "bon_count": 1,
+    "ean": null,
+    "cvr": "70710218",
+    "virk_name": "L'ORÉAL DANMARK A/S",
+    "confidence": 100,
+    "status": "NORMAL"
+  },
+  {
+    "id": 952,
+    "company_name": "Børnehuset land og by",
+    "bon_count": 1,
+    "ean": null,
+    "cvr": "45519872",
+    "virk_name": "Land og By",
+    "confidence": 95,
+    "status": "Aktiv"
+  },
+  {
+    "id": 946,
+    "company_name": "Copenhagen Economics & Finance Association",
+    "bon_count": 1,
+    "ean": null,
+    "cvr": "25262441",
+    "virk_name": "COPENHAGEN ECONOMICS A/S",
+    "confidence": 95,
+    "status": "NORMAL"
+  },
+  {
+    "id": 944,
+    "company_name": "Rytmisk Musikkonservatorium",
+    "bon_count": 1,
+    "ean": null,
+    "cvr": "10632935",
+    "virk_name": "Rytmisk Musikkonservatorium",
+    "confidence": 100,
+    "status": "Aktiv"
+  },
+  {
+    "id": 942,
+    "company_name": "Rutronik Denmark",
+    "bon_count": 1,
+    "ean": null,
+    "cvr": "29134812",
+    "virk_name": "RUTRONIK DENMARK, FILIAL AF RUTRONIK ELEKTRONISCHE BAUELEMENTE GMBH, TYSKLAND",
+    "confidence": 95,
+    "status": "SLETTET"
+  },
+  {
+    "id": 941,
+    "company_name": "Gitte Just",
+    "bon_count": 1,
+    "ean": null,
+    "cvr": "40549897",
+    "virk_name": "Gitte Just ApS",
+    "confidence": 100,
+    "status": "NORMAL"
+  },
+  {
+    "id": 934,
+    "company_name": "Round Table 27",
+    "bon_count": 1,
+    "ean": null,
+    "cvr": "40759271",
+    "virk_name": "Round Table 27",
+    "confidence": 100,
+    "status": "Aktiv"
+  },
+  {
+    "id": 931,
+    "company_name": "Akademiet for de Tekniske Videnskaber (ATV)",
+    "bon_count": 1,
+    "ean": null,
+    "cvr": "16007870",
+    "virk_name": "AKADEMIET FOR DE TEKNISKE VIDENSKABER",
+    "confidence": 100,
+    "status": "Aktiv"
+  },
+  {
+    "id": 927,
+    "company_name": "AB BRØDHUSENE",
+    "bon_count": 1,
+    "ean": null,
+    "cvr": "24983080",
+    "virk_name": "A/B Brødhusene",
+    "confidence": 90,
+    "status": "Aktiv"
+  },
+  {
+    "id": 926,
+    "company_name": "brk",
+    "bon_count": 1,
+    "ean": null,
+    "cvr": "45969568",
+    "virk_name": "BRK Studio",
+    "confidence": 95,
+    "status": "Aktiv"
+  },
+  {
+    "id": 925,
+    "company_name": "Dyo",
+    "bon_count": 1,
+    "ean": null,
+    "cvr": "37274577",
+    "virk_name": "DYO-Design Your Own",
+    "confidence": 95,
+    "status": "Aktiv"
+  },
+  {
+    "id": 923,
+    "company_name": "hauschildt",
+    "bon_count": 1,
+    "ean": null,
+    "cvr": "25473086",
+    "virk_name": "HAUSCHILDT HOLDING ApS",
+    "confidence": 100,
+    "status": "NORMAL"
+  },
+  {
+    "id": 914,
+    "company_name": "Tryg",
+    "bon_count": 1,
+    "ean": null,
+    "cvr": "41927631",
+    "virk_name": "Tryg",
+    "confidence": 100,
+    "status": "Ophørt"
+  },
+  {
+    "id": 912,
+    "company_name": "munthe",
+    "bon_count": 1,
+    "ean": null,
+    "cvr": "21208272",
+    "virk_name": "Munthes Dyreartikler v/Lisbet Skovgård Munthe-Brun",
+    "confidence": 95,
+    "status": "Ophørt"
+  },
+  {
+    "id": 910,
+    "company_name": "cleandesk",
+    "bon_count": 1,
+    "ean": null,
+    "cvr": "31452090",
+    "virk_name": "CleanDesk",
+    "confidence": 100,
+    "status": "Ophørt"
+  },
+  {
+    "id": 896,
+    "company_name": "Lysets Tempel",
+    "bon_count": 1,
+    "ean": null,
+    "cvr": "26634687",
+    "virk_name": "Tempel",
+    "confidence": 95,
+    "status": "Ophørt"
+  },
+  {
+    "id": 893,
+    "company_name": "optimeet",
+    "bon_count": 1,
+    "ean": null,
+    "cvr": "40484876",
+    "virk_name": "Optimeet ApS",
+    "confidence": 100,
+    "status": "NORMAL"
+  },
+  {
+    "id": 892,
+    "company_name": "Beatmongers",
+    "bon_count": 1,
+    "ean": null,
+    "cvr": "41884797",
+    "virk_name": "Beatmongers ApS",
+    "confidence": 100,
+    "status": "NORMAL"
+  },
+  {
+    "id": 885,
+    "company_name": "Den Danske Dyrlægeforening",
+    "bon_count": 1,
+    "ean": null,
+    "cvr": "56085114",
+    "virk_name": "Den Danske Dyrlægeforening",
+    "confidence": 100,
+    "status": "Aktiv"
+  },
+  {
+    "id": 882,
+    "company_name": "Folketeatret S/I",
+    "bon_count": 1,
+    "ean": null,
+    "cvr": "30635051",
+    "virk_name": "Folketeatret S/I",
+    "confidence": 100,
+    "status": "Aktiv"
+  },
+  {
+    "id": 879,
+    "company_name": "Akademiet for Tekniske Videnskaber",
+    "bon_count": 1,
+    "ean": null,
+    "cvr": "16007870",
+    "virk_name": "AKADEMIET FOR DE TEKNISKE VIDENSKABER",
+    "confidence": 90,
+    "status": "Aktiv"
+  },
+  {
+    "id": 872,
+    "company_name": "Københavns Universitet Institut for Neurovidenskab",
+    "bon_count": 1,
+    "ean": null,
+    "cvr": "29979812",
+    "virk_name": "Københavns Universitet",
+    "confidence": 95,
+    "status": "Aktiv"
+  },
+  {
+    "id": 871,
+    "company_name": "Emdupvej som living lab for bynatur",
+    "bon_count": 1,
+    "ean": null,
+    "cvr": "40266216",
+    "virk_name": "LIving lab APS",
+    "confidence": 95,
+    "status": "TVANGSOPLØST"
+  },
+  {
+    "id": 870,
+    "company_name": "FN-forbundet",
+    "bon_count": 1,
+    "ean": null,
+    "cvr": "29304319",
+    "virk_name": "FN-forbundet",
+    "confidence": 100,
+    "status": "Aktiv"
+  },
+  {
+    "id": 866,
+    "company_name": "Jan Nygaard AS",
+    "bon_count": 1,
+    "ean": "4930004768308",
+    "cvr": "26762707",
+    "virk_name": "Jan Nygaard",
+    "confidence": 100,
+    "status": "Aktiv"
+  },
+  {
+    "id": 865,
+    "company_name": "C:ntact",
+    "bon_count": 1,
+    "ean": null,
+    "cvr": "29598584",
+    "virk_name": "C:NTACT-FONDEN",
+    "confidence": 95,
+    "status": "NORMAL"
+  },
+  {
+    "id": 857,
+    "company_name": "Lundbeckfonden",
+    "bon_count": 1,
+    "ean": null,
+    "cvr": "11814913",
+    "virk_name": "LUNDBECKFONDEN",
+    "confidence": 100,
+    "status": "NORMAL"
+  },
+  {
+    "id": 850,
+    "company_name": "Novo Nordisk Fonden",
+    "bon_count": 1,
+    "ean": null,
+    "cvr": "10582989",
+    "virk_name": "NOVO NORDISK FONDEN",
+    "confidence": 100,
+    "status": "NORMAL"
+  },
+  {
+    "id": 848,
+    "company_name": "Copenhagen Tantra festival",
+    "bon_count": 1,
+    "ean": null,
+    "cvr": "31678056",
+    "virk_name": "Copenhagen Tantra",
+    "confidence": 95,
+    "status": "Ophørt"
+  },
+  {
+    "id": 836,
+    "company_name": "Andelskassen Fælleskassen",
+    "bon_count": 1,
+    "ean": null,
+    "cvr": "69556728",
+    "virk_name": "ANDELSKASSEN FÆLLESKASSEN",
+    "confidence": 100,
+    "status": "NORMAL"
+  },
+  {
+    "id": 821,
+    "company_name": "H. Lundbeck A/S",
+    "bon_count": 1,
+    "ean": null,
+    "cvr": "56759913",
+    "virk_name": "H. LUNDBECK A/S",
+    "confidence": 100,
+    "status": "NORMAL"
+  },
+  {
+    "id": 816,
+    "company_name": "Infrastrukturselskabet LJ A/S",
+    "bon_count": 1,
+    "ean": null,
+    "cvr": "31761670",
+    "virk_name": "INFRASTRUKTURSELSKABET LJ A/S",
+    "confidence": 100,
+    "status": "NORMAL"
+  },
+  {
+    "id": 815,
+    "company_name": "Social- og boligstyrelsen",
+    "bon_count": 1,
+    "ean": null,
+    "cvr": "26144698",
+    "virk_name": "Social- og Boligstyrelsen",
+    "confidence": 100,
+    "status": "Aktiv"
+  },
+  {
+    "id": 808,
+    "company_name": "Van Mossel A/S",
+    "bon_count": 1,
+    "ean": null,
+    "cvr": "20560010",
+    "virk_name": "Van Mossel Automotive Group Denmark A/S",
+    "confidence": 95,
+    "status": "NORMAL"
+  },
+  {
+    "id": 806,
+    "company_name": "Teater FÅR302",
+    "bon_count": 1,
+    "ean": null,
+    "cvr": "37821497",
+    "virk_name": "Teater Teater",
+    "confidence": 90,
+    "status": "Ophørt"
+  },
+  {
+    "id": 804,
+    "company_name": "BHCF",
+    "bon_count": 1,
+    "ean": null,
+    "cvr": "25910516",
+    "virk_name": "BHC",
+    "confidence": 95,
+    "status": "Aktiv"
+  },
+  {
+    "id": 802,
+    "company_name": "Emilie Fiona",
+    "bon_count": 1,
+    "ean": null,
+    "cvr": "35596658",
+    "virk_name": "Fiona",
+    "confidence": 95,
+    "status": "Ophørt"
+  },
+  {
+    "id": 799,
+    "company_name": "Falsters Kyst",
+    "bon_count": 1,
+    "ean": null,
+    "cvr": "41319879",
+    "virk_name": "Falsters Kyst ApS",
+    "confidence": 100,
+    "status": "NORMAL"
+  },
+  {
+    "id": 796,
+    "company_name": "Over",
+    "bon_count": 1,
+    "ean": null,
+    "cvr": "41897449",
+    "virk_name": "Niveauet over",
+    "confidence": 95,
+    "status": "Ophørt"
+  },
+  {
+    "id": 792,
+    "company_name": "Logik&Co.",
+    "bon_count": 1,
+    "ean": null,
+    "cvr": "26368006",
+    "virk_name": "BYGGEFIRMAET LOGIK & CO. A/S",
+    "confidence": 95,
+    "status": "NORMAL"
+  },
+  {
+    "id": 791,
+    "company_name": "navn: SMOOTH ApsCVR nr: 40833161",
+    "bon_count": 1,
+    "ean": null,
+    "cvr": "36266244",
+    "virk_name": "Smooth",
+    "confidence": 95,
+    "status": "Ophørt"
+  },
+  {
+    "id": 789,
+    "company_name": "Drivkraft Danmark",
+    "bon_count": 1,
+    "ean": null,
+    "cvr": "55658013",
+    "virk_name": "Drivkraft Danmark",
+    "confidence": 100,
+    "status": "Aktiv"
+  },
+  {
+    "id": 788,
+    "company_name": "Ramboll",
+    "bon_count": 1,
+    "ean": null,
+    "cvr": "37721344",
+    "virk_name": "Ramboll UK Limited",
+    "confidence": 95,
+    "status": "Aktiv"
+  },
+  {
+    "id": 785,
+    "company_name": "BARK Rådgivning A/S",
+    "bon_count": 1,
+    "ean": null,
+    "cvr": "27292984",
+    "virk_name": "BARK Rådgivning A/S",
+    "confidence": 100,
+    "status": "NORMAL"
+  },
+  {
+    "id": 778,
+    "company_name": "Godthaabskirken",
+    "bon_count": 1,
+    "ean": null,
+    "cvr": "19333213",
+    "virk_name": "Godthaabskirken",
+    "confidence": 100,
+    "status": "Aktiv"
+  },
+  {
+    "id": 771,
+    "company_name": "Rønnow Leth og Gori",
+    "bon_count": 1,
+    "ean": null,
+    "cvr": "42497460",
+    "virk_name": "RØNNOW LETH & GORI A/S",
+    "confidence": 90,
+    "status": "NORMAL"
+  },
+  {
+    "id": 765,
+    "company_name": "JA Circus",
+    "bon_count": 1,
+    "ean": null,
+    "cvr": "44327406",
+    "virk_name": "JA Circus ApS",
+    "confidence": 100,
+    "status": "NORMAL"
+  },
+  {
+    "id": 763,
+    "company_name": "NCC",
+    "bon_count": 1,
+    "ean": null,
+    "cvr": "43748424",
+    "virk_name": "NCC",
+    "confidence": 100,
+    "status": "Aktiv"
+  },
+  {
+    "id": 760,
+    "company_name": "Københavns Professionshøjskole Biblioteket",
+    "bon_count": 1,
+    "ean": null,
+    "cvr": "30787986",
+    "virk_name": "Københavns Professionshøjskole S/I",
+    "confidence": 95,
+    "status": "Ophørt"
+  },
+  {
+    "id": 757,
+    "company_name": "SOLUM A/S",
+    "bon_count": 1,
+    "ean": null,
+    "cvr": "25690230",
+    "virk_name": "SOLUM A/S",
+    "confidence": 100,
+    "status": "NORMAL"
+  },
+  {
+    "id": 756,
+    "company_name": "Aromateknik",
+    "bon_count": 1,
+    "ean": null,
+    "cvr": "15502290",
+    "virk_name": "AROMATEKNIK A/S",
+    "confidence": 100,
+    "status": "NORMAL"
+  },
+  {
+    "id": 755,
+    "company_name": "Rungsted private Realskole",
+    "bon_count": 1,
+    "ean": null,
+    "cvr": "66988813",
+    "virk_name": "RUNGSTED PRIVATE REALSKOLE",
+    "confidence": 100,
+    "status": "Aktiv"
+  },
+  {
+    "id": 754,
+    "company_name": "Ascendis Pharma A/S",
+    "bon_count": 1,
+    "ean": null,
+    "cvr": "29918791",
+    "virk_name": "ASCENDIS PHARMA A/S",
+    "confidence": 100,
+    "status": "NORMAL"
+  },
+  {
+    "id": 747,
+    "company_name": "Bonava Danmark A/S",
+    "bon_count": 1,
+    "ean": "5790326555050",
+    "cvr": "32655505",
+    "virk_name": "Bonava Danmark A/S",
+    "confidence": 100,
+    "status": "NORMAL"
+  },
+  {
+    "id": 743,
+    "company_name": "Louise Mariehjemmet",
+    "bon_count": 1,
+    "ean": null,
+    "cvr": "45797317",
+    "virk_name": "Louise Mariehjemmet",
+    "confidence": 100,
+    "status": "Ophørt"
+  },
+  {
+    "id": 732,
+    "company_name": "Knowledgeboard",
+    "bon_count": 1,
+    "ean": null,
+    "cvr": "42829439",
+    "virk_name": "knowledgeboard",
+    "confidence": 100,
+    "status": "Aktiv"
+  },
+  {
+    "id": 727,
+    "company_name": "Sex &amp; Samfund",
+    "bon_count": 1,
+    "ean": null,
+    "cvr": "58185728",
+    "virk_name": "Sex & Samfund",
+    "confidence": 90,
+    "status": "Aktiv"
+  },
+  {
+    "id": 722,
+    "company_name": "Friluftsrådet",
+    "bon_count": 1,
+    "ean": null,
+    "cvr": "56230718",
+    "virk_name": "FRILUFTSRÅDET",
+    "confidence": 100,
+    "status": "Aktiv"
+  },
+  {
+    "id": 715,
+    "company_name": "Solum",
+    "bon_count": 1,
+    "ean": null,
+    "cvr": "25690230",
+    "virk_name": "SOLUM A/S",
+    "confidence": 100,
+    "status": "NORMAL"
+  },
+  {
+    "id": 706,
+    "company_name": "Generaxion",
+    "bon_count": 1,
+    "ean": null,
+    "cvr": "31189810",
+    "virk_name": "Generaxion A/S",
+    "confidence": 100,
+    "status": "NORMAL"
+  },
+  {
+    "id": 703,
+    "company_name": "HKI",
+    "bon_count": 1,
+    "ean": null,
+    "cvr": "28483392",
+    "virk_name": "HKI HOLDING ApS",
+    "confidence": 100,
+    "status": "OPLØSTEFTERFUSION"
+  },
+  {
+    "id": 700,
+    "company_name": "Fresh events",
+    "bon_count": 1,
+    "ean": null,
+    "cvr": "44351064",
+    "virk_name": "Fresh Events ApS",
+    "confidence": 100,
+    "status": "NORMAL"
+  },
+  {
+    "id": 697,
+    "company_name": "DaCES",
+    "bon_count": 1,
+    "ean": null,
+    "cvr": "44446928",
+    "virk_name": "Daces fodterapi",
+    "confidence": 95,
+    "status": "Ophørt"
+  },
+  {
+    "id": 680,
+    "company_name": "Prfrm",
+    "bon_count": 1,
+    "ean": null,
+    "cvr": "42596027",
+    "virk_name": "prfrm - produktion og formidling af scenekunst",
+    "confidence": 95,
+    "status": "Aktiv"
+  },
+  {
+    "id": 675,
+    "company_name": "Ydun v/Annalea Buntzen Hasemann",
+    "bon_count": 1,
+    "ean": null,
+    "cvr": "31913934",
+    "virk_name": "Ydun",
+    "confidence": 95,
+    "status": "Ophørt"
+  },
+  {
+    "id": 668,
+    "company_name": "Food Day 2024 event",
+    "bon_count": 1,
+    "ean": null,
+    "cvr": "37055727",
+    "virk_name": "Food & Event IvS",
+    "confidence": 90,
+    "status": "OPLØSTEFTERKONKURS"
+  },
+  {
+    "id": 665,
+    "company_name": "Oasis",
+    "bon_count": 1,
+    "ean": null,
+    "cvr": "39355191",
+    "virk_name": "OASIS",
+    "confidence": 100,
+    "status": "Aktiv"
+  },
+  {
+    "id": 662,
+    "company_name": "Dansk Handicap Forbund /Askov Fonden",
+    "bon_count": 1,
+    "ean": null,
+    "cvr": "30764129",
+    "virk_name": "Dansk Handicap Forbund",
+    "confidence": 95,
+    "status": "Ophørt"
+  },
+  {
+    "id": 651,
+    "company_name": "Udviklingshuset Brain&amp;Body",
+    "bon_count": 1,
+    "ean": null,
+    "cvr": "39588927",
+    "virk_name": "Udviklingshuset Brain & Body ApS",
+    "confidence": 90,
+    "status": "NORMAL"
+  },
+  {
+    "id": 649,
+    "company_name": "Karnov group Denmark A/S",
+    "bon_count": 1,
+    "ean": null,
+    "cvr": "10361990",
+    "virk_name": "KARNOV GROUP DENMARK A/S",
+    "confidence": 100,
+    "status": "NORMAL"
+  },
+  {
+    "id": 646,
+    "company_name": "Legtech Teknik Aps",
+    "bon_count": 1,
+    "ean": null,
+    "cvr": "40696644",
+    "virk_name": "Legtech Teknik ApS",
+    "confidence": 100,
+    "status": "NORMAL"
+  },
+  {
+    "id": 645,
+    "company_name": "Fonden ALICE",
+    "bon_count": 1,
+    "ean": null,
+    "cvr": "39127318",
+    "virk_name": "Fonden Alice",
+    "confidence": 100,
+    "status": "Aktiv"
+  },
+  {
+    "id": 638,
+    "company_name": "Den Britiske Ambassade",
+    "bon_count": 1,
+    "ean": null,
+    "cvr": "80025610",
+    "virk_name": "DEN BRITISKE AMBASSADE",
+    "confidence": 100,
+    "status": "Aktiv"
+  },
+  {
+    "id": 637,
+    "company_name": "Noscomed Medical Supply",
+    "bon_count": 1,
+    "ean": null,
+    "cvr": "27680461",
+    "virk_name": "NOSCOMED MEDICAL SUPPLY A/S",
+    "confidence": 100,
+    "status": "NORMAL"
+  },
+  {
+    "id": 633,
+    "company_name": "Klimabevægelsen i Danmark",
+    "bon_count": 1,
+    "ean": null,
+    "cvr": "31315255",
+    "virk_name": "Klimabevægelsen i Danmark",
+    "confidence": 100,
+    "status": "Ophørt"
+  },
+  {
+    "id": 631,
+    "company_name": "Klang - Copenhagen Avantgarde Music Festival",
+    "bon_count": 1,
+    "ean": null,
+    "cvr": "33005016",
+    "virk_name": "Klang - Copenhagen Avantgarde Music Festival",
+    "confidence": 100,
+    "status": "Aktiv"
+  },
+  {
+    "id": 628,
+    "company_name": "Johan Borups Højskole",
+    "bon_count": 1,
+    "ean": null,
+    "cvr": "15239913",
+    "virk_name": "Johan Borups Højskole",
+    "confidence": 100,
+    "status": "Aktiv"
+  },
+  {
+    "id": 620,
+    "company_name": "IPSOS Denmark",
+    "bon_count": 1,
+    "ean": null,
+    "cvr": "14747788",
+    "virk_name": "IPSOS A/S",
+    "confidence": 95,
+    "status": "NORMAL"
+  },
+  {
+    "id": 619,
+    "company_name": "Global Maritime Forum",
+    "bon_count": 1,
+    "ean": null,
+    "cvr": "38864122",
+    "virk_name": "Global Maritime Forum Fonden",
+    "confidence": 95,
+    "status": "NORMAL"
+  },
+  {
+    "id": 612,
+    "company_name": "Ristet Rug Sales meeting",
+    "bon_count": 1,
+    "ean": null,
+    "cvr": "40140255",
+    "virk_name": "Ristet Rug I/S",
+    "confidence": 95,
+    "status": "Ophørt"
+  },
+  {
+    "id": 611,
+    "company_name": "C.K. Environment A/S",
+    "bon_count": 1,
+    "ean": null,
+    "cvr": "17990985",
+    "virk_name": "C.K. ENVIRONMENT A/S",
+    "confidence": 100,
+    "status": "OPLØSTEFTERFUSION"
+  },
+  {
+    "id": 603,
+    "company_name": "RH arkitekter A/S",
+    "bon_count": 1,
+    "ean": null,
+    "cvr": "26196485",
+    "virk_name": "RH ARKITEKTER A/S",
+    "confidence": 100,
+    "status": "NORMAL"
+  },
+  {
+    "id": 601,
+    "company_name": "Noscomed Medical Supply A/S",
+    "bon_count": 1,
+    "ean": null,
+    "cvr": "27680461",
+    "virk_name": "NOSCOMED MEDICAL SUPPLY A/S",
+    "confidence": 100,
+    "status": "NORMAL"
+  },
+  {
+    "id": 592,
+    "company_name": "nikolova/aarsø ApS",
+    "bon_count": 1,
+    "ean": null,
+    "cvr": "42395943",
+    "virk_name": "nikolova/aarsø ApS",
+    "confidence": 100,
+    "status": "NORMAL"
+  },
+  {
+    "id": 588,
+    "company_name": "Tandkunsten ApS",
+    "bon_count": 1,
+    "ean": null,
+    "cvr": "29633223",
+    "virk_name": "TANDKUNSTEN ApS",
+    "confidence": 100,
+    "status": "NORMAL"
+  },
+  {
+    "id": 579,
+    "company_name": "reiulf ramstad arkitekter, filial københavn",
+    "bon_count": 1,
+    "ean": null,
+    "cvr": "43516728",
+    "virk_name": "Reiulf Ramstad Arkitekter, København, filial af Reiulf Ramstad Arkitekter AS, Norge",
+    "confidence": 90,
+    "status": "NORMAL"
+  },
+  {
+    "id": 575,
+    "company_name": "Psykologhuset ved Rundetaarn",
+    "bon_count": 1,
+    "ean": null,
+    "cvr": "20859318",
+    "virk_name": "Rundetaarn",
+    "confidence": 95,
+    "status": "Aktiv"
+  },
+  {
+    "id": 573,
+    "company_name": "A pc Support",
+    "bon_count": 1,
+    "ean": null,
+    "cvr": "34995486",
+    "virk_name": "A pc Support",
+    "confidence": 100,
+    "status": "Aktiv"
+  },
+  {
+    "id": 564,
+    "company_name": "Eventually",
+    "bon_count": 1,
+    "ean": null,
+    "cvr": "33148976",
+    "virk_name": "EVENTUALLY ApS",
+    "confidence": 100,
+    "status": "NORMAL"
+  },
+  {
+    "id": 559,
+    "company_name": "Danske Bank, Private Banking",
+    "bon_count": 1,
+    "ean": null,
+    "cvr": "23569914",
+    "virk_name": "Danske Bank",
+    "confidence": 95,
+    "status": "Aktiv"
+  },
+  {
+    "id": 551,
+    "company_name": "Fonden Filmtalent",
+    "bon_count": 1,
+    "ean": null,
+    "cvr": "37505927",
+    "virk_name": "Fonden Filmtalent",
+    "confidence": 100,
+    "status": "NORMAL"
+  },
+  {
+    "id": 544,
+    "company_name": "Center for Sundhedsfaglig Forskning (UCSF)",
+    "bon_count": 1,
+    "ean": null,
+    "cvr": "25775805",
+    "virk_name": "Center for IT-forskning",
+    "confidence": 75,
+    "status": "Ophørt"
+  },
+  {
+    "id": 540,
+    "company_name": "Byexpressen",
+    "bon_count": 1,
+    "ean": null,
+    "cvr": "37981141",
+    "virk_name": "Expressen",
+    "confidence": 95,
+    "status": "Ophørt"
+  },
+  {
+    "id": 539,
+    "company_name": "Teach First Danmark",
+    "bon_count": 1,
+    "ean": null,
+    "cvr": "35342532",
+    "virk_name": "Teach First Danmark",
+    "confidence": 100,
+    "status": "Aktiv"
+  },
+  {
+    "id": 538,
+    "company_name": "People2Play ApS",
+    "bon_count": 1,
+    "ean": null,
+    "cvr": "43075187",
+    "virk_name": "People2Play ApS",
+    "confidence": 100,
+    "status": "NORMAL"
+  },
+  {
+    "id": 499,
+    "company_name": "Mono Solutions ApS",
+    "bon_count": 1,
+    "ean": null,
+    "cvr": "30192648",
+    "virk_name": "MONO SOLUTIONS ApS",
+    "confidence": 100,
+    "status": "NORMAL"
+  },
+  {
+    "id": 496,
+    "company_name": "Data Discovery Lab",
+    "bon_count": 1,
+    "ean": null,
+    "cvr": "42188050",
+    "virk_name": "Data Discovery Lab ApS",
+    "confidence": 100,
+    "status": "NORMAL"
+  },
+  {
+    "id": 492,
+    "company_name": "Grundfos Holding A/S",
+    "bon_count": 1,
+    "ean": null,
+    "cvr": "31858356",
+    "virk_name": "GRUNDFOS HOLDING A/S",
+    "confidence": 100,
+    "status": "NORMAL"
+  },
+  {
+    "id": 489,
+    "company_name": "Prins Henriks Skole",
+    "bon_count": 1,
+    "ean": null,
+    "cvr": "40175415",
+    "virk_name": "Prins Henriks Skoles Ejendomsfond",
+    "confidence": 95,
+    "status": "NORMAL"
+  },
+  {
+    "id": 487,
+    "company_name": "IMCC",
+    "bon_count": 1,
+    "ean": null,
+    "cvr": "32613365",
+    "virk_name": "IMCC Uland",
+    "confidence": 95,
+    "status": "Ophørt"
+  },
+  {
+    "id": 486,
+    "company_name": "Mariendal Kirke",
+    "bon_count": 1,
+    "ean": null,
+    "cvr": "55685819",
+    "virk_name": "Mariendal Kirke",
+    "confidence": 100,
+    "status": "Aktiv"
+  },
+  {
+    "id": 477,
+    "company_name": "Breiting  Plastikkirurgisk Klinik",
+    "bon_count": 1,
+    "ean": null,
+    "cvr": "28026110",
+    "virk_name": "Breiting Plastikkirurgisk Klinik",
+    "confidence": 100,
+    "status": "Aktiv"
+  },
+  {
+    "id": 475,
+    "company_name": "Cento",
+    "bon_count": 1,
+    "ean": null,
+    "cvr": "31781868",
+    "virk_name": "CENTO ApS",
+    "confidence": 100,
+    "status": "OPLØSTEFTERERKLÆRING"
+  },
+  {
+    "id": 470,
+    "company_name": "FERN.",
+    "bon_count": 1,
+    "ean": null,
+    "cvr": "41622903",
+    "virk_name": "Fern ApS",
+    "confidence": 100,
+    "status": "NORMAL"
+  },
+  {
+    "id": 469,
+    "company_name": "Parasport Danmark",
+    "bon_count": 1,
+    "ean": null,
+    "cvr": "44301318",
+    "virk_name": "Parasport Danmark",
+    "confidence": 100,
+    "status": "Aktiv"
+  },
+  {
+    "id": 459,
+    "company_name": "CPH Village",
+    "bon_count": 1,
+    "ean": null,
+    "cvr": "41983965",
+    "virk_name": "CPH Village Nonprofit",
+    "confidence": 95,
+    "status": "Ophørt"
+  },
+  {
+    "id": 453,
+    "company_name": "Udenrigsministeriet",
+    "bon_count": 1,
+    "ean": null,
+    "cvr": "43271911",
+    "virk_name": "Udenrigsministeriet",
+    "confidence": 100,
+    "status": "Aktiv"
+  },
+  {
+    "id": 432,
+    "company_name": "erhvervsskolen af 2011",
+    "bon_count": 1,
+    "ean": null,
+    "cvr": "33964579",
+    "virk_name": "ERHVERVSSKOLEN AF 2011 ApS",
+    "confidence": 100,
+    "status": "NORMAL"
+  },
+  {
+    "id": 400,
+    "company_name": "Thermo Fisher Scientific",
+    "bon_count": 1,
+    "ean": null,
+    "cvr": "40257780",
+    "virk_name": "Thermo Fisher Scientific",
+    "confidence": 100,
+    "status": "Ophørt"
+  },
+  {
+    "id": 392,
+    "company_name": "Bofællesskabet Kilen",
+    "bon_count": 1,
+    "ean": null,
+    "cvr": "30854039",
+    "virk_name": "Andelsboligforeningen \" Bofællesskabet Kilen\"",
+    "confidence": 95,
+    "status": "Aktiv"
+  },
+  {
+    "id": 390,
+    "company_name": "Bang og Olufsen",
+    "bon_count": 1,
+    "ean": null,
+    "cvr": "41257911",
+    "virk_name": "BANG & OLUFSEN A/S",
+    "confidence": 90,
+    "status": "NORMAL"
+  },
+  {
+    "id": 389,
+    "company_name": "Engineer the Future",
+    "bon_count": 1,
+    "ean": null,
+    "cvr": "35807403",
+    "virk_name": "ENGINEER THE FUTURE F.M.B.A.",
+    "confidence": 100,
+    "status": "NORMAL"
+  },
+  {
+    "id": 385,
+    "company_name": "NTT Data",
+    "bon_count": 1,
+    "ean": null,
+    "cvr": "20252936",
+    "virk_name": "NTT DATA DANMARK A/S",
+    "confidence": 95,
+    "status": "OPLØSTEFTERFUSION"
+  },
+  {
+    "id": 383,
+    "company_name": "Department of Drug Design and Pharmacology",
+    "bon_count": 1,
+    "ean": null,
+    "cvr": "14972749",
+    "virk_name": "DESIGN DEPARTMENT A/S",
+    "confidence": 90,
+    "status": "OPLØSTEFTERKONKURS"
+  },
+  {
+    "id": 377,
+    "company_name": "Dyssegårdskirken",
+    "bon_count": 1,
+    "ean": null,
+    "cvr": "10838118",
+    "virk_name": "Dyssegårdskirken",
+    "confidence": 100,
+    "status": "Aktiv"
+  },
+  {
+    "id": 375,
+    "company_name": "VisionWillow A/S",
+    "bon_count": 1,
+    "ean": null,
+    "cvr": "19751902",
+    "virk_name": "VisionWillow A/S",
+    "confidence": 100,
+    "status": "NORMAL"
+  },
+  {
+    "id": 367,
+    "company_name": "Østerbro Lilleskole",
+    "bon_count": 1,
+    "ean": null,
+    "cvr": "28889615",
+    "virk_name": "ØSTERBRO LILLESKOLE",
+    "confidence": 100,
+    "status": "Aktiv"
+  },
+  {
+    "id": 355,
+    "company_name": "FamilieCentret – Gentofte Kommune",
+    "bon_count": 1,
+    "ean": " 579800862515",
+    "cvr": "19438414",
+    "virk_name": "Gentofte Kommune",
+    "confidence": 95,
+    "status": "Aktiv"
+  },
+  {
+    "id": 349,
+    "company_name": "Queer Union Københavns Universitet",
+    "bon_count": 1,
+    "ean": null,
+    "cvr": "41641975",
+    "virk_name": "Queer Union Københavns Universitet",
+    "confidence": 100,
+    "status": "Aktiv"
+  },
+  {
+    "id": 346,
+    "company_name": "Genanvend Biomasse",
+    "bon_count": 1,
+    "ean": null,
+    "cvr": "29496188",
+    "virk_name": "Brancheforeningen Genanvend Biomasse  - affald til ressource",
+    "confidence": 95,
+    "status": "Aktiv"
+  },
+  {
+    "id": 321,
+    "company_name": "Trifork A/S",
+    "bon_count": 1,
+    "ean": null,
+    "cvr": "20921897",
+    "virk_name": "TRIFORK A/S",
+    "confidence": 100,
+    "status": "NORMAL"
+  },
+  {
+    "id": 314,
+    "company_name": "DTU Aqua",
+    "bon_count": 1,
+    "ean": null,
+    "cvr": "35628223",
+    "virk_name": "Aqua",
+    "confidence": 95,
+    "status": "Ophørt"
+  },
+  {
+    "id": 306,
+    "company_name": "Dk Company",
+    "bon_count": 1,
+    "ean": null,
+    "cvr": "24431118",
+    "virk_name": "DK COMPANY A/S",
+    "confidence": 100,
+    "status": "NORMAL"
+  },
+  {
+    "id": 300,
+    "company_name": "Kks-woodfiber",
+    "bon_count": 1,
+    "ean": null,
+    "cvr": "36978627",
+    "virk_name": "Woodfiber ApS",
+    "confidence": 95,
+    "status": "NORMAL"
+  },
+  {
+    "id": 290,
+    "company_name": "HK Kommunal",
+    "bon_count": 1,
+    "ean": null,
+    "cvr": "20585668",
+    "virk_name": "HK/KOMMUNAL",
+    "confidence": 100,
+    "status": "Ophørt"
+  },
+  {
+    "id": 288,
+    "company_name": "Europa-Kommissionen, Repræsentation i Danmark",
+    "bon_count": 1,
+    "ean": null,
+    "cvr": "90184156",
+    "virk_name": "EUROPA-KOMMISSIONEN",
+    "confidence": 95,
+    "status": "Aktiv"
+  },
+  {
+    "id": 287,
+    "company_name": "Kooperationen",
+    "bon_count": 1,
+    "ean": null,
+    "cvr": "27861865",
+    "virk_name": "Kooperationen",
+    "confidence": 100,
+    "status": "Aktiv"
+  },
+  {
+    "id": 276,
+    "company_name": "Danske Vandværker Regionøst",
+    "bon_count": 1,
+    "ean": null,
+    "cvr": "95139655",
+    "virk_name": "Danske Vandværker",
+    "confidence": 95,
+    "status": "Aktiv"
+  },
+  {
+    "id": 271,
+    "company_name": "Weibel Scientific A/S",
+    "bon_count": 1,
+    "ean": null,
+    "cvr": "80609515",
+    "virk_name": "WEIBEL SCIENTIFIC A/S",
+    "confidence": 100,
+    "status": "NORMAL"
+  },
+  {
+    "id": 261,
+    "company_name": "Plastic Change",
+    "bon_count": 1,
+    "ean": null,
+    "cvr": "35778985",
+    "virk_name": "Plastic Change",
+    "confidence": 100,
+    "status": "Aktiv"
+  },
+  {
+    "id": 238,
+    "company_name": "Vikasku",
+    "bon_count": 1,
+    "ean": null,
+    "cvr": "72609018",
+    "virk_name": "DEN ERHVERVSDRIVENDE FOND VIKASKU",
+    "confidence": 95,
+    "status": "NORMAL"
+  },
+  {
+    "id": 237,
+    "company_name": "KPMG",
+    "bon_count": 1,
+    "ean": null,
+    "cvr": "37268534",
+    "virk_name": "KPMG LLP",
+    "confidence": 95,
+    "status": "Aktiv"
+  },
+  {
+    "id": 235,
+    "company_name": "Le34",
+    "bon_count": 1,
+    "ean": null,
+    "cvr": "27758592",
+    "virk_name": "LE34 GRUPPEN LANDINSPEKTØRAKTIESELSKAB",
+    "confidence": 95,
+    "status": "NORMAL"
+  },
+  {
+    "id": 233,
+    "company_name": "HOFOR A/S",
+    "bon_count": 1,
+    "ean": null,
+    "cvr": "10073022",
+    "virk_name": "HOFOR A/S",
+    "confidence": 100,
+    "status": "NORMAL"
+  },
+  {
+    "id": 225,
+    "company_name": "AUTENS",
+    "bon_count": 1,
+    "ean": null,
+    "cvr": "39683083",
+    "virk_name": "Autens ApS",
+    "confidence": 100,
+    "status": "NORMAL"
+  },
+  {
+    "id": 209,
+    "company_name": "Lighthouse KUB",
+    "bon_count": 1,
+    "ean": null,
+    "cvr": "37458902",
+    "virk_name": "Lighthouse",
+    "confidence": 95,
+    "status": "Ophørt"
+  },
+  {
+    "id": 183,
+    "company_name": "Copenhot",
+    "bon_count": 1,
+    "ean": null,
+    "cvr": "38221124",
+    "virk_name": "CopenHot ApS",
+    "confidence": 100,
+    "status": "NORMAL"
+  },
+  {
+    "id": 178,
+    "company_name": "Dachser",
+    "bon_count": 1,
+    "ean": null,
+    "cvr": "35933360",
+    "virk_name": "Aktivitetsforening Dachser Kolding",
+    "confidence": 95,
+    "status": "Aktiv"
+  },
+  {
+    "id": 167,
+    "company_name": "Dansk Kunsthistoriker Forening",
+    "bon_count": 1,
+    "ean": null,
+    "cvr": "32508170",
+    "virk_name": "Dansk Kunsthistoriker Forening",
+    "confidence": 100,
+    "status": "Aktiv"
+  },
+  {
+    "id": 165,
+    "company_name": "Foreningen Sjællandsgade Bad",
+    "bon_count": 1,
+    "ean": null,
+    "cvr": "34758360",
+    "virk_name": "Foreningen Sjællandsgade Bad",
+    "confidence": 100,
+    "status": "Aktiv"
+  },
+  {
+    "id": 148,
+    "company_name": "ODM",
+    "bon_count": 1,
+    "ean": null,
+    "cvr": "29309221",
+    "virk_name": "ODM ApS",
+    "confidence": 100,
+    "status": "TVANGSOPLØST"
+  },
+  {
+    "id": 141,
+    "company_name": "Fritidsklubben Gammeltoftsgade, Fritidscenter Christianshavn og Indre By",
+    "bon_count": 1,
+    "ean": "EAN: 5798009370495Bruger ident: POGRCVR: 64942212",
+    "cvr": "36354496",
+    "virk_name": "Fritidsklubben",
+    "confidence": 95,
+    "status": "Ophørt"
+  },
+  {
+    "id": 125,
+    "company_name": "Birkerød Vandforsyning a .m.b.a.",
+    "bon_count": 1,
+    "ean": null,
+    "cvr": "29470049",
+    "virk_name": "Birkerød Vandforsyning A.m.b.a.",
+    "confidence": 95,
+    "status": "Aktiv"
+  },
+  {
+    "id": 117,
+    "company_name": "Copenhagen Rig",
+    "bon_count": 1,
+    "ean": null,
+    "cvr": "41061243",
+    "virk_name": "Copenhagen Rig ApS",
+    "confidence": 100,
+    "status": "NORMAL"
+  },
+  {
+    "id": 108,
+    "company_name": "Flex Fertilizer System ApS",
+    "bon_count": 1,
+    "ean": "Faktura på e-mail til Lise Dahl: ld@flex.dk",
+    "cvr": "36080760",
+    "virk_name": "FLEX FERTILIZER SYSTEM ApS",
+    "confidence": 100,
+    "status": "NORMAL"
+  },
+  {
+    "id": 104,
+    "company_name": "Psykiatrifonden",
+    "bon_count": 1,
+    "ean": null,
+    "cvr": "19174883",
+    "virk_name": "Psykiatrifonden",
+    "confidence": 100,
+    "status": "NORMAL"
+  },
+  {
+    "id": 95,
+    "company_name": "Applaus",
+    "bon_count": 1,
+    "ean": null,
+    "cvr": "38473646",
+    "virk_name": "Applaus ApS",
+    "confidence": 100,
+    "status": "OPLØSTEFTERERKLÆRING"
+  },
+  {
+    "id": 92,
+    "company_name": "Boligforeningen AAB",
+    "bon_count": 1,
+    "ean": "EAN: 5790001690915",
+    "cvr": "68614511",
+    "virk_name": "Boligforeningen AAB",
+    "confidence": 100,
+    "status": "Ophørt"
+  },
+  {
+    "id": 91,
+    "company_name": "Vagabond Rejser",
+    "bon_count": 1,
+    "ean": null,
+    "cvr": "43567543",
+    "virk_name": "vagaBond",
+    "confidence": 95,
+    "status": "Ophørt"
+  },
+  {
+    "id": 88,
+    "company_name": "AOF",
+    "bon_count": 1,
+    "ean": null,
+    "cvr": "42931810",
+    "virk_name": "AOF",
+    "confidence": 100,
+    "status": "Ophørt"
+  },
+  {
+    "id": 80,
+    "company_name": "Danielle Brandt Design",
+    "bon_count": 1,
+    "ean": null,
+    "cvr": "25865006",
+    "virk_name": "Danielle Brandt Design",
+    "confidence": 100,
+    "status": "Aktiv"
+  },
+  {
+    "id": 73,
+    "company_name": "Zoologisk Have",
+    "bon_count": 1,
+    "ean": "Zoologisk Have København",
+    "cvr": "40482512",
+    "virk_name": "ZOOLOGISK HAVE I KØBENHAVN",
+    "confidence": 95,
+    "status": "Aktiv"
+  },
+  {
+    "id": 69,
+    "company_name": "TagTomat",
+    "bon_count": 1,
+    "ean": "Vi betaler ved afhentning",
+    "cvr": "25629175",
+    "virk_name": "TAGTOMAT ApS",
+    "confidence": 100,
+    "status": "NORMAL"
+  },
+  {
+    "id": 56,
+    "company_name": "Rønnow Arkitekter A/S",
+    "bon_count": 1,
+    "ean": null,
+    "cvr": "18738295",
+    "virk_name": "RØNNOW ARKITEKTER A/S",
+    "confidence": 100,
+    "status": "NORMAL"
+  },
+  {
+    "id": 50,
+    "company_name": "Nordal",
+    "bon_count": 1,
+    "ean": "Hej Anne,",
+    "cvr": "25092759",
+    "virk_name": "Nordal",
+    "confidence": 100,
+    "status": "Ophørt"
+  },
+  {
+    "id": 44,
+    "company_name": "Københavns Universitet Institut for Plante- og Miljøvidenskab",
+    "bon_count": 1,
+    "ean": null,
+    "cvr": "29979812",
+    "virk_name": "Københavns Universitet",
+    "confidence": 95,
+    "status": "Aktiv"
+  },
+  {
+    "id": 37,
+    "company_name": "Good Company Cph",
+    "bon_count": 1,
+    "ean": null,
+    "cvr": "40314067",
+    "virk_name": "Good Company CPH ApS",
+    "confidence": 100,
+    "status": "NORMAL"
+  },
+  {
+    "id": 35,
+    "company_name": "Privat fest",
+    "bon_count": 1,
+    "ean": null,
+    "cvr": "31294754",
+    "virk_name": "Pîvât-Privat",
+    "confidence": 90,
+    "status": "Ophørt"
+  },
+  {
+    "id": 29,
+    "company_name": "zoo",
+    "bon_count": 1,
+    "ean": null,
+    "cvr": "44178591",
+    "virk_name": "Loo zoom ApS",
+    "confidence": 95,
+    "status": "NORMAL"
+  },
+  {
+    "id": 1232,
+    "company_name": "Danner",
+    "bon_count": 0,
+    "ean": null,
+    "cvr": "78818212",
+    "virk_name": "DANNER A/S",
+    "confidence": 100,
+    "status": "OPLØSTEFTERERKLÆRING"
+  },
+  {
+    "id": 1217,
+    "company_name": "Dansk AM Hub",
+    "bon_count": 0,
+    "ean": null,
+    "cvr": "39144344",
+    "virk_name": "Fonden Dansk AM Hub",
+    "confidence": 95,
+    "status": "NORMAL"
+  },
+  {
+    "id": 1204,
+    "company_name": "Danske Museer (ODM)",
+    "bon_count": 0,
+    "ean": null,
+    "cvr": "28439725",
+    "virk_name": "Danske Museer (ODM)",
+    "confidence": 100,
+    "status": "Aktiv"
+  },
+  {
+    "id": 1197,
+    "company_name": "TÜV SÜD Domutech A/S",
+    "bon_count": 0,
+    "ean": null,
+    "cvr": "35047301",
+    "virk_name": "TÜV SÜD Domutech A/S",
+    "confidence": 100,
+    "status": "NORMAL"
+  },
+  {
+    "id": 1196,
+    "company_name": "able/Per Aarsleff - Kontor i Lyngby",
+    "bon_count": 0,
+    "ean": null,
+    "cvr": "37542784",
+    "virk_name": "Per Aarsleff A/S",
+    "confidence": 95,
+    "status": "NORMAL"
+  },
+  {
+    "id": 1194,
+    "company_name": "able /Per Aarsleff - Kontor i Lyngby",
+    "bon_count": 0,
+    "ean": null,
+    "cvr": "37542784",
+    "virk_name": "Per Aarsleff A/S",
+    "confidence": 95,
+    "status": "NORMAL"
+  },
+  {
+    "id": 1191,
+    "company_name": "Copenhagen Capacity (CVR 17538896)",
+    "bon_count": 0,
+    "ean": null,
+    "cvr": "17538896",
+    "virk_name": "COPENHAGEN CAPACITY, FONDEN TIL MARKEDSFØRING OG ERHVERVSFREMME",
+    "confidence": 95,
+    "status": "NORMAL"
+  },
+  {
+    "id": 1185,
+    "company_name": "Per Aarsleff - Kontor i Lyngby",
+    "bon_count": 0,
+    "ean": null,
+    "cvr": "37542784",
+    "virk_name": "Per Aarsleff A/S",
+    "confidence": 95,
+    "status": "NORMAL"
+  },
+  {
+    "id": 1180,
+    "company_name": "Scalepoint Technologies Denmark A/S",
+    "bon_count": 0,
+    "ean": null,
+    "cvr": "38307347",
+    "virk_name": "Scalepoint Technologies Denmark A/S",
+    "confidence": 100,
+    "status": "NORMAL"
+  },
+  {
+    "id": 1177,
+    "company_name": "Dignity",
+    "bon_count": 0,
+    "ean": null,
+    "cvr": "29494452",
+    "virk_name": "Dignity Consulting",
+    "confidence": 95,
+    "status": "Ophørt"
+  },
+  {
+    "id": 1176,
+    "company_name": "Bigum & Co.",
+    "bon_count": 0,
+    "ean": null,
+    "cvr": "25014502",
+    "virk_name": "BIGUM&CO HOLDING ApS",
+    "confidence": 100,
+    "status": "OPLØSTEFTERSPALTNING"
+  },
+  {
+    "id": 1164,
+    "company_name": "Danske Museer,  ODM",
+    "bon_count": 0,
+    "ean": null,
+    "cvr": "28439725",
+    "virk_name": "Danske Museer (ODM)",
+    "confidence": 95,
+    "status": "Aktiv"
+  },
+  {
+    "id": 1161,
+    "company_name": "Cisco Systems, Jones Lang LaSalle Services ApS",
+    "bon_count": 0,
+    "ean": null,
+    "cvr": "29846359",
+    "virk_name": "JONES LANG LASALLE SERVICES ApS",
+    "confidence": 95,
+    "status": "NORMAL"
+  },
+  {
+    "id": 1142,
+    "company_name": "Danske Museer/ODM",
+    "bon_count": 0,
+    "ean": null,
+    "cvr": "28439725",
+    "virk_name": "Danske Museer (ODM)",
+    "confidence": 95,
+    "status": "Aktiv"
+  },
+  {
+    "id": 1122,
+    "company_name": "Gentofte Kommune, Bakkegårdsskolen",
+    "bon_count": 0,
+    "ean": "5798008342104",
+    "cvr": "19438414",
+    "virk_name": "Gentofte Kommune",
+    "confidence": 95,
+    "status": "Aktiv"
+  },
+  {
+    "id": 1121,
+    "company_name": "Gentofte Kommune, Bakkegårdsskolen",
+    "bon_count": 0,
+    "ean": "5798008342104",
+    "cvr": "19438414",
+    "virk_name": "Gentofte Kommune",
+    "confidence": 95,
+    "status": "Aktiv"
+  },
+  {
+    "id": 1112,
+    "company_name": "Cisco Systems Denmark ApS",
+    "bon_count": 0,
+    "ean": null,
+    "cvr": "20456493",
+    "virk_name": "CISCO SYSTEMS",
+    "confidence": 95,
+    "status": "Ophørt"
+  },
+  {
+    "id": 1103,
+    "company_name": "Bakkegårdsskolen",
+    "bon_count": 0,
+    "ean": null,
+    "cvr": "45558878",
+    "virk_name": "Bakkegårdsskolens personaleforening",
+    "confidence": 95,
+    "status": "Aktiv"
+  },
+  {
+    "id": 1100,
+    "company_name": "Scalepoint Technologies",
+    "bon_count": 0,
+    "ean": null,
+    "cvr": "38250248",
+    "virk_name": "Scalepoint Technologies Holding A/S",
+    "confidence": 100,
+    "status": "NORMAL"
+  },
+  {
+    "id": 1093,
+    "company_name": "able ApS",
+    "bon_count": 0,
+    "ean": null,
+    "cvr": "29184747",
+    "virk_name": "able Aps",
+    "confidence": 100,
+    "status": "NORMAL"
+  },
+  {
+    "id": 1091,
+    "company_name": "Vildtbanegård",
+    "bon_count": 0,
+    "ean": null,
+    "cvr": "28620993",
+    "virk_name": "Vildtbanegård I",
+    "confidence": 95,
+    "status": "Ophørt"
+  },
+  {
+    "id": 1090,
+    "company_name": "Per Aarsleff - Ny Kastrup Lufthavn Station",
+    "bon_count": 0,
+    "ean": null,
+    "cvr": "37542784",
+    "virk_name": "Per Aarsleff A/S",
+    "confidence": 95,
+    "status": "NORMAL"
+  },
+  {
+    "id": 1070,
+    "company_name": "Live Nation",
+    "bon_count": 0,
+    "ean": null,
+    "cvr": "15897309",
+    "virk_name": "LIVE NATION DENMARK ApS",
+    "confidence": 95,
+    "status": "NORMAL"
+  },
+  {
+    "id": 1065,
+    "company_name": "Sophia lærerseminariet",
+    "bon_count": 0,
+    "ean": null,
+    "cvr": "41321067",
+    "virk_name": "Sophia",
+    "confidence": 95,
+    "status": "Aktiv"
+  },
+  {
+    "id": 1059,
+    "company_name": "Dignity - Dansk Institut Mod Tortur",
+    "bon_count": 0,
+    "ean": null,
+    "cvr": "69735118",
+    "virk_name": "Dignity - Dansk Institut mod Tortur",
+    "confidence": 100,
+    "status": "Aktiv"
+  },
+  {
+    "id": 1044,
+    "company_name": "Nuevolution A/S",
+    "bon_count": 0,
+    "ean": null,
+    "cvr": "26029708",
+    "virk_name": "NUEVOLUTION A/S",
+    "confidence": 100,
+    "status": "NORMAL"
+  },
+  {
+    "id": 1042,
+    "company_name": "Den Frie",
+    "bon_count": 0,
+    "ean": null,
+    "cvr": "35149244",
+    "virk_name": "Den Frie Alkoholrådgivning",
+    "confidence": 95,
+    "status": "Ophørt"
+  },
+  {
+    "id": 1040,
+    "company_name": "Amgen Research Copenhagen",
+    "bon_count": 0,
+    "ean": null,
+    "cvr": "34579873",
+    "virk_name": "COPENHAGEN RESEARCH ApS",
+    "confidence": 90,
+    "status": "OPLØSTEFTERERKLÆRING"
+  },
+  {
+    "id": 1036,
+    "company_name": "Cisco",
+    "bon_count": 0,
+    "ean": null,
+    "cvr": "20456493",
+    "virk_name": "CISCO SYSTEMS",
+    "confidence": 95,
+    "status": "Ophørt"
+  },
+  {
+    "id": 1021,
+    "company_name": "CMO for Hire ApS",
+    "bon_count": 0,
+    "ean": null,
+    "cvr": "44754894",
+    "virk_name": "CMO for Hire ApS",
+    "confidence": 100,
+    "status": "NORMAL"
+  },
+  {
+    "id": 1016,
+    "company_name": "Det Fri Gymnasium",
+    "bon_count": 0,
+    "ean": null,
+    "cvr": "41279923",
+    "virk_name": "I DET FRI",
+    "confidence": 90,
+    "status": "Ophørt"
+  },
+  {
+    "id": 1008,
+    "company_name": "Cisco Systems Denmark",
+    "bon_count": 0,
+    "ean": null,
+    "cvr": "20456493",
+    "virk_name": "CISCO SYSTEMS",
+    "confidence": 95,
+    "status": "Ophørt"
+  },
+  {
+    "id": 1007,
+    "company_name": "Cisco Systems Denmark",
+    "bon_count": 0,
+    "ean": null,
+    "cvr": "20456493",
+    "virk_name": "CISCO SYSTEMS",
+    "confidence": 95,
+    "status": "Ophørt"
+  },
+  {
+    "id": 994,
+    "company_name": "Nordlys",
+    "bon_count": 0,
+    "ean": "5798009370099",
+    "cvr": "39603152",
+    "virk_name": "Nordlys",
+    "confidence": 100,
+    "status": "Ophørt"
+  },
+  {
+    "id": 989,
+    "company_name": "Rådet for sund mad",
+    "bon_count": 0,
+    "ean": null,
+    "cvr": "34771162",
+    "virk_name": "Rådet for sund mad",
+    "confidence": 100,
+    "status": "Aktiv"
+  },
+  {
+    "id": 986,
+    "company_name": "Østrigs Ambassade + Østrigs Turistbureau",
+    "bon_count": 0,
+    "ean": null,
+    "cvr": "55257728",
+    "virk_name": "ØSTRIGS TURISTBUREAU",
+    "confidence": 95,
+    "status": "Ophørt"
+  },
+  {
+    "id": 985,
+    "company_name": "Østrigs Ambassade og Østrigs Turistbureau",
+    "bon_count": 0,
+    "ean": null,
+    "cvr": "55257728",
+    "virk_name": "ØSTRIGS TURISTBUREAU",
+    "confidence": 95,
+    "status": "Ophørt"
+  },
+  {
+    "id": 982,
+    "company_name": "Kirkebjerg Skole",
+    "bon_count": 0,
+    "ean": null,
+    "cvr": "16627402",
+    "virk_name": "KIRKEBJERG SKOLES PERSONALEFOREN.",
+    "confidence": 95,
+    "status": "Ophørt"
+  },
+  {
+    "id": 966,
+    "company_name": "Daquma",
+    "bon_count": 0,
+    "ean": null,
+    "cvr": "42479977",
+    "virk_name": "DAQUMA ApS",
+    "confidence": 100,
+    "status": "NORMAL"
+  },
+  {
+    "id": 954,
+    "company_name": "Iværksætterdanmark / Erhvervshus Hovedstaden",
+    "bon_count": 0,
+    "ean": null,
+    "cvr": "40084711",
+    "virk_name": "Erhvervshus Hovedstaden S/I",
+    "confidence": 95,
+    "status": "Aktiv"
+  },
+  {
+    "id": 951,
+    "company_name": "Dansk Teater",
+    "bon_count": 0,
+    "ean": null,
+    "cvr": "12145284",
+    "virk_name": "DANSK TEATER & FILMARKIV",
+    "confidence": 95,
+    "status": "Ophørt"
+  },
+  {
+    "id": 939,
+    "company_name": "able",
+    "bon_count": 0,
+    "ean": null,
+    "cvr": "44129485",
+    "virk_name": "A Table Story ApS",
+    "confidence": 95,
+    "status": "NORMAL"
+  },
+  {
+    "id": 930,
+    "company_name": "Kommunikation og kultur",
+    "bon_count": 0,
+    "ean": null,
+    "cvr": "33718357",
+    "virk_name": "FORLAGET KOMMUNIKATION OG KULTUR",
+    "confidence": 95,
+    "status": "Ophørt"
+  },
+  {
+    "id": 920,
+    "company_name": "Testing",
+    "bon_count": 0,
+    "ean": null,
+    "cvr": "43687360",
+    "virk_name": "MQit Testing",
+    "confidence": 95,
+    "status": "Ophørt"
+  },
+  {
+    "id": 899,
+    "company_name": "Bolig foreningernes dag",
+    "bon_count": 0,
+    "ean": null,
+    "cvr": "31389267",
+    "virk_name": "Foreningernes dag",
+    "confidence": 95,
+    "status": "Aktiv"
+  },
+  {
+    "id": 897,
+    "company_name": "nime project",
+    "bon_count": 0,
+    "ean": null,
+    "cvr": "34361045",
+    "virk_name": "NIME",
+    "confidence": 95,
+    "status": "Aktiv"
+  },
+  {
+    "id": 890,
+    "company_name": "Liberty Denmark",
+    "bon_count": 0,
+    "ean": null,
+    "cvr": "20070609",
+    "virk_name": "LIBERTY",
+    "confidence": 95,
+    "status": "Ophørt"
+  },
+  {
+    "id": 874,
+    "company_name": "Nationalmuseet",
+    "bon_count": 0,
+    "ean": null,
+    "cvr": "22139118",
+    "virk_name": "Nationalmuseet",
+    "confidence": 100,
+    "status": "Aktiv"
+  },
+  {
+    "id": 856,
+    "company_name": "PeakMonday",
+    "bon_count": 0,
+    "ean": null,
+    "cvr": "42259039",
+    "virk_name": "PeakMonday",
+    "confidence": 100,
+    "status": "Aktiv"
+  },
+  {
+    "id": 855,
+    "company_name": "CMO for Hire",
+    "bon_count": 0,
+    "ean": null,
+    "cvr": "44754894",
+    "virk_name": "CMO for Hire ApS",
+    "confidence": 100,
+    "status": "NORMAL"
+  },
+  {
+    "id": 826,
+    "company_name": "Leegaards",
+    "bon_count": 0,
+    "ean": null,
+    "cvr": "30646738",
+    "virk_name": "Leegaards Opsætning v/Daniel Leegaard Jensen",
+    "confidence": 95,
+    "status": "Ophørt"
+  },
+  {
+    "id": 823,
+    "company_name": "Det Kongelige Danske Musikkonservatorium",
+    "bon_count": 0,
+    "ean": null,
+    "cvr": "59151517",
+    "virk_name": "Det Kongelige Danske Musikkonservatorium",
+    "confidence": 100,
+    "status": "Aktiv"
+  },
+  {
+    "id": 807,
+    "company_name": "Annes",
+    "bon_count": 0,
+    "ean": null,
+    "cvr": "34398526",
+    "virk_name": "Annes terapi v/Anne Røgilds",
+    "confidence": 95,
+    "status": "Ophørt"
+  },
+  {
+    "id": 779,
+    "company_name": "LANDBRUG & FØDEVARER F.M.B.A.",
+    "bon_count": 0,
+    "ean": null,
+    "cvr": "25529529",
+    "virk_name": "LANDBRUG & FØDEVARER F.M.B.A.",
+    "confidence": 100,
+    "status": "Aktiv"
+  },
+  {
+    "id": 772,
+    "company_name": "G-STAR",
+    "bon_count": 0,
+    "ean": null,
+    "cvr": "29405549",
+    "virk_name": "G-STAR DENMARK, FILIAL AF G-STAR AB SWEDEN",
+    "confidence": 95,
+    "status": "SLETTET"
+  },
+  {
+    "id": 770,
+    "company_name": "Ristet Rug prep",
+    "bon_count": 0,
+    "ean": null,
+    "cvr": "40140255",
+    "virk_name": "Ristet Rug I/S",
+    "confidence": 95,
+    "status": "Ophørt"
+  },
+  {
+    "id": 768,
+    "company_name": "Telia",
+    "bon_count": 0,
+    "ean": null,
+    "cvr": "18861038",
+    "virk_name": "TELIA SYSTEMS ApS",
+    "confidence": 95,
+    "status": "OPLØSTEFTERFUSION"
+  },
+  {
+    "id": 761,
+    "company_name": "ATV – Akademiet for de Tekniske Videnskaber",
+    "bon_count": 0,
+    "ean": null,
+    "cvr": "16007870",
+    "virk_name": "AKADEMIET FOR DE TEKNISKE VIDENSKABER",
+    "confidence": 95,
+    "status": "Aktiv"
+  },
+  {
+    "id": 746,
+    "company_name": "Ristet Rug 21.6 kl. 17.30-19.30",
+    "bon_count": 0,
+    "ean": null,
+    "cvr": "40140255",
+    "virk_name": "Ristet Rug I/S",
+    "confidence": 95,
+    "status": "Ophørt"
+  },
+  {
+    "id": 735,
+    "company_name": "Ristet Rug 21.6 kl. 18-20",
+    "bon_count": 0,
+    "ean": null,
+    "cvr": "40140255",
+    "virk_name": "Ristet Rug I/S",
+    "confidence": 95,
+    "status": "Ophørt"
+  },
+  {
+    "id": 689,
+    "company_name": "Festival",
+    "bon_count": 0,
+    "ean": "1234567891012",
+    "cvr": "46295765",
+    "virk_name": "Festival",
+    "confidence": 100,
+    "status": "Aktiv"
+  },
+  {
+    "id": 671,
+    "company_name": "AS3 - Work &amp; Care",
+    "bon_count": 0,
+    "ean": null,
+    "cvr": "36145927",
+    "virk_name": "work.work.work",
+    "confidence": 90,
+    "status": "Aktiv"
+  },
+  {
+    "id": 664,
+    "company_name": "Oasis - Behandling og rådgivning for flygtninge",
+    "bon_count": 0,
+    "ean": null,
+    "cvr": "39355191",
+    "virk_name": "OASIS",
+    "confidence": 95,
+    "status": "Aktiv"
+  },
+  {
+    "id": 656,
+    "company_name": "Optimeet Messen",
+    "bon_count": 0,
+    "ean": null,
+    "cvr": "40484876",
+    "virk_name": "Optimeet ApS",
+    "confidence": 95,
+    "status": "NORMAL"
+  },
+  {
+    "id": 654,
+    "company_name": "Empire Bio A/S",
+    "bon_count": 0,
+    "ean": null,
+    "cvr": "12627343",
+    "virk_name": "EMPIRE BIO A/S",
+    "confidence": 100,
+    "status": "NORMAL"
+  },
+  {
+    "id": 636,
+    "company_name": "Danish-French Chamber of Commerce",
+    "bon_count": 0,
+    "ean": null,
+    "cvr": "44913291",
+    "virk_name": "Danish Chongqing Chamber of Commerce",
+    "confidence": 80,
+    "status": "Aktiv"
+  },
+  {
+    "id": 635,
+    "company_name": "Folkekirken i Københavns Stift",
+    "bon_count": 0,
+    "ean": null,
+    "cvr": "78143118",
+    "virk_name": "Københavns Stift",
+    "confidence": 95,
+    "status": "Aktiv"
+  },
+  {
+    "id": 630,
+    "company_name": "Advice",
+    "bon_count": 0,
+    "ean": null,
+    "cvr": "26498406",
+    "virk_name": "Advice",
+    "confidence": 100,
+    "status": "Ophørt"
+  },
+  {
+    "id": 623,
+    "company_name": "Stykka",
+    "bon_count": 0,
+    "ean": null,
+    "cvr": "33587740",
+    "virk_name": "stykka Aps",
+    "confidence": 100,
+    "status": "OPLØSTEFTERKONKURS"
+  },
+  {
+    "id": 608,
+    "company_name": "test",
+    "bon_count": 0,
+    "ean": null,
+    "cvr": "38621726",
+    "virk_name": "Iso-Test West IVS",
+    "confidence": 95,
+    "status": "TVANGSOPLØST"
+  },
+  {
+    "id": 606,
+    "company_name": "Børnefortællingen - Københavns Kommune",
+    "bon_count": 0,
+    "ean": "5798009370358",
+    "cvr": "64942212",
+    "virk_name": "Københavns Kommune",
+    "confidence": 95,
+    "status": "Aktiv"
+  },
+  {
+    "id": 600,
+    "company_name": "Bybi",
+    "bon_count": 0,
+    "ean": null,
+    "cvr": "39361035",
+    "virk_name": "byBi",
+    "confidence": 100,
+    "status": "Ophørt"
+  },
+  {
+    "id": 593,
+    "company_name": "Klynge NB B",
+    "bon_count": 0,
+    "ean": "5798009370242",
+    "cvr": "26730074",
+    "virk_name": "NB",
+    "confidence": 95,
+    "status": "Ophørt"
+  },
+  {
+    "id": 583,
+    "company_name": "Empire Bio",
+    "bon_count": 0,
+    "ean": null,
+    "cvr": "12627343",
+    "virk_name": "EMPIRE BIO A/S",
+    "confidence": 100,
+    "status": "NORMAL"
+  },
+  {
+    "id": 576,
+    "company_name": "Børnenes Verden - Københavns Kommune",
+    "bon_count": 0,
+    "ean": "5798009370358",
+    "cvr": "45220362",
+    "virk_name": "Børnenes Verden ApS",
+    "confidence": 95,
+    "status": "NORMAL"
+  },
+  {
+    "id": 571,
+    "company_name": "Forhandlings fællesskabet",
+    "bon_count": 0,
+    "ean": " CVR/SE nr. 52592011 ",
+    "cvr": "39432366",
+    "virk_name": "Fællesskabet",
+    "confidence": 95,
+    "status": "Ophørt"
+  },
+  {
+    "id": 569,
+    "company_name": "Oquam ApS",
+    "bon_count": 0,
+    "ean": null,
+    "cvr": "42026611",
+    "virk_name": "Oquam ApS",
+    "confidence": 100,
+    "status": "NORMAL"
+  },
+  {
+    "id": 567,
+    "company_name": "Subscrybe",
+    "bon_count": 0,
+    "ean": null,
+    "cvr": "33785496",
+    "virk_name": "SUBSCRYBE ApS",
+    "confidence": 100,
+    "status": "NORMAL"
+  },
+  {
+    "id": 554,
+    "company_name": "Danske Bank, Private Banking",
+    "bon_count": 0,
+    "ean": null,
+    "cvr": "23569914",
+    "virk_name": "Danske Bank",
+    "confidence": 95,
+    "status": "Aktiv"
+  },
+  {
+    "id": 550,
+    "company_name": "Fonden Filmtalent",
+    "bon_count": 0,
+    "ean": null,
+    "cvr": "37505927",
+    "virk_name": "Fonden Filmtalent",
+    "confidence": 100,
+    "status": "NORMAL"
+  },
+  {
+    "id": 545,
+    "company_name": "Outzource",
+    "bon_count": 0,
+    "ean": null,
+    "cvr": "31575052",
+    "virk_name": "OUTZOURCE ApS",
+    "confidence": 100,
+    "status": "NORMAL"
+  },
+  {
+    "id": 543,
+    "company_name": "Center for Sundhedsfaglig Forskning (UCSF)",
+    "bon_count": 0,
+    "ean": null,
+    "cvr": "25775805",
+    "virk_name": "Center for IT-forskning",
+    "confidence": 75,
+    "status": "Ophørt"
+  },
+  {
+    "id": 541,
+    "company_name": "Skiklubben Hareskov",
+    "bon_count": 0,
+    "ean": null,
+    "cvr": "29703442",
+    "virk_name": "Skiklubben Hareskov",
+    "confidence": 100,
+    "status": "Aktiv"
+  },
+  {
+    "id": 537,
+    "company_name": "People2Play ApS",
+    "bon_count": 0,
+    "ean": null,
+    "cvr": "43075187",
+    "virk_name": "People2Play ApS",
+    "confidence": 100,
+    "status": "NORMAL"
+  },
+  {
+    "id": 536,
+    "company_name": "Teach First Danmark",
+    "bon_count": 0,
+    "ean": null,
+    "cvr": "35342532",
+    "virk_name": "Teach First Danmark",
+    "confidence": 100,
+    "status": "Aktiv"
+  },
+  {
+    "id": 530,
+    "company_name": "AJ Vaccines",
+    "bon_count": 0,
+    "ean": null,
+    "cvr": "37911143",
+    "virk_name": "AJ Vaccines A/S",
+    "confidence": 100,
+    "status": "NORMAL"
+  },
+  {
+    "id": 528,
+    "company_name": "Knorr-Bremse Rail Systems Denmark",
+    "bon_count": 0,
+    "ean": null,
+    "cvr": "41777583",
+    "virk_name": "Knorr-Bremse Rail Systems Denmark ApS",
+    "confidence": 100,
+    "status": "NORMAL"
+  },
+  {
+    "id": 527,
+    "company_name": "Danner (SDTN)",
+    "bon_count": 0,
+    "ean": null,
+    "cvr": "78818212",
+    "virk_name": "DANNER A/S",
+    "confidence": 100,
+    "status": "OPLØSTEFTERERKLÆRING"
+  },
+  {
+    "id": 526,
+    "company_name": "Danner (SDTN)",
+    "bon_count": 0,
+    "ean": null,
+    "cvr": "78818212",
+    "virk_name": "DANNER A/S",
+    "confidence": 100,
+    "status": "OPLØSTEFTERERKLÆRING"
+  },
+  {
+    "id": 518,
+    "company_name": "HAUT",
+    "bon_count": 0,
+    "ean": null,
+    "cvr": "35686541",
+    "virk_name": "HAUT",
+    "confidence": 100,
+    "status": "Aktiv"
+  },
+  {
+    "id": 514,
+    "company_name": "FERN",
+    "bon_count": 0,
+    "ean": null,
+    "cvr": "41622903",
+    "virk_name": "Fern ApS",
+    "confidence": 100,
+    "status": "NORMAL"
+  },
+  {
+    "id": 513,
+    "company_name": "Munck Havne og Anlæg",
+    "bon_count": 0,
+    "ean": null,
+    "cvr": "10664195",
+    "virk_name": "MUNCK HAVNE & ANLÆG A/S",
+    "confidence": 90,
+    "status": "NORMAL"
+  },
+  {
+    "id": 507,
+    "company_name": "DR",
+    "bon_count": 0,
+    "ean": null,
+    "cvr": "35341625",
+    "virk_name": "DR",
+    "confidence": 100,
+    "status": "Ophørt"
+  },
+  {
+    "id": 498,
+    "company_name": "Mono Solutions ApS",
+    "bon_count": 0,
+    "ean": null,
+    "cvr": "30192648",
+    "virk_name": "MONO SOLUTIONS ApS",
+    "confidence": 100,
+    "status": "NORMAL"
+  },
+  {
+    "id": 495,
+    "company_name": "Børnehuset GAIA",
+    "bon_count": 0,
+    "ean": "5798009370099",
+    "cvr": "21874280",
+    "virk_name": "GAIA",
+    "confidence": 95,
+    "status": "Ophørt"
+  },
+  {
+    "id": 494,
+    "company_name": "Data Discovery Lab",
+    "bon_count": 0,
+    "ean": null,
+    "cvr": "42188050",
+    "virk_name": "Data Discovery Lab ApS",
+    "confidence": 100,
+    "status": "NORMAL"
+  },
+  {
+    "id": 493,
+    "company_name": "Ristet Rug",
+    "bon_count": 0,
+    "ean": null,
+    "cvr": "40140255",
+    "virk_name": "Ristet Rug I/S",
+    "confidence": 100,
+    "status": "Ophørt"
+  },
+  {
+    "id": 491,
+    "company_name": "Grundfos Holding A/S",
+    "bon_count": 0,
+    "ean": null,
+    "cvr": "31858356",
+    "virk_name": "GRUNDFOS HOLDING A/S",
+    "confidence": 100,
+    "status": "NORMAL"
+  },
+  {
+    "id": 482,
+    "company_name": "JP/Politikens Forlag - Arnold Busck",
+    "bon_count": 0,
+    "ean": null,
+    "cvr": "31950651",
+    "virk_name": "JP-FORLAG",
+    "confidence": 90,
+    "status": "Aktiv"
+  },
+  {
+    "id": 476,
+    "company_name": "Breiting  Plastikkirurgisk Klinik",
+    "bon_count": 0,
+    "ean": null,
+    "cvr": "28026110",
+    "virk_name": "Breiting Plastikkirurgisk Klinik",
+    "confidence": 100,
+    "status": "Aktiv"
+  },
+  {
+    "id": 473,
+    "company_name": "Arkitektforeningen",
+    "bon_count": 0,
+    "ean": null,
+    "cvr": "35564195",
+    "virk_name": "Arkitektforeningen, Vestjyllandsafdeling",
+    "confidence": 95,
+    "status": "Ophørt"
+  },
+  {
+    "id": 468,
+    "company_name": "Parasport Danmark",
+    "bon_count": 0,
+    "ean": null,
+    "cvr": "44301318",
+    "virk_name": "Parasport Danmark",
+    "confidence": 100,
+    "status": "Aktiv"
+  },
+  {
+    "id": 467,
+    "company_name": "FERN.",
+    "bon_count": 0,
+    "ean": null,
+    "cvr": "41622903",
+    "virk_name": "Fern ApS",
+    "confidence": 100,
+    "status": "NORMAL"
+  },
+  {
+    "id": 461,
+    "company_name": "Tænketanken Frej",
+    "bon_count": 0,
+    "ean": null,
+    "cvr": "37905739",
+    "virk_name": "Tænketanken Frej",
+    "confidence": 100,
+    "status": "Aktiv"
+  },
+  {
+    "id": 460,
+    "company_name": "ATV, Akademiet for de Tekniske Videnskaber",
+    "bon_count": 0,
+    "ean": null,
+    "cvr": "16007870",
+    "virk_name": "AKADEMIET FOR DE TEKNISKE VIDENSKABER",
+    "confidence": 95,
+    "status": "Aktiv"
+  },
+  {
+    "id": 458,
+    "company_name": "CPH Village",
+    "bon_count": 0,
+    "ean": null,
+    "cvr": "41983965",
+    "virk_name": "CPH Village Nonprofit",
+    "confidence": 95,
+    "status": "Ophørt"
+  },
+  {
+    "id": 457,
+    "company_name": "Ristet Rug Trelleborg",
+    "bon_count": 0,
+    "ean": null,
+    "cvr": "40140255",
+    "virk_name": "Ristet Rug I/S",
+    "confidence": 95,
+    "status": "Ophørt"
+  },
+  {
+    "id": 456,
+    "company_name": "ATV, Akademiet for de Tekniske Videnskaber",
+    "bon_count": 0,
+    "ean": null,
+    "cvr": "16007870",
+    "virk_name": "AKADEMIET FOR DE TEKNISKE VIDENSKABER",
+    "confidence": 95,
+    "status": "Aktiv"
+  },
+  {
+    "id": 452,
+    "company_name": "Udenrigsministeriet",
+    "bon_count": 0,
+    "ean": null,
+    "cvr": "43271911",
+    "virk_name": "Udenrigsministeriet",
+    "confidence": 100,
+    "status": "Aktiv"
+  },
+  {
+    "id": 450,
+    "company_name": "Novo Nordisk",
+    "bon_count": 0,
+    "ean": null,
+    "cvr": "24256790",
+    "virk_name": "NOVO NORDISK A/S",
+    "confidence": 100,
+    "status": "NORMAL"
+  },
+  {
+    "id": 447,
+    "company_name": "Havblik",
+    "bon_count": 0,
+    "ean": "5798009370099",
+    "cvr": "35177191",
+    "virk_name": "HAVBLIK",
+    "confidence": 100,
+    "status": "Aktiv"
+  },
+  {
+    "id": 446,
+    "company_name": "Havblik",
+    "bon_count": 0,
+    "ean": "5798009370099",
+    "cvr": "35177191",
+    "virk_name": "HAVBLIK",
+    "confidence": 100,
+    "status": "Aktiv"
+  },
+  {
+    "id": 440,
+    "company_name": "Grundtvigsk Forum",
+    "bon_count": 0,
+    "ean": null,
+    "cvr": "31902177",
+    "virk_name": "Grundtvigsk Forum",
+    "confidence": 100,
+    "status": "Aktiv"
+  },
+  {
+    "id": 438,
+    "company_name": "Teaterspektrum",
+    "bon_count": 0,
+    "ean": null,
+    "cvr": "28919735",
+    "virk_name": "TeaterSpektrum",
+    "confidence": 100,
+    "status": "Ophørt"
+  },
+  {
+    "id": 437,
+    "company_name": "Fonden for FABRIKKEN for kunst og design,",
+    "bon_count": 0,
+    "ean": null,
+    "cvr": "15787171",
+    "virk_name": "Fonden FABRIKKEN for Kunst og Design",
+    "confidence": 90,
+    "status": "NORMAL"
+  },
+  {
+    "id": 435,
+    "company_name": "Københavns Universitet, Institut for Matematiske Fag, QMATh",
+    "bon_count": 0,
+    "ean": null,
+    "cvr": "29979812",
+    "virk_name": "Københavns Universitet",
+    "confidence": 95,
+    "status": "Aktiv"
+  },
+  {
+    "id": 430,
+    "company_name": "erhvervsskolen af 2011",
+    "bon_count": 0,
+    "ean": null,
+    "cvr": "33964579",
+    "virk_name": "ERHVERVSSKOLEN AF 2011 ApS",
+    "confidence": 100,
+    "status": "NORMAL"
+  },
+  {
+    "id": 426,
+    "company_name": "BUFX, Københavns Kommune",
+    "bon_count": 0,
+    "ean": "5798009374608",
+    "cvr": "64942212",
+    "virk_name": "Københavns Kommune",
+    "confidence": 95,
+    "status": "Aktiv"
+  },
+  {
+    "id": 425,
+    "company_name": "BUFX, Københavns Kommune",
+    "bon_count": 0,
+    "ean": "5798009374608",
+    "cvr": "64942212",
+    "virk_name": "Københavns Kommune",
+    "confidence": 95,
+    "status": "Aktiv"
+  },
+  {
+    "id": 421,
+    "company_name": "Ristet Rug møde eksterne partnere",
+    "bon_count": 0,
+    "ean": null,
+    "cvr": "40140255",
+    "virk_name": "Ristet Rug I/S",
+    "confidence": 95,
+    "status": "Ophørt"
+  },
+  {
+    "id": 413,
+    "company_name": "Prep til Store Æbledag",
+    "bon_count": 0,
+    "ean": null,
+    "cvr": "36317132",
+    "virk_name": "PREP",
+    "confidence": 95,
+    "status": "Ophørt"
+  },
+  {
+    "id": 408,
+    "company_name": "Mino Danmark",
+    "bon_count": 0,
+    "ean": null,
+    "cvr": "37528382",
+    "virk_name": "Mino Danmark",
+    "confidence": 100,
+    "status": "Aktiv"
+  },
+  {
+    "id": 407,
+    "company_name": "Prep til International Citizens Day",
+    "bon_count": 0,
+    "ean": null,
+    "cvr": "36317132",
+    "virk_name": "PREP",
+    "confidence": 95,
+    "status": "Ophørt"
+  },
+  {
+    "id": 404,
+    "company_name": "Ristet Rug tasting dag",
+    "bon_count": 0,
+    "ean": null,
+    "cvr": "40140255",
+    "virk_name": "Ristet Rug I/S",
+    "confidence": 95,
+    "status": "Ophørt"
+  },
+  {
+    "id": 401,
+    "company_name": "Erhvervshus Hovedstaden",
+    "bon_count": 0,
+    "ean": null,
+    "cvr": "40084711",
+    "virk_name": "Erhvervshus Hovedstaden S/I",
+    "confidence": 100,
+    "status": "Aktiv"
+  },
+  {
+    "id": 399,
+    "company_name": "Thermo Fisher Scientific",
+    "bon_count": 0,
+    "ean": null,
+    "cvr": "40257780",
+    "virk_name": "Thermo Fisher Scientific",
+    "confidence": 100,
+    "status": "Ophørt"
+  },
+  {
+    "id": 393,
+    "company_name": "Merkur Andelskasse",
+    "bon_count": 0,
+    "ean": null,
+    "cvr": "24255689",
+    "virk_name": "MERKUR ANDELSKASSE",
+    "confidence": 100,
+    "status": "NORMAL"
+  },
+  {
+    "id": 391,
+    "company_name": "Bofællesskabet Kilen",
+    "bon_count": 0,
+    "ean": null,
+    "cvr": "30854039",
+    "virk_name": "Andelsboligforeningen \" Bofællesskabet Kilen\"",
+    "confidence": 95,
+    "status": "Aktiv"
+  },
+  {
+    "id": 388,
+    "company_name": "Engineer the Future",
+    "bon_count": 0,
+    "ean": null,
+    "cvr": "35807403",
+    "virk_name": "ENGINEER THE FUTURE F.M.B.A.",
+    "confidence": 100,
+    "status": "NORMAL"
+  },
+  {
+    "id": 384,
+    "company_name": "NTT Data",
+    "bon_count": 0,
+    "ean": null,
+    "cvr": "20252936",
+    "virk_name": "NTT DATA DANMARK A/S",
+    "confidence": 95,
+    "status": "OPLØSTEFTERFUSION"
+  },
+  {
+    "id": 382,
+    "company_name": "Department of Drug Design and Pharmacology",
+    "bon_count": 0,
+    "ean": null,
+    "cvr": "14972749",
+    "virk_name": "DESIGN DEPARTMENT A/S",
+    "confidence": 90,
+    "status": "OPLØSTEFTERKONKURS"
+  },
+  {
+    "id": 380,
+    "company_name": "Byens Landhandel",
+    "bon_count": 0,
+    "ean": null,
+    "cvr": "42054194",
+    "virk_name": "Byens Landhandel ApS",
+    "confidence": 100,
+    "status": "NORMAL"
+  },
+  {
+    "id": 379,
+    "company_name": "filmgreb",
+    "bon_count": 0,
+    "ean": null,
+    "cvr": "40694358",
+    "virk_name": "Filmgreb",
+    "confidence": 100,
+    "status": "Ophørt"
+  },
+  {
+    "id": 378,
+    "company_name": "filmgreb",
+    "bon_count": 0,
+    "ean": null,
+    "cvr": "40694358",
+    "virk_name": "Filmgreb",
+    "confidence": 100,
+    "status": "Ophørt"
+  },
+  {
+    "id": 376,
+    "company_name": "Dyssegårdskirken",
+    "bon_count": 0,
+    "ean": null,
+    "cvr": "10838118",
+    "virk_name": "Dyssegårdskirken",
+    "confidence": 100,
+    "status": "Aktiv"
+  },
+  {
+    "id": 374,
+    "company_name": "VisionWillow A/S",
+    "bon_count": 0,
+    "ean": null,
+    "cvr": "19751902",
+    "virk_name": "VisionWillow A/S",
+    "confidence": 100,
+    "status": "NORMAL"
+  },
+  {
+    "id": 373,
+    "company_name": "ODM - organisationen Danske Museer",
+    "bon_count": 0,
+    "ean": null,
+    "cvr": "28439725",
+    "virk_name": "Danske Museer (ODM)",
+    "confidence": 95,
+    "status": "Aktiv"
+  },
+  {
+    "id": 372,
+    "company_name": "ODM - organisationen Danske Museer",
+    "bon_count": 0,
+    "ean": null,
+    "cvr": "28439725",
+    "virk_name": "Danske Museer (ODM)",
+    "confidence": 95,
+    "status": "Aktiv"
+  },
+  {
+    "id": 368,
+    "company_name": "Wunderman Thompson Studios Copenhagen",
+    "bon_count": 0,
+    "ean": null,
+    "cvr": "45687244",
+    "virk_name": "Copenhagen Studios ApS",
+    "confidence": 90,
+    "status": "NORMAL"
+  },
+  {
+    "id": 366,
+    "company_name": "KØBENHAVNS KOMMUNE",
+    "bon_count": 0,
+    "ean": "5798009370099",
+    "cvr": "64942212",
+    "virk_name": "Københavns Kommune",
+    "confidence": 100,
+    "status": "Aktiv"
+  },
+  {
+    "id": 365,
+    "company_name": "Østerbro Lilleskole",
+    "bon_count": 0,
+    "ean": null,
+    "cvr": "28889615",
+    "virk_name": "ØSTERBRO LILLESKOLE",
+    "confidence": 100,
+    "status": "Aktiv"
+  },
+  {
+    "id": 360,
+    "company_name": "Landinspektørfirmaet LE34 A/S",
+    "bon_count": 0,
+    "ean": null,
+    "cvr": "20683880",
+    "virk_name": "LANDINSPEKTØRFIRMAET LE34 A/S",
+    "confidence": 100,
+    "status": "NORMAL"
+  },
+  {
+    "id": 357,
+    "company_name": "Københavns Universitet, MATH, QMATH",
+    "bon_count": 0,
+    "ean": null,
+    "cvr": "29979812",
+    "virk_name": "Københavns Universitet",
+    "confidence": 95,
+    "status": "Aktiv"
+  },
+  {
+    "id": 356,
+    "company_name": "Københavns Universitet, MATH, QMATH",
+    "bon_count": 0,
+    "ean": null,
+    "cvr": "29979812",
+    "virk_name": "Københavns Universitet",
+    "confidence": 95,
+    "status": "Aktiv"
+  },
+  {
+    "id": 353,
+    "company_name": "Danmarks Ishockey Union",
+    "bon_count": 0,
+    "ean": null,
+    "cvr": "35440828",
+    "virk_name": "Danmarks Ishockey Union",
+    "confidence": 100,
+    "status": "Aktiv"
+  },
+  {
+    "id": 350,
+    "company_name": "Gode Penge",
+    "bon_count": 0,
+    "ean": null,
+    "cvr": "35705961",
+    "virk_name": "Gode Penge",
+    "confidence": 100,
+    "status": "Aktiv"
+  },
+  {
+    "id": 348,
+    "company_name": "Queer Union Københavns Universitet",
+    "bon_count": 0,
+    "ean": null,
+    "cvr": "41641975",
+    "virk_name": "Queer Union Københavns Universitet",
+    "confidence": 100,
+    "status": "Aktiv"
+  },
+  {
+    "id": 343,
+    "company_name": "Genanvend Biomasse",
+    "bon_count": 0,
+    "ean": null,
+    "cvr": "29496188",
+    "virk_name": "Brancheforeningen Genanvend Biomasse  - affald til ressource",
+    "confidence": 95,
+    "status": "Aktiv"
+  },
+  {
+    "id": 339,
+    "company_name": "Red Barnet Ungdom",
+    "bon_count": 0,
+    "ean": null,
+    "cvr": "27336604",
+    "virk_name": "Red Barnet Ungdom",
+    "confidence": 100,
+    "status": "Aktiv"
+  },
+  {
+    "id": 332,
+    "company_name": "Anna Kirke",
+    "bon_count": 0,
+    "ean": null,
+    "cvr": "15157410",
+    "virk_name": "ANNA KIRKE",
+    "confidence": 100,
+    "status": "Aktiv"
+  },
+  {
+    "id": 326,
+    "company_name": "Kingsland",
+    "bon_count": 0,
+    "ean": null,
+    "cvr": "35412751",
+    "virk_name": "KINGSLAND DK ApS",
+    "confidence": 95,
+    "status": "NORMAL"
+  },
+  {
+    "id": 320,
+    "company_name": "Trifork A/S",
+    "bon_count": 0,
+    "ean": null,
+    "cvr": "20921897",
+    "virk_name": "TRIFORK A/S",
+    "confidence": 100,
+    "status": "NORMAL"
+  },
+  {
+    "id": 317,
+    "company_name": "Skære Purløg",
+    "bon_count": 0,
+    "ean": null,
+    "cvr": "45945987",
+    "virk_name": "SKÆR",
+    "confidence": 95,
+    "status": "Aktiv"
+  },
+  {
+    "id": 316,
+    "company_name": "Prep fiskedeller",
+    "bon_count": 0,
+    "ean": null,
+    "cvr": "36317132",
+    "virk_name": "PREP",
+    "confidence": 95,
+    "status": "Ophørt"
+  },
+  {
+    "id": 313,
+    "company_name": "DTU Aqua",
+    "bon_count": 0,
+    "ean": null,
+    "cvr": "35628223",
+    "virk_name": "Aqua",
+    "confidence": 95,
+    "status": "Ophørt"
+  },
+  {
+    "id": 309,
+    "company_name": "Dansk Arkitektur Center",
+    "bon_count": 0,
+    "ean": null,
+    "cvr": "78805218",
+    "virk_name": "DANSK ARKITEKTUR CENTER (FOND)",
+    "confidence": 100,
+    "status": "NORMAL"
+  },
+  {
+    "id": 305,
+    "company_name": "Dk Company",
+    "bon_count": 0,
+    "ean": null,
+    "cvr": "35693335",
+    "virk_name": "Workforce Company DK",
+    "confidence": 90,
+    "status": "Ophørt"
+  },
+  {
+    "id": 299,
+    "company_name": "Kks-woodfiber",
+    "bon_count": 0,
+    "ean": null,
+    "cvr": "36978627",
+    "virk_name": "Woodfiber ApS",
+    "confidence": 95,
+    "status": "NORMAL"
+  },
+  {
+    "id": 298,
+    "company_name": "Rusmiddelbehandling Spaniensgade",
+    "bon_count": 0,
+    "ean": null,
+    "cvr": "43121510",
+    "virk_name": "Spaniensgade Holding ApS",
+    "confidence": 95,
+    "status": "OPLØSTEFTERFUSION"
+  },
+  {
+    "id": 295,
+    "company_name": "Rusmiddelbehandling Spaniensgade",
+    "bon_count": 0,
+    "ean": null,
+    "cvr": "43121510",
+    "virk_name": "Spaniensgade Holding ApS",
+    "confidence": 95,
+    "status": "OPLØSTEFTERFUSION"
+  },
+  {
+    "id": 293,
+    "company_name": "Djøf",
+    "bon_count": 0,
+    "ean": null,
+    "cvr": "17517112",
+    "virk_name": "Djøf",
+    "confidence": 100,
+    "status": "Aktiv"
+  },
+  {
+    "id": 289,
+    "company_name": "HK Kommunal",
+    "bon_count": 0,
+    "ean": null,
+    "cvr": "20585668",
+    "virk_name": "HK/KOMMUNAL",
+    "confidence": 100,
+    "status": "Ophørt"
+  },
+  {
+    "id": 286,
+    "company_name": "Kooperationen",
+    "bon_count": 0,
+    "ean": null,
+    "cvr": "27861865",
+    "virk_name": "Kooperationen",
+    "confidence": 100,
+    "status": "Aktiv"
+  },
+  {
+    "id": 283,
+    "company_name": "Molecule Consultancy",
+    "bon_count": 0,
+    "ean": null,
+    "cvr": "28515766",
+    "virk_name": "MOLECULE CONSULTANCY A/S",
+    "confidence": 100,
+    "status": "NORMAL"
+  },
+  {
+    "id": 282,
+    "company_name": "Europa-Kommissionen, Repræsentation i Danmark",
+    "bon_count": 0,
+    "ean": null,
+    "cvr": "90184156",
+    "virk_name": "EUROPA-KOMMISSIONEN",
+    "confidence": 95,
+    "status": "Aktiv"
+  },
+  {
+    "id": 279,
+    "company_name": "Health Tech Hub Copenhagen",
+    "bon_count": 0,
+    "ean": null,
+    "cvr": "40479007",
+    "virk_name": "Health Tech Hub Copenhagen",
+    "confidence": 100,
+    "status": "Aktiv"
+  },
+  {
+    "id": 273,
+    "company_name": "Danske Vandværker Regionøst",
+    "bon_count": 0,
+    "ean": null,
+    "cvr": "95139655",
+    "virk_name": "Danske Vandværker",
+    "confidence": 95,
+    "status": "Aktiv"
+  },
+  {
+    "id": 270,
+    "company_name": "Weibel Scientific A/S",
+    "bon_count": 0,
+    "ean": null,
+    "cvr": "80609515",
+    "virk_name": "WEIBEL SCIENTIFIC A/S",
+    "confidence": 100,
+    "status": "NORMAL"
+  },
+  {
+    "id": 260,
+    "company_name": "Plastic Change",
+    "bon_count": 0,
+    "ean": null,
+    "cvr": "35778985",
+    "virk_name": "Plastic Change",
+    "confidence": 100,
+    "status": "Aktiv"
+  },
+  {
+    "id": 258,
+    "company_name": "Nørrebro Lilleskole",
+    "bon_count": 0,
+    "ean": null,
+    "cvr": "51972317",
+    "virk_name": "NØRREBRO LILLESKOLE",
+    "confidence": 100,
+    "status": "Aktiv"
+  },
+  {
+    "id": 251,
+    "company_name": "Sankt Jakobs kirke",
+    "bon_count": 0,
+    "ean": null,
+    "cvr": "22064916",
+    "virk_name": "Sankt Jakobs Kirke",
+    "confidence": 100,
+    "status": "Aktiv"
+  },
+  {
+    "id": 250,
+    "company_name": "Sankt Jakobs kirke",
+    "bon_count": 0,
+    "ean": null,
+    "cvr": "22064916",
+    "virk_name": "Sankt Jakobs Kirke",
+    "confidence": 100,
+    "status": "Aktiv"
+  },
+  {
+    "id": 247,
+    "company_name": "Landbrug og Fødevarer",
+    "bon_count": 0,
+    "ean": null,
+    "cvr": "41956011",
+    "virk_name": "Ministeriet for Fødevarer, Landbrug og Fiskeri",
+    "confidence": 90,
+    "status": "Aktiv"
+  },
+  {
+    "id": 244,
+    "company_name": "Lær For Livet",
+    "bon_count": 0,
+    "ean": null,
+    "cvr": "35422544",
+    "virk_name": "Lær for Livet (fond) S/I",
+    "confidence": 100,
+    "status": "Aktiv"
+  },
+  {
+    "id": 243,
+    "company_name": "Energistyrelsen fest",
+    "bon_count": 0,
+    "ean": null,
+    "cvr": "59778714",
+    "virk_name": "Energistyrelsen",
+    "confidence": 95,
+    "status": "Aktiv"
+  },
+  {
+    "id": 239,
+    "company_name": "Djøf Festival",
+    "bon_count": 0,
+    "ean": null,
+    "cvr": "17517112",
+    "virk_name": "Djøf",
+    "confidence": 95,
+    "status": "Aktiv"
+  },
+  {
+    "id": 236,
+    "company_name": "KPMG",
+    "bon_count": 0,
+    "ean": null,
+    "cvr": "37268534",
+    "virk_name": "KPMG LLP",
+    "confidence": 95,
+    "status": "Aktiv"
+  },
+  {
+    "id": 234,
+    "company_name": "Projekt Q-Værk",
+    "bon_count": 0,
+    "ean": null,
+    "cvr": "42018287",
+    "virk_name": "Projekt Q ApS",
+    "confidence": 95,
+    "status": "NORMAL"
+  },
+  {
+    "id": 232,
+    "company_name": "HOFOR A/S",
+    "bon_count": 0,
+    "ean": null,
+    "cvr": "10073022",
+    "virk_name": "HOFOR A/S",
+    "confidence": 100,
+    "status": "NORMAL"
+  },
+  {
+    "id": 226,
+    "company_name": "DAC",
+    "bon_count": 0,
+    "ean": null,
+    "cvr": "43942530",
+    "virk_name": "DAC",
+    "confidence": 100,
+    "status": "Aktiv"
+  },
+  {
+    "id": 224,
+    "company_name": "AUTENS",
+    "bon_count": 0,
+    "ean": null,
+    "cvr": "39683083",
+    "virk_name": "Autens ApS",
+    "confidence": 100,
+    "status": "NORMAL"
+  },
+  {
+    "id": 222,
+    "company_name": "Retten i Glostrup",
+    "bon_count": 0,
+    "ean": null,
+    "cvr": "41516976",
+    "virk_name": "HK lokalklubben ved Retten i Glostrup",
+    "confidence": 95,
+    "status": "Aktiv"
+  },
+  {
+    "id": 212,
+    "company_name": "Dansk Vegetarisk Forening",
+    "bon_count": 0,
+    "ean": null,
+    "cvr": "34640122",
+    "virk_name": "Dansk Vegetarisk Forening (DVF)",
+    "confidence": 100,
+    "status": "Aktiv"
+  },
+  {
+    "id": 211,
+    "company_name": "street food festival Ringsted",
+    "bon_count": 0,
+    "ean": null,
+    "cvr": "34042268",
+    "virk_name": "RINGSTED FESTIVAL ApS",
+    "confidence": 90,
+    "status": "NORMAL"
+  },
+  {
+    "id": 206,
+    "company_name": "Lauritzen Fonden",
+    "bon_count": 0,
+    "ean": null,
+    "cvr": "15453613",
+    "virk_name": "LAURITZEN FONDEN",
+    "confidence": 100,
+    "status": "NORMAL"
+  },
+  {
+    "id": 205,
+    "company_name": "Landbrug &amp; Fødevarer F.m.b.A.",
+    "bon_count": 0,
+    "ean": null,
+    "cvr": "25529529",
+    "virk_name": "LANDBRUG & FØDEVARER F.M.B.A.",
+    "confidence": 90,
+    "status": "Aktiv"
+  },
+  {
+    "id": 203,
+    "company_name": "Landbrug &amp; Fødevarer F.m.b.A.",
+    "bon_count": 0,
+    "ean": null,
+    "cvr": "25529529",
+    "virk_name": "LANDBRUG & FØDEVARER F.M.B.A.",
+    "confidence": 90,
+    "status": "Aktiv"
+  },
+  {
+    "id": 199,
+    "company_name": "CPH Bike Show",
+    "bon_count": 0,
+    "ean": null,
+    "cvr": "16272388",
+    "virk_name": "CPH.BIKE",
+    "confidence": 95,
+    "status": "Ophørt"
+  },
+  {
+    "id": 194,
+    "company_name": "I-Vækst ApS",
+    "bon_count": 0,
+    "ean": null,
+    "cvr": "42608882",
+    "virk_name": "I-Vækst ApS",
+    "confidence": 100,
+    "status": "OPLØSTEFTERKONKURS"
+  },
+  {
+    "id": 193,
+    "company_name": "IBM",
+    "bon_count": 0,
+    "ean": null,
+    "cvr": "20494603",
+    "virk_name": "IBM A/S (NORGE)",
+    "confidence": 100,
+    "status": "Ophørt"
+  },
+  {
+    "id": 191,
+    "company_name": "KU Sund",
+    "bon_count": 0,
+    "ean": null,
+    "cvr": "43858181",
+    "virk_name": "HK - SUND - KU",
+    "confidence": 90,
+    "status": "Ophørt"
+  },
+  {
+    "id": 187,
+    "company_name": "Det Sociale Netværk",
+    "bon_count": 0,
+    "ean": null,
+    "cvr": "39918323",
+    "virk_name": "Det sociale netværk",
+    "confidence": 100,
+    "status": "Ophørt"
+  },
+  {
+    "id": 180,
+    "company_name": "Hans Egedes kirke",
+    "bon_count": 0,
+    "ean": null,
+    "cvr": "34293813",
+    "virk_name": "HANS EGEDES KIRKE",
+    "confidence": 100,
+    "status": "Aktiv"
+  },
+  {
+    "id": 179,
+    "company_name": "I-Vækst",
+    "bon_count": 0,
+    "ean": null,
+    "cvr": "39416840",
+    "virk_name": "Tekst i Vækst",
+    "confidence": 95,
+    "status": "Ophørt"
+  },
+  {
+    "id": 177,
+    "company_name": "Dachser",
+    "bon_count": 0,
+    "ean": null,
+    "cvr": "35933360",
+    "virk_name": "Aktivitetsforening Dachser Kolding",
+    "confidence": 95,
+    "status": "Aktiv"
+  },
+  {
+    "id": 176,
+    "company_name": "NFF",
+    "bon_count": 0,
+    "ean": null,
+    "cvr": "43827871",
+    "virk_name": "NFF ApS",
+    "confidence": 100,
+    "status": "UNDERKONKURS"
+  },
+  {
+    "id": 174,
+    "company_name": "Enhedslisten",
+    "bon_count": 0,
+    "ean": null,
+    "cvr": "17446495",
+    "virk_name": "ENHEDSLISTEN",
+    "confidence": 100,
+    "status": "Ophørt"
+  },
+  {
+    "id": 172,
+    "company_name": "Zentropa",
+    "bon_count": 0,
+    "ean": null,
+    "cvr": "15243333",
+    "virk_name": "ZENTROPA ENTERTAINMENTS16 ApS",
+    "confidence": 95,
+    "status": "OPLØSTEFTERFUSION"
+  },
+  {
+    "id": 164,
+    "company_name": "Nordic fast food",
+    "bon_count": 0,
+    "ean": null,
+    "cvr": "27606644",
+    "virk_name": "Nordic Fast Food",
+    "confidence": 100,
+    "status": "Aktiv"
+  },
+  {
+    "id": 163,
+    "company_name": "Foreningen Sjællandsgade Bad",
+    "bon_count": 0,
+    "ean": null,
+    "cvr": "34758360",
+    "virk_name": "Foreningen Sjællandsgade Bad",
+    "confidence": 100,
+    "status": "Aktiv"
+  },
+  {
+    "id": 160,
+    "company_name": "7 springeren",
+    "bon_count": 0,
+    "ean": "5798009370235",
+    "cvr": "15783281",
+    "virk_name": "SPRINGEREN",
+    "confidence": 95,
+    "status": "Aktiv"
+  },
+  {
+    "id": 157,
+    "company_name": "7 springeren",
+    "bon_count": 0,
+    "ean": "5798009370235\n\n",
+    "cvr": "15783281",
+    "virk_name": "SPRINGEREN",
+    "confidence": 95,
+    "status": "Aktiv"
+  },
+  {
+    "id": 156,
+    "company_name": "Klynge NB A, Københavns Kommune",
+    "bon_count": 0,
+    "ean": "5798009370235\n\n",
+    "cvr": "64942212",
+    "virk_name": "Københavns Kommune",
+    "confidence": 95,
+    "status": "Aktiv"
+  },
+  {
+    "id": 154,
+    "company_name": "Dagskolen VIKASKU",
+    "bon_count": 0,
+    "ean": null,
+    "cvr": "40579885",
+    "virk_name": "Dagskolen ApS",
+    "confidence": 95,
+    "status": "OPLØSTEFTERKONKURS"
+  },
+  {
+    "id": 153,
+    "company_name": "KEA",
+    "bon_count": 0,
+    "ean": null,
+    "cvr": "13625875",
+    "virk_name": "Kea-Skilte/ Kea Andersen Bruun",
+    "confidence": 95,
+    "status": "Ophørt"
+  },
+  {
+    "id": 150,
+    "company_name": "Børns Vilkår",
+    "bon_count": 0,
+    "ean": null,
+    "cvr": "10634792",
+    "virk_name": "Børns Vilkår",
+    "confidence": 100,
+    "status": "Aktiv"
+  },
+  {
+    "id": 149,
+    "company_name": "Danmarks Biblioteksforening",
+    "bon_count": 0,
+    "ean": null,
+    "cvr": "55618410",
+    "virk_name": "DANMARKS BIBLIOTEKSFORENING",
+    "confidence": 100,
+    "status": "Aktiv"
+  },
+  {
+    "id": 147,
+    "company_name": "ODM",
+    "bon_count": 0,
+    "ean": null,
+    "cvr": "29309221",
+    "virk_name": "ODM ApS",
+    "confidence": 100,
+    "status": "TVANGSOPLØST"
+  },
+  {
+    "id": 140,
+    "company_name": "Fritidsklubben Gammeltoftsgade, Fritidscenter Christianshavn og Indre By",
+    "bon_count": 0,
+    "ean": "EAN: 5798009370495\nBruger ident: POGR\nCVR: 64942212\n\n",
+    "cvr": "36354496",
+    "virk_name": "Fritidsklubben",
+    "confidence": 95,
+    "status": "Ophørt"
+  },
+  {
+    "id": 138,
+    "company_name": "Danmarks Biblioteksforening/Dansk Kulturliv",
+    "bon_count": 0,
+    "ean": "fakturaen sendes til faktura@db.dk med tekst Dansk Kulturliv",
+    "cvr": "55618410",
+    "virk_name": "DANMARKS BIBLIOTEKSFORENING",
+    "confidence": 95,
+    "status": "Aktiv"
+  },
+  {
+    "id": 137,
+    "company_name": "Danmarks Biblioteksforening/Dansk Kulturliv",
+    "bon_count": 0,
+    "ean": "fakturaen sendes til faktura@db.dk med tekst Dansk Kulturliv\n\n",
+    "cvr": "55618410",
+    "virk_name": "DANMARKS BIBLIOTEKSFORENING",
+    "confidence": 95,
+    "status": "Aktiv"
+  },
+  {
+    "id": 136,
+    "company_name": "Klynge NB A",
+    "bon_count": 0,
+    "ean": "5798009370235",
+    "cvr": "26730074",
+    "virk_name": "NB",
+    "confidence": 95,
+    "status": "Ophørt"
+  },
+  {
+    "id": 133,
+    "company_name": "Klynge NB A",
+    "bon_count": 0,
+    "ean": "5798009370235\n\n",
+    "cvr": "26730074",
+    "virk_name": "NB",
+    "confidence": 95,
+    "status": "Ophørt"
+  },
+  {
+    "id": 132,
+    "company_name": "Danner",
+    "bon_count": 0,
+    "ean": null,
+    "cvr": "78818212",
+    "virk_name": "DANNER A/S",
+    "confidence": 100,
+    "status": "OPLØSTEFTERERKLÆRING"
+  },
+  {
+    "id": 131,
+    "company_name": "LANDBRUG &amp; FØDEVARER F.M.B.A.",
+    "bon_count": 0,
+    "ean": null,
+    "cvr": "25529529",
+    "virk_name": "LANDBRUG & FØDEVARER F.M.B.A.",
+    "confidence": 90,
+    "status": "Aktiv"
+  },
+  {
+    "id": 130,
+    "company_name": "Danielle Brandt Design",
+    "bon_count": 0,
+    "ean": "Glasvej 3, 1. sal\n2400\n\n",
+    "cvr": "25865006",
+    "virk_name": "Danielle Brandt Design",
+    "confidence": 100,
+    "status": "Aktiv"
+  },
+  {
+    "id": 129,
+    "company_name": "Food &amp; BIo Cluster Denmark",
+    "bon_count": 0,
+    "ean": "Faktura sendes til: \nFBCD A/S\nCVR: 25666070\nNiels Pedersens Allé 2\n8830 Tjele\nProjekt: 420220 - Innovationskraft UFS (Round Table)\nAtt: Heidi Høy Dyrholm\n\n",
+    "cvr": "41413670",
+    "virk_name": "Food & Bio Cluster Denmark F.M.B.A.",
+    "confidence": 90,
+    "status": "NORMAL"
+  },
+  {
+    "id": 121,
+    "company_name": "ff",
+    "bon_count": 0,
+    "ean": null,
+    "cvr": "44492520",
+    "virk_name": "FF",
+    "confidence": 100,
+    "status": "Aktiv"
+  },
+  {
+    "id": 120,
+    "company_name": "Klynge NBA",
+    "bon_count": 0,
+    "ean": "5798009370235",
+    "cvr": "44974886",
+    "virk_name": "NBA",
+    "confidence": 95,
+    "status": "Aktiv"
+  },
+  {
+    "id": 119,
+    "company_name": "FCIC",
+    "bon_count": 0,
+    "ean": "5798009370495",
+    "cvr": "35651195",
+    "virk_name": "FCIC CONSULTING IVS",
+    "confidence": 95,
+    "status": "OPLØSTEFTERKONKURS"
+  },
+  {
+    "id": 116,
+    "company_name": "Nordic Fast Food",
+    "bon_count": 0,
+    "ean": null,
+    "cvr": "27606644",
+    "virk_name": "Nordic Fast Food",
+    "confidence": 100,
+    "status": "Aktiv"
+  },
+  {
+    "id": 113,
+    "company_name": "NFF",
+    "bon_count": 0,
+    "ean": null,
+    "cvr": "43827871",
+    "virk_name": "NFF ApS",
+    "confidence": 100,
+    "status": "UNDERKONKURS"
+  },
+  {
+    "id": 111,
+    "company_name": "Københavns Kommune, Klynge NB A",
+    "bon_count": 0,
+    "ean": "5798009370235",
+    "cvr": "64942212",
+    "virk_name": "Københavns Kommune",
+    "confidence": 95,
+    "status": "Aktiv"
+  },
+  {
+    "id": 106,
+    "company_name": "Copenhagen Capacity",
+    "bon_count": 0,
+    "ean": "Vi er en fond - har ikke EAN",
+    "cvr": "17538896",
+    "virk_name": "COPENHAGEN CAPACITY, FONDEN TIL MARKEDSFØRING OG ERHVERVSFREMME",
+    "confidence": 95,
+    "status": "NORMAL"
+  },
+  {
+    "id": 97,
+    "company_name": "Lab 17",
+    "bon_count": 0,
+    "ean": null,
+    "cvr": "39507188",
+    "virk_name": "Lab Lab ApS",
+    "confidence": 90,
+    "status": "OPLØSTEFTERERKLÆRING"
+  },
+  {
+    "id": 86,
+    "company_name": "IVH, Københavns Universitet",
+    "bon_count": 0,
+    "ean": "EAN 5790000299379",
+    "cvr": "22134310",
+    "virk_name": "Københavns Universitet",
+    "confidence": 95,
+    "status": "Ophørt"
+  },
+  {
+    "id": 84,
+    "company_name": "Fonden for FABRIKKEN for kunst og design",
+    "bon_count": 0,
+    "ean": null,
+    "cvr": "15787171",
+    "virk_name": "Fonden FABRIKKEN for Kunst og Design",
+    "confidence": 90,
+    "status": "NORMAL"
+  },
+  {
+    "id": 79,
+    "company_name": "Rigshospitalet, hjertecentret, afdelingen for hjerte- og lungekirurgi",
+    "bon_count": 0,
+    "ean": "5798001020695, omkostningssted 228205000",
+    "cvr": "18923084",
+    "virk_name": "HJERTECENTRET ApS",
+    "confidence": 95,
+    "status": "OPLØSTEFTERKONKURS"
+  },
+  {
+    "id": 78,
+    "company_name": "Rigshospitalet, Hjertecentret, afdelingen for hjerte- og lungesygdomme",
+    "bon_count": 0,
+    "ean": "5798001020695, omkostningssted 228205000",
+    "cvr": "18923084",
+    "virk_name": "HJERTECENTRET ApS",
+    "confidence": 95,
+    "status": "OPLØSTEFTERKONKURS"
+  },
+  {
+    "id": 77,
+    "company_name": "Fritsalgs arrangement, Vagabond Rejsemesse",
+    "bon_count": 0,
+    "ean": null,
+    "cvr": "43567543",
+    "virk_name": "vagaBond",
+    "confidence": 95,
+    "status": "Ophørt"
+  },
+  {
+    "id": 76,
+    "company_name": "Fritsalgs arrangement,",
+    "bon_count": 0,
+    "ean": null,
+    "cvr": "26290295",
+    "virk_name": "Fritsalg I/S",
+    "confidence": 95,
+    "status": "Ophørt"
+  },
+  {
+    "id": 71,
+    "company_name": "Zoo kort dag prep",
+    "bon_count": 0,
+    "ean": null,
+    "cvr": "36317132",
+    "virk_name": "PREP",
+    "confidence": 95,
+    "status": "Ophørt"
+  },
+  {
+    "id": 66,
+    "company_name": "LANDBRUG &amp; FØDEVARER F.M.B.A.",
+    "bon_count": 0,
+    "ean": null,
+    "cvr": "25529529",
+    "virk_name": "LANDBRUG & FØDEVARER F.M.B.A.",
+    "confidence": 90,
+    "status": "Aktiv"
+  },
+  {
+    "id": 62,
+    "company_name": "Thin Green Line Productions ApS",
+    "bon_count": 0,
+    "ean": null,
+    "cvr": "38836633",
+    "virk_name": "Thin Green Line Productions ApS",
+    "confidence": 100,
+    "status": "NORMAL"
+  },
+  {
+    "id": 52,
+    "company_name": "Seismonaut",
+    "bon_count": 0,
+    "ean": "Faktura sendes til mh@seismonaut.com. Jeg kan kontaktes via telefon, hvis der skulle være nogle spørgsmål. Vi glæder os til at spise jeres sandwich!",
+    "cvr": "30708075",
+    "virk_name": "SEISMONAUT A/S",
+    "confidence": 100,
+    "status": "NORMAL"
+  },
+  {
+    "id": 38,
+    "company_name": "Børnekulturhus Amar",
+    "bon_count": 0,
+    "ean": null,
+    "cvr": "19370933",
+    "virk_name": "BØRNEKULTURHUS AMAR'",
+    "confidence": 100,
+    "status": "Ophørt"
+  },
+  {
+    "id": 34,
+    "company_name": "Børn og Unge KK",
+    "bon_count": 0,
+    "ean": null,
+    "cvr": "44421844",
+    "virk_name": "Børn & Unge",
+    "confidence": 90,
+    "status": "Aktiv"
+  },
+  {
+    "id": 32,
+    "company_name": "Akademisk Arkitektforening",
+    "bon_count": 0,
+    "ean": null,
+    "cvr": "62572310",
+    "virk_name": "Akademisk Arkitektforening",
+    "confidence": 100,
+    "status": "Aktiv"
+  },
+  {
+    "id": 24,
+    "company_name": "KK Børn og Unge",
+    "bon_count": 0,
+    "ean": "4050072882. ",
+    "cvr": "44421844",
+    "virk_name": "Børn & Unge",
+    "confidence": 90,
+    "status": "Aktiv"
+  }
+]

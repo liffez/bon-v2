@@ -43,12 +43,16 @@ const args = process.argv.slice(2);
 const dryRun = args.includes('--dry-run');
 const run = args.includes('--run');
 const eanOnly = args.includes('--ean-only');
+const safeOnly = args.includes('--safe-only');       // Kun strategi 1+2 (EAN + email)
+const exportReview = args.includes('--export-review'); // Eksportér Virk ES matches til review JSON
 const batchArg = args.find(a => a.startsWith('--batch='));
 const batchSize = batchArg ? parseInt(batchArg.split('=')[1]) : null;
 
-if (!dryRun && !run) {
+if (!dryRun && !run && !exportReview) {
   console.log('Brug: node scripts/enrich-cvr.js --dry-run              (vis matches)');
   console.log('      node scripts/enrich-cvr.js --run                   (gem CVR)');
+  console.log('      node scripts/enrich-cvr.js --run --safe-only       (kun EAN + email, ingen Virk)');
+  console.log('      node scripts/enrich-cvr.js --export-review         (eksportér Virk matches til review)');
   console.log('      node scripts/enrich-cvr.js --run --batch=50        (kun 50 firmaer)');
   console.log('      node scripts/enrich-cvr.js --ean-only --dry-run    (kun EAN-opslag)');
   process.exit(0);
@@ -333,6 +337,10 @@ async function main() {
     if (foundKnown) continue;
 
     // ── 3. Virk ElasticSearch navnesøgning ──────────────────────
+    if (safeOnly) {
+      results.no_match.push({ company: co, reason: 'safe-only mode' });
+      continue;
+    }
     let searchName = co.name
       .replace(/\(.*?\)/g, '')
       .replace(/,\s*$/, '')
@@ -362,7 +370,7 @@ async function main() {
       if (best.sim >= threshold) {
         const activeNote = best.status === 'NORMAL' ? '' : ` [${best.status}]`;
         console.log(` ✓ CVR:${best.cvr} "${best.navn}" (${Math.round(best.sim * 100)}%)${activeNote}`);
-        results.virk.push({ company: co, cvr: best.cvr, officialName: best.navn, score: best.sim });
+        results.virk.push({ company: co, cvr: best.cvr, officialName: best.navn, score: best.sim, status: best.status });
       } else {
         console.log(` ? "${best.navn}" (${Math.round(best.sim * 100)}%) — for lav`);
         results.no_match.push({ company: co, reason: `lav: "${best.navn}" ${Math.round(best.sim * 100)}%` });
@@ -436,6 +444,24 @@ async function main() {
     console.log('   Ret fejl med: node scripts/fix-cvr.js --id=X --cvr=Y --legal="Z"');
   } else if (dryRun) {
     console.log('\n🔍 DRY RUN — intet ændret.');
+  }
+
+  // ─── Export review JSON for Virk ES matches ────────────────────
+  if (exportReview || (dryRun && results.virk.length > 0)) {
+    const reviewPath = path.join(__dirname, '..', 'data', 'cvr-virk-review.json');
+    const reviewData = results.virk.map(m => ({
+      id: m.company.id,
+      company_name: m.company.name,
+      bon_count: m.company.bon_count,
+      ean: m.company.ean || null,
+      cvr: m.cvr,
+      virk_name: m.officialName,
+      confidence: Math.round((m.score || 0) * 100),
+      status: m.status || null,
+    }));
+    require('fs').writeFileSync(reviewPath, JSON.stringify(reviewData, null, 2));
+    console.log(`\n📋 Virk ES review-data: ${reviewPath} (${reviewData.length} matches)`);
+    console.log('   Åbn tools/cvr-review.html i browser for at gennemgå');
   }
 }
 

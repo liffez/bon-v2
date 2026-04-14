@@ -1,0 +1,3434 @@
+[
+  {
+    "id": 124,
+    "name": "Københavns Universitet",
+    "bons": 43,
+    "cvr": "29979812",
+    "legal_name": "Københavns Universitet",
+    "source": "nemhandel"
+  },
+  {
+    "id": 673,
+    "name": "Fritidscenter Christianshavn og Indre by",
+    "bons": 34,
+    "cvr": "64942212",
+    "legal_name": "Københavns Kommune",
+    "source": "nemhandel"
+  },
+  {
+    "id": 817,
+    "name": "Statens Institut for Folkesundhed",
+    "bons": 30,
+    "cvr": "29283958",
+    "legal_name": "Syddansk Universitet (University of Southern Denmark)",
+    "source": "nemhandel"
+  },
+  {
+    "id": 27,
+    "name": "Afdeling for bedøvelse og intensiv behandling, Rigshospitalet",
+    "bons": 26,
+    "cvr": "29190623",
+    "legal_name": "Region Hovedstaden",
+    "source": "nemhandel"
+  },
+  {
+    "id": 292,
+    "name": "BUF, Område Nørrebro/Bispebjerg",
+    "bons": 25,
+    "cvr": "64942212",
+    "legal_name": "Københavns Kommune",
+    "source": "nemhandel"
+  },
+  {
+    "id": 259,
+    "name": "Nørrebro Lilleskole",
+    "bons": 25,
+    "cvr": "51972317",
+    "legal_name": "NØRREBRO LILLESKOLE",
+    "source": "nemhandel"
+  },
+  {
+    "id": 190,
+    "name": "University of Copenhagen",
+    "bons": 25,
+    "cvr": "29979812",
+    "legal_name": "Københavns Universitet",
+    "source": "nemhandel"
+  },
+  {
+    "id": 849,
+    "name": "Statens Institut for Folkesundhed SDU",
+    "bons": 21,
+    "cvr": "29283958",
+    "legal_name": "Syddansk Universitet (University of Southern Denmark)",
+    "source": "nemhandel"
+  },
+  {
+    "id": 814,
+    "name": "Bispebjerg Hospital, Dermatologisk afd. DS42",
+    "bons": 18,
+    "cvr": "29190623",
+    "legal_name": "Region Hovedstaden",
+    "source": "nemhandel"
+  },
+  {
+    "id": 1085,
+    "name": "Akademiet for de tekniske videnskaber",
+    "bons": 15,
+    "cvr": "16007870",
+    "legal_name": "AKADEMIET FOR DE TEKNISKE VIDENSKABER",
+    "source": "nemhandel"
+  },
+  {
+    "id": 85,
+    "name": "Holmens Kirke",
+    "bons": 14,
+    "cvr": "18195917",
+    "legal_name": "Holmens Sogn",
+    "source": "nemhandel"
+  },
+  {
+    "id": 1221,
+    "name": "IVH-BaV",
+    "bons": 13,
+    "cvr": "29979812",
+    "legal_name": "Københavns Universitet",
+    "source": "nemhandel"
+  },
+  {
+    "id": 644,
+    "name": "Københavns kommune",
+    "bons": 13,
+    "cvr": "64942212",
+    "legal_name": "Københavns Kommune",
+    "source": "nemhandel"
+  },
+  {
+    "id": 449,
+    "name": "Institut for matematiske fag, KU",
+    "bons": 13,
+    "cvr": "29979812",
+    "legal_name": "Københavns Universitet",
+    "source": "nemhandel"
+  },
+  {
+    "id": 1047,
+    "name": "Folkekirkens Uddannelses- og Videnscenter",
+    "bons": 10,
+    "cvr": "25961838",
+    "legal_name": "Folkekirkens Uddannelses- og      Videnscenter",
+    "source": "nemhandel"
+  },
+  {
+    "id": 89,
+    "name": "KU",
+    "bons": 10,
+    "cvr": "29979812",
+    "legal_name": "Københavns Universitet",
+    "source": "nemhandel"
+  },
+  {
+    "id": 1188,
+    "name": "Rigshospitalet, afsnit 5074,  Afdeling for kræftbehandling",
+    "bons": 9,
+    "cvr": "29190623",
+    "legal_name": "Region Hovedstaden",
+    "source": "nemhandel"
+  },
+  {
+    "id": 103,
+    "name": "Datalogisk Institut",
+    "bons": 9,
+    "cvr": "29979812",
+    "legal_name": "Københavns Universitet",
+    "source": "nemhandel"
+  },
+  {
+    "id": 716,
+    "name": "KU Science",
+    "bons": 8,
+    "cvr": "29979812",
+    "legal_name": "Københavns Universitet",
+    "source": "nemhandel"
+  },
+  {
+    "id": 595,
+    "name": "ATV",
+    "bons": 8,
+    "cvr": "16007870",
+    "legal_name": "AKADEMIET FOR DE TEKNISKE VIDENSKABER",
+    "source": "nemhandel"
+  },
+  {
+    "id": 198,
+    "name": "Rigshospitalet afdelingen for børn og unge med kræft 5002",
+    "bons": 8,
+    "cvr": "29190623",
+    "legal_name": "Region Hovedstaden",
+    "source": "nemhandel"
+  },
+  {
+    "id": 854,
+    "name": "Department of Biology, University of Copenhagen",
+    "bons": 7,
+    "cvr": "29979812",
+    "legal_name": "Københavns Universitet",
+    "source": "nemhandel"
+  },
+  {
+    "id": 758,
+    "name": "Det Frie Gymnasium",
+    "bons": 7,
+    "cvr": "29344310",
+    "legal_name": "DET FRIE GYMNASIUM",
+    "source": "nemhandel"
+  },
+  {
+    "id": 590,
+    "name": "Det Kgl. Bibliotek",
+    "bons": 7,
+    "cvr": "28988842",
+    "legal_name": "Det Kgl. Bibliotek",
+    "source": "nemhandel"
+  },
+  {
+    "id": 568,
+    "name": "Rigshospitalet, afsnit 5074  Afd. for Kræftbehandling",
+    "bons": 7,
+    "cvr": "29190623",
+    "legal_name": "Region Hovedstaden",
+    "source": "nemhandel"
+  },
+  {
+    "id": 23,
+    "name": "Gate21",
+    "bons": 7,
+    "cvr": "32112846",
+    "legal_name": "Gate 21",
+    "source": "nemhandel"
+  },
+  {
+    "id": 1242,
+    "name": "Område Nord Børne og Ungdomsforvaltningen",
+    "bons": 6,
+    "cvr": "64942212",
+    "legal_name": "Københavns Kommune",
+    "source": "nemhandel"
+  },
+  {
+    "id": 1160,
+    "name": "RUST/Københavns Kommune",
+    "bons": 6,
+    "cvr": "64942212",
+    "legal_name": "Københavns Kommune",
+    "source": "nemhandel"
+  },
+  {
+    "id": 739,
+    "name": "Center for Translational Neuromedicine",
+    "bons": 6,
+    "cvr": "29979812",
+    "legal_name": "Københavns Universitet",
+    "source": "nemhandel"
+  },
+  {
+    "id": 424,
+    "name": "University of Copenhagen, Science Faculty",
+    "bons": 6,
+    "cvr": "29979812",
+    "legal_name": "Københavns Universitet",
+    "source": "nemhandel"
+  },
+  {
+    "id": 359,
+    "name": "Kirkebækskolen",
+    "bons": 6,
+    "cvr": "19583910",
+    "legal_name": "Vallensbæk Kommune",
+    "source": "nemhandel"
+  },
+  {
+    "id": 144,
+    "name": "Gentofte Kommune",
+    "bons": 6,
+    "cvr": "19438414",
+    "legal_name": "Gentofte Kommune",
+    "source": "nemhandel"
+  },
+  {
+    "id": 971,
+    "name": "Frederiksberg Kommunes Rusmiddelcenter",
+    "bons": 5,
+    "cvr": "11259979",
+    "legal_name": "Frederiksberg Kommune",
+    "source": "nemhandel"
+  },
+  {
+    "id": 883,
+    "name": "Kulturskolerne i Høje Taastrup",
+    "bons": 5,
+    "cvr": "19501817",
+    "legal_name": "Høje-Taastrup Kommune",
+    "source": "nemhandel"
+  },
+  {
+    "id": 829,
+    "name": "Den Hirschsprungske Samling",
+    "bons": 5,
+    "cvr": "64174614",
+    "legal_name": "Den Hirschsprungske Samling",
+    "source": "nemhandel"
+  },
+  {
+    "id": 558,
+    "name": "Rosenvængets sogns menighedsråd",
+    "bons": 5,
+    "cvr": "21994618",
+    "legal_name": "Rosenvængets Sogn",
+    "source": "nemhandel"
+  },
+  {
+    "id": 522,
+    "name": "University of Copenhagen, Depart. of Computer Science",
+    "bons": 5,
+    "cvr": "29979812",
+    "legal_name": "Københavns Universitet",
+    "source": "nemhandel"
+  },
+  {
+    "id": 115,
+    "name": "University of Copenhagen Department of Neuroscience Kornum Lab",
+    "bons": 5,
+    "cvr": "29979812",
+    "legal_name": "Københavns Universitet",
+    "source": "nemhandel"
+  },
+  {
+    "id": 63,
+    "name": "Mary Elizabeths Hospital",
+    "bons": 5,
+    "cvr": "29190623",
+    "legal_name": "Region Hovedstaden",
+    "source": "nemhandel"
+  },
+  {
+    "id": 1208,
+    "name": "Rødovre Kommune",
+    "bons": 4,
+    "cvr": "65307316",
+    "legal_name": "Rødovre Kommune",
+    "source": "nemhandel"
+  },
+  {
+    "id": 1173,
+    "name": "E-huset",
+    "bons": 4,
+    "cvr": "64942212",
+    "legal_name": "Københavns Kommune",
+    "source": "nemhandel"
+  },
+  {
+    "id": 1128,
+    "name": "Rigshospitalet, Afd. for hjerne- og nervesygdomme, afsnit 7076",
+    "bons": 4,
+    "cvr": "29190623",
+    "legal_name": "Region Hovedstaden",
+    "source": "nemhandel"
+  },
+  {
+    "id": 1114,
+    "name": "Hovedstadens Beredskab Frivilligenheden",
+    "bons": 4,
+    "cvr": "35440178",
+    "legal_name": "Hovedstadens Beredskab I/S",
+    "source": "nemhandel"
+  },
+  {
+    "id": 1037,
+    "name": "KAB",
+    "bons": 4,
+    "cvr": "56815910",
+    "legal_name": "KAB s m b a",
+    "source": "nemhandel"
+  },
+  {
+    "id": 1031,
+    "name": "SDU",
+    "bons": 4,
+    "cvr": "29283958",
+    "legal_name": "Syddansk Universitet (University of Southern Denmark)",
+    "source": "nemhandel"
+  },
+  {
+    "id": 978,
+    "name": "Danish Diabetes and Endocrine Academy v/Odense Universitets Hospital Kløvervænget 6, indgang 93, 8.sal 5000 Odense C",
+    "bons": 4,
+    "cvr": "29190909",
+    "legal_name": "Region Syddanmark",
+    "source": "nemhandel"
+  },
+  {
+    "id": 851,
+    "name": "DTU Fysik - VISION",
+    "bons": 4,
+    "cvr": "30060946",
+    "legal_name": "Danmarks Tekniske Universitet",
+    "source": "nemhandel"
+  },
+  {
+    "id": 805,
+    "name": "Klatretræet på Vesterbro",
+    "bons": 4,
+    "cvr": "64942212",
+    "legal_name": "Københavns Kommune",
+    "source": "nemhandel"
+  },
+  {
+    "id": 777,
+    "name": "Center for Kræft og Organsygdomme",
+    "bons": 4,
+    "cvr": "29190623",
+    "legal_name": "Region Hovedstaden",
+    "source": "nemhandel"
+  },
+  {
+    "id": 653,
+    "name": "Murergården",
+    "bons": 4,
+    "cvr": "43700456",
+    "legal_name": "Den Selvejende institution Murergården",
+    "source": "nemhandel"
+  },
+  {
+    "id": 411,
+    "name": "Københavns Universitet, Institut for Plante- og Miljøvidenskab",
+    "bons": 4,
+    "cvr": "29979812",
+    "legal_name": "Københavns Universitet",
+    "source": "nemhandel"
+  },
+  {
+    "id": 114,
+    "name": "Center for Mental Sundhed",
+    "bons": 4,
+    "cvr": "64942212",
+    "legal_name": "Københavns Kommune",
+    "source": "nemhandel"
+  },
+  {
+    "id": 25,
+    "name": "Kompetencecenter for Retspsykiatri",
+    "bons": 4,
+    "cvr": "29190623",
+    "legal_name": "Region Hovedstaden",
+    "source": "nemhandel"
+  },
+  {
+    "id": 1248,
+    "name": "CA a-kasse",
+    "bons": 3,
+    "cvr": "10631203",
+    "legal_name": "CA a-kasse",
+    "source": "nemhandel"
+  },
+  {
+    "id": 1150,
+    "name": "KU, Center for Applied Ecological Thinking",
+    "bons": 3,
+    "cvr": "29979812",
+    "legal_name": "Københavns Universitet",
+    "source": "nemhandel"
+  },
+  {
+    "id": 1084,
+    "name": "Kemisk Institut",
+    "bons": 3,
+    "cvr": "29979812",
+    "legal_name": "Københavns Universitet",
+    "source": "nemhandel"
+  },
+  {
+    "id": 1064,
+    "name": "Kemisk Institut Kbh. Uni.",
+    "bons": 3,
+    "cvr": "29979812",
+    "legal_name": "Københavns Universitet",
+    "source": "nemhandel"
+  },
+  {
+    "id": 1063,
+    "name": "Det Kriminalpræventive Råd",
+    "bons": 3,
+    "cvr": "33343760",
+    "legal_name": "Det Kriminalpræventive Råd",
+    "source": "nemhandel"
+  },
+  {
+    "id": 878,
+    "name": "Statens Institut for Folkesundhed/SDU",
+    "bons": 3,
+    "cvr": "29283958",
+    "legal_name": "Syddansk Universitet (University of Southern Denmark)",
+    "source": "nemhandel"
+  },
+  {
+    "id": 783,
+    "name": "R.S.børnehaven Nøkken",
+    "bons": 3,
+    "cvr": "17380206",
+    "legal_name": "Børnehaven Nøkken",
+    "source": "nemhandel"
+  },
+  {
+    "id": 781,
+    "name": "Copenhagen Business School - Department of Business Humanities and Law",
+    "bons": 3,
+    "cvr": "19596915",
+    "legal_name": "Copenhagen Business School Handelshøjskolen",
+    "source": "nemhandel"
+  },
+  {
+    "id": 752,
+    "name": "Børn- og unge forvaltningen, Københavns kommune",
+    "bons": 3,
+    "cvr": "64942212",
+    "legal_name": "Københavns Kommune",
+    "source": "nemhandel"
+  },
+  {
+    "id": 682,
+    "name": "Datalogisk Institut - Universitetsparken 1, 2100 København",
+    "bons": 3,
+    "cvr": "29979812",
+    "legal_name": "Københavns Universitet",
+    "source": "nemhandel"
+  },
+  {
+    "id": 415,
+    "name": "Rigshospitalet, Hjertecentret",
+    "bons": 3,
+    "cvr": "29190623",
+    "legal_name": "Region Hovedstaden",
+    "source": "nemhandel"
+  },
+  {
+    "id": 297,
+    "name": "Mellemfolkeligt Samvirke",
+    "bons": 3,
+    "cvr": "18243717",
+    "legal_name": "Mellemfolkeligt Samvirke",
+    "source": "nemhandel"
+  },
+  {
+    "id": 208,
+    "name": "Universitetshospitalet for Store Husdyr",
+    "bons": 3,
+    "cvr": "29979812",
+    "legal_name": "Københavns Universitet",
+    "source": "nemhandel"
+  },
+  {
+    "id": 31,
+    "name": "KK",
+    "bons": 3,
+    "cvr": "64942212",
+    "legal_name": "Københavns Kommune",
+    "source": "nemhandel"
+  },
+  {
+    "id": 1244,
+    "name": "Danish Diabetes and Endocrine Academy",
+    "bons": 2,
+    "cvr": "29190909",
+    "legal_name": "Region Syddanmark",
+    "source": "nemhandel"
+  },
+  {
+    "id": 1225,
+    "name": "Gentofte Kommun",
+    "bons": 2,
+    "cvr": "19438414",
+    "legal_name": "Gentofte Kommune",
+    "source": "nemhandel"
+  },
+  {
+    "id": 1207,
+    "name": "Sundhedsplejen, BUF, Københavns Kommune",
+    "bons": 2,
+    "cvr": "64942212",
+    "legal_name": "Københavns Kommune",
+    "source": "nemhandel"
+  },
+  {
+    "id": 1183,
+    "name": "Tekst & Node",
+    "bons": 2,
+    "cvr": "18463504",
+    "legal_name": "Tekst & Node",
+    "source": "nemhandel"
+  },
+  {
+    "id": 1145,
+    "name": "Region Hovedstaden",
+    "bons": 2,
+    "cvr": "29190623",
+    "legal_name": "Region Hovedstaden",
+    "source": "nemhandel"
+  },
+  {
+    "id": 1127,
+    "name": "Center for Protein Design",
+    "bons": 2,
+    "cvr": "29979812",
+    "legal_name": "Københavns Universitet",
+    "source": "nemhandel"
+  },
+  {
+    "id": 1110,
+    "name": "Københavns Universitet, Biologisk Institut",
+    "bons": 2,
+    "cvr": "29979812",
+    "legal_name": "Københavns Universitet",
+    "source": "nemhandel"
+  },
+  {
+    "id": 1105,
+    "name": "Psykiatrisk Center Glostrup",
+    "bons": 2,
+    "cvr": "29190623",
+    "legal_name": "Region Hovedstaden",
+    "source": "nemhandel"
+  },
+  {
+    "id": 1061,
+    "name": "Frie (fagforening)",
+    "bons": 2,
+    "cvr": "56154515",
+    "legal_name": "Frie",
+    "source": "nemhandel"
+  },
+  {
+    "id": 1055,
+    "name": "Copenhagen University",
+    "bons": 2,
+    "cvr": "29979812",
+    "legal_name": "Københavns Universitet",
+    "source": "nemhandel"
+  },
+  {
+    "id": 1052,
+    "name": "Institut for Plante- og Miljøvidenskab",
+    "bons": 2,
+    "cvr": "29979812",
+    "legal_name": "Københavns Universitet",
+    "source": "nemhandel"
+  },
+  {
+    "id": 1028,
+    "name": "DTU Compute",
+    "bons": 2,
+    "cvr": "30060946",
+    "legal_name": "Danmarks Tekniske Universitet",
+    "source": "nemhandel"
+  },
+  {
+    "id": 1026,
+    "name": "Rigshospitalet klinik for brystkræft",
+    "bons": 2,
+    "cvr": "29190623",
+    "legal_name": "Region Hovedstaden",
+    "source": "nemhandel"
+  },
+  {
+    "id": 1024,
+    "name": "Københavnsuniversitet 29979812",
+    "bons": 2,
+    "cvr": "29979812",
+    "legal_name": "Københavns Universitet",
+    "source": "nemhandel"
+  },
+  {
+    "id": 959,
+    "name": "Børne- og Ungdomsforvaltningen, Københavns Kommune, område Brønshøj/Vanløse",
+    "bons": 2,
+    "cvr": "64942212",
+    "legal_name": "Københavns Kommune",
+    "source": "nemhandel"
+  },
+  {
+    "id": 935,
+    "name": "Datalogisk Institut KU",
+    "bons": 2,
+    "cvr": "29979812",
+    "legal_name": "Københavns Universitet",
+    "source": "nemhandel"
+  },
+  {
+    "id": 929,
+    "name": "Rishospitalet 4131 opg3, 3 sal",
+    "bons": 2,
+    "cvr": "29190623",
+    "legal_name": "Region Hovedstaden",
+    "source": "nemhandel"
+  },
+  {
+    "id": 898,
+    "name": "Rigshospitalet - Mary Elizabeths Hospital",
+    "bons": 2,
+    "cvr": "29190623",
+    "legal_name": "Region Hovedstaden",
+    "source": "nemhandel"
+  },
+  {
+    "id": 881,
+    "name": "Mary Elizabeths Hospital, Rigshospitalet",
+    "bons": 2,
+    "cvr": "29190623",
+    "legal_name": "Region Hovedstaden",
+    "source": "nemhandel"
+  },
+  {
+    "id": 862,
+    "name": "Datalogisk Institut, Københavns Universitet",
+    "bons": 2,
+    "cvr": "29979812",
+    "legal_name": "Københavns Universitet",
+    "source": "nemhandel"
+  },
+  {
+    "id": 719,
+    "name": "Rigshospitalet Strålebehandling, klinik 3981",
+    "bons": 2,
+    "cvr": "29190623",
+    "legal_name": "Region Hovedstaden",
+    "source": "nemhandel"
+  },
+  {
+    "id": 692,
+    "name": "Nørrebro Lokaludvalg",
+    "bons": 2,
+    "cvr": "64942212",
+    "legal_name": "Københavns Kommune",
+    "source": "nemhandel"
+  },
+  {
+    "id": 674,
+    "name": "KL",
+    "bons": 2,
+    "cvr": "62547413",
+    "legal_name": "KL",
+    "source": "nemhandel"
+  },
+  {
+    "id": 655,
+    "name": "Dronning Louises Asyl",
+    "bons": 2,
+    "cvr": "58168319",
+    "legal_name": "DRONNING LOUISES ASYLSELSKAB",
+    "source": "nemhandel"
+  },
+  {
+    "id": 640,
+    "name": "Københavns Universitet - PLEN",
+    "bons": 2,
+    "cvr": "29979812",
+    "legal_name": "Københavns Universitet",
+    "source": "nemhandel"
+  },
+  {
+    "id": 634,
+    "name": "DIKU University of Copenhagen Dept. Computer Science",
+    "bons": 2,
+    "cvr": "29979812",
+    "legal_name": "Københavns Universitet",
+    "source": "nemhandel"
+  },
+  {
+    "id": 613,
+    "name": "Bryggergården Plejehjem",
+    "bons": 2,
+    "cvr": "64942212",
+    "legal_name": "Københavns Kommune",
+    "source": "nemhandel"
+  },
+  {
+    "id": 587,
+    "name": "Børne- og Ungdomsforvaltningen",
+    "bons": 2,
+    "cvr": "64942212",
+    "legal_name": "Københavns Kommune",
+    "source": "nemhandel"
+  },
+  {
+    "id": 578,
+    "name": "AKB, København - Bispevænget      /   KAB",
+    "bons": 2,
+    "cvr": "56815910",
+    "legal_name": "KAB s m b a",
+    "source": "nemhandel"
+  },
+  {
+    "id": 574,
+    "name": "Institut for Matematiske Fag, Københavns Universitet",
+    "bons": 2,
+    "cvr": "29979812",
+    "legal_name": "Københavns Universitet",
+    "source": "nemhandel"
+  },
+  {
+    "id": 517,
+    "name": "RUST",
+    "bons": 2,
+    "cvr": "64942212",
+    "legal_name": "Københavns Kommune",
+    "source": "nemhandel"
+  },
+  {
+    "id": 242,
+    "name": "Rigshospitalet afsnit 4141",
+    "bons": 2,
+    "cvr": "29190623",
+    "legal_name": "Region Hovedstaden",
+    "source": "nemhandel"
+  },
+  {
+    "id": 216,
+    "name": "Sundby Idrætspark",
+    "bons": 2,
+    "cvr": "64942212",
+    "legal_name": "Københavns Kommune",
+    "source": "nemhandel"
+  },
+  {
+    "id": 70,
+    "name": "GLOBE Institute",
+    "bons": 2,
+    "cvr": "29979812",
+    "legal_name": "Københavns Universitet",
+    "source": "nemhandel"
+  },
+  {
+    "id": 1250,
+    "name": "Neuroscience Academy Denmark - Københavns Universitet",
+    "bons": 1,
+    "cvr": "29979812",
+    "legal_name": "Københavns Universitet",
+    "source": "nemhandel"
+  },
+  {
+    "id": 1247,
+    "name": "København Kommune",
+    "bons": 1,
+    "cvr": "64942212",
+    "legal_name": "Københavns Kommune",
+    "source": "nemhandel"
+  },
+  {
+    "id": 1241,
+    "name": "Tusindfryd børnehave",
+    "bons": 1,
+    "cvr": "21095796",
+    "legal_name": "Rudolf Steiner Børnehaven  og Vuggestuen  Tusindfryd",
+    "source": "nemhandel"
+  },
+  {
+    "id": 1237,
+    "name": "Kirkens Korshær",
+    "bons": 1,
+    "cvr": "82883711",
+    "legal_name": "Kirkens Korshær",
+    "source": "nemhandel"
+  },
+  {
+    "id": 1236,
+    "name": "DSI Nørrebro Bispebjerg",
+    "bons": 1,
+    "cvr": "64942212",
+    "legal_name": "Københavns Kommune",
+    "source": "nemhandel"
+  },
+  {
+    "id": 1235,
+    "name": "Bibilarium",
+    "bons": 1,
+    "cvr": "22159917",
+    "legal_name": "Københavns Domkirke - Vor Frue Kirke",
+    "source": "nemhandel"
+  },
+  {
+    "id": 1228,
+    "name": "Kræftrådgivningen København",
+    "bons": 1,
+    "cvr": "55629013",
+    "legal_name": "KRÆFTENS BEKÆMPELSE",
+    "source": "nemhandel"
+  },
+  {
+    "id": 1224,
+    "name": "Bibliarium",
+    "bons": 1,
+    "cvr": "22159917",
+    "legal_name": "Københavns Domkirke - Vor Frue Kirke",
+    "source": "nemhandel"
+  },
+  {
+    "id": 1211,
+    "name": "Kræfrådgivningen København",
+    "bons": 1,
+    "cvr": "55629013",
+    "legal_name": "KRÆFTENS BEKÆMPELSE",
+    "source": "nemhandel"
+  },
+  {
+    "id": 1205,
+    "name": "Støtte- og kontaktpersonsordning",
+    "bons": 1,
+    "cvr": "11259979",
+    "legal_name": "Frederiksberg Kommune",
+    "source": "nemhandel"
+  },
+  {
+    "id": 1199,
+    "name": "BUF - VVK",
+    "bons": 1,
+    "cvr": "64942212",
+    "legal_name": "Københavns Kommune",
+    "source": "nemhandel"
+  },
+  {
+    "id": 1187,
+    "name": "Rigshospitalet - Glostrup, Afdeling for Bedøvelse, Smerter og Respirationsstøtte, EAN 5798001527828",
+    "bons": 1,
+    "cvr": "29190623",
+    "legal_name": "Region Hovedstaden",
+    "source": "nemhandel"
+  },
+  {
+    "id": 1184,
+    "name": "Jobmatch og fællesskaber",
+    "bons": 1,
+    "cvr": "64942212",
+    "legal_name": "Københavns Kommune",
+    "source": "nemhandel"
+  },
+  {
+    "id": 1178,
+    "name": "Slots- og Kulturstyrelsen",
+    "bons": 1,
+    "cvr": "34072191",
+    "legal_name": "Slots- og Kulturstyrelsen",
+    "source": "nemhandel"
+  },
+  {
+    "id": 1174,
+    "name": "KFE Rigshospitalet",
+    "bons": 1,
+    "cvr": "29190623",
+    "legal_name": "Region Hovedstaden",
+    "source": "nemhandel"
+  },
+  {
+    "id": 1167,
+    "name": "Lundø aflastningsinstitution",
+    "bons": 1,
+    "cvr": "19438414",
+    "legal_name": "Gentofte Kommune",
+    "source": "nemhandel"
+  },
+  {
+    "id": 1165,
+    "name": "SDU NAT fakultetssekretariat",
+    "bons": 1,
+    "cvr": "29283958",
+    "legal_name": "Syddansk Universitet (University of Southern Denmark)",
+    "source": "nemhandel"
+  },
+  {
+    "id": 1158,
+    "name": "Vuggestuen Chr. X",
+    "bons": 1,
+    "cvr": "57188413",
+    "legal_name": "Vuggestuen Chr. d X",
+    "source": "nemhandel"
+  },
+  {
+    "id": 1154,
+    "name": "Københavns Universitetsbibliotek / Det Kgl Bibliotek",
+    "bons": 1,
+    "cvr": "28988842",
+    "legal_name": "Det Kgl. Bibliotek",
+    "source": "nemhandel"
+  },
+  {
+    "id": 1153,
+    "name": "Københavns Universitet, Institut for Psykologi",
+    "bons": 1,
+    "cvr": "29979812",
+    "legal_name": "Københavns Universitet",
+    "source": "nemhandel"
+  },
+  {
+    "id": 1147,
+    "name": "Afdeling for kræftbehandling,  Rigshospitalet",
+    "bons": 1,
+    "cvr": "29190623",
+    "legal_name": "Region Hovedstaden",
+    "source": "nemhandel"
+  },
+  {
+    "id": 1146,
+    "name": "Kulturministeriet",
+    "bons": 1,
+    "cvr": "67855019",
+    "legal_name": "Kulturministeriet, Departementet",
+    "source": "nemhandel"
+  },
+  {
+    "id": 1138,
+    "name": "VIVE",
+    "bons": 1,
+    "cvr": "23155117",
+    "legal_name": "VIVE - Det Nationale Forsknings-  og Analysecenter for Velfærd",
+    "source": "nemhandel"
+  },
+  {
+    "id": 1134,
+    "name": "Københavns Universitet, KU FOOD",
+    "bons": 1,
+    "cvr": "29979812",
+    "legal_name": "Københavns Universitet",
+    "source": "nemhandel"
+  },
+  {
+    "id": 1132,
+    "name": "University of Copenhagen, department of geosciences",
+    "bons": 1,
+    "cvr": "29979812",
+    "legal_name": "Københavns Universitet",
+    "source": "nemhandel"
+  },
+  {
+    "id": 1123,
+    "name": "Institut for Fødevarevidenskab, Københavns Universitet",
+    "bons": 1,
+    "cvr": "29979812",
+    "legal_name": "Københavns Universitet",
+    "source": "nemhandel"
+  },
+  {
+    "id": 1116,
+    "name": "Rigshospitalet 4131 opg3, 3 sal",
+    "bons": 1,
+    "cvr": "29190623",
+    "legal_name": "Region Hovedstaden",
+    "source": "nemhandel"
+  },
+  {
+    "id": 1115,
+    "name": "Søgårdsskolen - Gentofte Kommune",
+    "bons": 1,
+    "cvr": "19438414",
+    "legal_name": "Gentofte Kommune",
+    "source": "nemhandel"
+  },
+  {
+    "id": 1109,
+    "name": "Rigshospitalet, Afd. for kæbekirurgi",
+    "bons": 1,
+    "cvr": "29190623",
+    "legal_name": "Region Hovedstaden",
+    "source": "nemhandel"
+  },
+  {
+    "id": 1108,
+    "name": "Playful Learning",
+    "bons": 1,
+    "cvr": "30891732",
+    "legal_name": "Københavns Professionshøjskole S/I",
+    "source": "nemhandel"
+  },
+  {
+    "id": 1104,
+    "name": "Rigshospitalet, Neurocentret",
+    "bons": 1,
+    "cvr": "29190623",
+    "legal_name": "Region Hovedstaden",
+    "source": "nemhandel"
+  },
+  {
+    "id": 1096,
+    "name": "Frederiksberg Hospital, GCP-enheden",
+    "bons": 1,
+    "cvr": "29190623",
+    "legal_name": "Region Hovedstaden",
+    "source": "nemhandel"
+  },
+  {
+    "id": 1094,
+    "name": "Børne- og Ungdomsforvaltningen, Københavns Kommune",
+    "bons": 1,
+    "cvr": "64942212",
+    "legal_name": "Københavns Kommune",
+    "source": "nemhandel"
+  },
+  {
+    "id": 1078,
+    "name": "Center for Kræft og Organsygdomme,  Rigshospitalet",
+    "bons": 1,
+    "cvr": "29190623",
+    "legal_name": "Region Hovedstaden",
+    "source": "nemhandel"
+  },
+  {
+    "id": 1076,
+    "name": "Rigshospitalet, Mary Elizabeths Hospital",
+    "bons": 1,
+    "cvr": "29190623",
+    "legal_name": "Region Hovedstaden",
+    "source": "nemhandel"
+  },
+  {
+    "id": 1071,
+    "name": "Ministeriet for Grøn Trepart",
+    "bons": 1,
+    "cvr": "45067009",
+    "legal_name": "Ministeriet for Grøn Trepart",
+    "source": "nemhandel"
+  },
+  {
+    "id": 1062,
+    "name": "røde kors",
+    "bons": 1,
+    "cvr": "20700211",
+    "legal_name": "Røde Kors",
+    "source": "nemhandel"
+  },
+  {
+    "id": 1060,
+    "name": "Rigshospitalet, HOC, afsnit 7075",
+    "bons": 1,
+    "cvr": "29190623",
+    "legal_name": "Region Hovedstaden",
+    "source": "nemhandel"
+  },
+  {
+    "id": 1058,
+    "name": "Innovationsfonden",
+    "bons": 1,
+    "cvr": "29035695",
+    "legal_name": "InnovationsFonden",
+    "source": "nemhandel"
+  },
+  {
+    "id": 1056,
+    "name": "CSU Egedammen",
+    "bons": 1,
+    "cvr": "29189366",
+    "legal_name": "Hillerød Kommune",
+    "source": "nemhandel"
+  },
+  {
+    "id": 1045,
+    "name": "SDU Climate Cluster",
+    "bons": 1,
+    "cvr": "29283958",
+    "legal_name": "Syddansk Universitet (University of Southern Denmark)",
+    "source": "nemhandel"
+  },
+  {
+    "id": 1039,
+    "name": "Københavns Universitet, CTN",
+    "bons": 1,
+    "cvr": "29979812",
+    "legal_name": "Københavns Universitet",
+    "source": "nemhandel"
+  },
+  {
+    "id": 1034,
+    "name": "Institut Sankt Joseph",
+    "bons": 1,
+    "cvr": "29633932",
+    "legal_name": "FAKTURASERVICE A/S",
+    "source": "nemhandel"
+  },
+  {
+    "id": 1023,
+    "name": "Sankt Markus Kirke Frederiksberg",
+    "bons": 1,
+    "cvr": "20457015",
+    "legal_name": "Sankt Markus Kirke Frederiksberg",
+    "source": "nemhandel"
+  },
+  {
+    "id": 1022,
+    "name": "BUF Nørrebro/Bispebjerg",
+    "bons": 1,
+    "cvr": "64942212",
+    "legal_name": "Københavns Kommune",
+    "source": "nemhandel"
+  },
+  {
+    "id": 1011,
+    "name": "Syddansk Universitet",
+    "bons": 1,
+    "cvr": "29283958",
+    "legal_name": "Syddansk Universitet (University of Southern Denmark)",
+    "source": "nemhandel"
+  },
+  {
+    "id": 1002,
+    "name": "Righospitalet 6033",
+    "bons": 1,
+    "cvr": "29190623",
+    "legal_name": "Region Hovedstaden",
+    "source": "nemhandel"
+  },
+  {
+    "id": 1001,
+    "name": "School of Global Health",
+    "bons": 1,
+    "cvr": "29979812",
+    "legal_name": "Københavns Universitet",
+    "source": "nemhandel"
+  },
+  {
+    "id": 997,
+    "name": "Rigspolitiet",
+    "bons": 1,
+    "cvr": "17143611",
+    "legal_name": "Rigspolitiet",
+    "source": "nemhandel"
+  },
+  {
+    "id": 993,
+    "name": "Københavns Universitet /IVH",
+    "bons": 1,
+    "cvr": "29979812",
+    "legal_name": "Københavns Universitet",
+    "source": "nemhandel"
+  },
+  {
+    "id": 981,
+    "name": "Københavns Universitet  Institut for Matematiske Fag",
+    "bons": 1,
+    "cvr": "29979812",
+    "legal_name": "Københavns Universitet",
+    "source": "nemhandel"
+  },
+  {
+    "id": 975,
+    "name": "Børnehuset fælleden",
+    "bons": 1,
+    "cvr": "40334858",
+    "legal_name": "S/I Børnehuset Fælleden",
+    "source": "nemhandel"
+  },
+  {
+    "id": 974,
+    "name": "Biologisk Institut, Københavns Universitet",
+    "bons": 1,
+    "cvr": "29979812",
+    "legal_name": "Københavns Universitet",
+    "source": "nemhandel"
+  },
+  {
+    "id": 964,
+    "name": "Rigshospitalet, opg. 99",
+    "bons": 1,
+    "cvr": "29190623",
+    "legal_name": "Region Hovedstaden",
+    "source": "nemhandel"
+  },
+  {
+    "id": 962,
+    "name": "Folkekirkens videns- og uddannelsescenter",
+    "bons": 1,
+    "cvr": "25961838",
+    "legal_name": "Folkekirkens Uddannelses- og      Videnscenter",
+    "source": "nemhandel"
+  },
+  {
+    "id": 957,
+    "name": "Klinik For Brystkræft, Rigshospitalet",
+    "bons": 1,
+    "cvr": "29190623",
+    "legal_name": "Region Hovedstaden",
+    "source": "nemhandel"
+  },
+  {
+    "id": 945,
+    "name": "Københavns Universitetsbibliotek",
+    "bons": 1,
+    "cvr": "28988842",
+    "legal_name": "Det Kgl. Bibliotek",
+    "source": "nemhandel"
+  },
+  {
+    "id": 936,
+    "name": "Kræft i hjernen,",
+    "bons": 1,
+    "cvr": "29190623",
+    "legal_name": "Region Hovedstaden",
+    "source": "nemhandel"
+  },
+  {
+    "id": 933,
+    "name": "Bisbebjerg/Frederiksberg Hospitaler",
+    "bons": 1,
+    "cvr": "29190623",
+    "legal_name": "Region Hovedstaden",
+    "source": "nemhandel"
+  },
+  {
+    "id": 932,
+    "name": "Afdeling for Gynækologi, Fertilitet og Fødsler",
+    "bons": 1,
+    "cvr": "29190623",
+    "legal_name": "Region Hovedstaden",
+    "source": "nemhandel"
+  },
+  {
+    "id": 921,
+    "name": "Københavns Universitet, FOOD",
+    "bons": 1,
+    "cvr": "29979812",
+    "legal_name": "Københavns Universitet",
+    "source": "nemhandel"
+  },
+  {
+    "id": 891,
+    "name": "Københavns Professionshøjskole, Sygeplejerskeudd.",
+    "bons": 1,
+    "cvr": "30891732",
+    "legal_name": "Københavns Professionshøjskole S/I",
+    "source": "nemhandel"
+  },
+  {
+    "id": 880,
+    "name": "KVINFO",
+    "bons": 1,
+    "cvr": "12919247",
+    "legal_name": "KVINFO",
+    "source": "nemhandel"
+  },
+  {
+    "id": 877,
+    "name": "Borgercenter Børn og Unge, staben",
+    "bons": 1,
+    "cvr": "64942212",
+    "legal_name": "Københavns Kommune",
+    "source": "nemhandel"
+  },
+  {
+    "id": 876,
+    "name": "FTFa",
+    "bons": 1,
+    "cvr": "55664528",
+    "legal_name": "A&Til",
+    "source": "nemhandel"
+  },
+  {
+    "id": 869,
+    "name": "Datalogisk Institut, Datalogisk Institut, Københavns Universitet",
+    "bons": 1,
+    "cvr": "29979812",
+    "legal_name": "Københavns Universitet",
+    "source": "nemhandel"
+  },
+  {
+    "id": 867,
+    "name": "Copenhagen Health innovation",
+    "bons": 1,
+    "cvr": "29190623",
+    "legal_name": "Region Hovedstaden",
+    "source": "nemhandel"
+  },
+  {
+    "id": 864,
+    "name": "SAB Fynshuse",
+    "bons": 1,
+    "cvr": "56815910",
+    "legal_name": "KAB s m b a",
+    "source": "nemhandel"
+  },
+  {
+    "id": 861,
+    "name": "Bostedet Ny Ellebjerg",
+    "bons": 1,
+    "cvr": "64942212",
+    "legal_name": "Københavns Kommune",
+    "source": "nemhandel"
+  },
+  {
+    "id": 859,
+    "name": "Legehuset",
+    "bons": 1,
+    "cvr": "62545712",
+    "legal_name": "Legehuset S/I",
+    "source": "nemhandel"
+  },
+  {
+    "id": 847,
+    "name": "Stiftes unge voksne udvalg",
+    "bons": 1,
+    "cvr": "78143118",
+    "legal_name": "Københavns Stift",
+    "source": "nemhandel"
+  },
+  {
+    "id": 842,
+    "name": "Universitetshospitalet for Store HusdyrKontaktperson: Laura Brink Hansen (mail: laura.b.hansen@sund.ku.dk)",
+    "bons": 1,
+    "cvr": "29979812",
+    "legal_name": "Københavns Universitet",
+    "source": "nemhandel"
+  },
+  {
+    "id": 839,
+    "name": "ATV - Akademiet for de Tekniske Videnskaber",
+    "bons": 1,
+    "cvr": "16007870",
+    "legal_name": "AKADEMIET FOR DE TEKNISKE VIDENSKABER",
+    "source": "nemhandel"
+  },
+  {
+    "id": 837,
+    "name": "Miljøstyrelsen",
+    "bons": 1,
+    "cvr": "25798376",
+    "legal_name": "Miljøstyrelsen",
+    "source": "nemhandel"
+  },
+  {
+    "id": 831,
+    "name": "Købehavns Universitet",
+    "bons": 1,
+    "cvr": "29979812",
+    "legal_name": "Københavns Universitet",
+    "source": "nemhandel"
+  },
+  {
+    "id": 830,
+    "name": "Kulturhuset Islands Brygge",
+    "bons": 1,
+    "cvr": "64942212",
+    "legal_name": "Københavns Kommune",
+    "source": "nemhandel"
+  },
+  {
+    "id": 798,
+    "name": "Bispebjerg Hospital afd. DS",
+    "bons": 1,
+    "cvr": "29190623",
+    "legal_name": "Region Hovedstaden",
+    "source": "nemhandel"
+  },
+  {
+    "id": 784,
+    "name": "ATA Rådgivning ApS",
+    "bons": 1,
+    "cvr": "12417632",
+    "legal_name": "ATA Rådgivning Aps",
+    "source": "nemhandel"
+  },
+  {
+    "id": 767,
+    "name": "Kemisk Institut, Københavns Universitet",
+    "bons": 1,
+    "cvr": "29979812",
+    "legal_name": "Københavns Universitet",
+    "source": "nemhandel"
+  },
+  {
+    "id": 764,
+    "name": "Sekretariatet for Erhvervsrettede Velfærdsuddannelser",
+    "bons": 1,
+    "cvr": "19215644",
+    "legal_name": "Sekretariatet for Erhvervsrettede Velfærdsuddannelser (SEVU)",
+    "source": "nemhandel"
+  },
+  {
+    "id": 744,
+    "name": "Danske Rederier",
+    "bons": 1,
+    "cvr": "67797817",
+    "legal_name": "Danske Rederier",
+    "source": "nemhandel"
+  },
+  {
+    "id": 741,
+    "name": "Område Midtvest",
+    "bons": 1,
+    "cvr": "29189404",
+    "legal_name": "Roskilde Kommune",
+    "source": "nemhandel"
+  },
+  {
+    "id": 738,
+    "name": "BUF VVK Københavns kommune",
+    "bons": 1,
+    "cvr": "64942212",
+    "legal_name": "Københavns Kommune",
+    "source": "nemhandel"
+  },
+  {
+    "id": 737,
+    "name": "Københavns Universitetsbibliotek - NORD",
+    "bons": 1,
+    "cvr": "28988842",
+    "legal_name": "Det Kgl. Bibliotek",
+    "source": "nemhandel"
+  },
+  {
+    "id": 729,
+    "name": "Bispebjerg hospital, Orto M-amb",
+    "bons": 1,
+    "cvr": "29190623",
+    "legal_name": "Region Hovedstaden",
+    "source": "nemhandel"
+  },
+  {
+    "id": 725,
+    "name": "Programansvarligt, Tuborgfondet",
+    "bons": 1,
+    "cvr": "60223513",
+    "legal_name": "CARLSBERGFONDET",
+    "source": "nemhandel"
+  },
+  {
+    "id": 718,
+    "name": "Frederiksberg Hospital",
+    "bons": 1,
+    "cvr": "29190623",
+    "legal_name": "Region Hovedstaden",
+    "source": "nemhandel"
+  },
+  {
+    "id": 707,
+    "name": "LIT",
+    "bons": 1,
+    "cvr": "30773047",
+    "legal_name": "Professionshøjskolen VIA University College",
+    "source": "nemhandel"
+  },
+  {
+    "id": 701,
+    "name": "Bispebjerg Hospital - Hjerteafdelingen",
+    "bons": 1,
+    "cvr": "29190623",
+    "legal_name": "Region Hovedstaden",
+    "source": "nemhandel"
+  },
+  {
+    "id": 699,
+    "name": "Datalogisk Institu, Københavns Universitet",
+    "bons": 1,
+    "cvr": "29979812",
+    "legal_name": "Københavns Universitet",
+    "source": "nemhandel"
+  },
+  {
+    "id": 695,
+    "name": "Rigshospitalet Glostrup",
+    "bons": 1,
+    "cvr": "29190623",
+    "legal_name": "Region Hovedstaden",
+    "source": "nemhandel"
+  },
+  {
+    "id": 690,
+    "name": "Niels Bohr Institutet",
+    "bons": 1,
+    "cvr": "29979812",
+    "legal_name": "Københavns Universitet",
+    "source": "nemhandel"
+  },
+  {
+    "id": 669,
+    "name": "Botilbuddet Nybrogård",
+    "bons": 1,
+    "cvr": "62761113",
+    "legal_name": "Gladsaxe Kommune",
+    "source": "nemhandel"
+  },
+  {
+    "id": 657,
+    "name": "Copenhagen University - Department of Computer Science",
+    "bons": 1,
+    "cvr": "29979812",
+    "legal_name": "Københavns Universitet",
+    "source": "nemhandel"
+  },
+  {
+    "id": 647,
+    "name": "Ny Hollænderskolen",
+    "bons": 1,
+    "cvr": "11259979",
+    "legal_name": "Frederiksberg Kommune",
+    "source": "nemhandel"
+  },
+  {
+    "id": 643,
+    "name": "Enhed For Sammenhængende Patientforløb Rigshospitalet",
+    "bons": 1,
+    "cvr": "29190623",
+    "legal_name": "Region Hovedstaden",
+    "source": "nemhandel"
+  },
+  {
+    "id": 642,
+    "name": "Herstedøster kirke (Helsingør stift)",
+    "bons": 1,
+    "cvr": "21738018",
+    "legal_name": "Helsingør Stiftsadministration",
+    "source": "nemhandel"
+  },
+  {
+    "id": 625,
+    "name": "Rigshospitalet, Klinisk Forsøgsenhed for Børn og Unge med Kræft",
+    "bons": 1,
+    "cvr": "29190623",
+    "legal_name": "Region Hovedstaden",
+    "source": "nemhandel"
+  },
+  {
+    "id": 614,
+    "name": "Rigshospitalets Direktion/Enhed for Uddannelse",
+    "bons": 1,
+    "cvr": "29190623",
+    "legal_name": "Region Hovedstaden",
+    "source": "nemhandel"
+  },
+  {
+    "id": 597,
+    "name": "Datalogisk Institut - Københavns Universitet",
+    "bons": 1,
+    "cvr": "29979812",
+    "legal_name": "Københavns Universitet",
+    "source": "nemhandel"
+  },
+  {
+    "id": 591,
+    "name": "KU-FOOD",
+    "bons": 1,
+    "cvr": "29979812",
+    "legal_name": "Københavns Universitet",
+    "source": "nemhandel"
+  },
+  {
+    "id": 585,
+    "name": "KU - Globe Institute",
+    "bons": 1,
+    "cvr": "29979812",
+    "legal_name": "Københavns Universitet",
+    "source": "nemhandel"
+  },
+  {
+    "id": 556,
+    "name": "Københavns Kommune, Kultur- og Fritidsforvaltningen, Kommunikation.",
+    "bons": 1,
+    "cvr": "64942212",
+    "legal_name": "Københavns Kommune",
+    "source": "nemhandel"
+  },
+  {
+    "id": 535,
+    "name": "Biblioteket Frederiksberg",
+    "bons": 1,
+    "cvr": "11259979",
+    "legal_name": "Frederiksberg Kommune",
+    "source": "nemhandel"
+  },
+  {
+    "id": 525,
+    "name": "Københavns Universitet, Institut for Lægemiddeldesign og Farmakologi",
+    "bons": 1,
+    "cvr": "29979812",
+    "legal_name": "Københavns Universitet",
+    "source": "nemhandel"
+  },
+  {
+    "id": 520,
+    "name": "Biologisk Institut - Københavns Universitet",
+    "bons": 1,
+    "cvr": "29979812",
+    "legal_name": "Københavns Universitet",
+    "source": "nemhandel"
+  },
+  {
+    "id": 504,
+    "name": "Københavns Madservice",
+    "bons": 1,
+    "cvr": "64942212",
+    "legal_name": "Københavns Kommune",
+    "source": "nemhandel"
+  },
+  {
+    "id": 490,
+    "name": "Institut for Fødevarevidenskab, Københavns Universitet (KU FOOD)",
+    "bons": 1,
+    "cvr": "29979812",
+    "legal_name": "Københavns Universitet",
+    "source": "nemhandel"
+  },
+  {
+    "id": 464,
+    "name": "Københavns Universitet, Sektion for Præklinisk Sygdomsbiologi",
+    "bons": 1,
+    "cvr": "29979812",
+    "legal_name": "Københavns Universitet",
+    "source": "nemhandel"
+  },
+  {
+    "id": 455,
+    "name": "Glostrup Kommune, sundehdsplejen",
+    "bons": 1,
+    "cvr": "65120119",
+    "legal_name": "Glostrup Kommune",
+    "source": "nemhandel"
+  },
+  {
+    "id": 434,
+    "name": "FUV",
+    "bons": 1,
+    "cvr": "25961838",
+    "legal_name": "Folkekirkens Uddannelses- og      Videnscenter",
+    "source": "nemhandel"
+  },
+  {
+    "id": 428,
+    "name": "Biologisk Institut, Københvans Universitet",
+    "bons": 1,
+    "cvr": "29979812",
+    "legal_name": "Københavns Universitet",
+    "source": "nemhandel"
+  },
+  {
+    "id": 423,
+    "name": "DEAS A/S",
+    "bons": 1,
+    "cvr": "20283416",
+    "legal_name": "DEAS A/S",
+    "source": "nemhandel"
+  },
+  {
+    "id": 420,
+    "name": "Niels Bohr Institutet - Center for Quantum Devices",
+    "bons": 1,
+    "cvr": "29979812",
+    "legal_name": "Københavns Universitet",
+    "source": "nemhandel"
+  },
+  {
+    "id": 412,
+    "name": "Dansk Sygeplejeråd Kreds Hovedstaden",
+    "bons": 1,
+    "cvr": "30948688",
+    "legal_name": "Dansk Sygeplejeråd, Kreds Hovedstaden",
+    "source": "nemhandel"
+  },
+  {
+    "id": 406,
+    "name": "PLEN, Københavns Universitet",
+    "bons": 1,
+    "cvr": "29979812",
+    "legal_name": "Københavns Universitet",
+    "source": "nemhandel"
+  },
+  {
+    "id": 395,
+    "name": "Frederiksberg Kommune",
+    "bons": 1,
+    "cvr": "11259979",
+    "legal_name": "Frederiksberg Kommune",
+    "source": "nemhandel"
+  },
+  {
+    "id": 337,
+    "name": "Globe Institute, Københavns Universitet",
+    "bons": 1,
+    "cvr": "29979812",
+    "legal_name": "Københavns Universitet",
+    "source": "nemhandel"
+  },
+  {
+    "id": 335,
+    "name": "Teknik- og Miljøforvaltningen, Københavns Kommune",
+    "bons": 1,
+    "cvr": "64942212",
+    "legal_name": "Københavns Kommune",
+    "source": "nemhandel"
+  },
+  {
+    "id": 334,
+    "name": "Niels Bohr Instituttet",
+    "bons": 1,
+    "cvr": "29979812",
+    "legal_name": "Københavns Universitet",
+    "source": "nemhandel"
+  },
+  {
+    "id": 331,
+    "name": "Strandskolen",
+    "bons": 1,
+    "cvr": "44023911",
+    "legal_name": "Greve Kommune",
+    "source": "nemhandel"
+  },
+  {
+    "id": 323,
+    "name": "Uddannelse København",
+    "bons": 1,
+    "cvr": "64942212",
+    "legal_name": "Københavns Kommune",
+    "source": "nemhandel"
+  },
+  {
+    "id": 315,
+    "name": "Den Kongelige Livgardes Musikkorps",
+    "bons": 1,
+    "cvr": "16287180",
+    "legal_name": "Forsvaret og Forsvarsministeriets styrelser",
+    "source": "nemhandel"
+  },
+  {
+    "id": 308,
+    "name": "Hoffmann A/S",
+    "bons": 1,
+    "cvr": "63030228",
+    "legal_name": "HOFFMANN A/S",
+    "source": "nemhandel"
+  },
+  {
+    "id": 280,
+    "name": "Bispebjerg Hospital DS",
+    "bons": 1,
+    "cvr": "29190623",
+    "legal_name": "Region Hovedstaden",
+    "source": "nemhandel"
+  },
+  {
+    "id": 275,
+    "name": "Det Kongelige Akademi - Arkitektur, Design, Konservering",
+    "bons": 1,
+    "cvr": "18975734",
+    "legal_name": "Det Kongelige Danske Kunst- akademis Skoler for Arkitektur, Design og Konservering",
+    "source": "nemhandel"
+  },
+  {
+    "id": 268,
+    "name": "Baltic Energy Island",
+    "bons": 1,
+    "cvr": "31816211",
+    "legal_name": "Bornholms Energi og Forsyning Holding A/S",
+    "source": "nemhandel"
+  },
+  {
+    "id": 265,
+    "name": "Det Kongelige Akademi - Konservering",
+    "bons": 1,
+    "cvr": "18975734",
+    "legal_name": "Det Kongelige Danske Kunst- akademis Skoler for Arkitektur, Design og Konservering",
+    "source": "nemhandel"
+  },
+  {
+    "id": 220,
+    "name": "JMC Børne- unge kræftafdeling",
+    "bons": 1,
+    "cvr": "29190623",
+    "legal_name": "Region Hovedstaden",
+    "source": "nemhandel"
+  },
+  {
+    "id": 170,
+    "name": "VIBEN",
+    "bons": 1,
+    "cvr": "64942212",
+    "legal_name": "Københavns Kommune",
+    "source": "nemhandel"
+  },
+  {
+    "id": 126,
+    "name": "Rigshospitalet, JMC, afd. 4074, opgang 4, 7. sal",
+    "bons": 1,
+    "cvr": "29190623",
+    "legal_name": "Region Hovedstaden",
+    "source": "nemhandel"
+  },
+  {
+    "id": 110,
+    "name": "Herlev og Gentofte Hospital",
+    "bons": 1,
+    "cvr": "29190623",
+    "legal_name": "Region Hovedstaden",
+    "source": "nemhandel"
+  },
+  {
+    "id": 72,
+    "name": "Den kgl. Livgardes Musikkorps",
+    "bons": 1,
+    "cvr": "16287180",
+    "legal_name": "Forsvaret og Forsvarsministeriets styrelser",
+    "source": "nemhandel"
+  },
+  {
+    "id": 64,
+    "name": "Københavns Universitet, Institut for Plante og Miljøvidenskab",
+    "bons": 1,
+    "cvr": "29979812",
+    "legal_name": "Københavns Universitet",
+    "source": "nemhandel"
+  },
+  {
+    "id": 59,
+    "name": "KØBENHAVNS KOMMUNE  Sundheds- og Omsorgsforvaltningen  Center for Forebyggelse og Folkesundhed",
+    "bons": 1,
+    "cvr": "64942212",
+    "legal_name": "Københavns Kommune",
+    "source": "nemhandel"
+  },
+  {
+    "id": 46,
+    "name": "Børneriget, Rigshospitalet",
+    "bons": 1,
+    "cvr": "29190623",
+    "legal_name": "Region Hovedstaden",
+    "source": "nemhandel"
+  },
+  {
+    "id": 43,
+    "name": "Studenterrådgivningen",
+    "bons": 1,
+    "cvr": "18550342",
+    "legal_name": "STUDENTERRÅDGIVNINGEN ADMINISTRATIONEN",
+    "source": "nemhandel"
+  },
+  {
+    "id": 42,
+    "name": "Ku - PLEN",
+    "bons": 1,
+    "cvr": "29979812",
+    "legal_name": "Københavns Universitet",
+    "source": "nemhandel"
+  },
+  {
+    "id": 30,
+    "name": "Department of Immunology and Microbiology, ku",
+    "bons": 1,
+    "cvr": "29979812",
+    "legal_name": "Københavns Universitet",
+    "source": "nemhandel"
+  },
+  {
+    "id": 1240,
+    "name": "Tusindfryd børnehave",
+    "bons": 0,
+    "cvr": "21095796",
+    "legal_name": "Rudolf Steiner Børnehaven  og Vuggestuen  Tusindfryd",
+    "source": "nemhandel"
+  },
+  {
+    "id": 1239,
+    "name": "Center for Translational Neuromedicine (CTN)",
+    "bons": 0,
+    "cvr": "29979812",
+    "legal_name": "Københavns Universitet",
+    "source": "nemhandel"
+  },
+  {
+    "id": 1227,
+    "name": "Kræftrådgivningen København",
+    "bons": 0,
+    "cvr": "55629013",
+    "legal_name": "KRÆFTENS BEKÆMPELSE",
+    "source": "nemhandel"
+  },
+  {
+    "id": 1210,
+    "name": "Kræfrådgivningen København",
+    "bons": 0,
+    "cvr": "55629013",
+    "legal_name": "KRÆFTENS BEKÆMPELSE",
+    "source": "nemhandel"
+  },
+  {
+    "id": 1198,
+    "name": "BUF - VVK",
+    "bons": 0,
+    "cvr": "64942212",
+    "legal_name": "Københavns Kommune",
+    "source": "nemhandel"
+  },
+  {
+    "id": 1182,
+    "name": "Tekst & Node",
+    "bons": 0,
+    "cvr": "18463504",
+    "legal_name": "Tekst & Node",
+    "source": "nemhandel"
+  },
+  {
+    "id": 1179,
+    "name": "Rigshospitalet, Intensiv Behandling",
+    "bons": 0,
+    "cvr": "29190623",
+    "legal_name": "Region Hovedstaden",
+    "source": "nemhandel"
+  },
+  {
+    "id": 1170,
+    "name": "RUST/Københavns Kommune",
+    "bons": 0,
+    "cvr": "64942212",
+    "legal_name": "Københavns Kommune",
+    "source": "nemhandel"
+  },
+  {
+    "id": 1157,
+    "name": "Bispebjerg Hospital - afd. DS",
+    "bons": 0,
+    "cvr": "29190623",
+    "legal_name": "Region Hovedstaden",
+    "source": "nemhandel"
+  },
+  {
+    "id": 1152,
+    "name": "Frederiksberg kommunes Rusmiddelcenter",
+    "bons": 0,
+    "cvr": "11259979",
+    "legal_name": "Frederiksberg Kommune",
+    "source": "nemhandel"
+  },
+  {
+    "id": 1130,
+    "name": "Novo Nordisk Fonden, Center for Protein Design",
+    "bons": 0,
+    "cvr": "29979812",
+    "legal_name": "Københavns Universitet",
+    "source": "nemhandel"
+  },
+  {
+    "id": 1129,
+    "name": "Novo Nordisk, Center for Protein Design",
+    "bons": 0,
+    "cvr": "29979812",
+    "legal_name": "Københavns Universitet",
+    "source": "nemhandel"
+  },
+  {
+    "id": 1124,
+    "name": "Center for Applied Ecological Thinking, Københavns Universitet",
+    "bons": 0,
+    "cvr": "29979812",
+    "legal_name": "Københavns Universitet",
+    "source": "nemhandel"
+  },
+  {
+    "id": 1106,
+    "name": "Hovedstadens Beredskab",
+    "bons": 0,
+    "cvr": "35440178",
+    "legal_name": "Hovedstadens Beredskab I/S",
+    "source": "nemhandel"
+  },
+  {
+    "id": 1095,
+    "name": "GCP-enheden",
+    "bons": 0,
+    "cvr": "29190623",
+    "legal_name": "Region Hovedstaden",
+    "source": "nemhandel"
+  },
+  {
+    "id": 1079,
+    "name": "Sundhedsplejen i Valby",
+    "bons": 0,
+    "cvr": "64942212",
+    "legal_name": "Københavns Kommune",
+    "source": "nemhandel"
+  },
+  {
+    "id": 1073,
+    "name": "Københavns Kommune - BUF",
+    "bons": 0,
+    "cvr": "64942212",
+    "legal_name": "Københavns Kommune",
+    "source": "nemhandel"
+  },
+  {
+    "id": 1053,
+    "name": "Copenhagen University",
+    "bons": 0,
+    "cvr": "29979812",
+    "legal_name": "Københavns Universitet",
+    "source": "nemhandel"
+  },
+  {
+    "id": 1051,
+    "name": "Det Kgl. Bibliotek",
+    "bons": 0,
+    "cvr": "28988842",
+    "legal_name": "Det Kgl. Bibliotek",
+    "source": "nemhandel"
+  },
+  {
+    "id": 1038,
+    "name": "Københavns Universitet, CTN",
+    "bons": 0,
+    "cvr": "29979812",
+    "legal_name": "Københavns Universitet",
+    "source": "nemhandel"
+  },
+  {
+    "id": 1030,
+    "name": "Rigshospitalet, afsnit 5074, Afd. for kræftbehandling,",
+    "bons": 0,
+    "cvr": "29190623",
+    "legal_name": "Region Hovedstaden",
+    "source": "nemhandel"
+  },
+  {
+    "id": 1018,
+    "name": "Københavns Universitet/Biologisk Institut",
+    "bons": 0,
+    "cvr": "29979812",
+    "legal_name": "Københavns Universitet",
+    "source": "nemhandel"
+  },
+  {
+    "id": 1000,
+    "name": "Righospitalet 6033",
+    "bons": 0,
+    "cvr": "29190623",
+    "legal_name": "Region Hovedstaden",
+    "source": "nemhandel"
+  },
+  {
+    "id": 950,
+    "name": "Københavns Kommune, Børne- og Ungdomsforvaltningen, Brønshøj/Vanløse",
+    "bons": 0,
+    "cvr": "64942212",
+    "legal_name": "Københavns Kommune",
+    "source": "nemhandel"
+  },
+  {
+    "id": 919,
+    "name": "Københavns kommune - Børne- og Ungdomsforvaltningen",
+    "bons": 0,
+    "cvr": "64942212",
+    "legal_name": "Københavns Kommune",
+    "source": "nemhandel"
+  },
+  {
+    "id": 888,
+    "name": "Rigshospitalet, afsnit 5074, Afd. for kræftbehandling",
+    "bons": 0,
+    "cvr": "29190623",
+    "legal_name": "Region Hovedstaden",
+    "source": "nemhandel"
+  },
+  {
+    "id": 841,
+    "name": "Universitetshospitalet for Store Husdyr\nKontaktperson: Laura Brink Hansen (mail: laura.b.hansen@sund.ku.dk)",
+    "bons": 0,
+    "cvr": "29979812",
+    "legal_name": "Københavns Universitet",
+    "source": "nemhandel"
+  },
+  {
+    "id": 834,
+    "name": "Copydan Tekst & Node",
+    "bons": 0,
+    "cvr": "18463504",
+    "legal_name": "Tekst & Node",
+    "source": "nemhandel"
+  },
+  {
+    "id": 828,
+    "name": "Landbrug & Fødevarer F.m.b.A.",
+    "bons": 0,
+    "cvr": "25529529",
+    "legal_name": "LANDBRUG & FØDEVARER F.M.B.A.",
+    "source": "nemhandel"
+  },
+  {
+    "id": 820,
+    "name": "Afdeling for Vækst og Reproduktion, afsnit 5064, Rigshospitalet",
+    "bons": 0,
+    "cvr": "29190623",
+    "legal_name": "Region Hovedstaden",
+    "source": "nemhandel"
+  },
+  {
+    "id": 793,
+    "name": "Område Nørrebro/Bispebjerg",
+    "bons": 0,
+    "cvr": "64942212",
+    "legal_name": "Københavns Kommune",
+    "source": "nemhandel"
+  },
+  {
+    "id": 759,
+    "name": "Ole Rømer-Skolen",
+    "bons": 0,
+    "cvr": "19501817",
+    "legal_name": "Høje-Taastrup Kommune",
+    "source": "nemhandel"
+  },
+  {
+    "id": 724,
+    "name": "Københavns Universitet/Kemisk Institut",
+    "bons": 0,
+    "cvr": "29979812",
+    "legal_name": "Københavns Universitet",
+    "source": "nemhandel"
+  },
+  {
+    "id": 717,
+    "name": "KØBENHAVNS KOMMUNE Børne- og Ungdomsforvaltningen Område Valby/Vesterbro/Kgs. Enghave",
+    "bons": 0,
+    "cvr": "64942212",
+    "legal_name": "Københavns Kommune",
+    "source": "nemhandel"
+  },
+  {
+    "id": 714,
+    "name": "Rigshospitalet, CKO",
+    "bons": 0,
+    "cvr": "29190623",
+    "legal_name": "Region Hovedstaden",
+    "source": "nemhandel"
+  },
+  {
+    "id": 711,
+    "name": "Gate 21 / Klimaalliancen i Region H",
+    "bons": 0,
+    "cvr": "32112846",
+    "legal_name": "Gate 21",
+    "source": "nemhandel"
+  },
+  {
+    "id": 708,
+    "name": "Danish Diabetes and Endocrine Academy v/Odense Universitets Hospital",
+    "bons": 0,
+    "cvr": "29190909",
+    "legal_name": "Region Syddanmark",
+    "source": "nemhandel"
+  },
+  {
+    "id": 705,
+    "name": "Sustainability Science Center - Globe Institute – Københavns Universitet",
+    "bons": 0,
+    "cvr": "29979812",
+    "legal_name": "Københavns Universitet",
+    "source": "nemhandel"
+  },
+  {
+    "id": 679,
+    "name": "Math KU",
+    "bons": 0,
+    "cvr": "29979812",
+    "legal_name": "Københavns Universitet",
+    "source": "nemhandel"
+  },
+  {
+    "id": 676,
+    "name": "BUF, Område Nørrebro/Bispbjerg",
+    "bons": 0,
+    "cvr": "64942212",
+    "legal_name": "Københavns Kommune",
+    "source": "nemhandel"
+  },
+  {
+    "id": 667,
+    "name": "Folkekirken",
+    "bons": 0,
+    "cvr": "32108083",
+    "legal_name": "Vesterbro Sogns Menighedsråd",
+    "source": "nemhandel"
+  },
+  {
+    "id": 659,
+    "name": "BUF - Område Nørrebro/Bispebjerg",
+    "bons": 0,
+    "cvr": "64942212",
+    "legal_name": "Københavns Kommune",
+    "source": "nemhandel"
+  },
+  {
+    "id": 650,
+    "name": "Department of Biology",
+    "bons": 0,
+    "cvr": "29979812",
+    "legal_name": "Københavns Universitet",
+    "source": "nemhandel"
+  },
+  {
+    "id": 627,
+    "name": "Børne- og Ungdomsforvaltningen, Område Nørrebro/Bispebjerg",
+    "bons": 0,
+    "cvr": "64942212",
+    "legal_name": "Københavns Kommune",
+    "source": "nemhandel"
+  },
+  {
+    "id": 618,
+    "name": "University of Copenhagen Department of Biology",
+    "bons": 0,
+    "cvr": "29979812",
+    "legal_name": "Københavns Universitet",
+    "source": "nemhandel"
+  },
+  {
+    "id": 607,
+    "name": "Afdeling for Organkirurgi og Transplantation klink 2123 Rigshospitalet",
+    "bons": 0,
+    "cvr": "29190623",
+    "legal_name": "Region Hovedstaden",
+    "source": "nemhandel"
+  },
+  {
+    "id": 584,
+    "name": "Københavns Kommune, Børne- og Ungdomsforvaltningen VVK",
+    "bons": 0,
+    "cvr": "64942212",
+    "legal_name": "Københavns Kommune",
+    "source": "nemhandel"
+  },
+  {
+    "id": 581,
+    "name": "Afdeling for kræftbehandling, Rigshospitalet",
+    "bons": 0,
+    "cvr": "29190623",
+    "legal_name": "Region Hovedstaden",
+    "source": "nemhandel"
+  },
+  {
+    "id": 577,
+    "name": "Børne- og Ungdomsforvaltningen VVK",
+    "bons": 0,
+    "cvr": "64942212",
+    "legal_name": "Københavns Kommune",
+    "source": "nemhandel"
+  },
+  {
+    "id": 561,
+    "name": "Nosco Medical Supply // Eventually",
+    "bons": 0,
+    "cvr": "33148976",
+    "legal_name": "EVENTUALLY ApS",
+    "source": "nemhandel"
+  },
+  {
+    "id": 560,
+    "name": "Nosco Medical Supply // Eventually",
+    "bons": 0,
+    "cvr": "33148976",
+    "legal_name": "EVENTUALLY ApS",
+    "source": "nemhandel"
+  },
+  {
+    "id": 557,
+    "name": "Rosenvængets sogns menighedsråd",
+    "bons": 0,
+    "cvr": "21994618",
+    "legal_name": "Rosenvængets Sogn",
+    "source": "nemhandel"
+  },
+  {
+    "id": 555,
+    "name": "Børn- og unge forvaltningen VVK",
+    "bons": 0,
+    "cvr": "64942212",
+    "legal_name": "Københavns Kommune",
+    "source": "nemhandel"
+  },
+  {
+    "id": 553,
+    "name": "Børn- og unge forvaltningen VVK",
+    "bons": 0,
+    "cvr": "64942212",
+    "legal_name": "Københavns Kommune",
+    "source": "nemhandel"
+  },
+  {
+    "id": 552,
+    "name": "Københavns Kommune, Kultur- og Fritidsforvaltningen, Kommunikation.",
+    "bons": 0,
+    "cvr": "64942212",
+    "legal_name": "Københavns Kommune",
+    "source": "nemhandel"
+  },
+  {
+    "id": 549,
+    "name": "Københavns Universitet - Globe Institute - Center for Macroecology, Evolution &amp; Climate - Sustainability Science Centre Att. Michelle Peled",
+    "bons": 0,
+    "cvr": "29979812",
+    "legal_name": "Københavns Universitet",
+    "source": "nemhandel"
+  },
+  {
+    "id": 548,
+    "name": "Københavns Universitet - Globe Institute - Center for Macroecology, Evolution &amp; Climate - Sustainability Science Centre Att. Michelle Peled",
+    "bons": 0,
+    "cvr": "29979812",
+    "legal_name": "Københavns Universitet",
+    "source": "nemhandel"
+  },
+  {
+    "id": 547,
+    "name": "AKB, København - Bispevænget",
+    "bons": 0,
+    "cvr": "56815910",
+    "legal_name": "KAB s m b a",
+    "source": "nemhandel"
+  },
+  {
+    "id": 546,
+    "name": "AKB, København - Bispevænget",
+    "bons": 0,
+    "cvr": "56815910",
+    "legal_name": "KAB s m b a",
+    "source": "nemhandel"
+  },
+  {
+    "id": 534,
+    "name": "Biblioteket Frederiksberg",
+    "bons": 0,
+    "cvr": "11259979",
+    "legal_name": "Frederiksberg Kommune",
+    "source": "nemhandel"
+  },
+  {
+    "id": 533,
+    "name": "Jobcenter København, Center for Jobindsats",
+    "bons": 0,
+    "cvr": "64942212",
+    "legal_name": "Københavns Kommune",
+    "source": "nemhandel"
+  },
+  {
+    "id": 532,
+    "name": "Jobcenter København, Center for Jobindsats",
+    "bons": 0,
+    "cvr": "64942212",
+    "legal_name": "Københavns Kommune",
+    "source": "nemhandel"
+  },
+  {
+    "id": 524,
+    "name": "Københavns Universitet, Institut for Lægemiddeldesign og Farmakologi",
+    "bons": 0,
+    "cvr": "29979812",
+    "legal_name": "Københavns Universitet",
+    "source": "nemhandel"
+  },
+  {
+    "id": 521,
+    "name": "University of Copenhagen, Depart. of Computer Science",
+    "bons": 0,
+    "cvr": "29979812",
+    "legal_name": "Københavns Universitet",
+    "source": "nemhandel"
+  },
+  {
+    "id": 519,
+    "name": "Biologisk Institut - Københavns Universitet",
+    "bons": 0,
+    "cvr": "29979812",
+    "legal_name": "Københavns Universitet",
+    "source": "nemhandel"
+  },
+  {
+    "id": 516,
+    "name": "RUST",
+    "bons": 0,
+    "cvr": "64942212",
+    "legal_name": "Københavns Kommune",
+    "source": "nemhandel"
+  },
+  {
+    "id": 506,
+    "name": "Bispebjerg Hospital afd. DS (Alice)",
+    "bons": 0,
+    "cvr": "29190623",
+    "legal_name": "Region Hovedstaden",
+    "source": "nemhandel"
+  },
+  {
+    "id": 505,
+    "name": "Bispebjerg Hospital afd. DS (Alice)",
+    "bons": 0,
+    "cvr": "29190623",
+    "legal_name": "Region Hovedstaden",
+    "source": "nemhandel"
+  },
+  {
+    "id": 503,
+    "name": "Københavns Madservice",
+    "bons": 0,
+    "cvr": "64942212",
+    "legal_name": "Københavns Kommune",
+    "source": "nemhandel"
+  },
+  {
+    "id": 502,
+    "name": "Københavns Universitet, Institut for Plante- og Miljøvidenskab",
+    "bons": 0,
+    "cvr": "29979812",
+    "legal_name": "Københavns Universitet",
+    "source": "nemhandel"
+  },
+  {
+    "id": 501,
+    "name": "Børne og Ungdomsforvaltningen",
+    "bons": 0,
+    "cvr": "64942212",
+    "legal_name": "Københavns Kommune",
+    "source": "nemhandel"
+  },
+  {
+    "id": 500,
+    "name": "Børne og Ungdomsforvaltningen",
+    "bons": 0,
+    "cvr": "64942212",
+    "legal_name": "Københavns Kommune",
+    "source": "nemhandel"
+  },
+  {
+    "id": 488,
+    "name": "Institut for Fødevarevidenskab, Københavns Universitet (KU FOOD)",
+    "bons": 0,
+    "cvr": "29979812",
+    "legal_name": "Københavns Universitet",
+    "source": "nemhandel"
+  },
+  {
+    "id": 481,
+    "name": "Børne- og ungeforvaltningen VVK",
+    "bons": 0,
+    "cvr": "64942212",
+    "legal_name": "Københavns Kommune",
+    "source": "nemhandel"
+  },
+  {
+    "id": 480,
+    "name": "Børne- og ungeforvaltningen VVK",
+    "bons": 0,
+    "cvr": "64942212",
+    "legal_name": "Københavns Kommune",
+    "source": "nemhandel"
+  },
+  {
+    "id": 472,
+    "name": "Rigshospitalet, afsnit 4141",
+    "bons": 0,
+    "cvr": "29190623",
+    "legal_name": "Region Hovedstaden",
+    "source": "nemhandel"
+  },
+  {
+    "id": 471,
+    "name": "Rigshospitalet, afsnit 4141",
+    "bons": 0,
+    "cvr": "29190623",
+    "legal_name": "Region Hovedstaden",
+    "source": "nemhandel"
+  },
+  {
+    "id": 466,
+    "name": "KU Science Plen",
+    "bons": 0,
+    "cvr": "29979812",
+    "legal_name": "Københavns Universitet",
+    "source": "nemhandel"
+  },
+  {
+    "id": 465,
+    "name": "KU Science Plen",
+    "bons": 0,
+    "cvr": "29979812",
+    "legal_name": "Københavns Universitet",
+    "source": "nemhandel"
+  },
+  {
+    "id": 463,
+    "name": "Københavns Universitet, Sektion for Præklinisk Sygdomsbiologi",
+    "bons": 0,
+    "cvr": "29979812",
+    "legal_name": "Københavns Universitet",
+    "source": "nemhandel"
+  },
+  {
+    "id": 454,
+    "name": "Glostrup Kommune, sundehdsplejen",
+    "bons": 0,
+    "cvr": "65120119",
+    "legal_name": "Glostrup Kommune",
+    "source": "nemhandel"
+  },
+  {
+    "id": 444,
+    "name": "DTU FYSIK - VISION (SurfCat)",
+    "bons": 0,
+    "cvr": "30060946",
+    "legal_name": "Danmarks Tekniske Universitet",
+    "source": "nemhandel"
+  },
+  {
+    "id": 443,
+    "name": "Rigshospitalet ,afsnit 7075.",
+    "bons": 0,
+    "cvr": "29190623",
+    "legal_name": "Region Hovedstaden",
+    "source": "nemhandel"
+  },
+  {
+    "id": 442,
+    "name": "Rigshospitalet ,afsnit 7075.",
+    "bons": 0,
+    "cvr": "29190623",
+    "legal_name": "Region Hovedstaden",
+    "source": "nemhandel"
+  },
+  {
+    "id": 433,
+    "name": "FUV",
+    "bons": 0,
+    "cvr": "25961838",
+    "legal_name": "Folkekirkens Uddannelses- og      Videnscenter",
+    "source": "nemhandel"
+  },
+  {
+    "id": 431,
+    "name": "Børne- og Ungdomsforvaltningen, Nørrebro/Bispebjerg",
+    "bons": 0,
+    "cvr": "64942212",
+    "legal_name": "Københavns Kommune",
+    "source": "nemhandel"
+  },
+  {
+    "id": 429,
+    "name": "Børne- og Ungdomsforvaltningen, Nørrebro/Bispebjerg",
+    "bons": 0,
+    "cvr": "64942212",
+    "legal_name": "Københavns Kommune",
+    "source": "nemhandel"
+  },
+  {
+    "id": 427,
+    "name": "Biologisk Institut, Københvans Universitet",
+    "bons": 0,
+    "cvr": "29979812",
+    "legal_name": "Københavns Universitet",
+    "source": "nemhandel"
+  },
+  {
+    "id": 422,
+    "name": "University of Copenhagen, Science Faculty",
+    "bons": 0,
+    "cvr": "29979812",
+    "legal_name": "Københavns Universitet",
+    "source": "nemhandel"
+  },
+  {
+    "id": 419,
+    "name": "Niels Bohr Institutet - Center for Quantum Devices",
+    "bons": 0,
+    "cvr": "29979812",
+    "legal_name": "Københavns Universitet",
+    "source": "nemhandel"
+  },
+  {
+    "id": 416,
+    "name": "DEAS A/S",
+    "bons": 0,
+    "cvr": "20283416",
+    "legal_name": "DEAS A/S",
+    "source": "nemhandel"
+  },
+  {
+    "id": 414,
+    "name": "Rigshospitalet, Hjertecentret",
+    "bons": 0,
+    "cvr": "29190623",
+    "legal_name": "Region Hovedstaden",
+    "source": "nemhandel"
+  },
+  {
+    "id": 410,
+    "name": "Dansk Sygeplejeråd Kreds Hovedstaden",
+    "bons": 0,
+    "cvr": "30948688",
+    "legal_name": "Dansk Sygeplejeråd, Kreds Hovedstaden",
+    "source": "nemhandel"
+  },
+  {
+    "id": 405,
+    "name": "PLEN, Københavns Universitet",
+    "bons": 0,
+    "cvr": "29979812",
+    "legal_name": "Københavns Universitet",
+    "source": "nemhandel"
+  },
+  {
+    "id": 398,
+    "name": "Vallensbæk kommune",
+    "bons": 0,
+    "cvr": "19583910",
+    "legal_name": "Vallensbæk Kommune",
+    "source": "nemhandel"
+  },
+  {
+    "id": 397,
+    "name": "Vallensbæk kommune",
+    "bons": 0,
+    "cvr": "19583910",
+    "legal_name": "Vallensbæk Kommune",
+    "source": "nemhandel"
+  },
+  {
+    "id": 394,
+    "name": "Frederiksberg Kommune",
+    "bons": 0,
+    "cvr": "11259979",
+    "legal_name": "Frederiksberg Kommune",
+    "source": "nemhandel"
+  },
+  {
+    "id": 358,
+    "name": "Kirkebækskolen",
+    "bons": 0,
+    "cvr": "19583910",
+    "legal_name": "Vallensbæk Kommune",
+    "source": "nemhandel"
+  },
+  {
+    "id": 336,
+    "name": "Globe Institute, Københavns Universitet",
+    "bons": 0,
+    "cvr": "29979812",
+    "legal_name": "Københavns Universitet",
+    "source": "nemhandel"
+  },
+  {
+    "id": 330,
+    "name": "Strandskolen",
+    "bons": 0,
+    "cvr": "44023911",
+    "legal_name": "Greve Kommune",
+    "source": "nemhandel"
+  },
+  {
+    "id": 324,
+    "name": "Teknik- og Miljøforvaltningen, Københavns Kommune",
+    "bons": 0,
+    "cvr": "64942212",
+    "legal_name": "Københavns Kommune",
+    "source": "nemhandel"
+  },
+  {
+    "id": 322,
+    "name": "Uddannelse København",
+    "bons": 0,
+    "cvr": "64942212",
+    "legal_name": "Københavns Kommune",
+    "source": "nemhandel"
+  },
+  {
+    "id": 319,
+    "name": "Institut for matematiske fag, Københavns Universitet",
+    "bons": 0,
+    "cvr": "29979812",
+    "legal_name": "Københavns Universitet",
+    "source": "nemhandel"
+  },
+  {
+    "id": 307,
+    "name": "Hoffmann A/S",
+    "bons": 0,
+    "cvr": "63030228",
+    "legal_name": "HOFFMANN A/S",
+    "source": "nemhandel"
+  },
+  {
+    "id": 304,
+    "name": "KU Datalogisk institut",
+    "bons": 0,
+    "cvr": "29979812",
+    "legal_name": "Københavns Universitet",
+    "source": "nemhandel"
+  },
+  {
+    "id": 301,
+    "name": "Institut for Neurovidenskab",
+    "bons": 0,
+    "cvr": "29979812",
+    "legal_name": "Københavns Universitet",
+    "source": "nemhandel"
+  },
+  {
+    "id": 296,
+    "name": "Mellemfolkeligt Samvirke",
+    "bons": 0,
+    "cvr": "18243717",
+    "legal_name": "Mellemfolkeligt Samvirke",
+    "source": "nemhandel"
+  },
+  {
+    "id": 291,
+    "name": "BUF, Område Nørrebro/Bispebjerg",
+    "bons": 0,
+    "cvr": "64942212",
+    "legal_name": "Københavns Kommune",
+    "source": "nemhandel"
+  },
+  {
+    "id": 274,
+    "name": "Det Kongelige Akademi - Arkitektur, Design, Konservering",
+    "bons": 0,
+    "cvr": "18975734",
+    "legal_name": "Det Kongelige Danske Kunst- akademis Skoler for Arkitektur, Design og Konservering",
+    "source": "nemhandel"
+  },
+  {
+    "id": 266,
+    "name": "Baltic Energy Island",
+    "bons": 0,
+    "cvr": "31816211",
+    "legal_name": "Bornholms Energi og Forsyning Holding A/S",
+    "source": "nemhandel"
+  },
+  {
+    "id": 264,
+    "name": "Det Kongelige Akademi - Konservering",
+    "bons": 0,
+    "cvr": "18975734",
+    "legal_name": "Det Kongelige Danske Kunst- akademis Skoler for Arkitektur, Design og Konservering",
+    "source": "nemhandel"
+  },
+  {
+    "id": 255,
+    "name": "Rigshospitalet - Juliane Marie Centret, opgang 4, 7. sal, afsnit 4074",
+    "bons": 0,
+    "cvr": "29190623",
+    "legal_name": "Region Hovedstaden",
+    "source": "nemhandel"
+  },
+  {
+    "id": 253,
+    "name": "Rigshospitalet - Juliane Marie Centret, opgang 4, 7. sal, afsnit 4074",
+    "bons": 0,
+    "cvr": "29190623",
+    "legal_name": "Region Hovedstaden",
+    "source": "nemhandel"
+  },
+  {
+    "id": 249,
+    "name": "University of Copenhagen, In",
+    "bons": 0,
+    "cvr": "29979812",
+    "legal_name": "Københavns Universitet",
+    "source": "nemhandel"
+  },
+  {
+    "id": 248,
+    "name": "University of Copenhagen, In",
+    "bons": 0,
+    "cvr": "29979812",
+    "legal_name": "Københavns Universitet",
+    "source": "nemhandel"
+  },
+  {
+    "id": 241,
+    "name": "Rigshospitalet afsnit 4141",
+    "bons": 0,
+    "cvr": "29190623",
+    "legal_name": "Region Hovedstaden",
+    "source": "nemhandel"
+  },
+  {
+    "id": 240,
+    "name": "Institut for Matematiske Fag, Københavns Universitet",
+    "bons": 0,
+    "cvr": "29979812",
+    "legal_name": "Københavns Universitet",
+    "source": "nemhandel"
+  },
+  {
+    "id": 228,
+    "name": "Børne- og Ungdomsforvaltningen - Område Nørrebro/Bispebjerg",
+    "bons": 0,
+    "cvr": "64942212",
+    "legal_name": "Københavns Kommune",
+    "source": "nemhandel"
+  },
+  {
+    "id": 227,
+    "name": "Børne- og Ungdomsforvaltningen - Område Nørrebro/Bispebjerg",
+    "bons": 0,
+    "cvr": "64942212",
+    "legal_name": "Københavns Kommune",
+    "source": "nemhandel"
+  },
+  {
+    "id": 219,
+    "name": "JMC Børne- unge kræftafdeling",
+    "bons": 0,
+    "cvr": "29190623",
+    "legal_name": "Region Hovedstaden",
+    "source": "nemhandel"
+  },
+  {
+    "id": 218,
+    "name": "IVH, KU",
+    "bons": 0,
+    "cvr": "29979812",
+    "legal_name": "Københavns Universitet",
+    "source": "nemhandel"
+  },
+  {
+    "id": 215,
+    "name": "Sundby Idrætspark",
+    "bons": 0,
+    "cvr": "64942212",
+    "legal_name": "Københavns Kommune",
+    "source": "nemhandel"
+  },
+  {
+    "id": 214,
+    "name": "Datalogisk Institut",
+    "bons": 0,
+    "cvr": "29979812",
+    "legal_name": "Københavns Universitet",
+    "source": "nemhandel"
+  },
+  {
+    "id": 207,
+    "name": "Universitetshospitalet for Store Husdyr",
+    "bons": 0,
+    "cvr": "29979812",
+    "legal_name": "Københavns Universitet",
+    "source": "nemhandel"
+  },
+  {
+    "id": 197,
+    "name": "Rigshospitalet afdelingen for børn og unge med kræft 5002",
+    "bons": 0,
+    "cvr": "29190623",
+    "legal_name": "Region Hovedstaden",
+    "source": "nemhandel"
+  },
+  {
+    "id": 189,
+    "name": "University of Copenhagen",
+    "bons": 0,
+    "cvr": "29979812",
+    "legal_name": "Københavns Universitet",
+    "source": "nemhandel"
+  },
+  {
+    "id": 188,
+    "name": "Københavns Universitet",
+    "bons": 0,
+    "cvr": "29979812",
+    "legal_name": "Københavns Universitet",
+    "source": "nemhandel"
+  },
+  {
+    "id": 175,
+    "name": "Afdeling for bedøvelse og intensiv behandling, Rigshospitalet",
+    "bons": 0,
+    "cvr": "29190623",
+    "legal_name": "Region Hovedstaden",
+    "source": "nemhandel"
+  },
+  {
+    "id": 169,
+    "name": "VIBEN",
+    "bons": 0,
+    "cvr": "64942212",
+    "legal_name": "Københavns Kommune",
+    "source": "nemhandel"
+  },
+  {
+    "id": 162,
+    "name": "Landbrug &amp; Fødevarer F.m.b.A",
+    "bons": 0,
+    "cvr": "25529529",
+    "legal_name": "LANDBRUG & FØDEVARER F.M.B.A.",
+    "source": "nemhandel"
+  },
+  {
+    "id": 161,
+    "name": "Landbrug &amp; Fødevarer F.m.b.A",
+    "bons": 0,
+    "cvr": "25529529",
+    "legal_name": "LANDBRUG & FØDEVARER F.M.B.A.",
+    "source": "nemhandel"
+  },
+  {
+    "id": 151,
+    "name": "Sprogcenter Furesø",
+    "bons": 0,
+    "cvr": "29188327",
+    "legal_name": "Furesø Kommune",
+    "source": "nemhandel"
+  },
+  {
+    "id": 146,
+    "name": "Rigshospitalet",
+    "bons": 0,
+    "cvr": "29190623",
+    "legal_name": "Region Hovedstaden",
+    "source": "nemhandel"
+  },
+  {
+    "id": 145,
+    "name": "rigshospitalet,",
+    "bons": 0,
+    "cvr": "29190623",
+    "legal_name": "Region Hovedstaden",
+    "source": "nemhandel"
+  },
+  {
+    "id": 143,
+    "name": "University of Copenhagen, Rigshospitalet",
+    "bons": 0,
+    "cvr": "29190623",
+    "legal_name": "Region Hovedstaden",
+    "source": "nemhandel"
+  },
+  {
+    "id": 142,
+    "name": "Gentofte Kommune",
+    "bons": 0,
+    "cvr": "19438414",
+    "legal_name": "Gentofte Kommune",
+    "source": "nemhandel"
+  },
+  {
+    "id": 135,
+    "name": "Gate 21",
+    "bons": 0,
+    "cvr": "32112846",
+    "legal_name": "Gate 21",
+    "source": "nemhandel"
+  },
+  {
+    "id": 123,
+    "name": "University of Cph, Rigshospitalet",
+    "bons": 0,
+    "cvr": "29190623",
+    "legal_name": "Region Hovedstaden",
+    "source": "nemhandel"
+  },
+  {
+    "id": 122,
+    "name": "University of Copenhagen, Rigshospitalet",
+    "bons": 0,
+    "cvr": "29190623",
+    "legal_name": "Region Hovedstaden",
+    "source": "nemhandel"
+  },
+  {
+    "id": 28,
+    "name": "Juliane Marie Centret",
+    "bons": 0,
+    "cvr": "29190623",
+    "legal_name": "Region Hovedstaden",
+    "source": "nemhandel"
+  },
+  {
+    "id": 96,
+    "name": "Rigshospitalet",
+    "bons": 59,
+    "cvr": "29190623",
+    "legal_name": "Region Hovedstaden",
+    "source": "cvrapi"
+  },
+  {
+    "id": 1193,
+    "name": "Rigshospitalet, Juliane Marie Centret, 5064",
+    "bons": 8,
+    "cvr": "29190623",
+    "legal_name": "Region Hovedstaden",
+    "source": "cvrapi"
+  },
+  {
+    "id": 641,
+    "name": "Børnefortællingen",
+    "bons": 7,
+    "cvr": "64942212",
+    "legal_name": "Københavns Kommune",
+    "source": "cvrapi"
+  },
+  {
+    "id": 100,
+    "name": "Klynge NB A, Københavns kommune",
+    "bons": 7,
+    "cvr": "64942212",
+    "legal_name": "Københavns Kommune",
+    "source": "cvrapi"
+  },
+  {
+    "id": 622,
+    "name": "Rigshospitalet, HovedOrtoCentret",
+    "bons": 6,
+    "cvr": "29190623",
+    "legal_name": "Region Hovedstaden",
+    "source": "cvrapi"
+  },
+  {
+    "id": 269,
+    "name": "Guldberg skole",
+    "bons": 6,
+    "cvr": "64942212",
+    "legal_name": "Københavns Kommune",
+    "source": "cvrapi"
+  },
+  {
+    "id": 733,
+    "name": "Nordlys",
+    "bons": 5,
+    "cvr": "64942212",
+    "legal_name": "Københavns Kommune",
+    "source": "cvrapi"
+  },
+  {
+    "id": 948,
+    "name": "Rigshospitalet -Neurocenter",
+    "bons": 4,
+    "cvr": "29190623",
+    "legal_name": "Region Hovedstaden",
+    "source": "cvrapi"
+  },
+  {
+    "id": 795,
+    "name": "DTU Management",
+    "bons": 4,
+    "cvr": "30060946",
+    "legal_name": "Danmarks Tekniske Universitet",
+    "source": "cvrapi"
+  },
+  {
+    "id": 1120,
+    "name": "Skolen på Grundtvigsvej",
+    "bons": 3,
+    "cvr": "11259979",
+    "legal_name": "Frederiksberg Kommune",
+    "source": "cvrapi"
+  },
+  {
+    "id": 1074,
+    "name": "Rigshospitalet Neurocentret",
+    "bons": 3,
+    "cvr": "29190623",
+    "legal_name": "Region Hovedstaden",
+    "source": "cvrapi"
+  },
+  {
+    "id": 949,
+    "name": "Æblekassen, Københavns Kommune",
+    "bons": 3,
+    "cvr": "64942212",
+    "legal_name": "Københavns Kommune",
+    "source": "cvrapi"
+  },
+  {
+    "id": 868,
+    "name": "Bufx",
+    "bons": 3,
+    "cvr": "64942212",
+    "legal_name": "Københavns Kommune",
+    "source": "cvrapi"
+  },
+  {
+    "id": 844,
+    "name": "Copenhagen University Hospital - Rigshospitalet  Department of Growth and Reproduction GR",
+    "bons": 3,
+    "cvr": "29190623",
+    "legal_name": "Region Hovedstaden",
+    "source": "cvrapi"
+  },
+  {
+    "id": 666,
+    "name": "Rigshospitalet , klinik for stråleterapi",
+    "bons": 3,
+    "cvr": "29190623",
+    "legal_name": "Region Hovedstaden",
+    "source": "cvrapi"
+  },
+  {
+    "id": 497,
+    "name": "Børnehuset GAIA",
+    "bons": 3,
+    "cvr": "64942212",
+    "legal_name": "Københavns Kommune",
+    "source": "cvrapi"
+  },
+  {
+    "id": 1141,
+    "name": "Rigshospitalet Section 5092",
+    "bons": 2,
+    "cvr": "29190623",
+    "legal_name": "Region Hovedstaden",
+    "source": "cvrapi"
+  },
+  {
+    "id": 983,
+    "name": "Kirkebjerg Skole",
+    "bons": 2,
+    "cvr": "64942212",
+    "legal_name": "Københavns Kommune",
+    "source": "cvrapi"
+  },
+  {
+    "id": 963,
+    "name": "Vuggestuen Ingolf",
+    "bons": 2,
+    "cvr": "64942212",
+    "legal_name": "Københavns Kommune",
+    "source": "cvrapi"
+  },
+  {
+    "id": 911,
+    "name": "Region h",
+    "bons": 2,
+    "cvr": "29190623",
+    "legal_name": "Region Hovedstaden",
+    "source": "cvrapi"
+  },
+  {
+    "id": 678,
+    "name": "Int. Inst. Søstjernen",
+    "bons": 2,
+    "cvr": "64942212",
+    "legal_name": "Københavns Kommune",
+    "source": "cvrapi"
+  },
+  {
+    "id": 615,
+    "name": "Fritidsklynge IBØ",
+    "bons": 2,
+    "cvr": "64942212",
+    "legal_name": "Københavns Kommune",
+    "source": "cvrapi"
+  },
+  {
+    "id": 352,
+    "name": "CSV København",
+    "bons": 2,
+    "cvr": "64942212",
+    "legal_name": "Københavns Kommune",
+    "source": "cvrapi"
+  },
+  {
+    "id": 1097,
+    "name": "Bispebjerg Hospital, Dansk Selskab for Sårheling",
+    "bons": 1,
+    "cvr": "29190623",
+    "legal_name": "Region Hovedstaden",
+    "source": "cvrapi"
+  },
+  {
+    "id": 995,
+    "name": "Børnehuset Grønttorvet",
+    "bons": 1,
+    "cvr": "64942212",
+    "legal_name": "Københavns Kommune",
+    "source": "cvrapi"
+  },
+  {
+    "id": 979,
+    "name": "Børne- og Ungdomsforvaltningen Brønshøj/Vanløse",
+    "bons": 1,
+    "cvr": "64942212",
+    "legal_name": "Københavns Kommune",
+    "source": "cvrapi"
+  },
+  {
+    "id": 958,
+    "name": "Børne- og Ungdomsforvaltning Københavns Kommune område Brønshøj-Vanløse",
+    "bons": 1,
+    "cvr": "64942212",
+    "legal_name": "Københavns Kommune",
+    "source": "cvrapi"
+  },
+  {
+    "id": 924,
+    "name": "Børnehuset",
+    "bons": 1,
+    "cvr": "64942212",
+    "legal_name": "Københavns Kommune",
+    "source": "cvrapi"
+  },
+  {
+    "id": 918,
+    "name": "Center for specialundervisning for voksne",
+    "bons": 1,
+    "cvr": "64942212",
+    "legal_name": "Københavns Kommune",
+    "source": "cvrapi"
+  },
+  {
+    "id": 833,
+    "name": "DTU Department of Technology, Management and Economics",
+    "bons": 1,
+    "cvr": "30060946",
+    "legal_name": "Danmarks Tekniske Universitet",
+    "source": "cvrapi"
+  },
+  {
+    "id": 819,
+    "name": "Københavns kommune Klynge VVKF",
+    "bons": 1,
+    "cvr": "64942212",
+    "legal_name": "Københavns Kommune",
+    "source": "cvrapi"
+  },
+  {
+    "id": 811,
+    "name": "Rødkilde Skole",
+    "bons": 1,
+    "cvr": "64942212",
+    "legal_name": "Københavns Kommune",
+    "source": "cvrapi"
+  },
+  {
+    "id": 750,
+    "name": "Københavns Kommune, Klynge D",
+    "bons": 1,
+    "cvr": "64942212",
+    "legal_name": "Københavns Kommune",
+    "source": "cvrapi"
+  },
+  {
+    "id": 745,
+    "name": "Børne- og ungdomsforvaltningen København Kommune",
+    "bons": 1,
+    "cvr": "64942212",
+    "legal_name": "Københavns Kommune",
+    "source": "cvrapi"
+  },
+  {
+    "id": 704,
+    "name": "Brolopperne/Tusindfryd (bruger id: POGR)",
+    "bons": 1,
+    "cvr": "64942212",
+    "legal_name": "Københavns Kommune",
+    "source": "cvrapi"
+  },
+  {
+    "id": 684,
+    "name": "Rockkoret",
+    "bons": 1,
+    "cvr": "64942212",
+    "legal_name": "Københavns Kommune",
+    "source": "cvrapi"
+  },
+  {
+    "id": 681,
+    "name": "Københavns Kommune -Transformeren",
+    "bons": 1,
+    "cvr": "64942212",
+    "legal_name": "Københavns Kommune",
+    "source": "cvrapi"
+  },
+  {
+    "id": 616,
+    "name": "Københavns Kommune, PKR, Kirkegårde Nord",
+    "bons": 1,
+    "cvr": "64942212",
+    "legal_name": "Københavns Kommune",
+    "source": "cvrapi"
+  },
+  {
+    "id": 594,
+    "name": "Klynge NB B (kunde 49)",
+    "bons": 1,
+    "cvr": "64942212",
+    "legal_name": "Københavns Kommune",
+    "source": "cvrapi"
+  },
+  {
+    "id": 566,
+    "name": "Lundehusskolen",
+    "bons": 1,
+    "cvr": "64942212",
+    "legal_name": "Københavns Kommune",
+    "source": "cvrapi"
+  },
+  {
+    "id": 479,
+    "name": "Department Of Neurosurgery And Department Of Paediatrics And Adolescent Medicine, Rigshospitalet",
+    "bons": 1,
+    "cvr": "29190623",
+    "legal_name": "Region Hovedstaden",
+    "source": "cvrapi"
+  },
+  {
+    "id": 418,
+    "name": "Faglig Center, Børne- og Ungdomsforvaltningen, Københavns Kommune",
+    "bons": 1,
+    "cvr": "64942212",
+    "legal_name": "Københavns Kommune",
+    "source": "cvrapi"
+  },
+  {
+    "id": 364,
+    "name": "Fritidsinstitutionen ved Langelinieskolen",
+    "bons": 1,
+    "cvr": "64942212",
+    "legal_name": "Københavns Kommune",
+    "source": "cvrapi"
+  },
+  {
+    "id": 257,
+    "name": "Børne - og Ungdomsforvaltningen",
+    "bons": 1,
+    "cvr": "64942212",
+    "legal_name": "Københavns Kommune",
+    "source": "cvrapi"
+  },
+  {
+    "id": 65,
+    "name": "Klynge NB B, Område Nørrebro/Bispbjerg",
+    "bons": 1,
+    "cvr": "64942212",
+    "legal_name": "Københavns Kommune",
+    "source": "cvrapi"
+  },
+  {
+    "id": 60,
+    "name": "KØBENHAVNS KOMMUNE  Børne- og Ungdomsforvaltningen  Administrativt Ressourcecenter",
+    "bons": 1,
+    "cvr": "64942212",
+    "legal_name": "Københavns Kommune",
+    "source": "cvrapi"
+  },
+  {
+    "id": 49,
+    "name": "Integreret institution Sølund",
+    "bons": 1,
+    "cvr": "64942212",
+    "legal_name": "Københavns Kommune",
+    "source": "cvrapi"
+  },
+  {
+    "id": 36,
+    "name": "Børneriget",
+    "bons": 1,
+    "cvr": "29190623",
+    "legal_name": "Region Hovedstaden",
+    "source": "cvrapi"
+  },
+  {
+    "id": 713,
+    "name": "Professorsammenslutningen på Rigshospitalet",
+    "bons": 0,
+    "cvr": "29190623",
+    "legal_name": "Region Hovedstaden",
+    "source": "cvrapi"
+  }
+]

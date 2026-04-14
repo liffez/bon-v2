@@ -1,0 +1,383 @@
+<!DOCTYPE html>
+<html lang="da">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>CVR Review — Virk ES Matches</title>
+  <style>
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; background: #f5f4f2; color: #333; padding: 20px; }
+
+    .header { max-width: 1200px; margin: 0 auto 20px; }
+    .header h1 { font-size: 24px; margin-bottom: 8px; }
+    .header p { color: #666; font-size: 14px; }
+
+    /* ── Toolbar ── */
+    .toolbar { max-width: 1200px; margin: 0 auto 16px; display: flex; gap: 12px; align-items: center; flex-wrap: wrap; }
+    .toolbar input[type="text"] {
+      flex: 1; min-width: 200px; padding: 8px 12px; border: 1px solid #d7d1ca;
+      border-radius: 6px; font-size: 14px; background: #fff;
+    }
+    .toolbar input[type="text"]:focus { outline: none; border-color: #8e631f; box-shadow: 0 0 0 2px rgba(142,99,31,.15); }
+    .toolbar select { padding: 8px 12px; border: 1px solid #d7d1ca; border-radius: 6px; font-size: 14px; background: #fff; }
+    .toolbar .stats { font-size: 13px; color: #666; white-space: nowrap; }
+
+    /* ── Bulk actions ── */
+    .bulk-bar {
+      max-width: 1200px; margin: 0 auto 16px; display: flex; gap: 12px; align-items: center; flex-wrap: wrap;
+      background: #fff; padding: 12px 16px; border-radius: 8px; border: 1px solid #d7d1ca;
+    }
+    .bulk-bar label { font-size: 14px; cursor: pointer; display: flex; align-items: center; gap: 6px; }
+    .bulk-bar .spacer { flex: 1; }
+    .btn { padding: 8px 16px; border: none; border-radius: 6px; font-size: 14px; cursor: pointer; font-weight: 500; }
+    .btn-primary { background: #8e631f; color: #fff; }
+    .btn-primary:hover { background: #7a5519; }
+    .btn-secondary { background: #e8e2d8; color: #333; }
+    .btn-secondary:hover { background: #ddd6ca; }
+    .btn-danger { background: #dc3545; color: #fff; }
+    .btn-danger:hover { background: #c82333; }
+    .btn-sm { padding: 4px 10px; font-size: 12px; }
+
+    /* ── Table ── */
+    .table-wrap { max-width: 1200px; margin: 0 auto; background: #fff; border-radius: 8px; border: 1px solid #d7d1ca; overflow-x: auto; }
+    table { width: 100%; border-collapse: collapse; font-size: 14px; }
+    th { background: #f8f6f3; padding: 10px 12px; text-align: left; font-weight: 600; border-bottom: 2px solid #d7d1ca; position: sticky; top: 0; cursor: pointer; user-select: none; white-space: nowrap; }
+    th:hover { background: #f0ece6; }
+    th .sort-arrow { font-size: 10px; margin-left: 4px; color: #999; }
+    th .sort-arrow.active { color: #8e631f; }
+    td { padding: 8px 12px; border-bottom: 1px solid #eee; vertical-align: middle; }
+    tr:hover { background: #faf8f5; }
+    tr.rejected { opacity: 0.4; text-decoration: line-through; }
+    tr.rejected:hover { opacity: 0.7; }
+
+    /* ── Confidence badges ── */
+    .conf { display: inline-block; padding: 2px 8px; border-radius: 10px; font-size: 12px; font-weight: 600; }
+    .conf-high { background: #d4edda; color: #155724; }
+    .conf-mid { background: #fff3cd; color: #856404; }
+    .conf-low { background: #f8d7da; color: #721c24; }
+
+    /* ── Status badges ── */
+    .status-badge { font-size: 11px; padding: 1px 6px; border-radius: 4px; }
+    .status-active { background: #d4edda; color: #155724; }
+    .status-inactive { background: #f8d7da; color: #721c24; }
+
+    /* ── Checkbox column ── */
+    td:first-child, th:first-child { width: 40px; text-align: center; }
+    input[type="checkbox"] { width: 16px; height: 16px; cursor: pointer; accent-color: #8e631f; }
+
+    /* ── Export area ── */
+    .export-area { max-width: 1200px; margin: 20px auto; display: none; }
+    .export-area textarea { width: 100%; height: 200px; font-family: monospace; font-size: 12px; padding: 12px; border: 1px solid #d7d1ca; border-radius: 8px; }
+    .export-area .info { margin-top: 8px; font-size: 13px; color: #666; }
+
+    /* ── Load area ── */
+    .load-area { max-width: 1200px; margin: 0 auto 20px; text-align: center; padding: 40px; background: #fff; border-radius: 8px; border: 2px dashed #d7d1ca; }
+    .load-area p { margin-bottom: 12px; color: #666; }
+    .load-area code { background: #f0ece6; padding: 2px 6px; border-radius: 4px; font-size: 13px; }
+  </style>
+</head>
+<body>
+
+<div class="header">
+  <h1>CVR Review — Virk ES Matches</h1>
+  <p>Gennemga Virk-navnesogningens forslag. Fjern hak fra forkerte matches, godkend resten.</p>
+</div>
+
+<div class="load-area" id="loadArea">
+  <p>Indlas <code>data/cvr-virk-review.json</code></p>
+  <input type="file" id="fileInput" accept=".json">
+  <p style="margin-top:12px;font-size:13px">Eller start serveren og <button class="btn btn-sm btn-secondary" onclick="loadFromServer()">Hent fra server</button></p>
+</div>
+
+<div id="app" style="display:none">
+
+  <div class="toolbar">
+    <input type="text" id="searchInput" placeholder="Sog i firmanavn, CVR eller Virk-match...">
+    <select id="confFilter">
+      <option value="all">Alle confidence</option>
+      <option value="high">90%+ (hoj)</option>
+      <option value="mid">75-89% (middel)</option>
+      <option value="low">&lt;75% (lav)</option>
+    </select>
+    <select id="statusFilter">
+      <option value="all">Alle statusser</option>
+      <option value="active">Kun aktive</option>
+      <option value="inactive">Kun inaktive/ophorte</option>
+    </select>
+    <span class="stats" id="stats"></span>
+  </div>
+
+  <div class="bulk-bar">
+    <label><input type="checkbox" id="selectAll" checked> Marker/fjern alle synlige</label>
+    <button class="btn btn-sm btn-secondary" onclick="checkHigh()">Marker kun 90%+</button>
+    <button class="btn btn-sm btn-secondary" onclick="checkActive()">Marker kun aktive</button>
+    <button class="btn btn-sm btn-danger" onclick="uncheckAll()">Fjern alle hak</button>
+    <span class="spacer"></span>
+    <button class="btn btn-primary" onclick="exportApproved()">Godkend valgte og eksporter</button>
+  </div>
+
+  <div class="table-wrap">
+    <table>
+      <thead>
+        <tr>
+          <th></th>
+          <th data-sort="company_name">Jeres firmanavn <span class="sort-arrow" id="sort-company_name"></span></th>
+          <th data-sort="virk_name">Virk-match <span class="sort-arrow" id="sort-virk_name"></span></th>
+          <th data-sort="cvr">CVR <span class="sort-arrow" id="sort-cvr"></span></th>
+          <th data-sort="confidence">Confidence <span class="sort-arrow" id="sort-confidence"></span></th>
+          <th data-sort="status">Status <span class="sort-arrow" id="sort-status"></span></th>
+          <th data-sort="bon_count">Bons <span class="sort-arrow" id="sort-bon_count"></span></th>
+        </tr>
+      </thead>
+      <tbody id="tbody"></tbody>
+    </table>
+  </div>
+
+  <div class="export-area" id="exportArea">
+    <h3 style="margin-bottom:8px">Godkendte matches — klar til import</h3>
+    <textarea id="exportJson" readonly></textarea>
+    <div class="info">
+      <span id="exportCount"></span> matches godkendt.
+      Gem som <code>data/cvr-approved.json</code> og kor:
+      <code>node scripts/import-cvr-review.js</code>
+    </div>
+    <div style="margin-top:8px">
+      <button class="btn btn-sm btn-primary" onclick="downloadJson()">Download JSON</button>
+      <button class="btn btn-sm btn-secondary" onclick="copyJson()">Kopier til clipboard</button>
+    </div>
+  </div>
+
+</div>
+
+<script>
+let _data = [];
+let _approved = new Set();
+let _sortCol = 'bon_count';
+let _sortAsc = false;
+
+// ── Load ────────────────────────────────────────────────────
+
+document.getElementById('fileInput').addEventListener('change', function(e) {
+  const file = e.target.files[0];
+  if (!file) return;
+  const reader = new FileReader();
+  reader.onload = function(ev) {
+    try {
+      _data = JSON.parse(ev.target.result);
+      initApp();
+    } catch (err) {
+      alert('Kunne ikke parse JSON: ' + err.message);
+    }
+  };
+  reader.readAsText(file);
+});
+
+function loadFromServer() {
+  fetch('/data/cvr-virk-review.json')
+    .then(function(r) { if (!r.ok) throw new Error(r.status); return r.json(); })
+    .then(function(data) { _data = data; initApp(); })
+    .catch(function(err) { alert('Kunne ikke hente fra server. Kor enrich-cvr.js --export-review forst.\n\n' + err.message); });
+}
+
+function initApp() {
+  document.getElementById('loadArea').style.display = 'none';
+  document.getElementById('app').style.display = 'block';
+
+  // Default: godkend 90%+ aktive
+  _data.forEach(function(d) {
+    var isActive = !d.status || d.status === 'NORMAL';
+    if (d.confidence >= 90 && isActive) {
+      _approved.add(d.id);
+    }
+  });
+
+  bindEvents();
+  render();
+}
+
+// ── Events ──────────────────────────────────────────────────
+
+function bindEvents() {
+  document.getElementById('searchInput').addEventListener('input', debounce(render, 200));
+  document.getElementById('confFilter').addEventListener('change', render);
+  document.getElementById('statusFilter').addEventListener('change', render);
+  document.getElementById('selectAll').addEventListener('change', function() {
+    var visible = getVisible();
+    var checked = this.checked;
+    visible.forEach(function(d) {
+      if (checked) _approved.add(d.id); else _approved.delete(d.id);
+    });
+    render();
+  });
+
+  // Sort headers
+  document.querySelectorAll('th[data-sort]').forEach(function(th) {
+    th.addEventListener('click', function() {
+      var col = this.dataset.sort;
+      if (_sortCol === col) { _sortAsc = !_sortAsc; }
+      else { _sortCol = col; _sortAsc = col === 'company_name' || col === 'virk_name'; }
+      render();
+    });
+  });
+}
+
+function debounce(fn, ms) {
+  var timer;
+  return function() {
+    clearTimeout(timer);
+    timer = setTimeout(fn, ms);
+  };
+}
+
+// ── Filter + Sort ───────────────────────────────────────────
+
+function getVisible() {
+  var q = document.getElementById('searchInput').value.toLowerCase().trim();
+  var confF = document.getElementById('confFilter').value;
+  var statusF = document.getElementById('statusFilter').value;
+
+  return _data.filter(function(d) {
+    // Search
+    if (q) {
+      var hay = (d.company_name + ' ' + d.virk_name + ' ' + d.cvr).toLowerCase();
+      if (hay.indexOf(q) === -1) return false;
+    }
+    // Confidence filter
+    if (confF === 'high' && d.confidence < 90) return false;
+    if (confF === 'mid' && (d.confidence < 75 || d.confidence >= 90)) return false;
+    if (confF === 'low' && d.confidence >= 75) return false;
+    // Status filter
+    var isActive = !d.status || d.status === 'NORMAL';
+    if (statusF === 'active' && !isActive) return false;
+    if (statusF === 'inactive' && isActive) return false;
+
+    return true;
+  }).sort(function(a, b) {
+    var va = a[_sortCol], vb = b[_sortCol];
+    if (typeof va === 'string') va = va.toLowerCase();
+    if (typeof vb === 'string') vb = vb.toLowerCase();
+    if (va == null) va = '';
+    if (vb == null) vb = '';
+    if (va < vb) return _sortAsc ? -1 : 1;
+    if (va > vb) return _sortAsc ? 1 : -1;
+    return 0;
+  });
+}
+
+// ── Render ──────────────────────────────────────────────────
+
+function render() {
+  var visible = getVisible();
+  var tbody = document.getElementById('tbody');
+  var html = '';
+
+  visible.forEach(function(d) {
+    var checked = _approved.has(d.id);
+    var isActive = !d.status || d.status === 'NORMAL';
+    var confClass = d.confidence >= 90 ? 'conf-high' : d.confidence >= 75 ? 'conf-mid' : 'conf-low';
+    var statusClass = isActive ? 'status-active' : 'status-inactive';
+    var statusLabel = isActive ? 'Aktiv' : (d.status || 'Ukendt');
+    var trClass = checked ? '' : ' class="rejected"';
+
+    html += '<tr' + trClass + '>' +
+      '<td><input type="checkbox" data-id="' + d.id + '"' + (checked ? ' checked' : '') + '></td>' +
+      '<td><strong>' + esc(d.company_name) + '</strong></td>' +
+      '<td>' + esc(d.virk_name) + '</td>' +
+      '<td><code>' + esc(d.cvr) + '</code></td>' +
+      '<td><span class="conf ' + confClass + '">' + d.confidence + '%</span></td>' +
+      '<td><span class="status-badge ' + statusClass + '">' + statusLabel + '</span></td>' +
+      '<td>' + d.bon_count + '</td>' +
+      '</tr>';
+  });
+
+  tbody.innerHTML = html;
+
+  // Bind checkbox events
+  tbody.querySelectorAll('input[type="checkbox"]').forEach(function(cb) {
+    cb.addEventListener('change', function() {
+      var id = parseInt(this.dataset.id);
+      if (this.checked) _approved.add(id); else _approved.delete(id);
+      // Update row style
+      var tr = this.closest('tr');
+      if (this.checked) tr.classList.remove('rejected'); else tr.classList.add('rejected');
+      updateStats();
+    });
+  });
+
+  updateStats();
+
+  // Update sort arrows
+  document.querySelectorAll('.sort-arrow').forEach(function(el) { el.textContent = ''; el.classList.remove('active'); });
+  var arrow = document.getElementById('sort-' + _sortCol);
+  if (arrow) { arrow.textContent = _sortAsc ? ' \u25B2' : ' \u25BC'; arrow.classList.add('active'); }
+}
+
+function updateStats() {
+  var visible = getVisible();
+  var visApproved = visible.filter(function(d) { return _approved.has(d.id); }).length;
+  document.getElementById('stats').textContent =
+    'Viser ' + visible.length + ' af ' + _data.length + ' | Godkendt: ' + _approved.size + ' af ' + _data.length;
+}
+
+function esc(s) {
+  if (!s) return '';
+  return s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
+}
+
+// ── Bulk actions ────────────────────────────────────────────
+
+function checkHigh() {
+  _approved.clear();
+  _data.forEach(function(d) { if (d.confidence >= 90) _approved.add(d.id); });
+  render();
+}
+
+function checkActive() {
+  _approved.clear();
+  _data.forEach(function(d) {
+    var isActive = !d.status || d.status === 'NORMAL';
+    if (isActive) _approved.add(d.id);
+  });
+  render();
+}
+
+function uncheckAll() {
+  _approved.clear();
+  render();
+}
+
+// ── Export ───────────────────────────────────────────────────
+
+function exportApproved() {
+  var approved = _data.filter(function(d) { return _approved.has(d.id); }).map(function(d) {
+    return { id: d.id, cvr: d.cvr, legal_name: d.virk_name };
+  });
+
+  var json = JSON.stringify(approved, null, 2);
+  document.getElementById('exportJson').value = json;
+  document.getElementById('exportCount').textContent = approved.length;
+  document.getElementById('exportArea').style.display = 'block';
+  document.getElementById('exportArea').scrollIntoView({ behavior: 'smooth' });
+}
+
+function downloadJson() {
+  var json = document.getElementById('exportJson').value;
+  var blob = new Blob([json], { type: 'application/json' });
+  var url = URL.createObjectURL(blob);
+  var a = document.createElement('a');
+  a.href = url;
+  a.download = 'cvr-approved.json';
+  a.click();
+  URL.revokeObjectURL(url);
+}
+
+function copyJson() {
+  var ta = document.getElementById('exportJson');
+  ta.select();
+  document.execCommand('copy');
+  alert('Kopieret til clipboard!');
+}
+</script>
+
+</body>
+</html>
