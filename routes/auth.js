@@ -48,12 +48,20 @@ router.post('/pin', (req, res) => {
   }
 
   const db = getDb();
+  const source = req.body.source; // 'mobile' fra mobilshell
   let user;
   if (user_id) {
-    // Mobilshell: bruger valgt fra liste, match på id + pin
+    // Mobilshell: match på id + mobile_pin (fallback til pin for bagudkompatibilitet)
+    const pinCol = source === 'mobile' ? 'mobile_pin' : 'pin';
     user = db.prepare(
-      'SELECT * FROM users WHERE id = ? AND pin = ? AND is_active = 1'
+      `SELECT * FROM users WHERE id = ? AND ${pinCol} = ? AND is_active = 1`
     ).get(user_id, pin);
+    // Fallback: hvis mobile_pin ikke sat endnu, prøv pin
+    if (!user && source === 'mobile') {
+      user = db.prepare(
+        'SELECT * FROM users WHERE id = ? AND pin = ? AND is_active = 1'
+      ).get(user_id, pin);
+    }
   } else {
     // Tablet/legacy: match på pin alene
     user = db.prepare(
@@ -80,11 +88,20 @@ router.post('/pin', (req, res) => {
 });
 
 // GET /api/auth/pin-users — aktive brugere med PIN (public, til mobilshell login)
+// ?source=mobile returnerer brugere med mobile_pin ELLER pin (fallback)
 router.get('/pin-users', (req, res) => {
   const db = getDb();
-  const rows = db.prepare(
-    "SELECT id, name FROM users WHERE is_active = 1 AND pin IS NOT NULL AND pin != '' ORDER BY name"
-  ).all();
+  const source = req.query.source;
+  let rows;
+  if (source === 'mobile') {
+    rows = db.prepare(
+      "SELECT id, name FROM users WHERE is_active = 1 AND (mobile_pin IS NOT NULL AND mobile_pin != '' OR pin IS NOT NULL AND pin != '') ORDER BY name"
+    ).all();
+  } else {
+    rows = db.prepare(
+      "SELECT id, name FROM users WHERE is_active = 1 AND pin IS NOT NULL AND pin != '' ORDER BY name"
+    ).all();
+  }
   res.json(rows);
 });
 

@@ -307,7 +307,7 @@
       <h2>Brugere</h2>
       <table class="st-table" id="users-table">
         <thead><tr>
-          <th>Navn</th><th>Email</th><th>Rolle</th><th>PIN</th><th>Aktiv</th><th></th>
+          <th>Navn</th><th>Email</th><th>Rolle</th><th>Tablet PIN</th><th>Mobil PIN</th><th>Aktiv</th><th></th>
         </tr></thead>
         <tbody id="users-body"></tbody>
       </table>
@@ -640,7 +640,8 @@ async function loadUsers() {
       '<td><select class="st-select" onchange="updateUser(' + u.id + ',\'role\',this.value)">' +
         roleOptions(u.role) +
       '</select></td>' +
-      '<td>' + esc(u.pin || '') + '</td>' +
+      '<td>' + buildPinCell(u.id, 'pin', u.pin) + '</td>' +
+      '<td>' + buildPinCell(u.id, 'mobile_pin', u.mobile_pin) + '</td>' +
       '<td><label class="st-toggle"><input type="checkbox" ' + (u.is_active ? 'checked' : '') +
         ' onchange="updateUser(' + u.id + ',\'is_active\',this.checked)"><span class="st-toggle-slider"></span></label></td>' +
       '<td><button class="st-btn st-btn-sm st-btn-secondary" onclick="togglePwForm(' + u.id + ')">Password</button>' +
@@ -650,6 +651,33 @@ async function loadUsers() {
         '</div></td>';
     tbody.appendChild(tr);
   });
+}
+
+function buildPinCell(userId, field, value) {
+  var display = esc(value || '');
+  var placeholder = field === 'mobile_pin' ? 'Mobil PIN' : 'PIN';
+  return '<span class="pin-display" onclick="editPin(this,' + userId + ',\'' + field + '\')" title="Klik for at redigere" style="cursor:pointer;min-width:40px;display:inline-block">' +
+    (display || '<span style="color:var(--color-text-dim);font-size:12px">—</span>') +
+    '</span>';
+}
+
+function editPin(el, userId, field) {
+  var current = el.textContent.trim();
+  if (current === '—') current = '';
+  var td = el.parentElement;
+  td.innerHTML = '<input class="st-input" style="width:70px;font-size:13px" value="' + esc(current) + '" ' +
+    'onkeydown="if(event.key===\'Enter\')savePin(this,' + userId + ',\'' + field + '\');if(event.key===\'Escape\')loadUsers()" ' +
+    'onblur="savePin(this,' + userId + ',\'' + field + '\')" autofocus>';
+  td.querySelector('input').focus();
+}
+
+async function savePin(input, userId, field) {
+  var val = input.value.trim();
+  var fields = {};
+  fields[field] = val || null;
+  await patchUser(userId, fields);
+  toast('PIN opdateret');
+  loadUsers();
 }
 
 function roleOptions(current) {
@@ -688,7 +716,8 @@ function showNewUserForm() {
       '<div><label>Navn</label><input class="st-input" id="nu-name" style="width:150px"></div>' +
       '<div><label>Email</label><input class="st-input" id="nu-email" style="width:200px"></div>' +
       '<div><label>Rolle</label><select class="st-select" id="nu-role">' + roleOptions('office') + '</select></div>' +
-      '<div><label>PIN</label><input class="st-input" id="nu-pin" style="width:80px" placeholder="Valgfri"></div>' +
+      '<div><label>Tablet PIN</label><input class="st-input" id="nu-pin" style="width:80px" placeholder="Valgfri"></div>' +
+      '<div><label>Mobil PIN</label><input class="st-input" id="nu-mobile-pin" style="width:80px" placeholder="Valgfri"></div>' +
       '<div><label>Password</label><input type="password" class="st-input" id="nu-pw" style="width:150px"></div>' +
       '<div><label>&nbsp;</label><button class="st-btn st-btn-primary" onclick="doCreateUser()">Opret</button></div>' +
     '</div>';
@@ -699,9 +728,10 @@ async function doCreateUser() {
   var email = document.getElementById('nu-email').value.trim();
   var role = document.getElementById('nu-role').value;
   var pin = document.getElementById('nu-pin').value.trim();
+  var mobilePin = document.getElementById('nu-mobile-pin').value.trim();
   var pw = document.getElementById('nu-pw').value;
   if (!name) return toast('Navn er påkrævet', 'error');
-  await createUser({ name: name, email: email || undefined, role: role, pin: pin || undefined, password: pw || undefined });
+  await createUser({ name: name, email: email || undefined, role: role, pin: pin || undefined, mobile_pin: mobilePin || undefined, password: pw || undefined });
   document.getElementById('new-user-form').style.display = 'none';
   toast('Bruger oprettet');
   loadUsers();

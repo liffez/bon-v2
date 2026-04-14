@@ -148,7 +148,7 @@
 <body>
     <div class="desktop-banner" id="desktopBanner">
         Du er på en stor skærm
-        <a href="/login.html">Åbn fuld version</a>
+        <a href="/login.html?desktop=1" onclick="localStorage.setItem('preferDesktop','1')">Åbn fuld version</a>
     </div>
 
     <img src="/assets/logo.svg" alt="Ristet Rug" class="login-logo">
@@ -212,7 +212,7 @@
         }).catch(function() {});
 
         // Load users (public endpoint — no auth required)
-        fetch('/api/auth/pin-users')
+        fetch('/api/auth/pin-users?source=mobile')
             .then(function(r) { return r.json(); })
             .then(function(users) {
                 _users = users;
@@ -293,7 +293,7 @@
             fetch('/api/auth/pin', {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ user_id: _selectedUser.id, pin: _pin })
+                body: JSON.stringify({ user_id: _selectedUser.id, pin: _pin, source: 'mobile' })
             })
             .then(function(r) { return r.json().then(function(d) { return { ok: r.ok, status: r.status, data: d }; }); })
             .then(function(result) {

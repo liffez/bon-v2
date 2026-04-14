@@ -211,18 +211,12 @@
             } catch {}
         })();
 
-        // Mobil-detect banner
-        if (window.innerWidth < 640 && 'ontouchstart' in window && !localStorage.getItem('preferDesktop')) {
-            const banner = document.createElement('div');
-            banner.className = 'mobile-banner';
-            banner.innerHTML = 'Mobilvisning tilgængelig <a href="/mobile/login.html">Åbn</a>' +
-                '<button class="dismiss" id="dismissMobile">Nej tak</button>';
-            document.body.appendChild(banner);
-            banner.style.display = 'block';
-            document.getElementById('dismissMobile').addEventListener('click', () => {
-                localStorage.setItem('preferDesktop', '1');
-                banner.style.display = 'none';
-            });
+        // Mobil auto-redirect — touch + smal skærm → send direkte til mobil-login
+        // ?desktop=1 i URL eller localStorage 'preferDesktop' forhindrer redirect
+        if (window.innerWidth < 640 && 'ontouchstart' in window
+            && !localStorage.getItem('preferDesktop')
+            && !new URLSearchParams(location.search).has('desktop')) {
+            window.location.href = '/mobile/login.html';
         }
     </script>
 </body>

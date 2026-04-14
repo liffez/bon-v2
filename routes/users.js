@@ -9,14 +9,14 @@ router.use(requireAuth('admin'));
 // GET /api/users
 router.get('/', handle((req, res) => {
     const rows = getDb().prepare(
-        'SELECT id, name, email, role, pin, is_active FROM users ORDER BY id'
+        'SELECT id, name, email, role, pin, mobile_pin, is_active FROM users ORDER BY id'
     ).all();
     res.json(rows);
 }));
 
 // POST /api/users
 router.post('/', handle(async (req, res) => {
-    const { name, email, role, password, pin } = req.body;
+    const { name, email, role, password, pin, mobile_pin } = req.body;
     if (!name || !role) return res.status(400).json({ error: 'name og role er påkrævet' });
 
     const db = getDb();
@@ -26,18 +26,18 @@ router.post('/', handle(async (req, res) => {
     }
 
     const result = db.prepare(`
-        INSERT INTO users (name, email, role, pin, password_hash, is_active)
-        VALUES (?, ?, ?, ?, ?, 1)
-    `).run(name, email || null, role, pin || null, passwordHash);
+        INSERT INTO users (name, email, role, pin, mobile_pin, password_hash, is_active)
+        VALUES (?, ?, ?, ?, ?, ?, 1)
+    `).run(name, email || null, role, pin || null, mobile_pin || null, passwordHash);
 
-    const user = db.prepare('SELECT id, name, email, role, pin, is_active FROM users WHERE id = ?')
+    const user = db.prepare('SELECT id, name, email, role, pin, mobile_pin, is_active FROM users WHERE id = ?')
         .get(Number(result.lastInsertRowid));
     res.status(201).json(user);
 }));
 
 // PATCH /api/users/:id
 router.patch('/:id', handle((req, res) => {
-    const { name, email, role, is_active, pin } = req.body;
+    const { name, email, role, is_active, pin, mobile_pin } = req.body;
     const db = getDb();
     const user = db.prepare('SELECT * FROM users WHERE id = ?').get(req.params.id);
     if (!user) return res.status(404).json({ error: 'Bruger ikke fundet' });
@@ -49,14 +49,15 @@ router.patch('/:id', handle((req, res) => {
     if (email !== undefined)     { updates.push('email = ?');     params.push(email); }
     if (role !== undefined)      { updates.push('role = ?');      params.push(role); }
     if (is_active !== undefined) { updates.push('is_active = ?'); params.push(is_active ? 1 : 0); }
-    if (pin !== undefined)       { updates.push('pin = ?');       params.push(pin || null); }
+    if (pin !== undefined)        { updates.push('pin = ?');        params.push(pin || null); }
+    if (mobile_pin !== undefined) { updates.push('mobile_pin = ?'); params.push(mobile_pin || null); }
 
     if (updates.length === 0) return res.json({ ok: true });
 
     params.push(req.params.id);
     db.prepare(`UPDATE users SET ${updates.join(', ')} WHERE id = ?`).run(...params);
 
-    const updated = db.prepare('SELECT id, name, email, role, pin, is_active FROM users WHERE id = ?')
+    const updated = db.prepare('SELECT id, name, email, role, pin, mobile_pin, is_active FROM users WHERE id = ?')
         .get(req.params.id);
     res.json(updated);
 }));
