@@ -907,3 +907,71 @@ function fetchReportsCumulative(years) {
 function fetchReportsTopCategories() {
     return apiFetch('/reports/top-categories');
 }
+
+/* ── CASHFLOW ────────────────────────────────────────── */
+
+async function uploadCashflowCSV(file) {
+    var fd = new FormData();
+    fd.append('file', file);
+    var res = await fetch(API_BASE + '/cashflow/upload', { method: 'POST', body: fd });
+    if (!res.ok) {
+        var body = await res.json().catch(function() { return {}; });
+        throw new Error(body.error || 'Upload fejlede');
+    }
+    return res.json();
+}
+
+function fetchCfStats() {
+    return apiFetch('/cashflow/stats');
+}
+
+function fetchCfWeekly() {
+    return apiFetch('/cashflow/weekly');
+}
+
+function fetchCfTransactions(opts) {
+    var params = [];
+    if (opts && opts.from) params.push('from=' + opts.from);
+    if (opts && opts.to)   params.push('to=' + opts.to);
+    if (opts && opts.unmatched) params.push('unmatched=1');
+    if (opts && opts.limit) params.push('limit=' + opts.limit);
+    var qs = params.length ? '?' + params.join('&') : '';
+    return apiFetch('/cashflow/transactions' + qs);
+}
+
+function fetchCfInvoices(tab) {
+    var qs = tab ? '?tab=' + tab : '';
+    return apiFetch('/cashflow/invoices' + qs);
+}
+
+function createCfInvoice(data) {
+    return apiFetch('/cashflow/invoices', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(data) });
+}
+
+function patchCfInvoice(id, data) {
+    return apiFetch('/cashflow/invoices/' + encodeURIComponent(id), { method: 'PATCH', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(data) });
+}
+
+function deleteCfInvoice(id) {
+    return apiFetch('/cashflow/invoices/' + encodeURIComponent(id), { method: 'DELETE' });
+}
+
+function matchCfTransaction(txId, invoiceId) {
+    return apiFetch('/cashflow/match/' + txId, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ invoice_id: invoiceId }) });
+}
+
+function unmatchCfTransaction(txId) {
+    return apiFetch('/cashflow/match/' + txId, { method: 'DELETE' });
+}
+
+function fetchCfAnalyse() {
+    return apiFetch('/cashflow/analyse');
+}
+
+function fetchCfPaymentBehavior() {
+    return apiFetch('/cashflow/payment-behavior');
+}
+
+function fetchCfUpcoming() {
+    return apiFetch('/cashflow/upcoming');
+}
