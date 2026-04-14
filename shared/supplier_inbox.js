@@ -73,9 +73,9 @@ function _siRenderShell() {
 
         '.si-msgs { flex: 1; overflow-y: auto; display: flex; flex-direction: column; gap: 10px;' +
         '  padding: 16px 0; border-top: 1px solid var(--color-border); border-bottom: 1px solid var(--color-border); margin: 8px 0; }' +
-        '.si-msg { padding: 10px 14px; border-radius: 10px; font-size: 13px; max-width: 85%; }' +
-        '.si-msg.out { background: #edf5ff; align-self: flex-end; border: 1px solid #c3dafe; }' +
-        '.si-msg.in { background: #fff; align-self: flex-start; border: 1px solid var(--color-border-light, #e8e4e0); }' +
+        '.si-msg { padding: 10px 14px; border-radius: 14px; font-size: 13px; max-width: 82%; }' +
+        '.si-msg.out { background: #f0f7f0; align-self: flex-end; border-bottom-right-radius: 4px; }' +
+        '.si-msg.in { background: #f0f4f8; align-self: flex-start; border-bottom-left-radius: 4px; }' +
         '.si-msg-meta { display: flex; gap: 8px; align-items: center; margin-bottom: 4px; font-size: 11px; }' +
         '.si-msg-dir { font-weight: 600; color: var(--color-text-dim); }' +
         '.si-msg-time { color: var(--color-text-dim); }' +
@@ -239,7 +239,7 @@ function _siRenderPreview(t, messages) {
             var time = m.sent_at || m.received_at || m.created_at;
             html += '<div class="si-msg ' + (isOut ? 'out' : 'in') + '">';
             html += '<div class="si-msg-meta">';
-            html += '<span class="si-msg-dir">' + (isOut ? '→ Du (kontakt@)' : '← ' + _siEsc(m.from_name || m.from_email || 'Leverandør')) + '</span>';
+            html += '<span class="si-msg-dir">' + (isOut ? 'Ristet Rug' : _siEsc(m.from_name || m.from_email || 'Leverandør')) + '</span>';
             html += '<span class="si-msg-time">' + _siFmtDateTime(time) + '</span>';
             if (!isOut && !m.is_read) html += '<span class="si-msg-new">Ny</span>';
             html += '</div>';

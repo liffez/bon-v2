@@ -487,7 +487,7 @@ class BonDrawer {
                     const body = (m.body_text || '').slice(0, 150).replace(/\n/g, ' ');
                     return '<div class="bm-msg ' + (isIn ? 'bm-in' : 'bm-out') + (isUnread ? ' bm-unread' : '') + '"'
                         + (isUnread ? ' onclick="_markMailRead(\'' + this.bonId + '\',' + m.id + ',this)"' : '') + '>'
-                        + '<div class="bm-msg-header"><span class="bm-msg-from">' + (isIn ? '← ' : '→ ') + esc(from) + '</span><span class="bm-msg-date">' + dateStr + '</span></div>'
+                        + '<div class="bm-msg-header"><span class="bm-msg-from">' + esc(from) + '</span><span class="bm-msg-date">' + dateStr + '</span></div>'
                         + '<div class="bm-msg-subject">' + esc(m.subject || '') + '</div>'
                         + '<div class="bm-msg-body">' + esc(body) + (body.length >= 150 ? '…' : '') + '</div>'
                         + (m.attachments && m.attachments.filter(a => a.id).length

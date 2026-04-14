@@ -1968,7 +1968,7 @@ function _ibRenderMailMessages(messages) {
         var timeStr = time ? _ibFmtDateTime(time) : '';
         h += '<div class="ib-po-msg ' + (isOut ? 'out' : 'in') + '">';
         h += '<div class="ib-po-msg-meta">';
-        h += '<span class="ib-po-msg-dir">' + (isOut ? '→ Du' : '← ' + _ibEsc(m.from_name || m.from_email || 'Leverandør')) + '</span>';
+        h += '<span class="ib-po-msg-dir">' + (isOut ? 'Ristet Rug' : _ibEsc(m.from_name || m.from_email || 'Leverandør')) + '</span>';
         h += '<span class="ib-po-msg-time">' + timeStr + '</span>';
         if (!isOut && !m.is_read) h += '<span class="ib-po-msg-new">Ny</span>';
         h += '</div>';

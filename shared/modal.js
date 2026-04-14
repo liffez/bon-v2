@@ -384,7 +384,7 @@ async function _loadInfoMail(bonId, bodyEl) {
                 var dateStr = d.getDate() + '/' + (d.getMonth()+1) + ' ' + String(d.getHours()).padStart(2,'0') + ':' + String(d.getMinutes()).padStart(2,'0');
                 var body = (m.body_text || '').slice(0, 120).replace(/\n/g, ' ');
                 return '<div class="bm-msg ' + (isIn ? 'bm-in' : 'bm-out') + (isUnread ? ' bm-unread' : '') + '">'
-                    + '<div class="bm-msg-header"><span class="bm-msg-from">' + (isIn ? '← ' : '→ ') + esc(from) + '</span><span class="bm-msg-date">' + dateStr + '</span></div>'
+                    + '<div class="bm-msg-header"><span class="bm-msg-from">' + esc(from) + '</span><span class="bm-msg-date">' + dateStr + '</span></div>'
                     + '<div class="bm-msg-subject">' + esc(m.subject || '') + '</div>'
                     + '<div class="bm-msg-body">' + esc(body) + (body.length >= 120 ? '…' : '') + '</div>'
                     + '</div>';

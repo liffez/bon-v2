@@ -565,7 +565,7 @@ function _renderMailModal(bonId, email, threads, templates, vars) {
             const readClick = isUnread ? ' onclick="_markMailRead(\'' + bonId + '\',' + m.id + ',this)"' : '';
 
             histHtml += '<div class="bm-msg ' + (isIn ? 'bm-in' : 'bm-out') + (isUnread ? ' bm-unread' : '') + '"' + readClick + '>';
-            histHtml += '<div class="bm-msg-header"><span class="bm-msg-from">' + (isIn ? '← ' : '→ ') + _esc(from) + '</span><span class="bm-msg-date">' + dateStr + '</span></div>';
+            histHtml += '<div class="bm-msg-header"><span class="bm-msg-from">' + _esc(from) + '</span><span class="bm-msg-date">' + dateStr + '</span></div>';
             histHtml += '<div class="bm-msg-subject">' + _esc(m.subject || '') + '</div>';
             histHtml += '<div class="bm-msg-body">' + _esc(bodyPreview) + (bodyPreview.length >= 200 ? '…' : '') + '</div>';
             if (m.attachments && m.attachments.length > 0) {

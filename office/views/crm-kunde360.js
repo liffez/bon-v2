@@ -836,9 +836,9 @@ function _k3RenderShell() {
             .k3-mail-body { width: 100%; padding: 8px 10px; border-radius: 6px; border: 1px solid var(--color-border); font-size: 13px; resize: vertical; min-height: 100px; font-family: inherit; }
             .k3-mail-body:focus { border-color: var(--brand-primary); outline: none; }
             .k3-mail-send { padding: 8px 20px; border-radius: 6px; border: none; background: var(--brand-primary); color: white; font-size: 13px; font-weight: 600; cursor: pointer; }
-            .k3-mail-msg { padding: 12px; margin-bottom: 10px; border-radius: 10px; }
-            .k3-mail-msg.in { background: #f0f4f8; border-left: 3px solid #2a6fb0; }
-            .k3-mail-msg.out { background: #faf6ee; border-left: 3px solid var(--brand-primary); }
+            .k3-mail-msg { padding: 12px; margin-bottom: 10px; border-radius: 14px; max-width: 82%; }
+            .k3-mail-msg.in { background: #f0f4f8; align-self: flex-start; border-bottom-left-radius: 4px; }
+            .k3-mail-msg.out { background: #f0f7f0; align-self: flex-end; border-bottom-right-radius: 4px; }
             .k3-mail-msg-header { font-size: 11px; color: var(--color-text-dim); margin-bottom: 4px; display: flex; justify-content: space-between; }
             .k3-mail-msg-body { font-size: 13px; white-space: pre-wrap; line-height: 1.5; }
         </style>
@@ -1354,13 +1354,14 @@ async function _k3RenderMail(el) {
 
         if (allMessages.length) {
             html += '<h4 style="font-size:11px;text-transform:uppercase;color:var(--color-text-dim);margin:16px 0 8px;">Mail-historik</h4>';
+            html += '<div style="display:flex;flex-direction:column;gap:8px">';
             html += allMessages.slice(0, 20).map(m => {
                 const dir = m.direction === 'in' ? 'in' : 'out';
                 const who = dir === 'in' ? (m.from_name || m.from_email || 'Ukendt') : 'Ristet Rug';
                 const time = (m.received_at || m.sent_at || '').substring(0, 16).replace('T', ' ');
                 return '<div class="k3-mail-msg ' + dir + '">' +
                     '<div class="k3-mail-msg-header">' +
-                        '<span>' + (dir === 'in' ? '📥' : '📤') + ' ' + who + (m.bon_number ? ' · #' + m.bon_number : '') + '</span>' +
+                        '<span>' + who + (m.bon_number ? ' · #' + m.bon_number : '') + '</span>' +
                         '<span>' + time + '</span>' +
                     '</div>' +
                     '<div style="font-size:12px;font-weight:600;margin-bottom:2px;">' + (m.subject || '') + '</div>' +
@@ -1372,6 +1373,7 @@ async function _k3RenderMail(el) {
                         : '') +
                 '</div>';
             }).join('');
+            html += '</div>';
         }
     } catch (err) {
         console.error('[k3] Mail load error:', err);
