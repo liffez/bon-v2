@@ -108,7 +108,8 @@ bon-v2/
 │   ├── receiving.js  ← /api/receiving/complete (legacy fusion-endpoint, bruges ikke af ny varemodtagelse)
 │   ├── goods-receipts.js ← /api/goods-receipts/* (varemodtagelse v3: FVST + lager)
 │   ├── staff.js      ← /api/staff/* (medarbejder-CRUD)
-│   └── reports.js    ← /api/reports/* (rapporter: summary, monthly, top-customers, categories)
+│   ├── reports.js    ← /api/reports/* (rapporter: summary, monthly, top-customers, categories)
+│   └── cashflow.js   ← /api/cashflow/* (admin-only: CSV-upload, fakturaer, match, analyse)
 ├── services/
 │   ├── grocyAdapter.js       ← Grocy API adapter med cache + CRUD + consume + barcodes
 │   ├── hokaAdapter.js        ← Hørkram (hoka.dk) API adapter med cookie-jar auth
@@ -1214,11 +1215,33 @@ Oprettes under Grocy → Manage master data → Userfields.
   - Alle pickup/delivery-tider var forskudt 1-2 timer — nu korrekte
   - Kræver `--full` sync efter deploy for at rette eksisterende data
 
+### Fase 13 — Cashflow
+- [x] Migration 047: `cf_transactions`, `cf_invoices`, `cf_meta` tabeller
+- [x] `routes/cashflow.js` — 12 admin-only endpoints:
+  - CSV-upload med Bankdata-parser (Nykredit/Fælles Kassen format)
+  - Match-logik: beløb ±2% + fakturanr i tekst → confidence score, auto-match ≥70
+  - Faktura CRUD (opret/opdater/slet/markér betalt)
+  - Stats (saldo, udestående, forfaldne, forventet 30d)
+  - Weekly chart-data (8 uger: modtaget/forventet/overdue)
+  - Analyse (YTD kumulativ fra bons, pax-segmenter, heatmap, betalingsadfærd)
+- [x] `office/views/cashflow.js` + `cashflow.css` — 2-tab view:
+  - **Overblik**: 4 metric-kort, stale-badge, ugechart, fakturaliste med CRUD, upload, umatchede transaktioner, "forfalder snart"
+  - **Analyse**: YTD canvas-chart (3 år + sandwich-toggle), pax-segmenter (stacked bars), sæsonvarme heatmap, betalingsadfærd per kunde
+- [x] Office sidebar: "Pengestrøm" under Økonomi-gruppen
+- [x] `shared/api.js` — 13 cashflow API-funktioner
+
+### Mail chat-boble layout (april 2026)
+- [x] Alle 6 mail-visninger konverteret fra lineær liste til chat-boble layout
+  - Indgående: venstrejusteret, lys blå (#f0f4f8), afrundet bund-venstre
+  - Udgående: højrejusteret, lys grøn (#f0f7f0), afrundet bund-højre
+  - Fjernet `← →` pile og `📥📤` emojis — retning vises via boble-position
+- [x] Ændrede filer: `bon_kort.css`, `bon_kort.js`, `bon_drawer.js`, `modal.js`, `supplier_inbox.js`, `indkob.css`, `indkob.js`, `crm-kunde360.js`
+
 ## Næste opgave
 
 > ✏️ Opdateret 14. april 2026.
 >
-> **Fase 1a–1e + 3A + 3B + 3D + 4 + 5 + 6 (komplet inkl. 6g) + 7 (CRM) + Office CRM redesign + 8 (Fakturering) + 9 (Tilbud) + Mail-vedhæftninger + CRM service-kald + Firma-oprydning + 10 (Mobil Shell) + 10b (Roller & Rettigheder) + 11 (Ugeoversigt) + Priser i planlægningsbon + Hjælpesystem + Whiteboard Sidekick + Web-bestillinger (webhook) + Mail-skabelon management + 12 (Rapporter) + PIN-management + CVR-berigelse (653/1232 firmaer) komplet.**
+> **Fase 1a–1e + 3A + 3B + 3D + 4 + 5 + 6 (komplet inkl. 6g) + 7 (CRM) + Office CRM redesign + 8 (Fakturering) + 9 (Tilbud) + Mail-vedhæftninger + CRM service-kald + Firma-oprydning + 10 (Mobil Shell) + 10b (Roller & Rettigheder) + 11 (Ugeoversigt) + Priser i planlægningsbon + Hjælpesystem + Whiteboard Sidekick + Web-bestillinger (webhook) + Mail-skabelon management + 12 (Rapporter) + PIN-management + CVR-berigelse (653/1232 firmaer) + 13 (Cashflow) + Mail chat-boble layout komplet.**
 >
 > **Bon v1 er klar til nedlukning.**
 >
@@ -1665,6 +1688,19 @@ GET    /api/reports/lego?months=&year=                     routes/reports.js
 GET    /api/reports/cumulative                             routes/reports.js
 GET    /api/reports/top-categories                         routes/reports.js
 GET    /api/cvr/virk-search?q=                             routes/cvr.js (Virk ES proxy)
+POST   /api/cashflow/upload                                routes/cashflow.js (CSV, admin)
+GET    /api/cashflow/transactions?from=&to=&unmatched=     routes/cashflow.js (admin)
+GET    /api/cashflow/invoices?tab=                         routes/cashflow.js (admin)
+POST   /api/cashflow/invoices                              routes/cashflow.js (admin)
+PATCH  /api/cashflow/invoices/:id                          routes/cashflow.js (admin)
+DELETE /api/cashflow/invoices/:id                          routes/cashflow.js (admin)
+GET    /api/cashflow/stats                                 routes/cashflow.js (admin)
+GET    /api/cashflow/weekly                                routes/cashflow.js (admin)
+POST   /api/cashflow/match/:txId                           routes/cashflow.js (admin)
+DELETE /api/cashflow/match/:txId                           routes/cashflow.js (admin)
+GET    /api/cashflow/analyse                               routes/cashflow.js (admin)
+GET    /api/cashflow/payment-behavior                      routes/cashflow.js (admin)
+GET    /api/cashflow/upcoming                              routes/cashflow.js (admin)
 ```
 
 ---
