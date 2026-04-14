@@ -42,7 +42,7 @@ async function _kiLoadAll() {
     if (!_kiActive) return;
     try {
         const [scoresRes, config, icp] = await Promise.all([
-            fetchRfmScores({ sort: _kiSort, stage: _kiStageFilter || undefined, q: _kiSearch || undefined, limit: 500 }),
+            fetchRfmScores(Object.fromEntries(Object.entries({ sort: _kiSort, stage: _kiStageFilter || null, q: _kiSearch || null, limit: 500 }).filter(([,v]) => v != null))),
             fetchRfmConfig(),
             fetchRfmIcp('vip'),
         ]);
