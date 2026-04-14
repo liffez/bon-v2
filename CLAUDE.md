@@ -107,7 +107,8 @@ bon-v2/
 │   ├── orders.js     ← /api/orders/* (purchase_orders CRUD + mail-tråd per PO)
 │   ├── receiving.js  ← /api/receiving/complete (legacy fusion-endpoint, bruges ikke af ny varemodtagelse)
 │   ├── goods-receipts.js ← /api/goods-receipts/* (varemodtagelse v3: FVST + lager)
-│   └── staff.js      ← /api/staff/* (medarbejder-CRUD)
+│   ├── staff.js      ← /api/staff/* (medarbejder-CRUD)
+│   └── reports.js    ← /api/reports/* (rapporter: summary, monthly, top-customers, categories)
 ├── services/
 │   ├── grocyAdapter.js       ← Grocy API adapter med cache + CRUD + consume + barcodes
 │   ├── hokaAdapter.js        ← Hørkram (hoka.dk) API adapter med cookie-jar auth
@@ -1121,7 +1122,90 @@ Oprettes under Grocy → Manage master data → Userfields.
   - `GET /` — liste over web-bestillinger (status-filter)
 - [x] `server.js` — webhook mountet med CORS for `ristetrug.dk` / `www.ristetrug.dk`
 - [x] `docs/bestilling (1).html` — opdateret (secret fjernet fra klient-kode)
-- [ ] Formbuilder (`docs/formbuilder.html`) skal tilpasses til nyt felt-format og integreres i Bon v2 (admin/settings)
+- [ ] Formbuilder (`docs/formbuilder.html`) skal tilpasses og integreres i Bon v2:
+  - Nyt felt-format (`first_name`, `email` i stedet for `f2`, `f3`)
+  - Cutoff-advarsel ("timer tilbage") som valgfri toggle (ikke altid på)
+  - Bestillingsfrist som valgfri feature
+  - localStorage (husk kontaktinfo) i genereret output
+  - Validerings-highlight (røde felter) i genereret output
+  - Checkbox-validering i genereret output
+  - Integreres i Bon v2 admin/settings
+
+### Web-bestillinger (webhook + bekræftelsesmail)
+- [x] Migration 044: `web_orders`-tabel + `web_order_confirmation` mail-skabelon + `webhook_secret` setting
+- [x] Migration 045: Fix mail-skabeloner til at bruge `{{tag}}` variabel (sikrer korrekt IMAP-routing)
+- [x] `routes/web-orders.js` — **NY FIL**: webhook + historik
+  - `POST /webhook/bestilling` — modtager formulardata cross-origin, honeypot-check, find/opret firma+kunde, opret bon (status NY), fire-and-forget bekræftelsesmail, SSE broadcast
+  - `GET /` — liste over web-ordrer med status-filter
+- [x] `server.js` — webhook monteret med CORS middleware (ristetrug.dk + bestil-form.netlify.app)
+- [x] `services/mailService.js` — `sendFromTemplate` injicerer `{{tag}}` fra context, `sendMail` undgår dobbelttag
+- [x] `routes/bons.js` — NaN-fix i mail context (`parseInt` på bon_number med bogstav-prefix)
+- [x] `docs/bestilling (1).html` — Formular med 5 UX-forbedringer:
+  - localStorage gem/gendan mellem sessioner
+  - Validerings-highlighting på ugyldige felter
+  - Checkbox-validering (GDPR)
+  - Fjernet "timer tilbage"-advarsel
+  - Rettet tak-besked
+
+### Mail-skabelon management (april 2026)
+- [x] `routes/mail.js` — 2 nye endpoints:
+  - `POST /api/mail/templates` — opret ny skabelon (admin, key-validering, duplikat-check)
+  - `DELETE /api/mail/templates/:key` — slet brugerdefinerede skabeloner (system-skabeloner beskyttet)
+  - `PATCH` udvidet med `label`-opdatering
+- [x] `shared/api.js` — `createMailTemplate()` + `deleteMailTemplate()`
+- [x] `settings/index.html` — Mail → Skabeloner komplet redesign:
+  - Dropdown-selector (som bon-draweren) i stedet for alle kort på én gang
+  - Editor: label, emne, brødtekst med klikbare variabel-tags per skabelon-type
+  - Gem/Test/Slet knapper (system-skabeloner kan ikke slettes)
+  - "+ Ny skabelon" knap med opret-form (nøgle + label)
+  - Kontekst-variabler: `booking_confirmation`, `web_order_confirmation`, `order_email` har hver sit sæt
+
+### Fase 12 — Rapporter
+- [x] `routes/reports.js` — 8 endpoints:
+  - `GET /api/reports/summary` — YTD KPIs (omsætning, ordrer, gns. ordreværdi, ufaktureret)
+  - `GET /api/reports/monthly` — 12-måneders historik (i år + forrige år)
+  - `GET /api/reports/top-customers` — Top 10 kunder (omsætning/antal)
+  - `GET /api/reports/categories` — Priskategori-fordeling
+  - `GET /api/reports/monthly-table` — Måned-for-måned KPI-tabel
+  - `GET /api/reports/lego` — Pax-kategori legoklods-sammenligning
+  - `GET /api/reports/cumulative` — Multi-år akkumuleret omsætningskurve
+  - `GET /api/reports/top-categories` — Top 10 produktkategorier (enheder)
+- [x] `office/views/rapporter.js` + `rapporter.css` — Komplet rapportview
+  - KPI-strip (4 kort) med YoY-delta
+  - Månedsoversigt bar chart med Kr/Enh toggle
+  - Legoklods stacked chart med måned-vælger (max 2 måneder)
+  - Akkumuleret omsætningskurve (multi-år)
+  - Top kunder med sorterbar toggle (Omsætning/Antal)
+  - Kategori-fordeling med stacked bar + tabel
+  - Månedstabel med delta-farver
+- [x] `shared/dashboard_chart.js` — 3 nye chart-funktioner (initMonthlyBarChart, initLegoStackedChart, initMultiYearAccumChart)
+- [x] `shared/api.js` — 8 fetchReports*-funktioner
+- [x] Office sidebar: Rapporter under Økonomi-gruppen
+
+### PIN-management + Mobil auto-redirect (april 2026)
+- [x] Migration 046: `mobile_pin` kolonne på `users` (separat fra tablet `pin`)
+- [x] `routes/auth.js` — mobil-login tjekker `mobile_pin` (fallback til `pin`)
+  - `source: 'mobile'` parameter, pin-users endpoint returnerer begge typer
+- [x] `routes/users.js` — `mobile_pin` i GET/POST/PATCH
+- [x] `settings/index.html` — klikbare PIN-celler (tablet + mobil), inline-redigering
+  - Mobil-PIN felt ved opret-bruger
+- [x] `login.html` — auto-redirect til `/mobile/login.html` for touch + smal skærm
+  - `?desktop=1` eller localStorage `preferDesktop` forhindrer redirect
+- [x] `mobile/login.html` — sender `source: mobile`, "Åbn fuld version" sætter preferDesktop
+
+### CVR-berigelse (april 2026)
+- [x] 429 firmaer beriget automatisk (380 NemHandel EAN + 49 kendte institutioner)
+- [x] 224 firmaer beriget via Virk ES review (manuel gennemgang)
+- [x] **653 af 1.232 firmaer har CVR (53%)**
+- [x] `scripts/enrich-cvr.js` — udvidet med `--safe-only`, `--export-review`
+  - Eksporterer `cvr-virk-review.json` + `cvr-unmatched.json`
+- [x] `scripts/import-cvr-review.js` — importér godkendte matches fra review
+- [x] `tools/cvr-review.html` — interaktiv review-side:
+  - Tab 1: Virk auto-matches med søg/filtrer/sortér/godkend
+  - Tab 2: Umatchede firmaer med inline Virk ES søgning + manuel kobling
+  - Eksport inkluderer auto-matches + manuelle koblinger
+- [x] `routes/cvr.js` — `GET /api/cvr/virk-search` (Virk ES proxy for live søgning)
+- [x] `server.js` — `/data/` statisk serving for review JSON-filer
 
 ### Sync-v1 timezone-fix
 - [x] `scripts/sync-v1.js` — `parseV1Date()` fikset fra UTC til lokal tid
@@ -1132,9 +1216,9 @@ Oprettes under Grocy → Manage master data → Userfields.
 
 ## Næste opgave
 
-> ✏️ Opdateret 12. april 2026.
+> ✏️ Opdateret 14. april 2026.
 >
-> **Fase 1a–1e + 3A + 3B + 3D + 4 + 5 + 6 (komplet inkl. 6g) + 7 (CRM) + Office CRM redesign + 8 (Fakturering) + 9 (Tilbud) + Mail-vedhæftninger + CRM service-kald + Firma-oprydning + 10 (Mobil Shell) + 10b (Roller & Rettigheder) + 11 (Ugeoversigt) + Priser i planlægningsbon + Hjælpesystem + Whiteboard Sidekick + Web-bestillinger (webhook) komplet.**
+> **Fase 1a–1e + 3A + 3B + 3D + 4 + 5 + 6 (komplet inkl. 6g) + 7 (CRM) + Office CRM redesign + 8 (Fakturering) + 9 (Tilbud) + Mail-vedhæftninger + CRM service-kald + Firma-oprydning + 10 (Mobil Shell) + 10b (Roller & Rettigheder) + 11 (Ugeoversigt) + Priser i planlægningsbon + Hjælpesystem + Whiteboard Sidekick + Web-bestillinger (webhook) + Mail-skabelon management + 12 (Rapporter) + PIN-management + CVR-berigelse (653/1232 firmaer) komplet.**
 >
 > **Bon v1 er klar til nedlukning.**
 >
@@ -1147,7 +1231,7 @@ Oprettes under Grocy → Manage master data → Userfields.
 > - ~~Whiteboard API URL~~ — `WHITEBOARD_BASE_URL` i `.env`, Sidekick henter via `/api/sidekick/config`
 > - Whiteboard CORS: tilføj `https://bon.ristetrug.dk` til `ALLOWED_ORIGINS` i Whiteboard's `.env` ved deploy
 > - ~~Hørkram credentials~~ — `HOKA_USERNAME` + `HOKA_PASSWORD` sat i `.env`
-> - CVR review: ~622 auto-matchede firmaer bør gennemgås for fejl (brug `fix-cvr.js`)
+> - ~~CVR review~~ — 653 firmaer har CVR (429 auto + 224 manuelt reviewet). 77 CVR-duplikat-grupper er forventede (afdelinger under samme CVR). Yderligere review kan gøres via `tools/cvr-review.html`
 > - Inco credentials — til webshop-login (har også API, men bruges ikke endnu)
 > - `services/hokaAdapter.js` — bruges ikke af bestillingsflowet (erstattet af proxy-logik i `routes/horkram.js`). Review om den skal slettes eller beholdes til andre formål.
 >
@@ -1568,8 +1652,19 @@ GET    /api/schedule/week?from=&to=                        routes/schedule.js
 GET    /api/help-content                                   routes/help.js
 POST   /api/help-content                                   routes/help.js (admin)
 GET    /api/sidekick/config                                routes/sidekick.js
+POST   /api/mail/templates                                  routes/mail.js (admin, opret)
+DELETE /api/mail/templates/:key                             routes/mail.js (admin, slet)
 POST   /webhook/bestilling                                 routes/web-orders.js (public, CORS)
 GET    /api/web-orders?status=                             routes/web-orders.js
+GET    /api/reports/summary                                routes/reports.js
+GET    /api/reports/monthly                                routes/reports.js
+GET    /api/reports/top-customers?by=revenue|orders        routes/reports.js
+GET    /api/reports/categories                             routes/reports.js
+GET    /api/reports/monthly-table                          routes/reports.js
+GET    /api/reports/lego?months=&year=                     routes/reports.js
+GET    /api/reports/cumulative                             routes/reports.js
+GET    /api/reports/top-categories                         routes/reports.js
+GET    /api/cvr/virk-search?q=                             routes/cvr.js (Virk ES proxy)
 ```
 
 ---
