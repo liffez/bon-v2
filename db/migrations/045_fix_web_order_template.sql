@@ -1,6 +1,6 @@
--- Fix mail-skabelon: brug korrekt tag-format (#b-XXXX) så IMAP-parser matcher svar
+-- Fix mail-skabelon: brug korrekt tag-format via {{bonTag}} så IMAP-parser matcher svar
 UPDATE mail_templates SET
-    subject = 'Tak for din bestilling ({{bonNummer}}) #b-{{bonNummerTal}}',
+    subject = 'Tak for din bestilling ({{bonNummer}}) {{bonTag}}',
     body_text = 'Hej {{kundeNavn}},
 
 Tak for din bestilling hos Ristet Rug! Vi har modtaget den og vender tilbage hurtigst muligt med en bekræftelse.
