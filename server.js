@@ -105,6 +105,9 @@ app.use('/api/sidekick',         require('./routes/sidekick'));
 // Statisk serving af receipt-fotos (for Whiteboard link-only access)
 app.use('/uploads/receipts', express.static(path.join(__dirname, 'data', 'uploads', 'receipts')));
 
+// Statisk serving af CVR review-data (kun JSON-filer i data/)
+app.use('/data', express.static(path.join(__dirname, 'data'), { extensions: ['json'] }));
+
 // ─── MAIL POLLING ───────────────────────────────────────────────────────────
 
 const { startPolling } = require('./services/mailService');

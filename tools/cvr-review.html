@@ -12,6 +12,12 @@
     .header h1 { font-size: 24px; margin-bottom: 8px; }
     .header p { color: #666; font-size: 14px; }
 
+    /* ── Tabs ── */
+    .tabs { max-width: 1200px; margin: 0 auto 16px; display: flex; gap: 4px; }
+    .tab { padding: 10px 20px; border: 1px solid #d7d1ca; border-bottom: none; border-radius: 8px 8px 0 0; background: #e8e2d8; cursor: pointer; font-size: 14px; font-weight: 500; }
+    .tab.active { background: #fff; border-bottom: 1px solid #fff; margin-bottom: -1px; z-index: 1; }
+    .tab .badge { background: #8e631f; color: #fff; font-size: 11px; padding: 1px 6px; border-radius: 8px; margin-left: 6px; }
+
     /* ── Toolbar ── */
     .toolbar { max-width: 1200px; margin: 0 auto 16px; display: flex; gap: 12px; align-items: center; flex-wrap: wrap; }
     .toolbar input[type="text"] {
@@ -37,6 +43,7 @@
     .btn-danger { background: #dc3545; color: #fff; }
     .btn-danger:hover { background: #c82333; }
     .btn-sm { padding: 4px 10px; font-size: 12px; }
+    .btn:disabled { opacity: 0.5; cursor: not-allowed; }
 
     /* ── Table ── */
     .table-wrap { max-width: 1200px; margin: 0 auto; background: #fff; border-radius: 8px; border: 1px solid #d7d1ca; overflow-x: auto; }
@@ -49,12 +56,14 @@
     tr:hover { background: #faf8f5; }
     tr.rejected { opacity: 0.4; text-decoration: line-through; }
     tr.rejected:hover { opacity: 0.7; }
+    tr.manual-added { background: #f0f8e8; }
 
     /* ── Confidence badges ── */
     .conf { display: inline-block; padding: 2px 8px; border-radius: 10px; font-size: 12px; font-weight: 600; }
     .conf-high { background: #d4edda; color: #155724; }
     .conf-mid { background: #fff3cd; color: #856404; }
     .conf-low { background: #f8d7da; color: #721c24; }
+    .conf-manual { background: #cce5ff; color: #004085; }
 
     /* ── Status badges ── */
     .status-badge { font-size: 11px; padding: 1px 6px; border-radius: 4px; }
@@ -74,109 +83,175 @@
     .load-area { max-width: 1200px; margin: 0 auto 20px; text-align: center; padding: 40px; background: #fff; border-radius: 8px; border: 2px dashed #d7d1ca; }
     .load-area p { margin-bottom: 12px; color: #666; }
     .load-area code { background: #f0ece6; padding: 2px 6px; border-radius: 4px; font-size: 13px; }
+
+    /* ── Unmatched section ── */
+    .unmatched-card {
+      max-width: 1200px; margin: 0 auto 8px; background: #fff; border: 1px solid #d7d1ca;
+      border-radius: 8px; padding: 12px 16px; display: flex; align-items: center; gap: 12px; flex-wrap: wrap;
+    }
+    .unmatched-card .name { font-weight: 600; min-width: 200px; }
+    .unmatched-card .bons { font-size: 12px; color: #666; min-width: 60px; }
+    .unmatched-card .reason { font-size: 12px; color: #999; flex: 1; }
+    .unmatched-card .search-form { display: flex; gap: 6px; align-items: center; }
+    .unmatched-card .search-form input { padding: 4px 8px; border: 1px solid #d7d1ca; border-radius: 4px; font-size: 13px; width: 200px; }
+    .unmatched-card .linked { color: #155724; font-weight: 500; }
+
+    /* ── Search results dropdown ── */
+    .virk-results { background: #fff; border: 1px solid #d7d1ca; border-radius: 6px; margin-top: 4px; box-shadow: 0 4px 12px rgba(0,0,0,.1); max-width: 600px; }
+    .virk-results .vr-item { padding: 8px 12px; cursor: pointer; border-bottom: 1px solid #eee; font-size: 13px; }
+    .virk-results .vr-item:last-child { border-bottom: none; }
+    .virk-results .vr-item:hover { background: #f0f8e8; }
+    .vr-name { font-weight: 600; }
+    .vr-meta { font-size: 11px; color: #666; }
+
+    .section-title { max-width: 1200px; margin: 24px auto 12px; font-size: 18px; font-weight: 600; }
+    .tab-content { display: none; }
+    .tab-content.active { display: block; }
   </style>
 </head>
 <body>
 
 <div class="header">
-  <h1>CVR Review — Virk ES Matches</h1>
-  <p>Gennemga Virk-navnesogningens forslag. Fjern hak fra forkerte matches, godkend resten.</p>
+  <h1>CVR Review</h1>
+  <p>Gennemga Virk-matches, ret forkerte, og kobl firmaer manuelt.</p>
 </div>
 
 <div class="load-area" id="loadArea">
-  <p>Indlas <code>data/cvr-virk-review.json</code></p>
+  <p>Indl&aelig;s <code>data/cvr-virk-review.json</code></p>
   <input type="file" id="fileInput" accept=".json">
   <p style="margin-top:12px;font-size:13px">Eller start serveren og <button class="btn btn-sm btn-secondary" onclick="loadFromServer()">Hent fra server</button></p>
 </div>
 
 <div id="app" style="display:none">
 
-  <div class="toolbar">
-    <input type="text" id="searchInput" placeholder="Sog i firmanavn, CVR eller Virk-match...">
-    <select id="confFilter">
-      <option value="all">Alle confidence</option>
-      <option value="high">90%+ (hoj)</option>
-      <option value="mid">75-89% (middel)</option>
-      <option value="low">&lt;75% (lav)</option>
-    </select>
-    <select id="statusFilter">
-      <option value="all">Alle statusser</option>
-      <option value="active">Kun aktive</option>
-      <option value="inactive">Kun inaktive/ophorte</option>
-    </select>
-    <span class="stats" id="stats"></span>
+  <div class="tabs">
+    <div class="tab active" data-tab="review" onclick="switchTab('review')">Virk-matches <span class="badge" id="reviewBadge">0</span></div>
+    <div class="tab" data-tab="unmatched" onclick="switchTab('unmatched')">Uden match <span class="badge" id="unmatchedBadge">0</span></div>
   </div>
 
-  <div class="bulk-bar">
-    <label><input type="checkbox" id="selectAll" checked> Marker/fjern alle synlige</label>
-    <button class="btn btn-sm btn-secondary" onclick="checkHigh()">Marker kun 90%+</button>
-    <button class="btn btn-sm btn-secondary" onclick="checkActive()">Marker kun aktive</button>
-    <button class="btn btn-sm btn-danger" onclick="uncheckAll()">Fjern alle hak</button>
-    <span class="spacer"></span>
-    <button class="btn btn-primary" onclick="exportApproved()">Godkend valgte og eksporter</button>
+  <!-- ═══════ TAB 1: REVIEW ═══════ -->
+  <div class="tab-content active" id="tab-review">
+
+    <div class="toolbar">
+      <input type="text" id="searchInput" placeholder="S&oslash;g i firmanavn, CVR eller Virk-match...">
+      <select id="confFilter">
+        <option value="all">Alle confidence</option>
+        <option value="high">90%+ (h&oslash;j)</option>
+        <option value="mid">75-89% (middel)</option>
+        <option value="low">&lt;75% (lav)</option>
+      </select>
+      <select id="statusFilter">
+        <option value="all">Alle statusser</option>
+        <option value="active">Kun aktive</option>
+        <option value="inactive">Kun inaktive/oph&oslash;rte</option>
+      </select>
+      <span class="stats" id="stats"></span>
+    </div>
+
+    <div class="bulk-bar">
+      <label><input type="checkbox" id="selectAll" checked> Marker/fjern alle synlige</label>
+      <button class="btn btn-sm btn-secondary" onclick="checkHigh()">Marker kun 90%+</button>
+      <button class="btn btn-sm btn-secondary" onclick="checkActive()">Marker kun aktive</button>
+      <button class="btn btn-sm btn-danger" onclick="uncheckAll()">Fjern alle hak</button>
+      <span class="spacer"></span>
+      <button class="btn btn-primary" onclick="exportApproved()">Godkend valgte og eksport&eacute;r</button>
+    </div>
+
+    <div class="table-wrap">
+      <table>
+        <thead>
+          <tr>
+            <th></th>
+            <th data-sort="company_name">Jeres firmanavn <span class="sort-arrow" id="sort-company_name"></span></th>
+            <th data-sort="virk_name">Virk-match <span class="sort-arrow" id="sort-virk_name"></span></th>
+            <th data-sort="cvr">CVR <span class="sort-arrow" id="sort-cvr"></span></th>
+            <th data-sort="confidence">Confidence <span class="sort-arrow" id="sort-confidence"></span></th>
+            <th data-sort="status">Status <span class="sort-arrow" id="sort-status"></span></th>
+            <th data-sort="bon_count">Bons <span class="sort-arrow" id="sort-bon_count"></span></th>
+          </tr>
+        </thead>
+        <tbody id="tbody"></tbody>
+      </table>
+    </div>
   </div>
 
-  <div class="table-wrap">
-    <table>
-      <thead>
-        <tr>
-          <th></th>
-          <th data-sort="company_name">Jeres firmanavn <span class="sort-arrow" id="sort-company_name"></span></th>
-          <th data-sort="virk_name">Virk-match <span class="sort-arrow" id="sort-virk_name"></span></th>
-          <th data-sort="cvr">CVR <span class="sort-arrow" id="sort-cvr"></span></th>
-          <th data-sort="confidence">Confidence <span class="sort-arrow" id="sort-confidence"></span></th>
-          <th data-sort="status">Status <span class="sort-arrow" id="sort-status"></span></th>
-          <th data-sort="bon_count">Bons <span class="sort-arrow" id="sort-bon_count"></span></th>
-        </tr>
-      </thead>
-      <tbody id="tbody"></tbody>
-    </table>
+  <!-- ═══════ TAB 2: UNMATCHED ═══════ -->
+  <div class="tab-content" id="tab-unmatched">
+
+    <div class="toolbar">
+      <input type="text" id="unmatchedSearch" placeholder="S&oslash;g i firmanavn...">
+      <select id="unmatchedSort">
+        <option value="bons">Flest bons f&oslash;rst</option>
+        <option value="name">Alfabetisk</option>
+        <option value="linked">Koblede f&oslash;rst</option>
+      </select>
+      <span class="stats" id="unmatchedStats"></span>
+    </div>
+
+    <div id="unmatchedList"></div>
   </div>
 
+  <!-- ═══════ EXPORT ═══════ -->
   <div class="export-area" id="exportArea">
-    <h3 style="margin-bottom:8px">Godkendte matches — klar til import</h3>
+    <h3 style="margin-bottom:8px">Godkendte matches &mdash; klar til import</h3>
     <textarea id="exportJson" readonly></textarea>
     <div class="info">
-      <span id="exportCount"></span> matches godkendt.
-      Gem som <code>data/cvr-approved.json</code> og kor:
+      <span id="exportCount"></span> matches godkendt (inkl. manuelle koblinger).
+      Gem som <code>data/cvr-approved.json</code> og k&oslash;r:
       <code>node scripts/import-cvr-review.js</code>
     </div>
     <div style="margin-top:8px">
       <button class="btn btn-sm btn-primary" onclick="downloadJson()">Download JSON</button>
-      <button class="btn btn-sm btn-secondary" onclick="copyJson()">Kopier til clipboard</button>
+      <button class="btn btn-sm btn-secondary" onclick="copyJson()">Kopi&eacute;r til clipboard</button>
     </div>
   </div>
 
 </div>
 
 <script>
-let _data = [];
-let _approved = new Set();
-let _sortCol = 'bon_count';
-let _sortAsc = false;
+var _data = [];           // Virk ES auto-matches
+var _unmatched = [];      // Firmaer uden match
+var _approved = new Set();
+var _manualLinks = {};    // id → { cvr, legal_name }
+var _sortCol = 'bon_count';
+var _sortAsc = false;
 
-// ── Load ────────────────────────────────────────────────────
+// ══════════════════════════════════════════════════════════════
+// LOAD
+// ══════════════════════════════════════════════════════════════
 
 document.getElementById('fileInput').addEventListener('change', function(e) {
-  const file = e.target.files[0];
+  var file = e.target.files[0];
   if (!file) return;
-  const reader = new FileReader();
+  var reader = new FileReader();
   reader.onload = function(ev) {
     try {
       _data = JSON.parse(ev.target.result);
-      initApp();
-    } catch (err) {
-      alert('Kunne ikke parse JSON: ' + err.message);
-    }
+      loadUnmatchedThenInit();
+    } catch (err) { alert('Kunne ikke parse JSON: ' + err.message); }
   };
   reader.readAsText(file);
 });
 
 function loadFromServer() {
-  fetch('/data/cvr-virk-review.json')
-    .then(function(r) { if (!r.ok) throw new Error(r.status); return r.json(); })
-    .then(function(data) { _data = data; initApp(); })
-    .catch(function(err) { alert('Kunne ikke hente fra server. Kor enrich-cvr.js --export-review forst.\n\n' + err.message); });
+  Promise.all([
+    fetch('/data/cvr-virk-review.json').then(function(r) { return r.ok ? r.json() : []; }),
+    fetch('/data/cvr-unmatched.json').then(function(r) { return r.ok ? r.json() : []; })
+  ]).then(function(results) {
+    _data = results[0];
+    _unmatched = results[1];
+    initApp();
+  }).catch(function(err) {
+    alert('Kunne ikke hente data fra server.\nK\u00f8r: node scripts/enrich-cvr.js --export-review\n\n' + err.message);
+  });
+}
+
+function loadUnmatchedThenInit() {
+  // Prøv at hente unmatched fra server, ellers init uden
+  fetch('/data/cvr-unmatched.json')
+    .then(function(r) { return r.ok ? r.json() : []; })
+    .then(function(data) { _unmatched = data; initApp(); })
+    .catch(function() { initApp(); });
 }
 
 function initApp() {
@@ -186,16 +261,29 @@ function initApp() {
   // Default: godkend 90%+ aktive
   _data.forEach(function(d) {
     var isActive = !d.status || d.status === 'NORMAL';
-    if (d.confidence >= 90 && isActive) {
-      _approved.add(d.id);
-    }
+    if (d.confidence >= 90 && isActive) _approved.add(d.id);
   });
+
+  document.getElementById('reviewBadge').textContent = _data.length;
+  document.getElementById('unmatchedBadge').textContent = _unmatched.length;
 
   bindEvents();
   render();
+  renderUnmatched();
 }
 
-// ── Events ──────────────────────────────────────────────────
+// ══════════════════════════════════════════════════════════════
+// TABS
+// ══════════════════════════════════════════════════════════════
+
+function switchTab(tab) {
+  document.querySelectorAll('.tab').forEach(function(t) { t.classList.toggle('active', t.dataset.tab === tab); });
+  document.querySelectorAll('.tab-content').forEach(function(tc) { tc.classList.toggle('active', tc.id === 'tab-' + tab); });
+}
+
+// ══════════════════════════════════════════════════════════════
+// REVIEW TAB (Virk auto-matches)
+// ══════════════════════════════════════════════════════════════
 
 function bindEvents() {
   document.getElementById('searchInput').addEventListener('input', debounce(render, 200));
@@ -204,73 +292,51 @@ function bindEvents() {
   document.getElementById('selectAll').addEventListener('change', function() {
     var visible = getVisible();
     var checked = this.checked;
-    visible.forEach(function(d) {
-      if (checked) _approved.add(d.id); else _approved.delete(d.id);
-    });
+    visible.forEach(function(d) { if (checked) _approved.add(d.id); else _approved.delete(d.id); });
     render();
   });
-
-  // Sort headers
   document.querySelectorAll('th[data-sort]').forEach(function(th) {
     th.addEventListener('click', function() {
       var col = this.dataset.sort;
-      if (_sortCol === col) { _sortAsc = !_sortAsc; }
+      if (_sortCol === col) _sortAsc = !_sortAsc;
       else { _sortCol = col; _sortAsc = col === 'company_name' || col === 'virk_name'; }
       render();
     });
   });
+  document.getElementById('unmatchedSearch').addEventListener('input', debounce(renderUnmatched, 200));
+  document.getElementById('unmatchedSort').addEventListener('change', renderUnmatched);
 }
 
-function debounce(fn, ms) {
-  var timer;
-  return function() {
-    clearTimeout(timer);
-    timer = setTimeout(fn, ms);
-  };
-}
-
-// ── Filter + Sort ───────────────────────────────────────────
+function debounce(fn, ms) { var t; return function() { clearTimeout(t); t = setTimeout(fn, ms); }; }
 
 function getVisible() {
   var q = document.getElementById('searchInput').value.toLowerCase().trim();
   var confF = document.getElementById('confFilter').value;
   var statusF = document.getElementById('statusFilter').value;
-
   return _data.filter(function(d) {
-    // Search
-    if (q) {
-      var hay = (d.company_name + ' ' + d.virk_name + ' ' + d.cvr).toLowerCase();
-      if (hay.indexOf(q) === -1) return false;
-    }
-    // Confidence filter
+    if (q) { var hay = (d.company_name + ' ' + d.virk_name + ' ' + d.cvr).toLowerCase(); if (hay.indexOf(q) === -1) return false; }
     if (confF === 'high' && d.confidence < 90) return false;
     if (confF === 'mid' && (d.confidence < 75 || d.confidence >= 90)) return false;
     if (confF === 'low' && d.confidence >= 75) return false;
-    // Status filter
     var isActive = !d.status || d.status === 'NORMAL';
     if (statusF === 'active' && !isActive) return false;
     if (statusF === 'inactive' && isActive) return false;
-
     return true;
   }).sort(function(a, b) {
     var va = a[_sortCol], vb = b[_sortCol];
     if (typeof va === 'string') va = va.toLowerCase();
     if (typeof vb === 'string') vb = vb.toLowerCase();
-    if (va == null) va = '';
-    if (vb == null) vb = '';
+    if (va == null) va = ''; if (vb == null) vb = '';
     if (va < vb) return _sortAsc ? -1 : 1;
     if (va > vb) return _sortAsc ? 1 : -1;
     return 0;
   });
 }
 
-// ── Render ──────────────────────────────────────────────────
-
 function render() {
   var visible = getVisible();
   var tbody = document.getElementById('tbody');
   var html = '';
-
   visible.forEach(function(d) {
     var checked = _approved.has(d.id);
     var isActive = !d.status || d.status === 'NORMAL';
@@ -278,7 +344,6 @@ function render() {
     var statusClass = isActive ? 'status-active' : 'status-inactive';
     var statusLabel = isActive ? 'Aktiv' : (d.status || 'Ukendt');
     var trClass = checked ? '' : ' class="rejected"';
-
     html += '<tr' + trClass + '>' +
       '<td><input type="checkbox" data-id="' + d.id + '"' + (checked ? ' checked' : '') + '></td>' +
       '<td><strong>' + esc(d.company_name) + '</strong></td>' +
@@ -286,71 +351,138 @@ function render() {
       '<td><code>' + esc(d.cvr) + '</code></td>' +
       '<td><span class="conf ' + confClass + '">' + d.confidence + '%</span></td>' +
       '<td><span class="status-badge ' + statusClass + '">' + statusLabel + '</span></td>' +
-      '<td>' + d.bon_count + '</td>' +
-      '</tr>';
+      '<td>' + d.bon_count + '</td></tr>';
   });
-
   tbody.innerHTML = html;
-
-  // Bind checkbox events
   tbody.querySelectorAll('input[type="checkbox"]').forEach(function(cb) {
     cb.addEventListener('change', function() {
       var id = parseInt(this.dataset.id);
       if (this.checked) _approved.add(id); else _approved.delete(id);
-      // Update row style
-      var tr = this.closest('tr');
-      if (this.checked) tr.classList.remove('rejected'); else tr.classList.add('rejected');
+      this.closest('tr').classList.toggle('rejected', !this.checked);
       updateStats();
     });
   });
-
   updateStats();
-
-  // Update sort arrows
   document.querySelectorAll('.sort-arrow').forEach(function(el) { el.textContent = ''; el.classList.remove('active'); });
   var arrow = document.getElementById('sort-' + _sortCol);
   if (arrow) { arrow.textContent = _sortAsc ? ' \u25B2' : ' \u25BC'; arrow.classList.add('active'); }
 }
 
 function updateStats() {
-  var visible = getVisible();
-  var visApproved = visible.filter(function(d) { return _approved.has(d.id); }).length;
   document.getElementById('stats').textContent =
-    'Viser ' + visible.length + ' af ' + _data.length + ' | Godkendt: ' + _approved.size + ' af ' + _data.length;
+    'Viser ' + getVisible().length + ' af ' + _data.length + ' | Godkendt: ' + _approved.size + ' | Manuelle: ' + Object.keys(_manualLinks).length;
 }
 
-function esc(s) {
-  if (!s) return '';
-  return s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
-}
+function esc(s) { return !s ? '' : s.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;'); }
 
-// ── Bulk actions ────────────────────────────────────────────
+function checkHigh() { _approved.clear(); _data.forEach(function(d) { if (d.confidence >= 90) _approved.add(d.id); }); render(); }
+function checkActive() { _approved.clear(); _data.forEach(function(d) { if (!d.status || d.status === 'NORMAL') _approved.add(d.id); }); render(); }
+function uncheckAll() { _approved.clear(); render(); }
 
-function checkHigh() {
-  _approved.clear();
-  _data.forEach(function(d) { if (d.confidence >= 90) _approved.add(d.id); });
-  render();
-}
+// ══════════════════════════════════════════════════════════════
+// UNMATCHED TAB (Manuel søg + kobl)
+// ══════════════════════════════════════════════════════════════
 
-function checkActive() {
-  _approved.clear();
-  _data.forEach(function(d) {
-    var isActive = !d.status || d.status === 'NORMAL';
-    if (isActive) _approved.add(d.id);
+function renderUnmatched() {
+  var q = document.getElementById('unmatchedSearch').value.toLowerCase().trim();
+  var sortBy = document.getElementById('unmatchedSort').value;
+
+  var filtered = _unmatched.filter(function(d) {
+    return !q || d.company_name.toLowerCase().indexOf(q) !== -1;
   });
-  render();
+
+  if (sortBy === 'name') filtered.sort(function(a, b) { return a.company_name.localeCompare(b.company_name); });
+  else if (sortBy === 'linked') filtered.sort(function(a, b) { var al = _manualLinks[a.id] ? 1 : 0; var bl = _manualLinks[b.id] ? 1 : 0; return bl - al || b.bon_count - a.bon_count; });
+  else filtered.sort(function(a, b) { return b.bon_count - a.bon_count; });
+
+  var container = document.getElementById('unmatchedList');
+  var html = '';
+  var linkedCount = 0;
+
+  filtered.forEach(function(d) {
+    var link = _manualLinks[d.id];
+    if (link) linkedCount++;
+    html += '<div class="unmatched-card" id="um-' + d.id + '">' +
+      '<span class="name">' + esc(d.company_name) + '</span>' +
+      '<span class="bons">' + d.bon_count + ' bons</span>';
+
+    if (link) {
+      html += '<span class="linked">&#10003; CVR:' + esc(link.cvr) + ' &mdash; ' + esc(link.legal_name) + '</span>' +
+        ' <button class="btn btn-sm btn-danger" onclick="unlinkManual(' + d.id + ')">Fjern</button>';
+    } else {
+      html += '<span class="reason">' + esc(d.reason || '') + '</span>' +
+        '<div class="search-form">' +
+          '<input type="text" placeholder="S\u00f8g i Virk..." value="' + esc(d.company_name) + '" id="vsearch-' + d.id + '" ' +
+            'onkeydown="if(event.key===\'Enter\')searchVirk(' + d.id + ')">' +
+          '<button class="btn btn-sm btn-secondary" onclick="searchVirk(' + d.id + ')">S\u00f8g</button>' +
+        '</div>';
+    }
+    html += '<div id="vresults-' + d.id + '"></div></div>';
+  });
+
+  container.innerHTML = html;
+  document.getElementById('unmatchedStats').textContent =
+    'Viser ' + filtered.length + ' af ' + _unmatched.length + ' | Koblet: ' + linkedCount;
 }
 
-function uncheckAll() {
-  _approved.clear();
-  render();
+function searchVirk(companyId) {
+  var input = document.getElementById('vsearch-' + companyId);
+  var q = input.value.trim();
+  if (q.length < 2) return;
+
+  var resultsEl = document.getElementById('vresults-' + companyId);
+  resultsEl.innerHTML = '<div style="padding:8px;color:#666;font-size:13px">S\u00f8ger i Virk...</div>';
+
+  fetch('/api/cvr/virk-search?q=' + encodeURIComponent(q))
+    .then(function(r) { return r.json(); })
+    .then(function(results) {
+      if (!results.length) {
+        resultsEl.innerHTML = '<div style="padding:8px;color:#999;font-size:13px">Ingen resultater. Pr\u00f8v et andet s\u00f8geord.</div>';
+        return;
+      }
+      var html = '<div class="virk-results">';
+      results.forEach(function(r) {
+        var statusBadge = '';
+        if (r.status && r.status !== 'NORMAL') statusBadge = ' <span class="status-badge status-inactive">' + esc(r.status) + '</span>';
+        html += '<div class="vr-item" onclick="linkManual(' + companyId + ',\'' + esc(r.cvr) + '\',\'' + esc((r.name||'').replace(/'/g,'')) + '\')">' +
+          '<span class="vr-name">' + esc(r.name) + '</span>' + statusBadge +
+          '<br><span class="vr-meta">CVR: ' + esc(r.cvr) + ' &middot; ' + esc(r.city || '') + ' &middot; ' + esc(r.industry || '') + '</span>' +
+          '</div>';
+      });
+      html += '</div>';
+      resultsEl.innerHTML = html;
+    })
+    .catch(function(err) {
+      resultsEl.innerHTML = '<div style="padding:8px;color:#dc3545;font-size:13px">Fejl: ' + err.message + '</div>';
+    });
 }
 
-// ── Export ───────────────────────────────────────────────────
+function linkManual(companyId, cvr, legalName) {
+  _manualLinks[companyId] = { cvr: cvr, legal_name: legalName };
+  renderUnmatched();
+  updateStats();
+}
+
+function unlinkManual(companyId) {
+  delete _manualLinks[companyId];
+  renderUnmatched();
+  updateStats();
+}
+
+// ══════════════════════════════════════════════════════════════
+// EXPORT (inkl. manuelle koblinger)
+// ══════════════════════════════════════════════════════════════
 
 function exportApproved() {
+  // Auto-matches der er godkendt
   var approved = _data.filter(function(d) { return _approved.has(d.id); }).map(function(d) {
     return { id: d.id, cvr: d.cvr, legal_name: d.virk_name };
+  });
+
+  // Manuelle koblinger
+  Object.keys(_manualLinks).forEach(function(id) {
+    var link = _manualLinks[id];
+    approved.push({ id: parseInt(id), cvr: link.cvr, legal_name: link.legal_name });
   });
 
   var json = JSON.stringify(approved, null, 2);
@@ -365,16 +497,13 @@ function downloadJson() {
   var blob = new Blob([json], { type: 'application/json' });
   var url = URL.createObjectURL(blob);
   var a = document.createElement('a');
-  a.href = url;
-  a.download = 'cvr-approved.json';
-  a.click();
+  a.href = url; a.download = 'cvr-approved.json'; a.click();
   URL.revokeObjectURL(url);
 }
 
 function copyJson() {
   var ta = document.getElementById('exportJson');
-  ta.select();
-  document.execCommand('copy');
+  ta.select(); document.execCommand('copy');
   alert('Kopieret til clipboard!');
 }
 </script>

@@ -448,6 +448,7 @@ async function main() {
 
   // ─── Export review JSON for Virk ES matches ────────────────────
   if (exportReview || (dryRun && results.virk.length > 0)) {
+    const fs = require('fs');
     const reviewPath = path.join(__dirname, '..', 'data', 'cvr-virk-review.json');
     const reviewData = results.virk.map(m => ({
       id: m.company.id,
@@ -459,8 +460,20 @@ async function main() {
       confidence: Math.round((m.score || 0) * 100),
       status: m.status || null,
     }));
-    require('fs').writeFileSync(reviewPath, JSON.stringify(reviewData, null, 2));
+    fs.writeFileSync(reviewPath, JSON.stringify(reviewData, null, 2));
     console.log(`\n📋 Virk ES review-data: ${reviewPath} (${reviewData.length} matches)`);
+
+    // Eksportér også umatchede firmaer
+    const unmatchedPath = path.join(__dirname, '..', 'data', 'cvr-unmatched.json');
+    const unmatchedData = results.no_match.map(m => ({
+      id: m.company.id,
+      company_name: m.company.name,
+      bon_count: m.company.bon_count,
+      ean: m.company.ean || null,
+      reason: m.reason,
+    }));
+    fs.writeFileSync(unmatchedPath, JSON.stringify(unmatchedData, null, 2));
+    console.log(`📋 Umatchede firmaer: ${unmatchedPath} (${unmatchedData.length} firmaer)`);
     console.log('   Åbn tools/cvr-review.html i browser for at gennemgå');
   }
 }

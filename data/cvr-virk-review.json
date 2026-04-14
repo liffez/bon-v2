@@ -44,8 +44,8 @@
     "company_name": "Landbrug og Fødevarer",
     "bon_count": 68,
     "ean": null,
-    "cvr": "41956011",
-    "virk_name": "Ministeriet for Fødevarer, Landbrug og Fiskeri",
+    "cvr": "62534516",
+    "virk_name": "Styrelsen for Fødevarer, Landbrug og Fiskeri",
     "confidence": 90,
     "status": "Aktiv"
   },
@@ -394,10 +394,10 @@
     "company_name": "Københavns Universitet, Institut for Matematiske Fag, QMATh",
     "bon_count": 5,
     "ean": null,
-    "cvr": "29979812",
+    "cvr": "22134310",
     "virk_name": "Københavns Universitet",
     "confidence": 95,
-    "status": "Aktiv"
+    "status": "Ophørt"
   },
   {
     "id": 294,
@@ -494,20 +494,10 @@
     "company_name": "IFRO Københavns Universitet",
     "bon_count": 4,
     "ean": null,
-    "cvr": "29979812",
+    "cvr": "22134310",
     "virk_name": "Københavns Universitet",
     "confidence": 95,
-    "status": "Aktiv"
-  },
-  {
-    "id": 900,
-    "company_name": "Streetfood om søerne",
-    "bon_count": 4,
-    "ean": null,
-    "cvr": "36690585",
-    "virk_name": "Streetfood ApS",
-    "confidence": 95,
-    "status": "OPLØSTEFTERKONKURS"
+    "status": "Ophørt"
   },
   {
     "id": 875,
@@ -664,10 +654,10 @@
     "company_name": "Niels Brock",
     "bon_count": 4,
     "ean": null,
-    "cvr": "11649491",
-    "virk_name": "Niels Brock Fonden",
+    "cvr": "35162585",
+    "virk_name": "Kunstforeningen Niels Brock",
     "confidence": 95,
-    "status": "Aktiv"
+    "status": "Ophørt"
   },
   {
     "id": 1200,
@@ -676,6 +666,16 @@
     "ean": null,
     "cvr": "55618410",
     "virk_name": "DANMARKS BIBLIOTEKSFORENING",
+    "confidence": 95,
+    "status": "Aktiv"
+  },
+  {
+    "id": 1189,
+    "company_name": "Mørkhøj Skole",
+    "bon_count": 3,
+    "ean": null,
+    "cvr": "21767794",
+    "virk_name": "Mørkhøj I/S",
     "confidence": 95,
     "status": "Aktiv"
   },
@@ -824,8 +824,8 @@
     "company_name": "Landbrug & Fødevarer",
     "bon_count": 3,
     "ean": null,
-    "cvr": "31681898",
-    "virk_name": "Landbrug & Fødevarer Østjylland",
+    "cvr": "42281751",
+    "virk_name": "Kunstforeningen Landbrug & Fødevarer",
     "confidence": 95,
     "status": "Ophørt"
   },
@@ -1304,10 +1304,10 @@
     "company_name": "CEFA CBS",
     "bon_count": 2,
     "ean": null,
-    "cvr": "38554166",
-    "virk_name": "CEFA ApS",
+    "cvr": "36270357",
+    "virk_name": "CBS",
     "confidence": 95,
-    "status": "OPLØSTEFTERERKLÆRING"
+    "status": "Aktiv"
   },
   {
     "id": 617,
@@ -1324,10 +1324,10 @@
     "company_name": "Københavns Universitet - Institut for Matematiske Fag",
     "bon_count": 2,
     "ean": null,
-    "cvr": "29979812",
+    "cvr": "22134310",
     "virk_name": "Københavns Universitet",
     "confidence": 95,
-    "status": "Aktiv"
+    "status": "Ophørt"
   },
   {
     "id": 542,
@@ -1364,10 +1364,10 @@
     "company_name": "Novo Nordisk",
     "bon_count": 2,
     "ean": null,
-    "cvr": "35177175",
-    "virk_name": "GolfTeam Novo Nordisk",
+    "cvr": "13233691",
+    "virk_name": "Gymnastikklubben Novo Nordisk",
     "confidence": 95,
-    "status": "Aktiv"
+    "status": "Ophørt"
   },
   {
     "id": 439,
@@ -2160,6 +2160,16 @@
     "status": "Ophørt"
   },
   {
+    "id": 999,
+    "company_name": "Logik og co",
+    "bon_count": 1,
+    "ean": null,
+    "cvr": "31632625",
+    "virk_name": "LOGIK ApS",
+    "confidence": 95,
+    "status": "OPLØSTEFTERFRIVILLIGLIKVIDATION"
+  },
+  {
     "id": 996,
     "company_name": "Tryg Forsikring A/S",
     "bon_count": 1,
@@ -2224,8 +2234,8 @@
     "company_name": "Nordstjernen",
     "bon_count": 1,
     "ean": null,
-    "cvr": "17558889",
-    "virk_name": "NORDSTJERNEN",
+    "cvr": "34298610",
+    "virk_name": "Nordstjernen",
     "confidence": 100,
     "status": "Ophørt"
   },
@@ -2244,8 +2254,8 @@
     "company_name": "Zonta",
     "bon_count": 1,
     "ean": null,
-    "cvr": "35614958",
-    "virk_name": "Zonta Næstved",
+    "cvr": "42405361",
+    "virk_name": "Zonta Fyn",
     "confidence": 95,
     "status": "Aktiv"
   },
@@ -2388,6 +2398,16 @@
     "virk_name": "HAUSCHILDT HOLDING ApS",
     "confidence": 100,
     "status": "NORMAL"
+  },
+  {
+    "id": 915,
+    "company_name": "ku bio",
+    "bon_count": 1,
+    "ean": null,
+    "cvr": "40784497",
+    "virk_name": "Bio-Bio",
+    "confidence": 90,
+    "status": "Aktiv"
   },
   {
     "id": 914,
@@ -2874,8 +2894,8 @@
     "company_name": "HKI",
     "bon_count": 1,
     "ean": null,
-    "cvr": "28483392",
-    "virk_name": "HKI HOLDING ApS",
+    "cvr": "21010642",
+    "virk_name": "HKI Holding ApS",
     "confidence": 100,
     "status": "OPLØSTEFTERFUSION"
   },
@@ -3294,7 +3314,7 @@
     "company_name": "Cento",
     "bon_count": 1,
     "ean": null,
-    "cvr": "31781868",
+    "cvr": "26812003",
     "virk_name": "CENTO ApS",
     "confidence": 100,
     "status": "OPLØSTEFTERERKLÆRING"
@@ -3414,7 +3434,7 @@
     "company_name": "Dyssegårdskirken",
     "bon_count": 1,
     "ean": null,
-    "cvr": "10838118",
+    "cvr": "44917491",
     "virk_name": "Dyssegårdskirken",
     "confidence": 100,
     "status": "Aktiv"
@@ -3594,8 +3614,8 @@
     "company_name": "Le34",
     "bon_count": 1,
     "ean": null,
-    "cvr": "27758592",
-    "virk_name": "LE34 GRUPPEN LANDINSPEKTØRAKTIESELSKAB",
+    "cvr": "20683880",
+    "virk_name": "LANDINSPEKTØRFIRMAET LE34 A/S",
     "confidence": 95,
     "status": "NORMAL"
   },
@@ -4124,10 +4144,10 @@
     "company_name": "Den Frie",
     "bon_count": 0,
     "ean": null,
-    "cvr": "35149244",
-    "virk_name": "Den Frie Alkoholrådgivning",
+    "cvr": "41738278",
+    "virk_name": "Den frie psykoterapeut",
     "confidence": 95,
-    "status": "Ophørt"
+    "status": "Aktiv"
   },
   {
     "id": 1040,
@@ -4954,10 +4974,10 @@
     "company_name": "Novo Nordisk",
     "bon_count": 0,
     "ean": null,
-    "cvr": "24256790",
-    "virk_name": "NOVO NORDISK A/S",
-    "confidence": 100,
-    "status": "NORMAL"
+    "cvr": "13233691",
+    "virk_name": "Gymnastikklubben Novo Nordisk",
+    "confidence": 95,
+    "status": "Ophørt"
   },
   {
     "id": 447,
@@ -5014,10 +5034,10 @@
     "company_name": "Københavns Universitet, Institut for Matematiske Fag, QMATh",
     "bon_count": 0,
     "ean": null,
-    "cvr": "29979812",
+    "cvr": "22134310",
     "virk_name": "Københavns Universitet",
     "confidence": 95,
-    "status": "Aktiv"
+    "status": "Ophørt"
   },
   {
     "id": 430,
@@ -5424,10 +5444,10 @@
     "company_name": "Dk Company",
     "bon_count": 0,
     "ean": null,
-    "cvr": "35693335",
-    "virk_name": "Workforce Company DK",
-    "confidence": 90,
-    "status": "Ophørt"
+    "cvr": "24431118",
+    "virk_name": "DK COMPANY A/S",
+    "confidence": 100,
+    "status": "NORMAL"
   },
   {
     "id": 299,
@@ -5584,8 +5604,8 @@
     "company_name": "Landbrug og Fødevarer",
     "bon_count": 0,
     "ean": null,
-    "cvr": "41956011",
-    "virk_name": "Ministeriet for Fødevarer, Landbrug og Fiskeri",
+    "cvr": "62534516",
+    "virk_name": "Styrelsen for Fødevarer, Landbrug og Fiskeri",
     "confidence": 90,
     "status": "Aktiv"
   },
@@ -6114,10 +6134,10 @@
     "company_name": "IVH, Københavns Universitet",
     "bon_count": 0,
     "ean": "EAN 5790000299379",
-    "cvr": "22134310",
+    "cvr": "29979812",
     "virk_name": "Københavns Universitet",
     "confidence": 95,
-    "status": "Ophørt"
+    "status": "Aktiv"
   },
   {
     "id": 84,

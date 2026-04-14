@@ -1,0 +1,1234 @@
+[
+  {
+    "id": 82,
+    "company_name": "Organisationen Danske Museer",
+    "bon_count": 24,
+    "ean": null,
+    "reason": "lav: \"Organisationen Danske Arkiver\" 67%"
+  },
+  {
+    "id": 598,
+    "company_name": "Min Boligforening",
+    "bon_count": 13,
+    "ean": null,
+    "reason": "lav: \"Din og min lægeklinik\" 33%"
+  },
+  {
+    "id": 1195,
+    "company_name": "19438414",
+    "bon_count": 8,
+    "ean": null,
+    "reason": "nummer-navn"
+  },
+  {
+    "id": 753,
+    "company_name": "Ungdommens Folkemøde",
+    "bon_count": 6,
+    "ean": null,
+    "reason": "lav: \"Nyborg Folkemøde\" 50%"
+  },
+  {
+    "id": 48,
+    "company_name": "SEKO Logistics",
+    "bon_count": 6,
+    "ean": null,
+    "reason": "lav: \"Hansen Logistics\" 50%"
+  },
+  {
+    "id": 329,
+    "company_name": "Danske Biblioteker",
+    "bon_count": 5,
+    "ean": "55618410?",
+    "reason": "lav: \"RANDERSEGNENS BIBLIOTEKER\" 50%"
+  },
+  {
+    "id": 1069,
+    "company_name": "vigfestival",
+    "bon_count": 4,
+    "ean": null,
+    "reason": "lav: \"Bogfestival\" 0%"
+  },
+  {
+    "id": 1050,
+    "company_name": "Danner - Sig det til nogen",
+    "bon_count": 4,
+    "ean": null,
+    "reason": "lav: \"SIG TIL - MULTISERVICE\" 50%"
+  },
+  {
+    "id": 900,
+    "company_name": "Streetfood om søerne",
+    "bon_count": 4,
+    "ean": null,
+    "reason": "lav: \"MEZE Streetfood\" 40%"
+  },
+  {
+    "id": 827,
+    "company_name": "GLOBE Institiute - Section for biodiversity - SSC",
+    "bon_count": 4,
+    "ean": null,
+    "reason": "lav: \"Nordic BioDiversity Institute IVS\" 22%"
+  },
+  {
+    "id": 1212,
+    "company_name": "Det Kongelig Bibliotek",
+    "bon_count": 3,
+    "ean": null,
+    "reason": "lav: \"Det Kongelige Bibliotek\" 67%"
+  },
+  {
+    "id": 1203,
+    "company_name": "Copenhagen Capacity (17538896",
+    "bon_count": 3,
+    "ean": null,
+    "reason": "lav: \"Copenhagen Marine Capacity I/S\" 67%"
+  },
+  {
+    "id": 940,
+    "company_name": "KU Institut for Veterinær- og Husdyrvidenskab",
+    "bon_count": 3,
+    "ean": null,
+    "reason": "lav: \"Institut for Usynlighed\" 44%"
+  },
+  {
+    "id": 903,
+    "company_name": "BoligMadDesign",
+    "bon_count": 3,
+    "ean": null,
+    "reason": "ingen resultater"
+  },
+  {
+    "id": 901,
+    "company_name": "Buster i naturen",
+    "bon_count": 3,
+    "ean": null,
+    "reason": "lav: \"Byen i naturen - Naturen i byen\" 50%"
+  },
+  {
+    "id": 846,
+    "company_name": "Aarhus University, BTECH Aarhus BSS",
+    "bon_count": 3,
+    "ean": null,
+    "reason": "lav: \"AARHUS UNIVERSITET\" 33%"
+  },
+  {
+    "id": 832,
+    "company_name": "Roskilde Festival Gruppen",
+    "bon_count": 3,
+    "ean": null,
+    "reason": "lav: \"Foreningen Roskilde Festival\" 67%"
+  },
+  {
+    "id": 742,
+    "company_name": "Ronald McDonald Hus",
+    "bon_count": 3,
+    "ean": null,
+    "reason": "lav: \"RONALD MCDONALD BØRNEFOND\" 67%"
+  },
+  {
+    "id": 278,
+    "company_name": "Visit Carlsberg",
+    "bon_count": 3,
+    "ean": null,
+    "reason": "lav: \"Visit Køge\" 50%"
+  },
+  {
+    "id": 184,
+    "company_name": "Øksenhallen",
+    "bon_count": 3,
+    "ean": null,
+    "reason": "ingen resultater"
+  },
+  {
+    "id": 1048,
+    "company_name": "University of Copenhagen - Plen",
+    "bon_count": 2,
+    "ean": null,
+    "reason": "lav: \"European Horizons University of Copenhagen\" 67%"
+  },
+  {
+    "id": 938,
+    "company_name": "British Embassy Copenhagen",
+    "bon_count": 2,
+    "ean": null,
+    "reason": "lav: \"Ghana Embassy in Copenhagen\" 57%"
+  },
+  {
+    "id": 908,
+    "company_name": "Musikkonservatoriet",
+    "bon_count": 2,
+    "ean": null,
+    "reason": "lav: \"Rytmisk Musikkonservatorium\" 0%"
+  },
+  {
+    "id": 723,
+    "company_name": "Domkirken",
+    "bon_count": 2,
+    "ean": null,
+    "reason": "lav: \"Maribo Domkirke\" 0%"
+  },
+  {
+    "id": 709,
+    "company_name": "KU Plen - Pometet",
+    "bon_count": 2,
+    "ean": null,
+    "reason": "lav: \"KU:ME\" 40%"
+  },
+  {
+    "id": 648,
+    "company_name": "Folkekirken Vesterbro",
+    "bon_count": 2,
+    "ean": null,
+    "reason": "lav: \"Folkekirken.dk\" 50%"
+  },
+  {
+    "id": 284,
+    "company_name": "KR Foundation",
+    "bon_count": 2,
+    "ean": null,
+    "reason": "lav: \"KR mobilrep.\" 50%"
+  },
+  {
+    "id": 171,
+    "company_name": "Diaego",
+    "bon_count": 2,
+    "ean": null,
+    "reason": "lav: \"Diego Ojeda\" 0%"
+  },
+  {
+    "id": 152,
+    "company_name": "Sprogcenter Furesø",
+    "bon_count": 2,
+    "ean": null,
+    "reason": "lav: \"Roskilde sprogcenter\" 50%"
+  },
+  {
+    "id": 58,
+    "company_name": "Dansk Kultur-institut",
+    "bon_count": 2,
+    "ean": "Kort betaling",
+    "reason": "lav: \"Nordisk Kultur Institut\" 67%"
+  },
+  {
+    "id": 2484,
+    "company_name": "Testfirma ApS",
+    "bon_count": 1,
+    "ean": null,
+    "reason": "lav: \"TESTFORM CENTER ApS\" 0%"
+  },
+  {
+    "id": 1252,
+    "company_name": "CFSA",
+    "bon_count": 1,
+    "ean": null,
+    "reason": "lav: \"CASA COSA ApS\" 0%"
+  },
+  {
+    "id": 1246,
+    "company_name": "Psyk. Konsulent SPN",
+    "bon_count": 1,
+    "ean": null,
+    "reason": "lav: \"psykologisk konsulent SPN\" 67%"
+  },
+  {
+    "id": 1238,
+    "company_name": "108 yoga ApS",
+    "bon_count": 1,
+    "ean": null,
+    "reason": "lav: \"Yoga Boga Denmark\" 40%"
+  },
+  {
+    "id": 1234,
+    "company_name": "Betty Nansen Teatret",
+    "bon_count": 1,
+    "ean": null,
+    "reason": "lav: \"BETTY JENSEN\" 40%"
+  },
+  {
+    "id": 1215,
+    "company_name": "Siemens Healthineers",
+    "bon_count": 1,
+    "ean": null,
+    "reason": "lav: \"SIEMENS MEDARBEJDERFOND\" 50%"
+  },
+  {
+    "id": 1209,
+    "company_name": "Datalogisk Institut, KU",
+    "bon_count": 1,
+    "ean": null,
+    "reason": "lav: \"Datalogisk institut sportsforening (DIS)\" 67%"
+  },
+  {
+    "id": 1140,
+    "company_name": "GreenBikeTours",
+    "bon_count": 1,
+    "ean": null,
+    "reason": "ingen resultater"
+  },
+  {
+    "id": 1139,
+    "company_name": "Fælledby PS cvr 40741860",
+    "bon_count": 1,
+    "ean": null,
+    "reason": "lav: \"Fælledby - Lærkemassakren\" 33%"
+  },
+  {
+    "id": 1113,
+    "company_name": "Praktiserende læge Jette Willendrup",
+    "bon_count": 1,
+    "ean": null,
+    "reason": "lav: \"PRAKTISERENDE LÆGE OG ONLINELÆGE\" 50%"
+  },
+  {
+    "id": 1083,
+    "company_name": "Kjøbenhavns Ishockey forening",
+    "bon_count": 1,
+    "ean": null,
+    "reason": "lav: \"Ishockey Spiller Forening\" 50%"
+  },
+  {
+    "id": 1075,
+    "company_name": "Austria Tourism Denmark",
+    "bon_count": 1,
+    "ean": null,
+    "reason": "lav: \"Medical Tourism Denmark ApS\" 67%"
+  },
+  {
+    "id": 1067,
+    "company_name": "DTU Biosustain",
+    "bon_count": 1,
+    "ean": null,
+    "reason": "lav: \"DTU Basketball\" 50%"
+  },
+  {
+    "id": 1015,
+    "company_name": "naNODE, Alumneforeningen for Nanoscience på KU",
+    "bon_count": 1,
+    "ean": null,
+    "reason": "lav: \"Nanoscience Fagråd KU\" 44%"
+  },
+  {
+    "id": 976,
+    "company_name": "Steinerskolerne i Danmark",
+    "bon_count": 1,
+    "ean": null,
+    "reason": "lav: \"Sammenslutningen af Steinerskoler i Danmark\" 33%"
+  },
+  {
+    "id": 947,
+    "company_name": "KU - Department of Food Science",
+    "bon_count": 1,
+    "ean": null,
+    "reason": "lav: \"KU Science Vin\" 50%"
+  },
+  {
+    "id": 943,
+    "company_name": "Steinerdagtilbud",
+    "bon_count": 1,
+    "ean": null,
+    "reason": "ingen resultater"
+  },
+  {
+    "id": 917,
+    "company_name": "Ku Math",
+    "bon_count": 1,
+    "ean": null,
+    "reason": "lav: \"KU:ME\" 50%"
+  },
+  {
+    "id": 916,
+    "company_name": "novonordisk",
+    "bon_count": 1,
+    "ean": null,
+    "reason": "lav: \"Nanonordisk v/Claus Secher\" 0%"
+  },
+  {
+    "id": 913,
+    "company_name": "ku food",
+    "bon_count": 1,
+    "ean": null,
+    "reason": "lav: \"GOOD FOOD\" 50%"
+  },
+  {
+    "id": 909,
+    "company_name": "plen ku",
+    "bon_count": 1,
+    "ean": null,
+    "reason": "lav: \"KU Fysioterapi\" 50%"
+  },
+  {
+    "id": 907,
+    "company_name": "Furesø løbefest",
+    "bon_count": 1,
+    "ean": null,
+    "reason": "lav: \"Furesø Frimenighed\" 50%"
+  },
+  {
+    "id": 894,
+    "company_name": "National Museet",
+    "bon_count": 1,
+    "ean": null,
+    "reason": "lav: \"Højgaard national\" 50%"
+  },
+  {
+    "id": 887,
+    "company_name": "Natural History Museum of Denmark",
+    "bon_count": 1,
+    "ean": null,
+    "reason": "lav: \"Vault of History\" 50%"
+  },
+  {
+    "id": 863,
+    "company_name": "Kulturskolerne",
+    "bon_count": 1,
+    "ean": null,
+    "reason": "lav: \"Kulturskolen\" 0%"
+  },
+  {
+    "id": 858,
+    "company_name": "Taenketanken Frej",
+    "bon_count": 1,
+    "ean": null,
+    "reason": "lav: \"Tænketanken Frej\" 50%"
+  },
+  {
+    "id": 845,
+    "company_name": "Biocenter, University of Copenhagen",
+    "bon_count": 1,
+    "ean": null,
+    "reason": "lav: \"European Horizons University of Copenhagen\" 67%"
+  },
+  {
+    "id": 843,
+    "company_name": "University of Copenhagen  Faculty of Health and Medical Sciences",
+    "bon_count": 1,
+    "ean": null,
+    "reason": "lav: \"Faculty of Law, Charles University\" 46%"
+  },
+  {
+    "id": 835,
+    "company_name": "Biostatistisk Afdeling, KU",
+    "bon_count": 1,
+    "ean": null,
+    "reason": "lav: \"KU Fysioterapi\" 40%"
+  },
+  {
+    "id": 824,
+    "company_name": "Den danske Ambassade i Paris",
+    "bon_count": 1,
+    "ean": null,
+    "reason": "lav: \"Den Australske Ambassade\" 57%"
+  },
+  {
+    "id": 800,
+    "company_name": "Kemisk Institut, KU",
+    "bon_count": 1,
+    "ean": null,
+    "reason": "lav: \"Kemisk Institut Kantine /Eva Blok Sillesen\" 44%"
+  },
+  {
+    "id": 794,
+    "company_name": "DHG Danmark A/S",
+    "bon_count": 1,
+    "ean": null,
+    "reason": "lav: \"DANTALK DANMARK A/S\" 50%"
+  },
+  {
+    "id": 780,
+    "company_name": "Scenit",
+    "bon_count": 1,
+    "ean": null,
+    "reason": "lav: \"ScanIt\" 0%"
+  },
+  {
+    "id": 775,
+    "company_name": "AAB afdeling 103",
+    "bon_count": 1,
+    "ean": null,
+    "reason": "lav: \"Boligforeningen AAB afdeling 113\" 57%"
+  },
+  {
+    "id": 762,
+    "company_name": "KEA – Københavns Erhvervsakademi, KEA Design",
+    "bon_count": 1,
+    "ean": "5798000560291",
+    "reason": "lav: \"KEA Rus Design\" 57%"
+  },
+  {
+    "id": 751,
+    "company_name": "Simonskogeskole",
+    "bon_count": 1,
+    "ean": null,
+    "reason": "ingen resultater"
+  },
+  {
+    "id": 748,
+    "company_name": "KU - Institut for Neurovidenskab",
+    "bon_count": 1,
+    "ean": null,
+    "reason": "lav: \"Institut for Neurovidenskab og Medicinsk Optimering I/S\" 60%"
+  },
+  {
+    "id": 736,
+    "company_name": "Stråleterapien",
+    "bon_count": 1,
+    "ean": null,
+    "reason": "lav: \"IP Næstved Stråleterapi Komplementar ApS\" 0%"
+  },
+  {
+    "id": 734,
+    "company_name": "Økologisk Norge og Vitenparken campus Ås",
+    "bon_count": 1,
+    "ean": null,
+    "reason": "lav: \"Kirstinelund Campus A/S\" 25%"
+  },
+  {
+    "id": 698,
+    "company_name": "ATV – the Danish Academy of Technical Sciences",
+    "bon_count": 1,
+    "ean": null,
+    "reason": "lav: \"Institute of Physics of the Czech Academy of Sciences\" 57%"
+  },
+  {
+    "id": 694,
+    "company_name": "hidorris",
+    "bon_count": 1,
+    "ean": null,
+    "reason": "lav: \"Dorris og Visti Invest ApS\" 0%"
+  },
+  {
+    "id": 693,
+    "company_name": "IFRC Psychosocial Centre (Røde Kors)",
+    "bon_count": 1,
+    "ean": null,
+    "reason": "lav: \"Psykosocial tutor\" 0%"
+  },
+  {
+    "id": 691,
+    "company_name": "Måløv Teknikerby",
+    "bon_count": 1,
+    "ean": null,
+    "reason": "lav: \"Måløv - Skyttefrening\" 50%"
+  },
+  {
+    "id": 685,
+    "company_name": "Fulbright Denmark",
+    "bon_count": 1,
+    "ean": null,
+    "reason": "lav: \"Yacht Parts Denmark - Flexima Danmark ApS\" 29%"
+  },
+  {
+    "id": 677,
+    "company_name": "Nucleate Denmark (registreret under Synapse-Connect)",
+    "bon_count": 1,
+    "ean": null,
+    "reason": "lav: \"Nuclear Devils Drumband Denmark\" 33%"
+  },
+  {
+    "id": 610,
+    "company_name": "Venturecup",
+    "bon_count": 1,
+    "ean": null,
+    "reason": "lav: \"VENTURECLUB ApS\" 0%"
+  },
+  {
+    "id": 609,
+    "company_name": "DSG team (via Martina, Tempty)",
+    "bon_count": 1,
+    "ean": null,
+    "reason": "lav: \"Team Search Dog\" 40%"
+  },
+  {
+    "id": 563,
+    "company_name": "Tuborgfondet",
+    "bon_count": 1,
+    "ean": null,
+    "reason": "ingen resultater"
+  },
+  {
+    "id": 512,
+    "company_name": "IUNO Advokatselskab",
+    "bon_count": 1,
+    "ean": null,
+    "reason": "lav: \"TCH Advokatselskab ApS\" 50%"
+  },
+  {
+    "id": 511,
+    "company_name": "29190623",
+    "bon_count": 1,
+    "ean": "5798001020831",
+    "reason": "nummer-navn"
+  },
+  {
+    "id": 371,
+    "company_name": "Single Rock Café København, cvr. nr. 26015502",
+    "bon_count": 1,
+    "ean": "cvr 26015502",
+    "reason": "lav: \"Single Rock Cafe' - København\" 55%"
+  },
+  {
+    "id": 345,
+    "company_name": "Sandnes kommune",
+    "bon_count": 1,
+    "ean": null,
+    "reason": "lav: \"Sandner v/ Anne Sander\" 0%"
+  },
+  {
+    "id": 312,
+    "company_name": "arki_lab",
+    "bon_count": 1,
+    "ean": null,
+    "reason": "lav: \"arkilab\" 0%"
+  },
+  {
+    "id": 263,
+    "company_name": "Talent Norge AS",
+    "bon_count": 1,
+    "ean": null,
+    "reason": "lav: \"MACONOMY NORGE AS                 NORGE\" 50%"
+  },
+  {
+    "id": 231,
+    "company_name": "Thea Bollerup",
+    "bon_count": 1,
+    "ean": null,
+    "reason": "lav: \"Kollerups Konsulentservice v/Bente Kollerup\" 0%"
+  },
+  {
+    "id": 186,
+    "company_name": "Kompas Dramaskole",
+    "bon_count": 1,
+    "ean": null,
+    "reason": "lav: \"Odense Dramaskole\" 50%"
+  },
+  {
+    "id": 168,
+    "company_name": "Center for Uddannelse og Pædagogik",
+    "bon_count": 1,
+    "ean": " EAN: 5798008549144",
+    "reason": "lav: \"Center for Teknologistøttet       Uddannelse\" 67%"
+  },
+  {
+    "id": 159,
+    "company_name": "Landbrug &amp; Fødevarer",
+    "bon_count": 1,
+    "ean": null,
+    "reason": "lav: \"Kunstforeningen Landbrug & Fødevarer\" 67%"
+  },
+  {
+    "id": 99,
+    "company_name": "Arkitekt foreningen",
+    "bon_count": 1,
+    "ean": null,
+    "reason": "lav: \"Foreningen for Forening\" 50%"
+  },
+  {
+    "id": 68,
+    "company_name": "Det Sociale Netvaerk",
+    "bon_count": 1,
+    "ean": null,
+    "reason": "lav: \"Det sociale netværk\" 67%"
+  },
+  {
+    "id": 54,
+    "company_name": "Dit Velværd",
+    "bon_count": 1,
+    "ean": "cvr 40824235",
+    "reason": "lav: \"Dit Velvære\" 50%"
+  },
+  {
+    "id": 1202,
+    "company_name": "Copenhagen Capacity (17538896",
+    "bon_count": 0,
+    "ean": null,
+    "reason": "lav: \"Copenhagen Marine Capacity I/S\" 67%"
+  },
+  {
+    "id": 1172,
+    "company_name": "Danner, Sig det til nogen",
+    "bon_count": 0,
+    "ean": null,
+    "reason": "lav: \"Noget til\" 29%"
+  },
+  {
+    "id": 1171,
+    "company_name": "Danner, Sig det til nogen",
+    "bon_count": 0,
+    "ean": null,
+    "reason": "lav: \"SIG TIL - MULTISERVICE\" 50%"
+  },
+  {
+    "id": 1169,
+    "company_name": "Stromma Danmark A/S",
+    "bon_count": 0,
+    "ean": null,
+    "reason": "lav: \"STROMMA DENMARK A/S\" 50%"
+  },
+  {
+    "id": 1168,
+    "company_name": "Stromma Danmark A/S",
+    "bon_count": 0,
+    "ean": null,
+    "reason": "lav: \"STROMMA DENMARK A/S\" 50%"
+  },
+  {
+    "id": 1119,
+    "company_name": "Skolen på Grundtvigsvej",
+    "bon_count": 0,
+    "ean": null,
+    "reason": "lav: \"Tryk På Skolen\" 67%"
+  },
+  {
+    "id": 1049,
+    "company_name": "Danner - Sig det til nogen",
+    "bon_count": 0,
+    "ean": null,
+    "reason": "lav: \"SIG TIL - MULTISERVICE\" 50%"
+  },
+  {
+    "id": 1041,
+    "company_name": "Den Frie Udstillingsbygning",
+    "bon_count": 0,
+    "ean": null,
+    "reason": "lav: \"Den frie psykoterapeut\" 67%"
+  },
+  {
+    "id": 1035,
+    "company_name": "Foskilde festival",
+    "bon_count": 0,
+    "ean": null,
+    "reason": "lav: \"Foreningen Roskilde Festival\" 40%"
+  },
+  {
+    "id": 968,
+    "company_name": "Biologisk Institut, KU",
+    "bon_count": 0,
+    "ean": null,
+    "reason": "lav: \"Festudvalget på Biologisk Institut\" 57%"
+  },
+  {
+    "id": 955,
+    "company_name": "RistetRug",
+    "bon_count": 0,
+    "ean": null,
+    "reason": "ingen resultater"
+  },
+  {
+    "id": 922,
+    "company_name": "Æblekassen, købenavn kommune",
+    "bon_count": 0,
+    "ean": "5798009370549",
+    "reason": "lav: \"Københavns Kommune\" 40%"
+  },
+  {
+    "id": 902,
+    "company_name": "Boligforeningernes dag",
+    "bon_count": 0,
+    "ean": null,
+    "reason": "lav: \"BOLIGFORENINGERNES BILLARDTURNERING\" 50%"
+  },
+  {
+    "id": 852,
+    "company_name": "Min Boligforning",
+    "bon_count": 0,
+    "ean": null,
+    "reason": "lav: \"Din og min fod\" 33%"
+  },
+  {
+    "id": 818,
+    "company_name": "Børnemediekonferencen",
+    "bon_count": 0,
+    "ean": null,
+    "reason": "ingen resultater"
+  },
+  {
+    "id": 810,
+    "company_name": "ATV, Akademiet fd Tekniske Vidensk.",
+    "bon_count": 0,
+    "ean": null,
+    "reason": "lav: \"AKADEMIET FOR DE TEKNISKE VIDENSKABER\" 40%"
+  },
+  {
+    "id": 803,
+    "company_name": "Iværksætterdanmark",
+    "bon_count": 0,
+    "ean": null,
+    "reason": "ingen resultater"
+  },
+  {
+    "id": 790,
+    "company_name": "navn: SMOOTH Aps\nCVR nr: 40833161",
+    "bon_count": 0,
+    "ean": null,
+    "reason": "lav: \"cvr- nr. 41834617\" 50%"
+  },
+  {
+    "id": 728,
+    "company_name": "KU Datalogisk Institut BARC",
+    "bon_count": 0,
+    "ean": null,
+    "reason": "lav: \"Datalogisk institut sportsforening (DIS)\" 57%"
+  },
+  {
+    "id": 721,
+    "company_name": "Cafe Henning",
+    "bon_count": 0,
+    "ean": null,
+    "reason": "lav: \"Café Henning\" 50%"
+  },
+  {
+    "id": 687,
+    "company_name": "Organisationen Danske Museer (ODM)",
+    "bon_count": 0,
+    "ean": null,
+    "reason": "lav: \"Organisationen Danske Arkiver\" 67%"
+  },
+  {
+    "id": 686,
+    "company_name": "Måløv Kirke",
+    "bon_count": 0,
+    "ean": null,
+    "reason": "lav: \"Måløv - Skyttefrening\" 50%"
+  },
+  {
+    "id": 672,
+    "company_name": "Klynge VVK - E - Børnefortællingen",
+    "bon_count": 0,
+    "ean": "5798009370358",
+    "reason": "lav: \"Allerød-Lynge klyngen\" 0%"
+  },
+  {
+    "id": 660,
+    "company_name": "Food Day 2024",
+    "bon_count": 0,
+    "ean": null,
+    "reason": "lav: \"Good Food\" 40%"
+  },
+  {
+    "id": 626,
+    "company_name": "Johan Borus Højskole",
+    "bon_count": 0,
+    "ean": null,
+    "reason": "lav: \"Johan Borups Højskole\" 67%"
+  },
+  {
+    "id": 605,
+    "company_name": "Fagligt Center,",
+    "bon_count": 0,
+    "ean": "5798009374608",
+    "reason": "lav: \"Fagligt forum\" 50%"
+  },
+  {
+    "id": 604,
+    "company_name": "Fritidscenter indre by",
+    "bon_count": 0,
+    "ean": "5798009370495",
+    "reason": "lav: \"Beauty by Indre\" 67%"
+  },
+  {
+    "id": 596,
+    "company_name": "Nordif Fast Food",
+    "bon_count": 0,
+    "ean": null,
+    "reason": "lav: \"Nordic Fast Food\" 67%"
+  },
+  {
+    "id": 586,
+    "company_name": "KU Science - Natur- og biovidenskabelige fakultet",
+    "bon_count": 0,
+    "ean": null,
+    "reason": "lav: \"Fonden til støtte for studerende fra Det Natur- og Biovidenskabelige Fakultet SCIENCE ved Københavns Universitet\" 48%"
+  },
+  {
+    "id": 580,
+    "company_name": "Børnefortællingen VVK klynge E - Københavns Kommune",
+    "bon_count": 0,
+    "ean": "5798009370358",
+    "reason": "lav: \"Københavns Vvs A/S\" 29%"
+  },
+  {
+    "id": 565,
+    "company_name": "Migselv",
+    "bon_count": 0,
+    "ean": null,
+    "reason": "lav: \"Majselv\" 0%"
+  },
+  {
+    "id": 562,
+    "company_name": "Tuborgfondet",
+    "bon_count": 0,
+    "ean": null,
+    "reason": "ingen resultater"
+  },
+  {
+    "id": 510,
+    "company_name": "IUNO Advokatselskab",
+    "bon_count": 0,
+    "ean": null,
+    "reason": "lav: \"TCH Advokatselskab ApS\" 50%"
+  },
+  {
+    "id": 509,
+    "company_name": "29190623",
+    "bon_count": 0,
+    "ean": "5798001020831",
+    "reason": "nummer-navn"
+  },
+  {
+    "id": 485,
+    "company_name": "Danners Krisecenter",
+    "bon_count": 0,
+    "ean": null,
+    "reason": "lav: \"RANDERS KRISECENTER\" 50%"
+  },
+  {
+    "id": 484,
+    "company_name": "Danners Krisecenter",
+    "bon_count": 0,
+    "ean": null,
+    "reason": "lav: \"RANDERS KRISECENTER\" 50%"
+  },
+  {
+    "id": 478,
+    "company_name": "Department Of Neurosurgery And Department Of Paediatrics And Adolescent Medicine, Rigshospitalet",
+    "bon_count": 0,
+    "ean": null,
+    "reason": "lav: \"Fox Department\" 20%"
+  },
+  {
+    "id": 448,
+    "company_name": "Institut for matematiske fag, KU",
+    "bon_count": 0,
+    "ean": null,
+    "reason": "lav: \"INSTITUT FOR SERVICEUDVIKLING\" 50%"
+  },
+  {
+    "id": 445,
+    "company_name": "DTU FYSIK - VISION (SurfCat)",
+    "bon_count": 0,
+    "ean": null,
+    "reason": "lav: \"KM Fysik\" 40%"
+  },
+  {
+    "id": 417,
+    "company_name": "Faglig Center, Børne- og Ungdomsforvaltningen, Københavns Kommune",
+    "bon_count": 0,
+    "ean": "5798009383730",
+    "reason": "lav: \"Københavns Kristne Center\" 40%"
+  },
+  {
+    "id": 402,
+    "company_name": "KU Institut for Veterinær- og Husdyrvidenskab",
+    "bon_count": 0,
+    "ean": null,
+    "reason": "lav: \"Institut for Usynlighed\" 44%"
+  },
+  {
+    "id": 387,
+    "company_name": "Børns vikår",
+    "bon_count": 0,
+    "ean": null,
+    "reason": "lav: \"Børns Vilkår\" 50%"
+  },
+  {
+    "id": 386,
+    "company_name": "Børns vikår",
+    "bon_count": 0,
+    "ean": null,
+    "reason": "lav: \"Børns Vilkår\" 50%"
+  },
+  {
+    "id": 370,
+    "company_name": "Single Rock Café København, cvr. nr. 26015502",
+    "bon_count": 0,
+    "ean": null,
+    "reason": "lav: \"Single Rock Cafe' - København\" 55%"
+  },
+  {
+    "id": 363,
+    "company_name": "Fritidsinstitutionen ved Langelinieskolen",
+    "bon_count": 0,
+    "ean": "5798009380463",
+    "reason": "lav: \"FRITIDSINSTITUTIONEN              KVISTEN\" 40%"
+  },
+  {
+    "id": 351,
+    "company_name": "CSV København",
+    "bon_count": 0,
+    "ean": null,
+    "reason": "lav: \"CSV Ventures\" 50%"
+  },
+  {
+    "id": 347,
+    "company_name": "Butchers Lab ApS",
+    "bon_count": 0,
+    "ean": "5797200055729",
+    "reason": "lav: \"BUTCHER'S LAB ApS\" 50%"
+  },
+  {
+    "id": 344,
+    "company_name": "Sandnes kommune",
+    "bon_count": 0,
+    "ean": null,
+    "reason": "lav: \"Sandner v/ Anne Sander\" 0%"
+  },
+  {
+    "id": 342,
+    "company_name": "Butchers Lab ApS",
+    "bon_count": 0,
+    "ean": "5797200055729",
+    "reason": "lav: \"BUTCHER'S LAB ApS\" 50%"
+  },
+  {
+    "id": 338,
+    "company_name": "Dansk Kulturinstitut",
+    "bon_count": 0,
+    "ean": null,
+    "reason": "lav: \"Nørrebro Kulturinstitut\" 50%"
+  },
+  {
+    "id": 328,
+    "company_name": "55618410",
+    "bon_count": 0,
+    "ean": null,
+    "reason": "nummer-navn"
+  },
+  {
+    "id": 318,
+    "company_name": "Holmens kirke",
+    "bon_count": 0,
+    "ean": null,
+    "reason": "lav: \"Soderup-Kirke Eskilstrup Kirke\" 40%"
+  },
+  {
+    "id": 311,
+    "company_name": "arki_lab",
+    "bon_count": 0,
+    "ean": null,
+    "reason": "lav: \"arkilab\" 0%"
+  },
+  {
+    "id": 281,
+    "company_name": "KR Foundation",
+    "bon_count": 0,
+    "ean": null,
+    "reason": "lav: \"KR mobilrep.\" 50%"
+  },
+  {
+    "id": 277,
+    "company_name": "Visit Carlsberg",
+    "bon_count": 0,
+    "ean": null,
+    "reason": "lav: \"Visit Consult\" 50%"
+  },
+  {
+    "id": 272,
+    "company_name": "Guldberg Skole",
+    "bon_count": 0,
+    "ean": "5798009380333",
+    "reason": "lav: \"Guldborg Skole\" 50%"
+  },
+  {
+    "id": 262,
+    "company_name": "Talent Norge AS",
+    "bon_count": 0,
+    "ean": null,
+    "reason": "lav: \"MACONOMY NORGE AS                 NORGE\" 50%"
+  },
+  {
+    "id": 256,
+    "company_name": "Børne - og Ungdomsforvaltningen",
+    "bon_count": 0,
+    "ean": null,
+    "reason": "lav: \"Børge og Bjarne Nikolajsen\" 29%"
+  },
+  {
+    "id": 254,
+    "company_name": "FCIC - Klubben Christianshavn",
+    "bon_count": 0,
+    "ean": "5798009370495",
+    "reason": "lav: \"SY Christianshavn\" 40%"
+  },
+  {
+    "id": 252,
+    "company_name": "FCIC - Klubben Christianshavn",
+    "bon_count": 0,
+    "ean": "5798009370495",
+    "reason": "lav: \"SY Christianshavn\" 40%"
+  },
+  {
+    "id": 246,
+    "company_name": "fotoshoot cafe",
+    "bon_count": 0,
+    "ean": null,
+    "reason": "lav: \"Nordisk Fotoshoot I/S\" 50%"
+  },
+  {
+    "id": 230,
+    "company_name": "Thea Bollerup",
+    "bon_count": 0,
+    "ean": null,
+    "reason": "lav: \"Kollerups Konsulentservice v/Bente Kollerup\" 0%"
+  },
+  {
+    "id": 229,
+    "company_name": "Seko Logistics",
+    "bon_count": 0,
+    "ean": null,
+    "reason": "lav: \"Hansen Logistics\" 50%"
+  },
+  {
+    "id": 217,
+    "company_name": "IVH, KU",
+    "bon_count": 0,
+    "ean": "2790000299379",
+    "reason": "lav: \"KU Fysioterapi\" 50%"
+  },
+  {
+    "id": 210,
+    "company_name": "Nord Ungdommens Folkemøde",
+    "bon_count": 0,
+    "ean": null,
+    "reason": "lav: \"Nyborg Folkemøde\" 40%"
+  },
+  {
+    "id": 204,
+    "company_name": "Copenhagen business hub",
+    "bon_count": 0,
+    "ean": null,
+    "reason": "lav: \"The Hub Copenhagen\" 67%"
+  },
+  {
+    "id": 202,
+    "company_name": "Prebooking turboks 2",
+    "bon_count": 0,
+    "ean": null,
+    "reason": "lav: \"CREWBOOKING ApS\" 0%"
+  },
+  {
+    "id": 201,
+    "company_name": "Prebooking turbokse",
+    "bon_count": 0,
+    "ean": null,
+    "reason": "lav: \"Firebooking IVS\" 0%"
+  },
+  {
+    "id": 200,
+    "company_name": "Prebooking slider og turbokse",
+    "bon_count": 0,
+    "ean": null,
+    "reason": "lav: \"CREWBOOKING ApS\" 0%"
+  },
+  {
+    "id": 196,
+    "company_name": "Historiske Dage",
+    "bon_count": 0,
+    "ean": null,
+    "reason": "lav: \"Historiske Venner\" 50%"
+  },
+  {
+    "id": 195,
+    "company_name": "Møde messen",
+    "bon_count": 0,
+    "ean": null,
+    "reason": "lav: \"Personaleforeningen \"Messen\"\" 50%"
+  },
+  {
+    "id": 192,
+    "company_name": "Aarkitektforeningen",
+    "bon_count": 0,
+    "ean": null,
+    "reason": "lav: \"Arkitektforeningen, Vestjyllandsafdeling\" 0%"
+  },
+  {
+    "id": 185,
+    "company_name": "Kompas Dramaskole",
+    "bon_count": 0,
+    "ean": null,
+    "reason": "lav: \"Odense Dramaskole\" 50%"
+  },
+  {
+    "id": 158,
+    "company_name": "Landbrug &amp; Fødevarer",
+    "bon_count": 0,
+    "ean": null,
+    "reason": "lav: \"Kunstforeningen Landbrug & Fødevarer\" 67%"
+  },
+  {
+    "id": 134,
+    "company_name": "Organisationen Danske Museer",
+    "bon_count": 0,
+    "ean": null,
+    "reason": "lav: \"Organisationen Danske Arkiver\" 67%"
+  },
+  {
+    "id": 128,
+    "company_name": "Rigshospitalet, Afdeling for Børn og Unge med Kræft- og Blodsygdomme, Sengeafsnit 5054, Klinik 5051, Klinik 5002,",
+    "bon_count": 0,
+    "ean": null,
+    "reason": "lav: \"Medierådet for Børn og Unge\" 42%"
+  },
+  {
+    "id": 127,
+    "company_name": "Fritidscenter Christianshavn &amp; Indre by",
+    "bon_count": 0,
+    "ean": null,
+    "reason": "lav: \"Fonden Miljøpunkt Indre By & Christianshavn\" 60%"
+  },
+  {
+    "id": 102,
+    "company_name": "veksø webshop",
+    "bon_count": 0,
+    "ean": null,
+    "reason": "lav: \"Veksø Borgerlaug\" 50%"
+  },
+  {
+    "id": 101,
+    "company_name": "KK, Guldberg skole",
+    "bon_count": 0,
+    "ean": "4050072882",
+    "reason": "lav: \"Guldborg Skole\" 40%"
+  },
+  {
+    "id": 93,
+    "company_name": "Fritidscenter Christianshavn &amp; Indre by",
+    "bon_count": 0,
+    "ean": null,
+    "reason": "lav: \"Fonden Miljøpunkt Indre By & Christianshavn\" 60%"
+  },
+  {
+    "id": 57,
+    "company_name": "Barnedåb",
+    "bon_count": 0,
+    "ean": null,
+    "reason": "ingen resultater"
+  },
+  {
+    "id": 55,
+    "company_name": "Copenhagen business hub",
+    "bon_count": 0,
+    "ean": null,
+    "reason": "lav: \"The Hub Copenhagen\" 67%"
+  },
+  {
+    "id": 53,
+    "company_name": "University of Copenhagen Department of Immunology and Microbiology LEO Foundation Skin Immunology Research Center",
+    "bon_count": 0,
+    "ean": "5798000421738.",
+    "reason": "lav: \"European Horizons University of Copenhagen\" 35%"
+  },
+  {
+    "id": 39,
+    "company_name": "KU, institut for Plante",
+    "bon_count": 0,
+    "ean": null,
+    "reason": "lav: \"Institut for Veganisme\" 57%"
+  },
+  {
+    "id": 26,
+    "company_name": "Fritidscenter Christianshavn & Indre by",
+    "bon_count": 0,
+    "ean": "5798009370495",
+    "reason": "lav: \"Fonden Miljøpunkt Indre By & Christianshavn\" 67%"
+  }
+]
