@@ -76,9 +76,10 @@ async function sendMail({ to, subject, text, context, bonId = null, customerId =
     const transport = createTransport(smtpPrefix);
     if (!transport) throw new Error(`SMTP (${smtpPrefix}) ikke konfigureret`);
 
-    // Build tag and inject into subject
+    // Build tag and inject into subject — kun hvis tagget ikke allerede er i subject
+    // (skabeloner kan bruge {{tag}} direkte, så vi undgår dobbelt-tag)
     const tag = context ? buildTag(context) : '';
-    const finalSubject = tag ? `${tag} ${subject}` : subject;
+    const finalSubject = (tag && !subject.includes(tag)) ? `${tag} ${subject}` : subject;
 
     const from = getSetting(`${smtpPrefix}_from`) || getSetting(`${smtpPrefix}_user`);
 
@@ -183,8 +184,14 @@ async function sendFromTemplate({ templateKey, to, vars, bonId = null, customerI
     const tmpl = getDb().prepare('SELECT subject, body_text FROM mail_templates WHERE key = ?').get(templateKey);
     if (!tmpl) throw new Error(`Skabelon '${templateKey}' ikke fundet`);
 
-    const subject = renderTemplate(tmpl.subject, vars);
-    const text    = renderTemplate(tmpl.body_text, vars);
+    // Gør {{tag}} tilgængelig i skabeloner — genereres fra context via settings-prefix
+    const enrichedVars = { ...vars };
+    if (context && !enrichedVars.tag) {
+        enrichedVars.tag = buildTag(context);
+    }
+
+    const subject = renderTemplate(tmpl.subject, enrichedVars);
+    const text    = renderTemplate(tmpl.body_text, enrichedVars);
 
     return sendMail({ to, subject, text, context, bonId, customerId, purchaseOrderId, userId, attachments });
 }
