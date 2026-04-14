@@ -17,15 +17,55 @@ router.get('/templates/:key', requireAuth(), handle((req, res) => {
     res.json(tmpl);
 }));
 
+// POST /api/mail/templates (admin) — opret ny skabelon
+router.post('/templates', requireAuth('admin'), handle((req, res) => {
+    const { key, label, subject, body_text } = req.body;
+    if (!key || !label) return res.status(400).json({ error: 'key og label er påkrævet' });
+
+    // Validér key-format (kun a-z, _, -)
+    if (!/^[a-z][a-z0-9_-]*$/.test(key)) {
+        return res.status(400).json({ error: 'key skal være lowercase bogstaver, tal, _ eller - (start med bogstav)' });
+    }
+
+    const db = getDb();
+    const existing = db.prepare('SELECT id FROM mail_templates WHERE key = ?').get(key);
+    if (existing) return res.status(409).json({ error: 'Skabelon med denne nøgle findes allerede' });
+
+    db.prepare(`
+        INSERT INTO mail_templates (key, label, subject, body_text, updated_at)
+        VALUES (?, ?, ?, ?, CURRENT_TIMESTAMP)
+    `).run(key, label, subject || '', body_text || '');
+
+    const created = db.prepare('SELECT * FROM mail_templates WHERE key = ?').get(key);
+    res.status(201).json(created);
+}));
+
+// DELETE /api/mail/templates/:key (admin) — slet skabelon
+router.delete('/templates/:key', requireAuth('admin'), handle((req, res) => {
+    const db = getDb();
+    // Beskyt system-skabeloner
+    const SYSTEM_KEYS = ['booking_confirmation', 'web_order_confirmation', 'order_email'];
+    if (SYSTEM_KEYS.includes(req.params.key)) {
+        return res.status(400).json({ error: 'System-skabeloner kan ikke slettes' });
+    }
+
+    const tmpl = db.prepare('SELECT id FROM mail_templates WHERE key = ?').get(req.params.key);
+    if (!tmpl) return res.status(404).json({ error: 'Skabelon ikke fundet' });
+
+    db.prepare('DELETE FROM mail_templates WHERE key = ?').run(req.params.key);
+    res.json({ ok: true });
+}));
+
 // PATCH /api/mail/templates/:key (admin)
 router.patch('/templates/:key', requireAuth('admin'), handle((req, res) => {
-    const { subject, body_text } = req.body;
+    const { label, subject, body_text } = req.body;
     const db = getDb();
     const tmpl = db.prepare('SELECT id FROM mail_templates WHERE key = ?').get(req.params.key);
     if (!tmpl) return res.status(404).json({ error: 'Skabelon ikke fundet' });
 
     const updates = [];
     const params = [];
+    if (label !== undefined)     { updates.push('label = ?');     params.push(label); }
     if (subject !== undefined)   { updates.push('subject = ?');   params.push(subject); }
     if (body_text !== undefined) { updates.push('body_text = ?'); params.push(body_text); }
 
