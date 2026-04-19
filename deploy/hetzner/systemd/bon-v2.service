@@ -1,0 +1,25 @@
+[Unit]
+Description=Bon v2 — Ristet Rug bestillingssystem
+Documentation=https://github.com/liffez/bon-v2
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=leif
+Group=leif
+WorkingDirectory=/home/leif/bon-v2
+EnvironmentFile=/home/leif/bon-v2/.env
+ExecStart=/usr/bin/node /home/leif/bon-v2/server.js
+Restart=on-failure
+RestartSec=5
+StandardOutput=journal
+StandardError=journal
+SyslogIdentifier=bon-v2
+
+# Sikkerhedsbegrænsninger (aktiverer gradvist hvis noget fejler — kommenter ud ved problemer)
+NoNewPrivileges=true
+PrivateTmp=true
+
+[Install]
+WantedBy=multi-user.target

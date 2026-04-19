@@ -12,6 +12,10 @@ const path    = require('path');
 
 const app  = express();
 const PORT = process.env.PORT || 4321;
+const IS_PROD = process.env.NODE_ENV === 'production';
+
+// Nginx sidder foran i produktion — tillad Express at se ægte protokol/IP
+if (IS_PROD) app.set('trust proxy', 1);
 
 // ─── MIDDLEWARE ─────────────────────────────────────────────────────────────
 
@@ -28,7 +32,9 @@ app.use(session({
   cookie: {
     maxAge: 7 * 24 * 60 * 60 * 1000,
     httpOnly: true,
-    sameSite: 'lax'
+    sameSite: 'lax',
+    secure: IS_PROD,
+    domain: process.env.COOKIE_DOMAIN || undefined
   }
 }));
 

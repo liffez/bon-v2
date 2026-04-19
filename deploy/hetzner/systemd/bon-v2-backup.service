@@ -1,0 +1,10 @@
+[Unit]
+Description=Daglig SQLite backup (Bon v2, Whiteboard, Grocy)
+After=network.target
+
+[Service]
+Type=oneshot
+ExecStart=/home/leif/bon-v2/deploy/hetzner/scripts/backup.sh
+User=leif
+Group=leif
+Nice=10

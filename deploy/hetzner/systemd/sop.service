@@ -1,0 +1,25 @@
+[Unit]
+Description=SOP — Ristet Rug arbejdsinstruktioner
+Documentation=https://github.com/liffez/SOP
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=leif
+Group=leif
+WorkingDirectory=/home/leif/SOP
+EnvironmentFile=/home/leif/SOP/.env
+# Tilpas ExecStart til SOP's faktiske entry point (server.js eller index.js)
+ExecStart=/usr/bin/node /home/leif/SOP/server.js
+Restart=on-failure
+RestartSec=5
+StandardOutput=journal
+StandardError=journal
+SyslogIdentifier=sop
+
+NoNewPrivileges=true
+PrivateTmp=true
+
+[Install]
+WantedBy=multi-user.target

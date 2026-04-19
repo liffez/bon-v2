@@ -1,0 +1,24 @@
+[Unit]
+Description=Whiteboard — Ristet Rug opgavetavle
+Documentation=https://github.com/liffez/whiteboard
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=leif
+Group=leif
+WorkingDirectory=/home/leif/whiteboard
+EnvironmentFile=/home/leif/whiteboard/.env
+ExecStart=/usr/bin/node /home/leif/whiteboard/server/index.js
+Restart=on-failure
+RestartSec=5
+StandardOutput=journal
+StandardError=journal
+SyslogIdentifier=whiteboard
+
+NoNewPrivileges=true
+PrivateTmp=true
+
+[Install]
+WantedBy=multi-user.target
