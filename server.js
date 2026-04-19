@@ -17,6 +17,15 @@ const IS_PROD = process.env.NODE_ENV === 'production';
 // Nginx sidder foran i produktion — tillad Express at se ægte protokol/IP
 if (IS_PROD) app.set('trust proxy', 1);
 
+// Uden COOKIE_DOMAIN bliver session-cookien host-only på bon.ristetrug.dk,
+// og auth_request på whiteboard/sop/grocy-* subdomæner går i login-loop.
+if (IS_PROD && !process.env.COOKIE_DOMAIN) {
+  console.warn('[bon-v2] WARNING: NODE_ENV=production men COOKIE_DOMAIN er ikke sat — SSO på subdomæner vil fejle. Sæt COOKIE_DOMAIN=.ristetrug.dk i .env.');
+}
+if (IS_PROD && (!process.env.SESSION_SECRET || process.env.SESSION_SECRET === 'dev-secret-change-me')) {
+  console.warn('[bon-v2] WARNING: SESSION_SECRET er ikke sat — sessioner invalideres ved hver restart. Generér en med: node -e "console.log(require(\'crypto\').randomBytes(32).toString(\'hex\'))"');
+}
+
 // ─── MIDDLEWARE ─────────────────────────────────────────────────────────────
 
 app.use(express.json());
