@@ -32,29 +32,23 @@ for snippet in bon-auth.conf ssl-common.conf; do
 done
 
 echo "─── nginx vhosts ───────────────────────────────────────"
-# Vhosts redigeres af certbot (tilføjer ssl_certificate-linjer) — vi vil
-# IKKE overskrive de edits. Eksisterende filer backup'es i stedet for
-# stille at blive overwritten.
+# Source-filerne i deploy/ er kanoniske — de har ssl_certificate-paths osv.
+# Eksisterende filer backup'es inden overskrivning, så lokale ændringer
+# kan reddes manuelt fra .backup-<timestamp>.
 TS=$(date +%Y%m%d-%H%M%S)
 for vhost in bon.ristetrug.dk whiteboard.ristetrug.dk sop.ristetrug.dk \
              grocy-hq.ristetrug.dk grocy-trailer.ristetrug.dk \
              grocy-test.ristetrug.dk kaelder.ristetrug.dk; do
     DEST="/etc/nginx/sites-available/$vhost.conf"
     SRC="$DEPLOY_DIR/nginx/sites-available/$vhost.conf"
-    if [[ -f "$DEST" ]]; then
-        if ! cmp -s "$SRC" "$DEST"; then
-            cp "$DEST" "$DEST.backup-$TS"
-            echo "  ⚠ $DEST findes og er ændret — backup som .backup-$TS, ikke overskrevet"
-        else
-            echo "  · $DEST uændret, springer over"
-        fi
-    else
-        cp "$SRC" "$DEST"
-        echo "  ✓ $DEST (ny)"
+    if [[ -f "$DEST" ]] && ! cmp -s "$SRC" "$DEST"; then
+        cp "$DEST" "$DEST.backup-$TS"
+        echo "  ⚠ $DEST ændret — backup som .backup-$TS"
     fi
+    cp "$SRC" "$DEST"
     ln -sf "$DEST" "/etc/nginx/sites-enabled/$vhost.conf"
+    echo "  ✓ $DEST"
 done
-echo "  (Slet .backup-filer + kopiér manuelt fra deploy/ hvis du vil opdatere en vhost)"
 
 echo "─── PHP-FPM pools ──────────────────────────────────────"
 for pool in grocy-hq grocy-trailer grocy-test grocy-kaelder; do
