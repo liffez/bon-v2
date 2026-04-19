@@ -149,7 +149,7 @@ function createCard(bonData, viewName) {
     const orderTypeLabel = bonData.order_type === 'pickup' ? 'Afhentning' :
                            bonData.order_type === 'event'  ? 'Event'      : 'Levering';
     const levStr = bonData.delivery_time ? ` → Lev ${bonData.delivery_time}` : '';
-    const paxStr = bonData.pax ? `${bonData.pax} pax` : '';
+    const paxStr = (bonData.pax && !bonData.units_from_pax) ? `${bonData.pax} pax` : '';
 
     // Fortryd: overlay for kitchen-today, generisk bar for andre views
     const isKitchenToday = viewName === 'kitchen-today';
@@ -181,7 +181,7 @@ function createCard(bonData, viewName) {
             </div>
             <div class="bon-header-right">
                 <div class="unit-primary">${bonData.units}</div>
-                <div class="unit-primary-label">${bonData.unit_label || 'stk'}</div>
+                <div class="unit-primary-label">${bonData.unit_label || 'ENHEDER'}</div>
                 ${paxStr ? `<div class="unit-secondary">${paxStr}</div>` : ''}
             </div>
         </div>

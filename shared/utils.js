@@ -270,9 +270,7 @@ function mapApiBonToCardData(apiBon) {
         text: n.message,
     }));
 
-    // Gæt primær enhedslabel fra første ikke-tilbehørslinje
-    const mainLine = (apiBon.lines || []).find(l => !l.is_accessory);
-    const unitLabel = mainLine ? (mainLine.unit || 'stk').toUpperCase() : 'STK';
+    const unitLabel = 'ENHEDER';
 
     // Leveringstype
     const orderType = apiBon.customer_collects ? 'pickup'
@@ -286,9 +284,10 @@ function mapApiBonToCardData(apiBon) {
         pickup_time:    formatTime(apiBon.pickup_time),
         delivery_time:  formatTime(apiBon.delivery_time),
         date:           apiBon.delivery_date ? formatDanishDate(apiBon.delivery_date) : '',
-        units:          apiBon.total_units || 0,
+        units:          apiBon.total_units || apiBon.pax || 0,
         unit_label:     unitLabel,
         pax:            apiBon.pax || 0,
+        units_from_pax: !apiBon.total_units && !!apiBon.pax,
         customer:       customer,
         delivery_address: addr,
         order_type:     orderType,
