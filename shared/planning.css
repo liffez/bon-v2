@@ -164,6 +164,109 @@
     text-align: right;
 }
 
+/* ── Ekstra opskrifter (session-local) ───────────────────── */
+.pl-extras-wrap {
+    background: var(--color-surface, #fff);
+    border: 1px solid var(--color-border, #d7d1ca);
+    border-radius: 8px;
+    margin-bottom: 20px;
+    overflow: hidden;
+}
+.pl-extras-list {
+    max-height: 240px;
+    overflow-y: auto;
+}
+.pl-extras-empty {
+    padding: 14px;
+    text-align: center;
+    color: var(--color-text-dim, #888);
+    font-size: 13px;
+    font-style: italic;
+}
+.pl-extra-row {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    padding: 8px 14px;
+    border-bottom: 1px solid rgba(0,0,0,0.04);
+    font-size: 13px;
+}
+.pl-extra-row:last-child {
+    border-bottom: none;
+}
+.pl-extra-qty {
+    min-width: 70px;
+    white-space: nowrap;
+}
+.pl-extra-qty strong {
+    color: var(--brand-primary, #8e631f);
+    font-size: 15px;
+}
+.pl-extra-name {
+    flex: 1;
+    font-weight: 600;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+.pl-extra-cat {
+    color: var(--color-text-dim, #888);
+    font-size: 12px;
+    min-width: 100px;
+}
+.pl-extra-pricecat {
+    font-size: 11px;
+    padding: 2px 8px;
+    border-radius: 10px;
+    background: var(--brand-primary-light, #f1e6b2);
+    color: var(--brand-primary, #8e631f);
+    font-weight: 600;
+    text-transform: uppercase;
+    letter-spacing: .3px;
+}
+.pl-extra-remove {
+    width: 24px;
+    height: 24px;
+    border: 1px solid var(--color-border, #d7d1ca);
+    border-radius: 50%;
+    background: var(--color-surface, #fff);
+    color: var(--color-text-dim, #888);
+    font-size: 14px;
+    cursor: pointer;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    padding: 0;
+    line-height: 1;
+    font-family: inherit;
+}
+.pl-extra-remove:hover {
+    background: #fee;
+    border-color: #c33;
+    color: #c33;
+}
+.pl-extras-picker {
+    position: relative;
+}
+.pl-extras-picker:empty {
+    display: none;
+}
+.pl-extras-picker .vp-picker {
+    border-top: 1px solid var(--color-border, #d7d1ca);
+    border-radius: 0;
+    border-left: 0;
+    border-right: 0;
+    border-bottom: 0;
+}
+.pl-pricecat-select {
+    padding: 4px 8px;
+    border: 1px solid var(--color-border, #d7d1ca);
+    border-radius: 4px;
+    font-size: 12px;
+    font-family: inherit;
+    background: var(--color-surface, #fff);
+}
+
 /* ── Vagtplan toggle ──────────────────────────────────────── */
 .pl-vagtplan-wrap {
     margin-bottom: 16px;

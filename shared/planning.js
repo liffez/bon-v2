@@ -32,6 +32,9 @@ var _plShowPrices  = false;
 var _plVatMode     = 'incl';   // 'incl' = m/moms, 'excl' = u/moms (linje-priser)
 var _plLoading     = false;
 var _plStaffData   = null;
+var _plExtraLines  = []; // session-local ad-hoc opskrifter (mistes ved reload)
+var _plExtraSeq    = 1;  // lokal ID-generator til fjern-knap
+var _plExtraPicker = null; // VarePicker instance
 
 var _PL_WEEKDAYS = ['Søn','Man','Tir','Ons','Tor','Fre','Lør'];
 var _PL_MONTHS   = ['jan','feb','mar','apr','maj','jun','jul','aug','sep','okt','nov','dec'];
@@ -43,16 +46,25 @@ function initPlanning(containerEl, options) {
     _plContainer = containerEl;
     _plOptions   = options || {};
 
-    // Default periode: indeværende uge (man–søn)
-    var now = new Date();
-    var dow = now.getDay() || 7;
-    var mon = new Date(now);
-    mon.setDate(mon.getDate() - dow + 1);
-    var sun = new Date(mon);
-    sun.setDate(sun.getDate() + 6);
+    // Periode: options.from/to > URL ?from/?to > default (indeværende uge)
+    var urlParams = new URLSearchParams(window.location.search);
+    var optFrom = _plOptions.from || urlParams.get('from');
+    var optTo   = _plOptions.to   || urlParams.get('to');
+    var isoDate = /^\d{4}-\d{2}-\d{2}$/;
 
-    _plFrom = mon.toISOString().slice(0, 10);
-    _plTo   = sun.toISOString().slice(0, 10);
+    if (optFrom && isoDate.test(optFrom) && optTo && isoDate.test(optTo)) {
+        _plFrom = optFrom;
+        _plTo   = optTo;
+    } else {
+        var now = new Date();
+        var dow = now.getDay() || 7;
+        var mon = new Date(now);
+        mon.setDate(mon.getDate() - dow + 1);
+        var sun = new Date(mon);
+        sun.setDate(sun.getDate() + 6);
+        _plFrom = mon.toISOString().slice(0, 10);
+        _plTo   = sun.toISOString().slice(0, 10);
+    }
 
     // Status-filter fra localStorage eller defaults
     var saved = localStorage.getItem('planning_status_filter');
@@ -133,6 +145,19 @@ function _plRenderShell() {
         '<div class="pl-bon-list" id="plBonList"></div>';
     _plContainer.appendChild(bonListWrap);
 
+    // ── Ekstra opskrifter (session-local) ──
+    var extrasWrap = document.createElement('div');
+    extrasWrap.className = 'pl-extras-wrap';
+    extrasWrap.innerHTML =
+        '<div class="pl-bon-list-header">' +
+            '<span class="pl-bon-list-title">EKSTRA OPSKRIFTER</span>' +
+            '<span class="pl-bon-list-count" id="plExtraCount"></span>' +
+            '<button class="pl-select-all-btn" id="plAddExtra">+ Tilføj opskrift</button>' +
+        '</div>' +
+        '<div class="pl-extras-list" id="plExtrasList"></div>' +
+        '<div class="pl-extras-picker" id="plExtrasPicker"></div>';
+    _plContainer.appendChild(extrasWrap);
+
     // ── Aggregeret resultat ──
     var resultEl = document.createElement('div');
     resultEl.className = 'pl-result';
@@ -155,6 +180,8 @@ function _plRenderShell() {
         _plShiftWeek(7);
     });
     document.getElementById('plSelectAll').addEventListener('click', _plToggleSelectAll);
+    document.getElementById('plAddExtra').addEventListener('click', _plToggleExtraPicker);
+    _plRenderExtras();
 
     // Vagtplan toggle
     document.getElementById('plVagtToggle').addEventListener('click', function() {
@@ -350,45 +377,128 @@ function _plToggleSelectAll() {
 }
 
 /* ══════════════════════════════════════════════════════════════
+   EKSTRA OPSKRIFTER (session-local)
+   ══════════════════════════════════════════════════════════════ */
+function _plRenderExtras() {
+    var list = document.getElementById('plExtrasList');
+    var countEl = document.getElementById('plExtraCount');
+    if (!list) return;
+
+    if (countEl) {
+        var totalQty = _plExtraLines.reduce(function(s, l) { return s + (l.quantity || 0); }, 0);
+        countEl.textContent = _plExtraLines.length
+            ? _plExtraLines.length + ' varer · ' + totalQty + ' enh'
+            : '';
+    }
+
+    if (!_plExtraLines.length) {
+        list.innerHTML = '<div class="pl-extras-empty">Ingen ekstra opskrifter — klik "+ Tilføj opskrift"</div>';
+        return;
+    }
+
+    var html = '';
+    _plExtraLines.forEach(function(l) {
+        var cat = (l.category || '').replace(/^\d+\s+/, '');
+        html += '<div class="pl-extra-row" data-extra-id="' + l._extraId + '">' +
+            '<span class="pl-extra-qty"><strong>' + l.quantity + '</strong> ' + esc(l.unit || 'stk') + '</span>' +
+            '<span class="pl-extra-name">' + esc(l.product_name) + '</span>' +
+            '<span class="pl-extra-cat">' + esc(cat) + '</span>' +
+            '<span class="pl-extra-pricecat">' + esc(l.price_category || '') + '</span>' +
+            '<button class="pl-extra-remove" title="Fjern">×</button>' +
+        '</div>';
+    });
+    list.innerHTML = html;
+
+    list.querySelectorAll('.pl-extra-remove').forEach(function(btn) {
+        btn.addEventListener('click', function() {
+            var row = btn.closest('.pl-extra-row');
+            if (!row) return;
+            var id = parseInt(row.dataset.extraId);
+            _plExtraLines = _plExtraLines.filter(function(l) { return l._extraId !== id; });
+            _plRenderExtras();
+            _plAggregate();
+        });
+    });
+}
+
+function _plToggleExtraPicker() {
+    var pickerEl = document.getElementById('plExtrasPicker');
+    var btn = document.getElementById('plAddExtra');
+    if (!pickerEl) return;
+
+    if (_plExtraPicker && _plExtraPicker._visible) {
+        _plExtraPicker.close();
+        _plExtraPicker = null;
+        if (btn) btn.textContent = '+ Tilføj opskrift';
+        return;
+    }
+
+    if (typeof VarePicker === 'undefined') {
+        console.error('VarePicker ikke loadet');
+        return;
+    }
+
+    _plExtraPicker = new VarePicker({
+        bonId: null, // detached mode
+        priceCategory: 'catering',
+        container: pickerEl,
+        viewName: 'planning',
+        showPriceCategorySelector: true,
+        onAdded: function(line) {
+            line._extraId = _plExtraSeq++;
+            _plExtraLines.push(line);
+            _plRenderExtras();
+            _plAggregate();
+        },
+    });
+    _plExtraPicker.open();
+    if (btn) btn.textContent = 'Luk';
+}
+
+/* ══════════════════════════════════════════════════════════════
    AGGREGERING
    ══════════════════════════════════════════════════════════════ */
 function _plAggregate() {
     var map = {}; // nøgle → aggregeret linje
 
+    function addLine(line) {
+        // Nøgle: grocy_recipe_id eller product_name+unit
+        var key = line.grocy_recipe_id
+            ? 'r:' + line.grocy_recipe_id
+            : 'n:' + (line.product_name || '') + '|' + (line.unit || '');
+
+        if (!map[key]) {
+            map[key] = {
+                grocy_recipe_id: line.grocy_recipe_id,
+                product_name:    line.product_name,
+                category:        line.category || '',
+                unit:            line.unit || 'stk',
+                quantity:        0,
+                unit_price:      0,
+                cost_price:      0,
+                co2e:            0,
+                is_accessory:    line.is_accessory,
+                _price_count:    0
+            };
+        }
+        var agg = map[key];
+        agg.quantity += (line.quantity || 0);
+        if (line.unit_price) {
+            agg.unit_price += (line.unit_price * (line.quantity || 0));
+            agg.cost_price += ((line.cost_price || 0) * (line.quantity || 0));
+            agg._price_count += (line.quantity || 0);
+        }
+        if (line.co2e) agg.co2e += (line.co2e * (line.quantity || 0));
+    }
+
     _plBons.forEach(function(bon) {
         if (!_plSelectedIds.has(bon.id)) return;
         if (!bon.lines) return;
-
-        bon.lines.forEach(function(line) {
-            // Nøgle: grocy_recipe_id eller product_name+unit
-            var key = line.grocy_recipe_id
-                ? 'r:' + line.grocy_recipe_id
-                : 'n:' + (line.product_name || '') + '|' + (line.unit || '');
-
-            if (!map[key]) {
-                map[key] = {
-                    grocy_recipe_id: line.grocy_recipe_id,
-                    product_name:    line.product_name,
-                    category:        line.category || '',
-                    unit:            line.unit || 'stk',
-                    quantity:        0,
-                    unit_price:      0,
-                    cost_price:      0,
-                    co2e:            0,
-                    is_accessory:    line.is_accessory,
-                    _price_count:    0
-                };
-            }
-            var agg = map[key];
-            agg.quantity += (line.quantity || 0);
-            if (line.unit_price) {
-                agg.unit_price += (line.unit_price * (line.quantity || 0));
-                agg.cost_price += ((line.cost_price || 0) * (line.quantity || 0));
-                agg._price_count += (line.quantity || 0);
-            }
-            if (line.co2e) agg.co2e += (line.co2e * (line.quantity || 0));
-        });
+        bon.lines.forEach(addLine);
     });
+
+    // Ekstra opskrifter (session-local) — altid inkluderet
+    _plExtraLines.forEach(addLine);
 
     // Beregn vægtet gennemsnit for priser
     _plAggregated = Object.values(map).map(function(a) {
@@ -496,19 +606,25 @@ function _plRenderResult() {
         });
     });
 
-    // Footer — altid faktura-format: Netto, Moms, Total, Kostpris, Margin
+    // Footer — faktura-format; bold total følger moms-mode så kolonnesum matcher
     html += '</tbody><tfoot>';
     if (_plShowPrices) {
         var salesExVat = totalSales / 1.25;
         var vatAmount = totalSales - salesExVat;
         var margin = salesExVat > 0 ? ((1 - totalCost / salesExVat) * 100).toFixed(0) : 0;
-        html += '<tr class="pl-result-total">' +
+        var nettoRowCls   = isExcl ? 'pl-result-total'    : 'pl-result-subtotal';
+        var nettoValueHtml = isExcl ? '<strong>' + salesExVat.toFixed(0) + ' kr</strong>'
+                                    : salesExVat.toFixed(0) + ' kr';
+        var totalRowCls   = isExcl ? 'pl-result-subtotal' : 'pl-result-total';
+        var totalValueHtml = isExcl ? totalSales.toFixed(0) + ' kr'
+                                    : '<strong>' + totalSales.toFixed(0) + ' kr</strong>';
+        html += '<tr class="' + nettoRowCls + '">' +
             '<td class="pl-col-qty"><strong>' + totalQty + '</strong></td>' +
             '<td class="pl-col-name">Total</td>' +
             '<td></td>' +
             '<td class="pl-col-price">Netto</td>' +
             '<td class="pl-col-cost"></td>' +
-            '<td class="pl-col-total">' + salesExVat.toFixed(0) + ' kr</td>' +
+            '<td class="pl-col-total">' + nettoValueHtml + '</td>' +
         '</tr>' +
         '<tr class="pl-result-subtotal">' +
             '<td></td><td></td><td></td>' +
@@ -516,11 +632,11 @@ function _plRenderResult() {
             '<td></td>' +
             '<td class="pl-col-total">' + vatAmount.toFixed(0) + ' kr</td>' +
         '</tr>' +
-        '<tr class="pl-result-total">' +
+        '<tr class="' + totalRowCls + '">' +
             '<td></td><td></td><td></td>' +
             '<td class="pl-col-price">Total inkl. moms</td>' +
             '<td></td>' +
-            '<td class="pl-col-total"><strong>' + totalSales.toFixed(0) + ' kr</strong></td>' +
+            '<td class="pl-col-total">' + totalValueHtml + '</td>' +
         '</tr>' +
         '<tr class="pl-result-subtotal">' +
             '<td></td><td></td><td></td>' +
@@ -646,18 +762,28 @@ function _plShowSummary() {
 }
 
 async function _plShowRavarer() {
-    if (!_plSelectedIds.size || typeof openModal !== 'function') return;
+    if (typeof openModal !== 'function') return;
 
     var bonIds = [];
     _plBons.forEach(function(b) { if (_plSelectedIds.has(b.id)) bonIds.push(b.id); });
 
+    var extras = _plExtraLines
+        .filter(function(l) { return l.grocy_recipe_id; })
+        .map(function(l) { return { grocy_recipe_id: l.grocy_recipe_id, quantity: l.quantity }; });
+
+    if (!bonIds.length && !extras.length) return;
+
+    var titleParts = [];
+    if (bonIds.length) titleParts.push(bonIds.length + ' bons');
+    if (extras.length) titleParts.push(extras.length + ' ekstra');
+
     openModal({
-        title: 'Råvarer — ' + bonIds.length + ' bons',
+        title: 'Råvarer — ' + titleParts.join(' + '),
         bodyHtml: '<div class="changelog-empty">Henter ingrediensbehov…</div>'
     });
 
     try {
-        var data = await fetchPlanningIngredients(bonIds);
+        var data = await fetchPlanningIngredients(bonIds, extras);
         // Gem data for toggle og genbrug _buildRavarerHtml fra modal.js
         _ravarerData = data;
         _ravarerLevel = 'production';

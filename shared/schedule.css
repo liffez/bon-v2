@@ -298,10 +298,15 @@
   display: flex;
   align-items: center;
   gap: 8px;
-  padding: 5px 0;
+  padding: 5px 6px;
+  margin: 0 -6px;
   border-bottom: 1px solid rgba(0,0,0,.04);
   font-size: 12px;
+  border-radius: 4px;
+  transition: background 0.12s;
 }
+.uge-bon-item[data-bon-id] { cursor: pointer; }
+.uge-bon-item[data-bon-id]:hover { background: var(--color-background, #f5f4f2); }
 .uge-bon-item:last-child { border-bottom: none; }
 .uge-bon-nr {
   font-weight: 700;
@@ -363,10 +368,15 @@
   display: flex;
   align-items: center;
   justify-content: space-between;
-  padding: 5px 0;
+  padding: 5px 6px;
+  margin: 0 -6px;
   border-bottom: 1px solid rgba(0,0,0,.04);
   font-size: 12px;
+  border-radius: 4px;
+  transition: background 0.12s;
 }
+.uge-lager-item[data-bon-id] { cursor: pointer; }
+.uge-lager-item[data-bon-id]:hover { background: var(--color-background, #f5f4f2); }
 .uge-lager-item:last-child { border-bottom: none; }
 .uge-lager-ok { color: var(--color-green-dark, #7a9c54); font-weight: 700; font-size: 11px; }
 .uge-lager-warn { color: var(--color-orange, #e8a832); font-weight: 700; font-size: 11px; }

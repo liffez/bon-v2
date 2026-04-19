@@ -12,17 +12,20 @@
  */
 
 var _vpRecipesCache = null;
+var _vpPriceCatsCache = null;
 
 class VarePicker {
     constructor(opts) {
-        this.bonId = opts.bonId;
+        this.bonId = opts.bonId; // null/undefined = detached mode (onAdded får line-objekt, ingen POST)
         this.priceCategory = opts.priceCategory || 'catering';
         this.container = opts.container;
         this.onAdded = opts.onAdded || function() {};
         this.viewName = opts.viewName || 'all';
+        this.showPriceCategorySelector = !!opts.showPriceCategorySelector;
         this._visible = false;
         this._cats = null;
         this._priceCat = this.priceCategory;
+        this._priceCats = null; // [{code,label}, ...] loaded when selector enabled
         this._escHandler = null;
         this._saving = false;
         this._selectedRecipeId = null;
@@ -45,6 +48,9 @@ class VarePicker {
 
         try {
             var recipes = await this._loadRecipes();
+            if (this.showPriceCategorySelector) {
+                this._priceCats = await this._loadPriceCategories();
+            }
 
             // Group by category
             var cats = {};
@@ -69,9 +75,19 @@ class VarePicker {
             var self = this;
             var picker = this.container.querySelector('.vp-picker');
             picker.className = 'vp-picker open' + hideCls;
+            var priceCatSelectorHtml = '';
+            if (this.showPriceCategorySelector && this._priceCats && this._priceCats.length) {
+                priceCatSelectorHtml = '<select class="vp-pricecat-select" title="Priskategori">' +
+                    this._priceCats.map(function(pc) {
+                        var sel = (pc.code === self._priceCat) ? ' selected' : '';
+                        return '<option value="' + pc.code + '"' + sel + '>' + pc.label + '</option>';
+                    }).join('') +
+                '</select>';
+            }
             picker.innerHTML =
                 '<div class="vp-header">' +
                     '<span class="vp-title">Tilf\u00f8j vare</span>' +
+                    priceCatSelectorHtml +
                     '<button class="vp-price-toggle" title="Vis/skjul priser">' + priceToggleIcon + '</button>' +
                     '<button class="vp-close">\u00d7</button>' +
                 '</div>' +
@@ -115,6 +131,19 @@ class VarePicker {
                     self._addSelected();
                 } else if (target.closest('.vp-item')) {
                     self._selectItem(target.closest('.vp-item'));
+                }
+            });
+
+            // Price-category selector (detached mode)
+            picker.addEventListener('change', function(e) {
+                if (e.target.classList.contains('vp-pricecat-select')) {
+                    self._priceCat = e.target.value;
+                    var activeCatBtn = picker.querySelector('.vp-cat.active');
+                    var catName = activeCatBtn ? activeCatBtn.textContent : Object.keys(self._cats || {})[0];
+                    var items = (self._cats || {})[catName] || [];
+                    var itemsEl = picker.querySelector('.vp-items');
+                    if (itemsEl) itemsEl.innerHTML = self._renderItems(items, self._priceCat);
+                    self._syncItemHighlight(picker);
                 }
             });
 
@@ -162,6 +191,14 @@ class VarePicker {
     async _loadRecipes() {
         if (!_vpRecipesCache) _vpRecipesCache = await fetchGrocyRecipes();
         return _vpRecipesCache;
+    }
+
+    async _loadPriceCategories() {
+        if (!_vpPriceCatsCache) {
+            try { _vpPriceCatsCache = await fetchPriceCategories(); }
+            catch (e) { _vpPriceCatsCache = []; }
+        }
+        return _vpPriceCatsCache;
     }
 
     /* ── Price toggle ────────────────────────────────────── */
@@ -314,18 +351,24 @@ class VarePicker {
         var addBtn = bar.querySelector('.vp-action-add');
         if (addBtn) { addBtn.disabled = true; addBtn.textContent = '\u2026'; }
 
+        var line = {
+            grocy_recipe_id: recipe.id,
+            product_name:    (recipe.name || '').trim(),
+            category:        recipe.category || null,
+            quantity:         qty,
+            unit:            recipe.unit || 'stk',
+            unit_price:      price,
+            cost_price:      recipe.cost_price || 0,
+            co2e:            recipe.co2e || 0,
+            special_request: specialText,
+            price_category:  this._priceCat,
+        };
+
         try {
-            await postBonLine(this.bonId, {
-                grocy_recipe_id: recipe.id,
-                product_name:    (recipe.name || '').trim(),
-                category:        recipe.category || null,
-                quantity:         qty,
-                unit:            recipe.unit || 'stk',
-                unit_price:      price,
-                cost_price:      recipe.cost_price || 0,
-                co2e:            recipe.co2e || 0,
-                special_request: specialText,
-            });
+            if (this.bonId != null) {
+                await postBonLine(this.bonId, line);
+            }
+            // Detached mode: ingen POST — caller håndterer line via onAdded
 
             // Reset add button, clear selection, hide action bar, reset special input
             if (addBtn) { addBtn.disabled = false; addBtn.textContent = 'Tilf\u00f8j'; }
@@ -341,7 +384,7 @@ class VarePicker {
                 setTimeout(function() { if (flashSlot) flashSlot.innerHTML = ''; }, 1500);
             }
 
-            this.onAdded();
+            this.onAdded(line);
 
         } catch (err) {
             if (addBtn) { addBtn.disabled = false; addBtn.textContent = 'Tilf\u00f8j'; }

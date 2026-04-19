@@ -153,16 +153,16 @@ router.get('/planning', handle((req, res) => {
 }));
 
 // GET /api/bons/planning/ingredients?ids=3305,3291,3288
-// Aggregerer ingrediensbehov for flere bons i ét kald
-router.get('/planning/ingredients', handle(async (req, res) => {
-    if (!req.query.ids) return res.status(400).json({ error: 'ids param påkrævet' });
+// POST /api/bons/planning/ingredients  body: { bon_ids: [], extra_lines: [{grocy_recipe_id, quantity}] }
+// Aggregerer ingrediensbehov for flere bons + valgfri ekstra ad-hoc opskrift-linjer
+async function planningIngredientsHandler(bonIds, extraLines) {
+    if (!bonIds.length && !extraLines.length) {
+        return { ingredients: [], groups: [], lines_without_recipe: [] };
+    }
 
-    const bonIds = req.query.ids.split(',').map(s => parseInt(s.trim())).filter(n => !isNaN(n));
-    if (!bonIds.length) return res.json({ ingredients: [], groups: [], lines_without_recipe: [] });
-
-    // Hent alle bon_lines for de valgte bons
     const allLines = [];
     const linesWithoutRecipe = [];
+
     for (const id of bonIds) {
         const lines = getBonLines(id);
         lines.forEach(l => {
@@ -171,23 +171,44 @@ router.get('/planning/ingredients', handle(async (req, res) => {
         });
     }
 
+    extraLines.forEach(l => {
+        const rid = parseInt(l.grocy_recipe_id);
+        const qty = parseFloat(l.quantity);
+        if (rid && qty > 0) allLines.push({ grocy_recipe_id: rid, quantity: qty });
+    });
+
     if (!allLines.length) {
         const empty = { ingredients: [], groups: [], sub_recipes: [] };
-        return res.json({ bon_ids: bonIds, production: empty, raw: empty, ingredients: [], groups: [], lines_without_recipe: linesWithoutRecipe });
+        return { bon_ids: bonIds, production: empty, raw: empty, ingredients: [], groups: [], lines_without_recipe: linesWithoutRecipe };
     }
 
     const { resolveIngredients } = require('../services/ingredientResolver');
     const { production, raw } = await resolveIngredients(allLines);
 
-    res.json({
+    return {
         bon_ids: bonIds,
         production,
         raw,
-        // Bagudkompatibilitet
         ingredients: raw.ingredients,
         groups: raw.groups,
         lines_without_recipe: linesWithoutRecipe,
-    });
+    };
+}
+
+router.get('/planning/ingredients', handle(async (req, res) => {
+    if (!req.query.ids) return res.status(400).json({ error: 'ids param påkrævet' });
+    const bonIds = req.query.ids.split(',').map(s => parseInt(s.trim())).filter(n => !isNaN(n));
+    const result = await planningIngredientsHandler(bonIds, []);
+    res.json(result);
+}));
+
+router.post('/planning/ingredients', handle(async (req, res) => {
+    const bonIds = Array.isArray(req.body.bon_ids)
+        ? req.body.bon_ids.map(n => parseInt(n)).filter(n => !isNaN(n))
+        : [];
+    const extraLines = Array.isArray(req.body.extra_lines) ? req.body.extra_lines : [];
+    const result = await planningIngredientsHandler(bonIds, extraLines);
+    res.json(result);
 }));
 
 // GET /api/bons/calendar — kalender-view (bons grupperet per dato med totaler)

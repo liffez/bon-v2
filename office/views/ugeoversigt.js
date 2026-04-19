@@ -425,7 +425,7 @@ function _uoRenderDetail(dayIdx) {
         for (var b = 0; b < day.bons.length; b++) {
             var bon = day.bons[b];
             var statusCls = _uoBonStatusClass(bon.status_code);
-            html += '<div class="uge-bon-item">' +
+            html += '<div class="uge-bon-item" data-bon-id="' + bon.id + '" data-bon-number="' + _uoEsc(bon.bon_number || '') + '" title="Klik for info">' +
                 '<span class="uge-bon-nr">#' + (bon.bon_number || bon.id) + '</span>' +
                 '<span class="uge-bon-customer">' + _uoEsc(bon.customer_name || '—') + '</span>' +
                 '<span class="uge-bon-units">' + (bon.workload ? bon.workload + (bon.total_units ? ' enh' : ' pax') : '—') + '</span>' +
@@ -486,7 +486,7 @@ function _uoRenderDetail(dayIdx) {
             }
             var shortName = (bon.customer_name || '—');
             if (shortName.length > 15) shortName = shortName.slice(0, 15) + '…';
-            html += '<div class="uge-lager-item">' +
+            html += '<div class="uge-lager-item" data-bon-id="' + bon.id + '" data-bon-number="' + _uoEsc(bon.bon_number || '') + '" title="Klik for info">' +
                 '<span>#' + (bon.bon_number || bon.id) + ' ' + _uoEsc(shortName) + '</span>' +
                 stockHtml +
             '</div>';
@@ -510,9 +510,29 @@ function _uoRenderDetail(dayIdx) {
         _uoDetailDay = null;
         wrap.innerHTML = '';
     };
+
+    // Bon-klik → info-modal (både produktion og lager)
+    var bonRows = wrap.querySelectorAll('[data-bon-id]');
+    for (var br = 0; br < bonRows.length; br++) {
+        bonRows[br].addEventListener('click', function() {
+            var bonId = parseInt(this.getAttribute('data-bon-id'));
+            var bonNumber = this.getAttribute('data-bon-number') || '';
+            if (!bonId || typeof showBonInfo !== 'function') return;
+            var infoOpts = { showGotoButton: true, bonNumber: bonNumber };
+            if (_uoOptions.openDrawer) {
+                infoOpts.showEditButton = true;
+                infoOpts.onEdit = _uoOptions.openDrawer;
+            }
+            showBonInfo(bonId, infoOpts);
+        });
+    }
     document.getElementById('uoOpenPlanning').onclick = function() {
-        // Åbn planlægning i office (planning view) eller kitchen
+        // Åbn planlægning med den valgte dag som periode
         if (typeof window.switchView === 'function') {
+            var url = new URL(window.location);
+            url.searchParams.set('from', day.date);
+            url.searchParams.set('to', day.date);
+            history.replaceState({}, '', url);
             window.switchView('planning');
         } else {
             window.open('/kitchen/planning.html?from=' + day.date + '&to=' + day.date, '_blank');

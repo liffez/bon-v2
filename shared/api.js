@@ -184,7 +184,13 @@ function fetchBonsCalendar(year, month, status) {
     return apiFetch('/bons/calendar' + qs);
 }
 
-function fetchPlanningIngredients(bonIds) {
+function fetchPlanningIngredients(bonIds, extraLines) {
+    if (extraLines && extraLines.length) {
+        return apiFetch('/bons/planning/ingredients', {
+            method: 'POST',
+            body: JSON.stringify({ bon_ids: bonIds, extra_lines: extraLines }),
+        });
+    }
     return apiFetch('/bons/planning/ingredients?ids=' + bonIds.join(','));
 }
 
