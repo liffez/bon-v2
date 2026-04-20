@@ -34,7 +34,7 @@ var _ic = {
     counts:        {},          // productId -> { units: { unitName: amount }, total }
     skipped:       [],          // productIds skipped in current unit (array)
     priorities:    {},          // productId -> "high"|"low"
-    physicalUnits: {},          // locationId -> [unitNames]
+    physicalUnits: {},          // locationId -> [{ id, name, sort_order, archived_at }] fra server
 
     isChecking:    false
 };
@@ -70,8 +70,7 @@ async function _icLoadInitial() {
             _ic.quantityUnits[qu.id] = qu.name;
         });
 
-        // Load persisted physical units + priorities
-        _icLoadPhysicalUnits();
+        // Load priorities (stadig localStorage — per-device valgte prioriteter)
         _icLoadPriorities();
 
         // Render setup view
@@ -83,38 +82,81 @@ async function _icLoadInitial() {
 }
 
 // ════════════════════════════════════════════════════════════
-// PHYSICAL UNITS PERSISTENCE (localStorage)
+// PHYSICAL UNITS PERSISTENCE (server via /api/physical-units)
 // ════════════════════════════════════════════════════════════
 
-function _icLoadPhysicalUnits() {
+async function _icLoadPhysicalUnitsForLocation(locationId) {
     try {
-        var stored = localStorage.getItem('ic_physical_units');
-        _ic.physicalUnits = stored ? JSON.parse(stored) : {};
+        var units = await fetchPhysicalUnits(locationId, false);
+        _ic.physicalUnits[locationId] = units || [];
+
+        // One-time migration: hvis serveren er tom OG localStorage har enheder for
+        // denne lokation, upload dem. Flag per device+lokation.
+        if (_ic.physicalUnits[locationId].length === 0) {
+            await _icMigrateLocalStorageUnits(locationId);
+        }
     } catch (e) {
-        _ic.physicalUnits = {};
+        _ic.physicalUnits[locationId] = [];
     }
 }
 
-function _icSavePhysicalUnits() {
-    localStorage.setItem('ic_physical_units', JSON.stringify(_ic.physicalUnits));
+async function _icMigrateLocalStorageUnits(locationId) {
+    var migratedKey = 'ic_migrated_loc_' + locationId;
+    if (localStorage.getItem(migratedKey)) return;
+
+    try {
+        var stored = localStorage.getItem('ic_physical_units');
+        if (!stored) { localStorage.setItem(migratedKey, '1'); return; }
+
+        var map = JSON.parse(stored);
+        var names = map[locationId] || [];
+        if (!names.length) { localStorage.setItem(migratedKey, '1'); return; }
+
+        for (var i = 0; i < names.length; i++) {
+            try {
+                await createPhysicalUnit(locationId, names[i], i);
+            } catch (err) { /* konflikt/duplikat — ignorér */ }
+        }
+
+        var refreshed = await fetchPhysicalUnits(locationId, false);
+        _ic.physicalUnits[locationId] = refreshed || [];
+        localStorage.setItem(migratedKey, '1');
+        if (refreshed && refreshed.length) {
+            _icAlert('Importerede ' + refreshed.length + ' enheder fra lokal cache', 'success');
+        }
+    } catch (e) {
+        // Migrationsfejl skal ikke blokere — bare log og gå videre
+        console.error('[inventory_check] Migration af enheder fejlede:', e);
+    }
 }
 
 function _icGetUnitsForLocation(locationId) {
-    return _ic.physicalUnits[locationId] || [];
+    var arr = _ic.physicalUnits[locationId] || [];
+    return arr.map(function(u) { return u.name; });
 }
 
-function _icAddUnit(locationId, unitName) {
-    if (!_ic.physicalUnits[locationId]) _ic.physicalUnits[locationId] = [];
-    if (_ic.physicalUnits[locationId].indexOf(unitName) === -1) {
-        _ic.physicalUnits[locationId].push(unitName);
-        _icSavePhysicalUnits();
+function _icGetUnitIdByName(locationId, name) {
+    var arr = _ic.physicalUnits[locationId] || [];
+    for (var i = 0; i < arr.length; i++) {
+        if (arr[i].name === name) return arr[i].id;
     }
+    return null;
 }
 
-function _icRemoveUnit(locationId, unitName) {
+async function _icAddUnit(locationId, unitName) {
+    var unit = await createPhysicalUnit(locationId, unitName);
+    if (!_ic.physicalUnits[locationId]) _ic.physicalUnits[locationId] = [];
+    // Undgå duplikat hvis reaktivering returnerede eksisterende
+    var exists = _ic.physicalUnits[locationId].some(function(u) { return u.id === unit.id; });
+    if (!exists) _ic.physicalUnits[locationId].push(unit);
+}
+
+async function _icRemoveUnit(locationId, unitName) {
+    var id = _icGetUnitIdByName(locationId, unitName);
+    if (!id) return;
+    await updatePhysicalUnit(id, { archived: true });
     if (_ic.physicalUnits[locationId]) {
-        _ic.physicalUnits[locationId] = _ic.physicalUnits[locationId].filter(function(u) { return u !== unitName; });
-        _icSavePhysicalUnits();
+        _ic.physicalUnits[locationId] = _ic.physicalUnits[locationId].filter(function(u) { return u.id !== id; });
     }
 }
 
@@ -320,7 +362,7 @@ function _icRenderSetup() {
 // EVENT HANDLERS: LOCATION & UNIT SELECT
 // ════════════════════════════════════════════════════════════
 
-function _icOnLocationChange() {
+async function _icOnLocationChange() {
     var sel = _icContainer.querySelector('#icLocSelect');
     var locId = sel.value;
 
@@ -332,6 +374,12 @@ function _icOnLocationChange() {
 
     _ic.locationId = parseInt(locId);
     _ic.locationName = sel.options[sel.selectedIndex].text;
+
+    // Vis "henter"-state mens enheder loades fra server
+    _icContainer.querySelector('#icUnitSelect').innerHTML = '<option value="">-- Henter enheder... --</option>';
+    _icContainer.querySelector('#icStartBtn').disabled = true;
+
+    await _icLoadPhysicalUnitsForLocation(_ic.locationId);
 
     _icUpdateUnitsDropdown();
     _icUpdateUnitsConfig();
@@ -404,28 +452,36 @@ function _icUpdateUnitsDropdown() {
     }
 }
 
-function _icDoAddUnit() {
+async function _icDoAddUnit() {
     var input = _icContainer.querySelector('#icNewUnitInput');
     var name = input.value.trim();
     if (!name || !_ic.locationId) return;
 
-    _icAddUnit(_ic.locationId, name);
-    input.value = '';
-    _icUpdateUnitsConfig();
-    _icUpdateUnitsDropdown();
-    _icAlert('Tilfojet: ' + name, 'success');
+    try {
+        await _icAddUnit(_ic.locationId, name);
+        input.value = '';
+        _icUpdateUnitsConfig();
+        _icUpdateUnitsDropdown();
+        _icAlert('Tilfojet: ' + name, 'success');
+    } catch (e) {
+        _icAlert('Kunne ikke tilfoeje: ' + (e.message || 'ukendt fejl'), 'error');
+    }
 }
 
-function _icDoRemoveUnit(unitName) {
+async function _icDoRemoveUnit(unitName) {
     if (!_ic.locationId) return;
-    _icRemoveUnit(_ic.locationId, unitName);
-    _icUpdateUnitsConfig();
-    _icUpdateUnitsDropdown();
+    try {
+        await _icRemoveUnit(_ic.locationId, unitName);
+        _icUpdateUnitsConfig();
+        _icUpdateUnitsDropdown();
 
-    if (_ic.physicalUnit === unitName) {
-        _ic.physicalUnit = '';
-        _icContainer.querySelector('#icUnitSelect').value = '';
-        _icContainer.querySelector('#icStartBtn').disabled = true;
+        if (_ic.physicalUnit === unitName) {
+            _ic.physicalUnit = '';
+            _icContainer.querySelector('#icUnitSelect').value = '';
+            _icContainer.querySelector('#icStartBtn').disabled = true;
+        }
+    } catch (e) {
+        _icAlert('Kunne ikke fjerne: ' + (e.message || 'ukendt fejl'), 'error');
     }
 }
 

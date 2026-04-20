@@ -874,6 +874,30 @@ function deleteStaff(id) {
     return apiFetch('/staff/' + id, { method: 'DELETE' });
 }
 
+/* ── PHYSICAL UNITS (lageroptælling) ──────────────────── */
+
+function fetchPhysicalUnits(locationId, includeArchived) {
+    var qs = '?location_id=' + locationId + (includeArchived ? '&all=1' : '');
+    return apiFetch('/physical-units' + qs);
+}
+
+function createPhysicalUnit(locationId, name, sortOrder) {
+    return apiFetch('/physical-units', {
+        method: 'POST',
+        body: JSON.stringify({
+            grocy_location_id: locationId,
+            name: name,
+            sort_order: sortOrder || 0,
+        }),
+    });
+}
+
+function updatePhysicalUnit(id, data) {
+    return apiFetch('/physical-units/' + id, {
+        method: 'PATCH', body: JSON.stringify(data),
+    });
+}
+
 /* ── REPORTS ──────────────────────────────────────────── */
 
 function fetchReportsSummary() {
