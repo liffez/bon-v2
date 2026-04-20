@@ -402,7 +402,19 @@ router.get('/service-calls', handle((req, res) => {
             c.phone AS customer_phone,
             c.email AS customer_email,
             co.name AS company_name,
-            CAST(julianday('now') - julianday(b.delivery_date) AS INTEGER) AS days_since_delivery
+            CAST(julianday('now') - julianday(b.delivery_date) AS INTEGER) AS days_since_delivery,
+            (SELECT a.sentiment FROM crm_activities a
+                WHERE a.customer_id = c.id AND a.sentiment IS NOT NULL
+                ORDER BY a.created_at DESC LIMIT 1) AS last_sentiment,
+            (SELECT a.created_at FROM crm_activities a
+                WHERE a.customer_id = c.id AND a.sentiment IS NOT NULL
+                ORDER BY a.created_at DESC LIMIT 1) AS last_sentiment_at,
+            (SELECT a.text FROM crm_activities a
+                WHERE a.customer_id = c.id AND a.text IS NOT NULL AND a.text != ''
+                ORDER BY a.created_at DESC LIMIT 1) AS last_note,
+            (SELECT a.created_at FROM crm_activities a
+                WHERE a.customer_id = c.id AND a.text IS NOT NULL AND a.text != ''
+                ORDER BY a.created_at DESC LIMIT 1) AS last_note_at
         FROM bons b
         JOIN customers c ON b.customer_id = c.id
         LEFT JOIN companies co ON b.company_id = co.id

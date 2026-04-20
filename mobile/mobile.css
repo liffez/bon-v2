@@ -363,6 +363,197 @@ body.zone-mobile {
     display: flex; gap: 8px; justify-content: flex-end;
 }
 
+/* ── Service-calls udvidelser ── */
+.m-svc-toolbar {
+    display: flex; align-items: center; justify-content: space-between;
+    padding: 10px 16px;
+    background: var(--color-surface);
+    border-bottom: 1px solid var(--color-border);
+    gap: 12px;
+}
+.m-svc-days-label {
+    display: flex; align-items: center; gap: 8px;
+    font-size: 13px; color: var(--color-text-dim);
+}
+.m-svc-days-label select {
+    border: 1px solid var(--color-border);
+    border-radius: 6px; padding: 6px 10px;
+    background: var(--color-background);
+    font-size: 14px;
+}
+.m-svc-count {
+    font-size: 12px; color: var(--color-text-dim);
+}
+
+.m-svc-top {
+    display: flex; justify-content: space-between;
+    align-items: center; margin-bottom: 4px;
+}
+.m-svc-bon {
+    font-weight: 600; color: var(--brand-primary);
+    font-size: 13px;
+}
+.m-svc-days {
+    font-size: 12px; font-weight: 600;
+    padding: 2px 8px; border-radius: 10px;
+}
+.m-svc-days.d-ok { background: #e6f7f0; color: #2E9E6B; }
+.m-svc-days.d-warn { background: #fbf3e2; color: #C8962A; }
+.m-svc-days.d-late { background: #fbe9e9; color: #C94040; }
+
+.m-svc-name {
+    font-size: 15px; font-weight: 500;
+    margin-bottom: 2px;
+}
+.m-svc-company {
+    color: var(--color-text-dim); font-weight: 400;
+}
+.m-svc-last-sent {
+    display: inline-block;
+    padding: 0 4px; border-radius: 50%;
+    font-size: 14px; margin-left: 2px;
+}
+.m-svc-last-sent.s-positive { background: #e6f7f0; }
+.m-svc-last-sent.s-neutral { background: #fbf3e2; }
+.m-svc-last-sent.s-negative { background: #fbe9e9; }
+
+.m-svc-meta {
+    font-size: 13px; color: var(--color-text-dim);
+    margin-bottom: 2px;
+}
+.m-svc-lastnote {
+    font-size: 12px; color: var(--color-text-dim);
+    font-style: italic;
+    padding: 6px 8px; margin-top: 4px;
+    background: var(--color-background);
+    border-left: 2px solid var(--color-border);
+    border-radius: 4px;
+}
+
+/* Expand-ordrer */
+.m-svc-orders-slot:not(:empty) {
+    margin-top: 10px;
+}
+.m-svc-orders-loading, .m-svc-orders-empty {
+    padding: 10px; font-size: 13px;
+    color: var(--color-text-dim);
+    text-align: center;
+}
+.m-svc-orders {
+    background: var(--color-background);
+    border-radius: 8px; padding: 6px;
+}
+.m-svc-order {
+    background: var(--color-surface);
+    border-radius: 6px; padding: 8px 10px;
+    margin-bottom: 6px;
+}
+.m-svc-order:last-child { margin-bottom: 0; }
+.m-svc-order-head {
+    display: flex; align-items: center; gap: 8px;
+    font-size: 13px; margin-bottom: 4px;
+    flex-wrap: wrap;
+}
+.m-svc-order-bon {
+    font-weight: 600; color: var(--brand-primary);
+}
+.m-svc-order-date { color: var(--color-text-dim); }
+.m-svc-order-pax { color: var(--color-text-dim); }
+.m-svc-order-price {
+    margin-left: auto; font-weight: 600;
+}
+.m-svc-order-lines {
+    font-size: 13px; color: var(--color-text);
+    padding-left: 4px;
+}
+.m-svc-order-line {
+    padding: 2px 0;
+}
+.m-svc-order-qty {
+    font-weight: 600; color: var(--color-text-dim);
+    display: inline-block; min-width: 28px;
+}
+.m-svc-order-extra {
+    color: var(--color-text-dim);
+    font-style: italic;
+}
+
+/* Log-form */
+.m-svc-logform {
+    margin-top: 10px;
+}
+.m-svc-form-label {
+    font-size: 12px; font-weight: 600;
+    color: var(--color-text-dim);
+    text-transform: uppercase;
+    letter-spacing: .3px;
+    margin-bottom: 6px;
+    margin-top: 8px;
+}
+.m-svc-optional {
+    font-weight: 400; text-transform: none;
+    letter-spacing: 0; opacity: .7;
+}
+.m-svc-result-btns, .m-svc-sentiment-btns {
+    display: flex; gap: 4px; flex-wrap: nowrap;
+    margin-bottom: 8px;
+}
+.m-svc-btn, .m-svc-sent-btn {
+    padding: 8px 4px;
+    border: 1px solid var(--color-border);
+    border-radius: 6px;
+    background: var(--color-surface);
+    font-size: 12px;
+    line-height: 1.1;
+    cursor: pointer;
+    min-height: 38px;
+    flex: 1 1 0;
+    min-width: 0;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+.m-svc-btn:active, .m-svc-sent-btn:active {
+    background: var(--color-background);
+}
+.m-svc-btn.active {
+    background: var(--brand-primary);
+    color: #fff; border-color: var(--brand-primary);
+}
+.m-svc-sent-btn.active[data-s="positive"] {
+    background: #e6f7f0; border-color: #2E9E6B; border-width: 2px;
+}
+.m-svc-sent-btn.active[data-s="neutral"] {
+    background: #fbf3e2; border-color: #C8962A; border-width: 2px;
+}
+.m-svc-sent-btn.active[data-s="negative"] {
+    background: #fbe9e9; border-color: #C94040; border-width: 2px;
+}
+
+/* Service call action row — kompakt, på én linje */
+.m-crm-item .m-crm-actions {
+    flex-wrap: nowrap;
+    gap: 4px;
+    margin-top: 8px;
+}
+.m-crm-item .m-crm-actions .m-crm-btn {
+    padding: 8px 8px;
+    font-size: 12px;
+    min-height: 38px;
+    flex: 1 1 0;
+    min-width: 0;
+    justify-content: center;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    gap: 4px;
+}
+/* Gør icon-only knap smal (mail ✉ og ✓) */
+.m-crm-item .m-crm-actions .m-crm-btn[href^="mailto:"],
+.m-crm-item .m-crm-actions .m-crm-btn[data-action="done"] {
+    flex: 0 0 40px;
+}
+
 /* ── Pull to refresh indicator ── */
 .m-ptr-indicator {
     text-align: center; padding: 12px;
