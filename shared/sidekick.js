@@ -1,11 +1,11 @@
 /**
  * shared/sidekick.js
  * ════════════════════════════════════════════════════════════
- * Whiteboard Sidekick — tre-trins overlay i Bon v2 kitchen-zone.
+ * Whiteboard Sidekick — to-trins overlay i Bon v2 kitchen-zone.
  *
  * Trin 1: Flydende ikon med badge (antal uafsluttede opgaver)
- * Trin 2: Sidepanel (300px) — dagens opgaver, hurtig-tilføj, beskeder
- * Trin 3: Fuld skærm — lister, alle opgaver, beskeder, vagtplan
+ * Trin 2: Sidepanel (320px) — dagens opgaver, hurtig-tilføj, beskeder
+ * "Åbn Whiteboard"-knap i panelet åbner den rigtige app i ny fane.
  *
  * API-kald går til WHITEBOARD_BASE_URL (cross-origin).
  * Config hentes fra /api/sidekick/config.
@@ -15,13 +15,10 @@
 
 var _sk = {
   ok: false,
-  mode: 'icon',       // 'icon' | 'panel' | 'full'
+  mode: 'icon',       // 'icon' | 'panel'
   tasks: [],
   lists: [],
   messages: [],
-  users: [],
-  shifts: [],
-  activeList: null,    // list_id for fuld-visning filter
   undo: null,          // { id, title, timer }
   config: { whiteboardBase: '', sopBase: '' },
   pollTimer: null,
@@ -77,28 +74,22 @@ function _skLoadAll() {
   return Promise.all([
     _skFetch('/api/tasks').catch(function() { return []; }),
     _skFetch('/api/tasks/lists').catch(function() { return []; }),
-    _skFetch('/api/board/messages?limit=20').catch(function() { return { messages: [] }; }),
-    _skFetch('/api/users').catch(function() { return []; }),
-    _skFetch('/api/smartplan/today').catch(function() { return []; })
+    _skFetch('/api/board/messages?limit=20').catch(function() { return { messages: [] }; })
   ]).then(function(results) {
-    // Filtrér tasks som Whiteboard's dagvisning: i dag + forfaldne (kræver due_date)
     var allTasks = results[0] || [];
     var todayStr = new Date().toISOString().slice(0, 10);
     _sk.tasks = allTasks.filter(function(t) {
-      if (!t.due_date) return false;                       // uden dato vises ikke i dagvisning
+      if (!t.due_date) return false;
       var d = t.due_date.slice(0, 10);
-      if (d === todayStr) return true;                     // i dag
-      if (d < todayStr && t.status !== 'done') return true; // forfalden
+      if (d === todayStr) return true;
+      if (d < todayStr && t.status !== 'done') return true;
       return false;
     });
     _sk.lists = results[1] || [];
     _sk.messages = (results[2] && results[2].messages) ? results[2].messages : (Array.isArray(results[2]) ? results[2] : []);
-    _sk.users = results[3] || [];
-    _sk.shifts = results[4] || [];
     _sk.ok = true;
     _skUpdateBadge();
     if (_sk.mode === 'panel') _skRenderPanel();
-    if (_sk.mode === 'full') _skRenderFull();
   }).catch(function() {
     _sk.ok = false;
     _skUpdateBadge();
@@ -141,8 +132,8 @@ function _skInjectDOM() {
           ' Tavle' +
         '</div>' +
         '<div class="sk-panel-actions">' +
-          '<button class="sk-panel-btn" id="sk-expand" title="Fuld skærm">' +
-            '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="15 3 21 3 21 9"/><polyline points="9 21 3 21 3 15"/><line x1="21" y1="3" x2="14" y2="10"/><line x1="3" y1="21" x2="10" y2="14"/></svg>' +
+          '<button class="sk-panel-btn" id="sk-expand" title="Åbn Whiteboard i ny fane">' +
+            '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M18 13v6a2 2 0 01-2 2H5a2 2 0 01-2-2V8a2 2 0 012-2h6"/><polyline points="15 3 21 3 21 9"/><line x1="10" y1="14" x2="21" y2="3"/></svg>' +
           '</button>' +
           '<button class="sk-panel-btn" id="sk-close" title="Luk">' +
             '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>' +
@@ -153,20 +144,6 @@ function _skInjectDOM() {
       '<div class="sk-quick-add">' +
         '<input class="sk-quick-input" id="sk-quick-input" placeholder="Hurtig opgave...">' +
         '<button class="sk-quick-btn" id="sk-quick-btn">+</button>' +
-      '</div>' +
-    '</div>' +
-
-    // Full overlay
-    '<div class="sk-full" id="sk-full">' +
-      '<div class="sk-full-header">' +
-        '<div class="sk-full-title" id="sk-full-title">Tavle</div>' +
-        '<button class="sk-full-close" id="sk-full-close">Tilbage til Bon</button>' +
-      '</div>' +
-      '<div class="sk-shift-bar" id="sk-shift-bar"></div>' +
-      '<div class="sk-full-body">' +
-        '<div class="sk-full-sidebar" id="sk-full-sidebar"></div>' +
-        '<div class="sk-full-main" id="sk-full-main"></div>' +
-        '<div class="sk-full-messages" id="sk-full-messages"></div>' +
       '</div>' +
     '</div>' +
 
@@ -184,8 +161,11 @@ function _skInjectDOM() {
   // Wire events
   document.getElementById('sk-icon').addEventListener('click', function() { _skSetMode('panel'); });
   document.getElementById('sk-close').addEventListener('click', function() { _skSetMode('icon'); });
-  document.getElementById('sk-expand').addEventListener('click', function() { _skSetMode('full'); });
-  document.getElementById('sk-full-close').addEventListener('click', function() { _skSetMode('panel'); });
+  document.getElementById('sk-expand').addEventListener('click', function() {
+    if (_sk.config.whiteboardBase) {
+      window.open(_sk.config.whiteboardBase, '_blank', 'noopener');
+    }
+  });
   document.getElementById('sk-undo-btn').addEventListener('click', _skUndo);
 
   document.getElementById('sk-quick-btn').addEventListener('click', _skQuickAdd);
@@ -195,10 +175,7 @@ function _skInjectDOM() {
 
   // Escape lukker
   document.addEventListener('keydown', function(e) {
-    if (e.key === 'Escape') {
-      if (_sk.mode === 'full') _skSetMode('panel');
-      else if (_sk.mode === 'panel') _skSetMode('icon');
-    }
+    if (e.key === 'Escape' && _sk.mode === 'panel') _skSetMode('icon');
   });
 }
 
@@ -211,15 +188,11 @@ function _skSetMode(mode) {
 
   var icon = document.getElementById('sk-icon');
   var panel = document.getElementById('sk-panel');
-  var full = document.getElementById('sk-full');
   if (!icon) return;
 
-  // Reset
   icon.classList.remove('visible');
   panel.classList.remove('visible');
-  full.classList.remove('visible');
 
-  // Bon shrink
   var mainContent = document.querySelector('.cards-grid, .today-content, .dash-grid');
   if (mainContent) {
     mainContent.classList.remove('sidekick-shrunk');
@@ -232,18 +205,9 @@ function _skSetMode(mode) {
       break;
     case 'panel':
       panel.classList.add('visible');
-      icon.classList.remove('visible');
       if (mainContent) mainContent.classList.add('sidekick-shrunk');
       if (prev === 'icon') _skLoadAll();
       _skRenderPanel();
-      _skStartPolling();
-      break;
-    case 'full':
-      full.classList.add('visible');
-      icon.classList.remove('visible');
-      panel.classList.remove('visible');
-      if (mainContent) mainContent.classList.remove('sidekick-shrunk');
-      _skRenderFull();
       _skStartPolling();
       break;
   }
@@ -359,131 +323,6 @@ function _skTaskHtml(t) {
 }
 
 /* ══════════════════════════════════════════════════════════
-   FULL SCREEN RENDERING
-   ══════════════════════════════════════════════════════════ */
-function _skRenderFull() {
-  _skRenderFullSidebar();
-  _skRenderFullMain();
-  _skRenderFullMessages();
-  _skRenderShiftBar();
-
-  var d = new Date();
-  var days = ['søndag','mandag','tirsdag','onsdag','torsdag','fredag','lørdag'];
-  var months = ['januar','februar','marts','april','maj','juni','juli','august','september','oktober','november','december'];
-  var titleEl = document.getElementById('sk-full-title');
-  if (titleEl) titleEl.textContent = 'Tavle — ' + days[d.getDay()] + ' ' + d.getDate() + '. ' + months[d.getMonth()] + ' ' + d.getFullYear();
-}
-
-function _skRenderFullSidebar() {
-  var el = document.getElementById('sk-full-sidebar');
-  if (!el) return;
-
-  // "Alle" item
-  var allCount = _sk.tasks.filter(function(t) { return t.status !== 'done'; }).length;
-  var html = '<div class="sk-sidebar-item' + (_sk.activeList === null ? ' active' : '') + '" data-list-id="all">' +
-    'Alle <span class="sk-sidebar-count">' + allCount + '</span></div>';
-
-  _sk.lists.forEach(function(l) {
-    var count = _sk.tasks.filter(function(t) { return t.list_id === l.id && t.status !== 'done'; }).length;
-    html += '<div class="sk-sidebar-item' + (_sk.activeList === l.id ? ' active' : '') + '" data-list-id="' + l.id + '"' +
-      ' style="border-left-color:' + (l.color || 'transparent') + '">' +
-      _skEsc(l.title || l.name || '?') + ' <span class="sk-sidebar-count">' + count + '</span></div>';
-  });
-
-  el.innerHTML = html;
-
-  el.querySelectorAll('.sk-sidebar-item').forEach(function(item) {
-    item.addEventListener('click', function() {
-      var id = this.dataset.listId;
-      _sk.activeList = id === 'all' ? null : parseInt(id);
-      _skRenderFullSidebar();
-      _skRenderFullMain();
-    });
-  });
-}
-
-function _skRenderFullMain() {
-  var el = document.getElementById('sk-full-main');
-  if (!el) return;
-
-  var filtered = _sk.tasks;
-  if (_sk.activeList !== null) {
-    filtered = _sk.tasks.filter(function(t) { return t.list_id === _sk.activeList; });
-  }
-
-  var active = filtered.filter(function(t) { return t.status !== 'done'; });
-  var done = filtered.filter(function(t) { return t.status === 'done'; });
-
-  var listName = 'Alle opgaver';
-  if (_sk.activeList !== null) {
-    var list = _sk.lists.find(function(l) { return l.id === _sk.activeList; });
-    if (list) listName = list.title || list.name || '?';
-  }
-
-  var html = '<div class="sk-full-main-title">' + _skEsc(listName) + ' — ' + active.length + ' aktive</div>';
-  active.forEach(function(t) { html += _skTaskHtml(t); });
-
-  if (done.length) {
-    html += '<div class="sk-section-label" style="margin-top:16px;opacity:0.5">Afsluttet — ' + done.length + '</div>';
-    done.forEach(function(t) { html += _skTaskHtml(t); });
-  }
-
-  el.innerHTML = html;
-
-  el.querySelectorAll('.sk-check').forEach(function(check) {
-    check.addEventListener('click', function(e) {
-      e.stopPropagation();
-      var id = parseInt(this.closest('.sk-task').dataset.taskId);
-      _skToggleTask(id);
-    });
-  });
-}
-
-function _skRenderFullMessages() {
-  var el = document.getElementById('sk-full-messages');
-  if (!el) return;
-
-  var html = '<div class="sk-full-msg-label">Tavle-beskeder</div>';
-  if (!_sk.messages.length) {
-    html += '<div style="font-size:13px;color:var(--wb-text-dim)">Ingen beskeder</div>';
-  }
-  _sk.messages.forEach(function(m) {
-    html += '<div class="sk-msg">' +
-      '<div class="sk-msg-author">' + _skEsc(m.author || m.user || '?') + ' — ' + _skFormatTime(m.created_at) + '</div>' +
-      '<div class="sk-msg-text">' + _skEsc(m.content || m.text || '') + '</div>' +
-    '</div>';
-  });
-
-  el.innerHTML = html;
-}
-
-function _skRenderShiftBar() {
-  var el = document.getElementById('sk-shift-bar');
-  if (!el) return;
-
-  if (!_sk.shifts.length) {
-    el.style.display = 'none';
-    return;
-  }
-
-  el.style.display = 'flex';
-  var html = '<span style="font-weight:600">På vagt:</span>';
-  _sk.shifts.forEach(function(s) {
-    var name = s.first_name || s.employee_name || '?';
-    var initial = name.charAt(0).toUpperCase();
-    var from = (s.start || '').slice(11, 16);
-    var to = (s.end || '').slice(11, 16);
-    html += '<div class="sk-shift-person">' +
-      '<div class="sk-shift-avatar">' + initial + '</div>' +
-      '<span class="sk-shift-name">' + _skEsc(name) + '</span>' +
-      (from ? '<span class="sk-shift-time">(' + from + '–' + to + ')</span>' : '') +
-    '</div>';
-  });
-
-  el.innerHTML = html;
-}
-
-/* ══════════════════════════════════════════════════════════
    TASK ACTIONS
    ══════════════════════════════════════════════════════════ */
 function _skToggleTask(id) {
@@ -542,7 +381,6 @@ function _skUndo() {
 function _skRefreshViews() {
   _skUpdateBadge();
   if (_sk.mode === 'panel') _skRenderPanel();
-  if (_sk.mode === 'full') { _skRenderFullMain(); _skRenderFullSidebar(); }
 }
 
 /* ══════════════════════════════════════════════════════════

@@ -1096,17 +1096,17 @@ Oprettes under Grocy → Manage master data → Userfields.
 - [x] Kopieret til Whiteboard-projektet med 18 hjælpetekster for tavle-siden
 
 ### Whiteboard Sidekick
-- [x] `shared/sidekick.js` (~620 linjer) — tre-trins overlay i kitchen-zone
+- [x] `shared/sidekick.js` — to-trins overlay i kitchen-zone
   - Trin 1: Flydende ikon med badge (antal uafsluttede opgaver)
   - Trin 2: Sidepanel (320px) — dagens opgaver, hurtig-tilføj, beskeder
-  - Trin 3: Fuld skærm — lister, alle opgaver, beskeder, vagtplan
+  - "Åbn Whiteboard" knap i panel-header åbner den rigtige app i ny fane (`window.open(whiteboardBase, '_blank', 'noopener')`) — tidligere fuld-skærms-overlay fjernet, da den genskabte Whiteboard-UI og mistede funktionalitet (SOP-visning, drag-drop, kalender mv.)
   - Cross-origin fetch til Whiteboard API (`WHITEBOARD_BASE_URL`)
   - Config via `/api/sidekick/config` (env vars)
-  - Polling hvert 30s (kun når mode !== 'icon')
+  - Polling hvert 30s (kun når mode === 'panel')
   - Optimistisk UI + 8s fortryd-toast ved opgave-afslutning
   - Hurtig-tilføj opgave direkte fra panelet
   - Lydløs degradering ved manglende config eller API-fejl
-- [x] `shared/sidekick.css` (~250 linjer) — whiteboard-palette, ikon, panel, fuld skærm
+- [x] `shared/sidekick.css` — whiteboard-palette, ikon, panel
 - [x] `routes/sidekick.js` — GET `/api/sidekick/config`
 - [x] Integreret i `kitchen/today.html` + `kitchen/index.html`
 - [x] `.env.example` — `WHITEBOARD_BASE_URL`, `SOP_BASE_URL`
