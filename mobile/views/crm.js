@@ -21,7 +21,7 @@ async function initMobileCrm(container, user) {
     container.innerHTML =
         '<div class="m-tabs">' +
             '<button class="m-tab active" data-tab="calls">Service calls</button>' +
-            '<button class="m-tab" data-tab="search">Kundesøg</button>' +
+            '<button class="m-tab" data-tab="search">Kunder</button>' +
         '</div>' +
         '<div id="mcContent"></div>';
 
@@ -346,33 +346,58 @@ function _mcFormatDate(iso) {
     return parseInt(parts[2], 10) + '/' + parseInt(parts[1], 10);
 }
 
-/* ── Kundesøg + kundeliste ── */
+/* ── Kundeliste ── */
 var _mcAllCustomers = null; // cached full list
+var _mcStage = 'all';       // all | vip | active | dormant | lead
+var _mcSearchQuery = '';
+
+var _MC_STAGES = [
+    { key: 'all',     label: 'Alle' },
+    { key: 'vip',     label: 'VIP' },
+    { key: 'active',  label: 'Aktiv' },
+    { key: 'dormant', label: 'Sovende' },
+    { key: 'lead',    label: 'Lead' },
+];
 
 function _mcShowSearch() {
     var wrap = document.getElementById('mcContent');
     if (!wrap) return;
 
+    var chipsHtml = _MC_STAGES.map(function(s) {
+        return '<button class="m-cust-chip' + (s.key === _mcStage ? ' active' : '') +
+            '" data-stage="' + s.key + '">' + s.label + '</button>';
+    }).join('');
+
     wrap.innerHTML =
+        '<div class="m-cust-chips">' + chipsHtml + '</div>' +
         '<div class="m-search">' +
             '<input type="search" id="mcSearchInput" placeholder="Søg kunde eller firma..." autocomplete="off">' +
         '</div>' +
         '<div id="mcSearchResults"><div class="m-loading">Henter kunder...</div></div>';
 
+    wrap.querySelectorAll('.m-cust-chip').forEach(function(chip) {
+        chip.addEventListener('click', function() {
+            _mcStage = chip.dataset.stage;
+            wrap.querySelectorAll('.m-cust-chip').forEach(function(c) {
+                c.classList.toggle('active', c.dataset.stage === _mcStage);
+            });
+            _mcAllCustomers = null; // re-fetch with new stage
+            _mcLoadAllCustomers();
+        });
+    });
+
     var input = document.getElementById('mcSearchInput');
+    input.value = _mcSearchQuery;
 
     // Load full customer list on first visit
     _mcLoadAllCustomers();
 
     input.addEventListener('input', function() {
         clearTimeout(_mcSearchTimer);
-        var q = input.value.trim();
-        if (q.length < 2) {
-            // Show full list again
+        _mcSearchQuery = input.value.trim();
+        _mcSearchTimer = setTimeout(function() {
             _mcRenderCustomerList(_mcAllCustomers || []);
-            return;
-        }
-        _mcSearchTimer = setTimeout(function() { _mcDoSearch(q); }, 300);
+        }, 150);
     });
 }
 
@@ -382,12 +407,14 @@ async function _mcLoadAllCustomers() {
         return;
     }
     try {
-        var data = await apiFetch('/customers?q=');
-        _mcAllCustomers = data.customers || data || [];
+        var qs = '?limit=2000';
+        if (_mcStage && _mcStage !== 'all') qs += '&stage=' + encodeURIComponent(_mcStage);
+        var data = await apiFetch('/crm/customers' + qs);
+        _mcAllCustomers = Array.isArray(data) ? data : (data.customers || []);
         // Sort alphabetically by display name
         _mcAllCustomers.sort(function(a, b) {
-            var na = a.name || [a.first_name, a.last_name].filter(Boolean).join(' ') || a.company_name || '';
-            var nb = b.name || [b.first_name, b.last_name].filter(Boolean).join(' ') || b.company_name || '';
+            var na = (a.name || a.company_name || '').trim();
+            var nb = (b.name || b.company_name || '').trim();
             return na.localeCompare(nb, 'da');
         });
         _mcRenderCustomerList(_mcAllCustomers);
@@ -397,52 +424,96 @@ async function _mcLoadAllCustomers() {
     }
 }
 
+function _mcFilterCustomers(customers, query) {
+    if (!query) return customers;
+    var q = query.toLowerCase();
+    return customers.filter(function(c) {
+        var haystack = [
+            c.name || '', c.company_name || '',
+            c.email || '', c.phone || ''
+        ].join(' ').toLowerCase();
+        return haystack.indexOf(q) !== -1;
+    });
+}
+
 function _mcRenderCustomerList(customers) {
     var results = document.getElementById('mcSearchResults');
     if (!results) return;
 
-    if (!customers || !customers.length) {
-        results.innerHTML = '<div class="m-bon-empty">Ingen kunder</div>';
+    var filtered = _mcFilterCustomers(customers, _mcSearchQuery);
+
+    if (!filtered.length) {
+        results.innerHTML = '<div class="m-bon-empty">' +
+            (_mcSearchQuery ? 'Ingen match' : 'Ingen kunder') +
+        '</div>';
         return;
     }
 
-    var html = '<div style="padding:8px 16px;font-size:12px;color:var(--color-text-dim)">' + customers.length + ' kunder</div>';
-    customers.forEach(function(c) {
-        var fullName = c.name || [c.first_name, c.last_name].filter(Boolean).join(' ') || '';
-        var cName = fullName || c.company_name || '(ingen navn)';
-        var cId = c.customer_id || c.id;
-        var subParts = [];
-        if (c.company_name) subParts.push(c.company_name);
-        if (c.phone) subParts.push(c.phone.trim());
+    var html = '<div class="m-cust-count">' + filtered.length + ' kunder</div>';
+    filtered.forEach(function(c) {
+        var cName = (c.name || '').trim() || c.company_name || '(uden navn)';
+        var cId = c.id;
+        var stage = c.stage || null;
+        var stageLabel = _mcStageLabel(stage);
+
+        var metaParts = [];
+        // Last order
+        if (c.last_order_date) {
+            metaParts.push('<span class="m-cust-ico" title="Sidste ordre">&#128230;</span>' + _mcFormatDate(c.last_order_date));
+        }
+        // Total orders
+        if (c.total_orders) {
+            metaParts.push(c.total_orders + ' &times;');
+        }
+        // Last contact
+        if (c.last_contact_at) {
+            metaParts.push('<span class="m-cust-ico" title="Sidste samtale">&#128172;</span>' + _mcTimeAgo(c.last_contact_at));
+        }
+
         html +=
-            '<div class="m-bon-item" data-cid="' + cId + '">' +
-                '<div class="m-bon-info">' +
-                    '<div class="m-bon-name">' + _mcEsc(cName) + '</div>' +
-                    '<div class="m-bon-sub">' + _mcEsc(subParts.join(' · ')) + '</div>' +
+            '<div class="m-cust-item" data-cid="' + cId + '">' +
+                (stage ? '<span class="m-cust-dot st-' + stage + '" title="' + stageLabel + '"></span>' : '<span class="m-cust-dot st-none"></span>') +
+                '<div class="m-cust-info">' +
+                    '<div class="m-cust-name">' + _mcEsc(cName) +
+                        (c.company_name && c.name ? ' <span class="m-cust-company">' + _mcEsc(c.company_name) + '</span>' : '') +
+                    '</div>' +
+                    (metaParts.length ? '<div class="m-cust-meta">' + metaParts.join(' · ') + '</div>' : '') +
                 '</div>' +
                 '<span class="m-mig-chevron">&#8250;</span>' +
             '</div>';
     });
     results.innerHTML = html;
 
-    results.querySelectorAll('.m-bon-item').forEach(function(el) {
+    results.querySelectorAll('.m-cust-item').forEach(function(el) {
         el.addEventListener('click', function() {
             _mcShowCustomer(parseInt(el.dataset.cid));
         });
     });
 }
 
-async function _mcDoSearch(q) {
-    var results = document.getElementById('mcSearchResults');
-    if (!results) return;
-
-    try {
-        var data = await apiFetch('/customers?q=' + encodeURIComponent(q));
-        var customers = data.customers || data || [];
-        _mcRenderCustomerList(customers);
-    } catch (e) {
-        results.innerHTML = '<div class="m-bon-empty">Søgefejl</div>';
+function _mcStageLabel(s) {
+    switch (s) {
+        case 'vip': return 'VIP';
+        case 'active': return 'Aktiv';
+        case 'dormant': return 'Sovende';
+        case 'lead': return 'Lead';
+        case 'lost': return 'Mistet';
+        default: return '';
     }
+}
+
+function _mcTimeAgo(iso) {
+    if (!iso) return '';
+    var then = new Date(iso.replace(' ', 'T'));
+    var now = new Date();
+    var diffDays = Math.floor((now - then) / 86400000);
+    if (diffDays < 1) return 'i dag';
+    if (diffDays === 1) return 'i går';
+    if (diffDays < 30) return diffDays + ' d';
+    var months = Math.floor(diffDays / 30);
+    if (months < 12) return months + ' mdr';
+    var years = Math.floor(diffDays / 365);
+    return years + ' år';
 }
 
 async function _mcShowCustomer(customerId) {

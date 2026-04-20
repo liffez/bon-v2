@@ -554,6 +554,85 @@ body.zone-mobile {
     flex: 0 0 40px;
 }
 
+/* Kundeliste (CRM tab 2) */
+.m-cust-chips {
+    display: flex; gap: 6px;
+    padding: 10px 12px;
+    background: var(--color-surface);
+    border-bottom: 1px solid var(--color-border);
+    overflow-x: auto;
+    -webkit-overflow-scrolling: touch;
+}
+.m-cust-chip {
+    flex: 0 0 auto;
+    padding: 6px 14px;
+    border: 1px solid var(--color-border);
+    border-radius: 16px;
+    background: var(--color-background);
+    font-size: 13px;
+    cursor: pointer;
+    white-space: nowrap;
+}
+.m-cust-chip.active {
+    background: var(--brand-primary);
+    color: #fff;
+    border-color: var(--brand-primary);
+}
+.m-cust-count {
+    padding: 8px 16px;
+    font-size: 12px;
+    color: var(--color-text-dim);
+}
+
+.m-cust-item {
+    display: flex; align-items: center;
+    gap: 10px;
+    padding: 12px 16px;
+    border-bottom: 1px solid var(--color-border);
+    cursor: pointer;
+    min-height: 56px;
+}
+.m-cust-item:active { background: var(--color-background); }
+.m-cust-dot {
+    flex: 0 0 10px;
+    width: 10px; height: 10px;
+    border-radius: 50%;
+    background: #cfcfcf;
+}
+.m-cust-dot.st-vip     { background: #C8962A; box-shadow: 0 0 0 2px #fbf3e2; }
+.m-cust-dot.st-active  { background: #2E9E6B; }
+.m-cust-dot.st-dormant { background: #C94040; }
+.m-cust-dot.st-lead    { background: #3a7cb8; }
+.m-cust-dot.st-lost    { background: #999; }
+.m-cust-dot.st-none    { background: #d7d1ca; }
+.m-cust-info { flex: 1; min-width: 0; }
+.m-cust-name {
+    font-size: 15px; font-weight: 500;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+.m-cust-company {
+    color: var(--color-text-dim);
+    font-weight: 400;
+    font-size: 13px;
+}
+.m-cust-meta {
+    margin-top: 2px;
+    font-size: 12px;
+    color: var(--color-text-dim);
+    display: flex; gap: 4px; align-items: center;
+    flex-wrap: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+.m-cust-ico {
+    font-size: 13px;
+    margin-right: 3px;
+    opacity: .8;
+}
+
 /* ── Pull to refresh indicator ── */
 .m-ptr-indicator {
     text-align: center; padding: 12px;
