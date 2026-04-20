@@ -12,6 +12,14 @@ var _mcCalls = [];
 var _mcSearchTimer = null;
 var _mcDays = 7;          // 7 | 14 | 30
 var _mcOrdersCache = {};  // customerId -> orders
+var _mcPurposes = null;   // cached activity_purposes
+
+var _MC_DUE_CHIPS = [
+    { key: '1',  label: 'I morgen' },
+    { key: '3',  label: '3 dage' },
+    { key: '7',  label: '1 uge' },
+    { key: '30', label: '1 mdr' },
+];
 
 /* ── Entry ── */
 async function initMobileCrm(container, user) {
@@ -36,7 +44,70 @@ async function initMobileCrm(container, user) {
         });
     });
 
+    _mcLoadPurposes(); // non-blocking
     await _mcLoadCalls();
+}
+
+async function _mcLoadPurposes() {
+    if (_mcPurposes) return _mcPurposes;
+    try {
+        _mcPurposes = await apiFetch('/activity-purposes');
+    } catch (e) {
+        _mcPurposes = [];
+    }
+    return _mcPurposes;
+}
+
+function _mcPurposeChipsHtml() {
+    if (!_mcPurposes || !_mcPurposes.length) return '';
+    var html = '<div class="m-svc-form-label">Formål <span class="m-svc-optional">(valgfri)</span></div>';
+    html += '<div class="m-svc-purpose-btns">';
+    _mcPurposes.forEach(function(p) {
+        html += '<button class="m-svc-purp-btn" data-p="' + p.id + '" title="' + _mcEsc(p.description || p.label) + '">' +
+            (p.emoji ? p.emoji + ' ' : '') + _mcEsc(p.label) +
+        '</button>';
+    });
+    html += '</div>';
+    return html;
+}
+
+function _mcDueChipsHtml() {
+    var html = '<div class="m-svc-form-label" data-due-label>Ring igen om</div>';
+    html += '<div class="m-svc-due-btns" data-due-row>';
+    _MC_DUE_CHIPS.forEach(function(d) {
+        html += '<button class="m-svc-due-btn" data-due="' + d.key + '">' + d.label + '</button>';
+    });
+    html += '</div>';
+    return html;
+}
+
+function _mcWireToggleGroup(root, selector) {
+    root.querySelectorAll(selector).forEach(function(btn) {
+        btn.addEventListener('click', function() {
+            var wasActive = btn.classList.contains('active');
+            root.querySelectorAll(selector).forEach(function(b) { b.classList.remove('active'); });
+            if (!wasActive) btn.classList.add('active');
+        });
+    });
+}
+
+function _mcComputeDueAt(daysKey) {
+    if (!daysKey) return null;
+    var d = new Date();
+    d.setDate(d.getDate() + parseInt(daysKey));
+    d.setHours(10, 0, 0, 0); // default kl 10
+    return d.toISOString();
+}
+
+function _mcToggleDueVisibility(root, show) {
+    var label = root.querySelector('[data-due-label]');
+    var row = root.querySelector('[data-due-row]');
+    if (label) label.style.display = show ? '' : 'none';
+    if (row) row.style.display = show ? '' : 'none';
+    if (!show) {
+        // Ryd valg når skjult
+        if (row) row.querySelectorAll('.m-svc-due-btn.active').forEach(function(b) { b.classList.remove('active'); });
+    }
 }
 
 /* ── Service calls ── */
@@ -233,6 +304,8 @@ function _mcShowLogForm(idx) {
                 '<button class="m-svc-btn" data-r="callback" title="Skal ringes tilbage">Ring tb</button>' +
                 '<button class="m-svc-btn" data-r="email_instead" title="Sendte mail">✉ Mail</button>' +
             '</div>' +
+            _mcDueChipsHtml() +
+            _mcPurposeChipsHtml() +
             '<div class="m-svc-form-label">Stemning <span class="m-svc-optional">(valgfri)</span></div>' +
             '<div class="m-svc-sentiment-btns">' +
                 '<button class="m-svc-sent-btn" data-s="positive">😊 God</button>' +
@@ -246,24 +319,24 @@ function _mcShowLogForm(idx) {
             '</div>' +
         '</div>';
 
-    // Result button toggle
+    // Due-row skjult indtil callback vælges
+    _mcToggleDueVisibility(slot, false);
+
+    // Result button toggle — styrer også due-visibility
     slot.querySelectorAll('[data-r]').forEach(function(btn) {
         btn.addEventListener('click', function() {
             slot.querySelectorAll('[data-r]').forEach(function(b) { b.classList.remove('active'); });
             btn.classList.add('active');
             var saveBtn = slot.querySelector('[data-save]');
             if (saveBtn) saveBtn.disabled = false;
+            _mcToggleDueVisibility(slot, btn.dataset.r === 'callback');
         });
     });
 
-    // Sentiment button toggle
-    slot.querySelectorAll('[data-s]').forEach(function(btn) {
-        btn.addEventListener('click', function() {
-            var wasActive = btn.classList.contains('active');
-            slot.querySelectorAll('[data-s]').forEach(function(b) { b.classList.remove('active'); });
-            if (!wasActive) btn.classList.add('active');
-        });
-    });
+    // Toggle groups
+    _mcWireToggleGroup(slot, '[data-s]');
+    _mcWireToggleGroup(slot, '[data-p]');
+    _mcWireToggleGroup(slot, '[data-due]');
 
     slot.querySelector('[data-cancel="' + idx + '"]').addEventListener('click', function() {
         slot.innerHTML = '';
@@ -275,6 +348,10 @@ function _mcShowLogForm(idx) {
         var result = resultBtn.dataset.r;
         var sentBtn = slot.querySelector('[data-s].active');
         var sentiment = sentBtn ? sentBtn.dataset.s : null;
+        var purposeBtn = slot.querySelector('[data-p].active');
+        var purposeId = purposeBtn ? parseInt(purposeBtn.dataset.p) : null;
+        var dueBtn = slot.querySelector('[data-due].active');
+        var dueAt = (result === 'callback' && dueBtn) ? _mcComputeDueAt(dueBtn.dataset.due) : null;
         var note = (document.getElementById('mcNote' + idx) || {}).value || '';
 
         var saveBtn = slot.querySelector('[data-save]');
@@ -289,6 +366,8 @@ function _mcShowLogForm(idx) {
             };
             if (sc.bon_id) body.bon_id = sc.bon_id;
             if (sentiment) body.sentiment = sentiment;
+            if (purposeId) body.purpose_id = purposeId;
+            if (dueAt) body.due_at = dueAt;
 
             await apiFetch('/crm/activity', {
                 method: 'POST',
@@ -643,7 +722,7 @@ async function _mcShowCustomer(customerId) {
         }
 
         // Log samtale
-        html += '<div class="m-card" style="margin-top:8px">';
+        html += '<div class="m-card" id="mcLogCard" style="margin-top:8px">';
         html += '<div class="m-detail-label">Log samtale</div>';
         html += '<div class="m-inline-form" style="margin-top:8px">';
         html += '<select id="mcLogType">';
@@ -651,6 +730,20 @@ async function _mcShowCustomer(customerId) {
         html += '<option value="note">Note</option>';
         html += '<option value="meeting">Møde</option>';
         html += '</select>';
+        // Resultat (kun synlig ved Opkald)
+        html += '<div data-result-wrap>';
+        html += '<div class="m-svc-form-label">Resultat</div>';
+        html += '<div class="m-svc-result-btns">';
+        html += '<button class="m-svc-btn" data-r="reached" title="Fik fat">✓ Svar</button>';
+        html += '<button class="m-svc-btn" data-r="no_answer" title="Intet svar">✗ Ikke</button>';
+        html += '<button class="m-svc-btn" data-r="voicemail" title="Lagde besked">Besked</button>';
+        html += '<button class="m-svc-btn" data-r="callback" title="Skal ringes tilbage">Ring tb</button>';
+        html += '<button class="m-svc-btn" data-r="email_instead" title="Sendte mail">✉ Mail</button>';
+        html += '</div>';
+        html += _mcDueChipsHtml();
+        html += '</div>';
+        // Formål
+        html += _mcPurposeChipsHtml();
         html += '<textarea id="mcLogNote" placeholder="Hvad handlede det om?"></textarea>';
         html += '<div class="m-svc-form-label">Stemning <span class="m-svc-optional">(valgfri)</span></div>';
         html += '<div class="m-svc-sentiment-btns" id="mcProfileSent">';
@@ -665,17 +758,37 @@ async function _mcShowCustomer(customerId) {
 
         wrap.innerHTML = html;
 
-        // Sentiment toggle on profile
-        var sentWrap = document.getElementById('mcProfileSent');
-        if (sentWrap) {
-            sentWrap.querySelectorAll('[data-s]').forEach(function(btn) {
-                btn.addEventListener('click', function() {
-                    var wasActive = btn.classList.contains('active');
-                    sentWrap.querySelectorAll('[data-s]').forEach(function(b) { b.classList.remove('active'); });
-                    if (!wasActive) btn.classList.add('active');
-                });
-            });
+        var logCard = document.getElementById('mcLogCard');
+        var resultWrap = logCard.querySelector('[data-result-wrap]');
+
+        // Vis/skjul resultat-sektion afhængigt af type
+        var typeSel = document.getElementById('mcLogType');
+        function _mcUpdateLogType() {
+            var isCall = typeSel.value === 'call';
+            if (resultWrap) resultWrap.style.display = isCall ? '' : 'none';
+            if (!isCall) {
+                resultWrap.querySelectorAll('.m-svc-btn.active').forEach(function(b) { b.classList.remove('active'); });
+                _mcToggleDueVisibility(logCard, false);
+            }
         }
+        typeSel.addEventListener('change', _mcUpdateLogType);
+        _mcUpdateLogType();
+
+        // Due chips skjulte indtil callback valgt
+        _mcToggleDueVisibility(logCard, false);
+
+        // Result toggle + due visibility
+        resultWrap.querySelectorAll('[data-r]').forEach(function(btn) {
+            btn.addEventListener('click', function() {
+                resultWrap.querySelectorAll('[data-r]').forEach(function(b) { b.classList.remove('active'); });
+                btn.classList.add('active');
+                _mcToggleDueVisibility(logCard, btn.dataset.r === 'callback');
+            });
+        });
+
+        _mcWireToggleGroup(logCard, '[data-s]');
+        _mcWireToggleGroup(logCard, '[data-p]');
+        _mcWireToggleGroup(logCard, '[data-due]');
 
         // Back
         document.getElementById('mcLogBack').addEventListener('click', function() {
@@ -684,12 +797,18 @@ async function _mcShowCustomer(customerId) {
 
         // Save
         document.getElementById('mcLogSave').addEventListener('click', async function() {
-            var type = document.getElementById('mcLogType').value;
+            var type = typeSel.value;
             var note = document.getElementById('mcLogNote').value.trim();
             if (!note) { if (window._mToast) window._mToast('Skriv en note'); return; }
 
-            var sentBtn = sentWrap ? sentWrap.querySelector('[data-s].active') : null;
+            var sentBtn = logCard.querySelector('[data-s].active');
             var sentiment = sentBtn ? sentBtn.dataset.s : null;
+            var purposeBtn = logCard.querySelector('[data-p].active');
+            var purposeId = purposeBtn ? parseInt(purposeBtn.dataset.p) : null;
+            var resultBtn = (type === 'call') ? logCard.querySelector('[data-r].active') : null;
+            var result = resultBtn ? resultBtn.dataset.r : null;
+            var dueBtn = (result === 'callback') ? logCard.querySelector('[data-due].active') : null;
+            var dueAt = dueBtn ? _mcComputeDueAt(dueBtn.dataset.due) : null;
 
             try {
                 var body = {
@@ -698,6 +817,9 @@ async function _mcShowCustomer(customerId) {
                     text: note,
                 };
                 if (sentiment) body.sentiment = sentiment;
+                if (purposeId) body.purpose_id = purposeId;
+                if (result) body.result = result;
+                if (dueAt) body.due_at = dueAt;
 
                 await apiFetch('/crm/activity', {
                     method: 'POST',
@@ -706,9 +828,10 @@ async function _mcShowCustomer(customerId) {
                 });
                 if (window._mToast) window._mToast('Samtale logget');
                 document.getElementById('mcLogNote').value = '';
-                if (sentWrap) {
-                    sentWrap.querySelectorAll('[data-s]').forEach(function(b) { b.classList.remove('active'); });
-                }
+                logCard.querySelectorAll('.m-svc-btn.active, .m-svc-sent-btn.active, .m-svc-purp-btn.active, .m-svc-due-btn.active').forEach(function(b) {
+                    b.classList.remove('active');
+                });
+                _mcToggleDueVisibility(logCard, false);
             } catch (e) {
                 if (window._mToast) window._mToast('Fejl ved gem');
             }

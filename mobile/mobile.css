@@ -695,6 +695,33 @@ body.zone-mobile {
     margin-left: 4px;
 }
 
+/* Formål- og due-chips i log-formen */
+.m-svc-purpose-btns, .m-svc-due-btns {
+    display: flex; gap: 4px; flex-wrap: wrap;
+    margin-bottom: 8px;
+}
+.m-svc-purp-btn, .m-svc-due-btn {
+    padding: 8px 10px;
+    border: 1px solid var(--color-border);
+    border-radius: 14px;
+    background: var(--color-surface);
+    font-size: 12px;
+    cursor: pointer;
+    white-space: nowrap;
+    min-height: 34px;
+}
+.m-svc-purp-btn:active, .m-svc-due-btn:active { background: var(--color-background); }
+.m-svc-purp-btn.active {
+    background: #f1e6b2;
+    border-color: #8e631f;
+    border-width: 2px;
+}
+.m-svc-due-btn.active {
+    background: var(--brand-primary);
+    color: #fff;
+    border-color: var(--brand-primary);
+}
+
 /* ── Pull to refresh indicator ── */
 .m-ptr-indicator {
     text-align: center; padding: 12px;
