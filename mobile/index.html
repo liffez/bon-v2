@@ -126,6 +126,9 @@
             _mContent.innerHTML = '';
             _mCurrentView = name;
 
+            // Skjul bundnav for modtag — mere plads til arbejdet, Annuller tager dig tilbage
+            document.body.classList.toggle('m-modtag-active', name === 'modtag');
+
             // Update nav
             document.querySelectorAll('.m-nav-btn').forEach(function(b) {
                 b.classList.toggle('active', b.dataset.view === name);

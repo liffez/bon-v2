@@ -165,34 +165,37 @@ function _vmBuildSupplierOptions(suppliers, shoppingList) {
         orderedSuppliers[sup]++;
     }
 
-    // Match against suppliers table
+    // Vis ALLE leverandører — med "N varer klar" når der er noget bestilt,
+    // ellers bare navnet. På den måde kan man også modtage ad-hoc leverancer.
     _vmSuppliers = [];
-    var matched = {};
+    var seen = {};
+    var withItems = [];
+    var withoutItems = [];
 
     for (var j = 0; j < suppliers.length; j++) {
         var s = suppliers[j];
         var name = s.supplier_name || '';
         var grocyName = s.grocy_location_display_name || '';
+        if (!name || seen[name]) continue;
+        seen[name] = true;
 
-        // Match on supplier_name or grocy_location_display_name
-        var matchKey = null;
-        if (orderedSuppliers[name] && !matched[name]) {
-            matchKey = name;
-        } else if (grocyName && orderedSuppliers[grocyName] && !matched[grocyName]) {
-            matchKey = grocyName;
-        }
+        var count = orderedSuppliers[name] || (grocyName && orderedSuppliers[grocyName]) || 0;
+        var matchKey = count && orderedSuppliers[grocyName] && !orderedSuppliers[name] ? grocyName : name;
 
-        if (matchKey) {
-            matched[matchKey] = true;
-            _vmSuppliers.push({
-                key: matchKey,
-                label: matchKey + ' \u2014 ' + orderedSuppliers[matchKey] + ' varer klar',
-                count: orderedSuppliers[matchKey],
-                supplierName: name,
-                grocyName: grocyName,
-            });
-        }
+        var entry = {
+            key: matchKey,
+            label: count > 0 ? (matchKey + ' \u2014 ' + count + ' varer klar') : matchKey,
+            count: count,
+            supplierName: name,
+            grocyName: grocyName,
+        };
+        if (count > 0) withItems.push(entry);
+        else withoutItems.push(entry);
     }
+
+    // Leverandører med bestilte varer først, derefter alfabetisk for resten
+    withoutItems.sort(function(a, b) { return a.label.localeCompare(b.label, 'da'); });
+    _vmSuppliers = withItems.concat(withoutItems);
 }
 
 /* ── Build page ──────────────────────────────────────────── */
@@ -331,10 +334,11 @@ function _vmBuildSupplierCard() {
 
     var sel = document.createElement('select');
     sel.className = 'vm-field-input';
+    _vmDom.supplierSelect = sel;
 
     var emptyOpt = document.createElement('option');
     emptyOpt.value = '';
-    emptyOpt.textContent = _vmSuppliers.length > 0 ? 'V\u00e6lg leverand\u00f8r...' : 'Ingen bestilte leverancer at modtage';
+    emptyOpt.textContent = 'V\u00e6lg leverand\u00f8r...';
     sel.appendChild(emptyOpt);
 
     for (var i = 0; i < _vmSuppliers.length; i++) {
@@ -344,15 +348,46 @@ function _vmBuildSupplierCard() {
         sel.appendChild(opt);
     }
 
+    // "Andet..." — skriv leverand\u00f8rnavn selv
+    var otherOpt = document.createElement('option');
+    otherOpt.value = '__other__';
+    otherOpt.textContent = '\u2795 Andet \u2014 skriv selv...';
+    sel.appendChild(otherOpt);
+
     sel.addEventListener('change', function() { _vmOnSupplierChange(this.value); });
     wrap.appendChild(sel);
     card.appendChild(wrap);
+
+    // Fri-tekst input (skjult indtil "Andet" vælges)
+    var other = document.createElement('input');
+    other.type = 'text';
+    other.className = 'vm-field-input';
+    other.placeholder = 'Leverand\u00f8rnavn (fx \"Bager p\u00e5 hj\u00f8rnet\")';
+    other.style.cssText = 'margin-top:8px;display:none;';
+    other.addEventListener('input', function() {
+        _vmState.supplierKey = '__other__';
+        _vmState.supplierName = this.value.trim();
+        // Opdat\u00e9r lager-header med nyt navn
+        if (_vmDom.lagerContent && _vmDom.lagerContent.style.display !== 'none') {
+            _vmRenderLagerContent();
+        }
+        _vmUpdateBtn();
+    });
+    _vmDom.supplierOtherInput = other;
+    card.appendChild(other);
+
     return card;
 }
 
 function _vmOnSupplierChange(key) {
+    var isOther = key === '__other__';
     _vmState.supplierKey = key;
-    _vmState.supplierName = key; // ordered_supplier matches key
+    _vmState.supplierName = isOther ? (_vmDom.supplierOtherInput ? _vmDom.supplierOtherInput.value.trim() : '') : key;
+
+    if (_vmDom.supplierOtherInput) {
+        _vmDom.supplierOtherInput.style.display = isOther ? 'block' : 'none';
+        if (isOther) setTimeout(function() { _vmDom.supplierOtherInput.focus(); }, 50);
+    }
 
     if (!key) {
         _vmDom.noSupplierMsg.style.display = 'block';
@@ -362,8 +397,12 @@ function _vmOnSupplierChange(key) {
         _vmDom.noSupplierMsg.style.display = 'none';
         _vmDom.lagerContent.style.display = 'flex';
 
-        // Build items from shopping list
-        _vmBuildItemsFromShoppingList(key);
+        // Byg items fra shopping list (tom for "Andet")
+        if (isOther) {
+            _vmState.items = [];
+        } else {
+            _vmBuildItemsFromShoppingList(key);
+        }
         _vmRenderLagerContent();
     }
 
@@ -745,16 +784,29 @@ function _vmRenderLagerContent() {
     // Header
     var header = document.createElement('div');
     header.className = 'vm-lager-header';
-    header.innerHTML = '<div><div class="vm-lager-title">' + _vmEsc(_vmState.supplierName) +
+    var metaText = _vmState.items.length > 0 ? 'Fra indk\u00f8b' : 'Ad-hoc \u2014 tilf\u00f8j varer manuelt';
+    var headerName = _vmState.supplierName || 'Ny leverand\u00f8r';
+    header.innerHTML = '<div><div class="vm-lager-title">' + _vmEsc(headerName) +
         ' \u2014 ' + _vmState.items.length + ' varer</div>' +
-        '<div class="vm-lager-meta">Fra indk\u00f8b</div></div>';
+        '<div class="vm-lager-meta">' + metaText + '</div></div>';
     el.appendChild(header);
 
     if (_vmState.items.length === 0) {
         var empty = document.createElement('div');
         empty.className = 'vm-no-supplier-msg';
-        empty.textContent = 'Ingen bestilte varer for denne leverand\u00f8r';
+        empty.textContent = 'Ingen bestilte varer \u2014 tilf\u00f8j varer nedenfor eller registr\u00e9r kun f\u00f8devarekontrol';
         el.appendChild(empty);
+
+        var addBtn0 = document.createElement('button');
+        addBtn0.className = 'vm-add-item-btn';
+        addBtn0.type = 'button';
+        addBtn0.textContent = '\uff0b Tilf\u00f8j vare manuelt';
+        addBtn0.addEventListener('click', _vmAddManualItem);
+        el.appendChild(addBtn0);
+
+        _vmDom.summaryCard = _vmBuildSummaryCard();
+        el.appendChild(_vmDom.summaryCard);
+        _vmDom.itemList = el;
         return;
     }
 
@@ -1055,7 +1107,11 @@ function _vmBuildBottomBar() {
     cancelBtn.textContent = 'Annuller';
     cancelBtn.type = 'button';
     cancelBtn.addEventListener('click', function() {
-        if (confirm('Afbryd varemodtagelse?')) {
+        if (!confirm('Afbryd varemodtagelse?')) return;
+        // På mobilen: tilbage til bons-viewet i stedet for at reset'e
+        if (document.body.classList.contains('zone-mobile') && typeof window._mSwitchView === 'function') {
+            window._mSwitchView('bons');
+        } else {
             initVaremodtagelse(_vmContainer);
         }
     });

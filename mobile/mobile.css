@@ -76,6 +76,10 @@ body.zone-mobile {
     padding: 0 0 calc(68px + env(safe-area-inset-bottom, 0));
 }
 
+/* Modtag-view: skjul bundnav, vm-bottom-bar overtager bunden (Annuller → bons) */
+body.m-modtag-active .m-nav { display: none; }
+body.m-modtag-active .m-content { padding-bottom: 0; }
+
 /* ── Bottom nav ── */
 .m-nav {
     position: fixed; bottom: 0; left: 0; right: 0;
@@ -311,6 +315,20 @@ body.zone-mobile {
 }
 .m-overview-badges {
     display: flex; gap: 4px; margin-top: 8px; flex-wrap: wrap;
+}
+.m-overview-shifts {
+    margin-top: 12px;
+    padding-top: 10px;
+    border-top: 1px solid var(--color-border);
+}
+.m-overview-shifts-label {
+    font-size: 11px; color: var(--color-text-dim);
+    text-transform: uppercase; letter-spacing: .5px;
+    margin-bottom: 2px;
+}
+.m-overview-shifts .m-shift-item:last-child { border-bottom: none; }
+.m-overview-shifts-empty {
+    padding: 8px 0; color: var(--color-text-dim); font-size: 13px;
 }
 
 /* ── Smartplan ── */

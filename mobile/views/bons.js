@@ -11,7 +11,15 @@ var _mbUser = null;
 var _mbTab = 'today';
 var _mbBonsToday = [];
 var _mbBonsTomorrow = [];
+var _mbBonsDayAfter = [];
 var _mbDetailBon = null;
+
+function _mbIsoDate(d) {
+    var y = d.getFullYear();
+    var m = String(d.getMonth() + 1).padStart(2, '0');
+    var dd = String(d.getDate()).padStart(2, '0');
+    return y + '-' + m + '-' + dd;
+}
 
 /* ── Status config (fra BonConfig.js) ── */
 function _mbStatusStyle(code) {
@@ -45,8 +53,9 @@ function cleanupMobileBons() {
 async function _mbLoadList() {
     _mbContainer.innerHTML =
         '<div class="m-tabs">' +
-            '<button class="m-tab active" data-tab="today">I dag</button>' +
-            '<button class="m-tab" data-tab="tomorrow">I morgen</button>' +
+            '<button class="m-tab' + (_mbTab === 'today' ? ' active' : '') + '" data-tab="today">I dag</button>' +
+            '<button class="m-tab' + (_mbTab === 'tomorrow' ? ' active' : '') + '" data-tab="tomorrow">I morgen</button>' +
+            '<button class="m-tab' + (_mbTab === 'dayafter' ? ' active' : '') + '" data-tab="dayafter">Overmorgen</button>' +
         '</div>' +
         '<div id="mbList"><div class="m-loading">Henter bons...</div></div>';
 
@@ -66,17 +75,21 @@ async function _mbLoadList() {
     try {
         var tomorrow = new Date();
         tomorrow.setDate(tomorrow.getDate() + 1);
-        var tomorrowISO = tomorrow.toISOString().slice(0, 10);
+        var dayAfter = new Date();
+        dayAfter.setDate(dayAfter.getDate() + 2);
 
         var results = await Promise.all([
             apiFetch('/bons?date=today&status=' + statuses),
-            apiFetch('/bons?date=' + tomorrowISO + '&status=' + statuses)
+            apiFetch('/bons?date=' + _mbIsoDate(tomorrow) + '&status=' + statuses),
+            apiFetch('/bons?date=' + _mbIsoDate(dayAfter) + '&status=' + statuses)
         ]);
         _mbBonsToday = (results[0].bons || results[0] || []);
         _mbBonsTomorrow = (results[1].bons || results[1] || []);
+        _mbBonsDayAfter = (results[2].bons || results[2] || []);
     } catch (e) {
         _mbBonsToday = [];
         _mbBonsTomorrow = [];
+        _mbBonsDayAfter = [];
     }
 
     _mbRenderList();
@@ -88,10 +101,15 @@ async function _mbLoadList() {
 function _mbRenderList() {
     var list = document.getElementById('mbList');
     if (!list) return;
-    var bons = _mbTab === 'today' ? _mbBonsToday : _mbBonsTomorrow;
+    var bons = _mbTab === 'today' ? _mbBonsToday
+             : _mbTab === 'tomorrow' ? _mbBonsTomorrow
+             : _mbBonsDayAfter;
 
     if (!bons.length) {
-        list.innerHTML = '<div class="m-bon-empty">Ingen bons ' + (_mbTab === 'today' ? 'i dag' : 'i morgen') + '</div>';
+        var emptyLabel = _mbTab === 'today' ? 'i dag'
+                       : _mbTab === 'tomorrow' ? 'i morgen'
+                       : 'overmorgen';
+        list.innerHTML = '<div class="m-bon-empty">Ingen bons ' + emptyLabel + '</div>';
         return;
     }
 

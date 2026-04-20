@@ -1,11 +1,18 @@
 /**
  * mobile/views/oversigt.js
  * ════════════════════════════════════════════════════════════
- * Travlhedsoverblik (3 dage) + Smartplan vagter.
+ * Travlhedsoverblik (3 dage) + Smartplan vagter per dag.
  * ════════════════════════════════════════════════════════════
  */
 
 var _moContainer = null;
+
+function _moIsoDate(d) {
+    var y = d.getFullYear();
+    var m = String(d.getMonth() + 1).padStart(2, '0');
+    var dd = String(d.getDate()).padStart(2, '0');
+    return y + '-' + m + '-' + dd;
+}
 
 async function initMobileOversigt(container) {
     _moContainer = container;
@@ -19,22 +26,13 @@ async function initMobileOversigt(container) {
         dates.push(d);
     }
 
-    // Fetch bons for 3 days + Smartplan shifts in parallel
-    try {
-        var fetches = dates.map(function(d) {
-            var iso = d.toISOString().slice(0, 10);
-            if (i === 0) return apiFetch('/bons?date=today');
-            return apiFetch('/bons?date=' + iso);
-        });
-        fetches.push(
-            apiFetch('/smartplan/shifts?from=' + dates[0].toISOString().slice(0,10) + '&to=' + dates[0].toISOString().slice(0,10))
-                .catch(function() { return []; })
-        );
+    var fromIso = _moIsoDate(dates[0]);
+    var toIso = _moIsoDate(dates[2]);
 
-        // Fix: construct fetches properly
+    try {
         var fetchPromises = [];
         for (var j = 0; j < dates.length; j++) {
-            var iso = dates[j].toISOString().slice(0, 10);
+            var iso = _moIsoDate(dates[j]);
             fetchPromises.push(
                 j === 0
                     ? apiFetch('/bons?date=today')
@@ -42,17 +40,26 @@ async function initMobileOversigt(container) {
             );
         }
         fetchPromises.push(
-            apiFetch('/smartplan/shifts?from=' + dates[0].toISOString().slice(0,10) + '&to=' + dates[0].toISOString().slice(0,10))
+            apiFetch('/smartplan/shifts?from=' + fromIso + '&to=' + toIso)
                 .catch(function() { return []; })
         );
 
         var results = await Promise.all(fetchPromises);
-        var shifts = results[dates.length] || [];
+        var allShifts = results[dates.length] || [];
+        if (!Array.isArray(allShifts)) allShifts = allShifts.shifts || [];
+
+        // Gruppér vagter per dato
+        var shiftsByDate = {};
+        allShifts.forEach(function(s) {
+            var d = s.date;
+            if (!d) return;
+            if (!shiftsByDate[d]) shiftsByDate[d] = [];
+            shiftsByDate[d].push(s);
+        });
 
         var html = '';
-
-        // Day cards
         var dayLabels = ['I dag', 'I morgen', 'Overmorgen'];
+
         for (var k = 0; k < dates.length; k++) {
             var bons = results[k].bons || results[k] || [];
             var totalUnits = 0;
@@ -64,6 +71,11 @@ async function initMobileOversigt(container) {
                 statusCounts[code] = (statusCounts[code] || 0) + 1;
             });
 
+            var iso = _moIsoDate(dates[k]);
+            var dayShifts = (shiftsByDate[iso] || []).slice().sort(function(a, b) {
+                return (a.start_time || '').localeCompare(b.start_time || '');
+            });
+
             var dateStr = dates[k].getDate() + '/' + (dates[k].getMonth() + 1);
 
             html += '<div class="m-overview-card">';
@@ -71,6 +83,7 @@ async function initMobileOversigt(container) {
             html += '<div class="m-overview-stats">';
             html += '<div><div class="m-overview-stat-num">' + bons.length + '</div><div style="font-size:12px;color:var(--color-text-dim)">bons</div></div>';
             html += '<div><div class="m-overview-stat-num">' + totalUnits + '</div><div style="font-size:12px;color:var(--color-text-dim)">enheder</div></div>';
+            html += '<div><div class="m-overview-stat-num">' + dayShifts.length + '</div><div style="font-size:12px;color:var(--color-text-dim)">vagter</div></div>';
             html += '</div>';
 
             // Status badges
@@ -83,35 +96,27 @@ async function initMobileOversigt(container) {
                 });
                 html += '</div>';
             }
+
+            // Vagter for dagen
+            html += '<div class="m-overview-shifts">';
+            html += '<div class="m-overview-shifts-label">P\u00e5 arbejde</div>';
+            if (dayShifts.length) {
+                dayShifts.forEach(function(shift) {
+                    var name = shift.first_name || shift.employee_name || '?';
+                    var startT = shift.start_time || '';
+                    var endT = shift.end_time || '';
+                    html += '<div class="m-shift-item">' +
+                        '<span class="m-shift-name">' + _moEsc(name) + '</span>' +
+                        '<span class="m-shift-time">' + startT + (endT ? ' – ' + endT : '') + '</span>' +
+                        '</div>';
+                });
+            } else {
+                html += '<div class="m-overview-shifts-empty">Ingen vagter</div>';
+            }
+            html += '</div>';
+
             html += '</div>';
         }
-
-        // Smartplan section
-        html += '<div class="m-card" style="margin-top:16px">';
-        html += '<div class="m-detail-label">I dag på arbejde</div>';
-
-        var shiftList = shifts.shifts || shifts || [];
-        if (Array.isArray(shiftList) && shiftList.length) {
-            // Sort by start time
-            shiftList.sort(function(a, b) {
-                return (a.start_time || a.start || '').localeCompare(b.start_time || b.start || '');
-            });
-
-            shiftList.forEach(function(shift) {
-                var name = shift.first_name || (shift.owner && shift.owner.first_name) || shift.employee_name || '?';
-                var startT = (shift.start_time || shift.start || '').slice(11, 16);
-                var endT = (shift.end_time || shift.end || '').slice(11, 16);
-
-                html += '<div class="m-shift-item">' +
-                    '<span class="m-shift-name">' + _moEsc(name) + '</span>' +
-                    '<span class="m-shift-time">' + startT + ' – ' + endT + '</span>' +
-                '</div>';
-            });
-        } else {
-            html += '<div style="padding:12px 0;color:var(--color-text-dim);font-size:14px">Ingen vagter fundet</div>';
-        }
-
-        html += '</div>';
 
         container.innerHTML = html;
 
