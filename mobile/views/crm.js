@@ -522,31 +522,95 @@ async function _mcShowCustomer(customerId) {
     wrap.innerHTML = '<div class="m-loading">Henter kunde...</div>';
 
     try {
-        var c = await apiFetch('/crm/customer/' + customerId);
+        var results = await Promise.all([
+            apiFetch('/crm/customer/' + customerId),
+            apiFetch('/crm/customer-orders/' + customerId + '?limit=5').catch(function() { return []; })
+        ]);
+        var resp = results[0];
+        var ordersWithLines = results[1] || [];
 
+        var cust = resp.customer || resp;
+        var stats = resp.stats || {};
+        var products = resp.products || [];
+
+        var name = [cust.first_name, cust.last_name].filter(Boolean).join(' ') || cust.name || '(uden navn)';
+        var stage = cust.stage;
+        var stageLabel = _mcStageLabel(stage);
+
+        // Header card
         var html = '<div class="m-card" style="margin-top:8px">';
-        html += '<div style="font-size:18px;font-weight:600">' + _mcEsc(c.name) + '</div>';
-        if (c.company_name) html += '<div style="color:var(--color-text-dim);margin-top:2px">' + _mcEsc(c.company_name) + '</div>';
+        html += '<div class="m-cust-head">';
+        if (stage) html += '<span class="m-cust-dot st-' + stage + '" title="' + stageLabel + '"></span>';
+        html += '<div style="flex:1;min-width:0">';
+        html += '<div class="m-cust-detail-name">' + _mcEsc(name) + '</div>';
+        if (cust.company_name) html += '<div class="m-cust-detail-company">' + _mcEsc(cust.company_name) + '</div>';
+        html += '</div></div>';
 
-        if (c.phone) html += '<div style="margin-top:8px"><a href="tel:' + c.phone + '" style="color:var(--brand-primary)">&#128222; ' + c.phone + '</a></div>';
-        if (c.email) html += '<div style="margin-top:4px"><a href="mailto:' + c.email + '" style="color:var(--brand-primary)">&#9993; ' + c.email + '</a></div>';
+        if (cust.phone) html += '<div style="margin-top:8px"><a href="tel:' + cust.phone + '" style="color:var(--brand-primary)">&#128222; ' + _mcEsc(cust.phone) + '</a></div>';
+        if (cust.email) html += '<div style="margin-top:4px"><a href="mailto:' + cust.email + '" style="color:var(--brand-primary)">&#9993; ' + _mcEsc(cust.email) + '</a></div>';
         html += '</div>';
 
-        // Recent bons
-        if (c.recent_orders && c.recent_orders.length) {
+        // Stats strip
+        if (stats.total_orders) {
+            var daysSince = stats.last_order
+                ? Math.max(0, Math.floor((new Date() - new Date(stats.last_order)) / 86400000))
+                : null;
+            html += '<div class="m-cust-stats">';
+            html += '<div class="m-cust-stat"><div class="m-cust-stat-num">' + stats.total_orders + '</div><div class="m-cust-stat-lbl">ordrer</div></div>';
+            html += '<div class="m-cust-stat"><div class="m-cust-stat-num">' + Math.round((stats.total_revenue || 0) / 1000) + 'k</div><div class="m-cust-stat-lbl">omsætn.</div></div>';
+            html += '<div class="m-cust-stat"><div class="m-cust-stat-num">' + Math.round(stats.avg_order || 0).toLocaleString('da-DK') + '</div><div class="m-cust-stat-lbl">gns. kr</div></div>';
+            if (daysSince != null) {
+                var dsLabel = daysSince < 1 ? 'i dag' : daysSince === 1 ? '1 dag' : daysSince < 30 ? (daysSince + ' d') : (Math.floor(daysSince / 30) + ' mdr');
+                html += '<div class="m-cust-stat"><div class="m-cust-stat-num">' + dsLabel + '</div><div class="m-cust-stat-lbl">sidst</div></div>';
+            }
+            html += '</div>';
+        }
+
+        // Typiske produkter
+        if (products && products.length) {
+            html += '<div class="m-detail-section" style="margin-top:8px">';
+            html += '<div class="m-detail-label">Typiske produkter</div>';
+            html += '<div class="m-cust-prods">';
+            products.slice(0, 6).forEach(function(p) {
+                html += '<span class="m-cust-prod">' +
+                    _mcEsc(p.product_name || '') +
+                    ' <span class="m-cust-prod-qty">' + (p.total_qty || 0) + '×</span>' +
+                '</span>';
+            });
+            html += '</div></div>';
+        }
+
+        // Seneste ordrer med vareliste
+        if (ordersWithLines && ordersWithLines.length) {
             html += '<div class="m-detail-section" style="margin-top:8px">';
             html += '<div class="m-detail-label">Seneste ordrer</div>';
-            c.recent_orders.slice(0, 5).forEach(function(o) {
-                var os = (typeof _mbStatusStyle === 'function') ? _mbStatusStyle(o.status_code || o.status) : { bg: '#ccc', text: '#333', label: o.status || '?' };
-                html +=
-                    '<div class="m-bon-item" data-id="' + o.id + '">' +
-                        '<div class="m-bon-time">' + (o.delivery_date || '').slice(5, 10) + '</div>' +
-                        '<div class="m-bon-info">' +
-                            '<div class="m-bon-name">#' + (o.bon_number || o.id) + '</div>' +
-                            '<div class="m-bon-sub">' + (o.total_units || o.pax || '') + ' enh.</div>' +
-                        '</div>' +
-                        '<span class="m-bon-badge" style="background:' + os.bg + ';color:' + os.text + '">' + os.label + '</span>' +
+            ordersWithLines.forEach(function(o) {
+                var price = o.total_price ? Math.round(o.total_price).toLocaleString('da-DK') + ' kr' : '';
+                var lines = (o.lines || []).slice(0, 4);
+                var moreCount = (o.lines || []).length - lines.length;
+
+                html += '<div class="m-svc-order" data-id="' + o.id + '" style="cursor:pointer">' +
+                    '<div class="m-svc-order-head">' +
+                        '<span class="m-svc-order-bon">#' + _mcEsc(o.bon_number || '') + '</span>' +
+                        '<span class="m-svc-order-date">' + _mcFormatDate(o.delivery_date) + '</span>' +
+                        (o.pax ? '<span class="m-svc-order-pax">' + o.pax + ' pax</span>' : '') +
+                        (price ? '<span class="m-svc-order-price">' + price + '</span>' : '') +
                     '</div>';
+
+                if (lines.length) {
+                    html += '<div class="m-svc-order-lines">';
+                    lines.forEach(function(l) {
+                        html += '<div class="m-svc-order-line">' +
+                            '<span class="m-svc-order-qty">' + l.quantity + '×</span> ' +
+                            _mcEsc(l.product_name || '') +
+                        '</div>';
+                    });
+                    if (moreCount > 0) {
+                        html += '<div class="m-svc-order-line" style="opacity:.7">… + ' + moreCount + ' flere</div>';
+                    }
+                    html += '</div>';
+                }
+                html += '</div>';
             });
             html += '</div>';
         }
@@ -624,7 +688,7 @@ async function _mcShowCustomer(customerId) {
         });
 
         // Bon clicks in customer detail
-        wrap.querySelectorAll('.m-bon-item[data-id]').forEach(function(el) {
+        wrap.querySelectorAll('.m-svc-order[data-id]').forEach(function(el) {
             el.addEventListener('click', function() {
                 window._mSwitchView('bons');
                 setTimeout(function() {
