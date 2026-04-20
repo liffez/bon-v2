@@ -11,6 +11,7 @@
     <link rel="stylesheet" href="/shared/tokens.css">
     <link rel="stylesheet" href="/shared/components.css">
     <link rel="stylesheet" href="/shared/varemodtagelse.css">
+    <link rel="stylesheet" href="/shared/inventory_check.css">
     <link rel="stylesheet" href="/mobile/mobile.css">
 </head>
 <body class="zone-mobile">
@@ -47,8 +48,10 @@
     <script src="/shared/utils.js"></script>
     <script src="/shared/api.js"></script>
     <script src="/shared/varemodtagelse.js"></script>
+    <script src="/shared/inventory_check.js"></script>
     <script src="/mobile/views/bons.js"></script>
     <script src="/mobile/views/modtag.js"></script>
+    <script src="/mobile/views/lager.js"></script>
     <script src="/mobile/views/crm.js"></script>
     <script src="/mobile/views/oversigt.js"></script>
     <script>
@@ -67,9 +70,9 @@
         var NAV_DEFS = [
             { view: 'bons',     icon: '&#128203;', label: 'Bons',     requires: null },
             { view: 'modtag',   icon: '&#128230;', label: 'Modtag',   requires: 'modtag' },
+            { view: 'lager',    icon: '&#129518;', label: 'Lager',    requires: 'modtag' },
             { view: 'crm',      icon: '&#128222;', label: 'CRM',      requires: 'crm' },
             { view: 'oversigt', icon: '&#128202;', label: 'Overblik', requires: null },
-            { view: 'mig',      icon: '&#128100;', label: 'Mig',      requires: null },
         ];
         var _mPerms = _mUser.permissions || {};
         var _mAllowedViews = NAV_DEFS
@@ -114,9 +117,9 @@
         var _mViews = {
             bons:     { init: initMobileBons,     cleanup: typeof cleanupMobileBons === 'function' ? cleanupMobileBons : null },
             modtag:   { init: initMobileModtag,   cleanup: null },
+            lager:    { init: initMobileLager,    cleanup: null },
             crm:      { init: initMobileCrm,      cleanup: null },
             oversigt: { init: initMobileOversigt, cleanup: null },
-            mig:      { init: _initMig,           cleanup: null },
         };
 
         function switchView(name) {
@@ -172,34 +175,6 @@
             var v = p.get('view') || 'bons';
             if (v !== _mCurrentView) switchView(v);
         });
-
-        /* ── "Mig" inline view ── */
-        function _initMig(container) {
-            container.innerHTML =
-                '<div class="m-card" style="margin-top:16px;text-align:center">' +
-                    '<div style="font-size:48px;margin-bottom:8px">&#128100;</div>' +
-                    '<div style="font-size:18px;font-weight:600">' + _mUser.name + '</div>' +
-                    '<div style="font-size:13px;color:var(--color-text-dim);margin-top:4px">' + (_mUser.role || '') + '</div>' +
-                '</div>' +
-                '<div style="background:var(--color-surface);margin-top:12px">' +
-                    '<a class="m-mig-item" href="' + (_mUser.role === 'kitchen' ? '/kitchen/' : '/office/') + '">' +
-                        '<span class="m-mig-icon">&#128421;</span>' +
-                        '<span class="m-mig-label">Åbn fuld version</span>' +
-                        '<span class="m-mig-chevron">&#8250;</span>' +
-                    '</a>' +
-                    '<a class="m-mig-item" href="#" id="migLogout">' +
-                        '<span class="m-mig-icon">&#128682;</span>' +
-                        '<span class="m-mig-label">Log ud</span>' +
-                        '<span class="m-mig-chevron">&#8250;</span>' +
-                    '</a>' +
-                '</div>';
-
-            document.getElementById('migLogout').addEventListener('click', async function(e) {
-                e.preventDefault();
-                await fetch('/api/auth/logout', { method: 'POST' });
-                window.location.href = '/mobile/login.html';
-            });
-        }
 
         /* ── Boot ── */
         var params = new URLSearchParams(window.location.search);
