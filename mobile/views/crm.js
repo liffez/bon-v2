@@ -352,11 +352,12 @@ var _mcStage = 'all';       // all | vip | active | dormant | lead
 var _mcSearchQuery = '';
 
 var _MC_STAGES = [
-    { key: 'all',     label: 'Alle' },
-    { key: 'vip',     label: 'VIP' },
-    { key: 'active',  label: 'Aktiv' },
-    { key: 'dormant', label: 'Sovende' },
-    { key: 'lead',    label: 'Lead' },
+    { key: 'all',      label: 'Alle' },
+    { key: 'callback', label: '📞 Ring tb' },
+    { key: 'vip',      label: 'VIP' },
+    { key: 'active',   label: 'Aktiv' },
+    { key: 'dormant',  label: 'Sovende' },
+    { key: 'lead',     label: 'Lead' },
 ];
 
 function _mcShowSearch() {
@@ -407,16 +408,31 @@ async function _mcLoadAllCustomers() {
         return;
     }
     try {
-        var qs = '?limit=2000';
-        if (_mcStage && _mcStage !== 'all') qs += '&stage=' + encodeURIComponent(_mcStage);
-        var data = await apiFetch('/crm/customers' + qs);
-        _mcAllCustomers = Array.isArray(data) ? data : (data.customers || []);
-        // Sort alphabetically by display name
-        _mcAllCustomers.sort(function(a, b) {
-            var na = (a.name || a.company_name || '').trim();
-            var nb = (b.name || b.company_name || '').trim();
-            return na.localeCompare(nb, 'da');
-        });
+        if (_mcStage === 'callback') {
+            var resp = await apiFetch('/crm/callbacks');
+            _mcAllCustomers = (resp.callbacks || []).map(function(cb) {
+                return {
+                    id: cb.customer_id,
+                    name: cb.customer_name,
+                    company_name: cb.company_name,
+                    phone: cb.customer_phone,
+                    callback_note: cb.text,
+                    callback_at: cb.created_at,
+                    callback_bon: cb.bon_number,
+                };
+            });
+        } else {
+            var qs = '?limit=2000';
+            if (_mcStage && _mcStage !== 'all') qs += '&stage=' + encodeURIComponent(_mcStage);
+            var data = await apiFetch('/crm/customers' + qs);
+            _mcAllCustomers = Array.isArray(data) ? data : (data.customers || []);
+            // Sort alphabetically by display name
+            _mcAllCustomers.sort(function(a, b) {
+                var na = (a.name || a.company_name || '').trim();
+                var nb = (b.name || b.company_name || '').trim();
+                return na.localeCompare(nb, 'da');
+            });
+        }
         _mcRenderCustomerList(_mcAllCustomers);
     } catch (e) {
         var results = document.getElementById('mcSearchResults');
@@ -457,17 +473,28 @@ function _mcRenderCustomerList(customers) {
         var stageLabel = _mcStageLabel(stage);
 
         var metaParts = [];
-        // Last order
-        if (c.last_order_date) {
-            metaParts.push('<span class="m-cust-ico" title="Sidste ordre">&#128230;</span>' + _mcFormatDate(c.last_order_date));
-        }
-        // Total orders
-        if (c.total_orders) {
-            metaParts.push(c.total_orders + ' &times;');
-        }
-        // Last contact
-        if (c.last_contact_at) {
-            metaParts.push('<span class="m-cust-ico" title="Sidste samtale">&#128172;</span>' + _mcTimeAgo(c.last_contact_at));
+
+        if (c.callback_at) {
+            // Callback-visning: vis note + tid siden callback blev registreret
+            var cbNote = c.callback_note ? String(c.callback_note).trim() : '';
+            if (cbNote.length > 60) cbNote = cbNote.slice(0, 60) + '…';
+            var cbLabel = '<span class="m-cust-ico" title="Ring tilbage">📞</span>' +
+                (cbNote || 'Callback') +
+                ' · <span style="color:var(--color-text-dim)">' + _mcTimeAgo(c.callback_at) + '</span>';
+            metaParts.push(cbLabel);
+        } else {
+            // Last order
+            if (c.last_order_date) {
+                metaParts.push('<span class="m-cust-ico" title="Sidste ordre">&#128230;</span>' + _mcFormatDate(c.last_order_date));
+            }
+            // Total orders
+            if (c.total_orders) {
+                metaParts.push(c.total_orders + ' &times;');
+            }
+            // Last contact
+            if (c.last_contact_at) {
+                metaParts.push('<span class="m-cust-ico" title="Sidste samtale">&#128172;</span>' + _mcTimeAgo(c.last_contact_at));
+            }
         }
 
         html +=
