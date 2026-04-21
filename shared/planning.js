@@ -304,7 +304,9 @@ function _plRenderBonList(bons) {
 
     if (countEl) {
         var totalUnits = 0;
-        bons.forEach(function(b) { if (_plSelectedIds.has(b.id)) totalUnits += (b.total_units || 0); });
+        bons.forEach(function(b) {
+            if (_plSelectedIds.has(b.id)) totalUnits += (b.total_units > 0 ? b.total_units : (b.pax || 0));
+        });
         countEl.textContent = bons.length + ' bons · ' + totalUnits + ' enh';
     }
 
@@ -350,7 +352,7 @@ function _plUpdateCount() {
     if (!countEl) return;
     var totalUnits = 0;
     _plBons.forEach(function(b) {
-        if (_plSelectedIds.has(b.id)) totalUnits += (b.total_units || 0);
+        if (_plSelectedIds.has(b.id)) totalUnits += (b.total_units > 0 ? b.total_units : (b.pax || 0));
     });
     var count = 0;
     _plBons.forEach(function(b) { if (_plSelectedIds.has(b.id)) count++; });
