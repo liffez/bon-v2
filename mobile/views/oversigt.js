@@ -66,7 +66,9 @@ async function initMobileOversigt(container) {
             var statusCounts = {};
 
             bons.forEach(function(b) {
-                totalUnits += (b.total_units || 0);
+                // Fallback til pax hvis enheder ikke er sat (samme regel som kalender + ugeoversigt)
+                var units = (b.total_units && b.total_units > 0) ? b.total_units : (b.pax || 0);
+                totalUnits += units;
                 var code = (b.status_code || b.status || 'ny').toLowerCase();
                 statusCounts[code] = (statusCounts[code] || 0) + 1;
             });
