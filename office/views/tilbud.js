@@ -819,9 +819,8 @@ function _tBuildStats() {
     const isEv = _tTpl === 'event';
     let cnt = 0, sale = 0, cost = 0;
     if (isEv) {
-        for (const [blockKey, items] of Object.entries(_tEvBlk)) {
-            const bPax = _tEffectivePax(blockKey);
-            items.forEach(it => { cnt += it.qty; sale += it.unitPrice * it.qty * bPax; cost += it.costPrice * it.qty * bPax; });
+        for (const items of Object.values(_tEvBlk)) {
+            items.forEach(it => { cnt += it.qty; sale += it.unitPrice * it.qty; cost += it.costPrice * it.qty; });
         }
     } else {
         _tSiItems.forEach(it => { cnt += it.qty; sale += it.unitPrice * it.qty; cost += it.costPrice * it.qty; });
@@ -869,7 +868,7 @@ function _tBuildEventUI() {
         const its = _tEvBlk[b.id] || [];
         const cnt = its.reduce((s, i) => s + i.qty, 0);
         const bPax = _tEffectivePax(b.id);
-        const bp = its.reduce((s, i) => s + i.unitPrice * i.qty * bPax, 0);
+        const bp = its.reduce((s, i) => s + i.unitPrice * i.qty, 0);
         const col = _tColBlk.has(b.id);
         const paxPill = `<span style="font-size:.7rem;background:rgba(142,99,31,.1);padding:2px 7px;border-radius:10px;margin-left:6px">${bPax} pax</span>`;
 
@@ -1086,12 +1085,12 @@ function _tBuildPriceTable() {
             h += `<tr class="chapter"><td colspan="${sL ? 5 : 3}">${b.icon} ${b.label} <span style="font-size:.72rem;font-weight:400;color:var(--color-text-dim)">${bPax} pax</span></td></tr>`;
 
             its.forEach(it => {
-                const lt = it.unitPrice * bPax * it.qty;
-                const lc = it.costPrice * bPax * it.qty;
+                const lt = it.unitPrice * it.qty;
+                const lc = it.costPrice * it.qty;
                 sub += lt; costT += lc; blockTotal += lt;
                 const dbP = lt > 0 ? ((lt - lc) / lt * 100) : 0;
                 h += `<tr><td><strong>${_tEsc(it.name)}</strong></td>`;
-                if (sL) h += `<td class="r">${bPax}\u00d7${it.qty}</td><td class="r" style="font-family:'JetBrains Mono',monospace">${_tFk(lt)}</td>`;
+                if (sL) h += `<td class="r">${it.qty}</td><td class="r" style="font-family:'JetBrains Mono',monospace">${_tFk(lt)}</td>`;
                 h += `<td class="r" style="font-size:.73rem;color:var(--color-text-dim);font-family:'JetBrains Mono',monospace">${_tFk(lc)} (${dbP.toFixed(0)}%)</td>`;
                 h += `<td><button class="tilbud-btn-icon danger" onclick="_tRemP(${it.id},'${b.id}')">\u2715</button></td></tr>`;
             });
@@ -1170,6 +1169,12 @@ function _tBuildStep4() {
         ${_tQuoteId ? `<button class="tilbud-btn tilbud-btn-secondary" onclick="_tConvertToBon()">Opret som bon</button>` : ''}
     </div>`;
 
+    if (!_tCust) {
+        h += `<div style="background:#fff4e0;border:1px solid #f0c674;border-radius:8px;padding:10px 14px;margin-bottom:16px;font-size:.86rem;color:#7a5a1f">
+            \u26A0 Ingen kunde valgt. Tilbuddet vises uden kundenavn. <a href="#" onclick="event.preventDefault();_tGoTo(1)" style="color:#7a5a1f;font-weight:600;text-decoration:underline">G\u00e5 til Kunde \u2192</a>
+        </div>`;
+    }
+
     h += `<div class="tilbud-preview">
         <div class="tilbud-pv-header">
             <div class="tilbud-pv-logo">${_tLogoB64 ? '<img src="data:image/png;base64,' + _tLogoB64 + '" style="height:55px">' : 'RISTET RUG<small>Sandwich \u00b7 Catering</small>'}</div>
@@ -1214,7 +1219,7 @@ function _tBuildStep4() {
             const its = _tEvBlk[b.id] || [];
             if (!its.length) return;
             const bPax = _tEffectivePax(b.id);
-            const bt = its.reduce((s, i) => s + i.unitPrice * i.qty * bPax, 0);
+            const bt = its.reduce((s, i) => s + i.unitPrice * i.qty, 0);
             sub += bt;
             let blockHdr = `${b.icon} ${b.label}`;
             if (sBT || sL) {
@@ -1226,7 +1231,7 @@ function _tBuildStep4() {
             its.forEach(i => { const c = i.category || 'Ukendt'; if (!cats[c]) cats[c] = []; cats[c].push(i); });
             Object.keys(cats).forEach(cat => {
                 cats[cat].forEach(i => {
-                    h += `<div class="tilbud-pv-row"><span class="rn">${i.qty > 1 ? i.qty + '\u00d7 ' : ''}${_tEsc(i.name)}</span>${sL ? `<span class="rp">${_tFk(i.unitPrice * i.qty * bPax)}</span>` : ''}</div>`;
+                    h += `<div class="tilbud-pv-row"><span class="rn">${i.qty > 1 ? i.qty + '\u00d7 ' : ''}${_tEsc(i.name)}</span>${sL ? `<span class="rp">${_tFk(i.unitPrice * i.qty)}</span>` : ''}</div>`;
                 });
             });
         });
@@ -1486,7 +1491,7 @@ function _tGenPDF() {
             if (!_tActBlk.has(b.id)) return;
             const its = _tEvBlk[b.id] || []; if (!its.length) return;
             const bPax = _tEffectivePax(b.id);
-            const bt = its.reduce((s, i) => s + i.unitPrice * i.qty * bPax, 0); sub += bt;
+            const bt = its.reduce((s, i) => s + i.unitPrice * i.qty, 0); sub += bt;
             chk(14); doc.setFontSize(10); doc.setFont('helvetica', 'bold'); doc.setTextColor(...(bc[b.id] || br));
             doc.text(b.label, ml, y);
             if (sBT || sL) {
@@ -1497,7 +1502,7 @@ function _tGenPDF() {
             its.forEach(it => {
                 chk(7); doc.setFontSize(8.5); doc.setFont('helvetica', 'normal'); doc.setTextColor(...tx);
                 doc.text(`${it.qty > 1 ? it.qty + '\u00d7 ' : ''}${it.name}`, ml, y);
-                if (sL) doc.text(fK(it.unitPrice * it.qty * bPax), pw - mr, y, { align: 'right' });
+                if (sL) doc.text(fK(it.unitPrice * it.qty), pw - mr, y, { align: 'right' });
                 y += 5.5;
             });
             y += 3;
