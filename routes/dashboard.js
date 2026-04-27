@@ -89,7 +89,7 @@ router.get('/today', handle(async (req, res) => {
 
     const totals = {
         bon_count:   allBons.length,
-        total_units: allBons.reduce((s, b) => s + (b.total_units || 0), 0),
+        total_units: allBons.reduce((s, b) => s + (b.total_units > 0 ? b.total_units : (b.pax || 0)), 0),
         total_pax:   allBons.reduce((s, b) => s + (b.pax || 0), 0),
         total_price: allBons.reduce((s, b) => s + (b.total_price || 0), 0),
     };

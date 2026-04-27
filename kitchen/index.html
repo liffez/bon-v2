@@ -113,6 +113,16 @@
             background:rgba(255,255,255,0.04);
         }
         .card-today .card-label { color:rgba(241,230,178,0.7); }
+        .today-mood {
+            position:absolute; top:18px; right:24px; z-index:1;
+            text-align:center; line-height:1;
+        }
+        .today-mood-emoji { font-size:48px; }
+        .today-mood-text {
+            margin-top:6px; font-size:10px; font-weight:700;
+            letter-spacing:.08em; text-transform:uppercase;
+            color:rgba(241,230,178,0.85);
+        }
         .today-headline {
             font-size:24px; font-weight:900;
             color:var(--brand-primary-light);
@@ -278,6 +288,7 @@
     <!-- HERO: I DAG -->
     <a class="card card-today" href="today.html" id="cardToday">
         <div class="card-label">Overblik</div>
+        <div class="today-mood" id="todayMood"></div>
         <div class="today-headline" id="todayHeadline">I DAG</div>
         <div class="today-stats" id="todayStats">
             <div class="loading">Henter...</div>
@@ -405,6 +416,20 @@
         const dayName = fmtDateLong(data.date).toUpperCase();
         document.getElementById('todayHeadline').innerHTML =
             `I DAG — <span>${dayName}</span>`;
+
+        // Mood emoji (samme tærskler som prep-kort)
+        const todayUnits = data.totals.total_units || 0;
+        let mood = '🙂', moodText = 'Rolig dag';
+        if (data.totals.bon_count === 0) {
+            mood = '😴'; moodText = 'Fri dag';
+        } else if (todayUnits > 200) {
+            mood = '😰'; moodText = 'Travl dag';
+        } else if (todayUnits > 100) {
+            mood = '😊'; moodText = 'Normal dag';
+        }
+        document.getElementById('todayMood').innerHTML =
+            `<div class="today-mood-emoji">${mood}</div>
+             <div class="today-mood-text">${moodText}</div>`;
 
         // Stats
         const firstPickup = data.next_pickup ? data.next_pickup.slice(0,5) : '—';
