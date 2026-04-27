@@ -1364,7 +1364,7 @@ async function _k3RenderMail(el) {
         '</div>' +
     '</div>';
 
-    // Load existing mail threads for this customer's bons
+    // Load existing mail threads for this customer's bons + direct customer mail
     try {
         const bonsWithMail = _k3Data.orders.filter(o => o.id);
         let allMessages = [];
@@ -1380,6 +1380,16 @@ async function _k3RenderMail(el) {
                 }
             } catch (e) { /* bon har ingen mail */ }
         }
+        try {
+            const custMailData = await fetchCustomerMail(_k3CustomerId);
+            if (custMailData.threads) {
+                for (const t of custMailData.threads) {
+                    for (const m of (t.messages || [])) {
+                        allMessages.push({ ...m });
+                    }
+                }
+            }
+        } catch (e) { /* kunde har ingen direkte mail */ }
 
         allMessages.sort((a, b) => (b.received_at || b.sent_at || '').localeCompare(a.received_at || a.sent_at || ''));
 
@@ -1459,16 +1469,14 @@ async function _k3SendMail() {
 
     if (!to || !subject || !text) { alert('Udfyld alle felter'); return; }
 
-    // Find first bon for this customer to attach mail to
-    const bonId = _k3Data && _k3Data.orders.length ? _k3Data.orders[0].id : null;
-    if (!bonId) { alert('Ingen bon fundet at knytte mail til'); return; }
+    if (!_k3CustomerId) { alert('Ingen kunde valgt'); return; }
 
     try {
         const data = { to, subject, text };
         if (_k3Attachments.length > 0) {
             data.attachments = _k3Attachments.map(a => ({ attachment_id: a.attachment_id }));
         }
-        await sendBonMail(bonId, data);
+        await sendCustomerMail(_k3CustomerId, data);
         _k3Attachments = [];
         alert('Mail sendt!');
         _k3RenderTab();

@@ -468,6 +468,19 @@ function markBonMailRead(bonId, msgId) {
     });
 }
 
+/* ── CUSTOMER MAIL ──────────────────────────────────────── */
+
+function fetchCustomerMail(customerId) {
+    return apiFetch('/customers/' + customerId + '/mail');
+}
+
+function sendCustomerMail(customerId, data) {
+    return apiFetch('/customers/' + customerId + '/mail', {
+        method: 'POST',
+        body: JSON.stringify(data),
+    });
+}
+
 /* ── ATTACHMENTS ─────────────────────────────────────────── */
 
 async function uploadAttachment(file, entityType, entityId, filename) {
