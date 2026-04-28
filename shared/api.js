@@ -481,6 +481,61 @@ function sendCustomerMail(customerId, data) {
     });
 }
 
+/* ── BOOKING (M11 mail-compose) ────────────────────────── */
+
+// Hentes af "Indsæt booking-link"-popoveren — alle aktive mødetyper inkl.
+// is_bookable=0 (sælger kan forvælge en intern type som intent).
+function fetchBookingMeetingTypesIntent() {
+    return apiFetch('/booking/meeting-types/intent');
+}
+
+/* ── BOOKING ADMIN (M10 settings UI) ──────────────────── */
+
+// Mødetyper
+function fetchBookingMeetingTypesAdmin() {
+    return apiFetch('/booking/admin/meeting-types');
+}
+function createBookingMeetingType(data) {
+    return apiFetch('/booking/admin/meeting-types', {
+        method: 'POST',
+        body: JSON.stringify(data),
+    });
+}
+function patchBookingMeetingType(id, data) {
+    return apiFetch('/booking/admin/meeting-types/' + id, {
+        method: 'PATCH',
+        body: JSON.stringify(data),
+    });
+}
+
+// Kontaktårsager
+function fetchBookingContactReasonsAdmin() {
+    return apiFetch('/booking/admin/contact-reasons');
+}
+function createBookingContactReason(data) {
+    return apiFetch('/booking/admin/contact-reasons', {
+        method: 'POST',
+        body: JSON.stringify(data),
+    });
+}
+function patchBookingContactReason(id, data) {
+    return apiFetch('/booking/admin/contact-reasons/' + id, {
+        method: 'PATCH',
+        body: JSON.stringify(data),
+    });
+}
+
+// Page templates
+function fetchBookingPageTemplates() {
+    return apiFetch('/booking/admin/page-templates');
+}
+function patchBookingPageTemplate(key, data) {
+    return apiFetch('/booking/admin/page-templates/' + encodeURIComponent(key), {
+        method: 'PATCH',
+        body: JSON.stringify(data),
+    });
+}
+
 /* ── ATTACHMENTS ─────────────────────────────────────────── */
 
 async function uploadAttachment(file, entityType, entityId, filename) {
@@ -574,6 +629,11 @@ function fetchCrmCustomerOrders(id, limit) {
 
 function fetchCrmCallbacks() {
     return apiFetch('/crm/callbacks');
+}
+
+function fetchCrmUpcomingMeetings(params) {
+    var qs = params ? '?' + new URLSearchParams(params).toString() : '';
+    return apiFetch('/crm/meetings/upcoming' + qs);
 }
 
 function fetchCrmDormant(params) {

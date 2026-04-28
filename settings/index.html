@@ -139,6 +139,24 @@
     .st-btn-add {
       margin-top: var(--space-m);
     }
+    .var-chip {
+      font-family: monospace;
+      font-size: 11px;
+      padding: 3px 7px;
+      background: #fff;
+      border: 1px solid var(--color-border);
+      border-radius: 12px;
+      cursor: pointer;
+      color: #6b4a16;
+      transition: background 0.15s, border-color 0.15s;
+    }
+    .var-chip:hover {
+      background: #f5eddd;
+      border-color: #d9c8a4;
+    }
+    .var-chip:active {
+      background: #ead8b0;
+    }
 
     /* ─── TOGGLE ──────────────────────────────────── */
     .st-toggle {
@@ -300,6 +318,8 @@
     <button class="st-nav-item st-admin-only" data-section="duplicates">Duplikater</button>
     <button class="st-nav-item st-admin-only" data-section="system">System</button>
     <button class="st-nav-item st-admin-only" data-section="activity-purposes">Aktivitetsformål</button>
+    <button class="st-nav-item st-admin-only" data-section="booking-smagning">Booking — Smagsprøve</button>
+    <button class="st-nav-item st-admin-only" data-section="booking-kontakt">Booking — Kontakt</button>
   </nav>
 
   <div class="st-content">
@@ -537,6 +557,24 @@
         </div>
       </div>
     </div>
+
+    <!-- ════ BOOKING — SMAGSPRØVE ════ -->
+    <div class="st-section st-admin-only" id="sec-booking-smagning">
+      <h2>Booking — Smagsprøve</h2>
+      <p style="font-size:13px;color:#888;margin-bottom:16px">
+        Konfigurerer den offentlige smagsprøve-bookingside (kalender + kontakt-formular).
+      </p>
+      <div id="bs-content"></div>
+    </div>
+
+    <!-- ════ BOOKING — KONTAKT ════ -->
+    <div class="st-section st-admin-only" id="sec-booking-kontakt">
+      <h2>Booking — Kontakt</h2>
+      <p style="font-size:13px;color:#888;margin-bottom:16px">
+        Konfigurerer den offentlige kontaktformular (uden kalender).
+      </p>
+      <div id="bk-content"></div>
+    </div>
   </div>
 </div>
 
@@ -597,6 +635,9 @@ async function init() {
         _rolesLoaded = true;
         loadRolesMatrix();
       }
+      // Lazy load booking sections
+      if (sec === 'booking-smagning')  loadBookingSmagning();
+      if (sec === 'booking-kontakt')   loadBookingKontakt();
     });
   });
 
@@ -1736,6 +1777,464 @@ async function apSaveNew() {
     } catch (err) {
         toast('Fejl: ' + err.message, 'err');
     }
+}
+
+// ═══════════════════════════════════════════════════════════
+// BOOKING — SMAGSPRØVE + KONTAKT (M10)
+// ═══════════════════════════════════════════════════════════
+
+let _bookingMtCache = null;     // mødetyper
+let _bookingCrCache = null;     // kontaktårsager
+let _bookingPtCache = null;     // page templates
+let _bookingUsersCache = null;  // brugere til ejer-dropdown
+
+const BOOKING_SETTING_KEYS_SMAGNING = [
+    'booking_smagning_enabled', 'booking_min_days_ahead', 'booking_max_days_ahead',
+    'booking_blocked_weekdays', 'booking_workday_start', 'booking_workday_end',
+    'booking_slot_step_min', 'booking_event_buffer_before_min', 'booking_event_buffer_after_min',
+    'booking_default_owner_user_id', 'booking_token_ttl_days', 'booking_token_reuse_min_days',
+    'booking_public_url_base',
+    'booking_reminder_enabled', 'booking_reminder_days_before', 'booking_reminder_send_at_time',
+    'booking_notify_owner_enabled'
+];
+const BOOKING_SETTING_KEYS_KONTAKT = [
+    'booking_kontakt_enabled', 'booking_default_owner_user_id', 'booking_public_url_base',
+    'booking_notify_owner_enabled'
+];
+
+const WEEKDAY_LABELS = ['Søn','Man','Tir','Ons','Tor','Fre','Lør']; // søndag = 0
+
+async function _bookingEnsureLoaded() {
+    if (!_bookingUsersCache) {
+        try { _bookingUsersCache = await fetchUsers(); } catch { _bookingUsersCache = []; }
+    }
+    if (!_bookingPtCache) {
+        try { _bookingPtCache = await fetchBookingPageTemplates(); } catch { _bookingPtCache = []; }
+    }
+}
+
+// ─── SMAGSPRØVE ──────────────────────────────────────────
+async function loadBookingSmagning() {
+    await _bookingEnsureLoaded();
+    if (!_bookingMtCache) {
+        try { _bookingMtCache = await fetchBookingMeetingTypesAdmin(); } catch { _bookingMtCache = []; }
+    }
+    const c = document.getElementById('bs-content');
+    const baseUrl = (allSettings.booking_public_url_base || '').replace(/\/+$/, '');
+    const publicUrl = baseUrl ? baseUrl + '/tools/booking-smagning.html' : '(sæt booking_public_url_base nedenfor)';
+
+    let html = '';
+
+    // Master-toggle
+    html += '<div class="st-mail-group" style="background:#faf8f5;padding:14px;border-radius:8px;border:1px solid var(--color-border);margin-bottom:16px">';
+    html += '<label class="st-toggle"><input type="checkbox" ' + (allSettings.booking_smagning_enabled === '1' ? 'checked' : '') +
+        ' onchange="bsSaveSetting(\'booking_smagning_enabled\', this.checked ? \'1\' : \'0\')"><span class="st-toggle-slider"></span></label>';
+    html += '<span style="margin-left:10px;font-weight:600">Aktivér smagsprøve-booking-side</span>';
+    html += '<div style="font-size:12px;color:var(--color-text-dim);margin-top:8px">URL: <a href="' + esc(publicUrl) + '" target="_blank">' + esc(publicUrl) + '</a></div>';
+    html += '</div>';
+
+    // Mødetyper
+    html += '<h3 style="font-size:14px;margin:0 0 8px">Mødetyper</h3>';
+    html += '<table class="st-table" id="bs-mt-table"><thead><tr>' +
+        '<th style="width:40px">Ikon</th><th>Navn</th><th>Nøgle</th>' +
+        '<th style="width:90px">Varighed</th><th style="width:70px">Bookbar</th>' +
+        '<th style="width:60px">Type</th><th style="width:70px">Aktiv</th><th style="width:60px"></th>' +
+        '</tr></thead><tbody id="bs-mt-body"></tbody></table>';
+    html += '<button class="st-btn st-btn-primary" style="margin-top:8px" onclick="bsMtShowNew()">+ Ny mødetype</button>';
+    html += '<div id="bs-mt-new-form" style="display:none;margin-top:12px;padding:14px;background:#faf8f5;border-radius:8px;border:1px solid var(--color-border)"></div>';
+
+    // Slot-logik
+    html += '<h3 style="font-size:14px;margin:24px 0 8px">Slot-logik</h3>';
+    html += '<div style="display:grid;grid-template-columns:repeat(2,1fr);gap:12px;background:#faf8f5;padding:14px;border-radius:8px;border:1px solid var(--color-border)">';
+    html += _bookingNumField('booking_min_days_ahead', 'Tidligste booking', 'dage frem', 0, 365);
+    html += _bookingNumField('booking_max_days_ahead', 'Seneste booking', 'dage frem', 1, 730);
+    html += _bookingTimeField('booking_workday_start', 'Arbejdstid start');
+    html += _bookingTimeField('booking_workday_end',   'Arbejdstid slut');
+    html += _bookingNumField('booking_slot_step_min', 'Slot-granularitet', 'min', 5, 240);
+    html += '<div></div>';
+    html += _bookingNumField('booking_event_buffer_before_min', 'Buffer før event', 'min', 0, 600);
+    html += _bookingNumField('booking_event_buffer_after_min',  'Buffer efter event', 'min', 0, 600);
+    html += '<div style="grid-column:span 2">' + _bookingWeekdayField('booking_blocked_weekdays', 'Spærrede ugedage') + '</div>';
+    html += '</div>';
+
+    // Standardejer + tokens + URL
+    html += '<h3 style="font-size:14px;margin:24px 0 8px">Standardejer + tokens</h3>';
+    html += '<div style="display:grid;grid-template-columns:repeat(2,1fr);gap:12px;background:#faf8f5;padding:14px;border-radius:8px;border:1px solid var(--color-border)">';
+    html += _bookingOwnerField();
+    html += _bookingTextField('booking_public_url_base', 'Public URL-base', 'fx https://bon.ristetrug.dk');
+    html += _bookingNumField('booking_token_ttl_days', 'Token-levetid', 'dage', 1, 365);
+    html += _bookingNumField('booking_token_reuse_min_days', 'Genbrug token hvis udløb >', 'dage', 1, 365);
+    html += '</div>';
+
+    // Erindring
+    html += '<h3 style="font-size:14px;margin:24px 0 8px">Erindringsmail</h3>';
+    html += '<div style="background:#faf8f5;padding:14px;border-radius:8px;border:1px solid var(--color-border)">';
+    html += '<label class="st-toggle"><input type="checkbox" ' + (allSettings.booking_reminder_enabled === '1' ? 'checked' : '') +
+        ' onchange="bsSaveSetting(\'booking_reminder_enabled\', this.checked ? \'1\' : \'0\')"><span class="st-toggle-slider"></span></label>';
+    html += '<span style="margin-left:10px">Send automatisk erindringsmail før mødet</span>';
+    html += '<div style="display:grid;grid-template-columns:repeat(2,1fr);gap:12px;margin-top:12px">';
+    html += _bookingNumField('booking_reminder_days_before', 'Antal dage før mødet', 'dage', 0, 30);
+    html += _bookingTimeField('booking_reminder_send_at_time', 'Sendes kl');
+    html += '</div>';
+    html += '<div style="font-size:12px;color:var(--color-text-dim);margin-top:8px">Skabelon: <code>booking_smagning_reminder</code> · ';
+    html += '<button class="st-btn st-btn-sm st-btn-secondary" onclick="bsJumpToMail()">Redigér i Mail</button></div>';
+    html += '</div>';
+
+    // Notifikation
+    html += '<div style="margin-top:14px;background:#faf8f5;padding:14px;border-radius:8px;border:1px solid var(--color-border)">';
+    html += '<label class="st-toggle"><input type="checkbox" ' + (allSettings.booking_notify_owner_enabled === '1' ? 'checked' : '') +
+        ' onchange="bsSaveSetting(\'booking_notify_owner_enabled\', this.checked ? \'1\' : \'0\')"><span class="st-toggle-slider"></span></label>';
+    html += '<span style="margin-left:10px">Send intern notifikations-mail til sælger ved ny booking</span>';
+    html += '</div>';
+
+    // Page templates (intro + thankyou)
+    html += '<h3 style="font-size:14px;margin:24px 0 8px">Sider og tekster</h3>';
+    html += '<div id="bs-pt-intro"></div>';
+    html += '<div id="bs-pt-thankyou" style="margin-top:12px"></div>';
+
+    c.innerHTML = html;
+
+    _bookingRenderMtTable();
+    _bookingRenderPageTemplate('intro_smagning',    'bs-pt-intro');
+    _bookingRenderPageTemplate('thankyou_smagning', 'bs-pt-thankyou');
+}
+
+// ─── KONTAKT ─────────────────────────────────────────────
+async function loadBookingKontakt() {
+    await _bookingEnsureLoaded();
+    if (!_bookingCrCache) {
+        try { _bookingCrCache = await fetchBookingContactReasonsAdmin(); } catch { _bookingCrCache = []; }
+    }
+    const c = document.getElementById('bk-content');
+    const baseUrl = (allSettings.booking_public_url_base || '').replace(/\/+$/, '');
+    const publicUrl = baseUrl ? baseUrl + '/tools/booking-kontakt.html' : '(sæt booking_public_url_base i Smagsprøve-fanen)';
+
+    let html = '';
+
+    html += '<div class="st-mail-group" style="background:#faf8f5;padding:14px;border-radius:8px;border:1px solid var(--color-border);margin-bottom:16px">';
+    html += '<label class="st-toggle"><input type="checkbox" ' + (allSettings.booking_kontakt_enabled === '1' ? 'checked' : '') +
+        ' onchange="bsSaveSetting(\'booking_kontakt_enabled\', this.checked ? \'1\' : \'0\')"><span class="st-toggle-slider"></span></label>';
+    html += '<span style="margin-left:10px;font-weight:600">Aktivér kontakt-formular</span>';
+    html += '<div style="font-size:12px;color:var(--color-text-dim);margin-top:8px">URL: <a href="' + esc(publicUrl) + '" target="_blank">' + esc(publicUrl) + '</a></div>';
+    html += '</div>';
+
+    html += '<h3 style="font-size:14px;margin:0 0 8px">Kontaktårsager</h3>';
+    html += '<table class="st-table"><thead><tr>' +
+        '<th style="width:40px">Ikon</th><th>Navn</th><th>Nøgle</th>' +
+        '<th style="width:60px">Type</th><th style="width:70px">Aktiv</th><th style="width:60px"></th>' +
+        '</tr></thead><tbody id="bk-cr-body"></tbody></table>';
+    html += '<button class="st-btn st-btn-primary" style="margin-top:8px" onclick="bkCrShowNew()">+ Ny kontaktårsag</button>';
+    html += '<div id="bk-cr-new-form" style="display:none;margin-top:12px;padding:14px;background:#faf8f5;border-radius:8px;border:1px solid var(--color-border)"></div>';
+
+    html += '<h3 style="font-size:14px;margin:24px 0 8px">Sider og tekster</h3>';
+    html += '<div id="bk-pt-intro"></div>';
+    html += '<div id="bk-pt-thankyou" style="margin-top:12px"></div>';
+
+    html += '<div style="font-size:12px;color:var(--color-text-dim);margin-top:14px">Bekræftelsesmail-skabelon: <code>booking_kontakt_confirmation</code> · ';
+    html += '<button class="st-btn st-btn-sm st-btn-secondary" onclick="bsJumpToMail()">Redigér i Mail</button></div>';
+
+    c.innerHTML = html;
+
+    _bookingRenderCrTable();
+    _bookingRenderPageTemplate('intro_kontakt',    'bk-pt-intro');
+    _bookingRenderPageTemplate('thankyou_kontakt', 'bk-pt-thankyou');
+}
+
+// ─── HELPERS: form-fields ────────────────────────────────
+function _bookingNumField(key, label, suffix, min, max) {
+    const v = allSettings[key] || '';
+    return '<div><label style="font-size:12px;color:var(--color-text-dim);display:block;margin-bottom:4px">' + esc(label) + '</label>' +
+        '<div style="display:flex;align-items:center;gap:6px"><input type="number" min="' + min + '" max="' + max + '" value="' + esc(v) +
+        '" onchange="bsSaveSetting(\'' + key + '\', this.value)" style="width:80px;padding:5px 8px;border:1px solid var(--color-border);border-radius:4px;font-size:13px">' +
+        '<span style="font-size:12px;color:var(--color-text-dim)">' + esc(suffix) + '</span></div></div>';
+}
+function _bookingTimeField(key, label) {
+    const v = allSettings[key] || '';
+    return '<div><label style="font-size:12px;color:var(--color-text-dim);display:block;margin-bottom:4px">' + esc(label) + '</label>' +
+        '<input type="time" value="' + esc(v) + '" onchange="bsSaveSetting(\'' + key + '\', this.value)" ' +
+        'style="padding:5px 8px;border:1px solid var(--color-border);border-radius:4px;font-size:13px"></div>';
+}
+function _bookingTextField(key, label, placeholder) {
+    const v = allSettings[key] || '';
+    return '<div><label style="font-size:12px;color:var(--color-text-dim);display:block;margin-bottom:4px">' + esc(label) + '</label>' +
+        '<input type="text" value="' + esc(v) + '" placeholder="' + esc(placeholder || '') + '" ' +
+        'onchange="bsSaveSetting(\'' + key + '\', this.value)" ' +
+        'style="width:100%;padding:5px 8px;border:1px solid var(--color-border);border-radius:4px;font-size:13px"></div>';
+}
+function _bookingWeekdayField(key, label) {
+    let blocked = [];
+    try { blocked = JSON.parse(allSettings[key] || '[]'); } catch {}
+    let html = '<label style="font-size:12px;color:var(--color-text-dim);display:block;margin-bottom:4px">' + esc(label) + '</label>';
+    html += '<div style="display:flex;gap:10px;flex-wrap:wrap">';
+    // Mandag = 1 først, søndag = 0 sidst (dansk konvention)
+    [1,2,3,4,5,6,0].forEach(dow => {
+        const checked = blocked.includes(dow) ? 'checked' : '';
+        html += '<label style="display:inline-flex;align-items:center;gap:4px;font-size:13px;cursor:pointer">' +
+            '<input type="checkbox" ' + checked + ' data-dow="' + dow + '" onchange="bsToggleWeekday(\'' + key + '\', this)"> ' +
+            esc(WEEKDAY_LABELS[dow]) + '</label>';
+    });
+    html += '</div>';
+    return html;
+}
+function _bookingOwnerField() {
+    const cur = String(allSettings.booking_default_owner_user_id || '');
+    let opts = '<option value="">— ingen valgt —</option>';
+    (_bookingUsersCache || []).filter(u => u.is_active).forEach(u => {
+        opts += '<option value="' + u.id + '"' + (String(u.id) === cur ? ' selected' : '') + '>' +
+            esc(u.name) + (u.email ? ' (' + esc(u.email) + ')' : '') + '</option>';
+    });
+    return '<div><label style="font-size:12px;color:var(--color-text-dim);display:block;margin-bottom:4px">Standardejer (anonyme bookings)</label>' +
+        '<select onchange="bsSaveSetting(\'booking_default_owner_user_id\', this.value)" ' +
+        'style="width:100%;padding:5px 8px;border:1px solid var(--color-border);border-radius:4px;font-size:13px">' + opts + '</select></div>';
+}
+
+// ─── MØDETYPER TABLE ─────────────────────────────────────
+function _bookingRenderMtTable() {
+    const tbody = document.getElementById('bs-mt-body');
+    if (!tbody) return;
+    tbody.innerHTML = (_bookingMtCache || []).map(mt => `
+        <tr>
+            <td style="font-size:18px;text-align:center">${esc(mt.emoji || '')}</td>
+            <td><input value="${esc(mt.label)}" onchange="bsMtPatch(${mt.id}, 'label', this.value)" style="width:100%;padding:4px 6px;border:1px solid var(--color-border);border-radius:4px;font-size:13px"></td>
+            <td style="font-size:12px;color:#888;font-family:monospace">${esc(mt.key)}</td>
+            <td><input type="number" min="1" max="600" value="${mt.duration_min}" onchange="bsMtPatch(${mt.id}, 'duration_min', parseInt(this.value))" style="width:60px;padding:4px 6px;border:1px solid var(--color-border);border-radius:4px;font-size:13px"> min</td>
+            <td><label class="st-toggle" style="transform:scale(0.8)"><input type="checkbox" ${mt.is_bookable ? 'checked' : ''} onchange="bsMtPatch(${mt.id}, 'is_bookable', this.checked ? 1 : 0)"><span class="st-toggle-slider"></span></label></td>
+            <td><span style="font-size:11px;padding:2px 6px;border-radius:8px;background:${mt.is_system ? '#f5f0e0' : '#e8f2dc'}">${mt.is_system ? 'System' : 'Bruger'}</span></td>
+            <td>${mt.is_system ? '<span style="color:#3d7a0a">✓</span>' :
+                '<label class="st-toggle" style="transform:scale(0.8)"><input type="checkbox" ' + (mt.is_active ? 'checked' : '') +
+                ' onchange="bsMtPatch(' + mt.id + ', \'is_active\', this.checked ? 1 : 0)"><span class="st-toggle-slider"></span></label>'}</td>
+            <td><button class="st-btn" style="font-size:11px;padding:2px 8px" onclick="bsMtEditEmoji(${mt.id})">Ikon</button></td>
+        </tr>
+    `).join('');
+}
+
+async function bsMtPatch(id, field, value) {
+    if (value === null || value === undefined || Number.isNaN(value)) return;
+    try {
+        await patchBookingMeetingType(id, { [field]: value });
+        toast('Gemt');
+        _bookingMtCache = await fetchBookingMeetingTypesAdmin();
+        _bookingRenderMtTable();
+    } catch (err) { toast('Fejl: ' + err.message, 'error'); }
+}
+function bsMtEditEmoji(id) {
+    const mt = (_bookingMtCache || []).find(m => m.id === id);
+    const next = prompt('Emoji:', mt?.emoji || '');
+    if (next === null) return;
+    bsMtPatch(id, 'emoji', next);
+}
+function bsMtShowNew() {
+    const f = document.getElementById('bs-mt-new-form');
+    f.innerHTML =
+        '<div style="display:flex;gap:8px;flex-wrap:wrap;align-items:center">' +
+        '<input id="bs-mt-new-emoji" placeholder="Emoji" style="width:50px;padding:6px;border:1px solid #ccc;border-radius:4px;font-size:16px;text-align:center">' +
+        '<input id="bs-mt-new-label" placeholder="Navn" style="flex:1;min-width:140px;padding:6px;border:1px solid #ccc;border-radius:4px;font-size:13px">' +
+        '<input id="bs-mt-new-dur" type="number" min="1" max="600" value="30" style="width:80px;padding:6px;border:1px solid #ccc;border-radius:4px;font-size:13px"> min' +
+        '<label style="display:inline-flex;align-items:center;gap:4px;font-size:13px"><input id="bs-mt-new-bookable" type="checkbox" checked> Bookbar</label>' +
+        '<button class="st-btn st-btn-primary" onclick="bsMtSaveNew()">Gem</button>' +
+        '<button class="st-btn" onclick="bsMtHideNew()">Annuller</button>' +
+        '</div>';
+    f.style.display = 'block';
+    document.getElementById('bs-mt-new-label').focus();
+}
+function bsMtHideNew() {
+    document.getElementById('bs-mt-new-form').style.display = 'none';
+}
+async function bsMtSaveNew() {
+    const label = document.getElementById('bs-mt-new-label').value.trim();
+    const emoji = document.getElementById('bs-mt-new-emoji').value.trim();
+    const dur   = parseInt(document.getElementById('bs-mt-new-dur').value);
+    const isBookable = document.getElementById('bs-mt-new-bookable').checked ? 1 : 0;
+    if (!label) { toast('Navn er påkrævet', 'error'); return; }
+    const key = label.toLowerCase().replace(/[^a-z0-9]/g, '_').replace(/_+/g, '_').replace(/^_|_$/g, '');
+    if (!key) { toast('Kunne ikke generere nøgle fra navn', 'error'); return; }
+    try {
+        await createBookingMeetingType({ key, label, emoji: emoji || null, duration_min: dur, is_bookable: isBookable });
+        toast('Mødetype oprettet');
+        bsMtHideNew();
+        _bookingMtCache = await fetchBookingMeetingTypesAdmin();
+        _bookingRenderMtTable();
+    } catch (err) { toast('Fejl: ' + err.message, 'error'); }
+}
+
+// ─── KONTAKTÅRSAGER TABLE ────────────────────────────────
+function _bookingRenderCrTable() {
+    const tbody = document.getElementById('bk-cr-body');
+    if (!tbody) return;
+    tbody.innerHTML = (_bookingCrCache || []).map(cr => `
+        <tr>
+            <td style="font-size:18px;text-align:center">${esc(cr.emoji || '')}</td>
+            <td><input value="${esc(cr.label)}" onchange="bkCrPatch(${cr.id}, 'label', this.value)" style="width:100%;padding:4px 6px;border:1px solid var(--color-border);border-radius:4px;font-size:13px"></td>
+            <td style="font-size:12px;color:#888;font-family:monospace">${esc(cr.key)}</td>
+            <td><span style="font-size:11px;padding:2px 6px;border-radius:8px;background:${cr.is_system ? '#f5f0e0' : '#e8f2dc'}">${cr.is_system ? 'System' : 'Bruger'}</span></td>
+            <td>${cr.is_system ? '<span style="color:#3d7a0a">✓</span>' :
+                '<label class="st-toggle" style="transform:scale(0.8)"><input type="checkbox" ' + (cr.is_active ? 'checked' : '') +
+                ' onchange="bkCrPatch(' + cr.id + ', \'is_active\', this.checked ? 1 : 0)"><span class="st-toggle-slider"></span></label>'}</td>
+            <td><button class="st-btn" style="font-size:11px;padding:2px 8px" onclick="bkCrEditEmoji(${cr.id})">Ikon</button></td>
+        </tr>
+    `).join('');
+}
+async function bkCrPatch(id, field, value) {
+    if (value === null || value === undefined) return;
+    try {
+        await patchBookingContactReason(id, { [field]: value });
+        toast('Gemt');
+        _bookingCrCache = await fetchBookingContactReasonsAdmin();
+        _bookingRenderCrTable();
+    } catch (err) { toast('Fejl: ' + err.message, 'error'); }
+}
+function bkCrEditEmoji(id) {
+    const cr = (_bookingCrCache || []).find(x => x.id === id);
+    const next = prompt('Emoji:', cr?.emoji || '');
+    if (next === null) return;
+    bkCrPatch(id, 'emoji', next);
+}
+function bkCrShowNew() {
+    const f = document.getElementById('bk-cr-new-form');
+    f.innerHTML =
+        '<div style="display:flex;gap:8px;flex-wrap:wrap;align-items:center">' +
+        '<input id="bk-cr-new-emoji" placeholder="Emoji" style="width:50px;padding:6px;border:1px solid #ccc;border-radius:4px;font-size:16px;text-align:center">' +
+        '<input id="bk-cr-new-label" placeholder="Navn" style="flex:1;min-width:140px;padding:6px;border:1px solid #ccc;border-radius:4px;font-size:13px">' +
+        '<input id="bk-cr-new-desc" placeholder="Beskrivelse (valgfri)" style="flex:2;min-width:160px;padding:6px;border:1px solid #ccc;border-radius:4px;font-size:13px">' +
+        '<button class="st-btn st-btn-primary" onclick="bkCrSaveNew()">Gem</button>' +
+        '<button class="st-btn" onclick="bkCrHideNew()">Annuller</button>' +
+        '</div>';
+    f.style.display = 'block';
+    document.getElementById('bk-cr-new-label').focus();
+}
+function bkCrHideNew() { document.getElementById('bk-cr-new-form').style.display = 'none'; }
+async function bkCrSaveNew() {
+    const label = document.getElementById('bk-cr-new-label').value.trim();
+    const emoji = document.getElementById('bk-cr-new-emoji').value.trim();
+    const desc  = document.getElementById('bk-cr-new-desc').value.trim();
+    if (!label) { toast('Navn er påkrævet', 'error'); return; }
+    const key = label.toLowerCase().replace(/[^a-z0-9]/g, '_').replace(/_+/g, '_').replace(/^_|_$/g, '');
+    if (!key) { toast('Kunne ikke generere nøgle fra navn', 'error'); return; }
+    try {
+        await createBookingContactReason({ key, label, emoji: emoji || null, description: desc || null });
+        toast('Kontaktårsag oprettet');
+        bkCrHideNew();
+        _bookingCrCache = await fetchBookingContactReasonsAdmin();
+        _bookingRenderCrTable();
+    } catch (err) { toast('Fejl: ' + err.message, 'error'); }
+}
+
+// ─── PAGE TEMPLATES (intro + thankyou) ───────────────────
+
+// Hvilke variabler er meningsfulde i hver skabelon-type
+const PAGE_TEMPLATE_VARS = {
+    intro_smagning:    ['firmaNavn', 'firmaAdresse', 'firmaTelefon', 'firmaEmail'],
+    intro_kontakt:     ['firmaNavn', 'firmaAdresse', 'firmaTelefon', 'firmaEmail'],
+    thankyou_smagning: ['kundeFornavn', 'kundeNavn', 'datoFormatteret', 'tid', 'moedeTypeLabel', 'varighed', 'firmaNavn', 'firmaAdresse', 'firmaTelefon'],
+    thankyou_kontakt:  ['kundeFornavn', 'kontaktAarsagLabel', 'firmaTelefon', 'firmaEmail']
+};
+const VAR_HINTS = {
+    kundeFornavn:        'Kundens fornavn',
+    kundeNavn:           'Fornavn + efternavn',
+    datoFormatteret:     'fx "torsdag den 7. maj 2026"',
+    tid:                 'fx "10:30"',
+    moedeTypeLabel:      'fx "Smagning"',
+    varighed:            'minutter',
+    firmaNavn:           'Ristet Rug',
+    firmaAdresse:        'fra Settings → System',
+    firmaTelefon:        'fra Settings → System',
+    firmaEmail:          'fra Settings → System',
+    kontaktAarsagLabel:  'fx "Send mig en menu"'
+};
+
+function _bookingRenderPageTemplate(key, containerId) {
+    const tpl = (_bookingPtCache || []).find(t => t.key === key);
+    const c = document.getElementById(containerId);
+    if (!c) return;
+    if (!tpl) { c.innerHTML = '<div style="font-size:12px;color:#888">Page template "' + esc(key) + '" findes ikke.</div>'; return; }
+
+    const titleId = 'pt-' + key + '-title';
+    const bodyId  = 'pt-' + key + '-body';
+    const vars = PAGE_TEMPLATE_VARS[key] || [];
+    const chipHtml = vars.map(v =>
+        '<button class="var-chip" type="button" title="' + esc(VAR_HINTS[v] || '') + '"' +
+        ' onmousedown="event.preventDefault()"' +  // bevarer focus i textarea
+        ' onclick="bsInsertVarHere(\'' + titleId + '\', \'' + bodyId + '\', \'' + v + '\')">' +
+        '{{' + v + '}}</button>'
+    ).join('');
+
+    c.innerHTML =
+        '<div style="background:#faf8f5;padding:14px;border-radius:8px;border:1px solid var(--color-border)">' +
+        '<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px">' +
+            '<strong style="font-size:13px">' + esc(tpl.label) + '</strong>' +
+            '<span style="font-size:11px;color:#888;font-family:monospace">' + esc(tpl.key) + '</span>' +
+        '</div>' +
+        '<label style="font-size:12px;color:var(--color-text-dim);display:block;margin-bottom:4px">Titel</label>' +
+        '<input id="' + titleId + '" value="' + esc(tpl.title || '') + '" onfocus="_bookingPtFocus=\'' + titleId + '\'" ' +
+        'style="width:100%;padding:6px 8px;border:1px solid var(--color-border);border-radius:4px;font-size:13px;margin-bottom:8px">' +
+        '<label style="font-size:12px;color:var(--color-text-dim);display:block;margin-bottom:4px">Brødtekst</label>' +
+        '<textarea id="' + bodyId + '" rows="5" onfocus="_bookingPtFocus=\'' + bodyId + '\'" ' +
+        'style="width:100%;padding:6px 8px;border:1px solid var(--color-border);border-radius:4px;font-size:13px;font-family:inherit;resize:vertical">' +
+        esc(tpl.body_text || '') + '</textarea>' +
+        (chipHtml ?
+            '<div style="margin-top:10px;display:flex;align-items:center;gap:6px;flex-wrap:wrap">' +
+            '<span style="font-size:11px;color:#888;margin-right:2px">Klik for at indsætte:</span>' +
+            chipHtml +
+            '</div>' : '') +
+        '<div style="margin-top:10px;display:flex;justify-content:flex-end">' +
+            '<button class="st-btn st-btn-primary st-btn-sm" onclick="bsSavePageTemplate(\'' + key + '\')">Gem</button>' +
+        '</div>' +
+        '</div>';
+}
+
+// Sidst-fokuserede page-template input (titel eller brødtekst)
+let _bookingPtFocus = null;
+
+function bsInsertVarHere(titleId, bodyId, varName) {
+    // Foretræk det sidst-fokuserede felt; fallback til brødtekst
+    const targetId = (_bookingPtFocus === titleId) ? titleId : bodyId;
+    const el = document.getElementById(targetId);
+    if (!el) return;
+    const placeholder = '{{' + varName + '}}';
+    const start = el.selectionStart ?? el.value.length;
+    const end   = el.selectionEnd   ?? el.value.length;
+    const before = el.value.slice(0, start);
+    const after  = el.value.slice(end);
+    el.value = before + placeholder + after;
+    el.focus();
+    const cursor = start + placeholder.length;
+    el.setSelectionRange(cursor, cursor);
+}
+async function bsSavePageTemplate(key) {
+    const title = document.getElementById('pt-' + key + '-title').value;
+    const body  = document.getElementById('pt-' + key + '-body').value;
+    try {
+        await patchBookingPageTemplate(key, { title, body_text: body });
+        toast('Side gemt');
+        _bookingPtCache = await fetchBookingPageTemplates();
+    } catch (err) { toast('Fejl: ' + err.message, 'error'); }
+}
+
+// ─── SETTINGS HELPERS ────────────────────────────────────
+async function bsSaveSetting(key, value) {
+    try {
+        await patchSetting(key, value);
+        allSettings[key] = value;
+        toast('Gemt');
+    } catch (err) { toast('Fejl: ' + err.message, 'error'); }
+}
+function bsToggleWeekday(key, input) {
+    const dow = parseInt(input.dataset.dow);
+    let blocked = [];
+    try { blocked = JSON.parse(allSettings[key] || '[]'); } catch {}
+    if (input.checked) {
+        if (!blocked.includes(dow)) blocked.push(dow);
+    } else {
+        blocked = blocked.filter(d => d !== dow);
+    }
+    blocked.sort((a, b) => a - b);
+    bsSaveSetting(key, JSON.stringify(blocked));
+}
+function bsJumpToMail() {
+    document.querySelectorAll('.st-nav-item').forEach(b => b.classList.remove('active'));
+    document.querySelector('[data-section="mail"]')?.classList.add('active');
+    document.querySelectorAll('.st-section').forEach(s => s.classList.remove('active'));
+    document.getElementById('sec-mail')?.classList.add('active');
 }
 
 // ─── START ───────────────────────────────────────────────

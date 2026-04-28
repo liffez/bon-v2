@@ -133,16 +133,40 @@ router.get('/:id/mail', handle(async (req, res) => {
 }));
 
 // POST /api/customers/:id/mail
+//
+// Body kan indeholde {{booking_link}} — substitueres server-side via
+// renderTemplate så token genereres bundet til (customer, user, flow, intent).
+// Signatur appendes IKKE — fritekst-mailen er fuldt brugerstyret.
 router.post('/:id/mail', handle(async (req, res) => {
     const customerId = parseInt(req.params.id);
-    const { to, subject, text } = req.body;
+    const { to, subject, text, booking_flow, booking_intent_meeting_type } = req.body;
     if (!to || !text) return res.status(400).json({ error: 'to og text er påkrævet' });
 
-    const { sendMail } = require('../services/mailService');
+    const { sendMail, renderTemplate } = require('../services/mailService');
     const context = { type: 'customer', number: customerId };
     const userId = req.session?.user?.id || null;
 
-    const result = await sendMail({ to, subject: subject || '', text, customerId, context, smtpPrefix: 'smtp_kontakt', userId });
+    // Validér booking-flow whitelist
+    const flow = (booking_flow === 'kontakt') ? 'kontakt' : 'smagning';
+
+    // Process body for {{booking_link}} (og evt. fremtidige universelle vars)
+    const renderedText = renderTemplate(text, {}, {
+        customerId,
+        userId,
+        bookingFlow:   flow,
+        bookingIntent: booking_intent_meeting_type || null,
+        appendSignature: false
+    });
+    const renderedSubject = renderTemplate(subject || '', {}, {
+        customerId, userId, bookingFlow: flow,
+        bookingIntent: booking_intent_meeting_type || null,
+        appendSignature: false
+    });
+
+    const result = await sendMail({
+        to, subject: renderedSubject, text: renderedText,
+        customerId, context, smtpPrefix: 'smtp_kontakt', userId
+    });
     res.json({ ok: true, messageId: result.messageId, threadId: result.threadId });
 }));
 

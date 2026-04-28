@@ -5,6 +5,7 @@ const { ImapFlow } = require('imapflow');
 const { simpleParser } = require('mailparser');
 const path = require('path');
 const fs = require('fs');
+const crypto = require('crypto');
 const { getDb } = require('../db/database');
 const { broadcast } = require('../shared/sse');
 const { parseSubject, parseForwardedSender, isBonV1, getPrefixes, buildTag } = require('../utils/mail-parser');
@@ -28,17 +29,112 @@ function getSetting(key) {
 
 /**
  * Erstat {{variabel}} placeholders + append signatur.
+ *
+ * ctx er en valgfri kontekst der bruges til universelle variabler som {{booking_link}}:
+ *   - customerId (eller vars.customer_id) — påkrævet for at booking_link rendres
+ *   - userId — sælger der får tildelt token
+ *   - bookingFlow — 'smagning' eller 'kontakt' (default: 'smagning')
+ *   - bookingIntent — meeting_type-key der forvælges (kun smagning)
+ *   - appendSignature — sæt false for at springe signatur over (fx subject)
  */
-function renderTemplate(body, vars) {
+function renderTemplate(body, vars = {}, ctx = {}) {
     let result = body;
+
+    // 1. Standard {{variabel}} substitution
     for (const [key, val] of Object.entries(vars)) {
         result = result.replace(new RegExp(`\\{\\{${key}\\}\\}`, 'g'), val ?? '');
     }
-    const sig = getSetting('mail_signature');
-    if (sig) {
-        result += '\n\n--\n' + sig;
+
+    // 2. {{booking_link}} — universel: virker i ALLE skabeloner
+    if (result.includes('{{booking_link}}')) {
+        const customerId = ctx.customerId || vars.customer_id || null;
+        const baseUrl = (getSetting('booking_public_url_base') || '').replace(/\/+$/, '');
+        if (customerId && baseUrl) {
+            const flow = ctx.bookingFlow || 'smagning';
+            const ttlDays = parseInt(getSetting('booking_token_ttl_days') || '60');
+            const token = generateBookingToken({
+                customer_id: customerId,
+                sales_user_id: ctx.userId || null,
+                flow,
+                intent_meeting_type_key: ctx.bookingIntent || null,
+                ttl_days: ttlDays
+            });
+            // Kort URL — server-side redirect i routes/booking-redirect.js håndterer
+            // open-tracking + 302 til tools-siden (baseret på token's flow-felt).
+            const url = `${baseUrl}/b/${token}`;
+            result = result.replace(/\{\{booking_link\}\}/g, url);
+        } else {
+            // Manglende customer_id eller base URL → fjern placeholder så mailen ikke får
+            // en halv URL eller en synlig {{booking_link}}-streng.
+            if (!baseUrl) {
+                console.warn('[mail] {{booking_link}} sprunget over: booking_public_url_base er ikke sat');
+            } else if (!customerId) {
+                console.warn('[mail] {{booking_link}} sprunget over: customerId mangler i context');
+            }
+            result = result.replace(/\{\{booking_link\}\}/g, '');
+        }
+    }
+
+    // 3. Signatur (kun body — ikke subject)
+    if (ctx.appendSignature !== false) {
+        const sig = getSetting('mail_signature');
+        if (sig) {
+            result += '\n\n--\n' + sig;
+        }
     }
     return result;
+}
+
+/**
+ * Generér (eller genbrug) et booking-token til mail-link.
+ *
+ * P4-idempotens: hvis der findes et eksisterende ubrugt token for samme
+ * (customer, sælger, flow, intent) som ikke udløber inden N dage, genbruges det.
+ * Det forhindrer at samme mail genereret 5 gange skaber 5 tokens.
+ *
+ * Synkron — node:sqlite + crypto.randomBytes er begge sync.
+ */
+function generateBookingToken({ customer_id, sales_user_id = null, flow = 'smagning', intent_meeting_type_key = null, ttl_days = 60 }) {
+    if (!customer_id) throw new Error('generateBookingToken: customer_id er påkrævet');
+
+    const db = getDb();
+
+    // Slå intent op (key → id)
+    let intentId = null;
+    if (intent_meeting_type_key) {
+        const mt = db.prepare('SELECT id FROM meeting_types WHERE key = ?').get(intent_meeting_type_key);
+        intentId = mt?.id || null;
+    }
+
+    // Idempotens-tjek (P4): genbrug eksisterende ubrugt token hvis udløb > reuse-grænse
+    const reuseMinDays = parseInt(getSetting('booking_token_reuse_min_days') || '7');
+    const existing = db.prepare(`
+        SELECT token FROM booking_tokens
+        WHERE customer_id = ?
+          AND COALESCE(sales_user_id, 0) = COALESCE(?, 0)
+          AND flow = ?
+          AND COALESCE(intent_meeting_type_id, 0) = COALESCE(?, 0)
+          AND booking_activity_id IS NULL
+          AND expires_at > datetime('now', '+' || ? || ' days')
+        ORDER BY created_at DESC
+        LIMIT 1
+    `).get(customer_id, sales_user_id, flow, intentId, reuseMinDays);
+
+    if (existing) return existing.token;
+
+    // Ellers generér nyt token
+    const token = crypto.randomBytes(8).toString('hex'); // 16 hex-tegn
+
+    const customer = db.prepare('SELECT company_id FROM customers WHERE id = ?').get(customer_id);
+    const expiresAt = new Date(Date.now() + ttl_days * 86400000).toISOString().slice(0, 19).replace('T', ' ');
+
+    db.prepare(`
+        INSERT INTO booking_tokens (token, customer_id, company_id, sales_user_id, flow,
+            intent_meeting_type_id, expires_at)
+        VALUES (?, ?, ?, ?, ?, ?, ?)
+    `).run(token, customer_id, customer?.company_id || null, sales_user_id, flow, intentId, expiresAt);
+
+    return token;
 }
 
 // ─── SMTP ───────────────────────────────────────────────
@@ -179,8 +275,11 @@ async function sendMail({ to, subject, text, context, bonId = null, customerId =
 
 /**
  * Send mail fra skabelon.
+ *
+ * bookingFlow / bookingIntent videregives til renderTemplate så {{booking_link}}
+ * kan generere et token bundet til kunde + sælger + flow + intent.
  */
-async function sendFromTemplate({ templateKey, to, vars, bonId = null, customerId = null, purchaseOrderId = null, context = null, userId = null, attachments = [] }) {
+async function sendFromTemplate({ templateKey, to, vars, bonId = null, customerId = null, purchaseOrderId = null, context = null, userId = null, attachments = [], smtpPrefix = 'smtp', bookingFlow = 'smagning', bookingIntent = null }) {
     const tmpl = getDb().prepare('SELECT subject, body_text FROM mail_templates WHERE key = ?').get(templateKey);
     if (!tmpl) throw new Error(`Skabelon '${templateKey}' ikke fundet`);
 
@@ -190,10 +289,13 @@ async function sendFromTemplate({ templateKey, to, vars, bonId = null, customerI
         enrichedVars.tag = buildTag(context);
     }
 
-    const subject = renderTemplate(tmpl.subject, enrichedVars);
-    const text    = renderTemplate(tmpl.body_text, enrichedVars);
+    const renderCtx = { customerId, userId, bookingFlow, bookingIntent };
 
-    return sendMail({ to, subject, text, context, bonId, customerId, purchaseOrderId, userId, attachments });
+    // Subject må aldrig have signatur appended
+    const subject = renderTemplate(tmpl.subject, enrichedVars, { ...renderCtx, appendSignature: false });
+    const text    = renderTemplate(tmpl.body_text, enrichedVars, renderCtx);
+
+    return sendMail({ to, subject, text, context, bonId, customerId, purchaseOrderId, userId, attachments, smtpPrefix });
 }
 
 // ─── IMAP ───────────────────────────────────────────────
@@ -557,6 +659,7 @@ module.exports = {
     startPolling,
     triggerPoll,
     renderTemplate,
+    generateBookingToken,
     getPollState,
     // Legacy compat
     parseTag: (subject) => {

@@ -1036,9 +1036,20 @@ function _k3RenderStatStrip() {
     const sentEmoji = { positive: '😊', neutral: '😐', negative: '😟' }[lastSent] || '—';
     const sentClass = lastSent === 'positive' ? 'green' : lastSent === 'negative' ? '' : 'gold';
 
-    // Next event
-    const futureOrders = (_k3Data.orders || []).filter(o => o.delivery_date >= new Date().toISOString().slice(0, 10));
-    const nextEvent = futureOrders.length > 0 ? futureOrders[futureOrders.length - 1].delivery_date : '—';
+    // Next event — find tidligste fremtidige bon ELLER planlagte meeting
+    const todayIso = new Date().toISOString().slice(0, 10);
+    const futureOrders = (_k3Data.orders || [])
+        .filter(o => o.delivery_date >= todayIso)
+        .map(o => ({ when: o.delivery_date, kind: 'order', label: o.delivery_date }));
+    const futureMeetings = (_k3Data.activities || [])
+        .filter(a => a.type === 'meeting' && !a.done_at && a.due_at && a.due_at.slice(0,10) >= todayIso)
+        .map(a => ({
+            when: a.due_at.slice(0, 10),
+            kind: 'meeting',
+            label: a.due_at.slice(0,10) + ' · ' + (a.meeting_type_emoji || '🤝')
+        }));
+    const candidates = futureOrders.concat(futureMeetings).sort((a,b) => a.when < b.when ? -1 : 1);
+    const nextEvent = candidates.length > 0 ? candidates[0].label : '—';
 
     el.innerHTML =
         '<div class="k3-stat"><div class="k3-stat-value">' + (s.total_orders || 0) + '</div><div class="k3-stat-label">Ordrer</div></div>' +
@@ -1169,16 +1180,28 @@ function _k3RenderActivity(el) {
             const time = (a.created_at || '').substring(0, 16).replace('T', ' ');
             const who = a.user_name || '';
 
+            // Meeting-aktiviteter er klikbare (åbner detalje-modal)
+            const isMeeting = a.type === 'meeting';
+            const cardCursor = isMeeting ? 'cursor:pointer;' : '';
+            const cardClick = isMeeting ? ' onclick="_k3OpenActivityDetail(' + a.id + ')"' : '';
+
+            // Vis møde-tidspunkt (due_at) hvis det er et meeting — vigtigere end created_at
+            let timeDisplay = time;
+            if (isMeeting && a.due_at) {
+                const due = a.due_at.replace('T', ' ').slice(0, 16);
+                timeDisplay = '🗓️ ' + due;
+            }
+
             html += '<div class="k3-timeline-item">' +
                 '<div class="k3-tl-left">' +
                     '<div class="k3-tl-icon ' + iconClass + '">' + icon + '</div>' +
                     (!isLast ? '<div class="k3-tl-connector"></div>' : '') +
                 '</div>' +
-                '<div class="k3-tl-card">' +
+                '<div class="k3-tl-card" style="' + cardCursor + '"' + cardClick + '>' +
                     '<div class="k3-tl-header">' +
                         '<span class="k3-tl-type">' + label + (resultText ? ' → ' + resultText : '') + '</span>' +
                         (who ? '<span class="k3-tl-who">' + who + '</span>' : '') +
-                        '<span class="k3-tl-time">' + time + '</span>' +
+                        '<span class="k3-tl-time">' + timeDisplay + '</span>' +
                     '</div>' +
                     (a.text ? '<div class="k3-tl-text">' + a.text + '</div>' : '') +
                     ((sentBadge || a.bon_number) ? '<div class="k3-tl-footer">' +
@@ -1358,9 +1381,32 @@ async function _k3RenderMail(el) {
         '</div>' +
         '<input type="file" id="k3MailFile" accept=".pdf,.jpg,.jpeg,.png,.gif,.xlsx,.docx" style="display:none" onchange="_k3OnFileSelected(this)">' +
         '<div id="k3MailAttachments" class="bm-attachments"></div>' +
-        '<div style="display:flex;gap:8px;margin-top:6px;">' +
+        '<div style="display:flex;gap:8px;margin-top:6px;align-items:center;flex-wrap:wrap;position:relative;">' +
             '<button class="bm-attach" id="k3AttachBtn" onclick="_k3AttachFile()">📎 Vedhæft</button>' +
-            '<button class="k3-mail-send" onclick="_k3SendMail()">Send mail</button>' +
+            '<button class="bm-attach" id="k3BookingLinkBtn" onclick="_k3ToggleBookingLinkPopover()">📅 Indsæt booking-link</button>' +
+            '<span id="k3BookingLinkInfo" style="font-size:11px;color:var(--color-text-dim);"></span>' +
+            '<button class="k3-mail-send" onclick="_k3SendMail()" style="margin-left:auto;">Send mail</button>' +
+            '<div id="k3BookingLinkPopover" style="display:none;position:absolute;top:38px;left:120px;background:#fff;border:1px solid var(--color-border);border-radius:8px;box-shadow:0 6px 20px rgba(0,0,0,.12);padding:12px;min-width:280px;z-index:50;">' +
+                '<div style="font-size:11px;text-transform:uppercase;color:var(--color-text-dim);margin-bottom:6px;">Booking-link</div>' +
+                '<div style="margin-bottom:8px;">' +
+                    '<label style="display:flex;align-items:center;gap:6px;cursor:pointer;font-size:13px;margin-bottom:3px;">' +
+                        '<input type="radio" name="k3BookingFlow" value="smagning" checked> Smagsprøve (kalender-side)' +
+                    '</label>' +
+                    '<label style="display:flex;align-items:center;gap:6px;cursor:pointer;font-size:13px;">' +
+                        '<input type="radio" name="k3BookingFlow" value="kontakt"> Kontaktformular' +
+                    '</label>' +
+                '</div>' +
+                '<div id="k3IntentRow" style="margin-bottom:8px;">' +
+                    '<label style="font-size:11px;color:var(--color-text-dim);display:block;margin-bottom:3px;">Forvalgt mødetype</label>' +
+                    '<select id="k3BookingIntentSel" style="width:100%;padding:5px 6px;border:1px solid var(--color-border);border-radius:4px;font-size:13px;">' +
+                        '<option value="">— ingen forvalgt —</option>' +
+                    '</select>' +
+                '</div>' +
+                '<div style="display:flex;gap:6px;justify-content:flex-end;">' +
+                    '<button onclick="_k3CloseBookingLinkPopover()" style="padding:5px 10px;font-size:12px;background:none;border:1px solid var(--color-border);border-radius:4px;cursor:pointer;">Annuller</button>' +
+                    '<button onclick="_k3InsertBookingLink()" style="padding:5px 10px;font-size:12px;background:var(--brand-primary,#8e631f);color:#fff;border:none;border-radius:4px;cursor:pointer;">Indsæt</button>' +
+                '</div>' +
+            '</div>' +
         '</div>' +
     '</div>';
 
@@ -1424,6 +1470,88 @@ async function _k3RenderMail(el) {
 }
 
 let _k3Attachments = [];
+let _k3BookingFlow   = 'smagning';   // valgt flow for {{booking_link}}
+let _k3BookingIntent = null;          // valgt intent_meeting_type_key
+let _k3BookingTypesCache = null;      // populeres ved første åbning af popover
+
+// ─── Booking-link popover (M11) ─────────────────────────────
+async function _k3ToggleBookingLinkPopover() {
+    const pop = document.getElementById('k3BookingLinkPopover');
+    if (!pop) return;
+    const isOpen = pop.style.display !== 'none';
+    if (isOpen) { pop.style.display = 'none'; return; }
+
+    // Load mødetyper ved første åbning
+    if (!_k3BookingTypesCache) {
+        try {
+            const r = await fetchBookingMeetingTypesIntent();
+            _k3BookingTypesCache = r.meeting_types || [];
+        } catch (err) {
+            console.error('[k3] kunne ikke hente mødetyper:', err);
+            _k3BookingTypesCache = [];
+        }
+    }
+
+    const sel = document.getElementById('k3BookingIntentSel');
+    if (sel) {
+        sel.innerHTML = '<option value="">— ingen forvalgt —</option>' +
+            _k3BookingTypesCache.map(mt =>
+                '<option value="' + mt.key + '">' + (mt.emoji || '') + ' ' + mt.label +
+                ' (' + mt.duration_min + ' min)' + (mt.is_bookable ? '' : ' — sælger-only') + '</option>'
+            ).join('');
+        sel.value = _k3BookingIntent || '';
+    }
+
+    // Hide intent row hvis flow=kontakt (ingen kalender → ingen mødetype)
+    const updateIntentVisibility = () => {
+        const flow = document.querySelector('input[name="k3BookingFlow"]:checked')?.value || 'smagning';
+        document.getElementById('k3IntentRow').style.display = (flow === 'smagning') ? '' : 'none';
+    };
+    document.querySelectorAll('input[name="k3BookingFlow"]').forEach(r => {
+        r.checked = (r.value === _k3BookingFlow);
+        r.addEventListener('change', updateIntentVisibility);
+    });
+    updateIntentVisibility();
+
+    pop.style.display = 'block';
+}
+
+function _k3CloseBookingLinkPopover() {
+    const pop = document.getElementById('k3BookingLinkPopover');
+    if (pop) pop.style.display = 'none';
+}
+
+function _k3InsertBookingLink() {
+    const flow = document.querySelector('input[name="k3BookingFlow"]:checked')?.value || 'smagning';
+    const intent = document.getElementById('k3BookingIntentSel')?.value || null;
+    _k3BookingFlow = flow;
+    _k3BookingIntent = intent || null;
+
+    const ta = document.getElementById('k3MailBody');
+    if (ta) {
+        const start = ta.selectionStart ?? ta.value.length;
+        const end   = ta.selectionEnd   ?? ta.value.length;
+        const before = ta.value.slice(0, start);
+        const after  = ta.value.slice(end);
+        ta.value = before + '{{booking_link}}' + after;
+        ta.focus();
+        const cursor = start + '{{booking_link}}'.length;
+        ta.setSelectionRange(cursor, cursor);
+    }
+
+    // Vis info-strip ved siden af knappen
+    const info = document.getElementById('k3BookingLinkInfo');
+    if (info) {
+        const flowLabel = flow === 'kontakt' ? 'Kontakt' : 'Smagsprøve';
+        const intentLabel = intent
+            ? (_k3BookingTypesCache?.find(mt => mt.key === intent)?.label || intent)
+            : null;
+        info.textContent = '🔗 ' + flowLabel + (intentLabel ? ' · ' + intentLabel : '');
+    }
+
+    _k3CloseBookingLinkPopover();
+}
+
 
 function _k3AttachFile() {
     if (_k3Attachments.length >= 5) { alert('Max 5 vedhæftninger per mail'); return; }
@@ -1476,8 +1604,15 @@ async function _k3SendMail() {
         if (_k3Attachments.length > 0) {
             data.attachments = _k3Attachments.map(a => ({ attachment_id: a.attachment_id }));
         }
+        // Hvis brugeren har indsat {{booking_link}}, send valgt flow + intent
+        if (text.includes('{{booking_link}}') || subject.includes('{{booking_link}}')) {
+            data.booking_flow = _k3BookingFlow;
+            if (_k3BookingIntent) data.booking_intent_meeting_type = _k3BookingIntent;
+        }
         await sendCustomerMail(_k3CustomerId, data);
         _k3Attachments = [];
+        _k3BookingFlow = 'smagning';
+        _k3BookingIntent = null;
         alert('Mail sendt!');
         _k3RenderTab();
     } catch (err) {
@@ -1501,4 +1636,91 @@ function _k3HandleSSE(eventType, data) {
     if (data.customer_id === _k3CustomerId) {
         _k3LoadData();
     }
+}
+
+// ─── Activity-detalje modal ───────────────────────────────────
+// Åbnes når brugeren klikker på en meeting-aktivitet i timeline.
+window._k3OpenActivityDetail = function(activityId) {
+    if (!_k3Data) return;
+    const a = (_k3Data.activities || []).find(x => x.id === activityId);
+    if (!a) return;
+
+    const due = a.due_at ? new Date(a.due_at.replace(' ', 'T')) : null;
+    const dueOk = due && !isNaN(due.getTime());
+
+    const dayNames = ['søndag','mandag','tirsdag','onsdag','torsdag','fredag','lørdag'];
+    const monthNames = ['januar','februar','marts','april','maj','juni',
+                        'juli','august','september','oktober','november','december'];
+
+    const dateLine = dueOk
+        ? dayNames[due.getDay()] + ' d. ' + due.getDate() + '. ' + monthNames[due.getMonth()] + ' ' + due.getFullYear()
+        : '—';
+    const timeLine = dueOk
+        ? String(due.getHours()).padStart(2,'0') + ':' + String(due.getMinutes()).padStart(2,'0')
+        : '—';
+
+    const sourceLabel = {
+        public_smagning: 'Online (smagsprøve-side)',
+        public_kontakt:  'Online (kontaktformular)',
+        token_link:      'Mail-link (sælger sendte link)',
+        internal:        'Manuelt oprettet'
+    }[a.booked_via] || (a.booked_via || '—');
+
+    const status = a.done_at ? '✅ Afsluttet ' + a.done_at.slice(0,16).replace('T',' ') : '🟡 Planlagt';
+
+    const rows = [
+        ['Status',     status],
+        ['Dato',       dateLine],
+        ['Tidspunkt',  timeLine + (a.duration_min ? ' (' + a.duration_min + ' min)' : '')],
+        ['Mødetype',   (a.meeting_type_emoji ? a.meeting_type_emoji + ' ' : '') + (a.meeting_type_label || '—')],
+        ['Antal gæster', a.guest_count != null ? a.guest_count : '—'],
+        ['Eventtype',  a.event_type || '—'],
+        ['Booket via', sourceLabel],
+        ['Sælger',     a.user_name || '—'],
+        ['Oprettet',   (a.created_at || '—').replace('T',' ').slice(0,16)]
+    ];
+
+    const tableHtml = '<table style="width:100%;border-collapse:collapse;">' +
+        rows.map(([k,v]) =>
+            '<tr><td style="padding:6px 8px;color:var(--color-text-dim,#888);width:140px;vertical-align:top;font-size:13px;">' +
+                k + '</td><td style="padding:6px 8px;font-size:14px;">' + escapeAttr(String(v)) + '</td></tr>'
+        ).join('') +
+    '</table>';
+
+    const messageHtml = a.text
+        ? '<div style="margin-top:18px;padding:12px;background:#f9f7f4;border-radius:8px;">' +
+            '<div style="font-size:11px;font-weight:700;text-transform:uppercase;color:var(--color-text-dim,#888);letter-spacing:.5px;margin-bottom:6px">Besked / note</div>' +
+            '<div style="font-size:14px;white-space:pre-line;">' + escapeAttr(a.text) + '</div>' +
+          '</div>'
+        : '';
+
+    const actionsHtml = !a.done_at
+        ? '<div style="margin-top:18px;display:flex;gap:8px;justify-content:flex-end;">' +
+            '<button onclick="_k3MarkActivityDone(' + a.id + ')" style="padding:8px 14px;border:1px solid var(--brand-primary,#8e631f);background:var(--brand-primary,#8e631f);color:#fff;border-radius:6px;cursor:pointer;font-weight:600;">✓ Markér som afholdt</button>' +
+          '</div>'
+        : '';
+
+    if (typeof openModal === 'function') {
+        openModal({
+            title: '🤝 ' + (a.meeting_type_label || 'Møde'),
+            bodyHtml: tableHtml + messageHtml + actionsHtml
+        });
+    }
+};
+
+window._k3MarkActivityDone = async function(activityId) {
+    try {
+        const r = await fetch('/api/crm/activity/' + activityId + '/done', { method: 'PATCH' });
+        if (!r.ok) throw new Error('Kunne ikke markere som afholdt (' + r.status + ')');
+        if (typeof closeModal === 'function') closeModal();
+        if (typeof _k3LoadData === 'function') _k3LoadData();
+    } catch (err) {
+        alert(err.message || 'Fejl');
+    }
+};
+
+function escapeAttr(s) {
+    return String(s ?? '').replace(/[&<>"']/g, c =>
+        ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c])
+    );
 }

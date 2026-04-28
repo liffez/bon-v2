@@ -1,0 +1,878 @@
+<!DOCTYPE html>
+<html lang="da">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Ristet Rug — Book en smagning</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link href="https://fonts.googleapis.com/css2?family=Lato:wght@400;600;700&family=Playfair+Display:wght@600&display=swap" rel="stylesheet">
+  <style>
+    :root {
+      --brand:       #8e631f;
+      --brand-light: #f5eddd;
+      --brand-dark:  #6b4a16;
+      --text:        #2c3e50;
+      --text-muted:  #6b7280;
+      --border:      #ddd;
+      --focus:       #8e631f;
+      --ok:          #16a34a;
+      --err:         #dc2626;
+      --busy-bg:     #f3f4f6;
+      --busy-text:   #9ca3af;
+    }
+
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+
+    body {
+      font-family: 'Lato', sans-serif;
+      background: #f9f7f4;
+      color: var(--text);
+      padding: 2rem 1rem;
+      min-height: 100vh;
+    }
+
+    .form-wrap {
+      max-width: 720px;
+      margin: 0 auto;
+      background: #fff;
+      border-radius: 12px;
+      box-shadow: 0 4px 24px rgba(0,0,0,.08);
+      overflow: hidden;
+    }
+
+    /* Header */
+    .form-head {
+      background: var(--brand);
+      color: #fff;
+      text-align: center;
+      padding: 2rem 2rem 1.5rem;
+    }
+    .form-head img.logo { height: 56px; margin-bottom: .75rem; }
+    .form-head h1 {
+      font-family: 'Playfair Display', serif;
+      font-size: 1.7rem; font-weight: 600;
+      margin-bottom: .35rem;
+    }
+    .form-head p { font-size: .92rem; opacity: .9; line-height: 1.5; }
+
+    .form-body { padding: 2rem; }
+
+    .section-label {
+      font-size: .7rem; font-weight: 700;
+      letter-spacing: .08em; text-transform: uppercase;
+      color: var(--brand);
+      margin: 1.75rem 0 1rem;
+      padding-bottom: .4rem;
+      border-bottom: 1px solid var(--brand-light);
+    }
+    .section-label:first-child { margin-top: 0; }
+
+    /* Mødetype-kort */
+    .mt-grid {
+      display: grid;
+      grid-template-columns: repeat(2, 1fr);
+      gap: .9rem;
+    }
+    @media (max-width: 520px) { .mt-grid { grid-template-columns: 1fr; } }
+    .mt-card {
+      border: 2px solid var(--border);
+      border-radius: 10px;
+      padding: 1rem .9rem;
+      cursor: pointer;
+      transition: all .15s;
+      background: #fff;
+      text-align: center;
+    }
+    .mt-card:hover { border-color: var(--brand); transform: translateY(-2px); }
+    .mt-card.selected {
+      border-color: var(--brand);
+      background: var(--brand-light);
+    }
+    .mt-card .emoji  { font-size: 2rem; line-height: 1; margin-bottom: .4rem; }
+    .mt-card .label  { font-weight: 700; font-size: 1rem; margin-bottom: .25rem; }
+    .mt-card .desc   { font-size: .82rem; color: var(--text-muted); margin-bottom: .35rem; line-height: 1.35; }
+    .mt-card .dur    { font-size: .78rem; color: var(--brand); font-weight: 600; }
+
+    /* Kalender */
+    .cal-wrap { border: 1px solid var(--border); border-radius: 10px; overflow: hidden; }
+    .cal-head {
+      display: flex; align-items: center; justify-content: space-between;
+      padding: .75rem 1rem;
+      background: var(--brand-light);
+    }
+    .cal-head button {
+      background: #fff; border: 1px solid var(--border);
+      width: 32px; height: 32px; border-radius: 6px;
+      cursor: pointer; font-size: 1rem;
+    }
+    .cal-head button:disabled { opacity: .35; cursor: not-allowed; }
+    .cal-title { font-weight: 700; text-transform: capitalize; }
+    .cal-grid {
+      display: grid;
+      grid-template-columns: repeat(7, 1fr);
+      gap: 1px;
+      background: var(--border);
+      padding: 1px;
+    }
+    .cal-dow {
+      background: #fafafa; padding: .5rem 0;
+      text-align: center; font-size: .72rem; font-weight: 700;
+      color: var(--text-muted); text-transform: uppercase;
+    }
+    .cal-day {
+      background: #fff; padding: .55rem 0;
+      text-align: center; font-size: .92rem;
+      cursor: pointer; transition: background .12s;
+      min-height: 38px;
+    }
+    .cal-day:hover:not(.disabled):not(.outside) { background: var(--brand-light); }
+    .cal-day.outside  { background: #fafafa; color: #ccc; cursor: default; }
+    .cal-day.disabled { color: #ccc; cursor: not-allowed; background: var(--busy-bg); }
+    .cal-day.today    { font-weight: 700; }
+    .cal-day.selected { background: var(--brand); color: #fff; font-weight: 700; }
+
+    /* Slot-grid */
+    .slot-grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fill, minmax(95px, 1fr));
+      gap: .55rem;
+    }
+    .slot-btn {
+      padding: .65rem .5rem;
+      border: 2px solid var(--border);
+      border-radius: 8px;
+      background: #fff;
+      font-family: inherit;
+      font-size: .92rem; font-weight: 600;
+      color: var(--text);
+      cursor: pointer;
+      transition: all .12s;
+    }
+    .slot-btn:hover:not(.busy):not(.selected) { border-color: var(--brand); }
+    .slot-btn.selected { background: var(--brand); border-color: var(--brand); color: #fff; }
+    .slot-btn.busy {
+      background: var(--busy-bg); border-color: var(--busy-bg);
+      color: var(--busy-text); cursor: not-allowed;
+      text-decoration: line-through;
+    }
+    .slot-empty {
+      padding: 1.2rem;
+      background: var(--brand-light);
+      border-radius: 8px;
+      text-align: center;
+      color: var(--text-muted);
+      font-size: .92rem;
+    }
+
+    /* Felter */
+    .field { margin-bottom: 1.1rem; }
+    .field label {
+      display: block; font-weight: 600; font-size: .87rem;
+      margin-bottom: .35rem;
+    }
+    .field label .req { color: var(--err); }
+    .field input, .field select, .field textarea {
+      width: 100%;
+      padding: .68rem .85rem;
+      border: 2px solid var(--border);
+      border-radius: 8px;
+      font-family: inherit; font-size: .94rem;
+      background: #fff; color: var(--text);
+      transition: border-color .15s;
+    }
+    .field input:focus, .field select:focus, .field textarea:focus {
+      outline: none; border-color: var(--focus);
+    }
+    .field textarea { min-height: 90px; resize: vertical; }
+    .field-error input, .field-error select, .field-error textarea {
+      border-color: var(--err);
+      background: #fef2f2;
+    }
+    .field-row {
+      display: grid; grid-template-columns: 1fr 1fr; gap: .85rem;
+    }
+    @media (max-width: 460px) { .field-row { grid-template-columns: 1fr; } }
+
+    /* Honeypot */
+    .hp-field { position: absolute; left: -9999px; top: -9999px; }
+
+    /* Submit-knap */
+    .submit-btn {
+      display: block; width: 100%;
+      background: var(--brand); color: #fff;
+      border: none;
+      padding: 1rem;
+      font-family: inherit; font-size: 1rem; font-weight: 700;
+      border-radius: 8px;
+      cursor: pointer;
+      margin-top: 1.25rem;
+      transition: background .15s;
+    }
+    .submit-btn:hover:not(:disabled) { background: var(--brand-dark); }
+    .submit-btn:disabled { opacity: .55; cursor: not-allowed; }
+    .submit-btn.loading { opacity: .65; }
+    .submit-btn.loading::after {
+      content: ' …'; animation: dots 1.2s infinite;
+    }
+    @keyframes dots { 0%,100% { opacity: 0; } 50% { opacity: 1; } }
+
+    /* Hidden helpers */
+    .hidden { display: none; }
+
+    /* Tak-side */
+    .thank-you {
+      padding: 3rem 2rem;
+      text-align: center;
+    }
+    .thank-you h2 {
+      font-family: 'Playfair Display', serif;
+      font-size: 1.8rem;
+      color: var(--brand);
+      margin-bottom: 1rem;
+    }
+    .thank-you .body {
+      font-size: 1rem; line-height: 1.6;
+      color: var(--text); white-space: pre-line;
+    }
+
+    /* Fejl-banner */
+    .err-banner {
+      background: #fef2f2;
+      border: 1px solid #fca5a5;
+      border-radius: 8px;
+      padding: 1rem;
+      margin-top: 1rem;
+      color: var(--err);
+      font-size: .92rem;
+    }
+
+    /* "Ikke tilgængelig"-besked */
+    .unavailable {
+      padding: 3rem 2rem;
+      text-align: center;
+      color: var(--text-muted);
+    }
+    .unavailable h2 {
+      font-family: 'Playfair Display', serif;
+      color: var(--brand);
+      margin-bottom: 1rem;
+      font-size: 1.4rem;
+    }
+  </style>
+</head>
+<body>
+
+<div class="form-wrap">
+
+  <!-- Header (intro fra page_templates) -->
+  <div class="form-head">
+    <img class="logo" src="/assets/logo.svg" alt="Ristet Rug" onerror="this.style.display='none'">
+    <h1 id="intro-title">Book en smagning</h1>
+    <p  id="intro-body">Vælg tid og dato, så ses vi.</p>
+  </div>
+
+  <!-- "Ikke tilgængelig"-fallback -->
+  <div id="unavailable" class="unavailable hidden">
+    <h2>Booking er ikke tilgængelig lige nu</h2>
+    <p>Vi tager ikke imod online-bookings i øjeblikket.<br>
+       Du er velkommen til at ringe til os på <strong>+45 50 50 50 50</strong> eller skrive til <strong>kontakt@ristetrug.dk</strong>.</p>
+  </div>
+
+  <!-- Hovedformular -->
+  <form id="booking-form" class="form-body" novalidate>
+
+    <!-- Honeypot -->
+    <div class="hp-field"><input type="text" name="website" tabindex="-1" autocomplete="off"></div>
+
+    <!-- Step 1: Mødetype -->
+    <div class="section-label">1 — Vælg mødetype</div>
+    <div id="mt-grid" class="mt-grid"></div>
+
+    <!-- Step 2: Dato (skjult indtil mødetype valgt) -->
+    <div id="step-date" class="hidden">
+      <div class="section-label">2 — Vælg dato</div>
+      <div class="cal-wrap">
+        <div class="cal-head">
+          <button type="button" id="cal-prev" aria-label="Forrige måned">◀</button>
+          <div class="cal-title" id="cal-title"></div>
+          <button type="button" id="cal-next" aria-label="Næste måned">▶</button>
+        </div>
+        <div class="cal-grid" id="cal-grid"></div>
+      </div>
+    </div>
+
+    <!-- Step 3: Tid (skjult indtil dato valgt) -->
+    <div id="step-time" class="hidden">
+      <div class="section-label">3 — Vælg tid</div>
+      <div id="slot-area"></div>
+    </div>
+
+    <!-- Step 4: Kontakt + besked (skjult indtil tid valgt) -->
+    <div id="step-contact" class="hidden">
+      <div class="section-label">4 — Dine oplysninger</div>
+
+      <div class="field-row">
+        <div class="field">
+          <label>Fornavn <span class="req">*</span></label>
+          <input type="text" name="first_name" id="first_name" required autocomplete="given-name">
+        </div>
+        <div class="field">
+          <label>Efternavn</label>
+          <input type="text" name="last_name" id="last_name" autocomplete="family-name">
+        </div>
+      </div>
+
+      <div class="field-row">
+        <div class="field">
+          <label>Email <span class="req">*</span></label>
+          <input type="email" name="email" id="email" required autocomplete="email">
+        </div>
+        <div class="field">
+          <label>Telefon</label>
+          <input type="tel" name="phone" id="phone" autocomplete="tel">
+        </div>
+      </div>
+
+      <div class="field">
+        <label>Firma <span style="color:var(--text-muted);font-weight:400">(valgfri — privatkunde lader feltet stå tom)</span></label>
+        <input type="text" name="company" id="company" autocomplete="organization">
+      </div>
+
+      <div class="field-row">
+        <div class="field">
+          <label>Antal gæster</label>
+          <input type="number" name="guest_count" id="guest_count" min="1" max="500">
+        </div>
+        <div class="field">
+          <label>Eventtype</label>
+          <select name="event_type" id="event_type">
+            <option value="">Vælg…</option>
+            <option value="frokost">Frokost</option>
+            <option value="reception">Reception</option>
+            <option value="bryllup">Bryllup</option>
+            <option value="firma">Firmaarrangement</option>
+            <option value="andet">Andet</option>
+          </select>
+        </div>
+      </div>
+
+      <div class="field">
+        <label>Besked til os</label>
+        <textarea name="message" id="message" placeholder="Fx ønsker, allergier, hvad I gerne vil tale om…"></textarea>
+      </div>
+
+      <button type="submit" id="submit-btn" class="submit-btn" disabled>Bekræft booking</button>
+      <div id="err-banner" class="err-banner hidden"></div>
+    </div>
+
+  </form>
+
+  <!-- Tak-side -->
+  <div id="thank-you" class="thank-you hidden">
+    <h2 id="thank-title">Tak!</h2>
+    <div class="body" id="thank-body"></div>
+  </div>
+
+</div>
+
+<script>
+'use strict';
+
+const CFG = {
+  apiBase:    '/api/booking',
+  webhookUrl: '/webhook/booking-smagning',
+  rememberKey: 'rr_booking_smagning_v1'
+};
+
+const state = {
+  meetingTypes: [],
+  selectedMt:   null,    // hele meeting_type-objektet
+  calMonth:     null,    // {year, month0}
+  selectedDate: null,    // 'YYYY-MM-DD'
+  selectedTime: null,    // 'HH:MM'
+  thankyouTpl:  null,    // page_templates.thankyou_smagning
+  monthSlots:   {},      // dato → boolean (har mindst ét ledigt slot) for cal-disabling
+  monthLoading: null,    // Promise mens måned hentes
+  token:        null,    // ?t=TOKEN i URL — sendes med ved submit hvis sat
+  tokenInfo:    null     // { customer, sales_user, intent_meeting_type, used }
+};
+
+// ============================================================
+// INIT
+// ============================================================
+async function init() {
+  try {
+    // Hent mødetyper først (afgør om modulet er tilgængeligt)
+    const r = await fetch(CFG.apiBase + '/meeting-types');
+    const data = await r.json();
+    if (!data.available || !data.meeting_types?.length) {
+      document.getElementById('booking-form').classList.add('hidden');
+      document.getElementById('unavailable').classList.remove('hidden');
+      return;
+    }
+    state.meetingTypes = data.meeting_types;
+    renderMeetingTypes();
+
+    // Hent intro-tekst
+    fetch(CFG.apiBase + '/page-templates/intro_smagning')
+      .then(r => r.ok ? r.json() : null)
+      .then(t => {
+        if (!t) return;
+        if (t.title)     document.getElementById('intro-title').textContent = t.title;
+        if (t.body_text) document.getElementById('intro-body').textContent  = t.body_text;
+      })
+      .catch(() => {});
+
+    // Hent thankyou-skabelon (bruges efter submit)
+    fetch(CFG.apiBase + '/page-templates/thankyou_smagning')
+      .then(r => r.ok ? r.json() : null)
+      .then(t => { state.thankyouTpl = t; })
+      .catch(() => {});
+
+    // Pre-fill fra localStorage
+    loadSavedFields();
+
+    // Token pre-fill (M8) — overskriver localStorage med "rigtige" data fra DB
+    const urlParams = new URLSearchParams(window.location.search);
+    const token = urlParams.get('t');
+    if (token) {
+      await loadTokenInfo(token);
+    }
+  } catch (err) {
+    console.error('[booking-smagning] init fejl', err);
+    document.getElementById('booking-form').classList.add('hidden');
+    document.getElementById('unavailable').classList.remove('hidden');
+  }
+}
+
+// ============================================================
+// MØDETYPER
+// ============================================================
+function renderMeetingTypes() {
+  const grid = document.getElementById('mt-grid');
+  grid.innerHTML = state.meetingTypes.map(mt => `
+    <div class="mt-card" data-key="${mt.key}">
+      <div class="emoji">${mt.emoji || '📅'}</div>
+      <div class="label">${escapeHtml(mt.label)}</div>
+      <div class="desc">${escapeHtml(mt.description || '')}</div>
+      <div class="dur">ca. ${mt.duration_min} min</div>
+    </div>
+  `).join('');
+
+  grid.querySelectorAll('.mt-card').forEach(card => {
+    card.addEventListener('click', () => selectMeetingType(card.dataset.key));
+  });
+}
+
+function selectMeetingType(key) {
+  state.selectedMt = state.meetingTypes.find(m => m.key === key);
+  document.querySelectorAll('.mt-card').forEach(c => {
+    c.classList.toggle('selected', c.dataset.key === key);
+  });
+
+  // Reset downstream
+  state.selectedDate = null;
+  state.selectedTime = null;
+  state.monthSlots = {};
+  document.getElementById('step-time').classList.add('hidden');
+  document.getElementById('step-contact').classList.add('hidden');
+  setSubmitEnabled(false);
+
+  // Vis kalender
+  document.getElementById('step-date').classList.remove('hidden');
+  if (!state.calMonth) {
+    const t = new Date();
+    state.calMonth = { year: t.getFullYear(), month0: t.getMonth() };
+  }
+  renderCalendar();
+}
+
+// ============================================================
+// KALENDER
+// ============================================================
+function renderCalendar() {
+  const { year, month0 } = state.calMonth;
+  const monthNames = ['januar','februar','marts','april','maj','juni',
+                      'juli','august','september','oktober','november','december'];
+  document.getElementById('cal-title').textContent = monthNames[month0] + ' ' + year;
+
+  const grid = document.getElementById('cal-grid');
+  const dows = ['Man','Tir','Ons','Tor','Fre','Lør','Søn'];
+  let html = dows.map(d => `<div class="cal-dow">${d}</div>`).join('');
+
+  const first = new Date(year, month0, 1);
+  const firstDow = (first.getDay() + 6) % 7; // mandag = 0
+  const daysInMonth = new Date(year, month0 + 1, 0).getDate();
+  const prevMonthDays = new Date(year, month0, 0).getDate();
+
+  const today = new Date();
+  today.setHours(0,0,0,0);
+
+  // Foran (forrige måned)
+  for (let i = firstDow - 1; i >= 0; i--) {
+    html += `<div class="cal-day outside">${prevMonthDays - i}</div>`;
+  }
+
+  // Denne måned
+  for (let d = 1; d <= daysInMonth; d++) {
+    const cellDate = new Date(year, month0, d);
+    const ds = isoDate(cellDate);
+    const isToday = cellDate.getTime() === today.getTime();
+    const isPast  = cellDate < today;
+    const isSel   = ds === state.selectedDate;
+
+    let cls = 'cal-day';
+    if (isToday) cls += ' today';
+    if (isSel)   cls += ' selected';
+    if (isPast)  cls += ' disabled';
+
+    html += `<div class="${cls}" data-date="${ds}">${d}</div>`;
+  }
+
+  // Bagpå (næste måned, fyld op til 6 rækker × 7)
+  const filled = firstDow + daysInMonth;
+  const remainder = (7 - (filled % 7)) % 7;
+  for (let d = 1; d <= remainder; d++) {
+    html += `<div class="cal-day outside">${d}</div>`;
+  }
+
+  grid.innerHTML = html;
+  grid.querySelectorAll('.cal-day:not(.outside):not(.disabled)').forEach(cell => {
+    cell.addEventListener('click', () => selectDate(cell.dataset.date));
+  });
+
+  // Prev/next handlers
+  const prevBtn = document.getElementById('cal-prev');
+  const nextBtn = document.getElementById('cal-next');
+  // Prev disabled hvis vi er i denne måned og ikke kan gå tilbage
+  const todayMonth0 = today.getMonth();
+  const todayYear   = today.getFullYear();
+  const cantGoPrev  = (year === todayYear && month0 <= todayMonth0);
+  prevBtn.disabled = cantGoPrev;
+  prevBtn.onclick = () => { state.calMonth = prevMonth(state.calMonth); renderCalendar(); };
+  nextBtn.onclick = () => { state.calMonth = nextMonth(state.calMonth); renderCalendar(); };
+}
+
+function prevMonth({ year, month0 }) {
+  return month0 === 0 ? { year: year - 1, month0: 11 } : { year, month0: month0 - 1 };
+}
+function nextMonth({ year, month0 }) {
+  return month0 === 11 ? { year: year + 1, month0: 0 } : { year, month0: month0 + 1 };
+}
+function isoDate(d) {
+  const y = d.getFullYear();
+  const m = String(d.getMonth() + 1).padStart(2, '0');
+  const day = String(d.getDate()).padStart(2, '0');
+  return `${y}-${m}-${day}`;
+}
+
+// ============================================================
+// SLOTS
+// ============================================================
+async function selectDate(dateStr) {
+  state.selectedDate = dateStr;
+  state.selectedTime = null;
+  setSubmitEnabled(false);
+  document.getElementById('step-contact').classList.add('hidden');
+
+  document.querySelectorAll('.cal-day').forEach(c => {
+    c.classList.toggle('selected', c.dataset.date === dateStr);
+  });
+
+  document.getElementById('step-time').classList.remove('hidden');
+  await loadSlots(dateStr);
+}
+
+async function loadSlots(dateStr) {
+  const area = document.getElementById('slot-area');
+  area.innerHTML = '<div class="slot-empty">Henter ledige tider…</div>';
+
+  try {
+    const url = `${CFG.apiBase}/slots?date=${dateStr}&meeting_type=${encodeURIComponent(state.selectedMt.key)}`;
+    const r = await fetch(url);
+    const data = await r.json();
+
+    if (!data.available) {
+      const messages = {
+        too_soon:        'Beklager — denne dato er for tæt på. Prøv en senere dag.',
+        too_far:         'Beklager — denne dato er for langt frem.',
+        weekday_blocked: 'Vi tager ikke imod bookings på denne ugedag. Prøv en hverdag.',
+        unknown_meeting_type: 'Mødetypen findes ikke længere — prøv at vælge en anden.',
+        invalid_date:    'Datoen er ugyldig.',
+        disabled:        'Booking er deaktiveret lige nu.',
+        unconfigured:    'Booking er ikke konfigureret.',
+        config_error:    'Konfigurationsfejl — kontakt os direkte.'
+      };
+      area.innerHTML = `<div class="slot-empty">${messages[data.reason] || 'Ingen ledige tider denne dag.'}</div>`;
+      return;
+    }
+
+    if (!data.slots?.length) {
+      area.innerHTML = '<div class="slot-empty">Ingen ledige tider denne dag.</div>';
+      return;
+    }
+
+    area.innerHTML = '<div class="slot-grid">' +
+      data.slots.map(s => {
+        const cls = s.available ? 'slot-btn' : 'slot-btn busy';
+        const dis = s.available ? '' : 'disabled';
+        const tip = s.available ? '' : ' title="Optaget"';
+        return `<button type="button" class="${cls}" ${dis} data-time="${s.time}"${tip}>${s.time}</button>`;
+      }).join('') +
+      '</div>';
+
+    area.querySelectorAll('.slot-btn:not(.busy)').forEach(btn => {
+      btn.addEventListener('click', () => selectTime(btn.dataset.time));
+    });
+  } catch (err) {
+    area.innerHTML = '<div class="slot-empty">Der opstod en fejl ved hentning af tider.</div>';
+    console.error('[booking-smagning] slot fejl', err);
+  }
+}
+
+function selectTime(time) {
+  state.selectedTime = time;
+  document.querySelectorAll('.slot-btn').forEach(b => {
+    b.classList.toggle('selected', b.dataset.time === time);
+  });
+  document.getElementById('step-contact').classList.remove('hidden');
+  setSubmitEnabled(true);
+  document.getElementById('first_name').focus();
+}
+
+function setSubmitEnabled(yes) {
+  const btn = document.getElementById('submit-btn');
+  btn.disabled = !yes;
+}
+
+// ============================================================
+// TOKEN PRE-FILL (M8)
+// ============================================================
+// Hvis URL har ?t=TOKEN, slå op via /api/booking/token/:token og pre-fyld
+// kontaktoplysninger + auto-vælg evt. forvalgt mødetype.
+async function loadTokenInfo(token) {
+  try {
+    const r = await fetch(CFG.apiBase + '/token/' + encodeURIComponent(token));
+
+    if (r.status === 404 || r.status === 410) {
+      // Ukendt eller udløbet token — ignorér og lad formen virke som anonym
+      const reason = r.status === 410 ? 'Linket er udløbet' : 'Linket er ikke længere gyldigt';
+      showTokenBanner(reason + ' — du kan stadig booke som ny kunde nedenfor.', 'warn');
+      return;
+    }
+    if (!r.ok) return;
+
+    const info = await r.json();
+    state.token = token;
+    state.tokenInfo = info;
+
+    // Pre-fyld kontaktfelter fra kunde-data
+    if (info.customer) {
+      const c = info.customer;
+      const set = (id, val) => { const el = document.getElementById(id); if (el && val) el.value = val; };
+      set('first_name', c.first_name);
+      set('last_name',  c.last_name);
+      set('email',      c.email);
+      set('phone',      c.phone);
+      set('company',    c.company?.name);
+    }
+
+    // Auto-vælg forvalgt mødetype hvis sælger angav intent
+    if (info.intent_meeting_type?.key) {
+      const mt = state.meetingTypes.find(m => m.key === info.intent_meeting_type.key);
+      if (mt) selectMeetingType(mt.key);
+    }
+
+    // Personlig velkomst — title-case navne så "leif" → "Leif", "anne" → "Anne"
+    let greeting = 'Velkommen';
+    if (info.customer?.first_name) greeting += ' ' + titleCase(info.customer.first_name);
+    if (info.sales_user?.name)     greeting += ` — du booker hos ${titleCase(info.sales_user.name)}`;
+    showTokenBanner(greeting + '.', 'info');
+
+    // Hvis token allerede er forbrugt: advar (men spær ikke — kan booke igen)
+    if (info.used) {
+      showTokenBanner('Du har allerede booket via dette link — opret gerne en ny aftale hvis du har brug for det.', 'warn');
+    }
+  } catch (err) {
+    console.warn('[booking-smagning] token pre-fill fejlede:', err);
+  }
+}
+
+// Capitaliser hver del af et navn ("leif van der berg" → "Leif Van Der Berg")
+function titleCase(s) {
+  return String(s ?? '').toLowerCase().replace(/(^|\s|-)(\p{L})/gu, (_, sep, ch) => sep + ch.toUpperCase());
+}
+
+function showTokenBanner(text, level) {
+  let el = document.getElementById('token-banner');
+  if (!el) {
+    el = document.createElement('div');
+    el.id = 'token-banner';
+    el.style.cssText = 'margin:0 2rem 1rem;padding:.75rem 1rem;border-radius:8px;font-size:.95rem;line-height:1.4;';
+    const form = document.getElementById('booking-form');
+    form.parentNode.insertBefore(el, form);
+  }
+  if (level === 'warn') {
+    el.style.background = '#fff7e6'; el.style.color = '#7a4f00'; el.style.border = '1px solid #f6c97a';
+  } else {
+    el.style.background = '#f5eddd'; el.style.color = '#6b4a16'; el.style.border = '1px solid #d9c8a4';
+  }
+  el.textContent = text;
+}
+
+// ============================================================
+// LOCALSTORAGE pre-fill
+// ============================================================
+const REMEMBER_FIELDS = ['first_name','last_name','email','phone','company'];
+
+function loadSavedFields() {
+  try {
+    const saved = JSON.parse(localStorage.getItem(CFG.rememberKey) || '{}');
+    REMEMBER_FIELDS.forEach(id => {
+      const el = document.getElementById(id);
+      if (el && saved[id]) el.value = saved[id];
+    });
+  } catch {}
+}
+
+function saveFields() {
+  try {
+    const obj = {};
+    REMEMBER_FIELDS.forEach(id => {
+      const el = document.getElementById(id);
+      if (el?.value?.trim()) obj[id] = el.value.trim();
+    });
+    localStorage.setItem(CFG.rememberKey, JSON.stringify(obj));
+  } catch {}
+}
+
+// ============================================================
+// VALIDERING + SUBMIT (placeholder — webhook implementeres i M5)
+// ============================================================
+function validateForm() {
+  document.querySelectorAll('.field-error').forEach(el => el.classList.remove('field-error'));
+
+  let firstError = null;
+  let valid = true;
+
+  document.querySelectorAll('#booking-form [required]').forEach(inp => {
+    if (!inp.value?.trim()) {
+      const f = inp.closest('.field');
+      if (f) f.classList.add('field-error');
+      if (!firstError) firstError = inp;
+      valid = false;
+    }
+  });
+
+  if (firstError) {
+    firstError.focus();
+    firstError.scrollIntoView({ behavior: 'smooth', block: 'center' });
+  }
+  return valid;
+}
+
+document.getElementById('booking-form').addEventListener('input', e => {
+  const f = e.target.closest('.field');
+  if (f) f.classList.remove('field-error');
+});
+
+document.getElementById('booking-form').addEventListener('submit', async e => {
+  e.preventDefault();
+
+  const hp = document.querySelector('input[name="website"]');
+  if (hp?.value) return;
+  if (!state.selectedMt || !state.selectedDate || !state.selectedTime) return;
+  if (!validateForm()) return;
+
+  const btn = document.getElementById('submit-btn');
+  btn.classList.add('loading'); btn.disabled = true;
+  document.getElementById('err-banner').classList.add('hidden');
+
+  const fd = new FormData(e.target);
+  const data = Object.fromEntries(fd.entries());
+  delete data.website;
+
+  data.meeting_type = state.selectedMt.key;
+  data.date = state.selectedDate;
+  data.time = state.selectedTime;
+  data.submittedAt = new Date().toISOString();
+  if (state.token) data.token = state.token;
+
+  saveFields();
+
+  try {
+    const res = await fetch(CFG.webhookUrl, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(data)
+    });
+    if (!res.ok) throw new Error('Server svarede ' + res.status);
+    showThankYou(data);
+  } catch (err) {
+    btn.classList.remove('loading');
+    btn.disabled = false;
+    const banner = document.getElementById('err-banner');
+    banner.innerHTML = '⚠️ Der opstod en fejl ved afsendelse. Prøv igen om lidt, eller skriv direkte til <a href="mailto:kontakt@ristetrug.dk">kontakt@ristetrug.dk</a>.';
+    banner.classList.remove('hidden');
+  }
+});
+
+// ============================================================
+// TAK-SIDE
+// ============================================================
+function showThankYou(data) {
+  document.getElementById('booking-form').classList.add('hidden');
+  const thanks = document.getElementById('thank-you');
+
+  if (state.thankyouTpl) {
+    const vars = buildThankyouVars(data);
+    document.getElementById('thank-title').textContent = renderTpl(state.thankyouTpl.title || 'Tak!', vars);
+    document.getElementById('thank-body').textContent  = renderTpl(state.thankyouTpl.body_text || '', vars);
+  } else {
+    document.getElementById('thank-title').textContent = 'Tak ' + (data.first_name || '') + '!';
+    document.getElementById('thank-body').textContent  =
+      'Vi glæder os til at se dig ' + niceDate(data.date) + ' kl ' + data.time + '.';
+  }
+
+  thanks.classList.remove('hidden');
+  window.scrollTo({ top: 0, behavior: 'smooth' });
+}
+
+function buildThankyouVars(data) {
+  return {
+    kundeFornavn:    data.first_name || '',
+    kundeNavn:       [data.first_name, data.last_name].filter(Boolean).join(' '),
+    datoFormatteret: niceDate(data.date),
+    tid:             data.time,
+    moedeTypeLabel:  state.selectedMt?.label || '',
+    varighed:        state.selectedMt?.duration_min || '',
+    firmaTelefon:    '',
+    firmaAdresse:    ''
+  };
+}
+
+function renderTpl(tpl, vars) {
+  return tpl.replace(/\{\{(\w+)\}\}/g, (_, k) => vars[k] ?? '');
+}
+
+function niceDate(iso) {
+  if (!iso) return '';
+  const dagnavne = ['søndag','mandag','tirsdag','onsdag','torsdag','fredag','lørdag'];
+  const maaneder = ['januar','februar','marts','april','maj','juni',
+                    'juli','august','september','oktober','november','december'];
+  const d = new Date(iso + 'T12:00:00');
+  if (isNaN(d.getTime())) return iso;
+  return `${dagnavne[d.getDay()]} d. ${d.getDate()}. ${maaneder[d.getMonth()]} ${d.getFullYear()}`;
+}
+
+function escapeHtml(s) {
+  return String(s ?? '').replace(/[&<>"']/g, c =>
+    ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c])
+  );
+}
+
+init();
+</script>
+
+</body>
+</html>

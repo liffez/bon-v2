@@ -71,7 +71,8 @@ const WEBHOOK_ALLOWED_ORIGINS = [
   'https://ristetrug.dk',
   'https://bestil-form.netlify.app'
 ];
-app.use('/webhook', (req, res, next) => {
+const bookingRouter = require('./routes/booking');
+const webhookCors = (req, res, next) => {
   const origin = req.headers.origin;
   if (origin && WEBHOOK_ALLOWED_ORIGINS.includes(origin)) {
     res.setHeader('Access-Control-Allow-Origin', origin);
@@ -80,8 +81,13 @@ app.use('/webhook', (req, res, next) => {
   }
   if (req.method === 'OPTIONS') return res.sendStatus(204);
   next();
-}, webOrdersRouter);
+};
+app.use('/webhook', webhookCors, webOrdersRouter);
+app.use('/webhook', webhookCors, bookingRouter);
 app.use('/api/web-orders', webOrdersRouter);
+
+// Kort URL for booking-tokens — GET /b/:token → redirect til tools-side
+app.use('/b', require('./routes/booking-redirect'));
 
 app.use('/api/auth',           require('./routes/auth'));
 app.use('/api/payment-types',  require('./routes/payment_types'));
@@ -120,6 +126,7 @@ app.use('/api/physical-units',   require('./routes/physical-units'));
 app.use('/api/schedule',         require('./routes/schedule'));
 app.use('/api/help-content',     require('./routes/help'));
 app.use('/api/sidekick',         require('./routes/sidekick'));
+app.use('/api/booking',          bookingRouter);
 
 // Statisk serving af receipt-fotos (for Whiteboard link-only access)
 app.use('/uploads/receipts', express.static(path.join(__dirname, 'data', 'uploads', 'receipts')));

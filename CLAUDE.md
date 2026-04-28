@@ -1237,11 +1237,56 @@ Oprettes under Grocy → Manage master data → Userfields.
   - Fjernet `← →` pile og `📥📤` emojis — retning vises via boble-position
 - [x] Ændrede filer: `bon_kort.css`, `bon_kort.js`, `bon_drawer.js`, `modal.js`, `supplier_inbox.js`, `indkob.css`, `indkob.js`, `crm-kunde360.js`
 
+### Fase 14 — Booking-modul (komplet — M1–M12 + M5b/c)
+
+> Spec: `docs/CRM_Booking_Spec_v2.md` + rettelser i `docs/CRM_Booking_Spec_v2_PATCH.md`
+>
+> To separate offentlige flows der erstatter HubSpot-mødebooking:
+> - **Smagsprøve** (`tools/booking-smagning.html`) — kalender-baseret, konfigurerbare mødetyper
+> - **Kontakt** (`tools/booking-kontakt.html`) — formular uden kalender, opretter task på Ring-tilbage-listen
+
+- [x] Migration 051: `meeting_types`, `contact_reasons`, `booking_tokens`, `page_templates` + 7 nye kolonner på `crm_activities` (`meeting_type_id`, `contact_reason_id`, `duration_min`, `guest_count`, `event_type`, `booked_via`, `reminder_sent_at`)
+- [x] 4 mail-skabeloner seedet (`booking_smagning_confirmation`, `booking_smagning_reminder`, `booking_kontakt_confirmation`, `booking_internal_notification`) + 4 page-templates (intro/thankyou × 2)
+- [x] 18 booking-settings (slot-logik, ejer, tokens, erindring, master-toggles)
+- [x] `routes/booking.js` — public + admin endpoints
+  - `GET /meeting-types` + `/contact-reasons` + `/page-templates/:key` (returnerer `{available:false, reason}` ved disabled/unconfigured i stedet for 503 — patch P3)
+  - `GET /slots?date=&meeting_type=` (slot-beregning, 10/10 testcases)
+  - `POST /webhook/booking-smagning` + `POST /webhook/booking-kontakt` (CORS via samme middleware som web-orders)
+  - Admin CRUD for meeting_types/contact_reasons/page_templates (kun admin-rolle)
+- [x] `services/bookingMatcher.js` — `computeSlotsForDate()`, `isSlotStillFree()`, `matchOrCreateCustomer()`, `resolveSalesOwner()`
+  - Slot-beregning respekterer: blokerede ugedage, min/max dage frem, eksisterende meetings, buffer-zoner omkring bons (pickup_time/delivery_time)
+  - Race-condition guard: re-tjek + INSERT i transaction
+- [x] `tools/booking-smagning.html` — kalender med navigation, slot-grid, formular, intro/thankyou fra page_templates, localStorage pre-fill, honeypot
+- [x] `tools/booking-kontakt.html` — kontaktårsag-grid, formular, samme stil
+- [x] **Patch P1 anvendt**: `done_at IS NULL` som "planlagt", `result='callback'` for ring-tilbage tasks (matcher 019-skema og `v_callbacks_pending` view) — ingen `outcome`-kolonne tilføjet
+- [x] **Patch P2 anvendt**: race-condition guard + slot-algoritme med buffer-zoner mod bons
+- [x] **Patch P3 anvendt**: GET-endpoints returnerer 200 med `{available:false, reason}` i stedet for 503 (kun submit-webhooks 503'er)
+- [x] CRM Dashboard udvidet:
+  - `GET /api/crm/meetings/upcoming` endpoint
+  - "Kommende bookede møder"-panel (full-width, viser tid + kunde + mødetype + gæster + booking-kilde)
+  - Briefing-tæller "🤝 X bookede møder denne uge"
+  - SSE re-loader automatisk ved `crm_activity_created`
+- [x] CRM Kunde 360° udvidet:
+  - "Næste event"-stat inkluderer nu fremtidige meetings (ikke kun bons), prefixet med mødetype-emoji
+  - Meeting-aktiviteter i timeline er klikbare → modal med fuld detalje (status, dato, tid, varighed, mødetype, gæster, eventtype, booket via, sælger, besked + "Markér som afholdt"-knap)
+  - Timeline viser mødetidspunkt (🗓️ dato kl tid) i stedet for create-tidspunkt for meetings
+  - `PATCH /api/crm/activity/:id/done` endpoint (sætter `done_at`)
+  - `crm_activities`-query joiner nu `meeting_types` + `contact_reasons` for label/emoji
+- [x] Browser-verificeret end-to-end: kunde booker → DB → SSE → CRM Dashboard + Kunde 360° opdaterer live
+- [x] **M7 (komplet)**: `mailService.js` udvidet — `generateBookingToken()` med P4-idempotens (genbruger ubrugt token hvis udløb > `booking_token_reuse_min_days`) + `{{booking_link}}` rendering i `renderTemplate(body, vars, ctx)` + `sendFromTemplate` videregiver `bookingFlow`/`bookingIntent`/`smtpPrefix` (sidstnævnte fixer pre-eksisterende drop-bug så `routes/orders.js` rent faktisk bruger `kontakt@`). Mail-vars-builders + `sendInternalNotification` i `services/bookingMatcher.js`. Begge webhook-handlers sender nu kunde-bekræftelse via `kontakt@` med `#k-NNN` thread-tag og intern notif til sælger (springes ved token-flow + når `booking_notify_owner_enabled=0`). Verificeret via `scripts/test-m7a.js` (idempotens, link-rendering, manglende-context fallback) + `scripts/test-m7-bcd.js` (vars-builders, smagning + kontakt confirmation, intern notif inkl. token-flow + toggle-off).
+- [x] **M8 (komplet)**: Kort URL `GET /b/:token` (302 redirect til tools-siden + 410/400 for ukendt/ugyldigt token) i `routes/booking-redirect.js` mountet på `/b`. Token info-endpoint `GET /api/booking/token/:token` returnerer customer + intent_meeting_type + sales_user, bumper `open_count` + sætter `opened_at` (ikke ved redirect — kun ved JS-lookup, så ingen dobbelt-tælling). `tools/booking-smagning.html` + `tools/booking-kontakt.html` udvidet med token pre-fill (kontakt-felter + intent-mødetype auto-vælges + personlig velkomst-banner med title-cased navne). Token videregives ved submit → `handleSmagningBooking` + `handleKontaktBooking` sætter `booked_via='token_link'`, marker token forbrugt, springer intern notif over. `sendBookingMails` passer `userId: ownerId` til `sendFromTemplate` så `{{booking_link}}` i bekræftelsesmail bindes til samme sælger som håndterede bookingen. `mailService` rendrer `{{booking_link}}` som kort URL `${baseUrl}/b/${token}`. Verificeret via 24 asserts i `scripts/test-m8.js` (HTTP mod spawned server) + live-test mod hotmail/anne@ristetrug.dk med rigtig SMTP.
+- [x] **M9 (komplet)**: [scripts/booking-reminders.js](scripts/booking-reminders.js) cron-script + `buildReminderVars` helper i `services/bookingMatcher.js`. Scriptet kører hver hele time via cron, exit'er stille hvis `booking_reminder_enabled !== '1'` eller hvis nuværende time ≠ `booking_reminder_send_at_time`. Når den kører: finder smagning-meetings N dage frem (`booking_reminder_days_before`), filtrerer på `done_at IS NULL` + `reminder_sent_at IS NULL` + kunde har email, sender `booking_smagning_reminder` via `smtp_kontakt`, opdaterer `reminder_sent_at`. Cron-config (deploy): `0 * * * * cd /opt/bon-v2 && node --experimental-sqlite scripts/booking-reminders.js >> logs/reminders.log 2>&1`. Verificeret via 25 asserts i `scripts/test-m9.js`.
+- [x] **M10 (komplet)**: To nye admin-sektioner i [settings/index.html](settings/index.html) — "Booking — Smagsprøve" og "Booking — Kontakt". Smagsprøve indeholder: master-toggle + URL-display, mødetyper-tabel med inline CRUD (label/varighed/bookable/aktiv/ikon, +Ny), slot-logik (min/max dage, arbejdstid, granularitet, buffer før/efter event, spærrede ugedage), standardejer-dropdown fra users, public URL-base, token TTL + reuse, erindringsmail (toggle + dage før + sendetidspunkt), notifikations-toggle, page templates editor for `intro_smagning` + `thankyou_smagning`. Kontakt-sektion: master-toggle + URL, kontaktårsager-tabel (CRUD), page templates for `intro_kontakt` + `thankyou_kontakt`. Page-template editor har klikbare variabel-chips med tooltip-hints — klik indsætter `{{variabel}}` ved cursor i sidst-fokuserede felt (titel eller brødtekst), per-template-type variable-set (intro: firma-info, thankyou: booking-data). API-wrappers tilføjet i `shared/api.js`. Live UI-test bekræftet.
+- [x] **M11 (komplet)**: "📅 Indsæt booking-link"-knap + popover i [office/views/crm-kunde360.js](office/views/crm-kunde360.js) mail-compose. Popover indeholder flow-radio (Smagsprøve/Kontakt) + intent-dropdown (alle aktive mødetyper inkl. `is_bookable=0` med "sælger-only"-label). "Indsæt" placerer `{{booking_link}}` ved cursor i textarea + viser info-strip ved siden af knappen. Backend: `POST /api/customers/:id/mail` udvidet med `booking_flow` + `booking_intent_meeting_type`-params. Body kører gennem `renderTemplate(text, {}, { customerId, userId, bookingFlow, bookingIntent, appendSignature: false })` så `{{booking_link}}` substitueres til kort URL bundet til (kunde, sælger, flow, intent). Nyt endpoint `GET /api/booking/meeting-types/intent` (auth-required) returnerer alle aktive types til popoveren. Verificeret via 13 in-process asserts i `scripts/test-m11.js` + UI live-test.
+- [x] **M12 (komplet)**: End-to-end smoke-test ([scripts/test-booking-e2e.js](scripts/test-booking-e2e.js)) der binder hele flowet sammen i ét kald: sælger genererer link via `{{booking_link}}` → kunde klikker `/b/:token` → 302 → tools-side henter pre-fill via `/api/booking/token/:token` → kunde submitter → activity oprettet med `booked_via='token_link'` + token-konsumeret + intern notif sprunget over → 2 dage senere kører cron → reminder sendt + `reminder_sent_at` sat. 19 asserts. Hardening: `/api/booking/token/:token` logger advarsel når token rammer ≥20 opens (potentiel bot-probing) — endpointet spærres ikke, men gør usædvanlig aktivitet synlig i ops-loggen.
+
 ## Næste opgave
 
-> ✏️ Opdateret 14. april 2026.
+> ✏️ Opdateret 28. april 2026.
 >
 > **Fase 1a–1e + 3A + 3B + 3D + 4 + 5 + 6 (komplet inkl. 6g) + 7 (CRM) + Office CRM redesign + 8 (Fakturering) + 9 (Tilbud) + Mail-vedhæftninger + CRM service-kald + Firma-oprydning + 10 (Mobil Shell) + 10b (Roller & Rettigheder) + 11 (Ugeoversigt) + Priser i planlægningsbon + Hjælpesystem + Whiteboard Sidekick + Web-bestillinger (webhook) + Mail-skabelon management + 12 (Rapporter) + PIN-management + CVR-berigelse (653/1232 firmaer) + 13 (Cashflow) + Mail chat-boble layout komplet.**
+>
+> **Fase 14 — Booking-modul: KOMPLET (alle 14 milepæle).** End-to-end booking-flow verificeret fra sælger-mail → kunde-klik → submit → bekræftelse → reminder-cron. Sælgere kan indsætte personligt booking-link i CRM Kunde 360° fritekst-mail. Admins kan konfigurere alt via Settings (mødetyper, kontaktårsager, slot-logik, default-ejer, erindringsindstillinger, intro/thankyou-tekster). Cron-script `scripts/booking-reminders.js` kører hver hele time og sender erindringsmail N dage før møder. Hardening: usædvanlig token-aktivitet logges. Bon v2's booking-modul er klar til deploy.
 >
 > **Bon v1 er klar til nedlukning.**
 >
@@ -1257,6 +1302,10 @@ Oprettes under Grocy → Manage master data → Userfields.
 > - ~~CVR review~~ — 653 firmaer har CVR (429 auto + 224 manuelt reviewet). 77 CVR-duplikat-grupper er forventede (afdelinger under samme CVR). Yderligere review kan gøres via `tools/cvr-review.html`
 > - Inco credentials — til webshop-login (har også API, men bruges ikke endnu)
 > - `services/hokaAdapter.js` — bruges ikke af bestillingsflowet (erstattet af proxy-logik i `routes/horkram.js`). Review om den skal slettes eller beholdes til andre formål.
+> - **Booking-modul (Fase 14)**: ved deploy skal cron-job konfigureres: `0 * * * * cd /opt/bon-v2 && node --experimental-sqlite scripts/booking-reminders.js >> logs/reminders.log 2>&1` — scriptet exit'er stille hvis modulet er deaktiveret eller hvis time ikke matcher `booking_reminder_send_at_time`.
+> - **Booking-modul**: `booking_public_url_base` (settings-felt) skal sættes til `https://bon.ristetrug.dk` ved deploy — ellers virker `{{booking_link}}` ikke korrekt i mails. Konfigureres via Settings → Booking — Smagsprøve.
+> - **Booking-modul**: `booking_default_owner_user_id` skal sættes via Settings UI før public-flowet virker. Submit-webhooks 503'er ellers.
+> - **Booking-modul**: ved deploy skal `https://bon.ristetrug.dk` (eller den valgte URL hvor `tools/booking-*.html` hostes) tilføjes til `WEBHOOK_ALLOWED_ORIGINS` i `server.js` hvis kunden lander på et andet domæne (fx ristetrug.dk-iframe). I dag er ristetrug.dk allerede inkluderet.
 >
 > **Åbne design-beslutninger:**
 > - shared/-mappe opdeling i undermapper — udskydes til senere refaktorering
@@ -1326,6 +1375,23 @@ Oprettes under Grocy → Manage master data → Userfields.
 > - Sync-v1: `parseV1Date()` bruger lokale getters (ikke UTC `toISOString`) — v1 gemmer UTC men repræsenterer dansk lokal tid
 > - Planlægningsbon priser: salgspriser fra Grocy er INKL. moms (25%), kostpriser er EKSKL. moms — margin beregnes altid på salg u/moms vs. kostpris
 > - Planlægningsbon: moms-toggle (m/moms ↔ u/moms) på linje-priser, footer altid faktura-format (Netto, Moms 25%, Total inkl. moms, Kostpris, Margin %)
+> - Booking-modul: to separate flows (smagsprøve med kalender, kontakt uden kalender) — ikke ét generelt
+> - Booking-modul: bon = deal-mønstret fastholdes — booking opretter `crm_activity` med `type='meeting'` (smagsprøve) eller `type='task'` (kontakt). Ingen ny "bookings"-tabel.
+> - Booking-modul: `done_at IS NULL` udtrykker "planlagt" (matcher 019-skema og index `idx_crm_act_pending`). Spec'ens `outcome='planned'` blev IKKE implementeret — kolonnen findes ikke. Patch P1 i `docs/CRM_Booking_Spec_v2_PATCH.md`.
+> - Booking-modul: `result='callback'` for kontakt-tasks med reason `ring_op` — så de lander i `v_callbacks_pending` og dukker op på "Ring tilbage"-listen automatisk. Andre årsager får `result=NULL` (almindelige tasks).
+> - Booking-modul: `meeting_types` og `contact_reasons` er konfigurerbare opslagstabeller med `is_system`-flag (samme mønster som `activity_purposes`). System-typer kan ikke deaktiveres i UI. Public side filtrerer på `is_active=1 AND is_bookable=1` så admin kan skjule typer uden at slette.
+> - Booking-modul: takkesider og intro-tekster gemmes i `page_templates`-tabel med `{{variabel}}`-substitution (analog til `mail_templates`, men med `title` + `body_text`, ingen `subject`)
+> - Booking-modul: `tools/booking-smagning.html` + `tools/booking-kontakt.html` hostes i `tools/` (mønster-konsistent med `tools/bestilling (1).html`). Pænere URL via nginx reverse-proxy ved deploy uden kode-ændring.
+> - Booking-modul: GET-endpoints (meeting-types, contact-reasons, slots) returnerer `{available:false, reason}` i stedet for 503 ved disabled/unconfigured — kun submit-webhooks 503'er. Patch P3.
+> - Booking-modul: `/webhook/*` mountes med samme CORS-middleware som web-orders (allowed origins: ristetrug.dk + bestil-form.netlify.app). Ny path-prefix: `/webhook/booking-smagning` + `/webhook/booking-kontakt`.
+> - Booking-modul: race-condition guard i webhook — slot-tjek + INSERT i samme transaction (`db/compat.js` `transaction(db, fn)`). Patch P2.
+> - Booking-modul: slot-beregning respekterer dagens bons (pickup_time/delivery_time + buffer-zoner fra settings) + planlagte meetings. Algoritme i `services/bookingMatcher.js`.
+> - Booking-modul: `booking_default_owner_user_id` SKAL være sat før public submit-webhooks virker (returnerer 503). Public GET-endpoints viser bare `{available:false, reason:'unconfigured'}`.
+> - CRM Dashboard: nyt panel "Kommende bookede møder" (full-width, viser tid + kunde + mødetype + booking-kilde) + briefing-tæller "🤝 X bookede møder denne uge". SSE re-loader ved `crm_activity_created`.
+> - CRM Kunde 360°: meeting-aktiviteter er klikbare → modal med fuld detalje. Timeline viser `due_at` (mødetidspunkt) i stedet for `created_at` for meetings. "Næste event"-stat inkluderer både fremtidige bons og planlagte meetings.
+> - Booking-modul status (29. apr 2026): KOMPLET. M1–M12 + M5b/c implementeret og verificeret end-to-end via `scripts/test-booking-e2e.js`.
+> - Booking-modul M7 (28. apr 2026): `renderTemplate` blev holdt synkron (vs. spec'ens async) — `node:sqlite` + `crypto.randomBytes` er begge sync, så ingen kaskaderende async-spredning. `{{booking_link}}` fjernes uden synlige rester hvis `customerId` eller `booking_public_url_base` mangler (advarsel logges). Pre-eksisterende drop-bug i `sendFromTemplate({ smtpPrefix })` blev fixet som side-gevinst — tidligere faldt `routes/orders.js`'s `'smtp_kontakt'`-flag silent ned til `bon@`. Booking-bekræftelse + intern notif sendes via `smtp_kontakt` med thread-context `{ type: 'customer', number: customerId }` så `#k-NNN`-tag i subject sikrer korrekt IMAP-routing ved kundens svar.
+> - Booking-modul M8 (29. apr 2026): Kort URL-format valgt fremfor HTML-mails (spec sektion 12 fastholdes — plain-text kun). `/b/:token` mountes som standalone `routes/booking-redirect.js` på app-root, ikke som del af `bookingRouter` (ellers ville `/b/meeting-types` etc. utilsigtet være eksponeret). Open-tracking sker KUN i `GET /api/booking/token/:token` (kaldes af JS efter sidereload), ikke i `/b`-redirect — så vi ikke dobbelt-tæller når kunden lander via kort URL. `sendBookingMails` videregiver nu `userId: ownerId` til `sendFromTemplate` så bekræftelsesmailens `{{booking_link}}`-token bindes til samme sælger som håndterede bookingen → personlig "du booker hos X"-banner. Frontend-banner title-caser fornavne (`leif` → `Leif`) for visningen. Mødetyper med `is_bookable=0` (gennemgang, smagning_gennemgang) er bevidst skjult fra public siden — de eksisterer som mødetyper for sælgere men kan ikke vælges af kunder online; sælgers token-intent vil pege på en bookable type.
 
 ---
 
@@ -1701,6 +1767,25 @@ DELETE /api/cashflow/match/:txId                           routes/cashflow.js (a
 GET    /api/cashflow/analyse                               routes/cashflow.js (admin)
 GET    /api/cashflow/payment-behavior                      routes/cashflow.js (admin)
 GET    /api/cashflow/upcoming                              routes/cashflow.js (admin)
+GET    /api/booking/meeting-types                           routes/booking.js (public)
+GET    /api/booking/contact-reasons                         routes/booking.js (public)
+GET    /api/booking/page-templates/:key                     routes/booking.js (public)
+GET    /api/booking/slots?date=&meeting_type=               routes/booking.js (public)
+GET    /api/booking/token/:token                            routes/booking.js (public, bumper open_count)
+GET    /api/booking/meeting-types/intent                    routes/booking.js (auth, alle aktive types til CRM popover)
+GET    /b/:token                                            routes/booking-redirect.js (302 → tools-side)
+POST   /webhook/booking-smagning                            routes/booking.js (public, CORS)
+POST   /webhook/booking-kontakt                             routes/booking.js (public, CORS)
+GET    /api/booking/admin/meeting-types                     routes/booking.js (admin)
+POST   /api/booking/admin/meeting-types                     routes/booking.js (admin)
+PATCH  /api/booking/admin/meeting-types/:id                 routes/booking.js (admin)
+GET    /api/booking/admin/contact-reasons                   routes/booking.js (admin)
+POST   /api/booking/admin/contact-reasons                   routes/booking.js (admin)
+PATCH  /api/booking/admin/contact-reasons/:id               routes/booking.js (admin)
+GET    /api/booking/admin/page-templates                    routes/booking.js (admin)
+PATCH  /api/booking/admin/page-templates/:key               routes/booking.js (admin)
+GET    /api/crm/meetings/upcoming?days=&limit=              routes/crm.js
+PATCH  /api/crm/activity/:id/done                           routes/crm.js
 ```
 
 ---

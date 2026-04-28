@@ -1,0 +1,489 @@
+<!DOCTYPE html>
+<html lang="da">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Ristet Rug — Kontakt os</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link href="https://fonts.googleapis.com/css2?family=Lato:wght@400;600;700&family=Playfair+Display:wght@600&display=swap" rel="stylesheet">
+  <style>
+    :root {
+      --brand:       #8e631f;
+      --brand-light: #f5eddd;
+      --brand-dark:  #6b4a16;
+      --text:        #2c3e50;
+      --text-muted:  #6b7280;
+      --border:      #ddd;
+      --focus:       #8e631f;
+      --err:         #dc2626;
+    }
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+
+    body {
+      font-family: 'Lato', sans-serif;
+      background: #f9f7f4;
+      color: var(--text);
+      padding: 2rem 1rem;
+      min-height: 100vh;
+    }
+
+    .form-wrap {
+      max-width: 620px;
+      margin: 0 auto;
+      background: #fff;
+      border-radius: 12px;
+      box-shadow: 0 4px 24px rgba(0,0,0,.08);
+      overflow: hidden;
+    }
+
+    .form-head {
+      background: var(--brand);
+      color: #fff;
+      text-align: center;
+      padding: 2rem 2rem 1.5rem;
+    }
+    .form-head img.logo { height: 56px; margin-bottom: .75rem; }
+    .form-head h1 {
+      font-family: 'Playfair Display', serif;
+      font-size: 1.7rem; font-weight: 600;
+      margin-bottom: .35rem;
+    }
+    .form-head p { font-size: .92rem; opacity: .9; line-height: 1.5; }
+
+    .form-body { padding: 2rem; }
+
+    .section-label {
+      font-size: .7rem; font-weight: 700;
+      letter-spacing: .08em; text-transform: uppercase;
+      color: var(--brand);
+      margin: 1.75rem 0 1rem;
+      padding-bottom: .4rem;
+      border-bottom: 1px solid var(--brand-light);
+    }
+    .section-label:first-child { margin-top: 0; }
+
+    /* Reason-kort */
+    .rs-grid {
+      display: grid;
+      grid-template-columns: repeat(3, 1fr);
+      gap: .8rem;
+    }
+    @media (max-width: 540px) { .rs-grid { grid-template-columns: 1fr; } }
+    .rs-card {
+      border: 2px solid var(--border);
+      border-radius: 10px;
+      padding: 1rem .75rem;
+      cursor: pointer;
+      transition: all .15s;
+      background: #fff;
+      text-align: center;
+    }
+    .rs-card:hover { border-color: var(--brand); transform: translateY(-2px); }
+    .rs-card.selected {
+      border-color: var(--brand);
+      background: var(--brand-light);
+    }
+    .rs-card .emoji { font-size: 1.8rem; line-height: 1; margin-bottom: .35rem; }
+    .rs-card .label { font-weight: 700; font-size: .95rem; margin-bottom: .25rem; }
+    .rs-card .desc  { font-size: .78rem; color: var(--text-muted); line-height: 1.3; }
+
+    /* Felter */
+    .field { margin-bottom: 1.1rem; }
+    .field label {
+      display: block; font-weight: 600; font-size: .87rem;
+      margin-bottom: .35rem;
+    }
+    .field label .req { color: var(--err); }
+    .field input, .field textarea {
+      width: 100%;
+      padding: .68rem .85rem;
+      border: 2px solid var(--border);
+      border-radius: 8px;
+      font-family: inherit; font-size: .94rem;
+      background: #fff; color: var(--text);
+      transition: border-color .15s;
+    }
+    .field input:focus, .field textarea:focus {
+      outline: none; border-color: var(--focus);
+    }
+    .field textarea { min-height: 100px; resize: vertical; }
+    .field-error input, .field-error textarea {
+      border-color: var(--err);
+      background: #fef2f2;
+    }
+    .field-row {
+      display: grid; grid-template-columns: 1fr 1fr; gap: .85rem;
+    }
+    @media (max-width: 460px) { .field-row { grid-template-columns: 1fr; } }
+
+    .hp-field { position: absolute; left: -9999px; top: -9999px; }
+
+    .submit-btn {
+      display: block; width: 100%;
+      background: var(--brand); color: #fff;
+      border: none;
+      padding: 1rem;
+      font-family: inherit; font-size: 1rem; font-weight: 700;
+      border-radius: 8px;
+      cursor: pointer;
+      margin-top: 1.25rem;
+      transition: background .15s;
+    }
+    .submit-btn:hover:not(:disabled) { background: var(--brand-dark); }
+    .submit-btn:disabled { opacity: .55; cursor: not-allowed; }
+    .submit-btn.loading { opacity: .65; }
+
+    .hidden { display: none; }
+
+    .thank-you { padding: 3rem 2rem; text-align: center; }
+    .thank-you h2 {
+      font-family: 'Playfair Display', serif;
+      font-size: 1.8rem; color: var(--brand); margin-bottom: 1rem;
+    }
+    .thank-you .body {
+      font-size: 1rem; line-height: 1.6;
+      color: var(--text); white-space: pre-line;
+    }
+
+    .err-banner {
+      background: #fef2f2; border: 1px solid #fca5a5;
+      border-radius: 8px; padding: 1rem; margin-top: 1rem;
+      color: var(--err); font-size: .92rem;
+    }
+
+    .unavailable { padding: 3rem 2rem; text-align: center; color: var(--text-muted); }
+    .unavailable h2 {
+      font-family: 'Playfair Display', serif;
+      color: var(--brand); margin-bottom: 1rem; font-size: 1.4rem;
+    }
+  </style>
+</head>
+<body>
+
+<div class="form-wrap">
+
+  <div class="form-head">
+    <img class="logo" src="/assets/logo.svg" alt="Ristet Rug" onerror="this.style.display='none'">
+    <h1 id="intro-title">Kontakt os</h1>
+    <p  id="intro-body">Send os en besked, så vender vi tilbage hurtigst muligt.</p>
+  </div>
+
+  <div id="unavailable" class="unavailable hidden">
+    <h2>Kontaktformularen er ikke tilgængelig</h2>
+    <p>Du er velkommen til at ringe til os på <strong>+45 50 50 50 50</strong> eller skrive til <strong>kontakt@ristetrug.dk</strong>.</p>
+  </div>
+
+  <form id="kontakt-form" class="form-body" novalidate>
+
+    <div class="hp-field"><input type="text" name="website" tabindex="-1" autocomplete="off"></div>
+
+    <div class="section-label">Hvad drejer det sig om?</div>
+    <div id="rs-grid" class="rs-grid"></div>
+
+    <div id="step-fields" class="hidden">
+      <div class="section-label">Dine oplysninger</div>
+
+      <div class="field-row">
+        <div class="field">
+          <label>Fornavn <span class="req">*</span></label>
+          <input type="text" name="first_name" id="first_name" required autocomplete="given-name">
+        </div>
+        <div class="field">
+          <label>Efternavn</label>
+          <input type="text" name="last_name" id="last_name" autocomplete="family-name">
+        </div>
+      </div>
+
+      <div class="field-row">
+        <div class="field">
+          <label>Email <span class="req">*</span></label>
+          <input type="email" name="email" id="email" required autocomplete="email">
+        </div>
+        <div class="field">
+          <label>Telefon</label>
+          <input type="tel" name="phone" id="phone" autocomplete="tel">
+        </div>
+      </div>
+
+      <div class="field">
+        <label>Firma <span style="color:var(--text-muted);font-weight:400">(valgfri)</span></label>
+        <input type="text" name="company" id="company" autocomplete="organization">
+      </div>
+
+      <div class="field">
+        <label>Besked</label>
+        <textarea name="message" id="message" placeholder="Skriv din besked her…"></textarea>
+      </div>
+
+      <button type="submit" id="submit-btn" class="submit-btn" disabled>Send besked</button>
+      <div id="err-banner" class="err-banner hidden"></div>
+    </div>
+
+  </form>
+
+  <div id="thank-you" class="thank-you hidden">
+    <h2 id="thank-title">Tak!</h2>
+    <div class="body" id="thank-body"></div>
+  </div>
+
+</div>
+
+<script>
+'use strict';
+
+const CFG = {
+  apiBase:    '/api/booking',
+  webhookUrl: '/webhook/booking-kontakt',
+  rememberKey: 'rr_booking_kontakt_v1'
+};
+
+const state = {
+  reasons: [],
+  selectedReason: null,
+  thankyouTpl: null,
+  token: null,         // ?t=TOKEN i URL
+  tokenInfo: null
+};
+
+async function init() {
+  try {
+    const r = await fetch(CFG.apiBase + '/contact-reasons');
+    const data = await r.json();
+    if (!data.available || !data.contact_reasons?.length) {
+      document.getElementById('kontakt-form').classList.add('hidden');
+      document.getElementById('unavailable').classList.remove('hidden');
+      return;
+    }
+    state.reasons = data.contact_reasons;
+    renderReasons();
+
+    fetch(CFG.apiBase + '/page-templates/intro_kontakt')
+      .then(r => r.ok ? r.json() : null)
+      .then(t => {
+        if (!t) return;
+        if (t.title)     document.getElementById('intro-title').textContent = t.title;
+        if (t.body_text) document.getElementById('intro-body').textContent  = t.body_text;
+      })
+      .catch(() => {});
+
+    fetch(CFG.apiBase + '/page-templates/thankyou_kontakt')
+      .then(r => r.ok ? r.json() : null)
+      .then(t => { state.thankyouTpl = t; })
+      .catch(() => {});
+
+    loadSavedFields();
+
+    // Token pre-fill (M8) — overskriver localStorage med data fra DB
+    const urlParams = new URLSearchParams(window.location.search);
+    const token = urlParams.get('t');
+    if (token) {
+      await loadTokenInfo(token);
+    }
+  } catch (err) {
+    console.error('[booking-kontakt] init fejl', err);
+    document.getElementById('kontakt-form').classList.add('hidden');
+    document.getElementById('unavailable').classList.remove('hidden');
+  }
+}
+
+function renderReasons() {
+  const grid = document.getElementById('rs-grid');
+  grid.innerHTML = state.reasons.map(r => `
+    <div class="rs-card" data-key="${r.key}">
+      <div class="emoji">${r.emoji || '💬'}</div>
+      <div class="label">${escapeHtml(r.label)}</div>
+      <div class="desc">${escapeHtml(r.description || '')}</div>
+    </div>
+  `).join('');
+
+  grid.querySelectorAll('.rs-card').forEach(card => {
+    card.addEventListener('click', () => selectReason(card.dataset.key));
+  });
+}
+
+function selectReason(key) {
+  state.selectedReason = state.reasons.find(r => r.key === key);
+  document.querySelectorAll('.rs-card').forEach(c => {
+    c.classList.toggle('selected', c.dataset.key === key);
+  });
+  document.getElementById('step-fields').classList.remove('hidden');
+  document.getElementById('submit-btn').disabled = false;
+  document.getElementById('first_name').focus();
+}
+
+// ============================================================
+// TOKEN PRE-FILL (M8)
+// ============================================================
+async function loadTokenInfo(token) {
+  try {
+    const r = await fetch(CFG.apiBase + '/token/' + encodeURIComponent(token));
+    if (r.status === 404 || r.status === 410) {
+      const reason = r.status === 410 ? 'Linket er udløbet' : 'Linket er ikke længere gyldigt';
+      showTokenBanner(reason + ' — du kan stadig sende din henvendelse nedenfor.', 'warn');
+      return;
+    }
+    if (!r.ok) return;
+    const info = await r.json();
+    state.token = token;
+    state.tokenInfo = info;
+    if (info.customer) {
+      const c = info.customer;
+      const set = (id, val) => { const el = document.getElementById(id); if (el && val) el.value = val; };
+      set('first_name', c.first_name);
+      set('last_name',  c.last_name);
+      set('email',      c.email);
+      set('phone',      c.phone);
+      set('company',    c.company?.name);
+    }
+    let greeting = 'Velkommen';
+    if (info.customer?.first_name) greeting += ' ' + titleCase(info.customer.first_name);
+    if (info.sales_user?.name)     greeting += ` — du skriver til ${titleCase(info.sales_user.name)}`;
+    showTokenBanner(greeting + '.', 'info');
+  } catch (err) {
+    console.warn('[booking-kontakt] token pre-fill fejlede:', err);
+  }
+}
+
+function titleCase(s) {
+  return String(s ?? '').toLowerCase().replace(/(^|\s|-)(\p{L})/gu, (_, sep, ch) => sep + ch.toUpperCase());
+}
+
+function showTokenBanner(text, level) {
+  let el = document.getElementById('token-banner');
+  if (!el) {
+    el = document.createElement('div');
+    el.id = 'token-banner';
+    el.style.cssText = 'margin:0 2rem 1rem;padding:.75rem 1rem;border-radius:8px;font-size:.95rem;line-height:1.4;';
+    const form = document.getElementById('kontakt-form');
+    form.parentNode.insertBefore(el, form);
+  }
+  if (level === 'warn') {
+    el.style.background = '#fff7e6'; el.style.color = '#7a4f00'; el.style.border = '1px solid #f6c97a';
+  } else {
+    el.style.background = '#f5eddd'; el.style.color = '#6b4a16'; el.style.border = '1px solid #d9c8a4';
+  }
+  el.textContent = text;
+}
+
+const REMEMBER_FIELDS = ['first_name','last_name','email','phone','company'];
+
+function loadSavedFields() {
+  try {
+    const saved = JSON.parse(localStorage.getItem(CFG.rememberKey) || '{}');
+    REMEMBER_FIELDS.forEach(id => {
+      const el = document.getElementById(id);
+      if (el && saved[id]) el.value = saved[id];
+    });
+  } catch {}
+}
+
+function saveFields() {
+  try {
+    const obj = {};
+    REMEMBER_FIELDS.forEach(id => {
+      const el = document.getElementById(id);
+      if (el?.value?.trim()) obj[id] = el.value.trim();
+    });
+    localStorage.setItem(CFG.rememberKey, JSON.stringify(obj));
+  } catch {}
+}
+
+function validateForm() {
+  document.querySelectorAll('.field-error').forEach(el => el.classList.remove('field-error'));
+  let firstError = null;
+  let valid = true;
+  document.querySelectorAll('#kontakt-form [required]').forEach(inp => {
+    if (!inp.value?.trim()) {
+      const f = inp.closest('.field');
+      if (f) f.classList.add('field-error');
+      if (!firstError) firstError = inp;
+      valid = false;
+    }
+  });
+  if (firstError) {
+    firstError.focus();
+    firstError.scrollIntoView({ behavior: 'smooth', block: 'center' });
+  }
+  return valid;
+}
+
+document.getElementById('kontakt-form').addEventListener('input', e => {
+  const f = e.target.closest('.field');
+  if (f) f.classList.remove('field-error');
+});
+
+document.getElementById('kontakt-form').addEventListener('submit', async e => {
+  e.preventDefault();
+  const hp = document.querySelector('input[name="website"]');
+  if (hp?.value) return;
+  if (!state.selectedReason) return;
+  if (!validateForm()) return;
+
+  const btn = document.getElementById('submit-btn');
+  btn.classList.add('loading'); btn.disabled = true;
+  document.getElementById('err-banner').classList.add('hidden');
+
+  const fd = new FormData(e.target);
+  const data = Object.fromEntries(fd.entries());
+  delete data.website;
+  data.reason = state.selectedReason.key;
+  data.submittedAt = new Date().toISOString();
+  if (state.token) data.token = state.token;
+
+  saveFields();
+
+  try {
+    const res = await fetch(CFG.webhookUrl, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(data)
+    });
+    if (!res.ok) throw new Error('Server svarede ' + res.status);
+    showThankYou(data);
+  } catch (err) {
+    btn.classList.remove('loading');
+    btn.disabled = false;
+    const banner = document.getElementById('err-banner');
+    banner.innerHTML = '⚠️ Der opstod en fejl. Prøv igen om lidt, eller skriv direkte til <a href="mailto:kontakt@ristetrug.dk">kontakt@ristetrug.dk</a>.';
+    banner.classList.remove('hidden');
+  }
+});
+
+function showThankYou(data) {
+  document.getElementById('kontakt-form').classList.add('hidden');
+  const thanks = document.getElementById('thank-you');
+
+  const vars = {
+    kundeFornavn: data.first_name || '',
+    kundeNavn:    [data.first_name, data.last_name].filter(Boolean).join(' '),
+    firmaNavn:    data.company || '',
+    kontaktAarsagLabel: state.selectedReason?.label || ''
+  };
+
+  if (state.thankyouTpl) {
+    document.getElementById('thank-title').textContent = renderTpl(state.thankyouTpl.title || 'Tak!', vars);
+    document.getElementById('thank-body').textContent  = renderTpl(state.thankyouTpl.body_text || '', vars);
+  } else {
+    document.getElementById('thank-title').textContent = 'Tak ' + (data.first_name || '') + '!';
+    document.getElementById('thank-body').textContent  = 'Vi har modtaget din henvendelse og vender tilbage hurtigst muligt.';
+  }
+
+  thanks.classList.remove('hidden');
+  window.scrollTo({ top: 0, behavior: 'smooth' });
+}
+
+function renderTpl(tpl, vars) {
+  return tpl.replace(/\{\{(\w+)\}\}/g, (_, k) => vars[k] ?? '');
+}
+
+function escapeHtml(s) {
+  return String(s ?? '').replace(/[&<>"']/g, c =>
+    ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c])
+  );
+}
+
+init();
+</script>
+
+</body>
+</html>

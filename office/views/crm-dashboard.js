@@ -251,6 +251,14 @@ function _crmRenderShell() {
             .crm-svc-customer { cursor: pointer; }
             .crm-svc-customer:hover { text-decoration: underline; }
             .crm-svc-meta { font-size: 11px; color: var(--color-text-dim, #888); white-space: nowrap; }
+            .crm-svc-last-sent {
+                display: inline-block; padding: 1px 6px; border-radius: 10px;
+                font-size: 13px; line-height: 1; vertical-align: middle;
+                border: 1px solid transparent; cursor: help;
+            }
+            .crm-svc-last-sent.s-positive { background: var(--color-sentiment-pos-bg, #E6F7F0); border-color: var(--color-sentiment-pos, #2E9E6B); }
+            .crm-svc-last-sent.s-neutral  { background: var(--color-sentiment-neu-bg, #FBF3E2); border-color: var(--color-sentiment-neu, #C8962A); }
+            .crm-svc-last-sent.s-negative { background: var(--color-sentiment-neg-bg, #FBE9E9); border-color: var(--color-sentiment-neg, #C94040); }
             .crm-svc-days { font-size: 10px; padding: 2px 8px; border-radius: 10px; font-weight: 700; white-space: nowrap; }
             .crm-svc-days.d-ok { background: #e8f2dc; color: #3d7a0a; }
             .crm-svc-days.d-warn { background: #fef3cd; color: #856404; }
@@ -360,6 +368,11 @@ function _crmRenderShell() {
                 <div id="crmServiceCallsList"></div>
             </div>
 
+            <div class="crm-card" style="grid-column: 1 / -1;" id="crmMeetings">
+                <h3>🤝 Kommende bookede møder</h3>
+                <div id="crmMeetingsList"></div>
+            </div>
+
             <div class="crm-card" id="crmActivityPanel">
                 <h3>🔀 Seneste aktivitet</h3>
                 <div id="crmActivityList"></div>
@@ -398,13 +411,14 @@ async function _crmLoadData() {
     if (!_crmActive) return;
 
     try {
-        const [stats, briefing, suggestions, serviceCalls, callbacks, callLog] = await Promise.all([
+        const [stats, briefing, suggestions, serviceCalls, callbacks, callLog, meetings] = await Promise.all([
             fetchCrmStats(),
             fetchCrmBriefing(),
             fetchCrmSuggestions(),
             fetchCrmServiceCalls(7),
             fetchCrmCallbacks(),
             fetchCrmCallLog({ limit: 6 }),
+            fetchCrmUpcomingMeetings({ days: 30, limit: 10 }),
         ]);
 
         _crmRenderKPIs(stats);
@@ -412,6 +426,7 @@ async function _crmLoadData() {
         _crmRenderSuggestions(suggestions);
         _crmRenderServiceCalls(serviceCalls);
         _crmRenderCallbacks(callbacks);
+        _crmRenderUpcomingMeetings(meetings);
         _crmRenderActivityFeed(Array.isArray(callLog) ? callLog : (callLog.rows || []));
         _crmLoadPipeline('');
     } catch (err) {
@@ -510,6 +525,9 @@ function _crmRenderServiceCalls(calls) {
         return;
     }
 
+    const sentimentEmojiMap = { positive: '😊', neutral: '😐', negative: '😟' };
+    const sentimentLabelMap = { positive: 'Seneste: God', neutral: 'Seneste: Neutral', negative: 'Seneste: Dårlig' };
+
     el.innerHTML = calls.map((c, i) => {
         const phone = (c.customer_phone || '').replace(/\s/g, '');
         const email = c.customer_email || '';
@@ -520,6 +538,9 @@ function _crmRenderServiceCalls(calls) {
         if (c.pax) paxUnits.push(c.pax + ' pax');
         if (c.total_units) paxUnits.push(c.total_units + ' enh.');
         const priceStr = c.total_price ? Math.round(c.total_price).toLocaleString('da-DK') + ' kr' : '';
+        const lastSentEmoji = sentimentEmojiMap[c.last_sentiment] || '';
+        const lastSentLabel = sentimentLabelMap[c.last_sentiment] || '';
+        const lastSentDate = c.last_sentiment_at ? (' (' + c.last_sentiment_at.substring(0, 10) + ')') : '';
 
         return '<div class="crm-svc-item" id="crmSvc' + i + '">' +
             '<div class="crm-svc-top">' +
@@ -528,6 +549,10 @@ function _crmRenderServiceCalls(calls) {
                     '<span class="crm-svc-customer" onclick="_crmOpenKunde(' + c.customer_id + ')">' +
                         c.customer_name + (c.company_name ? ' · ' + c.company_name : '') +
                     '</span>' +
+                    (lastSentEmoji ?
+                        ' <span class="crm-svc-last-sent s-' + c.last_sentiment + '" title="' + lastSentLabel + lastSentDate + '">' +
+                            lastSentEmoji +
+                        '</span>' : '') +
                     (paxUnits.length || priceStr ?
                         '<span class="crm-svc-meta" style="margin-left:8px;">' +
                             (paxUnits.join(' / ') + (priceStr ? ' · ' + priceStr : '')) +
@@ -627,8 +652,8 @@ function _crmOpenLogForm(idx, customerId, bonId) {
                 '<button class="crm-svc-result-btn" data-r="callback" onclick="_crmSelResult(this)">⏎ Callback</button>' +
                 '<button class="crm-svc-result-btn" data-r="email_instead" onclick="_crmSelResult(this)">✉️ Mail</button>' +
             '</div>' +
-            '<div id="crmSvcSentiment' + idx + '" style="display:none;">' +
-                '<label>Stemning</label>' +
+            '<div id="crmSvcSentiment' + idx + '">' +
+                '<label>Stemning <span style="font-weight:400;text-transform:none;letter-spacing:0;opacity:.7;">(valgfrit)</span></label>' +
                 '<div class="crm-svc-sentiment-btns">' +
                     '<button class="crm-svc-sentiment-btn" data-s="positive" onclick="_crmSelSentiment(this)">😊 God</button>' +
                     '<button class="crm-svc-sentiment-btn" data-s="neutral" onclick="_crmSelSentiment(this)">😐 Neutral</button>' +
@@ -649,11 +674,7 @@ function _crmSelResult(btn) {
     if (!container) return;
     container.querySelectorAll('.crm-svc-result-btn').forEach(b => b.classList.remove('active'));
     btn.classList.add('active');
-    // Show sentiment for reached/callback
-    const r = btn.dataset.r;
-    const sentimentEl = container.querySelector('[id^="crmSvcSentiment"]');
-    if (sentimentEl) sentimentEl.style.display = (r === 'reached' || r === 'callback') ? 'block' : 'none';
-    // Enable save button
+    // Sentiment er altid tilgængeligt — uanset resultat-valg
     const saveBtn = container.querySelector('[id^="crmSvcSaveBtn"]');
     if (saveBtn) saveBtn.disabled = false;
 }
@@ -737,6 +758,63 @@ function _crmRenderCallbacks(data) {
             '<span class="crm-cb-badge ' + badgeClass + '">' + badgeText + '</span>' +
         '</div>';
     }).join('');
+}
+
+function _crmRenderUpcomingMeetings(items) {
+    const el = document.getElementById('crmMeetingsList');
+    if (!el) return;
+    const list = Array.isArray(items) ? items : [];
+    if (!list.length) {
+        el.innerHTML = '<div class="crm-empty">Ingen kommende bookede møder</div>';
+        return;
+    }
+
+    const dayNames = ['søn','man','tir','ons','tor','fre','lør'];
+    const sourceBadge = {
+        public_smagning: { label: 'Online', cls: 'progress' },
+        public_kontakt:  { label: 'Online', cls: 'progress' },
+        token_link:      { label: 'Mail-link', cls: 'insight' },
+        internal:        { label: 'Intern',    cls: 'motivation' }
+    };
+
+    el.innerHTML = list.map(m => {
+        const due = new Date(m.due_at);
+        const isValid = !isNaN(due.getTime());
+        const dayLabel = isValid ? dayNames[due.getDay()] + '. d. ' + due.getDate() + '/' + (due.getMonth()+1) : '';
+        const timeLabel = isValid
+            ? String(due.getHours()).padStart(2,'0') + ':' + String(due.getMinutes()).padStart(2,'0')
+            : '';
+        const dur = m.duration_min ? ' (' + m.duration_min + ' min)' : '';
+        const mtLabel = (m.meeting_type_emoji ? m.meeting_type_emoji + ' ' : '') + (m.meeting_type_label || 'Møde');
+        const customerName = [m.first_name, m.last_name].filter(Boolean).join(' ') || 'Ukendt';
+        const co = m.company_name ? ' · ' + escapeHtml(m.company_name) : '';
+        const guest = m.guest_count ? ' · ' + m.guest_count + ' gæster' : '';
+        const evtype = m.event_type ? ' · ' + escapeHtml(m.event_type) : '';
+        const owner = m.owner_name ? ' · ' + escapeHtml(m.owner_name) : '';
+        const src = sourceBadge[m.booked_via];
+        const srcHtml = src ? '<span class="crm-briefing-type ' + src.cls + '" style="margin-left:8px">' + src.label + '</span>' : '';
+
+        return '<div class="crm-mt-row" style="display:flex;align-items:center;gap:12px;padding:10px 0;border-bottom:1px solid var(--color-border,#eee);font-size:13px;">' +
+            '<div style="font-family:var(--font-heading,\'Playfair Display\',serif);font-size:18px;font-weight:700;color:var(--brand-primary,#8e631f);min-width:90px;">' +
+                escapeHtml(timeLabel) + '<span style="font-size:11px;color:var(--color-text-dim,#888);font-weight:400;margin-left:4px">' + escapeHtml(dayLabel) + '</span>' +
+            '</div>' +
+            '<div style="flex:1;min-width:0;">' +
+                '<div style="font-weight:600;cursor:pointer" onclick="_crmOpenKunde(' + (m.customer_id || '') + ')">' +
+                    escapeHtml(customerName) + escapeHtml(co) +
+                '</div>' +
+                '<div style="font-size:12px;color:var(--color-text-dim,#888)">' +
+                    escapeHtml(mtLabel) + dur + escapeHtml(guest) + escapeHtml(evtype) + escapeHtml(owner) +
+                '</div>' +
+            '</div>' +
+            srcHtml +
+        '</div>';
+    }).join('');
+}
+
+function escapeHtml(s) {
+    return String(s ?? '').replace(/[&<>"']/g, c =>
+        ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c])
+    );
 }
 
 function _crmRenderActivityFeed(items) {

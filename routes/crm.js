@@ -68,6 +68,37 @@ router.get('/stats', handle((req, res) => {
     res.json(stats);
 }));
 
+// ─── GET /meetings/upcoming ─────────────────────────────────
+// Kommende bookede møder (planlagte, ikke afsluttede).
+router.get('/meetings/upcoming', handle((req, res) => {
+    const db = getDb();
+    const days = parseInt(req.query.days) || 30;
+    const limit = parseInt(req.query.limit) || 20;
+
+    const rows = db.prepare(`
+        SELECT a.id, a.due_at, a.duration_min, a.guest_count, a.event_type,
+               a.text, a.booked_via, a.created_at,
+               a.customer_id, a.owner_user_id,
+               c.first_name, c.last_name, c.email, c.phone,
+               co.id AS company_id, co.name AS company_name,
+               mt.label AS meeting_type_label, mt.emoji AS meeting_type_emoji,
+               u.name AS owner_name
+        FROM crm_activities a
+        JOIN customers c ON c.id = a.customer_id
+        LEFT JOIN companies co ON co.id = c.company_id
+        LEFT JOIN meeting_types mt ON mt.id = a.meeting_type_id
+        LEFT JOIN users u ON u.id = a.owner_user_id
+        WHERE a.type = 'meeting'
+          AND a.done_at IS NULL
+          AND DATE(a.due_at) >= date('now')
+          AND DATE(a.due_at) <= date('now', '+' || ? || ' days')
+        ORDER BY a.due_at ASC
+        LIMIT ?
+    `).all(days, limit);
+
+    res.json(rows);
+}));
+
 // ─── GET /briefing ──────────────────────────────────────────
 router.get('/briefing', handle((req, res) => {
     const db = getDb();
@@ -78,6 +109,17 @@ router.get('/briefing', handle((req, res) => {
 
     const cb = db.prepare("SELECT COUNT(*) as c FROM v_callbacks_pending").get().c;
     if (cb > 0) items.push({ icon: '🔔', text: cb + ' callback' + (cb > 1 ? 's' : '') + ' at følge op', type: 'action', link: 'callbacks' });
+
+    const upcomingMeetings = db.prepare(`
+        SELECT COUNT(*) as c FROM crm_activities
+        WHERE type = 'meeting' AND done_at IS NULL
+          AND DATE(due_at) BETWEEN date('now') AND date('now', '+7 days')
+    `).get().c;
+    if (upcomingMeetings > 0) items.push({
+        icon: '🤝',
+        text: upcomingMeetings + ' bookede møder' + (upcomingMeetings === 1 ? '' : '') + ' denne uge',
+        type: 'action', link: 'meetings'
+    });
 
     const overdue = db.prepare(`
         SELECT
@@ -530,10 +572,14 @@ router.get('/customer/:id', handle((req, res) => {
     `).all(id);
 
     const activities = db.prepare(`
-        SELECT a.*, u.name as user_name, b.bon_number
+        SELECT a.*, u.name as user_name, b.bon_number,
+               mt.label AS meeting_type_label, mt.emoji AS meeting_type_emoji,
+               cr.label AS contact_reason_label, cr.emoji AS contact_reason_emoji
         FROM crm_activities a
         LEFT JOIN users u ON a.owner_user_id = u.id
         LEFT JOIN bons b ON a.bon_id = b.id
+        LEFT JOIN meeting_types mt ON mt.id = a.meeting_type_id
+        LEFT JOIN contact_reasons cr ON cr.id = a.contact_reason_id
         WHERE a.customer_id = ?
         ORDER BY a.created_at DESC LIMIT 20
     `).all(id);
@@ -621,6 +667,19 @@ router.post('/activity', handle((req, res) => {
 
     broadcast('crm_activity_created', { id: activityId, customer_id, bon_id, type });
     res.json({ id: activityId, ok: true });
+}));
+
+// ─── PATCH /activity/:id/done ───────────────────────────────
+// Markér aktivitet som afholdt/afsluttet (sætter done_at).
+router.patch('/activity/:id/done', handle((req, res) => {
+    const db = getDb();
+    const id = parseInt(req.params.id);
+    const a = db.prepare('SELECT id, customer_id FROM crm_activities WHERE id = ?').get(id);
+    if (!a) return res.status(404).json({ error: 'Aktivitet ikke fundet' });
+
+    db.prepare("UPDATE crm_activities SET done_at = CURRENT_TIMESTAMP WHERE id = ?").run(id);
+    broadcast('crm_activity_updated', { id, customer_id: a.customer_id });
+    res.json({ ok: true });
 }));
 
 // ─── PATCH /customer/:id/stage ──────────────────────────────
