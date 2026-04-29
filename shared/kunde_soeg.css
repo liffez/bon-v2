@@ -8,8 +8,14 @@
 
 /* ── Søgefelt ──────────────────────────────────────────── */
 
+.ks-search-row {
+    display: flex;
+    gap: 0.5rem;
+    align-items: stretch;
+}
+
 .ks-input {
-    width: 100%;
+    flex: 1;
     padding: 0.6rem 0.85rem;
     border: 1px solid var(--color-border);
     border-radius: 8px;
@@ -21,6 +27,23 @@
 .ks-input:focus {
     outline: none;
     border-color: var(--brand-primary);
+}
+
+.ks-create-inline-btn {
+    flex: 0 0 auto;
+    padding: 0 0.95rem;
+    background: var(--color-surface, #fff);
+    color: var(--brand-primary);
+    border: 1px solid var(--brand-primary);
+    border-radius: 8px;
+    font-size: 0.85rem;
+    font-weight: 600;
+    cursor: pointer;
+    white-space: nowrap;
+}
+
+.ks-create-inline-btn:hover {
+    background: var(--brand-primary-light, #f1e6b2);
 }
 
 /* ── Spinner ───────────────────────────────────────────── */
@@ -99,28 +122,73 @@
     background: var(--brand-primary-light, #f1e6b2);
 }
 
-/* ── Valgt kunde (pill) ────────────────────────────────── */
+/* ── Valgt kunde (kort) ────────────────────────────────── */
 
-.ks-selected {
+.ks-selected-card {
     display: flex;
-    align-items: center;
+    align-items: flex-start;
     gap: 0.5rem;
-    padding: 0.5rem 0.85rem;
+    padding: 0.7rem 0.85rem;
     background: var(--brand-primary-light, #f1e6b2);
     border: 1px solid var(--brand-primary);
     border-radius: 8px;
-    font-size: 0.9rem;
+}
+
+.ks-selected-main {
+    flex: 1;
+    display: flex;
+    flex-direction: column;
+    gap: 0.5rem;
+    min-width: 0;
+}
+
+.ks-sel-row {
+    display: flex;
+    align-items: flex-start;
+    gap: 0.55rem;
+    min-width: 0;
+}
+
+.ks-sel-row-muted {
+    opacity: 0.75;
+}
+
+.ks-sel-icon {
+    font-size: 0.95rem;
+    line-height: 1.2;
+    flex: 0 0 auto;
+    margin-top: 1px;
+}
+
+.ks-sel-text {
+    flex: 1;
+    min-width: 0;
+}
+
+.ks-sel-name {
+    font-weight: 600;
+    font-size: 0.92rem;
+    color: var(--color-text);
+    line-height: 1.25;
+    word-break: break-word;
+}
+
+.ks-sel-meta {
+    color: var(--color-text-dim);
+    font-size: 0.78rem;
+    margin-top: 0.1rem;
+    word-break: break-word;
 }
 
 .ks-selected-clear {
-    margin-left: auto;
+    flex: 0 0 auto;
     background: none;
     border: none;
     cursor: pointer;
     color: var(--color-text-dim);
     font-size: 1rem;
     line-height: 1;
-    padding: 0.2rem 0.4rem;
+    padding: 0.25rem 0.45rem;
     border-radius: 4px;
 }
 
@@ -159,7 +227,9 @@
     margin-bottom: 0.3rem;
 }
 
-.ks-form-field input[type="text"] {
+.ks-form-field input[type="text"],
+.ks-form-field input[type="email"],
+.ks-form-field input[type="tel"] {
     width: 100%;
     padding: 0.5rem 0.75rem;
     border: 1px solid var(--color-border);
@@ -168,7 +238,9 @@
     box-sizing: border-box;
 }
 
-.ks-form-field input[type="text"]:focus {
+.ks-form-field input[type="text"]:focus,
+.ks-form-field input[type="email"]:focus,
+.ks-form-field input[type="tel"]:focus {
     outline: none;
     border-color: var(--brand-primary);
 }
@@ -268,4 +340,132 @@
 
 .ks-btn-secondary:hover {
     background: var(--color-background, #f5f4f2);
+}
+
+/* ── Section divider (mellem kontakt og firma) ─────────── */
+
+.ks-section-divider {
+    display: flex;
+    align-items: center;
+    gap: 0.6rem;
+    margin: 1.1rem 0 0.85rem;
+    color: var(--color-text-dim);
+    font-size: 0.78rem;
+    font-weight: 600;
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
+}
+
+.ks-section-divider::before,
+.ks-section-divider::after {
+    content: '';
+    flex: 1;
+    height: 1px;
+    background: var(--color-border);
+}
+
+/* ── Firma-sektion (i opret-formular) ──────────────────── */
+
+.ks-firma-section {
+    display: flex;
+    flex-direction: column;
+    gap: 0.6rem;
+}
+
+.ks-firma-search-row {
+    display: flex;
+    gap: 0.5rem;
+    align-items: stretch;
+}
+
+.ks-firma-input-wrap {
+    position: relative;
+    flex: 1;
+}
+
+.ks-firma-search-input {
+    width: 100%;
+    padding: 0.5rem 0.75rem;
+    border: 1px solid var(--color-border);
+    border-radius: 6px;
+    font-size: 0.9rem;
+    box-sizing: border-box;
+}
+
+.ks-firma-search-input:focus {
+    outline: none;
+    border-color: var(--brand-primary);
+}
+
+.ks-firma-dropdown {
+    position: absolute;
+    top: calc(100% + 4px);
+    left: 0;
+    right: 0;
+    background: var(--color-surface, #fff);
+    border: 1px solid var(--color-border);
+    border-radius: 8px;
+    box-shadow: 0 4px 12px rgba(0, 0, 0, 0.1);
+    z-index: 250;
+    max-height: 280px;
+    overflow-y: auto;
+}
+
+/* ── Valgt firma som pill ──────────────────────────────── */
+
+.ks-firma-pill {
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+    padding: 0.55rem 0.85rem;
+    background: var(--brand-primary-light, #f1e6b2);
+    border: 1px solid var(--brand-primary);
+    border-radius: 8px;
+}
+
+.ks-firma-pill-text {
+    flex: 1;
+    font-size: 0.9rem;
+    line-height: 1.25;
+}
+
+.ks-firma-pill-sub {
+    color: var(--color-text-dim);
+    font-size: 0.75rem;
+    margin-top: 0.1rem;
+}
+
+/* ── Nyt firma form (collapse-able sektion) ────────────── */
+
+.ks-new-firma-form {
+    border: 1px dashed var(--color-border);
+    border-radius: 8px;
+    padding: 0.85rem;
+    background: var(--color-background, #f5f4f2);
+}
+
+.ks-new-firma-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    margin-bottom: 0.65rem;
+    font-size: 0.78rem;
+    font-weight: 600;
+    text-transform: uppercase;
+    letter-spacing: 0.04em;
+    color: var(--color-text-dim);
+}
+
+.ks-link-btn {
+    background: none;
+    border: none;
+    padding: 0;
+    color: var(--color-text-dim);
+    font-size: 0.78rem;
+    cursor: pointer;
+    text-decoration: underline;
+}
+
+.ks-link-btn:hover {
+    color: var(--brand-primary);
 }

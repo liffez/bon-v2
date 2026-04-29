@@ -18,6 +18,7 @@ let _tSiItems = [];      // items for single template
 let _tCxItems = [];      // custom free-text items
 let _tActBlk = new Set();
 let _tColBlk = new Set();
+let _tColCat = new Set();   // foldbare kategorier i Sammensæt: 'cat' (single) eller 'bid::cat' (event)
 let _tDel = { type: null, price: 0, note: '', free: false };
 let _tMaxStep = 0;       // højeste besøgte step (alle klikbare op til denne)
 let _tPriceMode = 'total';
@@ -63,8 +64,7 @@ const _tBLOCK_COLORS = { morning: 'morning', amsnack: 'amsnack', lunch: 'lunch',
 const _tDEFAULT_ICON = '\u{1F4CB}';
 const _tDEFAULT_COLOR = 'morning'; // fallback color class
 
-const _tCAT_ORDER = ['01 Sandwich','04 Slider','02 Salat','03 Kager','05 Drikke',
-    'Sandwich','Slider','Salat','Kager','Drikke','Burger','Frugt'];
+const _tCAT_ORDER = ['Sandwich','Salat','Kager','Slider','Drikke','Burger','Frugt'];
 
 const _tSTATUS = {
     draft:    { label: 'Kladde',     color: '#8a8580' },
@@ -82,7 +82,14 @@ function _tEsc(s) { return (s || '').replace(/&/g, '&amp;').replace(/</g, '&lt;'
 
 function _tSortedCats() {
     if (!_tMenu) return [];
+    // Naturlig sortering: kategorier med tal-prefix (01, 02, ...) sorteres numerisk først.
+    // Kategorier uden prefix faldback til _tCAT_ORDER (bagudkompatibilitet).
     return Object.keys(_tMenu).sort((a, b) => {
+        const numA = a.match(/^(\d+)/);
+        const numB = b.match(/^(\d+)/);
+        if (numA && numB) return parseInt(numA[1]) - parseInt(numB[1]);
+        if (numA) return -1;
+        if (numB) return 1;
         const ai = _tCAT_ORDER.indexOf(a), bi = _tCAT_ORDER.indexOf(b);
         return (ai === -1 ? 99 : ai) - (bi === -1 ? 99 : bi);
     });
@@ -397,6 +404,7 @@ function _tResetWizard() {
     _tCxItems = [];
     _tActBlk = new Set();
     _tColBlk = new Set();
+    _tColCat = new Set();
     _tDel = { type: null, price: 0, note: '', free: false };
     _tPriceMode = 'total';
     _tDiscountPct = 0;
@@ -518,13 +526,13 @@ function _tBuildStep0() {
                 <div class="tilbud-tpl-name">Enkeltbestilling</div>
                 <div class="tilbud-tpl-desc">Sandwich-ordrer, frokostpakker. Samlet pris.</div>
             </div>
-        </div>
-        <div class="tilbud-btn-row"><div></div><button class="tilbud-btn tilbud-btn-primary" onclick="_tNext()" ${!_tTpl ? 'disabled' : ''}>N\u00e6ste \u2192</button></div>`;
+        </div>`;
 }
 
 function _tSelTpl(t) {
     _tTpl = t;
-    _tRenderWizard();
+    // Auto-advance til Kunde-step \u2014 ingen grund til ekstra klik
+    _tNext();
 }
 
 /* ── Step 1: Kunde ───────────────────────────────────── */
@@ -882,11 +890,19 @@ function _tBuildEventUI() {
         _tSortedCats().forEach(cat => {
             const catItems = _tMenu[cat] || [];
             if (!catItems.length) return;
-            h += `<div class="tilbud-cat-title">${_tEsc(cat)}</div>`;
-            catItems.forEach(it => {
-                const sel = its.find(x => x.id === it.id);
-                h += _tBuildMI(it, !!sel, sel?.qty || 1, b.id);
-            });
+            const catKey = `${b.id}::${cat}`;
+            const catCol = _tColCat.has(catKey);
+            const selCnt = catItems.reduce((s, it) => s + (its.find(x => x.id === it.id) ? 1 : 0), 0);
+            const selBadge = selCnt ? `<span class="tilbud-cat-badge">${selCnt}</span>` : '';
+            h += `<div class="tilbud-cat-title clickable" onclick="_tTogColCat('${catKey.replace(/'/g, "\\'")}')">
+                <span class="tilbud-chevron ${catCol ? 'collapsed' : ''}">▼</span>${_tEsc(cat)}${selBadge}
+            </div>`;
+            if (!catCol) {
+                catItems.forEach(it => {
+                    const sel = its.find(x => x.id === it.id);
+                    h += _tBuildMI(it, !!sel, sel?.qty || 1, b.id);
+                });
+            }
         });
 
         // Custom item input
@@ -906,11 +922,19 @@ function _tBuildSingleUI() {
     _tSortedCats().forEach(cat => {
         const items = _tMenu[cat] || [];
         if (!items.length) return;
-        h += `<div class="tilbud-cat-title" data-cat="${_tEsc(cat)}">${_tEsc(cat)}</div>`;
-        items.forEach(it => {
-            const sel = _tSiItems.find(x => x.id === it.id);
-            h += _tBuildMI(it, !!sel, sel?.qty || 1, null);
-        });
+        const catKey = cat;
+        const catCol = _tColCat.has(catKey);
+        const selCnt = items.reduce((s, it) => s + (_tSiItems.find(x => x.id === it.id) ? 1 : 0), 0);
+        const selBadge = selCnt ? `<span class="tilbud-cat-badge">${selCnt}</span>` : '';
+        h += `<div class="tilbud-cat-title clickable" data-cat="${_tEsc(cat)}" onclick="_tTogColCat('${catKey.replace(/'/g, "\\'")}')">
+            <span class="tilbud-chevron ${catCol ? 'collapsed' : ''}">▼</span>${_tEsc(cat)}${selBadge}
+        </div>`;
+        if (!catCol) {
+            items.forEach(it => {
+                const sel = _tSiItems.find(x => x.id === it.id);
+                h += _tBuildMI(it, !!sel, sel?.qty || 1, null);
+            });
+        }
     });
 
     // Custom item
@@ -945,6 +969,11 @@ function _tTogBlk(id) {
 
 function _tTogCol(id) {
     if (_tColBlk.has(id)) _tColBlk.delete(id); else _tColBlk.add(id);
+    _tRenderWizard();
+}
+
+function _tTogColCat(key) {
+    if (_tColCat.has(key)) _tColCat.delete(key); else _tColCat.add(key);
     _tRenderWizard();
 }
 

@@ -37,9 +37,11 @@ router.get('/', handle((req, res) => {
             co.cvr, co.ean,
             co.default_payment_type,
             co.default_price_category_id,
-            co.discount_percent
+            co.discount_percent,
+            a.city AS company_city
         FROM customers c
         LEFT JOIN companies co ON c.company_id = co.id
+        LEFT JOIN addresses  a  ON co.address_id = a.id
         ${where}
         ORDER BY co.name, c.last_name, c.first_name
         LIMIT 20
