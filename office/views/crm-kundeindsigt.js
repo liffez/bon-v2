@@ -319,11 +319,8 @@ async function _kiSaveAndCompute() {
 
 function _kiOpenCustomer(customerId) {
     if (!customerId) return;
-    if (typeof window.switchView === 'function') {
-        window.switchView('crm-kunde360');
-        setTimeout(() => {
-            if (typeof _k3LoadCustomer === 'function') _k3LoadCustomer(customerId);
-        }, 100);
+    if (typeof window.openKunde360 === 'function') {
+        window.openKunde360(customerId);
     }
 }
 
