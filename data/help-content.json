@@ -147,5 +147,65 @@
   "kitchen-vagtplan": {
     "_pageName": "Køkken — Vagtplan",
     "elements": {}
+  },
+  "office-crm-kundeindsigt": {
+    "_pageName": "Office — Kundeindsigt",
+    "elements": {
+      "rfm-recency": {
+        "selector": "#ki-sl-w_r",
+        "label": "Recency-vægt",
+        "text": "Hvor meget vægt får 'hvor nyligt har kunden bestilt' i RFM-scoren. Højere tal = friske kunder rangerer højere. Standard 35. Vægtene normaliseres automatisk så de tilsammen giver 100%."
+      },
+      "rfm-frequency": {
+        "selector": "#ki-sl-w_f",
+        "label": "Frequency-vægt",
+        "text": "Hvor meget vægt får 'hvor ofte kunden bestiller'. Højere tal = trofaste tilbagevendende kunder rangerer højere. Standard 40."
+      },
+      "rfm-monetary": {
+        "selector": "#ki-sl-w_m",
+        "label": "Monetary-vægt",
+        "text": "Hvor meget vægt får 'hvor stor værdi kunden har skabt' (gæster eller omsætning, valgt nedenfor). Højere tal = store kunder rangerer højere. Standard 25."
+      },
+      "rfm-vip-pct": {
+        "selector": "#ki-sl-vip_pct",
+        "label": "VIP top %",
+        "text": "De øverste X% af kunderne efter RFM-score får VIP-stadie. Standard 15% — sænk for en mere eksklusiv VIP-gruppe, hæv for at rumme flere."
+      },
+      "rfm-aktiv-pct": {
+        "selector": "#ki-sl-aktiv_pct",
+        "label": "Aktiv top %",
+        "text": "Næste segment efter VIP. De øverste X% (inkl. VIP) markeres som Aktive. Resten under bliver Sovende eller Lead. Standard 50%."
+      },
+      "rfm-recency-days": {
+        "selector": "#ki-sl-recency_days",
+        "label": "Sovende-grænse",
+        "text": "Hvor mange dage må der gå siden seneste ordre før en kunde markeres som sovende. Standard 180 dage. Brug højere tal for sæsonbetonede brancher."
+      },
+      "rfm-monetary-mode": {
+        "selector": ".ki-panel:has(button[onclick*=_kiSetMonetary])",
+        "label": "Monetary-mål",
+        "text": "Hvad 'værdi' i Monetary-scoren måles på. Gæster = antal pax på tværs af alle ordrer. Omsætning = total i kroner. Vælg det der bedst afspejler hvad I vil belønne højt."
+      },
+      "rfm-save": {
+        "selector": "button[onclick*=_kiSaveAndCompute]",
+        "label": "Gem & genberegn",
+        "text": "Gemmer indstillingerne og kører RFM-scoringen igen for alle firmaer. Kan tage et par sekunder. Listen til højre opdateres automatisk når den er færdig."
+      },
+      "rfm-icp": {
+        "selector": ".ki-panel:has(.ki-icp)",
+        "label": "ICP-profil",
+        "text": "Den ideelle kundeprofil baseret på dine bedste kunder (VIP eller top 25%). Bruges som benchmark når nye leads scores i Prospekter. Brancheliste viser hvor fokuseret kundebasen er — under 40% dækning betyder profilen er for spredt til at være pålidelig."
+      },
+      "rfm-table": {
+        "selector": ".ki-table",
+        "label": "Firma-tabel",
+        "text": "Alle firmaer rangeret efter RFM-score. Klik på en firma-række for at åbne Kunder-listen filtreret på det firma. Privat-firmaer (én kontakt) springer mellemtrinet over og åbner profilen direkte. Klik på en kolonne-header for at sortere."
+      },
+      "rfm-stage-filter": {
+        "selector": ".ki-stage-btn",
+        "label": "Stadie-filter",
+        "text": "Vis kun firmaer i et bestemt stadie: VIP, Aktive, Sovende eller Leads. Stadier beregnes ud fra tærsklerne i sidebaren."
+      }
+    }
   }
 }
