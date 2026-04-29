@@ -138,6 +138,8 @@ document.addEventListener('keydown', function(e) {
 ```
 ┌─ Panel header ──────────────────────────────────── [✕] ─┐
 │  ⚙  Indkøbsindstillinger                                 │
+├─ Summary strip ──────────────────────────────────────────┤
+│  [1 ikke koblet] [3 mangler lev.] [8 mangler HK] [5 udgået] [✓ priser i dag] │
 ├─ Tabs ───────────────────────────────────────────────────┤
 │  [ Leverandører ]  [ Produkter ]  [ Hørkram ]            │
 ├──────────────────────────────────────────────────────────┤
@@ -147,7 +149,52 @@ document.addEventListener('keydown', function(e) {
 └──────────────────────────────────────────────────────────┘
 ```
 
-Header og tabs er sticky — kun tab-body scroller.
+Header, summary strip og tabs er sticky — kun tab-body scroller.
+
+---
+
+## Summary strip
+
+Vises mellem header og tabs. Giver øjeblikkeligt overblik uden at åbne nogen tab.
+Hvert felt er klikbart og navigerer direkte til det relevante sted.
+
+```
+┌──────────────┬──────────────┬──────────────┬──────────────┬──────────────┐
+│  1           │  3           │  8           │  5           │  ✓           │
+│  leverandør  │  produkter   │  produkter   │  varenumre   │  priser      │
+│  ikke koblet │  mangler     │  mangler     │  udgået      │  opdateret   │
+│  til Grocy   │  leverandør  │  HK-kobling  │  hos Hørkram │  i dag 06:14 │
+└──────────────┴──────────────┴──────────────┴──────────────┴──────────────┘
+  rød→Tab 1      amb→Tab 2      amb→Tab 3      rød→Tab 3      grøn (ingen)
+  scroll til lok (filter:ingen) Ny kobling     Alle koblinger
+```
+
+Farver: rød baggrund = kræver handling nu · amber = bør håndteres · grøn = alt OK.
+
+Felt 4 ("udgåede") vises som `?` indtil "Tjek udgåede" er kørt — derefter det faktiske antal.
+
+**Data-sources til summary:**
+- Ikke koblet: leverandører i `suppliers` uden række i `supplier_grocy_locations`
+- Mangler leverandør: Grocy-produkter på shopping_list uden `shopping_location_id`
+- Mangler HK-kobling: produkter uden barcode med Hørkram `shopping_location_id`
+- Udgåede: tælt ved "Tjek udgåede" — gemmes i `_isDeadBarcodes` i session
+- Priser opdateret: max `hk_scraped_at` fra barcode userfields
+
+---
+
+## Priser — altid ekskl. moms
+
+**Alle priser der vises i indkøbsmodulet er ekskl. moms.** Dette gælder:
+- Pris pr. pakke og pris pr. kg i chips (indkøbslisten)
+- Pris/kg i Settings Tab 2 og Tab 3
+- Estimeret total i leverandørgruppe-header
+- Prisimport fra Hørkram (`last_price`, `supplier_price_per_kg`)
+
+Priser gemmes ekskl. moms i Grocy userfields og i `purchase_order_lines`.
+Moms beregnes aldrig i indkøbsmodulet — det er indkøbspriser, ikke salgspriser.
+
+Visning: tilføj altid ` ekskl. moms` som tooltip eller subtekst på steder
+hvor det kan være uklart, fx gruppe-totaler og prisoversigter i Settings.
 
 ---
 
