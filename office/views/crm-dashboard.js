@@ -15,7 +15,44 @@ function initCrmDashboard(containerEl, opts) {
     _crmOpts = opts || {};
     _crmActive = true;
     _crmRenderShell();
+    _crmWireDelegatedClicks();
     _crmLoadData();
+}
+
+function _crmWireDelegatedClicks() {
+    if (!_crmContainer) return;
+    _crmContainer.addEventListener('click', (e) => {
+        const target = e.target.closest(
+            '[data-customer-id], [data-scroll], [data-goto], [data-view]'
+        );
+        if (!target || !_crmContainer.contains(target)) return;
+        // Lad eksisterende interaktive child-elementer (telefon-link,
+        // log-formular-knapper m.fl.) køre uforstyrret.
+        if (e.target.closest('a, button, input, select, textarea')) return;
+
+        const cid = target.dataset.customerId;
+        if (cid) { _crmOpenKunde(parseInt(cid, 10)); return; }
+
+        const scrollId = target.dataset.scroll;
+        if (scrollId) {
+            const sec = document.getElementById(scrollId);
+            if (sec) sec.scrollIntoView({ behavior: 'smooth', block: 'start' });
+            return;
+        }
+
+        const goto = target.dataset.goto;
+        if (goto && typeof window.officeGoto === 'function') {
+            const params = {};
+            if (target.dataset.filter) params.filter = target.dataset.filter;
+            window.officeGoto(goto, params);
+            return;
+        }
+
+        const view = target.dataset.view;
+        if (view && typeof window.switchView === 'function') {
+            window.switchView(view);
+        }
+    });
 }
 
 function cleanupCrmDashboard() {
@@ -337,6 +374,11 @@ function _crmRenderShell() {
             .crm-svc-logform-actions { display: flex; gap: 6px; margin-top: 8px; justify-content: flex-end; }
 
             .crm-empty { text-align: center; padding: 20px; color: var(--color-text-dim, #aaa); font-size: 13px; }
+
+            /* ══ CLICKABLE ══════════════════════════════════════════ */
+            .crm-clickable { cursor: pointer; transition: background-color .12s, transform .08s; }
+            .crm-clickable:hover { background-color: rgba(142,99,31,0.06); }
+            .crm-clickable:active { transform: translateY(1px); }
         </style>
 
         <div class="crm-grid">
@@ -450,20 +492,25 @@ function _crmRenderKPIs(stats) {
     if (!el) return;
 
     const kpis = [
-        { label: 'Service-kald', value: stats.service_calls_pending, warn: stats.service_calls_pending > 0 },
-        { label: 'Callbacks', value: stats.callbacks_pending, warn: stats.callbacks_pending > 0 },
-        { label: 'Svær at nå', value: stats.hard_to_reach, warn: stats.hard_to_reach > 0 },
-        { label: 'Reach rate', value: stats.reach_rate + '%', warn: false, green: parseInt(stats.reach_rate) > 60 },
-        { label: 'Bons i dag', value: stats.bons_today, warn: false },
+        { label: 'Service-kald', value: stats.service_calls_pending, warn: stats.service_calls_pending > 0, scroll: 'crmServiceCalls' },
+        { label: 'Callbacks',    value: stats.callbacks_pending,     warn: stats.callbacks_pending > 0,     scroll: 'crmCallbacksPanel' },
+        { label: 'Svær at nå',   value: stats.hard_to_reach,         warn: stats.hard_to_reach > 0,         scroll: 'crmCallbacksPanel' },
+        { label: 'Reach rate',   value: stats.reach_rate + '%',      warn: false, green: parseInt(stats.reach_rate) > 60 },
+        { label: 'Bons i dag',   value: stats.bons_today,            warn: false, goto: 'bons', filter: 'today' },
     ];
 
-    el.innerHTML = kpis.map(k =>
-        '<div class="crm-kpi">' +
+    el.innerHTML = kpis.map(k => {
+        const clickable = (k.scroll || k.goto) ? ' crm-clickable' : '';
+        const attrs = [];
+        if (k.scroll) attrs.push('data-scroll="' + k.scroll + '"');
+        if (k.goto)   attrs.push('data-goto="' + k.goto + '"');
+        if (k.filter) attrs.push('data-filter="' + k.filter + '"');
+        return '<div class="crm-kpi' + clickable + '" ' + attrs.join(' ') + '>' +
             '<div class="crm-kpi-value' + (k.warn ? ' warn' : k.green ? ' green' : '') + '">' + k.value + '</div>' +
             '<div class="crm-kpi-label">' + k.label + '</div>' +
-        '</div>'
-    ).join('') +
-    '<div class="crm-kpi" style="cursor:pointer;opacity:0.7" onclick="if(typeof switchView===\'function\')switchView(\'crm-kundeindsigt\')">' +
+        '</div>';
+    }).join('') +
+    '<div class="crm-kpi crm-clickable" style="opacity:0.7" data-view="crm-kundeindsigt" title="Åbn Kundeindsigt">' +
         '<div class="crm-kpi-value" style="font-size:16px">📊</div>' +
         '<div class="crm-kpi-label">Kundeindsigt</div>' +
     '</div>';
@@ -478,13 +525,22 @@ function _crmRenderBriefing(items) {
         return;
     }
 
-    el.innerHTML = items.map(item =>
-        '<div class="crm-briefing-item">' +
+    const linkToScroll = {
+        svc:         'crmServiceCalls',
+        callbacks:   'crmCallbacksPanel',
+        meetings:    'crmMeetings',
+        suggestions: 'crmSuggestions',
+    };
+    el.innerHTML = items.map(item => {
+        const target = linkToScroll[item.link];
+        const clickable = target ? ' crm-clickable' : '';
+        const attrs = target ? ' data-scroll="' + target + '"' : '';
+        return '<div class="crm-briefing-item' + clickable + '"' + attrs + '>' +
             '<span class="crm-briefing-icon">' + item.icon + '</span>' +
             '<span>' + item.text + '</span>' +
             '<span class="crm-briefing-type ' + item.type + '">' + item.type + '</span>' +
-        '</div>'
-    ).join('');
+        '</div>';
+    }).join('');
 }
 
 function _crmRenderSuggestions(suggestions) {
@@ -749,10 +805,12 @@ function _crmRenderCallbacks(data) {
         const avClass = 'av-' + (i % 3);
         const badgeClass = (c.attempts || 0) >= 3 ? 'urgent' : 'today';
         const badgeText = (c.attempts || 0) >= 3 ? 'Svarer ikke' : 'Ringes';
-        return '<div class="crm-cb-item">' +
+        const cid = c.customer_id || '';
+        const rowAttrs = cid ? ' class="crm-cb-item crm-clickable" data-customer-id="' + cid + '" title="Åbn kunde i CRM"' : ' class="crm-cb-item"';
+        return '<div' + rowAttrs + '>' +
             '<div class="crm-cb-av ' + avClass + '">' + init + '</div>' +
             '<div class="crm-cb-info">' +
-                '<div class="crm-cb-name" style="cursor:pointer;" onclick="_crmOpenKunde(' + (c.customer_id || '') + ')">' + name + '</div>' +
+                '<div class="crm-cb-name">' + name + '</div>' +
                 (c.company_name ? '<div class="crm-cb-company">' + c.company_name + '</div>' : '') +
             '</div>' +
             '<span class="crm-cb-badge ' + badgeClass + '">' + badgeText + '</span>' +
@@ -794,12 +852,16 @@ function _crmRenderUpcomingMeetings(items) {
         const src = sourceBadge[m.booked_via];
         const srcHtml = src ? '<span class="crm-briefing-type ' + src.cls + '" style="margin-left:8px">' + src.label + '</span>' : '';
 
-        return '<div class="crm-mt-row" style="display:flex;align-items:center;gap:12px;padding:10px 0;border-bottom:1px solid var(--color-border,#eee);font-size:13px;">' +
+        const cid = m.customer_id || '';
+        const rowAttrs = cid
+            ? ' class="crm-mt-row crm-clickable" data-customer-id="' + cid + '" title="Åbn kunde i CRM"'
+            : ' class="crm-mt-row"';
+        return '<div' + rowAttrs + ' style="display:flex;align-items:center;gap:12px;padding:10px 0;border-bottom:1px solid var(--color-border,#eee);font-size:13px;">' +
             '<div style="font-family:var(--font-heading,\'Playfair Display\',serif);font-size:18px;font-weight:700;color:var(--brand-primary,#8e631f);min-width:90px;">' +
                 escapeHtml(timeLabel) + '<span style="font-size:11px;color:var(--color-text-dim,#888);font-weight:400;margin-left:4px">' + escapeHtml(dayLabel) + '</span>' +
             '</div>' +
             '<div style="flex:1;min-width:0;">' +
-                '<div style="font-weight:600;cursor:pointer" onclick="_crmOpenKunde(' + (m.customer_id || '') + ')">' +
+                '<div style="font-weight:600">' +
                     escapeHtml(customerName) + escapeHtml(co) +
                 '</div>' +
                 '<div style="font-size:12px;color:var(--color-text-dim,#888)">' +
@@ -833,7 +895,10 @@ function _crmRenderActivityFeed(items) {
         const name = a.customer_name || '';
         const time = (a.created_at || '').substring(5, 16).replace('T', ' ');
         const text = a.text ? ' — ' + (a.text.length > 35 ? a.text.substring(0, 35) + '...' : a.text) : '';
-        return '<div class="crm-act-item">' +
+        const cid = a.customer_id || '';
+        const cls = cid ? 'crm-act-item crm-clickable' : 'crm-act-item';
+        const attrs = cid ? ' data-customer-id="' + cid + '" title="Åbn kunde i CRM"' : '';
+        return '<div class="' + cls + '"' + attrs + '>' +
             '<div class="crm-act-dot ' + dotClass + '"></div>' +
             '<div class="crm-act-text"><span class="crm-act-type">' + label + '</span> ' + name + text + '</div>' +
             '<span class="crm-act-time">' + time + '</span>' +
