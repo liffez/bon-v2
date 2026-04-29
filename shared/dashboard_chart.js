@@ -381,7 +381,7 @@ function initDashboardChart(canvasId, data, opts = {}) {
  * @param {string} canvasId    — canvas element ID (for geometry + positioning)
  * @param {Array}  days        — days array from /api/dashboard/stats
  */
-function buildStaffBadges(containerId, canvasId, days) {
+function buildStaffBadges(containerId, canvasId, days, opts = {}) {
     const inst = _instances[canvasId];
     if (!inst?.geom) return;
     const { PAD_L, slotW } = inst.geom;
@@ -394,6 +394,8 @@ function buildStaffBadges(containerId, canvasId, days) {
     const rowRect = container.getBoundingClientRect();
     const offsetLeft = canvasRect.left - rowRect.left;
 
+    const alwaysCount = opts.alwaysCount === true;
+
     days.forEach((day, i) => {
         const cx = offsetLeft + PAD_L + (i + 0.5) * slotW;
         const staffList = day.shifts || [];
@@ -403,7 +405,7 @@ function buildStaffBadges(containerId, canvasId, days) {
             : day.is_future ? 'type-future'
             : 'type-history';
 
-        if (staffList.length <= SHOW_INDIVIDUAL_MAX) {
+        if (!alwaysCount && staffList.length <= SHOW_INDIVIDUAL_MAX) {
             const total = staffList.length;
             const SPREAD = 22;
             const startX = cx - ((total - 1) * SPREAD) / 2;

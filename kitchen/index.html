@@ -597,7 +597,7 @@
         chartHandle = initDashboardChart('actChart', data, {
             showLastYear: false,
         });
-        setTimeout(() => buildStaffBadges('staffRow', 'actChart', data.days), 50);
+        setTimeout(() => buildStaffBadges('staffRow', 'actChart', data.days, { alwaysCount: true }), 50);
     }
 
     // ── Weather (Open-Meteo) ──
@@ -625,7 +625,7 @@
     // ── Resize handler ──
     window.addEventListener('resize', () => {
         if (chartHandle) chartHandle.redraw();
-        if (statsData) setTimeout(() => buildStaffBadges('staffRow', 'actChart', statsData.days), 50);
+        if (statsData) setTimeout(() => buildStaffBadges('staffRow', 'actChart', statsData.days, { alwaysCount: true }), 50);
     });
 
     // ── Init ──
