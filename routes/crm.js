@@ -845,6 +845,7 @@ router.get('/pipeline', handle((req, res) => {
     const rows = db.prepare(`
         SELECT b.id, b.bon_number, b.delivery_date, b.pax, b.total_price,
                b.price_category, b.is_offer, b.offer_status, b.offer_sent_at,
+               b.customer_id,
                sd.code as status, sd.label as status_label,
                c.first_name, c.last_name, co.name as company_name
         FROM bons b
@@ -867,6 +868,7 @@ router.get('/pipeline', handle((req, res) => {
         const item = {
             id: r.id,
             bon_number: r.bon_number,
+            customer_id: r.customer_id,
             customer_name: ((r.first_name || '') + ' ' + (r.last_name || '')).trim(),
             company_name: r.company_name,
             delivery_date: r.delivery_date,

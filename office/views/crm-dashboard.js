@@ -194,6 +194,8 @@ function _crmRenderShell() {
             }
             .crm-pipe-card:hover { border-color: var(--brand-primary); background: var(--brand-primary-light, #f1e6b2); }
             .crm-pipe-name { font-weight: 600; font-size: 13px; margin-bottom: 2px; }
+            .crm-pipe-name-link { cursor: pointer; }
+            .crm-pipe-name-link:hover { text-decoration: underline; color: var(--brand-primary, #8e631f); }
             .crm-pipe-meta { color: var(--color-text-dim); font-size: 11px; }
             .crm-pipe-footer { display: flex; justify-content: space-between; align-items: center; margin-top: 6px; }
             .crm-pipe-tag {
@@ -935,9 +937,13 @@ function _crmRenderPipeline(columns) {
                 '<span class="crm-pipe-count">' + col.items.length + '</span>' +
             '</div>' +
             '<div class="crm-pipe-drop-zone">' +
-            (col.items.length ? col.items.map(item =>
-                '<div class="crm-pipe-card" draggable="true" data-bon-id="' + item.id + '">' +
-                    '<div class="crm-pipe-name">' + (item.company_name || item.customer_name || 'Ukendt') + '</div>' +
+            (col.items.length ? col.items.map(item => {
+                const cid = item.customer_id || '';
+                const nameAttrs = cid
+                    ? ' class="crm-pipe-name crm-pipe-name-link" data-customer-id="' + cid + '" title="Åbn kundeprofil"'
+                    : ' class="crm-pipe-name"';
+                return '<div class="crm-pipe-card" draggable="true" data-bon-id="' + item.id + '">' +
+                    '<div' + nameAttrs + '>' + (item.company_name || item.customer_name || 'Ukendt') + '</div>' +
                     '<div class="crm-pipe-meta">' +
                         '#' + (item.bon_number || '') + ' · ' + (item.delivery_date || '') +
                         (item.customer_name && item.company_name ? ' · ' + item.customer_name : '') +
@@ -948,8 +954,8 @@ function _crmRenderPipeline(columns) {
                         '</span>' +
                         (item.pax ? '<span class="crm-pipe-pax">👥 ' + item.pax + '</span>' : '') +
                     '</div>' +
-                '</div>'
-            ).join('') : '<div class="crm-empty" style="padding:10px;font-size:11px;">Slip her</div>') +
+                '</div>';
+            }).join('') : '<div class="crm-empty" style="padding:10px;font-size:11px;">Slip her</div>') +
             '</div>' +
         '</div>'
     ).join('');
@@ -967,9 +973,15 @@ function _crmRenderPipeline(columns) {
             el.querySelectorAll('.crm-pipe-col').forEach(c => c.classList.remove('drag-over'));
             _crmDragBonId = null;
         });
-        // Click → open drawer (only if not dragging)
+        // Click → navnefelt åbner kundeprofil, resten åbner bon-drawer
         card.addEventListener('click', (e) => {
             if (_crmDragBonId) return;
+            const nameLink = e.target.closest('.crm-pipe-name-link');
+            if (nameLink && card.contains(nameLink)) {
+                const cid = parseInt(nameLink.dataset.customerId);
+                if (cid) _crmOpenKunde(cid);
+                return;
+            }
             const bonId = parseInt(card.dataset.bonId);
             if (_crmOpts.openDrawer) _crmOpts.openDrawer(bonId);
         });
