@@ -609,6 +609,53 @@ async function addToStock(productId, amount, bestBeforeDate, locationId) {
 }
 
 /**
+ * Tilføj til lagerbeholdning med fuld kontrol over body.
+ * Bruges af opret-produkt (initial lager + pris pr. stock-enhed).
+ * @param {number} productId  Grocy product ID
+ * @param {Object} body       { amount, best_before_date?, transaction_type?, price?, location_id?, shopping_location_id? }
+ */
+async function addToStockFull(productId, body) {
+    const payload = {
+        transaction_type: 'purchase',
+        ...body,
+    };
+    if (!payload.best_before_date) payload.best_before_date = '2999-12-31';
+    await grocyPost(`/stock/products/${productId}/add`, payload);
+    _cache.delete('stock');
+}
+
+/**
+ * Opret nyt produkt i Grocy.
+ * @param {Object} body  { name, qu_id_purchase, qu_id_stock, location_id, ... }
+ * @returns {Promise<{created_object_id:number}>}
+ */
+async function createProduct(body) {
+    const result = await grocyPost('/objects/products', body);
+    _cache.delete('products');
+    return result;
+}
+
+/**
+ * Opret quantity-unit-konvertering på et produkt.
+ * Bruges når indkøbs-QU ≠ lager-QU (fx 1 kasse = 6000 g).
+ * @param {Object} body  { product_id, from_qu_id, to_qu_id, factor }
+ * @returns {Promise<{created_object_id:number}>}
+ */
+async function createQuConversion(body) {
+    const result = await grocyPost('/objects/quantity_unit_conversions', body);
+    _cache.delete('qu_conversions');
+    return result;
+}
+
+/**
+ * Hent userfield-meta (alle entiteters userfields).
+ * Frontend filtrerer selv på `entity === 'products'` osv.
+ */
+function getUserfields() {
+    return cachedFetch('userfields', '/objects/userfields');
+}
+
+/**
  * Sæt eksakt lagerbeholdning for et produkt (inventory correction).
  * @param {number} productId       Grocy product ID
  * @param {number} amount          Ny mængde i stock-units
@@ -677,9 +724,14 @@ module.exports = {
     consumeRecipes,
     consumeProduct,
     addToStock,
+    addToStockFull,
     setInventory,
     updateProductUserfields,
     addToShoppingList,
+    // Write — products + meta
+    createProduct,
+    createQuConversion,
+    getUserfields,
     // Indkøbsliste — udvidede endpoints
     getShoppingList,
     deleteShoppingListItem,

@@ -120,7 +120,7 @@ function connectSSE(url, handlers) {
             if (card) {
                 const idEl = card.querySelector('.bon-id');
                 if (idEl && !idEl.querySelector('.bon-mail-badge')) {
-                    idEl.insertAdjacentHTML('beforeend', ' <span class="bon-mail-badge" title="Ulæst mail">✉</span>');
+                    idEl.insertAdjacentHTML('beforeend', ' <span class="bon-mail-badge" title="Ulæst mail">' + mailIcon(14) + '</span>');
                 }
             }
             // Toast notification
@@ -332,6 +332,55 @@ function scrollToBonHash() {
    Tjekker /api/auth/me — redirecter til login hvis 401.
    Returnerer user-objekt { id, name, role } ved success.
    ══════════════════════════════════════════════════════════════ */
+
+/* ══════════════════════════════════════════════════════════════
+   ICONS — Inline SVG-ikoner som strings.
+   Bruges hvor unicode-symboler renderer for små eller inkonsistent.
+   Arver currentColor så de farves som omgivende tekst.
+   ══════════════════════════════════════════════════════════════ */
+
+function mailIcon(size, extraStyle) {
+    var s = size || 14;
+    var style = 'vertical-align:-2px;flex-shrink:0' + (extraStyle ? ';' + extraStyle : '');
+    return '<svg viewBox="0 0 24 24" width="' + s + '" height="' + s + '" fill="currentColor" aria-hidden="true" style="' + style + '">' +
+        '<path d="M20 4H4a2 2 0 0 0-2 2v12a2 2 0 0 0 2 2h16a2 2 0 0 0 2-2V6a2 2 0 0 0-2-2zm0 4-8 5-8-5V6l8 5 8-5v2z"/>' +
+        '</svg>';
+}
+
+/* ══════════════════════════════════════════════════════════════
+   PARSE EMAILS FROM NOTES
+   Returnerer array af { email, label } fra fri-tekst notes.
+   Genkender mønstre som "Navn — email@example.dk" eller bare "email@x.dk".
+   Bruges til quick-pick chips i mail-compose.
+   ══════════════════════════════════════════════════════════════ */
+
+function parseEmailsFromNotes(notes) {
+    if (!notes) return [];
+    var emails = [];
+    var seen = {};
+    var lines = String(notes).split(/\n/);
+    for (var i = 0; i < lines.length; i++) {
+        var line = lines[i];
+        var m = line.match(/[\w.+-]+@[\w.-]+\.\w+/g);
+        if (!m) continue;
+        for (var j = 0; j < m.length; j++) {
+            var email = m[j].toLowerCase();
+            if (seen[email]) continue;
+            seen[email] = 1;
+            // Find label = teksten før email på samme linje, trimmet for fyld
+            var idx = line.indexOf(m[j]);
+            var beforeRaw = line.substring(0, idx);
+            var label = beforeRaw.replace(/[—\-:|·,]+\s*$/, '').trim();
+            if (!label) {
+                // Fallback: brug delen før @ (fx 'kontakt@firma.dk' → 'firma')
+                label = email.split('@')[1].split('.')[0];
+                label = label.charAt(0).toUpperCase() + label.slice(1);
+            }
+            emails.push({ email: email, label: label });
+        }
+    }
+    return emails;
+}
 
 async function checkAuth(redirectTo) {
     if (redirectTo === undefined) redirectTo = '/login.html';

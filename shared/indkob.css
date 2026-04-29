@@ -847,3 +847,200 @@
 body.ib-focus-mode .ib-focus-back { display: flex; }
 body.ib-focus-mode .ib-group { display: none; }
 body.ib-focus-mode .ib-group.ib-focused { display: block; }
+
+/* ── QUICK-JUMP STRIP (find leverandør-grupper hurtigt) ── */
+.ib-jump-strip {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 6px;
+    padding: 8px 12px;
+    background: #fff;
+    border-bottom: 1px solid var(--color-border, #e7e0d4);
+    position: sticky;
+    top: 56px;
+    z-index: 5;
+}
+.ib-jump-pill {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    background: var(--color-background, #f5f4f2);
+    border: 1px solid var(--color-border, #e7e0d4);
+    border-radius: 14px;
+    padding: 4px 11px 4px 6px;
+    font-size: 12px;
+    font-family: inherit;
+    cursor: pointer;
+    transition: all 0.12s;
+    color: var(--color-text, #333);
+}
+.ib-jump-pill:hover {
+    background: var(--brand-primary-light, #f1e6b2);
+    border-color: var(--brand-primary, #8e631f);
+}
+.ib-jump-pill.ib-jp-api { border-left: 3px solid #2a7a3a; }
+.ib-jump-pill.ib-jp-email { border-left: 3px solid #8e631f; }
+.ib-jump-pill.ib-jp-webshop { border-left: 3px solid #5a7eb3; }
+.ib-jump-pill.ib-jp-manual { border-left: 3px solid #aaa; }
+.ib-jump-pill.ib-jp-intern { border-left: 3px solid #6b3aa0; }
+.ib-jp-name { font-weight: 600; }
+.ib-jp-mail {
+    background: #ff8800;
+    color: #fff;
+    padding: 1px 6px;
+    border-radius: 10px;
+    font-size: 10px;
+    font-weight: 700;
+}
+
+@keyframes ib-flash {
+    0%, 100% { box-shadow: 0 0 0 0 rgba(142, 99, 31, 0); }
+    30%      { box-shadow: 0 0 0 4px rgba(142, 99, 31, 0.45); }
+}
+.ib-group.ib-flash { animation: ib-flash 1.4s ease-out; }
+
+/* ── SUPPLIER MAIL (fri kommunikation, uafhængigt af PO) ── */
+
+.ib-group-mail-btn {
+    background: #fff;
+    border: 1.5px solid var(--color-border, #d7d1ca);
+    border-radius: 8px;
+    padding: 6px 10px;
+    font-size: 14px;
+    cursor: pointer;
+    font-family: inherit;
+    color: var(--brand-primary, #8e631f);
+    margin-right: 6px;
+    transition: all 0.15s;
+}
+.ib-group-mail-btn:hover {
+    background: var(--brand-primary, #8e631f);
+    color: #fff;
+    border-color: var(--brand-primary, #8e631f);
+}
+
+.ib-sgp.ib-sup-mail-pill {
+    background: #fff3cd;
+    color: #6b5d20;
+    border: 1px solid #f5d76e;
+    cursor: pointer;
+    font-weight: 700;
+}
+.ib-sgp.ib-sup-mail-pill:hover { background: #ffe89a; }
+
+.ib-sup-mail {
+    background: #fffaf2;
+    border: 1px solid #e8d8b8;
+    border-radius: 8px;
+    padding: 12px;
+    margin: 8px 0;
+}
+.ib-sup-mail-hdr {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    margin-bottom: 10px;
+    padding-bottom: 8px;
+    border-bottom: 1px solid #e8d8b8;
+}
+.ib-sup-mail-title {
+    font-weight: 700;
+    color: var(--brand-primary, #8e631f);
+    font-size: 13px;
+}
+.ib-sup-mail-to {
+    font-size: 12px;
+    color: var(--color-text-dim, #777);
+}
+.ib-sup-mail-to.ib-sup-mail-warn { color: #c44; font-weight: 600; }
+.ib-sup-mail-close {
+    margin-left: auto;
+    background: none;
+    border: none;
+    cursor: pointer;
+    font-size: 14px;
+    color: var(--color-text-dim, #777);
+    padding: 4px 8px;
+}
+.ib-sup-mail-close:hover { color: var(--color-text, #333); }
+
+.ib-sup-mail-msgs {
+    max-height: 280px;
+    overflow-y: auto;
+    margin-bottom: 10px;
+    padding-right: 4px;
+}
+.ib-sup-mail-empty,
+.ib-sup-mail-loading {
+    font-size: 12px;
+    color: var(--color-text-dim, #777);
+    margin-bottom: 10px;
+    font-style: italic;
+}
+
+.ib-sup-mail-compose {
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+}
+.ib-sup-mail-to-input,
+.ib-sup-mail-subject,
+.ib-sup-mail-input {
+    width: 100%;
+    padding: 8px 10px;
+    border: 1.5px solid var(--color-border, #d7d1ca);
+    border-radius: 6px;
+    font-size: 13px;
+    font-family: inherit;
+    background: #fff;
+    box-sizing: border-box;
+}
+.ib-sup-mail-input {
+    min-height: 80px;
+    resize: vertical;
+}
+.ib-sup-mail-hint {
+    font-size: 11px;
+    color: var(--color-text-dim, #777);
+    margin-top: -4px;
+    font-style: italic;
+}
+
+.ib-sup-mail-to-input:focus,
+.ib-sup-mail-subject:focus,
+.ib-sup-mail-input:focus {
+    outline: none;
+    border-color: var(--brand-primary, #8e631f);
+}
+.ib-sup-mail-actions {
+    display: flex;
+    justify-content: flex-end;
+    gap: 8px;
+}
+.ib-sup-mail-chips {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 6px;
+}
+.ib-sup-mail-chip {
+    display: inline-flex;
+    align-items: center;
+    padding: 3px 10px;
+    border-radius: 12px;
+    background: var(--brand-primary-light, #f1e6b2);
+    color: var(--brand-primary, #8e631f);
+    font-size: 11px;
+    font-weight: 700;
+    cursor: pointer;
+    border: 1px solid transparent;
+    transition: all .12s;
+}
+.ib-sup-mail-chip:hover {
+    background: #e8d8b8;
+    border-color: var(--brand-primary, #8e631f);
+}
+.ib-sup-mail-hint {
+    font-size: 11px;
+    color: var(--color-text-dim, #777);
+    font-style: italic;
+}

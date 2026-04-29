@@ -421,9 +421,9 @@ function _buildDayCell(dateStr, dayData, isCurrentMonth, isToday) {
             }
 
             var prodIcon = (bon.price_category === 'produktion' || bon.price_category_code === 'produktion') ? ' <span class="bon-prod-badge" title="Produktionsbon">🔧</span>' : '';
-            var mailIcon = bon.unread_mail_count ? ' <span class="bon-mail-badge" title="' + bon.unread_mail_count + ' ulæst mail">✉</span>' : '';
+            var mailBadge = bon.unread_mail_count ? ' <span class="bon-mail-badge" title="' + bon.unread_mail_count + ' ulæst mail">' + mailIcon(13) + '</span>' : '';
             entry.innerHTML = '<span class="cal-bon-time">' + esc(timeStr) + '</span>'
-                + '<span class="cal-bon-id">#' + esc(bon.bon_number) + prodIcon + mailIcon + '</span>'
+                + '<span class="cal-bon-id">#' + esc(bon.bon_number) + prodIcon + mailBadge + '</span>'
                 + (bonLoad ? '<span class="cal-bon-pax">' + bonLoad + '</span>' : '');
 
             // Klik → bon-info modal
@@ -598,7 +598,7 @@ function _renderList() {
                 td.textContent = bon.pickup_time || bon.delivery_time || '';
             } else if (col2.key === 'bon_number') {
                 td.innerHTML = '#' + esc(String(bon.bon_number || ''))
-                    + (bon.unread_mail_count ? ' <span class="bon-mail-badge">✉</span>' : '');
+                    + (bon.unread_mail_count ? ' <span class="bon-mail-badge">' + mailIcon(13) + '</span>' : '');
             } else {
                 td.textContent = bon[col2.key] != null ? bon[col2.key] : '';
             }

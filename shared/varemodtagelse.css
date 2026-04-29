@@ -642,6 +642,15 @@
 
 .vm-add-item-btn:hover { border-color: var(--brand-primary, #c47a2b); }
 
+.vm-create-product-btn {
+    margin-top: 8px;
+    color: var(--color-text-dim, #7a7368);
+    font-size: .8rem;
+    border-style: solid;
+    opacity: 0.85;
+}
+.vm-create-product-btn:hover { opacity: 1; color: var(--brand-primary, #c47a2b); }
+
 /* ── Summary card ────────────────────────────���───────────── */
 
 .vm-summary-card {

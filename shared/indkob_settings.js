@@ -60,6 +60,7 @@ async function initIndkobSettings(containerEl, options) {
     _isLoadColPrefs();
     _isRenderShell();
 
+    var loadErr = null;
     try {
         var results = await Promise.all([
             fetchPurchasingSuppliers(),
@@ -73,9 +74,25 @@ async function initIndkobSettings(containerEl, options) {
         _isHokaHealth = results[2];
     } catch (err) {
         console.error('[is] init load error:', err);
+        loadErr = err;
+        _isSuppliers = [];
+        _isGrocyLocs = [];
+        _isSupDropdown = [];
     }
 
     _isTabLoaded[0] = true;
+    if (loadErr) {
+        var body = document.getElementById('isBody');
+        if (body) {
+            body.innerHTML = '<div class="is-section" style="text-align:center;padding:40px 20px">' +
+                '<div style="font-size:32px;margin-bottom:8px">⚠</div>' +
+                '<div style="font-weight:700;color:#c44;margin-bottom:6px">Kunne ikke indlæse indkøbsdata</div>' +
+                '<div style="font-size:13px;color:var(--color-text-dim,#777)">' + (loadErr.message || 'Ukendt fejl') + '</div>' +
+                '<button class="is-add-btn" style="margin-top:18px" onclick="window.location.reload()">Prøv igen</button>' +
+                '</div>';
+        }
+        return;
+    }
     _isRenderTab(0);
 }
 
@@ -157,6 +174,7 @@ function _isHandleClick(e) {
     if (action === 'sup-save')    { _isSaveSupplier(); return; }
     if (action === 'sup-cancel')  { _isEditId = null; _isRenderTab(0); return; }
     if (action === 'sup-add')     { _isAddSupplier(); return; }
+    if (action === 'sup-mail')    { _isOpenSupplierMail(id); return; }
 
     // ─── Tab 2: Products ───
     if (action === 'prod-save')    { _isProdBulkSave(); return; }
@@ -363,6 +381,7 @@ function _isRenderSuppliers(body) {
         html += '</td>';
         // Actions
         html += '<td style="white-space:nowrap">' +
+            '<button class="is-icon-btn" data-is="sup-mail" data-id="' + s.id + '" title="Skriv mail til leverandør">' + mailIcon(14) + '</button> ' +
             '<button class="is-icon-btn" data-is="sup-edit" data-id="' + s.id + '" title="Rediger">✏</button> ' +
             '<button class="is-icon-btn del" data-is="sup-delete" data-id="' + s.id + '" title="Slet">✕</button>' +
             '</td>';
@@ -448,6 +467,40 @@ function _isEditForm(s) {
 function _isEditSupplier(id) {
     _isEditId = id;
     _isRenderTab(0);
+}
+
+/**
+ * Åbn supplier-mail panel for en leverandør.
+ * - I 'panel'-mode (slide-in fra purchasing.html): lukker settings-panelet og
+ *   folder mail-panelet ud i Indkøb-tabben uden side-skift.
+ * - I 'page'-mode (settings/index.html): åbner purchasing.html i ny fane.
+ */
+function _isOpenSupplierMail(id) {
+    if (_isMode === 'panel' && typeof toggleIndkobSettings === 'function' && typeof _ibGroups !== 'undefined') {
+        // Vi er allerede på purchasing.html — find gruppen og folde panel ud inline
+        for (var key in _ibGroups) {
+            if (_ibGroups[key].supplierId === id) {
+                toggleIndkobSettings(); // luk settings-panelet
+                _ibOpenGroups[key] = true;
+                _ibToggleSupMail(key);
+                // Scroll til gruppen
+                setTimeout(function() {
+                    var el = document.querySelector('.ib-group[data-group="' + key + '"]');
+                    if (el) el.scrollIntoView({ behavior: 'smooth', block: 'start' });
+                }, 200);
+                return;
+            }
+        }
+        // Fallback: hvis ingen matchende gruppe (leverandør har ingen aktive varer)
+        _isToast('Leverandøren har ingen varer i indkøbslisten. Åbner mail-panel...', false);
+        toggleIndkobSettings();
+        // Lav en virtuel åbning via window-helper
+        window.location.href = '/kitchen/purchasing.html?supplier_mail=' + id;
+        return;
+    }
+    // Page-mode (settings/index.html) — åbn purchasing.html i ny fane
+    var url = '/kitchen/purchasing.html?supplier_mail=' + id;
+    window.open(url, '_blank', 'noopener');
 }
 
 async function _isSaveSupplier() {

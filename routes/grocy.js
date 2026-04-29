@@ -158,6 +158,32 @@ router.get('/product-groups', handle(async (req, res) => {
     res.json(await grocy.getProductGroups());
 }));
 
+/* ── Userfields meta (alle entiteter) ─────────────────────── */
+
+router.get('/userfields', handle(async (req, res) => {
+    res.json(await grocy.getUserfields());
+}));
+
+/* ── Opret produkt + QU-konvertering ─────────────────────── */
+
+router.post('/products', handle(async (req, res) => {
+    const { name, qu_id_purchase, qu_id_stock, location_id } = req.body || {};
+    if (!name || !qu_id_purchase || !qu_id_stock || !location_id) {
+        return res.status(400).json({ error: 'name, qu_id_purchase, qu_id_stock og location_id er påkrævet' });
+    }
+    const result = await grocy.createProduct(req.body);
+    res.json(result);
+}));
+
+router.post('/quantity-unit-conversions', handle(async (req, res) => {
+    const { product_id, from_qu_id, to_qu_id, factor } = req.body || {};
+    if (!product_id || !from_qu_id || !to_qu_id || !factor) {
+        return res.status(400).json({ error: 'product_id, from_qu_id, to_qu_id og factor er påkrævet' });
+    }
+    const result = await grocy.createQuConversion(req.body);
+    res.json(result);
+}));
+
 /* ── Stock inventory (sæt eksakt mængde) ─────────────────── */
 
 router.post('/stock/:id/inventory', handle(async (req, res) => {
@@ -166,6 +192,18 @@ router.post('/stock/:id/inventory', handle(async (req, res) => {
     if (amount == null) return res.status(400).json({ error: 'amount er påkrævet' });
     await grocy.setInventory(productId, amount, best_before_date || null);
     res.json({ ok: true, product_id: productId, new_amount: amount });
+}));
+
+/* ── Stock add (initial lagerbeholdning ved opret-produkt) ── */
+
+router.post('/stock/:id/add', handle(async (req, res) => {
+    const productId = parseInt(req.params.id);
+    const { amount } = req.body || {};
+    if (amount == null || amount <= 0) {
+        return res.status(400).json({ error: 'amount > 0 er påkrævet' });
+    }
+    await grocy.addToStockFull(productId, req.body);
+    res.json({ ok: true, product_id: productId, amount });
 }));
 
 /* ── Produkt userfields (LastCheckedAt etc.) ─────────────── */

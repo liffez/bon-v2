@@ -192,15 +192,25 @@
         postSSE.addEventListener('po_mail_sent', function(e) {
             if (typeof _siHandleSSE === 'function') _siHandleSSE('po_mail_sent', JSON.parse(e.data));
         });
+        postSSE.addEventListener('supplier_mail_received', function(e) {
+            updatePostBadge();
+            if (typeof _siHandleSSE === 'function') _siHandleSSE('supplier_mail_received', JSON.parse(e.data));
+        });
+        postSSE.addEventListener('supplier_mail_sent', function(e) {
+            if (typeof _siHandleSSE === 'function') _siHandleSSE('supplier_mail_sent', JSON.parse(e.data));
+        });
 
         // Initial badge load
         updatePostBadge();
 
         async function updatePostBadge() {
             try {
-                var threads = await fetchOrderMailThreads({ unread_only: true });
+                var poRes = await fetchOrderMailThreads({ unread_only: true });
+                var supRes = await fetchSupplierMailOverview(true).catch(function() { return { threads: [] }; });
                 var total = 0;
-                for (var i = 0; i < threads.length; i++) total += (threads[i].unread_count || 0);
+                for (var i = 0; i < poRes.length; i++) total += (poRes[i].unread_count || 0);
+                var supThreads = (supRes && supRes.threads) || [];
+                for (var j = 0; j < supThreads.length; j++) total += (supThreads[j].unread_count || 0);
                 var badge = document.getElementById('postBadge');
                 if (badge) {
                     badge.textContent = total;

@@ -912,6 +912,12 @@
         po_mail_sent: (data) => {
           if (typeof _siHandleSSE === 'function') _siHandleSSE('po_mail_sent', data);
         },
+        supplier_mail_received: (data) => {
+          if (typeof _siHandleSSE === 'function') _siHandleSSE('supplier_mail_received', data);
+        },
+        supplier_mail_sent: (data) => {
+          if (typeof _siHandleSSE === 'function') _siHandleSSE('supplier_mail_sent', data);
+        },
       });
     })();
   </script>

@@ -34,6 +34,10 @@ var _ibDueProducts     = [];
 var _ibPendingOrders   = [];
 var _ibMailThreadOpen  = null;  // PO id with open mail thread
 var _ibMailThreadData  = {};    // PO id → { thread, messages }
+var _ibSupMailOpen     = null;  // groupKey with open supplier mail thread
+var _ibSupMailData     = {};    // groupKey → { supplier, thread, messages }
+var _ibSupMailUnread   = {};    // groupKey → unread_count
+var _ibSupMailCompose  = {};    // groupKey → { subject } draft
 
 // UI state
 var _ibOpenGroups      = {};
@@ -70,7 +74,27 @@ async function initIndkob(el) {
         _ibLoadFavCache();
         _ibLoadVolatile();
 
-        // SSE for PO mail events
+        // Load supplier-mail unread overview (non-blocking)
+        _ibLoadSupMailOverview().then(function() {
+            _ibRender();
+            // Auto-open supplier mail panel if URL has ?supplier_mail=<id>
+            try {
+                var qs = new URLSearchParams(window.location.search);
+                var supParam = qs.get('supplier_mail');
+                if (supParam) {
+                    var targetId = parseInt(supParam);
+                    for (var key in _ibGroups) {
+                        if (_ibGroups[key].supplierId === targetId) {
+                            _ibOpenGroups[key] = true;
+                            _ibToggleSupMail(key);
+                            break;
+                        }
+                    }
+                }
+            } catch (e) { /* ignore */ }
+        });
+
+        // SSE for PO mail + supplier mail events
         _ibSSE = new EventSource('/api/sse');
         _ibSSE.addEventListener('po_mail_received', function(e) {
             var data = JSON.parse(e.data);
@@ -79,6 +103,14 @@ async function initIndkob(el) {
         _ibSSE.addEventListener('po_mail_sent', function(e) {
             var data = JSON.parse(e.data);
             _ibHandlePoMail(data);
+        });
+        _ibSSE.addEventListener('supplier_mail_received', function(e) {
+            var data = JSON.parse(e.data);
+            _ibHandleSupplierMailEvent(data);
+        });
+        _ibSSE.addEventListener('supplier_mail_sent', function(e) {
+            var data = JSON.parse(e.data);
+            _ibHandleSupplierMailEvent(data);
         });
     } catch (err) {
         console.error('[indkob] init fejl:', err);
@@ -460,17 +492,8 @@ function _ibRender() {
     // Panels (Manglende / Udløbende)
     html += _ibRenderPanels();
 
-    // Content
-    html += '<div class="ib-content">';
-
-    var groupKeys = Object.keys(_ibGroups);
-    if (groupKeys.length === 0 && _ibShoppingList.length === 0) {
-        html += '<div class="ib-empty"><div class="ib-empty-icon">🛒</div>'
-            + '<div class="ib-empty-title">Indkøbslisten er tom</div>'
-            + '<div class="ib-empty-sub">Tilføj varer via Manglende-panelet eller "+ Tilføj vare"</div></div>';
-    }
-
     // Sort groups: api first, then email/manual/webshop, then intern, then none
+    var groupKeys = Object.keys(_ibGroups);
     var typeOrder = { api: 0, email: 1, webshop: 1, manual: 2, intern: 3, none: 4 };
     groupKeys.sort(function(a, b) {
         var ga = _ibGroups[a], gb = _ibGroups[b];
@@ -479,6 +502,30 @@ function _ibRender() {
         if (oa !== ob) return oa - ob;
         return (ga.displayName || '').localeCompare(gb.displayName || '', 'da');
     });
+
+    // Quick-jump strip — gør det nemt at finde leverandør-grupper når der er mange
+    if (groupKeys.length > 2) {
+        html += '<div class="ib-jump-strip">';
+        for (var qj = 0; qj < groupKeys.length; qj++) {
+            var qg = _ibGroups[groupKeys[qj]];
+            var unreadBadge = _ibSupMailUnread[groupKeys[qj]] || 0;
+            var icoCls = qg.integrationType || 'manual';
+            html += '<button class="ib-jump-pill ib-jp-' + icoCls + '" data-ib="jump-to" data-group="' + groupKeys[qj] + '">';
+            html += '<span class="ib-jp-name">' + _ibEsc(qg.displayName || qg.supplierName || '?') + '</span>';
+            if (unreadBadge > 0) html += '<span class="ib-jp-mail">' + mailIcon(11) + ' ' + unreadBadge + '</span>';
+            html += '</button>';
+        }
+        html += '</div>';
+    }
+
+    // Content
+    html += '<div class="ib-content">';
+
+    if (groupKeys.length === 0 && _ibShoppingList.length === 0) {
+        html += '<div class="ib-empty"><div class="ib-empty-icon">🛒</div>'
+            + '<div class="ib-empty-title">Indkøbslisten er tom</div>'
+            + '<div class="ib-empty-sub">Tilføj varer via Manglende-panelet eller "+ Tilføj vare"</div></div>';
+    }
 
     for (var gi = 0; gi < groupKeys.length; gi++) {
         html += _ibRenderGroup(groupKeys[gi]);
@@ -618,7 +665,10 @@ function _ibRenderPanels() {
         h += '<input class="ib-panel-qi" type="number" min="1" value="1" style="width:60px;text-align:center" id="ibAddProdQty">';
         h += '<button class="ib-panel-add" data-ib="add-product-confirm" style="white-space:nowrap">Tilføj</button>';
         h += '</div>';
+        h += '<div style="display:flex;justify-content:space-between;align-items:center;gap:10px">';
         h += '<div id="ibAddProdSel" style="font-size:12px;color:var(--color-text-dim,#777)">Søg efter produktnavn...</div>';
+        h += '<a href="/kitchen/stock.html?tab=create" target="_blank" rel="noopener" style="font-size:12px;color:var(--brand-primary,#8e631f);text-decoration:none;font-weight:600;white-space:nowrap">+ Opret nyt produkt</a>';
+        h += '</div>';
         h += '</div></div>';
     }
 
@@ -701,9 +751,16 @@ function _ibRenderGroup(key) {
     if (orderedItems.length) h += '<span class="ib-sgp bs">' + orderedItems.length + ' bestilt</span>';
     if (estTotal > 0) h += '<span class="ib-sgp es">ca. ' + Math.round(estTotal) + ' kr</span>';
     if (co2Total > 0) h += '<span class="ib-sgp co2">🌱 ' + co2Total.toFixed(1) + ' kg CO₂e</span>';
+    var supUnread = _ibSupMailUnread[key] || 0;
+    if (supUnread > 0) {
+        h += '<span class="ib-sgp ib-sup-mail-pill" data-ib="toggle-sup-mail" data-group="' + key + '" title="' + supUnread + ' ulæst leverandør-mail">' + mailIcon(12) + ' ' + supUnread + '</span>';
+    }
     h += '</div>';
 
-    // Action button
+    // Action buttons (Skriv mail + integration-specific action)
+    if (g.supplierId) {
+        h += '<button class="ib-group-mail-btn" data-ib="toggle-sup-mail" data-group="' + key + '" title="Skriv til leverandør">' + mailIcon(16) + '</button>';
+    }
     h += _ibRenderGroupAction(g, key);
 
     h += '<div class="ib-group-chev' + (isOpen ? ' open' : '') + '">›</div>';
@@ -711,6 +768,11 @@ function _ibRenderGroup(key) {
 
     // Body
     h += '<div class="ib-group-body' + (isOpen ? ' open' : '') + '" data-group-body="' + key + '">';
+
+    // Supplier mail thread (always available — uafhængigt af integration_type)
+    if (_ibSupMailOpen === key) {
+        h += _ibRenderSupMailSection(g, key);
+    }
 
     // Dropsize banner placeholder (filled async for api groups)
     if (g.integrationType === 'api') {
@@ -740,9 +802,9 @@ function _ibRenderGroup(key) {
         h += '<span class="ib-bs-chev' + (showOrd ? ' open' : '') + '">›</span>';
         h += '<span>' + orderedItems.length + ' vare' + (orderedItems.length !== 1 ? 'r' : '') + ' bestilt — ' + (showOrd ? 'skjul' : 'vis') + '</span>';
         if (g.totalUnreadMail > 0) {
-            h += '<span class="ib-mail-badge" title="' + g.totalUnreadMail + ' ulæst mail">✉ ' + g.totalUnreadMail + '</span>';
+            h += '<span class="ib-mail-badge" title="' + g.totalUnreadMail + ' ulæst mail">' + mailIcon(12) + ' ' + g.totalUnreadMail + '</span>';
         } else if (g.pendingOrders && g.pendingOrders.some(function(po) { return po.sent_via === 'email'; })) {
-            h += '<span class="ib-mail-icon" title="Mail sendt">✉</span>';
+            h += '<span class="ib-mail-icon" title="Mail sendt">' + mailIcon(13) + '</span>';
         }
         h += '</div>';
         h += '<div class="ib-bs-section' + (showOrd ? ' open' : '') + '">';
@@ -1155,6 +1217,44 @@ function _ibHandleClick(e) {
 
         case 'po-mail-send':
             _ibSendPoMailReply(parseInt(btn.getAttribute('data-po-id')));
+            break;
+
+        case 'jump-to':
+            var jumpGroup = btn.getAttribute('data-group');
+            _ibOpenGroups[jumpGroup] = true;
+            _ibRender();
+            setTimeout(function() {
+                var el = _ibContainer.querySelector('.ib-group[data-group="' + jumpGroup + '"]');
+                if (el) {
+                    el.scrollIntoView({ behavior: 'smooth', block: 'start' });
+                    el.classList.add('ib-flash');
+                    setTimeout(function() { el.classList.remove('ib-flash'); }, 1500);
+                }
+            }, 50);
+            break;
+
+        case 'toggle-sup-mail':
+            e.stopPropagation();
+            _ibToggleSupMail(group);
+            break;
+
+        case 'close-sup-mail':
+            e.stopPropagation();
+            _ibSupMailOpen = null;
+            _ibRender();
+            break;
+
+        case 'sup-mail-send':
+            _ibSendSupMail(group);
+            break;
+
+        case 'sup-mail-chip':
+            var chipEmail = btn.getAttribute('data-email');
+            var toInp = _ibContainer.querySelector('.ib-sup-mail-to-input[data-group="' + group + '"]');
+            if (toInp && chipEmail) {
+                toInp.value = chipEmail;
+                toInp.focus();
+            }
             break;
 
         case 'goto-cart':
@@ -1928,7 +2028,7 @@ function _ibRenderPoMailSection(po) {
     var isOpen = _ibMailThreadOpen === po.id;
     var h = '<div class="ib-po-mail" data-po-id="' + po.id + '">';
     h += '<div class="ib-po-mail-header" data-ib="toggle-po-mail" data-po-id="' + po.id + '">';
-    h += '<span class="ib-po-mail-icon' + (po.unread_mail > 0 ? ' unread' : '') + '">✉</span>';
+    h += '<span class="ib-po-mail-icon' + (po.unread_mail > 0 ? ' unread' : '') + '">' + mailIcon(13) + '</span>';
     h += '<span class="ib-po-mail-label">Bestillingsmail</span>';
     if (po.unread_mail > 0) {
         h += '<span class="ib-po-mail-count">' + po.unread_mail + ' ny' + (po.unread_mail !== 1 ? 'e' : '') + '</span>';
@@ -1990,6 +2090,159 @@ function _ibFmtDateTime(iso) {
         var min = String(d.getMinutes()).padStart(2, '0');
         return day + '. ' + mon + ' ' + hrs + ':' + min;
     } catch (e) { return iso.slice(0, 16); }
+}
+
+/* ── Supplier mail (fri kommunikation, uafhængigt af PO) ─────── */
+
+function _ibRenderSupMailSection(g, key) {
+    var data = _ibSupMailData[key];
+    var draft = _ibSupMailCompose[key] || {};
+    var supContactEmail = (data && data.supplier && data.supplier.contact_email) || g.contactEmail || '';
+    var supNotes = (data && data.supplier && data.supplier.notes) || g.notes || '';
+    var defaultTo = supContactEmail;
+
+    // Parse notes for ekstra mini-leverandør-emails
+    var contacts = parseEmailsFromNotes(supNotes);
+    contacts = contacts.filter(function(c) { return c.email !== (defaultTo || '').toLowerCase(); });
+
+    var h = '<div class="ib-sup-mail" data-group="' + key + '">';
+    h += '<div class="ib-sup-mail-hdr">';
+    h += '<span class="ib-sup-mail-title">' + mailIcon(14) + ' Skriv til ' + _ibEsc(g.supplierName) + '</span>';
+    h += '<button class="ib-sup-mail-close" data-ib="close-sup-mail" data-group="' + key + '">✕</button>';
+    h += '</div>';
+
+    // Tråd-historik
+    if (data && data.messages && data.messages.length > 0) {
+        h += '<div class="ib-sup-mail-msgs">' + _ibRenderMailMessages(data.messages) + '</div>';
+    } else if (data) {
+        h += '<div class="ib-sup-mail-empty">Ingen tidligere mails — start en ny tråd nedenfor.</div>';
+    } else {
+        h += '<div class="ib-sup-mail-loading">Indlæser tråd...</div>';
+    }
+
+    // Compose
+    h += '<div class="ib-sup-mail-compose">';
+    h += '<input class="ib-sup-mail-to-input" placeholder="Modtager email..." value="' + _ibEsc(defaultTo) + '" data-ib="sup-mail-to" data-group="' + key + '">';
+
+    // Quick-pick chips fra notes
+    if (contacts.length > 0) {
+        h += '<div class="ib-sup-mail-chips">';
+        for (var ci = 0; ci < contacts.length; ci++) {
+            h += '<span class="ib-sup-mail-chip" data-ib="sup-mail-chip" data-group="' + key + '" data-email="' + _ibEsc(contacts[ci].email) + '" title="' + _ibEsc(contacts[ci].email) + '">' +
+                _ibEsc(contacts[ci].label) + '</span>';
+        }
+        h += '</div>';
+        h += '<div class="ib-sup-mail-hint">Klik en kontakt for at indsætte. Adresser er fundet i leverandørens noter.</div>';
+    } else if (!defaultTo) {
+        h += '<div class="ib-sup-mail-hint">Tip: Sæt en standard-email på leverandøren under Settings → Indkøb → Leverandører.</div>';
+    }
+
+    h += '<input class="ib-sup-mail-subject" placeholder="Emne (fx \'Forespørgsel om aftalepris\')" value="' + _ibEsc(draft.subject || '') + '" data-ib="sup-mail-subject" data-group="' + key + '">';
+    h += '<textarea class="ib-sup-mail-input" placeholder="Skriv besked..." data-ib="sup-mail-text" data-group="' + key + '"></textarea>';
+    h += '<div class="ib-sup-mail-actions">';
+    h += '<button class="ib-btn ib-btn-sm" data-ib="sup-mail-send" data-group="' + key + '">Send</button>';
+    h += '</div>';
+    h += '</div>';
+    h += '</div>';
+    return h;
+}
+
+async function _ibToggleSupMail(key) {
+    if (_ibSupMailOpen === key) {
+        _ibSupMailOpen = null;
+        _ibRender();
+        return;
+    }
+    _ibSupMailOpen = key;
+    var g = _ibGroups[key];
+    if (!g || !g.supplierId) {
+        _ibToast('Leverandøren er ikke koblet i V2', true);
+        _ibSupMailOpen = null;
+        return;
+    }
+    // Auto-open the group body if it's collapsed
+    _ibOpenGroups[key] = true;
+    _ibRender(); // Show loading state
+
+    try {
+        var data = await fetchSupplierMail(g.supplierId);
+        _ibSupMailData[key] = data;
+        // Reset unread badge after open
+        if (_ibSupMailUnread[key]) {
+            await markSupplierMailRead(g.supplierId);
+            _ibSupMailUnread[key] = 0;
+        }
+    } catch (err) {
+        _ibSupMailData[key] = { thread: null, messages: [] };
+        console.error('[indkob] Supplier mail load fejl:', err);
+    }
+    _ibRender();
+}
+
+async function _ibSendSupMail(key) {
+    var g = _ibGroups[key];
+    if (!g) return;
+    var toEl      = _ibContainer.querySelector('.ib-sup-mail-to-input[data-group="' + key + '"]');
+    var subjectEl = _ibContainer.querySelector('.ib-sup-mail-subject[data-group="' + key + '"]');
+    var textEl    = _ibContainer.querySelector('.ib-sup-mail-input[data-group="' + key + '"]');
+    var to      = toEl ? toEl.value.trim() : '';
+    var subject = subjectEl ? subjectEl.value.trim() : '';
+    var body    = textEl ? textEl.value.trim() : '';
+    if (!to)      { _ibToast('Modtager-email er påkrævet', true); return; }
+    if (!subject) { _ibToast('Skriv et emne først', true); return; }
+    if (!body)    { _ibToast('Skriv en besked først', true); return; }
+
+    try {
+        await sendSupplierMail(g.supplierId, { subject: subject, body: body, to: to });
+        _ibToast('Mail sendt til ' + g.supplierName);
+        _ibSupMailCompose[key] = {}; // clear draft
+        // Reload thread
+        var data = await fetchSupplierMail(g.supplierId);
+        _ibSupMailData[key] = data;
+        _ibRender();
+    } catch (err) {
+        _ibToast('Fejl: ' + (err.message || 'Kunne ikke sende'), true);
+    }
+}
+
+async function _ibHandleSupplierMailEvent(data) {
+    // Indkommende mail på en supplier-tråd → opdater badge
+    var supId = data && data.supplier_id;
+    if (!supId) return;
+    for (var key in _ibGroups) {
+        if (_ibGroups[key].supplierId === supId) {
+            _ibSupMailUnread[key] = (data.unread_count != null ? data.unread_count : (_ibSupMailUnread[key] || 0) + 1);
+            // Hvis tråden er åben, hent den friske data
+            if (_ibSupMailOpen === key) {
+                try {
+                    var fresh = await fetchSupplierMail(supId);
+                    _ibSupMailData[key] = fresh;
+                    await markSupplierMailRead(supId);
+                    _ibSupMailUnread[key] = 0;
+                } catch (e) { /* ignore */ }
+            }
+            _ibRender();
+            return;
+        }
+    }
+}
+
+async function _ibLoadSupMailOverview() {
+    try {
+        var data = await fetchSupplierMailOverview(true);
+        _ibSupMailUnread = {};
+        if (data && data.threads) {
+            for (var i = 0; i < data.threads.length; i++) {
+                var t = data.threads[i];
+                // Find group for this supplier
+                for (var key in _ibGroups) {
+                    if (_ibGroups[key].supplierId === t.supplier_id && t.unread_count > 0) {
+                        _ibSupMailUnread[key] = t.unread_count;
+                    }
+                }
+            }
+        }
+    } catch (e) { /* lydløs degradering */ }
 }
 
 async function _ibTogglePoMail(poId) {

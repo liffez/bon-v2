@@ -167,6 +167,33 @@ router.delete('/suppliers/grocy-locations/:id', handle((req, res) => {
    SUPPLIER :id ROUTES — EFTER grocy-locations
    ══════════════════════════════════════════════════════════════ */
 
+/* ── GET /suppliers/mail-overview ───────────────────────────
+   Skal mountes FØR /suppliers/:id for at undgå route-konflikt.
+   Liste over alle aktive supplier-tråde + ulæst-tæller.
+   ───────────────────────────────────────────────────────── */
+
+router.get('/suppliers/mail-overview', handle((req, res) => {
+    const db = getDb();
+    const onlyUnread = req.query.unread_only === '1';
+
+    const sql = `
+        SELECT s.id AS supplier_id, s.name AS supplier_name, s.contact_email AS supplier_email,
+               mt.id AS thread_id, mt.subject, mt.updated_at,
+               (SELECT COUNT(*) FROM mail_messages WHERE thread_id = mt.id AND is_read = 0 AND direction = 'in') AS unread_count,
+               (SELECT body_text FROM mail_messages WHERE thread_id = mt.id ORDER BY created_at DESC LIMIT 1) AS last_body,
+               (SELECT direction FROM mail_messages WHERE thread_id = mt.id ORDER BY created_at DESC LIMIT 1) AS last_direction,
+               (SELECT created_at FROM mail_messages WHERE thread_id = mt.id ORDER BY created_at DESC LIMIT 1) AS last_at
+        FROM mail_threads mt
+        JOIN suppliers s ON s.id = mt.supplier_id
+        WHERE mt.supplier_id IS NOT NULL
+          AND mt.purchase_order_id IS NULL
+          AND mt.status = 'active'
+        ${onlyUnread ? 'AND (SELECT COUNT(*) FROM mail_messages WHERE thread_id = mt.id AND is_read = 0 AND direction = \'in\') > 0' : ''}
+        ORDER BY mt.updated_at DESC
+    `;
+    res.json({ threads: db.prepare(sql).all() });
+}));
+
 /* ── GET /suppliers/:id ─────────────────────────────────── */
 
 router.get('/suppliers/:id', handle((req, res) => {
@@ -258,6 +285,122 @@ router.delete('/suppliers/:id', handle((req, res) => {
     db.prepare('UPDATE suppliers SET is_active = 0 WHERE id = ?').run(id);
 
     res.json({ ok: true, deactivated: true, linked_locations: linkCount });
+}));
+
+/* ──────────────────────────────────────────────────────────
+   SUPPLIER MAIL — fri kommunikation med leverandøren
+   (uafhængigt af PO — fx forespørgsler, reklamationer, aftaler)
+   ────────────────────────────────────────────────────────── */
+
+const mailService = require('../services/mailService');
+
+/**
+ * GET /suppliers/:id/mail
+ * Hent den aktive supplier-tråd (eller {thread:null} hvis ingen).
+ */
+router.get('/suppliers/:id/mail', handle((req, res) => {
+    const db = getDb();
+    const supplierId = parseInt(req.params.id);
+
+    const supplier = db.prepare('SELECT id, name, contact_email, notes FROM suppliers WHERE id = ?').get(supplierId);
+    if (!supplier) return res.status(404).json({ error: 'Leverandør ikke fundet' });
+
+    const thread = db.prepare(
+        `SELECT id, subject, created_at, updated_at FROM mail_threads
+         WHERE supplier_id = ? AND purchase_order_id IS NULL AND status = 'active'
+         ORDER BY updated_at DESC LIMIT 1`
+    ).get(supplierId);
+
+    if (!thread) {
+        return res.json({ supplier, thread: null, messages: [] });
+    }
+
+    const messages = db.prepare(
+        `SELECT id, direction, from_email, from_name, to_email, subject, body_text, body_html,
+                is_read, sent_at, received_at, created_at, has_attachments
+         FROM mail_messages WHERE thread_id = ? ORDER BY created_at ASC`
+    ).all(thread.id);
+
+    res.json({ supplier, thread, messages });
+}));
+
+/**
+ * GET /suppliers/:id/mail-threads
+ * Liste over alle (også arkiverede) supplier-tråde for én leverandør.
+ */
+router.get('/suppliers/:id/mail-threads', handle((req, res) => {
+    const db = getDb();
+    const supplierId = parseInt(req.params.id);
+
+    const threads = db.prepare(
+        `SELECT mt.id, mt.subject, mt.status, mt.created_at, mt.updated_at,
+                (SELECT COUNT(*) FROM mail_messages WHERE thread_id = mt.id) AS msg_count,
+                (SELECT COUNT(*) FROM mail_messages WHERE thread_id = mt.id AND is_read = 0 AND direction = 'in') AS unread_count
+         FROM mail_threads mt
+         WHERE mt.supplier_id = ? AND mt.purchase_order_id IS NULL
+         ORDER BY mt.updated_at DESC`
+    ).all(supplierId);
+
+    res.json({ threads });
+}));
+
+/**
+ * POST /suppliers/:id/mail
+ * Send mail til leverandøren via kontakt@-transport.
+ * Body: { subject, body, attachments?, to? (override) }
+ */
+router.post('/suppliers/:id/mail', handle(async (req, res) => {
+    const db = getDb();
+    const supplierId = parseInt(req.params.id);
+    const { subject, body, attachments, to } = req.body || {};
+
+    const supplier = db.prepare('SELECT id, name, contact_email, notes FROM suppliers WHERE id = ?').get(supplierId);
+    if (!supplier) return res.status(404).json({ error: 'Leverandør ikke fundet' });
+
+    const recipient = (to && to.trim()) || supplier.contact_email;
+    if (!recipient) {
+        return res.status(400).json({ error: 'Ingen modtager — leverandøren har ikke en email-adresse, og ingen "to" blev angivet.' });
+    }
+    if (!subject || !body) return res.status(400).json({ error: 'subject og body er påkrævet' });
+
+    const userId = req.session?.user?.id || null;
+
+    const result = await mailService.sendMail({
+        to: recipient,
+        subject,
+        text: body,
+        context: { type: 'supplier', number: supplierId },
+        supplierId,
+        smtpPrefix: 'smtp_kontakt',
+        userId,
+        attachments: attachments || []
+    });
+
+    res.json({ ok: true, thread_id: result.threadId, message_id: result.messageId, subject: result.subject });
+}));
+
+/**
+ * PATCH /suppliers/:id/mail/read
+ * Markér alle indgående beskeder i den aktive supplier-tråd som læst.
+ */
+router.patch('/suppliers/:id/mail/read', handle((req, res) => {
+    const db = getDb();
+    const supplierId = parseInt(req.params.id);
+
+    const thread = db.prepare(
+        `SELECT id FROM mail_threads
+         WHERE supplier_id = ? AND purchase_order_id IS NULL AND status = 'active'
+         ORDER BY updated_at DESC LIMIT 1`
+    ).get(supplierId);
+
+    if (!thread) return res.json({ ok: true, updated: 0 });
+
+    const result = db.prepare(
+        `UPDATE mail_messages SET is_read = 1
+         WHERE thread_id = ? AND is_read = 0 AND direction = 'in'`
+    ).run(thread.id);
+
+    res.json({ ok: true, updated: result.changes });
 }));
 
 module.exports = router;

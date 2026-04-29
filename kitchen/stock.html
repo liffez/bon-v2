@@ -11,6 +11,7 @@
     <link rel="stylesheet" href="/shared/kitchen_topbar.css">
     <link rel="stylesheet" href="/shared/stock_overview.css">
     <link rel="stylesheet" href="/shared/inventory_check.css">
+    <link rel="stylesheet" href="/shared/product_create.css">
     <link rel="stylesheet" href="/shared/help-system.css">
     <style>
         /* RESET + BASE */
@@ -39,6 +40,7 @@
         /* CONTENT */
         #stockOverviewContainer { padding: 20px 24px; }
         #inventoryCheckContainer { padding: 20px 24px; display: none; }
+        #productCreateContainer { padding: 20px 24px; display: none; }
     </style>
 </head>
 <body class="zone-kitchen" data-help-page="kitchen-stock" data-help-page-name="Køkken — Lager">
@@ -47,11 +49,13 @@
 <div class="tab-bar">
     <a href="#" id="tabOverview" class="active">Lageroversigt</a>
     <a href="#" id="tabCheck">Optælling</a>
+    <a href="#" id="tabCreate">Opret produkt</a>
 </div>
 
 <!-- CONTENT -->
 <div id="stockOverviewContainer"></div>
 <div id="inventoryCheckContainer"></div>
+<div id="productCreateContainer"></div>
 
 <!-- SCRIPTS -->
 <script src="/shared/zone_switcher.js"></script>
@@ -60,8 +64,10 @@
 <script src="/shared/api.js"></script>
 <script src="/shared/stock_overview.js"></script>
 <script src="/shared/inventory_check.js"></script>
+<script src="/shared/product_create.js"></script>
 <script>
     var _checkInitialized = false;
+    var _createInitialized = false;
 
     document.addEventListener('DOMContentLoaded', async function() {
         var currentUser = await checkAuth();
@@ -70,14 +76,22 @@
 
         var overviewContainer = document.getElementById('stockOverviewContainer');
         var checkContainer = document.getElementById('inventoryCheckContainer');
+        var createContainer = document.getElementById('productCreateContainer');
         var tabOverview = document.getElementById('tabOverview');
         var tabCheck = document.getElementById('tabCheck');
+        var tabCreate = document.getElementById('tabCreate');
 
         // Init overview by default
         initStockOverview(overviewContainer);
 
-        // Check URL hash
-        if (window.location.hash === '#optalning') {
+        // Tab fra ?tab= eller hash
+        var qs = new URLSearchParams(window.location.search);
+        var tabParam = qs.get('tab');
+        var prefillBarcode = qs.get('barcode');
+
+        if (tabParam === 'create' || (window.location.hash === '#opret-produkt')) {
+            switchToCreate(prefillBarcode);
+        } else if (window.location.hash === '#optalning') {
             switchToCheck();
         }
 
@@ -85,9 +99,11 @@
             e.preventDefault();
             tabOverview.classList.add('active');
             tabCheck.classList.remove('active');
+            tabCreate.classList.remove('active');
             overviewContainer.style.display = 'block';
             checkContainer.style.display = 'none';
-            window.location.hash = '';
+            createContainer.style.display = 'none';
+            _setUrl('');
         });
 
         tabCheck.addEventListener('click', function(e) {
@@ -95,19 +111,49 @@
             switchToCheck();
         });
 
+        tabCreate.addEventListener('click', function(e) {
+            e.preventDefault();
+            switchToCreate(null);
+        });
+
+        // Når brugeren klikker "Tilbage til lager" i resultat-kortet
+        window._pcOnDone = function() {
+            tabOverview.click();
+        };
+
         function switchToCheck() {
             tabCheck.classList.add('active');
             tabOverview.classList.remove('active');
+            tabCreate.classList.remove('active');
             overviewContainer.style.display = 'none';
             checkContainer.style.display = 'block';
-            window.location.hash = 'optalning';
+            createContainer.style.display = 'none';
+            _setUrl('#optalning');
             if (!_checkInitialized) {
                 initInventoryCheck(checkContainer);
                 _checkInitialized = true;
             }
         }
-    });
 
+        function switchToCreate(barcode) {
+            tabCreate.classList.add('active');
+            tabOverview.classList.remove('active');
+            tabCheck.classList.remove('active');
+            overviewContainer.style.display = 'none';
+            checkContainer.style.display = 'none';
+            createContainer.style.display = 'block';
+            _setUrl(barcode ? ('?tab=create&barcode=' + encodeURIComponent(barcode)) : '#opret-produkt');
+            if (!_createInitialized) {
+                initProductCreate(createContainer, { barcode: barcode || null });
+                _createInitialized = true;
+            }
+        }
+
+        function _setUrl(suffix) {
+            var base = window.location.pathname;
+            window.history.replaceState({}, '', base + (suffix || ''));
+        }
+    });
 </script>
 <script src="/shared/help-system.js"></script>
 </body>

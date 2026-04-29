@@ -853,6 +853,16 @@ function _vmRenderLagerContent() {
     addBtn.addEventListener('click', _vmAddManualItem);
     list.appendChild(addBtn);
 
+    // Open "Opret produkt" in new tab \u2014 for varer der ikke findes i Grocy endnu
+    var createBtn = document.createElement('button');
+    createBtn.className = 'vm-add-item-btn vm-create-product-btn';
+    createBtn.type = 'button';
+    createBtn.textContent = '\uff0b Opret nyt produkt i Grocy';
+    createBtn.addEventListener('click', function() {
+        window.open('/kitchen/stock.html?tab=create', '_blank', 'noopener');
+    });
+    list.appendChild(createBtn);
+
     // Summary
     _vmDom.summaryCard = _vmBuildSummaryCard();
     list.appendChild(_vmDom.summaryCard);

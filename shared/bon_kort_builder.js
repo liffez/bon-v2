@@ -172,7 +172,7 @@ function createCard(bonData, viewName) {
 
         <div class="bon-header">
             <div class="bon-header-left">
-                <div class="bon-id">#${bonData.bon_number || id}${bonData.price_category === 'produktion' ? ' <span class="bon-prod-badge" title="Produktionsbon">🔧</span>' : ''}${bonData.unread_mail_count ? ' <span class="bon-mail-badge" title="' + bonData.unread_mail_count + ' ulæst mail">✉</span>' : ''}</div>
+                <div class="bon-id">#${bonData.bon_number || id}${bonData.price_category === 'produktion' ? ' <span class="bon-prod-badge" title="Produktionsbon">🔧</span>' : ''}${bonData.unread_mail_count ? ' <span class="bon-mail-badge" title="' + bonData.unread_mail_count + ' ulæst mail">' + mailIcon(14) + '</span>' : ''}</div>
                 <div class="bon-time-row">
                     <span class="bon-pickup">${bonData.pickup_time || ''}</span>
                     <span class="bon-lev">${levStr}</span>

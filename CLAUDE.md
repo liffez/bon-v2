@@ -1257,6 +1257,38 @@ Oprettes under Grocy → Manage master data → Userfields.
   - Fjernet `← →` pile og `📥📤` emojis — retning vises via boble-position
 - [x] Ændrede filer: `bon_kort.css`, `bon_kort.js`, `bon_drawer.js`, `modal.js`, `supplier_inbox.js`, `indkob.css`, `indkob.js`, `crm-kunde360.js`
 
+### Opret produkt (kitchen/stock.html tab 3)
+- [x] 4 nye Grocy proxy-endpoints i [routes/grocy.js](routes/grocy.js): `GET /userfields`, `POST /products`, `POST /quantity-unit-conversions`, `POST /stock/:id/add`
+- [x] [services/grocyAdapter.js](services/grocyAdapter.js): `createProduct()`, `createQuConversion()`, `getUserfields()`, `addToStockFull()` (udvidet `addToStock` med pris + transaction_type)
+- [x] [shared/api.js](shared/api.js): `fetchGrocyUserfields()`, `postGrocyProduct()`, `postGrocyQuConversion()`, `postGrocyStockAdd()`
+- [x] [shared/product_create.js](shared/product_create.js) + [shared/product_create.css](shared/product_create.css) — komponent med 3 sektioner (Grunddata · Workflow · Stregkode/varenummer foldout)
+- [x] [kitchen/stock.html](kitchen/stock.html) — 3. tab "Opret produkt", URL-håndtering: `?tab=create&barcode=<ean>` deep-links til pre-fill (Hørkram-lookup udfylder navn/pris/salgsenhed)
+- [x] Dynamic userfield-detection: `HverDag` (check-interval) + `Co2e` vises kun hvis de findes på products-entity i Grocy
+- [x] Stock-QU restricted til Kilo/Antal/Stk (vægt-/CO2-beregninger fremover)
+- [x] Pris-mode toggle (Total/Pr. enhed) — total deles med antal ved submit for korrekt pris pr. stock-enhed
+- [x] QU-konvertering callout når purchase ≠ stock + live "≈ N kasser"-hint på lager-amount
+- [x] Navne-duplikat fuzzy match mod cached products (advarsel inden submit)
+- [x] No-rollback med warnings: produkt beholdes selv hvis QU-konvertering/userfields/barcode/lager fejler
+- [x] Verificeret end-to-end på grocytest (produkt id 216 oprettet via UI)
+- [x] Genvej fra Varemodtagelse: "+ Opret nyt produkt i Grocy"-knap under "+ Tilføj vare manuelt" på lager-trinnet, åbner `kitchen/stock.html?tab=create` i ny fane (target=_blank, noopener)
+- [x] Genvej fra Indkøbsliste: "+ Opret nyt produkt"-link nederst-højre i "+ Tilføj vare"-panelet, samme target-mønster (åbner i ny fane)
+
+### Supplier-mail (fri kommunikation med leverandører)
+- [x] Migration 052: `mail_threads.supplier_id` (nullable FK), `mail_tag_supplier_prefix='s-'` setting
+- [x] [utils/mail-parser.js](utils/mail-parser.js): parse `#s-NN` tags, route `'supplier'`, `buildTag` understøtter supplier
+- [x] [services/mailService.js](services/mailService.js): `supplierId` parameter på `sendMail()` + `sendFromTemplate()`, IMAP-routing matcher `#s-NN` til supplier-tråde, SSE `supplier_mail_received`/`supplier_mail_sent`
+- [x] [routes/purchasing.js](routes/purchasing.js): 5 nye endpoints (`GET/POST /suppliers/:id/mail`, `PATCH /suppliers/:id/mail/read`, `GET /suppliers/:id/mail-threads`, `GET /suppliers/mail-overview`)
+- [x] [shared/api.js](shared/api.js): `fetchSupplierMail`, `fetchSupplierMailThreads`, `sendSupplierMail`, `markSupplierMailRead`, `fetchSupplierMailOverview`
+- [x] [shared/indkob.js](shared/indkob.js): "✉ Skriv til leverandør"-knap på hver gruppe-header (uafhængigt af integration_type), inline tråd + compose-form med modtager/emne/besked, ulæst-badge i pills, SSE-handler for live opdatering
+- [x] **Quick-jump strip** øverst på Indkøb: leverandør-pills (farvet venstrekant per integration-type) — klik scroller til gruppe + flash-animation. Gør det nemmere at finde leverandører når der er mange grupper
+- [x] [shared/supplier_inbox.js](shared/supplier_inbox.js): kategori-filter (Alle typer / 📦 Bestillinger / ✉ Generel), kombinerer PO-tråde og supplier-tråde i samme liste, sender svar via korrekt endpoint baseret på tråd-type
+- [x] [office/index.html](office/index.html) + [kitchen/purchasing.html](kitchen/purchasing.html): SSE-handlers for `supplier_mail_received`/`supplier_mail_sent`, Post-tab badge tæller begge typer
+- [x] [shared/indkob_settings.js](shared/indkob_settings.js): "✉ Skriv mail"-knap på hver leverandør i Settings → Indkøb → Leverandører — åbner indkøbssiden i ny fane med `?supplier_mail=<id>` og auto-foldud af supplier-mail panel
+- [x] Verificeret end-to-end: mail sendt med tag `#s-1`, supplier-tråd #10 oprettet, vises i både Indkøb-tabben (Hørkram-gruppen) og Office Leverandørpost (med ✉ Generel-filter)
+- [x] **Ny mail-modal i Leverandørpost**: "+ Ny mail"-knap i toolbar → modal med leverandør-dropdown, til-felt, emne, besked. Auto-pre-fill fra `contact_email`, fokuserer emne ved valg. Sender via samme endpoint som inline-flow. Auto-select af nyoprettet tråd efter send.
+- [x] **Notes-email-parsing (chips)**: `parseEmailsFromNotes()` helper i [shared/utils.js](shared/utils.js) udtrækker emails + labels fra leverandørens fri-tekst noter. Chips vises i compose-formularen (både inline og modal) — klik fylder "Til"-feltet. Genkender mønstre som "Navn — email@x.dk" og falder tilbage til domæne-baseret label hvis ingen prefix. Bruges fx på Emballage-leverandøren hvor flere mini-leverandører deler én Grocy-lokation.
+- [x] **SVG mail-ikon**: ny `mailIcon(size)` helper i [shared/utils.js](shared/utils.js). Erstatter ✉ unicode-emoji på små badges/knapper hvor den var næsten usynlig — bon-mail-badge på bon-kort + kalender, gruppe-mail-pill, supplier-mail-knap, filter-knap "Generel", PO-mail icon, Settings-knap. Ikonet arver `currentColor` og fungerer på alle baggrundsfarver. Større emojis (📦, 🌱, 🛒, 🔧) bevares som de er.
+
 ### Fase 14 — Booking-modul (komplet — M1–M12 + M5b/c)
 
 > Spec: `docs/CRM_Booking_Spec_v2.md` + rettelser i `docs/CRM_Booking_Spec_v2_PATCH.md`
@@ -1653,6 +1685,10 @@ GET    /api/grocy/products                               routes/grocy.js → gro
 GET    /api/grocy/stock                                  routes/grocy.js → grocyAdapter
 GET    /api/grocy/recipes-nestings                       routes/grocy.js → grocyAdapter
 GET    /api/grocy/recipes-pos/all                        routes/grocy.js → grocyAdapter
+GET    /api/grocy/userfields                             routes/grocy.js (alle entiteters userfield-meta)
+POST   /api/grocy/products                                routes/grocy.js (opret produkt)
+POST   /api/grocy/quantity-unit-conversions               routes/grocy.js (opret QU-konvertering)
+POST   /api/grocy/stock/:id/add                           routes/grocy.js (initial lagerbeholdning + pris)
 POST   /api/grocy/recipes                                routes/grocy.js (opret opskrift)
 PUT    /api/grocy/recipes/:id                            routes/grocy.js (opdater opskrift)
 PUT    /api/grocy/recipes/:id/userfields                 routes/grocy.js (opdater userfields)
@@ -1722,6 +1758,11 @@ POST   /api/attachments/upload                             routes/attachments.js
 GET    /api/attachments/:id/download                       routes/attachments.js
 GET    /api/attachments/mail/:id/download                  routes/attachments.js
 GET    /api/purchasing/suppliers?location_id=               routes/purchasing.js
+GET    /api/purchasing/suppliers/mail-overview?unread_only=  routes/purchasing.js
+GET    /api/purchasing/suppliers/:id/mail                    routes/purchasing.js
+POST   /api/purchasing/suppliers/:id/mail                    routes/purchasing.js (send fri kommunikation)
+PATCH  /api/purchasing/suppliers/:id/mail/read               routes/purchasing.js
+GET    /api/purchasing/suppliers/:id/mail-threads            routes/purchasing.js
 GET    /api/purchasing/suppliers/grocy-locations            routes/purchasing.js
 POST   /api/purchasing/suppliers/grocy-locations            routes/purchasing.js
 DELETE /api/purchasing/suppliers/grocy-locations/:id        routes/purchasing.js

@@ -398,8 +398,22 @@ function postGrocyInventory(productId, amount, bestBeforeDate) {
     if (bestBeforeDate) body.best_before_date = bestBeforeDate;
     return apiFetch('/grocy/stock/' + productId + '/inventory', { method: 'POST', body: JSON.stringify(body) });
 }
+function postGrocyStockAdd(productId, body) {
+    return apiFetch('/grocy/stock/' + productId + '/add', { method: 'POST', body: JSON.stringify(body) });
+}
 function putGrocyProductUserfields(productId, fields) {
     return apiFetch('/grocy/products/' + productId + '/userfields', { method: 'PUT', body: JSON.stringify(fields) });
+}
+
+// Opret produkt + QU-konvertering + userfield-meta
+function fetchGrocyUserfields() {
+    return apiFetch('/grocy/userfields');
+}
+function postGrocyProduct(body) {
+    return apiFetch('/grocy/products', { method: 'POST', body: JSON.stringify(body) });
+}
+function postGrocyQuConversion(body) {
+    return apiFetch('/grocy/quantity-unit-conversions', { method: 'POST', body: JSON.stringify(body) });
 }
 
 // Consume — via recipe lines (auto-consume ved LEVERET)
@@ -786,6 +800,30 @@ function updateSupplier(id, data) {
 
 function deleteSupplier(id) {
     return apiFetch('/purchasing/suppliers/' + id, { method: 'DELETE' });
+}
+
+/* ── SUPPLIER MAIL — fri kommunikation med leverandør ─── */
+
+function fetchSupplierMail(supplierId) {
+    return apiFetch('/purchasing/suppliers/' + supplierId + '/mail');
+}
+
+function fetchSupplierMailThreads(supplierId) {
+    return apiFetch('/purchasing/suppliers/' + supplierId + '/mail-threads');
+}
+
+function sendSupplierMail(supplierId, body) {
+    return apiFetch('/purchasing/suppliers/' + supplierId + '/mail', {
+        method: 'POST', body: JSON.stringify(body)
+    });
+}
+
+function markSupplierMailRead(supplierId) {
+    return apiFetch('/purchasing/suppliers/' + supplierId + '/mail/read', { method: 'PATCH' });
+}
+
+function fetchSupplierMailOverview(unreadOnly) {
+    return apiFetch('/purchasing/suppliers/mail-overview' + (unreadOnly ? '?unread_only=1' : ''));
 }
 
 function updateProductBarcode(id, body) {
