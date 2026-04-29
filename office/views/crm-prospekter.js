@@ -149,10 +149,12 @@ function _prosRender() {
     list.innerHTML = filtered.map((p, i) => {
         const fit = p.icp_fit || 0;
         const fitCls = fit >= 50 ? 'pros-fit-high' : fit >= 25 ? 'pros-fit-mid' : 'pros-fit-low';
+        const cid = p.primary_customer_id || 0;
+        const nameAttr = cid ? ` style="cursor:pointer" onclick="_prosOpenProfile(${cid})" title="Åbn kundeprofil"` : '';
         return `
         <div class="pros-card">
             <div class="pros-info">
-                <div class="pros-name">${_prosEsc(p.name)}</div>
+                <div class="pros-name"${nameAttr}>${_prosEsc(p.name)}</div>
                 <div class="pros-meta">
                     ${p.branch ? p.branch + ' · ' : ''}
                     ${p.employee_count ? p.employee_count + ' ansatte · ' : ''}
@@ -181,11 +183,8 @@ function _prosOnSearch(val) {
 
 function _prosOpenProfile(customerId) {
     if (!customerId) return;
-    if (typeof window.switchView === 'function') {
-        window.switchView('crm-kunde360');
-        setTimeout(() => {
-            if (typeof _k3LoadCustomer === 'function') _k3LoadCustomer(customerId);
-        }, 100);
+    if (typeof window.openKunde360 === 'function') {
+        window.openKunde360(customerId);
     }
 }
 

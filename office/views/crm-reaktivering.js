@@ -107,11 +107,13 @@ function _reakRender() {
     list.innerHTML = _reakData.map((r, i) => {
         const name = r.is_personal ? (r.primary_contact_name || r.name) : r.name;
         const opener = _reakBuildOpener(r);
+        const cid = r.primary_customer_id || 0;
+        const nameAttr = cid ? ` style="cursor:pointer" onclick="_reakOpenProfile(${cid})" title="\u00c5bn kundeprofil"` : '';
         return `
         <div class="reak-card" id="reak-card-${i}">
             <div class="reak-top">
                 <div>
-                    <div class="reak-name">${_reakEsc(name)}</div>
+                    <div class="reak-name"${nameAttr}>${_reakEsc(name)}</div>
                     <div class="reak-meta">
                         ${r.branch ? r.branch + ' \u00b7 ' : ''}
                         ${r.order_count} ordrer \u00b7 Sidst: ${r.last_order_date || '?'}
@@ -212,11 +214,8 @@ async function _reakSubmitLog(idx) {
 
 function _reakOpenProfile(customerId) {
     if (!customerId) return;
-    if (typeof window.switchView === 'function') {
-        window.switchView('crm-kunde360');
-        setTimeout(() => {
-            if (typeof _k3LoadCustomer === 'function') _k3LoadCustomer(customerId);
-        }, 100);
+    if (typeof window.openKunde360 === 'function') {
+        window.openKunde360(customerId);
     }
 }
 

@@ -700,11 +700,15 @@
         },
       };
 
+      // pushState bruges når brugeren navigerer mellem views, så browserens
+      // tilbage-knap (eller swipe-gesture) bringer dem tilbage til forrige
+      // view. switchView() bruger fortsat replaceState når URL'en kun
+      // synkroniseres uden et reelt nav-skifte.
       function openKunde360(customerId) {
         const url = new URL(window.location);
         url.searchParams.set('view', 'crm-kunde360');
         url.searchParams.set('customer', customerId);
-        history.replaceState({}, '', url);
+        history.pushState({}, '', url);
         switchView('crm-kunde360');
       }
       window.openKunde360 = openKunde360;
@@ -724,7 +728,7 @@
             if (v !== null && v !== undefined && v !== '') url.searchParams.set(k, v);
           }
         }
-        history.replaceState({}, '', url);
+        history.pushState({}, '', url);
         if (_currentView === viewName) {
           // Re-init for at tage de nye params i brug
           if (views[viewName]?.cleanup) views[viewName].cleanup();
@@ -830,7 +834,17 @@
       window.addEventListener('popstate', () => {
         const p = new URLSearchParams(window.location.search);
         const v = p.get('view') || 'dashboard';
-        if (v !== _currentView) switchView(v);
+        if (v !== _currentView) {
+          switchView(v);
+        } else if (views[v]) {
+          // Samme view, men URL-params kan have ændret sig (fx customer
+          // eller filter på bons-list). Force re-init så de nye params
+          // tages i brug.
+          if (views[v].cleanup) views[v].cleanup();
+          contentEl.innerHTML = '';
+          _currentView = null;
+          switchView(v);
+        }
 
         const bonId = p.get('bon');
         if (bonId) {
