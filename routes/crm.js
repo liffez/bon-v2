@@ -123,6 +123,7 @@ router.get('/briefing', handle((req, res) => {
 
     const overdue = db.prepare(`
         SELECT
+            c.id AS customer_id,
             c.first_name || ' ' || COALESCE(c.last_name, '') AS name,
             co.name AS company_name,
             ostats.days_since,
@@ -149,7 +150,8 @@ router.get('/briefing', handle((req, res) => {
         items.push({
             icon: '📊',
             text: overdue.name + ' (' + overdue.company_name + ') er ' + overdueDays + 'd forsinket med bestilling',
-            type: 'insight', link: 'suggestions'
+            type: 'insight',
+            customer_id: overdue.customer_id,
         });
     }
 
@@ -183,7 +185,7 @@ router.get('/briefing', handle((req, res) => {
                 AND b2.is_internal = 0
             )
     `).get().c;
-    if (season > 0) items.push({ icon: '📅', text: season + ' kunder bestilte på denne tid sidste år', type: 'insight', link: 'suggestions' });
+    if (season > 0) items.push({ icon: '📅', text: season + ' kunder bestilte på denne tid sidste år', type: 'insight' });
 
     res.json(items.slice(0, 6));
 }));

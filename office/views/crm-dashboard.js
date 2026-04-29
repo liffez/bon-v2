@@ -534,9 +534,15 @@ function _crmRenderBriefing(items) {
         suggestions: 'crmSuggestions',
     };
     el.innerHTML = items.map(item => {
-        const target = linkToScroll[item.link];
-        const clickable = target ? ' crm-clickable' : '';
-        const attrs = target ? ' data-scroll="' + target + '"' : '';
+        let attrs = '';
+        let clickable = '';
+        if (item.customer_id) {
+            attrs = ' data-customer-id="' + item.customer_id + '" title="Åbn kundeprofil"';
+            clickable = ' crm-clickable';
+        } else if (linkToScroll[item.link]) {
+            attrs = ' data-scroll="' + linkToScroll[item.link] + '"';
+            clickable = ' crm-clickable';
+        }
         return '<div class="crm-briefing-item' + clickable + '"' + attrs + '>' +
             '<span class="crm-briefing-icon">' + item.icon + '</span>' +
             '<span>' + item.text + '</span>' +
