@@ -24,28 +24,44 @@ async function send(receipt, userName) {
 
     if (!webhookUrl) return; // bonv2_only mode
 
+    // Map Bon v2's deviation_type til Whiteboard-skemaets select-options
+    const deviationMap = {
+        returned:           'returned',
+        no_risk:            'accepted_no_risk',
+        discarded:          'discarded',
+        supplier_contacted: 'supplier_contacted',
+        other:              'other',
+    };
+
+    const data = {
+        date_ok:         !!receipt.date_check_ok,
+        label_ok:        !!receipt.labeling_check_ok,
+        packaging_ok:    !!receipt.packaging_check_ok,
+        deviation:       receipt.has_deviation
+            ? (deviationMap[receipt.deviation_type] || 'other')
+            : 'none',
+        deviation_note:  receipt.deviation_note || null,
+        photo_path:      receipt.photo_path
+            ? `https://bon.ristetrug.dk${receipt.photo_path}`
+            : null,
+        bon_v2_receipt_id:     receipt.id,
+        bon_v2_receipt_number: receipt.receipt_number,
+    };
+
+    // Temperaturer sendes kun når toggle er aktiv — Whiteboard beregner
+    // temperature_ok/_status selv via limit_max i skemaet.
+    if (receipt.temperature_cool_enabled) {
+        data.temperature = receipt.temperature_cool_value;
+    }
+    if (receipt.temperature_frozen_enabled) {
+        data.temperature_freezer = receipt.temperature_frozen_value;
+    }
+
     const payload = {
         schema_name: 'varemodtagelse',
         user: userName,
         supplier: receipt.supplier_name,
-        data: {
-            temperature_cool_enabled:   !!receipt.temperature_cool_enabled,
-            temperature_cool_value:     receipt.temperature_cool_value,
-            temperature_cool_ok:        !!receipt.temperature_cool_ok,
-            temperature_frozen_enabled: !!receipt.temperature_frozen_enabled,
-            temperature_frozen_value:   receipt.temperature_frozen_value,
-            temperature_frozen_ok:      !!receipt.temperature_frozen_ok,
-            date_check:                 !!receipt.date_check_ok,
-            labeling_check:             !!receipt.labeling_check_ok,
-            packaging_check:            !!receipt.packaging_check_ok,
-            photo_path:                 receipt.photo_path
-                ? `https://bon.ristetrug.dk${receipt.photo_path}`
-                : null,
-            deviation:                  receipt.has_deviation ? (receipt.deviation_type || 'unknown') : 'none',
-            deviation_note:             receipt.deviation_note || null,
-            bon_v2_receipt_id:          receipt.id,
-            bon_v2_receipt_number:      receipt.receipt_number,
-        }
+        data,
     };
 
     let statusCode = null;
