@@ -1069,9 +1069,9 @@ function _tUpdateDel() {
 
 function _tBuildPriceTable() {
     const isEv = _tTpl === 'event';
-    const sL = _tPriceMode === 'line', sBT = _tPriceMode === 'block';
+    const sBT = _tPriceMode === 'block', sL = _tPriceMode === 'line';
 
-    let h = `<table class="tilbud-price-tbl"><thead><tr><th>Post</th>${sL ? '<th class="r">Antal</th><th class="r">Pris</th>' : ''}<th class="r">Intern</th><th style="width:36px"></th></tr></thead><tbody>`;
+    let h = `<table class="tilbud-price-tbl"><thead><tr><th>Post</th><th class="r">Antal</th><th class="r">Pris</th><th class="r">Intern</th><th style="width:36px"></th></tr></thead><tbody>`;
     let sub = 0, costT = 0;
 
     if (isEv) {
@@ -1082,7 +1082,7 @@ function _tBuildPriceTable() {
             const bPax = _tEffectivePax(b.id);
             let blockTotal = 0;
 
-            h += `<tr class="chapter"><td colspan="${sL ? 5 : 3}">${b.icon} ${b.label} <span style="font-size:.72rem;font-weight:400;color:var(--color-text-dim)">${bPax} pax</span></td></tr>`;
+            h += `<tr class="chapter"><td colspan="5">${b.icon} ${b.label} <span style="font-size:.72rem;font-weight:400;color:var(--color-text-dim)">${bPax} pax</span></td></tr>`;
 
             its.forEach(it => {
                 const lt = it.unitPrice * it.qty;
@@ -1090,15 +1090,15 @@ function _tBuildPriceTable() {
                 sub += lt; costT += lc; blockTotal += lt;
                 const dbP = lt > 0 ? ((lt - lc) / lt * 100) : 0;
                 h += `<tr><td><strong>${_tEsc(it.name)}</strong></td>`;
-                if (sL) h += `<td class="r">${it.qty}</td><td class="r" style="font-family:'JetBrains Mono',monospace">${_tFk(lt)}</td>`;
+                h += `<td class="r">${it.qty}</td><td class="r" style="font-family:'JetBrains Mono',monospace">${_tFk(lt)}</td>`;
                 h += `<td class="r" style="font-size:.73rem;color:var(--color-text-dim);font-family:'JetBrains Mono',monospace">${_tFk(lc)} (${dbP.toFixed(0)}%)</td>`;
                 h += `<td><button class="tilbud-btn-icon danger" onclick="_tRemP(${it.id},'${b.id}')">\u2715</button></td></tr>`;
             });
 
-            // Blokpris pr. pax (kun block/line mode)
-            if ((sBT || sL) && bPax > 0) {
+            // Blokpris (altid vist — nyttigt i alle modes)
+            if (bPax > 0) {
                 const perPax = Math.round(blockTotal / bPax);
-                h += `<tr class="subtotal"><td colspan="${sL ? 2 : 1}"></td><td class="r" style="font-family:'JetBrains Mono',monospace;font-size:.73rem">${_tFk(blockTotal)} <span style="color:var(--color-text-dim)">(${perPax} kr/pax)</span></td><td></td><td></td></tr>`;
+                h += `<tr class="subtotal"><td colspan="2"></td><td class="r" style="font-family:'JetBrains Mono',monospace;font-size:.73rem">${_tFk(blockTotal)} <span style="color:var(--color-text-dim)">(${perPax} kr/pax)</span></td><td></td><td></td></tr>`;
             }
         });
     } else {
@@ -1108,7 +1108,7 @@ function _tBuildPriceTable() {
             sub += lt; costT += lc;
             const dbP = lt > 0 ? ((lt - lc) / lt * 100) : 0;
             h += `<tr><td><strong>${_tEsc(it.name)}</strong></td>`;
-            if (sL) h += `<td class="r">${it.qty}</td><td class="r" style="font-family:'JetBrains Mono',monospace">${_tFk(lt)}</td>`;
+            h += `<td class="r">${it.qty}</td><td class="r" style="font-family:'JetBrains Mono',monospace">${_tFk(lt)}</td>`;
             h += `<td class="r" style="font-size:.73rem;color:var(--color-text-dim);font-family:'JetBrains Mono',monospace">${_tFk(lc)} (${dbP.toFixed(0)}%)</td>`;
             h += `<td><button class="tilbud-btn-icon danger" onclick="_tRemP(${it.id},'')">\u2715</button></td></tr>`;
         });
@@ -1117,14 +1117,14 @@ function _tBuildPriceTable() {
     // Custom items
     _tCxItems.forEach((ci, i) => {
         sub += ci.price;
-        h += `<tr><td><strong>${_tEsc(ci.name)}</strong></td>${sL ? '<td class="r">1</td><td class="r" style="font-family:\'JetBrains Mono\',monospace">' + _tFk(ci.price) + '</td>' : ''}<td class="r" style="font-size:.73rem;color:var(--color-text-dim)">\u2014</td><td><button class="tilbud-btn-icon danger" onclick="_tRemCx(${i})">\u2715</button></td></tr>`;
+        h += `<tr><td><strong>${_tEsc(ci.name)}</strong></td><td class="r">1</td><td class="r" style="font-family:'JetBrains Mono',monospace">${_tFk(ci.price)}</td><td class="r" style="font-size:.73rem;color:var(--color-text-dim)">\u2014</td><td><button class="tilbud-btn-icon danger" onclick="_tRemCx(${i})">\u2715</button></td></tr>`;
     });
 
     // Delivery
     if (_tDel.type) {
         const dp = _tDel.free ? 0 : _tDel.price;
         sub += dp;
-        h += `<tr><td>\u{1F69A} Levering${_tDel.note ? ' \u00b7 ' + _tEsc(_tDel.note) : ''}</td>${sL ? '<td class="r">1</td><td class="r" style="font-family:\'JetBrains Mono\',monospace">' + (_tDel.free ? 'Gratis' : _tFk(dp)) + '</td>' : ''}<td class="r">\u2014</td><td></td></tr>`;
+        h += `<tr><td>\u{1F69A} Levering${_tDel.note ? ' \u00b7 ' + _tEsc(_tDel.note) : ''}</td><td class="r">1</td><td class="r" style="font-family:'JetBrains Mono',monospace">${_tDel.free ? 'Gratis' : _tFk(dp)}</td><td class="r">\u2014</td><td></td></tr>`;
     }
 
     const dA = sub * (_tDiscountPct / 100);
@@ -1133,11 +1133,11 @@ function _tBuildPriceTable() {
     const tot = pre + moms;
     const globalPax = parseInt(_tPax) || 0;
 
-    h += `<tr class="subtotal"><td colspan="${sL ? 2 : 1}">Subtotal</td><td class="r" style="font-family:'JetBrains Mono',monospace">${_tFk(sub)}</td><td></td><td></td></tr>`;
-    if (_tDiscountPct > 0) h += `<tr class="subtotal"><td colspan="${sL ? 2 : 1}">Rabat (${_tDiscountPct}%)</td><td class="r" style="font-family:'JetBrains Mono',monospace;color:#6ab04c">\u2212${_tFk(dA)}</td><td></td><td></td></tr>`;
-    h += `<tr class="subtotal"><td colspan="${sL ? 2 : 1}">Moms (25%)</td><td class="r" style="font-family:'JetBrains Mono',monospace">${_tFk(moms)}</td><td></td><td></td></tr>`;
-    h += `<tr class="total-row"><td colspan="${sL ? 2 : 1}">Total inkl. moms</td><td class="r" style="font-family:'JetBrains Mono',monospace">${_tFk(tot)}</td><td></td><td></td></tr>`;
-    if (globalPax > 0) h += `<tr class="subtotal"><td colspan="${sL ? 2 : 1}"></td><td class="r" style="font-family:'JetBrains Mono',monospace;font-size:.74rem">${_tFk(tot / globalPax)} pr. pax</td><td></td><td></td></tr>`;
+    h += `<tr class="subtotal"><td colspan="2">Subtotal</td><td class="r" style="font-family:'JetBrains Mono',monospace">${_tFk(sub)}</td><td></td><td></td></tr>`;
+    if (_tDiscountPct > 0) h += `<tr class="subtotal"><td colspan="2">Rabat (${_tDiscountPct}%)</td><td class="r" style="font-family:'JetBrains Mono',monospace;color:#6ab04c">\u2212${_tFk(dA)}</td><td></td><td></td></tr>`;
+    h += `<tr class="subtotal"><td colspan="2">Moms (25%)</td><td class="r" style="font-family:'JetBrains Mono',monospace">${_tFk(moms)}</td><td></td><td></td></tr>`;
+    h += `<tr class="total-row"><td colspan="2">Total inkl. moms</td><td class="r" style="font-family:'JetBrains Mono',monospace">${_tFk(tot)}</td><td></td><td></td></tr>`;
+    if (globalPax > 0) h += `<tr class="subtotal"><td colspan="2"></td><td class="r" style="font-family:'JetBrains Mono',monospace;font-size:.74rem">${_tFk(tot / globalPax)} pr. pax</td><td></td><td></td></tr>`;
 
     h += '</tbody></table>';
     return h;
