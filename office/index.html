@@ -707,6 +707,34 @@
         history.replaceState({}, '', url);
         switchView('crm-kunde360');
       }
+      window.openKunde360 = openKunde360;
+
+      // Generic deep-link helper — bruges fra dashboard m.fl.
+      // Eksempler:
+      //   officeGoto('bons', { filter: 'today' })
+      //   officeGoto('bons', { filter: 'date', date: '2026-04-30' })
+      //   officeGoto('fakturering')
+      window.officeGoto = function officeGoto(viewName, params) {
+        const url = new URL(window.location);
+        url.searchParams.set('view', viewName);
+        // Ryd irrelevante params fra forrige view
+        ['filter', 'date', 'q', 'customer', 'bon'].forEach(k => url.searchParams.delete(k));
+        if (params) {
+          for (const [k, v] of Object.entries(params)) {
+            if (v !== null && v !== undefined && v !== '') url.searchParams.set(k, v);
+          }
+        }
+        history.replaceState({}, '', url);
+        if (_currentView === viewName) {
+          // Re-init for at tage de nye params i brug
+          if (views[viewName]?.cleanup) views[viewName].cleanup();
+          contentEl.innerHTML = '';
+          _currentView = null;
+          switchView(viewName);
+        } else {
+          switchView(viewName);
+        }
+      };
 
       window.switchView = function switchView(viewName) {
         if (_currentView === viewName) return;

@@ -53,8 +53,41 @@ function initOfficeDashboard(containerEl, opts = {}) {
     _dashMode = localStorage.getItem('dashboard_graf_mode') || 'enh';
 
     _dashRenderShell();
+    _dashWireDelegatedClicks();
     _dashLoadData();
     _dashLoadWeather();
+}
+
+// ─── Delegated click handler for navigation chips ───────────
+function _dashWireDelegatedClicks() {
+    if (!_dashContainer) return;
+    _dashContainer.addEventListener('click', (e) => {
+        const target = e.target.closest('[data-customer-id], [data-bon-id], [data-goto]');
+        if (!target || !_dashContainer.contains(target)) return;
+
+        // Customer → CRM Kunde 360°
+        const cid = target.dataset.customerId;
+        if (cid && typeof window.openKunde360 === 'function') {
+            window.openKunde360(cid);
+            return;
+        }
+
+        // Bon → drawer (kommende prep-bons)
+        const bid = target.dataset.bonId;
+        if (bid && _dashOpts.openDrawer) {
+            _dashOpts.openDrawer(bid);
+            return;
+        }
+
+        // Generisk view-navigation
+        const goto = target.dataset.goto;
+        if (goto && typeof window.officeGoto === 'function') {
+            const params = {};
+            if (target.dataset.filter) params.filter = target.dataset.filter;
+            if (target.dataset.date)   params.date   = target.dataset.date;
+            window.officeGoto(goto, params);
+        }
+    });
 }
 
 function cleanupOfficeDashboard() {
@@ -119,6 +152,12 @@ function _dashRenderShell() {
             .delta-up   { background: #e8f2dc; color: #3d7a0a; }
             .delta-down { background: #fde8e8; color: #bc181b; }
             .delta-flat { background: var(--color-background, #f5f4f2); color: var(--color-text-dim, #888); }
+
+            /* ══ CLICKABLE ══════════════════════════════════════════ */
+            .od-clickable { cursor: pointer; transition: background-color .12s, transform .08s; }
+            .od-clickable:hover { background-color: rgba(142,99,31,0.06); }
+            .od-clickable:active { transform: translateY(1px); }
+            .od-cat-table tr.od-clickable:hover td { background: rgba(142,99,31,0.06); }
 
             /* ══ CARDS ══════════════════════════════════════════════ */
             .od-card {
@@ -542,22 +581,22 @@ function _dashRenderKPIs(data) {
     const unfactWarn = (mtd.unfactured || 0) > 0 ? ' warn' : '';
 
     el.innerHTML = `
-        <div class="od-kpi">
+        <div class="od-kpi od-clickable" data-goto="rapporter" title="Åbn Rapporter">
             <div class="od-kpi-value">${(mtd.revenue || 0).toLocaleString('da-DK')}</div>
             <div class="od-kpi-label">Omsætning · ${month} MTD</div>
             <div class="od-kpi-sub">${delta(mtd.revenue, mtd.last_year_revenue)}</div>
         </div>
-        <div class="od-kpi">
+        <div class="od-kpi od-clickable" data-goto="rapporter" title="Åbn Rapporter">
             <div class="od-kpi-value">${(mtd.units || 0).toLocaleString('da-DK')}</div>
             <div class="od-kpi-label">Enheder · ${month} MTD</div>
             <div class="od-kpi-sub">${delta(mtd.units, mtd.last_year_units)}</div>
         </div>
-        <div class="od-kpi">
+        <div class="od-kpi od-clickable" data-goto="bons" data-filter="open" title="Vis åbne bons">
             <div class="od-kpi-value${openWarn}">${mtd.open_bons || 0}</div>
             <div class="od-kpi-label">Åbne bons</div>
             <div class="od-kpi-sub">NY / VENTER / GODKENDT / IGANG / KLAR</div>
         </div>
-        <div class="od-kpi">
+        <div class="od-kpi od-clickable" data-goto="fakturering" title="Åbn Fakturering">
             <div class="od-kpi-value${unfactWarn}">${(mtd.unfactured || 0).toLocaleString('da-DK')}</div>
             <div class="od-kpi-label">Ufaktureret</div>
             <div class="od-kpi-sub">Leverede bons uden faktura</div>
@@ -595,11 +634,11 @@ function _dashRenderToday(data) {
 
     const prod = data.production_totals || { bon_count: 0, total_units: 0 };
     let html = `<div class="od-summary-strip">
-        <div class="od-sum-cell"><div class="od-sum-val">${data.totals.bon_count}</div><div class="od-sum-lbl">Bons</div></div>
-        <div class="od-sum-cell"><div class="od-sum-val">${data.totals.total_units}</div><div class="od-sum-lbl">Enheder</div></div>
-        <div class="od-sum-cell"><div class="od-sum-val">${data.totals.total_pax}</div><div class="od-sum-lbl">Pax</div></div>
-        <div class="od-sum-cell"><div class="od-sum-val">${data.next_pickup ? data.next_pickup.slice(0,5) : '—'}</div><div class="od-sum-lbl">1. pickup</div></div>
-        ${prod.bon_count > 0 ? `<div class="od-sum-cell od-sum-prod" title="Produktionsbons (intern, ikke omsætning)"><div class="od-sum-val">🔧 ${prod.bon_count}</div><div class="od-sum-lbl">Produktion · ${prod.total_units} enh</div></div>` : ''}
+        <div class="od-sum-cell od-clickable" data-goto="bons" data-filter="today" title="Vis dagens bons"><div class="od-sum-val">${data.totals.bon_count}</div><div class="od-sum-lbl">Bons</div></div>
+        <div class="od-sum-cell od-clickable" data-goto="bons" data-filter="today" title="Vis dagens bons"><div class="od-sum-val">${data.totals.total_units}</div><div class="od-sum-lbl">Enheder</div></div>
+        <div class="od-sum-cell od-clickable" data-goto="bons" data-filter="today" title="Vis dagens bons"><div class="od-sum-val">${data.totals.total_pax}</div><div class="od-sum-lbl">Pax</div></div>
+        <div class="od-sum-cell od-clickable" data-goto="bons" data-filter="today" title="Vis dagens bons"><div class="od-sum-val">${data.next_pickup ? data.next_pickup.slice(0,5) : '—'}</div><div class="od-sum-lbl">1. pickup</div></div>
+        ${prod.bon_count > 0 ? `<div class="od-sum-cell od-sum-prod od-clickable" data-goto="bons" data-filter="today" title="Vis dagens bons (produktion vises med 🔧 i listen)"><div class="od-sum-val">🔧 ${prod.bon_count}</div><div class="od-sum-lbl">Produktion · ${prod.total_units} enh</div></div>` : ''}
     </div>`;
 
     // Alert
@@ -621,9 +660,9 @@ function _dashRenderToday(data) {
             <thead><tr><th>Kategori</th><th class="r">Enh</th></tr></thead>
             <tbody>`;
         for (const cat of data.categories) {
-            html += `<tr><td>${cat.name}</td><td class="num">${cat.units}</td></tr>`;
+            html += `<tr class="od-clickable" data-goto="bons" data-filter="today" title="Vis dagens bons"><td>${cat.name}</td><td class="num">${cat.units}</td></tr>`;
         }
-        html += `<tr class="od-cat-total"><td>Total</td><td class="num">${data.totals.total_units}</td></tr>`;
+        html += `<tr class="od-cat-total od-clickable" data-goto="bons" data-filter="today" title="Vis dagens bons"><td>Total</td><td class="num">${data.totals.total_units}</td></tr>`;
         html += '</tbody></table>';
     }
 
@@ -655,7 +694,7 @@ function _dashRenderPrep(prep) {
         const cls = (ingOk && supOk) ? 'ok' : 'warn';
         const chipIng = ingOk ? '<span class="od-chip od-chip-ok">R✓</span>' : '<span class="od-chip od-chip-warn">R✗</span>';
         const chipSup = supOk ? '<span class="od-chip od-chip-ok">E✓</span>' : '<span class="od-chip od-chip-warn">E✗</span>';
-        html += `<li class="od-prep-row ${cls}">
+        html += `<li class="od-prep-row ${cls} od-clickable" data-bon-id="${b.id}" title="Åbn bon #${b.bon_number}">
             <span class="od-prep-bon">#${b.bon_number}</span>
             <span class="od-prep-cust">${b.customer_name || ''}</span>
             <span class="od-prep-enh">${b.total_units || b.pax || 0}</span>
@@ -753,7 +792,9 @@ function _dashRenderCallbacks(data) {
         const avClass = _CB_AVATAR_COLORS[i % _CB_AVATAR_COLORS.length];
         const badgeClass = (c.attempts || 0) >= 3 ? 'urgent' : 'today';
         const badgeText = (c.attempts || 0) >= 3 ? 'Svarer ikke' : 'Ringes';
-        return '<div class="od-cb-item">' +
+        const cid = c.customer_id || c.id || '';
+        const clickableAttrs = cid ? `class="od-cb-item od-clickable" data-customer-id="${cid}" title="Åbn kunde i CRM"` : 'class="od-cb-item"';
+        return '<div ' + clickableAttrs + '>' +
             '<div class="od-cb-av ' + avClass + '">' + init + '</div>' +
             '<div class="od-cb-info">' +
                 '<div class="od-cb-name">' + name + '</div>' +
@@ -781,7 +822,10 @@ function _dashRenderActivityFeed(items) {
         const name = a.customer_name || '';
         const time = (a.created_at || '').substring(5, 16).replace('T', ' ');
         const text = a.text ? ' — ' + (a.text.length > 40 ? a.text.substring(0, 40) + '...' : a.text) : '';
-        return '<div class="od-act-item">' +
+        const cid = a.customer_id || '';
+        const cls = cid ? 'od-act-item od-clickable' : 'od-act-item';
+        const attrs = cid ? ` data-customer-id="${cid}" title="Åbn kunde i CRM"` : '';
+        return '<div class="' + cls + '"' + attrs + '>' +
             '<div class="od-act-dot ' + dotClass + '"></div>' +
             '<div class="od-act-text"><span class="od-act-type">' + label + '</span> ' + name + text + '</div>' +
             '<span class="od-act-time">' + time + '</span>' +

@@ -75,8 +75,53 @@ function initBonsList(containerEl, options) {
     _blContainer = containerEl;
     _blOptions   = options || {};
     _renderBonsListShell();
+
+    // Honor ?filter=&date=&q= so other views (fx dashboard) kan dybe-linke ind
+    var params = new URLSearchParams(window.location.search);
+    var filter = params.get('filter');
+    var date   = params.get('date');
+    var q      = params.get('q');
+    if (q) {
+        _blSearch = q;
+        _blFilter = 'search';
+        var si = document.getElementById('blSearch');
+        if (si) si.value = q;
+    } else if (filter === 'date' && date) {
+        _blFilter = 'date';
+        _blDateValue = date;
+        var di = document.getElementById('blDateInput');
+        if (di) di.value = date;
+    } else if (filter && ['today','ny','mail','open','all'].indexOf(filter) >= 0) {
+        _blFilter = filter;
+    }
+
     _blLoadData();
 }
+
+// Eksternt entry-point — andre views kan navigere ind med fx
+//   setBonsListFilter('date', { date: '2026-04-30' })
+function setBonsListFilter(filterKey, opts) {
+    if (!_blContainer) return;
+    opts = opts || {};
+    _blSearch = '';
+    var si = document.getElementById('blSearch');
+    if (si) si.value = '';
+
+    if (filterKey === 'date' && opts.date) {
+        _blFilter = 'date';
+        _blDateValue = opts.date;
+        var di = document.getElementById('blDateInput');
+        if (di) di.value = opts.date;
+    } else {
+        _blFilter = filterKey;
+        _blDateValue = '';
+        var di2 = document.getElementById('blDateInput');
+        if (di2) di2.value = '';
+    }
+    _blUpdateFilterButtons();
+    _blLoadData();
+}
+window.setBonsListFilter = setBonsListFilter;
 
 /* ══════════════════════════════════════════════════════════════
    SHELL
@@ -278,6 +323,9 @@ function _blLoadData() {
             break;
         case 'ny':
             params.status = 'NY';
+            break;
+        case 'open':
+            params.status = 'NY,VENTER,GODKENDT,IGANG,KLAR';
             break;
         case 'mail':
             params.unread_mail = '1';
