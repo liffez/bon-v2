@@ -238,7 +238,13 @@ function _kiRow(r) {
     const stLabel = { vip: 'VIP', active: 'Aktiv', dormant: 'Sovende', lead: 'Lead' }[r.stage] || r.stage;
     const name = r.is_personal ? (r.primary_contact_name || r.name) : r.name;
     const daysAgo = r.days_since_last != null ? r.days_since_last + 'd' : '—';
-    return `<tr style="cursor:pointer" onclick="_kiOpenCustomer(${r.primary_customer_id || 0})">
+    const safeName = (r.name || '').replace(/'/g, "\\'");
+    // Privat-firmaer (én kontakt = én person) springer firma-listen over
+    // og åbner profilen direkte. Rigtige firmaer åbner kontaktlisten.
+    const onclick = r.is_personal && r.primary_customer_id
+        ? `_kiOpenCustomer(${r.primary_customer_id})`
+        : `_kiOpenCompany(${r.company_id || 0}, '${safeName}')`;
+    return `<tr style="cursor:pointer" onclick="${onclick}">
         <td>
             <strong>${_kiEsc(name)}</strong>
             ${r.branch ? '<br><span style="font-size:11px;color:#888">' + _kiEsc(r.branch) + '</span>' : ''}
@@ -321,6 +327,16 @@ function _kiOpenCustomer(customerId) {
     if (!customerId) return;
     if (typeof window.openKunde360 === 'function') {
         window.openKunde360(customerId);
+    }
+}
+
+function _kiOpenCompany(companyId, companyName) {
+    if (!companyId) return;
+    if (typeof window.officeGoto === 'function') {
+        window.officeGoto('crm-kunde360', {
+            company: companyId,
+            company_name: companyName || ''
+        });
     }
 }
 

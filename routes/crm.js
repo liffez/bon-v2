@@ -478,7 +478,7 @@ router.get('/service-calls', handle((req, res) => {
 // ─── GET /customers ─────────────────────────────────────────
 router.get('/customers', handle((req, res) => {
     const db = getDb();
-    const { stage, q, category, order_after, order_before } = req.query;
+    const { stage, q, category, order_after, order_before, company_id } = req.query;
     const limit = parseInt(req.query.limit) || 50;
 
     const where = ["c.is_active = 1"];
@@ -489,6 +489,10 @@ router.get('/customers', handle((req, res) => {
     if (stage && stage !== 'all') {
         where.push("cm.stage = ?");
         args.push(stage);
+    }
+    if (company_id) {
+        where.push("c.company_id = ?");
+        args.push(parseInt(company_id, 10));
     }
     if (q) {
         where.push("(c.first_name || ' ' || COALESCE(c.last_name,'') LIKE ? OR co.name LIKE ? OR c.email LIKE ? OR c.phone LIKE ?)");

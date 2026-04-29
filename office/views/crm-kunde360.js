@@ -20,6 +20,11 @@ function initCrmKunde360(containerEl, opts) {
 
     const params = new URLSearchParams(window.location.search);
     _k3CustomerId = params.get('customer') ? parseInt(params.get('customer')) : null;
+    _k3CompanyFilter = null;
+    const companyId = params.get('company') ? parseInt(params.get('company')) : null;
+    if (companyId) {
+        _k3CompanyFilter = { id: companyId, name: params.get('company_name') || null };
+    }
 
     // Hent aktivitetsformål (én gang)
     if (!_k3Purposes) {
@@ -43,6 +48,9 @@ function cleanupCrmKunde360() {
 // ─── Search (no customer selected) ──────────────────────────
 
 let _k3CreateMode = false;
+
+// Hentes fra URL ved init og bruges til at filtrere kundesøgning til ét firma.
+let _k3CompanyFilter = null;
 
 function _k3RenderSearch() {
     const topTitle = document.getElementById('office-topbar-title');
@@ -166,7 +174,7 @@ function _k3RenderSearch() {
         </style>
         <div class="k3-search-wrap">
             <div class="k3-search-header">
-                <div></div>
+                <div id="k3CompanyPill"></div>
                 <button class="k3-new-btn" id="k3NewBtn">+ Ny kunde</button>
             </div>
             <div id="k3SearchArea">
@@ -183,6 +191,29 @@ function _k3RenderSearch() {
             <div id="k3CreateArea" style="display:none;"></div>
         </div>
     `;
+
+    // Vis "filtreret på firma X"-pill med ryd-knap når URL har ?company=
+    if (_k3CompanyFilter?.id) {
+        const pill = document.getElementById('k3CompanyPill');
+        if (pill) {
+            pill.innerHTML = `
+                <span style="display:inline-flex;align-items:center;gap:8px;padding:6px 12px;background:var(--brand-primary-light,#f1e6b2);border-radius:18px;font-size:13px;font-weight:600;color:var(--brand-primary,#8e631f);">
+                    <span>🏢 ${_k3CompanyFilter.name || 'Firma #' + _k3CompanyFilter.id}</span>
+                    <button id="k3ClearCompany" style="background:none;border:none;color:inherit;cursor:pointer;font-size:16px;padding:0;line-height:1;" title="Fjern firma-filter">×</button>
+                </span>`;
+            document.getElementById('k3ClearCompany')?.addEventListener('click', () => {
+                _k3CompanyFilter = null;
+                pill.innerHTML = '';
+                // Ryd company-params i URL'en uden at oprette ny history-entry
+                // — så browser-back fortsat fører tilbage til forrige view.
+                const url = new URL(window.location);
+                url.searchParams.delete('company');
+                url.searchParams.delete('company_name');
+                history.replaceState({}, '', url);
+                _k3DoSearch(document.getElementById('k3SearchInput')?.value || '', 'all');
+            });
+        }
+    }
 
     // "+ Ny kunde" button
     document.getElementById('k3NewBtn').addEventListener('click', () => {
@@ -551,6 +582,7 @@ async function _k3DoSearch(q, stage) {
         const params = {};
         if (q) params.q = q;
         if (stage && stage !== 'all') params.stage = stage;
+        if (_k3CompanyFilter?.id) params.company_id = _k3CompanyFilter.id;
         params.limit = 30;
         const rows = await fetchCrmCustomers(params);
         _k3RenderSearchResults(rows);
