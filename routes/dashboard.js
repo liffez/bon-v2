@@ -76,7 +76,8 @@ router.get('/today', handle(async (req, res) => {
         ORDER BY COALESCE(b.delivery_time, b.pickup_time, '23:59'), b.id
     `).all(today, ...TERMINAL_CODES);
 
-    // Totals (inkl. leveret — hele dagen)
+    // Totals (inkl. leveret — hele dagen). Produktionsbons (is_internal=1) tælles separat
+    // så de ikke inflaterer omsætning/KPI'er, men stadig er synlige i køkkenets dagsoverblik.
     const allBons = db.prepare(`
         SELECT b.pax, b.total_units, b.total_price
         FROM bons b
@@ -92,6 +93,22 @@ router.get('/today', handle(async (req, res) => {
         total_units: allBons.reduce((s, b) => s + (b.total_units > 0 ? b.total_units : (b.pax || 0)), 0),
         total_pax:   allBons.reduce((s, b) => s + (b.pax || 0), 0),
         total_price: allBons.reduce((s, b) => s + (b.total_price || 0), 0),
+    };
+
+    const productionBons = db.prepare(`
+        SELECT b.pax, b.total_units
+        FROM bons b
+        JOIN status_definitions sd ON b.status_id = sd.id
+        WHERE b.delivery_date = ?
+          AND sd.code NOT IN ('AFLYST')
+          AND COALESCE(b.is_offer, 0) = 0
+          AND COALESCE(b.is_internal, 0) = 1
+    `).all(today);
+
+    const production_totals = {
+        bon_count:   productionBons.length,
+        total_units: productionBons.reduce((s, b) => s + (b.total_units > 0 ? b.total_units : (b.pax || 0)), 0),
+        total_pax:   productionBons.reduce((s, b) => s + (b.pax || 0), 0),
     };
 
     // Categories from bon_lines for today
@@ -274,6 +291,7 @@ router.get('/today', handle(async (req, res) => {
         date: today,
         bons,
         totals,
+        production_totals,
         categories,
         alerts,
         next_pickup: nextPickup?.next_time || null,

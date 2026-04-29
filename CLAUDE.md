@@ -210,6 +210,16 @@ Oprettes under Grocy → Manage master data → Userfields.
 | `supplier_unit_qty` | text_single_line | Indkøb → Hoka kurv | Antal base-enheder pr. salesUnit. Bruges sammen med supplier_unit_code. |
 | `is_preferred` | text_single_line | Indkøb (chip-sortering) | `'1'` = foretrukken leverandør for dette produkt. Vises med lilla "Foretrukket" badge. Sorteres allerførst — før aftale og pris. |
 | `hk_scraped_at` | text_single_line | Hørkram scraper | ISO timestamp for seneste scraping af denne barcode. |
+| `hk_brand` | text_single_line | Hørkram scraper | Brand fra Hørkram-katalog. |
+| `hk_country` | text_single_line | Hørkram scraper | Oprindelsesland fra Hørkram. |
+| `hk_gtin` | text_single_line | Hørkram scraper | GTIN/EAN fra Hørkram. |
+| `hk_image` | text_single_line | Hørkram scraper | URL til produktbillede. |
+| `hk_manufacturer` | text_single_line | Hørkram scraper | Producent fra Hørkram. |
+| `hk_markings` | text_single_line | Hørkram scraper | Mærkninger (Ø-mærke, Fairtrade osv.). |
+| `hk_organic` | text_single_line | Hørkram scraper | Økologisk status fra Hørkram. |
+| `hk_allergens` | text_single_line | Hørkram scraper | Allergener fra Hørkram. |
+| `hk_price_per_unit` | text_single_line | Hørkram scraper | Pris pr. salgsenhed fra Hørkram. |
+| `hk_url` | text_single_line | Hørkram scraper | Direkte link til produktet på hoka.dk. |
 
 ### recipes (entity: recipes)
 
@@ -242,6 +252,16 @@ Oprettes under Grocy → Manage master data → Userfields.
 | `hk_organic` | text_single_line | Hørkram scraper | Økologisk status fra Hørkram |
 | `hk_country` | text_single_line | Hørkram scraper | Oprindelsesland fra Hørkram |
 | `hk_allergens` | text_single_line | Hørkram scraper | Allergener fra Hørkram |
+| `hk_co2e` | text_single_line | Hørkram scraper | CO2-aftryk pr. enhed fra Hørkram. |
+| `hk_energy_kj` | text_single_line | Hørkram scraper | Energi (kJ) pr. 100g/100ml. |
+| `hk_energy_kcal` | text_single_line | Hørkram scraper | Energi (kcal) pr. 100g/100ml. |
+| `hk_fat` | text_single_line | Hørkram scraper | Fedt pr. 100g/100ml. |
+| `hk_fat_saturated` | text_single_line | Hørkram scraper | Mættet fedt pr. 100g/100ml. |
+| `hk_carbs` | text_single_line | Hørkram scraper | Kulhydrater pr. 100g/100ml. |
+| `hk_sugar` | text_single_line | Hørkram scraper | Sukkerarter pr. 100g/100ml. |
+| `hk_fiber` | text_single_line | Hørkram scraper | Kostfibre pr. 100g/100ml. |
+| `hk_protein` | text_single_line | Hørkram scraper | Protein pr. 100g/100ml. |
+| `hk_salt` | text_single_line | Hørkram scraper | Salt pr. 100g/100ml. |
 
 ### shopping_list (entity: shopping_list)
 

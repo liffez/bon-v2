@@ -191,6 +191,8 @@ function _dashRenderShell() {
             .od-sum-cell:last-child { border-right: none; }
             .od-sum-val { font-size: 18px; font-weight: 900; color: var(--brand-primary, #8e631f); line-height: 1; letter-spacing: -1px; }
             .od-sum-lbl { font-size: 8px; font-weight: 700; color: var(--color-text-dim, #888); text-transform: uppercase; letter-spacing: .3px; margin-top: 1px; }
+            .od-sum-prod { background: #f5efe0; flex: 1.4; }
+            .od-sum-prod .od-sum-val { font-size: 15px; }
 
             /* ══ ALERT BAR ═════════════════════════════════════════ */
             .od-alert-bar {
@@ -591,11 +593,13 @@ function _dashRenderToday(data) {
 
     if (head) head.childNodes[0].textContent = `📋 I dag · ${_dashFmtDateShort(data.date)} `;
 
+    const prod = data.production_totals || { bon_count: 0, total_units: 0 };
     let html = `<div class="od-summary-strip">
         <div class="od-sum-cell"><div class="od-sum-val">${data.totals.bon_count}</div><div class="od-sum-lbl">Bons</div></div>
         <div class="od-sum-cell"><div class="od-sum-val">${data.totals.total_units}</div><div class="od-sum-lbl">Enheder</div></div>
         <div class="od-sum-cell"><div class="od-sum-val">${data.totals.total_pax}</div><div class="od-sum-lbl">Pax</div></div>
         <div class="od-sum-cell"><div class="od-sum-val">${data.next_pickup ? data.next_pickup.slice(0,5) : '—'}</div><div class="od-sum-lbl">1. pickup</div></div>
+        ${prod.bon_count > 0 ? `<div class="od-sum-cell od-sum-prod" title="Produktionsbons (intern, ikke omsætning)"><div class="od-sum-val">🔧 ${prod.bon_count}</div><div class="od-sum-lbl">Produktion · ${prod.total_units} enh</div></div>` : ''}
     </div>`;
 
     // Alert

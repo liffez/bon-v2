@@ -129,7 +129,7 @@
             line-height:1.1; margin-bottom:14px;
         }
         .today-headline span { font-weight:300; color:rgba(241,230,178,0.7); }
-        .today-stats { display:flex; gap:28px; margin-bottom:16px; }
+        .today-stats { display:flex; gap:28px; margin-bottom:16px; flex-wrap:wrap; align-items:flex-end; }
         .stat-num {
             font-size:32px; font-weight:900;
             color:var(--brand-primary-light); line-height:1;
@@ -138,6 +138,12 @@
             font-size:10px; font-weight:700; letter-spacing:.08em;
             text-transform:uppercase; color:rgba(241,230,178,0.6); margin-top:2px;
         }
+        .stat-prod {
+            margin-left:auto; padding:6px 12px;
+            border-left:1px dashed rgba(241,230,178,0.25);
+        }
+        .stat-prod .stat-num { font-size:22px; opacity:0.9; }
+        .stat-prod .stat-label { font-size:9px; }
 
         /* alert inside hero */
         .hero-alert {
@@ -433,11 +439,13 @@
 
         // Stats
         const firstPickup = data.next_pickup ? data.next_pickup.slice(0,5) : '—';
+        const prod = data.production_totals || { bon_count: 0, total_units: 0 };
         document.getElementById('todayStats').innerHTML = `
             <div><div class="stat-num">${data.totals.bon_count}</div><div class="stat-label">Bons</div></div>
             <div><div class="stat-num">${data.totals.total_units}</div><div class="stat-label">Enheder</div></div>
             <div><div class="stat-num">${data.totals.total_pax}</div><div class="stat-label">Pax</div></div>
             <div><div class="stat-num">${firstPickup}</div><div class="stat-label">1. pickup</div></div>
+            ${prod.bon_count > 0 ? `<div class="stat-prod" title="Produktionsbons (intern, ikke omsætning)"><div class="stat-num">🔧 ${prod.bon_count}</div><div class="stat-label">Produktion · ${prod.total_units} enh</div></div>` : ''}
         `;
 
         // Alerts
