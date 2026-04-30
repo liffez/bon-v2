@@ -17,6 +17,8 @@
   <link rel="stylesheet" href="../shared/calendar.css">
   <link rel="stylesheet" href="../shared/planning.css">
   <link rel="stylesheet" href="../shared/modal.css">
+  <link rel="stylesheet" href="../shared/kontakter.css">
+  <link rel="stylesheet" href="../shared/firma360.css">
   <link rel="stylesheet" href="views/fakturering.css">
   <link rel="stylesheet" href="views/tilbud.css">
   <link rel="stylesheet" href="views/rapporter.css">
@@ -467,8 +469,8 @@
           <button class="sidebar-link" data-view="crm-dashboard">
             <span class="sidebar-icon">📊</span> CRM
           </button>
-          <button class="sidebar-link" data-view="crm-kunde360">
-            <span class="sidebar-icon">👤</span> Kunder
+          <button class="sidebar-link" data-view="kontakter">
+            <span class="sidebar-icon">👤</span> Kontakter
           </button>
           <button class="sidebar-link" data-view="crm-inbox">
             <span class="sidebar-icon">📬</span> Indbakke
@@ -562,6 +564,9 @@
   <script src="views/dashboard.js"></script>
   <script src="views/crm-dashboard.js"></script>
   <script src="views/crm-kunde360.js"></script>
+  <script src="views/crm-firmaer.js"></script>
+  <script src="views/crm-firma360.js"></script>
+  <script src="views/kontakter.js"></script>
   <script src="views/crm-inbox.js"></script>
   <script src="views/crm-kundeindsigt.js"></script>
   <script src="views/crm-reaktivering.js"></script>
@@ -659,6 +664,10 @@
           init: () => initCrmKunde360(contentEl, { openDrawer }),
           cleanup: () => { if (typeof cleanupCrmKunde360 === 'function') cleanupCrmKunde360(); },
         },
+        kontakter: {
+          init: () => initKontakter(contentEl, { openDrawer }),
+          cleanup: () => { if (typeof cleanupKontakter === 'function') cleanupKontakter(); },
+        },
         'crm-inbox': {
           init: () => initCrmInbox(contentEl, {}),
           cleanup: () => { if (typeof cleanupCrmInbox === 'function') cleanupCrmInbox(); },
@@ -706,10 +715,20 @@
       // synkroniseres uden et reelt nav-skifte.
       function openKunde360(customerId) {
         const url = new URL(window.location);
-        url.searchParams.set('view', 'crm-kunde360');
+        url.searchParams.set('view', 'kontakter');
+        url.searchParams.set('tab', 'personer');
         url.searchParams.set('customer', customerId);
+        url.searchParams.delete('company');
+        url.searchParams.delete('ftab');
         history.pushState({}, '', url);
-        switchView('crm-kunde360');
+        // Force re-init: switchView returnerer ellers tidligt hvis vi
+        // allerede er på 'kontakter'-viewet (fx fordi Firma 360° er åben).
+        if (_currentView === 'kontakter') {
+          if (views.kontakter?.cleanup) views.kontakter.cleanup();
+          contentEl.innerHTML = '';
+          _currentView = null;
+        }
+        switchView('kontakter');
       }
       window.openKunde360 = openKunde360;
 
@@ -741,6 +760,14 @@
       };
 
       window.switchView = function switchView(viewName) {
+        // Backwards-compat: gamle bookmarks/links
+        if (viewName === 'kunder' || viewName === 'crm-kunde360') {
+          viewName = 'kontakter';
+          const url = new URL(window.location);
+          url.searchParams.set('view', 'kontakter');
+          if (!url.searchParams.has('tab')) url.searchParams.set('tab', 'personer');
+          history.replaceState({}, '', url);
+        }
         if (_currentView === viewName) return;
 
         // Cleanup previous
@@ -769,6 +796,7 @@
           'dashboard':'Office — Dashboard', 'bons-list':'Office — Bonliste',
           'planning':'Office — Planlægning', 'calendar':'Office — Kalender',
           'crm-dashboard':'Office — CRM', 'crm-kunde360':'Office — Kunder',
+          'kontakter':'Office — Kontakter',
           'crm-inbox':'Office — CRM Indbakke', 'fakturering':'Office — Fakturering',
           'tilbud':'Office — Tilbud', 'ugeoversigt':'Office — Ugeoversigt',
           'cashflow':'Office — Pengestrøm',

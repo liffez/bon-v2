@@ -78,6 +78,11 @@ router.get('/', handle((req, res) => {
         args.push(parseInt(req.query.customer_id));
     }
 
+    if (req.query.company_id) {
+        where.push('b.company_id = ?');
+        args.push(parseInt(req.query.company_id));
+    }
+
     if (req.query.q) {
         const term = `%${req.query.q}%`;
         where.push(`(b.bon_number LIKE ? OR c.first_name LIKE ? OR c.last_name LIKE ? OR co.name LIKE ?)`);

@@ -97,6 +97,8 @@ app.use('/api/bons',      require('./routes/bons'));
 app.use('/api/statuses',  require('./routes/statuses'));
 app.use('/api/customers',  require('./routes/customers'));
 app.use('/api/companies',  require('./routes/companies'));
+app.use('/api/contact-points', require('./routes/contact-points'));
+app.use('/api/admin/merge-companies', require('./routes/admin-merge'));
 app.use('/api/cvr',        require('./routes/cvr'));
 app.use('/api/settings',   require('./routes/settings'));
 app.use('/api/grocy',          require('./routes/grocy'));

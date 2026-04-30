@@ -22,9 +22,19 @@ const SORT_WHITELIST = {
 
 router.get('/', handle((req, res) => {
     const db = getDb();
-    const { status, date, date_from, date_to, q, location, unread_mail, sort, dir, limit, offset } = req.query;
+    const { status, date, date_from, date_to, q, location, unread_mail, sort, dir, limit, offset, company_id, customer_id } = req.query;
     const where = ['(b.is_offer = 0 OR b.is_offer IS NULL)'];
     const args  = [];
+
+    // Firma- og kunde-filter (bruges af Firma 360°/Kunde 360° aggregerede views)
+    if (company_id) {
+        where.push('b.company_id = ?');
+        args.push(parseInt(company_id, 10));
+    }
+    if (customer_id) {
+        where.push('b.customer_id = ?');
+        args.push(parseInt(customer_id, 10));
+    }
 
     // Status — kommasepareret
     if (status) {

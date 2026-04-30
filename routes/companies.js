@@ -1,7 +1,10 @@
 const express = require('express');
 const router = express.Router();
 const { getDb } = require('../db/database');
-const { handle, logChange } = require('../db/helpers');
+const { handle, logChange, transaction } = require('../db/helpers');
+const { enrich } = require('../services/cvrEnrichment');
+const { buildCompanyDiff, FIELD_MAP } = require('../services/companyDiff');
+const { syncPrimaryCache, validateContactValue } = require('../shared/contactPoints');
 
 // GET /api/companies?q=
 router.get('/', handle((req, res) => {
@@ -14,9 +17,12 @@ router.get('/', handle((req, res) => {
                discount_percent, invoice_method
         FROM companies
         WHERE is_active = 1
-          AND (name LIKE '%'||?||'%' OR cvr LIKE '%'||?||'%')
+          AND (name LIKE '%'||?||'%'
+            OR cvr LIKE '%'||?||'%'
+            OR COALESCE(legal_name,'') LIKE '%'||?||'%'
+            OR COALESCE(alternate_names,'') LIKE '%'||?||'%')
         ORDER BY name LIMIT 20
-    `).all(q, q);
+    `).all(q, q, q, q);
     res.json(rows);
 }));
 
@@ -74,6 +80,180 @@ router.patch('/:id/economic', handle((req, res) => {
     });
 
     res.json({ ok: true });
+}));
+
+// GET /api/companies/:id/enrich-preview — kør enrichment uden at gemme
+router.get('/:id/enrich-preview', handle(async (req, res) => {
+    const db = getDb();
+    const id = parseInt(req.params.id, 10);
+    const company = db.prepare('SELECT * FROM companies WHERE id = ?').get(id);
+    if (!company) return res.status(404).json({ error: 'Firma ikke fundet' });
+
+    // Hent eksisterende contact_points (til "already_exists"-markering i diff)
+    const existingCps = db.prepare(`
+        SELECT id, kind, value, source, is_public, is_primary, is_active
+          FROM contact_points
+         WHERE entity_type = 'company' AND entity_id = ? AND is_active = 1
+    `).all(id);
+
+    // Hent også kunde-emails for kendt-domæne lookup
+    const customerEmail = db.prepare(`
+        SELECT email FROM customers
+         WHERE company_id = ? AND email IS NOT NULL AND TRIM(email) != ''
+         LIMIT 1
+    `).get(id)?.email;
+
+    let result;
+    try {
+        result = await enrich({
+            cvr: company.cvr,
+            ean: company.ean,
+            email: customerEmail,
+            navn: company.name,
+        });
+    } catch (err) {
+        console.error('CVR-enrichment fejlede:', err);
+        return res.status(502).json({ error: 'Enrichment-service fejlede: ' + err.message });
+    }
+
+    if (!result.found) {
+        return res.json({ found: false, besked: result.besked, low_match: result.low_match });
+    }
+
+    const diff = buildCompanyDiff(company, result, existingCps);
+    res.json({
+        found: true,
+        konfidens: result.konfidens,
+        kilde: result.kilde,
+        diff,
+    });
+}));
+
+// POST /api/companies/:id/enrich — anvend en delmængde af diff'en
+router.post('/:id/enrich', handle((req, res) => {
+    const db = getDb();
+    const id = parseInt(req.params.id, 10);
+    const company = db.prepare('SELECT * FROM companies WHERE id = ?').get(id);
+    if (!company) return res.status(404).json({ error: 'Firma ikke fundet' });
+
+    const {
+        fields = [],
+        contact_points = [],
+        kilde = null,
+        konfidens = null,
+        proposed_data = {},   // udfyldte values fra diff (fx { legal_name: "...", industry: "..." })
+    } = req.body || {};
+
+    if (!Array.isArray(fields) || !Array.isArray(contact_points)) {
+        return res.status(400).json({ error: 'fields og contact_points skal være arrays' });
+    }
+
+    // Whitelist: kun writable felter må opdateres
+    const writableKeys = new Set(FIELD_MAP.filter(f => f.writable).map(f => f.key));
+    const validFields = fields.filter(k => writableKeys.has(k));
+
+    let fieldsUpdated = 0;
+    let cpsCreated = 0;
+    let cpsTouched = 0;
+
+    transaction(db, () => {
+        // Opdater felter
+        if (validFields.length > 0) {
+            const setClauses = [];
+            const args = [];
+            for (const key of validFields) {
+                const newVal = proposed_data[key];
+                if (newVal === undefined) continue;
+                const oldVal = company[key];
+                // Skriv også selvom værdien er identisk — så last_enriched_at flyttes,
+                // men changelog kun ved reel ændring
+                setClauses.push(`${key} = ?`);
+                args.push(newVal === null || newVal === '' ? null : newVal);
+                if (oldVal !== newVal && (oldVal ?? null) !== (newVal ?? null)) {
+                    logChange({
+                        entityType: 'company',
+                        entityId: id,
+                        action: 'enrich',
+                        fieldName: key,
+                        oldValue: oldVal,
+                        newValue: newVal,
+                        userId: req.session?.user?.id ?? null,
+                        notes: `kilde=${kilde || 'ukendt'} konfidens=${konfidens || ''}`,
+                    });
+                    fieldsUpdated++;
+                }
+            }
+            if (setClauses.length > 0) {
+                args.push(id);
+                db.prepare(`UPDATE companies SET ${setClauses.join(', ')}, updated_at = CURRENT_TIMESTAMP WHERE id = ?`).run(...args);
+            }
+        }
+
+        // Opdater last_enriched_at + source uanset om der var feltændringer
+        db.prepare(`
+            UPDATE companies
+               SET last_enriched_at = CURRENT_TIMESTAMP,
+                   last_enriched_source = ?,
+                   updated_at = CURRENT_TIMESTAMP
+             WHERE id = ?
+        `).run(kilde || null, id);
+
+        // Tilføj contact_points
+        for (const cp of contact_points) {
+            if (!cp || !cp.kind || !cp.value) continue;
+            if (cp.kind !== 'email' && cp.kind !== 'phone') continue;
+
+            const validation = validateContactValue(cp.kind, cp.value);
+            if (!validation.ok) continue;
+
+            const existing = db.prepare(`
+                SELECT id, is_active FROM contact_points
+                 WHERE entity_type = 'company' AND entity_id = ? AND kind = ? AND value = ?
+            `).get(id, cp.kind, validation.normalized);
+
+            const isPub = cp.is_public !== undefined ? (cp.is_public ? 1 : 0) : 1;
+
+            if (existing) {
+                // Idempotent: opdatér verified_at + sæt source=cvr hvis den var manuel
+                db.prepare(`
+                    UPDATE contact_points
+                       SET source = CASE WHEN source = 'manual' THEN 'cvr' ELSE source END,
+                           is_public = ?,
+                           verified_at = CURRENT_TIMESTAMP,
+                           last_seen_at = CURRENT_TIMESTAMP,
+                           is_active = 1,
+                           updated_at = CURRENT_TIMESTAMP
+                     WHERE id = ?
+                `).run(isPub, existing.id);
+                cpsTouched++;
+            } else {
+                db.prepare(`
+                    INSERT INTO contact_points
+                        (entity_type, entity_id, kind, value, source, is_public, is_primary, verified_at, last_seen_at)
+                    VALUES ('company', ?, ?, ?, 'cvr', ?, 0, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)
+                `).run(id, cp.kind, validation.normalized, isPub);
+                cpsCreated++;
+            }
+            logChange({
+                entityType: 'company',
+                entityId: id,
+                action: existing ? 'enrich_cp_touch' : 'enrich_cp_create',
+                fieldName: cp.kind,
+                newValue: validation.normalized,
+                userId: req.session?.user?.id ?? null,
+                notes: `source=cvr public=${isPub}`,
+            });
+        }
+    });
+
+    const updated = db.prepare('SELECT * FROM companies WHERE id = ?').get(id);
+    res.json({
+        ok: true,
+        fields_updated: fieldsUpdated,
+        contact_points_created: cpsCreated,
+        contact_points_updated: cpsTouched,
+        company: updated,
+    });
 }));
 
 module.exports = router;

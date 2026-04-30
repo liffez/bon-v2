@@ -1,0 +1,992 @@
+<!DOCTYPE html>
+<html lang="da">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Berig firma + Kontaktpunkter — Bon v2 mockup</title>
+<style>
+  :root {
+    --bg: #f6f4ef;
+    --surface: #ffffff;
+    --ink: #1f2024;
+    --ink-2: #4a4d54;
+    --ink-3: #7c8089;
+    --line: #e6e2d8;
+    --line-strong: #d4cfc2;
+    --accent: #5a7d4e;        /* RR-grøn */
+    --accent-light: #e8efe3;
+    --warn: #c9742e;
+    --warn-light: #faf1e6;
+    --danger: #b34234;
+    --danger-light: #f8e8e5;
+    --info: #3d6a87;
+    --info-light: #e6eef3;
+    --pub: #2f6e3f;
+    --pub-light: #e3f0e6;
+    --priv: #7c5d3c;
+    --priv-light: #f3ece1;
+    --shadow: 0 1px 2px rgba(20,20,20,.04), 0 8px 24px rgba(20,20,20,.06);
+    --shadow-lg: 0 4px 12px rgba(20,20,20,.08), 0 20px 48px rgba(20,20,20,.12);
+    --radius: 8px;
+    --radius-lg: 12px;
+  }
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body {
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", system-ui, sans-serif;
+    background: var(--bg);
+    color: var(--ink);
+    font-size: 14px;
+    line-height: 1.5;
+    -webkit-font-smoothing: antialiased;
+  }
+  .crumb {
+    background: var(--surface);
+    border-bottom: 1px solid var(--line);
+    padding: 10px 24px;
+    font-size: 12px;
+    color: var(--ink-3);
+  }
+  .crumb b { color: var(--ink-2); font-weight: 500; }
+  .crumb-sep { margin: 0 8px; color: var(--line-strong); }
+  .top-banner {
+    background: #fff8e6;
+    border-bottom: 1px solid #f1d98e;
+    padding: 8px 24px;
+    font-size: 12px;
+    color: #6a5410;
+    text-align: center;
+  }
+  .page {
+    max-width: 1100px;
+    margin: 24px auto;
+    padding: 0 24px;
+  }
+  .page-h {
+    display: flex;
+    align-items: baseline;
+    gap: 12px;
+    margin-bottom: 4px;
+  }
+  .page-h h1 {
+    font-size: 22px;
+    font-weight: 600;
+    letter-spacing: -0.01em;
+  }
+  .page-h .sub {
+    color: var(--ink-3);
+    font-size: 13px;
+  }
+  .page-h .ctx {
+    color: var(--ink-2);
+    font-size: 13px;
+  }
+  .page-tabs {
+    display: flex;
+    gap: 24px;
+    margin: 18px 0 22px;
+    border-bottom: 1px solid var(--line);
+  }
+  .tab {
+    padding: 10px 0;
+    color: var(--ink-3);
+    font-size: 13px;
+    font-weight: 500;
+    border-bottom: 2px solid transparent;
+    margin-bottom: -1px;
+    cursor: pointer;
+  }
+  .tab.active { color: var(--ink); border-bottom-color: var(--accent); }
+  .grid {
+    display: grid;
+    grid-template-columns: 320px 1fr;
+    gap: 18px;
+  }
+  .card {
+    background: var(--surface);
+    border: 1px solid var(--line);
+    border-radius: var(--radius-lg);
+    box-shadow: var(--shadow);
+  }
+  .card-h {
+    padding: 14px 18px;
+    border-bottom: 1px solid var(--line);
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+  }
+  .card-h-title {
+    font-size: 13px;
+    font-weight: 600;
+    color: var(--ink);
+    letter-spacing: 0.01em;
+    text-transform: uppercase;
+  }
+  .card-b { padding: 16px 18px; }
+
+  /* Company card */
+  .firma-name {
+    font-size: 17px;
+    font-weight: 600;
+    margin-bottom: 2px;
+  }
+  .firma-legal {
+    color: var(--ink-3);
+    font-size: 12px;
+    font-style: italic;
+    margin-bottom: 14px;
+  }
+  .firma-row {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    padding: 8px 0;
+    border-bottom: 1px dashed var(--line);
+    font-size: 13px;
+  }
+  .firma-row:last-child { border-bottom: none; }
+  .firma-row .lbl {
+    color: var(--ink-3);
+    font-size: 11px;
+    text-transform: uppercase;
+    letter-spacing: 0.04em;
+    width: 64px;
+    flex-shrink: 0;
+  }
+  .firma-row .val {
+    color: var(--ink);
+    font-feature-settings: "tnum";
+    flex: 1;
+  }
+  .firma-row .val.muted { color: var(--ink-3); font-style: italic; }
+
+  /* Action buttons */
+  .firma-actions {
+    margin-top: 14px;
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+  }
+  .btn {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    gap: 6px;
+    padding: 8px 14px;
+    border-radius: var(--radius);
+    border: 1px solid var(--line-strong);
+    background: var(--surface);
+    color: var(--ink);
+    font-size: 13px;
+    font-weight: 500;
+    cursor: pointer;
+    transition: all 0.15s;
+    text-decoration: none;
+    font-family: inherit;
+  }
+  .btn:hover {
+    background: #faf8f3;
+    border-color: var(--ink-3);
+  }
+  .btn-primary {
+    background: var(--accent);
+    border-color: var(--accent);
+    color: white;
+  }
+  .btn-primary:hover {
+    background: #4a6b40;
+    border-color: #4a6b40;
+  }
+  .btn-ghost {
+    background: transparent;
+    border-color: transparent;
+    color: var(--ink-2);
+    padding: 6px 10px;
+  }
+  .btn-ghost:hover { background: var(--line); color: var(--ink); }
+  .btn-sm { padding: 6px 10px; font-size: 12px; }
+  .btn-block { width: 100%; }
+  .btn-ico {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 28px;
+    height: 28px;
+    padding: 0;
+    border-radius: 6px;
+    border: 1px solid transparent;
+    background: transparent;
+    color: var(--ink-3);
+    cursor: pointer;
+  }
+  .btn-ico:hover { background: var(--line); color: var(--ink); }
+
+  /* Contact points */
+  .cp-section { margin-top: 0; }
+  .cp-h {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 10px 18px;
+    border-bottom: 1px solid var(--line);
+    background: #fbfaf6;
+    border-radius: var(--radius-lg) var(--radius-lg) 0 0;
+  }
+  .cp-h-title {
+    font-size: 12px;
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
+    font-weight: 600;
+    color: var(--ink-2);
+  }
+  .cp-list {
+    display: flex;
+    flex-direction: column;
+  }
+  .cp-row {
+    display: grid;
+    grid-template-columns: 28px 1fr auto auto;
+    align-items: center;
+    gap: 12px;
+    padding: 12px 18px;
+    border-bottom: 1px solid var(--line);
+  }
+  .cp-row:last-child { border-bottom: none; }
+  .cp-row:hover { background: #fbfaf6; }
+  .cp-icon {
+    width: 28px;
+    height: 28px;
+    border-radius: 6px;
+    background: var(--line);
+    color: var(--ink-2);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 14px;
+  }
+  .cp-icon.email { background: var(--info-light); color: var(--info); }
+  .cp-icon.phone { background: var(--accent-light); color: var(--accent); }
+  .cp-main {
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+    min-width: 0;
+  }
+  .cp-value {
+    font-weight: 500;
+    color: var(--ink);
+    font-size: 13px;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+  .cp-meta {
+    font-size: 11px;
+    color: var(--ink-3);
+    display: flex;
+    gap: 8px;
+    align-items: center;
+  }
+  .cp-meta .sep { color: var(--line-strong); }
+  .pill {
+    display: inline-flex;
+    align-items: center;
+    gap: 3px;
+    padding: 2px 7px;
+    border-radius: 10px;
+    font-size: 10px;
+    font-weight: 600;
+    text-transform: uppercase;
+    letter-spacing: 0.04em;
+  }
+  .pill-pub { background: var(--pub-light); color: var(--pub); }
+  .pill-priv { background: var(--priv-light); color: var(--priv); }
+  .pill-source {
+    background: var(--line);
+    color: var(--ink-2);
+    text-transform: none;
+    letter-spacing: 0;
+    font-weight: 500;
+    font-size: 10px;
+  }
+  .pill-cvr { background: #e8eef3; color: #2d5a7a; }
+  .pill-web { background: #f0e8f3; color: #6b3f7a; }
+  .pill-form { background: #f3eee0; color: #806c2f; }
+  .pill-mail { background: #f3e6e3; color: #8a4738; }
+  .pill-manual { background: var(--line); color: var(--ink-2); }
+  .pill-nemhandel { background: #e0eef3; color: #2d6a7a; }
+  .cp-purpose {
+    font-size: 11px;
+    color: var(--ink-3);
+    background: #faf8f3;
+    border: 1px solid var(--line);
+    padding: 1px 6px;
+    border-radius: 4px;
+  }
+  .cp-actions {
+    display: flex;
+    gap: 2px;
+  }
+  .cp-add-row {
+    display: flex;
+    gap: 8px;
+    padding: 12px 18px;
+    background: #fbfaf6;
+    border-bottom-left-radius: var(--radius-lg);
+    border-bottom-right-radius: var(--radius-lg);
+  }
+  .cp-add-row .btn { flex: 1; }
+
+  /* Modal */
+  .overlay {
+    position: fixed;
+    inset: 0;
+    background: rgba(20, 20, 24, 0.45);
+    display: flex;
+    align-items: flex-start;
+    justify-content: center;
+    padding: 60px 20px 20px;
+    z-index: 100;
+    overflow-y: auto;
+  }
+  .overlay.hidden { display: none; }
+  .modal {
+    background: var(--surface);
+    border-radius: var(--radius-lg);
+    width: 100%;
+    max-width: 760px;
+    box-shadow: var(--shadow-lg);
+    overflow: hidden;
+  }
+  .modal-h {
+    padding: 18px 22px;
+    border-bottom: 1px solid var(--line);
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+  }
+  .modal-h h2 {
+    font-size: 16px;
+    font-weight: 600;
+  }
+  .modal-h .modal-sub {
+    color: var(--ink-3);
+    font-size: 12px;
+    margin-top: 2px;
+  }
+  .modal-h .close {
+    width: 32px;
+    height: 32px;
+    border: none;
+    background: transparent;
+    color: var(--ink-3);
+    cursor: pointer;
+    border-radius: 6px;
+    font-size: 22px;
+  }
+  .modal-h .close:hover { background: var(--line); color: var(--ink); }
+  .modal-b { padding: 0; }
+  .modal-status {
+    padding: 12px 22px;
+    background: var(--info-light);
+    border-bottom: 1px solid var(--line);
+    color: var(--info);
+    font-size: 12px;
+    display: flex;
+    align-items: center;
+    gap: 8px;
+  }
+  .modal-status.warn { background: var(--warn-light); color: var(--warn); }
+  .modal-status.success { background: var(--pub-light); color: var(--pub); }
+
+  /* Diff rows */
+  .diff-section {
+    border-bottom: 1px solid var(--line);
+  }
+  .diff-section-h {
+    padding: 10px 22px;
+    background: #fbfaf6;
+    font-size: 11px;
+    font-weight: 600;
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
+    color: var(--ink-2);
+  }
+  .diff-row {
+    display: grid;
+    grid-template-columns: 28px 100px 1fr 1fr;
+    gap: 12px;
+    align-items: start;
+    padding: 12px 22px;
+    border-bottom: 1px solid var(--line);
+  }
+  .diff-row:last-child { border-bottom: none; }
+  .diff-row.unchanged { opacity: 0.55; }
+  .diff-row.unchanged .diff-cb { visibility: hidden; }
+  .diff-cb {
+    width: 18px;
+    height: 18px;
+    margin-top: 2px;
+    accent-color: var(--accent);
+    cursor: pointer;
+  }
+  .diff-label {
+    font-size: 11px;
+    text-transform: uppercase;
+    letter-spacing: 0.04em;
+    color: var(--ink-3);
+    padding-top: 4px;
+    font-weight: 600;
+  }
+  .diff-current, .diff-new {
+    font-size: 13px;
+    padding: 6px 10px;
+    border-radius: 6px;
+    border: 1px solid transparent;
+    line-height: 1.4;
+    word-break: break-word;
+  }
+  .diff-current {
+    background: var(--line);
+    color: var(--ink-2);
+    text-decoration: line-through;
+    text-decoration-color: var(--ink-3);
+  }
+  .diff-current.empty {
+    color: var(--ink-3);
+    font-style: italic;
+    text-decoration: none;
+  }
+  .diff-new {
+    background: var(--pub-light);
+    color: var(--pub);
+    border-color: #cfe2d4;
+  }
+  .diff-row.unchanged .diff-new {
+    background: var(--surface);
+    color: var(--ink-2);
+    border-color: var(--line);
+  }
+  .diff-row.unchanged .diff-current {
+    background: var(--surface);
+    color: var(--ink-2);
+    text-decoration: none;
+    border-color: var(--line);
+  }
+  .diff-multi {
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+  }
+
+  /* Contact diff (modal) */
+  .ct-row {
+    display: grid;
+    grid-template-columns: 28px 28px 1fr auto;
+    gap: 10px;
+    align-items: center;
+    padding: 10px 22px;
+    border-bottom: 1px solid var(--line);
+  }
+  .ct-row:last-child { border-bottom: none; }
+  .ct-row.exists {
+    background: #fbfaf6;
+    opacity: 0.7;
+  }
+  .ct-row .ct-value { font-weight: 500; font-size: 13px; }
+  .ct-row .ct-meta {
+    font-size: 11px;
+    color: var(--ink-3);
+    margin-top: 1px;
+  }
+  .ct-already {
+    font-size: 11px;
+    color: var(--ink-3);
+    font-style: italic;
+  }
+
+  .modal-f {
+    padding: 14px 22px;
+    border-top: 1px solid var(--line);
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    background: #fbfaf6;
+  }
+  .modal-f-info {
+    font-size: 12px;
+    color: var(--ink-3);
+  }
+  .modal-f-actions {
+    display: flex;
+    gap: 8px;
+  }
+
+  /* Stat chips up top of company card */
+  .stat-strip {
+    display: flex;
+    gap: 6px;
+    margin-bottom: 14px;
+    flex-wrap: wrap;
+  }
+  .stat-chip {
+    background: var(--line);
+    color: var(--ink-2);
+    padding: 3px 8px;
+    border-radius: 12px;
+    font-size: 11px;
+    font-weight: 500;
+  }
+
+  /* Right column placeholder */
+  .placeholder {
+    background: var(--surface);
+    border: 2px dashed var(--line-strong);
+    border-radius: var(--radius-lg);
+    padding: 40px 20px;
+    text-align: center;
+    color: var(--ink-3);
+    font-size: 12px;
+  }
+
+  /* Spinner */
+  .spinner {
+    width: 12px;
+    height: 12px;
+    border: 2px solid currentColor;
+    border-right-color: transparent;
+    border-radius: 50%;
+    animation: spin 0.7s linear infinite;
+    display: inline-block;
+  }
+  @keyframes spin { to { transform: rotate(360deg); } }
+
+  /* Toast */
+  .toast {
+    position: fixed;
+    bottom: 24px;
+    left: 50%;
+    transform: translateX(-50%) translateY(20px);
+    background: var(--ink);
+    color: white;
+    padding: 10px 18px;
+    border-radius: 8px;
+    font-size: 13px;
+    box-shadow: var(--shadow-lg);
+    opacity: 0;
+    transition: all 0.25s;
+    z-index: 200;
+  }
+  .toast.show { opacity: 1; transform: translateX(-50%) translateY(0); }
+</style>
+</head>
+<body>
+
+<div class="top-banner">
+  📋 Mockup — Berig firma & kontaktpunkter. Klik på de grønne knapper for at se flowet.
+</div>
+
+<div class="crumb">
+  <b>Office</b> <span class="crumb-sep">›</span>
+  <b>CRM</b> <span class="crumb-sep">›</span>
+  Kunde 360°
+</div>
+
+<div class="page">
+  <div class="page-h">
+    <h1>Mette Hansen</h1>
+    <span class="ctx">·</span>
+    <span class="sub">Rigshospitalet, Hjertemedicinsk Klinik</span>
+  </div>
+
+  <div class="page-tabs">
+    <div class="tab">Oversigt</div>
+    <div class="tab active">Firma</div>
+    <div class="tab">Bons</div>
+    <div class="tab">Tilbud</div>
+    <div class="tab">Aktivitet</div>
+    <div class="tab">Mail</div>
+  </div>
+
+  <div class="grid">
+    <!-- LEFT: Firma-kort -->
+    <div>
+      <div class="card">
+        <div class="card-h">
+          <span class="card-h-title">Firma</span>
+          <button class="btn-ico" title="Rediger">✎</button>
+        </div>
+        <div class="card-b">
+          <div class="firma-name">Rigshospitalet, Hjertemedicinsk Klinik</div>
+          <div class="firma-legal">Region Hovedstaden</div>
+
+          <div class="stat-strip">
+            <span class="stat-chip">VIP</span>
+            <span class="stat-chip">42 bons</span>
+            <span class="stat-chip">2024–2026</span>
+          </div>
+
+          <div class="firma-row">
+            <span class="lbl">CVR</span>
+            <span class="val">29190623</span>
+          </div>
+          <div class="firma-row">
+            <span class="lbl">EAN</span>
+            <span class="val">5798001021197</span>
+          </div>
+          <div class="firma-row">
+            <span class="lbl">Adresse</span>
+            <span class="val">Blegdamsvej 9<br>2100 København Ø</span>
+          </div>
+          <div class="firma-row">
+            <span class="lbl">Branche</span>
+            <span class="val">Hospitaler</span>
+          </div>
+          <div class="firma-row">
+            <span class="lbl">Faktura</span>
+            <span class="val">EAN · 30 dage</span>
+          </div>
+          <div class="firma-row">
+            <span class="lbl">e-conomic</span>
+            <span class="val">10042</span>
+          </div>
+
+          <div class="firma-actions">
+            <button class="btn btn-primary btn-block btn-sm" onclick="openCvr()">
+              ⟳ Berig fra CVR
+            </button>
+            <button class="btn btn-block btn-sm" onclick="openWeb()">
+              🌐 Find offentlige kontakter
+            </button>
+          </div>
+
+          <div style="font-size: 11px; color: var(--ink-3); margin-top: 10px; text-align: center;">
+            Sidst beriget 12. mar 2026 · Virk ES
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- RIGHT: Contact points + tabs -->
+    <div>
+      <div class="card cp-section">
+        <div class="cp-h">
+          <span class="cp-h-title">Kontaktpunkter (4)</span>
+          <div style="display: flex; gap: 6px; align-items: center; font-size: 11px; color: var(--ink-3);">
+            <span class="pill pill-pub">PUB</span> = må kontaktes (offentlig)
+            <span style="margin-left: 8px;" class="pill pill-priv">PRIV</span> = personlig
+          </div>
+        </div>
+        <div class="cp-list" id="cp-list">
+          <!-- Existing -->
+          <div class="cp-row">
+            <div class="cp-icon email">✉</div>
+            <div class="cp-main">
+              <div class="cp-value">mette.hansen@regionh.dk</div>
+              <div class="cp-meta">
+                <span class="pill pill-priv">PRIV</span>
+                <span class="pill pill-source pill-form">form</span>
+                <span class="cp-purpose">Kontaktperson</span>
+                <span class="sep">·</span>
+                <span>Tilføjet 14. feb 2024</span>
+              </div>
+            </div>
+            <div></div>
+            <div class="cp-actions">
+              <button class="btn-ico" title="Rediger">✎</button>
+              <button class="btn-ico" title="Markér som offentlig">🔓</button>
+              <button class="btn-ico" title="Slet">🗑</button>
+            </div>
+          </div>
+
+          <div class="cp-row">
+            <div class="cp-icon phone">☏</div>
+            <div class="cp-main">
+              <div class="cp-value">38 66 95 12</div>
+              <div class="cp-meta">
+                <span class="pill pill-priv">PRIV</span>
+                <span class="pill pill-source pill-form">form</span>
+                <span class="cp-purpose">Direkte nummer</span>
+                <span class="sep">·</span>
+                <span>Tilføjet 14. feb 2024</span>
+              </div>
+            </div>
+            <div></div>
+            <div class="cp-actions">
+              <button class="btn-ico" title="Rediger">✎</button>
+              <button class="btn-ico" title="Markér som offentlig">🔓</button>
+              <button class="btn-ico" title="Slet">🗑</button>
+            </div>
+          </div>
+
+          <div class="cp-row">
+            <div class="cp-icon email">✉</div>
+            <div class="cp-main">
+              <div class="cp-value">faktura.rh@regionh.dk</div>
+              <div class="cp-meta">
+                <span class="pill pill-priv">PRIV</span>
+                <span class="pill pill-source pill-mail">mail</span>
+                <span class="cp-purpose">Faktura</span>
+                <span class="sep">·</span>
+                <span>Set 18. mar 2026</span>
+              </div>
+            </div>
+            <div></div>
+            <div class="cp-actions">
+              <button class="btn-ico" title="Rediger">✎</button>
+              <button class="btn-ico" title="Markér som offentlig">🔓</button>
+              <button class="btn-ico" title="Slet">🗑</button>
+            </div>
+          </div>
+
+          <div class="cp-row">
+            <div class="cp-icon phone">☏</div>
+            <div class="cp-main">
+              <div class="cp-value">38 66 60 00</div>
+              <div class="cp-meta">
+                <span class="pill pill-pub">PUB</span>
+                <span class="pill pill-source pill-cvr">CVR</span>
+                <span class="cp-purpose">Hovednummer</span>
+                <span class="sep">·</span>
+                <span>Verificeret 12. mar 2026</span>
+              </div>
+            </div>
+            <div></div>
+            <div class="cp-actions">
+              <button class="btn-ico" title="Rediger">✎</button>
+              <button class="btn-ico" title="Markér som personlig">🔒</button>
+              <button class="btn-ico" title="Slet">🗑</button>
+            </div>
+          </div>
+        </div>
+        <div class="cp-add-row">
+          <button class="btn btn-sm">+ Tilføj email</button>
+          <button class="btn btn-sm">+ Tilføj telefon</button>
+        </div>
+      </div>
+
+      <div class="placeholder" style="margin-top: 18px;">
+        Resten af Firma-fanen (afdelinger, andre kontakter under samme CVR, leveringsadresser, …)
+      </div>
+    </div>
+  </div>
+</div>
+
+
+<!-- ===================================================== -->
+<!-- MODAL A: Berig fra CVR -->
+<!-- ===================================================== -->
+<div class="overlay hidden" id="modal-cvr">
+  <div class="modal">
+    <div class="modal-h">
+      <div>
+        <h2>⟳ Berig fra CVR</h2>
+        <div class="modal-sub">CVR 29190623 · Region Hovedstaden · Virk ElasticSearch</div>
+      </div>
+      <button class="close" onclick="closeAll()">×</button>
+    </div>
+
+    <div class="modal-status success">
+      ✓ Match fundet · konfidens 98% · 6 felter har ny data, 2 er uændrede
+    </div>
+
+    <div class="modal-b">
+
+      <div class="diff-section">
+        <div class="diff-section-h">Stamdata</div>
+
+        <div class="diff-row">
+          <input type="checkbox" class="diff-cb" checked>
+          <div class="diff-label">Juridisk navn</div>
+          <div class="diff-current empty">— ikke sat —</div>
+          <div class="diff-new">Region Hovedstaden</div>
+        </div>
+
+        <div class="diff-row unchanged">
+          <input type="checkbox" class="diff-cb" disabled>
+          <div class="diff-label">Adresse</div>
+          <div class="diff-current">Blegdamsvej 9, 2100 København Ø</div>
+          <div class="diff-new">Blegdamsvej 9, 2100 København Ø</div>
+        </div>
+
+        <div class="diff-row">
+          <input type="checkbox" class="diff-cb" checked>
+          <div class="diff-label">Branche</div>
+          <div class="diff-current empty">— ikke sat —</div>
+          <div class="diff-new">Hospitaler (861000)</div>
+        </div>
+
+        <div class="diff-row">
+          <input type="checkbox" class="diff-cb" checked>
+          <div class="diff-label">Ansatte</div>
+          <div class="diff-current empty">— ikke sat —</div>
+          <div class="diff-new">52.124</div>
+        </div>
+
+        <div class="diff-row">
+          <input type="checkbox" class="diff-cb" checked>
+          <div class="diff-label">Hjemmeside</div>
+          <div class="diff-current empty">— ikke sat —</div>
+          <div class="diff-new">www.regionh.dk</div>
+        </div>
+
+        <div class="diff-row unchanged">
+          <input type="checkbox" class="diff-cb" disabled>
+          <div class="diff-label">Status</div>
+          <div class="diff-current">Aktiv</div>
+          <div class="diff-new">Aktiv</div>
+        </div>
+      </div>
+
+      <div class="diff-section">
+        <div class="diff-section-h">Kontaktpunkter fra CVR <span style="font-weight:400;text-transform:none;color:var(--ink-3)">— alle markeres automatisk som offentlig (PUB)</span></div>
+
+        <div class="ct-row">
+          <input type="checkbox" class="diff-cb" checked>
+          <div class="cp-icon email" style="width: 24px; height: 24px; font-size: 12px;">✉</div>
+          <div>
+            <div class="ct-value">info@regionh.dk</div>
+            <div class="ct-meta">Officiel email registreret i CVR</div>
+          </div>
+          <span class="pill pill-pub">PUB</span>
+        </div>
+
+        <div class="ct-row exists">
+          <input type="checkbox" class="diff-cb" disabled>
+          <div class="cp-icon phone" style="width: 24px; height: 24px; font-size: 12px;">☏</div>
+          <div>
+            <div class="ct-value">38 66 60 00 <span class="ct-already">— allerede registreret som offentlig</span></div>
+            <div class="ct-meta">Officielt telefonnummer registreret i CVR</div>
+          </div>
+          <span class="pill pill-pub">PUB</span>
+        </div>
+      </div>
+    </div>
+
+    <div class="modal-f">
+      <div class="modal-f-info">5 ændringer vil blive gemt · changelog opdateres</div>
+      <div class="modal-f-actions">
+        <button class="btn" onclick="closeAll()">Annullér</button>
+        <button class="btn btn-primary" onclick="acceptCvr()">✓ Accepter valgte</button>
+      </div>
+    </div>
+  </div>
+</div>
+
+
+<!-- ===================================================== -->
+<!-- MODAL B: Find offentlige kontakter (web scraping) -->
+<!-- ===================================================== -->
+<div class="overlay hidden" id="modal-web">
+  <div class="modal">
+    <div class="modal-h">
+      <div>
+        <h2>🌐 Find offentlige kontakter</h2>
+        <div class="modal-sub">Søger på regionh.dk og kontaktsider</div>
+      </div>
+      <button class="close" onclick="closeAll()">×</button>
+    </div>
+
+    <div class="modal-status warn">
+      ⚠️ Hjemmeside-scraping er bedst-bud. Bekræft hver enkelt før du tilføjer.
+    </div>
+
+    <div class="modal-b">
+      <div class="diff-section">
+        <div class="diff-section-h">Fundet på www.regionh.dk</div>
+
+        <div class="ct-row">
+          <input type="checkbox" class="diff-cb" checked>
+          <div class="cp-icon email" style="width: 24px; height: 24px; font-size: 12px;">✉</div>
+          <div>
+            <div class="ct-value">presse@regionh.dk</div>
+            <div class="ct-meta">/kontakt — "Pressehenvendelser"</div>
+          </div>
+          <span class="pill pill-pub">PUB</span>
+        </div>
+
+        <div class="ct-row">
+          <input type="checkbox" class="diff-cb">
+          <div class="cp-icon email" style="width: 24px; height: 24px; font-size: 12px;">✉</div>
+          <div>
+            <div class="ct-value">whistleblower@regionh.dk</div>
+            <div class="ct-meta">/whistleblower — formel kanal</div>
+          </div>
+          <span class="pill pill-pub">PUB</span>
+        </div>
+
+        <div class="ct-row exists">
+          <input type="checkbox" class="diff-cb" disabled>
+          <div class="cp-icon email" style="width: 24px; height: 24px; font-size: 12px;">✉</div>
+          <div>
+            <div class="ct-value">info@regionh.dk <span class="ct-already">— allerede registreret</span></div>
+            <div class="ct-meta">/kontakt — "Generelle henvendelser"</div>
+          </div>
+          <span class="pill pill-pub">PUB</span>
+        </div>
+
+        <div class="ct-row">
+          <input type="checkbox" class="diff-cb">
+          <div class="cp-icon phone" style="width: 24px; height: 24px; font-size: 12px;">☏</div>
+          <div>
+            <div class="ct-value">35 45 35 45</div>
+            <div class="ct-meta">/kontakt — "Patientvejledning"</div>
+          </div>
+          <span class="pill pill-pub">PUB</span>
+        </div>
+      </div>
+
+      <div style="padding: 14px 22px; font-size: 12px; color: var(--ink-3); background: #fbfaf6; border-bottom: 1px solid var(--line);">
+        ℹ️ Ikke-fundne sider: <code style="background:var(--line);padding:1px 4px;border-radius:3px">/about</code>, <code style="background:var(--line);padding:1px 4px;border-radius:3px">/contact</code> · 4 emails skiftet bort som personlige (Anders.X@…, Lars.Y@…, etc.)
+      </div>
+    </div>
+
+    <div class="modal-f">
+      <div class="modal-f-info">Kilde: regionh.dk · scrape kørt nu</div>
+      <div class="modal-f-actions">
+        <button class="btn" onclick="closeAll()">Annullér</button>
+        <button class="btn btn-primary" onclick="acceptWeb()">✓ Tilføj valgte</button>
+      </div>
+    </div>
+  </div>
+</div>
+
+<div class="toast" id="toast">Gemt</div>
+
+<script>
+  function openCvr() {
+    document.getElementById('modal-cvr').classList.remove('hidden');
+  }
+  function openWeb() {
+    document.getElementById('modal-web').classList.remove('hidden');
+  }
+  function closeAll() {
+    document.getElementById('modal-cvr').classList.add('hidden');
+    document.getElementById('modal-web').classList.add('hidden');
+  }
+  function showToast(msg) {
+    const t = document.getElementById('toast');
+    t.textContent = msg;
+    t.classList.add('show');
+    setTimeout(() => t.classList.remove('show'), 2500);
+  }
+  function acceptCvr() {
+    closeAll();
+    showToast('✓ Firma beriget — 5 ændringer gemt, info@regionh.dk tilføjet som offentlig');
+  }
+  function acceptWeb() {
+    closeAll();
+    showToast('✓ 1 email tilføjet som offentlig (presse@regionh.dk)');
+  }
+  // Click outside to close
+  document.querySelectorAll('.overlay').forEach(o => {
+    o.addEventListener('click', (e) => {
+      if (e.target === o) closeAll();
+    });
+  });
+  // Escape to close
+  document.addEventListener('keydown', (e) => {
+    if (e.key === 'Escape') closeAll();
+  });
+</script>
+</body>
+</html>

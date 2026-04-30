@@ -661,6 +661,8 @@ function _k3RenderShell() {
                 white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
             }
             .k3-company { font-size: 13px; color: var(--color-text-dim, #888); margin-top: 2px; }
+            .k3-company-link { color: var(--brand-primary, #8e631f); text-decoration: none; cursor: pointer; }
+            .k3-company-link:hover { text-decoration: underline; }
             .k3-stage-badge {
                 display: inline-block; padding: 3px 12px; border-radius: 12px;
                 font-size: 11px; font-weight: 700; margin-top: 4px;
@@ -944,7 +946,9 @@ function _k3RenderProfile() {
         '<div class="k3-avatar">' + initial + '</div>' +
         '<div class="k3-name-block">' +
             '<div class="k3-name">' + fullName + '</div>' +
-            (c.company_name ? '<div class="k3-company">' + c.company_name + '</div>' : '') +
+            (c.company_name && c.company_id
+                ? '<div class="k3-company"><a href="?view=kontakter&tab=firmaer&company=' + c.company_id + '" class="k3-company-link" data-company-id="' + c.company_id + '">' + c.company_name + ' →</a></div>'
+                : (c.company_name ? '<div class="k3-company">' + c.company_name + '</div>' : '')) +
             '<span class="k3-stage-badge ' + stageClass + '">' + stageName + '</span>' +
         '</div>' +
     '</div>';
@@ -1003,6 +1007,18 @@ function _k3RenderProfile() {
     '</select>';
 
     el.innerHTML = html;
+
+    // Wire up firma-link cross-link til Firma 360°
+    const firmaLink = el.querySelector('.k3-company-link');
+    if (firmaLink) {
+        firmaLink.addEventListener('click', (e) => {
+            e.preventDefault();
+            const cid = parseInt(firmaLink.dataset.companyId, 10);
+            if (typeof window.openFirma360 === 'function') {
+                window.openFirma360(cid);
+            }
+        });
+    }
 }
 
 // ─── Sentiment trendline ────────────────────────────────────

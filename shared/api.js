@@ -1171,3 +1171,56 @@ function createActivityPurpose(data) {
 function patchActivityPurpose(id, data) {
     return apiFetch('/activity-purposes/' + id, { method: 'PATCH', body: JSON.stringify(data) });
 }
+
+/* ── KONTAKTPUNKTER (contact_points) ──────────────────────── */
+
+function fetchContactPoints(entityType, entityId) {
+    return apiFetch('/contact-points?entity_type=' + encodeURIComponent(entityType) +
+                    '&entity_id=' + encodeURIComponent(entityId));
+}
+
+function createContactPoint(data) {
+    return apiFetch('/contact-points', { method: 'POST', body: JSON.stringify(data) });
+}
+
+function updateContactPoint(id, patch) {
+    return apiFetch('/contact-points/' + id, { method: 'PATCH', body: JSON.stringify(patch) });
+}
+
+function deleteContactPoint(id) {
+    return apiFetch('/contact-points/' + id, { method: 'DELETE' });
+}
+
+function toggleContactPublic(id) {
+    return apiFetch('/contact-points/' + id + '/toggle-public', { method: 'PATCH' });
+}
+
+/* ── CVR-BERIGELSE ──────────────────────────────────────────── */
+
+function fetchCompanyEnrichPreview(companyId) {
+    return apiFetch('/companies/' + companyId + '/enrich-preview');
+}
+
+function applyCompanyEnrich(companyId, body) {
+    return apiFetch('/companies/' + companyId + '/enrich', {
+        method: 'POST',
+        body: JSON.stringify(body),
+    });
+}
+
+/* ── CRM-FIRMAER (listview) ─────────────────────────────────── */
+
+function fetchCrmCompanies(params = {}) {
+    const qs = new URLSearchParams();
+    if (params.stage) qs.set('stage', params.stage);
+    if (params.q)     qs.set('q', params.q);
+    if (params.limit) qs.set('limit', params.limit);
+    if (params.order_after)  qs.set('order_after', params.order_after);
+    if (params.order_before) qs.set('order_before', params.order_before);
+    const s = qs.toString();
+    return apiFetch('/crm/companies' + (s ? '?' + s : ''));
+}
+
+function fetchCrmCompany(id) {
+    return apiFetch('/crm/company/' + id);
+}

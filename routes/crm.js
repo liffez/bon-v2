@@ -541,6 +541,67 @@ router.get('/customers', handle((req, res) => {
     res.json(rows);
 }));
 
+// ─── GET /companies ─────────────────────────────────────────
+// Aggregeret listview af firmaer med kunde- og bon-statistik.
+// Bruges af crm-firmaer-listview (Kontakter → Firmaer-fane).
+router.get('/companies', handle((req, res) => {
+    const db = getDb();
+    const { stage, q, order_after, order_before } = req.query;
+    const limit = parseInt(req.query.limit, 10) || 100;
+
+    const where = ['co.is_active = 1', 'co.is_internal = 0'];
+    const having = [];
+    const args = [];
+
+    if (q) {
+        where.push("(co.name LIKE ? OR co.cvr LIKE ? OR COALESCE(co.legal_name,'') LIKE ? OR COALESCE(co.alternate_names,'') LIKE ?)");
+        const s = '%' + q + '%';
+        args.push(s, s, s, s);
+    }
+    if (order_after)  { having.push('MAX(b.delivery_date) >= ?'); args.push(order_after); }
+    if (order_before) { having.push('MAX(b.delivery_date) <= ?'); args.push(order_before); }
+
+    const stageFilter = stage && stage !== 'all'
+        ? `AND aggregated_stage = ?` : '';
+    if (stageFilter) args.push(stage);
+
+    const havingClause = having.length > 0 ? 'HAVING ' + having.join(' AND ') : '';
+    args.push(limit);
+
+    const sql = `
+        WITH agg AS (
+            SELECT co.id,
+                   co.name,
+                   co.legal_name,
+                   co.cvr,
+                   co.ean,
+                   co.last_enriched_at,
+                   COUNT(DISTINCT c.id)        AS contact_count,
+                   COUNT(DISTINCT b.id)        AS total_orders,
+                   COALESCE(SUM(b.total_price), 0) AS total_revenue,
+                   MAX(b.delivery_date)        AS last_order_date,
+                   CAST(julianday('now') - julianday(MAX(b.delivery_date)) AS INTEGER) AS days_since_last,
+                   CASE
+                       WHEN MAX(CASE WHEN cm.stage = 'vip' THEN 1 ELSE 0 END) = 1 THEN 'vip'
+                       WHEN MAX(b.delivery_date) IS NULL OR julianday('now') - julianday(MAX(b.delivery_date)) > 180 THEN 'dormant'
+                       ELSE 'active'
+                   END AS aggregated_stage
+              FROM companies co
+         LEFT JOIN customers c ON c.company_id = co.id AND c.is_active = 1
+         LEFT JOIN crm_customer_meta cm ON cm.customer_id = c.id
+         LEFT JOIN bons b ON b.company_id = co.id AND b.is_internal = 0
+             WHERE ${where.join(' AND ')}
+          GROUP BY co.id
+            ${havingClause}
+        )
+        SELECT * FROM agg
+         WHERE 1=1 ${stageFilter}
+      ORDER BY total_revenue DESC, contact_count DESC, name ASC
+         LIMIT ?
+    `;
+    res.json(db.prepare(sql).all(...args));
+}));
+
 // ─── GET /customer/:id ──────────────────────────────────────
 router.get('/customer/:id', handle((req, res) => {
     const db = getDb();
@@ -611,6 +672,103 @@ router.get('/customer/:id', handle((req, res) => {
     }
 
     res.json({ customer, stats, orders, activities, products, rfm });
+}));
+
+// ─── GET /company/:id ───────────────────────────────────────
+// Detaljeret firma-data med aggregerede tal, contact_points,
+// kunder under firmaet, RFM-data, og adresse-info.
+// Bruges af Firma 360°-viewet (office/views/crm-firma360.js).
+router.get('/company/:id', handle((req, res) => {
+    const db = getDb();
+    const id = parseInt(req.params.id, 10);
+    if (!Number.isFinite(id)) return res.status(400).json({ error: 'ugyldigt id' });
+
+    const company = db.prepare(`
+        SELECT c.*,
+               a.street_name, a.street_nr, a.postal_code, a.city
+          FROM companies c
+     LEFT JOIN addresses a ON c.address_id = a.id
+         WHERE c.id = ?
+    `).get(id);
+    if (!company) return res.status(404).json({ error: 'Firma ikke fundet' });
+
+    // Aggregeret stats fra bons
+    const stats = db.prepare(`
+        SELECT
+            COUNT(b.id)                       AS total_orders,
+            COALESCE(SUM(b.total_price), 0)   AS total_revenue,
+            ROUND(AVG(b.total_price), 0)      AS avg_order_value,
+            MIN(b.delivery_date)              AS first_order_date,
+            MAX(b.delivery_date)              AS last_order_date
+          FROM bons b
+         WHERE b.company_id = ?
+           AND b.is_internal = 0
+           AND (b.is_offer = 0 OR b.is_offer IS NULL)
+    `).get(id);
+
+    const customerCounts = db.prepare(`
+        SELECT
+            COUNT(*) AS contact_count,
+            SUM(CASE WHEN cm.stage = 'vip' THEN 1 ELSE 0 END) AS vip_count,
+            SUM(CASE WHEN cm.stage = 'dormant' THEN 1 ELSE 0 END) AS dormant_count
+          FROM customers c
+     LEFT JOIN crm_customer_meta cm ON cm.customer_id = c.id
+         WHERE c.company_id = ? AND c.is_active = 1
+    `).get(id);
+
+    // Kontaktpunkter på firma-niveau
+    const contact_points = db.prepare(`
+        SELECT id, kind, value, source, is_public, is_primary, purpose,
+               verified_at, last_seen_at, notes, created_at
+          FROM contact_points
+         WHERE entity_type = 'company' AND entity_id = ? AND is_active = 1
+         ORDER BY is_primary DESC, kind ASC, created_at ASC
+    `).all(id);
+
+    // Kunder under firmaet
+    const customers = db.prepare(`
+        SELECT c.id,
+               c.first_name || ' ' || COALESCE(c.last_name, '') AS name,
+               c.email, c.phone,
+               cm.stage, cm.last_contact_at,
+               COUNT(DISTINCT b.id) AS order_count,
+               MAX(b.delivery_date) AS last_order_date
+          FROM customers c
+     LEFT JOIN crm_customer_meta cm ON cm.customer_id = c.id
+     LEFT JOIN bons b ON b.customer_id = c.id AND b.is_internal = 0 AND (b.is_offer = 0 OR b.is_offer IS NULL)
+         WHERE c.company_id = ? AND c.is_active = 1
+      GROUP BY c.id
+      ORDER BY last_order_date DESC NULLS LAST, order_count DESC, name ASC
+    `).all(id);
+
+    // RFM-data for firmaet
+    const rfm = db.prepare(`
+        SELECT r_score, f_score, m_score, rfm_total, stage AS rfm_stage,
+               stage_locked, order_count AS rfm_orders, total_guests AS rfm_guests,
+               total_revenue AS rfm_revenue, computed_at AS rfm_computed_at
+          FROM rfm_scores WHERE company_id = ?
+    `).get(id);
+
+    // Aggregeret stage (samme logik som /companies-listview)
+    let aggregated_stage = 'active';
+    if ((customerCounts?.vip_count || 0) > 0) aggregated_stage = 'vip';
+    else if (!stats.last_order_date) aggregated_stage = 'dormant';
+    else {
+        const days = Math.floor((Date.now() - new Date(stats.last_order_date).getTime()) / 86400000);
+        if (days > 180) aggregated_stage = 'dormant';
+    }
+
+    res.json({
+        company,
+        aggregations: {
+            ...stats,
+            ...customerCounts,
+            aggregated_stage,
+        },
+        contact_points,
+        customers,
+        rfm,
+    });
 }));
 
 // ─── GET /customer-orders/:id ───────────────────────────────
