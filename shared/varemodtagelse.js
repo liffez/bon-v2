@@ -460,7 +460,7 @@ function _vmBuildTempCard() {
     grid.className = 'vm-temp-grid';
 
     // Køl
-    grid.appendChild(_vmBuildTempRow('koel', '\uD83E\uDDCA', 'K\u00f8levarer', 'max. 5\u00b0C', 4.5, 0.1, true, 4, 5));
+    grid.appendChild(_vmBuildTempRow('koel', '\uD83E\uDDCA', 'K\u00f8levarer', 'max. 5\u00b0C', 4.5, 0.1, true, 4.7, 5));
 
     // Separator
     var sep = document.createElement('div');
@@ -780,7 +780,7 @@ function _vmBuildManualDeviationBtn() {
     var btn = document.createElement('button');
     btn.type = 'button';
     btn.className = 'vm-remark-link';
-    btn.innerHTML = '<span>＋</span> Tilføj bemærkning';
+    btn.innerHTML = '<span>＋</span> Registrér afvigelse';
     btn.addEventListener('click', function() {
         _vmState.deviationManual = !_vmState.deviationManual;
         _vmCheckDeviation();
