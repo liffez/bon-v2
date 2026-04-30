@@ -22,17 +22,18 @@ var _vmState = {
 
     koelEnabled: true,
     koelValue: 3,
-    koelOk: true,
+    koelStatus: 'ok',  // 'ok' | 'caution' | 'action' | null
 
-    frysEnabled: true,
+    frysEnabled: false,
     frysValue: -20,
-    frysOk: true,
+    frysStatus: 'ok',
 
     dateCheck: true,
     labelCheck: true,
     packCheck: true,
 
     hasDeviation: false,
+    deviationManual: false,
     deviationType: null,
     deviationNote: '',
 
@@ -62,10 +63,10 @@ async function initVaremodtagelse(el) {
     // Reset state
     _vmState = {
         userId: null, userName: '', supplierName: '', supplierKey: '', locationId: null,
-        koelEnabled: true, koelValue: 3, koelOk: true,
-        frysEnabled: true, frysValue: -20, frysOk: true,
+        koelEnabled: true, koelValue: 3, koelStatus: 'ok',
+        frysEnabled: false, frysValue: -20, frysStatus: 'ok',
         dateCheck: true, labelCheck: true, packCheck: true,
-        hasDeviation: false, deviationType: null, deviationNote: '',
+        hasDeviation: false, deviationManual: false, deviationType: null, deviationNote: '',
         photoPath: null, notes: '',
         items: [], allApproved: false, itemListOpen: false, busy: false,
     };
@@ -232,6 +233,9 @@ function _vmBuildPage() {
 
     // ── Afvigelse
     content.appendChild(_vmBuildDeviationBox());
+
+    // ── Manuel åbning af afvigelse (når intet trigger automatisk)
+    content.appendChild(_vmBuildManualDeviationBtn());
 
     // ── Bemærkning
     content.appendChild(_vmBuildRemarkSection());
@@ -456,7 +460,7 @@ function _vmBuildTempCard() {
     grid.className = 'vm-temp-grid';
 
     // Køl
-    grid.appendChild(_vmBuildTempRow('koel', '\uD83E\uDDCA', 'K\u00f8levarer', 'max. 5\u00b0C', 3, 0.1));
+    grid.appendChild(_vmBuildTempRow('koel', '\uD83E\uDDCA', 'K\u00f8levarer', 'max. 5\u00b0C', 4.5, 0.1, true, 4, 5));
 
     // Separator
     var sep = document.createElement('div');
@@ -464,15 +468,19 @@ function _vmBuildTempCard() {
     grid.appendChild(sep);
 
     // Frys
-    grid.appendChild(_vmBuildTempRow('frys', '\u2744\ufe0f', 'Frysvarer', 'max. -18\u00b0C', -20, 0.5));
+    grid.appendChild(_vmBuildTempRow('frys', '\u2744\ufe0f', 'Frysvarer', 'max. -18\u00b0C', -20, 0.5, false, -19, -18));
 
     card.appendChild(grid);
     return card;
 }
 
-function _vmBuildTempRow(type, emoji, title, hint, defaultVal, step) {
+function _vmBuildTempRow(type, emoji, title, hint, defaultVal, step, startEnabled, warnLimit, actionLimit) {
     var row = document.createElement('div');
     row.className = 'vm-temp-row-item';
+    // Persistér grænseværdier på state så _vmOnTempChange kan læse dem
+    _vmState[type + 'WarnLimit'] = warnLimit;
+    _vmState[type + 'ActionLimit'] = actionLimit;
+    _vmState[type + 'Enabled'] = !!startEnabled;
 
     // Header
     var header = document.createElement('div');
@@ -489,7 +497,7 @@ function _vmBuildTempRow(type, emoji, title, hint, defaultVal, step) {
     toggle.title = 'Sl\u00e5 fra hvis ingen ' + title.toLowerCase();
     var cb = document.createElement('input');
     cb.type = 'checkbox';
-    cb.checked = true;
+    cb.checked = !!startEnabled;
     cb.addEventListener('change', function() { _vmOnTempEnabled(type, this.checked); });
     toggle.appendChild(cb);
     var slider = document.createElement('span');
@@ -541,7 +549,7 @@ function _vmOnTempEnabled(type, enabled) {
     if (!enabled) {
         badge.className = 'vm-temp-badge vm-disabled';
         badge.innerHTML = '<span class="vm-temp-badge-icon">\u2014</span><span>Ingen</span>';
-        _vmState[type + 'Ok'] = null;
+        _vmState[type + 'Status'] = null;
     } else {
         _vmOnTempChange(type, input.value);
     }
@@ -549,26 +557,37 @@ function _vmOnTempEnabled(type, enabled) {
     _vmUpdateBtn();
 }
 
+// 3-niveau status: 'ok' (gr\u00f8n) | 'caution' (gul, t\u00e6t p\u00e5 gr\u00e6nse) | 'action' (r\u00f8d, FVST-afvigelse)
+// Spejler whiteboard's getNumberInputStatus + updateTempFeedback. Begge k\u00f8l/frys
+// m\u00e5ler "max"-gr\u00e6nser, s\u00e5 vi tjekker num > warnLimit / num > actionLimit.
 function _vmOnTempChange(type, val) {
     var num = parseFloat(val);
     var badge = _vmDom[type + 'Badge'];
-    var limit = type === 'koel' ? 5 : -18;
+    var warnLimit = _vmState[type + 'WarnLimit'];
+    var actionLimit = _vmState[type + 'ActionLimit'];
 
     if (isNaN(num)) {
-        _vmState[type + 'Ok'] = null;
+        _vmState[type + 'Status'] = null;
         _vmState[type + 'Value'] = null;
         badge.className = 'vm-temp-badge';
         badge.innerHTML = '<span class="vm-temp-badge-icon">\ud83c\udf21</span><span>\u2014</span>';
     } else {
-        var ok = num <= limit;
-        _vmState[type + 'Ok'] = ok;
         _vmState[type + 'Value'] = num;
-        if (ok) {
+        var status;
+        if (actionLimit != null && num > actionLimit) status = 'action';
+        else if (warnLimit != null && num > warnLimit) status = 'caution';
+        else status = 'ok';
+        _vmState[type + 'Status'] = status;
+
+        if (status === 'ok') {
             badge.className = 'vm-temp-badge vm-ok';
             badge.innerHTML = '<span class="vm-temp-badge-icon">\u2705</span><span>OK</span>';
+        } else if (status === 'caution') {
+            badge.className = 'vm-temp-badge vm-caution';
+            badge.innerHTML = '<span class="vm-temp-badge-icon">\u26a0</span><span>OBS</span>';
         } else {
             badge.className = 'vm-temp-badge vm-warn';
-            badge.innerHTML = '<span class="vm-temp-badge-icon">\u274c</span><span>FEJL</span>';
+            badge.innerHTML = '<span class="vm-temp-badge-icon">\u274c</span><span>AFV.</span>';
         }
     }
 
@@ -684,11 +703,14 @@ function _vmBuildDeviationBox() {
     var options = document.createElement('div');
     options.className = 'vm-deviation-options';
 
+    // Labels linet op med whiteboard-skemaet (FVST Skema 1) for ensartet
+    // brugeroplevelse. V\u00e6rdierne er holdt fast pga. CHECK-constraint i
+    // migration 036 (returned/no_risk/discarded/supplier_contacted/other).
     var deviationTypes = [
-        { value: 'returned', label: 'Returneret til leverand\u00f8r' },
-        { value: 'no_risk', label: 'Ingen reel risiko \u2014 anvendes' },
-        { value: 'discarded', label: 'Kasseret' },
-        { value: 'supplier_contacted', label: 'Leverand\u00f8r kontaktet' },
+        { value: 'returned', label: 'Varen er returneret' },
+        { value: 'no_risk', label: 'Vurderet \u2014 ingen risiko, anvendes straks' },
+        { value: 'discarded', label: 'Varen er kasseret' },
+        { value: 'supplier_contacted', label: 'Leverand\u00f8ren er kontaktet' },
         { value: 'other', label: 'Andet' },
     ];
 
@@ -732,18 +754,42 @@ function _vmBuildDeviationBox() {
     return box;
 }
 
+// Auto-åbner kun ved action-niveau (rød) — caution (gul) er bare "hold øje".
+// Brugeren kan altid åbne manuelt via "+ Tilføj bemærkning" (deviationManual).
+// Spejler whiteboard's updateDeviationVisibility.
 function _vmCheckDeviation() {
     var allChecksOk = _vmState.dateCheck && _vmState.labelCheck && _vmState.packCheck;
-    var koelOk = !_vmState.koelEnabled || _vmState.koelOk !== false;
-    var frysOk = !_vmState.frysEnabled || _vmState.frysOk !== false;
-    _vmState.hasDeviation = !allChecksOk || !koelOk || !frysOk;
-    _vmDom.deviationBox.classList.toggle('vm-show', _vmState.hasDeviation);
+    var koelAction = _vmState.koelEnabled && _vmState.koelStatus === 'action';
+    var frysAction = _vmState.frysEnabled && _vmState.frysStatus === 'action';
+    var autoTrigger = !allChecksOk || koelAction || frysAction;
+    _vmState.hasDeviation = autoTrigger || !!_vmState.deviationManual;
+    if (_vmDom.deviationBox) {
+        _vmDom.deviationBox.classList.toggle('vm-show', _vmState.hasDeviation);
+    }
 
-    // Reset deviation selection if no longer needed
+    // Nulstil afvigelses-valg hvis sektionen er helt skjult igen
     if (!_vmState.hasDeviation) {
         _vmState.deviationType = null;
         _vmState.deviationNote = '';
     }
+}
+
+/* ── Manual deviation toggle ─────────────────────────────── */
+
+function _vmBuildManualDeviationBtn() {
+    var btn = document.createElement('button');
+    btn.type = 'button';
+    btn.className = 'vm-remark-link';
+    btn.innerHTML = '<span>＋</span> Tilføj bemærkning';
+    btn.addEventListener('click', function() {
+        _vmState.deviationManual = !_vmState.deviationManual;
+        _vmCheckDeviation();
+        _vmUpdateBtn();
+        if (_vmDom.deviationBox && _vmDom.deviationBox.classList.contains('vm-show')) {
+            _vmDom.deviationBox.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+        }
+    });
+    return btn;
 }
 
 /* ── Remark section ──────────────────────────────────────── */
@@ -1142,8 +1188,7 @@ function _vmBuildBottomBar() {
 function _vmUpdateBtn() {
     if (!_vmDom.submitBtn) return;
 
-    var koelOk = !_vmState.koelEnabled || (_vmState.koelOk !== null && _vmState.koelOk !== false);
-    var frysOk = !_vmState.frysEnabled || (_vmState.frysOk !== null && _vmState.frysOk !== false);
+    // caution (gul) er stadig OK — kun action (rød) kræver deviationType
     var tempFilled = (!_vmState.koelEnabled || _vmState.koelValue !== null) &&
                      (!_vmState.frysEnabled || _vmState.frysValue !== null);
     var deviationOk = !_vmState.hasDeviation || _vmState.deviationType;
@@ -1184,13 +1229,19 @@ async function _vmSubmit() {
             received_by_name: _vmState.userName,
             location_id: _vmState.locationId,
 
+            // _ok udregnes fra status: kun action (rød) er FVST-fejl;
+            // caution (gul) er stadig "OK" set fra fødevarekontrol
             temperature_cool_enabled: _vmState.koelEnabled,
             temperature_cool_value: _vmState.koelEnabled ? _vmState.koelValue : null,
-            temperature_cool_ok: _vmState.koelEnabled ? _vmState.koelOk : null,
+            temperature_cool_ok: _vmState.koelEnabled
+                ? (_vmState.koelStatus === 'action' ? false : _vmState.koelStatus != null)
+                : null,
 
             temperature_frozen_enabled: _vmState.frysEnabled,
             temperature_frozen_value: _vmState.frysEnabled ? _vmState.frysValue : null,
-            temperature_frozen_ok: _vmState.frysEnabled ? _vmState.frysOk : null,
+            temperature_frozen_ok: _vmState.frysEnabled
+                ? (_vmState.frysStatus === 'action' ? false : _vmState.frysStatus != null)
+                : null,
 
             date_check_ok: _vmState.dateCheck,
             labeling_check_ok: _vmState.labelCheck,

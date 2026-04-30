@@ -267,6 +267,7 @@
 }
 
 .vm-temp-badge.vm-ok { background: #e8f5ee; border-color: #3d8b5e; color: #2a6040; }
+.vm-temp-badge.vm-caution { background: #fff7e0; border-color: #d68910; color: #8a5a00; }
 .vm-temp-badge.vm-warn { background: #fdecea; border-color: #c0392b; color: #c0392b; }
 .vm-temp-badge.vm-disabled { opacity: .35; }
 .vm-temp-badge-icon { font-size: 1.1rem; }
