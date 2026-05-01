@@ -1,0 +1,245 @@
+<!DOCTYPE html>
+<html lang="da">
+<head>
+<meta charset="UTF-8">
+<title>Moms-audit Fase 3 — Visuel review (T-5)</title>
+<style>
+  body { font-family: -apple-system, system-ui, sans-serif; max-width: 1100px; margin: 30px auto; padding: 0 20px; color: #2c2416; }
+  h1 { color: #6B4C2A; border-bottom: 3px solid #6B4C2A; padding-bottom: 10px; }
+  h2 { color: #6B4C2A; margin-top: 40px; }
+  h3 { color: #2c2416; margin-top: 28px; }
+  .meta { background: #f5f0e8; padding: 12px 16px; border-left: 4px solid #6B4C2A; border-radius: 4px; margin-bottom: 30px; }
+  .meta strong { color: #6B4C2A; }
+  .block { border: 1px solid #d7d1ca; border-radius: 8px; padding: 20px; margin: 16px 0; background: #fff; }
+  .block-label { font-size: 11px; text-transform: uppercase; letter-spacing: 0.5px; color: #7a6f5f; margin-bottom: 8px; }
+  .kpi-strip { display: flex; gap: 12px; flex-wrap: wrap; }
+  .kpi-card { flex: 1; min-width: 220px; background: #f5f0e8; padding: 16px; border-radius: 8px; }
+  .kpi-value { font-size: 28px; font-weight: 700; font-family: 'Playfair Display', serif; color: #2c2416; }
+  .kpi-label { font-size: 12px; color: #7a6f5f; margin-top: 4px; text-transform: uppercase; letter-spacing: 0.5px; }
+  .kpi-sub { font-size: 11px; color: #7a6f5f; margin-top: 8px; }
+  .ok { color: #27ae60; font-weight: 600; }
+  .warn { color: #C94040; font-weight: 600; }
+  table { width: 100%; border-collapse: collapse; margin: 12px 0; }
+  th, td { padding: 8px 12px; text-align: left; border-bottom: 1px solid #d7d1ca; }
+  th { background: #f5f0e8; font-size: 11px; text-transform: uppercase; letter-spacing: 0.5px; color: #6B4C2A; }
+  td.r { text-align: right; font-family: 'JetBrains Mono', monospace; }
+  .total-row { font-weight: 700; border-top: 2px solid #6B4C2A; }
+  .note { font-size: 12px; color: #7a6f5f; font-style: italic; margin-top: 8px; }
+  .basis-incl { background: #fff4e0; padding: 2px 6px; border-radius: 3px; font-size: 10px; color: #7a5a1f; font-weight: 600; }
+  .basis-excl { background: #e8f0e8; padding: 2px 6px; border-radius: 3px; font-size: 10px; color: #2a5a2a; font-weight: 600; }
+</style>
+</head>
+<body>
+
+<h1>Moms-audit Fase 3 — Visuel review</h1>
+
+<div class="meta">
+  <strong>Test-bon:</strong> T-5 (60×104 + 70×114 + 70×99 + 8×312,50)<br>
+  <strong>Forventede tal:</strong>
+  <span class="basis-incl">23.650 kr incl moms</span>
+  <span class="basis-excl">18.920 kr ex moms</span>
+  · Moms 4.730 kr<br>
+  <strong>Auditér disse blokke:</strong> har hver pris en synlig moms-basis i samme visuelle blok? (Regel 1 i sektion 6c)
+</div>
+
+<h2>#1 — Tilbud-modulet (kunde-vendt)</h2>
+<p class="note">Konvention: kundepris = incl moms primær. Subtotal vises ex moms så kunden kan se moms-andelen separat.</p>
+
+<div class="block">
+  <div class="block-label">Tilbuds-wizard step 4 / preview / PDF</div>
+  <table>
+    <tr><td>Subtotal (u/moms)</td><td class="r">18.920,00 kr</td></tr>
+    <tr><td>Moms (25%)</td><td class="r">4.730,00 kr</td></tr>
+    <tr class="total-row"><td>Total inkl. moms</td><td class="r">23.650,00 kr</td></tr>
+    <tr><td colspan="2" style="text-align:right;font-size:12px;color:#7a6f5f">113,71 kr pr. pax inkl. moms</td></tr>
+  </table>
+  <p class="note">✅ Subtotal har "u/moms"-suffix. Moms har "(25%)" entydigt label. Total har "inkl. moms".</p>
+</div>
+
+<h2>#9/#10 — Bon-detalje (mail-render)</h2>
+<p class="note">_buildMailVars eksponerer 3 separate vars (totalPris/totalExMoms/momsBeloeb) til mail-skabeloner. Skabeloner bruger ingen af dem i dag, men hvis nogen tilføjer dem, får de korrekte tal.</p>
+
+<div class="block">
+  <div class="block-label">Mail-vars-blok (hvis brugt i skabelon)</div>
+  <pre style="background:#f5f0e8;padding:12px;border-radius:6px;font-size:12px">
+totalPris   = "23.650,00 kr"   <span class="basis-incl">incl moms</span>
+totalExMoms = "18.920,00 kr"   <span class="basis-excl">ex moms</span>
+momsBeloeb  = "4.730,00 kr"    Moms-andel</pre>
+</div>
+
+<h2>#15 — Cashflow dashboard</h2>
+<p class="note">Konvention: incl moms primær (faktiske bankbevægelser). Ny KPI "heraf moms-forpligtelse" + "Disponibelt for drift" tilføjet.</p>
+
+<div class="block">
+  <div class="block-label">Cashflow KPI-strip (4 kort)</div>
+  <div class="kpi-strip">
+    <div class="kpi-card">
+      <div class="kpi-value">23.650 kr</div>
+      <div class="kpi-label">Bankindestående (incl moms)</div>
+      <div class="kpi-sub">Baseret på uploaded CSV</div>
+    </div>
+    <div class="kpi-card">
+      <div class="kpi-value">23.650 kr</div>
+      <div class="kpi-label">Udestående fakturaer (incl moms)</div>
+      <div class="kpi-sub">1 faktura · heraf moms-forpligtelse: 4.730,00 kr</div>
+    </div>
+    <div class="kpi-card">
+      <div class="kpi-value">0 kr</div>
+      <div class="kpi-label">Forfaldne (incl moms, ikke betalt)</div>
+      <div class="kpi-sub">0 fakturaer overdue</div>
+    </div>
+    <div class="kpi-card">
+      <div class="kpi-value">23.650 kr</div>
+      <div class="kpi-label">Forventet ind — 30 dage (incl moms)</div>
+      <div class="kpi-sub">Heraf moms til SKAT: 4.730,00 kr · Disponibelt for drift: 18.920,00 kr</div>
+    </div>
+  </div>
+</div>
+
+<div class="block">
+  <div class="block-label">Cashflow analyse-blokke (ex moms — regnskab)</div>
+  <ul>
+    <li>Card-titel: "Bankbevægelser — næste 8 uger (incl moms)" — sub: "alle tal incl moms"</li>
+    <li>Card-titel: "Kumulativ omsætning — YTD (ex moms)"</li>
+    <li>Card-titel: "Pax-segmenter — omsætning (ex moms) &amp; ordrer"</li>
+    <li>Chart-titel: "Omsætning per segment (ex moms)"</li>
+  </ul>
+</div>
+
+<h2>#16 — Rapporter</h2>
+<p class="note">Konvention: alle omsætnings-tal er ex moms (regnskabskonvention). Header gør det klart at det gælder hele siden.</p>
+
+<div class="block">
+  <div class="block-label">Rapporter — header + KPI-strip</div>
+  <p style="font-size:13px;color:#7a6f5f">
+    <strong style="color:#2c2416">Rapporter</strong> — alle omsætnings-tal er <strong>ex moms</strong> (regnskabskonvention)
+  </p>
+  <div class="kpi-strip">
+    <div class="kpi-card">
+      <div class="kpi-value">18.920</div>
+      <div class="kpi-label">Omsætning YTD (ex moms)</div>
+      <div class="kpi-sub">↑ 100% vs. forrige år</div>
+    </div>
+    <div class="kpi-card">
+      <div class="kpi-value">1</div>
+      <div class="kpi-label">Ordrer YTD</div>
+      <div class="kpi-sub">↑ 1 vs. forrige år</div>
+    </div>
+    <div class="kpi-card">
+      <div class="kpi-value">18.920</div>
+      <div class="kpi-label">Gns. ordreværdi (ex moms)</div>
+      <div class="kpi-sub">→ ±0% vs. forrige år</div>
+    </div>
+    <div class="kpi-card">
+      <div class="kpi-value">18.920</div>
+      <div class="kpi-label">Ufaktureret (ex moms)</div>
+      <div class="kpi-sub">1 bons</div>
+    </div>
+  </div>
+</div>
+
+<div class="block">
+  <div class="block-label">Rapporter — månedstabel (T-5 isolated)</div>
+  <table>
+    <thead>
+      <tr>
+        <th>Måned</th>
+        <th class="r">Omsætning (ex moms)</th>
+        <th class="r">vs. forrige år</th>
+        <th class="r">Ordrer</th>
+        <th class="r">Enheder</th>
+        <th class="r">Gns. ordreværdi (ex moms)</th>
+        <th class="r">Ufaktureret (ex moms)</th>
+      </tr>
+    </thead>
+    <tbody>
+      <tr>
+        <td>Maj <span style="background:#fff4e0;padding:2px 6px;border-radius:3px;font-size:10px">MTD</span></td>
+        <td class="r">18.920,00 kr</td>
+        <td class="r"><span style="color:#27ae60">▲ 100%</span></td>
+        <td class="r">1</td>
+        <td class="r">208</td>
+        <td class="r">18.920,00 kr</td>
+        <td class="r">18.920,00 kr</td>
+      </tr>
+    </tbody>
+  </table>
+</div>
+
+<div class="block">
+  <div class="block-label">Rapporter — Top kunder + Kategorier</div>
+  <ul>
+    <li>Card-titel: "Top kunder (omsætning ex moms)"</li>
+    <li>Card-titel: "Priskategori-fordeling (ex moms)"</li>
+    <li>Card-titel: "Legoklods-sammenligning (ex moms)"</li>
+    <li>Card-titel: "Akkumuleret omsætning (ex moms)"</li>
+    <li>Card-titel: "Top kategorier (enheder)" — uændret math, kun antal stk</li>
+    <li>Card-titel: "Månedsoversigt (omsætning ex moms)"</li>
+    <li>Tabel-kolonneheaders: "Omsætning (ex moms)", "Beløb (ex moms)" overalt</li>
+  </ul>
+</div>
+
+<h2>#19 — Dashboard (Start dagen)</h2>
+<p class="note">Konvention: omsætning ex moms, antal ufaktureret ex moms.</p>
+
+<div class="block">
+  <div class="block-label">Dashboard KPI-strip (4 kort)</div>
+  <div class="kpi-strip">
+    <div class="kpi-card">
+      <div class="kpi-value">18.920</div>
+      <div class="kpi-label">Omsætning (ex moms) · Maj MTD</div>
+      <div class="kpi-sub">↑ 100% vs. 2025</div>
+    </div>
+    <div class="kpi-card">
+      <div class="kpi-value">208</div>
+      <div class="kpi-label">Enheder · Maj MTD</div>
+      <div class="kpi-sub">↑ 208 vs. 2025</div>
+    </div>
+    <div class="kpi-card">
+      <div class="kpi-value">0</div>
+      <div class="kpi-label">Åbne bons</div>
+      <div class="kpi-sub">NY / VENTER / GODKENDT / IGANG / KLAR</div>
+    </div>
+    <div class="kpi-card">
+      <div class="kpi-value">18.920</div>
+      <div class="kpi-label">Ufaktureret (ex moms)</div>
+      <div class="kpi-sub">Leverede bons uden faktura</div>
+    </div>
+  </div>
+</div>
+
+<div class="block">
+  <div class="block-label">Top-produkter (Kr-mode)</div>
+  <p style="font-size:13px">🏆 Top produkter · Maj <span style="float:right;color:#7a6f5f;font-size:11px">efter omsætning (ex moms)</span></p>
+  <table>
+    <thead>
+      <tr><th>Produkt</th><th class="r">Kr (ex moms)</th><th class="r">%</th></tr>
+    </thead>
+    <tbody>
+      <tr><td>Trøflen</td><td class="r">6.384,00 kr</td><td class="r">100%</td></tr>
+      <tr><td>Kyllingen</td><td class="r">4.992,00 kr</td><td class="r">78%</td></tr>
+      <tr><td>"Tunen"</td><td class="r">5.544,00 kr</td><td class="r">87%</td></tr>
+      <tr><td>Servicepersonale</td><td class="r">2.000,00 kr</td><td class="r">31%</td></tr>
+    </tbody>
+  </table>
+</div>
+
+<h2>Visuel kontrolliste — Leif tjekker</h2>
+<div class="block">
+  <ol style="line-height:1.8">
+    <li>Hver KPI-card har <strong>basis i label</strong> (incl moms / ex moms / antal)? ✓ / ✗</li>
+    <li>Cashflow-kort viser <strong>"heraf moms-forpligtelse"</strong> i sub-tekst? ✓ / ✗</li>
+    <li>Rapporter har <strong>header-tekst</strong> der gør hele sidens basis klart? ✓ / ✗</li>
+    <li>Dashboard MTD KPI har <strong>"(ex moms)"</strong> i label? ✓ / ✗</li>
+    <li>Tilbud-totals har <strong>"u/moms"</strong>, <strong>"(25%)"</strong>, <strong>"inkl. moms"</strong>? ✓ / ✗</li>
+    <li>Mail-vars-objekt giver korrekte tal hvis brugt? (verifiseret via e2e-test) ✓</li>
+    <li>Tabel-kolonneheaders har basis suffix? ✓ / ✗</li>
+  </ol>
+</div>
+
+<div class="meta">
+  <strong>Næste skridt:</strong> Hvis alle 7 punkter er ✓, er Fase 3 godkendt. Sig til så aktiveres pre-commit-hooken og Fase 2 er fuldt afsluttet.
+</div>
+
+</body>
+</html>
