@@ -503,10 +503,10 @@ function _buildMailVars(bon) {
         return l.quantity + '× ' + l.product_name + (price ? '  ' + price : '');
     }).join('\n');
 
-    // Totals
-    const totalExMoms = lines.reduce((s, l) => s + (l.line_total || 0), 0);
-    const moms = Math.round(totalExMoms * 0.25 * 100) / 100;
-    const totalInkl = totalExMoms + moms;
+    // Totals — line_total er incl. moms (jf. BON_V2_PRINCIPPER.md sektion 6b)
+    const totalInklMoms = lines.reduce((s, l) => s + (l.line_total || 0), 0);
+    const totalExMoms   = window.Moms.inclToExcl(totalInklMoms);
+    const moms          = window.Moms.momsOfIncl(totalInklMoms);
 
     // CO2
     const co2Lines = menuLines.filter(l => l.co2e).map(l =>
@@ -531,7 +531,7 @@ function _buildMailVars(bon) {
         firmanavn: bon.company_name || '',
         menuUdenPriser: menuUdenPriser,
         menuMedPriser: menuMedPriser,
-        totalPris: totalInkl.toLocaleString('da-DK', { minimumFractionDigits: 2 }) + ' kr',
+        totalPris: totalInklMoms.toLocaleString('da-DK', { minimumFractionDigits: 2 }) + ' kr',
         totalExMoms: totalExMoms.toLocaleString('da-DK', { minimumFractionDigits: 2 }) + ' kr',
         momsBeloeb: moms.toLocaleString('da-DK', { minimumFractionDigits: 2 }) + ' kr',
         co2PerLinje: co2Lines,

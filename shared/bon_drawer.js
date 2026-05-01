@@ -933,8 +933,10 @@ if (typeof _buildMailVars === 'undefined') {
     var _buildMailVars = function(bon) {
         var lines = bon.lines || [];
         var menuLines = lines.filter(function(l) { var c = (l.category||'').toLowerCase(); return c !== 'emballage' && c !== 'levering'; });
-        var totalExMoms = lines.reduce(function(s,l) { return s + (l.line_total||0); }, 0);
-        var moms = Math.round(totalExMoms * 0.25 * 100) / 100;
+        // line_total er incl. moms (jf. BON_V2_PRINCIPPER.md sektion 6b)
+        var totalInklMoms = lines.reduce(function(s,l) { return s + (l.line_total||0); }, 0);
+        var totalExMoms   = window.Moms.inclToExcl(totalInklMoms);
+        var moms          = window.Moms.momsOfIncl(totalInklMoms);
         var addrObj = bon.delivery_address || {};
         var addr = typeof addrObj === 'string' ? addrObj : [addrObj.street_name, addrObj.street_nr, addrObj.postal_code, addrObj.city].filter(Boolean).join(' ');
         return {
@@ -944,7 +946,7 @@ if (typeof _buildMailVars === 'undefined') {
             telefon: bon.contact_phone || '', pax: String(bon.pax || ''), firmanavn: bon.company_name || '',
             menuUdenPriser: menuLines.map(function(l) { return l.quantity + '× ' + l.product_name; }).join('\n'),
             menuMedPriser: menuLines.map(function(l) { var p = l.unit_price ? (l.quantity*l.unit_price).toLocaleString('da-DK')+' kr' : ''; return l.quantity+'× '+l.product_name+(p?' '+p:''); }).join('\n'),
-            totalPris: (totalExMoms+moms).toLocaleString('da-DK',{minimumFractionDigits:2})+' kr',
+            totalPris: totalInklMoms.toLocaleString('da-DK',{minimumFractionDigits:2})+' kr',
             totalExMoms: totalExMoms.toLocaleString('da-DK',{minimumFractionDigits:2})+' kr',
             momsBeloeb: moms.toLocaleString('da-DK',{minimumFractionDigits:2})+' kr',
             co2PerLinje: menuLines.filter(function(l){return l.co2e;}).map(function(l){return l.product_name+': '+l.co2e+' kg × '+l.quantity+' = '+(l.co2e*l.quantity).toFixed(2);}).join('\n'),
