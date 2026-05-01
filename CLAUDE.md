@@ -1877,5 +1877,10 @@ POS-ordrer (Zettle) sættes direkte til BETALT.
 Body-klasse: `zone-kitchen` eller `zone-office` — styrer touch vs. desktop densitet.
 
 ---
+1. maj 2026 — Moms-refaktorering færdig
+   - 13 områder migreret til Moms.* helpers
+   - Pre-commit-hook aktiveret
+   - 2 latente bugs fundet og fixet (se KENDTE_DATABUGS.md #003, #008)
+   - Grocy-audit forberedt for weekenden (se CLAUDE_GROCY_AUDIT.md)
 
-*Sidst opdateret: marts 2026*
+*Sidst opdateret: maj 2026*

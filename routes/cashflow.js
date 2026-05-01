@@ -551,11 +551,11 @@ router.get('/analyse', handle(async (req, res) => {
             ORDER BY month
         `).all(String(y));
 
-        // Build cumulative array (12 months)
+        // Build cumulative array (12 months) — convert incl→ex moms (regnskabskonvention)
         const cumul = new Array(12).fill(null);
         let running = 0;
         for (const m of monthly) {
-            running += m.revenue;
+            running += inclToExcl(m.revenue);
             cumul[m.month - 1] = Math.round(running / 1000); // i tusinder
         }
         // Fill forward (cumulative stays at last value)
@@ -589,11 +589,11 @@ router.get('/analyse', handle(async (req, res) => {
         `).all(String(y));
 
         const vals = new Array(12).fill(null);
-        const revArr = monthly.map(m => m.revenue);
+        const revArr = monthly.map(m => inclToExcl(m.revenue));
         const avg = revArr.length > 0 ? revArr.reduce((a, b) => a + b, 0) / revArr.length : 1;
 
         for (const m of monthly) {
-            vals[m.month - 1] = Math.round(Math.min(100, (m.revenue / avg) * 50));
+            vals[m.month - 1] = Math.round(Math.min(100, (inclToExcl(m.revenue) / avg) * 50));
         }
         heatmap[y] = vals;
     }
@@ -633,7 +633,7 @@ router.get('/analyse', handle(async (req, res) => {
         const rev = { sm: 0, md: 0, lg: 0, xl: 0, festival: 0 };
         const ord = { sm: 0, md: 0, lg: 0, xl: 0, festival: 0 };
         for (const s of segments) {
-            rev[s.seg] = s.revenue;
+            rev[s.seg] = r2(inclToExcl(s.revenue));
             ord[s.seg] = s.orders;
         }
 
@@ -674,7 +674,7 @@ router.get('/analyse', handle(async (req, res) => {
         const rev = { sm: 0, md: 0, lg: 0, xl: 0, festival: 0 };
         const ord = { sm: 0, md: 0, lg: 0, xl: 0, festival: 0 };
         for (const s of segments) {
-            rev[s.seg] = s.revenue;
+            rev[s.seg] = r2(inclToExcl(s.revenue));
             ord[s.seg] = s.orders;
         }
 

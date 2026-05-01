@@ -229,6 +229,8 @@ router.get('/today', handle(async (req, res) => {
     };
 
     // ── MTD KPI data (for office dashboard) ──
+    // Driftsoverblik: kun faktisk leveret t.o.m. i dag.
+    // Sammenligning vs. samme MTD-periode sidste år (apples-to-apples).
     const monthStart = today.slice(0, 8) + '01';
     const DELIVERED_CODES = ['LEVERET', 'FAKTURERET', 'AFSLUTTET', 'BETALT'];
     const OPEN_CODES      = ['NY', 'VENTER', 'GODKENDT', 'IGANG', 'KLAR'];
