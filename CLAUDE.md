@@ -192,6 +192,7 @@ Nye filer placeres præcis der de hører hjemme — kopieres ikke.
 - **Transactions via `transaction(db, fn)`** — aldrig `db.transaction()` (eksisterer ikke i node:sqlite)
 - **`logChange({...})`** — objekt-API, aldrig positionelle argumenter
 - **Nye npm-pakker kræver godkendelse** — spørg først, og ingen native/compiled pakker
+- **Moms-håndtering** — Grocy salgspriser ER incl. moms; kostpriser er ex moms. `bon_lines.unit_price` og `bons.total_price` ER incl. moms. Frontends regner ALDRIG selv moms — de bruger pre-beregnede felter (`total_incl_moms`, `total_excl_moms`, `moms_amount`) fra API eller helpers fra `shared/moms.js` (også eksponeret som `window.Moms`). Ingen magic `1.25` / `0.25` uden for `shared/moms.js` og `tests/`. Se `BON_V2_PRINCIPPER.md` sektion 6b for komplet regel.
 
 ---
 

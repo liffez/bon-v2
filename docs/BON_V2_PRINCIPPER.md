@@ -104,6 +104,72 @@ Bon v2 læser fra Grocy via adapter-pattern. Bon v2 skriver aldrig direkte til G
 
 ---
 
+## 6b. MOMS — ÉN REGEL FOR HELE SYSTEMET
+
+Disse regler er ufravigelige og gælder hele Bon v2.
+
+### Hvor moms ligger gemt
+
+| Felt | Moms-status |
+|------|-------------|
+| Grocy salgspriser (`SalespriceCatering`, `SalespriceFestival`, `SalespriceStore`, `SalespriceProduktion`, `SalespriceWaiste`) | **Incl. 25 % moms** |
+| Grocy råvare-/kostpriser (på `products`) | **Ex moms** |
+| Grocy fulfillment `costs` på opskrifter (sum af ingredienser × ex-moms-pris) | **Ex moms** |
+| Grocy userfield `costprice` på opskrifter (fallback) | **Ex moms** |
+| `bon_lines.unit_price` | **Incl. moms** (snapshot fra Grocy) |
+| `bon_lines.cost_price` | **Ex moms** (snapshot fra Grocy) |
+| `bon_lines.line_total` = `quantity × unit_price` | **Incl. moms** |
+| `bons.delivery_price` | **Incl. moms** (kundepris) |
+| `bons.delivery_cost` | **Ex moms** (intern kostpris) |
+| `bons.total_price` | **Incl. moms** (sum af `line_total` + `delivery_price` − rabat) |
+| `bons.total_with_delivery` | **Incl. moms** (= `total_price`, redundant — under afvikling) |
+| Indkøb (purchase_orders, leverandørpriser) | **Ex moms** (bevidst anden konvention end salg) |
+
+Konventionen er bekræftet af Leif (april 2026) — autoritativ, gæt ikke om det igen.
+
+### Hvordan moms vises og beregnes
+
+**Frontends MÅ IKKE selv regne moms ud fra rå priser.** Backend leverer pre-beregnede felter på alle bon- og tilbuds-API-svar:
+
+```json
+{
+  "total_incl_moms": 23650,
+  "total_excl_moms": 18920,
+  "moms_amount":     4730
+}
+```
+
+Ratioer:
+- `total_excl_moms = total_incl_moms / 1.25`
+- `moms_amount    = total_incl_moms − total_excl_moms` (= 20 % af incl. moms / 25 % af ex moms)
+
+### ÉN definition af MOMS_FACTOR
+
+Hele kodebasen bruger `shared/moms.js` til moms-beregninger. Dual-export:
+- **Node:** `const { MOMS_FACTOR, inclToExcl, computeMomsFields, applyDiscount } = require('../shared/moms')`
+- **Browser:** `window.Moms.inclToExcl(...)`, `window.Moms.computeMomsFields(...)`
+
+`db/helpers.js` re-eksporterer fra `shared/moms.js` så route-filer kan importere derfra som hidtil.
+
+**Regel:** Ingen kode i Bon v2 må have et bart `1.25` eller `0.25` udenfor `shared/moms.js` og `tests/`. Brug helpers.
+
+### E-conomic og fakturering
+
+E-conomic kræver ex-moms-priser. Når faktura genereres, skal `unit_price` konverteres ex moms før den sendes:
+
+```javascript
+const { inclToExcl } = require('../shared/moms');
+const unit_price_excl = inclToExcl(bonLine.unit_price);
+```
+
+Konverteringen sker i e-conomic-adapteren — `bon_lines`-skemaet bevarer incl. moms som autoritativ snapshot.
+
+### Begrundelse
+
+Når hver renderer (wizard, preview, PDF, mail-skabelon, faktura, kundens portal) selv håndterer moms, kommer der fejl. Backend regner én gang. Frontend viser. Magic-numre forsvinder.
+
+---
+
 ## 7. HVAD VI IKKE GØR
 
 - Ingen multi-tenant løsning (hver installation har sin egen SQLite-fil)

@@ -11,6 +11,7 @@
 const { getDb } = require('./database');
 const { transaction } = require('./compat');
 const bcrypt = require('bcryptjs');
+const moms = require('../shared/moms');
 
 /**
  * Næste bon-nummer (atomisk, transaction-sikret).
@@ -160,4 +161,17 @@ function getUserById(id) {
     return getDb().prepare('SELECT id, name, email, role, pin FROM users WHERE id = ? AND is_active = 1').get(id);
 }
 
-module.exports = { nextBonNumber, nextQuoteNumber, logChange, handle, getBon, getBonLines, getStatusId, getDefaultLocationId, hashPassword, verifyPassword, getUserByEmail, getUserById, transaction };
+module.exports = {
+    nextBonNumber, nextQuoteNumber, logChange, handle,
+    getBon, getBonLines, getStatusId, getDefaultLocationId,
+    hashPassword, verifyPassword, getUserByEmail, getUserById,
+    transaction,
+    // Moms-helpers (re-eksporteret fra shared/moms.js — én definition for hele Bon v2)
+    MOMS_RATE: moms.MOMS_RATE,
+    MOMS_FACTOR: moms.MOMS_FACTOR,
+    inclToExcl: moms.inclToExcl,
+    exclToIncl: moms.exclToIncl,
+    momsOfIncl: moms.momsOfIncl,
+    computeMomsFields: moms.computeMomsFields,
+    applyDiscount: moms.applyDiscount,
+};
