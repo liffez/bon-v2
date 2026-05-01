@@ -571,7 +571,9 @@ function _plRenderResult() {
     '</div>';
 
     var isExcl = _plVatMode === 'excl';
-    var vatDiv = isExcl ? 1.25 : 1;
+    // vatDiv er en lokal toggle: når brugeren har valgt "u/moms"-visning, divideres
+    // linjepriser med MOMS_FACTOR for at give ex-moms; ellers vises priserne 1:1 (incl moms).
+    var vatDiv = isExcl ? Moms.MOMS_FACTOR : 1;
     var vatLabel = isExcl ? 'u/moms' : 'm/moms';
 
     html += '<table class="pl-result-table"><thead><tr>' +
