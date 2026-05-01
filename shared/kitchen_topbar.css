@@ -81,6 +81,14 @@
     transition: all 0.15s; font-family: monospace;
 }
 .topbar-help-btn:hover { background: rgba(255,255,255,0.25); color: #fff; }
+.topbar-sop-btn {
+    width: 26px; height: 26px; border-radius: 50%;
+    background: rgba(255,255,255,0.15); border: 1px solid rgba(255,255,255,0.3);
+    color: rgba(255,255,255,0.8);
+    cursor: pointer; display: flex; align-items: center; justify-content: center;
+    transition: all 0.15s; text-decoration: none;
+}
+.topbar-sop-btn:hover { background: rgba(255,255,255,0.25); color: #fff; }
 .live-dot::before {
     content: ''; width: 7px; height: 7px; border-radius: 50%;
     background: #7cdb5e; display: block;

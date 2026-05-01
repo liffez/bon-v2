@@ -132,6 +132,17 @@ function renderKitchenTopbar(container, opts) {
     });
     right.appendChild(helpBtn);
 
+    // SOP-genvej i topbar
+    var sopLink = document.createElement('a');
+    sopLink.className = 'topbar-sop-btn';
+    sopLink.href = 'https://sop.ristetrug.dk';
+    sopLink.target = '_blank';
+    sopLink.rel = 'noopener';
+    sopLink.title = 'SOP';
+    sopLink.setAttribute('aria-label', 'SOP');
+    sopLink.innerHTML = '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4 19.5A2.5 2.5 0 0 1 6.5 17H20"/><path d="M6.5 2H20v20H6.5A2.5 2.5 0 0 1 4 19.5v-15A2.5 2.5 0 0 1 6.5 2z"/></svg>';
+    right.appendChild(sopLink);
+
     // rightSlot
     if (opts.rightSlot) {
         if (typeof opts.rightSlot === 'function') {
