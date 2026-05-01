@@ -55,9 +55,14 @@ function _rapDeltaHtml(current, prev, mode) {
 }
 
 // ─── shell HTML ─────────────────────────────────────────────────────
+// Konvention: Rapport-modulet viser regnskabs-tal — alle kr-tal er ex moms.
+// Se BON_V2_PRINCIPPER.md sektion 6c.
 function _rapShellHtml() {
   return `
 <div class="rap-grid">
+  <div class="rap-grid-header" style="padding:8px 0 4px;font-size:13px;color:var(--color-text-dim,#7a6f5f)">
+    <strong style="color:var(--color-text,#2c2416)">Rapporter</strong> — alle omsætnings-tal er <strong>ex moms</strong> (regnskabskonvention)
+  </div>
   <div class="rap-kpi-strip" id="rap-kpis">
     <div class="rap-kpi rap-loading" style="min-height:90px"></div>
     <div class="rap-kpi rap-loading" style="min-height:90px"></div>
@@ -67,7 +72,7 @@ function _rapShellHtml() {
 
   <div class="rap-card">
     <div class="rap-card-head">
-      <h3 class="rap-card-title">Månedsomsætning</h3>
+      <h3 class="rap-card-title">Månedsomsætning (ex moms)</h3>
       <div class="rap-toggle" id="rap-monthly-toggle">
         <button class="active" data-mode="kr">Kr</button>
         <button data-mode="enh">Enh</button>
@@ -79,7 +84,7 @@ function _rapShellHtml() {
   <div class="rap-two-col">
     <div class="rap-card" id="rap-top-cust">
       <div class="rap-card-head">
-        <h3 class="rap-card-title">Top kunder</h3>
+        <h3 class="rap-card-title">Top kunder (omsætning ex moms)</h3>
         <div class="rap-toggle" id="rap-cust-toggle">
           <button class="active" data-by="revenue">Omsætning</button>
           <button data-by="orders">Ordrer</button>
@@ -89,7 +94,7 @@ function _rapShellHtml() {
     </div>
     <div class="rap-card" id="rap-categories">
       <div class="rap-card-head">
-        <h3 class="rap-card-title">Priskategori-fordeling</h3>
+        <h3 class="rap-card-title">Priskategori-fordeling (ex moms)</h3>
       </div>
       <div id="rap-cat-content" class="rap-loading" style="min-height:200px"></div>
     </div>
@@ -97,7 +102,7 @@ function _rapShellHtml() {
 
   <div class="rap-card">
     <div class="rap-card-head">
-      <h3 class="rap-card-title">Legoklods-sammenligning</h3>
+      <h3 class="rap-card-title">Legoklods-sammenligning (ex moms)</h3>
       <span style="font-size:.78rem;color:var(--color-text-dim,#7a6f5f)">Vælg 1-2 måneder til sammenligning</span>
     </div>
     <div class="rap-lego-months" id="rap-lego-months"></div>
@@ -106,7 +111,7 @@ function _rapShellHtml() {
 
   <div class="rap-card">
     <div class="rap-card-head">
-      <h3 class="rap-card-title">Akkumuleret omsætning</h3>
+      <h3 class="rap-card-title">Akkumuleret omsætning (ex moms)</h3>
     </div>
     <div class="rap-canvas-wrap" style="height:240px"><canvas id="rap-cumul-canvas"></canvas></div>
   </div>
@@ -114,13 +119,13 @@ function _rapShellHtml() {
   <div class="rap-two-col">
     <div class="rap-card" id="rap-top-cats">
       <div class="rap-card-head">
-        <h3 class="rap-card-title">Top kategorier</h3>
+        <h3 class="rap-card-title">Top kategorier (enheder)</h3>
       </div>
       <div id="rap-cats-list" class="rap-loading" style="min-height:200px"></div>
     </div>
     <div class="rap-card" id="rap-month-table-card">
       <div class="rap-card-head">
-        <h3 class="rap-card-title">Månedsoversigt</h3>
+        <h3 class="rap-card-title">Månedsoversigt (omsætning ex moms)</h3>
       </div>
       <div id="rap-month-table-content" style="overflow-x:auto" class="rap-loading" style="min-height:200px"></div>
     </div>
@@ -211,11 +216,19 @@ function _rapRenderKPIs(d) {
   const el = document.getElementById('rap-kpis');
   if (!el) return;
 
+  // Regnskabskonvention: alle revenue-tal er ex moms (jf. BON_V2_PRINCIPPER.md sektion 6c).
+  // Backend leverer både *_excl_moms og bagudkomp.-felter; vi bruger ex moms primært.
+  const revenueYtd      = d.revenue_ytd_excl_moms      ?? d.revenue_ytd;
+  const revenueYtdPrev  = d.revenue_ytd_prev_excl_moms ?? d.revenue_ytd_prev;
+  const avgOrder        = d.avg_order_value_excl_moms  ?? d.avg_order_value;
+  const avgOrderPrev    = d.avg_order_prev_excl_moms   ?? d.avg_order_prev;
+  const pendingInvoice  = d.pending_invoice_excl_moms  ?? d.pending_invoice;
+
   const cards = [
     {
-      value: _rapFmtKr(d.revenue_ytd),
-      label: 'Omsætning YTD',
-      delta: _rapDeltaHtml(d.revenue_ytd, d.revenue_ytd_prev, 'pct'),
+      value: _rapFmtKr(revenueYtd),
+      label: 'Omsætning YTD (ex moms)',
+      delta: _rapDeltaHtml(revenueYtd, revenueYtdPrev, 'pct'),
       sub: ''
     },
     {
@@ -225,14 +238,14 @@ function _rapRenderKPIs(d) {
       sub: ''
     },
     {
-      value: _rapFmtKr(d.avg_order_value),
-      label: 'Gns. ordreværdi',
-      delta: _rapDeltaHtml(d.avg_order_value, d.avg_order_prev, 'pct'),
+      value: _rapFmtKr(avgOrder),
+      label: 'Gns. ordreværdi (ex moms)',
+      delta: _rapDeltaHtml(avgOrder, avgOrderPrev, 'pct'),
       sub: ''
     },
     {
-      value: _rapFmtKr(d.pending_invoice),
-      label: 'Ufaktureret',
+      value: _rapFmtKr(pendingInvoice),
+      label: 'Ufaktureret (ex moms)',
       delta: '',
       sub: d.pending_count != null ? d.pending_count + ' bons' : ''
     }
@@ -278,10 +291,12 @@ function _rapRenderTopCustomers(data) {
   }
 
   const byRevenue = _rapCustSortBy === 'revenue';
-  const maxVal = Math.max(...items.map(i => byRevenue ? (i.revenue || 0) : (i.orders || 0)), 1);
+  // Regnskabskonvention: revenue er ex moms (jf. BON_V2_PRINCIPPER.md sektion 6c)
+  const revOf = i => i.revenue_excl_moms ?? i.revenue ?? 0;
+  const maxVal = Math.max(...items.map(i => byRevenue ? revOf(i) : (i.orders || 0)), 1);
 
   el.innerHTML = '<div class="rap-bar-list">' + items.map((item, idx) => {
-    const val = byRevenue ? (item.revenue || 0) : (item.orders || 0);
+    const val = byRevenue ? revOf(item) : (item.orders || 0);
     const pct = (val / maxVal * 100).toFixed(1);
     const displayVal = byRevenue ? _rapFmtKr(val) : _rapFmt(val);
     const name = item.display_name || item.company_name || item.customer_name || 'Ukendt';
@@ -312,12 +327,14 @@ function _rapRenderCategories(data) {
   const prevByCode = {};
   for (const pc of prevCats) prevByCode[pc.code] = pc;
 
-  const totalRev = cats.reduce((s, c) => s + (c.revenue || 0), 0) || 1;
+  // Regnskabskonvention: revenue er ex moms (jf. BON_V2_PRINCIPPER.md sektion 6c)
+  const revOf = c => c.revenue_excl_moms ?? c.revenue ?? 0;
+  const totalRev = cats.reduce((s, c) => s + revOf(c), 0) || 1;
 
   // stacked bar
   let barHtml = '<div class="rap-stacked-bar">';
   for (const cat of cats) {
-    const pct = ((cat.revenue || 0) / totalRev * 100).toFixed(1);
+    const pct = (revOf(cat) / totalRev * 100).toFixed(1);
     const color = CAT_COLORS[cat.code] || '#999';
     const label = CAT_LABELS[cat.code] || cat.label || cat.code || '?';
     barHtml += `<div class="rap-stacked-segment" style="width:${pct}%;background:${color}" title="${label}: ${pct}%"></div>`;
@@ -327,22 +344,23 @@ function _rapRenderCategories(data) {
   // table
   let tableHtml = `<table class="rap-cat-table">
     <thead><tr>
-      <th>Kategori</th><th class="text-right">Enheder</th><th class="text-right">Omsætning</th><th class="text-right">Andel</th><th class="text-right">Delta</th>
+      <th>Kategori</th><th class="text-right">Enheder</th><th class="text-right">Omsætning (ex moms)</th><th class="text-right">Andel</th><th class="text-right">Delta</th>
     </tr></thead><tbody>`;
 
   for (const cat of cats) {
-    const pct = ((cat.revenue || 0) / totalRev * 100).toFixed(1);
+    const catRev = revOf(cat);
+    const pct = (catRev / totalRev * 100).toFixed(1);
     const color = CAT_COLORS[cat.code] || '#999';
     const label = CAT_LABELS[cat.code] || cat.label || cat.code || '?';
-    const prevRev = (prevByCode[cat.code]?.revenue || 0);
-    const deltaVal = (cat.revenue || 0) - prevRev;
+    const prevRev = revOf(prevByCode[cat.code] || {});
+    const deltaVal = catRev - prevRev;
     const deltaCls = deltaVal > 0 ? 'delta-up' : deltaVal < 0 ? 'delta-down' : '';
     const deltaText = deltaVal !== 0 ? ((deltaVal > 0 ? '+' : '') + _rapFmtKr(deltaVal)) : '—';
 
     tableHtml += `<tr>
       <td><span class="rap-cat-dot" style="background:${color}"></span>${label}</td>
       <td class="text-right">${_rapFmt(cat.units)}</td>
-      <td class="text-right">${_rapFmtKr(cat.revenue)}</td>
+      <td class="text-right">${_rapFmtKr(catRev)}</td>
       <td class="text-right">${pct}%</td>
       <td class="text-right ${deltaCls}">${deltaText}</td>
     </tr>`;
@@ -485,23 +503,25 @@ function _rapRenderMonthlyTable(data) {
     return;
   }
 
+  // Regnskabskonvention: alle revenue-tal er ex moms (jf. BON_V2_PRINCIPPER.md sektion 6c)
   let html = `<table class="rap-month-table">
     <thead><tr>
       <th>Måned</th>
-      <th class="text-right">Omsætning</th>
+      <th class="text-right">Omsætning (ex moms)</th>
       <th class="text-right">vs. forrige år</th>
       <th class="text-right">Ordrer</th>
       <th class="text-right">Enheder</th>
-      <th class="text-right">Gns. ordreværdi</th>
-      <th class="text-right">Ufaktureret</th>
+      <th class="text-right">Gns. ordreværdi (ex moms)</th>
+      <th class="text-right">Ufaktureret (ex moms)</th>
     </tr></thead><tbody>`;
 
   for (const row of rows) {
     const isCurrent = !!row.is_current;
     const cls = isCurrent ? ' class="current"' : '';
     const mtd = isCurrent ? ' <span class="rap-mtd-badge">MTD</span>' : '';
-    const rev = row.revenue_this || row.revenue || 0;
-    const revPrev = row.revenue_prev || 0;
+    // Brug *_excl_moms-felter primært (regnskabskonvention)
+    const rev     = row.revenue_this_excl_moms ?? row.revenue_this ?? row.revenue ?? 0;
+    const revPrev = row.revenue_prev_excl_moms ?? row.revenue_prev ?? 0;
 
     // delta vs prev year
     const deltaRev = rev - revPrev;
@@ -515,13 +535,13 @@ function _rapRenderMonthlyTable(data) {
       deltaHtml = `<span class="${cls2}">${arrow} ${Math.abs(deltaPct)}%</span>`;
     }
 
-    // ufaktureret
-    const ufakt = row.pending_invoice || 0;
+    // ufaktureret (ex moms)
+    const ufakt = row.pending_invoice_excl_moms ?? row.pending_invoice ?? 0;
     const ufaktHtml = ufakt > 0
       ? `<span class="ufakt-warn">${_rapFmtKr(ufakt)}</span>`
       : '—';
 
-    const avg = row.avg_order_value || (row.orders ? Math.round(rev / row.orders) : 0);
+    const avg = row.avg_order_value_excl_moms ?? row.avg_order_value ?? (row.orders ? Math.round(rev / row.orders) : 0);
 
     html += `<tr${cls}>
       <td>${row.month_label || '?'}${mtd}</td>

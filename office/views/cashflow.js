@@ -141,27 +141,28 @@ function _cfBuildOverblik(el, stats, weekly, invoices, upcoming, unmatched) {
             </div>
         </div>
 
-        <!-- Metrics -->
+        <!-- Metrics — cashflow konvention: incl moms primær (faktiske bankbevægelser).
+             Se BON_V2_PRINCIPPER.md sektion 6c. -->
         <div class="cf-metrics">
             <div class="cf-metric positive">
-                <div class="cf-metric-label">Bankindestående (est.)</div>
+                <div class="cf-metric-label">Bankindestående (incl moms)</div>
                 <div class="cf-metric-value ${stats.saldo != null ? 'green' : ''}">${stats.saldo != null ? _cfFmt(stats.saldo) : '—'}</div>
                 <div class="cf-metric-sub">Baseret på uploaded CSV</div>
             </div>
             <div class="cf-metric warning">
-                <div class="cf-metric-label">Udestående fakturaer</div>
+                <div class="cf-metric-label">Udestående fakturaer (incl moms)</div>
                 <div class="cf-metric-value">${_cfFmt(stats.outstanding_total)}</div>
-                <div class="cf-metric-sub">${stats.outstanding_count} fakturaer</div>
+                <div class="cf-metric-sub">${stats.outstanding_count} fakturaer · heraf moms-forpligtelse: ${_cfFmt(stats.outstanding_vat_liability || 0)}</div>
             </div>
             <div class="cf-metric alert">
-                <div class="cf-metric-label">Forfaldne (ikke betalt)</div>
+                <div class="cf-metric-label">Forfaldne (incl moms, ikke betalt)</div>
                 <div class="cf-metric-value ${stats.overdue_count > 0 ? 'red' : ''}">${_cfFmt(stats.overdue_total)}</div>
                 <div class="cf-metric-sub">${stats.overdue_count} fakturaer overdue</div>
             </div>
             <div class="cf-metric neutral">
-                <div class="cf-metric-label">Forventet ind — 30 dage</div>
+                <div class="cf-metric-label">Forventet ind — 30 dage (incl moms)</div>
                 <div class="cf-metric-value">${_cfFmt(stats.expected_30d_total)}</div>
-                <div class="cf-metric-sub">Baseret på forfaldsdatoer</div>
+                <div class="cf-metric-sub">Heraf moms til SKAT: ${_cfFmt(stats.expected_30d_vat_liability || 0)} · Disponibelt for drift: ${_cfFmt(stats.expected_30d_total_excl_moms || 0)}</div>
             </div>
         </div>
 
@@ -171,8 +172,8 @@ function _cfBuildOverblik(el, stats, weekly, invoices, upcoming, unmatched) {
                 <!-- Weekly chart -->
                 <div class="cf-card">
                     <div class="cf-card-title">
-                        Pengestrøm — næste 8 uger
-                        <span style="font-weight:400;font-size:11px">Estimat baseret på forfaldsdatoer</span>
+                        Bankbevægelser — næste 8 uger (incl moms)
+                        <span style="font-weight:400;font-size:11px">Estimat baseret på forfaldsdatoer · alle tal incl moms</span>
                     </div>
                     <div class="cf-chart-bars" id="cfChartBars"></div>
                     <div class="cf-chart-legend">
@@ -522,7 +523,7 @@ function _cfBuildAnalyse(el, data, payData) {
         <!-- YTD Section -->
         <div class="cf-card">
             <div class="cf-card-title">
-                Kumulativ omsætning — YTD
+                Kumulativ omsætning — YTD (ex moms)
                 <div class="cf-toggle-group">
                     <button class="cf-toggle-btn active" id="cfYtdKr">kr</button>
                     <button class="cf-toggle-btn" id="cfYtdSandwich">🥪</button>
@@ -560,7 +561,7 @@ function _cfBuildAnalyse(el, data, payData) {
 
         <!-- PAX Segments -->
         <div class="cf-card">
-            <div class="cf-card-title">Pax-segmenter — omsætning & ordrer</div>
+            <div class="cf-card-title">Pax-segmenter — omsætning (ex moms) &amp; ordrer</div>
             <div class="cf-pax-controls">
                 <div class="cf-toggle-group" id="cfPaxPeriodTg">
                     <button class="cf-toggle-btn" onclick="_cfSetPaxPeriod('uge')">Uge</button>
@@ -586,7 +587,7 @@ function _cfBuildAnalyse(el, data, payData) {
             </div>
             <div class="cf-pax-grid">
                 <div>
-                    <div class="cf-pax-chart-title">Omsætning per segment</div>
+                    <div class="cf-pax-chart-title">Omsætning per segment (ex moms)</div>
                     <div class="cf-pax-bars" id="cfRevChart"></div>
                 </div>
                 <div>

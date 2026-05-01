@@ -12,9 +12,12 @@
 const express       = require('express');
 const router        = express.Router();
 const { getDb }     = require('../db/database');
-const { handle }    = require('../db/helpers');
+const { handle, inclToExcl, momsOfIncl } = require('../db/helpers');
 const { requireAuth } = require('../shared/auth');
 const { getShifts } = require('../services/smartplanAdapter');
+
+/** Round to 2 decimals */
+function r2(n) { return Math.round((n ?? 0) * 100) / 100; }
 
 // ─── Auth on all routes ──────────────────────────────────────
 router.use(requireAuth());
@@ -273,13 +276,25 @@ router.get('/today', handle(async (req, res) => {
           AND COALESCE(b.is_internal, 0) = 0
     `).get(lyMonthStart, lyToday, ...DELIVERED_CODES);
 
+    // Regnskabskonvention: revenue (omsætning) er primær EX MOMS.
+    // Bagudkomp.: feltnavnet "revenue" bevares som incl moms (kunne ses i gamle UI'er).
+    // Se BON_V2_PRINCIPPER.md sektion 6c.
     const mtd = {
+        // Bagudkompatibilitet (incl moms — det er hvad feltet altid har været)
         revenue:          mtdDelivered.revenue,
         units:            mtdDelivered.units,
         open_bons:        mtdOpen.cnt,
         unfactured:       mtdUnfactured.amount,
         last_year_revenue: lyMtd.revenue,
         last_year_units:   lyMtd.units,
+        // Eksplicitte 3-felt værdier (regnskabs-primær er ex moms)
+        revenue_excl_moms: r2(inclToExcl(mtdDelivered.revenue)),
+        revenue_incl_moms: r2(mtdDelivered.revenue),
+        vat_collected:     r2(momsOfIncl(mtdDelivered.revenue)),
+        unfactured_excl_moms: r2(inclToExcl(mtdUnfactured.amount)),
+        unfactured_incl_moms: r2(mtdUnfactured.amount),
+        last_year_revenue_excl_moms: r2(inclToExcl(lyMtd.revenue)),
+        last_year_revenue_incl_moms: r2(lyMtd.revenue),
     };
 
     // ── Settings for kitchen ──
@@ -403,6 +418,8 @@ router.get('/stats', handle(async (req, res) => {
         const dt = new Date(d + 'T12:00:00');
         const dayLabel = `${DAY_SHORT[dt.getDay()]}\n${dt.getDate()}.`;
 
+        const totalPriceIncl = dateBons.reduce((s, b) => s + (b.total_price || 0), 0);
+        const lyPriceIncl    = ly ? ly.total_price : 0;
         days.push({
             date: d,
             label: dayLabel,
@@ -414,12 +431,21 @@ router.get('/stats', handle(async (req, res) => {
                 category: PRICE_CAT_LABELS[b.price_category] || b.price_category || 'Store',
                 customer_name: (b.customer_name || '').trim(),
                 units: (b.total_units > 0 ? b.total_units : (b.pax || 0)),
+                // Bagudkomp.: price = total_price (incl moms)
                 price: b.total_price || 0,
+                price_excl_moms: r2(inclToExcl(b.total_price || 0)),
+                price_incl_moms: r2(b.total_price || 0),
             })),
             total_units: dateBons.reduce((s, b) => s + (b.total_units > 0 ? b.total_units : (b.pax || 0)), 0),
-            total_price: dateBons.reduce((s, b) => s + (b.total_price || 0), 0),
-            last_year_units: ly ? ly.total_units : 0,
-            last_year_price: ly ? ly.total_price : 0,
+            // Bagudkomp.: total_price = incl moms
+            total_price:           totalPriceIncl,
+            total_price_excl_moms: r2(inclToExcl(totalPriceIncl)),
+            total_price_incl_moms: r2(totalPriceIncl),
+            vat_collected:         r2(momsOfIncl(totalPriceIncl)),
+            last_year_units:       ly ? ly.total_units : 0,
+            last_year_price:           lyPriceIncl,
+            last_year_price_excl_moms: r2(inclToExcl(lyPriceIncl)),
+            last_year_price_incl_moms: r2(lyPriceIncl),
             shifts: shiftsByDate[d] || [],
         });
 
@@ -456,7 +482,14 @@ router.get('/top-products', handle(async (req, res) => {
         LIMIT 10
     `).all(from, to);
 
-    res.json(rows);
+    // Tilføj 3-felt mønster pr produkt (regnskabskonvention: ex moms primær)
+    const decorated = rows.map(r => ({
+        ...r,
+        total_kr_excl_moms: r2(inclToExcl(r.total_kr)),
+        total_kr_incl_moms: r2(r.total_kr),
+        vat_collected:      r2(momsOfIncl(r.total_kr)),
+    }));
+    res.json(decorated);
 }));
 
 // ─── GET /weather ────────────────────────────────────────────

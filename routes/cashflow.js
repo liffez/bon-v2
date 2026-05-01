@@ -22,8 +22,11 @@ const express       = require('express');
 const router        = express.Router();
 const Busboy        = require('busboy');
 const { getDb }     = require('../db/database');
-const { handle }    = require('../db/helpers');
+const { handle, inclToExcl, momsOfIncl } = require('../db/helpers');
 const { requireAuth } = require('../shared/auth');
+
+/** Round to 2 decimals */
+function r2(n) { return Math.round((n ?? 0) * 100) / 100; }
 
 // Admin-only
 router.use(requireAuth('admin'));
@@ -402,13 +405,25 @@ router.get('/stats', handle(async (req, res) => {
         WHERE matched_invoice_id IS NULL AND beloeb > 0
     `).get();
 
+    // Cashflow-konvention: faktiske bankbevægelser er incl. moms.
+    // Vi udstiller incl-moms-totaler som primær — plus heraf moms-forpligtelse
+    // og ex-moms-tal (disponibelt for drift). Se BON_V2_PRINCIPPER.md sektion 6c.
     res.json({
         saldo: latestTx?.saldo ?? null,
+        // Udestående fakturaer — kundens fakturabeløb (incl moms)
         outstanding_total: outstanding.total,
+        outstanding_total_incl_moms: outstanding.total,
+        outstanding_total_excl_moms: r2(inclToExcl(outstanding.total)),
+        outstanding_vat_liability:   r2(momsOfIncl(outstanding.total)),
         outstanding_count: outstanding.count,
         overdue_total: overdue.total,
+        overdue_total_incl_moms: overdue.total,
+        overdue_total_excl_moms: r2(inclToExcl(overdue.total)),
         overdue_count: overdue.count,
         expected_30d_total: expected30.total,
+        expected_30d_total_incl_moms: expected30.total,
+        expected_30d_total_excl_moms: r2(inclToExcl(expected30.total)),
+        expected_30d_vat_liability:   r2(momsOfIncl(expected30.total)),
         expected_30d_count: expected30.count,
         last_upload: lastUpload?.value ?? null,
         unmatched_count: unmatchedCount.cnt

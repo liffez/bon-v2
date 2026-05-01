@@ -580,11 +580,17 @@ function _dashRenderKPIs(data) {
     const openWarn = (mtd.open_bons || 0) > 15 ? ' warn' : '';
     const unfactWarn = (mtd.unfactured || 0) > 0 ? ' warn' : '';
 
+    // Regnskabskonvention: omsætning er ex moms (jf. BON_V2_PRINCIPPER.md sektion 6c).
+    // Backend leverer både *_excl_moms og bagudkomp.-felter.
+    const revenue       = mtd.revenue_excl_moms       ?? mtd.revenue       ?? 0;
+    const lastYearRev   = mtd.last_year_revenue_excl_moms ?? mtd.last_year_revenue ?? 0;
+    const unfactured    = mtd.unfactured_excl_moms    ?? mtd.unfactured    ?? 0;
+
     el.innerHTML = `
         <div class="od-kpi od-clickable" data-goto="rapporter" title="Åbn Rapporter">
-            <div class="od-kpi-value">${(mtd.revenue || 0).toLocaleString('da-DK')}</div>
-            <div class="od-kpi-label">Omsætning · ${month} MTD</div>
-            <div class="od-kpi-sub">${delta(mtd.revenue, mtd.last_year_revenue)}</div>
+            <div class="od-kpi-value">${revenue.toLocaleString('da-DK')}</div>
+            <div class="od-kpi-label">Omsætning (ex moms) · ${month} MTD</div>
+            <div class="od-kpi-sub">${delta(revenue, lastYearRev)}</div>
         </div>
         <div class="od-kpi od-clickable" data-goto="rapporter" title="Åbn Rapporter">
             <div class="od-kpi-value">${(mtd.units || 0).toLocaleString('da-DK')}</div>
@@ -597,8 +603,8 @@ function _dashRenderKPIs(data) {
             <div class="od-kpi-sub">NY / VENTER / GODKENDT / IGANG / KLAR</div>
         </div>
         <div class="od-kpi od-clickable" data-goto="fakturering" title="Åbn Fakturering">
-            <div class="od-kpi-value${unfactWarn}">${(mtd.unfactured || 0).toLocaleString('da-DK')}</div>
-            <div class="od-kpi-label">Ufaktureret</div>
+            <div class="od-kpi-value${unfactWarn}">${unfactured.toLocaleString('da-DK')}</div>
+            <div class="od-kpi-label">Ufaktureret (ex moms)</div>
             <div class="od-kpi-sub">Leverede bons uden faktura</div>
         </div>
     `;
@@ -715,22 +721,25 @@ function _dashRenderTopProducts() {
     if (!body) return;
 
     if (monthEl) monthEl.textContent = _MONTH_NAMES[new Date().getMonth()];
-    if (subEl) subEl.textContent = _dashMode === 'kr' ? 'efter omsætning' : 'efter enheder';
+    if (subEl) subEl.textContent = _dashMode === 'kr' ? 'efter omsætning (ex moms)' : 'efter enheder';
 
     if (!_dashTopProducts || _dashTopProducts.length === 0) {
         body.innerHTML = '<div class="od-loading">Ingen produktdata</div>';
         return;
     }
 
-    const col = _dashMode === 'kr' ? 'total_kr' : 'total_enh';
+    // Regnskabskonvention: kr-tal er ex moms (jf. BON_V2_PRINCIPPER.md sektion 6c)
+    const col = _dashMode === 'kr' ? 'total_kr_excl_moms' : 'total_enh';
     const fmt = _dashMode === 'kr' ? v => v.toLocaleString('da-DK') + ' kr' : v => v.toLocaleString('da-DK');
-    const sorted = [..._dashTopProducts].sort((a, b) => (b[col] || 0) - (a[col] || 0));
-    const max = Math.max(...sorted.map(p => p[col] || 0));
+    // Fallback hvis backend endnu ikke leverer ex moms-feltet
+    const valOf = p => p[col] ?? (_dashMode === 'kr' ? p.total_kr : p.total_enh) ?? 0;
+    const sorted = [..._dashTopProducts].sort((a, b) => valOf(b) - valOf(a));
+    const max = Math.max(...sorted.map(valOf));
 
     body.innerHTML = `<table class="prod-table">
-        <thead><tr><th>Produkt</th><th class="r">${_dashMode === 'kr' ? 'Kr' : 'Antal'}</th><th class="r">%</th></tr></thead>
+        <thead><tr><th>Produkt</th><th class="r">${_dashMode === 'kr' ? 'Kr (ex moms)' : 'Antal'}</th><th class="r">%</th></tr></thead>
         <tbody>${sorted.map(p => {
-            const val = p[col] || 0;
+            const val = valOf(p);
             const pct = max > 0 ? Math.round(val / max * 100) : 0;
             return `<tr>
                 <td>${p.product_name}</td>

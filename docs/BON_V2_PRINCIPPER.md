@@ -170,6 +170,59 @@ Når hver renderer (wizard, preview, PDF, mail-skabelon, faktura, kundens portal
 
 ---
 
+## 6c. MOMS-VISNING — DISCIPLIN I UI
+
+Moms-konventionen (sektion 6b) regulerer hvordan moms ligger gemt. Denne sektion regulerer **hvordan moms vises i UI**.
+
+### Hovedregel
+
+Hvert pris-tal i UI skal have moms-basis synligt i samme visuelle blok som tallet. Ikke i tooltip, ikke i help-tekst, ikke nederst på siden.
+
+### Konventioner pr. visningstype
+
+| Sted | Default basis | Label |
+|------|--------------|-------|
+| **Bon-detalje (kunde-vendt)** | Total inkl. moms (kundepris) | `"Total til kunde (incl moms): X kr"` + separat `"Pris ex moms: Y kr"` + `"Moms (25%): Z kr"` |
+| **Tilbud (kunde-vendt)** | Som bon-detalje | Samme — kunden ser hvad de skal betale |
+| **Cashflow / pengestrømme** | INCL moms (faktiske bankbevægelser) | `"Indbetalinger (incl moms)"`, `"Bankbevægelser (incl moms)"`. Plus separat KPI `"Heraf moms-forpligtelse"` og `"Disponibelt for drift (ex moms)"` |
+| **Rapporter / dashboards / analyse** | EX MOMS (regnskabskonvention) | `"Omsætning (ex moms)"`, `"Beløb (ex moms)"`, section-headers `"Top-produkter — alle tal ex moms"` |
+| **Faktura / e-conomic-eksport** | EX MOMS pr. linje + separat moms-felt | E-conomic-konvention |
+
+### Hvorfor
+
+- **Cashflow er pengestrømme, ikke regnskab.** Bankkontoen er incl moms — det er reelle penge der er gået ind. Skal afspejles som de faktisk er.
+- **Omsætning er et regnskabsbegreb.** Per definition rapporteres ex moms til revisor, e-conomic, og ledelse. Hvis "Omsætning" er ex moms, skal alt der summerer til omsætning også være ex moms (top-produkter, kategorier, charts).
+- **Kundepris er incl moms.** Det er hvad kunden faktisk betaler. Kunde-vendte views (bon, tilbud, mail-bekræftelse) viser primært incl, med ex+moms-andel som supplement.
+
+### Konsistens-regel
+
+Hvis et view blander typer (fx dashboard der viser BÅDE omsætning OG likviditet): tydelig adskillelse med basis pr. blok. Aldrig en samlet "Total"-linje uden basis-label.
+
+### API-kontrakt for analyse-endpoints
+
+Alle aggregerings-endpoints (`/api/cashflow/stats`, `/api/reports/*`, `/api/dashboard/*`) skal udstille begge værdier så frontend ikke selv beregner:
+
+```json
+{
+  "revenue_excl_moms": 18920,    // primær — det vi kalder "omsætning"
+  "revenue_incl_moms": 23650,    // tilgængelig hvis nogen vil vise kundepris
+  "vat_collected":      4730     // for momsindberetning
+}
+```
+
+For cashflow tilføjes:
+```json
+{
+  "revenue_incl_moms": 23650,    // bankbevægelser (primær for cashflow)
+  "vat_liability":      4730,    // heraf moms-forpligtelse til SKAT
+  "revenue_excl_moms": 18920     // disponibelt for drift
+}
+```
+
+Default i frontend følger tabellen ovenfor (ex moms for analyse, incl for cashflow).
+
+---
+
 ## 7. HVAD VI IKKE GØR
 
 - Ingen multi-tenant løsning (hver installation har sin egen SQLite-fil)

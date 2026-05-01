@@ -17,7 +17,7 @@
 const express       = require('express');
 const router        = express.Router();
 const { getDb }     = require('../db/database');
-const { handle }    = require('../db/helpers');
+const { handle, inclToExcl, momsOfIncl } = require('../db/helpers');
 const { requireAuth } = require('../shared/auth');
 
 // ─── Auth on all routes ──────────────────────────────────────
@@ -41,6 +41,24 @@ function _thisYear() {
 
 function _statusPlaceholders(codes) {
     return codes.map(() => '?').join(',');
+}
+
+/** Round to 2 decimals */
+function r2(n) { return Math.round((n ?? 0) * 100) / 100; }
+
+/**
+ * Konstruer 3-felt moms-mønster fra incl-moms-total.
+ * Rapporter-konvention: revenue_excl_moms er primær. Se BON_V2_PRINCIPPER.md sektion 6c.
+ */
+function revenueFields(inclMoms) {
+    const incl = r2(inclMoms);
+    const excl = r2(inclToExcl(incl));
+    const vat  = r2(momsOfIncl(incl));
+    return {
+        revenue_excl_moms: excl,
+        revenue_incl_moms: incl,
+        vat_collected:     vat,
+    };
 }
 
 // ─── GET /summary — KPI strip YTD ───────────────────────────
@@ -91,14 +109,31 @@ router.get('/summary', handle(async (req, res) => {
     const avgThis = ytd.orders > 0 ? Math.round(ytd.revenue / ytd.orders) : 0;
     const avgPrev = ytdPrev.orders > 0 ? Math.round(ytdPrev.revenue / ytdPrev.orders) : 0;
 
+    // 3-felt mønster (ex/incl/vat) for revenue — primær er ex moms (regnskab).
+    // Se BON_V2_PRINCIPPER.md sektion 6c. Bagudkompatibel: gamle felter bevares som incl-moms.
+    const ytdMoms      = revenueFields(ytd.revenue);
+    const ytdPrevMoms  = revenueFields(ytdPrev.revenue);
+    const pendingMoms  = revenueFields(pending.amount);
+
     res.json({
+        // Bagudkompatibilitet — incl moms (gamle felter)
         revenue_ytd:       ytd.revenue,
         revenue_ytd_prev:  ytdPrev.revenue,
-        orders_ytd:        ytd.orders,
-        orders_ytd_prev:   ytdPrev.orders,
         avg_order_value:   avgThis,
         avg_order_prev:    avgPrev,
         pending_invoice:   pending.amount,
+        // Nye eksplicitte felter
+        revenue_ytd_excl_moms:      ytdMoms.revenue_excl_moms,
+        revenue_ytd_incl_moms:      ytdMoms.revenue_incl_moms,
+        vat_collected_ytd:          ytdMoms.vat_collected,
+        revenue_ytd_prev_excl_moms: ytdPrevMoms.revenue_excl_moms,
+        revenue_ytd_prev_incl_moms: ytdPrevMoms.revenue_incl_moms,
+        avg_order_value_excl_moms:  r2(inclToExcl(avgThis)),
+        avg_order_prev_excl_moms:   r2(inclToExcl(avgPrev)),
+        pending_invoice_excl_moms:  pendingMoms.revenue_excl_moms,
+        pending_invoice_incl_moms:  pendingMoms.revenue_incl_moms,
+        orders_ytd:        ytd.orders,
+        orders_ytd_prev:   ytdPrev.orders,
         pending_count:     pending.cnt,
     });
 }));
@@ -155,9 +190,17 @@ router.get('/monthly', handle(async (req, res) => {
         ORDER BY month
     `).all(...REVENUE_CODES, prevStartMonth, prevEndMonth);
 
+    // Tilføj 3-felt mønster pr måned (regnskabskonvention: revenue_excl_moms primær)
+    const decorate = rows => rows.map(r => ({
+        ...r,
+        revenue_excl_moms: r2(inclToExcl(r.revenue)),
+        revenue_incl_moms: r2(r.revenue),
+        vat_collected:     r2(momsOfIncl(r.revenue)),
+    }));
+
     res.json({
-        this_year: thisYearRows,
-        prev_year: prevYearRows,
+        this_year: decorate(thisYearRows),
+        prev_year: decorate(prevYearRows),
     });
 }));
 
@@ -205,7 +248,11 @@ router.get('/top-customers', handle(async (req, res) => {
     const customers = rows.map(r => ({
         id:            r.id,
         display_name:  (r.display_name || '').trim(),
-        revenue:       r.revenue,
+        // Regnskabskonvention: revenue_excl_moms er primær (jf. BON_V2_PRINCIPPER.md sektion 6c)
+        revenue:           r.revenue,                            // bagudkomp. (incl moms)
+        revenue_excl_moms: r2(inclToExcl(r.revenue)),
+        revenue_incl_moms: r2(r.revenue),
+        vat_collected:     r2(momsOfIncl(r.revenue)),
         orders:        r.orders,
         pct_of_total:  Math.round(((by === 'orders' ? r.orders : r.revenue) / totalVal) * 1000) / 10,
     }));
@@ -243,7 +290,10 @@ router.get('/categories', handle(async (req, res) => {
             code:    r.code,
             label:   r.label || r.code,
             units:   r.units,
-            revenue: r.revenue,
+            revenue: r.revenue,                                  // bagudkomp. (incl moms)
+            revenue_excl_moms: r2(inclToExcl(r.revenue)),
+            revenue_incl_moms: r2(r.revenue),
+            vat_collected:     r2(momsOfIncl(r.revenue)),
             pct:     Math.round((r.revenue / totalRevenue) * 1000) / 10,
         }));
     }
@@ -318,13 +368,22 @@ router.get('/monthly-table', handle(async (req, res) => {
         rows.push({
             month_label:      MONTH_LABELS[m - 1],
             is_current:       isCurrent,
+            // Bagudkomp. (incl moms)
             revenue_this:     t.revenue,
             revenue_prev:     p.revenue,
+            // Eksplicit ex/incl/vat (regnskabskonvention: ex moms primær)
+            revenue_this_excl_moms: r2(inclToExcl(t.revenue)),
+            revenue_this_incl_moms: r2(t.revenue),
+            vat_this_collected:     r2(momsOfIncl(t.revenue)),
+            revenue_prev_excl_moms: r2(inclToExcl(p.revenue)),
+            revenue_prev_incl_moms: r2(p.revenue),
             delta_pct:        deltaPct,
             orders:           t.orders,
             units:            t.units,
-            avg_order_value:  t.orders > 0 ? Math.round(t.revenue / t.orders) : 0,
-            pending_invoice:  isCurrent ? pendingRow.amount : null,
+            avg_order_value:           t.orders > 0 ? Math.round(t.revenue / t.orders) : 0,
+            avg_order_value_excl_moms: t.orders > 0 ? r2(inclToExcl(t.revenue) / t.orders) : 0,
+            pending_invoice:           isCurrent ? pendingRow.amount : null,
+            pending_invoice_excl_moms: isCurrent ? r2(inclToExcl(pendingRow.amount)) : null,
         });
     }
 
@@ -410,7 +469,13 @@ router.get('/lego', handle(async (req, res) => {
             buckets[catKey].orders++;
             buckets[catKey].revenue += bon.revenue || 0;
         }
-        return paxCats.map(c => buckets[c.key]).filter(b => b);
+        // Tilføj 3-felt mønster pr stack (regnskabskonvention: ex moms primær)
+        return paxCats.map(c => buckets[c.key]).filter(b => b).map(b => ({
+            ...b,
+            revenue_excl_moms: r2(inclToExcl(b.revenue)),
+            revenue_incl_moms: r2(b.revenue),
+            vat_collected:     r2(momsOfIncl(b.revenue)),
+        }));
     }
 
     // Build periods: each selected month = 1 period (max 2 for side-by-side comparison)
@@ -466,9 +531,12 @@ router.get('/cumulative', handle(async (req, res) => {
             ORDER BY week_nr
         `).all(...REVENUE_CODES, year.toString());
 
+        // Tilføj 3-felt mønster pr uge (regnskabskonvention: ex moms primær)
         result[year.toString()] = rows.map(r => ({
             week:       r.week_nr,
-            cumulative: r.cumulative,
+            cumulative:           r.cumulative,                            // bagudkomp.
+            cumulative_excl_moms: r2(inclToExcl(r.cumulative)),
+            cumulative_incl_moms: r2(r.cumulative),
         }));
     }
 
