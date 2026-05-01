@@ -12,6 +12,7 @@
  *   v2-database i data/bon.db (standard)
  */
 
+require('dotenv').config({ quiet: true });
 const path = require('path');
 const { DatabaseSync } = require('node:sqlite');
 const { openDb, transaction } = require('../db/compat');
@@ -83,6 +84,55 @@ const PRICE_CAT_MAP = {
 };
 
 const DEFAULT_LOCATION_ID = 1; // HQ
+
+// ── Grocy cost-cache (pre-fetched før transaction) ──────────
+// recipe_id → costs_per_serving (number) eller null hvis recipe slettet/ikke fundet
+const grocyCostCache = new Map();
+
+async function prefetchGrocyCosts() {
+  // Find alle unique grocy_recipe_ids brugt i v1's orders
+  const ids = v1.prepare(`
+    SELECT DISTINCT i.external_id
+    FROM orders o JOIN items i ON o.item_id = i.id
+    WHERE i.external_id IS NOT NULL AND i.external_id != ''
+  `).all().map(r => parseInt(r.external_id)).filter(n => !isNaN(n));
+
+  if (!ids.length) return;
+
+  // Hent Grocy URL+key fra default location i v2 settings
+  const locId = parseInt(db.prepare(`SELECT value FROM settings WHERE key='default_grocy_location_id'`).get()?.value || '1');
+  const loc = db.prepare(`SELECT code, grocy_api_url, grocy_api_key FROM locations WHERE id = ?`).get(locId);
+  if (!loc?.grocy_api_url) {
+    log(`  ⚠ Grocy URL ikke konfigureret — cost_price sættes til null for alle linjer`);
+    return;
+  }
+  const apiKey = loc.grocy_api_key || process.env[`GROCY_${loc.code}_KEY`] || process.env.GROCY_HQ_KEY;
+  if (!apiKey) {
+    log(`  ⚠ Grocy API-key ikke fundet — cost_price sættes til null for alle linjer`);
+    return;
+  }
+
+  log(`  Henter Grocy costs for ${ids.length} unikke recipes (${loc.grocy_api_url})...`);
+  let ok = 0, missing = 0, errors = 0;
+  for (const id of ids) {
+    try {
+      const res = await fetch(`${loc.grocy_api_url}/recipes/${id}/fulfillment`, {
+        headers: { 'GROCY-API-KEY': apiKey }
+      });
+      if (!res.ok) {
+        if (res.status === 400) { grocyCostCache.set(id, null); missing++; continue; }
+        errors++; continue;
+      }
+      const f = await res.json();
+      if (f.error_message) { grocyCostCache.set(id, null); missing++; continue; }
+      grocyCostCache.set(id, parseFloat(f.costs_per_serving) || 0);
+      ok++;
+    } catch (e) {
+      errors++;
+    }
+  }
+  log(`  Grocy costs hentet: ${ok} ok, ${missing} slettet i Grocy, ${errors} fejl`);
+}
 
 // ── Helpers ──────────────────────────────────────────────────
 function getSetting(key) {
@@ -467,13 +517,20 @@ function syncBonLines() {
       const unitPrice = l.price || 0;
       const lineTotal = quantity * unitPrice;
 
+      // Bug #001 fix: hent cost_price fra Grocy (pre-fetched cache),
+      // IKKE fra v1's egen cost_price som er systemisk forkert (8-340× for høj).
+      // Falder tilbage til null hvis recipe ikke kendes — bedre end forkerte tal.
+      const grocyRecipeId = l.grocy_recipe_id ? parseInt(l.grocy_recipe_id) : null;
+      const grocyCost = grocyRecipeId !== null ? grocyCostCache.get(grocyRecipeId) : undefined;
+      const costPrice = grocyCost !== undefined ? grocyCost : null;
+
       insertLine.run(
         v2Bon.id,
-        l.grocy_recipe_id || null,
+        grocyRecipeId,
         l.item_name || 'Ukendt vare',
         l.item_category || null,
         quantity,
-        l.cost_price || null,
+        costPrice,
         unitPrice,
         lineTotal,
         l.sorting_order || 0,
@@ -551,7 +608,7 @@ function updateBonTotals() {
 }
 
 // ── Main ─────────────────────────────────────────────────────
-function main() {
+async function main() {
   const startTime = Date.now();
   const mode = FULL_MODE ? 'full' : 'delta';
 
@@ -559,6 +616,9 @@ function main() {
   log(`  v1: ${V1_DB_PATH}`);
   log(`  v2: ${V2_DB_PATH}`);
   log('');
+
+  // Pre-fetch Grocy costs FØR transaction (async udenfor)
+  await prefetchGrocyCosts();
 
   if (DRY_RUN) {
     syncAddresses();
@@ -598,4 +658,4 @@ function main() {
   log(`=== Sync færdig (${elapsed} sek) ===`);
 }
 
-main();
+main().catch(e => { console.error(e); process.exit(1); });
