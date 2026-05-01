@@ -17,6 +17,7 @@
 
 /* global fetchGrocyQuantityUnits, fetchGrocyLocations, fetchGrocyProductGroups,
           fetchShoppingLocations, fetchGrocyUserfields, fetchGrocyProducts,
+          fetchProductBarcodes,
           postGrocyProduct, postGrocyQuConversion, putGrocyProductUserfields,
           createProductBarcode, updateProductBarcodeUserfields, postGrocyStockAdd,
           apiFetch */
@@ -29,11 +30,15 @@ var _pc = {
         productGroups:     [],
         shoppingLocations: [],
         productUserfields: [],
-        existingProducts:  []
+        existingProducts:  [],
+        productBarcodes:   []
     },
     priceMode: 'total',          // 'total' | 'per_unit'
     prefillBarcode: null,
-    submitting: false
+    submitting: false,
+    dupNameDismissed: false,
+    dupBarcodeDismissed: false,
+    dupNameTimer: null
 };
 
 function initProductCreate(containerEl, options) {
@@ -47,7 +52,8 @@ function initProductCreate(containerEl, options) {
         fetchGrocyProductGroups(),
         fetchShoppingLocations(),
         fetchGrocyUserfields().catch(function() { return []; }),
-        fetchGrocyProducts().catch(function() { return []; })
+        fetchGrocyProducts().catch(function() { return []; }),
+        fetchProductBarcodes().catch(function() { return []; })
     ]).then(function(res) {
         _pc.master.units             = res[0] || [];
         _pc.master.locations         = res[1] || [];
@@ -55,6 +61,7 @@ function initProductCreate(containerEl, options) {
         _pc.master.shoppingLocations = res[3] || [];
         _pc.master.productUserfields = (res[4] || []).filter(function(uf) { return uf.entity === 'products'; });
         _pc.master.existingProducts  = res[5] || [];
+        _pc.master.productBarcodes   = res[6] || [];
         _pcRenderForm();
         if (_pc.prefillBarcode) {
             _pcPrefillFromBarcode(_pc.prefillBarcode);
@@ -290,7 +297,8 @@ function _pcWireEvents() {
     document.getElementById('pcQuStock').addEventListener('change', _pcOnStockQuChange);
     document.getElementById('pcInitialAmount').addEventListener('input', _pcUpdateAmountHint);
     document.getElementById('pcSubmitBtn').addEventListener('click', _pcSubmit);
-    document.getElementById('pcName').addEventListener('input', _pcCheckDuplicateName);
+    document.getElementById('pcName').addEventListener('input', _pcOnNameInput);
+    document.getElementById('pcBarcode').addEventListener('input', _pcOnBarcodeInput);
 
     var toggle = document.getElementById('pcPriceModeToggle');
     toggle.querySelectorAll('button').forEach(function(b) {
@@ -367,29 +375,139 @@ function _pcUpdateAmountHint() {
     hintEl.textContent = '≈ ' + roundedPacks + ' ' + ((purchaseUnit && purchaseUnit.name) || '');
 }
 
+function _pcStringSimilarity(a, b) {
+    if (!a || !b) return 0;
+    a = a.toLowerCase().trim();
+    b = b.toLowerCase().trim();
+    if (a === b) return 1;
+    var bigramsA = [];
+    var bigramsB = [];
+    for (var i = 0; i < a.length - 1; i++) bigramsA.push(a.substring(i, i + 2));
+    for (var j = 0; j < b.length - 1; j++) bigramsB.push(b.substring(j, j + 2));
+    if (!bigramsA.length || !bigramsB.length) return 0;
+    var intersection = 0;
+    var used = {};
+    bigramsA.forEach(function(bg) {
+        for (var k = 0; k < bigramsB.length; k++) {
+            if (!used[k] && bigramsB[k] === bg) {
+                intersection++;
+                used[k] = true;
+                break;
+            }
+        }
+    });
+    return (2 * intersection) / (bigramsA.length + bigramsB.length);
+}
+
+function _pcOnNameInput() {
+    _pc.dupNameDismissed = false;
+    if (_pc.dupNameTimer) clearTimeout(_pc.dupNameTimer);
+    _pc.dupNameTimer = setTimeout(_pcCheckDuplicateName, 200);
+}
+
 function _pcCheckDuplicateName() {
-    var name = _pcVal('pcName').toLowerCase();
     var warnEl = document.getElementById('pcNameWarn');
     if (!warnEl) return;
-    if (name.length < 3) { warnEl.textContent = ''; return; }
+    if (_pc.dupNameDismissed) { warnEl.innerHTML = ''; warnEl.className = 'pc-name-warn'; return; }
+    var name = _pcVal('pcName');
+    if (name.length < 3) { warnEl.innerHTML = ''; warnEl.className = 'pc-name-warn'; return; }
+
+    var lower = name.toLowerCase();
     var exact = _pc.master.existingProducts.find(function(p) {
-        return (p.name || '').toLowerCase() === name;
+        return (p.name || '').toLowerCase() === lower;
     });
+
+    var matches;
     if (exact) {
-        warnEl.innerHTML = '⚠ Et produkt med dette navn findes allerede (id ' + exact.id + ').';
-        warnEl.className = 'pc-name-warn pc-name-warn-error';
+        matches = [{ product: exact, sim: 1 }];
+    } else {
+        var scored = _pc.master.existingProducts.map(function(p) {
+            return { product: p, sim: _pcStringSimilarity(name, p.name || '') };
+        }).filter(function(x) { return x.sim >= 0.6; });
+        scored.sort(function(a, b) { return b.sim - a.sim; });
+        matches = scored.slice(0, 3);
+    }
+
+    if (matches.length === 0) {
+        warnEl.innerHTML = '';
+        warnEl.className = 'pc-name-warn';
         return;
     }
-    var fuzzy = _pc.master.existingProducts.filter(function(p) {
-        var n = (p.name || '').toLowerCase();
-        return n !== name && (n.indexOf(name) !== -1 || name.indexOf(n) !== -1);
-    }).slice(0, 3);
-    if (fuzzy.length > 0) {
-        warnEl.innerHTML = 'Lignende navne findes: ' + fuzzy.map(function(p) { return _pcEsc(p.name); }).join(', ');
-        warnEl.className = 'pc-name-warn pc-name-warn-info';
-    } else {
-        warnEl.textContent = '';
+
+    var headerText = exact
+        ? '⚠ Et produkt med dette navn findes allerede:'
+        : '⚠ Lignende produkter findes allerede:';
+    var rows = matches.map(function(m) {
+        var pct = Math.round(m.sim * 100);
+        var loc = _pc.master.locations.find(function(l) { return l.id == m.product.location_id; });
+        var locName = loc ? loc.name : '';
+        return '<div class="pc-dup-row">' +
+            '<span class="pc-dup-name">' + _pcEsc(m.product.name) + '</span>' +
+            (locName ? '<span class="pc-dup-meta">' + _pcEsc(locName) + '</span>' : '') +
+            '<span class="pc-dup-pct">' + pct + '%</span>' +
+            '<span class="pc-dup-id">id ' + m.product.id + '</span>' +
+        '</div>';
+    }).join('');
+
+    warnEl.innerHTML =
+        '<div class="pc-dup-header">' + headerText + '</div>' +
+        '<div class="pc-dup-list">' + rows + '</div>' +
+        '<button type="button" class="pc-dup-dismiss" id="pcDupNameDismiss">Fortsæt alligevel</button>';
+    warnEl.className = exact ? 'pc-name-warn pc-name-warn-error' : 'pc-name-warn pc-name-warn-info';
+    var btn = document.getElementById('pcDupNameDismiss');
+    if (btn) btn.addEventListener('click', function() {
+        _pc.dupNameDismissed = true;
+        warnEl.innerHTML = '';
+        warnEl.className = 'pc-name-warn';
+    });
+}
+
+function _pcOnBarcodeInput() {
+    _pc.dupBarcodeDismissed = false;
+    _pcCheckDuplicateBarcode();
+}
+
+function _pcCheckDuplicateBarcode() {
+    var statusEl = document.getElementById('pcBarcodeStatus');
+    if (!statusEl) return;
+    var bc = _pcVal('pcBarcode');
+    if (!bc || bc.length < 4) {
+        if (statusEl.classList.contains('pc-barcode-status-dup')) {
+            statusEl.innerHTML = '';
+            statusEl.className = 'pc-barcode-status';
+        }
+        return;
     }
+    if (_pc.dupBarcodeDismissed) return;
+
+    var existing = _pc.master.productBarcodes.find(function(b) {
+        return String(b.barcode || '').trim() === bc;
+    });
+    if (!existing) {
+        if (statusEl.classList.contains('pc-barcode-status-dup')) {
+            statusEl.innerHTML = '';
+            statusEl.className = 'pc-barcode-status';
+        }
+        return;
+    }
+    var product = _pc.master.existingProducts.find(function(p) { return p.id == existing.product_id; });
+    var prodName = product ? product.name : '(ukendt produkt id ' + existing.product_id + ')';
+    statusEl.innerHTML =
+        '<div class="pc-dup-header">⚠ Stregkode/varenummer er allerede koblet til:</div>' +
+        '<div class="pc-dup-list">' +
+            '<div class="pc-dup-row">' +
+                '<span class="pc-dup-name">' + _pcEsc(prodName) + '</span>' +
+                '<span class="pc-dup-id">produkt-id ' + existing.product_id + '</span>' +
+            '</div>' +
+        '</div>' +
+        '<button type="button" class="pc-dup-dismiss" id="pcDupBcDismiss">Fortsæt alligevel</button>';
+    statusEl.className = 'pc-barcode-status pc-barcode-status-dup';
+    var btn = document.getElementById('pcDupBcDismiss');
+    if (btn) btn.addEventListener('click', function() {
+        _pc.dupBarcodeDismissed = true;
+        statusEl.innerHTML = '';
+        statusEl.className = 'pc-barcode-status';
+    });
 }
 
 /* ── Hørkram pre-fill ────────────────────────────────────── */
@@ -429,6 +547,7 @@ function _pcPrefillFromBarcode(barcode) {
             if (data.pricePerUnit && !_pcVal('pcLastPrice')) {
                 _pcSet('pcLastPrice', data.pricePerUnit);
             }
+            _pc.dupNameDismissed = false;
             _pcCheckDuplicateName();
             if (statusEl) {
                 statusEl.className = 'pc-barcode-status pc-barcode-status-ok';
@@ -605,8 +724,12 @@ function _pcShowResult(productId, name, warnings) {
     document.getElementById('pcAgainBtn').addEventListener('click', function() {
         _pc.prefillBarcode = null;
         _pc.submitting = false;
+        _pc.dupNameDismissed = false;
+        _pc.dupBarcodeDismissed = false;
         _pc.master.existingProducts = [];
+        _pc.master.productBarcodes = [];
         fetchGrocyProducts().then(function(p) { _pc.master.existingProducts = p || []; });
+        fetchProductBarcodes().then(function(b) { _pc.master.productBarcodes = b || []; });
         _pcRenderForm();
     });
     document.getElementById('pcDoneBtn').addEventListener('click', function() {

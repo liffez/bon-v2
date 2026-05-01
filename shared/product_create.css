@@ -137,10 +137,16 @@
     font-size: 12px;
     margin-top: 4px;
     line-height: 1.4;
-    min-height: 16px;
 }
-.pc-name-warn-error { color: #c44; font-weight: 600; }
-.pc-name-warn-info { color: var(--color-text-dim); }
+.pc-name-warn-error,
+.pc-name-warn-info {
+    background: #fff8e1;
+    border: 1.5px solid #f5d76e;
+    border-radius: 8px;
+    padding: 8px 10px;
+    margin-top: 6px;
+}
+.pc-name-warn-error { background: #fdecec; border-color: #f0a8a8; }
 
 .pc-barcode-status {
     font-size: 12px;
@@ -149,6 +155,75 @@
 }
 .pc-barcode-status-info { color: var(--brand-primary); }
 .pc-barcode-status-ok { color: #2a7a3a; font-weight: 600; }
+.pc-barcode-status-dup {
+    background: #fdecec;
+    border: 1.5px solid #f0a8a8;
+    border-radius: 8px;
+    padding: 8px 10px;
+    color: #6b1f1f;
+    font-size: 12px;
+    line-height: 1.4;
+}
+
+/* Duplikat-rækker (delt mellem name-warn og barcode-status) */
+.pc-dup-header {
+    font-weight: 700;
+    margin-bottom: 6px;
+    color: #6b1f1f;
+}
+.pc-name-warn-info .pc-dup-header { color: #6b5d20; }
+.pc-dup-list {
+    display: flex;
+    flex-direction: column;
+    gap: 3px;
+    margin-bottom: 6px;
+}
+.pc-dup-row {
+    display: flex;
+    align-items: baseline;
+    gap: 8px;
+    padding: 4px 6px;
+    background: rgba(255,255,255,0.6);
+    border-radius: 5px;
+    font-size: 12px;
+}
+.pc-dup-name {
+    flex: 1;
+    font-weight: 600;
+    color: var(--color-text);
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+.pc-dup-meta {
+    color: var(--color-text-dim);
+    font-size: 11px;
+}
+.pc-dup-pct {
+    font-weight: 700;
+    color: var(--brand-primary);
+    font-variant-numeric: tabular-nums;
+    min-width: 36px;
+    text-align: right;
+}
+.pc-dup-id {
+    color: var(--color-text-dim);
+    font-size: 11px;
+    font-variant-numeric: tabular-nums;
+}
+.pc-dup-dismiss {
+    background: transparent;
+    border: 1px solid currentColor;
+    border-radius: 5px;
+    padding: 3px 10px;
+    font-size: 11px;
+    font-family: inherit;
+    cursor: pointer;
+    color: inherit;
+    opacity: 0.75;
+    transition: opacity 0.15s;
+}
+.pc-dup-dismiss:hover { opacity: 1; }
 
 /* MODE TOGGLE (Total / Pr. enhed) */
 .pc-label-row {
