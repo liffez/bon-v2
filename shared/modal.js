@@ -501,8 +501,8 @@ function _buildBonInfoHtml(bon) {
         const grand = (bon.total_with_delivery != null) ? bon.total_with_delivery
                      : (lineSum + (bon.delivery_price || 0));
         if (grand > 0) {
-            // Moms: 25% dansk moms (inkluderet i priserne) → moms = total * 25/125
-            const moms = grand * 25 / 125;
+            // Moms: 25% dansk moms (inkluderet i priserne) — se shared/moms.js
+            const moms = window.Moms.momsOfIncl(grand);
             html += `<div class="info-total-row"><span>Heraf moms</span><span>${_fmtKr(moms)}</span></div>`;
             html += `<div class="info-total-row info-total-grand"><span>I alt</span><span>${_fmtKr(grand)}</span></div>`;
         }

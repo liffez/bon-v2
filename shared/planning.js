@@ -611,7 +611,7 @@ function _plRenderResult() {
     // Footer — faktura-format; bold total følger moms-mode så kolonnesum matcher
     html += '</tbody><tfoot>';
     if (_plShowPrices) {
-        var salesExVat = totalSales / 1.25;
+        var salesExVat = window.Moms.inclToExcl(totalSales);
         var vatAmount = totalSales - salesExVat;
         var margin = salesExVat > 0 ? ((1 - totalCost / salesExVat) * 100).toFixed(0) : 0;
         var nettoRowCls   = isExcl ? 'pl-result-total'    : 'pl-result-subtotal';

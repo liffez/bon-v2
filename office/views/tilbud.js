@@ -194,6 +194,10 @@ async function _tLoadMenuAndRender() {
         const recipes = await apiFetch('/grocy/recipes');
         _tMenu = {};
         for (const r of recipes) {
+            // Spring leveringsopskrifter over \u2014 h\u00e5ndteres via bons.delivery_method/delivery_price.
+            // Ellers dobbeltt\u00e6lles levering hvis kunden v\u00e6lger fra menuen OG der s\u00e6ttes delivery_price.
+            if (r.category === 'x-Levering') continue;
+
             const cat = r.category || '\u00d8vrige';
             if (!_tMenu[cat]) _tMenu[cat] = [];
             _tMenu[cat].push({
@@ -1117,7 +1121,8 @@ function _tBuildPriceTable() {
                 const lt = it.unitPrice * it.qty;
                 const lc = it.costPrice * it.qty;
                 sub += lt; costT += lc; blockTotal += lt;
-                const dbP = lt > 0 ? ((lt - lc) / lt * 100) : 0;
+                const ltU = window.Moms.inclToExcl(lt);
+                const dbP = ltU > 0 ? ((ltU - lc) / ltU * 100) : 0;
                 h += `<tr><td><strong>${_tEsc(it.name)}</strong></td>`;
                 h += `<td class="r">${it.qty}</td><td class="r" style="font-family:'JetBrains Mono',monospace">${_tFk(lt)}</td>`;
                 h += `<td class="r" style="font-size:.73rem;color:var(--color-text-dim);font-family:'JetBrains Mono',monospace">${_tFk(lc)} (${dbP.toFixed(0)}%)</td>`;
@@ -1135,7 +1140,8 @@ function _tBuildPriceTable() {
             const lt = it.unitPrice * it.qty;
             const lc = it.costPrice * it.qty;
             sub += lt; costT += lc;
-            const dbP = lt > 0 ? ((lt - lc) / lt * 100) : 0;
+            const ltU = window.Moms.inclToExcl(lt);
+            const dbP = ltU > 0 ? ((ltU - lc) / ltU * 100) : 0;
             h += `<tr><td><strong>${_tEsc(it.name)}</strong></td>`;
             h += `<td class="r">${it.qty}</td><td class="r" style="font-family:'JetBrains Mono',monospace">${_tFk(lt)}</td>`;
             h += `<td class="r" style="font-size:.73rem;color:var(--color-text-dim);font-family:'JetBrains Mono',monospace">${_tFk(lc)} (${dbP.toFixed(0)}%)</td>`;
@@ -1157,12 +1163,12 @@ function _tBuildPriceTable() {
     }
 
     const dA = sub * (_tDiscountPct / 100);
-    const pre = sub - dA;
-    const moms = pre * 0.25;
-    const tot = pre + moms;
+    const tot = sub - dA;
+    const subUMoms = window.Moms.inclToExcl(tot);
+    const moms = tot - subUMoms;
     const globalPax = parseInt(_tPax) || 0;
 
-    h += `<tr class="subtotal"><td colspan="2">Subtotal</td><td class="r" style="font-family:'JetBrains Mono',monospace">${_tFk(sub)}</td><td></td><td></td></tr>`;
+    h += `<tr class="subtotal"><td colspan="2">Subtotal (u/moms)</td><td class="r" style="font-family:'JetBrains Mono',monospace">${_tFk(subUMoms)}</td><td></td><td></td></tr>`;
     if (_tDiscountPct > 0) h += `<tr class="subtotal"><td colspan="2">Rabat (${_tDiscountPct}%)</td><td class="r" style="font-family:'JetBrains Mono',monospace;color:#6ab04c">\u2212${_tFk(dA)}</td><td></td><td></td></tr>`;
     h += `<tr class="subtotal"><td colspan="2">Moms (25%)</td><td class="r" style="font-family:'JetBrains Mono',monospace">${_tFk(moms)}</td><td></td><td></td></tr>`;
     h += `<tr class="total-row"><td colspan="2">Total inkl. moms</td><td class="r" style="font-family:'JetBrains Mono',monospace">${_tFk(tot)}</td><td></td><td></td></tr>`;
@@ -1286,9 +1292,9 @@ function _tBuildStep4() {
         if (dp > 0) h += `<div class="tilbud-pv-row"><span class="rn">\u{1F69A} Levering: ${dTypes[_tDel.type] || ''}${_tDel.note ? ' \u00b7 ' + _tEsc(_tDel.note) : ''}</span><span class="rp">${_tFk(dp)}</span></div>`;
     }
 
-    const dA = sub * (_tDiscountPct / 100), pre = sub - dA, moms = pre * 0.25, tot = pre + moms;
+    const dA = sub * (_tDiscountPct / 100), tot = sub - dA, subUMoms = window.Moms.inclToExcl(tot), moms = tot - subUMoms;
     h += `<div class="tilbud-pv-totals">
-        <div class="tilbud-pv-tl"><span class="tl">Subtotal</span><span class="tv">${_tFk(sub)}</span></div>
+        <div class="tilbud-pv-tl"><span class="tl">Subtotal (u/moms)</span><span class="tv">${_tFk(subUMoms)}</span></div>
         ${_tDiscountPct > 0 ? `<div class="tilbud-pv-tl"><span class="tl">Rabat (${_tDiscountPct}%)</span><span class="tv" style="color:#6ab04c">\u2212${_tFk(dA)}</span></div>` : ''}
         <div class="tilbud-pv-tl"><span class="tl">Moms (25%)</span><span class="tv">${_tFk(moms)}</span></div>
         <div class="tilbud-pv-tl big"><span class="tl">Total inkl. moms</span><span class="tv">${_tFk(tot)}</span></div>
@@ -1567,9 +1573,9 @@ function _tGenPDF() {
 
     // Totals
     chk(26); y += 4; const ttx = pw - mr - 55;
-    const dA = sub * (_tDiscountPct / 100), pre = sub - dA, moms = pre * 0.25, tot = pre + moms;
+    const dA = sub * (_tDiscountPct / 100), tot = sub - dA, subUMoms = window.Moms.inclToExcl(tot), moms = tot - subUMoms;
     doc.setFontSize(8); doc.setFont('helvetica', 'normal'); doc.setTextColor(...dm);
-    doc.text('Subtotal', ttx, y); doc.text(fK(sub), pw - mr, y, { align: 'right' }); y += 5;
+    doc.text('Subtotal (u/moms)', ttx, y); doc.text(fK(subUMoms), pw - mr, y, { align: 'right' }); y += 5;
     if (_tDiscountPct > 0) { doc.setTextColor(...gn); doc.text(`Rabat (${_tDiscountPct}%)`, ttx, y); doc.text(`\u2212${fK(dA)}`, pw - mr, y, { align: 'right' }); y += 5; }
     doc.setTextColor(...dm); doc.text('Moms (25%)', ttx, y); doc.text(fK(moms), pw - mr, y, { align: 'right' }); y += 2;
     doc.setDrawColor(...tx); doc.setLineWidth(0.5); doc.line(ttx, y, pw - mr, y); y += 5;
