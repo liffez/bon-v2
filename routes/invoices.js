@@ -1,6 +1,24 @@
 /**
  * routes/invoices.js
  * GET /api/invoices/queue — fakturerings-arbejdsliste
+ *
+ * MOMS-HÅNDTERING (når faktura-generering bygges):
+ * - bon_lines.unit_price er INCL. moms (jf. BON_V2_PRINCIPPER.md sektion 6b)
+ * - bon_lines.cost_price er EX moms
+ * - bons.total_price er INCL. moms
+ *
+ * Faktura skal udstille linje-priser EX MOMS + separat moms-beløb (e-conomic-konvention):
+ *   const { inclToExcl } = require('../db/helpers');
+ *   const unit_price_excl = inclToExcl(line.unit_price);
+ *   const line_total_excl = inclToExcl(line.line_total);
+ *   const moms_amount     = line.line_total - line_total_excl;
+ *
+ * Visnings-disciplin (sektion 6c):
+ * - Faktura-PDF/print: hver pris-linje har eksplicit basis-label
+ * - Eksempel: "Subtotal (ex moms): X kr" + "Moms (25%): Y kr" + "Total (incl moms): Z kr"
+ *
+ * Se også: docs/CLAUDE_TILBUD_PRIS.md (samme moms-mønster bruges i tilbud)
+ *          tests/moms_audit_e2e.test.js (verifikations-suite, T-5 case)
  */
 
 const express = require('express');
