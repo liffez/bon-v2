@@ -443,6 +443,7 @@
     <button class="st-nav-item st-admin-only" data-section="lego">Legoklods</button>
     <button class="st-nav-item st-admin-only" data-section="duplicates">Duplikater</button>
     <button class="st-nav-item st-admin-only" data-section="merge-companies">Sammenlæg firmaer</button>
+    <button class="st-nav-item st-admin-only" data-section="batch-enrich">Berig alle firmaer</button>
     <button class="st-nav-item st-admin-only" data-section="system">System</button>
     <button class="st-nav-item st-admin-only" data-section="activity-purposes">Aktivitetsformål</button>
     <button class="st-nav-item st-admin-only" data-section="booking-smagning">Booking — Smagsprøve</button>
@@ -638,7 +639,7 @@
           </div>
 
           <div style="display:flex;gap:8px;margin-top:8px">
-            <button class="st-btn-primary" id="merge-step1-next" disabled onclick="mergeGotoStep2()">Næste →</button>
+            <button class="st-btn st-btn-primary" id="merge-step1-next" disabled onclick="mergeGotoStep2()">Næste →</button>
           </div>
         </div>
       </div>
@@ -651,6 +652,188 @@
         <div id="merge-step3-content"></div>
       </div>
     </div>
+
+    <!-- ════ BATCH CVR-BERIGELSE ════ -->
+    <div class="st-section st-admin-only" id="sec-batch-enrich">
+      <h2>Berig alle firmaer mod CVR</h2>
+      <p style="font-size:13px;color:var(--color-text-dim);margin-bottom:14px;max-width:680px;line-height:1.5;">
+        Kører CVR-opslag på alle firmaer der ikke er beriget de sidste N dage. Officielle emails og telefoner fra CVR markeres automatisk som offentlige (PUB). <strong>Eksisterende data overskrives ikke</strong> — kun tomme felter udfyldes.
+      </p>
+
+      <div id="be-idle" style="display:flex;flex-direction:column;gap:14px;max-width:560px">
+        <div style="display:flex;gap:12px;align-items:center">
+          <label style="font-size:13px;font-weight:600;color:var(--color-text);width:180px">Spring firmaer over beriget i sidste</label>
+          <input type="number" id="be-max-age-days" value="90" min="1" max="3650"
+                 style="width:90px;padding:6px 10px;border:1px solid var(--color-border);border-radius:6px;font-size:13px"/>
+          <span style="font-size:13px;color:var(--color-text-dim)">dage</span>
+        </div>
+        <div style="display:flex;gap:12px;align-items:center">
+          <label style="font-size:13px;font-weight:600;color:var(--color-text);width:180px">Maks antal (test)</label>
+          <input type="number" id="be-limit" placeholder="alle"
+                 style="width:90px;padding:6px 10px;border:1px solid var(--color-border);border-radius:6px;font-size:13px"/>
+          <span style="font-size:12px;color:var(--color-text-dim)">tom = alle der matcher</span>
+        </div>
+        <div style="display:flex;gap:12px;align-items:center">
+          <label style="font-size:13px;display:flex;gap:8px;align-items:center;cursor:pointer">
+            <input type="checkbox" id="be-dry-run"/>
+            Dry-run (kør uden at gemme — bare for at se hvor mange der matcher)
+          </label>
+        </div>
+        <div style="display:flex;gap:8px;margin-top:6px">
+          <button class="st-btn st-btn-primary" onclick="batchEnrichStart()">⟳ Start berigelse</button>
+        </div>
+        <div id="be-last-summary" style="display:none;margin-top:6px;padding:10px 14px;background:var(--color-background);border:1px solid var(--color-border);border-radius:6px;font-size:12px"></div>
+      </div>
+
+      <div id="be-running" style="display:none;max-width:560px">
+        <div style="background:var(--color-background);border:1px solid var(--color-border);border-radius:8px;padding:16px;">
+          <div style="font-size:14px;font-weight:600;color:var(--color-text);margin-bottom:10px" id="be-prog-text">Beriger firmaer mod CVR…</div>
+          <div style="background:#e8e0d0;border-radius:6px;overflow:hidden;height:14px">
+            <div id="be-prog-bar" style="background:#5a7d4e;height:100%;width:0%;transition:width 0.3s"></div>
+          </div>
+          <div style="font-size:12px;color:var(--color-text-dim);margin-top:8px;display:flex;gap:14px;flex-wrap:wrap">
+            <span id="be-prog-ratio">0 / 0</span>
+            <span>·</span>
+            <span id="be-prog-matched">0 berigede</span>
+            <span>·</span>
+            <span id="be-prog-nomatch">0 uden match</span>
+            <span>·</span>
+            <span id="be-prog-fields">0 felter opdateret</span>
+            <span>·</span>
+            <span id="be-prog-cps">0 nye kontaktpunkter</span>
+          </div>
+          <div style="margin-top:12px;display:flex;gap:8px">
+            <button class="st-btn" onclick="batchEnrichCancel()" id="be-cancel-btn">Annullér</button>
+          </div>
+        </div>
+      </div>
+
+      <!-- Review-panel: vises efter dry-run så admin kan vælge hvilke forslag der gemmes -->
+      <div id="be-review" style="display:none">
+        <div style="display:flex;align-items:center;gap:12px;flex-wrap:wrap;margin-bottom:10px">
+          <h3 style="margin:0;font-size:15px;font-weight:600">Forslag til gennemgang</h3>
+          <span id="be-review-summary" style="font-size:12px;color:var(--color-text-dim)"></span>
+        </div>
+        <p style="font-size:12px;color:var(--color-text-dim);max-width:680px;margin-bottom:10px">
+          Vælg hvilke firmaer (og hvilke felter pr. firma) der skal opdateres.
+          <strong>Eksisterende data overskrives ikke</strong> — kun tomme felter.
+          Klik på en række for at se detaljer.
+        </p>
+        <div style="display:flex;gap:8px;margin-bottom:10px;flex-wrap:wrap">
+          <button class="st-btn" onclick="beReviewSelectAll(true)">Vælg alle</button>
+          <button class="st-btn" onclick="beReviewSelectAll(false)">Fravælg alle</button>
+          <button class="st-btn" onclick="beReviewFilterHigh()">Kun konfidens ≥90%</button>
+          <span style="flex:1"></span>
+          <button class="st-btn" onclick="beReviewCancel()">← Kassér forslag</button>
+          <button class="st-btn st-btn-primary" id="be-review-apply" onclick="beReviewApply()">✓ Anvend valgte (0)</button>
+        </div>
+        <div id="be-review-list" style="border:1px solid var(--color-border);border-radius:8px;background:#fff;overflow:hidden"></div>
+      </div>
+    </div>
+
+    <style>
+      .be-row {
+        border-bottom: 1px solid var(--color-border);
+      }
+      .be-row:last-child { border-bottom: none; }
+      .be-row-head {
+        display: grid;
+        grid-template-columns: 28px 1fr auto;
+        gap: 12px;
+        align-items: center;
+        padding: 10px 14px;
+        cursor: pointer;
+      }
+      .be-row-head:hover { background: #fbfaf6; }
+      .be-row.expanded .be-row-head { background: #fbfaf6; }
+      .be-row-cb { width: 18px; height: 18px; accent-color: var(--brand-primary); cursor: pointer; }
+      .be-row-name { font-size: 13px; font-weight: 600; color: var(--color-text); }
+      .be-row-meta {
+        font-size: 11px;
+        color: var(--color-text-dim);
+        margin-top: 2px;
+        display: flex;
+        gap: 6px;
+        align-items: center;
+        flex-wrap: wrap;
+      }
+      .be-row-stats {
+        font-size: 11px;
+        color: var(--color-text-dim);
+        text-align: right;
+      }
+      .be-row-stats strong {
+        color: var(--color-text);
+        font-weight: 600;
+      }
+      .be-konf {
+        background: #e3f0e6; color: #2f6e3f;
+        padding: 1px 6px; border-radius: 8px; font-weight: 600;
+      }
+      .be-konf.med { background: #faf1e6; color: #c9742e; }
+      .be-konf.low { background: #f8e8e5; color: #b34234; }
+      .be-row-detail {
+        display: none;
+        padding: 8px 14px 12px 56px;
+        background: #fbfaf6;
+        font-size: 12px;
+      }
+      .be-row.expanded .be-row-detail { display: block; }
+      .be-detail-section {
+        margin-top: 6px;
+      }
+      .be-detail-section-h {
+        font-size: 10px;
+        text-transform: uppercase;
+        letter-spacing: 0.04em;
+        font-weight: 600;
+        color: var(--color-text-dim);
+        margin-bottom: 4px;
+      }
+      .be-detail-row {
+        display: grid;
+        grid-template-columns: 22px 100px 1fr;
+        gap: 8px;
+        padding: 4px 0;
+        align-items: start;
+      }
+      .be-detail-row label {
+        cursor: pointer;
+        display: contents;
+      }
+      .be-detail-cb {
+        width: 16px; height: 16px;
+        accent-color: var(--brand-primary);
+        margin-top: 2px;
+        cursor: pointer;
+      }
+      .be-detail-label {
+        text-transform: uppercase;
+        font-size: 10px;
+        letter-spacing: 0.04em;
+        color: var(--color-text-dim);
+        font-weight: 600;
+        padding-top: 2px;
+      }
+      .be-detail-val {
+        background: #e3f0e6;
+        color: #2f6e3f;
+        padding: 3px 8px;
+        border-radius: 4px;
+        word-break: break-word;
+      }
+      .be-detail-cp {
+        display: inline-flex;
+        gap: 4px;
+        align-items: center;
+      }
+      .be-pill-pub {
+        background: #e3f0e6; color: #2f6e3f;
+        padding: 1px 5px; border-radius: 8px;
+        font-size: 9px; font-weight: 600;
+        text-transform: uppercase; letter-spacing: 0.04em;
+      }
+    </style>
 
     <!-- ════ SYSTEM ════ -->
     <div class="st-section st-admin-only" id="sec-system">
@@ -2565,7 +2748,7 @@ function _mergeRenderStep2(preview) {
         </div>
         <div style="margin-top:18px;display:flex;gap:8px">
             <button class="st-btn" onclick="mergeBackToStep1()">← Tilbage</button>
-            <button class="st-btn-primary" onclick="mergeGotoStep3()">Næste →</button>
+            <button class="st-btn st-btn-primary" onclick="mergeGotoStep3()">Næste →</button>
         </div>
     `;
 
@@ -2671,7 +2854,7 @@ function mergeGotoStep3() {
             <button class="st-btn" onclick="mergeGotoStep2()">← Tilbage</button>
             <div style="display:flex;gap:8px">
                 <button class="st-btn" onclick="mergeCancel()">Annullér</button>
-                <button class="st-btn-primary" id="merge-confirm-btn" disabled onclick="mergeExecute()">✓ Sammenlæg</button>
+                <button class="st-btn st-btn-primary" id="merge-confirm-btn" disabled onclick="mergeExecute()">✓ Sammenlæg</button>
             </div>
         </div>
     `;
@@ -2757,6 +2940,321 @@ document.addEventListener('DOMContentLoaded', () => {
     const losQ = document.getElementById('merge-loser-q');
     if (winQ) winQ.addEventListener('input', _mergeDebounce(e => _mergeSearch('winner', e.target.value), 280));
     if (losQ) losQ.addEventListener('input', _mergeDebounce(e => _mergeSearch('loser', e.target.value), 280));
+});
+
+// ─── BATCH CVR-BERIGELSE ─────────────────────────────────
+
+let _beSse = null;
+
+async function batchEnrichStart() {
+    const days = parseInt(document.getElementById('be-max-age-days').value, 10) || 90;
+    const limitVal = document.getElementById('be-limit').value.trim();
+    const limit = limitVal ? parseInt(limitVal, 10) : null;
+    const dryRun = document.getElementById('be-dry-run').checked;
+
+    try {
+        const r = await startBatchEnrich({ max_age_days: days, limit, dry_run: dryRun });
+        if (r.total === 0) {
+            const sumEl = document.getElementById('be-last-summary');
+            sumEl.style.display = '';
+            sumEl.textContent = r.besked || 'Ingen firmaer at berige.';
+            return;
+        }
+        _beShowRunning(r.total, dryRun);
+        _beAttachSse();
+    } catch (err) {
+        alert('Fejl: ' + err.message);
+    }
+}
+window.batchEnrichStart = batchEnrichStart;
+
+async function batchEnrichCancel() {
+    if (!confirm('Annullér batch-berigelse? Det stopper efter næste firma.')) return;
+    try {
+        await cancelBatchEnrich();
+        document.getElementById('be-cancel-btn').textContent = 'Stopper…';
+        document.getElementById('be-cancel-btn').disabled = true;
+    } catch (err) {
+        alert('Fejl: ' + err.message);
+    }
+}
+window.batchEnrichCancel = batchEnrichCancel;
+
+function _beShowRunning(total, dryRun) {
+    document.getElementById('be-idle').style.display = 'none';
+    document.getElementById('be-running').style.display = '';
+    document.getElementById('be-prog-text').textContent = (dryRun ? 'DRY RUN — ' : '') + 'Beriger firmaer mod CVR…';
+    document.getElementById('be-prog-ratio').textContent = `0 / ${total}`;
+    document.getElementById('be-prog-bar').style.width = '0%';
+    document.getElementById('be-prog-matched').textContent = '0 berigede';
+    document.getElementById('be-prog-nomatch').textContent = '0 uden match';
+    document.getElementById('be-prog-fields').textContent = '0 felter opdateret';
+    document.getElementById('be-prog-cps').textContent = '0 nye kontaktpunkter';
+    document.getElementById('be-cancel-btn').textContent = 'Annullér';
+    document.getElementById('be-cancel-btn').disabled = false;
+}
+
+async function _beShowDone(summary) {
+    document.getElementById('be-running').style.display = 'none';
+    if (summary.dry_run && !summary.cancelled && summary.matched > 0) {
+        // Dry-run færdig: vis review-panel
+        try {
+            const data = await fetchBatchEnrichProposals();
+            _beShowReview(data.proposals, summary);
+            return;
+        } catch (err) {
+            console.error('Hentning af forslag fejlede:', err);
+        }
+    }
+    document.getElementById('be-idle').style.display = '';
+    const sumEl = document.getElementById('be-last-summary');
+    sumEl.style.display = '';
+    const cancelled = summary.cancelled ? ' (afbrudt)' : '';
+    const dryNote = summary.dry_run ? ' [DRY RUN — intet gemt]' : '';
+    sumEl.innerHTML = `
+        <strong>✓ Færdig${cancelled}${dryNote}</strong><br>
+        ${summary.processed} behandlet · ${summary.matched} berigede · ${summary.no_match} uden match<br>
+        ${summary.fields_updated} felter opdateret · ${summary.contact_points_created} nye kontaktpunkter
+        ${summary.errors > 0 ? `· <span style="color:#b34234">${summary.errors} fejl</span>` : ''}
+    `;
+}
+
+// ─── Review-panel state + rendering ─────────────────────────
+
+let _beProposals = [];
+
+function _beShowReview(proposals, summary) {
+    _beProposals = proposals || [];
+    document.getElementById('be-idle').style.display = 'none';
+    document.getElementById('be-review').style.display = '';
+    document.getElementById('be-review-summary').textContent =
+        `${proposals.length} matchede firmaer · ${summary.no_match} uden match · ${summary.processed} i alt`;
+    _beRenderReviewList();
+}
+
+function _beRenderReviewList() {
+    const listEl = document.getElementById('be-review-list');
+    if (_beProposals.length === 0) {
+        listEl.innerHTML = '<div style="padding:20px;text-align:center;color:var(--color-text-dim)">Ingen forslag.</div>';
+        return;
+    }
+
+    listEl.innerHTML = _beProposals.map((p, idx) => {
+        const konfPct = Math.round((p.konfidens || 0) * 100);
+        const konfClass = konfPct >= 90 ? '' : (konfPct >= 75 ? 'med' : 'low');
+        const fieldCount = (p.fields || []).length;
+        const cpCount = (p.contact_points || []).length;
+        const fieldsHtml = (p.fields || []).map((f, fIdx) => `
+            <div class="be-detail-row">
+                <input type="checkbox" class="be-detail-cb be-field-cb" data-pidx="${idx}" data-fidx="${fIdx}" checked onchange="_beUpdateApplyCount()"/>
+                <div class="be-detail-label">${escapeHtml(f.label)}</div>
+                <div class="be-detail-val">${escapeHtml(String(f.proposed))}</div>
+            </div>
+        `).join('');
+        const cpsHtml = (p.contact_points || []).map((c, cIdx) => `
+            <div class="be-detail-row">
+                <input type="checkbox" class="be-detail-cb be-cp-cb" data-pidx="${idx}" data-cidx="${cIdx}" checked onchange="_beUpdateApplyCount()"/>
+                <div class="be-detail-label">${c.kind === 'email' ? '✉ EMAIL' : '☏ TLF'}</div>
+                <div class="be-detail-val be-detail-cp">
+                    ${escapeHtml(c.value)}
+                    <span class="be-pill-pub">PUB</span>
+                </div>
+            </div>
+        `).join('');
+        return `
+            <div class="be-row" data-pidx="${idx}">
+                <div class="be-row-head" onclick="_beToggleRow(${idx}, event)">
+                    <input type="checkbox" class="be-row-cb be-master-cb" data-pidx="${idx}" checked onclick="event.stopPropagation()" onchange="_beMasterToggle(${idx})"/>
+                    <div>
+                        <div class="be-row-name">${escapeHtml(p.name)}</div>
+                        <div class="be-row-meta">
+                            <span class="be-konf ${konfClass}">${konfPct}%</span>
+                            <span>${escapeHtml(p.kilde || '')}</span>
+                            ${p.cvr ? `<span>· CVR ${p.cvr}</span>` : ''}
+                        </div>
+                    </div>
+                    <div class="be-row-stats">
+                        <strong>${fieldCount}</strong> felt${fieldCount === 1 ? '' : 'er'}<br>
+                        ${cpCount > 0 ? `<strong>${cpCount}</strong> kontaktpkt.` : '—'}
+                    </div>
+                </div>
+                <div class="be-row-detail">
+                    ${fieldCount > 0 ? `
+                        <div class="be-detail-section">
+                            <div class="be-detail-section-h">Felter der udfyldes</div>
+                            ${fieldsHtml}
+                        </div>` : ''}
+                    ${cpCount > 0 ? `
+                        <div class="be-detail-section">
+                            <div class="be-detail-section-h">Nye kontaktpunkter</div>
+                            ${cpsHtml}
+                        </div>` : ''}
+                </div>
+            </div>
+        `;
+    }).join('');
+
+    _beUpdateApplyCount();
+}
+
+function _beToggleRow(idx, event) {
+    if (event && event.target.classList.contains('be-master-cb')) return;
+    const row = document.querySelector(`.be-row[data-pidx="${idx}"]`);
+    row?.classList.toggle('expanded');
+}
+window._beToggleRow = _beToggleRow;
+
+function _beMasterToggle(idx) {
+    const master = document.querySelector(`.be-master-cb[data-pidx="${idx}"]`);
+    const checked = master.checked;
+    document.querySelectorAll(`.be-field-cb[data-pidx="${idx}"], .be-cp-cb[data-pidx="${idx}"]`).forEach(cb => cb.checked = checked);
+    _beUpdateApplyCount();
+}
+window._beMasterToggle = _beMasterToggle;
+
+function beReviewSelectAll(checked) {
+    document.querySelectorAll('.be-master-cb, .be-field-cb, .be-cp-cb').forEach(cb => cb.checked = checked);
+    _beUpdateApplyCount();
+}
+window.beReviewSelectAll = beReviewSelectAll;
+
+function beReviewFilterHigh() {
+    _beProposals.forEach((p, idx) => {
+        const konf = Math.round((p.konfidens || 0) * 100);
+        const include = konf >= 90;
+        const master = document.querySelector(`.be-master-cb[data-pidx="${idx}"]`);
+        if (master) master.checked = include;
+        document.querySelectorAll(`.be-field-cb[data-pidx="${idx}"], .be-cp-cb[data-pidx="${idx}"]`).forEach(cb => cb.checked = include);
+    });
+    _beUpdateApplyCount();
+}
+window.beReviewFilterHigh = beReviewFilterHigh;
+
+function _beUpdateApplyCount() {
+    let companies = 0, fields = 0, cps = 0;
+    _beProposals.forEach((p, idx) => {
+        const fieldChecked = document.querySelectorAll(`.be-field-cb[data-pidx="${idx}"]:checked`).length;
+        const cpChecked = document.querySelectorAll(`.be-cp-cb[data-pidx="${idx}"]:checked`).length;
+        if (fieldChecked + cpChecked > 0) {
+            companies++;
+            fields += fieldChecked;
+            cps += cpChecked;
+            // Sync master-checkbox tilstand
+            const totalSubItems = (p.fields || []).length + (p.contact_points || []).length;
+            const master = document.querySelector(`.be-master-cb[data-pidx="${idx}"]`);
+            if (master) {
+                master.checked = (fieldChecked + cpChecked) > 0;
+                master.indeterminate = (fieldChecked + cpChecked) < totalSubItems && (fieldChecked + cpChecked) > 0;
+            }
+        } else {
+            const master = document.querySelector(`.be-master-cb[data-pidx="${idx}"]`);
+            if (master) {
+                master.checked = false;
+                master.indeterminate = false;
+            }
+        }
+    });
+    const btn = document.getElementById('be-review-apply');
+    if (btn) {
+        btn.textContent = `✓ Anvend valgte (${companies} firmaer · ${fields} felter · ${cps} kontaktpkt.)`;
+        btn.disabled = (fields + cps === 0);
+    }
+}
+window._beUpdateApplyCount = _beUpdateApplyCount;
+
+function beReviewCancel() {
+    if (!confirm('Kassér alle forslag uden at gemme noget?')) return;
+    _beProposals = [];
+    document.getElementById('be-review').style.display = 'none';
+    document.getElementById('be-idle').style.display = '';
+}
+window.beReviewCancel = beReviewCancel;
+
+async function beReviewApply() {
+    const selections = [];
+    _beProposals.forEach((p, idx) => {
+        const fields = [];
+        document.querySelectorAll(`.be-field-cb[data-pidx="${idx}"]:checked`).forEach(cb => {
+            const fIdx = parseInt(cb.dataset.fidx, 10);
+            const f = p.fields[fIdx];
+            if (f) fields.push(f.key);
+        });
+        const cps = [];
+        document.querySelectorAll(`.be-cp-cb[data-pidx="${idx}"]:checked`).forEach(cb => {
+            const cIdx = parseInt(cb.dataset.cidx, 10);
+            const c = p.contact_points[cIdx];
+            if (c) cps.push({ kind: c.kind, value: c.value });
+        });
+        if (fields.length + cps.length > 0) {
+            selections.push({ company_id: p.company_id, fields, contact_points: cps });
+        }
+    });
+    if (selections.length === 0) return;
+
+    const btn = document.getElementById('be-review-apply');
+    btn.disabled = true;
+    btn.textContent = 'Gemmer…';
+
+    try {
+        const r = await applyBatchEnrich(selections);
+        _beProposals = [];
+        document.getElementById('be-review').style.display = 'none';
+        document.getElementById('be-idle').style.display = '';
+        const sumEl = document.getElementById('be-last-summary');
+        sumEl.style.display = '';
+        sumEl.innerHTML = `
+            <strong>✓ Anvendt</strong> — ${r.applied} firma${r.applied === 1 ? '' : 'er'} opdateret ·
+            ${r.fields_updated} felter · ${r.contact_points_created} nye kontaktpunkter
+            ${r.errors > 0 ? `· <span style="color:#b34234">${r.errors} fejl</span>` : ''}
+        `;
+    } catch (err) {
+        alert('Fejl: ' + err.message);
+        btn.disabled = false;
+        _beUpdateApplyCount();
+    }
+}
+window.beReviewApply = beReviewApply;
+
+function _beAttachSse() {
+    if (_beSse) return;
+    _beSse = new EventSource('/api/sse');
+    _beSse.addEventListener('batch_enrich_progress', (e) => {
+        const d = JSON.parse(e.data);
+        document.getElementById('be-prog-ratio').textContent = `${d.current} / ${d.total}`;
+        const pct = Math.round((d.current / d.total) * 100);
+        document.getElementById('be-prog-bar').style.width = pct + '%';
+    });
+    _beSse.addEventListener('batch_enrich_done', (e) => {
+        const d = JSON.parse(e.data);
+        _beShowDone(d);
+        if (_beSse) { _beSse.close(); _beSse = null; }
+    });
+    // Polling-fallback for de aggregerede tal (matched/no_match/fields/cps)
+    // — eventet rummer dem ikke per-firma. Vi henter status hvert 2. sek.
+    const pollId = setInterval(async () => {
+        if (!_beSse) { clearInterval(pollId); return; }
+        try {
+            const s = await fetchBatchEnrichStatus();
+            if (s.summary) {
+                document.getElementById('be-prog-matched').textContent = `${s.summary.matched} berigede`;
+                document.getElementById('be-prog-nomatch').textContent = `${s.summary.no_match} uden match`;
+                document.getElementById('be-prog-fields').textContent = `${s.summary.fields_updated} felter opdateret`;
+                document.getElementById('be-prog-cps').textContent = `${s.summary.contact_points_created} nye kontaktpunkter`;
+            }
+            if (!s.running) clearInterval(pollId);
+        } catch {}
+    }, 2000);
+}
+
+// Tjek ved load om et job allerede kører (fx hvis brugeren genindlæste midt i)
+document.addEventListener('DOMContentLoaded', async () => {
+    try {
+        const s = await fetchBatchEnrichStatus();
+        if (s.running && s.summary) {
+            _beShowRunning(s.summary.total, s.summary.dry_run);
+            _beAttachSse();
+        }
+    } catch {}
 });
 
 // ─── START ───────────────────────────────────────────────

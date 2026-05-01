@@ -1224,3 +1224,31 @@ function fetchCrmCompanies(params = {}) {
 function fetchCrmCompany(id) {
     return apiFetch('/crm/company/' + id);
 }
+
+/* ── BATCH-CVR-BERIGELSE (admin) ────────────────────────────── */
+
+function fetchBatchEnrichStatus() {
+    return apiFetch('/admin/batch-enrich/status');
+}
+
+function startBatchEnrich(opts = {}) {
+    return apiFetch('/admin/batch-enrich', {
+        method: 'POST',
+        body: JSON.stringify(opts),
+    });
+}
+
+function cancelBatchEnrich() {
+    return apiFetch('/admin/batch-enrich/cancel', { method: 'POST' });
+}
+
+function fetchBatchEnrichProposals() {
+    return apiFetch('/admin/batch-enrich/proposals');
+}
+
+function applyBatchEnrich(selections) {
+    return apiFetch('/admin/batch-enrich/apply', {
+        method: 'POST',
+        body: JSON.stringify({ selections }),
+    });
+}
