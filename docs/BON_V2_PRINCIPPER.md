@@ -178,6 +178,36 @@ Moms-konventionen (sektion 6b) regulerer hvordan moms ligger gemt. Denne sektion
 
 Hvert pris-tal i UI skal have moms-basis synligt i samme visuelle blok som tallet. Ikke i tooltip, ikke i help-tekst, ikke nederst på siden.
 
+### De 7 operationelle regler
+
+**Regel 1 — Moms-basis skal være SYNLIG i samme visuelle blok som tallet.**
+- ✅ Acceptabelt: `"23.650 kr (incl moms)"`
+- ✅ Acceptabelt: `"Indbetalinger (incl moms): 23.650 kr"`
+- ✅ Acceptabelt: column-header `"Beløb (ex moms)"` hvor alle rækker arver
+- ❌ IKKE acceptabelt: tooltip eller help-icon der skal hoveres
+- ❌ IKKE acceptabelt: forklaring nederst på siden
+- ❌ IKKE acceptabelt: bare `"23.650 kr"` eller `"Total"`
+
+**Regel 2 — I tabeller arver rækker fra column-header.**
+Hvis kolonnen hedder `"Beløb (ex moms)"`, skal alle tal i kolonnen være ex moms. Bland aldrig basis i samme kolonne.
+
+**Regel 3 — KPI-kort viser basis ved siden af eller under tallet.**
+Ikke i en separat overskrift langt væk. Tallet og basis hører sammen.
+
+**Regel 4 — Når flere basis-typer vises i samme view, gør det klart:**
+- Cashflow: `"Indbetalinger (incl moms)"` + `"Disponibelt (ex moms)"`
+- Bon-detalje: `"Total til kunde (incl moms)"` + `"Pris ex moms"`
+
+**Regel 5 — Labels for "moms-forpligtelse" skal være entydige.**
+- `"Moms"` alene er tvetydigt (er det momsbeløbet eller momsraten?)
+- Brug `"Moms (25%)"` eller `"Moms-forpligtelse"` eller `"Moms til SKAT"`
+
+**Regel 6 — Print/PDF/mail har samme regler som UI.**
+Tilbud, faktura, kvitteringer: hver pris-linje har eksplicit basis.
+
+**Regel 7 — CSV/Excel-eksport: column-headers skal indeholde basis.**
+`total_price` → `total_price_incl_moms` eller dokumentér i README.
+
 ### Konventioner pr. visningstype
 
 | Sted | Default basis | Label |
