@@ -11,12 +11,13 @@ const express = require('express');
 const router  = express.Router();
 
 const { getDb }    = require('../db/database');
-const { handle, logChange, nextBonNumber, nextQuoteNumber, getStatusId, getDefaultLocationId, getBon, getBonLines } = require('../db/helpers');
+const { handle, logChange, nextBonNumber, nextQuoteNumber, getStatusId, getDefaultLocationId, getBon, getBonLines, computeMomsFields } = require('../db/helpers');
 const { broadcast } = require('../shared/sse');
 
 // ─── HELPERS ───────────────────────────────────────────────────────────────
 
 function formatOffer(row) {
+    const moms = computeMomsFields(row.total_price);
     return {
         id: row.id,
         quote_number: row.bon_number,
@@ -31,6 +32,7 @@ function formatOffer(row) {
         delivery_time: row.delivery_time,
         pax: row.pax,
         total_price: row.total_price,
+        ...moms,                                 // total_incl_moms, total_excl_moms, moms_amount
         price_category: row.price_category,
         customer_name: row.customer_name,
         company_name: row.company_name,
@@ -40,11 +42,37 @@ function formatOffer(row) {
     };
 }
 
+/**
+ * recalcTotal — server-autoritativ recalc af tilbud-total fra bon_lines.
+ *
+ * Skriver til total_price (delivery_price tilføjes hvis sat). Frontenden
+ * sender ALDRIG total_price i POST/PATCH — alt går gennem denne funktion.
+ *
+ * UNDTAGELSE — POS/Zettle (planlagt, ikke bygget pr. maj 2026):
+ * Når POS-stien bygges (routes/pos.js eller webhook fra Zettle), skal
+ * dén sandsynligvis SKIPPE recalc og diktere total_price direkte fra
+ * Zettle-kvitteringen — Zettle er den eksterne sandhedskilde, ikke os.
+ * (Ikke relevant for tilbud i dag — tilbud bliver aldrig POS-betalt — men
+ * mønstret holdes konsistent med routes/bons.js recalcBonTotal.)
+ *
+ * Mønster:
+ *   if (payment_type !== 'pos') recalcTotal(db, bonId);
+ *
+ * Ref: docs/Grocy audit/KENDTE_DATABUGS.md — moms-refaktorering, Commit 3 (1. maj 2026)
+ *      verificerede at ingen eksisterende sti sender total_price.
+ *
+ * Quick-fix (Del 5.5 i CLAUDE_TILBUD_PRIS.md): hvis bonnen har en x-Levering-linje
+ * (migreret fra Bon v1), bruges DEN som leverings-bidrag og bons.delivery_price
+ * ignoreres så vi ikke dobbelttæller. Stopper dobbelttælling indtil sync-v1.js
+ * mapper x-Levering til delivery_*-felter og data-migration har ryddet op (Del 5.4).
+ */
 function recalcTotal(db, bonId) {
     const bon = db.prepare('SELECT delivery_price, offer_discount_percent FROM bons WHERE id = ?').get(bonId);
-    const lines = db.prepare('SELECT line_total FROM bon_lines WHERE bon_id = ?').all(bonId);
+    const lines = db.prepare('SELECT line_total, category FROM bon_lines WHERE bon_id = ?').all(bonId);
+    const hasLeveringLine = lines.some(l => l.category === 'x-Levering');
     const linesSum = lines.reduce((s, l) => s + (l.line_total ?? 0), 0);
-    const subtotal = linesSum + (bon.delivery_price ?? 0);
+    const deliveryAdd = hasLeveringLine ? 0 : (bon.delivery_price ?? 0);
+    const subtotal = linesSum + deliveryAdd;
     const discount = bon.offer_discount_percent ? subtotal * (bon.offer_discount_percent / 100) : 0;
     const total = Math.round((subtotal - discount) * 100) / 100;
     db.prepare('UPDATE bons SET total_price = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?').run(total, bonId);
@@ -171,6 +199,7 @@ router.get('/:id', handle((req, res) => {
         pax: bon.pax,
         total_units: bon.total_units,
         total_price: bon.total_price,
+        ...computeMomsFields(bon.total_price),   // total_incl_moms, total_excl_moms, moms_amount
         payment_type: bon.payment_type,
         customer_wishes: bon.customer_wishes,
         invoice_info: bon.invoice_info,

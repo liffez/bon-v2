@@ -1,10 +1,59 @@
 const express = require('express');
 const router  = express.Router();
 const { getDb } = require('../db/database');
-const { handle, logChange, getBon, getBonLines, getStatusId, getDefaultLocationId, nextBonNumber } = require('../db/helpers');
+const { handle, logChange, getBon, getBonLines, getStatusId, getDefaultLocationId, nextBonNumber, computeMomsFields } = require('../db/helpers');
 const { broadcast } = require('../shared/sse');
 const grocy   = require('../services/grocyAdapter');
 // quConvert bruges nu via services/ingredientResolver.js
+
+/**
+ * recalcBonTotal — server-autoritativ recalc af bon-total fra bon_lines.
+ *
+ * Skriver til både total_price og total_with_delivery (delivery_price
+ * tilføjes hvis sat). Frontenden sender ALDRIG total_price i POST/PATCH
+ * — alt går gennem denne funktion.
+ *
+ * UNDTAGELSE — POS/Zettle (planlagt, ikke bygget pr. maj 2026):
+ * Når POS-stien bygges (routes/pos.js eller webhook fra Zettle), skal
+ * dén sandsynligvis SKIPPE recalc og diktere total_price direkte fra
+ * Zettle-kvitteringen — Zettle er den eksterne sandhedskilde, ikke os.
+ *
+ * Mønster:
+ *   if (payment_type !== 'pos') recalcBonTotal(db, bonId);
+ *
+ * Ref: docs/Grocy audit/KENDTE_DATABUGS.md — moms-refaktorering, Commit 3 (1. maj 2026)
+ *      verificerede at ingen eksisterende sti sender total_price.
+ *
+ * Quick-fix (Del 5.5 i CLAUDE_TILBUD_PRIS.md): hvis bonnen har en x-Levering-linje
+ * (migreret fra Bon v1), bruges DEN som leverings-bidrag og bons.delivery_price
+ * ignoreres så vi ikke dobbelttæller. Logger til changelog hvis totalen ændrer sig.
+ */
+function recalcBonTotal(db, bonId, opts = {}) {
+    const bon = db.prepare('SELECT total_price, total_with_delivery, delivery_price, offer_discount_percent FROM bons WHERE id = ?').get(bonId);
+    if (!bon) return null;
+    const lines = db.prepare('SELECT line_total, category FROM bon_lines WHERE bon_id = ?').all(bonId);
+    const hasLeveringLine = lines.some(l => l.category === 'x-Levering');
+    const linesSum = lines.reduce((s, l) => s + (l.line_total ?? 0), 0);
+    const deliveryAdd = hasLeveringLine ? 0 : (bon.delivery_price ?? 0);
+    const subtotal = linesSum + deliveryAdd;
+    const discount = bon.offer_discount_percent ? subtotal * (bon.offer_discount_percent / 100) : 0;
+    const total = Math.round((subtotal - discount) * 100) / 100;
+
+    db.prepare('UPDATE bons SET total_price = ?, total_with_delivery = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?')
+      .run(total, total, bonId);
+
+    // Log spor hvis totalen rykker mere end 1 kr — synligt for brugeren der åbner bonnen senere
+    if (opts.logIfChanged && bon.total_price != null && Math.abs((bon.total_price ?? 0) - total) > 1) {
+        logChange({
+            entityType: 'bon', entityId: bonId,
+            action: 'update', fieldName: 'total_price',
+            oldValue: bon.total_price, newValue: total,
+            notes: 'Auto-recalc',
+            userId: opts.userId ?? null,
+        });
+    }
+    return total;
+}
 
 // ─── GET /api/bons — liste med filter ────────────────────────────────────────
 
@@ -125,7 +174,9 @@ router.get('/', handle((req, res) => {
         LIMIT ? OFFSET ?
     `).all(...args, lim, off);
 
-    res.json(rows);
+    // Tilføj pre-beregnede moms-felter på hver række (frontends må aldrig regne selv)
+    const decorated = rows.map(r => ({ ...r, ...computeMomsFields(r.total_price) }));
+    res.json(decorated);
 }));
 
 // ─── GET /api/bons/:id ──────────────────────────────────────────────────────
@@ -133,7 +184,7 @@ router.get('/', handle((req, res) => {
 router.get('/:id', handle((req, res) => {
     const bon = getBon(parseInt(req.params.id));
     if (!bon) return res.status(404).json({ error: 'Bon ikke fundet' });
-    res.json(bon);
+    res.json({ ...bon, ...computeMomsFields(bon.total_price) });
 }));
 
 // ─── POST /api/bons — opret ny bon ─────────────────────────────────────────
@@ -180,7 +231,9 @@ router.post('/', handle((req, res) => {
         b.delivery_notes ?? null, b.delivery_cost ?? null, b.delivery_price ?? null,
         b.courier_arrival_time ?? null, b.courier_provider ?? null,
         b.pax ?? 0, b.total_units ?? 0, b.boxes ?? null,
-        b.total_price ?? null, b.total_with_delivery ?? null,
+        // total_price + total_with_delivery sættes altid af serveren via recalcBonTotal nedenfor —
+        // klienten må ikke diktere totalen.
+        0, 0,
         b.payment_type ?? null, b.kitchen_selects ? 1 : 0, b.customer_collects ? 1 : 0,
         b.kitchen_info ?? null, b.customer_wishes ?? null,
         b.internal_notes ?? null, b.invoice_info ?? null,
@@ -189,6 +242,9 @@ router.post('/', handle((req, res) => {
     );
 
     logChange({ entityType: 'bon', entityId: result.lastInsertRowid, action: 'create', newValue: bonNumber, userId: b.created_by_user_id });
+    // Server-autoritativ recalc (linjer kan være indsat i samme request via /lines, men typisk ingen endnu)
+    // POS-undtagelse: se kommentar over recalcBonTotal-definitionen
+    recalcBonTotal(getDb(), result.lastInsertRowid);
     const newBon = getBon(result.lastInsertRowid);
     broadcast('bon_created', { id: newBon.id, bon_number: newBon.bon_number });
     res.status(201).json(newBon);
@@ -244,6 +300,11 @@ router.patch('/:id', handle((req, res) => {
                 userId: req.session?.userId ?? null
             });
         }
+    }
+
+    // Hvis felter der påvirker totalen er ændret → recalc server-autoritativt
+    if ('delivery_price' in updates) {
+        recalcBonTotal(db, id, { logIfChanged: true, userId: req.session?.userId ?? null });
     }
 
     broadcast('bon_updated', { id });
@@ -366,6 +427,7 @@ router.post('/:id/lines', handle((req, res) => {
 
     const qty       = l.quantity ?? 1;
     const unitPrice = l.unit_price ?? null;
+    // line_total beregnes altid af serveren — klientens værdi ignoreres
     const lineTotal = (unitPrice != null && qty) ? qty * unitPrice : null;
 
     const maxSort = db.prepare(`SELECT COALESCE(MAX(sort_order), 0) as mx FROM bon_lines WHERE bon_id = ?`).get(bonId).mx;
@@ -387,6 +449,9 @@ router.post('/:id/lines', handle((req, res) => {
     const total = db.prepare(`SELECT COALESCE(SUM(quantity),0) as t FROM bon_lines WHERE bon_id = ? AND (is_accessory = 0 OR is_accessory IS NULL)`).get(bonId).t;
     db.prepare(`UPDATE bons SET total_units = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?`).run(total, bonId);
 
+    // Server-autoritativ recalc af total_price (incl. moms)
+    recalcBonTotal(db, bonId, { logIfChanged: true, userId: l.user_id ?? null });
+
     logChange({ entityType: 'bon', entityId: bonId, action: 'update', fieldName: 'bon_lines', newValue: `tilføjet: ${qty}x ${l.product_name}`, userId: l.user_id ?? null });
     broadcast('bon_updated', { bon_id: bonId });
     res.status(201).json(db.prepare(`SELECT * FROM bon_lines WHERE id = ?`).get(result.lastInsertRowid));
@@ -399,7 +464,8 @@ router.put('/:id/lines/:lid', handle((req, res) => {
     const lineId = parseInt(req.params.lid);
     const l = req.body;
 
-    const allowed = ['product_name', 'category', 'quantity', 'unit', 'cost_price', 'unit_price', 'line_total', 'sort_order', 'is_accessory', 'special_request', 'co2e', 'notes'];
+    // line_total fjernet fra allowed — beregnes altid af serveren ud fra quantity × unit_price
+    const allowed = ['product_name', 'category', 'quantity', 'unit', 'cost_price', 'unit_price', 'sort_order', 'is_accessory', 'special_request', 'co2e', 'notes'];
     const updates = Object.entries(l).filter(([k]) => allowed.includes(k));
     if (!updates.length) return res.status(400).json({ error: 'Ingen gyldige felter' });
 
@@ -407,8 +473,18 @@ router.put('/:id/lines/:lid', handle((req, res) => {
     const vals = updates.map(([, v]) => v);
     db.prepare(`UPDATE bon_lines SET ${sets} WHERE id = ? AND bon_id = ?`).run(...vals, lineId, bonId);
 
+    // Genberegn line_total ud fra de aktuelle værdier (server-autoritativ)
+    const cur = db.prepare(`SELECT quantity, unit_price FROM bon_lines WHERE id = ? AND bon_id = ?`).get(lineId, bonId);
+    if (cur) {
+        const newLineTotal = (cur.unit_price != null && cur.quantity != null) ? cur.quantity * cur.unit_price : null;
+        db.prepare(`UPDATE bon_lines SET line_total = ? WHERE id = ?`).run(newLineTotal, lineId);
+    }
+
     const total = db.prepare(`SELECT COALESCE(SUM(quantity),0) as t FROM bon_lines WHERE bon_id = ? AND (is_accessory = 0 OR is_accessory IS NULL)`).get(bonId).t;
     db.prepare(`UPDATE bons SET total_units = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?`).run(total, bonId);
+
+    // Server-autoritativ recalc af bons.total_price
+    recalcBonTotal(db, bonId, { logIfChanged: true, userId: req.session?.userId ?? null });
 
     res.json(db.prepare(`SELECT * FROM bon_lines WHERE id = ?`).get(lineId));
 }));
@@ -423,6 +499,8 @@ router.delete('/:id/lines/:lid', handle((req, res) => {
     db.prepare(`DELETE FROM bon_lines WHERE id = ?`).run(lineId);
     const total = db.prepare(`SELECT COALESCE(SUM(quantity),0) as t FROM bon_lines WHERE bon_id = ? AND (is_accessory = 0 OR is_accessory IS NULL)`).get(bonId).t;
     db.prepare(`UPDATE bons SET total_units = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?`).run(total, bonId);
+    // Server-autoritativ recalc af bons.total_price
+    recalcBonTotal(db, bonId, { logIfChanged: true, userId: req.session?.userId ?? null });
     logChange({ entityType: 'bon', entityId: bonId, action: 'update', fieldName: 'bon_lines', oldValue: `${line.quantity}x ${line.product_name}`, notes: 'linje slettet' });
     res.json({ deleted: lineId });
 }));
