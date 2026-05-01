@@ -414,6 +414,57 @@
       font-family: inherit;
       margin-top: 6px;
     }
+
+    /* Verify-cards */
+    .merge-verify-card {
+      border: 1px solid var(--color-border);
+      border-radius: 6px;
+      padding: 10px 14px;
+      margin-bottom: 8px;
+    }
+    .merge-verify-h {
+      font-size: 13px;
+      color: var(--color-text);
+      display: flex;
+      gap: 8px;
+      align-items: center;
+      flex-wrap: wrap;
+    }
+    .merge-verify-konf {
+      font-size: 10px;
+      font-weight: 700;
+      padding: 1px 6px;
+      border-radius: 8px;
+      text-transform: uppercase;
+      letter-spacing: 0.04em;
+    }
+    .merge-verify-konf-ok   { background: #cfe2d4; color: #1f4d28; }
+    .merge-verify-konf-warn { background: #f3eee0; color: #806c2f; }
+    .merge-verify-konf-low  { background: #f3e6e3; color: #8a4738; }
+    .merge-verify-grid {
+      margin-top: 6px;
+      display: flex;
+      flex-direction: column;
+      gap: 3px;
+    }
+    .merge-verify-row {
+      display: grid;
+      grid-template-columns: 110px 1fr auto;
+      gap: 10px;
+      font-size: 12px;
+      align-items: baseline;
+    }
+    .merge-verify-lbl {
+      text-transform: uppercase;
+      font-size: 10px;
+      letter-spacing: 0.04em;
+      color: var(--color-text-dim);
+      font-weight: 600;
+    }
+    .merge-verify-val {
+      color: var(--color-text);
+      word-break: break-word;
+    }
   </style>
 </head>
 <body class="zone-office">
@@ -2741,6 +2792,10 @@ function _mergeRenderStep2(preview) {
     step2El.innerHTML = `
         ${summaryHtml}
         ${warningsHtml}
+        <div style="margin:14px 0">
+            <button class="st-btn" id="merge-verify-btn" onclick="mergeVerifyCvr()">🔍 Verificér begge firmaer mod CVR</button>
+            <div id="merge-verify-result" style="margin-top:10px"></div>
+        </div>
         ${conflictsHtml}
         <div style="margin-top:18px">
             <label style="font-size:12px;font-weight:600;color:var(--color-text);display:block;margin-bottom:4px">Valgfri note om denne sammenlægning</label>
@@ -2804,6 +2859,121 @@ function _mergeRenderConflict(c) {
             </div>
         </div>
     `;
+}
+
+async function mergeVerifyCvr() {
+    const btn = document.getElementById('merge-verify-btn');
+    const out = document.getElementById('merge-verify-result');
+    if (!_mergeState.preview) return;
+    btn.disabled = true;
+    btn.textContent = 'Slår op…';
+    out.innerHTML = '';
+
+    const winId = _mergeState.preview.winner.id;
+    const losId = _mergeState.preview.loser.id;
+
+    try {
+        const [winRes, losRes] = await Promise.all([
+            apiFetch('/companies/' + winId + '/enrich-preview').catch(e => ({ error: e.message })),
+            apiFetch('/companies/' + losId + '/enrich-preview').catch(e => ({ error: e.message })),
+        ]);
+
+        out.innerHTML = `
+            ${_mergeRenderVerifyCard('Vinder', _mergeState.preview.winner, winRes)}
+            ${_mergeRenderVerifyCard('Taber',  _mergeState.preview.loser,  losRes)}
+            ${_mergeRenderSameCvrHint(winRes, losRes)}
+        `;
+    } catch (err) {
+        out.innerHTML = `<div style="color:#b34234;font-size:12px">Fejl: ${escapeHtml(err.message)}</div>`;
+    } finally {
+        btn.disabled = false;
+        btn.textContent = '🔍 Verificér igen';
+    }
+}
+window.mergeVerifyCvr = mergeVerifyCvr;
+
+function _mergeRenderVerifyCard(roleLabel, dbCompany, result) {
+    if (result?.error) {
+        return `
+            <div class="merge-verify-card" style="border-color:#f1d98e;background:#faf1e6">
+                <div class="merge-verify-h">${roleLabel}: <strong>${escapeHtml(dbCompany.name)}</strong> ${dbCompany.cvr ? '· CVR ' + dbCompany.cvr : '· uden CVR'}</div>
+                <div style="font-size:12px;color:#6a5410">Opslag fejlede: ${escapeHtml(result.error)}</div>
+            </div>
+        `;
+    }
+
+    if (!result?.found) {
+        return `
+            <div class="merge-verify-card" style="border-color:#f1d98e;background:#faf1e6">
+                <div class="merge-verify-h">${roleLabel}: <strong>${escapeHtml(dbCompany.name)}</strong> ${dbCompany.cvr ? '· CVR ' + dbCompany.cvr : '· uden CVR'}</div>
+                <div style="font-size:12px;color:#6a5410">⚠ Ingen match i CVR/Virk. ${escapeHtml(result?.besked || '')}</div>
+            </div>
+        `;
+    }
+
+    const data = result.diff?.fields || [];
+    const cvrField  = data.find(f => f.key === 'cvr');
+    const nameField = data.find(f => f.key === 'legal_name');
+    const branchField = data.find(f => f.key === 'branch');
+
+    const dbName = dbCompany.name?.toLowerCase().trim() || '';
+    const virkName = (nameField?.proposed || '').toLowerCase().trim();
+    const nameMatch = virkName && (dbName === virkName || dbName.includes(virkName) || virkName.includes(dbName));
+
+    const dbCvr = (dbCompany.cvr || '').replace(/\D/g, '');
+    const virkCvr = (cvrField?.proposed || '').toString().replace(/\D/g, '');
+    const cvrMatch = dbCvr && virkCvr && dbCvr === virkCvr;
+
+    const konfPct = Math.round((result.konfidens || 0) * 100);
+    const konfClass = konfPct >= 90 ? 'ok' : (konfPct >= 75 ? 'warn' : 'low');
+
+    return `
+        <div class="merge-verify-card" style="border-color:#cfe2d4;background:#e3f0e6">
+            <div class="merge-verify-h">
+                ${roleLabel}: <strong>${escapeHtml(dbCompany.name)}</strong> ${dbCompany.cvr ? '· CVR ' + dbCompany.cvr : '· uden CVR'}
+                <span class="merge-verify-konf merge-verify-konf-${konfClass}">${konfPct}%</span>
+            </div>
+            <div style="font-size:12px;color:#1f4d28;margin-top:4px">
+                ✓ Match via ${escapeHtml(result.kilde)}
+            </div>
+            <div class="merge-verify-grid">
+                ${_mergeVerifyRow('CVR (Virk)', virkCvr || '—', dbCvr ? (cvrMatch ? '✓' : '✗ DB ≠ Virk') : '⚠ DB mangler')}
+                ${_mergeVerifyRow('Navn (Virk)', nameField?.proposed || '—', nameMatch ? '✓' : '⚠ DB-navn ≠ Virk-navn')}
+                ${branchField?.proposed ? _mergeVerifyRow('Branche', branchField.proposed, '') : ''}
+            </div>
+        </div>
+    `;
+}
+
+function _mergeVerifyRow(label, virkValue, status) {
+    const statusColor = status.startsWith('✓') ? '#2f6e3f' : (status.startsWith('⚠') ? '#c9742e' : (status.startsWith('✗') ? '#b34234' : 'var(--color-text-dim)'));
+    return `
+        <div class="merge-verify-row">
+            <span class="merge-verify-lbl">${escapeHtml(label)}</span>
+            <span class="merge-verify-val">${escapeHtml(String(virkValue))}</span>
+            ${status ? `<span style="color:${statusColor};font-size:11px;font-weight:600">${escapeHtml(status)}</span>` : '<span></span>'}
+        </div>
+    `;
+}
+
+function _mergeRenderSameCvrHint(winRes, losRes) {
+    const winCvr = winRes?.diff?.fields?.find(f => f.key === 'cvr')?.proposed;
+    const losCvr = losRes?.diff?.fields?.find(f => f.key === 'cvr')?.proposed;
+    if (winCvr && losCvr && String(winCvr) === String(losCvr)) {
+        return `
+            <div style="margin-top:10px;padding:10px 14px;background:#e6eef3;border:1px solid #cfd9e3;border-radius:6px;font-size:12px;color:#3d6a87">
+                ℹ <strong>Begge firmaer slår op til samme CVR i Virk (${escapeHtml(String(winCvr))})</strong> — det er en stærk indikation på at det reelt er samme firma. Sammenlægning anbefales.
+            </div>
+        `;
+    }
+    if (winRes?.found && losRes?.found && winCvr !== losCvr) {
+        return `
+            <div style="margin-top:10px;padding:10px 14px;background:#faf1e6;border:1px solid #f1d98e;border-radius:6px;font-size:12px;color:#6a5410">
+                ⚠ <strong>De to firmaer slår op til forskellige CVR'er i Virk</strong> (${escapeHtml(String(winCvr || '—'))} vs ${escapeHtml(String(losCvr || '—'))}). Måske er de IKKE samme firma. Tjek nøje før du fortsætter.
+            </div>
+        `;
+    }
+    return '';
 }
 
 function mergeBackToStep1() {

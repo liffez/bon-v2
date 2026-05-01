@@ -1252,3 +1252,10 @@ function applyBatchEnrich(selections) {
         body: JSON.stringify({ selections }),
     });
 }
+
+function extractCompanyContacts(companyId, text, sourceUrl) {
+    return apiFetch('/companies/' + companyId + '/extract-contacts', {
+        method: 'POST',
+        body: JSON.stringify({ text, source_url: sourceUrl || null }),
+    });
+}

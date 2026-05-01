@@ -181,6 +181,7 @@ function _f3RenderOversigt(el) {
 
                     <div class="f3-actions">
                         <button class="f3-btn f3-btn-primary" id="f3-enrich-btn">⟳ Berig fra CVR</button>
+                        <button class="f3-btn" id="f3-paste-btn">📋 Tilføj fra kontaktside</button>
                     </div>
                     ${company.last_enriched_at ? `<div class="f3-enriched-note">Sidst beriget ${_f3FormatDate(company.last_enriched_at)} · ${escapeHtml(company.last_enriched_source || 'CVR')}</div>` : ''}
                 </div>
@@ -211,6 +212,7 @@ function _f3RenderOversigt(el) {
 
     // Event-binding
     el.querySelector('#f3-enrich-btn')?.addEventListener('click', _f3OpenEnrich);
+    el.querySelector('#f3-paste-btn')?.addEventListener('click', _f3OpenPaste);
     el.querySelectorAll('.f3-cp-toggle-public').forEach(btn =>
         btn.addEventListener('click', _f3HandleTogglePublic));
     el.querySelectorAll('.f3-cp-delete').forEach(btn =>
@@ -636,6 +638,249 @@ function _f3CloseEnrichModal() {
 
 function _f3HandleEscape(e) {
     if (e.key === 'Escape') _f3CloseEnrichModal();
+}
+
+// ─── PASTE-FLOW (Fase 4: manuel "Tilføj fra kontaktside") ───────
+
+function _f3OpenPaste() {
+    const overlay = document.createElement('div');
+    overlay.className = 'f3-overlay';
+    overlay.innerHTML = `
+        <div class="f3-modal" id="f3-paste-modal" style="max-width:680px">
+            <div class="f3-modal-h">
+                <div>
+                    <h2>📋 Tilføj offentlige kontakter</h2>
+                    <div class="f3-modal-sub">Klistr indhold fra firmaets kontaktside, footer eller "Om os"-side ind.</div>
+                </div>
+                <button class="f3-modal-close" type="button" data-close>×</button>
+            </div>
+            <div class="f3-modal-status">
+                Vi finder emails og telefoner — du vælger hvilke der gemmes som offentlige.
+            </div>
+            <div class="f3-modal-b" id="f3-paste-body">
+                <div style="padding:16px 22px">
+                    <label style="font-size:11px;text-transform:uppercase;letter-spacing:0.04em;color:var(--color-text-dim);font-weight:600;display:block;margin-bottom:4px">
+                        Kilde-URL (valgfrit)
+                    </label>
+                    <input type="url" id="f3-paste-url" placeholder="https://regionh.dk/kontakt"
+                           style="width:100%;padding:8px 12px;border:1px solid var(--color-border, #d7d1ca);border-radius:6px;font-size:13px;font-family:inherit;margin-bottom:14px"/>
+
+                    <label style="font-size:11px;text-transform:uppercase;letter-spacing:0.04em;color:var(--color-text-dim);font-weight:600;display:block;margin-bottom:4px">
+                        Klistret indhold
+                    </label>
+                    <textarea id="f3-paste-text" rows="8" placeholder="Klistr HTML eller tekst her — fx fra kontaktsidens kildekode eller almindelig kopi-indsæt"
+                              style="width:100%;padding:8px 12px;border:1px solid var(--color-border, #d7d1ca);border-radius:6px;font-size:13px;font-family:monospace;resize:vertical"></textarea>
+                </div>
+            </div>
+            <div class="f3-modal-f">
+                <div class="f3-modal-f-info">
+                    Min 50 tegn, max 500 KB
+                </div>
+                <div class="f3-modal-f-actions">
+                    <button class="f3-btn" type="button" data-close>Annullér</button>
+                    <button class="f3-btn f3-btn-primary" type="button" id="f3-paste-find" disabled>Find kontakter →</button>
+                </div>
+            </div>
+        </div>
+    `;
+    document.body.appendChild(overlay);
+    _f3State.modalEl = overlay;
+
+    overlay.addEventListener('click', e => { if (e.target === overlay) _f3CloseEnrichModal(); });
+    overlay.querySelectorAll('[data-close]').forEach(b => b.addEventListener('click', _f3CloseEnrichModal));
+    document.addEventListener('keydown', _f3HandleEscape);
+
+    const textEl = overlay.querySelector('#f3-paste-text');
+    const findBtn = overlay.querySelector('#f3-paste-find');
+    textEl.addEventListener('input', () => {
+        findBtn.disabled = textEl.value.trim().length < 50;
+    });
+    findBtn.addEventListener('click', _f3HandlePasteFind);
+}
+
+async function _f3HandlePasteFind() {
+    const overlay = _f3State.modalEl;
+    if (!overlay) return;
+    const text = overlay.querySelector('#f3-paste-text').value;
+    const url  = overlay.querySelector('#f3-paste-url').value.trim() || null;
+    const findBtn = overlay.querySelector('#f3-paste-find');
+    findBtn.disabled = true;
+    findBtn.textContent = 'Søger…';
+
+    try {
+        const result = await extractCompanyContacts(_f3State.companyId, text, url);
+        _f3RenderPasteResults(result);
+    } catch (err) {
+        _f3ShowToast('Fejl: ' + err.message, 'error');
+        findBtn.disabled = false;
+        findBtn.textContent = 'Find kontakter →';
+    }
+}
+
+function _f3RenderPasteResults(result) {
+    const overlay = _f3State.modalEl;
+    if (!overlay) return;
+    const candidates = result.candidates || [];
+    const stats = result.stats || {};
+
+    if (candidates.length === 0) {
+        overlay.querySelector('#f3-paste-body').innerHTML = `
+            <div class="f3-empty">
+                Ingen emails eller telefoner fundet i indholdet.<br>
+                <span class="f3-muted-sm">Prøv at klistre footer/kontakt-sektion ind hvis indholdet var en lang side.</span>
+            </div>
+        `;
+        overlay.querySelector('.f3-modal-f').innerHTML = `
+            <div class="f3-modal-f-info">Intet at gemme</div>
+            <div class="f3-modal-f-actions">
+                <button class="f3-btn" type="button" data-close>Luk</button>
+            </div>
+        `;
+        overlay.querySelectorAll('[data-close]').forEach(b => b.addEventListener('click', _f3CloseEnrichModal));
+        return;
+    }
+
+    // Grupper kandidater
+    const publics = candidates.filter(c => c.classification === 'public' && !c.already_exists);
+    const unknowns = candidates.filter(c => c.classification === 'unknown' && !c.already_exists);
+    const personals = candidates.filter(c => c.classification === 'personal' && !c.already_exists);
+    const exists = candidates.filter(c => c.already_exists);
+
+    function renderRow(c, idx, defaultChecked) {
+        const icon = c.kind === 'email' ? '✉' : '☏';
+        const valLabel = c.already_exists
+            ? `${escapeHtml(c.value)} <span class="f3-ct-already">— allerede registreret${c.existing_is_public === 1 ? ' (offentlig)' : ' (personlig)'}</span>`
+            : escapeHtml(c.value);
+        const cbAttrs = c.already_exists ? 'disabled' : (defaultChecked ? 'checked' : '');
+        const snippet = c.context_snippet ? `<div class="f3-ct-meta">${escapeHtml(c.context_snippet)}</div>` : '';
+        return `
+            <div class="f3-ct-row ${c.already_exists ? 'exists' : ''}" data-idx="${idx}">
+                <input type="checkbox" class="f3-diff-cb" ${cbAttrs}/>
+                <div class="f3-ct-icon ${c.kind}">${icon}</div>
+                <div>
+                    <div class="f3-ct-value">${valLabel}</div>
+                    ${snippet}
+                </div>
+                <span class="f3-pill f3-pill-pub">PUB</span>
+            </div>
+        `;
+    }
+
+    let html = '';
+    if (publics.length > 0) {
+        html += `
+            <div class="f3-diff-section">
+                <div class="f3-diff-section-h">✓ Foreslået offentlig (${publics.length})</div>
+                ${publics.map(c => renderRow(c, candidates.indexOf(c), true)).join('')}
+            </div>
+        `;
+    }
+    if (unknowns.length > 0) {
+        html += `
+            <div class="f3-diff-section">
+                <div class="f3-diff-section-h">? Ukendt — du vælger (${unknowns.length})</div>
+                ${unknowns.map(c => renderRow(c, candidates.indexOf(c), false)).join('')}
+            </div>
+        `;
+    }
+    if (personals.length > 0) {
+        html += `
+            <div class="f3-diff-section">
+                <div class="f3-diff-section-h">⚠ Ligner personlige (${personals.length}) <span class="lbl-extra">— markér selv hvis offentlige</span></div>
+                ${personals.map(c => renderRow(c, candidates.indexOf(c), false)).join('')}
+            </div>
+        `;
+    }
+    if (exists.length > 0) {
+        html += `
+            <div class="f3-diff-section">
+                <div class="f3-diff-section-h">— Allerede registreret (${exists.length})</div>
+                ${exists.map(c => renderRow(c, candidates.indexOf(c), false)).join('')}
+            </div>
+        `;
+    }
+
+    overlay.querySelector('#f3-paste-body').innerHTML = html;
+
+    const sourceText = result.source_url
+        ? `Kilde: ${escapeHtml(result.source_url)}`
+        : 'Ingen kilde-URL angivet';
+
+    overlay.querySelector('.f3-modal-f').innerHTML = `
+        <div class="f3-modal-f-info">
+            ${stats.total_emails_found || 0} emails + ${stats.total_phones_found || 0} telefoner fundet · ${sourceText}
+        </div>
+        <div class="f3-modal-f-actions">
+            <button class="f3-btn" type="button" data-close>Annullér</button>
+            <button class="f3-btn f3-btn-primary" type="button" id="f3-paste-save">✓ Tilføj valgte</button>
+        </div>
+    `;
+    overlay.querySelectorAll('[data-close]').forEach(b => b.addEventListener('click', _f3CloseEnrichModal));
+
+    // Live count
+    const updateCount = () => {
+        const checked = overlay.querySelectorAll('.f3-ct-row .f3-diff-cb:checked').length;
+        const btn = overlay.querySelector('#f3-paste-save');
+        if (btn) {
+            btn.textContent = checked === 0 ? '✓ Tilføj valgte' : `✓ Tilføj ${checked} valgte`;
+            btn.disabled = checked === 0;
+        }
+    };
+    overlay.querySelectorAll('.f3-ct-row .f3-diff-cb').forEach(cb => cb.addEventListener('change', updateCount));
+    updateCount();
+
+    overlay.querySelector('#f3-paste-save').addEventListener('click', () => _f3HandlePasteSave(candidates, result.source_url));
+}
+
+async function _f3HandlePasteSave(candidates, sourceUrl) {
+    const overlay = _f3State.modalEl;
+    if (!overlay) return;
+    const btn = overlay.querySelector('#f3-paste-save');
+    btn.disabled = true;
+    btn.textContent = 'Gemmer…';
+
+    const selected = [];
+    overlay.querySelectorAll('.f3-ct-row[data-idx]').forEach(row => {
+        const cb = row.querySelector('.f3-diff-cb');
+        if (cb && cb.checked) {
+            const idx = parseInt(row.dataset.idx, 10);
+            const c = candidates[idx];
+            if (c) selected.push(c);
+        }
+    });
+
+    let created = 0, errors = 0;
+    const note = sourceUrl ? `Indsat via paste-flow fra ${sourceUrl}` : 'Indsat via paste-flow';
+    for (const c of selected) {
+        try {
+            await createContactPoint({
+                entity_type: 'company',
+                entity_id: _f3State.companyId,
+                kind: c.kind,
+                value: c.value,
+                source: 'website',
+                is_public: 1,
+                verified_at: new Date().toISOString(),
+                notes: note,
+            });
+            created++;
+        } catch (err) {
+            errors++;
+            console.error('paste-save fejlede for', c.value, err);
+        }
+    }
+
+    _f3CloseEnrichModal();
+    if (created > 0) {
+        _f3ShowToast(`✓ ${created} kontaktpunkt${created === 1 ? '' : 'er'} tilføjet${errors > 0 ? ` (${errors} fejl)` : ''}`, 'success');
+    } else if (errors > 0) {
+        _f3ShowToast(`Fejl: ${errors} kontaktpunkt(er) kunne ikke gemmes`, 'error');
+    }
+
+    // Reload firma + render shell
+    _f3State.data = await fetchCrmCompany(_f3State.companyId);
+    _f3RenderShell();
+    _f3RenderTab(_f3State.tab);
 }
 
 // ─── Toast ──────────────────────────────────────────────────────

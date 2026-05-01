@@ -5,6 +5,7 @@ const { handle, logChange, transaction } = require('../db/helpers');
 const { enrich } = require('../services/cvrEnrichment');
 const { buildCompanyDiff, FIELD_MAP } = require('../services/companyDiff');
 const { syncPrimaryCache, validateContactValue } = require('../shared/contactPoints');
+const { extractContacts } = require('../services/contactExtractor');
 
 // GET /api/companies?q=
 router.get('/', handle((req, res) => {
@@ -253,6 +254,59 @@ router.post('/:id/enrich', handle((req, res) => {
         contact_points_created: cpsCreated,
         contact_points_updated: cpsTouched,
         company: updated,
+    });
+}));
+
+// POST /api/companies/:id/extract-contacts — paste-flow til offentlige kontakter (Fase 4)
+router.post('/:id/extract-contacts', handle((req, res) => {
+    const db = getDb();
+    const id = parseInt(req.params.id, 10);
+    if (!Number.isFinite(id)) return res.status(400).json({ error: 'Ugyldigt firma-id' });
+
+    const company = db.prepare('SELECT id FROM companies WHERE id = ?').get(id);
+    if (!company) return res.status(404).json({ error: 'Firma ikke fundet' });
+
+    const { text, source_url } = req.body || {};
+    if (typeof text !== 'string') {
+        return res.status(400).json({ error: 'text skal være en streng' });
+    }
+    if (text.length < 50) {
+        return res.status(400).json({ error: 'Indhold for kort (mindst 50 tegn)' });
+    }
+    if (text.length > 500 * 1024) {
+        return res.status(413).json({ error: 'Indhold for stort (max 500 KB)' });
+    }
+
+    const result = extractContacts({ text, sourceUrl: source_url });
+    if (!result.ok) {
+        return res.json({ ok: false, source_url: result.source_url, candidates: [], stats: result.stats });
+    }
+
+    // Krydsreferér mod eksisterende contact_points på firmaet
+    const existingCps = db.prepare(`
+        SELECT id, kind, lower(value) AS value, is_public
+          FROM contact_points
+         WHERE entity_type = 'company' AND entity_id = ? AND is_active = 1
+    `).all(id);
+    const existingByKey = new Map();
+    for (const cp of existingCps) existingByKey.set(`${cp.kind}:${cp.value}`, cp);
+
+    const candidates = result.candidates.map(c => {
+        const key = `${c.kind}:${c.value.toLowerCase()}`;
+        const existing = existingByKey.get(key);
+        return {
+            ...c,
+            already_exists: !!existing,
+            existing_id: existing?.id,
+            existing_is_public: existing?.is_public,
+        };
+    });
+
+    res.json({
+        ok: true,
+        source_url: result.source_url,
+        candidates,
+        stats: result.stats,
     });
 }));
 
