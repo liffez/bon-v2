@@ -109,7 +109,8 @@ bon-v2/
 │   ├── goods-receipts.js ← /api/goods-receipts/* (varemodtagelse v3: FVST + lager)
 │   ├── staff.js      ← /api/staff/* (medarbejder-CRUD)
 │   ├── reports.js    ← /api/reports/* (rapporter: summary, monthly, top-customers, categories)
-│   └── cashflow.js   ← /api/cashflow/* (admin-only: CSV-upload, fakturaer, match, analyse)
+│   ├── cashflow.js   ← /api/cashflow/* (admin-only: CSV-upload, fakturaer, match, analyse)
+│   └── embed.js      ← /embed/bestilling, /embed/config, /embed/menus/:id (public, indlejres i WordPress)
 ├── services/
 │   ├── grocyAdapter.js       ← Grocy API adapter med cache + CRUD + consume + barcodes
 │   ├── hokaAdapter.js        ← Hørkram (hoka.dk) API adapter med cookie-jar auth
@@ -1169,6 +1170,41 @@ Oprettes under Grocy → Manage master data → Userfields.
   - Fjernet "timer tilbage"-advarsel
   - Rettet tak-besked
 
+### Embed-bestillingsformular (maj 2026)
+> Spec: `docs/formbuilder/CLAUDE_BESTILLING_FORM.md`
+> Erstatter JotForm på `ristetrug.dk/bestil`. iframe på `bon.ristetrug.dk/embed/bestilling` indlejret via DIVI Code Module.
+
+- [x] Migration 058: 8 `bestilling.*` settings (base-koordinat, cutoff, leveringszoner, menu-JSON som setting)
+- [x] `routes/embed.js` — public endpoints:
+  - `GET /embed/bestilling?menu=<id>` — selve formen (CSP `frame-ancestors` for ristetrug.dk)
+  - `GET /embed/config` — cutoff + leveringszoner + delivery_days + cutoff_days som JSON
+  - `GET /embed/menus/:id.json` — menu fra `settings.bestilling.menu_<id>` (60s cache)
+- [x] `public/embed/bestilling.html` — single-file (~900 linjer), ingen build-step:
+  - Loader CFG fra `/embed/config` + menu fra `/embed/menus/standard.json` ved init
+  - "Sådan virker det" foldout, quick-chips (count + text), inline menu-picker med allergen-toggle
+  - Sandwichvalg med subtekst (Køkkenet blander / Eget valg)
+  - DAWA autocomplete + OSRM-baseret leveringsestimat (fra public/`bestilling (1).html`)
+  - Cutoff-logik: `cutoff_lead_days` tæller kun gennem dage i `cutoff_days` (CSV ugedage); `delivery_days` styrer hvilke ugedage der tager imod levering — så weekend kan slås til/fra som åben dag
+  - Smart-append: struct-header `--- Valgte retter ---` indsættes kun ved fritekst
+  - Strukturet `menu_items: [{id, count}]` sendes parallelt med wishes-tekst (klar til automatisering)
+  - postMessage høj-resizer baseret på `.form-wrap.offsetHeight` (undgår viewport-feedback-loop)
+- [x] `routes/web-orders.js` udvidet:
+  - `buildCustomerWishes(data)` — samler `Sandwichvalg: <label>` + wishes + `[Form: <menu_id> v<version>]`-marker
+  - Modtager `delivery_extra` → `bons.delivery_notes`
+  - `_form_meta` + `menu_items[]` gemmes i `web_orders.raw_data` (JSON)
+  - Bagudkompatibel: nuværende `docs/bestilling (1).html` virker uændret
+- [x] `routes/settings.js` — menu CRUD (admin):
+  - `GET /api/settings/bestilling/menu/:id` — hent menu-JSON
+  - `PUT /api/settings/bestilling/menu/:id` — gem med validering (duplikat-check, kategori-FK, auto-bump version)
+- [x] `settings/index.html` — Bestilling — Menu sektion (admin):
+  - Kategorier: redigér id/navn, op/ned, slet (advarsel ved tilknyttede items), opret
+  - Items grupperet per kategori: navn, tags-checkboxes (vegan/veg/gf/fisk/kød), allergens-tekstfelt, aktiv-toggle, op/ned, slet, opret
+  - Klient-side validering inden gem; toast på success/fejl
+  - JSON forhåndsvisning (foldout)
+- [x] `docs/wordpress_divi_snippet.html` — kopier-klar HTML til DIVI Code Module
+- [x] `public/embed/test-harness.html` — lokal WordPress-mock til iframe-test
+- [x] End-to-end verificeret: form → webhook → bon med korrekt sandwichvalg + chips + valgte retter + form-meta + menu_items i raw_data
+
 ### Mail-skabelon management (april 2026)
 - [x] `routes/mail.js` — 2 nye endpoints:
   - `POST /api/mail/templates` — opret ny skabelon (admin, key-validering, duplikat-check)
@@ -1335,9 +1371,11 @@ Oprettes under Grocy → Manage master data → Userfields.
 
 ## Næste opgave
 
-> ✏️ Opdateret 28. april 2026.
+> ✏️ Opdateret 3. maj 2026.
 >
-> **Fase 1a–1e + 3A + 3B + 3D + 4 + 5 + 6 (komplet inkl. 6g) + 7 (CRM) + Office CRM redesign + 8 (Fakturering) + 9 (Tilbud) + Mail-vedhæftninger + CRM service-kald + Firma-oprydning + 10 (Mobil Shell) + 10b (Roller & Rettigheder) + 11 (Ugeoversigt) + Priser i planlægningsbon + Hjælpesystem + Whiteboard Sidekick + Web-bestillinger (webhook) + Mail-skabelon management + 12 (Rapporter) + PIN-management + CVR-berigelse (653/1232 firmaer) + 13 (Cashflow) + Mail chat-boble layout komplet.**
+> **Fase 1a–1e + 3A + 3B + 3D + 4 + 5 + 6 (komplet inkl. 6g) + 7 (CRM) + Office CRM redesign + 8 (Fakturering) + 9 (Tilbud) + Mail-vedhæftninger + CRM service-kald + Firma-oprydning + 10 (Mobil Shell) + 10b (Roller & Rettigheder) + 11 (Ugeoversigt) + Priser i planlægningsbon + Hjælpesystem + Whiteboard Sidekick + Web-bestillinger (webhook) + Mail-skabelon management + 12 (Rapporter) + PIN-management + CVR-berigelse (653/1232 firmaer) + 13 (Cashflow) + Mail chat-boble layout + Embed-bestillingsformular komplet.**
+>
+> **Embed-bestilling: KOMPLET.** Erstatter JotForm på `ristetrug.dk/bestil`. iframe på `bon.ristetrug.dk/embed/bestilling` med config + menu hentet live fra `settings`-tabellen. Foldout, quick-chips, inline menu-picker med allergen-toggle, sandwichvalg-subtekst, DAWA-autocomplete, OSRM-leveringsestimat, smart cutoff-logik (per-ugedag delivery_days + cutoff_days), postMessage høj-resizer. Webhook bagudkompatibel — gamle formularer fortsætter med at virke. Strukturerede `menu_items[]` sendes parallelt med tekst (klar til automatisering). Settings-UI til menu-redigering (kategorier, tags, allergener) — ingen WordPress-redeploy ved ændringer. Næste skridt: Leif erstatter JotForm-iframe i DIVI med snippet fra `docs/wordpress_divi_snippet.html`.
 >
 > **Fase 14 — Booking-modul: KOMPLET (alle 14 milepæle).** End-to-end booking-flow verificeret fra sælger-mail → kunde-klik → submit → bekræftelse → reminder-cron. Sælgere kan indsætte personligt booking-link i CRM Kunde 360° fritekst-mail. Admins kan konfigurere alt via Settings (mødetyper, kontaktårsager, slot-logik, default-ejer, erindringsindstillinger, intro/thankyou-tekster). Cron-script `scripts/booking-reminders.js` kører hver hele time og sender erindringsmail N dage før møder. Hardening: usædvanlig token-aktivitet logges. Bon v2's booking-modul er klar til deploy.
 >
@@ -1347,8 +1385,9 @@ Oprettes under Grocy → Manage master data → Userfields.
 > - DMI API-nøgle (vejr på dashboards) — Leif finder frem til eksisterende nøgle (Open-Meteo bruges midlertidigt)
 > - ~~Bon v1-datamigration~~ — sync-v1.js kører dagligt via cron, CVR-beriget
 > - Byekspressen credentials — ryk sebastian@by-expressen.dk
-> - ~~Formbuilder webhook-URL + HTML til ristetrug.dk/bestil~~ — webhook klar (`POST /webhook/bestilling`), formular i `docs/bestilling (1).html`
-> - Formbuilder (`docs/formbuilder.html`): tilpas output til nyt felt-format (`first_name`, `email` i stedet for `f2`, `f3`) + fjern `x-webhook-secret` header. Integrér i Bon v2 admin/settings som formular-editor
+> - ~~Formbuilder webhook-URL + HTML til ristetrug.dk/bestil~~ — embed-formular klar på `bon.ristetrug.dk/embed/bestilling`, indlejres via DIVI Code Module (snippet i `docs/wordpress_divi_snippet.html`)
+> - **Embed-bestilling deploy**: Leif erstatter JotForm-iframe i WordPress DIVI med snippet'et fra `docs/wordpress_divi_snippet.html`. Ingen WordPress-redeploy nødvendig ved menu-ændringer derefter — alt styres fra Settings → Bestilling — Menu.
+> - Formbuilder field-type-engine (`grocy_product_picker`, `chip_group`, `info_box`, `option_group`): erstatter den hardcodede `embed/bestilling.html` med rigtige field-types. Spec skrives separat. Ikke akut — den nuværende embed-form fungerer indtil videre.
 > - ~~Whiteboard API URL~~ — `WHITEBOARD_BASE_URL` i `.env`, Sidekick henter via `/api/sidekick/config`
 > - Whiteboard CORS: tilføj `https://bon.ristetrug.dk` til `ALLOWED_ORIGINS` i Whiteboard's `.env` ved deploy
 > - ~~Hørkram credentials~~ — `HOKA_USERNAME` + `HOKA_PASSWORD` sat i `.env`
@@ -1806,6 +1845,11 @@ GET    /api/sidekick/config                                routes/sidekick.js
 POST   /api/mail/templates                                  routes/mail.js (admin, opret)
 DELETE /api/mail/templates/:key                             routes/mail.js (admin, slet)
 POST   /webhook/bestilling                                 routes/web-orders.js (public, CORS)
+GET    /embed/bestilling?menu=                             routes/embed.js (public, CSP frame-ancestors)
+GET    /embed/config                                       routes/embed.js (public)
+GET    /embed/menus/:id.json                               routes/embed.js (public, 60s cache)
+GET    /api/settings/bestilling/menu/:id                   routes/settings.js (admin)
+PUT    /api/settings/bestilling/menu/:id                   routes/settings.js (admin, validér + auto-bump version)
 GET    /api/web-orders?status=                             routes/web-orders.js
 GET    /api/reports/summary                                routes/reports.js
 GET    /api/reports/monthly                                routes/reports.js

@@ -1,0 +1,1600 @@
+<!DOCTYPE html>
+<html lang="da">
+<head>
+<meta charset="UTF-8">
+<title>Bon v2 · Plan i morgen v2</title>
+<link href="https://fonts.googleapis.com/css2?family=Lato:wght@400;700;900&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
+<style>
+:root {
+    --brand-primary: #8e631f;
+    --brand-primary-light: #f1e6b2;
+    --color-surface: #ffffff;
+    --color-background: #f5f4f2;
+    --color-border: #d7d1ca;
+    --color-text: #333333;
+    --color-text-dim: #8a8580;
+    --color-text-very-dim: #b8b4ae;
+    --color-green-dark: #7a9c54;
+    --color-warn: #e8a832;
+    --color-warn-bg: #fef5e0;
+    --color-error: #bc181b;
+    --color-error-bg: #fef0f0;
+
+    /* Vehicle colors */
+    --vh-volvo: #6a4a18;
+    --vh-bike: #7594b3;
+    --vh-taxi: #4a4a4a;
+    --vh-own-bike: #5a8c7a;
+}
+
+* { box-sizing: border-box; margin: 0; padding: 0; }
+html, body { height: 100%; overflow: hidden; }
+
+body {
+    font-family: 'Lato', sans-serif;
+    color: var(--color-text);
+    font-size: 14px;
+    background: var(--color-background);
+    -webkit-font-smoothing: antialiased;
+}
+
+/* ════════ SHELL ════════ */
+.shell {
+    display: grid;
+    grid-template-columns: 200px 1fr;
+    height: 100vh;
+}
+
+/* ════════ SIDEBAR ════════ */
+.sidebar {
+    background: var(--color-text);
+    color: white;
+    display: flex;
+    flex-direction: column;
+}
+.sidebar-brand {
+    padding: 16px;
+    font-weight: 900;
+    font-size: 18px;
+    border-bottom: 1px solid rgba(255,255,255,0.1);
+}
+.sidebar-brand .accent { color: var(--brand-primary-light); }
+.sidebar-nav {
+    flex: 1;
+    padding: 8px;
+    overflow-y: auto;
+}
+.sidebar-item {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    padding: 9px 12px;
+    border-radius: 6px;
+    color: rgba(255,255,255,0.65);
+    cursor: pointer;
+    margin-bottom: 1px;
+    font-size: 13px;
+}
+.sidebar-item:hover { background: rgba(255,255,255,0.05); color: white; }
+.sidebar-item.active {
+    background: var(--brand-primary);
+    color: white;
+}
+.sidebar-item svg { width: 16px; height: 16px; flex-shrink: 0; }
+
+/* ════════ MAIN ════════ */
+.main {
+    display: flex;
+    flex-direction: column;
+    overflow: hidden;
+}
+
+/* ════════ TOPBAR ════════ */
+.topbar {
+    background: var(--color-surface);
+    border-bottom: 1px solid var(--color-border);
+    padding: 10px 20px;
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    flex-shrink: 0;
+}
+.topbar-title {
+    font-size: 17px;
+    font-weight: 900;
+}
+.topbar-subtitle {
+    font-size: 12px;
+    color: var(--color-text-dim);
+}
+.topbar-spacer { flex: 1; }
+
+.date-nav {
+    display: flex;
+    align-items: center;
+    background: var(--color-background);
+    border: 1px solid var(--color-border);
+    border-radius: 8px;
+    overflow: hidden;
+}
+.date-nav button {
+    width: 32px; height: 32px;
+    background: transparent;
+    border: 0;
+    cursor: pointer;
+    color: var(--color-text-dim);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+}
+.date-nav button:hover { background: var(--brand-primary-light); color: var(--brand-primary); }
+.date-nav button svg { width: 16px; height: 16px; }
+.date-nav-label {
+    padding: 0 14px;
+    font-weight: 700;
+    font-size: 13px;
+    border-left: 1px solid var(--color-border);
+    border-right: 1px solid var(--color-border);
+    height: 32px;
+    display: flex;
+    align-items: center;
+    min-width: 130px;
+    justify-content: center;
+}
+
+.btn {
+    height: 32px;
+    padding: 0 12px;
+    border-radius: 6px;
+    font-family: inherit;
+    font-size: 13px;
+    font-weight: 700;
+    border: 1px solid var(--color-border);
+    background: var(--color-surface);
+    cursor: pointer;
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    color: var(--color-text);
+}
+.btn:hover { border-color: var(--brand-primary); }
+.btn svg { width: 14px; height: 14px; }
+.btn.primary {
+    background: var(--brand-primary);
+    color: white;
+    border-color: var(--brand-primary);
+}
+.btn.primary:hover { background: #6d4c14; }
+
+/* ════════ WORKBENCH (responsive 3-col) ════════ */
+.workbench {
+    flex: 1;
+    display: grid;
+    grid-template-columns: 320px 1fr 360px;
+    overflow: hidden;
+}
+@media (max-width: 1500px) {
+    .workbench { grid-template-columns: 290px 1fr 330px; }
+}
+@media (max-width: 1280px) {
+    .workbench { grid-template-columns: 260px 1fr 300px; }
+}
+
+/* ════════ KOLONNE 1: BONS ════════ */
+.col-bons {
+    border-right: 1px solid var(--color-border);
+    background: var(--color-surface);
+    display: flex;
+    flex-direction: column;
+    overflow: hidden;
+}
+
+.col-header {
+    padding: 12px 14px;
+    border-bottom: 1px solid var(--color-border);
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    flex-shrink: 0;
+    background: var(--color-surface);
+}
+.col-title {
+    font-size: 13px;
+    font-weight: 900;
+}
+.col-count {
+    font-size: 11px;
+    color: var(--color-text-dim);
+    background: var(--color-background);
+    padding: 2px 8px;
+    border-radius: 10px;
+    font-weight: 700;
+}
+
+.bons-search {
+    padding: 8px 10px;
+    border-bottom: 1px solid var(--color-border);
+}
+.search-input {
+    width: 100%;
+    height: 30px;
+    border: 1px solid var(--color-border);
+    border-radius: 6px;
+    padding: 0 10px;
+    font-family: inherit;
+    font-size: 13px;
+    background: var(--color-background);
+}
+
+.bons-list {
+    flex: 1;
+    overflow-y: auto;
+    padding: 8px;
+}
+
+.bon-card {
+    background: var(--color-surface);
+    border: 1px solid var(--color-border);
+    border-radius: 8px;
+    padding: 9px 10px;
+    margin-bottom: 6px;
+    cursor: grab;
+    transition: all 0.1s;
+    position: relative;
+}
+.bon-card:hover {
+    border-color: var(--brand-primary);
+    box-shadow: 0 2px 6px rgba(0,0,0,0.05);
+}
+.bon-card.dragging { opacity: 0.4; }
+.bon-card.assigned {
+    opacity: 0.5;
+    cursor: default;
+    background: var(--color-background);
+}
+.bon-card.assigned:hover { box-shadow: none; border-color: var(--color-border); }
+
+.bon-card-row1 {
+    display: flex;
+    justify-content: space-between;
+    align-items: baseline;
+    margin-bottom: 3px;
+}
+.bon-num {
+    font-weight: 900;
+    font-size: 14px;
+}
+.bon-time {
+    font-size: 11px;
+    color: var(--color-text-dim);
+}
+.bon-time strong { color: var(--color-text); }
+.bon-customer {
+    font-size: 13px;
+    font-weight: 700;
+    margin-bottom: 2px;
+    color: var(--color-text);
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+.bon-address {
+    font-size: 11px;
+    color: var(--color-text-dim);
+    line-height: 1.3;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+.bon-meta {
+    display: flex;
+    gap: 4px;
+    margin-top: 6px;
+    flex-wrap: wrap;
+    align-items: center;
+}
+.bon-chip {
+    font-size: 10px;
+    font-weight: 700;
+    padding: 2px 6px;
+    border-radius: 3px;
+    background: var(--color-background);
+    color: var(--color-text-dim);
+    text-transform: uppercase;
+    letter-spacing: 0.3px;
+    white-space: nowrap;
+}
+.bon-chip.boxes {
+    background: var(--brand-primary-light);
+    color: var(--brand-primary);
+}
+.bon-chip.suggested {
+    background: #e8eef5;
+    color: var(--color-text-dim);
+    border: 1px dashed #b8c5d4;
+}
+.bon-chip.assigned-vh {
+    color: white;
+    border: 0;
+}
+.bon-chip.assigned-vh.volvo { background: var(--vh-volvo); }
+.bon-chip.assigned-vh.bike { background: var(--vh-bike); }
+.bon-chip.assigned-vh.taxi { background: var(--vh-taxi); }
+.bon-chip.assigned-vh.own-bike { background: var(--vh-own-bike); }
+
+.bon-vh-icon {
+    width: 12px; height: 12px;
+    display: inline-flex;
+    align-items: center;
+    margin-right: 3px;
+    vertical-align: middle;
+}
+
+/* ════════ KOLONNE 2: KORT ════════ */
+.col-map {
+    background: var(--color-background);
+    position: relative;
+    overflow: hidden;
+}
+#map { height: 100%; width: 100%; }
+
+.map-overlay-legend {
+    position: absolute;
+    top: 12px;
+    right: 12px;
+    background: var(--color-surface);
+    border: 1px solid var(--color-border);
+    border-radius: 8px;
+    padding: 10px 12px;
+    font-size: 11px;
+    z-index: 1000;
+    box-shadow: 0 2px 8px rgba(0,0,0,0.08);
+}
+.map-overlay-legend-title {
+    font-weight: 900;
+    font-size: 11px;
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+    color: var(--color-text-dim);
+    margin-bottom: 6px;
+}
+.legend-row {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    margin: 3px 0;
+}
+.legend-dot {
+    width: 22px; height: 22px;
+    border-radius: 50%;
+    color: white;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    border: 2px solid white;
+    box-shadow: 0 1px 2px rgba(0,0,0,0.2);
+}
+.legend-dot svg { width: 12px; height: 12px; }
+
+/* ════════ KORT-MARKØRER ════════ */
+.bon-marker {
+    width: 30px; height: 30px;
+    border-radius: 50%;
+    color: white;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    border: 2px solid white;
+    box-shadow: 0 2px 6px rgba(0,0,0,0.35);
+    position: relative;
+}
+.bon-marker svg { width: 14px; height: 14px; }
+.bon-marker .seq-badge {
+    position: absolute;
+    top: -4px;
+    right: -4px;
+    background: white;
+    color: var(--color-text);
+    font-size: 10px;
+    font-weight: 900;
+    width: 16px;
+    height: 16px;
+    border-radius: 50%;
+    border: 1.5px solid;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+}
+
+/* ════════ KOLONNE 3: TURE ════════ */
+.col-routes {
+    border-left: 1px solid var(--color-border);
+    background: var(--color-surface);
+    display: flex;
+    flex-direction: column;
+    overflow: hidden;
+}
+
+.routes-list {
+    flex: 1;
+    overflow-y: auto;
+    padding: 8px;
+}
+
+.route-card {
+    background: var(--color-surface);
+    border: 1px solid var(--color-border);
+    border-radius: 10px;
+    margin-bottom: 8px;
+    overflow: hidden;
+}
+.route-card.dragover {
+    border-color: var(--brand-primary);
+    background: var(--brand-primary-light);
+}
+.route-card.warning { border-color: var(--color-warn); }
+.route-card.error { border-color: var(--color-error); }
+
+.route-header {
+    padding: 10px 12px;
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    border-bottom: 1px solid var(--color-border);
+}
+.route-vehicle-icon {
+    width: 32px; height: 32px;
+    border-radius: 50%;
+    color: white;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    flex-shrink: 0;
+    border: 2px solid white;
+    box-shadow: 0 1px 3px rgba(0,0,0,0.2);
+}
+.route-vehicle-icon.volvo { background: var(--vh-volvo); }
+.route-vehicle-icon.bike { background: var(--vh-bike); }
+.route-vehicle-icon.taxi { background: var(--vh-taxi); }
+.route-vehicle-icon.own-bike { background: var(--vh-own-bike); }
+.route-vehicle-icon svg { width: 16px; height: 16px; }
+
+.route-name {
+    font-weight: 900;
+    font-size: 13px;
+    flex: 1;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+.route-meta {
+    font-size: 11px;
+    color: var(--color-text-dim);
+}
+.route-status-badge {
+    font-size: 9px;
+    font-weight: 900;
+    padding: 2px 6px;
+    border-radius: 3px;
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+    white-space: nowrap;
+}
+.route-status-badge.draft {
+    background: var(--color-background);
+    color: var(--color-text-dim);
+    border: 1px solid var(--color-border);
+}
+.route-status-badge.computed {
+    background: #fef9eb;
+    color: #8a6500;
+}
+.route-status-badge.confirmed {
+    background: #e8f4dd;
+    color: var(--color-green-dark);
+}
+
+/* Pickup banner — én pickup-tid for hele turen */
+.route-pickup-banner {
+    padding: 8px 12px;
+    background: var(--color-text);
+    color: white;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    font-size: 11px;
+}
+.route-pickup-banner-label {
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+    opacity: 0.6;
+    font-size: 10px;
+}
+.route-pickup-banner-time {
+    font-weight: 900;
+    font-size: 16px;
+    margin-left: 6px;
+}
+.route-pickup-banner-boxes {
+    background: var(--brand-primary);
+    color: white;
+    padding: 3px 10px;
+    border-radius: 12px;
+    font-weight: 900;
+    font-size: 11px;
+}
+.route-pickup-banner.warning .route-pickup-banner-boxes {
+    background: var(--color-warn);
+    color: #5d4500;
+}
+
+.route-stops {
+    padding: 4px;
+    min-height: 40px;
+}
+.route-stop {
+    display: flex;
+    align-items: stretch;
+    gap: 8px;
+    padding: 7px 8px;
+    border-radius: 6px;
+    cursor: grab;
+}
+.route-stop:hover { background: var(--color-background); }
+.route-stop-seq {
+    width: 22px; height: 22px;
+    border-radius: 50%;
+    background: var(--brand-primary);
+    color: white;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-weight: 900;
+    font-size: 11px;
+    flex-shrink: 0;
+    margin-top: 1px;
+}
+.route-stop-info { flex: 1; min-width: 0; }
+.route-stop-name {
+    font-weight: 700;
+    font-size: 12px;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+.route-stop-time {
+    font-size: 11px;
+    color: var(--color-text-dim);
+    margin-top: 1px;
+}
+.route-stop-time .eta { font-weight: 700; color: var(--color-text); }
+.route-stop-distance {
+    font-size: 10px;
+    color: var(--color-text-very-dim);
+    margin-top: 1px;
+}
+.route-stop.warning .route-stop-time { color: var(--color-warn); }
+.route-stop.warning .route-stop-time .eta { color: #b87a00; }
+.route-stop.error .route-stop-time { color: var(--color-error); }
+.route-stop.error .route-stop-time .eta { color: var(--color-error); }
+.route-stop-warn-icon {
+    width: 14px; height: 14px;
+    flex-shrink: 0;
+    margin-top: 4px;
+    color: var(--color-warn);
+}
+.route-stop.error .route-stop-warn-icon { color: var(--color-error); }
+
+.route-stop-remove {
+    width: 22px; height: 22px;
+    border-radius: 4px;
+    background: transparent;
+    border: 0;
+    color: var(--color-text-dim);
+    cursor: pointer;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    opacity: 0;
+    transition: opacity 0.15s;
+    flex-shrink: 0;
+    margin-top: 1px;
+}
+.route-stop:hover .route-stop-remove { opacity: 1; }
+.route-stop-remove:hover { background: var(--color-error-bg); color: var(--color-error); }
+.route-stop-remove svg { width: 12px; height: 12px; }
+
+.route-empty {
+    padding: 14px;
+    text-align: center;
+    font-size: 11px;
+    color: var(--color-text-dim);
+    border: 2px dashed var(--color-border);
+    border-radius: 6px;
+    margin: 4px;
+}
+
+.route-summary {
+    padding: 8px 12px;
+    background: var(--color-background);
+    font-size: 11px;
+    color: var(--color-text-dim);
+    border-top: 1px solid var(--color-border);
+    display: flex;
+    flex-direction: column;
+    gap: 3px;
+}
+.route-summary-row {
+    display: flex;
+    justify-content: space-between;
+    align-items: baseline;
+}
+.route-summary strong { color: var(--color-text); }
+.route-cost {
+    color: var(--color-text-dim);
+    font-style: italic;
+}
+.route-cost strong { font-style: normal; }
+
+.route-actions {
+    padding: 8px;
+    display: flex;
+    gap: 4px;
+    border-top: 1px solid var(--color-border);
+}
+.route-action-btn {
+    flex: 1;
+    height: 28px;
+    border-radius: 5px;
+    border: 1px solid var(--color-border);
+    background: var(--color-surface);
+    font-family: inherit;
+    font-size: 11px;
+    font-weight: 700;
+    cursor: pointer;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 4px;
+    color: var(--color-text);
+}
+.route-action-btn:hover { border-color: var(--brand-primary); }
+.route-action-btn svg { width: 12px; height: 12px; }
+.route-action-btn.compute {
+    background: var(--brand-primary);
+    color: white;
+    border-color: var(--brand-primary);
+}
+.route-action-btn.compute:hover { background: #6d4c14; }
+
+/* Add route dropdown */
+.add-route-wrap {
+    position: relative;
+    margin: 4px 8px 8px;
+}
+.add-route-btn {
+    width: 100%;
+    height: 36px;
+    border: 2px dashed var(--color-border);
+    background: transparent;
+    border-radius: 8px;
+    color: var(--color-text-dim);
+    font-family: inherit;
+    font-size: 12px;
+    font-weight: 700;
+    cursor: pointer;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 6px;
+}
+.add-route-btn:hover {
+    border-color: var(--brand-primary);
+    color: var(--brand-primary);
+    background: var(--brand-primary-light);
+}
+.add-route-btn svg { width: 14px; height: 14px; }
+
+.add-route-menu {
+    display: none;
+    position: absolute;
+    bottom: 100%;
+    left: 0;
+    right: 0;
+    margin-bottom: 4px;
+    background: var(--color-surface);
+    border: 1px solid var(--color-border);
+    border-radius: 8px;
+    box-shadow: 0 4px 16px rgba(0,0,0,0.1);
+    overflow: hidden;
+    z-index: 10;
+}
+.add-route-menu.show { display: block; }
+.add-route-menu-item {
+    padding: 10px 12px;
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    cursor: pointer;
+    font-size: 13px;
+    font-weight: 700;
+    border-bottom: 1px solid var(--color-background);
+}
+.add-route-menu-item:last-child { border-bottom: 0; }
+.add-route-menu-item:hover { background: var(--color-background); }
+.add-route-menu-item .vh-dot {
+    width: 22px; height: 22px;
+    border-radius: 50%;
+    color: white;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    flex-shrink: 0;
+}
+.add-route-menu-item .vh-dot svg { width: 12px; height: 12px; }
+.add-route-menu-item .vh-dot.volvo { background: var(--vh-volvo); }
+.add-route-menu-item .vh-dot.bike { background: var(--vh-bike); }
+.add-route-menu-item .vh-dot.taxi { background: var(--vh-taxi); }
+.add-route-menu-item .vh-dot.own-bike { background: var(--vh-own-bike); }
+
+/* ════════ VROOM PROPOSAL MODAL ════════ */
+.proposal-modal-backdrop {
+    position: fixed;
+    inset: 0;
+    background: rgba(0,0,0,0.4);
+    z-index: 2000;
+    display: none;
+    align-items: center;
+    justify-content: center;
+}
+.proposal-modal-backdrop.active { display: flex; }
+.proposal-modal {
+    background: var(--color-surface);
+    border-radius: 12px;
+    width: 580px;
+    max-height: 80vh;
+    display: flex;
+    flex-direction: column;
+    box-shadow: 0 20px 60px rgba(0,0,0,0.3);
+}
+.proposal-modal-header {
+    padding: 14px 18px;
+    border-bottom: 1px solid var(--color-border);
+}
+.proposal-modal-title {
+    font-size: 15px;
+    font-weight: 900;
+}
+.proposal-modal-subtitle {
+    font-size: 12px;
+    color: var(--color-text-dim);
+    margin-top: 2px;
+}
+.proposal-modal-body {
+    padding: 14px 18px;
+    overflow-y: auto;
+}
+.proposal-section {
+    margin-bottom: 14px;
+}
+.proposal-section-title {
+    font-size: 11px;
+    font-weight: 900;
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+    color: var(--color-text-dim);
+    margin-bottom: 6px;
+}
+.proposal-row {
+    display: flex;
+    align-items: flex-start;
+    gap: 10px;
+    padding: 8px 12px;
+    background: var(--color-background);
+    border-radius: 6px;
+    margin-bottom: 4px;
+    font-size: 13px;
+}
+.proposal-row.warning { background: var(--color-warn-bg); }
+.proposal-row.error { background: var(--color-error-bg); }
+.proposal-row-icon {
+    width: 18px; height: 18px;
+    flex-shrink: 0;
+    color: var(--color-text-dim);
+    margin-top: 2px;
+}
+.proposal-row.warning .proposal-row-icon { color: var(--color-warn); }
+.proposal-row.error .proposal-row-icon { color: var(--color-error); }
+.proposal-row-content { flex: 1; line-height: 1.5; }
+.proposal-row strong { font-weight: 900; }
+.proposal-row-detail {
+    font-size: 11px;
+    color: var(--color-text-dim);
+    margin-top: 2px;
+}
+.proposal-row.warning .proposal-row-detail { color: #8a6500; }
+.proposal-row.error .proposal-row-detail { color: var(--color-error); }
+.proposal-arrow { color: var(--color-text-very-dim); margin: 0 4px; }
+.proposal-old { text-decoration: line-through; color: var(--color-text-dim); }
+.proposal-new { color: var(--brand-primary); font-weight: 700; }
+
+.sequence-list {
+    display: flex;
+    align-items: center;
+    gap: 4px;
+    flex-wrap: wrap;
+    padding: 8px 12px;
+    background: var(--color-background);
+    border-radius: 6px;
+    font-size: 13px;
+    font-weight: 700;
+}
+.sequence-list .arrow { color: var(--color-text-dim); }
+.sequence-bon {
+    background: var(--brand-primary);
+    color: white;
+    padding: 2px 8px;
+    border-radius: 4px;
+    font-size: 12px;
+}
+
+.proposal-modal-footer {
+    padding: 10px 18px;
+    border-top: 1px solid var(--color-border);
+    display: flex;
+    gap: 8px;
+    justify-content: flex-end;
+}
+.proposal-modal-footer .btn {
+    height: 36px;
+    padding: 0 14px;
+    font-size: 13px;
+}
+
+/* Toast */
+.toast {
+    position: fixed;
+    bottom: 20px;
+    left: 50%;
+    transform: translateX(-50%);
+    background: var(--color-text);
+    color: white;
+    padding: 10px 18px;
+    border-radius: 24px;
+    font-size: 13px;
+    font-weight: 700;
+    z-index: 3000;
+    opacity: 0;
+    pointer-events: none;
+    transition: opacity 0.2s;
+}
+.toast.show { opacity: 1; }
+.toast.error { background: var(--color-error); }
+.toast.success { background: var(--color-green-dark); }
+</style>
+</head>
+<body>
+
+<div class="shell">
+
+    <!-- SIDEBAR -->
+    <aside class="sidebar">
+        <div class="sidebar-brand"><span class="accent">🍞</span> Bon v2</div>
+        <nav class="sidebar-nav">
+            <div class="sidebar-item">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="3" width="18" height="18" rx="2"/><line x1="3" y1="9" x2="21" y2="9"/></svg>
+                Dashboard
+            </div>
+            <div class="sidebar-item">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/></svg>
+                Bons
+            </div>
+            <div class="sidebar-item">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/></svg>
+                CRM
+            </div>
+            <div class="sidebar-item active">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 10c0 7-9 13-9 13s-9-6-9-13a9 9 0 0 1 18 0z"/><circle cx="12" cy="10" r="3"/></svg>
+                Logistik
+            </div>
+            <div class="sidebar-item">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M6 2L3 6v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2V6l-3-4z"/></svg>
+                Køkken
+            </div>
+            <div class="sidebar-item">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="9" cy="21" r="1"/><circle cx="20" cy="21" r="1"/><path d="M1 1h4l2.7 13.4a2 2 0 0 0 2 1.6h9.7a2 2 0 0 0 2-1.6L23 6H6"/></svg>
+                Indkøb
+            </div>
+            <div class="sidebar-item">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="4" width="18" height="18" rx="2"/></svg>
+                Vagtplan
+            </div>
+            <div class="sidebar-item">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/></svg>
+                Fakturering
+            </div>
+        </nav>
+    </aside>
+
+    <!-- MAIN -->
+    <div class="main">
+
+        <!-- TOPBAR -->
+        <header class="topbar">
+            <div>
+                <div class="topbar-title">Logistik · Plan i morgen</div>
+                <div class="topbar-subtitle">Træk bons til en tur · Beregn med VROOM · Bekræft</div>
+            </div>
+            <div class="topbar-spacer"></div>
+
+            <div class="date-nav">
+                <button title="Forrige"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><polyline points="15 18 9 12 15 6"/></svg></button>
+                <div class="date-nav-label">Fre. 1. maj 2026</div>
+                <button title="Næste"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><polyline points="9 18 15 12 9 6"/></svg></button>
+            </div>
+
+            <button class="btn">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></svg>
+                I dag
+            </button>
+
+            <button class="btn primary" id="btn-confirm-all">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="20 6 9 17 4 12"/></svg>
+                Bekræft plan
+            </button>
+        </header>
+
+        <!-- WORKBENCH -->
+        <div class="workbench">
+
+            <!-- KOL 1 -->
+            <section class="col-bons">
+                <div class="col-header">
+                    <div class="col-title">Bons til levering</div>
+                    <div class="col-count" id="bons-count">5/8</div>
+                </div>
+                <div class="bons-search">
+                    <input type="text" class="search-input" placeholder="Søg…">
+                </div>
+                <div class="bons-list" id="bons-list"></div>
+            </section>
+
+            <!-- KOL 2 -->
+            <section class="col-map">
+                <div id="map"></div>
+                <div class="map-overlay-legend">
+                    <div class="map-overlay-legend-title">Køretøjer</div>
+                    <div class="legend-row">
+                        <div class="legend-dot" style="background: var(--brand-primary)">
+                            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M3 12l9-9 9 9M5 10v10h4v-6h6v6h4V10"/></svg>
+                        </div>
+                        <span>HQ (Køkken)</span>
+                    </div>
+                    <div class="legend-row">
+                        <div class="legend-dot" style="background: var(--vh-volvo)">
+                            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M5 17h14M5 17a2 2 0 1 0 4 0M19 17a2 2 0 1 0 0-4M5 17l-1-7h16l1 7M4 10l1-3h14l1 3"/></svg>
+                        </div>
+                        <span>Volvo</span>
+                    </div>
+                    <div class="legend-row">
+                        <div class="legend-dot" style="background: var(--vh-bike)">
+                            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><circle cx="6" cy="17" r="3"/><circle cx="18" cy="17" r="3"/><path d="M6 17l4-9h4l4 9M10 8l1-3h3"/></svg>
+                        </div>
+                        <span>By-expressen</span>
+                    </div>
+                    <div class="legend-row">
+                        <div class="legend-dot" style="background: var(--vh-own-bike)">
+                            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><circle cx="6" cy="17" r="3"/><circle cx="18" cy="17" r="3"/><path d="M6 17l4-9h4l4 9M10 8l1-3h3"/></svg>
+                        </div>
+                        <span>Egen cykel</span>
+                    </div>
+                    <div class="legend-row">
+                        <div class="legend-dot" style="background: var(--vh-taxi)">
+                            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><rect x="3" y="11" width="18" height="8" rx="2"/><path d="M7 11V7a2 2 0 0 1 2-2h6a2 2 0 0 1 2 2v4"/></svg>
+                        </div>
+                        <span>Taxa</span>
+                    </div>
+                    <div class="legend-row">
+                        <div class="legend-dot" style="background: var(--color-text-dim)">
+                            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><circle cx="12" cy="12" r="3"/></svg>
+                        </div>
+                        <span>Ikke planlagt</span>
+                    </div>
+                </div>
+            </section>
+
+            <!-- KOL 3 -->
+            <section class="col-routes">
+                <div class="col-header">
+                    <div class="col-title">Ture</div>
+                    <div class="col-count" id="routes-count">4 ture</div>
+                </div>
+                <div class="routes-list" id="routes-list"></div>
+                <div class="add-route-wrap">
+                    <div class="add-route-menu" id="add-route-menu">
+                        <div class="add-route-menu-item" onclick="addRoute('volvo')">
+                            <div class="vh-dot volvo"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M5 17h14M5 17a2 2 0 1 0 4 0M19 17a2 2 0 1 0 0-4M5 17l-1-7h16l1 7M4 10l1-3h14l1 3"/></svg></div>
+                            Volvo
+                        </div>
+                        <div class="add-route-menu-item" onclick="addRoute('bike')">
+                            <div class="vh-dot bike"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><circle cx="6" cy="17" r="3"/><circle cx="18" cy="17" r="3"/><path d="M6 17l4-9h4l4 9M10 8l1-3h3"/></svg></div>
+                            By-expressen
+                        </div>
+                        <div class="add-route-menu-item" onclick="addRoute('own-bike')">
+                            <div class="vh-dot own-bike"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><circle cx="6" cy="17" r="3"/><circle cx="18" cy="17" r="3"/><path d="M6 17l4-9h4l4 9M10 8l1-3h3"/></svg></div>
+                            Egen cykel
+                        </div>
+                        <div class="add-route-menu-item" onclick="addRoute('taxi')">
+                            <div class="vh-dot taxi"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><rect x="3" y="11" width="18" height="8" rx="2"/><path d="M7 11V7a2 2 0 0 1 2-2h6a2 2 0 0 1 2 2v4"/></svg></div>
+                            Taxa
+                        </div>
+                    </div>
+                    <button class="add-route-btn" onclick="toggleAddMenu(event)">
+                        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>
+                        Ny tur
+                    </button>
+                </div>
+            </section>
+
+        </div>
+    </div>
+</div>
+
+<!-- VROOM PROPOSAL MODAL -->
+<div class="proposal-modal-backdrop" id="proposal-modal">
+    <div class="proposal-modal">
+        <div class="proposal-modal-header">
+            <div class="proposal-modal-title" id="proposal-title">Ruteforslag</div>
+            <div class="proposal-modal-subtitle" id="proposal-subtitle">VROOM har optimeret rækkefølge og foreslår justeringer</div>
+        </div>
+        <div class="proposal-modal-body" id="proposal-body"></div>
+        <div class="proposal-modal-footer">
+            <button class="btn" onclick="closeProposal()">Annullér</button>
+            <button class="btn primary" onclick="acceptProposal()">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="20 6 9 17 4 12"/></svg>
+                Acceptér
+            </button>
+        </div>
+    </div>
+</div>
+
+<div class="toast" id="toast"></div>
+
+<script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+<script>
+// ═══════════════ DATA ═══════════════
+const HQ = { lat: 55.6905, lng: 12.5510 };
+
+// Vehicle config (in real system: fra delivery_vehicles tabel)
+const VEHICLE_CONFIG = {
+    volvo: { label: 'Volvo Duett', max_boxes: 30, base_cost: 0, cost_per_km: 4 },
+    bike: { label: 'By-expressen', max_boxes: 4, base_cost: 100, extra_box_cost: 50, included_boxes: 2, max_distance_km: 8 },
+    'own-bike': { label: 'Egen cykel', max_boxes: 4, base_cost: 0, max_distance_km: 8 },
+    taxi: { label: 'Taxa', max_boxes: 8, base_cost: 136, cost_per_km: 19 }
+};
+
+const KITCHEN_CAPACITY_BOXES = 12; // max kasser ved samme pickup-tid
+
+const bonsData = [
+    { id: 3447, customer: 'Hansen Advokater', address: 'Åbenrå 34, 1124 Kbh K', delivery_time: '12:30', original_pickup: '11:45', boxes: 4, pax: 20, lat: 55.6815, lng: 12.5775, suggested: 'volvo', assigned: 'volvo-1' },
+    { id: 3437, customer: 'Café Nordvest', address: 'Thorvaldsensvej 40, Frb', delivery_time: '11:30', original_pickup: '10:45', boxes: 2, pax: 10, lat: 55.6798, lng: 12.5410, suggested: 'bike', assigned: null },
+    { id: 3425, customer: 'Nordnet Bank', address: 'Bredgade 45, 1260 Kbh K', delivery_time: '12:30', original_pickup: '11:30', boxes: 6, pax: 40, lat: 55.6855, lng: 12.5895, suggested: 'volvo', assigned: 'volvo-1' },
+    { id: 3448, customer: 'Café Bistro', address: 'Ryesgade 27A, 2200 Kbh N', delivery_time: '14:00', original_pickup: '13:00', boxes: 3, pax: 50, lat: 55.6962, lng: 12.5615, suggested: 'volvo', assigned: 'volvo-1' },
+    { id: 3450, customer: 'Tech Studio', address: 'Klerkegade 6, 1308 Kbh K', delivery_time: '12:00', original_pickup: '11:15', boxes: 2, pax: 12, lat: 55.6845, lng: 12.5810, suggested: 'bike', assigned: 'bike-1' },
+    { id: 3451, customer: 'Liljens Kvt', address: 'Liljens Kvt 2, Albertslund', delivery_time: '13:00', original_pickup: '12:00', boxes: 4, pax: 30, lat: 55.6580, lng: 12.3520, suggested: 'taxi', assigned: 'taxi-1' },
+    { id: 3452, customer: 'Carlsberg HQ', address: 'Pasteursvej 16, Kbh V', delivery_time: '12:00', original_pickup: '11:15', boxes: 1, pax: 6, lat: 55.6663, lng: 12.5413, suggested: 'bike', assigned: null },
+    { id: 3453, customer: 'DR Byen', address: 'Emil Holms Kanal 20', delivery_time: '11:45', original_pickup: '11:00', boxes: 2, pax: 16, lat: 55.6580, lng: 12.5860, suggested: 'bike', assigned: null }
+];
+
+const routesData = [
+    {
+        id: 'volvo-1', vehicle_type: 'volvo', name: 'Volvo · tur 1', driver: 'Leif',
+        status: 'computed', pickup_time: '11:35',
+        stops: [
+            { bon_id: 3447, eta: '11:55', dist_from_prev: 4.2, time_from_prev: 12, warning: false, error: false },
+            { bon_id: 3425, eta: '12:25', dist_from_prev: 1.4, time_from_prev: 6, warning: false, error: false },
+            { bon_id: 3448, eta: '13:50', dist_from_prev: 3.6, time_from_prev: 18, warning: true, error: false }
+        ],
+        total_km: 18.5, total_min: 72, est_cost: 75
+    },
+    {
+        id: 'bike-1', vehicle_type: 'bike', name: 'By-expressen #1', driver: 'Eksternt',
+        status: 'draft', pickup_time: '11:00',
+        stops: [
+            { bon_id: 3450, eta: '11:30', dist_from_prev: 1.5, time_from_prev: 8, warning: false, error: false }
+        ],
+        total_km: 1.5, total_min: 8, est_cost: 100
+    },
+    {
+        id: 'bike-2', vehicle_type: 'bike', name: 'By-expressen #2', driver: 'Eksternt',
+        status: 'draft', pickup_time: null,
+        stops: [],
+        total_km: 0, total_min: 0, est_cost: 0
+    },
+    {
+        id: 'taxi-1', vehicle_type: 'taxi', name: 'Taxa · 12:00', driver: 'El-Taxa, ekstern',
+        status: 'draft', pickup_time: '12:00',
+        stops: [
+            { bon_id: 3451, eta: '12:55', dist_from_prev: 18.0, time_from_prev: 32, warning: false, error: false }
+        ],
+        total_km: 18.0, total_min: 32, est_cost: 478
+    }
+];
+
+let nextRouteId = 100;
+
+// ═══════════════ HELPERS ═══════════════
+function getBonById(id) { return bonsData.find(b => b.id === id); }
+function getRouteById(id) { return routesData.find(r => r.id === id); }
+
+function vhSvg(type) {
+    const icons = {
+        volvo: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M5 17h14M5 17a2 2 0 1 0 4 0M19 17a2 2 0 1 0 0-4M5 17l-1-7h16l1 7M4 10l1-3h14l1 3"/></svg>',
+        bike: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><circle cx="6" cy="17" r="3"/><circle cx="18" cy="17" r="3"/><path d="M6 17l4-9h4l4 9M10 8l1-3h3"/></svg>',
+        'own-bike': '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><circle cx="6" cy="17" r="3"/><circle cx="18" cy="17" r="3"/><path d="M6 17l4-9h4l4 9M10 8l1-3h3"/></svg>',
+        taxi: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><rect x="3" y="11" width="18" height="8" rx="2"/><path d="M7 11V7a2 2 0 0 1 2-2h6a2 2 0 0 1 2 2v4"/></svg>'
+    };
+    return icons[type] || '';
+}
+
+function vhColor(type) {
+    return ({ volvo: '#6a4a18', bike: '#7594b3', 'own-bike': '#5a8c7a', taxi: '#4a4a4a' })[type] || '#8a8580';
+}
+
+function vhLabel(type) {
+    return ({ volvo: 'Volvo', bike: 'By-expressen', 'own-bike': 'Egen cykel', taxi: 'Taxa' })[type] || type;
+}
+
+function totalBoxesForRoute(r) {
+    return r.stops.reduce((sum, s) => sum + (getBonById(s.bon_id)?.boxes || 0), 0);
+}
+
+function pickupConflicts() {
+    // Find ture med samme pickup_time hvor sum boxes > capacity
+    const grouped = {};
+    routesData.forEach(r => {
+        if (!r.pickup_time || r.stops.length === 0) return;
+        if (!grouped[r.pickup_time]) grouped[r.pickup_time] = [];
+        grouped[r.pickup_time].push(r);
+    });
+    const conflicts = {};
+    Object.keys(grouped).forEach(time => {
+        const routes = grouped[time];
+        const total = routes.reduce((s, r) => s + totalBoxesForRoute(r), 0);
+        if (total > KITCHEN_CAPACITY_BOXES) {
+            conflicts[time] = { total, routes };
+        }
+    });
+    return conflicts;
+}
+
+// ═══════════════ RENDER BONS ═══════════════
+function renderBons() {
+    const list = document.getElementById('bons-list');
+    list.innerHTML = '';
+    let unassigned = 0;
+    bonsData.forEach(b => {
+        if (!b.assigned) unassigned++;
+        const route = b.assigned ? getRouteById(b.assigned) : null;
+        const card = document.createElement('div');
+        card.className = 'bon-card' + (b.assigned ? ' assigned' : '');
+        card.draggable = !b.assigned;
+        card.dataset.bonId = b.id;
+
+        const chipsHtml = !b.assigned
+            ? `<span class="bon-chip suggested">Forslag: ${vhLabel(b.suggested)}</span>`
+            : `<span class="bon-chip assigned-vh ${route.vehicle_type}"><span class="bon-vh-icon">${vhSvg(route.vehicle_type)}</span>${vhLabel(route.vehicle_type)}</span>`;
+
+        card.innerHTML = `
+            <div class="bon-card-row1">
+                <span class="bon-num">#${b.id}</span>
+                <span class="bon-time">lev. <strong>${b.delivery_time}</strong></span>
+            </div>
+            <div class="bon-customer">${b.customer}</div>
+            <div class="bon-address">${b.address}</div>
+            <div class="bon-meta">
+                <span class="bon-chip boxes">${b.boxes} ks</span>
+                <span class="bon-chip">${b.pax} pax</span>
+                ${chipsHtml}
+            </div>
+        `;
+
+        if (!b.assigned) {
+            card.addEventListener('dragstart', (e) => {
+                card.classList.add('dragging');
+                e.dataTransfer.setData('bon-id', b.id);
+            });
+            card.addEventListener('dragend', () => card.classList.remove('dragging'));
+        }
+        list.appendChild(card);
+    });
+    document.getElementById('bons-count').textContent = `${bonsData.length - unassigned}/${bonsData.length} planlagt`;
+}
+
+// ═══════════════ RENDER ROUTES ═══════════════
+function renderRoutes() {
+    const list = document.getElementById('routes-list');
+    list.innerHTML = '';
+    const conflicts = pickupConflicts();
+
+    routesData.forEach(r => {
+        const card = document.createElement('div');
+        const hasWarning = r.stops.some(s => s.warning);
+        const hasError = r.stops.some(s => s.error);
+        card.className = 'route-card' + (hasError ? ' error' : hasWarning ? ' warning' : '');
+        card.dataset.routeId = r.id;
+
+        const totalBoxes = totalBoxesForRoute(r);
+        const statusBadge = {
+            draft: '<span class="route-status-badge draft">Kladde</span>',
+            computed: '<span class="route-status-badge computed">Beregnet</span>',
+            confirmed: '<span class="route-status-badge confirmed">Bekræftet</span>'
+        }[r.status];
+
+        const pickupConflict = r.pickup_time && conflicts[r.pickup_time];
+        const pickupBannerHtml = r.stops.length > 0 && r.pickup_time
+            ? `<div class="route-pickup-banner ${pickupConflict ? 'warning' : ''}">
+                 <span><span class="route-pickup-banner-label">Afgang/pickup</span><span class="route-pickup-banner-time">${r.pickup_time}</span></span>
+                 <span class="route-pickup-banner-boxes">${totalBoxes} kasser klar</span>
+               </div>`
+            : '';
+
+        const stopsHtml = r.stops.length === 0
+            ? `<div class="route-empty">Træk bons hertil</div>`
+            : r.stops.map((s, i) => {
+                const bon = getBonById(s.bon_id);
+                if (!bon) return '';
+                const stopClass = s.error ? 'error' : s.warning ? 'warning' : '';
+                const warnIcon = (s.warning || s.error)
+                    ? `<svg class="route-stop-warn-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M10.29 3.86L1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z"/><line x1="12" y1="9" x2="12" y2="13"/><line x1="12" y1="17" x2="12.01" y2="17"/></svg>` : '';
+                const distLabel = i === 0 ? `${s.dist_from_prev} km fra HQ · ${s.time_from_prev} min`
+                                          : `${s.dist_from_prev} km · ${s.time_from_prev} min fra forrige`;
+                return `
+                    <div class="route-stop ${stopClass}" draggable="true">
+                        <div class="route-stop-seq">${i + 1}</div>
+                        <div class="route-stop-info">
+                            <div class="route-stop-name">#${bon.id} · ${bon.customer}</div>
+                            <div class="route-stop-time">ETA <span class="eta">${s.eta}</span> · lev. ${bon.delivery_time}</div>
+                            <div class="route-stop-distance">${distLabel}</div>
+                        </div>
+                        ${warnIcon}
+                        <button class="route-stop-remove" onclick="removeStop('${r.id}', ${bon.id})" title="Fjern">
+                            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
+                        </button>
+                    </div>
+                `;
+            }).join('');
+
+        const summaryHtml = r.stops.length > 0 ? `
+            <div class="route-summary">
+                <div class="route-summary-row">
+                    <span><strong>${r.stops.length}</strong> stop · <strong>${totalBoxes}</strong> kasser</span>
+                    <span><strong>${r.total_km}</strong> km · <strong>${r.total_min}</strong> min</span>
+                </div>
+                <div class="route-summary-row">
+                    <span class="route-cost">ca. <strong>${r.est_cost} kr</strong> kostpris</span>
+                </div>
+            </div>
+        ` : '';
+
+        card.innerHTML = `
+            <div class="route-header">
+                <div class="route-vehicle-icon ${r.vehicle_type}">${vhSvg(r.vehicle_type)}</div>
+                <div style="flex:1; min-width:0">
+                    <div class="route-name">${r.name}</div>
+                    <div class="route-meta">${r.driver}</div>
+                </div>
+                ${statusBadge}
+            </div>
+            ${pickupBannerHtml}
+            <div class="route-stops" data-route-id="${r.id}">
+                ${stopsHtml}
+            </div>
+            ${summaryHtml}
+            <div class="route-actions">
+                <button class="route-action-btn compute" onclick="computeRoute('${r.id}')">
+                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><polyline points="22 12 18 12 15 21 9 3 6 12 2 12"/></svg>
+                    Beregn rute
+                </button>
+                <button class="route-action-btn">
+                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"/><path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"/></svg>
+                    Rediger
+                </button>
+                <button class="route-action-btn" onclick="deleteRoute('${r.id}')">
+                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="3 6 5 6 21 6"/><path d="M19 6l-2 14a2 2 0 0 1-2 2H9a2 2 0 0 1-2-2L5 6"/></svg>
+                </button>
+            </div>
+        `;
+
+        // Drop targets
+        card.addEventListener('dragover', (e) => { e.preventDefault(); card.classList.add('dragover'); });
+        card.addEventListener('dragleave', () => card.classList.remove('dragover'));
+        card.addEventListener('drop', (e) => {
+            e.preventDefault();
+            card.classList.remove('dragover');
+            const bonId = parseInt(e.dataTransfer.getData('bon-id'));
+            assignBon(bonId, r.id);
+        });
+
+        list.appendChild(card);
+    });
+
+    document.getElementById('routes-count').textContent = `${routesData.length} ture`;
+}
+
+// ═══════════════ INTERAKTIONER ═══════════════
+function assignBon(bonId, routeId) {
+    const bon = getBonById(bonId);
+    const route = getRouteById(routeId);
+    if (!bon || !route || bon.assigned) return;
+    bon.assigned = routeId;
+    route.stops.push({ bon_id: bonId, eta: '?', dist_from_prev: '?', time_from_prev: '?', warning: false, error: false });
+    route.status = 'draft';
+    renderBons(); renderRoutes(); refreshMap();
+    showToast(`#${bonId} → ${route.name}`, 'success');
+}
+
+function removeStop(routeId, bonId) {
+    const route = getRouteById(routeId);
+    const bon = getBonById(bonId);
+    if (!route || !bon) return;
+    route.stops = route.stops.filter(s => s.bon_id !== bonId);
+    bon.assigned = null;
+    route.status = 'draft';
+    renderBons(); renderRoutes(); refreshMap();
+    showToast(`#${bonId} fjernet`);
+}
+
+function deleteRoute(routeId) {
+    const route = getRouteById(routeId);
+    if (!route) return;
+    if (route.stops.length > 0) {
+        if (!confirm(`Slet ${route.name} med ${route.stops.length} stop?`)) return;
+        route.stops.forEach(s => {
+            const bon = getBonById(s.bon_id);
+            if (bon) bon.assigned = null;
+        });
+    }
+    routesData.splice(routesData.indexOf(route), 1);
+    renderBons(); renderRoutes(); refreshMap();
+    showToast('Tur slettet');
+}
+
+function addRoute(type) {
+    const id = type + '-' + (++nextRouteId);
+    const name = type === 'volvo' ? `Volvo · tur ${routesData.filter(r => r.vehicle_type === 'volvo').length + 1}`
+              : type === 'bike' ? `By-expressen #${routesData.filter(r => r.vehicle_type === 'bike').length + 1}`
+              : type === 'own-bike' ? `Egen cykel ${routesData.filter(r => r.vehicle_type === 'own-bike').length + 1}`
+              : `Taxa ${routesData.filter(r => r.vehicle_type === 'taxi').length + 1}`;
+    routesData.push({
+        id, vehicle_type: type, name, driver: type === 'volvo' || type === 'own-bike' ? 'Tildel...' : 'Eksternt',
+        status: 'draft', pickup_time: null, stops: [],
+        total_km: 0, total_min: 0, est_cost: 0
+    });
+    document.getElementById('add-route-menu').classList.remove('show');
+    renderRoutes();
+    showToast(`${name} oprettet`);
+}
+
+function toggleAddMenu(e) {
+    e.stopPropagation();
+    document.getElementById('add-route-menu').classList.toggle('show');
+}
+document.addEventListener('click', () => {
+    document.getElementById('add-route-menu').classList.remove('show');
+});
+
+function computeRoute(routeId) {
+    const route = getRouteById(routeId);
+    if (!route || route.stops.length === 0) {
+        showToast('Tilføj stop først', 'error');
+        return;
+    }
+    if (routeId === 'volvo-1') {
+        showProposal(route);
+    } else {
+        route.status = 'computed';
+        if (!route.pickup_time) {
+            const earliest = Math.min(...route.stops.map(s => {
+                const b = getBonById(s.bon_id);
+                return parseInt(b.delivery_time.replace(':', ''));
+            }));
+            route.pickup_time = String(Math.floor(earliest / 100)).padStart(2, '0') + ':' + String((earliest % 100) - 30).padStart(2, '0');
+            // simple approx
+        }
+        renderRoutes();
+        showToast('Rute beregnet · ingen ændringer foreslået', 'success');
+    }
+}
+
+// ═══════════════ PROPOSAL ═══════════════
+let activeProposal = null;
+
+function showProposal(route) {
+    activeProposal = route.id;
+    document.getElementById('proposal-title').textContent = `Ruteforslag · ${route.name}`;
+
+    const seqHtml = `
+        <div class="sequence-list">
+            <span class="sequence-bon">HQ</span>
+            <span class="arrow">→</span>
+            <span class="sequence-bon">#3447</span>
+            <span class="arrow">→</span>
+            <span class="sequence-bon">#3425</span>
+            <span class="arrow">→</span>
+            <span class="sequence-bon">#3448</span>
+            <span class="arrow">→</span>
+            <span class="sequence-bon">HQ</span>
+        </div>
+    `;
+
+    const body = `
+        <div class="proposal-section">
+            <div class="proposal-section-title">📍 Optimal rækkefølge</div>
+            ${seqHtml}
+        </div>
+
+        <div class="proposal-section">
+            <div class="proposal-section-title">🕒 Pickup-tid for hele turen</div>
+            <div class="proposal-row">
+                <svg class="proposal-row-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></svg>
+                <div class="proposal-row-content">
+                    Afgang fra HQ: <strong>11:35</strong>
+                    <div class="proposal-row-detail">
+                        Køkkenet skal have alle <strong>13 kasser</strong> klar kl. 11:35. Beregnet baglæns fra seneste levering (#3448 kl. 14:00).
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <div class="proposal-section">
+            <div class="proposal-section-title">📝 Justeringer på bons</div>
+            <div class="proposal-row">
+                <svg class="proposal-row-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="20 6 9 17 4 12"/></svg>
+                <div class="proposal-row-content">
+                    <strong>#3447</strong> · pickup uændret <span class="proposal-arrow">·</span> <span class="proposal-new">11:35</span>
+                </div>
+            </div>
+            <div class="proposal-row">
+                <svg class="proposal-row-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="20 6 9 17 4 12"/></svg>
+                <div class="proposal-row-content">
+                    <strong>#3425</strong> · <span class="proposal-old">11:30</span> <span class="proposal-arrow">→</span> <span class="proposal-new">11:35</span>
+                    <div class="proposal-row-detail">5 min senere — fælles afgang. 55 min buffer til levering.</div>
+                </div>
+            </div>
+            <div class="proposal-row">
+                <svg class="proposal-row-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="20 6 9 17 4 12"/></svg>
+                <div class="proposal-row-content">
+                    <strong>#3448</strong> · <span class="proposal-old">13:00</span> <span class="proposal-arrow">→</span> <span class="proposal-new">11:35</span>
+                    <div class="proposal-row-detail">85 min tidligere pickup. Kasser klar samtidig med øvrige stop.</div>
+                </div>
+            </div>
+        </div>
+
+        <div class="proposal-section">
+            <div class="proposal-section-title">⚠ Advarsler</div>
+            <div class="proposal-row warning">
+                <svg class="proposal-row-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M10.29 3.86L1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z"/><line x1="12" y1="9" x2="12" y2="13"/></svg>
+                <div class="proposal-row-content">
+                    <strong>#3448</strong> · stramt timing
+                    <div class="proposal-row-detail">ETA 13:50 · deadline 14:00 · kun 10 min buffer. Overvej rækkefølge eller separat tur.</div>
+                </div>
+            </div>
+        </div>
+    `;
+    document.getElementById('proposal-body').innerHTML = body;
+    document.getElementById('proposal-modal').classList.add('active');
+}
+
+function acceptProposal() {
+    const route = getRouteById(activeProposal);
+    if (!route) return;
+    route.status = 'computed';
+    route.pickup_time = '11:35';
+    closeProposal();
+    renderBons(); renderRoutes();
+    showToast('Rute opdateret · pickup-tider justeret på 1 bon', 'success');
+}
+
+function closeProposal() {
+    document.getElementById('proposal-modal').classList.remove('active');
+}
+
+function showToast(msg, type) {
+    const t = document.getElementById('toast');
+    t.textContent = msg;
+    t.className = 'toast show' + (type ? ' ' + type : '');
+    setTimeout(() => t.classList.remove('show'), 2200);
+}
+
+// ═══════════════ MAP ═══════════════
+let map, markers = [], routeLines = [];
+
+function initMap() {
+    map = L.map('map').setView([55.685, 12.55], 12);
+    L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+        attribution: '© OpenStreetMap', maxZoom: 19
+    }).addTo(map);
+    refreshMap();
+}
+
+function makeMarker(color, iconSvg, seq, seqColor) {
+    const seqBadge = seq ? `<div class="seq-badge" style="border-color:${seqColor}">${seq}</div>` : '';
+    return L.divIcon({
+        className: 'custom-marker',
+        html: `<div class="bon-marker" style="background:${color}">${iconSvg}${seqBadge}</div>`,
+        iconSize: [30, 30],
+        iconAnchor: [15, 15]
+    });
+}
+
+function refreshMap() {
+    markers.forEach(m => map.removeLayer(m));
+    routeLines.forEach(l => map.removeLayer(l));
+    markers = []; routeLines = [];
+
+    // HQ
+    const hqIcon = L.divIcon({
+        className: 'custom-marker',
+        html: `<div class="bon-marker" style="background:#8e631f;width:36px;height:36px"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" style="width:18px;height:18px"><path d="M3 12l9-9 9 9M5 10v10h4v-6h6v6h4V10"/></svg></div>`,
+        iconSize: [36, 36],
+        iconAnchor: [18, 18]
+    });
+    markers.push(L.marker([HQ.lat, HQ.lng], { icon: hqIcon }).addTo(map).bindTooltip('HQ — Køkken'));
+
+    // Bons
+    bonsData.forEach(b => {
+        const route = b.assigned ? getRouteById(b.assigned) : null;
+        const color = route ? vhColor(route.vehicle_type) : '#8a8580';
+        const iconHtml = route ? vhSvg(route.vehicle_type)
+                                : '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><circle cx="12" cy="12" r="3"/></svg>';
+        const seq = route ? (route.stops.findIndex(s => s.bon_id === b.id) + 1) : null;
+        const ic = makeMarker(color, iconHtml, seq, color);
+        markers.push(L.marker([b.lat, b.lng], { icon: ic }).addTo(map)
+            .bindTooltip(`#${b.id} · ${b.customer}${route ? ' · ' + route.name : ''}`));
+    });
+
+    // Ruter
+    routesData.forEach(r => {
+        if (r.stops.length === 0) return;
+        const color = vhColor(r.vehicle_type);
+        const points = [[HQ.lat, HQ.lng]];
+        r.stops.forEach(s => {
+            const b = getBonById(s.bon_id);
+            if (b) points.push([b.lat, b.lng]);
+        });
+        points.push([HQ.lat, HQ.lng]);
+        routeLines.push(L.polyline(points, {
+            color, weight: 3, opacity: 0.65,
+            dashArray: r.status === 'draft' ? '6 6' : null
+        }).addTo(map));
+    });
+}
+
+// ═══════════════ INIT ═══════════════
+renderBons();
+renderRoutes();
+initMap();
+
+document.getElementById('btn-confirm-all').addEventListener('click', () => {
+    const unassigned = bonsData.filter(b => !b.assigned).length;
+    if (unassigned > 0) {
+        showToast(`${unassigned} bon(s) ikke planlagt`, 'error');
+        return;
+    }
+    const conflicts = pickupConflicts();
+    if (Object.keys(conflicts).length > 0) {
+        const time = Object.keys(conflicts)[0];
+        showToast(`Køkken-kapacitet overskredet kl ${time}: ${conflicts[time].total} kasser (max ${KITCHEN_CAPACITY_BOXES})`, 'error');
+        return;
+    }
+    routesData.forEach(r => { if (r.stops.length > 0) r.status = 'confirmed'; });
+    renderRoutes();
+    showToast('Plan bekræftet · sendes til køkken og courier', 'success');
+});
+</script>
+
+</body>
+</html>

@@ -27,12 +27,14 @@ router.get('/today', handle((req, res) => {
             a.street_name || ' ' || COALESCE(a.street_nr,'') AS delivery_street,
             a.city   AS delivery_city,
             a.postal_code AS delivery_postal,
+            dv.label AS delivery_vehicle_label,
             (SELECT COUNT(*) FROM mail_messages mm JOIN mail_threads mt ON mm.thread_id = mt.id WHERE mt.bon_id = b.id AND mm.direction = 'in' AND mm.is_read = 0) AS unread_mail_count
         FROM bons b
         JOIN   status_definitions sd ON b.status_id  = sd.id
         LEFT JOIN customers c        ON b.customer_id = c.id
         LEFT JOIN companies co       ON b.company_id  = co.id
         LEFT JOIN addresses a        ON b.delivery_address_id = a.id
+        LEFT JOIN delivery_vehicles dv ON b.delivery_vehicle_id = dv.id
         WHERE b.delivery_date = ?
           AND sd.code IN ('GODKENDT', 'IGANG', 'KLAR', 'LEVERET')
         ORDER BY b.pickup_time, b.id
@@ -77,12 +79,14 @@ router.get('/later', handle((req, res) => {
             a.street_name || ' ' || COALESCE(a.street_nr,'') AS delivery_street,
             a.city   AS delivery_city,
             a.postal_code AS delivery_postal,
+            dv.label AS delivery_vehicle_label,
             (SELECT COUNT(*) FROM mail_messages mm JOIN mail_threads mt ON mm.thread_id = mt.id WHERE mt.bon_id = b.id AND mm.direction = 'in' AND mm.is_read = 0) AS unread_mail_count
         FROM bons b
         JOIN   status_definitions sd ON b.status_id  = sd.id
         LEFT JOIN customers c        ON b.customer_id = c.id
         LEFT JOIN companies co       ON b.company_id  = co.id
         LEFT JOIN addresses a        ON b.delivery_address_id = a.id
+        LEFT JOIN delivery_vehicles dv ON b.delivery_vehicle_id = dv.id
         WHERE b.delivery_date >= ?
           AND b.delivery_date <= ?
           AND (sd.code IN ('VENTER', 'GODKENDT', 'IGANG', 'KLAR') OR b.is_offer = 1)

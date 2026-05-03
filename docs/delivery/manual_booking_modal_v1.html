@@ -1,0 +1,882 @@
+<!DOCTYPE html>
+<html lang="da">
+<head>
+<meta charset="UTF-8">
+<title>Bon v2 · Manual booking modal</title>
+<link href="https://fonts.googleapis.com/css2?family=Lato:wght@400;700;900&display=swap" rel="stylesheet">
+<style>
+:root {
+    --brand-primary: #8e631f;
+    --brand-primary-light: #f1e6b2;
+    --color-surface: #ffffff;
+    --color-background: #f5f4f2;
+    --color-border: #d7d1ca;
+    --color-text: #333333;
+    --color-text-dim: #8a8580;
+    --color-text-very-dim: #b8b4ae;
+    --color-green-dark: #7a9c54;
+    --color-green-bg: #e8f4dd;
+    --color-warn: #e8a832;
+    --color-warn-bg: #fef5e0;
+    --color-error: #bc181b;
+    --color-error-bg: #fef0f0;
+    --vh-taxi: #4a4a4a;
+}
+
+* { box-sizing: border-box; margin: 0; padding: 0; }
+html, body { height: 100%; }
+
+body {
+    font-family: 'Lato', sans-serif;
+    color: var(--color-text);
+    font-size: 14px;
+    background: #2a2a2a;
+    -webkit-font-smoothing: antialiased;
+    overflow: auto;
+    padding: 32px 16px;
+    min-height: 100%;
+}
+
+.demo-grid {
+    display: grid;
+    grid-template-columns: repeat(2, 1fr);
+    gap: 24px;
+    max-width: 1300px;
+    margin: 0 auto;
+}
+@media (max-width: 1100px) {
+    .demo-grid { grid-template-columns: 1fr; }
+}
+
+.demo-cell {
+    background: rgba(0,0,0,0.3);
+    border-radius: 12px;
+    padding: 20px;
+    display: flex;
+    flex-direction: column;
+}
+.demo-label {
+    color: white;
+    font-size: 12px;
+    font-weight: 700;
+    text-transform: uppercase;
+    letter-spacing: 1px;
+    margin-bottom: 4px;
+    opacity: 0.85;
+}
+.demo-sub {
+    color: rgba(255,255,255,0.6);
+    font-size: 11px;
+    margin-bottom: 12px;
+}
+
+.modal-stage {
+    background: var(--color-background);
+    border-radius: 12px;
+    padding: 24px;
+    flex: 1;
+    display: flex;
+    align-items: flex-start;
+    justify-content: center;
+}
+
+/* ════════ MODAL ════════ */
+.modal {
+    background: var(--color-surface);
+    border-radius: 12px;
+    width: 100%;
+    max-width: 560px;
+    box-shadow: 0 20px 60px rgba(0,0,0,0.25);
+    display: flex;
+    flex-direction: column;
+    max-height: 800px;
+}
+
+.modal-header {
+    padding: 16px 20px;
+    border-bottom: 1px solid var(--color-border);
+    display: flex;
+    align-items: center;
+    gap: 12px;
+}
+.modal-header-icon {
+    width: 36px; height: 36px;
+    border-radius: 50%;
+    background: var(--vh-taxi);
+    color: white;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    flex-shrink: 0;
+    border: 2px solid white;
+    box-shadow: 0 1px 3px rgba(0,0,0,0.2);
+}
+.modal-header-icon svg { width: 18px; height: 18px; }
+.modal-header-info { flex: 1; min-width: 0; }
+.modal-title {
+    font-size: 16px;
+    font-weight: 900;
+}
+.modal-subtitle {
+    font-size: 12px;
+    color: var(--color-text-dim);
+    margin-top: 2px;
+}
+.modal-close {
+    background: transparent;
+    border: 0;
+    width: 32px; height: 32px;
+    border-radius: 6px;
+    cursor: pointer;
+    color: var(--color-text-dim);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+}
+.modal-close:hover { background: var(--color-background); color: var(--color-text); }
+.modal-close svg { width: 18px; height: 18px; }
+
+.modal-body {
+    padding: 16px 20px;
+    overflow-y: auto;
+    flex: 1;
+}
+
+/* ════════ Stop-oversigt ════════ */
+.stops-summary {
+    background: var(--color-background);
+    border-radius: 10px;
+    padding: 12px 14px;
+    margin-bottom: 14px;
+}
+.stops-summary-title {
+    font-size: 11px;
+    font-weight: 900;
+    color: var(--color-text-dim);
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+    margin-bottom: 8px;
+}
+.stop-item {
+    display: flex;
+    align-items: flex-start;
+    gap: 10px;
+    padding: 6px 0;
+    font-size: 13px;
+}
+.stop-item + .stop-item {
+    border-top: 1px solid var(--color-border);
+}
+.stop-item-num {
+    width: 22px; height: 22px;
+    border-radius: 50%;
+    background: var(--brand-primary);
+    color: white;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-weight: 900;
+    font-size: 11px;
+    flex-shrink: 0;
+    margin-top: 1px;
+}
+.stop-item-info { flex: 1; min-width: 0; }
+.stop-item-name {
+    font-weight: 700;
+}
+.stop-item-meta {
+    font-size: 12px;
+    color: var(--color-text-dim);
+    margin-top: 1px;
+}
+
+/* ════════ Advarsel ════════ */
+.field-warning {
+    background: var(--color-warn-bg);
+    border: 1px solid #f0d68a;
+    border-radius: 8px;
+    padding: 10px 12px;
+    margin-bottom: 14px;
+    display: flex;
+    gap: 10px;
+    align-items: flex-start;
+}
+.field-warning-icon {
+    width: 16px; height: 16px;
+    color: var(--color-warn);
+    flex-shrink: 0;
+    margin-top: 2px;
+}
+.field-warning-content {
+    flex: 1;
+    font-size: 12px;
+    color: #5d4500;
+    line-height: 1.45;
+}
+.field-warning-title {
+    font-weight: 900;
+    margin-bottom: 2px;
+}
+
+/* ════════ Clipboard preview ════════ */
+.clipboard-section {
+    margin-bottom: 14px;
+}
+.clipboard-section-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    margin-bottom: 6px;
+}
+.clipboard-label {
+    font-size: 11px;
+    font-weight: 900;
+    color: var(--color-text-dim);
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+}
+.clipboard-edit-toggle {
+    background: transparent;
+    border: 0;
+    color: var(--color-text-dim);
+    font-size: 11px;
+    font-weight: 700;
+    cursor: pointer;
+    padding: 0;
+}
+.clipboard-edit-toggle:hover { color: var(--brand-primary); }
+
+.clipboard-preview {
+    background: #1f1f1f;
+    color: #e8e6e0;
+    border-radius: 8px;
+    padding: 12px 14px;
+    font-family: 'Menlo', 'Consolas', monospace;
+    font-size: 12px;
+    line-height: 1.55;
+    white-space: pre-wrap;
+    max-height: 220px;
+    overflow-y: auto;
+    user-select: text;
+}
+.clipboard-preview .placeholder-empty {
+    color: #c89c4f;
+    background: rgba(232, 168, 50, 0.15);
+    padding: 1px 4px;
+    border-radius: 3px;
+}
+
+/* ════════ Action: Kopiér og åbn ════════ */
+.copy-and-open-btn {
+    width: 100%;
+    height: 48px;
+    background: var(--brand-primary);
+    color: white;
+    border: 0;
+    border-radius: 8px;
+    font-family: inherit;
+    font-size: 14px;
+    font-weight: 900;
+    cursor: pointer;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 10px;
+    margin-bottom: 6px;
+}
+.copy-and-open-btn:hover { background: #6d4c14; }
+.copy-and-open-btn svg { width: 18px; height: 18px; }
+.copy-and-open-btn.copied {
+    background: var(--color-green-dark);
+}
+
+.copy-status {
+    text-align: center;
+    font-size: 11px;
+    color: var(--color-text-dim);
+    margin-bottom: 14px;
+    height: 14px;
+}
+.copy-status.success { color: var(--color-green-dark); font-weight: 700; }
+
+/* ════════ Ref-input ════════ */
+.ref-section {
+    background: var(--color-background);
+    border-radius: 10px;
+    padding: 14px;
+    border: 1px dashed var(--color-border);
+}
+.ref-section-title {
+    font-size: 12px;
+    font-weight: 900;
+    margin-bottom: 4px;
+}
+.ref-section-hint {
+    font-size: 11px;
+    color: var(--color-text-dim);
+    margin-bottom: 10px;
+}
+.ref-input {
+    width: 100%;
+    height: 38px;
+    border: 1px solid var(--color-border);
+    border-radius: 6px;
+    padding: 0 12px;
+    font-family: inherit;
+    font-size: 13px;
+    background: var(--color-surface);
+}
+.ref-input:focus {
+    outline: none;
+    border-color: var(--brand-primary);
+}
+
+/* ════════ Footer ════════ */
+.modal-footer {
+    padding: 14px 20px;
+    border-top: 1px solid var(--color-border);
+    display: flex;
+    gap: 8px;
+    justify-content: space-between;
+    align-items: center;
+}
+
+.btn {
+    height: 38px;
+    padding: 0 14px;
+    border-radius: 7px;
+    font-family: inherit;
+    font-size: 13px;
+    font-weight: 700;
+    cursor: pointer;
+    border: 1px solid var(--color-border);
+    background: var(--color-surface);
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    color: var(--color-text);
+}
+.btn:hover { border-color: var(--brand-primary); }
+.btn svg { width: 14px; height: 14px; }
+.btn.primary {
+    background: var(--brand-primary);
+    color: white;
+    border-color: var(--brand-primary);
+}
+.btn.primary:hover { background: #6d4c14; }
+.btn.success {
+    background: var(--color-green-dark);
+    color: white;
+    border-color: var(--color-green-dark);
+}
+.btn.success:hover { background: #618e3f; }
+.btn.subtle {
+    background: transparent;
+    color: var(--color-text-dim);
+    border-color: transparent;
+}
+.btn.subtle:hover {
+    background: var(--color-background);
+    color: var(--color-text);
+}
+
+/* Footer 2-row layout for mobile-style */
+.modal-footer.stacked {
+    flex-direction: column;
+    align-items: stretch;
+    gap: 6px;
+}
+.modal-footer-row {
+    display: flex;
+    gap: 8px;
+    justify-content: flex-end;
+    width: 100%;
+}
+.modal-footer-row.left { justify-content: flex-start; }
+
+/* ════════ Editable textarea variant ════════ */
+.clipboard-edit {
+    width: 100%;
+    background: #1f1f1f;
+    color: #e8e6e0;
+    border: 1px solid #444;
+    border-radius: 8px;
+    padding: 12px 14px;
+    font-family: 'Menlo', 'Consolas', monospace;
+    font-size: 12px;
+    line-height: 1.55;
+    resize: vertical;
+    min-height: 200px;
+    max-height: 260px;
+}
+.clipboard-edit:focus {
+    outline: none;
+    border-color: var(--brand-primary);
+}
+</style>
+</head>
+<body>
+
+<div class="demo-grid">
+
+    <!-- ═══════════════ VARIANT 1: Single stop, fresh state ═══════════════ -->
+    <div class="demo-cell">
+        <div class="demo-label">Variant 1 · Single stop · åbnet</div>
+        <div class="demo-sub">Frisk modal — alt synligt, ref-felt tomt, kopier-knap aktiv</div>
+        <div class="modal-stage">
+            <div class="modal">
+
+                <div class="modal-header">
+                    <div class="modal-header-icon">
+                        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5">
+                            <rect x="3" y="11" width="18" height="8" rx="2"/>
+                            <path d="M7 11V7a2 2 0 0 1 2-2h6a2 2 0 0 1 2 2v4"/>
+                            <circle cx="7.5" cy="19" r="1"/>
+                            <circle cx="16.5" cy="19" r="1"/>
+                        </svg>
+                    </div>
+                    <div class="modal-header-info">
+                        <div class="modal-title">Book taxa · 12:00</div>
+                        <div class="modal-subtitle">Taxa 4×35 · 1 stop · 4 kasser</div>
+                    </div>
+                    <button class="modal-close">
+                        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
+                    </button>
+                </div>
+
+                <div class="modal-body">
+
+                    <div class="stops-summary">
+                        <div class="stops-summary-title">Stop på turen</div>
+                        <div class="stop-item">
+                            <div class="stop-item-num">1</div>
+                            <div class="stop-item-info">
+                                <div class="stop-item-name">Liljens Kvarter 2, 2620 Albertslund</div>
+                                <div class="stop-item-meta">#3451 · København Kommune · lev. 13:00</div>
+                            </div>
+                        </div>
+                    </div>
+
+                    <div class="clipboard-section">
+                        <div class="clipboard-section-header">
+                            <div class="clipboard-label">Følgende kopieres til clipboard</div>
+                            <button class="clipboard-edit-toggle">Rediger</button>
+                        </div>
+                        <div class="clipboard-preview">Bon ID: #3451
+Adresse: Liljens Kvarter 2, 2620 Albertslund
+Firma: København Kommune
+Navn: Lene Bjerg Kristensen
+Telefon: 26776314 / 21273302
+Levering: 13:00 #3451
+
+Antal emballager:
+4 x Transportkasse
+30 x Slider Boks 3 stk
+
+Leveringsinfo:
+3. sal, lokalet 'Cielo' hos Union
+Kontakt: Lene Bjerg Kristensen
+Telefon: 26 77 63 14
+
+Dato: 2026-05-01
+Afhentningstid: 12:00</div>
+                    </div>
+
+                    <button class="copy-and-open-btn">
+                        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5">
+                            <rect x="9" y="9" width="13" height="13" rx="2"/>
+                            <path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/>
+                        </svg>
+                        Kopiér og åbn taxa.nu
+                    </button>
+                    <div class="copy-status">&nbsp;</div>
+
+                    <div class="ref-section">
+                        <div class="ref-section-title">Booking-ref (anbefalet)</div>
+                        <div class="ref-section-hint">Indtast referencen fra taxa.nu når du har bestilt</div>
+                        <input type="text" class="ref-input" placeholder="fx TX-44821">
+                    </div>
+
+                </div>
+
+                <div class="modal-footer">
+                    <button class="btn subtle">Spring over</button>
+                    <button class="btn success" disabled style="opacity:0.4">
+                        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><polyline points="20 6 9 17 4 12"/></svg>
+                        Marker som booket
+                    </button>
+                </div>
+
+            </div>
+        </div>
+    </div>
+
+    <!-- ═══════════════ VARIANT 2: Single stop, after copy + ref filled ═══════════════ -->
+    <div class="demo-cell">
+        <div class="demo-label">Variant 2 · Efter kopier · ref indtastet</div>
+        <div class="demo-sub">Bruger har klikket Kopiér + indtastet ref · Marker-knap er nu aktiv</div>
+        <div class="modal-stage">
+            <div class="modal">
+
+                <div class="modal-header">
+                    <div class="modal-header-icon">
+                        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5">
+                            <rect x="3" y="11" width="18" height="8" rx="2"/>
+                            <path d="M7 11V7a2 2 0 0 1 2-2h6a2 2 0 0 1 2 2v4"/>
+                            <circle cx="7.5" cy="19" r="1"/>
+                            <circle cx="16.5" cy="19" r="1"/>
+                        </svg>
+                    </div>
+                    <div class="modal-header-info">
+                        <div class="modal-title">Book taxa · 12:00</div>
+                        <div class="modal-subtitle">Taxa 4×35 · 1 stop · 4 kasser</div>
+                    </div>
+                    <button class="modal-close">
+                        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
+                    </button>
+                </div>
+
+                <div class="modal-body">
+
+                    <div class="stops-summary">
+                        <div class="stops-summary-title">Stop på turen</div>
+                        <div class="stop-item">
+                            <div class="stop-item-num">1</div>
+                            <div class="stop-item-info">
+                                <div class="stop-item-name">Liljens Kvarter 2, 2620 Albertslund</div>
+                                <div class="stop-item-meta">#3451 · København Kommune · lev. 13:00</div>
+                            </div>
+                        </div>
+                    </div>
+
+                    <div class="clipboard-section">
+                        <div class="clipboard-section-header">
+                            <div class="clipboard-label">Følgende kopieres til clipboard</div>
+                            <button class="clipboard-edit-toggle">Rediger</button>
+                        </div>
+                        <div class="clipboard-preview">Bon ID: #3451
+Adresse: Liljens Kvarter 2, 2620 Albertslund
+Firma: København Kommune
+Navn: Lene Bjerg Kristensen
+Telefon: 26776314 / 21273302
+Levering: 13:00 #3451
+
+Antal emballager:
+4 x Transportkasse
+30 x Slider Boks 3 stk
+
+Leveringsinfo:
+3. sal, lokalet 'Cielo' hos Union
+Kontakt: Lene Bjerg Kristensen
+Telefon: 26 77 63 14
+
+Dato: 2026-05-01
+Afhentningstid: 12:00</div>
+                    </div>
+
+                    <button class="copy-and-open-btn copied">
+                        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5">
+                            <polyline points="20 6 9 17 4 12"/>
+                        </svg>
+                        Kopiér igen og åbn taxa.nu
+                    </button>
+                    <div class="copy-status success">✓ Kopieret · taxa.nu åbnet i nyt vindue</div>
+
+                    <div class="ref-section" style="border-style:solid; border-color:var(--brand-primary); background:var(--color-surface);">
+                        <div class="ref-section-title">Booking-ref</div>
+                        <div class="ref-section-hint">Fra taxa.nu</div>
+                        <input type="text" class="ref-input" value="TX-44821" style="border-color:var(--brand-primary)">
+                    </div>
+
+                </div>
+
+                <div class="modal-footer">
+                    <button class="btn subtle">Spring over</button>
+                    <button class="btn success">
+                        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><polyline points="20 6 9 17 4 12"/></svg>
+                        Marker som booket
+                    </button>
+                </div>
+
+            </div>
+        </div>
+    </div>
+
+    <!-- ═══════════════ VARIANT 3: Multi-stop, with warning ═══════════════ -->
+    <div class="demo-cell">
+        <div class="demo-label">Variant 3 · Multi-stop · med advarsel</div>
+        <div class="demo-sub">2 stop på samme taxa-tur · advarsel om manglende felt på #3383</div>
+        <div class="modal-stage">
+            <div class="modal">
+
+                <div class="modal-header">
+                    <div class="modal-header-icon">
+                        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5">
+                            <rect x="3" y="11" width="18" height="8" rx="2"/>
+                            <path d="M7 11V7a2 2 0 0 1 2-2h6a2 2 0 0 1 2 2v4"/>
+                            <circle cx="7.5" cy="19" r="1"/>
+                            <circle cx="16.5" cy="19" r="1"/>
+                        </svg>
+                    </div>
+                    <div class="modal-header-info">
+                        <div class="modal-title">Book taxa · 17:00</div>
+                        <div class="modal-subtitle">Taxa 4×35 · 2 stop · 6 kasser</div>
+                    </div>
+                    <button class="modal-close">
+                        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
+                    </button>
+                </div>
+
+                <div class="modal-body">
+
+                    <div class="stops-summary">
+                        <div class="stops-summary-title">Stop på turen</div>
+                        <div class="stop-item">
+                            <div class="stop-item-num">1</div>
+                            <div class="stop-item-info">
+                                <div class="stop-item-name">Nørre Allé 7, 2200 København</div>
+                                <div class="stop-item-meta">#3382 · København Kommune · lev. 17:15</div>
+                            </div>
+                        </div>
+                        <div class="stop-item">
+                            <div class="stop-item-num">2</div>
+                            <div class="stop-item-info">
+                                <div class="stop-item-name">Bredgade 45, 1260 København K</div>
+                                <div class="stop-item-meta">#3383 · Hansen Advokater · lev. 17:45</div>
+                            </div>
+                        </div>
+                    </div>
+
+                    <div class="field-warning">
+                        <svg class="field-warning-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5">
+                            <path d="M10.29 3.86L1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z"/>
+                            <line x1="12" y1="9" x2="12" y2="13"/>
+                            <line x1="12" y1="17" x2="12.01" y2="17"/>
+                        </svg>
+                        <div class="field-warning-content">
+                            <div class="field-warning-title">Manglende info</div>
+                            <strong>#3383</strong> mangler kontakt-på-dagen telefon.
+                            Du kan stadig booke — overvej at rette i bonnen bagefter.
+                        </div>
+                    </div>
+
+                    <div class="clipboard-section">
+                        <div class="clipboard-section-header">
+                            <div class="clipboard-label">Følgende kopieres til clipboard</div>
+                            <button class="clipboard-edit-toggle">Rediger</button>
+                        </div>
+                        <div class="clipboard-preview">Bon ID: #3382 + #3383
+Adresser:
+  Stop 1: Nørre Allé 7, 2200 København (17:15)
+  Stop 2: Bredgade 45, 1260 København K (17:45)
+Firma: København Kommune (#3382), Hansen Advokater (#3383)
+Navn: Lene Bjerg Kristensen, Mette Lindhardt
+Telefon: 26776314, 33123456
+
+Antal emballager (samlet):
+4 x Transportkasse
+30 x Slider Boks 3 stk
+2 x RR Boks
+
+Leveringsinfo:
+Stop 1: 3. sal, lokalet 'Cielo' hos Union
+Stop 2: Ring porttelefon "Hansen Adv."
+
+Kontakt på dagen:
+#3382: Lene Bjerg Kristensen · 26 77 63 14
+#3383: Maja Sørensen · <span class="placeholder-empty">[mangler]</span>
+
+Dato: 2026-05-01
+Afhentningstid: 17:00</div>
+                    </div>
+
+                    <button class="copy-and-open-btn">
+                        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5">
+                            <rect x="9" y="9" width="13" height="13" rx="2"/>
+                            <path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/>
+                        </svg>
+                        Kopiér og åbn taxa.nu
+                    </button>
+                    <div class="copy-status">&nbsp;</div>
+
+                    <div class="ref-section">
+                        <div class="ref-section-title">Booking-ref (anbefalet)</div>
+                        <div class="ref-section-hint">Indtast referencen fra taxa.nu når du har bestilt</div>
+                        <input type="text" class="ref-input" placeholder="fx TX-44821">
+                    </div>
+
+                </div>
+
+                <div class="modal-footer">
+                    <button class="btn subtle">Spring over</button>
+                    <button class="btn success" disabled style="opacity:0.4">
+                        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><polyline points="20 6 9 17 4 12"/></svg>
+                        Marker som booket
+                    </button>
+                </div>
+
+            </div>
+        </div>
+    </div>
+
+    <!-- ═══════════════ VARIANT 4: Edit mode ═══════════════ -->
+    <div class="demo-cell">
+        <div class="demo-label">Variant 4 · Rediger-mode</div>
+        <div class="demo-sub">Bruger har klikket "Rediger" — clipboard-tekst kan nu ændres før kopiering</div>
+        <div class="modal-stage">
+            <div class="modal">
+
+                <div class="modal-header">
+                    <div class="modal-header-icon">
+                        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5">
+                            <rect x="3" y="11" width="18" height="8" rx="2"/>
+                            <path d="M7 11V7a2 2 0 0 1 2-2h6a2 2 0 0 1 2 2v4"/>
+                            <circle cx="7.5" cy="19" r="1"/>
+                            <circle cx="16.5" cy="19" r="1"/>
+                        </svg>
+                    </div>
+                    <div class="modal-header-info">
+                        <div class="modal-title">Book taxa · 12:00</div>
+                        <div class="modal-subtitle">Taxa 4×35 · 1 stop · 4 kasser</div>
+                    </div>
+                    <button class="modal-close">
+                        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
+                    </button>
+                </div>
+
+                <div class="modal-body">
+
+                    <div class="stops-summary">
+                        <div class="stops-summary-title">Stop på turen</div>
+                        <div class="stop-item">
+                            <div class="stop-item-num">1</div>
+                            <div class="stop-item-info">
+                                <div class="stop-item-name">Liljens Kvarter 2, 2620 Albertslund</div>
+                                <div class="stop-item-meta">#3451 · København Kommune · lev. 13:00</div>
+                            </div>
+                        </div>
+                    </div>
+
+                    <div class="clipboard-section">
+                        <div class="clipboard-section-header">
+                            <div class="clipboard-label">Rediger før kopiering</div>
+                            <button class="clipboard-edit-toggle" style="color:var(--brand-primary)">✓ Færdig</button>
+                        </div>
+                        <textarea class="clipboard-edit">Bon ID: #3451
+Adresse: Liljens Kvarter 2, 2620 Albertslund
+Firma: København Kommune
+Navn: Lene Bjerg Kristensen
+Telefon: 26776314 / 21273302
+Levering: 13:00 #3451
+
+Antal emballager:
+4 x Transportkasse
+30 x Slider Boks 3 stk
+
+Leveringsinfo:
+3. sal, lokalet 'Cielo' hos Union
+NB: Ring først når du er fremme — vagten skal følge op
+Kontakt: Lene Bjerg Kristensen
+Telefon: 26 77 63 14
+
+Dato: 2026-05-01
+Afhentningstid: 12:00</textarea>
+                    </div>
+
+                    <button class="copy-and-open-btn">
+                        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5">
+                            <rect x="9" y="9" width="13" height="13" rx="2"/>
+                            <path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/>
+                        </svg>
+                        Kopiér og åbn taxa.nu
+                    </button>
+                    <div class="copy-status">&nbsp;</div>
+
+                    <div class="ref-section">
+                        <div class="ref-section-title">Booking-ref (anbefalet)</div>
+                        <div class="ref-section-hint">Indtast referencen fra taxa.nu når du har bestilt</div>
+                        <input type="text" class="ref-input" placeholder="fx TX-44821">
+                    </div>
+
+                </div>
+
+                <div class="modal-footer">
+                    <button class="btn subtle">Spring over</button>
+                    <button class="btn success" disabled style="opacity:0.4">
+                        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><polyline points="20 6 9 17 4 12"/></svg>
+                        Marker som booket
+                    </button>
+                </div>
+
+            </div>
+        </div>
+    </div>
+
+    <!-- ═══════════════ Forklaring ═══════════════ -->
+    <div class="demo-cell" style="grid-column: 1 / -1;">
+        <div class="demo-label">Designvalg</div>
+        <div class="demo-sub">Hvad mockup'en bygger på.</div>
+        <div class="modal-stage" style="background:#1f1f1f; padding:24px; align-items:flex-start;">
+            <div style="color:white; font-size:13px; line-height:1.6; max-width:900px;">
+
+                <div style="display:grid; grid-template-columns:1fr 1fr; gap:24px;">
+
+                    <div>
+                        <h3 style="font-size:14px; margin-bottom:10px; color:var(--brand-primary-light);">Én knap, to handlinger</h3>
+                        <p style="opacity:0.85; margin-bottom:16px;">
+                            "Kopiér og åbn taxa.nu" gør begge dele i ét klik.
+                            Bekræftelse vises som tekst under knappen.
+                            Knappen forbliver aktiv — ændrer label til "Kopiér igen" så bruger kan re-kopiére hvis clipboard er overskrevet.
+                        </p>
+
+                        <h3 style="font-size:14px; margin-bottom:10px; color:var(--brand-primary-light);">Read-only preview som default</h3>
+                        <p style="opacity:0.85; margin-bottom:16px;">
+                            Mørk preview = system-genereret tekst.
+                            "Rediger"-knap øverst aktiverer textarea-mode.
+                            Bruger ser tydeligt hvad der er system vs. egen redigering.
+                        </p>
+
+                        <h3 style="font-size:14px; margin-bottom:10px; color:var(--brand-primary-light);">Manglende felter markeres</h3>
+                        <p style="opacity:0.85;">
+                            Tomme pladsholdere vises som
+                            <code style="background:rgba(232,168,50,0.2); color:#c89c4f; padding:1px 5px; border-radius:3px; font-size:11px;">[mangler]</code>
+                            i previewen — ikke som tom plads.
+                            Plus gul advarsel-boks øverst der lister hvilke felter.
+                            Blokerer ikke booking.
+                        </p>
+                    </div>
+
+                    <div>
+                        <h3 style="font-size:14px; margin-bottom:10px; color:var(--brand-primary-light);">Ref-felt altid synligt</h3>
+                        <p style="opacity:0.85; margin-bottom:16px;">
+                            Ingen progressive disclosure — alt vises fra start.
+                            "Marker som booket" er disabled indtil ref er udfyldt
+                            ELLER bruger trykker "Spring over".
+                        </p>
+
+                        <h3 style="font-size:14px; margin-bottom:10px; color:var(--brand-primary-light);">Multi-stop håndteres i template</h3>
+                        <p style="opacity:0.85; margin-bottom:16px;">
+                            Multi-stop ture aggregerer pakke-info, lister stops nummereret,
+                            og viser kontakt pr. bon.
+                            Office kan tilpasse template i settings hvis taxa-firmaet vil have noget specifikt.
+                        </p>
+
+                        <h3 style="font-size:14px; margin-bottom:10px; color:var(--brand-primary-light);">"Spring over" er sekundær handling</h3>
+                        <p style="opacity:0.85;">
+                            Diskret subtle-knap.
+                            Tur markeres
+                            <code style="background:rgba(255,255,255,0.1); padding:1px 5px; border-radius:3px; font-size:11px;">in_progress</code>
+                            og dukker op i "Afventer booking"-banner i listview.
+                            Ikke tabt — bare udskudt.
+                        </p>
+                    </div>
+                </div>
+
+            </div>
+        </div>
+    </div>
+
+</div>
+
+</body>
+</html>

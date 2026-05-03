@@ -433,6 +433,51 @@ function openMap(cardId) {
     window.open(`https://www.google.com/maps/search/?api=1&query=${q}`, '_blank');
 }
 
+/**
+ * Åbn manual booking-modal (Spor 1: bestil hos taxa/By-expressen).
+ * Modal-komponenten skal være loaded i HTML-filen (manual_booking_modal.js).
+ */
+/**
+ * Klik på leveringsindikator på bon-kort → åbner drawer scrollet til bestil-bud-sektion.
+ * Bruger view-specifikke drawer-instanser via window._bonInfoEditHandler eller
+ * window.BonDrawer fallback.
+ */
+function openBonDeliveryFromCard(cardId) {
+    const num = cardId.replace('bon', '');
+    const bonId = parseInt(num);
+    if (!bonId) return;
+
+    if (typeof window._bonInfoEditHandler === 'function') {
+        window._bonInfoEditHandler(bonId, { scrollTo: 'bestil-bud' });
+    } else if (typeof BonDrawer === 'function') {
+        const d = new BonDrawer();
+        d.open(bonId, { scrollTo: 'bestil-bud' });
+    } else {
+        console.warn('Ingen drawer-handler registreret');
+    }
+}
+
+function openBestilBud(cardId) {
+    if (typeof window.openManualBookingModal !== 'function') {
+        alert('Bestillings-modal er ikke loaded. Kontakt admin.');
+        return;
+    }
+    const card = document.getElementById(cardId);
+    if (!card) return;
+
+    // Bud kan ikke bestilles ved afhentning/event — bonnen skal leveres
+    const orderType = card.dataset.orderType || '';
+    if (orderType === 'pickup' || orderType === 'event') {
+        alert('Denne bon er sat til ' + (orderType === 'pickup' ? 'afhentning' : 'event') + '. Bestilling af bud kræver leveringstype "Levering".');
+        return;
+    }
+
+    const num = cardId.replace('bon', '');
+    const bonId = parseInt(num);
+    if (!bonId) return;
+    window.openManualBookingModal({ bonId });
+}
+
 function openRecipePicker(cardId) {
     const card = document.getElementById(cardId);
     if (!card) return;

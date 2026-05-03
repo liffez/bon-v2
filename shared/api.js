@@ -1259,3 +1259,58 @@ function extractCompanyContacts(companyId, text, sourceUrl) {
         body: JSON.stringify({ text, source_url: sourceUrl || null }),
     });
 }
+
+// ─── DELIVERY (Spor 1: manuel bestilling) ────────────────────
+
+function fetchDeliveryVehicles(includeInactive = false) {
+    const qs = includeInactive ? '?include_inactive=1' : '';
+    return apiFetch('/delivery/vehicles' + qs);
+}
+
+function fetchDeliveryVehicle(id) {
+    return apiFetch('/delivery/vehicles/' + id);
+}
+
+function createDeliveryVehicle(data) {
+    return apiFetch('/delivery/vehicles', {
+        method: 'POST',
+        body: JSON.stringify(data),
+    });
+}
+
+function patchDeliveryVehicle(id, data) {
+    return apiFetch('/delivery/vehicles/' + id, {
+        method: 'PATCH',
+        body: JSON.stringify(data),
+    });
+}
+
+function deleteDeliveryVehicle(id) {
+    return apiFetch('/delivery/vehicles/' + id, { method: 'DELETE' });
+}
+
+function fetchDeliveryTemplateVariables() {
+    return apiFetch('/delivery/template-variables');
+}
+
+function fetchBookingPayload(bonId, vehicleId) {
+    return apiFetch('/delivery/booking-payload?bon_id=' + bonId + '&vehicle_id=' + vehicleId);
+}
+
+function bookDelivery(data) {
+    return apiFetch('/delivery/book', {
+        method: 'POST',
+        body: JSON.stringify(data),
+    });
+}
+
+function setDeliveryActualCost(data) {
+    return apiFetch('/delivery/actual-cost', {
+        method: 'POST',
+        body: JSON.stringify(data),
+    });
+}
+
+function fetchDeliveryEvents(bonId) {
+    return apiFetch('/delivery/events?bon_id=' + bonId);
+}

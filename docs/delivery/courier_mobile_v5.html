@@ -1,0 +1,1579 @@
+<!DOCTYPE html>
+<html lang="da">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+<title>Bon v2 · Courier mobile</title>
+<link href="https://fonts.googleapis.com/css2?family=Lato:wght@400;700;900&display=swap" rel="stylesheet">
+<style>
+:root {
+    --brand-primary: #8e631f;
+    --brand-primary-light: #f1e6b2;
+    --color-surface: #ffffff;
+    --color-background: #f5f4f2;
+    --color-border: #d7d1ca;
+    --color-text: #333333;
+    --color-text-dim: #8a8580;
+    --color-green: #a5bf75;
+    --color-green-dark: #7a9c54;
+    --color-red: #bc181b;
+    --color-blue: #7594b3;
+    --color-orange: #e8a832;
+    --touch-target-min: 48px;
+}
+
+* { box-sizing: border-box; margin: 0; padding: 0; }
+html, body { height: 100%; }
+
+body {
+    font-family: 'Lato', sans-serif;
+    color: var(--color-text);
+    background: #2a2a2a;
+    overflow: hidden;
+    -webkit-font-smoothing: antialiased;
+    line-height: 1.4;
+}
+
+/* === PHONE FRAME (kun synlig på desktop) === */
+.phone-frame {
+    width: 100vw;
+    height: 100vh;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 24px;
+    overflow-x: auto;
+    padding: 24px;
+}
+
+.phone {
+    width: 390px;
+    height: 844px;
+    flex-shrink: 0;
+    background: var(--color-background);
+    border-radius: 48px;
+    border: 12px solid #1a1a1a;
+    overflow: hidden;
+    position: relative;
+    box-shadow: 0 24px 60px rgba(0,0,0,0.4);
+}
+
+.phone-label {
+    position: absolute;
+    top: -36px;
+    left: 50%;
+    transform: translateX(-50%);
+    color: white;
+    font-size: 12px;
+    font-weight: 700;
+    text-transform: uppercase;
+    letter-spacing: 1px;
+    white-space: nowrap;
+}
+
+@media (max-width: 900px) {
+    body { background: var(--color-background); }
+    .phone-frame { padding: 0; gap: 0; height: auto; }
+    .phone {
+        width: 100vw;
+        height: 100vh;
+        border: 0;
+        border-radius: 0;
+        box-shadow: none;
+    }
+    .phone:not(.active) { display: none; }
+    .phone-label { display: none; }
+}
+
+/* === SCREEN === */
+.screen {
+    height: 100%;
+    display: flex;
+    flex-direction: column;
+    background: var(--color-background);
+}
+
+/* === HEADER === */
+.app-header {
+    background: var(--brand-primary);
+    color: white;
+    padding: 12px 16px;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    flex-shrink: 0;
+}
+.app-header-back {
+    width: 40px; height: 40px;
+    display: flex; align-items: center; justify-content: center;
+    margin-left: -8px;
+    color: white;
+    background: transparent;
+    border: 0;
+    cursor: pointer;
+}
+.app-header-back svg { width: 24px; height: 24px; }
+.app-header-title {
+    font-weight: 700;
+    font-size: 17px;
+    flex: 1;
+    text-align: center;
+}
+.app-header-meta {
+    font-size: 12px;
+    opacity: 0.8;
+    text-align: right;
+    min-width: 60px;
+}
+
+/* === ROUTE SUMMARY (top of dagens tur) === */
+.route-summary {
+    background: var(--brand-primary-light);
+    padding: 16px;
+    border-bottom: 1px solid var(--color-border);
+    display: flex;
+    align-items: center;
+    gap: 16px;
+}
+.route-vehicle {
+    width: 56px; height: 56px;
+    background: var(--brand-primary);
+    color: white;
+    border-radius: 50%;
+    display: flex; align-items: center; justify-content: center;
+    flex-shrink: 0;
+}
+.route-vehicle svg { width: 28px; height: 28px; }
+.route-info { flex: 1; }
+.route-info-label {
+    font-size: 11px;
+    color: var(--color-text-dim);
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+}
+.route-info-name {
+    font-size: 17px;
+    font-weight: 700;
+    color: var(--color-text);
+    margin-top: 2px;
+}
+.route-info-stats {
+    font-size: 13px;
+    color: var(--color-text-dim);
+    margin-top: 4px;
+}
+
+/* === STOP LIST === */
+.stop-list {
+    flex: 1;
+    overflow-y: auto;
+    padding: 12px;
+}
+
+/* Tilbage-til-HQ kort efter sidste stop */
+.return-home-card {
+    background: var(--brand-primary-light);
+    border: 1px dashed var(--brand-primary);
+    border-radius: 12px;
+    margin-bottom: 12px;
+    padding: 14px;
+    display: flex;
+    align-items: center;
+    gap: 12px;
+}
+.return-home-icon {
+    width: 44px; height: 44px;
+    background: var(--brand-primary);
+    color: white;
+    border-radius: 50%;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    flex-shrink: 0;
+}
+.return-home-icon svg { width: 22px; height: 22px; }
+.return-home-info { flex: 1; }
+.return-home-title {
+    font-weight: 700;
+    font-size: 14px;
+    color: var(--color-text);
+}
+.return-home-sub {
+    font-size: 12px;
+    color: var(--color-text-dim);
+    margin-top: 2px;
+}
+.return-home-btn {
+    height: 40px;
+    padding: 0 14px;
+    background: var(--brand-primary);
+    color: white;
+    border: 0;
+    border-radius: 8px;
+    font-family: inherit;
+    font-size: 13px;
+    font-weight: 700;
+    cursor: pointer;
+    display: flex;
+    align-items: center;
+    gap: 6px;
+}
+.return-home-btn svg { width: 14px; height: 14px; }
+
+.stop-card {
+    background: var(--color-surface);
+    border-radius: 12px;
+    margin-bottom: 12px;
+    border: 1px solid var(--color-border);
+    overflow: hidden;
+    cursor: pointer;
+    -webkit-tap-highlight-color: transparent;
+    transition: transform 0.1s;
+}
+.stop-card:active { transform: scale(0.99); }
+
+.stop-card.completed {
+    opacity: 0.6;
+}
+
+.stop-card-row {
+    display: flex;
+    align-items: stretch;
+    min-height: 80px;
+}
+
+.stop-seq {
+    width: 56px;
+    flex-shrink: 0;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    color: white;
+    background: var(--color-text-dim);
+    font-weight: 900;
+}
+.stop-seq.pending  { background: var(--color-text-dim); }
+.stop-seq.en_route { background: var(--color-orange); }
+.stop-seq.arrived  { background: var(--color-blue); }
+.stop-seq.delivered { background: var(--color-green-dark); }
+.stop-seq.problem  { background: var(--color-red); }
+
+.stop-seq-num {
+    font-size: 24px;
+    line-height: 1;
+}
+.stop-seq-time {
+    font-size: 11px;
+    margin-top: 2px;
+    opacity: 0.9;
+}
+
+.stop-body {
+    flex: 1;
+    padding: 12px 14px;
+    display: flex;
+    flex-direction: column;
+    justify-content: center;
+}
+
+.stop-customer {
+    font-weight: 700;
+    font-size: 15px;
+    color: var(--color-text);
+    margin-bottom: 2px;
+}
+.stop-address {
+    font-size: 13px;
+    color: var(--color-text-dim);
+}
+.stop-bon {
+    font-size: 11px;
+    color: var(--color-text-dim);
+    margin-top: 4px;
+}
+
+.stop-status-badge {
+    display: inline-block;
+    font-size: 10px;
+    font-weight: 700;
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+    padding: 2px 8px;
+    border-radius: 4px;
+    margin-top: 6px;
+}
+.stop-status-badge.delivered {
+    background: var(--color-green);
+    color: var(--color-green-dark);
+}
+.stop-status-badge.problem {
+    background: #fadcdc;
+    color: var(--color-red);
+}
+.stop-status-badge.en_route {
+    background: #fff3d6;
+    color: #8a6500;
+}
+
+/* === STOP DETAIL === */
+.stop-detail {
+    flex: 1;
+    overflow-y: auto;
+}
+
+.detail-section {
+    background: var(--color-surface);
+    margin: 12px;
+    border-radius: 12px;
+    border: 1px solid var(--color-border);
+    overflow: hidden;
+}
+.detail-section + .detail-section { margin-top: 0; }
+
+.detail-section-title {
+    font-size: 11px;
+    font-weight: 700;
+    color: var(--color-text-dim);
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+    padding: 10px 14px 4px;
+}
+
+/* Customer card */
+.customer-card { padding: 14px; }
+.customer-name {
+    font-size: 19px;
+    font-weight: 700;
+    margin-bottom: 4px;
+}
+.customer-address {
+    font-size: 14px;
+    color: var(--color-text-dim);
+    margin-bottom: 12px;
+}
+.customer-address-top {
+    font-size: 14px;
+    color: var(--color-text-dim);
+    margin-bottom: 12px;
+    line-height: 1.4;
+}
+.map-btn {
+    width: 100%;
+}
+
+/* Nav-knapper: primær naviger + sekundær overblik */
+.nav-buttons {
+    display: flex;
+    gap: 8px;
+}
+.nav-primary {
+    flex: 1;
+}
+.map-btn-secondary {
+    width: 52px;
+    height: 52px;
+    flex-shrink: 0;
+    padding: 0;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+}
+.map-btn-secondary svg { width: 22px; height: 22px; }
+
+/* Pickup-info: BON# + kasser, prominent */
+.pickup-info {
+    display: flex;
+    align-items: stretch;
+    background: var(--color-text);
+    color: white;
+    border-radius: 12px;
+    overflow: hidden;
+    margin: 12px 0 16px;
+}
+.pickup-boxes {
+    background: var(--brand-primary);
+    padding: 14px 18px;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    min-width: 88px;
+}
+.pickup-boxes-num {
+    font-size: 36px;
+    font-weight: 900;
+    line-height: 1;
+}
+.pickup-boxes-label {
+    font-size: 11px;
+    text-transform: uppercase;
+    letter-spacing: 1px;
+    margin-top: 2px;
+    opacity: 0.85;
+}
+.pickup-bon {
+    flex: 1;
+    padding: 12px 16px;
+    display: flex;
+    flex-direction: column;
+    justify-content: center;
+}
+.pickup-bon-label {
+    font-size: 10px;
+    text-transform: uppercase;
+    letter-spacing: 0.8px;
+    opacity: 0.6;
+    margin-bottom: 2px;
+}
+.pickup-bon-num {
+    font-size: 22px;
+    font-weight: 900;
+    line-height: 1.1;
+}
+.pickup-bon-customer {
+    font-size: 14px;
+    margin-top: 4px;
+    opacity: 0.85;
+}
+
+/* Contact blocks */
+.contact-block {
+    border-radius: 12px;
+    padding: 12px;
+    margin-bottom: 8px;
+    border: 1px solid var(--color-border);
+    background: var(--color-background);
+}
+.contact-block.primary {
+    background: #fef9eb;
+    border-color: #e5d089;
+}
+.contact-block.secondary {
+    background: var(--color-background);
+}
+.contact-header {
+    display: flex;
+    align-items: baseline;
+    justify-content: space-between;
+    margin-bottom: 8px;
+    gap: 8px;
+}
+.contact-label {
+    font-size: 10px;
+    font-weight: 700;
+    color: var(--color-text-dim);
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+    flex-shrink: 0;
+}
+.contact-block.primary .contact-label { color: #8a6500; }
+.contact-name {
+    font-size: 15px;
+    font-weight: 700;
+    color: var(--color-text);
+    text-align: right;
+    flex: 1;
+}
+.contact-actions {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 6px;
+}
+.contact-btn {
+    height: 44px;
+    border-radius: 8px;
+    border: 1px solid var(--color-border);
+    background: var(--color-surface);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 6px;
+    font-family: inherit;
+    font-size: 14px;
+    font-weight: 700;
+    color: var(--color-text);
+    cursor: pointer;
+    -webkit-tap-highlight-color: transparent;
+}
+.contact-btn:active { background: var(--brand-primary-light); }
+.contact-btn svg { width: 18px; height: 18px; }
+.contact-block.primary .contact-btn {
+    background: var(--brand-primary);
+    color: white;
+    border-color: var(--brand-primary);
+}
+.contact-block.primary .contact-btn:active {
+    background: #6d4c14;
+}
+.contact-phone {
+    text-align: center;
+    font-size: 11px;
+    color: var(--color-text-dim);
+    margin-top: 6px;
+    letter-spacing: 0.5px;
+}
+.contact-block.primary .contact-phone { color: #8a6500; }
+.customer-btn {
+    height: 52px;
+    border-radius: 10px;
+    border: 1px solid var(--color-border);
+    background: var(--color-background);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 8px;
+    font-family: inherit;
+    font-size: 15px;
+    font-weight: 700;
+    color: var(--color-text);
+    cursor: pointer;
+    -webkit-tap-highlight-color: transparent;
+}
+.customer-btn:active { background: var(--brand-primary-light); }
+.customer-btn svg { width: 20px; height: 20px; }
+.customer-btn.primary {
+    background: var(--brand-primary);
+    color: white;
+    border-color: var(--brand-primary);
+}
+
+/* Delivery notes (vigtigt — markeret) */
+.delivery-notes {
+    background: #fff8e1;
+    border: 1px solid #f5d97a;
+    border-radius: 12px;
+    margin: 0 12px 12px;
+    padding: 12px 14px;
+    display: flex;
+    gap: 10px;
+}
+.delivery-notes-icon {
+    width: 24px; height: 24px;
+    flex-shrink: 0;
+    color: #b8860b;
+}
+.delivery-notes-content {
+    flex: 1;
+    font-size: 14px;
+    color: #5d4a00;
+    line-height: 1.5;
+}
+.delivery-notes-label {
+    font-size: 11px;
+    font-weight: 700;
+    color: #8a6500;
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+    margin-bottom: 2px;
+}
+
+/* Bon-info */
+.bon-info { padding: 6px 14px 14px; }
+.bon-info-row {
+    display: flex;
+    justify-content: space-between;
+    padding: 6px 0;
+    font-size: 14px;
+    border-bottom: 1px solid var(--color-background);
+}
+.bon-info-row:last-child { border-bottom: 0; }
+.bon-info-label { color: var(--color-text-dim); }
+.bon-info-value { font-weight: 700; }
+
+/* Items */
+.items-list { padding: 6px 14px 14px; }
+.item-row {
+    display: flex;
+    justify-content: space-between;
+    padding: 6px 0;
+    font-size: 14px;
+}
+.item-qty { color: var(--color-text-dim); margin-right: 8px; }
+
+/* === ACTION BAR (bottom) === */
+.action-bar {
+    background: var(--color-surface);
+    border-top: 1px solid var(--color-border);
+    padding: 12px 12px calc(12px + env(safe-area-inset-bottom));
+    flex-shrink: 0;
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+}
+
+.action-primary {
+    height: 56px;
+    background: var(--color-green-dark);
+    color: white;
+    border: 0;
+    border-radius: 12px;
+    font-family: inherit;
+    font-size: 17px;
+    font-weight: 700;
+    cursor: pointer;
+    -webkit-tap-highlight-color: transparent;
+    display: flex; align-items: center; justify-content: center;
+    gap: 10px;
+}
+.action-primary:active { background: #618e3f; }
+.action-primary svg { width: 22px; height: 22px; }
+
+.action-secondary-row {
+    display: flex;
+    gap: 8px;
+}
+.action-secondary {
+    flex: 1;
+    height: 48px;
+    background: var(--color-background);
+    color: var(--color-text);
+    border: 1px solid var(--color-border);
+    border-radius: 10px;
+    font-family: inherit;
+    font-size: 14px;
+    font-weight: 700;
+    cursor: pointer;
+    -webkit-tap-highlight-color: transparent;
+    display: flex; align-items: center; justify-content: center;
+    gap: 6px;
+}
+.action-secondary:active { background: var(--brand-primary-light); }
+.action-secondary svg { width: 18px; height: 18px; }
+.action-secondary.problem {
+    color: var(--color-red);
+    border-color: #f5c8c9;
+    background: #fef5f5;
+}
+
+.office-call-btn {
+    height: 40px;
+    background: transparent;
+    border: 1px dashed var(--color-text-dim);
+    border-radius: 8px;
+    color: var(--color-text-dim);
+    font-family: inherit;
+    font-size: 13px;
+    font-weight: 700;
+    cursor: pointer;
+    -webkit-tap-highlight-color: transparent;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 8px;
+    margin-top: 4px;
+}
+.office-call-btn:active {
+    background: var(--color-background);
+    color: var(--color-text);
+}
+.office-call-btn svg { width: 16px; height: 16px; }
+
+/* === MODAL (problem-flow) === */
+.modal-backdrop {
+    position: absolute;
+    inset: 0;
+    background: rgba(0,0,0,0.5);
+    display: none;
+    align-items: flex-end;
+    z-index: 100;
+}
+.modal-backdrop.active {
+    display: flex;
+    animation: fadeIn 0.2s;
+}
+@keyframes fadeIn { from { opacity: 0; } to { opacity: 1; } }
+
+.modal {
+    background: var(--color-surface);
+    width: 100%;
+    border-radius: 20px 20px 0 0;
+    max-height: 85%;
+    display: flex;
+    flex-direction: column;
+    animation: slideUp 0.25s;
+}
+@keyframes slideUp {
+    from { transform: translateY(100%); }
+    to { transform: translateY(0); }
+}
+
+.modal-handle {
+    width: 40px; height: 4px;
+    background: var(--color-border);
+    border-radius: 2px;
+    margin: 8px auto;
+    flex-shrink: 0;
+}
+
+.modal-header {
+    padding: 8px 20px 16px;
+    border-bottom: 1px solid var(--color-border);
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    flex-shrink: 0;
+}
+.modal-title {
+    font-size: 17px;
+    font-weight: 700;
+}
+.modal-step-counter {
+    font-size: 12px;
+    color: var(--color-text-dim);
+    background: var(--color-background);
+    padding: 4px 10px;
+    border-radius: 12px;
+}
+
+.modal-body {
+    padding: 16px 20px 20px;
+    flex: 1;
+    overflow-y: auto;
+}
+
+/* Problem-type buttons */
+.problem-types {
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+}
+.problem-type-btn {
+    display: flex;
+    align-items: center;
+    gap: 14px;
+    padding: 14px;
+    border: 1px solid var(--color-border);
+    border-radius: 12px;
+    background: var(--color-surface);
+    text-align: left;
+    cursor: pointer;
+    font-family: inherit;
+    -webkit-tap-highlight-color: transparent;
+    width: 100%;
+}
+.problem-type-btn:active { background: var(--color-background); }
+.problem-type-btn.selected {
+    border-color: var(--brand-primary);
+    background: var(--brand-primary-light);
+}
+.problem-type-icon {
+    width: 44px; height: 44px;
+    border-radius: 50%;
+    background: var(--color-background);
+    color: var(--brand-primary);
+    display: flex; align-items: center; justify-content: center;
+    flex-shrink: 0;
+}
+.problem-type-btn.selected .problem-type-icon {
+    background: var(--brand-primary);
+    color: white;
+}
+.problem-type-icon svg { width: 22px; height: 22px; }
+.problem-type-text { flex: 1; }
+.problem-type-label {
+    font-weight: 700;
+    font-size: 15px;
+    color: var(--color-text);
+}
+.problem-type-desc {
+    font-size: 12px;
+    color: var(--color-text-dim);
+    margin-top: 2px;
+}
+
+/* Step 2: photo + note */
+.photo-area {
+    border: 2px dashed var(--color-border);
+    border-radius: 12px;
+    padding: 24px;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 8px;
+    background: var(--color-background);
+    margin-bottom: 16px;
+}
+.photo-area.taken {
+    border-style: solid;
+    background: #e8f4dd;
+    border-color: var(--color-green);
+}
+.photo-icon {
+    width: 48px; height: 48px;
+    color: var(--color-text-dim);
+}
+.photo-area.taken .photo-icon { color: var(--color-green-dark); }
+.photo-label {
+    font-size: 14px;
+    font-weight: 700;
+    color: var(--color-text-dim);
+}
+.photo-area.taken .photo-label { color: var(--color-green-dark); }
+.photo-sublabel {
+    font-size: 12px;
+    color: var(--color-text-dim);
+}
+
+.location-chip {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    background: #e8f4dd;
+    color: var(--color-green-dark);
+    padding: 6px 10px;
+    border-radius: 20px;
+    font-size: 12px;
+    font-weight: 700;
+    margin-bottom: 12px;
+}
+.location-chip svg { width: 14px; height: 14px; }
+
+.note-textarea {
+    width: 100%;
+    min-height: 80px;
+    padding: 12px;
+    border: 1px solid var(--color-border);
+    border-radius: 10px;
+    font-family: inherit;
+    font-size: 15px;
+    resize: none;
+    background: var(--color-background);
+}
+.note-textarea:focus {
+    outline: none;
+    border-color: var(--brand-primary);
+    background: var(--color-surface);
+}
+.note-label {
+    font-size: 13px;
+    font-weight: 700;
+    color: var(--color-text-dim);
+    margin-bottom: 6px;
+    display: block;
+}
+
+/* Step 3: confirm */
+.confirm-summary {
+    background: var(--color-background);
+    border-radius: 12px;
+    padding: 16px;
+    margin-bottom: 16px;
+}
+.confirm-row {
+    display: flex;
+    gap: 12px;
+    padding: 8px 0;
+    border-bottom: 1px solid var(--color-border);
+}
+.confirm-row:last-child { border-bottom: 0; }
+.confirm-row-label {
+    font-size: 12px;
+    color: var(--color-text-dim);
+    width: 80px;
+    flex-shrink: 0;
+    padding-top: 2px;
+}
+.confirm-row-value {
+    flex: 1;
+    font-size: 14px;
+    font-weight: 700;
+}
+
+/* Modal actions */
+.modal-actions {
+    padding: 12px 20px calc(12px + env(safe-area-inset-bottom));
+    border-top: 1px solid var(--color-border);
+    display: flex;
+    gap: 8px;
+    background: var(--color-surface);
+    flex-shrink: 0;
+}
+.modal-btn {
+    height: 52px;
+    border-radius: 12px;
+    font-family: inherit;
+    font-size: 15px;
+    font-weight: 700;
+    cursor: pointer;
+    -webkit-tap-highlight-color: transparent;
+    border: 0;
+}
+.modal-btn-cancel {
+    flex: 1;
+    background: var(--color-background);
+    color: var(--color-text);
+    border: 1px solid var(--color-border);
+}
+.modal-btn-primary {
+    flex: 2;
+    background: var(--brand-primary);
+    color: white;
+}
+.modal-btn-primary:disabled {
+    opacity: 0.4;
+    cursor: not-allowed;
+}
+.modal-btn-primary:not(:disabled):active {
+    background: #6d4c14;
+}
+
+/* Toast */
+.toast {
+    position: absolute;
+    top: 80px;
+    left: 50%;
+    transform: translateX(-50%);
+    background: var(--color-text);
+    color: white;
+    padding: 10px 18px;
+    border-radius: 24px;
+    font-size: 14px;
+    font-weight: 700;
+    z-index: 200;
+    opacity: 0;
+    pointer-events: none;
+    transition: opacity 0.2s, transform 0.2s;
+}
+.toast.show {
+    opacity: 1;
+    transform: translateX(-50%) translateY(0);
+}
+
+/* === HELP STRIP (kun til mockup-demo) === */
+.demo-strip {
+    position: fixed;
+    top: 8px;
+    left: 50%;
+    transform: translateX(-50%);
+    background: rgba(0,0,0,0.7);
+    color: white;
+    padding: 6px 14px;
+    border-radius: 20px;
+    font-size: 11px;
+    z-index: 9999;
+    pointer-events: none;
+    white-space: nowrap;
+}
+@media (max-width: 900px) { .demo-strip { display: none; } }
+</style>
+</head>
+<body>
+
+<div class="demo-strip">📱 Mockup · 3 skærme side om side · Tryk på et stop for at se flowet</div>
+
+<div class="phone-frame">
+
+<!-- ═══════════════ SKÆRM 1: DAGENS TUR ═══════════════ -->
+<div class="phone active" id="phone-list">
+    <div class="phone-label">Dagens tur</div>
+    <div class="screen">
+        <header class="app-header">
+            <div style="width:40px"></div>
+            <div class="app-header-title">Dagens tur</div>
+            <div class="app-header-meta">tor.<br>30. apr</div>
+        </header>
+
+        <div class="route-summary">
+            <div class="route-vehicle">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                    <path d="M5 17h14M5 17a2 2 0 1 0 4 0M19 17a2 2 0 1 0 0-4M5 17l-1-7h16l1 7M4 10l1-3h14l1 3"/>
+                </svg>
+            </div>
+            <div class="route-info">
+                <div class="route-info-label">Tur · Volvo</div>
+                <div class="route-info-name">Frederiksberg → Indre by</div>
+                <div class="route-info-stats">3 stop · 12 km · ca. 1t 5min</div>
+            </div>
+        </div>
+
+        <div class="stop-list">
+
+            <!-- Stop 1: leveret -->
+            <div class="stop-card completed">
+                <div class="stop-card-row">
+                    <div class="stop-seq delivered">
+                        <div class="stop-seq-num">1</div>
+                        <div class="stop-seq-time">11:30</div>
+                    </div>
+                    <div class="stop-body">
+                        <div class="stop-customer">Café Nordvest</div>
+                        <div class="stop-address">Thorvaldsensvej 40, 1871 Frb</div>
+                        <div>
+                            <span class="stop-status-badge delivered">✓ Leveret 11:32</span>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Stop 2: aktiv -->
+            <div class="stop-card" onclick="goTo('detail')">
+                <div class="stop-card-row">
+                    <div class="stop-seq en_route">
+                        <div class="stop-seq-num">2</div>
+                        <div class="stop-seq-time">12:15</div>
+                    </div>
+                    <div class="stop-body">
+                        <div class="stop-customer">Hansen Advokater</div>
+                        <div class="stop-address">Åbenrå 34, 1124 København K</div>
+                        <div class="stop-bon">#3447 · 20 enheder · 4 kasser</div>
+                        <div>
+                            <span class="stop-status-badge en_route">På vej</span>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Stop 3: kommende -->
+            <div class="stop-card">
+                <div class="stop-card-row">
+                    <div class="stop-seq pending">
+                        <div class="stop-seq-num">3</div>
+                        <div class="stop-seq-time">12:45</div>
+                    </div>
+                    <div class="stop-body">
+                        <div class="stop-customer">Nordnet Bank</div>
+                        <div class="stop-address">Bredgade 45, 1260 København K</div>
+                        <div class="stop-bon">#3425 · 40 enheder · 6 kasser</div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Hjem til HQ - vises efter sidste stop -->
+            <div class="return-home-card">
+                <div class="return-home-icon">
+                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                        <path d="M3 12l9-9 9 9M5 10v10h4v-6h6v6h4V10"/>
+                    </svg>
+                </div>
+                <div class="return-home-info">
+                    <div class="return-home-title">Tilbage til HQ</div>
+                    <div class="return-home-sub">Prinsesse Charlottesgade 16</div>
+                </div>
+                <button class="return-home-btn">
+                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">
+                        <polygon points="3 11 22 2 13 21 11 13 3 11"/>
+                    </svg>
+                    Naviger
+                </button>
+            </div>
+
+        </div>
+    </div>
+</div>
+
+<!-- ═══════════════ SKÆRM 2: STOP-DETALJE ═══════════════ -->
+<div class="phone" id="phone-detail">
+    <div class="phone-label">Stop 2 · Detalje</div>
+    <div class="screen">
+        <header class="app-header">
+            <button class="app-header-back" onclick="goTo('list')">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
+                    <polyline points="15 18 9 12 15 6"/>
+                </svg>
+            </button>
+            <div class="app-header-title">Stop 2 af 3</div>
+            <div class="app-header-meta">12:15</div>
+        </header>
+
+        <div class="stop-detail">
+
+            <!-- Customer + actions -->
+            <div class="detail-section">
+                <div class="customer-card">
+                    <div class="customer-address-top">
+                        Åbenrå 34, 1124 København K · 1. sal th.
+                    </div>
+
+                    <div class="nav-buttons">
+                        <button class="customer-btn primary map-btn nav-primary">
+                            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">
+                                <polygon points="3 11 22 2 13 21 11 13 3 11"/>
+                            </svg>
+                            Naviger til kunden
+                        </button>
+                        <button class="customer-btn map-btn-secondary" title="Vis hele turen i Google Maps">
+                            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                                <circle cx="12" cy="10" r="3"/>
+                                <path d="M21 10c0 7-9 13-9 13s-9-6-9-13a9 9 0 0 1 18 0z"/>
+                            </svg>
+                        </button>
+                    </div>
+
+                    <!-- Pickup-info: bon# + antal kasser (kritisk ved afhentning) -->
+                    <div class="pickup-info">
+                        <div class="pickup-boxes">
+                            <div class="pickup-boxes-num">4</div>
+                            <div class="pickup-boxes-label">kasser</div>
+                        </div>
+                        <div class="pickup-bon">
+                            <div class="pickup-bon-label">Bon</div>
+                            <div class="pickup-bon-num">#3447</div>
+                            <div class="pickup-bon-customer">Hansen Advokater</div>
+                        </div>
+                    </div>
+
+                    <!-- Kontakt på dagen (primær) -->
+                    <div class="contact-block primary">
+                        <div class="contact-header">
+                            <span class="contact-label">På dagen</span>
+                            <span class="contact-name">Maja Sørensen</span>
+                        </div>
+                        <div class="contact-actions">
+                            <button class="contact-btn call">
+                                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                                    <path d="M22 16.92v3a2 2 0 0 1-2.18 2 19.79 19.79 0 0 1-8.63-3.07 19.5 19.5 0 0 1-6-6 19.79 19.79 0 0 1-3.07-8.67A2 2 0 0 1 4.11 2h3a2 2 0 0 1 2 1.72 12.84 12.84 0 0 0 .7 2.81 2 2 0 0 1-.45 2.11L8.09 9.91a16 16 0 0 0 6 6l1.27-1.27a2 2 0 0 1 2.11-.45 12.84 12.84 0 0 0 2.81.7A2 2 0 0 1 22 16.92z"/>
+                                </svg>
+                                Ring
+                            </button>
+                            <button class="contact-btn sms">
+                                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                                    <path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/>
+                                </svg>
+                                SMS
+                            </button>
+                        </div>
+                        <div class="contact-phone">33 12 34 56</div>
+                    </div>
+
+                    <!-- Bestiller (backup) -->
+                    <div class="contact-block secondary">
+                        <div class="contact-header">
+                            <span class="contact-label">Bestiller</span>
+                            <span class="contact-name">Mette Lindhardt</span>
+                        </div>
+                        <div class="contact-actions">
+                            <button class="contact-btn call">
+                                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                                    <path d="M22 16.92v3a2 2 0 0 1-2.18 2 19.79 19.79 0 0 1-8.63-3.07 19.5 19.5 0 0 1-6-6 19.79 19.79 0 0 1-3.07-8.67A2 2 0 0 1 4.11 2h3a2 2 0 0 1 2 1.72 12.84 12.84 0 0 0 .7 2.81 2 2 0 0 1-.45 2.11L8.09 9.91a16 16 0 0 0 6 6l1.27-1.27a2 2 0 0 1 2.11-.45 12.84 12.84 0 0 0 2.81.7A2 2 0 0 1 22 16.92z"/>
+                                </svg>
+                                Ring
+                            </button>
+                            <button class="contact-btn sms">
+                                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                                    <path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/>
+                                </svg>
+                                SMS
+                            </button>
+                        </div>
+                        <div class="contact-phone">29 12 45 78</div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Delivery notes (vigtig) -->
+            <div class="delivery-notes">
+                <svg class="delivery-notes-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                    <circle cx="12" cy="12" r="10"/>
+                    <line x1="12" y1="8" x2="12" y2="12"/>
+                    <line x1="12" y1="16" x2="12.01" y2="16"/>
+                </svg>
+                <div class="delivery-notes-content">
+                    <div class="delivery-notes-label">Leveringsinstruks</div>
+                    Ring porttelefon "Hansen Adv." ved indgang. Brug bagindgang fra gården hvis muligt.
+                </div>
+            </div>
+
+            <!-- Bon detaljer (sekundær info) -->
+            <div class="detail-section">
+                <div class="detail-section-title">Bon-detaljer</div>
+                <div class="bon-info">
+                    <div class="bon-info-row">
+                        <span class="bon-info-label">Leveres senest</span>
+                        <span class="bon-info-value">12:30</span>
+                    </div>
+                    <div class="bon-info-row">
+                        <span class="bon-info-label">Pax / enheder</span>
+                        <span class="bon-info-value">20 / 20</span>
+                    </div>
+                    <div class="bon-info-row">
+                        <span class="bon-info-label">Betaling</span>
+                        <span class="bon-info-value">Faktura</span>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Items -->
+            <div class="detail-section">
+                <div class="detail-section-title">Indhold</div>
+                <div class="items-list">
+                    <div class="item-row"><span><span class="item-qty">10×</span>Falaflen</span></div>
+                    <div class="item-row"><span><span class="item-qty">8×</span>Ægget</span></div>
+                    <div class="item-row"><span><span class="item-qty">2×</span>"Tunen"</span></div>
+                    <div class="item-row"><span><span class="item-qty">4×</span>Transportkasser</span></div>
+                </div>
+            </div>
+
+        </div>
+
+        <div class="action-bar">
+            <button class="action-primary" onclick="markDelivered()">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
+                    <polyline points="20 6 9 17 4 12"/>
+                </svg>
+                Marker som leveret
+            </button>
+            <div class="action-secondary-row">
+                <button class="action-secondary">
+                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                        <circle cx="12" cy="12" r="10"/>
+                        <polyline points="12 6 12 12 16 14"/>
+                    </svg>
+                    Ankommet
+                </button>
+                <button class="action-secondary problem" onclick="openProblem()">
+                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                        <path d="M10.29 3.86L1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z"/>
+                        <line x1="12" y1="9" x2="12" y2="13"/>
+                        <line x1="12" y1="17" x2="12.01" y2="17"/>
+                    </svg>
+                    Problem
+                </button>
+            </div>
+            <button class="office-call-btn">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                    <path d="M22 16.92v3a2 2 0 0 1-2.18 2 19.79 19.79 0 0 1-8.63-3.07 19.5 19.5 0 0 1-6-6 19.79 19.79 0 0 1-3.07-8.67A2 2 0 0 1 4.11 2h3a2 2 0 0 1 2 1.72 12.84 12.84 0 0 0 .7 2.81 2 2 0 0 1-.45 2.11L8.09 9.91a16 16 0 0 0 6 6l1.27-1.27a2 2 0 0 1 2.11-.45 12.84 12.84 0 0 0 2.81.7A2 2 0 0 1 22 16.92z"/>
+                </svg>
+                Ring kontoret · 33 21 89 89
+            </button>
+        </div>
+
+        <!-- Toast -->
+        <div class="toast" id="toast">✓ Stop 2 leveret</div>
+
+        <!-- ═══════════════ MODAL: PROBLEM-FLOW ═══════════════ -->
+        <div class="modal-backdrop" id="modal">
+            <div class="modal">
+                <div class="modal-handle"></div>
+
+                <div class="modal-header">
+                    <div class="modal-title" id="modal-title">Hvad skete der?</div>
+                    <div class="modal-step-counter" id="modal-step">1/3</div>
+                </div>
+
+                <div class="modal-body">
+
+                    <!-- STEP 1: type -->
+                    <div class="modal-step" id="step-1">
+                        <div class="problem-types">
+                            <button class="problem-type-btn" data-type="no_answer" onclick="selectType(this)">
+                                <div class="problem-type-icon">
+                                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                                        <path d="M22 16.92v3a2 2 0 0 1-2.18 2 19.79 19.79 0 0 1-8.63-3.07 19.5 19.5 0 0 1-6-6 19.79 19.79 0 0 1-3.07-8.67A2 2 0 0 1 4.11 2h3a2 2 0 0 1 2 1.72 12.84 12.84 0 0 0 .7 2.81 2 2 0 0 1-.45 2.11L8.09 9.91a16 16 0 0 0 6 6l1.27-1.27a2 2 0 0 1 2.11-.45 12.84 12.84 0 0 0 2.81.7A2 2 0 0 1 22 16.92z"/>
+                                        <line x1="2" y1="2" x2="22" y2="22"/>
+                                    </svg>
+                                </div>
+                                <div class="problem-type-text">
+                                    <div class="problem-type-label">Ingen svar</div>
+                                    <div class="problem-type-desc">Kunden tager ikke telefonen / åbner ikke</div>
+                                </div>
+                            </button>
+
+                            <button class="problem-type-btn" data-type="left_at_door" onclick="selectType(this)">
+                                <div class="problem-type-icon">
+                                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                                        <rect x="3" y="3" width="18" height="18" rx="2"/>
+                                        <path d="M9 14l2 2 4-4"/>
+                                    </svg>
+                                </div>
+                                <div class="problem-type-text">
+                                    <div class="problem-type-label">Stillet på aftalt sted</div>
+                                    <div class="problem-type-desc">Aflagt ved døren / reception / aftalt sted</div>
+                                </div>
+                            </button>
+
+                            <button class="problem-type-btn" data-type="wrong_address" onclick="selectType(this)">
+                                <div class="problem-type-icon">
+                                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                                        <path d="M21 10c0 7-9 13-9 13s-9-6-9-13a9 9 0 0 1 18 0z"/>
+                                        <line x1="9" y1="9" x2="15" y2="15"/>
+                                        <line x1="15" y1="9" x2="9" y2="15"/>
+                                    </svg>
+                                </div>
+                                <div class="problem-type-text">
+                                    <div class="problem-type-label">Forkert adresse</div>
+                                    <div class="problem-type-desc">Kan ikke finde / forkert info</div>
+                                </div>
+                            </button>
+
+                            <button class="problem-type-btn" data-type="returned" onclick="selectType(this)">
+                                <div class="problem-type-icon">
+                                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                                        <polyline points="9 14 4 9 9 4"/>
+                                        <path d="M20 20v-7a4 4 0 0 0-4-4H4"/>
+                                    </svg>
+                                </div>
+                                <div class="problem-type-text">
+                                    <div class="problem-type-label">Returnerer til køkken</div>
+                                    <div class="problem-type-desc">Kunne ikke leveres — tager maden med tilbage</div>
+                                </div>
+                            </button>
+
+                            <button class="problem-type-btn" data-type="other" onclick="selectType(this)">
+                                <div class="problem-type-icon">
+                                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                                        <circle cx="12" cy="12" r="10"/>
+                                        <path d="M12 8v4"/>
+                                        <path d="M12 16h.01"/>
+                                    </svg>
+                                </div>
+                                <div class="problem-type-text">
+                                    <div class="problem-type-label">Andet</div>
+                                    <div class="problem-type-desc">Beskriv selv</div>
+                                </div>
+                            </button>
+                        </div>
+                    </div>
+
+                    <!-- STEP 2: photo + note -->
+                    <div class="modal-step" id="step-2" style="display:none">
+                        <div class="photo-area" id="photo-area" onclick="togglePhoto()">
+                            <svg class="photo-icon" id="photo-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                                <path d="M23 19a2 2 0 0 1-2 2H3a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h4l2-3h6l2 3h4a2 2 0 0 1 2 2z"/>
+                                <circle cx="12" cy="13" r="4"/>
+                            </svg>
+                            <div class="photo-label" id="photo-label">Tag billede</div>
+                            <div class="photo-sublabel" id="photo-sublabel">Anbefales — kan springes over</div>
+                        </div>
+
+                        <div class="location-chip">
+                            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                                <path d="M21 10c0 7-9 13-9 13s-9-6-9-13a9 9 0 0 1 18 0z"/>
+                                <circle cx="12" cy="10" r="3"/>
+                            </svg>
+                            Position fanget · 55.6841, 12.5811
+                        </div>
+
+                        <label class="note-label">Kort beskrivelse (valgfri)</label>
+                        <textarea class="note-textarea" id="note-text" placeholder="F.eks. 'Stillet bag receptionsskranken, vagt orienteret'"></textarea>
+                    </div>
+
+                    <!-- STEP 3: confirm -->
+                    <div class="modal-step" id="step-3" style="display:none">
+                        <div class="confirm-summary">
+                            <div class="confirm-row">
+                                <div class="confirm-row-label">Stop</div>
+                                <div class="confirm-row-value">#3447 · Hansen Advokater</div>
+                            </div>
+                            <div class="confirm-row">
+                                <div class="confirm-row-label">Type</div>
+                                <div class="confirm-row-value" id="summary-type">Stillet på aftalt sted</div>
+                            </div>
+                            <div class="confirm-row">
+                                <div class="confirm-row-label">Billede</div>
+                                <div class="confirm-row-value" id="summary-photo">Ja</div>
+                            </div>
+                            <div class="confirm-row">
+                                <div class="confirm-row-label">Position</div>
+                                <div class="confirm-row-value">55.6841, 12.5811</div>
+                            </div>
+                            <div class="confirm-row">
+                                <div class="confirm-row-label">Note</div>
+                                <div class="confirm-row-value" id="summary-note">—</div>
+                            </div>
+                        </div>
+                        <div style="font-size:13px; color:var(--color-text-dim); text-align:center;">
+                            Kontoret får besked. Stop markeres som <strong style="color:var(--color-text)">leveret med note</strong>.
+                        </div>
+                    </div>
+
+                </div>
+
+                <div class="modal-actions">
+                    <button class="modal-btn modal-btn-cancel" onclick="modalBack()" id="btn-back">Annullér</button>
+                    <button class="modal-btn modal-btn-primary" onclick="modalNext()" id="btn-next" disabled>Næste</button>
+                </div>
+            </div>
+        </div>
+
+    </div>
+</div>
+
+<!-- ═══════════════ SKÆRM 3: PROBLEM STEP 2 (vist statisk for sammenligning) ═══════════════ -->
+<div class="phone" id="phone-problem">
+    <div class="phone-label">Problem · Trin 2/3</div>
+    <div class="screen">
+        <header class="app-header">
+            <div style="width:40px"></div>
+            <div class="app-header-title">Stop 2 af 3</div>
+            <div class="app-header-meta">12:15</div>
+        </header>
+
+        <div class="stop-detail" style="opacity:0.4; pointer-events:none">
+            <div class="detail-section">
+                <div class="customer-card">
+                    <div class="customer-name">Hansen Advokater</div>
+                    <div class="customer-address">Åbenrå 34, 1124 København K</div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Modal vises permanent -->
+        <div class="modal-backdrop active" style="position:absolute">
+            <div class="modal">
+                <div class="modal-handle"></div>
+                <div class="modal-header">
+                    <div class="modal-title">Hvad skete der?</div>
+                    <div class="modal-step-counter">2/3</div>
+                </div>
+                <div class="modal-body">
+                    <div class="photo-area taken">
+                        <svg class="photo-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                            <polyline points="20 6 9 17 4 12"/>
+                        </svg>
+                        <div class="photo-label">Billede taget</div>
+                        <div class="photo-sublabel">Tryk for at tage nyt</div>
+                    </div>
+
+                    <div class="location-chip">
+                        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                            <path d="M21 10c0 7-9 13-9 13s-9-6-9-13a9 9 0 0 1 18 0z"/>
+                            <circle cx="12" cy="10" r="3"/>
+                        </svg>
+                        Position fanget · 55.6841, 12.5811
+                    </div>
+
+                    <label class="note-label">Kort beskrivelse (valgfri)</label>
+                    <textarea class="note-textarea" readonly>Stillet bag receptionsskranken, vagt Birgit orienteret. Kunde kontaktet på sms.</textarea>
+                </div>
+                <div class="modal-actions">
+                    <button class="modal-btn modal-btn-cancel">Tilbage</button>
+                    <button class="modal-btn modal-btn-primary">Næste</button>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+
+</div>
+
+<script>
+// === Phone navigation (mobile) ===
+function goTo(name) {
+    if (window.innerWidth > 900) return; // desktop viser alle
+    document.querySelectorAll('.phone').forEach(p => p.classList.remove('active'));
+    const target = document.getElementById('phone-' + name);
+    if (target) target.classList.add('active');
+}
+
+// === Modal flow ===
+let currentStep = 1;
+let selectedType = null;
+let photoTaken = false;
+
+function openProblem() {
+    document.getElementById('modal').classList.add('active');
+    resetModal();
+}
+
+function closeProblem() {
+    document.getElementById('modal').classList.remove('active');
+}
+
+function resetModal() {
+    currentStep = 1;
+    selectedType = null;
+    photoTaken = false;
+    showStep(1);
+    document.querySelectorAll('.problem-type-btn').forEach(b => b.classList.remove('selected'));
+    document.getElementById('photo-area').classList.remove('taken');
+    document.getElementById('photo-icon').innerHTML = '<path d="M23 19a2 2 0 0 1-2 2H3a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h4l2-3h6l2 3h4a2 2 0 0 1 2 2z"/><circle cx="12" cy="13" r="4"/>';
+    document.getElementById('photo-label').textContent = 'Tag billede';
+    document.getElementById('photo-sublabel').textContent = 'Anbefales — kan springes over';
+    document.getElementById('note-text').value = '';
+    document.getElementById('btn-next').disabled = true;
+    document.getElementById('btn-back').textContent = 'Annullér';
+}
+
+function showStep(n) {
+    currentStep = n;
+    document.getElementById('step-1').style.display = n === 1 ? 'block' : 'none';
+    document.getElementById('step-2').style.display = n === 2 ? 'block' : 'none';
+    document.getElementById('step-3').style.display = n === 3 ? 'block' : 'none';
+    document.getElementById('modal-step').textContent = n + '/3';
+
+    const titles = { 1: 'Hvad skete der?', 2: 'Dokumentér', 3: 'Bekræft' };
+    document.getElementById('modal-title').textContent = titles[n];
+
+    document.getElementById('btn-back').textContent = n === 1 ? 'Annullér' : 'Tilbage';
+    const next = document.getElementById('btn-next');
+    next.textContent = n === 3 ? 'Send & marker stop' : 'Næste';
+
+    if (n === 1) next.disabled = !selectedType;
+    if (n === 2) next.disabled = false;
+    if (n === 3) next.disabled = false;
+}
+
+function selectType(btn) {
+    document.querySelectorAll('.problem-type-btn').forEach(b => b.classList.remove('selected'));
+    btn.classList.add('selected');
+    selectedType = btn.dataset.type;
+    document.getElementById('btn-next').disabled = false;
+}
+
+function togglePhoto() {
+    photoTaken = !photoTaken;
+    const area = document.getElementById('photo-area');
+    const label = document.getElementById('photo-label');
+    const sub = document.getElementById('photo-sublabel');
+    const icon = document.getElementById('photo-icon');
+
+    if (photoTaken) {
+        area.classList.add('taken');
+        label.textContent = 'Billede taget';
+        sub.textContent = 'Tryk for at tage nyt';
+        icon.innerHTML = '<polyline points="20 6 9 17 4 12"/>';
+    } else {
+        area.classList.remove('taken');
+        label.textContent = 'Tag billede';
+        sub.textContent = 'Anbefales — kan springes over';
+        icon.innerHTML = '<path d="M23 19a2 2 0 0 1-2 2H3a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h4l2-3h6l2 3h4a2 2 0 0 1 2 2z"/><circle cx="12" cy="13" r="4"/>';
+    }
+}
+
+function modalBack() {
+    if (currentStep === 1) {
+        closeProblem();
+    } else {
+        showStep(currentStep - 1);
+    }
+}
+
+function modalNext() {
+    if (currentStep < 3) {
+        if (currentStep === 2) {
+            const typeLabels = {
+                no_answer: 'Ingen svar',
+                left_at_door: 'Stillet på aftalt sted',
+                wrong_address: 'Forkert adresse',
+                returned: 'Returnerer til køkken',
+                other: 'Andet'
+            };
+            document.getElementById('summary-type').textContent = typeLabels[selectedType] || '—';
+            document.getElementById('summary-photo').textContent = photoTaken ? 'Ja' : 'Nej';
+            const noteVal = document.getElementById('note-text').value.trim();
+            document.getElementById('summary-note').textContent = noteVal || '—';
+        }
+        showStep(currentStep + 1);
+    } else {
+        // Submit
+        closeProblem();
+        showToast('✓ Problem logget · stop markeret');
+    }
+}
+
+function markDelivered() {
+    showToast('✓ Stop 2 leveret');
+    setTimeout(() => goTo('list'), 800);
+}
+
+function showToast(msg) {
+    const t = document.getElementById('toast');
+    t.textContent = msg;
+    t.classList.add('show');
+    setTimeout(() => t.classList.remove('show'), 1500);
+}
+</script>
+
+</body>
+</html>

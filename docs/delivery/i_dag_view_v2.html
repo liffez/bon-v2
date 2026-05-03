@@ -1,0 +1,1270 @@
+<!DOCTYPE html>
+<html lang="da">
+<head>
+<meta charset="UTF-8">
+<title>Bon v2 · I dag</title>
+<link href="https://fonts.googleapis.com/css2?family=Lato:wght@400;700;900&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
+<style>
+:root {
+    --brand-primary: #8e631f;
+    --brand-primary-light: #f1e6b2;
+    --color-surface: #ffffff;
+    --color-background: #f5f4f2;
+    --color-border: #d7d1ca;
+    --color-text: #333333;
+    --color-text-dim: #8a8580;
+    --color-text-very-dim: #b8b4ae;
+    --color-green-dark: #7a9c54;
+    --color-green-bg: #e8f4dd;
+    --color-warn: #e8a832;
+    --color-warn-bg: #fef5e0;
+    --color-error: #bc181b;
+    --color-error-bg: #fef0f0;
+    --vh-volvo: #6a4a18;
+    --vh-bike: #7594b3;
+    --vh-taxi: #4a4a4a;
+    --vh-own-bike: #5a8c7a;
+
+    /* Status colors — matcher bon_status_definitions */
+    --status-planlagt: #7594b3;      /* NY/GODKENDT — blå */
+    --status-igang: #e8a832;         /* IGANG — orange (når køkkenet arbejder) */
+    --status-klar: #6ab04c;          /* KLAR — grøn (køkken færdig, på vej) */
+    --status-leveret: #8a8580;       /* LEVERET — grå (hos kunde) */
+    --status-problem: #bc181b;       /* AFLYST/incident — rød */
+}
+
+* { box-sizing: border-box; margin: 0; padding: 0; }
+html, body { height: 100%; overflow: hidden; }
+
+body {
+    font-family: 'Lato', sans-serif;
+    color: var(--color-text);
+    font-size: 14px;
+    background: var(--color-background);
+    -webkit-font-smoothing: antialiased;
+}
+
+.shell {
+    display: grid;
+    grid-template-columns: 200px 1fr;
+    height: 100vh;
+}
+
+/* ════════ SIDEBAR ════════ */
+.sidebar {
+    background: var(--color-text);
+    color: white;
+    display: flex;
+    flex-direction: column;
+}
+.sidebar-brand {
+    padding: 16px;
+    font-weight: 900;
+    font-size: 18px;
+    border-bottom: 1px solid rgba(255,255,255,0.1);
+    display: flex;
+    align-items: center;
+    gap: 8px;
+}
+.sidebar-brand .accent { color: var(--brand-primary-light); }
+.sidebar-brand-text { flex: 1; }
+.sidebar-toggle {
+    width: 24px; height: 24px;
+    background: rgba(255,255,255,0.05);
+    border: 0;
+    border-radius: 4px;
+    color: rgba(255,255,255,0.6);
+    cursor: pointer;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    flex-shrink: 0;
+}
+.sidebar-toggle:hover {
+    background: rgba(255,255,255,0.1);
+    color: white;
+}
+.sidebar-toggle svg { width: 14px; height: 14px; }
+
+/* Collapsed state */
+.shell.sidebar-collapsed {
+    grid-template-columns: 50px 1fr;
+}
+.sidebar-collapsed .sidebar-brand-text,
+.sidebar-collapsed .sidebar-item span:not(.brand-icon) {
+    display: none;
+}
+.sidebar-collapsed .sidebar-brand {
+    padding: 12px 8px;
+    justify-content: center;
+}
+.sidebar-collapsed .sidebar-brand-text { display: none; }
+.sidebar-collapsed .sidebar-toggle svg {
+    transform: rotate(180deg);
+}
+.sidebar-collapsed .sidebar-item {
+    justify-content: center;
+    padding: 9px 0;
+}
+.sidebar-collapsed .sidebar-item-label {
+    display: none;
+}
+.sidebar-nav { flex: 1; padding: 8px; overflow-y: auto; }
+.sidebar-item {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    padding: 9px 12px;
+    border-radius: 6px;
+    color: rgba(255,255,255,0.65);
+    cursor: pointer;
+    margin-bottom: 1px;
+    font-size: 13px;
+}
+.sidebar-item:hover { background: rgba(255,255,255,0.05); color: white; }
+.sidebar-item.active { background: var(--brand-primary); color: white; }
+.sidebar-item svg { width: 16px; height: 16px; flex-shrink: 0; }
+
+/* ════════ MAIN ════════ */
+.main { display: flex; flex-direction: column; overflow: hidden; }
+
+/* ════════ TOPBAR — LIVE-MODE ════════ */
+.topbar {
+    background: var(--color-surface);
+    border-bottom: 1px solid var(--color-border);
+    padding: 10px 20px;
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    flex-shrink: 0;
+}
+.topbar.live-mode {
+    background: linear-gradient(to right, #fef9eb, var(--color-surface) 50%);
+    border-bottom-color: #e5d089;
+}
+.topbar-title-row {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+}
+.topbar-title {
+    font-size: 17px;
+    font-weight: 900;
+}
+.live-pulse {
+    display: inline-flex;
+    align-items: center;
+    gap: 5px;
+    background: var(--color-error);
+    color: white;
+    padding: 2px 8px;
+    border-radius: 10px;
+    font-size: 10px;
+    font-weight: 900;
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+}
+.live-pulse-dot {
+    width: 6px; height: 6px;
+    background: white;
+    border-radius: 50%;
+    animation: pulse 1.5s ease-in-out infinite;
+}
+@keyframes pulse {
+    0%, 100% { opacity: 1; }
+    50% { opacity: 0.3; }
+}
+.topbar-subtitle {
+    font-size: 12px;
+    color: var(--color-text-dim);
+}
+.topbar-spacer { flex: 1; }
+
+.date-nav {
+    display: flex;
+    align-items: center;
+    background: var(--color-background);
+    border: 1px solid var(--color-border);
+    border-radius: 8px;
+    overflow: hidden;
+}
+.date-nav button {
+    width: 32px; height: 32px;
+    background: transparent;
+    border: 0;
+    cursor: pointer;
+    color: var(--color-text-dim);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+}
+.date-nav button:hover { background: var(--brand-primary-light); color: var(--brand-primary); }
+.date-nav button svg { width: 16px; height: 16px; }
+.date-nav-label {
+    padding: 0 14px;
+    font-weight: 700;
+    font-size: 13px;
+    border-left: 1px solid var(--color-border);
+    border-right: 1px solid var(--color-border);
+    height: 32px;
+    display: flex;
+    align-items: center;
+    min-width: 130px;
+    justify-content: center;
+}
+.btn {
+    height: 32px;
+    padding: 0 12px;
+    border-radius: 6px;
+    font-family: inherit;
+    font-size: 13px;
+    font-weight: 700;
+    border: 1px solid var(--color-border);
+    background: var(--color-surface);
+    cursor: pointer;
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    color: var(--color-text);
+}
+.btn:hover { border-color: var(--brand-primary); }
+.btn svg { width: 14px; height: 14px; }
+.btn.primary {
+    background: var(--brand-primary);
+    color: white;
+    border-color: var(--brand-primary);
+}
+.btn.primary:hover { background: #6d4c14; }
+
+/* ════════ STAT BAR ════════ */
+.stat-bar {
+    background: var(--color-surface);
+    border-bottom: 1px solid var(--color-border);
+    padding: 8px 20px;
+    display: flex;
+    gap: 24px;
+    align-items: center;
+    flex-shrink: 0;
+}
+.stat-item {
+    display: flex;
+    align-items: baseline;
+    gap: 6px;
+}
+.stat-num {
+    font-size: 18px;
+    font-weight: 900;
+}
+.stat-label {
+    font-size: 11px;
+    color: var(--color-text-dim);
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+}
+.stat-num.leveret { color: var(--status-leveret); }
+.stat-num.klar { color: #4a7e30; }
+.stat-num.problem { color: var(--color-error); }
+.stat-num.success { color: var(--color-green-dark); }
+.stat-num.warn { color: var(--color-warn); }
+.stat-num.danger { color: var(--color-error); }
+
+/* ════════ WORKBENCH ════════ */
+.workbench {
+    flex: 1;
+    display: grid;
+    grid-template-columns: 320px 1fr 380px;
+    overflow: hidden;
+}
+
+/* ════════ KOLONNE 1: BONS ════════ */
+.col-bons {
+    border-right: 1px solid var(--color-border);
+    background: var(--color-surface);
+    display: flex;
+    flex-direction: column;
+    overflow: hidden;
+}
+.col-header {
+    padding: 12px 14px;
+    border-bottom: 1px solid var(--color-border);
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    flex-shrink: 0;
+}
+.col-title { font-size: 13px; font-weight: 900; }
+.col-count {
+    font-size: 11px;
+    color: var(--color-text-dim);
+    background: var(--color-background);
+    padding: 2px 8px;
+    border-radius: 10px;
+    font-weight: 700;
+}
+
+/* New bon notification */
+.new-bon-toast {
+    margin: 8px;
+    background: var(--status-planlagt);
+    color: white;
+    border-radius: 8px;
+    padding: 10px 12px;
+    font-size: 12px;
+    font-weight: 700;
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    animation: slideIn 0.4s ease;
+}
+@keyframes slideIn {
+    from { transform: translateY(-10px); opacity: 0; }
+    to { transform: translateY(0); opacity: 1; }
+}
+.new-bon-toast svg { width: 14px; height: 14px; }
+.new-bon-toast strong { font-weight: 900; }
+
+.bons-list { flex: 1; overflow-y: auto; padding: 8px; }
+
+.bon-card {
+    background: var(--color-surface);
+    border: 1px solid var(--color-border);
+    border-radius: 8px;
+    padding: 9px 10px;
+    margin-bottom: 6px;
+    position: relative;
+}
+.bon-card.new-bon {
+    border-color: var(--status-planlagt);
+    background: #eef2f7;
+}
+.bon-card.new-bon::before {
+    content: 'NY';
+    position: absolute;
+    top: 6px;
+    right: 8px;
+    background: var(--status-planlagt);
+    color: white;
+    font-size: 9px;
+    font-weight: 900;
+    padding: 1px 5px;
+    border-radius: 3px;
+    letter-spacing: 0.5px;
+}
+.bon-card.assigned {
+    opacity: 0.5;
+    background: var(--color-background);
+}
+.bon-num { font-weight: 900; font-size: 14px; }
+.bon-customer {
+    font-size: 13px;
+    font-weight: 700;
+    margin: 3px 0 1px;
+}
+.bon-address {
+    font-size: 11px;
+    color: var(--color-text-dim);
+}
+.bon-meta {
+    display: flex;
+    gap: 4px;
+    margin-top: 6px;
+    flex-wrap: wrap;
+}
+.bon-chip {
+    font-size: 10px;
+    font-weight: 700;
+    padding: 2px 6px;
+    border-radius: 3px;
+    background: var(--color-background);
+    color: var(--color-text-dim);
+    text-transform: uppercase;
+    letter-spacing: 0.3px;
+}
+.bon-chip.boxes {
+    background: var(--brand-primary-light);
+    color: var(--brand-primary);
+}
+.bon-chip.leveret {
+    background: #ebe9e6;
+    color: var(--status-leveret);
+    font-weight: 900;
+}
+.bon-chip.klar {
+    background: #e2f0d4;
+    color: #4a7e30;
+    font-weight: 900;
+}
+.bon-chip.problem {
+    background: var(--color-error-bg);
+    color: var(--color-error);
+    font-weight: 900;
+}
+
+/* ════════ KOLONNE 2: KORT ════════ */
+.col-map {
+    background: var(--color-background);
+    position: relative;
+    overflow: hidden;
+}
+#map, .map-static { height: 100%; width: 100%; }
+
+.map-static {
+    background: linear-gradient(135deg, #e8e3d8, #f0ebe0);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    color: var(--color-text-dim);
+    font-size: 13px;
+    text-align: center;
+    padding: 40px;
+}
+
+.map-overlay-stats {
+    position: absolute;
+    top: 12px;
+    left: 12px;
+    background: var(--color-surface);
+    border: 1px solid var(--color-border);
+    border-radius: 8px;
+    padding: 10px 12px;
+    font-size: 11px;
+    z-index: 1000;
+    box-shadow: 0 2px 8px rgba(0,0,0,0.08);
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+}
+.map-stat-row {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+}
+.map-stat-dot {
+    width: 10px; height: 10px;
+    border-radius: 50%;
+    flex-shrink: 0;
+}
+.map-stat-row strong { font-weight: 900; }
+
+/* ════════ KOLONNE 3: TURE ════════ */
+.col-routes {
+    border-left: 1px solid var(--color-border);
+    background: var(--color-surface);
+    display: flex;
+    flex-direction: column;
+    overflow: hidden;
+}
+.routes-list {
+    flex: 1;
+    overflow-y: auto;
+    padding: 8px;
+}
+
+.route-card {
+    background: var(--color-surface);
+    border: 1px solid var(--color-border);
+    border-radius: 10px;
+    margin-bottom: 8px;
+    overflow: hidden;
+}
+.route-card.has-problem {
+    border-color: var(--color-error);
+    box-shadow: 0 0 0 3px var(--color-error-bg);
+}
+
+.route-header {
+    padding: 10px 12px;
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    border-bottom: 1px solid var(--color-border);
+}
+.route-vehicle-icon {
+    width: 32px; height: 32px;
+    border-radius: 50%;
+    color: white;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    flex-shrink: 0;
+    border: 2px solid white;
+    box-shadow: 0 1px 3px rgba(0,0,0,0.2);
+}
+.route-vehicle-icon.volvo { background: var(--vh-volvo); }
+.route-vehicle-icon.bike { background: var(--vh-bike); }
+.route-vehicle-icon.own-bike { background: var(--vh-own-bike); }
+.route-vehicle-icon.taxi { background: var(--vh-taxi); }
+.route-vehicle-icon svg { width: 16px; height: 16px; }
+
+.route-name {
+    font-weight: 900;
+    font-size: 13px;
+    flex: 1;
+}
+.route-meta {
+    font-size: 11px;
+    color: var(--color-text-dim);
+}
+.route-progress-mini {
+    font-size: 11px;
+    font-weight: 700;
+    background: var(--color-background);
+    padding: 2px 8px;
+    border-radius: 10px;
+    color: var(--color-text-dim);
+}
+.route-progress-mini.live {
+    background: var(--color-warn-bg);
+    color: #8a6500;
+}
+.route-progress-mini.done {
+    background: var(--color-green-bg);
+    color: var(--color-green-dark);
+}
+
+/* Send-knap som pille - altid synlig */
+.route-message-btn {
+    height: 24px;
+    padding: 0 8px;
+    border-radius: 12px;
+    background: var(--color-background);
+    border: 1px solid var(--color-border);
+    cursor: pointer;
+    display: inline-flex;
+    align-items: center;
+    gap: 4px;
+    color: var(--color-text-dim);
+    font-family: inherit;
+    font-size: 11px;
+    font-weight: 700;
+}
+.route-message-btn:hover {
+    background: var(--brand-primary);
+    border-color: var(--brand-primary);
+    color: white;
+}
+.route-message-btn svg { width: 11px; height: 11px; }
+
+.route-stops { padding: 4px; }
+
+.route-stop {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    padding: 7px 8px;
+    border-radius: 6px;
+    cursor: pointer;
+}
+.route-stop:hover { background: var(--color-background); }
+
+.route-stop-seq {
+    width: 24px; height: 24px;
+    border-radius: 50%;
+    color: white;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-weight: 900;
+    font-size: 11px;
+    flex-shrink: 0;
+    position: relative;
+}
+.route-stop-seq svg { width: 12px; height: 12px; }
+.route-stop-seq.planlagt { background: var(--status-planlagt); }
+.route-stop-seq.klar { background: var(--status-klar); }
+.route-stop-seq.leveret { background: var(--status-leveret); }
+.route-stop-seq.problem {
+    background: var(--status-problem);
+    animation: pulse-warn 1.5s ease-in-out infinite;
+}
+@keyframes pulse-warn {
+    0%, 100% { box-shadow: 0 0 0 0 rgba(188, 24, 27, 0.5); }
+    50% { box-shadow: 0 0 0 8px rgba(188, 24, 27, 0); }
+}
+
+.route-stop-info { flex: 1; min-width: 0; }
+.route-stop-name {
+    font-weight: 700;
+    font-size: 12px;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+.route-stop-status {
+    font-size: 11px;
+    color: var(--color-text-dim);
+    margin-top: 1px;
+}
+.route-stop-status.klar { color: #4a7e30; font-weight: 700; }
+.route-stop-status.leveret { color: var(--status-leveret); }
+.route-stop-status.problem { color: var(--color-error); font-weight: 700; }
+
+.route-stop-times {
+    text-align: right;
+    flex-shrink: 0;
+    font-size: 11px;
+    color: var(--color-text-dim);
+}
+.route-stop-times .planned {
+    color: var(--color-text-dim);
+}
+.route-stop-times .actual {
+    font-weight: 900;
+    color: var(--color-text);
+}
+.route-stop-times .actual.late { color: var(--color-warn); }
+
+/* Problem indikator inde i tur */
+.route-problem-banner {
+    background: var(--color-error-bg);
+    border-top: 1px solid var(--color-error);
+    padding: 10px 12px;
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    font-size: 12px;
+}
+.route-problem-banner svg {
+    width: 16px; height: 16px;
+    color: var(--color-error);
+    flex-shrink: 0;
+}
+.route-problem-banner-content {
+    flex: 1;
+    color: var(--color-error);
+    line-height: 1.4;
+}
+.route-problem-banner-content strong { font-weight: 900; }
+.route-problem-banner-action {
+    background: var(--color-error);
+    color: white;
+    border: 0;
+    padding: 4px 10px;
+    border-radius: 4px;
+    font-size: 11px;
+    font-weight: 700;
+    cursor: pointer;
+}
+
+/* ════════ STOP DETAIL DRAWER (right slide, mockup'ed compact) ════════ */
+.detail-drawer {
+    background: var(--color-background);
+    padding: 8px;
+    border-top: 1px solid var(--color-border);
+}
+.detail-drawer-title {
+    font-size: 10px;
+    font-weight: 900;
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+    color: var(--color-text-dim);
+    padding: 4px 8px;
+}
+
+/* ════════ MESSAGE MODAL ════════ */
+.modal-backdrop {
+    position: fixed;
+    inset: 0;
+    background: rgba(0,0,0,0.4);
+    z-index: 2000;
+    display: none;
+    align-items: center;
+    justify-content: center;
+}
+.modal-backdrop.active { display: flex; }
+.modal {
+    background: var(--color-surface);
+    border-radius: 12px;
+    width: 480px;
+    box-shadow: 0 20px 60px rgba(0,0,0,0.3);
+}
+.modal-header {
+    padding: 16px 20px;
+    border-bottom: 1px solid var(--color-border);
+    display: flex;
+    align-items: center;
+    gap: 12px;
+}
+.modal-header-icon {
+    width: 36px; height: 36px;
+    border-radius: 50%;
+    background: var(--vh-volvo);
+    color: white;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    flex-shrink: 0;
+    border: 2px solid white;
+    box-shadow: 0 1px 3px rgba(0,0,0,0.2);
+}
+.modal-header-icon svg { width: 16px; height: 16px; }
+.modal-title { font-size: 15px; font-weight: 900; }
+.modal-subtitle {
+    font-size: 12px;
+    color: var(--color-text-dim);
+    margin-top: 2px;
+}
+.modal-body { padding: 16px 20px; }
+.modal-footer {
+    padding: 12px 20px;
+    border-top: 1px solid var(--color-border);
+    display: flex;
+    justify-content: flex-end;
+    gap: 8px;
+}
+.modal-footer .btn {
+    height: 36px;
+    padding: 0 14px;
+    font-size: 13px;
+}
+
+.message-templates {
+    margin-bottom: 12px;
+}
+.template-label {
+    font-size: 11px;
+    font-weight: 900;
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+    color: var(--color-text-dim);
+    margin-bottom: 6px;
+}
+.template-chips {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 6px;
+}
+.template-chip {
+    font-size: 12px;
+    padding: 6px 10px;
+    background: var(--color-background);
+    border: 1px solid var(--color-border);
+    border-radius: 16px;
+    cursor: pointer;
+    color: var(--color-text);
+}
+.template-chip:hover {
+    background: var(--brand-primary-light);
+    border-color: var(--brand-primary);
+}
+
+.message-textarea {
+    width: 100%;
+    min-height: 80px;
+    border: 1px solid var(--color-border);
+    border-radius: 8px;
+    padding: 10px 12px;
+    font-family: inherit;
+    font-size: 13px;
+    resize: vertical;
+    background: var(--color-background);
+}
+.message-textarea:focus {
+    outline: none;
+    border-color: var(--brand-primary);
+    background: var(--color-surface);
+}
+
+.message-meta {
+    display: flex;
+    justify-content: space-between;
+    margin-top: 6px;
+    font-size: 11px;
+    color: var(--color-text-dim);
+}
+
+/* Reuse from Plan i morgen */
+.bon-vh-icon { display: inline-flex; align-items: center; margin-right: 3px; vertical-align: middle; width: 12px; height: 12px; }
+.bon-chip.assigned-vh { color: white; border: 0; }
+.bon-chip.assigned-vh.volvo { background: var(--vh-volvo); }
+.bon-chip.assigned-vh.bike { background: var(--vh-bike); }
+.bon-chip.assigned-vh.own-bike { background: var(--vh-own-bike); }
+.bon-chip.assigned-vh.taxi { background: var(--vh-taxi); }
+</style>
+</head>
+<body>
+
+<div class="shell">
+
+    <!-- SIDEBAR -->
+    <aside class="sidebar" id="sidebar">
+        <div class="sidebar-brand">
+            <span class="accent">🍞</span>
+            <span class="sidebar-brand-text">Bon v2</span>
+            <button class="sidebar-toggle" onclick="toggleSidebar()" title="Skjul/vis sidebar">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><polyline points="15 18 9 12 15 6"/></svg>
+            </button>
+        </div>
+        <nav class="sidebar-nav">
+            <div class="sidebar-item">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="3" width="18" height="18" rx="2"/><line x1="3" y1="9" x2="21" y2="9"/></svg>
+                <span class="sidebar-item-label">Dashboard</span>
+            </div>
+            <div class="sidebar-item">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/></svg>
+                <span class="sidebar-item-label">Bons</span>
+            </div>
+            <div class="sidebar-item">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/></svg>
+                <span class="sidebar-item-label">CRM</span>
+            </div>
+            <div class="sidebar-item active">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 10c0 7-9 13-9 13s-9-6-9-13a9 9 0 0 1 18 0z"/><circle cx="12" cy="10" r="3"/></svg>
+                <span class="sidebar-item-label">Logistik</span>
+            </div>
+            <div class="sidebar-item">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M6 2L3 6v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2V6l-3-4z"/></svg>
+                <span class="sidebar-item-label">Køkken</span>
+            </div>
+            <div class="sidebar-item">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="9" cy="21" r="1"/><circle cx="20" cy="21" r="1"/><path d="M1 1h4l2.7 13.4a2 2 0 0 0 2 1.6h9.7a2 2 0 0 0 2-1.6L23 6H6"/></svg>
+                <span class="sidebar-item-label">Indkøb</span>
+            </div>
+            <div class="sidebar-item">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="4" width="18" height="18" rx="2"/></svg>
+                <span class="sidebar-item-label">Vagtplan</span>
+            </div>
+            <div class="sidebar-item">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/></svg>
+                <span class="sidebar-item-label">Fakturering</span>
+            </div>
+        </nav>
+    </aside>
+
+    <!-- MAIN -->
+    <div class="main">
+
+        <!-- TOPBAR — LIVE-MODE -->
+        <header class="topbar live-mode">
+            <div>
+                <div class="topbar-title-row">
+                    <div class="topbar-title">Logistik · I dag</div>
+                    <span class="live-pulse">
+                        <span class="live-pulse-dot"></span>
+                        Live
+                    </span>
+                </div>
+                <div class="topbar-subtitle">Status opdateres automatisk · 12:34</div>
+            </div>
+            <div class="topbar-spacer"></div>
+
+            <div class="date-nav">
+                <button title="I går"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><polyline points="15 18 9 12 15 6"/></svg></button>
+                <div class="date-nav-label">Fre. 1. maj 2026</div>
+                <button title="I morgen"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><polyline points="9 18 15 12 9 6"/></svg></button>
+            </div>
+
+            <button class="btn">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 10c0 7-9 13-9 13s-9-6-9-13a9 9 0 0 1 18 0z"/><circle cx="12" cy="10" r="3"/></svg>
+                Plan i morgen
+            </button>
+        </header>
+
+        <!-- STAT BAR -->
+        <div class="stat-bar">
+            <div class="stat-item">
+                <span class="stat-num leveret">5</span>
+                <span class="stat-label">Leveret</span>
+            </div>
+            <div class="stat-item">
+                <span class="stat-num klar">3</span>
+                <span class="stat-label">På vej</span>
+            </div>
+            <div class="stat-item">
+                <span class="stat-num problem">1</span>
+                <span class="stat-label">Problem</span>
+            </div>
+            <div class="stat-item" style="margin-left:auto">
+                <span class="stat-label">8 stop · 4 ture</span>
+            </div>
+        </div>
+
+        <!-- WORKBENCH -->
+        <div class="workbench">
+
+            <!-- KOL 1: Bons -->
+            <section class="col-bons">
+                <div class="col-header">
+                    <div class="col-title">Dagens bons</div>
+                    <div class="col-count">9 i dag</div>
+                </div>
+
+                <!-- New bon notification -->
+                <div class="new-bon-toast">
+                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5">
+                        <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/>
+                    </svg>
+                    Ny bon ankommet · <strong>#3460</strong> · skal leveres 14:30
+                </div>
+
+                <div class="bons-list">
+
+                    <div class="bon-card new-bon">
+                        <div class="bon-num">#3460</div>
+                        <div class="bon-customer">Apex Studio</div>
+                        <div class="bon-address">Sankt Annæ Plads 12, 1250 Kbh K</div>
+                        <div class="bon-meta">
+                            <span class="bon-chip boxes">2 ks</span>
+                            <span class="bon-chip">12 pax</span>
+                            <span class="bon-chip" style="background:#dde6ee; color:var(--status-planlagt); font-weight:900">lev. 14:30</span>
+                        </div>
+                    </div>
+
+                    <div class="bon-card assigned">
+                        <div class="bon-num">#3437</div>
+                        <div class="bon-customer">Café Nordvest</div>
+                        <div class="bon-address">Thorvaldsensvej 40, Frb</div>
+                        <div class="bon-meta">
+                            <span class="bon-chip boxes">2 ks</span>
+                            <span class="bon-chip leveret">✓ Leveret 11:32</span>
+                        </div>
+                    </div>
+
+                    <div class="bon-card assigned">
+                        <div class="bon-num">#3447</div>
+                        <div class="bon-customer">Hansen Advokater</div>
+                        <div class="bon-address">Åbenrå 34, Kbh K</div>
+                        <div class="bon-meta">
+                            <span class="bon-chip boxes">4 ks</span>
+                            <span class="bon-chip leveret">✓ Leveret 11:55</span>
+                        </div>
+                    </div>
+
+                    <div class="bon-card assigned">
+                        <div class="bon-num">#3425</div>
+                        <div class="bon-customer">Nordnet Bank</div>
+                        <div class="bon-address">Bredgade 45, Kbh K</div>
+                        <div class="bon-meta">
+                            <span class="bon-chip boxes">6 ks</span>
+                            <span class="bon-chip problem">⚠ Problem</span>
+                        </div>
+                    </div>
+
+                    <div class="bon-card assigned">
+                        <div class="bon-num">#3448</div>
+                        <div class="bon-customer">Café Bistro</div>
+                        <div class="bon-address">Ryesgade 27A, Kbh N</div>
+                        <div class="bon-meta">
+                            <span class="bon-chip boxes">3 ks</span>
+                            <span class="bon-chip klar">KLAR · på vej</span>
+                        </div>
+                    </div>
+
+                    <div class="bon-card assigned">
+                        <div class="bon-num">#3450</div>
+                        <div class="bon-customer">Tech Studio</div>
+                        <div class="bon-address">Klerkegade 6, Kbh K</div>
+                        <div class="bon-meta">
+                            <span class="bon-chip boxes">2 ks</span>
+                            <span class="bon-chip leveret">✓ Leveret 11:28</span>
+                        </div>
+                    </div>
+
+                    <div class="bon-card assigned">
+                        <div class="bon-num">#3451</div>
+                        <div class="bon-customer">Liljens Kvarter</div>
+                        <div class="bon-address">Liljens Kvt 2, Albertslund</div>
+                        <div class="bon-meta">
+                            <span class="bon-chip boxes">4 ks</span>
+                            <span class="bon-chip leveret">✓ Leveret 12:48</span>
+                        </div>
+                    </div>
+
+                    <div class="bon-card assigned">
+                        <div class="bon-num">#3453</div>
+                        <div class="bon-customer">DR Byen</div>
+                        <div class="bon-address">Emil Holms Kanal 20</div>
+                        <div class="bon-meta">
+                            <span class="bon-chip boxes">2 ks</span>
+                            <span class="bon-chip leveret">✓ Leveret 11:38</span>
+                        </div>
+                    </div>
+
+                </div>
+            </section>
+
+            <!-- KOL 2: Kort -->
+            <section class="col-map">
+                <div class="map-static">
+                    <div>
+                        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" style="width:48px; height:48px; margin:0 auto 12px; display:block; opacity:0.4;">
+                            <path d="M21 10c0 7-9 13-9 13s-9-6-9-13a9 9 0 0 1 18 0z"/>
+                            <circle cx="12" cy="10" r="3"/>
+                        </svg>
+                        <div style="font-weight:700; margin-bottom:4px;">Live kort</div>
+                        <div style="font-size:11px; opacity:0.7;">
+                            Markører viser status med farve · sequence-tal indeni<br>
+                            Pulserer ved problem-stop · grøn ved leveret
+                        </div>
+                    </div>
+                </div>
+
+                <div class="map-overlay-stats">
+                    <div class="map-stat-row">
+                        <div class="map-stat-dot" style="background: var(--status-leveret)"></div>
+                        <span><strong>5</strong> leveret</span>
+                    </div>
+                    <div class="map-stat-row">
+                        <div class="map-stat-dot" style="background: var(--status-klar)"></div>
+                        <span><strong>3</strong> på vej</span>
+                    </div>
+                    <div class="map-stat-row">
+                        <div class="map-stat-dot" style="background: var(--status-problem)"></div>
+                        <span><strong>1</strong> problem</span>
+                    </div>
+                </div>
+            </section>
+
+            <!-- KOL 3: Ture -->
+            <section class="col-routes">
+                <div class="col-header">
+                    <div class="col-title">Aktive ture</div>
+                    <div class="col-count">4 ture</div>
+                </div>
+                <div class="routes-list">
+
+                    <!-- Volvo tur 1 - mid-route, ét stop med problem -->
+                    <div class="route-card has-problem">
+                        <div class="route-header">
+                            <div class="route-vehicle-icon volvo">
+                                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M5 17h14M5 17a2 2 0 1 0 4 0M19 17a2 2 0 1 0 0-4M5 17l-1-7h16l1 7M4 10l1-3h14l1 3"/></svg>
+                            </div>
+                            <div style="flex:1; min-width:0">
+                                <div class="route-name">Volvo · tur 1</div>
+                                <div class="route-meta">Leif · afgang 11:35</div>
+                            </div>
+                            <button class="route-message-btn" title="Send besked til Leif">
+                                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/></svg>
+                                Send
+                            </button>
+                            <span class="route-progress-mini live">2/3</span>
+                        </div>
+
+                        <div class="route-stops">
+                            <div class="route-stop">
+                                <div class="route-stop-seq leveret">
+                                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3"><polyline points="20 6 9 17 4 12"/></svg>
+                                </div>
+                                <div class="route-stop-info">
+                                    <div class="route-stop-name">#3447 · Hansen Adv.</div>
+                                    <div class="route-stop-status leveret">Leveret hos kunde</div>
+                                </div>
+                                <div class="route-stop-times">
+                                    <div class="planned">plan 11:55</div>
+                                    <div class="actual">11:55</div>
+                                </div>
+                            </div>
+
+                            <div class="route-stop">
+                                <div class="route-stop-seq problem">2</div>
+                                <div class="route-stop-info">
+                                    <div class="route-stop-name">#3425 · Nordnet Bank</div>
+                                    <div class="route-stop-status problem">⚠ Ingen svar fra kunde</div>
+                                </div>
+                                <div class="route-stop-times">
+                                    <div class="planned">plan 12:25</div>
+                                    <div class="actual late">12:32</div>
+                                </div>
+                            </div>
+
+                            <div class="route-stop">
+                                <div class="route-stop-seq planlagt">3</div>
+                                <div class="route-stop-info">
+                                    <div class="route-stop-name">#3454 · Lokomotiv Studio</div>
+                                    <div class="route-stop-status">Afventer</div>
+                                </div>
+                                <div class="route-stop-times">
+                                    <div class="planned">plan 13:50</div>
+                                </div>
+                            </div>
+                        </div>
+
+                        <div class="route-problem-banner">
+                            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5">
+                                <path d="M10.29 3.86L1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z"/>
+                                <line x1="12" y1="9" x2="12" y2="13"/>
+                                <line x1="12" y1="17" x2="12.01" y2="17"/>
+                            </svg>
+                            <div class="route-problem-banner-content">
+                                <strong>#3425</strong> · ingen svar · logget 12:32
+                            </div>
+                            <button class="route-problem-banner-action">Vis</button>
+                        </div>
+                    </div>
+
+                    <!-- By-expressen tur 1 - færdig -->
+                    <div class="route-card">
+                        <div class="route-header">
+                            <div class="route-vehicle-icon bike">
+                                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><circle cx="6" cy="17" r="3"/><circle cx="18" cy="17" r="3"/><path d="M6 17l4-9h4l4 9M10 8l1-3h3"/></svg>
+                            </div>
+                            <div style="flex:1; min-width:0">
+                                <div class="route-name">By-expressen #1</div>
+                                <div class="route-meta">Eksternt · ref BE-7821</div>
+                            </div>
+                            <span class="route-progress-mini done">2/2</span>
+                        </div>
+
+                        <div class="route-stops">
+                            <div class="route-stop">
+                                <div class="route-stop-seq leveret">
+                                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3"><polyline points="20 6 9 17 4 12"/></svg>
+                                </div>
+                                <div class="route-stop-info">
+                                    <div class="route-stop-name">#3450 · Tech Studio</div>
+                                    <div class="route-stop-status leveret">Leveret</div>
+                                </div>
+                                <div class="route-stop-times">
+                                    <div class="planned">plan 11:30</div>
+                                    <div class="actual">11:28</div>
+                                </div>
+                            </div>
+                            <div class="route-stop">
+                                <div class="route-stop-seq leveret">
+                                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3"><polyline points="20 6 9 17 4 12"/></svg>
+                                </div>
+                                <div class="route-stop-info">
+                                    <div class="route-stop-name">#3437 · Café Nordvest</div>
+                                    <div class="route-stop-status leveret">Leveret</div>
+                                </div>
+                                <div class="route-stop-times">
+                                    <div class="planned">plan 11:30</div>
+                                    <div class="actual">11:32</div>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- Egen cykel - mid-route -->
+                    <div class="route-card">
+                        <div class="route-header">
+                            <div class="route-vehicle-icon own-bike">
+                                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><circle cx="6" cy="17" r="3"/><circle cx="18" cy="17" r="3"/><path d="M6 17l4-9h4l4 9M10 8l1-3h3"/></svg>
+                            </div>
+                            <div style="flex:1; min-width:0">
+                                <div class="route-name">Egen cykel · tur 1</div>
+                                <div class="route-meta">Pernille · afgang 10:50</div>
+                            </div>
+                            <button class="route-message-btn" title="Send besked">
+                                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/></svg>
+                                Send
+                            </button>
+                            <span class="route-progress-mini live">1/2</span>
+                        </div>
+
+                        <div class="route-stops">
+                            <div class="route-stop">
+                                <div class="route-stop-seq leveret">
+                                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3"><polyline points="20 6 9 17 4 12"/></svg>
+                                </div>
+                                <div class="route-stop-info">
+                                    <div class="route-stop-name">#3453 · DR Byen</div>
+                                    <div class="route-stop-status leveret">Leveret</div>
+                                </div>
+                                <div class="route-stop-times">
+                                    <div class="planned">plan 11:45</div>
+                                    <div class="actual">11:38</div>
+                                </div>
+                            </div>
+                            <div class="route-stop">
+                                <div class="route-stop-seq klar">2</div>
+                                <div class="route-stop-info">
+                                    <div class="route-stop-name">#3448 · Café Bistro</div>
+                                    <div class="route-stop-status klar">Klar · på vej til kunde</div>
+                                </div>
+                                <div class="route-stop-times">
+                                    <div class="planned">plan 13:50</div>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- Taxa - kommende -->
+                    <div class="route-card">
+                        <div class="route-header">
+                            <div class="route-vehicle-icon taxi">
+                                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><rect x="3" y="11" width="18" height="8" rx="2"/><path d="M7 11V7a2 2 0 0 1 2-2h6a2 2 0 0 1 2 2v4"/></svg>
+                            </div>
+                            <div style="flex:1; min-width:0">
+                                <div class="route-name">Taxa · 12:00</div>
+                                <div class="route-meta">El-Taxa · ref TX-44821</div>
+                            </div>
+                            <span class="route-progress-mini done">1/1</span>
+                        </div>
+
+                        <div class="route-stops">
+                            <div class="route-stop">
+                                <div class="route-stop-seq leveret">
+                                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3"><polyline points="20 6 9 17 4 12"/></svg>
+                                </div>
+                                <div class="route-stop-info">
+                                    <div class="route-stop-name">#3451 · Liljens Kvt</div>
+                                    <div class="route-stop-status leveret">Leveret</div>
+                                </div>
+                                <div class="route-stop-times">
+                                    <div class="planned">plan 13:00</div>
+                                    <div class="actual">12:48</div>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+
+                </div>
+            </section>
+
+        </div>
+    </div>
+</div>
+
+<!-- MESSAGE MODAL (vises nederst som inline mockup) -->
+<div style="position:fixed; bottom:20px; right:20px; width:480px; background:var(--color-surface); border-radius:12px; box-shadow:0 10px 40px rgba(0,0,0,0.2); border:1px solid var(--color-border);">
+    <div class="modal-header">
+        <div class="modal-header-icon">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M5 17h14M5 17a2 2 0 1 0 4 0M19 17a2 2 0 1 0 0-4M5 17l-1-7h16l1 7M4 10l1-3h14l1 3"/></svg>
+        </div>
+        <div style="flex:1">
+            <div class="modal-title">Send besked til Leif</div>
+            <div class="modal-subtitle">Volvo · tur 1 · på vej til stop 3</div>
+        </div>
+        <button class="modal-close" style="background:transparent; border:0; cursor:pointer; color:var(--color-text-dim); width:32px; height:32px;">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" style="width:18px; height:18px;"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
+        </button>
+    </div>
+
+    <div class="modal-body">
+        <div class="message-templates">
+            <div class="template-label">Hurtige beskeder</div>
+            <div class="template-chips">
+                <span class="template-chip">Skynd dig hjem</span>
+                <span class="template-chip">Tag #3460 med tilbage</span>
+                <span class="template-chip">Kunden har ringet</span>
+                <span class="template-chip">Adresse rettet</span>
+            </div>
+        </div>
+
+        <textarea class="message-textarea" placeholder="Eller skriv selv...">Hej Leif — kør lige forbi Apex Studio, Sankt Annæ Plads 12, på vej tilbage. Ny bon #3460. Jeg sætter den på din tur.</textarea>
+
+        <div class="message-meta">
+            <span>Modtages øjeblikkeligt på Leifs telefon</span>
+            <span>147 / 500</span>
+        </div>
+    </div>
+
+    <div class="modal-footer">
+        <button class="btn">Annullér</button>
+        <button class="btn primary">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><line x1="22" y1="2" x2="11" y2="13"/><polygon points="22 2 15 22 11 13 2 9 22 2"/></svg>
+            Send
+        </button>
+    </div>
+</div>
+
+<script>
+function toggleSidebar() {
+    document.querySelector('.shell').classList.toggle('sidebar-collapsed');
+}
+</script>
+
+</body>
+</html>

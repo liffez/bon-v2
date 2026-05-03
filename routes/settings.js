@@ -116,4 +116,70 @@ router.patch('/duplicates/:id', handle((req, res) => {
     res.json({ ok: true });
 }));
 
+/* ── Bestilling: menu CRUD (admin) ────────────────────── */
+
+const ALLOWED_MENU_IDS = ['standard'];
+
+// GET /api/settings/bestilling/menu/:id — hent menu-JSON parsed
+router.get('/bestilling/menu/:id', requireAuth('admin'), handle((req, res) => {
+    const id = req.params.id;
+    if (!ALLOWED_MENU_IDS.includes(id)) {
+        return res.status(404).json({ error: 'menu_not_allowed' });
+    }
+    const row = getDb().prepare(
+        'SELECT value FROM settings WHERE key = ?'
+    ).get(`bestilling.menu_${id}`);
+    if (!row) return res.status(404).json({ error: 'menu_not_found' });
+
+    try {
+        res.json(JSON.parse(row.value));
+    } catch (e) {
+        res.status(500).json({ error: 'menu_invalid_json', detail: e.message });
+    }
+}));
+
+// PUT /api/settings/bestilling/menu/:id — gem menu-JSON med validering
+router.put('/bestilling/menu/:id', requireAuth('admin'), handle((req, res) => {
+    const id = req.params.id;
+    if (!ALLOWED_MENU_IDS.includes(id)) {
+        return res.status(404).json({ error: 'menu_not_allowed' });
+    }
+
+    const menu = req.body;
+    if (!menu || typeof menu !== 'object') {
+        return res.status(400).json({ error: 'invalid_payload' });
+    }
+    if (!Array.isArray(menu.categories) || !Array.isArray(menu.items)) {
+        return res.status(400).json({ error: 'missing_categories_or_items' });
+    }
+
+    // Valider kategori-ids
+    const catIds = new Set();
+    for (const c of menu.categories) {
+        if (!c.id || !c.name) return res.status(400).json({ error: 'category_missing_id_or_name' });
+        if (catIds.has(c.id)) return res.status(400).json({ error: 'duplicate_category_id', id: c.id });
+        catIds.add(c.id);
+    }
+
+    // Valider items
+    const itemIds = new Set();
+    for (const it of menu.items) {
+        if (!it.id || !it.name) return res.status(400).json({ error: 'item_missing_id_or_name' });
+        if (itemIds.has(it.id)) return res.status(400).json({ error: 'duplicate_item_id', id: it.id });
+        if (!catIds.has(it.category)) return res.status(400).json({ error: 'item_unknown_category', id: it.id, category: it.category });
+        itemIds.add(it.id);
+    }
+
+    // Auto-bump version + sæt menu_id
+    menu.menu_id = id;
+    menu.version = new Date().toISOString().slice(0, 10);
+
+    const json = JSON.stringify(menu);
+    getDb().prepare(
+        'INSERT INTO settings (key, value) VALUES (?, ?) ON CONFLICT(key) DO UPDATE SET value = ?, updated_at = CURRENT_TIMESTAMP'
+    ).run(`bestilling.menu_${id}`, json, json);
+
+    res.json({ ok: true, version: menu.version });
+}));
+
 module.exports = router;

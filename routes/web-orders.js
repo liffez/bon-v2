@@ -61,6 +61,36 @@ router.get('/', (req, res) => {
 
 // ─── HANDLER ───────────────────────────────────────────────────────────────
 
+// Sandwichvalg-koder → labels (vises i customer_wishes)
+const SANDWICH_LABELS = {
+  rr_blander: 'Køkkenet blander',
+  'rr_vælger': 'Køkkenet blander',  // bagudkompatibel med eksisterende formular
+  eget_valg:   'Eget valg'
+};
+
+function buildCustomerWishes(data) {
+  // Saml sandwichvalg + wishes + _form_meta-marker
+  const parts = [];
+
+  if (data.sandwichvalg && SANDWICH_LABELS[data.sandwichvalg]) {
+    parts.push(`Sandwichvalg: ${SANDWICH_LABELS[data.sandwichvalg]}`);
+  }
+
+  if (data.wishes?.trim()) {
+    parts.push(data.wishes.trim());
+  }
+
+  // Form-meta som audit-spor (kort markering nederst)
+  const meta = data._form_meta;
+  if (meta?.menu_id && meta?.menu_version) {
+    parts.push(`[Form: ${meta.menu_id} v${meta.menu_version}]`);
+  } else if (meta?.form_version) {
+    parts.push(`[Form: ${meta.form_version}]`);
+  }
+
+  return parts.length ? parts.join('\n\n') : null;
+}
+
 async function handleWebOrder(data) {
   const db = getDb();
 
@@ -164,6 +194,10 @@ async function handleWebOrder(data) {
   const priceCategoryId = defaultCat?.id || null;
 
   const pax = data.pax ? parseInt(data.pax) : null;
+  const customerWishes = buildCustomerWishes(data);
+
+  // Saml leverings-info: extra-tekst (etage/indgang) gemmes i delivery_notes
+  const deliveryNotes = data.delivery_extra?.trim() || null;
 
   const bonRes = db.prepare(`
     INSERT INTO bons (
@@ -173,6 +207,7 @@ async function handleWebOrder(data) {
       delivery_type, delivery_address_id,
       pax, customer_wishes, invoice_info,
       day_contact_name, day_contact_phone,
+      delivery_notes,
       payment_type, created_at, updated_at
     ) VALUES (
       ?, ?, ?,
@@ -181,6 +216,7 @@ async function handleWebOrder(data) {
       ?, ?,
       ?, ?, ?,
       ?, ?,
+      ?,
       'invoice', CURRENT_TIMESTAMP, CURRENT_TIMESTAMP
     )
   `).run(
@@ -189,10 +225,11 @@ async function handleWebOrder(data) {
     data.delivery_date, data.delivery_time,
     deliveryType, addressId,
     pax,
-    data.wishes || null,
+    customerWishes,
     eanInfo || null,
     data.contact_person || null,
-    data.contact_phone || null
+    data.contact_phone || null,
+    deliveryNotes
   );
 
   const bonId = Number(bonRes.lastInsertRowid);

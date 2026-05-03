@@ -1,0 +1,936 @@
+<!DOCTYPE html>
+<html lang="da">
+<head>
+<meta charset="UTF-8">
+<title>Bon v2 · Bekræft og bestil</title>
+<link href="https://fonts.googleapis.com/css2?family=Lato:wght@400;700;900&display=swap" rel="stylesheet">
+<style>
+:root {
+    --brand-primary: #8e631f;
+    --brand-primary-light: #f1e6b2;
+    --color-surface: #ffffff;
+    --color-background: #f5f4f2;
+    --color-border: #d7d1ca;
+    --color-text: #333333;
+    --color-text-dim: #8a8580;
+    --color-text-very-dim: #b8b4ae;
+    --color-green-dark: #7a9c54;
+    --color-green-bg: #e8f4dd;
+    --color-warn: #e8a832;
+    --color-warn-bg: #fef5e0;
+    --color-error: #bc181b;
+    --color-error-bg: #fef0f0;
+    --vh-volvo: #6a4a18;
+    --vh-bike: #7594b3;
+    --vh-taxi: #4a4a4a;
+    --vh-own-bike: #5a8c7a;
+}
+
+* { box-sizing: border-box; margin: 0; padding: 0; }
+html, body { height: 100%; }
+
+body {
+    font-family: 'Lato', sans-serif;
+    color: var(--color-text);
+    font-size: 14px;
+    background: #2a2a2a;
+    -webkit-font-smoothing: antialiased;
+    overflow: auto;
+    padding: 32px 16px;
+    min-height: 100%;
+}
+
+/* ════════ DEMO LAYOUT ════════ */
+.demo-grid {
+    display: grid;
+    grid-template-columns: repeat(3, 1fr);
+    gap: 20px;
+    max-width: 1700px;
+    margin: 0 auto;
+}
+@media (max-width: 1500px) {
+    .demo-grid { grid-template-columns: 1fr 1fr; }
+}
+@media (max-width: 1000px) {
+    .demo-grid { grid-template-columns: 1fr; }
+}
+
+.demo-cell {
+    background: rgba(0,0,0,0.3);
+    border-radius: 12px;
+    padding: 20px;
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
+}
+.demo-label {
+    color: white;
+    font-size: 12px;
+    font-weight: 700;
+    text-transform: uppercase;
+    letter-spacing: 1px;
+    margin-bottom: 4px;
+    opacity: 0.8;
+}
+.demo-sub {
+    color: rgba(255,255,255,0.6);
+    font-size: 11px;
+    margin-bottom: 8px;
+}
+
+/* ════════ MODAL CONTAINER (uden backdrop til mockup) ════════ */
+.modal-stage {
+    background: var(--color-background);
+    border-radius: 12px;
+    padding: 30px 20px;
+    position: relative;
+    min-height: 600px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+}
+
+.modal {
+    background: var(--color-surface);
+    border-radius: 12px;
+    width: 100%;
+    max-width: 540px;
+    box-shadow: 0 20px 60px rgba(0,0,0,0.25);
+    display: flex;
+    flex-direction: column;
+    max-height: 720px;
+}
+
+.modal-header {
+    padding: 18px 22px 14px;
+    border-bottom: 1px solid var(--color-border);
+}
+.modal-title {
+    font-size: 17px;
+    font-weight: 900;
+}
+.modal-subtitle {
+    font-size: 13px;
+    color: var(--color-text-dim);
+    margin-top: 4px;
+}
+
+.modal-body {
+    padding: 14px 22px;
+    overflow-y: auto;
+    flex: 1;
+}
+
+/* ════════ STATE 1: Validation error ════════ */
+.validation-block {
+    background: var(--color-error-bg);
+    border: 1px solid #f5c8c9;
+    border-radius: 10px;
+    padding: 14px 16px;
+    margin-bottom: 12px;
+    display: flex;
+    gap: 12px;
+    align-items: flex-start;
+}
+.validation-block.warn {
+    background: var(--color-warn-bg);
+    border-color: #f0d68a;
+}
+.validation-icon {
+    width: 22px; height: 22px;
+    flex-shrink: 0;
+    color: var(--color-error);
+    margin-top: 1px;
+}
+.validation-block.warn .validation-icon { color: #b87a00; }
+.validation-content { flex: 1; line-height: 1.45; font-size: 13px; }
+.validation-title { font-weight: 900; margin-bottom: 4px; }
+.validation-block.warn .validation-title { color: #5d4500; }
+.validation-block:not(.warn) .validation-title { color: var(--color-error); }
+.validation-detail {
+    font-size: 12px;
+    color: var(--color-text-dim);
+}
+.validation-block.warn .validation-detail { color: #8a6500; }
+.validation-detail ul {
+    margin: 4px 0 0 16px;
+    padding: 0;
+}
+.validation-detail li { margin: 2px 0; }
+
+/* ════════ STATE 2: Tur-liste (kompakt) ════════ */
+.summary-line {
+    background: var(--color-background);
+    padding: 10px 14px;
+    border-radius: 8px;
+    margin-bottom: 14px;
+    display: flex;
+    justify-content: space-between;
+    font-size: 13px;
+}
+.summary-line strong { font-weight: 900; }
+.summary-line-item {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+}
+
+.routes-list {
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+}
+
+.route-row {
+    display: flex;
+    align-items: center;
+    padding: 12px 14px;
+    background: var(--color-surface);
+    border: 1px solid var(--color-border);
+    border-radius: 8px;
+    gap: 12px;
+}
+
+.route-row-vh {
+    width: 32px; height: 32px;
+    border-radius: 50%;
+    color: white;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    flex-shrink: 0;
+    border: 2px solid white;
+    box-shadow: 0 1px 3px rgba(0,0,0,0.2);
+}
+.route-row-vh.volvo { background: var(--vh-volvo); }
+.route-row-vh.bike { background: var(--vh-bike); }
+.route-row-vh.taxi { background: var(--vh-taxi); }
+.route-row-vh.own-bike { background: var(--vh-own-bike); }
+.route-row-vh svg { width: 16px; height: 16px; }
+
+.route-row-info {
+    flex: 1;
+    min-width: 0;
+}
+.route-row-name {
+    font-weight: 700;
+    font-size: 13px;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+.route-row-meta {
+    font-size: 11px;
+    color: var(--color-text-dim);
+    margin-top: 1px;
+}
+
+.route-row-action {
+    text-align: right;
+    flex-shrink: 0;
+}
+.action-label {
+    font-size: 11px;
+    font-weight: 700;
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+    padding: 3px 8px;
+    border-radius: 4px;
+    display: inline-flex;
+    align-items: center;
+    gap: 4px;
+    white-space: nowrap;
+}
+.action-label svg { width: 11px; height: 11px; }
+.action-label.calendar {
+    background: var(--color-green-bg);
+    color: var(--color-green-dark);
+}
+.action-label.api {
+    background: #e0f0ff;
+    color: var(--vh-bike);
+}
+.action-label.api.placeholder {
+    background: var(--color-warn-bg);
+    color: #8a6500;
+}
+.action-label.manual {
+    background: var(--color-warn-bg);
+    color: #8a6500;
+}
+.action-sub {
+    font-size: 10px;
+    color: var(--color-text-dim);
+    margin-top: 2px;
+}
+
+/* ════════ Capacity-info ════════ */
+.capacity-info {
+    background: var(--brand-primary-light);
+    border-radius: 8px;
+    padding: 12px 14px;
+    margin-top: 12px;
+    font-size: 12px;
+    color: #5d4500;
+    display: flex;
+    align-items: center;
+    gap: 10px;
+}
+.capacity-icon {
+    width: 18px; height: 18px;
+    flex-shrink: 0;
+    color: var(--brand-primary);
+}
+.capacity-info strong { font-weight: 900; }
+
+/* ════════ Footer ════════ */
+.modal-footer {
+    padding: 14px 22px calc(14px + env(safe-area-inset-bottom));
+    border-top: 1px solid var(--color-border);
+    display: flex;
+    gap: 10px;
+    justify-content: flex-end;
+    align-items: center;
+}
+.modal-footer-info {
+    flex: 1;
+    font-size: 12px;
+    color: var(--color-text-dim);
+}
+
+.btn {
+    height: 38px;
+    padding: 0 16px;
+    border-radius: 7px;
+    font-family: inherit;
+    font-size: 13px;
+    font-weight: 700;
+    cursor: pointer;
+    border: 1px solid var(--color-border);
+    background: var(--color-surface);
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    color: var(--color-text);
+}
+.btn:hover { border-color: var(--brand-primary); }
+.btn svg { width: 14px; height: 14px; }
+.btn.primary {
+    background: var(--brand-primary);
+    color: white;
+    border-color: var(--brand-primary);
+}
+.btn.primary:hover { background: #6d4c14; }
+.btn.primary:disabled {
+    background: var(--color-text-very-dim);
+    border-color: var(--color-text-very-dim);
+    cursor: not-allowed;
+}
+.btn.danger {
+    background: var(--color-surface);
+    color: var(--color-error);
+    border-color: #f5c8c9;
+}
+
+/* ════════ Progress (state 3) ════════ */
+.progress-list {
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+}
+.progress-row {
+    display: flex;
+    align-items: center;
+    padding: 12px 14px;
+    background: var(--color-surface);
+    border: 1px solid var(--color-border);
+    border-radius: 8px;
+    gap: 12px;
+    font-size: 13px;
+}
+.progress-row.done {
+    background: var(--color-green-bg);
+    border-color: #b9d495;
+}
+.progress-row.active {
+    background: var(--brand-primary-light);
+    border-color: #d6b96b;
+}
+.progress-row.pending { opacity: 0.5; }
+.progress-row.skipped {
+    background: var(--color-warn-bg);
+    border-color: #f0d68a;
+}
+.progress-row.pending-manual {
+    background: var(--color-surface);
+    border-color: #f0d68a;
+    border-style: dashed;
+}
+
+.btn-book-now {
+    height: 32px;
+    padding: 0 12px;
+    border-radius: 6px;
+    background: var(--color-warn);
+    color: #5d4500;
+    border: 0;
+    font-family: inherit;
+    font-size: 12px;
+    font-weight: 700;
+    cursor: pointer;
+    flex-shrink: 0;
+}
+.btn-book-now:hover { background: #d49826; }
+
+.btn.skip-warn {
+    background: var(--color-warn-bg);
+    color: #5d4500;
+    border-color: #f0d68a;
+}
+.btn.skip-warn:hover {
+    background: #f9e6b3;
+    border-color: var(--color-warn);
+}
+.btn.skip-warn svg { color: var(--color-warn); }
+
+.progress-icon {
+    width: 26px; height: 26px;
+    border-radius: 50%;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    flex-shrink: 0;
+}
+.progress-icon svg { width: 14px; height: 14px; }
+.progress-row.done .progress-icon { background: var(--color-green-dark); color: white; }
+.progress-row.active .progress-icon { background: var(--brand-primary); color: white; }
+.progress-row.pending .progress-icon { background: var(--color-text-very-dim); color: white; }
+.progress-row.pending-manual .progress-icon { background: var(--color-warn); color: white; }
+.progress-row.skipped .progress-icon { background: var(--color-warn); color: white; }
+
+.progress-info { flex: 1; min-width: 0; }
+.progress-name {
+    font-weight: 700;
+    font-size: 13px;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+.progress-status {
+    font-size: 11px;
+    color: var(--color-text-dim);
+    margin-top: 1px;
+}
+.progress-row.done .progress-status { color: var(--color-green-dark); }
+.progress-row.active .progress-status { color: #6d4c14; }
+.progress-row.skipped .progress-status { color: #8a6500; }
+
+.progress-spinner {
+    width: 16px; height: 16px;
+    border: 2px solid rgba(0,0,0,0.1);
+    border-top-color: var(--brand-primary);
+    border-radius: 50%;
+    animation: spin 0.7s linear infinite;
+    flex-shrink: 0;
+}
+@keyframes spin { to { transform: rotate(360deg); } }
+
+/* ════════ Done-state (state 4) ════════ */
+.done-summary {
+    text-align: center;
+    padding: 20px 0 12px;
+}
+.done-icon {
+    width: 56px; height: 56px;
+    background: var(--color-green-bg);
+    color: var(--color-green-dark);
+    border-radius: 50%;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    margin: 0 auto 12px;
+}
+.done-icon svg { width: 28px; height: 28px; }
+.done-title {
+    font-size: 18px;
+    font-weight: 900;
+    margin-bottom: 4px;
+}
+.done-subtitle {
+    font-size: 13px;
+    color: var(--color-text-dim);
+    margin-bottom: 18px;
+}
+
+.done-stats {
+    display: grid;
+    grid-template-columns: repeat(3, 1fr);
+    gap: 10px;
+    background: var(--color-background);
+    border-radius: 10px;
+    padding: 14px;
+}
+.done-stat {
+    text-align: center;
+}
+.done-stat-num {
+    font-size: 22px;
+    font-weight: 900;
+    color: var(--color-text);
+}
+.done-stat-label {
+    font-size: 10px;
+    color: var(--color-text-dim);
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+    margin-top: 2px;
+}
+
+.done-warning {
+    background: var(--color-warn-bg);
+    border: 1px solid #f0d68a;
+    border-radius: 8px;
+    padding: 10px 12px;
+    margin-top: 12px;
+    font-size: 12px;
+    color: #5d4500;
+    display: flex;
+    align-items: flex-start;
+    gap: 8px;
+}
+.done-warning svg { width: 14px; height: 14px; flex-shrink: 0; color: var(--color-warn); margin-top: 1px; }
+</style>
+</head>
+<body>
+
+<div class="demo-grid">
+
+    <!-- ═══════════════ STATE 1: Validation fejl ═══════════════ -->
+    <div class="demo-cell">
+        <div class="demo-label">State 1 · Validering fejler</div>
+        <div class="demo-sub">Vises hvis bons mangler eller kapacitet brydes. Bekræft-knap er disabled.</div>
+        <div class="modal-stage">
+            <div class="modal">
+                <div class="modal-header">
+                    <div class="modal-title">Bekræft og bestil</div>
+                    <div class="modal-subtitle">Fre. 1. maj 2026 · 4 ture</div>
+                </div>
+                <div class="modal-body">
+
+                    <div class="validation-block">
+                        <svg class="validation-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5">
+                            <circle cx="12" cy="12" r="10"/>
+                            <line x1="12" y1="8" x2="12" y2="12"/>
+                            <line x1="12" y1="16" x2="12.01" y2="16"/>
+                        </svg>
+                        <div class="validation-content">
+                            <div class="validation-title">2 bons mangler at blive planlagt</div>
+                            <div class="validation-detail">
+                                <ul>
+                                    <li>#3437 · Café Nordvest · lev. 11:30</li>
+                                    <li>#3452 · Carlsberg HQ · lev. 12:00</li>
+                                </ul>
+                                Træk dem til en tur før plan kan bekræftes.
+                            </div>
+                        </div>
+                    </div>
+
+                    <div class="validation-block warn">
+                        <svg class="validation-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5">
+                            <path d="M10.29 3.86L1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z"/>
+                            <line x1="12" y1="9" x2="12" y2="13"/>
+                            <line x1="12" y1="17" x2="12.01" y2="17"/>
+                        </svg>
+                        <div class="validation-content">
+                            <div class="validation-title">Køkken-kapacitet overskredet kl. 11:35</div>
+                            <div class="validation-detail">
+                                <strong>15 kasser</strong> klar samtidig. Max er <strong>12</strong>.
+                                Overvej at sprede pickup-tider eller flytte stop.
+                            </div>
+                        </div>
+                    </div>
+
+                </div>
+                <div class="modal-footer">
+                    <button class="btn">Annullér</button>
+                    <button class="btn primary" disabled>Bekræft og bestil</button>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- ═══════════════ STATE 2: Klar til bekræftelse ═══════════════ -->
+    <div class="demo-cell">
+        <div class="demo-label">State 2 · Klar til bekræftelse</div>
+        <div class="demo-sub">Kompakt liste — én linje pr. tur med ikon + handling. Ingen overraskelser.</div>
+        <div class="modal-stage">
+            <div class="modal">
+                <div class="modal-header">
+                    <div class="modal-title">Bekræft og bestil</div>
+                    <div class="modal-subtitle">Fre. 1. maj 2026 · 4 ture · 8 stop</div>
+                </div>
+                <div class="modal-body">
+
+                    <div class="summary-line">
+                        <span class="summary-line-item">
+                            <strong>8/8</strong> bons planlagt
+                        </span>
+                        <span class="summary-line-item">
+                            <strong>34</strong> kasser i alt
+                        </span>
+                    </div>
+
+                    <div class="routes-list">
+                        <div class="route-row">
+                            <div class="route-row-vh volvo">
+                                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M5 17h14M5 17a2 2 0 1 0 4 0M19 17a2 2 0 1 0 0-4M5 17l-1-7h16l1 7M4 10l1-3h14l1 3"/></svg>
+                            </div>
+                            <div class="route-row-info">
+                                <div class="route-row-name">Volvo · tur 1</div>
+                                <div class="route-row-meta">3 stop · 13 ks · afgang 11:35 · Leif</div>
+                            </div>
+                            <div class="route-row-action">
+                                <span class="action-label calendar">
+                                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><rect x="3" y="4" width="18" height="18" rx="2"/><line x1="16" y1="2" x2="16" y2="6"/><line x1="8" y1="2" x2="8" y2="6"/></svg>
+                                    Lægges i kalender
+                                </span>
+                            </div>
+                        </div>
+
+                        <div class="route-row">
+                            <div class="route-row-vh bike">
+                                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><circle cx="6" cy="17" r="3"/><circle cx="18" cy="17" r="3"/><path d="M6 17l4-9h4l4 9M10 8l1-3h3"/></svg>
+                            </div>
+                            <div class="route-row-info">
+                                <div class="route-row-name">By-expressen #1</div>
+                                <div class="route-row-meta">1 stop · 2 ks · afgang 11:00</div>
+                            </div>
+                            <div class="route-row-action">
+                                <span class="action-label api placeholder">
+                                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/></svg>
+                                    Manuel (3D.4)
+                                </span>
+                                <div class="action-sub">API kommer i 3D.5</div>
+                            </div>
+                        </div>
+
+                        <div class="route-row">
+                            <div class="route-row-vh own-bike">
+                                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><circle cx="6" cy="17" r="3"/><circle cx="18" cy="17" r="3"/><path d="M6 17l4-9h4l4 9M10 8l1-3h3"/></svg>
+                            </div>
+                            <div class="route-row-info">
+                                <div class="route-row-name">Egen cykel · tur 1</div>
+                                <div class="route-row-meta">1 stop · 2 ks · afgang 10:50 · Pernille</div>
+                            </div>
+                            <div class="route-row-action">
+                                <span class="action-label calendar">
+                                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><rect x="3" y="4" width="18" height="18" rx="2"/><line x1="16" y1="2" x2="16" y2="6"/><line x1="8" y1="2" x2="8" y2="6"/></svg>
+                                    Lægges i kalender
+                                </span>
+                            </div>
+                        </div>
+
+                        <div class="route-row">
+                            <div class="route-row-vh taxi">
+                                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><rect x="3" y="11" width="18" height="8" rx="2"/><path d="M7 11V7a2 2 0 0 1 2-2h6a2 2 0 0 1 2 2v4"/></svg>
+                            </div>
+                            <div class="route-row-info">
+                                <div class="route-row-name">Taxa · 12:00</div>
+                                <div class="route-row-meta">1 stop · 4 ks · Albertslund</div>
+                            </div>
+                            <div class="route-row-action">
+                                <span class="action-label manual">
+                                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><rect x="9" y="9" width="13" height="13" rx="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></svg>
+                                    Manuel booking
+                                </span>
+                                <div class="action-sub">åbner taxa.nu</div>
+                            </div>
+                        </div>
+                    </div>
+
+                    <div class="capacity-info">
+                        <svg class="capacity-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5">
+                            <polyline points="20 6 9 17 4 12"/>
+                        </svg>
+                        <div>
+                            Køkken-kapacitet OK · <strong>max 8 ks</strong> ved samme pickup (grænse 12)
+                        </div>
+                    </div>
+
+                </div>
+                <div class="modal-footer">
+                    <div class="modal-footer-info">
+                        Pickup-tider er allerede gemt på bons og synlige for køkkenet
+                    </div>
+                    <button class="btn">Annullér</button>
+                    <button class="btn primary">
+                        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><polyline points="20 6 9 17 4 12"/></svg>
+                        Bekræft og bestil
+                    </button>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- ═══════════════ STATE 3: Booking i gang ═══════════════ -->
+    <div class="demo-cell">
+        <div class="demo-label">State 3 · Booking i gang</div>
+        <div class="demo-sub">Sekventielt: auto-ture er færdige, manuel taxa-modal venter på bruger.</div>
+        <div class="modal-stage">
+            <div class="modal">
+                <div class="modal-header">
+                    <div class="modal-title">Bestiller ture…</div>
+                    <div class="modal-subtitle">Manuel booking åbnes for taxa-tur</div>
+                </div>
+                <div class="modal-body">
+
+                    <div class="progress-list">
+                        <div class="progress-row done">
+                            <div class="progress-icon">
+                                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3"><polyline points="20 6 9 17 4 12"/></svg>
+                            </div>
+                            <div class="progress-info">
+                                <div class="progress-name">Volvo · tur 1</div>
+                                <div class="progress-status">Lagt i kalenderen</div>
+                            </div>
+                        </div>
+
+                        <div class="progress-row pending-manual">
+                            <div class="progress-icon">
+                                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><rect x="9" y="9" width="13" height="13" rx="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></svg>
+                            </div>
+                            <div class="progress-info">
+                                <div class="progress-name">By-expressen #1</div>
+                                <div class="progress-status">Afventer manuel booking</div>
+                            </div>
+                            <button class="btn-book-now">Book nu</button>
+                        </div>
+
+                        <div class="progress-row done">
+                            <div class="progress-icon">
+                                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3"><polyline points="20 6 9 17 4 12"/></svg>
+                            </div>
+                            <div class="progress-info">
+                                <div class="progress-name">Egen cykel · tur 1</div>
+                                <div class="progress-status">Lagt i kalenderen</div>
+                            </div>
+                        </div>
+
+                        <div class="progress-row active">
+                            <div class="progress-icon">
+                                <div class="progress-spinner" style="border-color:rgba(255,255,255,0.3); border-top-color:white"></div>
+                            </div>
+                            <div class="progress-info">
+                                <div class="progress-name">Taxa · 12:00</div>
+                                <div class="progress-status">Bookings-modal åbnet</div>
+                            </div>
+                        </div>
+                    </div>
+
+                </div>
+                <div class="modal-footer">
+                    <div class="modal-footer-info">
+                        2/4 ture klaret · 2 mangler booking
+                    </div>
+                    <button class="btn skip-warn">
+                        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M10.29 3.86L1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z"/><line x1="12" y1="9" x2="12" y2="13"/></svg>
+                        Spring over · efterlad 2 ubookede
+                    </button>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- ═══════════════ STATE 4: Færdig ═══════════════ -->
+    <div class="demo-cell">
+        <div class="demo-label">State 4 · Færdig</div>
+        <div class="demo-sub">Alt er booket eller markeret. Hvis nogen blev sprunget over, vises advarsel.</div>
+        <div class="modal-stage">
+            <div class="modal">
+                <div class="modal-header">
+                    <div class="modal-title">Plan bekræftet</div>
+                    <div class="modal-subtitle">Fre. 1. maj 2026</div>
+                </div>
+                <div class="modal-body">
+
+                    <div class="done-summary">
+                        <div class="done-icon">
+                            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3"><polyline points="20 6 9 17 4 12"/></svg>
+                        </div>
+                        <div class="done-title">Bekræftet</div>
+                        <div class="done-subtitle">Alle ture er booket eller markeret</div>
+                    </div>
+
+                    <div class="done-stats">
+                        <div class="done-stat">
+                            <div class="done-stat-num">4</div>
+                            <div class="done-stat-label">Ture</div>
+                        </div>
+                        <div class="done-stat">
+                            <div class="done-stat-num">8</div>
+                            <div class="done-stat-label">Stop</div>
+                        </div>
+                        <div class="done-stat">
+                            <div class="done-stat-num">34</div>
+                            <div class="done-stat-label">Kasser</div>
+                        </div>
+                    </div>
+
+                </div>
+                <div class="modal-footer">
+                    <button class="btn primary">Luk</button>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- ═══════════════ STATE 5: Logistik-listview efter modal lukket ═══════════════ -->
+    <div class="demo-cell">
+        <div class="demo-label">State 5 · Listview efter</div>
+        <div class="demo-sub">Hvad office ser når modalen er lukket. "Afventer booking" samler de manglende.</div>
+        <div class="modal-stage" style="padding:0; min-height:auto; align-items:stretch;">
+            <div style="background:var(--color-surface); border-radius:12px; width:100%; max-width:540px; overflow:hidden; box-shadow:0 8px 24px rgba(0,0,0,0.15);">
+
+                <!-- Listview header -->
+                <div style="padding:14px 16px; border-bottom:1px solid var(--color-border); display:flex; justify-content:space-between; align-items:center;">
+                    <div>
+                        <div style="font-weight:900; font-size:14px;">Ture · 1. maj 2026</div>
+                        <div style="font-size:11px; color:var(--color-text-dim); margin-top:2px;">4 ture · 1 afventer booking</div>
+                    </div>
+                    <button class="btn primary" style="height:30px; padding:0 12px; font-size:12px;">Bekræft og bestil</button>
+                </div>
+
+                <!-- Afventer booking banner -->
+                <div style="background:var(--color-warn-bg); border-bottom:1px solid #f0d68a; padding:10px 14px;">
+                    <div style="display:flex; justify-content:space-between; align-items:center; cursor:pointer;">
+                        <div style="display:flex; align-items:center; gap:8px;">
+                            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" style="width:16px; height:16px; color:var(--color-warn);">
+                                <path d="M10.29 3.86L1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z"/>
+                                <line x1="12" y1="9" x2="12" y2="13"/>
+                                <line x1="12" y1="17" x2="12.01" y2="17"/>
+                            </svg>
+                            <span style="font-size:13px; font-weight:700; color:#5d4500;">
+                                1 tur afventer booking
+                            </span>
+                        </div>
+                        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" style="width:14px; height:14px; color:#8a6500;">
+                            <polyline points="6 9 12 15 18 9"/>
+                        </svg>
+                    </div>
+
+                    <!-- Udvidet liste -->
+                    <div style="margin-top:10px; padding-top:10px; border-top:1px solid #f0d68a;">
+                        <div style="display:flex; align-items:center; gap:10px; padding:6px 0;">
+                            <div style="width:24px; height:24px; border-radius:50%; background:var(--vh-bike); color:white; display:flex; align-items:center; justify-content:center; flex-shrink:0; border:1.5px solid white;">
+                                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" style="width:12px; height:12px;">
+                                    <circle cx="6" cy="17" r="3"/><circle cx="18" cy="17" r="3"/>
+                                    <path d="M6 17l4-9h4l4 9M10 8l1-3h3"/>
+                                </svg>
+                            </div>
+                            <div style="flex:1; min-width:0;">
+                                <div style="font-size:13px; font-weight:700;">By-expressen #1</div>
+                                <div style="font-size:11px; color:#8a6500;">Ingen booking-ref · skal bookes manuelt</div>
+                            </div>
+                            <button style="height:28px; padding:0 10px; background:var(--color-warn); color:#5d4500; border:0; border-radius:5px; font-family:inherit; font-size:11px; font-weight:700; cursor:pointer;">Book nu</button>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Almindelige ture -->
+                <div style="padding:10px;">
+                    <div style="background:var(--color-surface); border:1px solid var(--color-border); border-radius:8px; padding:10px 12px; margin-bottom:6px; display:flex; align-items:center; gap:10px;">
+                        <div style="width:28px; height:28px; border-radius:50%; background:var(--vh-volvo); color:white; display:flex; align-items:center; justify-content:center; border:2px solid white; flex-shrink:0;">
+                            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" style="width:14px; height:14px;">
+                                <path d="M5 17h14M5 17a2 2 0 1 0 4 0M19 17a2 2 0 1 0 0-4M5 17l-1-7h16l1 7M4 10l1-3h14l1 3"/>
+                            </svg>
+                        </div>
+                        <div style="flex:1;">
+                            <div style="font-size:13px; font-weight:700;">Volvo · tur 1</div>
+                            <div style="font-size:11px; color:var(--color-text-dim);">3 stop · afgang 11:35 · Leif</div>
+                        </div>
+                        <span style="font-size:10px; font-weight:700; padding:2px 8px; border-radius:3px; background:var(--color-green-bg); color:var(--color-green-dark); text-transform:uppercase; letter-spacing:0.5px;">
+                            ✓ Bekræftet
+                        </span>
+                    </div>
+
+                    <div style="background:var(--color-surface); border:1px solid var(--color-border); border-radius:8px; padding:10px 12px; margin-bottom:6px; display:flex; align-items:center; gap:10px;">
+                        <div style="width:28px; height:28px; border-radius:50%; background:var(--vh-own-bike); color:white; display:flex; align-items:center; justify-content:center; border:2px solid white; flex-shrink:0;">
+                            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" style="width:14px; height:14px;">
+                                <circle cx="6" cy="17" r="3"/><circle cx="18" cy="17" r="3"/>
+                                <path d="M6 17l4-9h4l4 9M10 8l1-3h3"/>
+                            </svg>
+                        </div>
+                        <div style="flex:1;">
+                            <div style="font-size:13px; font-weight:700;">Egen cykel · tur 1</div>
+                            <div style="font-size:11px; color:var(--color-text-dim);">1 stop · afgang 10:50 · Pernille</div>
+                        </div>
+                        <span style="font-size:10px; font-weight:700; padding:2px 8px; border-radius:3px; background:var(--color-green-bg); color:var(--color-green-dark); text-transform:uppercase; letter-spacing:0.5px;">
+                            ✓ Bekræftet
+                        </span>
+                    </div>
+
+                    <div style="background:var(--color-surface); border:1px solid var(--color-border); border-radius:8px; padding:10px 12px; margin-bottom:6px; display:flex; align-items:center; gap:10px;">
+                        <div style="width:28px; height:28px; border-radius:50%; background:var(--vh-taxi); color:white; display:flex; align-items:center; justify-content:center; border:2px solid white; flex-shrink:0;">
+                            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" style="width:14px; height:14px;">
+                                <rect x="3" y="11" width="18" height="8" rx="2"/>
+                                <path d="M7 11V7a2 2 0 0 1 2-2h6a2 2 0 0 1 2 2v4"/>
+                            </svg>
+                        </div>
+                        <div style="flex:1;">
+                            <div style="font-size:13px; font-weight:700;">Taxa · 12:00</div>
+                            <div style="font-size:11px; color:var(--color-text-dim);">1 stop · ref TX-44821</div>
+                        </div>
+                        <span style="font-size:10px; font-weight:700; padding:2px 8px; border-radius:3px; background:var(--color-green-bg); color:var(--color-green-dark); text-transform:uppercase; letter-spacing:0.5px;">
+                            ✓ Booket
+                        </span>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- ═══════════════ Forklaring ═══════════════ -->
+    <div class="demo-cell">
+        <div class="demo-label">Designvalg</div>
+        <div class="demo-sub">Hvad mockup'en bygger på.</div>
+        <div class="modal-stage" style="background:#1f1f1f; padding:24px">
+            <div style="color:white; font-size:13px; line-height:1.6;">
+                <h3 style="font-size:14px; margin-bottom:10px; color:var(--brand-primary-light);">Modal = booking-flow. Listview = oversigt.</h3>
+                <p style="opacity:0.85; margin-bottom:12px;">
+                    Modalen håndterer det aktive øjeblik: hvad sker når jeg trykker bekræft.
+                    Listview er det vedvarende sted hvor man ser hvad der mangler.
+                    To forskellige ting, ikke blandet sammen.
+                </p>
+
+                <h3 style="font-size:14px; margin-bottom:10px; color:var(--brand-primary-light);">Pickup-tider er allerede gemt</h3>
+                <p style="opacity:0.85; margin-bottom:12px;">
+                    Når VROOM-modal acceptes, skrives nye pickup-tider direkte til bons.
+                    Køkkenet ser det med det samme. Bekræft-modalen handler kun om transport-booking.
+                </p>
+
+                <h3 style="font-size:14px; margin-bottom:10px; color:var(--brand-primary-light);">Manuel booking kan tages én ad gangen</h3>
+                <p style="opacity:0.85; margin-bottom:12px;">
+                    Hver manuel tur har "Book nu"-knap både i progress-modal og i listview.
+                    Kontoret kan tage dem i den rækkefølge der giver mening — fx mens man venter på telefon.
+                </p>
+
+                <h3 style="font-size:14px; margin-bottom:10px; color:var(--brand-primary-light);">"Spring over" har konsekvens-tekst</h3>
+                <p style="opacity:0.85; margin-bottom:12px;">
+                    Knappen viser hvad der efterlades og har gul advarsel-styling.
+                    Du ved hvad du gør før du klikker.
+                </p>
+
+                <h3 style="font-size:14px; margin-bottom:10px; color:var(--brand-primary-light);">"Afventer booking"-banner</h3>
+                <p style="opacity:0.85;">
+                    Øverst i logistik-listview når der er <code style="background:rgba(255,255,255,0.1); padding:1px 5px; border-radius:3px; font-size:11px;">in_progress</code>-ture.
+                    Udvideligt — viser liste med "Book nu"-knap pr. tur.
+                    Forsvinder når alle er booket.
+                </p>
+            </div>
+        </div>
+    </div>
+
+</div>
+
+</body>
+</html>

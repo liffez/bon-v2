@@ -47,7 +47,7 @@ const VIEW_ACTIONS = {
         { tooltip: 'Råvarer',       icon: '<line x1="16.5" y1="9.4" x2="7.5" y2="4.21"/><path d="M21 16V8a2 2 0 00-1-1.73l-7-4a2 2 0 00-2 0l-7 4A2 2 0 003 8v8a2 2 0 001 1.73l7 4a2 2 0 002 0l7-4A2 2 0 0021 16z"/><polyline points="3.27 6.96 12 12.01 20.73 6.96"/><line x1="12" y1="22.08" x2="12" y2="12"/>', onclick: 'showRavarer' },
         { tooltip: 'Kort',          icon: '<path d="M21 10c0 7-9 13-9 13s-9-6-9-13a9 9 0 0118 0z"/><circle cx="12" cy="10" r="3"/>', onclick: 'openMap' },
         { tooltip: 'Historik',      icon: '<circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/>', onclick: 'showHistorik' },
-        { tooltip: 'Sammentælling', icon: '<line x1="4" y1="6" x2="20" y2="6"/><line x1="4" y1="10" x2="14" y2="10"/><line x1="4" y1="14" x2="20" y2="14"/><line x1="4" y1="18" x2="14" y2="18"/><polyline points="17 14 20 17 17 20"/>', onclick: 'showSummary' },
+        { tooltip: 'Sammentælling', icon: '<line x1="4" y1="6" x2="20" y2="6"/><line x1="4" y1="10" x2="14" y2="10"/><line x1="4" y1="18" x2="14" y2="18"/><polyline points="17 14 20 17 17 20"/>', onclick: 'showSummary' },
     ],
     'invoice': [
         { tooltip: 'Åbn bon',       icon: '<path d="M14 2H6a2 2 0 00-2 2v16a2 2 0 002 2h12a2 2 0 002-2V8z"/><polyline points="14 2 14 8 20 8"/>' },
@@ -143,6 +143,7 @@ function createCard(bonData, viewName) {
     el.dataset.payment       = bonData.payment || 'faktura';
     el.dataset.view          = viewName || 'all';   // bruges af buildStatusBar
     el.dataset.priceCategory = bonData.price_category || 'catering';
+    el.dataset.orderType     = bonData.order_type || 'delivery';
     if (bonData.price_category === 'produktion') el.classList.add('bon-production');
 
     // ── HEADER ──────────────────────────────────────────────────
@@ -162,9 +163,17 @@ function createCard(bonData, viewName) {
                <button class="fortryd-btn" onclick="fortryd('${cardId}')">Fortryd</button>
            </div>`;
 
-    // Kunde med delivery-block
+    // Kunde (delivery-line vises separat i bunden af kortet)
     const customerHtml = mods.customer && bonData.customer
-        ? _buildCustomer(bonData.customer, num, mods.deliveryBlock ? bonData : null)
+        ? _buildCustomer(bonData.customer, num, null)
+        : '';
+
+    // Leveringsindikator (én linje under datolinjen) — vehicle eller "ikke planlagt"
+    const deliveryIndicatorHtml = mods.deliveryBlock ? _buildDeliveryIndicator(bonData, num, cardId) : '';
+
+    // Delivery-line i bunden — kun delivery_notes (etage, port, kode)
+    const deliveryNotesHtml = (mods.deliveryBlock && bonData.delivery_notes)
+        ? `<div class="delivery-line">${(typeof esc === 'function' ? esc : (s) => s)(bonData.delivery_notes)}</div>`
         : '';
 
     el.innerHTML = `
@@ -178,6 +187,7 @@ function createCard(bonData, viewName) {
                     <span class="bon-lev">${levStr}</span>
                 </div>
                 <div class="bon-date">${bonData.date || ''} · ${orderTypeLabel}</div>
+                ${deliveryIndicatorHtml}
             </div>
             <div class="bon-header-right">
                 <div class="unit-primary">${bonData.units}</div>
@@ -209,6 +219,7 @@ function createCard(bonData, viewName) {
         </div>
 
         ${mods.co2 && bonData.co2 ? _buildCo2(bonData.co2) : ''}
+        ${deliveryNotesHtml}
 
         <!-- Actions — sæt per view -->
         <div class="bon-actions">
@@ -275,20 +286,57 @@ function _buildCustomer(c, num, bonDataForDelivery) {
         ${hasDetails ? `<div class="bon-customer-details">${allDetails}</div>` : ''}`;
 }
 
-function _buildDeliveryBlock(bonData) {
-    const notes = bonData.delivery_notes || '';
+// Mapping fra interne koder til pænt label + ikon.
+// bike/taxi/volvo/pickup matcher bons.delivery_method CHECK constraint.
+const _DELIVERY_METHOD_DISPLAY = {
+    bike:   { label: 'Cykel',      icon: '🚴' },
+    taxi:   { label: 'Taxa',       icon: '🚕' },
+    volvo:  { label: 'Volvo',      icon: '🚛' },
+    pickup: { label: 'Afhentning', icon: '🏠' }
+};
+
+/**
+ * Leveringsindikator under datolinjen.
+ * Tre tilstande:
+ *   - pickup     → '🏠 Afhentning'
+ *   - vehicle    → '{icon} {vehicle_label}'  (booket)
+ *   - ikke planlagt → '📍 Ikke planlagt endnu' (grå, kun ved delivery_type='delivery')
+ *
+ * Datakilde i v1: bons.delivery_vehicle_id (Spor 1).
+ * Når Spor 2 lander, udvides til også at læse delivery_route_stops.
+ */
+function _buildDeliveryIndicator(bonData, num, cardId) {
+    const orderType = bonData.order_type || '';
+    const vehicleLabel = bonData.delivery_vehicle_label || '';
     const method = bonData.delivery_method || '';
-    if (!notes && !method) return '';
-    const _esc = typeof esc === 'function' ? esc : (s) => String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
-    const parts = [];
-    if (method) parts.push(method);
-    if (notes) parts.push(_esc(notes));
-    return `
-        <div class="delivery-block">
-            <div class="delivery-label">Leveringsinfo</div>
-            <div class="delivery-text">${parts.join(' · ')}</div>
-        </div>`;
+
+    let icon, label, modifier = '';
+
+    if (orderType === 'pickup') {
+        icon = '🏠';
+        label = 'Afhentning';
+    } else if (vehicleLabel) {
+        const display = _DELIVERY_METHOD_DISPLAY[method];
+        icon = display ? display.icon : '🚴';
+        label = vehicleLabel;
+    } else if (orderType === 'event') {
+        // Event: typisk levering på sted, men ingen vehicle valgt endnu
+        icon = '📍';
+        label = 'Ikke planlagt endnu';
+        modifier = ' bon-delivery-indicator-pending';
+    } else {
+        // Levering uden vehicle = ikke planlagt
+        icon = '📍';
+        label = 'Ikke planlagt endnu';
+        modifier = ' bon-delivery-indicator-pending';
+    }
+
+    return `<div class="bon-delivery-indicator${modifier}" onclick="openBonDeliveryFromCard('${cardId}')">${icon} ${label}</div>`;
 }
+
+// _buildDeliveryBlock er udfaset — leveringsindikator vises nu via
+// _buildDeliveryIndicator (under datolinjen), og delivery_notes vises
+// inline i bunden af kortet via deliveryNotesHtml.
 
 function _buildKitchenInfo(bonData, num) {
     const text = bonData.kitchen_info || '';

@@ -94,6 +94,23 @@
 .bon-pickup { font-size: 28px; font-weight: 700; color: var(--black); letter-spacing: -0.5px; }
 .bon-lev    { font-size: 14px; color: var(--gray-dark); }
 .bon-date   { font-size: 13px; color: var(--gray-dark); margin-top: 2px; }
+
+/* ── Leveringsindikator (under datolinjen) ────────────────── */
+.bon-delivery-indicator {
+    margin-top: 3px;
+    font-size: 13px;
+    color: var(--color-text, #2a2a2a);
+    cursor: pointer;
+    line-height: 1.3;
+    user-select: none;
+}
+.bon-delivery-indicator:hover {
+    text-decoration: underline;
+}
+.bon-delivery-indicator-pending {
+    color: var(--gray-dark, #8a8580);
+    font-style: italic;
+}
 .bon-header-right {
     text-align: right; display: flex; flex-direction: column; align-items: flex-end;
 }
@@ -493,22 +510,13 @@
 }
 .kitchen-cancel-btn:hover { background: var(--gray-light); }
 
-/* ── LEVERINGSINFO (modul) ────────────────────────────────── */
-.delivery-block {
-    margin-top: 8px; padding: 7px 10px 8px 10px;
-    background: var(--blue-light); border-radius: 6px;
-    border-left: 3px solid var(--blue);
+/* ── LEVERINGSINFO (én linje, gråtone) ────────────────────── */
+.delivery-line {
+    margin-top: 6px;
+    font-size: 12px;
+    color: var(--color-text-dim, #6b6660);
+    line-height: 1.4;
 }
-.delivery-label {
-    font-size: 10px; font-weight: 700; text-transform: uppercase;
-    letter-spacing: 0.7px; color: #2e5478; margin-bottom: 4px;
-    display: flex; align-items: center; gap: 5px;
-}
-.delivery-label::before {
-    content: ''; width: 6px; height: 6px; border-radius: 50%;
-    background: var(--blue); flex-shrink: 0;
-}
-.delivery-text { font-size: 13px; color: var(--black); line-height: 1.45; }
 
 /* ── SAMMENTÆLLING PANEL ──────────────────────────────────── */
 .summary-panel {

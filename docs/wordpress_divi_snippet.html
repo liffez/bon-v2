@@ -1,0 +1,24 @@
+<!--
+  Ristet Rug — Bestillingsformular (embed)
+  ==========================================
+  
+-->
+
+<iframe id="rr-bestil-iframe"
+        src="https://bon.ristetrug.dk/embed/bestilling"
+        title="Ristet Rug — Bestillingsformular"
+        scrolling="no"
+        allow="geolocation"
+        style="width:10px; min-width:100%; display:block; border:none; height:800px;"></iframe>
+
+<script>
+(function() {
+  // Lyt efter højde-meddelelser fra iframen og resize derefter
+  window.addEventListener('message', function(e) {
+    if (!e.origin.startsWith('https://bon.ristetrug.dk')) return;
+    if (!e.data || e.data.type !== 'rr-form-height') return;
+    var iframe = document.getElementById('rr-bestil-iframe');
+    if (iframe) iframe.style.height = (e.data.height + 20) + 'px';
+  });
+})();
+</script>

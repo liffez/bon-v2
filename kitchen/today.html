@@ -15,6 +15,7 @@
     <link rel="stylesheet" href="/shared/modal.css">
     <link rel="stylesheet" href="/shared/flyver.css">
     <link rel="stylesheet" href="/shared/bon_drawer.css">
+    <link rel="stylesheet" href="/shared/manual_booking_modal.css">
     <link rel="stylesheet" href="/shared/kunde_soeg.css">
     <link rel="stylesheet" href="/shared/help-system.css">
     <link rel="stylesheet" href="/shared/sidekick.css">
@@ -127,11 +128,12 @@
 <script src="/shared/flyver.js"></script>
 <script src="/shared/kunde_soeg.js"></script>
 <script src="/shared/bon_drawer.js"></script>
+<script src="/shared/manual_booking_modal.js"></script>
 <script>
     // Registrer global edit-handler så Info-modal viser "Rediger" knap
     var _todayDrawer = new BonDrawer();
-    window._bonInfoEditHandler = function(bonId) {
-        _todayDrawer.open(bonId);
+    window._bonInfoEditHandler = function(bonId, opts) {
+        _todayDrawer.open(bonId, opts);
     };
 </script>
 <script src="/kitchen/today.js"></script>

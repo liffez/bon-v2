@@ -158,6 +158,16 @@
       background: #ead8b0;
     }
 
+    .st-label {
+      display: block;
+      font-size: 12px;
+      font-weight: 600;
+      color: var(--color-text-dim, #6b6660);
+      text-transform: uppercase;
+      letter-spacing: 0.04em;
+      margin-bottom: 4px;
+    }
+
     /* ─── TOGGLE ──────────────────────────────────── */
     .st-toggle {
       position: relative; display: inline-block;
@@ -499,6 +509,8 @@
     <button class="st-nav-item st-admin-only" data-section="activity-purposes">Aktivitetsformål</button>
     <button class="st-nav-item st-admin-only" data-section="booking-smagning">Booking — Smagsprøve</button>
     <button class="st-nav-item st-admin-only" data-section="booking-kontakt">Booking — Kontakt</button>
+    <button class="st-nav-item st-admin-only" data-section="delivery-vehicles">Leveringsmetoder</button>
+    <button class="st-nav-item st-admin-only" data-section="bestilling-menu">Bestilling — Menu</button>
   </nav>
 
   <div class="st-content">
@@ -979,6 +991,221 @@
       </p>
       <div id="bk-content"></div>
     </div>
+
+    <!-- ════ LEVERINGSMETODER ════ -->
+    <div class="st-section st-admin-only" id="sec-delivery-vehicles">
+      <h2>Leveringsmetoder</h2>
+      <p style="font-size:13px;color:#888;margin-bottom:16px">
+        Konfigurer transport-typer og bestillings-flow.<br>
+        <strong>Manuel bestilling</strong>: clipboard-tekst + URL åbnes i nyt vindue (taxa, By-expressen).<br>
+        <strong>Kalender</strong>: intern bemanding, ingen ekstern booking (Volvo, egen cykel).<br>
+        <strong>API</strong>: automatisk bestilling (klar når API-credentials modtages).
+      </p>
+      <div id="dv-content"></div>
+
+      <!-- Editor (vises kun når en vehicle er valgt) -->
+      <div id="dv-editor" style="display:none;margin-top:24px;padding:16px;border:1px solid var(--color-border);border-radius:8px;background:#fafaf8">
+        <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:14px">
+          <h3 style="margin:0;font-size:16px" id="dv-editor-title">Rediger leveringsmetode</h3>
+          <button type="button" class="st-btn-secondary" onclick="dvCloseEditor()">Luk</button>
+        </div>
+        <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px;margin-bottom:14px">
+          <div>
+            <label class="st-label">Navn (vist i UI)</label>
+            <input type="text" id="dv-edit-label" class="st-input">
+          </div>
+          <div>
+            <label class="st-label">Type</label>
+            <select id="dv-edit-type" class="st-input">
+              <option value="volvo">Volvo (egen bil)</option>
+              <option value="bike">Cykelbud (ekstern)</option>
+              <option value="own-bike">Egen cykel</option>
+              <option value="taxi">Taxa</option>
+            </select>
+          </div>
+        </div>
+        <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px;margin-bottom:14px">
+          <div>
+            <label class="st-label">Booking-metode</label>
+            <select id="dv-edit-method" class="st-input" onchange="dvOnMethodChange()">
+              <option value="calendar">Kalender (intern)</option>
+              <option value="manual_clipboard">Manuel — clipboard + URL</option>
+              <option value="api">API (klar i 3D.5)</option>
+            </select>
+          </div>
+          <div>
+            <label class="st-label">Aktiv</label>
+            <select id="dv-edit-active" class="st-input">
+              <option value="1">Ja</option>
+              <option value="0">Nej (skjul)</option>
+            </select>
+          </div>
+        </div>
+        <div id="dv-manual-fields" style="display:none">
+          <label class="st-label">Bestillings-URL (åbnes i nyt vindue)</label>
+          <input type="url" id="dv-edit-url" class="st-input" placeholder="https://...">
+          <div style="margin-top:14px">
+            <label class="st-label">Bestillings-template (clipboard-tekst)</label>
+            <div id="dv-vars-chips" style="margin:6px 0 8px;display:flex;flex-wrap:wrap;gap:4px"></div>
+            <textarea id="dv-edit-template" class="st-input" rows="14"
+                      style="font-family:ui-monospace,Menlo,monospace;font-size:12.5px"
+                      placeholder="Klik på en variabel-chip ovenfor for at indsætte den i template-teksten."></textarea>
+            <div style="margin-top:8px;font-size:12px;color:#888">
+              Tip: variabler er inden i krøllede parenteser, fx <code>{customer_name}</code>.
+              Manglende felter på en bon vises som <code>[mangler]</code> i preview.
+            </div>
+          </div>
+        </div>
+        <div style="margin-top:14px">
+          <label class="st-label">Cost-formel (JSON)</label>
+          <input type="text" id="dv-edit-cost" class="st-input"
+                 placeholder='{"base":100,"included_boxes":2,"extra_box_cost":50,"standard_inner_city":154}'
+                 style="font-family:ui-monospace,Menlo,monospace;font-size:12.5px">
+          <div style="margin-top:6px;font-size:12px;color:#888">
+            Felter: <code>base</code>, <code>per_km</code>, <code>included_boxes</code>, <code>extra_box_cost</code>,
+            <code>standard_inner_city</code>. Bruges til estimat ved booking.
+          </div>
+        </div>
+        <div style="margin-top:18px;display:flex;gap:10px;justify-content:flex-end">
+          <button type="button" class="st-btn-secondary" onclick="dvCloseEditor()">Annullér</button>
+          <button type="button" class="st-btn" id="dv-save-btn" onclick="dvSaveVehicle()">Gem</button>
+        </div>
+      </div>
+    </div>
+
+    <!-- ════ BESTILLING — MENU ════ -->
+    <div class="st-section st-admin-only" id="sec-bestilling-menu">
+      <h2>Bestilling — Menu</h2>
+      <p style="font-size:13px;color:#888;margin-bottom:16px">
+        Menu der vises på den offentlige bestillingsformular (<code>bon.ristetrug.dk/embed/bestilling</code>).
+        Ændringer træder i kraft inden for 1 minut hos kunder der allerede har siden åben.
+      </p>
+
+      <!-- Åbningstider og deadline -->
+      <div style="background:#fafaf8;border:1px solid var(--color-border);border-radius:8px;padding:14px 16px;margin-bottom:18px">
+        <div style="font-weight:600;font-size:14px;margin-bottom:4px">Åbningstider og deadline</div>
+        <div style="font-size:12px;color:#888;margin-bottom:14px">Styrer hvilke datoer kunden kan vælge, og hvornår sidste cut-off er.</div>
+
+        <div style="display:grid;grid-template-columns:1fr 1fr;gap:14px;margin-bottom:14px">
+          <div>
+            <label class="st-label">Sidste bestillingstime <span style="color:#888;font-weight:400">(0–23)</span></label>
+            <input type="number" min="0" max="23" id="bs-cutoff-time" class="st-input" style="max-width:100px">
+            <div style="font-size:11px;color:#888;margin-top:4px">Fx 12 = senest kl. 12:00</div>
+          </div>
+          <div>
+            <label class="st-label">Antal åbne dage før levering</label>
+            <input type="number" min="1" max="14" id="bs-lead-days" class="st-input" style="max-width:100px">
+            <div style="font-size:11px;color:#888;margin-top:4px">1 = dagen før, 2 = to åbne dage før osv.</div>
+          </div>
+        </div>
+
+        <div style="margin-bottom:12px">
+          <label class="st-label">Leveringsdage</label>
+          <div style="font-size:11px;color:#888;margin-bottom:6px">Ugedage hvor kunden kan vælge levering.</div>
+          <div id="bs-delivery-days" style="display:flex;gap:14px;flex-wrap:wrap"></div>
+        </div>
+
+        <div style="margin-bottom:14px">
+          <label class="st-label">Åbne dage (cut-off-tæller)</label>
+          <div style="font-size:11px;color:#888;margin-bottom:6px">Ugedage der tæller med når antal åbne dage før levering beregnes. Lukkede dage tæller ikke ned.</div>
+          <div id="bs-cutoff-days" style="display:flex;gap:14px;flex-wrap:wrap"></div>
+        </div>
+
+        <div style="display:flex;gap:10px;align-items:center;padding-top:10px;border-top:1px dashed #ddd">
+          <span id="bs-preview" style="font-size:12px;color:#888"></span>
+          <span style="flex:1"></span>
+          <button type="button" class="st-btn-secondary" onclick="bsReload()">Annullér</button>
+          <button type="button" class="st-btn" id="bs-save-btn" onclick="bsSave()">Gem indstillinger</button>
+        </div>
+      </div>
+
+      <!-- Kilde-toggle -->
+      <div style="background:#fafaf8;border:1px solid var(--color-border);border-radius:8px;padding:14px 16px;margin-bottom:18px">
+        <div style="font-weight:600;font-size:14px;margin-bottom:8px">Kilde til menu</div>
+        <div style="display:flex;gap:18px;flex-wrap:wrap">
+          <label style="display:flex;align-items:flex-start;gap:8px;cursor:pointer;flex:1;min-width:240px">
+            <input type="radio" name="bm-source" value="manual" id="bm-source-manual" style="margin-top:3px">
+            <span>
+              <strong>Manuel</strong><br>
+              <span style="font-size:12px;color:#888">Redigér menuen i tabellen nedenfor. Gemmes i Bon v2's database.</span>
+            </span>
+          </label>
+          <label style="display:flex;align-items:flex-start;gap:8px;cursor:pointer;flex:1;min-width:240px">
+            <input type="radio" name="bm-source" value="grocy" id="bm-source-grocy" style="margin-top:3px">
+            <span>
+              <strong>Live fra Grocy</strong><br>
+              <span style="font-size:12px;color:#888">Henter automatisk alle <code>sellable=1</code> opskrifter. Kategori fra <code>grupper</code>-userfield.</span>
+            </span>
+          </label>
+        </div>
+      </div>
+
+      <!-- MANUAL-mode panel -->
+      <div id="bm-panel-manual">
+        <div id="bm-toolbar" style="display:flex;gap:10px;align-items:center;margin-bottom:16px;flex-wrap:wrap">
+          <span id="bm-version-info" style="font-size:13px;color:#888"></span>
+          <span style="flex:1"></span>
+          <button type="button" class="st-btn-secondary" onclick="bmOpenImport()">⬇ Importér fra Grocy</button>
+          <button type="button" class="st-btn-secondary" onclick="bmReload()">Genindlæs</button>
+          <button type="button" class="st-btn" id="bm-save-btn" onclick="bmSave()">Gem ændringer</button>
+        </div>
+        <div id="bm-editor"></div>
+        <details style="margin-top:24px;background:#fafaf8;border:1px solid var(--color-border);border-radius:8px;padding:12px 14px;font-size:13px">
+          <summary style="cursor:pointer;font-weight:600">Forhåndsvisning af menu-JSON (read-only)</summary>
+          <pre id="bm-json-preview" style="margin-top:10px;font-size:12px;background:#fff;border:1px solid #eee;border-radius:6px;padding:10px;overflow:auto;max-height:280px"></pre>
+        </details>
+      </div>
+
+      <!-- GROCY-mode panel -->
+      <div id="bm-panel-grocy" style="display:none">
+        <div style="background:#eaf6ff;border-left:4px solid #0ea5e9;border-radius:0 8px 8px 0;padding:14px 16px;margin-bottom:16px;font-size:13px;line-height:1.6">
+          <strong>Menu hentes live fra Grocy.</strong> Du redigerer retterne i Grocy admin (<code>grocytest</code> under udvikling).
+          Embed-formen henter dem hver gang en kunde åbner siden (60 sek cache).<br><br>
+          <strong>Hvilke userfields bruges?</strong>
+          <ul style="margin:6px 0 0 18px;padding:0">
+            <li><code>sellable</code> = 1 → kun opskrifter der må sælges</li>
+            <li><code>grupper</code> → kategori-navn på embed-formen</li>
+            <li><code>bestil_tags</code> (valgfri, CSV: <code>"vegan,gf"</code>) → tags-badges på retten</li>
+            <li><code>bestil_allergens</code> (valgfri, fri tekst) → allergener vist på ⓘ-toggle</li>
+            <li><code>bestil_skjul</code> (valgfri, "1") → skjul fra embed-formen selv om sellable=1</li>
+          </ul>
+          De tre <code>bestil_*</code>-userfields skal oprettes manuelt i Grocy → Manage master data → Userfields. De er valgfri — formen virker uden, blot uden tags/allergener.
+        </div>
+
+        <div style="display:flex;gap:10px;align-items:center;margin-bottom:14px">
+          <span id="bm-grocy-info" style="font-size:13px;color:#888"></span>
+          <span style="flex:1"></span>
+          <button type="button" class="st-btn-secondary" onclick="bmReloadGrocy()">Forhåndsvis</button>
+        </div>
+
+        <div id="bm-grocy-preview"></div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- Bestilling — Importér fra Grocy modal -->
+<div id="bm-import-overlay" style="display:none;position:fixed;inset:0;background:rgba(0,0,0,.45);z-index:9000;align-items:flex-start;justify-content:center;padding:40px 20px;overflow-y:auto">
+  <div style="background:#fff;border-radius:10px;max-width:840px;width:100%;box-shadow:0 12px 32px rgba(0,0,0,.2);display:flex;flex-direction:column;max-height:calc(100vh - 80px)">
+    <div style="padding:18px 22px;border-bottom:1px solid #eee;display:flex;align-items:center;gap:12px">
+      <h3 style="margin:0;font-size:18px">Importér fra Grocy</h3>
+      <span id="bm-import-info" style="font-size:13px;color:#888"></span>
+      <span style="flex:1"></span>
+      <button type="button" class="st-btn-secondary" onclick="bmCloseImport()">Luk</button>
+    </div>
+    <div style="padding:14px 22px;border-bottom:1px solid #eee;display:flex;gap:10px;align-items:center;flex-wrap:wrap">
+      <input type="search" id="bm-import-search" class="st-input" placeholder="Filtrér…" style="flex:1;min-width:200px">
+      <label style="display:flex;align-items:center;gap:6px;font-size:13px;cursor:pointer">
+        <input type="checkbox" id="bm-import-hide-existing" checked> Skjul retter der allerede er importeret
+      </label>
+    </div>
+    <div id="bm-import-list" style="flex:1;overflow-y:auto;padding:12px 22px"></div>
+    <div style="padding:14px 22px;border-top:1px solid #eee;display:flex;gap:10px;align-items:center">
+      <span id="bm-import-selected-count" style="font-size:13px;color:#888">Ingen valgt</span>
+      <span style="flex:1"></span>
+      <button type="button" class="st-btn-secondary" onclick="bmCloseImport()">Annullér</button>
+      <button type="button" class="st-btn" id="bm-import-do-btn" onclick="bmDoImport()" disabled>Importér valgte</button>
+    </div>
   </div>
 </div>
 
@@ -1042,6 +1269,10 @@ async function init() {
       // Lazy load booking sections
       if (sec === 'booking-smagning')  loadBookingSmagning();
       if (sec === 'booking-kontakt')   loadBookingKontakt();
+      // Lazy load delivery vehicles
+      if (sec === 'delivery-vehicles') loadDeliveryVehicles();
+      // Lazy load bestilling-menu
+      if (sec === 'bestilling-menu') bmInit();
     });
   });
 
@@ -3426,6 +3657,848 @@ document.addEventListener('DOMContentLoaded', async () => {
         }
     } catch {}
 });
+
+// ═══════════════════════════════════════════════════════════
+// LEVERINGSMETODER — Spor 1 (manuel bestilling)
+// ═══════════════════════════════════════════════════════════
+let _dvVehicles = [];
+let _dvVariables = [];
+let _dvEditingId = null;
+
+async function loadDeliveryVehicles() {
+    const c = document.getElementById('dv-content');
+    if (!c) return;
+    c.innerHTML = '<div style="color:#888;padding:14px">Henter…</div>';
+
+    try {
+        const [vehicles, vars] = await Promise.all([
+            fetchDeliveryVehicles(true),
+            fetchDeliveryTemplateVariables()
+        ]);
+        _dvVehicles = vehicles || [];
+        _dvVariables = vars || [];
+        _dvRender();
+    } catch (err) {
+        c.innerHTML = '<div style="color:#b04030;padding:14px">Fejl: ' + esc(err.message || 'kunne ikke hente') + '</div>';
+    }
+}
+
+function _dvRender() {
+    const c = document.getElementById('dv-content');
+    if (!c) return;
+
+    const rows = _dvVehicles.map(v => {
+        const methodLabel = {
+            calendar: 'Kalender',
+            manual_clipboard: 'Manuel',
+            api: 'API'
+        }[v.booking_method] || v.booking_method;
+        const tplStatus = v.booking_method === 'manual_clipboard'
+            ? (v.booking_template ? '<span style="color:#5a9b3f">✓ konfigureret</span>'
+                                  : '<span style="color:#b04030">⚠ mangler</span>')
+            : '—';
+        const urlStatus = v.booking_method === 'manual_clipboard'
+            ? (v.booking_url ? '<span style="color:#5a9b3f">✓</span>' : '<span style="color:#b04030">⚠</span>')
+            : '—';
+        const inactiveStyle = v.is_active ? '' : 'opacity:0.5';
+
+        return '<tr style="' + inactiveStyle + '">' +
+            '<td style="padding:6px 8px"><strong>' + esc(v.label) + '</strong>' +
+                ' <span style="font-size:11px;color:#888">(' + esc(v.code) + ')</span></td>' +
+            '<td style="padding:6px 8px">' + esc(v.type) + '</td>' +
+            '<td style="padding:6px 8px">' + methodLabel + '</td>' +
+            '<td style="padding:6px 8px;text-align:center">' + tplStatus + '</td>' +
+            '<td style="padding:6px 8px;text-align:center">' + urlStatus + '</td>' +
+            '<td style="padding:6px 8px;text-align:right">' +
+                '<button class="st-btn-secondary st-btn-sm" onclick="dvEditVehicle(' + v.id + ')">Rediger</button>' +
+            '</td>' +
+        '</tr>';
+    }).join('');
+
+    c.innerHTML =
+        '<table class="st-table" style="width:100%;border-collapse:collapse;font-size:13px">' +
+            '<thead><tr style="background:#f5f4f2">' +
+                '<th style="padding:8px;text-align:left">Navn</th>' +
+                '<th style="padding:8px;text-align:left">Type</th>' +
+                '<th style="padding:8px;text-align:left">Booking-metode</th>' +
+                '<th style="padding:8px;text-align:center">Template</th>' +
+                '<th style="padding:8px;text-align:center">URL</th>' +
+                '<th style="padding:8px"></th>' +
+            '</tr></thead>' +
+            '<tbody>' + rows + '</tbody>' +
+        '</table>';
+}
+
+function dvEditVehicle(id) {
+    const v = _dvVehicles.find(x => x.id === id);
+    if (!v) return;
+    _dvEditingId = id;
+
+    document.getElementById('dv-editor-title').textContent = 'Rediger: ' + v.label;
+    document.getElementById('dv-edit-label').value = v.label || '';
+    document.getElementById('dv-edit-type').value = v.type || 'volvo';
+    document.getElementById('dv-edit-method').value = v.booking_method || 'calendar';
+    document.getElementById('dv-edit-active').value = v.is_active ? '1' : '0';
+    document.getElementById('dv-edit-url').value = v.booking_url || '';
+    document.getElementById('dv-edit-template').value = v.booking_template || '';
+    document.getElementById('dv-edit-cost').value = v.cost_formula_json || '';
+
+    _dvRenderVarChips();
+    dvOnMethodChange();
+
+    const editor = document.getElementById('dv-editor');
+    editor.style.display = '';
+    editor.scrollIntoView({ behavior: 'smooth', block: 'start' });
+}
+
+function dvCloseEditor() {
+    _dvEditingId = null;
+    document.getElementById('dv-editor').style.display = 'none';
+}
+
+function dvOnMethodChange() {
+    const method = document.getElementById('dv-edit-method').value;
+    const manualFields = document.getElementById('dv-manual-fields');
+    if (manualFields) {
+        manualFields.style.display = method === 'manual_clipboard' ? '' : 'none';
+    }
+}
+
+function _dvRenderVarChips() {
+    const c = document.getElementById('dv-vars-chips');
+    if (!c) return;
+    c.innerHTML = _dvVariables.map(v =>
+        '<button type="button" class="var-chip" title="' + esc(v.label || '') + '"' +
+        ' onmousedown="event.preventDefault()"' +
+        ' onclick="dvInsertVar(\'' + v.key + '\')">{' + v.key + '}</button>'
+    ).join('');
+}
+
+function dvInsertVar(key) {
+    const ta = document.getElementById('dv-edit-template');
+    if (!ta) return;
+    const start = ta.selectionStart || 0;
+    const end = ta.selectionEnd || 0;
+    const value = ta.value;
+    const insert = '{' + key + '}';
+    ta.value = value.slice(0, start) + insert + value.slice(end);
+    ta.focus();
+    ta.selectionStart = ta.selectionEnd = start + insert.length;
+}
+
+async function dvSaveVehicle() {
+    if (!_dvEditingId) return;
+    const btn = document.getElementById('dv-save-btn');
+    const originalText = btn.textContent;
+    btn.disabled = true;
+    btn.textContent = 'Gemmer…';
+
+    const data = {
+        label: document.getElementById('dv-edit-label').value.trim(),
+        type: document.getElementById('dv-edit-type').value,
+        booking_method: document.getElementById('dv-edit-method').value,
+        is_active: document.getElementById('dv-edit-active').value === '1',
+        booking_url: document.getElementById('dv-edit-url').value.trim() || null,
+        booking_template: document.getElementById('dv-edit-template').value || null
+    };
+
+    const costRaw = document.getElementById('dv-edit-cost').value.trim();
+    if (costRaw) {
+        try {
+            JSON.parse(costRaw);
+            data.cost_formula_json = costRaw;
+        } catch (e) {
+            alert('Cost-formel er ikke gyldig JSON: ' + e.message);
+            btn.disabled = false;
+            btn.textContent = originalText;
+            return;
+        }
+    } else {
+        data.cost_formula_json = null;
+    }
+
+    try {
+        await patchDeliveryVehicle(_dvEditingId, data);
+        toast('Gemt');
+        dvCloseEditor();
+        await loadDeliveryVehicles();
+    } catch (err) {
+        alert('Kunne ikke gemme: ' + (err.message || 'fejl'));
+        btn.disabled = false;
+        btn.textContent = originalText;
+    }
+}
+
+window.dvEditVehicle = dvEditVehicle;
+window.dvCloseEditor = dvCloseEditor;
+window.dvOnMethodChange = dvOnMethodChange;
+window.dvInsertVar = dvInsertVar;
+window.dvSaveVehicle = dvSaveVehicle;
+
+// ═══════════════════════════════════════════════════════════
+// BESTILLING — MENU EDITOR
+// ═══════════════════════════════════════════════════════════
+const BM_TAGS = [
+  { id: 'vegan', label: 'Vegansk' },
+  { id: 'veg',   label: 'Vegetar' },
+  { id: 'gf',    label: 'Glutenfri' },
+  { id: 'fisk',  label: 'Fisk' },
+  { id: 'kød',   label: 'Kød' }
+];
+const BM_MENU_ID = 'standard';
+let _bmMenu = null;
+let _bmDirty = false;
+let _bmInited = false;
+
+async function bmInit() {
+  if (_bmInited) return;
+  _bmInited = true;
+  bsRenderDayCheckboxes();
+  await bmLoadSource();
+  await bsLoad();
+  await bmLoad();
+}
+
+// ─── Bestilling — åbningstider/deadline (settings) ──────────
+const BS_DAYS = [
+  { id: 'mon', label: 'Man' },
+  { id: 'tue', label: 'Tir' },
+  { id: 'wed', label: 'Ons' },
+  { id: 'thu', label: 'Tor' },
+  { id: 'fri', label: 'Fre' },
+  { id: 'sat', label: 'Lør' },
+  { id: 'sun', label: 'Søn' }
+];
+const DAY_LABELS_DA = { mon: 'Mandag', tue: 'Tirsdag', wed: 'Onsdag', thu: 'Torsdag', fri: 'Fredag', sat: 'Lørdag', sun: 'Søndag' };
+let _bsDirty = false;
+
+function bsRenderDayCheckboxes() {
+  ['bs-delivery-days', 'bs-cutoff-days'].forEach(containerId => {
+    const wrap = document.getElementById(containerId);
+    if (!wrap || wrap.children.length) return;
+    wrap.innerHTML = BS_DAYS.map(d => `
+      <label style="display:inline-flex;align-items:center;gap:5px;font-size:13px;cursor:pointer">
+        <input type="checkbox" data-day="${d.id}" data-group="${containerId}"> ${d.label}
+      </label>
+    `).join('');
+  });
+  // Listener for dirty-tracking
+  document.querySelectorAll('#bs-delivery-days input, #bs-cutoff-days input').forEach(cb => {
+    cb.addEventListener('change', bsMarkDirty);
+  });
+  document.getElementById('bs-cutoff-time').addEventListener('input', bsMarkDirty);
+  document.getElementById('bs-lead-days').addEventListener('input', bsMarkDirty);
+}
+
+async function bsLoad() {
+  try {
+    const r = await fetch('/api/settings', { credentials: 'include' });
+    const all = await r.json();
+    const get = k => all.find(s => s.key === k)?.value;
+    document.getElementById('bs-cutoff-time').value = parseInt(get('bestilling.cutoff_time') || '12', 10);
+    document.getElementById('bs-lead-days').value = parseInt(get('bestilling.cutoff_lead_days') || '1', 10);
+    const delDays = (get('bestilling.delivery_days') || 'mon,tue,wed,thu,fri,sat').split(',').map(s => s.trim());
+    const cutDays = (get('bestilling.cutoff_days') || 'mon,tue,wed,thu,fri,sat').split(',').map(s => s.trim());
+    document.querySelectorAll('#bs-delivery-days input').forEach(cb => { cb.checked = delDays.includes(cb.dataset.day); });
+    document.querySelectorAll('#bs-cutoff-days input').forEach(cb => { cb.checked = cutDays.includes(cb.dataset.day); });
+    _bsDirty = false;
+    bsUpdateBtnState();
+    bsUpdatePreview();
+  } catch (e) {
+    toast('Kunne ikke hente cutoff-indstillinger: ' + e.message, 'error');
+  }
+}
+
+function bsReload() {
+  if (_bsDirty && !confirm('Annullér ugemte cutoff-ændringer?')) return;
+  bsLoad();
+}
+
+function bsMarkDirty() {
+  _bsDirty = true;
+  bsUpdateBtnState();
+  bsUpdatePreview();
+}
+
+function bsUpdateBtnState() {
+  const btn = document.getElementById('bs-save-btn');
+  if (!btn) return;
+  if (_bsDirty) {
+    btn.textContent = 'Gem indstillinger •';
+    btn.style.background = '#dc2626';
+  } else {
+    btn.textContent = 'Gem indstillinger';
+    btn.style.background = '';
+  }
+}
+
+function bsUpdatePreview() {
+  const t = parseInt(document.getElementById('bs-cutoff-time').value, 10) || 12;
+  const lead = parseInt(document.getElementById('bs-lead-days').value, 10) || 1;
+  const delDays = Array.from(document.querySelectorAll('#bs-delivery-days input:checked')).map(cb => DAY_LABELS_DA[cb.dataset.day]);
+  const span = document.getElementById('bs-preview');
+  if (!span) return;
+  if (!delDays.length) {
+    span.textContent = '⚠ Ingen leveringsdage valgt — kunder kan ikke bestille';
+    span.style.color = '#dc2626';
+  } else {
+    span.textContent = `Levering: ${delDays.join(', ')} · cut-off kl. ${t}:00 ${lead === 1 ? 'dagen før' : lead + ' åbne dage før'}`;
+    span.style.color = '#888';
+  }
+}
+
+async function bsSave() {
+  const t = parseInt(document.getElementById('bs-cutoff-time').value, 10);
+  const lead = parseInt(document.getElementById('bs-lead-days').value, 10);
+  if (isNaN(t) || t < 0 || t > 23) return toast('Cutoff-time skal være 0–23', 'error');
+  if (isNaN(lead) || lead < 1 || lead > 14) return toast('Antal dage skal være 1–14', 'error');
+
+  const delDays = Array.from(document.querySelectorAll('#bs-delivery-days input:checked')).map(cb => cb.dataset.day);
+  const cutDays = Array.from(document.querySelectorAll('#bs-cutoff-days input:checked')).map(cb => cb.dataset.day);
+  if (!delDays.length) return toast('Vælg mindst én leveringsdag', 'error');
+  if (!cutDays.length) return toast('Vælg mindst én åben dag for cut-off', 'error');
+
+  const updates = [
+    ['bestilling.cutoff_time', String(t)],
+    ['bestilling.cutoff_lead_days', String(lead)],
+    ['bestilling.delivery_days', delDays.join(',')],
+    ['bestilling.cutoff_days', cutDays.join(',')]
+  ];
+
+  const btn = document.getElementById('bs-save-btn');
+  btn.disabled = true; btn.textContent = 'Gemmer…';
+  try {
+    for (const [key, value] of updates) {
+      const r = await fetch('/api/settings/' + encodeURIComponent(key), {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        credentials: 'include',
+        body: JSON.stringify({ value })
+      });
+      if (!r.ok) throw new Error('HTTP ' + r.status + ' for ' + key);
+    }
+    _bsDirty = false;
+    toast('Cutoff-indstillinger gemt');
+  } catch (e) {
+    toast('Kunne ikke gemme: ' + e.message, 'error');
+  } finally {
+    btn.disabled = false;
+    bsUpdateBtnState();
+  }
+}
+
+window.bsReload = bsReload;
+window.bsSave = bsSave;
+
+
+async function bmLoadSource() {
+  try {
+    const r = await fetch('/api/settings', { credentials: 'include' });
+    const all = await r.json();
+    const src = all.find(s => s.key === 'bestilling.menu_source')?.value || 'manual';
+    document.getElementById('bm-source-' + src).checked = true;
+    bmApplySourceUI(src);
+  } catch (e) { /* default = manual */ }
+}
+
+function bmApplySourceUI(src) {
+  document.getElementById('bm-panel-manual').style.display = src === 'manual' ? '' : 'none';
+  document.getElementById('bm-panel-grocy').style.display  = src === 'grocy'  ? '' : 'none';
+  if (src === 'grocy' && !_bmGrocyLoaded) {
+    bmReloadGrocy();
+  }
+}
+
+async function bmSetSource(src) {
+  try {
+    const r = await fetch('/api/settings/bestilling.menu_source', {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json' },
+      credentials: 'include',
+      body: JSON.stringify({ value: src })
+    });
+    if (!r.ok) throw new Error('HTTP ' + r.status);
+    bmApplySourceUI(src);
+    toast('Kilde sat til "' + (src === 'grocy' ? 'Live fra Grocy' : 'Manuel') + '"');
+  } catch (e) {
+    toast('Kunne ikke skifte kilde: ' + e.message, 'error');
+  }
+}
+
+document.addEventListener('change', e => {
+  if (e.target?.name === 'bm-source') bmSetSource(e.target.value);
+});
+
+let _bmGrocyLoaded = false;
+async function bmReloadGrocy() {
+  const wrap = document.getElementById('bm-grocy-preview');
+  const info = document.getElementById('bm-grocy-info');
+  wrap.innerHTML = '<div style="padding:14px;color:#888">⏳ Henter fra Grocy…</div>';
+  info.textContent = '';
+  try {
+    const r = await fetch('/embed/menus/standard.json', { cache: 'no-store' });
+    if (!r.ok) throw new Error('HTTP ' + r.status);
+    const menu = await r.json();
+    if (menu.source !== 'grocy') {
+      wrap.innerHTML = '<div style="padding:14px;color:#dc2626">⚠️ Endpointet returnerede source=' + menu.source + '. Tjek at server er genstartet.</div>';
+      return;
+    }
+    _bmGrocyLoaded = true;
+    info.textContent = `${menu.items.length} retter i ${menu.categories.length} kategorier · version ${menu.version}`;
+
+    const cats = {};
+    menu.items.forEach(it => {
+      if (!cats[it.category]) cats[it.category] = [];
+      cats[it.category].push(it);
+    });
+
+    const html = menu.categories.map(cat => {
+      const items = cats[cat.id] || [];
+      const rows = items.map(it => {
+        const tagPills = (it.tags || []).map(t => `<span style="font-size:10px;padding:1px 6px;border-radius:8px;background:#dcfce7;color:#166534;text-transform:uppercase;letter-spacing:.04em">${bmEsc(t)}</span>`).join(' ');
+        const all = it.allergens ? `<span style="color:#888;font-size:11px">${bmEsc(it.allergens)}</span>` : '<span style="color:#ccc;font-size:11px">—</span>';
+        return `<tr style="border-bottom:1px solid #f4f4f4">
+          <td style="padding:6px 8px;font-family:monospace;color:#aaa;font-size:11px">${bmEsc(it.id)}</td>
+          <td style="padding:6px 8px">${bmEsc(it.name)}</td>
+          <td style="padding:6px 8px;line-height:1.6">${tagPills || '<span style="color:#ccc;font-size:11px">—</span>'}</td>
+          <td style="padding:6px 8px">${all}</td>
+        </tr>`;
+      }).join('');
+      return `
+        <div style="background:#fff;border:1px solid var(--color-border);border-radius:8px;padding:12px 14px;margin-bottom:12px">
+          <h3 style="margin:0 0 8px;font-size:14px">${bmEsc(cat.name)} <span style="font-weight:400;color:#888;font-size:12px">(${items.length})</span></h3>
+          <table style="width:100%;border-collapse:collapse;font-size:13px">
+            <thead><tr style="text-align:left;color:#888;font-size:11px;text-transform:uppercase;letter-spacing:.04em">
+              <th style="padding:4px 8px;width:60px">ID</th>
+              <th style="padding:4px 8px">Navn</th>
+              <th style="padding:4px 8px;width:200px">Tags</th>
+              <th style="padding:4px 8px">Allergener</th>
+            </tr></thead>
+            <tbody>${rows}</tbody>
+          </table>
+        </div>`;
+    }).join('');
+    wrap.innerHTML = html || '<div style="padding:14px;color:#888">Ingen sellable opskrifter fundet i Grocy.</div>';
+  } catch (e) {
+    wrap.innerHTML = '<div style="padding:14px;color:#dc2626">Kunne ikke hente menu fra Grocy: ' + bmEsc(e.message) + '</div>';
+  }
+}
+
+async function bmLoad() {
+  try {
+    const r = await fetch('/api/settings/bestilling/menu/' + BM_MENU_ID, { credentials: 'include' });
+    if (!r.ok) throw new Error('HTTP ' + r.status);
+    _bmMenu = await r.json();
+  } catch (e) {
+    toast('Kunne ikke indlæse menu: ' + e.message, 'error');
+    return;
+  }
+  _bmDirty = false;
+  bmRender();
+}
+
+function bmReload() {
+  if (_bmDirty && !confirm('Du har ugemte ændringer. Indlæs alligevel?')) return;
+  bmLoad();
+}
+
+function bmMarkDirty() {
+  _bmDirty = true;
+  bmRenderJsonPreview();
+  const btn = document.getElementById('bm-save-btn');
+  if (btn) {
+    btn.textContent = 'Gem ændringer •';
+    btn.style.background = '#dc2626';
+  }
+}
+
+function bmRender() {
+  if (!_bmMenu) return;
+  const versionInfo = document.getElementById('bm-version-info');
+  if (versionInfo) versionInfo.textContent = `Version: ${_bmMenu.version || '?'} · ${_bmMenu.items?.length || 0} retter · ${_bmMenu.categories?.length || 0} kategorier`;
+
+  const root = document.getElementById('bm-editor');
+  if (!root) return;
+  root.innerHTML = '';
+
+  // ─── Kategorier-blok ───
+  const catWrap = document.createElement('div');
+  catWrap.style.cssText = 'background:#fafaf8;border:1px solid var(--color-border);border-radius:8px;padding:14px 16px;margin-bottom:18px';
+  catWrap.innerHTML = '<h3 style="margin:0 0 10px;font-size:15px">Kategorier</h3>';
+
+  const catList = document.createElement('div');
+  catList.style.cssText = 'display:flex;flex-direction:column;gap:6px';
+  (_bmMenu.categories || []).forEach((cat, i) => {
+    const row = document.createElement('div');
+    row.style.cssText = 'display:flex;gap:8px;align-items:center';
+    row.innerHTML = `
+      <button type="button" title="Op" class="st-btn-secondary" style="padding:4px 8px" ${i === 0 ? 'disabled' : ''} data-act="cat-up" data-i="${i}">↑</button>
+      <button type="button" title="Ned" class="st-btn-secondary" style="padding:4px 8px" ${i === _bmMenu.categories.length - 1 ? 'disabled' : ''} data-act="cat-dn" data-i="${i}">↓</button>
+      <input type="text" class="st-input" value="${bmEsc(cat.id)}" data-act="cat-id" data-i="${i}" placeholder="id (stabil — fx 'sandwich')" style="flex:0 0 220px;font-family:monospace;font-size:12px">
+      <input type="text" class="st-input" value="${bmEsc(cat.name)}" data-act="cat-name" data-i="${i}" placeholder="Vist navn" style="flex:1">
+      <button type="button" title="Slet" class="st-btn-secondary" style="padding:4px 10px;color:#dc2626" data-act="cat-del" data-i="${i}">✕</button>
+    `;
+    catList.appendChild(row);
+  });
+  catWrap.appendChild(catList);
+
+  const addCatBtn = document.createElement('button');
+  addCatBtn.type = 'button';
+  addCatBtn.className = 'st-btn-secondary';
+  addCatBtn.style.marginTop = '10px';
+  addCatBtn.textContent = '+ Ny kategori';
+  addCatBtn.onclick = () => {
+    const id = prompt('Stabil id (kun små bogstaver, tal, _):', 'ny_kategori');
+    if (!id) return;
+    if (!/^[a-z0-9_]+$/i.test(id)) return alert('Id må kun indeholde bogstaver, tal og _');
+    if (_bmMenu.categories.some(c => c.id === id)) return alert('Id findes allerede');
+    _bmMenu.categories.push({ id, name: id });
+    bmMarkDirty();
+    bmRender();
+  };
+  catWrap.appendChild(addCatBtn);
+  root.appendChild(catWrap);
+
+  // ─── Items-blok grupperet per kategori ───
+  (_bmMenu.categories || []).forEach(cat => {
+    const items = (_bmMenu.items || [])
+      .map((it, idx) => ({ it, idx }))
+      .filter(({ it }) => it.category === cat.id);
+
+    const block = document.createElement('div');
+    block.style.cssText = 'background:#fff;border:1px solid var(--color-border);border-radius:8px;padding:14px 16px;margin-bottom:14px';
+    block.innerHTML = `<h3 style="margin:0 0 10px;font-size:15px">${bmEsc(cat.name)} <span style="font-size:12px;color:#888;font-weight:400">(${items.length})</span></h3>`;
+
+    const tbl = document.createElement('table');
+    tbl.style.cssText = 'width:100%;border-collapse:collapse;font-size:13px';
+    tbl.innerHTML = `
+      <thead>
+        <tr style="text-align:left;color:#888;border-bottom:1px solid #eee">
+          <th style="padding:6px 4px;width:24px"></th>
+          <th style="padding:6px 4px">Navn</th>
+          <th style="padding:6px 4px;width:200px">Tags</th>
+          <th style="padding:6px 4px">Allergener</th>
+          <th style="padding:6px 4px;width:60px;text-align:center">Aktiv</th>
+          <th style="padding:6px 4px;width:30px"></th>
+        </tr>
+      </thead>
+      <tbody></tbody>
+    `;
+    const tbody = tbl.querySelector('tbody');
+
+    items.forEach(({ it, idx }, posInCat) => {
+      const tr = document.createElement('tr');
+      tr.style.borderBottom = '1px solid #f4f4f4';
+      const tagsHtml = BM_TAGS.map(t =>
+        `<label style="display:inline-flex;align-items:center;gap:3px;font-size:11px;margin-right:6px;cursor:pointer">
+          <input type="checkbox" data-act="item-tag" data-i="${idx}" data-tag="${t.id}" ${(it.tags || []).includes(t.id) ? 'checked' : ''}>${t.label}
+        </label>`
+      ).join('');
+      tr.innerHTML = `
+        <td style="padding:6px 4px">
+          <button type="button" title="Op" class="st-btn-secondary" style="padding:2px 6px;font-size:11px" ${posInCat === 0 ? 'disabled' : ''} data-act="item-up" data-i="${idx}">↑</button>
+        </td>
+        <td style="padding:6px 4px">
+          <input type="text" class="st-input" value="${bmEsc(it.name)}" data-act="item-name" data-i="${idx}" style="font-size:13px;padding:4px 6px">
+          <div style="font-size:10px;color:#bbb;margin-top:2px;font-family:monospace">${bmEsc(it.id)}</div>
+        </td>
+        <td style="padding:6px 4px;line-height:1.6">${tagsHtml}</td>
+        <td style="padding:6px 4px">
+          <input type="text" class="st-input" value="${bmEsc(it.allergens || '')}" data-act="item-allergens" data-i="${idx}" placeholder="Gluten, æg, mælk..." style="font-size:13px;padding:4px 6px">
+        </td>
+        <td style="padding:6px 4px;text-align:center">
+          <input type="checkbox" data-act="item-active" data-i="${idx}" ${it.active !== false ? 'checked' : ''}>
+        </td>
+        <td style="padding:6px 4px">
+          <button type="button" title="Slet" class="st-btn-secondary" style="padding:2px 8px;color:#dc2626;font-size:14px" data-act="item-del" data-i="${idx}">✕</button>
+        </td>
+      `;
+      tbody.appendChild(tr);
+    });
+
+    block.appendChild(tbl);
+
+    const addItemBtn = document.createElement('button');
+    addItemBtn.type = 'button';
+    addItemBtn.className = 'st-btn-secondary';
+    addItemBtn.style.marginTop = '10px';
+    addItemBtn.textContent = '+ Ny ret i ' + cat.name;
+    addItemBtn.onclick = () => {
+      const id = prompt('Stabil id (kun små bogstaver, tal, _):', '');
+      if (!id) return;
+      if (!/^[a-z0-9_]+$/i.test(id)) return alert('Id må kun indeholde bogstaver, tal og _');
+      if (_bmMenu.items.some(x => x.id === id)) return alert('Id findes allerede');
+      _bmMenu.items.push({ id, name: id, category: cat.id, tags: [], allergens: '', active: true });
+      bmMarkDirty();
+      bmRender();
+    };
+    block.appendChild(addItemBtn);
+    root.appendChild(block);
+  });
+
+  bmRenderJsonPreview();
+}
+
+function bmEsc(s) {
+  return String(s == null ? '' : s).replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+}
+
+function bmRenderJsonPreview() {
+  const el = document.getElementById('bm-json-preview');
+  if (el && _bmMenu) el.textContent = JSON.stringify(_bmMenu, null, 2);
+}
+
+// Event delegation
+document.getElementById('bm-editor').addEventListener('input', e => {
+  const t = e.target;
+  const act = t.dataset.act;
+  const i = parseInt(t.dataset.i, 10);
+  if (!act || isNaN(i)) return;
+  if (act === 'cat-id')         _bmMenu.categories[i].id = t.value.trim();
+  else if (act === 'cat-name')  _bmMenu.categories[i].name = t.value;
+  else if (act === 'item-name') _bmMenu.items[i].name = t.value;
+  else if (act === 'item-allergens') _bmMenu.items[i].allergens = t.value;
+  bmMarkDirty();
+});
+
+document.getElementById('bm-editor').addEventListener('change', e => {
+  const t = e.target;
+  const act = t.dataset.act;
+  const i = parseInt(t.dataset.i, 10);
+  if (!act || isNaN(i)) return;
+  if (act === 'item-active') {
+    _bmMenu.items[i].active = t.checked;
+    bmMarkDirty();
+  } else if (act === 'item-tag') {
+    const tag = t.dataset.tag;
+    const it = _bmMenu.items[i];
+    it.tags = it.tags || [];
+    if (t.checked) {
+      if (!it.tags.includes(tag)) it.tags.push(tag);
+    } else {
+      it.tags = it.tags.filter(x => x !== tag);
+    }
+    bmMarkDirty();
+  }
+});
+
+document.getElementById('bm-editor').addEventListener('click', e => {
+  const btn = e.target.closest('button[data-act]');
+  if (!btn) return;
+  const act = btn.dataset.act;
+  const i = parseInt(btn.dataset.i, 10);
+  if (act === 'cat-up' && i > 0) {
+    [_bmMenu.categories[i-1], _bmMenu.categories[i]] = [_bmMenu.categories[i], _bmMenu.categories[i-1]];
+    bmMarkDirty(); bmRender();
+  } else if (act === 'cat-dn' && i < _bmMenu.categories.length - 1) {
+    [_bmMenu.categories[i+1], _bmMenu.categories[i]] = [_bmMenu.categories[i], _bmMenu.categories[i+1]];
+    bmMarkDirty(); bmRender();
+  } else if (act === 'cat-del') {
+    const cat = _bmMenu.categories[i];
+    const itemsInCat = _bmMenu.items.filter(it => it.category === cat.id).length;
+    const msg = itemsInCat > 0
+      ? `Slet kategorien "${cat.name}"? Der er ${itemsInCat} ret(ter) tilknyttet — de bliver også slettet.`
+      : `Slet kategorien "${cat.name}"?`;
+    if (!confirm(msg)) return;
+    _bmMenu.items = _bmMenu.items.filter(it => it.category !== cat.id);
+    _bmMenu.categories.splice(i, 1);
+    bmMarkDirty(); bmRender();
+  } else if (act === 'item-up') {
+    // Find foregående item i samme kategori
+    const cat = _bmMenu.items[i].category;
+    let prev = -1;
+    for (let j = i - 1; j >= 0; j--) {
+      if (_bmMenu.items[j].category === cat) { prev = j; break; }
+    }
+    if (prev >= 0) {
+      [_bmMenu.items[prev], _bmMenu.items[i]] = [_bmMenu.items[i], _bmMenu.items[prev]];
+      bmMarkDirty(); bmRender();
+    }
+  } else if (act === 'item-del') {
+    if (!confirm(`Slet retten "${_bmMenu.items[i].name}"?`)) return;
+    _bmMenu.items.splice(i, 1);
+    bmMarkDirty(); bmRender();
+  }
+});
+
+async function bmSave() {
+  if (!_bmMenu) return;
+  // Validér duplikater på klient-side først
+  const catIds = _bmMenu.categories.map(c => c.id);
+  if (new Set(catIds).size !== catIds.length) return alert('Duplikat kategori-id');
+  const itemIds = _bmMenu.items.map(it => it.id);
+  if (new Set(itemIds).size !== itemIds.length) return alert('Duplikat item-id');
+  for (const it of _bmMenu.items) {
+    if (!catIds.includes(it.category)) return alert(`Item "${it.name}" peger på ukendt kategori "${it.category}"`);
+  }
+
+  const btn = document.getElementById('bm-save-btn');
+  btn.disabled = true; btn.textContent = 'Gemmer…';
+  try {
+    const r = await fetch('/api/settings/bestilling/menu/' + BM_MENU_ID, {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      credentials: 'include',
+      body: JSON.stringify(_bmMenu)
+    });
+    if (!r.ok) {
+      const j = await r.json().catch(() => ({}));
+      throw new Error(j.error || ('HTTP ' + r.status));
+    }
+    const result = await r.json();
+    _bmMenu.version = result.version;
+    _bmDirty = false;
+    btn.textContent = 'Gem ændringer';
+    btn.style.background = '';
+    toast('Menu gemt — version ' + result.version);
+    bmRender();
+  } catch (e) {
+    toast('Kunne ikke gemme: ' + e.message, 'error');
+  } finally {
+    btn.disabled = false;
+  }
+}
+
+// ─── Importér fra Grocy → manuel ───
+let _bmImportData = null;
+
+async function bmOpenImport() {
+  const overlay = document.getElementById('bm-import-overlay');
+  overlay.style.display = 'flex';
+  document.getElementById('bm-import-list').innerHTML = '<div style="padding:20px;color:#888">⏳ Henter fra Grocy…</div>';
+  document.getElementById('bm-import-info').textContent = '';
+  document.getElementById('bm-import-selected-count').textContent = 'Ingen valgt';
+  document.getElementById('bm-import-do-btn').disabled = true;
+  try {
+    // Tving Grocy-mode for ÉN forespørgsel via en separat path? Nej — vi laver en dedikeret server-route
+    // i stedet. Indtil da: tilrettelagt fetch der altid returnerer Grocy uanset menu_source.
+    const r = await fetch('/embed/grocy-preview', { cache: 'no-store', credentials: 'include' });
+    if (!r.ok) throw new Error('HTTP ' + r.status);
+    _bmImportData = await r.json();
+    document.getElementById('bm-import-info').textContent = `${_bmImportData.items.length} retter i ${_bmImportData.categories.length} kategorier`;
+    bmRenderImportList();
+  } catch (e) {
+    document.getElementById('bm-import-list').innerHTML = '<div style="padding:20px;color:#dc2626">Kunne ikke hente: ' + bmEsc(e.message) + '</div>';
+  }
+}
+
+function bmCloseImport() {
+  document.getElementById('bm-import-overlay').style.display = 'none';
+}
+
+function bmRenderImportList() {
+  if (!_bmImportData) return;
+  const search = (document.getElementById('bm-import-search').value || '').toLowerCase().trim();
+  const hideExisting = document.getElementById('bm-import-hide-existing').checked;
+  const existing = new Set((_bmMenu?.items || []).map(it => it.id));
+
+  const list = document.getElementById('bm-import-list');
+  const cats = {};
+  _bmImportData.items.forEach(it => {
+    if (search && !it.name.toLowerCase().includes(search)) return;
+    if (hideExisting && existing.has(it.id)) return;
+    if (!cats[it.category]) cats[it.category] = [];
+    cats[it.category].push(it);
+  });
+
+  const html = _bmImportData.categories.map(cat => {
+    const items = cats[cat.id] || [];
+    if (!items.length) return '';
+    const rows = items.map(it => {
+      const already = existing.has(it.id);
+      const tagPills = (it.tags || []).map(t => `<span style="font-size:10px;padding:1px 6px;border-radius:8px;background:#dcfce7;color:#166534;text-transform:uppercase;letter-spacing:.04em;margin-left:4px">${bmEsc(t)}</span>`).join('');
+      return `<label style="display:flex;align-items:center;gap:10px;padding:6px 8px;border-bottom:1px solid #f4f4f4;cursor:${already ? 'default' : 'pointer'};${already ? 'opacity:.45' : ''}">
+        <input type="checkbox" data-act="bm-import-pick" data-id="${bmEsc(it.id)}" data-cat="${bmEsc(cat.id)}" data-cat-name="${bmEsc(cat.name)}" data-name="${bmEsc(it.name)}" data-tags="${bmEsc((it.tags||[]).join(','))}" data-allergens="${bmEsc(it.allergens||'')}" ${already ? 'disabled' : ''}>
+        <span style="font-family:monospace;color:#aaa;font-size:11px;min-width:50px">${bmEsc(it.id)}</span>
+        <span style="flex:1">${bmEsc(it.name)}${tagPills}</span>
+        ${already ? '<span style="font-size:11px;color:#16a34a">✓ Allerede importeret</span>' : ''}
+      </label>`;
+    }).join('');
+    return `<div style="margin-bottom:14px">
+      <div style="display:flex;align-items:center;gap:10px;margin-bottom:4px">
+        <strong style="font-size:13px">${bmEsc(cat.name)}</strong>
+        <span style="color:#888;font-size:12px">(${items.length})</span>
+        <span style="flex:1"></span>
+        <button type="button" class="st-btn-secondary" style="padding:2px 10px;font-size:11px" data-act="bm-import-pick-cat" data-cat="${bmEsc(cat.id)}">Vælg alle</button>
+      </div>
+      ${rows}
+    </div>`;
+  }).filter(Boolean).join('');
+
+  list.innerHTML = html || '<div style="padding:20px;color:#888">Ingen retter matcher.</div>';
+  bmUpdateImportCount();
+}
+
+function bmUpdateImportCount() {
+  const checked = document.querySelectorAll('#bm-import-list input[data-act="bm-import-pick"]:checked').length;
+  const span = document.getElementById('bm-import-selected-count');
+  const btn = document.getElementById('bm-import-do-btn');
+  span.textContent = checked === 0 ? 'Ingen valgt' : `${checked} valgt`;
+  btn.disabled = checked === 0;
+  btn.textContent = checked === 0 ? 'Importér valgte' : `Importér ${checked} ret${checked === 1 ? '' : 'ter'}`;
+}
+
+document.getElementById('bm-import-list').addEventListener('change', e => {
+  if (e.target?.dataset?.act === 'bm-import-pick') bmUpdateImportCount();
+});
+document.getElementById('bm-import-list').addEventListener('click', e => {
+  const btn = e.target.closest('button[data-act="bm-import-pick-cat"]');
+  if (!btn) return;
+  const cat = btn.dataset.cat;
+  document.querySelectorAll(`#bm-import-list input[data-act="bm-import-pick"][data-cat="${cat}"]:not(:disabled)`).forEach(cb => { cb.checked = true; });
+  bmUpdateImportCount();
+});
+document.getElementById('bm-import-search').addEventListener('input', () => bmRenderImportList());
+document.getElementById('bm-import-hide-existing').addEventListener('change', () => bmRenderImportList());
+
+function bmDoImport() {
+  const checks = document.querySelectorAll('#bm-import-list input[data-act="bm-import-pick"]:checked');
+  if (!checks.length) return;
+  if (!_bmMenu) return;
+
+  // Saml kategorier vi skal sikre eksisterer
+  const existingCatIds = new Set(_bmMenu.categories.map(c => c.id));
+  const existingItemIds = new Set(_bmMenu.items.map(it => it.id));
+  let added = 0;
+  let skipped = 0;
+
+  checks.forEach(cb => {
+    const id = cb.dataset.id;
+    if (existingItemIds.has(id)) { skipped++; return; }
+
+    // Sikr kategorien findes
+    const catId = cb.dataset.cat;
+    if (!existingCatIds.has(catId)) {
+      _bmMenu.categories.push({ id: catId, name: cb.dataset.catName });
+      existingCatIds.add(catId);
+    }
+
+    const tags = (cb.dataset.tags || '').split(',').map(s => s.trim()).filter(Boolean);
+    _bmMenu.items.push({
+      id,
+      name: cb.dataset.name,
+      category: catId,
+      tags,
+      allergens: cb.dataset.allergens || '',
+      active: true
+    });
+    existingItemIds.add(id);
+    added++;
+  });
+
+  bmCloseImport();
+  bmMarkDirty();
+  bmRender();
+  toast(`${added} ret${added === 1 ? '' : 'ter'} importeret${skipped ? ` · ${skipped} sprunget over (fandtes allerede)` : ''} — husk at gemme`);
+}
+
+window.bmInit = bmInit;
+window.bmReload = bmReload;
+window.bmReloadGrocy = bmReloadGrocy;
+window.bmSave = bmSave;
+window.bmOpenImport = bmOpenImport;
+window.bmCloseImport = bmCloseImport;
+window.bmDoImport = bmDoImport;
 
 // ─── START ───────────────────────────────────────────────
 init();

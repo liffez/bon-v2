@@ -1,0 +1,62 @@
+<!DOCTYPE html>
+<html lang="da">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Embed test-harness — simulerer WordPress-side</title>
+  <style>
+    body { font-family: -apple-system, sans-serif; background: #eee; margin: 0; padding: 0; }
+    .wp-mock {
+      max-width: 900px; margin: 0 auto;
+      background: #fff; padding: 24px;
+      box-shadow: 0 2px 12px rgba(0,0,0,.08);
+    }
+    .wp-mock h1 { font-size: 22px; margin: 0 0 8px; color: #333; }
+    .wp-mock .breadcrumb { font-size: 12px; color: #888; margin-bottom: 24px; }
+    .iframe-wrap { background: #fafafa; border: 1px dashed #ccc; padding: 12px; }
+    .iframe-wrap .label { font-size: 11px; color: #888; margin-bottom: 6px; font-family: monospace; }
+    .debug { font-family: monospace; font-size: 11px; color: #666; padding: 8px 12px; background: #fff8dc; margin-top: 12px; border-radius: 4px; }
+  </style>
+</head>
+<body>
+
+<div class="wp-mock">
+  <div class="breadcrumb">ristetrug.dk › Bestil</div>
+  <h1>Bestil mad fra Ristet Rug</h1>
+  <p style="color:#555">Lorem ipsum dolor sit amet — denne side simulerer WordPress-konteksten formen leveres i.</p>
+
+  <div class="iframe-wrap">
+    <div class="label">↓ DIVI Code Module placeholder — iframe nedenfor:</div>
+    <iframe id="rr-bestil-iframe"
+            src="/embed/bestilling"
+            title="Ristet Rug — Bestillingsformular"
+            scrolling="no"
+            allow="geolocation"
+            style="width:10px; min-width:100%; display:block; border:none; height:800px;"></iframe>
+  </div>
+
+  <div class="debug" id="debug">Højde-events fra iframe: ingen endnu…</div>
+</div>
+
+<script>
+(function() {
+  let lastHeight = 0;
+  let count = 0;
+
+  window.addEventListener('message', function(e) {
+    // Lokal test — vi accepterer same-origin eller localhost
+    if (!e.data || e.data.type !== 'rr-form-height') return;
+    const iframe = document.getElementById('rr-bestil-iframe');
+    if (iframe) iframe.style.height = (e.data.height + 20) + 'px';
+
+    count++;
+    if (e.data.height !== lastHeight) {
+      const dbg = document.getElementById('debug');
+      dbg.textContent = `Højde-events: ${count} · seneste: ${e.data.height}px (origin=${e.origin})`;
+      lastHeight = e.data.height;
+    }
+  });
+})();
+</script>
+</body>
+</html>

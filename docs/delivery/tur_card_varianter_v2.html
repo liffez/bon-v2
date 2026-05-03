@@ -1,0 +1,847 @@
+<!DOCTYPE html>
+<html lang="da">
+<head>
+<meta charset="UTF-8">
+<title>Bon v2 · Tur-card varianter</title>
+<link href="https://fonts.googleapis.com/css2?family=Lato:wght@400;700;900&display=swap" rel="stylesheet">
+<style>
+:root {
+    --brand-primary: #8e631f;
+    --brand-primary-light: #f1e6b2;
+    --color-surface: #ffffff;
+    --color-background: #f5f4f2;
+    --color-border: #d7d1ca;
+    --color-text: #333333;
+    --color-text-dim: #8a8580;
+    --color-text-very-dim: #b8b4ae;
+    --color-green-dark: #7a9c54;
+    --color-green-bg: #e8f4dd;
+    --color-warn: #e8a832;
+    --color-warn-bg: #fef5e0;
+    --color-error: #bc181b;
+    --color-error-bg: #fef0f0;
+    --vh-volvo: #6a4a18;
+    --vh-bike: #7594b3;
+    --vh-taxi: #4a4a4a;
+    --vh-own-bike: #5a8c7a;
+
+    /* Status colors — matcher bon_status_definitions */
+    --status-planlagt: #7594b3;
+    --status-klar: #6ab04c;
+    --status-leveret: #8a8580;
+    --status-problem: #bc181b;
+}
+
+* { box-sizing: border-box; margin: 0; padding: 0; }
+html, body { min-height: 100%; }
+
+body {
+    font-family: 'Lato', sans-serif;
+    color: var(--color-text);
+    font-size: 14px;
+    background: #2a2a2a;
+    -webkit-font-smoothing: antialiased;
+    padding: 32px 16px;
+}
+
+.demo-grid {
+    display: grid;
+    grid-template-columns: repeat(2, 1fr);
+    gap: 24px;
+    max-width: 1100px;
+    margin: 0 auto;
+}
+@media (max-width: 900px) {
+    .demo-grid { grid-template-columns: 1fr; }
+}
+
+.demo-cell {
+    background: rgba(0,0,0,0.3);
+    border-radius: 12px;
+    padding: 20px;
+}
+.demo-label {
+    color: white;
+    font-size: 12px;
+    font-weight: 700;
+    text-transform: uppercase;
+    letter-spacing: 1px;
+    margin-bottom: 4px;
+    opacity: 0.85;
+}
+.demo-sub {
+    color: rgba(255,255,255,0.6);
+    font-size: 11px;
+    margin-bottom: 12px;
+}
+
+.cell-stage {
+    background: var(--color-background);
+    border-radius: 12px;
+    padding: 16px;
+}
+
+/* ════════ ROUTE CARD ════════ */
+.route-card {
+    background: var(--color-surface);
+    border: 1px solid var(--color-border);
+    border-radius: 10px;
+    margin-bottom: 8px;
+    overflow: hidden;
+}
+.route-card:last-child { margin-bottom: 0; }
+.route-card.has-problem {
+    border-color: var(--color-error);
+    box-shadow: 0 0 0 3px var(--color-error-bg);
+}
+
+.route-header {
+    padding: 10px 12px;
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    border-bottom: 1px solid var(--color-border);
+}
+.route-vehicle-icon {
+    width: 32px; height: 32px;
+    border-radius: 50%;
+    color: white;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    flex-shrink: 0;
+    border: 2px solid white;
+    box-shadow: 0 1px 3px rgba(0,0,0,0.2);
+}
+.route-vehicle-icon.volvo { background: var(--vh-volvo); }
+.route-vehicle-icon.bike { background: var(--vh-bike); }
+.route-vehicle-icon.own-bike { background: var(--vh-own-bike); }
+.route-vehicle-icon.taxi { background: var(--vh-taxi); }
+.route-vehicle-icon svg { width: 16px; height: 16px; }
+
+.route-name-block { flex: 1; min-width: 0; }
+.route-name {
+    font-weight: 900;
+    font-size: 13px;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+.route-meta {
+    font-size: 11px;
+    color: var(--color-text-dim);
+    margin-top: 1px;
+}
+
+/* Booking-status badge i header */
+.booking-badge {
+    font-size: 10px;
+    font-weight: 700;
+    padding: 3px 8px;
+    border-radius: 4px;
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+    white-space: nowrap;
+    display: inline-flex;
+    align-items: center;
+    gap: 4px;
+}
+.booking-badge svg { width: 11px; height: 11px; }
+
+.booking-badge.draft {
+    background: var(--color-background);
+    color: var(--color-text-dim);
+    border: 1px solid var(--color-border);
+}
+.booking-badge.computed {
+    background: #fef9eb;
+    color: #8a6500;
+    border: 1px solid #e5d089;
+}
+.booking-badge.calendar {
+    background: var(--color-green-bg);
+    color: var(--color-green-dark);
+}
+.booking-badge.booked-api {
+    background: var(--color-green-bg);
+    color: var(--color-green-dark);
+}
+.booking-badge.booked-manual {
+    background: var(--color-green-bg);
+    color: var(--color-green-dark);
+}
+.booking-badge.in-progress {
+    background: var(--color-warn-bg);
+    color: #8a6500;
+    border: 1px solid #e5d089;
+    cursor: pointer;
+}
+.booking-badge.in-progress:hover {
+    background: #f9e6b3;
+    border-color: var(--color-warn);
+}
+.booking-badge.failed {
+    background: var(--color-error-bg);
+    color: var(--color-error);
+    border: 1px solid #f5c8c9;
+    cursor: pointer;
+}
+.booking-badge.cancelled {
+    background: var(--color-error-bg);
+    color: var(--color-error);
+    text-decoration: line-through;
+}
+
+/* Pickup banner — én pickup-tid for hele turen */
+.route-pickup-banner {
+    padding: 8px 12px;
+    background: var(--color-text);
+    color: white;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    font-size: 11px;
+}
+.route-pickup-banner-label {
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+    opacity: 0.6;
+    font-size: 10px;
+}
+.route-pickup-banner-time {
+    font-weight: 900;
+    font-size: 16px;
+    margin-left: 6px;
+}
+.route-pickup-banner-boxes {
+    background: var(--brand-primary);
+    color: white;
+    padding: 3px 10px;
+    border-radius: 12px;
+    font-weight: 900;
+    font-size: 11px;
+}
+
+/* Stops */
+.route-stops { padding: 4px; }
+.route-stop {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    padding: 7px 8px;
+    border-radius: 6px;
+}
+.route-stop-seq {
+    width: 22px; height: 22px;
+    border-radius: 50%;
+    background: var(--brand-primary);
+    color: white;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-weight: 900;
+    font-size: 11px;
+    flex-shrink: 0;
+}
+.route-stop-seq svg { width: 12px; height: 12px; }
+.route-stop-seq.planlagt { background: var(--status-planlagt); }
+.route-stop-seq.klar { background: var(--status-klar); }
+.route-stop-seq.leveret { background: var(--status-leveret); }
+.route-stop-seq.problem {
+    background: var(--status-problem);
+    animation: pulse-warn 1.5s ease-in-out infinite;
+}
+@keyframes pulse-warn {
+    0%, 100% { box-shadow: 0 0 0 0 rgba(188, 24, 27, 0.5); }
+    50% { box-shadow: 0 0 0 6px rgba(188, 24, 27, 0); }
+}
+
+.route-stop-info { flex: 1; min-width: 0; }
+.route-stop-name {
+    font-weight: 700;
+    font-size: 12px;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+.route-stop-time {
+    font-size: 11px;
+    color: var(--color-text-dim);
+    margin-top: 1px;
+}
+.route-stop-time .eta { font-weight: 700; color: var(--color-text); }
+
+/* Summary */
+.route-summary {
+    padding: 8px 12px;
+    background: var(--color-background);
+    font-size: 11px;
+    color: var(--color-text-dim);
+    border-top: 1px solid var(--color-border);
+}
+.route-summary-row {
+    display: flex;
+    justify-content: space-between;
+    align-items: baseline;
+}
+.route-summary strong { color: var(--color-text); }
+
+/* Booking footer (special) */
+.booking-footer {
+    padding: 10px 12px;
+    border-top: 1px solid var(--color-border);
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    font-size: 12px;
+}
+.booking-footer.in-progress {
+    background: var(--color-warn-bg);
+    border-top-color: #e5d089;
+}
+.booking-footer.failed {
+    background: var(--color-error-bg);
+    border-top-color: #f5c8c9;
+}
+
+.booking-footer-icon {
+    width: 16px; height: 16px;
+    flex-shrink: 0;
+}
+.booking-footer.in-progress .booking-footer-icon { color: var(--color-warn); }
+.booking-footer.failed .booking-footer-icon { color: var(--color-error); }
+
+.booking-footer-text {
+    flex: 1;
+    line-height: 1.4;
+}
+.booking-footer.in-progress .booking-footer-text { color: #5d4500; }
+.booking-footer.failed .booking-footer-text { color: var(--color-error); }
+.booking-footer-text strong { font-weight: 900; }
+
+.booking-footer-action {
+    background: var(--color-text);
+    color: white;
+    border: 0;
+    padding: 5px 12px;
+    border-radius: 5px;
+    font-size: 11px;
+    font-weight: 700;
+    cursor: pointer;
+    font-family: inherit;
+}
+.booking-footer.in-progress .booking-footer-action {
+    background: var(--color-warn);
+    color: #5d4500;
+}
+.booking-footer.failed .booking-footer-action {
+    background: var(--color-error);
+    color: white;
+}
+
+/* Booking-ref display */
+.booking-ref {
+    font-family: 'Menlo', monospace;
+    font-size: 10px;
+    color: var(--color-text-dim);
+    background: var(--color-background);
+    padding: 1px 6px;
+    border-radius: 3px;
+    letter-spacing: 0.5px;
+}
+
+/* Banner header */
+.section-header {
+    color: white;
+    font-size: 13px;
+    font-weight: 700;
+    margin-bottom: 8px;
+    padding-bottom: 6px;
+    border-bottom: 1px solid rgba(255,255,255,0.1);
+}
+</style>
+</head>
+<body>
+
+<div class="demo-grid">
+
+    <!-- ═══════════════ FORKLARING ═══════════════ -->
+    <div class="demo-cell" style="grid-column: 1 / -1;">
+        <div style="color:white; font-size:14px; line-height:1.6;">
+            <h2 style="font-weight:900; font-size:18px; margin-bottom:8px;">Tur-card states i listview</h2>
+            <p style="opacity:0.85; max-width:800px;">
+                Tur-cardet er kerne-komponenten i højre kolonne af både "Plan i morgen" og "I dag".
+                Det skal kunne vise alle kombinationer af <code style="background:rgba(255,255,255,0.1); padding:1px 5px; border-radius:3px;">status</code> × <code style="background:rgba(255,255,255,0.1); padding:1px 5px; border-radius:3px;">booking_status</code>.
+                Her er alle de varianter Simon skal kunne rendere — sammen så de kan sammenlignes.
+            </p>
+        </div>
+    </div>
+
+    <!-- ═══════════════ KOLONNE 1: Planlægning-states ═══════════════ -->
+    <div class="demo-cell">
+        <div class="demo-label">Planlægning · før bekræftelse</div>
+        <div class="demo-sub">Status går fra draft → computed → confirmed. Booking_status er irrelevant indtil confirmed.</div>
+
+        <div class="cell-stage">
+
+            <!-- DRAFT (lige tilføjet, ikke beregnet) -->
+            <div class="section-header" style="color:#fff; opacity:0.7; font-size:10px; text-transform:uppercase; letter-spacing:0.5px; padding:4px 0; margin-bottom:6px;">
+                draft (kladde, intet beregnet)
+            </div>
+            <div class="route-card">
+                <div class="route-header">
+                    <div class="route-vehicle-icon volvo">
+                        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M5 17h14M5 17a2 2 0 1 0 4 0M19 17a2 2 0 1 0 0-4M5 17l-1-7h16l1 7M4 10l1-3h14l1 3"/></svg>
+                    </div>
+                    <div class="route-name-block">
+                        <div class="route-name">Volvo · tur 1</div>
+                        <div class="route-meta">Leif</div>
+                    </div>
+                    <span class="booking-badge draft">Kladde</span>
+                </div>
+                <div class="route-stops">
+                    <div class="route-stop">
+                        <div class="route-stop-seq planlagt">1</div>
+                        <div class="route-stop-info">
+                            <div class="route-stop-name">#3447 · Hansen Adv.</div>
+                            <div class="route-stop-time">ETA <span class="eta">?</span> · lev. 12:30</div>
+                        </div>
+                    </div>
+                    <div class="route-stop">
+                        <div class="route-stop-seq planlagt">2</div>
+                        <div class="route-stop-info">
+                            <div class="route-stop-name">#3425 · Nordnet Bank</div>
+                            <div class="route-stop-time">ETA <span class="eta">?</span> · lev. 12:30</div>
+                        </div>
+                    </div>
+                </div>
+                <div class="route-summary">
+                    <div class="route-summary-row">
+                        <span><strong>2</strong> stop · <strong>10</strong> kasser</span>
+                        <span>ikke beregnet</span>
+                    </div>
+                </div>
+            </div>
+
+            <!-- COMPUTED -->
+            <div class="section-header" style="color:#fff; opacity:0.7; font-size:10px; text-transform:uppercase; letter-spacing:0.5px; padding:4px 0; margin:14px 0 6px;">
+                computed (rute beregnet, klar til bekræftelse)
+            </div>
+            <div class="route-card">
+                <div class="route-header">
+                    <div class="route-vehicle-icon volvo">
+                        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M5 17h14M5 17a2 2 0 1 0 4 0M19 17a2 2 0 1 0 0-4M5 17l-1-7h16l1 7M4 10l1-3h14l1 3"/></svg>
+                    </div>
+                    <div class="route-name-block">
+                        <div class="route-name">Volvo · tur 1</div>
+                        <div class="route-meta">Leif</div>
+                    </div>
+                    <span class="booking-badge computed">Beregnet</span>
+                </div>
+                <div class="route-pickup-banner">
+                    <span><span class="route-pickup-banner-label">Afgang/pickup</span><span class="route-pickup-banner-time">11:35</span></span>
+                    <span class="route-pickup-banner-boxes">10 kasser klar</span>
+                </div>
+                <div class="route-stops">
+                    <div class="route-stop">
+                        <div class="route-stop-seq planlagt">1</div>
+                        <div class="route-stop-info">
+                            <div class="route-stop-name">#3447 · Hansen Adv.</div>
+                            <div class="route-stop-time">ETA <span class="eta">11:55</span> · lev. 12:30</div>
+                        </div>
+                    </div>
+                    <div class="route-stop">
+                        <div class="route-stop-seq planlagt">2</div>
+                        <div class="route-stop-info">
+                            <div class="route-stop-name">#3425 · Nordnet Bank</div>
+                            <div class="route-stop-time">ETA <span class="eta">12:25</span> · lev. 12:30</div>
+                        </div>
+                    </div>
+                </div>
+                <div class="route-summary">
+                    <div class="route-summary-row">
+                        <span><strong>2</strong> stop · <strong>10</strong> kasser</span>
+                        <span><strong>14</strong> km · <strong>52</strong> min</span>
+                    </div>
+                </div>
+            </div>
+
+        </div>
+    </div>
+
+    <!-- ═══════════════ KOLONNE 2: Bekræftet + booking-states ═══════════════ -->
+    <div class="demo-cell">
+        <div class="demo-label">Bekræftet · efter "Bekræft og bestil"</div>
+        <div class="demo-sub">Status er confirmed. Booking_status varierer pr. transport-type.</div>
+
+        <div class="cell-stage">
+
+            <!-- CALENDAR (Volvo / egen cykel) -->
+            <div class="section-header" style="color:#fff; opacity:0.7; font-size:10px; text-transform:uppercase; letter-spacing:0.5px; padding:4px 0; margin-bottom:6px;">
+                booking_method=calendar (Volvo, egen cykel)
+            </div>
+            <div class="route-card">
+                <div class="route-header">
+                    <div class="route-vehicle-icon volvo">
+                        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M5 17h14M5 17a2 2 0 1 0 4 0M19 17a2 2 0 1 0 0-4M5 17l-1-7h16l1 7M4 10l1-3h14l1 3"/></svg>
+                    </div>
+                    <div class="route-name-block">
+                        <div class="route-name">Volvo · tur 1</div>
+                        <div class="route-meta">Leif · afgang 11:35</div>
+                    </div>
+                    <span class="booking-badge calendar">
+                        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><rect x="3" y="4" width="18" height="18" rx="2"/><line x1="16" y1="2" x2="16" y2="6"/><line x1="8" y1="2" x2="8" y2="6"/></svg>
+                        I kalender
+                    </span>
+                </div>
+                <div class="route-pickup-banner">
+                    <span><span class="route-pickup-banner-label">Afgang/pickup</span><span class="route-pickup-banner-time">11:35</span></span>
+                    <span class="route-pickup-banner-boxes">10 kasser klar</span>
+                </div>
+                <div class="route-summary">
+                    <div class="route-summary-row">
+                        <span><strong>2</strong> stop · <strong>10</strong> kasser</span>
+                        <span><strong>14</strong> km · <strong>52</strong> min</span>
+                    </div>
+                </div>
+            </div>
+
+            <!-- BOOKED via API (By-expressen i 3D.5) -->
+            <div class="section-header" style="color:#fff; opacity:0.7; font-size:10px; text-transform:uppercase; letter-spacing:0.5px; padding:4px 0; margin:14px 0 6px;">
+                booking_method=api · status=booked (By-expressen 3D.5)
+            </div>
+            <div class="route-card">
+                <div class="route-header">
+                    <div class="route-vehicle-icon bike">
+                        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><circle cx="6" cy="17" r="3"/><circle cx="18" cy="17" r="3"/><path d="M6 17l4-9h4l4 9M10 8l1-3h3"/></svg>
+                    </div>
+                    <div class="route-name-block">
+                        <div class="route-name">By-expressen #1</div>
+                        <div class="route-meta">
+                            Eksternt · <span class="booking-ref">BE-7821</span>
+                        </div>
+                    </div>
+                    <span class="booking-badge booked-api">
+                        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><polyline points="20 6 9 17 4 12"/></svg>
+                        Booket via API
+                    </span>
+                </div>
+                <div class="route-summary">
+                    <div class="route-summary-row">
+                        <span><strong>2</strong> stop · <strong>4</strong> kasser</span>
+                        <span><strong>3</strong> km · <strong>22</strong> min</span>
+                    </div>
+                </div>
+            </div>
+
+            <!-- BOOKED manuelt (taxa med ref) -->
+            <div class="section-header" style="color:#fff; opacity:0.7; font-size:10px; text-transform:uppercase; letter-spacing:0.5px; padding:4px 0; margin:14px 0 6px;">
+                booking_method=manual · status=booked (taxa med ref)
+            </div>
+            <div class="route-card">
+                <div class="route-header">
+                    <div class="route-vehicle-icon taxi">
+                        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><rect x="3" y="11" width="18" height="8" rx="2"/><path d="M7 11V7a2 2 0 0 1 2-2h6a2 2 0 0 1 2 2v4"/></svg>
+                    </div>
+                    <div class="route-name-block">
+                        <div class="route-name">Taxa · 12:00</div>
+                        <div class="route-meta">
+                            El-Taxa · <span class="booking-ref">TX-44821</span>
+                        </div>
+                    </div>
+                    <span class="booking-badge booked-manual">
+                        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><polyline points="20 6 9 17 4 12"/></svg>
+                        Booket manuelt
+                    </span>
+                </div>
+                <div class="route-summary">
+                    <div class="route-summary-row">
+                        <span><strong>1</strong> stop · <strong>4</strong> kasser</span>
+                        <span><strong>18</strong> km · <strong>32</strong> min</span>
+                    </div>
+                </div>
+            </div>
+
+        </div>
+    </div>
+
+    <!-- ═══════════════ KOLONNE 3: Problem-states ═══════════════ -->
+    <div class="demo-cell">
+        <div class="demo-label">Booking afventer eller fejlede</div>
+        <div class="demo-sub">Tilstande der kræver opfølgning fra office. "Book nu"-knap altid synlig.</div>
+
+        <div class="cell-stage">
+
+            <!-- IN_PROGRESS (manuel booking sprunget over) -->
+            <div class="section-header" style="color:#fff; opacity:0.7; font-size:10px; text-transform:uppercase; letter-spacing:0.5px; padding:4px 0; margin-bottom:6px;">
+                booking_status=in_progress (sprang over · mangler ref)
+            </div>
+            <div class="route-card">
+                <div class="route-header">
+                    <div class="route-vehicle-icon taxi">
+                        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><rect x="3" y="11" width="18" height="8" rx="2"/><path d="M7 11V7a2 2 0 0 1 2-2h6a2 2 0 0 1 2 2v4"/></svg>
+                    </div>
+                    <div class="route-name-block">
+                        <div class="route-name">Taxa · 14:30</div>
+                        <div class="route-meta">El-Taxa · ingen ref endnu</div>
+                    </div>
+                    <span class="booking-badge in-progress">
+                        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></svg>
+                        Afventer
+                    </span>
+                </div>
+                <div class="booking-footer in-progress">
+                    <svg class="booking-footer-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5">
+                        <path d="M10.29 3.86L1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z"/>
+                        <line x1="12" y1="9" x2="12" y2="13"/>
+                    </svg>
+                    <div class="booking-footer-text">
+                        Mangler manuel booking · <strong>14 min</strong> siden bekræftelse
+                    </div>
+                    <button class="booking-footer-action">Book nu</button>
+                </div>
+            </div>
+
+            <!-- FAILED (API-kald fejlede) -->
+            <div class="section-header" style="color:#fff; opacity:0.7; font-size:10px; text-transform:uppercase; letter-spacing:0.5px; padding:4px 0; margin:14px 0 6px;">
+                booking_status=failed (API-kald fejlede)
+            </div>
+            <div class="route-card">
+                <div class="route-header">
+                    <div class="route-vehicle-icon bike">
+                        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><circle cx="6" cy="17" r="3"/><circle cx="18" cy="17" r="3"/><path d="M6 17l4-9h4l4 9M10 8l1-3h3"/></svg>
+                    </div>
+                    <div class="route-name-block">
+                        <div class="route-name">By-expressen #2</div>
+                        <div class="route-meta">Eksternt · booking fejlede</div>
+                    </div>
+                    <span class="booking-badge failed">
+                        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="12"/><line x1="12" y1="16" x2="12.01" y2="16"/></svg>
+                        Fejlede
+                    </span>
+                </div>
+                <div class="booking-footer failed">
+                    <svg class="booking-footer-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5">
+                        <circle cx="12" cy="12" r="10"/>
+                        <line x1="12" y1="8" x2="12" y2="12"/>
+                    </svg>
+                    <div class="booking-footer-text">
+                        API-kald fejlede · <strong>HTTP 503</strong> · prøv igen
+                    </div>
+                    <button class="booking-footer-action">Prøv igen</button>
+                </div>
+            </div>
+
+            <!-- CANCELLED (tur aflyst) -->
+            <div class="section-header" style="color:#fff; opacity:0.7; font-size:10px; text-transform:uppercase; letter-spacing:0.5px; padding:4px 0; margin:14px 0 6px;">
+                status=cancelled (tur aflyst — fx kunde annullerede)
+            </div>
+            <div class="route-card" style="opacity:0.6;">
+                <div class="route-header">
+                    <div class="route-vehicle-icon own-bike">
+                        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><circle cx="6" cy="17" r="3"/><circle cx="18" cy="17" r="3"/><path d="M6 17l4-9h4l4 9M10 8l1-3h3"/></svg>
+                    </div>
+                    <div class="route-name-block">
+                        <div class="route-name">Egen cykel · tur 2</div>
+                        <div class="route-meta">Pernille · aflyst 09:42</div>
+                    </div>
+                    <span class="booking-badge cancelled">Aflyst</span>
+                </div>
+            </div>
+
+        </div>
+    </div>
+
+    <!-- ═══════════════ KOLONNE 4: Live-states ═══════════════ -->
+    <div class="demo-cell">
+        <div class="demo-label">Live · undervejs på dagen</div>
+        <div class="demo-sub">Når dagen kører. Sequence-tal får status-farve fra bon. Problem markeres tydeligt.</div>
+
+        <div class="cell-stage">
+
+            <!-- ACTIVE - undervejs uden problemer -->
+            <div class="section-header" style="color:#fff; opacity:0.7; font-size:10px; text-transform:uppercase; letter-spacing:0.5px; padding:4px 0; margin-bottom:6px;">
+                status=active · normal drift
+            </div>
+            <div class="route-card">
+                <div class="route-header">
+                    <div class="route-vehicle-icon own-bike">
+                        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><circle cx="6" cy="17" r="3"/><circle cx="18" cy="17" r="3"/><path d="M6 17l4-9h4l4 9M10 8l1-3h3"/></svg>
+                    </div>
+                    <div class="route-name-block">
+                        <div class="route-name">Egen cykel · tur 1</div>
+                        <div class="route-meta">Pernille · 1/2 leveret</div>
+                    </div>
+                </div>
+                <div class="route-stops">
+                    <div class="route-stop">
+                        <div class="route-stop-seq leveret">
+                            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3"><polyline points="20 6 9 17 4 12"/></svg>
+                        </div>
+                        <div class="route-stop-info">
+                            <div class="route-stop-name">#3453 · DR Byen</div>
+                            <div class="route-stop-time">Leveret <span class="eta">11:38</span></div>
+                        </div>
+                    </div>
+                    <div class="route-stop">
+                        <div class="route-stop-seq klar">2</div>
+                        <div class="route-stop-info">
+                            <div class="route-stop-name">#3448 · Café Bistro</div>
+                            <div class="route-stop-time">På vej · ETA <span class="eta">13:50</span></div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- ACTIVE - med problem -->
+            <div class="section-header" style="color:#fff; opacity:0.7; font-size:10px; text-transform:uppercase; letter-spacing:0.5px; padding:4px 0; margin:14px 0 6px;">
+                status=active · stop med problem
+            </div>
+            <div class="route-card has-problem">
+                <div class="route-header">
+                    <div class="route-vehicle-icon volvo">
+                        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M5 17h14M5 17a2 2 0 1 0 4 0M19 17a2 2 0 1 0 0-4M5 17l-1-7h16l1 7M4 10l1-3h14l1 3"/></svg>
+                    </div>
+                    <div class="route-name-block">
+                        <div class="route-name">Volvo · tur 1</div>
+                        <div class="route-meta">Leif · 1/3 leveret · 1 problem</div>
+                    </div>
+                </div>
+                <div class="route-stops">
+                    <div class="route-stop">
+                        <div class="route-stop-seq leveret">
+                            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3"><polyline points="20 6 9 17 4 12"/></svg>
+                        </div>
+                        <div class="route-stop-info">
+                            <div class="route-stop-name">#3447 · Hansen Adv.</div>
+                            <div class="route-stop-time">Leveret <span class="eta">11:55</span></div>
+                        </div>
+                    </div>
+                    <div class="route-stop">
+                        <div class="route-stop-seq problem">2</div>
+                        <div class="route-stop-info">
+                            <div class="route-stop-name">#3425 · Nordnet Bank</div>
+                            <div class="route-stop-time" style="color:var(--color-error); font-weight:700">⚠ Ingen svar fra kunde</div>
+                        </div>
+                    </div>
+                    <div class="route-stop">
+                        <div class="route-stop-seq planlagt">3</div>
+                        <div class="route-stop-info">
+                            <div class="route-stop-name">#3454 · Lokomotiv Studio</div>
+                            <div class="route-stop-time">Afventer · ETA <span class="eta">13:50</span></div>
+                        </div>
+                    </div>
+                </div>
+                <div class="booking-footer failed">
+                    <svg class="booking-footer-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5">
+                        <path d="M10.29 3.86L1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z"/>
+                        <line x1="12" y1="9" x2="12" y2="13"/>
+                    </svg>
+                    <div class="booking-footer-text">
+                        <strong>#3425</strong> · ingen svar · logget 12:32
+                    </div>
+                    <button class="booking-footer-action">Vis</button>
+                </div>
+            </div>
+
+            <!-- COMPLETED - alle stop leveret -->
+            <div class="section-header" style="color:#fff; opacity:0.7; font-size:10px; text-transform:uppercase; letter-spacing:0.5px; padding:4px 0; margin:14px 0 6px;">
+                status=completed · alle stop leveret
+            </div>
+            <div class="route-card" style="opacity:0.7;">
+                <div class="route-header">
+                    <div class="route-vehicle-icon bike">
+                        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><circle cx="6" cy="17" r="3"/><circle cx="18" cy="17" r="3"/><path d="M6 17l4-9h4l4 9M10 8l1-3h3"/></svg>
+                    </div>
+                    <div class="route-name-block">
+                        <div class="route-name">By-expressen #1</div>
+                        <div class="route-meta">2/2 leveret · 11:32</div>
+                    </div>
+                    <span class="booking-badge calendar">
+                        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><polyline points="20 6 9 17 4 12"/></svg>
+                        Afsluttet
+                    </span>
+                </div>
+            </div>
+
+        </div>
+    </div>
+
+    <!-- ═══════════════ NOTES ═══════════════ -->
+    <div class="demo-cell" style="grid-column: 1 / -1; background:#1f1f1f;">
+        <div style="color:white; font-size:13px; line-height:1.7;">
+
+            <h3 style="font-size:14px; margin-bottom:10px; color:var(--brand-primary-light); font-weight:900;">Status × booking_status — to dimensioner</h3>
+            <p style="opacity:0.85; margin-bottom:16px; max-width:900px;">
+                Tur-cardet rendrer baseret på <strong>kombination</strong> af to felter:
+                <code style="background:rgba(255,255,255,0.1); padding:1px 5px; border-radius:3px;">delivery_routes.status</code>
+                (planlægnings-fase) og
+                <code style="background:rgba(255,255,255,0.1); padding:1px 5px; border-radius:3px;">delivery_routes.booking_status</code>
+                (transport-booking).
+                De er uafhængige aspekter — en tur kan være <em>confirmed</em> men <em>booking pending</em>.
+            </p>
+
+            <div style="display:grid; grid-template-columns:repeat(auto-fit, minmax(250px, 1fr)); gap:16px; max-width:1100px;">
+
+                <div>
+                    <h4 style="font-size:12px; margin-bottom:6px; color:var(--brand-primary-light); text-transform:uppercase; letter-spacing:0.5px;">Badge i header</h4>
+                    <p style="opacity:0.8; font-size:12px;">
+                        Viser den vigtigste status i øjeblikket. I planlægning: status (kladde/beregnet).
+                        Efter bekræftelse: booking-status (i kalender / booket / afventer).
+                        Live: ofte ingen badge — sequence-tallene bærer tilstanden.
+                    </p>
+                </div>
+
+                <div>
+                    <h4 style="font-size:12px; margin-bottom:6px; color:var(--brand-primary-light); text-transform:uppercase; letter-spacing:0.5px;">Booking-footer</h4>
+                    <p style="opacity:0.8; font-size:12px;">
+                        Vises kun ved <code style="background:rgba(255,255,255,0.1); padding:1px 4px; border-radius:3px;">in_progress</code> eller <code style="background:rgba(255,255,255,0.1); padding:1px 4px; border-radius:3px;">failed</code>.
+                        Fjernes når problemet er løst.
+                        Kald-til-handling-knap altid ude til højre.
+                    </p>
+                </div>
+
+                <div>
+                    <h4 style="font-size:12px; margin-bottom:6px; color:var(--brand-primary-light); text-transform:uppercase; letter-spacing:0.5px;">Booking-ref</h4>
+                    <p style="opacity:0.8; font-size:12px;">
+                        Vises i meta-linjen som monospace pille
+                        <code style="background:rgba(255,255,255,0.1); padding:1px 4px; border-radius:3px;">TX-44821</code>.
+                        Klik = kopiér til clipboard (anvendes ved kunde-kontakt eller ved kontakt med taxa-firmaet).
+                    </p>
+                </div>
+
+                <div>
+                    <h4 style="font-size:12px; margin-bottom:6px; color:var(--brand-primary-light); text-transform:uppercase; letter-spacing:0.5px;">Pickup-banner</h4>
+                    <p style="opacity:0.8; font-size:12px;">
+                        Vises kun når status≥computed (har en pickup_time).
+                        Ikke i live-mode (er allerede afgået).
+                        Sort baggrund med stort tal — visuelt markant.
+                    </p>
+                </div>
+
+                <div>
+                    <h4 style="font-size:12px; margin-bottom:6px; color:var(--brand-primary-light); text-transform:uppercase; letter-spacing:0.5px;">Stop-rækker</h4>
+                    <p style="opacity:0.8; font-size:12px;">
+                        Vises i planlægnings- og live-mode. Skjules i confirmed-mode (compact view) hvis der er mange ture — kan udvides via klik på header.
+                        Sequence får status-farve i live.
+                    </p>
+                </div>
+
+                <div>
+                    <h4 style="font-size:12px; margin-bottom:6px; color:var(--brand-primary-light); text-transform:uppercase; letter-spacing:0.5px;">Aflyst tur</h4>
+                    <p style="opacity:0.8; font-size:12px;">
+                        60% opacity, gennemstreget badge.
+                        Vises stadig i listen for sporbarhed.
+                        Skjul-mulighed via filter senere.
+                    </p>
+                </div>
+
+            </div>
+
+        </div>
+    </div>
+
+</div>
+
+</body>
+</html>

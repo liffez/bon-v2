@@ -61,6 +61,7 @@ class BonDrawer {
                 <!-- STATUS -->
                 <div class="drawer-section">
                     <div class="drawer-status-bar"></div>
+                    <div class="drawer-status-hint">Status gemmes automatisk når du klikker en knap. Brug "Gem" nederst til de øvrige felter.</div>
                 </div>
 
                 <!-- LEVERING -->
@@ -87,14 +88,32 @@ class BonDrawer {
                         <div class="drawer-address-display" style="display:none"></div>
                         <label class="drawer-sublabel">Leveringsinfo</label>
                         <input type="text" class="drawer-field" data-field="delivery_notes" placeholder="Etage, port, kode...">
-                        <label class="drawer-sublabel">Leveringsmetode</label>
-                        <select class="drawer-field" data-field="delivery_method">
-                            <option value="">Vælg...</option>
-                            <option value="cykel">Cykel</option>
-                            <option value="taxa">Taxa</option>
-                            <option value="volvo">Volvo</option>
-                            <option value="afhentning">Afhentning</option>
-                        </select>
+                    </div>
+                </div>
+
+                <!-- BESTIL BUD -->
+                <div class="drawer-section drawer-delivery-section" data-drawer-section="bestil-bud">
+                    <div class="drawer-label-row">
+                        <label class="drawer-label">Bestil bud</label>
+                        <div class="drawer-delivery-actions">
+                            <button type="button" class="btn-drawer-bestil-bud" data-action="bestil">
+                                <span class="drawer-bestil-icon">📦</span> Bestil hos…
+                            </button>
+                        </div>
+                    </div>
+                    <div class="drawer-delivery-status">
+                        <div class="drawer-delivery-current"></div>
+                        <div class="drawer-delivery-cost-row">
+                            <div class="drawer-field-group" style="flex:1">
+                                <label class="drawer-sublabel">Faktisk omkostning (kr)</label>
+                                <input type="number" class="drawer-field drawer-delivery-cost-input"
+                                       min="0" step="1" placeholder="Indtast når faktura modtages">
+                            </div>
+                            <div class="drawer-field-group" style="flex:0 0 auto; padding-top:18px">
+                                <button type="button" class="btn-drawer-cost-save" disabled>Gem</button>
+                            </div>
+                        </div>
+                        <div class="drawer-delivery-events"></div>
                     </div>
                 </div>
 
@@ -365,7 +384,6 @@ class BonDrawer {
 
         // Delivery fields
         this._setFieldValue('delivery_notes', d.delivery_notes || '');
-        this._setFieldValue('delivery_method', d.delivery_method || '');
 
         // Address display
         if (d.delivery_address) {
@@ -436,8 +454,135 @@ class BonDrawer {
         // Mail — load async (non-blocking)
         this._loadMail(d);
 
+        // Delivery — load async (non-blocking)
+        this._loadDelivery(d);
+
         this.dirty = false;
         this._pendingChanges = {};
+    }
+
+    async _loadDelivery(bon) {
+        const section = this.el.querySelector('[data-drawer-section="bestil-bud"]');
+        if (!section) return;
+
+        // Hide for internal bons + pickup
+        if (bon.is_internal === 1 || bon.delivery_type === 'pickup') {
+            section.style.display = 'none';
+            return;
+        }
+        section.style.display = '';
+
+        const currentEl = section.querySelector('.drawer-delivery-current');
+        const eventsEl = section.querySelector('.drawer-delivery-events');
+        const costInput = section.querySelector('.drawer-delivery-cost-input');
+        const costSaveBtn = section.querySelector('.btn-drawer-cost-save');
+        const bestilBtn = section.querySelector('.btn-drawer-bestil-bud');
+
+        // Pre-fill faktisk omkostning
+        costInput.value = bon.delivery_cost != null ? bon.delivery_cost : '';
+        costSaveBtn.disabled = true;
+        costInput.oninput = () => {
+            const numVal = costInput.value.trim();
+            costSaveBtn.disabled = !numVal || isNaN(Number(numVal)) || Number(numVal) < 0;
+        };
+        costSaveBtn.onclick = async () => {
+            const amount = Number(costInput.value);
+            if (isNaN(amount) || amount < 0) return;
+            costSaveBtn.disabled = true;
+            costSaveBtn.textContent = 'Gemmer…';
+            try {
+                await setDeliveryActualCost({ bon_id: this.bonId, amount_dkk: amount, source: 'manual' });
+                costSaveBtn.textContent = 'Gemt ✓';
+                setTimeout(() => { costSaveBtn.textContent = 'Gem'; }, 1500);
+                // Refresh events list
+                this._renderDeliveryEvents();
+            } catch (err) {
+                alert('Kunne ikke gemme: ' + (err.message || 'fejl'));
+                costSaveBtn.disabled = false;
+                costSaveBtn.textContent = 'Gem';
+            }
+        };
+
+        bestilBtn.onclick = () => {
+            if (typeof window.openManualBookingModal !== 'function') {
+                alert('Bestillings-modal ikke loaded.');
+                return;
+            }
+            window.openManualBookingModal({
+                bonId: this.bonId,
+                defaultVehicleId: bon.delivery_vehicle_id || null,
+                onBooked: () => {
+                    // Reload bon-data så drawer reflekterer ny vehicle + cost
+                    this._reloadBon();
+                    this._renderDeliveryEvents();
+                }
+            });
+        };
+
+        // Render aktuel vehicle-status + events
+        this._renderDeliveryCurrent(bon);
+        this._renderDeliveryEvents();
+    }
+
+    _renderDeliveryCurrent(bon) {
+        const el = this.el.querySelector('.drawer-delivery-current');
+        if (!el) return;
+
+        const parts = [];
+        if (bon.courier_provider) {
+            parts.push('<strong>' + esc(bon.courier_provider) + '</strong>');
+        }
+        if (bon.delivery_cost != null) {
+            const sourceLabel = bon.delivery_cost_source === 'api' ? '(API)'
+                : bon.delivery_cost_source === 'manual' ? '(manuelt)' : '';
+            parts.push(bon.delivery_cost + ' kr ' + sourceLabel);
+        } else if (bon.delivery_cost_estimated != null) {
+            parts.push('estimat ca. ' + bon.delivery_cost_estimated + ' kr');
+        }
+
+        el.innerHTML = parts.length
+            ? '<div class="drawer-delivery-current-pill">' + parts.join(' · ') + '</div>'
+            : '<div class="drawer-delivery-empty">Ingen booking endnu</div>';
+    }
+
+    async _renderDeliveryEvents() {
+        const el = this.el.querySelector('.drawer-delivery-events');
+        if (!el) return;
+        el.innerHTML = '<div class="drawer-delivery-loading">Henter…</div>';
+        try {
+            const events = await fetchDeliveryEvents(this.bonId);
+            const bookings = events.filter(e => e.event_type === 'booked' || e.event_type === 'failed');
+            if (!bookings.length) {
+                el.innerHTML = '';
+                return;
+            }
+            el.innerHTML = '<div class="drawer-delivery-events-label">Booking-historik</div>'
+                + bookings.map(e => {
+                    const date = _fmtMailDate(e.event_time);
+                    const ref = e.external_reference ? ' · ref ' + esc(e.external_reference) : '';
+                    const note = e.notes ? '<div class="drawer-delivery-event-note">' + esc(e.notes) + '</div>' : '';
+                    const failed = e.event_type === 'failed' ? ' drawer-delivery-event-failed' : '';
+                    return '<div class="drawer-delivery-event' + failed + '">'
+                        + '<div class="drawer-delivery-event-head">'
+                        + '<span class="drawer-delivery-event-vehicle">' + esc(e.vehicle_label || e.provider || '?') + '</span>'
+                        + '<span class="drawer-delivery-event-date">' + date + ref + '</span>'
+                        + '</div>' + note
+                        + '</div>';
+                }).join('');
+        } catch (err) {
+            el.innerHTML = '<div class="drawer-delivery-error">Kunne ikke hente historik</div>';
+        }
+    }
+
+    async _reloadBon() {
+        if (!this.bonId) return;
+        try {
+            const data = await fetchBon(this.bonId);
+            this.data = data;
+            this._render();
+        } catch (err) {
+            console.error('Kunne ikke genindlæse bon:', err);
+        }
     }
 
     async _loadMail(bon) {
@@ -546,10 +691,10 @@ class BonDrawer {
         if (old) old.remove();
         const flash = document.createElement('div');
         flash.className = 'drawer-status-flash';
-        flash.textContent = '\u2713 Status gemt';
+        flash.textContent = '\u2713 Status gemt automatisk';
         const bar = this.el.querySelector('.drawer-status-bar');
         bar.parentElement.appendChild(flash);
-        setTimeout(() => flash.remove(), 2000);
+        setTimeout(() => flash.remove(), 3500);
     }
 
     _renderFirma(companyName) {
@@ -651,6 +796,13 @@ class BonDrawer {
     _toggleDeliveryFields(type) {
         const deliveryFields = this.el.querySelector('.drawer-delivery-fields');
         deliveryFields.style.display = type === 'delivery' ? '' : 'none';
+
+        // Bestil bud-sektionen er kun relevant ved levering — skjul ved afhentning/event
+        const bestilSection = this.el.querySelector('[data-drawer-section="bestil-bud"]');
+        if (bestilSection) {
+            const isInternal = this.data?.is_internal === 1 || this.data?.is_internal === true;
+            bestilSection.style.display = (type === 'delivery' && !isInternal) ? '' : 'none';
+        }
     }
 
     /* ══════════════════════════════════════════════════════
@@ -696,7 +848,7 @@ class BonDrawer {
         // Standard fields from data-field elements
         const fieldNames = [
             'delivery_date', 'delivery_time', 'pickup_time',
-            'delivery_notes', 'delivery_method',
+            'delivery_notes',
             'pax', 'total_units',
             'price_category_id', 'payment_type',
             'kitchen_selects',
@@ -744,6 +896,13 @@ class BonDrawer {
         await this.load(bonId);
         this.show();
         if (opts && opts.justCreated) this._showCreatedBanner();
+        if (opts && opts.scrollTo) {
+            // Vent et frame så DOM er færdig-rendered før scroll
+            requestAnimationFrame(() => {
+                const target = this.el.querySelector(`[data-drawer-section="${opts.scrollTo}"]`);
+                if (target) target.scrollIntoView({ behavior: 'smooth', block: 'center' });
+            });
+        }
     }
 
     show() {

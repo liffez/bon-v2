@@ -1,0 +1,1455 @@
+<!DOCTYPE html>
+<html lang="da">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Ristet Rug — Bestil mad</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link href="https://fonts.googleapis.com/css2?family=Lato:wght@400;600;700&family=Playfair+Display:wght@600&display=swap" rel="stylesheet">
+  <style>
+    :root {
+      --brand:        #8e631f;
+      --brand-light:  #f5eddd;
+      --brand-dark:   #6b4a16;
+      --text:         #2c3e50;
+      --text-muted:   #6b7280;
+      --border:       #ddd;
+      --bg:           #f9f7f4;
+      --ok:           #16a34a;
+      --err:          #dc2626;
+      --warn-bg:      #fefce8;
+      --warn-border:  #f59e0b;
+      --err-bg:       #fef2f2;
+      --err-border:   #fca5a5;
+    }
+
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+
+    /* Embed mode — designet til iframe på WordPress */
+    html, body { background: transparent; min-height: 0; }
+    body {
+      font-family: 'Lato', sans-serif;
+      color: var(--text);
+      padding: .5rem;
+    }
+    @media (min-width: 640px) { body { padding: 1rem; } }
+
+    .form-wrap {
+      max-width: 620px;
+      margin: 0 auto;
+      background: #fff;
+      border-radius: 12px;
+      box-shadow: 0 1px 3px rgba(0,0,0,.05);
+      overflow: hidden;
+    }
+
+    /* Header */
+    .form-head {
+      background: var(--brand);
+      color: #fff;
+      text-align: center;
+      padding: 2rem 2rem 1.5rem;
+    }
+    .form-head h1 {
+      font-family: 'Playfair Display', serif;
+      font-size: 1.6rem;
+      font-weight: 600;
+      margin-bottom: .35rem;
+      display: inline-flex;
+      align-items: center;
+      gap: .55rem;
+    }
+    .head-logo {
+      display: inline-block;
+      width: 22px;
+      height: 56px;
+      flex-shrink: 0;
+      background-color: #fff;
+      -webkit-mask: url('/assets/icons/wheat.svg') no-repeat center / contain;
+              mask: url('/assets/icons/wheat.svg') no-repeat center / contain;
+    }
+    .form-head p { font-size: .9rem; opacity: .88; line-height: 1.5; }
+    .cutoff-note {
+      display: inline-flex;
+      align-items: center;
+      gap: .4rem;
+      background: rgba(255,255,255,.18);
+      border-radius: 20px;
+      padding: .3rem .9rem;
+      font-size: .82rem;
+      margin-top: .75rem;
+      font-weight: 600;
+    }
+
+    /* "Sådan virker det" foldout */
+    .how-wrap { background: var(--brand-light); border-bottom: 1px solid #e8dcc4; }
+    .how-toggle {
+      width: 100%;
+      background: none; border: none; cursor: pointer;
+      padding: .85rem 2rem;
+      display: flex; justify-content: space-between; align-items: center;
+      font-family: 'Lato', sans-serif;
+      font-size: .92rem; font-weight: 700;
+      color: var(--brand-dark); text-align: left;
+    }
+    .how-toggle .chevron { transition: transform .25s; font-size: .8rem; }
+    .how-wrap.open .how-toggle .chevron { transform: rotate(180deg); }
+    .how-body { max-height: 0; overflow: hidden; transition: max-height .3s ease; }
+    .how-wrap.open .how-body { max-height: 400px; }
+    .how-content { padding: 0 2rem 1.25rem; font-size: .88rem; line-height: 1.55; color: var(--text); }
+    .how-content strong { color: var(--brand-dark); }
+    .how-content em {
+      background: rgba(255,255,255,.6); padding: 1px 6px; border-radius: 4px;
+      font-style: normal; font-weight: 600; color: var(--brand-dark);
+    }
+    .how-content p { margin-bottom: .6rem; }
+    .how-content p:last-child { margin-bottom: 0; }
+
+    /* Body */
+    .form-body { padding: 2rem; }
+
+    .section-label {
+      font-size: .7rem; font-weight: 700; letter-spacing: .08em;
+      text-transform: uppercase; color: var(--brand);
+      margin: 1.75rem 0 1rem;
+      padding-bottom: .4rem;
+      border-bottom: 1px solid var(--brand-light);
+    }
+    .section-label:first-child { margin-top: 0; }
+
+    .field { margin-bottom: 1.25rem; }
+    .field label { display: block; font-weight: 600; font-size: .88rem; margin-bottom: .4rem; color: var(--text); }
+    .field label .req { color: var(--err); }
+    .field input[type=text],
+    .field input[type=email],
+    .field input[type=tel],
+    .field input[type=number],
+    .field input[type=date],
+    .field select,
+    .field textarea {
+      width: 100%;
+      padding: .7rem .9rem;
+      border: 2px solid var(--border);
+      border-radius: 8px;
+      font-family: inherit;
+      font-size: .95rem;
+      color: var(--text);
+      background: #fff;
+      transition: border-color .15s;
+      appearance: none;
+    }
+    .field input:focus, .field select:focus, .field textarea:focus { outline: none; border-color: var(--brand); }
+    .field textarea { min-height: 90px; resize: vertical; }
+    .wishes-wrap textarea { min-height: 140px; }
+    .field-hint { font-size: .78rem; color: var(--text-muted); margin-top: .3rem; }
+
+    .row2 { display: grid; grid-template-columns: 1fr 1fr; gap: .75rem; }
+    @media (max-width: 500px) { .row2 { grid-template-columns: 1fr; } }
+
+    /* Order type */
+    .ordertype { display: flex; gap: .5rem; }
+    .ot-option {
+      flex: 1; display: flex; align-items: center; gap: .5rem;
+      border: 2px solid var(--border); border-radius: 8px;
+      padding: .65rem .9rem; cursor: pointer; transition: all .15s;
+      user-select: none; background: #fafafa; font-size: .88rem;
+    }
+    .ot-option:hover { border-color: var(--brand); }
+    .ot-option.sel { border-color: var(--brand); background: var(--brand-light); }
+    .ot-icon { font-size: 1.1rem; }
+    .ot-label { font-weight: 700; }
+
+    /* Conditional */
+    .cond { transition: all .2s; }
+    .cond.hidden { display: none; }
+
+    /* Address autocomplete */
+    .autocomplete-wrap { position: relative; }
+    .addr-suggestions {
+      position: absolute; top: 100%; left: 0; right: 0;
+      background: #fff; border: 2px solid var(--brand); border-top: none;
+      border-radius: 0 0 8px 8px; list-style: none;
+      max-height: 200px; overflow-y: auto; z-index: 200;
+      box-shadow: 0 4px 12px rgba(0,0,0,.1);
+    }
+    .addr-suggestions li { padding: .65rem .9rem; cursor: pointer; font-size: .9rem; border-bottom: 1px solid #f0f0f0; }
+    .addr-suggestions li:last-child { border-bottom: none; }
+    .addr-suggestions li:hover { background: var(--brand-light); }
+    .addr-status { font-size: .78rem; margin-top: .3rem; }
+    .addr-status.ok { color: var(--ok); }
+    .addr-status.err { color: var(--err); }
+    .addr-status.checking { color: #f59e0b; }
+    .addr-status.warn { color: #92400e; }
+
+    .delivery-est {
+      background: var(--brand-light); border-radius: 8px;
+      padding: .6rem .9rem; margin-top: .5rem;
+      font-size: .85rem; color: var(--text-muted);
+    }
+
+    /* Cutoff / date warnings */
+    .date-notice {
+      border-radius: 8px; padding: .7rem .9rem;
+      margin-top: .5rem; font-size: .82rem; line-height: 1.5;
+    }
+    .date-notice.warn { background: var(--warn-bg); border: 1px solid var(--warn-border); color: #92400e; }
+    .date-notice.err  { background: var(--err-bg);  border: 1px solid var(--err-border);  color: #7f1d1d; }
+
+    /* Time select */
+    .datetime-grid { display: grid; grid-template-columns: 1fr 130px; gap: .75rem; }
+    @media (max-width: 400px) { .datetime-grid { grid-template-columns: 1fr; } }
+
+    /* Sandwich choice — column med subtekst */
+    .sandwich-choice { display: flex; gap: .5rem; }
+    .sc-opt {
+      flex: 1; display: flex; flex-direction: column;
+      align-items: center; justify-content: center; gap: .15rem;
+      border: 2px solid var(--border); border-radius: 8px;
+      padding: .65rem .5rem;
+      cursor: pointer; transition: all .15s; user-select: none;
+      background: #fafafa; text-align: center;
+    }
+    .sc-opt:hover { border-color: var(--brand); }
+    .sc-opt.sel { border-color: var(--brand); background: var(--brand-light); color: var(--brand-dark); }
+    .sc-label { font-size: .9rem; font-weight: 600; }
+    .sc-sub { font-size: .72rem; color: var(--text-muted); font-weight: 400; line-height: 1.3; }
+    .sc-opt.sel .sc-sub { color: var(--brand-dark); opacity: .8; }
+
+    /* Quick chips */
+    .chips-row { display: flex; flex-wrap: wrap; gap: .4rem; margin-bottom: .85rem; }
+    .chip {
+      border: 1.5px solid var(--border); background: #fafafa;
+      border-radius: 18px; padding: .35rem .8rem;
+      font-family: inherit; font-size: .82rem; font-weight: 600; color: var(--text);
+      cursor: pointer; transition: all .15s;
+      display: inline-flex; align-items: center; gap: .3rem;
+      user-select: none;
+    }
+    .chip:hover { border-color: var(--brand); background: var(--brand-light); color: var(--brand-dark); }
+    .chip:active { transform: scale(.95); }
+    .chip.added { animation: chipPop .35s ease; }
+    @keyframes chipPop {
+      0%   { transform: scale(1); background: #fafafa; }
+      50%  { transform: scale(1.08); background: var(--ok); color: #fff; border-color: var(--ok); }
+      100% { transform: scale(1); background: #fafafa; }
+    }
+
+    /* Menu-toggle */
+    .menu-link-row { margin-top: .65rem; transition: opacity .2s; }
+    .menu-link {
+      background: none; border: none; color: var(--brand);
+      font-family: inherit; font-size: .85rem; font-weight: 600;
+      cursor: pointer; padding: .25rem 0;
+      text-decoration: underline; text-underline-offset: 3px;
+      text-decoration-color: rgba(142,99,31,.35);
+      transition: text-decoration-color .15s, color .15s;
+      display: inline-flex; align-items: center; gap: .4rem;
+    }
+    .menu-link:hover { color: var(--brand-dark); text-decoration-color: var(--brand-dark); }
+    .menu-link-badge {
+      display: none; background: var(--brand); color: #fff;
+      border-radius: 10px; padding: 1px 7px; font-size: .72rem; font-weight: 700;
+      min-width: 18px; text-align: center;
+    }
+    .menu-link-badge.show { display: inline-block; }
+
+    /* Inline menu */
+    .menu-inline {
+      max-height: 0; overflow: hidden;
+      transition: max-height .35s ease, margin-top .35s ease;
+      margin-top: 0; border-radius: 10px;
+    }
+    .menu-inline.open {
+      max-height: min(60vh, 500px);
+      margin-top: .75rem;
+      border: 1px solid #e8dcc4; background: #fffef9;
+    }
+    .menu-inline-scroll { max-height: min(60vh, 500px); overflow-y: auto; overscroll-behavior: contain; }
+    .menu-inline-head {
+      position: sticky; top: 0;
+      background: var(--brand); color: #fff;
+      padding: .75rem 1rem;
+      display: flex; justify-content: space-between; align-items: center;
+      z-index: 5;
+    }
+    .menu-inline-head h3 { font-family: 'Playfair Display', serif; font-size: 1rem; font-weight: 600; }
+    .menu-inline-head .subtitle { font-size: .72rem; opacity: .85; margin-top: .1rem; }
+    .menu-inline-close {
+      background: rgba(255,255,255,.2); color: #fff; border: none;
+      width: 26px; height: 26px; border-radius: 50%; cursor: pointer;
+      font-size: .9rem; display: flex; align-items: center; justify-content: center;
+      transition: background .15s;
+    }
+    .menu-inline-close:hover { background: rgba(255,255,255,.35); }
+
+    .menu-cat {
+      font-size: .68rem; font-weight: 700; letter-spacing: .1em;
+      text-transform: uppercase; color: var(--brand);
+      padding: .85rem 1rem .4rem;
+      background: var(--brand-light);
+      border-bottom: 1px solid #e8dcc4;
+      position: sticky; top: 50px; z-index: 4;
+    }
+    .menu-item {
+      display: flex; align-items: center; gap: .65rem;
+      padding: .7rem 1rem;
+      border-bottom: 1px solid #f0ebe3;
+      transition: background .15s;
+    }
+    .menu-item:hover { background: #faf7f1; }
+    .mi-info { flex: 1; min-width: 0; }
+    .mi-name { font-weight: 600; font-size: .9rem; display: flex; align-items: center; gap: .35rem; flex-wrap: wrap; }
+    .mi-tag {
+      font-size: .62rem; padding: 1px 6px; border-radius: 8px;
+      font-weight: 700; letter-spacing: .04em; text-transform: uppercase;
+    }
+    .mi-tag.vegan { background: #dcfce7; color: #166534; }
+    .mi-tag.veg { background: #fef9c3; color: #854d0e; }
+    .mi-tag.gf { background: #dbeafe; color: #1e40af; }
+    .mi-tag.fisk { background: #cffafe; color: #155e75; }
+    .mi-tag.kød  { background: #fee2e2; color: #991b1b; }
+    .mi-info-btn {
+      background: none; border: 1.5px solid var(--border); color: var(--text-muted);
+      width: 24px; height: 24px; border-radius: 50%;
+      cursor: pointer; font-size: .72rem; font-weight: 700;
+      flex-shrink: 0; transition: all .15s;
+    }
+    .mi-info-btn:hover { border-color: var(--brand); color: var(--brand); }
+    .mi-info-btn.active { background: var(--brand); border-color: var(--brand); color: #fff; }
+    .mi-add-wrap { display: flex; align-items: center; gap: .35rem; flex-shrink: 0; }
+    .mi-count {
+      font-size: .82rem; font-weight: 700; color: var(--brand);
+      min-width: 22px; text-align: center;
+      opacity: 0; transition: opacity .15s;
+    }
+    .mi-count.show { opacity: 1; }
+    .mi-add {
+      background: var(--brand); color: #fff; border: none;
+      width: 30px; height: 30px; border-radius: 50%;
+      cursor: pointer; font-size: 1.15rem; font-weight: 600;
+      transition: all .15s;
+      display: flex; align-items: center; justify-content: center; line-height: 1;
+    }
+    .mi-add:hover { background: var(--brand-dark); transform: scale(1.08); }
+    .mi-add:active { transform: scale(.92); }
+    .mi-add.added { animation: pop .35s ease; }
+    @keyframes pop {
+      0%   { transform: scale(1); background: var(--brand); }
+      50%  { transform: scale(1.25); background: var(--ok); }
+      100% { transform: scale(1); background: var(--brand); }
+    }
+    .allergen-row {
+      grid-column: 1 / -1; max-height: 0; overflow: hidden;
+      transition: max-height .25s ease;
+      background: #2c3e50; color: #fff; font-size: .78rem; line-height: 1.45;
+    }
+    .allergen-row.show { max-height: 100px; }
+    .allergen-row-inner { padding: .65rem 1rem; display: flex; gap: .5rem; align-items: flex-start; }
+    .allergen-row-inner strong { color: #ffd998; flex-shrink: 0; }
+
+    /* Checkbox fields */
+    .check-field { display: flex; align-items: flex-start; gap: .6rem; margin-bottom: .75rem; }
+    .check-field input[type=checkbox] {
+      width: 18px; height: 18px; flex-shrink: 0; margin-top: .1rem;
+      accent-color: var(--brand); cursor: pointer;
+    }
+    .check-field label { font-size: .88rem; font-weight: 400; color: var(--text); cursor: pointer; line-height: 1.4; }
+    .check-field label a { color: var(--brand); }
+
+    /* Submit */
+    .form-submit { margin-top: 1.75rem; padding-top: 1.5rem; border-top: 2px solid #f0f0f0; }
+    .submit-btn {
+      width: 100%; padding: 1rem;
+      background: var(--brand); color: #fff;
+      border: none; border-radius: 10px;
+      font-family: inherit; font-size: 1.05rem; font-weight: 700;
+      cursor: pointer; transition: background .15s;
+      display: flex; align-items: center; justify-content: center; gap: .5rem;
+    }
+    .submit-btn:hover:not(:disabled) { background: var(--brand-dark); }
+    .submit-btn:disabled { opacity: .65; cursor: not-allowed; }
+    .spinner {
+      display: none; width: 18px; height: 18px;
+      border: 2px solid transparent; border-top-color: #fff;
+      border-radius: 50%; animation: spin .7s linear infinite;
+    }
+    .submit-btn.loading .spinner { display: inline-block; }
+    @keyframes spin { to { transform: rotate(360deg); } }
+    .payment-note { text-align: center; font-size: .78rem; color: var(--text-muted); margin-top: .75rem; }
+
+    /* Thank you */
+    .thank-you { text-align: center; padding: 3rem 2rem; }
+    .thank-you .ty-icon { font-size: 3.5rem; margin-bottom: 1rem; }
+    .thank-you h2 { font-family: 'Playfair Display', serif; font-size: 1.5rem; color: var(--brand); margin-bottom: .5rem; }
+    .thank-you p { color: var(--text-muted); line-height: 1.6; }
+
+    /* Validation */
+    .field-error input, .field-error textarea, .field-error select {
+      border-color: var(--err) !important; background: var(--err-bg);
+    }
+    .field-error label { color: var(--err); }
+    .check-field.field-error label { color: var(--err); }
+    .check-field.field-error input[type=checkbox] { outline: 2px solid var(--err); outline-offset: 2px; }
+
+    /* Honeypot */
+    .hp { position: absolute; left: -9999px; opacity: 0; pointer-events: none; }
+
+    /* Loading */
+    .form-loading {
+      text-align: center; padding: 3rem 2rem;
+      color: var(--text-muted); font-size: .9rem;
+    }
+  </style>
+</head>
+<body>
+
+<div class="form-wrap">
+
+  <!-- Header -->
+  <div class="form-head">
+    <h1>
+      <span class="head-logo" aria-hidden="true"></span>
+      <span>Bestil din mad</span>
+    </h1>
+    <p>Frisk og velsmagende catering leveret til dit møde.<br>Ingen mindstemængde — I får en faktura bagefter.</p>
+    <div class="cutoff-note" id="cutoff-note">⏰ Henter åbningstider…</div>
+  </div>
+
+  <!-- "Sådan virker det" foldout -->
+  <div class="how-wrap" id="how-wrap">
+    <button class="how-toggle" type="button" onclick="toggleHow()">
+      <span>💡 Sådan virker det – læs hvis det er din første gang</span>
+      <span class="chevron">▼</span>
+    </button>
+    <div class="how-body">
+      <div class="how-content">
+        <p><strong>Dette er ikke en webshop.</strong> Du sender en forespørgsel — vi vender tilbage med tilbud og bekræftelse.</p>
+        <p>De fleste kunder skriver bare antal personer og evt. kostønsker, fx <em>"100 stk, ½ vegansk, 2 glutenfri"</em> — så vælger vi en god blanding fra menuen.</p>
+        <p>Vil du selv bestemme retterne, kan du klikke <em>📋 Tilføj specifikke retter</em> ved ønskefeltet og vælge dem direkte.</p>
+      </div>
+    </div>
+  </div>
+
+  <!-- Loading state (vises mens config indlæses) -->
+  <div class="form-loading" id="form-loading">⏳ Indlæser bestillingsformular…</div>
+
+  <!-- Form -->
+  <div class="form-body" id="form-body" style="display:none;">
+    <form id="order-form" novalidate>
+
+      <!-- Honeypot -->
+      <div class="hp"><input type="text" name="website" tabindex="-1" autocomplete="off"></div>
+
+      <!-- ORDRETYPE -->
+      <div class="section-label">Hvad ønsker du?</div>
+      <div class="field">
+        <div class="ordertype" id="ordertype-selector">
+          <div class="ot-option sel" data-value="catering">
+            <div class="ot-icon">🚚</div>
+            <div class="ot-label">Levering</div>
+          </div>
+          <div class="ot-option" data-value="pickup">
+            <div class="ot-icon">🏃</div>
+            <div class="ot-label">Afhentning</div>
+          </div>
+        </div>
+        <input type="hidden" name="ordertype" id="ordertype-val" value="catering">
+      </div>
+
+      <!-- KONTAKTINFO -->
+      <div class="section-label">Dine kontaktoplysninger</div>
+      <div class="row2">
+        <div class="field">
+          <label for="first_name">Fornavn <span class="req">*</span></label>
+          <input type="text" id="first_name" name="first_name" autocomplete="given-name" required>
+        </div>
+        <div class="field">
+          <label for="last_name">Efternavn <span class="req">*</span></label>
+          <input type="text" id="last_name" name="last_name" autocomplete="family-name" required>
+        </div>
+      </div>
+      <div class="field">
+        <label for="email">Email <span class="req">*</span></label>
+        <input type="email" id="email" name="email" placeholder="din@email.dk" autocomplete="email" required>
+      </div>
+      <div class="row2">
+        <div class="field">
+          <label for="phone">Telefon <span class="req">*</span></label>
+          <input type="tel" id="phone" name="phone" placeholder="12 34 56 78" autocomplete="tel" required>
+        </div>
+        <div class="field">
+          <label for="company">Firma</label>
+          <input type="text" id="company" name="company" placeholder="Valgfrit" autocomplete="organization">
+        </div>
+      </div>
+
+      <!-- LEVERING -->
+      <div class="section-label cond catering-only" id="section-levering">Leveringsadresse</div>
+      <div class="field cond catering-only" id="field-address">
+        <label for="address-input">Adresse <span class="req">*</span></label>
+        <div class="autocomplete-wrap">
+          <input type="text" id="address-input" name="address_text" placeholder="Skriv adresse..." autocomplete="off">
+          <ul class="addr-suggestions" id="addr-suggestions" style="display:none;"></ul>
+        </div>
+        <div class="addr-status" id="addr-status"></div>
+        <div id="delivery-estimate"></div>
+      </div>
+      <div class="field cond catering-only" id="field-extra-delivery">
+        <label for="delivery_extra">Yderligere leveringsinfo</label>
+        <input type="text" id="delivery_extra" name="delivery_extra" placeholder="Etage, afdeling, porttelefon, indgang...">
+        <div class="field-hint">Skriv her hvis vi skal ind gennem en bestemt indgang eller kontakte nogen ved levering.</div>
+      </div>
+
+      <!-- BESTILLING -->
+      <div class="section-label">Din bestilling</div>
+      <div class="field">
+        <label>Dato og tidspunkt for levering <span class="req">*</span></label>
+        <div class="datetime-grid">
+          <input type="date" id="date-input" name="delivery_date" required>
+          <select id="time-input" name="delivery_time" required>
+            <option value="">Vælg tid</option>
+          </select>
+        </div>
+        <div id="cutoff-notice"></div>
+        <div class="field-hint" id="cutoff-hint">Bestilling senest kl. 12:00 hverdagen inden levering.</div>
+      </div>
+
+      <div class="row2">
+        <div class="field">
+          <label for="pax">Antal gæster (pax) <span class="req">*</span></label>
+          <input type="number" id="pax" name="pax" placeholder="f.eks. 25" min="1" max="1600" required>
+          <div class="field-hint">Det største antal vi har leveret: 1600 stk.</div>
+        </div>
+        <div class="field">
+          <label>Sandwichvalg</label>
+          <div class="sandwich-choice" id="sandwich-choice">
+            <div class="sc-opt sel" data-value="rr_blander">
+              <span class="sc-label">🌟 Køkkenet blander</span>
+              <span class="sc-sub">Vi sammensætter en god blanding</span>
+            </div>
+            <div class="sc-opt" data-value="eget_valg">
+              <span class="sc-label">✏️ Eget valg</span>
+              <span class="sc-sub">Du vælger selv fra menuen</span>
+            </div>
+          </div>
+          <input type="hidden" name="sandwichvalg" id="sandwich-choice-val" value="rr_blander">
+        </div>
+      </div>
+
+      <!-- ØNSKER -->
+      <div class="section-label">Kostønsker og allergier</div>
+      <div class="chips-row" id="chips-row">
+        <button class="chip" type="button" data-chip="vegansk">🌱 Vegansk</button>
+        <button class="chip" type="button" data-chip="vegetar">🥬 Vegetar</button>
+        <button class="chip" type="button" data-chip="glutenfri">🌾 Glutenfri</button>
+        <button class="chip" type="button" data-chip="laktosefri">🥛 Laktosefri</button>
+        <button class="chip" type="button" data-chip="kød">🥩 Kød</button>
+        <button class="chip" type="button" data-chip="fisk">🐟 Fisk</button>
+        <button class="chip" type="button" data-chip="allergi">⚠️ Allergi</button>
+      </div>
+
+      <div class="field wishes-wrap">
+        <label for="wishes">Specielle ønsker</label>
+        <textarea id="wishes" name="wishes" placeholder=""></textarea>
+
+        <div class="menu-link-row">
+          <button type="button" class="menu-link" id="menu-toggle-btn" onclick="toggleMenu()">
+            <span id="menu-toggle-label">📋 Tilføj specifikke retter</span>
+            <span class="menu-link-badge" id="menu-link-badge">0</span>
+          </button>
+        </div>
+
+        <div class="menu-inline" id="menu-inline">
+          <div class="menu-inline-scroll">
+            <div class="menu-inline-head">
+              <div>
+                <h3>Vores menu</h3>
+                <div class="subtitle">Klik <strong>+</strong> for at tilføje · <strong>ⓘ</strong> for allergener</div>
+              </div>
+              <button class="menu-inline-close" type="button" onclick="toggleMenu()" aria-label="Luk menu">✕</button>
+            </div>
+            <div id="menu-body"></div>
+          </div>
+        </div>
+
+        <div class="field-hint">Klik på de relevante knapper ovenfor, eller skriv frit. Du behøver ikke vælge specifikke retter.</div>
+      </div>
+
+      <!-- KONTAKT PÅ DAGEN -->
+      <div class="section-label cond catering-only" id="section-contact">Kontakt på leveringsdagen</div>
+      <div class="row2 cond catering-only" id="field-contact">
+        <div class="field">
+          <label for="contact_person">Kontaktperson på dagen</label>
+          <input type="text" id="contact_person" name="contact_person" placeholder="Navn på kontaktperson">
+          <div class="field-hint">Person vi kan kontakte ved levering.</div>
+        </div>
+        <div class="field">
+          <label for="contact_phone">Mobilnummer</label>
+          <input type="tel" id="contact_phone" name="contact_phone" placeholder="00 00 00 00">
+          <div class="field-hint">HUSK at have telefonen åben.</div>
+        </div>
+      </div>
+
+      <!-- FAKTURA -->
+      <div class="section-label">Faktura og betaling</div>
+      <div class="field">
+        <label for="ean_info">EAN / faktura info</label>
+        <textarea id="ean_info" name="ean_info" placeholder="Evt. EAN-nummer, rekvisitionsnummer, kontaktperson for faktura, eller andre fakturaoplysninger." style="min-height:70px;"></textarea>
+        <div class="field-hint">Vi tager imod kontant, kort, MobilePay samt faktura og EAN.</div>
+      </div>
+
+      <!-- ACCEPT -->
+      <div class="section-label">Accepter betingelser</div>
+      <div class="check-field">
+        <input type="checkbox" id="cb-privacy" name="cb_privacy" required>
+        <label for="cb-privacy">
+          Jeg accepterer at Ristet Rug gemmer og behandler mine personoplysninger til brug for denne bestilling.
+          Læs vores <a href="https://www.ristetrug.dk/privatlivspolitik" target="_blank" rel="noopener">privatlivspolitik</a>. <span class="req">*</span>
+        </label>
+      </div>
+      <div class="check-field">
+        <input type="checkbox" id="cb-terms" name="cb_terms" required>
+        <label for="cb-terms">
+          Jeg accepterer Ristet Rugs <a href="https://www.ristetrug.dk/handelsbetingelser" target="_blank" rel="noopener">handelsbetingelser</a>.
+          Bestillingen er bindende efter skriftlig bekræftelse. <span class="req">*</span>
+        </label>
+      </div>
+
+      <!-- Webhook fejl -->
+      <div id="webhook-error" style="display:none; background:var(--err-bg); border:1px solid var(--err-border); border-radius:8px; padding:.75rem 1rem; margin-top:1rem; font-size:.85rem; color:#7f1d1d; line-height:1.5;"></div>
+
+      <div class="form-submit">
+        <button type="submit" class="submit-btn" id="submit-btn">
+          <span class="spinner"></span>
+          <span class="btn-text">Send forespørgsel</span>
+        </button>
+        <p class="payment-note">Vi vender tilbage med bekræftelse hurtigst muligt.</p>
+      </div>
+    </form>
+
+    <div class="thank-you" id="thank-you" style="display:none;">
+      <div class="ty-icon">✅</div>
+      <h2>Tak for din forespørgsel!</h2>
+      <p>Vi har modtaget din bestilling og vender tilbage hurtigst muligt med en bekræftelse.</p>
+    </div>
+  </div>
+</div>
+
+<script>
+'use strict';
+
+// ════════════════════════════════════════════════════════
+// KONFIGURATION
+// ════════════════════════════════════════════════════════
+const MENU_ID = (new URLSearchParams(window.location.search)).get('menu') || 'standard';
+const FALLBACK_EMAIL = 'bestilling@ristetrug.dk';
+
+// Webhook-URL er relativ til denne side (samme origin)
+const WEBHOOK_URL = '/webhook/bestilling';
+
+// Default-CFG (overrides loades fra /embed/config)
+let CFG = {
+  base: { lat: 55.6961, lon: 12.5574 },
+  cutoff: { time: 12, leadDays: 1, days: ['mon','tue','wed','thu','fri','sat'] },
+  deliveryDays: ['mon','tue','wed','thu','fri','sat'],
+  delivery: null
+};
+
+let MENU_DATA = null;
+let MENU = []; // flatten med kun aktive items
+
+// ════════════════════════════════════════════════════════
+// STATE
+// ════════════════════════════════════════════════════════
+let orderType        = 'catering';
+let validatedAddress = null;
+let addrDebounce     = null;
+let sandwichChoice   = 'rr_blander';
+
+// ════════════════════════════════════════════════════════
+// UGEDAGS-HJÆLPERE (mon..sun)
+// ════════════════════════════════════════════════════════
+const DOW = ['sun','mon','tue','wed','thu','fri','sat'];
+const DAY_NAMES_DA = ['søndag','mandag','tirsdag','onsdag','torsdag','fredag','lørdag'];
+
+function dowKey(d) { return DOW[d.getDay()]; }
+function isOpenForDelivery(d) { return CFG.deliveryDays.includes(dowKey(d)); }
+function isOpenForCutoff(d) { return CFG.cutoff.days.includes(dowKey(d)); }
+
+// ════════════════════════════════════════════════════════
+// LOAD CONFIG + MENU
+// ════════════════════════════════════════════════════════
+async function loadConfig() {
+  try {
+    const r = await fetch('/embed/config', { credentials: 'omit' });
+    if (!r.ok) throw new Error('config_failed');
+    const cfg = await r.json();
+    if (cfg.base?.lat) CFG.base.lat = cfg.base.lat;
+    if (cfg.base?.lon) CFG.base.lon = cfg.base.lon;
+    if (cfg.cutoff?.time != null) CFG.cutoff.time = cfg.cutoff.time;
+    if (cfg.cutoff?.leadDays != null) CFG.cutoff.leadDays = cfg.cutoff.leadDays;
+    if (Array.isArray(cfg.cutoff?.days)) CFG.cutoff.days = cfg.cutoff.days;
+    if (Array.isArray(cfg.deliveryDays)) CFG.deliveryDays = cfg.deliveryDays;
+    if (cfg.delivery) CFG.delivery = cfg.delivery;
+  } catch (e) {
+    console.warn('[embed] Kunne ikke hente config — bruger default:', e.message);
+  }
+}
+
+async function loadMenu() {
+  try {
+    const r = await fetch(`/embed/menus/${MENU_ID}.json`, { credentials: 'omit' });
+    if (!r.ok) throw new Error('menu_failed');
+    MENU_DATA = await r.json();
+  } catch (e) {
+    console.warn('[embed] Kunne ikke hente menu — bruger tom:', e.message);
+    MENU_DATA = { menu_id: MENU_ID, version: 'fallback', categories: [], items: [] };
+  }
+  MENU = (MENU_DATA.items || [])
+    .filter(it => it.active !== false)
+    .map(it => ({
+      id: it.id,
+      cat: (MENU_DATA.categories || []).find(c => c.id === it.category)?.name || it.category,
+      catId: it.category,
+      name: it.name,
+      tags: it.tags || [],
+      allergens: it.allergens || ''
+    }));
+}
+
+// ════════════════════════════════════════════════════════
+// CUTOFF-BANNER (header)
+// ════════════════════════════════════════════════════════
+function updateCutoffBanner() {
+  const el = document.getElementById('cutoff-note');
+  const hint = document.getElementById('cutoff-hint');
+  if (!el) return;
+
+  const t = CFG.cutoff.time;
+  const lead = CFG.cutoff.leadDays;
+  const leadLabel = lead === 1 ? 'dagen før' : `${lead} dage før`;
+  el.textContent = `⏰ Bestil senest kl. ${t}:00 ${leadLabel} levering`;
+  if (hint) hint.textContent = `Bestilling senest kl. ${t}:00 ${leadLabel} leveringsdagen.`;
+}
+
+// ════════════════════════════════════════════════════════
+// ORDER TYPE
+// ════════════════════════════════════════════════════════
+document.getElementById('ordertype-selector').addEventListener('click', e => {
+  const opt = e.target.closest('.ot-option');
+  if (!opt) return;
+  document.querySelectorAll('.ot-option').forEach(o => o.classList.remove('sel'));
+  opt.classList.add('sel');
+  orderType = opt.dataset.value;
+  document.getElementById('ordertype-val').value = orderType;
+  updateConditional();
+  updateDeliveryEstimate();
+  postHeight();
+});
+
+function updateConditional() {
+  const isCatering = orderType === 'catering';
+  document.querySelectorAll('.catering-only').forEach(el => {
+    el.classList.toggle('hidden', !isCatering);
+    el.querySelectorAll('input[required], select[required], textarea[required]').forEach(inp => {
+      if (!isCatering) inp.removeAttribute('required');
+      else inp.setAttribute('required', '');
+    });
+  });
+  const addrInp = document.getElementById('address-input');
+  if (addrInp) {
+    if (isCatering) addrInp.setAttribute('required', '');
+    else { addrInp.removeAttribute('required'); validatedAddress = null; }
+  }
+}
+
+// ════════════════════════════════════════════════════════
+// SANDWICH CHOICE
+// ════════════════════════════════════════════════════════
+document.getElementById('sandwich-choice').addEventListener('click', e => {
+  const opt = e.target.closest('.sc-opt');
+  if (!opt) return;
+  document.querySelectorAll('.sc-opt').forEach(o => o.classList.remove('sel'));
+  opt.classList.add('sel');
+  sandwichChoice = opt.dataset.value;
+  document.getElementById('sandwich-choice-val').value = sandwichChoice;
+});
+
+// ════════════════════════════════════════════════════════
+// TIME OPTIONS
+// ════════════════════════════════════════════════════════
+(function buildTimeOptions() {
+  const sel = document.getElementById('time-input');
+  for (let h = 7; h <= 18; h++) {
+    for (let m = 0; m < 60; m += 15) {
+      const t = `${String(h).padStart(2,'0')}:${String(m).padStart(2,'0')}`;
+      const opt = document.createElement('option');
+      opt.value = t; opt.textContent = t;
+      if (t === '11:30') opt.selected = true;
+      sel.appendChild(opt);
+    }
+  }
+})();
+
+// ════════════════════════════════════════════════════════
+// CUTOFF CHECK — bruger CFG.deliveryDays + CFG.cutoff.days
+// ════════════════════════════════════════════════════════
+document.getElementById('date-input').addEventListener('change', checkCutoff);
+
+function getCutoffDate(delivDate) {
+  const c = new Date(delivDate);
+  let days = CFG.cutoff.leadDays;
+  // Tæl baglæns gennem CFG.cutoff.days dage
+  while (days > 0) {
+    c.setDate(c.getDate() - 1);
+    if (isOpenForCutoff(c)) days--;
+  }
+  c.setHours(CFG.cutoff.time, 0, 0, 0);
+  return c;
+}
+
+function checkCutoff() {
+  const el = document.getElementById('cutoff-notice');
+  const di = document.getElementById('date-input');
+  const submitBtn = document.getElementById('submit-btn');
+  if (!di.value) { el.innerHTML = ''; if (submitBtn) submitBtn.disabled = false; return; }
+
+  const day = new Date(di.value + 'T12:00:00');
+  const dow = day.getDay();
+  const now = new Date();
+
+  if (!isOpenForDelivery(day)) {
+    el.innerHTML = `<div class="date-notice err"><strong>📅 Vi leverer ikke om ${DAY_NAMES_DA[dow]}en</strong><br>
+      <span style="font-size:.82em">Brug for levering på en lukket dag? <a href="mailto:${FALLBACK_EMAIL}?subject=Levering ${di.value}" style="color:inherit;font-weight:700;">Kontakt os direkte →</a></span></div>`;
+    if (submitBtn) submitBtn.disabled = true;
+    postHeight();
+    return;
+  }
+
+  const cutoff = getCutoffDate(day);
+  if (now > cutoff) {
+    el.innerHTML = `<div class="date-notice err"><strong>⚠️ Deadline passeret for denne dato</strong><br>
+      <span style="font-size:.82em">Deadline var ${DAY_NAMES_DA[cutoff.getDay()]} kl. ${CFG.cutoff.time}:00.<br>
+      Hastebestilling? <a href="mailto:${FALLBACK_EMAIL}?subject=Hastebestilling ${di.value}" style="color:inherit;font-weight:700;">Skriv til os direkte →</a></span></div>`;
+    if (submitBtn) submitBtn.disabled = true;
+  } else {
+    el.innerHTML = '';
+    if (submitBtn) submitBtn.disabled = false;
+  }
+  postHeight();
+}
+
+// ════════════════════════════════════════════════════════
+// ADDRESS AUTOCOMPLETE (DAWA)
+// ════════════════════════════════════════════════════════
+const addrInput = document.getElementById('address-input');
+const addrSugg  = document.getElementById('addr-suggestions');
+const addrStatus = document.getElementById('addr-status');
+
+if (addrInput) {
+  addrInput.addEventListener('input', e => {
+    if (validatedAddress && e.target.value !== validatedAddress.tekst) {
+      validatedAddress = null;
+      setAddrStatus('warn', '⚠️ Vælg en adresse fra listen');
+      clearDeliveryEstimate();
+    }
+    clearTimeout(addrDebounce);
+    addrDebounce = setTimeout(() => searchAddr(e.target.value), 300);
+  });
+}
+if (addrSugg) {
+  addrSugg.addEventListener('click', e => {
+    const li = e.target.closest('li');
+    if (li) selectAddr(li.dataset.id, li.textContent);
+  });
+}
+document.addEventListener('click', e => {
+  if (!e.target.closest('.autocomplete-wrap')) addrSugg.style.display = 'none';
+});
+
+async function searchAddr(q) {
+  if (q.length < 2) { addrSugg.style.display = 'none'; return; }
+  try {
+    const r = await fetch(`https://api.dataforsyningen.dk/adresser/autocomplete?q=${encodeURIComponent(q)}&per_side=7&fuzzy=true`);
+    const d = await r.json();
+    if (d.length) {
+      addrSugg.innerHTML = d.map(x => `<li data-id="${x.adresse.id}">${x.tekst}</li>`).join('');
+      addrSugg.style.display = 'block';
+    } else {
+      addrSugg.style.display = 'none';
+    }
+    postHeight();
+  } catch { addrSugg.style.display = 'none'; }
+}
+
+async function selectAddr(id, txt) {
+  addrInput.value = txt;
+  addrSugg.style.display = 'none';
+  setAddrStatus('checking', '⏳ Verificerer adresse...');
+  try {
+    const r = await fetch(`https://api.dataforsyningen.dk/adresser/${id}`);
+    if (!r.ok) throw new Error();
+    const d = await r.json();
+    validatedAddress = {
+      id, tekst: txt,
+      postnr: d.adgangsadresse.postnummer.nr,
+      by:     d.adgangsadresse.postnummer.navn,
+      lat:    d.adgangsadresse.adgangspunkt.koordinater[1],
+      lon:    d.adgangsadresse.adgangspunkt.koordinater[0]
+    };
+    setAddrStatus('ok', '✅ Adresse verificeret');
+    updateDeliveryEstimate();
+  } catch {
+    validatedAddress = null;
+    setAddrStatus('err', '❌ Kunne ikke verificere adresse');
+  }
+}
+
+function setAddrStatus(type, msg) {
+  addrStatus.className = 'addr-status ' + type;
+  addrStatus.textContent = msg;
+}
+
+// ════════════════════════════════════════════════════════
+// DELIVERY ESTIMATE — OSRM + zone-pris
+// ════════════════════════════════════════════════════════
+document.getElementById('pax').addEventListener('input', updateDeliveryEstimate);
+
+async function updateDeliveryEstimate() {
+  const el = document.getElementById('delivery-estimate');
+  if (!el) return;
+  if (orderType !== 'catering' || !validatedAddress) { el.innerHTML = ''; return; }
+  if (!CFG.delivery) { el.innerHTML = ''; return; }
+
+  const pax = parseInt(document.getElementById('pax').value) || 0;
+  if (!pax) { el.innerHTML = ''; return; }
+
+  const cykel = CFG.delivery.cykel || {};
+  const taxa = CFG.delivery.taxa || {};
+  const paxPerKasse = cykel.paxPerKasse || 16;
+  const kasser = Math.ceil(pax / paxPerKasse);
+
+  let dist = null;
+  try {
+    const r = await fetch(`https://router.project-osrm.org/route/v1/driving/${CFG.base.lon},${CFG.base.lat};${validatedAddress.lon},${validatedAddress.lat}?overview=false`);
+    const d = await r.json();
+    if (d.routes?.length) dist = parseFloat((d.routes[0].distance / 1000).toFixed(1));
+  } catch {}
+
+  let icon = '🚴';
+  let methodLabel = 'Cykellevering';
+
+  // Tjek taxa-zoner først
+  let inTaxaZone = false;
+  for (const z of Object.values(taxa)) {
+    if (z.postnumre?.includes(validatedAddress.postnr)) {
+      methodLabel = 'Taxa-levering';
+      icon = '🚕';
+      inTaxaZone = true;
+      break;
+    }
+  }
+  // Hvis ikke i taxa-zone og udenfor cykel-rækkevidde
+  if (!inTaxaZone) {
+    if (dist != null && dist > (cykel.maxAfstand || 8)) {
+      methodLabel = 'Taxa-levering';
+      icon = '🚕';
+    } else if (kasser > (cykel.maxKasser || 4)) {
+      methodLabel = 'Taxa-levering';
+      icon = '🚕';
+    }
+  }
+
+  el.innerHTML = `<div class="delivery-est">${icon} ${dist ?? '?'} km · ${kasser} kasse${kasser > 1 ? 'r' : ''} · ${methodLabel} (pris beregnes ved bekræftelse)</div>`;
+  postHeight();
+}
+
+function clearDeliveryEstimate() {
+  const el = document.getElementById('delivery-estimate');
+  if (el) el.innerHTML = '';
+}
+
+// ════════════════════════════════════════════════════════
+// "SÅDAN VIRKER DET" foldout
+// ════════════════════════════════════════════════════════
+function toggleHow() {
+  document.getElementById('how-wrap').classList.toggle('open');
+  postHeight();
+}
+
+// ════════════════════════════════════════════════════════
+// QUICK CHIPS
+// ════════════════════════════════════════════════════════
+const CHIP_DEFS = {
+  vegansk:    { prefix: 'Vegansk',    type: 'count' },
+  vegetar:    { prefix: 'Vegetar',    type: 'count' },
+  glutenfri:  { prefix: 'Glutenfri',  type: 'count' },
+  laktosefri: { prefix: 'Laktosefri', type: 'count' },
+  'kød':      { prefix: 'Kød',        type: 'count' },
+  fisk:       { prefix: 'Fisk',       type: 'count' },
+  allergi:    { prefix: 'Allergi',    type: 'text' }
+};
+
+document.getElementById('chips-row').addEventListener('click', e => {
+  const chip = e.target.closest('.chip');
+  if (!chip) return;
+  const def = CHIP_DEFS[chip.dataset.chip];
+  if (!def) return;
+  addChipLine(def);
+  chip.classList.remove('added');
+  void chip.offsetWidth;
+  chip.classList.add('added');
+});
+
+function addChipLine(def) {
+  const ta = document.getElementById('wishes');
+  let text = ta.value;
+  const re = new RegExp(`(^|\\n)(${def.prefix})\\s*:\\s*(.*?)(?=\\n|$)`, 'i');
+  const match = text.match(re);
+
+  if (def.type === 'count') {
+    if (match) {
+      const current = parseInt(match[3], 10);
+      const newVal = isNaN(current) ? 1 : current + 1;
+      text = text.replace(re, `${match[1]}${def.prefix}: ${newVal}`);
+    } else {
+      text = appendNewLine(text, `${def.prefix}: 1`);
+    }
+    ta.value = text;
+    setTimeout(() => {
+      const idx = ta.value.indexOf(`${def.prefix}: `) + def.prefix.length + 2;
+      const lineEnd = ta.value.indexOf('\n', idx);
+      const end = lineEnd === -1 ? ta.value.length : lineEnd;
+      ta.focus();
+      ta.setSelectionRange(end, end);
+    }, 50);
+  } else {
+    if (match) {
+      const idx = text.indexOf(match[0]) + match[0].length;
+      ta.focus();
+      ta.setSelectionRange(idx, idx);
+    } else {
+      text = appendNewLine(text, `${def.prefix}: `);
+      ta.value = text;
+      setTimeout(() => {
+        ta.focus();
+        ta.setSelectionRange(ta.value.length, ta.value.length);
+      }, 50);
+    }
+  }
+}
+
+function appendNewLine(text, line) {
+  if (text.trim() === '') return line;
+  return text.trimEnd() + '\n' + line;
+}
+
+// ════════════════════════════════════════════════════════
+// INLINE MENU
+// ════════════════════════════════════════════════════════
+let menuRendered = false;
+
+function toggleMenu() {
+  const inline = document.getElementById('menu-inline');
+  if (inline.classList.contains('open')) {
+    closeMenu();
+  } else {
+    openMenu();
+  }
+}
+
+function openMenu() {
+  if (!menuRendered) { renderMenu(); menuRendered = true; }
+  document.getElementById('menu-inline').classList.add('open');
+  document.getElementById('menu-toggle-label').textContent = '📋 Skjul menu';
+  postHeight();
+}
+
+function closeMenu() {
+  document.getElementById('menu-inline').classList.remove('open');
+  document.getElementById('menu-toggle-label').textContent = '📋 Tilføj specifikke retter';
+  document.querySelectorAll('.allergen-row.show').forEach(r => r.classList.remove('show'));
+  document.querySelectorAll('.mi-info-btn.active').forEach(b => b.classList.remove('active'));
+  postHeight();
+}
+
+const TAG_LABELS = { vegan: 'Vegansk', veg: 'Vegetar', gf: 'Glutenfri', fisk: 'Fisk', 'kød': 'Kød' };
+
+function renderMenu() {
+  const body = document.getElementById('menu-body');
+  body.innerHTML = '';
+  if (!MENU.length) {
+    body.innerHTML = '<div style="padding:1rem;color:var(--text-muted);font-size:.85rem;">Menuen er ikke tilgængelig lige nu.</div>';
+    return;
+  }
+  const cats = {};
+  MENU.forEach(item => {
+    if (!cats[item.cat]) cats[item.cat] = [];
+    cats[item.cat].push(item);
+  });
+
+  Object.entries(cats).forEach(([cat, items]) => {
+    const h = document.createElement('div');
+    h.className = 'menu-cat';
+    h.textContent = cat;
+    body.appendChild(h);
+
+    items.forEach((item, idx) => {
+      const safeId = `mi-${item.id || (cat + '_' + idx).replace(/\s+/g,'_')}`;
+      const tags = item.tags.map(t => `<span class="mi-tag ${t}">${TAG_LABELS[t] || t}</span>`).join('');
+
+      const wrap = document.createElement('div');
+      wrap.style.borderBottom = '1px solid #f0ebe3';
+
+      const row = document.createElement('div');
+      row.className = 'menu-item';
+      row.style.borderBottom = 'none';
+      row.innerHTML = `
+        <div class="mi-info">
+          <div class="mi-name">${escapeHtml(item.name)} ${tags}</div>
+        </div>
+        <button class="mi-info-btn" type="button" data-target="${safeId}" aria-label="Allergener">ⓘ</button>
+        <div class="mi-add-wrap">
+          <span class="mi-count" data-count="${escapeHtml(item.name)}"></span>
+          <button class="mi-add" type="button" aria-label="Tilføj">+</button>
+        </div>
+      `;
+
+      const allergenRow = document.createElement('div');
+      allergenRow.className = 'allergen-row';
+      allergenRow.id = safeId;
+      allergenRow.innerHTML = `<div class="allergen-row-inner"><strong>Allergener:</strong><span>${escapeHtml(item.allergens || 'Ingen')}</span></div>`;
+
+      row.querySelector('.mi-add').addEventListener('click', e => {
+        addItem(item);
+        e.target.classList.remove('added');
+        void e.target.offsetWidth;
+        e.target.classList.add('added');
+      });
+      row.querySelector('.mi-info-btn').addEventListener('click', e => {
+        const btn = e.currentTarget;
+        const wasActive = btn.classList.contains('active');
+        document.querySelectorAll('.allergen-row.show').forEach(r => r.classList.remove('show'));
+        document.querySelectorAll('.mi-info-btn.active').forEach(b => b.classList.remove('active'));
+        if (!wasActive) {
+          allergenRow.classList.add('show');
+          btn.classList.add('active');
+        }
+        postHeight();
+      });
+
+      wrap.appendChild(row);
+      wrap.appendChild(allergenRow);
+      body.appendChild(wrap);
+    });
+  });
+  updateMenuItemCounts();
+}
+
+function escapeHtml(s) {
+  return String(s).replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+}
+
+// ════════════════════════════════════════════════════════
+// SMART APPEND — kun struct-header ved fritekst
+// ════════════════════════════════════════════════════════
+const STRUCT_HEADER = '--- Valgte retter ---';
+const RET_LINE = /^\s*\d+\s*[×x]\s+\S/;
+
+// Struktureret state for menu_items[] payload — id-baseret
+const selectedItems = new Map(); // id → count
+
+function addItem(item) {
+  const ta = document.getElementById('wishes');
+  let text = ta.value;
+  const name = item.name;
+  const escaped = name.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+  const re = new RegExp(`(^|\\n)(\\d+)\\s*[×x]\\s*${escaped}(?=\\s|$|\\n)`, 'i');
+  const match = text.match(re);
+
+  if (match) {
+    const newCount = parseInt(match[2], 10) + 1;
+    text = text.replace(re, `${match[1]}${newCount}× ${name}`);
+  } else {
+    const lines = text.split('\n');
+    const hasFreeText = lines.some(l => {
+      const t = l.trim();
+      if (!t) return false;
+      if (t === STRUCT_HEADER) return false;
+      return !RET_LINE.test(t);
+    });
+    const hasStructHeader = text.includes(STRUCT_HEADER);
+    const isEmpty = text.trim() === '';
+
+    if (isEmpty)              text = `1× ${name}`;
+    else if (hasStructHeader) text = text.trimEnd() + `\n1× ${name}`;
+    else if (hasFreeText)     text = text.trimEnd() + `\n\n${STRUCT_HEADER}\n1× ${name}`;
+    else                      text = text.trimEnd() + `\n1× ${name}`;
+  }
+  ta.value = text;
+
+  // Struktureret state
+  if (item.id) selectedItems.set(item.id, (selectedItems.get(item.id) || 0) + 1);
+
+  updateBadge();
+  updateMenuItemCounts();
+  postHeight();
+}
+
+function getCurrentCount(name) {
+  const text = document.getElementById('wishes').value;
+  const escaped = name.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+  const re = new RegExp(`(^|\\n)(\\d+)\\s*[×x]\\s*${escaped}(?=\\s|$|\\n)`, 'i');
+  const m = text.match(re);
+  return m ? parseInt(m[2], 10) : 0;
+}
+
+function getTotalCount() {
+  let total = 0;
+  MENU.forEach(item => { total += getCurrentCount(item.name); });
+  return total;
+}
+
+function updateBadge() {
+  const total = getTotalCount();
+  const badge = document.getElementById('menu-link-badge');
+  badge.textContent = total;
+  badge.classList.toggle('show', total > 0);
+}
+
+function updateMenuItemCounts() {
+  document.querySelectorAll('.mi-count').forEach(span => {
+    const name = span.dataset.count;
+    const count = getCurrentCount(name);
+    if (count > 0) { span.textContent = `${count}×`; span.classList.add('show'); }
+    else { span.textContent = ''; span.classList.remove('show'); }
+  });
+}
+
+document.getElementById('wishes').addEventListener('input', () => {
+  // Hvis brugeren manuelt redigerer textarea, så genberegn struktureret state fra teksten
+  // (ellers kommer den ud af sync ved fri redigering)
+  selectedItems.clear();
+  MENU.forEach(item => {
+    const c = getCurrentCount(item.name);
+    if (c > 0 && item.id) selectedItems.set(item.id, c);
+  });
+  updateBadge();
+  updateMenuItemCounts();
+  postHeight();
+});
+
+// ════════════════════════════════════════════════════════
+// LOCALSTORAGE
+// ════════════════════════════════════════════════════════
+const REMEMBER_FIELDS = ['first_name','last_name','email','phone','company','ean_info'];
+const REMEMBER_KEY = 'rr_bestilling_saved';
+
+function loadSavedFields() {
+  try {
+    const saved = JSON.parse(localStorage.getItem(REMEMBER_KEY) || '{}');
+    REMEMBER_FIELDS.forEach(id => {
+      const el = document.getElementById(id);
+      if (el && saved[id]) el.value = saved[id];
+    });
+    if (saved._address_text) {
+      const ai = document.getElementById('address-input');
+      if (ai) ai.value = saved._address_text;
+    }
+    if (saved._validatedAddress) {
+      validatedAddress = saved._validatedAddress;
+      setAddrStatus('ok', '✅ Adresse fra sidst (redigér hvis nødvendigt)');
+    }
+    syncContactFields();
+  } catch {}
+}
+
+function saveFields() {
+  try {
+    const obj = {};
+    REMEMBER_FIELDS.forEach(id => {
+      const el = document.getElementById(id);
+      if (el?.value?.trim()) obj[id] = el.value.trim();
+    });
+    if (validatedAddress) {
+      obj._address_text = validatedAddress.tekst;
+      obj._validatedAddress = validatedAddress;
+    }
+    localStorage.setItem(REMEMBER_KEY, JSON.stringify(obj));
+  } catch {}
+}
+
+function syncContactFields() {
+  const cpInp = document.getElementById('contact_person');
+  const ctInp = document.getElementById('contact_phone');
+  if (!cpInp || !ctInp) return;
+  if (!cpInp.dataset.manuallyEdited) {
+    const fn = document.getElementById('first_name').value.trim();
+    const ln = document.getElementById('last_name').value.trim();
+    cpInp.value = [fn, ln].filter(Boolean).join(' ');
+  }
+  if (!ctInp.dataset.manuallyEdited) {
+    ctInp.value = document.getElementById('phone').value;
+  }
+}
+
+['first_name','last_name'].forEach(id => {
+  document.getElementById(id).addEventListener('input', syncContactFields);
+});
+document.getElementById('phone').addEventListener('input', syncContactFields);
+['contact_person','contact_phone'].forEach(id => {
+  const el = document.getElementById(id);
+  if (el) el.addEventListener('input', () => { el.dataset.manuallyEdited = '1'; });
+});
+
+// ════════════════════════════════════════════════════════
+// VALIDERING
+// ════════════════════════════════════════════════════════
+function validateForm() {
+  document.querySelectorAll('.field-error').forEach(el => el.classList.remove('field-error'));
+  let firstError = null;
+  let valid = true;
+  const form = document.getElementById('order-form');
+  form.querySelectorAll('[required]').forEach(inp => {
+    if (inp.closest('.cond.hidden')) return;
+    if (!inp.value?.trim()) {
+      const field = inp.closest('.field') || inp.closest('.check-field');
+      if (field) field.classList.add('field-error');
+      if (!firstError) firstError = inp;
+      valid = false;
+    }
+  });
+  if (orderType === 'catering' && !validatedAddress?.id) {
+    const field = document.getElementById('field-address');
+    if (field) field.classList.add('field-error');
+    setAddrStatus('err', '❌ Vælg en gyldig adresse fra listen');
+    if (!firstError) firstError = document.getElementById('address-input');
+    valid = false;
+  }
+  ['cb-privacy','cb-terms'].forEach(id => {
+    const cb = document.getElementById(id);
+    if (cb && !cb.checked) {
+      const field = cb.closest('.check-field');
+      if (field) field.classList.add('field-error');
+      if (!firstError) firstError = cb;
+      valid = false;
+    }
+  });
+  if (firstError) {
+    firstError.focus();
+    firstError.scrollIntoView({ behavior: 'smooth', block: 'center' });
+  }
+  return valid;
+}
+
+document.getElementById('order-form').addEventListener('input', e => {
+  const field = e.target.closest('.field') || e.target.closest('.check-field');
+  if (field) field.classList.remove('field-error');
+});
+document.getElementById('order-form').addEventListener('change', e => {
+  const field = e.target.closest('.field') || e.target.closest('.check-field');
+  if (field) field.classList.remove('field-error');
+});
+
+// ════════════════════════════════════════════════════════
+// SUBMIT
+// ════════════════════════════════════════════════════════
+document.getElementById('order-form').addEventListener('submit', async e => {
+  e.preventDefault();
+  const hp = document.querySelector('input[name="website"]');
+  if (hp?.value) return;
+  if (!validateForm()) return;
+
+  const btn = document.getElementById('submit-btn');
+  btn.classList.add('loading'); btn.disabled = true;
+
+  const fd = new FormData(e.target);
+  const data = Object.fromEntries(fd.entries());
+  data.validatedAddress = validatedAddress;
+  data.submittedAt = new Date().toISOString();
+  delete data.website;
+
+  // Struktureret kontaktperson + menu_items + meta
+  data.contact_person = document.getElementById('contact_person').value || null;
+  data.contact_phone  = document.getElementById('contact_phone').value || null;
+  data.menu_items = Array.from(selectedItems.entries())
+    .filter(([, count]) => count > 0)
+    .map(([id, count]) => ({ id, count }));
+  data._form_meta = {
+    menu_id: MENU_DATA?.menu_id || MENU_ID,
+    menu_version: MENU_DATA?.version || null,
+    form_version: 'embed-v1'
+  };
+
+  saveFields();
+
+  try {
+    const res = await fetch(WEBHOOK_URL, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(data)
+    });
+    if (!res.ok) throw new Error('Server svarede ' + res.status);
+  } catch (err) {
+    btn.classList.remove('loading'); btn.disabled = false;
+    const subject = encodeURIComponent('Bestilling ' + (data.delivery_date || '') + ' – ' + (data.first_name || '') + ' ' + (data.last_name || ''));
+    const body = encodeURIComponent(JSON.stringify(data, null, 2));
+    const errorDiv = document.getElementById('webhook-error');
+    if (errorDiv) {
+      errorDiv.innerHTML = `<strong>⚠️ Der opstod en fejl ved afsendelse</strong><br>
+        Din bestilling blev ikke sendt. Prøv igen, eller
+        <a href="mailto:${FALLBACK_EMAIL}?subject=${subject}&body=${body}" style="color:inherit;font-weight:700;">send os en email direkte →</a>`;
+      errorDiv.style.display = 'block';
+    }
+    postHeight();
+    return;
+  }
+
+  btn.classList.remove('loading'); btn.disabled = false;
+  document.getElementById('order-form').style.display = 'none';
+  document.getElementById('thank-you').style.display = 'block';
+  postHeight();
+});
+
+// ════════════════════════════════════════════════════════
+// POSTMESSAGE HØJDE-RESIZER (til iframe-parent)
+// Bruger .form-wrap.offsetHeight + padding for at undgå feedback-loop:
+// documentElement.scrollHeight kan vokse med iframe outer-size i nogle
+// browsere, så vi måler det faktiske indhold i stedet.
+// ════════════════════════════════════════════════════════
+let lastSentHeight = 0;
+function postHeight() {
+  try {
+    const wrap = document.querySelector('.form-wrap');
+    if (!wrap) return;
+    const h = wrap.offsetHeight + 32; // 32px = body padding (16) + lidt buffer
+    if (Math.abs(h - lastSentHeight) < 2) return; // ignorér mikro-ændringer
+    lastSentHeight = h;
+    window.parent.postMessage({ type: 'rr-form-height', height: h }, '*');
+  } catch {}
+}
+
+// Observér selve form-wrap, ikke documentElement (undgår viewport-driven re-fyring)
+const heightObserver = new ResizeObserver(() => postHeight());
+window.addEventListener('load', () => {
+  const wrap = document.querySelector('.form-wrap');
+  if (wrap) heightObserver.observe(wrap);
+  postHeight();
+});
+window.addEventListener('resize', postHeight);
+
+// ════════════════════════════════════════════════════════
+// INIT
+// ════════════════════════════════════════════════════════
+(async function init() {
+  await Promise.all([loadConfig(), loadMenu()]);
+  updateCutoffBanner();
+  updateConditional();
+  loadSavedFields();
+  document.getElementById('form-loading').style.display = 'none';
+  document.getElementById('form-body').style.display = 'block';
+  postHeight();
+})();
+</script>
+</body>
+</html>
