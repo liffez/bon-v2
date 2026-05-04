@@ -639,14 +639,16 @@ router.get('/customer/:id', handle((req, res) => {
     `).all(id);
 
     const activities = db.prepare(`
-        SELECT a.*, u.name as user_name, b.bon_number,
+        SELECT a.*, u.name as user_name, u.name as owner_name, b.bon_number,
                mt.label AS meeting_type_label, mt.emoji AS meeting_type_emoji,
-               cr.label AS contact_reason_label, cr.emoji AS contact_reason_emoji
+               cr.label AS contact_reason_label, cr.emoji AS contact_reason_emoji,
+               p.label AS purpose_label, p.emoji AS purpose_emoji
         FROM crm_activities a
         LEFT JOIN users u ON a.owner_user_id = u.id
         LEFT JOIN bons b ON a.bon_id = b.id
         LEFT JOIN meeting_types mt ON mt.id = a.meeting_type_id
         LEFT JOIN contact_reasons cr ON cr.id = a.contact_reason_id
+        LEFT JOIN activity_purposes p ON a.purpose_id = p.id
         WHERE a.customer_id = ?
         ORDER BY a.created_at DESC LIMIT 20
     `).all(id);

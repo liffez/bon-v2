@@ -638,6 +638,7 @@ async function _mcShowCustomer(customerId) {
         var cust = resp.customer || resp;
         var stats = resp.stats || {};
         var products = resp.products || [];
+        var activities = resp.activities || [];
 
         var name = [cust.first_name, cust.last_name].filter(Boolean).join(' ') || cust.name || '(uden navn)';
         var stage = cust.stage;
@@ -671,6 +672,9 @@ async function _mcShowCustomer(customerId) {
             }
             html += '</div>';
         }
+
+        // Historik (NY)
+        html += _mcRenderHistorik(activities);
 
         // Typiske produkter
         if (products && products.length) {
@@ -758,6 +762,8 @@ async function _mcShowCustomer(customerId) {
 
         wrap.innerHTML = html;
 
+        _mcWireHistorik(wrap);
+
         var logCard = document.getElementById('mcLogCard');
         var resultWrap = logCard.querySelector('[data-result-wrap]');
 
@@ -827,11 +833,8 @@ async function _mcShowCustomer(customerId) {
                     body: JSON.stringify(body)
                 });
                 if (window._mToast) window._mToast('Samtale logget');
-                document.getElementById('mcLogNote').value = '';
-                logCard.querySelectorAll('.m-svc-btn.active, .m-svc-sent-btn.active, .m-svc-purp-btn.active, .m-svc-due-btn.active').forEach(function(b) {
-                    b.classList.remove('active');
-                });
-                _mcToggleDueVisibility(logCard, false);
+                _mcShowCustomer(customerId);
+                window.scrollTo({ top: 0, behavior: 'smooth' });
             } catch (e) {
                 if (window._mToast) window._mToast('Fejl ved gem');
             }
@@ -857,4 +860,158 @@ function _mcEsc(str) {
     var d = document.createElement('div');
     d.textContent = String(str);
     return d.innerHTML;
+}
+
+/* ── Historik (timeline) ── */
+function _mcInitials(name) {
+    if (!name) return '';
+    var parts = String(name).trim().split(/\s+/);
+    var first = parts[0] && parts[0][0] ? parts[0][0] : '';
+    var second = parts[1] && parts[1][0] ? parts[1][0] : '';
+    return (first + second).toUpperCase();
+}
+
+var _MC_TYPE_LABEL = {
+    call:         { ico: '📞', label: 'Opkald' },
+    service_call: { ico: '📞', label: 'Service call' },
+    note:         { ico: '📝', label: 'Note' },
+    meeting:      { ico: '📅', label: 'Møde' },
+    task:         { ico: '✓',  label: 'Opgave' },
+    followup:     { ico: '🔔', label: 'Opfølgning' },
+    email_in:     { ico: '✉',  label: 'Mail ind' },
+    email_out:    { ico: '📨', label: 'Mail ud' },
+    offer_sent:   { ico: '🤝', label: 'Tilbud sendt' },
+};
+var _MC_RESULT_LABEL = {
+    reached:        'Svar',
+    no_answer:      'Ikke fat',
+    busy:           'Optaget',
+    voicemail:      'Besked',
+    callback:       'Ring tb',
+    email_instead:  'Mail i stedet',
+};
+var _MC_SENT_EMOJI = { positive: '😊', neutral: '😐', negative: '😟' };
+
+function _mcTimelineTime(iso) {
+    if (!iso) return '';
+    var s = String(iso);
+    var then = new Date(s.indexOf('T') === -1 ? s.replace(' ', 'T') : s);
+    if (isNaN(then.getTime())) return '';
+    var now = new Date();
+    var diffMs = now - then;
+    var diffDays = Math.floor(diffMs / 86400000);
+    var hh = String(then.getHours()).padStart(2, '0');
+    var mm = String(then.getMinutes()).padStart(2, '0');
+    if (diffDays < 1 && now.getDate() === then.getDate()) return 'i dag ' + hh + ':' + mm;
+    var yest = new Date(now); yest.setDate(yest.getDate() - 1);
+    if (then.getDate() === yest.getDate() && then.getMonth() === yest.getMonth() && then.getFullYear() === yest.getFullYear()) {
+        return 'i går ' + hh + ':' + mm;
+    }
+    if (diffDays < 30) return diffDays + ' d';
+    var months = Math.floor(diffDays / 30);
+    if (months < 12) return months + ' mdr';
+    return Math.floor(diffDays / 365) + ' år';
+}
+
+function _mcDueLabel(dueAt) {
+    if (!dueAt) return null;
+    var d = new Date(String(dueAt).replace(' ', 'T'));
+    if (isNaN(d.getTime())) return null;
+    var now = new Date();
+    var overdue = d < now;
+    var dStr = d.getDate() + '/' + (d.getMonth() + 1);
+    var hh = String(d.getHours()).padStart(2, '0');
+    var mm = String(d.getMinutes()).padStart(2, '0');
+    var clk = (hh === '00' && mm === '00') ? '' : ' kl ' + hh + (mm === '00' ? '' : ':' + mm);
+    return { text: 'Ring tb ' + dStr + clk, overdue: overdue };
+}
+
+function _mcRenderHistorik(activities) {
+    var html = '<div class="m-card" style="margin-top:8px">';
+    html += '<div class="m-timeline-head"><div class="m-detail-label" style="margin-bottom:0">Historik</div></div>';
+
+    if (!activities || !activities.length) {
+        html += '<div class="m-tl-empty">Ingen aktiviteter endnu</div>';
+        html += '</div>';
+        return html;
+    }
+
+    html += '<div class="m-timeline">';
+    activities.forEach(function(a, i) {
+        var def = _MC_TYPE_LABEL[a.type] || { ico: '•', label: a.type || '' };
+        var typeClass = 't-' + (a.type || '');
+        var isCallType = a.type === 'call' || a.type === 'service_call';
+        var resultPill = (isCallType && a.result && _MC_RESULT_LABEL[a.result])
+            ? '<span class="m-tl-result-pill r-' + a.result + '">' + _mcEsc(_MC_RESULT_LABEL[a.result]) + '</span>'
+            : '';
+        var purposeChip = (a.purpose_label)
+            ? '<span class="m-tl-purpose">' + (a.purpose_emoji ? a.purpose_emoji + ' ' : '') + _mcEsc(a.purpose_label) + '</span>'
+            : '';
+        var time = _mcTimelineTime(a.created_at);
+        var due = (!a.done_at) ? _mcDueLabel(a.due_at) : null;
+        var dueHtml = due ? '<span class="m-tl-due' + (due.overdue ? ' overdue' : '') + '">' + _mcEsc(due.text) + '</span>' : '';
+        var sent = (a.sentiment && _MC_SENT_EMOJI[a.sentiment])
+            ? '<span class="m-tl-sent" title="' + a.sentiment + '">' + _MC_SENT_EMOJI[a.sentiment] + '</span>'
+            : '';
+        var bonHtml = (a.bon_id && a.bon_number)
+            ? '<a class="m-tl-bon-link" data-bon-id="' + a.bon_id + '">#' + _mcEsc(a.bon_number) + '</a>'
+            : '';
+        var ownerName = a.owner_name || a.user_name;
+        var initials = _mcInitials(ownerName);
+        var userHtml = initials ? '<span class="m-tl-user" title="' + _mcEsc(ownerName) + '">' + initials + '</span>' : '';
+        var extraCls = (i >= 3) ? ' is-extra' : '';
+
+        html +=
+            '<div class="m-tl-item' + extraCls + '">' +
+                '<div class="m-tl-icon ' + typeClass + '">' + def.ico + '</div>' +
+                '<div class="m-tl-head">' +
+                    '<span class="m-tl-type">' + _mcEsc(def.label) + '</span>' +
+                    resultPill +
+                    purposeChip +
+                    (time ? '<span class="m-tl-time">' + _mcEsc(time) + '</span>' : '') +
+                '</div>' +
+                (a.text ? '<div class="m-tl-text" data-expand>' + _mcEsc(a.text) + '</div>' : '') +
+                ((dueHtml || sent || bonHtml || userHtml)
+                    ? '<div class="m-tl-meta">' + dueHtml + sent + bonHtml + userHtml + '</div>'
+                    : '') +
+            '</div>';
+    });
+
+    if (activities.length > 3) {
+        html += '<button class="m-tl-show-more">Vis alle ' + activities.length + ' aktiviteter ▾</button>';
+    }
+    html += '</div></div>';
+    return html;
+}
+
+function _mcWireHistorik(wrap) {
+    var timeline = wrap.querySelector('.m-timeline');
+    if (!timeline) return;
+
+    timeline.querySelectorAll('.m-tl-text[data-expand]').forEach(function(el) {
+        el.addEventListener('click', function() {
+            el.classList.toggle('expanded');
+        });
+    });
+
+    timeline.querySelectorAll('.m-tl-bon-link[data-bon-id]').forEach(function(el) {
+        el.addEventListener('click', function(e) {
+            e.preventDefault();
+            e.stopPropagation();
+            var id = parseInt(el.dataset.bonId);
+            if (!id) return;
+            window._mSwitchView('bons');
+            setTimeout(function() {
+                if (typeof _mbShowDetail === 'function') _mbShowDetail(id);
+            }, 100);
+        });
+    });
+
+    var showMoreBtn = timeline.querySelector('.m-tl-show-more');
+    if (showMoreBtn) {
+        showMoreBtn.addEventListener('click', function() {
+            timeline.classList.add('show-all');
+            showMoreBtn.style.display = 'none';
+        });
+    }
 }
