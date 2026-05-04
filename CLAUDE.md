@@ -110,7 +110,8 @@ bon-v2/
 │   ├── staff.js      ← /api/staff/* (medarbejder-CRUD)
 │   ├── reports.js    ← /api/reports/* (rapporter: summary, monthly, top-customers, categories)
 │   ├── cashflow.js   ← /api/cashflow/* (admin-only: CSV-upload, fakturaer, match, analyse)
-│   └── embed.js      ← /embed/bestilling, /embed/config, /embed/menus/:id (public, indlejres i WordPress)
+│   ├── embed.js      ← /embed/bestilling, /embed/config, /embed/menus/:id (public, indlejres i WordPress)
+│   └── delivery.js   ← /api/delivery/* (vehicles CRUD, booking-payload, book, actual-cost, events)
 ├── services/
 │   ├── grocyAdapter.js       ← Grocy API adapter med cache + CRUD + consume + barcodes
 │   ├── hokaAdapter.js        ← Hørkram (hoka.dk) API adapter med cookie-jar auth
@@ -118,6 +119,8 @@ bon-v2/
 │   ├── smartplanAdapter.js   ← Smartplan OAuth2 adapter (shifts + worklogs + employees)
 │   ├── mailService.js        ← SMTP afsendelse + IMAP polling + tag-routing
 │   ├── goodsReceiptWebhook.js ← Whiteboard webhook for varemodtagelse (fire-and-forget)
+│   ├── booking_template.js   ← Render template + variabler + cost-estimat (Spor 1)
+│   ├── delivery_log.js       ← Booking-events + actual cost + sync delivery_method (Spor 1)
 │   └── quConvert.js          ← Grocy quantity unit conversions
 ├── db/
 │   ├── database.js      ← getDb() singleton (lazy init + migrations)
@@ -151,6 +154,7 @@ bon-v2/
 │   ├── indkob_settings.js + indkob_settings.css ← Indkøbsindstillinger (3 tabs: leverandører, produkter, Hørkram)
 │   ├── varemodtagelse.js + varemodtagelse.css  ← Varemodtagelse v3 (fødevarekontrol + Grocy lager, touch-first)
 │   ├── supplier_inbox.js                      ← Leverandørpost (office sidebar-view + kitchen Post-tab)
+│   ├── manual_booking_modal.js + manual_booking_modal.css ← Bestil bud-modal (Spor 1: clipboard + URL)
 │   ├── kitchen-topbar.html         ← Fælles topbar for kitchen-views
 │   ├── api.js        ← Frontend API-funktioner
 │   ├── utils.js      ← Status-mapping, connectSSE(), mapApiBonToCardData(), scrollToBonHash()
@@ -1381,11 +1385,64 @@ Oprettes under Grocy → Manage master data → Userfields.
 - [x] **M11 (komplet)**: "📅 Indsæt booking-link"-knap + popover i [office/views/crm-kunde360.js](office/views/crm-kunde360.js) mail-compose. Popover indeholder flow-radio (Smagsprøve/Kontakt) + intent-dropdown (alle aktive mødetyper inkl. `is_bookable=0` med "sælger-only"-label). "Indsæt" placerer `{{booking_link}}` ved cursor i textarea + viser info-strip ved siden af knappen. Backend: `POST /api/customers/:id/mail` udvidet med `booking_flow` + `booking_intent_meeting_type`-params. Body kører gennem `renderTemplate(text, {}, { customerId, userId, bookingFlow, bookingIntent, appendSignature: false })` så `{{booking_link}}` substitueres til kort URL bundet til (kunde, sælger, flow, intent). Nyt endpoint `GET /api/booking/meeting-types/intent` (auth-required) returnerer alle aktive types til popoveren. Verificeret via 13 in-process asserts i `scripts/test-m11.js` + UI live-test.
 - [x] **M12 (komplet)**: End-to-end smoke-test ([scripts/test-booking-e2e.js](scripts/test-booking-e2e.js)) der binder hele flowet sammen i ét kald: sælger genererer link via `{{booking_link}}` → kunde klikker `/b/:token` → 302 → tools-side henter pre-fill via `/api/booking/token/:token` → kunde submitter → activity oprettet med `booked_via='token_link'` + token-konsumeret + intern notif sprunget over → 2 dage senere kører cron → reminder sendt + `reminder_sent_at` sat. 19 asserts. Hardening: `/api/booking/token/:token` logger advarsel når token rammer ≥20 opens (potentiel bot-probing) — endpointet spærres ikke, men gør usædvanlig aktivitet synlig i ops-loggen.
 
+### Delivery — Spor 1: Manuel bestilling (maj 2026)
+> Spec: [docs/delivery/CLAUDE_DELIVERY.md](docs/delivery/CLAUDE_DELIVERY.md) + [docs/delivery/PLAN_BYEKSPRESSEN_3D4.md](docs/delivery/PLAN_BYEKSPRESSEN_3D4.md)
+> Strategi: vendt-på-hovedet — manuel bestilling først (i drift NU), rute-planlægger + OSRM/VROOM + mobile courier (Spor 2 = 3D.2/3D.3) bygges sideløbende.
+
+- [x] Migration 057: `delivery_vehicles` (master data) + `delivery_events.vehicle_id`/`booked_by_user_id` + `bons.delivery_vehicle_id`/`delivery_cost_estimated`/`delivery_cost_source`. Seeds 4 vehicles: Volvo (calendar), Egen cykel (calendar), By-expressen (manual_clipboard, URL klar), Taxa 4×35 (manual_clipboard, URL klar). Templates udfyldes via Settings UI.
+- [x] `services/booking_template.js` — render template med `{variabel}`-syntaks. 19 variabler (bon_id, customer_name, delivery_address, delivery_contact_name/_phone, packaging_lines mm). `[mangler]`-markering for tomme felter. `estimateCost(vehicle, bon)` med 3 cost-formler (volvo per_km, By-expressen base+included_boxes+extra, taxa standard_inner_city).
+- [x] `services/delivery_log.js` — `logBookingEvent({ bonId, vehicleId, reference?, status, userId, note })` skriver til eksisterende `delivery_events` (ingen ny audit-tabel) + opdaterer `bons.delivery_vehicle_id` + `delivery_method` (auto-synced fra vehicle.type for backwards compat) + `courier_provider` + `delivery_cost_estimated` + changelog + SSE `bon_updated`. `setActualCost({ bonId, amount, source })` opdaterer `bons.delivery_cost` (én pris pr. bon, klar til fakturering).
+- [x] `routes/delivery.js` — 9 endpoints:
+  - `GET /api/delivery/vehicles` (liste, åben for alle aktive brugere)
+  - `GET/POST/PATCH/DELETE /api/delivery/vehicles/:id` (CRUD, admin-only på write)
+  - `GET /api/delivery/template-variables` (variabel-katalog til Settings-chips)
+  - `GET /api/delivery/booking-payload?bon_id=&vehicle_id=` (genererer clipboard-tekst + URL)
+  - `POST /api/delivery/book` (book + log event + opdater bon)
+  - `POST /api/delivery/actual-cost` (sæt `bons.delivery_cost`)
+  - `GET /api/delivery/events?bon_id=` (booking-historik per bon)
+- [x] `shared/manual_booking_modal.js` + `.css` — standalone overlay-modal:
+  - Vehicle-vælger (kun manual_clipboard-vehicles)
+  - Clipboard-preview (mørkt code-block) med `[mangler]`-markering + manglende-felt-chips
+  - "Rediger"-toggle → editable textarea (lokal kun)
+  - "Kopiér og åbn {label}"-knap: `navigator.clipboard.writeText()` + `window.open(booking_url)`. Fallback: pre-selected `<textarea>` + Cmd+C-instruktion (ingen `execCommand`)
+  - Booking-ref input (valgfri) + faktisk pris (valgfri)
+  - "Marker som booket" eller "Spring over" (in_progress)
+  - Estimat-pille fra cost-formel
+- [x] `shared/bon_drawer.js`/`.css` — ny "BESTIL BUD"-sektion:
+  - Vehicle-status pill (current courier_provider · cost)
+  - "📦 Bestil hos…"-knap åbner manual_booking_modal
+  - Faktisk omkostning-input (kr) med Gem-knap
+  - Booking-historik-liste (vehicle, dato, ref, evt. note)
+  - Sektionen skjules automatisk når `delivery_type` er `pickup` eller `event` (eller `is_internal=1`)
+  - `BonDrawer.open(bonId, { scrollTo: 'bestil-bud' })` til deep-linking fra bon-kort
+  - Den gamle "Leveringsmetode"-dropdown er fjernet — én sandhed: vehicle.type styrer alt, `bons.delivery_method` synkroniseres automatisk
+- [x] `shared/bon_kort_builder.js`/`bon_kort.css` — leveringsindikator under datolinjen (én linje, klikbar):
+  - Tildelt vehicle: `🚴 By-expressen` / `🚕 Taxa 4×35` / `🚛 Volvo Duett`
+  - Pickup: `🏠 Afhentning`
+  - Ikke planlagt: `📍 Ikke planlagt endnu` (grå/kursiv) — vises også på kitchen-today så køkkenet kan se hvis ingen er booket endnu
+  - Klik åbner drawer scrollet til BESTIL BUD-sektionen via `openBonDeliveryFromCard(cardId)` global handler
+  - `delivery_notes` (etage, port, kode) bevares som lille grå linje i bunden af kortet — separat fra leveringsindikatoren
+- [x] Cost-formel inkl. standard inner-city priser fra office: By-expressen 154 kr (base 100 + included_boxes 2 + extra 50), Taxa 250 kr.
+- [x] Booking-mapping `vehicle.type → bons.delivery_method`: volvo→volvo, bike/own-bike→bike, taxi→taxi. Sikrer at alle eksisterende lister/filter/displays (bons-list, calendar, modal) virker uændret.
+- [x] `settings/index.html` — ny "Leveringsmetoder"-fane (admin-only):
+  - Tabel over alle vehicles (label/type/booking-metode/template-status/URL-status)
+  - Inline editor: label, type, booking_method, is_active, URL, template med klikbare variabel-chips, cost-formel JSON
+  - Editor skjult som default — åbner ved "Rediger"-klik
+- [x] `routes/kitchen.js` — joiner `delivery_vehicles` så `delivery_vehicle_label` kommer med på `/today` + `/later` til frontend-display
+- [x] `shared/api.js` — 11 nye wrappers: fetchDeliveryVehicles, fetchDeliveryVehicle, createDeliveryVehicle, patchDeliveryVehicle, deleteDeliveryVehicle, fetchDeliveryTemplateVariables, fetchBookingPayload, bookDelivery, setDeliveryActualCost, fetchDeliveryEvents
+- [x] `shared/utils.js` — `mapApiBonToCardData()` udvidet med `delivery_vehicle_label` så bon-kortets indikator kan vise vehicle-navn
+- [x] HTML-filer udvidet med modal-script + CSS: `kitchen/today.html`, `kitchen/later.html`, `kitchen/calendar.html`, `office/index.html`. `_bonInfoEditHandler(bonId, opts)` videregiver opts (scrollTo) til drawer.
+- [x] **Tests**: `scripts/test-delivery-spor1-unit.js` (65 unit-tests mod isoleret in-memory DB — booking_template, delivery_log, edge cases). `scripts/test-delivery-spor1.js` (46 integration-tests mod spawned server med isoleret test-DB — full HTTP-flow + auth-tjek for admin-only endpoints). Alle grønne.
+- [x] **Office Spor 1 deploy-checkliste**: 1) Templates skal udfyldes for By-expressen + Taxa via Settings → Leveringsmetoder før modalen producerer brugbar tekst. 2) Verificér at By-expressens URL `https://byexpressen.groupnet.at/lobo/#!//coreLogin/` matcher hvad office bruger i dag. 3) Test først med taxa (simpel ét-felts paste), så By-expressen (Lobo's 4-trins wizard kræver block-by-block paste).
+- [x] **Migration til Spor 2 (3D.2):** Når routes-tabeller introduceres, udvides leveringsindikator-data-kilden til at læse `delivery_route_stops` joined med `delivery_routes`/`delivery_vehicles` parallelt med eksisterende `bons.delivery_vehicle_id`. SSE-events `delivery_route_stop_added`/`_removed` tilføjes til samme handler som nuværende `bon_updated`.
+
 ## Næste opgave
 
-> ✏️ Opdateret 3. maj 2026.
+> ✏️ Opdateret 4. maj 2026.
 >
-> **Fase 1a–1e + 3A + 3B + 3D + 4 + 5 + 6 (komplet inkl. 6g) + 7 (CRM) + Office CRM redesign + 8 (Fakturering) + 9 (Tilbud) + Mail-vedhæftninger + CRM service-kald + Firma-oprydning + 10 (Mobil Shell) + 10b (Roller & Rettigheder) + 11 (Ugeoversigt) + Priser i planlægningsbon + Hjælpesystem + Whiteboard Sidekick + Web-bestillinger (webhook) + Mail-skabelon management + 12 (Rapporter) + PIN-management + CVR-berigelse (653/1232 firmaer) + 13 (Cashflow) + Mail chat-boble layout + Embed-bestillingsformular komplet.**
+> **Fase 1a–1e + 3A + 3B + 3D + 4 + 5 + 6 (komplet inkl. 6g) + 7 (CRM) + Office CRM redesign + 8 (Fakturering) + 9 (Tilbud) + Mail-vedhæftninger + CRM service-kald + Firma-oprydning + 10 (Mobil Shell) + 10b (Roller & Rettigheder) + 11 (Ugeoversigt) + Priser i planlægningsbon + Hjælpesystem + Whiteboard Sidekick + Web-bestillinger (webhook) + Mail-skabelon management + 12 (Rapporter) + PIN-management + CVR-berigelse (653/1232 firmaer) + 13 (Cashflow) + Mail chat-boble layout + Embed-bestillingsformular + Delivery Spor 1 (manuel bestilling) komplet.**
+>
+> **Delivery — Spor 1 (manuel bestilling): KOMPLET.** Office kan nu bestille bud (By-expressen, Taxa) direkte fra bon-drawer i både kitchen og office. Clipboard-flow: vælg vehicle → tekst genereres fra konfigurerbar template → ét klik kopierer + åbner leverandørens bestillingsside i nyt vindue → office paster + bekræfter på deres side → indtaster booking-ref + faktisk pris i Bon. Leveringsindikator på bon-kort viser hvem der henter (🚴 By-expressen / 🚕 Taxa) eller "📍 Ikke planlagt endnu". Klik på indikator åbner drawer scrollet til BESTIL BUD. `bons.delivery_method` synkroniseres automatisk fra valgt vehicle.type — alle eksisterende lister/filter/displays virker uændret. 65 unit + 46 integration tests grønne. Næste: udfyld templates via Settings → Leveringsmetoder før første brug.
 >
 > **Embed-bestilling: KOMPLET.** Erstatter JotForm på `ristetrug.dk/bestil`. iframe på `bon.ristetrug.dk/embed/bestilling` med config + menu hentet live fra `settings`-tabellen. Foldout, quick-chips, inline menu-picker med allergen-toggle, sandwichvalg-subtekst, DAWA-autocomplete, OSRM-leveringsestimat, smart cutoff-logik (per-ugedag delivery_days + cutoff_days), postMessage høj-resizer. Webhook bagudkompatibel — gamle formularer fortsætter med at virke. Strukturerede `menu_items[]` sendes parallelt med tekst (klar til automatisering). Settings-UI til menu-redigering (kategorier, tags, allergener) — ingen WordPress-redeploy ved ændringer. Næste skridt: Leif erstatter JotForm-iframe i DIVI med snippet fra `docs/wordpress_divi_snippet.html`.
 >
@@ -1396,7 +1453,8 @@ Oprettes under Grocy → Manage master data → Userfields.
 > **Åbne afhængigheder:**
 > - DMI API-nøgle (vejr på dashboards) — Leif finder frem til eksisterende nøgle (Open-Meteo bruges midlertidigt)
 > - ~~Bon v1-datamigration~~ — sync-v1.js kører dagligt via cron, CVR-beriget
-> - Byekspressen credentials — ryk sebastian@by-expressen.dk
+> - Byekspressen credentials — ryk sebastian@by-expressen.dk (blokerer Spor 2's 3D.5, ikke Spor 1)
+> - **Delivery Spor 1 deploy**: Office skal udfylde booking-template for By-expressen + Taxa via Settings → Leveringsmetoder. Indtil da viser modalen "template ikke konfigureret"-warning. URL'er er allerede sat (`https://byexpressen.groupnet.at/lobo/#!//coreLogin/` + `https://taxa.nu/`).
 > - ~~Formbuilder webhook-URL + HTML til ristetrug.dk/bestil~~ — embed-formular klar på `bon.ristetrug.dk/embed/bestilling`, indlejres via DIVI Code Module (snippet i `docs/wordpress_divi_snippet.html`)
 > - **Embed-bestilling deploy**: Leif erstatter JotForm-iframe i WordPress DIVI med snippet'et fra `docs/wordpress_divi_snippet.html`. Ingen WordPress-redeploy nødvendig ved menu-ændringer derefter — alt styres fra Settings → Bestilling — Menu.
 > - Formbuilder field-type-engine (`grocy_product_picker`, `chip_group`, `info_box`, `option_group`): erstatter den hardcodede `embed/bestilling.html` med rigtige field-types. Spec skrives separat. Ikke akut — den nuværende embed-form fungerer indtil videre.
@@ -1905,6 +1963,16 @@ GET    /api/booking/admin/page-templates                    routes/booking.js (a
 PATCH  /api/booking/admin/page-templates/:key               routes/booking.js (admin)
 GET    /api/crm/meetings/upcoming?days=&limit=              routes/crm.js
 PATCH  /api/crm/activity/:id/done                           routes/crm.js
+GET    /api/delivery/vehicles?include_inactive=             routes/delivery.js
+GET    /api/delivery/vehicles/:id                           routes/delivery.js
+POST   /api/delivery/vehicles                               routes/delivery.js (admin)
+PATCH  /api/delivery/vehicles/:id                           routes/delivery.js (admin)
+DELETE /api/delivery/vehicles/:id                           routes/delivery.js (admin, soft-delete)
+GET    /api/delivery/template-variables                     routes/delivery.js
+GET    /api/delivery/booking-payload?bon_id=&vehicle_id=    routes/delivery.js
+POST   /api/delivery/book                                   routes/delivery.js
+POST   /api/delivery/actual-cost                            routes/delivery.js
+GET    /api/delivery/events?bon_id=                         routes/delivery.js
 ```
 
 ---
