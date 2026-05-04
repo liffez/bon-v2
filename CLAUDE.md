@@ -1197,10 +1197,22 @@ Oprettes under Grocy → Manage master data → Userfields.
   - `GET /api/settings/bestilling/menu/:id` — hent menu-JSON
   - `PUT /api/settings/bestilling/menu/:id` — gem med validering (duplikat-check, kategori-FK, auto-bump version)
 - [x] `settings/index.html` — Bestilling — Menu sektion (admin):
-  - Kategorier: redigér id/navn, op/ned, slet (advarsel ved tilknyttede items), opret
-  - Items grupperet per kategori: navn, tags-checkboxes (vegan/veg/gf/fisk/kød), allergens-tekstfelt, aktiv-toggle, op/ned, slet, opret
-  - Klient-side validering inden gem; toast på success/fejl
-  - JSON forhåndsvisning (foldout)
+  - **Åbningstider og deadline-editor** (cutoff-time, lead-days, delivery_days + cutoff_days som 7 ugedags-checkboxes hver)
+  - **Kilde til menu**-toggle: Manuel / Live fra Grocy (radio, auto-saves)
+  - **Manuel-mode editor:**
+    - Kategorier: redigér id/navn, op/ned, slet (advarsel ved tilknyttede items), opret
+    - Items grupperet per kategori: navn, tags-checkboxes (vegan/veg/gf/fisk/kød), allergens-tekstfelt, aktiv-toggle, op/ned, slet, opret
+    - Klient-side validering inden gem; toast på success/fejl
+    - JSON forhåndsvisning (foldout)
+    - **⬇ Importér fra Grocy**-knap → modal med 118+ Grocy-retter, søg/filter, "Vælg alle"-knap per kategori, "Skjul allerede importeret"-toggle, opretter nye kategorier automatisk, beskytter mod dubletter
+  - **Grocy-mode editor:** info-banner med liste over brugte userfields (`sellable`, `grupper`, `bestil_tags`, `bestil_allergens`, `bestil_skjul`) + read-only forhåndsvisning, hint om at bruge Manuel + import for kuration
+- [x] Migration 059: `bestilling.menu_source` setting (`'manual'` | `'grocy'`, default `'manual'`)
+- [x] `routes/embed.js` udvidet:
+  - `GET /embed/menus/:id.json` tjekker `menu_source`-setting; Grocy-mode kalder `grocyAdapter.getRecipes()`, mapper sellable=1 + grupper-userfield → kategorier, stable IDs `r{recipe_id}`, optionelle userfields `bestil_tags`/`bestil_allergens`/`bestil_skjul`
+  - Auto-fallback til manuel hvis Grocy fejler
+  - `GET /embed/grocy-preview` (auth-required) — tvunget Grocy-render, bruges af import-modal
+- [x] `assets/icons/wheat.svg` — RR-logo brugt i embed-form-header (mask-baseret CSS, hvid på brun baggrund)
+- [x] `shared/bon_drawer.{js,css}` — UX-forbedring: status-flash er nu en grøn pille i 3.5s (var 12px tekst i 1.5s) + permanent hint under status-bar: "Status gemmes automatisk når du klikker en knap. Brug 'Gem' nederst til de øvrige felter."
 - [x] `docs/wordpress_divi_snippet.html` — kopier-klar HTML til DIVI Code Module
 - [x] `public/embed/test-harness.html` — lokal WordPress-mock til iframe-test
 - [x] End-to-end verificeret: form → webhook → bon med korrekt sandwichvalg + chips + valgte retter + form-meta + menu_items i raw_data
@@ -1847,7 +1859,8 @@ DELETE /api/mail/templates/:key                             routes/mail.js (admi
 POST   /webhook/bestilling                                 routes/web-orders.js (public, CORS)
 GET    /embed/bestilling?menu=                             routes/embed.js (public, CSP frame-ancestors)
 GET    /embed/config                                       routes/embed.js (public)
-GET    /embed/menus/:id.json                               routes/embed.js (public, 60s cache)
+GET    /embed/menus/:id.json                               routes/embed.js (public, 60s cache, manual/grocy via menu_source)
+GET    /embed/grocy-preview                                routes/embed.js (auth, tvungen Grocy-render til import-modal)
 GET    /api/settings/bestilling/menu/:id                   routes/settings.js (admin)
 PUT    /api/settings/bestilling/menu/:id                   routes/settings.js (admin, validér + auto-bump version)
 GET    /api/web-orders?status=                             routes/web-orders.js
