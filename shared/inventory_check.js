@@ -1393,3 +1393,12 @@ function _icFormatDate(date) {
     if (diffDays < 7) return diffDays + ' dage siden';
     return d.toLocaleDateString('da-DK', { day: 'numeric', month: 'short' });
 }
+
+// CommonJS export guard — exposes pure functions to Node-based tests (T_STOCK).
+// Browser ignores this block since `module` is undefined.
+if (typeof module !== 'undefined' && module.exports) {
+    module.exports = {
+        _icParseIntervalDays: _icParseIntervalDays,
+        _icComputeCheckStatus: _icComputeCheckStatus
+    };
+}

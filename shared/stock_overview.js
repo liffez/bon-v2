@@ -699,3 +699,11 @@ function _soShowToast(message, type) {
         setTimeout(function() { toast.remove(); }, 400);
     }, 3500);
 }
+
+// CommonJS export guard — exposes pure functions to Node-based tests (T_STOCK).
+// Browser ignores this block since `module` is undefined.
+if (typeof module !== 'undefined' && module.exports) {
+    module.exports = {
+        _soRecalcStatus: _soRecalcStatus
+    };
+}
