@@ -172,15 +172,15 @@ Hver observation har:
 | **Foreslået action** | I `shared/indkob_settings.js` "Alle koblinger"-tab: når brugeren toggler `is_preferred` ON på en barcode, clear alle andre barcodes for samme `product_id` først (eller `PATCH /api/grocy/userfields/product_barcodes/:id` for hver). Alternativt: tilføj en server-side guard i route'en. |
 | **Status** | `åben` (lav prioritet — design-beslutning) |
 
-### #017 — Hørkram basket-PUT returnerer 200 men varen lander ikke altid i `lines`
+### #017 — Hørkram basket-PUT lagde varer i InvalidLineItems pga forkert body-format (lukket)
 
 | | |
 |--|--|
-| **Kilde** | `T_INDKOB_HORKRAM_BASKET_02` + `BASKET_04` (12. maj 2026) |
-| **Beskrivelse** | PUT `/api/horkram/basket/add` med Spinat (varenr 16991002) returnerer HTTP 200, men efterfølgende GET viser ikke produktet i `lines`-arrayet. Lige nu er årsagen ukendt — kan være: (a) varenr ikke aktivt for valgte delivery-date, (b) Hoka markerer som "invalid" line item (kurven har `invalidLines` array vi ikke inspecterer), (c) midlertidigt udsolgt, (d) konto-specifik rate-vagt. Vores route's logik (SalesUnitIndex-resolver, merge med eksisterende) er korrekt — bekræftet af status 200 + ingen fejl i log. |
-| **Vurdering** | Lav prioritet for runner-tests — vi har dækket V2's adfærd (route virker). Højere prioritet ved cutover: Inden brugerne stoler på "Læg i kurv"-knappen, skal vi verificere at populære varer faktisk lander i kurven. Også uklart hvorfor — debug-endpoint `/api/horkram/debug/:varenr` kan måske hjælpe (jf. routes/horkram.js:795). |
-| **Foreslået action** | (1) Udvid GET basket-respons med `invalidLines`-detalje så UI kan vise hvorfor en vare ikke landede. (2) I `_bsAddToBasket` UI-flow: efter PUT, kald GET og verificér at varen er i `lines` — ikke `invalidLines`. (3) Inspicér Hokas svar i routes/horkram.js:458 (`InvalidLineItems`-log) for konkrete varer der fejler. |
-| **Status** | `åben` (lav prioritet for tests, **medium for cutover** — skal verificeres manuelt med faktiske RR-varer før go-live) |
+| **Kilde** | `T_INDKOB_HORKRAM_BASKET_02` + `BASKET_04` (12. maj 2026) — fixet samme dag |
+| **Beskrivelse** | PUT `/api/horkram/basket/add` returnerede HTTP 200, men varer landede i Hokas `InvalidLineItems` med `HasSalesUnitQuantity: false` i stedet for i `LineItems`. To samtidige problemer: (1) `routes/horkram.js` sendte `SalesUnitIndex + SalesUnitQuantity` på line-niveau — Hoka ignorerer `SalesUnitQuantity` og kræver nested objekt. (2) `GET /api/horkram/basket` brugte default `?id=0` der opretter ny tom basket i stedet for at hente sessionCache.basketId — så UI ville aldrig se de varer der lige blev PUT'et. |
+| **Vurdering** | **Bug — fixet 12. maj 2026.** Ville have brudt "Læg i kurv"-flowet ved cutover. To kommitter: (a) GET basket defaultes til `sessionCache.basketId` så den læser samme kurv som senest PUT, (b) PUT-body sender nu nested `SalesUnit: { Code, Quantity }` i stedet for `SalesUnitIndex + SalesUnitQuantity`. Verificeret: Spinat × 1 + Brød Rug × 1 lander nu korrekt i `lines` med `invalidCount=0`. |
+| **Foreslået action** | N/A — fixet. Næste skridt: når flere produkter testes manuelt, log evt. andre format-issues. |
+| **Status** | `lukket` (12. maj 2026 — routes/horkram.js opdateret + T_INDKOB_HORKRAM BASKET-cases viser nu faktisk verifikation, ikke bare 200-status) |
 
 ### #012 — `consumeRecipes` bruger rå `/objects/shopping_list` i stedet for smart endpoint (lukket)
 
@@ -210,4 +210,4 @@ Hver observation har:
 
 ---
 
-*Sidst opdateret: 12. maj 2026 — #017 fra T_INDKOB_HORKRAM (54/56 PASS). Tidligere: #016 fra T_INDKOB_ADMIN, #013-#015 fra T_INDKOB_SETUP, #012 lukket.*
+*Sidst opdateret: 12. maj 2026 — #017 flyttet til lukket efter routes/horkram.js fix: nested SalesUnit-format + GET defaultes til sessionCache.basketId. Basket-PUT lægger nu varer korrekt i Hokas LineItems.*

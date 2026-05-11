@@ -434,11 +434,13 @@ router.get('/favorites/:id/all', async (req, res) => {
    fra sessionCache — sættes under login.
    ══════════════════════════════════════════════════════════ */
 
-// Hent aktiv kurv
+// Hent aktiv kurv. Default til sessionCache.basketId (sat af PUT) så GET
+// efter PUT returnerer samme kurv — ellers ville Hoka skabe en ny tom basket
+// hver gang og UI'en ville ikke se de varer der lige blev lagt i.
 router.get('/basket', async (req, res) => {
     try {
-        console.log('[Hørkram] → GET basket');
-        const basketId = req.query.id || '0';
+        const basketId = req.query.id || sessionCache.basketId || '0';
+        console.log(`[Hørkram] → GET basket (id=${basketId})`);
         const url = `${HOKA_BASE}/api/checkout/basket?id=${basketId}`;
         const apiRes = await fetchWithAuth(url);
         if (!apiRes.ok) return res.status(apiRes.status).json({ error: `HTTP ${apiRes.status}` });
@@ -588,9 +590,10 @@ router.put('/basket/add', async (req, res) => {
                 const curData = await curRes.json();
                 const curLines = curData?.Model?.LineItems || [];
                 existingProducts = curLines.map(li => ({
-                    ProductId:      li.Product?.Id,
-                    Quantity:       li.Quantity,
-                    SalesUnitIndex: li.SalesUnitIndex ?? 0,
+                    ProductId:         li.Product?.Id,
+                    Quantity:          li.Quantity,
+                    SalesUnitIndex:    li.SalesUnitIndex ?? 0,
+                    SalesUnitQuantity: li.SalesUnitQuantity ?? 1,
                 })).filter(p => p.ProductId);
                 console.log(`[Hørkram] Eksisterende kurv: ${existingProducts.length} gyldige linjer`);
             }
@@ -598,7 +601,11 @@ router.put('/basket/add', async (req, res) => {
             console.log('[Hørkram] ⚠ Kunne ikke hente eksisterende kurv:', e.message);
         }
 
-        // Byg nye varer med SalesUnitIndex (konsekvent format for alle varer)
+        // Byg nye varer. Hoka forventer SalesUnit som nested objekt med
+        // { Code, Quantity } — ikke kun SalesUnitIndex. Felt-navnet
+        // SalesUnitQuantity på line-niveau ignoreres af Hokas validator
+        // (verificeret: InvalidLineItem.HasSalesUnitQuantity=false selvom
+        // SalesUnitQuantity er sendt). Korrekte format er nested SalesUnit.
         const newProducts = [];
         for (const p of products) {
             const pid = parseInt(p.varenummer || p.productId);
@@ -610,6 +617,10 @@ router.put('/basket/add', async (req, res) => {
                 ProductId:      pid,
                 Quantity:       parseFloat(p.quantity) || 1,
                 SalesUnitIndex: p._salesUnitIndex ?? 0,
+                SalesUnit: {
+                    Code:     p.salesUnitCode || 'st',
+                    Quantity: parseFloat(p.salesUnitQuantity) || 1,
+                },
             });
         }
 

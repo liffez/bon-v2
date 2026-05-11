@@ -414,10 +414,11 @@ Bevidste SKIPs:
   - ORD_01: V2 afgiver aldrig faktisk ordre mod Hoka (CLAUDE.md princip)
 
 Vigtige fund:
-  - Hørkram basket-PUT returnerer 200 men varen lander ikke altid i
-    `lines`-array (Spinat 16991002 endte ikke i kurv). Logget som
-    TEST_OBSERVATIONS #017 — skal verificeres manuelt med rigtige
-    RR-varer før cutover
+  - **TEST_OBSERVATIONS #017 fix'et 12. maj 2026**: routes/horkram.js
+    sendte forkert PUT-body-format (SalesUnitIndex+SalesUnitQuantity i
+    stedet for nested SalesUnit:{Code,Quantity}) + GET-defaultede til
+    nyt basket i stedet for sessionCache.basketId. Begge dele fixet.
+    Spinat × 1 + Brød Rug × 1 lander nu i lines, invalidCount=0
   - mailService NODE_ENV='test' auto-mock'er SMTP-send. Buffer
     eksponeres via /api/test/sent-mails (test-only route)
   - PO + supplier cleanup kræver FK-rækkefølge:

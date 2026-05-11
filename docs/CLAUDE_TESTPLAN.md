@@ -348,7 +348,8 @@ For hver track:
 7. `shared/indkob_settings.js:1741` — CommonJS export-guard for `_isStringSimilarity` (browser-safe)
 8. `services/mailService.js:146-194` (12. maj) — auto-mock-transport når `NODE_ENV='test'` + `_setMockTransport`/`_getSentMails`-helpers
 9. `routes/test-mail.js` (12. maj) — nyt test-only route der eksponerer mail-buffer via `GET /api/test/sent-mails` (kun aktiv i test-mode)
-10. `.gitignore` — `.env.*`, `tests/reports/`, `tests/fixtures/grocy_snapshot.json`, DB-backups, zip-arkiver, `.claude/worktrees/`
+10. `routes/horkram.js:438+615` (12. maj — fixer #017) — GET basket defaultes nu til `sessionCache.basketId` (i stedet for at oprette ny tom kurv ved hver kald). PUT-body sender nu nested `SalesUnit: { Code, Quantity }` i stedet for `SalesUnitIndex + SalesUnitQuantity`. Spinat × 1 lander nu korrekt i Hokas LineItems
+11. `.gitignore` — `.env.*`, `tests/reports/`, `tests/fixtures/grocy_snapshot.json`, DB-backups, zip-arkiver, `.claude/worktrees/`
 
 ### Næste track — **T_VAREMODTAGELSE** (sidste Fase 2-track)
 
