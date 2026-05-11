@@ -225,11 +225,11 @@ router.delete('/shopping-list/:id', handle(async (req, res) => {
 }));
 
 router.post('/shopping-list/add-product', handle(async (req, res) => {
-    const { product_id, product_amount, list_id } = req.body;
+    const { product_id, product_amount, list_id, note } = req.body;
     if (!product_id || !product_amount) {
         return res.status(400).json({ error: 'product_id og product_amount er påkrævet' });
     }
-    await grocy.addShoppingListProduct(product_id, product_amount, list_id);
+    await grocy.addShoppingListProduct(product_id, product_amount, list_id, note);
     res.json({ ok: true });
 }));
 
