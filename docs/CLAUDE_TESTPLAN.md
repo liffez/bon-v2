@@ -298,7 +298,8 @@ For hver track:
 
 ## 11. Næste opgave — pickup for ny session
 
-> Skrevet maj 2026 efter Fase 1 + T_INVENTORY commits (c2fbb82, 040e535, dddf4c9).
+> Skrevet maj 2026 efter Fase 1 + T_INVENTORY (c2fbb82, 040e535, dddf4c9).
+> Opdateret 11. maj 2026 efter T_STOCK (735e1ea), T_RECIPES (90dc6ef + 0c4474f), T_INV_FLAG_01-refaktor (15c9728) og TEST_OBSERVATIONS-backfill (0a07749).
 > Læs hele §11 for et hurtigt overblik over hvor vi står og hvad næste track bør være.
 
 ### Hvad er gjort
@@ -336,9 +337,12 @@ Indkøb-flow: Hørkram-kurv-API, manuel bestilling, varemodtagelse v3 med Grocy 
 
 | # | Spørgsmål | Status |
 |---|-----------|--------|
-| 12 | Force-mode på status-PATCH (CLAUDE.md vs. kode) | Parkeret — ikke akut |
-| 13 | `T_INV_FLAG_01` runner-design — kræver fresh bon mellem cases | Kunne refaktoreres når ny session laver T_STOCK |
-| 14 | Recipe 53 (Frikadellen-Slider) sub-recipe data | Bekræftet OK efter parent-substitution-fix, men sub-recipes 9/12/80 er ikke individuelt testet |
+| 12 | Force-mode på status-PATCH (CLAUDE.md vs. kode) | Parkeret — ikke akut. Også logged som `docs/TEST_OBSERVATIONS.md` #005 |
+| 13 | `T_INV_FLAG_01` runner-design — kræver fresh bon mellem cases | ✅ **Løst** 11. maj 2026 (commit 15c9728) — testen kører nu reelt, 13/13 PASS |
+| 14 | Recipe 53 (Frikadellen-Slider) sub-recipe data | Logged som `docs/TEST_OBSERVATIONS.md` #008 (manglende på grocytest) + #009 (sub-recipes 9/12/80 ikke individuelt testet) |
+
+**Nyt centralt sted for observations:** `docs/TEST_OBSERVATIONS.md` samler nu alle
+fund/uklarheder/UI-gaps på tværs af tracks. Kør gennem den ved planlægning af nye sessions.
 
 ### Sikkerheds-foranstaltninger (vigtigt — læs før kørsel)
 
@@ -348,4 +352,4 @@ Indkøb-flow: Hørkram-kurv-API, manuel bestilling, varemodtagelse v3 med Grocy 
 
 ---
 
-*Sidst opdateret: maj 2026 — efter Fase 1 + T_INVENTORY committed (commit c2fbb82, 040e535, dddf4c9).*
+*Sidst opdateret: 11. maj 2026 — efter T_STOCK + T_RECIPES + T_INV_FLAG_01-refaktor + TEST_OBSERVATIONS-backfill (commits 735e1ea, 90dc6ef, 0c4474f, 15c9728, 0a07749).*
