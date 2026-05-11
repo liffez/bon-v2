@@ -10,6 +10,17 @@ npm-debug.log*
 tests/reports/
 tests/fixtures/grocy_snapshot.json
 
+# DB-backups + fix-logs (lokal historik — ikke kode)
+data/*.backup-*
+data/*.pre-*
+data/*-fix-log-*.json
+
+# Arkiv-blobs (binære, ikke versionsstyrede)
+*.zip
+
+# Claude Code worktrees (lokal arbejdsmappe)
+.claude/worktrees/
+
 # Database
 *.db
 *.db-shm
