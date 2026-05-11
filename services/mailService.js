@@ -144,6 +144,12 @@ function generateBookingToken({ customer_id, sales_user_id = null, flow = 'smagn
  * @param {string} prefix - 'smtp' (standard) eller 'smtp_kontakt'
  */
 function createTransport(prefix = 'smtp') {
+    // Test-mode: når NODE_ENV='test' eller en eksplicit mock er sat,
+    // returnér en in-memory transport der opfanger sendMail-kald i _sentMails
+    // i stedet for at lave faktisk SMTP-forbindelse. Bruges af test-runnere.
+    if (_mockTransport) return _mockTransport;
+    if (process.env.NODE_ENV === 'test') return _autoMockTransport;
+
     const host = getSetting(`${prefix}_host`);
     const port = parseInt(getSetting(`${prefix}_port`) || '587');
     const user = getSetting(`${prefix}_user`);
@@ -158,6 +164,45 @@ function createTransport(prefix = 'smtp') {
         secure: port === 465,
         auth: { user, pass }
     });
+}
+
+// ─── Test-mode-guard ────────────────────────────────────
+//
+// Når NODE_ENV='test', erstatter mailService automatisk createTransport med
+// en in-memory mock der pusher sendMail-options til _sentMails-bufferen.
+// DB-rows (mail_threads + mail_messages) oprettes som normalt — mocken
+// erstatter kun det udgående netværkskald.
+//
+// Test-runnere læser bufferen via routes/test-mail.js (GET /api/test/sent-mails).
+
+let _mockTransport = null;
+const _sentMails = [];
+
+const _autoMockTransport = {
+    sendMail: async (opts) => {
+        _sentMails.push({
+            ...opts,
+            _capturedAt: new Date().toISOString()
+        });
+        return { messageId: `<auto-mock-${Date.now()}@test>` };
+    },
+    verify: async () => true
+};
+
+function _setMockTransport(mock) {
+    _mockTransport = mock;
+}
+
+function _clearMockTransport() {
+    _mockTransport = null;
+}
+
+function _getSentMails() {
+    return _sentMails.slice();
+}
+
+function _clearSentMails() {
+    _sentMails.length = 0;
 }
 
 /**
@@ -690,6 +735,11 @@ module.exports = {
     renderTemplate,
     generateBookingToken,
     getPollState,
+    // Test-mode-guard (kun til runner-brug)
+    _setMockTransport,
+    _clearMockTransport,
+    _getSentMails,
+    _clearSentMails,
     // Legacy compat
     parseTag: (subject) => {
         const r = parseSubject(subject);

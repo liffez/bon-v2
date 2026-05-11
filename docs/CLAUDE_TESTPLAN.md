@@ -22,7 +22,7 @@ Test-pakken skal kunne køres af Claude Code uden manuel intervention bortset fr
 | Fase | Område | Mål | Status |
 |------|--------|-----|--------|
 | **1** | Grundlæggende bon | Bon-kerne, kitchen-views, planlægning, Grocy-adapter, økonomi pr. bon | ✅ **Færdig (130/130 PASS, 3 SKIP)** maj 2026 |
-| **2** | Specialfunktioner | Lager (T_INVENTORY ✅ 13/13 + T_STOCK ✅ 31/31) + opskrifter (T_RECIPES ✅ 20/20) + indkøb (T_INDKOB_LISTE ✅ 38/39 + T_INDKOB_SETUP ✅ 47/47 + T_INDKOB_ADMIN ✅ 50/50, T_INDKOB_HORKRAM 🔲) + varemodtagelse (T_VAREMODTAGELSE 🔲) | 🟡 I gang — **329/331 PASS samlet** (6/8 tracks grønne). Tilbage: HORKRAM-bestilling + varemodtagelse v3 |
+| **2** | Specialfunktioner | Lager (T_INVENTORY ✅ 13/13 + T_STOCK ✅ 31/31) + opskrifter (T_RECIPES ✅ 20/20) + indkøb (T_INDKOB_LISTE ✅ 38/39 + T_INDKOB_SETUP ✅ 47/47 + T_INDKOB_ADMIN ✅ 50/50 + T_INDKOB_HORKRAM ✅ 54/56) + varemodtagelse (T_VAREMODTAGELSE 🔲) | 🟡 I gang — **383/387 PASS samlet** (7/8 tracks grønne). Tilbage: varemodtagelse v3 |
 | **3** | Office (bon-delen) | Bon-list, bon-detalje, office-dashboard for bon, tilbud | 🔲 Senere |
 | **4** | Resterende | CRM, mail-ind, fakturering, levering, ugeoversigt | 🔲 Når relevant |
 
@@ -55,7 +55,7 @@ T_PLAN dækker aggregerings-perspektivet i T_AGGR og T_ECON, så de bliver mindr
 | **T_INDKOB_LISTE** | Grocy shopping_list-proxy | Smart vs rå add, remove/delete, PUT split-routing, bulk-flows (manglende/overdue via add-and-remove), clear (SKIP — destruktiv) | `tests/specs/T_INDKOB_LISTE.md` ✅ **38/39 PASS · 1 SKIP** (11. maj 2026) |
 | **T_INDKOB_SETUP** | Suppliers + grocy-locations + barcodes | CRUD i `routes/purchasing.js`, 5 integration_types, soft-delete, product-barcodes + userfields, cache-invalidering, duplicate_candidates | `tests/specs/T_INDKOB_SETUP.md` ✅ **47/47 PASS** (11. maj 2026) |
 | **T_INDKOB_ADMIN** | Hørkram batch-import + mapping | READ-endpoints, snapshot→userfield-write, Dice-bigram-scoring (`_isStringSimilarity`), foretrukket-toggle, auto-mapping flow | `tests/specs/T_INDKOB_ADMIN.md` ✅ **50/50 PASS** (12. maj 2026) |
-| **T_INDKOB_HORKRAM** | Hørkram-bestillingsflow | Kurv-add (`PUT /api/horkram/basket`), order-POST, PO-mail-tråde | 🔲 spec ikke skrevet |
+| **T_INDKOB_HORKRAM** | Hørkram-bestillingsflow | Kurv-add (`PUT /api/horkram/basket`), PO CRUD + email via mock, PO-mail-tråde, tag-parsing | `tests/specs/T_INDKOB_HORKRAM.md` ✅ **54/56 PASS · 2 SKIP** (12. maj 2026) |
 | **T_VAREMODTAGELSE** | Atomisk goods-receipts | `POST /api/goods-receipts` (receipt + addStock + shopping_list cleanup + Whiteboard-webhook) | 🔲 spec ikke skrevet |
 
 **Forudsætninger anvendt:**
@@ -333,8 +333,9 @@ For hver track:
 - **T_INDKOB_LISTE**: 38/39 PASS · 1 SKIP (11. maj) — Grocy shopping_list-proxy. SKIP: CLEAR_01 (destruktiv mod hele list_id=1)
 - **T_INDKOB_SETUP**: 47/47 PASS · 0 SKIP (11. maj) — suppliers CRUD + 5 integration_types + grocy-locations + barcode CRUD + 5 barcode-userfields + duplicate_candidates schema
 - **T_INDKOB_ADMIN**: 50/50 PASS · 0 SKIP (12. maj) — Hørkram batch-import + Dice scoring + auto-mapping. Test-par: Spinat (28↔16991002), Brød Rug (1↔60097769)
+- **T_INDKOB_HORKRAM**: 54/56 PASS · 2 SKIP (12. maj) — basket-PUT live, PO CRUD + email-mock + mail-tråde + tag-parsing. SKIPs: BASKET_07 (kurv-clear uden for scope) + ORD_01 (V2 afgiver aldrig ordrer)
 
-**Fase 2 — 2 tracks tilbage**: T_INDKOB_HORKRAM (bestillingsflow) + T_VAREMODTAGELSE (atomisk goods-receipts). Specs ikke skrevet endnu.
+**Fase 2 — 1 track tilbage**: T_VAREMODTAGELSE (atomisk goods-receipts). Spec ikke skrevet.
 
 ### Kode-fixes der er landed undervejs (alle committed)
 
@@ -345,22 +346,20 @@ For hver track:
 5. `services/grocyAdapter.js:419-700` (PATCH_consumeRecipes, 11. maj) — smart shopping_list-endpoint i stedet for rå POST (dedupper)
 6. `routes/grocy.js:227-234` — `/shopping-list/add-product` videresender nu `note` til adapter
 7. `shared/indkob_settings.js:1741` — CommonJS export-guard for `_isStringSimilarity` (browser-safe)
-8. `.gitignore` — `.env.*`, `tests/reports/`, `tests/fixtures/grocy_snapshot.json`, DB-backups, zip-arkiver, `.claude/worktrees/`
+8. `services/mailService.js:146-194` (12. maj) — auto-mock-transport når `NODE_ENV='test'` + `_setMockTransport`/`_getSentMails`-helpers
+9. `routes/test-mail.js` (12. maj) — nyt test-only route der eksponerer mail-buffer via `GET /api/test/sent-mails` (kun aktiv i test-mode)
+10. `.gitignore` — `.env.*`, `tests/reports/`, `tests/fixtures/grocy_snapshot.json`, DB-backups, zip-arkiver, `.claude/worktrees/`
 
-### Næste track — **T_VAREMODTAGELSE** eller **T_INDKOB_HORKRAM**
+### Næste track — **T_VAREMODTAGELSE** (sidste Fase 2-track)
 
-3 af 5 indkøbs/varemodtagelses-tracks er grønne (LISTE, SETUP, ADMIN). De to
-tilbageværende har specs der **endnu ikke er skrevet** — de skal forfattes
-inden runner kan implementeres.
+4 af 5 indkøbs-tracks er grønne (LISTE, SETUP, ADMIN, HORKRAM). Sidste track
+i Fase 2 er T_VAREMODTAGELSE — spec ikke skrevet endnu.
 
-**Anbefaling: T_VAREMODTAGELSE først** fordi den er mere isoleret:
-
-- **T_VAREMODTAGELSE** tester `POST /api/goods-receipts` (atomisk flow: receipt-record + Grocy `addStock` + shopping_list cleanup + Whiteboard-webhook). Ingen Hørkram-API-mutation. Kan testes med Hørkram-API-credentials der allerede er i `.env.test`.
-- **T_INDKOB_HORKRAM** tester `PUT /api/horkram/basket/add` + `POST /api/orders/pending` + PO-mail-tråde. Risiko: muteres Hørkram-kurven på live API. Skal designe strategi for at undgå faktiske bestillinger (kun add, aldrig `POST /orders` med `confirm: true`).
+**T_VAREMODTAGELSE** tester `POST /api/goods-receipts` (atomisk flow: receipt-record + Grocy `addStock` + shopping_list cleanup + Whiteboard-webhook). Ingen Hørkram-API-mutation. Kan testes med Hørkram-API-credentials der allerede er i `.env.test`.
 
 **Start-prompt for ny session (T_VAREMODTAGELSE):**
 
-> Læs `docs/CLAUDE_TESTPLAN.md` §11 (denne sektion), `docs/CLAUDE_VAREMODTAGELSE_v3.md` (feature-spec), `tests/specs/T_INDKOB_SETUP.md` (mønstret for write-CRUD med DB-helpers + snapshot/restore) og `routes/goods-receipts.js` (5 endpoints der skal testes).
+> Læs `docs/CLAUDE_TESTPLAN.md` §11 (denne sektion), `docs/CLAUDE_VAREMODTAGELSE_v3.md` (feature-spec), `tests/specs/T_INDKOB_HORKRAM.md` (mønstret for FK-aware DB-cleanup) og `routes/goods-receipts.js` (5 endpoints der skal testes).
 >
 > Trin 1: Skriv `tests/specs/T_VAREMODTAGELSE.md` med ~25-30 cases der dækker: POST flow med temperatur+FVST-toggles+afvigelse, Grocy `addToStock` med best_before, shopping_list cleanup (delvis vs fuld modtagelse), Whiteboard-webhook (fire-and-forget), staff-CRUD, photo-upload, GET liste + GET /:id.
 >
@@ -389,4 +388,4 @@ fund/uklarheder/UI-gaps på tværs af tracks. Kør gennem den ved planlægning a
 
 ---
 
-*Sidst opdateret: 12. maj 2026 (kort efter midnat) — T_INDKOB_ADMIN 50/50 PASS grøn. **329/331 PASS samlet i Fase 1+2 indtil videre.** 6 af 8 Fase 2-tracks er grønne. Tilbage: T_INDKOB_HORKRAM + T_VAREMODTAGELSE.*
+*Sidst opdateret: 12. maj 2026 — T_INDKOB_HORKRAM 54/56 PASS · 2 SKIP grøn. **383/387 PASS samlet i Fase 1+2 indtil videre.** 7 af 8 Fase 2-tracks er grønne. Tilbage: T_VAREMODTAGELSE.*

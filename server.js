@@ -92,6 +92,12 @@ app.use('/b', require('./routes/booking-redirect'));
 // Embed-bestillingsformular (public, indlejres i WordPress iframe)
 app.use('/embed', require('./routes/embed'));
 
+// Test-only: eksponerer mailService's in-memory mail-buffer til test-runnere.
+// Kun aktiv når NODE_ENV='test' (.env.test → test-server på port 4322).
+if (process.env.NODE_ENV === 'test') {
+    app.use('/api/test', require('./routes/test-mail'));
+}
+
 app.use('/api/auth',           require('./routes/auth'));
 app.use('/api/payment-types',  require('./routes/payment_types'));
 app.use('/api/sse',            require('./shared/sse'));

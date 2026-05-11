@@ -34,7 +34,8 @@
     "test:reset-shopping-list": "node --env-file=.env.test --experimental-sqlite tests/scripts/reset_shopping_list.js",
     "test:run-indkob-liste": "node --env-file=.env.test --experimental-sqlite tests/scripts/run_T_INDKOB_LISTE.js",
     "test:run-indkob-setup": "node --env-file=.env.test --experimental-sqlite tests/scripts/run_T_INDKOB_SETUP.js",
-    "test:run-indkob-admin": "node --env-file=.env.test --experimental-sqlite tests/scripts/run_T_INDKOB_ADMIN.js"
+    "test:run-indkob-admin": "node --env-file=.env.test --experimental-sqlite tests/scripts/run_T_INDKOB_ADMIN.js",
+    "test:run-indkob-horkram": "node --env-file=.env.test --experimental-sqlite tests/scripts/run_T_INDKOB_HORKRAM.js"
   },
   "dependencies": {
     "bcryptjs": "^2.4.3",
