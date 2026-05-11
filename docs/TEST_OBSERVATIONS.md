@@ -62,14 +62,67 @@ Hver observation har:
 | **Foreslået action** | Samme som #003 — manuel cascade i en evt. ny `deleteRecipe()`-adapter-funktion, eller UI-advarsel der lister berørte parent-/child-relationer. |
 | **Status** | `åben` (medium prioritet — relevant før recipe-delete UI bygges) |
 
+### #005 — Force-mode dokumenteret i CLAUDE.md men IKKE implementeret
+
+| | |
+|--|--|
+| **Kilde** | `T_BON_API_FORCE_01` (Fase 1, maj 2026) |
+| **Beskrivelse** | CLAUDE.md siger: "Med `force: true` kan admin sætte hvilken som helst status". Men `routes/bons.js:316-338` validerer altid mod `status_transitions`-tabellen uden at tjekke `force`-parameteren. T_BON_API_FORCE_01 er derfor SKIP i T_BON. |
+| **Vurdering** | Dokumentations-gap. Lav prioritet: admin kan altid lave UPDATE direkte i DB. T_BON_API_FORCE_01 vipper automatisk til PASS hvis feature implementeres. |
+| **Foreslået action** | To muligheder: **(a)** implementér `force`-tjek (kræver rolle-check mod `users.role='admin'`), eller **(b)** fjern force-mode-omtalen fra CLAUDE.md. |
+| **Status** | `åben` (parkeret indtil konkret behov) |
+
+### #006 — AFLYST kan ikke nås fra terminal-statusser
+
+| | |
+|--|--|
+| **Kilde** | `T_BON` status-transitions-test (Fase 1, maj 2026) |
+| **Beskrivelse** | `status_transitions`-tabellen tillader AFLYST fra TILBUD/NY/VENTER/GODKENDT/IGANG/KLAR/LEVERET, men IKKE fra FAKTURERET/BETALT/AFSLUTTET. Det betyder en faktureret bon ikke kan annulleres via UI — kun via DB-UPDATE eller force-mode (som ikke virker, jf. #005). |
+| **Vurdering** | Sandsynligvis bevidst (terminal = endelig), men værd at bekræfte. Hvis en faktureret bon skal annulleres (fx kreditnota-flow), er der ingen UI-vej. |
+| **Foreslået action** | Bekræft med Leif at det er bevidst → dokumentér i CLAUDE.md. Eller tilføj transitions FAKTURERET/BETALT/AFSLUTTET → AFLYST som admin-only. |
+| **Status** | `åben` (behøver beslutning, ikke action) |
+
+### #007 — Tilbuds-toggle i planlægning er kun localStorage — ingen synlig UI
+
+| | |
+|--|--|
+| **Kilde** | `T_PLAN_AGG_05` SKIP (Fase 1, maj 2026) |
+| **Beskrivelse** | `shared/planning.js` har en `_plShowOffers`-toggle der bestemmer om tilbud (`is_offer=1`) vises i planlægningsbonnen. Toggle læses fra `localStorage.planning_show_offers` men der er ingen synlig UI-knap eller checkbox til at skifte den. Brugere skal manuelt sætte localStorage for at se tilbud i planlægning. |
+| **Vurdering** | UX-gap. Lav prioritet (kun køkkenet rører planlægning og de bruger sjældent tilbudsvisning), men teknisk gæld der vokser. |
+| **Foreslået action** | Tilføj en lille toggle ved siden af status-filtrene i `shared/planning.js`, eller fjern feature helt hvis ingen bruger den. |
+| **Status** | `åben` (lav prioritet) |
+
+### #008 — Frikadellen-Slider mangler på grocytest
+
+| | |
+|--|--|
+| **Kilde** | `T_PLAN` ING-tests + T_INVENTORY parent-substitution-fix (Fase 1, maj 2026) |
+| **Beskrivelse** | `Frikadellen-Slider` bruges på bons 4002 + 4007 i seed, men findes ikke som opskrift på grocytest. T_PLAN's `lines_without_recipe`-rapport fanger den. T_INVENTORY parent-substitution-fix gjorde at `consumeRecipes` på 4007 alligevel virker (sub-recipes 9/12/80 trækkes via substitution), men selve recipe-resolving er afhængig af, at den ikke er der. |
+| **Vurdering** | Testdata-issue. Hvis Frikadellen-Slider tilføjes til grocytest senere, skal `TEST_PRODUCTS` i `snapshot_grocy.js` opdateres med faktisk `grocyName`. |
+| **Foreslået action** | Opret Frikadellen-Slider på grocytest (én gang), eller acceptér at det blot ekskluderes fra ING-tests permanent. |
+| **Status** | `åben` (lav prioritet) |
+
+### #009 — Sub-recipes 9/12/80 ikke individuelt testet via T_INVENTORY
+
+| | |
+|--|--|
+| **Kilde** | T_INVENTORY parent-substitution-fix (Fase 1, maj 2026) — noteret i `docs/CLAUDE_TESTPLAN.md` §11 |
+| **Beskrivelse** | T_INVENTORY's parent-substitution-fix dækker tilfældet hvor consume mod en parent-product (fx kål) substituerer fra child-products (Hvidkål/Spidskål). Det virker for Frikadellen-Slider via underopskrifter 9/12/80, men de specifikke sub-recipes er aldrig individuelt testet. Hvis Grocy ændrer substitution-adfærd, vil testen falde igennem fordi alt aggregeres på family-niveau. |
+| **Vurdering** | Test-dækkelse-gap. Lav prioritet — parent-substitution er stabil i Grocy. |
+| **Foreslået action** | Hvis vi ser fejl i Frikadellen-Slider-flowet senere: tilføj specifik unit-test mod recipe 53's sub-recipes (9/12/80) i T_RECIPES eller en ny T_RESOLVER-track. |
+| **Status** | `åben` (lav prioritet) |
+
 ---
 
 ## Indeks per track
 
 | Track | Observations |
 |-------|--------------|
+| T_BON | #005, #006 |
+| T_PLAN | #007, #008 |
 | T_STOCK | #001 |
 | T_RECIPES | #002, #003, #004 |
+| T_INVENTORY | #009 |
 
 ---
 
