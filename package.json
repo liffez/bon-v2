@@ -28,7 +28,8 @@
     "test:run-econ": "node --env-file=.env.test --experimental-sqlite tests/scripts/run_T_ECON.js",
     "test:run-kt":   "node --env-file=.env.test --experimental-sqlite tests/scripts/run_T_KITCHEN_TODAY.js",
     "test:inv":      "node --env-file=.env.test --experimental-sqlite tests/scripts/run_T_INVENTORY.js",
-    "test:run-stock":"node --env-file=.env.test --experimental-sqlite tests/scripts/run_T_STOCK.js"
+    "test:run-stock":"node --env-file=.env.test --experimental-sqlite tests/scripts/run_T_STOCK.js",
+    "test:run-recipes":"node --env-file=.env.test --experimental-sqlite tests/scripts/run_T_RECIPES.js"
   },
   "dependencies": {
     "bcryptjs": "^2.4.3",
