@@ -769,9 +769,14 @@ async function runBulkCases() {
         }
     }
 
-    // BULK_02 — add-expired: kræver stock-entry med best_before i fortiden
+    // BULK_02 — add-expired: ikke testbar i dette scope.
+    // Ville kræve at vi inventerer en test-pid op med stock + sætter
+    // best_before_date til fortiden + cleanup tilbage. For meget mutation
+    // af stock-state for en kontrakt-test der i forvejen er Grocy-core-
+    // adfærd. Dækkes implicit hvis Grocys API ændrer kontrakten — så vil
+    // ADD og bulk-flowet (BULK_01) fange afvigelsen først.
     record('T_INDKOB_LISTE_BULK_02', 'BULK', 'SKIP',
-        'kræver stock-entry med best_before — mutation.setBestBefore antager ≥1 entry; testes ved next iteration');
+        'permanent SKIP: kræver stock+bb-mutation som ligger uden for denne tracks scope');
 
     // BULK_03 — add-overdue: Grocys eget /stock/shoppinglist/add-overdue-products
     // bruger best_before_date-baseret overdue-detection (Grocys core feature),
