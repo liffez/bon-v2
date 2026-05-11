@@ -1,0 +1,54 @@
+{
+  "version": 1,
+  "verified_on_grocy_target": "grocycafe.ristetrug.dk (prod)",
+  "verified_at": "2026-05-11T21:14:00Z",
+  "note": "Pids og koblinger forventes identiske på grocytest. SETUP_04/05 verificerer ved første kørsel.",
+  "test_pairs": [
+    {
+      "label": "spinat",
+      "horkram_varenr": "16991002",
+      "horkram_name_contains": "babyspinat",
+      "horkram_price_per_kg_dkk_ex_moms": 76.26,
+      "grocy_pid": 28,
+      "grocy_name": "Spinat",
+      "qu_stock": "Kilo",
+      "qu_purchase_examples": ["kasser (2 poser)", "poser"],
+      "pack_size_stock_unit_kg": 0.5,
+      "is_agreement_item": true,
+      "is_organic": true,
+      "is_frozen": false,
+      "in_favorites": true,
+      "co2e_per_unit": 0.43
+    },
+    {
+      "label": "broed_rug",
+      "horkram_varenr": "60097769",
+      "horkram_name_contains": "Rugbrødsstykke, 64 x 120 g",
+      "horkram_price_per_kg_dkk_ex_moms": 94.80,
+      "horkram_price_per_pack_dkk_ex_moms": 728.03,
+      "price_note": "Begge priser fra Hørkrams 'Min pris'-toggle: 94,80 / kg eller 728,03 / karton. Verificeret: 728.03 / 7.68 = 94.79 ≈ 94.80. Hørkram-priser er altid ex moms (matcher BON_V2_PRINCIPPER §6b cost_price-konvention)",
+      "grocy_pid": 1,
+      "grocy_name": "Brød Rug",
+      "qu_stock": "Kilo",
+      "qu_purchase_examples": ["kartoner"],
+      "pack_size_stock_unit_kg": 7.68,
+      "units_per_pack": 64,
+      "unit_weight_kg": 0.12,
+      "default_location": "Fryser",
+      "is_agreement_item": true,
+      "is_organic": true,
+      "is_frozen": true,
+      "in_favorites": true,
+      "co2e_per_unit": 1.03,
+      "qu_conversions_in_grocy_post_patch": [
+        { "from": "Antal", "to": "Kilo",  "factor": 0.12 },
+        { "from": "Antal", "to": "Kasse", "factor": 0.0156 },
+        { "from": "Kasse", "to": "Kilo",  "factor": 7.68 },
+        { "from": "Kasse", "to": "Antal", "factor": 64 },
+        { "from": "Kilo",  "to": "Antal", "factor": 8.3333 },
+        { "from": "Kilo",  "to": "Kasse", "factor": 0.1302 }
+      ],
+      "patch_note": "PATCH_grocy_qu_broedrug_v1_cleanup.md anvendt manuelt 11. maj 2026 på grocytest. Tidligere v1-værdier 10.8 / 0.0926 rettet til 7.68 / 0.1302 (jf. TEST_OBSERVATIONS #010)"
+    }
+  ]
+}

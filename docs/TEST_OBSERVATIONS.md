@@ -162,6 +162,16 @@ Hver observation har:
 | **Foreslået action** | Samme som #002 — hvis nogen rører `services/grocyAdapter.js:grocyPost`, kunne man map'e Grocy-500'er med "already exists"-tekst til 409. Eller pre-validér i route før POST. |
 | **Status** | `åben` (lav prioritet) |
 
+### #016 — Backend tillader flere samtidige `is_preferred='1'` på samme produkts barcodes
+
+| | |
+|--|--|
+| **Kilde** | `T_INDKOB_ADMIN_PREF_02` (11. maj 2026) |
+| **Beskrivelse** | `is_preferred`-userfield på `product_barcodes` er ren tekst — Grocy validerer ikke at kun én barcode pr. produkt har `is_preferred='1'`. To samtidige "Foretrukken"-flag persisterer uden fejl. Verificeret via T_INDKOB_ADMIN_PREF_02: oprettede ny barcode på pid=28 og satte `is_preferred='1'` mens den eksisterende også havde `is_preferred='1'` — begge persisterede. |
+| **Vurdering** | UI-design-mismatch. Hvis brugeren kan klikke "Foretrukken" på to barcodes uden at den anden auto-cleares, vil UI'en vise to lilla "Foretrukket"-badges og chip-sortering blive uforudsigelig (jf. `shared/indkob.js` chip-sortering: `is_preferred` → aftale → billigst). |
+| **Foreslået action** | I `shared/indkob_settings.js` "Alle koblinger"-tab: når brugeren toggler `is_preferred` ON på en barcode, clear alle andre barcodes for samme `product_id` først (eller `PATCH /api/grocy/userfields/product_barcodes/:id` for hver). Alternativt: tilføj en server-side guard i route'en. |
+| **Status** | `åben` (lav prioritet — design-beslutning) |
+
 ### #012 — `consumeRecipes` bruger rå `/objects/shopping_list` i stedet for smart endpoint (lukket)
 
 | | |
@@ -185,8 +195,8 @@ Hver observation har:
 | T_INVENTORY | #009, #012 |
 | T_INDKOB_LISTE | #012 |
 | T_INDKOB_SETUP | #013, #014, #015 |
-| T_INDKOB_ADMIN | #010, #011 |
+| T_INDKOB_ADMIN | #010, #011, #016 |
 
 ---
 
-*Sidst opdateret: 11. maj 2026 (sen aften) — #012 flyttet til lukket efter patch-anvendelse og T_INVENTORY-reverificering (13/13 PASS). Tilføjet #013-#015 fra T_INDKOB_SETUP (47/47 PASS).*
+*Sidst opdateret: 12. maj 2026 (kort efter midnat) — #016 tilføjet fra T_INDKOB_ADMIN (50/50 PASS). Tidligere: #012 lukket, #013-#015 fra T_INDKOB_SETUP.*

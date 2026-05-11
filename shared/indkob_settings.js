@@ -1738,3 +1738,9 @@ function _isStringSimilarity(a, b) {
 
     return (2 * intersection) / (bigramsA.length + bigramsB.length);
 }
+
+// CommonJS export-guard — eksponerer _isStringSimilarity for test-runnere
+// (T_INDKOB_ADMIN). Wrappet i typeof-check så browser-loading ikke fejler.
+if (typeof module !== 'undefined' && module.exports) {
+    module.exports = { _isStringSimilarity: _isStringSimilarity };
+}
