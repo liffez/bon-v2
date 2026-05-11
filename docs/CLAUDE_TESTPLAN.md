@@ -22,7 +22,7 @@ Test-pakken skal kunne køres af Claude Code uden manuel intervention bortset fr
 | Fase | Område | Mål | Status |
 |------|--------|-----|--------|
 | **1** | Grundlæggende bon | Bon-kerne, kitchen-views, planlægning, Grocy-adapter, økonomi pr. bon | ✅ **Færdig (130/130 PASS, 3 SKIP)** maj 2026 |
-| **2** | Specialfunktioner | Lager (T_INVENTORY ✅ 13/13 + T_STOCK ✅ 31/31) + opskrifter (T_RECIPES ✅ 20/20) + indkøb (4 tracks: T_INDKOB_LISTE/SETUP/ADMIN/HORKRAM) + varemodtagelse (T_VAREMODTAGELSE) | 🟡 I gang — lager-tracks ✅ grønne, indkøb-tracks 🔲 specs klar (maj 2026) |
+| **2** | Specialfunktioner | Lager (T_INVENTORY ✅ 13/13 + T_STOCK ✅ 31/31) + opskrifter (T_RECIPES ✅ 20/20) + indkøb (T_INDKOB_LISTE ✅ 38/39 + T_INDKOB_SETUP ✅ 47/47 + T_INDKOB_ADMIN ✅ 50/50, T_INDKOB_HORKRAM 🔲) + varemodtagelse (T_VAREMODTAGELSE 🔲) | 🟡 I gang — **329/331 PASS samlet** (6/8 tracks grønne). Tilbage: HORKRAM-bestilling + varemodtagelse v3 |
 | **3** | Office (bon-delen) | Bon-list, bon-detalje, office-dashboard for bon, tilbud | 🔲 Senere |
 | **4** | Resterende | CRM, mail-ind, fakturering, levering, ugeoversigt | 🔲 Når relevant |
 
@@ -52,14 +52,14 @@ T_PLAN dækker aggregerings-perspektivet i T_AGGR og T_ECON, så de bliver mindr
 | **T_INVENTORY** | Lager-træk ved LEVERET | `consumeRecipes`, parent/child-substitution, partial-consume + auto-shopping-list | `tests/specs/T_INVENTORY.md` ✅ **13/13 PASS** (11. maj 2026) |
 | **T_STOCK** | Direkte stock-mutation + userfields | `setInventory`, `addToStock`, userfield-CRUD, status-funktioner i `inventory_check.js`/`stock_overview.js` | `tests/specs/T_STOCK.md` ✅ **31/31 PASS** (11. maj 2026) |
 | **T_RECIPES** | Recipe CRUD via Grocy proxy | `POST/PUT /recipes`, positions, nestings, multi-field PUT, cascade-observation | `tests/specs/T_RECIPES.md` ✅ **20/20 PASS** (11. maj 2026) |
-| **T_INDKOB_LISTE** | Grocy shopping_list-proxy | Smart vs rå add, remove/delete, PUT split-routing, bulk-flows (manglende/udløbne/forfaldne), clear | `tests/specs/T_INDKOB_LISTE.md` 🔲 spec klar |
-| **T_INDKOB_SETUP** | Suppliers + grocy-locations + barcodes | CRUD i `routes/purchasing.js`, CHECK-constraints, soft-delete, product-barcodes + userfields, cache-invalidering, duplicate_candidates | `tests/specs/T_INDKOB_SETUP.md` 🔲 spec klar |
-| **T_INDKOB_ADMIN** | Hørkram batch-import + mapping | READ-endpoints, snapshot→userfield-write, Dice-bigram-scoring (`_isStringSimilarity`), udgået-detection, foretrukket-toggle | `tests/specs/T_INDKOB_ADMIN.md` 🔲 spec klar |
-| **T_INDKOB_HORKRAM** | Hørkram-bestillingsflow | Kurv-add (`PUT /api/horkram/basket`), order-POST, PO-mail-tråde | 🔲 ikke skrevet |
-| **T_VAREMODTAGELSE** | Atomisk goods-receipts | `POST /api/goods-receipts` (receipt + addStock + shopping_list cleanup + Whiteboard-webhook) | 🔲 ikke skrevet |
+| **T_INDKOB_LISTE** | Grocy shopping_list-proxy | Smart vs rå add, remove/delete, PUT split-routing, bulk-flows (manglende/overdue via add-and-remove), clear (SKIP — destruktiv) | `tests/specs/T_INDKOB_LISTE.md` ✅ **38/39 PASS · 1 SKIP** (11. maj 2026) |
+| **T_INDKOB_SETUP** | Suppliers + grocy-locations + barcodes | CRUD i `routes/purchasing.js`, 5 integration_types, soft-delete, product-barcodes + userfields, cache-invalidering, duplicate_candidates | `tests/specs/T_INDKOB_SETUP.md` ✅ **47/47 PASS** (11. maj 2026) |
+| **T_INDKOB_ADMIN** | Hørkram batch-import + mapping | READ-endpoints, snapshot→userfield-write, Dice-bigram-scoring (`_isStringSimilarity`), foretrukket-toggle, auto-mapping flow | `tests/specs/T_INDKOB_ADMIN.md` ✅ **50/50 PASS** (12. maj 2026) |
+| **T_INDKOB_HORKRAM** | Hørkram-bestillingsflow | Kurv-add (`PUT /api/horkram/basket`), order-POST, PO-mail-tråde | 🔲 spec ikke skrevet |
+| **T_VAREMODTAGELSE** | Atomisk goods-receipts | `POST /api/goods-receipts` (receipt + addStock + shopping_list cleanup + Whiteboard-webhook) | 🔲 spec ikke skrevet |
 
-**Forudsætninger der skal lande før / som del af T_INDKOB_LISTE-PR:**
-- `tests/specs/PATCH_consumeRecipes_smart_shopping_list.md` — to ændringer i `services/grocyAdapter.js` + opdatering af `T_INV_PARTIAL_02`-assertion. Logget som **#012** i `docs/TEST_OBSERVATIONS.md` (åben)
+**Forudsætninger anvendt:**
+- `tests/specs/PATCH_consumeRecipes_smart_shopping_list.md` — ✅ **anvendt 11. maj 2026** (3 ændringer: smart endpoint i `consumeRecipes`, udvidet `addShoppingListProduct` med note-param, opdateret `T_INV_PARTIAL_02`-assertion). Logget som **#012** i `docs/TEST_OBSERVATIONS.md` (lukket)
 - `tests/specs/PATCH_grocy_qu_broedrug_v1_cleanup.md` — ✅ **anvendt manuelt på grocytest** 11. maj 2026. Skal også køres på grocycafe inden cutover. Logget som **#010** (lukket)
 
 ### 3.2 Parallelt: T_V1_AFSTEMNING
@@ -318,57 +318,55 @@ For hver track:
 > Skrevet maj 2026 efter Fase 1 + T_INVENTORY (c2fbb82, 040e535, dddf4c9).
 > Opdateret 11. maj 2026 efter T_STOCK (735e1ea), T_RECIPES (90dc6ef + 0c4474f), T_INV_FLAG_01-refaktor (15c9728) og TEST_OBSERVATIONS-backfill (0a07749).
 > Opdateret 11. maj 2026 (sen aften): indkøbs-tracket splittet i 4 (`T_INDKOB_LISTE/SETUP/ADMIN/HORKRAM`) + `T_VAREMODTAGELSE` — specs klar i `tests/specs/`.
+> Opdateret 12. maj 2026 (kort efter midnat): **3 af 5 indkøbs/varemodtagelses-tracks er nu grønne** (LISTE 38/39, SETUP 47/47, ADMIN 50/50). Tilbage: T_INDKOB_HORKRAM + T_VAREMODTAGELSE.
 > Læs hele §11 for et hurtigt overblik over hvor vi står og hvad næste track bør være.
 
 ### Hvad er gjort
 
-- **Fase 1: 130/130 PASS · 3 SKIP** — alle 8 tracks grønne. Specs i `tests/specs/T_DB.md`, `T_BON.md`, `T_PLAN.md`, `T_GROCY.md`, `T_AGGR.md`, `T_INPUT.md`, `T_ECON.md`, `T_KITCHEN_TODAY.md`.
-- **Fase 2 påbegyndt — T_INVENTORY: 13/13 PASS · 0 SKIP** (FLAG_01 refaktoreret 11. maj 2026 — runneren behøver ikke længere en frisk bon).
-- **T_STOCK: 31/31 PASS · 0 SKIP** (11. maj 2026) — direkte stock-mutation (`setInventory`, `addToStock`) + userfield-CRUD + enhedstest af status-beregningen i `shared/inventory_check.js` + `shared/stock_overview.js` via CommonJS-export-guard (tests importerer direkte fra produktionsfilerne, ingen kodeduplikering). Testprodukter: 87, 89, 95, 205 — disjoint fra T_INVENTORY. Spec: `tests/specs/T_STOCK.md`.
-- **T_RECIPES: 20/20 PASS · 0 SKIP** (11. maj 2026) — recipe CRUD via vores Grocy proxy: `POST/PUT /recipes`, `PUT /recipes/:id/userfields`, `POST/PUT/DELETE /recipes-pos`, `POST/PUT/DELETE /recipes-nestings`. Inkluderer multi-field PUT på positioner (`ingredient_group`, `note`, `variable_amount`, `qu_id`) og CASCADE-observation: Grocy cascade'r IKKE `recipes_pos`/`recipes_nestings` ved recipe-delete — orphans hænger. Spec: `tests/specs/T_RECIPES.md`. Cross-cutting observations: `docs/TEST_OBSERVATIONS.md` #002, #003, #004.
+**Fase 1 — alle 8 tracks grønne**: 130/130 PASS · 3 SKIP. Specs i `tests/specs/T_DB.md`, `T_BON.md`, `T_PLAN.md`, `T_GROCY.md`, `T_AGGR.md`, `T_INPUT.md`, `T_ECON.md`, `T_KITCHEN_TODAY.md`.
+
+**Fase 2 — 6 af 8 tracks grønne (329 PASS i alt):**
+
+- **T_INVENTORY**: 13/13 PASS · 0 SKIP (11. maj — FLAG_01 refaktoreret + PARTIAL_02 opdateret efter patch)
+- **T_STOCK**: 31/31 PASS · 0 SKIP (11. maj) — direkte stock-mutation + status-funktioner via CommonJS export-guard. Pids 87/89/95/205
+- **T_RECIPES**: 20/20 PASS · 0 SKIP (11. maj) — recipe CRUD inkl. multi-field POS + CASCADE-observation
+- **T_INDKOB_LISTE**: 38/39 PASS · 1 SKIP (11. maj) — Grocy shopping_list-proxy. SKIP: CLEAR_01 (destruktiv mod hele list_id=1)
+- **T_INDKOB_SETUP**: 47/47 PASS · 0 SKIP (11. maj) — suppliers CRUD + 5 integration_types + grocy-locations + barcode CRUD + 5 barcode-userfields + duplicate_candidates schema
+- **T_INDKOB_ADMIN**: 50/50 PASS · 0 SKIP (12. maj) — Hørkram batch-import + Dice scoring + auto-mapping. Test-par: Spinat (28↔16991002), Brød Rug (1↔60097769)
+
+**Fase 2 — 2 tracks tilbage**: T_INDKOB_HORKRAM (bestillingsflow) + T_VAREMODTAGELSE (atomisk goods-receipts). Specs ikke skrevet endnu.
 
 ### Kode-fixes der er landed undervejs (alle committed)
 
 1. `routes/kitchen.js:145` — JOIN-bug på `price_category`-kolonne
 2. `routes/bons.js:357-368` — `inventory_deducted=1` sættes nu efter consume + tjekkes før for at undgå dobbelt-træk
-3. `services/grocyAdapter.js:534-624` — to nye features:
-   - `allow_subproduct_substitution: true` (parent-produkter trækker fra børn)
-   - Partial consume + auto-shopping-list-add (v1-paritet)
+3. `services/grocyAdapter.js:534-624` — to nye features: `allow_subproduct_substitution`, partial consume + auto-shopping-list-add (v1-paritet)
 4. `services/ingredientResolver.js:402-450` — `resolveConsumeItems` returnerer `qu_id_stock`, `qu_id_purchase`, `parent_product_id`, `purchase_factor`
-5. `.gitignore` — `.env.*`, `tests/reports/`, `tests/fixtures/grocy_snapshot.json`, DB-backups, zip-arkiver, `.claude/worktrees/`
+5. `services/grocyAdapter.js:419-700` (PATCH_consumeRecipes, 11. maj) — smart shopping_list-endpoint i stedet for rå POST (dedupper)
+6. `routes/grocy.js:227-234` — `/shopping-list/add-product` videresender nu `note` til adapter
+7. `shared/indkob_settings.js:1741` — CommonJS export-guard for `_isStringSimilarity` (browser-safe)
+8. `.gitignore` — `.env.*`, `tests/reports/`, `tests/fixtures/grocy_snapshot.json`, DB-backups, zip-arkiver, `.claude/worktrees/`
 
-### Næste track — **T_INDKOB_LISTE** (første af 5 indkøbs/varemodtagelses-tracks)
+### Næste track — **T_VAREMODTAGELSE** eller **T_INDKOB_HORKRAM**
 
-T_STOCK ✅, T_RECIPES ✅ og T_INV_FLAG_01-refaktor ✅ er færdige (11. maj 2026).
-Lager-tracksene er hermed komplet grønne. Indkøb-området er besluttet splittet
-i 4 + 1 tracks fordi T_PURCHASING-monolitten blev for stor i scope:
+3 af 5 indkøbs/varemodtagelses-tracks er grønne (LISTE, SETUP, ADMIN). De to
+tilbageværende har specs der **endnu ikke er skrevet** — de skal forfattes
+inden runner kan implementeres.
 
-1. **T_INDKOB_LISTE** — shopping_list-proxy (denne)
-2. **T_INDKOB_SETUP** — suppliers, grocy-locations, barcodes
-3. **T_INDKOB_ADMIN** — Hørkram batch-import + Dice auto-mapping
-4. **T_INDKOB_HORKRAM** — bestillingsflow (kurv-add + order + PO-mail)
-5. **T_VAREMODTAGELSE** — atomisk goods-receipts
+**Anbefaling: T_VAREMODTAGELSE først** fordi den er mere isoleret:
 
-Alle 5 specs er i `tests/specs/` (T_INDKOB_LISTE/SETUP/ADMIN klar, HORKRAM + VAREMODTAGELSE ikke skrevet endnu).
+- **T_VAREMODTAGELSE** tester `POST /api/goods-receipts` (atomisk flow: receipt-record + Grocy `addStock` + shopping_list cleanup + Whiteboard-webhook). Ingen Hørkram-API-mutation. Kan testes med Hørkram-API-credentials der allerede er i `.env.test`.
+- **T_INDKOB_HORKRAM** tester `PUT /api/horkram/basket/add` + `POST /api/orders/pending` + PO-mail-tråde. Risiko: muteres Hørkram-kurven på live API. Skal designe strategi for at undgå faktiske bestillinger (kun add, aldrig `POST /orders` med `confirm: true`).
 
-**To patches skal anvendes FØR eller SOM DEL AF T_INDKOB_LISTE-PR:**
+**Start-prompt for ny session (T_VAREMODTAGELSE):**
 
-| Patch | Status | Beskrivelse |
-|-------|--------|-------------|
-| `tests/specs/PATCH_grocy_qu_broedrug_v1_cleanup.md` | ✅ **Anvendt manuelt på grocytest** 11. maj 2026 (Leif). Skal også køres på grocycafe inden cutover | Brød Rug pid=1 havde forkert QU-konvertering `1 Kasse = 10.8 kg` (gamle v1-data). Rettet til 7.68 + 0.1302 |
-| `tests/specs/PATCH_consumeRecipes_smart_shopping_list.md` | 🔲 **Ikke anvendt endnu** — landes som første commit i T_INDKOB_LISTE-PR | 3 ændringer: udvid `addShoppingListProduct` med note-param, brug smart endpoint i `consumeRecipes`, opdater `T_INV_PARTIAL_02`-assertion fra "ny entry-id" til "amount-stigning" (ellers ramler T_INVENTORY 13/13 → 12/13) |
-
-**Start-prompt for ny session (T_INDKOB_LISTE):**
-
-> Læs `docs/CLAUDE_TESTPLAN.md` §11 (denne sektion), `tests/specs/T_INDKOB_LISTE.md` (komplet spec), `tests/specs/PATCH_consumeRecipes_smart_shopping_list.md` (skal anvendes som første commit) og `docs/TEST_OBSERVATIONS.md` #012 (åben — patch'en lukker den).
+> Læs `docs/CLAUDE_TESTPLAN.md` §11 (denne sektion), `docs/CLAUDE_VAREMODTAGELSE_v3.md` (feature-spec), `tests/specs/T_INDKOB_SETUP.md` (mønstret for write-CRUD med DB-helpers + snapshot/restore) og `routes/goods-receipts.js` (5 endpoints der skal testes).
 >
-> Trin 1: Anvend `PATCH_consumeRecipes_smart_shopping_list.md` — 3 ændringer (2 i `services/grocyAdapter.js`, 1 i `tests/scripts/run_T_INVENTORY.js`). Kør T_INVENTORY → fortsat 13/13 PASS. Flyt #012 til `lukket` i TEST_OBSERVATIONS.
+> Trin 1: Skriv `tests/specs/T_VAREMODTAGELSE.md` med ~25-30 cases der dækker: POST flow med temperatur+FVST-toggles+afvigelse, Grocy `addToStock` med best_before, shopping_list cleanup (delvis vs fuld modtagelse), Whiteboard-webhook (fire-and-forget), staff-CRUD, photo-upload, GET liste + GET /:id.
 >
-> Trin 2: Skriv `tests/scripts/run_T_INDKOB_LISTE.js` + `tests/scripts/helpers/grocy_mutation.js` (refactor af eksisterende T_STOCK-helpers). Implementér alle cases fra §4.1-4.11 i specen. Forventet ~30 cases.
+> Trin 2: Skriv `tests/scripts/run_T_VAREMODTAGELSE.js`. Brug `T_INDKOB_pids.json` (kan oprette test-shopping_list-entries via samme adapter som T_INDKOB_LISTE).
 >
-> Trin 3: Generer `tests/fixtures/T_INDKOB_pids.json` via `pickDisjointProducts(4, exclude=[T_STOCK_pids, T_INVENTORY_pids])`. Filen genbruges af SETUP/ADMIN.
->
-> Brug Hørkram-credentials fra `.env.test` hvis de er sat — T_INDKOB_LISTE er Grocy-only, ingen Hørkram-kald.
+> Trin 3: Verificér at testen ikke spammer Whiteboard-instansen (webhook URL via `WHITEBOARD_BASE_URL` i `.env.test` — kan pege på mock eller tom string for at deaktivere).
 
 ### Åbne tekniske beslutninger
 
@@ -377,6 +375,8 @@ Alle 5 specs er i `tests/specs/` (T_INDKOB_LISTE/SETUP/ADMIN klar, HORKRAM + VAR
 | 12 | Force-mode på status-PATCH (CLAUDE.md vs. kode) | Parkeret — ikke akut. Også logged som `docs/TEST_OBSERVATIONS.md` #005 |
 | 13 | `T_INV_FLAG_01` runner-design — kræver fresh bon mellem cases | ✅ **Løst** 11. maj 2026 (commit 15c9728) — testen kører nu reelt, 13/13 PASS |
 | 14 | Recipe 53 (Frikadellen-Slider) sub-recipe data | Logged som `docs/TEST_OBSERVATIONS.md` #008 (manglende på grocytest) + #009 (sub-recipes 9/12/80 ikke individuelt testet) |
+| 15 | `is_preferred` eksklusivitet på barcodes | Logged som `docs/TEST_OBSERVATIONS.md` #016 — backend tillader flere samtidige. UI eller server-guard mangler. Lav prioritet |
+| 16 | T_INDKOB_HORKRAM: hvordan tester vi basket-add uden at lave faktisk ordre? | Åben — skal afklares før T_INDKOB_HORKRAM-spec skrives. Forslag: brug isolated test-basket-ID, kun PUT basket, aldrig POST /orders med confirm |
 
 **Nyt centralt sted for observations:** `docs/TEST_OBSERVATIONS.md` samler nu alle
 fund/uklarheder/UI-gaps på tværs af tracks. Kør gennem den ved planlægning af nye sessions.
@@ -389,4 +389,4 @@ fund/uklarheder/UI-gaps på tværs af tracks. Kør gennem den ved planlægning a
 
 ---
 
-*Sidst opdateret: 11. maj 2026 (sen aften) — indkøbs-tracket splittet i 4 specs (T_INDKOB_LISTE/SETUP/ADMIN) + T_INDKOB_HORKRAM + T_VAREMODTAGELSE planlagt. To patch-filer logget i `tests/specs/`. Tidligere opdatering: efter T_STOCK + T_RECIPES + T_INV_FLAG_01-refaktor + TEST_OBSERVATIONS-backfill (commits 735e1ea, 90dc6ef, 0c4474f, 15c9728, 0a07749).*
+*Sidst opdateret: 12. maj 2026 (kort efter midnat) — T_INDKOB_ADMIN 50/50 PASS grøn. **329/331 PASS samlet i Fase 1+2 indtil videre.** 6 af 8 Fase 2-tracks er grønne. Tilbage: T_INDKOB_HORKRAM + T_VAREMODTAGELSE.*

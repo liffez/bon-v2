@@ -338,7 +338,25 @@ npm-scripts:
 ## 10. Status — efter første kørsel
 
 ```
-(genereres ved første kørsel)
+T_INDKOB_LISTE — 11. maj 2026 (kørsler 1–5)
+38 PASS · 0 FAIL · 1 SKIP
+
+Iteration:
+  1. 20 PASS · 7 FAIL · 8 SKIP — product_amount-feltnavn forkert i runner
+  2. 30 PASS · 2 FAIL · 7 SKIP — ADD_03 decimal + BULK_03 endpoint-mismatch
+  3. 32 PASS · 0 FAIL · 7 SKIP — Grocy-afrunding accepteret, add-overdue valgt over add-expired
+  4. 37 PASS · 0 FAIL · 2 SKIP — PUT/DELETE via rå adapter (omgår dedup)
+  5. 38 PASS · 0 FAIL · 1 SKIP — BULK_02 implementeret via add-and-remove på pids.isolation
+
+SKIP-årsag:
+  T_INDKOB_LISTE_CLEAR_01 — destruktiv mod hele list_id=1 + rebuild-strategi
+                            er kompleks. Udskudt indtil safe-rebuild verificeret
+
+Vigtige fund:
+  - Smart shopping_list endpoint dedupper på pid (forventet)
+  - Grocy afrunder decimal-amount ved heltals-stock-enhed (Antal/Stk)
+  - add-overdue er Grocy core (best_before_date<today), IKKE HverDag-userfield
+  - /api/grocy/stock cacher 10 min — cache-clear nødvendigt før bb-state-tjek
 ```
 
 ---

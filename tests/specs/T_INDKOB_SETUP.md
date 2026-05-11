@@ -318,7 +318,25 @@ npm-script:
 ## 10. Status — efter første kørsel
 
 ```
-(genereres ved første kørsel)
+T_INDKOB_SETUP — 11. maj 2026
+47 PASS · 0 FAIL · 0 SKIP (første kørsel grøn)
+
+Dækker:
+  - 5 SETUP-cases (DB, fixture, endpoints, schema, adapter)
+  - 9 SUPPLIERS CRUD-cases (alle 5 integration_types + soft-delete)
+  - 5 SGL (grocy-locations link/unlink)
+  - 6 BC (product-barcodes CRUD + cache-invalidering)
+  - 7 BCUF (barcode userfields — alle 5 indkøbs-felter + batch + tom-restore)
+  - 4 PUF (product userfields — supplier_price_per_kg, price_updated_at,
+    min_stock, shopping_location)
+  - 3 CACHE (dækket implicit af BC + BCUF)
+  - 3 DUP (duplicate_candidates schema-tjek + INSERT)
+  - 5 CLEANUP (hard-delete via SQL, restore userfields)
+
+Nye observations (logget i TEST_OBSERVATIONS):
+  - #013: route POST /suppliers falder tilbage til 'manual' ved ugyldig type
+  - #014: supplier_grocy_locations INSERT OR REPLACE → silent 200 ved duplikat
+  - #015: Grocy 500 ved duplikat (pid, barcode) — relateret #002
 ```
 
 ---

@@ -415,7 +415,32 @@ npm-script:
 ## 10. Status — efter første kørsel
 
 ```
-(genereres ved første kørsel)
+T_INDKOB_ADMIN — 12. maj 2026 (kort efter midnat)
+50 PASS · 0 FAIL · 0 SKIP
+
+Iteration:
+  1. 42 PASS · 6 FAIL · 2 SKIP — Hørkram-respons-wrappers (results, lists,
+     products, Model.Dates) ikke håndteret; snapshot-feltnavne forkert
+  2. 50 PASS · 0 FAIL · 0 SKIP — wrappers + faktiske feltnavne anvendt
+     (varenummer, pricePerKg, isOrganic, isAgreementItem, co2e)
+
+Dækker:
+  - 7 SETUP (credentials, fixture, health, pids, barcodes, varenumre, parser)
+  - 10 HORKRAM READ (search, product, snapshots, auto-chunking, favorites,
+    delivery-dates, dropsize)
+  - 7 BATCH IMPORT (snapshot → userfield-write, supplier_price_per_kg
+    ~76.26/94.80 ex moms, hk_co2e, hk_organic, idempotens, partial-fail,
+    is_preferred-bevarelse)
+  - 7 DICE BIGRAM (_isStringSimilarity enhedstest via CommonJS export-guard)
+  - 5 AUTO-MAPPING (delete+recreate på Spinat-barcode)
+  - 4 DEAD-detection observations
+  - 3 FORETRUKKET-toggle inkl. multi-preferred-observation
+  - 2 CACHE (dækket implicit af IMP)
+  - 4 CLEANUP (per-pid snapshot/restore)
+
+Ny observation (logget i TEST_OBSERVATIONS):
+  - #016: backend tillader flere samtidige is_preferred='1' på samme produkts
+    barcodes. UI eller server-guard skal håndtere eksklusivitet
 ```
 
 ---
