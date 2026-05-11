@@ -296,4 +296,60 @@ For hver track:
 
 ---
 
-*Sidst opdateret: maj 2026 — efter første gennemgang og opdatering af specs.*
+## 11. Næste opgave — pickup for ny session
+
+> Skrevet maj 2026 efter Fase 1 + T_INVENTORY commits (c2fbb82, 040e535, dddf4c9).
+> Læs hele §11 for et hurtigt overblik over hvor vi står og hvad næste track bør være.
+
+### Hvad er gjort
+
+- **Fase 1: 130/130 PASS · 3 SKIP** — alle 8 tracks grønne. Specs i `tests/specs/T_DB.md`, `T_BON.md`, `T_PLAN.md`, `T_GROCY.md`, `T_AGGR.md`, `T_INPUT.md`, `T_ECON.md`, `T_KITCHEN_TODAY.md`.
+- **Fase 2 påbegyndt — T_INVENTORY: 12/12 PASS · 1 SKIP** (eksklusiv `T_INV_FLAG_01` som er en runner-design-mangel, ikke en feature-bug).
+
+### Kode-fixes der er landed undervejs (alle committed)
+
+1. `routes/kitchen.js:145` — JOIN-bug på `price_category`-kolonne
+2. `routes/bons.js:357-368` — `inventory_deducted=1` sættes nu efter consume + tjekkes før for at undgå dobbelt-træk
+3. `services/grocyAdapter.js:534-624` — to nye features:
+   - `allow_subproduct_substitution: true` (parent-produkter trækker fra børn)
+   - Partial consume + auto-shopping-list-add (v1-paritet)
+4. `services/ingredientResolver.js:402-450` — `resolveConsumeItems` returnerer `qu_id_stock`, `qu_id_purchase`, `parent_product_id`, `purchase_factor`
+5. `.gitignore` — `.env.*`, `tests/reports/`, `tests/fixtures/grocy_snapshot.json`, DB-backups, zip-arkiver, `.claude/worktrees/`
+
+### Næste track — anbefaling: **T_STOCK**
+
+T_STOCK er det mest værdifulde Fase 2-track for Bon v1-cutover. Dækker:
+- Lageroptælling (`POST /api/grocy/stock/:id/inventory`)
+- Stock-add (manuel + via varemodtagelse)
+- Expiry-tracking + status (utilstrækkeligt/lavt/ok)
+- `LastCheckedAt`/`LastCheckedUnit`/`HverDag` userfields på products
+- Inline-edit fra stock_overview.js + inventory_check.js
+
+**Hvorfor T_STOCK fremfor T_RECIPES:**
+- T_STOCK er dagligdags-drift, T_RECIPES rører kun køkkenet ved opskrift-design
+- T_STOCK kobler ovenpå T_INVENTORY (consume + stock-add allerede testet)
+- Recipe-CRUD er mere afgrænset og kan vente til Fase 3 eller efter v1-cutover
+
+**Start-prompt for ny session:**
+
+> Læs `docs/CLAUDE_TESTPLAN.md` §11 (denne sektion), `tests/specs/T_INVENTORY.md` (mønstret for write-tests mod Grocy), og `tests/scripts/run_T_INVENTORY.js` (parent-aware diff, per-bon cleanup, idempotens-tracking).
+>
+> Skriv `tests/specs/T_STOCK.md` + `tests/scripts/run_T_STOCK.js` i samme mønster. Test både readonly-funktioner (stock-overview-data, expiry-status, HverDag-check-status) og write-flow (`/api/grocy/stock/:id/inventory` med rollback, `/api/grocy/stock/:id/add` allerede testet i T_INVENTORY-cleanup). Forventet 4–6 cases.
+
+### Åbne tekniske beslutninger
+
+| # | Spørgsmål | Status |
+|---|-----------|--------|
+| 12 | Force-mode på status-PATCH (CLAUDE.md vs. kode) | Parkeret — ikke akut |
+| 13 | `T_INV_FLAG_01` runner-design — kræver fresh bon mellem cases | Kunne refaktoreres når ny session laver T_STOCK |
+| 14 | Recipe 53 (Frikadellen-Slider) sub-recipe data | Bekræftet OK efter parent-substitution-fix, men sub-recipes 9/12/80 er ikke individuelt testet |
+
+### Sikkerheds-foranstaltninger (vigtigt — læs før kørsel)
+
+- **Grocy-adapter læser URL fra `locations`-tabellen i DB**, IKKE fra `GROCY_API_URL` env-var. `seed_planning.sql` sætter `default_grocy_location_id=3` så vi rammer grocytest. **Hvis denne setting mangler, falder adapteren tilbage til prod-Grocy** — `tests/scripts/safety_check.js` afviser nu kørsel hvis aktiv lokation ikke indeholder "test" i URL'en.
+- Alle test-bonner bruger nummer 4001–4008 (sikker buffer over prod-seneste 3479).
+- `inventory_auto_deduct=1` er sat i `seed_planning.sql`. Skal også manuelt sættes i prod-DB ved go-live.
+
+---
+
+*Sidst opdateret: maj 2026 — efter Fase 1 + T_INVENTORY committed (commit c2fbb82, 040e535, dddf4c9).*
