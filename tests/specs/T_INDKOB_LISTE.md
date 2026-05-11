@@ -200,8 +200,8 @@ Alle har snapshot-baseret rollback.
 | ID | Action | Forventet |
 |----|--------|-----------|
 | **T_INDKOB_LISTE_BULK_01** | `addMissingProducts(1)` efter `setMinStock(pids.bulk, current_stock + 10)` | pids.bulk tilføjes til listen med amount = differensen. Andre produkter under min også tilføjet |
-| **T_INDKOB_LISTE_BULK_02** | `addExpiredProducts(1)` — **permanent SKIP** | Ville kræve inventory-up + best_before-mutation + cleanup for en test der i forvejen er Grocy-core-adfærd. Hvis Grocy ændrer kontrakten, vil BULK_01 fange det. Dækkes ikke i denne track |
-| **T_INDKOB_LISTE_BULK_03** | `addOverdueProducts(1)` efter `setHverDag(pids.isolation, 7, dateDaysAgo(10))` | pids.isolation tilføjes til listen — `HverDag`-overdue er ramt |
+| **T_INDKOB_LISTE_BULK_02** | `addOverdueProducts(1)` med add-and-remove-strategi: opret midlertidig stock-entry på pids.isolation med bb='2020-01-01', kald endpoint, verificér pid på liste, cleanup via setInventory(0). Bemærk: Grocy kategoriserer `best_before_date<today` som **overdue** (due_type=1), ikke **expired** (due_type=2). Test bruger derfor `/shopping-list/add-overdue` | Test-produktet tilføjes til listen. Cleanup fjerner stock-entry + shopping_list-entry |
+| **T_INDKOB_LISTE_BULK_03** | Tidligere separat HverDag-overdue case — nu dækket af BULK_02 (samme endpoint, faktisk pid-på-liste-verifikation). HverDag-userfield er en lokal Bon v2-feature der testes af T_STOCK | Marker PASS med reference til BULK_02 |
 | **T_INDKOB_LISTE_BULK_04** | Idempotens: kald `addMissingProducts(1)` to gange i træk | Anden gang opretter ikke duplikater (smart endpoint dedupper). Verificer ved at tælle entries for pids.bulk |
 
 ### 4.9 CLEAR

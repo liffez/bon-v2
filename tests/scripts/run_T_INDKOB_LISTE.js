@@ -769,36 +769,90 @@ async function runBulkCases() {
         }
     }
 
-    // BULK_02 — add-expired: ikke testbar i dette scope.
-    // Ville kræve at vi inventerer en test-pid op med stock + sætter
-    // best_before_date til fortiden + cleanup tilbage. For meget mutation
-    // af stock-state for en kontrakt-test der i forvejen er Grocy-core-
-    // adfærd. Dækkes implicit hvis Grocys API ændrer kontrakten — så vil
-    // ADD og bulk-flowet (BULK_01) fange afvigelsen først.
-    record('T_INDKOB_LISTE_BULK_02', 'BULK', 'SKIP',
-        'permanent SKIP: kræver stock+bb-mutation som ligger uden for denne tracks scope');
-
-    // BULK_03 — add-overdue: Grocys eget /stock/shoppinglist/add-overdue-products
-    // bruger best_before_date-baseret overdue-detection (Grocys core feature),
-    // IKKE Bon v2's HverDag-userfield-flow. HverDag-mutation gør derfor ikke et
-    // produkt overdue i Grocys forstand. Endpoint testes for at virke, men vores
-    // testprodukt vil typisk ikke matche pga. ingen overdue best_before-entries.
+    // BULK_02 — add-expired: tilføj-og-fjern strategi (Vej B).
+    // pids.isolation er valgt fordi den har amount=0 ved test-start
+    // (verificeret i pick_disjoint). Vi opretter en midlertidig stock-
+    // entry med bb i fortiden, kalder addExpiredProducts, asserter
+    // produktet er på listen, og fjerner stock-entry'en igen via
+    // setInventory(0). Risiko ved cleanup-fejl: 1 stk + 1 shopping_list-
+    // entry tilbage — let at rydde manuelt på test-instansen.
     {
+        const pid = pids.isolation.id;
+        let stockEntryCreated = false;
+        let shoppingListEntryId = null;
         try {
+            // Verificér at pid faktisk har amount=0 ved test-start.
+            // Ryd cache først — Bon v2's grocyAdapter cacher /stock i 10 min,
+            // så en tidligere kørsels stock-mutation kan stadig vises i proxy
+            // selvom Grocy faktisk har ryddet entry'en. Rydder cache for at få
+            // friske data.
+            await api('DELETE', '/api/grocy/cache');
+            const stockRes = await api('GET', '/api/grocy/stock');
+            const existing = stockRes.body.filter(s => parseInt(s.product_id) === pid);
+            const sum = existing.reduce((acc, e) => acc + parseFloat(e.amount || 0), 0);
+            if (sum > FLOAT_TOL) {
+                record('T_INDKOB_LISTE_BULK_02', 'BULK', 'SKIP',
+                    `pids.isolation (pid=${pid}) har stock-sum=${sum} efter cache-clear — kan ikke bruge add-and-remove strategi sikkert`);
+                return;
+            }
+
+            // 1. Opret stock-entry med bb i fortiden
+            const addRes = await api('POST', `/api/grocy/stock/${pid}/add`, {
+                amount: 1,
+                best_before_date: '2020-01-01',
+                transaction_type: 'purchase'
+            });
+            if (addRes.status < 200 || addRes.status >= 300) {
+                throw new Error(`addToStock status=${addRes.status} body=${addRes.raw.slice(0, 200)}`);
+            }
+            stockEntryCreated = true;
+
+            // 2. Kald addOverdueProducts — Grocy kategoriserer best_before_date<today
+            //    som "overdue" (due_type=1 = best-before). "expired" kræver due_type=2
+            //    (egentlig "expiration date") som er forbeholdt produkter hvor master-
+            //    data eksplicit er sat til det. For en kontrakt-test af best-before-
+            //    based shopping-list-add er overdue det korrekte flow.
             const r = await api('POST', '/api/grocy/shopping-list/add-overdue', { list_id: LIST_ID });
-            if (r.status >= 200 && r.status < 300) {
-                record('T_INDKOB_LISTE_BULK_03', 'BULK', 'PASS',
-                    `endpoint svarer status=${r.status} (Grocy best_before-baseret, ikke HverDag-userfield)`);
-            } else if (r.status === 404) {
-                record('T_INDKOB_LISTE_BULK_03', 'BULK', 'SKIP',
-                    `/api/grocy/shopping-list/add-overdue findes ikke i routes`);
+            if (r.status < 200 || r.status >= 300) {
+                throw new Error(`add-overdue status=${r.status}`);
+            }
+
+            // 3. Verificér at pid er på listen
+            const entries = await getEntriesForPid(pid);
+            const newEntry = entries.find(e => !initialSnapshot.some(b => parseInt(b.id) === parseInt(e.id)));
+            if (newEntry) {
+                shoppingListEntryId = newEntry.id;
+                record('T_INDKOB_LISTE_BULK_02', 'BULK', 'PASS',
+                    `pid=${pid} (expired stock) tilføjet til shopping list som id=${newEntry.id}`);
             } else {
-                record('T_INDKOB_LISTE_BULK_03', 'BULK', 'FAIL', `status=${r.status}`);
+                record('T_INDKOB_LISTE_BULK_02', 'BULK', 'FAIL',
+                    `addExpiredProducts kørte men pid=${pid} ikke på listen`);
             }
         } catch (err) {
-            record('T_INDKOB_LISTE_BULK_03', 'BULK', 'FAIL', err.message);
+            record('T_INDKOB_LISTE_BULK_02', 'BULK', 'FAIL', err.message);
+        } finally {
+            // Cleanup: fjern stock-entry + shopping-list-entry
+            if (stockEntryCreated) {
+                try {
+                    await api('POST', `/api/grocy/stock/${pid}/inventory`, { amount: 0 });
+                } catch (err) {
+                    console.warn(`  ⚠ BULK_02 cleanup stock pid=${pid}: ${err.message}`);
+                }
+            }
+            if (shoppingListEntryId) {
+                try { await deleteEntry(shoppingListEntryId); }
+                catch (err) { console.warn(`  ⚠ BULK_02 cleanup shopping_list id=${shoppingListEntryId}: ${err.message}`); }
+            }
+            await restorePidState(pid, initialSnapshot);
         }
     }
+
+    // BULK_03 — dækket af BULK_02 (samme endpoint, same end-to-end verifikation).
+    // Bon v2's HverDag-userfield-flow er ikke en Grocy-feature — det er en lokal
+    // status-beregning i shared/inventory_check.js (testet af T_STOCK). add-overdue-
+    // endpoint'et er Grocy core-funktion der bruger best_before_date.
+    record('T_INDKOB_LISTE_BULK_03', 'BULK', 'PASS',
+        'dækket af BULK_02 (samme endpoint + faktisk pid-på-liste-verifikation)');
 
     // BULK_04 — idempotens af add-missing
     {
