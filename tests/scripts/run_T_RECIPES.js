@@ -443,6 +443,79 @@ async function runPosCases() {
         record('T_RECIPES_POS_04', 'POS', 'PASS',
             `DELETE 999999999 → status=${ghostDel.status} (observation, ikke krav)`);
 
+        // T_RECIPES_POS_05 — opdatér flere felter (ingredient_group, note, variable_amount)
+        let pos5Id = null;
+        const create5Res = await api('POST', '/api/grocy/recipes-pos', {
+            recipe_id: parentRecipeId,
+            product_id: TEST_PRODUCT_ID,
+            amount: 1,
+            qu_id: TEST_PRODUCT_QU_ID
+        });
+        if (create5Res.status !== 200 || !create5Res.body || !create5Res.body.created_object_id) {
+            record('T_RECIPES_POS_05', 'POS', 'FAIL',
+                `kunne ikke oprette pos til POS_05: status=${create5Res.status}`);
+        } else {
+            pos5Id = create5Res.body.created_object_id;
+            const upd5 = await api('PUT', `/api/grocy/recipes-pos/${pos5Id}`, {
+                ingredient_group: 'Hovedingrediens',
+                note: 'Test note T_RECIPES',
+                variable_amount: '0.5*portions'
+            });
+            if (upd5.status !== 200) {
+                record('T_RECIPES_POS_05', 'POS', 'FAIL', `PUT status=${upd5.status}`);
+            } else {
+                const all = await api('GET', '/api/grocy/recipes-pos/all');
+                const found = (all.body || []).find(p => parseInt(p.id) === parseInt(pos5Id));
+                if (found
+                    && found.ingredient_group === 'Hovedingrediens'
+                    && found.note === 'Test note T_RECIPES'
+                    && found.variable_amount === '0.5*portions') {
+                    record('T_RECIPES_POS_05', 'POS', 'PASS',
+                        `ingredient_group, note, variable_amount persisteret`);
+                } else {
+                    record('T_RECIPES_POS_05', 'POS', 'FAIL',
+                        `ingredient_group='${found && found.ingredient_group}', note='${found && found.note}', variable_amount='${found && found.variable_amount}'`);
+                }
+            }
+            if (!SKIP_CLEANUP && pos5Id) {
+                await api('DELETE', `/api/grocy/recipes-pos/${pos5Id}`).catch(() => {});
+            }
+        }
+
+        // T_RECIPES_POS_06 — opdater qu_id
+        let pos6Id = null;
+        const create6Res = await api('POST', '/api/grocy/recipes-pos', {
+            recipe_id: parentRecipeId,
+            product_id: TEST_PRODUCT_ID,
+            amount: 1,
+            qu_id: TEST_PRODUCT_QU_ID
+        });
+        if (create6Res.status !== 200 || !create6Res.body || !create6Res.body.created_object_id) {
+            record('T_RECIPES_POS_06', 'POS', 'FAIL',
+                `kunne ikke oprette pos til POS_06: status=${create6Res.status}`);
+        } else {
+            pos6Id = create6Res.body.created_object_id;
+            // qu_id=4 (kg) som alternativ til 8 (stk) — Grocy plejer at acceptere det selvom det er meningsløst for Affaldsposer
+            const ALT_QU = 4;
+            const upd6 = await api('PUT', `/api/grocy/recipes-pos/${pos6Id}`, { qu_id: ALT_QU });
+            if (upd6.status !== 200) {
+                record('T_RECIPES_POS_06', 'POS', 'FAIL', `PUT status=${upd6.status}`);
+            } else {
+                const all = await api('GET', '/api/grocy/recipes-pos/all');
+                const found = (all.body || []).find(p => parseInt(p.id) === parseInt(pos6Id));
+                if (found && parseInt(found.qu_id) === ALT_QU) {
+                    record('T_RECIPES_POS_06', 'POS', 'PASS',
+                        `qu_id: ${TEST_PRODUCT_QU_ID} → ${ALT_QU}`);
+                } else {
+                    record('T_RECIPES_POS_06', 'POS', 'FAIL',
+                        `qu_id=${found && found.qu_id}`);
+                }
+            }
+            if (!SKIP_CLEANUP && pos6Id) {
+                await api('DELETE', `/api/grocy/recipes-pos/${pos6Id}`).catch(() => {});
+            }
+        }
+
     } catch (err) {
         record('T_RECIPES_POS_01', 'POS', 'FAIL', err.message);
     } finally {
@@ -453,6 +526,90 @@ async function runPosCases() {
         if (parentRecipeId && !SKIP_CLEANUP) {
             await deleteTestRecipe(parentRecipeId);
         }
+    }
+}
+
+// ════════════════════════════════════════════════════════════
+// CASCADE — recipe-delete med relaterede positioner/nestings
+// ════════════════════════════════════════════════════════════
+
+async function runCascadeCases() {
+    console.log('\n── CASCADE (recipe-delete adfærd) ─');
+
+    // T_RECIPES_CASCADE_01 — slet recipe der har positioner
+    try {
+        const parent = await createTestRecipe('CASCADE_01_PARENT');
+        const posCreate = await api('POST', '/api/grocy/recipes-pos', {
+            recipe_id: parent.id,
+            product_id: TEST_PRODUCT_ID,
+            amount: 1,
+            qu_id: TEST_PRODUCT_QU_ID
+        });
+        if (posCreate.status !== 200 || !posCreate.body || !posCreate.body.created_object_id) {
+            record('T_RECIPES_CASCADE_01', 'CASCADE', 'FAIL',
+                `kunne ikke oprette pos: status=${posCreate.status}`);
+        } else {
+            const posId = posCreate.body.created_object_id;
+            // Slet selve opskriften via direkte Grocy DELETE
+            await deleteTestRecipe(parent.id);
+            // Tjek om positionen stadig findes
+            const all = await api('GET', '/api/grocy/recipes-pos/all');
+            const orphan = (all.body || []).find(p => parseInt(p.id) === parseInt(posId));
+            if (orphan) {
+                record('T_RECIPES_CASCADE_01', 'CASCADE', 'PASS',
+                    `OBSERVATION: position ${posId} HÆNGER som orphan efter recipe-delete (recipe_id=${orphan.recipe_id} peger på slettet opskrift)`);
+                // Manuel oprydning så vi ikke efterlader skrald
+                if (!SKIP_CLEANUP) {
+                    await api('DELETE', `/api/grocy/recipes-pos/${posId}`).catch(() => {});
+                }
+            } else {
+                record('T_RECIPES_CASCADE_01', 'CASCADE', 'PASS',
+                    `OBSERVATION: position ${posId} CASCADE-slettet (Grocy fjerner positioner ved recipe-delete)`);
+            }
+        }
+    } catch (err) {
+        record('T_RECIPES_CASCADE_01', 'CASCADE', 'FAIL', err.message);
+    }
+
+    // T_RECIPES_CASCADE_02 — slet parent recipe der har nesting pegende på child
+    try {
+        const parent = await createTestRecipe('CASCADE_02_PARENT');
+        const child  = await createTestRecipe('CASCADE_02_CHILD');
+        const nestCreate = await api('POST', '/api/grocy/recipes-nestings', {
+            recipe_id: parent.id,
+            includes_recipe_id: child.id,
+            servings: 0.5
+        });
+        if (nestCreate.status !== 200 || !nestCreate.body || !nestCreate.body.created_object_id) {
+            record('T_RECIPES_CASCADE_02', 'CASCADE', 'FAIL',
+                `kunne ikke oprette nesting: status=${nestCreate.status}`);
+            if (!SKIP_CLEANUP) {
+                await deleteTestRecipe(parent.id);
+                await deleteTestRecipe(child.id);
+            }
+        } else {
+            const nestId = nestCreate.body.created_object_id;
+            // Slet parent
+            await deleteTestRecipe(parent.id);
+            // Tjek om nesting'en stadig findes
+            const all = await api('GET', '/api/grocy/recipes-nestings');
+            const orphan = (all.body || []).find(n => parseInt(n.id) === parseInt(nestId));
+            if (orphan) {
+                record('T_RECIPES_CASCADE_02', 'CASCADE', 'PASS',
+                    `OBSERVATION: nesting ${nestId} HÆNGER som orphan efter parent-delete (recipe_id=${orphan.recipe_id})`);
+                if (!SKIP_CLEANUP) {
+                    await api('DELETE', `/api/grocy/recipes-nestings/${nestId}`).catch(() => {});
+                }
+            } else {
+                record('T_RECIPES_CASCADE_02', 'CASCADE', 'PASS',
+                    `OBSERVATION: nesting ${nestId} CASCADE-slettet (Grocy fjerner nestings ved recipe-delete)`);
+            }
+            if (!SKIP_CLEANUP) {
+                await deleteTestRecipe(child.id);
+            }
+        }
+    } catch (err) {
+        record('T_RECIPES_CASCADE_02', 'CASCADE', 'FAIL', err.message);
     }
 }
 
@@ -599,7 +756,7 @@ function writeReport() {
     const fails  = results.filter(r => r.status === 'FAIL').length;
     const skips  = results.filter(r => r.status === 'SKIP').length;
 
-    const groups = ['SETUP','CREATE','UPDATE','POS','NEST','CLEANUP'];
+    const groups = ['SETUP','CREATE','UPDATE','POS','NEST','CASCADE','CLEANUP'];
     const byGroup = {};
     for (const g of groups) {
         const inGroup = results.filter(r => r.group === g);
@@ -680,6 +837,7 @@ async function main() {
     await runUpdateCases();
     await runPosCases();
     await runNestingCases();
+    await runCascadeCases();
     await finalCleanup();
 
     db.close();

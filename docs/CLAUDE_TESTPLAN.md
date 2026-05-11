@@ -22,7 +22,7 @@ Test-pakken skal kunne køres af Claude Code uden manuel intervention bortset fr
 | Fase | Område | Mål | Status |
 |------|--------|-----|--------|
 | **1** | Grundlæggende bon | Bon-kerne, kitchen-views, planlægning, Grocy-adapter, økonomi pr. bon | ✅ **Færdig (130/130 PASS, 3 SKIP)** maj 2026 |
-| **2** | Specialfunktioner | Lager-tjek (T_INVENTORY ✅ + T_STOCK ✅ 31/31) + opskrifter (T_RECIPES ✅ 16/16), indkøb | 🟡 I gang |
+| **2** | Specialfunktioner | Lager-tjek (T_INVENTORY ✅ + T_STOCK ✅ 31/31) + opskrifter (T_RECIPES ✅ 20/20), indkøb | 🟡 I gang |
 | **3** | Office (bon-delen) | Bon-list, bon-detalje, office-dashboard for bon, tilbud | 🔲 Senere |
 | **4** | Resterende | CRM, mail-ind, fakturering, levering, ugeoversigt | 🔲 Når relevant |
 
@@ -306,7 +306,7 @@ For hver track:
 - **Fase 1: 130/130 PASS · 3 SKIP** — alle 8 tracks grønne. Specs i `tests/specs/T_DB.md`, `T_BON.md`, `T_PLAN.md`, `T_GROCY.md`, `T_AGGR.md`, `T_INPUT.md`, `T_ECON.md`, `T_KITCHEN_TODAY.md`.
 - **Fase 2 påbegyndt — T_INVENTORY: 12/12 PASS · 1 SKIP** (eksklusiv `T_INV_FLAG_01` som er en runner-design-mangel, ikke en feature-bug).
 - **T_STOCK: 31/31 PASS · 0 SKIP** (11. maj 2026) — direkte stock-mutation (`setInventory`, `addToStock`) + userfield-CRUD + enhedstest af status-beregningen i `shared/inventory_check.js` + `shared/stock_overview.js` via CommonJS-export-guard (tests importerer direkte fra produktionsfilerne, ingen kodeduplikering). Testprodukter: 87, 89, 95, 205 — disjoint fra T_INVENTORY. Spec: `tests/specs/T_STOCK.md`.
-- **T_RECIPES: 16/16 PASS · 0 SKIP** (11. maj 2026) — recipe CRUD via vores Grocy proxy: `POST/PUT /recipes`, `PUT /recipes/:id/userfields`, `POST/PUT/DELETE /recipes-pos`, `POST/PUT/DELETE /recipes-nestings`. Recipe-deletion sker via direkte Grocy-kald (vi har intet DELETE-endpoint for recipes — kun cleanup-infrastruktur). 9 transient test-opskrifter oprettet og slettet under kørslen, ingen orphans. Observation: `DELETE /recipes-pos/<ghost-id>` returnerer 500 ikke 404 — ikke kritisk for v1-cutover. Spec: `tests/specs/T_RECIPES.md`.
+- **T_RECIPES: 20/20 PASS · 0 SKIP** (11. maj 2026) — recipe CRUD via vores Grocy proxy: `POST/PUT /recipes`, `PUT /recipes/:id/userfields`, `POST/PUT/DELETE /recipes-pos`, `POST/PUT/DELETE /recipes-nestings`. Inkluderer multi-field PUT på positioner (`ingredient_group`, `note`, `variable_amount`, `qu_id`) og CASCADE-observation: Grocy cascade'r IKKE `recipes_pos`/`recipes_nestings` ved recipe-delete — orphans hænger. Spec: `tests/specs/T_RECIPES.md`. Cross-cutting observations: `docs/TEST_OBSERVATIONS.md` #002, #003, #004.
 
 ### Kode-fixes der er landed undervejs (alle committed)
 

@@ -123,7 +123,17 @@ Opretter test-recipe + bruger pid=87 som ingrediens.
 | **T_RECIPES_POS_03** | `DELETE /recipes-pos/:id` | GET viser den er væk |
 | **T_RECIPES_POS_04** | `DELETE /recipes-pos/999999999` (ikke-eksisterende) | Returnerer 4xx eller silent 200 — dokumentér Grocys adfærd (negativ test) |
 
-**Observation fra første kørsel (11. maj 2026):** `DELETE /recipes-pos/999999999` returnerer **status 500** (ikke 404). Vores adapter `grocyDelete()` propagerer Grocys interne 500-svar — den ikke-eksisterende id behandles som en generisk Grocy-fejl. Det er accepteret nuværende adfærd; hvis det skal forbedres, bør adapteren mappe 500'er der indeholder "not found" til 404. Ikke kritisk for v1-cutover.
+**Observation fra første kørsel (11. maj 2026):** `DELETE /recipes-pos/999999999` returnerer **status 500** (ikke 404). Vores adapter `grocyDelete()` propagerer Grocys interne 500-svar — den ikke-eksisterende id behandles som en generisk Grocy-fejl. Det er accepteret nuværende adfærd; hvis det skal forbedres, bør adapteren mappe 500'er der indeholder "not found" til 404. Ikke kritisk for v1-cutover. Logged som #002 i `docs/TEST_OBSERVATIONS.md`.
+
+### 4.4b RECIPE POSITIONS — flere felter
+
+`recipes_pos`-bordet har felter ud over `amount` som vores UI bruger:
+`ingredient_group`, `note`, `variable_amount`, `qu_id`. Disse felter testes også.
+
+| ID | Action | Forventet |
+|----|--------|-----------|
+| **T_RECIPES_POS_05** | `PUT /recipes-pos/:id { ingredient_group: 'Hovedingrediens', note: 'Test note', variable_amount: '0.5*portions' }` | Alle tre felter persisterer og kan læses tilbage |
+| **T_RECIPES_POS_06** | `PUT /recipes-pos/:id { qu_id: <anden qu> }` | qu_id er ændret |
 
 Test-recipe slettes til sidst via direkte Grocy DELETE.
 
@@ -139,7 +149,22 @@ Opretter to test-recipes (A og B) → link B som nesting i A.
 
 Begge test-recipes slettes til sidst via direkte Grocy DELETE.
 
-### 4.6 CLEANUP
+### 4.6 CASCADE — recipe-delete med relaterede positioner/nestings
+
+Verificerer hvad der sker med `recipes_pos` og `recipes_nestings` når selve
+opskriften slettes via direkte Grocy DELETE (det er sådan brugeren ville gøre det
+manuelt via Grocy UI'en, og det driver vores cleanup).
+
+| ID | Action | Forventet |
+|----|--------|-----------|
+| **T_RECIPES_CASCADE_01** | Opret recipe + tilføj position → DELETE recipe (direkte Grocy) → GET `/recipes-pos/all` | Position'en er væk (cascade), ELLER hænger som orphan — dokumentér Grocys adfærd |
+| **T_RECIPES_CASCADE_02** | Opret parent + child → opret nesting (child → parent) → DELETE parent → GET `/recipes-nestings` | Nesting'en er væk (cascade), ELLER hænger som orphan — dokumentér Grocys adfærd |
+
+Disse er **observations-tests** — de fejler ikke uanset hvad Grocy gør. Formålet er
+at få Grocys adfærd dokumenteret for fremtidige beslutninger (hvis Grocy ikke cascade'r,
+bør UI'en advare brugere før de sletter en opskrift med relaterede data).
+
+### 4.7 CLEANUP
 
 | ID | Formål | Forventet |
 |----|--------|-----------|
@@ -197,24 +222,31 @@ Begge test-recipes slettes til sidst via direkte Grocy DELETE.
 
 ---
 
-## 9. Status — efter første kørsel maj 2026
+## 9. Status — efter udvidet kørsel maj 2026
 
 ```
-16 PASS · 0 FAIL · 0 SKIP
+20 PASS · 0 FAIL · 0 SKIP
 
 SETUP    3/3    ✓
 CREATE   2/2    ✓  (POST recipes med/uden description, base_servings)
 UPDATE   3/3    ✓  (PUT name+description, base_servings, userfields)
-POS      4/4    ✓  (POST + PUT + DELETE + observation af 500 på ghost-id)
+POS      6/6    ✓  (POST + PUT amount + DELETE + ghost-id 500 + multi-field + qu_id)
 NEST     3/3    ✓  (POST + PUT + DELETE)
+CASCADE  2/2    ✓  (observations: orphans efter recipe-delete)
 CLEANUP  1/1    ✓  (ingen T_RECIPES_-orphans tilbage)
 ```
 
 T_RECIPES-tracken er **fuldt grøn**. Alle CRUD-operationer på recipes, recipes_pos
 og recipes_nestings via vores proxy fungerer som forventet og er verificeret
-end-to-end mod live grocytest. 9 transient test-opskrifter blev oprettet og slettet
-under kørslen — ingen efterladenskaber.
+end-to-end mod live grocytest.
+
+**Nye observations fra CASCADE-cases** (logged i `docs/TEST_OBSERVATIONS.md`):
+- **#003**: Grocy cascade'r IKKE `recipes_pos` ved recipe-delete (orphans)
+- **#004**: Grocy cascade'r IKKE `recipes_nestings` ved recipe-delete (orphans)
+
+Begge er medium-prioritet — vigtige at tackle hvis vi nogensinde bygger
+recipe-delete-UI eller hvis ingredient-resolver støder på en orphan.
 
 ---
 
-*Sidst opdateret: 11. maj 2026 — første kørsel grøn (16/16).*
+*Sidst opdateret: 11. maj 2026 — udvidet kørsel grøn (20/20).*
