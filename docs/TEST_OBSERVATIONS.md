@@ -132,6 +132,36 @@ Hver observation har:
 | **Foreslået action** | Separat oprydnings-PR der sletter `shared/bestilling.js`, `shared/bestilling.css`, `shared/shopping_list.js`, `shared/shopping_list.css`. Verificér først via grep at ingen HTML/JS importerer dem. |
 | **Status** | `åben` (lav prioritet — kandidat til oprydnings-PR) |
 
+### #013 — `routes/purchasing.js` POST /suppliers falder tilbage til `integration_type='manual'` ved ugyldig værdi
+
+| | |
+|--|--|
+| **Kilde** | `T_INDKOB_SETUP_SUP_04` (11. maj 2026) |
+| **Beskrivelse** | POST `/api/purchasing/suppliers { integration_type: 'ftp' }` returnerer 201 med `integration_type: 'manual'` — route-validering i `routes/purchasing.js:225-226` har fallback i stedet for at afvise. Der er ingen DB-CHECK-constraint der ville afvise det. |
+| **Vurdering** | Route-design der prioriterer robusthed over strikthed. Lav prioritet — UI'en kun tillader de gyldige typer alligevel. Men hvis nogen kalder API'en direkte med en typo, får de silent fallback i stedet for fejl. |
+| **Foreslået action** | Overvej at returnere 400 ved ugyldig integration_type i stedet for at falde tilbage. Eller dokumentér fallback-adfærden i routes-filen som bevidst. |
+| **Status** | `åben` (lav prioritet — design-beslutning) |
+
+### #014 — `supplier_grocy_locations` POST accepterer duplikat silently via INSERT OR REPLACE
+
+| | |
+|--|--|
+| **Kilde** | `T_INDKOB_SETUP_SGL_03` (11. maj 2026) |
+| **Beskrivelse** | POST `/api/purchasing/suppliers/grocy-locations` på samme (supplier_id, grocy_location_id) returnerer 200 både første og anden gang — route bruger `INSERT OR REPLACE` (`routes/purchasing.js:137-140`). Brugeren får ingen indikation af om koblingen er ny eller blev erstattet. |
+| **Vurdering** | Acceptabelt for nuværende UI-flow (genvalg af samme leverandør = no-op), men kan skjule bugs hvor man tror man har oprettet en ny kobling. Tabellen har ikke UNIQUE-constraint på (supplier_id, grocy_location_id) — det kunne tilføjes. |
+| **Foreslået action** | Hvis duplikat-detection nogensinde bliver vigtig, tilføj enten en UNIQUE-constraint og returnér 409 ved konflikt, eller dokumentér i UI'en at re-tilknytning er destruktiv. |
+| **Status** | `åben` (lav prioritet — design-beslutning) |
+
+### #015 — Grocy returnerer 500 ved duplikat product_barcode (samme pid + barcode)
+
+| | |
+|--|--|
+| **Kilde** | `T_INDKOB_SETUP_BC_03` (11. maj 2026) |
+| **Beskrivelse** | POST `/api/grocy/product-barcodes` med samme `(product_id, barcode)` der allerede eksisterer returnerer HTTP 500 fra Grocy (ikke 409 eller 400). Vores adapter propagerer 500'en uden mapping. |
+| **Vurdering** | Lav prioritet i UI'en — flowet "Tilføj barcode-kobling" tjekker eksisterende koblinger først, så brugeren ser sjældent denne fejl. Men hvis batch-import eller automatisering støder på dette, vil fejlmeddelelsen være misvisende. Beslægtet med #002 (Grocy 500 ved DELETE ghost-id). |
+| **Foreslået action** | Samme som #002 — hvis nogen rører `services/grocyAdapter.js:grocyPost`, kunne man map'e Grocy-500'er med "already exists"-tekst til 409. Eller pre-validér i route før POST. |
+| **Status** | `åben` (lav prioritet) |
+
 ### #012 — `consumeRecipes` bruger rå `/objects/shopping_list` i stedet for smart endpoint (lukket)
 
 | | |
@@ -154,8 +184,9 @@ Hver observation har:
 | T_RECIPES | #002, #003, #004 |
 | T_INVENTORY | #009, #012 |
 | T_INDKOB_LISTE | #012 |
+| T_INDKOB_SETUP | #013, #014, #015 |
 | T_INDKOB_ADMIN | #010, #011 |
 
 ---
 
-*Sidst opdateret: 11. maj 2026 (sen aften) — #012 flyttet til lukket efter patch-anvendelse og T_INVENTORY-reverificering (13/13 PASS).*
+*Sidst opdateret: 11. maj 2026 (sen aften) — #012 flyttet til lukket efter patch-anvendelse og T_INVENTORY-reverificering (13/13 PASS). Tilføjet #013-#015 fra T_INDKOB_SETUP (47/47 PASS).*
