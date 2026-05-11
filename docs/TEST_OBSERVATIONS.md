@@ -112,6 +112,36 @@ Hver observation har:
 | **Foreslået action** | Hvis vi ser fejl i Frikadellen-Slider-flowet senere: tilføj specifik unit-test mod recipe 53's sub-recipes (9/12/80) i T_RECIPES eller en ny T_RESOLVER-track. |
 | **Status** | `åben` (lav prioritet) |
 
+### #010 — Brød Rug (pid=1) havde forkert QU-konvertering "1 Kasse = 10.8 Kilo"
+
+| | |
+|--|--|
+| **Kilde** | T_INDKOB_ADMIN-design F12 (maj 2026) |
+| **Beskrivelse** | Grocy QU-konverteringerne for pid=1 (Brød Rug) sagde `Kasse → Kilo = 10.8` og `Kilo → Kasse = 0.0926`. Korrekt er 7.68 / 0.1302 (= 64 × 0.12 kg pr. kasse). Værdien 10.8 stammede fra Bon v1-æraen og blev aldrig ryddet op ved migrering. Hørkrams karton (varenr 60097769) er "Rugbrødsstykke, 64 × 120 g" → 7.68 kg. Påvirkede ikke pris-beregning direkte, men kunne forvirre QU-aware-flows (snapshot-import, indkøbsliste-konvertering). |
+| **Vurdering** | Bug i master-data — manuel oprydning, ikke kode-fix. Patch-fil dokumenterede både Manuel-UI- og API-flow. |
+| **Foreslået action** | N/A — anvendt manuelt af Leif på grocytest 11. maj 2026 (jf. `tests/specs/PATCH_grocy_qu_broedrug_v1_cleanup.md`). Skal også køres på grocycafe inden cutover. |
+| **Status** | `lukket` (anvendt manuelt 11. maj 2026 — patch-fil bevares som skabelon til andre v1-rester) |
+
+### #011 — `shared/bestilling.js` (60 kB) er død kode
+
+| | |
+|--|--|
+| **Kilde** | T_INDKOB_ADMIN-design F11 (maj 2026) |
+| **Beskrivelse** | `initBestilling()` kaldes ingen steder uden for filen selv. Erstattet af `shared/indkob.js` i Fase 6b (merged indkøbsliste + bestilling), men aldrig slettet. CLAUDE.md har en linje under "Beslutninger" om at `shopping_list.js + bestilling.js` udgår, men begge filer ligger stadig i `shared/`. |
+| **Vurdering** | Tech-debt — ikke blokerende for tests. Risiko: ved fremtidig refaktorering kan nogen tro filen er aktiv og prøve at "fixe" noget der ikke længere er i brug. |
+| **Foreslået action** | Separat oprydnings-PR der sletter `shared/bestilling.js`, `shared/bestilling.css`, `shared/shopping_list.js`, `shared/shopping_list.css`. Verificér først via grep at ingen HTML/JS importerer dem. |
+| **Status** | `åben` (lav prioritet — kandidat til oprydnings-PR) |
+
+### #012 — `consumeRecipes` bruger rå `/objects/shopping_list` i stedet for smart endpoint
+
+| | |
+|--|--|
+| **Kilde** | T_INDKOB_LISTE-design Bug #001 (maj 2026) |
+| **Beskrivelse** | `services/grocyAdapter.js:631` i `consumeRecipes`'s shortfall-handler kalder `grocyPost('/objects/shopping_list', {...})` direkte. Det opretter ny entry pr. partial-add — selv hvis samme produkt allerede mangler på listen fra tidligere LEVERET. UI'en viser duplikater. Grocys smart endpoint `/stock/shoppinglist/add-product` dedupper automatisk og understøtter `note`-felt direkte. |
+| **Vurdering** | Bug — patch klar med to find/replace-blokke. Konsekvens for tests: T_INV_PARTIAL_02's nuværende assertion ("ny entry id ikke i slBefore") må opdateres til "amount-stigning på pid pr. shopping_list" — ellers vil testen fejle når patch lander og grocytest har pre-existing entry for pid=72. |
+| **Foreslået action** | Anvend `tests/specs/PATCH_consumeRecipes_smart_shopping_list.md` (to ændringer i grocyAdapter.js + opdatering af T_INV_PARTIAL_02-assertion i `tests/scripts/run_T_INVENTORY.js`). Skal landes som første commit i T_INDKOB_LISTE-PR. |
+| **Status** | `åben` (patch klar — landes som del af T_INDKOB_LISTE-arbejdet) |
+
 ---
 
 ## Indeks per track
@@ -122,8 +152,10 @@ Hver observation har:
 | T_PLAN | #007, #008 |
 | T_STOCK | #001 |
 | T_RECIPES | #002, #003, #004 |
-| T_INVENTORY | #009 |
+| T_INVENTORY | #009, #012 |
+| T_INDKOB_LISTE | #012 |
+| T_INDKOB_ADMIN | #010, #011 |
 
 ---
 
-*Sidst opdateret: 11. maj 2026.*
+*Sidst opdateret: 11. maj 2026 — tilføjet #010-#012 fra T_INDKOB-design.*
