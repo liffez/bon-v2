@@ -408,12 +408,14 @@ async function resolveConsumeItems(recipeLines) {
         nestings,
         rawRecipeMap,
         products,
+        quConversions,
     ] = await Promise.all([
         grocy.getRecipes(),
         grocy.getAllRecipesPos(),
         grocy.getRecipeNestings(),
         grocy.getRecipesRawMap(),
         grocy.getProducts(),
+        grocy.getQuantityUnitConversions(),
     ]);
 
     const recipeMap = new Map(recipes.map(r => [r.id, r]));
@@ -443,10 +445,25 @@ async function resolveConsumeItems(recipeLines) {
             aggregated.get(pid).amount_stock += amount;
         } else {
             const product = productMap.get(pid) || {};
+            // Faktor stock→purchase (fx 1 kg → 1/6 kasse hvis 1 kasse = 6 kg).
+            // Bruges af consumeRecipes til at oprunde shortfall til hel purchase-enhed
+            // (samme adfærd som v1's auto-shopping-list ved partial consume).
+            let purchaseFactor = 1;
+            if (product.qu_id_purchase && product.qu_id_stock
+                && product.qu_id_purchase !== product.qu_id_stock) {
+                const f = findConversionFactor(
+                    quConversions, pid, product.qu_id_stock, product.qu_id_purchase
+                );
+                if (f !== null) purchaseFactor = f;
+            }
             aggregated.set(pid, {
-                product_id:   pid,
-                product_name: product.name || `Produkt #${pid}`,
-                amount_stock: amount,
+                product_id:        pid,
+                product_name:      product.name || `Produkt #${pid}`,
+                amount_stock:      amount,
+                qu_id_stock:       product.qu_id_stock || null,
+                qu_id_purchase:    product.qu_id_purchase || null,
+                parent_product_id: product.parent_product_id ? parseInt(product.parent_product_id) : null,
+                purchase_factor:   purchaseFactor,
             });
         }
     }

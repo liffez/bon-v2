@@ -350,16 +350,30 @@ router.patch('/:id/status', handle((req, res) => {
     // Grocy auto-consume ved LEVERET (uafhængigt af triggers_json)
     if (status_code === 'LEVERET') {
         const autoDeduct = db.prepare(`SELECT value FROM settings WHERE key = 'inventory_auto_deduct'`).get();
-        if (autoDeduct && autoDeduct.value === '1') {
+        // Idempotens-tjek: hvis lageret allerede er trukket (fx ved LEVERET → IGANG → LEVERET
+        // genskift), skal vi IKKE trække igen. Uden dette tjek dobbelt-trækker Grocy hver
+        // gang en bon sættes til LEVERET. T_INV_IDEM_01 verificerer denne adfærd.
+        const alreadyDeducted = db.prepare(`SELECT inventory_deducted FROM bons WHERE id = ?`).get(id);
+        if (autoDeduct && autoDeduct.value === '1' && alreadyDeducted?.inventory_deducted === 1) {
+            console.log(`[grocy_consume] bon ${id}: lager allerede trukket — skipper (idempotens)`);
+        } else if (autoDeduct && autoDeduct.value === '1') {
             const lines = getBonLines(id);
             const { consumeRecipes } = require('../services/grocyAdapter');
             consumeRecipes(lines).then(results => {
-                const failed = results.filter(r => !r.success);
+                const failed  = results.filter(r => !r.success);
+                const partial = results.filter(r => r.partial);
                 if (failed.length) {
                     console.warn(`[grocy_consume] bon ${id}: ${failed.length} fejl:`, failed);
+                } else if (partial.length) {
+                    console.log(`[grocy_consume] bon ${id}: ${results.length} produkter trukket — ${partial.length} partial (rest lagt på shopping-list)`);
                 } else {
-                    console.log(`[grocy_consume] bon ${id}: ${results.length} opskrifter forbrugt fra lager`);
+                    console.log(`[grocy_consume] bon ${id}: ${results.length} produkter forbrugt fra lager`);
                 }
+                // Markér at lageret er trukket — flaget tjekkes ovenfor på næste
+                // LEVERET-skift for at undgå dobbelt-træk (idempotens).
+                db.prepare(
+                    `UPDATE bons SET inventory_deducted = 1, inventory_deducted_at = CURRENT_TIMESTAMP WHERE id = ?`
+                ).run(id);
                 logChange({ entityType: 'bon', entityId: id, action: 'grocy_consume', fieldName: 'stock', oldValue: null, newValue: JSON.stringify(results) });
             }).catch(err => {
                 console.error(`[grocy_consume] bon ${id}: fejl:`, err.message);

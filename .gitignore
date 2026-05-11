@@ -1,9 +1,14 @@
 # Miljøvariabler — aldrig i git!
 .env
+.env.*
 
 # Node
 node_modules/
 npm-debug.log*
+
+# Test-output (genereres ved hver kørsel)
+tests/reports/
+tests/fixtures/grocy_snapshot.json
 
 # Database
 *.db

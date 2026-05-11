@@ -548,34 +548,112 @@ async function consumeRecipes(lines) {
 
     if (!items.length) return [];
 
-    // Consume hvert produkt — fortsæt ved fejl (partial success)
+    // ── Stock-snapshot: behov for partial-consume + auto-shopping-list ──
+    //
+    // For hvert produkt skal vi vide hvor meget der ER på lager. Det er ikke trivielt
+    // pga. parent-produkter: en parent har selv stock_amount=0, men dens børn har
+    // stock (kål = Hvidkål + Spidskål). Vi bygger derfor en helper der finder den
+    // effektive samlede stock for et produkt (sum over familie hvis det er en parent).
+    let stock = [];
+    let products = [];
+    try {
+        [stock, products] = await Promise.all([getStock(), getProducts()]);
+    } catch (err) {
+        console.warn('[consume] Kunne ikke hente stock/products til partial-check:', err.message);
+        // Fortsæt uden partial-logik — fallback til simple consume
+    }
+    const stockByPid = new Map();
+    for (const s of stock) stockByPid.set(parseInt(s.product_id), parseFloat(s.amount) || 0);
+
+    // For parent: sum over alle børns stock. For ikke-parent: bare egen stock.
+    const childrenByParent = new Map();
+    for (const p of products) {
+        if (p.parent_product_id) {
+            const par = parseInt(p.parent_product_id);
+            if (!childrenByParent.has(par)) childrenByParent.set(par, []);
+            childrenByParent.get(par).push(parseInt(p.id));
+        }
+    }
+    function effectiveStock(pid) {
+        const ownStock = stockByPid.get(pid) || 0;
+        const kids = childrenByParent.get(pid) || [];
+        if (kids.length === 0) return ownStock;
+        let sum = ownStock;
+        for (const kid of kids) sum += stockByPid.get(kid) || 0;
+        return sum;
+    }
+
+    // ── Consume hvert produkt med partial-fallback + shopping-list-add ──
+    //
+    // Replikerer Bon v1's adfærd: når der ikke er nok lager til at dække behovet,
+    // trækker vi det der ER på lageret (partial), og lægger en hel purchase-enhed
+    // på Grocy's shopping_list så indkøb sker næste gang. Uden dette ender bonnen
+    // som "trukket" (inventory_deducted=1) selvom intet faktisk blev konsumeret.
     const results = [];
     for (const item of items) {
-        try {
-            await grocyPost(`/stock/products/${item.product_id}/consume`, {
-                amount:           item.amount_stock,
-                transaction_type: 'consume',
-                spoiled:          false,
-            });
-            results.push({
-                product_id:   item.product_id,
-                product_name: item.product_name,
-                amount:       item.amount_stock,
-                success:      true,
-            });
-        } catch (err) {
-            results.push({
-                product_id:   item.product_id,
-                product_name: item.product_name,
-                amount:       item.amount_stock,
-                success:      false,
-                error:        err.message,
-            });
+        const needed   = item.amount_stock;
+        const available = effectiveStock(item.product_id);
+        const toConsume = Math.min(needed, available);
+        const shortfallStock = Math.max(0, needed - available);
+        const FLOAT_TOL = 0.001;
+
+        // Trin 1: consume det vi kan (kan være 0 hvis lager er tomt)
+        if (toConsume > FLOAT_TOL) {
+            try {
+                await grocyPost(`/stock/products/${item.product_id}/consume`, {
+                    amount:           toConsume,
+                    transaction_type: 'consume',
+                    spoiled:          false,
+                    // Parent-produkter (fx "Kål") har stock=0 men kan substitueres af
+                    // børn med stock (Spidskål, Hvidkål). Uden dette flag fejler consume
+                    // med 400 "No transaction was found by the given transaction id".
+                    allow_subproduct_substitution: true,
+                });
+            } catch (err) {
+                // Stock-snapshot var måske stale — registrér som fejl men fortsæt
+                results.push({
+                    product_id:   item.product_id,
+                    product_name: item.product_name,
+                    amount:       toConsume,
+                    success:      false,
+                    error:        err.message,
+                });
+                continue;
+            }
         }
+
+        // Trin 2: hvis der mangler, læg purchase-enhed(er) på shopping list
+        let shortfallPurchase = 0;
+        if (shortfallStock > FLOAT_TOL) {
+            const factor = item.purchase_factor || 1;
+            shortfallPurchase = Math.ceil(shortfallStock * factor);
+            try {
+                await grocyPost('/objects/shopping_list', {
+                    product_id:    item.product_id,
+                    amount:        shortfallPurchase,
+                    note:          `Auto-tilføjet ved LEVERET (manglede ${shortfallStock.toFixed(3)} fra consume)`,
+                    shopping_list_id: 1,
+                });
+            } catch (err) {
+                console.warn(`[consume] Kunne ikke tilføje pid=${item.product_id} til shopping list:`, err.message);
+                // Ikke en hård fejl — consume lykkedes (delvist), shopping-list-add er ekstra
+            }
+        }
+
+        results.push({
+            product_id:         item.product_id,
+            product_name:       item.product_name,
+            amount:             toConsume,
+            shortfall_stock:    shortfallStock,
+            shortfall_purchase: shortfallPurchase,
+            partial:            shortfallStock > FLOAT_TOL && toConsume > FLOAT_TOL,
+            success:            true,
+        });
     }
 
     // Ryd stock-cache efter forbrug
     _cache.delete('stock');
+    _cache.delete('shopping_list');
     return results;
 }
 
@@ -589,6 +667,8 @@ async function consumeProduct(productId, amount) {
         amount,
         transaction_type: 'consume',
         spoiled: false,
+        // Tillader parent-produkter (med stock=0) at substituere fra børn — se consumeRecipes
+        allow_subproduct_substitution: true,
     });
     _cache.delete('stock');
 }
