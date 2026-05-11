@@ -4,9 +4,14 @@
 
 ---
 ## Ved opstart — læs disse filer
-- docs/BON_V2_PRINCIPPER.md
+- docs/BON_V2_PRINCIPPER.md (specielt sektion 6b+6c — moms-doktrin)
 - docs/bon_v2_datamodel_v2.md
 - docs/bon_v2_zoner_og_layout.md
+- docs/CLAUDE_TILBUD_PRIS.md (hvis du rører pris/moms eller tilbud)
+- docs/CLAUDE_KONTAKTER.md (hvis du rører CRM, firmaer eller kontaktpunkter)
+- docs/CLAUDE_MOMS_AUDIT.md + CLAUDE_MOMS_AUDIT_AUTO.md (audit-værktøjer + automatisering)
+- docs/CLAUDE_ECONOMIC_ADAPTER.md (spec — ikke bygget endnu)
+- docs/CLAUDE_MENU_AGENT.md (spec — ikke bygget endnu)
 
 ---
 
@@ -111,6 +116,7 @@ bon-v2/
 │   ├── reports.js    ← /api/reports/* (rapporter: summary, monthly, top-customers, categories)
 │   ├── cashflow.js   ← /api/cashflow/* (admin-only: CSV-upload, fakturaer, match, analyse)
 │   ├── embed.js      ← /embed/bestilling, /embed/config, /embed/menus/:id (public, indlejres i WordPress)
+│   ├── contact-points.js ← /api/contact-points/* (CRUD + toggle-public for kontaktpunkter)
 │   └── delivery.js   ← /api/delivery/* (vehicles CRUD, booking-payload, book, actual-cost, events)
 ├── services/
 │   ├── grocyAdapter.js       ← Grocy API adapter med cache + CRUD + consume + barcodes
@@ -121,6 +127,7 @@ bon-v2/
 │   ├── goodsReceiptWebhook.js ← Whiteboard webhook for varemodtagelse (fire-and-forget)
 │   ├── booking_template.js   ← Render template + variabler + cost-estimat (Spor 1)
 │   ├── delivery_log.js       ← Booking-events + actual cost + sync delivery_method (Spor 1)
+│   ├── contactExtractor.js   ← Parse pasted HTML/tekst for emails+telefoner (paste-flow til scraping)
 │   └── quConvert.js          ← Grocy quantity unit conversions
 ├── db/
 │   ├── database.js      ← getDb() singleton (lazy init + migrations)
@@ -158,6 +165,8 @@ bon-v2/
 │   ├── kitchen-topbar.html         ← Fælles topbar for kitchen-views
 │   ├── api.js        ← Frontend API-funktioner
 │   ├── utils.js      ← Status-mapping, connectSSE(), mapApiBonToCardData(), scrollToBonHash()
+│   ├── moms.js       ← Moms-helpers (inclToExcl, momsOfIncl, computeMomsFields) — eksponeres som window.Moms i browser
+│   ├── contactPoints.js ← syncPrimaryCache, clearOtherPrimaries, promoteNextPrimary, validateContactValue
 │   ├── auth.js       ← requireAuth() middleware (server-side)
 │   └── login.html    ← Fælles login-side (PIN + email auto-detect)
 ├── kitchen/          ← MPA: index.html, today.html, later.html, vagtplan.html, ...
@@ -197,7 +206,19 @@ Nye filer placeres præcis der de hører hjemme — kopieres ikke.
 - **Transactions via `transaction(db, fn)`** — aldrig `db.transaction()` (eksisterer ikke i node:sqlite)
 - **`logChange({...})`** — objekt-API, aldrig positionelle argumenter
 - **Nye npm-pakker kræver godkendelse** — spørg først, og ingen native/compiled pakker
-- **Moms-håndtering** — Grocy salgspriser ER incl. moms; kostpriser er ex moms. `bon_lines.unit_price` og `bons.total_price` ER incl. moms. Frontends regner ALDRIG selv moms — de bruger pre-beregnede felter (`total_incl_moms`, `total_excl_moms`, `moms_amount`) fra API eller helpers fra `shared/moms.js` (også eksponeret som `window.Moms`). Ingen magic `1.25` / `0.25` uden for `shared/moms.js` og `tests/`. Se `BON_V2_PRINCIPPER.md` sektion 6b for komplet regel.
+- **Moms-håndtering (autoritativ regel — sektion 6b+6c i `BON_V2_PRINCIPPER.md`)**
+  - Grocy salgspriser ER incl. moms (alle `Salesprice*`-userfields på `recipes`)
+  - Grocy råvarepriser + `costprice` (recipe fulfillment `costs`) er ex moms
+  - `bon_lines.unit_price`, `bon_lines.line_total`, `bons.total_price`, `bons.delivery_price` er **INCL. moms**
+  - `bon_lines.cost_price` er **EX moms**
+  - Frontends regner ALDRIG selv moms — de bruger:
+    - Pre-beregnede felter fra API (`total_incl_moms`, `total_excl_moms`, `moms_amount`)
+    - Helpers fra `shared/moms.js` (også eksponeret som `window.Moms`): `inclToExcl`, `momsOfIncl`, `computeMomsFields`
+    - Server-side: `db/helpers.js` re-eksporterer samme helpers
+  - **Ingen magic `* 1.25` / `* 0.25` / `/ 1.25` uden for `shared/moms.js` og `tests/`** — pre-commit-hook blokerer det
+  - E-conomic kræver linje-priser EX moms — `inclToExcl()` ved konvertering (jf. `CLAUDE_ECONOMIC_ADAPTER.md`)
+  - Test-bonen T-5: 23.650 incl → 18.920 ex + 4.730 moms (i `tests/moms_audit_e2e.test.js`)
+  - 7 visningsregler for labels (`Total inkl. moms`, `(ex moms)` osv.) i sektion 6c
 
 ---
 
@@ -1436,11 +1457,54 @@ Oprettes under Grocy → Manage master data → Userfields.
 - [x] **Office Spor 1 deploy-checkliste**: 1) Templates skal udfyldes for By-expressen + Taxa via Settings → Leveringsmetoder før modalen producerer brugbar tekst. 2) Verificér at By-expressens URL `https://byexpressen.groupnet.at/lobo/#!//coreLogin/` matcher hvad office bruger i dag. 3) Test først med taxa (simpel ét-felts paste), så By-expressen (Lobo's 4-trins wizard kræver block-by-block paste).
 - [x] **Migration til Spor 2 (3D.2):** Når routes-tabeller introduceres, udvides leveringsindikator-data-kilden til at læse `delivery_route_stops` joined med `delivery_routes`/`delivery_vehicles` parallelt med eksisterende `bons.delivery_vehicle_id`. SSE-events `delivery_route_stop_added`/`_removed` tilføjes til samme handler som nuværende `bon_updated`.
 
+### Moms-refaktorering (1. maj 2026)
+> Spec: `docs/CLAUDE_TILBUD_PRIS.md` Del 1–4 + `docs/CLAUDE_MOMS_AUDIT.md` + `docs/CLAUDE_MOMS_AUDIT_AUTO.md`
+> Status: KOMPLET. Bug der lagde 25 % moms ovenpå incl-priser er rettet og forebygget.
+
+- [x] **Moms-doktrin** tilføjet til `BON_V2_PRINCIPPER.md` sektion 6b (hvor moms ligger gemt) + 6c (7 visningsregler)
+- [x] **`shared/moms.js`** — fælles helpers: `inclToExcl`, `excrToIncl`, `momsOfIncl`, `computeMomsFields`. Eksponeres som `window.Moms` i browser, re-eksporteres fra `db/helpers.js` på server-siden
+- [x] **13 områder migreret** fra magic `* 1.25` / `* 0.25` / `/ 1.25` til Moms.* helpers (tilbud, fakturering, planlægning, modal, dashboard, rapporter, indkøb, mail-templates osv.)
+- [x] **Pre-commit-hook aktiveret** — blokerer nye `1.25`/`0.25`-multiplikationer uden for `shared/moms.js` og `tests/`
+- [x] **Backend leverer pre-beregnede moms-felter** — API-responses for bons/quotes/invoices indeholder `total_incl_moms`, `total_excl_moms`, `moms_amount` så frontends ikke selv regner
+- [x] **Tests**: `tests/moms.test.js` (unit) + `tests/moms_audit_e2e.test.js` (28 områder, T-5 testbon = 23.650 → 18.920 + 4.730)
+- [x] **2 latente bugs fundet og fixet** under refaktoreringen — se `docs/KENDTE_DATABUGS.md` #003 + #008
+- [x] **Tilbuds-prisbug rettet** — `office/views/tilbud.js` lagde tidligere 25 % moms ovenpå priser der allerede var incl. moms. Nu bruger den `Moms.computeMomsFields()` på rå totalpriser
+
+### Kontakter & Firma 360° (april–maj 2026)
+> Spec: `docs/CLAUDE_KONTAKTER.md` (Fase 1–4)
+
+- [x] Migration 053: `contact_points`-tabel (polymorf: entity_type = company|customer) + 4 SQLite-triggers der holder `companies.email`/`phone` + `customers.email`/`phone` i sync med `is_primary=1`-rækker
+- [x] Migration 054: Drop `changelog.action` CHECK-constraint så nye action-værdier (`contact_point_*`, `enrich`, `merge`, `merge_rollback`) kan tilføjes uden re-create
+- [x] Migration 055: `companies.last_enriched_at` + `last_enriched_source` (bruges af batch-enrichment til at finde firmaer der ikke er beriget de sidste 90 dage)
+- [x] Migration 056: `companies.alternate_names` (JSON-array af tidligere firmanavne) + `changelog.rolled_back_at` (forhindrer at samme rollback køres to gange)
+- [x] **`routes/contact-points.js`** — CRUD: GET (list), POST (opret + auto-promote til primary hvis flag sat), PATCH, DELETE (auto-promote næste hvis primary slettes), PATCH `/:id/toggle-public`
+- [x] **`shared/contactPoints.js`** — `syncPrimaryCache()`, `clearOtherPrimaries()`, `promoteNextPrimary()`, `validateContactValue()` (genbruges af både routes/contact-points.js og enrich-flow)
+- [x] **`services/contactExtractor.js`** — parse pasted HTML/tekst for emails + telefoner (regex + heuristik om personlig/public). Web-scraping nedgraderet fra auto-fetch til manuelt paste-flow (fjerner robots.txt-, anti-bot- og GDPR-risici)
+- [x] **`routes/companies.js`** udvidet:
+  - `GET /:id/enrich-preview` — kør CVR/NemHandel-enrichment uden at gemme, returnerer diff (felt-for-felt + nye contact_points)
+  - `POST /:id/enrich` — anvend valgt delmængde af diff'en, opdaterer `last_enriched_at` + skriver changelog-entries
+  - `POST /:id/extract-contacts` — kør paste-flow mod contactExtractor, returnér kandidater til checkbox-bekræftelse
+- [x] **`routes/crm.js`** udvidet:
+  - `GET /companies` — aggregeret listview (kunder + bons + omsætning per firma) til Firmaer-fanen
+  - `GET /company/:id` — detaljeret firma-data inkl. contact_points + kunder + bons + aktiviteter til Firma 360°
+- [x] **CVR-kontaktpunkter** markeres automatisk `is_public=1` (offentlige per definition); manuelt indtastede default'er til `source='manual'`, `is_public=0`, `is_primary=1` (juridisk sikker default)
+- [x] **`office/views/crm-firmaer.js`** + **`crm-firma360.js`** — Firmaer-fane parallelt med Kunder, Firma 360°-side med kontaktpunkter (offentlige/private toggle), berig-knap (firma-handling, ikke person-handling), kunder/bons-tabs
+- [x] Office sidebar: "Kontakter" erstatter "Kunder" som overskrift, undermenuer Kunder/Firmaer
+- [x] **Backfill** kørt: alle eksisterende `companies.email`/`phone` + `customers.email`/`phone` migreret til `contact_points` med `source='manual'`, `is_public=0`, `is_primary=1`
+
 ## Næste opgave
 
 > ✏️ Opdateret 4. maj 2026.
 >
-> **Fase 1a–1e + 3A + 3B + 3D + 4 + 5 + 6 (komplet inkl. 6g) + 7 (CRM) + Office CRM redesign + 8 (Fakturering) + 9 (Tilbud) + Mail-vedhæftninger + CRM service-kald + Firma-oprydning + 10 (Mobil Shell) + 10b (Roller & Rettigheder) + 11 (Ugeoversigt) + Priser i planlægningsbon + Hjælpesystem + Whiteboard Sidekick + Web-bestillinger (webhook) + Mail-skabelon management + 12 (Rapporter) + PIN-management + CVR-berigelse (653/1232 firmaer) + 13 (Cashflow) + Mail chat-boble layout + Embed-bestillingsformular + Delivery Spor 1 (manuel bestilling) komplet.**
+> **Fase 1a–1e + 3A + 3B + 3D + 4 + 5 + 6 (komplet inkl. 6g) + 7 (CRM) + Office CRM redesign + 8 (Fakturering) + 9 (Tilbud) + Mail-vedhæftninger + CRM service-kald + Firma-oprydning + 10 (Mobil Shell) + 10b (Roller & Rettigheder) + 11 (Ugeoversigt) + Priser i planlægningsbon + Hjælpesystem + Whiteboard Sidekick + Web-bestillinger (webhook) + Mail-skabelon management + 12 (Rapporter) + PIN-management + CVR-berigelse (653/1232 firmaer) + 13 (Cashflow) + Mail chat-boble layout + Embed-bestillingsformular + Delivery Spor 1 (manuel bestilling) + Moms-refaktorering + Kontakter & Firma 360° komplet.**
+>
+> **Moms-refaktorering: KOMPLET (1. maj 2026).** Tilbuds-prisbug der lagde 25 % oven på incl-priser er rettet og forebygget. 13 områder migreret til `Moms.*` helpers, pre-commit-hook aktiv, 28-områders audit-suite (`tests/moms_audit_e2e.test.js`) grøn. To latente bugs fundet undervejs (#003 + #008 i `KENDTE_DATABUGS.md`). Visningsregler + autoritativ regel i `BON_V2_PRINCIPPER.md` sektion 6b+6c.
+>
+> **Kontakter & Firma 360°: KOMPLET (april–maj 2026).** Polymorf `contact_points`-tabel + Firmaer-fane parallelt med Kunder + Firma 360°-side med berig-knap (CVR-diff-merge med checkbox-bekræftelse). Web-scraping nedgraderet til manuelt paste-flow. CVR-kontaktpunkter altid `is_public=1` (offentlige); manuelt indtastede default'er til `is_public=0` (juridisk sikker default for cold outreach). Backfill kørt mod alle eksisterende firmaer + kunder.
+>
+> **E-conomic-adapter (`docs/CLAUDE_ECONOMIC_ADAPTER.md`)**: spec klar, ikke bygget. Kort fil — moms-konvertering (`inclToExcl()` på linje-priser), payload-format, success-flow (gem `invoice_number`, skift status til FAKTURERET). Test-placeholder #7 i `moms_audit_e2e.test.js` aktiveres når koden bygges.
+>
+> **Menu-agent (`docs/CLAUDE_MENU_AGENT.md`)**: spec klar, ikke bygget. AI-agent der oversætter kundens fritekst-ønsker til bon-linjer. Strikt regel: agenten må IKKE returnere priser — kun `product_name`, `quantity`, `grocy_recipe_id`, `category`/`block_type`. Server snapshot'er priser ved insert.
 >
 > **Delivery — Spor 1 (manuel bestilling): KOMPLET.** Office kan nu bestille bud (By-expressen, Taxa) direkte fra bon-drawer i både kitchen og office. Clipboard-flow: vælg vehicle → tekst genereres fra konfigurerbar template → ét klik kopierer + åbner leverandørens bestillingsside i nyt vindue → office paster + bekræfter på deres side → indtaster booking-ref + faktisk pris i Bon. Leveringsindikator på bon-kort viser hvem der henter (🚴 By-expressen / 🚕 Taxa) eller "📍 Ikke planlagt endnu". Klik på indikator åbner drawer scrollet til BESTIL BUD. `bons.delivery_method` synkroniseres automatisk fra valgt vehicle.type — alle eksisterende lister/filter/displays virker uændret. 65 unit + 46 integration tests grønne. Næste: udfyld templates via Settings → Leveringsmetoder før første brug.
 >
@@ -1554,6 +1618,12 @@ Oprettes under Grocy → Manage master data → Userfields.
 > - Booking-modul status (29. apr 2026): KOMPLET. M1–M12 + M5b/c implementeret og verificeret end-to-end via `scripts/test-booking-e2e.js`.
 > - Booking-modul M7 (28. apr 2026): `renderTemplate` blev holdt synkron (vs. spec'ens async) — `node:sqlite` + `crypto.randomBytes` er begge sync, så ingen kaskaderende async-spredning. `{{booking_link}}` fjernes uden synlige rester hvis `customerId` eller `booking_public_url_base` mangler (advarsel logges). Pre-eksisterende drop-bug i `sendFromTemplate({ smtpPrefix })` blev fixet som side-gevinst — tidligere faldt `routes/orders.js`'s `'smtp_kontakt'`-flag silent ned til `bon@`. Booking-bekræftelse + intern notif sendes via `smtp_kontakt` med thread-context `{ type: 'customer', number: customerId }` så `#k-NNN`-tag i subject sikrer korrekt IMAP-routing ved kundens svar.
 > - Booking-modul M8 (29. apr 2026): Kort URL-format valgt fremfor HTML-mails (spec sektion 12 fastholdes — plain-text kun). `/b/:token` mountes som standalone `routes/booking-redirect.js` på app-root, ikke som del af `bookingRouter` (ellers ville `/b/meeting-types` etc. utilsigtet være eksponeret). Open-tracking sker KUN i `GET /api/booking/token/:token` (kaldes af JS efter sidereload), ikke i `/b`-redirect — så vi ikke dobbelt-tæller når kunden lander via kort URL. `sendBookingMails` videregiver nu `userId: ownerId` til `sendFromTemplate` så bekræftelsesmailens `{{booking_link}}`-token bindes til samme sælger som håndterede bookingen → personlig "du booker hos X"-banner. Frontend-banner title-caser fornavne (`leif` → `Leif`) for visningen. Mødetyper med `is_bookable=0` (gennemgang, smagning_gennemgang) er bevidst skjult fra public siden — de eksisterer som mødetyper for sælgere men kan ikke vælges af kunder online; sælgers token-intent vil pege på en bookable type.
+> - **Moms-doktrin (1. maj 2026)**: Grocy-salgspriser er INCL. moms (autoritativt). DB gemmer INCL. moms (`bon_lines.unit_price`/`line_total`, `bons.total_price`, `delivery_price`) — `cost_price` er den eneste EX-moms-værdi i bon-domænet. Frontends og backend bruger udelukkende `shared/moms.js` helpers — ingen `* 1.25`/`* 0.25`/`/ 1.25` uden for helper-filen + `tests/`. Pre-commit-hook blokerer overtrædelser. E-conomic adapteren er den eneste kanal der konverterer til EX moms (linje-priser kræver det). Audit-suiten (`tests/moms_audit_e2e.test.js`) dækker 28 områder med T-5 testbon (23.650 incl → 18.920 ex + 4.730).
+> - **Kontaktpunkter (april–maj 2026)**: Polymorf `contact_points`-tabel (entity_type = company|customer) erstatter den gamle "ét felt per email/phone på companies/customers". `companies.email`/`phone` + `customers.email`/`phone` beholdes som denormaliseret cache holdt i sync af 4 SQLite-triggers + `syncPrimaryCache()` helper. CVR/NemHandel-kontaktpunkter altid `is_public=1`; manuelt indtastede default'er til `is_public=0`. Backfill kørt: alle eksisterende felter migreret til `source='manual'`, `is_public=0`, `is_primary=1` (juridisk sikker default).
+> - **Berig-knap = firma-handling**: Firma-berigelse (CVR-diff-merge) ligger på Firma 360°-siden, ikke på Kunde 360°. Kunde 360° viser firmanavnet som klik-link der navigerer til Firma 360°.
+> - **Web-scraping nedgraderet (april 2026)**: Auto-fetch af URL'er er fjernet pga. robots.txt-, anti-bot- og GDPR-risici. Erstattet af manuelt paste-flow: bruger klistrer HTML/tekst ind, `services/contactExtractor.js` kører email/telefon-regex + heuristik, viser kandidater til checkbox-bekræftelse.
+> - **E-conomic-adapter (spec klar, ikke bygget)**: Linje-priser konverteres til EX moms via `inclToExcl()` ved payload-build. `cost_price` er allerede ex moms — IKKE konverter igen. Adapter-flow: send payload → modtag faktura-nummer → gem på `bons.invoice_number` → skift status til FAKTURERET. Test #7 i `tests/moms_audit_e2e.test.js` er placeholder der aktiveres når koden bygges.
+> - **Menu-agent (spec klar, ikke bygget)**: AI-agent må IKKE returnere priser — kun `product_name`, `quantity`, `grocy_recipe_id`, `category`/`block_type`. Server snapshot'er priser ved `POST /api/bons/:id/lines`. Hvis preview senere skal vise priser → udelukkende via `Moms.*` helpers + de 7 visningsregler.
 
 ---
 
@@ -1852,7 +1922,17 @@ POST   /api/payment-types                                routes/payment_types.js
 PATCH  /api/payment-types/:id                            routes/payment_types.js (admin)
 GET    /api/invoices/queue?include_done=1                routes/invoices.js
 PATCH  /api/companies/:id/economic                       routes/companies.js
+GET    /api/companies/:id/enrich-preview                 routes/companies.js (CVR diff uden gem)
+POST   /api/companies/:id/enrich                         routes/companies.js (anvend delmængde af diff)
+POST   /api/companies/:id/extract-contacts               routes/companies.js (paste-flow → kandidater)
 PATCH  /api/customers/:id/economic                       routes/customers.js
+GET    /api/contact-points?entity_type=&entity_id=       routes/contact-points.js
+POST   /api/contact-points                               routes/contact-points.js
+PATCH  /api/contact-points/:id                           routes/contact-points.js
+DELETE /api/contact-points/:id                           routes/contact-points.js (auto-promote næste primary)
+PATCH  /api/contact-points/:id/toggle-public             routes/contact-points.js
+GET    /api/crm/companies                                routes/crm.js (Firmaer-fane aggregeret listview)
+GET    /api/crm/company/:id                              routes/crm.js (Firma 360° detaljer + contact_points)
 GET    /api/quotes                                       routes/quotes.js (is_offer=1 bons)
 GET    /api/quotes/next-number                           routes/quotes.js
 GET    /api/quotes/:id                                   routes/quotes.js
@@ -2008,4 +2088,12 @@ Body-klasse: `zone-kitchen` eller `zone-office` — styrer touch vs. desktop den
    - 2 latente bugs fundet og fixet (se KENDTE_DATABUGS.md #003, #008)
    - Grocy-audit forberedt for weekenden (se CLAUDE_GROCY_AUDIT.md)
 
-*Sidst opdateret: maj 2026*
+4. maj 2026 — CLAUDE.md synkroniseret med /docs
+   - Tilføjet "Ved opstart"-pegere til CLAUDE_TILBUD_PRIS, CLAUDE_KONTAKTER, CLAUDE_MOMS_AUDIT(_AUTO), CLAUDE_ECONOMIC_ADAPTER, CLAUDE_MENU_AGENT
+   - Udvidet moms-reglen i "Vigtige regler" med komplet doktrin
+   - Filstruktur opdateret: routes/contact-points.js, services/contactExtractor.js, shared/moms.js, shared/contactPoints.js
+   - Nye sektioner under "Status": Moms-refaktorering + Kontakter & Firma 360°
+   - API-base reference udvidet med contact-points + companies enrich/extract + crm/companies + crm/company/:id
+   - Beslutninger taget: moms-doktrin, kontaktpunkter, berig-knap = firma-handling, web-scraping nedgraderet, e-conomic + menu-agent specs
+
+*Sidst opdateret: 4. maj 2026*

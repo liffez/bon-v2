@@ -43,17 +43,18 @@
     <!-- Toast -->
     <div class="m-toast" id="mToast"></div>
 
-    <!-- Scripts -->
-    <script src="/BonConfig.js"></script>
-    <script src="/shared/utils.js"></script>
-    <script src="/shared/api.js"></script>
-    <script src="/shared/varemodtagelse.js"></script>
-    <script src="/shared/inventory_check.js"></script>
-    <script src="/mobile/views/bons.js"></script>
-    <script src="/mobile/views/modtag.js"></script>
-    <script src="/mobile/views/lager.js"></script>
-    <script src="/mobile/views/crm.js"></script>
-    <script src="/mobile/views/oversigt.js"></script>
+    <!-- Scripts (cache-bust via build-tag — bumpes ved deploy) -->
+    <script>window.__MV = '2026-05-04-1';</script>
+    <script src="/BonConfig.js?v=2026-05-04-1"></script>
+    <script src="/shared/utils.js?v=2026-05-04-1"></script>
+    <script src="/shared/api.js?v=2026-05-04-1"></script>
+    <script src="/shared/varemodtagelse.js?v=2026-05-04-1"></script>
+    <script src="/shared/inventory_check.js?v=2026-05-04-1"></script>
+    <script src="/mobile/views/bons.js?v=2026-05-04-1"></script>
+    <script src="/mobile/views/modtag.js?v=2026-05-04-1"></script>
+    <script src="/mobile/views/lager.js?v=2026-05-04-1"></script>
+    <script src="/mobile/views/crm.js?v=2026-05-04-1"></script>
+    <script src="/mobile/views/oversigt.js?v=2026-05-04-1"></script>
     <script>
     (async function() {
         /* ── Auth ── */
