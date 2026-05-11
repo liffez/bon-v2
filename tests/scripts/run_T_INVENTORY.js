@@ -600,20 +600,42 @@ async function testPartialConsume() {
         record('T_INV_PARTIAL_01', 'PARTIAL', 'PASS');
     }
 
-    // 6. Verificér at shopping list fik ny entry
+    // 6. Verificér at shopping list fik shortfall lagt på (smart endpoint dedupper på pid).
+    //    Vi kan IKKE stole på "ny entry id" — hvis pid=72 allerede er på listen
+    //    (fra anden test eller manuel handling), øger smart endpoint amount på
+    //    eksisterende entry. Assert i stedet at total-amount for pid steg med
+    //    result72.shortfall_purchase.
     const slAfter = await fetch(`${url}/objects/shopping_list`, { headers }).then(r => r.json());
     const slAfterEntriesForPid = slAfter.filter(s => parseInt(s.product_id) === TEST_PID);
-    const newEntry = slAfterEntriesForPid.find(s => !slBefore.some(b => parseInt(b.id) === parseInt(s.id)));
+    const sumBefore = slBefore.filter(s => parseInt(s.product_id) === TEST_PID)
+        .reduce((acc, e) => acc + parseFloat(e.amount || 0), 0);
+    const sumAfter = slAfterEntriesForPid
+        .reduce((acc, e) => acc + parseFloat(e.amount || 0), 0);
+    const purchaseAdded = sumAfter - sumBefore;
+    const expectedPurchase = result72.shortfall_purchase;
 
-    if (!newEntry) {
-        record('T_INV_PARTIAL_02', 'PARTIAL', 'FAIL',
-            `Ingen ny shopping_list-entry for pid=${TEST_PID} (havde ${slBeforeCountForPid}, har nu ${slAfterEntriesForPid.length})`);
-    } else {
-        record('T_INV_PARTIAL_02', 'PARTIAL', 'PASS',
-            `shopping_list-entry id=${newEntry.id} amount=${newEntry.amount}`);
+    // Find entry der enten er ny ELLER har fået øget amount (til cleanup)
+    let touchedEntry = slAfterEntriesForPid.find(s => !slBefore.some(b => parseInt(b.id) === parseInt(s.id)));
+    let touchedIsNew = !!touchedEntry;
+    if (!touchedEntry) {
+        // Smart endpoint dedupped — find eksisterende entry der fik bumpet amount
+        touchedEntry = slAfterEntriesForPid.find(s => {
+            const before = slBefore.find(b => parseInt(b.id) === parseInt(s.id));
+            return before && parseFloat(s.amount) > parseFloat(before.amount);
+        });
     }
 
-    // 7. Cleanup: tilføj available tilbage til stock, ryd ny shopping_list-entry
+    if (Math.abs(purchaseAdded - expectedPurchase) >= 0.01) {
+        record('T_INV_PARTIAL_02', 'PARTIAL', 'FAIL',
+            `purchase-stigning ${purchaseAdded} ≠ shortfall_purchase ${expectedPurchase} (havde ${slBeforeCountForPid}, har nu ${slAfterEntriesForPid.length})`);
+    } else {
+        record('T_INV_PARTIAL_02', 'PARTIAL', 'PASS',
+            `shopping_list: pid=${TEST_PID} amount-stigning=${purchaseAdded} (entry id=${touchedEntry ? touchedEntry.id : '?'}, ${touchedIsNew ? 'ny' : 'dedupped'})`);
+    }
+
+    // 7. Cleanup: tilføj available tilbage til stock, ryd shopping_list-entry.
+    //    Hvis vi oprettede en ny entry, slet den. Hvis vi dedupped onto en
+    //    eksisterende, reducer amount tilbage så pre-existing state bevares.
     if (available > 0.01) {
         try {
             await api('POST', `/api/grocy/stock/${TEST_PID}/add`, { amount: available });
@@ -621,9 +643,18 @@ async function testPartialConsume() {
             console.warn('  ⚠ kunne ikke restore pid=' + TEST_PID + ' stock:', err.message);
         }
     }
-    if (newEntry) {
+    if (touchedEntry) {
         try {
-            await fetch(`${url}/objects/shopping_list/${newEntry.id}`, { method: 'DELETE', headers });
+            if (touchedIsNew) {
+                await fetch(`${url}/objects/shopping_list/${touchedEntry.id}`, { method: 'DELETE', headers });
+            } else {
+                const restoredAmount = parseFloat(touchedEntry.amount) - expectedPurchase;
+                await fetch(`${url}/objects/shopping_list/${touchedEntry.id}`, {
+                    method: 'PUT',
+                    headers,
+                    body: JSON.stringify({ amount: restoredAmount }),
+                });
+            }
         } catch (err) {
             console.warn('  ⚠ kunne ikke rydde shopping_list-entry:', err.message);
         }

@@ -132,15 +132,15 @@ Hver observation har:
 | **Foreslået action** | Separat oprydnings-PR der sletter `shared/bestilling.js`, `shared/bestilling.css`, `shared/shopping_list.js`, `shared/shopping_list.css`. Verificér først via grep at ingen HTML/JS importerer dem. |
 | **Status** | `åben` (lav prioritet — kandidat til oprydnings-PR) |
 
-### #012 — `consumeRecipes` bruger rå `/objects/shopping_list` i stedet for smart endpoint
+### #012 — `consumeRecipes` bruger rå `/objects/shopping_list` i stedet for smart endpoint (lukket)
 
 | | |
 |--|--|
 | **Kilde** | T_INDKOB_LISTE-design Bug #001 (maj 2026) |
-| **Beskrivelse** | `services/grocyAdapter.js:631` i `consumeRecipes`'s shortfall-handler kalder `grocyPost('/objects/shopping_list', {...})` direkte. Det opretter ny entry pr. partial-add — selv hvis samme produkt allerede mangler på listen fra tidligere LEVERET. UI'en viser duplikater. Grocys smart endpoint `/stock/shoppinglist/add-product` dedupper automatisk og understøtter `note`-felt direkte. |
-| **Vurdering** | Bug — patch klar med to find/replace-blokke. Konsekvens for tests: T_INV_PARTIAL_02's nuværende assertion ("ny entry id ikke i slBefore") må opdateres til "amount-stigning på pid pr. shopping_list" — ellers vil testen fejle når patch lander og grocytest har pre-existing entry for pid=72. |
-| **Foreslået action** | Anvend `tests/specs/PATCH_consumeRecipes_smart_shopping_list.md` (to ændringer i grocyAdapter.js + opdatering af T_INV_PARTIAL_02-assertion i `tests/scripts/run_T_INVENTORY.js`). Skal landes som første commit i T_INDKOB_LISTE-PR. |
-| **Status** | `åben` (patch klar — landes som del af T_INDKOB_LISTE-arbejdet) |
+| **Beskrivelse** | `services/grocyAdapter.js:631` i `consumeRecipes`'s shortfall-handler kaldte `grocyPost('/objects/shopping_list', {...})` direkte. Det opretter ny entry pr. partial-add — selv hvis samme produkt allerede mangler på listen fra tidligere LEVERET. UI'en viste duplikater. Grocys smart endpoint `/stock/shoppinglist/add-product` dedupper automatisk og understøtter `note`-felt direkte. |
+| **Vurdering** | Bug — fixet 11. maj 2026 via `tests/specs/PATCH_consumeRecipes_smart_shopping_list.md` (3 ændringer: udvid `addShoppingListProduct` med note-param, brug smart endpoint i `consumeRecipes`, opdater `T_INV_PARTIAL_02`-assertion fra "ny entry-id" til "amount-stigning ≥ shortfall_purchase"). T_INVENTORY-suiten kører fortsat 13/13 PASS. Faktisk bevis: rapporten viser at smart endpoint `dedupped` på eksisterende entry (id=3750 for pid=72) — den gamle assertion ville have fejlet her, hvilket bekræftede at Ændring 3 var nødvendig. |
+| **Foreslået action** | N/A — fixet |
+| **Status** | `lukket` (11. maj 2026 — patch anvendt + T_INVENTORY verificeret) |
 
 ---
 
@@ -158,4 +158,4 @@ Hver observation har:
 
 ---
 
-*Sidst opdateret: 11. maj 2026 — tilføjet #010-#012 fra T_INDKOB-design.*
+*Sidst opdateret: 11. maj 2026 (sen aften) — #012 flyttet til lukket efter patch-anvendelse og T_INVENTORY-reverificering (13/13 PASS).*

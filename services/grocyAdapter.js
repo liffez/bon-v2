@@ -415,13 +415,24 @@ function deleteShoppingListItem(id) {
     return grocyDelete(`/objects/shopping_list/${id}`);
 }
 
-/** Tilføj produkt til indkøbsliste via Grocy's smart endpoint */
-async function addShoppingListProduct(productId, amount, listId) {
-    return grocyPost('/stock/shoppinglist/add-product', {
-        product_id: productId,
+/**
+ * Tilføj produkt til indkøbsliste via Grocy's smart endpoint.
+ * Hvis produktet allerede er på listen, øges amount på eksisterende entry
+ * (dedup). Note skrives på entry'en — overskriver eksisterende note hvis sat.
+ *
+ * @param {number} productId
+ * @param {number} amount
+ * @param {number} [listId=1]
+ * @param {string} [note]   Optional. Skrives på entry'en.
+ */
+async function addShoppingListProduct(productId, amount, listId, note) {
+    const body = {
+        product_id:     productId,
         product_amount: amount,
-        list_id: listId || 1,
-    });
+        list_id:        listId || 1,
+    };
+    if (note) body.note = note;
+    return grocyPost('/stock/shoppinglist/add-product', body);
 }
 
 /** Fjern produkt fra indkøbsliste */
@@ -622,18 +633,16 @@ async function consumeRecipes(lines) {
             }
         }
 
-        // Trin 2: hvis der mangler, læg purchase-enhed(er) på shopping list
+        // Trin 2: hvis der mangler, læg purchase-enhed(er) på shopping list.
+        // Bruger Grocys smart endpoint der DEDUPPER — samme product_id øger qty
+        // på eksisterende entry i stedet for at oprette duplikat.
         let shortfallPurchase = 0;
         if (shortfallStock > FLOAT_TOL) {
             const factor = item.purchase_factor || 1;
             shortfallPurchase = Math.ceil(shortfallStock * factor);
+            const noteText = `Auto-tilføjet ved LEVERET (manglede ${shortfallStock.toFixed(3)} fra consume)`;
             try {
-                await grocyPost('/objects/shopping_list', {
-                    product_id:    item.product_id,
-                    amount:        shortfallPurchase,
-                    note:          `Auto-tilføjet ved LEVERET (manglede ${shortfallStock.toFixed(3)} fra consume)`,
-                    shopping_list_id: 1,
-                });
+                await addShoppingListProduct(item.product_id, shortfallPurchase, 1, noteText);
             } catch (err) {
                 console.warn(`[consume] Kunne ikke tilføje pid=${item.product_id} til shopping list:`, err.message);
                 // Ikke en hård fejl — consume lykkedes (delvist), shopping-list-add er ekstra
