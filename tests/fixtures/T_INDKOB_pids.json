@@ -1,0 +1,38 @@
+{
+  "version": 1,
+  "selected_at": "2026-05-11T20:53:25.713Z",
+  "grocy_target": "https://grocytest.ristetrug.dk/api",
+  "reserved_pids_excluded": [
+    72,
+    87,
+    89,
+    95,
+    205
+  ],
+  "pids": {
+    "primary": {
+      "id": 1,
+      "name": "Brød Rug",
+      "qu_id_stock": 4,
+      "qu_id_purchase": 13
+    },
+    "dedup": {
+      "id": 2,
+      "name": "Glutenfri Bolle",
+      "qu_id_stock": 4,
+      "qu_id_purchase": 14
+    },
+    "bulk": {
+      "id": 3,
+      "name": "Lyse boller",
+      "qu_id_stock": 4,
+      "qu_id_purchase": 13
+    },
+    "isolation": {
+      "id": 4,
+      "name": "Crossiant 60g",
+      "qu_id_stock": 4,
+      "qu_id_purchase": 8
+    }
+  }
+}
