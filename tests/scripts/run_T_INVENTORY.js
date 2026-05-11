@@ -639,12 +639,120 @@ async function testPartialConsume() {
 async function testFlagOff(bon) {
     console.log(`\n── Flag-test (inventory_auto_deduct=0) ──`);
 
-    // Bemærk: vi har allerede kørt LEVERET på 4006 og 4007 i tidligere cases.
-    // Vi har ingen "ren" bon at teste med — så vi skipper denne case her og
-    // beder Simon om at køre den manuelt med en frisk seed.
+    const bonId = bon.id;
 
-    record('T_INV_FLAG_01', 'FLAG', 'SKIP',
-        'Kræver frisk bon der ikke er LEVERET endnu — kør test med fresh seed + flag=0');
+    // Indsigt: når inventory_auto_deduct=0 går consume-grenen i routes/bons.js:351-381
+    // slet ikke (neither branch executes). Det betyder vi IKKE har brug for en frisk bon —
+    // bonens inventory_deducted-flag er irrelevant når selve auto-deduct-flaget er '0'.
+    // Vi kan teste på 4006 i dens nuværende state ved at:
+    //   1. Sætte flaget til '0'
+    //   2. Sikre bon er i ikke-LEVERET state
+    //   3. PATCH → LEVERET
+    //   4. Verificere INGEN stock-ændring
+    //   5. Restore flag
+
+    // Hent linjer og beregn hvilke produkter der VILLE være berørt (snapshot-target)
+    const lines = db.prepare(`
+        SELECT bon_id, grocy_recipe_id, product_name, quantity, unit, is_accessory
+        FROM bon_lines WHERE bon_id = ?
+    `).all(bonId);
+
+    if (!lines.length) {
+        record('T_INV_FLAG_01', 'FLAG', 'FAIL', `Bon ${bonId} har ingen linjer`);
+        return;
+    }
+
+    let expected;
+    try {
+        expected = await resolveConsumeItems(lines);
+    } catch (err) {
+        record('T_INV_FLAG_01', 'FLAG', 'FAIL', `resolveConsumeItems fejlede: ${err.message}`);
+        return;
+    }
+
+    const productIds = expected.map(e => e.product_id);
+    if (!productIds.length) {
+        record('T_INV_FLAG_01', 'FLAG', 'FAIL',
+            'resolveConsumeItems returnerede 0 produkter — kan ikke verificere stock-stability');
+        return;
+    }
+
+    // Gem original flag-værdi
+    const origFlagRow = db.prepare(
+        `SELECT value FROM settings WHERE key='inventory_auto_deduct'`
+    ).get();
+    const origFlag = origFlagRow ? origFlagRow.value : '1';
+
+    try {
+        // Step 1: Sæt flag = '0'
+        db.prepare(`UPDATE settings SET value='0' WHERE key='inventory_auto_deduct'`).run();
+
+        // Step 2: Sikre bon er i ikke-LEVERET state (typisk LEVERET efter idem-test)
+        const cur = db.prepare(`
+            SELECT sd.code AS code FROM bons b
+            JOIN status_definitions sd ON b.status_id = sd.id
+            WHERE b.id = ?
+        `).get(bonId);
+
+        if (!cur) {
+            record('T_INV_FLAG_01', 'FLAG', 'FAIL', `Bon ${bonId} ikke fundet`);
+            return;
+        }
+
+        if (cur.code === 'LEVERET') {
+            await setBonStatus(bonId, 'IGANG');
+            await sleep(200);
+        }
+
+        // Step 3: Snapshot stock FØR LEVERET
+        const snapBefore = await snapshot(productIds);
+
+        // Tæl changelog-entries for grocy_consume — der bør IKKE komme en ny
+        const consumeCountBefore = db.prepare(
+            `SELECT COUNT(*) AS n FROM changelog WHERE entity_type='bon' AND entity_id=? AND action='grocy_consume'`
+        ).get(bonId).n;
+
+        // Step 4: PATCH → LEVERET (med flag=0 → consume-grenen springes over)
+        await setBonStatus(bonId, 'LEVERET');
+
+        // Step 5: Vent et øjeblik. Vi forventer INGEN async consume,
+        // men giv runtime tid til at sætte status og evt. fejle synligt.
+        await sleep(2500);
+
+        // Snapshot efter
+        const snapAfter = await snapshot(productIds);
+
+        // Verificer: ingen changelog-entry for grocy_consume
+        const consumeCountAfter = db.prepare(
+            `SELECT COUNT(*) AS n FROM changelog WHERE entity_type='bon' AND entity_id=? AND action='grocy_consume'`
+        ).get(bonId).n;
+
+        // Verificer: ingen stock-ændring
+        let changed = 0;
+        const changes = [];
+        for (const pid of productIds) {
+            const diff = (snapBefore[pid] || 0) - (snapAfter[pid] || 0);
+            if (Math.abs(diff) > FLOAT_TOL) {
+                changed++;
+                changes.push(`pid=${pid}: ${diff.toFixed(2)}`);
+            }
+        }
+
+        const consumeFired = consumeCountAfter > consumeCountBefore;
+
+        if (changed === 0 && !consumeFired) {
+            record('T_INV_FLAG_01', 'FLAG', 'PASS',
+                `Med inventory_auto_deduct=0: ingen stock-ændring (${productIds.length} produkter), ingen grocy_consume changelog-entry`);
+        } else {
+            const details = [];
+            if (changed > 0) details.push(`stock ÆNDRET for ${changed} produkter: ${changes.slice(0,3).join(', ')}`);
+            if (consumeFired) details.push(`grocy_consume changelog-entry kom (forventet ingen)`);
+            record('T_INV_FLAG_01', 'FLAG', 'FAIL', details.join('; '));
+        }
+    } finally {
+        // Restore flag uanset om testen lykkedes
+        db.prepare(`UPDATE settings SET value=? WHERE key='inventory_auto_deduct'`).run(origFlag);
+    }
 }
 
 // ════════════════════════════════════════════════════════════

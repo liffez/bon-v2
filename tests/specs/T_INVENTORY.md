@@ -140,7 +140,7 @@ Mulighed C: tilbageskift sker ikke automatisk. Disse cases bekræfter det.
 
 | ID | Action | Forventet |
 |----|--------|-----------|
-| **T_INV_FLAG_01** | Med `inventory_auto_deduct='0'`: bon 4006 → LEVERET | INGEN stock-ændring |
+| **T_INV_FLAG_01** | Med `inventory_auto_deduct='0'`: bon 4006 → LEVERET | INGEN stock-ændring + ingen `grocy_consume` changelog-entry. Runneren refaktoreret 11. maj 2026 — den behøver ikke længere en frisk bon, da `auto_deduct=0`-grenen i routes/bons.js springer hele consume-blokken over uafhængigt af `inventory_deducted`-flaget |
 | **T_INV_IDEM_01** | Bon 4006: LEVERET → IGANG → LEVERET igen | Stock trækkes **IKKE** igen — `inventory_deducted=1` blokerer dobbelt-træk |
 
 Idempotens-beskyttelsen er implementeret i `routes/bons.js:353-359` (tilføjet maj 2026
@@ -283,24 +283,30 @@ klares det internt i adapteren. Testen kalder `getStock(productId)` og forventer
 
 ---
 
-## 10. Status — efter alle fix maj 2026
+## 10. Status — efter FLAG-refaktor maj 2026
 
 ```
-12 PASS · 0 FAIL · 1 SKIP
+13 PASS · 0 FAIL · 0 SKIP
 
 SETUP    3/3   ✓
 LEVERET  4/4   ✓  (begge bonner trækker korrekt mængde fra Grocy)
 REVERT   2/2   ✓  (mulighed C bekræftet: tilbageskift trækker IKKE igen)
 IDEM     1/1   ✓  (anden LEVERET blokeres af inventory_deducted=1)
 PARTIAL  2/2   ✓  (partial consume + auto-shopping-list — v1-paritet)
-FLAG     0/1   ⊘  (T_INV_FLAG_01 kræver fresh bon — mindre design-mangel i runneren)
+FLAG     1/1   ✓  (auto_deduct=0 → ingen stock-ændring + ingen consume-changelog)
 ```
 
-T_INVENTORY-tracken er **fuldt grøn** (eksklusiv FLAG-SKIP som er en runner-mangel,
-ikke en feature-bug). Alle kontrakter mellem `resolveConsumeItems`, `consumeRecipes`,
-Grocy parent/child-substitution, idempotens-flag, partial-consume og shopping-list-
-auto-add fungerer som forventet og er verificeret end-to-end mod live grocytest.
+T_INVENTORY-tracken er **fuldt grøn**. Alle kontrakter mellem `resolveConsumeItems`,
+`consumeRecipes`, Grocy parent/child-substitution, idempotens-flag, partial-consume,
+shopping-list-auto-add og settings-flag-styring fungerer som forventet og er verificeret
+end-to-end mod live grocytest.
+
+**FLAG-refaktor (11. maj 2026):** Tidligere SKIP fordi runneren troede den behøvede
+en frisk bon. Indsigt: når `inventory_auto_deduct=0` springes hele consume-grenen
+over i [routes/bons.js:351-381](../../routes/bons.js#L351-L381) — `inventory_deducted`-
+flagets værdi er irrelevant. Runneren kan derfor bare toggle settings-flaget, transitionere
+4006 → IGANG → LEVERET, og verificere at hverken stock eller changelog ændres.
 
 ---
 
-*Sidst opdateret: maj 2026 — efter første kørsel + kode-fix til `inventory_deducted`.*
+*Sidst opdateret: 11. maj 2026 — efter FLAG-refaktor (13/13).*

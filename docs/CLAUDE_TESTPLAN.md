@@ -22,7 +22,7 @@ Test-pakken skal kunne køres af Claude Code uden manuel intervention bortset fr
 | Fase | Område | Mål | Status |
 |------|--------|-----|--------|
 | **1** | Grundlæggende bon | Bon-kerne, kitchen-views, planlægning, Grocy-adapter, økonomi pr. bon | ✅ **Færdig (130/130 PASS, 3 SKIP)** maj 2026 |
-| **2** | Specialfunktioner | Lager-tjek (T_INVENTORY ✅ + T_STOCK ✅ 31/31) + opskrifter (T_RECIPES ✅ 20/20), indkøb | 🟡 I gang |
+| **2** | Specialfunktioner | Lager-tjek (T_INVENTORY ✅ 13/13 + T_STOCK ✅ 31/31) + opskrifter (T_RECIPES ✅ 20/20), indkøb | 🟡 I gang |
 | **3** | Office (bon-delen) | Bon-list, bon-detalje, office-dashboard for bon, tilbud | 🔲 Senere |
 | **4** | Resterende | CRM, mail-ind, fakturering, levering, ugeoversigt | 🔲 Når relevant |
 
@@ -304,7 +304,7 @@ For hver track:
 ### Hvad er gjort
 
 - **Fase 1: 130/130 PASS · 3 SKIP** — alle 8 tracks grønne. Specs i `tests/specs/T_DB.md`, `T_BON.md`, `T_PLAN.md`, `T_GROCY.md`, `T_AGGR.md`, `T_INPUT.md`, `T_ECON.md`, `T_KITCHEN_TODAY.md`.
-- **Fase 2 påbegyndt — T_INVENTORY: 12/12 PASS · 1 SKIP** (eksklusiv `T_INV_FLAG_01` som er en runner-design-mangel, ikke en feature-bug).
+- **Fase 2 påbegyndt — T_INVENTORY: 13/13 PASS · 0 SKIP** (FLAG_01 refaktoreret 11. maj 2026 — runneren behøver ikke længere en frisk bon).
 - **T_STOCK: 31/31 PASS · 0 SKIP** (11. maj 2026) — direkte stock-mutation (`setInventory`, `addToStock`) + userfield-CRUD + enhedstest af status-beregningen i `shared/inventory_check.js` + `shared/stock_overview.js` via CommonJS-export-guard (tests importerer direkte fra produktionsfilerne, ingen kodeduplikering). Testprodukter: 87, 89, 95, 205 — disjoint fra T_INVENTORY. Spec: `tests/specs/T_STOCK.md`.
 - **T_RECIPES: 20/20 PASS · 0 SKIP** (11. maj 2026) — recipe CRUD via vores Grocy proxy: `POST/PUT /recipes`, `PUT /recipes/:id/userfields`, `POST/PUT/DELETE /recipes-pos`, `POST/PUT/DELETE /recipes-nestings`. Inkluderer multi-field PUT på positioner (`ingredient_group`, `note`, `variable_amount`, `qu_id`) og CASCADE-observation: Grocy cascade'r IKKE `recipes_pos`/`recipes_nestings` ved recipe-delete — orphans hænger. Spec: `tests/specs/T_RECIPES.md`. Cross-cutting observations: `docs/TEST_OBSERVATIONS.md` #002, #003, #004.
 
@@ -318,19 +318,17 @@ For hver track:
 4. `services/ingredientResolver.js:402-450` — `resolveConsumeItems` returnerer `qu_id_stock`, `qu_id_purchase`, `parent_product_id`, `purchase_factor`
 5. `.gitignore` — `.env.*`, `tests/reports/`, `tests/fixtures/grocy_snapshot.json`, DB-backups, zip-arkiver, `.claude/worktrees/`
 
-### Næste track — anbefaling: **T_PURCHASING** eller **T_INV_FLAG_01-refaktor**
+### Næste track — anbefaling: **T_PURCHASING**
 
-T_STOCK ✅ og T_RECIPES ✅ er færdige (11. maj 2026). Kandidater til næste:
+T_STOCK ✅, T_RECIPES ✅ og T_INV_FLAG_01-refaktor ✅ er færdige (11. maj 2026).
+Lager-tracksene er hermed komplet grønne. Næste store stykke i Fase 2:
 
-**A) T_INV_FLAG_01-refaktor (lille, fokuseret):**
-Adresserer den ene SKIP-case fra T_INVENTORY (`T_INV_FLAG_01` kræver fresh bon mellem cases — kunne refaktoreres til at lave en isoleret test-bon ad hoc). Cirka 30–60 min arbejde.
-
-**B) T_PURCHASING (stort, dækker Fase 2 fuldt):**
+**T_PURCHASING (stort, dækker Fase 2 fuldt):**
 Indkøb-flow: Hørkram-kurv-API, manuel bestilling, varemodtagelse v3 med Grocy `addToStock` + shopping list cleanup. Dækker den daglige indkøbsworkflow. 10+ cases, kræver mock af mail-flows.
 
 **Start-prompt for ny session (T_PURCHASING):**
 
-> Læs `docs/CLAUDE_TESTPLAN.md` §11 (denne sektion), `tests/specs/T_RECIPES.md` (mønstret for write-CRUD med direkte Grocy DELETE som cleanup), og `tests/scripts/run_T_RECIPES.js`.
+> Læs `docs/CLAUDE_TESTPLAN.md` §11 (denne sektion), `tests/specs/T_RECIPES.md` (mønstret for write-CRUD med direkte Grocy DELETE som cleanup), `tests/scripts/run_T_RECIPES.js`, og `docs/TEST_OBSERVATIONS.md` (cross-cutting fund — log nye observations dér).
 >
 > Skriv `tests/specs/T_PURCHASING.md` + `tests/scripts/run_T_PURCHASING.js`. Test purchasing-flowet: Hørkram-kurv (`PUT /api/horkram/basket`), purchase_orders (`POST /api/orders/pending`), varemodtagelse (`POST /api/goods-receipts`) og hvordan disse kobler til Grocy-lager. Brug Hørkram-credentials fra `.env.test` hvis de er sat — ellers SKIP de relevante cases. Forventet 10–15 cases.
 
