@@ -351,15 +351,15 @@ Hver observation har:
 | **Vurdering** | Lukket maj 2026 via Patch G — done-listen aligned med doneMonth (#034). Konsekvensen var direkte forvirring for office: "der står 12 fakturerede i denne måned men jeg kan kun se 11". |
 | **Status** | `lukket` (maj 2026) |
 
-### #036 — Fakturerings-view labeller incl-moms-tal som "Sum ekskl. moms" (åben, frontend)
+### #036 — Fakturerings-view labeller incl-moms-tal som "Sum ekskl. moms" (lukket)
 
 | | |
 |--|--|
 | **Kilde** | Opdaget under Patch G-arbejde (13. maj 2026) |
-| **Beskrivelse** | `office/views/fakturering.js:388` skriver `<span>Sum ekskl. moms</span>` ved siden af `bon.line_total`. Men `bon.line_total` er INCL moms (konventionen i §6b). Labellet er forkert — burde være "Sum inkl. moms" ELLER frontend skal konvertere via `Moms.inclToExcl()` og vise ex-moms-værdien sammen med separat moms-felt. |
-| **Vurdering** | Reel moms-disciplin-bug i UI'en. Lav risiko (tallet matcher, det er kun label-fejl), men afviger fra de 7 visningsregler i BON_V2_PRINCIPPER.md §6c som kræver eksplicit basis-label. Konsekvens: brugeren tror tallet er ex-moms og kommer til at addere 25% når faktura skal stemmes. |
-| **Foreslået action** | To muligheder: (a) Skift label til "Sum inkl. moms" (1-linjes fix). (b) Brug `Moms.computeMomsFields()` og vis 3 rækker: subtotal ex moms / moms 25% / total inkl. moms — matcher §6c og e-conomic-konvention. Anbefaler (b) når faktura-genereringen bygges. |
-| **Status** | `åben` (lav prioritet — label-bug, ingen pengetab) |
+| **Beskrivelse** | `office/views/fakturering.js:69` (summary-card) + `:388` (detail sum-row) labellede INCL-moms-værdier ("Ufaktureret beløb" + "Sum ekskl. moms") som ekskl. moms. Begge tal kommer fra backend som INCL moms per §6b — brugeren så et tal der var 25% højere end labelet sagde. |
+| **Vurdering** | Frontend label-bug, ikke pengetab — backend regner korrekt. Lukket 13. maj 2026 via `docs/archive/patches/PATCH_H_fakturering_moms_labels.md`: linje 69-label rettet til "inkl. moms", detail sum-row udvidet til 3-rækkers visning (Subtotal ex / Moms 25% / Total incl) via `window.Moms.computeMomsFields(bon.line_total)`. Matcher §6c visningsregler og e-conomic-konvention. CSS opdateret: subtotal+moms-rækker er lette (14px dim), total-række har gold accent. T_FAKTURERING 60/0/0 efter patch. |
+| **Foreslået action** | N/A — fixet |
+| **Status** | `lukket` (13. maj 2026) |
 
 ### #037 — Tilbud-modul: PATCH /:id/status tillader 'won' uden /convert (åben)
 
@@ -426,19 +426,19 @@ Hver observation har:
 
 ## Slutstatus (13. maj 2026)
 
-**40 observations total** efter Patch A+B+C+D+E + Patch F + Patch G + SPEC_006/007/011 + T_BONS_LIST + T_BON_DRAWER + T_FAKTURERING + T_TILBUD:
+**40 observations total** efter Patch A+B+C+D+E + Patch F + Patch G + Patch H + SPEC_006/007/011 + T_BONS_LIST + T_BON_DRAWER + T_FAKTURERING + T_TILBUD:
 
 | Status | Count | IDs |
 |---|---:|---|
-| `lukket` | 27 | #005, #006, #007, #010, #011, #012, #013, #014, #015, #017, #018, #019, #020, #021, #022, #023, #024, #025, #026, #027, #028, #030, #031, #032, #033, #034, #035 |
+| `lukket` | 28 | #005, #006, #007, #010, #011, #012, #013, #014, #015, #017, #018, #019, #020, #021, #022, #023, #024, #025, #026, #027, #028, #030, #031, #032, #033, #034, #035, #036 |
 | `bevidst-accepteret` | 3 | #001, #016, #029 |
-| `åben` (lav prio) | 7 | #002, #003, #004, #008, #009, #036, #037 |
+| `åben` (lav prio) | 6 | #002, #003, #004, #008, #009, #037 |
 | `åben` (medium prio) | 2 | #038, #039 |
 
 **2 åbne medium-prio findings i tilbud-modulet** (#038 + #039) som bør
-patches inden større tilbuds-flow-arbejde. #036 + #037 er lav-prio
-(label-bug + API-edge-case uden UI-eksponering).
+patches inden større tilbuds-flow-arbejde. #037 er lav-prio (API-edge-
+case uden UI-eksponering).
 
 ---
 
-*Sidst opdateret: 13. maj 2026 — T_TILBUD afdækker 3 nye observations: #037 (won-status uden convert, lav), #038 (is_accessory droppes på tilbud-lines, medium), #039 (SSE event-mismatch tilbud-frontend, medium). Patch-kandidater til quotes.js + office/index.html + tilbud.js.*
+*Sidst opdateret: 13. maj 2026 — Patch H (fakturering moms-labels) lukker #036. Fakturering-detail-sum viser nu 3 rækker (Subtotal ex / Moms 25% / Total incl) via `Moms.computeMomsFields()` — matcher §6c og e-conomic-konvention. Forberedelse til faktura-PDF-generering.*

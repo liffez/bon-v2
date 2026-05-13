@@ -21,6 +21,7 @@ Anvendte PATCH-filer arkiveret fra `tests/specs/patches/` (maj 2026). Disse doku
 | E | `PATCH_E_partially_approved_status.md` | F33 | maj 2026 |
 | F | `PATCH_F_sse_broadcast_consolidation.md` | #027, #030, #031 (F49, F57, F58) | maj 2026 |
 | G | `PATCH_G_invoices_queue_fixes.md` | #032, #033, #034, #035 (F62-F65) | 13. maj 2026 |
+| H | `PATCH_H_fakturering_moms_labels.md` | #036 (moms-label-bug i fakturering UI) | 13. maj 2026 |
 
 ## Tilhørende test-runners (verificerer regression)
 
@@ -31,6 +32,7 @@ Anvendte PATCH-filer arkiveret fra `tests/specs/patches/` (maj 2026). Disse doku
 | D | `npm run test:run-bon` (T_BON_API_FORCE_*-cases) |
 | F | `npm run test:run-patch-f` |
 | G | `npm run test:run-fakturering` |
+| H | `npm run test:run-fakturering` (frontend-only — backend uændret) |
 | Grocy QU | `npm run test:run-stock` + `test:inv` |
 | consumeRecipes | `npm run test:inv` |
 
