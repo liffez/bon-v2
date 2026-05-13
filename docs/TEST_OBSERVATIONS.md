@@ -315,6 +315,52 @@ Hver observation har:
 | **Vurdering** | UX-gap. Fixet maj 2026 — samme patch som #030. T_PATCH_F_02 dækker regression. |
 | **Status** | `lukket` (maj 2026) |
 
+### #032 — Tilbud (is_offer=1) kom i fakturerings-arbejdsliste (lukket)
+
+| | |
+|--|--|
+| **Kilde** | T_FAKTURERING F62 (13. maj 2026) |
+| **Beskrivelse** | `GET /api/invoices/queue` filtrerede ikke `is_offer=1`. Tilbud med status LEVERET + payment_type='invoice' (sjælden men mulig kombination) dukkede op i pending-listen, klar til "fakturering". Andre views (`routes/bons.js` linje 75, dashboard, reports) filtrerer is_offer korrekt — invoices.js var inkonsistent. |
+| **Vurdering** | Lukket maj 2026 via `tests/specs/patches/PATCH_G_invoices_queue_fixes.md` — tilføjet `(b.is_offer = 0 OR b.is_offer IS NULL)` til pending-, done- og doneMonth-querierne. T_FAK_PEND_05 dækker regression. |
+| **Status** | `lukket` (maj 2026) |
+
+### #033 — line_total i invoices-queue inkluderede accessory-lines (lukket)
+
+| | |
+|--|--|
+| **Kilde** | T_FAKTURERING F63 (13. maj 2026) |
+| **Beskrivelse** | `routes/invoices.js` summerede ALLE bon_lines (inkl. `is_accessory=1`) til `bon.line_total` og dermed til `pending_amount` + done-month-stats. Konventionen i resten af kodebasen er at ekskludere accessories fra aggregat-totaler: `routes/reports.js` (linje 561, 576), `routes/dashboard.js` (481), `routes/bons.js` (510, 544, 563), `routes/quotes.js` (392) bruger alle `AND is_accessory = 0`-filter. Invoices.js var den eneste afviger. |
+| **Vurdering** | Lukket maj 2026 via Patch G — SUM filtrerer nu `is_accessory=0` (eller IS NULL) i alle 3 querier. `bon.lines[]`-arrayet beholdes komplet så frontend kan vise tilbehør separat. T_FAK_LINES_04 + T_FAK_SUM_03 dækker regression. |
+| **Status** | `lukket` (maj 2026) |
+
+### #034 — BETALT-bons forsvandt fra done-list i fakturerings-historik (lukket)
+
+| | |
+|--|--|
+| **Kilde** | T_FAKTURERING F64 (13. maj 2026) |
+| **Beskrivelse** | Done-querien i `routes/invoices.js:127` brugte `IN ('FAKTURERET','AFSLUTTET')` — BETALT-status faldt udenfor. Når en bon gik fra FAKTURERET → BETALT (typisk via cashflow-match), forsvandt den fra fakturerings-historikken. Forvirrende UX. |
+| **Vurdering** | Lukket maj 2026 via Patch G — BETALT tilføjet til IN-listen. Matcher nu doneMonth-querien (linje 147) der altid har inkluderet BETALT — den indbyrdes inkonsistens (#035) elimineres samtidig. T_FAK_DONE_03 + T_FAK_SUM_07 dækker regression. |
+| **Status** | `lukket` (maj 2026) |
+
+### #035 — done_count_month og done-list var inkonsistente om BETALT (lukket)
+
+| | |
+|--|--|
+| **Kilde** | T_FAKTURERING F65 (13. maj 2026) |
+| **Beskrivelse** | `routes/invoices.js` havde to forskellige IN-lister: done-listen brugte `('FAKTURERET','AFSLUTTET')`, men summary's `done_count_month` brugte `('FAKTURERET','AFSLUTTET','BETALT')`. En BETALT-bon talte i månedstal men dukkede ikke op i selve listen. |
+| **Vurdering** | Lukket maj 2026 via Patch G — done-listen aligned med doneMonth (#034). Konsekvensen var direkte forvirring for office: "der står 12 fakturerede i denne måned men jeg kan kun se 11". |
+| **Status** | `lukket` (maj 2026) |
+
+### #036 — Fakturerings-view labeller incl-moms-tal som "Sum ekskl. moms" (åben, frontend)
+
+| | |
+|--|--|
+| **Kilde** | Opdaget under Patch G-arbejde (13. maj 2026) |
+| **Beskrivelse** | `office/views/fakturering.js:388` skriver `<span>Sum ekskl. moms</span>` ved siden af `bon.line_total`. Men `bon.line_total` er INCL moms (konventionen i §6b). Labellet er forkert — burde være "Sum inkl. moms" ELLER frontend skal konvertere via `Moms.inclToExcl()` og vise ex-moms-værdien sammen med separat moms-felt. |
+| **Vurdering** | Reel moms-disciplin-bug i UI'en. Lav risiko (tallet matcher, det er kun label-fejl), men afviger fra de 7 visningsregler i BON_V2_PRINCIPPER.md §6c som kræver eksplicit basis-label. Konsekvens: brugeren tror tallet er ex-moms og kommer til at addere 25% når faktura skal stemmes. |
+| **Foreslået action** | To muligheder: (a) Skift label til "Sum inkl. moms" (1-linjes fix). (b) Brug `Moms.computeMomsFields()` og vis 3 rækker: subtotal ex moms / moms 25% / total inkl. moms — matcher §6c og e-conomic-konvention. Anbefaler (b) når faktura-genereringen bygges. |
+| **Status** | `åben` (lav prioritet — label-bug, ingen pengetab) |
+
 ### #012 — `consumeRecipes` bruger rå `/objects/shopping_list` i stedet for smart endpoint (lukket)
 
 | | |
@@ -350,17 +396,18 @@ Hver observation har:
 
 ## Slutstatus (13. maj 2026)
 
-**31 observations total** efter Patch A+B+C+D+E + Patch F + SPEC_006/007/011 + T_BONS_LIST + T_BON_DRAWER:
+**37 observations total** efter Patch A+B+C+D+E + Patch F + Patch G + SPEC_006/007/011 + T_BONS_LIST + T_BON_DRAWER + T_FAKTURERING:
 
 | Status | Count | IDs |
 |---|---:|---|
-| `lukket` | 23 | #005, #006, #007, #010, #011, #012, #013, #014, #015, #017, #018, #019, #020, #021, #022, #023, #024, #025, #026, #027, #028, #030, #031 |
+| `lukket` | 27 | #005, #006, #007, #010, #011, #012, #013, #014, #015, #017, #018, #019, #020, #021, #022, #023, #024, #025, #026, #027, #028, #030, #031, #032, #033, #034, #035 |
 | `bevidst-accepteret` | 3 | #001, #016, #029 |
-| `åben` (lav prio) | 5 | #002, #003, #004, #008, #009 |
+| `åben` (lav prio) | 6 | #002, #003, #004, #008, #009, #036 |
 
-**0 åbne medium+ findings tilbage** — alt resterende er lav-prioritet
-parking. Office-fasen er solid.
+**0 åbne medium+ findings tilbage** — #036 er en frontend-label-bug (lav
+prio, ingen pengetab). Office-fasen er solid; fakturerings-endpointet er
+nu konsistent med resten af kodebasens konventioner.
 
 ---
 
-*Sidst opdateret: 13. maj 2026 — Patch F (SSE konsolidering) lukker #027 + #030 + #031. SSE-kontrakten er nu standardiseret på tværs af alle `bon_*`/`notification`-events. Mail-events bevares som polymorfe (semantisk forskellige) — dokumenteret som konvention i #029.*
+*Sidst opdateret: 13. maj 2026 — Patch G (invoices-queue fixes) lukker #032 + #033 + #034 + #035. Fakturerings-arbejdslisten filtrerer nu tilbud, ekskluderer accessories og inkluderer BETALT i done-historikken — konsistent med dashboard.js + reports.js + recalcBonTotal-konventionerne.*
