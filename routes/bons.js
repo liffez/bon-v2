@@ -316,7 +316,7 @@ router.patch('/:id', handle((req, res) => {
 router.patch('/:id/status', handle((req, res) => {
     const db = getDb();
     const id = parseInt(req.params.id);
-    const { status_code, user_id } = req.body;
+    const { status_code, user_id, force } = req.body;
     if (!status_code) return res.status(400).json({ error: 'status_code er påkrævet' });
 
     const bon = db.prepare(`SELECT b.id, sd.code as current_code FROM bons b JOIN status_definitions sd ON b.status_id = sd.id WHERE b.id = ?`).get(id);
@@ -325,7 +325,30 @@ router.patch('/:id/status', handle((req, res) => {
     const newStatus = db.prepare(`SELECT id, code FROM status_definitions WHERE code = ?`).get(status_code);
     if (!newStatus) return res.status(400).json({ error: `Ukendt status: ${status_code}` });
 
-    // Tjek at transition er tilladt
+    // Patch D: force-mode. Rolle-tjek mod SESSION (ikke body) for at undgå
+    // privilege escalation. Også audit-user-id kommer fra session — body.user_id
+    // accepteres ikke til auth eller audit (D-2b fix).
+    const isForce = force === true;
+    let isAdmin = false;
+    const sessionUserId = req.session?.userId ?? null;
+    if (isForce) {
+        if (!sessionUserId) {
+            return res.status(401).json({ error: 'Force-mode kræver login' });
+        }
+        const sessionUser = db.prepare(
+            `SELECT role FROM users WHERE id = ? AND is_active = 1`
+        ).get(sessionUserId);
+        if (!sessionUser) {
+            return res.status(401).json({ error: 'Session-bruger ikke gyldig' });
+        }
+        if (sessionUser.role !== 'admin') {
+            return res.status(403).json({ error: 'Force-mode kræver admin-rolle' });
+        }
+        isAdmin = true;
+    }
+
+    // Slå transition op (uanset force-mode — vi bruger triggers_json længere nede).
+    // Hvis transition ikke findes OG vi ikke har force+admin, afvises requesten.
     const transition = db.prepare(`
         SELECT st.* FROM status_transitions st
         JOIN status_definitions from_sd ON st.from_status_id = from_sd.id
@@ -333,17 +356,39 @@ router.patch('/:id/status', handle((req, res) => {
         WHERE from_sd.code = ? AND to_sd.code = ? AND st.is_active = 1
     `).get(bon.current_code, status_code);
 
-    if (!transition) {
-        return res.status(400).json({ error: `Transition ${bon.current_code} → ${status_code} er ikke tilladt` });
+    if (!transition && !(isForce && isAdmin)) {
+        return res.status(400).json({
+            error: `Transition ${bon.current_code} → ${status_code} er ikke tilladt`,
+            hint: 'Admins kan overstyre med {force: true}'
+        });
     }
 
     db.prepare(`UPDATE bons SET status_id = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?`).run(newStatus.id, id);
-    logChange({ entityType: 'bon', entityId: id, action: 'status_change', fieldName: 'status_id', oldValue: bon.current_code, newValue: status_code, userId: user_id ?? null });
+    // Audit-user-id:
+    //   - Force-mode: ALTID session.userId (kan ikke falsificeres via body)
+    //   - Ikke-force: behold eksisterende mønster (body.user_id eller null) —
+    //     endpointet er stadig uautentificeret for ikke-force-flow, så kitchen-
+    //     tablets der sender user_id i body får audit-værdien som hidtil.
+    const auditUserId = (isForce && isAdmin)
+        ? sessionUserId
+        : (user_id ?? sessionUserId ?? null);
+    logChange({
+        entityType: 'bon',
+        entityId: id,
+        action: 'status_change',
+        fieldName: 'status_id',
+        oldValue: bon.current_code,
+        newValue: status_code,
+        userId: auditUserId,
+        wasForced: isForce && isAdmin
+    });
 
     broadcast('bon_status', { bon_id: id, old: bon.current_code, new: status_code });
 
-    // Triggers stub — kobles til Grocy/mail senere
-    const triggers = transition.triggers_json
+    // Triggers stub — kobles til Grocy/mail senere.
+    // transition kan være null hvis force-mode overstyrede en ikke-eksisterende
+    // transition; i så fald har vi ingen triggers at køre.
+    const triggers = transition?.triggers_json
         ? JSON.parse(transition.triggers_json)
         : [];
 
@@ -390,8 +435,10 @@ router.patch('/:id/status', handle((req, res) => {
     res.json({
         id,
         status_code,
-        requires_confirmation: transition.requires_confirmation === 1,
-        confirmation_message:  transition.confirmation_message,
+        // transition kan være null hvis force-mode overstyrede en ikke-eksisterende
+        // transition (Patch D). Fallback til false/null for kompatibilitet.
+        requires_confirmation: transition?.requires_confirmation === 1,
+        confirmation_message:  transition?.confirmation_message ?? null,
         triggers
     });
 }));

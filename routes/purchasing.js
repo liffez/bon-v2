@@ -134,8 +134,23 @@ router.post('/suppliers/grocy-locations', handle((req, res) => {
         return res.status(400).json({ error: 'grocy_location_id og supplier_id er påkrævet' });
     }
 
+    // Patch C #014 (v2): 409 ved duplikat (i stedet for silent INSERT OR REPLACE).
+    // Returnerer hele eksisterende række så klient kan vise den til brugeren.
+    const existing = db.prepare(`
+        SELECT supplier_id, grocy_location_id, display_name
+        FROM supplier_grocy_locations
+        WHERE supplier_id = ? AND grocy_location_id = ?
+    `).get(supplier_id, grocy_location_id);
+
+    if (existing) {
+        return res.status(409).json({
+            error: 'Kobling eksisterer allerede',
+            existing
+        });
+    }
+
     db.prepare(`
-        INSERT OR REPLACE INTO supplier_grocy_locations (supplier_id, grocy_location_id, display_name)
+        INSERT INTO supplier_grocy_locations (supplier_id, grocy_location_id, display_name)
         VALUES (?, ?, ?)
     `).run(supplier_id, grocy_location_id, display_name || null);
 
@@ -222,8 +237,15 @@ router.post('/suppliers', handle((req, res) => {
         return res.status(400).json({ error: 'Navn er påkrævet' });
     }
 
-    const validTypes = ['api', 'form', 'email', 'manual', 'webshop', 'intern'];
-    const type = validTypes.includes(integration_type) ? integration_type : 'manual';
+    // Patch C #013: eksplicit 400 ved ugyldig integration_type (i stedet for
+    // silent fallback til 'manual'). undefined/null tillades — defaulter til DB-default.
+    const VALID_INTEGRATION_TYPES = ['api', 'form', 'email', 'manual', 'webshop', 'intern'];
+    if (integration_type && !VALID_INTEGRATION_TYPES.includes(integration_type)) {
+        return res.status(400).json({
+            error: `Ugyldig integration_type: '${integration_type}'. Tilladte værdier: ${VALID_INTEGRATION_TYPES.join(', ')}`
+        });
+    }
+    const type = integration_type || 'manual';
 
     const result = db.prepare(`
         INSERT INTO suppliers (name, integration_type, contact_email, contact_phone, webshop_url, notes)
@@ -243,14 +265,28 @@ router.patch('/suppliers/:id', handle((req, res) => {
     const existing = db.prepare('SELECT * FROM suppliers WHERE id = ?').get(id);
     if (!existing) return res.status(404).json({ error: 'Leverandør ikke fundet' });
 
-    const validTypes = ['api', 'form', 'email', 'manual', 'webshop', 'intern'];
+    const VALID_INTEGRATION_TYPES = ['api', 'form', 'email', 'manual', 'webshop', 'intern'];
+
+    // Patch C #013: eksplicit 400 ved ugyldig integration_type (i stedet for at
+    // springe feltet silently over). Tjekkes før loopet så fejlen er tydelig.
+    if (req.body.integration_type !== undefined
+        && !VALID_INTEGRATION_TYPES.includes(req.body.integration_type)) {
+        return res.status(400).json({
+            error: `Ugyldig integration_type: '${req.body.integration_type}'. Tilladte værdier: ${VALID_INTEGRATION_TYPES.join(', ')}`
+        });
+    }
+
+    // Patch C v2: name='' eller non-string → eksplicit 400 (ikke silent-skip)
+    if (req.body.name !== undefined
+        && (typeof req.body.name !== 'string' || !req.body.name.trim())) {
+        return res.status(400).json({ error: 'Navn skal være en ikke-tom streng' });
+    }
+
     const fields = {};
     const allowed = ['name', 'integration_type', 'contact_email', 'contact_phone', 'webshop_url', 'notes', 'is_active'];
 
     for (const key of allowed) {
         if (req.body[key] !== undefined) {
-            if (key === 'integration_type' && !validTypes.includes(req.body[key])) continue;
-            if (key === 'name' && !req.body[key].trim()) continue;
             fields[key] = req.body[key];
         }
     }

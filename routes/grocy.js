@@ -277,8 +277,20 @@ router.get('/product-barcodes', handle(async (req, res) => {
 }));
 
 router.post('/product-barcodes', handle(async (req, res) => {
-    const result = await grocy.createProductBarcode(req.body);
-    res.json(result);
+    // Patch C #015: respektér err.status og err.code fra adapter
+    // (createProductBarcode mapper Grocy 500-duplikater til 409+BARCODE_DUPLICATE).
+    try {
+        const result = await grocy.createProductBarcode(req.body);
+        res.json(result);
+    } catch (err) {
+        if (err.status && err.status >= 400 && err.status < 600) {
+            return res.status(err.status).json({
+                error: err.message,
+                ...(err.code ? { code: err.code } : {}),
+            });
+        }
+        throw err; // lad handle()-wrapperen fange uventede fejl som 500
+    }
 }));
 
 router.put('/product-barcodes/:id', handle(async (req, res) => {
