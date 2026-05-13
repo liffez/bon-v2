@@ -218,21 +218,186 @@ async function runApiTests() {
         }
     }
 
-    console.log('\n── 3.5 Force-mode (parkeret — venter på design-beslutning) ──');
+    console.log('\n── 3.5 Force-mode (Patch D) ──');
+    await runForceCases();
+}
 
-    // FORCE_01: GODKENDT → BETALT med force: true
-    // Feature er nævnt i CLAUDE.md men ikke implementeret i routes/bons.js.
-    // SKIPpes indtil beslutning: implementer eller fjern fra CLAUDE.md.
-    // Hvis features skal valideres, ændr SKIP → den faktiske assert nedenfor.
-    setBonStatus(4002, 'GODKENDT');
-    {
-        const r = await patchStatus(4002, { status_code: 'BETALT', force: true });
-        if (r.status === 200) {
-            record('T_BON_API_FORCE_01', 'FORCE', 'PASS',
-                'Force-mode virker — feature er implementeret. Opdater T_BON.md §6.');
+// ════════════════════════════════════════════════════════════
+// Force-mode cases (Patch D) — kræver login som forskellige roller
+// ════════════════════════════════════════════════════════════
+
+async function loginCookie(pin) {
+    const res = await fetch(`${SERVER_URL}/api/auth/pin`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ pin }),
+    });
+    if (res.status !== 200) throw new Error(`Login PIN ${pin} fejlede: status=${res.status}`);
+    const setCookie = res.headers.get('set-cookie');
+    return setCookie?.split(';')[0] || null;
+}
+
+async function patchStatusAuth(bonId, body, cookie) {
+    const opts = {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(body),
+    };
+    if (cookie) opts.headers['Cookie'] = cookie;
+    const res = await fetch(`${SERVER_URL}/api/bons/${bonId}/status`, opts);
+    return { status: res.status, body: await res.json().catch(() => null) };
+}
+
+async function runForceCases() {
+    // Sikre seedede brugere: admin (id=2, intet PIN) og kitchen (id=3, PIN 1234).
+    // For admin-login: opret midlertidig admin-PIN i DB (kitchen-runneren bruger
+    // pin-endpointet, som er enklest). Admin har email-login i prod men PIN
+    // virker også hvis sat.
+    const adminUser = db.prepare(`SELECT id, pin FROM users WHERE role = 'admin' AND is_active = 1 LIMIT 1`).get();
+    if (!adminUser) {
+        for (let i = 1; i <= 7; i++) record(`T_BON_API_FORCE_0${i}`, 'FORCE', 'SKIP', 'Ingen aktiv admin-bruger');
+        return;
+    }
+    // Backup eksisterende PIN og sæt midlertidig
+    const originalAdminPin = adminUser.pin;
+    const TMP_ADMIN_PIN = '9911';
+    db.prepare(`UPDATE users SET pin = ? WHERE id = ?`).run(TMP_ADMIN_PIN, adminUser.id);
+
+    let adminCookie = null;
+    let kitchenCookie = null;
+    try {
+        adminCookie = await loginCookie(TMP_ADMIN_PIN);
+        kitchenCookie = await loginCookie('1234');
+    } catch (err) {
+        for (let i = 1; i <= 7; i++) record(`T_BON_API_FORCE_0${i}`, 'FORCE', 'SKIP', `Login fejlede: ${err.message}`);
+        // Restore PIN
+        if (originalAdminPin != null) {
+            db.prepare(`UPDATE users SET pin = ? WHERE id = ?`).run(originalAdminPin, adminUser.id);
         } else {
-            record('T_BON_API_FORCE_01', 'FORCE', 'SKIP',
-                `Force-mode ikke implementeret (PATCH returnerede ${r.status}). Venter på design-beslutning. Se T_BON.md §6.`);
+            db.prepare(`UPDATE users SET pin = NULL WHERE id = ?`).run(adminUser.id);
+        }
+        return;
+    }
+
+    try {
+        // FORCE_01: admin force'r forbudt transition → 200
+        setBonStatus(4002, 'GODKENDT');  // GODKENDT → BETALT er ikke en lovlig transition
+        {
+            const r = await patchStatusAuth(4002, { status_code: 'BETALT', force: true }, adminCookie);
+            if (r.status === 200) {
+                record('T_BON_API_FORCE_01', 'FORCE', 'PASS');
+            } else {
+                record('T_BON_API_FORCE_01', 'FORCE', 'FAIL',
+                    `Admin force fejlede: status=${r.status}, body=${JSON.stringify(r.body)}`);
+            }
+        }
+
+        // FORCE_02: kitchen-bruger med force: true → 403
+        setBonStatus(4002, 'GODKENDT');
+        {
+            const r = await patchStatusAuth(4002, { status_code: 'BETALT', force: true }, kitchenCookie);
+            if (r.status === 403 && /admin-rolle/i.test(r.body?.error || '')) {
+                record('T_BON_API_FORCE_02', 'FORCE', 'PASS');
+            } else {
+                record('T_BON_API_FORCE_02', 'FORCE', 'FAIL',
+                    `Forventede 403 med admin-rolle-besked, fik status=${r.status}, body=${JSON.stringify(r.body)}`);
+            }
+        }
+
+        // FORCE_03 (D-3 regression — privilege escalation): kitchen + body.user_id=admin → 403
+        // Body.user_id må IKKE påvirke rolle-tjekket
+        setBonStatus(4002, 'GODKENDT');
+        {
+            const r = await patchStatusAuth(4002, {
+                status_code: 'BETALT',
+                force: true,
+                user_id: adminUser.id,  // forsøg på eskalering
+            }, kitchenCookie);
+            if (r.status === 403) {
+                record('T_BON_API_FORCE_03', 'FORCE', 'PASS',
+                    VERBOSE ? 'D-3: privilege escalation forhindret' : '');
+            } else {
+                record('T_BON_API_FORCE_03', 'FORCE', 'FAIL',
+                    `D-3 BRUDT: kitchen + body.user_id=${adminUser.id} fik status=${r.status} (forventede 403)`);
+            }
+        }
+
+        // FORCE_04: ingen session + force: true → 401
+        setBonStatus(4002, 'GODKENDT');
+        {
+            const r = await patchStatusAuth(4002, { status_code: 'BETALT', force: true }, null);
+            if (r.status === 401) {
+                record('T_BON_API_FORCE_04', 'FORCE', 'PASS');
+            } else {
+                record('T_BON_API_FORCE_04', 'FORCE', 'FAIL',
+                    `Forventede 401, fik ${r.status}`);
+            }
+        }
+
+        // FORCE_05: ikke-force + forbudt transition → 400 (som hidtil)
+        setBonStatus(4002, 'GODKENDT');
+        {
+            const r = await patchStatus(4002, { status_code: 'BETALT' });
+            if (r.status === 400 && /ikke tilladt/i.test(r.body?.error || '')) {
+                record('T_BON_API_FORCE_05', 'FORCE', 'PASS');
+            } else {
+                record('T_BON_API_FORCE_05', 'FORCE', 'FAIL',
+                    `Forventede 400 'ikke tilladt', fik status=${r.status}, body=${JSON.stringify(r.body)}`);
+            }
+        }
+
+        // FORCE_06: admin force'r FAKTURERET → IGANG (terminal-tilbageskift)
+        setBonStatus(4002, 'FAKTURERET');
+        {
+            const r = await patchStatusAuth(4002, { status_code: 'IGANG', force: true }, adminCookie);
+            if (r.status === 200) {
+                record('T_BON_API_FORCE_06', 'FORCE', 'PASS');
+            } else {
+                record('T_BON_API_FORCE_06', 'FORCE', 'FAIL',
+                    `Terminal force fejlede: status=${r.status}, body=${JSON.stringify(r.body)}`);
+            }
+        }
+
+        // FORCE_07: audit — payload har was_forced=true OG kolonne-rækkefølge intakt
+        // (D-2 regression: field_name skal IKKE være forskudt)
+        setBonStatus(4002, 'GODKENDT');
+        {
+            const r = await patchStatusAuth(4002, { status_code: 'BETALT', force: true }, adminCookie);
+            if (r.status !== 200) {
+                record('T_BON_API_FORCE_07', 'FORCE', 'FAIL', `Setup-PATCH fejlede: ${r.status}`);
+            } else {
+                const cl = db.prepare(`
+                    SELECT entity_type, entity_id, action, field_name, old_value, new_value, user_id, payload
+                    FROM changelog
+                    WHERE entity_type='bon' AND entity_id=4002 AND action='status_change'
+                    ORDER BY id DESC LIMIT 1
+                `).get();
+
+                const payloadOk = cl?.payload && JSON.parse(cl.payload).was_forced === true
+                    && JSON.parse(cl.payload).by_user_id === adminUser.id;
+                const columnOrderOk = cl?.entity_type === 'bon'
+                    && cl?.entity_id === 4002
+                    && cl?.action === 'status_change'
+                    && cl?.field_name === 'status_id'
+                    && cl?.old_value === 'GODKENDT'
+                    && cl?.new_value === 'BETALT'
+                    && cl?.user_id === adminUser.id;
+
+                if (payloadOk && columnOrderOk) {
+                    record('T_BON_API_FORCE_07', 'FORCE', 'PASS',
+                        VERBOSE ? `payload + kolonne-rækkefølge OK` : '');
+                } else {
+                    record('T_BON_API_FORCE_07', 'FORCE', 'FAIL',
+                        `payloadOk=${payloadOk}, columnOrderOk=${columnOrderOk}, cl=${JSON.stringify(cl)}`);
+                }
+            }
+        }
+    } finally {
+        // Restore admin's oprindelige PIN
+        if (originalAdminPin != null) {
+            db.prepare(`UPDATE users SET pin = ? WHERE id = ?`).run(originalAdminPin, adminUser.id);
+        } else {
+            db.prepare(`UPDATE users SET pin = NULL WHERE id = ?`).run(adminUser.id);
         }
     }
 }
