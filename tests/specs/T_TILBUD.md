@@ -326,6 +326,7 @@ npm-script:
 | **F70** | §4.6 (PATCH_04) | PATCH med lines:[] (tom array) | Sletter alle linjer uden at indsætte nogen — er det intended? Lille rationale-spørgsmål |
 | **F71** | (overordnet) | DELETE bon_lines i PATCH replace-all logger ingen changelog | Linjeniveau-historik tabes ved tilbud-redigering. F-kandidat hvis audit-trail er vigtig |
 | **F72** | §4.6 (PATCH_06) | routes/quotes.js INSERT INTO bon_lines mangler is_accessory-kolonne | Både POST og PATCH dropper `is_accessory`-flaget på lines. routes/bons.js bevarer det (linje 498) — quotes.js er ude af sync. Konsekvens: accessory-lines på tilbud kan ikke markeres, og total_units kan ikke ekskludere dem. Fix: tilføj `is_accessory` til INSERT-statementen i POST + PATCH (2 steder) |
+| **F73** | (overordnet) | SSE event-name-mismatch mellem backend og frontend | `routes/quotes.js` broadcaster `bon_created` (linje 298) og `bon_updated` (linjer 398, 450, 480) — men `office/index.html:934-939` registrerer kun listeners for `quote_created`/`quote_updated`, og `office/views/tilbud.js:184` lytter på samme navne. Frontend modtager ALDRIG realtime-opdateringer. Brugeren skal manuelt re-fetche. Fix: enten omdøb broadcasts i quotes.js til `quote_*` ELLER opdater frontend-listeners til `bon_*`. Hvis det sidste — sørg for ikke at krydse med eksisterende bons-list-handler |
 
 ---
 
