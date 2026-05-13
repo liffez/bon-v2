@@ -383,7 +383,7 @@ router.patch('/:id/status', handle((req, res) => {
         wasForced: isForce && isAdmin
     });
 
-    broadcast('bon_status', { bon_id: id, old: bon.current_code, new: status_code });
+    broadcast('bon_status', { id, old: bon.current_code, new: status_code });
 
     // Triggers stub — kobles til Grocy/mail senere.
     // transition kan være null hvis force-mode overstyrede en ikke-eksisterende
@@ -514,7 +514,7 @@ router.post('/:id/lines', handle((req, res) => {
     recalcBonTotal(db, bonId, { logIfChanged: true, userId: l.user_id ?? null });
 
     logChange({ entityType: 'bon', entityId: bonId, action: 'update', fieldName: 'bon_lines', newValue: `tilføjet: ${qty}x ${l.product_name}`, userId: l.user_id ?? null });
-    broadcast('bon_updated', { bon_id: bonId });
+    broadcast('bon_updated', { id: bonId });
     res.status(201).json(db.prepare(`SELECT * FROM bon_lines WHERE id = ?`).get(result.lastInsertRowid));
 }));
 
@@ -547,6 +547,8 @@ router.put('/:id/lines/:lid', handle((req, res) => {
     // Server-autoritativ recalc af bons.total_price
     recalcBonTotal(db, bonId, { logIfChanged: true, userId: req.session?.userId ?? null });
 
+    // Patch F (F57): tilføj manglende broadcast på PUT lines
+    broadcast('bon_updated', { id: bonId });
     res.json(db.prepare(`SELECT * FROM bon_lines WHERE id = ?`).get(lineId));
 }));
 
@@ -563,6 +565,8 @@ router.delete('/:id/lines/:lid', handle((req, res) => {
     // Server-autoritativ recalc af bons.total_price
     recalcBonTotal(db, bonId, { logIfChanged: true, userId: req.session?.userId ?? null });
     logChange({ entityType: 'bon', entityId: bonId, action: 'update', fieldName: 'bon_lines', oldValue: `${line.quantity}x ${line.product_name}`, notes: 'linje slettet' });
+    // Patch F (F58): tilføj manglende broadcast på DELETE lines
+    broadcast('bon_updated', { id: bonId });
     res.json({ deleted: lineId });
 }));
 
@@ -648,7 +652,7 @@ router.post('/:id/notifications', handle((req, res) => {
             .run(notif.id, client_id);
     }
 
-    broadcast('notification', { bon_id: bonId, notification: notif, sender_client_id: client_id ?? null });
+    broadcast('notification', { id: bonId, notification: notif, sender_client_id: client_id ?? null });
     res.status(201).json(notif);
 }));
 

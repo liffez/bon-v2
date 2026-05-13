@@ -332,7 +332,7 @@ async function runPostLinesCases() {
         let hasChangelog = afterCL > beforeCL;
         let hasBroadcast = false;
         try {
-            await sseListener.waitForEvent('bon_updated', e => (e.bon_id || e.id) === testBonId, 2000);
+            await sseListener.waitForEvent('bon_updated', e => e.id === testBonId, 2000);
             hasBroadcast = true;
         } catch {}
 
@@ -438,26 +438,21 @@ async function runPutLinesCases() {
         }
     }
 
-    // PUT_07 (F57): PUT mangler SSE broadcast
+    // PUT_07 (F57 LUKKET — Patch F): PUT lines SKAL udsende bon_updated broadcast.
+    // Tidligere defensive — markerede PASS uanset. Nu strammet: REQUIRE event.
     {
         sseListener.clearEvents();
         const r = await api('PUT', `/api/bons/${testBonId}/lines/${lineId}`, { quantity: 4 });
         if (r.status !== 200) {
             record('T_BDR_PUT_07', 'PUT', 'FAIL', `status=${r.status}`);
         } else {
-            // Vent kort på broadcast
-            let received = false;
             try {
-                await sseListener.waitForEvent('bon_updated', e => (e.bon_id || e.id) === testBonId, 1000);
-                received = true;
-            } catch {}
-
-            if (!received) {
+                await sseListener.waitForEvent('bon_updated', e => e.id === testBonId, 2000);
                 record('T_BDR_PUT_07', 'PUT', 'PASS',
-                    `F57 bekræftet: PUT lines udsender INGEN bon_updated broadcast`);
-            } else {
-                record('T_BDR_PUT_07', 'PUT', 'PASS',
-                    `F57 lukket: PUT lines udsender nu bon_updated`);
+                    VERBOSE ? 'F57 lukket: PUT lines udsender bon_updated med {id}' : '');
+            } catch (err) {
+                record('T_BDR_PUT_07', 'PUT', 'FAIL',
+                    `F57 regression: ${err.message}`);
             }
         }
     }
@@ -523,7 +518,7 @@ async function runDeleteLinesCases() {
         }
     }
 
-    // DEL_05 (F58): DELETE mangler SSE broadcast
+    // DEL_05 (F58 LUKKET — Patch F): DELETE lines SKAL udsende bon_updated broadcast.
     {
         const tmpRes = await api('POST', `/api/bons/${testBonId}/lines`, { product_name: 'DEL_BROADCAST' });
         const tmpId = tmpRes.body?.id;
@@ -532,17 +527,13 @@ async function runDeleteLinesCases() {
         if (r.status !== 200) {
             record('T_BDR_DEL_05', 'DEL', 'FAIL', `status=${r.status}`);
         } else {
-            let received = false;
             try {
-                await sseListener.waitForEvent('bon_updated', e => (e.bon_id || e.id) === testBonId, 1000);
-                received = true;
-            } catch {}
-            if (!received) {
+                await sseListener.waitForEvent('bon_updated', e => e.id === testBonId, 2000);
                 record('T_BDR_DEL_05', 'DEL', 'PASS',
-                    `F58 bekræftet: DELETE lines udsender INGEN bon_updated broadcast`);
-            } else {
-                record('T_BDR_DEL_05', 'DEL', 'PASS',
-                    `F58 lukket: DELETE lines udsender nu bon_updated`);
+                    VERBOSE ? 'F58 lukket: DELETE lines udsender bon_updated med {id}' : '');
+            } catch (err) {
+                record('T_BDR_DEL_05', 'DEL', 'FAIL',
+                    `F58 regression: ${err.message}`);
             }
         }
     }
@@ -759,7 +750,7 @@ async function runNotificationCases() {
         if (r.status === 201) {
             createdNotifIds.push(r.body.id);
             try {
-                await sseListener.waitForEvent('notification', e => e.bon_id === testBonId, 2000);
+                await sseListener.waitForEvent('notification', e => e.id === testBonId, 2000);
                 record('T_BDR_NOT_04', 'NOT', 'PASS');
             } catch (err) {
                 record('T_BDR_NOT_04', 'NOT', 'FAIL', err.message);
@@ -1117,7 +1108,7 @@ async function runMailReadCases() {
         if (r.status === 200) {
             try {
                 const evt = await sseListener.waitForEvent('bon_updated',
-                    e => (e.id || e.bon_id) === testBonId && 'unread_mail_count' in e, 2000);
+                    e => e.id === testBonId && 'unread_mail_count' in e, 2000);
                 record('T_BDR_MAIL_READ_03', 'MAIL_R', 'PASS',
                     VERBOSE ? `event.data.unread_mail_count=${evt.data.unread_mail_count}` : '');
             } catch (err) {

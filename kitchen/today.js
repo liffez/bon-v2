@@ -136,10 +136,10 @@ function initSSE() {
 
         bon_status: (data) => {
             // Spring over hvis bon har aktiv SSE-suppress (fortryd pågår)
-            if (_suppressSSE[data.bon_id] && Date.now() - _suppressSSE[data.bon_id] < 3000) return;
-            delete _suppressSSE[data.bon_id];
+            if (_suppressSSE[data.id] && Date.now() - _suppressSSE[data.id] < 3000) return;
+            delete _suppressSSE[data.id];
 
-            const card = document.getElementById('bon' + data.bon_id);
+            const card = document.getElementById('bon' + data.id);
             if (!card) return;
             const newFe = statusToFrontend(data.new);
             if (card.dataset.status === newFe) return; // Allerede opdateret lokalt
@@ -151,7 +151,7 @@ function initSSE() {
 
         notification: (data) => {
             // Card-level alert
-            const card = document.getElementById('bon' + data.bon_id);
+            const card = document.getElementById('bon' + data.id);
             if (card) {
                 const alertsEl = card.querySelector('.bon-alerts');
                 if (alertsEl) {
@@ -167,12 +167,12 @@ function initSSE() {
         },
 
         bon_updated: (data) => {
-            fetchBon(data.bon_id).then(apiBon => {
-                const card = document.getElementById('bon' + data.bon_id);
+            fetchBon(data.id).then(apiBon => {
+                const card = document.getElementById('bon' + data.id);
                 if (!card) return;
                 const cardData = mapApiBonToCardData(apiBon);
                 const menuEl = card.querySelector('.select-mode-container');
-                if (menuEl) menuEl.innerHTML = _buildMenu(cardData.menu, data.bon_id);
+                if (menuEl) menuEl.innerHTML = _buildMenu(cardData.menu, data.id);
                 const unitsEl = card.querySelector('.unit-primary');
                 if (unitsEl) unitsEl.textContent = cardData.units;
             }).catch(err => console.error('bon_updated fejl:', err));

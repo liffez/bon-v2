@@ -943,15 +943,16 @@ class BonDrawer {
        ══════════════════════════════════════════════════════ */
 
     _bindSSE() {
+        // Patch F: bon_updated + bon_status bruger nu konsistent {id} på payload
         window.addEventListener('sse:bon_updated', (e) => {
             const data = e.detail || {};
-            if ((data.id == this.bonId || data.bon_id == this.bonId) && !this.dirty) {
+            if (data.id == this.bonId && !this.dirty) {
                 this.load(this.bonId);
             }
         });
         window.addEventListener('sse:bon_status', (e) => {
             const data = e.detail || {};
-            if (data.bon_id == this.bonId && !this.dirty) {
+            if (data.id == this.bonId && !this.dirty) {
                 this.load(this.bonId);
             }
         });

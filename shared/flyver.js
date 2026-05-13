@@ -125,7 +125,8 @@ function handleFlyverSSE(data) {
     // Tilføj til kø (undgå dubletter)
     if (!_unreadQueue.find(n => n.id === notif.id)) {
         // Tilføj bon_number fra SSE-data hvis muligt
-        if (data.bon_id && !notif.bon_number) {
+        // Patch F: notification-event bruger nu {id} (bon-id'et) — ikke {bon_id}
+        if (data.id && !notif.bon_number) {
             notif.bon_number = null; // hentes i detail-modal
         }
         _unreadQueue.unshift(notif);
