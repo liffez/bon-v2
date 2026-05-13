@@ -717,7 +717,7 @@ async function runPatch() {
         }
     } catch (e) { record('T_TIL_PATCH_05', 'PATCH', 'FAIL', e.message); }
 
-    // PATCH_06: total_units ekskluderer accessory — F72-kandidat
+    // PATCH_06: total_units ekskluderer accessory + is_accessory gemmes — Patch I lukker F72
     try {
         await api('PATCH', `/api/quotes/${created.quotes.WITH_LINES}`, {
             lines: [
@@ -727,12 +727,12 @@ async function runPatch() {
         });
         const row = db.prepare(`SELECT total_units FROM bons WHERE id=?`).get(created.quotes.WITH_LINES);
         const acc = db.prepare(`SELECT is_accessory FROM bon_lines WHERE bon_id=? AND product_name='Servietter'`).get(created.quotes.WITH_LINES);
-        if (row.total_units === 5) {
-            record('T_TIL_PATCH_06', 'PATCH', 'PASS', `total_units=${row.total_units} (accessory ekskluderet)`);
+        if (row.total_units === 5 && acc?.is_accessory === 1) {
+            record('T_TIL_PATCH_06', 'PATCH', 'PASS',
+                `F72 lukket: is_accessory gemt korrekt + total_units=5 (accessory ekskluderet)`);
         } else if (row.total_units === 55 && acc?.is_accessory === 0) {
-            // is_accessory blev ikke gemt fordi INSERT-statement i quotes.js mangler kolonnen
             record('T_TIL_PATCH_06', 'PATCH', 'FAIL',
-                'F72 BEKRÆFTET: routes/quotes.js INSERT INTO bon_lines mangler is_accessory-kolonne — den dropper flaget både på POST og PATCH. Servietter gemt med is_accessory=0 → total_units=55');
+                'F72 ikke lukket: routes/quotes.js INSERT mangler stadig is_accessory-kolonne');
         } else {
             record('T_TIL_PATCH_06', 'PATCH', 'FAIL',
                 `total_units=${row.total_units}, accessory_gemt=${acc?.is_accessory}`);
@@ -826,7 +826,7 @@ async function runStatusPatch() {
         }
     } catch (e) { record('T_TIL_STAT_04', 'STATUS_PATCH', 'FAIL', e.message); }
 
-    // STAT_05: status='won' direkte (uden convert) — F68
+    // STAT_05: status='won' direkte skal afvises — Patch I lukker F68
     try {
         // Opret en frisk så vi ikke korrumperer STAT_TARGET
         const fresh = await api('POST', '/api/quotes', {
@@ -836,14 +836,15 @@ async function runStatusPatch() {
         created.quotes.STAT_WON = fresh.body.id;
         const r = await api('PATCH', `/api/quotes/${fresh.body.id}/status`, { status: 'won' });
         const row = db.prepare(`SELECT is_offer, offer_status FROM bons WHERE id=?`).get(fresh.body.id);
-        if (r.status === 200 && row.offer_status === 'won' && row.is_offer === 1) {
+        if (r.status === 400 && /convert/.test(r.body?.error || '')) {
+            record('T_TIL_STAT_05', 'STATUS_PATCH', 'PASS',
+                "F68 lukket: 'won' afvist med besked om at bruge /convert");
+        } else if (r.status === 200 && row.offer_status === 'won' && row.is_offer === 1) {
             record('T_TIL_STAT_05', 'STATUS_PATCH', 'FAIL',
-                'F68 BEKRÆFTET: status=won uden convert giver inkonsistent state (offer_status=won + is_offer=1)');
-        } else if (r.status === 400) {
-            record('T_TIL_STAT_05', 'STATUS_PATCH', 'PASS', "'won' kun via /convert");
+                'F68 ikke lukket: status=won uden convert giver stadig inkonsistent state');
         } else {
             record('T_TIL_STAT_05', 'STATUS_PATCH', 'FAIL',
-                `Uventet: status=${r.status}, is_offer=${row?.is_offer}, offer_status=${row?.offer_status}`);
+                `Uventet: status=${r.status}, body=${JSON.stringify(r.body)?.slice(0, 100)}`);
         }
     } catch (e) { record('T_TIL_STAT_05', 'STATUS_PATCH', 'FAIL', e.message); }
 
@@ -1278,7 +1279,82 @@ async function runIsolation() {
 }
 
 // ════════════════════════════════════════════════════════════
-// 4.13 CLEANUP (5)
+// 4.13 PATCH_I_VERIFICATION (3) — eksplicitte positive tests
+// ════════════════════════════════════════════════════════════
+
+async function runPatchIVerification() {
+    console.log('\n── 4.13 PATCH_I_VERIFICATION ──');
+
+    // PI_01: POST tilbud med is_accessory=true → DB-row har is_accessory=1
+    try {
+        const r = await api('POST', '/api/quotes', {
+            customer_id: created.customers.priv,
+            delivery_date: daysFromNow(42),
+            lines: [
+                { product_name: 'Hovedret', quantity: 10, unit_price: 100, is_accessory: 0 },
+                { product_name: 'Bestik',   quantity: 10, unit_price: 0, is_accessory: true },
+            ],
+        });
+        created.quotes.PI_POST = r.body.id;
+        const lines = db.prepare(`SELECT product_name, is_accessory FROM bon_lines WHERE bon_id=?`).all(r.body.id);
+        const bestik = lines.find(l => l.product_name === 'Bestik');
+        const hoved = lines.find(l => l.product_name === 'Hovedret');
+        if (bestik?.is_accessory === 1 && hoved?.is_accessory === 0) {
+            record('T_TIL_PI_01', 'PATCH_I_VERIFICATION', 'PASS',
+                'F72 verificeret på POST: is_accessory bevares korrekt');
+        } else {
+            record('T_TIL_PI_01', 'PATCH_I_VERIFICATION', 'FAIL',
+                `Bestik.is_accessory=${bestik?.is_accessory}, Hovedret.is_accessory=${hoved?.is_accessory}`);
+        }
+    } catch (e) { record('T_TIL_PI_01', 'PATCH_I_VERIFICATION', 'FAIL', e.message); }
+
+    // PI_02: SSE bon_updated efter convert har is_offer=false
+    try {
+        const fresh = await api('POST', '/api/quotes', {
+            customer_id: created.customers.priv,
+            delivery_date: daysFromNow(44),
+            lines: [{ product_name: 'X', quantity: 1, unit_price: 100 }],
+        });
+        created.quotes.PI_CONV = fresh.body.id;
+        created.convertedBons.push(fresh.body.id);
+
+        sseListener.clearEvents();
+        await api('POST', `/api/quotes/${fresh.body.id}/convert`);
+        const evt = await sseListener.waitForEvent('bon_updated',
+            d => d?.id === fresh.body.id && d?.is_offer === false,
+            2000
+        ).catch(() => null);
+        if (evt) {
+            record('T_TIL_PI_02', 'PATCH_I_VERIFICATION', 'PASS',
+                'F73 verificeret: convert sender bon_updated{is_offer:false} så tilbudslisten kan fjerne den');
+        } else {
+            const all = sseListener.getEvents('bon_updated');
+            record('T_TIL_PI_02', 'PATCH_I_VERIFICATION', 'FAIL',
+                `ingen matching event — alle bon_updated: ${JSON.stringify(all.map(e => e.data)).slice(0, 200)}`);
+        }
+    } catch (e) { record('T_TIL_PI_02', 'PATCH_I_VERIFICATION', 'FAIL', e.message); }
+
+    // PI_03: PATCH /:id på tilbud sender bon_updated med is_offer=true
+    try {
+        sseListener.clearEvents();
+        await api('PATCH', `/api/quotes/${created.quotes.DRAFT_1}`, { pax: 99 });
+        const evt = await sseListener.waitForEvent('bon_updated',
+            d => d?.id === created.quotes.DRAFT_1 && d?.is_offer === true,
+            2000
+        ).catch(() => null);
+        if (evt) {
+            record('T_TIL_PI_03', 'PATCH_I_VERIFICATION', 'PASS',
+                'F73 verificeret: PATCH /:id sender bon_updated{is_offer:true}');
+        } else {
+            const all = sseListener.getEvents('bon_updated');
+            record('T_TIL_PI_03', 'PATCH_I_VERIFICATION', 'FAIL',
+                `mangler is_offer:true i payload — alle: ${JSON.stringify(all.map(e => e.data)).slice(0, 200)}`);
+        }
+    } catch (e) { record('T_TIL_PI_03', 'PATCH_I_VERIFICATION', 'FAIL', e.message); }
+}
+
+// ════════════════════════════════════════════════════════════
+// 4.14 CLEANUP (5)
 // ════════════════════════════════════════════════════════════
 
 async function runCleanup() {
@@ -1425,6 +1501,7 @@ async function main() {
         await runRecalc();
         await runMoms();
         await runIsolation();
+        await runPatchIVerification();
     } catch (e) {
         console.error('Fatal:', e);
     } finally {

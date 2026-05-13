@@ -897,6 +897,7 @@
           if (typeof _faktHandleSSE === 'function') _faktHandleSSE('bon_created', data);
           if (typeof _rapportHandleSSE === 'function') _rapportHandleSSE('bon_created', data);
           if (typeof _uoHandleSSE === 'function') _uoHandleSSE('bon_created', data);
+          if (typeof _tilbudHandleSSE === 'function') _tilbudHandleSSE('bon_created', data);
         },
         bon_updated: (data) => {
           if (typeof _blHandleBonUpdated === 'function') _blHandleBonUpdated(data);
@@ -904,6 +905,7 @@
           if (typeof _faktHandleSSE === 'function') _faktHandleSSE('bon_updated', data);
           if (typeof _rapportHandleSSE === 'function') _rapportHandleSSE('bon_updated', data);
           if (typeof _uoHandleSSE === 'function') _uoHandleSSE('bon_updated', data);
+          if (typeof _tilbudHandleSSE === 'function') _tilbudHandleSSE('bon_updated', data);
         },
         bon_status: (data) => {
           if (typeof _dashHandleSSE === 'function') _dashHandleSSE('bon_status', data);
@@ -931,12 +933,9 @@
         mail_unmatched: (data) => {
           if (typeof _inbHandleSSE === 'function') _inbHandleSSE('mail_unmatched', data);
         },
-        quote_created: (data) => {
-          if (typeof _tilbudHandleSSE === 'function') _tilbudHandleSSE('quote_created', data);
-        },
-        quote_updated: (data) => {
-          if (typeof _tilbudHandleSSE === 'function') _tilbudHandleSSE('quote_updated', data);
-        },
+        // quote_created / quote_updated fjernet i Patch I (maj 2026).
+        // Backend sender bon_*-events også for tilbud (jf. Patch F). _tilbudHandleSSE
+        // er nu wired ind i bon_created/bon_updated-handlerne ovenfor.
         po_mail_received: (data) => {
           if (typeof _siHandleSSE === 'function') _siHandleSSE('po_mail_received', data);
         },

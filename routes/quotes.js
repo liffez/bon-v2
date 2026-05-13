@@ -268,8 +268,8 @@ router.post('/', handle((req, res) => {
     // Indsæt linjer
     if (Array.isArray(b.lines)) {
         const insertLine = db.prepare(`
-            INSERT INTO bon_lines (bon_id, block_type, grocy_recipe_id, product_name, category, quantity, unit, unit_price, cost_price, line_total, sort_order, notes)
-            VALUES (?,?,?,?,?,?,?,?,?,?,?,?)
+            INSERT INTO bon_lines (bon_id, block_type, grocy_recipe_id, product_name, category, quantity, unit, unit_price, cost_price, line_total, sort_order, notes, is_accessory)
+            VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)
         `);
         b.lines.forEach((l, i) => {
             const qty = l.quantity ?? 1;
@@ -281,7 +281,8 @@ router.post('/', handle((req, res) => {
                 qty, l.unit ?? 'stk',
                 l.unit_price ?? null, l.cost_price ?? null,
                 lineTotal, l.sort_order ?? i,
-                l.notes ?? null
+                l.notes ?? null,
+                l.is_accessory ? 1 : 0
             );
         });
     }
@@ -371,8 +372,8 @@ router.patch('/:id', handle((req, res) => {
     if (Array.isArray(b.lines)) {
         db.prepare('DELETE FROM bon_lines WHERE bon_id = ?').run(id);
         const insertLine = db.prepare(`
-            INSERT INTO bon_lines (bon_id, block_type, grocy_recipe_id, product_name, category, quantity, unit, unit_price, cost_price, line_total, sort_order, notes)
-            VALUES (?,?,?,?,?,?,?,?,?,?,?,?)
+            INSERT INTO bon_lines (bon_id, block_type, grocy_recipe_id, product_name, category, quantity, unit, unit_price, cost_price, line_total, sort_order, notes, is_accessory)
+            VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)
         `);
         b.lines.forEach((l, i) => {
             const qty = l.quantity ?? 1;
@@ -384,7 +385,8 @@ router.patch('/:id', handle((req, res) => {
                 qty, l.unit ?? 'stk',
                 l.unit_price ?? null, l.cost_price ?? null,
                 lineTotal, l.sort_order ?? i,
-                l.notes ?? null
+                l.notes ?? null,
+                l.is_accessory ? 1 : 0
             );
         });
 
@@ -395,7 +397,7 @@ router.patch('/:id', handle((req, res) => {
 
     recalcTotal(db, id);
 
-    broadcast('bon_updated', { id, bon_number: existing.bon_number });
+    broadcast('bon_updated', { id, bon_number: existing.bon_number, is_offer: true });
     const updated = getQuoteResponse(db, id);
     res.json(updated);
 }));
@@ -428,8 +430,14 @@ router.patch('/:id/status', handle((req, res) => {
     const id = parseInt(req.params.id);
     const { status } = req.body;
 
-    const valid = ['draft', 'sent', 'won', 'lost', 'expired'];
-    if (!status || !valid.includes(status)) return res.status(400).json({ error: 'Ugyldig status' });
+    // 'won' kan IKKE sættes direkte — kræver POST /:id/convert der også
+    // flipper is_offer=0 + status_id=GODKENDT. Patch I (maj 2026, F68).
+    const valid = ['draft', 'sent', 'lost', 'expired'];
+    if (!status || !valid.includes(status)) {
+        return res.status(400).json({
+            error: 'Ugyldig status. Brug POST /:id/convert for at markere som won.'
+        });
+    }
 
     const q = db.prepare('SELECT id, offer_status, bon_number FROM bons WHERE id = ? AND is_offer = 1').get(id);
     if (!q) return res.status(404).json({ error: 'Tilbud ikke fundet' });
@@ -447,7 +455,7 @@ router.patch('/:id/status', handle((req, res) => {
         userId: req.session?.userId ?? null
     });
 
-    broadcast('bon_updated', { id, bon_number: q.bon_number });
+    broadcast('bon_updated', { id, bon_number: q.bon_number, is_offer: true });
     res.json({ id, status });
 }));
 
@@ -477,7 +485,9 @@ router.post('/:id/convert', handle((req, res) => {
         userId: req.session?.userId ?? null
     });
 
-    broadcast('bon_updated', { id, bon_number: q.bon_number });
+    // Convert: bon'en er IKKE længere et tilbud. Send is_offer=false så
+    // tilbudslisten fjerner den, og bons-list/listview tilføjer den.
+    broadcast('bon_updated', { id, bon_number: q.bon_number, is_offer: false });
     res.json({ bon_id: id, bon_number: q.bon_number });
 }));
 

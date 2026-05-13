@@ -181,7 +181,12 @@ async function _tLoadBlockTypes() {
 
 function _tilbudHandleSSE(event, data) {
     if (!_tC) return;
-    if (event === 'quote_created' || event === 'quote_updated') {
+    // Backend sender bon_*-events efter Patch F (maj 2026).
+    // Patch I (maj 2026) skifter frontend fra quote_* til bon_*.
+    // Re-render altid i list-mode — _tRenderList henter /api/quotes som
+    // selv filtrerer på is_offer=1. Convert-flow sender is_offer=false,
+    // hvilket vi også vil re-rendere så bonen forsvinder fra listen.
+    if (event === 'bon_created' || event === 'bon_updated') {
         if (_tMode === 'list') _tRenderList();
     }
 }
