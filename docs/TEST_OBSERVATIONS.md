@@ -62,35 +62,36 @@ Hver observation har:
 | **Foreslået action** | Samme som #003 — manuel cascade i en evt. ny `deleteRecipe()`-adapter-funktion, eller UI-advarsel der lister berørte parent-/child-relationer. |
 | **Status** | `åben` (medium prioritet — relevant før recipe-delete UI bygges) |
 
-### #005 — Force-mode dokumenteret i CLAUDE.md men IKKE implementeret
+### #005 — Force-mode dokumenteret i CLAUDE.md men IKKE implementeret (lukket)
 
 | | |
 |--|--|
 | **Kilde** | `T_BON_API_FORCE_01` (Fase 1, maj 2026) |
-| **Beskrivelse** | CLAUDE.md siger: "Med `force: true` kan admin sætte hvilken som helst status". Men `routes/bons.js:316-338` validerer altid mod `status_transitions`-tabellen uden at tjekke `force`-parameteren. T_BON_API_FORCE_01 er derfor SKIP i T_BON. |
-| **Vurdering** | Dokumentations-gap. Lav prioritet: admin kan altid lave UPDATE direkte i DB. T_BON_API_FORCE_01 vipper automatisk til PASS hvis feature implementeres. |
-| **Foreslået action** | To muligheder: **(a)** implementér `force`-tjek (kræver rolle-check mod `users.role='admin'`), eller **(b)** fjern force-mode-omtalen fra CLAUDE.md. |
-| **Status** | `åben` (parkeret indtil konkret behov) |
+| **Beskrivelse** | CLAUDE.md siger: "Med `force: true` kan admin sætte hvilken som helst status". Men `routes/bons.js:316-338` validerer altid mod `status_transitions`-tabellen uden at tjekke `force`-parameteren. T_BON_API_FORCE_01 var derfor SKIP i T_BON. |
+| **Vurdering** | Implementeret via `tests/specs/patches/PATCH_D_force_mode.md` v2 (maj 2026). Force-mode bruger session-baseret rolle-tjek (IKKE body.user_id) for at undgå privilege escalation. Audit via `logChange()` med `wasForced`-flag i `changelog.payload`. |
+| **Foreslået action** | N/A — implementeret |
+| **Status** | `lukket` (maj 2026) |
+| **Lukket-detaljer** | T_BON_API_FORCE_01-07 dækker happy path, privilege escalation regression (D-3), audit-log korrekthed |
 
-### #006 — AFLYST kan ikke nås fra terminal-statusser
+### #006 — AFLYST kan ikke nås fra terminal-statusser (lukket — by design)
 
 | | |
 |--|--|
 | **Kilde** | `T_BON` status-transitions-test (Fase 1, maj 2026) |
-| **Beskrivelse** | `status_transitions`-tabellen tillader AFLYST fra TILBUD/NY/VENTER/GODKENDT/IGANG/KLAR/LEVERET, men IKKE fra FAKTURERET/BETALT/AFSLUTTET. Det betyder en faktureret bon ikke kan annulleres via UI — kun via DB-UPDATE eller force-mode (som ikke virker, jf. #005). |
-| **Vurdering** | Sandsynligvis bevidst (terminal = endelig), men værd at bekræfte. Hvis en faktureret bon skal annulleres (fx kreditnota-flow), er der ingen UI-vej. |
-| **Foreslået action** | Bekræft med Leif at det er bevidst → dokumentér i CLAUDE.md. Eller tilføj transitions FAKTURERET/BETALT/AFSLUTTET → AFLYST som admin-only. |
-| **Status** | `åben` (behøver beslutning, ikke action) |
+| **Beskrivelse** | `status_transitions`-tabellen tillader AFLYST fra TILBUD/NY/VENTER/GODKENDT/IGANG/KLAR/LEVERET, men IKKE fra FAKTURERET/BETALT/AFSLUTTET. Det betyder en faktureret bon ikke kan annulleres via UI. |
+| **Vurdering** | Bekræftet "by design" af Leif (maj 2026). Kreditnotaer hører til regnskabsdomænet, ikke status-flowet. En faktureret ordre annulleres ved at oprette en kreditnota i e-conomic, ikke ved at sætte bonens status til AFLYST. Dokumenteret i `docs/BON_V2_PRINCIPPER.md` §4. |
+| **Foreslået action** | Implementeret via `tests/specs/patches/SPEC_006_DOC_AND_011_CLEANUP.md` — afsnit tilføjet til BON_V2_PRINCIPPER.md |
+| **Status** | `lukket — by design` (maj 2026) |
 
-### #007 — Tilbuds-toggle i planlægning er kun localStorage — ingen synlig UI
+### #007 — Tilbuds-toggle i planlægning er kun localStorage — ingen synlig UI (lukket)
 
 | | |
 |--|--|
 | **Kilde** | `T_PLAN_AGG_05` SKIP (Fase 1, maj 2026) |
-| **Beskrivelse** | `shared/planning.js` har en `_plShowOffers`-toggle der bestemmer om tilbud (`is_offer=1`) vises i planlægningsbonnen. Toggle læses fra `localStorage.planning_show_offers` men der er ingen synlig UI-knap eller checkbox til at skifte den. Brugere skal manuelt sætte localStorage for at se tilbud i planlægning. |
-| **Vurdering** | UX-gap. Lav prioritet (kun køkkenet rører planlægning og de bruger sjældent tilbudsvisning), men teknisk gæld der vokser. |
-| **Foreslået action** | Tilføj en lille toggle ved siden af status-filtrene i `shared/planning.js`, eller fjern feature helt hvis ingen bruger den. |
-| **Status** | `åben` (lav prioritet) |
+| **Beskrivelse** | `shared/planning.js` havde en `_plShowOffers`-toggle der bestemte om tilbud (`is_offer=1`) vises i planlægningsbonnen. Toggle læstes fra `localStorage.planning_show_offers` men der var ingen synlig UI-knap eller checkbox til at skifte den. |
+| **Vurdering** | Implementeret via `tests/specs/patches/SPEC_007_planning_tilbuds_toggle.md` — synlig toggle-knap tilføjet i `shared/planning.js` ved siden af status-filtrene. Knap har on/off-state med aria-pressed, persisterer via samme localStorage som før, og rerendrer ved klik. Browser-verificeret. |
+| **Foreslået action** | N/A — implementeret |
+| **Status** | `lukket` (maj 2026) |
 
 ### #008 — Frikadellen-Slider mangler på grocytest
 
@@ -122,55 +123,56 @@ Hver observation har:
 | **Foreslået action** | N/A — anvendt manuelt af Leif på grocytest 11. maj 2026 (jf. `tests/specs/patches/PATCH_grocy_qu_broedrug_v1_cleanup.md`). Skal også køres på grocycafe inden cutover. |
 | **Status** | `lukket` (anvendt manuelt 11. maj 2026 — patch-fil bevares som skabelon til andre v1-rester) |
 
-### #011 — `shared/bestilling.js` (60 kB) er død kode
+### #011 — `shared/bestilling.js` (60 kB) er død kode (lukket)
 
 | | |
 |--|--|
 | **Kilde** | T_INDKOB_ADMIN-design F11 (maj 2026) |
-| **Beskrivelse** | `initBestilling()` kaldes ingen steder uden for filen selv. Erstattet af `shared/indkob.js` i Fase 6b (merged indkøbsliste + bestilling), men aldrig slettet. CLAUDE.md har en linje under "Beslutninger" om at `shopping_list.js + bestilling.js` udgår, men begge filer ligger stadig i `shared/`. |
-| **Vurdering** | Tech-debt — ikke blokerende for tests. Risiko: ved fremtidig refaktorering kan nogen tro filen er aktiv og prøve at "fixe" noget der ikke længere er i brug. |
-| **Foreslået action** | Separat oprydnings-PR der sletter `shared/bestilling.js`, `shared/bestilling.css`, `shared/shopping_list.js`, `shared/shopping_list.css`. Verificér først via grep at ingen HTML/JS importerer dem. |
-| **Status** | `åben` (lav prioritet — kandidat til oprydnings-PR) |
+| **Beskrivelse** | `initBestilling()` kaldtes ingen steder uden for filen selv. Erstattet af `shared/indkob.js` i Fase 6b (merged indkøbsliste + bestilling), men aldrig slettet. |
+| **Vurdering** | Implementeret via `tests/specs/patches/SPEC_006_DOC_AND_011_CLEANUP.md`. Grep mod alle `*.html`/`*.js` viste ingen imports — kun 2 forældede kommentarer i `routes/horkram.js` (ryddet samtidig). |
+| **Foreslået action** | N/A — slettet |
+| **Status** | `lukket` (maj 2026 — 4 filer / ~125 KB død kode fjernet) |
 
-### #013 — `routes/purchasing.js` POST /suppliers falder tilbage til `integration_type='manual'` ved ugyldig værdi
-
-| | |
-|--|--|
-| **Kilde** | `T_INDKOB_SETUP_SUP_04` (11. maj 2026) |
-| **Beskrivelse** | POST `/api/purchasing/suppliers { integration_type: 'ftp' }` returnerer 201 med `integration_type: 'manual'` — route-validering i `routes/purchasing.js:225-226` har fallback i stedet for at afvise. Der er ingen DB-CHECK-constraint der ville afvise det. |
-| **Vurdering** | Route-design der prioriterer robusthed over strikthed. Lav prioritet — UI'en kun tillader de gyldige typer alligevel. Men hvis nogen kalder API'en direkte med en typo, får de silent fallback i stedet for fejl. |
-| **Foreslået action** | Overvej at returnere 400 ved ugyldig integration_type i stedet for at falde tilbage. Eller dokumentér fallback-adfærden i routes-filen som bevidst. |
-| **Status** | `åben` (lav prioritet — design-beslutning) |
-
-### #014 — `supplier_grocy_locations` POST accepterer duplikat silently via INSERT OR REPLACE
+### #013 — Suppliers POST/PATCH validation på integration_type (lukket)
 
 | | |
 |--|--|
-| **Kilde** | `T_INDKOB_SETUP_SGL_03` (11. maj 2026) |
-| **Beskrivelse** | POST `/api/purchasing/suppliers/grocy-locations` på samme (supplier_id, grocy_location_id) returnerer 200 både første og anden gang — route bruger `INSERT OR REPLACE` (`routes/purchasing.js:137-140`). Brugeren får ingen indikation af om koblingen er ny eller blev erstattet. |
-| **Vurdering** | Acceptabelt for nuværende UI-flow (genvalg af samme leverandør = no-op), men kan skjule bugs hvor man tror man har oprettet en ny kobling. Tabellen har ikke UNIQUE-constraint på (supplier_id, grocy_location_id) — det kunne tilføjes. |
-| **Foreslået action** | Hvis duplikat-detection nogensinde bliver vigtig, tilføj enten en UNIQUE-constraint og returnér 409 ved konflikt, eller dokumentér i UI'en at re-tilknytning er destruktiv. |
-| **Status** | `åben` (lav prioritet — design-beslutning) |
+| **Kilde** | `T_INDKOB_SETUP_SUP_04` + manuel observation (Fase 2, maj 2026) |
+| **Beskrivelse** | POST `/api/purchasing/suppliers { integration_type: 'ftp' }` returnerede 201 med `integration_type: 'manual'` (silent fallback). PATCH havde parallel bug via `continue`-statement der silently ignorerede ugyldige værdier. |
+| **Vurdering** | Implementeret via `tests/specs/patches/PATCH_C_api_consistency_fixes.md` v2. v1 ramte kun POST — v2 fixer også PATCH. Begge endpoints returnerer nu 400 med tilladte-liste i stedet for silent fallback/skip. |
+| **Foreslået action** | N/A — implementeret |
+| **Status** | `lukket` (maj 2026) |
+| **Note** | `validTypes` inkluderer stadig `'form'` (legacy fra Migration 030). Separat oprydnings-patch hvis vi vil fjerne det |
 
-### #015 — Grocy returnerer 500 ved duplikat product_barcode (samme pid + barcode)
-
-| | |
-|--|--|
-| **Kilde** | `T_INDKOB_SETUP_BC_03` (11. maj 2026) |
-| **Beskrivelse** | POST `/api/grocy/product-barcodes` med samme `(product_id, barcode)` der allerede eksisterer returnerer HTTP 500 fra Grocy (ikke 409 eller 400). Vores adapter propagerer 500'en uden mapping. |
-| **Vurdering** | Lav prioritet i UI'en — flowet "Tilføj barcode-kobling" tjekker eksisterende koblinger først, så brugeren ser sjældent denne fejl. Men hvis batch-import eller automatisering støder på dette, vil fejlmeddelelsen være misvisende. Beslægtet med #002 (Grocy 500 ved DELETE ghost-id). |
-| **Foreslået action** | Samme som #002 — hvis nogen rører `services/grocyAdapter.js:grocyPost`, kunne man map'e Grocy-500'er med "already exists"-tekst til 409. Eller pre-validér i route før POST. |
-| **Status** | `åben` (lav prioritet) |
-
-### #016 — Backend tillader flere samtidige `is_preferred='1'` på samme produkts barcodes
+### #014 — `supplier_grocy_locations` POST duplikat-detection (lukket)
 
 | | |
 |--|--|
-| **Kilde** | `T_INDKOB_ADMIN_PREF_02` (11. maj 2026) |
-| **Beskrivelse** | `is_preferred`-userfield på `product_barcodes` er ren tekst — Grocy validerer ikke at kun én barcode pr. produkt har `is_preferred='1'`. To samtidige "Foretrukken"-flag persisterer uden fejl. Verificeret via T_INDKOB_ADMIN_PREF_02: oprettede ny barcode på pid=28 og satte `is_preferred='1'` mens den eksisterende også havde `is_preferred='1'` — begge persisterede. |
-| **Vurdering** | UI-design-mismatch. Hvis brugeren kan klikke "Foretrukken" på to barcodes uden at den anden auto-cleares, vil UI'en vise to lilla "Foretrukket"-badges og chip-sortering blive uforudsigelig (jf. `shared/indkob.js` chip-sortering: `is_preferred` → aftale → billigst). |
-| **Foreslået action** | I `shared/indkob_settings.js` "Alle koblinger"-tab: når brugeren toggler `is_preferred` ON på en barcode, clear alle andre barcodes for samme `product_id` først (eller `PATCH /api/grocy/userfields/product_barcodes/:id` for hver). Alternativt: tilføj en server-side guard i route'en. |
-| **Status** | `åben` (lav prioritet — design-beslutning) |
+| **Kilde** | `T_INDKOB_SETUP_SGL_03` (Fase 2, maj 2026) |
+| **Beskrivelse** | POST `/api/purchasing/suppliers/grocy-locations` på samme (supplier_id, grocy_location_id) returnerede 200 både første og anden gang via `INSERT OR REPLACE`. Brugeren fik ingen indikation af om koblingen var ny eller erstattet. |
+| **Vurdering** | Implementeret via `tests/specs/patches/PATCH_C_api_consistency_fixes.md` v2. INSERT OR REPLACE erstattet med eksplicit duplikat-tjek. Returnerer 409 med `existing`-objekt (hele rækken) i stedet for silent overwrite. |
+| **Foreslået action** | N/A — implementeret |
+| **Status** | `lukket` (maj 2026) |
+
+### #015 — Grocy returnerer 500 ved duplikat product_barcode (lukket)
+
+| | |
+|--|--|
+| **Kilde** | `T_INDKOB_SETUP_BC_03` (Fase 2, maj 2026) |
+| **Beskrivelse** | POST `/api/grocy/product-barcodes` med samme `(product_id, barcode)` returnerede HTTP 500 fra Grocy uden mapping. |
+| **Vurdering** | Implementeret via `tests/specs/patches/PATCH_C_api_consistency_fixes.md` v2. `createProductBarcode` mapper nu Grocy 500/400/409 med "constraint"/"unique"/"duplicate" i besked til 409 med `code='BARCODE_DUPLICATE'`. Route propagerer `err.status` korrekt. |
+| **Foreslået action** | N/A — implementeret |
+| **Status** | `lukket` (maj 2026) |
+
+### #016 — Backend tillader flere samtidige `is_preferred='1'` på samme produkts barcodes (bevidst-accepteret)
+
+| | |
+|--|--|
+| **Kilde** | `T_INDKOB_ADMIN_PREF_02` (Fase 2, maj 2026) |
+| **Beskrivelse** | `is_preferred`-userfield på `product_barcodes` er ren tekst — Grocy validerer ikke at kun én barcode pr. produkt har `is_preferred='1'`. To samtidige "Foretrukken"-flag persisterer uden fejl. |
+| **Vurdering** | Bekræftet af Leif (maj 2026): flere foretrukne på samme pid er gyldig adfærd. UI viser alle øverst i sorteringen — det er tilsigtet, fordi nogle produkter har flere leverandører hvor begge er "preferred" af forskellige grunde (fx forskellig pakkestørrelse eller leverancehyppighed). |
+| **Foreslået action** | N/A — bevidst design |
+| **Status** | `bevidst-accepteret` (maj 2026) |
 
 ### #017 — Hørkram basket-PUT lagde varer i InvalidLineItems pga forkert body-format (lukket)
 
@@ -181,6 +183,108 @@ Hver observation har:
 | **Vurdering** | **Bug — fixet 12. maj 2026.** Ville have brudt "Læg i kurv"-flowet ved cutover. To kommitter: (a) GET basket defaultes til `sessionCache.basketId` så den læser samme kurv som senest PUT, (b) PUT-body sender nu nested `SalesUnit: { Code, Quantity }` i stedet for `SalesUnitIndex + SalesUnitQuantity`. Verificeret: Spinat × 1 + Brød Rug × 1 lander nu korrekt i `lines` med `invalidCount=0`. |
 | **Foreslået action** | N/A — fixet. Næste skridt: når flere produkter testes manuelt, log evt. andre format-issues. |
 | **Status** | `lukket` (12. maj 2026 — routes/horkram.js opdateret + T_INDKOB_HORKRAM BASKET-cases viser nu faktisk verifikation, ikke bare 200-status) |
+
+### #018 — Duplikat product_id i samme receipt corrupte grocy_added-status (lukket)
+
+| | |
+|--|--|
+| **Kilde** | T_VAREMODTAGELSE-design F35 (maj 2026) |
+| **Beskrivelse** | `routes/goods-receipts.js` brugte `UPDATE ... WHERE receipt_id = ? AND grocy_product_id = ?` i Grocy-tracking-loopet. To items i samme receipt med samme grocy_product_id blev opdateret begge ved første UPDATE — silent data corruption på per-item `grocy_added`/`grocy_error`. |
+| **Vurdering** | Bug. Fixet maj 2026 via `tests/specs/patches/PATCH_goods_receipts_critical_fixes.md` — UPDATE matcher nu på item.id efter `lastInsertRowid` blev gemt. T_VAREMODTAGELSE_PATCH_REGRESSION dækker regression-test. |
+| **Status** | `lukket` (maj 2026) |
+
+### #019 — photo_path forblev sat hvis temp-fil manglede (lukket)
+
+| | |
+|--|--|
+| **Kilde** | T_VAREMODTAGELSE-design F30 (maj 2026) |
+| **Beskrivelse** | Hvis klient sendte `photo_path` der pegede på en `vr-tmp-*`-fil der ikke længere eksisterede, hoppede koden over rename-blokken og DB.photo_path forblev sat — dangling reference. UI ville senere fejle med "billede ikke fundet". |
+| **Vurdering** | UX-bug. Fixet maj 2026 via Patch A — photo_path null'es i DB hvis rename ikke kan gennemføres. |
+| **Status** | `lukket` (maj 2026) |
+
+### #020 — webhook_sent-felt i response misvisende navngivet (lukket)
+
+| | |
+|--|--|
+| **Kilde** | T_VAREMODTAGELSE-design F31 (maj 2026) |
+| **Beskrivelse** | Response-feltet `webhook_sent: true` var misvisende — webhook er fire-and-forget og kan stadig fejle async. Feltet sagde ikke hvad det lod til. |
+| **Vurdering** | API-clean-up. Fixet maj 2026 — `webhook_dispatched: true` tilføjet ved siden af. `webhook_sent` bevares for klient-kompatibilitet og markeret som deprecated. |
+| **Status** | `lukket` (maj 2026) |
+
+### #021 — received_by-navn faldt til 'Ukendt' ved user_id-only (lukket)
+
+| | |
+|--|--|
+| **Kilde** | T_VAREMODTAGELSE-design F32 (maj 2026) |
+| **Beskrivelse** | Hvis klient kun sendte `received_by_user_id` (uden `received_by_name`), blev `userName` til `'Ukendt'` i webhook-payloaden, selvom navnet kunne være slået op fra users-tabellen. |
+| **Vurdering** | UX-gap. Fixet maj 2026 — users-tabel-lookup ved user_id-only før fallback til 'Ukendt'. Også gemt i `goods_receipts.received_by_name`-kolonnen så detail-views har det. |
+| **Status** | `lukket` (maj 2026) |
+
+### #022 — temperature_value=undefined crasher receipt-oprettelse (lukket)
+
+| | |
+|--|--|
+| **Kilde** | T_VAREMODTAGELSE_FULL F40 (maj 2026) |
+| **Beskrivelse** | Hvis klient sendte `temperature_cool_enabled=true` men ingen `temperature_cool_value`, blev `undefined` videregivet til `db.prepare().run()`. node:sqlite kastede fejl, counter rullede tilbage via transaction. 5xx til klient uden meningsfuld besked. |
+| **Vurdering** | Bug. Fixet maj 2026 via `tests/specs/patches/PATCH_goods_receipts_validation_fixes.md` — eksplicit `?? null`-fallback (ikke `\|\|` som ville klampe 0°C til null). Samme fix anvendt på frozen_value. |
+| **Status** | `lukket` (maj 2026) |
+
+### #023 — items[].product_name=null gav 500 i stedet for 400 (lukket)
+
+| | |
+|--|--|
+| **Kilde** | T_VAREMODTAGELSE_FULL F37 (maj 2026) |
+| **Beskrivelse** | NOT NULL constraint på `goods_receipt_items.product_name` boblede op som 500 SQLite-fejl. Ingen meningsfuld besked til UI. |
+| **Vurdering** | UX-bug. Fixet maj 2026 via Patch B — validation tilføjet før INSERT med pæn 400-besked og index-info ("items[2].product_name er påkrævet"). Counter er ikke øget ved fejl. |
+| **Status** | `lukket` (maj 2026) |
+
+### #024 — has_deviation=false klampede ikke deviation_type/note (lukket)
+
+| | |
+|--|--|
+| **Kilde** | T_VAREMODTAGELSE_FULL F41 (maj 2026) |
+| **Beskrivelse** | Hvis klient sendte `has_deviation=false` men også `deviation_type` og `deviation_note`, persisterede de i DB. Inkonsistent state — rækken sagde "ingen afvigelse" men havde alligevel data. |
+| **Vurdering** | Konsistens-bug. Fixet maj 2026 via Patch B — type/note klampes til null når has_deviation=false. Samme mønster som temperature-felterne (`enabled ? value : null`). |
+| **Status** | `lukket` (maj 2026) |
+
+### #025 — Suppliers PATCH manglede validation (lukket — del af #013-fix)
+
+| | |
+|--|--|
+| **Kilde** | `T_PATCH_C_REGRESSION_07` (maj 2026) |
+| **Beskrivelse** | Patch C v1 fixede kun POST /suppliers. PATCH /suppliers/:id havde samme silent-skip bug: ugyldig integration_type gennem `continue` blev silently ignoreret. Klient fik 200 selvom intet skete. |
+| **Vurdering** | Parallel bug fundet under v1→v2 review. Fixet sammen med #013 i Patch C v2. |
+| **Status** | `lukket` (maj 2026) |
+
+### #026 — status='approved' selv ved partial Grocy-failure (lukket)
+
+| | |
+|--|--|
+| **Kilde** | T_VAREMODTAGELSE_FULL F33 (maj 2026) |
+| **Beskrivelse** | `goods_receipts.status` blev hardcoded til `'approved'` ved INSERT, selv hvis Grocy fejlede for én eller flere items. UI kunne ikke skelne mellem fuldt succesfulde og delvist fejlede modtagelser. |
+| **Vurdering** | Design-issue. Fixet maj 2026 via `tests/specs/patches/PATCH_E_partially_approved_status.md` — ny status-værdi `'partially_approved'` tilføjet (migration 060). Server tæller `grocyFailures` (exkluderer bevidste skips som missing-status og no-pid) og opdaterer status hvis count > 0. Response re-fetcher status fra DB. Webhook læser automatisk korrekt værdi. |
+| **Foreslået action** | UI-rendering af partial-status er separat fremtidigt arbejde i Fase 3 (varemodtagelses-listview) |
+| **Status** | `lukket` (maj 2026) |
+
+### #027 — SSE payload-inkonsistens på bon-events (åben, parkeret)
+
+| | |
+|--|--|
+| **Kilde** | T_BONS_LIST F49 (maj 2026) |
+| **Beskrivelse** | Forskellige `bon_*`-events sender forskellige payload-shapes for samme entitet. `POST /api/bons` → `bon_created` med `{id, bon_number}`. `PATCH /api/bons/:id` → `bon_updated` med `{id}`. `POST /api/bons/:id/lines` → `bon_updated` med `{bon_id}`. `PATCH /api/bons/:id/status` → `bon_status` med `{bon_id, old, new}`. Frontend (`bons-list.js`) må læse `e.id \|\| e.bon_id` for at håndtere begge. |
+| **Vurdering** | Lav prioritet — virker, men er sprødt. Hvis en 5. broadcast tilføjes med en tredje shape, knækker det. Forslag til standardisering: alle bon-events bruger `{id, ...metadata}` hvor `id` altid er bon-id'et. |
+| **Foreslået action** | Konsolidations-patch når office-fasen er færdig — ramt alle broadcasts samtidigt for at undgå løbende inkonsistens. Forventet fix-størrelse: 5 broadcast-kald i `routes/bons.js`. |
+| **Berørte filer** | `routes/bons.js` (5 broadcast-linjer). Frontend `office/views/bons-list.js` |
+| **Status** | `åben — parkeret til efter office-fase` |
+
+### #028 — Ukendt item.status falder igennem (lukket)
+
+| | |
+|--|--|
+| **Kilde** | T_VAREMODTAGELSE_FULL F28 (maj 2026) |
+| **Beskrivelse** | `routes/goods-receipts.js` accepterede enhver streng som `item.status`. Ukendte værdier (fx `'xyz'`) faldt igennem alle conditionals i `shouldAddStock`-tjekket. Resultat: item gemtes med ugyldig status, ingen fejl, ingen Grocy-update. Silent edge-case. |
+| **Vurdering** | Validation-gap. Fixet maj 2026 via Patch C v2 — enum-validation før INSERT mod `['ok', 'wrong', 'damaged', 'missing']`. |
+| **Status** | `lukket` (maj 2026) |
 
 ### #012 — `consumeRecipes` bruger rå `/objects/shopping_list` i stedet for smart endpoint (lukket)
 
@@ -207,7 +311,30 @@ Hver observation har:
 | T_INDKOB_SETUP | #013, #014, #015 |
 | T_INDKOB_ADMIN | #010, #011, #016 |
 | T_INDKOB_HORKRAM | #017 |
+| T_VAREMODTAGELSE_PATCH_REGRESSION | #018, #019, #020, #021 |
+| T_VAREMODTAGELSE_FULL | #022, #023, #024, #026, #028 |
+| T_PATCH_C_REGRESSION | #013, #014, #015, #025, #028 |
+| T_BON (Patch D) | #005 |
+| T_BONS_LIST | #027 |
 
 ---
 
-*Sidst opdateret: 12. maj 2026 — #017 flyttet til lukket efter routes/horkram.js fix: nested SalesUnit-format + GET defaultes til sessionCache.basketId. Basket-PUT lægger nu varer korrekt i Hokas LineItems.*
+## Slutstatus (13. maj 2026)
+
+**28 observations total** efter Patch A+B+C+D+E + SPEC_006/007/011 + T_BONS_LIST:
+
+| Status | Count | IDs |
+|---|---:|---|
+| `lukket` | 20 | #005, #006, #007, #010, #011, #012, #013, #014, #015, #017, #018, #019, #020, #021, #022, #023, #024, #025, #026, #028 |
+| `bevidst-accepteret` | 2 | #001, #016 |
+| `åben` (lav prio) | 6 | #002, #003, #004, #008, #009, #027 |
+
+**0 åbne medium+ findings tilbage** — alt resterende er lav-prioritet
+parking. Office-fasen kan startes uden teknisk gæld i fundamentet.
+
+#027 (SSE payload-inkonsistens) konsolideres efter office-fasen sammen
+med F49/F57/F58 (manglende broadcasts på lines PUT/DELETE).
+
+---
+
+*Sidst opdateret: 13. maj 2026 — Patch A/B/C/D/E + SPEC_006/007/011 + T_BONS_LIST F49 logget. 8 status-skift fra åben→lukket + 11 nye entries.*

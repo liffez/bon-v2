@@ -40,7 +40,9 @@
     "test:run-varemod-full":  "node --env-file=.env.test --experimental-sqlite tests/scripts/run_T_VAREMODTAGELSE_FULL.js",
     "test:run-varemod-all":   "npm run test:run-varemod-patch && npm run test:run-varemod-full",
     "test:run-patch-c":       "node --env-file=.env.test --experimental-sqlite tests/scripts/run_T_PATCH_C_REGRESSION.js",
-    "test:run-bons-list":     "node --env-file=.env.test --experimental-sqlite tests/scripts/run_T_BONS_LIST.js"
+    "test:run-bons-list":     "node --env-file=.env.test --experimental-sqlite tests/scripts/run_T_BONS_LIST.js",
+    "test:run-bon-drawer-core": "node --env-file=.env.test --experimental-sqlite tests/scripts/run_T_BON_DRAWER_CORE.js",
+    "test:run-bon-drawer-rel":  "node --env-file=.env.test --experimental-sqlite tests/scripts/run_T_BON_DRAWER_LINES_AND_RELATIONS.js"
   },
   "dependencies": {
     "bcryptjs": "^2.4.3",
