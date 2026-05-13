@@ -68,7 +68,7 @@ Hver observation har:
 |--|--|
 | **Kilde** | `T_BON_API_FORCE_01` (Fase 1, maj 2026) |
 | **Beskrivelse** | CLAUDE.md siger: "Med `force: true` kan admin sætte hvilken som helst status". Men `routes/bons.js:316-338` validerer altid mod `status_transitions`-tabellen uden at tjekke `force`-parameteren. T_BON_API_FORCE_01 var derfor SKIP i T_BON. |
-| **Vurdering** | Implementeret via `tests/specs/patches/PATCH_D_force_mode.md` v2 (maj 2026). Force-mode bruger session-baseret rolle-tjek (IKKE body.user_id) for at undgå privilege escalation. Audit via `logChange()` med `wasForced`-flag i `changelog.payload`. |
+| **Vurdering** | Implementeret via `docs/archive/patches/PATCH_D_force_mode.md` v2 (maj 2026). Force-mode bruger session-baseret rolle-tjek (IKKE body.user_id) for at undgå privilege escalation. Audit via `logChange()` med `wasForced`-flag i `changelog.payload`. |
 | **Foreslået action** | N/A — implementeret |
 | **Status** | `lukket` (maj 2026) |
 | **Lukket-detaljer** | T_BON_API_FORCE_01-07 dækker happy path, privilege escalation regression (D-3), audit-log korrekthed |
@@ -120,7 +120,7 @@ Hver observation har:
 | **Kilde** | T_INDKOB_ADMIN-design F12 (maj 2026) |
 | **Beskrivelse** | Grocy QU-konverteringerne for pid=1 (Brød Rug) sagde `Kasse → Kilo = 10.8` og `Kilo → Kasse = 0.0926`. Korrekt er 7.68 / 0.1302 (= 64 × 0.12 kg pr. kasse). Værdien 10.8 stammede fra Bon v1-æraen og blev aldrig ryddet op ved migrering. Hørkrams karton (varenr 60097769) er "Rugbrødsstykke, 64 × 120 g" → 7.68 kg. Påvirkede ikke pris-beregning direkte, men kunne forvirre QU-aware-flows (snapshot-import, indkøbsliste-konvertering). |
 | **Vurdering** | Bug i master-data — manuel oprydning, ikke kode-fix. Patch-fil dokumenterede både Manuel-UI- og API-flow. |
-| **Foreslået action** | N/A — anvendt manuelt af Leif på grocytest 11. maj 2026 (jf. `tests/specs/patches/PATCH_grocy_qu_broedrug_v1_cleanup.md`). Skal også køres på grocycafe inden cutover. |
+| **Foreslået action** | N/A — anvendt manuelt af Leif på grocytest 11. maj 2026 (jf. `docs/archive/patches/PATCH_grocy_qu_broedrug_v1_cleanup.md`). Skal også køres på grocycafe inden cutover. |
 | **Status** | `lukket` (anvendt manuelt 11. maj 2026 — patch-fil bevares som skabelon til andre v1-rester) |
 
 ### #011 — `shared/bestilling.js` (60 kB) er død kode (lukket)
@@ -139,7 +139,7 @@ Hver observation har:
 |--|--|
 | **Kilde** | `T_INDKOB_SETUP_SUP_04` + manuel observation (Fase 2, maj 2026) |
 | **Beskrivelse** | POST `/api/purchasing/suppliers { integration_type: 'ftp' }` returnerede 201 med `integration_type: 'manual'` (silent fallback). PATCH havde parallel bug via `continue`-statement der silently ignorerede ugyldige værdier. |
-| **Vurdering** | Implementeret via `tests/specs/patches/PATCH_C_api_consistency_fixes.md` v2. v1 ramte kun POST — v2 fixer også PATCH. Begge endpoints returnerer nu 400 med tilladte-liste i stedet for silent fallback/skip. |
+| **Vurdering** | Implementeret via `docs/archive/patches/PATCH_C_api_consistency_fixes.md` v2. v1 ramte kun POST — v2 fixer også PATCH. Begge endpoints returnerer nu 400 med tilladte-liste i stedet for silent fallback/skip. |
 | **Foreslået action** | N/A — implementeret |
 | **Status** | `lukket` (maj 2026) |
 | **Note** | `validTypes` inkluderer stadig `'form'` (legacy fra Migration 030). Separat oprydnings-patch hvis vi vil fjerne det |
@@ -150,7 +150,7 @@ Hver observation har:
 |--|--|
 | **Kilde** | `T_INDKOB_SETUP_SGL_03` (Fase 2, maj 2026) |
 | **Beskrivelse** | POST `/api/purchasing/suppliers/grocy-locations` på samme (supplier_id, grocy_location_id) returnerede 200 både første og anden gang via `INSERT OR REPLACE`. Brugeren fik ingen indikation af om koblingen var ny eller erstattet. |
-| **Vurdering** | Implementeret via `tests/specs/patches/PATCH_C_api_consistency_fixes.md` v2. INSERT OR REPLACE erstattet med eksplicit duplikat-tjek. Returnerer 409 med `existing`-objekt (hele rækken) i stedet for silent overwrite. |
+| **Vurdering** | Implementeret via `docs/archive/patches/PATCH_C_api_consistency_fixes.md` v2. INSERT OR REPLACE erstattet med eksplicit duplikat-tjek. Returnerer 409 med `existing`-objekt (hele rækken) i stedet for silent overwrite. |
 | **Foreslået action** | N/A — implementeret |
 | **Status** | `lukket` (maj 2026) |
 
@@ -160,7 +160,7 @@ Hver observation har:
 |--|--|
 | **Kilde** | `T_INDKOB_SETUP_BC_03` (Fase 2, maj 2026) |
 | **Beskrivelse** | POST `/api/grocy/product-barcodes` med samme `(product_id, barcode)` returnerede HTTP 500 fra Grocy uden mapping. |
-| **Vurdering** | Implementeret via `tests/specs/patches/PATCH_C_api_consistency_fixes.md` v2. `createProductBarcode` mapper nu Grocy 500/400/409 med "constraint"/"unique"/"duplicate" i besked til 409 med `code='BARCODE_DUPLICATE'`. Route propagerer `err.status` korrekt. |
+| **Vurdering** | Implementeret via `docs/archive/patches/PATCH_C_api_consistency_fixes.md` v2. `createProductBarcode` mapper nu Grocy 500/400/409 med "constraint"/"unique"/"duplicate" i besked til 409 med `code='BARCODE_DUPLICATE'`. Route propagerer `err.status` korrekt. |
 | **Foreslået action** | N/A — implementeret |
 | **Status** | `lukket` (maj 2026) |
 
@@ -190,7 +190,7 @@ Hver observation har:
 |--|--|
 | **Kilde** | T_VAREMODTAGELSE-design F35 (maj 2026) |
 | **Beskrivelse** | `routes/goods-receipts.js` brugte `UPDATE ... WHERE receipt_id = ? AND grocy_product_id = ?` i Grocy-tracking-loopet. To items i samme receipt med samme grocy_product_id blev opdateret begge ved første UPDATE — silent data corruption på per-item `grocy_added`/`grocy_error`. |
-| **Vurdering** | Bug. Fixet maj 2026 via `tests/specs/patches/PATCH_goods_receipts_critical_fixes.md` — UPDATE matcher nu på item.id efter `lastInsertRowid` blev gemt. T_VAREMODTAGELSE_PATCH_REGRESSION dækker regression-test. |
+| **Vurdering** | Bug. Fixet maj 2026 via `docs/archive/patches/PATCH_goods_receipts_critical_fixes.md` — UPDATE matcher nu på item.id efter `lastInsertRowid` blev gemt. T_VAREMODTAGELSE_PATCH_REGRESSION dækker regression-test. |
 | **Status** | `lukket` (maj 2026) |
 
 ### #019 — photo_path forblev sat hvis temp-fil manglede (lukket)
@@ -226,7 +226,7 @@ Hver observation har:
 |--|--|
 | **Kilde** | T_VAREMODTAGELSE_FULL F40 (maj 2026) |
 | **Beskrivelse** | Hvis klient sendte `temperature_cool_enabled=true` men ingen `temperature_cool_value`, blev `undefined` videregivet til `db.prepare().run()`. node:sqlite kastede fejl, counter rullede tilbage via transaction. 5xx til klient uden meningsfuld besked. |
-| **Vurdering** | Bug. Fixet maj 2026 via `tests/specs/patches/PATCH_goods_receipts_validation_fixes.md` — eksplicit `?? null`-fallback (ikke `\|\|` som ville klampe 0°C til null). Samme fix anvendt på frozen_value. |
+| **Vurdering** | Bug. Fixet maj 2026 via `docs/archive/patches/PATCH_goods_receipts_validation_fixes.md` — eksplicit `?? null`-fallback (ikke `\|\|` som ville klampe 0°C til null). Samme fix anvendt på frozen_value. |
 | **Status** | `lukket` (maj 2026) |
 
 ### #023 — items[].product_name=null gav 500 i stedet for 400 (lukket)
@@ -262,7 +262,7 @@ Hver observation har:
 |--|--|
 | **Kilde** | T_VAREMODTAGELSE_FULL F33 (maj 2026) |
 | **Beskrivelse** | `goods_receipts.status` blev hardcoded til `'approved'` ved INSERT, selv hvis Grocy fejlede for én eller flere items. UI kunne ikke skelne mellem fuldt succesfulde og delvist fejlede modtagelser. |
-| **Vurdering** | Design-issue. Fixet maj 2026 via `tests/specs/patches/PATCH_E_partially_approved_status.md` — ny status-værdi `'partially_approved'` tilføjet (migration 060). Server tæller `grocyFailures` (exkluderer bevidste skips som missing-status og no-pid) og opdaterer status hvis count > 0. Response re-fetcher status fra DB. Webhook læser automatisk korrekt værdi. |
+| **Vurdering** | Design-issue. Fixet maj 2026 via `docs/archive/patches/PATCH_E_partially_approved_status.md` — ny status-værdi `'partially_approved'` tilføjet (migration 060). Server tæller `grocyFailures` (exkluderer bevidste skips som missing-status og no-pid) og opdaterer status hvis count > 0. Response re-fetcher status fra DB. Webhook læser automatisk korrekt værdi. |
 | **Foreslået action** | UI-rendering af partial-status er separat fremtidigt arbejde i Fase 3 (varemodtagelses-listview) |
 | **Status** | `lukket` (maj 2026) |
 
@@ -272,7 +272,7 @@ Hver observation har:
 |--|--|
 | **Kilde** | T_BONS_LIST F49 (maj 2026) |
 | **Beskrivelse** | Forskellige `bon_*`-events sendte forskellige payload-shapes for samme entitet. `bon_status` + `notification` + POST lines brugte `bon_id`; alle andre brugte `id`. Frontend måtte læse `e.id \|\| e.bon_id` for at håndtere begge. |
-| **Vurdering** | Lukket maj 2026 via `tests/specs/patches/PATCH_F_sse_broadcast_consolidation.md` v3 — alle `bon_*`/`notification`-events bruger nu konsistent `{id, ...metadata}`. Frontend-fallback fjernet fra 4 filer (kitchen/today.js, kitchen/later.js, shared/bon_drawer.js, shared/flyver.js linje 128). Mail-events (`mail_received`, `mail_sent`) bevares som polymorfe — `bon_id` er ét af 4 mulige FK'er i payloaden og har semantisk værdi. |
+| **Vurdering** | Lukket maj 2026 via `docs/archive/patches/PATCH_F_sse_broadcast_consolidation.md` v3 — alle `bon_*`/`notification`-events bruger nu konsistent `{id, ...metadata}`. Frontend-fallback fjernet fra 4 filer (kitchen/today.js, kitchen/later.js, shared/bon_drawer.js, shared/flyver.js linje 128). Mail-events (`mail_received`, `mail_sent`) bevares som polymorfe — `bon_id` er ét af 4 mulige FK'er i payloaden og har semantisk værdi. |
 | **Foreslået action** | N/A — implementeret |
 | **Status** | `lukket` (maj 2026) |
 
@@ -303,7 +303,7 @@ Hver observation har:
 |--|--|
 | **Kilde** | T_BON_DRAWER_LINES_AND_RELATIONS F57 (maj 2026) |
 | **Beskrivelse** | `PUT /api/bons/:id/lines/:lid` opdaterede linjen + recalc'ede `total_price`, men sendte ikke `bon_updated`-event. Frontend's listview opdaterede ikke realtime efter line-PUT. |
-| **Vurdering** | UX-gap. Fixet maj 2026 via `tests/specs/patches/PATCH_F_sse_broadcast_consolidation.md` v3 — broadcast tilføjet før response. T_PATCH_F_01 dækker regression. |
+| **Vurdering** | UX-gap. Fixet maj 2026 via `docs/archive/patches/PATCH_F_sse_broadcast_consolidation.md` v3 — broadcast tilføjet før response. T_PATCH_F_01 dækker regression. |
 | **Status** | `lukket` (maj 2026) |
 
 ### #031 — DELETE lines manglede SSE broadcast (lukket)
@@ -321,7 +321,7 @@ Hver observation har:
 |--|--|
 | **Kilde** | T_FAKTURERING F62 (13. maj 2026) |
 | **Beskrivelse** | `GET /api/invoices/queue` filtrerede ikke `is_offer=1`. Tilbud med status LEVERET + payment_type='invoice' (sjælden men mulig kombination) dukkede op i pending-listen, klar til "fakturering". Andre views (`routes/bons.js` linje 75, dashboard, reports) filtrerer is_offer korrekt — invoices.js var inkonsistent. |
-| **Vurdering** | Lukket maj 2026 via `tests/specs/patches/PATCH_G_invoices_queue_fixes.md` — tilføjet `(b.is_offer = 0 OR b.is_offer IS NULL)` til pending-, done- og doneMonth-querierne. T_FAK_PEND_05 dækker regression. |
+| **Vurdering** | Lukket maj 2026 via `docs/archive/patches/PATCH_G_invoices_queue_fixes.md` — tilføjet `(b.is_offer = 0 OR b.is_offer IS NULL)` til pending-, done- og doneMonth-querierne. T_FAK_PEND_05 dækker regression. |
 | **Status** | `lukket` (maj 2026) |
 
 ### #033 — line_total i invoices-queue inkluderede accessory-lines (lukket)
@@ -367,7 +367,7 @@ Hver observation har:
 |--|--|
 | **Kilde** | T_INDKOB_LISTE-design Bug #001 (maj 2026) |
 | **Beskrivelse** | `services/grocyAdapter.js:631` i `consumeRecipes`'s shortfall-handler kaldte `grocyPost('/objects/shopping_list', {...})` direkte. Det opretter ny entry pr. partial-add — selv hvis samme produkt allerede mangler på listen fra tidligere LEVERET. UI'en viste duplikater. Grocys smart endpoint `/stock/shoppinglist/add-product` dedupper automatisk og understøtter `note`-felt direkte. |
-| **Vurdering** | Bug — fixet 11. maj 2026 via `tests/specs/patches/PATCH_consumeRecipes_smart_shopping_list.md` (3 ændringer: udvid `addShoppingListProduct` med note-param, brug smart endpoint i `consumeRecipes`, opdater `T_INV_PARTIAL_02`-assertion fra "ny entry-id" til "amount-stigning ≥ shortfall_purchase"). T_INVENTORY-suiten kører fortsat 13/13 PASS. Faktisk bevis: rapporten viser at smart endpoint `dedupped` på eksisterende entry (id=3750 for pid=72) — den gamle assertion ville have fejlet her, hvilket bekræftede at Ændring 3 var nødvendig. |
+| **Vurdering** | Bug — fixet 11. maj 2026 via `docs/archive/patches/PATCH_consumeRecipes_smart_shopping_list.md` (3 ændringer: udvid `addShoppingListProduct` med note-param, brug smart endpoint i `consumeRecipes`, opdater `T_INV_PARTIAL_02`-assertion fra "ny entry-id" til "amount-stigning ≥ shortfall_purchase"). T_INVENTORY-suiten kører fortsat 13/13 PASS. Faktisk bevis: rapporten viser at smart endpoint `dedupped` på eksisterende entry (id=3750 for pid=72) — den gamle assertion ville have fejlet her, hvilket bekræftede at Ændring 3 var nødvendig. |
 | **Foreslået action** | N/A — fixet |
 | **Status** | `lukket` (11. maj 2026 — patch anvendt + T_INVENTORY verificeret) |
 

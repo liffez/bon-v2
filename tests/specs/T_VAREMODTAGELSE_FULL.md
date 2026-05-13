@@ -249,7 +249,7 @@ notes for _FULL-specifikke områder:
 
 | Fil | Indhold | Status |
 |-----|---------|--------|
-| `tests/specs/patches/PATCH_goods_receipts_critical_fixes.md` | Patch A's spec (eksisterer) | ✓ |
+| `docs/archive/patches/PATCH_goods_receipts_critical_fixes.md` | Patch A's spec (eksisterer) | ✓ |
 | `tests/specs/T_VAREMODTAGELSE_PATCH_REGRESSION.md` | Ny stub der dokumenterer eksisterende runner + 26 cases | 🔲 oprettes |
 | `tests/specs/T_VAREMODTAGELSE_FULL.md` | Denne fil | ✓ |
 | `tests/scripts/run_T_VAREMODTAGELSE.js` | Eksisterende runner — **skal omdøbes** | 🟡 omdøb til `run_T_VAREMODTAGELSE_PATCH_REGRESSION.js` |

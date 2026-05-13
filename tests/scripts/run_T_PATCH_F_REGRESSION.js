@@ -15,7 +15,7 @@
  *   npm run test:run-patch-f
  *   node tests/scripts/run_T_PATCH_F_REGRESSION.js --verbose
  *
- * Reference: tests/specs/patches/PATCH_F_sse_broadcast_consolidation.md
+ * Reference: docs/archive/patches/PATCH_F_sse_broadcast_consolidation.md
  * ════════════════════════════════════════════════════════════
  */
 
