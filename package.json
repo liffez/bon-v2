@@ -43,7 +43,8 @@
     "test:run-bons-list":     "node --env-file=.env.test --experimental-sqlite tests/scripts/run_T_BONS_LIST.js",
     "test:run-bon-drawer-core": "node --env-file=.env.test --experimental-sqlite tests/scripts/run_T_BON_DRAWER_CORE.js",
     "test:run-bon-drawer-rel":  "node --env-file=.env.test --experimental-sqlite tests/scripts/run_T_BON_DRAWER_LINES_AND_RELATIONS.js",
-    "test:run-patch-f":         "node --env-file=.env.test --experimental-sqlite tests/scripts/run_T_PATCH_F_REGRESSION.js"
+    "test:run-patch-f":         "node --env-file=.env.test --experimental-sqlite tests/scripts/run_T_PATCH_F_REGRESSION.js",
+    "test:run-fakturering":     "node --env-file=.env.test --experimental-sqlite tests/scripts/run_T_FAKTURERING.js"
   },
   "dependencies": {
     "bcryptjs": "^2.4.3",
