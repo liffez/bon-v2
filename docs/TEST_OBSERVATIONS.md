@@ -266,16 +266,15 @@ Hver observation har:
 | **Foreslået action** | UI-rendering af partial-status er separat fremtidigt arbejde i Fase 3 (varemodtagelses-listview) |
 | **Status** | `lukket` (maj 2026) |
 
-### #027 — SSE payload-inkonsistens på bon-events (åben, parkeret)
+### #027 — SSE payload-inkonsistens på bon-events (lukket)
 
 | | |
 |--|--|
 | **Kilde** | T_BONS_LIST F49 (maj 2026) |
-| **Beskrivelse** | Forskellige `bon_*`-events sender forskellige payload-shapes for samme entitet. `POST /api/bons` → `bon_created` med `{id, bon_number}`. `PATCH /api/bons/:id` → `bon_updated` med `{id}`. `POST /api/bons/:id/lines` → `bon_updated` med `{bon_id}`. `PATCH /api/bons/:id/status` → `bon_status` med `{bon_id, old, new}`. Frontend (`bons-list.js`) må læse `e.id \|\| e.bon_id` for at håndtere begge. |
-| **Vurdering** | Lav prioritet — virker, men er sprødt. Hvis en 5. broadcast tilføjes med en tredje shape, knækker det. Forslag til standardisering: alle bon-events bruger `{id, ...metadata}` hvor `id` altid er bon-id'et. |
-| **Foreslået action** | Konsolidations-patch når office-fasen er færdig — ramt alle broadcasts samtidigt for at undgå løbende inkonsistens. Forventet fix-størrelse: 5 broadcast-kald i `routes/bons.js`. |
-| **Berørte filer** | `routes/bons.js` (5 broadcast-linjer). Frontend `office/views/bons-list.js` |
-| **Status** | `åben — parkeret til efter office-fase` |
+| **Beskrivelse** | Forskellige `bon_*`-events sendte forskellige payload-shapes for samme entitet. `bon_status` + `notification` + POST lines brugte `bon_id`; alle andre brugte `id`. Frontend måtte læse `e.id \|\| e.bon_id` for at håndtere begge. |
+| **Vurdering** | Lukket maj 2026 via `tests/specs/patches/PATCH_F_sse_broadcast_consolidation.md` v3 — alle `bon_*`/`notification`-events bruger nu konsistent `{id, ...metadata}`. Frontend-fallback fjernet fra 4 filer (kitchen/today.js, kitchen/later.js, shared/bon_drawer.js, shared/flyver.js linje 128). Mail-events (`mail_received`, `mail_sent`) bevares som polymorfe — `bon_id` er ét af 4 mulige FK'er i payloaden og har semantisk værdi. |
+| **Foreslået action** | N/A — implementeret |
+| **Status** | `lukket` (maj 2026) |
 
 ### #028 — Ukendt item.status falder igennem (lukket)
 
@@ -284,6 +283,24 @@ Hver observation har:
 | **Kilde** | T_VAREMODTAGELSE_FULL F28 (maj 2026) |
 | **Beskrivelse** | `routes/goods-receipts.js` accepterede enhver streng som `item.status`. Ukendte værdier (fx `'xyz'`) faldt igennem alle conditionals i `shouldAddStock`-tjekket. Resultat: item gemtes med ugyldig status, ingen fejl, ingen Grocy-update. Silent edge-case. |
 | **Vurdering** | Validation-gap. Fixet maj 2026 via Patch C v2 — enum-validation før INSERT mod `['ok', 'wrong', 'damaged', 'missing']`. |
+| **Status** | `lukket` (maj 2026) |
+
+### #030 — PUT lines manglede SSE broadcast (lukket)
+
+| | |
+|--|--|
+| **Kilde** | T_BON_DRAWER_LINES_AND_RELATIONS F57 (maj 2026) |
+| **Beskrivelse** | `PUT /api/bons/:id/lines/:lid` opdaterede linjen + recalc'ede `total_price`, men sendte ikke `bon_updated`-event. Frontend's listview opdaterede ikke realtime efter line-PUT. |
+| **Vurdering** | UX-gap. Fixet maj 2026 via `tests/specs/patches/PATCH_F_sse_broadcast_consolidation.md` v3 — broadcast tilføjet før response. T_PATCH_F_01 dækker regression. |
+| **Status** | `lukket` (maj 2026) |
+
+### #031 — DELETE lines manglede SSE broadcast (lukket)
+
+| | |
+|--|--|
+| **Kilde** | T_BON_DRAWER_LINES_AND_RELATIONS F58 (maj 2026) |
+| **Beskrivelse** | `DELETE /api/bons/:id/lines/:lid` slettede linjen + recalc'ede `total_price`, men sendte ikke `bon_updated`-event. Samme symptom som F57. |
+| **Vurdering** | UX-gap. Fixet maj 2026 — samme patch som #030. T_PATCH_F_02 dækker regression. |
 | **Status** | `lukket` (maj 2026) |
 
 ### #012 — `consumeRecipes` bruger rå `/objects/shopping_list` i stedet for smart endpoint (lukket)
@@ -321,20 +338,17 @@ Hver observation har:
 
 ## Slutstatus (13. maj 2026)
 
-**28 observations total** efter Patch A+B+C+D+E + SPEC_006/007/011 + T_BONS_LIST:
+**30 observations total** efter Patch A+B+C+D+E + Patch F + SPEC_006/007/011 + T_BONS_LIST + T_BON_DRAWER:
 
 | Status | Count | IDs |
 |---|---:|---|
-| `lukket` | 20 | #005, #006, #007, #010, #011, #012, #013, #014, #015, #017, #018, #019, #020, #021, #022, #023, #024, #025, #026, #028 |
+| `lukket` | 23 | #005, #006, #007, #010, #011, #012, #013, #014, #015, #017, #018, #019, #020, #021, #022, #023, #024, #025, #026, #027, #028, #030, #031 |
 | `bevidst-accepteret` | 2 | #001, #016 |
-| `åben` (lav prio) | 6 | #002, #003, #004, #008, #009, #027 |
+| `åben` (lav prio) | 5 | #002, #003, #004, #008, #009 |
 
 **0 åbne medium+ findings tilbage** — alt resterende er lav-prioritet
-parking. Office-fasen kan startes uden teknisk gæld i fundamentet.
-
-#027 (SSE payload-inkonsistens) konsolideres efter office-fasen sammen
-med F49/F57/F58 (manglende broadcasts på lines PUT/DELETE).
+parking. Office-fasen er solid.
 
 ---
 
-*Sidst opdateret: 13. maj 2026 — Patch A/B/C/D/E + SPEC_006/007/011 + T_BONS_LIST F49 logget. 8 status-skift fra åben→lukket + 11 nye entries.*
+*Sidst opdateret: 13. maj 2026 — Patch F (SSE konsolidering) lukker #027 + #030 + #031. SSE-kontrakten er nu standardiseret på tværs af alle `bon_*`/`notification`-events. Mail-events bevares som polymorfe (semantisk forskellige).*

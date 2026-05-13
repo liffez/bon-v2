@@ -1054,7 +1054,7 @@ async function runSseUpdateCases() {
             record('T_BL_SSE_UPDATE_01', 'SSE_U', 'FAIL', `PATCH status=${r.status}`);
         } else {
             try {
-                await sseListener.waitForEvent('bon_updated', e => e.id === bonId || e.bon_id === bonId, 2000);
+                await sseListener.waitForEvent('bon_updated', e => e.id === bonId || e.id === bonId, 2000);
                 record('T_BL_SSE_UPDATE_01', 'SSE_U', 'PASS');
             } catch (err) {
                 record('T_BL_SSE_UPDATE_01', 'SSE_U', 'FAIL', err.message);
@@ -1074,13 +1074,19 @@ async function runSseUpdateCases() {
         if (r.status !== 200 && r.status !== 201) {
             record('T_BL_SSE_UPDATE_02', 'SSE_U', 'FAIL', `POST line status=${r.status}`);
         } else {
+            // F49 LUKKET (Patch F): POST lines bruger nu konsistent {id}.
+            // Tidligere brugte den {bon_id} — strammet til at REQUIRE {id}.
             try {
                 const evt = await sseListener.waitForEvent('bon_updated',
-                    e => e.id === bonId || e.bon_id === bonId, 2000);
-                const usesId = 'id' in evt.data;
-                const usesBonId = 'bon_id' in evt.data;
-                record('T_BL_SSE_UPDATE_02', 'SSE_U', 'PASS',
-                    `F49: line-add bruger ${usesId ? '{id}' : ''}${usesBonId ? '{bon_id}' : ''}`);
+                    e => e.id === bonId, 2000);
+                const hasBonIdLegacy = 'bon_id' in evt.data;
+                if (!hasBonIdLegacy) {
+                    record('T_BL_SSE_UPDATE_02', 'SSE_U', 'PASS',
+                        VERBOSE ? 'F49 lukket: line-add bruger {id} uden bon_id-legacy' : '');
+                } else {
+                    record('T_BL_SSE_UPDATE_02', 'SSE_U', 'FAIL',
+                        `F49 regression: bon_id stadig i payload`);
+                }
             } catch (err) {
                 record('T_BL_SSE_UPDATE_02', 'SSE_U', 'FAIL', err.message);
             }
@@ -1135,7 +1141,7 @@ async function runSseStatusCases() {
         } else {
             try {
                 const evt = await sseListener.waitForEvent('bon_status',
-                    e => e.bon_id === bonId, 2000);
+                    e => e.id === bonId, 2000);
                 if (evt.data.old === 'NY' && evt.data.new === 'GODKENDT') {
                     record('T_BL_SSE_STATUS_01', 'SSE_S', 'PASS');
                 } else {
@@ -1158,7 +1164,7 @@ async function runSseStatusCases() {
         } else {
             try {
                 const evt = await sseListener.waitForEvent('bon_status',
-                    e => e.bon_id === bonId && e.new === 'IGANG', 2000);
+                    e => e.id === bonId && e.new === 'IGANG', 2000);
                 record('T_BL_SSE_STATUS_02', 'SSE_S', 'PASS');
             } catch (err) {
                 record('T_BL_SSE_STATUS_02', 'SSE_S', 'FAIL', err.message);

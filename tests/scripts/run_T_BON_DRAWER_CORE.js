@@ -644,7 +644,7 @@ async function runStatusCases() {
         } else {
             try {
                 const evt = await sseListener.waitForEvent('bon_status',
-                    e => e.bon_id === baseId && e.new === 'IGANG' && e.old === 'GODKENDT', 2000);
+                    e => e.id === baseId && e.new === 'IGANG' && e.old === 'GODKENDT', 2000);
                 record('T_BD_C_STATUS_06', 'STATUS', 'PASS');
             } catch (err) {
                 record('T_BD_C_STATUS_06', 'STATUS', 'FAIL', err.message);
@@ -926,7 +926,7 @@ async function runSseCases() {
 
     const baseId = testBons.BASE.id;
 
-    // SSE_01: status-PATCH → bon_status event med {bon_id, old, new}
+    // SSE_01 (Patch F): status-PATCH → bon_status event med {id, old, new}
     {
         // Sæt op: kendt status først
         db.prepare(`UPDATE bons SET status_id = ? WHERE id = ?`).run(statusId('NY'), baseId);
@@ -934,8 +934,8 @@ async function runSseCases() {
         const r = await api('PATCH', `/api/bons/${baseId}/status`, { status_code: 'GODKENDT' });
         if (r.status === 200) {
             try {
-                const evt = await sseListener.waitForEvent('bon_status', e => e.bon_id === baseId, 2000);
-                if (evt.data.bon_id === baseId && evt.data.old === 'NY' && evt.data.new === 'GODKENDT') {
+                const evt = await sseListener.waitForEvent('bon_status', e => e.id === baseId, 2000);
+                if (evt.data.id === baseId && evt.data.old === 'NY' && evt.data.new === 'GODKENDT') {
                     record('T_BD_C_SSE_01', 'SSE', 'PASS');
                 } else {
                     record('T_BD_C_SSE_01', 'SSE', 'FAIL', JSON.stringify(evt.data));
@@ -948,16 +948,21 @@ async function runSseCases() {
         }
     }
 
-    // SSE_02 (F49 bekræftelse): bon_status bruger 'bon_id' ikke 'id'
+    // SSE_02 (F49 LUKKET — Patch F): bon_status payload bruger {id}, IKKE {bon_id}
     {
-        const events = sseListener.getEvents('bon_status').filter(e => e.data?.bon_id === baseId);
+        const events = sseListener.getEvents('bon_status').filter(e => e.data?.id === baseId);
         if (events.length > 0) {
-            const hasBonId = 'bon_id' in events[0].data;
             const hasId = 'id' in events[0].data;
-            record('T_BD_C_SSE_02', 'SSE', 'PASS',
-                `F49 bekræftelse: bon_id=${hasBonId}, id=${hasId} (skal harmoniseres senere)`);
+            const hasBonIdLegacy = 'bon_id' in events[0].data;
+            if (hasId && !hasBonIdLegacy) {
+                record('T_BD_C_SSE_02', 'SSE', 'PASS',
+                    VERBOSE ? 'F49 lukket: bon_status bruger {id} uden bon_id-fallback' : '');
+            } else {
+                record('T_BD_C_SSE_02', 'SSE', 'FAIL',
+                    `F49 regression: hasId=${hasId}, hasBonIdLegacy=${hasBonIdLegacy}`);
+            }
         } else {
-            record('T_BD_C_SSE_02', 'SSE', 'SKIP', 'Ingen bon_status events fanget');
+            record('T_BD_C_SSE_02', 'SSE', 'FAIL', 'Ingen bon_status events fanget');
         }
     }
 

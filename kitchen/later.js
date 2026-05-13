@@ -145,7 +145,7 @@ function initSSE() {
         },
 
         bon_status: (data) => {
-            const card = document.getElementById('bon' + data.bon_id);
+            const card = document.getElementById('bon' + data.id);
             const newFe = statusToFrontend(data.new);
 
             if (card) {
@@ -167,7 +167,7 @@ function initSSE() {
 
         notification: (data) => {
             // Card-level alert
-            const card = document.getElementById('bon' + data.bon_id);
+            const card = document.getElementById('bon' + data.id);
             if (card) {
                 const alertsEl = card.querySelector('.bon-alerts');
                 if (alertsEl) {
@@ -183,12 +183,12 @@ function initSSE() {
         },
 
         bon_updated: (data) => {
-            fetchBon(data.bon_id).then(apiBon => {
-                const card = document.getElementById('bon' + data.bon_id);
+            fetchBon(data.id).then(apiBon => {
+                const card = document.getElementById('bon' + data.id);
                 if (!card) return;
                 const cardData = mapApiBonToCardData(apiBon);
                 const menuEl = card.querySelector('.select-mode-container');
-                if (menuEl) menuEl.innerHTML = _buildMenu(cardData.menu, data.bon_id);
+                if (menuEl) menuEl.innerHTML = _buildMenu(cardData.menu, data.id);
                 const unitsEl = card.querySelector('.unit-primary');
                 if (unitsEl) unitsEl.textContent = cardData.units;
             }).catch(err => console.error('bon_updated fejl:', err));
