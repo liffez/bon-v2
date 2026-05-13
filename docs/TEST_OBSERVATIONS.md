@@ -361,35 +361,32 @@ Hver observation har:
 | **Foreslået action** | N/A — fixet |
 | **Status** | `lukket` (13. maj 2026) |
 
-### #037 — Tilbud-modul: PATCH /:id/status tillader 'won' uden /convert (åben)
+### #037 — Tilbud-modul: PATCH /:id/status tillod 'won' uden /convert (lukket)
 
 | | |
 |--|--|
 | **Kilde** | T_TILBUD F68 (13. maj 2026) |
-| **Beskrivelse** | `routes/quotes.js:431` accepterer 'won' i valid-listen for `PATCH /api/quotes/:id/status`. Det betyder en kunde kan sætte `offer_status='won'` uden at `/convert` kaldes — resultat: tilbud markeres som "vundet" men `is_offer` forbliver 1. Tilbud dukker IKKE op i `/api/bons` (forbliver i tilbudslisten), MEN `/convert` afviser den senere med "allerede konverteret" fordi `offer_status='won'` er pegene. Bonen er fanget i mellem-tilstand. |
-| **Vurdering** | Inkonsistens-risk. Lav reel skade — knappen findes ikke i UI'en (`tilbud.js`'s status-toggle har ikke 'won' som mulighed, kun draft/sent/lost/expired). Men API-endpointet er ubeskyttet og kan ramme et legitimit edge-case hvis nogen automatiserer mod det. |
-| **Foreslået action** | Fjern 'won' fra valid-listen i `PATCH /:id/status` — den status er reserveret til `/convert`-flowet. 1-linjes fix: `const valid = ['draft', 'sent', 'lost', 'expired'];`. |
-| **Status** | `åben` (lav prioritet — UI eksponerer ikke endpointet, men API er ubeskyttet) |
+| **Beskrivelse** | `routes/quotes.js:431` accepterede 'won' i valid-listen for `PATCH /api/quotes/:id/status`. Det betød en klient kunne sætte `offer_status='won'` uden at `/convert` blev kaldt — resultat: tilbud markeret som "vundet" men `is_offer` forblev 1. Bonen fanget i mellem-tilstand. |
+| **Vurdering** | Lukket 13. maj 2026 via `docs/archive/patches/PATCH_I_quotes_consistency.md` — 'won' fjernet fra valid-listen. 400-response guider klienten til `POST /:id/convert`. T_TIL_STAT_05 dækker regression. |
+| **Status** | `lukket` (13. maj 2026) |
 
-### #038 — Tilbud-modul: routes/quotes.js dropper is_accessory på bon_lines (åben)
+### #038 — Tilbud-modul: routes/quotes.js droppede is_accessory på bon_lines (lukket)
 
 | | |
 |--|--|
 | **Kilde** | T_TILBUD F72 (13. maj 2026) |
-| **Beskrivelse** | `routes/quotes.js`'s INSERT INTO bon_lines i både POST (linje 270-286) og PATCH (linje 373-388) lister ikke `is_accessory` i kolonne-listen. Hvis frontend sender `is_accessory: 1` på en linje, ignoreres flaget og linjen gemmes med default `is_accessory=0`. `routes/bons.js:498` håndterer feltet korrekt — quotes.js er ude af sync. Konsekvens: `total_units`-querien (quotes.js:392) filtrerer på `is_accessory=0` men da kolonnen aldrig sættes, falder alle lines igennem filteret — accessory-lines tæller med i total_units på tilbud. |
-| **Vurdering** | Reel inkonsistens med tilbud-som-bon-arkitekturen. Når et tilbud konverteres til bon, beholdes linjerne (CONV_07 PASS) — men accessory-flaget er allerede tabt. Den konverterede bon vil have accessories tællende i total_units, hvor en frisk POST /api/bons/:id/lines ville bevare flaget. |
-| **Foreslået action** | Tilføj `is_accessory` til INSERT-kolonne-listen i routes/quotes.js POST (linje 270-272) + PATCH (linje 373-376). Tilføj `l.is_accessory ?? 0` til parametrene begge steder. 4-linjes fix. |
-| **Status** | `åben` (medium prioritet — konvertering pris-flow påvirkes) |
+| **Beskrivelse** | `routes/quotes.js`'s INSERT INTO bon_lines i både POST (linje 270-286) og PATCH (linje 373-388) listede ikke `is_accessory`-kolonnen. Hvis frontend sendte `is_accessory: 1` på en linje, blev flaget tabt og linjen gemt med default `is_accessory=0`. `routes/bons.js:498` håndterede feltet korrekt — quotes.js var ude af sync. Konsekvens: `total_units`-querien (quotes.js:392) filtrerede på `is_accessory=0` men da kolonnen aldrig sættes, faldt alle lines igennem — accessory-lines talte med i total_units på tilbud. |
+| **Vurdering** | Lukket 13. maj 2026 via Patch I — `is_accessory` tilføjet til INSERT-kolonne-listen i begge endpoints, parameter konverteret via `l.is_accessory ? 1 : 0`-mønster (matcher routes/bons.js). T_TIL_PATCH_06 + T_TIL_PI_01 dækker regression. |
+| **Status** | `lukket` (13. maj 2026) |
 
-### #039 — Tilbud-modul: SSE event-name-mismatch (åben, frontend modtager aldrig realtime)
+### #039 — Tilbud-modul: SSE event-name-mismatch frontend↔backend (lukket)
 
 | | |
 |--|--|
 | **Kilde** | T_TILBUD F73 (13. maj 2026) |
-| **Beskrivelse** | `routes/quotes.js` broadcaster `bon_created` (linje 298) og `bon_updated` (linjer 398, 450, 480) — men `office/index.html:934-939` registrerer kun listeners for `quote_created`/`quote_updated`, og `office/views/tilbud.js:184` lytter på samme navne. Frontend modtager ALDRIG realtime-opdateringer fra tilbudsendpointet. Brugeren skal manuelt re-fetche listen for at se nye/ændrede tilbud. |
-| **Vurdering** | Reel UX-bug. Office-tilbudsvisningen virker som om SSE er aktiveret, men effekten er polling med manuel reload. Andre office-views (bons-list, CRM, fakturering) får korrekt realtime fordi de bruger samme event-navne backend sender. Risiko: når Patch F konsoliderede `bon_*`-events, blev tilbud-frontenden ikke fulgt med. |
-| **Foreslået action** | To muligheder: <br>**(i) Rename i quotes.js**: skift broadcasts fra `bon_*` til `quote_*` (4 steder: POST, PATCH x2, convert). Konsekvens: kalender + listview lytter ikke på quote_*, så de mister synkronisering når et tilbud oprettes/ændres. Skal de? Tvivlsomt — tilbud vises ikke i bons-listview alligevel. <br>**(ii) Rename i frontend**: skift `quote_created`/`quote_updated` i office/index.html + tilbud.js til `bon_created`/`bon_updated`. Konsekvens: tilbud.js får ALLE bon-events (også for almindelige bons) og skal filtrere på `data.is_offer === true` selv. Foretrukken løsning — matcher patch F's design. |
-| **Status** | `åben` (medium prioritet — funktionelt brækkede realtime-opdateringer) |
+| **Beskrivelse** | `routes/quotes.js` broadcastede `bon_created` (linje 298) og `bon_updated` (linjer 398, 450, 480) — men `office/index.html:934-939` registrerede kun listeners for `quote_created`/`quote_updated`, og `office/views/tilbud.js:184` lyttede på samme navne. Frontend modtog ALDRIG realtime-opdateringer fra tilbudsendpointet. Brugeren skulle manuelt re-fetche listen. |
+| **Vurdering** | Lukket 13. maj 2026 via Patch I — `_tilbudHandleSSE` omdøbt til at lytte på `bon_created`/`bon_updated`. office/index.html wirer nu `_tilbudHandleSSE` ind i bon_*-handlerne sammen med listview/dashboard/fakturering. quote_*-handlere fjernet (dead code). Alle 4 quote-broadcasts har nu `is_offer`-felt i payload (`true` for POST/PATCH/status-skift, `false` for /convert så bonen forsvinder fra tilbudslisten og dukker op i bons-listview). T_TIL_PI_02 + T_TIL_PI_03 + T_TIL_PATCH_08 + T_TIL_POST_09 dækker regression. |
+| **Status** | `lukket` (13. maj 2026) |
 
 ### #012 — `consumeRecipes` bruger rå `/objects/shopping_list` i stedet for smart endpoint (lukket)
 
@@ -426,19 +423,18 @@ Hver observation har:
 
 ## Slutstatus (13. maj 2026)
 
-**40 observations total** efter Patch A+B+C+D+E + Patch F + Patch G + Patch H + SPEC_006/007/011 + T_BONS_LIST + T_BON_DRAWER + T_FAKTURERING + T_TILBUD:
+**40 observations total** efter Patch A+B+C+D+E + Patch F + Patch G + Patch H + Patch I + SPEC_006/007/011 + T_BONS_LIST + T_BON_DRAWER + T_FAKTURERING + T_TILBUD:
 
 | Status | Count | IDs |
 |---|---:|---|
-| `lukket` | 28 | #005, #006, #007, #010, #011, #012, #013, #014, #015, #017, #018, #019, #020, #021, #022, #023, #024, #025, #026, #027, #028, #030, #031, #032, #033, #034, #035, #036 |
+| `lukket` | 31 | #005, #006, #007, #010, #011, #012, #013, #014, #015, #017, #018, #019, #020, #021, #022, #023, #024, #025, #026, #027, #028, #030, #031, #032, #033, #034, #035, #036, #037, #038, #039 |
 | `bevidst-accepteret` | 3 | #001, #016, #029 |
-| `åben` (lav prio) | 6 | #002, #003, #004, #008, #009, #037 |
-| `åben` (medium prio) | 2 | #038, #039 |
+| `åben` (lav prio) | 5 | #002, #003, #004, #008, #009 |
 
-**2 åbne medium-prio findings i tilbud-modulet** (#038 + #039) som bør
-patches inden større tilbuds-flow-arbejde. #037 er lav-prio (API-edge-
-case uden UI-eksponering).
+**0 åbne medium+ findings tilbage. Office-fasen er teknisk gæld-fri.**
+Alt resterende er lav-prioritet parking (#002/#003/#004 Grocy adapter-
+detaljer, #008 testdata, #009 sub-recipe individuel testing).
 
 ---
 
-*Sidst opdateret: 13. maj 2026 — Patch H (fakturering moms-labels) lukker #036. Fakturering-detail-sum viser nu 3 rækker (Subtotal ex / Moms 25% / Total incl) via `Moms.computeMomsFields()` — matcher §6c og e-conomic-konvention. Forberedelse til faktura-PDF-generering.*
+*Sidst opdateret: 13. maj 2026 — Patch I (quotes consistency) lukker #037 + #038 + #039 i én operation. Tilbud-modulet er nu konsistent med Patch F's SSE-konvention (bon_* med is_offer-flag), bevarer is_accessory på lines parallelt med routes/bons.js, og blokerer 'won'-status uden /convert. T_TILBUD: 81/0/1 (SKIP er F69 der ikke længere er testbar efter F68 lukker mellem-tilstanden).*
