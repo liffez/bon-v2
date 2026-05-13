@@ -5,10 +5,18 @@
  * Kun fødevarekontrol-data — intet om Grocy eller varemængder.
  *
  * Asynkron, non-blocking. Fejl logges i webhook_log.
+ *
+ * Test-mode (NODE_ENV='test'): send() auto-mock'es — fanger kald i en
+ * in-memory buffer i stedet for at lave HTTP-kald. Buffer eksponeres via
+ * _getSentWebhooks() + _clearSentWebhooks() og bruges af test-mail-route
+ * (T_VAREMOD_F_FAIL_05). Samme pattern som services/mailService.js.
  * ════════════════════════════════════════════════════════════
  */
 
 const { getDb } = require('../db/database');
+
+const _IS_TEST = process.env.NODE_ENV === 'test';
+const _sentWebhooks = [];
 
 /**
  * Send webhook til Whiteboard (fire-and-forget).
@@ -16,6 +24,19 @@ const { getDb } = require('../db/database');
  * @param {string} userName - navn på modtager
  */
 async function send(receipt, userName) {
+    // Test-mode: fang kald i in-memory buffer og returner tidligt.
+    // Ingen HTTP-trafik, ingen DB-skrivning til webhook_log.
+    if (_IS_TEST) {
+        _sentWebhooks.push({
+            receipt_id: receipt.id,
+            receipt_number: receipt.receipt_number,
+            user_name: userName,
+            supplier_name: receipt.supplier_name,
+            captured_at: new Date().toISOString(),
+        });
+        return;
+    }
+
     const db = getDb();
 
     const webhookUrl = db.prepare(
@@ -107,4 +128,12 @@ async function send(receipt, userName) {
     }
 }
 
-module.exports = { send };
+function _getSentWebhooks() {
+    return _sentWebhooks.slice();
+}
+
+function _clearSentWebhooks() {
+    _sentWebhooks.length = 0;
+}
+
+module.exports = { send, _getSentWebhooks, _clearSentWebhooks };

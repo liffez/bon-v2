@@ -294,7 +294,7 @@ router.get('/search', async (req, res) => {
     }
 });
 
-// Batch snapshots — til live beriging i bestilling.js
+// Batch snapshots — til live beriging i indkøbs-UI (shared/indkob.js)
 // GET /api/horkram/snapshots?ids=1234,5678,...
 router.get('/snapshots', async (req, res) => {
     try {
@@ -497,8 +497,7 @@ router.get('/basket', async (req, res) => {
  *   }]
  * }
  *
- * Kaldt af _bsAddToBasket() i shared/bestilling.js
- * via putHokaBasket() i shared/api.js.
+ * Kaldt af shared/indkob.js via putHokaBasket() i shared/api.js.
  */
 router.put('/basket/add', async (req, res) => {
     try {

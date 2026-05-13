@@ -30,19 +30,6 @@ const webhook         = require('../services/goodsReceiptWebhook');
 const UPLOAD_DIR = path.join(__dirname, '..', 'data', 'uploads', 'receipts');
 const MAX_PHOTO_SIZE = 10 * 1024 * 1024; // 10 MB
 
-/* ── Helpers ──────────────────────────────────────────────── */
-
-function nextReceiptNumber() {
-    const db = getDb();
-    return transaction(db, () => {
-        const prefix  = db.prepare(`SELECT value FROM settings WHERE key='goods_receipt_number_prefix'`).get()?.value ?? 'VR';
-        const current = parseInt(db.prepare(`SELECT value FROM settings WHERE key='goods_receipt_number_next'`).get()?.value ?? '1');
-        db.prepare(`UPDATE settings SET value=? WHERE key='goods_receipt_number_next'`).run(String(current + 1));
-        const year = new Date().getFullYear();
-        return `${prefix}-${year}-${String(current).padStart(3, '0')}`;
-    });
-}
-
 /* ── GET /users — aktive brugere til dropdown ────────────── */
 
 router.get('/users', requireAuth(), handle((req, res) => {
@@ -153,79 +140,132 @@ router.post('/', requireAuth(), handle(async (req, res) => {
         return res.status(400).json({ error: 'items[] er påkrævet' });
     }
 
-    // 1. Generér receipt_number
-    const receiptNumber = nextReceiptNumber();
-
-    // 2. INSERT goods_receipt
-    const receiverName = received_by_name || null;
-    const grResult = db.prepare(`
-        INSERT INTO goods_receipts (
-            receipt_number, supplier_name, location_id, received_by, received_by_name, received_at,
-            temperature_cool_enabled, temperature_cool_value, temperature_cool_ok,
-            temperature_frozen_enabled, temperature_frozen_value, temperature_frozen_ok,
-            date_check_ok, labeling_check_ok, packaging_check_ok,
-            has_deviation, deviation_type, deviation_note,
-            photo_path, notes, status
-        ) VALUES (?, ?, ?, ?, ?, datetime('now'),
-                  ?, ?, ?,
-                  ?, ?, ?,
-                  ?, ?, ?,
-                  ?, ?, ?,
-                  ?, ?, 'approved')
-    `).run(
-        receiptNumber,
-        supplier_name,
-        location_id || null,
-        received_by_user_id || null,
-        receiverName,
-        temperature_cool_enabled ? 1 : 0,
-        temperature_cool_enabled ? temperature_cool_value : null,
-        temperature_cool_enabled ? (temperature_cool_ok ? 1 : 0) : null,
-        temperature_frozen_enabled ? 1 : 0,
-        temperature_frozen_enabled ? temperature_frozen_value : null,
-        temperature_frozen_enabled ? (temperature_frozen_ok ? 1 : 0) : null,
-        date_check_ok ? 1 : 0,
-        labeling_check_ok ? 1 : 0,
-        packaging_check_ok ? 1 : 0,
-        has_deviation ? 1 : 0,
-        deviation_type || null,
-        deviation_note || null,
-        photo_path || null,
-        notes || null
-    );
-
-    const receiptId = grResult.lastInsertRowid;
-
-    // 3. INSERT items
-    const insertItem = db.prepare(`
-        INSERT INTO goods_receipt_items (
-            receipt_id, grocy_product_id, product_name,
-            expected_quantity, unit, received_quantity,
-            status, notes
-        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
-    `);
-
-    for (const item of items) {
-        insertItem.run(
-            receiptId,
-            item.grocy_product_id || null,
-            item.product_name,
-            item.expected_quantity || null,
-            item.unit || null,
-            item.received_quantity || null,
-            item.status || 'ok',
-            item.notes || null
-        );
+    // F37: Validér at alle items har product_name (NOT NULL constraint på
+    // goods_receipt_items.product_name). Uden denne tjek får UI'en en uforklarlig
+    // 500 SQLite-fejl i stedet for en pæn 400-besked.
+    //
+    // F28 (Patch C): samtidig enum-validation på item.status. Status er valgfri
+    // (defaulter til 'ok' i INSERT), men ugyldige værdier afvises eksplicit
+    // i stedet for at falde igennem alle conditionals i shouldAddStock.
+    const VALID_ITEM_STATUSES = ['ok', 'wrong', 'damaged', 'missing'];
+    for (let i = 0; i < items.length; i++) {
+        const name = items[i]?.product_name;
+        if (!name || typeof name !== 'string' || name.trim() === '') {
+            return res.status(400).json({
+                error: `items[${i}].product_name er påkrævet`
+            });
+        }
+        const status = items[i]?.status;
+        if (status !== undefined && status !== null && !VALID_ITEM_STATUSES.includes(status)) {
+            return res.status(400).json({
+                error: `items[${i}].status='${status}' er ugyldig. Tilladte: ${VALID_ITEM_STATUSES.join(', ')}`
+            });
+        }
     }
 
-    // 4. Sekventiel Grocy addStock + shopping list cleanup
+    // Resolve receiver-navn FØR transaction: foretrukket eksplicit name,
+    // ellers slå op fra users-tabel via id. Bruges både i INSERT og webhook.
+    let receiverName = received_by_name || null;
+    if (!receiverName && received_by_user_id) {
+        const user = db.prepare(`SELECT name FROM users WHERE id = ?`).get(received_by_user_id);
+        receiverName = user?.name || null;
+    }
+
+    // Counter-bump + INSERT receipt + INSERT items kører i ÉN transaction.
+    // Hvis noget fejler her, rulles ALT tilbage — inkl. counter — så vi
+    // ikke spilder receipt-numre eller ender med halv-populerede rækker.
+    // Async Grocy addStock + webhook ligger udenfor (partial-success by design:
+    // receiptet er gyldigt selvom Grocy-opdatering fejler).
+    let receiptId;
+    let receiptNumber;
+    const itemIds = [];
+
+    transaction(db, () => {
+        // 1. Bump counter + generér receipt_number. Inlined her — nextReceiptNumber()
+        //    havde sin egen transaction, og node:sqlite tillader ikke nested BEGIN.
+        const prefix  = db.prepare(`SELECT value FROM settings WHERE key='goods_receipt_number_prefix'`).get()?.value ?? 'VR';
+        const current = parseInt(db.prepare(`SELECT value FROM settings WHERE key='goods_receipt_number_next'`).get()?.value ?? '1');
+        db.prepare(`UPDATE settings SET value=? WHERE key='goods_receipt_number_next'`).run(String(current + 1));
+        const year = new Date().getFullYear();
+        receiptNumber = `${prefix}-${year}-${String(current).padStart(3, '0')}`;
+
+        // 2. INSERT goods_receipt
+        const grResult = db.prepare(`
+            INSERT INTO goods_receipts (
+                receipt_number, supplier_name, location_id, received_by, received_by_name, received_at,
+                temperature_cool_enabled, temperature_cool_value, temperature_cool_ok,
+                temperature_frozen_enabled, temperature_frozen_value, temperature_frozen_ok,
+                date_check_ok, labeling_check_ok, packaging_check_ok,
+                has_deviation, deviation_type, deviation_note,
+                photo_path, notes, status
+            ) VALUES (?, ?, ?, ?, ?, datetime('now'),
+                      ?, ?, ?,
+                      ?, ?, ?,
+                      ?, ?, ?,
+                      ?, ?, ?,
+                      ?, ?, 'approved')
+        `).run(
+            receiptNumber,
+            supplier_name,
+            location_id || null,
+            received_by_user_id || null,
+            receiverName,
+            temperature_cool_enabled ? 1 : 0,
+            // F40: '?? null' (ikke '|| null') så 0°C ikke clampes til null
+            temperature_cool_enabled ? (temperature_cool_value ?? null) : null,
+            temperature_cool_enabled ? (temperature_cool_ok ? 1 : 0) : null,
+            temperature_frozen_enabled ? 1 : 0,
+            temperature_frozen_enabled ? (temperature_frozen_value ?? null) : null,
+            temperature_frozen_enabled ? (temperature_frozen_ok ? 1 : 0) : null,
+            date_check_ok ? 1 : 0,
+            labeling_check_ok ? 1 : 0,
+            packaging_check_ok ? 1 : 0,
+            has_deviation ? 1 : 0,
+            // F41: clamp type/note til null når has_deviation=false (state-konsistens)
+            has_deviation ? (deviation_type || null) : null,
+            has_deviation ? (deviation_note || null) : null,
+            photo_path || null,
+            notes || null
+        );
+        receiptId = grResult.lastInsertRowid;
+
+        // 3. INSERT items — gem item-ID per række så vi senere kan opdatere
+        //    den specifikke item (ikke alle items med samme grocy_product_id)
+        const insertItem = db.prepare(`
+            INSERT INTO goods_receipt_items (
+                receipt_id, grocy_product_id, product_name,
+                expected_quantity, unit, received_quantity,
+                status, notes
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+        `);
+        for (const item of items) {
+            const result = insertItem.run(
+                receiptId,
+                item.grocy_product_id || null,
+                item.product_name,
+                item.expected_quantity || null,
+                item.unit || null,
+                item.received_quantity || null,
+                item.status || 'ok',
+                item.notes || null
+            );
+            itemIds.push(result.lastInsertRowid);
+        }
+    });
+
+    // 4. Sekventiel Grocy addStock + shopping list cleanup.
+    // UPDATE matcher på item.id (unik) — ikke grocy_product_id — fordi samme
+    // product kan optræde flere gange i samme receipt (forskellige batches).
     const grocyResults = [];
     const updateItem = db.prepare(`
         UPDATE goods_receipt_items SET grocy_added = ?, grocy_error = ?
-        WHERE receipt_id = ? AND grocy_product_id = ?
+        WHERE id = ?
     `);
 
-    for (const item of items) {
+    for (let i = 0; i < items.length; i++) {
+        const item = items[i];
+        const itemId = itemIds[i];
+
         const shouldAddStock = item.status === 'ok' ||
             (item.status === 'wrong' && item.received_quantity > 0) ||
             (item.status === 'damaged' && item.received_quantity > 0);
@@ -247,14 +287,14 @@ router.post('/', requireAuth(), handle(async (req, res) => {
                 null, // best_before_date — Grocy bruger default_due_days
                 location_id || null
             );
-            updateItem.run(1, null, receiptId, item.grocy_product_id);
+            updateItem.run(1, null, itemId);
             grocyResults.push({
                 product_name: item.product_name,
                 grocy_added: true,
                 error: null
             });
         } catch (err) {
-            updateItem.run(0, err.message, receiptId, item.grocy_product_id);
+            updateItem.run(0, err.message, itemId);
             grocyResults.push({
                 product_name: item.product_name,
                 grocy_added: false,
@@ -300,8 +340,21 @@ router.post('/', requireAuth(), handle(async (req, res) => {
         }
     }
 
-    // 5. Omdøb foto hvis det er en temp-fil
+    // 4b. Patch E (F33): hvis nogen items skulle have addStock men fejlede,
+    //     opgradér receipt-status til 'partially_approved' så UI kan rendere
+    //     advarsel. Skipped items (status='missing' eller qty=0) tæller IKKE
+    //     som failures — kun reelle fejl fra Grocy.
+    const grocyFailures = grocyResults.filter(r => r.grocy_added === false && r.skipped !== true);
+    if (grocyFailures.length > 0) {
+        db.prepare(`UPDATE goods_receipts SET status = 'partially_approved' WHERE id = ?`).run(receiptId);
+        console.warn(`[goods-receipts] Receipt ${receiptId} markeret partially_approved — ${grocyFailures.length}/${items.length} items fejlede i Grocy`);
+    }
+
+    // 5. Omdøb foto hvis det er en temp-fil.
+    // Hvis rename ikke kan gennemføres (temp-fil mangler), null'er vi
+    // photo_path i DB så vi ikke ender med dangling reference.
     if (photo_path && photo_path.includes('vr-tmp-')) {
+        let renameSucceeded = false;
         try {
             const oldName = path.basename(photo_path);
             const ext = path.extname(oldName);
@@ -313,26 +366,37 @@ router.post('/', requireAuth(), handle(async (req, res) => {
                 fs.renameSync(oldPath, newPath);
                 const newPhotoPath = `/uploads/receipts/${newName}`;
                 db.prepare(`UPDATE goods_receipts SET photo_path = ? WHERE id = ?`).run(newPhotoPath, receiptId);
+                renameSucceeded = true;
             }
         } catch (err) {
             console.warn('[goods-receipts] Foto omdøbning fejlede:', err.message);
         }
+
+        if (!renameSucceeded) {
+            db.prepare(`UPDATE goods_receipts SET photo_path = NULL WHERE id = ?`).run(receiptId);
+            console.warn(`[goods-receipts] photo_path nullet for receipt ${receiptId} — temp-fil findes ikke`);
+        }
     }
 
-    // 6. Fire-and-forget webhook
+    // 6. Fire-and-forget webhook (receiverName er allerede resolveret ovenfor)
     const userName = receiverName || 'Ukendt';
     const receiptRow = db.prepare(`SELECT * FROM goods_receipts WHERE id = ?`).get(receiptId);
     webhook.send(receiptRow, userName).catch(err => {
         console.warn('[goods-receipts] Webhook fejl (non-blocking):', err.message);
     });
 
-    // 7. Response
+    // 7. Response. Patch E: re-fetch status så vi returnerer 'partially_approved'
+    // når det er sat, ikke hardcoded 'approved'. grocy_failure_count eksponerer
+    // antallet af fejlede items så UI kan vise badge ("2 fejlede").
+    const finalStatus = db.prepare(`SELECT status FROM goods_receipts WHERE id = ?`).get(receiptId)?.status ?? 'approved';
     res.json({
         id: receiptId,
         receipt_number: receiptNumber,
-        status: 'approved',
+        status: finalStatus,
         grocy_results: grocyResults,
-        webhook_sent: true // vi ved det ikke endnu — async
+        grocy_failure_count: grocyFailures.length,
+        webhook_sent: true,         // @deprecated — bevares for klient-kompatibilitet
+        webhook_dispatched: true    // korrekt navn — fire-and-forget, ikke bekræftet leveret
     });
 }));
 

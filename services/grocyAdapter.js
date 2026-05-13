@@ -482,11 +482,35 @@ function getProductBarcodes() {
     return cachedFetch('product_barcodes', '/objects/product_barcodes');
 }
 
-/** Opret ny produkt-barcode (kobl vare til leverandør-varenr.) */
+/** Opret ny produkt-barcode (kobl vare til leverandør-varenr.).
+ *  Patch C #015: Grocy returnerer 500 ved duplikat (product_id, barcode).
+ *  Vi mapper det til en kaste-fejl med status=409 og code='BARCODE_DUPLICATE'
+ *  så route-handleren kan emit'e en pænere fejl til klienten.
+ */
 async function createProductBarcode(body) {
-    const result = await grocyPost('/objects/product_barcodes', body);
-    _cache.delete('product_barcodes');
-    return result;
+    try {
+        const result = await grocyPost('/objects/product_barcodes', body);
+        _cache.delete('product_barcodes');
+        return result;
+    } catch (err) {
+        // Grocy returnerer 400 eller 500 ved duplikat barcode (afhænger af version).
+        // Vi matcher på constraint/unique/duplicate i message-teksten — ikke på status —
+        // for at være robust på tværs af Grocy-versioner.
+        const msg = String(err?.message || '').toLowerCase();
+        const isDuplicate = msg.includes('constraint')
+            || msg.includes('unique')
+            || msg.includes('duplicate');
+
+        if (isDuplicate) {
+            const conflictErr = new Error(
+                `Barcode '${body?.barcode}' eksisterer allerede for product_id=${body?.product_id}`
+            );
+            conflictErr.status = 409;
+            conflictErr.code = 'BARCODE_DUPLICATE';
+            throw conflictErr;
+        }
+        throw err;
+    }
 }
 
 /** Opdater produkt-barcode (last_price, note, qu_id, amount etc.) */

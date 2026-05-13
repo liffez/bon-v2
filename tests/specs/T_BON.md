@@ -30,7 +30,7 @@ FAKTURERET → AFSLUTTET
 
 **Bemærk:** AFLYST kan nås fra alle "aktive" statusser (TILBUD/NY/VENTER/GODKENDT/IGANG/KLAR/LEVERET) — men IKKE fra terminal-statusser (FAKTURERET/BETALT/AFSLUTTET). Hvis det er bevidst, fint. Hvis ikke, dokumenteres som finding.
 
-**Force-mode:** CLAUDE.md siger "Med `force: true` kan admin sætte hvilken som helst status" — men `routes/bons.js:316-338` checker IKKE `force`-parameteren. T_BON_API_FORCE_01 vil fange dette.
+**Force-mode:** Implementeret via [PATCH_D_force_mode.md](patches/PATCH_D_force_mode.md) (maj 2026). Admin kan overstyre forbudte transitions med `{force: true}` i body. Rolle-tjek mod session (ikke body) for at undgå privilege escalation. Audit-log via `changelog.payload = {was_forced: true, by_user_id}`. T_BON_API_FORCE_01-07 dækker happy path + D-3 privilege-escalation-regression.
 
 ---
 
@@ -74,13 +74,19 @@ FAKTURERET → AFSLUTTET
 | **T_BON_API_CL_01** | Status-skift skriver changelog-entry | Efter PATCH findes en row med action='status_change', old_value=før-status, new_value=ny-status |
 | **T_BON_API_CL_02** | Changelog inkluderer user_id når givet | PATCH med `user_id: 1` → changelog.user_id = 1 |
 
-### 3.5 Force-mode (parkeret — venter på beslutning)
+### 3.5 Force-mode (Patch D — implementeret maj 2026)
 
-| ID | Formål | Status |
-|----|--------|--------|
-| **T_BON_API_FORCE_01** | `force: true` tillader normalt forbudt transition | **SKIP** — feature ikke implementeret i `routes/bons.js`, design-beslutning pending |
+| ID | Formål | Setup | Forventet |
+|----|--------|-------|-----------|
+| **T_BON_API_FORCE_01** | Admin kan force'e forbudt transition | Login som admin, GODKENDT → BETALT | 200, transition gennemført |
+| **T_BON_API_FORCE_02** | Non-admin afvises ved force | Login som kitchen, force=true | 403 "Force-mode kræver admin-rolle" |
+| **T_BON_API_FORCE_03** | **Privilege escalation forhindret (D-3)** | Login som kitchen, send `user_id: <admin>` i body | 403 — body.user_id må IKKE påvirke rolle-tjek |
+| **T_BON_API_FORCE_04** | Ingen session + force=true | Ingen cookie | 401 |
+| **T_BON_API_FORCE_05** | Ikke-force fortsat regression | Forbudt transition uden force | 400 "ikke tilladt" som hidtil |
+| **T_BON_API_FORCE_06** | Terminal-tilbageskift | Admin force'r FAKTURERET → IGANG | 200 |
+| **T_BON_API_FORCE_07** | Audit-log korrekt (D-2 regression) | Force-skift som admin | changelog.payload = `{was_forced:true, by_user_id:<admin>}` + kolonne-rækkefølge intakt |
 
-Runneren skifter automatisk til PASS hvis force-mode bliver implementeret (PATCH returnerer 200).
+Runneren håndterer login automatisk: sætter midlertidig PIN på admin-bruger, logger ind som både admin og kitchen, restorerer PIN ved cleanup.
 
 ---
 
@@ -107,44 +113,45 @@ npm run test:run-bon
 
 ---
 
-## 6. Findings — kræver beslutning, ikke fix nu
+## 6. Findings — historiske
 
 | ID | Finding | Sted | Status |
 |----|---------|------|--------|
-| **T_BON_API_FORCE_01** | `force: true` parameter understøttes ikke af status-PATCH | `routes/bons.js:316-338` validerer altid mod `status_transitions`-tabel uden at tjekke `force` | 🟡 **Parkeret** — afventer beslutning |
+| **#005 / F005** | `force: true` parameter understøttes ikke af status-PATCH | `routes/bons.js` | ✅ **LUKKET (Patch D, maj 2026)** — implementeret med session-baseret rolle-tjek + audit via `changelog.payload`. Se [patches/PATCH_D_force_mode.md](patches/PATCH_D_force_mode.md) |
 
-**Beslutning at tage:** Skal force-mode (admin-override af status-flow) implementeres,
-eller fjernes fra CLAUDE.md som ufuldendt feature?
+Beslutningen (Leif, maj 2026): **B — implementér**. Admin kan rette stuck bons via UI i stedet for direkte DB-UPDATE. Audit-trailen viser hvilke skift gik uden om normalt flow.
 
-- **For implementering:** Admin kan rette stuck bons (fx undo BETALT/AFSLUTTET) uden DB-direkte SQL.
-- **Imod implementering:** YAGNI — admin kan altid lave UPDATE direkte i DB. Tilføjer rolle-tjek-kompleksitet.
-- **Anbefaling:** Vent til konkret behov opstår. Indtil da: T_BON_API_FORCE_01 = SKIP.
-
-Hvis implementeret, vil den se sådan ud i `routes/bons.js`:
-```javascript
-const force = req.body.force === true;
-const userId = req.body.user_id;
-const isAdmin = userId && db.prepare(`SELECT role FROM users WHERE id = ?`).get(userId)?.role === 'admin';
-if (!transition && !(force && isAdmin)) {
-    return res.status(400).json({ error: `Transition ${bon.current_code} → ${status_code} er ikke tilladt` });
-}
-```
+Sikkerheds-detalje (D-3): rolle-tjek baseret på `req.session.userId`, ikke `req.body.user_id`. En kitchen-bruger der sender `user_id: <admin>` i body bliver afvist — verificeret af T_BON_API_FORCE_03.
 
 ---
 
-## 7. Status — første kørsel maj 2026
+## 7. Status
+
+### Første kørsel (maj 2026)
 
 ```
 18 PASS · 0 FAIL · 1 SKIP
 
-DB     6/6   ✓  (status_definitions, transitions, FK, AFLYST-fra-alle, terminale)
-OK     5/5   ✓  (NY→GODKENDT, GODKENDT→IGANG, IGANG→KLAR, KLAR→LEVERET, LEVERET→IGANG)
-NO     5/5   ✓  (forbudte transitions, ukendte statusser, manglende felter)
-CL     2/2   ✓  (changelog auto-skrives, user_id videregives)
-FORCE  0/1   ⊘  (SKIP — force-mode parkeret indtil beslutning)
+DB     6/6   ✓
+OK     5/5   ✓
+NO     5/5   ✓
+CL     2/2   ✓
+FORCE  0/1   ⊘  (parkeret — force-mode ikke implementeret)
 ```
 
-T_BON-tracken er **funktionelt færdig** for Fase 1.
+### Efter Patch D (maj 2026)
+
+```
+25 PASS · 0 FAIL · 0 SKIP
+
+DB     6/6   ✓
+OK     5/5   ✓
+NO     5/5   ✓
+CL     2/2   ✓
+FORCE  7/7   ✓  (alle force-cases implementeret og verificeret)
+```
+
+T_BON-tracken er **funktionelt færdig**.
 
 ---
 

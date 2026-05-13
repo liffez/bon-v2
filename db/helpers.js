@@ -53,17 +53,25 @@ function nextQuoteNumber() {
  * @param {number}  [o.userId]
  * @param {string}  [o.notes]
  */
-function logChange({ entityType, entityId, action, fieldName, oldValue, newValue, userId, notes }) {
+function logChange({ entityType, entityId, action, fieldName, oldValue, newValue, userId, notes, wasForced }) {
+    // Patch D: wasForced=true sætter payload={was_forced, by_user_id} så audit-trailen
+    // viser hvilke status-skift gik uden om normalt flow. Bagudkompatibelt — opkald
+    // uden wasForced får payload=NULL og opfører sig som før.
+    const payload = wasForced
+        ? JSON.stringify({ was_forced: true, by_user_id: userId ?? null })
+        : null;
+
     getDb().prepare(`
-        INSERT INTO changelog (entity_type, entity_id, action, field_name, old_value, new_value, user_id, notes)
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+        INSERT INTO changelog (entity_type, entity_id, action, field_name, old_value, new_value, user_id, notes, payload)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
     `).run(
         entityType, entityId, action,
         fieldName ?? null,
         oldValue != null ? String(oldValue) : null,
         newValue != null ? String(newValue) : null,
         userId   ?? null,
-        notes    ?? null
+        notes    ?? null,
+        payload
     );
 }
 

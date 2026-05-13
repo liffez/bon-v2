@@ -59,8 +59,8 @@ T_PLAN dækker aggregerings-perspektivet i T_AGGR og T_ECON, så de bliver mindr
 | **T_VAREMODTAGELSE** | Atomisk goods-receipts | `POST /api/goods-receipts` (receipt + addStock + shopping_list cleanup + Whiteboard-webhook) | 🔲 spec ikke skrevet |
 
 **Forudsætninger anvendt:**
-- `tests/specs/PATCH_consumeRecipes_smart_shopping_list.md` — ✅ **anvendt 11. maj 2026** (3 ændringer: smart endpoint i `consumeRecipes`, udvidet `addShoppingListProduct` med note-param, opdateret `T_INV_PARTIAL_02`-assertion). Logget som **#012** i `docs/TEST_OBSERVATIONS.md` (lukket)
-- `tests/specs/PATCH_grocy_qu_broedrug_v1_cleanup.md` — ✅ **anvendt manuelt på grocytest** 11. maj 2026. Skal også køres på grocycafe inden cutover. Logget som **#010** (lukket)
+- `tests/specs/patches/PATCH_consumeRecipes_smart_shopping_list.md` — ✅ **anvendt 11. maj 2026** (3 ændringer: smart endpoint i `consumeRecipes`, udvidet `addShoppingListProduct` med note-param, opdateret `T_INV_PARTIAL_02`-assertion). Logget som **#012** i `docs/TEST_OBSERVATIONS.md` (lukket)
+- `tests/specs/patches/PATCH_grocy_qu_broedrug_v1_cleanup.md` — ✅ **anvendt manuelt på grocytest** 11. maj 2026. Skal også køres på grocycafe inden cutover. Logget som **#010** (lukket)
 
 ### 3.2 Parallelt: T_V1_AFSTEMNING
 

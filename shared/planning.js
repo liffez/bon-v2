@@ -238,6 +238,24 @@ function _plBuildStatusFilters() {
         btn.addEventListener('click', _plToggleStatus);
         bar.appendChild(btn);
     }
+
+    // Tilbuds-toggle (SPEC_007). Persisterer i localStorage som status-filtrene.
+    // Tilbud har is_offer=1 og inkluderes/ekskluderes i _plLoadData baseret på _plShowOffers.
+    var offerBtn = document.createElement('button');
+    offerBtn.className = 'pl-filter-btn pl-toggle-offers' + (_plShowOffers ? ' active' : '');
+    offerBtn.dataset.pl = 'toggle-offers';
+    offerBtn.setAttribute('aria-pressed', _plShowOffers ? 'true' : 'false');
+    offerBtn.setAttribute('aria-label', _plShowOffers ? 'Skjul tilbud i planlægning' : 'Vis tilbud i planlægning');
+    offerBtn.textContent = (_plShowOffers ? '✓ ' : '× ') + 'Tilbud';
+    offerBtn.addEventListener('click', _plToggleOffers);
+    bar.appendChild(offerBtn);
+}
+
+function _plToggleOffers() {
+    _plShowOffers = !_plShowOffers;
+    localStorage.setItem('planning_show_offers', _plShowOffers ? 'true' : 'false');
+    _plBuildStatusFilters();  // re-render knap
+    _plLoadData();            // re-fetch så listen opdateres
 }
 
 function _plToggleStatus(e) {
