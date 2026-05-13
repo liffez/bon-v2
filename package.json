@@ -35,7 +35,12 @@
     "test:run-indkob-liste": "node --env-file=.env.test --experimental-sqlite tests/scripts/run_T_INDKOB_LISTE.js",
     "test:run-indkob-setup": "node --env-file=.env.test --experimental-sqlite tests/scripts/run_T_INDKOB_SETUP.js",
     "test:run-indkob-admin": "node --env-file=.env.test --experimental-sqlite tests/scripts/run_T_INDKOB_ADMIN.js",
-    "test:run-indkob-horkram": "node --env-file=.env.test --experimental-sqlite tests/scripts/run_T_INDKOB_HORKRAM.js"
+    "test:run-indkob-horkram": "node --env-file=.env.test --experimental-sqlite tests/scripts/run_T_INDKOB_HORKRAM.js",
+    "test:run-varemod-patch": "node --env-file=.env.test --experimental-sqlite tests/scripts/run_T_VAREMODTAGELSE_PATCH_REGRESSION.js",
+    "test:run-varemod-full":  "node --env-file=.env.test --experimental-sqlite tests/scripts/run_T_VAREMODTAGELSE_FULL.js",
+    "test:run-varemod-all":   "npm run test:run-varemod-patch && npm run test:run-varemod-full",
+    "test:run-patch-c":       "node --env-file=.env.test --experimental-sqlite tests/scripts/run_T_PATCH_C_REGRESSION.js",
+    "test:run-bons-list":     "node --env-file=.env.test --experimental-sqlite tests/scripts/run_T_BONS_LIST.js"
   },
   "dependencies": {
     "bcryptjs": "^2.4.3",
