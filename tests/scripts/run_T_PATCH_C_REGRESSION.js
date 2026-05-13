@@ -25,7 +25,7 @@
  *   - test:server kører
  *
  * Reference:
- *   - tests/specs/patches/PATCH_C_api_consistency_fixes.md
+ *   - docs/archive/patches/PATCH_C_api_consistency_fixes.md
  * ════════════════════════════════════════════════════════════
  */
 

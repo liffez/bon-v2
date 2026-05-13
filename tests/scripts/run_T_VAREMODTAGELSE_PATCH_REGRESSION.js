@@ -35,7 +35,7 @@
  *
  * Reference:
  *   - tests/specs/T_VAREMODTAGELSE_PATCH_REGRESSION.md (spec for denne runner)
- *   - tests/specs/patches/PATCH_goods_receipts_critical_fixes.md (patch-detalje)
+ *   - docs/archive/patches/PATCH_goods_receipts_critical_fixes.md (patch-detalje)
  *
  * Komplementær runner:
  *   - tests/scripts/run_T_VAREMODTAGELSE_FULL.js — bredere coverage
