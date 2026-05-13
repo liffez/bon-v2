@@ -66,7 +66,7 @@ function _faktRender() {
                 <div class="fakt-sum-card">
                     <div class="fakt-sum-label">Ufaktureret beløb</div>
                     <div class="fakt-sum-val">${_faktFmt(summary.pending_amount)} kr</div>
-                    <div class="fakt-sum-sub">ekskl. moms</div>
+                    <div class="fakt-sum-sub">inkl. moms</div>
                 </div>
                 <div class="fakt-sum-card">
                     <div class="fakt-sum-label">Heraf EAN</div>
@@ -384,10 +384,24 @@ function _faktSelectBon(bon) {
                             </tr>`).join('')}
                         </tbody>
                     </table>
-                    <div class="fakt-sum-row">
-                        <span>Sum ekskl. moms</span>
-                        <span>${_faktFmt(bon.line_total)} kr</span>
-                    </div>
+                    ${(() => {
+                        // Beregn ex/moms/incl konsistent med §6b. bon.line_total er INCL.
+                        const m = window.Moms.computeMomsFields(bon.line_total || 0);
+                        return `
+                            <div class="fakt-sum-row">
+                                <span>Subtotal (ekskl. moms)</span>
+                                <span>${_faktFmt(m.total_excl_moms)} kr</span>
+                            </div>
+                            <div class="fakt-sum-row">
+                                <span>Moms (25%)</span>
+                                <span>${_faktFmt(m.moms_amount)} kr</span>
+                            </div>
+                            <div class="fakt-sum-row fakt-sum-row-total">
+                                <span><strong>Total (inkl. moms)</strong></span>
+                                <span><strong>${_faktFmt(m.total_incl_moms)} kr</strong></span>
+                            </div>
+                        `;
+                    })()}
                 </div>
             </div>
 

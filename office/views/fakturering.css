@@ -269,11 +269,24 @@
 .fakt-sum-row {
   display: flex;
   justify-content: space-between;
-  padding: 14px 16px;
+  padding: 6px 16px;
+  font-size: 14px;
+  color: var(--color-text-dim, #666);
+}
+
+.fakt-sum-row:first-of-type {
+  padding-top: 14px;
+  border-top: 1px solid var(--color-border, #d7d1ca);
+}
+
+.fakt-sum-row-total {
+  padding: 12px 16px;
   font-size: 16px;
   font-weight: 700;
+  color: var(--color-text, inherit);
   background: #fdfbf3;
   border-top: 2px solid #f1e6b2;
+  margin-top: 4px;
 }
 
 /* Kitchen note */
