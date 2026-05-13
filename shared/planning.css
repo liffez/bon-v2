@@ -69,6 +69,19 @@
     filter: brightness(1.1);
 }
 
+/* SPEC_007: tilbuds-toggle — adskilt visuelt fra status-filtre */
+.pl-toggle-offers {
+    margin-left: 8px;
+    background: transparent;
+    color: #6b46c1;          /* lilla, matcher is_offer-styling */
+    border: 1px solid #6b46c1;
+}
+.pl-toggle-offers.active {
+    background: #6b46c1;
+    color: #fff;
+    border-color: #6b46c1;
+}
+
 /* ── Bon-liste ────────────────────────────────────────────── */
 .pl-bon-list-wrap {
     background: var(--color-surface, #fff);

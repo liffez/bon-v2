@@ -64,6 +64,18 @@ Status-transitions i databasen definerer det **normale flow** og hvad der vises 
 
 **Regel:** Tilføj transitions når du opdager at en reel arbejdsgang kræver dem. Fjern dem ikke uden grund.
 
+### Terminal-statusser kan ikke annulleres via UI
+
+Statusser `FAKTURERET`, `BETALT` og `AFSLUTTET` er **terminale** — de kan ikke skiftes til `AFLYST` via det normale status-PATCH-endpoint. `status_transitions`-tabellen indeholder ingen rækker hvor `from_status` er en af disse med `to_status='AFLYST'`. `T_BON_DB_06` verificerer dette automatisk.
+
+**Hvorfor:** Kreditnotaer hører til regnskabsdomænet, ikke status-flowet. En faktureret ordre annulleres ved at oprette en kreditnota i e-conomic — ikke ved at sætte bonens status til AFLYST. Hvis status kunne hoppes tilbage, ville historikken blive uklar:
+
+- "Var den her faktureret eller ej?"
+- "Skal den med i året-til-dato regnskab?"
+- "Skal momsen tilbage?"
+
+**Hvis det alligevel skal gøres** (sjælden datafejl der kræver manuel rettelse): admin kan bruge `{force: true, user_id: <admin>}` på PATCH-endpointet eller direkte SQL-UPDATE. Begge logger automatisk i `changelog` så audit-trailen forbliver komplet.
+
 ---
 
 ## 5. FILSTRUKTUR FØLGES
