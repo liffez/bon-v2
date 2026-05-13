@@ -285,6 +285,18 @@ Hver observation har:
 | **Vurdering** | Validation-gap. Fixet maj 2026 via Patch C v2 — enum-validation før INSERT mod `['ok', 'wrong', 'damaged', 'missing']`. |
 | **Status** | `lukket` (maj 2026) |
 
+### #029 — Polymorfe mail-events bruger semantisk `bon_id` (bevidst-accepteret, konvention)
+
+| | |
+|--|--|
+| **Kilde** | Claude Code review af `PATCH_F_sse_broadcast_consolidation.md` v1+v2 (maj 2026) |
+| **Beskrivelse** | `services/mailService.js` udsender 5+ broadcasts der ALLE har polymorf payload: `mail_sent`, `mail_received`, `po_mail_sent`, `po_mail_received`, `supplier_mail_sent`, `supplier_mail_received`. Hver payload indeholder mellem 4-5 forskellige FK'er: `{bon_id, customer_id, purchase_order_id, supplier_id, thread_id, unread_count}`. Det er fordi en mail KAN handle om en bon, en kunde, en purchase-order eller en supplier (eller en kombination). |
+| **Vurdering** | **Korrekt design** — semantiske felt-navne er nødvendige fordi events er polymorfe. At omdøbe `bon_id` til generisk `id` ville miste betydning og bryde mail-toast + mail-badge i `shared/utils.js:119,150`. |
+| **Konvention** | `bon_*`-events bruger `{id}` (kun bon-kontekst). `mail_*`-events + andre polymorfe events bevarer semantiske FK-navne (`bon_id`, `customer_id`, etc.). Fremtidige patches der "rydder op" i SSE-konsistens skal **kun** ramme bon-kun events |
+| **Berørte filer** | `services/mailService.js` (linje 318, 320, 323, 567, 613, 616, 619). Frontend `shared/utils.js` (linje 119, 150) bruger `data.bon_id` korrekt — IKKE en bug |
+| **Foreslået action** | N/A — dokumentation af konvention. Patch F v3 respekterer dette ved kun at røre bon-events. |
+| **Status** | `bevidst-accepteret` (maj 2026) |
+
 ### #030 — PUT lines manglede SSE broadcast (lukket)
 
 | | |
@@ -338,12 +350,12 @@ Hver observation har:
 
 ## Slutstatus (13. maj 2026)
 
-**30 observations total** efter Patch A+B+C+D+E + Patch F + SPEC_006/007/011 + T_BONS_LIST + T_BON_DRAWER:
+**31 observations total** efter Patch A+B+C+D+E + Patch F + SPEC_006/007/011 + T_BONS_LIST + T_BON_DRAWER:
 
 | Status | Count | IDs |
 |---|---:|---|
 | `lukket` | 23 | #005, #006, #007, #010, #011, #012, #013, #014, #015, #017, #018, #019, #020, #021, #022, #023, #024, #025, #026, #027, #028, #030, #031 |
-| `bevidst-accepteret` | 2 | #001, #016 |
+| `bevidst-accepteret` | 3 | #001, #016, #029 |
 | `åben` (lav prio) | 5 | #002, #003, #004, #008, #009 |
 
 **0 åbne medium+ findings tilbage** — alt resterende er lav-prioritet
@@ -351,4 +363,4 @@ parking. Office-fasen er solid.
 
 ---
 
-*Sidst opdateret: 13. maj 2026 — Patch F (SSE konsolidering) lukker #027 + #030 + #031. SSE-kontrakten er nu standardiseret på tværs af alle `bon_*`/`notification`-events. Mail-events bevares som polymorfe (semantisk forskellige).*
+*Sidst opdateret: 13. maj 2026 — Patch F (SSE konsolidering) lukker #027 + #030 + #031. SSE-kontrakten er nu standardiseret på tværs af alle `bon_*`/`notification`-events. Mail-events bevares som polymorfe (semantisk forskellige) — dokumenteret som konvention i #029.*
