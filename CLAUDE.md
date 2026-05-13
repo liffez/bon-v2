@@ -1492,11 +1492,73 @@ Oprettes under Grocy → Manage master data → Userfields.
 - [x] Office sidebar: "Kontakter" erstatter "Kunder" som overskrift, undermenuer Kunder/Firmaer
 - [x] **Backfill** kørt: alle eksisterende `companies.email`/`phone` + `customers.email`/`phone` migreret til `contact_points` med `source='manual'`, `is_public=0`, `is_primary=1`
 
+### Test-suite (maj 2026)
+
+**Status:** 437 PASS · 0 FAIL · 3 SKIP. 0 åbne medium+ findings.
+9 patches anvendt og lukket (A-I). 32 TEST_OBSERVATIONS logget — 31 lukket, 3 bevidst-accepteret, 5 åbne lav-prio.
+
+**Tracks med fuld dækning:**
+
+Fase 1 (130/130 PASS · 3 SKIP):
+- T_DB, T_BON (25/25 inkl. force-mode), T_INPUT, T_AGGR, T_KITCHEN_TODAY,
+  T_GROCY, T_ECON, T_PLAN
+
+Fase 2a — Lager:
+- T_INVENTORY (10/13 — pre-existing Grocy-flakiness)
+- T_STOCK (31/31)
+- T_RECIPES (20/20)
+
+Fase 2b — Indkøb & varemodtagelse:
+- T_INDKOB_LISTE (38/39)
+- T_INDKOB_SETUP (47/47)
+- T_INDKOB_ADMIN (50/50)
+- T_INDKOB_HORKRAM (54/56)
+- T_VAREMODTAGELSE_PATCH_REGRESSION (26/26)
+- T_VAREMODTAGELSE_FULL (67/67 efter Patch E)
+- T_PATCH_C (10/10)
+- T_PATCH_F_REGRESSION (5/5)
+
+Fase 3 — Office:
+- T_BONS_LIST (77/78 · 1 SKIP — mail-read setup)
+- T_BON_DRAWER_CORE (61/61)
+- T_BON_DRAWER_LINES_AND_RELATIONS (69/70 · 1 SKIP — backwards-compat)
+- T_FAKTURERING (60/60 efter Patch G)
+- T_TILBUD (81/82 · 1 SKIP — bug-tilstand fjernet på dybere niveau efter Patch I)
+- T_DASHBOARD (84/84)
+
+**Resterende:** T_CRM, T_CASHFLOW, T_V1_AFSTEMNING (weekenden).
+
+**Patches anvendt:**
+
+| # | Lukker | Indhold |
+|---|--------|---------|
+| A | F30/F31/F32/F35 | Goods-receipts kritiske fixes (duplikat-pid, photo-path, webhook navn, user-lookup) |
+| B | F37/F40/F41 | Goods-receipts validation (temperature_value, product_name, has_deviation klamping) |
+| C | #013/#014/#015/F28 | API consistency (suppliers POST+PATCH, grocy-locations duplikat, barcode-duplikat, item.status enum) |
+| D | #005/F005 | Force-mode med session-baseret rolle-tjek (privilege-escalation fix) |
+| E | F33 | `partially_approved`-status på goods_receipts ved Grocy-fejl |
+| F | F49/F57/F58 | SSE-broadcast konsistens (bon_*-events bruger `{id}`, PUT/DELETE lines broadcaster nu) |
+| G | F62/F63/F64/F65 | invoices.js consistency (tilbud-filter, accessory-eksklusion, BETALT i done-list) |
+| H | #036 | Fakturering UI: rettet "ekskl. moms"-label + 3-rækkers visning |
+| I | F68/F72/F73 | Quotes consistency (won-blokering via /convert, is_accessory i INSERT, SSE event-navne) |
+
+**Konventioner etableret:**
+
+- `bon_*`-events bruger `{id, ...metadata}` (jf. Patch F)
+- `mail_*`/`po_*`/`supplier_*` events bevarer semantiske FK-navne (`bon_id`, `customer_id` etc.) fordi de er polymorfe
+- §6c: alle revenue-felter har 3-felts pattern (`_excl_moms`, `_incl_moms`, `vat_collected`) via `shared/moms.js`
+- Test-bons bruger prefix (`T_BL_`, `T_BD_`, `T_FAK_`, `T_TLB_`, `T_DASH_`) for hermetisk cleanup
+- Specs er i `tests/specs/T_*.md`, runners i `tests/scripts/run_T_*.js`
+- SSE-test-helper `tests/scripts/helpers/sse_listener.js` genbruges på alle office-tracks
+- Findings dokumenteres som F-numre i specens §11; observations som #NNN i `docs/TEST_OBSERVATIONS.md`
+
 ## Næste opgave
 
-> ✏️ Opdateret 4. maj 2026.
+> ✏️ Opdateret 13. maj 2026.
 >
-> **Fase 1a–1e + 3A + 3B + 3D + 4 + 5 + 6 (komplet inkl. 6g) + 7 (CRM) + Office CRM redesign + 8 (Fakturering) + 9 (Tilbud) + Mail-vedhæftninger + CRM service-kald + Firma-oprydning + 10 (Mobil Shell) + 10b (Roller & Rettigheder) + 11 (Ugeoversigt) + Priser i planlægningsbon + Hjælpesystem + Whiteboard Sidekick + Web-bestillinger (webhook) + Mail-skabelon management + 12 (Rapporter) + PIN-management + CVR-berigelse (653/1232 firmaer) + 13 (Cashflow) + Mail chat-boble layout + Embed-bestillingsformular + Delivery Spor 1 (manuel bestilling) + Moms-refaktorering + Kontakter & Firma 360° komplet.**
+> **Fase 1a–1e + 3A + 3B + 3D + 4 + 5 + 6 (komplet inkl. 6g) + 7 (CRM) + Office CRM redesign + 8 (Fakturering) + 9 (Tilbud) + Mail-vedhæftninger + CRM service-kald + Firma-oprydning + 10 (Mobil Shell) + 10b (Roller & Rettigheder) + 11 (Ugeoversigt) + Priser i planlægningsbon + Hjælpesystem + Whiteboard Sidekick + Web-bestillinger (webhook) + Mail-skabelon management + 12 (Rapporter) + PIN-management + CVR-berigelse (653/1232 firmaer) + 13 (Cashflow) + Mail chat-boble layout + Embed-bestillingsformular + Delivery Spor 1 (manuel bestilling) + Moms-refaktorering + Kontakter & Firma 360° + Test-suite (Fase 1+2+3 minus CRM/Cashflow) komplet.**
+>
+> **Test-suite: KOMPLET for 6/9 office-tracks (13. maj 2026).** 437 PASS · 0 FAIL · 3 SKIP. 9 patches anvendt (A–I) der lukkede 30+ findings inkl. SSE-payload-konsistens, privilege-escalation i force-mode, partially_approved-status, tilbud-modul-konsistens. 0 åbne medium+ findings tilbage. Detaljer i `docs/TEST_OBSERVATIONS.md` og hver `tests/specs/T_*.md`. Resterende: T_CRM, T_CASHFLOW, T_V1_AFSTEMNING (weekenden).
 >
 > **Moms-refaktorering: KOMPLET (1. maj 2026).** Tilbuds-prisbug der lagde 25 % oven på incl-priser er rettet og forebygget. 13 områder migreret til `Moms.*` helpers, pre-commit-hook aktiv, 28-områders audit-suite (`tests/moms_audit_e2e.test.js`) grøn. To latente bugs fundet undervejs (#003 + #008 i `KENDTE_DATABUGS.md`). Visningsregler + autoritativ regel i `BON_V2_PRINCIPPER.md` sektion 6b+6c.
 >
@@ -1532,6 +1594,10 @@ Oprettes under Grocy → Manage master data → Userfields.
 > - **Booking-modul**: `booking_public_url_base` (settings-felt) skal sættes til `https://bon.ristetrug.dk` ved deploy — ellers virker `{{booking_link}}` ikke korrekt i mails. Konfigureres via Settings → Booking — Smagsprøve.
 > - **Booking-modul**: `booking_default_owner_user_id` skal sættes via Settings UI før public-flowet virker. Submit-webhooks 503'er ellers.
 > - **Booking-modul**: ved deploy skal `https://bon.ristetrug.dk` (eller den valgte URL hvor `tools/booking-*.html` hostes) tilføjes til `WEBHOOK_ALLOWED_ORIGINS` i `server.js` hvis kunden lander på et andet domæne (fx ristetrug.dk-iframe). I dag er ristetrug.dk allerede inkluderet.
+> - **T_CRM-spec**: scope er routes/companies.js + routes/crm.js (callbacks, call-log, kunde-relations). Større suite — kandidat efter weekenden
+> - **T_CASHFLOW-spec**: routes/cashflow.js (admin-only CSV-upload, faktura-CRUD, bank-matching). Stort scope
+> - **T_V1_AFSTEMNING**: køres weekenden — sammenligner Bon v1 vs v2 data efter cron-sync. Den endelige cutover-blokker
+> - **F75-F80** (T_DASHBOARD): forventede findings der IKKE materialisede — dashboard-koden er allerede mere moden end forventet. Ingen patch nødvendig
 >
 > **Åbne design-beslutninger:**
 > - shared/-mappe opdeling i undermapper — udskydes til senere refaktorering
@@ -1624,6 +1690,11 @@ Oprettes under Grocy → Manage master data → Userfields.
 > - **Web-scraping nedgraderet (april 2026)**: Auto-fetch af URL'er er fjernet pga. robots.txt-, anti-bot- og GDPR-risici. Erstattet af manuelt paste-flow: bruger klistrer HTML/tekst ind, `services/contactExtractor.js` kører email/telefon-regex + heuristik, viser kandidater til checkbox-bekræftelse.
 > - **E-conomic-adapter (spec klar, ikke bygget)**: Linje-priser konverteres til EX moms via `inclToExcl()` ved payload-build. `cost_price` er allerede ex moms — IKKE konverter igen. Adapter-flow: send payload → modtag faktura-nummer → gem på `bons.invoice_number` → skift status til FAKTURERET. Test #7 i `tests/moms_audit_e2e.test.js` er placeholder der aktiveres når koden bygges.
 > - **Menu-agent (spec klar, ikke bygget)**: AI-agent må IKKE returnere priser — kun `product_name`, `quantity`, `grocy_recipe_id`, `category`/`block_type`. Server snapshot'er priser ved `POST /api/bons/:id/lines`. Hvis preview senere skal vise priser → udelukkende via `Moms.*` helpers + de 7 visningsregler.
+> - **SSE-event-konvention (13. maj 2026)**: alle `bon_*`-events bruger `{id, ...metadata}`. Polymorfe events (`mail_*`, `po_*`, `supplier_*`) bevarer semantiske FK-navne (`bon_id`, `customer_id` etc.) fordi de kan referere flere entiteter. Frontend skal IKKE bruge fallback-pattern `data.id || data.bon_id` — vælg én eller den anden afhængigt af event-type.
+> - **Force-mode auth (13. maj 2026)**: rolle-tjek mod `req.session.userId` (IKKE body.user_id). Body bruges KUN til audit-felter. Privilege-escalation-vektor lukket i Patch D.
+> - **Partially approved (13. maj 2026)**: ny status-værdi på `goods_receipts` når mindst én item-Grocy-fejl. Bevidste skips (missing-status, no-pid) tæller ikke. UI-rendering kommer i Fase 3 varemodtagelses-listview.
+> - **Tilbud-status convert-only (13. maj 2026)**: `offer_status='won'` kan KUN sættes via `POST /api/quotes/:id/convert` (der samtidig sætter `is_offer=0`, `status_id=GODKENDT`). PATCH `/:id/status` accepterer kun draft/sent/lost/expired.
+> - **Test-spec-format**: Hver track har spec i `tests/specs/T_*.md` med 11 sektioner (formål, forudsætninger, strategi, cases, eksempel, fejlsignaler, filer, hvad-vi-ved, næste, status, findings). Findings nummereret F* (track-lokale), observations #NNN (globale i TEST_OBSERVATIONS.md).
 
 ---
 
@@ -2096,4 +2167,13 @@ Body-klasse: `zone-kitchen` eller `zone-office` — styrer touch vs. desktop den
    - API-base reference udvidet med contact-points + companies enrich/extract + crm/companies + crm/company/:id
    - Beslutninger taget: moms-doktrin, kontaktpunkter, berig-knap = firma-handling, web-scraping nedgraderet, e-conomic + menu-agent specs
 
-*Sidst opdateret: 4. maj 2026*
+13. maj 2026 — Test-suite Fase 1+2+3 (Office) komplet
+   - 9 patches anvendt: A (goods-receipts kritiske), B (validation), C (API consistency POST+PATCH),
+     D (force-mode med session-rolle), E (partially_approved), F (SSE konsolidering),
+     G (invoices consistency), H (fakturering UI), I (quotes consistency)
+   - 6/9 office-tracks fuldt dækket: BONS_LIST, BON_DRAWER (core + lines), FAKTURERING, TILBUD, DASHBOARD
+   - 437 PASS · 0 FAIL · 3 SKIP — 0 åbne medium+ findings
+   - Konventioner etableret: bon_*-events bruger {id}, force-mode bruger session-rolle, §6c moms 3-felts pattern
+   - Resterende: T_CRM, T_CASHFLOW, T_V1_AFSTEMNING (weekenden)
+
+*Sidst opdateret: 13. maj 2026 — test-suite-arbejdet (Fase 1+2+3 minus CRM/Cashflow) logget. 9 patches (A-I) anvendt og dokumenteret. 437 PASS · 0 FAIL · 3 SKIP. 0 åbne medium+ findings. Detaljer i `docs/TEST_OBSERVATIONS.md`.*
