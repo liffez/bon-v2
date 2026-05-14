@@ -21,6 +21,42 @@ function getPollState() {
     return { ..._pollState };
 }
 
+// ─── AUTO-IGNORE PATTERNS ───────────────────────────────
+// Indgående mails der matcher disse mønstre indsættes direkte med
+// status='ignored' (ikke 'open') så de aldrig vises i CRM Indbakke.
+//
+// Skal holdes synkront med db/migrations/066_cleanup_unmatched_mail.sql,
+// der rydder eksisterende ophobning ved deploy.
+
+const AUTO_IGNORE_FROM_PATTERNS = [
+    /@hubspot\.com$/i,                  // HubSpot incl. alle subdomæner
+    /@jotform\.com$/i,                  // Jotform form-notifikationer
+    /^postmaster@/i,                    // Bounce-notifikationer
+    /^Mailer-Daemon@/i,                 // Bounce-notifikationer (alt-stavning)
+    /antispam@/i,                       // Antispam-systemer
+    /@robot\.simply\.com$/i,            // Simply.com robot-mails
+];
+
+const AUTO_IGNORE_SUBJECT_PATTERNS = [
+    /^Autosvar:/i,                      // Dansk out-of-office
+    /^Out of Office:/i,                 // Engelsk out-of-office
+    /^Automatic reply:/i,               // Engelsk auto-svar
+];
+
+function shouldAutoIgnore(fromAddr, subject) {
+    if (fromAddr) {
+        for (const pat of AUTO_IGNORE_FROM_PATTERNS) {
+            if (pat.test(fromAddr)) return true;
+        }
+    }
+    if (subject) {
+        for (const pat of AUTO_IGNORE_SUBJECT_PATTERNS) {
+            if (pat.test(subject)) return true;
+        }
+    }
+    return false;
+}
+
 // ─── HELPERS ────────────────────────────────────────────
 
 function getSetting(key) {
@@ -553,16 +589,27 @@ async function processInboundMail(parsed, uid, mailbox) {
     // 3. Unmatched — no thread, no tag
     if (!threadId) {
         const forwardInfo = parseForwardedSender(bodyText);
+        const autoIgnore = shouldAutoIgnore(fromAddr, subject);
+
+        // Indsæt direkte med status='ignored' for kendte spam/auto-afsendere,
+        // så de ikke ophober sig i CRM Indbakke. Patterns matcher migration 066.
         db.prepare(
             `INSERT INTO mail_unmatched (imap_uid, mailbox, message_id, from_email, from_name, subject, body_text, received_at,
-             parsed_email, parsed_name, parsed_company, created_at)
-             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, datetime('now'))`
+             parsed_email, parsed_name, parsed_company, status, handled_at, created_at)
+             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, datetime('now'))`
         ).run(
             uid, mailbox, messageId, fromAddr, fromName, subject, bodyText, receivedAt,
-            forwardInfo?.email || null, forwardInfo?.name || null, forwardInfo?.company || null
+            forwardInfo?.email || null, forwardInfo?.name || null, forwardInfo?.company || null,
+            autoIgnore ? 'ignored' : 'open',
+            autoIgnore ? new Date().toISOString() : null
         );
 
-        // Count unmatched for SSE
+        if (autoIgnore) {
+            console.log(`[mail] Auto-ignored: "${subject}" fra ${fromAddr}`);
+            return;
+        }
+
+        // Count unmatched for SSE (kun 'open' tæller)
         const count = db.prepare(`SELECT COUNT(*) as n FROM mail_unmatched WHERE status = 'open'`).get().n;
         broadcast('mail_unmatched', { count });
 
