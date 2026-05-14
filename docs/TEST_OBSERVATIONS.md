@@ -398,6 +398,46 @@ Hver observation har:
 | **Foreslået action** | N/A — fixet |
 | **Status** | `lukket` (11. maj 2026 — patch anvendt + T_INVENTORY verificeret) |
 
+### #040 — Mobile bons-view brugte forkerte felt-navne (lukket)
+
+| | |
+|--|--|
+| **Kilde** | Manuel integration-test 14. maj 2026 — bestilling B3514 (Liffe Zeeberg) viste "(NFF)" uden kundenavn i mobile-detail; status-action-knapper viste "?" i stedet for status-labels |
+| **Beskrivelse** | Tre felt-navn-mismatches mellem `mobile/views/bons.js` og backend-responses: (1) list-view linje 125 + detail-view linje 178/180 læste `bon.customer_name` — backend returnerer `contact_name_full` (jf. getBon i `db/helpers.js:119` og routes/bons.js:150). (2) linje 186 læste `bon.customer_phone` — backend returnerer `contact_phone`. (3) `_mbLoadTransitions` linje 276 læste `t.to_code \|\| t.to` — `GET /api/statuses/:code/transitions` returnerer `{id, code, label, color, icon, ...}`. Resultat: kundenavn faldt til '' eller 'Ukendt', telefon brugte day_contact_phone-fallback, status-knapper viste fallback-tegnet '?'. |
+| **Vurdering** | Lukket 14. maj 2026 — `mobile/views/bons.js` opdateret 3 steder (list-view, detail-view, transitions). Læser nu `contact_name_full`/`contact_phone`/`code` med bagudkompat fallback (`bon.customer_name`/`bon.customer_phone`/`t.to_code`) hvis nogen senere ændrer backend-kontrakten. T_BONS_LIST tester backend-kontrakten (PASS), men ramte ikke frontend-mismatchen — det er en integration-niveau-bug. |
+| **Foreslået action** | N/A — fixet |
+| **Status** | `lukket` (14. maj 2026) |
+
+### #041 — Web-bestillinger har ingen aktiv notifikation (åben)
+
+| | |
+|--|--|
+| **Kilde** | Manuel integration-test 14. maj 2026 — bestilling B3514 kom korrekt ind via webhook, men der var ingen synlig "ny bestilling kom ind"-signal i Bon v2 |
+| **Beskrivelse** | `routes/web-orders.js:227` udsender `bon_created`-event via SSE, men ingen frontend lytter aktivt og viser banner/alert/toast. Dashboard har `alerts`-array i `/today`-endpoint men ingen `new_web_order`-type. Listview re-fetcher men giver ingen visuel markering af nye bestillinger. |
+| **Vurdering** | **Forretnings-risiko**: kunder skal have svar inden for 2 dage max (helst samme dag, jf. Leif). Hvis ingen ser den, falder bestillingen ud af synsfeltet og kunden venter på svar. Mest kritisk for fremtidige bestillinger der ikke er på "today"-view. |
+| **Foreslået action** | Tilføj alert-type til `routes/dashboard.js /today`-endpoint: count bons med `source='web_order'` + status='NY' uden user-acknowledgment. Vis i dashboard topbar som "X ubehandlede bestillinger". Klik → går til filtreret listview. Plus mail-notifikation (se #043). |
+| **Status** | `åben — medium prio` (14. maj 2026) |
+
+### #042 — Fremtidige web-bestillinger forsvinder fra synsfeltet (åben)
+
+| | |
+|--|--|
+| **Kilde** | Manuel integration-test 14. maj 2026 — B3514 (delivery_date=2026-05-15) blev korrekt klassificeret som "i morgen", men var derfor IKKE i `kitchen/today.html`. Bestillinger 2+ måneder frem ville end ikke være i `later.html` |
+| **Beskrivelse** | Bon v2's date-baserede views (today, later, calendar) skjuler fremtidige bons indtil de bliver "tidsmæssigt relevante". Det betyder at en bestilling til august 2026 modtaget i maj 2026 er teknisk i systemet men praktisk usynlig. Office's bons-list med "Alle"-filter VISER dem, men ikke som "nye/ubekræftede" — bare som rows blandt mange. |
+| **Vurdering** | **Forretnings-risiko**, samme rod-årsag som #041. Bestillinger der ligger langt frem kan miste tracking og kunden får ikke rettidig bekræftelse. |
+| **Foreslået action** | Ny dedikeret "Nye bestillinger"-sektion (sidebar-punkt eller dashboard-card) der viser ALLE bons med `source='web_order' AND status='NY' AND no manual user_action`, uanset delivery_date. Sortér efter created_at DESC. Tilføj "Bekræft modtaget"-knap der markerer bonnen som set af en bruger (uden at ændre status). Kræver migration: ny `bons.acknowledged_at` + `acknowledged_by_user_id` (nullable). |
+| **Status** | `åben — medium prio` (14. maj 2026) |
+
+### #043 — Ingen mail-notifikation til ejer ved ny web-bestilling (åben)
+
+| | |
+|--|--|
+| **Kilde** | Manuel integration-test 14. maj 2026 — kunde fik bekræftelsesmail men ejer/Leif fik ingen besked om at handle |
+| **Beskrivelse** | `routes/web-orders.js` sender bekræftelsesmail til kunden (linje 271-309) men har ingen pendant til ejer/intern modtager. Leif må aktivt åbne Bon v2 for at se nye bestillinger — der er ingen push til indbakke. |
+| **Vurdering** | Komplementær til #041/#042 — selv hvis UI-alert virker, vil mail være tilgængelig udenfor arbejdstider og fra mobil. Især vigtigt fordi web-bestillinger kan komme om natten/weekend. |
+| **Foreslået action** | Ny setting `web_order_notification_email` (default: `leifzeeberg@hotmail.dk`, redigerbar i Settings UI). Send fire-and-forget mail efter bon-INSERT i `web-orders.js`'s `handleWebOrder` (parallelt med kunde-bekræftelsesmailen). Indhold: bon-nummer, kundenavn, delivery-dato, link til drawer. Mail-template `web_order_owner_notification` administrérbar via mail-skabelon-management. |
+| **Status** | `åben — medium prio` (14. maj 2026) |
+
 ---
 
 ## Indeks per track
@@ -421,20 +461,27 @@ Hver observation har:
 
 ---
 
-## Slutstatus (13. maj 2026)
+## Slutstatus (14. maj 2026)
 
-**40 observations total** efter Patch A+B+C+D+E + Patch F + Patch G + Patch H + Patch I + SPEC_006/007/011 + T_BONS_LIST + T_BON_DRAWER + T_FAKTURERING + T_TILBUD:
+**44 observations total** efter Patch A+B+C+D+E + Patch F + Patch G + Patch H + Patch I + mobile bon-view fix (#040) + 3 nye web-order observations:
 
 | Status | Count | IDs |
 |---|---:|---|
-| `lukket` | 31 | #005, #006, #007, #010, #011, #012, #013, #014, #015, #017, #018, #019, #020, #021, #022, #023, #024, #025, #026, #027, #028, #030, #031, #032, #033, #034, #035, #036, #037, #038, #039 |
+| `lukket` | 32 | #005, #006, #007, #010, #011, #012, #013, #014, #015, #017, #018, #019, #020, #021, #022, #023, #024, #025, #026, #027, #028, #030, #031, #032, #033, #034, #035, #036, #037, #038, #039, #040 |
 | `bevidst-accepteret` | 3 | #001, #016, #029 |
 | `åben` (lav prio) | 5 | #002, #003, #004, #008, #009 |
+| `åben` (medium prio) | 3 | #041, #042, #043 (alle web-order-UX, systemisk samme rod-årsag) |
 
-**0 åbne medium+ findings tilbage. Office-fasen er teknisk gæld-fri.**
-Alt resterende er lav-prioritet parking (#002/#003/#004 Grocy adapter-
-detaljer, #008 testdata, #009 sub-recipe individuel testing).
+**3 åbne medium-prio findings** — alle relateret til web-order-flow:
+#041 dashboard alert mangler · #042 fremtidige bestillinger usynlige ·
+#043 ejer-mail mangler. De hænger systemisk sammen og kan fixes som ét
+feature i 4 faser (Fase 1 mail-notifikation, Fase 2 dashboard alert,
+Fase 3 dedikeret "Nye bestillinger"-side, Fase 4 var #040 — nu lukket).
+
+**Foreslået rækkefølge:** T_V1_AFSTEMNING først (cutover-blokker) → web-order
+UX-fix #041/#042/#043 (forretnings-risiko, aktiv brugersituation) →
+T_CRM og T_CASHFLOW (læseflader, mindre tids-kritiske).
 
 ---
 
-*Sidst opdateret: 13. maj 2026 — Patch I (quotes consistency) lukker #037 + #038 + #039 i én operation. Tilbud-modulet er nu konsistent med Patch F's SSE-konvention (bon_* med is_offer-flag), bevarer is_accessory på lines parallelt med routes/bons.js, og blokerer 'won'-status uden /convert. T_TILBUD: 81/0/1 (SKIP er F69 der ikke længere er testbar efter F68 lukker mellem-tilstanden).*
+*Sidst opdateret: 14. maj 2026 — Mobile bon-view fix (#040) anvendt: `mobile/views/bons.js` opdateret til at læse `contact_name_full`/`contact_phone` (matcher backend-kontrakt fra getBon helper) + transitions bruger `t.code` (ikke ikke-eksisterende `t.to_code`). 3 nye web-order UX-observations (#041-#043) logget som åbne medium-prio efter manuel integration-test af bestilling B3514. T_BONS_LIST + T_BON_DRAWER_CORE + T_DASHBOARD uændrede efter mobile-only ændring.*

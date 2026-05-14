@@ -122,7 +122,9 @@ function _mbRenderList() {
     bons.forEach(function(bon) {
         var s = _mbStatusStyle(bon.status_code || bon.status);
         var time = (bon.delivery_time || '').slice(0, 5) || '—';
-        var name = bon.customer_name || bon.company_name || 'Ukendt';
+        // Backend returnerer contact_name_full (jf. routes/bons.js + getBon helper),
+        // ikke customer_name. Fallback til company_name hvis privat-kunden er null.
+        var name = bon.contact_name_full || bon.customer_name || bon.company_name || 'Ukendt';
         var sub = '#' + (bon.bon_number || bon.id);
         if (bon.total_units) sub += ' · ' + bon.total_units + ' enh.';
         else if (bon.pax) sub += ' · ' + bon.pax + ' pax';
@@ -173,17 +175,20 @@ async function _mbShowDetail(bonId) {
             '<span class="m-bon-badge" style="background:' + s.bg + ';color:' + s.text + '">' + s.label + '</span>' +
         '</div>';
 
-    // Kunde
+    // Kunde — backend returnerer contact_name_full (jf. getBon helper). Tidligere
+    // læstes bon.customer_name som ikke eksisterer → "Ukendt" / blank.
+    var custName = bon.contact_name_full || bon.customer_name || '';
     html += '<div class="m-detail-section">';
-    if (bon.customer_name || bon.company_name) {
+    if (custName || bon.company_name) {
         html += '<div class="m-detail-label">Kunde</div>';
-        html += '<div class="m-detail-value">' + _mbEsc(bon.customer_name || '');
+        html += '<div class="m-detail-value">' + _mbEsc(custName);
         if (bon.company_name) html += ' <span style="color:var(--color-text-dim)">(' + _mbEsc(bon.company_name) + ')</span>';
         html += '</div>';
     }
 
-    // Telefon
-    var phone = bon.customer_phone || bon.day_contact_phone;
+    // Telefon — backend returnerer contact_phone (ikke customer_phone). day_contact_phone
+    // bevares som fallback når kunden ikke har telefon men dagskontakten har.
+    var phone = bon.contact_phone || bon.customer_phone || bon.day_contact_phone;
     if (phone) {
         html += '<div class="m-detail-label">Telefon</div>';
         html += '<div class="m-detail-value"><a href="tel:' + phone + '">' + phone + '</a></div>';
@@ -273,13 +278,17 @@ async function _mbLoadTransitions(bon) {
 
         actionsEl.innerHTML = '';
         transitions.forEach(function(t) {
-            var ts = _mbStatusStyle(t.to_code || t.to);
+            // Backend returnerer transitions med felt 'code' (jf. routes/statuses.js
+            // linje 22 — JOIN'er to_status_id og SELECT'er sd.code). Tidligere læstes
+            // t.to_code / t.to som ikke eksisterer → "?"-knapper.
+            var toCode = t.code || t.to_code || t.to;
+            var ts = _mbStatusStyle(toCode);
             var btn = document.createElement('button');
             btn.className = 'm-status-btn';
             btn.style.background = ts.bg;
             btn.style.color = ts.text;
             btn.textContent = ts.label;
-            btn.addEventListener('click', function() { _mbChangeStatus(bon.id, t.to_code || t.to); });
+            btn.addEventListener('click', function() { _mbChangeStatus(bon.id, toCode); });
             actionsEl.appendChild(btn);
         });
     } catch (e) {
