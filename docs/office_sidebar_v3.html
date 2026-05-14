@@ -1,0 +1,1121 @@
+<!DOCTYPE html>
+<html lang="da">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Bon v2 — Office Sidebar v2 (mockup)</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Lato:wght@400;700;900&display=swap" rel="stylesheet">
+<style>
+:root {
+    --brown:        #8e631f;
+    --brown-dark:   #6b4a17;
+    --brown-darker: #4a3210;
+    --yellow:       #f1e6b2;
+    --yellow-pale:  #fdfbf3;
+    --blue:         #7594b3;
+    --blue-light:   #e8f0f6;
+    --green:        #a5bf75;
+    --green-dark:   #6ab04c;
+    --green-light:  #e8f2dc;
+    --red:          #bc181b;
+    --red-light:    #fde8e8;
+    --orange:       #e8a832;
+    --orange-light: #fef3d6;
+    --gray:         #d7d1ca;
+    --gray-light:   #f5f4f2;
+    --gray-medium:  #b5afa8;
+    --gray-dark:    #8a8580;
+    --white:        #ffffff;
+    --black:        #333333;
+}
+
+* { margin: 0; padding: 0; box-sizing: border-box; }
+
+body {
+    font-family: 'Lato', sans-serif;
+    background: #e8e4df;
+    color: var(--black);
+    min-height: 100vh;
+    overflow: hidden;
+}
+
+/* ===== SHELL ===== */
+.app-shell {
+    display: flex;
+    height: 100vh;
+    overflow: hidden;
+}
+
+/* ===== SIDEBAR ===== */
+.sidebar {
+    width: 220px;
+    background: var(--brown-dark);
+    color: var(--white);
+    display: flex;
+    flex-direction: column;
+    flex-shrink: 0;
+}
+
+.sidebar-logo {
+    padding: 12px 12px 12px;
+    border-bottom: 1px solid rgba(255,255,255,0.08);
+    cursor: pointer;
+    transition: background 0.15s;
+    position: relative;
+}
+.sidebar-logo:hover { background: rgba(255,255,255,0.06); }
+.sidebar-logo:hover .sidebar-logo-switch {
+    background: var(--orange);
+    color: var(--brown-darker);
+    border-color: var(--orange);
+}
+.sidebar-logo:hover .sidebar-logo-switch-label { opacity: 1; }
+.sidebar-logo-title {
+    font-size: 17px;
+    font-weight: 900;
+    letter-spacing: -0.3px;
+    padding-left: 4px;
+}
+.sidebar-logo-row {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 8px;
+    margin-top: 3px;
+    padding-left: 4px;
+}
+.sidebar-logo-zone {
+    font-size: 10px;
+    font-weight: 700;
+    opacity: 0.55;
+    letter-spacing: 1.2px;
+}
+.sidebar-logo-switch {
+    display: inline-flex;
+    align-items: center;
+    gap: 5px;
+    background: rgba(255,255,255,0.06);
+    border: 1px solid rgba(255,255,255,0.1);
+    border-radius: 999px;
+    padding: 3px 9px 3px 8px;
+    font-size: 10px;
+    font-weight: 700;
+    color: rgba(255,255,255,0.75);
+    transition: all 0.15s;
+    letter-spacing: 0.3px;
+}
+.sidebar-logo-switch-icon { font-size: 11px; }
+.sidebar-logo-switch-label {
+    opacity: 0.85;
+    transition: opacity 0.15s;
+}
+
+.sidebar-nav {
+    flex: 1;
+    overflow-y: auto;
+    padding: 8px 0;
+}
+
+.sidebar-section {
+    padding: 14px 0 4px 16px;
+    font-size: 10px;
+    text-transform: uppercase;
+    letter-spacing: 1.4px;
+    opacity: 0.4;
+    font-weight: 700;
+}
+
+.sidebar-item {
+    padding: 9px 16px;
+    font-size: 14px;
+    cursor: pointer;
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    transition: background 0.15s, color 0.15s;
+    border-left: 3px solid transparent;
+    color: rgba(255,255,255,0.85);
+    user-select: none;
+}
+.sidebar-item:hover {
+    background: rgba(255,255,255,0.06);
+    color: white;
+}
+.sidebar-item.active {
+    background: rgba(255,255,255,0.10);
+    border-left-color: var(--orange);
+    color: white;
+    font-weight: 700;
+}
+.sidebar-item-icon {
+    width: 18px;
+    text-align: center;
+    font-size: 15px;
+    opacity: 0.85;
+}
+.sidebar-item.active .sidebar-item-icon { opacity: 1; }
+.sidebar-item-label { flex: 1; }
+.sidebar-item .badge {
+    background: var(--red);
+    color: white;
+    font-size: 10px;
+    font-weight: 900;
+    padding: 1px 7px;
+    border-radius: 10px;
+    min-width: 18px;
+    text-align: center;
+}
+
+/* Sidebar footer */
+.sidebar-footer {
+    border-top: 1px solid rgba(255,255,255,0.08);
+    padding: 8px 8px 10px;
+    background: var(--brown-darker);
+}
+
+.icon-row {
+    display: flex;
+    gap: 4px;
+    padding: 4px 2px;
+    border-bottom: 1px solid rgba(255,255,255,0.06);
+    margin-bottom: 6px;
+}
+.icon-btn {
+    width: 34px;
+    height: 34px;
+    background: transparent;
+    border: 1px solid transparent;
+    border-radius: 7px;
+    color: rgba(255,255,255,0.6);
+    font-size: 16px;
+    cursor: pointer;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    transition: all 0.15s;
+    font-family: inherit;
+    position: relative;
+}
+.icon-btn:hover {
+    background: rgba(255,255,255,0.08);
+    color: white;
+    border-color: rgba(255,255,255,0.1);
+}
+.icon-btn[data-tip]:hover::after {
+    content: attr(data-tip);
+    position: absolute;
+    bottom: calc(100% + 6px);
+    left: 50%;
+    transform: translateX(-50%);
+    background: var(--black);
+    color: white;
+    padding: 4px 8px;
+    border-radius: 4px;
+    font-size: 11px;
+    font-weight: 700;
+    white-space: nowrap;
+    pointer-events: none;
+    z-index: 100;
+}
+.icon-btn.spacer { flex: 1; cursor: default; }
+.icon-btn.spacer:hover { background: transparent; border-color: transparent; }
+
+.footer-item {
+    padding: 7px 8px;
+    font-size: 13px;
+    color: rgba(255,255,255,0.75);
+    cursor: pointer;
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    border-radius: 6px;
+    transition: background 0.15s;
+}
+.footer-item:hover {
+    background: rgba(255,255,255,0.06);
+    color: white;
+}
+.footer-item-icon { width: 16px; text-align: center; opacity: 0.7; }
+
+.user-row {
+    margin-top: 4px;
+    padding: 7px 8px;
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    font-size: 12px;
+}
+.user-avatar {
+    width: 26px;
+    height: 26px;
+    border-radius: 50%;
+    background: var(--orange);
+    color: var(--brown-darker);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-weight: 900;
+    font-size: 12px;
+}
+.user-name { font-weight: 700; line-height: 1.1; }
+.user-role { font-size: 10px; opacity: 0.5; }
+
+/* ===== MAIN ===== */
+.main {
+    flex: 1;
+    display: flex;
+    flex-direction: column;
+    overflow: hidden;
+    background: var(--gray-light);
+}
+
+/* Topbar */
+.topbar {
+    background: var(--white);
+    padding: 12px 24px;
+    display: flex;
+    align-items: center;
+    gap: 16px;
+    border-bottom: 1px solid #e0ddd8;
+    flex-shrink: 0;
+}
+.topbar-title {
+    font-size: 19px;
+    font-weight: 900;
+    color: var(--brown);
+    letter-spacing: -0.3px;
+}
+.topbar-breadcrumb {
+    font-size: 12px;
+    color: var(--gray-dark);
+    margin-left: 4px;
+}
+.topbar-spacer { flex: 1; }
+.topbar-search {
+    padding: 7px 14px;
+    border: 1px solid var(--gray);
+    border-radius: 20px;
+    font-size: 13px;
+    font-family: inherit;
+    width: 260px;
+    background: var(--gray-light);
+}
+.topbar-search:focus {
+    outline: none;
+    background: white;
+    border-color: var(--brown);
+}
+
+/* ===== PILLS / TABS ===== */
+.pills-row {
+    background: var(--white);
+    border-bottom: 1px solid #e0ddd8;
+    padding: 10px 24px;
+    display: flex;
+    gap: 8px;
+    flex-wrap: wrap;
+    align-items: center;
+    flex-shrink: 0;
+    min-height: 52px;
+}
+.pill {
+    padding: 7px 16px;
+    background: var(--gray-light);
+    border: 1px solid transparent;
+    border-radius: 999px;
+    font-size: 13px;
+    font-weight: 700;
+    color: var(--gray-dark);
+    cursor: pointer;
+    transition: all 0.15s ease;
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    font-family: inherit;
+    user-select: none;
+}
+.pill:hover {
+    background: white;
+    color: var(--brown);
+    border-color: var(--gray);
+}
+.pill.active {
+    background: var(--brown);
+    color: white;
+    box-shadow: 0 2px 6px rgba(142, 99, 31, 0.25);
+}
+.pill .pill-badge {
+    background: var(--red);
+    color: white;
+    font-size: 10px;
+    font-weight: 900;
+    padding: 1px 6px;
+    border-radius: 10px;
+    min-width: 16px;
+    text-align: center;
+}
+.pill.active .pill-badge { background: white; color: var(--brown); }
+
+.pills-empty {
+    color: var(--gray-medium);
+    font-size: 12px;
+    font-style: italic;
+    padding: 0 8px;
+}
+
+/* ===== CONTENT ===== */
+.content-area {
+    flex: 1;
+    overflow-y: auto;
+    padding: 24px;
+}
+
+.page-title {
+    font-size: 13px;
+    color: var(--gray-dark);
+    margin-bottom: 4px;
+    text-transform: uppercase;
+    letter-spacing: 1px;
+    font-weight: 700;
+}
+.page-heading {
+    font-size: 26px;
+    font-weight: 900;
+    color: var(--brown);
+    letter-spacing: -0.5px;
+    margin-bottom: 20px;
+}
+
+.placeholder {
+    background: var(--white);
+    border-radius: 12px;
+    padding: 40px;
+    text-align: center;
+    color: var(--gray-dark);
+    border: 1px dashed var(--gray);
+    margin-bottom: 16px;
+}
+.placeholder-icon {
+    font-size: 40px;
+    margin-bottom: 10px;
+    opacity: 0.4;
+}
+.placeholder-title {
+    font-size: 17px;
+    font-weight: 900;
+    color: var(--brown);
+    margin-bottom: 6px;
+}
+.placeholder-desc { font-size: 13px; max-width: 400px; margin: 0 auto; line-height: 1.5; }
+
+.cards-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+    gap: 14px;
+    margin-bottom: 16px;
+}
+.demo-card {
+    background: white;
+    border-radius: 10px;
+    padding: 16px;
+    box-shadow: 0 1px 3px rgba(0,0,0,0.04);
+    border: 1px solid #ebe7e2;
+}
+.demo-card-label {
+    font-size: 11px;
+    text-transform: uppercase;
+    letter-spacing: 1px;
+    color: var(--gray-dark);
+    margin-bottom: 6px;
+    font-weight: 700;
+}
+.demo-card-value {
+    font-size: 28px;
+    font-weight: 900;
+    color: var(--brown);
+    line-height: 1;
+}
+.demo-card-sub {
+    font-size: 12px;
+    color: var(--gray-dark);
+    margin-top: 6px;
+}
+
+.info-box {
+    background: var(--orange-light);
+    border-left: 3px solid var(--orange);
+    padding: 12px 16px;
+    border-radius: 6px;
+    font-size: 13px;
+    color: #6b4f1a;
+    margin-bottom: 16px;
+    line-height: 1.5;
+}
+
+/* ===== SIDEKICK OVERLAY (Whiteboard demo) ===== */
+.sidekick-overlay {
+    position: fixed;
+    inset: 0;
+    background: rgba(0,0,0,0.4);
+    display: none;
+    z-index: 1000;
+    align-items: center;
+    justify-content: center;
+}
+.sidekick-overlay.open { display: flex; }
+.sidekick-panel {
+    background: white;
+    border-radius: 14px;
+    padding: 28px;
+    width: min(480px, 92vw);
+    box-shadow: 0 20px 60px rgba(0,0,0,0.3);
+}
+.sidekick-panel h3 {
+    color: var(--brown);
+    font-size: 18px;
+    margin-bottom: 8px;
+}
+.sidekick-panel p {
+    color: var(--black);
+    font-size: 14px;
+    line-height: 1.6;
+    margin-bottom: 14px;
+}
+.sidekick-panel .btn-close {
+    background: var(--brown);
+    color: white;
+    border: none;
+    padding: 8px 16px;
+    border-radius: 8px;
+    cursor: pointer;
+    font-weight: 700;
+    font-family: inherit;
+}
+
+/* ===== Comparison toggle (top right) ===== */
+.compare-toggle {
+    position: fixed;
+    top: 10px;
+    right: 14px;
+    z-index: 500;
+    background: var(--brown-darker);
+    color: white;
+    padding: 5px 11px;
+    border-radius: 14px;
+    font-size: 10px;
+    font-weight: 700;
+    cursor: pointer;
+    box-shadow: 0 3px 10px rgba(0,0,0,0.2);
+    letter-spacing: 0.5px;
+    border: 1px solid rgba(255,255,255,0.1);
+    user-select: none;
+    transition: all 0.15s;
+}
+.compare-toggle:hover {
+    background: var(--orange);
+    color: var(--brown-darker);
+}
+
+/* Old sidebar overlay (for comparison) */
+.old-sidebar-modal {
+    position: fixed;
+    inset: 0;
+    background: rgba(0,0,0,0.55);
+    display: none;
+    z-index: 800;
+    align-items: center;
+    justify-content: center;
+    padding: 20px;
+}
+.old-sidebar-modal.open { display: flex; }
+.old-sidebar-wrap {
+    background: white;
+    border-radius: 12px;
+    padding: 24px;
+    max-width: 720px;
+    width: 100%;
+    box-shadow: 0 20px 60px rgba(0,0,0,0.4);
+}
+.old-sidebar-wrap h3 {
+    color: var(--brown);
+    font-size: 18px;
+    margin-bottom: 6px;
+}
+.old-sidebar-wrap .sub {
+    color: var(--gray-dark);
+    font-size: 13px;
+    margin-bottom: 18px;
+}
+.compare-grid {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 18px;
+}
+.compare-col h4 {
+    font-size: 12px;
+    text-transform: uppercase;
+    letter-spacing: 1px;
+    color: var(--gray-dark);
+    margin-bottom: 8px;
+    font-weight: 900;
+}
+.mini-sidebar {
+    background: var(--brown-dark);
+    color: white;
+    padding: 12px;
+    border-radius: 8px;
+    font-size: 11px;
+    line-height: 1.55;
+}
+.mini-sidebar .sec {
+    text-transform: uppercase;
+    letter-spacing: 1px;
+    font-size: 9px;
+    opacity: 0.5;
+    margin-top: 8px;
+    margin-bottom: 2px;
+}
+.mini-sidebar .sec:first-child { margin-top: 0; }
+.mini-sidebar .it {
+    padding: 2px 4px;
+    border-left: 2px solid transparent;
+}
+.mini-sidebar .it.gray { opacity: 0.45; }
+.compare-stats {
+    display: flex;
+    justify-content: space-between;
+    margin-top: 12px;
+    padding-top: 10px;
+    border-top: 1px solid #eee;
+    font-size: 12px;
+    color: var(--gray-dark);
+}
+.compare-stats b { color: var(--brown); font-size: 14px; }
+.old-sidebar-wrap .btn-close {
+    margin-top: 18px;
+    background: var(--brown);
+    color: white;
+    border: none;
+    padding: 8px 18px;
+    border-radius: 8px;
+    cursor: pointer;
+    font-weight: 700;
+    font-family: inherit;
+}
+</style>
+</head>
+<body>
+
+<div class="compare-toggle" onclick="document.getElementById('compareModal').classList.add('open')">⇄ FØR / EFTER</div>
+
+<div class="app-shell">
+
+  <!-- =================== SIDEBAR =================== -->
+  <aside class="sidebar">
+    <div class="sidebar-logo" title="Skift til Køkken-zone" onclick="switchToKitchen()">
+      <div class="sidebar-logo-title">🍞 Ristet Rug</div>
+      <div class="sidebar-logo-row">
+        <span class="sidebar-logo-zone">BON V2 · OFFICE</span>
+        <span class="sidebar-logo-switch">
+          <span class="sidebar-logo-switch-icon">⇄</span>
+          <span class="sidebar-logo-switch-label">KØKKEN</span>
+        </span>
+      </div>
+    </div>
+
+    <nav class="sidebar-nav">
+      <div class="sidebar-section">Overblik</div>
+      <div class="sidebar-item active" data-section="dashboard">
+        <span class="sidebar-item-icon">🏠</span>
+        <span class="sidebar-item-label">Dashboard</span>
+      </div>
+
+      <div class="sidebar-section">Ordrer</div>
+      <div class="sidebar-item" data-section="bons">
+        <span class="sidebar-item-icon">📋</span>
+        <span class="sidebar-item-label">Bons</span>
+        <span class="badge">6</span>
+      </div>
+
+      <div class="sidebar-section">Salg</div>
+      <div class="sidebar-item" data-section="crm">
+        <span class="sidebar-item-icon">👥</span>
+        <span class="sidebar-item-label">CRM</span>
+      </div>
+      <div class="sidebar-item" data-section="tilbud">
+        <span class="sidebar-item-icon">💬</span>
+        <span class="sidebar-item-label">Tilbud</span>
+      </div>
+
+      <div class="sidebar-section">Drift</div>
+      <div class="sidebar-item" data-section="logistik">
+        <span class="sidebar-item-icon">🚚</span>
+        <span class="sidebar-item-label">Logistik</span>
+      </div>
+      <div class="sidebar-item" data-section="indkob">
+        <span class="sidebar-item-icon">🛒</span>
+        <span class="sidebar-item-label">Indkøb</span>
+      </div>
+
+      <div class="sidebar-section">Økonomi</div>
+      <div class="sidebar-item" data-section="okonomi">
+        <span class="sidebar-item-icon">💰</span>
+        <span class="sidebar-item-label">Økonomi</span>
+      </div>
+
+      <div class="sidebar-section">Team</div>
+      <div class="sidebar-item" data-section="vagtplan">
+        <span class="sidebar-item-icon">📅</span>
+        <span class="sidebar-item-label">Vagtplan</span>
+      </div>
+    </nav>
+
+    <div class="sidebar-footer">
+      <div class="icon-row">
+        <button class="icon-btn" data-tip="Whiteboard sidekick" onclick="openSidekick('whiteboard')">📋</button>
+        <button class="icon-btn" data-tip="SOP" onclick="openSidekick('sop')">📖</button>
+        <div class="icon-btn spacer"></div>
+        <button class="icon-btn" data-tip="Settings">⚙</button>
+        <button class="icon-btn" data-tip="Log ud">↩</button>
+      </div>
+
+      <div class="user-row">
+        <div class="user-avatar">A</div>
+        <div>
+          <div class="user-name">Admin</div>
+          <div class="user-role">Administrator</div>
+        </div>
+      </div>
+    </div>
+  </aside>
+
+  <!-- =================== MAIN =================== -->
+  <main class="main">
+    <div class="topbar">
+      <div class="topbar-title" id="topbarTitle">Dashboard</div>
+      <div class="topbar-breadcrumb" id="topbarCrumb">· Overblik</div>
+      <div class="topbar-spacer"></div>
+      <input type="text" class="topbar-search" placeholder="🔍 Søg bons, kunder, varer...">
+    </div>
+
+    <div class="pills-row" id="pillsRow">
+      <span class="pills-empty">Daglig briefing</span>
+    </div>
+
+    <div class="content-area" id="contentArea">
+      <div class="page-title">Dashboard</div>
+      <div class="page-heading">God morgen, Leif 👋</div>
+
+      <div class="cards-grid">
+        <div class="demo-card">
+          <div class="demo-card-label">I dag</div>
+          <div class="demo-card-value">14</div>
+          <div class="demo-card-sub">aktive bons</div>
+        </div>
+        <div class="demo-card">
+          <div class="demo-card-label">Nye siden i går</div>
+          <div class="demo-card-value" style="color:var(--red)">6</div>
+          <div class="demo-card-sub">venter på godkendelse</div>
+        </div>
+        <div class="demo-card">
+          <div class="demo-card-label">Leveringer</div>
+          <div class="demo-card-value">8</div>
+          <div class="demo-card-sub">heraf 3 senest 11:00</div>
+        </div>
+        <div class="demo-card">
+          <div class="demo-card-label">I morgen</div>
+          <div class="demo-card-value">21</div>
+          <div class="demo-card-sub">bons booket</div>
+        </div>
+      </div>
+
+      <div class="info-box">
+        <b>👋 Velkommen til mockuppen.</b> Klik rundt i sidebaren — sektioner ændrer pills/chips i toppen.
+        Whiteboard og SOP åbnes som sidekick-panel via ikonerne nederst. Brug "FØR / EFTER"-knappen øverst til højre
+        for at sammenligne med den nuværende 23-punkts sidebar.
+      </div>
+    </div>
+  </main>
+</div>
+
+<!-- Whiteboard sidekick overlay -->
+<div class="sidekick-overlay" id="sidekickOverlay">
+  <div class="sidekick-panel">
+    <h3 id="sidekickTitle">📋 Whiteboard sidekick</h3>
+    <p id="sidekickDesc">
+      Her ville sidekick-panelet glide ind fra højre (tre-trins: ikon → sidepanel 25% → fullscreen).
+      I produktion er det en iframe mod <code>whiteboard.ristetrug.dk</code> som styret af <code>shared/sidekick.js</code>.
+    </p>
+    <button class="btn-close" onclick="closeSidekick()">Luk</button>
+  </div>
+</div>
+
+<!-- Comparison modal -->
+<div class="old-sidebar-modal" id="compareModal">
+  <div class="old-sidebar-wrap">
+    <h3>Sidebar — før og efter</h3>
+    <div class="sub">23 punkter på ét niveau → 8 grupperede punkter med kontekstuelle pills</div>
+
+    <div class="compare-grid">
+      <div class="compare-col">
+        <h4>FØR (23 punkter)</h4>
+        <div class="mini-sidebar">
+          <div class="sec">Overblik</div>
+          <div class="it">🏠 Dashboard</div>
+          <div class="sec">Ordrer</div>
+          <div class="it">🆕 Nye bestillinger (6)</div>
+          <div class="it">📋 Bons</div>
+          <div class="it">📅 Kalender</div>
+          <div class="it">🗓 Ugeoversigt</div>
+          <div class="it">📦 Planlægning</div>
+          <div class="sec">CRM</div>
+          <div class="it">👥 CRM</div>
+          <div class="it">👤 Kontakter</div>
+          <div class="it">📥 Indbakke</div>
+          <div class="it">🔄 Re-aktivering</div>
+          <div class="it">🔍 Prospekter</div>
+          <div class="it">📊 Kundeindsigt</div>
+          <div class="it">💬 Tilbud</div>
+          <div class="sec">Drift</div>
+          <div class="it gray">🚚 Logistik</div>
+          <div class="it gray">🏭 Køkken</div>
+          <div class="it gray">🛒 Indkøb</div>
+          <div class="it">📧 Leverandørpost</div>
+          <div class="sec">Økonomi</div>
+          <div class="it">💵 Fakturering</div>
+          <div class="it">📈 Rapporter</div>
+          <div class="it">💰 Pengestrøm</div>
+          <div class="sec">Team</div>
+          <div class="it">📅 Vagtplan</div>
+          <div class="it">📋 Whiteboard</div>
+          <div class="it">📖 SOP</div>
+        </div>
+      </div>
+      <div class="compare-col">
+        <h4>EFTER (8 punkter + pills)</h4>
+        <div class="mini-sidebar">
+          <div class="sec" style="background:rgba(255,255,255,0.05);padding:4px 4px;margin:0 -4px 6px;border-radius:4px;">
+            🍞 Ristet Rug · OFFICE ▾<br>
+            <span style="font-size:9px;opacity:0.6;">↑ zone-skift her</span>
+          </div>
+          <div class="sec">Overblik</div>
+          <div class="it">🏠 Dashboard</div>
+          <div class="sec">Ordrer</div>
+          <div class="it">📋 Bons <span style="color:#f88">●6</span></div>
+          <div class="sec">Salg</div>
+          <div class="it">👥 CRM</div>
+          <div class="it">💬 Tilbud</div>
+          <div class="sec">Drift</div>
+          <div class="it">🚚 Logistik</div>
+          <div class="it">🛒 Indkøb</div>
+          <div class="sec">Økonomi</div>
+          <div class="it">💰 Økonomi</div>
+          <div class="sec">Team</div>
+          <div class="it">📅 Vagtplan</div>
+          <div class="sec">— footer —</div>
+          <div class="it" style="font-size:10px">📋 📖  ⚙ ↩ (ikoner)</div>
+          <div class="it" style="font-size:10px">[A] Admin</div>
+        </div>
+      </div>
+    </div>
+
+    <div class="compare-stats">
+      <div>Antal sidebar-punkter: <b>23 → 8</b></div>
+      <div>Niveauer: <b>1 (flad) → 2 (sidebar + pills)</b></div>
+      <div>Zone-skift: <b>i bunden → i header</b></div>
+    </div>
+
+    <button class="btn-close" onclick="document.getElementById('compareModal').classList.remove('open')">Luk</button>
+  </div>
+</div>
+
+<script>
+// ============ ROUTING & PILLS ============
+const sections = {
+  dashboard: {
+    title: 'Dashboard',
+    crumb: '· Overblik',
+    pills: null,
+    content: () => `
+      <div class="page-title">Dashboard</div>
+      <div class="page-heading">God morgen, Leif 👋</div>
+      <div class="cards-grid">
+        <div class="demo-card"><div class="demo-card-label">I dag</div><div class="demo-card-value">14</div><div class="demo-card-sub">aktive bons</div></div>
+        <div class="demo-card"><div class="demo-card-label">Nye siden i går</div><div class="demo-card-value" style="color:var(--red)">6</div><div class="demo-card-sub">venter på godkendelse</div></div>
+        <div class="demo-card"><div class="demo-card-label">Leveringer</div><div class="demo-card-value">8</div><div class="demo-card-sub">heraf 3 senest 11:00</div></div>
+        <div class="demo-card"><div class="demo-card-label">I morgen</div><div class="demo-card-value">21</div><div class="demo-card-sub">bons booket</div></div>
+      </div>
+      <div class="info-box">Dashboardet er stadig én side uden underviews — derfor ingen pills her.</div>
+    `
+  },
+  bons: {
+    title: 'Bons',
+    crumb: '· Ordrer',
+    pills: [
+      { id: 'nye',  label: 'Nye',         badge: 6 },
+      { id: 'liste', label: 'Liste',       def: true },
+      { id: 'kal',   label: 'Kalender' },
+      { id: 'uge',   label: 'Ugeoversigt' },
+      { id: 'plan',  label: 'Planlægning' },
+    ],
+    content: (pill) => {
+      const map = {
+        nye:   { h: 'Nye bestillinger',    d: 'Filter: status = NY. Røde badges der venter på godkendelse fra office.' },
+        liste: { h: 'Bonliste',             d: 'Søg, filtrér, opret. Genbrugt fra kitchen-shell via shared/views/.' },
+        kal:   { h: 'Kalender',             d: 'Totaler pr. dag — kategori-overblik. Genbrugt fra kitchen.' },
+        uge:   { h: 'Ugeoversigt',          d: 'Smartplan-vagter + bons kombineret på én uge-visning.' },
+        plan:  { h: 'Planlægning',          d: 'Produktionsplanlægning. Touch-venlig version i kitchen.' },
+      };
+      const v = map[pill] || map.liste;
+      return `
+        <div class="page-title">Bons</div>
+        <div class="page-heading">${v.h}</div>
+        <div class="placeholder">
+          <div class="placeholder-icon">📋</div>
+          <div class="placeholder-title">${v.h}</div>
+          <div class="placeholder-desc">${v.d}</div>
+        </div>
+        <div class="info-box">
+          Alle 5 views fra den gamle ORDRER-gruppe er nu pills inden i Bons.
+          "Nye"-pillen overtager den røde badge fra den gamle "Nye bestillinger" — én klik væk.
+        </div>
+      `;
+    }
+  },
+  crm: {
+    title: 'CRM',
+    crumb: '· Salg',
+    pills: [
+      { id: 'pipeline', label: 'Pipeline', def: true },
+      { id: 'kontakter', label: 'Kontakter' },
+      { id: 'indbakke', label: 'Indbakke', badge: 3 },
+      { id: 'prospekter', label: 'Prospekter' },
+      { id: 'reakt', label: 'Re-aktivering' },
+      { id: 'indsigt', label: 'Indsigt' },
+    ],
+    content: (pill) => {
+      const map = {
+        pipeline:   { h: 'Pipeline',       d: 'Kanban på leads, tilbud og opfølgninger.' },
+        kontakter:  { h: 'Kontakter',      d: 'Kunder og firmaer. 360°-profil per kunde.' },
+        indbakke:   { h: 'Indbakke',       d: 'Umatchede mails fra kontakt@. 3 venter.' },
+        prospekter: { h: 'Prospekter',     d: 'Leads der endnu ikke har bestilt.' },
+        reakt:      { h: 'Re-aktivering',  d: 'Sovende kunder — hvem skal ringes til?' },
+        indsigt:    { h: 'Indsigt',        d: 'KPI: hit-rate, gns. ordrestørrelse, sæsoner.' },
+      };
+      const v = map[pill] || map.pipeline;
+      return `
+        <div class="page-title">CRM</div>
+        <div class="page-heading">${v.h}</div>
+        <div class="placeholder">
+          <div class="placeholder-icon">👥</div>
+          <div class="placeholder-title">${v.h}</div>
+          <div class="placeholder-desc">${v.d}</div>
+        </div>
+        <div class="info-box">
+          Alle 6 CRM-underpunkter samlet under ét. Tilbud står som top-level (kommercielt vigtigt).
+        </div>
+      `;
+    }
+  },
+  tilbud: {
+    title: 'Tilbud',
+    crumb: '· Salg',
+    pills: [
+      { id: 'aktive', label: 'Aktive', def: true, badge: 12 },
+      { id: 'sendt', label: 'Sendt' },
+      { id: 'vundet', label: 'Vundet' },
+      { id: 'tabt', label: 'Tabt' },
+      { id: 'arkiv', label: 'Arkiv' },
+    ],
+    content: (pill) => `
+      <div class="page-title">Tilbud</div>
+      <div class="page-heading">${pill === 'aktive' ? 'Aktive tilbud (12)' : pill[0].toUpperCase()+pill.slice(1)+' tilbud'}</div>
+      <div class="placeholder">
+        <div class="placeholder-icon">💬</div>
+        <div class="placeholder-title">Tilbudshåndtering</div>
+        <div class="placeholder-desc">Bons med <code>is_offer=1</code>. Filterstatus via pills. PDF + send-funktion.</div>
+      </div>
+      <div class="info-box">Tilbud er top-level — direkte adgang uden at gå via CRM.</div>
+    `
+  },
+  logistik: {
+    title: 'Logistik',
+    crumb: '· Drift',
+    pills: [
+      { id: 'idag', label: 'I dag', def: true },
+      { id: 'ruter', label: 'Ruter' },
+      { id: 'tracking', label: 'Tracking' },
+      { id: 'bud', label: 'Bud' },
+    ],
+    content: (pill) => `
+      <div class="page-title">Logistik</div>
+      <div class="page-heading">${pill[0].toUpperCase()+pill.slice(1)}</div>
+      <div class="placeholder">
+        <div class="placeholder-icon">🚚</div>
+        <div class="placeholder-title">Leveringer & ruteplanlægning</div>
+        <div class="placeholder-desc">Byekspressen, taxa, eget køretøj. Bud-app som add-on.</div>
+      </div>
+    `
+  },
+  indkob: {
+    title: 'Indkøb',
+    crumb: '· Drift',
+    pills: [
+      { id: 'liste', label: 'Indkøbsliste', def: true },
+      { id: 'best', label: 'Bestillinger' },
+      { id: 'lev', label: 'Leverandører' },
+      { id: 'post', label: 'Leverandørpost', badge: 2 },
+    ],
+    content: (pill) => {
+      const map = {
+        liste: { h: 'Indkøbsliste',     d: 'Aggregeret behov fra opskrifter + manuelle tilføjelser.' },
+        best:  { h: 'Bestillinger',     d: 'Sendte PO\'er. Status, sporing, varemodtagelse.' },
+        lev:   { h: 'Leverandører',     d: 'Priser, aftaler, Hørkram-mapping.' },
+        post:  { h: 'Leverandørpost',   d: 'Indgående mails: fakturaer, ordrebekræftelser, pristilbud.' },
+      };
+      const v = map[pill] || map.liste;
+      return `
+        <div class="page-title">Indkøb</div>
+        <div class="page-heading">${v.h}</div>
+        <div class="placeholder">
+          <div class="placeholder-icon">🛒</div>
+          <div class="placeholder-title">${v.h}</div>
+          <div class="placeholder-desc">${v.d}</div>
+        </div>
+        <div class="info-box">Leverandørpost flyttet ind under Indkøb — det er hvor mails fra leverandører hører hjemme.</div>
+      `;
+    }
+  },
+  kokken: {
+    title: 'Køkken',
+    crumb: '· Drift · read-only',
+    pills: null,
+    content: () => `<div class="placeholder">Køkken-data er flyttet til zone-switcheren øverst.</div>`
+  },
+  okonomi: {
+    title: 'Økonomi',
+    crumb: '· Økonomi',
+    pills: [
+      { id: 'fakt', label: 'Fakturering', def: true, badge: 4 },
+      { id: 'penge', label: 'Pengestrøm' },
+      { id: 'rap', label: 'Rapporter' },
+    ],
+    content: (pill) => {
+      const map = {
+        fakt:  { h: 'Fakturering',  d: 'e-conomic / EAN. 4 bons klar til fakturering.' },
+        penge: { h: 'Pengestrøm',   d: 'Cashflow incl. moms. Bank-CSV matching.' },
+        rap:   { h: 'Rapporter',    d: 'Omsætning, top-produkter, sæsoner — ex moms.' },
+      };
+      const v = map[pill] || map.fakt;
+      return `
+        <div class="page-title">Økonomi</div>
+        <div class="page-heading">${v.h}</div>
+        <div class="placeholder">
+          <div class="placeholder-icon">💰</div>
+          <div class="placeholder-title">${v.h}</div>
+          <div class="placeholder-desc">${v.d}</div>
+        </div>
+        <div class="info-box">
+          De tre økonomi-punkter samles. Husk moms-doktrinen: Fakturering/Pengestrøm = incl. moms, Rapporter = ex moms.
+        </div>
+      `;
+    }
+  },
+  vagtplan: {
+    title: 'Vagtplan',
+    crumb: '· Team',
+    pills: null,
+    content: () => `
+      <div class="page-title">Vagtplan</div>
+      <div class="page-heading">Smartplan</div>
+      <div class="placeholder">
+        <div class="placeholder-icon">📅</div>
+        <div class="placeholder-title">Smartplan embed</div>
+        <div class="placeholder-desc">Iframe til Smartplan. Ingen underviews nødvendige.</div>
+      </div>
+    `
+  },
+};
+
+let currentSection = 'dashboard';
+let currentPill = null;
+
+function selectSection(id) {
+  currentSection = id;
+  const sec = sections[id];
+
+  // Update sidebar active state
+  document.querySelectorAll('.sidebar-item').forEach(el => el.classList.remove('active'));
+  document.querySelector(`.sidebar-item[data-section="${id}"]`).classList.add('active');
+
+  // Update topbar
+  document.getElementById('topbarTitle').textContent = sec.title;
+  document.getElementById('topbarCrumb').textContent = sec.crumb;
+
+  // Update pills
+  const pillsRow = document.getElementById('pillsRow');
+  if (!sec.pills) {
+    pillsRow.innerHTML = `<span class="pills-empty">${sec.crumb.replace('·','').trim()} — ingen underviews</span>`;
+    currentPill = null;
+  } else {
+    currentPill = sec.pills.find(p => p.def)?.id || sec.pills[0].id;
+    pillsRow.innerHTML = sec.pills.map(p => `
+      <button class="pill ${p.id === currentPill ? 'active' : ''}" onclick="selectPill('${p.id}')">
+        ${p.label}
+        ${p.badge ? `<span class="pill-badge">${p.badge}</span>` : ''}
+      </button>
+    `).join('');
+  }
+
+  // Update content
+  renderContent();
+}
+
+function selectPill(id) {
+  currentPill = id;
+  const sec = sections[currentSection];
+  document.querySelectorAll('.pill').forEach((el, i) => {
+    el.classList.toggle('active', sec.pills[i].id === id);
+  });
+  renderContent();
+}
+
+function renderContent() {
+  const sec = sections[currentSection];
+  const html = typeof sec.content === 'function' ? sec.content(currentPill) : sec.content;
+  document.getElementById('contentArea').innerHTML = html;
+}
+
+document.querySelectorAll('.sidebar-item').forEach(el => {
+  el.addEventListener('click', () => selectSection(el.dataset.section));
+});
+
+// ============ ZONE SWITCH ============
+function switchToKitchen() {
+  alert(`Skifter til Køkken-zone\n\n(I produktion: window.location.href = '/kitchen/')\n\nI køkken-zonen vises en "← Tilbage til Office" knap i topbaren for brugere med office/admin-rolle.`);
+}
+
+// ============ SIDEKICK ============
+function openSidekick(kind) {
+  const t = document.getElementById('sidekickTitle');
+  const d = document.getElementById('sidekickDesc');
+  if (kind === 'whiteboard') {
+    t.textContent = '📋 Whiteboard sidekick';
+    d.innerHTML = 'Tre-trins overlay: ikon → 25% sidepanel → fullscreen. Iframe mod <code>whiteboard.ristetrug.dk</code>. Bon-content trækker sig til 75% bredde når sidepanelet åbnes.';
+  } else {
+    t.textContent = '📖 SOP';
+    d.innerHTML = 'Standard Operating Procedures fra <code>sop.ristetrug.dk</code>. Linkes også fra whiteboard via deep links.';
+  }
+  document.getElementById('sidekickOverlay').classList.add('open');
+}
+function closeSidekick() {
+  document.getElementById('sidekickOverlay').classList.remove('open');
+}
+document.getElementById('sidekickOverlay').addEventListener('click', (e) => {
+  if (e.target.id === 'sidekickOverlay') closeSidekick();
+});
+</script>
+</body>
+</html>

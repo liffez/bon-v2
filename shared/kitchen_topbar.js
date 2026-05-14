@@ -104,8 +104,18 @@ function renderKitchenTopbar(container, opts) {
 
     left.appendChild(nav);
 
-    // Zone switcher (integrated)
-    if (typeof renderZoneSwitcher === 'function' && user.role) {
+    // ── "Tilbage til Office"-knap (kun office/admin/salg) ───
+    // Mere fremtrædende end den generiske zone-switcher — så office-brugere
+    // der hopper ind i kitchen-zonen nemt kan finde retur til Office.
+    if (user.role && ['office', 'admin', 'salg'].indexOf(user.role) !== -1) {
+        var backBtn = document.createElement('a');
+        backBtn.href = '/office/';
+        backBtn.className = 'topbar-back-to-office';
+        backBtn.textContent = '← Office';
+        backBtn.title = 'Tilbage til Office-zonen';
+        left.appendChild(backBtn);
+    } else if (typeof renderZoneSwitcher === 'function' && user.role) {
+        // Fallback til generic zone-switcher for andre roller (settings m.fl.)
         renderZoneSwitcher('kitchen', user.role, left);
     }
 

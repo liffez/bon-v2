@@ -25,6 +25,8 @@
   <link rel="stylesheet" href="views/rapporter.css">
   <link rel="stylesheet" href="views/cashflow.css">
   <link rel="stylesheet" href="../shared/schedule.css">
+  <link rel="stylesheet" href="../shared/indkob.css">
+  <link rel="stylesheet" href="../shared/indkob_settings.css">
   <link rel="stylesheet" href="../shared/help-system.css">
   <script src="/assets/jspdf.umd.min.js"></script>
   <!-- Chart.js removed — custom canvas chart in shared/dashboard_chart.js -->
@@ -49,6 +51,32 @@
       font-size: var(--font-size-l, 18px);
       margin: 0;
       font-weight: 700;
+    }
+
+    /* Global search i topbar */
+    .office-topbar-search {
+      flex: 1;
+      max-width: 360px;
+      margin: 0 16px;
+    }
+    .office-topbar-search-input {
+      width: 100%;
+      padding: 7px 14px;
+      border: 1px solid var(--color-border, #d7d1ca);
+      border-radius: 20px;
+      font-size: 13px;
+      font-family: inherit;
+      background: var(--color-background, #f5f4f2);
+      color: var(--color-text, #333);
+      transition: background 0.15s, border-color 0.15s;
+    }
+    .office-topbar-search-input:focus {
+      outline: none;
+      background: var(--color-surface, #fff);
+      border-color: var(--brand-primary, #8e631f);
+    }
+    .office-topbar-search-input::placeholder {
+      color: var(--color-text-dim, #888);
     }
     .office-body {
       display: flex;
@@ -421,6 +449,103 @@
       font-size: 15px;
     }
 
+    /* ── Sidebar v2: clickable brand + zone-switch pill ─── */
+    .sidebar-brand {
+      cursor: pointer;
+      transition: background 0.15s;
+    }
+    .sidebar-brand:hover { background: rgba(255,255,255,0.06); }
+    .sidebar-brand-row {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 8px;
+      margin-top: 3px;
+    }
+    .sidebar-zone-pill {
+      display: inline-flex;
+      align-items: center;
+      gap: 5px;
+      background: rgba(255,255,255,0.06);
+      border: 1px solid rgba(255,255,255,0.12);
+      border-radius: 999px;
+      padding: 3px 9px;
+      font-size: 10px;
+      font-weight: 700;
+      color: rgba(255,255,255,0.75);
+      transition: background 0.15s, color 0.15s, border-color 0.15s;
+      letter-spacing: 0.3px;
+      white-space: nowrap;
+    }
+    .sidebar-brand:hover .sidebar-zone-pill {
+      background: #C8962A;
+      color: #4a3210;
+      border-color: #C8962A;
+    }
+
+    /* ── Sidebar v2: footer icon row ──────────────────── */
+    .sidebar-icon-row {
+      display: flex;
+      gap: 4px;
+      padding: 4px 4px 8px;
+      border-bottom: 1px solid rgba(255,255,255,0.08);
+      margin-bottom: 6px;
+    }
+    .sidebar-icon-row .icon-btn {
+      width: 34px;
+      height: 34px;
+      background: transparent;
+      border: 1px solid transparent;
+      border-radius: 7px;
+      color: rgba(255,255,255,0.65);
+      font-size: 15px;
+      cursor: pointer;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      transition: background 0.15s, color 0.15s, border-color 0.15s;
+      font-family: inherit;
+      position: relative;
+      text-decoration: none;
+    }
+    .sidebar-icon-row .icon-btn:hover {
+      background: rgba(255,255,255,0.10);
+      color: #fff;
+      border-color: rgba(255,255,255,0.12);
+    }
+    .sidebar-icon-row .icon-btn[data-tip]:hover::after {
+      content: attr(data-tip);
+      position: absolute;
+      bottom: calc(100% + 6px);
+      left: 50%;
+      transform: translateX(-50%);
+      background: #333;
+      color: white;
+      padding: 4px 8px;
+      border-radius: 4px;
+      font-size: 11px;
+      font-weight: 700;
+      white-space: nowrap;
+      pointer-events: none;
+      z-index: 100;
+    }
+    .sidebar-icon-row .icon-btn-spacer {
+      flex: 1;
+    }
+
+    /* ── Office layout: pills row between topbar and content ── */
+    .office-main {
+      flex: 1;
+      display: flex;
+      flex-direction: column;
+      overflow: hidden;
+      min-width: 0;
+    }
+    .office-main #office-content {
+      flex: 1;
+      overflow-y: auto;
+    }
+
     /* ── Responsive ─────────────────────────────────────── */
     @media (max-width: 768px) {
       .office-sidebar { display: none !important; }
@@ -438,113 +563,79 @@
   <div class="office-shell">
     <div class="office-topbar">
       <h1 id="office-topbar-title">Bon v2 — Office</h1>
+      <div class="office-topbar-search">
+        <input type="text" id="office-global-search" class="office-topbar-search-input"
+               placeholder="🔍 Søg bons, kunder, varer..." autocomplete="off">
+      </div>
       <div id="office-topbar-right" style="display:flex;align-items:center;gap:12px;font-size:13px;"></div>
     </div>
     <div class="office-body">
       <nav class="office-sidebar">
-        <div class="sidebar-brand">
+        <div class="sidebar-brand" id="sidebar-zone-switch" title="Skift til Køkken-zone">
           <div class="sidebar-brand-name">🍞 Ristet Rug</div>
-          <div class="sidebar-brand-sub">Bon v2 &middot; Office</div>
+          <div class="sidebar-brand-row">
+            <span class="sidebar-brand-sub">BON V2 · OFFICE</span>
+            <span class="sidebar-zone-pill"><span>⇄</span> KØKKEN</span>
+          </div>
         </div>
         <div class="sidebar-nav">
           <div class="sidebar-group-label">Overblik</div>
           <button class="sidebar-link" data-view="dashboard">
-            <span class="sidebar-icon">📊</span> Dashboard
+            <span class="sidebar-icon">🏠</span> Dashboard
           </button>
 
           <div class="sidebar-group-label">Ordrer</div>
-          <button class="sidebar-link" data-view="web-orders">
-            <span class="sidebar-icon">🆕</span> Nye bestillinger
-            <span class="sidebar-badge" id="web-orders-badge" style="display:none"></span>
-          </button>
           <button class="sidebar-link" data-view="bons">
             <span class="sidebar-icon">📋</span> Bons
-          </button>
-          <button class="sidebar-link" data-view="calendar">
-            <span class="sidebar-icon">📅</span> Kalender
-          </button>
-          <button class="sidebar-link" data-view="ugeoversigt">
-            <span class="sidebar-icon">📊</span> Ugeoversigt
-          </button>
-          <button class="sidebar-link" data-view="planning">
-            <span class="sidebar-icon">📦</span> Planlægning
+            <span class="sidebar-badge" data-badge="bons_nye" style="display:none"></span>
           </button>
 
-          <div class="sidebar-group-label">CRM</div>
-          <button class="sidebar-link" data-view="crm-dashboard">
-            <span class="sidebar-icon">📊</span> CRM
+          <div class="sidebar-group-label">Salg</div>
+          <button class="sidebar-link" data-view="crm">
+            <span class="sidebar-icon">👥</span> CRM
+            <span class="sidebar-badge" data-badge="crm_indbakke" style="display:none"></span>
           </button>
-          <button class="sidebar-link" data-view="kontakter">
-            <span class="sidebar-icon">👤</span> Kontakter
-          </button>
-          <button class="sidebar-link" data-view="crm-inbox">
-            <span class="sidebar-icon">📬</span> Indbakke
-          </button>
-          <button class="sidebar-link" data-view="crm-reaktivering">
-            <span class="sidebar-icon">💤</span> Re-aktivering
-          </button>
-          <button class="sidebar-link" data-view="crm-prospekter">
-            <span class="sidebar-icon">🎯</span> Prospekter
-          </button>
-          <button class="sidebar-link" data-view="crm-kundeindsigt">
-            <span class="sidebar-icon">📊</span> Kundeindsigt
-          </button>
-
           <button class="sidebar-link" data-view="tilbud">
-            <span class="sidebar-icon">📋</span> Tilbud
-            <span class="sidebar-badge gold" id="quotes-badge" style="display:none"></span>
+            <span class="sidebar-icon">💬</span> Tilbud
+            <span class="sidebar-badge gold" data-badge="tilbud_aktive" style="display:none"></span>
           </button>
 
           <div class="sidebar-group-label">Drift</div>
-          <button class="sidebar-link disabled">
-            <span class="sidebar-icon">🚛</span> Logistik
+          <button class="sidebar-link" data-view="logistik">
+            <span class="sidebar-icon">🚚</span> Logistik
           </button>
-          <button class="sidebar-link disabled">
-            <span class="sidebar-icon">🍽️</span> Køkken
-          </button>
-          <button class="sidebar-link disabled">
+          <button class="sidebar-link" data-view="indkob">
             <span class="sidebar-icon">🛒</span> Indkøb
-          </button>
-          <button class="sidebar-link" data-view="leverandorpost">
-            <span class="sidebar-icon">📧</span> Leverandørpost
-            <span class="sidebar-badge" id="si-badge" style="display:none"></span>
+            <span class="sidebar-badge" data-badge="indkob_leverandorpost" style="display:none"></span>
           </button>
 
           <div class="sidebar-group-label">Økonomi</div>
-          <button class="sidebar-link" data-view="fakturering">
-            <span class="sidebar-icon">💰</span> Fakturering
-            <span class="sidebar-badge gold" id="invoice-badge" style="display:none"></span>
-          </button>
-          <button class="sidebar-link" data-view="rapporter">
-            <span class="sidebar-icon">📈</span> Rapporter
-          </button>
-          <button class="sidebar-link" data-view="cashflow">
-            <span class="sidebar-icon">🏦</span> Pengestrøm
+          <button class="sidebar-link" data-view="okonomi">
+            <span class="sidebar-icon">💰</span> Økonomi
+            <span class="sidebar-badge gold" data-badge="okonomi_fakturering" style="display:none"></span>
           </button>
 
           <div class="sidebar-group-label">Team</div>
           <a class="sidebar-link" href="/kitchen/vagtplan.html" target="_blank">
-            <span class="sidebar-icon">🕐</span> Vagtplan
-          </a>
-          <a class="sidebar-link" href="https://whiteboard.ristetrug.dk" target="_blank" rel="noopener">
-            <span class="sidebar-icon">📝</span> Whiteboard
-          </a>
-          <a class="sidebar-link" href="https://sop.ristetrug.dk" target="_blank" rel="noopener">
-            <span class="sidebar-icon">📋</span> SOP
+            <span class="sidebar-icon">📅</span> Vagtplan
           </a>
         </div>
         <div class="sidebar-bottom">
-          <a href="/settings/index.html" class="sidebar-link">
-            <span class="sidebar-icon">⚙️</span> Settings
-          </a>
-          <button class="sidebar-link" id="sidebar-logout">
-            <span class="sidebar-icon">↩</span> Log ud
-          </button>
+          <div class="sidebar-icon-row">
+            <a class="icon-btn" data-tip="Whiteboard" href="https://whiteboard.ristetrug.dk" target="_blank" rel="noopener">📋</a>
+            <a class="icon-btn" data-tip="SOP" href="https://sop.ristetrug.dk" target="_blank" rel="noopener">📖</a>
+            <div class="icon-btn-spacer"></div>
+            <a class="icon-btn" data-tip="Settings" href="/settings/index.html">⚙</a>
+            <button class="icon-btn" data-tip="Log ud" id="sidebar-logout">↩</button>
+          </div>
           <div class="sidebar-user" id="sidebar-user"></div>
         </div>
       </nav>
-      <main id="office-content">
-        <!-- View mounts here -->
+      <main class="office-main">
+        <div class="pills-row" id="office-pills" style="display:none"></div>
+        <div id="office-content">
+          <!-- View mounts here -->
+        </div>
       </main>
     </div>
   </div>
@@ -585,6 +676,9 @@
   <script src="views/cashflow.js"></script>
   <script src="/shared/supplier_inbox.js"></script>
   <script src="views/ugeoversigt.js"></script>
+  <!-- Indkøb (genbruger kitchen-komponenter) -->
+  <script src="/shared/indkob.js"></script>
+  <script src="/shared/indkob_settings.js"></script>
 
   <script>
     (async () => {
@@ -603,14 +697,48 @@
         `;
       }
 
-      // ─── Zone switcher ──────────────────────────────────
-      renderZoneSwitcher('office', currentUser.role, document.querySelector('.sidebar-bottom'), { style: 'sidebar' });
+      // ─── Zone switcher i sidebar header (klikbar brand) ──
+      // Vises kun for office/admin — kitchen-only roller har ikke adgang her.
+      const brandEl = document.getElementById('sidebar-zone-switch');
+      if (brandEl) {
+        const canSwitch = ['office', 'admin'].includes(currentUser.role);
+        if (canSwitch) {
+          brandEl.addEventListener('click', () => { location.href = '/kitchen/'; });
+        } else {
+          brandEl.style.cursor = 'default';
+          const pill = brandEl.querySelector('.sidebar-zone-pill');
+          if (pill) pill.style.display = 'none';
+        }
+      }
 
       // ─── Logout ──────────────────────────────────────────
       document.getElementById('sidebar-logout').addEventListener('click', async () => {
         await fetch('/api/auth/logout', { method: 'POST' });
         location.href = '/login.html';
       });
+
+      // ─── Global søgefelt i topbar ───────────────────────
+      // Enter → naviger til Bons-listen med ?q=<query>. Bons-list-viewet
+      // håndterer selv q-param og udfører søgningen. Senere kan udvides
+      // til at søge på tværs af kunder/varer via separat søge-endpoint.
+      const globalSearch = document.getElementById('office-global-search');
+      if (globalSearch) {
+        globalSearch.addEventListener('keydown', (e) => {
+          if (e.key === 'Enter') {
+            const q = globalSearch.value.trim();
+            if (!q) return;
+            if (typeof officeGoto === 'function') {
+              officeGoto('bons', { pill: 'liste', q });
+            } else {
+              location.href = '/office/?view=bons&pill=liste&q=' + encodeURIComponent(q);
+            }
+            globalSearch.blur();
+          } else if (e.key === 'Escape') {
+            globalSearch.value = '';
+            globalSearch.blur();
+          }
+        });
+      }
 
       // ─── Drawer (shared across views) ────────────────────
       const drawer = new BonDrawer();
@@ -719,7 +847,193 @@
           init: () => initCashflow(contentEl),
           cleanup: () => { if (typeof cleanupCashflow === 'function') cleanupCashflow(); },
         },
+        // ─── Indkøb (Fase 2 — genbrug shared/indkob.js + indkob_settings.js) ──
+        'indkob-liste': {
+          init: () => {
+            if (typeof initIndkob === 'function') initIndkob(contentEl);
+            else contentEl.innerHTML = '<div style="padding:24px;color:#888">Indkøbsmodul ikke indlæst</div>';
+          },
+          cleanup: () => {},
+        },
+        'indkob-lev': {
+          init: () => {
+            if (typeof initIndkobSettings === 'function') initIndkobSettings(contentEl, { mode: 'page' });
+            else contentEl.innerHTML = '<div style="padding:24px;color:#888">Indkøbsindstillinger ikke indlæst</div>';
+          },
+          cleanup: () => {},
+        },
+        // ─── Logistik (Fase 2 — placeholder, Spor 2 kommer) ───────────────────
+        logistik: {
+          init: () => {
+            contentEl.innerHTML = `
+              <div style="max-width:680px;margin:0 auto;padding:40px 24px;">
+                <div style="font-size:13px;color:#888;text-transform:uppercase;letter-spacing:1px;font-weight:700;margin-bottom:4px;">Logistik</div>
+                <div style="font-size:26px;font-weight:900;color:var(--brand-primary,#8e631f);letter-spacing:-0.5px;margin-bottom:20px;font-family:var(--font-heading,Georgia,serif);">Kommer snart</div>
+                <div style="background:#fff;border-radius:12px;padding:40px;text-align:center;color:#888;border:1px dashed var(--color-border,#d7d1ca);margin-bottom:16px;">
+                  <div style="font-size:40px;margin-bottom:10px;opacity:0.4">🚚</div>
+                  <div style="font-size:17px;font-weight:900;color:var(--brand-primary,#8e631f);margin-bottom:6px;">Logistik-modulet er under udvikling</div>
+                  <div style="font-size:13px;max-width:420px;margin:0 auto;line-height:1.5;">Indtil videre bookes bud direkte fra hver bon — åbn en bon og brug "📦 BESTIL BUD"-sektionen i drawer.</div>
+                </div>
+                <div style="background:#fef3d6;border-left:3px solid var(--color-orange,#e8a832);padding:14px 18px;border-radius:6px;font-size:13px;color:#6b4f1a;line-height:1.6;">
+                  <b>Planlagt indhold (Spor 2):</b>
+                  <ul style="margin-top:8px;padding-left:20px;margin-bottom:0;">
+                    <li><b>I dag</b> — dagens leveringer med live-status</li>
+                    <li><b>Ruter</b> — auto-genererede ruter via OSRM/VROOM</li>
+                    <li><b>Tracking</b> — live position fra mobile-courier app</li>
+                    <li><b>Bud</b> — egne cyklister + eksterne services</li>
+                  </ul>
+                </div>
+              </div>
+            `;
+          },
+          cleanup: () => {},
+        },
       };
+
+      // ──────────────────────────────────────────────────────────────────────
+      // PILLS — sub-navigation per section (Fase 2)
+      //
+      // Tom array = ingen pills for sektionen (dashboard, tilbud, logistik
+      // vises uden pills i toppen, men logistik har dem som dokumentation).
+      // ──────────────────────────────────────────────────────────────────────
+      const PILLS = {
+        dashboard: null,
+        bons: [
+          { id: 'liste', label: 'Liste', def: true },
+          { id: 'kalender', label: 'Kalender' },
+          { id: 'uge', label: 'Ugeoversigt' },
+          { id: 'plan', label: 'Planlægning' },
+          { id: 'nye', label: 'Nye', badge: 'bons_nye' },
+        ],
+        crm: [
+          { id: 'pipeline', label: 'Pipeline', def: true },
+          { id: 'kontakter', label: 'Kontakter' },
+          { id: 'indbakke', label: 'Indbakke', badge: 'crm_indbakke' },
+          { id: 'prospekter', label: 'Prospekter' },
+          { id: 'reakt', label: 'Re-aktivering' },
+          { id: 'indsigt', label: 'Indsigt' },
+        ],
+        tilbud: null,
+        logistik: null,  // pills udeladt indtil Spor 2 — placeholderen viser hele listen
+        indkob: [
+          { id: 'liste', label: 'Indkøbsliste', def: true },
+          { id: 'best', label: 'Bestillinger' },
+          { id: 'lev', label: 'Leverandører' },
+          { id: 'post', label: 'Leverandørpost', badge: 'indkob_leverandorpost' },
+        ],
+        okonomi: [
+          { id: 'fakt', label: 'Fakturering', def: true, badge: 'okonomi_fakturering' },
+          { id: 'penge', label: 'Pengestrøm' },
+          { id: 'rap', label: 'Rapporter' },
+        ],
+      };
+
+      // SECTION_VIEW_MAP — oversætter (sidebar-section, pill) → internt view-navn
+      // Fase 3 erstatter dette med router-filer pr. sektion.
+      const SECTION_VIEW_MAP = {
+        dashboard: { _default: 'dashboard' },
+        bons: {
+          _default: 'bons',
+          liste: 'bons',
+          kalender: 'calendar',
+          uge: 'ugeoversigt',
+          plan: 'planning',
+          nye: 'web-orders',
+        },
+        crm: {
+          _default: 'crm-dashboard',
+          pipeline: 'crm-dashboard',
+          kontakter: 'kontakter',
+          indbakke: 'crm-inbox',
+          prospekter: 'crm-prospekter',
+          reakt: 'crm-reaktivering',
+          indsigt: 'crm-kundeindsigt',
+        },
+        tilbud: { _default: 'tilbud' },
+        logistik: { _default: 'logistik' },
+        indkob: {
+          _default: 'indkob-liste',
+          liste: 'indkob-liste',
+          best: 'indkob-liste',
+          lev: 'indkob-lev',
+          post: 'leverandorpost',
+        },
+        okonomi: {
+          _default: 'fakturering',
+          fakt: 'fakturering',
+          penge: 'cashflow',
+          rap: 'rapporter',
+        },
+      };
+
+      // Reverse-map: gammel-view-navn → ny (section, pill) for bagudkompat
+      const REVERSE_MAP = {};
+      Object.entries(SECTION_VIEW_MAP).forEach(([section, pills]) => {
+        Object.entries(pills).forEach(([pill, view]) => {
+          if (pill === '_default') return;
+          if (!REVERSE_MAP[view]) REVERSE_MAP[view] = { section, pill };
+        });
+      });
+
+      function getDefaultPill(section) {
+        const pills = PILLS[section];
+        if (!pills) return null;
+        return pills.find(p => p.def)?.id || pills[0].id;
+      }
+
+      function resolvePill(section, requested) {
+        const pills = PILLS[section];
+        if (!pills) return null;
+        if (requested && pills.some(p => p.id === requested)) return requested;
+        return getDefaultPill(section);
+      }
+
+      function renderPills(section, activePill) {
+        const pillsEl = document.getElementById('office-pills');
+        const pills = PILLS[section];
+        if (!pills || pills.length === 0) {
+          pillsEl.style.display = 'none';
+          pillsEl.innerHTML = '';
+          return;
+        }
+        pillsEl.style.display = '';
+        pillsEl.innerHTML = pills.map(p => `
+          <button class="pill ${p.id === activePill ? 'active' : ''}" data-pill="${p.id}">
+            ${p.label}
+            ${p.badge ? `<span class="pill-badge" data-badge="${p.badge}" style="display:none"></span>` : ''}
+          </button>
+        `).join('');
+        pillsEl.querySelectorAll('.pill').forEach(btn => {
+          btn.addEventListener('click', () => switchSection(section, btn.dataset.pill));
+        });
+        renderBadges();
+      }
+
+      // Hjælpefunktion: bind sidebar-klik via section-navn (bons, crm, ...)
+      // Internt oversætter den til (internal view, pill) via SECTION_VIEW_MAP.
+      let _currentSection = null;
+      let _currentPill = null;
+      function switchSection(section, requestedPill) {
+        const map = SECTION_VIEW_MAP[section];
+        if (!map) { console.warn('Ukendt section:', section); return; }
+        const pill = resolvePill(section, requestedPill);
+        const viewKey = (pill && map[pill]) || map._default;
+        _currentSection = section;
+        _currentPill = pill;
+        // Markér aktiv sidebar-item baseret på section
+        document.querySelectorAll('.sidebar-link[data-view]').forEach(btn => {
+          btn.classList.toggle('active', btn.dataset.view === section);
+        });
+        // Render pills + URL-sync
+        renderPills(section, pill);
+        const url = new URL(window.location);
+        url.searchParams.set('view', section);
+        if (pill) url.searchParams.set('pill', pill); else url.searchParams.delete('pill');
+        history.pushState({}, '', url);
+        // Skift internt view (gamle switchView håndterer cleanup)
+        switchView(viewKey);
+      }
+      window.switchSection = switchSection;
 
       // pushState bruges når brugeren navigerer mellem views, så browserens
       // tilbage-knap (eller swipe-gesture) bringer dem tilbage til forrige
@@ -772,11 +1086,10 @@
       };
 
       window.switchView = function switchView(viewName) {
-        // Backwards-compat: gamle bookmarks/links
+        // Backwards-compat: gamle bookmarks/links → sektion+pill
         if (viewName === 'kunder' || viewName === 'crm-kunde360') {
           viewName = 'kontakter';
           const url = new URL(window.location);
-          url.searchParams.set('view', 'kontakter');
           if (!url.searchParams.has('tab')) url.searchParams.set('tab', 'personer');
           history.replaceState({}, '', url);
         }
@@ -791,14 +1104,32 @@
         contentEl.innerHTML = '';
         _currentView = viewName;
 
-        // Update sidebar active state
+        // Bevar _currentSection/_currentPill hvis switchSection lige har sat
+        // dem korrekt (undgår URL-flicker når flere pills mapper til samme view,
+        // fx indkob.liste + indkob.best → 'indkob-liste'). Ellers udled via
+        // REVERSE_MAP for direkte switchView('tilbud')-kald m.fl.
+        const expected = _currentSection && SECTION_VIEW_MAP[_currentSection]
+          ? (SECTION_VIEW_MAP[_currentSection][_currentPill] || SECTION_VIEW_MAP[_currentSection]._default)
+          : null;
+        if (expected !== viewName) {
+          const meta = REVERSE_MAP[viewName] || { section: viewName, pill: null };
+          _currentSection = meta.section;
+          _currentPill = meta.pill || (PILLS[meta.section] ? getDefaultPill(meta.section) : null);
+        }
+
+        // Update sidebar active state — baseret på section, ikke internt view
         document.querySelectorAll('.sidebar-link[data-view]').forEach(btn => {
-          btn.classList.toggle('active', btn.dataset.view === viewName);
+          btn.classList.toggle('active', btn.dataset.view === _currentSection);
         });
 
-        // Update URL
+        // Update pills-row (skjuler sig selv hvis sektionen ikke har pills)
+        renderPills(_currentSection, _currentPill);
+
+        // Update URL — bevar drawer-param hvis sat
         const url = new URL(window.location);
-        url.searchParams.set('view', viewName);
+        url.searchParams.set('view', _currentSection);
+        if (_currentPill) url.searchParams.set('pill', _currentPill);
+        else url.searchParams.delete('pill');
         if (!url.searchParams.has('bon')) {
           history.replaceState({}, '', url);
         }
@@ -824,63 +1155,67 @@
         views[viewName]?.init();
       }
 
-      // Sidebar click handlers
+      // ─── Sidebar click handlers ─────────────────────────
+      // Klik på sidebar-section bruger den nye switchSection (med pills).
+      // Hvis data-view ikke matcher en kendt section, falder vi tilbage til
+      // gamle switchView (kompatibilitet for fremtidige eksterne kald).
       document.querySelectorAll('.sidebar-link[data-view]').forEach(btn => {
-        btn.addEventListener('click', () => switchView(btn.dataset.view));
+        btn.addEventListener('click', () => {
+          const v = btn.dataset.view;
+          if (SECTION_VIEW_MAP[v]) {
+            switchSection(v);  // ny model: section → default pill
+          } else {
+            switchView(v);     // legacy fallback
+          }
+        });
       });
 
-      // Invoice badge
-      async function updateInvoiceBadge() {
+      // ─── Badges (Fase 6: SSE-debounced live-opdatering) ────
+      // Erstatter de tidligere separate updateInvoiceBadge / updateWebOrdersBadge /
+      // updateSiBadge-funktioner. Ét endpoint, ét cache, ét opdateringsevent.
+      let _badgesCache = {};
+      let _badgeReloadTimer = null;
+      async function loadNavBadges() {
         try {
-          const data = await fetchInvoiceQueue(false);
-          const badge = document.getElementById('invoice-badge');
-          if (badge && data.summary.pending_count > 0) {
-            badge.textContent = data.summary.pending_count;
-            badge.style.display = '';
-          } else if (badge) {
-            badge.style.display = 'none';
-          }
-        } catch (_) {}
+          const data = await apiFetch('/nav/badges');
+          _badgesCache = data || {};
+          renderBadges();
+        } catch (e) { console.warn('[nav/badges]', e?.message || e); }
       }
-      updateInvoiceBadge();
-
-      // Web-orders badge (#042)
-      async function updateWebOrdersBadge() {
-        try {
-          const rows = await fetchPendingWebOrders();
-          const badge = document.getElementById('web-orders-badge');
-          if (badge && rows.length > 0) {
-            badge.textContent = rows.length;
-            badge.style.display = '';
-          } else if (badge) {
-            badge.style.display = 'none';
+      function renderBadges() {
+        document.querySelectorAll('[data-badge]').forEach(el => {
+          const key = el.dataset.badge;
+          const val = _badgesCache[key] || 0;
+          if (val > 0) {
+            el.textContent = val > 999 ? '999+' : val;
+            el.style.display = '';
+          } else {
+            el.style.display = 'none';
           }
-        } catch (_) {}
+        });
       }
-      window.updateWebOrdersBadge = updateWebOrdersBadge;
-      updateWebOrdersBadge();
-
-      // Supplier inbox badge
-      async function updateSiBadge() {
-        try {
-          const threads = await fetchOrderMailThreads({ unread_only: true });
-          const badge = document.getElementById('si-badge');
-          if (badge && threads.length > 0) {
-            let total = 0;
-            threads.forEach(t => total += (t.unread_count || 0));
-            badge.textContent = total;
-            badge.style.display = total > 0 ? '' : 'none';
-          } else if (badge) {
-            badge.style.display = 'none';
-          }
-        } catch (_) {}
+      function scheduleBadgeReload() {
+        if (_badgeReloadTimer) clearTimeout(_badgeReloadTimer);
+        _badgeReloadTimer = setTimeout(loadNavBadges, 300);
       }
-      updateSiBadge();
+      window.loadNavBadges = loadNavBadges;
+      window.scheduleBadgeReload = scheduleBadgeReload;
+      loadNavBadges();
 
-      // Determine initial view from URL
+      // ─── Initial view fra URL ──────────────────────────
+      // Parser ?view=<section>&pill=<pill>. Hvis view er en kendt section,
+      // bruger vi switchSection (giver default-pill hvis pill mangler).
+      // Ellers er det et gammelt view-navn — fallback til switchView.
       const params = new URLSearchParams(window.location.search);
       const initialView = params.get('view') || 'dashboard';
-      switchView(views[initialView] ? initialView : 'dashboard');
+      const initialPill = params.get('pill') || null;
+      if (SECTION_VIEW_MAP[initialView]) {
+        switchSection(initialView, initialPill);
+      } else if (views[initialView]) {
+        switchView(initialView);
+      } else {
+        switchSection('dashboard');
+      }
 
       // Open drawer from URL
       const bonIdFromUrl = params.get('bon');
@@ -890,12 +1225,22 @@
       window.addEventListener('popstate', () => {
         const p = new URLSearchParams(window.location.search);
         const v = p.get('view') || 'dashboard';
-        if (v !== _currentView) {
+        const pill = p.get('pill') || null;
+        // Hvis section/pill ændrer sig, naviger via switchSection
+        if (SECTION_VIEW_MAP[v]) {
+          if (v !== _currentSection || pill !== _currentPill) {
+            switchSection(v, pill);
+          } else if (views[_currentView]) {
+            // Samme section+pill men andre params (fx customer/tab på kontakter).
+            // Force re-init så de nye params tages i brug.
+            if (views[_currentView].cleanup) views[_currentView].cleanup();
+            contentEl.innerHTML = '';
+            const viewKey = _currentView; _currentView = null;
+            switchView(viewKey);
+          }
+        } else if (v !== _currentView) {
           switchView(v);
         } else if (views[v]) {
-          // Samme view, men URL-params kan have ændret sig (fx customer
-          // eller filter på bons-list). Force re-init så de nye params
-          // tages i brug.
           if (views[v].cleanup) views[v].cleanup();
           contentEl.innerHTML = '';
           _currentView = null;
@@ -924,7 +1269,7 @@
           if (typeof _uoHandleSSE === 'function') _uoHandleSSE('bon_created', data);
           if (typeof _tilbudHandleSSE === 'function') _tilbudHandleSSE('bon_created', data);
           if (typeof _woHandleSSE === 'function') _woHandleSSE('bon_created', data);
-          if (typeof updateWebOrdersBadge === 'function') updateWebOrdersBadge();
+          scheduleBadgeReload();  // bons_nye + tilbud_aktive + okonomi_fakturering kan ændre sig
         },
         bon_updated: (data) => {
           if (typeof _blHandleBonUpdated === 'function') _blHandleBonUpdated(data);
@@ -934,13 +1279,14 @@
           if (typeof _uoHandleSSE === 'function') _uoHandleSSE('bon_updated', data);
           if (typeof _tilbudHandleSSE === 'function') _tilbudHandleSSE('bon_updated', data);
           if (typeof _woHandleSSE === 'function') _woHandleSSE('bon_updated', data);
-          if (typeof updateWebOrdersBadge === 'function') updateWebOrdersBadge();
+          scheduleBadgeReload();  // acknowledge-flag på bons_nye kan ændre sig
         },
         bon_status: (data) => {
           if (typeof _dashHandleSSE === 'function') _dashHandleSSE('bon_status', data);
           if (typeof _faktHandleSSE === 'function') _faktHandleSSE('bon_status', data);
           if (typeof _rapportHandleSSE === 'function') _rapportHandleSSE('bon_status', data);
           if (typeof _uoHandleSSE === 'function') _uoHandleSSE('bon_status', data);
+          scheduleBadgeReload();  // LEVERET → fakturering-køen
         },
         crm_activity_created: (data) => {
           if (typeof _crmDashHandleSSE === 'function') _crmDashHandleSSE('crm_activity_created', data);
@@ -961,21 +1307,26 @@
         },
         mail_unmatched: (data) => {
           if (typeof _inbHandleSSE === 'function') _inbHandleSSE('mail_unmatched', data);
+          scheduleBadgeReload();  // crm_indbakke
         },
         // quote_created / quote_updated fjernet i Patch I (maj 2026).
         // Backend sender bon_*-events også for tilbud (jf. Patch F). _tilbudHandleSSE
         // er nu wired ind i bon_created/bon_updated-handlerne ovenfor.
         po_mail_received: (data) => {
           if (typeof _siHandleSSE === 'function') _siHandleSSE('po_mail_received', data);
+          scheduleBadgeReload();  // indkob_leverandorpost
         },
         po_mail_sent: (data) => {
           if (typeof _siHandleSSE === 'function') _siHandleSSE('po_mail_sent', data);
+          scheduleBadgeReload();  // unread → read kan trigger genberegning
         },
         supplier_mail_received: (data) => {
           if (typeof _siHandleSSE === 'function') _siHandleSSE('supplier_mail_received', data);
+          scheduleBadgeReload();  // indkob_leverandorpost
         },
         supplier_mail_sent: (data) => {
           if (typeof _siHandleSSE === 'function') _siHandleSSE('supplier_mail_sent', data);
+          scheduleBadgeReload();
         },
       });
     })();
