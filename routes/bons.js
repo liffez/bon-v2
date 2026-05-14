@@ -187,12 +187,18 @@ router.get('/', handle((req, res) => {
 
 // ─── GET /api/bons/new — Nye-listen (mobile) ───────────────────────────────
 //
-// Union af to event-typer sorteret efter event-tidspunkt DESC:
-//   • new_bon     → bons.created_at > users.new_bons_last_seen_at
+// "Nye" er en pending-inbox, ikke et tidsbaseret feed (beslutning 12,
+// 14. maj 2026). Den viser kun arbejde der endnu ikke er håndteret:
+//   • new_bon     → bons.status_code = 'NY' (ikke yet handled)
 //   • unread_mail → mail_messages.is_read=0 AND direction='in'
-//                   (joinet mod mail_threads.bon_id IS NOT NULL)
 //
-// Default fallback: hvis last_seen_at IS NULL, vis events fra de seneste 7 dage.
+// Når en bons status ændres (NY → GODKENDT, VENTER_INFO osv.), forsvinder
+// den fra Nye-listen automatisk. Mails forsvinder når nogen markerer dem
+// som læst i office (eller andetsteds).
+//
+// Mail-filteret beholder en 7-dages tærskel på received_at for at undgå
+// at v1-migrerede gamle ulæste mails fylder feedet.
+//
 // Source ('web' / 'manual') bestemmes ved JOIN mod web_orders.bon_id.
 //
 // ?count_only=1   → return { count: N } — hurtigt badge-load
@@ -218,21 +224,18 @@ router.get('/new', handle((req, res) => {
     const userId = req.session?.userId ?? null;
     if (!userId) return res.status(401).json({ error: 'Ikke logget ind' });
 
-    // Hent brugerens last_seen_at — falder tilbage til 7 dage hvis NULL
-    const user = db.prepare('SELECT new_bons_last_seen_at FROM users WHERE id = ?').get(userId);
-    const lastSeenAt = user?.new_bons_last_seen_at ?? null;
-    const fallback7Days = new Date(Date.now() - 7 * 24 * 3600 * 1000).toISOString().replace('T', ' ').slice(0, 19);
-    const since = lastSeenAt ?? fallback7Days;
+    // 7-dages cap på mails — beskytter mod v1-migrerede gamle mails der
+    // aldrig blev markeret som læst.
+    const mailFloor = new Date(Date.now() - 7 * 24 * 3600 * 1000).toISOString().replace('T', ' ').slice(0, 19);
 
-    // count_only — hurtig badge-load.
-    // Mail-tællingen er afgrænset til received_at > since for at undgå at
-    // v1-migrerede ulæste mails (eller historiske mails der aldrig blev markeret
-    // læst i UI'et) fylder badget. Samme tærskel bruges for bons.
+    // count_only — hurtig badge-load
     if (req.query.count_only === '1') {
         const newBonCount = db.prepare(`
-            SELECT COUNT(*) AS n FROM bons
-            WHERE created_at > ? AND (is_offer = 0 OR is_offer IS NULL)
-        `).get(since).n;
+            SELECT COUNT(*) AS n
+            FROM bons b
+            JOIN status_definitions sd ON b.status_id = sd.id
+            WHERE sd.code = 'NY' AND (b.is_offer = 0 OR b.is_offer IS NULL)
+        `).get().n;
         const mailCount = db.prepare(`
             SELECT COUNT(*) AS n
             FROM mail_messages mm
@@ -240,18 +243,17 @@ router.get('/new', handle((req, res) => {
             WHERE mm.direction = 'in' AND mm.is_read = 0
               AND mt.bon_id IS NOT NULL
               AND mm.received_at > ?
-        `).get(since).n;
-        return res.json({ count: newBonCount + mailCount, last_seen_at: lastSeenAt });
+        `).get(mailFloor).n;
+        return res.json({ count: newBonCount + mailCount, last_seen_at: null });
     }
 
     const limit  = Math.min(parseInt(req.query.limit)  || 30, 100);
     const offset = parseInt(req.query.offset) || 0;
 
     // Hent flere end limit fra hver side, merge i JS, slice til limit+offset.
-    // Mængden er typisk lille; UNION+sort i SQLite ville give samme resultat,
-    // men JS-merge er nemmere at læse og giver bedre kontrol over felterne.
     const fetchSize = limit + offset + 30;  // buffer til offset
 
+    // Pending bons: status NY (ikke handlet endnu)
     const newBons = db.prepare(`
         SELECT
             b.id, b.bon_number, b.created_at AS event_at,
@@ -265,15 +267,14 @@ router.get('/new', handle((req, res) => {
         JOIN status_definitions sd ON b.status_id = sd.id
         LEFT JOIN customers c ON b.customer_id = c.id
         LEFT JOIN companies co ON b.company_id = co.id
-        WHERE b.created_at > ?
+        WHERE sd.code = 'NY'
           AND (b.is_offer = 0 OR b.is_offer IS NULL)
         ORDER BY b.created_at DESC
         LIMIT ?
-    `).all(since, fetchSize);
+    `).all(fetchSize);
 
-    // Filter mm.received_at > since beskytter mod at v1-migrerede gamle mails
-    // (eller mails der bare aldrig blev markeret læst i et tidligere UI)
-    // pludselig dukker op i Nye-feedet. Samme tærskel som bons.created_at.
+    // Ulæste indkommende mails knyttet til bons (alle bon-statusser — også
+    // mails på handlede bons skal kunne ses, så ingen status-filter her)
     const unreadMails = db.prepare(`
         SELECT
             mm.id AS mail_id, mt.bon_id, mm.subject, mm.body_text, mm.from_email,
@@ -293,14 +294,14 @@ router.get('/new', handle((req, res) => {
           AND (b.is_offer = 0 OR b.is_offer IS NULL)
         ORDER BY mm.received_at DESC
         LIMIT ?
-    `).all(since, fetchSize);
+    `).all(mailFloor, fetchSize);
 
     const events = [];
     for (const b of newBons) {
         events.push({
             event_type: 'new_bon',
             event_at:   b.event_at,
-            seen:       lastSeenAt && b.event_at <= lastSeenAt,
+            seen:       false,  // alle status=NY bons er per definition pending
             bon: {
                 id: b.id, bon_number: b.bon_number,
                 contact_name_full: b.contact_name_full || null,
@@ -346,7 +347,7 @@ router.get('/new', handle((req, res) => {
     const page  = events.slice(offset, offset + limit);
 
     res.json({
-        last_seen_at: lastSeenAt,
+        last_seen_at: null,  // ikke længere brugt i status-NY modellen
         count: total,
         has_more: total > offset + limit,
         events: page,
@@ -354,17 +355,15 @@ router.get('/new', handle((req, res) => {
 }));
 
 // ─── POST /api/bons/mark-all-seen ───────────────────────────────────────────
-// Sætter brugerens new_bons_last_seen_at til NOW().
-// Rører IKKE bon_mails.is_read — det er bevidst (jf. beslutning 2 i spec).
+// No-op i status-NY-modellen (beslutning 12, 14. maj 2026). Items forsvinder
+// kun fra Nye-listen ved reel handling — bons skal have deres status ændret,
+// mails skal markeres læst. Endpointet er bevaret for bagudkompatibilitet
+// med cachede klient-builds.
 
 router.post('/mark-all-seen', handle((req, res) => {
-    const db = getDb();
     const userId = req.session?.userId ?? null;
     if (!userId) return res.status(401).json({ error: 'Ikke logget ind' });
-
-    const now = new Date().toISOString().replace('T', ' ').slice(0, 19);
-    db.prepare('UPDATE users SET new_bons_last_seen_at = ? WHERE id = ?').run(now, userId);
-    res.json({ ok: true, last_seen_at: now });
+    res.json({ ok: true });
 }));
 
 // ─── POST /api/bons/:id/mark-seen ──────────────────────────────────────────

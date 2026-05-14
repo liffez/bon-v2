@@ -25,11 +25,9 @@ var _mbDetailBon = null;
 /* Nye-tab state — _mbNyeCount initialiseres fra global hvis tilgængelig
    (sat af initial count_only-kald i mobile/index.html) */
 var _mbNyeEvents = [];          // alle hentede events (kan vokse via "Vis flere")
-var _mbNyeLastSeenAt = null;    // string ISO eller null — fra users.new_bons_last_seen_at
 var _mbNyeCount = (typeof window !== 'undefined' && window._mNewBonsCount) || 0;
 var _mbNyeHasMore = false;
 var _mbNyeOffset = 0;
-var _mbObserver = null;         // IntersectionObserver til auto-mark
 
 /* Søg state */
 var _mbSearchActive = false;
@@ -72,7 +70,6 @@ async function initMobileBons(container, user) {
 }
 
 function cleanupMobileBons() {
-    if (_mbObserver) { _mbObserver.disconnect(); _mbObserver = null; }
     if (_mbSearchTimer) { clearTimeout(_mbSearchTimer); _mbSearchTimer = null; }
     _mbContainer = null;
 }
@@ -261,7 +258,6 @@ async function _mbLoadNye(append) {
 
     try {
         var data = await apiFetch('/bons/new?limit=30&offset=' + _mbNyeOffset);
-        _mbNyeLastSeenAt = data.last_seen_at;
         _mbNyeCount = data.count || 0;
         _mbNyeHasMore = !!data.has_more;
         var fresh = data.events || [];
@@ -283,23 +279,16 @@ function _mbRenderNye() {
         list.innerHTML =
             '<div class="m-bon-empty m-nye-empty">' +
                 '<div class="m-nye-empty-emoji">🎉</div>' +
-                '<div>Du er fanget op — ingen nye bonner eller mails siden sidst.</div>' +
+                '<div>Fanget op — ingen pending bons eller ulæste mails.</div>' +
             '</div>';
         return;
     }
 
-    var seenLabel = _mbNyeLastSeenAt
-        ? 'siden ' + _mbFormatLastSeen(_mbNyeLastSeenAt)
-        : 'fra de seneste 7 dage';
-    var unseenCount = _mbNyeEvents.filter(function(ev) { return !ev.seen; }).length;
+    // Pending-inbox-model: items forsvinder kun ved reel handling
+    // (status-skift eller mail markeret som læst). Ingen "Marker alle læst".
+    var html = '';
 
-    var html =
-        '<div class="m-meta">' +
-            '<span>' + unseenCount + ' nye ' + seenLabel + '</span>' +
-            '<button class="m-meta-action" id="mbMarkAll">Marker alle læst</button>' +
-        '</div>';
-
-    // Gruppér events i tidsbuckets
+    // Gruppér events i tidsbuckets (efter created_at hhv. received_at)
     var groups = _mbGroupEventsByTime(_mbNyeEvents);
     ['now', 'today', 'yesterday', 'older'].forEach(function(key) {
         if (!groups[key].length) return;
@@ -310,26 +299,20 @@ function _mbRenderNye() {
     });
 
     if (_mbNyeHasMore) {
-        html += '<button class="m-show-more" id="mbShowMore">Vis flere ældre ↓</button>';
+        html += '<button class="m-show-more" id="mbShowMore">Vis flere ↓</button>';
     }
 
     list.innerHTML = html;
 
-    // Handlers
-    document.getElementById('mbMarkAll').addEventListener('click', _mbMarkAllSeen);
     var moreBtn = document.getElementById('mbShowMore');
     if (moreBtn) moreBtn.addEventListener('click', function() { _mbLoadNye(true); });
 
     list.querySelectorAll('.m-bon-item').forEach(function(el) {
-        el.addEventListener('click', function(e) {
-            // Undgå at klik på "Marker alle læst"-knappen åbner kortet
-            if (e.target.closest('.m-meta-action')) return;
+        el.addEventListener('click', function() {
             _mbFromSearch = false;
             _mbShowDetail(parseInt(el.dataset.bonId));
         });
     });
-
-    _mbSetupNyeObserver();
 }
 
 function _mbRenderNyeCard(ev) {
@@ -359,9 +342,11 @@ function _mbRenderNyeCard(ev) {
         srcLabel = 'Manuel';
     }
 
-    var classes = 'm-bon-item m-bon-nye';
-    if (!ev.seen) classes += ' unseen';
-    if (isMail)   classes += ' mail';
+    // Alle items i pending-inboxen er per definition uset/pending →
+    // rød kant via .unseen. Forsvinder først når status ændres eller
+    // mail markeres læst (server-side handling).
+    var classes = 'm-bon-item m-bon-nye unseen';
+    if (isMail) classes += ' mail';
 
     var name = bon.contact_name_full || bon.company_name || 'Ukendt';
     if (bon.contact_name_full && bon.company_name) {
@@ -441,82 +426,12 @@ function _mbFormatDeliveryShort(dateStr, timeStr) {
     return s;
 }
 
-function _mbFormatLastSeen(iso) {
-    if (!iso) return '';
-    var t = new Date(iso.replace(' ', 'T'));
-    var todayStart = new Date(); todayStart.setHours(0,0,0,0);
-    var hhmm = String(t.getHours()).padStart(2,'0') + ':' + String(t.getMinutes()).padStart(2,'0');
-    if (t >= todayStart) return 'i dag kl. ' + hhmm;
-    var yesterdayStart = new Date(todayStart.getTime() - 24 * 3600 * 1000);
-    if (t >= yesterdayStart) return 'i går kl. ' + hhmm;
-    return t.getDate() + '/' + (t.getMonth() + 1) + ' kl. ' + hhmm;
-}
-
-/* ── Auto-mark-som-set (IntersectionObserver) ── */
-function _mbSetupNyeObserver() {
-    if (_mbObserver) _mbObserver.disconnect();
-
-    _mbObserver = new IntersectionObserver(function(entries) {
-        entries.forEach(function(entry) {
-            var el = entry.target;
-            if (entry.intersectionRatio > 0.5) {
-                if (el.dataset.seenTimer || el.dataset.alreadySeen === '1') return;
-                // Respektér document.visibilityState — undgå at markere alt
-                // når skærmen er tændt i lommen
-                if (document.visibilityState !== 'visible') return;
-                el.dataset.seenTimer = setTimeout(function() {
-                    _mbMarkSeen(
-                        el.dataset.eventType,
-                        parseInt(el.dataset.bonId),
-                        el.dataset.mailId ? parseInt(el.dataset.mailId) : null
-                    );
-                    el.classList.remove('unseen');
-                    el.dataset.alreadySeen = '1';
-                    delete el.dataset.seenTimer;
-                }, 2000);
-            } else {
-                if (el.dataset.seenTimer) {
-                    clearTimeout(el.dataset.seenTimer);
-                    delete el.dataset.seenTimer;
-                }
-            }
-        });
-    }, { threshold: 0.5 });
-
-    document.querySelectorAll('.m-bon-nye.unseen').forEach(function(el) {
-        _mbObserver.observe(el);
-    });
-}
-
-// Auto-mark er nu rent visuel feedback — fader den røde kant client-side.
-// Vi rører IKKE serverens last_seen_at eller mail_messages.is_read, fordi
-// scrolling forbi et kort ikke er en "handling". Persistent dismissal sker
-// kun via "Marker alle læst"-knappen (beslutning 11, 14. maj 2026).
-//
-// Funktionen bevares som no-op for at undgå at skulle ændre observer-koden.
-function _mbMarkSeen(/* eventType, bonId, mailId */) {
-    // No-op. Visual fade håndteres af observer'en via classList.remove('unseen').
-}
-
-async function _mbMarkAllSeen() {
-    try {
-        await apiFetch('/bons/mark-all-seen', { method: 'POST' });
-    } catch (e) {
-        if (window._mToast) window._mToast('Kunne ikke markere som læst');
-        return;
-    }
-    if (window._mToast) window._mToast('Markeret som læst');
-    _mbNyeCount = 0;
-    _mbUpdateBadges(0);
-    // Fade alle unseen-kort visuelt — bliver liggende indtil næste fetch (decision 10)
-    document.querySelectorAll('.m-bon-nye.unseen').forEach(function(el) {
-        el.classList.remove('unseen');
-        el.dataset.alreadySeen = '1';
-    });
-    // Opdater meta-bar
-    var meta = _mbContainer.querySelector('.m-meta span');
-    if (meta) meta.textContent = '0 nye siden lige nu';
-}
+// Beslutning 12 (14. maj 2026): pending-inbox-model.
+// Items i Nye-listen forsvinder KUN ved reel handling — bons skal have
+// deres status ændret (NY → noget andet), mails skal markeres som læst.
+// Derfor er der ingen auto-mark IntersectionObserver, ingen visuel seen-
+// state, og ingen "Marker alle læst"-knap længere. Alle kort vises som
+// rød kant indtil de håndteres et andet sted i systemet.
 
 /* ── Badge-opdatering ── */
 function _mbUpdateBadges(count) {

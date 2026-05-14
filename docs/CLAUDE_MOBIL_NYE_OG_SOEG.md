@@ -604,6 +604,33 @@ Efter Q&A med Leif:
     - `POST /api/bons/:id/mark-seen` er bevaret som no-op for bagudkompatibilitet med cachede klient-builds; returnerer `{ ok: true }` uden state-ændring
     - `POST /api/bons/mark-all-seen` er uændret — den eksplicitte "jeg er færdig"-handling der advancer `last_seen_at = NOW()`
 
+    **Erstattet 14. maj 2026 af beslutning 12.**
+
+12. **Pending-inbox-model (revideret 14. maj 2026)** — Beslutning 11's "tidsbaserede feed" viste sig at være forkert mental model. Nye-tabben er nu en pending-inbox: den viser kun arbejde der endnu ikke er håndteret.
+
+    **Filter:**
+    - Bons: `status_code = 'NY' AND is_offer = 0` (intet tidsfilter — pending arbejde udløber ikke)
+    - Mails: `is_read = 0 AND direction = 'in'` + 7-dages cap på `received_at` (beskyttelse mod v1-residue)
+
+    **Adfærd:**
+    - Web-ordre lander → status NY → dukker op i Nye
+    - Office (eller anden bruger) ændrer status til hvad-som-helst-andet (GODKENDT, VENTER_INFO, AFLYST osv.) → bonen forsvinder fra Nye automatisk
+    - Mail markeres som læst (i office, mail-detail, eller hvor som helst) → forsvinder fra Nye
+    - Søg-luppen er til at finde **andre** bons (alt der ikke er pending)
+
+    **Fjernet:**
+    - "Marker alle læst"-knappen — items forsvinder kun ved reel handling
+    - IntersectionObserver auto-mark — der er ingen visuel "set"-state i en pending-inbox
+    - Alle kort vises altid med rød kant (unseen-styling) indtil de håndteres
+
+    **Bevaret:**
+    - `users.new_bons_last_seen_at`-kolonnen er ubrugt nu, men beholdes for forwards-compat (kunne bruges til fx en "snooze"-feature senere)
+    - `POST /api/bons/:id/mark-seen` og `POST /api/bons/mark-all-seen` er no-ops, bevaret for bagudkompatibilitet med cachede klient-builds
+
+    **Migration 065** nulstillede alle brugeres `new_bons_last_seen_at` til NULL — beskyttede mod residue fra beslutning 10/11-perioden.
+
+    **Migrations-konsekvens:** Hvis du senere ønsker at slette `new_bons_last_seen_at`-kolonnen, kan det gøres i en ny migration. Indtil da: harmless overhead.
+
 ---
 
 *Spec slutter her. Beslutninger ovenfor er autoritative ved implementering.*
