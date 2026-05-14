@@ -44,17 +44,17 @@
     <div class="m-toast" id="mToast"></div>
 
     <!-- Scripts (cache-bust via build-tag — bumpes ved deploy) -->
-    <script>window.__MV = '2026-05-04-1';</script>
-    <script src="/BonConfig.js?v=2026-05-04-1"></script>
-    <script src="/shared/utils.js?v=2026-05-04-1"></script>
-    <script src="/shared/api.js?v=2026-05-04-1"></script>
-    <script src="/shared/varemodtagelse.js?v=2026-05-04-1"></script>
-    <script src="/shared/inventory_check.js?v=2026-05-04-1"></script>
-    <script src="/mobile/views/bons.js?v=2026-05-04-1"></script>
-    <script src="/mobile/views/modtag.js?v=2026-05-04-1"></script>
-    <script src="/mobile/views/lager.js?v=2026-05-04-1"></script>
-    <script src="/mobile/views/crm.js?v=2026-05-04-1"></script>
-    <script src="/mobile/views/oversigt.js?v=2026-05-04-1"></script>
+    <script>window.__MV = '2026-05-14-1';</script>
+    <script src="/BonConfig.js?v=2026-05-14-1"></script>
+    <script src="/shared/utils.js?v=2026-05-14-1"></script>
+    <script src="/shared/api.js?v=2026-05-14-1"></script>
+    <script src="/shared/varemodtagelse.js?v=2026-05-14-1"></script>
+    <script src="/shared/inventory_check.js?v=2026-05-14-1"></script>
+    <script src="/mobile/views/bons.js?v=2026-05-14-1"></script>
+    <script src="/mobile/views/modtag.js?v=2026-05-14-1"></script>
+    <script src="/mobile/views/lager.js?v=2026-05-14-1"></script>
+    <script src="/mobile/views/crm.js?v=2026-05-14-1"></script>
+    <script src="/mobile/views/oversigt.js?v=2026-05-14-1"></script>
     <script>
     (async function() {
         /* ── Auth ── */
@@ -87,8 +87,41 @@
             btn.className = 'm-nav-btn' + (d.view === 'bons' ? ' active' : '');
             btn.dataset.view = d.view;
             btn.innerHTML = '<span class="m-nav-icon">' + d.icon + '</span>' + d.label;
+            if (d.view === 'bons') {
+                var badge = document.createElement('span');
+                badge.className = 'm-nav-badge';
+                badge.id = 'mNavBadgeBons';
+                badge.style.display = 'none';
+                btn.appendChild(badge);
+            }
             nav.appendChild(btn);
         });
+
+        /* ── Bons-badge global helper ── */
+        window._mNewBonsCount = 0;
+        window._mUpdateNewBadge = function(count) {
+            window._mNewBonsCount = count;
+            var badge = document.getElementById('mNavBadgeBons');
+            if (badge) {
+                if (count > 0) {
+                    badge.textContent = count;
+                    badge.style.display = '';
+                } else {
+                    badge.style.display = 'none';
+                }
+            }
+            // Top-tab badge i bons-view (hvis renderet)
+            var tabBadge = document.querySelector('.m-tab[data-tab="new"] .m-tab-badge');
+            var tab = document.querySelector('.m-tab[data-tab="new"]');
+            if (tab) {
+                if (count > 0) {
+                    if (tabBadge) tabBadge.textContent = count;
+                    else tab.insertAdjacentHTML('beforeend', '<span class="m-tab-badge">' + count + '</span>');
+                } else if (tabBadge) {
+                    tabBadge.remove();
+                }
+            }
+        };
 
         /* ── Header dropdown ── */
         var userEl = document.getElementById('headerUser');
@@ -183,6 +216,12 @@
         // Deep-link support
         if (params.get('open') === 'modtag') initial = 'modtag';
         switchView(initial);
+
+        // Hent initial badge-tæller (kun en let count-query, ingen events)
+        fetch('/api/bons/new?count_only=1')
+            .then(function(r) { return r.ok ? r.json() : null; })
+            .then(function(d) { if (d) window._mUpdateNewBadge(d.count || 0); })
+            .catch(function() { /* lydløst */ });
     })();
     </script>
 </body>

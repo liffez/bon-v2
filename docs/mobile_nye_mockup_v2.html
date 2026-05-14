@@ -1,0 +1,533 @@
+<!DOCTYPE html>
+<html lang="da">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Bon v2 — Mobil · Nye (v2)</title>
+<style>
+:root {
+    --brand-primary: #8e631f;
+    --brand-primary-light: #f1e6b2;
+    --color-bg: #f5f4f2;
+    --color-card: #fffdf6;
+    --color-border: #d7d1ca;
+    --color-border-soft: #e5e0d8;
+    --color-text: #2d2620;
+    --color-text-dim: #7a7269;
+    --color-text-soft: #a39a8f;
+
+    --status-ny: #d63031;
+    --status-godkendt: #5fa050;
+    --status-klar: #2d6a2a;
+    --status-igang: #e8a83a;
+    --status-leveret: #888;
+}
+
+* { box-sizing: border-box; margin: 0; padding: 0; }
+body {
+    font-family: 'Lato', -apple-system, BlinkMacSystemFont, sans-serif;
+    background: #d0ccc4;
+    min-height: 100vh;
+    display: flex;
+    align-items: flex-start;
+    justify-content: center;
+    padding: 24px 12px;
+    color: var(--color-text);
+}
+
+/* Phone frame */
+.phone {
+    width: 380px;
+    max-width: 100%;
+    background: var(--color-bg);
+    border-radius: 28px;
+    overflow: hidden;
+    box-shadow: 0 20px 60px rgba(0,0,0,0.25);
+    display: flex;
+    flex-direction: column;
+    height: 820px;
+}
+
+/* Header */
+.m-header {
+    background: var(--brand-primary);
+    color: #fff;
+    padding: 12px 16px;
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    font-size: 15px;
+}
+.m-header-logo { display: flex; align-items: center; gap: 8px; font-weight: 600; }
+.m-header-logo .dot { width: 8px; height: 8px; background: var(--brand-primary-light); border-radius: 50%; }
+.m-header-user { font-size: 13px; opacity: 0.95; }
+
+/* Top tabs + søg */
+.m-tabs-row {
+    display: flex;
+    background: var(--color-card);
+    border-bottom: 1px solid var(--color-border);
+    align-items: stretch;
+}
+.m-tabs {
+    flex: 1;
+    display: flex;
+}
+.m-tab {
+    flex: 1;
+    background: none;
+    border: none;
+    padding: 12px 4px;
+    font-size: 13px;
+    color: var(--color-text-dim);
+    cursor: pointer;
+    border-bottom: 3px solid transparent;
+    font-family: inherit;
+    white-space: nowrap;
+}
+.m-tab.active {
+    color: var(--brand-primary);
+    border-bottom-color: var(--brand-primary);
+    font-weight: 600;
+}
+.m-tab-badge {
+    background: var(--status-ny);
+    color: #fff;
+    font-size: 10px;
+    font-weight: 700;
+    padding: 1px 5px;
+    border-radius: 8px;
+    margin-left: 4px;
+    vertical-align: 1px;
+}
+.m-search-btn {
+    background: none;
+    border: none;
+    border-left: 1px solid var(--color-border);
+    padding: 0 14px;
+    cursor: pointer;
+    color: var(--color-text-dim);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+}
+.m-search-btn svg { width: 18px; height: 18px; }
+
+/* Meta-bar */
+.m-meta {
+    background: var(--brand-primary-light);
+    padding: 8px 16px;
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    font-size: 12px;
+    color: #5a4516;
+    border-bottom: 1px solid #d8ca8a;
+}
+.m-meta-action {
+    background: none;
+    border: 1px solid #b5a05a;
+    color: #5a4516;
+    padding: 4px 10px;
+    border-radius: 12px;
+    font-size: 11px;
+    cursor: pointer;
+    font-family: inherit;
+}
+
+/* Content list */
+.m-content {
+    flex: 1;
+    overflow-y: auto;
+    padding: 8px;
+}
+
+/* Bon item */
+.m-bon-item {
+    background: var(--color-card);
+    border: 1px solid var(--color-border);
+    border-radius: 8px;
+    padding: 10px 12px;
+    margin-bottom: 6px;
+    position: relative;
+    border-left: 3px solid var(--brand-primary);
+}
+.m-bon-item.unseen { border-left-color: var(--status-ny); }
+.m-bon-item.mail   { border-left-color: var(--brand-primary); background: #fbf6e9; }
+
+.m-bon-row1 {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    gap: 8px;
+}
+.m-bon-source {
+    font-size: 12px;
+    color: var(--color-text-dim);
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    line-height: 1;
+}
+.m-bon-source svg {
+    width: 14px;
+    height: 14px;
+    flex-shrink: 0;
+    color: var(--brand-primary);
+}
+
+.m-bon-status {
+    font-size: 10px;
+    font-weight: 700;
+    padding: 2px 7px;
+    border-radius: 4px;
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+    color: #fff;
+    white-space: nowrap;
+}
+.s-ny       { background: var(--status-ny); }
+.s-godkendt { background: var(--status-godkendt); }
+.s-igang    { background: var(--status-igang); color: #4a3a0a; }
+.s-klar     { background: var(--status-klar); }
+.s-leveret  { background: var(--status-leveret); }
+
+.m-bon-customer {
+    font-size: 16px;
+    font-weight: 600;
+    margin: 4px 0 2px;
+    color: var(--color-text);
+}
+.m-bon-mail-preview {
+    font-size: 13px;
+    color: #6a5a3a;
+    font-style: italic;
+    margin: 4px 0;
+    line-height: 1.3;
+    overflow: hidden;
+    display: -webkit-box;
+    -webkit-line-clamp: 2;
+    -webkit-box-orient: vertical;
+}
+.m-bon-meta-line {
+    font-size: 12px;
+    color: var(--color-text-dim);
+    margin-top: 2px;
+}
+.m-bon-when {
+    font-weight: 600;
+    color: var(--color-text);
+}
+
+/* Section header */
+.m-section-head {
+    font-size: 11px;
+    text-transform: uppercase;
+    letter-spacing: 0.8px;
+    color: var(--color-text-soft);
+    padding: 12px 4px 6px;
+    font-weight: 600;
+    display: flex;
+    align-items: center;
+    gap: 8px;
+}
+.m-section-head::after {
+    content: '';
+    flex: 1;
+    height: 1px;
+    background: var(--color-border-soft);
+}
+
+/* Vis flere */
+.m-show-more {
+    width: 100%;
+    background: none;
+    border: 1px dashed var(--color-border);
+    color: var(--color-text-dim);
+    padding: 10px;
+    border-radius: 8px;
+    margin: 10px 0 4px;
+    cursor: pointer;
+    font-size: 13px;
+    font-family: inherit;
+}
+.m-show-more:hover { background: var(--color-card); }
+
+/* Bottom nav */
+.m-nav {
+    display: flex;
+    background: var(--color-card);
+    border-top: 1px solid var(--color-border);
+    padding-bottom: env(safe-area-inset-bottom);
+}
+.m-nav-btn {
+    flex: 1;
+    background: none;
+    border: none;
+    padding: 8px 0 10px;
+    font-size: 11px;
+    color: var(--color-text-dim);
+    cursor: pointer;
+    font-family: inherit;
+    position: relative;
+}
+.m-nav-btn.active {
+    color: var(--brand-primary);
+    font-weight: 600;
+}
+.m-nav-icon {
+    display: block;
+    font-size: 20px;
+    margin-bottom: 2px;
+}
+.m-nav-badge {
+    position: absolute;
+    top: 4px;
+    right: 50%;
+    transform: translateX(18px);
+    background: var(--status-ny);
+    color: #fff;
+    font-size: 9px;
+    font-weight: 700;
+    padding: 2px 5px;
+    border-radius: 8px;
+    min-width: 16px;
+    line-height: 1;
+}
+
+/* Notes panel */
+.notes {
+    width: 340px;
+    background: #fdf9e6;
+    border: 1px solid #d8ca8a;
+    border-radius: 8px;
+    padding: 18px;
+    margin-left: 24px;
+    font-size: 13px;
+    line-height: 1.5;
+    color: #5a4516;
+    align-self: flex-start;
+    box-shadow: 0 4px 12px rgba(0,0,0,0.08);
+}
+.notes h3 { font-size: 14px; margin-bottom: 10px; color: #2d2620; }
+.notes h4 { font-size: 13px; margin: 14px 0 6px; color: #2d2620; }
+.notes ul { margin-left: 18px; }
+.notes li { margin-bottom: 6px; }
+.notes strong { color: #2d2620; }
+.notes .diff { background: #d4f5d4; padding: 0 4px; border-radius: 3px; }
+@media (max-width: 800px) {
+    body { flex-direction: column; align-items: center; }
+    .notes { margin-left: 0; margin-top: 24px; width: 100%; max-width: 380px; }
+}
+</style>
+</head>
+<body>
+
+<div class="phone">
+
+    <header class="m-header">
+        <div class="m-header-logo"><span class="dot"></span> Bon v2</div>
+        <div class="m-header-user">Leif &#9662;</div>
+    </header>
+
+    <div class="m-tabs-row">
+        <div class="m-tabs">
+            <button class="m-tab">I dag</button>
+            <button class="m-tab">I morgen</button>
+            <button class="m-tab">Overmorgen</button>
+            <button class="m-tab active">Nye<span class="m-tab-badge">7</span></button>
+        </div>
+        <button class="m-search-btn" title="Søg" aria-label="Søg">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                <circle cx="11" cy="11" r="8"/>
+                <line x1="21" y1="21" x2="16.65" y2="16.65"/>
+            </svg>
+        </button>
+    </div>
+
+    <div class="m-meta">
+        <span>7 nye siden i går kl 18:32</span>
+        <button class="m-meta-action">Marker alle læst</button>
+    </div>
+
+    <div class="m-content">
+
+        <div class="m-section-head">Lige nu</div>
+
+        <div class="m-bon-item unseen">
+            <div class="m-bon-row1">
+                <span class="m-bon-source">
+                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                        <circle cx="12" cy="12" r="10"/>
+                        <line x1="2" y1="12" x2="22" y2="12"/>
+                        <path d="M12 2a15.3 15.3 0 0 1 4 10 15.3 15.3 0 0 1-4 10 15.3 15.3 0 0 1-4-10 15.3 15.3 0 0 1 4-10z"/>
+                    </svg>
+                    Web-bestilling
+                </span>
+                <span class="m-bon-status s-ny">NY</span>
+            </div>
+            <div class="m-bon-customer">Liffe Zeeberg</div>
+            <div class="m-bon-meta-line"><span class="m-bon-when">For 12 min siden</span></div>
+            <div class="m-bon-meta-line">#3387 · Lev. 15/7 kl. 11:30 · 60 pax</div>
+        </div>
+
+        <div class="m-bon-item unseen mail">
+            <div class="m-bon-row1">
+                <span class="m-bon-source">
+                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                        <path d="M4 4h16c1.1 0 2 .9 2 2v12c0 1.1-.9 2-2 2H4c-1.1 0-2-.9-2-2V6c0-1.1.9-2 2-2z"/>
+                        <polyline points="22,6 12,13 2,6"/>
+                    </svg>
+                    Ulæst mail
+                </span>
+                <span class="m-bon-status s-godkendt">GODKENDT</span>
+            </div>
+            <div class="m-bon-customer">Novo Nordisk</div>
+            <div class="m-bon-mail-preview">"Hej — kan I rykke leveringen frem til kl. 11:00? Vi mødes en time tidligere…"</div>
+            <div class="m-bon-meta-line">#3362 · Lev. man 18/3 kl. 12:00 · 60 pax</div>
+        </div>
+
+        <div class="m-section-head">Tidligere i dag</div>
+
+        <div class="m-bon-item unseen">
+            <div class="m-bon-row1">
+                <span class="m-bon-source">
+                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                        <circle cx="12" cy="12" r="10"/>
+                        <line x1="2" y1="12" x2="22" y2="12"/>
+                        <path d="M12 2a15.3 15.3 0 0 1 4 10 15.3 15.3 0 0 1-4 10 15.3 15.3 0 0 1-4-10 15.3 15.3 0 0 1 4-10z"/>
+                    </svg>
+                    Web-bestilling
+                </span>
+                <span class="m-bon-status s-ny">NY</span>
+            </div>
+            <div class="m-bon-customer">Andreas Lund</div>
+            <div class="m-bon-meta-line"><span class="m-bon-when">Kl. 09:14</span></div>
+            <div class="m-bon-meta-line">#3386 · Lev. tor 28/5 kl. 12:30 · 8 pax</div>
+        </div>
+
+        <div class="m-bon-item unseen mail">
+            <div class="m-bon-row1">
+                <span class="m-bon-source">
+                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                        <path d="M4 4h16c1.1 0 2 .9 2 2v12c0 1.1-.9 2-2 2H4c-1.1 0-2-.9-2-2V6c0-1.1.9-2 2-2z"/>
+                        <polyline points="22,6 12,13 2,6"/>
+                    </svg>
+                    Ulæst mail
+                </span>
+                <span class="m-bon-status s-igang">IGANG</span>
+            </div>
+            <div class="m-bon-customer">Gate 21</div>
+            <div class="m-bon-mail-preview">"Vi skal være 35 i stedet for 33 — kan I nå at lave 2 ekstra falafel?"</div>
+            <div class="m-bon-meta-line">#3358 · Lev. i dag kl. 11:30 · 33 pax</div>
+        </div>
+
+        <div class="m-section-head">I går</div>
+
+        <div class="m-bon-item">
+            <div class="m-bon-row1">
+                <span class="m-bon-source">
+                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                        <circle cx="12" cy="12" r="10"/>
+                        <line x1="2" y1="12" x2="22" y2="12"/>
+                        <path d="M12 2a15.3 15.3 0 0 1 4 10 15.3 15.3 0 0 1-4 10 15.3 15.3 0 0 1-4-10 15.3 15.3 0 0 1 4-10z"/>
+                    </svg>
+                    Web-bestilling
+                </span>
+                <span class="m-bon-status s-godkendt">GODKENDT</span>
+            </div>
+            <div class="m-bon-customer">Karen Madsen — Bygma</div>
+            <div class="m-bon-meta-line"><span class="m-bon-when">I går kl. 22:14</span></div>
+            <div class="m-bon-meta-line">#3385 · Lev. fre 22/3 kl. 11:30 · 14 pax</div>
+        </div>
+
+        <div class="m-bon-item mail">
+            <div class="m-bon-row1">
+                <span class="m-bon-source">
+                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                        <path d="M4 4h16c1.1 0 2 .9 2 2v12c0 1.1-.9 2-2 2H4c-1.1 0-2-.9-2-2V6c0-1.1.9-2 2-2z"/>
+                        <polyline points="22,6 12,13 2,6"/>
+                    </svg>
+                    Ulæst mail
+                </span>
+                <span class="m-bon-status s-leveret">LEVERET</span>
+            </div>
+            <div class="m-bon-customer">108 Yoga</div>
+            <div class="m-bon-mail-preview">"Tak for det fine arrangement i går — sender jer en anmeldelse!"</div>
+            <div class="m-bon-meta-line">#3351 · Lev. i går kl. 11:00 · 9 pax</div>
+        </div>
+
+        <div class="m-bon-item">
+            <div class="m-bon-row1">
+                <span class="m-bon-source">
+                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                        <path d="M12 20h9"/>
+                        <path d="M16.5 3.5a2.121 2.121 0 0 1 3 3L7 19l-4 1 1-4L16.5 3.5z"/>
+                    </svg>
+                    Manuel
+                </span>
+                <span class="m-bon-status s-godkendt">GODKENDT</span>
+            </div>
+            <div class="m-bon-customer">DTU — Anders Kjær</div>
+            <div class="m-bon-meta-line"><span class="m-bon-when">I går kl. 17:45 — af Karla</span></div>
+            <div class="m-bon-meta-line">#3384 · Lev. ons 27/3 kl. 09:30 · 18 pax</div>
+        </div>
+
+        <button class="m-show-more">Vis flere ældre &#8595;</button>
+
+    </div>
+
+    <nav class="m-nav">
+        <button class="m-nav-btn active">
+            <span class="m-nav-icon">&#128203;</span>
+            Bons
+            <span class="m-nav-badge">7</span>
+        </button>
+        <button class="m-nav-btn">
+            <span class="m-nav-icon">&#128230;</span>
+            Modtag
+        </button>
+        <button class="m-nav-btn">
+            <span class="m-nav-icon">&#129518;</span>
+            Lager
+        </button>
+        <button class="m-nav-btn">
+            <span class="m-nav-icon">&#128222;</span>
+            CRM
+        </button>
+        <button class="m-nav-btn">
+            <span class="m-nav-icon">&#128202;</span>
+            Overblik
+        </button>
+    </nav>
+
+</div>
+
+<aside class="notes">
+<h3>v2 — Ændringer fra v1</h3>
+<ul>
+<li><span class="diff">Mail-ikon</span> nu SVG-konvolut (samme path som <code>10_koekken_idag</code> action-knap)</li>
+<li><span class="diff">Web-ikon</span> nu SVG-globus</li>
+<li><span class="diff">Manuel-ikon</span> nu SVG-pen</li>
+<li><span class="diff">Søg-ikon</span> nu SVG-lup</li>
+<li><span class="diff">"Vis flere ældre"</span>-knap i bunden — paginerer historie</li>
+<li>Ikon-farve = <code>--brand-primary</code> (brun) — én visuel familie</li>
+</ul>
+
+<h4>Auto-mark-som-set</h4>
+<ul>
+<li>Hver kort har en <code>IntersectionObserver</code> — når kortet har været >50% synligt i ≥2 sek, sendes <code>POST /api/bons/:id/mark-seen</code></li>
+<li>Rød kant fjernes med fade (CSS-transition på <code>border-left-color</code>)</li>
+<li>Badge-tæller (top-tab + bottom-nav) opdateres lokalt via SSE eller polling</li>
+<li>"Marker alle læst"-knappen er stadig der — bulk-handling hvis man bare vil rydde</li>
+</ul>
+
+<h4>Spørgsmål til afklaring</h4>
+<ul>
+<li>Skal "i dag/i morgen/overmorgen"-tabs også vise en lille badge når der er en ny bon i den dato? (Eller er Nye-tabben nok?)</li>
+<li>Skal mail-events kunne markeres læst <strong>uden</strong> at åbne bonnen — fx via swipe?</li>
+</ul>
+</aside>
+
+</body>
+</html>

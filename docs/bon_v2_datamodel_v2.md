@@ -489,7 +489,10 @@ CREATE TABLE users (
         CHECK (role IN ('admin', 'office', 'kitchen', 'delivery')),
     pin TEXT,
     is_active INTEGER NOT NULL DEFAULT 1,
-    created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP
+    created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    -- Mobile "Nye"-listen — sidste gang brugeren åbnede Nye-tabben eller
+    -- trykkede "Marker alle læst" (migration 064)
+    new_bons_last_seen_at DATETIME
 );
 
 -- ==========================================

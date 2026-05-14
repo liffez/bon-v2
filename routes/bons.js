@@ -108,12 +108,18 @@ router.get('/', handle((req, res) => {
 
     if (location) { where.push('l.code = ?'); args.push(location); }
 
-    // Søgning
+    // Søgning — bonnumre er præcis 4 cifre:
+    //   • ≤ 4 cifre  → prefix-match på bon_number (1, 33, 338, 3387)
+    //   • > 4 cifre  → telefon (kan ikke være bonnummer)
+    //   • bogstaver  → kunde- og firma-navn (LIKE %q%)
     if (q) {
         const isDigits = /^\d+$/.test(q);
-        if (isDigits) {
+        if (isDigits && q.length <= 4) {
             where.push('(b.bon_number LIKE ?)');
             args.push(`${q}%`);
+        } else if (isDigits) {
+            where.push('(c.phone LIKE ?)');
+            args.push(`%${q}%`);
         } else {
             const like = `%${q}%`;
             where.push("(b.bon_number LIKE ? OR c.first_name || ' ' || COALESCE(c.last_name,'') LIKE ? OR co.name LIKE ?)");
@@ -177,6 +183,228 @@ router.get('/', handle((req, res) => {
     // Tilføj pre-beregnede moms-felter på hver række (frontends må aldrig regne selv)
     const decorated = rows.map(r => ({ ...r, ...computeMomsFields(r.total_price) }));
     res.json(decorated);
+}));
+
+// ─── GET /api/bons/new — Nye-listen (mobile) ───────────────────────────────
+//
+// Union af to event-typer sorteret efter event-tidspunkt DESC:
+//   • new_bon     → bons.created_at > users.new_bons_last_seen_at
+//   • unread_mail → mail_messages.is_read=0 AND direction='in'
+//                   (joinet mod mail_threads.bon_id IS NOT NULL)
+//
+// Default fallback: hvis last_seen_at IS NULL, vis events fra de seneste 7 dage.
+// Source ('web' / 'manual') bestemmes ved JOIN mod web_orders.bon_id.
+//
+// ?count_only=1   → return { count: N } — hurtigt badge-load
+// ?limit=30&offset=0
+//
+// MÅ stå før /:id-routen — ellers fanger Express 'new' som id.
+
+function _mailPreview(text) {
+    if (!text) return '';
+    // Klip ved første quoted-line eller signatur-separator
+    let cut = text;
+    const quotedIdx = cut.search(/\n>/);
+    if (quotedIdx > 0) cut = cut.slice(0, quotedIdx);
+    const sigIdx = cut.search(/\n--\s*\n/);
+    if (sigIdx > 0) cut = cut.slice(0, sigIdx);
+    cut = cut.replace(/\s+/g, ' ').trim();
+    if (cut.length > 140) cut = cut.slice(0, 137) + '…';
+    return cut;
+}
+
+router.get('/new', handle((req, res) => {
+    const db = getDb();
+    const userId = req.session?.userId ?? null;
+    if (!userId) return res.status(401).json({ error: 'Ikke logget ind' });
+
+    // Hent brugerens last_seen_at — falder tilbage til 7 dage hvis NULL
+    const user = db.prepare('SELECT new_bons_last_seen_at FROM users WHERE id = ?').get(userId);
+    const lastSeenAt = user?.new_bons_last_seen_at ?? null;
+    const fallback7Days = new Date(Date.now() - 7 * 24 * 3600 * 1000).toISOString().replace('T', ' ').slice(0, 19);
+    const since = lastSeenAt ?? fallback7Days;
+
+    // count_only — hurtig badge-load.
+    // Mail-tællingen er afgrænset til received_at > since for at undgå at
+    // v1-migrerede ulæste mails (eller historiske mails der aldrig blev markeret
+    // læst i UI'et) fylder badget. Samme tærskel bruges for bons.
+    if (req.query.count_only === '1') {
+        const newBonCount = db.prepare(`
+            SELECT COUNT(*) AS n FROM bons
+            WHERE created_at > ? AND (is_offer = 0 OR is_offer IS NULL)
+        `).get(since).n;
+        const mailCount = db.prepare(`
+            SELECT COUNT(*) AS n
+            FROM mail_messages mm
+            JOIN mail_threads mt ON mm.thread_id = mt.id
+            WHERE mm.direction = 'in' AND mm.is_read = 0
+              AND mt.bon_id IS NOT NULL
+              AND mm.received_at > ?
+        `).get(since).n;
+        return res.json({ count: newBonCount + mailCount, last_seen_at: lastSeenAt });
+    }
+
+    const limit  = Math.min(parseInt(req.query.limit)  || 30, 100);
+    const offset = parseInt(req.query.offset) || 0;
+
+    // Hent flere end limit fra hver side, merge i JS, slice til limit+offset.
+    // Mængden er typisk lille; UNION+sort i SQLite ville give samme resultat,
+    // men JS-merge er nemmere at læse og giver bedre kontrol over felterne.
+    const fetchSize = limit + offset + 30;  // buffer til offset
+
+    const newBons = db.prepare(`
+        SELECT
+            b.id, b.bon_number, b.created_at AS event_at,
+            b.delivery_date, b.delivery_time,
+            b.pax, b.status_id,
+            sd.code AS status_code, sd.label AS status_label, sd.color AS status_color,
+            c.first_name || ' ' || COALESCE(c.last_name,'') AS contact_name_full,
+            co.name AS company_name,
+            (SELECT 1 FROM web_orders wo WHERE wo.bon_id = b.id LIMIT 1) AS is_web
+        FROM bons b
+        JOIN status_definitions sd ON b.status_id = sd.id
+        LEFT JOIN customers c ON b.customer_id = c.id
+        LEFT JOIN companies co ON b.company_id = co.id
+        WHERE b.created_at > ?
+          AND (b.is_offer = 0 OR b.is_offer IS NULL)
+        ORDER BY b.created_at DESC
+        LIMIT ?
+    `).all(since, fetchSize);
+
+    // Filter mm.received_at > since beskytter mod at v1-migrerede gamle mails
+    // (eller mails der bare aldrig blev markeret læst i et tidligere UI)
+    // pludselig dukker op i Nye-feedet. Samme tærskel som bons.created_at.
+    const unreadMails = db.prepare(`
+        SELECT
+            mm.id AS mail_id, mt.bon_id, mm.subject, mm.body_text, mm.from_email,
+            mm.received_at AS event_at,
+            b.bon_number, b.delivery_date, b.delivery_time, b.pax,
+            sd.code AS status_code, sd.label AS status_label, sd.color AS status_color,
+            c.first_name || ' ' || COALESCE(c.last_name,'') AS contact_name_full,
+            co.name AS company_name
+        FROM mail_messages mm
+        JOIN mail_threads mt ON mm.thread_id = mt.id
+        JOIN bons b ON mt.bon_id = b.id
+        JOIN status_definitions sd ON b.status_id = sd.id
+        LEFT JOIN customers c ON b.customer_id = c.id
+        LEFT JOIN companies co ON b.company_id = co.id
+        WHERE mm.direction = 'in' AND mm.is_read = 0
+          AND mm.received_at > ?
+          AND (b.is_offer = 0 OR b.is_offer IS NULL)
+        ORDER BY mm.received_at DESC
+        LIMIT ?
+    `).all(since, fetchSize);
+
+    const events = [];
+    for (const b of newBons) {
+        events.push({
+            event_type: 'new_bon',
+            event_at:   b.event_at,
+            seen:       lastSeenAt && b.event_at <= lastSeenAt,
+            bon: {
+                id: b.id, bon_number: b.bon_number,
+                contact_name_full: b.contact_name_full || null,
+                company_name: b.company_name,
+                delivery_date: b.delivery_date,
+                delivery_time: b.delivery_time,
+                pax: b.pax,
+                status_code: b.status_code,
+                status_label: b.status_label,
+                status_color: b.status_color,
+                source: b.is_web ? 'web' : 'manual',
+            },
+        });
+    }
+    for (const m of unreadMails) {
+        events.push({
+            event_type: 'unread_mail',
+            event_at:   m.event_at,
+            seen:       false,  // is_read=0 betyder altid uset
+            bon: {
+                id: m.bon_id, bon_number: m.bon_number,
+                contact_name_full: m.contact_name_full || null,
+                company_name: m.company_name,
+                delivery_date: m.delivery_date,
+                delivery_time: m.delivery_time,
+                pax: m.pax,
+                status_code: m.status_code,
+                status_label: m.status_label,
+                status_color: m.status_color,
+            },
+            mail: {
+                id: m.mail_id,
+                subject: m.subject,
+                preview: _mailPreview(m.body_text),
+                from_address: m.from_email,
+            },
+        });
+    }
+
+    // Sortér samlet ned ad event_at, slice til paginering
+    events.sort((a, b) => (b.event_at || '').localeCompare(a.event_at || ''));
+    const total = events.length;
+    const page  = events.slice(offset, offset + limit);
+
+    res.json({
+        last_seen_at: lastSeenAt,
+        count: total,
+        has_more: total > offset + limit,
+        events: page,
+    });
+}));
+
+// ─── POST /api/bons/mark-all-seen ───────────────────────────────────────────
+// Sætter brugerens new_bons_last_seen_at til NOW().
+// Rører IKKE bon_mails.is_read — det er bevidst (jf. beslutning 2 i spec).
+
+router.post('/mark-all-seen', handle((req, res) => {
+    const db = getDb();
+    const userId = req.session?.userId ?? null;
+    if (!userId) return res.status(401).json({ error: 'Ikke logget ind' });
+
+    const now = new Date().toISOString().replace('T', ' ').slice(0, 19);
+    db.prepare('UPDATE users SET new_bons_last_seen_at = ? WHERE id = ?').run(now, userId);
+    res.json({ ok: true, last_seen_at: now });
+}));
+
+// ─── POST /api/bons/:id/mark-seen ──────────────────────────────────────────
+// Auto-mark per event fra mobile IntersectionObserver.
+// new_bon:     advance users.new_bons_last_seen_at til MAX(current, bon.created_at)
+// unread_mail: sæt bon_mails.is_read = 1 på den specifikke mail
+
+router.post('/:id/mark-seen', handle((req, res) => {
+    const db = getDb();
+    const userId = req.session?.userId ?? null;
+    if (!userId) return res.status(401).json({ error: 'Ikke logget ind' });
+
+    const bonId = parseInt(req.params.id);
+    const { event_type, mail_id } = req.body;
+
+    if (event_type === 'new_bon') {
+        const bon = db.prepare('SELECT created_at FROM bons WHERE id = ?').get(bonId);
+        if (!bon) return res.status(404).json({ error: 'Bon ikke fundet' });
+        const user = db.prepare('SELECT new_bons_last_seen_at FROM users WHERE id = ?').get(userId);
+        const cur  = user?.new_bons_last_seen_at;
+        if (!cur || bon.created_at > cur) {
+            db.prepare('UPDATE users SET new_bons_last_seen_at = ? WHERE id = ?').run(bon.created_at, userId);
+        }
+        return res.json({ ok: true });
+    }
+
+    if (event_type === 'unread_mail') {
+        if (!mail_id) return res.status(400).json({ error: 'mail_id er påkrævet' });
+        // Verificér at mail-id'en faktisk hører til denne bon (via mail_threads.bon_id)
+        const mail = db.prepare(`
+            SELECT mm.id FROM mail_messages mm
+            JOIN mail_threads mt ON mm.thread_id = mt.id
+            WHERE mm.id = ? AND mt.bon_id = ?
+        `).get(parseInt(mail_id), bonId);
+        if (!mail) return res.status(404).json({ error: 'Mail tilhører ikke denne bon' });
+        db.prepare('UPDATE mail_messages SET is_read = 1 WHERE id = ?').run(parseInt(mail_id));
+        return res.json({ ok: true });
+    }
+
+    res.status(400).json({ error: 'Ukendt event_type' });
 }));
 
 // ─── GET /api/bons/:id ──────────────────────────────────────────────────────

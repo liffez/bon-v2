@@ -102,6 +102,7 @@ body.m-modtag-active .m-content { padding-bottom: 0; }
     transition: color .15s;
     text-decoration: none;
     gap: 2px;
+    position: relative;  /* anker for .m-nav-badge */
 }
 .m-nav-btn .m-nav-icon { font-size: 22px; line-height: 1; }
 .m-nav-btn.active {
@@ -765,3 +766,324 @@ body.m-modtag-active .m-content { padding-bottom: 0; }
     pointer-events: none;
 }
 .m-toast.show { opacity: 1; }
+
+/* ════════════════════════════════════════════════════════════
+   Nye-tab + søg-overlay (mobile/views/bons.js)
+   Spec: docs/CLAUDE_MOBIL_NYE_OG_SOEG.md
+   ════════════════════════════════════════════════════════════ */
+
+/* Tabs-row container — overtager sticky-rollen fra .m-tabs */
+.m-tabs-row {
+    display: flex;
+    background: var(--color-surface);
+    border-bottom: 1px solid var(--color-border);
+    align-items: stretch;
+    position: sticky; top: 0; z-index: 40;
+}
+.m-tabs-row .m-tabs {
+    flex: 1;
+    border-bottom: none;
+    position: static;  /* annullér standalone sticky når wrapped */
+    background: transparent;
+}
+.m-tab-badge {
+    background: #d63031;
+    color: #fff;
+    font-size: 10px;
+    font-weight: 700;
+    padding: 1px 5px;
+    border-radius: 8px;
+    margin-left: 4px;
+    vertical-align: 2px;
+    line-height: 1.2;
+}
+.m-search-btn {
+    background: none;
+    border: none;
+    border-left: 1px solid var(--color-border);
+    padding: 0 14px;
+    cursor: pointer;
+    color: var(--color-text-dim);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+}
+.m-search-btn svg { width: 18px; height: 18px; }
+.m-search-btn:active { color: var(--brand-primary); }
+
+/* Bottom-nav badge */
+.m-nav-badge {
+    position: absolute;
+    top: 4px;
+    right: 50%;
+    transform: translateX(18px);
+    background: #d63031;
+    color: #fff;
+    font-size: 9px;
+    font-weight: 700;
+    padding: 2px 5px;
+    border-radius: 8px;
+    min-width: 16px;
+    line-height: 1;
+    text-align: center;
+}
+
+/* Søg-row (erstatter tabs-row i søg-mode) */
+.m-search-row {
+    background: var(--color-surface);
+    border-bottom: 1px solid var(--color-border);
+    padding: 10px 12px;
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    position: sticky; top: 0; z-index: 40;
+}
+.m-search-back {
+    background: none;
+    border: none;
+    padding: 6px;
+    cursor: pointer;
+    color: var(--color-text-dim);
+    display: flex;
+    align-items: center;
+    flex-shrink: 0;
+}
+.m-search-back svg { width: 22px; height: 22px; }
+.m-search-input-wrap {
+    flex: 1;
+    position: relative;
+    display: flex;
+    align-items: center;
+}
+.m-search-input-icon {
+    position: absolute;
+    left: 10px;
+    color: var(--color-text-soft, #a39a8f);
+    display: flex;
+    pointer-events: none;
+}
+.m-search-input-icon svg { width: 14px; height: 14px; }
+.m-search-input {
+    width: 100%;
+    padding: 8px 32px 8px 30px;
+    border: 1px solid var(--color-border);
+    background: #fff;
+    border-radius: 18px;
+    font-size: 14px;
+    font-family: inherit;
+    color: var(--color-text);
+    outline: none;
+}
+.m-search-input:focus { border-color: var(--brand-primary); }
+.m-search-clear {
+    position: absolute;
+    right: 6px;
+    background: var(--color-text-soft, #a39a8f);
+    color: #fff;
+    border: none;
+    width: 18px;
+    height: 18px;
+    border-radius: 50%;
+    cursor: pointer;
+    font-size: 11px;
+    line-height: 1;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    padding: 0;
+}
+
+/* Meta-bar (gul info-bar over Nye-listen) */
+.m-meta {
+    background: var(--brand-primary-light, #f1e6b2);
+    padding: 8px 16px;
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    font-size: 12px;
+    color: #5a4516;
+    border-bottom: 1px solid #d8ca8a;
+}
+.m-meta-action {
+    background: none;
+    border: 1px solid #b5a05a;
+    color: #5a4516;
+    padding: 4px 10px;
+    border-radius: 12px;
+    font-size: 11px;
+    cursor: pointer;
+    font-family: inherit;
+}
+.m-meta-action:active { background: #f5e8a3; }
+
+/* Section header ("Lige nu" / "I går" osv.) */
+.m-section-head {
+    font-size: 11px;
+    text-transform: uppercase;
+    letter-spacing: 0.8px;
+    color: var(--color-text-soft, #a39a8f);
+    padding: 14px 12px 6px;
+    font-weight: 600;
+    display: flex;
+    align-items: center;
+    gap: 8px;
+}
+.m-section-head::after {
+    content: '';
+    flex: 1;
+    height: 1px;
+    background: var(--color-border);
+    opacity: 0.6;
+}
+
+/* Result-count bar (søg) */
+.m-result-count {
+    background: var(--brand-primary-light, #f1e6b2);
+    padding: 6px 16px;
+    font-size: 12px;
+    color: #5a4516;
+    border-bottom: 1px solid #d8ca8a;
+}
+.m-result-count strong { font-weight: 700; }
+
+/* Event-kort i Nye-listen (overrider .m-bon-item layout) */
+.m-bon-nye {
+    display: block;
+    margin: 6px 8px;
+    padding: 10px 12px;
+    background: var(--color-surface, #fffdf6);
+    border: 1px solid var(--color-border);
+    border-radius: 8px;
+    border-left: 3px solid var(--brand-primary);
+    transition: border-left-color 400ms;
+}
+.m-bon-nye.unseen { border-left-color: #d63031; }
+.m-bon-nye.mail   { background: #fbf6e9; }
+
+.m-bon-row1 {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    gap: 8px;
+}
+.m-bon-source {
+    font-size: 12px;
+    color: var(--color-text-dim);
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    line-height: 1;
+}
+.m-bon-source svg {
+    width: 14px;
+    height: 14px;
+    flex-shrink: 0;
+    color: var(--brand-primary);
+}
+.m-bon-customer {
+    font-size: 16px;
+    font-weight: 600;
+    margin: 4px 0 2px;
+    color: var(--color-text);
+}
+.m-bon-mail-preview {
+    font-size: 13px;
+    color: #6a5a3a;
+    font-style: italic;
+    margin: 4px 0;
+    line-height: 1.3;
+    overflow: hidden;
+    display: -webkit-box;
+    -webkit-line-clamp: 2;
+    -webkit-box-orient: vertical;
+}
+.m-bon-meta-line {
+    font-size: 12px;
+    color: var(--color-text-dim);
+    margin-top: 2px;
+}
+.m-bon-when {
+    font-weight: 600;
+    color: var(--color-text);
+}
+
+/* Empty-state i Nye */
+.m-nye-empty {
+    padding-top: 60px;
+}
+.m-nye-empty-emoji {
+    font-size: 36px;
+    margin-bottom: 12px;
+    opacity: 0.8;
+}
+
+/* "Vis flere ældre"-knap */
+.m-show-more {
+    width: calc(100% - 16px);
+    margin: 10px 8px 4px;
+    background: none;
+    border: 1px dashed var(--color-border);
+    color: var(--color-text-dim);
+    padding: 10px;
+    border-radius: 8px;
+    cursor: pointer;
+    font-size: 13px;
+    font-family: inherit;
+}
+.m-show-more:active { background: var(--color-surface, #fffdf6); }
+
+/* Søg-resultater */
+.m-result-item {
+    background: var(--color-surface, #fffdf6);
+    border: 1px solid var(--color-border);
+    border-radius: 8px;
+    padding: 10px 12px;
+    margin: 6px 8px;
+    cursor: pointer;
+}
+.m-result-item:active { background: var(--color-background); }
+.m-result-row1 {
+    display: flex;
+    justify-content: space-between;
+    align-items: baseline;
+    gap: 8px;
+    margin-bottom: 4px;
+}
+.m-result-bonnr {
+    font-size: 13px;
+    color: var(--color-text-dim);
+    font-variant-numeric: tabular-nums;
+    flex-shrink: 0;
+}
+.m-result-customer {
+    font-size: 16px;
+    font-weight: 600;
+    flex: 1;
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+.m-result-status {
+    font-size: 10px;
+    font-weight: 700;
+    padding: 2px 7px;
+    border-radius: 4px;
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+    white-space: nowrap;
+}
+.m-result-meta {
+    font-size: 12px;
+    color: var(--color-text-dim);
+}
+
+/* Match-highlight i søg-resultater */
+.m-result-item mark,
+.m-bon-nye mark {
+    background: #fff3a8;
+    color: inherit;
+    padding: 0 2px;
+    border-radius: 2px;
+    font-weight: 700;
+}

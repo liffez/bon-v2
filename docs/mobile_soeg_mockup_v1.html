@@ -1,0 +1,501 @@
+<!DOCTYPE html>
+<html lang="da">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Bon v2 — Mobil · Søg (v1)</title>
+<style>
+:root {
+    --brand-primary: #8e631f;
+    --brand-primary-light: #f1e6b2;
+    --color-bg: #f5f4f2;
+    --color-card: #fffdf6;
+    --color-border: #d7d1ca;
+    --color-border-soft: #e5e0d8;
+    --color-text: #2d2620;
+    --color-text-dim: #7a7269;
+    --color-text-soft: #a39a8f;
+
+    --status-ny: #d63031;
+    --status-godkendt: #5fa050;
+    --status-klar: #2d6a2a;
+    --status-igang: #e8a83a;
+    --status-leveret: #888;
+    --status-faktureret: #3a7abc;
+    --status-afsluttet: #555;
+    --status-aflyst: #b04a4a;
+
+    --highlight-bg: #fff3a8;
+}
+
+* { box-sizing: border-box; margin: 0; padding: 0; }
+body {
+    font-family: 'Lato', -apple-system, BlinkMacSystemFont, sans-serif;
+    background: #d0ccc4;
+    min-height: 100vh;
+    display: flex;
+    align-items: flex-start;
+    justify-content: center;
+    padding: 24px 12px;
+    color: var(--color-text);
+}
+
+.phone {
+    width: 380px;
+    max-width: 100%;
+    background: var(--color-bg);
+    border-radius: 28px;
+    overflow: hidden;
+    box-shadow: 0 20px 60px rgba(0,0,0,0.25);
+    display: flex;
+    flex-direction: column;
+    height: 820px;
+}
+
+/* Header */
+.m-header {
+    background: var(--brand-primary);
+    color: #fff;
+    padding: 12px 16px;
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    font-size: 15px;
+}
+.m-header-logo { display: flex; align-items: center; gap: 8px; font-weight: 600; }
+.m-header-logo .dot { width: 8px; height: 8px; background: var(--brand-primary-light); border-radius: 50%; }
+.m-header-user { font-size: 13px; opacity: 0.95; }
+
+/* Search-row erstatter tabs-row */
+.m-search-row {
+    background: var(--color-card);
+    border-bottom: 1px solid var(--color-border);
+    padding: 10px 12px;
+    display: flex;
+    align-items: center;
+    gap: 8px;
+}
+.m-search-back {
+    background: none;
+    border: none;
+    padding: 6px;
+    cursor: pointer;
+    color: var(--color-text-dim);
+    display: flex;
+    align-items: center;
+    flex-shrink: 0;
+}
+.m-search-back svg { width: 22px; height: 22px; }
+.m-search-input-wrap {
+    flex: 1;
+    position: relative;
+    display: flex;
+    align-items: center;
+}
+.m-search-input-icon {
+    position: absolute;
+    left: 10px;
+    color: var(--color-text-soft);
+    display: flex;
+    pointer-events: none;
+}
+.m-search-input-icon svg { width: 14px; height: 14px; }
+.m-search-input {
+    width: 100%;
+    padding: 8px 32px 8px 30px;
+    border: 1px solid var(--color-border);
+    background: #fff;
+    border-radius: 18px;
+    font-size: 14px;
+    font-family: inherit;
+    color: var(--color-text);
+    outline: none;
+}
+.m-search-input:focus { border-color: var(--brand-primary); }
+.m-search-clear {
+    position: absolute;
+    right: 6px;
+    background: var(--color-text-soft);
+    color: #fff;
+    border: none;
+    width: 18px;
+    height: 18px;
+    border-radius: 50%;
+    cursor: pointer;
+    font-size: 11px;
+    line-height: 1;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    padding: 0;
+}
+
+/* Result-count bar */
+.m-result-count {
+    background: var(--brand-primary-light);
+    padding: 6px 16px;
+    font-size: 12px;
+    color: #5a4516;
+    border-bottom: 1px solid #d8ca8a;
+}
+.m-result-count strong { font-weight: 700; }
+
+/* Content list */
+.m-content {
+    flex: 1;
+    overflow-y: auto;
+    padding: 8px;
+}
+
+/* Result item — kompakt udgave af bon-item */
+.m-result-item {
+    background: var(--color-card);
+    border: 1px solid var(--color-border);
+    border-radius: 8px;
+    padding: 10px 12px;
+    margin-bottom: 6px;
+}
+.m-result-row1 {
+    display: flex;
+    justify-content: space-between;
+    align-items: baseline;
+    gap: 8px;
+    margin-bottom: 4px;
+}
+.m-result-bonnr {
+    font-size: 13px;
+    color: var(--color-text-dim);
+    font-variant-numeric: tabular-nums;
+    flex-shrink: 0;
+}
+.m-result-customer {
+    font-size: 16px;
+    font-weight: 600;
+    flex: 1;
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+.m-result-company {
+    font-size: 13px;
+    color: var(--color-text-dim);
+    margin-top: -2px;
+    margin-bottom: 4px;
+}
+.m-result-meta {
+    font-size: 12px;
+    color: var(--color-text-dim);
+}
+.m-result-status {
+    font-size: 10px;
+    font-weight: 700;
+    padding: 2px 7px;
+    border-radius: 4px;
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+    color: #fff;
+    white-space: nowrap;
+}
+.s-ny       { background: var(--status-ny); }
+.s-godkendt { background: var(--status-godkendt); }
+.s-igang    { background: var(--status-igang); color: #4a3a0a; }
+.s-klar     { background: var(--status-klar); }
+.s-leveret  { background: var(--status-leveret); }
+.s-faktureret { background: var(--status-faktureret); }
+.s-afsluttet  { background: var(--status-afsluttet); }
+.s-aflyst   { background: var(--status-aflyst); }
+
+mark {
+    background: var(--highlight-bg);
+    color: var(--color-text);
+    padding: 0 2px;
+    border-radius: 2px;
+    font-weight: 700;
+}
+
+/* Show more */
+.m-show-more {
+    width: 100%;
+    background: none;
+    border: 1px dashed var(--color-border);
+    color: var(--color-text-dim);
+    padding: 10px;
+    border-radius: 8px;
+    margin: 10px 0 4px;
+    cursor: pointer;
+    font-size: 13px;
+    font-family: inherit;
+}
+
+/* Bottom nav (samme som før — Bons aktiv) */
+.m-nav {
+    display: flex;
+    background: var(--color-card);
+    border-top: 1px solid var(--color-border);
+}
+.m-nav-btn {
+    flex: 1;
+    background: none;
+    border: none;
+    padding: 8px 0 10px;
+    font-size: 11px;
+    color: var(--color-text-dim);
+    cursor: pointer;
+    font-family: inherit;
+    position: relative;
+}
+.m-nav-btn.active {
+    color: var(--brand-primary);
+    font-weight: 600;
+}
+.m-nav-icon { display: block; font-size: 20px; margin-bottom: 2px; }
+.m-nav-badge {
+    position: absolute;
+    top: 4px;
+    right: 50%;
+    transform: translateX(18px);
+    background: var(--status-ny);
+    color: #fff;
+    font-size: 9px;
+    font-weight: 700;
+    padding: 2px 5px;
+    border-radius: 8px;
+    min-width: 16px;
+    line-height: 1;
+}
+
+/* Notes */
+.notes {
+    width: 340px;
+    background: #fdf9e6;
+    border: 1px solid #d8ca8a;
+    border-radius: 8px;
+    padding: 18px;
+    margin-left: 24px;
+    font-size: 13px;
+    line-height: 1.5;
+    color: #5a4516;
+    align-self: flex-start;
+    box-shadow: 0 4px 12px rgba(0,0,0,0.08);
+}
+.notes h3 { font-size: 14px; margin-bottom: 10px; color: #2d2620; }
+.notes h4 { font-size: 13px; margin: 14px 0 6px; color: #2d2620; }
+.notes ul { margin-left: 18px; }
+.notes li { margin-bottom: 6px; }
+.notes strong { color: #2d2620; }
+.notes code { background: #f5e8a3; padding: 1px 4px; border-radius: 3px; font-size: 12px; }
+
+/* Mini phone */
+.mini-phone {
+    width: 180px;
+    background: var(--color-bg);
+    border-radius: 14px;
+    overflow: hidden;
+    border: 1px solid #b5a05a;
+    margin: 8px 0;
+}
+.mini-phone .mp-header {
+    background: var(--brand-primary);
+    color: #fff;
+    padding: 6px 10px;
+    font-size: 9px;
+    display: flex;
+    justify-content: space-between;
+}
+.mini-phone .mp-search {
+    background: #fff;
+    border-bottom: 1px solid var(--color-border);
+    padding: 6px 8px;
+    font-size: 10px;
+    color: var(--color-text-soft);
+    display: flex;
+    align-items: center;
+    gap: 4px;
+}
+.mini-phone .mp-section {
+    background: var(--brand-primary-light);
+    padding: 4px 8px;
+    font-size: 9px;
+    color: #5a4516;
+}
+.mini-phone .mp-item {
+    background: var(--color-card);
+    padding: 6px 8px;
+    border-bottom: 1px solid var(--color-border-soft);
+    font-size: 9px;
+}
+.mini-phone .mp-item-name { font-weight: 600; }
+.mini-phone .mp-item-meta { color: var(--color-text-dim); font-size: 8px; margin-top: 1px; }
+
+@media (max-width: 800px) {
+    body { flex-direction: column; align-items: center; }
+    .notes { margin-left: 0; margin-top: 24px; width: 100%; max-width: 380px; }
+}
+</style>
+</head>
+<body>
+
+<div class="phone">
+
+    <header class="m-header">
+        <div class="m-header-logo"><span class="dot"></span> Bon v2</div>
+        <div class="m-header-user">Leif &#9662;</div>
+    </header>
+
+    <div class="m-search-row">
+        <button class="m-search-back" aria-label="Tilbage">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                <line x1="19" y1="12" x2="5" y2="12"/>
+                <polyline points="12 19 5 12 12 5"/>
+            </svg>
+        </button>
+        <div class="m-search-input-wrap">
+            <span class="m-search-input-icon">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                    <circle cx="11" cy="11" r="8"/>
+                    <line x1="21" y1="21" x2="16.65" y2="16.65"/>
+                </svg>
+            </span>
+            <input type="text" class="m-search-input" value="novo" placeholder="Søg bonnummer, kunde, firma, telefon…" />
+            <button class="m-search-clear" aria-label="Ryd">&times;</button>
+        </div>
+    </div>
+
+    <div class="m-result-count">
+        <strong>4</strong> resultater for <strong>"novo"</strong>
+    </div>
+
+    <div class="m-content">
+
+        <div class="m-result-item">
+            <div class="m-result-row1">
+                <span class="m-result-bonnr">#3362</span>
+                <span class="m-result-customer"><mark>Novo</mark> Nordisk</span>
+                <span class="m-result-status s-godkendt">GODKENDT</span>
+            </div>
+            <div class="m-result-meta">Lev. man 18/3 kl. 12:00 · 60 pax · Erika Hansen</div>
+        </div>
+
+        <div class="m-result-item">
+            <div class="m-result-row1">
+                <span class="m-result-bonnr">#3284</span>
+                <span class="m-result-customer"><mark>Novo</mark> Nordisk</span>
+                <span class="m-result-status s-leveret">LEVERET</span>
+            </div>
+            <div class="m-result-meta">Lev. tor 8/2 kl. 11:30 · 55 pax · Erika Hansen</div>
+        </div>
+
+        <div class="m-result-item">
+            <div class="m-result-row1">
+                <span class="m-result-bonnr">#3211</span>
+                <span class="m-result-customer"><mark>Novo</mark> Nordisk</span>
+                <span class="m-result-status s-faktureret">FAKTURERET</span>
+            </div>
+            <div class="m-result-meta">Lev. 16/1 kl. 12:00 · 48 pax · Erika Hansen</div>
+        </div>
+
+        <div class="m-result-item">
+            <div class="m-result-row1">
+                <span class="m-result-bonnr">#3145</span>
+                <span class="m-result-customer"><mark>Novo</mark>zymes</span>
+                <span class="m-result-status s-afsluttet">AFSLUTTET</span>
+            </div>
+            <div class="m-result-meta">Lev. 5/12-25 kl. 11:00 · 70 pax · Mads Iversen</div>
+        </div>
+
+        <button class="m-show-more">Vis 30 ældre &#8595;</button>
+
+    </div>
+
+    <nav class="m-nav">
+        <button class="m-nav-btn active">
+            <span class="m-nav-icon">&#128203;</span>
+            Bons
+            <span class="m-nav-badge">7</span>
+        </button>
+        <button class="m-nav-btn">
+            <span class="m-nav-icon">&#128230;</span>
+            Modtag
+        </button>
+        <button class="m-nav-btn">
+            <span class="m-nav-icon">&#129518;</span>
+            Lager
+        </button>
+        <button class="m-nav-btn">
+            <span class="m-nav-icon">&#128222;</span>
+            CRM
+        </button>
+        <button class="m-nav-btn">
+            <span class="m-nav-icon">&#128202;</span>
+            Overblik
+        </button>
+    </nav>
+
+</div>
+
+<aside class="notes">
+<h3>Søg — designvalg</h3>
+
+<h4>Aktivering</h4>
+<ul>
+<li>Tap på lup-ikon i top-tabs → top-tabs slides ud, søg-row slides ind</li>
+<li>Søgefelt får <strong>autofokus</strong> → tastatur popper op automatisk</li>
+<li>Tilbage-pil eller "Annuller" lukker søg og returnerer til sidste tab (Nye/I dag/…)</li>
+</ul>
+
+<h4>Søgefeltet</h4>
+<ul>
+<li>Placeholder: <em>"Søg bonnummer, kunde, firma, telefon…"</em></li>
+<li>Live-søg med <strong>300ms debounce</strong> — ikke kald pr. tastetryk</li>
+<li><strong>×-knap</strong> rydder feltet og vises kun når der er tekst</li>
+<li><strong>Match-highlight</strong>: gul baggrund på matchende tekst i resultatet</li>
+</ul>
+
+<h4>Hvad søges der i (backend)</h4>
+<ul>
+<li><code>bons.bon_number</code> — eksakt eller prefix-match</li>
+<li><code>customers.first_name + last_name</code> — LIKE %q%</li>
+<li><code>customers.company_name</code> — LIKE %q%</li>
+<li><code>customers.phone</code> — kun hvis q er rent tal</li>
+<li>Rent tal &ge; 4 cifre = bonnummer-prioritet, derefter telefon</li>
+<li>Backend: udvid eksisterende <code>GET /api/bons?q=</code> hvis q ikke allerede dækker alle felter</li>
+</ul>
+
+<h4>Tomt søgefelt</h4>
+<p>Viser seneste 30 bonner (alle datoer, alle statusser) sorteret efter <code>delivery_date DESC</code>. Ser sådan ud:</p>
+
+<div class="mini-phone">
+    <div class="mp-header"><span>🍞 Bon v2</span><span>Leif ▾</span></div>
+    <div class="mp-search">🔍 Søg bonnummer, kunde…</div>
+    <div class="mp-section">Seneste 30</div>
+    <div class="mp-item">
+        <div class="mp-item-name">#3387 · Liffe Zeeberg</div>
+        <div class="mp-item-meta">Lev. 15/7 · 60 pax</div>
+    </div>
+    <div class="mp-item">
+        <div class="mp-item-name">#3386 · Andreas Lund</div>
+        <div class="mp-item-meta">Lev. 28/5 · 8 pax</div>
+    </div>
+    <div class="mp-item">
+        <div class="mp-item-name">#3385 · Karen Madsen</div>
+        <div class="mp-item-meta">Lev. 22/3 · 14 pax</div>
+    </div>
+</div>
+
+<h4>Paginering</h4>
+<ul>
+<li>Standard: 30 resultater pr. side</li>
+<li>"Vis 30 ældre" knap i bunden — appender til samme liste</li>
+<li>Ingen infinite scroll (forvirrer på mobil + spilder data)</li>
+</ul>
+
+<h4>Tap på resultat</h4>
+<ul>
+<li>Åbner bon-detalje (samme view som fra I dag/Nye)</li>
+<li>Tilbage-pil i bon-detalje fører tilbage til <strong>søgresultatet</strong>, ikke til Nye</li>
+</ul>
+</aside>
+
+</body>
+</html>

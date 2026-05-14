@@ -1,7 +1,15 @@
 /**
  * mobile/views/bons.js
  * ════════════════════════════════════════════════════════════
- * Bonliste (I dag / I morgen tabs) + Bon-detalje med statusskift.
+ * Bonliste (I dag / I morgen / Overmorgen / Nye + søg) + Bon-detalje.
+ *
+ * Nye-tab: events fra GET /api/bons/new (ny bon + ulæst mail) med
+ * IntersectionObserver der auto-markerer events som set efter 2s.
+ *
+ * Søg-overlay: alternativ tilstand af tabs-row med live-søg (300ms debounce)
+ * på tværs af alle datoer/statusser/tilbud.
+ *
+ * Spec: docs/CLAUDE_MOBIL_NYE_OG_SOEG.md
  * ════════════════════════════════════════════════════════════
  */
 
@@ -13,6 +21,24 @@ var _mbBonsToday = [];
 var _mbBonsTomorrow = [];
 var _mbBonsDayAfter = [];
 var _mbDetailBon = null;
+
+/* Nye-tab state — _mbNyeCount initialiseres fra global hvis tilgængelig
+   (sat af initial count_only-kald i mobile/index.html) */
+var _mbNyeEvents = [];          // alle hentede events (kan vokse via "Vis flere")
+var _mbNyeLastSeenAt = null;    // string ISO eller null — fra users.new_bons_last_seen_at
+var _mbNyeCount = (typeof window !== 'undefined' && window._mNewBonsCount) || 0;
+var _mbNyeHasMore = false;
+var _mbNyeOffset = 0;
+var _mbObserver = null;         // IntersectionObserver til auto-mark
+
+/* Søg state */
+var _mbSearchActive = false;
+var _mbLastTabBeforeSearch = 'today';
+var _mbSearchQuery = '';
+var _mbSearchResults = [];
+var _mbSearchOffset = 0;
+var _mbSearchTimer = null;
+var _mbFromSearch = false;      // detail åbnet fra søg? → back skal tilbage til søg
 
 function _mbIsoDate(d) {
     var y = d.getFullYear();
@@ -46,31 +72,113 @@ async function initMobileBons(container, user) {
 }
 
 function cleanupMobileBons() {
+    if (_mbObserver) { _mbObserver.disconnect(); _mbObserver = null; }
+    if (_mbSearchTimer) { clearTimeout(_mbSearchTimer); _mbSearchTimer = null; }
     _mbContainer = null;
 }
 
-/* ── List view ── */
-async function _mbLoadList() {
-    _mbContainer.innerHTML =
-        '<div class="m-tabs">' +
-            '<button class="m-tab' + (_mbTab === 'today' ? ' active' : '') + '" data-tab="today">I dag</button>' +
-            '<button class="m-tab' + (_mbTab === 'tomorrow' ? ' active' : '') + '" data-tab="tomorrow">I morgen</button>' +
-            '<button class="m-tab' + (_mbTab === 'dayafter' ? ' active' : '') + '" data-tab="dayafter">Overmorgen</button>' +
-        '</div>' +
-        '<div id="mbList"><div class="m-loading">Henter bons...</div></div>';
+/* ── Tabs-row (normal eller søg) ── */
+function _mbRenderTabsRow() {
+    if (_mbSearchActive) {
+        return (
+            '<div class="m-search-row">' +
+                '<button class="m-search-back" id="mbSearchBack" aria-label="Tilbage">' +
+                    '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">' +
+                        '<line x1="19" y1="12" x2="5" y2="12"/>' +
+                        '<polyline points="12 19 5 12 12 5"/>' +
+                    '</svg>' +
+                '</button>' +
+                '<div class="m-search-input-wrap">' +
+                    '<span class="m-search-input-icon">' +
+                        '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">' +
+                            '<circle cx="11" cy="11" r="8"/>' +
+                            '<line x1="21" y1="21" x2="16.65" y2="16.65"/>' +
+                        '</svg>' +
+                    '</span>' +
+                    '<input type="text" class="m-search-input" id="mbSearchInput"' +
+                        ' placeholder="Søg bonnummer, kunde, firma, telefon…" autofocus>' +
+                    '<button class="m-search-clear" id="mbSearchClear" aria-label="Ryd"' +
+                        ' style="display:' + (_mbSearchQuery ? '' : 'none') + '">&times;</button>' +
+                '</div>' +
+            '</div>'
+        );
+    }
 
-    // Tab clicks
-    _mbContainer.querySelectorAll('.m-tab').forEach(function(tab) {
-        tab.addEventListener('click', function() {
-            _mbTab = tab.dataset.tab;
-            _mbContainer.querySelectorAll('.m-tab').forEach(function(t) {
-                t.classList.toggle('active', t.dataset.tab === _mbTab);
-            });
-            _mbRenderList();
+    var badge = _mbNyeCount > 0 ? '<span class="m-tab-badge">' + _mbNyeCount + '</span>' : '';
+    return (
+        '<div class="m-tabs-row">' +
+            '<div class="m-tabs">' +
+                '<button class="m-tab' + (_mbTab === 'today'    ? ' active' : '') + '" data-tab="today">I dag</button>' +
+                '<button class="m-tab' + (_mbTab === 'tomorrow' ? ' active' : '') + '" data-tab="tomorrow">I morgen</button>' +
+                '<button class="m-tab' + (_mbTab === 'dayafter' ? ' active' : '') + '" data-tab="dayafter">Overmorgen</button>' +
+                '<button class="m-tab' + (_mbTab === 'new'      ? ' active' : '') + '" data-tab="new">Nye' + badge + '</button>' +
+            '</div>' +
+            '<button class="m-search-btn" id="mbSearchOpen" aria-label="Søg">' +
+                '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">' +
+                    '<circle cx="11" cy="11" r="8"/>' +
+                    '<line x1="21" y1="21" x2="16.65" y2="16.65"/>' +
+                '</svg>' +
+            '</button>' +
+        '</div>'
+    );
+}
+
+function _mbAttachTabsRowHandlers() {
+    if (_mbSearchActive) {
+        document.getElementById('mbSearchBack').addEventListener('click', _mbCloseSearch);
+        var input = document.getElementById('mbSearchInput');
+        input.value = _mbSearchQuery;
+        input.addEventListener('input', _mbOnSearchInput);
+        // autofocus virker ikke pålideligt på iOS — sæt eksplicit
+        setTimeout(function() { input.focus(); }, 50);
+        document.getElementById('mbSearchClear').addEventListener('click', function() {
+            _mbSearchQuery = '';
+            input.value = '';
+            document.getElementById('mbSearchClear').style.display = 'none';
+            _mbLoadSearchResults();
         });
-    });
+    } else {
+        _mbContainer.querySelectorAll('.m-tab').forEach(function(tab) {
+            tab.addEventListener('click', function() {
+                _mbTab = tab.dataset.tab;
+                _mbContainer.querySelectorAll('.m-tab').forEach(function(t) {
+                    t.classList.toggle('active', t.dataset.tab === _mbTab);
+                });
+                _mbLoadTabContent();
+            });
+        });
+        document.getElementById('mbSearchOpen').addEventListener('click', _mbOpenSearch);
+    }
+}
 
-    // Fetch
+/* ── List view (top-level) ── */
+async function _mbLoadList() {
+    _mbContainer.innerHTML = _mbRenderTabsRow() +
+        '<div id="mbList"><div class="m-loading">Henter…</div></div>';
+    _mbAttachTabsRowHandlers();
+
+    if (_mbSearchActive) {
+        await _mbLoadSearchResults();
+    } else {
+        await _mbLoadTabContent();
+    }
+
+    _mbSetupPullToRefresh();
+}
+
+async function _mbLoadTabContent() {
+    if (_mbTab === 'new') {
+        await _mbLoadNye();
+        return;
+    }
+    await _mbLoadDateTab();
+}
+
+/* ── Date-tabs (I dag / I morgen / Overmorgen) ── */
+async function _mbLoadDateTab() {
+    var list = document.getElementById('mbList');
+    if (list) list.innerHTML = '<div class="m-loading">Henter bons...</div>';
+
     var statuses = 'NY,VENTER,GODKENDT,IGANG,KLAR,LEVERET';
     try {
         var tomorrow = new Date();
@@ -83,22 +191,17 @@ async function _mbLoadList() {
             apiFetch('/bons?date=' + _mbIsoDate(tomorrow) + '&status=' + statuses),
             apiFetch('/bons?date=' + _mbIsoDate(dayAfter) + '&status=' + statuses)
         ]);
-        _mbBonsToday = (results[0].bons || results[0] || []);
+        _mbBonsToday    = (results[0].bons || results[0] || []);
         _mbBonsTomorrow = (results[1].bons || results[1] || []);
         _mbBonsDayAfter = (results[2].bons || results[2] || []);
     } catch (e) {
-        _mbBonsToday = [];
-        _mbBonsTomorrow = [];
-        _mbBonsDayAfter = [];
+        _mbBonsToday = []; _mbBonsTomorrow = []; _mbBonsDayAfter = [];
     }
 
-    _mbRenderList();
-
-    // Pull to refresh (simple)
-    _mbSetupPullToRefresh();
+    _mbRenderDateList();
 }
 
-function _mbRenderList() {
+function _mbRenderDateList() {
     var list = document.getElementById('mbList');
     if (!list) return;
     var bons = _mbTab === 'today' ? _mbBonsToday
@@ -113,7 +216,6 @@ function _mbRenderList() {
         return;
     }
 
-    // Sort by delivery_time
     bons.sort(function(a, b) {
         return (a.delivery_time || '').localeCompare(b.delivery_time || '');
     });
@@ -122,8 +224,6 @@ function _mbRenderList() {
     bons.forEach(function(bon) {
         var s = _mbStatusStyle(bon.status_code || bon.status);
         var time = (bon.delivery_time || '').slice(0, 5) || '—';
-        // Backend returnerer contact_name_full (jf. routes/bons.js + getBon helper),
-        // ikke customer_name. Fallback til company_name hvis privat-kunden er null.
         var name = bon.contact_name_full || bon.customer_name || bon.company_name || 'Ukendt';
         var sub = '#' + (bon.bon_number || bon.id);
         if (bon.total_units) sub += ' · ' + bon.total_units + ' enh.';
@@ -141,19 +241,434 @@ function _mbRenderList() {
     });
     list.innerHTML = html;
 
-    // Click handlers
     list.querySelectorAll('.m-bon-item').forEach(function(el) {
         el.addEventListener('click', function() {
+            _mbFromSearch = false;
             _mbShowDetail(parseInt(el.dataset.id));
         });
     });
+}
+
+/* ── Nye-tab ── */
+async function _mbLoadNye(append) {
+    var list = document.getElementById('mbList');
+    if (!list) return;
+    if (!append) {
+        list.innerHTML = '<div class="m-loading">Henter nye…</div>';
+        _mbNyeOffset = 0;
+        _mbNyeEvents = [];
+    }
+
+    try {
+        var data = await apiFetch('/bons/new?limit=30&offset=' + _mbNyeOffset);
+        _mbNyeLastSeenAt = data.last_seen_at;
+        _mbNyeCount = data.count || 0;
+        _mbNyeHasMore = !!data.has_more;
+        var fresh = data.events || [];
+        _mbNyeEvents = append ? _mbNyeEvents.concat(fresh) : fresh;
+        _mbNyeOffset += fresh.length;
+    } catch (e) {
+        if (!append) _mbNyeEvents = [];
+    }
+
+    _mbRenderNye();
+    _mbUpdateBadges(_mbNyeCount);
+}
+
+function _mbRenderNye() {
+    var list = document.getElementById('mbList');
+    if (!list) return;
+
+    if (!_mbNyeEvents.length) {
+        list.innerHTML =
+            '<div class="m-bon-empty m-nye-empty">' +
+                '<div class="m-nye-empty-emoji">🎉</div>' +
+                '<div>Du er fanget op — ingen nye bonner eller mails siden sidst.</div>' +
+            '</div>';
+        return;
+    }
+
+    var seenLabel = _mbNyeLastSeenAt
+        ? 'siden ' + _mbFormatLastSeen(_mbNyeLastSeenAt)
+        : 'fra de seneste 7 dage';
+    var unseenCount = _mbNyeEvents.filter(function(ev) { return !ev.seen; }).length;
+
+    var html =
+        '<div class="m-meta">' +
+            '<span>' + unseenCount + ' nye ' + seenLabel + '</span>' +
+            '<button class="m-meta-action" id="mbMarkAll">Marker alle læst</button>' +
+        '</div>';
+
+    // Gruppér events i tidsbuckets
+    var groups = _mbGroupEventsByTime(_mbNyeEvents);
+    ['now', 'today', 'yesterday', 'older'].forEach(function(key) {
+        if (!groups[key].length) return;
+        html += '<div class="m-section-head">' + _mbGroupLabel(key) + '</div>';
+        groups[key].forEach(function(ev) {
+            html += _mbRenderNyeCard(ev);
+        });
+    });
+
+    if (_mbNyeHasMore) {
+        html += '<button class="m-show-more" id="mbShowMore">Vis flere ældre ↓</button>';
+    }
+
+    list.innerHTML = html;
+
+    // Handlers
+    document.getElementById('mbMarkAll').addEventListener('click', _mbMarkAllSeen);
+    var moreBtn = document.getElementById('mbShowMore');
+    if (moreBtn) moreBtn.addEventListener('click', function() { _mbLoadNye(true); });
+
+    list.querySelectorAll('.m-bon-item').forEach(function(el) {
+        el.addEventListener('click', function(e) {
+            // Undgå at klik på "Marker alle læst"-knappen åbner kortet
+            if (e.target.closest('.m-meta-action')) return;
+            _mbFromSearch = false;
+            _mbShowDetail(parseInt(el.dataset.bonId));
+        });
+    });
+
+    _mbSetupNyeObserver();
+}
+
+function _mbRenderNyeCard(ev) {
+    var bon = ev.bon;
+    var mail = ev.mail;
+    var s = _mbStatusStyle(bon.status_code);
+
+    var isMail = ev.event_type === 'unread_mail';
+    var isWeb  = bon.source === 'web';
+
+    var srcIcon, srcLabel;
+    if (isMail) {
+        srcIcon = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">' +
+            '<path d="M4 4h16c1.1 0 2 .9 2 2v12c0 1.1-.9 2-2 2H4c-1.1 0-2-.9-2-2V6c0-1.1.9-2 2-2z"/>' +
+            '<polyline points="22,6 12,13 2,6"/></svg>';
+        srcLabel = 'Ulæst mail';
+    } else if (isWeb) {
+        srcIcon = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">' +
+            '<circle cx="12" cy="12" r="10"/>' +
+            '<line x1="2" y1="12" x2="22" y2="12"/>' +
+            '<path d="M12 2a15.3 15.3 0 0 1 4 10 15.3 15.3 0 0 1-4 10 15.3 15.3 0 0 1-4-10 15.3 15.3 0 0 1 4-10z"/></svg>';
+        srcLabel = 'Web-bestilling';
+    } else {
+        srcIcon = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">' +
+            '<path d="M12 20h9"/>' +
+            '<path d="M16.5 3.5a2.121 2.121 0 0 1 3 3L7 19l-4 1 1-4L16.5 3.5z"/></svg>';
+        srcLabel = 'Manuel';
+    }
+
+    var classes = 'm-bon-item m-bon-nye';
+    if (!ev.seen) classes += ' unseen';
+    if (isMail)   classes += ' mail';
+
+    var name = bon.contact_name_full || bon.company_name || 'Ukendt';
+    if (bon.contact_name_full && bon.company_name) {
+        name = bon.contact_name_full + ' — ' + bon.company_name;
+    }
+
+    var whenStr = _mbFormatRelative(ev.event_at);
+    var metaLine = '#' + bon.bon_number;
+    if (bon.delivery_date) metaLine += ' · Lev. ' + _mbFormatDeliveryShort(bon.delivery_date, bon.delivery_time);
+    if (bon.pax) metaLine += ' · ' + bon.pax + ' pax';
+
+    var html =
+        '<div class="' + classes + '"' +
+            ' data-bon-id="' + bon.id + '"' +
+            ' data-event-type="' + ev.event_type + '"' +
+            (mail ? ' data-mail-id="' + mail.id + '"' : '') + '>' +
+            '<div class="m-bon-row1">' +
+                '<span class="m-bon-source">' + srcIcon + ' ' + srcLabel + '</span>' +
+                '<span class="m-bon-badge" style="background:' + s.bg + ';color:' + s.text + '">' + s.label + '</span>' +
+            '</div>' +
+            '<div class="m-bon-customer">' + _mbEsc(name) + '</div>';
+
+    if (mail && mail.preview) {
+        html += '<div class="m-bon-mail-preview">"' + _mbEsc(mail.preview) + '"</div>';
+    }
+
+    html +=
+            '<div class="m-bon-meta-line"><span class="m-bon-when">' + _mbEsc(whenStr) + '</span></div>' +
+            '<div class="m-bon-meta-line">' + _mbEsc(metaLine) + '</div>' +
+        '</div>';
+
+    return html;
+}
+
+function _mbGroupEventsByTime(events) {
+    var now = new Date();
+    var oneHourAgo = new Date(now.getTime() - 60 * 60 * 1000);
+    var todayStart = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+    var yesterdayStart = new Date(todayStart.getTime() - 24 * 3600 * 1000);
+
+    var groups = { now: [], today: [], yesterday: [], older: [] };
+    events.forEach(function(ev) {
+        if (!ev.event_at) return;
+        var t = new Date(ev.event_at.replace(' ', 'T'));
+        if (t >= oneHourAgo) groups.now.push(ev);
+        else if (t >= todayStart) groups.today.push(ev);
+        else if (t >= yesterdayStart) groups.yesterday.push(ev);
+        else groups.older.push(ev);
+    });
+    return groups;
+}
+
+function _mbGroupLabel(key) {
+    return { now: 'Lige nu', today: 'Tidligere i dag', yesterday: 'I går', older: 'Ældre' }[key];
+}
+
+function _mbFormatRelative(iso) {
+    if (!iso) return '';
+    var t = new Date(iso.replace(' ', 'T'));
+    var diff = (Date.now() - t.getTime()) / 1000;  // sek
+    if (diff < 60) return 'Lige nu';
+    if (diff < 3600) return 'For ' + Math.floor(diff / 60) + ' min siden';
+    var todayStart = new Date(); todayStart.setHours(0,0,0,0);
+    if (t >= todayStart) return 'Kl. ' + String(t.getHours()).padStart(2,'0') + ':' + String(t.getMinutes()).padStart(2,'0');
+    var yesterdayStart = new Date(todayStart.getTime() - 24 * 3600 * 1000);
+    if (t >= yesterdayStart) return 'I går kl. ' + String(t.getHours()).padStart(2,'0') + ':' + String(t.getMinutes()).padStart(2,'0');
+    var days = ['søn','man','tir','ons','tor','fre','lør'];
+    return days[t.getDay()] + ' ' + t.getDate() + '/' + (t.getMonth() + 1);
+}
+
+function _mbFormatDeliveryShort(dateStr, timeStr) {
+    if (!dateStr) return '';
+    var d = new Date(dateStr);
+    var days = ['søn','man','tir','ons','tor','fre','lør'];
+    var s = days[d.getDay()] + ' ' + d.getDate() + '/' + (d.getMonth() + 1);
+    if (timeStr) s += ' kl. ' + timeStr.slice(0,5);
+    return s;
+}
+
+function _mbFormatLastSeen(iso) {
+    if (!iso) return '';
+    var t = new Date(iso.replace(' ', 'T'));
+    var todayStart = new Date(); todayStart.setHours(0,0,0,0);
+    var hhmm = String(t.getHours()).padStart(2,'0') + ':' + String(t.getMinutes()).padStart(2,'0');
+    if (t >= todayStart) return 'i dag kl. ' + hhmm;
+    var yesterdayStart = new Date(todayStart.getTime() - 24 * 3600 * 1000);
+    if (t >= yesterdayStart) return 'i går kl. ' + hhmm;
+    return t.getDate() + '/' + (t.getMonth() + 1) + ' kl. ' + hhmm;
+}
+
+/* ── Auto-mark-som-set (IntersectionObserver) ── */
+function _mbSetupNyeObserver() {
+    if (_mbObserver) _mbObserver.disconnect();
+
+    _mbObserver = new IntersectionObserver(function(entries) {
+        entries.forEach(function(entry) {
+            var el = entry.target;
+            if (entry.intersectionRatio > 0.5) {
+                if (el.dataset.seenTimer || el.dataset.alreadySeen === '1') return;
+                // Respektér document.visibilityState — undgå at markere alt
+                // når skærmen er tændt i lommen
+                if (document.visibilityState !== 'visible') return;
+                el.dataset.seenTimer = setTimeout(function() {
+                    _mbMarkSeen(
+                        el.dataset.eventType,
+                        parseInt(el.dataset.bonId),
+                        el.dataset.mailId ? parseInt(el.dataset.mailId) : null
+                    );
+                    el.classList.remove('unseen');
+                    el.dataset.alreadySeen = '1';
+                    delete el.dataset.seenTimer;
+                }, 2000);
+            } else {
+                if (el.dataset.seenTimer) {
+                    clearTimeout(el.dataset.seenTimer);
+                    delete el.dataset.seenTimer;
+                }
+            }
+        });
+    }, { threshold: 0.5 });
+
+    document.querySelectorAll('.m-bon-nye.unseen').forEach(function(el) {
+        _mbObserver.observe(el);
+    });
+}
+
+async function _mbMarkSeen(eventType, bonId, mailId) {
+    try {
+        await apiFetch('/bons/' + bonId + '/mark-seen', {
+            method: 'POST',
+            body: JSON.stringify({ event_type: eventType, mail_id: mailId || undefined }),
+        });
+        // Decrement lokalt — undgå round-trip
+        if (_mbNyeCount > 0) {
+            _mbNyeCount--;
+            _mbUpdateBadges(_mbNyeCount);
+        }
+    } catch (e) {
+        // Lydløst — auto-mark er nice-to-have
+    }
+}
+
+async function _mbMarkAllSeen() {
+    try {
+        await apiFetch('/bons/mark-all-seen', { method: 'POST' });
+    } catch (e) {
+        if (window._mToast) window._mToast('Kunne ikke markere som læst');
+        return;
+    }
+    if (window._mToast) window._mToast('Markeret som læst');
+    _mbNyeCount = 0;
+    _mbUpdateBadges(0);
+    // Fade alle unseen-kort visuelt — bliver liggende indtil næste fetch (decision 10)
+    document.querySelectorAll('.m-bon-nye.unseen').forEach(function(el) {
+        el.classList.remove('unseen');
+        el.dataset.alreadySeen = '1';
+    });
+    // Opdater meta-bar
+    var meta = _mbContainer.querySelector('.m-meta span');
+    if (meta) meta.textContent = '0 nye siden lige nu';
+}
+
+/* ── Badge-opdatering ── */
+function _mbUpdateBadges(count) {
+    // Top-tab badge
+    var tab = _mbContainer && _mbContainer.querySelector('.m-tab[data-tab="new"]');
+    if (tab) {
+        var existing = tab.querySelector('.m-tab-badge');
+        if (count > 0) {
+            if (existing) existing.textContent = count;
+            else tab.insertAdjacentHTML('beforeend', '<span class="m-tab-badge">' + count + '</span>');
+        } else if (existing) {
+            existing.remove();
+        }
+    }
+    // Bottom-nav badge (global helper i mobile/index.html)
+    if (window._mUpdateNewBadge) window._mUpdateNewBadge(count);
+}
+
+/* ── Søg-overlay ── */
+function _mbOpenSearch() {
+    if (_mbSearchActive) return;
+    _mbLastTabBeforeSearch = _mbTab;
+    _mbSearchActive = true;
+    _mbSearchQuery = '';
+    _mbSearchOffset = 0;
+    _mbSearchResults = [];
+    _mbLoadList();
+}
+
+function _mbCloseSearch() {
+    _mbSearchActive = false;
+    _mbTab = _mbLastTabBeforeSearch;
+    if (_mbSearchTimer) { clearTimeout(_mbSearchTimer); _mbSearchTimer = null; }
+    _mbLoadList();
+}
+
+function _mbOnSearchInput(e) {
+    var val = e.target.value;
+    _mbSearchQuery = val;
+    document.getElementById('mbSearchClear').style.display = val ? '' : 'none';
+    if (_mbSearchTimer) clearTimeout(_mbSearchTimer);
+    _mbSearchTimer = setTimeout(function() {
+        _mbSearchOffset = 0;
+        _mbLoadSearchResults();
+    }, 300);
+}
+
+async function _mbLoadSearchResults(append) {
+    var list = document.getElementById('mbList');
+    if (!list) return;
+    if (!append) list.innerHTML = '<div class="m-loading">Søger…</div>';
+
+    var qs;
+    if (_mbSearchQuery) {
+        qs = '/bons?q=' + encodeURIComponent(_mbSearchQuery) +
+             '&limit=30&offset=' + _mbSearchOffset +
+             '&sort=delivery_date&dir=desc';
+    } else {
+        qs = '/bons?limit=30&offset=' + _mbSearchOffset + '&sort=delivery_date&dir=desc';
+    }
+
+    var fresh;
+    try {
+        var data = await apiFetch(qs);
+        fresh = (data.bons || data || []);
+    } catch (e) {
+        fresh = [];
+    }
+    _mbSearchResults = append ? _mbSearchResults.concat(fresh) : fresh;
+    _mbSearchOffset += fresh.length;
+
+    _mbRenderSearchResults(fresh.length === 30);
+}
+
+function _mbRenderSearchResults(hasMore) {
+    var list = document.getElementById('mbList');
+    if (!list) return;
+
+    var q = _mbSearchQuery;
+    var countLabel;
+    if (q) {
+        countLabel = '<strong>' + _mbSearchResults.length + '</strong> resultater for <strong>"' + _mbEsc(q) + '"</strong>';
+    } else {
+        countLabel = 'Seneste ' + _mbSearchResults.length + ' bonner';
+    }
+
+    var html = '<div class="m-result-count">' + countLabel + '</div>';
+
+    if (!_mbSearchResults.length) {
+        html += '<div class="m-bon-empty">Ingen bonner fundet' + (q ? ' for "' + _mbEsc(q) + '"' : '') + '</div>';
+        list.innerHTML = html;
+        return;
+    }
+
+    _mbSearchResults.forEach(function(bon) {
+        var s = _mbStatusStyle(bon.status_code || bon.status);
+        var name = bon.contact_name_full || bon.company_name || 'Ukendt';
+        var meta = '';
+        if (bon.delivery_date) meta += 'Lev. ' + _mbFormatDeliveryShort(bon.delivery_date, bon.delivery_time);
+        if (bon.pax) meta += ' · ' + bon.pax + ' pax';
+        if (bon.contact_name_full && bon.company_name) {
+            meta += ' · ' + bon.contact_name_full;
+        }
+
+        var highlightedName = q ? _mbHighlight(name, q) : _mbEsc(name);
+        var highlightedBonNr = q ? _mbHighlight('#' + bon.bon_number, q) : '#' + bon.bon_number;
+
+        html +=
+            '<div class="m-result-item" data-bon-id="' + bon.id + '">' +
+                '<div class="m-result-row1">' +
+                    '<span class="m-result-bonnr">' + highlightedBonNr + '</span>' +
+                    '<span class="m-result-customer">' + highlightedName + '</span>' +
+                    '<span class="m-result-status" style="background:' + s.bg + ';color:' + s.text + '">' + s.label + '</span>' +
+                '</div>' +
+                '<div class="m-result-meta">' + _mbEsc(meta) + '</div>' +
+            '</div>';
+    });
+
+    if (hasMore) {
+        html += '<button class="m-show-more" id="mbSearchMore">Vis 30 ældre ↓</button>';
+    }
+
+    list.innerHTML = html;
+
+    list.querySelectorAll('.m-result-item').forEach(function(el) {
+        el.addEventListener('click', function() {
+            _mbFromSearch = true;
+            _mbShowDetail(parseInt(el.dataset.bonId));
+        });
+    });
+
+    var more = document.getElementById('mbSearchMore');
+    if (more) more.addEventListener('click', function() { _mbLoadSearchResults(true); });
+}
+
+function _mbHighlight(text, q) {
+    if (!q || !text) return _mbEsc(text);
+    var safe = _mbEsc(text);
+    var safeQ = _mbEsc(q).replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+    return safe.replace(new RegExp('(' + safeQ + ')', 'gi'), '<mark>$1</mark>');
 }
 
 /* ── Detail view ── */
 async function _mbShowDetail(bonId) {
     _mbContainer.innerHTML = '<div class="m-loading">Henter bon...</div>';
 
-    // Update URL
     var params = new URLSearchParams(window.location.search);
     params.set('bon', bonId);
     history.pushState(null, '', '?' + params.toString());
@@ -175,8 +690,6 @@ async function _mbShowDetail(bonId) {
             '<span class="m-bon-badge" style="background:' + s.bg + ';color:' + s.text + '">' + s.label + '</span>' +
         '</div>';
 
-    // Kunde — backend returnerer contact_name_full (jf. getBon helper). Tidligere
-    // læstes bon.customer_name som ikke eksisterer → "Ukendt" / blank.
     var custName = bon.contact_name_full || bon.customer_name || '';
     html += '<div class="m-detail-section">';
     if (custName || bon.company_name) {
@@ -186,15 +699,12 @@ async function _mbShowDetail(bonId) {
         html += '</div>';
     }
 
-    // Telefon — backend returnerer contact_phone (ikke customer_phone). day_contact_phone
-    // bevares som fallback når kunden ikke har telefon men dagskontakten har.
     var phone = bon.contact_phone || bon.customer_phone || bon.day_contact_phone;
     if (phone) {
         html += '<div class="m-detail-label">Telefon</div>';
         html += '<div class="m-detail-value"><a href="tel:' + phone + '">' + phone + '</a></div>';
     }
 
-    // Levering
     html += '<div class="m-detail-label">Levering</div>';
     var deliveryStr = '';
     if (bon.delivery_date) {
@@ -206,7 +716,6 @@ async function _mbShowDetail(bonId) {
     if (bon.delivery_type) deliveryStr += ' (' + bon.delivery_type + ')';
     html += '<div class="m-detail-value">' + (deliveryStr || '—') + '</div>';
 
-    // Adresse
     var addrObj = bon.delivery_address || bon.address || null;
     var addrStr = bon.address_line || '';
     if (addrObj && typeof addrObj === 'object') {
@@ -219,13 +728,11 @@ async function _mbShowDetail(bonId) {
         html += '<div class="m-detail-value"><a href="https://maps.google.com/?q=' + encodeURIComponent(addrStr) + '" target="_blank">' + _mbEsc(addrStr) + ' &#8599;</a></div>';
     }
 
-    // Enheder/pax
     html += '<div class="m-detail-label">Enheder / Pax</div>';
     html += '<div class="m-detail-value">' + (bon.total_units || '—') + ' enh. / ' + (bon.pax || '—') + ' pax</div>';
 
     html += '</div>';
 
-    // Linjer
     if (bon.lines && bon.lines.length) {
         html += '<div class="m-detail-section">';
         html += '<div class="m-detail-label">Varer</div>';
@@ -239,7 +746,6 @@ async function _mbShowDetail(bonId) {
         html += '</ul></div>';
     }
 
-    // Køkkeninfo
     if (bon.kitchen_info) {
         html += '<div class="m-detail-section">';
         html += '<div class="m-detail-label">Køkkeninfo</div>';
@@ -247,20 +753,22 @@ async function _mbShowDetail(bonId) {
         html += '</div>';
     }
 
-    // Status actions
     html += '<div class="m-status-actions" id="mbStatusActions"></div>';
 
     _mbContainer.innerHTML = html;
 
-    // Back button
     document.getElementById('mbBack').addEventListener('click', function() {
         var p = new URLSearchParams(window.location.search);
         p.delete('bon');
         history.pushState(null, '', '?' + p.toString());
-        _mbLoadList();
+        // Tilbage til søg hvis vi kom derfra, ellers normal liste
+        if (_mbFromSearch && _mbSearchActive) {
+            _mbLoadList();
+        } else {
+            _mbLoadList();
+        }
     });
 
-    // Load transitions
     _mbLoadTransitions(bon);
 }
 
@@ -278,9 +786,6 @@ async function _mbLoadTransitions(bon) {
 
         actionsEl.innerHTML = '';
         transitions.forEach(function(t) {
-            // Backend returnerer transitions med felt 'code' (jf. routes/statuses.js
-            // linje 22 — JOIN'er to_status_id og SELECT'er sd.code). Tidligere læstes
-            // t.to_code / t.to som ikke eksisterer → "?"-knapper.
             var toCode = t.code || t.to_code || t.to;
             var ts = _mbStatusStyle(toCode);
             var btn = document.createElement('button');
@@ -300,12 +805,9 @@ async function _mbChangeStatus(bonId, toCode) {
     try {
         await apiFetch('/bons/' + bonId + '/status', {
             method: 'PATCH',
-            headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({ status_code: toCode, user_id: _mbUser.id })
         });
-        // Haptic feedback
         if (navigator.vibrate) navigator.vibrate(50);
-        // Refresh detail
         await _mbShowDetail(bonId);
         if (window._mToast) window._mToast('Status opdateret');
     } catch (e) {
@@ -345,8 +847,8 @@ window.addEventListener('popstate', function() {
 
 /* ── Escape helper ── */
 function _mbEsc(str) {
-    if (!str) return '';
+    if (str === null || str === undefined) return '';
     var d = document.createElement('div');
-    d.textContent = str;
+    d.textContent = String(str);
     return d.innerHTML;
 }
