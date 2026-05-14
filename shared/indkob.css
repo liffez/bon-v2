@@ -343,6 +343,60 @@
 .ib-group-act.reg   { background: var(--ib-blue); color: #fff; }
 .ib-group-act.prod  { background: var(--ib-purple); color: #fff; }
 .ib-group-act.web   { background: var(--ib-blue); color: #fff; }
+.ib-group-act.warn  { background: #e8a832; color: #fff; }
+.ib-group-act.warn:hover { background: #c98a1d; }
+
+/* ── Cart-blocked admin-modal (vises når supplier-kobling mangler) ── */
+.ib-cb-overlay {
+    position: fixed; inset: 0;
+    background: rgba(0,0,0,0.45);
+    display: flex; align-items: center; justify-content: center;
+    z-index: 1000;
+    animation: ib-cb-fade .15s ease;
+}
+@keyframes ib-cb-fade { from { opacity: 0; } to { opacity: 1; } }
+.ib-cb-modal {
+    background: #fff;
+    border-radius: 12px;
+    width: 460px; max-width: calc(100vw - 32px);
+    padding: 22px 26px 18px;
+    box-shadow: 0 8px 32px rgba(0,0,0,0.25);
+    font-family: inherit;
+}
+.ib-cb-title {
+    font-size: 17px; font-weight: 700;
+    color: #a86200; margin-bottom: 12px;
+}
+.ib-cb-body { font-size: 13px; line-height: 1.55; color: var(--color-text, #333); }
+.ib-cb-body p { margin: 0 0 10px; }
+.ib-cb-body em { font-style: normal; font-weight: 600; }
+.ib-cb-admin-box {
+    background: #fef7e6;
+    border: 1px solid #f0d896;
+    border-radius: 8px;
+    padding: 12px 14px;
+    margin: 12px 0 8px;
+}
+.ib-cb-admin-lbl {
+    font-size: 11px; font-weight: 700; letter-spacing: .3px;
+    text-transform: uppercase; color: #8a5e00;
+    margin-bottom: 8px;
+}
+.ib-cb-admin-steps { font-size: 13px; color: #333; }
+.ib-cb-admin-steps > div { margin-bottom: 4px; }
+.ib-cb-hint { font-size: 12px; color: var(--color-text-dim, #777); margin-top: 8px; }
+.ib-cb-foot {
+    margin-top: 14px;
+    display: flex; justify-content: flex-end;
+}
+.ib-cb-btn-close {
+    padding: 8px 18px;
+    background: var(--brand-primary, #8e631f); color: #fff;
+    border: none; border-radius: 6px;
+    font-size: 13px; font-weight: 600;
+    cursor: pointer; font-family: inherit;
+}
+.ib-cb-btn-close:hover { background: #6f4d18; }
 
 .ib-group-chev {
     color: var(--color-border, #d7d1ca);

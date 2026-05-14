@@ -853,6 +853,16 @@ function _ibRenderGroupAction(g, key) {
     if (g.integrationType === 'intern') {
         return '<button class="ib-group-act prod" data-ib="create-prod-bon" data-group="' + key + '">Opret produktionsbon →</button>';
     }
+    // Fallback: gruppen er ikke koblet til en leverandør i Settings, men kurven
+    // har items fra den (typisk pga. Hørkram-barcode på en vare). Vis en
+    // synlig warning-knap så brugeren ikke står stille med en kurv der ikke
+    // kan tømmes — klik åbner en modal med admin-instruks.
+    var hasCartItems = (_ibCartItems || []).some(function(e) {
+        return _ibFindGroupForEntry(e) === key;
+    });
+    if (hasCartItems) {
+        return '<button class="ib-group-act warn" data-ib="cart-blocked" data-group="' + key + '">⚠ Kurv ikke klar →</button>';
+    }
     return '';
 }
 
@@ -1261,6 +1271,10 @@ function _ibHandleClick(e) {
             _ibGotoCart(group);
             break;
 
+        case 'cart-blocked':
+            _ibShowCartBlockedModal(group);
+            break;
+
         case 'register-order':
             _ibMoOpen = _ibMoOpen === group ? null : group;
             _ibRender();
@@ -1419,6 +1433,14 @@ async function _ibAddToCart(productId) {
 async function _ibGotoCart(groupKey) {
     var g = _ibGroups[groupKey];
     if (!g) return;
+
+    // Defensiv: hvis gruppen ikke er koblet til en supplier i Settings, kan vi
+    // ikke registrere en pending purchase order. Vis admin-modal i stedet for
+    // at ende i en 400 fra backend.
+    if (g.integrationType !== 'api' || !g.supplierId) {
+        _ibShowCartBlockedModal(groupKey);
+        return;
+    }
 
     // Collect cart items for this group
     var cartForGroup = _ibCartItems.filter(function(e) {
@@ -2331,4 +2353,66 @@ function _ibToast(msg, isError) {
     t.textContent = msg;
     document.body.appendChild(t);
     _ibToastTimer = setTimeout(function() { if (t.parentNode) t.remove(); }, 2500);
+}
+
+/* ── Cart-blocked modal: vises når kurven har items men supplier-kobling
+   mangler. Køkken-personalet kan ikke selv fixe det — admin skal sætte
+   koblingen op i Settings → Indkøb → Leverandører. */
+function _ibShowCartBlockedModal(groupKey) {
+    _ibCloseCartBlockedModal();
+    var g = _ibGroups[groupKey];
+    if (!g) return;
+
+    var cartCount = (_ibCartItems || []).filter(function(e) {
+        return _ibFindGroupForEntry(e) === groupKey;
+    }).length;
+
+    var overlay = document.createElement('div');
+    overlay.className = 'ib-cb-overlay';
+    overlay.innerHTML =
+        '<div class="ib-cb-modal">' +
+            '<div class="ib-cb-title">⚠ Kurven kan ikke afgives</div>' +
+            '<div class="ib-cb-body">' +
+                '<p><strong>' + _ibEsc(g.displayName) + '</strong> er ikke koblet til en leverandør i Settings, ' +
+                'så vi kan ikke registrere bestillingen automatisk.</p>' +
+                (cartCount > 0
+                    ? '<p>Kurven indeholder <strong>' + cartCount + ' vare' + (cartCount === 1 ? '' : 'r') + '</strong> der venter.</p>'
+                    : '') +
+                '<div class="ib-cb-admin-box">' +
+                    '<div class="ib-cb-admin-lbl">🛠 Skal sættes op af en admin</div>' +
+                    '<div class="ib-cb-admin-steps">' +
+                        '<div>1. Åbn <strong>Settings → Indkøb → Leverandører</strong></div>' +
+                        '<div>2. Find <em>' + _ibEsc(g.displayName) + '</em> og klik "Rediger"</div>' +
+                        '<div>3. Vælg den Grocy-lokation der svarer til <em>' + _ibEsc(g.displayName) + '</em> og gem</div>' +
+                    '</div>' +
+                '</div>' +
+                '<p class="ib-cb-hint">Når koblingen er på plads, dukker den grønne ' +
+                '<em>Gå til kurv →</em>-knap op her, og bestillingen kan afgives som normalt.</p>' +
+            '</div>' +
+            '<div class="ib-cb-foot">' +
+                '<button class="ib-cb-btn-close">Luk</button>' +
+            '</div>' +
+        '</div>';
+    document.body.appendChild(overlay);
+
+    // Modal hører ikke under _ibContainer, så vi binder close-handlers direkte
+    overlay.addEventListener('click', function(e) {
+        if (e.target === overlay) _ibCloseCartBlockedModal();
+    });
+    overlay.querySelector('.ib-cb-btn-close').addEventListener('click', _ibCloseCartBlockedModal);
+    var escHandler = function(e) {
+        if (e.key === 'Escape') {
+            _ibCloseCartBlockedModal();
+            document.removeEventListener('keydown', escHandler);
+        }
+    };
+    document.addEventListener('keydown', escHandler);
+    overlay._escHandler = escHandler;
+}
+
+function _ibCloseCartBlockedModal() {
+    var existing = document.querySelector('.ib-cb-overlay');
+    if (!existing) return;
+    if (existing._escHandler) document.removeEventListener('keydown', existing._escHandler);
+    existing.remove();
 }
