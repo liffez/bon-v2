@@ -17,19 +17,14 @@ const { getDb } = require('../db/database');
 
 const APPLY = process.argv.includes('--apply');
 
-// Auto-afsender-mønstre — match db/migrations/066_cleanup_unmatched_mail.sql.
-// Hold de to i sync, ellers driver oprydningen lokalt vs. på Hetzner.
-// Match er case-insensitive (SQLite default på LIKE).
+// Auto-afsender-mønstre — match AUTO_IGNORE_FROM_PATTERNS i mailService.js
+// og migration 066 (rensning). Bounces er IKKE her — de er forretnings-
+// kritiske signaler om kunder med forkert email (se migration 067).
 const FROM_PATTERNS = [
     // HubSpot — gamle form-notifikationer (incl. alle subdomæner)
     { pattern: '%hubspot.com',            label: 'HubSpot (alle subdomæner)' },
     // Jotform — gamle form-submissions
     { pattern: '%@jotform.com',           label: 'Jotform' },
-    // Bounce-systemer — Mail-Delivery failures
-    { pattern: 'postmaster@%',            label: 'Postmaster bounces' },
-    { pattern: 'Mailer-Daemon@%',         label: 'Mailer-Daemon bounces' },
-    { pattern: '%antispam@%',             label: 'Antispam-system' },
-    { pattern: '%@robot.simply.com',      label: 'Simply robot' },
 ];
 
 const SUBJECT_PATTERNS = [

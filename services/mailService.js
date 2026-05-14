@@ -25,16 +25,17 @@ function getPollState() {
 // Indgående mails der matcher disse mønstre indsættes direkte med
 // status='ignored' (ikke 'open') så de aldrig vises i CRM Indbakke.
 //
-// Skal holdes synkront med db/migrations/066_cleanup_unmatched_mail.sql,
-// der rydder eksisterende ophobning ved deploy.
+// VIGTIGT: bounce-mails (postmaster@, Mailer-Daemon@, antispam@) er IKKE
+// auto-ignore — de er forretningskritiske signaler om at vi har en kunde
+// med forkert email. De skal være synlige i CRM Indbakke så de kan
+// håndteres (kontakt kunden, opdater email).
+//
+// Skal holdes synkront med db/migrations/066_cleanup_unmatched_mail.sql
+// (oprydning) og 067_restore_bounce_mails.sql (revert af 066's bounces).
 
 const AUTO_IGNORE_FROM_PATTERNS = [
     /@hubspot\.com$/i,                  // HubSpot incl. alle subdomæner
     /@jotform\.com$/i,                  // Jotform form-notifikationer
-    /^postmaster@/i,                    // Bounce-notifikationer
-    /^Mailer-Daemon@/i,                 // Bounce-notifikationer (alt-stavning)
-    /antispam@/i,                       // Antispam-systemer
-    /@robot\.simply\.com$/i,            // Simply.com robot-mails
 ];
 
 const AUTO_IGNORE_SUBJECT_PATTERNS = [
