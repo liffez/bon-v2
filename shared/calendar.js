@@ -27,7 +27,9 @@
 var _container    = null;
 var _currentYear  = 0;
 var _currentMonth = 0;
-var _currentView  = 'calendar'; // 'calendar' | 'list'
+var _currentView  = 'calendar'; // 'calendar' | 'list' | 'web-orders'
+var _webOrdersData = null;
+var _webOrdersBadgeCount = 0;
 var _activeFilters = {};        // status-key → true
 var _filterCount   = 0;
 var _calendarData  = null;
@@ -49,7 +51,15 @@ function initCalendar(containerEl, options) {
     _options      = options || {};
     _currentYear  = _options.year  || new Date().getFullYear();
     _currentMonth = _options.month || (new Date().getMonth() + 1);
-    _currentView  = localStorage.getItem('bon_cal_view') || _options.view || 'calendar';
+    // URL-param ?view=web-orders har forrang over localStorage (deep-link
+    // fra fx kitchen-dashboard-card)
+    var urlView = null;
+    try { urlView = new URLSearchParams(window.location.search).get('view'); } catch(e) {}
+    if (urlView === 'web-orders' || urlView === 'list' || urlView === 'calendar') {
+        _currentView = urlView;
+    } else {
+        _currentView = localStorage.getItem('bon_cal_view') || _options.view || 'calendar';
+    }
 
     // Restore filter state from localStorage
     var savedFilters = localStorage.getItem('cal_status_filter');
@@ -89,7 +99,8 @@ function _renderShell() {
     right.className = 'cal-header-right';
     right.innerHTML = '<button class="cal-ny-bon-btn" id="calNyBon">+ Ny bon</button>'
         + '<button class="cal-view-btn" data-view="calendar" title="Kalender">\uD83D\uDCC5</button>'
-        + '<button class="cal-view-btn" data-view="list" title="Liste">\u2261</button>';
+        + '<button class="cal-view-btn" data-view="list" title="Liste">\u2261</button>'
+        + '<button class="cal-view-btn cal-view-btn-wo" data-view="web-orders" title="Nye bestillinger">\uD83C\uDD95<span class="cal-wo-badge" id="calWoBadge" style="display:none">0</span></button>';
     header.appendChild(right);
 
     _container.appendChild(header);
@@ -208,6 +219,9 @@ function _applyFilters() {
 function _loadData() {
     _updateMonthDisplay();
 
+    // Hent web-order badge i baggrunden (skal være synlig uanset view)
+    _loadWebOrdersBadge();
+
     // Render kalender med det samme — Smartplan hentes asynkront bagefter
     fetchBonsCalendar(_currentYear, _currentMonth).then(function(data) {
         _calendarData = data;
@@ -231,7 +245,204 @@ function _loadData() {
 
 function _render() {
     if (_currentView === 'calendar') _renderCalendar();
+    else if (_currentView === 'web-orders') _renderWebOrders();
     else _renderList();
+}
+
+/* ══════════════════════════════════════════════════════════════
+   WEB-ORDERS VIEW (#042 — kitchen-styled)
+   ══════════════════════════════════════════════════════════════ */
+
+function _loadWebOrdersBadge() {
+    if (typeof fetchPendingWebOrders !== 'function') return;
+    fetchPendingWebOrders().then(function(rows) {
+        _webOrdersBadgeCount = rows.length;
+        var badge = document.getElementById('calWoBadge');
+        if (badge) {
+            badge.textContent = rows.length;
+            badge.style.display = rows.length > 0 ? '' : 'none';
+        }
+    }).catch(function() { /* lydløs */ });
+}
+
+function _renderWebOrders() {
+    var content = document.getElementById('calContent');
+    if (!content) return;
+    content.innerHTML = '<div class="cal-empty">Henter...</div>';
+
+    if (typeof fetchPendingWebOrders !== 'function') {
+        content.innerHTML = '<div class="cal-empty">API ikke tilgængelig.</div>';
+        return;
+    }
+
+    fetchPendingWebOrders().then(function(rows) {
+        _webOrdersData = rows;
+        _webOrdersBadgeCount = rows.length;
+        var badge = document.getElementById('calWoBadge');
+        if (badge) {
+            badge.textContent = rows.length;
+            badge.style.display = rows.length > 0 ? '' : 'none';
+        }
+
+        if (rows.length === 0) {
+            content.innerHTML = '<div class="cal-wo-wrap">'
+                + '<div class="cal-wo-empty">'
+                + '<div class="cal-wo-empty-emoji">🎉</div>'
+                + '<div>Ingen ubekræftede bestillinger fra hjemmesiden</div>'
+                + '</div></div>';
+            return;
+        }
+
+        var html = '<div class="cal-wo-wrap">';
+        html += '<div class="cal-wo-header">';
+        html += '<div class="cal-wo-count">' + rows.length + '</div>';
+        html += '<div class="cal-wo-header-sub">ubekræftede web-bestillinger — klik <strong>Bekræft modtaget</strong> når du har set bonen</div>';
+        html += '</div>';
+        html += '<div class="cal-wo-list">';
+        for (var i = 0; i < rows.length; i++) {
+            html += _renderWebOrderCard(rows[i]);
+        }
+        html += '</div></div>';
+        content.innerHTML = html;
+
+        // Wire knapper
+        var btns = content.querySelectorAll('[data-wo-ack]');
+        for (var j = 0; j < btns.length; j++) {
+            btns[j].addEventListener('click', _onWebOrderAck);
+        }
+        var openBtns = content.querySelectorAll('[data-wo-open]');
+        for (var k = 0; k < openBtns.length; k++) {
+            openBtns[k].addEventListener('click', _onWebOrderOpen);
+        }
+    }).catch(function(err) {
+        console.error('[cal/web-orders] fejl:', err);
+        content.innerHTML = '<div class="cal-empty">Kunne ikke hente web-bestillinger.</div>';
+    });
+}
+
+function _renderWebOrderCard(b) {
+    var daysUntil = _calDaysUntil(b.delivery_date);
+    var daysClass = 'cal-wo-days-soon';
+    var daysText = '';
+    if (daysUntil !== null) {
+        if (daysUntil < 0)        { daysClass = 'cal-wo-days-past'; daysText = 'for ' + (-daysUntil) + ' dag' + (daysUntil === -1 ? '' : 'e') + ' siden'; }
+        else if (daysUntil === 0) { daysText = 'i dag'; }
+        else if (daysUntil === 1) { daysText = 'i morgen'; }
+        else if (daysUntil < 14)  { daysText = 'om ' + daysUntil + ' dage'; }
+        else                      { daysClass = 'cal-wo-days-far'; daysText = 'om ' + daysUntil + ' dage'; }
+    }
+    var time = b.delivery_time ? b.delivery_time.slice(0, 5) : '—';
+    var typeLbl = b.order_type === 'pickup' ? '🏠 Afhentning' : '🚚 Levering';
+    var statusPillStyle = b.status_color ? 'background:' + _calEsc(b.status_color) + ';color:#fff' : '';
+
+    var h = '<div class="cal-wo-card" data-bon-id="' + b.bon_id + '">';
+    h += '<div class="cal-wo-card-head">';
+    h += '<span class="cal-wo-bon-num">#' + _calEsc(b.bon_number) + '</span>';
+    h += '<span class="cal-wo-customer">' + _calEsc(b.customer_name) + '</span>';
+    h += '<span class="cal-wo-status-pill" style="' + statusPillStyle + '">' + _calEsc(b.status_label || b.status_code || '') + '</span>';
+    h += '</div>';
+
+    h += '<div class="cal-wo-meta">';
+    h += '<span>📅 ' + _calFmtDate(b.delivery_date) + ' kl. ' + time + ' <span class="' + daysClass + '">(' + _calEsc(daysText) + ')</span></span>';
+    h += '<span>' + typeLbl + '</span>';
+    if (b.pax) h += '<span>👥 ' + b.pax + ' pax</span>';
+    if (b.customer_email) h += '<span>✉️ <a href="mailto:' + _calEsc(b.customer_email) + '">' + _calEsc(b.customer_email) + '</a></span>';
+    if (b.customer_phone) h += '<span>📞 <a href="tel:' + _calEsc(b.customer_phone) + '">' + _calEsc(b.customer_phone) + '</a></span>';
+    if (b.company_name) h += '<span>🏢 ' + _calEsc(b.company_name) + '</span>';
+    h += '</div>';
+
+    if (b.address_text && b.delivery_type !== 'pickup') {
+        h += '<div class="cal-wo-meta"><span>📍 ' + _calEsc(b.address_text);
+        if (b.postal_code) h += ', ' + _calEsc(b.postal_code) + ' ' + _calEsc(b.city || '');
+        h += '</span></div>';
+    }
+    if (b.customer_wishes) {
+        h += '<div class="cal-wo-wishes">' + _calEsc(b.customer_wishes) + '</div>';
+    }
+
+    h += '<div class="cal-wo-foot">';
+    h += '<span class="cal-wo-age">Modtaget ' + _calFmtAge(b.created_at) + '</span>';
+    h += '<div class="cal-wo-foot-right">';
+    h += '<button class="cal-wo-btn" data-wo-open="' + b.bon_id + '">Åbn</button>';
+    h += '<button class="cal-wo-btn cal-wo-btn-primary" data-wo-ack="' + b.bon_id + '">✓ Bekræft modtaget</button>';
+    h += '</div></div>';
+    h += '</div>';
+    return h;
+}
+
+function _onWebOrderAck(e) {
+    var btn = e.currentTarget;
+    var bonId = parseInt(btn.getAttribute('data-wo-ack'));
+    btn.disabled = true;
+    btn.textContent = '…';
+
+    if (typeof acknowledgeBon !== 'function') {
+        btn.disabled = false;
+        btn.textContent = '✓ Bekræft modtaget';
+        alert('API ikke tilgængelig.');
+        return;
+    }
+
+    acknowledgeBon(bonId).then(function() {
+        var card = _container.querySelector('.cal-wo-card[data-bon-id="' + bonId + '"]');
+        if (card) {
+            card.classList.add('cal-wo-removing');
+            setTimeout(function() {
+                _webOrdersData = (_webOrdersData || []).filter(function(b) { return b.bon_id !== bonId; });
+                _webOrdersBadgeCount = _webOrdersData.length;
+                var badge = document.getElementById('calWoBadge');
+                if (badge) {
+                    badge.textContent = _webOrdersBadgeCount;
+                    badge.style.display = _webOrdersBadgeCount > 0 ? '' : 'none';
+                }
+                _renderWebOrders();
+            }, 350);
+        }
+    }).catch(function(err) {
+        btn.disabled = false;
+        btn.textContent = '✓ Bekræft modtaget';
+        alert('Kunne ikke bekræfte: ' + err.message);
+    });
+}
+
+function _onWebOrderOpen(e) {
+    var bonId = parseInt(e.currentTarget.getAttribute('data-wo-open'));
+    if (_options.onBonClick) {
+        _options.onBonClick(bonId);
+    } else if (typeof window.openBonInfo === 'function') {
+        window.openBonInfo(bonId);
+    }
+}
+
+/* ── Web-order helpers ─────────────────────────────────────── */
+
+function _calDaysUntil(dateStr) {
+    if (!dateStr) return null;
+    var d = new Date(dateStr + 'T12:00:00');
+    var today = new Date(); today.setHours(12, 0, 0, 0);
+    return Math.round((d - today) / 86400000);
+}
+function _calFmtDate(dateStr) {
+    if (!dateStr) return '—';
+    var d = new Date(dateStr + 'T12:00:00');
+    var days = ['Søn','Man','Tir','Ons','Tor','Fre','Lør'];
+    var months = ['jan','feb','mar','apr','maj','jun','jul','aug','sep','okt','nov','dec'];
+    return days[d.getDay()] + ' ' + d.getDate() + '. ' + months[d.getMonth()];
+}
+function _calFmtAge(createdAt) {
+    if (!createdAt) return '';
+    var created = new Date(createdAt.replace(' ', 'T') + 'Z');
+    var mins = Math.round((Date.now() - created.getTime()) / 60000);
+    if (mins < 1) return 'lige nu';
+    if (mins < 60) return mins + ' min siden';
+    var hrs = Math.round(mins / 60);
+    if (hrs < 24) return hrs + ' time' + (hrs === 1 ? '' : 'r') + ' siden';
+    var days = Math.round(hrs / 24);
+    return days + ' dag' + (days === 1 ? '' : 'e') + ' siden';
+}
+function _calEsc(s) {
+    if (s == null) return '';
+    return String(s).replace(/[&<>"]/g, function(c) { return { '&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;' }[c]; });
 }
 
 /* ══════════════════════════════════════════════════════════════
@@ -256,7 +467,11 @@ function _nextMonth() {
 
 function _toggleView(view) {
     _currentView = view;
-    localStorage.setItem('bon_cal_view', view);
+    // Web-orders huskes ikke i localStorage — den åbnes via badge-klik
+    // eller URL-param og bør ikke "låse sig fast" som default næste gang.
+    if (view !== 'web-orders') {
+        localStorage.setItem('bon_cal_view', view);
+    }
     _updateViewButtons();
     _render();
 }
@@ -627,6 +842,13 @@ function _initSSE() {
         },
         bon_updated: function() {
             _loadData();
+            if (_currentView === 'web-orders') _renderWebOrders();
+            else _loadWebOrdersBadge();
+        },
+        bon_created: function() {
+            _loadData();
+            if (_currentView === 'web-orders') _renderWebOrders();
+            else _loadWebOrdersBadge();
         },
     });
 }

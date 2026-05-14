@@ -451,3 +451,102 @@
 
 .zone-kitchen .cal-day-cell { min-height: 100px; }
 .zone-office  .cal-day-cell { min-height: 70px; }
+
+/* ── WEB-ORDERS VIEW (#042) ──────────────────────────────── */
+
+.cal-view-btn-wo {
+    position: relative;
+}
+.cal-wo-badge {
+    position: absolute;
+    top: -6px; right: -6px;
+    background: #a82828; color: #fff;
+    font-size: 10px; font-weight: 800;
+    padding: 1px 6px; border-radius: 10px;
+    min-width: 18px; text-align: center;
+    font-variant-numeric: tabular-nums;
+    line-height: 1.3;
+}
+
+.cal-wo-wrap { padding: 0 4px 40px; max-width: 1100px; margin: 0 auto; }
+.cal-wo-header {
+    display: flex; align-items: baseline; gap: 12px;
+    padding: 18px 4px 14px;
+    border-bottom: 1px solid var(--color-border);
+    margin-bottom: 16px;
+}
+.cal-wo-count {
+    font-size: 32px; font-weight: 700;
+    color: #a82828;
+    font-variant-numeric: tabular-nums;
+    line-height: 1;
+}
+.cal-wo-header-sub {
+    font-size: 13px; color: var(--color-text-dim);
+}
+.cal-wo-list { display: flex; flex-direction: column; gap: 10px; }
+.cal-wo-card {
+    background: #fff;
+    border: 1px solid var(--color-border);
+    border-left: 4px solid #a82828;
+    border-radius: 8px;
+    padding: 14px 16px;
+    transition: opacity .35s, transform .35s;
+}
+.cal-wo-card.cal-wo-removing { opacity: 0; transform: translateX(40px); }
+.cal-wo-card-head {
+    display: flex; align-items: baseline; gap: 10px;
+    margin-bottom: 6px; flex-wrap: wrap;
+}
+.cal-wo-bon-num {
+    font-size: 18px; font-weight: 700;
+    color: var(--brand-primary);
+    font-variant-numeric: tabular-nums;
+}
+.cal-wo-customer { font-size: 15px; font-weight: 600; color: var(--color-text); }
+.cal-wo-status-pill {
+    display: inline-block; padding: 2px 8px; border-radius: 10px;
+    font-size: 10px; font-weight: 700; text-transform: uppercase; letter-spacing: .3px;
+    background: var(--color-background); color: var(--color-text-dim);
+}
+.cal-wo-meta {
+    display: flex; flex-wrap: wrap; gap: 14px; font-size: 13px;
+    color: var(--color-text); margin-top: 4px;
+}
+.cal-wo-meta a { color: var(--brand-primary); text-decoration: none; }
+.cal-wo-meta a:hover { text-decoration: underline; }
+.cal-wo-days-far  { color: #4880b8; font-weight: 600; }
+.cal-wo-days-soon { color: #c08020; font-weight: 600; }
+.cal-wo-days-past { color: #a82828; font-weight: 600; }
+.cal-wo-wishes {
+    margin-top: 8px; padding: 8px 10px;
+    background: #fffaed; border: 1px solid #f0e4b0;
+    border-radius: 5px; font-size: 12px; color: #6a5400;
+    white-space: pre-wrap; word-break: break-word;
+}
+.cal-wo-foot {
+    display: flex; gap: 10px; align-items: center;
+    margin-top: 10px; padding-top: 10px;
+    border-top: 1px dashed var(--color-border);
+    font-size: 11px; color: var(--color-text-dim);
+}
+.cal-wo-foot-right { margin-left: auto; display: flex; gap: 8px; }
+.cal-wo-btn {
+    padding: 7px 16px; border-radius: 6px; border: 1px solid var(--color-border);
+    background: #fff; cursor: pointer; font-size: 13px; font-weight: 600;
+    color: var(--color-text); font-family: inherit;
+}
+.cal-wo-btn:hover { background: var(--color-background); }
+.cal-wo-btn-primary {
+    background: var(--brand-primary); color: #fff;
+    border-color: var(--brand-primary);
+}
+.cal-wo-btn-primary:hover { background: #6f4d18; }
+.cal-wo-btn-primary:disabled { opacity: .6; cursor: not-allowed; }
+
+.cal-wo-empty {
+    text-align: center; padding: 60px 20px;
+    color: var(--color-text-dim); font-size: 15px;
+}
+.cal-wo-empty-emoji { font-size: 42px; margin-bottom: 8px; }
+.cal-wo-age { font-size: 11px; }
