@@ -107,6 +107,86 @@ router.post('/test', requireAuth('admin'), handle(async (req, res) => {
 
 /* ── UFORDELT INDBAKKE ────────────────────────────────────── */
 
+// ─── BOUNCE-DETECTION HELPERS ─────────────────────────────
+// Bounce-mails fra postmaster/Mailer-Daemon/antispam er kritiske: hver
+// indikerer en kunde med forkert email. Vi parser den fejlede modtager
+// ud af body og slår op om vi har en kunde med den email — så office
+// kan kontakte kunden hurtigt for at få den korrekte adresse.
+
+const BOUNCE_FROM_RE = /^(postmaster@|Mailer-Daemon@|MAILER-DAEMON@|.*antispam@|.*@robot\.simply\.com)/i;
+
+function isBounceMail(fromEmail) {
+    return !!fromEmail && BOUNCE_FROM_RE.test(fromEmail);
+}
+
+// Find den fejlede modtager-adresse i bounce-body. Prøver flere formater
+// i prioritetsrækkefølge (DSN > Postfix > "to <email>" > sidste fallback).
+function parseBouncedRecipient(bodyText) {
+    if (!bodyText) return null;
+
+    // 1. DSN-format (RFC 3464): "Final-Recipient: rfc822; user@example.com"
+    let m = bodyText.match(/Final-Recipient:\s*rfc822;?\s*([^\s<>]+@[^\s<>]+)/i);
+    if (m) return m[1].trim().toLowerCase();
+
+    // 2. Original-Recipient: rfc822;...
+    m = bodyText.match(/Original-Recipient:\s*rfc822;?\s*([^\s<>]+@[^\s<>]+)/i);
+    if (m) return m[1].trim().toLowerCase();
+
+    // 3. Postfix-format: "<user@example.com>: host..." (i starten af linje)
+    m = bodyText.match(/\n\s*<([^\s<>]+@[^\s<>]+)>\s*:/i);
+    if (m) return m[1].trim().toLowerCase();
+
+    // 4. "could not be delivered to user@example.com"
+    m = bodyText.match(/could not be delivered to[:\s]*<?([^\s<>,]+@[^\s<>,]+)>?/i);
+    if (m) return m[1].trim().toLowerCase().replace(/[.,;]$/, '');
+
+    // 5. "kunne ikke leveres til user@example.com" (dansk)
+    m = bodyText.match(/kunne ikke leveres til[:\s]*<?([^\s<>,]+@[^\s<>,]+)>?/i);
+    if (m) return m[1].trim().toLowerCase().replace(/[.,;]$/, '');
+
+    // 6. Fallback: første <email> i body der IKKE er vores egen domæne
+    const allEmails = bodyText.match(/<?([a-z0-9._%+-]+@[a-z0-9.-]+\.[a-z]{2,})>?/gi) || [];
+    for (const e of allEmails) {
+        const clean = e.replace(/[<>]/g, '').toLowerCase();
+        if (!clean.includes('ristetrug.dk') && !clean.includes('simply.com') &&
+            !clean.includes('hubspot.com') && !clean.includes('mailer-daemon')) {
+            return clean;
+        }
+    }
+
+    return null;
+}
+
+// Slå kunde op via email — bruger både customers.email (cache) og
+// contact_points (autoritativ kilde).
+function lookupCustomerByEmail(db, email) {
+    if (!email) return null;
+    // Først contact_points (mere komplet)
+    const cp = db.prepare(`
+        SELECT cp.entity_id AS customer_id, c.first_name, c.last_name, c.phone, c.email,
+               co.name AS company_name
+        FROM contact_points cp
+        JOIN customers c ON c.id = cp.entity_id
+        LEFT JOIN companies co ON co.id = c.company_id
+        WHERE cp.entity_type = 'customer'
+          AND cp.kind = 'email'
+          AND LOWER(cp.value) = ?
+        LIMIT 1
+    `).get(email.toLowerCase());
+    if (cp) return cp;
+
+    // Fallback til legacy customers.email
+    const c = db.prepare(`
+        SELECT c.id AS customer_id, c.first_name, c.last_name, c.phone, c.email,
+               co.name AS company_name
+        FROM customers c
+        LEFT JOIN companies co ON co.id = c.company_id
+        WHERE LOWER(c.email) = ?
+        LIMIT 1
+    `).get(email.toLowerCase());
+    return c || null;
+}
+
 router.get('/unmatched', requireAuth('admin'), handle(async (req, res) => {
     const status = req.query.status || 'open';
     const db = getDb();
@@ -125,6 +205,26 @@ router.get('/unmatched', requireAuth('admin'), handle(async (req, res) => {
     const items = db.prepare(`
         SELECT * FROM mail_unmatched WHERE ${where.join(' AND ')} ORDER BY COALESCE(received_at, created_at) DESC
     `).all(...args);
+
+    // Enrich bounces med fejlet modtager + kunde-lookup
+    for (const item of items) {
+        if (isBounceMail(item.from_email)) {
+            item.is_bounce = true;
+            const recipient = parseBouncedRecipient(item.body_text);
+            if (recipient) {
+                item.bounce_recipient = recipient;
+                const customer = lookupCustomerByEmail(db, recipient);
+                if (customer) {
+                    item.bounce_customer_id = customer.customer_id;
+                    item.bounce_customer_name = [customer.first_name, customer.last_name]
+                        .filter(Boolean).join(' ').trim();
+                    item.bounce_customer_phone = customer.phone || null;
+                    item.bounce_customer_company = customer.company_name || null;
+                }
+            }
+        }
+    }
+
     res.json(items);
 }));
 
