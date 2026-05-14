@@ -368,43 +368,23 @@ router.post('/mark-all-seen', handle((req, res) => {
 }));
 
 // ─── POST /api/bons/:id/mark-seen ──────────────────────────────────────────
-// Auto-mark per event fra mobile IntersectionObserver.
-// new_bon:     advance users.new_bons_last_seen_at til MAX(current, bon.created_at)
-// unread_mail: sæt bon_mails.is_read = 1 på den specifikke mail
+// No-op endpoint bevaret for bagudkompatibilitet med klient-builds før 14. maj.
+//
+// Tidligere advancede dette endpoint last_seen_at (for new_bon) og satte
+// is_read=1 (for unread_mail) baseret på IntersectionObserver-feedback fra
+// mobilen. Det viste sig at have to problemer:
+//   1) MAX-update på last_seen_at gjorde at scrolling forbi ÉN ny bon
+//      filtrerede ALLE ældre uset bons væk på næste fetch.
+//   2) Auto-is_read påvirkede office's "Ulæst mail"-filtre (cross-user).
+//
+// Ny model (beslutning 11, 14. maj 2026): Auto-mark er rent visuel feedback
+// på klient-siden (CSS-fade på den røde kant). Persistent dismissal sker
+// KUN via /mark-all-seen — det er den eksplicitte "jeg er færdig"-handling.
 
 router.post('/:id/mark-seen', handle((req, res) => {
-    const db = getDb();
     const userId = req.session?.userId ?? null;
     if (!userId) return res.status(401).json({ error: 'Ikke logget ind' });
-
-    const bonId = parseInt(req.params.id);
-    const { event_type, mail_id } = req.body;
-
-    if (event_type === 'new_bon') {
-        const bon = db.prepare('SELECT created_at FROM bons WHERE id = ?').get(bonId);
-        if (!bon) return res.status(404).json({ error: 'Bon ikke fundet' });
-        const user = db.prepare('SELECT new_bons_last_seen_at FROM users WHERE id = ?').get(userId);
-        const cur  = user?.new_bons_last_seen_at;
-        if (!cur || bon.created_at > cur) {
-            db.prepare('UPDATE users SET new_bons_last_seen_at = ? WHERE id = ?').run(bon.created_at, userId);
-        }
-        return res.json({ ok: true });
-    }
-
-    if (event_type === 'unread_mail') {
-        if (!mail_id) return res.status(400).json({ error: 'mail_id er påkrævet' });
-        // Verificér at mail-id'en faktisk hører til denne bon (via mail_threads.bon_id)
-        const mail = db.prepare(`
-            SELECT mm.id FROM mail_messages mm
-            JOIN mail_threads mt ON mm.thread_id = mt.id
-            WHERE mm.id = ? AND mt.bon_id = ?
-        `).get(parseInt(mail_id), bonId);
-        if (!mail) return res.status(404).json({ error: 'Mail tilhører ikke denne bon' });
-        db.prepare('UPDATE mail_messages SET is_read = 1 WHERE id = ?').run(parseInt(mail_id));
-        return res.json({ ok: true });
-    }
-
-    res.status(400).json({ error: 'Ukendt event_type' });
+    res.json({ ok: true });
 }));
 
 // ─── GET /api/bons/:id ──────────────────────────────────────────────────────

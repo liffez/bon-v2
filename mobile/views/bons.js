@@ -488,20 +488,14 @@ function _mbSetupNyeObserver() {
     });
 }
 
-async function _mbMarkSeen(eventType, bonId, mailId) {
-    try {
-        await apiFetch('/bons/' + bonId + '/mark-seen', {
-            method: 'POST',
-            body: JSON.stringify({ event_type: eventType, mail_id: mailId || undefined }),
-        });
-        // Decrement lokalt — undgå round-trip
-        if (_mbNyeCount > 0) {
-            _mbNyeCount--;
-            _mbUpdateBadges(_mbNyeCount);
-        }
-    } catch (e) {
-        // Lydløst — auto-mark er nice-to-have
-    }
+// Auto-mark er nu rent visuel feedback — fader den røde kant client-side.
+// Vi rører IKKE serverens last_seen_at eller mail_messages.is_read, fordi
+// scrolling forbi et kort ikke er en "handling". Persistent dismissal sker
+// kun via "Marker alle læst"-knappen (beslutning 11, 14. maj 2026).
+//
+// Funktionen bevares som no-op for at undgå at skulle ændre observer-koden.
+function _mbMarkSeen(/* eventType, bonId, mailId */) {
+    // No-op. Visual fade håndteres af observer'en via classList.remove('unseen').
 }
 
 async function _mbMarkAllSeen() {

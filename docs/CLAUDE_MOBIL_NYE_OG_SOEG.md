@@ -591,6 +591,19 @@ Efter Q&A med Leif:
 
 10. **Set-kort bliver liggende indtil næste fetch** — efter auto-mark eller "Marker alle læst" forsvinder rød kant, men kortet bliver i listen så længe brugeren ser Nye-tabben. Først ved tab-skift + tilbage (eller pull-to-refresh) filtreres set-kort ud via `event_at > last_seen_at`.
 
+    **Revideret 14. maj 2026 (beslutning 11):** Det viste sig at MAX-update på `last_seen_at` ved auto-mark gjorde at scrolling forbi ÉN ny bon filtrerede ALLE ældre uset bons væk på næste fetch (fordi listen er sorteret nyeste først → den nyeste bons `created_at` blev hele baselinen). Beslutning 11 erstatter denne adfærd.
+
+11. **Auto-mark er rent visuel feedback (revideret 14. maj 2026)** — IntersectionObserver-2s-timer fader stadig den røde kant, men ændrer IKKE serverstatus. Hverken `last_seen_at` eller `mail_messages.is_read` opdateres via auto-mark. Det betyder:
+    - Listen viser alle events siden sidste "Marker alle læst" (eller seneste 7 dage hvis aldrig brugt) — uafhængigt af hvad brugeren har scrollet forbi
+    - Badge tæller den fulde serverside-mængde indtil eksplicit "Marker alle læst"
+    - Brugeren kan scrolle, gå ud af Nye-tabben, komme tilbage → alle events er der stadig
+    - Visual seen-state nulstilles ved tab-skift (DOM rebuild) — første-iteration tradeoff; persistent visual seen-state ville kræve per-user-per-event tracking
+    - Mails markeres aldrig som læst fra mobilen → office's mail-filtre er upåvirkede
+
+    **Endpoint adfærd:**
+    - `POST /api/bons/:id/mark-seen` er bevaret som no-op for bagudkompatibilitet med cachede klient-builds; returnerer `{ ok: true }` uden state-ændring
+    - `POST /api/bons/mark-all-seen` er uændret — den eksplicitte "jeg er færdig"-handling der advancer `last_seen_at = NOW()`
+
 ---
 
 *Spec slutter her. Beslutninger ovenfor er autoritative ved implementering.*
