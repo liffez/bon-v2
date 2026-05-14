@@ -184,6 +184,25 @@ router.get('/today', handle(async (req, res) => {
         });
     }
 
+    // new_web_orders — bons fra webhook der endnu ikke er bekræftet af et
+    // menneske. acknowledged_at IS NULL er proxy for "ubehandlet"; den
+    // adskiller "set af operatør" fra status_id, så en august-bestilling
+    // i NY kan ryddes fra listen uden at den flyttes ud af status-flowet.
+    const newWebOrders = db.prepare(`
+        SELECT COUNT(DISTINCT b.id) AS cnt
+        FROM bons b
+        JOIN web_orders wo ON wo.bon_id = b.id
+        WHERE b.acknowledged_at IS NULL
+    `).get();
+    if (newWebOrders.cnt > 0) {
+        alerts.push({
+            type: 'new_web_orders',
+            count: newWebOrders.cnt,
+            message: `${newWebOrders.cnt} ny${newWebOrders.cnt === 1 ? '' : 'e'} bestilling${newWebOrders.cnt === 1 ? '' : 'er'} fra hjemmesiden afventer godkendelse`,
+            severity: 'warning',
+        });
+    }
+
     // Next pickup
     const nextPickup = db.prepare(`
         SELECT MIN(COALESCE(b.pickup_time, b.delivery_time)) AS next_time

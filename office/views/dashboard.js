@@ -247,6 +247,24 @@ function _dashRenderShell() {
                 background: #e8f2dc; border: 1px solid #c5dfa0;
                 border-radius: 6px; font-size: 10px; font-weight: 700; color: #7a9c54;
             }
+            .od-alert-web {
+                display: flex; align-items: center; gap: 8px;
+                padding: 8px 12px; margin-bottom: 8px;
+                background: #fdecec; border: 1px solid #e8a5a5;
+                border-radius: 6px; cursor: pointer;
+                font-size: 12px; font-weight: 700; color: #a82828;
+                animation: od-pulse 2s ease-in-out infinite;
+            }
+            .od-alert-web .od-alert-count {
+                background: #a82828; color: #fff;
+                padding: 1px 8px; border-radius: 10px;
+                font-size: 11px; font-weight: 800;
+                font-variant-numeric: tabular-nums;
+            }
+            @keyframes od-pulse {
+                0%, 100% { box-shadow: 0 0 0 0 rgba(168, 40, 40, 0); }
+                50%      { box-shadow: 0 0 0 4px rgba(168, 40, 40, 0.15); }
+            }
 
             /* ══ KATEGORI TABEL (compact) ══════════════════════════ */
             .od-cat-table { width: 100%; border-collapse: collapse; font-size: 11px; }
@@ -647,7 +665,15 @@ function _dashRenderToday(data) {
         ${prod.bon_count > 0 ? `<div class="od-sum-cell od-sum-prod od-clickable" data-goto="bons" data-filter="today" title="Vis dagens bons (produktion vises med 🔧 i listen)"><div class="od-sum-val">🔧 ${prod.bon_count}</div><div class="od-sum-lbl">Produktion · ${prod.total_units} enh</div></div>` : ''}
     </div>`;
 
-    // Alert
+    // Alert: nye web-bestillinger (vises øverst — forretnings-risiko, #041)
+    const webAlert = data.alerts.find(a => a.type === 'new_web_orders');
+    if (webAlert) {
+        html += `<div class="od-alert-web od-clickable" data-goto="bons" data-filter="ny" title="Åbn liste over nye bestillinger">`
+              + `<span>🆕</span><span class="od-alert-count">${webAlert.count}</span>`
+              + `<span>${webAlert.message}</span></div>`;
+    }
+
+    // Alert: prep
     const prepAlerts = data.alerts.filter(a => a.type === 'prep_missing');
     const missingEmb = prepAlerts.filter(a => a.message.includes('emballage')).length;
     const missingRav = prepAlerts.filter(a => a.message.includes('råvarer')).length;

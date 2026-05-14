@@ -474,6 +474,33 @@ router.patch('/:id/kitchen-info', handle((req, res) => {
     res.json({ id, kitchen_info: text });
 }));
 
+// PATCH /api/bons/:id/acknowledge — marker en bon (typisk web-bestilling)
+// som "set af menneske" uden at ændre status_id. Bruges af #042's
+// "Nye bestillinger"-side så listen kan ryddes uden at flytte status.
+router.patch('/:id/acknowledge', handle((req, res) => {
+    const db = getDb();
+    const id = parseInt(req.params.id);
+    const userId = req.session?.userId ?? null;
+    const undo = req.body?.undo === true || req.body?.undo === 'true';
+
+    const old = db.prepare('SELECT acknowledged_at FROM bons WHERE id = ?').get(id);
+    if (!old) return res.status(404).json({ error: 'Bon ikke fundet' });
+
+    if (undo) {
+        db.prepare('UPDATE bons SET acknowledged_at = NULL, acknowledged_by_user_id = NULL, updated_at = CURRENT_TIMESTAMP WHERE id = ?').run(id);
+        logChange({ entityType: 'bon', entityId: id, action: 'update', fieldName: 'acknowledged_at', oldValue: old.acknowledged_at, newValue: null, userId });
+    } else {
+        if (old.acknowledged_at) return res.json({ id, acknowledged_at: old.acknowledged_at, already: true });
+        db.prepare(`UPDATE bons SET acknowledged_at = CURRENT_TIMESTAMP, acknowledged_by_user_id = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?`).run(userId, id);
+        const fresh = db.prepare('SELECT acknowledged_at FROM bons WHERE id = ?').get(id);
+        logChange({ entityType: 'bon', entityId: id, action: 'update', fieldName: 'acknowledged_at', oldValue: null, newValue: fresh.acknowledged_at, userId });
+    }
+
+    const fresh = db.prepare('SELECT acknowledged_at, acknowledged_by_user_id FROM bons WHERE id = ?').get(id);
+    broadcast('bon_updated', { id });
+    res.json({ id, ...fresh });
+}));
+
 // ─── BON LINES ──────────────────────────────────────────────────────────────
 
 // POST /api/bons/:id/lines

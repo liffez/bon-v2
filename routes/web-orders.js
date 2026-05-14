@@ -59,6 +59,53 @@ router.get('/', (req, res) => {
   res.json(rows);
 });
 
+// ─── GET /api/web-orders/pending ───────────────────────────────────────────
+// Alle web-order bons der endnu ikke er bekræftet, uanset delivery_date eller
+// status. Bruges af dashboard-alert (#041) og dedikeret "Nye bestillinger"-
+// side (#042). Returnerer rig payload så frontend kan vise nok info til at
+// vurdere uden at åbne drawer.
+
+router.get('/pending', (req, res) => {
+  const db = getDb();
+
+  const rows = db.prepare(`
+    SELECT
+      b.id              AS bon_id,
+      b.bon_number,
+      b.delivery_date,
+      b.delivery_time,
+      b.delivery_type,
+      b.pax,
+      b.customer_wishes,
+      b.delivery_notes,
+      b.created_at,
+      sd.code           AS status_code,
+      sd.label          AS status_label,
+      sd.color          AS status_color,
+      COALESCE(NULLIF(TRIM(c.first_name || ' ' || COALESCE(c.last_name, '')), ''), '(uden navn)') AS customer_name,
+      c.email           AS customer_email,
+      c.phone           AS customer_phone,
+      co.name           AS company_name,
+      a.street_name || COALESCE(' ' || a.street_nr, '') AS address_text,
+      a.postal_code,
+      a.city,
+      wo.id             AS web_order_id,
+      wo.order_type,
+      wo.ean_info
+    FROM bons b
+    JOIN web_orders wo          ON wo.bon_id = b.id
+    JOIN status_definitions sd  ON b.status_id = sd.id
+    LEFT JOIN customers c       ON b.customer_id = c.id
+    LEFT JOIN companies co      ON b.company_id = co.id
+    LEFT JOIN addresses a       ON b.delivery_address_id = a.id
+    WHERE b.acknowledged_at IS NULL
+    ORDER BY b.created_at DESC
+    LIMIT 200
+  `).all();
+
+  res.json(rows);
+});
+
 // ─── HANDLER ───────────────────────────────────────────────────────────────
 
 // Sandwichvalg-koder → labels (vises i customer_wishes)
@@ -276,27 +323,28 @@ async function handleWebOrder(data) {
   // 11. SSE broadcast
   broadcast('bon_created', { id: bonId, bon_number: bonNumber, source: 'web_order' });
 
-  // 12. Send bekræftelsesmail til kunden (fire-and-forget — blokerer ikke response)
-  if (data.email?.trim()) {
-    const dagnavne = ['søndag','mandag','tirsdag','onsdag','torsdag','fredag','lørdag'];
-    const maaneder = ['januar','februar','marts','april','maj','juni','juli','august','september','oktober','november','december'];
-    const d = new Date(data.delivery_date + 'T12:00:00');
-    const pænDato = `${dagnavne[d.getDay()]} d. ${d.getDate()}. ${maaneder[d.getMonth()]} ${d.getFullYear()}`;
+  // 12. Send bekræftelsesmail til kunden + intern notifikation til ejer
+  //     (fire-and-forget — blokerer ikke response)
+  const dagnavne = ['søndag','mandag','tirsdag','onsdag','torsdag','fredag','lørdag'];
+  const maaneder = ['januar','februar','marts','april','maj','juni','juli','august','september','oktober','november','december'];
+  const d = new Date(data.delivery_date + 'T12:00:00');
+  const pænDato = `${dagnavne[d.getDay()]} d. ${d.getDate()}. ${maaneder[d.getMonth()]} ${d.getFullYear()}`;
 
-    const adresseBlok = deliveryType === 'delivery' && (addr.tekst || data.address_text)
-      ? `Leveringsadresse: ${addr.tekst || data.address_text}`
-      : deliveryType === 'pickup'
-        ? 'Afhentning: Prinsesse Charlottesgade 16, 2200 København N'
-        : '';
-
-    const oenskerBlok = data.wishes?.trim()
-      ? `Dine ønsker: ${data.wishes.trim()}`
+  const adresseBlok = deliveryType === 'delivery' && (addr.tekst || data.address_text)
+    ? `Leveringsadresse: ${addr.tekst || data.address_text}`
+    : deliveryType === 'pickup'
+      ? 'Afhentning: Prinsesse Charlottesgade 16, 2200 København N'
       : '';
 
-    // Fire-and-forget: mailen sendes i baggrunden
-    const { sendFromTemplate } = require('../services/mailService');
-    const bonContext = { type: 'bon', number: parseInt(bonNumber.replace(/\D/g, '')) };
+  const oenskerBlok = data.wishes?.trim()
+    ? `Dine ønsker: ${data.wishes.trim()}`
+    : '';
 
+  const { sendFromTemplate } = require('../services/mailService');
+  const bonContext = { type: 'bon', number: parseInt(bonNumber.replace(/\D/g, '')) };
+
+  // 12a. Kundens bekræftelse
+  if (data.email?.trim()) {
     sendFromTemplate({
       templateKey: 'web_order_confirmation',
       to: data.email.trim(),
@@ -308,15 +356,49 @@ async function handleWebOrder(data) {
         leveringsDato: pænDato,
         leveringsTid: data.delivery_time,
         pax: String(pax || '?'),
-          adresseBlok,
-          oenskerBlok
-        },
-        bonId
-      }).then(() => {
-        console.log(`[web-order] Bekræftelsesmail sendt til ${data.email.trim()} for bon #${bonNumber}`);
-      }).catch(mailErr => {
-        console.error('[web-order] Kunne ikke sende bekræftelsesmail:', mailErr.message);
-      });
+        adresseBlok,
+        oenskerBlok
+      },
+      bonId
+    }).then(() => {
+      console.log(`[web-order] Bekræftelsesmail sendt til ${data.email.trim()} for bon #${bonNumber}`);
+    }).catch(mailErr => {
+      console.error('[web-order] Kunne ikke sende bekræftelsesmail:', mailErr.message);
+    });
+  }
+
+  // 12b. Intern notifikation til ejer (#043)
+  const ownerEmail = db.prepare("SELECT value FROM settings WHERE key = 'web_order_notification_email'").get()?.value?.trim();
+  if (ownerEmail) {
+    const baseUrl = (db.prepare("SELECT value FROM settings WHERE key = 'booking_public_url_base'").get()?.value || '').replace(/\/+$/, '');
+    const drawerLink = baseUrl ? `${baseUrl}/office/?bon=${bonId}` : `Bon-id: ${bonId}`;
+    const firmaBlok = data.company?.trim() ? `Firma: ${data.company.trim()}` : '';
+    const ownerOenskerBlok = data.wishes?.trim() ? `Ønsker:\n${data.wishes.trim()}` : '(Ingen ønsker)';
+
+    sendFromTemplate({
+      templateKey: 'web_order_owner_notification',
+      to: ownerEmail,
+      context: bonContext,
+      vars: {
+        bonNummer: bonNumber,
+        kundeNavn: fullName,
+        kundeEmail: data.email?.trim() || '(ingen)',
+        kundeTlf: data.phone?.trim() || '(ingen)',
+        firmaBlok,
+        ordreType: orderType === 'pickup' ? 'Afhentning' : 'Levering',
+        leveringsDato: pænDato,
+        leveringsTid: data.delivery_time,
+        pax: String(pax || '?'),
+        adresseBlok,
+        oenskerBlok: ownerOenskerBlok,
+        drawerLink
+      },
+      bonId
+    }).then(() => {
+      console.log(`[web-order] Ejer-notifikation sendt til ${ownerEmail} for bon #${bonNumber}`);
+    }).catch(mailErr => {
+      console.error('[web-order] Kunne ikke sende ejer-notifikation:', mailErr.message);
+    });
   }
 
   console.log(`[web-order] Bon #${bonNumber} oprettet (id=${bonId}, kunde=${fullName})`);

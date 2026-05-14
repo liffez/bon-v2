@@ -2046,6 +2046,7 @@ function loadSystemSection() {
     { key: 'default_pax_per_box',        label: 'Pax per kasse',                type: 'number' },
     { key: 'session_duration_office',    label: 'Session kontor (dage)',         type: 'number' },
     { key: 'session_duration_kitchen',   label: 'Session k\u00f8kken (dage)',    type: 'number' },
+    { key: 'web_order_notification_email', label: 'Notif. ved web-bestilling',   type: 'email', placeholder: 'fx leif@ristetrug.dk (tom = deaktiveret)', width: 280 },
   ];
 
   var container = document.getElementById('system-fields');
@@ -2053,11 +2054,13 @@ function loadSystemSection() {
 
   fields.forEach(function(f) {
     var val = allSettings[f.key] || '';
+    var width = f.width || 200;
+    var placeholder = f.placeholder ? ' placeholder="' + esc(f.placeholder) + '"' : '';
     var div = document.createElement('div');
     div.style.cssText = 'display:flex;gap:12px;align-items:center;margin-bottom:10px';
     div.innerHTML =
       '<label style="width:180px;font-size:14px;font-weight:500">' + f.label + '</label>' +
-      '<input class="st-input" id="sys-' + f.key + '" type="' + f.type + '" value="' + esc(val) + '" style="width:200px">' +
+      '<input class="st-input" id="sys-' + f.key + '" type="' + f.type + '" value="' + esc(val) + '"' + placeholder + ' style="width:' + width + 'px">' +
       '<button class="st-btn st-btn-sm st-btn-primary" onclick="saveSystemField(\'' + f.key + '\')">Gem</button>';
     container.appendChild(div);
   });

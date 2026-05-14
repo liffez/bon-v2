@@ -4,8 +4,15 @@
     {
       "name": "bon-v2",
       "runtimeExecutable": "/usr/local/bin/node",
-      "runtimeArgs": ["server.js"],
+      "runtimeArgs": ["--experimental-sqlite", "server.js"],
       "port": 4321,
+      "autoPort": true
+    },
+    {
+      "name": "bon-v2-test",
+      "runtimeExecutable": "/usr/local/bin/node",
+      "runtimeArgs": ["--env-file=.env.test", "--experimental-sqlite", "server.js"],
+      "port": 4322,
       "autoPort": true
     }
   ]

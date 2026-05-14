@@ -1314,3 +1314,16 @@ function setDeliveryActualCost(data) {
 function fetchDeliveryEvents(bonId) {
     return apiFetch('/delivery/events?bon_id=' + bonId);
 }
+
+// ─── Web-orders (#042) ──────────────────────────────────────
+
+function fetchPendingWebOrders() {
+    return apiFetch('/web-orders/pending');
+}
+
+function acknowledgeBon(bonId, undo = false) {
+    return apiFetch('/bons/' + bonId + '/acknowledge', {
+        method: 'PATCH',
+        body: JSON.stringify({ undo }),
+    });
+}

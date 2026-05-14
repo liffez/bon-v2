@@ -453,6 +453,10 @@
           </button>
 
           <div class="sidebar-group-label">Ordrer</div>
+          <button class="sidebar-link" data-view="web-orders">
+            <span class="sidebar-icon">🆕</span> Nye bestillinger
+            <span class="sidebar-badge" id="web-orders-badge" style="display:none"></span>
+          </button>
           <button class="sidebar-link" data-view="bons">
             <span class="sidebar-icon">📋</span> Bons
           </button>
@@ -562,6 +566,7 @@
   <script src="../shared/calendar.js"></script>
   <script src="../shared/planning.js"></script>
   <script src="views/bons-list.js"></script>
+  <script src="views/web-orders.js"></script>
   <script src="views/bons-calendar.js"></script>
   <script src="views/planning.js"></script>
   <script src="views/dashboard.js"></script>
@@ -646,6 +651,10 @@
         bons: {
           init: () => initBonsList(contentEl, { openDrawer, openNewBon: () => modal.open() }),
           cleanup: () => {},
+        },
+        'web-orders': {
+          init: () => initWebOrders(contentEl, { openDrawer }),
+          cleanup: () => { if (typeof cleanupWebOrders === 'function') cleanupWebOrders(); },
         },
         calendar: {
           init: () => initOfficeCalendar(contentEl, { openDrawer, openNewBon: () => modal.open() }),
@@ -835,6 +844,22 @@
       }
       updateInvoiceBadge();
 
+      // Web-orders badge (#042)
+      async function updateWebOrdersBadge() {
+        try {
+          const rows = await fetchPendingWebOrders();
+          const badge = document.getElementById('web-orders-badge');
+          if (badge && rows.length > 0) {
+            badge.textContent = rows.length;
+            badge.style.display = '';
+          } else if (badge) {
+            badge.style.display = 'none';
+          }
+        } catch (_) {}
+      }
+      window.updateWebOrdersBadge = updateWebOrdersBadge;
+      updateWebOrdersBadge();
+
       // Supplier inbox badge
       async function updateSiBadge() {
         try {
@@ -898,6 +923,8 @@
           if (typeof _rapportHandleSSE === 'function') _rapportHandleSSE('bon_created', data);
           if (typeof _uoHandleSSE === 'function') _uoHandleSSE('bon_created', data);
           if (typeof _tilbudHandleSSE === 'function') _tilbudHandleSSE('bon_created', data);
+          if (typeof _woHandleSSE === 'function') _woHandleSSE('bon_created', data);
+          if (typeof updateWebOrdersBadge === 'function') updateWebOrdersBadge();
         },
         bon_updated: (data) => {
           if (typeof _blHandleBonUpdated === 'function') _blHandleBonUpdated(data);
@@ -906,6 +933,8 @@
           if (typeof _rapportHandleSSE === 'function') _rapportHandleSSE('bon_updated', data);
           if (typeof _uoHandleSSE === 'function') _uoHandleSSE('bon_updated', data);
           if (typeof _tilbudHandleSSE === 'function') _tilbudHandleSSE('bon_updated', data);
+          if (typeof _woHandleSSE === 'function') _woHandleSSE('bon_updated', data);
+          if (typeof updateWebOrdersBadge === 'function') updateWebOrdersBadge();
         },
         bon_status: (data) => {
           if (typeof _dashHandleSSE === 'function') _dashHandleSSE('bon_status', data);
