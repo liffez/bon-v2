@@ -16,6 +16,14 @@
         * { margin:0; padding:0; box-sizing:border-box; }
         html, body { height:100%; overflow:hidden; }
         body {
+            /* Kitchen density tunables — baseline for ThinkPad L14 (1366×728).
+               Juster værdier her hvis baseline ændres. */
+            --kitchen-card-pad: 16px;
+            --kitchen-chart-h: 160px;
+            --kitchen-mood-emoji-fs: 40px;
+            --kitchen-headline-fs: 22px;
+            --kitchen-cat-row-pad: 3px;
+
             font-family:'Lato', sans-serif;
             font-size:14px; color:var(--color-text);
             background:var(--color-background);
@@ -102,9 +110,21 @@
         .card-today {
             grid-column:1 / 3;
             background:linear-gradient(135deg, #6d4c16 0%, var(--brand-primary) 60%, #b08630 100%);
-            color:white; padding:20px; position:relative; overflow:hidden;
-            cursor:pointer; text-decoration:none; display:block;
+            color:white; padding:var(--kitchen-card-pad); position:relative; overflow:hidden;
+            cursor:pointer; text-decoration:none;
+            display:flex; flex-direction:column; min-height:0;
             transition:filter .15s;
+        }
+        /* Faste sektioner — vokser ikke, klippes ikke */
+        .card-today > .card-label,
+        .card-today > .today-headline,
+        .card-today > .today-stats,
+        .card-today > #todayAlerts { flex:0 0 auto; }
+        /* Kategori-listen er den eneste der scroller internt når mange kategorier */
+        .card-today > #todayCategories {
+            flex:1 1 auto;
+            min-height:0;
+            overflow-y:auto;
         }
         .card-today:hover { filter:brightness(1.08); }
         .card-today::after {
@@ -117,19 +137,19 @@
             position:absolute; top:18px; right:24px; z-index:1;
             text-align:center; line-height:1;
         }
-        .today-mood-emoji { font-size:48px; }
+        .today-mood-emoji { font-size:var(--kitchen-mood-emoji-fs); }
         .today-mood-text {
             margin-top:6px; font-size:10px; font-weight:700;
             letter-spacing:.08em; text-transform:uppercase;
             color:rgba(241,230,178,0.85);
         }
         .today-headline {
-            font-size:24px; font-weight:900;
+            font-size:var(--kitchen-headline-fs); font-weight:900;
             color:var(--brand-primary-light);
-            line-height:1.1; margin-bottom:14px;
+            line-height:1.1; margin-bottom:10px;
         }
         .today-headline span { font-weight:300; color:rgba(241,230,178,0.7); }
-        .today-stats { display:flex; gap:28px; margin-bottom:16px; flex-wrap:wrap; align-items:flex-end; }
+        .today-stats { display:flex; gap:28px; margin-bottom:10px; flex-wrap:wrap; align-items:flex-end; }
         .stat-num {
             font-size:32px; font-weight:900;
             color:var(--brand-primary-light); line-height:1;
@@ -160,15 +180,19 @@
 
         /* kategori tabel inside hero */
         .cat-table { width:100%; border-collapse:collapse; font-size:12px; }
-        .cat-table th {
+        .cat-table thead th {
             text-align:left; font-size:9px; font-weight:700;
             letter-spacing:.08em; text-transform:uppercase;
             color:rgba(241,230,178,0.5);
             padding:0 0 5px; border-bottom:1px solid rgba(255,255,255,0.1);
+            /* Sticky thead — synlig når kategori-listen scroller internt */
+            position:sticky; top:0;
+            background:#6d4c16;
+            z-index:1;
         }
-        .cat-table th:not(:first-child) { text-align:right; }
+        .cat-table thead th:not(:first-child) { text-align:right; }
         .cat-table td {
-            padding:4px 0; font-size:13px;
+            padding:var(--kitchen-cat-row-pad) 0; font-size:13px;
             color:rgba(255,255,255,0.9);
             border-bottom:1px solid rgba(255,255,255,0.05);
         }
@@ -251,7 +275,7 @@
         }
         .chart-head-sub { font-weight:400; opacity:.65; font-size:10px; letter-spacing:0; text-transform:none; }
         .card-chart .chart-canvas-area { padding:5px 10px 0; }
-        .card-chart #actChart { display:block; width:100%; height:200px; }
+        .card-chart #actChart { display:block; width:100%; height:var(--kitchen-chart-h); }
         .card-chart .staff-row { padding:2px 10px 3px; height:26px; }
 
         /* ══ PREP CARD ═════════════════════════════════════════════ */
