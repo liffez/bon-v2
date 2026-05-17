@@ -168,13 +168,16 @@ function initSSE() {
 
         bon_updated: (data) => {
             fetchBon(data.id).then(apiBon => {
-                const card = document.getElementById('bon' + data.id);
-                if (!card) return;
+                const oldCard = document.getElementById('bon' + data.id);
+                if (!oldCard) return;
+                // Spring over hvis brugeren er i en aktiv interaktion (edit, select)
+                // — så vi ikke afbryder dem midt i en redigering. SSE'en vinder
+                // ved næste opdatering når interaktionen er færdig.
+                if (oldCard.querySelector('.bon-kitchen.editing')) return;
+                if (oldCard.classList.contains('select-mode')) return;
                 const cardData = mapApiBonToCardData(apiBon);
-                const menuEl = card.querySelector('.select-mode-container');
-                if (menuEl) menuEl.innerHTML = _buildMenu(cardData.menu, data.id);
-                const unitsEl = card.querySelector('.unit-primary');
-                if (unitsEl) unitsEl.textContent = cardData.units;
+                const newCard = createCard(cardData, 'kitchen-today');
+                oldCard.replaceWith(newCard);
             }).catch(err => console.error('bon_updated fejl:', err));
         }
     });
