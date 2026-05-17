@@ -47,6 +47,19 @@ app.use(session({
   }
 }));
 
+// Localhost-override: hvis .env har produktion-cookie-config (secure + domain)
+// men requesten kommer fra localhost, slæk restriktionerne så browseren
+// accepterer Set-Cookie. Ingen effekt i produktion.
+app.use((req, res, next) => {
+  const host = req.hostname;
+  const isLocal = host === 'localhost' || host === '127.0.0.1' || host === '::1';
+  if (isLocal && req.session && req.session.cookie) {
+    req.session.cookie.secure = false;
+    req.session.cookie.domain = undefined;
+  }
+  next();
+});
+
 // ─── ROOT REDIRECT ─────────────────────────────────────────────────────────
 // Redirect / til login eller default zone baseret på session
 
