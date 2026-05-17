@@ -1,0 +1,249 @@
+/**
+ * shared/density.css
+ * ════════════════════════════════════════════════════════════
+ * Density overrides. Gælder zone-kitchen og zone-office.
+ * Mobile-zonen er ekskluderet via :not(.zone-mobile).
+ *
+ * Tre lag:
+ *   1. CSS-variabel-override (tokens.css) — komponenter der allerede
+ *      bruger var(--font-size-*) skalerer automatisk.
+ *   2. bon_kort specifikke overrides (kortet har hardcodede px-værdier).
+ *   3. Andre tunge komponenter (drawer, modal, vp, calendar, indkob).
+ *
+ * Touch-targets i zone-kitchen forbliver ≥ 36px (compact) / 32px (dense).
+ * ════════════════════════════════════════════════════════════ */
+
+
+/* ═══════════════════════════════════════════════════════════ */
+/* COMPACT (≈0.88)                                              */
+/* ═══════════════════════════════════════════════════════════ */
+
+/* — Token-override (skalerer automatisk komponenter der bruger var()) — */
+body.density-compact:not(.zone-mobile) {
+    --font-size-xs: 11px;
+    --font-size-s:  12px;
+    --font-size-m:  13px;
+    --font-size-md: 14px;
+    --font-size-l:  16px;
+    --font-size-xl: 20px;
+    --font-size-2xl: 24px;
+    --space-xs: 3px;
+    --space-s:  6px;
+    --space-m:  13px;
+    --space-l:  20px;
+    --space-xl: 32px;
+}
+
+/* — Bon-kort — */
+body.density-compact:not(.zone-mobile) .bon-card        { width: 320px; }
+body.density-compact:not(.zone-mobile) .bon-id          { font-size: 22px; }
+body.density-compact:not(.zone-mobile) .bon-pickup      { font-size: 24px; }
+body.density-compact:not(.zone-mobile) .bon-lev         { font-size: 13px; }
+body.density-compact:not(.zone-mobile) .bon-date        { font-size: 12px; }
+body.density-compact:not(.zone-mobile) .unit-primary    { font-size: 30px; }
+body.density-compact:not(.zone-mobile) .unit-primary-label { font-size: 10px; }
+body.density-compact:not(.zone-mobile) .unit-secondary  { font-size: 12px; }
+
+body.density-compact:not(.zone-mobile) .bon-header      { padding: 10px 12px 8px 18px; }
+body.density-compact:not(.zone-mobile) .bon-customer    { padding: 8px 12px 8px 18px; }
+body.density-compact:not(.zone-mobile) .bon-customer-details { padding: 6px 12px 8px 18px; }
+body.density-compact:not(.zone-mobile) .bon-prep        { padding: 8px 12px 8px 18px; }
+body.density-compact:not(.zone-mobile) .bon-alert       { padding: 6px 12px 6px 18px; font-size: 12px; }
+body.density-compact:not(.zone-mobile) .bon-actions     { padding: 8px 10px; }
+
+body.density-compact:not(.zone-mobile) .bon-menu-item   { font-size: 16px; padding: 5px 12px 5px 18px; }
+body.density-compact:not(.zone-mobile) .bon-menu-group  { margin: 5px 12px 5px 18px; }
+body.density-compact:not(.zone-mobile) .bon-menu-group .bon-menu-item { font-size: 15px; padding: 5px 8px; }
+body.density-compact:not(.zone-mobile) .bon-menu-qty    { min-width: 28px; }
+
+body.density-compact:not(.zone-mobile) .action-btn      { width: 36px; height: 36px; }
+body.density-compact:not(.zone-mobile) .action-btn svg  { width: 18px; height: 18px; }
+body.density-compact:not(.zone-mobile) .select-toggle-btn { width: 36px; height: 36px; }
+
+body.density-compact:not(.zone-mobile) .sbar-btn        { padding: 9px 5px; font-size: 11px; }
+body.density-compact:not(.zone-mobile) .kstatus-btn     { padding: 11px 6px; font-size: 12px; }
+body.density-compact:not(.zone-mobile) .prep-badge      { padding: 5px 12px; font-size: 12px; }
+
+body.density-compact:not(.zone-mobile) .customer-name   { font-size: 14px; }
+body.density-compact:not(.zone-mobile) .customer-address { font-size: 12px; }
+
+/* — Bon-drawer (mange felter bruger var(--font-size-*) — token-override rammer dem) — */
+body.density-compact:not(.zone-mobile) .drawer-title    { font-size: 24px; }
+body.density-compact:not(.zone-mobile) .drawer-field    { padding: 7px 9px; }
+body.density-compact:not(.zone-mobile) .drawer-textarea { padding: 7px 9px; }
+
+/* — Modal — */
+body.density-compact:not(.zone-mobile) .modal-title     { font-size: 15px; }
+body.density-compact:not(.zone-mobile) .modal-close     { font-size: 18px; }
+
+/* — VarePicker (header er hardcoded 18px) — */
+body.density-compact:not(.zone-mobile) .vp-title        { font-size: 16px; }
+
+/* — Kalender — */
+body.density-compact:not(.zone-mobile) .cal-day-cell    { min-height: 88px; padding: 4px 6px; }
+body.density-compact:not(.zone-mobile) .cal-date-num    { font-size: 12px; }
+body.density-compact:not(.zone-mobile) .cal-bon-entry   { font-size: 11px; padding: 2px 5px; }
+body.density-compact:not(.zone-mobile) .cal-bon-time    { font-size: 10px; }
+body.density-compact:not(.zone-mobile) .cal-bon-id      { font-size: 10px; }
+
+/* — Indkøb — */
+body.density-compact:not(.zone-mobile) .ib-banner-title { font-size: 12px; }
+body.density-compact:not(.zone-mobile) .ib-banner-sub   { font-size: 10px; }
+body.density-compact:not(.zone-mobile) .ib-panel-name   { font-size: 12px; }
+body.density-compact:not(.zone-mobile) .ib-panel-meta   { font-size: 10px; }
+
+
+/* ═══════════════════════════════════════════════════════════ */
+/* DENSE (≈0.78)                                                */
+/* ═══════════════════════════════════════════════════════════ */
+
+/* — Token-override — */
+body.density-dense:not(.zone-mobile) {
+    --font-size-xs: 10px;
+    --font-size-s:  11px;
+    --font-size-m:  12px;
+    --font-size-md: 13px;
+    --font-size-l:  14px;
+    --font-size-xl: 18px;
+    --font-size-2xl: 22px;
+    --space-xs: 2px;
+    --space-s:  5px;
+    --space-m:  11px;
+    --space-l:  17px;
+    --space-xl: 28px;
+}
+
+/* — Bon-kort — */
+body.density-dense:not(.zone-mobile) .bon-card          { width: 290px; }
+body.density-dense:not(.zone-mobile) .bon-id            { font-size: 19px; }
+body.density-dense:not(.zone-mobile) .bon-pickup        { font-size: 20px; }
+body.density-dense:not(.zone-mobile) .bon-lev           { font-size: 12px; }
+body.density-dense:not(.zone-mobile) .bon-date          { font-size: 11px; }
+body.density-dense:not(.zone-mobile) .unit-primary      { font-size: 25px; }
+body.density-dense:not(.zone-mobile) .unit-primary-label { font-size: 9px; }
+body.density-dense:not(.zone-mobile) .unit-secondary    { font-size: 11px; }
+
+body.density-dense:not(.zone-mobile) .bon-header        { padding: 8px 10px 6px 14px; }
+body.density-dense:not(.zone-mobile) .bon-customer      { padding: 6px 10px 6px 14px; }
+body.density-dense:not(.zone-mobile) .bon-customer-details { padding: 4px 10px 6px 14px; }
+body.density-dense:not(.zone-mobile) .bon-prep          { padding: 6px 10px 6px 14px; }
+body.density-dense:not(.zone-mobile) .bon-alert         { padding: 5px 10px 5px 14px; font-size: 11px; }
+body.density-dense:not(.zone-mobile) .bon-actions       { padding: 6px 8px; }
+
+body.density-dense:not(.zone-mobile) .bon-menu-item     { font-size: 14px; padding: 4px 10px 4px 14px; }
+body.density-dense:not(.zone-mobile) .bon-menu-group    { margin: 4px 10px 4px 14px; }
+body.density-dense:not(.zone-mobile) .bon-menu-group .bon-menu-item { font-size: 13px; padding: 4px 6px; }
+body.density-dense:not(.zone-mobile) .bon-menu-qty      { min-width: 24px; }
+
+body.density-dense:not(.zone-mobile) .action-btn        { width: 32px; height: 32px; }
+body.density-dense:not(.zone-mobile) .action-btn svg    { width: 16px; height: 16px; }
+body.density-dense:not(.zone-mobile) .select-toggle-btn { width: 32px; height: 32px; }
+
+body.density-dense:not(.zone-mobile) .sbar-btn          { padding: 7px 4px; font-size: 10px; }
+body.density-dense:not(.zone-mobile) .kstatus-btn       { padding: 9px 5px; font-size: 11px; }
+body.density-dense:not(.zone-mobile) .prep-badge        { padding: 4px 10px; font-size: 11px; }
+
+body.density-dense:not(.zone-mobile) .customer-name     { font-size: 13px; }
+body.density-dense:not(.zone-mobile) .customer-address  { font-size: 11px; }
+
+/* — Bon-drawer — */
+body.density-dense:not(.zone-mobile) .drawer-title      { font-size: 20px; }
+body.density-dense:not(.zone-mobile) .drawer-field      { padding: 6px 8px; }
+body.density-dense:not(.zone-mobile) .drawer-textarea   { padding: 6px 8px; }
+
+/* — Modal — */
+body.density-dense:not(.zone-mobile) .modal-title       { font-size: 14px; }
+body.density-dense:not(.zone-mobile) .modal-close       { font-size: 16px; }
+
+/* — VarePicker — */
+body.density-dense:not(.zone-mobile) .vp-title          { font-size: 14px; }
+
+/* — Kalender — */
+body.density-dense:not(.zone-mobile) .cal-day-cell      { min-height: 72px; padding: 3px 5px; }
+body.density-dense:not(.zone-mobile) .cal-date-num      { font-size: 11px; }
+body.density-dense:not(.zone-mobile) .cal-bon-entry     { font-size: 10px; padding: 1px 4px; }
+body.density-dense:not(.zone-mobile) .cal-bon-time      { font-size: 9px; }
+body.density-dense:not(.zone-mobile) .cal-bon-id        { font-size: 9px; }
+
+/* — Indkøb — */
+body.density-dense:not(.zone-mobile) .ib-banner-title   { font-size: 11px; }
+body.density-dense:not(.zone-mobile) .ib-banner-sub     { font-size: 9px; }
+body.density-dense:not(.zone-mobile) .ib-panel-name     { font-size: 11px; }
+body.density-dense:not(.zone-mobile) .ib-panel-meta     { font-size: 9px; }
+
+
+/* ═══════════════════════════════════════════════════════════ */
+/* "Denne enhed" settings-sektion — eget styling, neutralt      */
+/* uanset density. Bruges af sec-this-device.                   */
+/* ═══════════════════════════════════════════════════════════ */
+.device-info-banner {
+    background: var(--brand-primary-light, #f1e6b2);
+    border: 1px solid var(--color-border, #d7d1ca);
+    border-radius: 8px;
+    padding: 12px 16px;
+    font-size: 13px;
+    line-height: 1.5;
+    color: var(--color-text, #333);
+    margin-bottom: 20px;
+}
+
+.density-options {
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+    margin-top: 12px;
+}
+
+.density-option {
+    display: flex;
+    align-items: flex-start;
+    gap: 12px;
+    padding: 14px 16px;
+    border: 1px solid var(--color-border, #d7d1ca);
+    border-radius: 8px;
+    background: var(--color-surface, #fff);
+    cursor: pointer;
+    transition: background 0.15s, border-color 0.15s;
+}
+
+.density-option:hover {
+    background: rgba(142, 99, 31, 0.04);
+    border-color: var(--brand-primary, #8e631f);
+}
+
+.density-option input[type="radio"] {
+    margin-top: 3px;
+    flex-shrink: 0;
+    accent-color: var(--brand-primary, #8e631f);
+}
+
+.density-option-body {
+    flex: 1;
+}
+
+.density-option-title {
+    font-weight: 700;
+    font-size: 15px;
+    color: var(--color-text, #333);
+    margin-bottom: 2px;
+}
+
+.density-option-desc {
+    font-size: 13px;
+    color: var(--color-text-dim, #8a8580);
+}
+
+#density-preview-host {
+    margin-top: 12px;
+    padding: 16px;
+    background: var(--color-background, #f5f4f2);
+    border-radius: 8px;
+    min-height: 100px;
+    display: flex;
+    justify-content: center;
+}
+
+#density-preview-host .bon-card {
+    /* Lås position-context så drawer/modal-handlers ikke aktiveres */
+    pointer-events: none;
+}

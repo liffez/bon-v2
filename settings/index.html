@@ -5,7 +5,10 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>Bon v2 — Settings</title>
   <link rel="stylesheet" href="../shared/tokens.css">
+  <link rel="stylesheet" href="../shared/density.css">
+  <script src="../shared/density.js"></script>
   <link rel="stylesheet" href="../shared/components.css">
+  <link rel="stylesheet" href="../shared/bon_kort.css">
   <link rel="stylesheet" href="../shared/indkob_settings.css">
   <style>
     * { box-sizing: border-box; margin: 0; padding: 0; }
@@ -489,6 +492,8 @@
 
 <div class="st-layout">
   <nav class="st-sidebar" id="st-sidebar">
+    <button class="st-nav-item" data-section="this-device">Denne enhed</button>
+    <div class="st-nav-sep"></div>
     <button class="st-nav-item active" data-section="users">Brugere</button>
     <button class="st-nav-item" data-section="roles">Rollerettigheder</button>
     <button class="st-nav-item" data-section="staff">Medarbejdere</button>
@@ -514,6 +519,105 @@
   </nav>
 
   <div class="st-content">
+    <!-- ════ DENNE ENHED (per-device, alle roller) ════ -->
+    <div class="st-section" id="sec-this-device">
+      <h2>Denne enhed</h2>
+      <div class="device-info-banner">
+        💡 Indstillingerne på denne side gemmes kun på <strong>denne browser/enhed</strong>.
+        De gælder for alle brugere der logger ind her, men ikke når du logger
+        ind fra en anden computer.
+      </div>
+
+      <section style="margin-bottom:24px;">
+        <h3 style="font-size:16px;margin-bottom:6px;">Tæthed</h3>
+        <p style="font-size:13px;color:var(--color-text-dim);margin-bottom:8px;">
+          Juster hvor meget plads bon-kort og UI fylder.
+          Vælg en mindre tæthed hvis hele bonnen ikke kan vises på skærmen.
+        </p>
+
+        <div class="density-options">
+          <label class="density-option">
+            <input type="radio" name="density" value="comfort">
+            <div class="density-option-body">
+              <div class="density-option-title">Komfort</div>
+              <div class="density-option-desc">Anbefales til store skærme og MacBook.</div>
+            </div>
+          </label>
+
+          <label class="density-option">
+            <input type="radio" name="density" value="compact">
+            <div class="density-option-body">
+              <div class="density-option-title">Kompakt</div>
+              <div class="density-option-desc">Anbefales til 14"-laptops (ThinkPad L14 osv.).</div>
+            </div>
+          </label>
+
+          <label class="density-option">
+            <input type="radio" name="density" value="dense">
+            <div class="density-option-body">
+              <div class="density-option-title">Tæt</div>
+              <div class="density-option-desc">Kun hvis Kompakt ikke giver nok plads.</div>
+            </div>
+          </label>
+        </div>
+
+        <button class="st-btn st-btn-secondary" id="resetDensityBtn" style="margin-top:12px;">
+          Nulstil til standard
+        </button>
+        <p style="font-size:11px;color:var(--color-text-dim);margin-top:8px;">
+          Nulstil fjerner dit valg — systemet vælger automatisk Kompakt på skærme ≤ 1366px og Komfort på større.
+        </p>
+      </section>
+
+      <section>
+        <h3 style="font-size:16px;margin-bottom:6px;">Preview</h3>
+        <p style="font-size:13px;color:var(--color-text-dim);margin-bottom:8px;">
+          Eksempel på bon-kort med den valgte tæthed. Hele settings-siden skifter også størrelse — det er bevidst, så du ser den fulde effekt.
+        </p>
+        <div id="density-preview-host">
+          <div class="bon-card" data-status="igang" style="display:flex;flex-direction:column;">
+            <div class="bon-header" style="display:flex;justify-content:space-between;gap:12px;">
+              <div>
+                <div class="bon-id">#cafe-9999</div>
+                <div style="display:flex;align-items:baseline;gap:6px;margin-top:2px;">
+                  <span class="bon-pickup">10:00</span>
+                  <span class="bon-lev">→ Lev 10:00</span>
+                </div>
+                <div class="bon-date">Ti 19. maj · Afhentning</div>
+              </div>
+              <div style="text-align:right;">
+                <div class="unit-primary">42</div>
+                <div class="unit-primary-label">Enheder</div>
+              </div>
+            </div>
+            <div class="bon-customer" style="display:flex;flex-direction:column;">
+              <div class="customer-name">Eksempel Kunde A/S</div>
+              <div class="customer-address">Demovej 1, 2920 Charlottenlund</div>
+            </div>
+            <div class="bon-menu" style="padding:6px 12px 6px 18px;">
+              <div class="bon-menu-item">
+                <span class="bon-menu-qty">5</span>
+                <span class="bon-menu-name">Falaflen</span>
+              </div>
+              <div class="bon-menu-item">
+                <span class="bon-menu-qty">10</span>
+                <span class="bon-menu-name">"Tunen"</span>
+              </div>
+              <div class="bon-menu-item">
+                <span class="bon-menu-qty">8</span>
+                <span class="bon-menu-name">Frikadellen</span>
+              </div>
+            </div>
+            <div class="bon-actions" style="display:flex;gap:6px;justify-content:flex-start;">
+              <button class="action-btn" type="button" tabindex="-1">+</button>
+              <button class="action-btn" type="button" tabindex="-1">✈</button>
+              <button class="action-btn" type="button" tabindex="-1">📦</button>
+            </div>
+          </div>
+        </div>
+      </section>
+    </div>
+
     <!-- ════ BRUGERE ════ -->
     <div class="st-section active" id="sec-users">
       <h2>Brugere</h2>
@@ -1242,6 +1346,9 @@ async function init() {
 
   document.getElementById('st-user-name').textContent = currentUser.name;
 
+  // "Denne enhed" — radio-knapper og nulstil (synlig for alle roller)
+  initThisDeviceSection();
+
   // Skjul admin-sektioner for ikke-admins
   if (currentUser.role !== 'admin') {
     document.querySelectorAll('.st-admin-only').forEach(function(el) { el.style.display = 'none'; });
@@ -1298,6 +1405,37 @@ async function init() {
     loadDuplicates();
     loadActivityPurposes();
   }
+}
+
+// ─── "Denne enhed" — density radio + reset ───────────────
+function initThisDeviceSection() {
+  if (!window.Density) return;
+
+  function syncRadios() {
+    var current = Density.current();
+    var radios = document.querySelectorAll('input[name="density"]');
+    radios.forEach(function(r) { r.checked = (r.value === current); });
+  }
+
+  syncRadios();
+
+  document.querySelectorAll('input[name="density"]').forEach(function(radio) {
+    radio.addEventListener('change', function(e) {
+      if (e.target.checked) Density.set(e.target.value);
+    });
+  });
+
+  var resetBtn = document.getElementById('resetDensityBtn');
+  if (resetBtn) {
+    resetBtn.addEventListener('click', function() {
+      Density.reset();
+      syncRadios();
+    });
+  }
+
+  // Hvis brugeren åbner siden i en anden fane og ændrer density,
+  // afspejl ændringen her uden reload
+  document.addEventListener('density:change', syncRadios);
 }
 
 // ─── TOAST ───────────────────────────────────────────────
