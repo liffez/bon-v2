@@ -23,6 +23,7 @@
   <link rel="stylesheet" href="views/fakturering.css">
   <link rel="stylesheet" href="views/tilbud.css">
   <link rel="stylesheet" href="views/rapporter.css">
+  <link rel="stylesheet" href="views/opskrifter.css">
   <link rel="stylesheet" href="views/cashflow.css">
   <link rel="stylesheet" href="../shared/schedule.css">
   <link rel="stylesheet" href="../shared/indkob.css">
@@ -614,6 +615,9 @@
             <span class="sidebar-icon">💰</span> Økonomi
             <span class="sidebar-badge gold" data-badge="okonomi_fakturering" style="display:none"></span>
           </button>
+          <button class="sidebar-link" data-view="opskrifter">
+            <span class="sidebar-icon">📊</span> Opskrifter &amp; priser
+          </button>
 
           <div class="sidebar-group-label">Team</div>
           <a class="sidebar-link" href="/kitchen/vagtplan.html" target="_blank">
@@ -674,6 +678,7 @@
   <script src="views/fakturering.js"></script>
   <script src="views/tilbud.js"></script>
   <script src="views/rapporter.js"></script>
+  <script src="views/opskrifter.js"></script>
   <script src="views/cashflow.js"></script>
   <script src="/shared/supplier_inbox.js"></script>
   <script src="views/ugeoversigt.js"></script>
@@ -840,6 +845,10 @@
           init: () => initRapporter(contentEl, { openDrawer }),
           cleanup: () => { if (typeof cleanupRapporter === 'function') cleanupRapporter(); },
         },
+        opskrifter: {
+          init: () => initOpskrifter(contentEl),
+          cleanup: () => { if (typeof cleanupOpskrifter === 'function') cleanupOpskrifter(); },
+        },
         leverandorpost: {
           init: () => initSupplierInbox(contentEl, { openDrawer }),
           cleanup: () => { if (typeof cleanupSupplierInbox === 'function') cleanupSupplierInbox(); },
@@ -965,6 +974,7 @@
           penge: 'cashflow',
           rap: 'rapporter',
         },
+        opskrifter: { _default: 'opskrifter' },
       };
 
       // Reverse-map: gammel-view-navn → ny (section, pill) for bagudkompat
@@ -1328,6 +1338,15 @@
         supplier_mail_sent: (data) => {
           if (typeof _siHandleSSE === 'function') _siHandleSSE('supplier_mail_sent', data);
           scheduleBadgeReload();
+        },
+        item_price_updated: (data) => {
+          if (typeof _opsHandleSSE === 'function') _opsHandleSSE('item_price_updated', data);
+        },
+        recipe_costs_refreshed: (data) => {
+          if (typeof _opsHandleSSE === 'function') _opsHandleSSE('recipe_costs_refreshed', data);
+        },
+        recipe_targets_updated: (data) => {
+          if (typeof _opsHandleSSE === 'function') _opsHandleSSE('recipe_targets_updated', data);
         },
       });
     })();

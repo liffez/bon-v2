@@ -120,39 +120,44 @@ Bon-systemet trækker sig til 75% bredde når sidepanelet åbnes. Whiteboard kø
 
 ### Sidebar-struktur
 
-> **Status: Besluttet · Marts 2026**
+> **Status: Besluttet · Marts 2026 · Opdateret maj 2026 (matcher faktisk implementation)**
+
+Office-sidebaren er grupperet i sektioner. Hvert sidebar-link åbner en
+section-view; hvor sektionen har undersider, vises de som **pills** øverst i
+content-området (ikke som nestede sidebar-punkter).
 
 ```
 OFFICE SIDEBAR
 │
-├── Dashboard                    ← daglig briefing, alerts, serviceopkald-påmindelse
+├── OVERBLIK
+│   └── 🏠 Dashboard
 │
-├── Bons                         ← listview + kalender (views deles med kitchen)
+├── ORDRER
+│   └── 📋 Bons                     pills: Liste · Kalender · Uge · Plan · Nye web-ordrer
 │
-├── CRM
-│   ├── Pipeline                 ← kanban på forespørgsler og tilbud
-│   ├── Kunder                   ← liste, 360°-profil, sovende
-│   ├── Serviceopkald            ← mandagsliste, callbacks, svære-at-nå
-│   └── Aktiviteter              ← mine opgaver i dag
+├── SALG
+│   ├── 👥 CRM                      pills: Pipeline · Kontakter · Indbakke · Prospekter · Reaktivering · Indsigt
+│   └── 💬 Tilbud
 │
-├── Tilbud                       ← wizard (5 trin), PDF, gem/send, konvertér til bon
+├── DRIFT
+│   ├── 🚚 Logistik
+│   └── 🛒 Indkøb                   pills: Indkøbsliste · Bestillinger · Leverandører · Leverandørpost
 │
-├── Planlægning / Logistik       ← ruter, leveringer, tracking, bud-QR (senere)
+├── ØKONOMI
+│   ├── 💰 Økonomi                  pills: Fakturering · Pengestrøm · Rapporter
+│   └── 📊 Opskrifter & priser     ← margin-analyse, kost vs. salg, DB%-mål
 │
-├── Køkken                       ← opskrifter + lagerstatus (read-access fra office)
-│
-├── Indkøb                       ← leverandørpriser, aftaler, Hørkram-mapping
-│
-├── Vagtplan                     ← Smartplan embed
-│
-├── Fakturering                  ← e-conomic integration, EAN-håndtering
-│
-├── Rapporter
-│
-├── 📋 Whiteboard                ← sidekick-panel ELLER fuld side; link til SOP herfra
-│
-└── ⚙ Settings                  ← installations-konfiguration (eget shell)
+└── TEAM
+    └── 📅 Vagtplan                 ← eksternt link til /kitchen/vagtplan.html
+
+SIDEBAR-BOTTOM (ikon-row, ikke navigation):
+[📋 Whiteboard]  [📖 SOP]  ···  [⚙ Settings]  [↩ Log ud]
 ```
+
+**Routing-mekanik** (i `office/index.html`):
+- `PILLS[section]` definerer underviser pr. section
+- `SECTION_VIEW_MAP[section]` mapper (section, pill) → internt view-navn
+- Sidebar-knapper bruger `data-view="<section>"` — pillen sættes via URL-hash eller default
 
 **Principper:**
 - Max to niveauer i sidebar
@@ -161,6 +166,14 @@ OFFICE SIDEBAR
 - Salg som separat sektion tilføjes kun ved ansættelse af sælger
 - Modul-opdeling i sidebar udskydes — alle moduler er aktive for Ristet Rug; relevant når systemet sælges til andre
 - Whiteboard er kommunikationsplatform for alle — tilgængelig som sidekick overalt og som fuld side i office
+- Undersider af en sektion vises som pills øverst i content-området, ikke som
+  nestede sidebar-punkter (max ét niveau i sidebar)
+- Whiteboard, SOP, Settings og Log ud er ikon-knapper i sidebar-bottom, ikke
+  almindelige nav-links
+- ØKONOMI-sektionen samler alt der vedrører penge — cashflow, fakturering,
+  rapporter (alle pills i Økonomi-viewet) og margin pr. opskrift (separat
+  punkt grundet egen URL og selvstændig viewstørrelse). Alle analyse-views
+  i sektionen viser tal ex moms per `shared/moms.js`-doktrin
 
 ### Logistik i Office
 Logistik-planlægning er et punkt i office-sidebaren med:
@@ -168,6 +181,22 @@ Logistik-planlægning er et punkt i office-sidebaren med:
 - Leveringsstatus og tracking
 - Bud-tildeling
 - Link/QR til bud-browser-app (add-on, implementeres senere)
+
+### Opskrifter & priser i Office
+Margin-analyse-view i ØKONOMI-sektionen. Eget sidebar-punkt (ikke pill i
+Økonomi-viewet) grundet selvstændig viewstørrelse:
+
+- Tabel-overblik over alle Grocy-opskrifter med kostpris, salgspris, DB% og
+  12 buckets salgs-sparkline (bucket-størrelse matcher valgt periode)
+- Klikbare KPI-filtre (under mål, tabsgivende, mangler pris, ikke solgt, øko)
+- Drill-down side-panel med ingrediens-breakdown, volumengraf og inline
+  redigering af salgspriser pr. priskategori + inline DB-mål-justering
+- Alle priser ex moms — basis-pill `[ALLE PRISER EX MOMS]` tydeligt vist i topbaren
+- Cached kostpriser fra Grocy fulfillment (manuel + nightly refresh via
+  `scripts/refresh-recipe-costs.js` kaldt fra system-crontab)
+- Auto-backfill første gang viewet vises (migration fra Grocy `Salesprice*`-userfields)
+
+Se `CLAUDE_OPSKRIFTER.md` for komplet spec.
 
 ---
 
@@ -414,6 +443,9 @@ Implementeret via CSS-klasse på body: `<body class="zone-kitchen">` eller `<bod
 
 | Dato | Beslutning |
 |------|------------|
+| Maj 2026 | Office-sidebar docs opdateret til at matche faktisk grupperet implementation (6 sektioner + sidebar-bottom ikon-row) |
+| Maj 2026 | Opskrifter & priser tilføjet under ØKONOMI som eget sidebar-punkt (ikke pill) — selvstændig view-størrelse retfærdiggør egen URL |
+| Maj 2026 | `item_prices` cementeret som single source of truth for salgspriser (Grocy-userfield kun til engangs-migration) |
 | Marts 2026 | Fire zoner defineret: Kitchen, Office, Logistik (delt), Settings |
 | Marts 2026 | Roller: kok og køkkenansvarlig ser identisk inkl. logistik |
 | Marts 2026 | Whiteboard sidekick med i v1 — tre-trins overlay, tilgængelig fra alle zoner |

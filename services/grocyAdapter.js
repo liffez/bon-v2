@@ -218,6 +218,56 @@ async function grocyDelete(path) {
    RECIPE CRUD — skriver til Grocy via proxy
    ══════════════════════════════════════════════════════════════ */
 
+/**
+ * Invalider cachet kostpris for én opskrift.
+ * Kaldes fra recipe-CRUD så Opskrifter & priser viewet får frisk pris
+ * uden at vente på nightly refresh.
+ */
+function invalidateRecipeCost(recipeId) {
+    if (!recipeId) return;
+    try {
+        const db = getDb();
+        db.prepare('DELETE FROM recipe_cost_cache WHERE grocy_recipe_id = ?')
+          .run(Number(recipeId));
+    } catch (err) {
+        // Tabel findes ikke endnu (før migration 068 er kørt) — ikke fatalt
+    }
+}
+
+/**
+ * Slet hele recipe_cost_cache. Bruges når vi ikke kender den specifikke
+ * recipe_id der ejer en ændret position (fallback for update/delete-pos
+ * uden recipe_id). Næste GET /api/recipes/overview triggers fuld refresh.
+ */
+function invalidateAllRecipeCosts() {
+    try {
+        const db = getDb();
+        db.prepare('DELETE FROM recipe_cost_cache').run();
+    } catch (err) {
+        /* tabel findes ikke endnu — ikke fatalt */
+    }
+}
+
+/**
+ * Slå recipe_id op for en position-ID via in-memory cache.
+ * Returnerer null hvis cachen er kold — kaldeperson kalder så
+ * invalidateAllRecipeCosts() som fallback.
+ */
+function _findRecipeIdForPos(posId) {
+    const cached = getCached('all_recipes_pos');
+    if (!cached) return null;
+    const pos = cached.find(p => Number(p.id) === Number(posId));
+    return pos ? Number(pos.recipe_id) : null;
+}
+
+/** Slå parent recipe_id op for en nesting-ID via cache. */
+function _findRecipeIdForNesting(nestingId) {
+    const cached = getCached('recipes_nestings');
+    if (!cached) return null;
+    const n = cached.find(x => Number(x.id) === Number(nestingId));
+    return n ? Number(n.recipe_id) : null;
+}
+
 /** Opret ny opskrift */
 async function createRecipe(body) {
     const result = await grocyPost('/objects/recipes', body);
@@ -229,6 +279,7 @@ async function createRecipe(body) {
 async function updateRecipe(id, body) {
     const result = await grocyPut(`/objects/recipes/${id}`, body);
     _cache.delete('recipes');
+    invalidateRecipeCost(id);
     return result;
 }
 
@@ -236,6 +287,7 @@ async function updateRecipe(id, body) {
 async function updateRecipeUserfields(id, fields) {
     const result = await grocyPut(`/userfields/recipes/${id}`, fields);
     _cache.delete('recipes');
+    invalidateRecipeCost(id);
     return result;
 }
 
@@ -244,20 +296,28 @@ async function createRecipePos(body) {
     const result = await grocyPost('/objects/recipes_pos', body);
     _cache.delete('all_recipes_pos');
     _cache.delete(`recipe_ing_${body.recipe_id}`);
+    invalidateRecipeCost(body.recipe_id);
     return result;
 }
 
 /** Opdater ingrediens-position */
 async function updateRecipePos(id, body) {
+    // Slå recipe_id op FØR cache invalideres (så cachen stadig kan bruges)
+    const recipeId = body.recipe_id || _findRecipeIdForPos(id);
     const result = await grocyPut(`/objects/recipes_pos/${id}`, body);
     _cache.delete('all_recipes_pos');
+    if (recipeId) invalidateRecipeCost(recipeId);
+    else invalidateAllRecipeCosts();
     return result;
 }
 
 /** Slet ingrediens-position */
 async function deleteRecipePos(id) {
+    const recipeId = _findRecipeIdForPos(id);
     const result = await grocyDelete(`/objects/recipes_pos/${id}`);
     _cache.delete('all_recipes_pos');
+    if (recipeId) invalidateRecipeCost(recipeId);
+    else invalidateAllRecipeCosts();
     return result;
 }
 
@@ -265,20 +325,27 @@ async function deleteRecipePos(id) {
 async function createRecipeNesting(body) {
     const result = await grocyPost('/objects/recipes_nestings', body);
     _cache.delete('recipes_nestings');
+    invalidateRecipeCost(body.recipe_id);
     return result;
 }
 
 /** Opdater underopskrift-relation */
 async function updateRecipeNesting(id, body) {
+    const recipeId = body.recipe_id || _findRecipeIdForNesting(id);
     const result = await grocyPut(`/objects/recipes_nestings/${id}`, body);
     _cache.delete('recipes_nestings');
+    if (recipeId) invalidateRecipeCost(recipeId);
+    else invalidateAllRecipeCosts();
     return result;
 }
 
 /** Slet underopskrift-relation */
 async function deleteRecipeNesting(id) {
+    const recipeId = _findRecipeIdForNesting(id);
     const result = await grocyDelete(`/objects/recipes_nestings/${id}`);
     _cache.delete('recipes_nestings');
+    if (recipeId) invalidateRecipeCost(recipeId);
+    else invalidateAllRecipeCosts();
     return result;
 }
 
@@ -872,6 +939,8 @@ module.exports = {
     updateShoppingListItem,
     // Cache
     clearCache,
+    invalidateRecipeCost,
+    invalidateAllRecipeCosts,
     // Config (intern, men brugt af test-endpoint)
     getGrocyConfig,
 };

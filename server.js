@@ -121,6 +121,10 @@ app.use('/api/users',         require('./routes/users'));
 app.use('/api/mail',          require('./routes/mail'));
 app.use('/api/dashboard',    require('./routes/dashboard'));
 app.use('/api/reports',      require('./routes/reports'));
+// Opskrifter & priser — ét modul, to mounts (recipes + item-prices)
+const recipesOverviewRouter = require('./routes/recipes_overview');
+app.use('/api/recipes',      recipesOverviewRouter);
+app.use('/api/item-prices',  recipesOverviewRouter.itemPricesRouter);
 app.use('/api/cashflow',     require('./routes/cashflow'));
 app.use('/api/crm',                require('./routes/crm'));
 app.use('/api/rfm',                require('./routes/rfm'));

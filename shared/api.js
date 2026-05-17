@@ -1327,3 +1327,58 @@ function acknowledgeBon(bonId, undo = false) {
         body: JSON.stringify({ undo }),
     });
 }
+
+// ─── Opskrifter & priser ──────────────────────────────────────
+
+function fetchRecipesOverview(params = {}) {
+    const qs = new URLSearchParams();
+    if (params.price_category) qs.append('price_category', params.price_category);
+    if (params.period_days)    qs.append('period_days', params.period_days);
+    if (params.category)       qs.append('category', params.category);
+    if (params.include_inactive) qs.append('include_inactive', '1');
+    const s = qs.toString();
+    return apiFetch('/recipes/overview' + (s ? '?' + s : ''));
+}
+
+function refreshRecipeCosts() {
+    return apiFetch('/recipes/refresh-costs', { method: 'POST' });
+}
+
+function forceRecipeBackfill(force = 1) {
+    return apiFetch('/recipes/backfill?force=' + force, { method: 'POST' });
+}
+
+function putItemPrice(payload) {
+    return apiFetch('/item-prices', {
+        method: 'PUT',
+        body: JSON.stringify(payload),
+    });
+}
+
+function fetchRecipeTargets() {
+    return apiFetch('/recipes/targets');
+}
+
+function putRecipeTargets(targets) {
+    return apiFetch('/recipes/targets', {
+        method: 'PUT',
+        body: JSON.stringify({ targets }),
+    });
+}
+
+function patchRecipeTarget(category, target_pct) {
+    return apiFetch('/recipes/targets/' + encodeURIComponent(category), {
+        method: 'PATCH',
+        body: JSON.stringify({ target_pct }),
+    });
+}
+
+function deleteRecipeTarget(category) {
+    return apiFetch('/recipes/targets/' + encodeURIComponent(category), {
+        method: 'DELETE',
+    });
+}
+
+function grocyRecipeLink(recipeId) {
+    return '/api/recipes/grocy-recipe-link/' + recipeId;
+}

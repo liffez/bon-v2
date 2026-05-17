@@ -1,0 +1,1131 @@
+<!DOCTYPE html>
+<html lang="da">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Office – Opskrifter & priser</title>
+<style>
+  :root {
+    --brand-primary: #8e631f;
+    --brand-primary-light: #f1e6b2;
+    --bg: #f5f4f2;
+    --surface: #ffffff;
+    --border: #d7d1ca;
+    --text: #2a2620;
+    --dim: #6a6359;
+    --red: #bc181b;
+    --red-bg: #fbe9e9;
+    --green: #5d8a3c;
+    --green-bg: #eaf3df;
+    --blue: #7594b3;
+    --yellow-bg: #fbf5d8;
+    --hover: #faf7f1;
+  }
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body {
+    font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', 'Lato', sans-serif;
+    background: var(--bg);
+    color: var(--text);
+    font-size: 13px;
+    line-height: 1.4;
+  }
+
+  /* Topbar */
+  .topbar {
+    background: var(--surface);
+    border-bottom: 1px solid var(--border);
+    padding: 10px 16px;
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    flex-wrap: wrap;
+  }
+  .topbar h1 {
+    font-size: 16px;
+    color: var(--brand-primary);
+    font-weight: 700;
+    margin-right: 8px;
+  }
+  .topbar .breadcrumb {
+    color: var(--dim);
+    font-size: 12px;
+  }
+  .topbar .refresh-info {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    font-size: 11px;
+    color: var(--dim);
+    border-left: 1px solid var(--border);
+    padding-left: 14px;
+    margin-left: 6px;
+  }
+  .topbar .refresh-info .stale { color: var(--red); font-weight: 600; }
+  .topbar .right-tools {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    border-left: 1px solid var(--border);
+    padding-left: 14px;
+    margin-left: auto; /* Altid yderst til højre, også når topbar wrapper */
+  }
+  @media (max-width: 900px) {
+    .topbar .right-tools {
+      border-left: none;
+      padding-left: 0;
+    }
+  }
+
+  /* Filter row */
+  .filter-row {
+    background: var(--surface);
+    border-bottom: 1px solid var(--border);
+    padding: 10px 16px;
+    display: flex;
+    gap: 12px;
+    align-items: center;
+    flex-wrap: wrap;
+  }
+  .filter-group {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+  }
+  .filter-label {
+    font-size: 11px;
+    color: var(--dim);
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+    font-weight: 600;
+  }
+  .seg {
+    display: inline-flex;
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    overflow: hidden;
+    background: var(--bg);
+  }
+  .seg button {
+    background: transparent;
+    border: none;
+    padding: 6px 12px;
+    font-size: 12px;
+    cursor: pointer;
+    color: var(--text);
+    border-right: 1px solid var(--border);
+    min-height: 32px;
+  }
+  .seg button:last-child { border-right: none; }
+  .seg button.active {
+    background: var(--brand-primary);
+    color: white;
+    font-weight: 600;
+  }
+  select, input[type="text"], input[type="number"] {
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    padding: 6px 10px;
+    font-size: 12px;
+    background: var(--surface);
+    color: var(--text);
+    min-height: 32px;
+  }
+  input[type="search"] {
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    padding: 6px 10px;
+    font-size: 12px;
+    min-height: 32px;
+    min-width: 200px;
+  }
+  .spacer { flex: 1; }
+
+  /* KPI strip — clickable filters */
+  .kpi-strip {
+    display: flex;
+    gap: 10px;
+    padding: 12px 16px;
+    background: var(--bg);
+    border-bottom: 1px solid var(--border);
+    overflow-x: auto;
+  }
+  .kpi {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    padding: 10px 14px;
+    min-width: 150px;
+    flex-shrink: 0;
+    position: relative;
+    transition: transform 0.1s, box-shadow 0.1s;
+  }
+  .kpi.clickable { cursor: pointer; }
+  .kpi.clickable:hover {
+    border-color: var(--brand-primary);
+    transform: translateY(-1px);
+    box-shadow: 0 2px 6px rgba(0,0,0,0.05);
+  }
+  .kpi.clickable.active {
+    background: var(--brand-primary-light);
+    border-color: var(--brand-primary);
+    border-width: 2px;
+    padding: 9px 13px;
+  }
+  .kpi.clickable.active::after {
+    content: "✓";
+    position: absolute;
+    top: 6px;
+    right: 8px;
+    color: var(--brand-primary);
+    font-size: 12px;
+    font-weight: 700;
+  }
+  .kpi-label {
+    font-size: 10px;
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+    color: var(--dim);
+    font-weight: 600;
+  }
+  .kpi-value {
+    font-size: 20px;
+    font-weight: 700;
+    color: var(--text);
+    margin-top: 2px;
+    font-variant-numeric: tabular-nums;
+  }
+  .kpi-sub {
+    font-size: 11px;
+    color: var(--dim);
+    margin-top: 1px;
+  }
+  .kpi.alert .kpi-value { color: var(--red); }
+  .kpi.good .kpi-value { color: var(--green); }
+  .kpi.info {
+    background: transparent;
+    border-style: dashed;
+  }
+
+  /* Table */
+  .table-wrap {
+    background: var(--surface);
+    margin: 0;
+    overflow-x: auto;
+  }
+  table {
+    width: 100%;
+    border-collapse: collapse;
+    font-size: 12px;
+  }
+  thead th {
+    background: var(--bg);
+    text-align: left;
+    padding: 8px 10px;
+    font-weight: 600;
+    color: var(--dim);
+    font-size: 10px;
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+    border-bottom: 1px solid var(--border);
+    white-space: nowrap;
+    cursor: pointer;
+    user-select: none;
+    position: sticky;
+    top: 0;
+    z-index: 5;
+  }
+  thead th:hover { background: #ebe8e3; }
+  thead th .sort-ind { color: var(--brand-primary); font-weight: 700; }
+  thead th.num { text-align: right; }
+  tbody td {
+    padding: 9px 10px;
+    border-bottom: 1px solid #eee8e0;
+    vertical-align: middle;
+  }
+  tbody td.num { text-align: right; font-variant-numeric: tabular-nums; }
+  tbody tr { cursor: pointer; }
+  tbody tr:hover { background: var(--hover); }
+  tbody tr.row-under-target { background: var(--red-bg); }
+  tbody tr.row-under-target:hover { background: #f6dada; }
+  tbody tr.row-missing-price { background: var(--yellow-bg); }
+  tbody tr.row-missing-price:hover { background: #f4eec1; }
+  tbody tr.row-not-sold { background: #f5f2ec; color: var(--dim); }
+  tbody tr.row-not-sold:hover { background: #ede8df; }
+  tbody tr.row-inactive { opacity: 0.55; }
+
+  .name-cell { display: flex; flex-direction: column; gap: 1px; }
+  .name { font-weight: 600; color: var(--text); }
+  .cat { font-size: 10px; color: var(--dim); text-transform: uppercase; letter-spacing: 0.3px; }
+  .badges { display: inline-flex; gap: 3px; margin-left: 6px; }
+  .badge {
+    display: inline-block;
+    font-size: 9px;
+    padding: 1px 5px;
+    border-radius: 3px;
+    font-weight: 600;
+    text-transform: uppercase;
+    letter-spacing: 0.3px;
+  }
+  .badge-oko { background: var(--green-bg); color: var(--green); }
+  .badge-inactive { background: #eee; color: var(--dim); }
+  .badge-no-price { background: var(--red-bg); color: var(--red); }
+
+  .db-pct { font-weight: 700; }
+  .db-pct.low { color: var(--red); }
+  .db-pct.ok { color: var(--text); }
+  .db-pct.good { color: var(--green); }
+  .db-bar {
+    display: inline-block;
+    width: 36px;
+    height: 4px;
+    background: #eee;
+    border-radius: 2px;
+    margin-left: 6px;
+    vertical-align: middle;
+    overflow: hidden;
+  }
+  .db-bar > span {
+    display: block;
+    height: 100%;
+    background: var(--green);
+  }
+  .db-bar.low > span { background: var(--red); }
+  .db-bar.ok > span { background: var(--blue); }
+
+  /* Sparkline (mini-bars in table) */
+  .sold-cell {
+    display: inline-flex;
+    align-items: center;
+    gap: 8px;
+    justify-content: flex-end;
+  }
+  .sparkline {
+    display: inline-flex;
+    align-items: flex-end;
+    gap: 1px;
+    height: 18px;
+    width: 60px;
+    flex-shrink: 0;
+  }
+  .sparkline .sb {
+    flex: 1;
+    background: var(--brand-primary-light);
+    border-top: 1.5px solid var(--brand-primary);
+    border-radius: 1px 1px 0 0;
+    min-height: 1px;
+    opacity: 0.85;
+  }
+  .sparkline .sb.last {
+    background: var(--brand-primary);
+    border-top-color: var(--brand-primary);
+    opacity: 1;
+  }
+  .sparkline.flat .sb { background: #ddd; border-top-color: #aaa; }
+  .sparkline.empty {
+    border-bottom: 1px dashed #ccc;
+    align-items: center;
+    justify-content: center;
+  }
+  .sparkline.empty::after {
+    content: "ingen salg";
+    font-size: 9px;
+    color: var(--dim);
+    font-style: italic;
+  }
+  .sold-num {
+    min-width: 32px;
+    text-align: right;
+    font-variant-numeric: tabular-nums;
+  }
+
+  .arrow { color: var(--dim); margin-left: 4px; }
+
+  /* Side panel (drill-down) */
+  .panel-backdrop {
+    position: fixed;
+    inset: 0;
+    background: rgba(0,0,0,0.3);
+    z-index: 100;
+    display: none;
+  }
+  .panel-backdrop.open { display: block; }
+  .panel {
+    position: fixed;
+    top: 0;
+    right: 0;
+    bottom: 0;
+    width: 540px;
+    max-width: 100vw;
+    background: var(--surface);
+    box-shadow: -4px 0 20px rgba(0,0,0,0.15);
+    z-index: 101;
+    transform: translateX(100%);
+    transition: transform 0.2s ease;
+    display: flex;
+    flex-direction: column;
+  }
+  .panel.open { transform: translateX(0); }
+  .panel-head {
+    padding: 14px 18px;
+    border-bottom: 1px solid var(--border);
+    display: flex;
+    align-items: center;
+    gap: 10px;
+  }
+  .panel-head .title { font-size: 16px; font-weight: 700; flex: 1; }
+  .panel-head .close-btn {
+    background: transparent;
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    width: 32px;
+    height: 32px;
+    cursor: pointer;
+    font-size: 16px;
+  }
+  .panel-body { flex: 1; overflow-y: auto; padding: 16px 18px; }
+  .panel-section { margin-bottom: 22px; }
+  .panel-section h3 {
+    font-size: 11px;
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+    color: var(--dim);
+    margin-bottom: 8px;
+    font-weight: 600;
+    display: flex;
+    align-items: center;
+    gap: 8px;
+  }
+  .panel-section h3 .seg-mini {
+    margin-left: auto;
+  }
+  .seg-mini {
+    display: inline-flex;
+    border: 1px solid var(--border);
+    border-radius: 5px;
+    overflow: hidden;
+    font-size: 10px;
+  }
+  .seg-mini button {
+    background: var(--surface);
+    border: none;
+    border-right: 1px solid var(--border);
+    padding: 3px 8px;
+    cursor: pointer;
+    color: var(--dim);
+    font-size: 10px;
+    text-transform: uppercase;
+    letter-spacing: 0.3px;
+  }
+  .seg-mini button:last-child { border-right: none; }
+  .seg-mini button.active {
+    background: var(--brand-primary);
+    color: white;
+    font-weight: 600;
+  }
+
+  .price-grid {
+    display: grid;
+    grid-template-columns: 1fr auto auto;
+    gap: 6px 12px;
+    align-items: center;
+    background: var(--bg);
+    padding: 10px 12px;
+    border-radius: 8px;
+  }
+  .price-grid .label { color: var(--dim); font-size: 12px; }
+  .price-grid .db { font-size: 11px; text-align: right; color: var(--dim); }
+  .price-grid input[type="number"] {
+    width: 90px;
+    text-align: right;
+    font-weight: 700;
+  }
+
+  .ing-table { width: 100%; font-size: 12px; border-collapse: collapse; }
+  .ing-table th, .ing-table td {
+    padding: 6px 8px;
+    border-bottom: 1px solid #f0ece5;
+    text-align: left;
+  }
+  .ing-table th { font-size: 10px; color: var(--dim); text-transform: uppercase; }
+  .ing-table td.num { text-align: right; font-variant-numeric: tabular-nums; }
+  .ing-table tr.top td { background: #fff7e6; }
+  .ing-table tr.top td:first-child::before { content: "▲ "; color: var(--brand-primary); }
+
+  .vol-chart {
+    height: 90px;
+    display: flex;
+    align-items: flex-end;
+    gap: 4px;
+    padding: 6px 0;
+  }
+  .vol-bar {
+    flex: 1;
+    background: var(--brand-primary-light);
+    border-top: 2px solid var(--brand-primary);
+    border-radius: 2px 2px 0 0;
+    position: relative;
+    min-height: 2px;
+  }
+  .vol-bar:hover { background: var(--brand-primary); }
+  .vol-bar .tooltip {
+    display: none;
+    position: absolute;
+    bottom: 100%;
+    left: 50%;
+    transform: translateX(-50%);
+    background: var(--text);
+    color: white;
+    padding: 3px 6px;
+    border-radius: 4px;
+    font-size: 10px;
+    white-space: nowrap;
+    margin-bottom: 4px;
+  }
+  .vol-bar:hover .tooltip { display: block; }
+  .vol-labels {
+    display: flex;
+    gap: 4px;
+    font-size: 9px;
+    color: var(--dim);
+    text-align: center;
+  }
+  .vol-labels span { flex: 1; }
+
+  .info-banner {
+    padding: 10px 12px;
+    border-radius: 8px;
+    font-size: 12px;
+    margin-bottom: 14px;
+  }
+  .info-banner.warn { background: var(--red-bg); color: var(--red); border: 1px solid #f0c5c5; }
+  .info-banner.ok { background: var(--green-bg); color: var(--green); border: 1px solid #cde0b4; }
+
+  .footer-stats {
+    padding: 10px 16px;
+    background: var(--surface);
+    border-top: 1px solid var(--border);
+    display: flex;
+    justify-content: space-between;
+    font-size: 11px;
+    color: var(--dim);
+  }
+
+  /* Target settings popover */
+  .target-pop {
+    position: absolute;
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    box-shadow: 0 4px 12px rgba(0,0,0,0.1);
+    padding: 14px;
+    z-index: 50;
+    min-width: 240px;
+    display: none;
+  }
+  .target-pop.open { display: block; }
+  .target-pop h4 { font-size: 12px; margin-bottom: 8px; color: var(--dim); text-transform: uppercase; }
+  .target-row {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 10px;
+    padding: 4px 0;
+    font-size: 12px;
+  }
+  .target-row input { width: 60px; text-align: right; }
+  .btn-primary {
+    background: var(--brand-primary);
+    color: white;
+    border: none;
+    border-radius: 6px;
+    padding: 6px 12px;
+    cursor: pointer;
+    font-size: 12px;
+    font-weight: 600;
+    min-height: 32px;
+  }
+  .btn-secondary {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    padding: 6px 12px;
+    cursor: pointer;
+    font-size: 12px;
+    min-height: 32px;
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+  }
+  .btn-secondary:hover { background: var(--bg); }
+  .btn-link {
+    background: transparent;
+    border: none;
+    color: var(--brand-primary);
+    cursor: pointer;
+    font-size: 12px;
+    padding: 0;
+    text-decoration: underline;
+  }
+
+  .clear-filters {
+    display: none;
+    align-items: center;
+    gap: 6px;
+    padding: 4px 10px;
+    background: var(--brand-primary-light);
+    border: 1px solid var(--brand-primary);
+    border-radius: 999px;
+    font-size: 11px;
+    color: var(--brand-primary);
+    cursor: pointer;
+    font-weight: 600;
+  }
+  .clear-filters.show { display: inline-flex; }
+
+  /* Mobile/tablet */
+  @media (max-width: 768px) {
+    .panel { width: 100%; }
+    .topbar h1 { font-size: 14px; }
+    thead th, tbody td { padding: 7px 6px; font-size: 11px; }
+    .col-co2, .col-cat { display: none; }
+    input[type="search"] { min-width: 140px; }
+    .kpi { min-width: 130px; padding: 8px 12px; }
+    .kpi-value { font-size: 18px; }
+    .sparkline { width: 40px; }
+  }
+</style>
+</head>
+<body>
+
+<div class="topbar">
+  <h1>💰 Opskrifter & priser</h1>
+  <span class="breadcrumb">Office › Økonomi › Opskrifter</span>
+
+  <div class="refresh-info">
+    <span>Kostpriser opdateret <span class="stale">for 2 dage siden</span></span>
+    <button class="btn-secondary" onclick="doRefresh(this)">
+      <span>↻</span> Opdater fra Grocy
+    </button>
+  </div>
+
+  <div class="right-tools">
+    <button class="btn-secondary" onclick="toggleTargetPop(event)">⚙ DB-mål pr. kategori</button>
+  </div>
+
+  <div class="target-pop" id="target-pop">
+    <h4>Mål for DB% pr. kategori</h4>
+    <div class="target-row"><span>01 Sandwich</span><span><input type="number" value="65" min="0" max="100"> %</span></div>
+    <div class="target-row"><span>02 Salat</span><span><input type="number" value="60" min="0" max="100"> %</span></div>
+    <div class="target-row"><span>03 Kager</span><span><input type="number" value="68" min="0" max="100"> %</span></div>
+    <div class="target-row"><span>04 Slider</span><span><input type="number" value="62" min="0" max="100"> %</span></div>
+    <div class="target-row"><span>05 Drikke</span><span><input type="number" value="70" min="0" max="100"> %</span></div>
+    <div class="target-row"><span>06 Snack</span><span><input type="number" value="65" min="0" max="100"> %</span></div>
+    <div style="display:flex; gap:6px; margin-top:10px;">
+      <button class="btn-primary" style="flex:1;" onclick="closeTargetPop()">Gem</button>
+      <button class="btn-secondary" onclick="closeTargetPop()">Luk</button>
+    </div>
+  </div>
+</div>
+
+<div class="filter-row">
+  <div class="filter-group">
+    <span class="filter-label">Priskategori</span>
+    <div class="seg">
+      <button class="active" onclick="setPriceCat(this,'catering')">Catering</button>
+      <button onclick="setPriceCat(this,'festival')">Festival</button>
+    </div>
+  </div>
+
+  <div class="filter-group">
+    <span class="filter-label">Periode</span>
+    <select id="periodSel" onchange="rerender()">
+      <option value="30">Sidste 30 dage</option>
+      <option value="90" selected>Sidste 90 dage</option>
+      <option value="180">Sidste 6 måneder</option>
+      <option value="365">Sidste 12 måneder</option>
+      <option value="custom">Brugerdefineret…</option>
+    </select>
+  </div>
+
+  <div class="filter-group">
+    <span class="filter-label">Kategori</span>
+    <select id="catSel" onchange="rerender()">
+      <option value="">Alle</option>
+      <option>01 Sandwich</option>
+      <option>02 Salat</option>
+      <option>03 Kager</option>
+      <option>04 Slider</option>
+      <option>05 Drikke</option>
+      <option>06 Snack</option>
+    </select>
+  </div>
+
+  <div class="spacer"></div>
+  <button class="clear-filters" id="clearFilters" onclick="clearFilters()">✕ Ryd filtre</button>
+  <input type="search" placeholder="Søg opskrift…" oninput="rerender()">
+</div>
+
+<div class="kpi-strip">
+  <div class="kpi clickable" data-filter="active" onclick="toggleFilter(this)">
+    <div class="kpi-label">Aktive opskrifter</div>
+    <div class="kpi-value">47</div>
+    <div class="kpi-sub">af 63 i Grocy</div>
+  </div>
+  <div class="kpi clickable alert" data-filter="under-target" onclick="toggleFilter(this)">
+    <div class="kpi-label">Under DB-mål</div>
+    <div class="kpi-value">8</div>
+    <div class="kpi-sub">17% af aktive</div>
+  </div>
+  <div class="kpi clickable alert" data-filter="missing-price" onclick="toggleFilter(this)">
+    <div class="kpi-label">Mangler salgspris</div>
+    <div class="kpi-value">3</div>
+    <div class="kpi-sub">i catering</div>
+  </div>
+  <div class="kpi clickable" data-filter="not-sold" onclick="toggleFilter(this)">
+    <div class="kpi-label">Ikke solgt 90 d</div>
+    <div class="kpi-value">11</div>
+    <div class="kpi-sub">overvej inaktiv?</div>
+  </div>
+  <div class="kpi clickable" data-filter="oko" onclick="toggleFilter(this)">
+    <div class="kpi-label">Økologiske</div>
+    <div class="kpi-value">9</div>
+    <div class="kpi-sub">19% af aktive</div>
+  </div>
+  <div class="kpi info">
+    <div class="kpi-label">Gns. DB% (catering)</div>
+    <div class="kpi-value">64,2%</div>
+    <div class="kpi-sub">vægtet på solgt</div>
+  </div>
+  <div class="kpi info good">
+    <div class="kpi-label">Omsætning 90 d</div>
+    <div class="kpi-value">487 k</div>
+    <div class="kpi-sub">DB: 312 k (64%)</div>
+  </div>
+</div>
+
+<div class="table-wrap">
+  <table>
+    <thead>
+      <tr>
+        <th onclick="sortBy('name')">Opskrift <span class="arrow">↕</span></th>
+        <th class="num" onclick="sortBy('cost')">Kostpris <span class="arrow">↕</span></th>
+        <th class="num" onclick="sortBy('sales')">Salgspris <span class="arrow">↕</span></th>
+        <th class="num" onclick="sortBy('db_kr')">DB kr <span class="arrow">↕</span></th>
+        <th class="num" onclick="sortBy('db_pct')">DB % <span class="sort-ind">↑</span></th>
+        <th class="num" onclick="sortBy('sold')">Solgt — 12 mdr trend <span class="arrow">↕</span></th>
+        <th class="num" onclick="sortBy('rev')">Omsætning <span class="arrow">↕</span></th>
+        <th class="num col-co2" onclick="sortBy('co2')">CO₂e <span class="arrow">↕</span></th>
+      </tr>
+    </thead>
+    <tbody id="tbody"></tbody>
+  </table>
+</div>
+
+<div class="footer-stats">
+  <span id="row-count">Viser 47 af 63 opskrifter</span>
+  <span>Sparkline viser solgt antal pr. måned · sidste 12 mdr</span>
+</div>
+
+<!-- Drill-down panel -->
+<div class="panel-backdrop" id="backdrop" onclick="closePanel()"></div>
+<div class="panel" id="panel">
+  <div class="panel-head">
+    <div class="title" id="panel-title">Frikadellen</div>
+    <button class="close-btn" onclick="closePanel()">×</button>
+  </div>
+  <div class="panel-body" id="panel-body"></div>
+</div>
+
+<script>
+// === Eksempel-data ===
+const RECIPES = [
+  { id:1, name:'Falaflen', cat:'01 Sandwich', cost:34.20, sales:{catering:94, festival:89}, sold:142, oko:true, active:true, co2:0.42 },
+  { id:2, name:'Tunen', cat:'01 Sandwich', cost:36.50, sales:{catering:89, festival:84}, sold:118, oko:false, active:true, co2:0.55 },
+  { id:3, name:'Fisken', cat:'01 Sandwich', cost:42.80, sales:{catering:94, festival:89}, sold:88, oko:false, active:true, co2:0.61 },
+  { id:4, name:'Frikadellen', cat:'01 Sandwich', cost:31.90, sales:{catering:89, festival:84}, sold:201, oko:false, active:true, co2:0.71 },
+  { id:5, name:'Grisen på Rug', cat:'01 Sandwich', cost:58.40, sales:{catering:130, festival:125}, sold:67, oko:false, active:true, co2:1.12 },
+  { id:6, name:'Italieneren', cat:'01 Sandwich', cost:38.10, sales:{catering:89, festival:84}, sold:94, oko:false, active:true, co2:0.58 },
+  { id:7, name:'Kartoflen', cat:'01 Sandwich', cost:24.50, sales:{catering:89, festival:84}, sold:76, oko:true, active:true, co2:0.32 },
+  { id:8, name:'Kyllingen', cat:'01 Sandwich', cost:38.70, sales:{catering:94, festival:89}, sold:155, oko:false, active:true, co2:0.66 },
+  { id:9, name:'Skinken', cat:'01 Sandwich', cost:36.40, sales:{catering:94, festival:89}, sold:103, oko:false, active:true, co2:0.79 },
+  { id:10, name:'Temptyen', cat:'01 Sandwich', cost:44.20, sales:{catering:98, festival:93}, sold:42, oko:false, active:true, co2:0.68 },
+  { id:11, name:'Trøflen', cat:'01 Sandwich', cost:48.90, sales:{catering:94, festival:89}, sold:34, oko:false, active:true, co2:0.51 },
+  { id:12, name:'Ægget', cat:'01 Sandwich', cost:18.60, sales:{catering:94, festival:89}, sold:188, oko:true, active:true, co2:0.28 },
+  { id:20, name:'Grøn salat', cat:'02 Salat', cost:14.20, sales:{catering:35, festival:32}, sold:67, oko:true, active:true, co2:0.18 },
+  { id:21, name:'Kartoffelsalat', cat:'02 Salat', cost:11.50, sales:{catering:30, festival:28}, sold:54, oko:false, active:true, co2:0.22 },
+  { id:22, name:'Pasta salat', cat:'02 Salat', cost:16.80, sales:{catering:38, festival:35}, sold:48, oko:false, active:true, co2:0.31 },
+  { id:23, name:'Quinoa bowl', cat:'02 Salat', cost:21.40, sales:{catering:42, festival:38}, sold:38, oko:true, active:true, co2:0.27 },
+  { id:30, name:'Gulerodskage', cat:'03 Kager', cost:13.20, sales:{catering:38, festival:35}, sold:122, oko:false, active:true, co2:0.41 },
+  { id:31, name:'Chokoladekage', cat:'03 Kager', cost:16.50, sales:{catering:42, festival:38}, sold:89, oko:false, active:true, co2:0.48 },
+  { id:32, name:'Kanelsnegle', cat:'03 Kager', cost:8.90, sales:{catering:28, festival:25}, sold:201, oko:false, active:true, co2:0.22 },
+  { id:40, name:'Pulled pork slider', cat:'04 Slider', cost:18.90, sales:{catering:38, festival:35}, sold:76, oko:false, active:true, co2:0.88 },
+  { id:41, name:'Kylling slider', cat:'04 Slider', cost:17.20, sales:{catering:36, festival:33}, sold:88, oko:false, active:true, co2:0.61 },
+  { id:42, name:'Veggie slider', cat:'04 Slider', cost:14.50, sales:{catering:34, festival:31}, sold:42, oko:true, active:true, co2:0.29 },
+  { id:50, name:'Juice & vand', cat:'05 Drikke', cost:11.20, sales:{catering:35, festival:32}, sold:284, oko:false, active:true, co2:0.18 },
+  { id:51, name:'Kaffe & te', cat:'05 Drikke', cost:7.80, sales:{catering:28, festival:25}, sold:198, oko:true, active:true, co2:0.12 },
+  { id:60, name:'Frugtfad', cat:'06 Snack', cost:14.40, sales:{catering:32, festival:30}, sold:54, oko:false, active:true, co2:0.21 },
+  { id:61, name:'Ostebord', cat:'06 Snack', cost:24.80, sales:{catering:55, festival:50}, sold:38, oko:false, active:true, co2:0.92 },
+  { id:70, name:'Laks classic', cat:'01 Sandwich', cost:62.40, sales:{catering:89, festival:84}, sold:24, oko:false, active:true, co2:0.94 },
+  { id:72, name:'Roastbeef premium', cat:'01 Sandwich', cost:54.10, sales:{catering:79, festival:74}, sold:18, oko:false, active:true, co2:1.05 },
+  { id:71, name:'Vegansk wrap', cat:'01 Sandwich', cost:22.10, sales:{catering:null, festival:75}, sold:18, oko:true, active:true, co2:0.28 },
+  { id:80, name:'Rejemad classic', cat:'01 Sandwich', cost:48.50, sales:{catering:94, festival:89}, sold:0, oko:false, active:true, co2:0.71 },
+  { id:81, name:'Røget sild', cat:'01 Sandwich', cost:32.20, sales:{catering:89, festival:84}, sold:0, oko:false, active:true, co2:0.55 },
+];
+
+const TARGETS = {
+  '01 Sandwich': 65, '02 Salat': 60, '03 Kager': 68,
+  '04 Slider': 62, '05 Drikke': 70, '06 Snack': 65,
+};
+
+// Generér konsistent fake-tidsserie pr. opskrift (12 mdr salgs-historie)
+function seriesFor(r) {
+  // Seed på id så samme opskrift altid får samme trend
+  const seed = r.id;
+  const trend = (seed % 5) - 2; // -2..+2: faldende → stigende
+  const total = r.sold * 4; // sold er periode-tal; gang op for 12 mdr-total
+  const out = [];
+  for (let i = 0; i < 12; i++) {
+    const base = total / 12;
+    const seasonal = Math.sin((i + seed) * 0.6) * 0.3;
+    const trendComp = (i / 11) * trend * 0.3;
+    const noise = Math.sin(seed * 13 + i * 7) * 0.2;
+    const v = Math.max(0, base * (1 + seasonal + trendComp + noise));
+    out.push(Math.round(v));
+  }
+  return out;
+}
+
+let priceCat = 'catering';
+let sortKey = 'db_pct';
+let sortDir = 'asc';
+let activeFilters = new Set(['active']);
+let panelChartMode = 'sold'; // 'sold' | 'rev' | 'db'
+
+function dbPct(r) { const s = r.sales[priceCat]; return s ? ((s - r.cost) / s) * 100 : null; }
+function dbKr(r) { const s = r.sales[priceCat]; return s ? s - r.cost : null; }
+function revenue(r) { const s = r.sales[priceCat]; return s ? s * r.sold : 0; }
+function target(r) { return TARGETS[r.cat] || 60; }
+function isUnderTarget(r) { const p = dbPct(r); return p !== null && p < target(r); }
+
+function fmtKr(n) { if (n == null) return '—'; return n.toLocaleString('da-DK', {maximumFractionDigits: 0}) + ' kr'; }
+function fmtPct(n) { if (n == null) return '—'; return n.toFixed(1).replace('.', ',') + '%'; }
+
+function sparklineHTML(r) {
+  const s = seriesFor(r);
+  if (r.sold === 0) return '<span class="sparkline empty"></span>';
+  const max = Math.max(...s, 1);
+  return '<span class="sparkline" title="Solgt pr. måned, 12 mdr">' +
+    s.map((v, i) => `<span class="sb${i === s.length-1 ? ' last' : ''}" style="height:${Math.max(2, (v/max)*100)}%"></span>`).join('') +
+    '</span>';
+}
+
+function render() {
+  const search = document.querySelector('input[type="search"]').value.toLowerCase();
+  const catFilter = document.getElementById('catSel').value;
+
+  let rows = RECIPES.filter(r => {
+    if (search && !r.name.toLowerCase().includes(search)) return false;
+    if (catFilter && r.cat !== catFilter) return false;
+    if (activeFilters.has('active') && !r.active) return false;
+    if (activeFilters.has('under-target') && !isUnderTarget(r)) return false;
+    if (activeFilters.has('missing-price') && r.sales[priceCat] != null) return false;
+    if (activeFilters.has('not-sold') && r.sold !== 0) return false;
+    if (activeFilters.has('oko') && !r.oko) return false;
+    return true;
+  });
+
+  rows.sort((a, b) => {
+    let av, bv;
+    switch (sortKey) {
+      case 'name': av = a.name; bv = b.name; break;
+      case 'cost': av = a.cost; bv = b.cost; break;
+      case 'sales': av = a.sales[priceCat] || 0; bv = b.sales[priceCat] || 0; break;
+      case 'db_kr': av = dbKr(a) ?? -9999; bv = dbKr(b) ?? -9999; break;
+      case 'db_pct': av = dbPct(a) ?? 999; bv = dbPct(b) ?? 999; break;
+      case 'sold': av = a.sold; bv = b.sold; break;
+      case 'rev': av = revenue(a); bv = revenue(b); break;
+      case 'co2': av = a.co2; bv = b.co2; break;
+    }
+    if (typeof av === 'string') return sortDir === 'asc' ? av.localeCompare(bv) : bv.localeCompare(av);
+    return sortDir === 'asc' ? av - bv : bv - av;
+  });
+
+  const tbody = document.getElementById('tbody');
+  tbody.innerHTML = rows.map(r => {
+    const sp = r.sales[priceCat];
+    const p = dbPct(r);
+    const tgt = target(r);
+    const underT = isUnderTarget(r);
+    const missing = sp == null;
+    const notSold = r.sold === 0;
+
+    let dbClass = 'ok';
+    if (p != null) { if (p < tgt) dbClass = 'low'; else if (p >= tgt + 5) dbClass = 'good'; }
+
+    const barWidth = p != null ? Math.max(0, Math.min(100, p)) : 0;
+    let rowClass = '';
+    if (missing) rowClass = 'row-missing-price';
+    else if (underT) rowClass = 'row-under-target';
+    else if (notSold) rowClass = 'row-not-sold';
+    if (!r.active) rowClass += ' row-inactive';
+
+    return `
+      <tr class="${rowClass}" onclick="openPanel(${r.id})">
+        <td>
+          <div class="name-cell">
+            <span class="name">${r.name}
+              ${r.oko ? '<span class="badges"><span class="badge badge-oko">øko</span></span>' : ''}
+              ${!r.active ? '<span class="badges"><span class="badge badge-inactive">inaktiv</span></span>' : ''}
+              ${missing ? '<span class="badges"><span class="badge badge-no-price">ingen pris</span></span>' : ''}
+            </span>
+            <span class="cat col-cat">${r.cat}</span>
+          </div>
+        </td>
+        <td class="num">${fmtKr(r.cost)}</td>
+        <td class="num">${fmtKr(sp)}</td>
+        <td class="num">${fmtKr(dbKr(r))}</td>
+        <td class="num">
+          <span class="db-pct ${dbClass}">${fmtPct(p)}</span>
+          ${p != null ? `<span class="db-bar ${dbClass}"><span style="width:${barWidth}%"></span></span>` : ''}
+        </td>
+        <td class="num">
+          <span class="sold-cell">
+            ${sparklineHTML(r)}
+            <span class="sold-num">${r.sold || '—'}</span>
+          </span>
+        </td>
+        <td class="num">${fmtKr(revenue(r))}</td>
+        <td class="num col-co2">${r.co2.toFixed(2).replace('.', ',')}</td>
+      </tr>
+    `;
+  }).join('');
+
+  const total = RECIPES.length;
+  document.getElementById('row-count').textContent = `Viser ${rows.length} af ${total} opskrifter`;
+  document.getElementById('clearFilters').classList.toggle('show',
+    activeFilters.size > 1 || (activeFilters.size === 1 && !activeFilters.has('active'))
+    || catFilter || search);
+}
+
+function rerender() { render(); }
+
+function toggleFilter(el) {
+  const key = el.dataset.filter;
+  if (activeFilters.has(key)) activeFilters.delete(key);
+  else activeFilters.add(key);
+  el.classList.toggle('active', activeFilters.has(key));
+  render();
+}
+
+function clearFilters() {
+  activeFilters.clear();
+  activeFilters.add('active');
+  document.querySelectorAll('.kpi.clickable').forEach(el => {
+    el.classList.toggle('active', el.dataset.filter === 'active');
+  });
+  document.getElementById('catSel').value = '';
+  document.querySelector('input[type="search"]').value = '';
+  render();
+}
+
+function sortBy(key) {
+  if (sortKey === key) sortDir = sortDir === 'asc' ? 'desc' : 'asc';
+  else { sortKey = key; sortDir = 'asc'; }
+  render();
+}
+
+function setPriceCat(btn, cat) {
+  document.querySelectorAll('.seg button').forEach(b => b.classList.remove('active'));
+  btn.classList.add('active');
+  priceCat = cat;
+  render();
+}
+
+function doRefresh(btn) {
+  btn.disabled = true;
+  btn.innerHTML = '<span>↻</span> Henter…';
+  setTimeout(() => {
+    btn.disabled = false;
+    btn.innerHTML = '<span>↻</span> Opdater fra Grocy';
+    document.querySelector('.refresh-info > span').innerHTML = 'Kostpriser opdateret <strong>lige nu</strong>';
+  }, 900);
+}
+
+function toggleTargetPop(e) {
+  e.stopPropagation();
+  const pop = document.getElementById('target-pop');
+  pop.classList.toggle('open');
+  if (pop.classList.contains('open')) {
+    const rect = e.target.getBoundingClientRect();
+    pop.style.top = (rect.bottom + 6) + 'px';
+    pop.style.right = (window.innerWidth - rect.right) + 'px';
+  }
+}
+function closeTargetPop() { document.getElementById('target-pop').classList.remove('open'); }
+document.addEventListener('click', e => {
+  if (!e.target.closest('.target-pop') && !e.target.closest('[onclick*="toggleTargetPop"]')) {
+    closeTargetPop();
+  }
+});
+
+// === Drill-down panel ===
+let currentPanelRecipe = null;
+
+function openPanel(id) {
+  const r = RECIPES.find(x => x.id === id);
+  if (!r) return;
+  currentPanelRecipe = r;
+  panelChartMode = 'sold';
+  renderPanel();
+  document.getElementById('panel').classList.add('open');
+  document.getElementById('backdrop').classList.add('open');
+}
+
+function setChartMode(mode) {
+  panelChartMode = mode;
+  renderPanel();
+}
+
+function renderPanel() {
+  const r = currentPanelRecipe;
+  if (!r) return;
+  document.getElementById('panel-title').textContent = r.name;
+
+  const p = dbPct(r);
+  const tgt = target(r);
+  const missing = r.sales[priceCat] == null;
+  const underT = isUnderTarget(r);
+
+  const ings = [
+    { name: 'Rugbrød (skiver)', qty: '2 stk', cost: r.cost * 0.35 },
+    { name: r.name.toLowerCase().includes('falafl') ? 'Falafel' :
+            r.name.toLowerCase().includes('frik') ? 'Frikadelle' :
+            r.name.toLowerCase().includes('grisen') ? 'Pulled pork' :
+            r.name.toLowerCase().includes('lak') ? 'Laks fileter' :
+            'Hovedingrediens', qty: '80 g', cost: r.cost * 0.45 },
+    { name: 'Mayo / dressing', qty: '15 g', cost: r.cost * 0.08 },
+    { name: 'Salat / topping', qty: '20 g', cost: r.cost * 0.07 },
+    { name: 'Krydderier', qty: '—', cost: r.cost * 0.05 },
+  ].sort((a, b) => b.cost - a.cost);
+
+  const warningBanner = missing
+    ? `<div class="info-banner warn">⚠ Mangler salgspris for kategorien "${priceCat}". Tilføj nedenfor.</div>`
+    : underT
+      ? `<div class="info-banner warn">⚠ DB ligger på ${fmtPct(p)} — under målet på ${tgt}% for ${r.cat}.</div>`
+      : `<div class="info-banner ok">✓ DB ligger over målet på ${tgt}% for ${r.cat}.</div>`;
+
+  // Volumen-data — kan toggle mellem 3 visninger
+  const months = ['jun','jul','aug','sep','okt','nov','dec','jan','feb','mar','apr','maj'];
+  const soldSeries = seriesFor(r);
+  let chartData, chartUnit, chartTotal;
+  if (panelChartMode === 'sold') {
+    chartData = soldSeries;
+    chartUnit = 'stk';
+    chartTotal = soldSeries.reduce((a,b)=>a+b,0);
+  } else if (panelChartMode === 'rev') {
+    const sp = r.sales[priceCat] || 0;
+    chartData = soldSeries.map(v => v * sp);
+    chartUnit = 'kr';
+    chartTotal = chartData.reduce((a,b)=>a+b,0);
+  } else { // db
+    const dbU = dbKr(r) || 0;
+    chartData = soldSeries.map(v => v * dbU);
+    chartUnit = 'kr DB';
+    chartTotal = chartData.reduce((a,b)=>a+b,0);
+  }
+  const maxV = Math.max(...chartData, 1);
+
+  document.getElementById('panel-body').innerHTML = `
+    ${warningBanner}
+
+    <div class="panel-section">
+      <h3>Salgspriser (redigerbare)</h3>
+      <div class="price-grid">
+        <span class="label">Catering</span>
+        <span><input type="number" value="${r.sales.catering ?? ''}" step="1" placeholder="—"> kr</span>
+        <span class="db">DB ${r.sales.catering ? fmtPct(((r.sales.catering - r.cost) / r.sales.catering) * 100) : '—'}</span>
+
+        <span class="label">Festival</span>
+        <span><input type="number" value="${r.sales.festival ?? ''}" step="1" placeholder="—"> kr</span>
+        <span class="db">DB ${r.sales.festival ? fmtPct(((r.sales.festival - r.cost) / r.sales.festival) * 100) : '—'}</span>
+      </div>
+      <div style="display:flex; gap:8px; margin-top:10px;">
+        <button class="btn-primary">Gem priser</button>
+        <button class="btn-link">+ Tilføj priskategori</button>
+      </div>
+    </div>
+
+    <div class="panel-section">
+      <h3>Kostpris-breakdown (top bidragere)</h3>
+      <table class="ing-table">
+        <thead>
+          <tr><th>Ingrediens</th><th>Mængde</th><th class="num">Kostpris</th><th class="num">% af total</th></tr>
+        </thead>
+        <tbody>
+          ${ings.map((ing, i) => `
+            <tr class="${i === 0 ? 'top' : ''}">
+              <td>${ing.name}</td>
+              <td>${ing.qty}</td>
+              <td class="num">${fmtKr(ing.cost)}</td>
+              <td class="num">${((ing.cost / r.cost) * 100).toFixed(0)}%</td>
+            </tr>
+          `).join('')}
+          <tr style="font-weight:700; background:var(--bg);">
+            <td colspan="2">Total kostpris</td>
+            <td class="num">${fmtKr(r.cost)}</td>
+            <td class="num">100%</td>
+          </tr>
+        </tbody>
+      </table>
+      <button class="btn-link" style="margin-top:6px;">→ Åbn i Grocy</button>
+    </div>
+
+    <div class="panel-section">
+      <h3>
+        Volumen — sidste 12 måneder
+        <div class="seg-mini">
+          <button class="${panelChartMode==='sold'?'active':''}" onclick="setChartMode('sold')">Solgt</button>
+          <button class="${panelChartMode==='rev'?'active':''}" onclick="setChartMode('rev')">Omsætning</button>
+          <button class="${panelChartMode==='db'?'active':''}" onclick="setChartMode('db')">DB kr</button>
+        </div>
+      </h3>
+      <div class="vol-chart">
+        ${chartData.map((v, i) => `
+          <div class="vol-bar" style="height:${(v/maxV)*100}%">
+            <div class="tooltip">${months[i]}: ${chartUnit === 'stk' ? v : fmtKr(v)}</div>
+          </div>
+        `).join('')}
+      </div>
+      <div class="vol-labels">
+        ${months.map(m => `<span>${m}</span>`).join('')}
+      </div>
+      <div style="margin-top:8px; font-size:11px; color:var(--dim);">
+        Total i perioden: <strong style="color:var(--text)">${chartUnit === 'stk' ? chartTotal + ' stk' : fmtKr(chartTotal)}</strong> ·
+        Gns/måned: <strong style="color:var(--text)">${chartUnit === 'stk' ? Math.round(chartTotal/12) + ' stk' : fmtKr(chartTotal/12)}</strong>
+      </div>
+    </div>
+
+    <div class="panel-section">
+      <h3>Metadata</h3>
+      <div style="font-size:12px; color:var(--dim); line-height:1.7;">
+        Kategori: <strong style="color:var(--text)">${r.cat}</strong><br>
+        CO₂e: <strong style="color:var(--text)">${r.co2.toFixed(2).replace('.', ',')} kg pr. enhed</strong><br>
+        Økologisk: <strong style="color:var(--text)">${r.oko ? 'Ja' : 'Nej'}</strong><br>
+        Status: <strong style="color:var(--text)">${r.active ? 'Aktiv' : 'Inaktiv'}</strong><br>
+        Grocy recipe ID: <strong style="color:var(--text)">#${r.id}</strong>
+      </div>
+    </div>
+  `;
+}
+
+function closePanel() {
+  document.getElementById('panel').classList.remove('open');
+  document.getElementById('backdrop').classList.remove('open');
+}
+
+// Init
+document.querySelector('.kpi[data-filter="active"]').classList.add('active');
+render();
+</script>
+</body>
+</html>
