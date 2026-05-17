@@ -1602,6 +1602,7 @@ Fase 3 — Office:
 > **Åbne design-beslutninger:**
 > - shared/-mappe opdeling i undermapper — udskydes til senere refaktorering
 > - ~~orders.js migrering fra JSON-fil til SQLite~~ — routes/orders.js bruger SQLite (tools/bestiliing/orders.js JSON-version er deprecated)
+> - **Mobil-zonen har ingen SSE-realtid endnu.** `mobile/index.html` opretter ikke `connectSSE()`, og `mobile/views/bons.js` lytter ikke på `bon_updated`/`bon_status`. Bons opdateres kun ved pull-to-refresh eller view-skift. Det er bevidst lavt-prioriteret indtil videre — mobil-brugeren (kitchen_personal) får alligevel ikke fyldte arbejdsflader hvor live-opdateringer er kritiske. Hvis behovet opstår: tilføj `connectSSE()` i `mobile/index.html` der dispatcher til den aktive view's handler (samme mønster som `office/index.html` linje 1287).
 >
 > **Beslutninger taget:**
 > - Kalender er separat sidebar-punkt i office (ikke fane i listview)
