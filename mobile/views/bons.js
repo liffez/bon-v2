@@ -22,6 +22,10 @@ var _mbBonsTomorrow = [];
 var _mbBonsDayAfter = [];
 var _mbDetailBon = null;
 
+/* Dato-mode (sat når bruger har klikket på en dag i Overblik) */
+var _mbDateMode = null;       // 'YYYY-MM-DD' eller null
+var _mbDateModeBons = [];
+
 /* Nye-tab state — _mbNyeCount initialiseres fra global hvis tilgængelig
    (sat af initial count_only-kald i mobile/index.html) */
 var _mbNyeEvents = [];          // alle hentede events (kan vokse via "Vis flere")
@@ -58,14 +62,24 @@ async function initMobileBons(container, user) {
     _mbUser = user;
     _mbDetailBon = null;
 
-    // Check if we should open a bon detail from URL
     var params = new URLSearchParams(window.location.search);
+
+    // Check if we should open a bon detail from URL
     var bonId = params.get('bon');
     if (bonId) {
         await _mbShowDetail(parseInt(bonId));
         return;
     }
 
+    // Klik fra Overblik: vis bons for en bestemt dato
+    var bonDate = params.get('bon_date');
+    if (bonDate) {
+        _mbDateMode = bonDate;
+        await _mbLoadDateMode();
+        return;
+    }
+
+    _mbDateMode = null;
     await _mbLoadList();
 }
 
@@ -169,6 +183,103 @@ async function _mbLoadTabContent() {
         return;
     }
     await _mbLoadDateTab();
+}
+
+/* ── Dato-mode (åbnet fra Overblik) ── */
+async function _mbLoadDateMode() {
+    _mbContainer.innerHTML = _mbRenderDateModeHeader() +
+        '<div id="mbList"><div class="m-loading">Henter bons...</div></div>';
+    _mbAttachDateModeHandlers();
+
+    var statuses = 'NY,VENTER,GODKENDT,IGANG,KLAR,LEVERET,FAKTURERET,AFSLUTTET,BETALT';
+    try {
+        var data = await apiFetch('/bons?date=' + _mbDateMode + '&status=' + statuses + '&limit=500');
+        _mbDateModeBons = Array.isArray(data) ? data : (data.bons || []);
+    } catch (e) {
+        _mbDateModeBons = [];
+    }
+    _mbRenderDateModeList();
+    _mbSetupPullToRefresh();
+}
+
+function _mbRenderDateModeHeader() {
+    var parts = _mbDateMode.split('-');
+    var d = new Date(parseInt(parts[0]), parseInt(parts[1]) - 1, parseInt(parts[2]));
+    var days = ['søndag','mandag','tirsdag','onsdag','torsdag','fredag','lørdag'];
+    var label = days[d.getDay()] + ' ' + d.getDate() + '/' + (d.getMonth() + 1);
+    var today = new Date(); today.setHours(0,0,0,0);
+    var iso = _mbDateMode;
+    var todayIso = _mbIsoDate(today);
+    var hint = '';
+    if (iso === todayIso) hint = 'I dag';
+    else if (iso === _mbIsoDate(new Date(today.getTime() + 86400000))) hint = 'I morgen';
+    else if (iso === _mbIsoDate(new Date(today.getTime() - 86400000))) hint = 'I går';
+
+    return (
+        '<div class="m-datemode-header">' +
+            '<button class="m-detail-back" id="mbDateBack" aria-label="Tilbage til overblik">&#8249;</button>' +
+            '<div class="m-datemode-title">' +
+                '<div class="m-datemode-date">' + _mbEsc(label) + '</div>' +
+                (hint ? '<div class="m-datemode-hint">' + hint + '</div>' : '') +
+            '</div>' +
+        '</div>'
+    );
+}
+
+function _mbAttachDateModeHandlers() {
+    var back = document.getElementById('mbDateBack');
+    if (back) {
+        back.addEventListener('click', function() {
+            _mbDateMode = null;
+            var params = new URLSearchParams(window.location.search);
+            params.delete('bon_date');
+            params.set('view', 'oversigt');
+            history.pushState(null, '', '?' + params.toString());
+            if (window._mSwitchView) window._mSwitchView('oversigt');
+        });
+    }
+}
+
+function _mbRenderDateModeList() {
+    var list = document.getElementById('mbList');
+    if (!list) return;
+
+    if (!_mbDateModeBons.length) {
+        list.innerHTML = '<div class="m-bon-empty">Ingen bons denne dag</div>';
+        return;
+    }
+
+    var bons = _mbDateModeBons.slice().sort(function(a, b) {
+        return (a.delivery_time || '').localeCompare(b.delivery_time || '');
+    });
+
+    var html = '';
+    bons.forEach(function(bon) {
+        var s = _mbStatusStyle(bon.status_code || bon.status);
+        var time = (bon.delivery_time || '').slice(0, 5) || '—';
+        var name = bon.contact_name_full || bon.customer_name || bon.company_name || 'Ukendt';
+        var sub = '#' + (bon.bon_number || bon.id);
+        if (bon.total_units) sub += ' · ' + bon.total_units + ' enh.';
+        else if (bon.pax) sub += ' · ' + bon.pax + ' pax';
+
+        html +=
+            '<div class="m-bon-item" data-id="' + bon.id + '">' +
+                '<div class="m-bon-time">' + time + '</div>' +
+                '<div class="m-bon-info">' +
+                    '<div class="m-bon-name">' + _mbEsc(name) + '</div>' +
+                    '<div class="m-bon-sub">' + sub + '</div>' +
+                '</div>' +
+                '<span class="m-bon-badge" style="background:' + s.bg + ';color:' + s.text + '">' + s.label + '</span>' +
+            '</div>';
+    });
+    list.innerHTML = html;
+
+    list.querySelectorAll('.m-bon-item').forEach(function(el) {
+        el.addEventListener('click', function() {
+            _mbFromSearch = false;
+            _mbShowDetail(parseInt(el.dataset.id));
+        });
+    });
 }
 
 /* ── Date-tabs (I dag / I morgen / Overmorgen) ── */
@@ -670,8 +781,10 @@ async function _mbShowDetail(bonId) {
         var p = new URLSearchParams(window.location.search);
         p.delete('bon');
         history.pushState(null, '', '?' + p.toString());
-        // Tilbage til søg hvis vi kom derfra, ellers normal liste
-        if (_mbFromSearch && _mbSearchActive) {
+        // Hvis vi er i dato-mode (kommer fra Overblik) → tilbage dertil
+        if (_mbDateMode) {
+            _mbLoadDateMode();
+        } else if (_mbFromSearch && _mbSearchActive) {
             _mbLoadList();
         } else {
             _mbLoadList();
@@ -748,8 +861,17 @@ function _mbSetupPullToRefresh() {
 window.addEventListener('popstate', function() {
     if (!_mbContainer) return;
     var p = new URLSearchParams(window.location.search);
-    if (p.get('view') === 'bons' && !p.get('bon') && _mbDetailBon) {
-        _mbDetailBon = null;
+    if (p.get('view') !== 'bons') return;
+    if (p.get('bon')) return; // detail håndteres separat
+    _mbDetailBon = null;
+    var bonDate = p.get('bon_date');
+    if (bonDate) {
+        _mbDateMode = bonDate;
+        _mbLoadDateMode();
+    } else if (_mbDateMode) {
+        _mbDateMode = null;
+        _mbLoadList();
+    } else {
         _mbLoadList();
     }
 });

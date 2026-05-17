@@ -342,6 +342,187 @@ body.m-modtag-active .m-content { padding-bottom: 0; }
 .m-shift-name { font-weight: 500; }
 .m-shift-time { color: var(--color-text-dim); }
 
+/* ── Overblik: periode-toolbar + dag-kort ── */
+.m-overview-toolbar {
+    position: sticky;
+    top: 52px;
+    z-index: 5;
+    background: var(--color-surface);
+    border-bottom: 1px solid var(--color-border);
+    padding: 10px 12px;
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+}
+.m-overview-period-tabs {
+    display: flex;
+    gap: 6px;
+    background: var(--color-background);
+    padding: 4px;
+    border-radius: 10px;
+}
+.m-overview-period-tab {
+    flex: 1;
+    padding: 8px 12px;
+    border: none;
+    background: transparent;
+    border-radius: 8px;
+    font-size: 14px;
+    font-weight: 500;
+    color: var(--color-text-dim);
+    cursor: pointer;
+}
+.m-overview-period-tab.active {
+    background: var(--color-surface);
+    color: var(--color-text);
+    box-shadow: 0 1px 3px rgba(0,0,0,.08);
+}
+.m-overview-nav {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 8px;
+}
+.m-overview-nav-btn {
+    min-width: 44px;
+    height: 36px;
+    border: 1px solid var(--color-border);
+    background: var(--color-surface);
+    border-radius: 8px;
+    font-size: 14px;
+    color: var(--color-text);
+    cursor: pointer;
+}
+.m-overview-nav-btn:active { background: var(--color-background); }
+.m-overview-nav-label {
+    flex: 1;
+    text-align: center;
+    font-weight: 600;
+    font-size: 15px;
+}
+
+.m-overview-week-divider {
+    font-size: 11px;
+    color: var(--color-text-dim);
+    text-transform: uppercase;
+    letter-spacing: .5px;
+    padding: 14px 20px 4px;
+}
+
+.m-overview-day {
+    background: var(--color-surface);
+    border-radius: 12px;
+    padding: 12px 14px;
+    margin: 6px 12px;
+    box-shadow: 0 1px 2px rgba(0,0,0,.05);
+    cursor: pointer;
+    transition: background .12s;
+    border-left: 3px solid transparent;
+}
+.m-overview-day:active { background: var(--color-background); }
+.m-overview-day.is-today {
+    border-left-color: var(--brand-primary);
+    box-shadow: 0 1px 3px rgba(142,99,31,.18);
+}
+.m-overview-day.is-past { opacity: .6; }
+.m-overview-day.is-weekend { background: var(--color-background); }
+.m-overview-day.is-empty .m-overview-day-stats { opacity: .55; }
+
+.m-overview-day-head {
+    display: flex;
+    align-items: baseline;
+    justify-content: space-between;
+    gap: 8px;
+}
+.m-overview-day-when {
+    font-size: 15px;
+}
+.m-overview-day-dow {
+    font-weight: 600;
+    text-transform: capitalize;
+}
+.m-overview-day-date {
+    color: var(--color-text-dim);
+}
+.m-overview-day-today {
+    margin-left: 4px;
+    background: var(--brand-primary);
+    color: #fff;
+    font-size: 10px;
+    font-weight: 600;
+    padding: 2px 6px;
+    border-radius: 4px;
+    text-transform: uppercase;
+    letter-spacing: .3px;
+}
+.m-overview-day-stats {
+    display: flex;
+    gap: 10px;
+    font-size: 12px;
+    color: var(--color-text-dim);
+    white-space: nowrap;
+}
+.m-overview-day-stats strong {
+    color: var(--color-text);
+    font-weight: 600;
+    font-size: 14px;
+}
+.m-overview-day-badges {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 4px;
+    margin-top: 8px;
+}
+.m-bon-badge-mini {
+    font-size: 10px;
+    padding: 2px 6px;
+    border-radius: 4px;
+}
+.m-overview-day-shifts {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 4px;
+    margin-top: 8px;
+    padding-top: 8px;
+    border-top: 1px dashed var(--color-border);
+}
+.m-overview-shift-pill {
+    font-size: 11px;
+    background: var(--color-background);
+    color: var(--color-text);
+    padding: 3px 8px;
+    border-radius: 10px;
+    line-height: 1.4;
+}
+.m-overview-shift-time {
+    color: var(--color-text-dim);
+    margin-left: 3px;
+}
+
+/* ── Bons-view: dato-mode (åbnet fra Overblik) ── */
+.m-datemode-header {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    padding: 14px 12px 10px;
+    background: var(--color-surface);
+    border-bottom: 1px solid var(--color-border);
+}
+.m-datemode-title {
+    flex: 1;
+    line-height: 1.1;
+}
+.m-datemode-date {
+    font-weight: 600;
+    font-size: 16px;
+    text-transform: capitalize;
+}
+.m-datemode-hint {
+    font-size: 12px;
+    color: var(--color-text-dim);
+    margin-top: 2px;
+}
+
 /* ── Mig view ── */
 .m-mig-item {
     display: flex; align-items: center;
