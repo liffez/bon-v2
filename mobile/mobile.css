@@ -345,7 +345,7 @@ body.m-modtag-active .m-content { padding-bottom: 0; }
 /* ── Overblik: periode-toolbar + dag-kort ── */
 .m-overview-toolbar {
     position: sticky;
-    top: 52px;
+    top: 0;
     z-index: 5;
     background: var(--color-surface);
     border-bottom: 1px solid var(--color-border);
