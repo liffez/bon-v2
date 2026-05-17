@@ -40,18 +40,26 @@ function clearCache() {
    ══════════════════════════════════════════════════════════════ */
 
 /**
- * Hent Grocy-konfiguration for standard-lokationen.
+ * Hent Grocy-konfiguration for en specifik (eller standard) lokation.
+ *
+ * @param {number} [locationIdOverride] — hvis sat: brug denne lokation i stedet for default
  *
  * 1. Læs default_grocy_location_id fra settings → fallback: første aktive lokation
+ *    (springes over hvis locationIdOverride er givet)
  * 2. Hent grocy_api_url + grocy_api_key fra locations
- * 3. Hvis api_key er tom → fallback til process.env.GROCY_HQ_KEY
+ * 3. Hvis api_key er tom → fallback til GROCY_<CODE>_KEY → GROCY_HQ_KEY
  */
-function getGrocyConfig() {
+function getGrocyConfig(locationIdOverride) {
     const db = getDb();
 
     // Find lokation-id
-    const setting = db.prepare(`SELECT value FROM settings WHERE key = 'default_grocy_location_id'`).get();
-    const locationId = setting ? parseInt(setting.value) : getDefaultLocationId();
+    let locationId;
+    if (locationIdOverride) {
+        locationId = parseInt(locationIdOverride);
+    } else {
+        const setting = db.prepare(`SELECT value FROM settings WHERE key = 'default_grocy_location_id'`).get();
+        locationId = setting ? parseInt(setting.value) : getDefaultLocationId();
+    }
 
     if (!locationId) {
         throw new Error('Ingen aktiv lokation fundet. Opret mindst én lokation i locations-tabellen.');
@@ -864,4 +872,6 @@ module.exports = {
     updateShoppingListItem,
     // Cache
     clearCache,
+    // Config (intern, men brugt af test-endpoint)
+    getGrocyConfig,
 };

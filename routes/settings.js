@@ -15,6 +15,31 @@ router.get('/locations', handle((req, res) => {
     res.json(rows);
 }));
 
+// POST /api/settings/locations/:id/test-grocy — test forbindelse til en specifik lokation
+router.post('/locations/:id/test-grocy', requireAuth('admin'), handle(async (req, res) => {
+    const { getGrocyConfig } = require('../services/grocyAdapter');
+    const locId = parseInt(req.params.id);
+    let url, key, locationName;
+    try {
+        ({ url, key, locationName } = getGrocyConfig(locId));
+    } catch (e) {
+        return res.status(400).json({ ok: false, error: e.message });
+    }
+    try {
+        const base = url.replace(/\/+$/, '');
+        const r = await fetch(base + '/system/info', {
+            headers: { 'GROCY-API-KEY': key, 'Accept': 'application/json' },
+        });
+        if (!r.ok) {
+            return res.json({ ok: false, status: r.status, error: 'HTTP ' + r.status });
+        }
+        const info = await r.json();
+        res.json({ ok: true, version: info.grocy_version?.Version || 'ukendt', locationName });
+    } catch (e) {
+        res.json({ ok: false, error: e.message });
+    }
+}));
+
 // PATCH /api/settings/:key
 router.patch('/:key', handle((req, res) => {
     const { value } = req.body;

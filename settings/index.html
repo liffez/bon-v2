@@ -1668,11 +1668,28 @@ async function loadGrocyLocations() {
     return;
   }
 
+  // Hent default-lokation parallelt
+  var defaultId = null;
+  try {
+    var settings = await apiFetch('/settings');
+    var row = settings.find(function(s){ return s.key === 'default_grocy_location_id'; });
+    if (row) defaultId = parseInt(row.value);
+  } catch (e) { /* ignorer */ }
+
   locs.forEach(function(loc) {
+    var isActive = (loc.id === defaultId);
+    var activeBadge = isActive
+      ? ' <span class="st-badge st-badge-ok" title="Bon v2 bruger denne lokation som standard">★ AKTIV</span>'
+      : '';
+    var setActiveBtn = isActive
+      ? ''
+      : ' <button class="st-btn st-btn-sm st-btn-secondary" onclick="setActiveGrocyLocation(' + loc.id + ')" title="Sæt som standard-lokation for Bon v2">Sæt som aktiv</button>';
+
     var div = document.createElement('div');
     div.className = 'st-mail-group';
+    if (isActive) div.style.borderLeft = '3px solid var(--color-success, #1f8b4c)';
     div.innerHTML =
-      '<h3>' + esc(loc.name) + ' <span class="st-badge st-badge-off">' + esc(loc.code) + '</span></h3>' +
+      '<h3>' + esc(loc.name) + ' <span class="st-badge st-badge-off">' + esc(loc.code) + '</span>' + activeBadge + '</h3>' +
       '<div class="st-mail-grid" style="margin-top:8px">' +
         '<label>API URL</label>' +
         '<div><input class="st-input locked" value="' + esc(loc.grocy_api_url || '') + '" readonly></div>' +
@@ -1680,23 +1697,47 @@ async function loadGrocyLocations() {
         '<div><code style="font-size:12px;color:var(--color-text-dim)">(konfigureret i .env)</code></div>' +
         '<label>Status</label>' +
         '<div><span id="grocy-status-' + loc.id + '" class="st-badge st-badge-off">Ikke testet</span> ' +
-          '<button class="st-btn st-btn-sm st-btn-secondary" onclick="testGrocyConnection(' + loc.id + ',\'' + esc(loc.code) + '\')">Test forbindelse</button></div>' +
+          '<button class="st-btn st-btn-sm st-btn-secondary" onclick="testGrocyConnection(' + loc.id + ')">Test forbindelse</button>' +
+          setActiveBtn +
+        '</div>' +
       '</div>';
     container.appendChild(div);
   });
 }
 
-async function testGrocyConnection(locId, code) {
+async function testGrocyConnection(locId) {
   var badge = document.getElementById('grocy-status-' + locId);
   badge.className = 'st-badge st-badge-off';
   badge.textContent = 'Tester...';
   try {
-    await apiFetch('/grocy/products?limit=1');
-    badge.className = 'st-badge st-badge-ok';
-    badge.textContent = 'Forbundet';
+    var r = await apiFetch('/settings/locations/' + locId + '/test-grocy', { method: 'POST' });
+    if (r.ok) {
+      badge.className = 'st-badge st-badge-ok';
+      badge.textContent = 'Forbundet (v' + r.version + ')';
+    } else {
+      badge.className = 'st-badge st-badge-err';
+      badge.textContent = 'Fejl: ' + (r.error || 'ukendt');
+    }
   } catch (e) {
     badge.className = 'st-badge st-badge-err';
     badge.textContent = 'Fejl: ' + e.message;
+  }
+}
+
+async function setActiveGrocyLocation(locId) {
+  if (!confirm('Sæt denne lokation som standard for Bon v2?\n\nAlle Grocy-kald (opskrifter, lager, indkøb osv.) vil pege på den nye lokation. Cache ryddes automatisk.')) return;
+  try {
+    await apiFetch('/settings/default_grocy_location_id', {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ value: String(locId) }),
+    });
+    // Ryd adapter-cache så efterfølgende kald rammer den nye lokation
+    try { await apiFetch('/grocy/cache', { method: 'DELETE' }); } catch (e) { /* ignorer */ }
+    toast('Aktiv lokation opdateret');
+    await loadGrocyLocations();
+  } catch (e) {
+    alert('Kunne ikke skifte aktiv lokation: ' + e.message);
   }
 }
 
