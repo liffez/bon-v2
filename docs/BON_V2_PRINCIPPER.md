@@ -18,7 +18,7 @@ Det betyder: **når noget ikke passer ind i strukturen, redesignes strukturen �
 | Lag | Valg | Må ikke erstattes med |
 |-----|------|-----------------------|
 | Backend | Node.js / Express | Python, PHP, andet |
-| Database | SQLite via better-sqlite3 | PostgreSQL, MySQL, MongoDB |
+| Database | SQLite via `node:sqlite` (Node 22+, `--experimental-sqlite`) | PostgreSQL, MySQL, MongoDB, better-sqlite3 |
 | Frontend kitchen | Vanilla HTML/CSS/JS (MPA) | React, Vue, Next.js |
 | Frontend office | Vanilla JS + selectiv Vue.js | Fuldt framework |
 | Realtid | SSE (Server-Sent Events) | WebSockets, polling |
@@ -271,7 +271,7 @@ Default i frontend følger tabellen ovenfor (ex moms for analyse, incl for cashf
 - Ingen cloud-database (SQLite på lokal VPS)
 - Ingen email-tjeneste (IMAP/SMTP direkte mod Simply.com)
 - Ingen full-stack framework (ingen Next.js, Remix, osv.)
-- Ingen ORM (SQL skrives direkte med better-sqlite3)
+- Ingen ORM (SQL skrives direkte med `node:sqlite`)
 - Ingen Python-server som erstatning for Node.js-backenden
 
 ---

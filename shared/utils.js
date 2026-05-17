@@ -53,6 +53,26 @@ function formatDanishDate(dateStr) {
     return `${_DAYS[d.getDay()]} ${d.getDate()}. ${_MONTHS[d.getMonth()]}`;
 }
 
+/** 'YYYY-MM-DD' → 'Ons 20/5' (kompakt til bon-kort) */
+function formatShortDate(dateStr) {
+    const d = new Date(dateStr + 'T00:00:00');
+    return `${_DAYS[d.getDay()]} ${d.getDate()}/${d.getMonth() + 1}`;
+}
+
+/**
+ * 'YYYY-MM-DD' → 'I dag' | 'I morgen' | 'Ons 20/5'
+ * Returnerer relativ form for i dag og i morgen, ellers kompakt dato.
+ */
+function formatRelativeDate(dateStr) {
+    const d = new Date(dateStr + 'T00:00:00');
+    const today = new Date();
+    today.setHours(0, 0, 0, 0);
+    const diffDays = Math.round((d - today) / (1000 * 60 * 60 * 24));
+    if (diffDays === 0) return 'I dag';
+    if (diffDays === 1) return 'I morgen';
+    return formatShortDate(dateStr);
+}
+
 /** 'HH:MM' → 'HH:MM' (pass-through, men null-safe) */
 function formatTime(t) {
     return t || '';
@@ -270,7 +290,7 @@ function mapApiBonToCardData(apiBon) {
         text: n.message,
     }));
 
-    const unitLabel = 'ENHEDER';
+    const unitLabel = 'ENH';
 
     // Leveringstype
     const orderType = apiBon.customer_collects ? 'pickup'
@@ -284,6 +304,8 @@ function mapApiBonToCardData(apiBon) {
         pickup_time:    formatTime(apiBon.pickup_time),
         delivery_time:  formatTime(apiBon.delivery_time),
         date:           apiBon.delivery_date ? formatDanishDate(apiBon.delivery_date) : '',
+        date_short:     apiBon.delivery_date ? formatRelativeDate(apiBon.delivery_date) : '',
+        delivery_date_raw: apiBon.delivery_date || '',
         units:          apiBon.total_units || apiBon.pax || 0,
         unit_label:     unitLabel,
         pax:            apiBon.pax || 0,

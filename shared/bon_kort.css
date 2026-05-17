@@ -82,20 +82,74 @@
     100% { box-shadow: 0 1px 3px rgba(0,0,0,0.08), 0 4px 12px rgba(0,0,0,0.05); }
 }
 
-/* ── HEADER ────────────────────────────────────────────────── */
+/* ── HEADER (2-linjers kompakt layout) ─────────────────────── */
 .bon-header {
-    padding: 14px 16px 12px 22px;
-    display: flex; justify-content: space-between; align-items: flex-start;
+    padding: 10px 14px 8px 18px;
     border-bottom: 1px solid rgba(142,99,31,0.15);
 }
+.bon-header-row1 {
+    display: flex; align-items: baseline; justify-content: space-between;
+    margin-bottom: 4px;
+}
+.bon-id {
+    font-size: 20px; font-weight: 700; color: var(--brown);
+    letter-spacing: -0.5px; line-height: 1;
+    font-variant-numeric: tabular-nums;
+    display: inline-flex; align-items: baseline; gap: 4px;
+}
+.bon-units {
+    font-size: 26px; font-weight: 700; color: var(--black);
+    font-variant-numeric: tabular-nums; line-height: 1;
+    display: inline-flex; align-items: baseline; gap: 4px;
+}
+.bon-units-label {
+    font-size: 10px; font-weight: 700; color: var(--gray-dark);
+    text-transform: uppercase; letter-spacing: 0.5px;
+}
+.bon-header-row2 {
+    display: flex; align-items: baseline; gap: 6px;
+    font-size: 12px; color: var(--gray-dark);
+    font-weight: 600; flex-wrap: wrap;
+}
+.bon-pickup {
+    font-size: 24px; font-weight: 700; color: var(--black);
+    font-variant-numeric: tabular-nums; letter-spacing: -0.5px;
+    line-height: 1; margin-right: 2px;
+}
+.bon-lev-time {
+    color: var(--black); font-weight: 700;
+    font-variant-numeric: tabular-nums;
+}
+.bon-sep { opacity: 0.4; }
+.bon-mode {
+    background: var(--gray-light);
+    padding: 1px 6px; border-radius: 3px;
+    font-size: 11px;
+}
+.bon-flag {
+    font-size: 11px; font-weight: 700;
+    cursor: pointer;
+    color: var(--gray-dark);
+}
+.bon-flag.bon-flag-pending {
+    color: #c97a1a;
+    font-style: italic;
+}
+.bon-flag:hover { text-decoration: underline; }
+
+/* Legacy klasser bevares for bagudkompatibilitet (calendar-modal, bon-drawer, mobil) */
 .bon-header-left  { display: flex; flex-direction: column; gap: 2px; }
-.bon-id     { font-size: 26px; font-weight: 700; color: var(--brown); letter-spacing: -0.5px; line-height: 1; }
 .bon-time-row { display: flex; align-items: baseline; gap: 8px; margin-top: 4px; }
-.bon-pickup { font-size: 28px; font-weight: 700; color: var(--black); letter-spacing: -0.5px; }
 .bon-lev    { font-size: 14px; color: var(--gray-dark); }
 .bon-date   { font-size: 13px; color: var(--gray-dark); margin-top: 2px; }
+.bon-header-right {
+    text-align: right; display: flex; flex-direction: column; align-items: flex-end;
+}
+.unit-primary       { font-size: 38px; font-weight: 700; color: var(--brown); line-height: 1; }
+.unit-primary-label { font-size: 11px; color: var(--gray-dark); text-transform: uppercase; letter-spacing: 0.5px; }
+.unit-secondary     { font-size: 13px; color: var(--gray-dark); margin-top: 2px; }
 
-/* ── Leveringsindikator (under datolinjen) ────────────────── */
+/* ── Leveringsindikator (legacy — stadig brugt af mobil/drawer) ─── */
 .bon-delivery-indicator {
     margin-top: 3px;
     font-size: 13px;
@@ -111,12 +165,6 @@
     color: var(--gray-dark, #8a8580);
     font-style: italic;
 }
-.bon-header-right {
-    text-align: right; display: flex; flex-direction: column; align-items: flex-end;
-}
-.unit-primary       { font-size: 38px; font-weight: 700; color: var(--brown); line-height: 1; }
-.unit-primary-label { font-size: 11px; color: var(--gray-dark); text-transform: uppercase; letter-spacing: 0.5px; }
-.unit-secondary     { font-size: 13px; color: var(--gray-dark); margin-top: 2px; }
 
 /* ── STATUS-BAR ────────────────────────────────────────────── */
 .bon-status-bar {
@@ -210,6 +258,18 @@
 .bon-customer:hover { background: rgba(142,99,31,0.05); }
 .customer-name    { font-weight: 700; font-size: 15px; }
 .customer-address { font-size: 13px; color: var(--gray-dark); margin-top: 2px; }
+
+/* Today-context: adresse skjult by default, foldes ud via toggle */
+.bon-card.context-today .customer-address { display: none; }
+.bon-card.context-today.show-address .customer-address { display: block; }
+.bon-card.context-later .customer-toggle,
+.bon-card.context-office .customer-toggle { display: none; }
+.customer-toggle {
+    display: inline-block; margin-left: 6px;
+    font-size: 11px; color: var(--brown); cursor: pointer;
+    font-weight: 700; user-select: none;
+}
+.customer-toggle:hover { text-decoration: underline; }
 .customer-day-phone {
     font-size: 13px; color: var(--gray-dark); margin-top: 2px;
 }
@@ -294,8 +354,8 @@
 
 .bon-menu-item {
     display: flex; align-items: flex-start;
-    padding: 7px 16px 7px 22px;
-    font-size: 18px; cursor: default;
+    padding: 6px 14px 6px 18px;
+    font-size: 16px; cursor: default;
     transition: background 0.12s; user-select: none;
     font-family: 'Lato', sans-serif;
 }
@@ -305,14 +365,27 @@
 .bon-menu-item.drag-over { border-top: 2px solid var(--brown); }
 .bon-menu-qty  { font-weight: 700; color: var(--brown); min-width: 32px; flex-shrink: 0; text-align: right; }
 .bon-menu-name { flex: 1; font-style: italic; margin-left: 6px; }
-.bon-menu-special {
+.bon-menu-special,
+.bon-menu-note {
     display: block;
     font-style: italic; font-weight: 400; font-size: 12px;
     color: var(--color-text-dim, #8a8580);
     margin-top: 1px; padding-left: 4px;
 }
-.bon-menu-item.emballage .bon-menu-name { font-style: normal; color: var(--gray-dark); font-size: 15px; }
-.bon-menu-item.emballage .bon-menu-qty  { font-size: 15px; color: var(--gray-dark); }
+/* Pakke-linjer (emballage/tilbehør) — dæmpet og normal-style så maden står tydeligere.
+   .emballage er det historiske class-navn; .is-packaging er det nye fra redesign-specen. */
+.bon-menu-item.emballage,
+.bon-menu-item.is-packaging {
+    font-size: 14px; color: var(--gray-dark);
+}
+.bon-menu-item.emballage .bon-menu-name,
+.bon-menu-item.is-packaging .bon-menu-name {
+    font-style: normal; font-weight: 500; color: var(--gray-dark);
+}
+.bon-menu-item.emballage .bon-menu-qty,
+.bon-menu-item.is-packaging .bon-menu-qty {
+    font-size: 14px; color: var(--gray-dark);
+}
 .bon-menu-divider {
     height: 1px; background: var(--gray);
     margin: 8px 16px 8px 22px; opacity: 0.5;
@@ -466,6 +539,41 @@
     opacity: 0.4; transition: opacity 0.15s;
 }
 .kitchen-pill:hover .kitchen-pill-edit { opacity: 1; color: var(--brown); }
+
+/* Close-knap (×) på pill — marker køkkeninfo som læst (session-scope) */
+.kitchen-pill-close {
+    flex-shrink: 0;
+    width: 20px; height: 20px;
+    background: rgba(107, 90, 31, 0.1);
+    border: none; border-radius: 50%;
+    font-size: 13px; font-weight: 700; cursor: pointer;
+    color: #6b5a1f;
+    display: flex; align-items: center; justify-content: center;
+    line-height: 1; margin-left: 4px;
+    opacity: 0; transition: opacity 0.15s, background 0.15s;
+}
+.kitchen-pill:hover .kitchen-pill-close { opacity: 1; }
+.kitchen-pill-close:hover { background: rgba(107, 90, 31, 0.25); }
+
+/* Collapsed state: brugeren har "læst" noten — vises som lille badge */
+.kitchen-info-collapsed {
+    margin: 4px 16px 4px 22px;
+    padding: 4px 10px;
+    font-size: 12px; color: var(--gray-dark);
+    background: var(--gray-light);
+    border-radius: 5px;
+    cursor: pointer;
+    display: none;
+    align-items: center; gap: 6px;
+    font-weight: 600;
+    transition: background 0.15s;
+}
+.kitchen-info-collapsed:hover { background: #ebe9e3; }
+.kitchen-info-collapsed::before {
+    content: '✓'; color: var(--green-dark); font-weight: 700;
+}
+.bon-kitchen.read .kitchen-pill { display: none; }
+.bon-kitchen.read + .kitchen-info-collapsed { display: flex; }
 
 /* Tom: vis add-knap, skjul pill */
 .bon-kitchen.empty .kitchen-pill { display: none; }

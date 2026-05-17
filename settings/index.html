@@ -575,37 +575,44 @@
           Eksempel på bon-kort med den valgte tæthed. Hele settings-siden skifter også størrelse — det er bevidst, så du ser den fulde effekt.
         </p>
         <div id="density-preview-host">
-          <div class="bon-card" data-status="igang" style="display:flex;flex-direction:column;">
-            <div class="bon-header" style="display:flex;justify-content:space-between;gap:12px;">
-              <div>
+          <div class="bon-card context-later" data-status="igang">
+            <div class="bon-header">
+              <div class="bon-header-row1">
                 <div class="bon-id">#cafe-9999</div>
-                <div style="display:flex;align-items:baseline;gap:6px;margin-top:2px;">
-                  <span class="bon-pickup">10:00</span>
-                  <span class="bon-lev">→ Lev 10:00</span>
-                </div>
-                <div class="bon-date">Ti 19. maj · Afhentning</div>
+                <div class="bon-units">42<span class="bon-units-label">ENH</span></div>
               </div>
-              <div style="text-align:right;">
-                <div class="unit-primary">42</div>
-                <div class="unit-primary-label">Enheder</div>
+              <div class="bon-header-row2">
+                <span class="bon-pickup">10:00</span>
+                <span class="bon-lev-time">→ 10:45</span>
+                <span class="bon-sep">·</span>
+                <span class="bon-date-short">Ti 19/5</span>
+                <span class="bon-sep">·</span>
+                <span class="bon-mode">Levering</span>
+                <span class="bon-flag bon-flag-pending">📍 Ikke planlagt</span>
               </div>
             </div>
-            <div class="bon-customer" style="display:flex;flex-direction:column;">
-              <div class="customer-name">Eksempel Kunde A/S</div>
-              <div class="customer-address">Demovej 1, 2920 Charlottenlund</div>
+            <div class="bon-customer">
+              <div>
+                <div class="customer-name">Eksempel Kunde A/S</div>
+                <div class="customer-address">Demovej 1, 2920 Charlottenlund</div>
+              </div>
             </div>
-            <div class="bon-menu" style="padding:6px 12px 6px 18px;">
+            <div class="bon-menu">
               <div class="bon-menu-item">
                 <span class="bon-menu-qty">5</span>
                 <span class="bon-menu-name">Falaflen</span>
               </div>
               <div class="bon-menu-item">
                 <span class="bon-menu-qty">10</span>
-                <span class="bon-menu-name">"Tunen"</span>
+                <span class="bon-menu-name">"Tunen"<span class="bon-menu-note">2 skal være glutenfri</span></span>
               </div>
               <div class="bon-menu-item">
                 <span class="bon-menu-qty">8</span>
                 <span class="bon-menu-name">Frikadellen</span>
+              </div>
+              <div class="bon-menu-item is-packaging">
+                <span class="bon-menu-qty">23</span>
+                <span class="bon-menu-name">RR Boks (emballage)</span>
               </div>
             </div>
             <div class="bon-actions" style="display:flex;gap:6px;justify-content:flex-start;">

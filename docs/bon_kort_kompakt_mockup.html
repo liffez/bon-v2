@@ -1,0 +1,752 @@
+<!DOCTYPE html>
+<html lang="da">
+<head>
+<meta charset="UTF-8">
+<title>Bon-kort komprimering — mockup</title>
+<link href="https://fonts.googleapis.com/css2?family=Lato:wght@400;700&display=swap" rel="stylesheet">
+<style>
+/* ═══════════════════════════════════════════════
+   TOKENS — match Bon v2
+   ═══════════════════════════════════════════════ */
+:root {
+  --brand-primary: #8e631f;
+  --brand-primary-light: #f1e6b2;
+  --color-surface: #ffffff;
+  --color-background: #f5f4f2;
+  --color-border: #d7d1ca;
+  --color-text: #333333;
+  --color-text-dim: #8a8580;
+  --color-green: #a5bf75;
+  --color-green-dark: #7a9c54;
+  --color-orange: #e8a832;
+  --color-red: #bc181b;
+}
+
+* { margin: 0; padding: 0; box-sizing: border-box; }
+body {
+  font-family: 'Lato', sans-serif;
+  background: var(--color-background);
+  color: var(--color-text);
+}
+
+/* ═══════════════════════════════════════════════
+   CONTROL PANEL
+   ═══════════════════════════════════════════════ */
+.controls {
+  position: sticky; top: 0; z-index: 100;
+  background: white; border-bottom: 1px solid var(--color-border);
+  padding: 14px 24px;
+  display: flex; align-items: center; gap: 24px; flex-wrap: wrap;
+  box-shadow: 0 2px 4px rgba(0,0,0,0.04);
+}
+.ctrl-group { display: flex; align-items: center; gap: 8px; }
+.ctrl-label { font-size: 12px; font-weight: 700; color: var(--color-text-dim); text-transform: uppercase; letter-spacing: 0.5px; }
+.ctrl-btn {
+  padding: 6px 12px; border: 1px solid var(--color-border); background: white;
+  border-radius: 4px; font-family: inherit; font-size: 13px; cursor: pointer;
+  font-weight: 600; color: var(--color-text-dim);
+}
+.ctrl-btn.active { background: var(--brand-primary); color: white; border-color: var(--brand-primary); }
+.ctrl-btn:hover:not(.active) { background: var(--color-background); }
+
+.viewport-info {
+  margin-left: auto; font-size: 12px; color: var(--color-text-dim);
+  font-variant-numeric: tabular-nums;
+}
+
+/* ═══════════════════════════════════════════════
+   SECTION
+   ═══════════════════════════════════════════════ */
+.section-header {
+  padding: 16px 24px 8px;
+  font-size: 13px; font-weight: 700; color: var(--color-text-dim);
+  text-transform: uppercase; letter-spacing: 0.5px;
+}
+.date-section { padding: 0 24px 24px; }
+.date-header {
+  font-size: 15px; font-weight: 700; color: var(--color-text);
+  margin-bottom: 12px; padding-bottom: 6px;
+  border-bottom: 2px solid var(--color-border);
+  display: flex; align-items: baseline; gap: 10px;
+}
+.date-header-count { font-size: 12px; font-weight: 400; color: var(--color-text-dim); }
+
+.cards-grid { display: flex; flex-wrap: wrap; gap: 20px; align-items: flex-start; }
+
+/* ═══════════════════════════════════════════════
+   BON-KORT
+   ═══════════════════════════════════════════════ */
+.bon-card {
+  background: var(--color-surface);
+  border: 1px solid var(--color-border);
+  border-left: 6px solid var(--bon-color, var(--color-orange));
+  border-radius: 6px;
+  width: 320px;
+  font-size: 14px;
+}
+
+/* ── HEADER (komprimeret 2-linjers version) ── */
+.bon-header {
+  padding: 10px 14px 8px 18px;
+  border-bottom: 1px solid var(--color-border);
+}
+.bon-header-row1 {
+  display: flex; align-items: baseline; justify-content: space-between;
+  margin-bottom: 4px;
+}
+.bon-id {
+  font-size: 20px; font-weight: 700;
+  color: var(--brand-primary);
+  font-variant-numeric: tabular-nums;
+}
+.bon-units {
+  font-size: 26px; font-weight: 700;
+  color: var(--color-text);
+  font-variant-numeric: tabular-nums;
+  display: flex; align-items: baseline; gap: 4px;
+}
+.bon-units-label {
+  font-size: 10px; font-weight: 700;
+  color: var(--color-text-dim);
+  text-transform: uppercase; letter-spacing: 0.5px;
+}
+.bon-header-row2 {
+  display: flex; align-items: baseline; gap: 6px;
+  font-size: 12px; color: var(--color-text-dim);
+  font-weight: 600;
+  flex-wrap: wrap;
+}
+.bon-pickup {
+  font-size: 24px; font-weight: 700;
+  color: var(--color-text);
+  font-variant-numeric: tabular-nums;
+  letter-spacing: -0.5px;
+  line-height: 1;
+  margin-right: 2px;
+}
+.bon-lev-time {
+  color: var(--color-text); font-weight: 700;
+  font-variant-numeric: tabular-nums;
+}
+.bon-sep { opacity: 0.4; }
+.bon-mode {
+  background: var(--color-background);
+  padding: 1px 6px; border-radius: 3px;
+  font-size: 11px;
+}
+.bon-flag {
+  font-size: 11px;
+  color: var(--color-orange);
+  font-weight: 700;
+}
+
+/* ── PREP-ROW ── */
+.bon-prep {
+  padding: 8px 14px; display: flex; gap: 8px;
+  border-bottom: 1px solid var(--color-border);
+}
+.prep-badge {
+  flex: 1; padding: 5px 10px;
+  border: 1.5px solid var(--color-border); border-radius: 5px;
+  background: white; font-size: 12px; font-weight: 700;
+  color: var(--color-text-dim);
+  display: flex; align-items: center; gap: 6px;
+  cursor: pointer; user-select: none;
+}
+.prep-badge.checked {
+  background: var(--color-green); border-color: var(--color-green-dark);
+  color: white;
+}
+.prep-checkbox {
+  width: 14px; height: 14px; border: 1.5px solid currentColor;
+  border-radius: 3px; display: inline-flex; align-items: center; justify-content: center;
+  font-size: 11px;
+}
+
+/* ── KUNDE ── */
+.bon-customer {
+  padding: 8px 14px;
+  border-bottom: 1px solid var(--color-border);
+  font-size: 13px;
+}
+.customer-name { font-weight: 600; color: var(--color-text); }
+.customer-address {
+  font-size: 12px; color: var(--color-text-dim); margin-top: 2px;
+}
+.customer-toggle {
+  display: inline-block; margin-left: 4px;
+  font-size: 11px; color: var(--brand-primary); cursor: pointer;
+  font-weight: 700;
+}
+/* I today-context skjules adressen by default */
+.bon-card.context-today .customer-address { display: none; }
+.bon-card.context-today.show-address .customer-address { display: block; }
+.bon-card.context-later .customer-toggle { display: none; }
+
+/* ── KITCHEN-INFO NOTE ── */
+.kitchen-info-note {
+  margin: 8px 14px 0;
+  background: #faf5e1;
+  border: 1px solid #e8dca5;
+  border-radius: 4px;
+  padding: 8px 28px 8px 10px;
+  font-size: 12px;
+  line-height: 1.4;
+  color: #6b5a1f;
+  position: relative;
+}
+.kitchen-info-close {
+  position: absolute;
+  top: 4px; right: 4px;
+  width: 22px; height: 22px;
+  background: rgba(107, 90, 31, 0.1);
+  border: none; border-radius: 50%;
+  font-size: 14px; font-weight: 700;
+  color: #6b5a1f; cursor: pointer;
+  display: flex; align-items: center; justify-content: center;
+  line-height: 1;
+}
+.kitchen-info-close:hover { background: rgba(107, 90, 31, 0.2); }
+.kitchen-info-collapsed {
+  margin: 8px 14px 0;
+  padding: 4px 10px;
+  font-size: 12px; color: var(--color-text-dim);
+  background: var(--color-background);
+  border-radius: 4px;
+  cursor: pointer;
+  display: flex; align-items: center; gap: 6px;
+  font-weight: 600;
+}
+.kitchen-info-collapsed::before {
+  content: '✓'; color: var(--color-green-dark); font-weight: 700;
+}
+.kitchen-info-collapsed:hover { background: #ebe9e3; }
+
+/* ── LINJER ── */
+.bon-menu { padding: 6px 0; }
+.bon-menu-item {
+  padding: 5px 14px 5px 18px;
+  display: flex; align-items: baseline; gap: 10px;
+  font-size: 16px;
+}
+.bon-menu-qty {
+  font-weight: 700; min-width: 30px; text-align: right;
+  font-variant-numeric: tabular-nums;
+}
+.bon-menu-name { font-style: italic; font-weight: 600; }
+.bon-menu-note {
+  display: block;
+  font-size: 11px; color: var(--color-text-dim);
+  font-weight: 400; font-style: normal;
+  margin-top: 1px;
+}
+
+/* Pakke-linjer (let visuelt adskilt) */
+.bon-menu-item.is-packaging .bon-menu-name { font-style: normal; font-weight: 500; }
+.bon-menu-item.is-packaging { color: var(--color-text-dim); font-size: 14px; }
+
+/* ── ACTION BAR ── */
+.bon-actions {
+  display: flex; gap: 6px; padding: 8px 14px;
+  border-top: 1px solid var(--color-border);
+  background: var(--color-background);
+  border-radius: 0 0 6px 6px;
+}
+.action-btn {
+  width: 30px; height: 30px;
+  border: 1px solid var(--color-border);
+  background: white; border-radius: 4px;
+  display: flex; align-items: center; justify-content: center;
+  font-size: 13px; cursor: pointer;
+  color: var(--color-text-dim);
+}
+.action-btn:hover { background: var(--brand-primary-light); color: var(--brand-primary); }
+
+/* ═══════════════════════════════════════════════
+   DENSITY MODES — chrome krymper, menu-linjer forbliver store
+   ═══════════════════════════════════════════════ */
+.demo-wrapper.density-compact .bon-card { width: 300px; }
+.demo-wrapper.density-compact .bon-id { font-size: 18px; }
+.demo-wrapper.density-compact .bon-units { font-size: 22px; }
+.demo-wrapper.density-compact .bon-pickup { font-size: 22px; }
+.demo-wrapper.density-compact .bon-header-row2 { font-size: 11px; }
+/* menu-linjer: BEHOLDER comfort-størrelse — det er det kokken læser */
+.demo-wrapper.density-compact .action-btn { width: 28px; height: 28px; font-size: 12px; }
+
+.demo-wrapper.density-dense .bon-card { width: 280px; }
+.demo-wrapper.density-dense .bon-id { font-size: 16px; }
+.demo-wrapper.density-dense .bon-units { font-size: 20px; }
+.demo-wrapper.density-dense .bon-pickup { font-size: 20px; }
+.demo-wrapper.density-dense .bon-header { padding: 8px 12px 6px 14px; }
+.demo-wrapper.density-dense .bon-prep { padding: 6px 12px; }
+.demo-wrapper.density-dense .bon-customer { padding: 6px 12px; font-size: 12px; }
+.demo-wrapper.density-dense .kitchen-info-note { margin: 6px 12px 0; padding: 6px 24px 6px 8px; font-size: 11px; }
+/* I tæt-mode må linjer godt krympe lidt — men ikke meget */
+.demo-wrapper.density-dense .bon-menu-item { font-size: 14px; padding: 3px 12px 3px 14px; }
+.demo-wrapper.density-dense .bon-menu-item.is-packaging { font-size: 12px; }
+.demo-wrapper.density-dense .action-btn { width: 26px; height: 26px; font-size: 11px; }
+
+/* ═══════════════════════════════════════════════
+   COMPARISON MODE
+   ═══════════════════════════════════════════════ */
+.demo-wrapper.show-original .bon-card-new { display: none; }
+.demo-wrapper:not(.show-original) .bon-card-original { display: none; }
+
+/* Original (gammel layout) styling — kun til sammenligning */
+.bon-card-original .bon-header { padding: 16px 18px 14px; }
+.bon-card-original .bon-header-row1 { margin-bottom: 8px; }
+.bon-card-original .bon-id { font-size: 24px; }
+.bon-card-original .bon-units { font-size: 32px; }
+.bon-card-original .bon-header-time {
+  font-size: 24px; font-weight: 700; color: var(--color-text);
+  font-variant-numeric: tabular-nums; margin-bottom: 2px;
+}
+.bon-card-original .bon-header-lev {
+  font-size: 15px; color: var(--color-text-dim); margin-bottom: 4px;
+}
+.bon-card-original .bon-header-date {
+  font-size: 13px; color: var(--color-text-dim); margin-bottom: 4px;
+}
+.bon-card-original .bon-header-flag {
+  font-size: 13px; color: var(--color-orange); font-weight: 600;
+}
+.bon-card-original .bon-customer { padding: 12px 18px; }
+.bon-card-original .customer-name { font-size: 14px; }
+.bon-card-original .customer-address { font-size: 13px; margin-top: 4px; }
+.bon-card-original .bon-menu-item { font-size: 16px; padding: 6px 16px 6px 18px; }
+
+/* ═══════════════════════════════════════════════
+   ANNOTATION TOGGLE
+   ═══════════════════════════════════════════════ */
+.demo-wrapper.show-annotations .bon-card {
+  position: relative;
+}
+.annotation {
+  display: none;
+  position: absolute; right: -180px; top: 0;
+  width: 160px; font-size: 11px;
+  background: #fffbeb; border: 1px dashed var(--color-orange);
+  padding: 4px 8px; border-radius: 4px;
+  color: #6b5a1f; line-height: 1.3;
+}
+.demo-wrapper.show-annotations .annotation { display: block; }
+.annotation.a-header { top: 8px; }
+.annotation.a-prep { top: 80px; }
+.annotation.a-customer { top: 140px; }
+.annotation.a-kinfo { top: 200px; }
+
+/* Measurement overlay */
+.measurement {
+  display: none;
+  position: absolute; left: -40px; top: 0;
+  width: 30px; text-align: right;
+  font-size: 10px; color: var(--brand-primary);
+  font-weight: 700; font-variant-numeric: tabular-nums;
+}
+.demo-wrapper.show-measurements .measurement { display: block; }
+.demo-wrapper.show-measurements .bon-card { position: relative; margin-left: 50px; }
+</style>
+</head>
+<body>
+
+<div class="controls">
+  <div class="ctrl-group">
+    <span class="ctrl-label">Tæthed</span>
+    <button class="ctrl-btn" data-density="comfort">Komfort</button>
+    <button class="ctrl-btn active" data-density="compact">Kompakt</button>
+    <button class="ctrl-btn" data-density="dense">Tæt</button>
+  </div>
+  <div class="ctrl-group">
+    <span class="ctrl-label">Layout</span>
+    <button class="ctrl-btn active" data-layout="new">Foreslået</button>
+    <button class="ctrl-btn" data-layout="original">Nuværende</button>
+  </div>
+  <div class="ctrl-group">
+    <span class="ctrl-label">Hjælpere</span>
+    <button class="ctrl-btn" id="toggleAnnotations">Forklaringer</button>
+  </div>
+  <div class="viewport-info">
+    Viewport: <span id="vpSize"></span>
+  </div>
+</div>
+
+<div class="demo-wrapper density-compact" id="demo">
+
+<div class="section-header">Senere — 3 eksempler fra screenshot</div>
+
+<div class="date-section">
+  <div class="date-header">
+    <span>Onsdag 20. maj 2026</span>
+    <span class="date-header-count">3 bons</span>
+  </div>
+
+  <div class="cards-grid">
+
+    <!-- ════════════ BON 3467 (lang bon med kitchen-info) ════════════ -->
+
+    <!-- FORESLÅET -->
+    <div class="bon-card bon-card-new context-later" style="--bon-color: var(--color-orange);">
+      <div class="bon-header">
+        <div class="bon-header-row1">
+          <div class="bon-id">#cafe-3467</div>
+          <div class="bon-units">35<span class="bon-units-label">ENH</span></div>
+        </div>
+        <div class="bon-header-row2">
+          <span class="bon-pickup">10:45</span>
+          <span class="bon-lev-time">→ 11:30</span>
+          <span class="bon-sep">·</span>
+          <span>Ons 20/5</span>
+          <span class="bon-sep">·</span>
+          <span class="bon-mode">Levering</span>
+          <span class="bon-flag">🌷 Ikke planlagt</span>
+        </div>
+      </div>
+
+      <div class="bon-prep">
+        <div class="prep-badge"><span class="prep-checkbox"></span>Råvarer</div>
+        <div class="prep-badge checked"><span class="prep-checkbox">✓</span>Emballage</div>
+      </div>
+
+      <div class="bon-customer">
+        <div class="customer-name">Chantal van der Wulp · NL Embassy Copenhagen</div>
+        <div class="customer-address">Toldbodgade 33, 2, 1253 København</div>
+      </div>
+
+      <div class="kitchen-info-note" data-state="open">
+        <button class="kitchen-info-close" title="Marker som læst">×</button>
+        5x Kartoflen 5x Italieneren 5x Aegget 5x Falaflen 5x Trøflen – vegan version please 5x Tunen 5x Aeggesalat
+      </div>
+
+      <div class="bon-menu">
+        <div class="bon-menu-item"><span class="bon-menu-qty">5</span><span class="bon-menu-name">Falaflen</span></div>
+        <div class="bon-menu-item"><span class="bon-menu-qty">5</span><span class="bon-menu-name">"Tunen"</span></div>
+        <div class="bon-menu-item"><span class="bon-menu-qty">5</span><span class="bon-menu-name">Italieneren</span></div>
+        <div class="bon-menu-item">
+          <span class="bon-menu-qty">5</span>
+          <span class="bon-menu-name">Kartoflen
+            <span class="bon-menu-note">2 skal være Glutenfri</span>
+          </span>
+        </div>
+        <div class="bon-menu-item">
+          <span class="bon-menu-qty">5</span>
+          <span class="bon-menu-name">Trøflen
+            <span class="bon-menu-note">Vegansk</span>
+          </span>
+        </div>
+        <div class="bon-menu-item"><span class="bon-menu-qty">5</span><span class="bon-menu-name">Æggesalaten</span></div>
+        <div class="bon-menu-item"><span class="bon-menu-qty">5</span><span class="bon-menu-name">Ægget</span></div>
+        <div class="bon-menu-item"><span class="bon-menu-qty">2</span><span class="bon-menu-name">Glutenfri Bolle</span></div>
+        <div class="bon-menu-item is-packaging"><span class="bon-menu-qty">35</span><span class="bon-menu-name">RR Boks (emballage)</span></div>
+        <div class="bon-menu-item is-packaging"><span class="bon-menu-qty">3</span><span class="bon-menu-name">Transportkasse (emballage)</span></div>
+      </div>
+
+      <div class="bon-actions">
+        <button class="action-btn">+</button>
+        <button class="action-btn">👁</button>
+        <button class="action-btn">✈</button>
+        <button class="action-btn">✉</button>
+        <button class="action-btn">📦</button>
+        <button class="action-btn">📍</button>
+        <button class="action-btn">⏱</button>
+      </div>
+    </div>
+
+    <!-- NUVÆRENDE (til sammenligning) -->
+    <div class="bon-card bon-card-original context-later" style="--bon-color: var(--color-orange);">
+      <div class="bon-header">
+        <div class="bon-header-row1">
+          <div>
+            <div class="bon-id">#cafe-3467</div>
+            <div class="bon-header-time">10:45</div>
+            <div class="bon-header-lev">→ Lev 11:30</div>
+            <div class="bon-header-date">Ons 20. maj · Levering</div>
+            <div class="bon-header-flag">🌷 Ikke planlagt endnu</div>
+          </div>
+          <div class="bon-units">35<span class="bon-units-label">ENHEDER</span></div>
+        </div>
+      </div>
+      <div class="bon-prep">
+        <div class="prep-badge"><span class="prep-checkbox"></span>Råvarer</div>
+        <div class="prep-badge checked"><span class="prep-checkbox">✓</span>Emballage</div>
+      </div>
+      <div class="bon-customer">
+        <div class="customer-name">Chantal van der Wulp · NL Embassy Copenhagen</div>
+        <div class="customer-address">Toldbodgade 33, 2, 1253 København</div>
+      </div>
+      <div class="kitchen-info-note">
+        5x Kartoflen 5x Italieneren 5x Aegget 5x Falaflen 5x Trøflen – vegan version please 5x Tunen 5x Aeggesalat
+      </div>
+      <div class="bon-menu">
+        <div class="bon-menu-item"><span class="bon-menu-qty">5</span><span class="bon-menu-name">Falaflen</span></div>
+        <div class="bon-menu-item"><span class="bon-menu-qty">5</span><span class="bon-menu-name">"Tunen"</span></div>
+        <div class="bon-menu-item"><span class="bon-menu-qty">5</span><span class="bon-menu-name">Italieneren</span></div>
+        <div class="bon-menu-item"><span class="bon-menu-qty">5</span><span class="bon-menu-name">Kartoflen<span class="bon-menu-note">2 skal være Glutenfri</span></span></div>
+        <div class="bon-menu-item"><span class="bon-menu-qty">5</span><span class="bon-menu-name">Trøflen<span class="bon-menu-note">Vegansk</span></span></div>
+        <div class="bon-menu-item"><span class="bon-menu-qty">5</span><span class="bon-menu-name">Æggesalaten</span></div>
+        <div class="bon-menu-item"><span class="bon-menu-qty">5</span><span class="bon-menu-name">Ægget</span></div>
+        <div class="bon-menu-item"><span class="bon-menu-qty">2</span><span class="bon-menu-name">Glutenfri Bolle</span></div>
+        <div class="bon-menu-item is-packaging"><span class="bon-menu-qty">35</span><span class="bon-menu-name">RR Boks (emballage)</span></div>
+        <div class="bon-menu-item is-packaging"><span class="bon-menu-qty">3</span><span class="bon-menu-name">Transportkasse (emballage)</span></div>
+      </div>
+      <div class="bon-actions">
+        <button class="action-btn">+</button>
+        <button class="action-btn">👁</button>
+        <button class="action-btn">✈</button>
+      </div>
+    </div>
+
+    <!-- ════════════ BON 3486 (kortere) ════════════ -->
+
+    <div class="bon-card bon-card-new context-later" style="--bon-color: var(--color-orange);">
+      <div class="bon-header">
+        <div class="bon-header-row1">
+          <div class="bon-id">#cafe-3486</div>
+          <div class="bon-units">21<span class="bon-units-label">ENH</span></div>
+        </div>
+        <div class="bon-header-row2">
+          <span class="bon-pickup">12:45</span>
+          <span class="bon-lev-time">→ 13:30</span>
+          <span class="bon-sep">·</span>
+          <span>Ons 20/5</span>
+          <span class="bon-sep">·</span>
+          <span class="bon-mode">Levering</span>
+          <span class="bon-flag">🌷 Ikke planlagt</span>
+        </div>
+      </div>
+      <div class="bon-prep">
+        <div class="prep-badge"><span class="prep-checkbox"></span>Råvarer</div>
+        <div class="prep-badge checked"><span class="prep-checkbox">✓</span>Emballage</div>
+      </div>
+      <div class="bon-customer">
+        <div class="customer-name">Kristina Andersen · Naturens Retshjælp</div>
+        <div class="customer-address">Granatvej 5, 2770 Kastrup</div>
+      </div>
+      <div class="kitchen-info-collapsed" title="Klik for at åbne">+ Køkkeninfo (læst)</div>
+      <div class="bon-menu">
+        <div class="bon-menu-item"><span class="bon-menu-qty">5</span><span class="bon-menu-name">Falaflen</span></div>
+        <div class="bon-menu-item"><span class="bon-menu-qty">4</span><span class="bon-menu-name">"Tunen"</span></div>
+        <div class="bon-menu-item"><span class="bon-menu-qty">4</span><span class="bon-menu-name">Italieneren</span></div>
+        <div class="bon-menu-item"><span class="bon-menu-qty">4</span><span class="bon-menu-name">Kartoflen</span></div>
+        <div class="bon-menu-item"><span class="bon-menu-qty">4</span><span class="bon-menu-name">Æggesalaten</span></div>
+        <div class="bon-menu-item is-packaging"><span class="bon-menu-qty">21</span><span class="bon-menu-name">RR Boks (emballage)</span></div>
+        <div class="bon-menu-item is-packaging"><span class="bon-menu-qty">2</span><span class="bon-menu-name">Transportkasse (emballage)</span></div>
+      </div>
+      <div class="bon-actions">
+        <button class="action-btn">+</button>
+        <button class="action-btn">👁</button>
+        <button class="action-btn">✈</button>
+        <button class="action-btn">✉</button>
+        <button class="action-btn">📦</button>
+        <button class="action-btn">📍</button>
+        <button class="action-btn">⏱</button>
+      </div>
+    </div>
+
+    <!-- Original 3486 -->
+    <div class="bon-card bon-card-original context-later" style="--bon-color: var(--color-orange);">
+      <div class="bon-header">
+        <div class="bon-header-row1">
+          <div>
+            <div class="bon-id">#cafe-3486</div>
+            <div class="bon-header-time">12:45</div>
+            <div class="bon-header-lev">→ Lev 13:30</div>
+            <div class="bon-header-date">Ons 20. maj · Levering</div>
+            <div class="bon-header-flag">🌷 Ikke planlagt endnu</div>
+          </div>
+          <div class="bon-units">21<span class="bon-units-label">ENHEDER</span></div>
+        </div>
+      </div>
+      <div class="bon-prep">
+        <div class="prep-badge"><span class="prep-checkbox"></span>Råvarer</div>
+        <div class="prep-badge checked"><span class="prep-checkbox">✓</span>Emballage</div>
+      </div>
+      <div class="bon-customer">
+        <div class="customer-name">Kristina Andersen · Naturens Retshjælp</div>
+        <div class="customer-address">Granatvej 5, 2770 Kastrup</div>
+      </div>
+      <div class="bon-menu">
+        <div class="bon-menu-item"><span class="bon-menu-qty">5</span><span class="bon-menu-name">Falaflen</span></div>
+        <div class="bon-menu-item"><span class="bon-menu-qty">4</span><span class="bon-menu-name">"Tunen"</span></div>
+        <div class="bon-menu-item"><span class="bon-menu-qty">4</span><span class="bon-menu-name">Italieneren</span></div>
+        <div class="bon-menu-item"><span class="bon-menu-qty">4</span><span class="bon-menu-name">Kartoflen</span></div>
+        <div class="bon-menu-item"><span class="bon-menu-qty">4</span><span class="bon-menu-name">Æggesalaten</span></div>
+        <div class="bon-menu-item is-packaging"><span class="bon-menu-qty">21</span><span class="bon-menu-name">RR Boks (emballage)</span></div>
+        <div class="bon-menu-item is-packaging"><span class="bon-menu-qty">2</span><span class="bon-menu-name">Transportkasse (emballage)</span></div>
+      </div>
+      <div class="bon-actions">
+        <button class="action-btn">+</button>
+        <button class="action-btn">👁</button>
+        <button class="action-btn">✈</button>
+      </div>
+    </div>
+
+    <!-- ════════════ BON 3472 (kort, demo af today-context) ════════════ -->
+
+    <div class="bon-card bon-card-new context-today" style="--bon-color: var(--color-orange);">
+      <div class="bon-header">
+        <div class="bon-header-row1">
+          <div class="bon-id">#cafe-3472</div>
+          <div class="bon-units">11<span class="bon-units-label">ENH</span></div>
+        </div>
+        <div class="bon-header-row2">
+          <span class="bon-pickup">13:14</span>
+          <span class="bon-lev-time">→ 13:50</span>
+          <span class="bon-sep">·</span>
+          <span>I dag</span>
+          <span class="bon-sep">·</span>
+          <span class="bon-mode">Levering</span>
+        </div>
+      </div>
+      <div class="bon-prep">
+        <div class="prep-badge"><span class="prep-checkbox"></span>Råvarer</div>
+        <div class="prep-badge checked"><span class="prep-checkbox">✓</span>Emballage</div>
+      </div>
+      <div class="bon-customer">
+        <div class="customer-name">Carl-Emil Thiesen · Stromma Danmark A/S
+          <span class="customer-toggle" onclick="this.parentElement.parentElement.classList.toggle('show-address')">▾ adresse</span>
+        </div>
+        <div class="customer-address">Refshalevej 330, 1432 København</div>
+      </div>
+      <div class="bon-menu">
+        <div class="bon-menu-item"><span class="bon-menu-qty">11</span><span class="bon-menu-name">Kyllingen</span></div>
+        <div class="bon-menu-item is-packaging"><span class="bon-menu-qty">11</span><span class="bon-menu-name">RR Boks (emballage)</span></div>
+        <div class="bon-menu-item is-packaging"><span class="bon-menu-qty">1</span><span class="bon-menu-name">Transportkasse (emballage)</span></div>
+      </div>
+      <div class="bon-actions">
+        <button class="action-btn">+</button>
+        <button class="action-btn">👁</button>
+        <button class="action-btn">✈</button>
+        <button class="action-btn">✉</button>
+        <button class="action-btn">📦</button>
+        <button class="action-btn">📍</button>
+        <button class="action-btn">⏱</button>
+      </div>
+    </div>
+
+    <!-- Original 3472 -->
+    <div class="bon-card bon-card-original context-today" style="--bon-color: var(--color-orange);">
+      <div class="bon-header">
+        <div class="bon-header-row1">
+          <div>
+            <div class="bon-id">#cafe-3472</div>
+            <div class="bon-header-time">13:14</div>
+            <div class="bon-header-lev">→ Lev 13:50</div>
+            <div class="bon-header-date">I dag · Levering</div>
+          </div>
+          <div class="bon-units">11<span class="bon-units-label">ENHEDER</span></div>
+        </div>
+      </div>
+      <div class="bon-prep">
+        <div class="prep-badge"><span class="prep-checkbox"></span>Råvarer</div>
+        <div class="prep-badge checked"><span class="prep-checkbox">✓</span>Emballage</div>
+      </div>
+      <div class="bon-customer">
+        <div class="customer-name">Carl-Emil Thiesen · Stromma Danmark A/S</div>
+        <div class="customer-address">Refshalevej 330, 1432 København</div>
+      </div>
+      <div class="bon-menu">
+        <div class="bon-menu-item"><span class="bon-menu-qty">11</span><span class="bon-menu-name">Kyllingen</span></div>
+        <div class="bon-menu-item is-packaging"><span class="bon-menu-qty">11</span><span class="bon-menu-name">RR Boks (emballage)</span></div>
+        <div class="bon-menu-item is-packaging"><span class="bon-menu-qty">1</span><span class="bon-menu-name">Transportkasse (emballage)</span></div>
+      </div>
+      <div class="bon-actions">
+        <button class="action-btn">+</button>
+        <button class="action-btn">👁</button>
+        <button class="action-btn">✈</button>
+      </div>
+    </div>
+
+  </div>
+</div>
+
+</div>
+
+<div style="padding: 24px; background: white; border-top: 1px solid var(--color-border); font-size: 13px; line-height: 1.6; color: var(--color-text-dim);">
+<strong style="color: var(--color-text);">Designprincippet i denne version:</strong>
+<p style="margin: 6px 0;"><strong>Chrome krymper, menu-linjer forbliver store.</strong> Header, kunde og prep skifter størrelse med density-mode, men menu-linjerne (16px) holdes konstant fordi de er det kokken faktisk læser linje for linje. Pickup-tid forbliver tydeligt fremhævet uanset mode.</p>
+
+<strong style="color: var(--color-text);">Hvad er hvor stort:</strong>
+<table style="margin: 8px 0; font-size: 12px; border-collapse: collapse;">
+  <tr><th style="text-align: left; padding: 4px 12px 4px 0;">Element</th>
+      <th style="padding: 4px 12px;">Komfort</th>
+      <th style="padding: 4px 12px;">Kompakt</th>
+      <th style="padding: 4px 12px;">Tæt</th></tr>
+  <tr><td style="padding: 2px 12px 2px 0;">Pickup-tid</td><td style="padding: 2px 12px;">24px</td><td style="padding: 2px 12px;">22px</td><td style="padding: 2px 12px;">20px</td></tr>
+  <tr><td style="padding: 2px 12px 2px 0;">Bon-id</td><td style="padding: 2px 12px;">20px</td><td style="padding: 2px 12px;">18px</td><td style="padding: 2px 12px;">16px</td></tr>
+  <tr><td style="padding: 2px 12px 2px 0;">Enheder-tal</td><td style="padding: 2px 12px;">26px</td><td style="padding: 2px 12px;">22px</td><td style="padding: 2px 12px;">20px</td></tr>
+  <tr style="background: #fffbeb;"><td style="padding: 2px 12px 2px 0;"><strong>Menu-linjer</strong></td><td style="padding: 2px 12px;"><strong>16px</strong></td><td style="padding: 2px 12px;"><strong>16px</strong></td><td style="padding: 2px 12px;">14px</td></tr>
+  <tr style="background: #fffbeb;"><td style="padding: 2px 12px 2px 0;">Pakke-linjer</td><td style="padding: 2px 12px;">14px</td><td style="padding: 2px 12px;">14px</td><td style="padding: 2px 12px;">12px</td></tr>
+</table>
+
+<strong style="color: var(--color-text);">De øvrige greb:</strong>
+<ul style="margin: 8px 0 0 24px;">
+  <li>Header til 2 linjer i stedet for 5</li>
+  <li>Kitchen-info åben default med × i hjørnet (se #3467). Klik = kollapser til "+ Køkkeninfo (læst)" (se #3486)</li>
+  <li>Kunde-row kontekst-afhængig: I "I dag" skjules adresse (klik "▾ adresse" for at åbne — se #3472)</li>
+  <li>Pakke-linjer i grå så maden står tydeligere</li>
+</ul>
+</div>
+
+<script>
+const demo = document.getElementById('demo');
+
+// Density buttons
+document.querySelectorAll('[data-density]').forEach(btn => {
+  btn.addEventListener('click', () => {
+    document.querySelectorAll('[data-density]').forEach(b => b.classList.remove('active'));
+    btn.classList.add('active');
+    demo.classList.remove('density-comfort', 'density-compact', 'density-dense');
+    demo.classList.add('density-' + btn.dataset.density);
+  });
+});
+
+// Layout buttons
+document.querySelectorAll('[data-layout]').forEach(btn => {
+  btn.addEventListener('click', () => {
+    document.querySelectorAll('[data-layout]').forEach(b => b.classList.remove('active'));
+    btn.classList.add('active');
+    if (btn.dataset.layout === 'original') demo.classList.add('show-original');
+    else demo.classList.remove('show-original');
+  });
+});
+
+// Kitchen-info close
+document.querySelectorAll('.kitchen-info-close').forEach(btn => {
+  btn.addEventListener('click', e => {
+    const note = e.target.closest('.kitchen-info-note');
+    const collapsed = document.createElement('div');
+    collapsed.className = 'kitchen-info-collapsed';
+    collapsed.title = 'Klik for at åbne';
+    collapsed.textContent = '+ Køkkeninfo (læst)';
+    collapsed.addEventListener('click', () => collapsed.replaceWith(note));
+    note.replaceWith(collapsed);
+  });
+});
+
+// Collapsed kitchen-info → open
+document.querySelectorAll('.kitchen-info-collapsed').forEach(div => {
+  div.addEventListener('click', () => {
+    const note = document.createElement('div');
+    note.className = 'kitchen-info-note';
+    note.innerHTML = '<button class="kitchen-info-close" title="Marker som læst">×</button>Eksempel-køkkeninfo: skal være glutenfri, husk allergi-mærkning.';
+    note.querySelector('.kitchen-info-close').addEventListener('click', () => {
+      const c = document.createElement('div');
+      c.className = 'kitchen-info-collapsed';
+      c.textContent = '+ Køkkeninfo (læst)';
+      c.addEventListener('click', () => c.replaceWith(note));
+      note.replaceWith(c);
+    });
+    div.replaceWith(note);
+  });
+});
+
+// Viewport size indicator
+function updateVp() {
+  document.getElementById('vpSize').textContent = window.innerWidth + ' × ' + window.innerHeight + ' px';
+}
+updateVp();
+window.addEventListener('resize', updateVp);
+</script>
+
+</body>
+</html>

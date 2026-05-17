@@ -136,8 +136,13 @@ function createCard(bonData, viewName) {
     const viewMods  = VIEW_MODULES[viewName] || VIEW_MODULES['all'];
     const mods      = Object.assign({}, viewMods, bonData.modules || {});
 
+    // Kontekst-klasse styrer bl.a. customer-adresse synlighed
+    let contextClass = 'context-office';
+    if (viewName === 'kitchen-today') contextClass = 'context-today';
+    else if (viewName === 'kitchen-later') contextClass = 'context-later';
+
     const el = document.createElement('div');
-    el.className   = 'bon-card';
+    el.className   = 'bon-card ' + contextClass;
     el.id          = cardId;
     el.dataset.status        = bonData.status;
     el.dataset.payment       = bonData.payment || 'faktura';
@@ -149,8 +154,9 @@ function createCard(bonData, viewName) {
     // ── HEADER ──────────────────────────────────────────────────
     const orderTypeLabel = bonData.order_type === 'pickup' ? 'Afhentning' :
                            bonData.order_type === 'event'  ? 'Event'      : 'Levering';
-    const levStr = bonData.delivery_time ? ` → Lev ${bonData.delivery_time}` : '';
     const paxStr = (bonData.pax && !bonData.units_from_pax) ? `${bonData.pax} pax` : '';
+    const dateLabel = bonData.date_short || bonData.date || '';
+    const deliveryFlagHtml = mods.deliveryBlock ? _buildDeliveryFlag(bonData, cardId) : '';
 
     // Fortryd: overlay for kitchen-today, generisk bar for andre views
     const isKitchenToday = viewName === 'kitchen-today';
@@ -165,34 +171,36 @@ function createCard(bonData, viewName) {
 
     // Kunde (delivery-line vises separat i bunden af kortet)
     const customerHtml = mods.customer && bonData.customer
-        ? _buildCustomer(bonData.customer, num, null)
+        ? _buildCustomer(bonData.customer, num, null, contextClass)
         : '';
-
-    // Leveringsindikator (én linje under datolinjen) — vehicle eller "ikke planlagt"
-    const deliveryIndicatorHtml = mods.deliveryBlock ? _buildDeliveryIndicator(bonData, num, cardId) : '';
 
     // Delivery-line i bunden — kun delivery_notes (etage, port, kode)
     const deliveryNotesHtml = (mods.deliveryBlock && bonData.delivery_notes)
         ? `<div class="delivery-line">${(typeof esc === 'function' ? esc : (s) => s)(bonData.delivery_notes)}</div>`
         : '';
 
+    const prodBadge  = bonData.price_category === 'produktion' ? ' <span class="bon-prod-badge" title="Produktionsbon">🔧</span>' : '';
+    const mailBadge  = bonData.unread_mail_count ? ' <span class="bon-mail-badge" title="' + bonData.unread_mail_count + ' ulæst mail">' + mailIcon(14) + '</span>' : '';
+    const levTimeHtml = bonData.delivery_time ? `<span class="bon-lev-time">→ ${bonData.delivery_time}</span>` : '';
+    const paxBadge = paxStr ? `<span class="bon-sep">·</span><span class="bon-pax">${paxStr}</span>` : '';
+
     el.innerHTML = `
         ${fortrydHtml}
 
         <div class="bon-header">
-            <div class="bon-header-left">
-                <div class="bon-id">#${bonData.bon_number || id}${bonData.price_category === 'produktion' ? ' <span class="bon-prod-badge" title="Produktionsbon">🔧</span>' : ''}${bonData.unread_mail_count ? ' <span class="bon-mail-badge" title="' + bonData.unread_mail_count + ' ulæst mail">' + mailIcon(14) + '</span>' : ''}</div>
-                <div class="bon-time-row">
-                    <span class="bon-pickup">${bonData.pickup_time || ''}</span>
-                    <span class="bon-lev">${levStr}</span>
-                </div>
-                <div class="bon-date">${bonData.date || ''} · ${orderTypeLabel}</div>
-                ${deliveryIndicatorHtml}
+            <div class="bon-header-row1">
+                <div class="bon-id">#${bonData.bon_number || id}${prodBadge}${mailBadge}</div>
+                <div class="bon-units">${bonData.units}<span class="bon-units-label">${bonData.unit_label || 'ENH'}</span></div>
             </div>
-            <div class="bon-header-right">
-                <div class="unit-primary">${bonData.units}</div>
-                <div class="unit-primary-label">${bonData.unit_label || 'ENHEDER'}</div>
-                ${paxStr ? `<div class="unit-secondary">${paxStr}</div>` : ''}
+            <div class="bon-header-row2">
+                <span class="bon-pickup">${bonData.pickup_time || ''}</span>
+                ${levTimeHtml}
+                <span class="bon-sep">·</span>
+                <span class="bon-date-short">${dateLabel}</span>
+                <span class="bon-sep">·</span>
+                <span class="bon-mode">${orderTypeLabel}</span>
+                ${deliveryFlagHtml}
+                ${paxBadge}
             </div>
         </div>
 
@@ -259,7 +267,7 @@ function _buildPrep(prepItems, num) {
     return `<div class="bon-prep">${badges}</div>`;
 }
 
-function _buildCustomer(c, num, bonDataForDelivery) {
+function _buildCustomer(c, num, bonDataForDelivery, contextClass) {
     const company = c.company ? ` · ${c.company}` : '';
 
     // Telefonnumre i fold-ud med navne
@@ -274,16 +282,45 @@ function _buildCustomer(c, num, bonDataForDelivery) {
     const allDetails = detailParts + deliveryHtml;
     const hasDetails = allDetails.length > 0;
 
+    // I today-context skjules adressen by default — toggle "▾ adresse" folder den ud
+    const addressToggle = (contextClass === 'context-today' && c.address)
+        ? `<span class="customer-toggle" onclick="event.stopPropagation(); toggleCustomerAddress(this);" title="Vis adresse">▾ adresse</span>`
+        : '';
+
     return `
         <div class="bon-customer${hasDetails ? '' : ' no-expand'}"
              ${hasDetails ? 'onclick="toggleCustomer(this)"' : ''}>
             <div>
-                <div class="customer-name">${c.name}${company}</div>
+                <div class="customer-name">${c.name}${company}${addressToggle}</div>
                 <div class="customer-address">${c.address}</div>
             </div>
             ${hasDetails ? '<div class="customer-expand">▾</div>' : ''}
         </div>
         ${hasDetails ? `<div class="bon-customer-details">${allDetails}</div>` : ''}`;
+}
+
+/**
+ * Leveringsflag i header-row2 — viser vehicle, pickup eller "ikke planlagt".
+ * Klik åbner drawer scrollet til BESTIL BUD-sektionen.
+ *
+ *   pickup        → ingen flag (mode-badge "Afhentning" siger det selv)
+ *   vehicle booket → '🚴 By-expressen' / '🚕 Taxa' osv.
+ *   ikke planlagt → '📍 Ikke planlagt' (grå, kursiv)
+ */
+function _buildDeliveryFlag(bonData, cardId) {
+    const orderType = bonData.order_type || '';
+    const vehicleLabel = bonData.delivery_vehicle_label || '';
+    const method = bonData.delivery_method || '';
+
+    if (orderType === 'pickup') return '';
+
+    if (vehicleLabel) {
+        const display = _DELIVERY_METHOD_DISPLAY[method] || { icon: '🚴' };
+        return `<span class="bon-flag" onclick="openBonDeliveryFromCard('${cardId}'); event.stopPropagation();" title="${vehicleLabel}">${display.icon} ${vehicleLabel}</span>`;
+    }
+
+    // Ikke planlagt — kun ved levering eller event
+    return `<span class="bon-flag bon-flag-pending" onclick="openBonDeliveryFromCard('${cardId}'); event.stopPropagation();" title="Klik for at planlægge levering">📍 Ikke planlagt</span>`;
 }
 
 // Mapping fra interne koder til pænt label + ikon.
@@ -343,11 +380,19 @@ function _buildKitchenInfo(bonData, num) {
     const hasContent = text.trim().length > 0;
     const _esc = typeof esc === 'function' ? esc : (s) => String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
 
+    // Close-knap (×) vises kun når der er indhold — den ligger inde i pillen
+    // men stopper propagation så pillens click-to-edit ikke trigges samtidig.
+    const closeBtn = hasContent
+        ? `<button class="kitchen-pill-close" type="button" title="Marker som læst"
+                   onclick="event.stopPropagation(); markKitchenInfoRead('${num}')">×</button>`
+        : '';
+
     return `
         <div class="bon-kitchen${hasContent ? '' : ' empty'}" id="kitchen${num}">
             <div class="kitchen-pill" onclick="openKitchenEdit('${num}')">
                 <span class="kitchen-pill-text">${hasContent ? _esc(text) : ''}</span>
                 <span class="kitchen-pill-edit">✎</span>
+                ${closeBtn}
             </div>
             <button class="kitchen-add-btn" onclick="openKitchenEdit('${num}')">+ Køkkeninfo</button>
             <div class="kitchen-edit">
@@ -358,6 +403,10 @@ function _buildKitchenInfo(bonData, num) {
                     <button class="kitchen-cancel-btn" onclick="cancelKitchenEdit('${num}')">Annuller</button>
                 </div>
             </div>
+        </div>
+        <div class="kitchen-info-collapsed" data-kitchen-collapsed="${num}"
+             onclick="markKitchenInfoUnread('${num}')" title="Klik for at åbne">
+            + Køkkeninfo (læst)
         </div>`;
 }
 
@@ -423,10 +472,11 @@ function _buildMenu(menuItems, num) {
 }
 
 function _buildMenuItem(item, num) {
-    const cls = item.style === 'emballage' ? ' emballage' : '';
+    // Pakke-/tilbehørs-linje markeres med både legacy "emballage" og nyt "is-packaging" class
+    const cls = item.style === 'emballage' ? ' emballage is-packaging' : '';
     const cat = item.category || '';
-    const special = item.special_request
-        ? `<div class="bon-menu-special">${esc(item.special_request)}</div>`
+    const note = item.special_request
+        ? `<span class="bon-menu-note">${esc(item.special_request)}</span>`
         : '';
     return `
         <div class="bon-menu-item${cls}" draggable="true" data-drag="item" data-category="${esc(cat)}">
@@ -442,7 +492,7 @@ function _buildMenuItem(item, num) {
             </div>
             <div class="item-select" onclick="toggleItem(this,'menu${num}')"></div>
             <span class="bon-menu-qty">${item.qty}</span>
-            <span class="bon-menu-name">${item.name}${special}</span>
+            <span class="bon-menu-name">${item.name}${note}</span>
         </div>`;
 }
 

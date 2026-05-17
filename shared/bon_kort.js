@@ -166,6 +166,30 @@ function toggleCustomer(el) {
     el.classList.toggle('expanded');
 }
 
+/* Adresse-toggle i today-context: folder customer-address ud/ind på .bon-card.
+   Kaldes fra .customer-toggle's egen onclick (stop propagation så bon-customer
+   ikke fold-ud-handler trigges samtidig). */
+function toggleCustomerAddress(el) {
+    const card = el.closest('.bon-card');
+    if (!card) return;
+    const showing = card.classList.toggle('show-address');
+    el.textContent = showing ? '▴ skjul' : '▾ adresse';
+}
+
+/* ══════════════════════════════════════════════════════════════
+   KØKKENINFO — marker som læst (session-scope, in-memory)
+   ══════════════════════════════════════════════════════════════ */
+function markKitchenInfoRead(num) {
+    const wrap = document.getElementById('kitchen' + num);
+    if (!wrap) return;
+    wrap.classList.add('read');
+}
+function markKitchenInfoUnread(num) {
+    const wrap = document.getElementById('kitchen' + num);
+    if (!wrap) return;
+    wrap.classList.remove('read');
+}
+
 /* ══════════════════════════════════════════════════════════════
    NOTER PÅ GRUPPER
    ══════════════════════════════════════════════════════════════ */
