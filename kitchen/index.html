@@ -236,18 +236,18 @@
         .card-web-orders {
             display:flex; align-items:center; gap:10px;
             padding:10px 14px;
-            background:#fdecec; border:1px solid #e8a5a5; border-left:4px solid #a82828;
-            border-radius:8px;
-            text-decoration:none; color:#a82828;
+            background:var(--color-surface); border:1px solid var(--color-border);
+            border-radius:12px;
+            text-decoration:none; color:var(--color-text);
             cursor:pointer;
+            box-shadow:0 1px 4px rgba(0,0,0,0.07);
             transition:box-shadow .15s, transform .08s;
-            animation:wo-pulse 2s ease-in-out infinite;
         }
-        .card-web-orders:hover { box-shadow:0 2px 12px rgba(168,40,40,0.2); }
+        .card-web-orders:hover { box-shadow:0 2px 10px rgba(0,0,0,0.10); }
         .card-web-orders:active { transform:translateY(1px); }
         .wo-icon { font-size:22px; }
         .wo-count-pill {
-            background:#a82828; color:#fff;
+            background:var(--brand-primary); color:#fff;
             padding:2px 10px; border-radius:12px;
             font-size:14px; font-weight:800;
             font-variant-numeric:tabular-nums;
@@ -257,11 +257,7 @@
             font-size:12px; font-weight:700; line-height:1.25;
             flex:1;
         }
-        .wo-text-sub { font-weight:400; font-size:11px; color:#7a2020; }
-        @keyframes wo-pulse {
-            0%, 100% { box-shadow:0 0 0 0 rgba(168,40,40,0); }
-            50%      { box-shadow:0 0 0 4px rgba(168,40,40,0.15); }
-        }
+        .wo-text-sub { font-weight:400; font-size:11px; color:var(--color-text-dim); }
 
         /* ══ CHART CARD ════════════════════════════════════════════ */
         .card-chart {
