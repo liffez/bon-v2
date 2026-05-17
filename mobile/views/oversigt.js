@@ -149,6 +149,10 @@ function _moRenderToolbar(range) {
                 '<div class="m-overview-nav-label">' + label + '</div>' +
                 '<button class="m-overview-nav-btn" data-step="1" aria-label="Næste">&#9654;</button>' +
             '</div>' +
+            '<a class="m-overview-vagtplan-link" href="/kitchen/vagtplan.html">' +
+                '<span>&#128197; Åbn hele vagtplanen</span>' +
+                '<span class="m-overview-vagtplan-arrow">&rsaquo;</span>' +
+            '</a>' +
         '</div>'
     );
 }

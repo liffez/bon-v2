@@ -400,6 +400,25 @@ body.m-modtag-active .m-content { padding-bottom: 0; }
     font-weight: 600;
     font-size: 15px;
 }
+.m-overview-vagtplan-link {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 8px 12px;
+    background: var(--color-background);
+    color: var(--brand-primary);
+    border-radius: 8px;
+    font-size: 13px;
+    font-weight: 500;
+    text-decoration: none;
+}
+.m-overview-vagtplan-link:active {
+    background: var(--brand-primary-light);
+}
+.m-overview-vagtplan-arrow {
+    font-size: 18px;
+    line-height: 1;
+}
 
 .m-overview-week-divider {
     font-size: 11px;
