@@ -779,8 +779,17 @@ function updateCard(id, changes) {
     }
 
     if (changes.units !== undefined) {
-        const el = card.querySelector('.unit-primary');
-        if (el) el.textContent = changes.units;
+        // Ny markup bruger .bon-units (med .bon-units-label inden i),
+        // gammel markup havde .unit-primary. Understøt begge.
+        const newEl = card.querySelector('.bon-units');
+        if (newEl) {
+            // .bon-units har et inline <span class="bon-units-label">ENH</span> efter tallet —
+            // opdater kun first text-node.
+            const firstText = Array.from(newEl.childNodes).find(n => n.nodeType === 3);
+            if (firstText) firstText.textContent = changes.units;
+        }
+        const legacyEl = card.querySelector('.unit-primary');
+        if (legacyEl) legacyEl.textContent = changes.units;
     }
 
     // Tilføj flere felter efter behov
