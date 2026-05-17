@@ -64,8 +64,8 @@ function getGrocyConfig() {
     }
 
     const url = loc.grocy_api_url;
-    // Fallback-kæde: locations-tabel → env pr. lokation (GROCY_<code>_KEY) → env HQ
-    const envKey = `GROCY_${loc.code}_KEY`;
+    // Fallback-kæde: locations-tabel → env pr. lokation (GROCY_<CODE>_KEY, uppercased) → env HQ
+    const envKey = `GROCY_${String(loc.code).toUpperCase()}_KEY`;
     const key = loc.grocy_api_key || process.env[envKey] || process.env.GROCY_HQ_KEY || '';
 
     if (!url) {
