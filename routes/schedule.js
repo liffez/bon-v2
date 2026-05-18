@@ -127,7 +127,7 @@ router.get('/week', handle(async (req, res) => {
         WHERE b.delivery_date BETWEEN ? AND ?
           ${statusFilter}
           AND b.is_offer = 0
-        ORDER BY b.delivery_date, b.pickup_time, b.id
+        ORDER BY b.delivery_date, COALESCE(b.pickup_time, b.delivery_time), b.id
     `).all(...params);
 
     // Hent bon_lines for lager-tjek (har alle linjer grocy_recipe_id?)

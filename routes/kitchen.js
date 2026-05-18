@@ -37,7 +37,7 @@ router.get('/today', handle((req, res) => {
         LEFT JOIN delivery_vehicles dv ON b.delivery_vehicle_id = dv.id
         WHERE b.delivery_date = ?
           AND sd.code IN ('GODKENDT', 'IGANG', 'KLAR', 'LEVERET')
-        ORDER BY b.pickup_time, b.id
+        ORDER BY COALESCE(b.pickup_time, b.delivery_time), b.id
     `).all(today);
 
     for (const bon of bons) {
@@ -90,7 +90,7 @@ router.get('/later', handle((req, res) => {
         WHERE b.delivery_date >= ?
           AND b.delivery_date <= ?
           AND (sd.code IN ('VENTER', 'GODKENDT', 'IGANG', 'KLAR') OR b.is_offer = 1)
-        ORDER BY b.is_offer ASC, b.delivery_date ASC, b.pickup_time ASC, b.id ASC
+        ORDER BY b.is_offer ASC, b.delivery_date ASC, COALESCE(b.pickup_time, b.delivery_time) ASC, b.id ASC
     `).all(today, endDate);
 
     for (const bon of bons) {
@@ -146,7 +146,7 @@ router.get('/planning', handle((req, res) => {
         WHERE b.delivery_date >= ?
           AND b.delivery_date <= ?
           AND (sd.code IN (${placeholders}) OR b.is_offer = 1)
-        ORDER BY b.delivery_date ASC, b.pickup_time ASC, b.id ASC
+        ORDER BY b.delivery_date ASC, COALESCE(b.pickup_time, b.delivery_time) ASC, b.id ASC
     `).all(from, to, ...statusCodes);
 
     for (const bon of bons) {
@@ -266,7 +266,7 @@ router.get('/calendar', handle((req, res) => {
         LEFT JOIN customers c        ON b.customer_id = c.id
         LEFT JOIN companies co       ON b.company_id  = co.id
         WHERE ${where.join(' AND ')}
-        ORDER BY b.delivery_date ASC, b.pickup_time ASC, b.id ASC
+        ORDER BY b.delivery_date ASC, COALESCE(b.pickup_time, b.delivery_time) ASC, b.id ASC
     `).all(...args);
 
     // Gruppér per dato
