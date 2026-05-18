@@ -511,7 +511,12 @@ function _buildCo2(co2str) {
 function _buildSummaryPanel(num, cardId) {
     return `
         <div class="summary-panel" id="summary${num}">
-            <div class="summary-header">Sammentælling
+            <div class="summary-header">
+                <span class="summary-title">Sammentælling</span>
+                <div class="summary-toggle" role="tablist" aria-label="Visningsmode">
+                    <button type="button" class="summary-mode-btn" data-mode="cat" onclick="setSummaryMode('${cardId}','cat')">Kategori</button>
+                    <button type="button" class="summary-mode-btn" data-mode="item" onclick="setSummaryMode('${cardId}','item')">Vare</button>
+                </div>
                 <button class="summary-close" onclick="closeSummary('${cardId}')">×</button>
             </div>
             <div id="summaryRows${num}"></div>

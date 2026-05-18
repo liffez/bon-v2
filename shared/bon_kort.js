@@ -804,22 +804,37 @@ function _stripCatPrefix(cat) {
     return cat.replace(/^\d+\s+/, '');
 }
 
-function showSummary(cardId) {
-    const num    = cardId.replace('bon', '');
-    const panel  = document.getElementById('summary' + num);
-    const rows   = document.getElementById('summaryRows' + num);
-    if (!panel || !rows) return;
-    const isOpen = panel.classList.contains('open');
+function _getSummaryMode() {
+    try { return localStorage.getItem('bon-summary-mode') || 'cat'; } catch (e) { return 'cat'; }
+}
+function _setSummaryModePref(mode) {
+    try { localStorage.setItem('bon-summary-mode', mode); } catch (e) {}
+}
 
-    // Luk alle andre
-    document.querySelectorAll('.summary-panel.open').forEach(p => p.classList.remove('open'));
-    if (isOpen) return;
+// Returnerer base-navn uden special_request (.bon-menu-note span fjernes)
+function _baseMenuName(nameEl) {
+    if (!nameEl) return '';
+    const clone = nameEl.cloneNode(true);
+    clone.querySelectorAll('.bon-menu-note').forEach(n => n.remove());
+    return clone.textContent.trim();
+}
+
+function _renderSummary(cardId) {
+    const num  = cardId.replace('bon', '');
+    const rows = document.getElementById('summaryRows' + num);
+    const panel = document.getElementById('summary' + num);
+    if (!rows || !panel) return;
+
+    const mode = _getSummaryMode();
+    panel.querySelectorAll('.summary-mode-btn').forEach(b => {
+        b.classList.toggle('active', b.dataset.mode === mode);
+    });
 
     const _esc = typeof esc === 'function' ? esc : (s) => String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
-
-    // Tæl varer op, grupperet per kategori
-    const categories = {};
     const card = document.getElementById(cardId);
+
+    // Saml rådata fra DOM
+    const items = [];
     card.querySelectorAll('.bon-menu-item').forEach(item => {
         const qtyEl  = item.querySelector('.bon-menu-qty');
         const nameEl = item.querySelector('.bon-menu-name');
@@ -829,23 +844,45 @@ function showSummary(cardId) {
         const qty     = match ? parseFloat(match[1].replace(',', '.')) : 0;
         const unit    = match ? match[2].trim() : '';
         const cat     = (item.dataset.category || '').trim() || 'Andet';
-        const name    = nameEl.textContent.trim();
-        const key     = name + '||' + unit;
-
-        if (!categories[cat]) categories[cat] = {};
-        if (categories[cat][key]) categories[cat][key].qty += qty;
-        else categories[cat][key] = { qty, unit, name };
+        const baseName = _baseMenuName(nameEl);
+        items.push({ qty, unit, cat, baseName });
     });
 
-    const catNames = Object.keys(categories).sort((a, b) => a.localeCompare(b, 'da'));
-    if (!catNames.length) {
+    if (!items.length) {
         rows.innerHTML = '<div class="summary-row"><span style="color:var(--gray-dark);font-style:italic;font-size:13px;padding:4px 0">Ingen varer</span></div>';
+        return;
+    }
+
+    let html = '';
+    let grandTotal = 0;
+
+    if (mode === 'item') {
+        // Grupper per produkt-navn (uden noter) — Kylling + Kylling uden løg = 2 x Kylling
+        const groups = {};
+        for (const it of items) {
+            const key = it.baseName + '||' + it.unit;
+            if (groups[key]) groups[key].qty += it.qty;
+            else groups[key] = { qty: it.qty, unit: it.unit, name: it.baseName };
+        }
+        const entries = Object.values(groups).sort((a, b) => a.name.localeCompare(b.name, 'da'));
+        for (const e of entries) {
+            grandTotal += e.qty;
+            const qtyStr = Number.isInteger(e.qty) ? e.qty : e.qty.toFixed(1);
+            html += `<div class="summary-row">
+                <span class="summary-qty">${qtyStr}</span>
+                <span class="summary-name">${_esc(e.name)}${e.unit ? ' <span class="summary-cat">' + _esc(e.unit) + '</span>' : ''}</span>
+            </div>`;
+        }
     } else {
-        let html = '';
-        let grandTotal = 0;
+        // Per kategori (default)
+        const categories = {};
+        for (const it of items) {
+            if (!categories[it.cat]) categories[it.cat] = 0;
+            categories[it.cat] += it.qty;
+        }
+        const catNames = Object.keys(categories).sort((a, b) => a.localeCompare(b, 'da'));
         for (const cat of catNames) {
-            const entries = Object.values(categories[cat]);
-            const catTotal = entries.reduce((sum, e) => sum + e.qty, 0);
+            const catTotal = categories[cat];
             grandTotal += catTotal;
             const qtyStr = Number.isInteger(catTotal) ? catTotal : catTotal.toFixed(1);
             html += `<div class="summary-row">
@@ -853,14 +890,33 @@ function showSummary(cardId) {
                 <span class="summary-name">${_esc(_stripCatPrefix(cat))}</span>
             </div>`;
         }
-        const gtStr = Number.isInteger(grandTotal) ? grandTotal : grandTotal.toFixed(1);
-        html += `<div class="summary-row summary-total">
-            <span class="summary-qty">${gtStr}</span>
-            <span class="summary-name">Total</span>
-        </div>`;
-        rows.innerHTML = html;
     }
+
+    const gtStr = Number.isInteger(grandTotal) ? grandTotal : grandTotal.toFixed(1);
+    html += `<div class="summary-row summary-total">
+        <span class="summary-qty">${gtStr}</span>
+        <span class="summary-name">Total</span>
+    </div>`;
+    rows.innerHTML = html;
+}
+
+function showSummary(cardId) {
+    const num    = cardId.replace('bon', '');
+    const panel  = document.getElementById('summary' + num);
+    if (!panel) return;
+    const isOpen = panel.classList.contains('open');
+
+    // Luk alle andre
+    document.querySelectorAll('.summary-panel.open').forEach(p => p.classList.remove('open'));
+    if (isOpen) return;
+
+    _renderSummary(cardId);
     panel.classList.add('open');
+}
+
+function setSummaryMode(cardId, mode) {
+    _setSummaryModePref(mode);
+    _renderSummary(cardId);
 }
 
 function closeSummary(cardId) {

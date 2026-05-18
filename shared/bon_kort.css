@@ -648,6 +648,22 @@
     background: none; border: none; cursor: pointer; color: var(--brown);
     font-size: 16px; line-height: 1; padding: 0 2px;
 }
+.summary-title { flex: 1; }
+.summary-toggle {
+    display: inline-flex; background: rgba(142,99,31,0.08);
+    border: 1px solid rgba(142,99,31,0.18); border-radius: 6px;
+    overflow: hidden; margin-right: 8px;
+}
+.summary-mode-btn {
+    background: transparent; border: none; cursor: pointer;
+    font-family: inherit; font-size: 10px; font-weight: 700;
+    text-transform: uppercase; letter-spacing: 0.4px;
+    color: var(--brown); padding: 3px 8px; line-height: 1.4;
+    transition: background 0.12s;
+}
+.summary-mode-btn + .summary-mode-btn { border-left: 1px solid rgba(142,99,31,0.18); }
+.summary-mode-btn:hover { background: rgba(142,99,31,0.12); }
+.summary-mode-btn.active { background: var(--brown); color: white; }
 .summary-row {
     display: flex; justify-content: space-between; align-items: baseline;
     padding: 5px 12px; font-size: 14px; border-bottom: 1px solid rgba(142,99,31,0.06);
