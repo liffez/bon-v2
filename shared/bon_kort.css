@@ -358,13 +358,16 @@
     font-size: 16px; cursor: default;
     transition: background 0.12s; user-select: none;
     font-family: 'Lato', sans-serif;
+    -webkit-font-smoothing: antialiased;
+    -moz-osx-font-smoothing: grayscale;
 }
 .bon-menu-item:hover { background: rgba(142,99,31,0.04); }
 .bon-menu-item:hover .drag-handle { opacity: 1; }
 .bon-menu-item.dragging  { opacity: 0.35; }
 .bon-menu-item.drag-over { border-top: 2px solid var(--brown); }
 .bon-menu-qty  { font-weight: 700; color: var(--brown); min-width: 32px; flex-shrink: 0; text-align: right; }
-.bon-menu-name { flex: 1; font-style: italic; margin-left: 6px; }
+.bon-menu-x    { color: var(--gray-dark); margin: 0 5px; flex-shrink: 0; font-weight: 400; }
+.bon-menu-name { flex: 1; font-style: italic; font-weight: 500; margin-left: 0; }
 .bon-menu-special,
 .bon-menu-note {
     display: block;

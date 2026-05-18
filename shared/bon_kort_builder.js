@@ -492,6 +492,7 @@ function _buildMenuItem(item, num) {
             </div>
             <div class="item-select" onclick="toggleItem(this,'menu${num}')"></div>
             <span class="bon-menu-qty">${item.qty}</span>
+            <span class="bon-menu-x">×</span>
             <span class="bon-menu-name">${item.name}${note}</span>
         </div>`;
 }
