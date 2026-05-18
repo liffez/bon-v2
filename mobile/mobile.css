@@ -219,6 +219,22 @@ body.m-modtag-active .m-content { padding-bottom: 0; }
     color: var(--brand-primary);
     text-decoration: none;
 }
+.m-detail-collapse summary {
+    display: flex; align-items: center; justify-content: space-between;
+    padding: 6px 0; cursor: pointer; list-style: none;
+    min-height: 44px;
+}
+.m-detail-collapse summary::-webkit-details-marker { display: none; }
+.m-detail-collapse summary .m-detail-label { margin-bottom: 0; }
+.m-detail-chevron {
+    font-size: 14px; color: var(--color-text-dim);
+    transition: transform .15s;
+}
+.m-detail-collapse[open] .m-detail-chevron { transform: rotate(180deg); }
+.m-detail-pre {
+    white-space: pre-wrap; word-break: break-word;
+    margin-top: 6px;
+}
 .m-detail-lines {
     list-style: none; padding: 0; margin: 0;
 }

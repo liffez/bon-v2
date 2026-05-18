@@ -773,6 +773,15 @@ async function _mbShowDetail(bonId) {
         html += '</div>';
     }
 
+    if (bon.customer_wishes) {
+        html += '<div class="m-detail-section">';
+        html += '<details class="m-detail-collapse">';
+        html += '<summary><span class="m-detail-label">Kundeønsker</span><span class="m-detail-chevron">▾</span></summary>';
+        html += '<div class="m-detail-value m-detail-pre">' + _mbEsc(bon.customer_wishes) + '</div>';
+        html += '</details>';
+        html += '</div>';
+    }
+
     html += '<div class="m-status-actions" id="mbStatusActions"></div>';
 
     _mbContainer.innerHTML = html;
