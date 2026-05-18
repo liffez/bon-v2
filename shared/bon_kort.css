@@ -366,6 +366,67 @@
 .bon-menu-item.dragging  { opacity: 0.35; }
 .bon-menu-item.drag-over { border-top: 2px solid var(--brown); }
 .bon-menu-qty  { font-weight: 700; color: var(--brown); min-width: 32px; flex-shrink: 0; text-align: right; }
+.bon-menu-qty.qty-editable {
+    cursor: pointer;
+    border-radius: 3px;
+    padding: 0 2px;
+    transition: background 0.1s;
+}
+.bon-menu-qty.qty-editable:hover {
+    background: rgba(142,99,31,0.12);
+}
+.bon-menu-qty.editing {
+    display: inline-flex;
+    align-items: center;
+    gap: 4px;
+    min-width: auto;
+    padding: 0;
+    background: transparent;
+    cursor: default;
+}
+.bon-menu-qty.editing .qty-input {
+    width: 44px;
+    font-size: 15px;
+    font-weight: 700;
+    color: var(--brown);
+    text-align: center;
+    border: 1px solid var(--brown);
+    border-radius: 4px;
+    padding: 2px 4px;
+    background: #fff;
+    font-family: 'Lato', sans-serif;
+    -moz-appearance: textfield;
+}
+.bon-menu-qty.editing .qty-input::-webkit-outer-spin-button,
+.bon-menu-qty.editing .qty-input::-webkit-inner-spin-button {
+    -webkit-appearance: none;
+    margin: 0;
+}
+.bon-menu-qty.editing .qty-input:focus {
+    outline: none;
+    box-shadow: 0 0 0 2px rgba(142,99,31,0.25);
+}
+.bon-menu-qty.editing .qty-step {
+    width: 22px; height: 22px;
+    border: 1px solid var(--gray);
+    background: #fff;
+    border-radius: 4px;
+    font-size: 16px;
+    font-weight: 700;
+    line-height: 1;
+    color: var(--brown);
+    cursor: pointer;
+    padding: 0;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+}
+.bon-menu-qty.editing .qty-step:hover {
+    background: var(--brown);
+    color: #fff;
+    border-color: var(--brown);
+}
+.bon-menu-qty.saving { opacity: 0.5; pointer-events: none; }
 .bon-menu-x    { color: var(--gray-dark); margin: 0 5px; flex-shrink: 0; font-weight: 400; }
 .bon-menu-name { flex: 1; font-style: italic; font-weight: 500; margin-left: 0; }
 .bon-menu-special,

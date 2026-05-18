@@ -724,22 +724,126 @@ class BonDrawer {
         list.innerHTML = lines.map(function(l) {
             var special = l.special_request ? '<div class="drawer-line-special">' + _esc(l.special_request) + '</div>' : '';
             var price = l.line_total != null ? l.line_total + ' kr' : '';
-            return '<div class="drawer-line-item" data-line-id="' + l.id + '">' +
-                '<span class="drawer-line-qty">' + (l.quantity || 1) + '</span>' +
+            return '<div class="drawer-line-item" data-line-id="' + l.id + '" data-unit-price="' + (l.unit_price != null ? l.unit_price : '') + '">' +
+                '<span class="drawer-line-qty qty-editable" title="Klik for at ændre antal">' + (l.quantity || 1) + '</span>' +
                 '<span class="drawer-line-name">' + _esc(l.product_name || '') + special + '</span>' +
                 '<span class="drawer-line-price">' + price + '</span>' +
                 '<button class="drawer-line-del" title="Fjern">&times;</button>' +
             '</div>';
         }).join('');
 
-        // Delete line handlers
         var self = this;
+
+        // Delete line handlers
         list.querySelectorAll('.drawer-line-del').forEach(function(btn) {
             btn.addEventListener('click', function() {
                 var lineId = btn.closest('.drawer-line-item').dataset.lineId;
                 self._deleteLine(lineId);
             });
         });
+
+        // Qty edit handlers
+        list.querySelectorAll('.drawer-line-qty.qty-editable').forEach(function(qtyEl) {
+            qtyEl.addEventListener('click', function() { self._openQtyEdit(qtyEl); });
+        });
+    }
+
+    _openQtyEdit(qtyEl) {
+        if (!qtyEl || qtyEl.classList.contains('editing')) return;
+        var itemEl = qtyEl.closest('.drawer-line-item');
+        if (!itemEl) return;
+        var lineId = itemEl.dataset.lineId;
+        var unitPrice = parseFloat(itemEl.dataset.unitPrice);
+        var original = qtyEl.textContent.trim();
+        var match = original.match(/^([\d.,]+)/);
+        var num = match ? parseFloat(match[1].replace(',', '.')) : 1;
+
+        qtyEl.dataset.originalQty = original;
+        qtyEl.classList.add('editing');
+        this._editingLineId = lineId;
+
+        qtyEl.innerHTML =
+            '<button type="button" class="qty-step qty-minus" tabindex="-1">−</button>' +
+            '<input type="number" class="qty-input" min="1" step="1" value="' + num + '">' +
+            '<button type="button" class="qty-step qty-plus" tabindex="-1">+</button>';
+
+        var input = qtyEl.querySelector('.qty-input');
+        var minus = qtyEl.querySelector('.qty-minus');
+        var plus = qtyEl.querySelector('.qty-plus');
+        var self = this;
+
+        minus.addEventListener('click', function(e) {
+            e.stopPropagation();
+            input.value = Math.max(1, (parseInt(input.value) || 1) - 1);
+            input.focus();
+        });
+        plus.addEventListener('click', function(e) {
+            e.stopPropagation();
+            input.value = (parseInt(input.value) || 1) + 1;
+            input.focus();
+        });
+        input.addEventListener('click', function(e) { e.stopPropagation(); });
+        input.addEventListener('keydown', function(e) {
+            if (e.key === 'Enter') { e.preventDefault(); self._saveQtyEdit(qtyEl, lineId, unitPrice); }
+            else if (e.key === 'Escape') { e.preventDefault(); self._cancelQtyEdit(qtyEl); }
+        });
+        input.addEventListener('blur', function() {
+            setTimeout(function() {
+                if (qtyEl.classList.contains('editing') && !qtyEl.contains(document.activeElement)) {
+                    self._saveQtyEdit(qtyEl, lineId, unitPrice);
+                }
+            }, 120);
+        });
+
+        input.focus();
+        input.select();
+    }
+
+    _saveQtyEdit(qtyEl, lineId, unitPrice) {
+        var input = qtyEl.querySelector('.qty-input');
+        if (!input) return;
+        var newQty = parseInt(input.value);
+        var original = qtyEl.dataset.originalQty || '';
+        var originalNum = parseInt((original.match(/^([\d.,]+)/) || [])[1]) || 0;
+
+        if (!Number.isFinite(newQty) || newQty < 1) {
+            this._cancelQtyEdit(qtyEl);
+            return;
+        }
+        if (newQty === originalNum) {
+            this._cancelQtyEdit(qtyEl);
+            return;
+        }
+
+        var itemEl = qtyEl.closest('.drawer-line-item');
+        var priceEl = itemEl ? itemEl.querySelector('.drawer-line-price') : null;
+        var self = this;
+        qtyEl.classList.add('saving');
+        putBonLine(this.bonId, lineId, { quantity: newQty })
+            .then(function(updated) {
+                qtyEl.textContent = String(newQty);
+                qtyEl.classList.remove('editing', 'saving');
+                delete qtyEl.dataset.originalQty;
+                self._editingLineId = null;
+                if (priceEl && updated && updated.line_total != null) {
+                    priceEl.textContent = updated.line_total + ' kr';
+                } else if (priceEl && Number.isFinite(unitPrice)) {
+                    priceEl.textContent = (newQty * unitPrice) + ' kr';
+                }
+            })
+            .catch(function(err) {
+                console.error('Kunne ikke gemme antal:', err);
+                qtyEl.classList.remove('saving');
+                self._cancelQtyEdit(qtyEl);
+                alert(err.message || 'Kunne ikke gemme antal');
+            });
+    }
+
+    _cancelQtyEdit(qtyEl) {
+        qtyEl.textContent = qtyEl.dataset.originalQty || qtyEl.textContent;
+        qtyEl.classList.remove('editing', 'saving');
+        delete qtyEl.dataset.originalQty;
+        this._editingLineId = null;
     }
 
     /** Reload only lines list without re-rendering entire drawer (preserves picker state) */
@@ -946,13 +1050,13 @@ class BonDrawer {
         // Patch F: bon_updated + bon_status bruger nu konsistent {id} på payload
         window.addEventListener('sse:bon_updated', (e) => {
             const data = e.detail || {};
-            if (data.id == this.bonId && !this.dirty) {
+            if (data.id == this.bonId && !this.dirty && !this._editingLineId) {
                 this.load(this.bonId);
             }
         });
         window.addEventListener('sse:bon_status', (e) => {
             const data = e.detail || {};
-            if (data.id == this.bonId && !this.dirty) {
+            if (data.id == this.bonId && !this.dirty && !this._editingLineId) {
                 this.load(this.bonId);
             }
         });

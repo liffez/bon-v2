@@ -437,6 +437,107 @@ function autoResizeKitchen(ta) {
 }
 
 /* ══════════════════════════════════════════════════════════════
+   MENU-LINJE ANTAL — inline rediger
+   ══════════════════════════════════════════════════════════════ */
+
+function openQtyEdit(qtyEl) {
+    if (!qtyEl || qtyEl.classList.contains('editing')) return;
+    const itemEl = qtyEl.closest('.bon-menu-item');
+    if (!itemEl) return;
+    const ids = (itemEl.dataset.lineIds || '').split(',').filter(Boolean);
+    if (ids.length !== 1) return;
+    const lineId = ids[0];
+    const card = qtyEl.closest('.bon-card');
+    if (!card) return;
+    const bonId = card.id.replace('bon', '');
+
+    const original = qtyEl.textContent.trim();
+    const match = original.match(/^([\d.,]+)/);
+    const num = match ? parseFloat(match[1].replace(',', '.')) : 1;
+
+    qtyEl.dataset.originalQty = original;
+    qtyEl.classList.add('editing');
+    itemEl.classList.add('editing-qty');
+
+    qtyEl.innerHTML =
+        '<button type="button" class="qty-step qty-minus" tabindex="-1">−</button>' +
+        '<input type="number" class="qty-input" min="1" step="1" value="' + num + '">' +
+        '<button type="button" class="qty-step qty-plus" tabindex="-1">+</button>';
+
+    const input = qtyEl.querySelector('.qty-input');
+    const minus = qtyEl.querySelector('.qty-minus');
+    const plus = qtyEl.querySelector('.qty-plus');
+
+    minus.addEventListener('click', (e) => {
+        e.stopPropagation();
+        input.value = Math.max(1, (parseInt(input.value) || 1) - 1);
+        input.focus();
+    });
+    plus.addEventListener('click', (e) => {
+        e.stopPropagation();
+        input.value = (parseInt(input.value) || 1) + 1;
+        input.focus();
+    });
+    input.addEventListener('click', e => e.stopPropagation());
+    input.addEventListener('keydown', (e) => {
+        if (e.key === 'Enter') { e.preventDefault(); saveQtyEdit(qtyEl, bonId, lineId); }
+        else if (e.key === 'Escape') { e.preventDefault(); cancelQtyEdit(qtyEl); }
+    });
+    input.addEventListener('blur', () => {
+        // Lille delay så klik på +/− først registreres
+        setTimeout(() => {
+            if (qtyEl.classList.contains('editing') && !qtyEl.contains(document.activeElement)) {
+                saveQtyEdit(qtyEl, bonId, lineId);
+            }
+        }, 120);
+    });
+
+    input.focus();
+    input.select();
+}
+
+function saveQtyEdit(qtyEl, bonId, lineId) {
+    const input = qtyEl.querySelector('.qty-input');
+    if (!input) return;
+    const newQty = parseInt(input.value);
+    const original = qtyEl.dataset.originalQty || '';
+    const originalNum = parseInt((original.match(/^([\d.,]+)/) || [])[1]) || 0;
+
+    if (!Number.isFinite(newQty) || newQty < 1) {
+        cancelQtyEdit(qtyEl);
+        return;
+    }
+    if (newQty === originalNum) {
+        cancelQtyEdit(qtyEl);
+        return;
+    }
+
+    const itemEl = qtyEl.closest('.bon-menu-item');
+    qtyEl.classList.add('saving');
+    putBonLine(bonId, lineId, { quantity: newQty })
+        .then(() => {
+            qtyEl.textContent = String(newQty);
+            qtyEl.classList.remove('editing', 'saving');
+            if (itemEl) itemEl.classList.remove('editing-qty');
+            delete qtyEl.dataset.originalQty;
+        })
+        .catch(err => {
+            console.error('Kunne ikke gemme antal:', err);
+            qtyEl.classList.remove('saving');
+            cancelQtyEdit(qtyEl);
+            alert(err.message || 'Kunne ikke gemme antal');
+        });
+}
+
+function cancelQtyEdit(qtyEl) {
+    const itemEl = qtyEl.closest('.bon-menu-item');
+    qtyEl.textContent = qtyEl.dataset.originalQty || qtyEl.textContent;
+    qtyEl.classList.remove('editing', 'saving');
+    if (itemEl) itemEl.classList.remove('editing-qty');
+    delete qtyEl.dataset.originalQty;
+}
+
+/* ══════════════════════════════════════════════════════════════
    RECIPE PICKER — delegerer til VarePicker (shared/vare_picker.js)
    ══════════════════════════════════════════════════════════════ */
 

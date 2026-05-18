@@ -174,6 +174,7 @@ function initSSE() {
                 // — så vi ikke afbryder dem midt i en redigering. SSE'en vinder
                 // ved næste opdatering når interaktionen er færdig.
                 if (oldCard.querySelector('.bon-kitchen.editing')) return;
+                if (oldCard.querySelector('.editing-qty')) return;
                 if (oldCard.classList.contains('select-mode')) return;
                 const cardData = mapApiBonToCardData(apiBon);
                 const newCard = createCard(cardData, 'kitchen-today');

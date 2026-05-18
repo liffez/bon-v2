@@ -188,6 +188,7 @@ function initSSE() {
                 if (!oldCard) return;
                 // Spring over hvis brugeren er i en aktiv interaktion
                 if (oldCard.querySelector('.bon-kitchen.editing')) return;
+                if (oldCard.querySelector('.editing-qty')) return;
                 if (oldCard.classList.contains('select-mode')) return;
                 const cardData = mapApiBonToCardData(apiBon);
                 const newCard = createCard(cardData, 'kitchen-later');

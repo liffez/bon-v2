@@ -478,8 +478,13 @@ function _buildMenuItem(item, num) {
     const note = item.special_request
         ? `<span class="bon-menu-note">${esc(item.special_request)}</span>`
         : '';
+    const lineIds = Array.isArray(item.line_ids) ? item.line_ids.join(',') : '';
+    const editable = item.line_ids && item.line_ids.length === 1 ? ' qty-editable' : '';
+    const qtyAttrs = editable
+        ? ` title="Klik for at ændre antal" onclick="openQtyEdit(this)"`
+        : '';
     return `
-        <div class="bon-menu-item${cls}" draggable="true" data-drag="item" data-category="${esc(cat)}">
+        <div class="bon-menu-item${cls}" draggable="true" data-drag="item" data-category="${esc(cat)}" data-line-ids="${lineIds}">
             <div class="drag-handle">
                 <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
                     <circle cx="9" cy="5" r="1" fill="currentColor"/>
@@ -491,7 +496,7 @@ function _buildMenuItem(item, num) {
                 </svg>
             </div>
             <div class="item-select" onclick="toggleItem(this,'menu${num}')"></div>
-            <span class="bon-menu-qty">${item.qty}</span>
+            <span class="bon-menu-qty${editable}"${qtyAttrs}>${item.qty}</span>
             <span class="bon-menu-x">×</span>
             <span class="bon-menu-name">${item.name}${note}</span>
         </div>`;

@@ -151,6 +151,13 @@ function deleteBonLine(bonId, lineId) {
     });
 }
 
+function putBonLine(bonId, lineId, fields) {
+    return apiFetch('/bons/' + bonId + '/lines/' + lineId, {
+        method: 'PUT',
+        body: JSON.stringify(fields),
+    });
+}
+
 /* ── FLYVERE / NOTIFIKATIONER ────────────────────────────── */
 
 function postFlyver(bonId, message, clientId) {

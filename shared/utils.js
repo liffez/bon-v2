@@ -244,9 +244,10 @@ function _sortAndMergeMenu(items) {
         if (item.special_request) {
             g.specials.push(item);
         } else if (!g.base) {
-            g.base = Object.assign({}, item);
+            g.base = Object.assign({}, item, { line_ids: [...(item.line_ids || [])] });
         } else {
             g.base.qty = `${parseInt(g.base.qty) + parseInt(item.qty)}`;
+            g.base.line_ids = [...(g.base.line_ids || []), ...(item.line_ids || [])];
         }
     }
 
@@ -295,6 +296,7 @@ function mapApiBonToCardData(apiBon) {
         style:           line.is_accessory ? 'emballage' : undefined,
         category:        line.category || null,
         special_request: line.special_request || null,
+        line_ids:        [line.id],
     }));
     const menu = _sortAndMergeMenu(menuRaw);
 
