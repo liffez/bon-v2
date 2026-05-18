@@ -83,11 +83,14 @@
 
         try {
             const vehicles = await fetchDeliveryVehicles();
-            _state.vehicles = vehicles.filter(v => v.booking_method === 'manual_clipboard');
+            // Inkludér alle aktive vehicles — både manual_clipboard (taxa, By-expressen)
+            // og calendar (egen Volvo, egen cykel). Modalen renderer simplere flow
+            // for egne køretøjer hvor clipboard ikke er relevant.
+            _state.vehicles = vehicles.filter(v => v.is_active !== 0 && v.is_active !== false);
 
             if (_state.vehicles.length === 0) {
                 _state.loading = false;
-                _state.error = 'Ingen leveringsmetoder med manuel bestilling er konfigureret. Tilføj én under Indstillinger → Leveringsmetoder.';
+                _state.error = 'Ingen leveringsmetoder er konfigureret. Tilføj én under Indstillinger → Leveringsmetoder.';
                 _render();
                 return;
             }
@@ -288,16 +291,19 @@
         const payload = _state.payload;
         const vehicle = payload?.vehicle;
         const bon = payload?.bon;
+        const bookingMethod = payload?.booking_method;
+        const isOwnVehicle = bookingMethod !== 'manual_clipboard';
         const clipText = _state.editing
             ? (_state.editedClipboardText ?? '')
             : (payload?.clipboard_text || '');
 
-        const vehicleOptions = _state.vehicles.map(v =>
-            `<option value="${v.id}" ${v.id === _state.selectedVehicleId ? 'selected' : ''}>${_esc(v.label)}</option>`
-        ).join('');
+        const vehicleOptions = _state.vehicles.map(v => {
+            const tag = v.booking_method === 'manual_clipboard' ? ' — bud' : ' — eget';
+            return `<option value="${v.id}" ${v.id === _state.selectedVehicleId ? 'selected' : ''}>${_esc(v.label)}${tag}</option>`;
+        }).join('');
 
         const missing = (payload?.missing_fields || []).filter(k => MISSING_LABELS[k]);
-        const missingHtml = missing.length > 0
+        const missingHtml = missing.length > 0 && !isOwnVehicle
             ? `<div class="mbm-warn">
                   <strong>Manglende felter:</strong>
                   ${missing.map(k => `<span class="mbm-missing-tag">${_esc(MISSING_LABELS[k] || k)}</span>`).join(' ')}
@@ -316,12 +322,6 @@
                </div>`
             : '';
 
-        const clipboardSection = clipText
-            ? (_state.editing
-                ? `<textarea class="mbm-clipboard-edit" rows="14">${_esc(clipText)}</textarea>`
-                : `<pre class="mbm-clipboard">${_esc(clipText)}</pre>`)
-            : `<div class="mbm-empty">Ingen template — kontakt admin.</div>`;
-
         const bonSummary = bon
             ? `<div class="mbm-bon-summary">
                   <div><strong>${_esc(bon.bon_number || '')}</strong> ·
@@ -339,16 +339,76 @@
             ? `<span class="mbm-est">Estimat: ca. ${payload.estimated_cost_dkk} kr</span>`
             : '';
 
-        const copyLabel = _state.copied
-            ? `Kopiér igen og åbn ${_esc(vehicle?.label || '')}`
-            : `Kopiér og åbn ${_esc(vehicle?.label || '')}`;
+        // Branching: eget køretøj vs ekstern bud-leverandør
+        let bodyMiddle, footer, title;
+        if (isOwnVehicle) {
+            title = 'Tildel levering';
+            bodyMiddle = `
+                <div class="mbm-own-hint">
+                    ${_esc(vehicle?.label || 'Eget køretøj')} er et internt køretøj — ingen ekstern bestilling nødvendig.
+                    Klik <strong>Tildel</strong> for at registrere ansvaret på denne bon.
+                </div>
+                <div class="mbm-form-grid">
+                    <div>
+                        <label class="mbm-label">Note (valgfri)</label>
+                        <input type="text" class="mbm-ref-input" placeholder="fx 'Leif henter'">
+                    </div>
+                    <div>
+                        <label class="mbm-label">Pris (valgfri)</label>
+                        <input type="number" class="mbm-cost-input" placeholder="kr" min="0" step="1">
+                    </div>
+                </div>
+            `;
+            footer = `
+                <button class="mbm-btn mbm-btn-secondary" data-close>Annullér</button>
+                <button class="mbm-btn mbm-btn-success" data-action="booked">Tildel</button>
+            `;
+        } else {
+            title = 'Bestil levering';
+            const clipboardSection = clipText
+                ? (_state.editing
+                    ? `<textarea class="mbm-clipboard-edit" rows="14">${_esc(clipText)}</textarea>`
+                    : `<pre class="mbm-clipboard">${_esc(clipText)}</pre>`)
+                : `<div class="mbm-empty">Ingen template — kontakt admin.</div>`;
+            const copyLabel = _state.copied
+                ? `Kopiér igen og åbn ${_esc(vehicle?.label || '')}`
+                : `Kopiér og åbn ${_esc(vehicle?.label || '')}`;
+            const canBook = !!clipText;
 
-        const canBook = !!clipText;
+            bodyMiddle = `
+                ${missingHtml}
+
+                <div class="mbm-clipboard-row">
+                    <label class="mbm-label">Bestillings-tekst</label>
+                    <button class="mbm-mini-btn" data-action="toggle-edit">${_state.editing ? 'Luk redigering' : 'Rediger'}</button>
+                </div>
+                ${clipboardSection}
+
+                <button class="mbm-btn mbm-btn-primary" data-action="copy" ${!canBook ? 'disabled' : ''}>
+                    ${_esc(copyLabel)}
+                </button>
+
+                <div class="mbm-form-grid">
+                    <div>
+                        <label class="mbm-label">Booking-ref (valgfri)</label>
+                        <input type="text" class="mbm-ref-input" placeholder="fx 261.801.254">
+                    </div>
+                    <div>
+                        <label class="mbm-label">Faktisk pris (valgfri)</label>
+                        <input type="number" class="mbm-cost-input" placeholder="kr" min="0" step="1">
+                    </div>
+                </div>
+            `;
+            footer = `
+                <button class="mbm-btn mbm-btn-secondary" data-action="in_progress" ${!canBook ? 'disabled' : ''}>Spring over</button>
+                <button class="mbm-btn mbm-btn-success" data-action="booked" ${!canBook ? 'disabled' : ''}>Marker som booket</button>
+            `;
+        }
 
         _root.innerHTML = `
             <div class="mbm-panel">
                 <div class="mbm-header">
-                    <div class="mbm-title">Bestil levering</div>
+                    <div class="mbm-title">${title}</div>
                     <button class="mbm-close" data-close>×</button>
                 </div>
                 <div class="mbm-body">
@@ -359,33 +419,9 @@
                     ${estimatedHtml ? `<div class="mbm-meta-row">${estimatedHtml}</div>` : ''}
 
                     ${warningsHtml}
-                    ${missingHtml}
-
-                    <div class="mbm-clipboard-row">
-                        <label class="mbm-label">Bestillings-tekst</label>
-                        <button class="mbm-mini-btn" data-action="toggle-edit">${_state.editing ? 'Luk redigering' : 'Rediger'}</button>
-                    </div>
-                    ${clipboardSection}
-
-                    <button class="mbm-btn mbm-btn-primary" data-action="copy" ${!canBook ? 'disabled' : ''}>
-                        ${_esc(copyLabel)}
-                    </button>
-
-                    <div class="mbm-form-grid">
-                        <div>
-                            <label class="mbm-label">Booking-ref (valgfri)</label>
-                            <input type="text" class="mbm-ref-input" placeholder="fx 261.801.254">
-                        </div>
-                        <div>
-                            <label class="mbm-label">Faktisk pris (valgfri)</label>
-                            <input type="number" class="mbm-cost-input" placeholder="kr" min="0" step="1">
-                        </div>
-                    </div>
+                    ${bodyMiddle}
                 </div>
-                <div class="mbm-footer">
-                    <button class="mbm-btn mbm-btn-secondary" data-action="in_progress" ${!canBook ? 'disabled' : ''}>Spring over</button>
-                    <button class="mbm-btn mbm-btn-success" data-action="booked" ${!canBook ? 'disabled' : ''}>Marker som booket</button>
-                </div>
+                <div class="mbm-footer">${footer}</div>
             </div>`;
 
         _bindGlobalHandlers();

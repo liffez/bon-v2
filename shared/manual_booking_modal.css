@@ -188,6 +188,17 @@
     font-size: 13px;
 }
 
+.mbm-own-hint {
+    background: rgba(142,99,31,0.06);
+    border-left: 3px solid var(--brown, #8e631f);
+    padding: 10px 14px;
+    margin: 12px 0 14px;
+    border-radius: 4px;
+    font-size: 13px;
+    line-height: 1.5;
+    color: var(--color-text, #2a2a2a);
+}
+
 .mbm-mini-btn {
     background: none;
     border: 1px solid var(--color-border, #d7d1ca);
