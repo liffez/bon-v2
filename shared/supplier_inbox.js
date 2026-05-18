@@ -384,7 +384,8 @@ function _siUpdateBadge(count) {
 function _siFmtDate(iso) {
     if (!iso) return '';
     try {
-        var d = new Date(iso);
+        var d = parseServerDate(iso);
+        if (!d) return iso.slice(0, 10);
         var day = d.getDate();
         var months = ['jan', 'feb', 'mar', 'apr', 'maj', 'jun', 'jul', 'aug', 'sep', 'okt', 'nov', 'dec'];
         return day + '. ' + months[d.getMonth()];
@@ -394,7 +395,8 @@ function _siFmtDate(iso) {
 function _siFmtDateTime(iso) {
     if (!iso) return '';
     try {
-        var d = new Date(iso);
+        var d = parseServerDate(iso);
+        if (!d) return iso.slice(0, 16);
         var day = d.getDate();
         var months = ['jan', 'feb', 'mar', 'apr', 'maj', 'jun', 'jul', 'aug', 'sep', 'okt', 'nov', 'dec'];
         var hrs = String(d.getHours()).padStart(2, '0');

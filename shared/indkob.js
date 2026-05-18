@@ -1808,8 +1808,8 @@ function _ibFmtNum(n) {
 
 function _ibFmtDate(isoStr) {
     if (!isoStr) return '';
-    var d = new Date(isoStr);
-    if (isNaN(d.getTime())) return isoStr;
+    var d = parseServerDate(isoStr);
+    if (!d || isNaN(d.getTime())) return isoStr;
     return d.getDate() + '. ' + ['jan','feb','mar','apr','maj','jun','jul','aug','sep','okt','nov','dec'][d.getMonth()];
 }
 
@@ -2104,7 +2104,8 @@ function _ibRenderMailMessages(messages) {
 function _ibFmtDateTime(iso) {
     if (!iso) return '';
     try {
-        var d = new Date(iso);
+        var d = parseServerDate(iso);
+        if (!d) return iso.slice(0, 16);
         var day = d.getDate();
         var months = ['jan', 'feb', 'mar', 'apr', 'maj', 'jun', 'jul', 'aug', 'sep', 'okt', 'nov', 'dec'];
         var mon = months[d.getMonth()];

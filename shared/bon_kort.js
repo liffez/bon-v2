@@ -687,7 +687,8 @@ function _renderMailModal(bonId, email, threads, templates, vars) {
 
 function _fmtMailDate(isoStr) {
     if (!isoStr) return '';
-    const d = new Date(isoStr);
+    const d = parseServerDate(isoStr);
+    if (!d || isNaN(d.getTime())) return '';
     const day = d.getDate();
     const mon = d.getMonth() + 1;
     const hr = String(d.getHours()).padStart(2, '0');

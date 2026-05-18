@@ -260,7 +260,7 @@ function _inbRenderList() {
             '<div class="inb-mail-subject">' + (m.subject || '(intet emne)') + '</div>' +
             '<div class="inb-mail-meta">' +
                 '<span>' + (m.from_email || '') + '</span>' +
-                '<span>' + (m.received_at || '').substring(0, 16) + '</span>' +
+                '<span>' + _inbFmtReceivedAt(m.received_at) + '</span>' +
             '</div>' +
             bounceSubtitle +
             (m.parsed_company ? '<div class="inb-mail-parsed">→ ' + _inbEscape(m.parsed_company) + '</div>' : '') +
@@ -352,7 +352,7 @@ function _inbRenderPreview(mail) {
         '<div class="inb-preview-header">' +
             '<div class="inb-preview-from">' + (mail.from_name || 'Ukendt') + ' &lt;' + (mail.from_email || '') + '&gt;</div>' +
             '<div class="inb-preview-subject">' + (mail.subject || '(intet emne)') + '</div>' +
-            '<div class="inb-preview-date">' + (mail.received_at || '') + ' · ' + (mail.mailbox || '') + '</div>' +
+            '<div class="inb-preview-date">' + _inbFmtReceivedAt(mail.received_at) + ' · ' + (mail.mailbox || '') + '</div>' +
         '</div>' +
         bouncePanel +
         '<div class="inb-preview-body">' + _inbEscape(mail.body_text || '') + '</div>' +
@@ -392,6 +392,14 @@ window._inbMarkBounceHandled = _inbMarkBounceHandled;
 
 function _inbEscape(str) {
     return str.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+}
+
+function _inbFmtReceivedAt(s) {
+    if (!s) return '';
+    var d = parseServerDate(s);
+    if (!d || isNaN(d.getTime())) return String(s).substring(0, 16);
+    var pad = function(n) { return String(n).padStart(2, '0'); };
+    return d.getFullYear() + '-' + pad(d.getMonth()+1) + '-' + pad(d.getDate()) + ' ' + pad(d.getHours()) + ':' + pad(d.getMinutes());
 }
 
 function _inbShowLinkBon() {

@@ -1493,7 +1493,11 @@ async function _k3RenderMail(el) {
             html += allMessages.slice(0, 20).map(m => {
                 const dir = m.direction === 'in' ? 'in' : 'out';
                 const who = dir === 'in' ? (m.from_name || m.from_email || 'Ukendt') : 'Ristet Rug';
-                const time = (m.received_at || m.sent_at || '').substring(0, 16).replace('T', ' ');
+                const _k3d = parseServerDate(m.received_at || m.sent_at);
+                const _k3p = n => String(n).padStart(2, '0');
+                const time = _k3d
+                    ? `${_k3d.getFullYear()}-${_k3p(_k3d.getMonth()+1)}-${_k3p(_k3d.getDate())} ${_k3p(_k3d.getHours())}:${_k3p(_k3d.getMinutes())}`
+                    : (m.received_at || m.sent_at || '').substring(0, 16).replace('T', ' ');
                 return '<div class="k3-mail-msg ' + dir + '">' +
                     '<div class="k3-mail-msg-header">' +
                         '<span>' + who + (m.bon_number ? ' · #' + m.bon_number : '') + '</span>' +

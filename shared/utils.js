@@ -79,6 +79,26 @@ function formatTime(t) {
 }
 
 /* ══════════════════════════════════════════════════════════════
+   SERVER-TIMESTAMP PARSING
+   ──────────────────────────────────────────────────────────────
+   Server bruger SQLite CURRENT_TIMESTAMP / datetime('now') som
+   producerer "YYYY-MM-DD HH:MM:SS" i UTC UDEN timezone-marker.
+   JavaScript parser dette inkonsistent (Chrome: lokal, Safari: lokal,
+   Firefox: lokal) — så UTC-tider vises som om de var lokale.
+   Helperen normaliserer ved at tilføje 'Z', så strings altid tolkes
+   som UTC. ISO-strings med Z eller offset bevares uændret.
+   ══════════════════════════════════════════════════════════════ */
+function parseServerDate(s) {
+    if (!s) return null;
+    if (s instanceof Date) return s;
+    var str = String(s);
+    // Allerede med timezone-marker?
+    if (/Z$|[+-]\d{2}:?\d{2}$/.test(str)) return new Date(str);
+    // SQLite-format "YYYY-MM-DD HH:MM:SS" eller "YYYY-MM-DDTHH:MM:SS" — antag UTC
+    return new Date(str.replace(' ', 'T') + 'Z');
+}
+
+/* ══════════════════════════════════════════════════════════════
    HTML ESCAPE
    ══════════════════════════════════════════════════════════════ */
 

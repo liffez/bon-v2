@@ -122,8 +122,8 @@ const _ACTION_ICONS = {
  */
 function _formatChangelogDate(isoStr) {
     if (!isoStr) return '';
-    const d = new Date(isoStr);
-    if (isNaN(d.getTime())) return isoStr;
+    const d = parseServerDate(isoStr);
+    if (!d || isNaN(d.getTime())) return isoStr;
 
     const months = ['jan', 'feb', 'mar', 'apr', 'maj', 'jun',
                     'jul', 'aug', 'sep', 'okt', 'nov', 'dec'];
