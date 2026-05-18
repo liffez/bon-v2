@@ -102,6 +102,33 @@ body.density-compact:not(.zone-mobile) .ib-banner-sub     { font-size: 10px; }
 body.density-compact:not(.zone-mobile) .ib-panel-name     { font-size: 12px; }
 body.density-compact:not(.zone-mobile) .ib-panel-meta     { font-size: 10px; }
 
+/* — Køkken-dashboard — komprimer højre kolonne så nav-kort er synlige
+   indenfor ThinkPad L14 viewport (1536x864 logisk, ~720px content-area
+   efter browser-chrome). Sparer ca. 130px lodret. */
+body.density-compact:not(.zone-mobile) {
+    --kitchen-card-pad: 10px;
+    --kitchen-chart-h: 110px;
+    --kitchen-mood-emoji-fs: 28px;
+    --kitchen-headline-fs: 18px;
+    --kitchen-cat-row-pad: 2px;
+}
+body.density-compact:not(.zone-mobile) .card-vagtplan          { padding: 10px; }
+body.density-compact:not(.zone-mobile) .vagt-row               { padding: 4px 8px; margin-bottom: 2px; }
+body.density-compact:not(.zone-mobile) .vagtplan-section-label { margin: 6px 0 3px; }
+body.density-compact:not(.zone-mobile) .vagtplan-total         { margin-top: 6px; padding-top: 6px; }
+body.density-compact:not(.zone-mobile) .vagtplan-link-hint     { margin-top: 3px; }
+
+body.density-compact:not(.zone-mobile) .card-prep              { padding: 10px; }
+body.density-compact:not(.zone-mobile) .prep-mood              { padding: 2px 0 6px; font-size: 18px; }
+body.density-compact:not(.zone-mobile) .prep-mood-text         { margin-bottom: 6px; }
+body.density-compact:not(.zone-mobile) .prep-day               { margin-bottom: 5px; }
+body.density-compact:not(.zone-mobile) .prep-badges            { margin-top: 6px; padding-top: 6px; }
+
+body.density-compact:not(.zone-mobile) .quick-nav              { gap: 4px; }
+body.density-compact:not(.zone-mobile) .quick-btn              { padding: 6px 3px; }
+body.density-compact:not(.zone-mobile) .qb-icon                { font-size: 14px; }
+body.density-compact:not(.zone-mobile) .qb-label               { font-size: 7px; }
+
 
 /* ═══════════════════════════════════════════════════════════ */
 /* DENSE — alt krymper, også menu-linjer (touch-target ≥ 30px) */
