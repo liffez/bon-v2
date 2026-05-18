@@ -279,6 +279,8 @@ router.get('/calendar', handle((req, res) => {
         days[d].bons.push(bon);
         if (bon.is_offer) {
             days[d].totals.offers++;
+        } else if (bon.status_code === 'AFLYST') {
+            // AFLYST tæller ikke med i workload/pax/units — bon vises stadig i cellen
         } else {
             const pax   = bon.pax || 0;
             const units = bon.total_units || 0;

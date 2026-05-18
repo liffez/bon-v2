@@ -232,7 +232,8 @@ router.get('/today', handle(async (req, res) => {
     const tomorrow_prep = {
         date: tomorrow,
         bon_count: tomorrowBons.length,
-        total_units: tomorrowBons.reduce((s, b) => s + (b.total_units || 0), 0),
+        // Workload: enh. hvis sat, ellers pax (per bon) — samme regel som kalender/kitchen
+        total_units: tomorrowBons.reduce((s, b) => s + (b.total_units > 0 ? b.total_units : (b.pax || 0)), 0),
         total_pax: tomorrowBons.reduce((s, b) => s + (b.pax || 0), 0),
         bons: tomorrowBons.map(b => ({
             id: b.id,
@@ -256,7 +257,7 @@ router.get('/today', handle(async (req, res) => {
 
     const mtdDelivered = db.prepare(`
         SELECT COALESCE(SUM(b.total_price), 0) AS revenue,
-               COALESCE(SUM(b.total_units), 0) AS units
+               COALESCE(SUM(CASE WHEN b.total_units > 0 THEN b.total_units ELSE COALESCE(b.pax, 0) END), 0) AS units
         FROM bons b
         JOIN status_definitions sd ON b.status_id = sd.id
         WHERE b.delivery_date >= ? AND b.delivery_date <= ?
@@ -288,7 +289,7 @@ router.get('/today', handle(async (req, res) => {
 
     const lyMtd = db.prepare(`
         SELECT COALESCE(SUM(b.total_price), 0) AS revenue,
-               COALESCE(SUM(b.total_units), 0) AS units
+               COALESCE(SUM(CASE WHEN b.total_units > 0 THEN b.total_units ELSE COALESCE(b.pax, 0) END), 0) AS units
         FROM bons b
         JOIN status_definitions sd ON b.status_id = sd.id
         WHERE b.delivery_date >= ? AND b.delivery_date <= ?
@@ -378,7 +379,9 @@ router.get('/stats', handle(async (req, res) => {
     const lyStartDate = _dateOffset(startDate, -364);
     const lyEndDate   = _dateOffset(endDate, -364);
     const lyRows = db.prepare(`
-        SELECT b.delivery_date, SUM(b.total_units) AS total_units, SUM(b.total_price) AS total_price
+        SELECT b.delivery_date,
+               SUM(CASE WHEN b.total_units > 0 THEN b.total_units ELSE COALESCE(b.pax, 0) END) AS total_units,
+               SUM(b.total_price) AS total_price
         FROM bons b
         JOIN status_definitions sd ON b.status_id = sd.id
         WHERE b.delivery_date >= ? AND b.delivery_date <= ?

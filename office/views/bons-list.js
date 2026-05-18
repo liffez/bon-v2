@@ -393,10 +393,16 @@ function _blRenderSummary() {
         return;
     }
 
-    var totalPax = 0, totalUnits = 0, count = _blBons.length;
+    // Workload (= enh. hvis sat, ellers pax — per bon). Ekskl. AFLYST + tilbud.
+    // Matcher v1's "Total" og undgår dobbelttælling af bons med både pax og enh.
+    var workload = 0, count = 0;
     for (var i = 0; i < _blBons.length; i++) {
-        totalPax += _blBons[i].pax || 0;
-        totalUnits += _blBons[i].total_units || 0;
+        var b = _blBons[i];
+        if (b.is_offer || b.status_code === 'AFLYST') continue;
+        var pax = b.pax || 0;
+        var units = b.total_units || 0;
+        workload += units > 0 ? units : pax;
+        count++;
     }
 
     // Date label
@@ -409,8 +415,7 @@ function _blRenderSummary() {
 
     var parts = [dateLabel];
     parts.push(count + ' bon' + (count !== 1 ? 'ner' : ''));
-    if (totalPax > 0) parts.push(totalPax + ' pax');
-    if (totalUnits > 0) parts.push(totalUnits + ' enheder');
+    if (workload > 0) parts.push(workload + ' enheder');
 
     var html = '<span>' + esc(parts.join(' \u00B7 ')) + '</span>';
 

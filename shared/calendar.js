@@ -552,10 +552,10 @@ function _renderCalendar() {
             var wtCell   = document.createElement('div');
             wtCell.className = 'cal-week-total';
             if (wt && wt.count > 0) {
-                var wtParts = [];
-                if (wt.pax > 0) wtParts.push(wt.pax + ' pax');
-                if (wt.units > 0) wtParts.push('(' + wt.units + ' enh.)');
-                wtCell.innerHTML = '<div class="cal-week-total-line">' + (wtParts.join(' ') || wt.count + ' bons') + '</div>'
+                // Vis workload (= enh. hvis sat, ellers pax — per bon, summeret)
+                // Matcher v1's "Total"-tal og undgår dobbelttælling af bons med både pax og enh.
+                var wtLine = wt.workload > 0 ? (wt.workload + ' enh.') : (wt.count + ' bons');
+                wtCell.innerHTML = '<div class="cal-week-total-line">' + wtLine + '</div>'
                     + '<div class="cal-week-total-line count">' + wt.count + ' bons</div>';
             }
             grid.appendChild(wtCell);
@@ -655,14 +655,14 @@ function _buildDayCell(dateStr, dayData, isCurrentMonth, isToday) {
         cell.appendChild(bonsDiv);
     }
 
-    // Dag-totaler — pax + (enheder)
+    // Dag-totaler — workload (matcher v1's "Total": enh. hvis sat, ellers pax — per bon)
     if (dayData && dayData.totals.count > 0) {
         var totals = document.createElement('div');
         totals.className = 'cal-day-totals';
-        var totalParts = [];
-        if (dayData.totals.pax > 0) totalParts.push(dayData.totals.pax + ' pax');
-        if (dayData.totals.units > 0) totalParts.push('(' + dayData.totals.units + ' enh.)');
-        totals.innerHTML = '<span>' + (totalParts.join(' ') || dayData.totals.count + ' bons') + '</span>'
+        var dayLine = dayData.totals.workload > 0
+            ? (dayData.totals.workload + ' enh.')
+            : (dayData.totals.count + ' bons');
+        totals.innerHTML = '<span>' + dayLine + '</span>'
             + '<span>' + dayData.totals.count + ' bons</span>';
         cell.appendChild(totals);
     }
