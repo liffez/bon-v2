@@ -569,6 +569,51 @@
         </p>
       </section>
 
+      <section style="margin-bottom:24px;">
+        <h3 style="font-size:16px;margin-bottom:6px;">Tæthed — kalender (særskilt)</h3>
+        <p style="font-size:13px;color:var(--color-text-dim);margin-bottom:8px;">
+          Kalenderen kan have sin egen tæthed hvis du fx vil bruge Kompakt på resten af appen men have lidt mere luft i kalenderen. Standard er at følge dit valg ovenfor.
+        </p>
+
+        <div class="density-options">
+          <label class="density-option">
+            <input type="radio" name="cal-density" value="inherit">
+            <div class="density-option-body">
+              <div class="density-option-title">Følg global</div>
+              <div class="density-option-desc">Kalenderen bruger samme tæthed som resten af appen.</div>
+            </div>
+          </label>
+
+          <label class="density-option">
+            <input type="radio" name="cal-density" value="comfort">
+            <div class="density-option-body">
+              <div class="density-option-title">Komfort</div>
+              <div class="density-option-desc">Mere luft mellem rækkerne — lettere at scanne.</div>
+            </div>
+          </label>
+
+          <label class="density-option">
+            <input type="radio" name="cal-density" value="compact">
+            <div class="density-option-body">
+              <div class="density-option-title">Kompakt</div>
+              <div class="density-option-desc">Standardstørrelse for 14"-laptops.</div>
+            </div>
+          </label>
+
+          <label class="density-option">
+            <input type="radio" name="cal-density" value="dense">
+            <div class="density-option-body">
+              <div class="density-option-title">Tæt</div>
+              <div class="density-option-desc">Maksimalt antal bons synlige uden scroll.</div>
+            </div>
+          </label>
+        </div>
+
+        <button class="st-btn st-btn-secondary" id="resetCalDensityBtn" style="margin-top:12px;">
+          Nulstil til Følg global
+        </button>
+      </section>
+
       <section>
         <h3 style="font-size:16px;margin-bottom:6px;">Preview</h3>
         <p style="font-size:13px;color:var(--color-text-dim);margin-bottom:8px;">
@@ -1443,6 +1488,38 @@ function initThisDeviceSection() {
   // Hvis brugeren åbner siden i en anden fane og ændrer density,
   // afspejl ændringen her uden reload
   document.addEventListener('density:change', syncRadios);
+
+  // Kalender-specifik override
+  if (window.CalendarDensity) {
+    function syncCalRadios() {
+      var current = CalendarDensity.current(); // 'inherit' | 'comfort' | 'compact' | 'dense'
+      var radios = document.querySelectorAll('input[name="cal-density"]');
+      radios.forEach(function(r) { r.checked = (r.value === current); });
+    }
+
+    syncCalRadios();
+
+    document.querySelectorAll('input[name="cal-density"]').forEach(function(radio) {
+      radio.addEventListener('change', function(e) {
+        if (!e.target.checked) return;
+        if (e.target.value === 'inherit') {
+          CalendarDensity.reset();
+        } else {
+          CalendarDensity.set(e.target.value);
+        }
+      });
+    });
+
+    var resetCalBtn = document.getElementById('resetCalDensityBtn');
+    if (resetCalBtn) {
+      resetCalBtn.addEventListener('click', function() {
+        CalendarDensity.reset();
+        syncCalRadios();
+      });
+    }
+
+    document.addEventListener('calendar-density:change', syncCalRadios);
+  }
 }
 
 // ─── TOAST ───────────────────────────────────────────────

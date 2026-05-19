@@ -248,9 +248,9 @@
     align-items: baseline;
     gap: 4px;
     padding: 3px 6px;
-    border-left: 5px solid var(--bon-color, #999);
-    border-radius: 0 3px 3px 0;
-    background: color-mix(in srgb, var(--bon-color, #999) 10%, white);
+    border-radius: 4px;
+    background: var(--bon-color, #999);
+    color: var(--bon-text, #fff);
     font-size: 11px;
     cursor: pointer;
     white-space: nowrap;
@@ -258,7 +258,7 @@
     text-overflow: ellipsis;
 }
 .cal-bon-entry:hover {
-    background: color-mix(in srgb, var(--bon-color, #999) 22%, white);
+    filter: brightness(1.08);
 }
 
 .cal-bon-entry[data-hidden="true"] {
@@ -267,21 +267,30 @@
 
 .cal-bon-entry[data-production="true"] {
     --bon-color: #4a7ab0;
+    --bon-text: #ffffff;
+}
+
+.cal-bon-entry[data-offer="true"] {
+    background: color-mix(in srgb, var(--bon-color, #999) 50%, white);
+    border: 1px dashed var(--bon-color, #999);
+    padding: 2px 5px;
 }
 
 .cal-bon-time {
     font-weight: 700;
-    color: var(--color-text);
+    color: inherit;
     min-width: 35px;
 }
 
 .cal-bon-id {
-    color: var(--brand-primary);
+    color: inherit;
     font-weight: 600;
+    opacity: 0.92;
 }
 
 .cal-bon-name {
-    color: var(--color-text-dim);
+    color: inherit;
+    opacity: 0.85;
     overflow: hidden;
     text-overflow: ellipsis;
 }
@@ -289,16 +298,17 @@
 .cal-bon-pax {
     margin-left: auto;
     font-weight: 700;
-    color: var(--color-text);
+    color: inherit;
     white-space: nowrap;
+    font-variant-numeric: tabular-nums;
 }
 
-/* Day totals */
+/* Day totals — øverst i cellen, under datolinjen */
 .cal-day-totals {
-    margin-top: auto;
-    padding-top: 2px;
-    border-top: 1px solid var(--color-border);
-    font-size: 11px;
+    padding: 2px 0 4px;
+    border-bottom: 1px dotted var(--color-border);
+    margin-bottom: 2px;
+    font-size: 10px;
     font-weight: 600;
     color: var(--color-text-dim);
     display: flex;

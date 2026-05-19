@@ -255,14 +255,17 @@ router.get('/calendar', handle((req, res) => {
         SELECT
             b.id, b.bon_number, b.delivery_date, b.pickup_time, b.delivery_time,
             b.pax, b.total_units, b.delivery_type, b.payment_type, b.is_offer,
+            b.price_category,
             sd.code  AS status_code,
             sd.label AS status_label,
             sd.color AS status_color,
+            pc.code  AS price_category_code,
             c.first_name || ' ' || COALESCE(c.last_name, '') AS contact_name_full,
             co.name  AS company_name,
             (SELECT COUNT(*) FROM mail_messages mm JOIN mail_threads mt ON mm.thread_id = mt.id WHERE mt.bon_id = b.id AND mm.direction = 'in' AND mm.is_read = 0) AS unread_mail_count
         FROM bons b
         JOIN   status_definitions sd ON b.status_id  = sd.id
+        LEFT JOIN price_categories pc ON b.price_category_id = pc.id
         LEFT JOIN customers c        ON b.customer_id = c.id
         LEFT JOIN companies co       ON b.company_id  = co.id
         WHERE ${where.join(' AND ')}

@@ -11,18 +11,15 @@
 
 | Krav | Detalje | Data-kilde | Status |
 |------|---------|-----------|--------|
-| Produktions-bon — blå farve | Blå baggrundsfarve i kalender-blok. `data-production="true"` på `.cal-bon-entry` overskriver `--bon-color` til `#4a7ab0` | `price_category = 'produktion'` | ✅ Done — kalender + bon-kort (commit c1274b9) |
+| Produktions-bon — blå farve | Blå baggrundsfarve i kalender-blok. Inline `--bon-color: #4a7ab0` (ikke kun CSS attribute-selector — inline beats specificitet). Calendar-endpoint leverer nu `price_category` så frontend-detection virker | `price_category = 'produktion'` | ✅ Done — original commit c1274b9, fixed end-to-end 19. maj 2026 |
 | Produktions-bon — ikon | 🔧 (svensk nøgle) vises på bon-blok | `price_category = 'produktion'` | ✅ Done — kalender (month + list) + bon-kort (commit c1274b9) |
 | Mail-ikon | ✉ konvolut vises når bon har tilknyttet mail | `bon_mails` COUNT > 0 | ✅ Done — kalender + bon-kort + listview |
 | Status-farver fra BonConfig | Web-orders, kalender-listevisning og ugeoversigt brugte raw `status_color` fra DB (blege `#f1e6b2`) i stedet for BON_CONFIG-paletten | `BON_CONFIG.statuses` | ✅ Done — commit c1274b9 |
-
----
-
-## Bon-kort (kitchen)
-
-| Krav | Detalje | Data-kilde | Status |
-|------|---------|-----------|--------|
-| *(tilføj her efterhånden)* | | | |
+| Status som baggrundsfarve | Hele bon-rækken farves efter status (fuld baggrund med `--bon-color`, ikke venstrekant-stribe). Tekstfarve fra `BON_CONFIG.statuses[code].text` direkte (ikke luminans-beregning). Production-bon override bevaret | `BON_CONFIG.statuses` | ✅ Done — 19. maj 2026, spec `CLAUDE_KALENDER.md` |
+| Dagstotal øverst i celle | Total (enheder + bons) vises som første element i hver dagscelle med dotted bottom-border, ikke nederst | `bons` aggregeret pr. dag | ✅ Done — 19. maj 2026 |
+| Tilbud som ghost-blok | `is_offer = 1` rendres med 50%-tint af status-farven + stiplet border | `data-offer="true"` | ✅ Done — 19. maj 2026 |
+| Bon-blok afrunding | `border-radius: 4px` på alle bon-rækker (matcher resten af systemet) | — | ✅ Done — 19. maj 2026 |
+| Kalender-density-override | Kalenderen kan have eget tæthedsvalg særskilt fra global density. Default `inherit` (følger global). Settings → Denne enhed → "Tæthed — kalender (særskilt)" | `localStorage.bon_v2_calendar_density` | ✅ Done — 19. maj 2026, `window.CalendarDensity` |
 
 ---
 
@@ -41,7 +38,7 @@
 
 | Krav | Detalje | Hvor | Status |
 |------|---------|------|--------|
-| Topbar-notif på web-ordre | Grøn toast nederst-højre ved SSE `bon_created` med `source='web_order'`. Klik → åbner bon i drawer. Auto-fade efter 12s | `office/index.html` + `shared/components.css` | ✅ Done (dags dato) |
+| Topbar-notif på web-ordre | Grøn toast nederst-højre ved SSE `bon_created` med `source='web_order'`. Klik → åbner bon i drawer. Auto-fade efter 12s | `office/index.html` + `shared/components.css` | ✅ Done (19. maj 2026) |
 | Owner-mail på nye ordrer | Settings-key `web_order_notification_email` + skabelon `web_order_owner_notification`. Sendes fire-and-forget med klikbart drawer-link | Migration 062 + `routes/web-orders.js:370` | ✅ Done — allerede implementeret tidligere |
 | SSE `bon_status` til bons-list | Bons-list reagerede ikke på `bon_status`-event — krævede manuel refresh efter status-skift. Fakturering/dashboard/rapporter/ugeoversigt lyttede allerede | `office/index.html` + `office/views/bons-list.js` | ✅ Done — commit b436492 |
 | Responsive sidebar | Sidebar forsvandt brutalt ved <768px uden replacement. Hamburger-toggle + overlay-drawer ved <900px, lukker ved backdrop/Escape/sidebar-link | `office/index.html` | ✅ Done — commit 1de0e58 |
