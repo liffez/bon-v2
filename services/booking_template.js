@@ -131,6 +131,27 @@ function buildContext(bon) {
 }
 
 // ==========================================
+// Intern variant af renderTemplate der ALTID returnerer mangler-flag.
+// Bruges af renderFields() til at markere felter med [mangler] +
+// ikke-klikbare i popout-UI'et.
+// ==========================================
+function _renderWithMeta(template, vars) {
+    if (template == null) return { text: '', hasMissing: false };
+    let hasMissing = false;
+    const text = String(template).replace(/\{([a-zA-Z_][a-zA-Z0-9_]*)\}/g, (full, key) => {
+        const val = vars[key];
+        if (val != null && String(val).trim() !== '') return String(val);
+        if (!VARIABLE_KEYS.has(key)) {
+            console.warn(`[booking_template] Ukendt placeholder: {${key}}`);
+            return full;
+        }
+        hasMissing = true;
+        return '[mangler]';
+    });
+    return { text, hasMissing };
+}
+
+// ==========================================
 // Renderer template-streng med {variabel}-syntaks.
 //
 // renderTemplate('Hej {customer_name}', { customer_name: 'Anne' })
@@ -142,16 +163,39 @@ function buildContext(bon) {
 function renderTemplate(template, vars, options = {}) {
     if (template == null) return '';
     const { markMissing = true } = options;
+    const { text, hasMissing } = _renderWithMeta(template, vars);
+    if (!markMissing && hasMissing) {
+        return text.replace(/\[mangler\]/g, '');
+    }
+    return text;
+}
 
-    return String(template).replace(/\{([a-zA-Z_][a-zA-Z0-9_]*)\}/g, (full, key) => {
-        const val = vars[key];
-        if (val != null && String(val).trim() !== '') return String(val);
-        if (!VARIABLE_KEYS.has(key)) {
-            // Ukendt placeholder — efterlad rå (advarsel for udvikler)
-            console.warn(`[booking_template] Ukendt placeholder: {${key}}`);
-            return full;
-        }
-        return markMissing ? '[mangler]' : '';
+// ==========================================
+// Renderer booking_fields_json til en array af { label, value, missing, step }.
+// Bruges af popout-vinduet til at vise klikbare felt-chips.
+//
+// Returnerer null hvis vehicle ikke har booking_fields_json eller hvis
+// JSON er ugyldig — popout falder så tilbage til "Samlet tekst"-mode.
+// ==========================================
+function renderFields(vehicle, vars) {
+    if (!vehicle || !vehicle.booking_fields_json) return null;
+    let fields;
+    try {
+        fields = JSON.parse(vehicle.booking_fields_json);
+    } catch (e) {
+        console.warn(`[booking_template] Ugyldig booking_fields_json for vehicle ${vehicle.code || vehicle.id}:`, e.message);
+        return null;
+    }
+    if (!Array.isArray(fields)) return null;
+
+    return fields.map(f => {
+        const { text, hasMissing } = _renderWithMeta(f && f.template != null ? f.template : '', vars);
+        return {
+            label: String(f && f.label != null ? f.label : ''),
+            value: text,
+            missing: hasMissing,
+            step: f && f.step ? String(f.step) : null
+        };
     });
 }
 
@@ -163,6 +207,7 @@ function getVehicleById(id) {
         SELECT id, code, label, type, is_internal,
                max_capacity_boxes, max_distance_km,
                cost_formula_json, booking_method, booking_url, booking_template,
+               booking_fields_json,
                booking_api_config_json, supplier_id, is_active, sort_order
         FROM delivery_vehicles
         WHERE id = ?
@@ -174,6 +219,7 @@ function getActiveVehicles() {
         SELECT id, code, label, type, is_internal,
                max_capacity_boxes, max_distance_km,
                cost_formula_json, booking_method, booking_url, booking_template,
+               booking_fields_json,
                supplier_id, is_active, sort_order
         FROM delivery_vehicles
         WHERE is_active = 1
@@ -233,6 +279,7 @@ function buildBookingPayload(bonId, vehicleId) {
         booking_method: vehicle.booking_method,
         booking_url: vehicle.booking_url || null,
         clipboard_text,
+        fields: renderFields(vehicle, vars),
         missing_fields: missing,
         vehicle: {
             id: vehicle.id,
@@ -300,6 +347,7 @@ function estimateCost(vehicle, bon) {
 module.exports = {
     TEMPLATE_VARIABLES,
     renderTemplate,
+    renderFields,
     buildContext,
     buildBookingPayload,
     buildPackagingLines,

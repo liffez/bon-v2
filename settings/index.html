@@ -1214,14 +1214,32 @@
           <label class="st-label">Bestillings-URL (åbnes i nyt vindue)</label>
           <input type="url" id="dv-edit-url" class="st-input" placeholder="https://...">
           <div style="margin-top:14px">
-            <label class="st-label">Bestillings-template (clipboard-tekst)</label>
+            <label class="st-label">Bestillings-template (samlet tekst — fallback)</label>
             <div id="dv-vars-chips" style="margin:6px 0 8px;display:flex;flex-wrap:wrap;gap:4px"></div>
-            <textarea id="dv-edit-template" class="st-input" rows="14"
+            <textarea id="dv-edit-template" class="st-input" rows="10"
                       style="font-family:ui-monospace,Menlo,monospace;font-size:12.5px"
                       placeholder="Klik på en variabel-chip ovenfor for at indsætte den i template-teksten."></textarea>
             <div style="margin-top:8px;font-size:12px;color:#888">
               Tip: variabler er inden i krøllede parenteser, fx <code>{customer_name}</code>.
               Manglende felter på en bon vises som <code>[mangler]</code> i preview.
+            </div>
+          </div>
+
+          <!-- ── FELT-KONFIGURATION (booking_fields_json) ─────────────────── -->
+          <div style="margin-top:22px;padding:14px;border:1px solid var(--color-border);border-radius:6px;background:#ffffff">
+            <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:6px">
+              <label class="st-label" style="margin:0">Felt-for-felt-konfiguration</label>
+              <button type="button" class="st-btn-secondary st-btn-sm" onclick="dvAddField()">+ Tilføj felt</button>
+            </div>
+            <div style="font-size:12px;color:#888;margin-bottom:10px">
+              Hvert felt er en mini-template med <code>{variabel}</code>-syntaks. Bruges af popout-vinduet
+              hvor kontoret klikker for at kopiere felter ét ad gangen.
+              <strong>Step</strong> grupperer felter visuelt (fx Lobo-trin 2 / trin 3).
+              Tomme variabler vises som <code>[mangler]</code>.
+            </div>
+            <div id="dv-fields-list" style="display:flex;flex-direction:column;gap:6px"></div>
+            <div style="margin-top:10px;font-size:11px;color:#888">
+              Klik en variabel-chip øverst for at indsætte den i det <em>sidst-fokuserede</em> template-felt.
             </div>
           </div>
         </div>
@@ -4037,6 +4055,8 @@ document.addEventListener('DOMContentLoaded', async () => {
 let _dvVehicles = [];
 let _dvVariables = [];
 let _dvEditingId = null;
+let _dvFields = [];          // working copy af booking_fields_json under redigering
+let _dvLastFocusedField = null;  // refererer til { idx, kind: 'template'|'step'|'label' }
 
 async function loadDeliveryVehicles() {
     const c = document.getElementById('dv-content');
@@ -4073,6 +4093,18 @@ function _dvRender() {
         const urlStatus = v.booking_method === 'manual_clipboard'
             ? (v.booking_url ? '<span style="color:#5a9b3f">✓</span>' : '<span style="color:#b04030">⚠</span>')
             : '—';
+        let fieldCount = 0;
+        if (v.booking_fields_json) {
+            try {
+                const arr = JSON.parse(v.booking_fields_json);
+                if (Array.isArray(arr)) fieldCount = arr.length;
+            } catch (e) {}
+        }
+        const fieldStatus = v.booking_method === 'manual_clipboard'
+            ? (fieldCount > 0
+                ? '<span style="color:#5a9b3f">✓ ' + fieldCount + '</span>'
+                : '<span style="color:#888">—</span>')
+            : '—';
         const inactiveStyle = v.is_active ? '' : 'opacity:0.5';
 
         return '<tr style="' + inactiveStyle + '">' +
@@ -4081,6 +4113,7 @@ function _dvRender() {
             '<td style="padding:6px 8px">' + esc(v.type) + '</td>' +
             '<td style="padding:6px 8px">' + methodLabel + '</td>' +
             '<td style="padding:6px 8px;text-align:center">' + tplStatus + '</td>' +
+            '<td style="padding:6px 8px;text-align:center">' + fieldStatus + '</td>' +
             '<td style="padding:6px 8px;text-align:center">' + urlStatus + '</td>' +
             '<td style="padding:6px 8px;text-align:right">' +
                 '<button class="st-btn-secondary st-btn-sm" onclick="dvEditVehicle(' + v.id + ')">Rediger</button>' +
@@ -4094,7 +4127,8 @@ function _dvRender() {
                 '<th style="padding:8px;text-align:left">Navn</th>' +
                 '<th style="padding:8px;text-align:left">Type</th>' +
                 '<th style="padding:8px;text-align:left">Booking-metode</th>' +
-                '<th style="padding:8px;text-align:center">Template</th>' +
+                '<th style="padding:8px;text-align:center">Samlet tekst</th>' +
+                '<th style="padding:8px;text-align:center">Felter</th>' +
                 '<th style="padding:8px;text-align:center">URL</th>' +
                 '<th style="padding:8px"></th>' +
             '</tr></thead>' +
@@ -4116,6 +4150,11 @@ function dvEditVehicle(id) {
     document.getElementById('dv-edit-template').value = v.booking_template || '';
     document.getElementById('dv-edit-cost').value = v.cost_formula_json || '';
 
+    // Booking-fields (felt-for-felt-konfiguration)
+    _dvFields = _dvParseFields(v.booking_fields_json);
+    _dvLastFocusedField = null;
+    _dvRenderFields();
+
     _dvRenderVarChips();
     dvOnMethodChange();
 
@@ -4123,6 +4162,107 @@ function dvEditVehicle(id) {
     editor.style.display = '';
     editor.scrollIntoView({ behavior: 'smooth', block: 'start' });
 }
+
+function _dvParseFields(json) {
+    if (!json) return [];
+    try {
+        const arr = JSON.parse(json);
+        if (!Array.isArray(arr)) return [];
+        return arr.map(f => ({
+            label: String(f && f.label != null ? f.label : ''),
+            template: String(f && f.template != null ? f.template : ''),
+            step: f && f.step ? String(f.step) : ''
+        }));
+    } catch (e) {
+        console.warn('[settings] Ugyldig booking_fields_json:', e.message);
+        return [];
+    }
+}
+
+function _dvRenderFields() {
+    const c = document.getElementById('dv-fields-list');
+    if (!c) return;
+    if (_dvFields.length === 0) {
+        c.innerHTML = '<div style="color:#888;font-size:12px;padding:10px;border:1px dashed var(--color-border);border-radius:5px;text-align:center">' +
+            'Ingen felter konfigureret. Klik <strong>+ Tilføj felt</strong> for at komme i gang.<br>' +
+            '<span style="font-size:11px">(Popout falder tilbage til "Samlet tekst"-mode hvis ingen felter er sat.)</span>' +
+        '</div>';
+        return;
+    }
+
+    c.innerHTML = _dvFields.map((f, idx) => {
+        const isFirst = idx === 0;
+        const isLast = idx === _dvFields.length - 1;
+        return '<div class="dv-field-row" data-idx="' + idx + '"' +
+            ' style="display:grid;grid-template-columns:24px 130px 130px 1fr 24px;gap:6px;align-items:center;background:#fafaf8;padding:6px;border:1px solid var(--color-border);border-radius:5px">' +
+            '<div style="display:flex;flex-direction:column;gap:2px">' +
+                '<button type="button" class="st-btn-secondary st-btn-sm" title="Op" onclick="dvMoveField(' + idx + ',-1)"' + (isFirst ? ' disabled' : '') + ' style="padding:0 2px;font-size:10px;line-height:1">▲</button>' +
+                '<button type="button" class="st-btn-secondary st-btn-sm" title="Ned" onclick="dvMoveField(' + idx + ',1)"' + (isLast ? ' disabled' : '') + ' style="padding:0 2px;font-size:10px;line-height:1">▼</button>' +
+            '</div>' +
+            '<input type="text" class="st-input dv-field-step" placeholder="Step (valgfri)" value="' + esc(f.step) + '" data-idx="' + idx + '" style="font-size:12px">' +
+            '<input type="text" class="st-input dv-field-label" placeholder="Label *" value="' + esc(f.label) + '" data-idx="' + idx + '" style="font-size:12px">' +
+            '<input type="text" class="st-input dv-field-template" placeholder="{variabel} eller fri tekst" value="' + esc(f.template) + '" data-idx="' + idx + '" style="font-family:ui-monospace,Menlo,monospace;font-size:12px">' +
+            '<button type="button" title="Fjern" onclick="dvRemoveField(' + idx + ')" style="background:none;border:none;color:#b04030;font-size:16px;cursor:pointer;padding:0">×</button>' +
+        '</div>';
+    }).join('');
+
+    // Bind input handlers
+    c.querySelectorAll('.dv-field-label, .dv-field-template, .dv-field-step').forEach(inp => {
+        inp.addEventListener('input', _dvOnFieldInput);
+        inp.addEventListener('focus', _dvOnFieldFocus);
+    });
+}
+
+function _dvOnFieldInput(e) {
+    const idx = Number(e.target.dataset.idx);
+    if (Number.isNaN(idx) || !_dvFields[idx]) return;
+    if (e.target.classList.contains('dv-field-label'))    _dvFields[idx].label = e.target.value;
+    if (e.target.classList.contains('dv-field-template')) _dvFields[idx].template = e.target.value;
+    if (e.target.classList.contains('dv-field-step'))     _dvFields[idx].step = e.target.value;
+}
+
+function _dvOnFieldFocus(e) {
+    const idx = Number(e.target.dataset.idx);
+    if (Number.isNaN(idx)) return;
+    let kind = 'template';
+    if (e.target.classList.contains('dv-field-label')) kind = 'label';
+    else if (e.target.classList.contains('dv-field-step')) kind = 'step';
+    _dvLastFocusedField = { idx, kind, el: e.target };
+}
+
+function dvAddField() {
+    _dvFields.push({ label: '', template: '', step: '' });
+    _dvRenderFields();
+    // Auto-fokuser label på den nye række
+    setTimeout(() => {
+        const inputs = document.querySelectorAll('.dv-field-label');
+        const last = inputs[inputs.length - 1];
+        if (last) last.focus();
+    }, 0);
+}
+
+function dvRemoveField(idx) {
+    const f = _dvFields[idx];
+    if (!f) return;
+    const hasContent = (f.label || f.template || f.step);
+    if (hasContent && !confirm('Fjern feltet "' + (f.label || '(ingen label)') + '"?')) return;
+    _dvFields.splice(idx, 1);
+    _dvLastFocusedField = null;
+    _dvRenderFields();
+}
+
+function dvMoveField(idx, delta) {
+    const target = idx + delta;
+    if (target < 0 || target >= _dvFields.length) return;
+    const [item] = _dvFields.splice(idx, 1);
+    _dvFields.splice(target, 0, item);
+    _dvLastFocusedField = null;
+    _dvRenderFields();
+}
+
+window.dvAddField = dvAddField;
+window.dvRemoveField = dvRemoveField;
+window.dvMoveField = dvMoveField;
 
 function dvCloseEditor() {
     _dvEditingId = null;
@@ -4148,12 +4288,27 @@ function _dvRenderVarChips() {
 }
 
 function dvInsertVar(key) {
+    const insert = '{' + key + '}';
+    // Prioritér det sidst-fokuserede felt-template-input (hvis brugeren har klikket på en felt-række)
+    if (_dvLastFocusedField && _dvLastFocusedField.kind === 'template' && _dvLastFocusedField.el && document.contains(_dvLastFocusedField.el)) {
+        const inp = _dvLastFocusedField.el;
+        const start = inp.selectionStart || 0;
+        const end = inp.selectionEnd || 0;
+        const val = inp.value;
+        inp.value = val.slice(0, start) + insert + val.slice(end);
+        // Opdater state
+        const idx = Number(inp.dataset.idx);
+        if (!Number.isNaN(idx) && _dvFields[idx]) _dvFields[idx].template = inp.value;
+        inp.focus();
+        inp.selectionStart = inp.selectionEnd = start + insert.length;
+        return;
+    }
+    // Fallback: indsæt i den store "samlet tekst"-template-textarea
     const ta = document.getElementById('dv-edit-template');
     if (!ta) return;
     const start = ta.selectionStart || 0;
     const end = ta.selectionEnd || 0;
     const value = ta.value;
-    const insert = '{' + key + '}';
     ta.value = value.slice(0, start) + insert + value.slice(end);
     ta.focus();
     ta.selectionStart = ta.selectionEnd = start + insert.length;
@@ -4174,6 +4329,29 @@ async function dvSaveVehicle() {
         booking_url: document.getElementById('dv-edit-url').value.trim() || null,
         booking_template: document.getElementById('dv-edit-template').value || null
     };
+
+    // Felt-konfiguration: filtrér tomme rækker fra, valider label er sat på resten
+    const cleanedFields = (_dvFields || [])
+        .map(f => ({
+            label: (f.label || '').trim(),
+            template: (f.template || ''),
+            step: (f.step || '').trim()
+        }))
+        .filter(f => f.label || f.template || f.step);
+    const missingLabel = cleanedFields.find(f => !f.label);
+    if (missingLabel) {
+        alert('Hvert felt skal have en label. Udfyld label på alle rækker (eller fjern dem).');
+        btn.disabled = false;
+        btn.textContent = originalText;
+        return;
+    }
+    // Normaliser: drop step-property hvis tom (matcher mockup-formatet)
+    const serialized = cleanedFields.map(f => {
+        const out = { label: f.label, template: f.template };
+        if (f.step) out.step = f.step;
+        return out;
+    });
+    data.booking_fields_json = serialized.length > 0 ? JSON.stringify(serialized) : null;
 
     const costRaw = document.getElementById('dv-edit-cost').value.trim();
     if (costRaw) {

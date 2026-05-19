@@ -158,6 +158,7 @@ app.use('/api/help-content',     require('./routes/help'));
 app.use('/api/sidekick',         require('./routes/sidekick'));
 app.use('/api/booking',          bookingRouter);
 app.use('/api/delivery',         require('./routes/delivery'));
+app.use('/delivery',             require('./routes/delivery_views'));
 app.use('/api/nav',              require('./routes/nav'));
 
 // Statisk serving af receipt-fotos (for Whiteboard link-only access)
