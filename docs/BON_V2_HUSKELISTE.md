@@ -1,7 +1,9 @@
-# BON_V2_HUSKELISTE.md — Visuelle krav og detaljer fra Bon v1
+# BON_V2_HUSKELISTE.md — Åbne småting og pligter
 > Ting der ikke er specifikke nok til en fase-spec endnu,
-> men som SKAL med inden Bon v1 kan lukkes ned.
-> Opdateres løbende — tjekkes ved start af hver fase.
+> men som SKAL med — enten før Bon v1 endelig nedlægges, eller som almindelig oprydning post-cutover.
+> Opdateres løbende — tjekkes ved start af hver session.
+>
+> Større projekter og paraplyer ligger i `BON_V2_ROADMAP.md`.
 
 ---
 
@@ -9,9 +11,10 @@
 
 | Krav | Detalje | Data-kilde | Status |
 |------|---------|-----------|--------|
-| Produktions-bon — blå farve | Blå baggrundsfarve i kalender-blok | `price_category = 'produktion'` | ⚠ Bon-kort har styling (`shared/bon_kort.css:658`), kalender mangler |
-| Produktions-bon — ikon | 🔧 (svensk nøgle) vises på bon-blok | `price_category = 'produktion'` | ✅ Done — kalender + bon-kort |
+| Produktions-bon — blå farve | Blå baggrundsfarve i kalender-blok. `data-production="true"` på `.cal-bon-entry` overskriver `--bon-color` til `#4a7ab0` | `price_category = 'produktion'` | ✅ Done — kalender + bon-kort (commit c1274b9) |
+| Produktions-bon — ikon | 🔧 (svensk nøgle) vises på bon-blok | `price_category = 'produktion'` | ✅ Done — kalender (month + list) + bon-kort (commit c1274b9) |
 | Mail-ikon | ✉ konvolut vises når bon har tilknyttet mail | `bon_mails` COUNT > 0 | ✅ Done — kalender + bon-kort + listview |
+| Status-farver fra BonConfig | Web-orders, kalender-listevisning og ugeoversigt brugte raw `status_color` fra DB (blege `#f1e6b2`) i stedet for BON_CONFIG-paletten | `BON_CONFIG.statuses` | ✅ Done — commit c1274b9 |
 
 ---
 
@@ -29,16 +32,39 @@
 |------|---------|-----------|--------|
 | Kopier bon | Knap i drawer — kopierer alle felter til ny bon med status NY og nyt bon-nummer | `POST /api/bons/:id/copy` | ❌ Mangler — endpoint + UI ikke implementeret |
 | Mail-ikon i drawer | Vis ✉ + antal mails når bon_mails > 0 | `bon_mails` COUNT | ✅ Done — mail-historik i drawer |
+| Historik-knap i drawer-header | Åbner `showHistorik`-modal med fuld changelog (status, felter, mail, prep) | `GET /api/bons/:id/changelog` | ✅ Done — commit a76b9d0 |
+| Expandable note-felter | Klik på sublabel (Kundeønsker, Faktura info, Køkken info, Interne noter) folder hele textarea ud uden scroll | drawer-noter | ✅ Done — commit ff0cfd7 |
 
 ---
 
-## Formbuilder (bestilling_v2.html)
+## Office UI
+
+| Krav | Detalje | Hvor | Status |
+|------|---------|------|--------|
+| Topbar-notif på web-ordre | Grøn toast nederst-højre ved SSE `bon_created` med `source='web_order'`. Klik → åbner bon i drawer. Auto-fade efter 12s | `office/index.html` + `shared/components.css` | ✅ Done (dags dato) |
+| Owner-mail på nye ordrer | Settings-key `web_order_notification_email` + skabelon `web_order_owner_notification`. Sendes fire-and-forget med klikbart drawer-link | Migration 062 + `routes/web-orders.js:370` | ✅ Done — allerede implementeret tidligere |
+| SSE `bon_status` til bons-list | Bons-list reagerede ikke på `bon_status`-event — krævede manuel refresh efter status-skift. Fakturering/dashboard/rapporter/ugeoversigt lyttede allerede | `office/index.html` + `office/views/bons-list.js` | ✅ Done — commit b436492 |
+| Responsive sidebar | Sidebar forsvandt brutalt ved <768px uden replacement. Hamburger-toggle + overlay-drawer ved <900px, lukker ved backdrop/Escape/sidebar-link | `office/index.html` | ✅ Done — commit 1de0e58 |
+
+---
+
+## Mobile shell
+
+| Krav | Detalje | Hvor | Status |
+|------|---------|------|--------|
+| `customer_name`-fallback | Mobile bons-list viser "Ukendt"/"?" pga. field name mismatch (`contact_name_full` vs `customer_name`) | `mobile/views/bons.js:462` + `:642` | ✅ Done — commit c1274b9 |
+| Mobile SSE | `mobile/index.html` har ingen `connectSSE()`, så mobil-bons opdateres kun ved pull-to-refresh. Bevidst lavt prioriteret, men værd at have på listen | `mobile/index.html` | ❌ Mangler |
+
+---
+
+## Formbuilder & embed
 
 | Krav | Detalje | Status |
 |------|---------|--------|
 | Faktura/EAN-felt | Textarea til EAN og faktura-info (f12) — mangler i nuværende version | ⚠ Tilføjet i `tools/bestilling_v2.html`, men ny embed-form (`public/embed/bestilling.html`) erstatter den — verificér at EAN-felt er med i embed-versionen |
 | Auto-kopi navn + tlf til kontaktperson | Kopierer fra bestiller-felterne, kan overskrives — webhook gemmer i `day_contact_name`/`day_contact_phone` | ⚠ Webhook-mapping findes (`routes/webhooks.js:17-18`), men formbuilder-admin UI mangler |
 | EAN-udtræk i webhook | Regex `5\d{12}` trækker EAN ud fra faktura-felt og gemmer på firma | ✅ Done (Fase 1d) |
+| Embed-bestilling deploy | Swap JotForm-iframe i WordPress DIVI til ny embed-form | `docs/wordpress_divi_snippet.html` | ❌ Mangler — Leif gør det |
 
 ---
 
@@ -46,8 +72,9 @@
 
 | Krav | Detalje | Status |
 |------|---------|--------|
-| Bud-tidspunkt auto-beregning | Byekspressen: leveringstid − 45 min. Taxa/Volvo: leveringstid − (OSRM køretid + 15 min). Systemet foreslår `courier_arrival_time`, kontoret kan justere | ❌ Mangler — `courier_arrival_time`-felt findes, men auto-beregning ikke implementeret. Byekspressen credentials ikke modtaget endnu |
+| Bud-tidspunkt auto-beregning | Byekspressen: leveringstid − 45 min. Taxa/Volvo: leveringstid − (OSRM køretid + 15 min). Systemet foreslår `courier_arrival_time`, kontoret kan justere | ❌ Mangler — `courier_arrival_time`-felt findes, men auto-beregning ikke implementeret. Afventer Byekspressen credentials |
 | Listview: "Afleveret til bud"-kolonne | Timestamp fra `delivery_events` — vises i dagens overblik | ⚠ `delivery_events` joines i `routes/bons.js:160`, men kolonne ikke vist i listview |
+| Delivery Spor 1 deploy | Templates for By-expressen + Taxa skal udfyldes via Settings → Leveringsmetoder, ellers viser modalen "template ikke konfigureret" | ❌ Mangler — afventer credentials |
 
 ---
 
@@ -69,6 +96,62 @@
 
 ---
 
+## Integrationer
+
+| Krav | Detalje | Status |
+|------|---------|--------|
+| Whiteboard CORS | `bon.ristetrug.dk` skal i `ALLOWED_ORIGINS` på Whiteboard-server | ❌ Mangler |
+| Whiteboard → Grocy `addStock` | Bon v2 udstiller endpoint via Grocy-adapter, Whiteboard kalder det fra sit varemodtagelses-flow | ❌ Mangler — endpoint + auth-mønster mangler |
+
+---
+
+## Konfiguration & deploy
+
+| Krav | Detalje | Status |
+|------|---------|--------|
+| Booking-modul deploy | Kræver `booking_public_url_base`, `booking_default_owner_user_id` og cron-job for reminders (`scripts/booking-reminders.js`) | ❌ Mangler — 3 ting før prod |
+| `ANTHROPIC_API_KEY` i `.env` | Ikke i `.env.example`, ikke i `.env` på server. Menu-agent venter på den (`docs/CLAUDE_MENU_AGENT.md`) | ❌ Mangler |
+| DMI vs Open-Meteo | Open-Meteo bruges p.t. uden nøgle. Beslut: skift til DMI eller behold Open-Meteo og slet DMI-item helt | ❓ Ikke besluttet |
+
+---
+
+## Test-tracks
+
+| Krav | Detalje | Status |
+|------|---------|--------|
+| T_CRM | Test-track for CRM-modulet | ❌ Mangler |
+| T_CASHFLOW | Test-track for cashflow-modulet | ❌ Mangler |
+| T_V1_AFSTEMNING | Baseline-snapshot så vi kan re-køre afstemning hvis der opstår mistanke om data-divergens | ❌ Mangler |
+| T_PO_FLOW_E2E | E2E-test der binder opret PO → send mail → modtag svar → varemodtagelse → Grocy `addStock` sammen. Eksisterende specs (T_INDKOB_LISTE, T_INDKOB_SETUP, T_INDKOB_ADMIN, T_INDKOB_HORKRAM) dækker delene | ❌ Mangler — `T_PO_FLOW_E2E.md` |
+
+---
+
+## Data-oprydning
+
+| Krav | Detalje | Status |
+|------|---------|--------|
+| 77 CVR-duplikatgrupper | Review om de skal merges eller accepteres som afdelinger | ❌ Mangler |
+
+---
+
+---
+
+## Afventer eksternt
+
+| Krav | Detalje | Blokerer |
+|------|---------|----------|
+| By-expressen credentials | Sebastian skal kontaktes igen | Bud-tidspunkt auto-beregning, Delivery Spor 1 templates |
+
+---
+
+## Kræver afklaring
+
+| Krav | Detalje | Status |
+|------|---------|--------|
+| Fremtidige ordrer usynlige | Vag — hvor præcist? Kalender + `later.html` + bons-list "Alle"-filter viser fremtid. Kun "I DAG"-mutex i bons-list skjuler dem (by design). Brug for konkret eksempel | ❓ Afklaring fra Leif |
+
+---
+
 ## Generelt / andet
 
 | Krav | Detalje | Status |
@@ -77,19 +160,45 @@
 
 ---
 
-## Stadig åbne huller (sammenfatning)
+## Sammenfatning — stadig åbne huller
 
-Sortér efter prioritet før Bon v1-nedlukning:
+Grupperet efter type. Sortér frit efter prioritet.
 
-1. **Kopier bon** — drawer-knap + `POST /api/bons/:id/copy`-endpoint
-2. **Bud-tidspunkt auto-beregning** — kræver Byekspressen-credentials (afventer)
-3. **Listview "Afleveret til bud"-kolonne** — data findes, mangler bare UI
-4. **Leveringsmetode-ikoner i settings** — flyt fra hardcoded til settings-tabel
-5. **Produktions-bon blå farve i kalender** — bon-kort har det, kalender mangler
-6. **EAN-felt i embed-bestillingsformularen** — verificér mod `public/embed/bestilling.html`
-7. **Formbuilder-admin auto-kopi UI** — webhook understøtter det, men mangler i admin
+### 🟢 Quick wins (et Claude Code-pass)
+1. **Listview "Afleveret til bud"-kolonne** — data findes, mangler bare UI
+2. **Whiteboard CORS** — `bon.ristetrug.dk` i `ALLOWED_ORIGINS`
+
+### 🟡 Lidt større småting (timer)
+3. **Kopier bon** — endpoint + drawer-knap
+4. **Mobile SSE** — `connectSSE()` i `mobile/index.html`
+5. **Leveringsmetode-ikoner i settings** — flyt fra hardcoded
+6. **EAN-felt i embed-bestilling** — verificér mod `public/embed/bestilling.html`
+7. **Formbuilder-admin auto-kopi UI** — webhook understøtter det
 8. **CRM `purpose_id` skemaverifikation** — bekræft mod prod
+9. **Whiteboard → Grocy `addStock`** — endpoint via adapter
+
+### 🚀 Deploy / ops
+12. **Booking-modul deploy** — 3 settings + cron
+13. **Delivery Spor 1 templates** — afventer credentials
+14. **Embed-bestilling JotForm swap** — Leif gør det
+15. **`ANTHROPIC_API_KEY`** i `.env`
+16. **DMI vs Open-Meteo** — beslutning
+
+### 🧪 Test-tracks
+17. **T_CRM**
+18. **T_CASHFLOW**
+19. **T_V1_AFSTEMNING** (baseline-snapshot)
+20. **T_PO_FLOW_E2E**
+
+### 🧹 Data-oprydning
+21. **77 CVR-duplikatgrupper**
+
+### ⏸ Afventer eksternt
+22. **By-expressen credentials** — blokerer #6 i levering-sektionen og Delivery Spor 1
+
+### ❓ Kræver afklaring
+23. **Fremtidige ordrer usynlige** — konkret eksempel mangler
 
 ---
 
-*Sidst opdateret: maj 2026 — merged med duplikat-fil, status verificeret mod kodebasen*
+*Sidst opdateret: 19. maj 2026 — opdateret efter session: kalender-farver, SSE bons-list, sidebar-toggle, drawer-historik, expandable notes lukket. Falsk `better-sqlite3`-item fjernet (eneste reference er korrekt kontrast-eksempel).*
