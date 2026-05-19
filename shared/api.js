@@ -697,6 +697,45 @@ function patchCrmCustomerStage(id, stage) {
     });
 }
 
+/* ── ENTITY FLAGS (påmindelser på kunder/firmaer) ────────── */
+
+function fetchFlags(entityType, entityId, includeDismissed) {
+    var qs = new URLSearchParams({ entity_type: entityType, entity_id: entityId });
+    if (includeDismissed) qs.set('include_dismissed', '1');
+    return apiFetch('/flags?' + qs.toString());
+}
+
+function createFlag(entityType, entityId, title, body) {
+    return apiFetch('/flags', {
+        method: 'POST',
+        body: JSON.stringify({
+            entity_type: entityType, entity_id: entityId,
+            title: title, body: body || null,
+        }),
+    });
+}
+
+function patchFlag(flagId, fields) {
+    return apiFetch('/flags/' + flagId, {
+        method: 'PATCH',
+        body: JSON.stringify(fields),
+    });
+}
+
+function dismissFlagApi(flagId, bonId, note) {
+    return apiFetch('/flags/' + flagId + '/dismiss', {
+        method: 'POST',
+        body: JSON.stringify({ bon_id: bonId || null, note: note || null }),
+    });
+}
+
+function ackFlagApi(flagId, bonId, note) {
+    return apiFetch('/flags/' + flagId + '/ack', {
+        method: 'POST',
+        body: JSON.stringify({ bon_id: bonId, note: note || null }),
+    });
+}
+
 /* ── FAKTURERING ─────────────────────────────────────────── */
 
 function fetchInvoiceQueue(includeDone) {

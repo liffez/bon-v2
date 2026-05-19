@@ -551,6 +551,13 @@ function _blRenderTable() {
                         td1.innerHTML += ' <span class="bl-mail-icon">\u2709'
                             + (bon.unread_mail_count > 1 ? bon.unread_mail_count : '') + '</span>';
                     }
+                    if (bon.flag_count > 0) {
+                        var pluralFlag = bon.flag_count === 1 ? 'p\u00e5mindelse' : 'p\u00e5mindelser';
+                        td1.innerHTML += ' <span class="bl-flag-badge" data-bon-id="'
+                            + bon.id + '" title="' + bon.flag_count + ' '
+                            + pluralFlag + ' p\u00e5 kunden">\ud83d\udea9'
+                            + (bon.flag_count > 1 ? bon.flag_count : '') + '</span>';
+                    }
                     break;
                 case 'company':
                     td1.textContent = bon.company_name || '';
@@ -617,6 +624,17 @@ function _blRenderTable() {
                 if (_blOptions.openDrawer) _blOptions.openDrawer(bonId);
             });
         })(bon.id);
+
+        // Flag-badge: åbner drawer med expandFlags=true (stopPropagation så row-klikket ikke fires)
+        var flagBadge = tr1.querySelector('.bl-flag-badge');
+        if (flagBadge) {
+            (function(bonId) {
+                flagBadge.addEventListener('click', function(e) {
+                    e.stopPropagation();
+                    if (_blOptions.openDrawer) _blOptions.openDrawer(bonId, { expandFlags: true });
+                });
+            })(bon.id);
+        }
 
         tbody.appendChild(tr1);
 

@@ -168,7 +168,14 @@ router.get('/', handle((req, res) => {
             ) AS latest_delivery_event,
             (SELECT de.event_time FROM delivery_events de
              WHERE de.bon_id = b.id ORDER BY de.event_time DESC LIMIT 1
-            ) AS latest_delivery_event_time
+            ) AS latest_delivery_event_time,
+            (SELECT COUNT(*) FROM entity_flags ef
+             WHERE ef.dismissed_at IS NULL
+               AND (
+                   (ef.entity_type = 'customer' AND ef.entity_id = b.customer_id) OR
+                   (ef.entity_type = 'company'  AND ef.entity_id = b.company_id)
+               )
+            ) AS flag_count
         FROM bons b
         JOIN   status_definitions sd ON b.status_id  = sd.id
         JOIN   locations l           ON b.location_id = l.id
@@ -391,6 +398,33 @@ router.post('/:id/mark-seen', handle((req, res) => {
 router.get('/:id', handle((req, res) => {
     const bon = getBon(parseInt(req.params.id));
     if (!bon) return res.status(404).json({ error: 'Bon ikke fundet' });
+
+    // Aktive flag på kunden og/eller firmaet (jf. docs/CLAUDE_KUNDE_FLAGS.md).
+    // acked_on_this_bon afgør om "Set"/"Gjort"-knapper stadig skal vises i drawer.
+    bon.flags = [];
+    if (bon.customer_id || bon.company_id) {
+        const conds = [];
+        const args  = [bon.id];   // første ? er til EXISTS-subquery
+        if (bon.customer_id) {
+            conds.push("(f.entity_type = 'customer' AND f.entity_id = ?)");
+            args.push(bon.customer_id);
+        }
+        if (bon.company_id) {
+            conds.push("(f.entity_type = 'company' AND f.entity_id = ?)");
+            args.push(bon.company_id);
+        }
+        bon.flags = getDb().prepare(`
+            SELECT f.id, f.entity_type, f.entity_id, f.title, f.body, f.created_at,
+                   u.name AS created_by_name,
+                   EXISTS(SELECT 1 FROM flag_acks
+                          WHERE flag_id = f.id AND bon_id = ?) AS acked_on_this_bon
+            FROM entity_flags f
+            LEFT JOIN users u ON f.created_by_user_id = u.id
+            WHERE f.dismissed_at IS NULL AND (${conds.join(' OR ')})
+            ORDER BY f.created_at DESC
+        `).all(...args);
+    }
+
     res.json({ ...bon, ...computeMomsFields(bon.total_price) });
 }));
 

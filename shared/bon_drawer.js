@@ -26,6 +26,14 @@ class BonDrawer {
         this._loadDropdowns();
         this._bindSSE();
         _drawerInstance = this; // Global reference for drawer mail helpers
+
+        // Flag-strip (påmindelser fra kunde/firma — CLAUDE_KUNDE_FLAGS.md)
+        if (typeof FlagStrip !== 'undefined') {
+            this.flagStrip = new FlagStrip(this.el.querySelector('.drawer-flags'), {
+                bonId: null,
+                onChange: () => this.load(this.bonId),
+            });
+        }
     }
 
     /* ══════════════════════════════════════════════════════
@@ -59,6 +67,9 @@ class BonDrawer {
                     <button class="drawer-close" type="button">&times;</button>
                 </div>
             </div>
+
+            <!-- Påmindelser fra kunde/firma (CLAUDE_KUNDE_FLAGS.md) -->
+            <div class="drawer-flags"></div>
 
             <div class="drawer-body">
                 <!-- STATUS -->
@@ -359,13 +370,18 @@ class BonDrawer {
        LOAD & RENDER
        ══════════════════════════════════════════════════════ */
 
-    async load(bonId) {
+    async load(bonId, opts) {
         this.bonId = bonId;
         this.dirty = false;
         this._pendingChanges = {};
         try {
             this.data = await fetchBon(bonId);
             this._render();
+            if (this.flagStrip) {
+                this.flagStrip.setBonId(bonId);
+                this.flagStrip.setFlags(this.data.flags || []);
+                if (opts && opts.expandFlags) this.flagStrip.forceExpand();
+            }
         } catch (err) {
             console.error('Kunne ikke hente bon:', err);
         }
@@ -1034,7 +1050,7 @@ class BonDrawer {
 
     /** Convenience: load + show i ét kald */
     async open(bonId, opts) {
-        await this.load(bonId);
+        await this.load(bonId, opts);
         this.show();
         if (opts && opts.justCreated) this._showCreatedBanner();
         if (opts && opts.scrollTo) {
