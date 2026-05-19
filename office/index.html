@@ -55,6 +55,31 @@
       margin: 0;
       font-weight: 700;
     }
+    .office-topbar-hamburger {
+      display: none;
+      background: transparent;
+      border: 1px solid var(--color-border, #d7d1ca);
+      border-radius: 6px;
+      width: 36px;
+      height: 32px;
+      cursor: pointer;
+      font-size: 18px;
+      line-height: 1;
+      align-items: center;
+      justify-content: center;
+      color: var(--color-text, #333);
+      margin-right: 8px;
+      flex-shrink: 0;
+    }
+    .office-topbar-hamburger:hover { background: var(--color-background, #f5f4f2); }
+    .office-sidebar-backdrop {
+      display: none;
+      position: fixed;
+      inset: 0;
+      background: rgba(0,0,0,0.4);
+      z-index: 90;
+    }
+    .office-sidebar-backdrop.open { display: block; }
 
     /* Global search i topbar */
     .office-topbar-search {
@@ -550,9 +575,22 @@
     }
 
     /* ── Responsive ─────────────────────────────────────── */
-    @media (max-width: 768px) {
-      .office-sidebar { display: none !important; }
+    @media (max-width: 900px) {
+      .office-topbar-hamburger { display: inline-flex; }
+      .office-sidebar {
+        position: fixed;
+        top: 0;
+        left: 0;
+        bottom: 0;
+        z-index: 100;
+        transform: translateX(-100%);
+        transition: transform 0.2s ease-out;
+      }
+      .office-sidebar.open { transform: translateX(0); }
+    }
+    @media (max-width: 600px) {
       #office-content { padding: var(--space-s, 8px); }
+      .office-topbar-search { max-width: none; margin: 0 8px; }
       .bl-toolbar { flex-direction: column; }
       .bl-search-wrap { width: 100%; }
       .bl-filters { overflow-x: auto; flex-wrap: nowrap; padding-bottom: 4px; }
@@ -565,6 +603,7 @@
 <body class="zone-office" data-help-page="office-dashboard" data-help-page-name="Office — Dashboard" style="font-family: var(--font-body, 'DM Sans', system-ui, sans-serif);">
   <div class="office-shell">
     <div class="office-topbar">
+      <button class="office-topbar-hamburger" id="office-sidebar-toggle" aria-label="Åbn menu" title="Åbn menu">☰</button>
       <h1 id="office-topbar-title">Bon v2 — Office</h1>
       <div class="office-topbar-search">
         <input type="text" id="office-global-search" class="office-topbar-search-input"
@@ -572,6 +611,7 @@
       </div>
       <div id="office-topbar-right" style="display:flex;align-items:center;gap:12px;font-size:13px;"></div>
     </div>
+    <div class="office-sidebar-backdrop" id="office-sidebar-backdrop"></div>
     <div class="office-body">
       <nav class="office-sidebar">
         <div class="sidebar-brand" id="sidebar-zone-switch" title="Skift til Køkken-zone">
@@ -1180,7 +1220,26 @@
           } else {
             switchView(v);     // legacy fallback
           }
+          closeSidebar();      // luk drawer efter nav på smalle skærme
         });
+      });
+
+      // ─── Sidebar hamburger-toggle (smal viewport) ────────
+      const _sidebar = document.querySelector('.office-sidebar');
+      const _sbBackdrop = document.getElementById('office-sidebar-backdrop');
+      const _sbToggle = document.getElementById('office-sidebar-toggle');
+      function openSidebar() {
+        if (_sidebar) _sidebar.classList.add('open');
+        if (_sbBackdrop) _sbBackdrop.classList.add('open');
+      }
+      function closeSidebar() {
+        if (_sidebar) _sidebar.classList.remove('open');
+        if (_sbBackdrop) _sbBackdrop.classList.remove('open');
+      }
+      if (_sbToggle) _sbToggle.addEventListener('click', openSidebar);
+      if (_sbBackdrop) _sbBackdrop.addEventListener('click', closeSidebar);
+      document.addEventListener('keydown', (e) => {
+        if (e.key === 'Escape' && _sidebar && _sidebar.classList.contains('open')) closeSidebar();
       });
 
       // ─── Badges (Fase 6: SSE-debounced live-opdatering) ────
