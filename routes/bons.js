@@ -1,7 +1,7 @@
 const express = require('express');
 const router  = express.Router();
 const { getDb } = require('../db/database');
-const { handle, logChange, getBon, getBonLines, getStatusId, getDefaultLocationId, nextBonNumber, computeMomsFields } = require('../db/helpers');
+const { handle, logChange, getBon, getBonLines, getStatusId, getDefaultLocationId, nextBonNumber, computeMomsFields, recalcBonTotalUnits } = require('../db/helpers');
 const { broadcast } = require('../shared/sse');
 const grocy   = require('../services/grocyAdapter');
 // quConvert bruges nu via services/ingredientResolver.js
@@ -774,9 +774,8 @@ router.post('/:id/lines', handle((req, res) => {
         l.co2e ?? null, l.notes ?? null
     );
 
-    // Genberegn total_units
-    const total = db.prepare(`SELECT COALESCE(SUM(quantity),0) as t FROM bon_lines WHERE bon_id = ? AND (is_accessory = 0 OR is_accessory IS NULL)`).get(bonId).t;
-    db.prepare(`UPDATE bons SET total_units = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?`).run(total, bonId);
+    // Genberegn total_units (kun kategorier i settings.unit_count_categories)
+    recalcBonTotalUnits(db, bonId);
 
     // Server-autoritativ recalc af total_price (incl. moms)
     recalcBonTotal(db, bonId, { logIfChanged: true, userId: l.user_id ?? null });
@@ -809,8 +808,7 @@ router.put('/:id/lines/:lid', handle((req, res) => {
         db.prepare(`UPDATE bon_lines SET line_total = ? WHERE id = ?`).run(newLineTotal, lineId);
     }
 
-    const total = db.prepare(`SELECT COALESCE(SUM(quantity),0) as t FROM bon_lines WHERE bon_id = ? AND (is_accessory = 0 OR is_accessory IS NULL)`).get(bonId).t;
-    db.prepare(`UPDATE bons SET total_units = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?`).run(total, bonId);
+    recalcBonTotalUnits(db, bonId);
 
     // Server-autoritativ recalc af bons.total_price
     recalcBonTotal(db, bonId, { logIfChanged: true, userId: req.session?.userId ?? null });
@@ -828,8 +826,7 @@ router.delete('/:id/lines/:lid', handle((req, res) => {
     const line = db.prepare(`SELECT product_name, quantity FROM bon_lines WHERE id = ? AND bon_id = ?`).get(lineId, bonId);
     if (!line) return res.status(404).json({ error: 'Linje ikke fundet' });
     db.prepare(`DELETE FROM bon_lines WHERE id = ?`).run(lineId);
-    const total = db.prepare(`SELECT COALESCE(SUM(quantity),0) as t FROM bon_lines WHERE bon_id = ? AND (is_accessory = 0 OR is_accessory IS NULL)`).get(bonId).t;
-    db.prepare(`UPDATE bons SET total_units = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?`).run(total, bonId);
+    recalcBonTotalUnits(db, bonId);
     // Server-autoritativ recalc af bons.total_price
     recalcBonTotal(db, bonId, { logIfChanged: true, userId: req.session?.userId ?? null });
     logChange({ entityType: 'bon', entityId: bonId, action: 'update', fieldName: 'bon_lines', oldValue: `${line.quantity}x ${line.product_name}`, notes: 'linje slettet' });

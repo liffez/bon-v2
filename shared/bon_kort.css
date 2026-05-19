@@ -752,6 +752,13 @@
 .summary-total .summary-name {
     font-weight: 700; color: var(--brown);
 }
+/* Rækker for kategorier der IKKE tæller som enheder (kager/drikke/emballage/...) */
+.summary-row-dim {
+    opacity: 0.55;
+}
+.summary-row-dim .summary-qty {
+    color: var(--gray-dark);
+}
 
 /* ── FORTRYD-OVERLAY (kitchen-today) ──────────────────────── */
 .fortryd-overlay {
