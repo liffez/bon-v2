@@ -865,6 +865,13 @@ function _k3RenderShell() {
             .k3-tl-icon.type-followup { background: #f0eded; }
             .k3-tl-icon.type-email { background: #f0eded; }
             .k3-tl-icon.type-offer { background: var(--color-sentiment-neu-bg, #FBF3E2); }
+            .k3-tl-icon.type-flag { background: #fff8e7; }
+
+            /* Læse-only — dismissed flag (CLAUDE_KUNDE_FLAGS.md fase 7) */
+            .k3-tl-card.k3-tl-readonly { opacity: 0.78; background: var(--color-background, #f5f4f2); }
+            .k3-tl-card.k3-tl-readonly:hover { border-color: var(--color-border); }
+            .k3-tl-dismiss-note { font-size: 12px; color: var(--color-text-dim); font-style: italic; margin-top: 4px; }
+
             .k3-tl-connector { flex: 1; width: 2px; background: var(--color-border, #eee); margin-top: 4px; }
 
             .k3-tl-card {
@@ -1193,9 +1200,9 @@ function _k3RenderOrders(el) {
 let _k3ActFilter = 'all';
 
 function _k3RenderActivity(el) {
-    const typeIcons = { call: '📞', service_call: '📞', meeting: '🤝', task: '📋', note: '📝', followup: '🔔', offer_sent: '📤', email_in: '📥', email_out: '📤' };
-    const typeLabels = { call: 'Opkald', service_call: 'Service-kald', meeting: 'Møde', task: 'Opgave', note: 'Note', followup: 'Opfølgning', offer_sent: 'Tilbud sendt', email_in: 'Mail ind', email_out: 'Mail ud' };
-    const typeIconClasses = { call: 'type-call', service_call: 'type-call', meeting: 'type-meeting', task: 'type-task', note: 'type-note', followup: 'type-followup', offer_sent: 'type-offer', email_in: 'type-email', email_out: 'type-email' };
+    const typeIcons = { call: '📞', service_call: '📞', meeting: '🤝', task: '📋', note: '📝', followup: '🔔', offer_sent: '📤', email_in: '📥', email_out: '📤', dismissed_flag: '🚩' };
+    const typeLabels = { call: 'Opkald', service_call: 'Service-kald', meeting: 'Møde', task: 'Opgave', note: 'Note', followup: 'Opfølgning', offer_sent: 'Tilbud sendt', email_in: 'Mail ind', email_out: 'Mail ud', dismissed_flag: 'Påmindelse afsluttet' };
+    const typeIconClasses = { call: 'type-call', service_call: 'type-call', meeting: 'type-meeting', task: 'type-task', note: 'type-note', followup: 'type-followup', offer_sent: 'type-offer', email_in: 'type-email', email_out: 'type-email', dismissed_flag: 'type-flag' };
     const sentimentEmoji = { positive: '😊', neutral: '😐', negative: '😟' };
     const sentimentLabel = { positive: 'God', neutral: 'Neutral', negative: 'Dårlig' };
     const resultLabels = { reached: 'Nået', no_answer: 'Intet svar', busy: 'Optaget', voicemail: 'Besked', callback: 'Callback', email_instead: 'Email' };
@@ -1296,18 +1303,26 @@ function _k3RenderActivity(el) {
                 timeDisplay = '🗓️ ' + due;
             }
 
+            // Dismissed flag-rows er læse-only og gråtonet (CLAUDE_KUNDE_FLAGS.md fase 7)
+            const isDismissed = a.type === 'dismissed_flag';
+            const cardClass = isDismissed ? 'k3-tl-card k3-tl-readonly' : 'k3-tl-card';
+            const flagScope = isDismissed
+                ? (a.flag_entity_type === 'company' ? ' (på firmaet)' : ' (på kunden)')
+                : '';
+
             html += '<div class="k3-timeline-item">' +
                 '<div class="k3-tl-left">' +
                     '<div class="k3-tl-icon ' + iconClass + '">' + icon + '</div>' +
                     (!isLast ? '<div class="k3-tl-connector"></div>' : '') +
                 '</div>' +
-                '<div class="k3-tl-card" style="' + cardCursor + '"' + cardClick + '>' +
+                '<div class="' + cardClass + '" style="' + cardCursor + '"' + cardClick + '>' +
                     '<div class="k3-tl-header">' +
-                        '<span class="k3-tl-type">' + label + (resultText ? ' → ' + resultText : '') + '</span>' +
+                        '<span class="k3-tl-type">' + label + flagScope + (resultText ? ' → ' + resultText : '') + '</span>' +
                         (who ? '<span class="k3-tl-who">' + who + '</span>' : '') +
                         '<span class="k3-tl-time">' + timeDisplay + '</span>' +
                     '</div>' +
                     (a.text ? '<div class="k3-tl-text">' + a.text + '</div>' : '') +
+                    (isDismissed && a.note ? '<div class="k3-tl-dismiss-note">' + esc(a.note) + '</div>' : '') +
                     ((sentBadge || a.bon_number) ? '<div class="k3-tl-footer">' +
                         sentBadge +
                         (a.bon_number ? '<span class="k3-tl-bon-ref">#' + a.bon_number + '</span>' : '') +

@@ -657,6 +657,48 @@ router.get('/customer/:id', handle((req, res) => {
         ORDER BY a.created_at DESC LIMIT 20
     `).all(id);
 
+    // Dismissed flag som syntetiske aktivitets-rows (CLAUDE_KUNDE_FLAGS.md fase 7).
+    // Vises som læse-only entries i timeline ved siden af crm_activities.
+    // Inkluderer både kunde-flag og firma-flag (sidstnævnte hvis kunden har company_id).
+    const dismissedConds = ["(f.entity_type = 'customer' AND f.entity_id = ?)"];
+    const dismissedArgs  = [id];
+    if (customer.company_id) {
+        dismissedConds.push("(f.entity_type = 'company' AND f.entity_id = ?)");
+        dismissedArgs.push(customer.company_id);
+    }
+    const dismissedFlags = db.prepare(`
+        SELECT f.id, f.title, f.body, f.dismiss_note, f.entity_type,
+               f.dismissed_at, f.dismissed_on_bon_id, f.dismissed_by_user_id,
+               u.name AS user_name, u.name AS owner_name,
+               b.bon_number
+        FROM entity_flags f
+        LEFT JOIN users u ON f.dismissed_by_user_id = u.id
+        LEFT JOIN bons  b ON f.dismissed_on_bon_id  = b.id
+        WHERE f.dismissed_at IS NOT NULL AND (${dismissedConds.join(' OR ')})
+        ORDER BY f.dismissed_at DESC LIMIT 20
+    `).all(...dismissedArgs);
+
+    // Form de dismissed-rows så de matcher crm_activities-shape som timelinen forventer
+    const synthetic = dismissedFlags.map(f => ({
+        id: 'flag_' + f.id,
+        type: 'dismissed_flag',
+        text: f.title + (f.body ? '\n' + f.body : ''),
+        note: f.dismiss_note,
+        created_at: f.dismissed_at,
+        bon_id: f.dismissed_on_bon_id,
+        bon_number: f.bon_number,
+        owner_user_id: f.dismissed_by_user_id,
+        user_name: f.user_name,
+        owner_name: f.owner_name,
+        flag_entity_type: f.entity_type,
+    }));
+
+    // Merge + sortér på created_at DESC. crm_activities har normalt LIMIT 20 — vi
+    // beholder den begrænsning samlet (max 20 entries i timelinen).
+    const mergedActivities = [...activities, ...synthetic]
+        .sort((a, b) => String(b.created_at || '').localeCompare(String(a.created_at || '')))
+        .slice(0, 20);
+
     const products = db.prepare(`
         SELECT bl.product_name, SUM(bl.quantity) as total_qty, COUNT(DISTINCT b.id) as order_count
         FROM bon_lines bl
@@ -696,7 +738,11 @@ router.get('/customer/:id', handle((req, res) => {
     `);
     for (const f of flags) f.ack_bons = ackBonsStmt.all(f.id);
 
-    res.json({ customer, stats, orders, activities, products, rfm, flags });
+    res.json({
+        customer, stats, orders,
+        activities: mergedActivities,
+        products, rfm, flags,
+    });
 }));
 
 // ─── GET /company/:id ───────────────────────────────────────
