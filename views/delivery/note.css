@@ -1,0 +1,331 @@
+/* views/delivery/note.css
+   ══════════════════════════════════════════════════════════════
+   Popout-vinduet til manuel bud-bestilling (taxa, By-expressen).
+   Smal layout (~420px) — placeres ved siden af leverandørens hjemmeside.
+   Spec: docs/CLAUDE_DELIVERY_POPOUT.md
+   ══════════════════════════════════════════════════════════════ */
+
+html, body {
+    margin: 0;
+    padding: 0;
+    background: var(--color-background);
+    color: var(--color-text);
+    font-family: var(--font-body);
+    font-size: var(--font-size-s);
+    line-height: 1.4;
+    min-height: 100vh;
+    overscroll-behavior: none;
+}
+
+.dn-shell {
+    display: flex;
+    flex-direction: column;
+    min-height: 100vh;
+}
+
+/* ── Header ─────────────────────────────────────────────── */
+.dn-header {
+    background: var(--color-surface);
+    border-bottom: 1px solid var(--color-border);
+    padding: 12px 16px 10px;
+    position: sticky;
+    top: 0;
+    z-index: 5;
+}
+.dn-title {
+    font-family: var(--font-body);
+    font-size: 16px;
+    font-weight: 600;
+    margin: 0;
+    color: var(--brand-primary);
+}
+.dn-meta {
+    font-size: 12px;
+    color: var(--color-text-dim);
+    margin-top: 2px;
+}
+
+/* ── Vehicle dropdown ──────────────────────────────────── */
+.dn-vehicle {
+    background: var(--color-surface);
+    border-bottom: 1px solid var(--color-border);
+    padding: 10px 16px;
+    display: flex;
+    align-items: center;
+    gap: 8px;
+}
+.dn-vehicle select {
+    flex: 1;
+    padding: 6px 8px;
+    border: 1px solid var(--color-border);
+    border-radius: 4px;
+    font-family: inherit;
+    font-size: 13px;
+    background: var(--color-surface);
+}
+.dn-estimate {
+    font-size: 11px;
+    padding: 3px 8px;
+    background: var(--brand-primary-light);
+    color: var(--brand-primary);
+    border-radius: 10px;
+    white-space: nowrap;
+}
+
+/* ── Mode tabs ─────────────────────────────────────────── */
+.dn-modes {
+    display: flex;
+    background: var(--color-surface);
+    padding: 0 12px;
+    border-bottom: 1px solid var(--color-border);
+    gap: 0;
+}
+.dn-mode-tab {
+    padding: 8px 12px;
+    font-size: 12px;
+    font-family: inherit;
+    color: var(--color-text-dim);
+    cursor: pointer;
+    border: none;
+    background: none;
+    border-bottom: 2px solid transparent;
+}
+.dn-mode-tab.active {
+    color: var(--color-text);
+    border-bottom-color: var(--brand-primary);
+    font-weight: 500;
+}
+.dn-modes[hidden] {
+    display: none;
+}
+
+/* ── Body ──────────────────────────────────────────────── */
+.dn-body {
+    flex: 1;
+    overflow-y: auto;
+    padding: 12px 14px;
+}
+
+.dn-loading, .dn-error {
+    padding: 24px 12px;
+    text-align: center;
+    color: var(--color-text-dim);
+}
+.dn-error {
+    color: var(--color-red);
+}
+
+.dn-warnings {
+    background: #fef6e6;
+    border: 1px solid var(--color-orange);
+    border-radius: 5px;
+    color: #8a5a07;
+    padding: 8px 10px;
+    font-size: 12px;
+    margin-bottom: 10px;
+}
+.dn-warnings .dn-warning-line + .dn-warning-line {
+    margin-top: 4px;
+}
+
+.dn-missing-banner {
+    background: #fef6e6;
+    border: 1px solid var(--color-orange);
+    color: #8a5a07;
+    border-radius: 5px;
+    padding: 8px 10px;
+    font-size: 12px;
+    margin-bottom: 10px;
+}
+.dn-missing-banner strong {
+    font-weight: 600;
+}
+
+/* ── Felt-liste ────────────────────────────────────────── */
+.dn-field-step {
+    font-size: 11px;
+    font-weight: 600;
+    text-transform: uppercase;
+    letter-spacing: 0.4px;
+    color: var(--color-text-dim);
+    margin: 10px 0 6px;
+    padding-bottom: 4px;
+    border-bottom: 1px dashed var(--color-border);
+}
+.dn-field-step:first-child {
+    margin-top: 0;
+}
+
+.dn-field-row {
+    display: grid;
+    grid-template-columns: 90px 1fr 24px;
+    gap: 8px;
+    align-items: center;
+    background: var(--color-surface);
+    padding: 6px 8px 6px 10px;
+    border-radius: 5px;
+    border: 1px solid var(--color-border);
+    cursor: pointer;
+    transition: background 0.15s, border-color 0.15s;
+    user-select: none;
+    margin-bottom: 6px;
+}
+.dn-field-row:hover:not(.missing) {
+    background: var(--brand-primary-light);
+    border-color: var(--brand-primary);
+}
+.dn-field-row.copied {
+    background: #eaf3de;
+    border-color: var(--color-green-dark);
+}
+.dn-field-row.missing {
+    cursor: not-allowed;
+    opacity: 0.7;
+    background: #fafaf8;
+}
+.dn-field-label {
+    font-size: 11px;
+    color: var(--color-text-dim);
+    text-transform: uppercase;
+    letter-spacing: 0.3px;
+}
+.dn-field-value {
+    font-family: 'SF Mono', Menlo, ui-monospace, monospace;
+    font-size: 12.5px;
+    color: var(--color-text);
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+.dn-field-value.dim {
+    color: #8a5a07;
+    font-style: italic;
+}
+.dn-field-icon {
+    font-size: 14px;
+    color: var(--color-text-dim);
+    text-align: center;
+}
+.dn-field-row.copied .dn-field-icon {
+    color: var(--color-green-dark);
+}
+
+/* ── Samlet tekst ──────────────────────────────────────── */
+.dn-text-view[hidden] { display: none; }
+
+.dn-clipboard-text {
+    background: #2c2c2a;
+    color: #e8e6e1;
+    font-family: 'SF Mono', Menlo, ui-monospace, monospace;
+    font-size: 12px;
+    padding: 12px;
+    border-radius: 5px;
+    line-height: 1.5;
+    white-space: pre-wrap;
+    margin: 0;
+}
+
+/* ── Footer ────────────────────────────────────────────── */
+.dn-footer {
+    background: var(--color-surface);
+    border-top: 1px solid var(--color-border);
+    padding: 12px 14px;
+    position: sticky;
+    bottom: 0;
+}
+.dn-form-row {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 8px;
+    margin-bottom: 10px;
+}
+.dn-form-row label {
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+}
+.dn-form-row label span {
+    font-size: 10px;
+    color: var(--color-text-dim);
+    text-transform: uppercase;
+    letter-spacing: 0.3px;
+}
+.dn-form-row input {
+    width: 100%;
+    padding: 6px 8px;
+    border: 1px solid var(--color-border);
+    border-radius: 4px;
+    font-size: 13px;
+    font-family: inherit;
+}
+.dn-form-actions {
+    display: flex;
+    gap: 8px;
+}
+
+/* ── Knapper ───────────────────────────────────────────── */
+.dn-btn {
+    flex: 1;
+    padding: 9px;
+    border-radius: 5px;
+    font-size: 13px;
+    font-weight: 500;
+    font-family: inherit;
+    cursor: pointer;
+    border: 1px solid transparent;
+}
+.dn-btn:disabled {
+    opacity: 0.55;
+    cursor: not-allowed;
+}
+.dn-btn-primary {
+    background: var(--brand-primary);
+    color: white;
+    border-color: var(--brand-primary);
+    width: 100%;
+    margin-top: 10px;
+}
+.dn-btn-secondary {
+    background: var(--color-surface);
+    color: var(--color-text-dim);
+    border-color: var(--color-border);
+}
+.dn-btn-success {
+    background: var(--color-green-dark);
+    color: white;
+    border-color: var(--color-green-dark);
+}
+
+/* ── Toast ─────────────────────────────────────────────── */
+.dn-toast {
+    position: fixed;
+    top: 16px;
+    left: 50%;
+    transform: translateX(-50%) translateY(-120%);
+    background: var(--color-green-dark);
+    color: white;
+    padding: 8px 16px;
+    border-radius: 6px;
+    font-size: 13px;
+    font-weight: 500;
+    box-shadow: 0 4px 16px rgba(0,0,0,0.18);
+    transition: transform 0.22s;
+    z-index: 1000;
+    pointer-events: none;
+    max-width: 80%;
+    text-align: center;
+}
+.dn-toast.show {
+    transform: translateX(-50%) translateY(0);
+}
+
+/* ── Småskærms-rydning ─────────────────────────────────── */
+@media (max-width: 360px) {
+    .dn-field-row {
+        grid-template-columns: 1fr 24px;
+    }
+    .dn-field-label {
+        display: block;
+        grid-column: 1 / -1;
+    }
+}

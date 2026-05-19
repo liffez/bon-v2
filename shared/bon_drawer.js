@@ -13,6 +13,44 @@
  * ════════════════════════════════════════════════════════════
  */
 
+/**
+ * Åbn delivery-note popout-vindue for en bon.
+ * Erstatter den gamle openManualBookingModal — popout giver felt-for-felt
+ * kopiering ved siden af leverandørens hjemmeside.
+ *
+ * Target-navn pr. bon, så flere bookings kan håndteres parallelt
+ * (fx weekend hvor kontoret batcher 5 bookings). Klik på samme bon
+ * to gange genbruger eksisterende vindue.
+ */
+function openDeliveryNote(bonId, vehicleId) {
+    if (!bonId) {
+        console.warn('[openDeliveryNote] bonId påkrævet');
+        return;
+    }
+    const url = '/delivery/note/' + bonId + (vehicleId ? '?vehicle=' + vehicleId : '');
+    const win = window.open(
+        url,
+        'rr-delivery-note-' + bonId,
+        'width=420,height=780,left=100,top=100,scrollbars=yes,resizable=yes,toolbar=no,location=no,menubar=no'
+    );
+    if (!win) {
+        // Popup blokeret — vis besked med direkte link så bruger kan åbne manuelt
+        const msg = 'Din browser blokerede popup-vinduet. Tillad popups for dette site, eller åbn siden i en ny fane.';
+        if (typeof showModal === 'function') {
+            showModal({
+                title: 'Popup blokeret',
+                bodyHtml: '<p>' + msg + '</p><p><a href="' + url + '" target="_blank" rel="noopener">Åbn bestillings-note i ny fane</a></p>'
+            });
+        } else {
+            alert(msg + '\n\nÅbn manuelt: ' + url);
+        }
+        return null;
+    }
+    win.focus();
+    return win;
+}
+window.openDeliveryNote = openDeliveryNote;
+
 class BonDrawer {
     constructor() {
         this.bonId = null;
@@ -557,19 +595,9 @@ class BonDrawer {
         };
 
         bestilBtn.onclick = () => {
-            if (typeof window.openManualBookingModal !== 'function') {
-                alert('Bestillings-modal ikke loaded.');
-                return;
-            }
-            window.openManualBookingModal({
-                bonId: this.bonId,
-                defaultVehicleId: bon.delivery_vehicle_id || null,
-                onBooked: () => {
-                    // Reload bon-data så drawer reflekterer ny vehicle + cost
-                    this._reloadBon();
-                    this._renderDeliveryEvents();
-                }
-            });
+            // Drawer i hovedvinduet opdaterer via SSE når popout-vinduet
+            // gemmer booking. Ingen onBooked-callback nødvendig.
+            openDeliveryNote(this.bonId, bon.delivery_vehicle_id || null);
         };
 
         // Render aktuel vehicle-status + events

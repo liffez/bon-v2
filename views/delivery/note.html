@@ -1,0 +1,68 @@
+<!DOCTYPE html>
+<html lang="da">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Bestil bud</title>
+    <link rel="stylesheet" href="/shared/tokens.css">
+    <link rel="stylesheet" href="/shared/components.css">
+    <link rel="stylesheet" href="/views/delivery/note.css">
+</head>
+<body class="zone-office">
+
+<div class="dn-shell" id="dn-shell">
+    <header class="dn-header">
+        <h1 class="dn-title" id="dn-title">Bestil bud</h1>
+        <div class="dn-meta" id="dn-meta"></div>
+    </header>
+
+    <div class="dn-vehicle">
+        <select id="dn-vehicle-select" aria-label="Leverandør"></select>
+        <span class="dn-estimate" id="dn-estimate" hidden></span>
+    </div>
+
+    <div class="dn-modes" id="dn-modes">
+        <button type="button" class="dn-mode-tab active" data-mode="fields">Felt-for-felt</button>
+        <button type="button" class="dn-mode-tab" data-mode="text">Samlet tekst</button>
+    </div>
+
+    <main class="dn-body">
+        <div class="dn-loading" id="dn-loading">Indlæser…</div>
+        <div class="dn-error" id="dn-error" hidden></div>
+        <div class="dn-warnings" id="dn-warnings" hidden></div>
+        <div class="dn-missing-banner" id="dn-missing" hidden></div>
+
+        <div class="dn-fields-view" id="dn-fields-view"></div>
+
+        <div class="dn-text-view" id="dn-text-view" hidden>
+            <pre class="dn-clipboard-text" id="dn-clipboard-text"></pre>
+            <button type="button" class="dn-btn dn-btn-primary" id="dn-copy-all">Kopiér hele teksten</button>
+        </div>
+    </main>
+
+    <footer class="dn-footer">
+        <div class="dn-form-row">
+            <label>
+                <span>Booking-ref</span>
+                <input type="text" id="dn-booking-ref" placeholder="fx 261.801.254">
+            </label>
+            <label>
+                <span>Faktisk pris (kr)</span>
+                <input type="number" id="dn-actual-cost" placeholder="kr" min="0" step="1">
+            </label>
+        </div>
+        <div class="dn-form-actions">
+            <button type="button" class="dn-btn dn-btn-secondary" id="dn-skip">Spring over</button>
+            <button type="button" class="dn-btn dn-btn-success" id="dn-book">✓ Marker som booket</button>
+        </div>
+    </footer>
+</div>
+
+<div class="dn-toast" id="dn-toast" role="status" aria-live="polite"></div>
+
+<script src="/shared/utils.js"></script>
+<script src="/shared/api.js"></script>
+<script src="/views/delivery/note.js"></script>
+
+</body>
+</html>

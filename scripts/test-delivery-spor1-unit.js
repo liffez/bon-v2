@@ -22,6 +22,7 @@ runMigrations(TEST_DB);
 const { getDb } = require('../db/database');
 const {
     renderTemplate,
+    renderFields,
     buildContext,
     buildAddressString,
     buildPackagingLines,
@@ -222,6 +223,92 @@ assert(threwBon, 'Ugyldig bon_id → 404');
 let threwVehicle = false;
 try { buildBookingPayload(bonId, 99999); } catch (e) { threwVehicle = e.statusCode === 404; }
 assert(threwVehicle, 'Ugyldig vehicle_id → 404');
+
+// ─── Test 7b: renderFields ────────────────────────────────
+console.log('\n=== renderFields ===');
+
+// Null vehicle / mangler json
+assertEqual(renderFields(null, {}), null, 'renderFields(null) → null');
+assertEqual(renderFields({ booking_fields_json: null }, {}), null, 'Manglende json → null');
+assertEqual(renderFields({ booking_fields_json: '' }, {}), null, 'Tom json → null');
+
+// Ugyldig JSON
+assertEqual(renderFields({ booking_fields_json: 'not json', code: 'test' }, {}), null, 'Ugyldig JSON → null');
+
+// JSON der ikke er array
+assertEqual(renderFields({ booking_fields_json: '{"foo":"bar"}', code: 'test' }, {}), null, 'JSON-objekt (ikke array) → null');
+
+// Korrekt array
+const v1 = { booking_fields_json: JSON.stringify([
+    { label: 'Test', template: '{bon_id} · {total_boxes}' }
+]), code: 'v1' };
+const vars1 = { bon_id: '3467', total_boxes: '4' };
+assertEqual(
+    renderFields(v1, vars1),
+    [{ label: 'Test', value: '3467 · 4', missing: false, step: null }],
+    'Rendrer fields korrekt'
+);
+
+// Mangler-flag
+const v2 = { booking_fields_json: JSON.stringify([
+    { label: 'Reference', template: '{bon_id} · {total_boxes} kasser' }
+]), code: 'v2' };
+const vars2 = { bon_id: '3467', total_boxes: '' };
+const fields2 = renderFields(v2, vars2);
+assertEqual(fields2[0].missing, true, 'Tom variabel → missing=true');
+assertEqual(fields2[0].value, '3467 · [mangler] kasser', 'Tom variabel rendres som [mangler]');
+
+// Step-property
+const v3 = { booking_fields_json: JSON.stringify([
+    { step: 'Trin 2', label: 'A', template: 'a' },
+    { step: 'Trin 2', label: 'B', template: 'b' },
+    { step: 'Trin 3', label: 'C', template: 'c' },
+    { label: 'D', template: 'd' }
+]), code: 'v3' };
+const fields3 = renderFields(v3, {});
+assertEqual(fields3[0].step, 'Trin 2', 'Step bevares (felt 0)');
+assertEqual(fields3[2].step, 'Trin 3', 'Step bevares (felt 2)');
+assertEqual(fields3[3].step, null, 'Felt uden step → step=null');
+
+// Tom label tilladt
+const v4 = { booking_fields_json: JSON.stringify([{ template: '{bon_id}' }]), code: 'v4' };
+const fields4 = renderFields(v4, { bon_id: '1' });
+assertEqual(fields4[0].label, '', 'Manglende label → tom string');
+
+// ─── Test 7c: buildBookingPayload med fields ──────────────
+console.log('\n=== buildBookingPayload.fields ===');
+
+// Sæt booking_fields_json på taxa
+db.prepare(`UPDATE delivery_vehicles SET booking_fields_json = ? WHERE id = ?`).run(
+    JSON.stringify([
+        { label: 'Reference', template: '{bon_number} · {total_boxes} kasser' },
+        { label: 'Adresse',   template: '{delivery_address}' },
+        { label: 'Mgl',       template: '{nonexistent}' }
+    ]),
+    taxa.id
+);
+
+const payloadWithFields = buildBookingPayload(bonId, taxa.id);
+assert(Array.isArray(payloadWithFields.fields), 'payload.fields er et array');
+assertEqual(payloadWithFields.fields.length, 3, 'payload.fields har 3 elementer');
+assertEqual(payloadWithFields.fields[0].label, 'Reference', 'Første felt har label "Reference"');
+assert(payloadWithFields.fields[0].value.includes('TEST-1'), 'Første felt indeholder bon_number');
+assertEqual(payloadWithFields.fields[0].missing, false, 'Reference: missing=false');
+
+// Test at vehicle uden booking_fields_json giver fields=null
+db.prepare(`UPDATE delivery_vehicles SET booking_fields_json = NULL WHERE id = ?`).run(byekspressen.id);
+// Sæt template på byekspressen så buildBookingPayload ikke fejler på warning
+db.prepare(`UPDATE delivery_vehicles SET booking_template = 'X' WHERE id = ?`).run(byekspressen.id);
+const payloadNoFields = buildBookingPayload(bonId, byekspressen.id);
+assertEqual(payloadNoFields.fields, null, 'Vehicle uden booking_fields_json → fields=null');
+
+// Ugyldig JSON i DB → fields=null (graceful)
+db.prepare(`UPDATE delivery_vehicles SET booking_fields_json = ? WHERE id = ?`).run('{ugyldigt', byekspressen.id);
+const payloadBadJson = buildBookingPayload(bonId, byekspressen.id);
+assertEqual(payloadBadJson.fields, null, 'Ugyldig JSON i DB → fields=null');
+
+// Cleanup: ryd booking_fields_json på taxa så efterfølgende tests ikke påvirkes
+db.prepare(`UPDATE delivery_vehicles SET booking_fields_json = NULL WHERE id = ?`).run(taxa.id);
 
 // ─── Test 8: logBookingEvent ──────────────────────────────
 console.log('\n=== logBookingEvent ===');

@@ -35,6 +35,7 @@ router.get('/vehicles', requireAuth(), handle((req, res) => {
             id, code, label, type, is_internal,
             max_capacity_boxes, max_distance_km,
             cost_formula_json, booking_method, booking_url, booking_template,
+            booking_fields_json,
             booking_api_config_json, supplier_id, is_active, sort_order,
             created_at, updated_at
         FROM delivery_vehicles
@@ -126,6 +127,7 @@ router.patch('/vehicles/:id', requireAuth('admin'), handle((req, res) => {
         'label', 'type', 'is_internal',
         'max_capacity_boxes', 'max_distance_km',
         'booking_method', 'booking_url', 'booking_template',
+        'booking_fields_json',
         'supplier_id', 'sort_order', 'is_active'
     ];
 

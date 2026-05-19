@@ -559,10 +559,6 @@ function openMap(cardId) {
 }
 
 /**
- * Åbn manual booking-modal (Spor 1: bestil hos taxa/By-expressen).
- * Modal-komponenten skal være loaded i HTML-filen (manual_booking_modal.js).
- */
-/**
  * Klik på leveringsindikator på bon-kort → åbner drawer scrollet til bestil-bud-sektion.
  * Bruger view-specifikke drawer-instanser via window._bonInfoEditHandler eller
  * window.BonDrawer fallback.
@@ -582,11 +578,11 @@ function openBonDeliveryFromCard(cardId) {
     }
 }
 
+/**
+ * Åbn popout-vindue til bud-bestilling (Spor 1: taxa/By-expressen).
+ * window.openDeliveryNote eksponeres af bon_drawer.js.
+ */
 function openBestilBud(cardId) {
-    if (typeof window.openManualBookingModal !== 'function') {
-        alert('Bestillings-modal er ikke loaded. Kontakt admin.');
-        return;
-    }
     const card = document.getElementById(cardId);
     if (!card) return;
 
@@ -600,7 +596,12 @@ function openBestilBud(cardId) {
     const num = cardId.replace('bon', '');
     const bonId = parseInt(num);
     if (!bonId) return;
-    window.openManualBookingModal({ bonId });
+
+    if (typeof window.openDeliveryNote === 'function') {
+        window.openDeliveryNote(bonId, null);
+    } else {
+        alert('Delivery-popout er ikke loaded. Kontakt admin.');
+    }
 }
 
 function openRecipePicker(cardId) {
