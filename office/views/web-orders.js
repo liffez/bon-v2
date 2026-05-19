@@ -243,9 +243,12 @@ function _woRenderCard(b) {
         ? `<div class="wo-wishes">${_woEscape(b.customer_wishes)}</div>`
         : '';
 
-    const statusPillStyle = b.status_color
-        ? `background:${_woEscape(b.status_color)};color:#fff`
-        : '';
+    const _feStatus = (typeof statusToFrontend === 'function') ? statusToFrontend(b.status_code) : '';
+    const _statusCfg = (typeof BON_CONFIG !== 'undefined' && BON_CONFIG.statuses) ? BON_CONFIG.statuses[_feStatus] : null;
+    const statusPillStyle = _statusCfg
+        ? `background:${_statusCfg.color};color:${_statusCfg.text || '#fff'}`
+        : (b.status_color ? `background:${_woEscape(b.status_color)};color:#fff` : '');
+    const statusLabel = _statusCfg ? _statusCfg.label : (b.status_label || b.status_code || '');
 
     return `
         <div class="wo-card" data-bon-id="${b.bon_id}">
@@ -253,7 +256,7 @@ function _woRenderCard(b) {
                 <div class="wo-card-head">
                     <span class="wo-bon-num">#${_woEscape(b.bon_number)}</span>
                     <span class="wo-customer">${_woEscape(b.customer_name)}</span>
-                    <span class="wo-status-pill" style="${statusPillStyle}">${_woEscape(b.status_label || b.status_code || '')}</span>
+                    <span class="wo-status-pill" style="${statusPillStyle}">${_woEscape(statusLabel)}</span>
                 </div>
                 <div class="wo-meta">
                     <span class="wo-meta-item">📅 ${_woFmtDate(b.delivery_date)} kl. ${time} <span class="${daysClass}">(${_woEscape(daysText)})</span></span>

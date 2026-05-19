@@ -265,6 +265,10 @@
     display: none;
 }
 
+.cal-bon-entry[data-production="true"] {
+    --bon-color: #4a7ab0;
+}
+
 .cal-bon-time {
     font-weight: 700;
     color: var(--color-text);

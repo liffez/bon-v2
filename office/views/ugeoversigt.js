@@ -424,12 +424,16 @@ function _uoRenderDetail(dayIdx) {
     } else {
         for (var b = 0; b < day.bons.length; b++) {
             var bon = day.bons[b];
-            var statusCls = _uoBonStatusClass(bon.status_code);
+            var feStatus = (typeof statusToFrontend === 'function') ? statusToFrontend(bon.status_code) : '';
+            var statusCfg = (typeof BON_CONFIG !== 'undefined' && BON_CONFIG.statuses) ? BON_CONFIG.statuses[feStatus] : null;
+            var statusBg = statusCfg ? statusCfg.color : '#999';
+            var statusFg = statusCfg ? (statusCfg.text || '#fff') : '#fff';
+            var statusLabel = statusCfg ? statusCfg.label : (bon.status_label || bon.status_code);
             html += '<div class="uge-bon-item" data-bon-id="' + bon.id + '" data-bon-number="' + _uoEsc(bon.bon_number || '') + '" title="Klik for info">' +
                 '<span class="uge-bon-nr">#' + (bon.bon_number || bon.id) + '</span>' +
                 '<span class="uge-bon-customer">' + _uoEsc(bon.customer_name || '—') + '</span>' +
                 '<span class="uge-bon-units">' + (bon.workload ? bon.workload + (bon.total_units ? ' enh' : ' pax') : '—') + '</span>' +
-                '<span class="uge-bon-status ' + statusCls + '">' + (bon.status_label || bon.status_code) + '</span>' +
+                '<span class="uge-bon-status" style="background:' + statusBg + ';color:' + statusFg + '">' + _uoEsc(statusLabel) + '</span>' +
             '</div>';
         }
     }
@@ -554,17 +558,6 @@ function _uoRenderDetail(dayIdx) {
 }
 
 /* ── Detail helpers ────────────────────────────────────── */
-
-function _uoBonStatusClass(code) {
-    if (!code) return '';
-    var c = code.toUpperCase();
-    if (c === 'GODKENDT') return 's-godkendt';
-    if (c === 'IGANG') return 's-igang';
-    if (c === 'KLAR') return 's-klar';
-    if (c === 'VENTER') return 's-venter';
-    if (c === 'NY') return 's-venter';
-    return 's-venter';
-}
 
 function _uoWorstStatus(statuses) {
     var order = { red: 4, orange: 3, yellow: 3, blue: 1, green: 1, grey: 0 };

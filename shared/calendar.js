@@ -333,13 +333,18 @@ function _renderWebOrderCard(b) {
     }
     var time = b.delivery_time ? b.delivery_time.slice(0, 5) : '—';
     var typeLbl = b.order_type === 'pickup' ? '🏠 Afhentning' : '🚚 Levering';
-    var statusPillStyle = b.status_color ? 'background:' + _calEsc(b.status_color) + ';color:#fff' : '';
+    var feStatusWo = (typeof statusToFrontend === 'function') ? statusToFrontend(b.status_code) : '';
+    var statusCfgWo = (typeof BON_CONFIG !== 'undefined' && BON_CONFIG.statuses) ? BON_CONFIG.statuses[feStatusWo] : null;
+    var statusPillStyle = statusCfgWo
+        ? 'background:' + statusCfgWo.color + ';color:' + (statusCfgWo.text || '#fff')
+        : (b.status_color ? 'background:' + _calEsc(b.status_color) + ';color:#fff' : '');
+    var statusLabelWo = statusCfgWo ? statusCfgWo.label : (b.status_label || b.status_code || '');
 
     var h = '<div class="cal-wo-card" data-bon-id="' + b.bon_id + '">';
     h += '<div class="cal-wo-card-head">';
     h += '<span class="cal-wo-bon-num">#' + _calEsc(b.bon_number) + '</span>';
     h += '<span class="cal-wo-customer">' + _calEsc(b.customer_name) + '</span>';
-    h += '<span class="cal-wo-status-pill" style="' + statusPillStyle + '">' + _calEsc(b.status_label || b.status_code || '') + '</span>';
+    h += '<span class="cal-wo-status-pill" style="' + statusPillStyle + '">' + _calEsc(statusLabelWo) + '</span>';
     h += '</div>';
 
     h += '<div class="cal-wo-meta">';
@@ -616,11 +621,13 @@ function _buildDayCell(dateStr, dayData, isCurrentMonth, isToday) {
                 ? BON_CONFIG.statuses[feStatus] : null;
             var color = statusCfg ? statusCfg.color : (bon.status_color || '#999');
 
+            var isProduction = bon.price_category === 'produktion' || bon.price_category_code === 'produktion';
             var entry = document.createElement('div');
             entry.className = 'cal-bon-entry';
             entry.dataset.bonId  = bon.id;
             entry.dataset.status = feStatus;
             entry.dataset.offer  = bon.is_offer ? 'true' : 'false';
+            if (isProduction) entry.dataset.production = 'true';
             entry.style.setProperty('--bon-color', color);
 
             var timeStr = bon.pickup_time || bon.delivery_time || '';
@@ -812,7 +819,9 @@ function _renderList() {
             } else if (col2.key === 'pickup_time') {
                 td.textContent = bon.pickup_time || bon.delivery_time || '';
             } else if (col2.key === 'bon_number') {
+                var isProd2 = bon.price_category === 'produktion' || bon.price_category_code === 'produktion';
                 td.innerHTML = '#' + esc(String(bon.bon_number || ''))
+                    + (isProd2 ? ' <span class="bon-prod-badge" title="Produktionsbon">🔧</span>' : '')
                     + (bon.unread_mail_count ? ' <span class="bon-mail-badge">' + mailIcon(13) + '</span>' : '');
             } else {
                 td.textContent = bon[col2.key] != null ? bon[col2.key] : '';

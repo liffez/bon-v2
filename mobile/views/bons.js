@@ -459,7 +459,7 @@ function _mbRenderNyeCard(ev) {
     var classes = 'm-bon-item m-bon-nye unseen';
     if (isMail) classes += ' mail';
 
-    var name = bon.contact_name_full || bon.company_name || 'Ukendt';
+    var name = bon.contact_name_full || bon.customer_name || bon.company_name || 'Ukendt';
     if (bon.contact_name_full && bon.company_name) {
         name = bon.contact_name_full + ' — ' + bon.company_name;
     }
@@ -639,7 +639,7 @@ function _mbRenderSearchResults(hasMore) {
 
     _mbSearchResults.forEach(function(bon) {
         var s = _mbStatusStyle(bon.status_code || bon.status);
-        var name = bon.contact_name_full || bon.company_name || 'Ukendt';
+        var name = bon.contact_name_full || bon.customer_name || bon.company_name || 'Ukendt';
         var meta = '';
         if (bon.delivery_date) meta += 'Lev. ' + _mbFormatDeliveryShort(bon.delivery_date, bon.delivery_time);
         if (bon.pax) meta += ' · ' + bon.pax + ' pax';
