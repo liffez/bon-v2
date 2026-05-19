@@ -151,6 +151,55 @@ function getDefaultLocationId() {
     return getDb().prepare(`SELECT id FROM locations WHERE is_active = 1 ORDER BY id LIMIT 1`).get()?.id;
 }
 
+// ─── ENHEDER-TÆLLING ──────────────────────────────────────
+// Kun kategorier i settings.unit_count_categories tæller med i bons.total_units.
+// Grocy `grupper`-userfield er master for hvilke kategorier der findes;
+// settings udvælger hvilke der skal tælles. Listen redigeres i Settings.
+
+let _unitCatCache = null;
+let _unitCatCacheUntil = 0;
+
+function getUnitCountCategories() {
+    const now = Date.now();
+    if (_unitCatCache && now < _unitCatCacheUntil) return _unitCatCache;
+    const row = getDb().prepare(`SELECT value FROM settings WHERE key='unit_count_categories'`).get();
+    let list = [];
+    if (row?.value) {
+        try { list = JSON.parse(row.value); } catch { list = []; }
+        if (!Array.isArray(list)) list = [];
+    }
+    _unitCatCache = list;
+    _unitCatCacheUntil = now + 60_000;
+    return list;
+}
+
+function invalidateUnitCountCache() {
+    _unitCatCache = null;
+    _unitCatCacheUntil = 0;
+}
+
+/**
+ * Genberegn total_units på en bon. SUM(quantity) på linjer hvis kategori
+ * er i settings.unit_count_categories OG ikke er markeret som tilbehør.
+ * Returnerer den nye total.
+ */
+function recalcBonTotalUnits(db, bonId) {
+    const cats = getUnitCountCategories();
+    let total = 0;
+    if (cats.length > 0) {
+        const placeholders = cats.map(() => '?').join(',');
+        total = db.prepare(`
+            SELECT COALESCE(SUM(quantity), 0) AS t
+            FROM bon_lines
+            WHERE bon_id = ?
+              AND (is_accessory = 0 OR is_accessory IS NULL)
+              AND category IN (${placeholders})
+        `).get(bonId, ...cats).t;
+    }
+    db.prepare(`UPDATE bons SET total_units = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?`).run(total, bonId);
+    return total;
+}
+
 // ─── AUTH HELPERS ──────────────────────────────────────────
 
 async function hashPassword(plain) {
@@ -172,6 +221,7 @@ function getUserById(id) {
 module.exports = {
     nextBonNumber, nextQuoteNumber, logChange, handle,
     getBon, getBonLines, getStatusId, getDefaultLocationId,
+    getUnitCountCategories, invalidateUnitCountCache, recalcBonTotalUnits,
     hashPassword, verifyPassword, getUserByEmail, getUserById,
     transaction,
     // Moms-helpers (re-eksporteret fra shared/moms.js — én definition for hele Bon v2)

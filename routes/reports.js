@@ -17,7 +17,7 @@
 const express       = require('express');
 const router        = express.Router();
 const { getDb }     = require('../db/database');
-const { handle, inclToExcl, momsOfIncl } = require('../db/helpers');
+const { handle, inclToExcl, momsOfIncl, getUnitCountCategories } = require('../db/helpers');
 const { requireAuth } = require('../shared/auth');
 
 // ─── Auth on all routes ──────────────────────────────────────
@@ -45,6 +45,20 @@ function _statusPlaceholders(codes) {
 
 /** Round to 2 decimals */
 function r2(n) { return Math.round((n ?? 0) * 100) / 100; }
+
+/**
+ * Bygger SQL CASE-udtryk der returnerer quantity hvis category er en
+ * enheds-kategori (jf. settings.unit_count_categories), ellers 0.
+ * Bruges i SUM() til at få "antal enheder"-metrics korrekt — sandwich,
+ * slider og salat tæller, kager/drikke/emballage/levering gør ikke.
+ * Returnerer { sql, args } så placeholder-rækkefølgen passer i .all().
+ */
+function _unitCaseExpr() {
+    const cats = getUnitCountCategories();
+    if (cats.length === 0) return { sql: '0', args: [] };
+    const placeholders = cats.map(() => '?').join(',');
+    return { sql: `CASE WHEN bl.category IN (${placeholders}) THEN bl.quantity ELSE 0 END`, args: cats };
+}
 
 /**
  * Konstruer 3-felt moms-mønster fra incl-moms-total.
@@ -156,11 +170,13 @@ router.get('/monthly', handle(async (req, res) => {
     const prevStartMonth = `${prevStartDate.getFullYear()}-${String(prevStartDate.getMonth() + 1).padStart(2, '0')}`;
     const prevEndMonth = `${prevEndDate.getFullYear()}-${String(prevEndDate.getMonth() + 1).padStart(2, '0')}`;
 
+    const unit = _unitCaseExpr();
+
     const thisYearRows = db.prepare(`
         SELECT
             strftime('%Y-%m', b.delivery_date) AS month,
             COALESCE(SUM(bl.quantity * bl.unit_price), 0) AS revenue,
-            COALESCE(SUM(bl.quantity), 0) AS units,
+            COALESCE(SUM(${unit.sql}), 0) AS units,
             COUNT(DISTINCT b.id) AS orders
         FROM bons b
         JOIN status_definitions sd ON b.status_id = sd.id
@@ -171,13 +187,13 @@ router.get('/monthly', handle(async (req, res) => {
           AND strftime('%Y-%m', b.delivery_date) <= ?
         GROUP BY strftime('%Y-%m', b.delivery_date)
         ORDER BY month
-    `).all(...REVENUE_CODES, startMonth, endMonth);
+    `).all(...unit.args, ...REVENUE_CODES, startMonth, endMonth);
 
     const prevYearRows = db.prepare(`
         SELECT
             strftime('%Y-%m', b.delivery_date) AS month,
             COALESCE(SUM(bl.quantity * bl.unit_price), 0) AS revenue,
-            COALESCE(SUM(bl.quantity), 0) AS units,
+            COALESCE(SUM(${unit.sql}), 0) AS units,
             COUNT(DISTINCT b.id) AS orders
         FROM bons b
         JOIN status_definitions sd ON b.status_id = sd.id
@@ -188,7 +204,7 @@ router.get('/monthly', handle(async (req, res) => {
           AND strftime('%Y-%m', b.delivery_date) <= ?
         GROUP BY strftime('%Y-%m', b.delivery_date)
         ORDER BY month
-    `).all(...REVENUE_CODES, prevStartMonth, prevEndMonth);
+    `).all(...unit.args, ...REVENUE_CODES, prevStartMonth, prevEndMonth);
 
     // Tilføj 3-felt mønster pr måned (regnskabskonvention: revenue_excl_moms primær)
     const decorate = rows => rows.map(r => ({
@@ -268,11 +284,12 @@ router.get('/categories', handle(async (req, res) => {
     const prevYear = (parseInt(thisYear) - 1).toString();
 
     function fetchCategories(year) {
+        const unit = _unitCaseExpr();
         const rows = db.prepare(`
             SELECT
                 pc.code,
                 pc.label,
-                COALESCE(SUM(bl.quantity), 0) AS units,
+                COALESCE(SUM(${unit.sql}), 0) AS units,
                 COALESCE(SUM(bl.quantity * bl.unit_price), 0) AS revenue
             FROM bons b
             JOIN status_definitions sd ON b.status_id = sd.id
@@ -283,7 +300,7 @@ router.get('/categories', handle(async (req, res) => {
               AND strftime('%Y', b.delivery_date) = ?
             GROUP BY pc.code
             ORDER BY pc.sort_order, pc.code
-        `).all(...REVENUE_CODES, year);
+        `).all(...unit.args, ...REVENUE_CODES, year);
 
         const totalRevenue = rows.reduce((s, r) => s + r.revenue, 0) || 1;
         return rows.map(r => ({
@@ -315,12 +332,13 @@ router.get('/monthly-table', handle(async (req, res) => {
 
     // Fetch monthly data for a given year
     function fetchMonthly(year) {
+        const unit = _unitCaseExpr();
         return db.prepare(`
             SELECT
                 CAST(strftime('%m', b.delivery_date) AS INTEGER) AS month_nr,
                 COALESCE(SUM(bl.quantity * bl.unit_price), 0) AS revenue,
                 COUNT(DISTINCT b.id) AS orders,
-                COALESCE(SUM(bl.quantity), 0) AS units
+                COALESCE(SUM(${unit.sql}), 0) AS units
             FROM bons b
             JOIN status_definitions sd ON b.status_id = sd.id
             JOIN bon_lines bl ON bl.bon_id = b.id
@@ -328,7 +346,7 @@ router.get('/monthly-table', handle(async (req, res) => {
               ${OFFER_INTERNAL_FILTER}
               AND strftime('%Y', b.delivery_date) = ?
             GROUP BY CAST(strftime('%m', b.delivery_date) AS INTEGER)
-        `).all(...REVENUE_CODES, year.toString());
+        `).all(...unit.args, ...REVENUE_CODES, year.toString());
     }
 
     const thisData = fetchMonthly(thisYear);

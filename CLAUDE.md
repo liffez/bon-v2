@@ -1724,6 +1724,28 @@ Stående/engangs-påmindelser ("flags") på kunder og firmaer der hejses ved bon
 - Firma 360° Aktivitet-tab fase 7-integration — kræver firma-aggregering af `crm_activities` (TODO i `_f3RenderAktivitet`). Dismissed flag vises lige nu kun i Kunde 360° timeline.
 - Status-filter på drawer-strip (vis altid på alle bon-statusser) — kan tilføjes senere som `b.status_code IN (aktive)` hvis støj på AFSLUTTET/BETALT bons bliver et problem.
 
+### Enheds-kategorier — kun sandwich/slider/salat tæller (19. maj 2026)
+
+Indtil nu tæller alle bon_lines med i `bons.total_units` så længe `is_accessory=0` — men `is_accessory` er i praksis aldrig sat (0 ud af 8.245 emballage/levering/kage/drikke-linjer). 2.774 ud af 2.893 bons (96 %) havde forkerte enheds-tal der inkluderede kager, drikke, emballage, levering og service-fees. Det forplantede sig til dashboard, ugeoversigt, rapport-KPIs og bon-kortets ENH-tal.
+
+**Ny regel**: kun kategorier i `settings.unit_count_categories` tæller med. Grocy `grupper`-userfield er master for hvilke kategorier der findes; settings udvælger hvilke der tæller. Default-listen er sandwich/slider/salat (matcher faktiske data inkl. historiske stavevarianter).
+
+- Migration 070: `settings.unit_count_categories` JSON-array. Default: `["01 Sandwich","02 Salat","04 Slider","Burger","Slider","Salat"]`
+- `db/helpers.js` — `getUnitCountCategories()` med 60s cache + `recalcBonTotalUnits(db, bonId)` helper
+- `routes/bons.js` — 3 inline `SUM(quantity)`-queries ved POST/PUT/DELETE `/lines` erstattet med helper
+- `routes/quotes.js` — samme helper ved tilbud→bon konvertering
+- `routes/reports.js` — `_unitCaseExpr()` builder + 4 monthly/priskategori SQL'er retter `SUM(quantity)` til `SUM(CASE WHEN category IN (...) THEN quantity ELSE 0 END)`. Top-categories (linje 555/570) + dashboard categories (`/today`) + dashboard top-products (`/top-products`) er bevidst IKKE filtreret — de er per-bucket visninger, ikke samlede enheds-metrics
+- `shared/bon_kort.js` — `_renderSummary()` viser ikke-tællende kategorier dæmpet (`.summary-row-dim`, opacity 0.55). Grand total kun fra tællende kategorier. Setting fetches lazy ved første sammentælling og caches i `window._unitCountCats`
+- `settings/index.html` — Settings → System → "Enheds-kategorier"-sektion: chips med × til at fjerne + dropdown til at tilføje (genereret fra Grocy `GET /api/grocy/recipes`). Settings gemmes som JSON via eksisterende `PATCH /api/settings/:key`
+- `scripts/backfill-total-units.js` — dry-run + `--apply` med backup. Re-beregner `total_units` for alle eksisterende bons. Tager backup af `data/bon.db` før `--apply`
+- Følgende steder bruger `bons.total_units` direkte og fixes automatisk via backfill: kitchen today/later/calendar, dashboard, ugeoversigt, schedule kapacitet, planning, listview, mobil overblik
+
+**Deploy-trin**:
+1. Kør migrations (auto-applies 070)
+2. Kør `node --experimental-sqlite scripts/backfill-total-units.js` for dry-run, læs sammenfatningen
+3. Kør med `--apply` (tager auto-backup)
+4. Justér listen i Settings → System → Enheds-kategorier hvis Grocy bruger andre kategorinavne i produktion
+
 ## Næste opgave
 
 > ✏️ Opdateret 19. maj 2026.

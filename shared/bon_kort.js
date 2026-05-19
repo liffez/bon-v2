@@ -912,6 +912,29 @@ function _setSummaryModePref(mode) {
     try { localStorage.setItem('bon-summary-mode', mode); } catch (e) {}
 }
 
+// Lazy-loadet liste over "tæller-med"-kategorier (sandwich/slider/salat).
+// Settings-key: unit_count_categories. Defineres af bruger i Settings → System.
+function _getUnitCountCats() {
+    return Array.isArray(window._unitCountCats) ? window._unitCountCats : null;
+}
+async function _ensureUnitCountCats(cardId) {
+    if (window._unitCountCatsLoaded) return;
+    window._unitCountCatsLoaded = true;
+    try {
+        const r = await fetch('/api/settings', { credentials: 'include' });
+        if (!r.ok) return;
+        const rows = await r.json();
+        const raw = (rows.find(s => s.key === 'unit_count_categories') || {}).value;
+        if (raw) {
+            try {
+                const arr = JSON.parse(raw);
+                if (Array.isArray(arr)) window._unitCountCats = arr;
+            } catch {}
+        }
+    } catch {}
+    if (cardId) _renderSummary(cardId);
+}
+
 // Returnerer base-navn uden special_request (.bon-menu-note span fjernes)
 function _baseMenuName(nameEl) {
     if (!nameEl) return '';
@@ -954,22 +977,35 @@ function _renderSummary(cardId) {
         return;
     }
 
+    // Tæller-med-kategorier (sandwich/slider/salat). Hvis ikke loadet endnu,
+    // trigger async load og rerender — vis alt som "tæller-med" indtil da.
+    _ensureUnitCountCats(cardId);
+    const unitCats = _getUnitCountCats();
+    const countsAsUnit = (cat) => unitCats === null ? true : unitCats.includes(cat);
+
     let html = '';
     let grandTotal = 0;
+    let hasNonCounting = false;
 
     if (mode === 'item') {
         // Grupper per produkt-navn (uden noter) — Kylling + Kylling uden løg = 2 x Kylling
+        // Behold kategori-info per item for at vide om gruppen tæller med
         const groups = {};
         for (const it of items) {
             const key = it.baseName + '||' + it.unit;
-            if (groups[key]) groups[key].qty += it.qty;
-            else groups[key] = { qty: it.qty, unit: it.unit, name: it.baseName };
+            if (groups[key]) {
+                groups[key].qty += it.qty;
+            } else {
+                groups[key] = { qty: it.qty, unit: it.unit, name: it.baseName, counts: countsAsUnit(it.cat) };
+            }
         }
         const entries = Object.values(groups).sort((a, b) => a.name.localeCompare(b.name, 'da'));
         for (const e of entries) {
-            grandTotal += e.qty;
+            if (e.counts) grandTotal += e.qty;
+            else hasNonCounting = true;
             const qtyStr = Number.isInteger(e.qty) ? e.qty : e.qty.toFixed(1);
-            html += `<div class="summary-row">
+            const cls = e.counts ? '' : ' summary-row-dim';
+            html += `<div class="summary-row${cls}">
                 <span class="summary-qty">${qtyStr}</span>
                 <span class="summary-name">${_esc(e.name)}${e.unit ? ' <span class="summary-cat">' + _esc(e.unit) + '</span>' : ''}</span>
             </div>`;
@@ -984,9 +1020,12 @@ function _renderSummary(cardId) {
         const catNames = Object.keys(categories).sort((a, b) => a.localeCompare(b, 'da'));
         for (const cat of catNames) {
             const catTotal = categories[cat];
-            grandTotal += catTotal;
+            const counts = countsAsUnit(cat);
+            if (counts) grandTotal += catTotal;
+            else hasNonCounting = true;
             const qtyStr = Number.isInteger(catTotal) ? catTotal : catTotal.toFixed(1);
-            html += `<div class="summary-row">
+            const cls = counts ? '' : ' summary-row-dim';
+            html += `<div class="summary-row${cls}">
                 <span class="summary-qty">${qtyStr}</span>
                 <span class="summary-name">${_esc(_stripCatPrefix(cat))}</span>
             </div>`;
@@ -994,9 +1033,10 @@ function _renderSummary(cardId) {
     }
 
     const gtStr = Number.isInteger(grandTotal) ? grandTotal : grandTotal.toFixed(1);
+    const totalLabel = hasNonCounting ? 'Enheder' : 'Total';
     html += `<div class="summary-row summary-total">
         <span class="summary-qty">${gtStr}</span>
-        <span class="summary-name">Total</span>
+        <span class="summary-name">${totalLabel}</span>
     </div>`;
     rows.innerHTML = html;
 }

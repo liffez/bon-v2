@@ -1052,6 +1052,19 @@
         </div>
       </div>
 
+      <h3 style="margin-top:24px;font-size:15px;font-weight:700">Enheds-kategorier</h3>
+      <div style="font-size:12px;color:var(--color-text-dim);margin-bottom:14px;line-height:1.6;max-width:600px;background:var(--color-background);padding:10px 14px;border-radius:6px;border:1px solid var(--color-border)">
+        <strong style="color:var(--color-text)">Hvilke Grocy-kategorier tæller som "enheder"</strong><br>
+        Sandwich, slider og salat tæller med — kager, drikke, emballage, levering og tilbehør gør ikke.<br>
+        Påvirker <code>bons.total_units</code>, dashboard, ugeoversigt og rapport-metrics. Kategorierne kommer fra Grocy <code>grupper</code>-userfield på opskrifter.
+      </div>
+      <div id="uc-list" style="display:flex;flex-wrap:wrap;gap:8px;margin-bottom:12px;min-height:34px"></div>
+      <div style="display:flex;gap:8px;align-items:center;margin-bottom:14px">
+        <select id="uc-add-select" class="st-input" style="flex:1;max-width:340px"></select>
+        <button class="st-btn st-btn-primary" type="button" onclick="ucAddSelected()">+ Tilføj</button>
+      </div>
+      <div id="uc-status" style="font-size:11px;color:var(--color-text-dim);min-height:16px"></div>
+
       <h3 style="margin-top:24px;font-size:15px;font-weight:700">Planlægningsbon</h3>
       <div style="display:flex;gap:12px;align-items:center;margin-bottom:14px">
         <label style="width:280px;font-size:14px;font-weight:500">Vis priser i planlægningsbon</label>
@@ -1409,6 +1422,7 @@ async function init() {
     loadSystemSection();
     loadCapacitySettings();
     loadPlanningPricesSettings();
+    loadUnitCategoriesSettings();
     loadDuplicates();
     loadActivityPurposes();
   }
@@ -2295,6 +2309,95 @@ async function togglePlanningPrices() {
   var enabled = document.getElementById('planning-prices-enabled').checked;
   await saveSetting('show_prices_in_planning', enabled ? '1' : '0');
   allSettings['show_prices_in_planning'] = enabled ? '1' : '0';
+}
+
+// ─── ENHEDS-KATEGORIER ───────────────────────────────────
+// Grocy `grupper`-userfield er master; brugeren vælger hvilke der tæller
+// som enheder. Settings gemmes som JSON-array i unit_count_categories.
+
+var _ucSelected = [];
+var _ucAllCats = [];
+
+function _ucParse(raw) {
+  if (!raw) return [];
+  try { var arr = JSON.parse(raw); return Array.isArray(arr) ? arr : []; }
+  catch { return []; }
+}
+
+async function loadUnitCategoriesSettings() {
+  _ucSelected = _ucParse(allSettings['unit_count_categories']);
+  try {
+    var recipes = await fetchGrocyRecipes();
+    var seen = new Set();
+    _ucAllCats = [];
+    (recipes || []).forEach(function(r) {
+      var c = (r.category || '').trim();
+      if (c && !seen.has(c)) { seen.add(c); _ucAllCats.push(c); }
+    });
+    _ucAllCats.sort(function(a, b) { return a.localeCompare(b, 'da'); });
+  } catch (e) {
+    console.warn('Kunne ikke hente Grocy-kategorier:', e);
+    _ucAllCats = _ucSelected.slice();
+  }
+  // Tilføj kategorier der er i settings men ikke længere findes i Grocy
+  // (fx historiske stavevarianter) så de stadig kan ses og fjernes
+  _ucSelected.forEach(function(c) {
+    if (!_ucAllCats.includes(c)) _ucAllCats.push(c);
+  });
+  _ucRender();
+}
+
+function _ucRender() {
+  var list = document.getElementById('uc-list');
+  var sel  = document.getElementById('uc-add-select');
+  if (!list || !sel) return;
+
+  if (_ucSelected.length === 0) {
+    list.innerHTML = '<span style="font-size:13px;color:var(--color-text-dim);font-style:italic">Ingen valgt — bons.total_units vil være 0 for alle bons</span>';
+  } else {
+    list.innerHTML = _ucSelected.map(function(c) {
+      return '<span class="uc-chip" style="display:inline-flex;align-items:center;gap:6px;padding:5px 10px;background:var(--brand-primary-light);border:1px solid var(--color-border);border-radius:14px;font-size:13px">' +
+        esc(c) +
+        '<button type="button" onclick="ucRemove(\'' + esc(c).replace(/'/g, '\\\'') + '\')" style="border:none;background:none;cursor:pointer;font-size:14px;line-height:1;color:var(--color-text-dim);padding:0" title="Fjern">×</button>' +
+      '</span>';
+    }).join('');
+  }
+
+  var available = _ucAllCats.filter(function(c) { return !_ucSelected.includes(c); });
+  sel.innerHTML = '<option value="">— vælg kategori —</option>' +
+    available.map(function(c) { return '<option value="' + esc(c) + '">' + esc(c) + '</option>'; }).join('');
+}
+
+async function ucAddSelected() {
+  var sel = document.getElementById('uc-add-select');
+  if (!sel || !sel.value) return;
+  var c = sel.value;
+  if (_ucSelected.includes(c)) return;
+  _ucSelected.push(c);
+  await _ucSave();
+  _ucRender();
+}
+
+async function ucRemove(c) {
+  _ucSelected = _ucSelected.filter(function(x) { return x !== c; });
+  await _ucSave();
+  _ucRender();
+}
+
+async function _ucSave() {
+  var status = document.getElementById('uc-status');
+  if (status) status.textContent = 'Gemmer…';
+  try {
+    var json = JSON.stringify(_ucSelected);
+    await saveSetting('unit_count_categories', json);
+    allSettings['unit_count_categories'] = json;
+    if (status) {
+      status.textContent = 'Gemt — kører igen ved næste bon-ændring. For historiske bons: kør scripts/backfill-total-units.js --apply';
+      setTimeout(function() { if (status.textContent.indexOf('Gemt') === 0) status.textContent = ''; }, 6000);
+    }
+  } catch (e) {
+    if (status) status.textContent = 'Fejl: ' + (e.message || e);
+  }
 }
 
 // ─── HELPERS ─────────────────────────────────────────────

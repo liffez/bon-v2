@@ -11,7 +11,7 @@ const express = require('express');
 const router  = express.Router();
 
 const { getDb }    = require('../db/database');
-const { handle, logChange, nextBonNumber, nextQuoteNumber, getStatusId, getDefaultLocationId, getBon, getBonLines, computeMomsFields } = require('../db/helpers');
+const { handle, logChange, nextBonNumber, nextQuoteNumber, getStatusId, getDefaultLocationId, getBon, getBonLines, computeMomsFields, recalcBonTotalUnits } = require('../db/helpers');
 const { broadcast } = require('../shared/sse');
 
 // ─── HELPERS ───────────────────────────────────────────────────────────────
@@ -390,9 +390,8 @@ router.patch('/:id', handle((req, res) => {
             );
         });
 
-        // Opdater total_units
-        const totalUnits = db.prepare(`SELECT COALESCE(SUM(quantity),0) as t FROM bon_lines WHERE bon_id = ? AND (is_accessory = 0 OR is_accessory IS NULL)`).get(id).t;
-        db.prepare('UPDATE bons SET total_units = ? WHERE id = ?').run(totalUnits, id);
+        // Opdater total_units (kun kategorier i settings.unit_count_categories)
+        recalcBonTotalUnits(db, id);
     }
 
     recalcTotal(db, id);
