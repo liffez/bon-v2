@@ -18,11 +18,14 @@ require('dotenv').config();
 const fs = require('fs');
 const path = require('path');
 const { openDb, transaction } = require('../db/compat');
+const { runMigrations } = require('../db/migrate');
 
 const args = process.argv.slice(2);
 const apply = args.includes('--apply');
 
-const DB_PATH = path.join(__dirname, '..', 'data', 'bon.db');
+const DB_PATH = process.env.DB_PATH
+    ? path.resolve(process.env.DB_PATH)
+    : path.join(__dirname, '..', 'data', 'bon.db');
 
 if (!fs.existsSync(DB_PATH)) {
     console.error(`DB ikke fundet: ${DB_PATH}`);
@@ -36,11 +39,16 @@ if (apply) {
     console.log(`Backup: ${backup}`);
 }
 
+// Kør migrationer idempotent — sikrer at settings.unit_count_categories findes
+// hvis serveren ikke har været startet siden migration 070 blev tilføjet.
+console.log('Kører migrationer (idempotent)…');
+runMigrations(DB_PATH);
+
 const db = openDb(DB_PATH);
 
 const settingRow = db.prepare(`SELECT value FROM settings WHERE key='unit_count_categories'`).get();
 if (!settingRow?.value) {
-    console.error('settings.unit_count_categories findes ikke — kør migrations først.');
+    console.error('settings.unit_count_categories findes ikke efter migration — noget er galt.');
     process.exit(1);
 }
 
