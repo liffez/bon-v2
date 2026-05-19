@@ -609,6 +609,18 @@ function _buildDayCell(dateStr, dayData, isCurrentMonth, isToday) {
 
     cell.appendChild(dateRow);
 
+    // Dag-totaler ØVERST — workload (enh. hvis sat, ellers pax — per bon)
+    if (dayData && dayData.totals.count > 0) {
+        var totalsTop = document.createElement('div');
+        totalsTop.className = 'cal-day-totals';
+        var dayLineTop = dayData.totals.workload > 0
+            ? (dayData.totals.workload + ' enh.')
+            : (dayData.totals.count + ' bons');
+        totalsTop.innerHTML = '<span>' + dayLineTop + '</span>'
+            + '<span>' + dayData.totals.count + ' bons</span>';
+        cell.appendChild(totalsTop);
+    }
+
     // Bon-entries
     if (dayData && dayData.bons.length > 0) {
         var bonsDiv = document.createElement('div');
@@ -620,6 +632,7 @@ function _buildDayCell(dateStr, dayData, isCurrentMonth, isToday) {
             var statusCfg = (typeof BON_CONFIG !== 'undefined' && BON_CONFIG.statuses)
                 ? BON_CONFIG.statuses[feStatus] : null;
             var color = statusCfg ? statusCfg.color : (bon.status_color || '#999');
+            var textColor = statusCfg && statusCfg.text ? statusCfg.text : '#ffffff';
 
             var isProduction = bon.price_category === 'produktion' || bon.price_category_code === 'produktion';
             var entry = document.createElement('div');
@@ -627,8 +640,16 @@ function _buildDayCell(dateStr, dayData, isCurrentMonth, isToday) {
             entry.dataset.bonId  = bon.id;
             entry.dataset.status = feStatus;
             entry.dataset.offer  = bon.is_offer ? 'true' : 'false';
-            if (isProduction) entry.dataset.production = 'true';
-            entry.style.setProperty('--bon-color', color);
+            if (isProduction) {
+                entry.dataset.production = 'true';
+                // Inline value beats [data-production] CSS selector (specificity),
+                // so set production blue + white text directly når bonen er en produktions-bon.
+                entry.style.setProperty('--bon-color', '#4a7ab0');
+                entry.style.setProperty('--bon-text', '#ffffff');
+            } else {
+                entry.style.setProperty('--bon-color', color);
+                entry.style.setProperty('--bon-text', textColor);
+            }
 
             var timeStr = bon.pickup_time || bon.delivery_time || '';
 
@@ -660,18 +681,6 @@ function _buildDayCell(dateStr, dayData, isCurrentMonth, isToday) {
             bonsDiv.appendChild(entry);
         }
         cell.appendChild(bonsDiv);
-    }
-
-    // Dag-totaler — workload (matcher v1's "Total": enh. hvis sat, ellers pax — per bon)
-    if (dayData && dayData.totals.count > 0) {
-        var totals = document.createElement('div');
-        totals.className = 'cal-day-totals';
-        var dayLine = dayData.totals.workload > 0
-            ? (dayData.totals.workload + ' enh.')
-            : (dayData.totals.count + ' bons');
-        totals.innerHTML = '<span>' + dayLine + '</span>'
-            + '<span>' + dayData.totals.count + ' bons</span>';
-        cell.appendChild(totals);
     }
 
     return cell;

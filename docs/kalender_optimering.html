@@ -1,0 +1,856 @@
+<!DOCTYPE html>
+<html lang="da">
+<head>
+<meta charset="UTF-8">
+<title>Bon v2 — Kalender optimering</title>
+<style>
+  :root {
+    /* Bon v2 palette */
+    --bg: #ffffff;
+    --bg-alt: #faf8f5;
+    --topbar: #8b6f47;
+    --header-bg: #c8a47a;
+    --header-text: #ffffff;
+    --border: #e5dfd5;
+    --border-strong: #c8b896;
+    --text: #2a2a2a;
+    --text-muted: #888;
+    --text-faded: #c0c0c0;
+
+    /* Status colors — harmoniseret palet (ikke neon) */
+    --s-ny: #e8e8e8;
+    --s-ny-text: #555;
+    --s-venter: #fde68a;
+    --s-venter-text: #78350f;
+    --s-godkendt: #86d28a;
+    --s-godkendt-text: #1b5e1f;
+    --s-igang: #f4b878;
+    --s-igang-text: #7a3a00;
+    --s-klar: #f38f8f;
+    --s-klar-text: #6b1010;
+    --s-lev: #d4a574;
+    --s-lev-text: #4a2c00;
+    --s-faktureret: #c8a4d8;
+    --s-faktureret-text: #4a1d6e;
+    --s-betalt: #f0a4c8;
+    --s-betalt-text: #6b1846;
+    --s-afsluttet: #c8c8c8;
+    --s-afsluttet-text: #444;
+    --s-tilbud: #cfd8dc;
+    --s-tilbud-text: #37474f;
+  }
+
+  * { box-sizing: border-box; }
+  html, body {
+    margin: 0; padding: 0;
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", system-ui, sans-serif;
+    font-size: 13px;
+    color: var(--text);
+    background: var(--bg-alt);
+  }
+
+  /* Control panel */
+  .controls {
+    background: #2a2a2a;
+    color: #fff;
+    padding: 12px 20px;
+    display: flex;
+    gap: 24px;
+    align-items: center;
+    flex-wrap: wrap;
+    position: sticky;
+    top: 0;
+    z-index: 100;
+  }
+  .controls h1 {
+    margin: 0;
+    font-size: 14px;
+    font-weight: 600;
+    letter-spacing: 0.5px;
+    color: #c8a47a;
+  }
+  .control-group {
+    display: flex;
+    gap: 4px;
+    align-items: center;
+  }
+  .control-group label {
+    font-size: 11px;
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+    color: #888;
+    margin-right: 8px;
+  }
+  .toggle-btn {
+    background: #3a3a3a;
+    color: #ccc;
+    border: 1px solid #4a4a4a;
+    padding: 6px 12px;
+    font-size: 12px;
+    cursor: pointer;
+    font-family: inherit;
+  }
+  .toggle-btn.active {
+    background: #c8a47a;
+    color: #1a1a1a;
+    border-color: #c8a47a;
+    font-weight: 600;
+  }
+  .toggle-btn:first-child { border-radius: 4px 0 0 4px; }
+  .toggle-btn:last-child { border-radius: 0 4px 4px 0; }
+
+  /* Topbar (matcher v2) */
+  .topbar {
+    background: var(--bg);
+    border-bottom: 1px solid var(--border);
+    padding: 10px 20px;
+    display: flex;
+    align-items: center;
+    gap: 16px;
+  }
+  .nav-arrow {
+    width: 24px; height: 24px;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    cursor: pointer;
+    color: #555;
+    font-size: 12px;
+  }
+  .month-title {
+    font-size: 20px;
+    font-weight: 400;
+    color: #333;
+    margin: 0 8px;
+  }
+  .topbar-actions {
+    margin-left: auto;
+    display: flex;
+    gap: 8px;
+    align-items: center;
+  }
+  .btn-new {
+    background: transparent;
+    border: 1px solid var(--topbar);
+    color: var(--topbar);
+    padding: 6px 14px;
+    border-radius: 4px;
+    font-size: 13px;
+    cursor: pointer;
+  }
+  .icon-btn {
+    width: 28px; height: 28px;
+    border: 1px solid var(--border);
+    background: #fff;
+    border-radius: 4px;
+    position: relative;
+    cursor: pointer;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 11px;
+    color: #666;
+  }
+  .icon-btn .badge {
+    position: absolute;
+    top: -4px; right: -4px;
+    background: #d33;
+    color: white;
+    border-radius: 50%;
+    width: 16px; height: 16px;
+    font-size: 9px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+  }
+
+  /* Status filter row */
+  .filter-row {
+    background: var(--bg);
+    padding: 8px 20px;
+    display: flex;
+    gap: 6px;
+    border-bottom: 1px solid var(--border);
+  }
+  .filter-pill {
+    padding: 5px 12px;
+    border-radius: 3px;
+    font-size: 11px;
+    font-weight: 600;
+    letter-spacing: 0.3px;
+    cursor: pointer;
+    border: none;
+    text-transform: uppercase;
+  }
+  .filter-pill.ny { background: #d4d4d4; color: #444; }
+  .filter-pill.venter { background: #f0a020; color: #fff; }
+  .filter-pill.godkendt { background: #6b8e3c; color: #fff; }
+  .filter-pill.igang { background: #5a7c2e; color: #fff; }
+  .filter-pill.klar { background: #c84040; color: #fff; }
+  .filter-pill.lev { background: #d4d4d4; color: #444; }
+  .filter-pill.faktureret { background: #7a3f8c; color: #fff; }
+  .filter-pill.betalt { background: #c44a8a; color: #fff; }
+  .filter-pill.afsluttet { background: #a04040; color: #fff; }
+  .filter-pill.tilbud { background: #b8b8b8; color: #fff; }
+
+  /* Calendar grid */
+  .calendar {
+    background: var(--bg);
+  }
+  .cal-header {
+    display: grid;
+    grid-template-columns: 50px repeat(7, 1fr) 100px;
+    background: var(--header-bg);
+    color: var(--header-text);
+    font-size: 11px;
+    font-weight: 600;
+    letter-spacing: 1px;
+  }
+  .cal-header > div {
+    padding: 8px 10px;
+    text-align: center;
+    border-right: 1px solid rgba(255,255,255,0.2);
+  }
+  .cal-header > div:first-child { text-align: left; }
+
+  .cal-row {
+    display: grid;
+    grid-template-columns: 50px repeat(7, 1fr) 100px;
+    border-bottom: 1px solid var(--border);
+  }
+  .cal-row:last-child { border-bottom: none; }
+
+  .week-label {
+    background: var(--header-bg);
+    color: var(--header-text);
+    font-size: 11px;
+    padding: 8px 6px;
+    display: flex;
+    align-items: flex-start;
+    justify-content: center;
+    border-right: 1px solid rgba(255,255,255,0.2);
+  }
+
+  .day-cell {
+    padding: 0;
+    border-right: 1px solid var(--border);
+    background: var(--bg);
+    min-height: 110px;
+    position: relative;
+    display: flex;
+    flex-direction: column;
+  }
+  .day-cell.faded { background: var(--bg-alt); }
+  .day-cell.faded .day-num { color: var(--text-faded); }
+  .day-cell.highlight { box-shadow: inset 0 0 0 2px var(--topbar); }
+
+  .day-header {
+    padding: 6px 8px 4px;
+    display: flex;
+    justify-content: space-between;
+    align-items: flex-start;
+    font-size: 12px;
+  }
+  .day-num {
+    font-weight: 500;
+    color: #333;
+  }
+  .day-meta {
+    font-size: 10px;
+    color: var(--text-muted);
+    display: flex;
+    gap: 4px;
+    align-items: center;
+  }
+  .person-badge {
+    background: #f0d090;
+    color: #5a4020;
+    border-radius: 10px;
+    padding: 1px 5px;
+    font-size: 9px;
+    font-weight: 600;
+  }
+
+  /* Total header (NY: total øverst) */
+  .day-total-top {
+    display: none;
+    padding: 2px 8px 4px;
+    font-size: 10px;
+    color: var(--text-muted);
+    font-weight: 600;
+    border-bottom: 1px dotted var(--border);
+  }
+
+  .day-bons {
+    flex: 1;
+    display: flex;
+    flex-direction: column;
+  }
+
+  /* === STYLE A: V2 NUVÆRENDE (venstrekant-stribe) === */
+  .style-a .bon-row {
+    display: grid;
+    grid-template-columns: 38px 1fr auto;
+    align-items: center;
+    padding: 4px 6px 4px 0;
+    font-size: 11px;
+    border-left: 4px solid var(--s-ny);
+    margin: 1px 6px;
+    background: #fff;
+    border-radius: 3px;
+  }
+  .style-a .bon-row .bon-time {
+    color: #333;
+    padding-left: 6px;
+    font-variant-numeric: tabular-nums;
+  }
+  .style-a .bon-row .bon-num {
+    color: #888;
+    font-size: 11px;
+  }
+  .style-a .bon-row .bon-qty {
+    color: #555;
+    font-variant-numeric: tabular-nums;
+    text-align: right;
+    padding-right: 4px;
+  }
+  .style-a .day-footer {
+    padding: 4px 8px;
+    font-size: 10px;
+    color: var(--text-muted);
+    border-top: 1px solid var(--border);
+    display: flex;
+    justify-content: space-between;
+  }
+
+  /* === STYLE B: FORSLAG (baggrundsfarve) === */
+  .style-b .day-total-top { display: block; }
+  .style-b .day-footer { display: none; }
+  .style-b .bon-row {
+    display: grid;
+    grid-template-columns: 38px 1fr auto;
+    align-items: center;
+    padding: 3px 6px;
+    margin: 1px 4px;
+    font-size: 11px;
+    font-weight: 500;
+    border-radius: 4px;
+    font-variant-numeric: tabular-nums;
+  }
+  .style-b .bon-row .bon-num { font-weight: 600; opacity: 0.85; }
+  .style-b .bon-row .bon-qty { text-align: right; }
+
+  /* Status backgrounds (style B) */
+  .style-b .s-ny { background: var(--s-ny); color: var(--s-ny-text); }
+  .style-b .s-venter { background: var(--s-venter); color: var(--s-venter-text); }
+  .style-b .s-godkendt { background: var(--s-godkendt); color: var(--s-godkendt-text); }
+  .style-b .s-igang { background: var(--s-igang); color: var(--s-igang-text); }
+  .style-b .s-klar { background: var(--s-klar); color: var(--s-klar-text); }
+  .style-b .s-lev { background: var(--s-lev); color: var(--s-lev-text); }
+  .style-b .s-faktureret { background: var(--s-faktureret); color: var(--s-faktureret-text); }
+  .style-b .s-betalt { background: var(--s-betalt); color: var(--s-betalt-text); }
+  .style-b .s-afsluttet { background: var(--s-afsluttet); color: var(--s-afsluttet-text); }
+  .style-b .s-tilbud { background: var(--s-tilbud); color: var(--s-tilbud-text); }
+
+  /* Status borders (style A) */
+  .style-a .s-ny { border-left-color: #b0b0b0; }
+  .style-a .s-venter { border-left-color: #f0a020; }
+  .style-a .s-godkendt { border-left-color: #6b8e3c; }
+  .style-a .s-igang { border-left-color: #d68030; }
+  .style-a .s-klar { border-left-color: #c84040; }
+  .style-a .s-lev { border-left-color: #8a5a2a; }
+  .style-a .s-faktureret { border-left-color: #7a3f8c; }
+  .style-a .s-betalt { border-left-color: #c44a8a; }
+  .style-a .s-afsluttet { border-left-color: #888; }
+  .style-a .s-tilbud { border-left-color: #607d8b; }
+
+  /* Total column */
+  .day-total-col {
+    background: var(--bg-alt);
+    padding: 8px 10px;
+    font-size: 12px;
+    border-left: 1px solid var(--border);
+  }
+  .day-total-col .total-num {
+    font-weight: 700;
+    color: #333;
+    font-size: 15px;
+    font-variant-numeric: tabular-nums;
+  }
+  .day-total-col .total-label {
+    color: var(--text-muted);
+    font-size: 10px;
+  }
+
+  /* === DENSITY MODES === */
+  body.density-compact .day-cell { min-height: 80px; }
+  body.density-compact .style-b .bon-row,
+  body.density-compact .style-a .bon-row {
+    padding: 1px 6px;
+    font-size: 10px;
+    margin: 0px 4px;
+  }
+  body.density-compact .day-header { padding: 3px 6px 2px; }
+
+  body.density-comfortable .day-cell { min-height: 140px; }
+  body.density-comfortable .style-b .bon-row,
+  body.density-comfortable .style-a .bon-row {
+    padding: 5px 8px;
+    font-size: 12px;
+  }
+
+  /* Person-badge nedtoning */
+  body.hide-badge .person-badge { display: none; }
+
+  .annotation {
+    background: #fffbe6;
+    border-left: 3px solid #f0c020;
+    padding: 10px 16px;
+    margin: 0;
+    font-size: 12px;
+    color: #5a4a10;
+  }
+  .annotation strong { color: #2a2010; }
+</style>
+</head>
+<body class="density-normal">
+
+<div class="controls">
+  <h1>BON V2 — KALENDER OPTIMERING</h1>
+
+  <div class="control-group">
+    <label>Stil</label>
+    <button class="toggle-btn" data-style="a">A: Nuværende v2</button>
+    <button class="toggle-btn active" data-style="b">B: Forslag</button>
+  </div>
+
+  <div class="control-group">
+    <label>Density</label>
+    <button class="toggle-btn" data-density="compact">Kompakt</button>
+    <button class="toggle-btn active" data-density="normal">Normal</button>
+    <button class="toggle-btn" data-density="comfortable">Komfortabel</button>
+  </div>
+
+  <div class="control-group">
+    <label>Person-badge</label>
+    <button class="toggle-btn active" data-badge="show">Vis</button>
+    <button class="toggle-btn" data-badge="hide">Skjul</button>
+  </div>
+</div>
+
+<div class="annotation" id="annotation">
+  <strong>Forslag B:</strong> Status vises som baggrundsfarve på hele bon-rækken (ligesom v1). Total flyttet til ØVERST i hver dagscelle. Tættere padding. Resultatet: du kan scanne en hel måned og se hvor problemerne ligger uden at læse linjerne.
+</div>
+
+<!-- TOPBAR -->
+<div class="topbar">
+  <span class="nav-arrow">◀</span>
+  <h2 class="month-title">Maj 2026</h2>
+  <span class="nav-arrow">▶</span>
+  <div class="topbar-actions">
+    <button class="btn-new">+ Ny bon</button>
+    <div class="icon-btn">17</div>
+    <div class="icon-btn">≡</div>
+    <div class="icon-btn">NEW<span class="badge">3</span></div>
+  </div>
+</div>
+
+<div class="filter-row">
+  <button class="filter-pill ny">NY</button>
+  <button class="filter-pill venter">VENTER INFO</button>
+  <button class="filter-pill godkendt">GODKENDT</button>
+  <button class="filter-pill igang">IGANG</button>
+  <button class="filter-pill klar">KLAR</button>
+  <button class="filter-pill lev">LEV</button>
+  <button class="filter-pill faktureret">FAKTURERET</button>
+  <button class="filter-pill betalt">BETALT</button>
+  <button class="filter-pill afsluttet">AFSLUTTET</button>
+  <button class="filter-pill tilbud">TILBUD</button>
+</div>
+
+<div class="calendar style-b" id="cal">
+  <div class="cal-header">
+    <div>UGE</div>
+    <div>MAN</div>
+    <div>TIR</div>
+    <div>ONS</div>
+    <div>TOR</div>
+    <div>FRE</div>
+    <div>LØR</div>
+    <div>SØN</div>
+    <div>TOTAL</div>
+  </div>
+
+  <!-- UGE 18 -->
+  <div class="cal-row">
+    <div class="week-label">v.18</div>
+
+    <div class="day-cell faded">
+      <div class="day-header"><span class="day-num">27</span></div>
+      <div class="day-total-top">691 enh · 6 bons</div>
+      <div class="day-bons">
+        <div class="bon-row s-faktureret"><span class="bon-time">09:45</span><span class="bon-num">#3433</span><span class="bon-qty">15</span></div>
+        <div class="bon-row s-faktureret"><span class="bon-time">10:35</span><span class="bon-num">#3432</span><span class="bon-qty">240</span></div>
+        <div class="bon-row s-faktureret"><span class="bon-time">10:45</span><span class="bon-num">#3429</span><span class="bon-qty">30</span></div>
+        <div class="bon-row s-klar"><span class="bon-time">11:00</span><span class="bon-num">#3443</span><span class="bon-qty">4</span></div>
+        <div class="bon-row s-faktureret"><span class="bon-time">13:30</span><span class="bon-num">#3431</span><span class="bon-qty">12</span></div>
+        <div class="bon-row s-faktureret"><span class="bon-time">16:15</span><span class="bon-num">#3355</span><span class="bon-qty">390</span></div>
+      </div>
+      <div class="day-footer"><span>691 enh.</span><span>6 bons</span></div>
+    </div>
+
+    <div class="day-cell faded">
+      <div class="day-header"><span class="day-num">28</span></div>
+      <div class="day-total-top">141 enh · 3 bons</div>
+      <div class="day-bons">
+        <div class="bon-row s-faktureret"><span class="bon-time">10:45</span><span class="bon-num">#3423</span><span class="bon-qty">55</span></div>
+        <div class="bon-row s-faktureret"><span class="bon-time">10:45</span><span class="bon-num">#3440</span><span class="bon-qty">31</span></div>
+        <div class="bon-row s-faktureret"><span class="bon-time">14:00</span><span class="bon-num">#3434</span><span class="bon-qty">55</span></div>
+      </div>
+      <div class="day-footer"><span>141 enh.</span><span>3 bons</span></div>
+    </div>
+
+    <div class="day-cell faded">
+      <div class="day-header"><span class="day-num">29</span></div>
+      <div class="day-total-top">374 enh · 3 bons</div>
+      <div class="day-bons">
+        <div class="bon-row s-faktureret"><span class="bon-time">10:00</span><span class="bon-num">#3441</span><span class="bon-qty">280</span></div>
+        <div class="bon-row s-faktureret"><span class="bon-time">11:30</span><span class="bon-num">#3284</span><span class="bon-qty">56</span></div>
+        <div class="bon-row s-faktureret"><span class="bon-time">12:00</span><span class="bon-num">#3446</span><span class="bon-qty">38</span></div>
+      </div>
+      <div class="day-footer"><span>374 enh.</span><span>3 bons</span></div>
+    </div>
+
+    <div class="day-cell faded">
+      <div class="day-header"><span class="day-num">30</span></div>
+      <div class="day-total-top">120 enh · 4 bons</div>
+      <div class="day-bons">
+        <div class="bon-row s-faktureret"><span class="bon-time">10:45</span><span class="bon-num">#3437</span><span class="bon-qty">10</span></div>
+        <div class="bon-row s-faktureret"><span class="bon-time">10:45</span><span class="bon-num">#3447</span><span class="bon-qty">20</span></div>
+        <div class="bon-row s-faktureret"><span class="bon-time">11:15</span><span class="bon-num">#3425</span><span class="bon-qty">40</span></div>
+        <div class="bon-row s-faktureret"><span class="bon-time">16:15</span><span class="bon-num">#3448</span><span class="bon-qty">50</span></div>
+      </div>
+      <div class="day-footer"><span>120 enh.</span><span>4 bons</span></div>
+    </div>
+
+    <div class="day-cell">
+      <div class="day-header"><span class="day-num">1</span><span class="day-meta"><span class="person-badge">👤 3</span></span></div>
+      <div class="day-total-top">294 enh · 3 bons</div>
+      <div class="day-bons">
+        <div class="bon-row s-klar"><span class="bon-time">10:00</span><span class="bon-num">#3444</span><span class="bon-qty">180</span></div>
+        <div class="bon-row s-faktureret"><span class="bon-time">10:30</span><span class="bon-num">#3439</span><span class="bon-qty">30</span></div>
+        <div class="bon-row s-faktureret"><span class="bon-time">18:30</span><span class="bon-num">#3415</span><span class="bon-qty">84</span></div>
+      </div>
+      <div class="day-footer"><span>294 enh.</span><span>3 bons</span></div>
+    </div>
+
+    <div class="day-cell">
+      <div class="day-header"><span class="day-num">2</span><span class="day-meta"><span class="person-badge">👤 3</span></span></div>
+      <div class="day-total-top">96 enh · 1 bon</div>
+      <div class="day-bons">
+        <div class="bon-row s-faktureret"><span class="bon-time">18:00</span><span class="bon-num">#3426</span><span class="bon-qty">96</span></div>
+      </div>
+      <div class="day-footer"><span>96 enh.</span><span>1 bon</span></div>
+    </div>
+
+    <div class="day-cell"><div class="day-header"><span class="day-num">3</span></div></div>
+
+    <div class="day-total-col"><div class="total-num">1716</div><div class="total-label">enh · 20 bons</div></div>
+  </div>
+
+  <!-- UGE 19 -->
+  <div class="cal-row">
+    <div class="week-label">v.19</div>
+
+    <div class="day-cell">
+      <div class="day-header"><span class="day-num">4</span><span class="day-meta"><span class="person-badge">👤 2</span></span></div>
+      <div class="day-total-top">16 enh · 2 bons</div>
+      <div class="day-bons">
+        <div class="bon-row s-faktureret"><span class="bon-time">11:15</span><span class="bon-num">#3450</span><span class="bon-qty">8</span></div>
+        <div class="bon-row s-klar"><span class="bon-time">11:30</span><span class="bon-num">#3453</span><span class="bon-qty">8</span></div>
+      </div>
+      <div class="day-footer"><span>16 enh.</span><span>2 bons</span></div>
+    </div>
+
+    <div class="day-cell">
+      <div class="day-header"><span class="day-num">5</span></div>
+    </div>
+
+    <div class="day-cell">
+      <div class="day-header"><span class="day-num">6</span><span class="day-meta"><span class="person-badge">👤 3</span></span></div>
+      <div class="day-total-top">98 enh · 4 bons</div>
+      <div class="day-bons">
+        <div class="bon-row s-faktureret"><span class="bon-time">10:00</span><span class="bon-num">#3462</span><span class="bon-qty">6</span></div>
+        <div class="bon-row s-faktureret"><span class="bon-time">10:45</span><span class="bon-num">#3458</span><span class="bon-qty">7</span></div>
+        <div class="bon-row s-faktureret"><span class="bon-time">11:00</span><span class="bon-num">#3460</span><span class="bon-qty">10</span></div>
+        <div class="bon-row s-faktureret"><span class="bon-time">15:00</span><span class="bon-num">#3285</span><span class="bon-qty">75</span></div>
+      </div>
+      <div class="day-footer"><span>98 enh.</span><span>4 bons</span></div>
+    </div>
+
+    <div class="day-cell">
+      <div class="day-header"><span class="day-num">7</span><span class="day-meta"><span class="person-badge">👤 3</span></span></div>
+      <div class="day-total-top">221 enh · 6 bons</div>
+      <div class="day-bons">
+        <div class="bon-row s-faktureret"><span class="bon-time">10:15</span><span class="bon-num">#3451</span><span class="bon-qty">21</span></div>
+        <div class="bon-row s-faktureret"><span class="bon-time">10:45</span><span class="bon-num">#3459</span><span class="bon-qty">7</span></div>
+        <div class="bon-row s-faktureret"><span class="bon-time">10:45</span><span class="bon-num">#3461</span><span class="bon-qty">27</span></div>
+        <div class="bon-row s-faktureret"><span class="bon-time">11:15</span><span class="bon-num">#3456</span><span class="bon-qty">150</span></div>
+        <div class="bon-row s-faktureret"><span class="bon-time">14:00</span><span class="bon-num">#3454</span><span class="bon-qty">9</span></div>
+        <div class="bon-row s-faktureret"><span class="bon-time">14:00</span><span class="bon-num">#3464</span><span class="bon-qty">7</span></div>
+      </div>
+      <div class="day-footer"><span>221 enh.</span><span>6 bons</span></div>
+    </div>
+
+    <div class="day-cell">
+      <div class="day-header"><span class="day-num">8</span><span class="day-meta"><span class="person-badge">👤 3</span></span></div>
+      <div class="day-total-top">370 enh · 2 bons</div>
+      <div class="day-bons">
+        <div class="bon-row s-faktureret"><span class="bon-time">10:15</span><span class="bon-num">#3457</span><span class="bon-qty">48</span></div>
+        <div class="bon-row s-faktureret"><span class="bon-time">11:00</span><span class="bon-num">#3430</span><span class="bon-qty">322</span></div>
+      </div>
+      <div class="day-footer"><span>370 enh.</span><span>2 bons</span></div>
+    </div>
+
+    <div class="day-cell">
+      <div class="day-header"><span class="day-num">9</span><span class="day-meta"><span class="person-badge">👤 2</span></span></div>
+      <div class="day-total-top">136 enh · 3 bons</div>
+      <div class="day-bons">
+        <div class="bon-row s-betalt"><span class="bon-time">11:45</span><span class="bon-num">#3470</span><span class="bon-qty">5</span></div>
+        <div class="bon-row s-faktureret"><span class="bon-time">12:00</span><span class="bon-num">#3452</span><span class="bon-qty">56</span></div>
+        <div class="bon-row s-faktureret"><span class="bon-time">16:15</span><span class="bon-num">#3463</span><span class="bon-qty">75</span></div>
+      </div>
+      <div class="day-footer"><span>136 enh.</span><span>3 bons</span></div>
+    </div>
+
+    <div class="day-cell"><div class="day-header"><span class="day-num">10</span></div></div>
+
+    <div class="day-total-col"><div class="total-num">841</div><div class="total-label">enh · 17 bons</div></div>
+  </div>
+
+  <!-- UGE 20 -->
+  <div class="cal-row">
+    <div class="week-label">v.20</div>
+
+    <div class="day-cell">
+      <div class="day-header"><span class="day-num">11</span><span class="day-meta"><span class="person-badge">👤 2</span></span></div>
+      <div class="day-total-top">19 enh · 2 bons</div>
+      <div class="day-bons">
+        <div class="bon-row s-klar"><span class="bon-time">10:00</span><span class="bon-num">#3442</span><span class="bon-qty">4</span></div>
+        <div class="bon-row s-faktureret"><span class="bon-time">10:45</span><span class="bon-num">#3468</span><span class="bon-qty">15</span></div>
+      </div>
+      <div class="day-footer"><span>19 enh.</span><span>2 bons</span></div>
+    </div>
+
+    <div class="day-cell">
+      <div class="day-header"><span class="day-num">12</span><span class="day-meta"><span class="person-badge">👤 3</span></span></div>
+      <div class="day-total-top">148 enh · 2 bons</div>
+      <div class="day-bons">
+        <div class="bon-row s-faktureret"><span class="bon-time">10:15</span><span class="bon-num">#3474</span><span class="bon-qty">90</span></div>
+        <div class="bon-row s-faktureret"><span class="bon-time">11:00</span><span class="bon-num">#3465</span><span class="bon-qty">58</span></div>
+      </div>
+      <div class="day-footer"><span>148 enh.</span><span>2 bons</span></div>
+    </div>
+
+    <div class="day-cell">
+      <div class="day-header"><span class="day-num">13</span><span class="day-meta"><span class="person-badge">👤 3</span></span></div>
+      <div class="day-total-top">95 enh · 4 bons</div>
+      <div class="day-bons">
+        <div class="bon-row s-faktureret"><span class="bon-time">10:30</span><span class="bon-num">#3478</span><span class="bon-qty">14</span></div>
+        <div class="bon-row s-faktureret"><span class="bon-time">10:45</span><span class="bon-num">#3466</span><span class="bon-qty">20</span></div>
+        <div class="bon-row s-faktureret"><span class="bon-time">10:45</span><span class="bon-num">#3479</span><span class="bon-qty">11</span></div>
+        <div class="bon-row s-faktureret"><span class="bon-time">16:30</span><span class="bon-num">#3286</span><span class="bon-qty">50</span></div>
+      </div>
+      <div class="day-footer"><span>95 enh.</span><span>4 bons</span></div>
+    </div>
+
+    <div class="day-cell">
+      <div class="day-header"><span class="day-num">14</span><span class="day-meta"><span class="person-badge">👤 1</span></span></div>
+    </div>
+
+    <div class="day-cell">
+      <div class="day-header"><span class="day-num">15</span><span class="day-meta"><span class="person-badge">👤 1</span></span></div>
+      <div class="day-total-top">28 enh · 1 bon</div>
+      <div class="day-bons">
+        <div class="bon-row s-klar"><span class="bon-time">11:15</span><span class="bon-num">#3417</span><span class="bon-qty">28</span></div>
+      </div>
+      <div class="day-footer"><span>28 enh.</span><span>1 bon</span></div>
+    </div>
+
+    <div class="day-cell"><div class="day-header"><span class="day-num">16</span></div></div>
+    <div class="day-cell"><div class="day-header"><span class="day-num">17</span></div></div>
+
+    <div class="day-total-col"><div class="total-num">290</div><div class="total-label">enh · 9 bons</div></div>
+  </div>
+
+  <!-- UGE 21 -->
+  <div class="cal-row">
+    <div class="week-label">v.21</div>
+
+    <div class="day-cell">
+      <div class="day-header"><span class="day-num">18</span><span class="day-meta"><span class="person-badge">👤 2</span></span></div>
+      <div class="day-total-top">10 enh · 2 bons</div>
+      <div class="day-bons">
+        <div class="bon-row s-klar"><span class="bon-time">10:00</span><span class="bon-num">#3490</span><span class="bon-qty">7</span></div>
+        <div class="bon-row s-godkendt"><span class="bon-time">15:55</span><span class="bon-num">#3489</span><span class="bon-qty">3</span></div>
+      </div>
+      <div class="day-footer"><span>10 enh.</span><span>2 bons</span></div>
+    </div>
+
+    <div class="day-cell highlight">
+      <div class="day-header"><span class="day-num">19</span><span class="day-meta"><span class="person-badge">👤 2</span></span></div>
+      <div class="day-total-top">114 enh · 2 bons</div>
+      <div class="day-bons">
+        <div class="bon-row s-faktureret"><span class="bon-time">10:00</span><span class="bon-num">#3414</span><span class="bon-qty">110</span></div>
+        <div class="bon-row s-faktureret"><span class="bon-time">10:15</span><span class="bon-num">#3469</span><span class="bon-qty">4</span></div>
+      </div>
+      <div class="day-footer"><span>114 enh.</span><span>2 bons</span></div>
+    </div>
+
+    <div class="day-cell">
+      <div class="day-header"><span class="day-num">20</span><span class="day-meta"><span class="person-badge">👤 2</span></span></div>
+      <div class="day-total-top">107 enh · 3 bons</div>
+      <div class="day-bons">
+        <div class="bon-row s-godkendt"><span class="bon-time">10:45</span><span class="bon-num">#3467</span><span class="bon-qty">75</span></div>
+        <div class="bon-row s-faktureret"><span class="bon-time">12:45</span><span class="bon-num">#3486</span><span class="bon-qty">21</span></div>
+        <div class="bon-row s-venter"><span class="bon-time">13:14</span><span class="bon-num">#3472</span><span class="bon-qty">11</span></div>
+      </div>
+      <div class="day-footer"><span>107 enh.</span><span>3 bons</span></div>
+    </div>
+
+    <div class="day-cell">
+      <div class="day-header"><span class="day-num">21</span><span class="day-meta"><span class="person-badge">👤 5</span></span></div>
+      <div class="day-total-top">442 enh · 5 bons</div>
+      <div class="day-bons">
+        <div class="bon-row s-venter"><span class="bon-time">10:15</span><span class="bon-num">#3480</span><span class="bon-qty">107</span></div>
+        <div class="bon-row s-venter"><span class="bon-time">10:45</span><span class="bon-num">B4000</span><span class="bon-qty">70</span></div>
+        <div class="bon-row s-venter"><span class="bon-time">10:45</span><span class="bon-num">B4004</span><span class="bon-qty">23</span></div>
+        <div class="bon-row s-godkendt"><span class="bon-time">12:00</span><span class="bon-num">#3481</span><span class="bon-qty">88</span></div>
+        <div class="bon-row s-godkendt"><span class="bon-time">16:00</span><span class="bon-num">#3491</span><span class="bon-qty">154</span></div>
+      </div>
+      <div class="day-footer"><span>442 enh.</span><span>5 bons</span></div>
+    </div>
+
+    <div class="day-cell">
+      <div class="day-header"><span class="day-num">22</span><span class="day-meta"><span class="person-badge">👤 1</span></span></div>
+      <div class="day-total-top">20 enh · 1 bon</div>
+      <div class="day-bons">
+        <div class="bon-row s-venter"><span class="bon-time">11:30</span><span class="bon-num">B4002</span><span class="bon-qty">20</span></div>
+      </div>
+      <div class="day-footer"><span>20 enh.</span><span>1 bon</span></div>
+    </div>
+
+    <div class="day-cell"><div class="day-header"><span class="day-num">23</span></div></div>
+    <div class="day-cell"><div class="day-header"><span class="day-num">24</span><span class="day-meta"><span class="person-badge">👤 1</span></span></div></div>
+
+    <div class="day-total-col"><div class="total-num">693</div><div class="total-label">enh · 13 bons</div></div>
+  </div>
+
+  <!-- UGE 22 -->
+  <div class="cal-row">
+    <div class="week-label">v.22</div>
+
+    <div class="day-cell">
+      <div class="day-header"><span class="day-num">25</span></div>
+      <div class="day-total-top">15 enh · 1 bon</div>
+      <div class="day-bons">
+        <div class="bon-row s-venter"><span class="bon-time">10:29</span><span class="bon-num">#3471</span><span class="bon-qty">15</span></div>
+      </div>
+      <div class="day-footer"><span>15 enh.</span><span>1 bon</span></div>
+    </div>
+
+    <div class="day-cell">
+      <div class="day-header"><span class="day-num">26</span><span class="day-meta"><span class="person-badge">👤 3</span></span></div>
+    </div>
+
+    <div class="day-cell">
+      <div class="day-header"><span class="day-num">27</span><span class="day-meta"><span class="person-badge">👤 2</span></span></div>
+      <div class="day-total-top">15 enh · 1 bon</div>
+      <div class="day-bons">
+        <div class="bon-row s-godkendt"><span class="bon-time">10:30</span><span class="bon-num">B4005</span><span class="bon-qty">15</span></div>
+      </div>
+      <div class="day-footer"><span>15 enh.</span><span>1 bon</span></div>
+    </div>
+
+    <div class="day-cell">
+      <div class="day-header"><span class="day-num">28</span><span class="day-meta"><span class="person-badge">👤 5</span></span></div>
+      <div class="day-total-top">651 enh · 4 bons</div>
+      <div class="day-bons">
+        <div class="bon-row s-venter"><span class="bon-time">11:00</span><span class="bon-num">#3377</span><span class="bon-qty">175</span></div>
+        <div class="bon-row s-tilbud"><span class="bon-time">11:00</span><span class="bon-num">B4003</span><span class="bon-qty">12</span></div>
+        <div class="bon-row s-godkendt"><span class="bon-time">12:00</span><span class="bon-num">#3488</span><span class="bon-qty">14</span></div>
+        <div class="bon-row s-venter"><span class="bon-time">17:56</span><span class="bon-num">#3482</span><span class="bon-qty">450</span></div>
+      </div>
+      <div class="day-footer"><span>651 enh.</span><span>4 bons</span></div>
+    </div>
+
+    <div class="day-cell">
+      <div class="day-header"><span class="day-num">29</span><span class="day-meta"><span class="person-badge">👤 2</span></span></div>
+      <div class="day-total-top">198 enh · 2 bons</div>
+      <div class="day-bons">
+        <div class="bon-row s-venter"><span class="bon-time">10:42</span><span class="bon-num">#3483</span><span class="bon-qty">23</span></div>
+        <div class="bon-row s-venter"><span class="bon-time">11:00</span><span class="bon-num">#3379</span><span class="bon-qty">175</span></div>
+      </div>
+      <div class="day-footer"><span>198 enh.</span><span>2 bons</span></div>
+    </div>
+
+    <div class="day-cell"><div class="day-header"><span class="day-num">30</span></div></div>
+
+    <div class="day-cell">
+      <div class="day-header"><span class="day-num">31</span><span class="day-meta"><span class="person-badge">👤 1</span></span></div>
+      <div class="day-total-top">500 enh · 1 bon</div>
+      <div class="day-bons">
+        <div class="bon-row s-godkendt"><span class="bon-time">08:00</span><span class="bon-num">#3476</span><span class="bon-qty">500</span></div>
+      </div>
+      <div class="day-footer"><span>500 enh.</span><span>1 bon</span></div>
+    </div>
+
+    <div class="day-total-col"><div class="total-num">1379</div><div class="total-label">enh · 9 bons</div></div>
+  </div>
+</div>
+
+<script>
+  const cal = document.getElementById('cal');
+  const ann = document.getElementById('annotation');
+
+  const annotations = {
+    a: '<strong>Stil A — Nuværende v2:</strong> Status vises som en tynd venstrekant-stribe. Linjerne har hvid baggrund. Det er svært at se status-fordelingen på en hel uge med ét blik.',
+    b: '<strong>Stil B — Forslag:</strong> Status som baggrundsfarve på hele bon-rækken. Total flyttet til ØVERST i hver dagscelle. Tættere padding. Resultatet: du kan scanne en hel måned og se hvor problemerne ligger uden at læse linjerne.'
+  };
+
+  // Style toggle
+  document.querySelectorAll('[data-style]').forEach(btn => {
+    btn.addEventListener('click', () => {
+      const style = btn.dataset.style;
+      document.querySelectorAll('[data-style]').forEach(b => b.classList.remove('active'));
+      btn.classList.add('active');
+      cal.classList.remove('style-a', 'style-b');
+      cal.classList.add('style-' + style);
+      ann.innerHTML = annotations[style];
+    });
+  });
+
+  // Density toggle
+  document.querySelectorAll('[data-density]').forEach(btn => {
+    btn.addEventListener('click', () => {
+      const d = btn.dataset.density;
+      document.querySelectorAll('[data-density]').forEach(b => b.classList.remove('active'));
+      btn.classList.add('active');
+      document.body.classList.remove('density-compact', 'density-normal', 'density-comfortable');
+      document.body.classList.add('density-' + d);
+    });
+  });
+
+  // Badge toggle
+  document.querySelectorAll('[data-badge]').forEach(btn => {
+    btn.addEventListener('click', () => {
+      const b = btn.dataset.badge;
+      document.querySelectorAll('[data-badge]').forEach(x => x.classList.remove('active'));
+      btn.classList.add('active');
+      document.body.classList.toggle('hide-badge', b === 'hide');
+    });
+  });
+</script>
+
+</body>
+</html>

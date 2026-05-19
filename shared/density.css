@@ -226,6 +226,33 @@ body.density-dense:not(.zone-mobile) .ib-panel-meta        { font-size: 9px; }
 
 
 /* ═══════════════════════════════════════════════════════════ */
+/* Kalender-specifik density-override.                        */
+/* Sættes af shared/density.js (window.CalendarDensity).      */
+/* Vinder over body.density-* fordi de står efter i kilden.   */
+/* ═══════════════════════════════════════════════════════════ */
+body.cal-density-comfort:not(.zone-mobile) .cal-day-cell   { min-height: 110px; padding: 5px; }
+body.cal-density-comfort:not(.zone-mobile) .cal-date-num   { font-size: 14px; }
+body.cal-density-comfort:not(.zone-mobile) .cal-bon-entry  { font-size: 12px; padding: 4px 7px; }
+body.cal-density-comfort:not(.zone-mobile) .cal-bon-time   { font-size: 12px; }
+body.cal-density-comfort:not(.zone-mobile) .cal-bon-id     { font-size: 12px; }
+body.cal-density-comfort:not(.zone-mobile) .cal-day-totals { font-size: 11px; }
+
+body.cal-density-compact:not(.zone-mobile) .cal-day-cell   { min-height: 88px; padding: 4px 6px; }
+body.cal-density-compact:not(.zone-mobile) .cal-date-num   { font-size: 12px; }
+body.cal-density-compact:not(.zone-mobile) .cal-bon-entry  { font-size: 11px; padding: 2px 5px; }
+body.cal-density-compact:not(.zone-mobile) .cal-bon-time   { font-size: 10px; }
+body.cal-density-compact:not(.zone-mobile) .cal-bon-id     { font-size: 10px; }
+body.cal-density-compact:not(.zone-mobile) .cal-day-totals { font-size: 10px; }
+
+body.cal-density-dense:not(.zone-mobile) .cal-day-cell     { min-height: 72px; padding: 3px 5px; }
+body.cal-density-dense:not(.zone-mobile) .cal-date-num     { font-size: 11px; }
+body.cal-density-dense:not(.zone-mobile) .cal-bon-entry    { font-size: 10px; padding: 1px 4px; }
+body.cal-density-dense:not(.zone-mobile) .cal-bon-time     { font-size: 9px; }
+body.cal-density-dense:not(.zone-mobile) .cal-bon-id       { font-size: 9px; }
+body.cal-density-dense:not(.zone-mobile) .cal-day-totals   { font-size: 9px; padding: 1px 0 2px; }
+
+
+/* ═══════════════════════════════════════════════════════════ */
 /* "Denne enhed" settings-sektion — eget styling, neutralt    */
 /* uanset density. Bruges af sec-this-device.                 */
 /* ═══════════════════════════════════════════════════════════ */
