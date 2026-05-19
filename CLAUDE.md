@@ -117,6 +117,7 @@ bon-v2/
 │   ├── cashflow.js   ← /api/cashflow/* (admin-only: CSV-upload, fakturaer, match, analyse)
 │   ├── embed.js      ← /embed/bestilling, /embed/config, /embed/menus/:id (public, indlejres i WordPress)
 │   ├── contact-points.js ← /api/contact-points/* (CRUD + toggle-public for kontaktpunkter)
+│   ├── flags.js      ← /api/flags/* (entity_flags CRUD + ack/dismiss — påmindelser på kunder/firmaer)
 │   └── delivery.js   ← /api/delivery/* (vehicles CRUD, booking-payload, book, actual-cost, events)
 ├── services/
 │   ├── grocyAdapter.js       ← Grocy API adapter med cache + CRUD + consume + barcodes
@@ -162,6 +163,7 @@ bon-v2/
 │   ├── varemodtagelse.js + varemodtagelse.css  ← Varemodtagelse v3 (fødevarekontrol + Grocy lager, touch-first)
 │   ├── supplier_inbox.js                      ← Leverandørpost (office sidebar-view + kitchen Post-tab)
 │   ├── manual_booking_modal.js + manual_booking_modal.css ← Bestil bud-modal (Spor 1: clipboard + URL)
+│   ├── flag_strip.js                          ← Påmindelses-strip i bon-drawer (CLAUDE_KUNDE_FLAGS.md)
 │   ├── kitchen-topbar.html         ← Fælles topbar for kitchen-views
 │   ├── api.js        ← Frontend API-funktioner
 │   ├── utils.js      ← Status-mapping, connectSSE(), mapApiBonToCardData(), scrollToBonHash()
@@ -1688,11 +1690,45 @@ Fase 3 — Office:
 - [x] **Listview "Afleveret"-kolonne** (commit `6e63625`): valgfri kolonne (default off) der viser tidspunktet for seneste `delivery_event` på bonen. Format: HH:MM hvis i dag, dd/MM HH:MM ellers. Hover viser event-type + raw timestamp. Bruger eksisterende `latest_delivery_event_time` fra `/api/bons` (ingen schema-ændring)
 - [x] **Owner-mail på nye web-ordrer**: allerede implementeret i migration 062 (`web_order_notification_email` setting + `web_order_owner_notification` skabelon). Markeret som ✅ i huskelisten
 
+### Kunde-flags — påmindelser på kunder og firmaer (19. maj 2026)
+> Spec: `docs/CLAUDE_KUNDE_FLAGS.md` (alle 7 faser komplet)
+> Commits: `c99c959` (fase 1-4) · `d72a93d` (fase 5-6) · `c0edb31` (fase 7)
+
+Stående/engangs-påmindelser ("flags") på kunder og firmaer der hejses ved bon-åbning og bon-oprettelse i office. Polymorf datamodel (entity_type = company | customer) i samme stil som `contact_points`. Eksempler: "Send cookies som tak næste gang", "Tjek altid leveringstidspunkt — skriver konsekvent forkert", "Fakturaer skal til Anne, IKKE faktura@-adressen".
+
+- [x] **Migration 069**: `entity_flags` + `flag_acks` med partial index `WHERE dismissed_at IS NULL` på hot path
+- [x] **`routes/flags.js`** — CRUD: GET (med ack_bons-historik), POST, PATCH, POST /:id/ack (per-bon, UPSERT-idempotent), POST /:id/dismiss (permanent)
+- [x] **`GET /api/bons/:id`** leverer `flags`-array fra både kunde og firma med `acked_on_this_bon`-flag
+- [x] **`GET /api/bons`** listview tilføjer `flag_count` som korreleret subquery
+- [x] **`GET /api/crm/customer/:id`** leverer flags + ack_count + ack_bons (seneste 10), og merger **dismissed** flag som syntetiske `type='dismissed_flag'`-rows ind i `activities`-array (fase 7)
+- [x] **`GET /api/crm/company/:id`** spejler flags-leveringen
+- [x] **`GET /api/crm/companies`** tilføjer `flag_count` til listview-aggregat
+- [x] **`shared/flag_strip.js`** — collapsible strip i bon-drawer med to handlinger:
+  - **"Forstået"** = `POST /:id/ack` (per-bon, flag lever videre — bevidst klarere wording end spec'ens "Set")
+  - **"Færdig — fjern"** = `POST /:id/dismiss` (permanent — bevidst klarere end spec'ens "Gjort")
+  - Default-heuristik: 1 flag = open, 2+ = collapsed. Bevarer brugerens åbnede tilstand ved ack/dismiss, nulstilles kun ved bon-skift via `setBonId`
+- [x] **`shared/bon_drawer.js`** — DOM-placeholder + init i constructor + `load(bonId, opts)` med `expandFlags`-flag
+- [x] **`office/views/bons-list.js`** — 🚩N-badge i kunde-kolonne, klik åbner drawer med strip force-expanded (stopPropagation så row-klikket ikke samtidig fyrer)
+- [x] **`office/index.html`** — `openDrawer(bonId, opts)` propagerer opts ned i drawer.load/open
+- [x] **`office/views/crm-kunde360.js`** — `.k3-quick-note` erstattet med "Aktive påmindelser" (kort med × fjern) + "Tilføj" med radio-toggle Påmindelse/Note. Note-mode bruger eksisterende `crm_activities`-flow med kombineret titel+body
+- [x] **`office/views/crm-kunde360.js`** Aktivitet-tab: `typeIcons.dismissed_flag = '🚩'`, `typeLabels.dismissed_flag = 'Påmindelse afsluttet'`, læse-only kort (`.k3-tl-readonly` gråtonet) med dismiss-note som kursiv linje
+- [x] **`office/views/crm-firma360.js`** — nyt "Påmindelser"-card i oversigt-tab (efter kontaktpunkter, før RFM) med samme tilføj/fjern-mønster
+- [x] **`office/views/crm-firmaer.js`** — 🚩N-badge på firma-rækker ved `flag_count > 0`
+- [x] **`shared/kunde_soeg.js`** — kunde- og firma-navn i bon-drawer er klikbare i `zone-office` (dotted underline + tooltip). Klik kalder `window.openKunde360()` / `window.openFirma360()` med graceful degradation hvis globals ikke er loadet
+- [x] **CSS**: `.flag-strip`/`.flag-item` i `shared/components.css`, `.k3-flag-card`/`.k3-quick-add` i crm-kunde360.js inline-style, `.f3-flag-card` i `shared/firma360.css`, `.ks-sel-name-link` i `shared/kunde_soeg.css`
+- [x] **Zone-isolation**: `.zone-kitchen .drawer-flags { display: none }` — flag er office-only værktøj
+- [x] **SSE**: `flag_created`, `flag_updated`, `flag_dismissed`, `flag_acked` med `{id, entity_type, entity_id}` polymorft payload
+- [x] **Test-data ryddet** efter verifikation
+
+**Bevidst udeladt (ikke cutover-blokker):**
+- Firma 360° Aktivitet-tab fase 7-integration — kræver firma-aggregering af `crm_activities` (TODO i `_f3RenderAktivitet`). Dismissed flag vises lige nu kun i Kunde 360° timeline.
+- Status-filter på drawer-strip (vis altid på alle bon-statusser) — kan tilføjes senere som `b.status_code IN (aktive)` hvis støj på AFSLUTTET/BETALT bons bliver et problem.
+
 ## Næste opgave
 
 > ✏️ Opdateret 19. maj 2026.
 >
-> **Fase 1a–1e + 3A + 3B + 3D + 4 + 5 + 6 (komplet inkl. 6g) + 7 (CRM) + Office CRM redesign + 8 (Fakturering) + 9 (Tilbud) + Mail-vedhæftninger + CRM service-kald + Firma-oprydning + 10 (Mobil Shell) + 10b (Roller & Rettigheder) + 11 (Ugeoversigt) + Priser i planlægningsbon + Hjælpesystem + Whiteboard Sidekick + Web-bestillinger (webhook) + Mail-skabelon management + 12 (Rapporter) + PIN-management + CVR-berigelse (653/1232 firmaer) + 13 (Cashflow) + Mail chat-boble layout + Embed-bestillingsformular + Delivery Spor 1 (manuel bestilling) + Moms-refaktorering + Kontakter & Firma 360° + Test-suite (Fase 1+2+3 minus CRM/Cashflow) + Office sidebar v2 + Density toggle + Bon-kort redesign + Margin-analyse + Mobile Nye pending-inbox + Office UX-fixes (status-farver, SSE bons-list, responsive sidebar, drawer historik + expandable notes, web-order toast) komplet.**
+> **Fase 1a–1e + 3A + 3B + 3D + 4 + 5 + 6 (komplet inkl. 6g) + 7 (CRM) + Office CRM redesign + 8 (Fakturering) + 9 (Tilbud) + Mail-vedhæftninger + CRM service-kald + Firma-oprydning + 10 (Mobil Shell) + 10b (Roller & Rettigheder) + 11 (Ugeoversigt) + Priser i planlægningsbon + Hjælpesystem + Whiteboard Sidekick + Web-bestillinger (webhook) + Mail-skabelon management + 12 (Rapporter) + PIN-management + CVR-berigelse (653/1232 firmaer) + 13 (Cashflow) + Mail chat-boble layout + Embed-bestillingsformular + Delivery Spor 1 (manuel bestilling) + Moms-refaktorering + Kontakter & Firma 360° + Test-suite (Fase 1+2+3 minus CRM/Cashflow) + Office sidebar v2 + Density toggle + Bon-kort redesign + Margin-analyse + Mobile Nye pending-inbox + Office UX-fixes (status-farver, SSE bons-list, responsive sidebar, drawer historik + expandable notes, web-order toast) + Kunde-flags (alle 7 faser) komplet.**
 >
 > **Test-suite: KOMPLET for 6/9 office-tracks (13. maj 2026).** 437 PASS · 0 FAIL · 3 SKIP. 9 patches anvendt (A–I) der lukkede 30+ findings inkl. SSE-payload-konsistens, privilege-escalation i force-mode, partially_approved-status, tilbud-modul-konsistens. 0 åbne medium+ findings tilbage. Detaljer i `docs/TEST_OBSERVATIONS.md` og hver `tests/specs/T_*.md`. Resterende: T_CRM, T_CASHFLOW, T_V1_AFSTEMNING (weekenden).
 >
@@ -1827,6 +1863,7 @@ Fase 3 — Office:
 > - **Web-scraping nedgraderet (april 2026)**: Auto-fetch af URL'er er fjernet pga. robots.txt-, anti-bot- og GDPR-risici. Erstattet af manuelt paste-flow: bruger klistrer HTML/tekst ind, `services/contactExtractor.js` kører email/telefon-regex + heuristik, viser kandidater til checkbox-bekræftelse.
 > - **E-conomic-adapter (spec klar, ikke bygget)**: Linje-priser konverteres til EX moms via `inclToExcl()` ved payload-build. `cost_price` er allerede ex moms — IKKE konverter igen. Adapter-flow: send payload → modtag faktura-nummer → gem på `bons.invoice_number` → skift status til FAKTURERET. Test #7 i `tests/moms_audit_e2e.test.js` er placeholder der aktiveres når koden bygges.
 > - **Menu-agent (spec klar, ikke bygget)**: AI-agent må IKKE returnere priser — kun `product_name`, `quantity`, `grocy_recipe_id`, `category`/`block_type`. Server snapshot'er priser ved `POST /api/bons/:id/lines`. Hvis preview senere skal vise priser → udelukkende via `Moms.*` helpers + de 7 visningsregler.
+> - **Kunde-flags (19. maj 2026)**: Polymorf datamodel `entity_flags(entity_type, entity_id)` matcher contact_points-mønstret. To handlinger: `ack` (per-bon, lever videre — "Forstået"-knap) og `dismiss` (permanent — "Færdig — fjern"-knap). UI-wording bevidst valgt klarere end spec'ens "Set"/"Gjort". Strip auto-collapse: 1 flag = open, 2+ = collapsed. Bevarer brugerens åbnede tilstand ved ack/dismiss — nulstilles kun ved bon-skift via `setBonId`. Firma-flag vises på ALLE bons under firmaet (bevidst — fx "Fakturaer til Anne" skal popoppe overalt). Strippen vises på alle bon-statusser uanset om bonen er aktiv eller afsluttet — status-filter (`b.status_code IN (aktive)`) kan tilføjes senere hvis støj bliver et problem. Dismissed flag bliver synlige som læse-only items i Kunde 360° Aktivitet-tab; Firma 360° Aktivitet-tab er ikke implementeret endnu (kræver firma-aggregering af crm_activities).
 > - **SSE-event-konvention (13. maj 2026)**: alle `bon_*`-events bruger `{id, ...metadata}`. Polymorfe events (`mail_*`, `po_*`, `supplier_*`) bevarer semantiske FK-navne (`bon_id`, `customer_id` etc.) fordi de kan referere flere entiteter. Frontend skal IKKE bruge fallback-pattern `data.id || data.bon_id` — vælg én eller den anden afhængigt af event-type.
 > - **Force-mode auth (13. maj 2026)**: rolle-tjek mod `req.session.userId` (IKKE body.user_id). Body bruges KUN til audit-felter. Privilege-escalation-vektor lukket i Patch D.
 > - **Partially approved (13. maj 2026)**: ny status-værdi på `goods_receipts` når mindst én item-Grocy-fejl. Bevidste skips (missing-status, no-pid) tæller ikke. UI-rendering kommer i Fase 3 varemodtagelses-listview.
@@ -2139,6 +2176,11 @@ POST   /api/contact-points                               routes/contact-points.j
 PATCH  /api/contact-points/:id                           routes/contact-points.js
 DELETE /api/contact-points/:id                           routes/contact-points.js (auto-promote næste primary)
 PATCH  /api/contact-points/:id/toggle-public             routes/contact-points.js
+GET    /api/flags?entity_type=&entity_id=&include_dismissed= routes/flags.js
+POST   /api/flags                                        routes/flags.js (entity_type + entity_id + title + body?)
+PATCH  /api/flags/:id                                    routes/flags.js (title/body — kun aktive flag)
+POST   /api/flags/:id/ack                                routes/flags.js ("Forstået" — per-bon, UPSERT)
+POST   /api/flags/:id/dismiss                            routes/flags.js ("Færdig" — permanent)
 GET    /api/crm/companies                                routes/crm.js (Firmaer-fane aggregeret listview)
 GET    /api/crm/company/:id                              routes/crm.js (Firma 360° detaljer + contact_points)
 GET    /api/quotes                                       routes/quotes.js (is_offer=1 bons)
@@ -2316,3 +2358,5 @@ Body-klasse: `zone-kitchen` eller `zone-office` — styrer touch vs. desktop den
 *Sidst opdateret: 13. maj 2026 — test-suite-arbejdet (Fase 1+2+3 minus CRM/Cashflow) logget. 9 patches (A-I) anvendt og dokumenteret. 437 PASS · 0 FAIL · 3 SKIP. 0 åbne medium+ findings. Detaljer i `docs/TEST_OBSERVATIONS.md`.*
 
 *19. maj 2026 — opdateret med 7 nye sektioner der dækker 39 commits siden 13. maj: Mail-oprydning (migration 066+067), Office sidebar v2 (23 → 8 punkter), Settings Grocy AKTIV-badge + miljø-badge, Density toggle (Komfort/Kompakt/Tæt), Bon-kort redesign + SSE re-render bug-fix, Mobile-zone udvidelser (Nye pending-inbox + Overblik 14d/Måned), Office Opskrifter & priser (margin-analyse), Office UX-fixes (status-farver, SSE bons-list `bon_status`, responsive sidebar med hamburger-drawer, drawer historik-knap, expandable notes, web-order toast, "Afleveret"-kolonne).*
+
+*19. maj 2026 (senere) — Kunde-flags-feature dokumenteret. Migration 069 + `routes/flags.js` + `shared/flag_strip.js` + bon-drawer-strip + listview-badge + Kunde/Firma 360°-sidebar + dismissed flag i timeline. Tre commits: `c99c959` (fase 1-4), `d72a93d` (fase 5-6), `c0edb31` (fase 7). Alle 7 faser komplet. Spec: `docs/CLAUDE_KUNDE_FLAGS.md`.*
