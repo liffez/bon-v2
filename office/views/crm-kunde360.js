@@ -733,18 +733,47 @@ function _k3RenderShell() {
                 background: var(--brand-primary-light, #f1e6b2); color: var(--brand-primary, #8e631f);
             }
 
-            /* Quick note */
-            .k3-quick-note { margin-top: 14px; padding-top: 12px; border-top: 1px solid var(--color-border, #eee); }
-            .k3-quick-note h4 { font-size: 10px; font-weight: 700; text-transform: uppercase; letter-spacing: .5px; color: var(--color-text-dim); margin-bottom: 6px; }
-            .k3-qn-textarea {
-                width: 100%; padding: 8px; border-radius: 6px; border: 1px solid var(--color-border);
-                font-size: 13px; resize: vertical; min-height: 50px; font-family: inherit;
+            /* Aktive påmindelser (flags) — CLAUDE_KUNDE_FLAGS.md */
+            .k3-flags-section { margin-top: 14px; padding-top: 12px; border-top: 1px solid var(--color-border, #eee); }
+            .k3-flags-section h4 { font-size: 10px; font-weight: 700; text-transform: uppercase; letter-spacing: .5px; color: var(--color-text-dim); margin-bottom: 8px; }
+            .k3-flag-card {
+                position: relative;
+                background: #fff8e7;
+                border: 1px solid var(--color-orange);
+                border-radius: 6px;
+                padding: 8px 28px 8px 10px;
+                margin-bottom: 6px;
             }
-            .k3-qn-textarea:focus { border-color: var(--brand-primary); outline: none; }
-            .k3-qn-btn {
-                margin-top: 6px; padding: 5px 14px; border-radius: 6px; border: none;
+            .k3-flag-title { font-size: 13px; font-weight: 700; color: var(--color-text); line-height: 1.3; }
+            .k3-flag-body { font-size: 12px; color: var(--color-text); margin-top: 3px; line-height: 1.4; white-space: pre-wrap; word-wrap: break-word; }
+            .k3-flag-meta { font-size: 11px; color: var(--color-text-dim); margin-top: 4px; }
+            .k3-flag-remove {
+                position: absolute; top: 4px; right: 4px;
+                width: 22px; height: 22px; border-radius: 50%;
+                border: none; background: transparent; color: var(--color-text-dim);
+                cursor: pointer; font-size: 16px; line-height: 1;
+                font-family: inherit;
+            }
+            .k3-flag-remove:hover { background: rgba(0,0,0,0.06); color: var(--color-red); }
+
+            /* Tilføj (påmindelse eller note) */
+            .k3-quick-add { margin-top: 14px; padding-top: 12px; border-top: 1px solid var(--color-border, #eee); }
+            .k3-quick-add h4 { font-size: 10px; font-weight: 700; text-transform: uppercase; letter-spacing: .5px; color: var(--color-text-dim); margin-bottom: 8px; }
+            .k3-qa-type { display: flex; flex-direction: column; gap: 4px; margin-bottom: 8px; font-size: 12px; }
+            .k3-qa-type label { display: flex; align-items: center; gap: 6px; cursor: pointer; }
+            .k3-qa-hint { color: var(--color-text-dim); font-size: 11px; }
+            .k3-qa-title, .k3-qa-body {
+                width: 100%; padding: 7px 8px; border-radius: 6px; border: 1px solid var(--color-border);
+                font-size: 13px; font-family: inherit; margin-bottom: 6px;
+            }
+            .k3-qa-body { resize: vertical; min-height: 50px; }
+            .k3-qa-title:focus, .k3-qa-body:focus { border-color: var(--brand-primary); outline: none; }
+            .k3-qa-btn {
+                padding: 5px 14px; border-radius: 6px; border: none;
                 background: var(--brand-primary); color: white; font-size: 12px; font-weight: 600; cursor: pointer;
+                font-family: inherit;
             }
+            .k3-qa-btn:hover { filter: brightness(1.1); }
 
             /* Stage select */
             .k3-stage-select {
@@ -991,11 +1020,38 @@ function _k3RenderProfile() {
             '</div></div>';
     }
 
-    // Quick note
-    html += '<div class="k3-quick-note">' +
-        '<h4>Hurtig note</h4>' +
-        '<textarea class="k3-qn-textarea" id="k3QuickNote" placeholder="Skriv en hurtig note..."></textarea>' +
-        '<button class="k3-qn-btn" onclick="_k3SubmitQuickNote()">Gem note</button>' +
+    // Aktive påmindelser (vises kun hvis der er nogle) — jf. CLAUDE_KUNDE_FLAGS.md
+    if (_k3Data.flags && _k3Data.flags.length) {
+        html += '<div class="k3-flags-section">' +
+            '<h4>Aktive påmindelser</h4>' +
+            _k3Data.flags.map(f => {
+                const ackCount = f.ack_count || 0;
+                const ackMeta = ackCount > 0
+                    ? ' · Forstået på ' + ackCount + ' bon' + (ackCount === 1 ? '' : 'er')
+                    : '';
+                return '<div class="k3-flag-card" data-flag-id="' + f.id + '">' +
+                    '<button class="k3-flag-remove" title="Fjern permanent" onclick="_k3RemoveFlag(' + f.id + ')">×</button>' +
+                    '<div class="k3-flag-title">🚩 ' + esc(f.title) + '</div>' +
+                    (f.body ? '<div class="k3-flag-body">' + esc(f.body) + '</div>' : '') +
+                    '<div class="k3-flag-meta">Tilføjet ' + formatDanishDate((f.created_at || '').slice(0, 10)) +
+                        (f.created_by_name ? ' af ' + esc(f.created_by_name) : '') +
+                        ackMeta +
+                    '</div>' +
+                '</div>';
+            }).join('') +
+        '</div>';
+    }
+
+    // Kombineret tilføj-input (erstatter den gamle Hurtig note)
+    html += '<div class="k3-quick-add">' +
+        '<h4>Tilføj</h4>' +
+        '<div class="k3-qa-type">' +
+            '<label><input type="radio" name="k3qaType" value="flag" checked> Påmindelse <span class="k3-qa-hint">(hejses på fremtidige bonner)</span></label>' +
+            '<label><input type="radio" name="k3qaType" value="note"> Note <span class="k3-qa-hint">(gemmes i aktivitet)</span></label>' +
+        '</div>' +
+        '<input type="text" id="k3QaTitle" class="k3-qa-title" placeholder="Titel">' +
+        '<textarea id="k3QaBody" class="k3-qa-body" placeholder="Detalje (valgfri)"></textarea>' +
+        '<button class="k3-qa-btn" onclick="_k3SubmitQuickAdd()">Gem</button>' +
     '</div>';
 
     // Stage selector
@@ -1379,18 +1435,36 @@ async function _k3SubmitActivity() {
     }
 }
 
-async function _k3SubmitQuickNote() {
-    const textarea = document.getElementById('k3QuickNote');
-    const text = textarea ? textarea.value.trim() : '';
-    if (!text) { alert('Skriv en note'); return; }
+async function _k3SubmitQuickAdd() {
+    const typeEl = document.querySelector('input[name="k3qaType"]:checked');
+    const type   = typeEl ? typeEl.value : 'flag';
+    const title  = (document.getElementById('k3QaTitle')?.value || '').trim();
+    const body   = (document.getElementById('k3QaBody')?.value || '').trim();
+    if (!title) { alert('Skriv en titel'); return; }
 
     try {
-        await postCrmActivity({
-            customer_id: _k3CustomerId,
-            type: 'note',
-            text,
-        });
-        textarea.value = '';
+        if (type === 'flag') {
+            await createFlag('customer', _k3CustomerId, title, body || null);
+        } else {
+            // Note → eksisterende crm_activities-flow. Title + body kombineres til ét tekstfelt.
+            await postCrmActivity({
+                customer_id: _k3CustomerId,
+                type: 'note',
+                text: body ? title + '\n\n' + body : title,
+            });
+        }
+        document.getElementById('k3QaTitle').value = '';
+        document.getElementById('k3QaBody').value = '';
+        _k3LoadData();
+    } catch (err) {
+        alert('Fejl: ' + err.message);
+    }
+}
+
+async function _k3RemoveFlag(flagId) {
+    if (!confirm('Fjern denne påmindelse permanent?')) return;
+    try {
+        await dismissFlagApi(flagId, null, 'Fjernet fra kundekortet');
         _k3LoadData();
     } catch (err) {
         alert('Fejl: ' + err.message);

@@ -585,7 +585,11 @@ router.get('/companies', handle((req, res) => {
                        WHEN MAX(CASE WHEN cm.stage = 'vip' THEN 1 ELSE 0 END) = 1 THEN 'vip'
                        WHEN MAX(b.delivery_date) IS NULL OR julianday('now') - julianday(MAX(b.delivery_date)) > 180 THEN 'dormant'
                        ELSE 'active'
-                   END AS aggregated_stage
+                   END AS aggregated_stage,
+                   (SELECT COUNT(*) FROM entity_flags ef
+                    WHERE ef.entity_type = 'company' AND ef.entity_id = co.id
+                      AND ef.dismissed_at IS NULL
+                   ) AS flag_count
               FROM companies co
          LEFT JOIN customers c ON c.company_id = co.id AND c.is_active = 1
          LEFT JOIN crm_customer_meta cm ON cm.customer_id = c.id
@@ -673,7 +677,26 @@ router.get('/customer/:id', handle((req, res) => {
         `).get(customer.company_id);
     }
 
-    res.json({ customer, stats, orders, activities, products, rfm });
+    // Aktive flag på kunden (jf. docs/CLAUDE_KUNDE_FLAGS.md).
+    // Ack-historik begrænset til seneste 10 til display — fuld liste kan
+    // hentes via /api/flags?include_dismissed=1.
+    const flags = db.prepare(`
+        SELECT f.*,
+               u.name AS created_by_name,
+               (SELECT COUNT(*) FROM flag_acks WHERE flag_id = f.id) AS ack_count
+        FROM entity_flags f
+        LEFT JOIN users u ON f.created_by_user_id = u.id
+        WHERE f.entity_type = 'customer' AND f.entity_id = ? AND f.dismissed_at IS NULL
+        ORDER BY f.created_at DESC
+    `).all(id);
+    const ackBonsStmt = db.prepare(`
+        SELECT b.id, b.bon_number, fa.acked_at
+        FROM flag_acks fa JOIN bons b ON fa.bon_id = b.id
+        WHERE fa.flag_id = ? ORDER BY fa.acked_at DESC LIMIT 10
+    `);
+    for (const f of flags) f.ack_bons = ackBonsStmt.all(f.id);
+
+    res.json({ customer, stats, orders, activities, products, rfm, flags });
 }));
 
 // ─── GET /company/:id ───────────────────────────────────────
@@ -760,6 +783,23 @@ router.get('/company/:id', handle((req, res) => {
         if (days > 180) aggregated_stage = 'dormant';
     }
 
+    // Aktive flag på firmaet (CLAUDE_KUNDE_FLAGS.md)
+    const flags = db.prepare(`
+        SELECT f.*,
+               u.name AS created_by_name,
+               (SELECT COUNT(*) FROM flag_acks WHERE flag_id = f.id) AS ack_count
+        FROM entity_flags f
+        LEFT JOIN users u ON f.created_by_user_id = u.id
+        WHERE f.entity_type = 'company' AND f.entity_id = ? AND f.dismissed_at IS NULL
+        ORDER BY f.created_at DESC
+    `).all(id);
+    const ackBonsStmt = db.prepare(`
+        SELECT b.id, b.bon_number, fa.acked_at
+        FROM flag_acks fa JOIN bons b ON fa.bon_id = b.id
+        WHERE fa.flag_id = ? ORDER BY fa.acked_at DESC LIMIT 10
+    `);
+    for (const f of flags) f.ack_bons = ackBonsStmt.all(f.id);
+
     res.json({
         company,
         aggregations: {
@@ -770,6 +810,7 @@ router.get('/company/:id', handle((req, res) => {
         contact_points,
         customers,
         rfm,
+        flags,
     });
 }));
 

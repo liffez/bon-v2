@@ -173,6 +173,18 @@
     word-break: break-word;
 }
 
+/* Cross-link til Kunde/Firma 360° (kun office-zonen — CLAUDE_KUNDE_FLAGS.md) */
+.ks-sel-name-link {
+    cursor: pointer;
+    text-decoration: underline dotted;
+    text-underline-offset: 3px;
+    text-decoration-color: var(--color-border);
+}
+.ks-sel-name-link:hover {
+    color: var(--brand-primary);
+    text-decoration-color: var(--brand-primary);
+}
+
 .ks-sel-meta {
     color: var(--color-text-dim);
     font-size: 0.78rem;

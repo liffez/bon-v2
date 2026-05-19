@@ -121,6 +121,7 @@ function cfRender(rows) {
                 <div class="cf-main">
                     <div class="cf-name-row">
                         <span class="cf-name">${escapeHtml(co.name)}</span>
+                        ${co.flag_count > 0 ? `<span class="cf-flag-badge" title="${co.flag_count} påmindels${co.flag_count === 1 ? 'e' : 'er'} på firmaet">🚩${co.flag_count > 1 ? co.flag_count : ''}</span>` : ''}
                         ${enrichedNote}
                         <span class="cf-stage cf-stage-${stage}">${stageLabel}</span>
                     </div>

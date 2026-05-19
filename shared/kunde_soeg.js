@@ -375,6 +375,9 @@ class KundeSoeg {
         const main = document.createElement('div');
         main.className = 'ks-selected-main';
 
+        // Cross-link er kun aktivt i office-zonen (kitchen har ikke CRM-views)
+        const isOffice = document.body.classList.contains('zone-office');
+
         // Person
         const personRow = document.createElement('div');
         personRow.className = 'ks-sel-row';
@@ -384,6 +387,14 @@ class KundeSoeg {
         const name = document.createElement('div');
         name.className = 'ks-sel-name';
         name.textContent = this.selected.customer_name || '—';
+        if (isOffice && this.selected.customer_id && typeof window.openKunde360 === 'function') {
+            name.classList.add('ks-sel-name-link');
+            name.title = 'Åbn Kunde 360°';
+            name.addEventListener('click', (e) => {
+                e.stopPropagation();
+                window.openKunde360(this.selected.customer_id);
+            });
+        }
         personText.appendChild(name);
         const personMeta = [];
         if (this.selected.email) personMeta.push(this.selected.email);
@@ -407,6 +418,14 @@ class KundeSoeg {
             const cname = document.createElement('div');
             cname.className = 'ks-sel-name';
             cname.textContent = this.selected.company_name || '—';
+            if (isOffice && this.selected.company_id && typeof window.openFirma360 === 'function') {
+                cname.classList.add('ks-sel-name-link');
+                cname.title = 'Åbn Firma 360°';
+                cname.addEventListener('click', (e) => {
+                    e.stopPropagation();
+                    window.openFirma360(this.selected.company_id);
+                });
+            }
             compText.appendChild(cname);
             const compMeta = [];
             if (this.selected.company_cvr) compMeta.push('CVR ' + this.selected.company_cvr);

@@ -207,6 +207,8 @@ function _f3RenderOversigt(el) {
             </div>
         </div>
 
+        ${_f3RenderFlagsCard()}
+
         ${rfm ? _f3RenderRfm(rfm) : ''}
     `;
 
@@ -219,6 +221,79 @@ function _f3RenderOversigt(el) {
         btn.addEventListener('click', _f3HandleDeleteCp));
     el.querySelectorAll('.f3-btn-sm[data-add-kind]').forEach(btn =>
         btn.addEventListener('click', () => _f3HandleAddCp(btn.dataset.addKind)));
+
+    // Flag-handlers
+    el.querySelectorAll('.f3-flag-remove').forEach(btn =>
+        btn.addEventListener('click', () => _f3RemoveFlag(parseInt(btn.dataset.flagId, 10))));
+    el.querySelector('#f3-flag-add-btn')?.addEventListener('click', _f3AddFlag);
+}
+
+// ─── Påmindelser (CLAUDE_KUNDE_FLAGS.md) ────────────────────
+
+function _f3RenderFlagsCard() {
+    const flags = _f3State.data?.flags || [];
+    const items = flags.length === 0
+        ? '<div class="f3-empty">Ingen aktive påmindelser. Tilføj én nedenfor.</div>'
+        : flags.map(f => {
+            const ack = f.ack_count || 0;
+            const ackMeta = ack > 0
+                ? ' · Forstået på ' + ack + ' bon' + (ack === 1 ? '' : 'er')
+                : '';
+            return `
+                <div class="f3-flag-card" data-flag-id="${f.id}">
+                    <button class="f3-flag-remove" title="Fjern permanent" data-flag-id="${f.id}">×</button>
+                    <div class="f3-flag-title">🚩 ${escapeHtml(f.title)}</div>
+                    ${f.body ? `<div class="f3-flag-body">${escapeHtml(f.body)}</div>` : ''}
+                    <div class="f3-flag-meta">Tilføjet ${_f3FormatDate(f.created_at)}${f.created_by_name ? ' af ' + escapeHtml(f.created_by_name) : ''}${ackMeta}</div>
+                </div>
+            `;
+        }).join('');
+
+    return `
+        <div class="f3-card f3-flags-section">
+            <div class="f3-card-h">
+                <span class="f3-card-title">Påmindelser ${flags.length > 0 ? `(${flags.length})` : ''}</span>
+                <span class="f3-card-h-meta">Hejses på fremtidige bonner</span>
+            </div>
+            <div class="f3-card-b">
+                <div class="f3-flag-list">${items}</div>
+                <div class="f3-flag-add">
+                    <input type="text" id="f3-flag-title" class="f3-flag-input" placeholder="Titel (fx 'Fakturaer skal til Anne')">
+                    <textarea id="f3-flag-body" class="f3-flag-textarea" placeholder="Detalje (valgfri)"></textarea>
+                    <button class="f3-btn f3-btn-primary" id="f3-flag-add-btn">+ Tilføj påmindelse</button>
+                </div>
+            </div>
+        </div>
+    `;
+}
+
+async function _f3AddFlag() {
+    const title = (document.getElementById('f3-flag-title')?.value || '').trim();
+    const body  = (document.getElementById('f3-flag-body')?.value  || '').trim();
+    if (!title) { alert('Skriv en titel'); return; }
+    try {
+        await createFlag('company', _f3State.companyId, title, body || null);
+        document.getElementById('f3-flag-title').value = '';
+        document.getElementById('f3-flag-body').value  = '';
+        await _f3Reload();
+    } catch (err) {
+        alert('Fejl: ' + err.message);
+    }
+}
+
+async function _f3RemoveFlag(flagId) {
+    if (!confirm('Fjern denne påmindelse permanent?')) return;
+    try {
+        await dismissFlagApi(flagId, null, 'Fjernet fra firmakortet');
+        await _f3Reload();
+    } catch (err) {
+        alert('Fejl: ' + err.message);
+    }
+}
+
+async function _f3Reload() {
+    _f3State.data = await fetchCrmCompany(_f3State.companyId);
+    _f3RenderTab(_f3State.tab || 'oversigt');
 }
 
 function _f3RenderCp(cp) {

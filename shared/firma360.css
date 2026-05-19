@@ -748,3 +748,87 @@
 .f3-toast.error {
     background: #b34234;
 }
+
+/* ──────────────────────────────────────────────────────────────
+   Påmindelser (flags) — CLAUDE_KUNDE_FLAGS.md
+   ────────────────────────────────────────────────────────────── */
+
+.f3-flags-section { margin-top: 16px; }
+
+.f3-flag-list {
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+    margin-bottom: 14px;
+}
+.f3-flag-card {
+    position: relative;
+    background: #fff8e7;
+    border: 1px solid var(--color-orange);
+    border-radius: 6px;
+    padding: 10px 32px 10px 12px;
+}
+.f3-flag-title {
+    font-size: 14px;
+    font-weight: 700;
+    color: var(--color-text);
+    line-height: 1.3;
+}
+.f3-flag-body {
+    font-size: 13px;
+    color: var(--color-text);
+    margin-top: 4px;
+    line-height: 1.4;
+    white-space: pre-wrap;
+    word-wrap: break-word;
+}
+.f3-flag-meta {
+    font-size: 11px;
+    color: var(--color-text-dim);
+    margin-top: 6px;
+}
+.f3-flag-remove {
+    position: absolute; top: 6px; right: 6px;
+    width: 24px; height: 24px; border-radius: 50%;
+    border: none; background: transparent; color: var(--color-text-dim);
+    cursor: pointer; font-size: 18px; line-height: 1;
+    font-family: inherit;
+}
+.f3-flag-remove:hover { background: rgba(0,0,0,0.06); color: var(--color-red); }
+
+.f3-flag-add {
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+    padding-top: 12px;
+    border-top: 1px dashed var(--color-border);
+}
+.f3-flag-input, .f3-flag-textarea {
+    width: 100%;
+    padding: 8px 10px;
+    border-radius: 6px;
+    border: 1px solid var(--color-border);
+    font-size: 13px;
+    font-family: inherit;
+}
+.f3-flag-textarea { resize: vertical; min-height: 50px; }
+.f3-flag-input:focus, .f3-flag-textarea:focus {
+    border-color: var(--brand-primary); outline: none;
+}
+
+/* ──────────────────────────────────────────────────────────────
+   Firma-listview badge
+   ────────────────────────────────────────────────────────────── */
+
+.cf-flag-badge {
+    display: inline-block;
+    background: var(--color-orange);
+    color: white;
+    font-size: 11px;
+    font-weight: 700;
+    padding: 1px 6px;
+    border-radius: 3px;
+    margin-left: 6px;
+    line-height: 1.3;
+    vertical-align: middle;
+}
