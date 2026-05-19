@@ -14,9 +14,25 @@
     cursor: pointer;
     animation: mailToastSlide 0.3s ease;
 }
+.web-order-toast {
+    position: fixed; bottom: 24px; right: 24px;
+    z-index: 10000;
+    background: #5aa05a; color: white;
+    padding: 12px 20px; border-radius: 8px;
+    font-size: 14px; font-weight: 600;
+    box-shadow: 0 4px 16px rgba(0,0,0,0.25);
+    cursor: pointer;
+    animation: webOrderToastSlide 0.3s ease;
+    max-width: 320px;
+}
+.web-order-toast:hover { background: #4a8a4a; }
 @keyframes mailToastSlide {
     from { opacity: 0; transform: translateX(-50%) translateY(20px); }
     to   { opacity: 1; transform: translateX(-50%) translateY(0); }
+}
+@keyframes webOrderToastSlide {
+    from { opacity: 0; transform: translateX(20px); }
+    to   { opacity: 1; transform: translateX(0); }
 }
 
 /* ════════════════════════════════════════════

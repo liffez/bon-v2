@@ -1331,6 +1331,24 @@
         }
       });
 
+      // ─── Web-order toast notification ────────────────────
+      function _showWebOrderToast(data) {
+        var existing = document.querySelector('.web-order-toast');
+        if (existing) existing.remove();
+        var bonNr = data.bon_number ? '#' + data.bon_number : '#' + data.id;
+        var toast = document.createElement('div');
+        toast.className = 'web-order-toast';
+        toast.innerHTML = '🛒 Ny web-bestilling: ' + bonNr + ' — klik for at åbne';
+        toast.onclick = function() {
+          if (typeof drawer !== 'undefined' && drawer && typeof drawer.open === 'function') {
+            drawer.open(data.id);
+          }
+          toast.remove();
+        };
+        document.body.appendChild(toast);
+        setTimeout(function() { if (toast.parentNode) toast.remove(); }, 12000);
+      }
+
       // ─── SSE (always active) ─────────────────────────────
       connectSSE('/api/sse', {
         bon_created: (data) => {
@@ -1341,6 +1359,7 @@
           if (typeof _uoHandleSSE === 'function') _uoHandleSSE('bon_created', data);
           if (typeof _tilbudHandleSSE === 'function') _tilbudHandleSSE('bon_created', data);
           if (typeof _woHandleSSE === 'function') _woHandleSSE('bon_created', data);
+          if (data && data.source === 'web_order') _showWebOrderToast(data);
           scheduleBadgeReload();  // bons_nye + tilbud_aktive + okonomi_fakturering kan ændre sig
         },
         bon_updated: (data) => {
