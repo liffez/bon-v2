@@ -33,6 +33,7 @@ var _blColumns = JSON.parse(localStorage.getItem('office_listview_columns') || '
     phone: false,
     email: false,
     courier: true,
+    handover: false,
     mail: true,
     price_cat: false,
     payment: false,
@@ -52,6 +53,7 @@ var BL_COLUMN_DEFS = {
     phone:           { label: 'Telefon',        sortKey: null },
     email:           { label: 'Email',          sortKey: null },
     courier:         { label: 'Bud',            sortKey: 'courier_arrival_time' },
+    handover:        { label: 'Afleveret',      sortKey: null },
     mail:            { label: '\u2709 Mail',    sortKey: null },
     price_cat:       { label: 'Priskategori',   sortKey: null },
     payment:         { label: 'Betaling',       sortKey: null },
@@ -259,6 +261,21 @@ function _renderBonsListShell() {
     });
 
     _blUpdateFilterButtons();
+}
+
+// Format delivery_events timestamp som HH:MM hvis i dag, ellers "dd/MM HH:MM"
+function _blFormatHandover(iso) {
+    if (!iso) return '';
+    var dt = new Date(iso.replace(' ', 'T'));
+    if (isNaN(dt.getTime())) return iso;
+    var today = new Date();
+    var sameDay = dt.getFullYear() === today.getFullYear() && dt.getMonth() === today.getMonth() && dt.getDate() === today.getDate();
+    var hh = String(dt.getHours()).padStart(2, '0');
+    var mm = String(dt.getMinutes()).padStart(2, '0');
+    if (sameDay) return hh + ':' + mm;
+    var dd = String(dt.getDate()).padStart(2, '0');
+    var mo = String(dt.getMonth() + 1).padStart(2, '0');
+    return dd + '/' + mo + ' ' + hh + ':' + mm;
 }
 
 function _blBuildColumnDropdown() {
@@ -564,6 +581,13 @@ function _blRenderTable() {
                         cmParts.push('<span class="bl-td-dim">' + esc(bon.courier_arrival_time) + '</span>');
                     }
                     td1.innerHTML = cmParts.join(' ');
+                    break;
+                case 'handover':
+                    if (bon.latest_delivery_event_time) {
+                        var hoTime = _blFormatHandover(bon.latest_delivery_event_time);
+                        td1.innerHTML = '<span title="' + esc(bon.latest_delivery_event || 'event') + ': ' + esc(bon.latest_delivery_event_time) + '">' + esc(hoTime) + '</span>';
+                        td1.classList.add('bl-td-dim');
+                    }
                     break;
                 case 'mail':
                     if (bon.unread_mail_count > 0) {
