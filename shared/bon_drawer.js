@@ -54,7 +54,10 @@ class BonDrawer {
         this.el.innerHTML = `
             <div class="drawer-header">
                 <span class="drawer-title">Bon #---</span>
-                <button class="drawer-close" type="button">&times;</button>
+                <div class="drawer-header-actions">
+                    <button class="drawer-history" type="button" title="Vis historik">⏱ Historik</button>
+                    <button class="drawer-close" type="button">&times;</button>
+                </div>
             </div>
 
             <div class="drawer-body">
@@ -275,6 +278,13 @@ class BonDrawer {
     _bindEvents() {
         // Close
         this.el.querySelector('.drawer-close').addEventListener('click', () => this.hide());
+        this.el.querySelector('.drawer-history').addEventListener('click', () => {
+            if (!this.bonId) return;
+            const bonNumber = this.el.querySelector('.drawer-title').textContent.replace(/^Bon #|\s*🔧$/g, '').trim();
+            if (typeof window.showHistorik === 'function') {
+                window.showHistorik({ bonId: this.bonId, bonNumber });
+            }
+        });
         this.overlayEl.addEventListener('click', () => this.hide());
 
         // Escape

@@ -65,6 +65,29 @@
     font-weight: 700;
 }
 
+.drawer-header-actions {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+}
+
+.drawer-history {
+    background: transparent;
+    border: 1px solid var(--color-border, #d7d1ca);
+    border-radius: 6px;
+    padding: 6px 12px;
+    font-size: 13px;
+    font-family: inherit;
+    color: var(--color-text, #333);
+    cursor: pointer;
+    transition: background 0.15s, border-color 0.15s;
+}
+
+.drawer-history:hover {
+    background: var(--color-background, #f5f4f2);
+    border-color: var(--brand-primary, #8e631f);
+}
+
 .drawer-close {
     background: none;
     border: none;

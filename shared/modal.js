@@ -221,12 +221,19 @@ function _buildChangelogEntry(entry) {
  * Åbn historik-modal for et bon-kort.
  * Kaldes fra action-bar: onclick="showHistorik('bon123')"
  */
-async function showHistorik(cardId) {
-    const card = document.getElementById(cardId);
-    if (!card) return;
-
-    const bonId  = cardId.replace('bon', '');
-    const bonNr  = card.querySelector('.bon-id')?.textContent?.trim() || '#' + bonId;
+async function showHistorik(cardIdOrOpts) {
+    let bonId, bonNr;
+    if (cardIdOrOpts && typeof cardIdOrOpts === 'object') {
+        // { bonId, bonNumber } — bruges fra office (drawer, listview)
+        bonId = String(cardIdOrOpts.bonId);
+        bonNr = cardIdOrOpts.bonNumber ? '#' + cardIdOrOpts.bonNumber : '#' + bonId;
+    } else {
+        // Legacy: cardId fra bon-kort i kitchen
+        const card = document.getElementById(cardIdOrOpts);
+        if (!card) return;
+        bonId = cardIdOrOpts.replace('bon', '');
+        bonNr = card.querySelector('.bon-id')?.textContent?.trim() || '#' + bonId;
+    }
 
     // Vis loading-tilstand
     openModal({
