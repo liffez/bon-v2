@@ -1552,11 +1552,147 @@ Fase 3 — Office:
 - SSE-test-helper `tests/scripts/helpers/sse_listener.js` genbruges på alle office-tracks
 - Findings dokumenteres som F-numre i specens §11; observations som #NNN i `docs/TEST_OBSERVATIONS.md`
 
+### Mail-oprydning: spam/auto-ignored + bounces (14.-15. maj 2026)
+> Spec: `docs/CLAUDE_MAIL_FIX_SPAM_OPHOBNING.md`
+
+- [x] Migration 066: Rydder ~1335 mails fra `mail_unmatched` ved første kørsel (HubSpot/Jotform-notifikationer + auto-svar). Verificeret lokalt: 1412 → 69 åbne
+- [x] `services/mailService.js` — `shouldAutoIgnore(fromAddr, subject)` tjekker indkommende mails mod samme mønstre som migration 066 (holdes synkront). Matches indsættes direkte med `status='ignored'` så de ikke ophober sig fremover
+- [x] SSE-broadcast af `mail_unmatched` skippes for auto-ignored så badge ikke flickerer på spam
+- [x] AUTO_IGNORE-mønstre:
+  - HubSpot (alle subdomæner): `%hubspot.com`
+  - Jotform: `%@jotform.com`
+  - Auto-svar (subject): `Autosvar:`, `Out of Office:`, `Automatic reply:`
+- [x] **Migration 067 — korrektion**: Bounces (postmaster, Mailer-Daemon, antispam) er forretningskritiske og IKKE skraldepost. Hver "Undelivered Mail" indikerer kunde med forkert email der skal kontaktes. Mønstre fjernet fra AUTO_IGNORE, eksisterende bounces sat tilbage til `status='open'`
+- [x] `scripts/cleanup-unmatched-mail.js` opdateret til at matche migration 1:1 — ad-hoc værktøj til fremtidige spam-bølger
+- [x] `office/views/crm-inbox.js` — bounce-helper med direkte kunde-link (commit 8425fd8)
+
+### Office sidebar v2 (14. maj 2026)
+> Spec: `docs/CLAUDE_OFFICE_SIDEBAR.md` + `CLAUDE_OFFICE_SIDEBAR_IMPL.md` · Mockup: `docs/office_sidebar_v3.html`
+
+- [x] Sidebaren konsolideret fra **23 → 8 top-level punkter**: Dashboard · Bons · CRM · Tilbud · Logistik · Indkøb · Økonomi · Vagtplan
+- [x] Underviews flyttet ned som pills i toppen af content-arealet (`.pills-row` + `.pill.active` i `shared/components.css`)
+- [x] `routes/nav.js` — `GET /api/nav/badges` samler 5 badge-tællere i ét kald (erstatter de tidligere 3 separate badge-funktioner)
+- [x] `office/index.html` — ny sidebar HTML, pills-container, `switchSection()` + `SECTION_VIEW_MAP` der oversætter `(section, pill) → internt view-navn`
+- [x] Klikbar logo med "⇄ KØKKEN"-pill erstatter den gamle zone-switcher
+- [x] Footer-ikoner (Whiteboard, SOP, Settings, Log ud) som kompakte 34×34px
+- [x] Global søgefelt i topbar — Enter → bons-liste med `?q=`
+- [x] SSE-debounced badge-reload via `scheduleBadgeReload()`
+- [x] Indkøb + Indkøbsindstillinger mountet via `shared/indkob.js` og `shared/indkob_settings.js` (genbrug fra kitchen-zone)
+- [x] Logistik som placeholder-side indtil Spor 2
+- [x] **Backwards-compat**: 16 gamle URL-formater (`?view=fakturering`, `?view=kontakter` osv.) mapper automatisk til ny `?view=section&pill=pill` via `REVERSE_MAP`. Drawer-deeplink (`?bon=N`) virker uændret
+- [x] Kitchen-topbar: "← Office"-knap for office/admin/salg-roller (erstatter den generiske zone-switcher pill)
+- [x] 5 tomme stub-filer slettet: `office/views/{invoicing, logistics, offers, purchasing, reports}.js`
+
+### Settings → Grocy AKTIV-badge + miljø-badge (17. maj 2026)
+- [x] **Settings → Grocy**: ★ AKTIV-badge med grøn venstre-border markerer hvilken lokation `default_grocy_location_id` peger på
+- [x] "Sæt som aktiv"-knap på de øvrige lokationer skifter default + rydder adapter-cache i ét klik — gør cutover til UI-handling uden SQL
+- [x] "Test forbindelse" tester nu den lokation den står ved (nyt `POST /api/settings/locations/:id/test-grocy` endpoint), så status afspejler hver lokation individuelt
+- [x] `getGrocyConfig()` accepterer optional `locationIdOverride` så test-endpoint kan vælge target uden at røre adapter-cache
+- [x] `shared/env_badge.js` — viser **LOCAL/PROD** i øverste højre hjørne med hostname-baseret detektion. Forhindrer forveksling under cutover. Inkluderes kun i Settings og Office
+- [x] `grocyAdapter` slår nu op via `GROCY_<CODE>_KEY` uppercased så env-vars matcher konvention uanset `locations.code` casing
+- [x] **Auth fix**: session-cookie blev afvist på localhost når `.env=production` pga. `cookie.secure=true`. Detekterer nu host og slipper secure-flag på localhost (`43d55d7`)
+
+### Density toggle — per-device tæthed (17.-18. maj 2026)
+> Spec: `docs/CLAUDE_DENSITY_TOGGLE.md`
+
+- [x] Tre modes: **Komfort** (standard), **Kompakt**, **Tæt** — vælges per device i Settings → Denne enhed, gemmes i localStorage
+- [x] Auto-detect: kompakt mode aktiveres på ≤1366px (ThinkPad L14 mfl.)
+- [x] Påvirker `zone-kitchen` + `zone-office`. Mobile-zonen bevidst ekskluderet (har egen touch-først CSS)
+- [x] `shared/density.js` — init/set/reset/current + auto-detect
+- [x] `shared/density.css` — overrides for bon_kort, bon_drawer, modal, vare_picker, calendar, indkob (+ token CSS-variabler)
+- [x] `settings/index.html` — ny "Denne enhed"-sektion synlig for alle roller, med radios + nulstil + live preview-kort
+- [x] 11 kitchen-shells + `office/index.html` loader `density.css` + `density.js`
+- [x] Kompakt-overrides til køkken-dashboard (`88da0cc`): sparer ca. 130px lodret så alle 6 nav-knapper er synlige indenfor 864px viewport
+- [x] Kitchen dashboard kategori-liste scroller internt på små skærme (`9a9b743`): `#todayCategories` er nu eneste scrollende region med sticky thead, 5 nye CSS-variabler til tunable density-værdier
+
+### Bon-kort redesign (17. maj 2026)
+> Spec: `docs/CLAUDE_BON_KORT_REDESIGN.md`
+
+- [x] **Header komprimeret fra 4-5 linjer → 2 linjer**:
+  - Row1: bon-id (20px) + units (26px)
+  - Row2: pickup (24px) → lev-time · dato · mode-badge · flag
+- [x] **Kunde-sektion context-afhængig**:
+  - `context-today` (kitchen-today) → adresse skjult, "▾ adresse" toggler
+  - `context-later` / `context-office` → adresse altid synlig (uændret)
+  - Toggle bruger `event.stopPropagation` så bon-customer expand ikke trigges samtidig
+- [x] **Køkkeninfo læst-toggle**:
+  - × close-knap i pillens øvre højre hjørne → markerer som læst (session)
+  - Kollapser til "+ Køkkeninfo (læst)" badge
+  - Klik på badge → folder pillen ud igen
+  - Edit-flowet (klik pill-tekst → textarea) er uændret
+- [x] **× mellem antal og navn på menu-linjer** + skarpere line-spacing (`77fd503`)
+- [x] **SSE bon_updated bug-fix** (`6624c08`): erstat hele kortet med ny `createCard()` ved `bon_updated`. Den gamle partial-update opdaterede kun `.select-mode-container` + `.unit-primary` (sidstnævnte findes ikke længere efter redesign'en), så ændringer fra bon-drawer var først synlige efter manuel reload. Springer over hvis brugeren er midt i kitchen-info edit-mode eller select-mode
+
+### Mobile-zone udvidelser (14.-17. maj 2026)
+
+- [x] **Mobile Nye: pending-inbox-model** (14. maj, spec: `docs/CLAUDE_MOBIL_NYE_OG_SOEG.md`)
+  - "Nye" er ikke et tidsbaseret feed — det er en pending-inbox der kun viser arbejde der endnu ikke er håndteret:
+    - Bons med `status_code = 'NY'`
+    - Ulæste indkommende mails (med 7-dages cap for v1-residue)
+  - Status-skift → bonen forsvinder automatisk fra Nye
+  - Mail markeres læst (af nogen, hvor som helst) → forsvinder
+  - Fjernet: "Marker alle læst"-knap, IntersectionObserver auto-mark, `last_seen_at`-baseret filtrering (kolonnen er ubrugt men beholdt)
+  - `POST /api/bons/:id/mark-seen` + `/mark-all-seen` er no-op for bagudkompatibilitet med cachede klient-builds
+- [x] **Mobile Overblik: 14 dage / Måned + klikbare dage** (17. maj, `df53bb9`)
+  - Periode-toggle (14 dage default, Måned) huskes i localStorage
+  - ◀ ▶ navigerer frem/tilbage
+  - Hver dag-kort er klikbart og åbner bons for dagen
+  - Sticky toolbar-top fix (`ea48655`) — fjernet 52px gap
+  - Link til hele vagtplanen i toolbaren (`5f222eb`)
+- [x] **Mobil bons: kundeønsker som kollapsbar sektion** på bon-detalje (`3e4c65e`)
+
+### Office: Opskrifter & priser — margin-analyse (17. maj 2026)
+> Krydser Grocy (kostpris fra fulfillment) med Bon v2 (salgspriser pr. priskategori + faktisk volume fra `bon_lines`) for at vise dækningsbidrag pr. opskrift.
+
+- [x] **Moms-doktrin**: alle tal vises ex moms. Revenue summeres incl moms i SQL (`unit_price` er incl moms per §6b) og konverteres via `Moms.inclToExcl()` i Node — undgår 1.25-fælden via pre-commit-hook
+- [x] **Backend**:
+  - Migration 068: recreate `item_prices` med `item_type`-kolonne (recipe/product/local), nye tabeller `recipe_cost_cache` + `recipe_db_targets`
+  - `services/itemPriceBackfill.js` — auto-migration fra Grocy `Salesprice*`-userfields ved første overview-kald (idempotent via setting-flag)
+  - `services/grocyAdapter.js` — `invalidateRecipeCost()` hooket ind i alle 7 recipe-CRUD-funktioner så cache holdes frisk uden nightly-wait
+  - `routes/recipes_overview.js` — 9 endpoints (overview, refresh-costs, backfill, targets bulk+patch+delete, item-prices, grocy-link redirect)
+  - `scripts/refresh-recipe-costs.js` — standalone, kaldes fra system-crontab (foreslået 03:00, før v1-sync 05:00)
+  - SSE: `item_price_updated`, `recipes_cost_refreshed`, `recipe_targets_updated`
+- [x] **Frontend** (`office/views/opskrifter.js` + `.css`):
+  - KPI-strip med "Andel under mål" som primær + conditional Tabsgivende
+  - Tabel med default-sortering: tabsgivende → under-mål (omsætning desc)
+  - Drill-down side-panel
+- [x] Monteret i sidebar under ØKONOMI-sektionen som "Opskrifter & priser"
+
+### Småfixes (14.-19. maj 2026)
+
+- [x] **UTC-tider → dansk lokal tid** (`1f4b551`): changelog, mail-historik osv. viste UTC-tider; nu vises lokal tid i alle visninger
+- [x] **Sortér bons: fallback fra `pickup_time` til `delivery_time`** (`42df8fa`): bons uden pickup_time sorteres nu efter delivery_time i stedet for at falde bagest
+- [x] **Workload-beregninger ekskl. AFLYST** + brug pax-fallback i SUMs (`5a23bd6`): aflyste bons regnes ikke længere med i kapacitet, og enheder=0 falder tilbage til pax så total ikke bliver 0
+- [x] **Bestil bud: tillad valg af eget køretøj** (`08f149d`): Volvo, egen cykel m.fl. i manual-booking modal
+- [x] **Bon-linjer: klik på antal → inline stepper** til at justere antal (`f038ce0`)
+- [x] **Sammentælling: KATEGORI/VARE-toggle** (`27c638b`): Vare-mode summerer per produktnavn og ignorerer special_request-noter (fx Grisen på Rug 20 + Grisen på Rug (minus tomat) 1 = 21 x Grisen på Rug). Brugerens valg huskes i `localStorage`
+- [x] **Køkken-dashboard: neutralt look på "nye bestillinger"-kortet** (`1e773f7`): fjernet rød baggrund + pulse-animation. Kortet matcher nu andre dashboard-kort. Count-pillen bevares brand-brun
+- [x] **Bestilling: default-email rettet** fra bestilling@ til bon@ristetrug.dk (`d69a2b1`)
+- [x] **Engangs-scripts**:
+  - `scripts/mark-prep-bons-internal.js` — oprydning af stale AFSLUTTET (`7cb8bc1`)
+  - `scripts/cleanup-test-bons.js` — slet B%-test-bons før launch (`79c9302`)
+- [x] **Hetzner**: full nginx-config til whiteboard.ristetrug.dk (`c9b0507`)
+
+### Office UX-fixes (19. maj 2026)
+
+- [x] **Status-farver fra BonConfig** (commit `c1274b9`): ugeoversigt, web-orders kort og kalender web-order-listevisning brugte raw `status_color` fra DB (blege `#f1e6b2` for VENTER INFO) i stedet for BON_CONFIG-paletten. Alle 3 steder fixet — bruger nu `statusToFrontend()` + `BON_CONFIG.statuses` lookup med fallback til DB-værdi hvis BonConfig mangler
+- [x] **Produktions-bons i kalender** (commit `c1274b9`):
+  - `data-production="true"` på `.cal-bon-entry` overskriver `--bon-color` til `#4a7ab0` (blå)
+  - 🔧-badge tilføjet i listevisning (manglede der — kun month-grid havde det)
+- [x] **Mobile bons-list customer_name-fallback** (commit `c1274b9`): linje 462 + 642 manglede `customer_name`-fallback (havde kun `contact_name_full || company_name`), så nogle bons viste "Ukendt"
+- [x] **SSE `bon_status` til bons-list** (commit `b436492`): `routes/bons.js:593` broadcaster `bon_status` (ikke `bon_updated`) ved status-skift, men kun fakturering/dashboard/rapporter/ugeoversigt lyttede. Bons-list krævede manuel refresh efter status-ændring. Fix: tilføjet `_blHandleBonStatus` + wired `_blHandleBonStatus`, `_tilbudHandleSSE`, `_woHandleSSE` ind i `office/index.html` bon_status-handler
+- [x] **Office responsive sidebar** (commit `1de0e58`): sidebar blev brutalt skjult ved <768px uden replacement nav. Sænket breakpoint til 900px og gjort sidebar til **overlay-drawer** der toggles via hamburger-knap (☰) i topbar. Lukker ved klik på backdrop, Escape eller sidebar-link. Backdrop med 0.4 alpha overlay
+- [x] **Bon-drawer historik-knap** (commit `a76b9d0`): "⏱ Historik"-knap i drawer-header åbner `showHistorik`-modal med fuld changelog. `showHistorik` refaktoreret til at acceptere enten `cardId` (legacy fra bon-kort) eller `{ bonId, bonNumber }`-objekt (drawer)
+- [x] **Bon-drawer expandable note-felter** (commit `ff0cfd7`): klik på sublabel (Kundeønsker, Faktura info, Køkken info, Interne noter) toggler textarea-størrelsen så hele indholdet er synligt uden scroll. Auto-grow mens åben. Lille ▾ caret indikerer state og roterer ved expand
+- [x] **Web-order toast i office** (commit `95b4a77`): grøn toast nederst-højre når SSE `bon_created` med `source='web_order'` lander. Klik åbner bon i drawer. Auto-fade efter 12s. Genbruger toast-mønstret fra `_showMailToast`. CSS i `shared/components.css` (`.web-order-toast` + `@keyframes webOrderToastSlide`)
+- [x] **Listview "Afleveret"-kolonne** (commit `6e63625`): valgfri kolonne (default off) der viser tidspunktet for seneste `delivery_event` på bonen. Format: HH:MM hvis i dag, dd/MM HH:MM ellers. Hover viser event-type + raw timestamp. Bruger eksisterende `latest_delivery_event_time` fra `/api/bons` (ingen schema-ændring)
+- [x] **Owner-mail på nye web-ordrer**: allerede implementeret i migration 062 (`web_order_notification_email` setting + `web_order_owner_notification` skabelon). Markeret som ✅ i huskelisten
+
 ## Næste opgave
 
-> ✏️ Opdateret 13. maj 2026.
+> ✏️ Opdateret 19. maj 2026.
 >
-> **Fase 1a–1e + 3A + 3B + 3D + 4 + 5 + 6 (komplet inkl. 6g) + 7 (CRM) + Office CRM redesign + 8 (Fakturering) + 9 (Tilbud) + Mail-vedhæftninger + CRM service-kald + Firma-oprydning + 10 (Mobil Shell) + 10b (Roller & Rettigheder) + 11 (Ugeoversigt) + Priser i planlægningsbon + Hjælpesystem + Whiteboard Sidekick + Web-bestillinger (webhook) + Mail-skabelon management + 12 (Rapporter) + PIN-management + CVR-berigelse (653/1232 firmaer) + 13 (Cashflow) + Mail chat-boble layout + Embed-bestillingsformular + Delivery Spor 1 (manuel bestilling) + Moms-refaktorering + Kontakter & Firma 360° + Test-suite (Fase 1+2+3 minus CRM/Cashflow) komplet.**
+> **Fase 1a–1e + 3A + 3B + 3D + 4 + 5 + 6 (komplet inkl. 6g) + 7 (CRM) + Office CRM redesign + 8 (Fakturering) + 9 (Tilbud) + Mail-vedhæftninger + CRM service-kald + Firma-oprydning + 10 (Mobil Shell) + 10b (Roller & Rettigheder) + 11 (Ugeoversigt) + Priser i planlægningsbon + Hjælpesystem + Whiteboard Sidekick + Web-bestillinger (webhook) + Mail-skabelon management + 12 (Rapporter) + PIN-management + CVR-berigelse (653/1232 firmaer) + 13 (Cashflow) + Mail chat-boble layout + Embed-bestillingsformular + Delivery Spor 1 (manuel bestilling) + Moms-refaktorering + Kontakter & Firma 360° + Test-suite (Fase 1+2+3 minus CRM/Cashflow) + Office sidebar v2 + Density toggle + Bon-kort redesign + Margin-analyse + Mobile Nye pending-inbox + Office UX-fixes (status-farver, SSE bons-list, responsive sidebar, drawer historik + expandable notes, web-order toast) komplet.**
 >
 > **Test-suite: KOMPLET for 6/9 office-tracks (13. maj 2026).** 437 PASS · 0 FAIL · 3 SKIP. 9 patches anvendt (A–I) der lukkede 30+ findings inkl. SSE-payload-konsistens, privilege-escalation i force-mode, partially_approved-status, tilbud-modul-konsistens. 0 åbne medium+ findings tilbage. Detaljer i `docs/TEST_OBSERVATIONS.md` og hver `tests/specs/T_*.md`. Resterende: T_CRM, T_CASHFLOW, T_V1_AFSTEMNING (weekenden).
 >
@@ -2178,3 +2314,5 @@ Body-klasse: `zone-kitchen` eller `zone-office` — styrer touch vs. desktop den
    - Resterende: T_CRM, T_CASHFLOW, T_V1_AFSTEMNING (weekenden)
 
 *Sidst opdateret: 13. maj 2026 — test-suite-arbejdet (Fase 1+2+3 minus CRM/Cashflow) logget. 9 patches (A-I) anvendt og dokumenteret. 437 PASS · 0 FAIL · 3 SKIP. 0 åbne medium+ findings. Detaljer i `docs/TEST_OBSERVATIONS.md`.*
+
+*19. maj 2026 — opdateret med 7 nye sektioner der dækker 39 commits siden 13. maj: Mail-oprydning (migration 066+067), Office sidebar v2 (23 → 8 punkter), Settings Grocy AKTIV-badge + miljø-badge, Density toggle (Komfort/Kompakt/Tæt), Bon-kort redesign + SSE re-render bug-fix, Mobile-zone udvidelser (Nye pending-inbox + Overblik 14d/Måned), Office Opskrifter & priser (margin-analyse), Office UX-fixes (status-farver, SSE bons-list `bon_status`, responsive sidebar med hamburger-drawer, drawer historik-knap, expandable notes, web-order toast, "Afleveret"-kolonne).*
