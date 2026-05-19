@@ -683,3 +683,7 @@ function _blHandleBonCreated(data) {
 function _blHandleBonUpdated(data) {
     _blLoadData();
 }
+
+function _blHandleBonStatus(data) {
+    _blLoadData();
+}
