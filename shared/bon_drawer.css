@@ -145,6 +145,30 @@
     margin-bottom: 4px;
 }
 
+.drawer-sublabel-toggleable {
+    cursor: pointer;
+    user-select: none;
+    display: inline-flex;
+    align-items: center;
+    gap: 4px;
+}
+
+.drawer-sublabel-toggleable::after {
+    content: '▾';
+    font-size: 9px;
+    opacity: 0.5;
+    transition: transform 0.15s;
+    display: inline-block;
+}
+
+.drawer-sublabel-toggleable.is-expanded::after {
+    transform: rotate(180deg);
+}
+
+.drawer-sublabel-toggleable:hover {
+    color: var(--color-text, #333);
+}
+
 /* Fields */
 .drawer-row {
     display: flex;

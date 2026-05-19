@@ -278,6 +278,33 @@ class BonDrawer {
     _bindEvents() {
         // Close
         this.el.querySelector('.drawer-close').addEventListener('click', () => this.hide());
+
+        // Note-sublabels: klik på label expander/kollapser textarea-størrelsen
+        this.el.querySelectorAll('.drawer-sublabel').forEach((label) => {
+            const ta = label.nextElementSibling;
+            if (!ta || !ta.classList.contains('drawer-textarea')) return;
+            label.classList.add('drawer-sublabel-toggleable');
+            label.addEventListener('click', () => {
+                const expanded = label.classList.toggle('is-expanded');
+                if (expanded) {
+                    ta.style.height = 'auto';
+                    ta.style.height = ta.scrollHeight + 'px';
+                    const onInput = () => {
+                        ta.style.height = 'auto';
+                        ta.style.height = ta.scrollHeight + 'px';
+                    };
+                    ta._autoGrowHandler = onInput;
+                    ta.addEventListener('input', onInput);
+                } else {
+                    ta.style.height = '';
+                    if (ta._autoGrowHandler) {
+                        ta.removeEventListener('input', ta._autoGrowHandler);
+                        ta._autoGrowHandler = null;
+                    }
+                }
+            });
+        });
+
         this.el.querySelector('.drawer-history').addEventListener('click', () => {
             if (!this.bonId) return;
             const bonNumber = this.el.querySelector('.drawer-title').textContent.replace(/^Bon #|\s*🔧$/g, '').trim();
