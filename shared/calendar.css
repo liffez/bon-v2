@@ -276,6 +276,13 @@
     padding: 2px 5px;
 }
 
+/* Leveret = hvid blok — diskret kant så den ikke forsvinder i den hvide
+   kalendercelle. Padding reduceres 1px så blokken beholder samme højde. */
+.cal-bon-entry[data-status="lev"]:not([data-production="true"]) {
+    border: 1px solid #c9c4bc;
+    padding: 2px 5px;
+}
+
 .cal-bon-time {
     font-weight: 700;
     color: inherit;
