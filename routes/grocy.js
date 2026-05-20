@@ -13,6 +13,7 @@ const express = require('express');
 const router  = express.Router();
 const { handle } = require('../db/helpers');
 const grocy    = require('../services/grocyAdapter');
+const packSizeGuard = require('../services/packSizeGuard');
 
 /* ── Opskrifter ───────────────────────────────────────────── */
 
@@ -181,7 +182,15 @@ router.post('/quantity-unit-conversions', handle(async (req, res) => {
         return res.status(400).json({ error: 'product_id, from_qu_id, to_qu_id og factor er påkrævet' });
     }
     const result = await grocy.createQuConversion(req.body);
-    res.json(result);
+    // F13-guard: advar hvis den nye konvertering divergerer fra
+    // pack_size_stock_unit på produktets barcodes (blokerer ikke writet).
+    let packSizeWarning = null;
+    try {
+        packSizeWarning = await packSizeGuard.checkConversionFactor(grocy, req.body);
+    } catch (err) {
+        console.warn('[packSizeGuard] konverterings-tjek fejlede:', err.message);
+    }
+    res.json(Object.assign({}, result, { pack_size_warning: packSizeWarning }));
 }));
 
 /* ── Stock inventory (sæt eksakt mængde) ─────────────────── */
@@ -304,8 +313,20 @@ router.delete('/product-barcodes/:id', handle(async (req, res) => {
 }));
 
 router.put('/userfields/product_barcodes/:id', handle(async (req, res) => {
-    await grocy.updateProductBarcodeUserfields(parseInt(req.params.id), req.body);
-    res.json({ ok: true });
+    const id = parseInt(req.params.id);
+    await grocy.updateProductBarcodeUserfields(id, req.body);
+    // F13-guard: advar hvis pack_size_stock_unit divergerer fra
+    // produktets enhedskonvertering (blokerer ikke writet).
+    let packSizeWarning = null;
+    const packSize = req.body && req.body.pack_size_stock_unit;
+    if (packSize != null && packSize !== '') {
+        try {
+            packSizeWarning = await packSizeGuard.checkBarcodePackSize(grocy, id, packSize);
+        } catch (err) {
+            console.warn('[packSizeGuard] barcode-tjek fejlede:', err.message);
+        }
+    }
+    res.json({ ok: true, pack_size_warning: packSizeWarning });
 }));
 
 router.put('/products/:id', handle(async (req, res) => {

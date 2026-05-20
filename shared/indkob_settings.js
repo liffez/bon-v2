@@ -995,6 +995,7 @@ async function _isHkDoLink(varenr, grocyProductId) {
         var bc = await createProductBarcode(bcData);
 
         // Set userfields if we have product data
+        var packSizeWarning = null;
         if (bc && bc.id && product) {
             var uf = {};
             if (product.isAgreementItem) uf.is_agreement_item = '1';
@@ -1005,13 +1006,21 @@ async function _isHkDoLink(varenr, grocyProductId) {
             }
             if (product.packSize) uf.pack_size_stock_unit = String(product.packSize);
             if (Object.keys(uf).length) {
-                await updateProductBarcodeUserfields(bc.id, uf);
+                var ufRes = await updateProductBarcodeUserfields(bc.id, uf);
+                if (ufRes && ufRes.pack_size_warning) packSizeWarning = ufRes.pack_size_warning;
             }
         }
 
-        _isToast('Barcode koblet!');
         // Refresh barcodes
         _isAllBarcodes = await fetchProductBarcodes();
+
+        // F13-guard: advar hvis pakkestørrelsen divergerer fra Grocy's
+        // enhedskonvertering — ellers bekræft koblingen som normalt.
+        if (packSizeWarning) {
+            _isToast('⚠ ' + packSizeWarning.message, true, 12000);
+        } else {
+            _isToast('Barcode koblet!');
+        }
     } catch (err) {
         _isToast('Fejl: ' + (err.message || ''), true);
     }
@@ -1690,7 +1699,7 @@ function _isIsHkBarcode(bc) {
     return bc.shopping_location_id && hkLocs.indexOf(bc.shopping_location_id) >= 0;
 }
 
-function _isToast(msg, isError) {
+function _isToast(msg, isError, durationMs) {
     // Remove existing
     var existing = document.querySelector('.is-toast');
     if (existing) existing.remove();
@@ -1700,7 +1709,7 @@ function _isToast(msg, isError) {
     el.className = 'is-toast' + (isError ? ' error' : '');
     el.textContent = msg;
     document.body.appendChild(el);
-    _isToastTimer = setTimeout(function() { el.remove(); }, 3000);
+    _isToastTimer = setTimeout(function() { el.remove(); }, durationMs || 3000);
 }
 
 function _isEsc(str) {

@@ -21,7 +21,7 @@ af `scripts/sync-v1.js` (#001) sker i separat opgave bagefter.
 
 | Tid | Handling |
 |-----|----------|
-| Fredag aften | Scp prod-fil ned: `/var/www/grocycafe/data/grocy.db` → lokal arbejdsmappe |
+| Fredag aften | Scp prod-fil ned: `/home/bon/grocy/hq/data/grocy.db` → lokal arbejdsmappe |
 | Fredag aften | Tag frossen backup: `cp grocy.db grocy-prod-frozen-YYYYMMDD.db` (rør IKKE) |
 | Lørdag | Kør Fase 1–5 (read-only audit) — én ad gangen, stikprøve-verificér efter hver |
 | Søndag formiddag | Beslut: hvilke fund cleanup'es, hvilke står over |
@@ -38,7 +38,7 @@ af `scripts/sync-v1.js` (#001) sker i separat opgave bagefter.
 
 ### Filer
 
-- Prod-fil: `/var/www/grocycafe/data/grocy.db` (på server)
+- Prod-fil: `/home/bon/grocy/hq/data/grocy.db` (på server)
 - Lokal arbejdsmappe: `~/grocy-audit-YYYYMMDD/`
 - Backup: `~/grocy-audit-YYYYMMDD/grocy-prod-frozen-YYYYMMDD.db` (read-only)
 - Arbejdskopi: `~/grocy-audit-YYYYMMDD/grocy.db` (her køres cleanup mod)
@@ -571,7 +571,7 @@ scripts/grocy-audit/cleanup/
 
 ```bash
 # Backup-filen er sandheden — den må ikke være rørt
-cp ~/grocy-audit-YYYYMMDD/grocy-prod-frozen-YYYYMMDD.db /var/www/grocycafe/data/grocy.db
+cp ~/grocy-audit-YYYYMMDD/grocy-prod-frozen-YYYYMMDD.db /home/bon/grocy/hq/data/grocy.db
 sudo systemctl restart grocy   # eller hvad der nu starter Grocy
 ```
 
