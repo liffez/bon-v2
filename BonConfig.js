@@ -22,7 +22,7 @@ const BON_CONFIG = {
         'godkendt':   { label: 'GODKENDT',    color: '#5aa05a', text: '#ffffff' },
         'igang':      { label: 'IGANG',       color: '#d4781a', text: '#ffffff' },
         'klar':       { label: 'KLAR',        color: '#2e8b2e', text: '#ffffff' },
-        'lev':        { label: 'LEV',         color: '#a0a0b0', text: '#333333' },
+        'lev':        { label: 'LEV',         color: '#ffffff', text: '#333333' },
         'faktureret': { label: 'FAKTURERET',  color: '#9040b0', text: '#ffffff' },
         'betalt':     { label: 'BETALT',      color: '#e020a0', text: '#ffffff' },
         'afsluttet':  { label: 'AFSLUTTET',   color: '#cc2020', text: '#ffffff' },
