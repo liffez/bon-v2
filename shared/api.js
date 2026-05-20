@@ -771,6 +771,13 @@ function patchUnmatchedMail(id, data) {
     });
 }
 
+function bulkIgnoreUnmatchedMails(ids) {
+    return apiFetch('/mail/unmatched/bulk', {
+        method: 'POST',
+        body: JSON.stringify({ ids: ids, action: 'ignored' }),
+    });
+}
+
 /* ── TILBUD ─────────────────────────────────────────────── */
 
 function fetchQuotes(params) {

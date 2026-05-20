@@ -11,7 +11,9 @@ let _inbActive = false;
 let _inbMails = [];
 let _inbSelected = null;
 let _inbMailbox = '';        // '' = alle, 'bon' = bon@, 'kontakt' = kontakt@
-let _inbFromDate = '2026-01-01';
+let _inbFromDate = '';
+let _inbBulkMode = false;
+let _inbBulkSelected = new Set();
 
 function initCrmInbox(containerEl, opts) {
     _inbContainer = containerEl;
@@ -27,7 +29,9 @@ function cleanupCrmInbox() {
     _inbMails = [];
     _inbSelected = null;
     _inbMailbox = '';
-    _inbFromDate = '2026-01-01';
+    _inbFromDate = '';
+    _inbBulkMode = false;
+    _inbBulkSelected = new Set();
 }
 
 function _inbRenderShell() {
@@ -109,6 +113,14 @@ function _inbRenderShell() {
             .inb-filter-btn { font-size: 12px; padding: 4px 12px; border: 1.5px solid var(--color-border, #d7d1ca); border-radius: 14px; background: var(--color-surface, #fff); cursor: pointer; color: var(--color-text-dim); font-family: inherit; }
             .inb-filter-btn:hover { border-color: var(--brand-primary); }
             .inb-filter-btn.active { background: var(--brand-primary, #8e631f); color: #fff; border-color: var(--brand-primary); }
+
+            /* ── Bulk-mode ──────────────────────────────────────── */
+            .inb-mail-row.bulk-mode { display: flex; align-items: flex-start; gap: 10px; }
+            .inb-mail-row.bulk-mode .inb-mail-check { padding-top: 2px; flex-shrink: 0; }
+            .inb-mail-row.bulk-mode .inb-mail-check input { width: 18px; height: 18px; cursor: pointer; }
+            .inb-mail-row.bulk-mode .inb-mail-body { flex: 1; min-width: 0; }
+            .inb-mail-row.bulk-checked { background: #fff4d4; }
+            .inb-mail-row.bulk-checked:hover { background: #ffeebb; }
 
             /* ── Bounce-styling ───────────────────────────────────── */
             .inb-mail-row.is-bounce {
@@ -197,10 +209,18 @@ function _inbRenderShell() {
                 <button class="inb-filter-btn ${_inbMailbox === 'bon' ? 'active' : ''}" onclick="_inbSetMailbox('bon')">bon@</button>
                 <button class="inb-filter-btn ${_inbMailbox === 'kontakt' ? 'active' : ''}" onclick="_inbSetMailbox('kontakt')">kontakt@</button>
             </div>
+            <button class="inb-filter-btn ${_inbBulkMode ? 'active' : ''}" onclick="_inbToggleBulk()" style="margin-left:8px">${_inbBulkMode ? '✕ Afslut markering' : '✓ Vælg flere'}</button>
             <div style="display:flex;gap:6px;align-items:center;margin-left:auto">
                 <label style="font-size:12px;color:var(--color-text-dim)">Fra:</label>
                 <input type="date" id="inbFromDate" value="${_inbFromDate}" onchange="_inbSetFromDate(this.value)" oninput="_inbSetFromDate(this.value)" style="font-size:12px;padding:4px 8px;border:1px solid var(--color-border);border-radius:6px">
+                ${_inbFromDate ? '<button class="inb-filter-btn" onclick="_inbSetFromDate(\'\')" title="Ryd dato-filter">✕</button>' : ''}
             </div>
+        </div>
+        <div id="inbBulkBar" style="display:${_inbBulkMode ? 'flex' : 'none'};gap:8px;align-items:center;margin-bottom:10px;padding:8px 12px;background:#fff8e6;border:1px solid #e8d68a;border-radius:8px;flex-wrap:wrap">
+            <span style="font-size:13px;font-weight:600" id="inbBulkCount">0 valgt</span>
+            <button class="inb-filter-btn" onclick="_inbBulkSelectAll()">Vælg alle synlige</button>
+            <button class="inb-filter-btn" onclick="_inbBulkClear()">Fravælg alle</button>
+            <button class="inb-action-btn danger" onclick="_inbBulkIgnore()" id="inbBulkIgnoreBtn" style="margin-left:auto" disabled>Ignorer valgte</button>
         </div>
         <div class="inb-layout">
             <div class="inb-list-panel">
@@ -255,20 +275,46 @@ function _inbRenderList() {
               (m.bounce_customer_name ? ' · <strong>' + _inbEscape(m.bounce_customer_name) + '</strong>' : ' · <em>ukendt kunde</em>') +
               '</div>'
             : '';
-        return '<div class="inb-mail-row' + (_inbSelected && _inbSelected.id === m.id ? ' selected' : '') + (m.is_bounce ? ' is-bounce' : '') + '" data-id="' + m.id + '" tabindex="0">' +
-            '<div class="inb-mail-from">' + bounceBadge + (m.from_name || m.from_email || 'Ukendt') + '</div>' +
-            '<div class="inb-mail-subject">' + (m.subject || '(intet emne)') + '</div>' +
-            '<div class="inb-mail-meta">' +
-                '<span>' + (m.from_email || '') + '</span>' +
-                '<span>' + _inbFmtReceivedAt(m.received_at) + '</span>' +
+        const isChecked = _inbBulkSelected.has(m.id);
+        const checkboxHtml = _inbBulkMode
+            ? '<div class="inb-mail-check"><input type="checkbox" data-id="' + m.id + '"' + (isChecked ? ' checked' : '') + '></div>'
+            : '';
+        const rowClasses = 'inb-mail-row'
+            + (_inbSelected && _inbSelected.id === m.id ? ' selected' : '')
+            + (m.is_bounce ? ' is-bounce' : '')
+            + (_inbBulkMode ? ' bulk-mode' : '')
+            + (isChecked ? ' bulk-checked' : '');
+        return '<div class="' + rowClasses + '" data-id="' + m.id + '" tabindex="0">' +
+            checkboxHtml +
+            '<div class="inb-mail-body">' +
+                '<div class="inb-mail-from">' + bounceBadge + (m.from_name || m.from_email || 'Ukendt') + '</div>' +
+                '<div class="inb-mail-subject">' + (m.subject || '(intet emne)') + '</div>' +
+                '<div class="inb-mail-meta">' +
+                    '<span>' + (m.from_email || '') + '</span>' +
+                    '<span>' + _inbFmtReceivedAt(m.received_at) + '</span>' +
+                '</div>' +
+                bounceSubtitle +
+                (m.parsed_company ? '<div class="inb-mail-parsed">→ ' + _inbEscape(m.parsed_company) + '</div>' : '') +
             '</div>' +
-            bounceSubtitle +
-            (m.parsed_company ? '<div class="inb-mail-parsed">→ ' + _inbEscape(m.parsed_company) + '</div>' : '') +
         '</div>';
     }).join('');
 
     el.querySelectorAll('.inb-mail-row').forEach(row => {
-        row.addEventListener('click', () => _inbSelectRow(row));
+        row.addEventListener('click', (e) => {
+            if (_inbBulkMode) {
+                if (e.target.tagName === 'INPUT') return; // checkbox håndteres separat
+                _inbBulkToggle(parseInt(row.dataset.id));
+            } else {
+                _inbSelectRow(row);
+            }
+        });
+        const cb = row.querySelector('input[type="checkbox"]');
+        if (cb) {
+            cb.addEventListener('click', (e) => {
+                e.stopPropagation();
+                _inbBulkToggle(parseInt(row.dataset.id));
+            });
+        }
         row.addEventListener('keydown', (e) => {
             if (e.key === 'ArrowDown') {
                 e.preventDefault();
@@ -503,10 +549,74 @@ function _inbSetMailbox(mb) {
 function _inbSetFromDate(d) {
     _inbFromDate = d || '';
     _inbSelected = null;
-    const el = document.getElementById('inbFromDate');
-    if (el) el.value = _inbFromDate;
+    _inbRenderShell();
+    _inbRenderList();
     _inbLoadData();
 }
+window._inbSetFromDate = _inbSetFromDate;
+
+// ─── Bulk-mode handlers ─────────────────────────────────────
+
+function _inbToggleBulk() {
+    _inbBulkMode = !_inbBulkMode;
+    _inbBulkSelected = new Set();
+    _inbSelected = null;
+    _inbRenderShell();
+    _inbRenderList();
+    document.getElementById('inbCount').textContent = _inbMails.length;
+    _inbUpdateBulkBar();
+}
+window._inbToggleBulk = _inbToggleBulk;
+
+function _inbBulkToggle(id) {
+    if (_inbBulkSelected.has(id)) _inbBulkSelected.delete(id);
+    else _inbBulkSelected.add(id);
+    _inbRenderList();
+    _inbUpdateBulkBar();
+}
+window._inbBulkToggle = _inbBulkToggle;
+
+function _inbBulkSelectAll() {
+    _inbMails.forEach(m => _inbBulkSelected.add(m.id));
+    _inbRenderList();
+    _inbUpdateBulkBar();
+}
+window._inbBulkSelectAll = _inbBulkSelectAll;
+
+function _inbBulkClear() {
+    _inbBulkSelected = new Set();
+    _inbRenderList();
+    _inbUpdateBulkBar();
+}
+window._inbBulkClear = _inbBulkClear;
+
+function _inbUpdateBulkBar() {
+    const countEl = document.getElementById('inbBulkCount');
+    const btnEl = document.getElementById('inbBulkIgnoreBtn');
+    const n = _inbBulkSelected.size;
+    if (countEl) countEl.textContent = n + ' valgt';
+    if (btnEl) {
+        btnEl.disabled = n === 0;
+        btnEl.textContent = n > 0 ? 'Ignorer ' + n + ' valgte' : 'Ignorer valgte';
+    }
+}
+
+async function _inbBulkIgnore() {
+    const ids = Array.from(_inbBulkSelected);
+    if (!ids.length) return;
+    if (!confirm('Ignorer ' + ids.length + ' mails?\n\nDe forsvinder fra ufordelt-listen og kan ikke nemt hentes tilbage.')) return;
+    try {
+        const res = await bulkIgnoreUnmatchedMails(ids);
+        _inbBulkSelected = new Set();
+        _inbBulkMode = false;
+        _inbRenderShell();
+        await _inbLoadData();
+        console.log('[inbox] bulk-ignored:', res.updated);
+    } catch (err) {
+        alert('Fejl: ' + err.message);
+    }
+}
+window._inbBulkIgnore = _inbBulkIgnore;
 
 // ─── SSE handler ────────────────────────────────────────────
 

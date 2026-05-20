@@ -4,6 +4,12 @@ const { getDb } = require('../db/database');
 const { handle } = require('../db/helpers');
 const { requireAuth } = require('../shared/auth');
 const { sendFromTemplate } = require('../services/mailService');
+const { broadcast } = require('../shared/sse');
+
+function broadcastUnmatchedCount(db) {
+    const row = db.prepare(`SELECT COUNT(*) AS c FROM mail_unmatched WHERE status = 'open'`).get();
+    broadcast('mail_unmatched', { count: row?.c || 0 });
+}
 
 // GET /api/mail/templates — tilgængelig for alle auth'd brugere
 router.get('/templates', requireAuth(), handle((req, res) => {
@@ -253,15 +259,43 @@ router.patch('/unmatched/:id', requireAuth('admin'), handle(async (req, res) => 
             WHERE id = ?
         `).run(linked_customer_id || null, linked_bon_id || null, userId, id);
 
+        broadcastUnmatchedCount(db);
         res.json({ ok: true, thread_id: Number(threadId) });
     } else if (status === 'ignored') {
         db.prepare(`
             UPDATE mail_unmatched SET status = 'ignored', handled_by_user_id = ?, handled_at = CURRENT_TIMESTAMP WHERE id = ?
         `).run(userId, id);
+        broadcastUnmatchedCount(db);
         res.json({ ok: true });
     } else {
         res.status(400).json({ error: 'status skal være linked eller ignored' });
     }
+}));
+
+// POST /api/mail/unmatched/bulk — bulk-ignorering af flere mails ad gangen
+router.post('/unmatched/bulk', requireAuth('admin'), handle(async (req, res) => {
+    const { ids, action } = req.body || {};
+    if (!Array.isArray(ids) || !ids.length) {
+        return res.status(400).json({ error: 'ids skal være et ikke-tomt array' });
+    }
+    if (action !== 'ignored') {
+        return res.status(400).json({ error: 'action skal være "ignored" (kun bulk-ignore understøttes)' });
+    }
+
+    const cleanIds = ids.map(n => parseInt(n)).filter(n => Number.isInteger(n) && n > 0);
+    if (!cleanIds.length) return res.status(400).json({ error: 'ingen gyldige ids' });
+
+    const db = getDb();
+    const userId = req.session?.user?.id || null;
+    const placeholders = cleanIds.map(() => '?').join(',');
+    const result = db.prepare(`
+        UPDATE mail_unmatched
+        SET status = 'ignored', handled_by_user_id = ?, handled_at = CURRENT_TIMESTAMP
+        WHERE id IN (${placeholders}) AND status = 'open'
+    `).run(userId, ...cleanIds);
+
+    broadcastUnmatchedCount(db);
+    res.json({ ok: true, updated: result.changes });
 }));
 
 /* ── POLL KONTROL ─────────────────────────────────────────── */
