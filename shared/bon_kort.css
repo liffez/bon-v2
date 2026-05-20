@@ -89,7 +89,7 @@
 }
 .bon-header-row1 {
     display: flex; align-items: baseline; justify-content: space-between;
-    margin-bottom: 4px;
+    margin-bottom: 7px;
 }
 .bon-id {
     font-size: 20px; font-weight: 700; color: var(--brown);
@@ -100,7 +100,14 @@
 .bon-units {
     font-size: 26px; font-weight: 700; color: var(--black);
     font-variant-numeric: tabular-nums; line-height: 1;
+    display: flex; flex-direction: column; align-items: flex-end; gap: 3px;
+}
+.bon-units-main {
     display: inline-flex; align-items: baseline; gap: 4px;
+}
+.bon-units-pax {
+    font-size: 11px; font-weight: 600; color: var(--gray-dark);
+    letter-spacing: 0;
 }
 .bon-units-label {
     font-size: 10px; font-weight: 700; color: var(--gray-dark);
@@ -121,6 +128,12 @@
     font-variant-numeric: tabular-nums;
 }
 .bon-sep { opacity: 0.4; }
+/* Levering + leveringsflag wrapper som én enhed, så "Ikke planlagt"
+   aldrig rives væk fra mode-badgen uanset datostrengens længde. */
+.bon-mode-group {
+    display: inline-flex; align-items: baseline; gap: 6px;
+    white-space: nowrap;
+}
 .bon-mode {
     background: var(--gray-light);
     padding: 1px 6px; border-radius: 3px;

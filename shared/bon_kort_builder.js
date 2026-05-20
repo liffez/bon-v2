@@ -182,7 +182,7 @@ function createCard(bonData, viewName) {
     const prodBadge  = bonData.price_category === 'produktion' ? ' <span class="bon-prod-badge" title="Produktionsbon">🔧</span>' : '';
     const mailBadge  = bonData.unread_mail_count ? ' <span class="bon-mail-badge" title="' + bonData.unread_mail_count + ' ulæst mail">' + mailIcon(14) + '</span>' : '';
     const levTimeHtml = bonData.delivery_time ? `<span class="bon-lev-time">→ ${bonData.delivery_time}</span>` : '';
-    const paxBadge = paxStr ? `<span class="bon-sep">·</span><span class="bon-pax">${paxStr}</span>` : '';
+    const paxHtml = paxStr ? `<span class="bon-units-pax">${paxStr}</span>` : '';
 
     el.innerHTML = `
         ${fortrydHtml}
@@ -190,17 +190,21 @@ function createCard(bonData, viewName) {
         <div class="bon-header">
             <div class="bon-header-row1">
                 <div class="bon-id">#${bonData.bon_number || id}${prodBadge}${mailBadge}</div>
-                <div class="bon-units">${bonData.units}<span class="bon-units-label">${bonData.unit_label || 'ENH'}</span></div>
+                <div class="bon-units">
+                    <span class="bon-units-main">${bonData.units}<span class="bon-units-label">${bonData.unit_label || 'ENH'}</span></span>
+                    ${paxHtml}
+                </div>
             </div>
             <div class="bon-header-row2">
                 <span class="bon-pickup">${bonData.pickup_time || ''}</span>
                 ${levTimeHtml}
                 <span class="bon-sep">·</span>
                 <span class="bon-date-short">${dateLabel}</span>
-                <span class="bon-sep">·</span>
-                <span class="bon-mode">${orderTypeLabel}</span>
-                ${deliveryFlagHtml}
-                ${paxBadge}
+                <span class="bon-mode-group">
+                    <span class="bon-sep">·</span>
+                    <span class="bon-mode">${orderTypeLabel}</span>
+                    ${deliveryFlagHtml}
+                </span>
             </div>
         </div>
 
