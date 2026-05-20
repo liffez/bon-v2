@@ -158,6 +158,14 @@ function putBonLine(bonId, lineId, fields) {
     });
 }
 
+// Persistér menu-gruppering. groups = [{ title, note, line_ids: [] }, ...]
+function saveMenuGroups(bonId, groups) {
+    return apiFetch('/bons/' + bonId + '/menu-groups', {
+        method: 'PUT',
+        body: JSON.stringify({ groups }),
+    });
+}
+
 /* ── FLYVERE / NOTIFIKATIONER ────────────────────────────── */
 
 function postFlyver(bonId, message, clientId) {

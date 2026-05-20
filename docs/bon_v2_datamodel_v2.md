@@ -709,10 +709,28 @@ CREATE TABLE bon_lines (
     co2e REAL,
     pos_product_id INTEGER,
     notes TEXT,
+    block_type TEXT,                                 -- migration 022 (tilbuds-event-blokke)
+    menu_group_id INTEGER REFERENCES bon_menu_groups(id) ON DELETE SET NULL,  -- migration 072
     created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP
 );
 
 CREATE INDEX idx_bon_lines_bon ON bon_lines(bon_id);
+
+-- ==========================================
+-- BON_MENU_GROUPS — visuelle grupper på køkken-bonens menu-liste
+-- (migration 072). Titel + note + rækkefølge pr. bon; bon_lines.menu_group_id
+-- peger ind. PUT /api/bons/:id/menu-groups reconciler hele strukturen.
+-- ==========================================
+CREATE TABLE bon_menu_groups (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    bon_id INTEGER NOT NULL REFERENCES bons(id) ON DELETE CASCADE,
+    title TEXT NOT NULL DEFAULT 'Gruppe',
+    note TEXT,
+    sort_order INTEGER NOT NULL DEFAULT 0,
+    created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP
+);
+
+CREATE INDEX idx_bon_menu_groups_bon ON bon_menu_groups(bon_id);
 
 -- ==========================================
 -- TILBUD

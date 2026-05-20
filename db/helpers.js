@@ -98,8 +98,19 @@ function getBonLines(bonId) {
     return getDb().prepare(`
         SELECT id, bon_id, grocy_recipe_id, product_name, category, quantity, unit,
                cost_price, unit_price, line_total, sort_order,
-               is_accessory, special_request, co2e, pos_product_id, notes
+               is_accessory, special_request, co2e, pos_product_id, notes,
+               menu_group_id
         FROM bon_lines
+        WHERE bon_id = ?
+        ORDER BY sort_order, id
+    `).all(bonId);
+}
+
+// Visuelle grupper på køkken-bonens menu-liste (titel + note + rækkefølge).
+function getBonMenuGroups(bonId) {
+    return getDb().prepare(`
+        SELECT id, bon_id, title, note, sort_order
+        FROM bon_menu_groups
         WHERE bon_id = ?
         ORDER BY sort_order, id
     `).all(bonId);
@@ -140,6 +151,7 @@ function getBon(id) {
     }
 
     bon.lines = getBonLines(id);
+    bon.menu_groups = getBonMenuGroups(id);
     return bon;
 }
 
@@ -220,7 +232,7 @@ function getUserById(id) {
 
 module.exports = {
     nextBonNumber, nextQuoteNumber, logChange, handle,
-    getBon, getBonLines, getStatusId, getDefaultLocationId,
+    getBon, getBonLines, getBonMenuGroups, getStatusId, getDefaultLocationId,
     getUnitCountCategories, invalidateUnitCountCache, recalcBonTotalUnits,
     hashPassword, verifyPassword, getUserByEmail, getUserById,
     transaction,

@@ -1,7 +1,7 @@
 const express       = require('express');
 const router        = express.Router();
 const { getDb }     = require('../db/database');
-const { handle, getBonLines } = require('../db/helpers');
+const { handle, getBonLines, getBonMenuGroups } = require('../db/helpers');
 // grocyAdapter bruges nu via services/ingredientResolver.js
 // quConvert bruges nu via services/ingredientResolver.js
 
@@ -42,6 +42,7 @@ router.get('/today', handle((req, res) => {
 
     for (const bon of bons) {
         bon.lines = getBonLines(bon.id);
+        bon.menu_groups = getBonMenuGroups(bon.id);
         bon.notifications = db.prepare(`
             SELECT id, type, message, priority, created_at
             FROM notifications WHERE bon_id = ? ORDER BY created_at DESC LIMIT 5
@@ -95,6 +96,7 @@ router.get('/later', handle((req, res) => {
 
     for (const bon of bons) {
         bon.lines = getBonLines(bon.id);
+        bon.menu_groups = getBonMenuGroups(bon.id);
         bon.notifications = db.prepare(`
             SELECT id, type, message, priority, created_at
             FROM notifications WHERE bon_id = ? ORDER BY created_at DESC LIMIT 5

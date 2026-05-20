@@ -1811,6 +1811,49 @@ Indtil nu tæller alle bon_lines med i `bons.total_units` så længe `is_accesso
 3. Kør med `--apply` (tager auto-backup)
 4. Justér listen i Settings → System → Enheds-kategorier hvis Grocy bruger andre kategorinavne i produktion
 
+### Menu-grupper persisteres (20. maj 2026)
+
+Gruppering af menu-linjer på køkken-bon-kortet (select-mode → vælg → Gruppér → titel + note)
+var indtil nu ren DOM-manipulation uden persistering — grupper forsvandt ved næste
+SSE-re-render eller sidereload, og der var ingen "Gem"-knap. Funktionen var halvbygget:
+`_buildMenu` kunne rendre `type:'group'`, men `mapApiBonToCardData` producerede aldrig det,
+og `groupSelected` lavede kun et DOM-element.
+
+- Migration 072: `bon_menu_groups` (titel + note + sort_order pr. bon) + `bon_lines.menu_group_id`
+  (FK, `ON DELETE SET NULL` — en slettet gruppe opløser sine linjer)
+- `PUT /api/bons/:id/menu-groups` — reconcile-endpoint: frontenden sender den fulde struktur
+  (`{ groups: [{ title, note, line_ids }] }`), serveren sletter alle grupper for bonen og
+  genskaber dem fra payloadet i én transaction. Idempotent; tomme grupper droppes.
+  Gruppe-id'er er interne — frontenden refererer dem aldrig. Broadcaster `bon_updated`.
+- `db/helpers.js` — `getBonLines` returnerer `menu_group_id`; ny `getBonMenuGroups(bonId)`;
+  `getBon` tilknytter `bon.menu_groups`
+- `routes/kitchen.js` — `/today` + `/later` tilknytter `bon.menu_groups`
+- `shared/utils.js` — `mapApiBonToCardData` bygger menuen gruppe-bevidst: grupper rendres
+  øverst i sort_order (titel + note + sammenlagte items), løse linjer kategori-sorteret nedenunder
+- `shared/bon_kort.js` — gruppering **auto-gemmer** (debounced 450ms) ved: opret gruppe,
+  rediger titel (`finishTitle`), rediger note (`noteChanged`), drag-and-drop, opløs gruppe.
+  Ny `dissolveGroup()` + opløs-knap (×) i gruppe-header. `scheduleSaveMenuGroups` →
+  serialiserer DOM (fjerner tomme grupper) → `saveMenuGroups()`. Kort "✓ Gemt"-kvittering
+  i select-toolbaren
+- `shared/bon_kort_builder.js` — "Annuller"-knappen omdøbt til **"Færdig"** (auto-gem betyder
+  intet at annullere; "Annuller" antydede fejlagtigt at gruppen blev kasseret). Gruppe-titel
+  og -note **escapes** ved rendering (`_buildMenu`) — vedvarende fri-tekst vist på alle
+  køkkenskærme
+- **SSE-vagt-fix (pre-eksisterende bug):** `kitchen/today.js` + `later.js` tjekkede
+  `oldCard.classList.contains('select-mode')`, men `select-mode`-klassen sidder på
+  `.select-mode-container` (efterkommer), ikke kortet — vagten var død. Rettet til
+  `.querySelector('.select-mode-container.select-mode')` + ny fokus-vagt (afbryd ikke et
+  INPUT/TEXTAREA i fokus). Uden dette ville auto-gem → SSE-broadcast → re-render afbryde
+  brugeren midt i gruppering
+- Browser-verificeret end-to-end: opret gruppe → DB → reload bevarer gruppen (titel escaped),
+  opløs rydder DB, select-mode overlever egen SSE-broadcast, re-render efter "Færdig" viser
+  persisteret gruppe
+
+**Bevidst udeladt:** Løse linjers drag-drop-rækkefølge persisteres ikke (kun gruppe-medlemskab
++ gruppe-rækkefølge). Grupper rendres altid øverst i deres sort_order — en gruppe trukket
+ned blandt løse linjer hopper tilbage til toppen ved reload. Pre-eksisterende begrænsning
+(løs-linje-orden var aldrig persisteret); kan tilføjes senere uden skemaændring.
+
 ## Næste opgave
 
 > ✏️ Opdateret 19. maj 2026.
@@ -2181,6 +2224,7 @@ PATCH  /api/bons/:id/kitchen-info { text }
 POST   /api/bons/:id/lines                               routes/bons.js
 PUT    /api/bons/:id/lines/:lid                          routes/bons.js
 DELETE /api/bons/:id/lines/:lid                          routes/bons.js
+PUT    /api/bons/:id/menu-groups { groups: [...] }       routes/bons.js (reconcile menu-gruppering)
 GET    /api/bons/:id/changelog                           routes/bons.js
 POST   /api/bons/:id/notifications                       routes/bons.js
 GET    /api/bons/:id/notifications                       routes/bons.js
