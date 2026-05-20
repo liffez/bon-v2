@@ -842,8 +842,36 @@
     z-index: 100;
     box-shadow: 0 -2px 8px rgba(0,0,0,.06);
 }
-.ib-bb-stat { font-size: 12px; color: var(--color-text-dim, #777); flex: 1; }
+.ib-bb-stat { font-size: 12px; color: var(--color-text-dim, #777); flex: 1; text-align: right; }
 .ib-bb-stat strong { color: var(--color-text, #333); }
+.ib-bb-warn { color: #7a5200; font-weight: 700; }
+.ib-bb-staged { display: flex; gap: 8px; flex-wrap: wrap; align-items: center; }
+.ib-bb-sup {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    border: 1.5px solid var(--ib-green, #6a8f3a);
+    border-radius: 9px;
+    padding: 4px 6px 4px 10px;
+    background: var(--ib-green-light, #e8f2dc);
+}
+.ib-bb-sup.ib-bb-manual { border-color: var(--ib-blue, #3a6a9a); background: var(--ib-blue-light, #e8f0f6); }
+.ib-bb-sup.ib-bb-blocked { border-color: var(--ib-orange, #e8a832); background: var(--ib-orange-light, #fef3d6); }
+.ib-bb-blocked .ib-bb-act { background: var(--ib-orange, #e8a832); color: #5a4520; }
+.ib-bb-sup-nm { font-size: 12px; font-weight: 700; color: var(--color-text, #333); }
+.ib-bb-sup-cnt { font-size: 11px; color: var(--color-text-dim, #777); }
+.ib-bb-act {
+    border: 0;
+    border-radius: 7px;
+    padding: 5px 10px;
+    font-size: 12px;
+    font-weight: 700;
+    font-family: inherit;
+    cursor: pointer;
+    background: var(--ib-green, #6a8f3a);
+    color: #fff;
+}
+.ib-bb-manual .ib-bb-act { background: var(--ib-blue, #3a6a9a); }
 
 /* ── TOAST ── */
 .ib-toast {
@@ -1121,58 +1149,29 @@ body.ib-focus-mode .ib-group.ib-focused { display: block; }
     margin: 16px 2px 6px;
 }
 .ib-cmb-cat:first-child { margin-top: 4px; }
-.ib-cmb-row {
-    display: flex;
-    align-items: center;
-    gap: 10px;
-    background: #fff;
-    border: 1px solid var(--color-border, #d7d1ca);
+.ib-cmb-cat-n {
+    background: var(--color-border-light, #e8e4e0);
+    color: var(--color-text-dim, #777);
     border-radius: 9px;
-    padding: 9px 12px;
-    margin-bottom: 5px;
+    padding: 0 7px;
+    font-size: 10px;
 }
-.ib-cmb-row.warn { border-color: var(--ib-orange, #e8a832); }
-.ib-cmb-nm { font-weight: 700; font-size: 13px; }
-.ib-cmb-need { font-size: 11px; color: var(--color-text-dim, #777); }
-.ib-cmb-right {
-    margin-left: auto;
-    display: flex;
-    align-items: center;
-    gap: 10px;
+.ib-cmb-cat-items {
+    border: 1px solid var(--color-border, #d7d1ca);
+    border-radius: 10px;
+    overflow: hidden;
 }
-.ib-cmb-dest {
+.ib-cmb-cat-items .ib-item:last-child { border-bottom: none; }
+.ib-item-sup {
     font-size: 11px;
     font-weight: 700;
     color: var(--ib-green-dark, #3d5a1f);
     background: var(--ib-green-light, #e8f2dc);
-    padding: 3px 9px;
-    border-radius: 12px;
+    padding: 2px 8px;
+    border-radius: 11px;
     white-space: nowrap;
 }
-.ib-cmb-dest.warn {
-    color: #7a5200;
-    background: var(--ib-orange-light, #fef3d6);
-}
-.ib-cmb-qty { display: flex; align-items: center; gap: 5px; }
-.ib-cmb-couple {
-    border: 1.5px solid var(--ib-orange, #e8a832);
-    background: #fff;
-    color: #7a5200;
-    border-radius: 8px;
-    padding: 5px 11px;
-    font-size: 12px;
-    font-weight: 700;
-    cursor: pointer;
-    font-family: inherit;
-}
-.ib-cmb-couple:hover { background: var(--ib-orange-light, #fef3d6); }
-.ib-cmb-foot {
-    padding: 12px 22px 0;
-    font-size: 12px;
-    font-weight: 700;
-    color: var(--color-text-dim, #777);
-}
-.ib-cmb-foot-warn { color: #7a5200; }
+.ib-item-sup.warn { color: #7a5200; background: var(--ib-orange-light, #fef3d6); }
 
 /* ── OPRET / KOBL DRAWER ── */
 .ib-dr-scrim {

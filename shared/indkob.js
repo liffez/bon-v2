@@ -53,8 +53,7 @@ var _ibFocusMode       = false;
 var _ibSearchTerm      = '';
 var _ibToastTimer      = null;
 var _ibSSE             = null;
-var _ibViewMode        = 'combined';  // 'combined' (Samlet liste) | 'order' (Klar til bestilling)
-var _ibQtyTimers       = {};          // product_id → debounce-timer for combined qty-PUT
+var _ibViewMode        = 'combined';  // 'combined' (efter kategori) | 'order' (efter leverandør)
 
 /* ── Init ──────────────────────────────────────────────────── */
 async function initIndkob(el) {
@@ -554,15 +553,36 @@ function _ibRender() {
         }
 
         html += '</div>'; // .ib-content
-
-        // Bottom bar
-        html += _ibRenderBottomBar();
     }
 
-    // Preserve scroll position during re-render
+    // Sticky bund-bar — vises i begge grupperinger
+    html += _ibRenderBottomBar();
+
+    // Preserve scroll position + input-fokus under re-render
     var scrollY = window.scrollY;
+    var fa = document.activeElement;
+    var focusSel = null, selStart = 0, selEnd = 0;
+    if (fa && _ibContainer.contains(fa) && (fa.tagName === 'INPUT' || fa.tagName === 'TEXTAREA')) {
+        var dib = fa.getAttribute('data-ib');
+        var dpid = fa.getAttribute('data-product-id');
+        if (dib) {
+            focusSel = '[data-ib="' + dib + '"]' + (dpid ? '[data-product-id="' + dpid + '"]' : '');
+        } else if (fa.id) {
+            focusSel = '#' + fa.id;
+        }
+        try { selStart = fa.selectionStart; selEnd = fa.selectionEnd; } catch (e) { /* number input */ }
+    }
+
     _ibContainer.innerHTML = html;
     window.scrollTo(0, scrollY);
+
+    if (focusSel) {
+        var fel = _ibContainer.querySelector(focusSel);
+        if (fel) {
+            fel.focus();
+            try { fel.setSelectionRange(selStart, selEnd); } catch (e) { /* number input */ }
+        }
+    }
 
     // Bind link result buttons (dynamic, can't use delegation)
     _ibContainer.querySelectorAll('[data-ib="lp-results"] [data-ib="lp-link"]').forEach(function(btn) {
@@ -575,10 +595,10 @@ function _ibRender() {
     });
 }
 
-/* ── Samlet liste (combined view) ──────────────────────────────
-   Grupperet efter produktkategori (Grocy product_group).
-   Arbejds-/tjek-view: "har jeg det hele med?" — ingen leverandørblokke,
-   ingen kurv. Eneste completeness-blocker er "mangler leverandør". */
+/* ── Efter kategori (combined view) ────────────────────────────
+   Samme handlingsbare rækker som leverandør-grupperingen, men grupperet
+   efter produktkategori (Grocy product_group). Brugeren kan lægge i kurv,
+   markere og koble herfra — det er ikke et separat tjek-view. */
 function _ibRenderCombined() {
     // Flad liste af ikke-bestilte varer på tværs af alle grupper
     var entries = [];
@@ -611,12 +631,10 @@ function _ibRenderCombined() {
 
     // Grupper efter produktkategori
     var cats = {};
-    var missingCount = 0;
     for (var j = 0; j < entries.length; j++) {
         var cat = _ibProductGroups[entries[j].product.product_group_id] || 'Uden kategori';
         if (!cats[cat]) cats[cat] = [];
         cats[cat].push(entries[j]);
-        if (_ibFindGroupForEntry(entries[j]) === '__none__') missingCount++;
     }
     var catNames = Object.keys(cats).sort(function(a, b) {
         if (a === 'Uden kategori') return 1;
@@ -629,45 +647,20 @@ function _ibRenderCombined() {
         list.sort(function(a, b) {
             return (a.product.name || '').localeCompare(b.product.name || '', 'da');
         });
-        html += '<div class="ib-cmb-cat">' + _ibEsc(catNames[c]) + '</div>';
+        html += '<div class="ib-cmb-cat">' + _ibEsc(catNames[c])
+            + ' <span class="ib-cmb-cat-n">' + list.length + '</span></div>';
+        html += '<div class="ib-cmb-cat-items">';
         for (var k = 0; k < list.length; k++) {
-            html += _ibRenderCombinedRow(list[k]);
+            var ent = list[k];
+            var supGroup = _ibGroups[_ibFindGroupForEntry(ent)];
+            // Genbrug den fulde handlingsrække — showSupplier=true viser leverandør-tag
+            html += _ibRenderItem(ent, supGroup, true);
         }
+        html += '</div>';
     }
 
     html += '</div>'; // .ib-content
-
-    // Footer
-    html += '<div class="ib-cmb-foot">' + entries.length + ' varer på listen';
-    if (missingCount) html += ' · <span class="ib-cmb-foot-warn">' + missingCount + ' mangler leverandør</span>';
-    html += '</div>';
-
     return html;
-}
-
-function _ibRenderCombinedRow(entry) {
-    var p = entry.product;
-    var groupKey = _ibFindGroupForEntry(entry);
-    var g = _ibGroups[groupKey];
-    var missing = (groupKey === '__none__') || !g;
-
-    var h = '<div class="ib-cmb-row' + (missing ? ' warn' : '') + '" data-product-id="' + p.id + '">';
-    h += '<span class="ib-cmb-nm">' + _ibEsc(p.name) + '</span>';
-    h += '<span class="ib-cmb-need">behov ' + _ibFmtNum(entry.need) + ' ' + _ibEsc(entry.needUnit) + '</span>';
-    h += '<div class="ib-cmb-right">';
-    if (missing) {
-        h += '<span class="ib-cmb-dest warn">⚠ mangler leverandør</span>';
-        h += '<button class="ib-cmb-couple" data-ib="open-couple" data-product-id="' + p.id + '">Kobl →</button>';
-    } else {
-        h += '<span class="ib-cmb-dest">→ ' + _ibEsc(g.displayName) + '</span>';
-        h += '<div class="ib-cmb-qty">';
-        h += '<button class="ib-qb" data-ib="cmb-qty-minus" data-product-id="' + p.id + '">−</button>';
-        h += '<input class="ib-qi" type="number" min="0" step="any" value="' + entry.need + '" data-ib="cmb-qty-input" data-product-id="' + p.id + '">';
-        h += '<button class="ib-qb" data-ib="cmb-qty-plus" data-product-id="' + p.id + '">+</button>';
-        h += '</div>';
-    }
-    h += '</div></div>';
-    return h;
 }
 
 function _ibRenderToolbar() {
@@ -696,16 +689,35 @@ function _ibRenderToolbar() {
         h += '<button class="ib-vt' + (_ibFocusMode ? ' on' : '') + '" data-ib="view-focus">⊡ Fokus</button>';
         h += '</div>';
     }
-    // Primær akse: Samlet liste / Klar til bestilling
+    // Primær akse: samme liste, to grupperinger
     h += '<div class="ib-view-toggle">';
-    h += '<button class="ib-vt' + (_ibViewMode === 'combined' ? ' on' : '') + '" data-ib="view-combined">Samlet liste</button>';
-    h += '<button class="ib-vt' + (_ibViewMode === 'order' ? ' on' : '') + '" data-ib="view-order">Klar til bestilling</button>';
+    h += '<button class="ib-vt' + (_ibViewMode === 'combined' ? ' on' : '') + '" data-ib="view-combined">Efter kategori</button>';
+    h += '<button class="ib-vt' + (_ibViewMode === 'order' ? ' on' : '') + '" data-ib="view-order">Efter leverandør</button>';
     h += '</div></div></div>';
     return h;
 }
 
 function _ibRenderPanels() {
     var h = '';
+
+    // Add product panel — øverst, lige under toolbaren, så feltet er nemt at nå
+    if (_ibPanelOpen === 'add-product') {
+        h += '<div class="ib-panel open" data-ib-panel="add-product">';
+        h += '<div class="ib-panel-inner">';
+        h += '<div style="display:flex;gap:8px;align-items:center;margin-bottom:10px">';
+        h += '<div style="position:relative;flex:1">';
+        h += '<input class="ib-panel-qi" style="width:100%;padding:8px 10px;font-size:13px" id="ibAddProdQ" placeholder="Søg Grocy-produkt..." data-ib="add-product-search">';
+        h += '<div id="ibAddProdAC" class="ib-add-ac" style="display:none"></div>';
+        h += '</div>';
+        h += '<input class="ib-panel-qi" type="number" min="1" value="1" style="width:60px;text-align:center" id="ibAddProdQty">';
+        h += '<button class="ib-panel-add" data-ib="add-product-confirm" style="white-space:nowrap">Tilføj</button>';
+        h += '</div>';
+        h += '<div style="display:flex;justify-content:space-between;align-items:center;gap:10px">';
+        h += '<div id="ibAddProdSel" style="font-size:12px;color:var(--color-text-dim,#777)">Søg efter produktnavn...</div>';
+        h += '<a href="/kitchen/stock.html?tab=create" target="_blank" rel="noopener" style="font-size:12px;color:var(--brand-primary,#8e631f);text-decoration:none;font-weight:600;white-space:nowrap">+ Opret nyt produkt</a>';
+        h += '</div>';
+        h += '</div></div>';
+    }
 
     // Missing
     if (_ibMissingProducts.length > 0) {
@@ -777,25 +789,6 @@ function _ibRenderPanels() {
         h += '<span class="ib-panel-selall" data-ib="selall-expiring">Vælg alle</span>';
         h += '<button class="ib-panel-cancel" data-ib="close-expiring">Luk</button>';
         h += '<button class="ib-panel-add rd" data-ib="add-expiring">Tilføj valgte til listen</button>';
-        h += '</div></div>';
-    }
-
-    // Add product panel
-    if (_ibPanelOpen === 'add-product') {
-        h += '<div class="ib-panel open" data-ib-panel="add-product">';
-        h += '<div class="ib-panel-inner">';
-        h += '<div style="display:flex;gap:8px;align-items:center;margin-bottom:10px">';
-        h += '<div style="position:relative;flex:1">';
-        h += '<input class="ib-panel-qi" style="width:100%;padding:8px 10px;font-size:13px" id="ibAddProdQ" placeholder="Søg Grocy-produkt..." data-ib="add-product-search">';
-        h += '<div id="ibAddProdAC" class="ib-add-ac" style="display:none"></div>';
-        h += '</div>';
-        h += '<input class="ib-panel-qi" type="number" min="1" value="1" style="width:60px;text-align:center" id="ibAddProdQty">';
-        h += '<button class="ib-panel-add" data-ib="add-product-confirm" style="white-space:nowrap">Tilføj</button>';
-        h += '</div>';
-        h += '<div style="display:flex;justify-content:space-between;align-items:center;gap:10px">';
-        h += '<div id="ibAddProdSel" style="font-size:12px;color:var(--color-text-dim,#777)">Søg efter produktnavn...</div>';
-        h += '<a href="/kitchen/stock.html?tab=create" target="_blank" rel="noopener" style="font-size:12px;color:var(--brand-primary,#8e631f);text-decoration:none;font-weight:600;white-space:nowrap">+ Opret nyt produkt</a>';
-        h += '</div>';
         h += '</div></div>';
     }
 
@@ -1001,7 +994,7 @@ function _ibRenderGroupAction(g, key) {
 }
 
 /* ── Item render ───────────────────────────────────────────── */
-function _ibRenderItem(entry, group) {
+function _ibRenderItem(entry, group, showSupplier) {
     var p = entry.product;
     var h = '<div class="ib-item" data-product-id="' + p.id + '">';
     h += '<div class="ib-item-main">';
@@ -1019,6 +1012,13 @@ function _ibRenderItem(entry, group) {
     h += '<div class="ib-item-body">';
     h += '<div class="ib-item-top">';
     h += '<span class="ib-item-name">' + _ibEsc(p.name) + '</span>';
+    if (showSupplier && group) {
+        // "Mangler leverandør" = ingen shopping_location overhovedet (__none__).
+        // En gruppe med lokation men uden V2-kobling har stadig en destination.
+        var isNone = group.grocyLocationId === '__none__';
+        h += '<span class="ib-item-sup' + (isNone ? ' warn' : '') + '">'
+            + (isNone ? '⚠ mangler leverandør' : ('→ ' + _ibEsc(group.displayName))) + '</span>';
+    }
     h += '<span class="ib-item-need">Behov: <strong>' + _ibFmtNum(entry.need) + ' ' + _ibEsc(entry.needUnit) + '</strong></span>';
     h += '</div>';
 
@@ -1110,7 +1110,7 @@ function _ibRenderItem(entry, group) {
         // "Uden leverandør"-blok (ingen shopping_location): drawer-genvej.
         // Varer i en rigtig leverandørgruppe uden barcode beholder det inline
         // link-panel — det har INT-varenummer-generering som draweren ikke har.
-        if (group.grocyLocationId === '__none__' || group.integrationType === 'none') {
+        if (group.grocyLocationId === '__none__') {
             h += '<button class="ib-kb kobl" data-ib="open-couple" data-product-id="' + p.id + '">Kobl →</button>';
         } else {
             h += '<button class="ib-kb kobl" data-ib="open-link" data-product-id="' + p.id + '">Kobl varenr.</button>';
@@ -1224,20 +1224,59 @@ function _ibRenderProdDialog(g, key, readyItems) {
 
 /* ── Bottom bar ────────────────────────────────────────────── */
 function _ibRenderBottomBar() {
-    var totalItems = _ibShoppingList.length;
-    var cartCount = _ibCartItems.length;
-    var markedCount = 0;
-    for (var gk in _ibGroups) {
+    var totalItems = 0;
+    var missingCount = 0;
+    var staged = [];   // per-leverandør: varer lagt i kurv / markeret, klar til afgivelse
+
+    var groupKeys = Object.keys(_ibGroups);
+    var typeOrder = { api: 0, email: 1, webshop: 1, manual: 2, intern: 3, none: 4 };
+    groupKeys.sort(function(a, b) {
+        var oa = _ibGroups[a].integrationType in typeOrder ? typeOrder[_ibGroups[a].integrationType] : 4;
+        var ob = _ibGroups[b].integrationType in typeOrder ? typeOrder[_ibGroups[b].integrationType] : 4;
+        return oa - ob;
+    });
+
+    for (var gi = 0; gi < groupKeys.length; gi++) {
+        var gk = groupKeys[gi];
         var g = _ibGroups[gk];
         for (var i = 0; i < g.items.length; i++) {
-            if (g.items[i]._marked) markedCount++;
+            if (g.items[i].isOrdered) continue;
+            totalItems++;
+            if (gk === '__none__') missingCount++;
+        }
+        var cartN = g.items.filter(function(e) { return e.inCart && !e.isOrdered; }).length;
+        if (cartN) {
+            if (g.integrationType === 'api' && g.supplierId) {
+                staged.push({ key: gk, name: g.displayName, label: cartN + ' i kurv',
+                    action: 'goto-cart', btn: 'Gå til kurv →', cls: 'api' });
+            } else {
+                // Kurv-varer i en gruppe uden api-kobling — kan ikke afgives endnu
+                staged.push({ key: gk, name: g.displayName, label: cartN + ' i kurv',
+                    action: 'cart-blocked', btn: '⚠ Kurv ikke klar', cls: 'blocked' });
+            }
+        }
+        if (g.integrationType === 'email' || g.integrationType === 'manual') {
+            var markN = g.items.filter(function(e) { return e._marked && !e.isOrdered; }).length;
+            if (markN) staged.push({ key: gk, name: g.displayName, label: markN + ' valgt',
+                action: 'bb-finalize', btn: 'Registrér →', cls: 'manual' });
         }
     }
 
     var h = '<div class="ib-bottom">';
+    if (staged.length) {
+        h += '<div class="ib-bb-staged">';
+        for (var s = 0; s < staged.length; s++) {
+            var st = staged[s];
+            h += '<div class="ib-bb-sup ib-bb-' + st.cls + '">';
+            h += '<span class="ib-bb-sup-nm">' + _ibEsc(st.name) + '</span>';
+            h += '<span class="ib-bb-sup-cnt">' + st.label + '</span>';
+            h += '<button class="ib-bb-act" data-ib="' + st.action + '" data-group="' + st.key + '">' + st.btn + '</button>';
+            h += '</div>';
+        }
+        h += '</div>';
+    }
     h += '<div class="ib-bb-stat"><strong>' + totalItems + ' varer</strong> på listen';
-    if (cartCount) h += ' · <strong>' + cartCount + '</strong> i Hørkrams kurv';
-    if (markedCount) h += ' · <strong>' + markedCount + '</strong> valgt til bestilling';
+    if (missingCount) h += ' · <span class="ib-bb-warn">' + missingCount + ' mangler leverandør</span>';
     h += '</div>';
     h += '</div>';
     return h;
@@ -1412,6 +1451,23 @@ function _ibHandleClick(e) {
             _ibGotoCart(group);
             break;
 
+        case 'bb-finalize':
+            // Fra bund-baren: hop til leverandør-gruppering og åbn bestil-dialogen
+            _ibViewMode = 'order';
+            try { localStorage.setItem('ib_view_mode', 'order'); } catch (eF) { /* noop */ }
+            _ibOpenGroups[group] = true;
+            _ibMoOpen = group;
+            _ibRender();
+            setTimeout(function() {
+                var el = _ibContainer.querySelector('.ib-group[data-group="' + group + '"]');
+                if (el) {
+                    el.scrollIntoView({ behavior: 'smooth', block: 'start' });
+                    el.classList.add('ib-flash');
+                    setTimeout(function() { el.classList.remove('ib-flash'); }, 1500);
+                }
+            }, 60);
+            break;
+
         case 'cart-blocked':
             _ibShowCartBlockedModal(group);
             break;
@@ -1474,14 +1530,6 @@ function _ibHandleClick(e) {
             _ibRender();
             break;
 
-        case 'cmb-qty-minus':
-            _ibCombinedAdjustQty(productId, -1);
-            break;
-
-        case 'cmb-qty-plus':
-            _ibCombinedAdjustQty(productId, 1);
-            break;
-
         case 'view-list':
             _ibFocusMode = false;
             _ibFocusGroup = null;
@@ -1538,15 +1586,6 @@ function _ibHandleInput(e) {
         if (entry) {
             entry.qty = Math.max(0, parseInt(el.value) || 0);
         }
-        return;
-    }
-    // Samlet liste — qty justerer købsmængden (shopping_list.amount). Commit ved 'change'.
-    if (el.getAttribute('data-ib') === 'cmb-qty-input') {
-        if (e.type === 'change') {
-            var cmbVal = parseFloat(el.value);
-            if (isNaN(cmbVal) || cmbVal < 0) cmbVal = 0;
-            _ibCombinedCommitQty(el.getAttribute('data-product-id'), cmbVal, false);
-        }
     }
 }
 
@@ -1565,41 +1604,6 @@ function _ibChangeQty(productId, delta) {
     if (!entry) return;
     entry.qty = Math.max(0, entry.qty + delta);
     _ibRender();
-}
-
-/* ── Samlet liste: qty = købsmængde (shopping_list.amount) ───── */
-function _ibCombinedAdjustQty(productId, delta) {
-    var entry = _ibFindEntry(productId);
-    if (!entry) return;
-    _ibCombinedCommitQty(productId, (parseFloat(entry.need) || 0) + delta, true);
-}
-
-// newTotal = ønsket samlet mængde på indkøbslisten for produktet.
-// Skriver til den primære sl-linje; ved flere linjer justeres den, så summen rammer newTotal.
-function _ibCombinedCommitQty(productId, newTotal, rerender) {
-    var entry = _ibFindEntry(productId);
-    if (!entry || !entry.item) return;
-    newTotal = Math.max(0, newTotal);
-
-    var primary = entry.item;
-    var others = (parseFloat(entry.need) || 0) - (parseFloat(primary.amount) || 0);
-    var primaryAmount = Math.max(0, Math.round((newTotal - others) * 1000) / 1000);
-
-    // Optimistisk memory-opdatering så UI er konsistent indtil næste fulde reload
-    primary.amount = primaryAmount;
-    entry.need = primaryAmount + others;
-    entry.qty = _ibCalcQty(entry.need, entry.selectedBarcode);
-
-    if (rerender) _ibRender();
-
-    // Debounced PUT pr. produkt
-    clearTimeout(_ibQtyTimers[productId]);
-    _ibQtyTimers[productId] = setTimeout(function() {
-        updateShoppingListItem(parseInt(primary.id), { amount: primaryAmount })
-            .catch(function(err) {
-                _ibToast('Kunne ikke gemme mængde: ' + (err.message || ''), true);
-            });
-    }, 600);
 }
 
 function _ibMarkSelected(productId) {

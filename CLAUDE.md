@@ -856,6 +856,34 @@ Oprettes under Grocy → Manage master data → Userfields.
 - [x] Browser-verificeret på grocytest: Samlet liste (kategorier/qty-persist), view-toggle,
   drawer (Hørkram-søg + manuel + Gren A/B), couple-mode, varenummer-validering.
 
+#### Fase 6h-revision — én liste, to grupperinger (komplet)
+> Driftsfeedback efter 6h: det to-view-split (tjek-view vs. bestil-view) genskabte
+> præcis to-liste-problemet `indkob.js` oprindeligt forenede. Rettet til ÉN
+> handlingsbar liste med to grupperinger.
+
+- [x] Toggleren relabeled fra "Samlet liste / Klar til bestilling" til
+  **"Efter kategori" / "Efter leverandør"** — ikke længere tjek-view vs. bestil-view,
+  men to grupperinger af *samme* handlingsbare liste.
+- [x] Kategori-visningen (`_ibRenderCombined`) genbruger nu den fulde handlingsrække
+  `_ibRenderItem` (chips, antal, "Læg i kurv"/"Marker valgt"/"Kobl") — begge
+  grupperinger er fuldt handlingsbare. Den simple tjek-række `_ibRenderCombinedRow`
+  + `cmb-qty`-maskineriet er fjernet. `_ibRenderItem` fik 3. param `showSupplier`
+  der viser et `→ leverandør`-tag i kategori-visningen.
+- [x] **Sticky bund-bar** (`_ibRenderBottomBar` omskrevet) viser per-leverandør
+  staged: `Hørkram · 4 i kurv · Gå til kurv →`. api+supplierId → `goto-cart` direkte;
+  email/manual → `bb-finalize` (hopper til leverandør-gruppering + åbner bestil-dialog);
+  kurv-varer i en ikke-api-koblet gruppe → `⚠ Kurv ikke klar` (cart-blocked modal).
+  Vises i begge grupperinger.
+- [x] **Søgefelt-fokus-bug rettet**: `_ibRender()` gemmer nu aktivt input + markør-
+  position og gendanner det efter `innerHTML`-replace (samme mønster som scroll).
+  Tidligere mistede søgefeltet fokus efter hvert tegn pga. den debounced re-render.
+- [x] "+ Tilføj vare"-panelet flyttet op øverst i `_ibRenderPanels` (var skjult under
+  Manglende/Udløbende-bannerne).
+- [x] Browser-verificeret: fokus bevares under søgning, kategori-visning har fulde
+  handlingsrækker, "Læg i kurv" virker fra kategori-visningen, bund-bar samler staged.
+  (Grøn "Gå til kurv"-finalize kunne ikke klik-testes — grocytest har ingen api-koblede
+  leverandører; koden falder korrekt tilbage til "⚠ Kurv ikke klar".)
+
 ### Fase 7 — CRM-modul
 - [x] Migration 019: `crm_activities` genskabt med `service_call`/`result`/`sentiment`, `bons.is_internal`, `companies.is_internal`
 - [x] 4 SQL views: `v_service_calls_pending`, `v_callbacks_pending`, `v_hard_to_reach`, `v_call_stats_weekly`
