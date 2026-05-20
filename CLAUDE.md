@@ -1421,6 +1421,7 @@ Oprettes under Grocy → Manage master data → Userfields.
   - `GET /api/delivery/template-variables` (variabel-katalog til Settings-chips)
   - `GET /api/delivery/booking-payload?bon_id=&vehicle_id=` (genererer clipboard-tekst + URL)
   - `POST /api/delivery/book` (book + log event + opdater bon)
+  - `POST /api/delivery/cancel` (annullér aktiv booking — rydder vehicle-tildeling, logger `cancelled`-event)
   - `POST /api/delivery/actual-cost` (sæt `bons.delivery_cost`)
   - `GET /api/delivery/events?bon_id=` (booking-historik per bon)
 - [x] `shared/manual_booking_modal.js` + `.css` — standalone overlay-modal:
@@ -1491,6 +1492,18 @@ Oprettes under Grocy → Manage master data → Userfields.
   - Ny "Felter"-kolonne i vehicle-tabellen viser antal konfigurerede felter eller `—`
 - [x] `shared/manual_booking_modal.{js,css}` — **Slettet**. Modal-script/css fjernet fra `kitchen/today.html`, `kitchen/later.html`, `kitchen/calendar.html`, `office/index.html`.
 - [x] `scripts/test-delivery-spor1-unit.js` — 19 nye tests: `renderFields` returnerer null ved missing/invalid/non-array JSON, rendrer felt-array korrekt, markerer missing-flag på tomme variabler, bevarer step-property, normaliserer manglende label til tom string. `buildBookingPayload.fields` array indeholder rigtige labels/values/missing-flags + er `null` for vehicle uden config. **84/84 tests passed.**
+
+### Delivery — Spor 1: Skift/annullér booking (20. maj 2026)
+
+Det var ikke muligt at lave en booking om eller fortryde den fra bon-draweren — knappen hed altid "📦 Bestil hos…" (ligner "lav en ny", ikke "ret"), og der var ingen vej til at rydde en booking helt.
+
+- [x] `services/delivery_log.js` — ny `cancelBooking({ bonId, userId, note })`: logger `cancelled`-event i `delivery_events` (event_type-CHECK havde allerede `'cancelled'` — ingen migration) + rydder `bons.delivery_vehicle_id`/`delivery_method`/`courier_provider`/`delivery_cost_estimated`. `delivery_cost` (faktisk pris) bevares så en allerede bogført faktura ikke tabes. Kaster hvis bonen ikke har en aktiv booking.
+- [x] `routes/delivery.js` — `POST /api/delivery/cancel` (`requireAuth()`, samme som `/book`).
+- [x] `shared/api.js` — `cancelDelivery(data)` wrapper.
+- [x] `shared/bon_drawer.js` — BESTIL BUD-sektionen: knappen hedder nu "🔄 Skift bud" når der allerede er en booking (åbner popout som før), og en "Annullér"-knap dukker op ved siden. Annullér → confirm → `cancelDelivery()` → `this.load()`. Booking-historikken viser nu også `cancelled`-events med rød "Annulleret"-tag.
+- [x] **SSE-fix (pre-eksisterende bug):** `delivery_log.js` broadcastede `bon_updated` med `{bon_id}` (alt andet + drawer'ens `_bindSSE` bruger `{id}`) og ekskluderede aktørens bruger (`routes/bons.js` ekskluderer ikke). Rettet til `{id}` uden eksklusion, så aktørens kitchen/office-sider re-renderer efter booking.
+- [x] **`views/delivery/note.js`** — popoutet og hovedvinduet deler bruger/session, og ingen kode dispatcher `sse:bon_updated` window-events (drawer'ens SSE-bro var død). Popoutet kalder nu `notifyOpener()` der dispatcher `sse:bon_updated` på `window.opener` efter booking → drawer'en genindlæser.
+- [x] Tests: +1 unit (`cancelBooking` happy path + edge cases) → 94/94, +4 integration (`/cancel` 200/400/auth) → 50/50. Browser-verificeret end-to-end: book → "🔄 Skift bud" + "Annullér" → annullér → tilbage til "Ikke planlagt", historik viser "Annulleret".
 
 **Office Spor 1+Popout deploy-checkliste (opdateret):** 1) Templates (`booking_template` = samlet tekst fallback) skal udfyldes for By-expressen + Taxa. 2) Felt-konfiguration (`booking_fields_json`) udfyldes via felt-editor under hver vehicle — seed-data ligger der allerede efter migration 071, men juster gerne ud fra hvilke felter office faktisk paster ind hos leverandøren. 3) URL'er bekræftet uændret. 4) Test først taxa (simple liste, ingen step), så By-expressen (step-grouping pr. Lobo-trin gør det visuelt klart hvilke felter der hører til hvilket wizard-trin).
 
@@ -2376,6 +2389,7 @@ DELETE /api/delivery/vehicles/:id                           routes/delivery.js (
 GET    /api/delivery/template-variables                     routes/delivery.js
 GET    /api/delivery/booking-payload?bon_id=&vehicle_id=    routes/delivery.js
 POST   /api/delivery/book                                   routes/delivery.js
+POST   /api/delivery/cancel                                 routes/delivery.js
 POST   /api/delivery/actual-cost                            routes/delivery.js
 GET    /api/delivery/events?bon_id=                         routes/delivery.js
 ```

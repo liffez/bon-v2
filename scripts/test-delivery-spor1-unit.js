@@ -34,6 +34,7 @@ const {
 const {
     logBookingEvent,
     setActualCost,
+    cancelBooking,
     getBookingEvents
 } = require('../services/delivery_log');
 
@@ -367,6 +368,34 @@ const events = getBookingEvents(bonId);
 assert(events.length === 3, `3 events oprettet (fik ${events.length})`);
 assert(events[0].event_time >= events[events.length - 1].event_time, 'Events sorteret nyeste først');
 assert(events.some(e => e.vehicle_label === 'Taxa 4×35'), 'vehicle_label joinet');
+
+// ─── Test 11: cancelBooking ───────────────────────────────
+console.log('\n=== cancelBooking ===');
+// Efter test 8-10 har bonnen delivery_vehicle_id = taxa (sat af den seneste
+// logBookingEvent — event3) + faktisk pris 280.
+const cancelResult = cancelBooking({ bonId, note: 'Kunde skiftede til afhentning' });
+assert(cancelResult.event_id > 0, 'Cancel-event oprettet med id');
+assertEqual(cancelResult.cancelled_vehicle_id, taxa.id, 'cancelled_vehicle_id = aktuelt tildelte vehicle');
+
+const bonCancelled = db.prepare(`SELECT delivery_vehicle_id, delivery_method, courier_provider, delivery_cost_estimated, delivery_cost FROM bons WHERE id = ?`).get(bonId);
+assertEqual(bonCancelled.delivery_vehicle_id, null, 'delivery_vehicle_id ryddet');
+assertEqual(bonCancelled.delivery_method, null, 'delivery_method ryddet');
+assertEqual(bonCancelled.courier_provider, null, 'courier_provider ryddet');
+assertEqual(bonCancelled.delivery_cost_estimated, null, 'delivery_cost_estimated ryddet');
+assertEqual(bonCancelled.delivery_cost, 280, 'delivery_cost (faktisk pris) bevaret');
+
+const cancelEvents = getBookingEvents(bonId);
+assert(cancelEvents.some(e => e.event_type === 'cancelled'), 'cancelled-event i historik');
+
+// Annullér uden aktiv booking → throws
+let noBooking = false;
+try { cancelBooking({ bonId }); } catch (e) { noBooking = true; }
+assert(noBooking, 'Ingen aktiv booking → throws');
+
+// Ukendt bon → throws
+let unknownBon = false;
+try { cancelBooking({ bonId: 99999 }); } catch (e) { unknownBon = true; }
+assert(unknownBon, 'Ukendt bon → throws');
 
 // ─── Cleanup ──────────────────────────────────────────────
 console.log('\n=== Resultat ===');

@@ -1364,6 +1364,13 @@ function setDeliveryActualCost(data) {
     });
 }
 
+function cancelDelivery(data) {
+    return apiFetch('/delivery/cancel', {
+        method: 'POST',
+        body: JSON.stringify(data),
+    });
+}
+
 function fetchDeliveryEvents(bonId) {
     return apiFetch('/delivery/events?bon_id=' + bonId);
 }

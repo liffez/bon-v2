@@ -19,6 +19,7 @@ const {
 const {
     logBookingEvent,
     setActualCost,
+    cancelBooking,
     getBookingEvents
 } = require('../services/delivery_log');
 
@@ -230,6 +231,30 @@ router.post('/book', requireAuth(), handle((req, res) => {
             note
         });
         res.status(201).json(event);
+    } catch (err) {
+        return res.status(400).json({ error: err.message });
+    }
+}));
+
+// ==========================================
+// POST /api/delivery/cancel
+// Body: { bon_id, note? }
+// Annullerer den aktive booking — rydder vehicle-tildelingen
+// så bonen er tilbage til "ikke planlagt".
+// ==========================================
+router.post('/cancel', requireAuth(), handle((req, res) => {
+    const { bon_id, note = null } = req.body;
+    if (!bon_id) {
+        return res.status(400).json({ error: 'bon_id er påkrævet' });
+    }
+
+    try {
+        const result = cancelBooking({
+            bonId: Number(bon_id),
+            userId: req.session?.userId || null,
+            note
+        });
+        res.json(result);
     } catch (err) {
         return res.status(400).json({ error: err.message });
     }
