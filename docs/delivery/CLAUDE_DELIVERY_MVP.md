@@ -1,3 +1,8 @@
+> ⚠️ **FORÆLDET (20. maj 2026)** — denne plan er konsolideret ind i
+> `CLAUDE_DELIVERY_SPOR2.md`. Læs den i stedet. Dette dokument bevares kun som historik.
+> Haversine-tilgangen her er forkastet — den fejlestimerer havne-/bro-krydsninger
+> (fx Refshaleøen). Spor 2 bruger rigtig vej-routing via OpenRouteService.
+
 # CLAUDE_DELIVERY_MVP.md — Spor 2 Minimum Viable Plan
 > Læs FØR du starter implementering. Pegen videre til `CLAUDE_DELIVERY.md` for fuld vision.
 > Skrevet: 20. maj 2026.

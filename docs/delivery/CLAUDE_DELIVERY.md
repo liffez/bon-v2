@@ -1,3 +1,7 @@
+> ⚠️ **FORÆLDET (20. maj 2026)** — denne plan er konsolideret ind i
+> `CLAUDE_DELIVERY_SPOR2.md`. Læs den i stedet. Dette dokument bevares kun som historik.
+> Routing-fundamentet her (self-hostet OSRM + VROOM Docker) er erstattet af OpenRouteService.
+
 # CLAUDE_DELIVERY.md — Delivery-modul (rute-planlægning, courier, leverings-beregning)
 > Læs `CLAUDE.md`, `BON_V2_PRINCIPPER.md`, `bon_v2_datamodel_v2.md` og `bon_v2_zoner_og_layout.md` FØR du starter.
 > Opdateret: april 2026

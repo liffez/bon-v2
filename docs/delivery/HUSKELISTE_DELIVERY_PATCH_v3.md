@@ -1,3 +1,8 @@
+> ⚠️ **FORÆLDET (20. maj 2026)** — denne patch er konsolideret ind i
+> `CLAUDE_DELIVERY_SPOR2.md`. Læs den i stedet. Dette dokument bevares kun som historik.
+> Krav her afspejler den gamle OSRM/VROOM-vision og 4-state-flowet — se Spor 2-doc'en
+> for det gældende scope.
+
 # Find/replace til `BON_V2_HUSKELISTE.md` (endelig version)
 
 > Komplet patch efter design-session for delivery-modulet.
