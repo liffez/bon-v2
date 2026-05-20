@@ -175,7 +175,10 @@ function initSSE() {
                 // ved næste opdatering når interaktionen er færdig.
                 if (oldCard.querySelector('.bon-kitchen.editing')) return;
                 if (oldCard.querySelector('.editing-qty')) return;
-                if (oldCard.classList.contains('select-mode')) return;
+                if (oldCard.querySelector('.select-mode-container.select-mode')) return;
+                // Afbryd ikke et felt i kortet der er i fokus (gruppe-titel/-note osv.)
+                const ae = document.activeElement;
+                if (ae && oldCard.contains(ae) && (ae.tagName === 'INPUT' || ae.tagName === 'TEXTAREA')) return;
                 const cardData = mapApiBonToCardData(apiBon);
                 const newCard = createCard(cardData, 'kitchen-today');
                 oldCard.replaceWith(newCard);

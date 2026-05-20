@@ -1,7 +1,7 @@
 const express = require('express');
 const router  = express.Router();
 const { getDb } = require('../db/database');
-const { handle, logChange, getBon, getBonLines, getStatusId, getDefaultLocationId, nextBonNumber, computeMomsFields, recalcBonTotalUnits } = require('../db/helpers');
+const { handle, logChange, getBon, getBonLines, getBonMenuGroups, getStatusId, getDefaultLocationId, nextBonNumber, computeMomsFields, recalcBonTotalUnits, transaction } = require('../db/helpers');
 const { broadcast } = require('../shared/sse');
 const grocy   = require('../services/grocyAdapter');
 // quConvert bruges nu via services/ingredientResolver.js
@@ -833,6 +833,44 @@ router.delete('/:id/lines/:lid', handle((req, res) => {
     // Patch F (F58): tilføj manglende broadcast på DELETE lines
     broadcast('bon_updated', { id: bonId });
     res.json({ deleted: lineId });
+}));
+
+// PUT /api/bons/:id/menu-groups — reconcilér menu-gruppering på køkken-bonen.
+// Body: { groups: [{ title, note, line_ids: [] }, ...] }
+// Frontenden sender den fulde struktur; serveren sletter alle grupper for
+// bonen og genskaber dem fra payloadet. Idempotent. Tomme grupper droppes.
+router.put('/:id/menu-groups', handle((req, res) => {
+    const db    = getDb();
+    const bonId = parseInt(req.params.id);
+    const bon   = db.prepare(`SELECT id FROM bons WHERE id = ?`).get(bonId);
+    if (!bon) return res.status(404).json({ error: 'Bon ikke fundet' });
+
+    const groups = Array.isArray(req.body.groups) ? req.body.groups : [];
+
+    transaction(db, () => {
+        db.prepare(`UPDATE bon_lines SET menu_group_id = NULL WHERE bon_id = ?`).run(bonId);
+        db.prepare(`DELETE FROM bon_menu_groups WHERE bon_id = ?`).run(bonId);
+
+        const insGroup = db.prepare(`INSERT INTO bon_menu_groups (bon_id, title, note, sort_order) VALUES (?,?,?,?)`);
+        const setGroup = db.prepare(`UPDATE bon_lines SET menu_group_id = ? WHERE id = ? AND bon_id = ?`);
+
+        groups.forEach((g, idx) => {
+            const lineIds = (Array.isArray(g.line_ids) ? g.line_ids : [])
+                .map(n => parseInt(n)).filter(Number.isInteger);
+            if (!lineIds.length) return;   // tomme grupper persisteres ikke
+            const title = (g.title || '').toString().trim().slice(0, 80) || 'Gruppe';
+            const note  = (g.note  || '').toString().trim().slice(0, 500) || null;
+            const gid = insGroup.run(bonId, title, note, idx).lastInsertRowid;
+            lineIds.forEach(lid => setGroup.run(gid, lid, bonId));
+        });
+    });
+
+    const savedGroups = getBonMenuGroups(bonId);
+    logChange({ entityType: 'bon', entityId: bonId, action: 'update', fieldName: 'menu_groups',
+        newValue: `${savedGroups.length} gruppe(r)`, userId: req.body.user_id ?? req.session?.userId ?? null });
+    broadcast('bon_updated', { id: bonId });
+
+    res.json({ menu_groups: savedGroups, lines: getBonLines(bonId) });
 }));
 
 // ─── INGREDIENSER (aggregeret fra Grocy) ────────────────────────────────────

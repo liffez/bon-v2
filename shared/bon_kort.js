@@ -205,6 +205,8 @@ function noteChanged(ta) {
     ta.value.trim()
         ? (btn.classList.remove('empty'), btn.classList.add('has-note'))
         : (btn.classList.remove('has-note'), btn.classList.add('empty'));
+    const card = ta.closest('.bon-card');
+    if (card) scheduleSaveMenuGroups(card.id);
 }
 
 /* ══════════════════════════════════════════════════════════════
@@ -303,6 +305,12 @@ function groupSelected(menuId) {
                     <path d="M18.5 2.5a2.121 2.121 0 013 3L12 15l-4 1 1-4 9.5-9.5z"/>
                 </svg>
             </button>
+            <button class="group-dissolve-btn" onclick="dissolveGroup(this)" title="Opløs gruppe">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                    <line x1="18" y1="6" x2="6" y2="18"/>
+                    <line x1="6" y1="6" x2="18" y2="18"/>
+                </svg>
+            </button>
         </div>
         <div class="group-note-area">
             <textarea class="group-note-input" rows="1"
@@ -317,6 +325,82 @@ function groupSelected(menuId) {
     });
     grp.querySelector('.group-title-input').focus();
     _updateCount(menu, menuId.replace('menu', ''));
+    scheduleSaveMenuGroups('bon' + menuId.replace('menu', ''));
+}
+
+/* ══════════════════════════════════════════════════════════════
+   OPLØS GRUPPE — flyt linjer ud, fjern gruppen
+   ══════════════════════════════════════════════════════════════ */
+function dissolveGroup(btn) {
+    const grp = btn.closest('.bon-menu-group');
+    if (!grp) return;
+    const card      = btn.closest('.bon-card');
+    const container = grp.parentNode;
+    [...grp.querySelectorAll('.bon-menu-item')]
+        .forEach(item => container.insertBefore(item, grp));
+    grp.remove();
+    if (card) scheduleSaveMenuGroups(card.id);
+}
+
+/* ══════════════════════════════════════════════════════════════
+   PERSISTÉR MENU-GRUPPER
+   Grupper gemmes automatisk — serveren reconciler hele strukturen.
+   ══════════════════════════════════════════════════════════════ */
+const _groupSaveTimers = {};
+
+function scheduleSaveMenuGroups(cardId) {
+    clearTimeout(_groupSaveTimers[cardId]);
+    _groupSaveTimers[cardId] = setTimeout(() => {
+        delete _groupSaveTimers[cardId];
+        _saveMenuGroups(cardId);
+    }, 450);
+}
+
+function _saveMenuGroups(cardId) {
+    const card = document.getElementById(cardId);
+    if (!card) return;
+    const bonId = cardId.replace('bon', '');
+
+    // Fjern tomme grupper fra DOM (fx sidste linje trukket ud)
+    card.querySelectorAll('.bon-menu-group').forEach(grp => {
+        if (!grp.querySelector('.bon-menu-item')) grp.remove();
+    });
+
+    const groups = [...card.querySelectorAll('.bon-menu-group')].map(grp => {
+        const titleSpan = grp.querySelector('.group-title');
+        const titleInp  = grp.querySelector('.group-title-input');
+        const title = (titleSpan && titleSpan.textContent.trim())
+                   || (titleInp && titleInp.value.trim())
+                   || 'Gruppe';
+        const noteEl = grp.querySelector('.group-note-input');
+        const note   = noteEl ? noteEl.value.trim() : '';
+        const line_ids = [...grp.querySelectorAll('.bon-menu-item')]
+            .flatMap(item => (item.dataset.lineIds || '').split(',')
+                .map(s => parseInt(s, 10))
+                .filter(n => Number.isInteger(n)));
+        return { title, note, line_ids };
+    }).filter(g => g.line_ids.length);
+
+    saveMenuGroups(bonId, groups)
+        .then(() => _flashGroupSaved(bonId, false))
+        .catch(err => {
+            console.error('Kunne ikke gemme grupper:', err);
+            _flashGroupSaved(bonId, true);
+        });
+}
+
+// Kort kvittering i select-toolbaren (kun synlig i select-mode)
+function _flashGroupSaved(bonId, failed) {
+    const cnt = document.getElementById('selCount' + bonId);
+    if (!cnt) return;
+    cnt.textContent = failed ? '⚠ Ikke gemt' : '✓ Gemt';
+    cnt.classList.toggle('save-failed', !!failed);
+    setTimeout(() => {
+        cnt.classList.remove('save-failed');
+        const menu = document.getElementById('menu' + bonId);
+        if (menu) _updateCount(menu, bonId);
+        else cnt.textContent = '0 valgt';
+    }, 1600);
 }
 
 /* ══════════════════════════════════════════════════════════════
@@ -337,6 +421,8 @@ function finishTitle(inp) {
     t.textContent = inp.value.trim() || 'Gruppe';
     t.classList.remove('hidden');
     inp.classList.remove('visible');
+    const card = inp.closest('.bon-card');
+    if (card) scheduleSaveMenuGroups(card.id);
 }
 
 function titleKey(e, inp) {
@@ -393,6 +479,9 @@ document.addEventListener('drop', e => {
     else if (ti) ti.parentNode.insertBefore(_dragEl, ti);
     document.querySelectorAll('.drag-over, .drag-over-group')
         .forEach(el => el.classList.remove('drag-over', 'drag-over-group'));
+    // Persistér hvis flytningen kan have ændret gruppe-medlemskab eller -rækkefølge
+    const card = _dragEl.closest('.bon-card');
+    if (card && card.querySelector('.bon-menu-group')) scheduleSaveMenuGroups(card.id);
 });
 
 /* ══════════════════════════════════════════════════════════════

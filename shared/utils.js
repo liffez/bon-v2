@@ -288,8 +288,11 @@ function mapApiBonToCardData(apiBon) {
         email:         apiBon.contact_email || '',
     };
 
-    // Menu-linjer — med kategori + special_request, sorteret og sammenlagt
-    const menuRaw = (apiBon.lines || []).map(line => ({
+    // Menu-linjer — med kategori + special_request, sorteret og sammenlagt.
+    // Linjer med menu_group_id samles i deres persisterede gruppe (titel + note);
+    // grupper rendres øverst i sort_order, løse linjer kategori-sorteret nedenunder.
+    const allLines = apiBon.lines || [];
+    const lineToRaw = (line) => ({
         type:            'item',
         qty:             `${line.quantity}`,
         name:            line.product_name,
@@ -297,8 +300,24 @@ function mapApiBonToCardData(apiBon) {
         category:        line.category || null,
         special_request: line.special_request || null,
         line_ids:        [line.id],
-    }));
-    const menu = _sortAndMergeMenu(menuRaw);
+    });
+
+    const menu = [];
+    const groupsMeta = (apiBon.menu_groups || [])
+        .slice()
+        .sort((a, b) => (a.sort_order - b.sort_order) || (a.id - b.id));
+    for (const g of groupsMeta) {
+        const groupLines = allLines.filter(l => l.menu_group_id === g.id);
+        if (!groupLines.length) continue;   // forældreløs gruppe — spring over
+        menu.push({
+            type:  'group',
+            title: g.title || 'Gruppe',
+            note:  g.note || '',
+            items: _sortAndMergeMenu(groupLines.map(lineToRaw)),
+        });
+    }
+    const looseLines = allLines.filter(l => l.menu_group_id == null);
+    menu.push(..._sortAndMergeMenu(looseLines.map(lineToRaw)));
 
     // Prep
     const prep = [

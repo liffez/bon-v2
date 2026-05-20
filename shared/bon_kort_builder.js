@@ -218,7 +218,7 @@ function createCard(bonData, viewName) {
                 <span id="selCount${num}">0 valgt</span>
                 <div style="display:flex;gap:6px">
                     <button class="sel-btn" onclick="groupSelected('menu${num}')">Gruppér</button>
-                    <button class="sel-btn cancel" onclick="exitSelect('${cardId}')">Annuller</button>
+                    <button class="sel-btn done" onclick="exitSelect('${cardId}')">Færdig</button>
                 </div>
             </div>
             <div class="select-mode-container">
@@ -427,6 +427,10 @@ function _buildMenu(menuItems, num) {
         if (item.type === 'group') {
             const groupItems = item.items.map(gi => _buildMenuItem(gi, num)).join('');
             const hasNote = item.note && item.note.trim();
+            // Titel + note er vedvarende fri-tekst — escapes inden rendering
+            const titleText = esc(item.title || 'Gruppe');
+            const titleAttr = titleText.replace(/"/g, '&quot;');
+            const noteText  = esc(item.note || '');
             return `
                 <div class="bon-menu-group">
                     <div class="group-header" draggable="true" data-drag="group">
@@ -441,8 +445,8 @@ function _buildMenu(menuItems, num) {
                             </svg>
                         </div>
                         <div class="group-select" onclick="toggleGroupSelect(this,'menu${num}')"></div>
-                        <span class="group-title">${item.title}</span>
-                        <input class="group-title-input" type="text" value="${item.title}"
+                        <span class="group-title">${titleText}</span>
+                        <input class="group-title-input" type="text" value="${titleAttr}"
                                onblur="finishTitle(this)" onkeydown="titleKey(event,this)">
                         <button class="group-note-btn ${hasNote ? 'has-note' : 'empty'}" onclick="toggleNote(this)">
                             <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
@@ -458,11 +462,17 @@ function _buildMenu(menuItems, num) {
                                 <path d="M18.5 2.5a2.121 2.121 0 013 3L12 15l-4 1 1-4 9.5-9.5z"/>
                             </svg>
                         </button>
+                        <button class="group-dissolve-btn" onclick="dissolveGroup(this)" title="Opløs gruppe">
+                            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                                <line x1="18" y1="6" x2="6" y2="18"/>
+                                <line x1="6" y1="6" x2="18" y2="18"/>
+                            </svg>
+                        </button>
                     </div>
                     <div class="group-note-area${hasNote ? ' open' : ''}">
                         <textarea class="group-note-input" rows="1"
                                   placeholder="Note til denne gruppe…"
-                                  oninput="noteChanged(this)">${item.note || ''}</textarea>
+                                  oninput="noteChanged(this)">${noteText}</textarea>
                     </div>
                     ${groupItems}
                 </div>`;
