@@ -149,8 +149,9 @@ class BonDrawer {
                         <label class="drawer-label">Bestil bud</label>
                         <div class="drawer-delivery-actions">
                             <button type="button" class="btn-drawer-bestil-bud" data-action="bestil">
-                                <span class="drawer-bestil-icon">📦</span> Bestil hos…
+                                <span class="drawer-bestil-icon">📦</span> <span class="drawer-bestil-label">Bestil hos…</span>
                             </button>
+                            <button type="button" class="btn-drawer-cancel-bud" data-action="cancel" hidden>Annullér</button>
                         </div>
                     </div>
                     <div class="drawer-delivery-status">
@@ -600,6 +601,39 @@ class BonDrawer {
             openDeliveryNote(this.bonId, bon.delivery_vehicle_id || null);
         };
 
+        // Skift/annullér-affordance: når der allerede er en booking
+        // hedder knappen "Skift bud", og en annullér-knap dukker op.
+        const hasBooking = !!bon.delivery_vehicle_id;
+        const cancelBtn = section.querySelector('.btn-drawer-cancel-bud');
+        const labelSpan = bestilBtn.querySelector('.drawer-bestil-label');
+        const iconSpan = bestilBtn.querySelector('.drawer-bestil-icon');
+
+        cancelBtn.disabled = false;
+        cancelBtn.textContent = 'Annullér';
+        if (hasBooking) {
+            if (labelSpan) labelSpan.textContent = 'Skift bud';
+            if (iconSpan) iconSpan.textContent = '🔄';
+            cancelBtn.hidden = false;
+        } else {
+            if (labelSpan) labelSpan.textContent = 'Bestil hos…';
+            if (iconSpan) iconSpan.textContent = '📦';
+            cancelBtn.hidden = true;
+        }
+
+        cancelBtn.onclick = async () => {
+            if (!confirm('Annullér bookingen?\nBonen sættes tilbage til "ikke planlagt". En eventuel faktisk omkostning bevares.')) return;
+            cancelBtn.disabled = true;
+            cancelBtn.textContent = 'Annullerer…';
+            try {
+                await cancelDelivery({ bon_id: this.bonId });
+                await this.load(this.bonId);
+            } catch (err) {
+                alert('Kunne ikke annullere: ' + (err.message || 'fejl'));
+                cancelBtn.disabled = false;
+                cancelBtn.textContent = 'Annullér';
+            }
+        };
+
         // Render aktuel vehicle-status + events
         this._renderDeliveryCurrent(bon);
         this._renderDeliveryEvents();
@@ -632,7 +666,7 @@ class BonDrawer {
         el.innerHTML = '<div class="drawer-delivery-loading">Henter…</div>';
         try {
             const events = await fetchDeliveryEvents(this.bonId);
-            const bookings = events.filter(e => e.event_type === 'booked' || e.event_type === 'failed');
+            const bookings = events.filter(e => ['booked', 'failed', 'cancelled'].includes(e.event_type));
             if (!bookings.length) {
                 el.innerHTML = '';
                 return;
@@ -642,10 +676,15 @@ class BonDrawer {
                     const date = _fmtMailDate(e.event_time);
                     const ref = e.external_reference ? ' · ref ' + esc(e.external_reference) : '';
                     const note = e.notes ? '<div class="drawer-delivery-event-note">' + esc(e.notes) + '</div>' : '';
-                    const failed = e.event_type === 'failed' ? ' drawer-delivery-event-failed' : '';
-                    return '<div class="drawer-delivery-event' + failed + '">'
+                    const stateCls = e.event_type === 'failed' ? ' drawer-delivery-event-failed'
+                        : e.event_type === 'cancelled' ? ' drawer-delivery-event-cancelled' : '';
+                    const tag = e.event_type === 'failed'
+                        ? '<span class="drawer-delivery-event-tag">Fejlede</span>'
+                        : e.event_type === 'cancelled'
+                        ? '<span class="drawer-delivery-event-tag">Annulleret</span>' : '';
+                    return '<div class="drawer-delivery-event' + stateCls + '">'
                         + '<div class="drawer-delivery-event-head">'
-                        + '<span class="drawer-delivery-event-vehicle">' + esc(e.vehicle_label || e.provider || '?') + '</span>'
+                        + '<span class="drawer-delivery-event-vehicle">' + tag + esc(e.vehicle_label || e.provider || '?') + '</span>'
                         + '<span class="drawer-delivery-event-date">' + date + ref + '</span>'
                         + '</div>' + note
                         + '</div>';

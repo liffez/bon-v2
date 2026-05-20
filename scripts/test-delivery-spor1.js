@@ -248,6 +248,20 @@ async function main() {
         assert(e1.data.some(ev => ev.external_reference === 'TEST-REF-1'), 'TEST-REF-1 event findes');
         assert(e1.data.some(ev => ev.vehicle_label === 'Taxa 4×35'), 'vehicle_label joinet');
 
+        // ─── Test 6b: POST /cancel ─────────────────────────
+        console.log('\n=== POST /api/delivery/cancel ===');
+        const ca1 = await http('POST', '/api/delivery/cancel', { bon_id: bonId });
+        assertEqual(ca1.status, 200, 'Cancel → 200');
+        assert(ca1.data.event_id > 0, 'Cancel-event oprettet');
+
+        // Bonnen er nu uden aktiv booking → kan ikke annulleres igen
+        const ca2 = await http('POST', '/api/delivery/cancel', { bon_id: bonId });
+        assertEqual(ca2.status, 400, 'Cancel uden aktiv booking → 400');
+
+        // Manglende bon_id
+        const caMissing = await http('POST', '/api/delivery/cancel', {});
+        assertEqual(caMissing.status, 400, 'Mangler bon_id → 400');
+
         // ─── Test 7: Auth — non-admin kan ikke PATCH ───────
         console.log('\n=== Auth: PATCH er admin-only ===');
         // Logout + opret office-bruger

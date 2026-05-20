@@ -133,7 +133,9 @@ function logBookingEvent({ bonId, vehicleId, reference = null, status = 'booked'
             });
         }
 
-        broadcast('bon_updated', { bon_id: bonId }, userId);
+        // Ekskluderer bevidst IKKE aktøren — bookingen sker ofte i et popout-
+        // vindue, og hoveddrawer'en (samme bruger) skal opdatere.
+        broadcast('bon_updated', { id: bonId });
 
         return {
             id: eventId,
@@ -192,12 +194,87 @@ function setActualCost({ bonId, amount, source = 'manual', userId = null, note =
             notes: note || `Faktisk omkostning sat (${source})`
         });
 
-        broadcast('bon_updated', { bon_id: bonId }, userId);
+        // Ekskluderer bevidst IKKE aktøren — bookingen sker ofte i et popout-
+        // vindue, og hoveddrawer'en (samme bruger) skal opdatere.
+        broadcast('bon_updated', { id: bonId });
 
         return {
             bon_id: bonId,
             delivery_cost: numAmount,
             delivery_cost_source: source
+        };
+    });
+}
+
+// ==========================================
+// Annullér den aktive booking på en bon.
+//
+// Rydder vehicle-tildelingen (tilbage til "ikke planlagt") og logger
+// en 'cancelled'-event i delivery_events. delivery_cost (faktisk pris)
+// røres IKKE — hvis en faktura allerede er bogført beholdes den, og
+// brugeren kan rydde den manuelt i draweren.
+//
+// args:
+//   bonId  — påkrævet
+//   userId — login-bruger (valgfri)
+//   note   — fritekst-begrundelse (valgfri)
+//
+// Returnerer { bon_id, event_id, cancelled_vehicle_id }.
+// ==========================================
+function cancelBooking({ bonId, userId = null, note = null }) {
+    if (!bonId) throw new Error('bonId påkrævet');
+
+    const db = getDb();
+    const bon = db.prepare(`
+        SELECT id, bon_number, delivery_vehicle_id, courier_provider
+        FROM bons WHERE id = ?
+    `).get(bonId);
+    if (!bon) throw new Error(`Bon ${bonId} ikke fundet`);
+    if (!bon.delivery_vehicle_id) {
+        throw new Error('Bonen har ingen aktiv booking at annullere');
+    }
+
+    const vehicle = getVehicleById(bon.delivery_vehicle_id);
+    const vehicleLabel = vehicle ? vehicle.label : (bon.courier_provider || 'ukendt leverandør');
+    const vehicleCode = vehicle ? vehicle.code : (bon.courier_provider || null);
+
+    return transaction(db, () => {
+        const insertResult = db.prepare(`
+            INSERT INTO delivery_events
+                (bon_id, event_type, provider, external_reference,
+                 vehicle_id, booked_by_user_id, notes, event_time)
+            VALUES (?, 'cancelled', ?, NULL, ?, ?, ?, CURRENT_TIMESTAMP)
+        `).run(bonId, vehicleCode, bon.delivery_vehicle_id, userId, note);
+
+        db.prepare(`
+            UPDATE bons
+            SET delivery_vehicle_id = NULL,
+                delivery_method = NULL,
+                courier_provider = NULL,
+                delivery_cost_estimated = NULL,
+                updated_at = CURRENT_TIMESTAMP
+            WHERE id = ?
+        `).run(bonId);
+
+        logChange({
+            entityType: 'bon',
+            entityId: bonId,
+            action: 'update',
+            fieldName: 'delivery_vehicle_id',
+            oldValue: bon.delivery_vehicle_id,
+            newValue: null,
+            userId,
+            notes: `Booking hos ${vehicleLabel} annulleret${note ? ` — ${note}` : ''}`
+        });
+
+        // Ekskluderer bevidst IKKE aktøren — bookingen sker ofte i et popout-
+        // vindue, og hoveddrawer'en (samme bruger) skal opdatere.
+        broadcast('bon_updated', { id: bonId });
+
+        return {
+            bon_id: bonId,
+            event_id: Number(insertResult.lastInsertRowid),
+            cancelled_vehicle_id: bon.delivery_vehicle_id
         };
     });
 }
@@ -234,6 +311,7 @@ function getBookingEvents(bonId) {
 module.exports = {
     logBookingEvent,
     setActualCost,
+    cancelBooking,
     getBookingEvents,
     VALID_BOOKING_STATUSES
 };

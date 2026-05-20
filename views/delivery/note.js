@@ -418,7 +418,8 @@
                     source: 'manual'
                 });
             }
-            // Drawer i hovedvinduet opdaterer via SSE — luk vinduet
+            // Bed åbner-vinduet (drawer / bon-kort) genindlæse bonnen, og luk.
+            notifyOpener();
             window.close();
         } catch (err) {
             console.error('[delivery-note] book fejl:', err);
@@ -426,6 +427,23 @@
             state.saving = false;
             updateBookButton();
             targetBtn.textContent = originalText;
+        }
+    }
+
+    // ── Signalér åbner-vinduet ───────────────────────────────
+    // Bon-drawer'en lytter på window-eventet 'sse:bon_updated'. Popoutet og
+    // hovedvinduet deler bruger/session, så server-SSE ekskluderer ikke, men
+    // når til hovedvinduet — vi signalerer alligevel direkte for at være
+    // robuste mod manglende SSE-bro i drawer'en.
+    function notifyOpener() {
+        try {
+            if (window.opener && !window.opener.closed) {
+                window.opener.dispatchEvent(
+                    new CustomEvent('sse:bon_updated', { detail: { id: state.bonId } })
+                );
+            }
+        } catch (e) {
+            // cross-origin eller lukket vindue — ignorér
         }
     }
 

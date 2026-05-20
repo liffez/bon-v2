@@ -629,6 +629,20 @@
 .btn-drawer-bestil-bud:hover { background: #74521a; }
 .drawer-bestil-icon { margin-right: 4px; }
 
+.drawer-delivery-actions { display: flex; gap: 6px; align-items: center; }
+.btn-drawer-cancel-bud {
+    background: transparent;
+    color: #b04030;
+    border: 1px solid #d8b6ac;
+    border-radius: 6px;
+    padding: 6px 10px;
+    font-size: 13px;
+    font-weight: 600;
+    cursor: pointer;
+}
+.btn-drawer-cancel-bud:hover:not(:disabled) { background: #fff3f0; }
+.btn-drawer-cancel-bud:disabled { opacity: 0.5; cursor: not-allowed; }
+
 .drawer-delivery-status { margin-top: 8px; }
 .drawer-delivery-current-pill {
     background: var(--brand-primary-light, #f1e6b2);
@@ -676,6 +690,22 @@
     font-size: 12.5px;
 }
 .drawer-delivery-event-failed { background: #fff3f0; }
+.drawer-delivery-event-cancelled { background: #f0eeec; }
+.drawer-delivery-event-cancelled .drawer-delivery-event-vehicle {
+    color: var(--color-text-dim, #8a8580);
+}
+.drawer-delivery-event-tag {
+    display: inline-block;
+    font-size: 10px;
+    font-weight: 700;
+    text-transform: uppercase;
+    letter-spacing: 0.03em;
+    padding: 1px 5px;
+    border-radius: 3px;
+    margin-right: 5px;
+    background: #d8b6ac;
+    color: #7a2d1c;
+}
 .drawer-delivery-event-head {
     display: flex;
     justify-content: space-between;
