@@ -15,7 +15,10 @@ async function apiFetch(path, options = {}) {
     });
     if (!res.ok) {
         const body = await res.json().catch(() => ({}));
-        throw new Error(body.error || `API fejl: ${res.status}`);
+        const err = new Error(body.error || `API fejl: ${res.status}`);
+        err.status = res.status;
+        if (body.code) err.code = body.code;
+        throw err;
     }
     return res.json();
 }
@@ -912,6 +915,21 @@ function fetchHokaSearch(q) { return apiFetch('/horkram/search?q=' + encodeURICo
 
 /** Hent enkelt produkt med fulde detaljer — returnerer parsed produkt */
 function fetchHokaProduct(varenr) { return apiFetch('/horkram/product/' + varenr); }
+
+/**
+ * Validér et manuelt indtastet Hørkram-varenummer mod hoka.dk.
+ * Kaster ALDRIG — returnerer { found:true, ...produkt } eller { found:false }.
+ * Bruges i opret/kobl-draweren (CLAUDE_INDKOB_6H.md Del 5): ukendt nummer
+ * advarer men blokerer ikke kobling.
+ */
+async function lookupHokaVarenr(varenr) {
+    try {
+        var p = await fetchHokaProduct(String(varenr).trim());
+        return Object.assign({ found: true }, p);
+    } catch (err) {
+        return { found: false, error: err.message || '' };
+    }
+}
 
 /** Batch snapshots — returnerer { products: [{varenummer, name, salesUnits, ...}] } */
 function fetchHokaSnapshots(ids, date) {

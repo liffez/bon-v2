@@ -813,6 +813,49 @@ Oprettes under Grocy → Manage master data → Userfields.
 - [x] `server.js` — mount goods-receipts + staff routes, statisk `/uploads/receipts/`
 - [x] End-to-end verificeret: Grocy addStock + shopping list cleanup + DB-registrering
 
+#### Fase 6h — Indkøb: samlet liste + opret/kobl (komplet)
+> Spec: `docs/CLAUDE_INDKOB_6H.md` · Mockup: `docs/indkob_mockup_6h.html`
+> Løser fire driftsproblemer: leverandør-opdeling for tidligt, to "Hørkram"-blokke (Convi),
+> ingen klar vej til nye varer, varenummer-opslag skjult i Settings.
+
+- [x] **Del 1 — To views** i `shared/indkob.js`: ny primær toggle `Samlet liste` / `Klar til bestilling`
+  (default Samlet, persisteres i `localStorage` nøgle `ib_view_mode`)
+  - **Samlet liste** (`_ibRenderCombined`): flad arbejds-/tjek-liste grupperet efter
+    produktkategori (Grocy `product_group_id` → navn via `/api/grocy/product-groups`).
+    Hver række: navn · behov · destinations-tag (`→ Hørkram` / `⚠ mangler leverandør`) · qty-stepper.
+    Footer: `N varer på listen · M mangler leverandør`. Ingen leverandørblokke, ingen kurv.
+  - Qty-stepper justerer købsmængden = `shopping_list.amount` (debounced PUT pr. produkt
+    via `updateShoppingListItem`; ved flere sl-linjer pr. produkt justeres den primære
+    så summen rammer det indtastede).
+  - **Fokus** er nu underfunktion af `Klar til bestilling` (vises kun i det view) — ikke en
+    sidestillet tredje knap. Bestillingsviewet er uændret (leverandørblokke, chips, kurv).
+- [x] **Del 2 — Kanal-labels** (`_ibBuildGroups` + `_ibRenderGroup`): label-opløsning
+  `grocy_location_display_name → Grocy-lokationsnavn → leverandørnavn` (manglende fallback-led
+  tilføjet). Kanal-undertekst (`købes via X · kanal: Y`) vises når labelen afviger fra
+  leverandør/kanal — undertrykt for `__none__`-gruppen.
+- [x] **Del 3 — Opret/kobl-drawer** (`_ibOpenDrawer` m.fl.): body-appended drawer (overlever
+  `_ibRender`). Toolbar-knap `+ Opret/kobl` (separat fra `+ Tilføj vare`, der stadig søger
+  eksisterende Grocy-varer). To trin:
+  - Trin 1: find Hørkram-varenummer — søg (`fetchHokaSearch`) eller manuel indtastning.
+  - Trin 2 Gren A (eksisterende vare): `createProductBarcode` + `addShoppingListProduct`.
+    409 `BARCODE_DUPLICATE` → pæn besked.
+  - Trin 2 Gren B (helt ny vare): genbruger `shared/product_create.js` via ny `onCreated`-hook
+    (`initProductCreate(el, { barcode, onCreated })`) — draweren lægger på liste + lukker bagefter.
+- [x] **Del 4 — "Kobl →" genvej** fra umatched linjer: Samlet liste's `⚠ mangler leverandør`-rækker
+  og bestillingsviewets `Uden leverandør`-blok får `Kobl →` → åbner draweren i couple-mode
+  (trin 2 låst til den kendte Grocy-vare, trin 1 forudfyldt + auto-søgt med varenavnet).
+  Umatchede varer i en *rigtig* leverandørgruppe beholder det inline link-panel (har
+  INT-varenummer-generering som draweren ikke har).
+- [x] **Del 5 — Varenummer-validering**: ny `lookupHokaVarenr()` i `shared/api.js` (genbruger
+  eksisterende `GET /api/horkram/product/:varenr` — ingen ny route). Manuelt indtastet nummer
+  valideres mod Hørkram; ukendt nummer advarer (`⚠ … du kan stadig koble`) men blokerer ikke.
+- [x] `shared/api.js` — `apiFetch` vedhæfter nu `err.status` + `err.code` (additiv ændring)
+  så 409 `BARCODE_DUPLICATE` kan skelnes client-side.
+- [x] `shared/indkob.css` — Samlet liste-rækker + drawer-styling.
+- [x] `kitchen/purchasing.html` + `office/index.html` — loader `product_create.{js,css}` (draweren bruger den).
+- [x] Browser-verificeret på grocytest: Samlet liste (kategorier/qty-persist), view-toggle,
+  drawer (Hørkram-søg + manuel + Gren A/B), couple-mode, varenummer-validering.
+
 ### Fase 7 — CRM-modul
 - [x] Migration 019: `crm_activities` genskabt med `service_call`/`result`/`sentiment`, `bons.is_internal`, `companies.is_internal`
 - [x] 4 SQL views: `v_service_calls_pending`, `v_callbacks_pending`, `v_hard_to_reach`, `v_call_stats_weekly`

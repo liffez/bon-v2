@@ -13,6 +13,7 @@ var _ibProducts        = {};   // product_id → product
 var _ibBarcodes        = [];
 var _ibQUnits          = {};   // qu_id → { id, name, name_plural }
 var _ibLocations       = {};   // grocy shopping_location id → { id, name }
+var _ibProductGroups   = {};   // grocy product_group id → name (kategori)
 
 // V2 supplier data
 var _ibHandelssteder   = [];
@@ -52,10 +53,16 @@ var _ibFocusMode       = false;
 var _ibSearchTerm      = '';
 var _ibToastTimer      = null;
 var _ibSSE             = null;
+var _ibViewMode        = 'combined';  // 'combined' (Samlet liste) | 'order' (Klar til bestilling)
+var _ibQtyTimers       = {};          // product_id → debounce-timer for combined qty-PUT
 
 /* ── Init ──────────────────────────────────────────────────── */
 async function initIndkob(el) {
     _ibContainer = el;
+    try {
+        var savedView = localStorage.getItem('ib_view_mode');
+        if (savedView === 'combined' || savedView === 'order') _ibViewMode = savedView;
+    } catch (e) { /* localStorage utilgængelig — behold default */ }
     _ibShowLoading();
 
     try {
@@ -130,6 +137,7 @@ async function _ibLoadAll() {
         fetchShoppingLocations(),
         fetchPurchasingSuppliers(),
         fetchHokaStatus().catch(function() { return { ok: false }; }),
+        fetchGrocyProductGroups().catch(function() { return []; }),
     ]);
 
     _ibShoppingList = results[0] || [];
@@ -159,6 +167,13 @@ async function _ibLoadAll() {
 
     _ibHandelssteder = results[5] || [];
     _ibHokaOk = !!(results[6] && results[6].ok);
+
+    // Product groups → map (kategori-navne til Samlet liste)
+    var pgArr = results[7] || [];
+    _ibProductGroups = {};
+    for (var pg = 0; pg < pgArr.length; pg++) {
+        _ibProductGroups[pgArr[pg].id] = pgArr[pg].name;
+    }
 
     // Load pending orders (non-blocking — don't fail init if this errors)
     try {
@@ -383,7 +398,9 @@ function _ibBuildGroups() {
                 grocyLocationId: groupKey,
                 supplierId: handler ? handler.supplier_id : null,
                 supplierName: handler ? handler.supplier_name : (loc ? loc.name : 'Ukendt'),
-                displayName: handler ? (handler.grocy_location_display_name || handler.supplier_name) : (loc ? loc.name : 'Uden leverandør'),
+                // Label-opløsning: koblings-display-navn → Grocy lokationsnavn → leverandørnavn
+                displayName: handler ? (handler.grocy_location_display_name || (loc ? loc.name : null) || handler.supplier_name) : (loc ? loc.name : 'Uden leverandør'),
+                channelName: loc ? loc.name : null,
                 integrationType: handler ? handler.integration_type : 'none',
                 contactEmail: handler ? handler.contact_email : null,
                 contactPhone: handler ? handler.contact_phone : null,
@@ -492,49 +509,55 @@ function _ibRender() {
     // Panels (Manglende / Udløbende)
     html += _ibRenderPanels();
 
-    // Sort groups: api first, then email/manual/webshop, then intern, then none
-    var groupKeys = Object.keys(_ibGroups);
-    var typeOrder = { api: 0, email: 1, webshop: 1, manual: 2, intern: 3, none: 4 };
-    groupKeys.sort(function(a, b) {
-        var ga = _ibGroups[a], gb = _ibGroups[b];
-        var oa = ga.integrationType in typeOrder ? typeOrder[ga.integrationType] : 4;
-        var ob = gb.integrationType in typeOrder ? typeOrder[gb.integrationType] : 4;
-        if (oa !== ob) return oa - ob;
-        return (ga.displayName || '').localeCompare(gb.displayName || '', 'da');
-    });
+    if (_ibViewMode === 'combined') {
+        // ── Samlet liste — grupperet efter produktkategori ──────
+        html += _ibRenderCombined();
+    } else {
+        // ── Klar til bestilling — leverandørgrupper ─────────────
+        // Sort groups: api first, then email/manual/webshop, then intern, then none
+        var groupKeys = Object.keys(_ibGroups);
+        var typeOrder = { api: 0, email: 1, webshop: 1, manual: 2, intern: 3, none: 4 };
+        groupKeys.sort(function(a, b) {
+            var ga = _ibGroups[a], gb = _ibGroups[b];
+            var oa = ga.integrationType in typeOrder ? typeOrder[ga.integrationType] : 4;
+            var ob = gb.integrationType in typeOrder ? typeOrder[gb.integrationType] : 4;
+            if (oa !== ob) return oa - ob;
+            return (ga.displayName || '').localeCompare(gb.displayName || '', 'da');
+        });
 
-    // Quick-jump strip — gør det nemt at finde leverandør-grupper når der er mange
-    if (groupKeys.length > 2) {
-        html += '<div class="ib-jump-strip">';
-        for (var qj = 0; qj < groupKeys.length; qj++) {
-            var qg = _ibGroups[groupKeys[qj]];
-            var unreadBadge = _ibSupMailUnread[groupKeys[qj]] || 0;
-            var icoCls = qg.integrationType || 'manual';
-            html += '<button class="ib-jump-pill ib-jp-' + icoCls + '" data-ib="jump-to" data-group="' + groupKeys[qj] + '">';
-            html += '<span class="ib-jp-name">' + _ibEsc(qg.displayName || qg.supplierName || '?') + '</span>';
-            if (unreadBadge > 0) html += '<span class="ib-jp-mail">' + mailIcon(11) + ' ' + unreadBadge + '</span>';
-            html += '</button>';
+        // Quick-jump strip — gør det nemt at finde leverandør-grupper når der er mange
+        if (groupKeys.length > 2) {
+            html += '<div class="ib-jump-strip">';
+            for (var qj = 0; qj < groupKeys.length; qj++) {
+                var qg = _ibGroups[groupKeys[qj]];
+                var unreadBadge = _ibSupMailUnread[groupKeys[qj]] || 0;
+                var icoCls = qg.integrationType || 'manual';
+                html += '<button class="ib-jump-pill ib-jp-' + icoCls + '" data-ib="jump-to" data-group="' + groupKeys[qj] + '">';
+                html += '<span class="ib-jp-name">' + _ibEsc(qg.displayName || qg.supplierName || '?') + '</span>';
+                if (unreadBadge > 0) html += '<span class="ib-jp-mail">' + mailIcon(11) + ' ' + unreadBadge + '</span>';
+                html += '</button>';
+            }
+            html += '</div>';
         }
-        html += '</div>';
+
+        // Content
+        html += '<div class="ib-content">';
+
+        if (groupKeys.length === 0 && _ibShoppingList.length === 0) {
+            html += '<div class="ib-empty"><div class="ib-empty-icon">🛒</div>'
+                + '<div class="ib-empty-title">Indkøbslisten er tom</div>'
+                + '<div class="ib-empty-sub">Tilføj varer via Manglende-panelet eller "+ Tilføj vare"</div></div>';
+        }
+
+        for (var gi = 0; gi < groupKeys.length; gi++) {
+            html += _ibRenderGroup(groupKeys[gi]);
+        }
+
+        html += '</div>'; // .ib-content
+
+        // Bottom bar
+        html += _ibRenderBottomBar();
     }
-
-    // Content
-    html += '<div class="ib-content">';
-
-    if (groupKeys.length === 0 && _ibShoppingList.length === 0) {
-        html += '<div class="ib-empty"><div class="ib-empty-icon">🛒</div>'
-            + '<div class="ib-empty-title">Indkøbslisten er tom</div>'
-            + '<div class="ib-empty-sub">Tilføj varer via Manglende-panelet eller "+ Tilføj vare"</div></div>';
-    }
-
-    for (var gi = 0; gi < groupKeys.length; gi++) {
-        html += _ibRenderGroup(groupKeys[gi]);
-    }
-
-    html += '</div>'; // .ib-content
-
-    // Bottom bar
-    html += _ibRenderBottomBar();
 
     // Preserve scroll position during re-render
     var scrollY = window.scrollY;
@@ -552,6 +575,101 @@ function _ibRender() {
     });
 }
 
+/* ── Samlet liste (combined view) ──────────────────────────────
+   Grupperet efter produktkategori (Grocy product_group).
+   Arbejds-/tjek-view: "har jeg det hele med?" — ingen leverandørblokke,
+   ingen kurv. Eneste completeness-blocker er "mangler leverandør". */
+function _ibRenderCombined() {
+    // Flad liste af ikke-bestilte varer på tværs af alle grupper
+    var entries = [];
+    for (var gk in _ibGroups) {
+        var gItems = _ibGroups[gk].items;
+        for (var i = 0; i < gItems.length; i++) {
+            if (!gItems[i].isOrdered) entries.push(gItems[i]);
+        }
+    }
+
+    // Søgefilter
+    if (_ibSearchTerm) {
+        var q = _ibSearchTerm.toLowerCase();
+        entries = entries.filter(function(e) {
+            return (e.product.name || '').toLowerCase().indexOf(q) >= 0;
+        });
+    }
+
+    var html = '<div class="ib-content ib-combined">';
+
+    if (entries.length === 0) {
+        html += '<div class="ib-empty"><div class="ib-empty-icon">🛒</div>'
+            + '<div class="ib-empty-title">'
+            + (_ibSearchTerm ? 'Ingen varer matcher søgningen' : 'Indkøbslisten er tom')
+            + '</div>'
+            + '<div class="ib-empty-sub">Tilføj varer via Manglende-panelet eller "+ Tilføj vare"</div></div>';
+        html += '</div>';
+        return html;
+    }
+
+    // Grupper efter produktkategori
+    var cats = {};
+    var missingCount = 0;
+    for (var j = 0; j < entries.length; j++) {
+        var cat = _ibProductGroups[entries[j].product.product_group_id] || 'Uden kategori';
+        if (!cats[cat]) cats[cat] = [];
+        cats[cat].push(entries[j]);
+        if (_ibFindGroupForEntry(entries[j]) === '__none__') missingCount++;
+    }
+    var catNames = Object.keys(cats).sort(function(a, b) {
+        if (a === 'Uden kategori') return 1;
+        if (b === 'Uden kategori') return -1;
+        return a.localeCompare(b, 'da');
+    });
+
+    for (var c = 0; c < catNames.length; c++) {
+        var list = cats[catNames[c]];
+        list.sort(function(a, b) {
+            return (a.product.name || '').localeCompare(b.product.name || '', 'da');
+        });
+        html += '<div class="ib-cmb-cat">' + _ibEsc(catNames[c]) + '</div>';
+        for (var k = 0; k < list.length; k++) {
+            html += _ibRenderCombinedRow(list[k]);
+        }
+    }
+
+    html += '</div>'; // .ib-content
+
+    // Footer
+    html += '<div class="ib-cmb-foot">' + entries.length + ' varer på listen';
+    if (missingCount) html += ' · <span class="ib-cmb-foot-warn">' + missingCount + ' mangler leverandør</span>';
+    html += '</div>';
+
+    return html;
+}
+
+function _ibRenderCombinedRow(entry) {
+    var p = entry.product;
+    var groupKey = _ibFindGroupForEntry(entry);
+    var g = _ibGroups[groupKey];
+    var missing = (groupKey === '__none__') || !g;
+
+    var h = '<div class="ib-cmb-row' + (missing ? ' warn' : '') + '" data-product-id="' + p.id + '">';
+    h += '<span class="ib-cmb-nm">' + _ibEsc(p.name) + '</span>';
+    h += '<span class="ib-cmb-need">behov ' + _ibFmtNum(entry.need) + ' ' + _ibEsc(entry.needUnit) + '</span>';
+    h += '<div class="ib-cmb-right">';
+    if (missing) {
+        h += '<span class="ib-cmb-dest warn">⚠ mangler leverandør</span>';
+        h += '<button class="ib-cmb-couple" data-ib="open-couple" data-product-id="' + p.id + '">Kobl →</button>';
+    } else {
+        h += '<span class="ib-cmb-dest">→ ' + _ibEsc(g.displayName) + '</span>';
+        h += '<div class="ib-cmb-qty">';
+        h += '<button class="ib-qb" data-ib="cmb-qty-minus" data-product-id="' + p.id + '">−</button>';
+        h += '<input class="ib-qi" type="number" min="0" step="any" value="' + entry.need + '" data-ib="cmb-qty-input" data-product-id="' + p.id + '">';
+        h += '<button class="ib-qb" data-ib="cmb-qty-plus" data-product-id="' + p.id + '">+</button>';
+        h += '</div>';
+    }
+    h += '</div></div>';
+    return h;
+}
+
 function _ibRenderToolbar() {
     var missingN = _ibMissingProducts.length;
     var dueN = _ibDueProducts.length;
@@ -560,6 +678,7 @@ function _ibRenderToolbar() {
     h += '<input class="ib-search" placeholder="Søg vare..." data-ib="search" value="' + _ibEsc(_ibSearchTerm) + '">';
     h += '<div class="ib-sep"></div>';
     h += '<button class="ib-btn primary" data-ib="add-product">+ Tilføj vare</button>';
+    h += '<button class="ib-btn" data-ib="open-create" title="Kun hvis varen ikke findes via søgning — opret en ny Grocy-vare eller kobl et Hørkram-varenummer">+ Opret/kobl</button>';
     h += '<button class="ib-btn" data-ib="toggle-missing">📉 Manglende ';
     h += missingN ? '<span class="ib-nb ib-nb-or">' + missingN + '</span>' : '';
     h += '</button>';
@@ -567,12 +686,20 @@ function _ibRenderToolbar() {
     h += dueN ? '<span class="ib-nb ib-nb-rd">' + dueN + '</span>' : '';
     h += '</button>';
     h += '<div class="ib-right">';
-    if (_ibFocusMode) {
-        h += '<button class="ib-focus-back" style="display:flex" data-ib="focus-back">‹ Alle leverandører</button>';
+    // Fokus er en underfunktion af "Klar til bestilling" — vises kun i det view
+    if (_ibViewMode === 'order') {
+        if (_ibFocusMode) {
+            h += '<button class="ib-focus-back" style="display:flex" data-ib="focus-back">‹ Alle leverandører</button>';
+        }
+        h += '<div class="ib-view-toggle ib-focus-toggle">';
+        h += '<button class="ib-vt' + (!_ibFocusMode ? ' on' : '') + '" data-ib="view-list">≡ Liste</button>';
+        h += '<button class="ib-vt' + (_ibFocusMode ? ' on' : '') + '" data-ib="view-focus">⊡ Fokus</button>';
+        h += '</div>';
     }
+    // Primær akse: Samlet liste / Klar til bestilling
     h += '<div class="ib-view-toggle">';
-    h += '<button class="ib-vt' + (!_ibFocusMode ? ' on' : '') + '" data-ib="view-list">≡ Liste</button>';
-    h += '<button class="ib-vt' + (_ibFocusMode ? ' on' : '') + '" data-ib="view-focus">⊡ Fokus</button>';
+    h += '<button class="ib-vt' + (_ibViewMode === 'combined' ? ' on' : '') + '" data-ib="view-combined">Samlet liste</button>';
+    h += '<button class="ib-vt' + (_ibViewMode === 'order' ? ' on' : '') + '" data-ib="view-order">Klar til bestilling</button>';
     h += '</div></div></div>';
     return h;
 }
@@ -741,6 +868,13 @@ function _ibRenderGroup(key) {
     h += '<div class="ib-group-hdr" data-ib="group-toggle" data-group="' + key + '">';
     h += '<div class="ib-group-ico ' + icoClass + '">' + icoLabel + '</div>';
     h += '<div class="ib-group-inf"><div class="ib-group-name">' + _ibEsc(g.displayName) + '</div>';
+    // Kanal-undertekst: vis leverandør + Grocy-kanal når de afviger fra header-labelen
+    if (g.grocyLocationId !== '__none__' && g.integrationType !== 'none') {
+        var chanBits = [];
+        if (g.supplierName && g.displayName !== g.supplierName) chanBits.push('købes via ' + g.supplierName);
+        if (g.channelName && g.channelName !== g.displayName) chanBits.push('kanal: ' + g.channelName);
+        if (chanBits.length) h += '<div class="ib-group-channel">' + _ibEsc(chanBits.join(' · ')) + '</div>';
+    }
     if (g.notes) h += '<div class="ib-group-note">' + _ibEsc(g.notes) + '</div>';
     h += '</div>';
 
@@ -973,7 +1107,14 @@ function _ibRenderItem(entry, group) {
             }
         }
     } else {
-        h += '<button class="ib-kb kobl" data-ib="open-link" data-product-id="' + p.id + '">Kobl varenr.</button>';
+        // "Uden leverandør"-blok (ingen shopping_location): drawer-genvej.
+        // Varer i en rigtig leverandørgruppe uden barcode beholder det inline
+        // link-panel — det har INT-varenummer-generering som draweren ikke har.
+        if (group.grocyLocationId === '__none__' || group.integrationType === 'none') {
+            h += '<button class="ib-kb kobl" data-ib="open-couple" data-product-id="' + p.id + '">Kobl →</button>';
+        } else {
+            h += '<button class="ib-kb kobl" data-ib="open-link" data-product-id="' + p.id + '">Kobl varenr.</button>';
+        }
         h += '<button class="ib-kb" data-ib="skip-item" data-product-id="' + p.id + '">Spring over</button>';
     }
     h += '</div>'; // ctrl
@@ -1319,6 +1460,28 @@ function _ibHandleClick(e) {
             _ibToast('Råvarekontrol — kommer snart');
             break;
 
+        case 'view-combined':
+            _ibViewMode = 'combined';
+            _ibFocusMode = false;
+            _ibFocusGroup = null;
+            try { localStorage.setItem('ib_view_mode', 'combined'); } catch (e2) { /* noop */ }
+            _ibRender();
+            break;
+
+        case 'view-order':
+            _ibViewMode = 'order';
+            try { localStorage.setItem('ib_view_mode', 'order'); } catch (e3) { /* noop */ }
+            _ibRender();
+            break;
+
+        case 'cmb-qty-minus':
+            _ibCombinedAdjustQty(productId, -1);
+            break;
+
+        case 'cmb-qty-plus':
+            _ibCombinedAdjustQty(productId, 1);
+            break;
+
         case 'view-list':
             _ibFocusMode = false;
             _ibFocusGroup = null;
@@ -1340,6 +1503,14 @@ function _ibHandleClick(e) {
         case 'add-product':
             _ibPanelOpen = _ibPanelOpen === 'add-product' ? null : 'add-product';
             _ibRender();
+            break;
+
+        case 'open-create':
+            _ibOpenDrawer({ mode: 'create' });
+            break;
+
+        case 'open-couple':
+            _ibOpenDrawer({ mode: 'couple', productId: productId });
             break;
 
         case 'add-product-confirm':
@@ -1367,6 +1538,15 @@ function _ibHandleInput(e) {
         if (entry) {
             entry.qty = Math.max(0, parseInt(el.value) || 0);
         }
+        return;
+    }
+    // Samlet liste — qty justerer købsmængden (shopping_list.amount). Commit ved 'change'.
+    if (el.getAttribute('data-ib') === 'cmb-qty-input') {
+        if (e.type === 'change') {
+            var cmbVal = parseFloat(el.value);
+            if (isNaN(cmbVal) || cmbVal < 0) cmbVal = 0;
+            _ibCombinedCommitQty(el.getAttribute('data-product-id'), cmbVal, false);
+        }
     }
 }
 
@@ -1385,6 +1565,41 @@ function _ibChangeQty(productId, delta) {
     if (!entry) return;
     entry.qty = Math.max(0, entry.qty + delta);
     _ibRender();
+}
+
+/* ── Samlet liste: qty = købsmængde (shopping_list.amount) ───── */
+function _ibCombinedAdjustQty(productId, delta) {
+    var entry = _ibFindEntry(productId);
+    if (!entry) return;
+    _ibCombinedCommitQty(productId, (parseFloat(entry.need) || 0) + delta, true);
+}
+
+// newTotal = ønsket samlet mængde på indkøbslisten for produktet.
+// Skriver til den primære sl-linje; ved flere linjer justeres den, så summen rammer newTotal.
+function _ibCombinedCommitQty(productId, newTotal, rerender) {
+    var entry = _ibFindEntry(productId);
+    if (!entry || !entry.item) return;
+    newTotal = Math.max(0, newTotal);
+
+    var primary = entry.item;
+    var others = (parseFloat(entry.need) || 0) - (parseFloat(primary.amount) || 0);
+    var primaryAmount = Math.max(0, Math.round((newTotal - others) * 1000) / 1000);
+
+    // Optimistisk memory-opdatering så UI er konsistent indtil næste fulde reload
+    primary.amount = primaryAmount;
+    entry.need = primaryAmount + others;
+    entry.qty = _ibCalcQty(entry.need, entry.selectedBarcode);
+
+    if (rerender) _ibRender();
+
+    // Debounced PUT pr. produkt
+    clearTimeout(_ibQtyTimers[productId]);
+    _ibQtyTimers[productId] = setTimeout(function() {
+        updateShoppingListItem(parseInt(primary.id), { amount: primaryAmount })
+            .catch(function(err) {
+                _ibToast('Kunne ikke gemme mængde: ' + (err.message || ''), true);
+            });
+    }, 600);
 }
 
 function _ibMarkSelected(productId) {
@@ -2416,4 +2631,438 @@ function _ibCloseCartBlockedModal() {
     if (!existing) return;
     if (existing._escHandler) document.removeEventListener('keydown', existing._escHandler);
     existing.remove();
+}
+
+/* ══ Opret / kobl vare — drawer (CLAUDE_INDKOB_6H.md Del 3 + 4) ══
+   To trin: 1) find Hørkram-varenummer, 2) knyt til Grocy-vare.
+   Body-appended (overlever _ibRender). Gren A = eksisterende Grocy-vare,
+   Gren B = helt ny vare via product_create.js. */
+var _ibDrawer            = null;
+var _ibDrawerMode        = 'create';    // 'create' | 'couple'
+var _ibDrawerTarget      = 'existing';  // 'existing' | 'new'
+var _ibDrawerVarenr      = '';
+var _ibDrawerHokaName    = '';
+var _ibDrawerHokaPrice   = null;
+var _ibDrawerGrocyId     = null;
+var _ibDrawerGrocyName   = '';
+var _ibDrawerBusy        = false;
+var _ibDrawerPcMounted   = false;
+var _ibDrawerManualTimer = null;
+
+function _ibOpenDrawer(opts) {
+    _ibCloseDrawer();
+    opts = opts || {};
+    _ibDrawerMode      = opts.mode === 'couple' ? 'couple' : 'create';
+    _ibDrawerTarget    = 'existing';
+    _ibDrawerVarenr    = '';
+    _ibDrawerHokaName  = '';
+    _ibDrawerHokaPrice = null;
+    _ibDrawerGrocyId   = null;
+    _ibDrawerGrocyName = '';
+    _ibDrawerBusy      = false;
+    _ibDrawerPcMounted = false;
+
+    var coupleProduct = null;
+    if (_ibDrawerMode === 'couple' && opts.productId) {
+        var ce = _ibFindEntry(opts.productId);
+        if (ce) {
+            coupleProduct      = ce.product;
+            _ibDrawerGrocyId   = ce.product.id;
+            _ibDrawerGrocyName = ce.product.name;
+        }
+    }
+
+    var title = _ibDrawerMode === 'couple'
+        ? 'Kobl varenummer · ' + _ibEsc(_ibDrawerGrocyName)
+        : 'Opret / kobl vare';
+
+    var scrim = document.createElement('div');
+    scrim.className = 'ib-dr-scrim';
+    scrim.innerHTML =
+        '<div class="ib-dr-drawer" role="dialog" aria-label="Opret eller kobl vare">' +
+            '<div class="ib-dr-head"><h3>' + title + '</h3>' +
+                '<button class="ib-dr-x" data-dr="close" aria-label="Luk">×</button></div>' +
+            '<div class="ib-dr-body">' +
+                _ibDrawerStep1Html() +
+                _ibDrawerStep2Html(coupleProduct) +
+            '</div>' +
+            '<div class="ib-dr-foot">' +
+                '<button class="ib-dr-btn" data-dr="close">Annuller</button>' +
+                '<button class="ib-dr-btn save" data-dr="save">Læg på liste</button>' +
+            '</div>' +
+        '</div>';
+    document.body.appendChild(scrim);
+    _ibDrawer = scrim;
+
+    scrim.addEventListener('click', _ibDrawerClick);
+    scrim.addEventListener('input', _ibDrawerInput);
+    scrim.addEventListener('keydown', function(ev) {
+        if (ev.key === 'Enter' && ev.target.classList.contains('ib-dr-hkq')) {
+            ev.preventDefault();
+            _ibDrawerHkSearch();
+        }
+    });
+    var esc = function(ev) { if (ev.key === 'Escape') _ibCloseDrawer(); };
+    document.addEventListener('keydown', esc);
+    scrim._esc = esc;
+
+    setTimeout(function() { scrim.classList.add('on'); }, 20);
+    _ibDrawerSyncFoot();
+
+    // Couple-mode: forudfyld Hørkram-søgning med varenavnet og kør den
+    if (_ibDrawerMode === 'couple' && _ibDrawerGrocyName) {
+        var hkq = scrim.querySelector('.ib-dr-hkq');
+        if (hkq) hkq.value = _ibDrawerGrocyName;
+        _ibDrawerHkSearch();
+    }
+}
+
+function _ibCloseDrawer() {
+    var existing = document.querySelector('.ib-dr-scrim');
+    if (!existing) return;
+    if (existing._esc) document.removeEventListener('keydown', existing._esc);
+    if (_ibDrawerPcMounted && typeof cleanupProductCreate === 'function') {
+        try { cleanupProductCreate(); } catch (e) { /* noop */ }
+    }
+    existing.remove();
+    _ibDrawer = null;
+    _ibDrawerPcMounted = false;
+}
+
+function _ibDrawerStep1Html() {
+    return '' +
+        '<div class="ib-dr-step ib-dr-hk">' +
+            '<div class="ib-dr-step-ttl">🔖 1 · Find varenummer hos Hørkram</div>' +
+            '<div class="ib-dr-note">Bestemmer hvad systemet bestiller. Uden det kan varen ikke bestilles automatisk.</div>' +
+            '<div class="ib-dr-help"><b>Sådan finder du varenummeret:</b> Søg på produktnavnet herunder — ' +
+                'eller åbn <a href="https://www.hoka.dk" target="_blank" rel="noopener">hoka.dk ↗</a>, ' +
+                'find varen og kopiér varenummeret ind i feltet nederst.</div>' +
+            '<div class="ib-dr-search">' +
+                '<input class="ib-dr-hkq" placeholder="Søg på Hørkram… (navn eller varenr.)">' +
+                '<button class="ib-dr-btn primary" data-dr="hk-search">Søg</button>' +
+            '</div>' +
+            '<div class="ib-dr-hkresults" data-dr-hkresults></div>' +
+            '<div class="ib-dr-divider"><span>eller indsæt manuelt</span></div>' +
+            '<label class="ib-dr-lbl">Varenummer (fra hoka.dk)</label>' +
+            '<input class="ib-dr-hkmanual" placeholder="fx 17942607" data-dr="hk-manual">' +
+            '<div class="ib-dr-hkstatus" data-dr-hkstatus></div>' +
+        '</div>';
+}
+
+function _ibDrawerStep2Html(coupleProduct) {
+    var h = '<div class="ib-dr-step">' +
+        '<div class="ib-dr-step-ttl">📦 2 · Knyt til Grocy-vare</div>';
+    if (_ibDrawerMode !== 'couple') {
+        h += '<div class="ib-dr-tgl">' +
+            '<button class="ib-dr-tgl-b on" data-dr="target-existing">Eksisterende vare</button>' +
+            '<button class="ib-dr-tgl-b" data-dr="target-new">Helt ny vare</button>' +
+        '</div>';
+    }
+    h += '<div class="ib-dr-target" data-dr-target="existing">';
+    if (coupleProduct) {
+        h += '<div class="ib-dr-locked">' +
+            '<div><div class="ib-dr-locked-nm">' + _ibEsc(coupleProduct.name) + '</div>' +
+            '<div class="ib-dr-locked-sub">findes i Grocy · mangler kun varenummer</div></div>' +
+            '<span class="ib-dr-locked-tag">valgt</span></div>';
+    } else {
+        h += '<label class="ib-dr-lbl">Søg eksisterende Grocy-vare</label>' +
+            '<input class="ib-dr-grocyq" placeholder="fx Opvaskemiddel…" data-dr="grocy-search">' +
+            '<div class="ib-dr-grocyresults" data-dr-grocyresults></div>';
+    }
+    h += '</div>';
+    h += '<div class="ib-dr-target" data-dr-target="new" style="display:none">' +
+        '<div class="ib-dr-pc-mount" data-dr-pcmount></div>' +
+    '</div>';
+    h += '</div>';
+    return h;
+}
+
+function _ibDrawerSetTarget(t) {
+    if (!_ibDrawer || _ibDrawerMode === 'couple') return;
+    _ibDrawerTarget = t;
+    _ibDrawer.querySelectorAll('[data-dr-target]').forEach(function(el) {
+        el.style.display = el.getAttribute('data-dr-target') === t ? '' : 'none';
+    });
+    var bE = _ibDrawer.querySelector('[data-dr="target-existing"]');
+    var bN = _ibDrawer.querySelector('[data-dr="target-new"]');
+    if (bE) bE.classList.toggle('on', t === 'existing');
+    if (bN) bN.classList.toggle('on', t === 'new');
+    if (t === 'new' && !_ibDrawerPcMounted) _ibDrawerMountNew();
+    _ibDrawerSyncFoot();
+}
+
+function _ibDrawerSyncFoot() {
+    if (!_ibDrawer) return;
+    var save = _ibDrawer.querySelector('[data-dr="save"]');
+    // Gren B (ny vare) har product_create's egen submit-knap
+    if (save) save.style.display = _ibDrawerTarget === 'existing' ? '' : 'none';
+}
+
+function _ibDrawerMountNew() {
+    if (!_ibDrawer) return;
+    var mount = _ibDrawer.querySelector('[data-dr-pcmount]');
+    if (!mount) return;
+    if (typeof initProductCreate !== 'function') {
+        mount.innerHTML = '<div class="ib-dr-note">Produktoprettelse er ikke tilgængelig her.</div>';
+        return;
+    }
+    _ibDrawerPcMounted = true;
+    initProductCreate(mount, {
+        barcode: _ibDrawerVarenr || null,
+        onCreated: _ibDrawerOnProductCreated,
+    });
+}
+
+async function _ibDrawerHkSearch() {
+    if (!_ibDrawer) return;
+    var inp = _ibDrawer.querySelector('.ib-dr-hkq');
+    var box = _ibDrawer.querySelector('[data-dr-hkresults]');
+    var q = inp ? inp.value.trim() : '';
+    if (!q || !box) return;
+    box.innerHTML = '<div class="ib-dr-loading">Søger i Hørkram-katalog…</div>';
+    try {
+        var data = await fetchHokaSearch(q);
+        var results = (data.results || []).slice(0, 8);
+        if (!results.length) {
+            box.innerHTML = '<div class="ib-dr-loading">Ingen resultater for "' + _ibEsc(q) + '"</div>';
+            return;
+        }
+        var html = '';
+        for (var i = 0; i < results.length; i++) {
+            var r = results[i];
+            var vr = String(r.varenummer || r.id || '');
+            html += '<div class="ib-dr-res' + (vr === _ibDrawerVarenr ? ' sel' : '') + '" data-dr-res="' + _ibEsc(vr) + '"' +
+                ' data-dr-resname="' + _ibEsc(r.name || '') + '"' +
+                (r.pricePerKg ? ' data-dr-resprice="' + r.pricePerKg + '"' : '') + '>' +
+                '<div><div class="ib-dr-res-nm">' + _ibEsc(r.name || '') +
+                    (r.isAgreementItem ? ' <span class="ib-dr-agr">Aftale</span>' : '') + '</div>' +
+                '<div class="ib-dr-res-sub">Varenr. ' + _ibEsc(vr) +
+                    (r.pricePerKg ? ' · ' + _ibFmtNum(r.pricePerKg) + ' kr/kg' : '') + '</div></div>' +
+                '<button class="ib-dr-btn sm" data-dr="hk-pick">Vælg</button></div>';
+        }
+        box.innerHTML = html;
+    } catch (err) {
+        box.innerHTML = '<div class="ib-dr-loading">Søgefejl: ' + _ibEsc(err.message || '') + '</div>';
+    }
+}
+
+function _ibDrawerSetVarenr(varenr, name, price) {
+    _ibDrawerVarenr    = String(varenr || '').trim();
+    _ibDrawerHokaName  = name || '';
+    _ibDrawerHokaPrice = (price != null && price !== '' && !isNaN(price)) ? parseFloat(price) : null;
+    if (!_ibDrawer) return;
+    var manual = _ibDrawer.querySelector('.ib-dr-hkmanual');
+    if (manual) manual.value = _ibDrawerVarenr;
+    var status = _ibDrawer.querySelector('[data-dr-hkstatus]');
+    if (status) {
+        status.className = 'ib-dr-hkstatus ok';
+        status.textContent = '✓ ' + (_ibDrawerHokaName || ('varenr. ' + _ibDrawerVarenr));
+    }
+    _ibDrawer.querySelectorAll('.ib-dr-res').forEach(function(el) {
+        el.classList.toggle('sel', el.getAttribute('data-dr-res') === _ibDrawerVarenr);
+    });
+}
+
+function _ibDrawerOnManual(val) {
+    var v = String(val || '').trim();
+    _ibDrawerVarenr    = v;
+    _ibDrawerHokaName  = '';
+    _ibDrawerHokaPrice = null;
+    if (_ibDrawer) {
+        _ibDrawer.querySelectorAll('.ib-dr-res').forEach(function(el) { el.classList.remove('sel'); });
+    }
+    var status = _ibDrawer && _ibDrawer.querySelector('[data-dr-hkstatus]');
+    if (!status) return;
+    if (!v) { status.className = 'ib-dr-hkstatus'; status.textContent = ''; return; }
+    status.className = 'ib-dr-hkstatus pending';
+    status.textContent = 'Tjekker hos Hørkram…';
+    clearTimeout(_ibDrawerManualTimer);
+    _ibDrawerManualTimer = setTimeout(function() {
+        var checking = v;
+        lookupHokaVarenr(v).then(function(res) {
+            if (_ibDrawerVarenr !== checking || !_ibDrawer) return;
+            var st = _ibDrawer.querySelector('[data-dr-hkstatus]');
+            if (!st) return;
+            if (res.found) {
+                _ibDrawerHokaName  = res.name || '';
+                _ibDrawerHokaPrice = res.pricePerUnit || res.pricePerKg || null;
+                st.className = 'ib-dr-hkstatus ok';
+                st.textContent = '✓ ' + (_ibDrawerHokaName || ('varenr. ' + v)) +
+                    (_ibDrawerHokaPrice ? ' · ' + _ibFmtNum(_ibDrawerHokaPrice) + ' kr' : '');
+            } else {
+                st.className = 'ib-dr-hkstatus warn';
+                st.textContent = '⚠ Varenummeret blev ikke fundet hos Hørkram — du kan stadig koble.';
+            }
+        });
+    }, 550);
+}
+
+function _ibDrawerGrocySearch(q) {
+    var box = _ibDrawer && _ibDrawer.querySelector('[data-dr-grocyresults]');
+    if (!box) return;
+    q = String(q || '').trim().toLowerCase();
+    if (q.length < 2) { box.innerHTML = ''; return; }
+    var hits = [];
+    for (var id in _ibProducts) {
+        var p = _ibProducts[id];
+        if (p && p.name && p.name.toLowerCase().indexOf(q) >= 0) {
+            hits.push(p);
+            if (hits.length >= 12) break;
+        }
+    }
+    if (!hits.length) {
+        box.innerHTML = '<div class="ib-dr-note">Ingen match — skift til "Helt ny vare" hvis den ikke findes.</div>';
+        return;
+    }
+    var html = '';
+    for (var i = 0; i < hits.length; i++) {
+        html += '<div class="ib-dr-res' + (hits[i].id === _ibDrawerGrocyId ? ' sel' : '') + '"' +
+            ' data-dr-grocy="' + hits[i].id + '" data-dr-grocyname="' + _ibEsc(hits[i].name) + '">' +
+            '<div><div class="ib-dr-res-nm">' + _ibEsc(hits[i].name) + '</div>' +
+            '<div class="ib-dr-res-sub">eksisterende Grocy-vare</div></div>' +
+            '<button class="ib-dr-btn sm" data-dr="grocy-pick">Vælg</button></div>';
+    }
+    box.innerHTML = html;
+}
+
+async function _ibDrawerSave() {
+    if (_ibDrawerBusy) return;
+    var varenr = _ibDrawerVarenr;
+    if (!varenr) { _ibToast('Indtast eller vælg et varenummer først', true); return; }
+    if (!_ibDrawerGrocyId) { _ibToast('Vælg en Grocy-vare først', true); return; }
+    _ibDrawerBusy = true;
+    var saveBtn = _ibDrawer && _ibDrawer.querySelector('[data-dr="save"]');
+    if (saveBtn) { saveBtn.disabled = true; saveBtn.textContent = 'Gemmer…'; }
+
+    function _restoreBtn() {
+        _ibDrawerBusy = false;
+        if (saveBtn) { saveBtn.disabled = false; saveBtn.textContent = 'Læg på liste'; }
+    }
+
+    try {
+        // Numerisk Hørkram-varenr → barcode lander i første api-handelssted
+        var locId = null;
+        if (/^\d+$/.test(varenr)) {
+            for (var hi = 0; hi < _ibHandelssteder.length; hi++) {
+                if (_ibHandelssteder[hi].integration_type === 'api' && _ibHandelssteder[hi].grocy_location_id) {
+                    locId = _ibHandelssteder[hi].grocy_location_id;
+                    break;
+                }
+            }
+        }
+        var bcPayload = {
+            product_id: parseInt(_ibDrawerGrocyId),
+            barcode: String(varenr),
+            note: _ibDrawerHokaName || _ibDrawerGrocyName || '',
+        };
+        if (locId) bcPayload.shopping_location_id = locId;
+        if (_ibDrawerHokaPrice) bcPayload.last_price = _ibDrawerHokaPrice;
+
+        try {
+            await createProductBarcode(bcPayload);
+        } catch (bcErr) {
+            if (bcErr.code === 'BARCODE_DUPLICATE' || bcErr.status === 409) {
+                _ibToast('Varenummeret er allerede koblet til denne vare', true);
+                _restoreBtn();
+                return;
+            }
+            throw bcErr;
+        }
+
+        // Couple-varen ligger allerede på listen — undgå dublet sl-linje
+        if (_ibDrawerMode === 'create') {
+            await addShoppingListProduct(parseInt(_ibDrawerGrocyId), 1, 1);
+        }
+
+        _ibToast('✓ varenr. ' + varenr + ' koblet til "' + (_ibDrawerGrocyName || '') + '" · lagt på listen');
+        _ibCloseDrawer();
+        await _ibDrawerRefreshIndkob();
+    } catch (err) {
+        _ibToast('Fejl: ' + (err.message || 'Kunne ikke gemme'), true);
+        _restoreBtn();
+    }
+}
+
+async function _ibDrawerOnProductCreated(productId, name, warnings) {
+    if (warnings && warnings.length) {
+        console.warn('[indkob] produkt oprettet med advarsler:', warnings);
+    }
+    try {
+        await addShoppingListProduct(parseInt(productId), 1, 1);
+    } catch (err) {
+        _ibToast('Produkt oprettet, men kunne ikke lægges på listen: ' + (err.message || ''), true);
+        _ibCloseDrawer();
+        await _ibDrawerRefreshIndkob();
+        return;
+    }
+    var msg = '✓ "' + name + '" oprettet i Grocy';
+    if (_ibDrawerVarenr) msg += ' + koblet til varenr. ' + _ibDrawerVarenr;
+    msg += ' · lagt på listen';
+    _ibToast(msg);
+    _ibCloseDrawer();
+    await _ibDrawerRefreshIndkob();
+}
+
+async function _ibDrawerRefreshIndkob() {
+    try {
+        var res = await Promise.all([fetchShoppingList(), fetchProductBarcodes(), fetchGrocyProducts()]);
+        _ibShoppingList = res[0] || [];
+        _ibBarcodes     = res[1] || [];
+        var prods = res[2] || [];
+        _ibProducts = {};
+        for (var i = 0; i < prods.length; i++) _ibProducts[prods[i].id] = prods[i];
+        _ibBuildGroups();
+        _ibRender();
+        _ibEnrichSnapshots();
+    } catch (e) {
+        console.warn('[indkob] refresh efter drawer fejlede:', e.message);
+    }
+}
+
+function _ibDrawerClick(e) {
+    if (e.target === _ibDrawer) { _ibCloseDrawer(); return; }
+    var btn = e.target.closest('[data-dr]');
+    if (!btn) return;
+    switch (btn.getAttribute('data-dr')) {
+        case 'close':
+            _ibCloseDrawer();
+            break;
+        case 'hk-search':
+            _ibDrawerHkSearch();
+            break;
+        case 'hk-pick':
+            var res = btn.closest('[data-dr-res]');
+            if (res) _ibDrawerSetVarenr(res.getAttribute('data-dr-res'), res.getAttribute('data-dr-resname'), res.getAttribute('data-dr-resprice'));
+            break;
+        case 'grocy-pick':
+            var gr = btn.closest('[data-dr-grocy]');
+            if (gr && _ibDrawer) {
+                _ibDrawerGrocyId   = parseInt(gr.getAttribute('data-dr-grocy'));
+                _ibDrawerGrocyName = gr.getAttribute('data-dr-grocyname') || '';
+                _ibDrawer.querySelectorAll('[data-dr-grocy]').forEach(function(el) {
+                    el.classList.toggle('sel', el === gr);
+                });
+            }
+            break;
+        case 'target-existing':
+            _ibDrawerSetTarget('existing');
+            break;
+        case 'target-new':
+            _ibDrawerSetTarget('new');
+            break;
+        case 'save':
+            _ibDrawerSave();
+            break;
+    }
+}
+
+function _ibDrawerInput(e) {
+    var act = e.target.getAttribute('data-dr');
+    if (act === 'hk-manual') {
+        _ibDrawerOnManual(e.target.value);
+    } else if (act === 'grocy-search') {
+        clearTimeout(e.target._t);
+        var gv = e.target.value;
+        e.target._t = setTimeout(function() { _ibDrawerGrocySearch(gv); }, 200);
+    }
 }

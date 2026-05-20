@@ -35,6 +35,7 @@ var _pc = {
     },
     priceMode: 'total',          // 'total' | 'per_unit'
     prefillBarcode: null,
+    onCreated: null,             // valgfri callback(productId, name, warnings) — bruges af opret/kobl-draweren
     submitting: false,
     dupNameDismissed: false,
     dupBarcodeDismissed: false,
@@ -44,6 +45,7 @@ var _pc = {
 function initProductCreate(containerEl, options) {
     _pc.container = containerEl;
     _pc.prefillBarcode = (options && options.barcode) || null;
+    _pc.onCreated = (options && typeof options.onCreated === 'function') ? options.onCreated : null;
     containerEl.innerHTML = '<div class="pc-loading">Indlæser master-data…</div>';
 
     Promise.all([
@@ -73,6 +75,8 @@ function initProductCreate(containerEl, options) {
 
 function cleanupProductCreate() {
     _pc.container = null;
+    _pc.onCreated = null;
+    _pc.prefillBarcode = null;
 }
 
 /* ── Helpers ────────────────────────────────────────────── */
@@ -691,7 +695,13 @@ function _pcSubmit() {
             });
         })
         .then(function() {
-            _pcShowResult(productId, name, warnings);
+            // Opret/kobl-draweren overtager efter-flowet (læg på liste + luk).
+            // Ellers vis det normale resultatkort.
+            if (_pc.onCreated) {
+                _pc.onCreated(productId, name, warnings);
+            } else {
+                _pcShowResult(productId, name, warnings);
+            }
         })
         .catch(function(err) {
             _pcShowStatus('Fejl: ' + (err.message || err), 'error');
