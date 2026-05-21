@@ -176,6 +176,7 @@ function _logCheckHealth() {
 function _logLoadForslag() {
     (_logData.bons || []).forEach(function(b) {
         if (b.on_route_id) return;                 // på rute → ingen forslag
+        if (b.delivery_vehicle_id) return;         // bud allerede bestilt → ingen forslag
         if (_logCalc[b.id]) { _logFillForslag(b.id); return; }
         calculateDelivery({ bon_id: b.id })
             .then(function(r) {
@@ -308,19 +309,28 @@ function _logRenderBons() {
         var check = onRoute ? ''
             : '<input type="checkbox" class="log-bon-check" data-bon-id="' + b.id + '"'
               + (_logSelected[b.id] ? ' checked' : '') + '>';
-        var routeLine = onRoute
-            ? '<span class="log-bon-onroute">'
-              + '<span class="log-dot" style="background:' + (_logRouteColorById(b.on_route_id) || '#9a948c') + '"></span>'
-              + 'På rute #' + b.on_route_id
-              + (b.route_sequence ? ' · stop ' + b.route_sequence : '') + '</span>'
-            : '<span class="log-bon-forslag"><span class="log-forslag-note">Beregner…</span></span>';
+        // Allerede bestilt bud (Spor 1 — popout-booking uden rute).
+        var booked = !onRoute && b.delivery_vehicle_id;
+        var routeLine;
+        if (onRoute) {
+            routeLine = '<span class="log-bon-onroute">'
+                + '<span class="log-dot" style="background:' + (_logRouteColorById(b.on_route_id) || '#9a948c') + '"></span>'
+                + 'På rute #' + b.on_route_id
+                + (b.route_sequence ? ' · stop ' + b.route_sequence : '') + '</span>';
+        } else if (booked) {
+            routeLine = '<span class="log-bon-booked">'
+                + _logVehicleIcon(b.delivery_vehicle_type || b.delivery_method) + ' '
+                + _logEsc(b.delivery_vehicle_label || 'Bud bestilt') + ' · booket</span>';
+        } else {
+            routeLine = '<span class="log-bon-forslag"><span class="log-forslag-note">Beregner…</span></span>';
+        }
 
         return '<div class="log-bon' + (onRoute ? ' log-bon-assigned' : '') + '" data-bon-id="' + b.id + '">' +
             '<div class="log-bon-check-cell">' + check + '</div>' +
             '<div class="log-bon-main">' +
               '<div class="log-bon-row1">' +
                 '<span class="log-bon-time">' + _logEsc(b.delivery_time || '–') + '</span>' +
-                '<span class="log-bon-name" data-open-bon="' + b.id + '">' + _logEsc(name) + '</span>' +
+                '<span class="log-bon-name">' + _logEsc(name) + '</span>' +
                 '<span class="log-bon-status status-' + statusCls + '">' + _logEsc(b.status_code || '') + '</span>' +
               '</div>' +
               '<div class="log-bon-addr">' + _logEsc(_logAddr(b)) + '</div>' +
@@ -364,19 +374,27 @@ function _logHighlightMarker(bonId, on) {
     if (el) el.classList.toggle('log-mk-hi', on);
 }
 
+// Klik i checkbox-cellen til venstre vælger/fravælger bonen til en tur
+// (man kan vælge flere bons der køres sammen). Klik andetsteds på rækken
+// åbner bon-draweren. Cellen er bred + fuld højde, så den er nem at ramme
+// uden at ramme drawer-zonen.
 function _logOnBonClick(e) {
-    var openId = e.target.getAttribute('data-open-bon');
-    if (openId && _logOptions.openDrawer) {
-        _logOptions.openDrawer(parseInt(openId, 10));
-        return;
-    }
-    var chk = e.target.closest('.log-bon-check');
-    if (chk) {
-        var id = parseInt(chk.getAttribute('data-bon-id'), 10);
-        if (chk.checked) _logSelected[id] = true;
+    var row = e.target.closest('.log-bon');
+    if (!row) return;
+    var id = parseInt(row.getAttribute('data-bon-id'), 10);
+    if (!id) return;
+    var chk = row.querySelector('.log-bon-check');
+
+    if (e.target.closest('.log-bon-check-cell') && chk) {
+        var sel = (e.target === chk) ? chk.checked : !_logSelected[id];
+        if (e.target !== chk) chk.checked = sel;
+        if (sel) _logSelected[id] = true;
         else delete _logSelected[id];
         _logRenderSelBar();
+        return;
     }
+    // Alt andet på rækken → åbn bon-draweren.
+    if (_logOptions.openDrawer) _logOptions.openDrawer(id);
 }
 
 /* ── Vælg-bar (opret tur) ──────────────────────────────── */
