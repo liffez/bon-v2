@@ -22,6 +22,7 @@ var _blFilter    = 'today';   // 'today' | 'ny' | 'mail' | 'date' | 'all'
 var _blDateValue = '';        // YYYY-MM-DD for date filter
 var _blSearch    = '';
 var _blDebounceTimer = null;
+var _blLastFilter = null;     // sidste loadede filter — bruges til standardsortering ved filterskift
 
 var _blSort = JSON.parse(localStorage.getItem('office_listview_sort') || '{}');
 if (!_blSort.col) { _blSort = { col: 'delivery_time', dir: 'asc' }; }
@@ -333,6 +334,15 @@ function _blUpdateFilterButtons() {
 
 function _blLoadData() {
     var params = {};
+
+    // NY-filteret åbnes sorteret efter leveringsdato (hvornår bonnen skal
+    // leveres). Sættes kun ved selve filterskiftet, så kolonne-klik bagefter
+    // stadig kan ændre sorteringen frit.
+    if (_blFilter === 'ny' && _blLastFilter !== 'ny') {
+        _blSort = { col: 'delivery_date', dir: 'asc' };
+        localStorage.setItem('office_listview_sort', JSON.stringify(_blSort));
+    }
+    _blLastFilter = _blFilter;
 
     switch (_blFilter) {
         case 'today':
