@@ -28,7 +28,7 @@
   <link rel="stylesheet" href="views/opskrifter.css">
   <link rel="stylesheet" href="views/cashflow.css">
   <link rel="stylesheet" href="/assets/leaflet/leaflet.css">
-  <link rel="stylesheet" href="/shared/logistik.css">
+  <link rel="stylesheet" href="/shared/logistik.css?v=2026-05-21">
   <link rel="stylesheet" href="views/logistik-historik.css">
   <link rel="stylesheet" href="../shared/schedule.css">
   <link rel="stylesheet" href="../shared/indkob.css">
@@ -459,6 +459,23 @@
       font-weight: 600;
     }
 
+    /* Ubekræftet web-bestilling — markør i Bon#-cellen */
+    .bl-web-chip {
+      display: inline-block;
+      margin-top: 3px;
+      padding: 1px 6px;
+      border-radius: 8px;
+      background: #fbe9e9;
+      color: #a82828;
+      border: 1px solid #eccaca;
+      font-size: 10px;
+      font-weight: 700;
+      white-space: nowrap;
+      letter-spacing: 0.02em;
+      cursor: help;
+    }
+    .bl-summary-web { color: #a82828; font-weight: 600; cursor: help; }
+
     /* Staff badge */
     .bl-staff-badge {
       display: inline-block;
@@ -731,7 +748,7 @@
   <script src="views/cashflow.js"></script>
   <script src="/shared/supplier_inbox.js"></script>
   <script src="views/ugeoversigt.js"></script>
-  <script src="/shared/logistik.js"></script>
+  <script src="/shared/logistik.js?v=2026-05-21"></script>
   <script src="views/logistik-historik.js"></script>
   <!-- Indkøb (genbruger kitchen-komponenter) -->
   <script src="/shared/product_create.js"></script>
@@ -953,7 +970,7 @@
           { id: 'kalender', label: 'Kalender' },
           { id: 'uge', label: 'Ugeoversigt' },
           { id: 'plan', label: 'Planlægning' },
-          { id: 'nye', label: 'Nye', badge: 'bons_nye' },
+          { id: 'nye', label: 'Ubekræftede', badge: 'bons_nye' },
         ],
         crm: [
           { id: 'pipeline', label: 'Pipeline', def: true },

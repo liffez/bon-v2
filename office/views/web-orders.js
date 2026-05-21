@@ -69,7 +69,7 @@ function initWebOrders(containerEl, opts = {}) {
     _woActive = true;
 
     const topTitle = document.getElementById('office-topbar-title');
-    if (topTitle) topTitle.textContent = 'Nye bestillinger';
+    if (topTitle) topTitle.textContent = 'Ubekræftede web-bestillinger';
 
     _woRenderShell();
     _woLoadData();

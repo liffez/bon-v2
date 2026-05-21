@@ -175,7 +175,10 @@ router.get('/', handle((req, res) => {
                    (ef.entity_type = 'customer' AND ef.entity_id = b.customer_id) OR
                    (ef.entity_type = 'company'  AND ef.entity_id = b.company_id)
                )
-            ) AS flag_count
+            ) AS flag_count,
+            CASE WHEN b.acknowledged_at IS NULL
+                   AND EXISTS (SELECT 1 FROM web_orders wo WHERE wo.bon_id = b.id)
+                 THEN 1 ELSE 0 END AS is_unconfirmed_web
         FROM bons b
         JOIN   status_definitions sd ON b.status_id  = sd.id
         JOIN   locations l           ON b.location_id = l.id
