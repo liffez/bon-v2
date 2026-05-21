@@ -302,7 +302,7 @@ function _f3RenderCp(cp) {
         cvr: 'CVR', nemhandel: 'NemHandel', website: 'web',
         form: 'form', mail: 'mail', manual: 'manuel'
     }[cp.source] || cp.source;
-    const icon = cp.kind === 'email' ? '✉' : '☏';
+    const icon = cp.kind === 'email' ? mailIcon(13) : phoneIcon(13);
     return `
         <div class="f3-cp-row" data-cp-id="${cp.id}">
             <div class="f3-cp-ico f3-cp-ico-${cp.kind}">${icon}</div>
@@ -598,7 +598,7 @@ function _f3RenderDiffRow(f, derived) {
 }
 
 function _f3RenderEnrichCpRow(cp) {
-    const icon = cp.kind === 'email' ? '✉' : '☏';
+    const icon = cp.kind === 'email' ? mailIcon(13) : phoneIcon(13);
     const exists = !!cp.already_exists;
     const valueDisplay = exists
         ? `${escapeHtml(cp.value)} <span class="f3-ct-already">— allerede registreret${cp.existing_is_public === 1 ? ' (offentlig)' : ' (personlig)'}</span>`
@@ -822,7 +822,7 @@ function _f3RenderPasteResults(result) {
     const exists = candidates.filter(c => c.already_exists);
 
     function renderRow(c, idx, defaultChecked) {
-        const icon = c.kind === 'email' ? '✉' : '☏';
+        const icon = c.kind === 'email' ? mailIcon(13) : phoneIcon(13);
         const valLabel = c.already_exists
             ? `${escapeHtml(c.value)} <span class="f3-ct-already">— allerede registreret${c.existing_is_public === 1 ? ' (offentlig)' : ' (personlig)'}</span>`
             : escapeHtml(c.value);

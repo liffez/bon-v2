@@ -284,7 +284,7 @@ function _buildCustomer(c, num, bonDataForDelivery, contextClass) {
     const detailParts = [
         c.phone ? `<div class="detail-row">📞 <a href="tel:${c.phone}" onclick="event.stopPropagation()">${c.phone}</a> <span class="detail-label">${c.name} · Bestiller</span></div>` : '',
         c.company_phone && c.company_phone !== c.phone ? `<div class="detail-row">📞 <a href="tel:${c.company_phone}" onclick="event.stopPropagation()">${c.company_phone}</a> <span class="detail-label">${c.company || c.name} · Dagskontakt</span></div>` : '',
-        c.email ? `<div class="detail-row">✉ <a href="mailto:${c.email}">${c.email}</a></div>` : '',
+        c.email ? `<div class="detail-row">${mailIcon(13)} <a href="mailto:${c.email}">${c.email}</a></div>` : '',
     ].filter(Boolean).join('');
 
     // Delivery block inde i customer details

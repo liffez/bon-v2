@@ -543,3 +543,27 @@
 .info-edit-btn:hover {
     background: var(--brand-primary-light, #f1e6b2);
 }
+
+/* ── INFO MAIL-SEKTION (i bon-info modal) ── */
+.info-mail-section {
+    margin-top: 16px;
+    padding-top: 16px;
+    border-top: 1px solid var(--color-border, #eee);
+}
+.info-mail-bar {
+    margin-top: 10px;
+    display: flex;
+    justify-content: flex-end;
+}
+.info-mail-write {
+    padding: 7px 16px;
+    background: var(--brand-primary, #8e631f);
+    color: #fff;
+    border: none;
+    border-radius: 6px;
+    font: inherit;
+    font-size: 13px;
+    font-weight: 700;
+    cursor: pointer;
+}
+.info-mail-write:hover { opacity: 0.9; }

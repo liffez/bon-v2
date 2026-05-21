@@ -593,6 +593,21 @@ function _ibRender() {
             _ibLinkBarcode(parseInt(pid), varenr, name);
         });
     });
+
+    // Hydrér mail-historik via fælles MailThread-komponent
+    _ibHydrateMail();
+}
+
+/* Fyld mail-historik-placeholders (PO- og leverandør-tråde) med
+   den fælles MailThread-komponent efter _ibRender's innerHTML. */
+function _ibHydrateMail() {
+    if (typeof MailThread === 'undefined') return;
+    _ibContainer.querySelectorAll('.ib-mail-host[data-mt-messages]').forEach(function(el) {
+        var msgs = [];
+        try { msgs = JSON.parse(decodeURIComponent(el.dataset.mtMessages)); } catch (e) { /* tom */ }
+        el.removeAttribute('data-mt-messages');
+        MailThread.renderHistory(el, { messages: msgs, emptyText: 'Ingen beskeder endnu' });
+    });
 }
 
 /* ── Efter kategori (combined view) ────────────────────────────
@@ -1202,7 +1217,7 @@ function _ibRenderManualDialog(g, key, readyItems) {
     h += '<div class="ib-mo-acts">';
     h += '<button class="ib-mo-btn ib-mo-copy" data-ib="mo-copy" data-group="' + key + '">📋 Kopiér liste</button>';
     if (g.contactPhone) h += '<button class="ib-mo-btn ib-mo-tlf" data-ib="mo-phone" data-group="' + key + '">📞 Ring</button>';
-    if (g.contactEmail) h += '<button class="ib-mo-btn ib-mo-mail" data-ib="mo-mail" data-group="' + key + '">✉ Send &amp; bestil</button>';
+    if (g.contactEmail) h += '<button class="ib-mo-btn ib-mo-mail" data-ib="mo-mail" data-group="' + key + '">' + mailIcon(12) + ' Send &amp; bestil</button>';
     h += '<button class="ib-mo-btn ib-mo-ok" data-ib="mo-confirm" data-group="' + key + '">✓ Bekræft bestilt</button>';
     h += '</div></div>';
     return h;
@@ -1776,7 +1791,7 @@ async function _ibConfirmManualOrder(groupKey, sendEmail) {
 
         _ibMoOpen = null;
         if (result && result.email_sent) {
-            _ibToast('Bestilling sendt til ' + g.displayName + ' ✉ (' + items.length + ' varer)');
+            _ibToast('Bestilling sendt til ' + g.displayName + ' (' + items.length + ' varer)');
         } else {
             _ibToast('Bestilling registreret — ' + items.length + ' varer');
         }
@@ -2299,39 +2314,11 @@ function _ibRenderPoMailSection(po) {
     return h;
 }
 
+/* Returnerer en placeholder — fyldes af _ibHydrateMail() efter render
+   med den fælles MailThread-komponent (klik-for-at-folde-ud). */
 function _ibRenderMailMessages(messages) {
-    if (!messages.length) return '<div class="ib-po-mail-empty">Ingen beskeder endnu</div>';
-    var h = '<div class="ib-po-mail-msgs">';
-    for (var i = 0; i < messages.length; i++) {
-        var m = messages[i];
-        var isOut = m.direction === 'out';
-        var time = m.sent_at || m.received_at || m.created_at;
-        var timeStr = time ? _ibFmtDateTime(time) : '';
-        h += '<div class="ib-po-msg ' + (isOut ? 'out' : 'in') + '">';
-        h += '<div class="ib-po-msg-meta">';
-        h += '<span class="ib-po-msg-dir">' + (isOut ? 'Ristet Rug' : _ibEsc(m.from_name || m.from_email || 'Leverandør')) + '</span>';
-        h += '<span class="ib-po-msg-time">' + timeStr + '</span>';
-        if (!isOut && !m.is_read) h += '<span class="ib-po-msg-new">Ny</span>';
-        h += '</div>';
-        h += '<div class="ib-po-msg-text">' + _ibEsc(m.body_text || '').replace(/\n/g, '<br>') + '</div>';
-        h += '</div>';
-    }
-    h += '</div>';
-    return h;
-}
-
-function _ibFmtDateTime(iso) {
-    if (!iso) return '';
-    try {
-        var d = parseServerDate(iso);
-        if (!d) return iso.slice(0, 16);
-        var day = d.getDate();
-        var months = ['jan', 'feb', 'mar', 'apr', 'maj', 'jun', 'jul', 'aug', 'sep', 'okt', 'nov', 'dec'];
-        var mon = months[d.getMonth()];
-        var hrs = String(d.getHours()).padStart(2, '0');
-        var min = String(d.getMinutes()).padStart(2, '0');
-        return day + '. ' + mon + ' ' + hrs + ':' + min;
-    } catch (e) { return iso.slice(0, 16); }
+    var json = encodeURIComponent(JSON.stringify(messages || []));
+    return '<div class="ib-mail-host" data-mt-messages="' + json + '"></div>';
 }
 
 /* ── Supplier mail (fri kommunikation, uafhængigt af PO) ─────── */

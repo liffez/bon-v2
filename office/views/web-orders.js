@@ -262,7 +262,7 @@ function _woRenderCard(b) {
                     <span class="wo-meta-item">📅 ${_woFmtDate(b.delivery_date)} kl. ${time} <span class="${daysClass}">(${_woEscape(daysText)})</span></span>
                     <span class="wo-meta-item">${orderTypeLbl}</span>
                     ${b.pax ? `<span class="wo-meta-item">👥 ${b.pax} pax</span>` : ''}
-                    ${b.customer_email ? `<span class="wo-meta-item">✉️ <a href="mailto:${_woEscape(b.customer_email)}">${_woEscape(b.customer_email)}</a></span>` : ''}
+                    ${b.customer_email ? `<span class="wo-meta-item">${mailIcon(13)} <a href="mailto:${_woEscape(b.customer_email)}">${_woEscape(b.customer_email)}</a></span>` : ''}
                     ${b.customer_phone ? `<span class="wo-meta-item">📞 <a href="tel:${_woEscape(b.customer_phone)}">${_woEscape(b.customer_phone)}</a></span>` : ''}
                     ${companyLine}
                 </div>

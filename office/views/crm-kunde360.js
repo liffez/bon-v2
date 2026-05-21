@@ -912,11 +912,6 @@ function _k3RenderShell() {
             .k3-mail-body { width: 100%; padding: 8px 10px; border-radius: 6px; border: 1px solid var(--color-border); font-size: 13px; resize: vertical; min-height: 100px; font-family: inherit; }
             .k3-mail-body:focus { border-color: var(--brand-primary); outline: none; }
             .k3-mail-send { padding: 8px 20px; border-radius: 6px; border: none; background: var(--brand-primary); color: white; font-size: 13px; font-weight: 600; cursor: pointer; }
-            .k3-mail-msg { padding: 12px; margin-bottom: 10px; border-radius: 14px; max-width: 82%; }
-            .k3-mail-msg.in { background: #f0f4f8; align-self: flex-start; border-bottom-left-radius: 4px; }
-            .k3-mail-msg.out { background: #f0f7f0; align-self: flex-end; border-bottom-right-radius: 4px; }
-            .k3-mail-msg-header { font-size: 11px; color: var(--color-text-dim); margin-bottom: 4px; display: flex; justify-content: space-between; }
-            .k3-mail-msg-body { font-size: 13px; white-space: pre-wrap; line-height: 1.5; }
         </style>
 
         <div class="k3-layout">
@@ -1010,7 +1005,7 @@ function _k3RenderProfile() {
     html += '<div class="k3-contact-section">' +
         '<div class="k3-contact-row"><span class="k3-contact-icon">📞</span>' +
             (c.phone ? '<a href="tel:' + c.phone.replace(/\s/g, '') + '">' + c.phone + '</a>' : '<span style="color:var(--color-text-dim)">—</span>') + '</div>' +
-        '<div class="k3-contact-row"><span class="k3-contact-icon">✉️</span>' +
+        '<div class="k3-contact-row"><span class="k3-contact-icon">' + mailIcon(14) + '</span>' +
             (c.email ? '<a href="mailto:' + c.email + '">' + c.email + '</a>' : '<span style="color:var(--color-text-dim)">—</span>') + '</div>' +
     '</div>';
 
@@ -1548,9 +1543,9 @@ async function _k3RenderMail(el) {
     '</div>';
 
     // Load existing mail threads for this customer's bons + direct customer mail
+    let allMessages = [];
     try {
         const bonsWithMail = _k3Data.orders.filter(o => o.id);
-        let allMessages = [];
         for (const o of bonsWithMail.slice(0, 5)) {
             try {
                 const mailData = await fetchBonMail(o.id);
@@ -1578,36 +1573,20 @@ async function _k3RenderMail(el) {
 
         if (allMessages.length) {
             html += '<h4 style="font-size:11px;text-transform:uppercase;color:var(--color-text-dim);margin:16px 0 8px;">Mail-historik</h4>';
-            html += '<div style="display:flex;flex-direction:column;gap:8px">';
-            html += allMessages.slice(0, 20).map(m => {
-                const dir = m.direction === 'in' ? 'in' : 'out';
-                const who = dir === 'in' ? (m.from_name || m.from_email || 'Ukendt') : 'Ristet Rug';
-                const _k3d = parseServerDate(m.received_at || m.sent_at);
-                const _k3p = n => String(n).padStart(2, '0');
-                const time = _k3d
-                    ? `${_k3d.getFullYear()}-${_k3p(_k3d.getMonth()+1)}-${_k3p(_k3d.getDate())} ${_k3p(_k3d.getHours())}:${_k3p(_k3d.getMinutes())}`
-                    : (m.received_at || m.sent_at || '').substring(0, 16).replace('T', ' ');
-                return '<div class="k3-mail-msg ' + dir + '">' +
-                    '<div class="k3-mail-msg-header">' +
-                        '<span>' + who + (m.bon_number ? ' · #' + m.bon_number : '') + '</span>' +
-                        '<span>' + time + '</span>' +
-                    '</div>' +
-                    '<div style="font-size:12px;font-weight:600;margin-bottom:2px;">' + (m.subject || '') + '</div>' +
-                    '<div class="k3-mail-msg-body">' + ((m.body_text || '').substring(0, 300)) + '</div>' +
-                    (m.attachments && m.attachments.filter(a => a.id).length
-                        ? '<div class="bm-msg-attachments">' + m.attachments.filter(a => a.id).map(a =>
-                            '<a href="' + mailAttachmentUrl(a.id) + '" class="bm-msg-att" target="_blank">📎 ' + (a.filename || 'fil') + ' (' + Math.round((a.size_bytes||0)/1024) + ' KB)</a>'
-                        ).join('') + '</div>'
-                        : '') +
-                '</div>';
-            }).join('');
-            html += '</div>';
+            html += '<div id="k3MailHost"></div>';
         }
     } catch (err) {
         console.error('[k3] Mail load error:', err);
     }
 
     el.innerHTML = html;
+
+    // Mail-historik via fælles MailThread-komponent (klik-for-at-folde-ud).
+    if (allMessages.length && typeof MailThread !== 'undefined') {
+        MailThread.renderHistory(document.getElementById('k3MailHost'), {
+            messages: allMessages.slice(0, 20),
+        });
+    }
 }
 
 let _k3Attachments = [];

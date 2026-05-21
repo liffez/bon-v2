@@ -186,11 +186,11 @@ function _showMailToast(data) {
     var existing = document.querySelector('.mail-toast');
     if (existing) existing.remove();
     var msg = data.unmatched
-        ? '✉ ' + data.count + ' ufordelt' + (data.count > 1 ? 'e' : '') + ' mail'
-        : '✉ Ny mail på bon #' + (data.bon_number || data.bon_id || '?');
+        ? data.count + ' ufordelt' + (data.count > 1 ? 'e' : '') + ' mail'
+        : 'Ny mail på bon #' + (data.bon_number || data.bon_id || '?');
     var toast = document.createElement('div');
     toast.className = 'mail-toast';
-    toast.textContent = msg;
+    toast.innerHTML = mailIcon(15) + ' ' + esc(msg);
     toast.onclick = function() { toast.remove(); };
     document.body.appendChild(toast);
     setTimeout(function() { if (toast.parentNode) toast.remove(); }, 10000);
@@ -408,6 +408,15 @@ function mailIcon(size, extraStyle) {
     var style = 'vertical-align:-2px;flex-shrink:0' + (extraStyle ? ';' + extraStyle : '');
     return '<svg viewBox="0 0 24 24" width="' + s + '" height="' + s + '" fill="currentColor" aria-hidden="true" style="' + style + '">' +
         '<path d="M20 4H4a2 2 0 0 0-2 2v12a2 2 0 0 0 2 2h16a2 2 0 0 0 2-2V6a2 2 0 0 0-2-2zm0 4-8 5-8-5V6l8 5 8-5v2z"/>' +
+        '</svg>';
+}
+
+/* Telefon-ikon — companion til mailIcon() (☏-glyffen er lige så tynd/usynlig). */
+function phoneIcon(size, extraStyle) {
+    var s = size || 14;
+    var style = 'vertical-align:-2px;flex-shrink:0' + (extraStyle ? ';' + extraStyle : '');
+    return '<svg viewBox="0 0 24 24" width="' + s + '" height="' + s + '" fill="currentColor" aria-hidden="true" style="' + style + '">' +
+        '<path d="M6.6 10.8a15.5 15.5 0 0 0 6.6 6.6l2.2-2.2a1 1 0 0 1 1-.24c1.1.37 2.3.57 3.5.57a1 1 0 0 1 1 1V20a1 1 0 0 1-1 1A17 17 0 0 1 3 4a1 1 0 0 1 1-1h3.6a1 1 0 0 1 1 1c0 1.2.2 2.4.57 3.5a1 1 0 0 1-.25 1l-2.2 2.3z"/>' +
         '</svg>';
 }
 

@@ -72,16 +72,8 @@ function _siRenderShell() {
         '.si-preview-link a { color: var(--brand-primary); font-weight: 600; text-decoration: none; }' +
         '.si-preview-link a:hover { text-decoration: underline; }' +
 
-        '.si-msgs { flex: 1; overflow-y: auto; display: flex; flex-direction: column; gap: 10px;' +
+        '.si-msgs { flex: 1; overflow-y: auto;' +
         '  padding: 16px 0; border-top: 1px solid var(--color-border); border-bottom: 1px solid var(--color-border); margin: 8px 0; }' +
-        '.si-msg { padding: 10px 14px; border-radius: 14px; font-size: 13px; max-width: 82%; }' +
-        '.si-msg.out { background: #f0f7f0; align-self: flex-end; border-bottom-right-radius: 4px; }' +
-        '.si-msg.in { background: #f0f4f8; align-self: flex-start; border-bottom-left-radius: 4px; }' +
-        '.si-msg-meta { display: flex; gap: 8px; align-items: center; margin-bottom: 4px; font-size: 11px; }' +
-        '.si-msg-dir { font-weight: 600; color: var(--color-text-dim); }' +
-        '.si-msg-time { color: var(--color-text-dim); }' +
-        '.si-msg-new { background: #e53e3e; color: #fff; font-size: 9px; font-weight: 700; padding: 1px 5px; border-radius: 6px; }' +
-        '.si-msg-text { white-space: pre-wrap; word-break: break-word; line-height: 1.5; }' +
 
         '.si-reply { display: flex; gap: 8px; align-items: flex-end; }' +
         '.si-reply-input { flex: 1; min-height: 50px; max-height: 120px; resize: vertical;' +
@@ -312,26 +304,8 @@ function _siRenderPreview(t, messages) {
     html += '<div class="si-preview-link"><a href="/kitchen/purchasing.html" target="_blank">Gå til indkøb →</a></div>';
     html += '</div>';
 
-    // Messages
-    html += '<div class="si-msgs">';
-    if (!messages.length) {
-        html += '<div class="si-empty">Ingen beskeder i tråden</div>';
-    } else {
-        for (var i = 0; i < messages.length; i++) {
-            var m = messages[i];
-            var isOut = m.direction === 'out';
-            var time = m.sent_at || m.received_at || m.created_at;
-            html += '<div class="si-msg ' + (isOut ? 'out' : 'in') + '">';
-            html += '<div class="si-msg-meta">';
-            html += '<span class="si-msg-dir">' + (isOut ? 'Ristet Rug' : _siEsc(m.from_name || m.from_email || 'Leverandør')) + '</span>';
-            html += '<span class="si-msg-time">' + _siFmtDateTime(time) + '</span>';
-            if (!isOut && !m.is_read) html += '<span class="si-msg-new">Ny</span>';
-            html += '</div>';
-            html += '<div class="si-msg-text">' + _siEsc(m.body_text || '').replace(/\n/g, '<br>') + '</div>';
-            html += '</div>';
-        }
-    }
-    html += '</div>';
+    // Messages — fælles MailThread-komponent (fyldes efter innerHTML)
+    html += '<div class="si-msgs" id="siMsgHost"></div>';
 
     // Reply
     html += '<div class="si-reply">';
@@ -340,6 +314,11 @@ function _siRenderPreview(t, messages) {
     html += '</div>';
 
     previewEl.innerHTML = html;
+
+    MailThread.renderHistory(previewEl.querySelector('#siMsgHost'), {
+        messages: messages,
+        emptyText: 'Ingen beskeder i tråden',
+    });
 }
 
 async function _siSendReply() {

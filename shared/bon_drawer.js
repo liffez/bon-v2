@@ -250,7 +250,7 @@ class BonDrawer {
                 <!-- MAIL -->
                 <div class="drawer-section drawer-mail-section">
                     <label class="drawer-label drawer-mail-toggle" onclick="this.closest('.drawer-mail-section').classList.toggle('open')">
-                        ✉ Mail <span class="drawer-mail-badge" id="drawerMailBadge"></span>
+                        ${mailIcon(15)} Mail <span class="drawer-mail-badge" id="drawerMailBadge"></span>
                         <span class="drawer-mail-arrow">▾</span>
                     </label>
                     <div class="drawer-mail-content">
@@ -282,7 +282,7 @@ class BonDrawer {
                                 <div id="drawerMailAttachments" class="bm-attachments"></div>
                                 <div class="bm-compose-actions">
                                     <button type="button" class="bm-attach" onclick="_drawerAttachFile()">📎 Vedhæft</button>
-                                    <button type="button" class="bm-send" id="drawerMailSendBtn" onclick="_drawerSendMail()">✉ Send</button>
+                                    <button type="button" class="bm-send" id="drawerMailSendBtn" onclick="_drawerSendMail()">${mailIcon(13)} Send</button>
                                 </div>
                             </div>
                         </div>
@@ -818,36 +818,16 @@ class BonDrawer {
                     + (templates || []).map(t => '<option value="' + esc(t.key) + '">' + esc(t.label || t.key) + '</option>').join('');
             }
 
-            // Render history
-            const allMsgs = [];
-            (mailData.threads || []).forEach(t => (t.messages || []).forEach(m => allMsgs.push(m)));
-            allMsgs.sort((a, b) => new Date(b.received_at || b.sent_at || b.created_at) - new Date(a.received_at || a.sent_at || a.created_at));
-
-            const unread = allMsgs.filter(m => m.direction === 'in' && !m.is_read).length;
+            // Render history via fælles MailThread-komponent
+            const unread = MailThread.normalize({ threads: mailData.threads })
+                .filter(m => m.direction === 'in' && !m.is_read).length;
             if (badgeEl) badgeEl.textContent = unread ? unread + ' ulæst' : '';
 
-            if (allMsgs.length === 0) {
-                histEl.innerHTML = '<div style="color:var(--color-text-dim);font-size:12px;padding:4px;font-style:italic">Ingen mails endnu</div>';
-            } else {
-                histEl.innerHTML = allMsgs.map(m => {
-                    const isIn = m.direction === 'in';
-                    const isUnread = isIn && !m.is_read;
-                    const from = isIn ? (m.from_name || m.from_email || '?') : 'Ristet Rug';
-                    const dateStr = _fmtMailDate(m.received_at || m.sent_at || m.created_at);
-                    const body = (m.body_text || '').slice(0, 150).replace(/\n/g, ' ');
-                    return '<div class="bm-msg ' + (isIn ? 'bm-in' : 'bm-out') + (isUnread ? ' bm-unread' : '') + '"'
-                        + (isUnread ? ' onclick="_markMailRead(\'' + this.bonId + '\',' + m.id + ',this)"' : '') + '>'
-                        + '<div class="bm-msg-header"><span class="bm-msg-from">' + esc(from) + '</span><span class="bm-msg-date">' + dateStr + '</span></div>'
-                        + '<div class="bm-msg-subject">' + esc(m.subject || '') + '</div>'
-                        + '<div class="bm-msg-body">' + esc(body) + (body.length >= 150 ? '…' : '') + '</div>'
-                        + (m.attachments && m.attachments.filter(a => a.id).length
-                            ? '<div class="bm-msg-attachments">' + m.attachments.filter(a => a.id).map(a =>
-                                '<a href="' + mailAttachmentUrl(a.id) + '" class="bm-msg-att" target="_blank">📎 ' + esc(a.filename) + ' (' + Math.round((a.size_bytes||0)/1024) + ' KB)</a>'
-                            ).join('') + '</div>'
-                            : '')
-                        + '</div>';
-                }).join('');
-            }
+            MailThread.renderHistory(histEl, {
+                threads: mailData.threads,
+                emptyText: 'Ingen mails endnu',
+                onMarkRead: (id) => markBonMailRead(this.bonId, id),
+            });
         } catch (err) {
             histEl.innerHTML = '<div style="color:var(--color-red);font-size:12px;padding:4px">Fejl: ' + esc(err.message) + '</div>';
         }
@@ -1527,8 +1507,8 @@ async function _drawerSendMail() {
         document.getElementById('drawerMailTemplate').value = '';
         _drawerAttachments = [];
         _drawerRenderAttachmentPills();
-        btn.textContent = '✉ Sendt!';
-        setTimeout(() => { btn.textContent = '✉ Send'; btn.disabled = false; }, 2000);
+        btn.innerHTML = mailIcon(13) + ' Sendt!';
+        setTimeout(() => { btn.innerHTML = mailIcon(13) + ' Send'; btn.disabled = false; }, 2000);
         // Reload mail section
         if (_drawerInstance.data) _drawerInstance._loadMail(_drawerInstance.data);
     } catch (err) {

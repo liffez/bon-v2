@@ -742,9 +742,13 @@ function closeRecipePicker(cardId) {
    ══════════════════════════════════════════════════════════════ */
 
 var _mailTemplates = null; // cache
+var _bmAttachments = [];   // vedhæftninger til igangværende mail
+var _bmBonId = null;
 
 async function openBonMail(cardId) {
     const bonId = cardId.replace('bon', '');
+    _bmBonId = bonId;
+    _bmAttachments = [];
     openModal({ title: 'Mail — Henter...', bodyHtml: '<div style="text-align:center;padding:24px;color:var(--color-text-dim)">Henter mails…</div>' });
 
     try {
@@ -762,11 +766,20 @@ async function openBonMail(cardId) {
         const vars = _buildMailVars(bon);
 
         openModal({
-            title: '✉ Mail — #' + esc(String(bonNr)),
-            bodyHtml: _renderMailModal(bonId, email, threads, templates, vars)
+            title: mailIcon(17) + ' Mail — #' + esc(String(bonNr)),
+            bodyHtml: _renderMailModal(bonId, email, templates, vars)
+        });
+
+        // Historik via fælles MailThread-komponent (klik-for-at-folde-ud).
+        MailThread.renderHistory(document.getElementById('bmHistoryHost'), {
+            threads: threads,
+            header: 'Korrespondance',
+            emptyText: 'Ingen korrespondance endnu',
+            maxHeight: 340,
+            onMarkRead: (id) => markBonMailRead(bonId, id),
         });
     } catch (err) {
-        openModal({ title: '✉ Mail', bodyHtml: '<div class="bm-error">Fejl: ' + esc(err.message) + '</div>' });
+        openModal({ title: mailIcon(17) + ' Mail', bodyHtml: '<div class="bm-error">Fejl: ' + esc(err.message) + '</div>' });
     }
 }
 
@@ -818,44 +831,11 @@ function _buildMailVars(bon) {
     };
 }
 
-function _renderMailModal(bonId, email, threads, templates, vars) {
+function _renderMailModal(bonId, email, templates, vars) {
     const _esc = typeof esc === 'function' ? esc : (s) => String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
 
-    // ── HISTORIK ──────────────────────────────────────────
-    let histHtml = '';
-    let totalUnread = 0;
-    const allMsgs = [];
-    threads.forEach(t => (t.messages || []).forEach(m => { m._threadSubject = t.subject; allMsgs.push(m); }));
-    allMsgs.sort((a, b) => new Date(b.received_at || b.sent_at || b.created_at) - new Date(a.received_at || a.sent_at || a.created_at));
-
-    if (allMsgs.length > 0) {
-        const unread = allMsgs.filter(m => m.direction === 'in' && !m.is_read);
-        totalUnread = unread.length;
-
-        histHtml = '<div class="bm-history">';
-        histHtml += '<div class="bm-history-header">Korrespondance' + (totalUnread ? ' <span class="bm-badge">' + totalUnread + ' ulæst</span>' : '') + '</div>';
-        histHtml += '<div class="bm-messages">';
-        allMsgs.forEach(m => {
-            const isIn = m.direction === 'in';
-            const isUnread = isIn && !m.is_read;
-            const dateStr = _fmtMailDate(m.received_at || m.sent_at || m.created_at);
-            const from = isIn ? (m.from_name || m.from_email || '?') : 'Ristet Rug';
-            const bodyPreview = (m.body_text || '').slice(0, 200).replace(/\n/g, ' ');
-            const readClick = isUnread ? ' onclick="_markMailRead(\'' + bonId + '\',' + m.id + ',this)"' : '';
-
-            histHtml += '<div class="bm-msg ' + (isIn ? 'bm-in' : 'bm-out') + (isUnread ? ' bm-unread' : '') + '"' + readClick + '>';
-            histHtml += '<div class="bm-msg-header"><span class="bm-msg-from">' + _esc(from) + '</span><span class="bm-msg-date">' + dateStr + '</span></div>';
-            histHtml += '<div class="bm-msg-subject">' + _esc(m.subject || '') + '</div>';
-            histHtml += '<div class="bm-msg-body">' + _esc(bodyPreview) + (bodyPreview.length >= 200 ? '…' : '') + '</div>';
-            if (m.attachments && m.attachments.length > 0) {
-                histHtml += '<div class="bm-msg-attach">📎 ' + m.attachments.map(a => _esc(a.filename)).join(', ') + '</div>';
-            }
-            histHtml += '</div>';
-        });
-        histHtml += '</div></div>';
-    } else {
-        histHtml = '<div class="bm-no-mail">Ingen korrespondance endnu</div>';
-    }
+    // Historik fyldes ind af MailThread.renderHistory efter modal er åbnet.
+    const histHtml = '<div id="bmHistoryHost" class="bm-history"></div>';
 
     // ── COMPOSE ──────────────────────────────────────────
     const tmplOptions = (templates || []).map(t =>
@@ -884,15 +864,57 @@ function _renderMailModal(bonId, email, threads, templates, vars) {
                 <label>Besked</label>
                 <textarea id="bmBody" rows="8" placeholder="Skriv besked…"></textarea>
             </div>
+            <input type="file" id="bmFile" accept=".pdf,.jpg,.jpeg,.png,.gif,.xlsx,.docx" style="display:none" onchange="_bmOnFileSelected(this)">
+            <div id="bmAttachments" class="bm-attachments"></div>
             <div class="bm-compose-actions">
+                <button class="bm-attach" id="bmAttachBtn" onclick="_bmAttachFile()">📎 Vedhæft</button>
                 <button class="bm-cancel" onclick="closeModal()">Annuller</button>
-                <button class="bm-send" id="bmSendBtn" onclick="_doSendBonMail('${bonId}')">✉ Send</button>
+                <button class="bm-send" id="bmSendBtn" onclick="_doSendBonMail('${bonId}')">${mailIcon(13)} Send</button>
             </div>
         </div>`;
 
     // Store vars for template application
     return '<div class="bm-container" data-vars=\'' + JSON.stringify(vars).replace(/'/g, '&#39;') + '\'>'
         + histHtml + composeHtml + '</div>';
+}
+
+/* ── Vedhæftninger i bon-mail-modal ──────────────────────── */
+function _bmAttachFile() {
+    if (_bmAttachments.length >= 5) { alert('Max 5 vedhæftninger per mail'); return; }
+    document.getElementById('bmFile').click();
+}
+
+async function _bmOnFileSelected(input) {
+    const file = input.files[0];
+    if (!file) return;
+    input.value = '';
+    if (file.size > 10 * 1024 * 1024) { alert('Fil er for stor (max 10 MB)'); return; }
+
+    const btn = document.getElementById('bmAttachBtn');
+    if (btn) { btn.disabled = true; btn.textContent = 'Uploader…'; }
+    try {
+        const result = await uploadAttachment(file, 'bon', _bmBonId ? parseInt(_bmBonId) : null);
+        _bmAttachments.push(result);
+        _bmRenderAttachmentPills();
+    } catch (err) {
+        alert('Upload fejl: ' + err.message);
+    } finally {
+        if (btn) { btn.disabled = false; btn.textContent = '📎 Vedhæft'; }
+    }
+}
+
+function _bmRenderAttachmentPills() {
+    const el = document.getElementById('bmAttachments');
+    if (!el) return;
+    el.innerHTML = _bmAttachments.map((a, i) =>
+        '<span class="bm-att-pill">📎 ' + esc(a.filename) + ' (' + Math.round((a.size_bytes || 0) / 1024) + ' KB)'
+        + '<span class="bm-att-remove" onclick="_bmRemoveAttachment(' + i + ')"> ✕</span></span>'
+    ).join('');
+}
+
+function _bmRemoveAttachment(index) {
+    _bmAttachments.splice(index, 1);
+    _bmRenderAttachmentPills();
 }
 
 function _fmtMailDate(isoStr) {
@@ -904,15 +926,6 @@ function _fmtMailDate(isoStr) {
     const hr = String(d.getHours()).padStart(2, '0');
     const min = String(d.getMinutes()).padStart(2, '0');
     return day + '/' + mon + ' ' + hr + ':' + min;
-}
-
-async function _markMailRead(bonId, msgId, el) {
-    if (el) el.classList.remove('bm-unread');
-    try {
-        await markBonMailRead(bonId, msgId);
-    } catch (err) {
-        console.error('[mail] Markér læst fejl:', err);
-    }
 }
 
 async function _applyMailTemplate(bonId) {
@@ -957,12 +970,17 @@ async function _doSendBonMail(bonId) {
     btn.textContent = 'Sender…';
 
     try {
-        await sendBonMail(bonId, { to, subject, text });
+        const data = { to, subject, text };
+        if (_bmAttachments.length > 0) {
+            data.attachments = _bmAttachments.map(a => ({ attachment_id: a.attachment_id }));
+        }
+        await sendBonMail(bonId, data);
+        _bmAttachments = [];
         closeModal();
         // Toast
         const toast = document.createElement('div');
         toast.className = 'bm-toast';
-        toast.textContent = '✉ Mail sendt til ' + to;
+        toast.innerHTML = mailIcon(15) + ' Mail sendt til ' + esc(to);
         document.body.appendChild(toast);
         setTimeout(() => toast.remove(), 4000);
     } catch (err) {

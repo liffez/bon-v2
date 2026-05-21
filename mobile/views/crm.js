@@ -197,7 +197,7 @@ async function _mcLoadCalls() {
                         ? '<a class="m-crm-btn primary" href="tel:' + phone + '">📞 Ring</a>'
                         : '<button class="m-crm-btn primary" data-action="log" data-idx="' + i + '">📞 Log</button>') +
                     (phone ? '<a class="m-crm-btn" href="sms:' + phone + '">💬 SMS</a>' : '') +
-                    (email ? '<a class="m-crm-btn" href="mailto:' + email + '">✉</a>' : '') +
+                    (email ? '<a class="m-crm-btn" href="mailto:' + email + '">' + mailIcon(15) + '</a>' : '') +
                     '<button class="m-crm-btn" data-action="expand" data-idx="' + i + '">▼ Ordrer</button>' +
                     '<button class="m-crm-btn" data-action="done" data-idx="' + i + '">✓</button>' +
                 '</div>' +
@@ -302,7 +302,7 @@ function _mcShowLogForm(idx) {
                 '<button class="m-svc-btn" data-r="no_answer" title="Intet svar">✗ Ikke</button>' +
                 '<button class="m-svc-btn" data-r="voicemail" title="Lagde besked">Besked</button>' +
                 '<button class="m-svc-btn" data-r="callback" title="Skal ringes tilbage">Ring tb</button>' +
-                '<button class="m-svc-btn" data-r="email_instead" title="Sendte mail">✉ Mail</button>' +
+                '<button class="m-svc-btn" data-r="email_instead" title="Sendte mail">' + mailIcon(12) + ' Mail</button>' +
             '</div>' +
             _mcDueChipsHtml() +
             _mcPurposeChipsHtml() +
@@ -742,7 +742,7 @@ async function _mcShowCustomer(customerId) {
         html += '<button class="m-svc-btn" data-r="no_answer" title="Intet svar">✗ Ikke</button>';
         html += '<button class="m-svc-btn" data-r="voicemail" title="Lagde besked">Besked</button>';
         html += '<button class="m-svc-btn" data-r="callback" title="Skal ringes tilbage">Ring tb</button>';
-        html += '<button class="m-svc-btn" data-r="email_instead" title="Sendte mail">✉ Mail</button>';
+        html += '<button class="m-svc-btn" data-r="email_instead" title="Sendte mail">' + mailIcon(12) + ' Mail</button>';
         html += '</div>';
         html += _mcDueChipsHtml();
         html += '</div>';
@@ -878,7 +878,7 @@ var _MC_TYPE_LABEL = {
     meeting:      { ico: '📅', label: 'Møde' },
     task:         { ico: '✓',  label: 'Opgave' },
     followup:     { ico: '🔔', label: 'Opfølgning' },
-    email_in:     { ico: '✉',  label: 'Mail ind' },
+    email_in:     { ico: mailIcon(14), label: 'Mail ind' },
     email_out:    { ico: '📨', label: 'Mail ud' },
     offer_sent:   { ico: '🤝', label: 'Tilbud sendt' },
 };
