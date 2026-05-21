@@ -403,6 +403,7 @@ function _mbRenderNye() {
     var groups = _mbGroupEventsByTime(_mbNyeEvents);
     ['now', 'today', 'yesterday', 'older'].forEach(function(key) {
         if (!groups[key].length) return;
+        groups[key].sort(_mbCompareByDelivery);
         html += '<div class="m-section-head">' + _mbGroupLabel(key) + '</div>';
         groups[key].forEach(function(ev) {
             html += _mbRenderNyeCard(ev);
@@ -512,6 +513,23 @@ function _mbGroupEventsByTime(events) {
 
 function _mbGroupLabel(key) {
     return { now: 'Lige nu', today: 'Tidligere i dag', yesterday: 'I går', older: 'Ældre' }[key];
+}
+
+// Sortér events efter leveringsdato (+ -tid). Events uden dato lægges nederst.
+function _mbCompareByDelivery(a, b) {
+    var ad = (a.bon && a.bon.delivery_date) || '';
+    var bd = (b.bon && b.bon.delivery_date) || '';
+    if (ad !== bd) {
+        if (!ad) return 1;
+        if (!bd) return -1;
+        return ad < bd ? -1 : 1;
+    }
+    var at = (a.bon && a.bon.delivery_time) || '';
+    var bt = (b.bon && b.bon.delivery_time) || '';
+    if (at === bt) return 0;
+    if (!at) return 1;
+    if (!bt) return -1;
+    return at < bt ? -1 : 1;
 }
 
 function _mbFormatRelative(iso) {
