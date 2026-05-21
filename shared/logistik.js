@@ -315,6 +315,19 @@ function _logRenderBons() {
               + (b.route_sequence ? ' · stop ' + b.route_sequence : '') + '</span>'
             : '<span class="log-bon-forslag"><span class="log-forslag-note">Beregner…</span></span>';
 
+        var addrText = _logAddr(b);
+        var addrHtml = addrText
+            ? '<a class="log-bon-addr log-bon-addr-link" draggable="false"'
+              + ' href="https://www.google.com/maps/search/?api=1&query='
+              + encodeURIComponent(addrText) + '" target="_blank" rel="noopener"'
+              + ' title="Åbn i Google Maps">'
+              + '<svg class="log-addr-pin" viewBox="0 0 24 24" fill="none"'
+              + ' stroke="currentColor" stroke-width="2.2">'
+              + '<path d="M21 10c0 7-9 13-9 13s-9-6-9-13a9 9 0 0118 0z"/>'
+              + '<circle cx="12" cy="10" r="3"/></svg>'
+              + _logEsc(addrText) + '</a>'
+            : '<div class="log-bon-addr"></div>';
+
         return '<div class="log-bon' + (onRoute ? ' log-bon-assigned' : '') + '" data-bon-id="' + b.id + '">' +
             '<div class="log-bon-check-cell">' + check + '</div>' +
             '<div class="log-bon-main">' +
@@ -323,7 +336,7 @@ function _logRenderBons() {
                 '<span class="log-bon-name" data-open-bon="' + b.id + '">' + _logEsc(name) + '</span>' +
                 '<span class="log-bon-status status-' + statusCls + '">' + _logEsc(b.status_code || '') + '</span>' +
               '</div>' +
-              '<div class="log-bon-addr">' + _logEsc(_logAddr(b)) + '</div>' +
+              addrHtml +
               '<div class="log-bon-meta">' + routeLine + '</div>' +
             '</div>' +
         '</div>';

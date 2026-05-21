@@ -634,20 +634,6 @@ function cancelQtyEdit(qtyEl) {
 var _cardPickers = {};
 
 /**
- * Åbn Google Maps med bonens leveringsadresse.
- * Simpel placeholder — erstattes af logistikmodul senere.
- */
-function openMap(cardId) {
-    const card = document.getElementById(cardId);
-    if (!card) return;
-    const addrEl = card.querySelector('.customer-address');
-    const addr = addrEl ? addrEl.textContent.trim() : '';
-    if (!addr || addr === 'Afhentes') return;
-    const q = encodeURIComponent(addr);
-    window.open(`https://www.google.com/maps/search/?api=1&query=${q}`, '_blank');
-}
-
-/**
  * Åbn logistik-viewet fokuseret på denne bon.
  * Office definerer window.openLogistikForBon (skifter SPA-view); ellers
  * (køkken-zonen) navigeres til kitchen/logistik.html.
