@@ -321,8 +321,10 @@ async function showBonInfo(cardIdOrBonId, options) {
         if (body) {
             body.innerHTML = _buildBonInfoHtml(bon);
 
-            // Mail-historik (async, non-blocking)
-            _loadInfoMail(bonId, body);
+            // Mail-historik (async, non-blocking) + changelog efter mail
+            _loadInfoMail(bonId, body).then(function() {
+                _loadInfoHistorik(bonId, body);
+            });
 
             // Knap-sektion (Gå til bon + Rediger)
             if (opts.showGotoButton || opts.showEditButton) {
@@ -407,6 +409,49 @@ async function _loadInfoMail(bonId, bodyEl) {
     } catch (err) {
         // Stille fejl — mail er ikke kritisk for info-modal
         console.warn('[info-mail]', err.message);
+    }
+}
+
+/**
+ * Hent og vis changelog i info-modalen som sammenklappelig sektion (non-blocking).
+ * Historik er foldet ind i Info, så bon-kortet ikke behøver et separat ikon.
+ */
+async function _loadInfoHistorik(bonId, bodyEl) {
+    if (typeof fetchBonChangelog !== 'function') return;
+    try {
+        const entries = await fetchBonChangelog(bonId);
+        if (!entries || entries.length === 0) return;
+
+        const section = document.createElement('div');
+        section.className = 'info-historik-section';
+
+        const toggle = document.createElement('button');
+        toggle.type = 'button';
+        toggle.className = 'info-historik-toggle';
+        toggle.innerHTML = '<span>Historik (' + entries.length + ')</span>'
+            + '<span class="info-historik-caret">▾</span>';
+
+        const list = document.createElement('div');
+        list.className = 'info-historik-list';
+        list.hidden = true;
+        list.innerHTML = '<div class="changelog-list">'
+            + entries.map(_buildChangelogEntry).join('') + '</div>';
+
+        toggle.addEventListener('click', function() {
+            const open = list.hidden;
+            list.hidden = !open;
+            section.classList.toggle('open', open);
+        });
+
+        section.appendChild(toggle);
+        section.appendChild(list);
+
+        const gotoSection = bodyEl.querySelector('.info-goto-section');
+        if (gotoSection) bodyEl.insertBefore(section, gotoSection);
+        else bodyEl.appendChild(section);
+    } catch (err) {
+        // Stille fejl — historik er ikke kritisk for info-modal
+        console.warn('[info-historik]', err.message);
     }
 }
 

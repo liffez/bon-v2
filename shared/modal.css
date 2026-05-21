@@ -567,3 +567,34 @@
     cursor: pointer;
 }
 .info-mail-write:hover { opacity: 0.9; }
+
+/* Historik foldet ind i info-modalen */
+.info-historik-section {
+    margin-top: 16px;
+    padding-top: 16px;
+    border-top: 1px solid var(--color-border, #eee);
+}
+.info-historik-toggle {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    width: 100%;
+    padding: 0;
+    background: none;
+    border: none;
+    cursor: pointer;
+    font: inherit;
+    font-size: 11px;
+    font-weight: 700;
+    text-transform: uppercase;
+    letter-spacing: 0.06em;
+    color: var(--color-text-dim, #8a8580);
+}
+.info-historik-toggle:hover { color: var(--brand-primary, #8e631f); }
+.info-historik-caret { transition: transform 0.15s; }
+.info-historik-section.open .info-historik-caret { transform: rotate(180deg); }
+.info-historik-list {
+    margin-top: 10px;
+    max-height: 280px;
+    overflow-y: auto;
+}
