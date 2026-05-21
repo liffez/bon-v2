@@ -708,6 +708,13 @@ var _searchTerm = '';
 function _renderList() {
     var content = document.getElementById('calContent');
     if (!content || !_calendarData) return;
+
+    // Bevar søgefelt-fokus + markørposition på tværs af re-render
+    var prevInput = content.querySelector('.cal-list-search-input');
+    var hadFocus  = prevInput && document.activeElement === prevInput;
+    var selStart  = prevInput ? prevInput.selectionStart : null;
+    var selEnd    = prevInput ? prevInput.selectionEnd : null;
+
     content.innerHTML = '';
 
     // Søgefelt
@@ -844,6 +851,14 @@ function _renderList() {
 
     content.appendChild(table);
     _applyFilters();
+
+    // Gendan fokus + markør efter innerHTML-replace
+    if (hadFocus) {
+        searchInput.focus();
+        if (selStart != null) {
+            try { searchInput.setSelectionRange(selStart, selEnd); } catch (e) {}
+        }
+    }
 }
 
 /* ══════════════════════════════════════════════════════════════
