@@ -92,15 +92,39 @@ router.post('/test', requireAuth('admin'), handle(async (req, res) => {
 
     const key = templateKey || 'booking_confirmation';
 
+    // Dækker alle variabler skabelonerne kan bruge (jf. TEMPLATE_VARS i
+    // settings/index.html + _buildMailVars i bon_kort.js/bon_drawer.js).
+    // renderTemplate lader ukendte {{variabler}} stå som literal tekst, så
+    // test-mailen skal kende dem alle for at vise en realistisk forhåndsvisning.
     const dummyVars = {
         kundeNavn: 'Test Kunde',
         bonNummer: '9999',
-        leveringsDato: '2026-01-01',
-        leveringsTidspunkt: '12:00',
-        leveringsAdresse: 'Testvej 42, 2200 København N',
+        firmanavn: 'Ristet Rug',
+        telefon: '22 95 88 45',
         pax: '25',
         ekstraInfo: 'Dette er en testmail.',
-        firmanavn: 'Ristet Rug'
+
+        leveringsDato: '2026-01-01',
+        leveringsTidspunkt: '12:00',
+        leveringsTid: '12:00',
+        leveringsAdresse: 'Testvej 42, 2200 København N',
+        postnummer: '2200',
+        adresseBlok: 'Testvej 42\n2200 København N',
+        ordreType: 'Levering',
+        oenskerBlok: 'Ingen særlige ønsker',
+
+        menuUdenPriser: '25× Grisen på Rug\n10× Falaflen\n8× Tunsalat',
+        menuMedPriser: '25× Grisen på Rug  2.350,00 kr\n10× Falaflen  940,00 kr\n8× Tunsalat  752,00 kr',
+        totalPris: '4.042,00 kr',
+        totalExMoms: '3.233,60 kr',
+        momsBeloeb: '808,40 kr',
+        co2PerLinje: 'Grisen på Rug: 0,42 kg CO₂e × 25 = 10.50',
+        co2Total: '12,50 kg CO₂e',
+
+        leverandoer: 'Hørkram',
+        vareliste: '2× Rugbrød\n5× Smør\n3× Pålæg',
+        dato: '2026-01-01',
+        leveringsdato: '2026-01-03'
     };
 
     try {
