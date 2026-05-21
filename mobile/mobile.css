@@ -1303,3 +1303,443 @@ body.m-modtag-active .m-content { padding-bottom: 0; }
     border-radius: 2px;
     font-weight: 700;
 }
+
+/* ════════════════════════════════════════════════════════════
+   COURIER — levering.js (Delivery Spor 2 · S2.3)
+   ════════════════════════════════════════════════════════════ */
+
+/* Tom-tilstand */
+.m-lv-empty {
+    text-align: center;
+    padding: 56px 24px;
+    color: var(--color-text-dim);
+}
+.m-lv-empty-icon { font-size: 44px; margin-bottom: 12px; }
+.m-lv-empty-sub { font-size: 13px; margin-top: 6px; }
+
+/* ── Rute-header ── */
+.m-lv-route {
+    background: var(--brand-primary-light);
+    margin: 8px 12px 0;
+    border-radius: 12px;
+    padding: 12px 14px;
+}
+.m-lv-route-top { display: flex; align-items: center; gap: 12px; }
+.m-lv-route-veh {
+    width: 48px; height: 48px;
+    border-radius: 50%;
+    display: flex; align-items: center; justify-content: center;
+    font-size: 22px;
+    flex-shrink: 0;
+}
+.m-lv-route-info { flex: 1; min-width: 0; }
+.m-lv-route-name { font-size: 16px; font-weight: 700; }
+.m-lv-route-stats { font-size: 13px; color: var(--color-text-dim); margin-top: 2px; }
+.m-lv-depart-btn {
+    width: 100%;
+    margin-top: 12px;
+    height: 52px;
+    background: var(--brand-primary);
+    color: #fff;
+    border: 0;
+    border-radius: 10px;
+    font-family: inherit;
+    font-size: 16px;
+    font-weight: 700;
+    cursor: pointer;
+}
+.m-lv-depart-btn:active { background: #6d4c14; }
+.m-lv-route-done,
+.m-lv-route-progress {
+    margin-top: 10px;
+    font-size: 13px;
+    font-weight: 700;
+    color: var(--color-text-dim);
+    text-align: center;
+}
+.m-lv-route-done { color: var(--color-green-dark); }
+
+/* ── Stop-kort ── */
+.m-lv-stop {
+    display: flex;
+    background: var(--color-surface);
+    margin: 8px 12px 0;
+    border: 1px solid var(--color-border);
+    border-radius: 12px;
+    overflow: hidden;
+    cursor: pointer;
+}
+.m-lv-stop:active { background: var(--brand-primary-light); }
+.m-lv-stop.done { opacity: 0.62; }
+.m-lv-stop-seq {
+    width: 56px;
+    flex-shrink: 0;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    color: #fff;
+    font-weight: 900;
+    background: var(--color-text-dim);
+}
+.m-lv-stop-seq.leveret { background: var(--color-green-dark); }
+.m-lv-stop-seq.problem { background: var(--color-red); }
+.m-lv-stop-num { font-size: 22px; line-height: 1; }
+.m-lv-stop-time { font-size: 11px; margin-top: 3px; opacity: 0.9; }
+.m-lv-stop-body { flex: 1; min-width: 0; padding: 10px 12px; }
+.m-lv-stop-cust { font-size: 15px; font-weight: 700; }
+.m-lv-stop-addr { font-size: 13px; color: var(--color-text-dim); margin-top: 1px; }
+.m-lv-stop-meta { font-size: 12px; color: var(--color-text-dim); margin-top: 3px; }
+
+.m-lv-badge {
+    display: inline-block;
+    font-size: 10px;
+    font-weight: 700;
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+    padding: 2px 8px;
+    border-radius: 4px;
+    margin-top: 6px;
+}
+.m-lv-badge.leveret { background: var(--color-green); color: #2f4716; }
+.m-lv-badge.problem { background: #fadcdc; color: var(--color-red); }
+.m-lv-badge.klar    { background: #fff3d6; color: #8a6500; }
+
+/* ── Detalje ── */
+.m-lv-detail-head {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 10px 12px 2px;
+}
+.m-lv-back {
+    background: transparent;
+    border: 0;
+    font-family: inherit;
+    font-size: 15px;
+    font-weight: 700;
+    color: var(--brand-primary);
+    cursor: pointer;
+    padding: 4px 0;
+}
+.m-lv-detail-pos { font-size: 13px; color: var(--color-text-dim); }
+
+.m-lv-card {
+    background: var(--color-surface);
+    margin: 8px 12px 0;
+    border: 1px solid var(--color-border);
+    border-radius: 12px;
+    padding: 14px;
+}
+.m-lv-card-title {
+    font-size: 11px;
+    font-weight: 700;
+    color: var(--color-text-dim);
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+    margin-bottom: 6px;
+}
+.m-lv-addr-big { font-size: 15px; font-weight: 700; margin-bottom: 12px; }
+.m-lv-nav-btn {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    height: 52px;
+    background: var(--brand-primary);
+    color: #fff;
+    border-radius: 10px;
+    font-size: 15px;
+    font-weight: 700;
+    text-decoration: none;
+}
+.m-lv-nav-btn:active { background: #6d4c14; }
+
+/* Pickup-info */
+.m-lv-pickup {
+    display: flex;
+    margin: 8px 12px 0;
+    border-radius: 12px;
+    overflow: hidden;
+    background: var(--color-text);
+    color: #fff;
+}
+.m-lv-pickup-boxes {
+    background: var(--brand-primary);
+    min-width: 84px;
+    padding: 12px;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+}
+.m-lv-pickup-num { font-size: 34px; font-weight: 900; line-height: 1; }
+.m-lv-pickup-lbl { font-size: 10px; text-transform: uppercase; letter-spacing: 1px; margin-top: 2px; opacity: 0.85; }
+.m-lv-pickup-bon { flex: 1; padding: 10px 14px; display: flex; flex-direction: column; justify-content: center; }
+.m-lv-pickup-bonlbl { font-size: 10px; text-transform: uppercase; letter-spacing: 0.8px; opacity: 0.6; }
+.m-lv-pickup-bonnum { font-size: 21px; font-weight: 900; }
+.m-lv-pickup-cust { font-size: 14px; opacity: 0.85; margin-top: 2px; }
+
+/* Kontakt */
+.m-lv-contact-head {
+    display: flex;
+    align-items: baseline;
+    justify-content: space-between;
+    gap: 8px;
+}
+.m-lv-contact-lbl {
+    font-size: 10px;
+    font-weight: 700;
+    color: var(--color-text-dim);
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+}
+.m-lv-contact-name { font-size: 15px; font-weight: 700; text-align: right; }
+.m-lv-contact-actions { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; margin-top: 10px; }
+.m-lv-contact-btn {
+    height: 46px;
+    border: 1px solid var(--brand-primary);
+    border-radius: 8px;
+    background: var(--brand-primary);
+    color: #fff;
+    font-size: 14px;
+    font-weight: 700;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    text-decoration: none;
+}
+.m-lv-contact-btn:active { background: #6d4c14; }
+.m-lv-contact-phone {
+    text-align: center;
+    font-size: 12px;
+    color: var(--color-text-dim);
+    margin-top: 8px;
+}
+
+/* Leveringsinstruks */
+.m-lv-notes {
+    background: #fff8e1;
+    border: 1px solid #f5d97a;
+    border-radius: 12px;
+    margin: 8px 12px 0;
+    padding: 12px 14px;
+    font-size: 14px;
+    color: #5d4a00;
+    line-height: 1.5;
+}
+.m-lv-notes-lbl {
+    font-size: 11px;
+    font-weight: 700;
+    color: #8a6500;
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+    margin-bottom: 3px;
+}
+
+.m-lv-info-row {
+    display: flex;
+    justify-content: space-between;
+    padding: 7px 0;
+    font-size: 14px;
+    border-bottom: 1px solid var(--color-background);
+}
+.m-lv-info-row:last-child { border-bottom: 0; }
+.m-lv-info-row span { color: var(--color-text-dim); }
+
+.m-lv-item { padding: 5px 0; font-size: 14px; }
+.m-lv-item-qty { color: var(--color-text-dim); margin-right: 8px; }
+
+.m-lv-inc-log { background: #fef5f5; border-color: #f5c8c9; }
+.m-lv-inc-row { font-size: 13px; color: var(--color-red); padding: 3px 0; }
+
+/* Action-bar (detalje) */
+.m-lv-actionbar {
+    position: sticky;
+    bottom: 0;
+    margin-top: 12px;
+    padding: 12px;
+    background: var(--color-surface);
+    border-top: 1px solid var(--color-border);
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+}
+.m-lv-deliver {
+    height: 56px;
+    background: var(--color-green-dark);
+    color: #fff;
+    border: 0;
+    border-radius: 12px;
+    font-family: inherit;
+    font-size: 17px;
+    font-weight: 700;
+    cursor: pointer;
+}
+.m-lv-deliver:active { background: #618e3f; }
+.m-lv-deliver:disabled { opacity: 0.5; }
+.m-lv-problem {
+    height: 48px;
+    background: #fef5f5;
+    color: var(--color-red);
+    border: 1px solid #f5c8c9;
+    border-radius: 10px;
+    font-family: inherit;
+    font-size: 14px;
+    font-weight: 700;
+    cursor: pointer;
+}
+.m-lv-done-state {
+    text-align: center;
+    font-size: 16px;
+    font-weight: 700;
+    padding: 14px;
+    border-radius: 12px;
+}
+.m-lv-done-state.leveret { background: var(--color-green); color: #2f4716; }
+.m-lv-done-state.problem { background: #fadcdc; color: var(--color-red); }
+
+/* ── Problem-flow ── */
+.m-lv-modal { display: flex; flex-direction: column; min-height: 100%; }
+.m-lv-modal-head {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 14px 16px;
+    border-bottom: 1px solid var(--color-border);
+}
+.m-lv-modal-title { font-size: 17px; font-weight: 700; }
+.m-lv-modal-step {
+    font-size: 12px;
+    color: var(--color-text-dim);
+    background: var(--color-background);
+    padding: 4px 10px;
+    border-radius: 12px;
+}
+.m-lv-modal-body { flex: 1; padding: 16px; }
+.m-lv-modal-actions {
+    position: sticky;
+    bottom: 0;
+    display: flex;
+    gap: 8px;
+    padding: 12px 16px;
+    background: var(--color-surface);
+    border-top: 1px solid var(--color-border);
+}
+.m-lv-modal-cancel,
+.m-lv-modal-next {
+    height: 52px;
+    border-radius: 12px;
+    font-family: inherit;
+    font-size: 15px;
+    font-weight: 700;
+    cursor: pointer;
+    border: 0;
+}
+.m-lv-modal-cancel {
+    flex: 1;
+    background: var(--color-background);
+    color: var(--color-text);
+    border: 1px solid var(--color-border);
+}
+.m-lv-modal-next { flex: 2; background: var(--brand-primary); color: #fff; }
+.m-lv-modal-next:disabled { opacity: 0.4; }
+
+.m-lv-types { display: flex; flex-direction: column; gap: 8px; }
+.m-lv-type {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    padding: 12px;
+    border: 1px solid var(--color-border);
+    border-radius: 12px;
+    background: var(--color-surface);
+    text-align: left;
+    font-family: inherit;
+    cursor: pointer;
+    width: 100%;
+}
+.m-lv-type.selected { border-color: var(--brand-primary); background: var(--brand-primary-light); }
+.m-lv-type-ico {
+    width: 42px; height: 42px;
+    flex-shrink: 0;
+    border-radius: 50%;
+    background: var(--color-background);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 20px;
+}
+.m-lv-type.selected .m-lv-type-ico { background: var(--brand-primary); }
+.m-lv-type-txt { flex: 1; min-width: 0; }
+.m-lv-type-lbl { display: block; font-size: 15px; font-weight: 700; }
+.m-lv-type-desc { display: block; font-size: 12px; color: var(--color-text-dim); margin-top: 1px; }
+
+.m-lv-photo {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 6px;
+    border: 2px dashed var(--color-border);
+    border-radius: 12px;
+    padding: 24px;
+    background: var(--color-background);
+    cursor: pointer;
+}
+.m-lv-photo.taken { border-style: solid; border-color: var(--color-green); background: #e8f4dd; }
+.m-lv-photo-ico { font-size: 32px; }
+.m-lv-photo-lbl { font-size: 14px; font-weight: 700; color: var(--color-text-dim); }
+.m-lv-photo.taken .m-lv-photo-lbl { color: var(--color-green-dark); }
+.m-lv-photo-sub { font-size: 12px; color: var(--color-text-dim); }
+
+.m-lv-geo {
+    display: inline-flex;
+    align-items: center;
+    gap: 5px;
+    background: #e8f4dd;
+    color: var(--color-green-dark);
+    padding: 6px 10px;
+    border-radius: 20px;
+    font-size: 12px;
+    font-weight: 700;
+    margin-top: 12px;
+}
+.m-lv-note-lbl {
+    display: block;
+    font-size: 13px;
+    font-weight: 700;
+    color: var(--color-text-dim);
+    margin: 14px 0 6px;
+}
+.m-lv-note {
+    width: 100%;
+    min-height: 84px;
+    padding: 12px;
+    border: 1px solid var(--color-border);
+    border-radius: 10px;
+    font-family: inherit;
+    font-size: 15px;
+    resize: none;
+    background: var(--color-background);
+}
+.m-lv-note:focus { outline: none; border-color: var(--brand-primary); background: var(--color-surface); }
+
+.m-lv-confirm {
+    background: var(--color-background);
+    border-radius: 12px;
+    padding: 6px 14px;
+}
+.m-lv-confirm-row {
+    display: flex;
+    gap: 12px;
+    padding: 9px 0;
+    border-bottom: 1px solid var(--color-border);
+}
+.m-lv-confirm-row:last-child { border-bottom: 0; }
+.m-lv-confirm-lbl { font-size: 12px; color: var(--color-text-dim); width: 76px; flex-shrink: 0; }
+.m-lv-confirm-val { flex: 1; font-size: 14px; font-weight: 700; }
+.m-lv-confirm-hint {
+    font-size: 13px;
+    color: var(--color-text-dim);
+    text-align: center;
+    margin-top: 14px;
+}

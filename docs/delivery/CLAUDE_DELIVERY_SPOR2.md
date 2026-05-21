@@ -9,6 +9,14 @@
 > Disse fire er **forældede**. Læs kun dette dokument + Spor 1-sektionen i `CLAUDE.md`.
 > Læs også `BON_V2_PRINCIPPER.md` og `bon_v2_datamodel_v2.md` før du koder.
 >
+> ⚠️ `HUSKELISTE_DELIVERY_PATCH_v3.md`'s ÆNDRING 1 (den store "Delivery / levering"-
+> sektion til `BON_V2_HUSKELISTE.md`) blev **aldrig anvendt** og **skal ikke anvendes**
+> — den beskriver det droppede 4-state stop-flow (`planlagt/klar/leveret/problem`) og
+> features fjernet i sektion 12 (send-besked, "Tilbage til HQ"-card m.fl.). Denne spec
+> har 3 stop-states (`klar` udledes i frontend). `BON_V2_HUSKELISTE.md` rører kun
+> delivery i et par rækker; den ene (bud-tidspunkt-auto-beregning) siger "+15 min" hvor
+> denne spec bruger `delivery_safety_margin_minutes = 10` — denne spec vinder.
+>
 > Skrevet: 20. maj 2026 — efter design-session der afklarede skala + geografi.
 
 ---
@@ -92,21 +100,27 @@ v1-synkede adresser.
 - **Kilde:** DAWA (`api.dataforsyningen.dk/adgangsadresser`) — samme tjeneste v1's
   leveringsberegner og v2's embed-bestillingsformular allerede bruger.
 - **Ved adresse-oprettelse:** `routes/addresses.js`, webhook og embed-flow geokoder
-  adressen og skriver `lat`/`lon` ved INSERT.
+  adressen — men **ikke synkront i INSERT-stien.** Rækken skrives straks; geokodning
+  køres fire-and-forget bagefter (samme mønster som `services/goodsReceiptWebhook.js`)
+  og opdaterer `lat`/`lon` når DAWA svarer. Et DAWA-kald må ikke kunne blokere eller
+  fejle en adressegemning. Backfill-scriptet fanger alt der måtte glippe.
 - **Backfill:** `scripts/backfill-geocode.js` — itererer `addresses WHERE lat IS NULL`,
   geokoder via DAWA (rate-limited, ~10/s er fint), skriver coords. Køres én gang før
   Spor 2 går live.
 - **Manglende coords:** hvis en adresse ikke kan geokodes (ufuldstændig adresse),
   vises bonen i leveringsoversigten med "📍 Adresse mangler koordinater" — routing
-  springes over, office kan stadig booke manuelt.
+  springes over, office kan stadig booke manuelt. Samme degradering hvis coords
+  findes men ORS ikke kan finde en rute (fx adresse uden vejforbindelse): vis
+  "📍 Rute kunne ikke beregnes", spring estimat over — manuel booking virker stadig.
 
 `services/geocode.js` — `geocodeAddress(addressId)` + `geocodeRaw({street, nr, zip})`.
 
 ---
 
-## 4. Datamodel — migration `072_delivery_routes.sql`
+## 4. Datamodel — migration `073_delivery_routes.sql`
 
-> Næste ledige migrationsnummer er **072** (071 er sidste). Verificér før commit.
+> Næste ledige migrationsnummer er **073** — verificeret 20. maj: 072 er
+> `072_bon_menu_groups.sql`, 071 er `071_delivery_booking_fields.sql`.
 > `delivery_vehicles` findes allerede (migration 057, udvidet i 071 med `booking_fields_json`).
 
 ```sql
@@ -194,12 +208,42 @@ CREATE TABLE delivery_incidents (
 );
 CREATE INDEX idx_incidents_bon ON delivery_incidents(bon_id);
 CREATE INDEX idx_incidents_unresolved ON delivery_incidents(resolved_at) WHERE resolved_at IS NULL;
+
+-- ==========================================
+-- ROUTING-CACHE — geo_calculations genskabes med nullable bon_id
+-- ==========================================
+-- geo_calculations (migration 003) er nøglet på bon_id+address_id og røres IKKE
+-- af nogen v2-kode (verificeret 20. maj). Spor 2 bruger den som afstands-cache
+-- nøglet på address_id — HQ er fast, så HQ→adresse-afstanden afhænger kun af
+-- leverings-adressen. bon_id gøres nullable så cachen kan skrives uden en bon
+-- (fx den generiske geocodeRaw-case). SQLite kan ikke ALTER COLUMN — tabellen
+-- genskabes (samme mønster som migration 041/054).
+CREATE TABLE geo_calculations_new (
+    id               INTEGER PRIMARY KEY AUTOINCREMENT,
+    bon_id           INTEGER REFERENCES bons(id),
+    address_id       INTEGER NOT NULL REFERENCES addresses(id),
+    distance_meters  REAL,
+    duration_seconds REAL,
+    route_geojson    TEXT,
+    calculated_at    DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP
+);
+INSERT INTO geo_calculations_new (id, bon_id, address_id, distance_meters,
+                                  duration_seconds, route_geojson, calculated_at)
+    SELECT id, bon_id, address_id, distance_meters, duration_seconds,
+           route_geojson, calculated_at FROM geo_calculations;
+DROP TABLE geo_calculations;
+ALTER TABLE geo_calculations_new RENAME TO geo_calculations;
+CREATE INDEX idx_geo_bon ON geo_calculations(bon_id);
+CREATE INDEX idx_geo_address ON geo_calculations(address_id);
 ```
 
-**Verificér før migration skrives:** har `bons` allerede `delivery_contact_name`,
-`delivery_contact_phone`? Spor 1 tilføjede `delivery_notes`. Hvis kontakt-felterne
-mangler, tilføj dem her (`ALTER TABLE bons ADD COLUMN ...`). Tjek med en grep i
-`db/migrations/`.
+**Kontakt-felter — verificeret 20. maj:** `bons` har **ikke**
+`delivery_contact_name`/`delivery_contact_phone` som kolonner (kun `delivery_method`,
+`delivery_address_id`, `delivery_notes`). **Tilføj dem ikke.** Spor 1's
+`services/booking_template.js` resolver allerede `{delivery_contact_name}` fra
+`bons.day_contact_name` (fallback: kundenavn) og `{delivery_contact_phone}` fra
+`bons.day_contact_phone` (fallback: `contact_phone`). Routing-koden skal bruge samme
+kilde — nye kolonner ville give to sandhedskilder for samme data.
 
 **Bevidst udeladt:** `delivery_messages` (SMS/telefon dækker 2 interne bude),
 `delivery_eta_log` (ORS giver rigtige tider — ingen by-faktor at kalibrere).
@@ -288,9 +332,12 @@ function healthCheck()                      // → { up: bool } — pinger ORS
   ved drag — `getRoute()` kaldes én gang med den givne rækkefølge. Auto-optimering af
   rækkefølge er udskudt (se sektion 13). Det fjerner både rate-limit-risiko og den
   TSP-fejl der lå i `PLAN_DELIVERY_SPOR_2_3.md`.
-- **Cache:** `getDistance` slår op/gemmer i `geo_calculations` (eksisterende tabel),
-  nøgle = afrundede coords (5 decimaler), TTL 30 dage. Rute-geometri caches ikke
-  (ændrer sig med stop) — beregnes on-demand, lav volumen.
+- **Cache:** `getDistance(HQ, adresse)` slår op/gemmer i `geo_calculations` nøglet på
+  leverings-`address_id` — HQ er fast, så afstanden afhænger kun af adressen. TTL 30
+  dage (`calculated_at`). Migration 073 genskaber tabellen med nullable `bon_id` så
+  cachen kan skrives uden en bon. Den generiske `geocodeRaw`-case (rå coords uden
+  `address_id`) caches ikke — beregnes on-demand, lav volumen. Rute-geometri caches
+  heller ikke (ændrer sig med stop).
 
 ### `services/geocode.js` (ny) — DAWA
 
@@ -460,6 +507,12 @@ FK-navne (`bon_id`, `route_id`), ikke `{id}` (jf. SSE-konventionen i `CLAUDE.md`
 
 ## 11. Faser, rækkefølge, estimat
 
+> **Status (20. maj 2026):** S2.0 + S2.1's Workflow B-kerne er implementeret, testet
+> (143 delivery-tests grønne) og browser-verificeret end-to-end mod live ORS. Udestående
+> i S2.1: Leaflet pin-kort, rute-niveau popout-booking (`/routes/:id/booking-payload` +
+> `/book`), `/history`. S2.2 + S2.3 ikke påbegyndt. Implementeringsdetaljer i
+> `CLAUDE.md` → Status → "Delivery — Spor 2: S2.0 + S2.1".
+
 | Fase | Indhold | Estimat |
 |---|---|---|
 | **S2.0 — Fundament** | ORS `routing.js` + DAWA `geocode.js` + backfill-script + migration 072 + settings + `delivery_calc.js` + `POST /calculate`. Constraint-forslag vises i bon-drawer. | ~1 uge |
@@ -503,7 +556,7 @@ er konsistent og kan følges tæt.
 |---|---|---|
 | ORS API-nøgle | Registrér på openrouteservice.org (gratis, ~2 min) | S2.0 |
 | HQ-koordinater | Geokod den rigtige HQ-adresse, ret settings | S2.0 |
-| `bons.delivery_contact_name/_phone` | Verificér om kolonnerne findes; tilføj i migration 072 hvis ikke | S2.0 |
+| `bons.delivery_contact_name/_phone` | Verificeret: findes ikke. Tilføj IKKE — genbrug `day_contact_name`/`day_contact_phone` som Spor 1 (sektion 4) | — |
 | Backfill-geokodning | Kør `scripts/backfill-geocode.js` mod eksisterende adresser | Før go-live |
 | By-expressen API-credentials | Sebastian — ryk ham | Kun S2.4 |
 | Foto-storage til incidents | Genbrug `attachments`-tabel + uploads-mappe; med i backup? | S2.3 |
@@ -517,9 +570,9 @@ er konsistent og kan følges tæt.
 ```
 services/routing.js                 NY      services/geocode.js          NY
 services/delivery_calc.js           NY      scripts/backfill-geocode.js  NY
-db/migrations/072_delivery_routes.sql NY    routes/delivery.js           UDVID (+/calculate,/health)
+db/migrations/073_delivery_routes.sql NY    routes/delivery.js           UDVID (+/calculate,/health)
 .env                                UDVID   shared/api.js                UDVID
-routes/addresses.js                 MODIFICÉR (geokod ved INSERT)
+routes/addresses.js                 MODIFICÉR (geokod fire-and-forget efter INSERT)
 tests/routing.test.js  tests/delivery_calc.test.js  NY
 ```
 
@@ -585,3 +638,12 @@ Ingen af dem kræver omskrivning af det allerede byggede.
 *Konsolideret 20. maj 2026 fra de fire tidligere delivery-docs. Routing-fundament:
 OpenRouteService. Geokodning: DAWA. To-workflow-model: B (daglig triage) før A
 (Volvo-planlægning). Mockups retningsgivende for layout med undtagelserne i sektion 12.*
+
+*Rettet 20. maj 2026 efter verifikation mod kodebasen: migrationsnummer 072→073
+(072 var optaget af `bon_menu_groups`); `geo_calculations`-cachen nøgles på
+`address_id` og tabellen genskabes med nullable `bon_id` (sektion 4 + 7);
+`delivery_contact_*` tilføjes ikke som kolonner — `day_contact_*` genbruges
+(sektion 4 + 13); geokodning flyttet ud af INSERT-stien til fire-and-forget
+(sektion 3); ORS-no-route degraderer som manglende coords (sektion 3). Det
+bekræftedes også at `HUSKELISTE_DELIVERY_PATCH_v3.md`'s store delivery-sektion
+aldrig blev anvendt på `BON_V2_HUSKELISTE.md` (se advarsel øverst).*

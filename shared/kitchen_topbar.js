@@ -21,6 +21,7 @@ var MORE_ITEMS = [
     { label: 'Opskrifter',  href: '/kitchen/recipes.html' },
     { label: 'Lager',       href: '/kitchen/stock.html' },
     { label: 'Indkøb',      href: '/kitchen/purchasing.html' },
+    { label: 'Logistik',    href: '/kitchen/logistik.html' },
     { label: 'Vagtplan',    href: '/kitchen/vagtplan.html' },
 ];
 

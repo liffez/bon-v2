@@ -648,6 +648,25 @@ function openMap(cardId) {
 }
 
 /**
+ * Åbn logistik-viewet fokuseret på denne bon.
+ * Office definerer window.openLogistikForBon (skifter SPA-view); ellers
+ * (køkken-zonen) navigeres til kitchen/logistik.html.
+ */
+function openLogistik(cardId) {
+    const card = document.getElementById(cardId);
+    if (!card) return;
+    const bonId = parseInt(String(cardId).replace('bon', ''), 10);
+    if (!bonId) return;
+    const date = card.dataset.deliveryDate || '';
+    if (typeof window.openLogistikForBon === 'function') {
+        window.openLogistikForBon(bonId, date);
+    } else {
+        window.location.href = '/kitchen/logistik.html?bon=' + bonId
+            + (date ? '&date=' + encodeURIComponent(date) : '');
+    }
+}
+
+/**
  * Klik på leveringsindikator på bon-kort → åbner drawer scrollet til bestil-bud-sektion.
  * Bruger view-specifikke drawer-instanser via window._bonInfoEditHandler eller
  * window.BonDrawer fallback.

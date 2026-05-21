@@ -1,0 +1,348 @@
+/* office/views/logistik.css — Logistik (Delivery Spor 2, Workflow B) */
+
+.log-wrap { padding: 16px 20px; max-width: 1180px; margin: 0 auto; }
+
+/* ── Header ──────────────────────────────────────────── */
+.log-header {
+    display: flex; align-items: center; justify-content: space-between;
+    margin-bottom: 14px;
+}
+.log-nav { display: flex; align-items: center; gap: 8px; }
+.log-nav-btn, .log-today-btn {
+    border: 1px solid var(--color-border, #d7d1ca);
+    background: #fff; border-radius: 6px; cursor: pointer;
+    padding: 5px 11px; font-size: 14px;
+}
+.log-nav-btn:hover, .log-today-btn:hover { background: var(--color-background, #f5f4f2); }
+.log-today-btn { font-size: 12.5px; margin-left: 4px; }
+.log-date {
+    font-family: var(--font-heading, Georgia, serif);
+    font-size: 18px; font-weight: 800; color: var(--brand-primary, #8e631f);
+    min-width: 230px; text-align: center;
+}
+.log-health-ok   { color: #4a8a3a; font-size: 12px; font-weight: 600; }
+.log-health-down { color: #b04030; font-size: 12px; font-weight: 600; }
+
+/* ── Live-mode statbar (kun "i dag") ─────────────────── */
+.log-statbar {
+    display: flex; flex-wrap: wrap; gap: 8px;
+    margin: 0 0 12px;
+}
+.log-statbar[hidden] { display: none; }
+.log-stat {
+    font-size: 12px; font-weight: 700;
+    padding: 4px 11px; border-radius: 14px;
+    background: #ece8e2; color: #5d564c;
+}
+.log-stat-live { background: #e6efe4; color: #3a6a2e; }
+.log-stat-done { background: #d8e3ec; color: #2d5a7a; }
+.log-stat-way  { background: #f1e6b2; color: #5d4014; }
+.log-stat-prob { background: #f7d4d4; color: #9a1f1f; }
+.log-stat-prob.is-zero { background: #ece8e2; color: #8a8580; }
+
+/* ── 2-kolonne ───────────────────────────────────────── */
+.log-cols { display: grid; grid-template-columns: 1.25fr 1fr; gap: 16px; }
+@media (max-width: 900px) { .log-cols { grid-template-columns: 1fr; } }
+
+.log-col-head {
+    font-size: 12px; font-weight: 700; text-transform: uppercase;
+    letter-spacing: 0.05em; color: var(--color-text-dim, #6b6660);
+    margin-bottom: 8px;
+}
+.log-count { color: var(--color-text-dim, #8a8580); font-weight: 600; }
+
+.log-empty {
+    background: #fff; border: 1px dashed var(--color-border, #d7d1ca);
+    border-radius: 8px; padding: 28px 16px; text-align: center;
+    color: var(--color-text-dim, #8a8580); font-size: 13px;
+}
+
+/* ── Bon-liste ───────────────────────────────────────── */
+.log-bon {
+    display: flex; gap: 8px;
+    background: #fff; border: 1px solid var(--color-border, #d7d1ca);
+    border-radius: 8px; padding: 9px 11px; margin-bottom: 6px;
+}
+.log-bon-assigned { background: #faf9f7; }
+.log-bon-check-cell { flex: 0 0 18px; padding-top: 2px; }
+.log-bon-check { width: 16px; height: 16px; cursor: pointer; }
+.log-bon-main { flex: 1; min-width: 0; }
+.log-bon-row1 { display: flex; align-items: baseline; gap: 8px; }
+.log-bon-time { font-weight: 700; font-size: 13.5px; color: var(--brand-primary, #8e631f); }
+.log-bon-name {
+    flex: 1; font-weight: 600; font-size: 13.5px; cursor: pointer;
+    white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+}
+.log-bon-name:hover { text-decoration: underline; }
+.log-bon-status {
+    font-size: 9.5px; font-weight: 700; text-transform: uppercase;
+    letter-spacing: 0.03em; padding: 2px 6px; border-radius: 3px;
+    background: var(--brand-primary-light, #f1e6b2); color: #5d4014;
+    white-space: nowrap;
+}
+.log-bon-addr {
+    font-size: 12px; color: var(--color-text-dim, #6b6660); margin-top: 1px;
+    white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+}
+.log-bon-meta { margin-top: 3px; font-size: 12px; }
+.log-bon-onroute { color: var(--brand-primary, #8e631f); font-weight: 600; }
+.log-forslag { color: #3a6a2e; }
+.log-forslag-note { color: var(--color-text-dim, #8a8580); font-style: italic; }
+
+/* ── Vælg-bar ────────────────────────────────────────── */
+.log-selbar[hidden] { display: none; }
+.log-selbar {
+    position: sticky; bottom: 0;
+    display: flex; align-items: center; gap: 8px;
+    background: var(--brand-primary-light, #f1e6b2);
+    border: 1px solid #d8c47e; border-radius: 8px;
+    padding: 8px 11px; margin-top: 8px;
+}
+.log-selbar-count { font-weight: 700; font-size: 13px; color: #5d4014; }
+.log-selbar-vehicle {
+    flex: 1; border: 1px solid var(--color-border, #d7d1ca);
+    border-radius: 6px; padding: 5px 8px; font-size: 13px; background: #fff;
+}
+
+/* ── Rute-kort ───────────────────────────────────────── */
+.log-route {
+    background: #fff; border: 1px solid var(--color-border, #d7d1ca);
+    border-radius: 8px; padding: 11px 13px; margin-bottom: 9px;
+}
+.log-route-head {
+    display: flex; align-items: center; justify-content: space-between; gap: 8px;
+}
+.log-route-title { font-weight: 700; font-size: 13.5px; }
+.log-route-status {
+    font-size: 9.5px; font-weight: 700; text-transform: uppercase;
+    letter-spacing: 0.03em; padding: 2px 7px; border-radius: 3px;
+    white-space: nowrap;
+}
+.log-rs-draft     { background: #ece8e2; color: #6b6660; }
+.log-rs-computed  { background: #dbe8f2; color: #2d5a7a; }
+.log-rs-confirmed { background: #dceadb; color: #3a6a2e; }
+.log-rs-active    { background: #f1e6b2; color: #5d4014; }
+.log-rs-completed { background: #e8e8e8; color: #888; }
+.log-rs-cancelled { background: #f0dad5; color: #9a4030; }
+.log-route-summary {
+    font-size: 12px; color: var(--color-text-dim, #6b6660); margin-top: 3px;
+}
+
+.log-route-stops { margin-top: 7px; }
+.log-stop {
+    display: flex; align-items: center; gap: 7px;
+    font-size: 12.5px; padding: 3px 0;
+    border-top: 1px dotted var(--color-border, #d7d1ca);
+}
+.log-stop-seq {
+    flex: 0 0 18px; height: 18px; line-height: 18px; text-align: center;
+    background: var(--brand-primary, #8e631f); color: #fff;
+    border-radius: 50%; font-size: 10.5px; font-weight: 700;
+}
+.log-stop-bon { font-weight: 700; cursor: pointer; }
+.log-stop-bon:hover { text-decoration: underline; }
+.log-stop-cust {
+    flex: 1; min-width: 0; color: var(--color-text-dim, #6b6660);
+    white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+}
+.log-stop-eta { color: #2d5a7a; font-weight: 600; white-space: nowrap; }
+.log-stop-rm {
+    border: none; background: none; cursor: pointer; color: #b04030;
+    font-size: 15px; line-height: 1; padding: 0 2px;
+}
+.log-stop-rm:hover { color: #7a2d1c; }
+
+.log-route-alert {
+    margin-top: 6px; font-size: 11.5px; border-radius: 5px; padding: 4px 8px;
+}
+.log-alert-error { background: #f7e4e0; color: #9a4030; }
+.log-alert-warn  { background: #fbf0d8; color: #9a6a1a; }
+.log-alert-ok    { background: #e4efe2; color: #3a6a2e; }
+
+.log-route-actions {
+    display: flex; flex-wrap: wrap; gap: 6px; margin-top: 9px;
+}
+.log-busy { font-size: 12px; color: var(--color-text-dim, #8a8580); font-style: italic; }
+
+.log-route-cost {
+    display: flex; align-items: center; gap: 7px;
+    margin-top: 8px; padding-top: 7px;
+    border-top: 1px dotted var(--color-border, #d7d1ca);
+}
+.log-route-cost label {
+    font-size: 11.5px; color: var(--color-text-dim, #6b6660); font-weight: 600;
+}
+.log-cost-input {
+    width: 80px; border: 1px solid var(--color-border, #d7d1ca);
+    border-radius: 5px; padding: 4px 7px; font-size: 12.5px;
+}
+
+/* ── Knapper ─────────────────────────────────────────── */
+.log-btn {
+    border: 1px solid var(--color-border, #d7d1ca);
+    background: #fff; border-radius: 6px; cursor: pointer;
+    padding: 5px 12px; font-size: 12.5px; font-weight: 600;
+}
+.log-btn:hover { filter: brightness(0.96); }
+.log-btn-primary {
+    background: var(--brand-primary, #8e631f); color: #fff; border-color: var(--brand-primary, #8e631f);
+}
+.log-btn-ok { background: #4a8a3a; color: #fff; border-color: #4a8a3a; }
+.log-btn-danger { color: #b04030; border-color: #e0c0b8; }
+.log-btn-ghost { background: #fff; }
+
+/* ── Leaflet-kort ────────────────────────────────────── */
+.log-map {
+    height: clamp(190px, 30vh, 300px);   /* lavere på korte laptop-skærme */
+    border: 1px solid var(--color-border, #d7d1ca);
+    border-radius: 8px;
+    overflow: hidden;
+    margin-bottom: 14px;
+}
+.log-map .leaflet-container { font: inherit; }
+.log-mk { background: none; border: none; }
+.log-mk-pin {
+    width: 22px; height: 22px; border-radius: 50%;
+    border: 2px solid #fff; box-shadow: 0 1px 4px rgba(0, 0, 0, 0.35);
+    display: flex; align-items: center; justify-content: center;
+    font-size: 11px; font-weight: 700; color: #fff;
+    transition: transform 0.1s;
+}
+.log-mk-hq {
+    width: 26px; height: 26px; border-radius: 6px;
+    background: #fff; border: 2px solid var(--brand-primary, #8e631f);
+    display: flex; align-items: center; justify-content: center;
+    font-size: 14px; box-shadow: 0 1px 4px rgba(0, 0, 0, 0.35);
+}
+/* Kort↔liste-link: fremhævet markør */
+.log-mk-hi { z-index: 10000 !important; }
+.log-mk-hi .log-mk-pin {
+    transform: scale(1.5);
+    box-shadow: 0 0 0 3px rgba(255, 255, 255, 0.7), 0 2px 8px rgba(0, 0, 0, 0.55);
+}
+
+/* Legende — vogne med farve (som Bon v1) */
+.log-legend {
+    background: rgba(255, 255, 255, 0.94);
+    border: 1px solid var(--color-border, #d7d1ca);
+    border-radius: 6px;
+    padding: 7px 9px;
+    font-size: 11.5px;
+    box-shadow: 0 1px 5px rgba(0, 0, 0, 0.2);
+}
+.log-legend-title {
+    font-weight: 700; font-size: 10px; text-transform: uppercase;
+    letter-spacing: 0.05em; color: var(--color-text-dim, #6b6660);
+    margin-bottom: 4px;
+}
+.log-legend-row { display: flex; align-items: center; gap: 6px; padding: 1px 0; }
+.log-legend-swatch { width: 14px; height: 4px; border-radius: 2px; flex: 0 0 14px; }
+
+/* Farvet vogn-prik (rute-kort + bon-rækker) */
+.log-dot {
+    display: inline-block; width: 9px; height: 9px; border-radius: 50%;
+    margin-right: 5px;
+}
+
+/* Kort↔liste-link: fremhævet bon-række */
+.log-bon-hi { box-shadow: 0 0 0 2px var(--brand-primary, #8e631f); }
+
+/* "Se i logistik"-link: kort puls på bonen man kom fra */
+.log-bon-flash { animation: logBonFlash 2.4s ease-out; }
+@keyframes logBonFlash {
+    0%, 28%  { box-shadow: 0 0 0 3px var(--brand-primary, #8e631f); }
+    100%     { box-shadow: 0 0 0 0 rgba(142, 99, 31, 0); }
+}
+
+/* ── Rute-booking (eksterne vogne) ───────────────────── */
+.log-route-booking {
+    margin-top: 8px; padding-top: 7px;
+    border-top: 1px dotted var(--color-border, #d7d1ca);
+}
+.log-booking-line {
+    display: flex; align-items: center; gap: 7px; flex-wrap: wrap;
+}
+.log-booking-line + .log-booking-line { margin-top: 5px; }
+.log-booking-badge {
+    font-size: 9.5px; font-weight: 700; text-transform: uppercase;
+    letter-spacing: 0.03em; padding: 2px 7px; border-radius: 3px;
+}
+.log-bs-pending { background: #ece8e2; color: #6b6660; }
+.log-bs-booked  { background: #dceadb; color: #3a6a2e; }
+.log-bs-failed  { background: #f0dad5; color: #9a4030; }
+.log-booking-ref {
+    font-size: 11.5px; color: var(--color-text-dim, #6b6660);
+    font-family: monospace;
+}
+.log-booking-ref-input {
+    flex: 1; min-width: 120px;
+    border: 1px solid var(--color-border, #d7d1ca);
+    border-radius: 5px; padding: 4px 7px; font-size: 12px;
+}
+
+/* ── S2.2: drag bon → rute ───────────────────────────── */
+.log-bon[draggable="true"] { cursor: grab; }
+.log-bon[draggable="true"]:active { cursor: grabbing; }
+.log-route-drop {
+    box-shadow: 0 0 0 2px var(--brand-primary, #8e631f);
+    background: #fdf6e3;
+}
+.log-stop-mv {
+    border: 1px solid var(--color-border, #d7d1ca);
+    background: #fff; border-radius: 3px; cursor: pointer;
+    font-size: 9px; line-height: 1; padding: 2px 3px; color: #6b6660;
+}
+.log-stop-mv:hover:not(:disabled) { background: var(--color-background, #f5f4f2); }
+.log-stop-mv:disabled { opacity: 0.3; cursor: default; }
+
+/* ── Rute-health-linje ───────────────────────────────── */
+.log-route-health {
+    display: flex; flex-wrap: wrap; gap: 5px; margin-top: 4px;
+}
+.log-hc {
+    font-size: 10.5px; font-weight: 700;
+    padding: 2px 7px; border-radius: 3px;
+}
+.log-hc-bad     { background: #f0dad5; color: #9a4030; }
+.log-hc-warn    { background: #fbf0d8; color: #9a6a1a; }
+.log-hc-ok      { background: #dceadb; color: #3a6a2e; }
+.log-hc-neutral { background: #ece8e2; color: #6b6660; }
+
+/* ── Stop bon-status ─────────────────────────────────── */
+.log-stop-state {
+    font-size: 9.5px; font-weight: 700; text-transform: uppercase;
+    letter-spacing: 0.02em; padding: 1px 5px; border-radius: 3px;
+    white-space: nowrap;
+}
+.log-bst-klar     { background: #dceadb; color: #3a6a2e; }
+.log-bst-leveret  { background: #d8e3ec; color: #2d5a7a; }
+.log-bst-igang    { background: #f1e6b2; color: #5d4014; }
+.log-bst-afventer { background: #ece8e2; color: #6b6660; }
+.log-bst-aflyst   { background: #f0dad5; color: #9a4030; }
+.log-bst-problem  { background: #f7d4d4; color: #9a1f1f; }
+.log-stop-cancelled { background: #fbeae6; }
+.log-stop-cancelled .log-stop-bon,
+.log-stop-cancelled .log-stop-cust { text-decoration: line-through; opacity: 0.7; }
+
+/* ── Afhentningstid (redigerbar) ──────────────────────── */
+.log-pickup-row {
+    display: flex; align-items: center; gap: 7px; flex-wrap: wrap;
+    margin-top: 6px;
+}
+.log-pickup-row label {
+    font-size: 11.5px; font-weight: 600; color: var(--color-text-dim, #6b6660);
+}
+.log-pickup-input {
+    width: 62px; text-align: center;
+    border: 1px solid var(--color-border, #d7d1ca);
+    border-radius: 5px; padding: 4px 6px; font-size: 13px; font-weight: 700;
+}
+.log-pickup-tag {
+    font-size: 9.5px; font-weight: 700; text-transform: uppercase;
+    background: #f1e6b2; color: #5d4014; padding: 2px 6px; border-radius: 3px;
+}
+.log-pickup-auto {
+    border: none; background: none; cursor: pointer; padding: 0;
+    color: var(--brand-primary, #8e631f); font-size: 11.5px; text-decoration: underline;
+}
+.log-pickup-sugg { font-size: 11.5px; color: var(--color-text-dim, #8a8580); }

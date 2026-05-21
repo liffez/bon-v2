@@ -1401,6 +1401,124 @@ function fetchDeliveryEvents(bonId) {
     return apiFetch('/delivery/events?bon_id=' + bonId);
 }
 
+// Spor 2 — leverings-forslag. data: { bon_id } eller
+// { lat, lng, delivery_time?, boxes?, pax? }
+function calculateDelivery(data) {
+    return apiFetch('/delivery/calculate', {
+        method: 'POST',
+        body: JSON.stringify(data),
+    });
+}
+
+function deliveryHealth() {
+    return apiFetch('/delivery/health');
+}
+
+function fetchDeliveryHistoryMap(from, to, method) {
+    var qs = '?from=' + encodeURIComponent(from) + '&to=' + encodeURIComponent(to);
+    if (method) qs += '&method=' + encodeURIComponent(method);
+    return apiFetch('/delivery/history-map' + qs);
+}
+
+// Spor 2 — ruter (Workflow B + A)
+function fetchDeliveryOverview(date) {
+    return apiFetch('/delivery/overview?date=' + encodeURIComponent(date));
+}
+
+function fetchDeliveryRoutes(date) {
+    return apiFetch('/delivery/routes' + (date ? '?date=' + encodeURIComponent(date) : ''));
+}
+
+function createDeliveryRoute(data) {
+    return apiFetch('/delivery/routes', { method: 'POST', body: JSON.stringify(data) });
+}
+
+function updateDeliveryRoute(id, data) {
+    return apiFetch('/delivery/routes/' + id, { method: 'PUT', body: JSON.stringify(data) });
+}
+
+function deleteDeliveryRoute(id) {
+    return apiFetch('/delivery/routes/' + id, { method: 'DELETE' });
+}
+
+function addDeliveryRouteStop(routeId, bonId) {
+    return apiFetch('/delivery/routes/' + routeId + '/stops', {
+        method: 'POST', body: JSON.stringify({ bon_id: bonId }),
+    });
+}
+
+function removeDeliveryRouteStop(routeId, bonId) {
+    return apiFetch('/delivery/routes/' + routeId + '/stops/' + bonId, { method: 'DELETE' });
+}
+
+function reorderDeliveryRouteStops(routeId, bonIds) {
+    return apiFetch('/delivery/routes/' + routeId + '/stops/reorder', {
+        method: 'PUT', body: JSON.stringify({ bon_ids: bonIds }),
+    });
+}
+
+function computeDeliveryRoute(routeId) {
+    return apiFetch('/delivery/routes/' + routeId + '/compute', { method: 'POST' });
+}
+
+function applyDeliveryRoute(routeId) {
+    return apiFetch('/delivery/routes/' + routeId + '/apply', { method: 'POST' });
+}
+
+function setRoutePickupTime(routeId, data) {
+    return apiFetch('/delivery/routes/' + routeId + '/pickup-time', {
+        method: 'POST', body: JSON.stringify(data || {}),
+    });
+}
+
+function setDeliveryRouteActualCost(routeId, data) {
+    return apiFetch('/delivery/routes/' + routeId + '/actual-cost', {
+        method: 'POST', body: JSON.stringify(data),
+    });
+}
+
+function bookDeliveryRoute(routeId, data) {
+    return apiFetch('/delivery/routes/' + routeId + '/book', {
+        method: 'POST', body: JSON.stringify(data || {}),
+    });
+}
+
+// ─── Delivery Spor 2 — courier (S2.3) ──────────────────────────
+
+function fetchCourierToday() {
+    return apiFetch('/delivery/courier/today');
+}
+
+function departDeliveryRoute(routeId) {
+    return apiFetch('/delivery/routes/' + routeId + '/depart', { method: 'POST' });
+}
+
+// data: { status: 'leveret'|'problem', lat?, lng? }
+function setDeliveryStopStatus(stopId, data) {
+    return apiFetch('/delivery/stops/' + stopId + '/status', {
+        method: 'POST', body: JSON.stringify(data || {}),
+    });
+}
+
+// data: { bon_id, incident_type, route_stop_id?, description?,
+//         location_lat?, location_lng?, photo?(File) }
+async function logDeliveryIncident(data) {
+    var fd = new FormData();
+    fd.append('bon_id', String(data.bon_id));
+    fd.append('incident_type', data.incident_type);
+    if (data.route_stop_id != null) fd.append('route_stop_id', String(data.route_stop_id));
+    if (data.description)   fd.append('description', data.description);
+    if (data.location_lat != null) fd.append('location_lat', String(data.location_lat));
+    if (data.location_lng != null) fd.append('location_lng', String(data.location_lng));
+    if (data.photo)         fd.append('photo', data.photo);
+    var res = await fetch(API_BASE + '/delivery/incidents', { method: 'POST', body: fd });
+    if (!res.ok) {
+        var body = await res.json().catch(function() { return {}; });
+        throw new Error(body.error || 'Kunne ikke logge problem');
+    }
+    return res.json();
+}
+
 // ─── Web-orders (#042) ──────────────────────────────────────
 
 function fetchPendingWebOrders() {

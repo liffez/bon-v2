@@ -148,6 +148,7 @@ class BonDrawer {
                     <div class="drawer-label-row">
                         <label class="drawer-label">Bestil bud</label>
                         <div class="drawer-delivery-actions">
+                            <button type="button" class="btn-drawer-logistik" data-action="see-logistik">📍 Se i logistik</button>
                             <button type="button" class="btn-drawer-bestil-bud" data-action="bestil">
                                 <span class="drawer-bestil-icon">📦</span> <span class="drawer-bestil-label">Bestil hos…</span>
                             </button>
@@ -156,6 +157,7 @@ class BonDrawer {
                     </div>
                     <div class="drawer-delivery-status">
                         <div class="drawer-delivery-current"></div>
+                        <div class="drawer-delivery-suggestion"></div>
                         <div class="drawer-delivery-cost-row">
                             <div class="drawer-field-group" style="flex:1">
                                 <label class="drawer-sublabel">Faktisk omkostning (kr)</label>
@@ -601,6 +603,20 @@ class BonDrawer {
             openDeliveryNote(this.bonId, bon.delivery_vehicle_id || null);
         };
 
+        // "Se i logistik" — åbn logistik-viewet fokuseret på denne bon.
+        const seeLogistikBtn = section.querySelector('.btn-drawer-logistik');
+        if (seeLogistikBtn) {
+            seeLogistikBtn.onclick = () => {
+                const d = bon.delivery_date || '';
+                if (typeof window.openLogistikForBon === 'function') {
+                    window.openLogistikForBon(this.bonId, d);
+                } else {
+                    window.location.href = '/kitchen/logistik.html?bon=' + this.bonId
+                        + (d ? '&date=' + encodeURIComponent(d) : '');
+                }
+            };
+        }
+
         // Skift/annullér-affordance: når der allerede er en booking
         // hedder knappen "Skift bud", og en annullér-knap dukker op.
         const hasBooking = !!bon.delivery_vehicle_id;
@@ -634,8 +650,9 @@ class BonDrawer {
             }
         };
 
-        // Render aktuel vehicle-status + events
+        // Render aktuel vehicle-status + forslag + events
         this._renderDeliveryCurrent(bon);
+        this._renderDeliverySuggestion();
         this._renderDeliveryEvents();
     }
 
@@ -658,6 +675,74 @@ class BonDrawer {
         el.innerHTML = parts.length
             ? '<div class="drawer-delivery-current-pill">' + parts.join(' · ') + '</div>'
             : '<div class="drawer-delivery-empty">Ingen booking endnu</div>';
+    }
+
+    // Leverings-forslag (Spor 2): afstand fra HQ + vogn-anbefaling.
+    // Read-only beslutningsgrundlag — selve bookingen sker via "Bestil hos…".
+    async _renderDeliverySuggestion() {
+        const el = this.el.querySelector('.drawer-delivery-suggestion');
+        if (!el) return;
+        const bonId = this.bonId;
+        el.innerHTML = '<div class="drawer-delivery-loading">Beregner leveringsforslag…</div>';
+
+        let r;
+        try {
+            r = await calculateDelivery({ bon_id: bonId });
+        } catch (err) {
+            if (this.bonId === bonId) el.innerHTML = '';
+            return;
+        }
+        if (this.bonId !== bonId) return;   // draweren skiftede bon imens
+
+        if (!r || !r.ok) {
+            const reason = r && r.reason;
+            let msg = '';
+            if (reason === 'missing_coords') {
+                msg = '📍 Leveringsadressen mangler koordinater — forslag kan ikke beregnes';
+            } else if (reason === 'no_route') {
+                msg = '📍 Rute kunne ikke beregnes for adressen';
+            } else if (reason === 'no_api_key' || reason === 'hq_not_configured') {
+                msg = '';   // routing ikke konfigureret — vis intet
+            } else {
+                msg = 'Leveringsafstand kunne ikke beregnes';
+            }
+            el.innerHTML = msg ? '<div class="drawer-sug-note">' + msg + '</div>' : '';
+            return;
+        }
+
+        const icon = (t) => t === 'volvo' ? '🚐'
+            : (t === 'bike' || t === 'own-bike') ? '🚴'
+            : t === 'taxi' ? '🚕' : '📦';
+
+        let head = '📍 ' + String(r.distance_km).replace('.', ',') + ' km · '
+            + r.duration_min + ' min fra HQ';
+        if (r.estimated_pickup_time) head += ' · afgang ca. ' + esc(r.estimated_pickup_time);
+
+        const alts = (r.alternatives || []).slice()
+            .sort((a, b) => {
+                if (a.suitable !== b.suitable) return a.suitable ? -1 : 1;
+                return (a.cost_dkk == null ? Infinity : a.cost_dkk)
+                     - (b.cost_dkk == null ? Infinity : b.cost_dkk);
+            })
+            .map(a => {
+                const isSug = a.vehicle_id === r.suggested_vehicle_id;
+                const cost = a.cost_dkk != null ? ('ca. ' + a.cost_dkk + ' kr') : '–';
+                // Constraint-brud er en ANBEFALING, ikke en spærring — vognen
+                // kan stadig vælges (kunder betaler gerne for cykellevering langt ude).
+                const caveat = (!a.suitable && a.reason)
+                    ? '<span class="drawer-sug-caveat">⚠ ' + esc(a.reason)
+                      + ' — kan vælges alligevel</span>'
+                    : '';
+                return '<div class="drawer-sug-alt' + (isSug ? ' drawer-sug-alt-best' : '') + '">'
+                    + '<span class="drawer-sug-veh">' + icon(a.type) + ' ' + esc(a.label)
+                    + (isSug ? ' <span class="drawer-sug-badge">forslag</span>' : '') + '</span>'
+                    + '<span class="drawer-sug-cost">' + cost + '</span>'
+                    + caveat
+                    + '</div>';
+            }).join('');
+
+        el.innerHTML = '<div class="drawer-sug-head">' + head + '</div>'
+            + '<div class="drawer-sug-list">' + alts + '</div>';
     }
 
     async _renderDeliveryEvents() {

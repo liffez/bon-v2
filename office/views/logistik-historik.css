@@ -1,0 +1,44 @@
+/* office/views/logistik-historik.css — Logistik · Historik-kort */
+
+.lh-wrap { padding: 12px 16px; }
+
+.lh-bar {
+    display: flex; align-items: center; flex-wrap: wrap; gap: 8px;
+    margin-bottom: 10px;
+}
+.lh-bar-label {
+    font-size: 12px; font-weight: 600; color: var(--color-text-dim, #6b6660);
+}
+.lh-date, .lh-select {
+    border: 1px solid var(--color-border, #d7d1ca);
+    border-radius: 6px; padding: 5px 8px; font-size: 13px; background: #fff;
+}
+
+.lh-mode {
+    display: inline-flex; border: 1px solid var(--color-border, #d7d1ca);
+    border-radius: 6px; overflow: hidden;
+}
+.lh-mode button {
+    border: none; background: #fff; cursor: pointer;
+    padding: 5px 12px; font-size: 12.5px; font-weight: 600;
+    color: var(--color-text-dim, #6b6660);
+}
+.lh-mode button + button { border-left: 1px solid var(--color-border, #d7d1ca); }
+.lh-mode button.active {
+    background: var(--brand-primary, #8e631f); color: #fff;
+}
+
+.lh-stats {
+    margin-left: auto;
+    font-size: 12.5px; font-weight: 600; color: var(--brand-primary, #8e631f);
+}
+
+.lh-map {
+    height: calc(100vh - 180px);
+    min-height: 420px;
+    border: 1px solid var(--color-border, #d7d1ca);
+    border-radius: 8px;
+    overflow: hidden;
+}
+.lh-map .leaflet-container { font: inherit; }
+.lh-popup { font-size: 12.5px; line-height: 1.5; }

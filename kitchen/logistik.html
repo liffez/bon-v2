@@ -1,0 +1,88 @@
+<!DOCTYPE html>
+<html lang="da">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Logistik — Bon v2</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Lato:wght@400;700&display=swap" rel="stylesheet">
+    <link rel="stylesheet" href="/shared/tokens.css">
+    <link rel="stylesheet" href="/shared/density.css">
+    <script src="/shared/density.js"></script>
+    <link rel="stylesheet" href="/shared/kitchen_topbar.css">
+    <link rel="stylesheet" href="/shared/modal.css">
+    <link rel="stylesheet" href="/shared/kunde_soeg.css">
+    <link rel="stylesheet" href="/shared/bon_opret_modal.css">
+    <link rel="stylesheet" href="/shared/bon_drawer.css">
+    <link rel="stylesheet" href="/shared/vare_picker.css">
+    <link rel="stylesheet" href="/assets/leaflet/leaflet.css">
+    <link rel="stylesheet" href="/shared/logistik.css">
+    <link rel="stylesheet" href="/shared/help-system.css">
+    <style>
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+        body {
+            font-family: 'Lato', sans-serif;
+            background: var(--color-background);
+            color: var(--color-text);
+            min-height: 100vh;
+        }
+    </style>
+</head>
+<body class="zone-kitchen" data-help-page="kitchen-logistik" data-help-page-name="Køkken — Logistik">
+
+<div id="logistikContainer"></div>
+
+<script src="/BonConfig.js"></script>
+<script src="/BonConfigBar.js"></script>
+<script src="/shared/zone_switcher.js"></script>
+<script src="/shared/kitchen_topbar.js"></script>
+<script src="/shared/utils.js"></script>
+<script src="/shared/moms.js"></script>
+<script src="/shared/api.js"></script>
+<script src="/shared/modal.js"></script>
+<script src="/shared/kunde_soeg.js"></script>
+<script src="/shared/bon_opret_modal.js"></script>
+<script src="/shared/vare_picker.js"></script>
+<script src="/shared/flag_strip.js"></script>
+<script src="/shared/bon_drawer.js"></script>
+<script src="/assets/leaflet/leaflet.js"></script>
+<script src="/shared/logistik.js"></script>
+<script>
+    document.addEventListener('DOMContentLoaded', async function() {
+        const currentUser = await checkAuth();
+        if (!currentUser) return;
+        renderKitchenTopbar(document.body, { user: currentUser });
+
+        // Drawer — så klik på en bon i logistik åbner bon-detaljen.
+        const drawer = new BonDrawer();
+        function openDrawer(bonId) {
+            drawer.load(bonId);
+            drawer.show();
+        }
+
+        // "Se i logistik"-link fra et bon-kort sender ?date= & ?bon=.
+        const params = new URLSearchParams(window.location.search);
+        initLogistik(document.getElementById('logistikContainer'), {
+            openDrawer: openDrawer,
+            date: params.get('date') || null,
+            highlightBon: params.get('bon') || null
+        });
+
+        // SSE — live opdatering (samme handler som office).
+        if (typeof connectSSE === 'function') {
+            connectSSE('/api/sse', {
+                bon_updated:                   (d) => _logHandleSSE && _logHandleSSE('bon_updated', d),
+                bon_status:                    (d) => _logHandleSSE && _logHandleSSE('bon_status', d),
+                delivery_route_stop_added:     (d) => _logHandleSSE && _logHandleSSE('delivery_route_stop_added', d),
+                delivery_route_stop_removed:   (d) => _logHandleSSE && _logHandleSSE('delivery_route_stop_removed', d),
+                delivery_route_status_changed: (d) => _logHandleSSE && _logHandleSSE('delivery_route_status_changed', d),
+                delivery_stop_status_changed:  (d) => _logHandleSSE && _logHandleSSE('delivery_stop_status_changed', d),
+                delivery_incident_logged:      (d) => _logHandleSSE && _logHandleSSE('delivery_incident_logged', d),
+            });
+        }
+    });
+</script>
+<script src="/shared/help-system.js"></script>
+</body>
+</html>
