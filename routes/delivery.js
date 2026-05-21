@@ -487,7 +487,8 @@ router.get('/overview', requireAuth(), handle((req, res) => {
                c.first_name || ' ' || COALESCE(c.last_name, '') AS customer_name,
                co.name AS company_name,
                a.street_name, a.street_nr, a.postal_code, a.city, a.lat, a.lon,
-               r.id AS on_route_id, st.sequence AS route_sequence
+               r.id AS on_route_id, st.sequence AS route_sequence,
+               bv.label AS delivery_vehicle_label, bv.type AS delivery_vehicle_type
         FROM bons b
         JOIN status_definitions sd ON sd.id = b.status_id
         LEFT JOIN customers c      ON c.id = b.customer_id
@@ -495,6 +496,7 @@ router.get('/overview', requireAuth(), handle((req, res) => {
         LEFT JOIN addresses a      ON a.id = b.delivery_address_id
         LEFT JOIN delivery_route_stops st ON st.bon_id = b.id
         LEFT JOIN delivery_routes r ON r.id = st.route_id AND r.status != 'cancelled'
+        LEFT JOIN delivery_vehicles bv ON bv.id = b.delivery_vehicle_id
         WHERE b.delivery_date = ?
           AND b.delivery_type = 'delivery'
           AND b.is_offer = 0 AND b.is_internal = 0
