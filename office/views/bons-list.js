@@ -414,9 +414,30 @@ function _blRenderSummary() {
     var el = document.getElementById('blSummary');
     if (!el) return;
 
-    // Only show for date-filtered views
-    if (_blFilter !== 'today' && _blFilter !== 'date') {
+    // Vis for dato-baserede views + NY-filteret
+    if (_blFilter !== 'today' && _blFilter !== 'date' && _blFilter !== 'ny') {
         el.style.display = 'none';
+        return;
+    }
+
+    // ── NY-filteret: tæl bonner + udskil ubekræftede web-bestillinger ──
+    // "NY" er et statusfilter (alle status-NY bonner uanset kilde). Badgen
+    // "Ubekræftede" tæller derimod kun web-bestillinger ingen har bekræftet.
+    // Linjen her viser relationen så de to tal ikke ser modstridende ud.
+    if (_blFilter === 'ny') {
+        var nyCount = _blBons.length;
+        var webCount = 0;
+        for (var k = 0; k < _blBons.length; k++) {
+            if (_blBons[k].is_unconfirmed_web) webCount++;
+        }
+        var nyHtml = '<span>' + nyCount + ' NY-bon' + (nyCount !== 1 ? 'ner' : '') + '</span>';
+        if (webCount > 0) {
+            nyHtml += ' <span class="bl-summary-web" title="Web-bestillinger som ingen endnu har trykket'
+                + ' &quot;Bekræft modtaget&quot; på. Resten er manuelt oprettede eller allerede bekræftede.">'
+                + '· heraf 🌐 ' + webCount + ' ubekræftede web-bestillinger</span>';
+        }
+        el.innerHTML = nyHtml;
+        el.style.display = '';
         return;
     }
 
@@ -520,7 +541,10 @@ function _blRenderTable() {
         tdBon.className = 'bl-td-bon';
         tdBon.setAttribute('rowspan', '2');
         tdBon.innerHTML = '<span class="bl-bon-number">' + esc(bon.bon_number) + '</span>'
-            + (isProduction ? ' <span class="bl-prod-icon">\uD83D\uDD27</span>' : '');
+            + (isProduction ? ' <span class="bl-prod-icon">\uD83D\uDD27</span>' : '')
+            + (bon.is_unconfirmed_web
+                ? '<br><span class="bl-web-chip" title="Ubekr\u00E6ftet web-bestilling \u2014 \u00E5bn bonnen og tryk \u00ABBekr\u00E6ft modtaget\u00BB">\uD83C\uDF10 ubekr\u00E6ftet</span>'
+                : '');
         tr1.appendChild(tdBon);
 
         // Dato
