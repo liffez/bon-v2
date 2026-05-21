@@ -406,6 +406,8 @@ function _logOnBonClick(e) {
         _logRenderSelBar();
         return;
     }
+    // Adresse-link → lad browseren åbne Google Maps; åbn ikke draweren.
+    if (e.target.closest('.log-bon-addr-link')) return;
     // Alt andet på rækken → åbn bon-draweren.
     if (_logOptions.openDrawer) _logOptions.openDrawer(id);
 }
