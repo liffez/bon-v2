@@ -819,27 +819,10 @@
 .bm-container { max-width: 600px; margin: 0 auto; }
 
 .bm-error { color: var(--color-red, #c0392b); padding: 16px; text-align: center; }
-.bm-no-mail { color: var(--color-text-dim, #999); text-align: center; padding: 16px; font-style: italic; }
 
 /* ── Historik ─────────────────────────────────────────────── */
+/* Selve besked-listen renderes af shared/mail_thread.js (.mt-*). */
 .bm-history { margin-bottom: 20px; }
-.bm-history-header { font-weight: 700; font-size: 14px; margin-bottom: 8px; color: var(--brand-primary, #8e631f); }
-.bm-badge { background: var(--color-red, #e74c3c); color: white; font-size: 11px; padding: 2px 7px; border-radius: 10px; margin-left: 6px; font-weight: 600; }
-
-.bm-messages { max-height: 300px; overflow-y: auto; display: flex; flex-direction: column; gap: 8px; padding: 4px 0; }
-
-.bm-msg { padding: 10px 14px; border-radius: 14px; cursor: default; font-size: 13px; max-width: 82%; }
-.bm-msg.bm-in { background: #f0f4f8; align-self: flex-start; border-bottom-left-radius: 4px; }
-.bm-msg.bm-out { background: #f0f7f0; align-self: flex-end; border-bottom-right-radius: 4px; }
-.bm-msg.bm-unread { background: #fff3e0; font-weight: 500; cursor: pointer; }
-.bm-msg.bm-unread:hover { background: #ffe8cc; }
-
-.bm-msg-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 2px; }
-.bm-msg-from { font-weight: 700; font-size: 12px; }
-.bm-msg-date { color: var(--color-text-dim, #999); font-size: 11px; }
-.bm-msg-subject { font-weight: 600; font-size: 13px; margin-bottom: 4px; }
-.bm-msg-body { color: var(--color-text-dim, #666); font-size: 12px; line-height: 1.4; white-space: pre-wrap; word-break: break-word; }
-.bm-msg-attach { font-size: 11px; color: var(--color-text-dim, #999); margin-top: 4px; }
 
 /* ── Compose ─────────────────────────────────────────────── */
 .bm-compose { border-top: 1px solid var(--color-border, #d7d1ca); padding-top: 16px; }

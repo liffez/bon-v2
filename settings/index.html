@@ -3846,7 +3846,7 @@ function _beRenderReviewList() {
         const cpsHtml = (p.contact_points || []).map((c, cIdx) => `
             <div class="be-detail-row">
                 <input type="checkbox" class="be-detail-cb be-cp-cb" data-pidx="${idx}" data-cidx="${cIdx}" checked onchange="_beUpdateApplyCount()"/>
-                <div class="be-detail-label">${c.kind === 'email' ? '✉ EMAIL' : '☏ TLF'}</div>
+                <div class="be-detail-label">${c.kind === 'email' ? mailIcon(12) + ' EMAIL' : phoneIcon(12) + ' TLF'}</div>
                 <div class="be-detail-val be-detail-cp">
                     ${escapeHtml(c.value)}
                     <span class="be-pill-pub">PUB</span>

@@ -714,7 +714,7 @@ function _crmOpenLogForm(idx, customerId, bonId) {
                 '<button class="crm-svc-result-btn" data-r="busy" onclick="_crmSelResult(this)">📵 Optaget</button>' +
                 '<button class="crm-svc-result-btn" data-r="voicemail" onclick="_crmSelResult(this)">📩 Besked</button>' +
                 '<button class="crm-svc-result-btn" data-r="callback" onclick="_crmSelResult(this)">⏎ Callback</button>' +
-                '<button class="crm-svc-result-btn" data-r="email_instead" onclick="_crmSelResult(this)">✉️ Mail</button>' +
+                '<button class="crm-svc-result-btn" data-r="email_instead" onclick="_crmSelResult(this)">' + mailIcon(12) + ' Mail</button>' +
             '</div>' +
             '<div id="crmSvcSentiment' + idx + '">' +
                 '<label>Stemning <span style="font-weight:400;text-transform:none;letter-spacing:0;opacity:.7;">(valgfrit)</span></label>' +

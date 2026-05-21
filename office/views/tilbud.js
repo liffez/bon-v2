@@ -1205,7 +1205,7 @@ function _tBuildStep4() {
     let h = `<div style="display:flex;gap:12px;margin-bottom:16px;flex-wrap:wrap">
         <button class="tilbud-btn tilbud-btn-primary" onclick="_tSaveQuote()">Gem tilbud</button>
         <button class="tilbud-btn tilbud-btn-secondary" onclick="_tGenPDF()">Download PDF</button>
-        <button class="tilbud-btn tilbud-btn-secondary" onclick="_tSendQuoteMail()">✉ Send til kunde</button>
+        <button class="tilbud-btn tilbud-btn-secondary" onclick="_tSendQuoteMail()">${mailIcon(13)} Send til kunde</button>
         ${_tQuoteId ? `<button class="tilbud-btn tilbud-btn-secondary" onclick="_tConvertToBon()">Opret som bon</button>` : ''}
     </div>`;
 
@@ -1635,7 +1635,7 @@ async function _tSendQuoteMail() {
     const cn = _tCust?.company_name || _tCust?.customer_name || 'Kunde';
     container.innerHTML = `
         <div style="background:var(--color-background, #f5f4f2);border:1px solid var(--color-border, #d7d1ca);border-radius:8px;padding:12px;margin-bottom:16px;">
-            <div style="font-weight:600;margin-bottom:8px;">✉ Send tilbud til kunde</div>
+            <div style="font-weight:600;margin-bottom:8px;">${mailIcon(14)} Send tilbud til kunde</div>
             <div style="margin-bottom:6px;">
                 <label style="font-size:11px;display:block;">Til</label>
                 <input type="email" id="tMailTo" value="${_tEsc(email)}" style="width:100%;padding:6px 8px;border:1px solid var(--color-border);border-radius:4px;font-size:13px;">
@@ -1659,7 +1659,7 @@ Ristet Rug</textarea>
                 <span class="bm-att-pill">📎 Tilbud_${_tEsc(_tQuoteNumber || 'ny')}.pdf <span style="color:var(--color-text-dim);font-size:10px;">(genereres ved send)</span></span>
             </div>
             <div style="display:flex;gap:8px;margin-top:8px;">
-                <button class="tilbud-btn tilbud-btn-primary" id="tMailSendBtn" onclick="_tDoSendMail()">✉ Send</button>
+                <button class="tilbud-btn tilbud-btn-primary" id="tMailSendBtn" onclick="_tDoSendMail()">${mailIcon(13)} Send</button>
                 <button class="tilbud-btn tilbud-btn-secondary" onclick="document.getElementById('tilbudMailSend').style.display='none'">Annuller</button>
             </div>
         </div>`;
@@ -1706,7 +1706,7 @@ async function _tDoSendMail() {
         });
 
         // 4. Success
-        btn.textContent = '✉ Sendt!';
+        btn.innerHTML = mailIcon(13) + ' Sendt!';
         _tToast('Tilbud sendt til ' + to, 'success');
         setTimeout(() => {
             const container = document.getElementById('tilbudMailSend');
@@ -1717,6 +1717,6 @@ async function _tDoSendMail() {
         console.error('[tilbud] Send mail fejl:', err);
         alert('Fejl ved afsendelse: ' + err.message);
         btn.disabled = false;
-        btn.textContent = '✉ Send';
+        btn.innerHTML = mailIcon(13) + ' Send';
     }
 }

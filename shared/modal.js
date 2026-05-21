@@ -369,39 +369,41 @@ async function showBonInfo(cardIdOrBonId, options) {
  * Hent og vis mail-historik i info-modal (non-blocking).
  */
 async function _loadInfoMail(bonId, bodyEl) {
-    if (typeof fetchBonMail !== 'function') return;
+    if (typeof fetchBonMail !== 'function' || typeof MailThread === 'undefined') return;
     try {
         const mailData = await fetchBonMail(bonId);
         const allMsgs = [];
         (mailData.threads || []).forEach(t => (t.messages || []).forEach(m => allMsgs.push(m)));
-        if (allMsgs.length === 0) return; // Ingen mails — vis intet
 
-        allMsgs.sort((a, b) => new Date(b.received_at || b.sent_at || b.created_at) - new Date(a.received_at || a.sent_at || a.created_at));
-        const unread = allMsgs.filter(m => m.direction === 'in' && !m.is_read).length;
+        // "Skriv mail" → fælles indgang til den rige mail-modal (hvis tilgængelig).
+        var writeBtn = (typeof openBonMail === 'function')
+            ? '<button type="button" class="info-mail-write" onclick="openBonMail(\'bon' + bonId + '\')">' + mailIcon(13) + ' Skriv mail</button>'
+            : '';
+        if (allMsgs.length === 0 && !writeBtn) return; // intet at vise
 
         var section = document.createElement('div');
         section.className = 'info-mail-section';
-        section.innerHTML = '<div class="bm-history-header">✉ Mail' + (unread ? ' <span class="bm-badge">' + unread + ' ulæst</span>' : '') + '</div>'
-            + '<div class="bm-messages" style="max-height:200px">'
-            + allMsgs.slice(0, 10).map(function(m) {
-                var isIn = m.direction === 'in';
-                var isUnread = isIn && !m.is_read;
-                var from = isIn ? (m.from_name || m.from_email || '?') : 'Ristet Rug';
-                var d = new Date(m.received_at || m.sent_at || m.created_at);
-                var dateStr = d.getDate() + '/' + (d.getMonth()+1) + ' ' + String(d.getHours()).padStart(2,'0') + ':' + String(d.getMinutes()).padStart(2,'0');
-                var body = (m.body_text || '').slice(0, 120).replace(/\n/g, ' ');
-                return '<div class="bm-msg ' + (isIn ? 'bm-in' : 'bm-out') + (isUnread ? ' bm-unread' : '') + '">'
-                    + '<div class="bm-msg-header"><span class="bm-msg-from">' + esc(from) + '</span><span class="bm-msg-date">' + dateStr + '</span></div>'
-                    + '<div class="bm-msg-subject">' + esc(m.subject || '') + '</div>'
-                    + '<div class="bm-msg-body">' + esc(body) + (body.length >= 120 ? '…' : '') + '</div>'
-                    + '</div>';
-            }).join('')
-            + '</div>';
+        var host = document.createElement('div');
+        section.appendChild(host);
+        if (writeBtn) {
+            var bar = document.createElement('div');
+            bar.className = 'info-mail-bar';
+            bar.innerHTML = writeBtn;
+            section.appendChild(bar);
+        }
 
         // Indsæt før knap-sektionen (eller til sidst)
         var gotoSection = bodyEl.querySelector('.info-goto-section');
         if (gotoSection) bodyEl.insertBefore(section, gotoSection);
         else bodyEl.appendChild(section);
+
+        MailThread.renderHistory(host, {
+            threads: mailData.threads,
+            header: mailIcon(14) + ' Mail',
+            emptyText: 'Ingen korrespondance endnu',
+            maxHeight: 240,
+            onMarkRead: (id) => markBonMailRead(bonId, id),
+        });
     } catch (err) {
         // Stille fejl — mail er ikke kritisk for info-modal
         console.warn('[info-mail]', err.message);
@@ -474,7 +476,7 @@ function _buildBonInfoHtml(bon) {
         if (bon.company_phone && bon.company_phone !== bon.contact_phone) {
             html += `<div class="info-customer-detail">📞 ${_esc(bon.company_phone)} <span class="info-phone-label">Dagskontakt</span></div>`;
         }
-        if (bon.contact_email) html += `<div class="info-customer-detail">✉ ${_esc(bon.contact_email)}</div>`;
+        if (bon.contact_email) html += `<div class="info-customer-detail">${mailIcon(12)} ${_esc(bon.contact_email)}</div>`;
         html += '</div>';
     }
 

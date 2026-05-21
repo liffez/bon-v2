@@ -1925,6 +1925,63 @@ og `groupSelected` lavede kun et DOM-element.
 ned blandt løse linjer hopper tilbage til toppen ved reload. Pre-eksisterende begrænsning
 (løs-linje-orden var aldrig persisteret); kan tilføjes senere uden skemaændring.
 
+### Mail-historik: fælles komponent (21. maj 2026)
+
+Mail blev vist på seks steder med fire separate chat-boble-implementeringer
+(`bm-msg` / `si-msg` / `ib-po-msg` / `k3-mail-msg`), tre forskellige dato-formattere
+og hård afkortning af beskedteksten (120/150/200/300 tegn) **uden mulighed for at se
+hele beskeden** — selvom backenden altid har returneret hele `body_text`.
+
+- `shared/mail_thread.js` + `mail_thread.css` — **NY** fælles komponent. `window.MailThread`:
+  - `renderHistory(container, { threads|messages, header?, emptyText?, maxHeight?, onMarkRead? })`
+    — chat-boble-historik med **klik-for-at-folde-ud**: lange beskeder (>260 tegn / >5 linjer)
+    kollapses visuelt med fade-maske + "Vis hele beskeden ▾"-knap; klik på boblen folder ud.
+    Klik på ulæst indgående boble markerer den læst via `onMarkRead`.
+  - `fmtDate(iso)` — ét fælles datoformat (dd/M HH:MM, 2-cifret år hvis ikke i år)
+  - `normalize({threads|messages})` — tråde/flad liste → sorteret array (nyeste først)
+  - `isLong`-heuristik er tegn/linje-baseret (ikke `scrollHeight`) så den virker når
+    containeren er skjult (fx drawer-mail-sektion kollapset ved load)
+- **Alle seks visninger migreret** til `MailThread.renderHistory`:
+  - `shared/bon_kort.js` — "Send mail"-modal (`openBonMail`). Fik også **vedhæftnings-UI**
+    (`_bm*`-handlers) så den matcher drawer'en — bon-mail kan nu sendes med samme
+    funktioner uanset indgang.
+  - `shared/modal.js` — info-modalens mail-sektion. Fik desuden en **"✉ Skriv mail"-knap**
+    der åbner `openBonMail` (guarded med `typeof`) — én klar vej til den rige mail-modal.
+  - `shared/bon_drawer.js` — drawer-mail-sektionen (`_loadMail`).
+  - `shared/supplier_inbox.js` — leverandørpost tråd-preview (`#siMsgHost`-host).
+  - `shared/indkob.js` — PO- + leverandør-mail-paneler. `_ibRenderMailMessages` returnerer
+    nu en `.ib-mail-host[data-mt-messages]`-placeholder; `_ibHydrateMail()` (kaldt sidst i
+    `_ibRender`) afkoder JSON og kalder `renderHistory`.
+  - `office/views/crm-kunde360.js` — Kunde 360° mail-tab (`#k3MailHost`-host). Per-besked
+    `· #bonnummer`-tag bevaret.
+- **Død CSS fjernet**: `.bm-msg*`/`.bm-messages`/`.bm-history-header`/`.bm-badge`/`.bm-no-mail`
+  (bon_kort.css), `.bm-msg-att*` (bon_drawer.css), `.si-msg*` (supplier_inbox.js style-blok),
+  `.ib-po-msg*`/`.ib-po-mail-msgs`/`.ib-po-mail-empty` (indkob.css), `.k3-mail-msg*`
+  (crm-kunde360.js). Døde funktioner fjernet: `_markMailRead` (bon_kort.js),
+  `_ibFmtDateTime` (indkob.js). Compose-formularerne er **ikke** rørt — kun historik-visningen
+  blev konsolideret (CRM's booking-link-popover, drawer/modal-vedhæftninger, supplier-reply
+  bevarer hver deres compose-flow).
+- `mail_thread.{js,css}` loades i: today/later/calendar/planning/purchasing (kitchen) +
+  office/index.html.
+- Browser-verificeret end-to-end på alle seks visninger: historik renderer, fold-ud virker,
+  ulæst-markering persisterer, vedhæftninger vises, tom-tilstand vises.
+
+**Bevidst udeladt:** Compose-formularerne (3 bon-varianter + supplier-reply + indkøb +
+CRM) er ikke samlet i én komponent — de har genuint forskellige behov (CRM booking-link,
+drawer/modal-vedhæftninger, supplier per-tråd-svar). Kun historik-**visningen** — hvor
+duplikeringen og "kan ikke læse hele beskeden"-problemet lå — er konsolideret. Tråde
+flades stadig ud til én sorteret liste i bon-visningerne (emne vist pr. besked).
+
+**Mail-emoji → SVG (samme dag):** Alle resterende `✉`/`✉️` unicode-envelope-glyffer
+(U+2709 — renderer som tynd, næsten usynlig outline) konverteret til `mailIcon()`-SVG:
+modal-titler, send-knapper, mail-sektion-labels, "ny mail"-toast (`_showMailToast`),
+kontakt-detalje-linjer, kalender-mail-linje, CRM-kontaktrækker m.fl. `textContent`-spots
+(knap-tekst, toasts) skiftet til `innerHTML`. Ny `phoneIcon()`-helper i `shared/utils.js`
+ved siden af `mailIcon()` — de fire `✉/☏`-kontaktpunkt-par (CRM Firma 360°, Settings
+bestillings-import) konverteret samlet så parret forbliver visuelt konsistent (☏ U+260F
+er lige så tynd). Farve-emojis (`📨`/`📞` osv.) er urørt — de renderer fint; kun de tynde
+monokrome glyffer var usynlige.
+
 ## Næste opgave
 
 > ✏️ Opdateret 19. maj 2026.

@@ -351,7 +351,7 @@ function _renderWebOrderCard(b) {
     h += '<span>📅 ' + _calFmtDate(b.delivery_date) + ' kl. ' + time + ' <span class="' + daysClass + '">(' + _calEsc(daysText) + ')</span></span>';
     h += '<span>' + typeLbl + '</span>';
     if (b.pax) h += '<span>👥 ' + b.pax + ' pax</span>';
-    if (b.customer_email) h += '<span>✉️ <a href="mailto:' + _calEsc(b.customer_email) + '">' + _calEsc(b.customer_email) + '</a></span>';
+    if (b.customer_email) h += '<span>' + mailIcon(13) + ' <a href="mailto:' + _calEsc(b.customer_email) + '">' + _calEsc(b.customer_email) + '</a></span>';
     if (b.customer_phone) h += '<span>📞 <a href="tel:' + _calEsc(b.customer_phone) + '">' + _calEsc(b.customer_phone) + '</a></span>';
     if (b.company_name) h += '<span>🏢 ' + _calEsc(b.company_name) + '</span>';
     h += '</div>';

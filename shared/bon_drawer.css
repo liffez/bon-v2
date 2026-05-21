@@ -566,7 +566,6 @@
 .drawer-mail-badge:empty { display: none; }
 
 .drawer-mail-history { max-height: 250px; overflow-y: auto; margin-bottom: 8px; }
-.drawer-mail-history .bm-msg { margin-bottom: 4px; font-size: 12px; }
 
 .drawer-mail-compose-toggle {
     font-size: 13px; font-weight: 600; color: var(--brand-primary, #8e631f);
@@ -601,16 +600,6 @@
 }
 .bm-att-remove { cursor: pointer; color: #c44; font-weight: bold; margin-left: 2px; }
 .bm-att-remove:hover { color: #a00; }
-
-/* Attachment display in mail history */
-.bm-msg-attachments { margin-top: 4px; display: flex; flex-wrap: wrap; gap: 4px; }
-.bm-msg-att {
-    display: inline-flex; align-items: center; gap: 3px;
-    font-size: 11px; color: var(--brand-primary, #8e631f);
-    text-decoration: none; padding: 2px 8px;
-    background: var(--color-background, #f5f4f2); border-radius: 8px;
-}
-.bm-msg-att:hover { text-decoration: underline; }
 
 /* ── Delivery section ─────────────────────────────────────── */
 .drawer-delivery-section .drawer-label-row {
