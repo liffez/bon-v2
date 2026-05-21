@@ -44,17 +44,18 @@
     <div class="m-toast" id="mToast"></div>
 
     <!-- Scripts (cache-bust via build-tag — bumpes ved deploy) -->
-    <script>window.__MV = '2026-05-17-3';</script>
-    <script src="/BonConfig.js?v=2026-05-17-3"></script>
-    <script src="/shared/utils.js?v=2026-05-17-3"></script>
-    <script src="/shared/api.js?v=2026-05-17-3"></script>
-    <script src="/shared/varemodtagelse.js?v=2026-05-17-3"></script>
-    <script src="/shared/inventory_check.js?v=2026-05-17-3"></script>
-    <script src="/mobile/views/bons.js?v=2026-05-17-3"></script>
-    <script src="/mobile/views/modtag.js?v=2026-05-17-3"></script>
-    <script src="/mobile/views/lager.js?v=2026-05-17-3"></script>
-    <script src="/mobile/views/crm.js?v=2026-05-17-3"></script>
-    <script src="/mobile/views/oversigt.js?v=2026-05-17-3"></script>
+    <script>window.__MV = '2026-05-21-1';</script>
+    <script src="/BonConfig.js?v=2026-05-21-1"></script>
+    <script src="/shared/utils.js?v=2026-05-21-1"></script>
+    <script src="/shared/api.js?v=2026-05-21-1"></script>
+    <script src="/shared/varemodtagelse.js?v=2026-05-21-1"></script>
+    <script src="/shared/inventory_check.js?v=2026-05-21-1"></script>
+    <script src="/mobile/views/bons.js?v=2026-05-21-1"></script>
+    <script src="/mobile/views/modtag.js?v=2026-05-21-1"></script>
+    <script src="/mobile/views/lager.js?v=2026-05-21-1"></script>
+    <script src="/mobile/views/crm.js?v=2026-05-21-1"></script>
+    <script src="/mobile/views/oversigt.js?v=2026-05-21-1"></script>
+    <script src="/mobile/views/levering.js?v=2026-05-21-1"></script>
     <script>
     (async function() {
         /* ── Auth ── */
@@ -73,6 +74,7 @@
             { view: 'modtag',   icon: '&#128230;', label: 'Modtag',   requires: 'modtag' },
             { view: 'lager',    icon: '&#129518;', label: 'Lager',    requires: 'modtag' },
             { view: 'crm',      icon: '&#128222;', label: 'CRM',      requires: 'crm' },
+            { view: 'levering', icon: '&#128666;', label: 'Levering', requires: null },
             { view: 'oversigt', icon: '&#128202;', label: 'Overblik', requires: null },
         ];
         var _mPerms = _mUser.permissions || {};
@@ -153,6 +155,7 @@
             modtag:   { init: initMobileModtag,   cleanup: null },
             lager:    { init: initMobileLager,    cleanup: null },
             crm:      { init: initMobileCrm,      cleanup: null },
+            levering: { init: initMobileLevering, cleanup: typeof cleanupMobileLevering === 'function' ? cleanupMobileLevering : null },
             oversigt: { init: initMobileOversigt, cleanup: null },
         };
 

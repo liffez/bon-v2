@@ -36,6 +36,7 @@ const VIEW_ACTIONS = {
         { tooltip: 'Send mail',     icon: '<path d="M4 4h16c1.1 0 2 .9 2 2v12c0 1.1-.9 2-2 2H4c-1.1 0-2-.9-2-2V6c0-1.1.9-2 2-2z"/><polyline points="22,6 12,13 2,6"/>', onclick: 'openBonMail' },
         { tooltip: 'Råvarer',       icon: '<line x1="16.5" y1="9.4" x2="7.5" y2="4.21"/><path d="M21 16V8a2 2 0 00-1-1.73l-7-4a2 2 0 00-2 0l-7 4A2 2 0 003 8v8a2 2 0 001 1.73l7 4a2 2 0 002 0l7-4A2 2 0 0021 16z"/><polyline points="3.27 6.96 12 12.01 20.73 6.96"/><line x1="12" y1="22.08" x2="12" y2="12"/>', onclick: 'showRavarer' },
         { tooltip: 'Kort',          icon: '<path d="M21 10c0 7-9 13-9 13s-9-6-9-13a9 9 0 0118 0z"/><circle cx="12" cy="10" r="3"/>', onclick: 'openMap' },
+        { tooltip: 'Se i logistik', icon: '<rect x="1" y="6" width="13" height="10" rx="1"/><path d="M14 9h4l3 3v4h-7z"/><circle cx="5" cy="18.5" r="2"/><circle cx="17" cy="18.5" r="2"/>', onclick: 'openLogistik' },
         { tooltip: 'Historik',      icon: '<circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/>', onclick: 'showHistorik' },
         { tooltip: 'Sammentælling', icon: '<line x1="4" y1="6" x2="20" y2="6"/><line x1="4" y1="10" x2="14" y2="10"/><line x1="4" y1="14" x2="20" y2="14"/><line x1="4" y1="18" x2="14" y2="18"/><polyline points="17 14 20 17 17 20"/>', onclick: 'showSummary' },
     ],
@@ -46,6 +47,7 @@ const VIEW_ACTIONS = {
         { tooltip: 'Send mail',     icon: '<path d="M4 4h16c1.1 0 2 .9 2 2v12c0 1.1-.9 2-2 2H4c-1.1 0-2-.9-2-2V6c0-1.1.9-2 2-2z"/><polyline points="22,6 12,13 2,6"/>', onclick: 'openBonMail' },
         { tooltip: 'Råvarer',       icon: '<line x1="16.5" y1="9.4" x2="7.5" y2="4.21"/><path d="M21 16V8a2 2 0 00-1-1.73l-7-4a2 2 0 00-2 0l-7 4A2 2 0 003 8v8a2 2 0 001 1.73l7 4a2 2 0 002 0l7-4A2 2 0 0021 16z"/><polyline points="3.27 6.96 12 12.01 20.73 6.96"/><line x1="12" y1="22.08" x2="12" y2="12"/>', onclick: 'showRavarer' },
         { tooltip: 'Kort',          icon: '<path d="M21 10c0 7-9 13-9 13s-9-6-9-13a9 9 0 0118 0z"/><circle cx="12" cy="10" r="3"/>', onclick: 'openMap' },
+        { tooltip: 'Se i logistik', icon: '<rect x="1" y="6" width="13" height="10" rx="1"/><path d="M14 9h4l3 3v4h-7z"/><circle cx="5" cy="18.5" r="2"/><circle cx="17" cy="18.5" r="2"/>', onclick: 'openLogistik' },
         { tooltip: 'Historik',      icon: '<circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/>', onclick: 'showHistorik' },
         { tooltip: 'Sammentælling', icon: '<line x1="4" y1="6" x2="20" y2="6"/><line x1="4" y1="10" x2="14" y2="10"/><line x1="4" y1="18" x2="14" y2="18"/><polyline points="17 14 20 17 17 20"/>', onclick: 'showSummary' },
     ],
@@ -149,6 +151,7 @@ function createCard(bonData, viewName) {
     el.dataset.view          = viewName || 'all';   // bruges af buildStatusBar
     el.dataset.priceCategory = bonData.price_category || 'catering';
     el.dataset.orderType     = bonData.order_type || 'delivery';
+    el.dataset.deliveryDate  = bonData.delivery_date_raw || '';
     if (bonData.price_category === 'produktion') el.classList.add('bon-production');
 
     // ── HEADER ──────────────────────────────────────────────────
@@ -332,7 +335,7 @@ function _buildDeliveryFlag(bonData, cardId) {
 const _DELIVERY_METHOD_DISPLAY = {
     bike:   { label: 'Cykel',      icon: '🚴' },
     taxi:   { label: 'Taxa',       icon: '🚕' },
-    volvo:  { label: 'Volvo',      icon: '🚛' },
+    volvo:  { label: 'Volvo',      icon: '🚐' },
     pickup: { label: 'Afhentning', icon: '🏠' }
 };
 

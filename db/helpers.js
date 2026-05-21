@@ -106,6 +106,40 @@ function getBonLines(bonId) {
     `).all(bonId);
 }
 
+// Grocy auto-consume når en bon leveres. Idempotent via bons.inventory_deducted —
+// kaldes både fra office-status-skift (routes/bons.js) og courier-levering
+// (routes/delivery.js), men trækker kun lageret én gang. Fire-and-forget:
+// Grocy-kaldet afventes ikke, så et langsomt/nede Grocy ikke blokerer svaret.
+function autoConsumeBonInventory(bonId) {
+    const db = getDb();
+    const autoDeduct = db.prepare(`SELECT value FROM settings WHERE key = 'inventory_auto_deduct'`).get();
+    if (!autoDeduct || autoDeduct.value !== '1') return;
+    const already = db.prepare(`SELECT inventory_deducted FROM bons WHERE id = ?`).get(bonId);
+    if (already?.inventory_deducted === 1) {
+        console.log(`[grocy_consume] bon ${bonId}: lager allerede trukket — skipper (idempotens)`);
+        return;
+    }
+    const lines = getBonLines(bonId);
+    const { consumeRecipes } = require('../services/grocyAdapter');
+    consumeRecipes(lines).then(results => {
+        const failed  = results.filter(r => !r.success);
+        const partial = results.filter(r => r.partial);
+        if (failed.length) {
+            console.warn(`[grocy_consume] bon ${bonId}: ${failed.length} fejl:`, failed);
+        } else if (partial.length) {
+            console.log(`[grocy_consume] bon ${bonId}: ${results.length} produkter trukket — ${partial.length} partial (rest lagt på shopping-list)`);
+        } else {
+            console.log(`[grocy_consume] bon ${bonId}: ${results.length} produkter forbrugt fra lager`);
+        }
+        db.prepare(
+            `UPDATE bons SET inventory_deducted = 1, inventory_deducted_at = CURRENT_TIMESTAMP WHERE id = ?`
+        ).run(bonId);
+        logChange({ entityType: 'bon', entityId: bonId, action: 'grocy_consume', fieldName: 'stock', oldValue: null, newValue: JSON.stringify(results) });
+    }).catch(err => {
+        console.error(`[grocy_consume] bon ${bonId}: fejl:`, err.message);
+    });
+}
+
 // Visuelle grupper på køkken-bonens menu-liste (titel + note + rækkefølge).
 function getBonMenuGroups(bonId) {
     return getDb().prepare(`
@@ -233,6 +267,7 @@ function getUserById(id) {
 module.exports = {
     nextBonNumber, nextQuoteNumber, logChange, handle,
     getBon, getBonLines, getBonMenuGroups, getStatusId, getDefaultLocationId,
+    autoConsumeBonInventory,
     getUnitCountCategories, invalidateUnitCountCache, recalcBonTotalUnits,
     hashPassword, verifyPassword, getUserByEmail, getUserById,
     transaction,

@@ -118,7 +118,7 @@ bon-v2/
 │   ├── embed.js      ← /embed/bestilling, /embed/config, /embed/menus/:id (public, indlejres i WordPress)
 │   ├── contact-points.js ← /api/contact-points/* (CRUD + toggle-public for kontaktpunkter)
 │   ├── flags.js      ← /api/flags/* (entity_flags CRUD + ack/dismiss — påmindelser på kunder/firmaer)
-│   └── delivery.js   ← /api/delivery/* (vehicles CRUD, booking-payload, book, actual-cost, events)
+│   └── delivery.js   ← /api/delivery/* (vehicles, booking, /calculate, /health, ruter — Spor 1+2)
 ├── services/
 │   ├── grocyAdapter.js       ← Grocy API adapter med cache + CRUD + consume + barcodes
 │   ├── hokaAdapter.js        ← Hørkram (hoka.dk) API adapter med cookie-jar auth
@@ -128,6 +128,10 @@ bon-v2/
 │   ├── goodsReceiptWebhook.js ← Whiteboard webhook for varemodtagelse (fire-and-forget)
 │   ├── booking_template.js   ← Render template + variabler + cost-estimat (Spor 1)
 │   ├── delivery_log.js       ← Booking-events + actual cost + sync delivery_method (Spor 1)
+│   ├── routing.js            ← ORS vej-routing (getDistance/getRoute) + geo_calculations-cache (Spor 2)
+│   ├── geocode.js            ← DAWA-geokodning af adresser (Spor 2)
+│   ├── delivery_calc.js      ← Single-bon leverings-forslag: afstand + vogn-anbefaling (Spor 2)
+│   ├── route_planner.js      ← Rute-orchestrator: computeRoute/applyRouteProposal (Spor 2)
 │   ├── contactExtractor.js   ← Parse pasted HTML/tekst for emails+telefoner (paste-flow til scraping)
 │   └── quConvert.js          ← Grocy quantity unit conversions
 ├── db/
@@ -147,6 +151,7 @@ bon-v2/
 │   ├── bon_kort.css
 │   ├── calendar.js + calendar.css  ← Kalender/liste komponent
 │   ├── planning.js + planning.css  ← Planlægningsbon (aggregering, vagtplan, action-knapper)
+│   ├── logistik.js + logistik.css  ← Leveringsoversigt + rute-planlægning + Leaflet-kort + live-mode (Spor 2, delt køkken/office)
 │   ├── flyver.js + flyver.css      ← Nødbesked-system
 │   ├── modal.js + modal.css        ← Genbrugelig modal (historik, info, råvarer)
 │   ├── vare_picker.js + vare_picker.css ← Standalone VarePicker (bruges i kort + drawer)
@@ -178,7 +183,7 @@ bon-v2/
 │   ├── login.html    ← PIN-pad login (bruger-vælger → PIN)
 │   ├── manifest.json ← PWA manifest (standalone)
 │   ├── mobile.css    ← Mobilspecifik CSS
-│   └── views/        ← bons.js, modtag.js, crm.js, oversigt.js
+│   └── views/        ← bons.js, modtag.js, lager.js, crm.js, oversigt.js, levering.js (courier-mobil)
 ├── settings/         ← index.html (eget shell)
 ├── assets/           ← logo.svg, icons/, fonts/
 ├── scripts/
@@ -186,7 +191,8 @@ bon-v2/
 │   ├── sync-v1.js             ← Daglig sync fra Bon v1 (cron)
 │   ├── merge-ean-duplicates.js ← Merger firmaer med samme EAN
 │   ├── enrich-cvr.js          ← CVR-berigelse via Virk ES + NemHandel
-│   └── fix-cvr.js             ← Manuel CVR-rettelse
+│   ├── fix-cvr.js             ← Manuel CVR-rettelse
+│   └── backfill-geocode.js    ← Geokoder addresses uden coords via DAWA (Spor 2)
 ├── BonConfig.js
 ├── BonConfigBar.js
 ├── package.json
@@ -1854,9 +1860,82 @@ og `groupSelected` lavede kun et DOM-element.
 ned blandt løse linjer hopper tilbage til toppen ved reload. Pre-eksisterende begrænsning
 (løs-linje-orden var aldrig persisteret); kan tilføjes senere uden skemaændring.
 
+### Delivery — Spor 2: S2.0 Fundament + S2.1 Workflow B (20. maj 2026)
+> Spec: `docs/delivery/CLAUDE_DELIVERY_SPOR2.md`
+> Vej-routing via OpenRouteService (ORS), geokodning via DAWA. To-workflow-model:
+> B (daglig triage) bygget først, A (Volvo-planlægning) følger i S2.2.
+
+**S2.0 — Fundament:**
+- [x] Migration 073: `delivery_routes`, `delivery_route_stops`, `delivery_incidents`, `geo_calculations` genskabt med nullable `bon_id` (afstands-cache nøglet på `address_id`), 8 `delivery_*` settings inkl. DAWA-geokodede HQ-koordinater
+- [x] `services/geocode.js` — DAWA-geokodning (`geocodeRaw`, `geocodeAddress`), ingen API-nøgle
+- [x] `services/routing.js` — ORS-wrapper: `getDistance` (30-dages `address_id`-cache i `geo_calculations`), `getRoute`, `healthCheck`. `RoutingError` med `.code` (no_api_key/timeout/no_route/ors_error/bad_input). ORS `/geojson`-endpoint kræver `Accept: application/geo+json` (json giver HTTP 406)
+- [x] `services/delivery_calc.js` — `calculateForBon`: HQ→adresse-afstand + per-vogn constraint-tjek + pris + billigste-egnede-forslag + afhentningstid
+- [x] `scripts/backfill-geocode.js` — geokoder `addresses` uden coords (dry-run/`--apply`)
+- [x] `routes/delivery.js` — `POST /calculate` (single-bon forslag, geokoder synkront ved manglende coords), `GET /health`
+- [x] `routes/addresses.js` — fire-and-forget geokodning efter INSERT (DAWA-kald aldrig på den kritiske sti)
+- [x] `booking_template.estimateCost` udvidet med `per_km`-støtte (bagudkompatibelt) + rute-aggregater
+- [x] `.env`: `ORS_API_KEY` + `ORS_BASE_URL`
+- [x] bon-draweren: constraint-forslag i BESTIL BUD-sektionen (afstand + vogn-anbefaling + alle alternativer med pris). Ikke-anbefalede vogne vises med amber note ("kan vælges alligevel") — aldrig udgrånet/spærret
+- [x] `shared/api.js`: `calculateDelivery`, `deliveryHealth`
+
+**S2.1 — Workflow B (leveringsoversigt):**
+- [x] `services/route_planner.js` — `computeRoute` (ETA pr. stop, `pickup_time` = MIN over stop af `deadline − kørsel − margin`, negativt pickup klampes til 0, 4-regel constraint-check, SKRIVER IKKE til DB) + `applyRouteProposal` (skriver routes/stops/`bons.pickup_time`, rører ikke bons med status ≥ KLAR). `routing.getRoute` tilgås via modul-objekt så den kan mockes i tests
+- [x] `routes/delivery.js` — 11 rute-endpoints: `GET /overview`, rute-CRUD (`GET/POST/PUT/DELETE /routes`), `POST/DELETE /routes/:id/stops`, `/compute`, `/apply`, `/confirm`, `/routes/:id/actual-cost`. Stop-mutationer synker `bons.delivery_vehicle_id`/`delivery_method` (spec §5), kompakterer sequence, afviser ændringer på bekræftede ruter, nulstiller `computed`→`draft` ved stop-ændring
+- [x] `office/views/logistik.js` + `logistik.css` — leveringsoversigt: dato-nav, liste over dagens leveringer med per-bon forslag (async `/calculate`), bon-valg → opret tur, rute-panel med compute/apply/confirm/slet + faktisk pris. Erstatter Logistik-placeholderen
+- [x] `office/index.html` — logistik wired (script+css+view-registrering+SSE-handler)
+- [x] SSE: `delivery_route_stop_added`, `delivery_route_stop_removed`, `delivery_route_status_changed`
+- [x] `shared/api.js`: 11 rute-wrappers (`fetchDeliveryOverview`, `createDeliveryRoute`, `addDeliveryRouteStop`, `computeDeliveryRoute`, `applyDeliveryRoute` osv.)
+
+**Constraint-princip (vigtigt):** brud (kapacitet/distance/deadline) er `errors`/`warnings` i forslaget — `apply`/`confirm` nægter ALDRIG. Office bestemmer (kunder betaler gerne for cykellevering langt ude). Frontends viser brud som amber/rød note, ikke som spærring.
+
+**Tests:** `scripts/test-delivery-spor2-unit.js` (25 — routing-cache, delivery_calc constraint-logik), `scripts/test-delivery-spor2-routes.js` (24 — route_planner: pickup=MIN, capacity/distance/deadline-brud, KLAR-bon låst). 143 delivery-tests grønne i alt (inkl. Spor 1's 94). Browser-verificeret end-to-end mod live ORS: opret rute → compute → apply → confirm.
+
+**Bevidst udskudt i S2.1:** Leaflet pin-kort, rute-niveau popout-booking (`/routes/:id/booking-payload` + `/book`), `/history`-endpoint. Den daglige leveringstriage fungerer uden dem.
+
+**Åbne afhængigheder:** ORS-nøgle ligger i `.env` (registreret hos openrouteservice.org). `scripts/backfill-geocode.js` skal køres mod prod-DB før go-live så v1-synkede adresser får coords.
+
+### Delivery — Spor 2: S2.1-rest + S2.2 + delt logistik (20.-21. maj 2026)
+
+**S2.1-rest — Leaflet-kort + booking + historik:**
+- [x] Self-hostet Leaflet 1.9.4 + leaflet-heat i `assets/leaflet/` (ingen CDN, ingen build-step)
+- [x] Leaflet pin-kort i logistik-viewet: HQ-markør + farvede vogn-markører pr. leverings-bon, ORS-polyline pr. beregnet rute, kort↔liste hover-link, legende
+- [x] `GET /overview` returnerer HQ-koordinater; rute-niveau booking via Spor 1's popout (`/routes/:id/booking-payload` + `/routes/:id/book`)
+- [x] `GET /history-map?from=&to=&method=` + `office/views/logistik-historik.js` — historiske leveringer som punkt-/heatmap-kort, dato- og metode-filtre. Logistik har pills `[ Oversigt | Historik ]`
+
+**S2.2 — fælles pickup-model + drag-drop:**
+- [x] Migration 074: `delivery_vehicles.color`. Migration 075: `delivery_vehicles.pickup_lead_min` (By-expressen = fast 45 min) + `delivery_routes.pickup_time_source` (`auto`/`manual`)
+- [x] **Fælles pickup-model**: vi regner altid baglæns — `afhentning = leveringstid − lead`. `lead` = fast `pickup_lead_min` ELLER kørsel + margin. Office kan altid sætte afhentningstiden manuelt (`POST /routes/:id/pickup-time`); en manuel tid overlever genberegning. `route_planner` returnerer `suggested_pickup_time` + `pickup_is_manual`
+- [x] **Editérbare ruter**: en bekræftet/booket rute kan altid ændres — stop-ændring nulstiller ruten til `draft` (genberegning nødvendig) og `booked`→`pending`; en afgået (`active`) rute røres ikke. Ingen 409-spærringer
+- [x] Forenklet UI: `/confirm` fjernet, "Beregn"+"Anvend" slået sammen til én "Beregn rute"-knap. Drag bon → rute-kort, ▲▼ omarrangér stop
+- [x] Settings → Leveringsmetoder: `pickup_lead_min`-felt pr. vogn
+
+**Delt logistik (køkken + office):**
+- [x] `office/views/logistik.{js,css}` flyttet til `shared/logistik.{js,css}` — `initLogistik(el, { date?, highlightBon?, openDrawer })`
+- [x] `kitchen/logistik.html` — køkken-shell der mounter delt logistik (køkkenet bruger kortet, booker bud, ringer til buddet). Logistik i kitchen MERE-dropdown
+- [x] "Se i logistik"-link på bon-kort (kitchen-today/later) + bon-drawer (begge zoner). Office: switcher til logistik-viewet + flash på bonen. Kitchen: navigerer til `kitchen/logistik.html?bon=&date=`. Google Maps-link bevaret
+
+### Delivery — Spor 2: S2.3 Live + courier-mobil (21. maj 2026)
+> Spec: `docs/delivery/CLAUDE_DELIVERY_SPOR2.md` §8-10. Betjener den interne chauffør (Volvo/cykel).
+
+- [x] **`routes/delivery.js` — courier-endpoints:**
+  - `POST /routes/:id/depart` — courieren kører fra HQ, rute → `active` + `actual_departure`
+  - `POST /stops/:id/status` — `{status:'leveret'|'problem', lat?, lng?}`. `leveret` rykker også bonen til LEVERET (`markBonDeliveredFromStop`) + auto-completer ruten når intet stop er `planlagt` mere
+  - `POST /incidents` — multipart busboy, logger leveringsproblem (6 typer), valgfrit foto → `attachments`-tabel (`entity_type='delivery_incident'`), sætter stoppet til `problem`
+  - `GET /courier/today` — den indloggede chaufførs egne ruter i dag (stop + adresse + kontakt + indhold + incidents)
+- [x] **Bon→LEVERET-kobling**: courier-levering flytter bonen til LEVERET så køkken/kontor ser det uden dobbeltarbejde. Grocy auto-consume genbrugt via ny `autoConsumeBonInventory(bonId)` i `db/helpers.js` (udtrukket fra `routes/bons.js` — idempotent via `bons.inventory_deducted`, ét sted, kaldt fra både office-status-skift og courier-levering)
+- [x] **`mobile/views/levering.js` + `m-lv-*` CSS** — courier-mobil: dagens ruter, "Kør fra HQ"-knap, stop-kort, stop-detalje (naviger-knap → Google Maps, kontakt på dagen, leveringsinstruks, indhold), "Marker som leveret", 3-trins problem-flow (type → foto+note+position → bekræft). Mockup `courier_mobile_v5.html` uden "Tilbage til HQ"-kort + dual-kontakt (jf. spec §12). Geoposition fanges i baggrunden — blokerer aldrig. Ny "Levering"-tab i mobil-nav (`requires: null`)
+- [x] **Logistik live-mode** — når datoen er i dag viser `shared/logistik.js` en live-statbar (● Live · N leveret / N undervejs / N problem). Stop-etiketten viser courierens stop-status (`leveret`/`problem`) frem for bon-statussen. SSE `delivery_stop_status_changed` + `delivery_incident_logged` wired i begge zoner
+- [x] **SSE-events**: `delivery_stop_status_changed`, `delivery_incident_logged`, `delivery_route_status_changed` (depart/auto-complete). Polymorf payload (`bon_id`, `route_id`, `stop_id`)
+- [x] `shared/api.js` — `fetchCourierToday`, `departDeliveryRoute`, `setDeliveryStopStatus`, `logDeliveryIncident` (multipart FormData)
+- [x] **Tests**: `scripts/test-delivery-spor2-courier.js` — 29 integration-tests (spawned server, isoleret test-DB): courier/today kun egne ruter, depart, leveret→bon LEVERET, incident+foto, rute auto-complete, auth. **222 delivery-tests grønne i alt** (94 spor1-unit + 50 spor1-integration + 25 spor2-unit + 24 spor2-routes + 29 spor2-courier). Browser-verificeret: mobil courier-flow (afgang → problem 3-trin → leveret → tur afsluttet) + office live-statbar
+
+**Spor 2 KOMPLET (S2.0-S2.3).** Mangler kun S2.4 (By-expressen API) som afventer Sebastians credentials — Spor 2 fungerer fuldt uden den (manuel popout-booking).
+
 ## Næste opgave
 
-> ✏️ Opdateret 19. maj 2026.
+> ✏️ Opdateret 21. maj 2026.
+>
+> **Delivery Spor 2 KOMPLET (S2.0-S2.3, 21. maj 2026).** ORS-vej-routing, DAWA-geokodning, `route_planner`, rute-endpoints, logistik-viewet med Leaflet-kort + historik-heatmap, fælles pickup-model, drag-drop rute-planlægning, delt logistik (køkken + office), courier-mobil (`mobile/views/levering.js`) med depart/leveret/problem-flow, og logistik live-mode. 222 delivery-tests grønne, browser-verificeret end-to-end. Detaljer i Status-sektionen "Delivery — Spor 2". **Mangler kun S2.4** (By-expressen API) som afventer Sebastians credentials — Spor 2 fungerer fuldt uden den via manuel popout-booking. `scripts/backfill-geocode.js` skal køres mod prod-DB før go-live.
 >
 > **Fase 1a–1e + 3A + 3B + 3D + 4 + 5 + 6 (komplet inkl. 6g) + 7 (CRM) + Office CRM redesign + 8 (Fakturering) + 9 (Tilbud) + Mail-vedhæftninger + CRM service-kald + Firma-oprydning + 10 (Mobil Shell) + 10b (Roller & Rettigheder) + 11 (Ugeoversigt) + Priser i planlægningsbon + Hjælpesystem + Whiteboard Sidekick + Web-bestillinger (webhook) + Mail-skabelon management + 12 (Rapporter) + PIN-management + CVR-berigelse (653/1232 firmaer) + 13 (Cashflow) + Mail chat-boble layout + Embed-bestillingsformular + Delivery Spor 1 (manuel bestilling) + Moms-refaktorering + Kontakter & Firma 360° + Test-suite (Fase 1+2+3 minus CRM/Cashflow) + Office sidebar v2 + Density toggle + Bon-kort redesign + Margin-analyse + Mobile Nye pending-inbox + Office UX-fixes (status-farver, SSE bons-list, responsive sidebar, drawer historik + expandable notes, web-order toast) + Kunde-flags (alle 7 faser) + Kalender-opgradering (status som baggrund + total øverst + kalender-density) komplet.**
 >
@@ -2436,6 +2515,26 @@ POST   /api/delivery/book                                   routes/delivery.js
 POST   /api/delivery/cancel                                 routes/delivery.js
 POST   /api/delivery/actual-cost                            routes/delivery.js
 GET    /api/delivery/events?bon_id=                         routes/delivery.js
+POST   /api/delivery/calculate                              routes/delivery.js (single-bon forslag — Spor 2)
+GET    /api/delivery/health                                 routes/delivery.js (ORS up/down)
+GET    /api/delivery/overview?date=                         routes/delivery.js (leveringsoversigt)
+GET    /api/delivery/routes?date=                           routes/delivery.js
+POST   /api/delivery/routes                                 routes/delivery.js (opret tom tur)
+PUT    /api/delivery/routes/:id                             routes/delivery.js
+DELETE /api/delivery/routes/:id                             routes/delivery.js (kun draft/computed)
+POST   /api/delivery/routes/:id/stops                       routes/delivery.js (tilføj stop)
+DELETE /api/delivery/routes/:id/stops/:bon_id               routes/delivery.js (fjern stop)
+PUT    /api/delivery/routes/:id/stops/reorder               routes/delivery.js (omarrangér stop)
+POST   /api/delivery/routes/:id/compute                     routes/delivery.js (route_planner — forslag)
+POST   /api/delivery/routes/:id/apply                       routes/delivery.js (beregn + skriv forslag)
+POST   /api/delivery/routes/:id/pickup-time                 routes/delivery.js (manuel/auto afhentningstid)
+POST   /api/delivery/routes/:id/actual-cost                 routes/delivery.js
+POST   /api/delivery/routes/:id/book                        routes/delivery.js (markér ekstern booking)
+POST   /api/delivery/routes/:id/depart                      routes/delivery.js (S2.3 — courier: rute → active)
+POST   /api/delivery/stops/:id/status                       routes/delivery.js (S2.3 — courier: leveret/problem)
+POST   /api/delivery/incidents                              routes/delivery.js (S2.3 — log problem, multipart foto)
+GET    /api/delivery/courier/today                          routes/delivery.js (S2.3 — courierens egne ruter)
+GET    /api/delivery/history-map?from=&to=&method=          routes/delivery.js (historiske leveringer)
 ```
 
 ---
@@ -2497,3 +2596,5 @@ Body-klasse: `zone-kitchen` eller `zone-office` — styrer touch vs. desktop den
 *19. maj 2026 (kalender-opgradering) — `shared/calendar.{js,css}` skiftet fra venstrekant-stribe til fuld status-baggrund (raw `BON_CONFIG.color` + `BON_CONFIG.text` direkte — ingen luminans-helper). Dagstotal flyttet til toppen af cellen. Tilbud rendres som ghost (50%-tint + stiplet). `window.CalendarDensity`-modul i `shared/density.js` tilbyder per-kalender override (default `inherit`) + Settings UI. Bonus-fix: `routes/kitchen.js` calendar-endpoint JOIN'er nu `price_categories` så production-bon's blå override faktisk virker (pre-eksisterende bug). Spec opdateret: `docs/CLAUDE_KALENDER.md`.*
 
 *19. maj 2026 (delivery popout) — Bud-bestillings-modal erstattet med separat popup-vindue (`/delivery/note/:bon_id`). Migration 071 tilføjer `delivery_vehicles.booking_fields_json` med felt-array hvor hvert felt er en mini-template med `{variabel}`-syntaks. `services/booking_template.js` udvidet med `_renderWithMeta()` + `renderFields()`. `buildBookingPayload` returnerer nu `fields` array. Ny route `routes/delivery_views.js` serverer popout-HTML. `views/delivery/note.{html,css,js}` er standalone side med klikbare felt-chips, step-grouping (By-expressens Lobo-trin), SSE-live-opdatering, sticky header/footer, popup-blocked-fallback. Settings → Leveringsmetoder har felt-editor med ▲▼ reorder + variabel-chip-target switch til fokuseret felt-template. Den gamle `shared/manual_booking_modal.{js,css}` er slettet. 84/84 unit tests grønne. Spec: `docs/CLAUDE_DELIVERY_POPOUT.md`.*
+
+*20. maj 2026 (Delivery Spor 2 — S2.0 + S2.1) — Vej-routing via OpenRouteService + DAWA-geokodning. Migration 073 (`delivery_routes`/`delivery_route_stops`/`delivery_incidents` + `geo_calculations` genskabt med nullable `bon_id`). Nye services: `routing.js` (ORS-wrapper m. afstands-cache), `geocode.js` (DAWA), `delivery_calc.js` (single-bon forslag), `route_planner.js` (computeRoute/applyRouteProposal). `routes/delivery.js` udvidet med `/calculate`, `/health` + 11 rute-endpoints. `office/views/logistik.js`+`.css` — leveringsoversigten (erstatter placeholderen). Constraint-forslag i bon-draweren. Constraint-princip: brud er advarsler, aldrig spærringer — office bestemmer. 143 delivery-tests grønne. Bevidst udskudt: Leaflet-kort, rute-popout-booking, `/history`. Spec: `docs/delivery/CLAUDE_DELIVERY_SPOR2.md`.*

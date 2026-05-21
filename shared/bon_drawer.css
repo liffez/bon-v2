@@ -629,7 +629,19 @@
 .btn-drawer-bestil-bud:hover { background: #74521a; }
 .drawer-bestil-icon { margin-right: 4px; }
 
-.drawer-delivery-actions { display: flex; gap: 6px; align-items: center; }
+.btn-drawer-logistik {
+    background: #fff;
+    border: 1px solid var(--color-border, #d7d1ca);
+    border-radius: 6px;
+    padding: 6px 11px;
+    font-size: 12.5px;
+    font-weight: 600;
+    cursor: pointer;
+    color: var(--brand-primary, #8e631f);
+}
+.btn-drawer-logistik:hover { background: var(--color-background, #f5f4f2); }
+
+.drawer-delivery-actions { display: flex; gap: 6px; align-items: center; flex-wrap: wrap; }
 .btn-drawer-cancel-bud {
     background: transparent;
     color: #b04030;
@@ -728,3 +740,51 @@
     padding: 4px;
 }
 .drawer-delivery-error { color: #b04030; }
+
+/* Leverings-forslag (Spor 2) */
+.drawer-delivery-suggestion { margin-top: 8px; }
+.drawer-sug-head {
+    font-size: 12.5px;
+    color: #5d4014;
+    background: var(--brand-primary-light, #f1e6b2);
+    border-radius: 6px;
+    padding: 5px 10px;
+}
+.drawer-sug-note {
+    color: var(--color-text-dim, #8a8580);
+    font-size: 12px;
+    font-style: italic;
+    padding: 4px 2px;
+}
+.drawer-sug-list { margin-top: 5px; }
+.drawer-sug-alt {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: baseline;
+    gap: 8px;
+    padding: 4px 8px;
+    border-radius: 5px;
+    font-size: 12.5px;
+}
+.drawer-sug-alt + .drawer-sug-alt { margin-top: 2px; }
+.drawer-sug-alt-best { background: #eef5ec; }
+.drawer-sug-veh { font-weight: 600; flex: 1; }
+.drawer-sug-badge {
+    display: inline-block;
+    font-size: 9.5px;
+    font-weight: 700;
+    text-transform: uppercase;
+    letter-spacing: 0.03em;
+    padding: 1px 5px;
+    border-radius: 3px;
+    background: #5a8a4a;
+    color: #fff;
+    vertical-align: middle;
+}
+.drawer-sug-cost { white-space: nowrap; color: var(--color-text, #3a3530); }
+.drawer-sug-caveat {
+    flex-basis: 100%;
+    font-size: 11px;
+    color: #9a6a1a;
+    padding-left: 22px;
+}

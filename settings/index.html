@@ -1253,6 +1253,16 @@
             <code>standard_inner_city</code>. Bruges til estimat ved booking.
           </div>
         </div>
+        <div style="margin-top:14px">
+          <label class="st-label">Fast afhentnings-lead (minutter)</label>
+          <input type="number" id="dv-edit-pickup-lead" class="st-input" min="0" step="5"
+                 placeholder="fx 45 — tom = køretidsbaseret" style="max-width:240px">
+          <div style="margin-top:6px;font-size:12px;color:#888">
+            Vi regner altid baglæns fra leveringstiden. <strong>Sat:</strong> afhentning =
+            leveringstid − dette tal (fx By-expressen 45 — de ruter selv).
+            <strong>Tom:</strong> afhentning beregnes fra ORS-køretid + afleveringstid.
+          </div>
+        </div>
         <div style="margin-top:18px;display:flex;gap:10px;justify-content:flex-end">
           <button type="button" class="st-btn-secondary" onclick="dvCloseEditor()">Annullér</button>
           <button type="button" class="st-btn" id="dv-save-btn" onclick="dvSaveVehicle()">Gem</button>
@@ -4149,6 +4159,7 @@ function dvEditVehicle(id) {
     document.getElementById('dv-edit-url').value = v.booking_url || '';
     document.getElementById('dv-edit-template').value = v.booking_template || '';
     document.getElementById('dv-edit-cost').value = v.cost_formula_json || '';
+    document.getElementById('dv-edit-pickup-lead').value = v.pickup_lead_min != null ? v.pickup_lead_min : '';
 
     // Booking-fields (felt-for-felt-konfiguration)
     _dvFields = _dvParseFields(v.booking_fields_json);
@@ -4367,6 +4378,9 @@ async function dvSaveVehicle() {
     } else {
         data.cost_formula_json = null;
     }
+
+    const pickupLeadRaw = document.getElementById('dv-edit-pickup-lead').value.trim();
+    data.pickup_lead_min = pickupLeadRaw === '' ? null : parseInt(pickupLeadRaw, 10);
 
     try {
         await patchDeliveryVehicle(_dvEditingId, data);

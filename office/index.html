@@ -26,6 +26,9 @@
   <link rel="stylesheet" href="views/rapporter.css">
   <link rel="stylesheet" href="views/opskrifter.css">
   <link rel="stylesheet" href="views/cashflow.css">
+  <link rel="stylesheet" href="/assets/leaflet/leaflet.css">
+  <link rel="stylesheet" href="/shared/logistik.css">
+  <link rel="stylesheet" href="views/logistik-historik.css">
   <link rel="stylesheet" href="../shared/schedule.css">
   <link rel="stylesheet" href="../shared/indkob.css">
   <link rel="stylesheet" href="../shared/indkob_settings.css">
@@ -702,6 +705,8 @@
   <script src="../shared/modal.js"></script>
   <script src="../shared/calendar.js"></script>
   <script src="../shared/planning.js"></script>
+  <script src="/assets/leaflet/leaflet.js"></script>
+  <script src="/assets/leaflet/leaflet-heat.js"></script>
   <script src="views/bons-list.js"></script>
   <script src="views/web-orders.js"></script>
   <script src="views/bons-calendar.js"></script>
@@ -723,6 +728,8 @@
   <script src="views/cashflow.js"></script>
   <script src="/shared/supplier_inbox.js"></script>
   <script src="views/ugeoversigt.js"></script>
+  <script src="/shared/logistik.js"></script>
+  <script src="views/logistik-historik.js"></script>
   <!-- Indkøb (genbruger kitchen-komponenter) -->
   <script src="/shared/indkob.js"></script>
   <script src="/shared/indkob_settings.js"></script>
@@ -817,6 +824,7 @@
       // ─── View switching ──────────────────────────────────
       const contentEl = document.getElementById('office-content');
       let _currentView = null;
+      let _logPendingFocus = null;   // {date, highlightBon} sat af openLogistikForBon
 
       const views = {
         dashboard: {
@@ -913,31 +921,18 @@
           },
           cleanup: () => {},
         },
-        // ─── Logistik (Fase 2 — placeholder, Spor 2 kommer) ───────────────────
+        // ─── Logistik (Spor 2 — Workflow B: leveringsoversigt) ────────────────
         logistik: {
           init: () => {
-            contentEl.innerHTML = `
-              <div style="max-width:680px;margin:0 auto;padding:40px 24px;">
-                <div style="font-size:13px;color:#888;text-transform:uppercase;letter-spacing:1px;font-weight:700;margin-bottom:4px;">Logistik</div>
-                <div style="font-size:26px;font-weight:900;color:var(--brand-primary,#8e631f);letter-spacing:-0.5px;margin-bottom:20px;font-family:var(--font-heading,Georgia,serif);">Kommer snart</div>
-                <div style="background:#fff;border-radius:12px;padding:40px;text-align:center;color:#888;border:1px dashed var(--color-border,#d7d1ca);margin-bottom:16px;">
-                  <div style="font-size:40px;margin-bottom:10px;opacity:0.4">🚚</div>
-                  <div style="font-size:17px;font-weight:900;color:var(--brand-primary,#8e631f);margin-bottom:6px;">Logistik-modulet er under udvikling</div>
-                  <div style="font-size:13px;max-width:420px;margin:0 auto;line-height:1.5;">Indtil videre bookes bud direkte fra hver bon — åbn en bon og brug "📦 BESTIL BUD"-sektionen i drawer.</div>
-                </div>
-                <div style="background:#fef3d6;border-left:3px solid var(--color-orange,#e8a832);padding:14px 18px;border-radius:6px;font-size:13px;color:#6b4f1a;line-height:1.6;">
-                  <b>Planlagt indhold (Spor 2):</b>
-                  <ul style="margin-top:8px;padding-left:20px;margin-bottom:0;">
-                    <li><b>I dag</b> — dagens leveringer med live-status</li>
-                    <li><b>Ruter</b> — auto-genererede ruter via OSRM/VROOM</li>
-                    <li><b>Tracking</b> — live position fra mobile-courier app</li>
-                    <li><b>Bud</b> — egne cyklister + eksterne services</li>
-                  </ul>
-                </div>
-              </div>
-            `;
+            const f = _logPendingFocus || {};
+            _logPendingFocus = null;
+            initLogistik(contentEl, Object.assign({ openDrawer }, f));
           },
-          cleanup: () => {},
+          cleanup: () => { if (typeof cleanupLogistik === 'function') cleanupLogistik(); },
+        },
+        'logistik-historik': {
+          init: () => initLogistikHistory(contentEl, { openDrawer }),
+          cleanup: () => { if (typeof cleanupLogistikHistory === 'function') cleanupLogistikHistory(); },
         },
       };
 
@@ -965,7 +960,10 @@
           { id: 'indsigt', label: 'Indsigt' },
         ],
         tilbud: null,
-        logistik: null,  // pills udeladt indtil Spor 2 — placeholderen viser hele listen
+        logistik: [
+          { id: 'oversigt', label: 'Oversigt', def: true },
+          { id: 'historik', label: 'Historik' },
+        ],
         indkob: [
           { id: 'liste', label: 'Indkøbsliste', def: true },
           { id: 'best', label: 'Bestillinger' },
@@ -1001,7 +999,11 @@
           indsigt: 'crm-kundeindsigt',
         },
         tilbud: { _default: 'tilbud' },
-        logistik: { _default: 'logistik' },
+        logistik: {
+          _default: 'logistik',
+          oversigt: 'logistik',
+          historik: 'logistik-historik',
+        },
         indkob: {
           _default: 'indkob-liste',
           liste: 'indkob-liste',
@@ -1109,6 +1111,13 @@
         switchView('kontakter');
       }
       window.openKunde360 = openKunde360;
+
+      // "Se i logistik" fra et bon-kort / bon-drawer — skifter til
+      // logistik-viewet og fremhæver bonen.
+      window.openLogistikForBon = function openLogistikForBon(bonId, date) {
+        _logPendingFocus = { date: date || null, highlightBon: bonId };
+        switchSection('logistik', 'oversigt');
+      };
 
       // Generic deep-link helper — bruges fra dashboard m.fl.
       // Eksempler:
@@ -1369,6 +1378,7 @@
           if (typeof _uoHandleSSE === 'function') _uoHandleSSE('bon_updated', data);
           if (typeof _tilbudHandleSSE === 'function') _tilbudHandleSSE('bon_updated', data);
           if (typeof _woHandleSSE === 'function') _woHandleSSE('bon_updated', data);
+          if (typeof _logHandleSSE === 'function') _logHandleSSE('bon_updated', data);
           scheduleBadgeReload();  // acknowledge-flag på bons_nye kan ændre sig
         },
         bon_status: (data) => {
@@ -1429,6 +1439,21 @@
         },
         recipe_targets_updated: (data) => {
           if (typeof _opsHandleSSE === 'function') _opsHandleSSE('recipe_targets_updated', data);
+        },
+        delivery_route_stop_added: (data) => {
+          if (typeof _logHandleSSE === 'function') _logHandleSSE('delivery_route_stop_added', data);
+        },
+        delivery_route_stop_removed: (data) => {
+          if (typeof _logHandleSSE === 'function') _logHandleSSE('delivery_route_stop_removed', data);
+        },
+        delivery_route_status_changed: (data) => {
+          if (typeof _logHandleSSE === 'function') _logHandleSSE('delivery_route_status_changed', data);
+        },
+        delivery_stop_status_changed: (data) => {
+          if (typeof _logHandleSSE === 'function') _logHandleSSE('delivery_stop_status_changed', data);
+        },
+        delivery_incident_logged: (data) => {
+          if (typeof _logHandleSSE === 'function') _logHandleSSE('delivery_incident_logged', data);
         },
       });
     })();

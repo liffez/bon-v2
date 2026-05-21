@@ -205,7 +205,7 @@ function renderFields(vehicle, vars) {
 function getVehicleById(id) {
     return getDb().prepare(`
         SELECT id, code, label, type, is_internal,
-               max_capacity_boxes, max_distance_km,
+               max_capacity_boxes, max_distance_km, pickup_lead_min,
                cost_formula_json, booking_method, booking_url, booking_template,
                booking_fields_json,
                booking_api_config_json, supplier_id, is_active, sort_order
@@ -217,7 +217,7 @@ function getVehicleById(id) {
 function getActiveVehicles() {
     return getDb().prepare(`
         SELECT id, code, label, type, is_internal,
-               max_capacity_boxes, max_distance_km,
+               max_capacity_boxes, max_distance_km, pickup_lead_min,
                cost_formula_json, booking_method, booking_url, booking_template,
                booking_fields_json,
                supplier_id, is_active, sort_order
@@ -315,8 +315,16 @@ function buildBookingPayload(bonId, vehicleId) {
 //   { base, included_boxes, extra_box_cost }             — By-expressen
 //   { base, standard_inner_city }                        — fallback i byen
 //   { base }                                             — Egen cykel
+//
+// opts.distance_km (valgfri): faktisk køreafstand fra ORS. Når den er
+// givet bruges per_km-leddet; ellers falder per_km-formler tilbage til
+// base (bagudkompatibelt — Spor 1 kalder uden distance).
+//
+// Rute-aggregater (multi-stop, Workflow A): kald med en syntetisk bon
+// { boxes: total_boxes } og { distance_km: total_km } — samme formler
+// gælder for hele turen.
 // ==========================================
-function estimateCost(vehicle, bon) {
+function estimateCost(vehicle, bon, opts = {}) {
     if (!vehicle?.cost_formula_json) return null;
     let formula;
     try {
@@ -327,19 +335,30 @@ function estimateCost(vehicle, bon) {
     }
     if (!formula || typeof formula !== 'object') return null;
 
-    // Standard inner city tager forrang hvis sat (Spor 1: vi har ikke afstand fra OSRM endnu)
+    const boxes = Number(bon?.boxes) || 0;
+    const distanceKm = Number(opts.distance_km);
+    const hasDistance = Number.isFinite(distanceKm);
+
+    // Standard inner city tager forrang — fast bypris uafhængig af afstand.
     if (formula.standard_inner_city != null) {
-        const boxes = Number(bon?.boxes) || 0;
         if (formula.included_boxes != null && formula.extra_box_cost != null) {
             const extra = Math.max(0, boxes - formula.included_boxes) * formula.extra_box_cost;
-            // Standard er prisen for default-mængden; tilføj kun hvis over inkluderet
             return Math.round(formula.standard_inner_city + extra);
         }
         return Math.round(formula.standard_inner_city);
     }
 
-    // Fallback: base + per_km × default-distance (kendes ikke uden OSRM)
-    if (formula.base != null) return Math.round(formula.base);
+    // base (+ per_km × afstand) (+ ekstra kasser)
+    if (formula.base != null) {
+        let cost = Number(formula.base);
+        if (formula.per_km != null && hasDistance) {
+            cost += Number(formula.per_km) * distanceKm;
+        }
+        if (formula.included_boxes != null && formula.extra_box_cost != null) {
+            cost += Math.max(0, boxes - formula.included_boxes) * Number(formula.extra_box_cost);
+        }
+        return Math.round(cost);
+    }
 
     return null;
 }

@@ -313,5 +313,6 @@ module.exports = {
     setActualCost,
     cancelBooking,
     getBookingEvents,
+    deliveryMethodFromVehicleType,
     VALID_BOOKING_STATUSES
 };
