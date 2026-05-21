@@ -184,7 +184,10 @@ function createCard(bonData, viewName) {
 
     const prodBadge  = bonData.price_category === 'produktion' ? ' <span class="bon-prod-badge" title="Produktionsbon">🔧</span>' : '';
     const mailBadge  = bonData.unread_mail_count ? ' <span class="bon-mail-badge" title="' + bonData.unread_mail_count + ' ulæst mail">' + mailIcon(14) + '</span>' : '';
-    const levTimeHtml = bonData.delivery_time ? `<span class="bon-lev-time">→ ${bonData.delivery_time}</span>` : '';
+    // Afhentnings-bons: pickup_time = delivery_time (samme tid) — vis ikke
+    // pilen "→ tid" to gange. Kun leverings-bons har en separat leveringstid.
+    const levTimeHtml = (bonData.delivery_time && bonData.order_type !== 'pickup')
+        ? `<span class="bon-lev-time">→ ${bonData.delivery_time}</span>` : '';
     const paxHtml = paxStr ? `<span class="bon-units-pax">${paxStr}</span>` : '';
 
     el.innerHTML = `
