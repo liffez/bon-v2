@@ -2089,6 +2089,26 @@ bestillings-import) konverteret samlet så parret forbliver visuelt konsistent (
 er lige så tynd). Farve-emojis (`📨`/`📞` osv.) er urørt — de renderer fint; kun de tynde
 monokrome glyffer var usynlige.
 
+### Send flyver fra bon-draweren (22. maj 2026)
+
+Flyver kunne kun sendes fra et bon-kort — `sendFlyver(cardId)` slog op i DOM'en
+(`getElementById(cardId)` + læsning af `.bon-id`), så bon-draweren (uden et kort i
+DOM'en) kunne ikke sende flyvere.
+
+- `shared/flyver.js` — ny `openFlyverComposer(bonId, bonNr)` åbner send-modalen direkte
+  ud fra et bon-id. `sendFlyver(cardId)` delegerer nu til den (bagudkompatibelt — bon-kortene
+  uændret).
+- `shared/bon_drawer.js` — "✈ Flyver"-knap i drawer-headeren ved siden af "⏱ Historik".
+  Klik kalder `window.openFlyverComposer` (guarded med `typeof` — degraderer lydløst hvis
+  flyver-systemet ikke er loadet).
+- `shared/bon_drawer.css` — `.drawer-flyver` deler styling med `.drawer-history`.
+- `office/index.html` + `kitchen/calendar.html` — loader nu `flyver.js` + `flyver.css`
+  (today/later havde dem i forvejen). Banner-systemet (`initFlyverBanner`) auto-initialiseres
+  ikke i office — kun send-funktionen bruges; flyveren modtages som banner på køkken-views
+  som hidtil.
+- Browser-verificeret: knap → modal "Send flyver — NNNN" → besked → Send → flyver POST'es
+  og lander i `notifications` med `type='flyver'`.
+
 ## Næste opgave
 
 > ✏️ Opdateret 21. maj 2026.
