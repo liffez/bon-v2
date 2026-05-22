@@ -101,6 +101,7 @@ class BonDrawer {
             <div class="drawer-header">
                 <span class="drawer-title">Bon #---</span>
                 <div class="drawer-header-actions">
+                    <button class="drawer-flyver" type="button" title="Send flyver til køkkenet">✈ Flyver</button>
                     <button class="drawer-copy" type="button" title="Kopiér bon — opretter ny bon med samme indhold og status NY">⎘ Kopiér</button>
                     <button class="drawer-history" type="button" title="Vis historik">⏱ Historik</button>
                     <button class="drawer-close" type="button">&times;</button>
@@ -363,6 +364,16 @@ class BonDrawer {
             const bonNumber = this.el.querySelector('.drawer-title').textContent.replace(/^Bon #|\s*🔧$/g, '').trim();
             if (typeof window.showHistorik === 'function') {
                 window.showHistorik({ bonId: this.bonId, bonNumber });
+            }
+        });
+
+        this.el.querySelector('.drawer-flyver').addEventListener('click', () => {
+            if (!this.bonId) return;
+            const bonNumber = this.el.querySelector('.drawer-title').textContent.replace(/^Bon #|\s*🔧$/g, '').trim();
+            if (typeof window.openFlyverComposer === 'function') {
+                window.openFlyverComposer(this.bonId, bonNumber);
+            } else {
+                console.warn('Flyver-systemet er ikke indlæst på denne side.');
             }
         });
 
