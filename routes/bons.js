@@ -494,6 +494,117 @@ router.post('/', handle((req, res) => {
     res.status(201).json(newBon);
 }));
 
+// ─── POST /api/bons/:id/copy — kopiér bon til ny bon med status NY ──────────
+//
+// Kopierer alle relevante felter (kunde, levering, mængder, noter), bon_lines
+// og menu-grupper. Nulstiller workflow-felter (status, prep, lager-træk,
+// kvitteret, courier-booking, tilbuds-flag, v1-sync). Body kan optionelt
+// overskrive delivery_date/pickup_time/delivery_time (typisk brugscase).
+
+router.post('/:id/copy', handle((req, res) => {
+    const db = getDb();
+    const sourceId = parseInt(req.params.id);
+    const body = req.body || {};
+
+    const src = db.prepare(`SELECT * FROM bons WHERE id = ?`).get(sourceId);
+    if (!src) return res.status(404).json({ error: 'Bon ikke fundet' });
+
+    const srcLines = db.prepare(`SELECT * FROM bon_lines WHERE bon_id = ? ORDER BY sort_order`).all(sourceId);
+    const srcGroups = db.prepare(`SELECT * FROM bon_menu_groups WHERE bon_id = ? ORDER BY sort_order`).all(sourceId);
+
+    const userId = req.session?.userId ?? body.user_id ?? null;
+    const today = new Date().toISOString().slice(0, 10);
+
+    // Allokeres uden for transaction-blokken — nextBonNumber() har sin egen
+    // transaction og kan ikke nestes (SQLite tillader ikke nested transactions).
+    const bonNumber = nextBonNumber();
+    const statusId  = getStatusId('NY');
+
+    const newBonId = transaction(db, () => {
+
+        const ins = db.prepare(`
+            INSERT INTO bons (
+                bon_number, status_id, location_id, customer_id, company_id, price_category_id,
+                order_date, delivery_date, pickup_time, delivery_time,
+                delivery_type, delivery_method, delivery_address_id,
+                delivery_notes, delivery_price,
+                pax, total_units, boxes,
+                payment_type, kitchen_selects, customer_collects,
+                kitchen_info, customer_wishes, internal_notes, invoice_info,
+                day_contact_name, day_contact_phone,
+                created_by_user_id, is_internal
+            ) VALUES (
+                ?,?,?,?,?,?,
+                ?,?,?,?,
+                ?,?,?,
+                ?,?,
+                ?,?,?,
+                ?,?,?,
+                ?,?,?,?,
+                ?,?,
+                ?,?
+            )
+        `).run(
+            bonNumber, statusId, src.location_id,
+            src.customer_id, src.company_id, src.price_category_id,
+            today,
+            body.delivery_date ?? src.delivery_date,
+            body.pickup_time ?? src.pickup_time,
+            body.delivery_time ?? src.delivery_time,
+            src.delivery_type, src.delivery_method, src.delivery_address_id,
+            src.delivery_notes, src.delivery_price,
+            src.pax, src.total_units, src.boxes,
+            src.payment_type, src.kitchen_selects, src.customer_collects,
+            src.kitchen_info, src.customer_wishes, src.internal_notes, src.invoice_info,
+            src.day_contact_name, src.day_contact_phone,
+            userId, src.is_internal
+        );
+        const newId = ins.lastInsertRowid;
+
+        // Mapping fra gamle gruppe-IDs til nye, så linje-FK bevares
+        const groupMap = new Map();
+        for (const g of srcGroups) {
+            const gr = db.prepare(`
+                INSERT INTO bon_menu_groups (bon_id, title, note, sort_order)
+                VALUES (?,?,?,?)
+            `).run(newId, g.title, g.note, g.sort_order);
+            groupMap.set(g.id, gr.lastInsertRowid);
+        }
+
+        for (const l of srcLines) {
+            const newGroupId = l.menu_group_id ? (groupMap.get(l.menu_group_id) ?? null) : null;
+            db.prepare(`
+                INSERT INTO bon_lines (
+                    bon_id, grocy_recipe_id, product_name, category, quantity, unit,
+                    cost_price, unit_price, line_total, sort_order, is_accessory,
+                    special_request, co2e, pos_product_id, notes, block_type, menu_group_id
+                ) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
+            `).run(
+                newId, l.grocy_recipe_id, l.product_name, l.category, l.quantity, l.unit,
+                l.cost_price, l.unit_price, l.line_total, l.sort_order, l.is_accessory,
+                l.special_request, l.co2e, l.pos_product_id, l.notes, l.block_type, newGroupId
+            );
+        }
+
+        recalcBonTotalUnits(db, newId);
+        recalcBonTotal(db, newId);
+
+        return newId;
+    });
+
+    const newBon = getBon(newBonId);
+    logChange({
+        entityType: 'bon',
+        entityId: newBonId,
+        action: 'create',
+        newValue: newBon.bon_number,
+        notes: `kopieret fra bon ${src.bon_number}`,
+        userId
+    });
+    broadcast('bon_created', { id: newBon.id, bon_number: newBon.bon_number, copied_from: src.bon_number });
+    res.status(201).json(newBon);
+}));
+
 // ─── PATCH /api/bons/:id — opdater felter ───────────────────────────────────
 
 router.patch('/:id', handle((req, res) => {

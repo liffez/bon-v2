@@ -27,7 +27,7 @@
 
 | Krav | Detalje | Data-kilde | Status |
 |------|---------|-----------|--------|
-| Kopier bon | Knap i drawer — kopierer alle felter til ny bon med status NY og nyt bon-nummer | `POST /api/bons/:id/copy` | ❌ Mangler — endpoint + UI ikke implementeret |
+| Kopier bon | Knap i drawer — kopierer alle felter til ny bon med status NY og nyt bon-nummer | `POST /api/bons/:id/copy` | ✅ Done — endpoint i `routes/bons.js`, "⎘ Kopiér"-knap i drawer-header (kalder `copyBon()` i `shared/api.js`). Kopierer bon_lines + menu_groups. Nulstiller workflow-felter (status→NY, prep, inventory_deducted, courier, tilbuds-flag, v1_id) |
 | Mail-ikon i drawer | Vis ✉ + antal mails når bon_mails > 0 | `bon_mails` COUNT | ✅ Done — mail-historik i drawer |
 | Historik-knap i drawer-header | Åbner `showHistorik`-modal med fuld changelog (status, felter, mail, prep) | `GET /api/bons/:id/changelog` | ✅ Done — commit a76b9d0 |
 | Expandable note-felter | Klik på sublabel (Kundeønsker, Faktura info, Køkken info, Interne noter) folder hele textarea ud uden scroll | drawer-noter | ✅ Done — commit ff0cfd7 |
@@ -50,7 +50,7 @@
 | Krav | Detalje | Hvor | Status |
 |------|---------|------|--------|
 | `customer_name`-fallback | Mobile bons-list viser "Ukendt"/"?" pga. field name mismatch (`contact_name_full` vs `customer_name`) | `mobile/views/bons.js:462` + `:642` | ✅ Done — commit c1274b9 |
-| Mobile SSE | `mobile/index.html` har ingen `connectSSE()`, så mobil-bons opdateres kun ved pull-to-refresh. Bevidst lavt prioriteret, men værd at have på listen | `mobile/index.html` | ❌ Mangler |
+| Mobile SSE | `mobile/index.html` har ingen `connectSSE()`, så mobil-bons opdateres kun ved pull-to-refresh. Bevidst lavt prioriteret, men værd at have på listen | `mobile/index.html` | ✅ Done — `connectSSE` lyttende på bon_created/bon_updated/bon_status. Dispatch via `_mDispatchSSE` til view-specifik handler (`_mbHandleSSE` på bons-view re-loader debounced). Badge-tæller refreshes |
 
 ---
 
@@ -58,8 +58,8 @@
 
 | Krav | Detalje | Status |
 |------|---------|--------|
-| Faktura/EAN-felt | Textarea til EAN og faktura-info (f12) — mangler i nuværende version | ⚠ Tilføjet i `tools/bestilling_v2.html`, men ny embed-form (`public/embed/bestilling.html`) erstatter den — verificér at EAN-felt er med i embed-versionen |
-| Auto-kopi navn + tlf til kontaktperson | Kopierer fra bestiller-felterne, kan overskrives — webhook gemmer i `day_contact_name`/`day_contact_phone` | ⚠ Webhook-mapping findes (`routes/webhooks.js:17-18`), men formbuilder-admin UI mangler |
+| Faktura/EAN-felt | Textarea til EAN og faktura-info (f12) | ✅ Done — `ean_info`-textarea på linje 596-597 i `public/embed/bestilling.html`, gemmes som `bons.invoice_info` + 13-cifret EAN parses og gemmes på `companies.ean` (`routes/web-orders.js:181-188`) |
+| Auto-kopi navn + tlf til kontaktperson | Kopierer fra bestiller-felterne, kan overskrives — webhook gemmer i `day_contact_name`/`day_contact_phone` | ✅ Done — `syncContactFields()` i `public/embed/bestilling.html:1282-1303`. `first_name`/`last_name` → `contact_person`, `phone` → `contact_phone`. Stopper når brugeren manuelt redigerer feltet (`manuallyEdited`-flag) |
 | EAN-udtræk i webhook | Regex `5\d{12}` trækker EAN ud fra faktura-felt og gemmer på firma | ✅ Done (Fase 1d) |
 | Embed-bestilling deploy | Swap JotForm-iframe i WordPress DIVI til ny embed-form | `docs/wordpress_divi_snippet.html` | ❌ Mangler — Leif gør det |
 
@@ -70,7 +70,7 @@
 | Krav | Detalje | Status |
 |------|---------|--------|
 | Bud-tidspunkt auto-beregning | Byekspressen: leveringstid − 45 min. Taxa/Volvo: leveringstid − (OSRM køretid + 15 min). Systemet foreslår `courier_arrival_time`, kontoret kan justere | ❌ Mangler — `courier_arrival_time`-felt findes, men auto-beregning ikke implementeret. Afventer Byekspressen credentials |
-| Listview: "Afleveret til bud"-kolonne | Timestamp fra `delivery_events` — vises i dagens overblik | ⚠ `delivery_events` joines i `routes/bons.js:160`, men kolonne ikke vist i listview |
+| Listview: "Afleveret til bud"-kolonne | Timestamp fra `delivery_events` — vises i dagens overblik | ✅ Done — `handover`-kolonne i `office/views/bons-list.js:57` + render linje 626–632 (commit `6e63625`) |
 | Delivery Spor 1 deploy | Templates for By-expressen + Taxa skal udfyldes via Settings → Leveringsmetoder, ellers viser modalen "template ikke konfigureret" | ❌ Mangler — afventer credentials |
 
 ---
@@ -79,7 +79,7 @@
 
 | Krav | Detalje | Status |
 |------|---------|--------|
-| Leveringsmetode-ikoner i settings | Ikoner for `delivery_method` (bike=🚲, taxi=🚕, volvo=🚛, pickup=🏠) er pt. hardcoded i `BL_DELIVERY_ICONS` i `office/views/bons-list.js:63`. Bør flyttes til en settings-tabel så kontoret kan definere ikoner + labels for nye metoder uden kodeændring. Bruges også i kalender og bon-kort. | ❌ Mangler — stadig hardcoded |
+| Leveringsmetode-ikoner i settings | Ikoner for `delivery_method` (bike=🚲, taxi=🚕, volvo=🚛, pickup=🏠) flyttet fra hardcoded til `settings.delivery_method_icons`. `shared/delivery_icons.js` loader via `/api/settings/delivery-icons`. Editor under Settings → System. Bons-list, bon_kort_builder, bon_drawer og logistik bruger nu samme kilde. | ✅ Done — migration 077, editor i `settings/index.html` |
 
 ---
 
@@ -162,17 +162,11 @@
 Grupperet efter type. Sortér frit efter prioritet.
 
 ### 🟢 Quick wins (et Claude Code-pass)
-1. **Listview "Afleveret til bud"-kolonne** — data findes, mangler bare UI
-2. **Whiteboard CORS** — `bon.ristetrug.dk` i `ALLOWED_ORIGINS`
+1. **Whiteboard CORS** — `bon.ristetrug.dk` i `ALLOWED_ORIGINS` (cross-repo)
 
 ### 🟡 Lidt større småting (timer)
-3. **Kopier bon** — endpoint + drawer-knap
-4. **Mobile SSE** — `connectSSE()` i `mobile/index.html`
-5. **Leveringsmetode-ikoner i settings** — flyt fra hardcoded
-6. **EAN-felt i embed-bestilling** — verificér mod `public/embed/bestilling.html`
-7. **Formbuilder-admin auto-kopi UI** — webhook understøtter det
-8. **CRM `purpose_id` skemaverifikation** — bekræft mod prod
-9. **Whiteboard → Grocy `addStock`** — endpoint via adapter
+3. **CRM `purpose_id` skemaverifikation** — bekræft mod prod
+4. **Whiteboard → Grocy `addStock`** — endpoint via adapter
 
 ### 🚀 Deploy / ops
 12. **Booking-modul deploy** — 3 settings + cron

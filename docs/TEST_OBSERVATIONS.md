@@ -485,3 +485,32 @@ T_CRM og T_CASHFLOW (læseflader, mindre tids-kritiske).
 ---
 
 *Sidst opdateret: 14. maj 2026 — Mobile bon-view fix (#040) anvendt: `mobile/views/bons.js` opdateret til at læse `contact_name_full`/`contact_phone` (matcher backend-kontrakt fra getBon helper) + transitions bruger `t.code` (ikke ikke-eksisterende `t.to_code`). 3 nye web-order UX-observations (#041-#043) logget som åbne medium-prio efter manuel integration-test af bestilling B3514. T_BONS_LIST + T_BON_DRAWER_CORE + T_DASHBOARD uændrede efter mobile-only ændring.*
+
+---
+
+## #045 — T_DB INV baselines blev stale ved hver migration
+
+| Felt | Værdi |
+|------|-------|
+| **Track** | T_DB |
+| **Status** | LUKKET (26. maj 2026) |
+| **Detalje** | `tests/scripts/run_T_DB.js` hardcoded forventet `migrations=58`, `user-tables=58`, `triggers=4`. Hver gang en migration eller tabel tilføjes uden manuel bumpning, fejler `T_DB_INV_01/02/04`. |
+| **Fix** | Baselines bumpet til faktiske værdier (76/66/6). Kommentar tilføjet i koden om at bumpe ved nye migrations. Bør på sigt være beregnet dynamisk eller flyttes til en separat "drift-detection"-spec. |
+
+---
+
+## #046 — T_TILBUD / T_FAKTURERING / T_DASHBOARD / T_BON_DRAWER fejler på fixture-FK
+
+| Felt | Værdi |
+|------|-------|
+| **Tracks** | T_TILBUD (54 FAIL), T_FAKTURERING (33 FAIL), T_DASHBOARD (13 FAIL), T_BON_DRAWER_CORE (2 FAIL), T_BON_DRAWER_LINES_AND_RELATIONS (2 FAIL) |
+| **Status** | ÅBEN (lav-prio) |
+| **Symptom** | "FOREIGN KEY constraint failed" på POST'er der refererer customer_id / company_id. POST returnerer 500. Også: `dbBon=undefined` ved SELECT med ID returneret fra POST. |
+| **Diagnose** | Pre-existing — verificeret 26. maj 2026 at samme failures opstår WITHOUT current branch's ændringer (`git stash`-eksperiment). Fixture-data (`tests/fixtures/seed_planning.sql`) skaber ikke de specifikke entiteter testene forventer, eller test-data fra én track lækker ind i næste track. |
+| **Påvirker IKKE** | Aktuelle worktree's ændringer (kopier bon, mobile SSE, delivery icons). De ramte tracks (T_BON, T_INPUT, T_DB, T_BONS_LIST) PASS'er rent. |
+| **Næste skridt** | Separat session: ryd op i fixture+cleanup-koden. Sandsynligvis at `seed_planning.sql` skal udvides med customer_id 9001-9003 + company_id 9001-9003 + status-ID-mapping der ikke afhænger af insert-rækkefølge. Eller hver track skal selv seede sit minimumsdata uden at antage fixture-state. |
+| **Konsekvens hvis udskydes** | Test-suiten kan ikke køres som CI-gate uden falske negativer. Skal fixes inden T_CRM / T_CASHFLOW skrives mod samme infrastruktur. |
+
+---
+
+*Sidst opdateret: 26. maj 2026 — Pre-commit-tests for kopier-bon + mobile SSE + delivery-icons-tracks. Trivielle stale baselines i T_DB rettet (#045). T_TILBUD/T_FAKTURERING/T_DASHBOARD/T_BON_DRAWER har pre-existing fixture-FK-fejl (#046, åben lav-prio) — IKKE introduceret af denne commit, verificeret via git stash. T_BON 25/0, T_INPUT 15/0, T_BONS_LIST 77/0, T_DB 18/0, delivery 143/0, moms 9/0, pack_size 14/0 — alle grønne for testet kode.*

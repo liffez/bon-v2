@@ -81,6 +81,13 @@ function patchBon(id, fields) {
     });
 }
 
+function copyBon(id, overrides) {
+    return apiFetch('/bons/' + id + '/copy', {
+        method: 'POST',
+        body: JSON.stringify(overrides || {}),
+    });
+}
+
 /* ── PRICE CATEGORIES ────────────────────────────────────── */
 
 function fetchPriceCategories() {

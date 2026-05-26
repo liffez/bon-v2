@@ -47,6 +47,7 @@
     <script>window.__MV = '2026-05-21-1';</script>
     <script src="/BonConfig.js?v=2026-05-21-1"></script>
     <script src="/shared/utils.js?v=2026-05-21-1"></script>
+    <script src="/shared/delivery_icons.js?v=2026-05-21-1"></script>
     <script src="/shared/api.js?v=2026-05-21-1"></script>
     <script src="/shared/varemodtagelse.js?v=2026-05-21-1"></script>
     <script src="/shared/inventory_check.js?v=2026-05-21-1"></script>
@@ -225,6 +226,45 @@
             .then(function(r) { return r.ok ? r.json() : null; })
             .then(function(d) { if (d) window._mUpdateNewBadge(d.count || 0); })
             .catch(function() { /* lydløst */ });
+
+        /* ── SSE: live-opdatering på tværs af zoner ──
+         * Mobile-roller skal også se ændringer som office/kitchen laver. Hver view
+         * eksponerer en valgfri _m{view}HandleSSE(event, data)-funktion som her
+         * dispatches til hvis den aktive view har defineret en.
+         * Pattern fra office/index.html.
+         */
+        function _mDispatchSSE(eventName, data) {
+            var v = _mCurrentView;
+            if (v === 'bons'     && typeof _mbHandleSSE  === 'function') _mbHandleSSE(eventName, data);
+            if (v === 'oversigt' && typeof _movHandleSSE === 'function') _movHandleSSE(eventName, data);
+            if (v === 'crm'      && typeof _mcrmHandleSSE === 'function') _mcrmHandleSSE(eventName, data);
+            // Bons-tæller i nav-badge skal opdateres for alle views
+            if (eventName === 'bon_created' || eventName === 'bon_updated' || eventName === 'bon_status') {
+                _mScheduleNewBadgeReload();
+            }
+        }
+
+        var _mBadgeReloadTimer = null;
+        function _mScheduleNewBadgeReload() {
+            if (_mBadgeReloadTimer) return;
+            _mBadgeReloadTimer = setTimeout(function() {
+                _mBadgeReloadTimer = null;
+                fetch('/api/bons/new?count_only=1')
+                    .then(function(r) { return r.ok ? r.json() : null; })
+                    .then(function(d) { if (d) window._mUpdateNewBadge(d.count || 0); })
+                    .catch(function() {});
+            }, 500);
+        }
+
+        if (typeof connectSSE === 'function') {
+            try {
+                connectSSE('/api/sse', {
+                    bon_created: function(d) { _mDispatchSSE('bon_created', d); },
+                    bon_updated: function(d) { _mDispatchSSE('bon_updated', d); },
+                    bon_status:  function(d) { _mDispatchSSE('bon_status',  d); },
+                });
+            } catch (e) { /* lydløst — SSE er nice-to-have på mobil */ }
+        }
     })();
     </script>
 </body>

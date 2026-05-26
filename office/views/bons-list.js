@@ -63,12 +63,12 @@ var BL_COLUMN_DEFS = {
 };
 
 /* Leveringsmetode-ikoner — hardcoded foreløbig, flyttes til settings senere */
-var BL_DELIVERY_ICONS = {
-    bike:   { icon: '\uD83D\uDEB2', label: 'Cykel' },
-    taxi:   { icon: '\uD83D\uDE95', label: 'Taxa' },
-    volvo:  { icon: '\uD83D\uDE9B', label: 'Volvo' },
-    pickup: { icon: '\uD83C\uDFE0', label: 'Afhentning' },
-};
+var BL_DELIVERY_ICONS = new Proxy({}, {
+    get: function(_t, method) {
+        if (!window.DeliveryIcons) return undefined;
+        return window.DeliveryIcons.get(method) || window.DeliveryIcons.defaults[method];
+    },
+});
 
 /* ══════════════════════════════════════════════════════════════
    INIT
