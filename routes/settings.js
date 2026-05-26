@@ -9,6 +9,20 @@ router.get('/', handle((req, res) => {
     res.json(getDb().prepare(`SELECT key, value, description FROM settings`).all());
 }));
 
+// GET /api/settings/delivery-icons — parset JSON, public (alle inde-loggede)
+//
+// Returnerer { bike: {icon, label}, taxi: {...}, ... }. Frontends bruger denne
+// til at vise leveringsmetode-ikoner ét sted, så ikoner kan ændres uden kode-deploy.
+router.get('/delivery-icons', handle((req, res) => {
+    const row = getDb().prepare(`SELECT value FROM settings WHERE key='delivery_method_icons'`).get();
+    if (!row) return res.json({});
+    try {
+        res.json(JSON.parse(row.value));
+    } catch {
+        res.json({});
+    }
+}));
+
 // GET /api/settings/locations
 router.get('/locations', handle((req, res) => {
     const rows = getDb().prepare('SELECT id, name, code, grocy_api_url, address, is_active FROM locations ORDER BY id').all();

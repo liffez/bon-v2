@@ -1119,6 +1119,17 @@
         </label>
         <span style="font-size:11px;color:var(--color-text-dim)">Salgspris (m/moms), kostpris, margin</span>
       </div>
+
+      <h3 style="margin-top:24px;font-size:15px;font-weight:700">Leveringsmetode-ikoner</h3>
+      <div style="font-size:12px;color:var(--color-text-dim);margin-bottom:14px;line-height:1.6;max-width:600px;background:var(--color-background);padding:10px 14px;border-radius:6px;border:1px solid var(--color-border)">
+        Ikon og label for hver <code>delivery_method</code> (bike/taxi/volvo/pickup). Bruges på bons-listen, kalenderen, bon-kortet og bon-draweren. Ændringer slår igennem efter sidereload.
+      </div>
+      <div id="dm-icons-rows" style="display:flex;flex-direction:column;gap:8px;margin-bottom:14px;max-width:600px"></div>
+      <div style="display:flex;gap:8px">
+        <button class="st-btn st-btn-primary" type="button" onclick="saveDeliveryIcons()">Gem ikoner</button>
+        <button class="st-btn" type="button" onclick="resetDeliveryIcons()">Nulstil til defaults</button>
+        <span id="dm-icons-status" style="font-size:11px;color:var(--color-text-dim);align-self:center;margin-left:8px"></span>
+      </div>
     </div>
 
     <!-- ════ AKTIVITETSFORMÅL ════ -->
@@ -1496,6 +1507,7 @@ async function init() {
     loadCapacitySettings();
     loadPlanningPricesSettings();
     loadUnitCategoriesSettings();
+    renderDeliveryIcons();
     loadDuplicates();
     loadActivityPurposes();
   }
@@ -2414,6 +2426,67 @@ async function togglePlanningPrices() {
   var enabled = document.getElementById('planning-prices-enabled').checked;
   await saveSetting('show_prices_in_planning', enabled ? '1' : '0');
   allSettings['show_prices_in_planning'] = enabled ? '1' : '0';
+}
+
+// ─── LEVERINGSMETODE-IKONER ───────────────────────────────
+// Tidligere hardcoded i 4 frontend-filer (BL_DELIVERY_ICONS, _DELIVERY_METHOD_DISPLAY,
+// shared/bon_drawer.js, shared/logistik.js). Settings → System editor.
+
+var DM_DEFAULTS = {
+  bike:   { icon: '🚲', label: 'Cykel' },
+  taxi:   { icon: '🚕', label: 'Taxa' },
+  volvo:  { icon: '🚛', label: 'Volvo' },
+  pickup: { icon: '🏠', label: 'Afhentning' }
+};
+
+function _dmParseSetting() {
+  var raw = allSettings['delivery_method_icons'];
+  if (!raw) return Object.assign({}, DM_DEFAULTS);
+  try { var o = JSON.parse(raw); return Object.assign({}, DM_DEFAULTS, o || {}); }
+  catch { return Object.assign({}, DM_DEFAULTS); }
+}
+
+function renderDeliveryIcons() {
+  var data = _dmParseSetting();
+  var host = document.getElementById('dm-icons-rows');
+  if (!host) return;
+  var methods = ['bike','taxi','volvo','pickup'];
+  host.innerHTML = methods.map(function(m) {
+    var d = data[m] || {};
+    return ''
+      + '<div style="display:flex;gap:8px;align-items:center">'
+      +   '<code style="width:64px;font-size:12px;color:var(--color-text-dim)">' + m + '</code>'
+      +   '<input class="st-input" data-dm="' + m + '" data-field="icon" value="' + (d.icon || '').replace(/"/g, '&quot;') + '" style="width:56px;text-align:center;font-size:18px">'
+      +   '<input class="st-input" data-dm="' + m + '" data-field="label" value="' + (d.label || '').replace(/"/g, '&quot;') + '" style="flex:1;max-width:220px">'
+      + '</div>';
+  }).join('');
+}
+
+async function saveDeliveryIcons() {
+  var host = document.getElementById('dm-icons-rows');
+  if (!host) return;
+  var out = {};
+  host.querySelectorAll('div').forEach(function(row) {
+    var iconInp = row.querySelector('input[data-field="icon"]');
+    var labelInp = row.querySelector('input[data-field="label"]');
+    if (!iconInp) return;
+    out[iconInp.dataset.dm] = { icon: iconInp.value.trim(), label: labelInp.value.trim() };
+  });
+  var json = JSON.stringify(out);
+  await saveSetting('delivery_method_icons', json);
+  allSettings['delivery_method_icons'] = json;
+  var s = document.getElementById('dm-icons-status');
+  if (s) { s.textContent = '✓ Gemt — reload sider for at se ændringer'; setTimeout(function() { s.textContent = ''; }, 4000); }
+}
+
+function resetDeliveryIcons() {
+  if (!confirm('Nulstil alle leveringsmetode-ikoner til standard?')) return;
+  var json = JSON.stringify(DM_DEFAULTS);
+  allSettings['delivery_method_icons'] = json;
+  renderDeliveryIcons();
+  saveSetting('delivery_method_icons', json);
+  var s = document.getElementById('dm-icons-status');
+  if (s) { s.textContent = '✓ Nulstillet'; setTimeout(function() { s.textContent = ''; }, 3000); }
 }
 
 // ─── ENHEDS-KATEGORIER ───────────────────────────────────

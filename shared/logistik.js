@@ -77,9 +77,9 @@ function _logAddr(o) {
     return [street, city].filter(Boolean).join(', ');
 }
 function _logVehicleIcon(type) {
-    return type === 'volvo' ? '🚐'
-        : (type === 'bike' || type === 'own-bike') ? '🚴'
-        : type === 'taxi' ? '🚕' : '📦';
+    if (type === 'own-bike') type = 'bike';
+    var di = window.DeliveryIcons && (window.DeliveryIcons.get(type) || window.DeliveryIcons.defaults[type]);
+    return di ? di.icon : '📦';
 }
 
 /* ── Init / Cleanup ────────────────────────────────────── */

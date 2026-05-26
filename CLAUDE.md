@@ -2083,11 +2083,11 @@ monokrome glyffer var usynlige.
 >
 > **Fase 14 — Booking-modul: KOMPLET (alle 14 milepæle).** End-to-end booking-flow verificeret fra sælger-mail → kunde-klik → submit → bekræftelse → reminder-cron. Sælgere kan indsætte personligt booking-link i CRM Kunde 360° fritekst-mail. Admins kan konfigurere alt via Settings (mødetyper, kontaktårsager, slot-logik, default-ejer, erindringsindstillinger, intro/thankyou-tekster). Cron-script `scripts/booking-reminders.js` kører hver hele time og sender erindringsmail N dage før møder. Hardening: usædvanlig token-aktivitet logges. Bon v2's booking-modul er klar til deploy.
 >
-> **Bon v1 er klar til nedlukning.**
+> **Bon v1 → v2 cutover er sket (26. maj 2026).** v2 er nu i drift som det primære system. Resterende arbejde er drift-stabilitet, deploy-opgaver og test-afdækning.
 >
 > **Åbne afhængigheder:**
 > - DMI API-nøgle (vejr på dashboards) — Leif finder frem til eksisterende nøgle (Open-Meteo bruges midlertidigt)
-> - ~~Bon v1-datamigration~~ — sync-v1.js kører dagligt via cron, CVR-beriget
+> - ~~Bon v1-datamigration~~ — afsluttet ved cutover; sync-v1.js cron kan slukkes når Leif bekræfter
 > - Byekspressen credentials — ryk sebastian@by-expressen.dk (blokerer Spor 2's 3D.5, ikke Spor 1)
 > - **Delivery Spor 1 deploy**: Office skal udfylde 1) `booking_template` (samlet tekst fallback) og 2) felt-konfigurationen (`booking_fields_json` — felt-editor under hver vehicle) for By-expressen + Taxa via Settings → Leveringsmetoder. Seed-data ligger der allerede efter migration 071, men juster ud fra hvilke felter office faktisk paster ind hos leverandøren. URL'er er allerede sat (`https://byexpressen.groupnet.at/lobo/#!//coreLogin/` + `https://taxa.nu/`).
 > - ~~Formbuilder webhook-URL + HTML til ristetrug.dk/bestil~~ — embed-formular klar på `bon.ristetrug.dk/embed/bestilling`, indlejres via DIVI Code Module (snippet i `docs/wordpress_divi_snippet.html`)
@@ -2105,7 +2105,7 @@ monokrome glyffer var usynlige.
 > - **Booking-modul**: ved deploy skal `https://bon.ristetrug.dk` (eller den valgte URL hvor `tools/booking-*.html` hostes) tilføjes til `WEBHOOK_ALLOWED_ORIGINS` i `server.js` hvis kunden lander på et andet domæne (fx ristetrug.dk-iframe). I dag er ristetrug.dk allerede inkluderet.
 > - **T_CRM-spec**: scope er routes/companies.js + routes/crm.js (callbacks, call-log, kunde-relations). Større suite — kandidat efter weekenden
 > - **T_CASHFLOW-spec**: routes/cashflow.js (admin-only CSV-upload, faktura-CRUD, bank-matching). Stort scope
-> - **T_V1_AFSTEMNING**: køres weekenden — sammenligner Bon v1 vs v2 data efter cron-sync. Den endelige cutover-blokker
+> - **T_V1_AFSTEMNING**: ikke længere cutover-blokker (cutover sket 26. maj 2026). Kan stadig være nyttig som baseline-snapshot ved mistanke om data-divergens — prioritet sunket
 > - **F75-F80** (T_DASHBOARD): forventede findings der IKKE materialisede — dashboard-koden er allerede mere moden end forventet. Ingen patch nødvendig
 >
 > **Åbne design-beslutninger:**

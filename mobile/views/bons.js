@@ -85,7 +85,35 @@ async function initMobileBons(container, user) {
 
 function cleanupMobileBons() {
     if (_mbSearchTimer) { clearTimeout(_mbSearchTimer); _mbSearchTimer = null; }
+    if (_mbSseReloadTimer) { clearTimeout(_mbSseReloadTimer); _mbSseReloadTimer = null; }
     _mbContainer = null;
+}
+
+/* ── SSE handler (kaldes fra mobile/index.html) ──
+ * Debounced re-load af aktive liste, plus detail-reload hvis brugeren ser
+ * den ramte bon. Container-null = view inaktiv, ignorer.
+ */
+var _mbSseReloadTimer = null;
+function _mbHandleSSE(event, data) {
+    if (!_mbContainer) return;
+    var bonId = data && (data.id || data.bon_id);
+
+    // Detail-view åbent på samme bon → genindlæs straks
+    if (_mbDetailBon && bonId && _mbDetailBon.id === bonId) {
+        _mbShowDetail(bonId);
+        return;
+    }
+
+    // Listevisning → debounced re-load af det der vises
+    if (_mbSseReloadTimer) return;
+    _mbSseReloadTimer = setTimeout(function() {
+        _mbSseReloadTimer = null;
+        if (!_mbContainer || _mbDetailBon) return;
+        if (_mbSearchActive)   return;     // søgeresultater er en bevidst snapshot
+        if (_mbDateMode)       _mbLoadDateMode();
+        else if (_mbTab === 'nye') _mbLoadNye();
+        else                    _mbLoadTabContent();
+    }, 600);
 }
 
 /* ── Tabs-row (normal eller søg) ── */

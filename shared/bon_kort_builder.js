@@ -330,13 +330,23 @@ function _buildDeliveryFlag(bonData, cardId) {
 }
 
 // Mapping fra interne koder til pænt label + ikon.
-// bike/taxi/volvo/pickup matcher bons.delivery_method CHECK constraint.
-const _DELIVERY_METHOD_DISPLAY = {
+// Læser fra window.DeliveryIcons (shared/delivery_icons.js) der henter settings
+// fra /api/settings/delivery-icons. Falder tilbage til hardcoded defaults hvis
+// helperen ikke er loadet (fx i isolerede tests).
+const _DELIVERY_FALLBACK = {
     bike:   { label: 'Cykel',      icon: '🚴' },
     taxi:   { label: 'Taxa',       icon: '🚕' },
     volvo:  { label: 'Volvo',      icon: '🚐' },
     pickup: { label: 'Afhentning', icon: '🏠' }
 };
+const _DELIVERY_METHOD_DISPLAY = new Proxy({}, {
+    get: function(_t, method) {
+        if (window.DeliveryIcons) {
+            return window.DeliveryIcons.get(method) || window.DeliveryIcons.defaults[method] || _DELIVERY_FALLBACK[method];
+        }
+        return _DELIVERY_FALLBACK[method];
+    },
+});
 
 /**
  * Leveringsindikator under datolinjen.

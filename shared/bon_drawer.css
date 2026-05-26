@@ -71,7 +71,8 @@
     gap: 12px;
 }
 
-.drawer-history {
+.drawer-history,
+.drawer-copy {
     background: transparent;
     border: 1px solid var(--color-border, #d7d1ca);
     border-radius: 6px;
@@ -83,9 +84,15 @@
     transition: background 0.15s, border-color 0.15s;
 }
 
-.drawer-history:hover {
+.drawer-history:hover,
+.drawer-copy:hover {
     background: var(--color-background, #f5f4f2);
     border-color: var(--brand-primary, #8e631f);
+}
+
+.drawer-copy:disabled {
+    opacity: 0.6;
+    cursor: wait;
 }
 
 .drawer-close {

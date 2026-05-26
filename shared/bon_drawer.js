@@ -101,6 +101,7 @@ class BonDrawer {
             <div class="drawer-header">
                 <span class="drawer-title">Bon #---</span>
                 <div class="drawer-header-actions">
+                    <button class="drawer-copy" type="button" title="Kopiér bon — opretter ny bon med samme indhold og status NY">⎘ Kopiér</button>
                     <button class="drawer-history" type="button" title="Vis historik">⏱ Historik</button>
                     <button class="drawer-close" type="button">&times;</button>
                 </div>
@@ -362,6 +363,25 @@ class BonDrawer {
             const bonNumber = this.el.querySelector('.drawer-title').textContent.replace(/^Bon #|\s*🔧$/g, '').trim();
             if (typeof window.showHistorik === 'function') {
                 window.showHistorik({ bonId: this.bonId, bonNumber });
+            }
+        });
+
+        this.el.querySelector('.drawer-copy').addEventListener('click', async () => {
+            if (!this.bonId) return;
+            if (this.isDirty && !confirm('Du har ugemte ændringer. Kopiér alligevel — uden at gemme dem først?')) return;
+            if (!confirm('Kopiér denne bon? Den nye bon får status NY og dagens dato som ordredato.')) return;
+            const btn = this.el.querySelector('.drawer-copy');
+            const oldHtml = btn.innerHTML;
+            btn.disabled = true;
+            btn.innerHTML = 'Kopierer…';
+            try {
+                const newBon = await copyBon(this.bonId);
+                this.open(newBon.id);
+            } catch (e) {
+                alert('Kunne ikke kopiere bon: ' + (e.message || e));
+            } finally {
+                btn.disabled = false;
+                btn.innerHTML = oldHtml;
             }
         });
         this.overlayEl.addEventListener('click', () => this.hide());
@@ -710,9 +730,12 @@ class BonDrawer {
             return;
         }
 
-        const icon = (t) => t === 'volvo' ? '🚐'
-            : (t === 'bike' || t === 'own-bike') ? '🚴'
-            : t === 'taxi' ? '🚕' : '📦';
+        const icon = (t) => {
+            if (t === 'own-bike') t = 'bike';
+            const di = window.DeliveryIcons && (window.DeliveryIcons.get(t) || window.DeliveryIcons.defaults[t]);
+            if (di) return di.icon;
+            return '📦';
+        };
 
         let head = '📍 ' + String(r.distance_km).replace('.', ',') + ' km · '
             + r.duration_min + ' min fra HQ';
