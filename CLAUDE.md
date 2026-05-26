@@ -230,6 +230,37 @@ Nye filer placeres præcis der de hører hjemme — kopieres ikke.
 
 ---
 
+## Deploy-flow
+
+Standard-arbejdsgang ved slutningen af en Claude Code-session der har lavet ændringer:
+
+**Claude gør (automatisk):**
+```bash
+git commit -m "..."                                    # commit-besked beskriver hvad + hvorfor
+git push -u origin <branch>                            # branch er typisk claude/<navn>
+gh pr create --base main --title "..." --body "..."    # PR-body fungerer som changelog
+gh pr merge --squash --delete-branch                   # main får én commit per feature
+```
+
+**Bruger gør (på Hetzner-serveren):**
+```bash
+ssh hetzner
+cd /opt/bon-v2
+git pull
+sudo systemctl restart bon-v2     # kun hvis nødvendigt (kode-ændringer, ikke kun docs)
+```
+
+**Regler:**
+- Migrations kører automatisk ved server-start. Hvis commit'en indeholder en ny `db/migrations/`-fil → genstart kræves
+- Settings-ændringer der peger på Grocy/Smartplan/SMTP kræver ikke genstart (læses ved hver brug eller har egen cache-invalidation)
+- Hvis PR'en kun rører `docs/`, `*.md` eller `tests/` → ingen `git pull` på server nødvendig
+
+**Bagudkompat hvis flowet kommer galt af sted:**
+- Hvis `gh pr merge` fejler med "main is already used by worktree": PR'en er sandsynligvis allerede merged via UI eller en anden måde — tjek med `gh pr view <num> --json state`
+- Hvis Hetzner pull fejler med merge-conflict: nogen har lavet ændringer direkte på serveren — undersøg med `git log origin/main..HEAD`
+
+---
+
 ## Grocy userfields (skal oprettes manuelt i Grocy)
 
 Disse userfields skal eksistere i Grocy for at systemet fungerer korrekt.
