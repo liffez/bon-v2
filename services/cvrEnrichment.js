@@ -11,12 +11,11 @@
 // Returns: { found, konfidens, kilde, data } eller { found: false, besked }
 // ==========================================
 
+const { normalizeName, similarity } = require('./companyMatcher');
+
 const VIRK_USER = process.env.VIRK_ES_USER;
 const VIRK_PASS = process.env.VIRK_ES_PASS;
 const VIRK_URL = 'http://distribution.virk.dk/cvr-permanent/_search';
-
-const LEGAL_SUFFIXES = /\b(i\/s|a\/s|aps|s\/i|a\.m\.b\.a|f\.m\.b\.a|fond|forening|smba|ivs|p\/s|k\/s|holding|group|as|is)\b/gi;
-const PARENS = /\(.*?\)/g;
 
 const KENDTE = {
     'kk.dk':            { cvr: '64942212', navn: 'Københavns Kommune' },
@@ -29,31 +28,6 @@ const KENDTE = {
 };
 
 // ─── Hjælpere ────────────────────────────────────────────────
-
-function normalizeName(name) {
-    return (name || '').toLowerCase()
-        .replace(PARENS, '')
-        .replace(LEGAL_SUFFIXES, '')
-        .replace(/[^a-zæøåé0-9]/g, ' ')
-        .replace(/\s+/g, ' ')
-        .trim();
-}
-
-function similarity(a, b) {
-    const na = normalizeName(a);
-    const nb = normalizeName(b);
-    if (!na || !nb) return 0;
-    if (na === nb) return 1.0;
-    if (na.includes(nb) || nb.includes(na)) return 0.95;
-    const tokA = new Set(na.split(' ').filter(t => t.length > 1));
-    const tokB = new Set(nb.split(' ').filter(t => t.length > 1));
-    if (tokA.size === 0 || tokB.size === 0) return 0;
-    let overlap = 0;
-    for (const t of tokA) if (tokB.has(t)) overlap++;
-    const smaller = Math.min(tokA.size, tokB.size);
-    if (overlap === smaller && smaller >= 1) return 0.90;
-    return (2 * overlap) / (tokA.size + tokB.size);
-}
 
 function basicAuth() {
     return 'Basic ' + Buffer.from(`${VIRK_USER}:${VIRK_PASS}`).toString('base64');
