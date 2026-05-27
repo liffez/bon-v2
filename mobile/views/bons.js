@@ -150,7 +150,7 @@ function _mbRenderTabsRow() {
                 '<button class="m-tab' + (_mbTab === 'today'    ? ' active' : '') + '" data-tab="today">I dag</button>' +
                 '<button class="m-tab' + (_mbTab === 'tomorrow' ? ' active' : '') + '" data-tab="tomorrow">I morgen</button>' +
                 '<button class="m-tab' + (_mbTab === 'dayafter' ? ' active' : '') + '" data-tab="dayafter">Overmorgen</button>' +
-                '<button class="m-tab' + (_mbTab === 'new'      ? ' active' : '') + '" data-tab="new">Nye' + badge + '</button>' +
+                '<button class="m-tab' + (_mbTab === 'new'      ? ' active' : '') + '" data-tab="new">Nyt' + badge + '</button>' +
             '</div>' +
             '<button class="m-search-btn" id="mbSearchOpen" aria-label="Søg">' +
                 '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">' +
