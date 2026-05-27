@@ -328,7 +328,41 @@ router.get('/invoices', handle(async (req, res) => {
         LIMIT ? OFFSET ?
     `).all(...params, parseInt(limit), parseInt(offset));
 
-    res.json({ rows });
+    // Tab-summaries i ét kald, så frontenden kan vise count + sum
+    // på hver tab-knap og som footer på den aktive liste.
+    const summary = db.prepare(`
+        SELECT
+            COUNT(*) AS alle_count,
+            COALESCE(SUM(beloeb), 0) AS alle_total,
+            SUM(CASE WHEN betalt = 0 AND forfald >= ? THEN 1 ELSE 0 END) AS udestaaende_count,
+            COALESCE(SUM(CASE WHEN betalt = 0 AND forfald >= ? THEN beloeb ELSE 0 END), 0) AS udestaaende_total,
+            SUM(CASE WHEN betalt = 0 AND forfald < ? THEN 1 ELSE 0 END) AS forfaldne_count,
+            COALESCE(SUM(CASE WHEN betalt = 0 AND forfald < ? THEN beloeb ELSE 0 END), 0) AS forfaldne_total,
+            SUM(CASE WHEN betalt = 1 THEN 1 ELSE 0 END) AS betalt_count,
+            COALESCE(SUM(CASE WHEN betalt = 1 THEN beloeb ELSE 0 END), 0) AS betalt_total
+        FROM cf_invoices
+    `).get(today, today, today, today);
+
+    const sandsynlig = db.prepare(`
+        SELECT COUNT(*) AS cnt, COALESCE(SUM(beloeb), 0) AS total
+        FROM cf_invoices
+        WHERE betalt = 0
+          AND id IN (
+              SELECT matched_invoice_id FROM cf_transactions
+              WHERE matched_invoice_id IS NOT NULL AND match_confidence > 0
+          )
+    `).get();
+
+    res.json({
+        rows,
+        summary: {
+            alle:        { count: summary.alle_count,        total: summary.alle_total },
+            udestaaende: { count: summary.udestaaende_count, total: summary.udestaaende_total },
+            forfaldne:   { count: summary.forfaldne_count,   total: summary.forfaldne_total },
+            sandsynlig:  { count: sandsynlig.cnt,            total: sandsynlig.total },
+            betalt:      { count: summary.betalt_count,      total: summary.betalt_total },
+        }
+    });
 }));
 
 // ─── POST /invoices — Opret faktura ────────────────────────
