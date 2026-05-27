@@ -633,6 +633,12 @@
 .tilbud-btn-secondary:hover { background: var(--color-border-light, #ede8dd); }
 .tilbud-btn-ghost { background: none; color: var(--color-text-dim, #7a6f5f); }
 .tilbud-btn-ghost:hover { background: var(--color-background, #f5f4f2); }
+.tilbud-btn-danger {
+  background: #fff;
+  color: #bc181b;
+  border: 1.5px solid #e6b3b4;
+}
+.tilbud-btn-danger:hover { background: #fdf0f0; border-color: #bc181b; }
 .tilbud-btn-sm { padding: 5px 12px; font-size: .76rem; }
 .tilbud-btn-icon {
   width: 26px; height: 26px; border-radius: 5px;
