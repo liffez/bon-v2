@@ -17,8 +17,10 @@ const VIEW_WINDOWS = {
      * Køkken I Dag
      * Bons der skal laves/afleveres i dag.
      * Statusser der er relevante for køkkenet nu.
+     * GODKENDT er med så man kan klikke sig tilbage hvis IGANG/KLAR
+     * blev trykket ved en fejl.
      */
-    'kitchen-today': ['igang', 'klar', 'lev'],
+    'kitchen-today': ['godkendt', 'igang', 'klar', 'lev'],
 
     /**
      * Køkken Senere
