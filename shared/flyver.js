@@ -4,9 +4,10 @@
  * Flyver-system: send + modtag urgente beskeder fra bons.
  *
  * API (globale funktioner):
- *   sendFlyver(cardId)        — åbner send-modal (kaldes fra action-bar)
- *   initFlyverBanner()        — kald én gang ved page load
- *   handleFlyverSSE(data)     — kald fra SSE notification-handler
+ *   sendFlyver(cardId)              — åbner send-modal fra et bon-kort (action-bar)
+ *   openFlyverComposer(bonId, nr)   — åbner send-modal direkte (bon-drawer m.fl.)
+ *   initFlyverBanner()              — kald én gang ved page load
+ *   handleFlyverSSE(data)           — kald fra SSE notification-handler
  *
  * Afhængigheder:
  *   shared/utils.js   → getClientId(), esc()
@@ -31,6 +32,16 @@ function sendFlyver(cardId) {
     if (!card) return;
     const bonId = cardId.replace('bon', '');
     const bonNr = card.querySelector('.bon-id')?.textContent?.trim() || '#' + bonId;
+    openFlyverComposer(bonId, bonNr);
+}
+
+/**
+ * \u00c5bner flyver-send-modalen direkte ud fra et bon-id.
+ * Bruges hvor der ikke findes et bon-kort i DOM'en (fx bon-draweren).
+ */
+function openFlyverComposer(bonId, bonNr) {
+    if (!bonId) return;
+    bonNr = (bonNr ? String(bonNr) : '#' + bonId).trim();
 
     openModal({
         title: 'Send flyver \u2014 ' + esc(bonNr),

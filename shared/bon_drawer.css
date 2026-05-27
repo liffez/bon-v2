@@ -72,7 +72,8 @@
 }
 
 .drawer-history,
-.drawer-copy {
+.drawer-copy,
+.drawer-flyver {
     background: transparent;
     border: 1px solid var(--color-border, #d7d1ca);
     border-radius: 6px;
@@ -85,7 +86,8 @@
 }
 
 .drawer-history:hover,
-.drawer-copy:hover {
+.drawer-copy:hover,
+.drawer-flyver:hover {
     background: var(--color-background, #f5f4f2);
     border-color: var(--brand-primary, #8e631f);
 }
