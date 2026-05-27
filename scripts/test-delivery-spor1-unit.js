@@ -35,7 +35,8 @@ const {
     logBookingEvent,
     setActualCost,
     cancelBooking,
-    getBookingEvents
+    getBookingEvents,
+    computePickupTime
 } = require('../services/delivery_log');
 
 let pass = 0, fail = 0;
@@ -311,9 +312,15 @@ assertEqual(payloadBadJson.fields, null, 'Ugyldig JSON i DB → fields=null');
 // Cleanup: ryd booking_fields_json på taxa så efterfølgende tests ikke påvirkes
 db.prepare(`UPDATE delivery_vehicles SET booking_fields_json = NULL WHERE id = ?`).run(taxa.id);
 
+// Test 8+ kræver async (logBookingEvent kan kalde ORS).
+(async () => {
+
 // ─── Test 8: logBookingEvent ──────────────────────────────
 console.log('\n=== logBookingEvent ===');
-const event1 = logBookingEvent({
+// Nulstil pickup_time så vi kan måle auto-set effekten i test 8b/8c
+db.prepare(`UPDATE bons SET pickup_time = NULL WHERE id = ?`).run(bonId);
+
+const event1 = await logBookingEvent({
     bonId, vehicleId: taxa.id, reference: 'TEST-REF-1', status: 'booked'
 });
 assert(event1.id > 0, 'Event oprettet med id');
@@ -326,23 +333,58 @@ assertEqual(bonAfter.delivery_vehicle_id, taxa.id, 'bon.delivery_vehicle_id sat'
 assertEqual(bonAfter.courier_provider, 'taxa-4x35', 'bon.courier_provider sat');
 assert(bonAfter.delivery_cost_estimated > 0, 'bon.delivery_cost_estimated sat');
 
-// Skift til By-expressen
-const event2 = logBookingEvent({
+// Skift til By-expressen (fast lead = 45 min, delivery_time = 12:30 → pickup = 11:45)
+const event2 = await logBookingEvent({
     bonId, vehicleId: byekspressen.id, status: 'in_progress'
 });
 assertEqual(event2.booking_status, 'in_progress', 'in_progress status');
+assertEqual(event2.pickup_time, '11:45', 'pickup_time auto-sat fra fast lead (12:30 − 45 min)');
 
-const bonAfter2 = db.prepare(`SELECT delivery_vehicle_id FROM bons WHERE id = ?`).get(bonId);
+const bonAfter2 = db.prepare(`SELECT delivery_vehicle_id, pickup_time FROM bons WHERE id = ?`).get(bonId);
 assertEqual(bonAfter2.delivery_vehicle_id, byekspressen.id, 'vehicle skiftet');
+assertEqual(bonAfter2.pickup_time, '11:45', 'bon.pickup_time persisteret');
 
-// Failed status
-const event3 = logBookingEvent({ bonId, vehicleId: taxa.id, status: 'failed', note: 'API timeout' });
+// Failed status — pickup_time skal IKKE flyttes
+db.prepare(`UPDATE bons SET pickup_time = '08:00' WHERE id = ?`).run(bonId);
+const event3 = await logBookingEvent({ bonId, vehicleId: taxa.id, status: 'failed', note: 'API timeout' });
 assertEqual(event3.event_type, 'failed', 'failed → event_type=failed');
+const bonAfterFailed = db.prepare(`SELECT pickup_time FROM bons WHERE id = ?`).get(bonId);
+assertEqual(bonAfterFailed.pickup_time, '08:00', 'failed booking rører ikke pickup_time');
 
 // Ugyldig status
 let invalidStatus = false;
-try { logBookingEvent({ bonId, vehicleId: taxa.id, status: 'completed' }); } catch (e) { invalidStatus = true; }
+try { await logBookingEvent({ bonId, vehicleId: taxa.id, status: 'completed' }); } catch (e) { invalidStatus = true; }
 assert(invalidStatus, 'Ugyldig status → throws');
+
+// ─── Test 8b: computePickupTime — pickup-type ──────────────
+console.log('\n=== computePickupTime — pickup-type ===');
+// Lav en pickup-bon: kunden henter selv kl 14:00
+const pickupBonId = Number(db.prepare(`
+    INSERT INTO bons (bon_number, status_id, location_id, customer_id, company_id,
+                      order_date, delivery_date, delivery_time,
+                      delivery_type, pax, boxes, total_units)
+    VALUES ('TEST-PU', ?, ?, ?, ?, '2026-05-03', '2026-05-15', '14:00',
+            'pickup', 5, 2, 10)
+`).run(statusId, locId, customerId, companyId).lastInsertRowid);
+const pickupBon = db.prepare(`
+    SELECT id, delivery_type, delivery_time, pickup_time, delivery_address_id
+    FROM bons WHERE id = ?
+`).get(pickupBonId);
+const pickupResult = await computePickupTime(pickupBon, byekspressen);
+assertEqual(pickupResult, '14:00', 'pickup-type → pickup_time = delivery_time (kunden henter selv)');
+
+// ─── Test 8c: computePickupTime — fast lead ────────────────
+console.log('\n=== computePickupTime — fast lead ===');
+const leadBon = { delivery_type: 'delivery', delivery_time: '11:00', delivery_address_id: addrId };
+assertEqual(await computePickupTime(leadBon, byekspressen), '10:15', 'By-expressen 45min → 11:00 − 45 = 10:15');
+assertEqual(await computePickupTime(leadBon, { ...byekspressen, pickup_lead_min: 30 }), '10:30', '30min lead → 10:30');
+// Manglende delivery_time → null
+assertEqual(await computePickupTime({ delivery_type: 'delivery', delivery_time: null }, byekspressen), null,
+    'Manglende delivery_time → null');
+// Manglende adresse + intet fast lead → null (ingen grundlag for køretids-beregning)
+const drivingVehicle = { ...taxa, pickup_lead_min: null };
+assertEqual(await computePickupTime({ delivery_type: 'delivery', delivery_time: '11:00' }, drivingVehicle), null,
+    'Køretids-baseret + ingen adresse → null');
 
 // ─── Test 9: setActualCost ────────────────────────────────
 console.log('\n=== setActualCost ===');
@@ -407,3 +449,4 @@ try { fs.unlinkSync(TEST_DB + '-wal'); } catch (e) {}
 try { fs.unlinkSync(TEST_DB + '-shm'); } catch (e) {}
 
 process.exit(fail > 0 ? 1 : 0);
+})().catch(err => { console.error(err); process.exit(1); });

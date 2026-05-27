@@ -18,6 +18,8 @@ const { transaction } = require('../db/compat');
 const { logChange } = require('../db/helpers');
 const { broadcast } = require('../shared/sse');
 const { getVehicleById, estimateCost } = require('./booking_template');
+const { getDistance } = require('./routing');
+const { getHqCoords, getSafetyMargin, shiftTime } = require('./delivery_calc');
 
 const VALID_BOOKING_STATUSES = new Set(['booked', 'in_progress', 'failed']);
 
@@ -35,6 +37,65 @@ function deliveryMethodFromVehicleType(type) {
 }
 
 // ==========================================
+// computePickupTime(bon, vehicle) → "HH:MM" | null
+//
+// Returnerer den afhentningstid bonen SKAL have for den valgte vogn:
+//   - delivery_type='pickup'  → bon.delivery_time (kunden afhenter selv)
+//   - vehicle.pickup_lead_min → delivery_time − pickup_lead_min (fx By-expressen 45 min)
+//   - ellers (Taxa/Volvo/Egen cykel) → delivery_time − (køretid + sikkerhedsmargin)
+//
+// Returnerer null hvis grundlaget mangler (ingen delivery_time, ingen coords
+// på leveringsadressen, ORS utilgængelig osv.) — kalderen overskriver
+// IKKE en eksisterende pickup_time i den situation.
+// ==========================================
+async function computePickupTime(bon, vehicle) {
+    if (!bon || !vehicle) return null;
+
+    // Afhentning: kunden henter selv ved levering_time. Triggeren i
+    // migration 076 holder denne invariant ved INSERT/UPDATE af
+    // delivery_type/delivery_time, men vi sætter også her for at have
+    // én sandhed gennem book-flowet.
+    if (bon.delivery_type === 'pickup') {
+        return bon.delivery_time || null;
+    }
+
+    if (!bon.delivery_time) return null;
+
+    // Fast lead-tid (By-expressen 45 min, etc.)
+    if (vehicle.pickup_lead_min != null) {
+        return shiftTime(bon.delivery_time, -Number(vehicle.pickup_lead_min));
+    }
+
+    // Køretids-baseret: hent afstand. Foretrækker cachet værdi
+    // (geo_calculations) så vi ikke laver ORS-kald midt i en booking.
+    // getDistance() læser cachen først når addressId er givet.
+    if (!bon.delivery_address_id) return null;
+
+    const hq = getHqCoords();
+    if (!hq) return null;
+
+    const addr = getDb().prepare(`
+        SELECT id, lat, lon FROM addresses WHERE id = ?
+    `).get(bon.delivery_address_id);
+    if (!addr || addr.lat == null || addr.lon == null) return null;
+
+    let distance;
+    try {
+        distance = await getDistance(
+            { lat: hq.lat, lon: hq.lon },
+            { lat: addr.lat, lon: addr.lon },
+            { addressId: addr.id }
+        );
+    } catch (e) {
+        // ORS utilgængelig: leave pickup_time alone.
+        return null;
+    }
+
+    const durationMin = Math.ceil(distance.duration_s / 60);
+    return shiftTime(bon.delivery_time, -(durationMin + getSafetyMargin()));
+}
+
+// ==========================================
 // Marker bon som booket hos en vehicle.
 //
 // args:
@@ -47,7 +108,7 @@ function deliveryMethodFromVehicleType(type) {
 //
 // Returnerer det oprettede event (med id).
 // ==========================================
-function logBookingEvent({ bonId, vehicleId, reference = null, status = 'booked', userId = null, note = null }) {
+async function logBookingEvent({ bonId, vehicleId, reference = null, status = 'booked', userId = null, note = null }) {
     if (!bonId) throw new Error('bonId påkrævet');
     if (!vehicleId) throw new Error('vehicleId påkrævet');
     if (!VALID_BOOKING_STATUSES.has(status)) {
@@ -59,10 +120,23 @@ function logBookingEvent({ bonId, vehicleId, reference = null, status = 'booked'
     if (!vehicle) throw new Error(`Vehicle ${vehicleId} ikke fundet`);
 
     const bon = db.prepare(`
-        SELECT id, bon_number, delivery_vehicle_id, delivery_cost_estimated, boxes, pax
+        SELECT id, bon_number, delivery_vehicle_id, delivery_cost_estimated,
+               boxes, pax, delivery_type, delivery_time, pickup_time,
+               delivery_address_id
         FROM bons WHERE id = ?
     `).get(bonId);
     if (!bon) throw new Error(`Bon ${bonId} ikke fundet`);
+
+    // Beregn ny pickup_time uden for transaction (async ORS-kald hvis nødvendigt).
+    // En fejlet booking (`status='failed'`) skal IKKE flytte afhentningstiden.
+    let newPickupTime = null;
+    if (status !== 'failed') {
+        try {
+            newPickupTime = await computePickupTime(bon, vehicle);
+        } catch (e) {
+            console.warn(`[delivery_log] computePickupTime fejlede for bon ${bonId}: ${e.message}`);
+        }
+    }
 
     return transaction(db, () => {
         // event_type mapping:
@@ -133,6 +207,32 @@ function logBookingEvent({ bonId, vehicleId, reference = null, status = 'booked'
             });
         }
 
+        // Auto-sæt afhentningstid hvis vi kunne beregne en. Overskriver
+        // eksisterende værdi — bookingen er en bevidst handling, og
+        // brugeren kan altid efter-rette i draweren. Springer over hvis:
+        //   - status='failed' (newPickupTime sat til null før transaction)
+        //   - computePickupTime returnerede null (manglende grundlag)
+        //   - værdien er den samme som nu (undgår støj i changelog)
+        if (newPickupTime && newPickupTime !== bon.pickup_time) {
+            db.prepare(`
+                UPDATE bons SET pickup_time = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?
+            `).run(newPickupTime, bonId);
+
+            const reason = vehicle.pickup_lead_min != null
+                ? `${vehicle.label}: ${vehicle.pickup_lead_min} min før levering`
+                : `køretid + sikkerhedsmargin`;
+            logChange({
+                entityType: 'bon',
+                entityId: bonId,
+                action: 'update',
+                fieldName: 'pickup_time',
+                oldValue: bon.pickup_time,
+                newValue: newPickupTime,
+                userId,
+                notes: `Auto-sat ved booking (${reason})`
+            });
+        }
+
         // Ekskluderer bevidst IKKE aktøren — bookingen sker ofte i et popout-
         // vindue, og hoveddrawer'en (samme bruger) skal opdatere.
         broadcast('bon_updated', { id: bonId });
@@ -144,7 +244,8 @@ function logBookingEvent({ bonId, vehicleId, reference = null, status = 'booked'
             event_type: eventType,
             external_reference: reference,
             booking_status: status,
-            estimated_cost_dkk: estimated
+            estimated_cost_dkk: estimated,
+            pickup_time: newPickupTime || bon.pickup_time
         };
     });
 }
@@ -313,6 +414,7 @@ module.exports = {
     setActualCost,
     cancelBooking,
     getBookingEvents,
+    computePickupTime,
     deliveryMethodFromVehicleType,
     VALID_BOOKING_STATUSES
 };
