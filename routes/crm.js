@@ -738,10 +738,18 @@ router.get('/customer/:id', handle((req, res) => {
     `);
     for (const f of flags) f.ack_bons = ackBonsStmt.all(f.id);
 
+    const contact_points = db.prepare(`
+        SELECT id, kind, value, source, is_public, is_primary, purpose,
+               verified_at, last_seen_at, notes, created_at, updated_at
+          FROM contact_points
+         WHERE entity_type = 'customer' AND entity_id = ? AND is_active = 1
+         ORDER BY is_primary DESC, kind ASC, created_at ASC
+    `).all(id);
+
     res.json({
         customer, stats, orders,
         activities: mergedActivities,
-        products, rfm, flags,
+        products, rfm, flags, contact_points,
     });
 }));
 
