@@ -27,6 +27,7 @@ let _tShowDB = false;
 let _tPriceCat = 'catering';
 let _tMenu = null;       // { 'Kategori': [items] }
 let _tQuoteNumber = '';
+let _tQuoteStatus = null; // 'draft' | 'sent' | 'won' | 'lost' | 'expired'
 let _tKS = null;         // KundeSoeg instance
 let _tListFilter = 'all';
 let _tDeliveryAddressId = null;
@@ -320,6 +321,7 @@ async function _tOpenQuote(id) {
         _tResetWizard();
         _tQuoteId = q.id;
         _tQuoteNumber = q.quote_number;
+        _tQuoteStatus = q.status || 'draft';
         _tTpl = q.template;
         _tPriceCat = q.price_category || 'catering';
         _tPriceMode = q.price_mode || 'total';
@@ -404,6 +406,7 @@ async function _tOpenQuote(id) {
 function _tResetWizard() {
     _tQuoteId = null;
     _tQuoteNumber = '';
+    _tQuoteStatus = null;
     _tStep = 0;
     _tMaxStep = 0;
     _tTpl = null;
@@ -1202,11 +1205,13 @@ function _tBuildStep4() {
     const cn = _tCust?.company_name || _tCust?.customer_name || 'Kunde';
     const dTypes = { byx: 'Byekspressen', taxa: 'El-taxa', rr: 'RR leverer', custom: 'Levering' };
 
+    const canDelete = _tQuoteId && _tQuoteStatus === 'draft';
     let h = `<div style="display:flex;gap:12px;margin-bottom:16px;flex-wrap:wrap">
         <button class="tilbud-btn tilbud-btn-primary" onclick="_tSaveQuote()">Gem tilbud</button>
         <button class="tilbud-btn tilbud-btn-secondary" onclick="_tGenPDF()">Download PDF</button>
         <button class="tilbud-btn tilbud-btn-secondary" onclick="_tSendQuoteMail()">${mailIcon(13)} Send til kunde</button>
         ${_tQuoteId ? `<button class="tilbud-btn tilbud-btn-secondary" onclick="_tConvertToBon()">Opret som bon</button>` : ''}
+        ${canDelete ? `<button class="tilbud-btn tilbud-btn-danger" onclick="_tDeleteQuote()" style="margin-left:auto">Slet tilbud</button>` : ''}
     </div>`;
 
     if (!_tCust) {
@@ -1415,11 +1420,13 @@ async function _tSaveQuote() {
         if (_tQuoteId) {
             const saved = await updateQuote(_tQuoteId, payload);
             _tQuoteNumber = saved.quote_number;
+            if (saved.status) _tQuoteStatus = saved.status;
             _tToast(`Tilbud ${saved.quote_number} opdateret`);
         } else {
             const saved = await createQuote(payload);
             _tQuoteId = saved.id;
             _tQuoteNumber = saved.quote_number;
+            _tQuoteStatus = 'draft';
             _tToast(`Tilbud ${saved.quote_number} oprettet`);
         }
         _tRenderWizard(); // Re-render to show updated number + convert button
@@ -1438,6 +1445,19 @@ async function _tConvertToBon() {
         if (typeof switchView === 'function') switchView('bons');
     } catch (e) {
         _tToast('Fejl: ' + e.message);
+    }
+}
+
+async function _tDeleteQuote() {
+    if (!_tQuoteId) return;
+    const label = _tQuoteNumber ? `tilbud ${_tQuoteNumber}` : 'dette tilbud';
+    if (!confirm(`Slet ${label}?\n\nKan ikke fortrydes.`)) return;
+    try {
+        await deleteQuote(_tQuoteId);
+        _tToast('Tilbud slettet');
+        _tBackToList();
+    } catch (e) {
+        _tToast('Fejl: ' + (e.message || 'Kunne ikke slette tilbud'));
     }
 }
 
