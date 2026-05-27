@@ -121,6 +121,7 @@ app.use('/api/customers',  require('./routes/customers'));
 app.use('/api/companies',  require('./routes/companies'));
 app.use('/api/contact-points', require('./routes/contact-points'));
 app.use('/api/flags',      require('./routes/flags'));
+app.use('/api/campaigns',  require('./routes/campaigns'));
 app.use('/api/admin/merge-companies', require('./routes/admin-merge'));
 app.use('/api/admin/batch-enrich', require('./routes/admin-batch-enrich'));
 app.use('/api/cvr',        require('./routes/cvr'));

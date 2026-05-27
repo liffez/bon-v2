@@ -901,7 +901,7 @@ router.get('/customer-orders/:id', handle((req, res) => {
 // ─── POST /activity ─────────────────────────────────────────
 router.post('/activity', handle((req, res) => {
     const db = getDb();
-    const { customer_id, bon_id, type, result, sentiment, text, due_at, purpose_id } = req.body;
+    const { customer_id, bon_id, type, result, sentiment, text, due_at, purpose_id, campaign_id } = req.body;
     const userId = req.session.user?.id || null;
 
     if (!customer_id || !type || !text) {
@@ -909,9 +909,13 @@ router.post('/activity', handle((req, res) => {
     }
 
     const ins = db.prepare(`
-        INSERT INTO crm_activities (customer_id, bon_id, type, result, sentiment, text, due_at, owner_user_id, purpose_id)
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
-    `).run(customer_id, bon_id || null, type, result || null, sentiment || null, text, due_at || null, userId, purpose_id || null);
+        INSERT INTO crm_activities
+            (customer_id, bon_id, type, result, sentiment, text, due_at, owner_user_id, purpose_id, campaign_id)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+    `).run(
+        customer_id, bon_id || null, type, result || null, sentiment || null,
+        text, due_at || null, userId, purpose_id || null, campaign_id || null,
+    );
 
     const activityId = ins.lastInsertRowid;
 
@@ -921,12 +925,31 @@ router.post('/activity', handle((req, res) => {
         WHERE customer_id = ?
     `).run(customer_id);
 
+    // Outreach (spec sektion 1.2.5): opdater campaign_members.last_activity_at.
+    // - campaign_id sat: kun det ene medlemskab i den kampagne
+    // - ellers: alle medlemskaber for kunden (samme adfærd som den fjernede trigger,
+    //   men nu eksplicit og forudsigelig). UPDATE påvirker 0 rows hvis kunden ikke
+    //   er medlem af nogen kampagne — harmløst.
+    if (campaign_id) {
+        db.prepare(`
+            UPDATE campaign_members
+            SET last_activity_at = CURRENT_TIMESTAMP
+            WHERE campaign_id = ? AND customer_id = ?
+        `).run(campaign_id, customer_id);
+    } else {
+        db.prepare(`
+            UPDATE campaign_members
+            SET last_activity_at = CURRENT_TIMESTAMP
+            WHERE customer_id = ?
+        `).run(customer_id);
+    }
+
     // Hvis opkald med reached → markér som done
     if (['call', 'service_call'].includes(type) && result === 'reached') {
         db.prepare("UPDATE crm_activities SET done_at = CURRENT_TIMESTAMP WHERE id = ?").run(activityId);
     }
 
-    broadcast('crm_activity_created', { id: activityId, customer_id, bon_id, type });
+    broadcast('crm_activity_created', { id: activityId, customer_id, bon_id, type, campaign_id: campaign_id || null });
     res.json({ id: activityId, ok: true });
 }));
 
@@ -980,6 +1003,82 @@ router.patch('/customer/:id/stage', handle((req, res) => {
     }
 
     broadcast('crm_stage_changed', { customer_id: id, stage });
+    res.json({ ok: true });
+}));
+
+// ─── PATCH /customer/:id/consent ────────────────────────────
+// Sætter marketing_consent og/eller do_not_contact på crm_customer_meta.
+// Begge er INTEGER (0|1). Hver ændring logges i changelog så vi kan dokumentere
+// hvornår og af hvem consent blev givet/tilbagekaldt — vigtigt for §10-compliance.
+// Spec: docs/CLAUDE_OUTREACH_KAMPAGNER.md sektion 1.3
+router.patch('/customer/:id/consent', handle((req, res) => {
+    const db = getDb();
+    const id = parseInt(req.params.id);
+    // req.session.userId er den faktiske session-nøgle (sat af routes/auth.js login).
+    // Den udbredte req.session.user?.id i eksisterende handlers er en lurking bug
+    // der returnerer altid undefined — vi bruger den korrekte her.
+    const userId = req.session?.userId || null;
+    const { marketing_consent, do_not_contact } = req.body || {};
+
+    if (marketing_consent === undefined && do_not_contact === undefined) {
+        return res.status(400).json({ error: 'no_fields' });
+    }
+    const toBit = (v) => (v === true || v === 1 || v === '1') ? 1 : 0;
+
+    // Upsert crm_customer_meta så consent kan sættes selv hvis raden ikke findes endnu
+    const existing = db.prepare(
+        'SELECT marketing_consent, do_not_contact FROM crm_customer_meta WHERE customer_id = ?'
+    ).get(id);
+    if (!existing) {
+        // Verificér at kunden findes inden vi opretter meta-row
+        const cust = db.prepare('SELECT 1 FROM customers WHERE id = ?').get(id);
+        if (!cust) return res.status(404).json({ error: 'customer_not_found' });
+        db.prepare(`
+            INSERT INTO crm_customer_meta (customer_id, marketing_consent, do_not_contact)
+            VALUES (?, ?, ?)
+        `).run(
+            id,
+            marketing_consent !== undefined ? toBit(marketing_consent) : 0,
+            do_not_contact !== undefined ? toBit(do_not_contact) : 0,
+        );
+    } else {
+        const fields = [];
+        const args = [];
+        if (marketing_consent !== undefined) {
+            fields.push('marketing_consent = ?');
+            args.push(toBit(marketing_consent));
+        }
+        if (do_not_contact !== undefined) {
+            fields.push('do_not_contact = ?');
+            args.push(toBit(do_not_contact));
+        }
+        fields.push("updated_at = CURRENT_TIMESTAMP");
+        args.push(id);
+        db.prepare(`UPDATE crm_customer_meta SET ${fields.join(', ')} WHERE customer_id = ?`).run(...args);
+    }
+
+    // Log hver ændring separat (audit-trail per consent-felt)
+    const before = existing || { marketing_consent: 0, do_not_contact: 0 };
+    if (marketing_consent !== undefined && before.marketing_consent !== toBit(marketing_consent)) {
+        logChange({
+            entityType: 'crm_customer_meta', entityId: id,
+            action: 'update', fieldName: 'marketing_consent',
+            oldValue: String(before.marketing_consent),
+            newValue: String(toBit(marketing_consent)),
+            userId,
+        });
+    }
+    if (do_not_contact !== undefined && before.do_not_contact !== toBit(do_not_contact)) {
+        logChange({
+            entityType: 'crm_customer_meta', entityId: id,
+            action: 'update', fieldName: 'do_not_contact',
+            oldValue: String(before.do_not_contact),
+            newValue: String(toBit(do_not_contact)),
+            userId,
+        });
+    }
+
+    broadcast('crm_consent_updated', { customer_id: id });
     res.json({ ok: true });
 }));
 
