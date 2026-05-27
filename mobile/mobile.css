@@ -247,6 +247,41 @@ body.m-modtag-active .m-content { padding-bottom: 0; }
 .m-detail-line-name { flex: 1; }
 .m-detail-line-qty { font-weight: 600; min-width: 40px; text-align: right; }
 
+/* ── Ulæst mail-banner (bon detalje) ──
+ * Vises mellem header og kundeinfo når der er indgående ulæste mails på bonen.
+ * "Markér som læst" PATCH'er alle ulæste indgående mails → bonen forsvinder
+ * fra Nye-listen (pending-inbox-model, beslutning 12).
+ */
+.m-mail-banner {
+    margin: 0 16px 16px;
+    padding: 12px 14px;
+    background: #fff7ed;
+    border: 1px solid #fbbf24;
+    border-radius: 10px;
+    display: flex; align-items: center; gap: 12px;
+    flex-wrap: wrap;
+}
+.m-mail-banner-text {
+    display: flex; align-items: center; gap: 8px;
+    flex: 1; min-width: 0;
+    font-size: 14px; font-weight: 500;
+    color: #92400e;
+}
+.m-mail-banner-text svg {
+    width: 18px; height: 18px; flex-shrink: 0;
+}
+.m-mail-banner-btn {
+    padding: 8px 14px;
+    background: var(--brand-primary);
+    color: #fff; border: none; border-radius: 8px;
+    font-size: 14px; font-weight: 600;
+    cursor: pointer;
+    min-height: var(--touch-target-min);
+}
+.m-mail-banner-btn:disabled {
+    opacity: 0.6; cursor: not-allowed;
+}
+
 /* ── Status knapper (bon detalje) ── */
 .m-status-actions {
     display: flex; gap: 8px;
