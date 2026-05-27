@@ -82,7 +82,8 @@
 .log-bon-row1 { display: flex; align-items: baseline; gap: 8px; }
 .log-bon-time { font-weight: 700; font-size: 13.5px; color: var(--brand-primary, #8e631f); }
 .log-bon-name {
-    flex: 1; font-weight: 600; font-size: 13.5px;
+    flex: 1; min-width: 0;
+    font-weight: 600; font-size: 13.5px;
     white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
 }
 .log-bon-status {

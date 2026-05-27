@@ -162,7 +162,7 @@
     white-space: nowrap;
 }
 .pl-bon-customer {
-    flex: 1;
+    flex: 1; min-width: 0;
     overflow: hidden;
     text-overflow: ellipsis;
     white-space: nowrap;
@@ -216,7 +216,7 @@
     font-size: 15px;
 }
 .pl-extra-name {
-    flex: 1;
+    flex: 1; min-width: 0;
     font-weight: 600;
     overflow: hidden;
     text-overflow: ellipsis;
