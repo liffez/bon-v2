@@ -16,6 +16,7 @@
 var _sk = {
   ok: false,
   mode: 'icon',       // 'icon' | 'panel'
+  visible: true,      // Pages kan kalde Sidekick.setVisible(false) for at skjule
   tasks: [],
   lists: [],
   messages: [],
@@ -198,6 +199,12 @@ function _skSetMode(mode) {
     mainContent.classList.remove('sidekick-shrunk');
   }
 
+  // Hvis siden har skjult sidekicken, vis intet — uanset mode.
+  if (!_sk.visible) {
+    _skStopPolling();
+    return;
+  }
+
   switch (mode) {
     case 'icon':
       icon.classList.add('visible');
@@ -211,6 +218,18 @@ function _skSetMode(mode) {
       _skStartPolling();
       break;
   }
+}
+
+/* ══════════════════════════════════════════════════════════
+   PUBLIC API: setVisible / show / hide
+   Pages kan toggle synlighed efter init.
+   ══════════════════════════════════════════════════════════ */
+function _skSetVisible(show) {
+  var want = !!show;
+  if (_sk.visible === want) return;
+  _sk.visible = want;
+  // Re-apply nuværende mode — _skSetMode respekterer _sk.visible
+  _skSetMode(_sk.mode);
 }
 
 /* ══════════════════════════════════════════════════════════
@@ -453,9 +472,11 @@ function initSidekick() {
     if (!cfg.whiteboardBase) return; // Ikke konfigureret — degradér lydløst
     _sk.config = cfg;
 
-    // Injicer DOM og vis ikon
+    // Injicer DOM og vis ikon (medmindre siden har skjult sidekicken)
     _skInjectDOM();
-    document.getElementById('sk-icon').classList.add('visible');
+    if (_sk.visible) {
+      document.getElementById('sk-icon').classList.add('visible');
+    }
 
     // Hent initial data (for badge)
     _skLoadAll();
@@ -470,3 +491,10 @@ if (document.readyState === 'loading') {
 } else {
   initSidekick();
 }
+
+// Public API — pages kan styre synlighed efter init
+window.Sidekick = {
+  setVisible: _skSetVisible,
+  show: function() { _skSetVisible(true); },
+  hide: function() { _skSetVisible(false); }
+};

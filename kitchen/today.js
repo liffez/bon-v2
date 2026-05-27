@@ -425,4 +425,7 @@ function updateCount() {
     const levCards = document.querySelectorAll('.bon-card[data-status="lev"]');
     const levEl = document.getElementById('levCount');
     if (levEl) levEl.textContent = levCards.length > 0 ? '(' + levCards.length + ')' : '';
+
+    // Whiteboard-sidekick: kun synlig når der ikke er aktive bons
+    if (window.Sidekick) window.Sidekick.setVisible(n === 0);
 }
