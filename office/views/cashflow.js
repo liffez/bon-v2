@@ -418,6 +418,10 @@ function _cfBuildInvoiceRows(rows, tab) {
     // I "Sandsynlig betalt"-fanen viser vi ekspanderet match- + bon-info per
     // række så brugeren kan bekræfte/forkaste uden at åbne edit-modalen.
     const expanded = tab === 'sandsynlig';
+    // I "Forfaldne"-fanen viser vi inline quick-actions per række så brugeren
+    // hurtigt kan rydde fakturaer der reelt er betalt i e-conomic men hænger
+    // som forfaldne i Bon v2 (manglende sync).
+    const quickActions = tab === 'forfaldne';
 
     container.innerHTML = rows.map(inv => {
         const days = _cfDaysUntil(inv.forfald);
@@ -434,27 +438,79 @@ function _cfBuildInvoiceRows(rows, tab) {
 
         const dueClass = days < 0 && !inv.betalt ? 'overdue' : days <= 7 && !inv.betalt ? 'soon' : '';
 
+        const classList = [
+            'cf-inv-row',
+            expanded ? 'cf-inv-row-expanded' : '',
+            quickActions ? 'cf-inv-row-quick' : ''
+        ].filter(Boolean).join(' ');
+
+        const quickHtml = quickActions
+            ? `<div class="cf-quick-actions">
+                 <button class="cf-quick-btn cf-quick-confirm" data-inv-id="${inv.id}" title="Bekræft som betalt">✓ Betalt</button>
+                 ${inv.bon_id ? `<button class="cf-quick-btn cf-quick-open" data-bon-id="${inv.bon_id}" title="Åbn bon">→</button>` : ''}
+               </div>`
+            : '';
+
         return `
-        <div class="cf-inv-row${expanded ? ' cf-inv-row-expanded' : ''}" data-inv-id="${inv.id}">
+        <div class="${classList}" data-inv-id="${inv.id}">
             <div class="cf-inv-main">
                 <div class="cf-inv-num">#${inv.id}</div>
                 <div class="cf-inv-customer">${inv.kunde}${inv.betalingstype ? `<span>${inv.betalingstype}</span>` : ''}</div>
                 <div class="cf-inv-amount">${_cfFmt(inv.beloeb)}</div>
                 <div class="cf-inv-due ${dueClass}">${_cfFmtDate(inv.forfald)}</div>
-                <div><span class="cf-pill ${pillClass}">${pillText}</span></div>
+                <div class="cf-inv-status-cell">
+                    <span class="cf-pill ${pillClass}">${pillText}</span>
+                    ${quickHtml}
+                </div>
             </div>
             ${expanded ? _cfRenderMatchPanel(inv) : ''}
         </div>`;
     }).join('');
 
-    // Click main-row → edit (men ikke når man klikker i ekspander-sektionen).
+    // Click main-row → edit (men ikke når man klikker på quick-action-knapper
+    // eller i ekspander-sektionen).
     container.querySelectorAll('.cf-inv-row').forEach(row => {
         const main = row.querySelector('.cf-inv-main');
-        if (main) main.onclick = () => _cfShowInvForm(_cfEl, row.dataset.invId);
+        if (main) main.onclick = (ev) => {
+            if (ev.target.closest('.cf-quick-actions')) return;
+            _cfShowInvForm(_cfEl, row.dataset.invId);
+        };
     });
 
     // Wire knap-handlers i ekspanderede rækker.
     if (expanded) _cfWireMatchActions(container);
+    // Wire quick-action-knapper i forfaldne-rækker.
+    if (quickActions) _cfWireQuickActions(container);
+}
+
+/* ── Wire quick-actions (Forfaldne-fanen) ── */
+function _cfWireQuickActions(container) {
+    container.querySelectorAll('.cf-quick-confirm').forEach(btn => {
+        btn.onclick = async (ev) => {
+            ev.stopPropagation();
+            const id = btn.dataset.invId;
+            if (!confirm(`Bekræft faktura #${id} som betalt?\n\nFakturaen flyttes til Betalt. Hvis fakturaen er koblet til en bon i Bon v2, flyttes bonens status også til BETALT.`)) return;
+            btn.disabled = true;
+            try {
+                const res = await confirmCfInvoicePaid(id);
+                _cfShowToast(res.bon_status_changed
+                    ? `Faktura #${id} bekræftet · bon flyttet til BETALT`
+                    : `Faktura #${id} bekræftet`);
+                await _cfReloadInvoices();
+            } catch (err) {
+                _cfShowToast(`Fejl: ${err.message}`, true);
+                btn.disabled = false;
+            }
+        };
+    });
+    container.querySelectorAll('.cf-quick-open').forEach(btn => {
+        btn.onclick = (ev) => {
+            ev.stopPropagation();
+            const bonId = parseInt(btn.dataset.bonId);
+            if (_cfOpts.openDrawer) _cfOpts.openDrawer(bonId);
+            else window.location.href = `/office/?bon=${bonId}`;
+        };
+    });
 }
 
 /* ── Render match + bon-info + actions for én række ── */
