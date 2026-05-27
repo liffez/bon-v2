@@ -1424,6 +1424,9 @@
           if (typeof _k3HandleSSE === 'function') _k3HandleSSE('crm_stage_changed', data);
           if (typeof _prosHandleSSE === 'function') _prosHandleSSE('crm_stage_changed', data);
         },
+        crm_consent_updated: (data) => {
+          if (typeof _k3HandleSSE === 'function') _k3HandleSSE('crm_consent_updated', data);
+        },
         rfm_computed: (data) => {
           if (typeof _kiHandleSSE === 'function') _kiHandleSSE('rfm_computed', data);
           if (typeof _reakHandleSSE === 'function') _reakHandleSSE('rfm_computed', data);

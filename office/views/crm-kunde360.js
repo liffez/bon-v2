@@ -854,6 +854,29 @@ function _k3RenderShell() {
                 font-size: 12px; margin-top: 14px; font-family: inherit;
             }
 
+            /* Consent (markedsføring + DNC) */
+            .k3-consent {
+                margin-top: 16px; padding: 12px; border-radius: 8px;
+                background: var(--color-surface-alt, #fafaf7);
+                border: 1px solid var(--color-border);
+            }
+            .k3-consent h4 {
+                margin: 0 0 8px 0; font-size: 12px; font-weight: 600;
+                text-transform: uppercase; letter-spacing: .04em;
+                color: var(--color-text-dim);
+            }
+            .k3-consent-row {
+                display: flex; align-items: center; gap: 8px;
+                padding: 4px 0; font-size: 13px; cursor: pointer;
+            }
+            .k3-consent-row input[type=checkbox] {
+                margin: 0; cursor: pointer;
+            }
+            .k3-consent-hint {
+                margin-left: auto; font-size: 11px;
+                color: var(--color-text-dim); font-style: italic;
+            }
+
             /* Tabs */
             .k3-tabs { display: flex; gap: 0; }
             .k3-tab {
@@ -1131,6 +1154,25 @@ function _k3RenderProfile() {
                 { lead: 'Lead', active: 'Aktiv', dormant: 'Sovende', vip: 'VIP' }[st] + '</option>'
         ).join('') +
     '</select>';
+
+    // Markedsføring & kontakt (CLAUDE_OUTREACH_KAMPAGNER sektion 1.3).
+    // marketing_consent: påkrævet for at privatkunder (B2C) kan tilføjes til kampagner.
+    // do_not_contact:    spærrer kunden ud af alle kampagner uanset B2B/B2C.
+    const mc = c.marketing_consent === 1 ? 'checked' : '';
+    const dnc = c.do_not_contact === 1 ? 'checked' : '';
+    html += '<div class="k3-consent">' +
+        '<h4>Markedsføring &amp; kontakt</h4>' +
+        '<label class="k3-consent-row">' +
+            '<input type="checkbox" id="k3ConsentMc" ' + mc + ' onchange="_k3UpdateConsent()">' +
+            '<span>Tilladelse til markedsføring</span>' +
+            '<span class="k3-consent-hint">Påkrævet for privatkunder i kampagner</span>' +
+        '</label>' +
+        '<label class="k3-consent-row">' +
+            '<input type="checkbox" id="k3ConsentDnc" ' + dnc + ' onchange="_k3UpdateConsent()">' +
+            '<span>Må ikke kontaktes</span>' +
+            '<span class="k3-consent-hint">Spærrer alle outreach-kampagner</span>' +
+        '</label>' +
+    '</div>';
 
     el.innerHTML = html;
 
@@ -1709,6 +1751,29 @@ async function _k3ChangeStage(stage) {
         alert('Fejl: ' + err.message);
     }
 }
+
+// Outreach: opdater consent uden at re-loade hele kunden (latency er ringe når toggle
+// flickerer). SSE crm_consent_updated kvitterer (sker for andre browser-faner).
+async function _k3UpdateConsent() {
+    const mc = document.getElementById('k3ConsentMc');
+    const dnc = document.getElementById('k3ConsentDnc');
+    if (!mc || !dnc) return;
+    try {
+        await patchCrmCustomerConsent(_k3CustomerId, {
+            marketing_consent: mc.checked ? 1 : 0,
+            do_not_contact: dnc.checked ? 1 : 0,
+        });
+        if (_k3Data && _k3Data.customer) {
+            _k3Data.customer.marketing_consent = mc.checked ? 1 : 0;
+            _k3Data.customer.do_not_contact = dnc.checked ? 1 : 0;
+        }
+    } catch (err) {
+        alert('Kunne ikke gemme: ' + err.message);
+        // Rul UI tilbage til server-state
+        _k3LoadData();
+    }
+}
+window._k3UpdateConsent = _k3UpdateConsent;
 
 // ─── Mail tab ───────────────────────────────────────────────
 

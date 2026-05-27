@@ -715,6 +715,16 @@ function patchCrmCustomerStage(id, stage) {
     });
 }
 
+// Outreach (CLAUDE_OUTREACH_KAMPAGNER.md sektion 1.3): markedsføring + DNC.
+// Server håndhæver det samme ved POST /campaigns/:id/members, så ændringer her
+// påvirker fremtidige kampagne-tilføjelser. SSE: crm_consent_updated.
+function patchCrmCustomerConsent(id, payload) {
+    return apiFetch('/crm/customer/' + id + '/consent', {
+        method: 'PATCH',
+        body: JSON.stringify(payload),
+    });
+}
+
 /* ── ENTITY FLAGS (påmindelser på kunder/firmaer) ────────── */
 
 function fetchFlags(entityType, entityId, includeDismissed) {
