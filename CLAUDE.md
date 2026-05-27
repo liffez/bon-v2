@@ -13,6 +13,12 @@
 - docs/CLAUDE_ECONOMIC_ADAPTER.md (spec — ikke bygget endnu)
 - docs/CLAUDE_MENU_AGENT.md (spec — ikke bygget endnu)
 
+### Scan for nye specs
+Kør `ls docs/CLAUDE_*.md docs/**/CLAUDE_*.md 2>/dev/null` ved sessionsstart for at
+se ALLE eksisterende specs — ikke kun dem listet ovenfor. Læs dem der er relevante
+for opgaven. Når brugeren refererer "min spec til X", er den næsten altid en
+`docs/CLAUDE_X*.md`-fil — find og læs den før du gætter.
+
 ---
 
 ## De tre autoritative dokumenter
