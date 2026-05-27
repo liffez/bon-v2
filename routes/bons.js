@@ -4,6 +4,7 @@ const { getDb } = require('../db/database');
 const { handle, logChange, getBon, getBonLines, getBonMenuGroups, getStatusId, getDefaultLocationId, nextBonNumber, computeMomsFields, recalcBonTotalUnits, transaction, autoConsumeBonInventory } = require('../db/helpers');
 const { broadcast } = require('../shared/sse');
 const grocy   = require('../services/grocyAdapter');
+const { syncCashflowInvoice } = require('../services/cashflowSync');
 // quConvert bruges nu via services/ingredientResolver.js
 
 /**
@@ -662,6 +663,19 @@ router.patch('/:id', handle((req, res) => {
         recalcBonTotal(db, id, { logIfChanged: true, userId: req.session?.userId ?? null });
     }
 
+    // Cashflow-sync hvis felter der påvirker auto-genereret cf_invoice er ændret.
+    // invoice_info kan indeholde "Fakturanr: ..." der bliver til cf_invoice.id.
+    // payment_type-skift fra invoice → andet sletter cf_invoice (hvis ikke betalt).
+    // delivery_date/_price ændrer forfald og beløb.
+    const CF_RELEVANT = ['invoice_info', 'payment_type', 'delivery_date', 'delivery_price'];
+    if (CF_RELEVANT.some(f => f in updates)) {
+        try {
+            syncCashflowInvoice(db, id);
+        } catch (err) {
+            console.error(`[cashflow] sync failed for bon ${id}:`, err.message);
+        }
+    }
+
     broadcast('bon_updated', { id });
     res.json({ ok: true });
 }));
@@ -751,6 +765,15 @@ router.patch('/:id/status', handle((req, res) => {
     // Idempotent via bons.inventory_deducted — T_INV_IDEM_01 verificerer adfærden.
     if (status_code === 'LEVERET') {
         autoConsumeBonInventory(id);
+    }
+
+    // Cashflow-sync: opret/opdater/slet cf_invoice afhængigt af status.
+    // Helperen er idempotent og no-op for ikke-faktura-bons (POS, tilbud, interne).
+    // Fejl må ikke afbryde status-skift — log og fortsæt.
+    try {
+        syncCashflowInvoice(db, id);
+    } catch (err) {
+        console.error(`[cashflow] sync failed for bon ${id}:`, err.message);
     }
 
     for (const trigger of triggers) {
