@@ -64,6 +64,27 @@ function computeDueDate(deliveryDate, termsDays) {
 }
 
 /**
+ * Antal dage hvor en FAKTURERET/AFSLUTTET-bon med delivery_date ældre
+ * end dette antages betalt. 0 = deaktiveret.
+ */
+function getAssumePaidDays(db) {
+    const row = db.prepare(`SELECT value FROM settings WHERE key = 'cf_assume_paid_after_days'`).get();
+    const n = parseInt(row?.value, 10);
+    return Number.isFinite(n) && n >= 0 ? n : 90;
+}
+
+/**
+ * Returnerer true hvis delivery_date er ældre end thresholdDays dage.
+ */
+function isBeyondAssumePaidThreshold(deliveryDate, thresholdDays) {
+    if (!deliveryDate || thresholdDays <= 0) return false;
+    const d = new Date(deliveryDate + 'T00:00:00Z');
+    if (isNaN(d.getTime())) return false;
+    const cutoff = new Date(Date.now() - thresholdDays * 86400000);
+    return d < cutoff;
+}
+
+/**
  * Hent fuld bon-info inkl. kunde/firma-navn og status-kode.
  */
 function loadBonForSync(db, bonId) {
@@ -218,8 +239,23 @@ function syncCashflowInvoice(db, bonId) {
     if (!dueDate) return { action: 'skipped', reason: 'invalid_delivery_date' };
 
     const targetId = computeInvoiceId(bon);
-    const isPaid = bon.status_code === 'BETALT' ? 1 : 0;
-    const paidDate = isPaid ? bon.delivery_date : null;
+
+    // Betalingsstatus: BETALT-status er autoritativ. Ellers tjek om bonen
+    // er ældre end "antaget betalt"-thresholdet — så markerer vi automatisk
+    // (typisk for historiske FAKTURERET-bons hvor brugeren aldrig flyttede
+    // status til BETALT). betalt_dato = delivery_date som bedste estimat.
+    let isPaid = 0;
+    let paidDate = null;
+    if (bon.status_code === 'BETALT') {
+        isPaid = 1;
+        paidDate = bon.delivery_date;
+    } else {
+        const assumeDays = getAssumePaidDays(db);
+        if (isBeyondAssumePaidThreshold(bon.delivery_date, assumeDays)) {
+            isPaid = 1;
+            paidDate = bon.delivery_date;
+        }
+    }
 
     return transaction(db, () => {
         if (!existing) {
@@ -269,5 +305,7 @@ module.exports = {
     syncCashflowInvoice,
     parseInvoiceNumber,
     computeDueDate,
+    getAssumePaidDays,
+    isBeyondAssumePaidThreshold,
     INVOICED_STATUSES
 };
