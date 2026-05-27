@@ -739,8 +739,19 @@ async function _mbShowDetail(bonId) {
     params.set('bon', bonId);
     history.pushState(null, '', '?' + params.toString());
 
+    var unreadMails = [];
     try {
-        _mbDetailBon = await apiFetch('/bons/' + bonId);
+        var results = await Promise.all([
+            apiFetch('/bons/' + bonId),
+            apiFetch('/bons/' + bonId + '/mail').catch(function() { return { threads: [] }; })
+        ]);
+        _mbDetailBon = results[0];
+        var threads = (results[1] && results[1].threads) || [];
+        threads.forEach(function(t) {
+            (t.messages || []).forEach(function(m) {
+                if (m.direction === 'in' && !m.is_read) unreadMails.push(m);
+            });
+        });
     } catch (e) {
         _mbContainer.innerHTML = '<div class="m-bon-empty">Kunne ikke hente bon</div>';
         return;
@@ -755,6 +766,26 @@ async function _mbShowDetail(bonId) {
             '<div class="m-detail-title">#' + (bon.bon_number || bon.id) + '</div>' +
             '<span class="m-bon-badge" style="background:' + s.bg + ';color:' + s.text + '">' + s.label + '</span>' +
         '</div>';
+
+    // Ulæst mail-banner: dukker op når der er indgående mails der ikke er læst.
+    // "Markér som læst" PATCH'er hver besked → bonen forsvinder fra Nye-listen.
+    if (unreadMails.length) {
+        var ids = unreadMails.map(function(m) { return m.id; }).join(',');
+        var label = unreadMails.length === 1
+            ? '1 ulæst mail på denne bon'
+            : unreadMails.length + ' ulæste mails på denne bon';
+        html +=
+            '<div class="m-mail-banner" data-mail-ids="' + ids + '">' +
+                '<div class="m-mail-banner-text">' +
+                    '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">' +
+                        '<path d="M4 4h16c1.1 0 2 .9 2 2v12c0 1.1-.9 2-2 2H4c-1.1 0-2-.9-2-2V6c0-1.1.9-2 2-2z"/>' +
+                        '<polyline points="22,6 12,13 2,6"/>' +
+                    '</svg>' +
+                    '<span>' + label + '</span>' +
+                '</div>' +
+                '<button class="m-mail-banner-btn" id="mbMarkMailRead">✓ Markér som læst</button>' +
+            '</div>';
+    }
 
     var custName = bon.contact_name_full || bon.customer_name || '';
     html += '<div class="m-detail-section">';
@@ -846,7 +877,37 @@ async function _mbShowDetail(bonId) {
         }
     });
 
+    var markBtn = document.getElementById('mbMarkMailRead');
+    if (markBtn) {
+        markBtn.addEventListener('click', function() { _mbMarkMailsRead(bon.id, markBtn); });
+    }
+
     _mbLoadTransitions(bon);
+}
+
+async function _mbMarkMailsRead(bonId, btn) {
+    var banner = btn.closest('.m-mail-banner');
+    var ids = (banner.dataset.mailIds || '').split(',').filter(Boolean).map(Number);
+    if (!ids.length) return;
+    btn.disabled = true;
+    btn.textContent = 'Markerer…';
+    try {
+        // PATCH hver besked. Server broadcaster bon_updated → SSE-handler
+        // re-loader detail-viewet og banneret forsvinder.
+        for (var i = 0; i < ids.length; i++) {
+            await apiFetch('/bons/' + bonId + '/mail/' + ids[i] + '/read', { method: 'PATCH' });
+        }
+        if (window._mToast) window._mToast('Mail markeret som læst');
+        // Server broadcaster bon_updated for hver PATCH → mobile/index.html's
+        // SSE-handler kalder _mScheduleNewBadgeReload automatisk. Vi reloader
+        // bare detalje-viewet eksplicit her så banneret forsvinder med det
+        // samme i stedet for at vente på SSE-debouncen.
+        await _mbShowDetail(bonId);
+    } catch (e) {
+        btn.disabled = false;
+        btn.textContent = '✓ Markér som læst';
+        if (window._mToast) window._mToast('Fejl — prøv igen');
+    }
 }
 
 async function _mbLoadTransitions(bon) {
