@@ -33,9 +33,22 @@ router.use(requireAuth('admin'));
 
 // ─── Helpers ─────────────────────────────────────────────────
 
+/**
+ * Decode bank-CSV buffer til streng.
+ * Nykredit/Fælles Kassen leverer Windows-1252 (Ø/Æ/Å som single-byte 0xD8/0xC6/0xC5).
+ * Prøv UTF-8 først (med fatal: true) og fald tilbage til windows-1252 ved fejl.
+ */
+function decodeCsvBuffer(buffer) {
+    try {
+        return new TextDecoder('utf-8', { fatal: true }).decode(buffer);
+    } catch {
+        return new TextDecoder('windows-1252').decode(buffer);
+    }
+}
+
 /** Parse Bankdata CSV: Dato;Tekst;Beløb;Saldo */
 function parseCSV(buffer) {
-    const text = buffer.toString('utf-8');
+    const text = decodeCsvBuffer(buffer);
     const lines = text.split(/\r?\n/).filter(l => l.trim());
     if (lines.length < 2) return [];
 
