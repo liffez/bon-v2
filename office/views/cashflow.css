@@ -303,6 +303,10 @@
   font-family: var(--font-heading, inherit);
 }
 
+/* Data-rækker: outer container er block, indre .cf-inv-main bærer grid'en.
+   Det gælder både ikke-ekspanderede og ekspanderede rækker — så
+   hovedlinjen er konsistent. Ekspanderet match-panel (.cf-mp) sidder
+   under .cf-inv-main i samme outer container. */
 .cf-inv-row {
   border-bottom: 1px solid #f5f4f2;
   font-size: 13px;
@@ -311,8 +315,7 @@
 
 .cf-inv-row:last-child { border-bottom: none; }
 
-/* Non-expanded layout — grid direkte på .cf-inv-row (header + andre tabs). */
-.cf-inv-row:not(.cf-inv-row-expanded):not(.header-row) {
+.cf-inv-main {
   display: grid;
   grid-template-columns: 60px 1fr 90px 90px 80px;
   gap: 8px;
@@ -321,22 +324,9 @@
   cursor: pointer;
 }
 
-.cf-inv-row:not(.cf-inv-row-expanded):not(.header-row):hover { background: #fdfbf7; }
+.cf-inv-main:hover { background: #fdfbf7; }
 
-/* Expanded layout — header-grid på .cf-inv-main, panel under */
-.cf-inv-row-expanded {
-  padding: 0;
-}
-.cf-inv-row-expanded .cf-inv-main {
-  display: grid;
-  grid-template-columns: 60px 1fr 90px 90px 80px;
-  gap: 8px;
-  align-items: center;
-  padding: 11px 16px;
-  cursor: pointer;
-}
-.cf-inv-row-expanded .cf-inv-main:hover { background: #fdfbf7; }
-
+/* Header-row har ingen .cf-inv-main wrapper — grid direkte på rækken. */
 .cf-inv-row.header-row {
   display: grid;
   grid-template-columns: 60px 1fr 90px 90px 80px;
