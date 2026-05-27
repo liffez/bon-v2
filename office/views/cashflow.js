@@ -186,11 +186,11 @@ function _cfBuildOverblik(el, stats, weekly, invoices, upcoming, unmatched) {
                 <!-- Invoice list -->
                 <div class="cf-invoice-list">
                     <div class="cf-inv-filters" id="cfInvFilters">
-                        <button class="cf-inv-tab ${_cfInvTab === 'alle' ? 'active' : ''}" data-tab="alle">Alle</button>
-                        <button class="cf-inv-tab ${_cfInvTab === 'udestaaende' ? 'active' : ''}" data-tab="udestaaende">Udestående</button>
-                        <button class="cf-inv-tab ${_cfInvTab === 'forfaldne' ? 'active' : ''}" data-tab="forfaldne">Forfaldne</button>
-                        <button class="cf-inv-tab ${_cfInvTab === 'sandsynlig' ? 'active' : ''}" data-tab="sandsynlig">Sandsynlig betalt</button>
-                        <button class="cf-inv-tab ${_cfInvTab === 'betalt' ? 'active' : ''}" data-tab="betalt">Betalt</button>
+                        ${_cfRenderTabBtn('alle', 'Alle', invoices.summary)}
+                        ${_cfRenderTabBtn('udestaaende', 'Udestående', invoices.summary)}
+                        ${_cfRenderTabBtn('forfaldne', 'Forfaldne', invoices.summary)}
+                        ${_cfRenderTabBtn('sandsynlig', 'Sandsynlig betalt', invoices.summary)}
+                        ${_cfRenderTabBtn('betalt', 'Betalt', invoices.summary)}
                     </div>
                     <div style="padding:8px 16px;display:flex;justify-content:flex-end">
                         <button class="cf-btn cf-btn-primary" id="cfAddInvBtn" style="font-size:12px;padding:5px 12px">+ Ny faktura</button>
@@ -204,6 +204,7 @@ function _cfBuildOverblik(el, stats, weekly, invoices, upcoming, unmatched) {
                         <div style="text-align:center">Status</div>
                     </div>
                     <div id="cfInvRows"></div>
+                    <div class="cf-inv-footer" id="cfInvFooter"></div>
                 </div>
             </div>
 
@@ -258,8 +259,9 @@ function _cfBuildOverblik(el, stats, weekly, invoices, upcoming, unmatched) {
     // Weekly chart
     _cfBuildWeeklyChart(weekly.weeks);
 
-    // Invoice rows
+    // Invoice rows + footer + tab-counts
     _cfBuildInvoiceRows(invoices.rows);
+    _cfBuildInvoiceFooter(invoices.summary, _cfInvTab);
 
     // Event: upload
     const csvInput = el.querySelector('#cfCsvInput');
@@ -286,18 +288,8 @@ function _cfBuildOverblik(el, stats, weekly, invoices, upcoming, unmatched) {
         }
     };
 
-    // Invoice tab switching
-    el.querySelectorAll('#cfInvFilters .cf-inv-tab').forEach(btn => {
-        btn.onclick = async () => {
-            el.querySelectorAll('#cfInvFilters .cf-inv-tab').forEach(b => b.classList.remove('active'));
-            btn.classList.add('active');
-            _cfInvTab = btn.dataset.tab;
-            try {
-                const inv = await fetchCfInvoices(_cfInvTab);
-                _cfBuildInvoiceRows(inv.rows);
-            } catch (err) { /* ignore */ }
-        };
-    });
+    // Invoice tab switching — _cfRefreshTabs wirer click-handlers
+    _cfRefreshTabs(invoices.summary);
 
     // Add invoice button
     el.querySelector('#cfAddInvBtn').onclick = () => _cfShowInvForm(el);
@@ -350,6 +342,64 @@ function _cfBuildWeeklyChart(weeks) {
         grp.appendChild(lbl);
 
         container.appendChild(grp);
+    });
+}
+
+/* ── Tab button med count + total ── */
+function _cfFmtShort(n) {
+    if (n == null) return '–';
+    const abs = Math.abs(n);
+    if (abs >= 1_000_000) return (n / 1_000_000).toLocaleString('da-DK', { maximumFractionDigits: 1 }) + ' mkr';
+    if (abs >= 10_000)   return Math.round(n / 1000).toLocaleString('da-DK') + ' kkr';
+    if (abs >= 1000)     return (n / 1000).toLocaleString('da-DK', { maximumFractionDigits: 1 }) + ' kkr';
+    return Math.round(n) + ' kr';
+}
+
+function _cfRenderTabBtn(tab, label, summary) {
+    const s = summary?.[tab];
+    const active = _cfInvTab === tab ? 'active' : '';
+    const meta = s
+        ? `<span class="cf-tab-meta">${s.count} · ${_cfFmtShort(s.total)}</span>`
+        : '';
+    return `<button class="cf-inv-tab ${active}" data-tab="${tab}">${label}${meta}</button>`;
+}
+
+/* ── Sum-footer på listen ── */
+function _cfBuildInvoiceFooter(summary, tab) {
+    const el = document.getElementById('cfInvFooter');
+    if (!el) return;
+    const s = summary?.[tab];
+    if (!s) { el.innerHTML = ''; return; }
+    el.innerHTML = `
+        <div class="cf-inv-footer-row">
+            <span>I alt for <strong>${tab === 'alle' ? 'Alle' : tab === 'udestaaende' ? 'Udestående (ikke forfaldne)' : tab === 'forfaldne' ? 'Forfaldne' : tab === 'sandsynlig' ? 'Sandsynlig betalt' : 'Betalt'}</strong>:</span>
+            <span class="cf-inv-footer-sum">${s.count} stk · ${_cfFmt(s.total)}</span>
+        </div>
+    `;
+}
+
+/* ── Re-render tab-knapper med opdaterede tællere ── */
+function _cfRefreshTabs(summary) {
+    const container = document.getElementById('cfInvFilters');
+    if (!container) return;
+    container.innerHTML = `
+        ${_cfRenderTabBtn('alle', 'Alle', summary)}
+        ${_cfRenderTabBtn('udestaaende', 'Udestående', summary)}
+        ${_cfRenderTabBtn('forfaldne', 'Forfaldne', summary)}
+        ${_cfRenderTabBtn('sandsynlig', 'Sandsynlig betalt', summary)}
+        ${_cfRenderTabBtn('betalt', 'Betalt', summary)}
+    `;
+    // Re-wire click-handlers
+    container.querySelectorAll('.cf-inv-tab').forEach(btn => {
+        btn.onclick = async () => {
+            _cfInvTab = btn.dataset.tab;
+            try {
+                const inv = await fetchCfInvoices(_cfInvTab);
+                _cfRefreshTabs(inv.summary);
+                _cfBuildInvoiceRows(inv.rows);
+                _cfBuildInvoiceFooter(inv.summary, _cfInvTab);
+            } catch (err) { /* ignore */ }
+        };
     });
 }
 

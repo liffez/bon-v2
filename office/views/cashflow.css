@@ -266,6 +266,43 @@
   background: #f5f4f2;
 }
 
+.cf-tab-meta {
+  display: inline-block;
+  margin-left: 6px;
+  font-size: 11px;
+  font-weight: 600;
+  color: #a39a8e;
+  opacity: 0.85;
+}
+
+.cf-inv-tab.active .cf-tab-meta {
+  color: var(--brand-primary, #8e631f);
+  opacity: 1;
+}
+
+.cf-inv-footer {
+  border-top: 1px solid #f5f4f2;
+  background: #faf9f7;
+}
+
+.cf-inv-footer-row {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 11px 16px;
+  font-size: 13px;
+  color: #2c2416;
+}
+
+.cf-inv-footer-row strong {
+  font-weight: 700;
+}
+
+.cf-inv-footer-sum {
+  font-weight: 700;
+  font-family: var(--font-heading, inherit);
+}
+
 .cf-inv-row {
   display: grid;
   grid-template-columns: 60px 1fr 90px 90px 80px;
