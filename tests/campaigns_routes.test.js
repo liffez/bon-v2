@@ -34,10 +34,15 @@ function createFreshDb() {
             name TEXT NOT NULL,
             email TEXT
         );
+        CREATE TABLE addresses (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            street TEXT, city TEXT, zipcode TEXT
+        );
         CREATE TABLE companies (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
             name TEXT NOT NULL,
-            cvr TEXT, ean TEXT, city TEXT,
+            cvr TEXT, ean TEXT,
+            address_id INTEGER REFERENCES addresses(id),
             is_internal INTEGER NOT NULL DEFAULT 0
         );
         CREATE TABLE customers (

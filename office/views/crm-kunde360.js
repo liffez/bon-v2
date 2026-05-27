@@ -13,6 +13,12 @@ let _k3Data = null;
 let _k3Tab = 'orders';
 let _k3Purposes = null;
 
+// Multi-select state for søgeresultater (Fase 2: tilføj valgte til kampagne).
+// _k3Selected mapper customer_id → { id, name, company_id, company_name }.
+// Ryddes ved fane-skift (cleanup), søgning og successful tilføj-til-kampagne.
+let _k3Selected = new Map();
+let _k3LastResults = []; // bevares så "vælg alle" har data at vælge fra
+
 function initCrmKunde360(containerEl, opts) {
     _k3Container = containerEl;
     _k3Opts = opts || {};
@@ -43,6 +49,9 @@ function cleanupCrmKunde360() {
     _k3Active = false;
     _k3Container = null;
     _k3Data = null;
+    // Fase 2: ryd multi-select state ved fane-skift
+    _k3Selected.clear();
+    _k3LastResults = [];
 }
 
 // ─── Search (no customer selected) ──────────────────────────
@@ -84,6 +93,30 @@ function _k3RenderSearch() {
             .k3-search-name { font-weight: 600; font-size: 14px; }
             .k3-search-company { font-size: 13px; color: var(--color-text-dim, #888); margin-top: 2px; }
             .k3-search-stats { font-size: 13px; color: var(--color-text-dim, #888); text-align: right; }
+            .k3-row-check {
+                width: 16px; height: 16px; margin-right: 12px;
+                accent-color: var(--brand-primary, #8e631f); cursor: pointer; flex-shrink: 0;
+            }
+            /* Multi-select bar — vises kun når noget er valgt */
+            .k3-select-bar {
+                display: flex; align-items: center; gap: 10px; flex-wrap: wrap;
+                margin: 10px 0; padding: 10px 14px; border-radius: 10px;
+                background: var(--brand-primary-light, #f1e6b2);
+                border: 1px solid color-mix(in srgb, var(--brand-primary, #8e631f) 30%, transparent);
+                font-size: 13px;
+            }
+            .k3-select-count { font-weight: 700; color: var(--brand-primary, #8e631f); }
+            .k3-select-btn {
+                padding: 6px 12px; border-radius: 6px; border: 1px solid var(--color-border, #d7d1ca);
+                background: var(--color-surface, #fff); font-size: 13px; cursor: pointer;
+                font-family: inherit;
+            }
+            .k3-select-btn:hover { filter: brightness(0.97); }
+            .k3-select-btn-primary {
+                background: var(--brand-primary, #8e631f); color: #fff; border-color: transparent;
+                font-weight: 600;
+            }
+            .k3-select-btn-primary:hover { filter: brightness(1.08); }
             .k3-stage-filters { display: flex; gap: 6px; margin: 16px 0; flex-wrap: wrap; }
             .k3-stage-btn {
                 padding: 5px 14px; border-radius: 16px; border: 1px solid var(--color-border, #ddd);
@@ -595,8 +628,12 @@ function _k3RenderSearchResults(rows) {
     const el = document.getElementById('k3SearchResults');
     if (!el) return;
 
+    _k3LastResults = rows;
+    // Behold valg på tværs af søgninger — men ryd kunder der ikke længere er i resultatet
+    // (kun synlige valgte regnes i footer-bar count)
     if (!rows.length) {
         el.innerHTML = '<div style="text-align:center;padding:20px;color:var(--color-text-dim);">Ingen kunder fundet</div>';
+        _k3RenderSelectionBar();
         return;
     }
 
@@ -606,14 +643,97 @@ function _k3RenderSearchResults(rows) {
              r.stage === 'active' ? 'background:#e8f2dc;color:#3d7a0a' :
              r.stage === 'dormant' ? 'background:#f0eded;color:#888' :
              'background:#e0ecf5;color:#2a6fb0') + ';">' + r.stage.toUpperCase() + '</span>' : '';
-        return '<div class="k3-search-row" onclick="_k3Navigate(' + r.id + ')">' +
-            '<div><span class="k3-search-name">' + r.name + stageBadge + '</span>' +
-            (r.company_name ? '<div class="k3-search-company">' + r.company_name + '</div>' : '') + '</div>' +
-            '<div class="k3-search-stats">' + (r.total_orders || 0) + ' ordrer · ' +
-            Math.round(r.total_revenue || 0).toLocaleString('da-DK') + ' kr</div>' +
+        const checked = _k3Selected.has(r.id) ? 'checked' : '';
+        // Checkbox + klikbar row. event.stopPropagation på checkbox så row-klik ikke trigger Navigate.
+        return '<div class="k3-search-row" data-customer-id="' + r.id + '">' +
+            '<input type="checkbox" class="k3-row-check" ' + checked + ' onclick="event.stopPropagation();_k3ToggleSelect(' + r.id + ', this.checked)">' +
+            '<div onclick="_k3Navigate(' + r.id + ')" style="flex:1;cursor:pointer;display:flex;justify-content:space-between;align-items:center;gap:12px;">' +
+                '<div><span class="k3-search-name">' + r.name + stageBadge + '</span>' +
+                (r.company_name ? '<div class="k3-search-company">' + r.company_name + '</div>' : '') + '</div>' +
+                '<div class="k3-search-stats">' + (r.total_orders || 0) + ' ordrer · ' +
+                Math.round(r.total_revenue || 0).toLocaleString('da-DK') + ' kr</div>' +
+            '</div>' +
         '</div>';
     }).join('');
+    _k3RenderSelectionBar();
 }
+
+// Fase 2: render multi-select bar (kun når mindst én er valgt).
+function _k3RenderSelectionBar() {
+    let bar = document.getElementById('k3SelectBar');
+    const count = _k3Selected.size;
+    if (count === 0) {
+        if (bar) bar.remove();
+        return;
+    }
+    if (!bar) {
+        bar = document.createElement('div');
+        bar.id = 'k3SelectBar';
+        bar.className = 'k3-select-bar';
+        // Indsæt over resultaterne for at være synlig uden scroll
+        const results = document.getElementById('k3SearchResults');
+        results?.parentNode?.insertBefore(bar, results);
+    }
+    bar.innerHTML =
+        '<span class="k3-select-count">' + count + ' valgt</span>' +
+        '<button class="k3-select-btn k3-select-btn-primary" onclick="_k3OpenAddToCampaign()">+ Tilføj til kampagne</button>' +
+        '<button class="k3-select-btn" onclick="_k3SelectAll()">Vælg alle på siden</button>' +
+        '<button class="k3-select-btn" onclick="_k3ClearSelection()">Ryd valg</button>';
+}
+
+function _k3ToggleSelect(customerId, checked) {
+    if (checked) {
+        const row = _k3LastResults.find(r => r.id === customerId);
+        if (row) {
+            _k3Selected.set(customerId, {
+                id: customerId,
+                name: row.name,
+                company_id: row.company_id || null,
+                company_name: row.company_name || null,
+            });
+        }
+    } else {
+        _k3Selected.delete(customerId);
+    }
+    _k3RenderSelectionBar();
+}
+window._k3ToggleSelect = _k3ToggleSelect;
+
+function _k3SelectAll() {
+    for (const r of _k3LastResults) {
+        if (!_k3Selected.has(r.id)) {
+            _k3Selected.set(r.id, {
+                id: r.id,
+                name: r.name,
+                company_id: r.company_id || null,
+                company_name: r.company_name || null,
+            });
+        }
+    }
+    // Re-render så checkboxes opdateres
+    _k3RenderSearchResults(_k3LastResults);
+}
+window._k3SelectAll = _k3SelectAll;
+
+function _k3ClearSelection() {
+    _k3Selected.clear();
+    _k3RenderSearchResults(_k3LastResults);
+}
+window._k3ClearSelection = _k3ClearSelection;
+
+function _k3OpenAddToCampaign() {
+    if (typeof window.AddToCampaignModal?.open !== 'function') {
+        alert('Modal ikke loadet');
+        return;
+    }
+    const customers = Array.from(_k3Selected.values());
+    window.AddToCampaignModal.open({
+        companies: [],
+        customers,
+        onDone: () => { _k3ClearSelection(); },
+    });
+}
+window._k3OpenAddToCampaign = _k3OpenAddToCampaign;
 
 function _k3Navigate(customerId) {
     _k3CustomerId = customerId;

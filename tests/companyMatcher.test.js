@@ -63,13 +63,18 @@ test('similarity returnerer 0 for tomme input', () => {
 
 function setupDb() {
     const db = new DatabaseSync(':memory:');
+    // Matcher prod-skema: city ligger på addresses, FK fra companies.address_id
     db.exec(`
+        CREATE TABLE addresses (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            street TEXT, city TEXT, zipcode TEXT
+        );
         CREATE TABLE companies (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
             name TEXT NOT NULL,
             cvr TEXT,
             ean TEXT,
-            city TEXT,
+            address_id INTEGER REFERENCES addresses(id),
             is_internal INTEGER NOT NULL DEFAULT 0
         );
         CREATE TABLE contact_points (
@@ -82,12 +87,14 @@ function setupDb() {
             is_primary INTEGER NOT NULL DEFAULT 0
         );
     `);
-    db.prepare('INSERT INTO companies (name, cvr, ean, city) VALUES (?, ?, ?, ?)')
-        .run('Magasin A/S', '12345678', '5790000123456', 'København');
-    db.prepare('INSERT INTO companies (name, cvr, city) VALUES (?, ?, ?)')
-        .run('Bagerhuset I/S', '87654321', 'Aarhus');
+    db.prepare('INSERT INTO addresses (id, city) VALUES (?, ?)').run(1, 'København');
+    db.prepare('INSERT INTO addresses (id, city) VALUES (?, ?)').run(2, 'Aarhus');
+    db.prepare('INSERT INTO companies (name, cvr, ean, address_id) VALUES (?, ?, ?, ?)')
+        .run('Magasin A/S', '12345678', '5790000123456', 1);
+    db.prepare('INSERT INTO companies (name, cvr, address_id) VALUES (?, ?, ?)')
+        .run('Bagerhuset I/S', '87654321', 2);
     db.prepare('INSERT INTO companies (name, is_internal) VALUES (?, ?)')
-        .run('RR Produktion', 1); // Intern — må aldrig matches
+        .run('RR Produktion', 1);
     db.prepare(`
         INSERT INTO contact_points (entity_type, entity_id, kind, value, is_active)
         VALUES ('company', 1, 'email', 'kontakt@magasin.dk', 1)
