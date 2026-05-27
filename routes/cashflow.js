@@ -13,6 +13,8 @@
  * GET  /api/cashflow/weekly            — 8-ugers chart-data
  * POST /api/cashflow/match/:txId       — Manuel match
  * DELETE /api/cashflow/match/:txId     — Fjern match
+ * POST /api/cashflow/invoices/:id/confirm-paid  — Bekræft som betalt (sync bon-status)
+ * POST /api/cashflow/invoices/:id/reject-match  — Forkast match (fakturaen tilbage til forfaldne)
  * GET  /api/cashflow/analyse           — YTD + heatmap data
  * GET  /api/cashflow/payment-behavior  — Betalingsadfærd per kunde
  * ════════════════════════════════════════════════════════════
@@ -22,8 +24,10 @@ const express       = require('express');
 const router        = express.Router();
 const Busboy        = require('busboy');
 const { getDb }     = require('../db/database');
-const { handle, inclToExcl, momsOfIncl } = require('../db/helpers');
+const { handle, inclToExcl, momsOfIncl, logChange } = require('../db/helpers');
 const { requireAuth } = require('../shared/auth');
+const { broadcast } = require('../shared/sse');
+const { transaction } = require('../db/compat');
 
 /** Round to 2 decimals */
 function r2(n) { return Math.round((n ?? 0) * 100) / 100; }
@@ -300,21 +304,28 @@ router.get('/invoices', handle(async (req, res) => {
     let where = '1=1';
     const today = new Date().toISOString().slice(0, 10);
 
+    // Kolonner kvalificeres med i.* (cf_invoices) for at undgå ambiguity
+    // når vi LEFT JOIN'er bons (b.id) og status_definitions nedenfor.
     switch (tab) {
         case 'udestaaende':
-            where = 'betalt = 0 AND forfald >= ?';
+            where = 'i.betalt = 0 AND i.forfald >= ?';
             break;
         case 'forfaldne':
-            where = 'betalt = 0 AND forfald < ?';
+            where = 'i.betalt = 0 AND i.forfald < ?';
             break;
         case 'sandsynlig':
-            where = `betalt = 0 AND id IN (
+            // Alle ubetalte fakturaer med et bank-match (any confidence).
+            // Matcher summary-tælleren på linje 352 så tab og badge er enige.
+            // Fakturaer med conf ≥ 70 markeres normalt automatisk betalt af
+            // runMatchLogic, men kan også havne her hvis de blev manuelt
+            // un-mark'et senere — også de skal kunne ses og bekræftes.
+            where = `i.betalt = 0 AND i.id IN (
                 SELECT matched_invoice_id FROM cf_transactions
-                WHERE matched_invoice_id IS NOT NULL AND match_confidence >= 70
+                WHERE matched_invoice_id IS NOT NULL AND match_confidence > 0
             )`;
             break;
         case 'betalt':
-            where = 'betalt = 1';
+            where = 'i.betalt = 1';
             break;
     }
 
@@ -322,11 +333,48 @@ router.get('/invoices', handle(async (req, res) => {
     if (tab === 'udestaaende' || tab === 'forfaldne') params.push(today);
 
     const rows = db.prepare(`
-        SELECT * FROM cf_invoices
+        SELECT
+            i.*,
+            b.bon_number       AS bon_number,
+            b.delivery_date    AS bon_delivery_date,
+            sd.code            AS bon_status_code,
+            sd.label           AS bon_status_label
+        FROM cf_invoices i
+        LEFT JOIN bons b              ON i.bon_id = b.id
+        LEFT JOIN status_definitions sd ON b.status_id = sd.id
         WHERE ${where}
-        ORDER BY forfald ASC
+        ORDER BY i.forfald ASC
         LIMIT ? OFFSET ?
     `).all(...params, parseInt(limit), parseInt(offset));
+
+    // N+1-undgåelse: hent ALLE matches for de viste fakturaer i ét bulk-kald
+    // og fold dem ind på hver række. Tom for 'betalt'-tab (de er per definition
+    // markeret betalt af et match med conf=100), men frontenden kan vise den
+    // matchende tx alligevel for kontekst.
+    if (rows.length > 0) {
+        const invoiceIds = rows.map(r => r.id);
+        const placeholders = invoiceIds.map(() => '?').join(',');
+        const matches = db.prepare(`
+            SELECT id, dato, tekst, beloeb, matched_invoice_id, match_confidence
+            FROM cf_transactions
+            WHERE matched_invoice_id IN (${placeholders})
+            ORDER BY match_confidence DESC, dato DESC
+        `).all(...invoiceIds);
+        const byInvoice = new Map();
+        for (const m of matches) {
+            if (!byInvoice.has(m.matched_invoice_id)) byInvoice.set(m.matched_invoice_id, []);
+            byInvoice.get(m.matched_invoice_id).push({
+                tx_id: m.id,
+                dato: m.dato,
+                tekst: m.tekst,
+                beloeb: m.beloeb,
+                confidence: m.match_confidence
+            });
+        }
+        for (const r of rows) {
+            r.matches = byInvoice.get(r.id) || [];
+        }
+    }
 
     // Tab-summaries i ét kald, så frontenden kan vise count + sum
     // på hver tab-knap og som footer på den aktive liste.
@@ -593,6 +641,113 @@ router.delete('/match/:txId', handle(async (req, res) => {
     `).run(req.params.txId);
 
     res.json({ ok: true });
+}));
+
+// ─── POST /invoices/:id/confirm-paid — Bekræft betalt + sync bon ──────────
+//
+// Bruges fra "Sandsynlig betalt"-fanen når brugeren har verificeret at
+// bank-matchet er korrekt. Idempotent — kan kaldes flere gange.
+//
+// Effekter (alle i én transaction):
+//   1. cf_invoices.betalt = 1, betalt_dato = i dag
+//   2. Alle tilknyttede cf_transactions → match_confidence = 100
+//   3. Hvis cf_invoices.bon_id er sat: bons.status_id → BETALT
+//      + logChange + SSE broadcast (bon_status + bon_updated)
+//
+// Manuelt oprettede fakturaer (uden bon_id) opdaterer kun cashflow-tabellen.
+
+router.post('/invoices/:id/confirm-paid', handle(async (req, res) => {
+    const db = getDb();
+    const invoiceId = req.params.id;
+    const today = new Date().toISOString().slice(0, 10);
+
+    const inv = db.prepare(`SELECT * FROM cf_invoices WHERE id = ?`).get(invoiceId);
+    if (!inv) return res.status(404).json({ error: 'Faktura ikke fundet' });
+
+    const result = transaction(db, () => {
+        // 1. Marker faktura betalt (idempotent — overskriver evt. eksisterende dato).
+        db.prepare(`
+            UPDATE cf_invoices SET betalt = 1, betalt_dato = ? WHERE id = ?
+        `).run(inv.betalt_dato || today, invoiceId);
+
+        // 2. Boost alle tilknyttede tx'er til conf=100.
+        db.prepare(`
+            UPDATE cf_transactions SET match_confidence = 100
+            WHERE matched_invoice_id = ?
+        `).run(invoiceId);
+
+        // 3. Sync bon-status hvis bon_id er sat og bonen ikke allerede er BETALT.
+        let bonChanged = false;
+        let bonStatusOld = null;
+        if (inv.bon_id) {
+            const bon = db.prepare(`
+                SELECT b.id, sd.code AS status_code
+                FROM bons b JOIN status_definitions sd ON b.status_id = sd.id
+                WHERE b.id = ?
+            `).get(inv.bon_id);
+
+            if (bon && bon.status_code !== 'BETALT') {
+                const betalt = db.prepare(`SELECT id FROM status_definitions WHERE code = 'BETALT'`).get();
+                if (betalt) {
+                    db.prepare(`
+                        UPDATE bons SET status_id = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?
+                    `).run(betalt.id, inv.bon_id);
+
+                    logChange({
+                        entityType: 'bon',
+                        entityId: inv.bon_id,
+                        action: 'status_change',
+                        fieldName: 'status_id',
+                        oldValue: bon.status_code,
+                        newValue: 'BETALT',
+                        userId: req.session?.userId ?? null,
+                        wasForced: false
+                    });
+
+                    bonChanged = true;
+                    bonStatusOld = bon.status_code;
+                }
+            }
+        }
+
+        return { bonChanged, bonStatusOld };
+    });
+
+    // SSE-broadcast efter commit så lyttere ikke ser stale data.
+    if (result.bonChanged) {
+        broadcast('bon_status', { id: inv.bon_id, old: result.bonStatusOld, new: 'BETALT' });
+        broadcast('bon_updated', { id: inv.bon_id });
+    }
+
+    res.json({
+        ok: true,
+        invoice_id: invoiceId,
+        bon_status_changed: result.bonChanged,
+        bon_id: inv.bon_id ?? null
+    });
+}));
+
+// ─── POST /invoices/:id/reject-match — Forkast match ──────────
+//
+// Bruges fra "Sandsynlig betalt"-fanen når brugeren har set at matchet
+// IKKE er korrekt (samme beløb fra anden kunde, tilfældigt match osv.).
+// Fakturaen forbliver ubetalt og falder ud af "Sandsynlig betalt".
+// Bank-transaktionen flyttes tilbage i "umatchede"-poolen så den kan
+// matches mod en anden faktura ved næste run.
+
+router.post('/invoices/:id/reject-match', handle(async (req, res) => {
+    const db = getDb();
+    const invoiceId = req.params.id;
+
+    const inv = db.prepare(`SELECT id FROM cf_invoices WHERE id = ?`).get(invoiceId);
+    if (!inv) return res.status(404).json({ error: 'Faktura ikke fundet' });
+
+    const result = db.prepare(`
+        UPDATE cf_transactions SET matched_invoice_id = NULL, match_confidence = 0
+        WHERE matched_invoice_id = ?
+    `).run(invoiceId);
+
+    res.json({ ok: true, invoice_id: invoiceId, matches_removed: result.changes });
 }));
 
 // ─── GET /analyse — YTD + heatmap fra bons-data ────────────

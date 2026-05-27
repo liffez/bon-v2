@@ -16,6 +16,7 @@ let _cfTab = 'overblik';
 let _cfInvTab = 'alle';
 let _cfInvForm = null;       // null | 'create' | invoice-id
 let _cfResizeHandler = null;
+let _cfOpts = {};            // { openDrawer? } injected from office-shell
 
 // Analyse state
 let _cfPaxPeriod = 'maaned';
@@ -60,8 +61,9 @@ function _cfDaysUntil(iso) {
    INIT
    ══════════════════════════════════════════════════════════ */
 
-async function initCashflow(container) {
+async function initCashflow(container, opts) {
     _cfEl = container;
+    _cfOpts = opts || {};
     _cfTab = 'overblik';
     _cfInvTab = 'alle';
     _cfInvForm = null;
@@ -260,7 +262,7 @@ function _cfBuildOverblik(el, stats, weekly, invoices, upcoming, unmatched) {
     _cfBuildWeeklyChart(weekly.weeks);
 
     // Invoice rows + footer + tab-counts
-    _cfBuildInvoiceRows(invoices.rows);
+    _cfBuildInvoiceRows(invoices.rows, _cfInvTab);
     _cfBuildInvoiceFooter(invoices.summary, _cfInvTab);
 
     // Event: upload
@@ -396,7 +398,7 @@ function _cfRefreshTabs(summary) {
             try {
                 const inv = await fetchCfInvoices(_cfInvTab);
                 _cfRefreshTabs(inv.summary);
-                _cfBuildInvoiceRows(inv.rows);
+                _cfBuildInvoiceRows(inv.rows, _cfInvTab);
                 _cfBuildInvoiceFooter(inv.summary, _cfInvTab);
             } catch (err) { /* ignore */ }
         };
@@ -404,7 +406,7 @@ function _cfRefreshTabs(summary) {
 }
 
 /* ── Invoice rows ── */
-function _cfBuildInvoiceRows(rows) {
+function _cfBuildInvoiceRows(rows, tab) {
     const container = document.getElementById('cfInvRows');
     if (!container) return;
 
@@ -412,6 +414,10 @@ function _cfBuildInvoiceRows(rows) {
         container.innerHTML = '<div style="padding:20px;text-align:center;color:#8a8580;font-size:13px">Ingen fakturaer i denne kategori</div>';
         return;
     }
+
+    // I "Sandsynlig betalt"-fanen viser vi ekspanderet match- + bon-info per
+    // række så brugeren kan bekræfte/forkaste uden at åbne edit-modalen.
+    const expanded = tab === 'sandsynlig';
 
     container.innerHTML = rows.map(inv => {
         const days = _cfDaysUntil(inv.forfald);
@@ -429,19 +435,157 @@ function _cfBuildInvoiceRows(rows) {
         const dueClass = days < 0 && !inv.betalt ? 'overdue' : days <= 7 && !inv.betalt ? 'soon' : '';
 
         return `
-        <div class="cf-inv-row" data-inv-id="${inv.id}">
-            <div class="cf-inv-num">#${inv.id}</div>
-            <div class="cf-inv-customer">${inv.kunde}${inv.betalingstype ? `<span>${inv.betalingstype}</span>` : ''}</div>
-            <div class="cf-inv-amount">${_cfFmt(inv.beloeb)}</div>
-            <div class="cf-inv-due ${dueClass}">${_cfFmtDate(inv.forfald)}</div>
-            <div><span class="cf-pill ${pillClass}">${pillText}</span></div>
+        <div class="cf-inv-row${expanded ? ' cf-inv-row-expanded' : ''}" data-inv-id="${inv.id}">
+            <div class="cf-inv-main">
+                <div class="cf-inv-num">#${inv.id}</div>
+                <div class="cf-inv-customer">${inv.kunde}${inv.betalingstype ? `<span>${inv.betalingstype}</span>` : ''}</div>
+                <div class="cf-inv-amount">${_cfFmt(inv.beloeb)}</div>
+                <div class="cf-inv-due ${dueClass}">${_cfFmtDate(inv.forfald)}</div>
+                <div><span class="cf-pill ${pillClass}">${pillText}</span></div>
+            </div>
+            ${expanded ? _cfRenderMatchPanel(inv) : ''}
         </div>`;
     }).join('');
 
-    // Click row → edit
+    // Click main-row → edit (men ikke når man klikker i ekspander-sektionen).
     container.querySelectorAll('.cf-inv-row').forEach(row => {
-        row.onclick = () => _cfShowInvForm(_cfEl, row.dataset.invId);
+        const main = row.querySelector('.cf-inv-main');
+        if (main) main.onclick = () => _cfShowInvForm(_cfEl, row.dataset.invId);
     });
+
+    // Wire knap-handlers i ekspanderede rækker.
+    if (expanded) _cfWireMatchActions(container);
+}
+
+/* ── Render match + bon-info + actions for én række ── */
+function _cfRenderMatchPanel(inv) {
+    const matches = Array.isArray(inv.matches) ? inv.matches : [];
+    const bonHtml = inv.bon_id
+        ? `<div class="cf-mp-bon">
+             🧾 Bon #${inv.bon_number ?? inv.bon_id}
+             ${inv.bon_status_label ? `· <span class="cf-mp-status">${_cfEsc(inv.bon_status_label)}</span>` : ''}
+             ${inv.bon_delivery_date ? `· leveret ${_cfFmtDate(inv.bon_delivery_date)}` : ''}
+           </div>`
+        : `<div class="cf-mp-bon cf-mp-bon-none">🧾 Manuelt oprettet faktura — ingen bon-kobling</div>`;
+
+    const matchesHtml = matches.length
+        ? matches.map(m => {
+            const confClass = m.confidence >= 70 ? 'high' : m.confidence >= 50 ? 'med' : 'low';
+            const txt = _cfTruncate(m.tekst, 80);
+            return `<div class="cf-mp-match">
+                🏦 ${_cfFmtDate(m.dato)} · ${_cfFmt(m.beloeb)} ·
+                <span class="cf-mp-tekst" title="${_cfEsc(m.tekst)}">"${_cfEsc(txt)}"</span>
+                <span class="cf-mp-conf cf-mp-conf-${confClass}">konf. ${m.confidence}</span>
+            </div>`;
+        }).join('')
+        : `<div class="cf-mp-match cf-mp-match-none">🏦 Intet bank-match endnu</div>`;
+
+    return `
+    <div class="cf-mp">
+        ${matchesHtml}
+        ${bonHtml}
+        <div class="cf-mp-actions">
+            <button class="cf-btn cf-btn-primary cf-mp-confirm" data-inv-id="${inv.id}">✓ Bekræft betalt</button>
+            <button class="cf-btn cf-btn-ghost cf-mp-reject" data-inv-id="${inv.id}" ${matches.length ? '' : 'disabled'}>✗ Forkast match</button>
+            ${inv.bon_id ? `<button class="cf-btn cf-btn-ghost cf-mp-open-bon" data-bon-id="${inv.bon_id}">Åbn bon →</button>` : ''}
+        </div>
+    </div>`;
+}
+
+/* ── Esc helpers ── */
+function _cfEsc(s) {
+    if (s == null) return '';
+    return String(s).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
+}
+function _cfTruncate(s, n) {
+    if (!s) return '';
+    return s.length > n ? s.slice(0, n) + '…' : s;
+}
+
+/* ── Wire confirm/reject/open-bon ── */
+function _cfWireMatchActions(container) {
+    container.querySelectorAll('.cf-mp-confirm').forEach(btn => {
+        btn.onclick = async (ev) => {
+            ev.stopPropagation();
+            const id = btn.dataset.invId;
+            btn.disabled = true;
+            try {
+                const res = await confirmCfInvoicePaid(id);
+                _cfShowToast(res.bon_status_changed
+                    ? `Faktura #${id} bekræftet · bon flyttet til BETALT`
+                    : `Faktura #${id} bekræftet`);
+                await _cfReloadInvoices();
+            } catch (err) {
+                _cfShowToast(`Fejl: ${err.message}`, true);
+                btn.disabled = false;
+            }
+        };
+    });
+    container.querySelectorAll('.cf-mp-reject').forEach(btn => {
+        btn.onclick = async (ev) => {
+            ev.stopPropagation();
+            const id = btn.dataset.invId;
+            if (!confirm(`Forkast bank-match for faktura #${id}?\n\nFakturaen flyttes tilbage til "Forfaldne". Bank-transaktionen flyttes til umatchede-poolen.`)) return;
+            btn.disabled = true;
+            try {
+                await rejectCfInvoiceMatch(id);
+                _cfShowToast(`Match forkastet for #${id}`);
+                await _cfReloadInvoices();
+            } catch (err) {
+                _cfShowToast(`Fejl: ${err.message}`, true);
+                btn.disabled = false;
+            }
+        };
+    });
+    container.querySelectorAll('.cf-mp-open-bon').forEach(btn => {
+        btn.onclick = (ev) => {
+            ev.stopPropagation();
+            const bonId = parseInt(btn.dataset.bonId);
+            if (_cfOpts.openDrawer) _cfOpts.openDrawer(bonId);
+            else window.location.href = `/office/?bon=${bonId}`;
+        };
+    });
+}
+
+/* ── Reload listen + tabs efter handling ── */
+async function _cfReloadInvoices() {
+    const inv = await fetchCfInvoices(_cfInvTab);
+    _cfRefreshTabs(inv.summary);
+    _cfBuildInvoiceRows(inv.rows, _cfInvTab);
+    _cfBuildInvoiceFooter(inv.summary, _cfInvTab);
+    // Også opdater KPI-stripen øverst (saldo, udestående, forfaldne).
+    try {
+        const stats = await fetchCfStats();
+        _cfRefreshKpiStrip(stats);
+    } catch { /* ignore */ }
+}
+
+/* ── Lightweight toast ── */
+function _cfShowToast(msg, isError) {
+    let toast = document.getElementById('cfToast');
+    if (!toast) {
+        toast = document.createElement('div');
+        toast.id = 'cfToast';
+        toast.className = 'cf-toast';
+        document.body.appendChild(toast);
+    }
+    toast.textContent = msg;
+    toast.classList.toggle('cf-toast-error', !!isError);
+    toast.classList.add('cf-toast-show');
+    clearTimeout(toast._t);
+    toast._t = setTimeout(() => toast.classList.remove('cf-toast-show'), 3500);
+}
+
+/* ── Re-render metrics-strip uden full re-render af hele overblikket ── */
+function _cfRefreshKpiStrip(stats) {
+    const wrap = _cfEl?.querySelector('.cf-metrics');
+    if (!wrap) return;
+    const values = wrap.querySelectorAll('.cf-metric-value');
+    if (values.length < 4) return;
+    values[0].textContent = stats.saldo != null ? _cfFmt(stats.saldo) : '—';
+    values[1].textContent = _cfFmt(stats.outstanding_total);
+    values[2].textContent = _cfFmt(stats.overdue_total);
+    values[3].textContent = _cfFmt(stats.expected_30d_total);
 }
 
 /* ── Invoice form ── */
