@@ -1199,6 +1199,14 @@ function rejectCfInvoiceMatch(invoiceId) {
     return apiFetch('/cashflow/invoices/' + encodeURIComponent(invoiceId) + '/reject-match', { method: 'POST' });
 }
 
+function bulkConfirmCfInvoicesPaid(olderThanDays, dryRun) {
+    return apiFetch('/cashflow/invoices/bulk-confirm-paid', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ older_than_days: olderThanDays, dry_run: !!dryRun })
+    });
+}
+
 function fetchCfAnalyse() {
     return apiFetch('/cashflow/analyse');
 }
