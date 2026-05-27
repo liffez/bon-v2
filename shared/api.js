@@ -725,6 +725,61 @@ function patchCrmCustomerConsent(id, payload) {
     });
 }
 
+/* ── OUTREACH-KAMPAGNER (CLAUDE_OUTREACH_KAMPAGNER.md) ───── */
+
+function fetchCampaigns(includeClosed) {
+    var qs = includeClosed ? '?active=0' : '';
+    return apiFetch('/campaigns' + qs);
+}
+
+function fetchCampaign(id) {
+    return apiFetch('/campaigns/' + id);
+}
+
+// POST /campaigns kan returnere 409 med error: 'name_in_use' eller 'name_closed'
+// (sidstnævnte med reopenable:true). apiFetch eskalerer 409 til thrown Error med .status/.code.
+function createCampaign(payload) {
+    return apiFetch('/campaigns', {
+        method: 'POST',
+        body: JSON.stringify(payload),
+    });
+}
+
+function reopenCampaign(id) {
+    return apiFetch('/campaigns/' + id + '/reopen', { method: 'POST' });
+}
+
+function closeCampaign(id) {
+    return apiFetch('/campaigns/' + id + '/close', { method: 'POST' });
+}
+
+// POST /:id/members returnerer { added, skipped, member_ids }.
+// skipped[].reason: 'no_entity' | 'no_marketing_consent_b2c' | 'do_not_contact' | 'already_member' | 'db_error'
+function addCampaignMembers(campaignId, members) {
+    return apiFetch('/campaigns/' + campaignId + '/members', {
+        method: 'POST',
+        body: JSON.stringify({ members: members }),
+    });
+}
+
+function fetchCampaignMembers(campaignId, status) {
+    var qs = status ? ('?status=' + encodeURIComponent(status)) : '';
+    return apiFetch('/campaigns/' + campaignId + '/members' + qs);
+}
+
+function patchCampaignMember(campaignId, memberId, payload) {
+    return apiFetch('/campaigns/' + campaignId + '/members/' + memberId, {
+        method: 'PATCH',
+        body: JSON.stringify(payload),
+    });
+}
+
+function deleteCampaignMember(campaignId, memberId) {
+    return apiFetch('/campaigns/' + campaignId + '/members/' + memberId, {
+        method: 'DELETE',
+    });
+}
+
 /* ── ENTITY FLAGS (påmindelser på kunder/firmaer) ────────── */
 
 function fetchFlags(entityType, entityId, includeDismissed) {

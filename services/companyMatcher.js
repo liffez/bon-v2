@@ -105,7 +105,14 @@ function matchCompany(db, { name, cvr, ean, email, city } = {}) {
     if (name) {
         // Scanner alle ikke-interne companies. På nuværende skala (~1.2k firmaer)
         // er det <10ms. Hvis basen vokser markant, tilføj prefix-filter på normaliseret navn.
-        const candidates = db.prepare('SELECT id, name, city FROM companies WHERE is_internal = 0').all();
+        // City ligger på addresses (via companies.address_id) — JOIN'es ind for at kunne
+        // bruges som tiebreaker. LEFT JOIN så firmaer uden adresse stadig vurderes.
+        const candidates = db.prepare(`
+            SELECT co.id, co.name, addr.city AS city
+            FROM companies co
+            LEFT JOIN addresses addr ON addr.id = co.address_id
+            WHERE co.is_internal = 0
+        `).all();
         const cityLower = city ? city.toLowerCase() : null;
         let best = null;
         for (const c of candidates) {

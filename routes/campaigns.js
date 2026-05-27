@@ -198,10 +198,13 @@ router.get('/:id/members', handle((req, res) => {
         args.push(status);
     }
 
+    // companies har ingen direkte city-kolonne — den ligger på addresses via address_id.
+    // LEFT JOIN addresses så Fase 3 paste-import kan bruge by som tiebreaker.
     const rows = db.prepare(`
         SELECT
             m.*,
-            co.name AS company_name, co.cvr, co.ean, co.city AS company_city,
+            co.name AS company_name, co.cvr, co.ean,
+            addr.city AS company_city,
             co.tags AS company_tags,
             TRIM(COALESCE(cu.first_name, '') || ' ' || COALESCE(cu.last_name, '')) AS contact_person,
             cu.email AS customer_email, cu.phone AS customer_phone,
@@ -209,6 +212,7 @@ router.get('/:id/members', handle((req, res) => {
             u.name AS assigned_name
         FROM campaign_members m
         LEFT JOIN companies co ON co.id = m.company_id
+        LEFT JOIN addresses addr ON addr.id = co.address_id
         LEFT JOIN customers cu ON cu.id = m.customer_id
         LEFT JOIN crm_customer_meta meta ON meta.customer_id = m.customer_id
         LEFT JOIN users u ON u.id = m.assigned_user_id

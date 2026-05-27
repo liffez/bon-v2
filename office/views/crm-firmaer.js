@@ -20,6 +20,8 @@ let _cfState = {
     q: '',
     loading: false,
     debounceTimer: null,
+    // Fase 2 multi-select: id → { id, name }
+    selected: new Map(),
 };
 
 function initCrmFirmaer(container, opts = {}) {
@@ -38,9 +40,11 @@ function initCrmFirmaer(container, opts = {}) {
                 <input class="cf-search" type="search" placeholder="Søg firma, CVR eller juridisk navn…" />
             </div>
             <div class="cf-status" id="cf-status"></div>
+            <div id="cf-select-bar"></div>
             <div class="cf-list" id="cf-list"></div>
         </div>
     `;
+    cfEnsureSelectStyles();
 
     // Stage-filter
     container.querySelectorAll('.cf-chip').forEach(btn => {
@@ -116,8 +120,10 @@ function cfRender(rows) {
             : '';
         const cvrCell = co.cvr ? `<span class="cf-cvr">CVR ${co.cvr}</span>` : '<span class="cf-cvr-empty">— uden CVR —</span>';
 
+        const isChecked = _cfState.selected.has(co.id) ? 'checked' : '';
         return `
             <div class="cf-row" data-company-id="${co.id}">
+                <input type="checkbox" class="cf-row-check" ${isChecked} data-company-id="${co.id}">
                 <div class="cf-main">
                     <div class="cf-name-row">
                         <span class="cf-name">${escapeHtml(co.name)}</span>
@@ -149,8 +155,18 @@ function cfRender(rows) {
         `;
     }).join('');
 
+    // Klik på række = naviger til Firma 360°. Klik på checkbox = stopPropagation + toggle.
+    listEl.querySelectorAll('.cf-row-check').forEach(cb => {
+        cb.addEventListener('click', (e) => e.stopPropagation());
+        cb.addEventListener('change', (e) => {
+            const cid = parseInt(e.target.dataset.companyId, 10);
+            cfToggleSelect(cid, e.target.checked);
+        });
+    });
     listEl.querySelectorAll('.cf-row').forEach(el => {
-        el.addEventListener('click', () => {
+        el.addEventListener('click', (e) => {
+            // Lad checkbox-klik passere uden navigation
+            if (e.target.closest('.cf-row-check')) return;
             const companyId = parseInt(el.dataset.companyId, 10);
             if (typeof window.openFirma360 === 'function') {
                 window.openFirma360(companyId);
@@ -159,6 +175,99 @@ function cfRender(rows) {
             }
         });
     });
+
+    cfRenderSelectBar();
+}
+
+// Fase 2: multi-select handlers
+function cfToggleSelect(companyId, checked) {
+    if (checked) {
+        const co = _cfState.companies.find(c => c.id === companyId);
+        if (co) _cfState.selected.set(companyId, { id: co.id, name: co.name });
+    } else {
+        _cfState.selected.delete(companyId);
+    }
+    cfRenderSelectBar();
+}
+
+function cfSelectAll() {
+    for (const co of _cfState.companies) {
+        if (!_cfState.selected.has(co.id)) {
+            _cfState.selected.set(co.id, { id: co.id, name: co.name });
+        }
+    }
+    cfRender(_cfState.companies); // re-render checkboxes
+}
+
+function cfClearSelection() {
+    _cfState.selected.clear();
+    cfRender(_cfState.companies);
+}
+
+function cfOpenAddToCampaign() {
+    if (typeof window.AddToCampaignModal?.open !== 'function') {
+        alert('Modal ikke loadet');
+        return;
+    }
+    window.AddToCampaignModal.open({
+        companies: Array.from(_cfState.selected.values()),
+        customers: [],
+        onDone: () => cfClearSelection(),
+    });
+}
+
+function cfRenderSelectBar() {
+    const bar = document.getElementById('cf-select-bar');
+    if (!bar) return;
+    const count = _cfState.selected.size;
+    if (count === 0) {
+        bar.innerHTML = '';
+        return;
+    }
+    bar.innerHTML = `
+        <div class="cf-select-content">
+            <span class="cf-select-count">${count} valgt</span>
+            <button class="cf-select-btn cf-select-btn-primary" data-action="add">+ Tilføj til kampagne</button>
+            <button class="cf-select-btn" data-action="all">Vælg alle på siden</button>
+            <button class="cf-select-btn" data-action="clear">Ryd valg</button>
+        </div>
+    `;
+    bar.querySelector('[data-action="add"]')?.addEventListener('click', cfOpenAddToCampaign);
+    bar.querySelector('[data-action="all"]')?.addEventListener('click', cfSelectAll);
+    bar.querySelector('[data-action="clear"]')?.addEventListener('click', cfClearSelection);
+}
+
+function cfEnsureSelectStyles() {
+    if (document.getElementById('cf-select-styles')) return;
+    const s = document.createElement('style');
+    s.id = 'cf-select-styles';
+    s.textContent = `
+        .cf-row { align-items: center; }
+        .cf-row-check {
+            width: 16px; height: 16px; margin-right: 12px;
+            accent-color: var(--brand-primary, #8e631f); cursor: pointer; flex-shrink: 0;
+        }
+        .cf-select-content {
+            display: flex; align-items: center; gap: 10px; flex-wrap: wrap;
+            margin: 10px 0; padding: 10px 14px; border-radius: 10px;
+            background: var(--brand-primary-light, #f1e6b2);
+            border: 1px solid color-mix(in srgb, var(--brand-primary, #8e631f) 30%, transparent);
+            font-size: 13px;
+        }
+        .cf-select-count { font-weight: 700; color: var(--brand-primary, #8e631f); }
+        .cf-select-btn {
+            padding: 6px 12px; border-radius: 6px; border: 1px solid var(--color-border, #d7d1ca);
+            background: var(--color-surface, #fff); font-size: 13px; cursor: pointer;
+            font-family: inherit;
+        }
+        .cf-select-btn:hover { filter: brightness(0.97); }
+        .cf-select-btn-primary {
+            background: var(--brand-primary, #8e631f); color: #fff; border-color: transparent;
+            font-weight: 600;
+        }
+        .cf-select-btn-primary:hover { filter: brightness(1.08); }
+    `;
+    document.head.appendChild(s);
 }
 
 function cfFormatDate(iso) {
@@ -186,6 +295,7 @@ function cleanupCrmFirmaer() {
     _cfState = {
         container: null, companies: [], stage: 'all', q: '',
         loading: false, debounceTimer: null,
+        selected: new Map(),
     };
 }
 
