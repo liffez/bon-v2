@@ -927,7 +927,7 @@
           cleanup: () => { if (typeof cleanupSupplierInbox === 'function') cleanupSupplierInbox(); },
         },
         cashflow: {
-          init: () => initCashflow(contentEl),
+          init: () => initCashflow(contentEl, { openDrawer }),
           cleanup: () => { if (typeof cleanupCashflow === 'function') cleanupCashflow(); },
         },
         // ─── Indkøb (Fase 2 — genbrug shared/indkob.js + indkob_settings.js) ──

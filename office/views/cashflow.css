@@ -304,21 +304,45 @@
 }
 
 .cf-inv-row {
+  border-bottom: 1px solid #f5f4f2;
+  font-size: 13px;
+  transition: background .1s;
+}
+
+.cf-inv-row:last-child { border-bottom: none; }
+
+/* Non-expanded layout — grid direkte på .cf-inv-row (header + andre tabs). */
+.cf-inv-row:not(.cf-inv-row-expanded):not(.header-row) {
   display: grid;
   grid-template-columns: 60px 1fr 90px 90px 80px;
   gap: 8px;
   align-items: center;
   padding: 11px 16px;
-  border-bottom: 1px solid #f5f4f2;
-  font-size: 13px;
-  transition: background .1s;
   cursor: pointer;
 }
 
-.cf-inv-row:hover { background: #fdfbf7; }
-.cf-inv-row:last-child { border-bottom: none; }
+.cf-inv-row:not(.cf-inv-row-expanded):not(.header-row):hover { background: #fdfbf7; }
+
+/* Expanded layout — header-grid på .cf-inv-main, panel under */
+.cf-inv-row-expanded {
+  padding: 0;
+}
+.cf-inv-row-expanded .cf-inv-main {
+  display: grid;
+  grid-template-columns: 60px 1fr 90px 90px 80px;
+  gap: 8px;
+  align-items: center;
+  padding: 11px 16px;
+  cursor: pointer;
+}
+.cf-inv-row-expanded .cf-inv-main:hover { background: #fdfbf7; }
 
 .cf-inv-row.header-row {
+  display: grid;
+  grid-template-columns: 60px 1fr 90px 90px 80px;
+  gap: 8px;
+  align-items: center;
+  padding: 8px 16px;
   background: #f5f4f2;
   font-size: 11px;
   font-weight: 700;
@@ -326,7 +350,6 @@
   text-transform: uppercase;
   color: #8a8580;
   cursor: default;
-  padding: 8px 16px;
 }
 
 .cf-inv-row.header-row:hover { background: #f5f4f2; }
@@ -337,6 +360,81 @@
 .cf-inv-due { text-align: right; font-size: 12px; color: #8a8580; }
 .cf-inv-due.overdue { color: #bc3a3a; font-weight: 700; }
 .cf-inv-due.soon { color: #e8a832; font-weight: 700; }
+
+/* ── Match-panel (Sandsynlig betalt-fanen) ── */
+.cf-mp {
+  padding: 10px 16px 14px 76px;        /* indrykket under #faktura-kolonnen */
+  background: #fbf9f4;
+  border-top: 1px dashed #e8e3dc;
+  font-size: 12px;
+  color: #5a5550;
+}
+.cf-mp-match {
+  padding: 4px 0;
+  display: flex;
+  align-items: baseline;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+.cf-mp-match-none {
+  color: #a8a39e;
+  font-style: italic;
+}
+.cf-mp-tekst { color: #3a352f; }
+.cf-mp-conf {
+  font-weight: 700;
+  padding: 1px 7px;
+  border-radius: 10px;
+  font-size: 11px;
+  margin-left: 4px;
+}
+.cf-mp-conf-high { background: #e3f0d4; color: #4d7030; }
+.cf-mp-conf-med  { background: #fff0d0; color: #8a5a10; }
+.cf-mp-conf-low  { background: #fde4e4; color: #9a3030; }
+
+.cf-mp-bon {
+  padding: 4px 0;
+  color: #5a5550;
+}
+.cf-mp-bon-none {
+  color: #a8a39e;
+  font-style: italic;
+}
+.cf-mp-status {
+  font-weight: 700;
+  color: #3a352f;
+}
+
+.cf-mp-actions {
+  margin-top: 10px;
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+.cf-mp-actions .cf-btn { padding: 6px 12px; font-size: 12px; }
+
+/* ── Toast (genbruges hvis ingen anden findes) ── */
+.cf-toast {
+  position: fixed;
+  bottom: 24px;
+  right: 24px;
+  background: #3a352f;
+  color: white;
+  padding: 12px 18px;
+  border-radius: 6px;
+  font-size: 13px;
+  box-shadow: 0 6px 20px rgba(0,0,0,.2);
+  opacity: 0;
+  transform: translateY(8px);
+  transition: opacity .2s, transform .2s;
+  pointer-events: none;
+  z-index: 9999;
+}
+.cf-toast.cf-toast-show {
+  opacity: 1;
+  transform: translateY(0);
+}
+.cf-toast.cf-toast-error { background: #9a3030; }
 
 .cf-pill {
   display: inline-flex;

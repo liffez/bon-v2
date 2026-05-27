@@ -1191,6 +1191,14 @@ function unmatchCfTransaction(txId) {
     return apiFetch('/cashflow/match/' + txId, { method: 'DELETE' });
 }
 
+function confirmCfInvoicePaid(invoiceId) {
+    return apiFetch('/cashflow/invoices/' + encodeURIComponent(invoiceId) + '/confirm-paid', { method: 'POST' });
+}
+
+function rejectCfInvoiceMatch(invoiceId) {
+    return apiFetch('/cashflow/invoices/' + encodeURIComponent(invoiceId) + '/reject-match', { method: 'POST' });
+}
+
 function fetchCfAnalyse() {
     return apiFetch('/cashflow/analyse');
 }
