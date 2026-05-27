@@ -690,6 +690,19 @@ function _k3RenderShell() {
                 cursor: pointer;
             }
             .k3-cp-add-btn:hover { background: var(--brand-primary-light); border-color: var(--brand-primary); }
+            .k3-cp-add-btn.k3-cp-done {
+                background: var(--brand-primary); border-color: var(--brand-primary); color: #fff;
+            }
+            .k3-cp-add-btn.k3-cp-done:hover { background: #6b4a17; border-color: #6b4a17; }
+            .k3-cp-edit-btn {
+                font-size: 11px; padding: 3px 8px; border-radius: 4px;
+                border: 1px solid var(--color-border, #d7d1ca);
+                background: #fff; color: var(--color-text-dim);
+                cursor: pointer;
+            }
+            .k3-cp-edit-btn:hover { background: var(--brand-primary-light); border-color: var(--brand-primary); color: var(--brand-primary); }
+            /* I view-mode (ingen actions): ingen tom flex-bredde i højre side, og dotted divider er finere */
+            .k3-cp-section:not(.editing) .k3-cp-row { padding: 4px 0; }
             .k3-cp-empty { font-size: 12px; color: var(--color-text-dim); font-style: italic; padding: 6px 0; }
             .k3-cp-row {
                 display: flex; align-items: flex-start; gap: 8px;
@@ -1538,8 +1551,13 @@ async function _k3RemoveFlag(flagId) {
 
 // ─── Kontaktpunkter (contact_points) ────────────────────────
 
+// View-mode (default): kun værdier + meta — handlingsknapper er gemt
+// så lange emails får plads. Klik "Rediger" for at folde ✎/🗑/🔓/☆ ud.
+let _k3CpEditMode = false;
+
 function _k3RenderContactPoints() {
     const cps = _k3Data.contact_points || [];
+    const editing = _k3CpEditMode;
     const sourceLabel = {
         cvr: 'CVR', nemhandel: 'NemHandel', website: 'web',
         form: 'form', mail: 'mail', manual: 'manuel'
@@ -1557,39 +1575,58 @@ function _k3RenderContactPoints() {
                 ? 'mailto:' + cp.value
                 : 'tel:' + String(cp.value).replace(/\s/g, '');
             const srcLbl = sourceLabel[cp.source] || cp.source;
-            return '<div class="k3-cp-row" data-cp-id="' + cp.id + '">' +
+
+            const meta = editing
+                ? '<div class="k3-cp-meta">' +
+                    '<span class="k3-cp-pill ' + (isPub ? 'pub' : 'priv') + '">' + (isPub ? 'PUB' : 'PRIV') + '</span>' +
+                    '<span class="k3-cp-pill src">' + esc(srcLbl) + '</span>' +
+                    (cp.purpose ? '<span class="k3-cp-purpose">' + esc(cp.purpose) + '</span>' : '') +
+                  '</div>'
+                : '';
+
+            const actions = editing
+                ? '<div class="k3-cp-actions">' +
+                    (isPrim ? '' : '<button class="k3-cp-btn" title="Markér som primær" onclick="_k3SetCpPrimary(' + cp.id + ')">☆</button>') +
+                    '<button class="k3-cp-btn" title="Ret værdi" onclick="_k3EditCp(' + cp.id + ')">✎</button>' +
+                    '<button class="k3-cp-btn" title="' + (isPub ? 'Markér som personlig' : 'Markér som offentlig') + '" onclick="_k3ToggleCpPublic(' + cp.id + ')">' + (isPub ? '🔒' : '🔓') + '</button>' +
+                    '<button class="k3-cp-btn k3-cp-btn-del" title="Slet" onclick="_k3DeleteCp(' + cp.id + ')">🗑</button>' +
+                  '</div>'
+                : '';
+
+            return '<div class="k3-cp-row' + (editing ? ' editing' : '') + '" data-cp-id="' + cp.id + '">' +
                 '<div class="k3-cp-ico">' + icon + '</div>' +
                 '<div class="k3-cp-main">' +
                     '<div class="k3-cp-value">' +
                         '<a href="' + href + '">' + esc(cp.value) + '</a>' +
                         (isPrim ? ' <span class="k3-cp-primary" title="Primær — synkes til kundens email/telefon">primær</span>' : '') +
                     '</div>' +
-                    '<div class="k3-cp-meta">' +
-                        '<span class="k3-cp-pill ' + (isPub ? 'pub' : 'priv') + '">' + (isPub ? 'PUB' : 'PRIV') + '</span>' +
-                        '<span class="k3-cp-pill src">' + esc(srcLbl) + '</span>' +
-                        (cp.purpose ? '<span class="k3-cp-purpose">' + esc(cp.purpose) + '</span>' : '') +
-                    '</div>' +
+                    meta +
                 '</div>' +
-                '<div class="k3-cp-actions">' +
-                    (isPrim ? '' : '<button class="k3-cp-btn" title="Markér som primær" onclick="_k3SetCpPrimary(' + cp.id + ')">☆</button>') +
-                    '<button class="k3-cp-btn" title="Ret værdi" onclick="_k3EditCp(' + cp.id + ')">✎</button>' +
-                    '<button class="k3-cp-btn" title="' + (isPub ? 'Markér som personlig' : 'Markér som offentlig') + '" onclick="_k3ToggleCpPublic(' + cp.id + ')">' + (isPub ? '🔒' : '🔓') + '</button>' +
-                    '<button class="k3-cp-btn k3-cp-btn-del" title="Slet" onclick="_k3DeleteCp(' + cp.id + ')">🗑</button>' +
-                '</div>' +
+                actions +
             '</div>';
         }).join('');
     }
 
-    return '<div class="k3-cp-section">' +
+    const headerActions = editing
+        ? '<div class="k3-cp-add">' +
+            '<button class="k3-cp-add-btn" onclick="_k3AddCp(\'email\')">+ Email</button>' +
+            '<button class="k3-cp-add-btn" onclick="_k3AddCp(\'phone\')">+ Telefon</button>' +
+            '<button class="k3-cp-add-btn k3-cp-done" onclick="_k3ToggleCpEdit()">Færdig</button>' +
+          '</div>'
+        : '<button class="k3-cp-edit-btn" onclick="_k3ToggleCpEdit()" title="Rediger kontaktpunkter">✎ Rediger</button>';
+
+    return '<div class="k3-cp-section' + (editing ? ' editing' : '') + '">' +
         '<div class="k3-cp-header">' +
             '<span class="k3-cp-title">Kontaktpunkter (' + cps.length + ')</span>' +
-            '<div class="k3-cp-add">' +
-                '<button class="k3-cp-add-btn" onclick="_k3AddCp(\'email\')">+ Email</button>' +
-                '<button class="k3-cp-add-btn" onclick="_k3AddCp(\'phone\')">+ Telefon</button>' +
-            '</div>' +
+            headerActions +
         '</div>' +
         rows +
     '</div>';
+}
+
+function _k3ToggleCpEdit() {
+    _k3CpEditMode = !_k3CpEditMode;
+    _k3RenderProfile();
 }
 
 async function _k3AddCp(kind) {
@@ -1662,6 +1699,7 @@ window._k3EditCp        = _k3EditCp;
 window._k3DeleteCp      = _k3DeleteCp;
 window._k3ToggleCpPublic = _k3ToggleCpPublic;
 window._k3SetCpPrimary  = _k3SetCpPrimary;
+window._k3ToggleCpEdit  = _k3ToggleCpEdit;
 
 async function _k3ChangeStage(stage) {
     try {
