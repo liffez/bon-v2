@@ -326,6 +326,53 @@
 
 .cf-inv-main:hover { background: #fdfbf7; }
 
+/* Forfaldne-rækker: bredere status-kolonne så quick-actions har plads. */
+.cf-inv-row-quick .cf-inv-main {
+  grid-template-columns: 60px 1fr 90px 90px 175px;
+}
+
+/* Status-celle: pill + valgfri quick-actions side om side */
+.cf-inv-status-cell {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  justify-content: flex-end;
+}
+
+.cf-quick-actions {
+  display: flex;
+  gap: 4px;
+}
+
+.cf-quick-btn {
+  font-size: 11px;
+  padding: 4px 9px;
+  border-radius: 4px;
+  border: 1px solid #d7d1ca;
+  background: white;
+  color: #5a5550;
+  cursor: pointer;
+  transition: background .1s, border-color .1s;
+  font-weight: 600;
+  white-space: nowrap;
+}
+.cf-quick-btn:hover {
+  background: var(--brand-primary, #8e631f);
+  color: white;
+  border-color: var(--brand-primary, #8e631f);
+}
+.cf-quick-btn:disabled {
+  opacity: .5;
+  cursor: wait;
+}
+.cf-quick-confirm {
+  color: var(--brand-primary, #8e631f);
+  border-color: var(--brand-primary, #8e631f);
+}
+.cf-quick-open {
+  padding: 4px 7px;
+}
+
 /* Header-row har ingen .cf-inv-main wrapper — grid direkte på rækken. */
 .cf-inv-row.header-row {
   display: grid;
