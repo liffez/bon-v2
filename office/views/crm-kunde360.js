@@ -672,12 +672,72 @@ function _k3RenderShell() {
             .k3-stage-dormant { background: #f0eded; color: #888; }
             .k3-stage-lead { background: #e0ecf5; color: #2a6fb0; }
 
-            /* Contact info */
-            .k3-contact-section { margin: 14px 0; padding: 12px 0; border-top: 1px solid var(--color-border, #eee); }
-            .k3-contact-row { font-size: 13px; padding: 5px 0; display: flex; align-items: center; gap: 8px; }
-            .k3-contact-row a { color: var(--brand-primary); text-decoration: none; }
-            .k3-contact-row a:hover { text-decoration: underline; }
-            .k3-contact-icon { width: 20px; text-align: center; font-size: 14px; }
+            /* Kontaktpunkter (contact_points) */
+            .k3-cp-section { margin: 14px 0; padding: 12px 0; border-top: 1px solid var(--color-border, #eee); }
+            .k3-cp-header {
+                display: flex; align-items: center; justify-content: space-between;
+                margin-bottom: 8px;
+            }
+            .k3-cp-title {
+                font-size: 10px; font-weight: 700; text-transform: uppercase; letter-spacing: .5px;
+                color: var(--color-text-dim);
+            }
+            .k3-cp-add { display: flex; gap: 4px; }
+            .k3-cp-add-btn {
+                font-size: 11px; padding: 3px 8px; border-radius: 4px;
+                border: 1px solid var(--color-border, #d7d1ca);
+                background: #fff; color: var(--color-text);
+                cursor: pointer;
+            }
+            .k3-cp-add-btn:hover { background: var(--brand-primary-light); border-color: var(--brand-primary); }
+            .k3-cp-empty { font-size: 12px; color: var(--color-text-dim); font-style: italic; padding: 6px 0; }
+            .k3-cp-row {
+                display: flex; align-items: flex-start; gap: 8px;
+                padding: 6px 0;
+                border-top: 1px dotted var(--color-border, #eee);
+            }
+            .k3-cp-row:first-of-type { border-top: none; }
+            .k3-cp-ico {
+                width: 18px; height: 18px; display: flex; align-items: center; justify-content: center;
+                color: var(--color-text-dim); flex-shrink: 0; margin-top: 1px;
+            }
+            .k3-cp-main { flex: 1; min-width: 0; }
+            .k3-cp-value {
+                font-size: 13px; line-height: 1.3;
+                word-break: break-all;
+            }
+            .k3-cp-value a { color: var(--brand-primary); text-decoration: none; }
+            .k3-cp-value a:hover { text-decoration: underline; }
+            .k3-cp-primary {
+                display: inline-block;
+                margin-left: 4px;
+                font-size: 9px; font-weight: 700;
+                padding: 1px 5px; border-radius: 3px;
+                background: var(--brand-primary); color: #fff;
+                text-transform: uppercase; letter-spacing: .5px;
+            }
+            .k3-cp-meta {
+                display: flex; align-items: center; gap: 4px; flex-wrap: wrap;
+                margin-top: 3px;
+            }
+            .k3-cp-pill {
+                font-size: 9px; font-weight: 700;
+                padding: 1px 5px; border-radius: 3px;
+                text-transform: uppercase; letter-spacing: .5px;
+            }
+            .k3-cp-pill.pub { background: #e8f2dc; color: #3d7a0a; }
+            .k3-cp-pill.priv { background: #f0eded; color: #888; }
+            .k3-cp-pill.src { background: #f5f0e0; color: #8e631f; }
+            .k3-cp-purpose { font-size: 10px; color: var(--color-text-dim); }
+            .k3-cp-actions { display: flex; gap: 2px; flex-shrink: 0; }
+            .k3-cp-btn {
+                background: transparent; border: none; cursor: pointer;
+                padding: 2px 5px; border-radius: 3px;
+                font-size: 13px; color: var(--color-text-dim);
+                line-height: 1;
+            }
+            .k3-cp-btn:hover { background: rgba(0,0,0,0.06); color: var(--color-text); }
+            .k3-cp-btn-del:hover { color: var(--color-red); }
 
             /* Sentiment trendline */
             .k3-sentiment-section {
@@ -1001,13 +1061,8 @@ function _k3RenderProfile() {
         '</div>';
     }
 
-    // Contact info
-    html += '<div class="k3-contact-section">' +
-        '<div class="k3-contact-row"><span class="k3-contact-icon">📞</span>' +
-            (c.phone ? '<a href="tel:' + c.phone.replace(/\s/g, '') + '">' + c.phone + '</a>' : '<span style="color:var(--color-text-dim)">—</span>') + '</div>' +
-        '<div class="k3-contact-row"><span class="k3-contact-icon">' + mailIcon(14) + '</span>' +
-            (c.email ? '<a href="mailto:' + c.email + '">' + c.email + '</a>' : '<span style="color:var(--color-text-dim)">—</span>') + '</div>' +
-    '</div>';
+    // Contact points (kontaktpunkter — fuld editor)
+    html += _k3RenderContactPoints();
 
     // Sentiment trendline
     html += _k3BuildSentimentTrend();
@@ -1480,6 +1535,133 @@ async function _k3RemoveFlag(flagId) {
         alert('Fejl: ' + err.message);
     }
 }
+
+// ─── Kontaktpunkter (contact_points) ────────────────────────
+
+function _k3RenderContactPoints() {
+    const cps = _k3Data.contact_points || [];
+    const sourceLabel = {
+        cvr: 'CVR', nemhandel: 'NemHandel', website: 'web',
+        form: 'form', mail: 'mail', manual: 'manuel'
+    };
+
+    let rows = '';
+    if (cps.length === 0) {
+        rows = '<div class="k3-cp-empty">Ingen kontaktpunkter endnu.</div>';
+    } else {
+        rows = cps.map(cp => {
+            const isPub  = cp.is_public === 1;
+            const isPrim = cp.is_primary === 1;
+            const icon = cp.kind === 'email' ? mailIcon(13) : phoneIcon(13);
+            const href = cp.kind === 'email'
+                ? 'mailto:' + cp.value
+                : 'tel:' + String(cp.value).replace(/\s/g, '');
+            const srcLbl = sourceLabel[cp.source] || cp.source;
+            return '<div class="k3-cp-row" data-cp-id="' + cp.id + '">' +
+                '<div class="k3-cp-ico">' + icon + '</div>' +
+                '<div class="k3-cp-main">' +
+                    '<div class="k3-cp-value">' +
+                        '<a href="' + href + '">' + esc(cp.value) + '</a>' +
+                        (isPrim ? ' <span class="k3-cp-primary" title="Primær — synkes til kundens email/telefon">primær</span>' : '') +
+                    '</div>' +
+                    '<div class="k3-cp-meta">' +
+                        '<span class="k3-cp-pill ' + (isPub ? 'pub' : 'priv') + '">' + (isPub ? 'PUB' : 'PRIV') + '</span>' +
+                        '<span class="k3-cp-pill src">' + esc(srcLbl) + '</span>' +
+                        (cp.purpose ? '<span class="k3-cp-purpose">' + esc(cp.purpose) + '</span>' : '') +
+                    '</div>' +
+                '</div>' +
+                '<div class="k3-cp-actions">' +
+                    (isPrim ? '' : '<button class="k3-cp-btn" title="Markér som primær" onclick="_k3SetCpPrimary(' + cp.id + ')">☆</button>') +
+                    '<button class="k3-cp-btn" title="Ret værdi" onclick="_k3EditCp(' + cp.id + ')">✎</button>' +
+                    '<button class="k3-cp-btn" title="' + (isPub ? 'Markér som personlig' : 'Markér som offentlig') + '" onclick="_k3ToggleCpPublic(' + cp.id + ')">' + (isPub ? '🔒' : '🔓') + '</button>' +
+                    '<button class="k3-cp-btn k3-cp-btn-del" title="Slet" onclick="_k3DeleteCp(' + cp.id + ')">🗑</button>' +
+                '</div>' +
+            '</div>';
+        }).join('');
+    }
+
+    return '<div class="k3-cp-section">' +
+        '<div class="k3-cp-header">' +
+            '<span class="k3-cp-title">Kontaktpunkter (' + cps.length + ')</span>' +
+            '<div class="k3-cp-add">' +
+                '<button class="k3-cp-add-btn" onclick="_k3AddCp(\'email\')">+ Email</button>' +
+                '<button class="k3-cp-add-btn" onclick="_k3AddCp(\'phone\')">+ Telefon</button>' +
+            '</div>' +
+        '</div>' +
+        rows +
+    '</div>';
+}
+
+async function _k3AddCp(kind) {
+    const label = kind === 'email' ? 'email' : 'telefonnummer';
+    const value = prompt('Indtast ' + label + ':');
+    if (!value || !value.trim()) return;
+    try {
+        await createContactPoint({
+            entity_type: 'customer',
+            entity_id: _k3CustomerId,
+            kind,
+            value: value.trim(),
+            source: 'manual',
+            is_public: 0,
+            is_primary: 1,
+        });
+        _k3LoadData();
+    } catch (err) {
+        alert('Fejl: ' + (err.message || 'kunne ikke oprette kontaktpunkt'));
+    }
+}
+
+async function _k3EditCp(cpId) {
+    const cp = (_k3Data.contact_points || []).find(x => x.id === cpId);
+    if (!cp) return;
+    const label = cp.kind === 'email' ? 'email' : 'telefonnummer';
+    const next = prompt('Ret ' + label + ':', cp.value);
+    if (next === null) return;
+    const trimmed = next.trim();
+    if (!trimmed || trimmed === cp.value) return;
+    try {
+        await updateContactPoint(cpId, { value: trimmed });
+        _k3LoadData();
+    } catch (err) {
+        alert('Fejl: ' + (err.message || 'kunne ikke opdatere'));
+    }
+}
+
+async function _k3DeleteCp(cpId) {
+    if (!confirm('Slet dette kontaktpunkt?')) return;
+    try {
+        await deleteContactPoint(cpId);
+        _k3LoadData();
+    } catch (err) {
+        alert('Fejl: ' + (err.message || 'kunne ikke slette'));
+    }
+}
+
+async function _k3ToggleCpPublic(cpId) {
+    try {
+        await toggleContactPublic(cpId);
+        _k3LoadData();
+    } catch (err) {
+        alert('Fejl: ' + (err.message || 'kunne ikke skifte synlighed'));
+    }
+}
+
+async function _k3SetCpPrimary(cpId) {
+    try {
+        await updateContactPoint(cpId, { is_primary: 1 });
+        _k3LoadData();
+    } catch (err) {
+        alert('Fejl: ' + (err.message || 'kunne ikke sætte primær'));
+    }
+}
+
+// Eksponér til onclick-handlers (inline-stil matches resten af filen)
+window._k3AddCp         = _k3AddCp;
+window._k3EditCp        = _k3EditCp;
+window._k3DeleteCp      = _k3DeleteCp;
+window._k3ToggleCpPublic = _k3ToggleCpPublic;
+window._k3SetCpPrimary  = _k3SetCpPrimary;
 
 async function _k3ChangeStage(stage) {
     try {
