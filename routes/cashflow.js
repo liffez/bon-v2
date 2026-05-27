@@ -184,7 +184,13 @@ function runMatchLogic(db) {
             }
         }
 
-        if (bestMatch && bestConf > 0) {
+        // Confidence-cutoff:
+        //   conf=40 = "samme beløb-størrelse, dage-diff > 14" — ren støj,
+        //   registrér ikke (det forurener "Sandsynlig betalt"-listen og
+        //   forhindrer korrekt re-matching mod nyere bankposteringer).
+        //   conf 50-69 = sandsynlig-zone, registrér men marker ikke betalt.
+        //   conf >= 70 = auto-mark betalt.
+        if (bestMatch && bestConf >= 50) {
             updateTx.run(bestMatch, bestConf, tx.id);
             if (bestConf >= 70) {
                 markPaid.run(tx.dato, bestMatch);

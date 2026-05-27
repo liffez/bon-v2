@@ -468,16 +468,28 @@ function _cfRenderMatchPanel(inv) {
            </div>`
         : `<div class="cf-mp-bon cf-mp-bon-none">🧾 Manuelt oprettet faktura — ingen bon-kobling</div>`;
 
+    // Top-3 mest relevante matches synlige, resten skjules bag disclosure.
+    // Backend leverer allerede sorteret (conf DESC, dato DESC) — vi splitter
+    // bare arrayet.
+    const MAX_VISIBLE = 3;
+    const visible = matches.slice(0, MAX_VISIBLE);
+    const hidden = matches.slice(MAX_VISIBLE);
+    const renderMatch = (m) => {
+        const confClass = m.confidence >= 70 ? 'high' : m.confidence >= 50 ? 'med' : 'low';
+        const txt = _cfTruncate(m.tekst, 80);
+        return `<div class="cf-mp-match">
+            🏦 ${_cfFmtDate(m.dato)} · ${_cfFmt(m.beloeb)} ·
+            <span class="cf-mp-tekst" title="${_cfEsc(m.tekst)}">"${_cfEsc(txt)}"</span>
+            <span class="cf-mp-conf cf-mp-conf-${confClass}">konf. ${m.confidence}</span>
+        </div>`;
+    };
     const matchesHtml = matches.length
-        ? matches.map(m => {
-            const confClass = m.confidence >= 70 ? 'high' : m.confidence >= 50 ? 'med' : 'low';
-            const txt = _cfTruncate(m.tekst, 80);
-            return `<div class="cf-mp-match">
-                🏦 ${_cfFmtDate(m.dato)} · ${_cfFmt(m.beloeb)} ·
-                <span class="cf-mp-tekst" title="${_cfEsc(m.tekst)}">"${_cfEsc(txt)}"</span>
-                <span class="cf-mp-conf cf-mp-conf-${confClass}">konf. ${m.confidence}</span>
-            </div>`;
-        }).join('')
+        ? visible.map(renderMatch).join('') + (hidden.length
+            ? `<details class="cf-mp-more">
+                 <summary>+ ${hidden.length} ${hidden.length === 1 ? 'ældre match' : 'ældre matches'}</summary>
+                 ${hidden.map(renderMatch).join('')}
+               </details>`
+            : '')
         : `<div class="cf-mp-match cf-mp-match-none">🏦 Intet bank-match endnu</div>`;
 
     return `
@@ -486,7 +498,7 @@ function _cfRenderMatchPanel(inv) {
         ${bonHtml}
         <div class="cf-mp-actions">
             <button class="cf-btn cf-btn-primary cf-mp-confirm" data-inv-id="${inv.id}">✓ Bekræft betalt</button>
-            <button class="cf-btn cf-btn-ghost cf-mp-reject" data-inv-id="${inv.id}" ${matches.length ? '' : 'disabled'}>✗ Forkast match</button>
+            <button class="cf-btn cf-btn-ghost cf-mp-reject" data-inv-id="${inv.id}" ${matches.length ? '' : 'disabled'}>Endnu ikke betalt</button>
             ${inv.bon_id ? `<button class="cf-btn cf-btn-ghost cf-mp-open-bon" data-bon-id="${inv.bon_id}">Åbn bon →</button>` : ''}
         </div>
     </div>`;
@@ -525,11 +537,11 @@ function _cfWireMatchActions(container) {
         btn.onclick = async (ev) => {
             ev.stopPropagation();
             const id = btn.dataset.invId;
-            if (!confirm(`Forkast bank-match for faktura #${id}?\n\nFakturaen flyttes tilbage til "Forfaldne". Bank-transaktionen flyttes til umatchede-poolen.`)) return;
+            if (!confirm(`Marker faktura #${id} som endnu ikke betalt?\n\nFakturaen flyttes tilbage til "Forfaldne". Bank-matches nulstilles så transaktionerne kan matches mod andre fakturaer.`)) return;
             btn.disabled = true;
             try {
                 await rejectCfInvoiceMatch(id);
-                _cfShowToast(`Match forkastet for #${id}`);
+                _cfShowToast(`#${id} markeret som endnu ikke betalt`);
                 await _cfReloadInvoices();
             } catch (err) {
                 _cfShowToast(`Fejl: ${err.message}`, true);
