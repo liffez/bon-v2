@@ -225,14 +225,14 @@ router.get('/booking-payload', requireAuth(), handle((req, res) => {
 // Body: { bon_id, vehicle_id, reference?, status, note? }
 // status: 'booked' | 'in_progress' | 'failed'
 // ==========================================
-router.post('/book', requireAuth(), handle((req, res) => {
+router.post('/book', requireAuth(), handle(async (req, res) => {
     const { bon_id, vehicle_id, reference = null, status = 'booked', note = null } = req.body;
     if (!bon_id || !vehicle_id) {
         return res.status(400).json({ error: 'bon_id og vehicle_id er påkrævet' });
     }
 
     try {
-        const event = logBookingEvent({
+        const event = await logBookingEvent({
             bonId: Number(bon_id),
             vehicleId: Number(vehicle_id),
             reference,
