@@ -194,7 +194,8 @@ function _cfBuildOverblik(el, stats, weekly, invoices, upcoming, unmatched) {
                         ${_cfRenderTabBtn('sandsynlig', 'Sandsynlig betalt', invoices.summary)}
                         ${_cfRenderTabBtn('betalt', 'Betalt', invoices.summary)}
                     </div>
-                    <div style="padding:8px 16px;display:flex;justify-content:flex-end">
+                    <div style="padding:8px 16px;display:flex;justify-content:flex-end;gap:8px">
+                        <button class="cf-btn cf-btn-ghost" id="cfBulkBtn" style="font-size:12px;padding:5px 12px;display:none">Marker mange som betalt…</button>
                         <button class="cf-btn cf-btn-primary" id="cfAddInvBtn" style="font-size:12px;padding:5px 12px">+ Ny faktura</button>
                     </div>
                     <div id="cfInvFormArea"></div>
@@ -295,6 +296,13 @@ function _cfBuildOverblik(el, stats, weekly, invoices, upcoming, unmatched) {
 
     // Add invoice button
     el.querySelector('#cfAddInvBtn').onclick = () => _cfShowInvForm(el);
+
+    // Bulk-confirm button (vis kun på Forfaldne-fanen)
+    const bulkBtn = el.querySelector('#cfBulkBtn');
+    if (bulkBtn) {
+        bulkBtn.style.display = _cfInvTab === 'forfaldne' ? '' : 'none';
+        bulkBtn.onclick = () => _cfShowBulkModal();
+    }
 }
 
 /* ── Weekly chart ── */
@@ -400,6 +408,9 @@ function _cfRefreshTabs(summary) {
                 _cfRefreshTabs(inv.summary);
                 _cfBuildInvoiceRows(inv.rows, _cfInvTab);
                 _cfBuildInvoiceFooter(inv.summary, _cfInvTab);
+                // Vis/skjul bulk-knap baseret på aktiv tab.
+                const bulkBtn = document.getElementById('cfBulkBtn');
+                if (bulkBtn) bulkBtn.style.display = _cfInvTab === 'forfaldne' ? '' : 'none';
             } catch (err) { /* ignore */ }
         };
     });
@@ -511,6 +522,123 @@ function _cfWireQuickActions(container) {
             else window.location.href = `/office/?bon=${bonId}`;
         };
     });
+}
+
+/* ── Bulk-confirm modal (Forfaldne) ── */
+function _cfShowBulkModal() {
+    // Fjern evt. eksisterende modal
+    document.getElementById('cfBulkModal')?.remove();
+
+    const overlay = document.createElement('div');
+    overlay.id = 'cfBulkModal';
+    overlay.className = 'cf-modal-overlay';
+    overlay.innerHTML = `
+        <div class="cf-modal">
+            <div class="cf-modal-header">
+                <h3>Marker mange forfaldne som betalt</h3>
+                <button class="cf-modal-close" type="button" aria-label="Luk">×</button>
+            </div>
+            <div class="cf-modal-body">
+                <p class="cf-modal-hint">
+                    Brug denne når Bon v2 og e-conomic ikke er synkroniserede,
+                    og du ved at gamle forfaldne fakturaer reelt er betalt.
+                </p>
+                <label class="cf-modal-field">
+                    <span>Marker som betalt hvis forfalden i mere end</span>
+                    <span class="cf-modal-field-row">
+                        <input type="number" id="cfBulkDays" value="45" min="0" step="1">
+                        <span>dage</span>
+                        <button class="cf-btn cf-btn-ghost" id="cfBulkPreviewBtn" type="button" style="font-size:12px;padding:5px 12px;margin-left:8px">Vis preview</button>
+                    </span>
+                </label>
+                <div id="cfBulkPreview"></div>
+            </div>
+            <div class="cf-modal-actions">
+                <button class="cf-btn cf-btn-ghost" id="cfBulkCancelBtn" type="button">Annullér</button>
+                <button class="cf-btn cf-btn-primary" id="cfBulkConfirmBtn" type="button" disabled>Bekræft og marker som betalt</button>
+            </div>
+        </div>
+    `;
+    document.body.appendChild(overlay);
+
+    const daysInput = overlay.querySelector('#cfBulkDays');
+    const previewBtn = overlay.querySelector('#cfBulkPreviewBtn');
+    const confirmBtn = overlay.querySelector('#cfBulkConfirmBtn');
+    const previewEl = overlay.querySelector('#cfBulkPreview');
+    let lastPreview = null;
+
+    const close = () => overlay.remove();
+    overlay.querySelector('.cf-modal-close').onclick = close;
+    overlay.querySelector('#cfBulkCancelBtn').onclick = close;
+    overlay.onclick = (ev) => { if (ev.target === overlay) close(); };
+
+    // Auto-preview ved load
+    const runPreview = async () => {
+        const days = parseInt(daysInput.value);
+        if (!Number.isFinite(days) || days < 0) {
+            previewEl.innerHTML = '<div class="cf-modal-err">Angiv et positivt heltal.</div>';
+            confirmBtn.disabled = true;
+            return;
+        }
+        previewBtn.disabled = true;
+        previewEl.innerHTML = '<div class="cf-modal-loading">Henter preview…</div>';
+        try {
+            const res = await bulkConfirmCfInvoicesPaid(days, true);
+            lastPreview = res;
+            if (res.count === 0) {
+                previewEl.innerHTML = `<div class="cf-modal-empty">Ingen forfaldne fakturaer ældre end ${days} dage.</div>`;
+                confirmBtn.disabled = true;
+            } else {
+                const bonCount = res.invoices.filter(i => i.has_bon).length;
+                previewEl.innerHTML = `
+                    <div class="cf-modal-preview-summary">
+                        <strong>${res.count}</strong> fakturaer · <strong>${_cfFmt(res.total)}</strong>
+                        ${bonCount > 0 ? `<br><span class="cf-modal-sub">Heraf <strong>${bonCount}</strong> koblet til bons i Bon v2 — bon-status flyttes også til BETALT.</span>` : ''}
+                    </div>
+                    <div class="cf-modal-preview-list">
+                        ${res.invoices.slice(0, 50).map(i => `
+                            <div class="cf-modal-preview-row">
+                                <span class="cf-modal-prev-id">#${i.id}</span>
+                                <span class="cf-modal-prev-kunde">${_cfEsc(i.kunde)}</span>
+                                <span class="cf-modal-prev-due">${_cfFmtDate(i.forfald)}</span>
+                                <span class="cf-modal-prev-amount">${_cfFmt(i.beloeb)}</span>
+                            </div>
+                        `).join('')}
+                        ${res.invoices.length > 50 ? `<div class="cf-modal-prev-more">+ ${res.invoices.length - 50} flere…</div>` : ''}
+                    </div>
+                `;
+                confirmBtn.disabled = false;
+            }
+        } catch (err) {
+            previewEl.innerHTML = `<div class="cf-modal-err">Fejl: ${err.message}</div>`;
+            confirmBtn.disabled = true;
+        } finally {
+            previewBtn.disabled = false;
+        }
+    };
+    previewBtn.onclick = runPreview;
+    daysInput.onchange = () => { confirmBtn.disabled = true; previewEl.innerHTML = ''; };
+
+    confirmBtn.onclick = async () => {
+        if (!lastPreview || lastPreview.count === 0) return;
+        const days = parseInt(daysInput.value);
+        if (!confirm(`Marker ${lastPreview.count} fakturaer (${_cfFmt(lastPreview.total)}) som betalt?\n\nDe flyttes til Betalt-fanen. Tilknyttede bons i Bon v2 får status BETALT.\n\nDette kan ikke fortrydes samlet — du skal i givet fald markere dem som ubetalte enkeltvis.`)) return;
+        confirmBtn.disabled = true;
+        confirmBtn.textContent = 'Arbejder…';
+        try {
+            const res = await bulkConfirmCfInvoicesPaid(days, false);
+            close();
+            _cfShowToast(`${res.invoices_marked} fakturaer bekræftet${res.bon_status_changed > 0 ? ` · ${res.bon_status_changed} bons flyttet til BETALT` : ''}`);
+            await _cfReloadInvoices();
+        } catch (err) {
+            _cfShowToast(`Fejl: ${err.message}`, true);
+            confirmBtn.disabled = false;
+            confirmBtn.textContent = 'Bekræft og marker som betalt';
+        }
+    };
+
+    // Kør preview automatisk
+    runPreview();
 }
 
 /* ── Render match + bon-info + actions for én række ── */

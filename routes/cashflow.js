@@ -15,6 +15,7 @@
  * DELETE /api/cashflow/match/:txId     — Fjern match
  * POST /api/cashflow/invoices/:id/confirm-paid  — Bekræft som betalt (sync bon-status)
  * POST /api/cashflow/invoices/:id/reject-match  — Forkast match (fakturaen tilbage til forfaldne)
+ * POST /api/cashflow/invoices/bulk-confirm-paid — Bulk-bekræft forfaldne ældre end N dage
  * GET  /api/cashflow/analyse           — YTD + heatmap data
  * GET  /api/cashflow/payment-behavior  — Betalingsadfærd per kunde
  * ════════════════════════════════════════════════════════════
@@ -754,6 +755,128 @@ router.post('/invoices/:id/reject-match', handle(async (req, res) => {
     `).run(invoiceId);
 
     res.json({ ok: true, invoice_id: invoiceId, matches_removed: result.changes });
+}));
+
+// ─── POST /invoices/bulk-confirm-paid — Marker mange forfaldne som betalt ───
+//
+// Bruges til at rydde bagudrettet: når Bon v2 ikke er synkroniseret med
+// e-conomic, vil mange forfaldne fakturaer reelt være betalt. I stedet for
+// 60 individuelle klik kan brugeren angive et alders-cutoff (fx 45 dage)
+// og masseopdatere alle ældre fakturaer.
+//
+// Body: { older_than_days: N, dry_run: true|false }
+//   - dry_run=true  → returnerer liste + sum uden at ændre noget
+//   - dry_run=false → udfører + returnerer count + total + bon_sync_count
+//
+// For hver faktura: samme effekt som POST /invoices/:id/confirm-paid
+//   - cf_invoices.betalt=1, betalt_dato=i dag
+//   - Alle tilknyttede cf_transactions → match_confidence=100
+//   - Hvis bon_id sat: bons.status_id→BETALT + changelog + SSE
+
+router.post('/invoices/bulk-confirm-paid', handle(async (req, res) => {
+    const db = getDb();
+    const olderThanDays = parseInt(req.body?.older_than_days);
+    const dryRun = req.body?.dry_run !== false;  // default true (sikrest)
+
+    if (!Number.isFinite(olderThanDays) || olderThanDays < 0) {
+        return res.status(400).json({ error: 'older_than_days skal være ≥ 0' });
+    }
+
+    const cutoffDate = new Date(Date.now() - olderThanDays * 86400000)
+        .toISOString().slice(0, 10);
+
+    // Find forfaldne fakturaer ældre end cutoff (forfald < cutoff_date)
+    const candidates = db.prepare(`
+        SELECT i.id, i.kunde, i.beloeb, i.forfald, i.bon_id,
+               b.bon_number, sd.code AS bon_status_code
+        FROM cf_invoices i
+        LEFT JOIN bons b ON i.bon_id = b.id
+        LEFT JOIN status_definitions sd ON b.status_id = sd.id
+        WHERE i.betalt = 0 AND i.forfald < ?
+        ORDER BY i.forfald ASC
+    `).all(cutoffDate);
+
+    const total = candidates.reduce((sum, c) => sum + (c.beloeb || 0), 0);
+
+    if (dryRun) {
+        return res.json({
+            dry_run: true,
+            cutoff_date: cutoffDate,
+            count: candidates.length,
+            total: total,
+            invoices: candidates.map(c => ({
+                id: c.id,
+                kunde: c.kunde,
+                beloeb: c.beloeb,
+                forfald: c.forfald,
+                bon_number: c.bon_number,
+                has_bon: !!c.bon_id
+            }))
+        });
+    }
+
+    // Live-run: udfør i én transaction.
+    const today = new Date().toISOString().slice(0, 10);
+    const userId = req.session?.userId ?? null;
+    const betaltStatus = db.prepare(`SELECT id FROM status_definitions WHERE code = 'BETALT'`).get();
+
+    const result = transaction(db, () => {
+        const markPaid = db.prepare(`
+            UPDATE cf_invoices SET betalt = 1, betalt_dato = ?
+            WHERE id = ? AND betalt = 0
+        `);
+        const boostMatches = db.prepare(`
+            UPDATE cf_transactions SET match_confidence = 100
+            WHERE matched_invoice_id = ?
+        `);
+        const updateBonStatus = db.prepare(`
+            UPDATE bons SET status_id = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?
+        `);
+
+        const bonsToBroadcast = [];
+        let invoicesMarked = 0;
+        let bonStatusChanged = 0;
+
+        for (const c of candidates) {
+            markPaid.run(today, c.id);
+            invoicesMarked++;
+            boostMatches.run(c.id);
+
+            if (c.bon_id && c.bon_status_code && c.bon_status_code !== 'BETALT' && betaltStatus) {
+                updateBonStatus.run(betaltStatus.id, c.bon_id);
+                logChange({
+                    entityType: 'bon',
+                    entityId: c.bon_id,
+                    action: 'status_change',
+                    fieldName: 'status_id',
+                    oldValue: c.bon_status_code,
+                    newValue: 'BETALT',
+                    userId: userId,
+                    notes: `Bulk-bekræftet fra cashflow (>${olderThanDays} dage forfalden)`,
+                    wasForced: false
+                });
+                bonsToBroadcast.push({ id: c.bon_id, old: c.bon_status_code });
+                bonStatusChanged++;
+            }
+        }
+
+        return { invoicesMarked, bonStatusChanged, bonsToBroadcast };
+    });
+
+    // SSE-broadcast efter commit.
+    for (const b of result.bonsToBroadcast) {
+        broadcast('bon_status', { id: b.id, old: b.old, new: 'BETALT' });
+        broadcast('bon_updated', { id: b.id });
+    }
+
+    res.json({
+        ok: true,
+        dry_run: false,
+        cutoff_date: cutoffDate,
+        invoices_marked: result.invoicesMarked,
+        bon_status_changed: result.bonStatusChanged,
+        total: total
+    });
 }));
 
 // ─── GET /analyse — YTD + heatmap fra bons-data ────────────
