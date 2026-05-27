@@ -73,6 +73,7 @@ function initCalendar(containerEl, options) {
     _renderShell();
     _loadData();
     _initSSE();
+    _syncSidekickVisibility();
 }
 
 /* ══════════════════════════════════════════════════════════════
@@ -479,6 +480,12 @@ function _toggleView(view) {
     }
     _updateViewButtons();
     _render();
+    _syncSidekickVisibility();
+}
+
+// Whiteboard-sidekick: kun synlig på selve kalender-viewet (ikke list/web-orders)
+function _syncSidekickVisibility() {
+    if (window.Sidekick) window.Sidekick.setVisible(_currentView === 'calendar');
 }
 
 /* ══════════════════════════════════════════════════════════════
