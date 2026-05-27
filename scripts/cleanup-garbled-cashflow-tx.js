@@ -59,7 +59,7 @@ for (const r of garbled) {
 
 if (!apply) {
     console.log(`\nKør med --apply for at slette ${garbled.length} rækker.`);
-    console.log('Bagefter: upload CSV'en igen i Pengestrøm — så får du rene "Overførsel"-rækker.');
+    console.log('Bagefter: upload CSV-filen igen i Pengestrøm — så får du rene "Overførsel"-rækker.');
     process.exit(0);
 }
 
