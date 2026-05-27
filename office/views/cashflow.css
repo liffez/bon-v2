@@ -403,6 +403,33 @@
 }
 .cf-mp-actions .cf-btn { padding: 6px 12px; font-size: 12px; }
 
+/* ── Disclosure for skjulte ældre matches ── */
+.cf-mp-more {
+  margin-top: 2px;
+  padding: 0;
+}
+.cf-mp-more > summary {
+  cursor: pointer;
+  color: #8a8580;
+  font-size: 11px;
+  padding: 4px 0;
+  list-style: none;
+  user-select: none;
+}
+.cf-mp-more > summary::-webkit-details-marker { display: none; }
+.cf-mp-more > summary::before {
+  content: "▸ ";
+  display: inline-block;
+  transition: transform .15s;
+  margin-right: 2px;
+}
+.cf-mp-more[open] > summary::before { content: "▾ "; }
+.cf-mp-more > summary:hover { color: #5a5550; }
+.cf-mp-more .cf-mp-match {
+  padding-left: 14px;
+  color: #8a8580;
+}
+
 /* ── Toast (genbruges hvis ingen anden findes) ── */
 .cf-toast {
   position: fixed;
