@@ -725,23 +725,26 @@ function _f3OpenPaste() {
             <div class="f3-modal-h">
                 <div>
                     <h2>📋 Tilføj offentlige kontakter</h2>
-                    <div class="f3-modal-sub">Klistr indhold fra firmaets kontaktside, footer eller "Om os"-side ind.</div>
+                    <div class="f3-modal-sub">Vi henter <strong>ikke</strong> siden automatisk — du skal selv åbne den og klistre indholdet ind.</div>
                 </div>
                 <button class="f3-modal-close" type="button" data-close>×</button>
             </div>
             <div class="f3-modal-status">
-                Vi finder emails og telefoner — du vælger hvilke der gemmes som offentlige.
+                <strong>Sådan gør du:</strong> 1) Åbn firmaets kontaktside i en ny fane · 2) Markér og kopiér teksten (Cmd/Ctrl+A → Cmd/Ctrl+C) · 3) Klistr ind nedenfor.
             </div>
             <div class="f3-modal-b" id="f3-paste-body">
                 <div style="padding:16px 22px">
                     <label style="font-size:11px;text-transform:uppercase;letter-spacing:0.04em;color:var(--color-text-dim);font-weight:600;display:block;margin-bottom:4px">
-                        Kilde-URL (valgfrit)
+                        Kilde-URL (gemmes kun som reference)
                     </label>
-                    <input type="url" id="f3-paste-url" placeholder="https://regionh.dk/kontakt"
-                           style="width:100%;padding:8px 12px;border:1px solid var(--color-border, #d7d1ca);border-radius:6px;font-size:13px;font-family:inherit;margin-bottom:14px"/>
+                    <div style="display:flex;gap:6px;margin-bottom:14px">
+                        <input type="url" id="f3-paste-url" placeholder="https://firma.dk/kontakt"
+                               style="flex:1;padding:8px 12px;border:1px solid var(--color-border, #d7d1ca);border-radius:6px;font-size:13px;font-family:inherit"/>
+                        <button type="button" id="f3-paste-url-open" class="f3-btn" title="Åbn URL i ny fane så du kan kopiere indholdet" disabled>🔗 Åbn</button>
+                    </div>
 
                     <label style="font-size:11px;text-transform:uppercase;letter-spacing:0.04em;color:var(--color-text-dim);font-weight:600;display:block;margin-bottom:4px">
-                        Klistret indhold
+                        Klistret indhold <span style="color:var(--color-text-dim);font-weight:400;text-transform:none;letter-spacing:0">(her sker det egentlige arbejde — knappen nedenfor aktiveres når der er klistret nok ind)</span>
                     </label>
                     <textarea id="f3-paste-text" rows="8" placeholder="Klistr HTML eller tekst her — fx fra kontaktsidens kildekode eller almindelig kopi-indsæt"
                               style="width:100%;padding:8px 12px;border:1px solid var(--color-border, #d7d1ca);border-radius:6px;font-size:13px;font-family:monospace;resize:vertical"></textarea>
@@ -767,8 +770,20 @@ function _f3OpenPaste() {
 
     const textEl = overlay.querySelector('#f3-paste-text');
     const findBtn = overlay.querySelector('#f3-paste-find');
+    const urlEl = overlay.querySelector('#f3-paste-url');
+    const urlOpenBtn = overlay.querySelector('#f3-paste-url-open');
     textEl.addEventListener('input', () => {
         findBtn.disabled = textEl.value.trim().length < 50;
+    });
+    const updateUrlOpen = () => {
+        const v = urlEl.value.trim();
+        urlOpenBtn.disabled = !/^https?:\/\/\S+/i.test(v);
+    };
+    urlEl.addEventListener('input', updateUrlOpen);
+    updateUrlOpen();
+    urlOpenBtn.addEventListener('click', () => {
+        const v = urlEl.value.trim();
+        if (/^https?:\/\/\S+/i.test(v)) window.open(v, '_blank', 'noopener,noreferrer');
     });
     findBtn.addEventListener('click', _f3HandlePasteFind);
 }
