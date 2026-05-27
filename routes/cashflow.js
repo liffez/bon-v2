@@ -102,6 +102,18 @@ function parseCSV(buffer) {
     return rows;
 }
 
+/** Hent match-tolerance-settings (relativ % + absolut max ekstra over faktura) */
+function getMatchTolerance(db) {
+    const pctRow = db.prepare(`SELECT value FROM settings WHERE key = 'cf_match_relative_tolerance_pct'`).get();
+    const extraRow = db.prepare(`SELECT value FROM settings WHERE key = 'cf_match_extra_tolerance_max'`).get();
+    const pct = parseFloat(pctRow?.value);
+    const extra = parseFloat(extraRow?.value);
+    return {
+        relativePct: Number.isFinite(pct) && pct >= 0 ? pct : 2.0,
+        extraMax: Number.isFinite(extra) && extra >= 0 ? extra : 350,
+    };
+}
+
 /** Run match logic on unmatched transactions */
 function runMatchLogic(db) {
     const unmatched = db.prepare(`
@@ -112,6 +124,9 @@ function runMatchLogic(db) {
     const invoices = db.prepare(`
         SELECT id, beloeb, forfald FROM cf_invoices WHERE betalt = 0
     `).all();
+
+    const { relativePct, extraMax } = getMatchTolerance(db);
+    const relativeRatio = relativePct / 100;
 
     let matched = 0;
     const updateTx = db.prepare(`
@@ -129,9 +144,15 @@ function runMatchLogic(db) {
         let bestConf = 0;
 
         for (const inv of invoices) {
-            // Amount within ±2%?
-            const ratio = Math.abs(tx.beloeb - inv.beloeb) / Math.abs(inv.beloeb);
-            if (ratio > 0.02) continue;
+            const diff = tx.beloeb - inv.beloeb;
+            const absDiff = Math.abs(diff);
+            const ratio = absDiff / Math.abs(inv.beloeb);
+            const withinRelative = ratio <= relativeRatio;
+            // Asymmetrisk ekstra-tolerance: bank-amount må være OP TIL +extraMax
+            // kr højere end faktura (miljøgebyr + variabel levering lægges til),
+            // men ikke lavere. Bank > faktura er forventet, bank < faktura er ikke.
+            const withinExtraAbove = diff > 0 && diff <= extraMax;
+            if (!withinRelative && !withinExtraAbove) continue;
 
             // Check for invoice number in text
             const nums = tx.tekst.match(/\d{4,}/g) || [];
@@ -146,9 +167,9 @@ function runMatchLogic(db) {
             if (hasInvNr) {
                 conf = 95;
             } else if (daysDiff <= 5) {
-                conf = 80;
+                conf = withinRelative ? 80 : 70;
             } else if (daysDiff <= 14) {
-                conf = 55;
+                conf = withinRelative ? 55 : 50;
             } else {
                 conf = 40;
             }
