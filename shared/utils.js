@@ -469,3 +469,45 @@ async function checkAuth(redirectTo) {
         return null;
     }
 }
+
+// ─── withFocusPreserved ─────────────────────────────────────
+// Bevarer fokus + markør i et input/textarea hen over en re-render
+// der erstatter DOM'en (typisk container.innerHTML = ...).
+//
+// Den klassiske bug: et søgefelt er inde i den container der re-rendres
+// på hvert tastetryk → input destrueres → fokus tabes → man kan kun
+// skrive ét tegn ad gangen. Pak re-renderen i:
+//
+//     withFocusPreserved(container, function() {
+//         container.innerHTML = newHtml;
+//     });
+//
+// Identifikation: foretrækker `id`, fallback til første `data-*`-attribut.
+// Begge er stabile på tværs af re-render hvis HTML'en genskaber dem.
+function withFocusPreserved(containerEl, fn) {
+    var fa = document.activeElement;
+    var sel = null, selStart = 0, selEnd = 0;
+    if (fa && containerEl && containerEl.contains(fa)
+        && (fa.tagName === 'INPUT' || fa.tagName === 'TEXTAREA')) {
+        if (fa.id) {
+            sel = '#' + (window.CSS && CSS.escape ? CSS.escape(fa.id) : fa.id);
+        } else {
+            for (var i = 0; i < fa.attributes.length; i++) {
+                var a = fa.attributes[i];
+                if (a.name.indexOf('data-') === 0) {
+                    sel = '[' + a.name + '="' + a.value.replace(/"/g, '\\"') + '"]';
+                    break;
+                }
+            }
+        }
+        try { selStart = fa.selectionStart; selEnd = fa.selectionEnd; } catch (e) { /* number/date inputs */ }
+    }
+    fn();
+    if (sel) {
+        var el = containerEl.querySelector(sel);
+        if (el && typeof el.focus === 'function') {
+            el.focus();
+            try { el.setSelectionRange(selStart, selEnd); } catch (e) { /* ignore */ }
+        }
+    }
+}

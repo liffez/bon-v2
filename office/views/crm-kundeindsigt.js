@@ -194,6 +194,9 @@ function _kiRenderMain() {
     const stageMap = {};
     if (stages) for (const s of stages) stageMap[s.stage] = s.count;
 
+    // Søgefeltet (#ki-search) er INDE i el — bevar fokus + markør hen
+    // over re-render så man ikke kun kan skrive ét tegn ad gangen.
+    withFocusPreserved(el, () => {
     el.innerHTML = `
         <div class="ki-stats">
             <div class="ki-stat"><div class="ki-stat-val">${rows?.length || 0}</div><div class="ki-stat-label">Firmaer</div></div>
@@ -231,6 +234,7 @@ function _kiRenderMain() {
             </table>
         </div>
     `;
+    });
 }
 
 function _kiRow(r) {

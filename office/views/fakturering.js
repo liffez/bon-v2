@@ -124,21 +124,25 @@ function _faktRenderList(filter) {
 
     const monthName = new Date().toLocaleDateString('da-DK', { month: 'long', year: 'numeric' });
 
-    listEl.innerHTML = `
-        <div class="fakt-list-filter">
-            <input type="text" placeholder="Søg bon, kunde…" id="fakt-search" value="${_escHtml(filter || '')}">
-        </div>
-        <div class="fakt-section-header">
-            <span>Afventer fakturering &middot; ${filteredPending.length}</span>
-        </div>
-        ${filteredPending.map(b => _faktRowHtml(b, false)).join('')}
-        ${filteredDone.length > 0 ? `
-            <div class="fakt-section-header">
-                <span>Faktureret — ${monthName} &middot; ${filteredDone.length}</span>
+    // Søgefeltet er INDE i listEl — bevar fokus + markør hen over re-render
+    // så man ikke skal klikke i feltet igen efter hvert tegn.
+    withFocusPreserved(listEl, () => {
+        listEl.innerHTML = `
+            <div class="fakt-list-filter">
+                <input type="text" placeholder="Søg bon, kunde…" id="fakt-search" value="${_escHtml(filter || '')}">
             </div>
-            ${filteredDone.map(b => _faktDoneRowHtml(b)).join('')}
-        ` : ''}
-    `;
+            <div class="fakt-section-header">
+                <span>Afventer fakturering &middot; ${filteredPending.length}</span>
+            </div>
+            ${filteredPending.map(b => _faktRowHtml(b, false)).join('')}
+            ${filteredDone.length > 0 ? `
+                <div class="fakt-section-header">
+                    <span>Faktureret — ${monthName} &middot; ${filteredDone.length}</span>
+                </div>
+                ${filteredDone.map(b => _faktDoneRowHtml(b)).join('')}
+            ` : ''}
+        `;
+    });
 
     // Search
     const searchEl = document.getElementById('fakt-search');

@@ -229,7 +229,8 @@ function _isHandleInput(e) {
     var t = e.target;
     if (t.dataset && t.dataset.is === 'prod-search') {
         _isProdFilter.q = t.value.toLowerCase();
-        _isProdFilterAndRender();
+        // Søgefeltet er INDE i den re-renderede tab — bevar fokus + markør.
+        withFocusPreserved(_isContainer, _isProdFilterAndRender);
     }
 }
 
