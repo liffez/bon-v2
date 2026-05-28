@@ -28,7 +28,7 @@ Løsningen er to nye tabeller (`outreach_campaigns` + `campaign_members`) der le
 > - **Stage forbliver på kunden** — `crm_customer_meta.stage` ændres ikke når kunde tilføjes som medlem. En VIP-kunde kan være lead i en kampagne.
 > - **Polymorfi via to nullable FK'er** (`company_id` + `customer_id`), ikke `entity_type/entity_id`. CHECK constraint sikrer at mindst én er sat. Matcher hvordan `bons` og `mail_threads` allerede modellerer det.
 > - **Tre partial unique indexes** håndhæver "samme firma/kunde kan ikke være medlem to gange i samme kampagne" på server-niveau (ikke UI-disciplin) — SQLite's NULL-håndtering i standard UNIQUE laver et hul som almindelig UNIQUE-constraint ikke kan lukke.
-> - **5 member-statusser:** `lead/quote_sent/negotiating/won/lost`. Matcher eksisterende pipeline-kolonner + `lost` så lost_reason-mønsteret virker.
+> - **5 member-statusser:** `lead/contacted/negotiating/won/lost`. UI-labels: Lead / Kontaktet / Dialog / Vundet / Tabt. (Tidligere udkast brugte `quote_sent` — omdøbt i migration 085 fordi 'contacted' bredere dækker præsentation, smagsprøver og opkald, ikke kun "specifikt sendt et tilbud".)
 > - **`lost_reason TEXT`** kun fri tekst i v1 — ikke FK til en reasons-tabel. Hvis det viser sig nyttigt at aggregere på lost-reasons, struktureres det i v2.
 > - **`assigned_user_id` pr. medlem** — flere personer arbejder på samme kampagne, så ansvar tildeles pr. lead. `owner_user_id` på selve kampagnen er overordnet ejer.
 > - **Stjerne genbruger `crm_customer_meta.tags`** — tilføj `"starred"` til JSON-arrayet. Ingen ny kolonne. `companies.tags` tilføjes parallelt (samme migration).
@@ -238,7 +238,7 @@ CREATE TABLE campaign_members (
     company_id INTEGER REFERENCES companies(id),
     customer_id INTEGER REFERENCES customers(id),
     member_status TEXT NOT NULL DEFAULT 'lead'
-        CHECK (member_status IN ('lead','quote_sent','negotiating','won','lost')),
+        CHECK (member_status IN ('lead','contacted','negotiating','won','lost')),
     lost_reason TEXT,
     assigned_user_id INTEGER REFERENCES users(id),
     notes TEXT,
@@ -787,7 +787,7 @@ Output-format er pr. medlem (ikke pr. kunde): `{ member_id, campaign_id, campaig
 ┌─────────────────────────────────────────────────────────┐
 │  Pipeline:  [Alle aktive kampagner    ▾]    [+ Ny]     │
 ├──────────┬──────────────┬───────────────┬───────────────┤
-│   Lead   │ Tilbud sendt │  Forhandling  │    Vundet     │
+│   Lead   │  Kontaktet   │    Dialog     │    Vundet     │
 │   (12)   │     (5)      │      (3)      │      (8)      │
 ├──────────┼──────────────┼───────────────┼───────────────┤
 │ [card]   │   [card]     │    [card]     │    [card]     │
@@ -824,7 +824,7 @@ Når et kort dragges:
   ```
   ┌────────────────────────────────────────────┐
   │  I hvilken kampagne flytter du            │
-  │  "Magasin A/S" til "Tilbud sendt"?        │
+  │  "Magasin A/S" til "Kontaktet"?           │
   │                                            │
   │  ○ Forår 2026 — Kantiner                  │
   │  ○ Reaktivering — sovende kunder          │
@@ -864,7 +864,7 @@ Når bonen er oprettet:
 |------|-----------|
 | Åbn pipeline uden valgt kampagne | Alle aktive medlemmer på tværs af kampagner, hver med kampagne-label |
 | Vælg kampagne A i dropdown | Board re-renderer kun A, URL får `?campaign_id=A`, kort uden label |
-| Drag kort fra Lead → Tilbud sendt (én kampagne) | `member_status='quote_sent'`, SSE broadcastet |
+| Drag kort fra Lead → Kontaktet (én kampagne) | `member_status='contacted'`, SSE broadcastet |
 | Drag kort i global-visning hvor kunden er i 2 åbne kampagner | Modal åbner med radio-valg |
 | Drop på Tabt | Lost-reason-modal, ingen flytning før reason er udfyldt |
 | Drop på Vundet | `member_status='won'`, kortet får grøn "Konvertér til bon"-knap |
@@ -1002,7 +1002,7 @@ Når datamodel-dokumentet opdateres næste gang, skal følgende ind:
 **`campaign_members`** — medlemmer af en kampagne
 - M:N mellem campaigns og (companies ∪ customers)
 - Polymorf via `company_id`+`customer_id` nullable FK'er, CHECK at mindst én er sat
-- `member_status` ∈ `{lead, quote_sent, negotiating, won, lost}`
+- `member_status` ∈ `{lead, contacted, negotiating, won, lost}` (migration 085 omdøbte tidligere `quote_sent` → `contacted`)
 - `lost_reason` (TEXT, kun udfyldt når status=lost)
 - `assigned_user_id` FK → users
 - `last_activity_at` opdateres på app-niveau fra `routes/crm.js` POST /activity-handler (ikke via trigger — v3-rettelse, se sektion 1.2.5)

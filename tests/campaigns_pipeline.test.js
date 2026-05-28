@@ -58,11 +58,8 @@ function createFreshDb() {
             created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP
         );
     `);
-    const sql = fs.readFileSync(
-        path.join(__dirname, '..', 'db', 'migrations', '084_outreach_campaigns.sql'),
-        'utf8',
-    );
-    db.exec(sql);
+    db.exec(fs.readFileSync(path.join(__dirname, '..', 'db', 'migrations', '084_outreach_campaigns.sql'), 'utf8'));
+    db.exec(fs.readFileSync(path.join(__dirname, '..', 'db', 'migrations', '085_campaign_status_rename.sql'), 'utf8'));
 
     db.prepare('INSERT INTO users (id, name) VALUES (?, ?)').run(1, 'Tester');
     db.prepare('INSERT INTO addresses (id, city) VALUES (?, ?)').run(1, 'København');
@@ -98,7 +95,7 @@ test('GET /pipeline tom returnerer kolonner med 0 medlemmer', async () => {
     assert.ok(r.body.columns);
     assert.deepStrictEqual(
         Object.keys(r.body.columns).sort(),
-        ['lead', 'lost', 'negotiating', 'quote_sent', 'won']
+        ['contacted', 'lead', 'lost', 'negotiating', 'won']
     );
     assert.strictEqual(r.body.columns.lead.members.length, 0);
     assert.strictEqual(r.body.active_campaign_id, null);
@@ -107,12 +104,12 @@ test('GET /pipeline tom returnerer kolonner med 0 medlemmer', async () => {
 test('GET /pipeline grupperer medlemmer pr. member_status', async () => {
     _testDb.prepare('INSERT INTO outreach_campaigns (id, name) VALUES (?, ?)').run(1, 'A');
     _testDb.prepare(`INSERT INTO campaign_members (campaign_id, company_id, member_status) VALUES (1, 1, 'lead')`).run();
-    _testDb.prepare(`INSERT INTO campaign_members (campaign_id, company_id, member_status) VALUES (1, 2, 'quote_sent')`).run();
+    _testDb.prepare(`INSERT INTO campaign_members (campaign_id, company_id, member_status) VALUES (1, 2, 'contacted')`).run();
     _testDb.prepare(`INSERT INTO campaign_members (campaign_id, customer_id, member_status) VALUES (1, 2, 'won')`).run();
 
     const r = await get('/api/campaigns/pipeline');
     assert.strictEqual(r.body.columns.lead.members.length, 1);
-    assert.strictEqual(r.body.columns.quote_sent.members.length, 1);
+    assert.strictEqual(r.body.columns.contacted.members.length, 1);
     assert.strictEqual(r.body.columns.won.members.length, 1);
     assert.strictEqual(r.body.columns.negotiating.members.length, 0);
 });

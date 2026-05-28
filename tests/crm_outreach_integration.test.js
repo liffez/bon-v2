@@ -66,12 +66,9 @@ function createFreshDb() {
         );
     `);
 
-    // Migration 084 (tilføjer crm_activities.campaign_id + outreach_campaigns + campaign_members)
-    const sql = fs.readFileSync(
-        path.join(__dirname, '..', 'db', 'migrations', '084_outreach_campaigns.sql'),
-        'utf8',
-    );
-    db.exec(sql);
+    // Migrations 084 + 085 (085 omdøber quote_sent → contacted)
+    db.exec(fs.readFileSync(path.join(__dirname, '..', 'db', 'migrations', '084_outreach_campaigns.sql'), 'utf8'));
+    db.exec(fs.readFileSync(path.join(__dirname, '..', 'db', 'migrations', '085_campaign_status_rename.sql'), 'utf8'));
 
     // Seed
     db.prepare('INSERT INTO users (id, name) VALUES (?, ?)').run(1, 'Tester');

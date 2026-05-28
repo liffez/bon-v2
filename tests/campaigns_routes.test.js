@@ -75,12 +75,9 @@ function createFreshDb() {
         );
     `);
 
-    // Kør migration 084
-    const sql = fs.readFileSync(
-        path.join(__dirname, '..', 'db', 'migrations', '084_outreach_campaigns.sql'),
-        'utf8',
-    );
-    db.exec(sql);
+    // Kør migrations 084 + 085 (085 omdøber contacted → contacted)
+    db.exec(fs.readFileSync(path.join(__dirname, '..', 'db', 'migrations', '084_outreach_campaigns.sql'), 'utf8'));
+    db.exec(fs.readFileSync(path.join(__dirname, '..', 'db', 'migrations', '085_campaign_status_rename.sql'), 'utf8'));
 
     // Seed: bruger + et par firmaer + kunder
     db.prepare('INSERT INTO users (id, name) VALUES (?, ?)').run(1, 'Test User');
@@ -368,12 +365,12 @@ test('PATCH /:campaignId/members/:memberId opdaterer status og logger', async ()
     const memberId = add.body.member_ids[0];
 
     const r = await jsonRequest('PATCH', `/api/campaigns/${c.body.id}/members/${memberId}`, {
-        member_status: 'quote_sent',
+        member_status: 'contacted',
     });
     assert.strictEqual(r.status, 200);
 
     const row = _testDb.prepare('SELECT member_status FROM campaign_members WHERE id = ?').get(memberId);
-    assert.strictEqual(row.member_status, 'quote_sent');
+    assert.strictEqual(row.member_status, 'contacted');
 
     const log = _testDb.prepare(`
         SELECT * FROM changelog
@@ -381,7 +378,7 @@ test('PATCH /:campaignId/members/:memberId opdaterer status og logger', async ()
     `).get();
     assert.ok(log);
     assert.strictEqual(log.old_value, 'lead');
-    assert.strictEqual(log.new_value, 'quote_sent');
+    assert.strictEqual(log.new_value, 'contacted');
 });
 
 test('PATCH .../members/:m med status=lost uden lost_reason returnerer 400', async () => {
@@ -459,9 +456,9 @@ test('GET /:id/members?status=lead filtrerer på status', async () => {
     const add = await jsonRequest('POST', `/api/campaigns/${c.body.id}/members`, {
         members: [{ company_id: 1 }, { company_id: 2 }],
     });
-    // Skift første til quote_sent
+    // Skift første til contacted
     await jsonRequest('PATCH', `/api/campaigns/${c.body.id}/members/${add.body.member_ids[0]}`, {
-        member_status: 'quote_sent',
+        member_status: 'contacted',
     });
 
     const r = await jsonRequest('GET', `/api/campaigns/${c.body.id}/members?status=lead`);
