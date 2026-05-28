@@ -26,7 +26,10 @@ function isUniqueViolation(e) {
     return e && (e.errcode === 2067 || /UNIQUE/.test(e.message || ''));
 }
 
-const ALLOWED_STATUS = ['lead', 'quote_sent', 'negotiating', 'won', 'lost'];
+// member_status omdøbt i migration 085: quote_sent → contacted.
+// "contacted" dækker bredere: alt initiativ ud til kunden (tilbud, præsentation,
+// smagsprøver, opkald) — ikke kun "specifikt sendt et tilbud".
+const ALLOWED_STATUS = ['lead', 'contacted', 'negotiating', 'won', 'lost'];
 
 // ─── KAMPAGNER ──────────────────────────────────────────────
 
@@ -106,13 +109,17 @@ router.get('/pipeline', handle((req, res) => {
         ORDER BY m.added_at DESC
     `).all(...args);
 
-    // Klassificér kort-tilstand (firma alene / firma+kontakt / privatkunde)
+    // Klassificér kort-tilstand (firma alene / firma+kontakt / privatkunde).
+    // Labels matcher forretningsproces:
+    //   contacted = alt initiativ ud til kunden (tilbud, præsentation, smagsprøver, opkald)
+    //   negotiating = "konstruktiv dialog" om detaljer
+    //   won = bestilling lagt
     const columns = {
-        lead:         { label: 'Lead',         members: [] },
-        quote_sent:   { label: 'Tilbud sendt', members: [] },
-        negotiating:  { label: 'Forhandling',  members: [] },
-        won:          { label: 'Vundet',       members: [] },
-        lost:         { label: 'Tabt',         members: [] },
+        lead:         { label: 'Lead',      members: [] },
+        contacted:    { label: 'Kontaktet', members: [] },
+        negotiating:  { label: 'Dialog',    members: [] },
+        won:          { label: 'Vundet',    members: [] },
+        lost:         { label: 'Tabt',      members: [] },
     };
     for (const r of rows) {
         const contact = ((r.first_name || '') + ' ' + (r.last_name || '')).trim() || null;

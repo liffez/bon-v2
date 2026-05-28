@@ -33,6 +33,9 @@ async function initCrmOutreach(container) {
     _coShowLost = params.get('lost') === '1';
 
     _coRenderShell();
+    // Wire "+ Ny kampagne"-knap (én gang, ved shell-render)
+    const newBtn = document.getElementById('co-new-btn');
+    if (newBtn) newBtn.addEventListener('click', _coOpenNewCampaignModal);
     await _coLoadCampaigns();
     await _coLoadPipeline();
 }
@@ -90,6 +93,13 @@ function _coRenderShell() {
                 background: var(--color-surface, #fff); font-size: 14px;
                 font-family: inherit; min-width: 240px;
             }
+            .co-new-btn {
+                padding: 8px 14px; border-radius: 8px; border: none;
+                background: var(--brand-primary, #8e631f); color: #fff;
+                font-size: 14px; font-weight: 600; cursor: pointer;
+                font-family: inherit;
+            }
+            .co-new-btn:hover { filter: brightness(1.08); }
             .co-empty {
                 padding: 30px; text-align: center; color: var(--color-text-dim);
                 background: var(--color-surface, #fff); border-radius: 10px;
@@ -124,7 +134,7 @@ function _coRenderShell() {
                 font-size: 11px; font-weight: 600; padding: 2px 8px; border-radius: 10px;
             }
             .co-col[data-status="lead"] .co-col-label        { color: #2a6fb0; }
-            .co-col[data-status="quote_sent"] .co-col-label  { color: #8e631f; }
+            .co-col[data-status="contacted"] .co-col-label   { color: #8e631f; }
             .co-col[data-status="negotiating"] .co-col-label { color: #b8761c; }
             .co-col[data-status="won"] .co-col-label         { color: #2c7a3d; }
 
@@ -259,6 +269,7 @@ function _coRenderShell() {
                 <select class="co-select" id="co-select" disabled>
                     <option>Henter…</option>
                 </select>
+                <button class="co-new-btn" id="co-new-btn" type="button">+ Ny kampagne</button>
                 <span style="flex:1"></span>
                 <span class="co-toolbar-label" id="co-summary"></span>
             </div>
@@ -305,7 +316,7 @@ function _coRenderBoard() {
     if (!board || !_coData) return;
     const cols = _coData.columns;
 
-    const openCols = ['lead', 'quote_sent', 'negotiating', 'won'];
+    const openCols = ['lead', 'contacted', 'negotiating', 'won'];
     board.innerHTML = openCols.map(key => {
         const col = cols[key];
         return '<div class="co-col" data-status="' + key + '">' +
@@ -477,6 +488,106 @@ async function _coHandleDrop(drag, targetStatus) {
         console.error('outreach drop:', err);
         alert('Kunne ikke flytte: ' + (err.message || 'ukendt fejl'));
     }
+}
+
+// Opret-ny-kampagne modal — åbnes fra toolbar-knappen
+function _coOpenNewCampaignModal() {
+    const overlay = document.createElement('div');
+    overlay.className = 'co-modal-overlay';
+    overlay.innerHTML = `
+        <div class="co-modal" role="dialog" aria-modal="true">
+            <div class="co-modal-header">Ny kampagne</div>
+            <div class="co-modal-body">
+                <p style="margin:0 0 8px 0;font-size:13px;color:var(--color-text-dim);">
+                    Opret en tom kampagne. Tilføj medlemmer bagefter fra Kontakter
+                    eller via paste-import.
+                </p>
+                <label style="font-size:12px;font-weight:600;text-transform:uppercase;letter-spacing:.04em;color:var(--color-text-dim);">Navn</label>
+                <input type="text" class="co-modal-input" id="co-new-name" placeholder="fx Forår 2026 — Kantiner" autofocus>
+                <label style="font-size:12px;font-weight:600;text-transform:uppercase;letter-spacing:.04em;color:var(--color-text-dim);margin-top:12px;display:block;">Beskrivelse <span style="font-weight:400;text-transform:none;letter-spacing:0;">(valgfri)</span></label>
+                <textarea class="co-modal-textarea" id="co-new-desc" placeholder="Hvad er formålet med kampagnen?"></textarea>
+                <div id="co-new-error" style="display:none;color:#a13d2e;font-size:13px;margin-top:8px;"></div>
+            </div>
+            <div class="co-modal-footer">
+                <button class="co-btn co-btn-cancel" data-action="cancel" type="button">Annullér</button>
+                <button class="co-btn co-btn-primary" data-action="ok" type="button">Opret</button>
+            </div>
+        </div>
+    `;
+    document.body.appendChild(overlay);
+    const nameInput = overlay.querySelector('#co-new-name');
+    const descInput = overlay.querySelector('#co-new-desc');
+    const errEl = overlay.querySelector('#co-new-error');
+    const submitBtn = overlay.querySelector('[data-action="ok"]');
+
+    const close = () => overlay.remove();
+    overlay.querySelector('[data-action="cancel"]').addEventListener('click', close);
+    overlay.addEventListener('click', (e) => { if (e.target === overlay) close(); });
+
+    const submit = async () => {
+        const name = nameInput.value.trim();
+        const desc = descInput.value.trim();
+        if (!name) {
+            errEl.textContent = 'Indtast et navn.';
+            errEl.style.display = '';
+            nameInput.focus();
+            return;
+        }
+        submitBtn.disabled = true;
+        submitBtn.textContent = 'Opretter…';
+        errEl.style.display = 'none';
+        try {
+            const created = await createCampaign({ name, description: desc || null });
+            close();
+            // Re-load campaigns + vælg den nye + re-load pipeline
+            _coActiveCampaign = created.id;
+            const url = new URL(window.location);
+            url.searchParams.set('campaign', created.id);
+            history.replaceState({}, '', url);
+            await _coLoadCampaigns();
+            await _coLoadPipeline();
+        } catch (err) {
+            submitBtn.disabled = false;
+            submitBtn.textContent = 'Opret';
+            // Håndtér 409 name_in_use / name_closed (reopenable)
+            if (err.status === 409 && err.body) {
+                if (err.body.error === 'name_in_use') {
+                    errEl.textContent = 'Navnet er allerede i brug af en aktiv kampagne.';
+                } else if (err.body.error === 'name_closed' && err.body.reopenable && err.body.existing_id) {
+                    const ok = window.confirm(
+                        `Der findes en lukket kampagne med navnet "${name}". Vil du genåbne den?`,
+                    );
+                    if (!ok) { errEl.textContent = 'Genåbning afvist.'; errEl.style.display = ''; return; }
+                    try {
+                        await reopenCampaign(err.body.existing_id);
+                        close();
+                        _coActiveCampaign = err.body.existing_id;
+                        const url = new URL(window.location);
+                        url.searchParams.set('campaign', err.body.existing_id);
+                        history.replaceState({}, '', url);
+                        await _coLoadCampaigns();
+                        await _coLoadPipeline();
+                        return;
+                    } catch (reopenErr) {
+                        errEl.textContent = 'Kunne ikke genåbne: ' + (reopenErr.message || 'ukendt fejl');
+                    }
+                } else {
+                    errEl.textContent = err.body.error || err.message || 'Ukendt fejl';
+                }
+            } else {
+                errEl.textContent = err.message || 'Ukendt fejl';
+            }
+            errEl.style.display = '';
+        }
+    };
+    submitBtn.addEventListener('click', submit);
+    [nameInput, descInput].forEach(el => el.addEventListener('keydown', (e) => {
+        if (e.key === 'Enter' && (e.target === nameInput || e.metaKey || e.ctrlKey)) {
+            e.preventDefault();
+            submit();
+        }
+        if (e.key === 'Escape') close();
+    }));
 }
 
 // Lost-reason modal
