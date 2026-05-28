@@ -771,15 +771,61 @@ async function openBonMail(cardId) {
 
 function _buildMailVars(bon) {
     const lines = bon.lines || [];
+    const groups = bon.menu_groups || [];
     const _esc = typeof esc === 'function' ? esc : (s) => String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
 
-    // Menu lines
-    const menuLines = lines.filter(l => (l.category || '').toLowerCase() !== 'emballage' && (l.category || '').toLowerCase() !== 'levering');
-    const menuUdenPriser = menuLines.map(l => l.quantity + '× ' + l.product_name).join('\n');
-    const menuMedPriser = menuLines.map(l => {
-        const price = l.unit_price ? (l.quantity * l.unit_price).toLocaleString('da-DK') + ' kr' : '';
-        return l.quantity + '× ' + l.product_name + (price ? '  ' + price : '');
-    }).join('\n');
+    // Menu lines (filtér emballage + levering ud — som før)
+    const menuLines = lines.filter(l => {
+        const c = (l.category || '').toLowerCase();
+        return c !== 'emballage' && c !== 'levering';
+    });
+
+    // Partitionér efter gruppe, bevar dokumenteret rækkefølge
+    const groupById = new Map(groups.map(g => [g.id, g]));
+    const groupOrder = [];
+    const linesByGroup = new Map();
+    const ungrouped = [];
+    for (const l of menuLines) {
+        const gid = l.menu_group_id;
+        if (gid && groupById.has(gid)) {
+            if (!linesByGroup.has(gid)) { linesByGroup.set(gid, []); groupOrder.push(gid); }
+            linesByGroup.get(gid).push(l);
+        } else {
+            ungrouped.push(l);
+        }
+    }
+    groupOrder.sort((a, b) => (groupById.get(a).sort_order || 0) - (groupById.get(b).sort_order || 0));
+
+    const _norm = (s) => String(s || '').trim().toLowerCase();
+    const _renderLine = (l, group, withPrice) => {
+        let comment = (l.special_request || '').trim();
+        if (comment && group) {
+            const n = _norm(comment);
+            if (n === _norm(group.title) || n === _norm(group.note)) comment = '';
+        }
+        const commentPart = comment ? ' (' + comment + ')' : '';
+        const pricePart = (withPrice && l.unit_price)
+            ? '  ' + (l.quantity * l.unit_price).toLocaleString('da-DK') + ' kr'
+            : '';
+        return l.quantity + '× ' + l.product_name + commentPart + pricePart;
+    };
+    const _buildMenu = (withPrice) => {
+        const parts = [];
+        for (const gid of groupOrder) {
+            const g = groupById.get(gid);
+            const header = (g.title || g.note || '').trim();
+            if (header) parts.push(header + ':');
+            for (const l of linesByGroup.get(gid)) {
+                parts.push((header ? '  ' : '') + _renderLine(l, g, withPrice));
+            }
+            parts.push('');
+        }
+        for (const l of ungrouped) parts.push(_renderLine(l, null, withPrice));
+        while (parts.length && parts[parts.length - 1] === '') parts.pop();
+        return parts.join('\n');
+    };
+    const menuUdenPriser = _buildMenu(false);
+    const menuMedPriser  = _buildMenu(true);
 
     // Totals — line_total er incl. moms (jf. BON_V2_PRINCIPPER.md sektion 6b)
     const totalInklMoms = lines.reduce((s, l) => s + (l.line_total || 0), 0);
