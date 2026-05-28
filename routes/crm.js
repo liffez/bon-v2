@@ -558,16 +558,25 @@ router.get('/companies', handle((req, res) => {
         const s = '%' + q + '%';
         args.push(s, s, s, s);
     }
-    if (order_after)  { having.push('MAX(b.delivery_date) >= ?'); args.push(order_after); }
-    if (order_before) { having.push('MAX(b.delivery_date) <= ?'); args.push(order_before); }
+    // order_after/order_before filtrerer på sidste ordre — referer nu det subquery-aliasede felt
+    // i WHERE-clause på det yderste SELECT (HAVING virker ikke uden b-join længere).
+    // Bygges som ekstra outer-where (se nedenfor).
+    const orderFilters = [];
+    if (order_after)  { orderFilters.push('last_order_date >= ?'); args.push(order_after); }
+    if (order_before) { orderFilters.push('last_order_date <= ?'); args.push(order_before); }
 
     const stageFilter = stage && stage !== 'all'
         ? `AND aggregated_stage = ?` : '';
     if (stageFilter) args.push(stage);
 
     const havingClause = having.length > 0 ? 'HAVING ' + having.join(' AND ') : '';
+    const orderFilterClause = orderFilters.length > 0 ? 'AND ' + orderFilters.join(' AND ') : '';
     args.push(limit);
 
+    // VIGTIGT: bons-stats beregnes via subqueries, IKKE via LEFT JOIN bons.
+    // Hvis vi joiner bons direkte mens vi også joiner customers, multiplicerer SUM/MAX
+    // sig med antallet af kontakter under firmaet (84 bons × 39 kontakter = 12,5 mio kr
+    // i stedet for de reelle 321k). Subqueries holder hver aggregering isoleret.
     const sql = `
         WITH agg AS (
             SELECT co.id,
@@ -576,14 +585,18 @@ router.get('/companies', handle((req, res) => {
                    co.cvr,
                    co.ean,
                    co.last_enriched_at,
-                   COUNT(DISTINCT c.id)        AS contact_count,
-                   COUNT(DISTINCT b.id)        AS total_orders,
-                   COALESCE(SUM(b.total_price), 0) AS total_revenue,
-                   MAX(b.delivery_date)        AS last_order_date,
-                   CAST(julianday('now') - julianday(MAX(b.delivery_date)) AS INTEGER) AS days_since_last,
+                   COUNT(DISTINCT c.id) AS contact_count,
+                   (SELECT COUNT(*)              FROM bons WHERE company_id = co.id AND is_internal = 0 AND (is_offer = 0 OR is_offer IS NULL)) AS total_orders,
+                   (SELECT COALESCE(SUM(total_price), 0) FROM bons WHERE company_id = co.id AND is_internal = 0 AND (is_offer = 0 OR is_offer IS NULL)) AS total_revenue,
+                   (SELECT MAX(delivery_date)    FROM bons WHERE company_id = co.id AND is_internal = 0 AND (is_offer = 0 OR is_offer IS NULL)) AS last_order_date,
+                   (SELECT CAST(julianday('now') - julianday(MAX(delivery_date)) AS INTEGER)
+                      FROM bons WHERE company_id = co.id AND is_internal = 0 AND (is_offer = 0 OR is_offer IS NULL)) AS days_since_last,
                    CASE
                        WHEN MAX(CASE WHEN cm.stage = 'vip' THEN 1 ELSE 0 END) = 1 THEN 'vip'
-                       WHEN MAX(b.delivery_date) IS NULL OR julianday('now') - julianday(MAX(b.delivery_date)) > 180 THEN 'dormant'
+                       WHEN (SELECT MAX(delivery_date) FROM bons WHERE company_id = co.id AND is_internal = 0 AND (is_offer = 0 OR is_offer IS NULL)) IS NULL
+                            OR julianday('now') - julianday(
+                                (SELECT MAX(delivery_date) FROM bons WHERE company_id = co.id AND is_internal = 0 AND (is_offer = 0 OR is_offer IS NULL))
+                            ) > 180 THEN 'dormant'
                        ELSE 'active'
                    END AS aggregated_stage,
                    (SELECT COUNT(*) FROM entity_flags ef
@@ -593,13 +606,12 @@ router.get('/companies', handle((req, res) => {
               FROM companies co
          LEFT JOIN customers c ON c.company_id = co.id AND c.is_active = 1
          LEFT JOIN crm_customer_meta cm ON cm.customer_id = c.id
-         LEFT JOIN bons b ON b.company_id = co.id AND b.is_internal = 0
              WHERE ${where.join(' AND ')}
           GROUP BY co.id
             ${havingClause}
         )
         SELECT * FROM agg
-         WHERE 1=1 ${stageFilter}
+         WHERE 1=1 ${stageFilter} ${orderFilterClause}
       ORDER BY total_revenue DESC, contact_count DESC, name ASC
          LIMIT ?
     `;

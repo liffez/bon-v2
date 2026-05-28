@@ -124,7 +124,10 @@
 
 .cf-row {
     display: grid;
-    grid-template-columns: 1fr 220px 160px;
+    /* 4 kolonner: checkbox (auto-bredde), navn/meta (1fr), stats (220px), trail (160px).
+       Hvis checkboxen mangler i HTML'en (fx ved Fase 1-snapshot), bruger første grid-celle
+       sig automatisk på navn-blokken — der er en grid-item-overrride i .cf-main mod det. */
+    grid-template-columns: auto 1fr 220px 160px;
     gap: 16px;
     align-items: center;
     padding: 14px 18px;
@@ -237,9 +240,10 @@
 
 @media (max-width: 760px) {
     .cf-row {
-        grid-template-columns: 1fr;
+        grid-template-columns: auto 1fr;
         gap: 8px;
     }
+    .cf-main, .cf-stats, .cf-trail { grid-column: 2; }
     .cf-stats { gap: 14px; }
     .cf-trail { text-align: left; }
 }
