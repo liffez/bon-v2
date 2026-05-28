@@ -10,6 +10,24 @@
 
 ---
 
+## Implementeringsstatus (pr. 28. maj 2026)
+
+| Fase | Status | Reference |
+|------|--------|-----------|
+| 0 — `services/companyMatcher.js` | ✅ Implementeret | commit `154e1ba` (PR #30) |
+| 1 — DB foundation + CRUD + consent-UI | ✅ Implementeret | commit `a0366d0` (PR #31), migration 084 |
+| status-rename `quote_sent → contacted` | ✅ Implementeret | commit `01a30ef` (PR #36), migration 085 |
+| 2 — Multi-select + `AddToCampaignModal` i Kunder/Firmaer | ✅ Implementeret | commit `8c09858` (PR #34) |
+| 2b — Select-mode på `crm-prospekter` / `crm-reaktivering` / `crm-kundeindsigt` | 🟡 **Ikke implementeret — planlagt nu** | se §2.3 nedenfor |
+| 3 — Paste-import (`campaign-import.js`) | ✅ Implementeret | commit `96aec49` (PR #38) |
+| 4 — Pipeline-board + drag-drop + multi-kampagne-modal | ✅ Implementeret | commit `5359c16` (PR #35) |
+| 5 — Reaktiverings-kampagner fra sovende kunder | ✅ Implementeret | commit `24fa2da` (PR #39) |
+| 6 — Mass-email | ⛔ Udestår — afventer separat spec | `docs/CLAUDE_OUTREACH_MAIL.md` (ikke skrevet) |
+
+**Næste skridt:** Fase 2b (select-mode på de tre CRM-lister) — beskrevet i §2.3. Fase 6 venter på egen spec.
+
+---
+
 ## Mål
 
 Tre tæt-koblede problemer løses i samme stak:
@@ -698,6 +716,80 @@ window.AddToCampaignModal = {
 ```
 
 Server-side har vi allerede dedup + jura-validering, så modalen behøver ikke gentage logik — den viser bare resultatet pænt.
+
+### 2.3 Select-mode udvides til CRM-lister (Fase 2b)
+
+> **Implementeringsstatus:** Fase 2 i form af `AddToCampaignModal` integreret i `crm-firmaer.js` + `crm-kunde360.js` er ✅ deployet. Denne sub-fase udvider mønstret til de tre strategiske CRM-lister hvor outreach-beslutninger faktisk træffes.
+
+Prospekter, reaktivering og kundeindsigt er allerede pre-kvalificerede populationer — det er præcis her cherry-picking giver mest værdi. I dag er listerne læse-views med kun en "Profil"-knap pr. række; select-mode lukker actionen.
+
+**Berørte views:**
+- `office/views/crm-prospekter.js` — cold leads (firmaer uden ordrer endnu)
+- `office/views/crm-reaktivering.js` — sovende kunder/firmaer
+- `office/views/crm-kundeindsigt.js` — segmenterede data (RFM, kategori, sentiment)
+
+**Delt komponent:** `shared/list_campaign_select.js` + `shared/list_campaign_select.css`
+
+```javascript
+// shared/list_campaign_select.js
+window.ListCampaignSelect = {
+    /**
+     * Tilføjer select-mode-toggle + checkbox-kolonne + footer-bar til en eksisterende liste.
+     *
+     * @param {HTMLElement} hostEl - container hvor toolbar-knap mountes
+     * @param {Object} opts
+     * @param {() => HTMLElement[]} opts.getRows - returnerer aktuelle DOM-rækker (efter filter)
+     * @param {(row) => { company_id?, customer_id? }} opts.getEntityFromRow - udtræk entity-IDs
+     * @param {string} opts.contextName - "Prospekter" / "Reaktivering" / "Kundeindsigt"
+     * @param {() => string} opts.suggestedCampaignName - default-navn til ny kampagne
+     * @param {() => void} [opts.onChange] - kaldes når selection ændrer sig
+     */
+    attach(hostEl, opts) { /* ... */ },
+
+    /** Tving select-mode off + ryd valg (kaldes ved view-skift). */
+    detach() { /* ... */ }
+};
+```
+
+**UX-detaljer:**
+
+- **Toggle, ikke altid-on:** `[ ✓ Vælg til kampagne ]`-knap øverst i toolbar. Off-by-default. Aktiveret → checkbox-kolonne yderst til venstre + footer-bar nede.
+- **Selection persisterer på tværs af filter-ændringer.** Hvis brugeren vælger 5, ændrer filter, og 3 ud af 5 ikke længere er synlige: footer viser `"5 valgt (2 synlige med aktuelt filter)"`.
+- **"Vælg alle synlige" respekterer aktivt filter** — kun rækker der p.t. er i DOM'en (efter filter) tagges.
+- **Pre-fyldt kampagne-navn pr. kontekst:** Prospekter → `"Outreach <måned>"`, Reaktivering → `"Reaktivering Q<kvartal>"`, Kundeindsigt → `"<segment-navn> – <måned>"`. Brugeren kan overskrive.
+- **Eksisterende række-actions bevares** (Profil, Aktiv etc.) — checkbox + actions side om side, ikke exclusive.
+- **B2C/B2B-jura håndteres serverside** som hidtil (`POST /api/campaigns/:id/members` skipper og rapporterer) — komponenten kender ikke reglerne.
+- **Selection ryddes ved view-skift** (`detach()` kaldes i view's cleanup-funktion). Ingen persistens på tværs af views.
+
+**Mount-mønster i hver view:**
+
+```javascript
+// f.eks. office/views/crm-prospekter.js
+function initProspekter() {
+    // ... eksisterende init ...
+    ListCampaignSelect.attach(document.getElementById('pros-toolbar'), {
+        getRows: () => document.querySelectorAll('#pros-table tbody tr'),
+        getEntityFromRow: (row) => ({ company_id: parseInt(row.dataset.companyId) }),
+        contextName: 'Prospekter',
+        suggestedCampaignName: () => `Outreach ${danishMonth()}`
+    });
+}
+function cleanupProspekter() {
+    ListCampaignSelect.detach();
+}
+```
+
+**Test-spec:**
+
+| Test | Forventet |
+|------|-----------|
+| Toggle on på prospekter | Checkbox-kolonne dukker op, footer-bar tom |
+| Vælg 3 firmaer | Footer: "3 valgt", "Tilføj til kampagne"-knap aktiv |
+| Filtrer listen så 1 valgt bliver skjult | Footer: "3 valgt (2 synlige med aktuelt filter)" |
+| Vælg alle synlige | Kun rækker i nuværende filter tagges |
+| Klik "Tilføj til kampagne" → opret ny | `AddToCampaignModal` åbner med pre-fyldt navn fra `suggestedCampaignName()` |
+| Skift view (fx til reaktivering) | `detach()` kaldes, valg ryddes, toggle resettes |
+| Skift filter mens valg er aktivt | Valg bevares; usynlige tællt i parentes |
 
 ### Test-spec for fase 2
 

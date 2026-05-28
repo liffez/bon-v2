@@ -25,7 +25,35 @@ function initCrmKundeindsigt(container) {
 function cleanupCrmKundeindsigt() {
     _kiActive = false;
     if (_kiDebounce) clearTimeout(_kiDebounce);
+    if (window.ListCampaignSelect) window.ListCampaignSelect.detach();
     _kiContainer = null;
+}
+
+function _kiWireSelect() {
+    if (!window.ListCampaignSelect || !_kiContainer) return;
+    const toolbar = _kiContainer.querySelector('.ki-filters');
+    const host = _kiContainer.querySelector('.ki-table tbody');
+    if (!toolbar || !host) return;
+    window.ListCampaignSelect.attach({
+        hostEl: host,
+        toolbarEl: toolbar,
+        contentEl: _kiContainer.querySelector('.ki-table-wrap'),
+        rowSelector: 'tr[data-company-id]',
+        getEntityFromRow: (row) => ({
+            company_id: parseInt(row.dataset.companyId, 10) || null,
+            customer_id: parseInt(row.dataset.customerId, 10) || null,
+            name: row.dataset.name || '',
+        }),
+        contextName: 'Kundeindsigt',
+        suggestedCampaignName: () => {
+            const seg = _kiStageFilter
+                ? ({ vip: 'VIP', active: 'Aktive', dormant: 'Sovende', lead: 'Leads' }[_kiStageFilter] || 'Kunder')
+                : 'Kunder';
+            const months = ['jan','feb','mar','apr','maj','jun','jul','aug','sep','okt','nov','dec'];
+            const d = new Date();
+            return `${seg} – ${months[d.getMonth()]} ${d.getFullYear()}`;
+        },
+    });
 }
 
 function _kiHandleSSE(event) {
@@ -228,13 +256,39 @@ function _kiRenderMain() {
                     <th style="width:70px">Branche</th>
                     <th style="width:90px">Sidst ordre</th>
                 </tr></thead>
-                <tbody>
+                <tbody id="ki-tbody">
                     ${(rows || []).map(r => _kiRow(r)).join('')}
                 </tbody>
             </table>
         </div>
     `;
     });
+
+    // Delegeret række-klik: i select-mode toggles valg; ellers åbnes firma/kunde
+    const tbody = el.querySelector('#ki-tbody');
+    if (tbody && !tbody._kiClickBound) {
+        tbody.addEventListener('click', (e) => {
+            if (e.target.closest('button, a, input, select, textarea')) return;
+            const row = e.target.closest('tr[data-company-id]');
+            if (!row) return;
+            if (window.ListCampaignSelect && window.ListCampaignSelect.handleRowClick(row)) return;
+            // Default: åbn firma- eller kundeprofil
+            const isPersonal = row.dataset.personal === '1';
+            const cid = parseInt(row.dataset.customerId, 10) || 0;
+            const compId = parseInt(row.dataset.companyId, 10) || 0;
+            const name = row.dataset.name || '';
+            if (isPersonal && cid) {
+                _kiOpenCustomer(cid);
+            } else if (compId) {
+                _kiOpenCompany(compId, name);
+            }
+        });
+        tbody._kiClickBound = true;
+    }
+
+    // Mount/re-bind ListCampaignSelect (idempotent ved samme contextName)
+    _kiWireSelect();
+    if (window.ListCampaignSelect) window.ListCampaignSelect.refresh();
 }
 
 function _kiRow(r) {
@@ -242,13 +296,14 @@ function _kiRow(r) {
     const stLabel = { vip: 'VIP', active: 'Aktiv', dormant: 'Sovende', lead: 'Lead' }[r.stage] || r.stage;
     const name = r.is_personal ? (r.primary_contact_name || r.name) : r.name;
     const daysAgo = r.days_since_last != null ? r.days_since_last + 'd' : '—';
-    const safeName = (r.name || '').replace(/'/g, "\\'");
     // Privat-firmaer (én kontakt = én person) springer firma-listen over
     // og åbner profilen direkte. Rigtige firmaer åbner kontaktlisten.
-    const onclick = r.is_personal && r.primary_customer_id
-        ? `_kiOpenCustomer(${r.primary_customer_id})`
-        : `_kiOpenCompany(${r.company_id || 0}, '${safeName}')`;
-    return `<tr style="cursor:pointer" onclick="${onclick}">
+    // Klik-routing håndteres af delegeret listener på #ki-tbody (læser data-attributter).
+    return `<tr style="cursor:pointer"
+                data-company-id="${r.company_id || 0}"
+                data-customer-id="${r.primary_customer_id || 0}"
+                data-personal="${r.is_personal ? '1' : '0'}"
+                data-name="${_kiAttr(r.name)}">
         <td>
             <strong>${_kiEsc(name)}</strong>
             ${r.branch ? '<br><span style="font-size:11px;color:#888">' + _kiEsc(r.branch) + '</span>' : ''}
@@ -347,4 +402,8 @@ function _kiOpenCompany(companyId, companyName) {
 function _kiEsc(s) {
     if (!s) return '';
     return s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+}
+
+function _kiAttr(s) {
+    return String(s || '').replace(/&/g, '&amp;').replace(/"/g, '&quot;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
 }

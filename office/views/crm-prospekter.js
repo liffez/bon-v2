@@ -14,13 +14,41 @@ function initCrmProspekter(container) {
     _prosContainer = container;
     _prosActive = true;
     container.innerHTML = _prosShellHtml();
+    _prosWireSelect();
     _prosLoadData();
 }
 
 function cleanupCrmProspekter() {
     _prosActive = false;
     if (_prosDebounce) clearTimeout(_prosDebounce);
+    if (window.ListCampaignSelect) window.ListCampaignSelect.detach();
     _prosContainer = null;
+}
+
+function _prosWireSelect() {
+    if (!window.ListCampaignSelect || !_prosContainer) return;
+    const toolbar = _prosContainer.querySelector('.pros-toolbar');
+    const host = _prosContainer.querySelector('#pros-list');
+    if (!toolbar || !host) return;
+    window.ListCampaignSelect.attach({
+        hostEl: host,
+        toolbarEl: toolbar,
+        contentEl: host,
+        rowSelector: '.pros-card',
+        getEntityFromRow: (row) => ({
+            company_id: parseInt(row.dataset.companyId, 10) || null,
+            customer_id: parseInt(row.dataset.customerId, 10) || null,
+            name: row.dataset.name || '',
+        }),
+        contextName: 'Prospekter',
+        suggestedCampaignName: () => `Outreach ${_prosDanishMonth()}`,
+    });
+}
+
+function _prosDanishMonth() {
+    const months = ['januar','februar','marts','april','maj','juni','juli','august','september','oktober','november','december'];
+    const d = new Date();
+    return `${months[d.getMonth()]} ${d.getFullYear()}`;
 }
 
 function _prosHandleSSE(event) {
@@ -150,11 +178,13 @@ function _prosRender() {
         const fit = p.icp_fit || 0;
         const fitCls = fit >= 50 ? 'pros-fit-high' : fit >= 25 ? 'pros-fit-mid' : 'pros-fit-low';
         const cid = p.primary_customer_id || 0;
-        const nameAttr = cid ? ` style="cursor:pointer" onclick="_prosOpenProfile(${cid})" title="Åbn kundeprofil"` : '';
+        const isClickable = cid || p.company_id;
+        const cardStyle = isClickable ? ' style="cursor:pointer"' : '';
+        const nameTitle = cid ? ' title="Åbn kundeprofil"' : '';
         return `
-        <div class="pros-card">
+        <div class="pros-card" data-company-id="${p.company_id || 0}" data-customer-id="${cid}" data-name="${_prosAttr(p.name)}"${cardStyle}>
             <div class="pros-info">
-                <div class="pros-name"${nameAttr}>${_prosEsc(p.name)}</div>
+                <div class="pros-name"${nameTitle}>${_prosEsc(p.name)}</div>
                 <div class="pros-meta">
                     ${p.branch ? p.branch + ' · ' : ''}
                     ${p.employee_count ? p.employee_count + ' ansatte · ' : ''}
@@ -173,6 +203,29 @@ function _prosRender() {
             </div>
         </div>`;
     }).join('');
+
+    // Delegeret række-klik: i select-mode toggles valg; ellers åbnes profil
+    if (!list._prosClickBound) {
+        list.addEventListener('click', (e) => {
+            // Knapper og links har egen handler — lad dem passere
+            if (e.target.closest('button, a')) return;
+            const card = e.target.closest('.pros-card');
+            if (!card) return;
+            // Select-mode: ListCampaignSelect overtager
+            if (window.ListCampaignSelect && window.ListCampaignSelect.handleRowClick(card)) return;
+            // Default: åbn profil hvis customer findes
+            const cid = parseInt(card.dataset.customerId, 10) || 0;
+            if (cid) _prosOpenProfile(cid);
+        });
+        list._prosClickBound = true;
+    }
+
+    // Genskab visuel state for valgte rækker efter re-render
+    if (window.ListCampaignSelect) window.ListCampaignSelect.refresh();
+}
+
+function _prosAttr(s) {
+    return String(s || '').replace(/&/g, '&amp;').replace(/"/g, '&quot;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
 }
 
 function _prosOnSearch(val) {

@@ -14,13 +14,35 @@ function initCrmReaktivering(container) {
     _reakContainer = container;
     _reakActive = true;
     container.innerHTML = _reakShellHtml();
+    _reakWireSelect();
     _reakLoadData();
 }
 
 function cleanupCrmReaktivering() {
     _reakActive = false;
     if (_reakDebounce) clearTimeout(_reakDebounce);
+    if (window.ListCampaignSelect) window.ListCampaignSelect.detach();
     _reakContainer = null;
+}
+
+function _reakWireSelect() {
+    if (!window.ListCampaignSelect || !_reakContainer) return;
+    const toolbar = _reakContainer.querySelector('.reak-header');
+    const host = _reakContainer.querySelector('#reak-list');
+    if (!toolbar || !host) return;
+    window.ListCampaignSelect.attach({
+        hostEl: host,
+        toolbarEl: toolbar,
+        contentEl: host,
+        rowSelector: '.reak-card',
+        getEntityFromRow: (row) => ({
+            company_id: parseInt(row.dataset.companyId, 10) || null,
+            customer_id: parseInt(row.dataset.customerId, 10) || null,
+            name: row.dataset.name || '',
+        }),
+        contextName: 'Reaktivering',
+        suggestedCampaignName: () => `Reaktivering Q${Math.floor(new Date().getMonth() / 3) + 1} ${new Date().getFullYear()}`,
+    });
 }
 
 function _reakHandleSSE(event) {
@@ -108,12 +130,14 @@ function _reakRender() {
         const name = r.is_personal ? (r.primary_contact_name || r.name) : r.name;
         const opener = _reakBuildOpener(r);
         const cid = r.primary_customer_id || 0;
-        const nameAttr = cid ? ` style="cursor:pointer" onclick="_reakOpenProfile(${cid})" title="\u00c5bn kundeprofil"` : '';
+        const isClickable = cid || r.company_id;
+        const cardStyle = isClickable ? ' style="cursor:pointer"' : '';
+        const nameTitle = cid ? ' title="\u00c5bn kundeprofil"' : '';
         return `
-        <div class="reak-card" id="reak-card-${i}">
+        <div class="reak-card" id="reak-card-${i}" data-company-id="${r.company_id || 0}" data-customer-id="${cid}" data-name="${_reakAttr(name)}"${cardStyle}>
             <div class="reak-top">
                 <div>
-                    <div class="reak-name"${nameAttr}>${_reakEsc(name)}</div>
+                    <div class="reak-name"${nameTitle}>${_reakEsc(name)}</div>
                     <div class="reak-meta">
                         ${r.branch ? r.branch + ' \u00b7 ' : ''}
                         ${r.order_count} ordrer \u00b7 Sidst: ${r.last_order_date || '?'}
@@ -154,6 +178,25 @@ function _reakRender() {
             </div>
         </div>`;
     }).join('');
+
+    // Delegeret række-klik: i select-mode toggles valg; ellers åbnes profil
+    if (!list._reakClickBound) {
+        list.addEventListener('click', (e) => {
+            if (e.target.closest('button, a, select, textarea, input')) return;
+            const card = e.target.closest('.reak-card');
+            if (!card) return;
+            if (window.ListCampaignSelect && window.ListCampaignSelect.handleRowClick(card)) return;
+            const cid = parseInt(card.dataset.customerId, 10) || 0;
+            if (cid) _reakOpenProfile(cid);
+        });
+        list._reakClickBound = true;
+    }
+
+    if (window.ListCampaignSelect) window.ListCampaignSelect.refresh();
+}
+
+function _reakAttr(s) {
+    return String(s || '').replace(/&/g, '&amp;').replace(/"/g, '&quot;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
 }
 
 function _reakBuildOpener(r) {
