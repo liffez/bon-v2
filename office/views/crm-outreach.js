@@ -33,9 +33,11 @@ async function initCrmOutreach(container) {
     _coShowLost = params.get('lost') === '1';
 
     _coRenderShell();
-    // Wire "+ Ny kampagne"-knap (én gang, ved shell-render)
+    // Wire toolbar-knapper (én gang, ved shell-render)
     const newBtn = document.getElementById('co-new-btn');
     if (newBtn) newBtn.addEventListener('click', _coOpenNewCampaignModal);
+    const importBtn = document.getElementById('co-import-btn');
+    if (importBtn) importBtn.addEventListener('click', _coOpenImportDrawer);
     await _coLoadCampaigns();
     await _coLoadPipeline();
 }
@@ -270,6 +272,7 @@ function _coRenderShell() {
                     <option>Henter…</option>
                 </select>
                 <button class="co-new-btn" id="co-new-btn" type="button">+ Ny kampagne</button>
+                <button class="co-new-btn co-import-btn" id="co-import-btn" type="button" style="display:none;background:var(--color-surface,#fff);color:var(--brand-primary,#8e631f);border:1px solid var(--brand-primary,#8e631f);">📋 Importér</button>
                 <span style="flex:1"></span>
                 <span class="co-toolbar-label" id="co-summary"></span>
             </div>
@@ -307,8 +310,32 @@ function _coRenderSelector() {
         if (_coActiveCampaign) url.searchParams.set('campaign', _coActiveCampaign);
         else url.searchParams.delete('campaign');
         history.replaceState({}, '', url);
+        _coUpdateImportBtn();
         _coLoadPipeline();
     };
+    _coUpdateImportBtn();
+}
+
+function _coUpdateImportBtn() {
+    // Import-knap vises kun når en specifik kampagne er valgt (paste-import
+    // tilføjer til ÉN kampagne — "alle aktive kampagner" giver ikke mening).
+    const btn = document.getElementById('co-import-btn');
+    if (!btn) return;
+    btn.style.display = _coActiveCampaign ? '' : 'none';
+}
+
+function _coOpenImportDrawer() {
+    if (!_coActiveCampaign) return;
+    if (typeof window.CampaignImportDrawer?.open !== 'function') {
+        alert('Import-komponent ikke loadet');
+        return;
+    }
+    const camp = _coCampaigns.find(c => c.id === _coActiveCampaign);
+    window.CampaignImportDrawer.open({
+        campaignId: _coActiveCampaign,
+        campaignName: camp?.name || ('Kampagne #' + _coActiveCampaign),
+        onDone: () => { _coLoadPipeline(); },
+    });
 }
 
 function _coRenderBoard() {

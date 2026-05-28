@@ -15,6 +15,7 @@ const { getDb } = require('../db/database');
 const { handle, logChange, transaction } = require('../db/helpers');
 const { requireAuth } = require('../shared/auth');
 const { broadcast } = require('../shared/sse');
+const { matchCompany } = require('../services/companyMatcher');
 
 // Outreach er CRM-følsom: ingen anonym adgang. Spec sektion 1.2 nævner ikke
 // rolle-restriktion (alle indloggede må læse + skrive), så ingen rolle-args.
@@ -510,6 +511,223 @@ router.delete('/:campaignId/members/:memberId', handle((req, res) => {
     });
     broadcast('campaign_member_removed', { campaign_id: campaignId, member_id: memberId });
     res.json({ ok: true });
+}));
+
+// ─── PASTE-IMPORT (Fase 3) ──────────────────────────────────
+
+// Sanér en input-række til canonical form. Returnerer null hvis intet brugbart.
+function _cleanRow(row) {
+    const out = {};
+    for (const [k, v] of Object.entries(row || {})) {
+        if (v == null) continue;
+        const s = String(v).trim();
+        if (s) out[k] = s;
+    }
+    // Mindst ét af firmanavn/CVR/EAN/email skal være sat for at det er brugbart
+    if (!out.name && !out.cvr && !out.ean && !out.email) return null;
+    return out;
+}
+
+// POST /api/campaigns/:id/import-preview
+// Body: { rows: [{ name, cvr, ean, email, phone, contact_person, city, postcode, address, notes }, ...] }
+// Returnerer for hver række: match_type, match_company_id, match_company_name, match_confidence,
+// suggested_action ∈ { use_existing | review | create_new | skip }, og dedup-tjek.
+//
+// suggested_action-regler:
+//   confidence ≥ 0.95          → use_existing
+//   0.85 ≤ confidence < 0.95   → review (kræver manuel bekræftelse)
+//   ingen match                → create_new (hvis firmanavn er sat) ellers skip
+router.post('/:id/import-preview', handle((req, res) => {
+    const db = getDb();
+    const campaignId = parseInt(req.params.id);
+    const rows = Array.isArray(req.body?.rows) ? req.body.rows : [];
+    if (!rows.length) return res.status(400).json({ error: 'no_rows' });
+    if (rows.length > 5000) return res.status(400).json({ error: 'too_many_rows', max: 5000 });
+
+    // Kampagnen skal eksistere og være aktiv
+    const camp = db.prepare('SELECT id, is_active FROM outreach_campaigns WHERE id = ?').get(campaignId);
+    if (!camp) return res.status(404).json({ error: 'campaign_not_found' });
+    if (camp.is_active === 0) return res.status(409).json({ error: 'campaign_closed' });
+
+    // Cache eksisterende kampagne-medlemmer for dedup-check
+    const existingMembers = db.prepare(`
+        SELECT company_id FROM campaign_members WHERE campaign_id = ? AND company_id IS NOT NULL
+    `).all(campaignId);
+    const existingCompanyIds = new Set(existingMembers.map(m => m.company_id));
+
+    const preview = [];
+    for (let i = 0; i < rows.length; i++) {
+        const clean = _cleanRow(rows[i]);
+        if (!clean) {
+            preview.push({
+                row_index: i,
+                input: rows[i],
+                match_type: null,
+                suggested_action: 'skip',
+                reason: 'empty_row',
+            });
+            continue;
+        }
+        const match = matchCompany(db, {
+            name: clean.name,
+            cvr: clean.cvr,
+            ean: clean.ean,
+            email: clean.email,
+            city: clean.city,
+        });
+
+        let suggested_action;
+        let already_member = false;
+        if (match) {
+            already_member = existingCompanyIds.has(match.company_id);
+            if (already_member) {
+                suggested_action = 'skip';
+            } else if (match.confidence >= 0.95) {
+                suggested_action = 'use_existing';
+            } else {
+                suggested_action = 'review';
+            }
+        } else {
+            // Ingen match — kan vi oprette nyt firma? Kræver mindst et firmanavn.
+            suggested_action = clean.name ? 'create_new' : 'skip';
+        }
+
+        preview.push({
+            row_index: i,
+            input: clean,
+            match_type: match?.match_type || null,
+            match_company_id: match?.company_id || null,
+            match_company_name: match?.company_name || null,
+            match_confidence: match?.confidence || null,
+            already_member,
+            suggested_action,
+        });
+    }
+
+    res.json({ rows: preview, count: rows.length });
+}));
+
+// POST /api/campaigns/:id/import-commit
+// Body: { decisions: [{ row_index, action, company_id?, input? }, ...] }
+//   action ∈ { use_existing | create_new | skip }
+//   - use_existing kræver company_id
+//   - create_new kræver input med mindst { name }
+//
+// Server kører ALT i én transaktion. Hvis nogen handling fejler, rulles ALT tilbage.
+router.post('/:id/import-commit', handle((req, res) => {
+    const db = getDb();
+    const campaignId = parseInt(req.params.id);
+    const userId = req.session?.userId ?? null;
+    const decisions = Array.isArray(req.body?.decisions) ? req.body.decisions : [];
+    if (!decisions.length) return res.status(400).json({ error: 'no_decisions' });
+
+    const camp = db.prepare('SELECT id, is_active FROM outreach_campaigns WHERE id = ?').get(campaignId);
+    if (!camp) return res.status(404).json({ error: 'campaign_not_found' });
+    if (camp.is_active === 0) return res.status(409).json({ error: 'campaign_closed' });
+
+    const result = {
+        added: 0,
+        new_companies_created: 0,
+        skipped: [],
+        new_company_ids: [],
+        new_member_ids: [],
+    };
+
+    const insertCompany = db.prepare(`
+        INSERT INTO companies (name, cvr, ean, phone, email, notes, is_active, is_internal)
+        VALUES (?, ?, ?, ?, ?, ?, 1, 0)
+    `);
+    const insertMember = db.prepare(`
+        INSERT INTO campaign_members (campaign_id, company_id, notes, added_by_user_id)
+        VALUES (?, ?, ?, ?)
+    `);
+
+    try {
+        transaction(db, () => {
+            for (const d of decisions) {
+                const idx = d.row_index;
+                let companyId = null;
+
+                if (d.action === 'skip') {
+                    result.skipped.push({ row_index: idx, reason: 'user_skipped' });
+                    continue;
+                }
+
+                if (d.action === 'use_existing') {
+                    if (!d.company_id) {
+                        result.skipped.push({ row_index: idx, reason: 'missing_company_id' });
+                        continue;
+                    }
+                    // Verificér firma findes og ikke er internt
+                    const co = db.prepare('SELECT id FROM companies WHERE id = ? AND is_internal = 0').get(d.company_id);
+                    if (!co) {
+                        result.skipped.push({ row_index: idx, reason: 'company_not_found' });
+                        continue;
+                    }
+                    companyId = co.id;
+                } else if (d.action === 'create_new') {
+                    const input = d.input || {};
+                    const name = input.name && String(input.name).trim();
+                    if (!name) {
+                        result.skipped.push({ row_index: idx, reason: 'missing_name' });
+                        continue;
+                    }
+                    const r = insertCompany.run(
+                        name,
+                        input.cvr || null,
+                        input.ean || null,
+                        input.phone || null,
+                        input.email || null,
+                        input.notes || null,
+                    );
+                    companyId = r.lastInsertRowid;
+                    result.new_companies_created++;
+                    result.new_company_ids.push(companyId);
+                    logChange({
+                        entityType: 'company',
+                        entityId: companyId,
+                        action: 'create',
+                        newValue: JSON.stringify({ name, source: 'campaign_import' }),
+                        userId,
+                    });
+                } else {
+                    result.skipped.push({ row_index: idx, reason: 'invalid_action' });
+                    continue;
+                }
+
+                // Tilføj som medlem (B2B alene — paste-import laver ikke privatkunder)
+                try {
+                    const r = insertMember.run(campaignId, companyId, d.input?.notes || null, userId);
+                    result.added++;
+                    result.new_member_ids.push(r.lastInsertRowid);
+                    logChange({
+                        entityType: 'campaign_member',
+                        entityId: r.lastInsertRowid,
+                        action: 'create',
+                        newValue: JSON.stringify({ campaign_id: campaignId, company_id: companyId, source: 'import' }),
+                        userId,
+                    });
+                } catch (e) {
+                    if (isUniqueViolation(e)) {
+                        result.skipped.push({ row_index: idx, reason: 'already_member' });
+                    } else {
+                        // Re-throw så transaktionen rulles tilbage
+                        throw e;
+                    }
+                }
+            }
+        });
+    } catch (err) {
+        return res.status(500).json({
+            error: 'commit_failed',
+            message: err.message || 'database fejl',
+        });
+    }
+
+    if (result.added > 0) {
+        broadcast('campaign_members_added', { campaign_id: campaignId, count: result.added });
+    }
+    res.json(result);
 }));
 
 module.exports = router;

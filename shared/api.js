@@ -775,6 +775,23 @@ function fetchCampaignPipeline(campaignId) {
     return apiFetch('/campaigns/pipeline' + qs);
 }
 
+// Paste-import (Fase 3): preview + commit.
+// preview returnerer match_type + suggested_action pr. række.
+// commit modtager pr-række beslutning og kører alt i én transaktion.
+function previewCampaignImport(campaignId, rows) {
+    return apiFetch('/campaigns/' + campaignId + '/import-preview', {
+        method: 'POST',
+        body: JSON.stringify({ rows: rows }),
+    });
+}
+
+function commitCampaignImport(campaignId, decisions) {
+    return apiFetch('/campaigns/' + campaignId + '/import-commit', {
+        method: 'POST',
+        body: JSON.stringify({ decisions: decisions }),
+    });
+}
+
 function patchCampaignMember(campaignId, memberId, payload) {
     return apiFetch('/campaigns/' + campaignId + '/members/' + memberId, {
         method: 'PATCH',
