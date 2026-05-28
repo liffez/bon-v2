@@ -792,6 +792,16 @@ function commitCampaignImport(campaignId, decisions) {
     });
 }
 
+// Smart-forslag (Fase 5): opret kampagne fra sovende kunder.
+// payload = { type: 'dormant', filter: { days_since_last, min_total_revenue },
+//             campaign_name, description?, owner_user_id?, assigned_user_id? }
+function createCampaignFromSuggestion(payload) {
+    return apiFetch('/campaigns/from-suggestion', {
+        method: 'POST',
+        body: JSON.stringify(payload),
+    });
+}
+
 function patchCampaignMember(campaignId, memberId, payload) {
     return apiFetch('/campaigns/' + campaignId + '/members/' + memberId, {
         method: 'PATCH',
