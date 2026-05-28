@@ -170,6 +170,11 @@ router.get('/', handle((req, res) => {
             (SELECT de.event_time FROM delivery_events de
              WHERE de.bon_id = b.id ORDER BY de.event_time DESC LIMIT 1
             ) AS latest_delivery_event_time,
+            (SELECT cl.created_at FROM changelog cl
+             WHERE cl.entity_type = 'bon' AND cl.entity_id = b.id
+               AND cl.action = 'status_change'
+             ORDER BY cl.created_at DESC LIMIT 1
+            ) AS latest_status_change_time,
             (SELECT COUNT(*) FROM entity_flags ef
              WHERE ef.dismissed_at IS NULL
                AND (

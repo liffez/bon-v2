@@ -213,6 +213,32 @@ router.get('/today', handle(async (req, res) => {
           AND COALESCE(b.pickup_time, b.delivery_time) >= TIME('now', 'localtime')
     `).get(today, ...TERMINAL_CODES);
 
+    // Status-fordeling for hele dagen (inkl. leveret) — driver "Dagens status"-tile
+    // på dashboardet. AFLYST + offers + interne udelades (samme regel som totals).
+    const statusBreakdownRows = db.prepare(`
+        SELECT sd.code AS status_code, sd.label AS status_label, sd.color AS status_color,
+               COUNT(*) AS count
+        FROM bons b
+        JOIN status_definitions sd ON b.status_id = sd.id
+        WHERE b.delivery_date = ?
+          AND sd.code != 'AFLYST'
+          AND COALESCE(b.is_offer, 0) = 0
+          AND COALESCE(b.is_internal, 0) = 0
+        GROUP BY sd.code, sd.label, sd.color
+    `).all(today);
+
+    // Tidspunkt for sidst leverede bon i dag — vises i tile-footer ("sidst leveret HH:MM").
+    // Bruger seneste status_change-changelog hvor new_value=LEVERET (datostempel = dansk lokal tid).
+    const lastDelivered = db.prepare(`
+        SELECT MAX(cl.created_at) AS last_time
+        FROM changelog cl
+        JOIN bons b ON cl.entity_id = b.id
+        WHERE cl.entity_type = 'bon'
+          AND cl.action = 'status_change'
+          AND cl.new_value = 'LEVERET'
+          AND b.delivery_date = ?
+    `).get(today);
+
     // Tomorrow prep status
     const tomorrow = _dateOffset(today, 1);
     const tomorrowBons = db.prepare(`
@@ -332,6 +358,8 @@ router.get('/today', handle(async (req, res) => {
         categories,
         alerts,
         next_pickup: nextPickup?.next_time || null,
+        last_delivered_time: lastDelivered?.last_time || null,
+        status_breakdown: statusBreakdownRows,
         tomorrow_prep,
         mtd,
         countdown_enabled: countdownEnabled,
