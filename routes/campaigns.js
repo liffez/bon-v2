@@ -52,6 +52,102 @@ router.get('/', handle((req, res) => {
     res.json(rows);
 }));
 
+// GET /api/campaigns/pipeline?campaign_id=X
+// Returnerer medlemmer grupperet pr. member_status (kanban-kolonner).
+// Uden campaign_id: medlemmer på tværs af alle aktive kampagner.
+// Med campaign_id: kun den ene kampagnes medlemmer.
+//
+// Spec: docs/CLAUDE_OUTREACH_KAMPAGNER.md Fase 4.
+// VIGTIGT: Placeret før '/:id' for at undgå at Express matcher 'pipeline' som :id.
+router.get('/pipeline', handle((req, res) => {
+    const db = getDb();
+    const campaignId = req.query.campaign_id ? parseInt(req.query.campaign_id) : null;
+
+    let where = 'WHERE oc.is_active = 1';
+    const args = [];
+    if (campaignId) {
+        where += ' AND m.campaign_id = ?';
+        args.push(campaignId);
+    }
+
+    // member_in_n_open_campaigns: korreleret subquery for at vide om kunden er i flere
+    // åbne kampagner samtidig (bruges i global-visning for at vise multi-kampagne-badge).
+    // Tæller kun aktive kampagner og ikke-terminal-status (won/lost regnes ikke).
+    const rows = db.prepare(`
+        SELECT
+            m.id AS member_id, m.campaign_id, m.member_status, m.lost_reason,
+            m.assigned_user_id, m.notes, m.added_at, m.last_activity_at,
+            m.company_id, m.customer_id,
+            oc.name AS campaign_name,
+            co.name AS company_name, co.cvr, co.ean,
+            addr.city AS company_city,
+            cu.first_name, cu.last_name,
+            cu.email AS customer_email, cu.phone AS customer_phone,
+            meta.marketing_consent, meta.do_not_contact,
+            u.name AS assigned_name,
+            CASE
+                WHEN m.customer_id IS NOT NULL THEN (
+                    SELECT COUNT(*) FROM campaign_members m2
+                    JOIN outreach_campaigns oc2 ON oc2.id = m2.campaign_id
+                    WHERE m2.customer_id = m.customer_id
+                      AND oc2.is_active = 1
+                      AND m2.member_status NOT IN ('won','lost')
+                )
+                ELSE 1
+            END AS in_n_open_campaigns
+        FROM campaign_members m
+        JOIN outreach_campaigns oc ON oc.id = m.campaign_id
+        LEFT JOIN companies co ON co.id = m.company_id
+        LEFT JOIN addresses addr ON addr.id = co.address_id
+        LEFT JOIN customers cu ON cu.id = m.customer_id
+        LEFT JOIN crm_customer_meta meta ON meta.customer_id = m.customer_id
+        LEFT JOIN users u ON u.id = m.assigned_user_id
+        ${where}
+        ORDER BY m.added_at DESC
+    `).all(...args);
+
+    // Klassificér kort-tilstand (firma alene / firma+kontakt / privatkunde)
+    const columns = {
+        lead:         { label: 'Lead',         members: [] },
+        quote_sent:   { label: 'Tilbud sendt', members: [] },
+        negotiating:  { label: 'Forhandling',  members: [] },
+        won:          { label: 'Vundet',       members: [] },
+        lost:         { label: 'Tabt',         members: [] },
+    };
+    for (const r of rows) {
+        const contact = ((r.first_name || '') + ' ' + (r.last_name || '')).trim() || null;
+        const cardType =
+            r.company_id && r.customer_id ? 'b2b_with_contact' :
+            r.company_id ? 'b2b_only' : 'b2c';
+
+        const item = {
+            member_id: r.member_id,
+            campaign_id: r.campaign_id,
+            campaign_name: r.campaign_name,
+            member_status: r.member_status,
+            lost_reason: r.lost_reason,
+            company_id: r.company_id,
+            customer_id: r.customer_id,
+            company_name: r.company_name,
+            company_city: r.company_city,
+            contact_person: contact,
+            assigned_user_id: r.assigned_user_id,
+            assigned_name: r.assigned_name,
+            added_at: r.added_at,
+            last_activity_at: r.last_activity_at,
+            card_type: cardType,
+            in_n_open_campaigns: r.in_n_open_campaigns,
+        };
+        const col = columns[r.member_status];
+        if (col) col.members.push(item);
+    }
+
+    res.json({
+        active_campaign_id: campaignId,
+        columns,
+    });
+}));
+
 // GET /api/campaigns/:id
 router.get('/:id', handle((req, res) => {
     const db = getDb();

@@ -767,6 +767,14 @@ function fetchCampaignMembers(campaignId, status) {
     return apiFetch('/campaigns/' + campaignId + '/members' + qs);
 }
 
+// Pipeline-board (Fase 4): kanban-grupperede medlemmer.
+// Uden campaign_id: alle aktive kampagners medlemmer (med campaign_name pr. kort).
+// Returnerer { active_campaign_id, columns: { lead, quote_sent, negotiating, won, lost } }
+function fetchCampaignPipeline(campaignId) {
+    var qs = campaignId ? ('?campaign_id=' + campaignId) : '';
+    return apiFetch('/campaigns/pipeline' + qs);
+}
+
 function patchCampaignMember(campaignId, memberId, payload) {
     return apiFetch('/campaigns/' + campaignId + '/members/' + memberId, {
         method: 'PATCH',

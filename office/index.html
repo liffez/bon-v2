@@ -741,6 +741,7 @@
   <script src="views/crm-firmaer.js"></script>
   <script src="views/crm-firma360.js"></script>
   <script src="views/kontakter.js"></script>
+  <script src="views/crm-outreach.js"></script>
   <script src="views/crm-inbox.js"></script>
   <script src="views/crm-kundeindsigt.js"></script>
   <script src="views/crm-reaktivering.js"></script>
@@ -888,6 +889,10 @@
           init: () => initKontakter(contentEl, { openDrawer }),
           cleanup: () => { if (typeof cleanupKontakter === 'function') cleanupKontakter(); },
         },
+        'crm-outreach': {
+          init: () => initCrmOutreach(contentEl),
+          cleanup: () => { if (typeof cleanupCrmOutreach === 'function') cleanupCrmOutreach(); },
+        },
         'crm-inbox': {
           init: () => initCrmInbox(contentEl, {}),
           cleanup: () => { if (typeof cleanupCrmInbox === 'function') cleanupCrmInbox(); },
@@ -979,6 +984,7 @@
         crm: [
           { id: 'pipeline', label: 'Pipeline', def: true },
           { id: 'kontakter', label: 'Kontakter' },
+          { id: 'outreach', label: 'Kampagner' },
           { id: 'indbakke', label: 'Indbakke', badge: 'crm_indbakke' },
           { id: 'prospekter', label: 'Prospekter' },
           { id: 'reakt', label: 'Re-aktivering' },
@@ -1018,6 +1024,7 @@
           _default: 'crm-dashboard',
           pipeline: 'crm-dashboard',
           kontakter: 'kontakter',
+          outreach: 'crm-outreach',
           indbakke: 'crm-inbox',
           prospekter: 'crm-prospekter',
           reakt: 'crm-reaktivering',
@@ -1428,6 +1435,13 @@
         crm_consent_updated: (data) => {
           if (typeof _k3HandleSSE === 'function') _k3HandleSSE('crm_consent_updated', data);
         },
+        // Outreach-kampagner (Fase 4): pipeline-board lytter på alle member-events
+        // + selve kampagnernes lifecycle.
+        campaign_created:        (data) => { if (typeof _coHandleSSE === 'function') _coHandleSSE('campaign_created', data); },
+        campaign_updated:        (data) => { if (typeof _coHandleSSE === 'function') _coHandleSSE('campaign_updated', data); },
+        campaign_members_added:  (data) => { if (typeof _coHandleSSE === 'function') _coHandleSSE('campaign_members_added', data); },
+        campaign_member_updated: (data) => { if (typeof _coHandleSSE === 'function') _coHandleSSE('campaign_member_updated', data); },
+        campaign_member_removed: (data) => { if (typeof _coHandleSSE === 'function') _coHandleSSE('campaign_member_removed', data); },
         rfm_computed: (data) => {
           if (typeof _kiHandleSSE === 'function') _kiHandleSSE('rfm_computed', data);
           if (typeof _reakHandleSSE === 'function') _reakHandleSSE('rfm_computed', data);
