@@ -159,6 +159,32 @@ function _dashRenderShell() {
             .od-clickable:active { transform: translateY(1px); }
             .od-cat-table tr.od-clickable:hover td { background: rgba(142,99,31,0.06); }
 
+            /* ══ DAGENS STATUS-BRIK ════════════════════════════════ */
+            .od-kpi-status .od-kpi-value { font-family: var(--font-heading, 'Playfair Display', Georgia, serif); }
+            .od-status-chips {
+                display: flex; flex-wrap: wrap; gap: 4px;
+                margin-top: 6px;
+            }
+            .od-status-chip {
+                display: inline-flex; align-items: center; gap: 5px;
+                padding: 2px 7px; border-radius: 10px;
+                font-size: 10.5px; font-weight: 700;
+                letter-spacing: .3px;
+                font-family: var(--font-body, 'DM Sans', system-ui, sans-serif);
+                line-height: 1.4;
+            }
+            .od-status-count {
+                border-radius: 8px; padding: 0 5px;
+                font-size: 10px; font-weight: 700;
+                font-variant-numeric: tabular-nums;
+            }
+            .od-status-foot {
+                font-size: 10.5px; color: var(--color-text-dim, #888);
+                margin-top: 6px;
+                font-variant-numeric: tabular-nums;
+            }
+            .od-status-foot strong { color: var(--color-text, #2a2520); font-weight: 600; }
+
             /* ══ CARDS ══════════════════════════════════════════════ */
             .od-card {
                 background: var(--color-surface, #fff);
@@ -604,6 +630,11 @@ function _dashRenderKPIs(data) {
     const lastYearRev   = mtd.last_year_revenue_excl_moms ?? mtd.last_year_revenue ?? 0;
     const unfactured    = mtd.unfactured_excl_moms    ?? mtd.unfactured    ?? 0;
 
+    // ── Dagens status-brik ──────────────────────────────────
+    // Bygger pills i fast rækkefølge (færdig → klar → i gang → godkendt → venter → ny)
+    // og samler alle terminal-statusser (LEVERET/FAKTURERET/BETALT/AFSLUTTET) under "LEV".
+    const statusTileHtml = _dashBuildStatusTile(data);
+
     el.innerHTML = `
         <div class="od-kpi od-clickable" data-goto="rapporter" title="Åbn Rapporter">
             <div class="od-kpi-value">${revenue.toLocaleString('da-DK')}</div>
@@ -615,6 +646,7 @@ function _dashRenderKPIs(data) {
             <div class="od-kpi-label">Enheder · ${month} MTD</div>
             <div class="od-kpi-sub">${delta(mtd.units, mtd.last_year_units)}</div>
         </div>
+        ${statusTileHtml}
         <div class="od-kpi od-clickable" data-goto="bons" data-filter="open" title="Vis åbne bons">
             <div class="od-kpi-value${openWarn}">${mtd.open_bons || 0}</div>
             <div class="od-kpi-label">Åbne bons</div>
@@ -624,6 +656,71 @@ function _dashRenderKPIs(data) {
             <div class="od-kpi-value${unfactWarn}">${unfactured.toLocaleString('da-DK')}</div>
             <div class="od-kpi-label">Ufaktureret (ex moms)</div>
             <div class="od-kpi-sub">Leverede bons uden faktura</div>
+        </div>
+    `;
+}
+
+// Bygger "Dagens status"-tile (Variant C — pille-række).
+// Tomme dage: viser et tomt-but-klikbart tile så layoutet ikke skifter mellem dage.
+function _dashBuildStatusTile(data) {
+    const breakdown = Array.isArray(data.status_breakdown) ? data.status_breakdown : [];
+    const totalBons = data.totals?.bon_count || 0;
+
+    // Saml terminal-statusser under "lev" så pillen ikke fragmenteres.
+    const TERMINAL = new Set(['LEVERET', 'FAKTURERET', 'BETALT', 'AFSLUTTET']);
+    const counts = {};
+    for (const row of breakdown) {
+        const fe = TERMINAL.has(row.status_code) ? 'lev' : (typeof statusToFrontend === 'function' ? statusToFrontend(row.status_code) : row.status_code.toLowerCase());
+        counts[fe] = (counts[fe] || 0) + (row.count || 0);
+    }
+
+    // Rækkefølge: færdig → klar → i gang → godkendt → venter → ny
+    const ORDER = ['lev', 'klar', 'igang', 'godkendt', 'venter', 'ny'];
+    const cfgMap = (typeof BON_CONFIG !== 'undefined' && BON_CONFIG.statuses) ? BON_CONFIG.statuses : {};
+
+    let chipsHtml = '';
+    for (const feKey of ORDER) {
+        const n = counts[feKey];
+        if (!n) continue;
+        const cfg = cfgMap[feKey] || {};
+        const bg = cfg.color || '#999';
+        const fg = cfg.text || '#fff';
+        const label = (cfg.label || feKey).toUpperCase();
+        // Tæller-badge bruger semi-transparent overlag der virker både på mørke og lyse pills.
+        const countBg = (fg === '#ffffff' || fg === '#fff') ? 'rgba(255,255,255,0.28)' : 'rgba(0,0,0,0.15)';
+        chipsHtml += `<span class="od-status-chip" style="background:${bg};color:${fg};">${esc(label)}<span class="od-status-count" style="background:${countBg};">${n}</span></span>`;
+    }
+
+    // Footer-linje: næste pickup + sidst leveret. Begge er valgfri.
+    const nextPickup = data.next_pickup ? data.next_pickup.slice(0, 5) : null;
+    let lastDel = null;
+    if (data.last_delivered_time) {
+        const d = typeof parseServerDate === 'function'
+            ? parseServerDate(data.last_delivered_time)
+            : new Date(data.last_delivered_time);
+        if (d && !isNaN(d.getTime())) {
+            lastDel = d.toLocaleTimeString('da-DK', { hour: '2-digit', minute: '2-digit' });
+        }
+    }
+    const footerParts = [];
+    if (nextPickup) footerParts.push(`Næste pickup <strong>${nextPickup}</strong>`);
+    if (lastDel)    footerParts.push(`Sidst leveret <strong>${lastDel}</strong>`);
+    const footerHtml = footerParts.length
+        ? `<div class="od-status-foot">${footerParts.join(' · ')}</div>`
+        : '';
+
+    const valueText = totalBons === 0
+        ? '<span style="opacity:.5;">Ingen bons</span>'
+        : `${totalBons} bon${totalBons === 1 ? '' : 's'}`;
+
+    const tooltip = totalBons === 0 ? 'Ingen bons i dag' : 'Vis dagens bons';
+
+    return `
+        <div class="od-kpi od-kpi-status od-clickable" data-goto="bons" data-filter="today" title="${tooltip}">
+            <div class="od-kpi-value" style="font-size:22px;">${valueText}</div>
+            <div class="od-kpi-label">Dagens status</div>
+            ${chipsHtml ? `<div class="od-status-chips">${chipsHtml}</div>` : ''}
+            ${footerHtml}
         </div>
     `;
 }

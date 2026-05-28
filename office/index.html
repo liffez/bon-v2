@@ -443,6 +443,37 @@
       font-weight: 700;
       letter-spacing: 0.03em;
     }
+    .bl-status-cell {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      flex-wrap: nowrap;
+    }
+    .bl-status-time {
+      font-size: 11px;
+      color: var(--color-text-dim, #888);
+      font-variant-numeric: tabular-nums;
+      white-space: nowrap;
+    }
+    .bl-history-btn {
+      background: transparent;
+      border: 1px solid var(--color-border, #d7d1ca);
+      color: var(--color-text-dim, #6b5f54);
+      width: 22px;
+      height: 22px;
+      padding: 0;
+      border-radius: 4px;
+      cursor: pointer;
+      font-size: 12px;
+      line-height: 1;
+      flex-shrink: 0;
+      transition: background-color .12s, color .12s, border-color .12s;
+    }
+    .bl-history-btn:hover {
+      background: var(--brand-primary, #8e631f);
+      color: #fff;
+      border-color: var(--brand-primary, #8e631f);
+    }
 
     /* Mail */
     .bl-mail-icon {

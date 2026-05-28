@@ -1,0 +1,297 @@
+<!DOCTYPE html>
+<html lang="da">
+<head>
+<meta charset="utf-8">
+<title>Mockup — Dagens status-brik på dashboard</title>
+<style>
+:root {
+    --color-bg: #f5f4f2;
+    --color-card: #ffffff;
+    --color-border: #d7d1ca;
+    --color-text: #2a2520;
+    --color-text-dim: #6b5f54;
+    --brand-primary: #8e631f;
+    --font-heading: 'Playfair Display', Georgia, serif;
+}
+body {
+    background: var(--color-bg);
+    font-family: -apple-system, 'DM Sans', sans-serif;
+    color: var(--color-text);
+    padding: 24px;
+    margin: 0;
+}
+.note {
+    background: #fff8e0;
+    border-left: 3px solid #d4aa20;
+    padding: 10px 14px;
+    font-size: 13px;
+    margin-bottom: 18px;
+    border-radius: 4px;
+    color: #4a3a00;
+    max-width: 1100px;
+}
+h3 {
+    font-size: 12px;
+    color: var(--color-text-dim);
+    text-transform: uppercase;
+    letter-spacing: 0.8px;
+    margin: 28px 0 10px;
+    font-weight: 600;
+}
+
+/* KPI strip — 5 columns */
+.kpi-strip {
+    display: grid;
+    grid-template-columns: repeat(5, 1fr);
+    gap: 16px;
+    max-width: 1400px;
+}
+.kpi {
+    background: var(--color-card);
+    border: 1px solid var(--color-border);
+    border-radius: 6px;
+    padding: 16px 20px;
+    cursor: pointer;
+    transition: box-shadow 0.15s;
+}
+.kpi:hover { box-shadow: 0 2px 8px rgba(0,0,0,0.08); }
+.kpi-value {
+    font-family: var(--font-heading);
+    font-size: 28px;
+    font-weight: 600;
+    color: var(--brand-primary);
+    line-height: 1.1;
+}
+.kpi-value.warn { color: #cc2020; }
+.kpi-label {
+    font-size: 11px;
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+    color: var(--color-text-dim);
+    margin-top: 4px;
+}
+.kpi-sub {
+    font-size: 11px;
+    color: var(--color-text-dim);
+    margin-top: 4px;
+}
+.kpi-sub.delta-down { color: #cc2020; }
+
+/* The new tile — Dagens status */
+.kpi-status .kpi-label {
+    margin-top: 0;
+    margin-bottom: 8px;
+}
+.status-row {
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+}
+.status-line {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    font-size: 12.5px;
+}
+.status-dot {
+    width: 8px;
+    height: 8px;
+    border-radius: 50%;
+    flex-shrink: 0;
+    border: 1px solid rgba(0,0,0,0.1);
+}
+.status-name {
+    font-weight: 500;
+    min-width: 64px;
+}
+.status-count {
+    font-weight: 700;
+    margin-left: auto;
+    font-variant-numeric: tabular-nums;
+}
+.status-empty { color: var(--color-text-dim); font-size: 11.5px; }
+
+/* Variant B: bar form */
+.kpi-bar .kpi-value {
+    display: flex;
+    align-items: baseline;
+    gap: 6px;
+    font-family: var(--font-heading);
+}
+.kpi-bar .num-leveret { color: #2e8b2e; font-size: 28px; font-weight: 600; }
+.kpi-bar .sep { color: var(--color-text-dim); font-size: 18px; font-weight: 400; }
+.kpi-bar .num-total { color: var(--color-text-dim); font-size: 22px; font-weight: 500; }
+.kpi-bar .label { font-size: 11px; color: var(--color-text-dim); text-transform: uppercase; letter-spacing: 0.5px; margin: 4px 0 8px; }
+.stacked-bar {
+    display: flex;
+    height: 8px;
+    border-radius: 4px;
+    overflow: hidden;
+    background: #f0ece6;
+}
+.stacked-bar > span {
+    display: block;
+    height: 100%;
+}
+.kpi-bar .legend {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 6px 10px;
+    margin-top: 8px;
+    font-size: 11px;
+    color: var(--color-text-dim);
+}
+.kpi-bar .legend-item { display: flex; align-items: center; gap: 4px; }
+.kpi-bar .legend-dot { width: 7px; height: 7px; border-radius: 50%; }
+
+/* Variant C: just chips */
+.kpi-chips .chip-row { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 8px; }
+.kpi-chips .chip {
+    font-size: 11.5px;
+    font-weight: 700;
+    padding: 3px 9px;
+    border-radius: 10px;
+    letter-spacing: 0.3px;
+    display: inline-flex;
+    align-items: center;
+    gap: 5px;
+}
+.kpi-chips .chip-count {
+    background: rgba(0,0,0,0.15);
+    border-radius: 8px;
+    padding: 0 5px;
+    font-size: 10.5px;
+}
+.kpi-chips .pickup-line {
+    font-size: 11.5px;
+    color: var(--color-text-dim);
+    margin-top: 10px;
+}
+.kpi-chips .pickup-line strong { color: var(--color-text); font-variant-numeric: tabular-nums; }
+</style>
+</head>
+<body>
+
+<div class="note">
+    💡 Tre varianter af den lille <strong>Dagens status</strong>-brik der lægger sig som 5. KPI-tile i øverste række på office dashboardet. Klik → "I DAG"-listen. NY tælles ikke med (intet status-skift sket endnu — pickup-tiden er der allerede i panelet til højre).
+</div>
+
+<!-- Variant A -->
+<h3>Variant A — kompakt liste (mest info, bedst hvis du ofte har 4+ statusser kørende)</h3>
+<div class="kpi-strip">
+    <div class="kpi">
+        <div class="kpi-value">137.308</div>
+        <div class="kpi-label">Omsætning (ex moms) · maj MTD</div>
+        <div class="kpi-sub delta-down">↓ 49% vs. 2025</div>
+    </div>
+    <div class="kpi">
+        <div class="kpi-value">2.022</div>
+        <div class="kpi-label">Enheder · maj MTD</div>
+        <div class="kpi-sub delta-down">↓ 55% vs. 2025</div>
+    </div>
+    <div class="kpi kpi-status" title="Klik for at åbne dagens liste">
+        <div class="kpi-label">Dagens status · 7 bons</div>
+        <div class="status-row">
+            <div class="status-line"><span class="status-dot" style="background:#ffffff;border-color:#aaa;"></span><span class="status-name">Leveret</span><span class="status-count">2</span></div>
+            <div class="status-line"><span class="status-dot" style="background:#2e8b2e;"></span><span class="status-name">Klar</span><span class="status-count">1</span></div>
+            <div class="status-line"><span class="status-dot" style="background:#d4781a;"></span><span class="status-name">I gang</span><span class="status-count">2</span></div>
+            <div class="status-line"><span class="status-dot" style="background:#5aa05a;"></span><span class="status-name">Godkendt</span><span class="status-count">1</span></div>
+            <div class="status-line"><span class="status-dot" style="background:#d4aa20;"></span><span class="status-name">Venter</span><span class="status-count">1</span></div>
+        </div>
+    </div>
+    <div class="kpi">
+        <div class="kpi-value">36</div>
+        <div class="kpi-label">Åbne bons</div>
+        <div class="kpi-sub">NY / VENTER / GODKENDT / IGANG / KLAR</div>
+    </div>
+    <div class="kpi">
+        <div class="kpi-value">1.222</div>
+        <div class="kpi-label">Ufaktureret (ex moms)</div>
+        <div class="kpi-sub">Leverede bons uden faktura</div>
+    </div>
+</div>
+
+<!-- Variant B -->
+<h3>Variant B — fremdriftsbar (mest visuel — "2 af 7 leveret" på et blink)</h3>
+<div class="kpi-strip">
+    <div class="kpi">
+        <div class="kpi-value">137.308</div>
+        <div class="kpi-label">Omsætning (ex moms) · maj MTD</div>
+        <div class="kpi-sub delta-down">↓ 49% vs. 2025</div>
+    </div>
+    <div class="kpi">
+        <div class="kpi-value">2.022</div>
+        <div class="kpi-label">Enheder · maj MTD</div>
+        <div class="kpi-sub delta-down">↓ 55% vs. 2025</div>
+    </div>
+    <div class="kpi kpi-bar" title="Klik for at åbne dagens liste">
+        <div class="kpi-value">
+            <span class="num-leveret">2</span><span class="sep">/</span><span class="num-total">7</span>
+        </div>
+        <div class="label">Leveret i dag</div>
+        <div class="stacked-bar">
+            <span style="width:28.5%;background:#5b8d5b;" title="2 leveret"></span>
+            <span style="width:14.3%;background:#2e8b2e;" title="1 klar"></span>
+            <span style="width:28.5%;background:#d4781a;" title="2 i gang"></span>
+            <span style="width:14.3%;background:#5aa05a;" title="1 godkendt"></span>
+            <span style="width:14.3%;background:#d4aa20;" title="1 venter"></span>
+        </div>
+        <div class="legend">
+            <span class="legend-item"><span class="legend-dot" style="background:#5b8d5b;"></span>2 lev</span>
+            <span class="legend-item"><span class="legend-dot" style="background:#2e8b2e;"></span>1 klar</span>
+            <span class="legend-item"><span class="legend-dot" style="background:#d4781a;"></span>2 i gang</span>
+            <span class="legend-item"><span class="legend-dot" style="background:#5aa05a;"></span>1 godk.</span>
+            <span class="legend-item"><span class="legend-dot" style="background:#d4aa20;"></span>1 vent.</span>
+        </div>
+    </div>
+    <div class="kpi">
+        <div class="kpi-value">36</div>
+        <div class="kpi-label">Åbne bons</div>
+        <div class="kpi-sub">NY / VENTER / GODKENDT / IGANG / KLAR</div>
+    </div>
+    <div class="kpi">
+        <div class="kpi-value">1.222</div>
+        <div class="kpi-label">Ufaktureret (ex moms)</div>
+        <div class="kpi-sub">Leverede bons uden faktura</div>
+    </div>
+</div>
+
+<!-- Variant C -->
+<h3>Variant C — pille-række (mindst plads, matcher BonConfig-farverne 1:1)</h3>
+<div class="kpi-strip">
+    <div class="kpi">
+        <div class="kpi-value">137.308</div>
+        <div class="kpi-label">Omsætning (ex moms) · maj MTD</div>
+        <div class="kpi-sub delta-down">↓ 49% vs. 2025</div>
+    </div>
+    <div class="kpi">
+        <div class="kpi-value">2.022</div>
+        <div class="kpi-label">Enheder · maj MTD</div>
+        <div class="kpi-sub delta-down">↓ 55% vs. 2025</div>
+    </div>
+    <div class="kpi kpi-chips" title="Klik for at åbne dagens liste">
+        <div class="kpi-value" style="font-size:22px;">7 bons</div>
+        <div class="kpi-label">Dagens status</div>
+        <div class="chip-row">
+            <span class="chip" style="background:#ffffff;color:#333;border:1px solid #d7d1ca;">LEV <span class="chip-count" style="background:#ddd;">2</span></span>
+            <span class="chip" style="background:#2e8b2e;color:#fff;">KLAR <span class="chip-count">1</span></span>
+            <span class="chip" style="background:#d4781a;color:#fff;">IGANG <span class="chip-count">2</span></span>
+            <span class="chip" style="background:#5aa05a;color:#fff;">GODK. <span class="chip-count">1</span></span>
+            <span class="chip" style="background:#d4aa20;color:#4a3a00;">VENTER <span class="chip-count" style="background:rgba(0,0,0,0.15);">1</span></span>
+        </div>
+        <div class="pickup-line">Næste pickup: <strong>10:15</strong> · Sidst leveret <strong>10:08</strong></div>
+    </div>
+    <div class="kpi">
+        <div class="kpi-value">36</div>
+        <div class="kpi-label">Åbne bons</div>
+        <div class="kpi-sub">NY / VENTER / GODKENDT / IGANG / KLAR</div>
+    </div>
+    <div class="kpi">
+        <div class="kpi-value">1.222</div>
+        <div class="kpi-label">Ufaktureret (ex moms)</div>
+        <div class="kpi-sub">Leverede bons uden faktura</div>
+    </div>
+</div>
+
+</body>
+</html>

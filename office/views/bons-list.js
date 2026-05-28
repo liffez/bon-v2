@@ -264,6 +264,58 @@ function _renderBonsListShell() {
     _blUpdateFilterButtons();
 }
 
+// Status-sub-tekst: "leveret 09:42" / "i gang 10:15 · 22 min" / "klar 10:31 · 6 min"
+// Vises under status-badgen i status-kolonnen. NY har intet skift endnu → returnerer "".
+function _blFormatStatusTime(bon) {
+    if (!bon || !bon.latest_status_change_time) return '';
+    var dt = parseServerDate(bon.latest_status_change_time);
+    if (!dt || isNaN(dt.getTime())) return '';
+    var hh = String(dt.getHours()).padStart(2, '0');
+    var mm = String(dt.getMinutes()).padStart(2, '0');
+    var timeStr = hh + ':' + mm;
+
+    // Vis kun datodel hvis ikke i dag (sjælden — listen viser typisk dagens bons,
+    // men bons under andre filtre kan have ældre status-skift).
+    var today = new Date();
+    var sameDay = dt.getFullYear() === today.getFullYear()
+        && dt.getMonth() === today.getMonth()
+        && dt.getDate() === today.getDate();
+    if (!sameDay) {
+        var dd = String(dt.getDate()).padStart(2, '0');
+        var mo = String(dt.getMonth() + 1).padStart(2, '0');
+        timeStr = dd + '/' + mo + ' ' + hh + ':' + mm;
+    }
+
+    // Prefix-ord pr. status. Terminal-statusser (FAKTURERET/BETALT/AFSLUTTET) er alle
+    // post-levering → vis "leveret HH:MM" (det er det kunden spørger om).
+    var code = bon.status_code;
+    var prefix;
+    switch (code) {
+        case 'LEVERET':
+        case 'FAKTURERET':
+        case 'BETALT':
+        case 'AFSLUTTET':
+            prefix = 'leveret'; break;
+        case 'KLAR':     prefix = 'klar';     break;
+        case 'IGANG':    prefix = 'i gang';   break;
+        case 'GODKENDT': prefix = 'godkendt'; break;
+        case 'VENTER':   prefix = 'venter siden'; break;
+        case 'AFLYST':   prefix = 'aflyst';   break;
+        case 'NY':       return ''; // intet "skift" sket — pillen taler for sig selv
+        default:         prefix = (bon.status_label || code || '').toLowerCase();
+    }
+
+    // For aktivt arbejde (IGANG/KLAR): tilføj "· N min" så office kan se varigheden af spurten.
+    var result = prefix + ' ' + timeStr;
+    if (sameDay && (code === 'IGANG' || code === 'KLAR')) {
+        var elapsedMin = Math.floor((today.getTime() - dt.getTime()) / 60000);
+        if (elapsedMin >= 1 && elapsedMin < 24 * 60) {
+            result += ' · ' + elapsedMin + ' min';
+        }
+    }
+    return result;
+}
+
 // Format delivery_events timestamp som HH:MM hvis i dag, ellers "dd/MM HH:MM"
 function _blFormatHandover(iso) {
     if (!iso) return '';
@@ -564,14 +616,40 @@ function _blRenderTable() {
         tdTime.textContent = bon.pickup_time || bon.delivery_time || '';
         tr1.appendChild(tdTime);
 
-        // Status
+        // Status — badge + tidspunkt for seneste status-skift + historik-knap
         var tdStatus = document.createElement('td');
         tdStatus.className = 'bl-td-status';
         tdStatus.setAttribute('rowspan', '2');
-        tdStatus.innerHTML = '<span class="bl-status-badge" style="background:'
+
+        var statusInner = '<div class="bl-status-cell">'
+            + '<span class="bl-status-badge" style="background:'
             + (statusCfg.color || '#999') + ';color:' + (statusCfg.text || '#fff') + '">'
             + esc(statusCfg.label || bon.status_code) + '</span>';
+
+        var statusTime = _blFormatStatusTime(bon);
+        if (statusTime) {
+            statusInner += '<span class="bl-status-time">' + esc(statusTime) + '</span>';
+        }
+
+        statusInner += '<button type="button" class="bl-history-btn"'
+            + ' data-bon-id="' + bon.id + '"'
+            + ' data-bon-number="' + esc(bon.bon_number) + '"'
+            + ' title="Vis historik">⏱</button>';
+        statusInner += '</div>';
+
+        tdStatus.innerHTML = statusInner;
         tr1.appendChild(tdStatus);
+
+        // Historik-knap: stopPropagation så row-klikket ikke åbner drawer samtidig
+        var historyBtn = tdStatus.querySelector('.bl-history-btn');
+        if (historyBtn) {
+            historyBtn.addEventListener('click', function(e) {
+                e.stopPropagation();
+                if (typeof showHistorik === 'function') {
+                    showHistorik({ bonId: this.dataset.bonId, bonNumber: this.dataset.bonNumber });
+                }
+            });
+        }
 
         // Optional columns — row 1
         for (var c1 = 0; c1 < visCols.length; c1++) {
