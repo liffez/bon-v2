@@ -5,6 +5,11 @@ let _rapActive = false;
 let _rapCharts = {};       // canvasId -> chart handle
 let _rapLegoMonths = [];   // empty = all months
 let _rapLegoYear = null;
+// Sammenligningstilstand for lego-rapporten:
+//   'none'  = vælg 1-2 måneder i indeværende år (oprindelig opførsel)
+//   'prev1' = samme måned i år + sidste år (2 perioder)
+//   'prev2' = samme måned i år + sidste år + 2 år tilbage (3 perioder)
+let _rapLegoCompare = 'none';
 let _rapDebounce = null;
 let _rapCustSortBy = 'revenue';
 let _rapLegoMode = 'revenue';
@@ -103,8 +108,9 @@ function _rapShellHtml() {
   <div class="rap-card">
     <div class="rap-card-head">
       <h3 class="rap-card-title">Legoklods-sammenligning (ex moms)</h3>
-      <span style="font-size:.78rem;color:var(--color-text-dim,#7a6f5f)">Vælg 1-2 måneder til sammenligning</span>
+      <span id="rap-lego-hint" style="font-size:.78rem;color:var(--color-text-dim,#7a6f5f)">Vælg 1-2 måneder til sammenligning</span>
     </div>
+    <div class="rap-lego-compare" id="rap-lego-compare" style="display:flex;gap:6px;flex-wrap:wrap;margin-bottom:8px"></div>
     <div class="rap-lego-months" id="rap-lego-months"></div>
     <div class="rap-canvas-wrap" style="height:340px"><canvas id="rap-lego-canvas"></canvas></div>
   </div>
@@ -140,6 +146,7 @@ function initRapporter(container, opts) {
   _rapActive = true;
   _rapLegoMonths = [];
   _rapLegoYear = null;
+  _rapLegoCompare = 'none';
   _rapCustSortBy = 'revenue';
   _rapLegoMode = 'revenue';
   _rapMonthlyMode = 'kr';
@@ -178,7 +185,7 @@ async function _rapLoadAll() {
       fetchReportsTopCustomers(_rapCustSortBy),
       fetchReportsCategories(),
       fetchReportsMonthlyTable(),
-      fetchReportsLego(_rapLegoMonths, _rapLegoYear),
+      _rapFetchLego(),
       fetchReportsCumulative(),
       fetchReportsTopCategories(),
     ]);
@@ -372,18 +379,56 @@ function _rapRenderCategories(data) {
 
 // ─── Lego model ─────────────────────────────────────────────────────
 
+const _RAP_COMPARE_OPTIONS = [
+  { key: 'none',  label: 'I år',            hint: 'Vælg 1-2 måneder til sammenligning' },
+  { key: 'prev1', label: 'Vs. sidste år',   hint: 'Vælg 1 måned — sammenlignes mod samme måned sidste år' },
+  { key: 'prev2', label: 'Sidste 3 år',     hint: 'Vælg 1 måned — sammenlignes på tværs af de sidste 3 år' },
+];
+
+/** Returnerer fetch-promise for lego baseret på nuværende state. */
+function _rapFetchLego() {
+  if (_rapLegoCompare === 'none') {
+    return fetchReportsLego(_rapLegoMonths, _rapLegoYear);
+  }
+  // Sammenlignings-tilstand: brug 1. valgte måned (eller indeværende måned hvis ingen valgt).
+  const month = _rapLegoMonths[0] || (new Date().getMonth() + 1);
+  const thisYear = new Date().getFullYear();
+  const yearOffsets = _rapLegoCompare === 'prev2' ? [2, 1, 0] : [1, 0];
+  const mm = String(month).padStart(2, '0');
+  const periods = yearOffsets.map(off => `${thisYear - off}-${mm}`);
+  return fetchReportsLego({ periods });
+}
+
 function _rapRenderLegoModel(data) {
-  // month chips — max 2 months for comparison
+  // Sammenlignings-tilstand chips (ovenover måneds-chips)
+  const compareEl = document.getElementById('rap-lego-compare');
+  if (compareEl) {
+    compareEl.innerHTML = _RAP_COMPARE_OPTIONS.map(opt =>
+      `<button class="rap-month-chip${_rapLegoCompare === opt.key ? ' active' : ''}" data-compare="${opt.key}" title="${opt.hint}">${opt.label}</button>`
+    ).join('');
+    compareEl.onclick = (e) => {
+      const btn = e.target.closest('[data-compare]');
+      if (!btn) return;
+      const key = btn.dataset.compare;
+      if (key === _rapLegoCompare) return;
+      _rapLegoCompare = key;
+      // I sammenligningstilstand må vi kun have 1 valgt måned (ellers giver perioder ikke mening)
+      if (key !== 'none' && _rapLegoMonths.length > 1) {
+        _rapLegoMonths = [_rapLegoMonths[_rapLegoMonths.length - 1]];
+      }
+      // Opdatér active-state på compare-chips
+      compareEl.querySelectorAll('[data-compare]').forEach(b => {
+        b.classList.toggle('active', b.dataset.compare === key);
+      });
+      _rapRefreshLegoUI();
+      _rapDebouncedReloadLego();
+    };
+  }
+
+  _rapRefreshLegoUI();
+
   const chipsEl = document.getElementById('rap-lego-months');
   if (chipsEl) {
-    let html = '';
-    for (let m = 0; m < 12; m++) {
-      const active = _rapLegoMonths.includes(m + 1);
-      html += `<button class="rap-month-chip${active ? ' active' : ''}" data-month="${m + 1}">${MONTH_NAMES[m]}</button>`;
-    }
-    html += `<button class="rap-month-chip reset${_rapLegoMonths.length === 0 ? ' active' : ''}">Nulstil</button>`;
-    chipsEl.innerHTML = html;
-
     chipsEl.onclick = (e) => {
       const btn = e.target.closest('.rap-month-chip');
       if (!btn) return;
@@ -395,24 +440,47 @@ function _rapRenderLegoModel(data) {
         if (idx >= 0) {
           _rapLegoMonths.splice(idx, 1);
         } else {
-          // Max 2 months — if already 2, remove oldest
-          if (_rapLegoMonths.length >= 2) _rapLegoMonths.shift();
+          // Max 2 i 'none'-mode, max 1 i compare-mode
+          const limit = _rapLegoCompare === 'none' ? 2 : 1;
+          if (_rapLegoMonths.length >= limit) _rapLegoMonths.shift();
           _rapLegoMonths.push(m);
         }
       }
       _rapRenderLegoChipsOnly();
-      if (_rapDebounce) clearTimeout(_rapDebounce);
-      _rapDebounce = setTimeout(async () => {
-        try {
-          const lego = await fetchReportsLego(_rapLegoMonths, _rapLegoYear);
-          if (!_rapActive) return;
-          _rapRenderLegoChart(lego);
-        } catch (err) { /* ignore */ }
-      }, 200);
+      _rapDebouncedReloadLego();
     };
   }
 
   _rapRenderLegoChart(data);
+}
+
+function _rapDebouncedReloadLego() {
+  if (_rapDebounce) clearTimeout(_rapDebounce);
+  _rapDebounce = setTimeout(async () => {
+    try {
+      const lego = await _rapFetchLego();
+      if (!_rapActive) return;
+      _rapRenderLegoChart(lego);
+    } catch (err) { /* ignore */ }
+  }, 200);
+}
+
+/** Render måneds-chips + hint-tekst i overensstemmelse med nuværende state. */
+function _rapRefreshLegoUI() {
+  const hintEl = document.getElementById('rap-lego-hint');
+  if (hintEl) {
+    const opt = _RAP_COMPARE_OPTIONS.find(o => o.key === _rapLegoCompare);
+    if (opt) hintEl.textContent = opt.hint;
+  }
+  const chipsEl = document.getElementById('rap-lego-months');
+  if (!chipsEl) return;
+  let html = '';
+  for (let m = 0; m < 12; m++) {
+    const active = _rapLegoMonths.includes(m + 1);
+    html += `<button class="rap-month-chip${active ? ' active' : ''}" data-month="${m + 1}">${MONTH_NAMES[m]}</button>`;
+  }
+  html += `<button class="rap-month-chip reset${_rapLegoMonths.length === 0 ? ' active' : ''}">Nulstil</button>`;
+  chipsEl.innerHTML = html;
 }
 
 function _rapRenderLegoChipsOnly() {
