@@ -1218,10 +1218,23 @@ function fetchReportsMonthlyTable() {
     return apiFetch('/reports/monthly-table');
 }
 
-function fetchReportsLego(months, year) {
+/**
+ * Lego-rapporten. To kald-former:
+ *   fetchReportsLego(months, year)         — backwards compat, vælg måneder i ét år
+ *   fetchReportsLego({ periods: ['2026-05','2025-05'] })  — eksplicit periode-liste (år-mod-år)
+ */
+function fetchReportsLego(monthsOrOpts, year) {
     var params = [];
-    if (months && months.length) params.push('months=' + months.join(','));
-    if (year) params.push('year=' + year);
+    if (monthsOrOpts && typeof monthsOrOpts === 'object' && !Array.isArray(monthsOrOpts)) {
+        // Object form: { periods: ['YYYY-MM',...] }
+        if (monthsOrOpts.periods && monthsOrOpts.periods.length) {
+            params.push('periods=' + monthsOrOpts.periods.join(','));
+        }
+    } else {
+        var months = monthsOrOpts;
+        if (months && months.length) params.push('months=' + months.join(','));
+        if (year) params.push('year=' + year);
+    }
     var qs = params.length ? '?' + params.join('&') : '';
     return apiFetch('/reports/lego' + qs);
 }
