@@ -434,7 +434,13 @@ function _crmRenderShell() {
             </div>
 
             <div class="crm-card" id="crmSuggestions">
-                <h3>Smart forslag</h3>
+                <div class="crm-card-head" style="display:flex;justify-content:space-between;align-items:center;margin-bottom:10px;">
+                    <h3 style="margin:0;">Smart forslag</h3>
+                    <button class="crm-sug-action-btn" id="crmReactivateBtn" type="button"
+                            style="padding:6px 12px;border-radius:8px;border:1px solid var(--brand-primary,#8e631f);background:var(--color-surface,#fff);color:var(--brand-primary,#8e631f);font-size:12px;font-weight:600;cursor:pointer;font-family:inherit;">
+                        🔄 Reaktivér sovende
+                    </button>
+                </div>
                 <div id="crmSuggestionsList"></div>
             </div>
         </div>
@@ -447,6 +453,9 @@ function _crmRenderShell() {
         document.querySelectorAll('.crm-pipe-filter').forEach(b => b.classList.toggle('active', b === btn));
         _crmLoadPipeline(btn.dataset.cat || '');
     });
+
+    // Reaktivér sovende (Fase 5): åbner modal med filtre + opretter kampagne
+    document.getElementById('crmReactivateBtn')?.addEventListener('click', _crmOpenReactivateModal);
 }
 
 // ─── Data loading ───────────────────────────────────────────
@@ -1030,6 +1039,210 @@ function _crmOpenKunde(customerId) {
     if (_crmOpts.openKunde360) {
         _crmOpts.openKunde360(customerId);
     }
+}
+
+// ─── Reaktivér sovende modal (Fase 5) ───────────────────────
+
+function _crmOpenReactivateModal() {
+    // Standard-forslag fra spec: 180 dage, 5000 kr min revenue
+    const defaultName = 'Reaktivering — sovende ' + new Date().toLocaleDateString('da-DK', { month: 'long', year: 'numeric' });
+    const overlay = document.createElement('div');
+    overlay.className = 'reakt-modal-overlay';
+    overlay.innerHTML = `
+        <style>
+            .reakt-modal-overlay {
+                position: fixed; inset: 0; background: rgba(0,0,0,0.45);
+                display: flex; align-items: center; justify-content: center;
+                z-index: 9999;
+                font-family: var(--font-body, 'DM Sans', system-ui, sans-serif);
+            }
+            .reakt-modal {
+                background: var(--color-surface, #fff); border-radius: 12px;
+                width: 460px; max-width: 92vw;
+                box-shadow: 0 20px 60px rgba(0,0,0,0.25);
+            }
+            .reakt-modal-head {
+                padding: 18px 22px; border-bottom: 1px solid var(--color-border, #e7e2db);
+                display: flex; justify-content: space-between; align-items: center;
+            }
+            .reakt-modal-title {
+                font-family: var(--font-heading, 'Playfair Display', Georgia, serif);
+                font-size: 19px; font-weight: 700; margin: 0;
+            }
+            .reakt-close {
+                background: none; border: none; font-size: 22px; cursor: pointer;
+                color: var(--color-text-dim, #888);
+            }
+            .reakt-body { padding: 18px 22px; }
+            .reakt-field { margin-bottom: 12px; }
+            .reakt-label {
+                display: block; font-size: 12px; font-weight: 600;
+                text-transform: uppercase; letter-spacing: .04em;
+                color: var(--color-text-dim, #888); margin-bottom: 4px;
+            }
+            .reakt-input {
+                width: 100%; box-sizing: border-box;
+                padding: 9px 12px; font-size: 14px;
+                border: 1px solid var(--color-border, #d7d1ca);
+                border-radius: 8px; font-family: inherit;
+            }
+            .reakt-row {
+                display: grid; grid-template-columns: 1fr 1fr; gap: 12px;
+            }
+            .reakt-hint { font-size: 12px; color: var(--color-text-dim, #888); margin-top: 4px; }
+            .reakt-error { background: #fdecea; color: #a13d2e; padding: 8px 12px; border-radius: 6px; font-size: 13px; margin-top: 8px; display: none; }
+            .reakt-footer {
+                padding: 14px 22px; border-top: 1px solid var(--color-border, #e7e2db);
+                display: flex; justify-content: flex-end; gap: 10px;
+            }
+            .reakt-btn {
+                padding: 9px 18px; border-radius: 8px; border: none;
+                font-size: 14px; font-weight: 600; cursor: pointer; font-family: inherit;
+            }
+            .reakt-btn-cancel { background: transparent; color: var(--color-text-dim); }
+            .reakt-btn-primary { background: var(--brand-primary, #8e631f); color: #fff; }
+            .reakt-btn-primary:hover { filter: brightness(1.08); }
+            .reakt-btn-primary:disabled { background: var(--color-border, #d7d1ca); cursor: not-allowed; }
+        </style>
+        <div class="reakt-modal" role="dialog" aria-modal="true">
+            <div class="reakt-modal-head">
+                <h3 class="reakt-modal-title">🔄 Reaktivér sovende</h3>
+                <button class="reakt-close" data-action="cancel" aria-label="Luk">×</button>
+            </div>
+            <div class="reakt-body">
+                <p style="margin:0 0 14px 0;font-size:13px;color:var(--color-text-dim);">
+                    Opretter en kampagne med alle kunder der opfylder filteret nedenfor.
+                </p>
+                <div class="reakt-field">
+                    <label class="reakt-label" for="reakt-name">Kampagne-navn</label>
+                    <input type="text" class="reakt-input" id="reakt-name" value="${_crmEsc(defaultName)}" autofocus>
+                </div>
+                <div class="reakt-row">
+                    <div class="reakt-field">
+                        <label class="reakt-label" for="reakt-days">Dage siden ordre</label>
+                        <input type="number" class="reakt-input" id="reakt-days" min="30" value="180">
+                        <div class="reakt-hint">Minimum 30 dage</div>
+                    </div>
+                    <div class="reakt-field">
+                        <label class="reakt-label" for="reakt-revenue">Min. omsætning (kr)</label>
+                        <input type="number" class="reakt-input" id="reakt-revenue" min="0" value="5000" step="500">
+                        <div class="reakt-hint">Lifetime total</div>
+                    </div>
+                </div>
+                <div class="reakt-error" id="reakt-error"></div>
+            </div>
+            <div class="reakt-footer">
+                <button class="reakt-btn reakt-btn-cancel" data-action="cancel">Annullér</button>
+                <button class="reakt-btn reakt-btn-primary" data-action="ok">Opret kampagne</button>
+            </div>
+        </div>
+    `;
+    document.body.appendChild(overlay);
+
+    const close = () => overlay.remove();
+    overlay.addEventListener('click', (e) => { if (e.target === overlay) close(); });
+    overlay.querySelectorAll('[data-action="cancel"]').forEach(b => b.addEventListener('click', close));
+
+    const submitBtn = overlay.querySelector('[data-action="ok"]');
+    const errEl = overlay.querySelector('#reakt-error');
+    const showError = (msg) => { errEl.textContent = msg; errEl.style.display = ''; };
+
+    submitBtn.addEventListener('click', async () => {
+        const name = overlay.querySelector('#reakt-name').value.trim();
+        const days = parseInt(overlay.querySelector('#reakt-days').value);
+        const revenue = parseFloat(overlay.querySelector('#reakt-revenue').value) || 0;
+        if (!name) return showError('Indtast et navn.');
+        if (!days || days < 30) return showError('Dage skal være mindst 30.');
+
+        submitBtn.disabled = true;
+        submitBtn.textContent = 'Opretter…';
+        errEl.style.display = 'none';
+
+        try {
+            const r = await createCampaignFromSuggestion({
+                type: 'dormant',
+                filter: { days_since_last: days, min_total_revenue: revenue },
+                campaign_name: name,
+            });
+            close();
+            // Toast med resultat + link til outreach
+            const skippedReasons = (r.skipped || []).reduce((acc, s) => {
+                acc[s.reason] = (acc[s.reason] || 0) + 1; return acc;
+            }, {});
+            const skippedText = Object.entries(skippedReasons).map(([reason, n]) =>
+                `${n} ${({
+                    do_not_contact: 'må ikke kontaktes',
+                    no_marketing_consent_b2c: 'mangler samtykke',
+                    duplicate_company: 'samme firma',
+                    already_member: 'allerede medlem',
+                }[reason] || reason)}`
+            ).join(', ');
+
+            _crmShowReactToast(
+                r.added,
+                r.campaign_id,
+                name,
+                skippedText,
+            );
+        } catch (err) {
+            submitBtn.disabled = false;
+            submitBtn.textContent = 'Opret kampagne';
+            // apiFetch sætter err.status + err.message (med body.error som message).
+            // Vi klassificerer fejlen på beskeden frem for et body-objekt.
+            const code = err.message;
+            if (err.status === 409 && code === 'name_in_use') {
+                showError('Navnet er allerede i brug — vælg et andet.');
+            } else if (err.status === 409 && code === 'name_closed') {
+                showError('Navnet bruges af en lukket kampagne — vælg et andet eller genåben den manuelt.');
+            } else if (err.status === 400 && code === 'no_candidates') {
+                showError('Ingen kunder matcher filteret. Prøv at sænke kravene.');
+            } else if (err.status === 400 && code === 'campaign_name_required') {
+                showError('Indtast et navn.');
+            } else if (err.status === 400 && code === 'unsupported_type') {
+                showError('Ukendt forslags-type.');
+            } else {
+                showError(err.message || 'Ukendt fejl');
+            }
+        }
+    });
+}
+
+function _crmEsc(s) {
+    return String(s ?? '').replace(/[&<>"']/g, ch => ({
+        '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;',
+    }[ch]));
+}
+
+function _crmShowReactToast(added, campaignId, name, skippedText) {
+    const existing = document.querySelector('.reakt-toast');
+    if (existing) existing.remove();
+    const t = document.createElement('div');
+    t.className = 'reakt-toast';
+    t.innerHTML = `
+        <style>
+            .reakt-toast {
+                position: fixed; bottom: 24px; left: 50%; transform: translateX(-50%);
+                background: #2c7a3d; color: #fff; padding: 14px 20px; border-radius: 10px;
+                font-size: 14px; box-shadow: 0 8px 24px rgba(0,0,0,0.25); z-index: 10000;
+                display: flex; gap: 14px; align-items: center;
+                animation: reakt-toast-in .18s ease-out;
+                max-width: 600px;
+            }
+            .reakt-toast-link {
+                background: rgba(255,255,255,0.2); color: #fff; padding: 4px 10px;
+                border-radius: 6px; text-decoration: none; font-weight: 600; font-size: 12px;
+            }
+            .reakt-toast-link:hover { background: rgba(255,255,255,0.3); }
+            @keyframes reakt-toast-in {
+                from { opacity: 0; transform: translate(-50%, 10px); }
+                to   { opacity: 1; transform: translate(-50%, 0); }
+            }
+        </style>
+        <span>${added} kunder tilføjet til "${_crmEsc(name)}"${skippedText ? ` · ${_crmEsc(skippedText)} sprunget over` : ''}</span>
+        <a class="reakt-toast-link" href="/office/?view=crm&pill=outreach&campaign=${campaignId}">Åbn kampagne →</a>
+    `;
+    document.body.appendChild(t);
+    setTimeout(() => t.remove(), 8000);
 }
 
 // ─── SSE handler ────────────────────────────────────────────

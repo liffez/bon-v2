@@ -730,4 +730,180 @@ router.post('/:id/import-commit', handle((req, res) => {
     res.json(result);
 }));
 
+// ─── SMART-FORSLAG (Fase 5) ─────────────────────────────────
+
+// POST /api/campaigns/from-suggestion
+// Body: {
+//   type: 'dormant',
+//   filter: { days_since_last, min_total_revenue },
+//   campaign_name,
+//   description?,
+//   owner_user_id?,
+//   assigned_user_id?,
+// }
+// Opretter kampagne + tilføjer alle sovende kunder der opfylder filteret.
+// Jura-regler (§10 + DNC) håndhæves serverside — samme regler som POST /members.
+// Kunder med company_id → tilføjes som B2B (company_id + customer_id).
+// Kunder uden company_id → tilføjes som B2C (kræver explicit marketing_consent).
+router.post('/from-suggestion', handle((req, res) => {
+    const db = getDb();
+    const userId = req.session?.userId ?? null;
+    const {
+        type, filter, campaign_name, description,
+        owner_user_id, assigned_user_id,
+    } = req.body || {};
+
+    if (type !== 'dormant') {
+        return res.status(400).json({ error: 'unsupported_type', message: 'kun "dormant" understøttes pt.' });
+    }
+    if (!campaign_name || !String(campaign_name).trim()) {
+        return res.status(400).json({ error: 'campaign_name_required' });
+    }
+
+    const minDays = parseInt(filter?.days_since_last) || 180;
+    const minRevenue = parseFloat(filter?.min_total_revenue) || 0;
+    const name = String(campaign_name).trim();
+
+    // 1. Tjek for navn-konflikter (samme regler som POST /api/campaigns)
+    const existing = db.prepare(
+        'SELECT id, is_active FROM outreach_campaigns WHERE name = ?'
+    ).get(name);
+    if (existing) {
+        if (existing.is_active === 1) {
+            return res.status(409).json({ error: 'name_in_use', existing_id: existing.id });
+        }
+        return res.status(409).json({
+            error: 'name_closed',
+            existing_id: existing.id,
+            reopenable: true,
+        });
+    }
+
+    // 2. Hent dormant-kandidater (samme logik som GET /api/crm/dormant)
+    // + total_revenue-filter + jura-data (consent, DNC)
+    const candidates = db.prepare(`
+        SELECT c.id AS customer_id, c.company_id, c.first_name, c.last_name,
+               MAX(b.delivery_date) AS last_order_date,
+               CAST(julianday('now') - julianday(MAX(b.delivery_date)) AS INTEGER) AS days_since,
+               COUNT(b.id) AS total_orders,
+               COALESCE(SUM(b.total_price), 0) AS total_revenue,
+               cm.marketing_consent, cm.do_not_contact
+          FROM customers c
+     LEFT JOIN crm_customer_meta cm ON cm.customer_id = c.id
+     LEFT JOIN bons b ON b.customer_id = c.id AND b.is_internal = 0 AND (b.is_offer = 0 OR b.is_offer IS NULL)
+         WHERE c.is_active = 1
+      GROUP BY c.id
+        HAVING days_since > ?
+           AND total_revenue >= ?
+    `).all(minDays, minRevenue);
+
+    if (candidates.length === 0) {
+        return res.status(400).json({ error: 'no_candidates', message: 'Ingen kunder matcher filteret.' });
+    }
+
+    // 3. Opret kampagne + tilføj medlemmer i ÉN transaktion
+    let campaignId;
+    const skipped = [];
+    const memberIds = [];
+
+    try {
+        transaction(db, () => {
+            const campRow = db.prepare(`
+                INSERT INTO outreach_campaigns (name, description, owner_user_id, notes)
+                VALUES (?, ?, ?, ?)
+            `).run(
+                name,
+                description || `Auto-genereret reaktiverings-kampagne · ${minDays}+ dage uden ordre · min ${Math.round(minRevenue)} kr omsætning`,
+                owner_user_id || userId,
+                null,
+            );
+            campaignId = campRow.lastInsertRowid;
+            logChange({
+                entityType: 'outreach_campaign', entityId: campaignId,
+                action: 'create',
+                newValue: JSON.stringify({ name, source: 'from_suggestion', type, filter: { minDays, minRevenue } }),
+                userId,
+            });
+
+            const insertMember = db.prepare(`
+                INSERT INTO campaign_members
+                    (campaign_id, company_id, customer_id, assigned_user_id, added_by_user_id)
+                VALUES (?, ?, ?, ?, ?)
+            `);
+
+            // Dedup på company_id: når flere kontakter under samme firma er sovende, tilføj kun
+            // én B2B-medlemskab pr. firma. Det matcher pipelinens forventning om at en kampagne-
+            // medlemskab repræsenterer et lead, ikke en kontaktperson.
+            const seenCompanies = new Set();
+
+            for (const c of candidates) {
+                // Jura: DNC blokerer altid
+                if (c.do_not_contact === 1) {
+                    skipped.push({ customer_id: c.customer_id, reason: 'do_not_contact' });
+                    continue;
+                }
+                // Ren B2C (ingen company_id) kræver explicit consent
+                if (!c.company_id && c.marketing_consent !== 1) {
+                    skipped.push({ customer_id: c.customer_id, reason: 'no_marketing_consent_b2c' });
+                    continue;
+                }
+
+                let companyId = null;
+                let customerId = null;
+                if (c.company_id) {
+                    // B2B alene (ingen specifik kontakt) — dedupe pr. firma
+                    if (seenCompanies.has(c.company_id)) {
+                        skipped.push({ customer_id: c.customer_id, reason: 'duplicate_company' });
+                        continue;
+                    }
+                    seenCompanies.add(c.company_id);
+                    companyId = c.company_id;
+                } else {
+                    customerId = c.customer_id;
+                }
+
+                try {
+                    const r = insertMember.run(
+                        campaignId,
+                        companyId,
+                        customerId,
+                        assigned_user_id || userId,
+                        userId,
+                    );
+                    memberIds.push(r.lastInsertRowid);
+                    logChange({
+                        entityType: 'campaign_member', entityId: r.lastInsertRowid,
+                        action: 'create',
+                        newValue: JSON.stringify({ campaign_id: campaignId, company_id: companyId, customer_id: customerId, source: 'from_suggestion' }),
+                        userId,
+                    });
+                } catch (e) {
+                    if (isUniqueViolation(e)) {
+                        skipped.push({ customer_id: c.customer_id, reason: 'already_member' });
+                    } else {
+                        throw e;
+                    }
+                }
+            }
+        });
+    } catch (err) {
+        return res.status(500).json({
+            error: 'commit_failed',
+            message: err.message || 'database fejl',
+        });
+    }
+
+    broadcast('campaign_created', { id: campaignId });
+    if (memberIds.length > 0) {
+        broadcast('campaign_members_added', { campaign_id: campaignId, count: memberIds.length });
+    }
+
+    res.json({
+        campaign_id: campaignId,
+        added: memberIds.length,
+        candidates_count: candidates.length,
+        skipped,
+    });
+}));
+
 module.exports = router;
