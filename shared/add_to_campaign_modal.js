@@ -7,6 +7,7 @@
  *   window.AddToCampaignModal.open({
  *     companies: [{ id, name }],     // valgte firmaer
  *     customers: [{ id, name }],     // valgte kunder (med eller uden firma)
+ *     defaultName: 'Outreach maj',   // (valgfri) pre-fyldt kampagne-navn — auto-vælger "+ Opret ny"
  *     onDone: (result) => void,      // kaldes efter submit (result = { added, skipped })
  *   });
  *
@@ -399,10 +400,20 @@
             }
         });
 
-        // Auto-vælg "+ Opret ny" hvis der ingen aktive kampagner er
-        if (_campaigns.length === 0) {
+        // Auto-vælg "+ Opret ny" hvis defaultName er givet, eller hvis der ingen aktive kampagner er
+        if (opts.defaultName || _campaigns.length === 0) {
             select.value = '__new__';
             select.dispatchEvent(new Event('change'));
+            if (opts.defaultName) {
+                setTimeout(() => {
+                    const nameInput = document.getElementById('atc-new-name');
+                    if (nameInput) {
+                        nameInput.value = String(opts.defaultName);
+                        nameInput.focus();
+                        nameInput.select();  // markér tekst så brugeren kan overskrive
+                    }
+                }, 0);
+            }
         }
     }
 
