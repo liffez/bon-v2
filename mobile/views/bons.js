@@ -21,6 +21,7 @@ var _mbBonsToday = [];
 var _mbBonsTomorrow = [];
 var _mbBonsDayAfter = [];
 var _mbDetailBon = null;
+var _mbMailTemplates = null;    // cache af mail-skabeloner (hentes første gang)
 
 /* Dato-mode (sat når bruger har klikket på en dag i Overblik) */
 var _mbDateMode = null;       // 'YYYY-MM-DD' eller null
@@ -450,7 +451,9 @@ function _mbRenderNye() {
     list.querySelectorAll('.m-bon-item').forEach(function(el) {
         el.addEventListener('click', function() {
             _mbFromSearch = false;
-            _mbShowDetail(parseInt(el.dataset.bonId));
+            // Når man trykker på en ulæst mail → spring direkte til mailflowet.
+            var focusMail = el.dataset.eventType === 'unread_mail';
+            _mbShowDetail(parseInt(el.dataset.bonId), { focusMail: focusMail });
         });
     });
 }
@@ -732,7 +735,8 @@ function _mbHighlight(text, q) {
 }
 
 /* ── Detail view ── */
-async function _mbShowDetail(bonId) {
+async function _mbShowDetail(bonId, opts) {
+    opts = opts || {};
     _mbContainer.innerHTML = '<div class="m-loading">Henter bon...</div>';
 
     var params = new URLSearchParams(window.location.search);
@@ -876,6 +880,14 @@ async function _mbShowDetail(bonId) {
 
     if (hasMail) {
         _mbRenderMailSection(bon, threads);
+        // Kommer man fra en ulæst mail i Nye → scroll ned til mailflowet,
+        // så man ikke skal forbi alle bon-detaljer for at finde beskeden.
+        if (opts.focusMail) {
+            var mailSec = document.getElementById('mbMailSection');
+            if (mailSec) requestAnimationFrame(function() {
+                mailSec.scrollIntoView({ behavior: 'smooth', block: 'start' });
+            });
+        }
     }
 
     document.getElementById('mbBack').addEventListener('click', function() {
@@ -914,6 +926,7 @@ function _mbRenderMailSection(bon, threads) {
         threads: threads,
         emptyText: 'Ingen mails endnu',
         maxHeight: 360,
+        expandUnread: true,
         onMarkRead: function(msgId) {
             return apiFetch('/bons/' + bon.id + '/mail/' + msgId + '/read', { method: 'PATCH' });
         }
@@ -958,6 +971,10 @@ function _mbRenderMailSection(bon, threads) {
             '✉ Svar på mailen' +
         '</button>' +
         '<form class="m-mail-reply-form" id="mbReplyForm" hidden>' +
+            '<label class="m-mail-reply-label" id="mbReplyTemplateLabel" hidden>Skabelon</label>' +
+            '<select id="mbReplyTemplate" hidden>' +
+                '<option value="">— Ingen skabelon —</option>' +
+            '</select>' +
             '<label class="m-mail-reply-label">Til</label>' +
             '<input type="email" id="mbReplyTo" value="' + _mbEsc(defaultTo) + '" placeholder="kunde@…">' +
             '<label class="m-mail-reply-label">Emne</label>' +
@@ -987,6 +1004,54 @@ function _mbRenderMailSection(bon, threads) {
     form.addEventListener('submit', function(ev) {
         ev.preventDefault();
         _mbSendReply(bon.id, inReplyTo);
+    });
+
+    _mbPopulateReplyTemplates(bon);
+}
+
+/* Henter mail-skabelonerne og fylder svar-formularens skabelon-dropdown.
+ * Ved valg substitueres {{variabler}} (via MailThread.buildVars) ind i
+ * emne + besked — så kan brugeren redigere inden afsendelse, præcis som i
+ * office-draweren. Dropdownen skjules hvis der ingen skabeloner er. */
+async function _mbPopulateReplyTemplates(bon) {
+    var sel = document.getElementById('mbReplyTemplate');
+    if (!sel) return;
+    try {
+        if (!_mbMailTemplates) _mbMailTemplates = await fetchMailTemplates();
+    } catch (e) {
+        return; // skabeloner er valgfri convenience — fejl skjules
+    }
+    var tmpls = _mbMailTemplates || [];
+    // Formularen kan være re-renderet imens (anden bon) — tjek at den er der endnu.
+    if (sel !== document.getElementById('mbReplyTemplate')) return;
+    if (!tmpls.length) return;
+
+    var lbl = document.getElementById('mbReplyTemplateLabel');
+    if (lbl) lbl.hidden = false;
+    sel.hidden = false;
+    sel.innerHTML = '<option value="">— Ingen skabelon —</option>' +
+        tmpls.map(function(t) {
+            return '<option value="' + _mbEsc(t.key) + '">' + _mbEsc(t.label || t.key) + '</option>';
+        }).join('');
+
+    var vars = (window.MailThread && MailThread.buildVars) ? MailThread.buildVars(bon) : {};
+    var subst = function(str) {
+        var r = str || '';
+        Object.keys(vars).forEach(function(k) {
+            r = r.replace(new RegExp('\\{\\{' + k + '\\}\\}', 'g'), vars[k] || '');
+        });
+        return r;
+    };
+
+    sel.addEventListener('change', function() {
+        var key = sel.value;
+        if (!key) return; // "Ingen skabelon" → behold hvad brugeren har skrevet
+        var t = tmpls.find(function(x) { return x.key === key; });
+        if (!t) return;
+        var subjEl = document.getElementById('mbReplySubject');
+        var bodyEl = document.getElementById('mbReplyBody');
+        if (subjEl && t.subject) subjEl.value = subst(t.subject);
+        if (bodyEl) bodyEl.value = subst(t.body_text);
     });
 }
 
