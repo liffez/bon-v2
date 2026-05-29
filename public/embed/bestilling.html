@@ -425,7 +425,7 @@
       <div class="how-content">
         <p><strong>Dette er ikke en webshop.</strong> Du sender en bestilling og får umiddelbart en bekræftelse på mail om at vi har modtaget ordren. Inden for max 2 hverdage får du en mail med menuen. Har du ændringer til menuen svarer du bare på den mail. Ændringer kan foretages indtil kl 12 hverdagen inden leveringen.</p>
         <p>De fleste kunder skriver bare antal personer og evt. kostønsker, fx <em>"100 stk, ½ vegansk, 2 glutenfri"</em> — så vælger vi en god blanding fra menuen.</p>
-        <p>Vil du selv bestemme retterne, kan du klikke <em>📋 Tilføj specifikke retter</em> ved ønskefeltet og vælge dem direkte.</p>
+        <p>Vil du selv bestemme retterne, kan du klikke <em>📋 Se vores menu og allergener</em> ved ønskefeltet og vælge dem direkte.</p>
       </div>
     </div>
   </div>
@@ -554,7 +554,7 @@
 
         <div class="menu-link-row">
           <button type="button" class="menu-link" id="menu-toggle-btn" onclick="toggleMenu()">
-            <span id="menu-toggle-label">📋 Tilføj specifikke retter</span>
+            <span id="menu-toggle-label">📋 Se vores menu og allergener</span>
             <span class="menu-link-badge" id="menu-link-badge">0</span>
           </button>
         </div>
@@ -1067,7 +1067,7 @@ function openMenu() {
 
 function closeMenu() {
   document.getElementById('menu-inline').classList.remove('open');
-  document.getElementById('menu-toggle-label').textContent = '📋 Tilføj specifikke retter';
+  document.getElementById('menu-toggle-label').textContent = '📋 Se vores menu og allergener';
   document.querySelectorAll('.allergen-row.show').forEach(r => r.classList.remove('show'));
   document.querySelectorAll('.mi-info-btn.active').forEach(b => b.classList.remove('active'));
   postHeight();
