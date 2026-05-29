@@ -2038,6 +2038,27 @@ ned blandt løse linjer hopper tilbage til toppen ved reload. Pre-eksisterende b
 
 **Spor 2 KOMPLET (S2.0-S2.3).** Mangler kun S2.4 (By-expressen API) som afventer Sebastians credentials — Spor 2 fungerer fuldt uden den (manuel popout-booking).
 
+### Delivery — Spor 2: Chauffør-tildeling i logistik (29. maj 2026)
+
+Courier-mobilen (`mobile/views/levering.js`) viste aldrig nogen ture, selv når der lå
+en intern rute for dagen. Årsag: `GET /api/delivery/courier/today` filtrerer på
+`r.courier_user_id = session.userId`, men logistik-viewet oprettede ruter med
+`createDeliveryRoute({ route_date, vehicle_id })` **uden** at sætte `courier_user_id` —
+og der fandtes ingen UI til at tildele en chauffør. Feltet forblev NULL, så ingen ruter
+matchede den indloggede chauffør.
+
+- `routes/delivery.js` — nyt `GET /api/delivery/couriers` (aktive brugere, `requireAuth()`).
+  Egen endpoint frem for `/api/users` som er admin-only — en `salg`-bruger ville ellers få 403.
+- `shared/api.js` — `fetchDeliveryCouriers()`.
+- `shared/logistik.js` + `logistik.css` — chauffør-dropdown på hvert rute-kort, **kun for
+  interne vogne** (`vehicle_booking_method` ≠ `manual_clipboard`/`api` — eksterne som
+  By-expressen/taxa bookes hos leverandøren og kører ikke selv). Manglende chauffør viser
+  rød advarsel "⚠ Ingen chauffør — vises ikke på mobil". Valg (inkl. ryd → NULL) gemmes
+  straks via det eksisterende `PUT /api/delivery/routes/:id` (accepterede allerede
+  `courier_user_id`). Delegeret `change`-lytter på `#logRouteList`.
+- Koblingen: dropdown sætter `courier_user_id` → matches mod `session.userId` i
+  `/courier/today` → ruten dukker op på chaufførens mobil.
+
 ### Mail-historik: fælles komponent (21. maj 2026)
 
 Mail blev vist på seks steder med fire separate chat-boble-implementeringer

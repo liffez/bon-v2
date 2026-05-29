@@ -28,6 +28,7 @@ var _logDate      = '';
 var _logHighlightBon = null;   // bon der scrolles til + pulses efter load (one-shot)
 var _logData      = { bons: [], routes: [] };
 var _logVehicles  = [];
+var _logCouriers  = [];        // aktive brugere til chauffør-tildeling
 var _logSelected  = {};        // bon_id → true
 var _logCalc      = {};        // bon_id → /calculate-resultat (cache)
 var _logComputed  = {};        // route_id → forslag (beregnet, ikke anvendt)
@@ -100,6 +101,11 @@ function initLogistik(containerEl, opts) {
         _logVehicles = (vs || []).filter(function(v) { return v.is_active; });
         _logBuildLegend();
     }).catch(function() { _logVehicles = []; });
+
+    fetchDeliveryCouriers().then(function(us) {
+        _logCouriers = us || [];
+        if (_logActive) _logRenderRoutes();
+    }).catch(function() { _logCouriers = []; });
 
     _logLoad();
 }
@@ -253,6 +259,7 @@ function _logRenderShell() {
 
     document.getElementById('logBonList').addEventListener('click', _logOnBonClick);
     document.getElementById('logRouteList').addEventListener('click', _logOnRouteClick);
+    document.getElementById('logRouteList').addEventListener('change', _logOnRouteChange);
     document.getElementById('logSelBar').addEventListener('click', _logOnSelBarClick);
 
     _logInitMap();
@@ -674,6 +681,26 @@ function _logRouteCard(r) {
             '</div>';
     }
 
+    // Chauffør — kun interne vogne (Volvo/egen cykel) kører selv og dukker
+    // op i courier-mobilen. Uden en tildelt chauffør ser ingen ruten på
+    // mobilen, så feltet er afgørende for internt-kørte ture.
+    var courierHtml = '';
+    if (!isExternal) {
+        var courierOpts = '<option value="">— vælg chauffør —</option>' +
+            _logCouriers.map(function(u) {
+                var selected = String(u.id) === String(r.courier_user_id) ? ' selected' : '';
+                return '<option value="' + u.id + '"' + selected + '>' + _logEsc(u.name) + '</option>';
+            }).join('');
+        var courierWarn = r.courier_user_id ? '' :
+            '<span class="log-courier-warn">⚠ Ingen chauffør — vises ikke på mobil</span>';
+        courierHtml =
+            '<div class="log-route-courier">' +
+              '<label>Chauffør</label>' +
+              '<select class="log-courier-select" data-route-id="' + r.id + '">' + courierOpts + '</select>' +
+              courierWarn +
+            '</div>';
+    }
+
     // Faktisk pris.
     var costRow =
         '<div class="log-route-cost">' +
@@ -695,6 +722,7 @@ function _logRouteCard(r) {
         '<div class="log-route-summary">' + summaryBits.join(' · ') + '</div>' +
         healthHtml +
         pickupHtml +
+        courierHtml +
         (stopRows ? '<div class="log-route-stops">' + stopRows + '</div>' : '') +
         alertHtml +
         (actions.length ? '<div class="log-route-actions">' + actions.join('') + '</div>' : '') +
@@ -785,6 +813,18 @@ function _logOnRouteClick(e) {
             .then(function(resp) { _logComputed[routeId] = resp && resp.proposal; _logLoad(); })
             .catch(function(err) { alert('Kunne ikke nulstille: ' + (err.message || 'fejl')); });
     }
+}
+
+// Tildel/ryd chauffør på en rute. Uden en chauffør dukker ruten ikke op
+// i courier-mobilen (GET /courier/today filtrerer på courier_user_id).
+function _logOnRouteChange(e) {
+    var sel = e.target;
+    if (!sel.classList || !sel.classList.contains('log-courier-select')) return;
+    var routeId = parseInt(sel.getAttribute('data-route-id'), 10);
+    var val = sel.value ? parseInt(sel.value, 10) : null;
+    updateDeliveryRoute(routeId, { courier_user_id: val })
+        .then(function() { _logLoad(); })
+        .catch(function(err) { alert('Kunne ikke tildele chauffør: ' + (err.message || 'fejl')); });
 }
 
 function _logSetBusy(routeId, text) {
