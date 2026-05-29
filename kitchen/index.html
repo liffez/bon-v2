@@ -140,6 +140,12 @@
             text-align:center; line-height:1;
         }
         .today-mood-emoji { font-size:var(--kitchen-mood-emoji-fs); }
+        .today-mood-emoji.celebrate { animation:moodCelebrate 1.4s ease-in-out infinite; }
+        @keyframes moodCelebrate {
+            0%,100% { transform:scale(1) rotate(0deg); }
+            25%     { transform:scale(1.15) rotate(-8deg); }
+            75%     { transform:scale(1.15) rotate(8deg); }
+        }
         .today-mood-text {
             margin-top:6px; font-size:10px; font-weight:700;
             letter-spacing:.08em; text-transform:uppercase;
@@ -481,6 +487,22 @@
         }
     }
 
+    // Fejrings-emoji når alt er leveret — jo flere enheder, jo mere fest.
+    // Tilfældigt valg inden for hvert niveau giver "skiftende karakter" ved hver render/SSE.
+    function pickCelebration(units) {
+        let pool, text;
+        if (units > 400) {
+            pool = ['🏆', '🎆', '🤩', '🚀', '👑']; text = 'Mega dag — alt leveret!';
+        } else if (units > 200) {
+            pool = ['🥳', '🎉', '🙌', '💪'];        text = 'Sikke en dag — alt leveret!';
+        } else if (units > 100) {
+            pool = ['🎉', '😄', '👏', '✨'];         text = 'Godt klaret — alt leveret!';
+        } else {
+            pool = ['😄', '🙂', '👍', '✅'];         text = 'Dagen er i hus!';
+        }
+        return [pool[Math.floor(Math.random() * pool.length)], text];
+    }
+
     // ── Render: I dag hero ──
     function renderToday(data) {
         const dayName = fmtDateLong(data.date).toUpperCase();
@@ -489,16 +511,31 @@
 
         // Mood emoji (samme tærskler som prep-kort)
         const todayUnits = data.totals.total_units || 0;
-        let mood = '🙂', moodText = 'Rolig dag';
+        let mood = '🙂', moodText = 'Rolig dag', moodCelebrate = false;
+
+        // Er alle dagens bons leveret? → fejr det (jo flere enheder, jo større fest)
+        const breakdown = data.status_breakdown || [];
+        const DELIVERED_CODES = ['LEVERET', 'FAKTURERET', 'AFSLUTTET', 'BETALT'];
+        const totalBons     = breakdown.reduce((s, r) => s + r.count, 0);
+        const deliveredBons = breakdown
+            .filter(r => DELIVERED_CODES.includes(r.status_code))
+            .reduce((s, r) => s + r.count, 0);
+        const allDelivered  = totalBons > 0 && deliveredBons === totalBons;
+
         if (data.totals.bon_count === 0) {
             mood = '😴'; moodText = 'Fri dag';
+        } else if (allDelivered) {
+            [mood, moodText] = pickCelebration(todayUnits);
+            moodCelebrate = true;
+        } else if (todayUnits > 400) {
+            mood = '🥵'; moodText = 'Meget travl dag';
         } else if (todayUnits > 200) {
             mood = '😰'; moodText = 'Travl dag';
         } else if (todayUnits > 100) {
             mood = '😊'; moodText = 'Normal dag';
         }
         document.getElementById('todayMood').innerHTML =
-            `<div class="today-mood-emoji">${mood}</div>
+            `<div class="today-mood-emoji${moodCelebrate ? ' celebrate' : ''}">${mood}</div>
              <div class="today-mood-text">${moodText}</div>`;
 
         // Stats
