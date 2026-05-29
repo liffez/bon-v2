@@ -282,6 +282,98 @@ body.m-modtag-active .m-content { padding-bottom: 0; }
     opacity: 0.6; cursor: not-allowed;
 }
 
+/* ── Mailflow-sektion (bon detalje) ── */
+.m-mail-section .mt-thread {
+    /* Lidt mere åndedrag mellem bobler på en smal skærm. */
+    padding: 4px 0 8px;
+}
+.m-mail-section .mt-msg {
+    /* Mobile: bobler må fylde mere — vi har kun ét niveau af nesting,
+       så skipper desktop-versionens 80% bredde. */
+    max-width: 95%;
+    font-size: 14px;
+}
+.m-mail-section .mt-msg-body {
+    font-size: 14px;
+    line-height: 1.45;
+}
+.m-mail-section .mt-msg-head {
+    font-size: 12px;
+}
+
+.m-mail-reply {
+    margin-top: 12px;
+}
+.m-mail-reply-toggle {
+    width: 100%;
+    padding: 12px;
+    background: var(--brand-primary);
+    color: #fff;
+    border: 0;
+    border-radius: 10px;
+    font: inherit;
+    font-size: 15px;
+    font-weight: 700;
+    cursor: pointer;
+}
+.m-mail-reply-toggle:active { opacity: 0.85; }
+
+.m-mail-reply-form {
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+    padding: 10px;
+    background: var(--color-surface);
+    border: 1px solid var(--color-border);
+    border-radius: 10px;
+}
+.m-mail-reply-label {
+    font-size: 12px;
+    font-weight: 600;
+    color: var(--color-text-dim);
+    margin-top: 4px;
+}
+.m-mail-reply-form input,
+.m-mail-reply-form textarea {
+    width: 100%;
+    padding: 10px;
+    border: 1px solid var(--color-border);
+    border-radius: 8px;
+    font: inherit;
+    font-size: 15px;
+    background: #fff;
+    box-sizing: border-box;
+}
+.m-mail-reply-form textarea {
+    resize: vertical;
+    min-height: 120px;
+}
+.m-mail-reply-actions {
+    display: flex;
+    gap: 8px;
+    margin-top: 8px;
+}
+.m-mail-reply-cancel,
+.m-mail-reply-send {
+    flex: 1;
+    padding: 12px;
+    border: 0;
+    border-radius: 10px;
+    font: inherit;
+    font-size: 15px;
+    font-weight: 700;
+    cursor: pointer;
+}
+.m-mail-reply-cancel {
+    background: #eee;
+    color: var(--color-text);
+}
+.m-mail-reply-send {
+    background: var(--brand-primary);
+    color: #fff;
+}
+.m-mail-reply-send:disabled { opacity: 0.6; cursor: not-allowed; }
+
 /* ── Status knapper (bon detalje) ── */
 .m-status-actions {
     display: flex; gap: 8px;

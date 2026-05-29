@@ -740,13 +740,14 @@ async function _mbShowDetail(bonId) {
     history.pushState(null, '', '?' + params.toString());
 
     var unreadMails = [];
+    var threads = [];
     try {
         var results = await Promise.all([
             apiFetch('/bons/' + bonId),
             apiFetch('/bons/' + bonId + '/mail').catch(function() { return { threads: [] }; })
         ]);
         _mbDetailBon = results[0];
-        var threads = (results[1] && results[1].threads) || [];
+        threads = (results[1] && results[1].threads) || [];
         threads.forEach(function(t) {
             (t.messages || []).forEach(function(m) {
                 if (m.direction === 'in' && !m.is_read) unreadMails.push(m);
@@ -756,6 +757,8 @@ async function _mbShowDetail(bonId) {
         _mbContainer.innerHTML = '<div class="m-bon-empty">Kunne ikke hente bon</div>';
         return;
     }
+
+    var hasMail = threads.some(function(t) { return (t.messages || []).length > 0; });
 
     var bon = _mbDetailBon;
     var s = _mbStatusStyle(bon.status_code || bon.status);
@@ -859,9 +862,21 @@ async function _mbShowDetail(bonId) {
         html += '</div>';
     }
 
+    if (hasMail) {
+        html += '<div class="m-detail-section m-mail-section" id="mbMailSection">';
+        html += '<div class="m-detail-label">Mailflow</div>';
+        html += '<div id="mbMailThread"></div>';
+        html += '<div class="m-mail-reply" id="mbMailReply"></div>';
+        html += '</div>';
+    }
+
     html += '<div class="m-status-actions" id="mbStatusActions"></div>';
 
     _mbContainer.innerHTML = html;
+
+    if (hasMail) {
+        _mbRenderMailSection(bon, threads);
+    }
 
     document.getElementById('mbBack').addEventListener('click', function() {
         var p = new URLSearchParams(window.location.search);
@@ -883,6 +898,126 @@ async function _mbShowDetail(bonId) {
     }
 
     _mbLoadTransitions(bon);
+}
+
+/* ──────────────────────────────────────────────────────────
+ * Mail-sektion på bon-detalje. Bruger den fælles MailThread-
+ * komponent + en svar-formular der POSTer til /api/bons/:id/mail.
+ * Genbruger PATCH /:id/mail/:msgId/read som onMarkRead-callback
+ * så ulæste mails bliver markeret når brugeren folder dem ud.
+ * ────────────────────────────────────────────────────────── */
+function _mbRenderMailSection(bon, threads) {
+    var host = document.getElementById('mbMailThread');
+    if (!host || !window.MailThread) return;
+
+    MailThread.renderHistory(host, {
+        threads: threads,
+        emptyText: 'Ingen mails endnu',
+        maxHeight: 360,
+        onMarkRead: function(msgId) {
+            return apiFetch('/bons/' + bon.id + '/mail/' + msgId + '/read', { method: 'PATCH' });
+        }
+    });
+
+    // Find seneste indgående mail til at pre-fylde svaret.
+    var allMsgs = [];
+    threads.forEach(function(t) {
+        (t.messages || []).forEach(function(m) {
+            var mm = Object.assign({}, m);
+            mm._thread = t;
+            allMsgs.push(mm);
+        });
+    });
+    var lastIn = allMsgs
+        .filter(function(m) { return m.direction === 'in' && m.from_email; })
+        .sort(function(a, b) {
+            return String(b.received_at || b.created_at || '')
+                .localeCompare(String(a.received_at || a.created_at || ''));
+        })[0];
+
+    var lastAny = allMsgs.sort(function(a, b) {
+        return String(b.received_at || b.sent_at || b.created_at || '')
+            .localeCompare(String(a.received_at || a.sent_at || a.created_at || ''));
+    })[0];
+
+    var defaultTo = (lastIn && lastIn.from_email)
+        || bon.contact_email || bon.customer_email || '';
+    var lastSubject = (lastIn && (lastIn.subject || (lastIn._thread && lastIn._thread.subject)))
+        || (lastAny && (lastAny.subject || (lastAny._thread && lastAny._thread.subject)))
+        || '';
+    var defaultSubject = lastSubject
+        ? (/^re:\s/i.test(lastSubject) ? lastSubject : 'Re: ' + lastSubject)
+        : '';
+    var inReplyTo = lastIn ? (lastIn.message_id_external || '') : '';
+
+    var replyHost = document.getElementById('mbMailReply');
+    if (!replyHost) return;
+
+    replyHost.innerHTML =
+        '<button type="button" class="m-mail-reply-toggle" id="mbReplyToggle">' +
+            '✉ Svar på mailen' +
+        '</button>' +
+        '<form class="m-mail-reply-form" id="mbReplyForm" hidden>' +
+            '<label class="m-mail-reply-label">Til</label>' +
+            '<input type="email" id="mbReplyTo" value="' + _mbEsc(defaultTo) + '" placeholder="kunde@…">' +
+            '<label class="m-mail-reply-label">Emne</label>' +
+            '<input type="text" id="mbReplySubject" value="' + _mbEsc(defaultSubject) + '">' +
+            '<label class="m-mail-reply-label">Besked</label>' +
+            '<textarea id="mbReplyBody" rows="6" placeholder="Skriv dit svar…"></textarea>' +
+            '<div class="m-mail-reply-actions">' +
+                '<button type="button" class="m-mail-reply-cancel" id="mbReplyCancel">Annullér</button>' +
+                '<button type="submit" class="m-mail-reply-send" id="mbReplySend">Send svar</button>' +
+            '</div>' +
+        '</form>';
+
+    var toggle = document.getElementById('mbReplyToggle');
+    var form   = document.getElementById('mbReplyForm');
+    var cancel = document.getElementById('mbReplyCancel');
+
+    toggle.addEventListener('click', function() {
+        form.hidden = false;
+        toggle.hidden = true;
+        var bodyEl = document.getElementById('mbReplyBody');
+        if (bodyEl) bodyEl.focus();
+    });
+    cancel.addEventListener('click', function() {
+        form.hidden = true;
+        toggle.hidden = false;
+    });
+    form.addEventListener('submit', function(ev) {
+        ev.preventDefault();
+        _mbSendReply(bon.id, inReplyTo);
+    });
+}
+
+async function _mbSendReply(bonId, inReplyTo) {
+    var toEl   = document.getElementById('mbReplyTo');
+    var subjEl = document.getElementById('mbReplySubject');
+    var bodyEl = document.getElementById('mbReplyBody');
+    var sendBtn = document.getElementById('mbReplySend');
+    if (!toEl || !subjEl || !bodyEl || !sendBtn) return;
+
+    var to = (toEl.value || '').trim();
+    var subject = (subjEl.value || '').trim();
+    var text = (bodyEl.value || '').trim();
+    if (!to)   { toEl.focus();   if (window._mToast) window._mToast('Mangler modtager'); return; }
+    if (!text) { bodyEl.focus(); if (window._mToast) window._mToast('Mangler besked');   return; }
+
+    sendBtn.disabled = true;
+    var originalText = sendBtn.textContent;
+    sendBtn.textContent = 'Sender…';
+    try {
+        await apiFetch('/bons/' + bonId + '/mail', {
+            method: 'POST',
+            body: JSON.stringify({ to: to, subject: subject, text: text, inReplyTo: inReplyTo || undefined })
+        });
+        if (window._mToast) window._mToast('Mail sendt ✓');
+        await _mbShowDetail(bonId);
+    } catch (e) {
+        sendBtn.disabled = false;
+        sendBtn.textContent = originalText;
+        if (window._mToast) window._mToast((e && e.message) || 'Kunne ikke sende mailen');
+    }
 }
 
 async function _mbMarkMailsRead(bonId, btn) {
