@@ -334,6 +334,7 @@ body.m-modtag-active .m-content { padding-bottom: 0; }
     margin-top: 4px;
 }
 .m-mail-reply-form input,
+.m-mail-reply-form select,
 .m-mail-reply-form textarea {
     width: 100%;
     padding: 10px;

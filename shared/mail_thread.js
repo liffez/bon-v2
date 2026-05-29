@@ -18,9 +18,11 @@
        emptyText,            // tekst når der ingen mails er
        maxHeight,            // valgfri scroll-højde på listen (px-tal/streng)
        onMarkRead,           // valgfri (msgId) => Promise — markér læst
+       expandUnread,         // valgfri bool — fold ulæste indgående ud straks
      })
      MailThread.fmtDate(iso)        // ét fælles datoformat
      MailThread.normalize(opts)     // tråde/beskeder → sorteret flad liste
+     MailThread.buildVars(bon)      // skabelon-variabler fra en bon ({{kundeNavn}}…)
    ══════════════════════════════════════════════════════════════ */
 (function () {
     'use strict';
@@ -148,6 +150,12 @@
         // Interaktion: klik på boble → fold ud/ind + markér læst.
         container.querySelectorAll('.mt-msg').forEach(function (el) {
             var m = msgs[parseInt(el.dataset.mtIdx, 10)];
+            // Fold ulæste indgående beskeder ud straks, så man kan læse hele
+            // mailen OG se resten af flowet samtidig (uden at markere læst).
+            if (opts.expandUnread && m && m.direction === 'in' && !m.is_read
+                && el.classList.contains('mt-collapsible')) {
+                el.classList.add('mt-expanded');
+            }
             el.addEventListener('click', function (ev) {
                 if (ev.target.closest('.mt-msg-att')) return; // lad links virke
                 if (el.classList.contains('mt-collapsible')) {
@@ -165,10 +173,102 @@
         });
     }
 
+    /* Byg skabelon-variabler ({{kundeNavn}}, {{menuMedPriser}} …) fra en bon.
+       Kanonisk kilde — bruges på mobil; office har historisk egne kopier i
+       bon_kort.js/bon_drawer.js. Moms via window.Moms (aldrig magic-faktorer);
+       hvis Moms ikke er loadet udelades pris-felterne i stedet for at gætte. */
+    function buildVars(bon) {
+        bon = bon || {};
+        var lines = bon.lines || [];
+        var groups = bon.menu_groups || [];
+        var menuLines = lines.filter(function (l) {
+            var c = (l.category || '').toLowerCase();
+            return c !== 'emballage' && c !== 'levering';
+        });
+
+        var groupById = new Map(groups.map(function (g) { return [g.id, g]; }));
+        var groupOrder = [];
+        var linesByGroup = new Map();
+        var ungrouped = [];
+        menuLines.forEach(function (l) {
+            var gid = l.menu_group_id;
+            if (gid && groupById.has(gid)) {
+                if (!linesByGroup.has(gid)) { linesByGroup.set(gid, []); groupOrder.push(gid); }
+                linesByGroup.get(gid).push(l);
+            } else {
+                ungrouped.push(l);
+            }
+        });
+        groupOrder.sort(function (a, b) {
+            return (groupById.get(a).sort_order || 0) - (groupById.get(b).sort_order || 0);
+        });
+
+        var _norm = function (s) { return String(s || '').trim().toLowerCase(); };
+        var _renderLine = function (l, group, withPrice) {
+            var comment = (l.special_request || '').trim();
+            if (comment && group) {
+                var n = _norm(comment);
+                if (n === _norm(group.title) || n === _norm(group.note)) comment = '';
+            }
+            var commentPart = comment ? ' (' + comment + ')' : '';
+            var pricePart = (withPrice && l.unit_price)
+                ? '  ' + (l.quantity * l.unit_price).toLocaleString('da-DK') + ' kr' : '';
+            return l.quantity + '× ' + l.product_name + commentPart + pricePart;
+        };
+        var _buildMenu = function (withPrice) {
+            var parts = [];
+            groupOrder.forEach(function (gid) {
+                var g = groupById.get(gid);
+                var header = (g.title || g.note || '').trim();
+                if (header) parts.push(header + ':');
+                linesByGroup.get(gid).forEach(function (l) {
+                    parts.push((header ? '  ' : '') + _renderLine(l, g, withPrice));
+                });
+                parts.push('');
+            });
+            ungrouped.forEach(function (l) { parts.push(_renderLine(l, null, withPrice)); });
+            while (parts.length && parts[parts.length - 1] === '') parts.pop();
+            return parts.join('\n');
+        };
+
+        // line_total er incl. moms (jf. BON_V2_PRINCIPPER.md sektion 6b)
+        var totalInkl = lines.reduce(function (s, l) { return s + (l.line_total || 0); }, 0);
+        var hasMoms = window.Moms && typeof window.Moms.inclToExcl === 'function';
+        var kr = function (n) { return n.toLocaleString('da-DK', { minimumFractionDigits: 2 }) + ' kr'; };
+        var addrObj = bon.delivery_address || {};
+        var addr = typeof addrObj === 'string' ? addrObj
+            : [addrObj.street_name, addrObj.street_nr, addrObj.postal_code, addrObj.city].filter(Boolean).join(' ');
+
+        var vars = {
+            kundeNavn: bon.contact_name_full || bon.customer_name || bon.contact_name || '',
+            bonNummer: bon.bon_number || '',
+            leveringsDato: bon.delivery_date || '',
+            leveringsTidspunkt: bon.delivery_time || bon.pickup_time || '',
+            leveringsAdresse: addr,
+            postnummer: (typeof addrObj === 'object' && addrObj.postal_code) ? String(addrObj.postal_code) : '',
+            telefon: bon.contact_phone || bon.customer_phone || '',
+            pax: String(bon.pax || ''),
+            firmanavn: bon.company_name || '',
+            menuUdenPriser: _buildMenu(false),
+            menuMedPriser: _buildMenu(true),
+            co2PerLinje: menuLines.filter(function (l) { return l.co2e; }).map(function (l) {
+                return l.product_name + ': ' + l.co2e + ' kg × ' + l.quantity + ' = ' + (l.co2e * l.quantity).toFixed(2);
+            }).join('\n'),
+            co2Total: menuLines.reduce(function (s, l) { return s + ((l.co2e || 0) * l.quantity); }, 0).toFixed(2) + ' kg CO₂e',
+        };
+        if (hasMoms) {
+            vars.totalPris = kr(totalInkl);
+            vars.totalExMoms = kr(window.Moms.inclToExcl(totalInkl));
+            vars.momsBeloeb = kr(window.Moms.momsOfIncl(totalInkl));
+        }
+        return vars;
+    }
+
     window.MailThread = {
         renderHistory: renderHistory,
         fmtDate: fmtDate,
         normalize: normalize,
+        buildVars: buildVars,
         esc: esc,
     };
 })();
