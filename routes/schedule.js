@@ -199,11 +199,16 @@ router.get('/week', handle(async (req, res) => {
         const dayShifts = allShifts
             .filter(s => s.date === date)
             .map(s => ({
-                name: s.employee_name || s.first_name || '?',
-                initials: _initials(s.employee_name),
+                is_open: !s.employee_name && !s.first_name,
+                name: (s.employee_name || s.first_name) || 'Ledig vagt',
+                initials: (s.employee_name || s.first_name) ? _initials(s.employee_name) : '?',
                 start: s.start_time || '',
                 end: s.end_time || '',
             }));
+
+        // En vagt uden ejer er LEDIG (udlagt, endnu ikke taget) — tæller ikke som bemanding.
+        const assignedShifts = dayShifts.filter(s => !s.is_open);
+        const openShifts     = dayShifts.filter(s => s.is_open);
 
         // Lager-summary
         const stockChecked = dayBons.filter(b => b.stock_status === 'ok').length;
@@ -219,7 +224,7 @@ router.get('/week', handle(async (req, res) => {
         const totalUnits = dayBons.reduce((sum, b) => sum + (b.workload || 0), 0);
 
         // Personale: total timer
-        const totalHours = dayShifts.reduce((sum, s) => {
+        const totalHours = assignedShifts.reduce((sum, s) => {
             const start = _timeToDecimal(s.start);
             const end = _timeToDecimal(s.end);
             return sum + (start != null && end != null ? end - start : 0);
@@ -233,7 +238,7 @@ router.get('/week', handle(async (req, res) => {
         let capStatus = 'grey';
         let capacity = { enabled: false };
 
-        if (dayBons.length > 0 && dayShifts.length > 0) {
+        if (dayBons.length > 0 && assignedShifts.length > 0) {
             // Find seneste production_end (pickup_time || delivery_time - 45min)
             let latestEnd = 0;
             for (const b of dayBons) {
@@ -253,7 +258,7 @@ router.get('/week', handle(async (req, res) => {
 
             // Tilgængelige persontimer = overlap af vagter med produktionsvinduet
             let availableHours = 0;
-            for (const s of dayShifts) {
+            for (const s of assignedShifts) {
                 const sStart = _timeToDecimal(s.start);
                 const sEnd = _timeToDecimal(s.end);
                 if (sStart != null && sEnd != null) {
@@ -287,8 +292,11 @@ router.get('/week', handle(async (req, res) => {
 
         // Personale status
         let staffStatus = 'grey';
-        if (dayShifts.length > 0) {
+        if (assignedShifts.length > 0) {
             staffStatus = dayRatio != null ? capStatus : 'green';
+        } else if (openShifts.length > 0 && dayBons.length > 0) {
+            // Kun ledige vagter dækker dagens bons → reelt ubemandet
+            staffStatus = 'red';
         }
 
         return {
@@ -302,7 +310,8 @@ router.get('/week', handle(async (req, res) => {
                 status: prodStatus,
             },
             staff: {
-                count: dayShifts.length,
+                count: assignedShifts.length,
+                open_count: openShifts.length,
                 total_hours: Math.round(totalHours * 10) / 10,
                 status: staffStatus,
                 ratio: dayRatio,
