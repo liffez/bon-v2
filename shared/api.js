@@ -1633,6 +1633,11 @@ function undoDepartDeliveryRoute(routeId) {
     return apiFetch('/delivery/routes/' + routeId + '/undo-depart', { method: 'POST' });
 }
 
+// Aktive brugere der kan tildeles en rute som chauffør.
+function fetchDeliveryCouriers() {
+    return apiFetch('/delivery/couriers');
+}
+
 // data: { status: 'leveret'|'problem', lat?, lng? }
 function setDeliveryStopStatus(stopId, data) {
     return apiFetch('/delivery/stops/' + stopId + '/status', {

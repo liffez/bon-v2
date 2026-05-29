@@ -975,6 +975,19 @@ function maybeCompleteRoute(db, routeId) {
 }
 
 // ──────────────────────────────────────────
+// GET /api/delivery/couriers
+// Aktive brugere der kan tildeles en rute som chauffør. Bruges af
+// logistik-viewets chauffør-dropdown — derfor åben for alle (ikke
+// admin-only som /api/users).
+// ──────────────────────────────────────────
+router.get('/couriers', requireAuth(), handle((req, res) => {
+    const db = getDb();
+    res.json(db.prepare(
+        'SELECT id, name FROM users WHERE is_active = 1 ORDER BY name'
+    ).all());
+}));
+
+// ──────────────────────────────────────────
 // GET /api/delivery/courier/today
 // Den indloggede chaufførs egne ruter i dag — med stop, adresse,
 // kontakt og indhold. Driver courier-mobilen.
