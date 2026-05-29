@@ -1050,6 +1050,38 @@ router.post('/routes/:id/depart', requireAuth(), handle((req, res) => {
 }));
 
 // ──────────────────────────────────────────
+// POST /api/delivery/routes/:id/undo-depart
+// Fortryd "Kør fra HQ" — kun hvis ingen stop er markeret endnu.
+// Ruten ruller tilbage til 'computed' (den eneste reelle pre-active-status),
+// og actual_departure ryddes så timestamps ikke forfalskes.
+// ──────────────────────────────────────────
+router.post('/routes/:id/undo-depart', requireAuth(), handle((req, res) => {
+    const db = getDb();
+    const id = Number(req.params.id);
+    const route = db.prepare('SELECT * FROM delivery_routes WHERE id = ?').get(id);
+    if (!route) return res.status(404).json({ error: 'Rute ikke fundet' });
+    if (route.status !== 'active') {
+        return res.status(409).json({ error: 'Ruten er ikke startet' });
+    }
+    const touched = db.prepare(`
+        SELECT COUNT(*) AS n FROM delivery_route_stops
+        WHERE route_id = ? AND status != 'planlagt'
+    `).get(id).n;
+    if (touched > 0) {
+        return res.status(409).json({
+            error: 'Kan ikke fortryde — der er allerede markeret stop på turen'
+        });
+    }
+    db.prepare(`
+        UPDATE delivery_routes
+        SET status = 'computed', actual_departure = NULL, updated_at = CURRENT_TIMESTAMP
+        WHERE id = ?
+    `).run(id);
+    broadcast('delivery_route_status_changed', { route_id: id, status: 'computed' });
+    res.json({ id, status: 'computed' });
+}));
+
+// ──────────────────────────────────────────
 // POST /api/delivery/stops/:id/status
 // Body: { status: 'leveret' | 'problem', lat?, lng? }
 // Courier markerer et stop. 'leveret' rykker også bonen til LEVERET.

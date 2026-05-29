@@ -715,6 +715,10 @@ var _searchTerm = '';
 function _renderList() {
     var content = document.getElementById('calContent');
     if (!content || !_calendarData) return;
+    withFocusPreserved(content, function () { _renderListInner(content); });
+}
+
+function _renderListInner(content) {
     content.innerHTML = '';
 
     // Søgefelt
@@ -722,6 +726,7 @@ function _renderList() {
     searchWrap.className = 'cal-list-search';
     var searchInput = document.createElement('input');
     searchInput.type = 'text';
+    searchInput.id = 'calListSearch';
     searchInput.placeholder = 'Søg bon#, kunde, firma...';
     searchInput.className = 'cal-list-search-input';
     searchInput.value = _searchTerm;

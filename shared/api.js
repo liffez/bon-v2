@@ -1629,6 +1629,10 @@ function departDeliveryRoute(routeId) {
     return apiFetch('/delivery/routes/' + routeId + '/depart', { method: 'POST' });
 }
 
+function undoDepartDeliveryRoute(routeId) {
+    return apiFetch('/delivery/routes/' + routeId + '/undo-depart', { method: 'POST' });
+}
+
 // data: { status: 'leveret'|'problem', lat?, lng? }
 function setDeliveryStopStatus(stopId, data) {
     return apiFetch('/delivery/stops/' + stopId + '/status', {
