@@ -137,7 +137,11 @@ function _lvRouteHeader(r) {
             (r.pickup_time ? ' &middot; ' + _lvTime(r.pickup_time) : '') +
             '</button>';
     } else {
-        actionHtml = '<div class="m-lv-route-progress">' + done + ' af ' + stops.length + ' leveret</div>';
+        actionHtml = '<div class="m-lv-route-progress">' + done + ' af ' + stops.length + ' leveret';
+        if (done === 0) {
+            actionHtml += ' &middot; <button type="button" class="m-lv-undo-btn" data-undo-depart="' + r.id + '">Fortryd start</button>';
+        }
+        actionHtml += '</div>';
     }
 
     return (
@@ -188,6 +192,12 @@ function _lvAttachListHandlers() {
             _lvDepart(Number(btn.dataset.depart));
         });
     });
+    _lvContainer.querySelectorAll('[data-undo-depart]').forEach(function(btn) {
+        btn.addEventListener('click', function(e) {
+            e.stopPropagation();
+            _lvUndoDepart(Number(btn.dataset.undoDepart));
+        });
+    });
     _lvContainer.querySelectorAll('.m-lv-stop').forEach(function(el) {
         el.addEventListener('click', function() {
             var found = _lvFindStop(Number(el.dataset.stop));
@@ -203,6 +213,17 @@ async function _lvDepart(routeId) {
         await _lvLoad();
     } catch (e) {
         if (window._mToast) window._mToast('Kunne ikke starte turen');
+    }
+}
+
+async function _lvUndoDepart(routeId) {
+    if (!window.confirm('Fortryd start af turen?')) return;
+    try {
+        await undoDepartDeliveryRoute(routeId);
+        if (window._mToast) window._mToast('Start fortrudt');
+        await _lvLoad();
+    } catch (e) {
+        if (window._mToast) window._mToast((e && e.message) || 'Kunne ikke fortryde');
     }
 }
 

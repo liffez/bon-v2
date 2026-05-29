@@ -1393,6 +1393,17 @@ body.m-modtag-active .m-content { padding-bottom: 0; }
     text-align: center;
 }
 .m-lv-route-done { color: var(--color-green-dark); }
+.m-lv-undo-btn {
+    background: none;
+    border: 0;
+    padding: 0;
+    margin: 0;
+    font: inherit;
+    color: var(--brand-primary);
+    text-decoration: underline;
+    cursor: pointer;
+}
+.m-lv-undo-btn:active { opacity: 0.6; }
 
 /* ── Stop-kort ── */
 .m-lv-stop {
