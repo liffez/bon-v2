@@ -289,13 +289,14 @@ function _uoRenderGrid() {
     for (var i = 0; i < 7; i++) {
         var d = days[i] || {};
         var staff = d.staff || {};
+        var openN = staff.open_count || 0;
         var isToday = (d.date === today);
         var isWeekend = i >= 5;
         var cellCls = 'uge-cell';
         if (isToday) cellCls += ' today-col';
         else if (isWeekend) cellCls += ' weekend-col';
 
-        if (!staff.count) {
+        if (!staff.count && !openN) {
             cellCls += ' empty';
             html += '<div class="' + cellCls + '"><div class="uge-cell-empty-txt">Ingen vagter</div></div>';
         } else {
@@ -303,11 +304,15 @@ function _uoRenderGrid() {
             if (staff.ratio != null) {
                 ratioHtml = '<div class="uge-ratio">' + Math.round(staff.ratio) + ' enh/p</div>';
             }
+            var openHtml = openN > 0
+                ? '<div class="uge-open-shift" title="Udlagt, men endnu ikke taget af nogen">⚠ ' + openN + ' ledig vagt' + (openN === 1 ? '' : 'er') + '</div>'
+                : '';
             html += '<div class="' + cellCls + '" data-day="' + i + '">' +
                 _uoStatusBadge(staff.status, _uoStaffLabel(staff.status)) +
                 '<div class="uge-cell-main">' + staff.count + '</div>' +
-                '<div class="uge-cell-sub">vagter · ' + staff.total_hours + ' t</div>' +
+                '<div class="uge-cell-sub">vagt' + (staff.count === 1 ? '' : 'er') + ' · ' + staff.total_hours + ' t</div>' +
                 ratioHtml +
+                openHtml +
             '</div>';
         }
     }
@@ -455,7 +460,8 @@ function _uoRenderDetail(dayIdx) {
     } else {
         for (var s = 0; s < day.shifts.length; s++) {
             var shift = day.shifts[s];
-            html += '<div class="uge-shift-item">' +
+            var shiftCls = 'uge-shift-item' + (shift.is_open ? ' uge-shift-open' : '');
+            html += '<div class="' + shiftCls + '">' +
                 '<div class="uge-shift-avatar">' + _uoEsc(shift.initials || '?') + '</div>' +
                 '<div class="uge-shift-name">' + _uoEsc(shift.name) + '</div>' +
                 '<div class="uge-shift-time">' + (shift.start || '') + '–' + (shift.end || '') + '</div>' +
