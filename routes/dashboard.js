@@ -12,7 +12,7 @@
 const express       = require('express');
 const router        = express.Router();
 const { getDb }     = require('../db/database');
-const { handle, inclToExcl, momsOfIncl } = require('../db/helpers');
+const { handle, inclToExcl, momsOfIncl, todayISO } = require('../db/helpers');
 const { requireAuth } = require('../shared/auth');
 const { getShifts } = require('../services/smartplanAdapter');
 
@@ -27,7 +27,7 @@ router.use(requireAuth());
 const TERMINAL_CODES = ['LEVERET', 'AFLYST', 'FAKTURERET', 'BETALT', 'AFSLUTTET'];
 
 function _today() {
-    return new Date().toISOString().slice(0, 10);
+    return todayISO();   // dansk lokal dato — ikke UTC (undgår off-by-one efter midnat)
 }
 
 function _dateOffset(base, days) {

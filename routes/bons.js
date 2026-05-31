@@ -1,7 +1,7 @@
 const express = require('express');
 const router  = express.Router();
 const { getDb } = require('../db/database');
-const { handle, logChange, getBon, getBonLines, getBonMenuGroups, getStatusId, getDefaultLocationId, nextBonNumber, computeMomsFields, recalcBonTotalUnits, transaction, autoConsumeBonInventory } = require('../db/helpers');
+const { handle, logChange, getBon, getBonLines, getBonMenuGroups, getStatusId, getDefaultLocationId, todayISO, nextBonNumber, computeMomsFields, recalcBonTotalUnits, transaction, autoConsumeBonInventory } = require('../db/helpers');
 const { broadcast } = require('../shared/sse');
 const grocy   = require('../services/grocyAdapter');
 const { syncCashflowInvoice } = require('../services/cashflowSync');
@@ -100,7 +100,7 @@ router.get('/', handle((req, res) => {
 
     // Dato — 'today' oversættes
     if (date) {
-        const d = date === 'today' ? new Date().toISOString().slice(0, 10) : date;
+        const d = date === 'today' ? todayISO() : date;
         where.push('b.delivery_date = ?');
         args.push(d);
     }

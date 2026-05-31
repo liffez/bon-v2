@@ -197,6 +197,23 @@ function getDefaultLocationId() {
     return getDb().prepare(`SELECT id FROM locations WHERE is_active = 1 ORDER BY id LIMIT 1`).get()?.id;
 }
 
+// ─── DATO (lokal tid) ─────────────────────────────────────
+// `new Date().toISOString().slice(0,10)` giver UTC-dato. Efter midnat dansk
+// tid (UTC+1/+2) peger den stadig på i går, så "I dag"-filtre rammer
+// gårsdagens bons. todayISO() returnerer altid den danske kalenderdato.
+// en-CA-locale formaterer som YYYY-MM-DD.
+function todayISO() {
+    return new Intl.DateTimeFormat('en-CA', { timeZone: 'Europe/Copenhagen' }).format(new Date());
+}
+
+// Lokal dato N dage fra i dag (negativ = bagud). Bevarer YYYY-MM-DD.
+function offsetISO(days) {
+    const parts = todayISO().split('-').map(Number);
+    const d = new Date(Date.UTC(parts[0], parts[1] - 1, parts[2]));
+    d.setUTCDate(d.getUTCDate() + days);
+    return d.toISOString().slice(0, 10);
+}
+
 // ─── ENHEDER-TÆLLING ──────────────────────────────────────
 // Kun kategorier i settings.unit_count_categories tæller med i bons.total_units.
 // Grocy `grupper`-userfield er master for hvilke kategorier der findes;
@@ -267,6 +284,7 @@ function getUserById(id) {
 module.exports = {
     nextBonNumber, nextQuoteNumber, logChange, handle,
     getBon, getBonLines, getBonMenuGroups, getStatusId, getDefaultLocationId,
+    todayISO, offsetISO,
     autoConsumeBonInventory,
     getUnitCountCategories, invalidateUnitCountCache, recalcBonTotalUnits,
     hashPassword, verifyPassword, getUserByEmail, getUserById,

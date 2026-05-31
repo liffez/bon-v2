@@ -1,14 +1,14 @@
 const express       = require('express');
 const router        = express.Router();
 const { getDb }     = require('../db/database');
-const { handle, getBonLines, getBonMenuGroups } = require('../db/helpers');
+const { handle, getBonLines, getBonMenuGroups, todayISO, offsetISO } = require('../db/helpers');
 // grocyAdapter bruges nu via services/ingredientResolver.js
 // quConvert bruges nu via services/ingredientResolver.js
 
 // GET /api/bons/today — køkken i dag
 router.get('/today', handle((req, res) => {
     const db    = getDb();
-    const today = new Date().toISOString().slice(0, 10);
+    const today = todayISO();
 
     const bons = db.prepare(`
         SELECT
@@ -55,13 +55,11 @@ router.get('/today', handle((req, res) => {
 // GET /api/bons/later — køkken senere (fra i morgen + N dage)
 router.get('/later', handle((req, res) => {
     const db    = getDb();
-    const today = new Date().toISOString().slice(0, 10);
+    const today = todayISO();
     const days  = parseInt(req.query.days) || 28;
 
-    // Beregn slutdato: today + days
-    const end = new Date();
-    end.setDate(end.getDate() + days);
-    const endDate = end.toISOString().slice(0, 10);
+    // Beregn slutdato: today + days (lokal dato, ikke UTC)
+    const endDate = offsetISO(days);
 
     const bons = db.prepare(`
         SELECT
