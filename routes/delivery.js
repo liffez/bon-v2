@@ -498,7 +498,7 @@ router.get('/overview', requireAuth(), handle((req, res) => {
         LEFT JOIN delivery_routes r ON r.id = st.route_id AND r.status != 'cancelled'
         LEFT JOIN delivery_vehicles bv ON bv.id = b.delivery_vehicle_id
         WHERE b.delivery_date = ?
-          AND b.delivery_type = 'delivery'
+          AND b.delivery_type IN ('delivery', 'event')
           AND b.is_offer = 0 AND b.is_internal = 0
           AND sd.code != 'AFLYST'
         ORDER BY b.delivery_time, b.id

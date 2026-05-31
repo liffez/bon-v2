@@ -1117,14 +1117,15 @@ class BonDrawer {
     }
 
     _toggleDeliveryFields(type) {
+        // Adresse + bestil bud er relevant ved både levering og event (et event
+        // kan få et bud afhængig af hvor det holdes) — skjul kun ved afhentning.
         const deliveryFields = this.el.querySelector('.drawer-delivery-fields');
-        deliveryFields.style.display = type === 'delivery' ? '' : 'none';
+        deliveryFields.style.display = type === 'pickup' ? 'none' : '';
 
-        // Bestil bud-sektionen er kun relevant ved levering — skjul ved afhentning/event
         const bestilSection = this.el.querySelector('[data-drawer-section="bestil-bud"]');
         if (bestilSection) {
             const isInternal = this.data?.is_internal === 1 || this.data?.is_internal === true;
-            bestilSection.style.display = (type === 'delivery' && !isInternal) ? '' : 'none';
+            bestilSection.style.display = (type !== 'pickup' && !isInternal) ? '' : 'none';
         }
     }
 

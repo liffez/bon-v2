@@ -106,6 +106,9 @@
 .log-bon-meta { margin-top: 3px; font-size: 12px; }
 .log-bon-onroute { color: var(--brand-primary, #8e631f); font-weight: 600; }
 .log-bon-booked { color: #3a6a2e; font-weight: 600; }
+/* Vogn tildelt via det gamle delivery_method-felt (ikke en formel booking) —
+   afdæmpet brun, så den læses som "planlagt, men ikke booket endnu". */
+.log-bon-assigned-method { color: var(--brand-primary, #8e631f); font-weight: 600; }
 .log-forslag { color: #3a6a2e; }
 .log-forslag-note { color: var(--color-text-dim, #8a8580); font-style: italic; }
 
