@@ -83,6 +83,37 @@ function _logVehicleIcon(type) {
     return di ? di.icon : '📦';
 }
 
+// Oversæt det gamle bons.delivery_method ('volvo'/'taxi'/'bike') til en
+// konkret vogn. Entydigt: Egen cykel har type 'own-bike', så method 'bike'
+// matcher kun By-expressen (type 'bike'). Bruges til at vise vogne der er
+// tildelt på den gamle måde (uden delivery_vehicle_id) som "tildelt".
+function _logVehicleByMethod(method) {
+    if (!method) return null;
+    return (_logVehicles || []).find(function(v) { return v.type === method; }) || null;
+}
+function _logMethodLabel(method) {
+    var mv = _logVehicleByMethod(method);
+    if (mv) return mv.label;
+    return method === 'volvo' ? 'Volvo'
+        : method === 'taxi' ? 'Taxa'
+        : method === 'bike' ? 'By-expressen' : (method || '');
+}
+
+// Samlet markør-farve for en bon: rute-farve > booket vogn > gammel method.
+function _logBonMarkerColor(b) {
+    if (b.on_route_id) return _logRouteColorById(b.on_route_id);
+    if (b.delivery_vehicle_id) {
+        var v = (_logVehicles || []).find(function(x) { return x.id === b.delivery_vehicle_id; });
+        if (v) return v.color || _logRouteColor(v.type);
+        if (b.delivery_vehicle_type) return _logRouteColor(b.delivery_vehicle_type);
+    }
+    if (b.delivery_method) {
+        var mv = _logVehicleByMethod(b.delivery_method);
+        return mv ? (mv.color || _logRouteColor(mv.type)) : _logRouteColor(b.delivery_method);
+    }
+    return null;
+}
+
 /* ── Init / Cleanup ────────────────────────────────────── */
 function initLogistik(containerEl, opts) {
     _logContainer = containerEl;
@@ -183,6 +214,7 @@ function _logLoadForslag() {
     (_logData.bons || []).forEach(function(b) {
         if (b.on_route_id) return;                 // på rute → ingen forslag
         if (b.delivery_vehicle_id) return;         // bud allerede bestilt → ingen forslag
+        if (b.delivery_method) return;             // vogn tildelt (gammelt felt) → ingen forslag
         if (_logCalc[b.id]) { _logFillForslag(b.id); return; }
         calculateDelivery({ bon_id: b.id })
             .then(function(r) {
@@ -318,6 +350,8 @@ function _logRenderBons() {
               + (_logSelected[b.id] ? ' checked' : '') + '>';
         // Allerede bestilt bud (Spor 1 — popout-booking uden rute).
         var booked = !onRoute && b.delivery_vehicle_id;
+        // Vogn tildelt via det gamle delivery_method-felt (ingen vehicle_id).
+        var assigned = !onRoute && !b.delivery_vehicle_id && b.delivery_method;
         var routeLine;
         if (onRoute) {
             routeLine = '<span class="log-bon-onroute">'
@@ -328,6 +362,12 @@ function _logRenderBons() {
             routeLine = '<span class="log-bon-booked">'
                 + _logVehicleIcon(b.delivery_vehicle_type || b.delivery_method) + ' '
                 + _logEsc(b.delivery_vehicle_label || 'Bud bestilt') + ' · booket</span>';
+        } else if (assigned) {
+            var aColor = _logBonMarkerColor(b) || '#9a948c';
+            routeLine = '<span class="log-bon-assigned-method">'
+                + '<span class="log-dot" style="background:' + aColor + '"></span>'
+                + _logVehicleIcon(b.delivery_method) + ' '
+                + _logEsc(_logMethodLabel(b.delivery_method)) + ' · tildelt</span>';
         } else {
             routeLine = '<span class="log-bon-forslag"><span class="log-forslag-note">Beregner…</span></span>';
         }
@@ -919,7 +959,7 @@ function _logRenderMap() {
         if (b.lat == null || b.lon == null) return;
         var onRoute = !!b.on_route_id;
         var seq = (onRoute && b.route_sequence) ? String(b.route_sequence) : '';
-        var color = onRoute ? _logRouteColorById(b.on_route_id) : null;
+        var color = _logBonMarkerColor(b);
         var m = L.marker([b.lat, b.lon], { icon: _logBonIcon(color, seq) });
         var name = b.company_name || b.customer_name || ('Bon #' + b.id);
         m.bindTooltip((b.delivery_time ? b.delivery_time + ' · ' : '') + name);

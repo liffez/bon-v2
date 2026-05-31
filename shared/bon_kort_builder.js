@@ -336,7 +336,7 @@ function _buildDeliveryFlag(bonData, cardId) {
 const _DELIVERY_FALLBACK = {
     bike:   { label: 'Cykel',      icon: '🚴' },
     taxi:   { label: 'Taxa',       icon: '🚕' },
-    volvo:  { label: 'Volvo',      icon: '🚐' },
+    volvo:  { label: 'Volvo',      icon: '🚙' },
     pickup: { label: 'Afhentning', icon: '🏠' }
 };
 const _DELIVERY_METHOD_DISPLAY = new Proxy({}, {

@@ -8,10 +8,22 @@
  * Synonymer (own-bike → bike) håndteres i getDeliveryIcon().
  */
 (function() {
+    // Gul Volvo Duett som inline-SVG (stationcar-silhuet i Ristet Rugs gule).
+    // Em-baseret størrelse så den skalerer med teksten den står ved siden af.
+    // Renderes via innerHTML i alle forbrugere (logistik, bon-kort, drawer, lister).
+    var VOLVO_SVG = '<svg viewBox="0 0 24 24" width="1.15em" height="1.15em" style="vertical-align:-0.22em" aria-hidden="true">'
+        + '<rect x="1.5" y="10" width="21" height="5" rx="1.3" fill="#E2B33D"/>'
+        + '<path d="M6 10 L8.5 6.4 Q8.9 6 9.6 6 L17.5 6 Q18.4 6 18.9 6.8 L20.8 10 Z" fill="#E2B33D"/>'
+        + '<path d="M9.4 7.3 L16.7 7.3 Q17.2 7.3 17.5 7.8 L18.5 9.3 L9.4 9.3 Z" fill="#fff" opacity="0.9"/>'
+        + '<line x1="13" y1="7.3" x2="13" y2="9.3" stroke="#E2B33D" stroke-width="0.8"/>'
+        + '<circle cx="7" cy="15.3" r="2.1" fill="#333"/><circle cx="7" cy="15.3" r="0.85" fill="#cfcfcf"/>'
+        + '<circle cx="17.6" cy="15.3" r="2.1" fill="#333"/><circle cx="17.6" cy="15.3" r="0.85" fill="#cfcfcf"/>'
+        + '</svg>';
+
     var DEFAULTS = {
         bike:   { icon: '🚲', label: 'Cykel' },         // 🚲
         taxi:   { icon: '🚕', label: 'Taxa' },           // 🚕
-        volvo:  { icon: '🚛', label: 'Volvo' },          // 🚛
+        volvo:  { icon: VOLVO_SVG, label: 'Volvo' },     // gul stationcar-SVG
         pickup: { icon: '🏠', label: 'Afhentning' },     // 🏠
     };
 
