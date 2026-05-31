@@ -27,6 +27,7 @@
             <span id="headerUserName"></span> &#9662;
             <div class="m-header-dropdown" id="headerDropdown">
                 <a href="/office/" id="linkFullVersion">Fuld version</a>
+                <a href="#" id="linkWhiteboard" target="_blank" rel="noopener" hidden>Whiteboard</a>
                 <a href="#" id="linkLogout">Log ud</a>
             </div>
         </div>
@@ -71,6 +72,18 @@
         // Redirect link based on role
         var fullLink = document.getElementById('linkFullVersion');
         if (_mUser.role === 'kitchen' || _mUser.role === 'kitchen_personal') fullLink.href = '/kitchen/';
+
+        // Whiteboard-link — vises kun hvis WHITEBOARD_BASE_URL er sat (lydløs degradering)
+        fetch('/api/sidekick/config')
+            .then(function(r) { return r.ok ? r.json() : null; })
+            .then(function(cfg) {
+                if (cfg && cfg.whiteboardBase) {
+                    var wb = document.getElementById('linkWhiteboard');
+                    wb.href = cfg.whiteboardBase;
+                    wb.hidden = false;
+                }
+            })
+            .catch(function() { /* lydløst */ });
 
         /* ── Dynamisk nav baseret på permissions ── */
         var NAV_DEFS = [
