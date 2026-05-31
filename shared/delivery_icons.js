@@ -8,16 +8,16 @@
  * Synonymer (own-bike → bike) håndteres i getDeliveryIcon().
  */
 (function() {
-    // Gul Volvo Duett som inline-SVG (stationcar-silhuet i Ristet Rugs gule).
-    // Em-baseret størrelse så den skalerer med teksten den står ved siden af.
+    // Gul Volvo Duett som inline-SVG (stationcar-silhuet i Ristet Rugs gule):
+    // rundet front, lang tagline, ruder + fælge, mørk gul kontur for skarphed.
+    // Em-baseret + lidt større end emoji-ikonerne så vognen er tydelig.
     // Renderes via innerHTML i alle forbrugere (logistik, bon-kort, drawer, lister).
-    var VOLVO_SVG = '<svg viewBox="0 0 24 24" width="1.15em" height="1.15em" style="vertical-align:-0.22em" aria-hidden="true">'
-        + '<rect x="1.5" y="10" width="21" height="5" rx="1.3" fill="#E2B33D"/>'
-        + '<path d="M6 10 L8.5 6.4 Q8.9 6 9.6 6 L17.5 6 Q18.4 6 18.9 6.8 L20.8 10 Z" fill="#E2B33D"/>'
-        + '<path d="M9.4 7.3 L16.7 7.3 Q17.2 7.3 17.5 7.8 L18.5 9.3 L9.4 9.3 Z" fill="#fff" opacity="0.9"/>'
-        + '<line x1="13" y1="7.3" x2="13" y2="9.3" stroke="#E2B33D" stroke-width="0.8"/>'
-        + '<circle cx="7" cy="15.3" r="2.1" fill="#333"/><circle cx="7" cy="15.3" r="0.85" fill="#cfcfcf"/>'
-        + '<circle cx="17.6" cy="15.3" r="2.1" fill="#333"/><circle cx="17.6" cy="15.3" r="0.85" fill="#cfcfcf"/>'
+    var VOLVO_SVG = '<svg viewBox="0 0 24 20" width="1.45em" height="1.45em" style="vertical-align:-0.32em" aria-hidden="true">'
+        + '<path d="M2 13.2 C1.5 13.2 1.2 12.8 1.2 12.3 L1.2 11 C1.2 10.3 1.7 9.8 2.5 9.7 L4.3 9.5 L6.2 6 C6.6 5.3 7.3 4.9 8.1 4.9 L17.6 4.9 C18.4 4.9 19.1 5.3 19.5 6 L20.8 9.3 L21.8 9.6 C22.6 9.9 23 10.6 23 11.4 L23 12.4 C23 12.8 22.7 13.2 22.2 13.2 Z" fill="#E2B33D" stroke="#9c6f28" stroke-width="0.7" stroke-linejoin="round"/>'
+        + '<path d="M7.8 6.4 L12 6.4 L12 9 L6.3 9 Z" fill="#d6e6f0"/>'
+        + '<path d="M13 6.4 L17.2 6.4 C17.7 6.4 18 6.6 18.3 7.1 L19.4 9 L13 9 Z" fill="#d6e6f0"/>'
+        + '<circle cx="7.2" cy="13.4" r="2.4" fill="#2c2c2c"/><circle cx="7.2" cy="13.4" r="0.95" fill="#dcdcdc"/>'
+        + '<circle cx="18.2" cy="13.4" r="2.4" fill="#2c2c2c"/><circle cx="18.2" cy="13.4" r="0.95" fill="#dcdcdc"/>'
         + '</svg>';
 
     var DEFAULTS = {
