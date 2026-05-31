@@ -24,14 +24,14 @@
 const express = require('express');
 const router  = express.Router();
 const { getDb } = require('../db/database');
-const { handle } = require('../db/helpers');
+const { handle, todayISO } = require('../db/helpers');
 
 // ─── GET /api/invoices/queue ────────────────────────────────────────────────
 router.get('/queue', handle((req, res) => {
     const db = getDb();
     const includeDone = req.query.include_done === '1';
     const doneLimit   = Math.min(parseInt(req.query.limit) || 20, 100);
-    const today = new Date().toISOString().slice(0, 10);
+    const today = todayISO();
 
     // Pending: LEVERET + payment_type = 'invoice'
     const pending = db.prepare(`

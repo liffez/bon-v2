@@ -10,7 +10,7 @@
 const express       = require('express');
 const router        = express.Router();
 const { getDb }     = require('../db/database');
-const { handle }    = require('../db/helpers');
+const { handle, todayISO }    = require('../db/helpers');
 const { requireAuth } = require('../shared/auth');
 const { getShifts } = require('../services/smartplanAdapter');
 
@@ -22,7 +22,7 @@ router.use(requireAuth('admin', 'office', 'kitchen_personal'));
 const DAYS_DA = ['Søndag', 'Mandag', 'Tirsdag', 'Onsdag', 'Torsdag', 'Fredag', 'Lørdag'];
 
 function _today() {
-    return new Date().toISOString().slice(0, 10);
+    return todayISO();   // dansk lokal dato — ikke UTC (undgår off-by-one efter midnat)
 }
 
 /** Beregn mandag i ugen for en given dato */

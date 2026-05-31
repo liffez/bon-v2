@@ -11,7 +11,7 @@ const path = require('path');
 const fs = require('fs');
 const Busboy = require('busboy');
 const { getDb } = require('../db/database');
-const { handle, logChange, getBon, getBonLines, getStatusId, autoConsumeBonInventory } = require('../db/helpers');
+const { handle, logChange, getBon, getBonLines, getStatusId, autoConsumeBonInventory, todayISO } = require('../db/helpers');
 const { transaction } = require('../db/compat');
 const { broadcast } = require('../shared/sse');
 const { requireAuth } = require('../shared/auth');
@@ -995,7 +995,7 @@ router.get('/couriers', requireAuth(), handle((req, res) => {
 router.get('/courier/today', requireAuth(), handle((req, res) => {
     const db = getDb();
     const userId = req.session?.userId || null;
-    const today = new Date().toISOString().slice(0, 10);
+    const today = todayISO();
 
     const routes = db.prepare(`
         SELECT r.id, r.route_date, r.status, r.pickup_time, r.actual_departure,
