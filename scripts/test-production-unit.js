@@ -214,7 +214,27 @@ console.log('\n── buildBatchPlan (R6 konvertering + R3 pris, samlet) ──'
 {
     const plan = buildBatchPlan({ portions: 0, actualYield: 0, lines: [] });
     assert(plan.errors.some(e => e.code === 'invalid_portions'), 'portioner 0 → invalid_portions');
-    assert(plan.errors.some(e => e.code === 'invalid_yield'), 'udbytte 0 → invalid_yield');
+    assert(plan.errors.some(e => e.code === 'invalid_yield'), 'udbytte 0 → invalid_yield (default requireYield)');
+}
+
+console.log('\n── buildBatchPlan consume-only (RR produktion Hurtig, intet output) ──');
+{
+    // requireYield:false + intet udbytte → INGEN invalid_yield, men batch-kost beregnes
+    const plan = buildBatchPlan({
+        portions: 1, actualYield: 0, requireYield: false, conversions: CONVERSIONS, costMap: { 1: 40 },
+        lines: [{ productId: 1, productName: 'Remoulade-base', plannedQty: 0.5, actualQty: 0.5, fromQuId: 3, toQuId: 3 }],
+    });
+    assert(!plan.errors.some(e => e.code === 'invalid_yield'), 'consume-only uden udbytte → ingen invalid_yield');
+    assert(plan.errors.length === 0, 'consume-only → ingen blokerende fejl');
+    approx(plan.actualCost, 20, 'batch-kost beregnes stadig (0,5 × 40)');
+    approx(plan.pricePerUnit, 0, 'ingen pris/enhed uden udbytte');
+    assert(plan.consume.length === 1, 'råvaren trækkes stadig');
+}
+{
+    // Stadig invalid_portions selv i consume-only
+    const plan = buildBatchPlan({ portions: 0, requireYield: false, lines: [] });
+    assert(plan.errors.some(e => e.code === 'invalid_portions'), 'portioner 0 → invalid_portions (også consume-only)');
+    assert(!plan.errors.some(e => e.code === 'invalid_yield'), 'consume-only: ingen yield-krav');
 }
 
 console.log(`\n${pass} passed, ${fail} failed`);

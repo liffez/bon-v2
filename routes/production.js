@@ -50,8 +50,12 @@ router.post('/batches', requireAuth(), handle(async (req, res) => {
     } = b;
 
     // ── Grund-validering (server-side, jf. §11) ──────────────
-    if (!recipe_id || !output_product_id)
-        return res.status(400).json({ error: 'recipe_id og output_product_id kræves' });
+    // output_product_id er VALGFRI: RR Produktion-opskrifter uden produceret
+    // produkt ("Hurtig") laver en consume-only batch (råvarer trækkes, intet
+    // lægges på lager).
+    const hasOutput = output_product_id != null && output_product_id !== '' && Number(output_product_id) > 0;
+    if (!recipe_id)
+        return res.status(400).json({ error: 'recipe_id kræves' });
     if (!batch_nonce)
         return res.status(400).json({ error: 'batch_nonce kræves (idempotens)' });
     if (!Array.isArray(lines) || lines.length === 0)
@@ -83,7 +87,9 @@ router.post('/batches', requireAuth(), handle(async (req, res) => {
     }
 
     // ── Byg plan (REN: QU-konvertering + pris) ───────────────
-    const plan = buildBatchPlan({ portions, actualYield: actual_yield, lines, conversions, costMap });
+    // Udbytte kræves kun når der ER et output-produkt at prissætte (consume-only
+    // batches behøver ikke et udbytte).
+    const plan = buildBatchPlan({ portions, actualYield: actual_yield, lines, conversions, costMap, requireYield: hasOutput });
     if (plan.errors.length) {
         return res.status(400).json({ error: 'Validering fejlede', details: plan.errors });
     }
@@ -98,8 +104,8 @@ router.post('/batches', requireAuth(), handle(async (req, res) => {
                state, master_cost, actual_cost, notes, produced_by_user_id)
             VALUES (?,?,?,?,?,?,?,?, 'draft', ?,?,?,?)
         `).run(
-            locationId, recipe_id, output_product_id, Number(portions) || 1,
-            Number(actual_yield), Number(actual_yield), output_unit || '', batch_nonce,
+            locationId, recipe_id, hasOutput ? Number(output_product_id) : null, Number(portions) || 1,
+            Number(actual_yield) || 0, (Number(actual_yield) || 0) || null, output_unit || '', batch_nonce,
             plan.masterCost, plan.actualCost, notes || null, req.session.userId || null,
         );
         batchId = r.lastInsertRowid;
@@ -117,9 +123,12 @@ router.post('/batches', requireAuth(), handle(async (req, res) => {
     });
 
     // ── Producér i Grocy (uden for transaction — ekstern I/O) ─
+    // Consume-only (intet output): spring self-production add over.
     const result = await grocy.produceBatch({
         consume: plan.consume.map(c => ({ productId: c.productId, amount: c.amount })),
-        produce: { productId: output_product_id, amount: Number(actual_yield), price: plan.pricePerUnit },
+        produce: hasOutput
+            ? { productId: Number(output_product_id), amount: Number(actual_yield), price: plan.pricePerUnit }
+            : undefined,
     });
 
     // ── Opdatér batch-state + transaction-id'er ──────────────
