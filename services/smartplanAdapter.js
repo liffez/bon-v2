@@ -397,11 +397,38 @@ async function getLaborRows(fromDate, toDate) {
     return rows;
 }
 
+/**
+ * Hent den fulde medarbejder-roster fra Smartplans /members/-endpoint.
+ * Modsat getEmployees() (der udleder fra nylige shifts) giver dette ALLE
+ * medlemmer + initialer + email — bruges til at matche løn-CSV-rækker
+ * (navn/initialer) til owner.uuid, så wage_rates kan join'es på worklogs.
+ * @returns {Promise<Array>} [{ uuid, first_name, last_name, name, initials, email, user_type }]
+ */
+async function getMembers() {
+    const cached = getCached('members_full');
+    if (cached) return cached;
+
+    const rows = await smartplanFetch('/members/').catch(() => []);
+    const members = rows.map(m => ({
+        uuid:       m.uuid || null,
+        first_name: m.first_name || null,
+        last_name:  m.last_name || null,
+        name:       [m.first_name, m.last_name].filter(Boolean).join(' ') || null,
+        initials:   m.initials || null,
+        email:      m.email || null,
+        user_type:  m.user_type || null,
+    }));
+
+    setCached('members_full', members, 60 * 60 * 1000); // 1 time
+    return members;
+}
+
 /* ══════════════════════════════════════════════════════════════ */
 
 module.exports = {
     getShifts,
     getEmployees,
     getLaborRows,
+    getMembers,
     clearCache,
 };
