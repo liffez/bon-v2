@@ -305,10 +305,192 @@ async function getEmployees() {
     return employees;
 }
 
+/* ══════════════════════════════════════════════════════════════
+   LABOR-RÆKKER (til driftsregnskab / laborAdapter)
+   ══════════════════════════════════════════════════════════════ */
+
+/** Sekunder → timer (eller null). */
+function _secToHours(sec) {
+    return (sec != null && !Number.isNaN(Number(sec))) ? Number(sec) / 3600 : null;
+}
+
+/** Timer mellem to ISO-datetimes (fallback når *_shift_duration mangler). */
+function _hoursBetween(startDt, endDt) {
+    if (!startDt || !endDt) return null;
+    const a = Date.parse(startDt);
+    const b = Date.parse(endDt);
+    if (Number.isNaN(a) || Number.isNaN(b) || b < a) return null;
+    return (b - a) / 3600000;
+}
+
+/**
+ * Berig et Smartplan-record (worklog eller shift) til en labor-række.
+ * Bevarer BEGGE tidssæt (planned + attendance) + owner.uuid + jobtype.uuid,
+ * så laborAdapter kan vælge mode og join'e mod wage_rates / role_map.
+ * Timer = fuld vagtlængde (shift_duration), ikke fratrukket pause — jf. spec §5.
+ */
+function _normalizeLabor(rec, isShift) {
+    const owner = rec.owner || {};
+    const jt    = rec.jobtype || {};
+    const startDt = rec.planned_start_dt || '';
+
+    const plannedHours    = _secToHours(rec.planned_shift_duration)
+                          ?? _hoursBetween(rec.planned_start_dt, rec.planned_end_dt);
+    const attendanceHours = _secToHours(rec.attendance_shift_duration)
+                          ?? _hoursBetween(rec.attendance_start_dt, rec.attendance_end_dt);
+
+    return {
+        employee_id:       owner.uuid || null,
+        employee_name:     [owner.first_name, owner.last_name].filter(Boolean).join(' ') || null,
+        jobtype_uuid:      jt.uuid || null,
+        jobtype_title:     jt.title || '',
+        date:              rec.display_date || (startDt ? startDt.slice(0, 10) : null),
+        planned_start:     _extractTime(rec.planned_start_dt),
+        planned_end:       _extractTime(rec.planned_end_dt),
+        planned_hours:     plannedHours,
+        attendance_start:  _extractTime(rec.attendance_start_dt),
+        attendance_end:    _extractTime(rec.attendance_end_dt),
+        attendance_hours:  attendanceHours,
+        attendance_status: rec.attendance_status || null,
+        is_shift:          !!isShift,
+    };
+}
+
+/**
+ * Hent berigede labor-rækker for et datointerval.
+ * Worklogs (fortid) bærer både planned_* og attendance_*; shifts (fremtid)
+ * kun planned_*. Worklogs har forrang ved overlap (de er rigere — har faktisk
+ * fremmøde), modsat getShifts() der prioriterer shifts.
+ * @returns {Promise<Array>} labor-rækker (se _normalizeLabor)
+ */
+async function getLaborRows(fromDate, toDate) {
+    const cacheKey = `labor_${fromDate}_${toDate}`;
+    const cached = getCached(cacheKey);
+    if (cached) return cached;
+
+    const [shifts, worklogs] = await Promise.all([
+        smartplanFetch(
+            `/shifts/?start_date=${encodeURIComponent(fromDate)}&end_date=${encodeURIComponent(toDate)}`
+        ).catch(() => []),
+        smartplanFetch(
+            `/worklogs/?start_date=${encodeURIComponent(fromDate)}&end_date=${encodeURIComponent(toDate)}&ordering=planned_start_dt`
+        ).catch(() => []),
+    ]);
+
+    const rows = [];
+    const seen = new Set();
+    const keyOf = (r) => (r.employee_id || '') + '_' + r.date + '_' + r.planned_start;
+
+    // Worklogs først (forrang) — de bærer attendance.
+    for (const w of worklogs.map(r => _normalizeLabor(r, false))) {
+        if (!w.date) continue;
+        seen.add(keyOf(w));
+        rows.push(w);
+    }
+    // Shifts udfylder huller (fremtidige dage uden worklog).
+    for (const s of shifts.map(r => _normalizeLabor(r, true))) {
+        if (!s.date) continue;
+        if (!seen.has(keyOf(s))) rows.push(s);
+    }
+
+    setCached(cacheKey, rows);
+    return rows;
+}
+
+/**
+ * Hent den fulde medarbejder-roster fra Smartplans /members/-endpoint.
+ * Modsat getEmployees() (der udleder fra nylige shifts) giver dette ALLE
+ * medlemmer + initialer + email — bruges til at matche løn-CSV-rækker
+ * (navn/initialer) til owner.uuid, så wage_rates kan join'es på worklogs.
+ * @returns {Promise<Array>} [{ uuid, first_name, last_name, name, initials, email, user_type }]
+ */
+async function getMembers() {
+    const cached = getCached('members_full');
+    if (cached) return cached;
+
+    const rows = await smartplanFetch('/members/').catch(() => []);
+    const members = rows.map(m => ({
+        uuid:       m.uuid || null,
+        first_name: m.first_name || null,
+        last_name:  m.last_name || null,
+        name:       [m.first_name, m.last_name].filter(Boolean).join(' ') || null,
+        initials:   m.initials || null,
+        email:      m.email || null,
+        user_type:  m.user_type || null,
+    }));
+
+    setCached('members_full', members, 60 * 60 * 1000); // 1 time
+    return members;
+}
+
+/**
+ * Komplet løn-roster: nuværende medlemmer (/members/) FLETTET med medarbejdere
+ * der optræder i historiske worklogs siden `sinceDate`. Stoppede medarbejdere
+ * (ikke længere på /members/) har stadig brug for en sats til bagudrettede
+ * driftsregnskaber. owner i worklogs bærer uuid+navn+initialer, så de kan matches.
+ * @param {string} sinceDate  'YYYY-MM-DD' — hvor langt tilbage worklogs scannes
+ * @returns {Promise<Array>} [{ uuid, name, first_name, last_name, initials, email, active, last_shift }]
+ */
+async function getLaborRoster(sinceDate) {
+    const today = new Date().toISOString().slice(0, 10);
+    const cacheKey = `roster_${sinceDate}_${today}`;
+    const cached = getCached(cacheKey);
+    if (cached) return cached;
+
+    const [members, worklogs] = await Promise.all([
+        smartplanFetch('/members/').catch(() => []),
+        smartplanFetch(`/worklogs/?start_date=${encodeURIComponent(sinceDate)}&end_date=${encodeURIComponent(today)}`).catch(() => []),
+    ]);
+
+    const map = new Map();
+    for (const m of members) {
+        if (!m.uuid) continue;
+        map.set(m.uuid, {
+            uuid: m.uuid,
+            first_name: m.first_name || null,
+            last_name:  m.last_name || null,
+            name:       [m.first_name, m.last_name].filter(Boolean).join(' ') || null,
+            initials:   m.initials || null,
+            email:      m.email || null,
+            active:     true,
+            last_shift: null,
+        });
+    }
+    for (const w of worklogs) {
+        const o = w.owner || {};
+        if (!o.uuid) continue;
+        const d = w.display_date || (w.planned_start_dt ? w.planned_start_dt.slice(0, 10) : null);
+        let e = map.get(o.uuid);
+        if (!e) {
+            e = {
+                uuid: o.uuid,
+                first_name: o.first_name || null,
+                last_name:  o.last_name || null,
+                name:       [o.first_name, o.last_name].filter(Boolean).join(' ') || null,
+                initials:   o.initials || null,
+                email:      null,
+                active:     false,           // ikke på nuværende roster → stoppet
+                last_shift: null,
+            };
+            map.set(o.uuid, e);
+        }
+        if (d && (!e.last_shift || d > e.last_shift)) e.last_shift = d;
+    }
+
+    const roster = [...map.values()].sort((a, b) =>
+        (Number(b.active) - Number(a.active)) || (a.name || '').localeCompare(b.name || '', 'da'));
+
+    setCached(cacheKey, roster, 60 * 60 * 1000); // 1 time
+    return roster;
+}
+
 /* ══════════════════════════════════════════════════════════════ */
 
 module.exports = {
     getShifts,
     getEmployees,
+    getLaborRows,
+    getMembers,
+    getLaborRoster,
     clearCache,
 };
