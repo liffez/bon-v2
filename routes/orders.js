@@ -25,7 +25,7 @@
 const express = require('express');
 const router  = express.Router();
 const { getDb }  = require('../db/database');
-const { handle, logChange } = require('../db/helpers');
+const { handle, logChange, todayISO } = require('../db/helpers');
 const { broadcast } = require('../shared/sse');
 
 /* ── Helpers ─────────────────────────────────────────────── */
@@ -167,7 +167,7 @@ router.post('/pending', handle(async (req, res) => {
             const supplier = db.prepare('SELECT * FROM suppliers WHERE id = ?').get(supId);
             if (supplier && supplier.contact_email) {
                 const mail = require('../services/mailService');
-                const today = new Date().toISOString().slice(0, 10);
+                const today = todayISO();
 
                 // Build vareliste
                 const vareliste = (items || []).map(it => {

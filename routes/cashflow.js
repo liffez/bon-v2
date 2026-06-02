@@ -25,7 +25,7 @@ const express       = require('express');
 const router        = express.Router();
 const Busboy        = require('busboy');
 const { getDb }     = require('../db/database');
-const { handle, inclToExcl, momsOfIncl, logChange } = require('../db/helpers');
+const { handle, inclToExcl, momsOfIncl, logChange, todayISO, offsetISO } = require('../db/helpers');
 const { requireAuth } = require('../shared/auth');
 const { broadcast } = require('../shared/sse');
 const { transaction } = require('../db/compat');
@@ -309,7 +309,7 @@ router.get('/invoices', handle(async (req, res) => {
     const { tab = 'alle', limit = '200', offset = '0' } = req.query;
 
     let where = '1=1';
-    const today = new Date().toISOString().slice(0, 10);
+    const today = todayISO();
 
     // Kolonner kvalificeres med i.* (cf_invoices) for at undgå ambiguity
     // når vi LEFT JOIN'er bons (b.id) og status_definitions nedenfor.
@@ -492,8 +492,8 @@ router.delete('/invoices/:id', handle(async (req, res) => {
 
 router.get('/stats', handle(async (req, res) => {
     const db = getDb();
-    const today = new Date().toISOString().slice(0, 10);
-    const in30 = new Date(Date.now() + 30 * 86400000).toISOString().slice(0, 10);
+    const today = todayISO();
+    const in30 = offsetISO(30);
 
     // Latest saldo
     const latestTx = db.prepare(`
@@ -666,7 +666,7 @@ router.delete('/match/:txId', handle(async (req, res) => {
 router.post('/invoices/:id/confirm-paid', handle(async (req, res) => {
     const db = getDb();
     const invoiceId = req.params.id;
-    const today = new Date().toISOString().slice(0, 10);
+    const today = todayISO();
 
     const inv = db.prepare(`SELECT * FROM cf_invoices WHERE id = ?`).get(invoiceId);
     if (!inv) return res.status(404).json({ error: 'Faktura ikke fundet' });
@@ -816,7 +816,7 @@ router.post('/invoices/bulk-confirm-paid', handle(async (req, res) => {
     }
 
     // Live-run: udfør i én transaction.
-    const today = new Date().toISOString().slice(0, 10);
+    const today = todayISO();
     const userId = req.session?.userId ?? null;
     const betaltStatus = db.prepare(`SELECT id FROM status_definitions WHERE code = 'BETALT'`).get();
 
@@ -1077,8 +1077,8 @@ router.get('/payment-behavior', handle(async (req, res) => {
 
 router.get('/upcoming', handle(async (req, res) => {
     const db = getDb();
-    const today = new Date().toISOString().slice(0, 10);
-    const in14 = new Date(Date.now() + 14 * 86400000).toISOString().slice(0, 10);
+    const today = todayISO();
+    const in14 = offsetISO(14);
 
     const rows = db.prepare(`
         SELECT * FROM cf_invoices
