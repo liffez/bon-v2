@@ -315,6 +315,13 @@
   min-width: 45px;
   font-size: 11px;
 }
+.uge-bon-time {
+  font-size: 11px;
+  color: var(--color-text-dim, #6b6b6b);
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+  min-width: 48px;
+}
 .uge-bon-customer {
   flex: 1;
   min-width: 0;

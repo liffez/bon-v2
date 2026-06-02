@@ -434,8 +434,11 @@ function _uoRenderDetail(dayIdx) {
             var statusBg = statusCfg ? statusCfg.color : '#999';
             var statusFg = statusCfg ? (statusCfg.text || '#fff') : '#fff';
             var statusLabel = statusCfg ? statusCfg.label : (bon.status_label || bon.status_code);
+            var pTime = bon.pickup_time ? String(bon.pickup_time).slice(0, 5) : (bon.delivery_time ? String(bon.delivery_time).slice(0, 5) : '');
+            var pLabel = bon.pickup_time ? 'Afhentning' : (bon.delivery_time ? 'Levering' : '');
             html += '<div class="uge-bon-item" data-bon-id="' + bon.id + '" data-bon-number="' + _uoEsc(bon.bon_number || '') + '" title="Klik for info">' +
                 '<span class="uge-bon-nr">#' + (bon.bon_number || bon.id) + '</span>' +
+                '<span class="uge-bon-time"' + (pLabel ? ' title="' + pLabel + '"' : '') + '>' + (pTime ? '🕐 ' + pTime : '') + '</span>' +
                 '<span class="uge-bon-customer">' + _uoEsc(bon.customer_name || '—') + '</span>' +
                 '<span class="uge-bon-units">' + (bon.workload ? bon.workload + (bon.total_units ? ' enh' : ' pax') : '—') + '</span>' +
                 '<span class="uge-bon-status" style="background:' + statusBg + ';color:' + statusFg + '">' + _uoEsc(statusLabel) + '</span>' +
