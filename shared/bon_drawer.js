@@ -941,7 +941,9 @@ class BonDrawer {
         }
         var _esc = typeof esc === 'function' ? esc : function(s) { return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;'); };
         list.innerHTML = lines.map(function(l) {
-            var special = l.special_request ? '<div class="drawer-line-special">' + _esc(l.special_request) + '</div>' : '';
+            var special = l.special_request
+                ? '<div class="drawer-line-special special-editable" title="Klik for at ændre hjælpetekst">' + _esc(l.special_request) + '</div>'
+                : '<button type="button" class="drawer-line-addspecial" title="Tilføj hjælpetekst (fx glutenfri)">+ hjælpetekst</button>';
             var price = l.line_total != null ? l.line_total + ' kr' : '';
             return '<div class="drawer-line-item" data-line-id="' + l.id + '" data-unit-price="' + (l.unit_price != null ? l.unit_price : '') + '">' +
                 '<span class="drawer-line-qty qty-editable" title="Klik for at ændre antal">' + (l.quantity || 1) + '</span>' +
@@ -964,6 +966,14 @@ class BonDrawer {
         // Qty edit handlers
         list.querySelectorAll('.drawer-line-qty.qty-editable').forEach(function(qtyEl) {
             qtyEl.addEventListener('click', function() { self._openQtyEdit(qtyEl); });
+        });
+
+        // Hjælpetekst (special_request) edit handlers
+        list.querySelectorAll('.drawer-line-special.special-editable, .drawer-line-addspecial').forEach(function(el) {
+            el.addEventListener('click', function(e) {
+                e.stopPropagation();
+                self._openSpecialEdit(el.closest('.drawer-line-item'));
+            });
         });
     }
 
@@ -1063,6 +1073,67 @@ class BonDrawer {
         qtyEl.classList.remove('editing', 'saving');
         delete qtyEl.dataset.originalQty;
         this._editingLineId = null;
+    }
+
+    _openSpecialEdit(itemEl) {
+        if (!itemEl || itemEl.classList.contains('editing-special')) return;
+        var nameEl = itemEl.querySelector('.drawer-line-name');
+        if (!nameEl) return;
+        var lineId = itemEl.dataset.lineId;
+        var existing = itemEl.querySelector('.drawer-line-special');
+        var current = existing ? existing.textContent.trim() : '';
+        itemEl.classList.add('editing-special');
+
+        // Fjern visning/«+ hjælpetekst»-knap mens vi redigerer
+        var addBtn = itemEl.querySelector('.drawer-line-addspecial');
+        if (addBtn) addBtn.remove();
+        if (existing) existing.remove();
+
+        var editor = document.createElement('div');
+        editor.className = 'drawer-line-special-edit';
+        editor.innerHTML =
+            '<input type="text" class="special-input" placeholder="Hjælpetekst (fx glutenfri)" maxlength="200">' +
+            '<button type="button" class="special-save" title="Gem">✓</button>' +
+            '<button type="button" class="special-cancel" title="Annuller">&times;</button>';
+        nameEl.appendChild(editor);
+
+        var self  = this;
+        var input = editor.querySelector('.special-input');
+        input.value = current;
+
+        editor.querySelector('.special-save').addEventListener('click', function(e) {
+            e.stopPropagation();
+            self._saveSpecialEdit(itemEl, lineId, input.value);
+        });
+        editor.querySelector('.special-cancel').addEventListener('click', function(e) {
+            e.stopPropagation();
+            self._reloadLines();
+        });
+        input.addEventListener('click', function(e) { e.stopPropagation(); });
+        input.addEventListener('keydown', function(e) {
+            if (e.key === 'Enter')       { e.preventDefault(); self._saveSpecialEdit(itemEl, lineId, input.value); }
+            else if (e.key === 'Escape') { e.preventDefault(); self._reloadLines(); }
+        });
+
+        input.focus();
+        input.select();
+    }
+
+    _saveSpecialEdit(itemEl, lineId, rawValue) {
+        var value = (rawValue || '').trim();
+        var self  = this;
+        itemEl.classList.add('saving-special');
+        // Tom værdi → null rydder hjælpeteksten (linjen merger igen i køkkenet)
+        putBonLine(this.bonId, lineId, { special_request: value || null })
+            .then(function() {
+                // Genindlæs så sortering/visning + køkkenets aggregering er konsistent
+                self._reloadLines();
+            })
+            .catch(function(err) {
+                console.error('Kunne ikke gemme hjælpetekst:', err);
+                itemEl.classList.remove('saving-special');
+                alert(err.message || 'Kunne ikke gemme hjælpetekst');
+            });
     }
 
     /** Reload only lines list without re-rendering entire drawer (preserves picker state) */

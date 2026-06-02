@@ -542,6 +542,67 @@
     color: var(--color-text-dim, #8a8580);
     font-style: italic;
 }
+.drawer-line-special.special-editable {
+    cursor: pointer;
+    width: fit-content;
+}
+.drawer-line-special.special-editable:hover {
+    color: var(--brand-primary, #8e631f);
+    text-decoration: underline dotted;
+}
+.drawer-line-addspecial {
+    display: block;
+    margin-top: 2px;
+    padding: 0;
+    background: none;
+    border: none;
+    cursor: pointer;
+    font-size: var(--font-size-s, 12px);
+    color: var(--color-text-dim, #b0aaa2);
+}
+.drawer-line-addspecial:hover {
+    color: var(--brand-primary, #8e631f);
+    text-decoration: underline dotted;
+}
+.drawer-line-item.editing-special .drawer-line-addspecial { display: none; }
+.drawer-line-item.saving-special { opacity: 0.5; pointer-events: none; }
+.drawer-line-special-edit {
+    display: flex;
+    align-items: center;
+    gap: 4px;
+    margin-top: 3px;
+}
+.drawer-line-special-edit .special-input {
+    flex: 1;
+    min-width: 0;
+    font-size: var(--font-size-s, 13px);
+    padding: 3px 6px;
+    border: 1px solid var(--color-border, #d7d1ca);
+    border-radius: 4px;
+}
+.drawer-line-special-edit .special-input:focus {
+    outline: none;
+    border-color: var(--brand-primary, #8e631f);
+}
+.drawer-line-special-edit .special-save,
+.drawer-line-special-edit .special-cancel {
+    background: none;
+    border: 1px solid var(--color-border, #d7d1ca);
+    border-radius: 4px;
+    cursor: pointer;
+    font-size: 13px;
+    line-height: 1;
+    padding: 3px 6px;
+    color: var(--color-text-dim, #8a8580);
+}
+.drawer-line-special-edit .special-save:hover {
+    color: #fff;
+    background: var(--brand-primary, #8e631f);
+    border-color: var(--brand-primary, #8e631f);
+}
+.drawer-line-special-edit .special-cancel:hover {
+    color: var(--color-red, #bc181b);
+}
 .drawer-line-price {
     font-size: var(--font-size-s, 13px);
     color: var(--color-text-dim, #8a8580);
