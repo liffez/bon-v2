@@ -1428,6 +1428,12 @@
       </table>
 
       <h3 style="font-size:15px;margin:0 0 8px">Importér CSV</h3>
+      <div style="display:flex;gap:10px;align-items:center;margin-bottom:8px;flex-wrap:wrap">
+        <input type="file" id="wage-file" accept=".csv,text/csv,text/plain" style="display:none" onchange="loadWageFile(this)">
+        <button type="button" class="st-btn-secondary" onclick="document.getElementById('wage-file').click()">📄 Vælg CSV-fil</button>
+        <span id="wage-file-name" style="font-size:13px;color:#888"></span>
+      </div>
+      <div style="font-size:12px;color:#888;margin-bottom:6px">Vælg din udfyldte fil — indholdet vises nedenfor til gennemsyn, så klik "Importér satser". (Eller indsæt teksten direkte.)</div>
       <textarea id="wage-csv" class="st-input" rows="8" style="width:100%;font-family:ui-monospace,Menlo,monospace;font-size:12px"
                 placeholder="navn,initialer,timeloen,gyldig_fra&#10;Anne Lindhardt,AL,182.50,2026-01-01"></textarea>
       <div style="display:flex;gap:10px;align-items:center;margin-top:10px">
@@ -4231,6 +4237,24 @@ function downloadWageTemplate() {
     a.download = 'loensatser_skabelon.csv';
     a.click();
     URL.revokeObjectURL(a.href);
+}
+
+function loadWageFile(input) {
+    const file = input.files && input.files[0];
+    const nameEl = document.getElementById('wage-file-name');
+    const out = document.getElementById('wage-import-result');
+    if (!file) return;
+    const reader = new FileReader();
+    reader.onload = function() {
+        document.getElementById('wage-csv').value = String(reader.result || '');
+        if (nameEl) nameEl.textContent = file.name + ' indlæst — gennemse og klik Importér';
+        if (out) { out.style.color = '#888'; out.textContent = ''; }
+    };
+    reader.onerror = function() {
+        if (nameEl) { nameEl.style.color = '#c0392b'; nameEl.textContent = 'Kunne ikke læse filen.'; }
+    };
+    reader.readAsText(file, 'utf-8');
+    input.value = '';   // tillad valg af samme fil igen
 }
 
 async function doWageImport() {
