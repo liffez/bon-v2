@@ -281,6 +281,11 @@ sudo systemctl restart bon-v2     # kun hvis nødvendigt (kode-ændringer, ikke 
 - Settings-ændringer der peger på Grocy/Smartplan/SMTP kræver ikke genstart (læses ved hver brug eller har egen cache-invalidation)
 - Hvis PR'en kun rører `docs/`, `*.md` eller `tests/` → ingen `git pull` på server nødvendig
 
+**Issue-lukning (commit ≠ luk):**
+- `Closes #N` i PR-bodyen → **kun** når issuet er fuldt løst af denne ændring (features, bugs, tech-debt). Lukker automatisk ved squash-merge til `main` — aldrig på en løs commit.
+- `Refs #N` → når PR'en kun rører *en del* af et issue (fx en delopgave under et epic) uden at afslutte det. Lukker ikke.
+- Deploy-/ops-/`afventer-ekstern`-/sikkerheds-issues lukkes **manuelt** efter den fysiske handling er bekræftet (server-kommando kørt, credential roteret, ekstern nøgle modtaget) — aldrig af en commit. Eksempel: #69 (malware-postinstall) — kode-fjernelsen er committet, men issuet forbliver åbent indtil credential-rotation + server-oprydning er gjort.
+
 **Bagudkompat hvis flowet kommer galt af sted:**
 - Hvis `gh pr merge` fejler med "main is already used by worktree": PR'en er sandsynligvis allerede merged via UI eller en anden måde — tjek med `gh pr view <num> --json state`
 - Hvis Hetzner pull fejler med merge-conflict: nogen har lavet ændringer direkte på serveren — undersøg med `git log origin/main..HEAD`
