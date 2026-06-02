@@ -50,23 +50,36 @@ function parseRate(raw) {
 
 /** Parse løn-CSV → [{ navn, initialer, timeloen:Number, gyldig_fra }] (kun rækker med sats). */
 function parseWageCsv(text) {
-    const lines = String(text || '').split(/\r?\n/).map(l => l.trim()).filter(Boolean);
+    // Strip evt. UTF-8 BOM (Excel/Numbers tilføjer den foran headeren).
+    const lines = String(text || '').replace(/^﻿/, '').split(/\r?\n/).map(l => l.trim()).filter(Boolean);
     if (!lines.length) return { rows: [], error: 'Tom CSV.' };
 
-    const delim = lines[0].includes(';') ? ';' : ',';
-    const header = splitCsvLine(lines[0], delim).map(h => norm(h));
-    const col = (names) => header.findIndex(h => names.includes(h));
-    const iName = col(['navn', 'name']);
-    const iInit = col(['initialer', 'init', 'initials']);
-    const iRate = col(['timeloen', 'timeløn', 'sats', 'hourly_rate', 'rate', 'loen', 'løn']);
-    const iFrom = col(['gyldig_fra', 'gyldigfra', 'valid_from', 'fra', 'dato']);
+    const NAME = ['navn', 'name'];
+    const INIT = ['initialer', 'init', 'initials'];
+    const RATE = ['timeloen', 'timeløn', 'sats', 'hourly_rate', 'rate', 'loen', 'løn'];
+    const FROM = ['gyldig_fra', 'gyldigfra', 'valid_from', 'fra', 'dato'];
 
-    if (iRate === -1 || (iName === -1 && iInit === -1)) {
+    // Find header-linjen + delimiter robust: Numbers/Excel-eksport lægger ofte en
+    // titel-linje øverst, og dansk locale bruger ';'. Detektér delimiter FRA
+    // header-linjen (ikke linje 0), og spring titel-/tomme linjer over.
+    let headerIdx = -1, delim = ',', iName = -1, iInit = -1, iRate = -1, iFrom = -1;
+    for (let i = 0; i < lines.length; i++) {
+        const d = lines[i].includes(';') ? ';' : ',';
+        const h = splitCsvLine(lines[i], d).map(x => norm(x));
+        const col = (names) => h.findIndex(x => names.includes(x));
+        const ri = col(RATE), ni = col(NAME), ii = col(INIT);
+        if (ri !== -1 && (ni !== -1 || ii !== -1)) {
+            headerIdx = i; delim = d; iRate = ri; iName = ni; iInit = ii; iFrom = col(FROM);
+            break;
+        }
+    }
+
+    if (headerIdx === -1) {
         return { rows: [], error: 'CSV mangler kolonner. Kræver mindst (navn eller initialer) + timeloen.' };
     }
 
     const rows = [];
-    for (let i = 1; i < lines.length; i++) {
+    for (let i = headerIdx + 1; i < lines.length; i++) {
         const c = splitCsvLine(lines[i], delim);
         const rate = parseRate((c[iRate] || '').trim());
         if (rate == null) continue;                 // ingen/ugyldig sats → spring over
