@@ -516,6 +516,7 @@
     <button class="st-nav-item st-admin-only" data-section="booking-kontakt">Booking — Kontakt</button>
     <button class="st-nav-item st-admin-only" data-section="delivery-vehicles">Leveringsmetoder</button>
     <button class="st-nav-item st-admin-only" data-section="bestilling-menu">Bestilling — Menu</button>
+    <button class="st-nav-item st-admin-only" data-section="loen">Løn</button>
   </nav>
 
   <div class="st-content">
@@ -1393,7 +1394,47 @@
       </div>
     </div>
   </div>
-</div>
+
+    <!-- Løn (admin-only, følsomt) -->
+    <div class="st-section st-admin-only" id="sec-loen">
+      <h2>Løn</h2>
+      <p style="font-size:13px;color:#888;margin-bottom:8px">
+        Timeløn pr. medarbejder, brugt til driftsregnskabet. <strong>Kun synligt for admin.</strong>
+      </p>
+      <p style="font-size:13px;color:#888;margin-bottom:16px">
+        Smartplan leverer kun timer (ikke løn), så satser vedligeholdes her via en lille CSV du selv styrer.
+        Hent skabelonen, udfyld <code>timeloen</code>, og indsæt CSV'en nedenfor. Rækker matches på
+        initialer/navn mod Smartplan. En ny <code>gyldig_fra</code> lukker automatisk den forrige sats
+        (historiske regnskaber bevarer datidens sats).
+      </p>
+
+      <div style="display:flex;gap:10px;align-items:center;margin-bottom:18px">
+        <button type="button" class="st-btn-secondary" onclick="downloadWageTemplate()">⬇ Hent skabelon (CSV)</button>
+        <span style="font-size:12px;color:#888">Format: <code>navn,initialer,timeloen,gyldig_fra</code></span>
+      </div>
+
+      <h3 style="font-size:15px;margin:0 0 8px">Nuværende satser</h3>
+      <table style="width:100%;border-collapse:collapse;font-size:13px;margin-bottom:24px">
+        <thead>
+          <tr style="text-align:left;border-bottom:2px solid var(--color-border)">
+            <th style="padding:6px 8px">Medarbejder</th>
+            <th style="padding:6px 8px">Init</th>
+            <th style="padding:6px 8px;text-align:right">Timeløn</th>
+            <th style="padding:6px 8px">Gyldig fra</th>
+          </tr>
+        </thead>
+        <tbody id="wage-roster"><tr><td colspan="4" style="padding:10px 8px;color:#888">Henter…</td></tr></tbody>
+      </table>
+
+      <h3 style="font-size:15px;margin:0 0 8px">Importér CSV</h3>
+      <textarea id="wage-csv" class="st-input" rows="8" style="width:100%;font-family:ui-monospace,Menlo,monospace;font-size:12px"
+                placeholder="navn,initialer,timeloen,gyldig_fra&#10;Anne Lindhardt,AL,182.50,2026-01-01"></textarea>
+      <div style="display:flex;gap:10px;align-items:center;margin-top:10px">
+        <button type="button" class="st-btn" onclick="doWageImport()">Importér satser</button>
+        <span id="wage-import-result" style="font-size:13px"></span>
+      </div>
+    </div>
+  </div>
 
 <!-- Bestilling — Importér fra Grocy modal -->
 <div id="bm-import-overlay" style="display:none;position:fixed;inset:0;background:rgba(0,0,0,.45);z-index:9000;align-items:flex-start;justify-content:center;padding:40px 20px;overflow-y:auto">
@@ -1488,6 +1529,8 @@ async function init() {
       if (sec === 'delivery-vehicles') loadDeliveryVehicles();
       // Lazy load bestilling-menu
       if (sec === 'bestilling-menu') bmInit();
+      // Lazy load løn
+      if (sec === 'loen') loadWageRates();
     });
   });
 
@@ -4140,6 +4183,69 @@ let _dvVariables = [];
 let _dvEditingId = null;
 let _dvFields = [];          // working copy af booking_fields_json under redigering
 let _dvLastFocusedField = null;  // refererer til { idx, kind: 'template'|'step'|'label' }
+
+/* ── Løn (wage_rates — admin-only) ─────────────────────────── */
+let _wageRoster = [];
+
+async function loadWageRates() {
+    const tb = document.getElementById('wage-roster');
+    if (!tb) return;
+    tb.innerHTML = '<tr><td colspan="4" style="padding:10px 8px;color:#888">Henter…</td></tr>';
+    try {
+        const { employees } = await fetchWageRates();
+        _wageRoster = employees || [];
+        if (!_wageRoster.length) {
+            tb.innerHTML = '<tr><td colspan="4" style="padding:10px 8px;color:#888">Ingen medarbejdere fundet.</td></tr>';
+            return;
+        }
+        tb.innerHTML = _wageRoster.map(function(e) {
+            const rate = e.has_rate
+                ? Number(e.hourly_rate).toLocaleString('da-DK', { minimumFractionDigits: 2 }) + ' kr'
+                : '<span style="color:#c0392b">mangler</span>';
+            return '<tr style="border-bottom:1px solid var(--color-border)">'
+                + '<td style="padding:6px 8px">' + esc(e.name || '') + '</td>'
+                + '<td style="padding:6px 8px;color:#888">' + esc(e.initials || '') + '</td>'
+                + '<td style="padding:6px 8px;text-align:right">' + rate + '</td>'
+                + '<td style="padding:6px 8px;color:#888">' + esc(e.valid_from || '') + '</td>'
+                + '</tr>';
+        }).join('');
+    } catch (err) {
+        tb.innerHTML = '<tr><td colspan="4" style="padding:10px 8px;color:#c0392b">Fejl: ' + esc(err.message) + '</td></tr>';
+    }
+}
+
+function downloadWageTemplate() {
+    const roster = _wageRoster.length ? _wageRoster : [];
+    let csv = 'navn,initialer,timeloen,gyldig_fra\n';
+    roster.forEach(function(e) {
+        csv += (e.name || '') + ',' + (e.initials || '') + ',,2026-01-01\n';
+    });
+    const blob = new Blob([csv], { type: 'text/csv;charset=utf-8' });
+    const a = document.createElement('a');
+    a.href = URL.createObjectURL(blob);
+    a.download = 'loensatser_skabelon.csv';
+    a.click();
+    URL.revokeObjectURL(a.href);
+}
+
+async function doWageImport() {
+    const out = document.getElementById('wage-import-result');
+    const csv = document.getElementById('wage-csv').value.trim();
+    if (!csv) { out.style.color = '#c0392b'; out.textContent = 'Indsæt CSV først.'; return; }
+    out.style.color = '#888'; out.textContent = 'Importerer…';
+    try {
+        const r = await importWageRates(csv);
+        let msg = '✓ ' + r.imported + ' sats(er) importeret.';
+        if (r.unmatched && r.unmatched.length) msg += ' Ikke matchet: ' + r.unmatched.join(', ') + '.';
+        if (r.invalid && r.invalid.length)     msg += ' Ugyldige: ' + r.invalid.join('; ') + '.';
+        out.style.color = (r.unmatched && r.unmatched.length) ? '#c0392b' : '#2e7d32';
+        out.textContent = msg;
+        loadWageRates();
+    } catch (err) {
+        out.style.color = '#c0392b';
+        out.textContent = 'Fejl: ' + err.message;
+    }
+}
 
 async function loadDeliveryVehicles() {
     const c = document.getElementById('dv-content');

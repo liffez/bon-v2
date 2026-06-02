@@ -34,6 +34,10 @@ CREATE TABLE wage_rates (
 
 CREATE INDEX idx_wage_rates_ref ON wage_rates(smartplan_ref);
 
+-- Én sats per medarbejder per startdato → CSV-import kan upserte rent
+-- (INSERT ... ON CONFLICT) og er idempotent ved gen-import.
+CREATE UNIQUE INDEX idx_wage_rates_ref_from ON wage_rates(smartplan_ref, valid_from);
+
 -- ------------------------------------------
 -- smartplan_role_map — jobtype.uuid → role_class
 -- jobtype er rollesignalet (Smartplan har intet rolle-felt). Nøgles på

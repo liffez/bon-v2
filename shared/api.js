@@ -1475,6 +1475,19 @@ function extractCompanyContacts(companyId, text, sourceUrl) {
     });
 }
 
+// ─── LØN (wage_rates — admin-only) ───────────────────────────
+
+function fetchWageRates() {
+    return apiFetch('/wage-rates');
+}
+
+function importWageRates(csv) {
+    return apiFetch('/wage-rates/import', {
+        method: 'POST',
+        body: JSON.stringify({ csv }),
+    });
+}
+
 // ─── DELIVERY (Spor 1: manuel bestilling) ────────────────────
 
 function fetchDeliveryVehicles(includeInactive = false) {
