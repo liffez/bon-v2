@@ -236,6 +236,27 @@ Nye filer placeres præcis der de hører hjemme — kopieres ikke.
 
 ---
 
+## Opgave- og projekt-tracking (GitHub)
+
+Opgaver, bugs og projekter trackes i **GitHub issues** på `liffez/bon-v2` (etableret 2. juni 2026).
+Tidligere lå det spredt i denne fils "Åbne afhængigheder", MEMORY.md og docs/-mapper — nu ét sted.
+
+- **Board:** GitHub Projects "Bon v2" — <https://github.com/users/liffez/projects/3>
+  - Kolonner (Status-felt): `Backlog` · `Klar` · `I gang` · `Review` · `Done`
+- **Labels:** `deploy`, `afventer-ekstern`, `bug`, `sikkerhed`, `tech-debt`, `test`, `feature`, `projekt` (epic)
+- **Epics** (`projekt`-label) = store projekter med spec-mapper i `docs/`, hver med fase-checkliste:
+  - #81 Festival / multi-lokation (`docs/festival/`)
+  - #82 Form Builder (`docs/formbuilder/`)
+  - #83 Kunde-portal (`docs/kunde portal/`)
+  - docs/-specs forbliver source-of-truth; epics linker til dem og tracker fremdrift via checkbokse.
+
+**Arbejdsgang:**
+- Ny bug/opgave dukker op → opret et issue (ikke kun en note i chat eller docs)
+- Når noget løses → `Closes #N` i PR-bodyen lukker issuet automatisk ved merge, eller kryds fase-checkbox af
+- Relaterede issues grupperes via GitHub **sub-issues** (parent/child) — fx delopgaver under en epic
+
+---
+
 ## Deploy-flow
 
 Standard-arbejdsgang ved slutningen af en Claude Code-session der har lavet ændringer:
