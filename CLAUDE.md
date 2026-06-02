@@ -261,12 +261,19 @@ Tidligere lå det spredt i denne fils "Åbne afhængigheder", MEMORY.md og docs/
 
 Standard-arbejdsgang ved slutningen af en Claude Code-session der har lavet ændringer:
 
-**Claude gør (automatisk):**
+> **STOP-regel — luk ALDRIG en opgave ned af dig selv.**
+> Claude må **ikke** committe, pushe, oprette PR, merge eller på anden måde betragte
+> arbejdet som færdigt/afsluttet, før brugeren udtrykkeligt har sagt til.
+> Når koden er klar: opsummér hvad der er lavet, og **spørg** om der skal committes/pushes/PR'es.
+> Vent på et klart "ja" (eller en specifik instruktion) før du kører nogen af kommandoerne nedenfor.
+> Hold sessionen åben og afvent næste besked — afslut den ikke selv.
+
+**Claude gør — KUN efter brugerens go:**
 ```bash
 git commit -m "..."                                    # commit-besked beskriver hvad + hvorfor
 git push -u origin <branch>                            # branch er typisk claude/<navn>
 gh pr create --base main --title "..." --body "..."    # PR-body fungerer som changelog
-gh pr merge --squash --delete-branch                   # main får én commit per feature
+gh pr merge --squash --delete-branch                   # main får én commit per feature — kun hvis brugeren beder om merge
 ```
 
 **Bruger gør (SSH'et ind på Hetzner-serveren som `leif`):**
