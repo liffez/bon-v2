@@ -423,6 +423,67 @@ async function getMembers() {
     return members;
 }
 
+/**
+ * Komplet løn-roster: nuværende medlemmer (/members/) FLETTET med medarbejdere
+ * der optræder i historiske worklogs siden `sinceDate`. Stoppede medarbejdere
+ * (ikke længere på /members/) har stadig brug for en sats til bagudrettede
+ * driftsregnskaber. owner i worklogs bærer uuid+navn+initialer, så de kan matches.
+ * @param {string} sinceDate  'YYYY-MM-DD' — hvor langt tilbage worklogs scannes
+ * @returns {Promise<Array>} [{ uuid, name, first_name, last_name, initials, email, active, last_shift }]
+ */
+async function getLaborRoster(sinceDate) {
+    const today = new Date().toISOString().slice(0, 10);
+    const cacheKey = `roster_${sinceDate}_${today}`;
+    const cached = getCached(cacheKey);
+    if (cached) return cached;
+
+    const [members, worklogs] = await Promise.all([
+        smartplanFetch('/members/').catch(() => []),
+        smartplanFetch(`/worklogs/?start_date=${encodeURIComponent(sinceDate)}&end_date=${encodeURIComponent(today)}`).catch(() => []),
+    ]);
+
+    const map = new Map();
+    for (const m of members) {
+        if (!m.uuid) continue;
+        map.set(m.uuid, {
+            uuid: m.uuid,
+            first_name: m.first_name || null,
+            last_name:  m.last_name || null,
+            name:       [m.first_name, m.last_name].filter(Boolean).join(' ') || null,
+            initials:   m.initials || null,
+            email:      m.email || null,
+            active:     true,
+            last_shift: null,
+        });
+    }
+    for (const w of worklogs) {
+        const o = w.owner || {};
+        if (!o.uuid) continue;
+        const d = w.display_date || (w.planned_start_dt ? w.planned_start_dt.slice(0, 10) : null);
+        let e = map.get(o.uuid);
+        if (!e) {
+            e = {
+                uuid: o.uuid,
+                first_name: o.first_name || null,
+                last_name:  o.last_name || null,
+                name:       [o.first_name, o.last_name].filter(Boolean).join(' ') || null,
+                initials:   o.initials || null,
+                email:      null,
+                active:     false,           // ikke på nuværende roster → stoppet
+                last_shift: null,
+            };
+            map.set(o.uuid, e);
+        }
+        if (d && (!e.last_shift || d > e.last_shift)) e.last_shift = d;
+    }
+
+    const roster = [...map.values()].sort((a, b) =>
+        (Number(b.active) - Number(a.active)) || (a.name || '').localeCompare(b.name || '', 'da'));
+
+    setCached(cacheKey, roster, 60 * 60 * 1000); // 1 time
+    return roster;
+}
+
 /* ══════════════════════════════════════════════════════════════ */
 
 module.exports = {
@@ -430,5 +491,6 @@ module.exports = {
     getEmployees,
     getLaborRows,
     getMembers,
+    getLaborRoster,
     clearCache,
 };

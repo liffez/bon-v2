@@ -24,6 +24,9 @@ const smartplan = require('../services/smartplanAdapter');
 
 const ALL = requireAuth('admin');
 
+// Hvor langt tilbage stoppede medarbejdere tages med (bagudrettede regnskaber).
+const ROSTER_SINCE = '2025-01-01';
+
 /* ---------- helpers ---------- */
 
 const norm = (s) => (s || '').toString().trim().toLowerCase().replace(/\s+/g, ' ');
@@ -110,17 +113,19 @@ function rebuildChain(db, ref) {
 }
 
 /* ---------- GET — roster + nuværende satser ---------- */
-// Returnerer hele Smartplan-rosteren joinet med seneste sats, så UI kan vise
-// hvem der mangler en sats. Falder tilbage til DB-distinct hvis Smartplan er nede.
+// Returnerer hele løn-rosteren (nuværende + stoppede med historiske worklogs)
+// joinet med seneste sats, så UI kan vise hvem der mangler en sats. Falder
+// tilbage til DB-distinct hvis Smartplan er nede.
 router.get('/', ALL, handle(async (req, res) => {
     const db = getDb();
+    const since = /^\d{4}-\d{2}-\d{2}$/.test(req.query.since) ? req.query.since : ROSTER_SINCE;
     let roster = [];
     try {
-        roster = await smartplan.getMembers();
+        roster = await smartplan.getLaborRoster(since);
     } catch {
         roster = db.prepare(
             'SELECT DISTINCT smartplan_ref AS uuid, employee_name AS name FROM wage_rates'
-        ).all().map(r => ({ ...r, initials: null }));
+        ).all().map(r => ({ ...r, initials: null, active: false, last_shift: null }));
     }
 
     const latest = db.prepare(`
@@ -137,6 +142,8 @@ router.get('/', ALL, handle(async (req, res) => {
             uuid:        m.uuid,
             name:        m.name,
             initials:    m.initials || null,
+            active:      m.active !== false,
+            last_shift:  m.last_shift || null,
             hourly_rate: cur ? Number(cur.hourly_rate) : null,
             valid_from:  cur ? cur.valid_from : null,
             has_rate:    !!cur,
@@ -146,12 +153,19 @@ router.get('/', ALL, handle(async (req, res) => {
 }));
 
 /** Match CSV-rækker mod roster, upsert + genopbyg kæder. Ren funktion (testbar). */
-function importWageRows(db, rows, members, today) {
-    const byInit = new Map();
+function importWageRows(db, rows, roster, today) {
+    // Navn er primær nøgle (entydigt). Initialer kun som fallback OG kun når de
+    // er unikke i rosteren — to "Anne'r" kan dele initialer (AL), så initial-match
+    // alene ville koble forkert.
     const byName = new Map();
-    for (const m of members) {
-        if (m.initials) byInit.set(norm(m.initials), m);
-        if (m.name)     byName.set(norm(m.name), m);
+    const initCount = new Map();
+    for (const m of roster) {
+        if (m.name) byName.set(norm(m.name), m);
+        if (m.initials) initCount.set(norm(m.initials), (initCount.get(norm(m.initials)) || 0) + 1);
+    }
+    const byInit = new Map();
+    for (const m of roster) {
+        if (m.initials && initCount.get(norm(m.initials)) === 1) byInit.set(norm(m.initials), m);
     }
 
     const upsert = db.prepare(`
@@ -166,7 +180,7 @@ function importWageRows(db, rows, members, today) {
     const touched = new Set();
 
     for (const r of rows) {
-        const m = (r.initialer && byInit.get(norm(r.initialer))) || (r.navn && byName.get(norm(r.navn)));
+        const m = (r.navn && byName.get(norm(r.navn))) || (r.initialer && byInit.get(norm(r.initialer)));
         if (!m) { result.unmatched.push(r.navn || r.initialer); continue; }
 
         const from = r.gyldig_fra || today;
@@ -188,9 +202,9 @@ router.post('/import', ALL, handle(async (req, res) => {
     if (error) return res.status(400).json({ error });
     if (!rows.length) return res.status(400).json({ error: 'Ingen rækker med en sats fundet i CSV.' });
 
-    const members = await smartplan.getMembers();
+    const roster = await smartplan.getLaborRoster(ROSTER_SINCE);
     const today = new Date().toISOString().slice(0, 10);
-    res.json(importWageRows(getDb(), rows, members, today));
+    res.json(importWageRows(getDb(), rows, roster, today));
 }));
 
 module.exports = router;

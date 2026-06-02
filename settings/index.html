@@ -1419,11 +1419,12 @@
           <tr style="text-align:left;border-bottom:2px solid var(--color-border)">
             <th style="padding:6px 8px">Medarbejder</th>
             <th style="padding:6px 8px">Init</th>
+            <th style="padding:6px 8px">Status</th>
             <th style="padding:6px 8px;text-align:right">Timeløn</th>
             <th style="padding:6px 8px">Gyldig fra</th>
           </tr>
         </thead>
-        <tbody id="wage-roster"><tr><td colspan="4" style="padding:10px 8px;color:#888">Henter…</td></tr></tbody>
+        <tbody id="wage-roster"><tr><td colspan="5" style="padding:10px 8px;color:#888">Henter…</td></tr></tbody>
       </table>
 
       <h3 style="font-size:15px;margin:0 0 8px">Importér CSV</h3>
@@ -4195,22 +4196,26 @@ async function loadWageRates() {
         const { employees } = await fetchWageRates();
         _wageRoster = employees || [];
         if (!_wageRoster.length) {
-            tb.innerHTML = '<tr><td colspan="4" style="padding:10px 8px;color:#888">Ingen medarbejdere fundet.</td></tr>';
+            tb.innerHTML = '<tr><td colspan="5" style="padding:10px 8px;color:#888">Ingen medarbejdere fundet.</td></tr>';
             return;
         }
         tb.innerHTML = _wageRoster.map(function(e) {
             const rate = e.has_rate
                 ? Number(e.hourly_rate).toLocaleString('da-DK', { minimumFractionDigits: 2 }) + ' kr'
                 : '<span style="color:#c0392b">mangler</span>';
-            return '<tr style="border-bottom:1px solid var(--color-border)">'
+            const status = e.active
+                ? '<span style="color:#2e7d32">aktiv</span>'
+                : '<span style="color:#888" title="' + esc(e.last_shift ? 'Sidste vagt ' + e.last_shift : '') + '">stoppet</span>';
+            return '<tr style="border-bottom:1px solid var(--color-border)' + (e.active ? '' : ';opacity:.7') + '">'
                 + '<td style="padding:6px 8px">' + esc(e.name || '') + '</td>'
                 + '<td style="padding:6px 8px;color:#888">' + esc(e.initials || '') + '</td>'
+                + '<td style="padding:6px 8px">' + status + '</td>'
                 + '<td style="padding:6px 8px;text-align:right">' + rate + '</td>'
                 + '<td style="padding:6px 8px;color:#888">' + esc(e.valid_from || '') + '</td>'
                 + '</tr>';
         }).join('');
     } catch (err) {
-        tb.innerHTML = '<tr><td colspan="4" style="padding:10px 8px;color:#c0392b">Fejl: ' + esc(err.message) + '</td></tr>';
+        tb.innerHTML = '<tr><td colspan="5" style="padding:10px 8px;color:#c0392b">Fejl: ' + esc(err.message) + '</td></tr>';
     }
 }
 
