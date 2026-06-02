@@ -771,7 +771,7 @@ async function consumeRecipes(lines) {
  * @param {number} amount     Mængde i stock-units
  */
 async function consumeProduct(productId, amount) {
-    await grocyPost(`/stock/products/${productId}/consume`, {
+    const resp = await grocyPost(`/stock/products/${productId}/consume`, {
         amount,
         transaction_type: 'consume',
         spoiled: false,
@@ -779,6 +779,13 @@ async function consumeProduct(productId, amount) {
         allow_subproduct_substitution: true,
     });
     _cache.delete('stock');
+    return _extractTransactionId(resp);
+}
+
+/** Grocy consume/add svarer med [{ transaction_id, ... }] (eller {} ved 204). */
+function _extractTransactionId(resp) {
+    const arr = Array.isArray(resp) ? resp : [resp];
+    return arr[0]?.transaction_id ?? arr[0]?.stock_row?.transaction_id ?? null;
 }
 
 /**
@@ -808,8 +815,70 @@ async function addToStockFull(productId, body) {
         ...body,
     };
     if (!payload.best_before_date) payload.best_before_date = '2999-12-31';
-    await grocyPost(`/stock/products/${productId}/add`, payload);
+    const resp = await grocyPost(`/stock/products/${productId}/add`, payload);
     _cache.delete('stock');
+    return _extractTransactionId(resp);
+}
+
+/**
+ * Producér en batch (MVP) — driver hvert lagertræk MANUELT, så Grocys
+ * alt-eller-intet recipe-consume aldrig rammer os på afvigelsesdagen.
+ * Spec: docs/CLAUDE_PRODUKTION_MVP.md §2 + §10.
+ *
+ * Consumes køres SEKVENTIELT (ikke Promise.all) så fejlede linjer er kendte.
+ * En linje med amount ≤ 0 springes over (= "råvaren manglede" → intet kald →
+ * kan ikke blokere). Self-production add lægger færdigvaren på lager med
+ * eksplicit ex-moms-pris.
+ *
+ * `deps.post` kan injiceres i unit-tests (default = grocyPost).
+ *
+ * @param {object} plan
+ * @param {Array<{productId:number, amount:number}>} plan.consume  stock-enhed
+ * @param {{productId:number, amount:number, price:number, bestBeforeDate?:string}} plan.produce
+ * @param {object} [deps]  { post }
+ * @returns {Promise<{state:string, consumeTx:Array, produceTx:string|null, produceError:string|null, failedLines:Array}>}
+ */
+async function produceBatch({ consume = [], produce }, deps = {}) {
+    const post = deps.post || grocyPost;
+    const consumeTx = [];
+    const failedLines = [];
+
+    for (const line of consume) {
+        const amount = Number(line.amount) || 0;
+        if (amount <= 0) continue;  // udeladt — intet kald (det LETTE tilfælde)
+        try {
+            const resp = await post(`/stock/products/${line.productId}/consume`, {
+                amount,
+                transaction_type: 'consume',
+                spoiled: false,
+            });
+            consumeTx.push({ productId: line.productId, transactionId: _extractTransactionId(resp) });
+        } catch (err) {
+            // MVP: marker linjen, fortsæt de øvrige (ingen rollback — fejl er synlig pr. linje)
+            failedLines.push({ productId: line.productId, amount, error: err.message });
+        }
+    }
+
+    let produceTx = null;
+    let produceError = null;
+    if (produce) {
+        try {
+            const resp = await post(`/stock/products/${produce.productId}/add`, {
+                amount:            produce.amount,
+                transaction_type:  'self-production',
+                price:             produce.price,
+                best_before_date:  produce.bestBeforeDate || '2999-12-31',
+            });
+            produceTx = _extractTransactionId(resp);
+        } catch (err) {
+            produceError = err.message;
+        }
+    }
+
+    _cache.delete('stock');
+
+    const state = (failedLines.length === 0 && !produceError) ? 'produced' : 'partial';
+    return { state, consumeTx, produceTx, produceError, failedLines };
 }
 
 /**
@@ -913,6 +982,7 @@ module.exports = {
     consumeProduct,
     addToStock,
     addToStockFull,
+    produceBatch,
     setInventory,
     updateProductUserfields,
     addToShoppingList,
