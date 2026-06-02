@@ -305,10 +305,103 @@ async function getEmployees() {
     return employees;
 }
 
+/* ══════════════════════════════════════════════════════════════
+   LABOR-RÆKKER (til driftsregnskab / laborAdapter)
+   ══════════════════════════════════════════════════════════════ */
+
+/** Sekunder → timer (eller null). */
+function _secToHours(sec) {
+    return (sec != null && !Number.isNaN(Number(sec))) ? Number(sec) / 3600 : null;
+}
+
+/** Timer mellem to ISO-datetimes (fallback når *_shift_duration mangler). */
+function _hoursBetween(startDt, endDt) {
+    if (!startDt || !endDt) return null;
+    const a = Date.parse(startDt);
+    const b = Date.parse(endDt);
+    if (Number.isNaN(a) || Number.isNaN(b) || b < a) return null;
+    return (b - a) / 3600000;
+}
+
+/**
+ * Berig et Smartplan-record (worklog eller shift) til en labor-række.
+ * Bevarer BEGGE tidssæt (planned + attendance) + owner.uuid + jobtype.uuid,
+ * så laborAdapter kan vælge mode og join'e mod wage_rates / role_map.
+ * Timer = fuld vagtlængde (shift_duration), ikke fratrukket pause — jf. spec §5.
+ */
+function _normalizeLabor(rec, isShift) {
+    const owner = rec.owner || {};
+    const jt    = rec.jobtype || {};
+    const startDt = rec.planned_start_dt || '';
+
+    const plannedHours    = _secToHours(rec.planned_shift_duration)
+                          ?? _hoursBetween(rec.planned_start_dt, rec.planned_end_dt);
+    const attendanceHours = _secToHours(rec.attendance_shift_duration)
+                          ?? _hoursBetween(rec.attendance_start_dt, rec.attendance_end_dt);
+
+    return {
+        employee_id:       owner.uuid || null,
+        employee_name:     [owner.first_name, owner.last_name].filter(Boolean).join(' ') || null,
+        jobtype_uuid:      jt.uuid || null,
+        jobtype_title:     jt.title || '',
+        date:              rec.display_date || (startDt ? startDt.slice(0, 10) : null),
+        planned_start:     _extractTime(rec.planned_start_dt),
+        planned_end:       _extractTime(rec.planned_end_dt),
+        planned_hours:     plannedHours,
+        attendance_start:  _extractTime(rec.attendance_start_dt),
+        attendance_end:    _extractTime(rec.attendance_end_dt),
+        attendance_hours:  attendanceHours,
+        attendance_status: rec.attendance_status || null,
+        is_shift:          !!isShift,
+    };
+}
+
+/**
+ * Hent berigede labor-rækker for et datointerval.
+ * Worklogs (fortid) bærer både planned_* og attendance_*; shifts (fremtid)
+ * kun planned_*. Worklogs har forrang ved overlap (de er rigere — har faktisk
+ * fremmøde), modsat getShifts() der prioriterer shifts.
+ * @returns {Promise<Array>} labor-rækker (se _normalizeLabor)
+ */
+async function getLaborRows(fromDate, toDate) {
+    const cacheKey = `labor_${fromDate}_${toDate}`;
+    const cached = getCached(cacheKey);
+    if (cached) return cached;
+
+    const [shifts, worklogs] = await Promise.all([
+        smartplanFetch(
+            `/shifts/?start_date=${encodeURIComponent(fromDate)}&end_date=${encodeURIComponent(toDate)}`
+        ).catch(() => []),
+        smartplanFetch(
+            `/worklogs/?start_date=${encodeURIComponent(fromDate)}&end_date=${encodeURIComponent(toDate)}&ordering=planned_start_dt`
+        ).catch(() => []),
+    ]);
+
+    const rows = [];
+    const seen = new Set();
+    const keyOf = (r) => (r.employee_id || '') + '_' + r.date + '_' + r.planned_start;
+
+    // Worklogs først (forrang) — de bærer attendance.
+    for (const w of worklogs.map(r => _normalizeLabor(r, false))) {
+        if (!w.date) continue;
+        seen.add(keyOf(w));
+        rows.push(w);
+    }
+    // Shifts udfylder huller (fremtidige dage uden worklog).
+    for (const s of shifts.map(r => _normalizeLabor(r, true))) {
+        if (!s.date) continue;
+        if (!seen.has(keyOf(s))) rows.push(s);
+    }
+
+    setCached(cacheKey, rows);
+    return rows;
+}
+
 /* ══════════════════════════════════════════════════════════════ */
 
 module.exports = {
     getShifts,
     getEmployees,
+    getLaborRows,
     clearCache,
 };
