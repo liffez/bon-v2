@@ -942,12 +942,12 @@ class BonDrawer {
         var _esc = typeof esc === 'function' ? esc : function(s) { return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;'); };
         list.innerHTML = lines.map(function(l) {
             var special = l.special_request
-                ? '<div class="drawer-line-special special-editable" title="Klik for at ændre hjælpetekst">' + _esc(l.special_request) + '</div>'
-                : '<button type="button" class="drawer-line-addspecial" title="Tilføj hjælpetekst (fx glutenfri)">+ hjælpetekst</button>';
+                ? '<div class="drawer-line-special">' + _esc(l.special_request) + '</div>'
+                : '';
             var price = l.line_total != null ? l.line_total + ' kr' : '';
             return '<div class="drawer-line-item" data-line-id="' + l.id + '" data-unit-price="' + (l.unit_price != null ? l.unit_price : '') + '">' +
                 '<span class="drawer-line-qty qty-editable" title="Klik for at ændre antal">' + (l.quantity || 1) + '</span>' +
-                '<span class="drawer-line-name">' + _esc(l.product_name || '') + special + '</span>' +
+                '<span class="drawer-line-name name-editable" title="Klik for at tilføje eller ændre hjælpetekst">' + _esc(l.product_name || '') + special + '</span>' +
                 '<span class="drawer-line-price">' + price + '</span>' +
                 '<button class="drawer-line-del" title="Fjern">&times;</button>' +
             '</div>';
@@ -968,9 +968,11 @@ class BonDrawer {
             qtyEl.addEventListener('click', function() { self._openQtyEdit(qtyEl); });
         });
 
-        // Hjælpetekst (special_request) edit handlers
-        list.querySelectorAll('.drawer-line-special.special-editable, .drawer-line-addspecial').forEach(function(el) {
+        // Hjælpetekst (special_request) — klik på selve menulinjen (varenavnet) åbner editoren
+        list.querySelectorAll('.drawer-line-name.name-editable').forEach(function(el) {
             el.addEventListener('click', function(e) {
+                // Ignorér klik mens editoren er åben (input + gem/annuller-knapper)
+                if (e.target.closest('.drawer-line-special-edit')) return;
                 e.stopPropagation();
                 self._openSpecialEdit(el.closest('.drawer-line-item'));
             });
@@ -1084,9 +1086,7 @@ class BonDrawer {
         var current = existing ? existing.textContent.trim() : '';
         itemEl.classList.add('editing-special');
 
-        // Fjern visning/«+ hjælpetekst»-knap mens vi redigerer
-        var addBtn = itemEl.querySelector('.drawer-line-addspecial');
-        if (addBtn) addBtn.remove();
+        // Fjern den eksisterende hjælpetekst-visning mens vi redigerer
         if (existing) existing.remove();
 
         var editor = document.createElement('div');

@@ -537,34 +537,17 @@
     flex: 1;
     color: var(--color-text, #1a1917);
 }
+.drawer-line-name.name-editable { cursor: pointer; }
+.drawer-line-name.name-editable:hover {
+    text-decoration: underline dotted;
+    text-decoration-color: var(--brand-primary, #8e631f);
+    text-underline-offset: 2px;
+}
 .drawer-line-special {
     font-size: var(--font-size-s, 13px);
     color: var(--color-text-dim, #8a8580);
     font-style: italic;
 }
-.drawer-line-special.special-editable {
-    cursor: pointer;
-    width: fit-content;
-}
-.drawer-line-special.special-editable:hover {
-    color: var(--brand-primary, #8e631f);
-    text-decoration: underline dotted;
-}
-.drawer-line-addspecial {
-    display: block;
-    margin-top: 2px;
-    padding: 0;
-    background: none;
-    border: none;
-    cursor: pointer;
-    font-size: var(--font-size-s, 12px);
-    color: var(--color-text-dim, #b0aaa2);
-}
-.drawer-line-addspecial:hover {
-    color: var(--brand-primary, #8e631f);
-    text-decoration: underline dotted;
-}
-.drawer-line-item.editing-special .drawer-line-addspecial { display: none; }
 .drawer-line-item.saving-special { opacity: 0.5; pointer-events: none; }
 .drawer-line-special-edit {
     display: flex;
