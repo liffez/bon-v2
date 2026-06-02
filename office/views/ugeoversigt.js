@@ -68,7 +68,9 @@ function _uoActiveStatusCodes() {
     var codes = [];
     for (var key in BON_CONFIG.statuses) {
         if (!BON_CONFIG.statuses.hasOwnProperty(key)) continue;
-        if (!_uoHiddenStatuses[key]) codes.push(key.toUpperCase());
+        // statusToBackend oversætter frontend-nøgler til DB-koder (fx 'lev' → 'LEVERET').
+        // key.toUpperCase() alene gav 'LEV' der aldrig matchede LEVERET-bons.
+        if (!_uoHiddenStatuses[key]) codes.push(statusToBackend(key));
     }
     // If nothing is hidden, return null (use server default)
     var totalStatuses = Object.keys(BON_CONFIG.statuses).length;
