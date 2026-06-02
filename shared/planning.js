@@ -273,10 +273,13 @@ function _plLoadData() {
     if (_plLoading) return;
     _plLoading = true;
 
-    // Byg status-param fra aktive filtre
+    // Byg status-param fra aktive filtre.
+    // VIGTIGT: oversæt frontend-nøgler til backend-koder (fx 'lev' → 'LEVERET').
+    // Alle andre nøgler uppercaser til deres egen DB-kode, men 'lev' afviger —
+    // uden mapping filtreres LEVERET-bons væk og forsvinder fra planlægningen.
     var codes = [];
     for (var k in _plStatuses) {
-        if (_plStatuses[k]) codes.push(k);
+        if (_plStatuses[k]) codes.push(statusToBackend(k));
     }
     var statusParam = codes.join(',');
 
