@@ -1,0 +1,391 @@
+<!DOCTYPE html>
+<html lang="da">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>RR Produktion-opskrift — Bon v2 mockup</title>
+<link href="https://fonts.googleapis.com/css2?family=Lato:wght@400;700;900&display=swap" rel="stylesheet">
+<style>
+  :root{
+    --brand-primary:#8e631f; --brand-primary-light:#f1e6b2;
+    --color-background:#f5f4f2; --color-border:#d7d1ca;
+    --green:#a5bf75; --green-dark:#7a9450; --red:#bc181b; --blue:#7594b3;
+    --ink:#2c2620; --muted:#8c8378;
+  }
+  *{box-sizing:border-box;margin:0;padding:0}
+  body{font-family:'Lato',sans-serif;background:var(--color-background);color:var(--ink);padding:24px;line-height:1.45}
+  .wrap{max-width:760px;margin:0 auto}
+  .topbar{background:var(--brand-primary);color:#fff;border-radius:10px 10px 0 0;padding:12px 18px;display:flex;align-items:center;gap:16px;font-weight:700}
+  .topbar .logo{font-weight:900}
+  .topbar .nav{font-size:13px;color:#e9dcc0;text-transform:uppercase;letter-spacing:.4px}
+  .card{background:#fff;border:1px solid var(--color-border);border-top:none;border-radius:0 0 10px 10px;overflow:hidden}
+
+  .head{padding:18px 20px;border-bottom:1px solid var(--color-border)}
+  .back{display:inline-block;font-size:12px;color:var(--muted);border:1px solid var(--color-border);border-radius:6px;padding:5px 10px;margin-bottom:12px;cursor:pointer}
+  .titlerow{display:flex;align-items:flex-start;gap:14px}
+  .title{font-size:24px;font-weight:900;flex:1}
+  .subtitle{font-size:13px;color:var(--muted);margin-top:2px}
+
+  .toggle{display:flex;align-items:center;gap:9px;font-size:12px;font-weight:700;color:var(--muted);white-space:nowrap}
+  .switch{position:relative;width:42px;height:24px;flex:none}
+  .switch input{opacity:0;width:0;height:0}
+  .slider{position:absolute;inset:0;background:#d7d1ca;border-radius:24px;transition:.2s;cursor:pointer}
+  .slider:before{content:"";position:absolute;width:18px;height:18px;left:3px;top:3px;background:#fff;border-radius:50%;transition:.2s}
+  .switch input:checked + .slider{background:var(--brand-primary)}
+  .switch input:checked + .slider:before{transform:translateX(18px)}
+
+  .mode-banner{display:none;align-items:center;gap:10px;background:var(--brand-primary-light);border-bottom:1px solid var(--color-border);padding:9px 20px;font-size:12px;font-weight:700;color:#6e4d18}
+  body.editing .mode-banner{display:flex}
+  .mode-banner .dot{width:8px;height:8px;border-radius:50%;background:var(--brand-primary);flex:none}
+  .edits-banner{display:none;align-items:center;gap:10px;background:#e2ecf4;border-bottom:1px solid var(--color-border);padding:9px 20px;font-size:12px;font-weight:700;color:#3f6489}
+
+  .portionbar{display:flex;align-items:center;gap:12px;padding:14px 20px;border-bottom:1px solid var(--color-border);flex-wrap:wrap}
+  .portionbar .lbl{font-size:13px;color:var(--muted);font-weight:700}
+  .stepper{display:inline-flex;align-items:center;border:1px solid var(--color-border);border-radius:8px;overflow:hidden}
+  .stepper button{width:34px;height:36px;border:none;background:#faf8f4;font-size:20px;font-weight:700;color:var(--brand-primary);cursor:pointer}
+  .stepper input{width:54px;height:36px;border:none;text-align:center;font-weight:900;font-size:16px;font-family:inherit}
+  .weights{margin-left:auto;text-align:right;font-size:12px;color:var(--muted);line-height:1.6}
+  .weights b{color:var(--ink)}
+  .yield-edit{display:none;align-items:center;gap:6px;justify-content:flex-end;margin-top:4px}
+  body.editing .yield-edit{display:flex}
+  .yield-edit input{width:66px;padding:5px 7px;border:1px solid var(--color-border);border-radius:6px;font-family:inherit;font-weight:700;text-align:right}
+
+  .sec-label{font-size:11px;letter-spacing:1px;text-transform:uppercase;color:var(--muted);font-weight:700;padding:14px 20px 4px}
+
+  .row{display:flex;align-items:center;gap:10px;padding:9px 20px;border-bottom:1px solid #efeae3}
+  .row .bullet{width:9px;height:9px;border-radius:50%;background:var(--green);flex:none}
+  .row.dev .bullet{background:var(--blue)}
+  .row.removed .bullet{background:var(--red)}
+  .row.added .bullet{background:var(--brand-primary)}
+  .row .name{flex:1;min-width:0;font-weight:700}
+  .row .name small{display:block;font-weight:400;color:var(--muted);font-size:11px}
+  .sub-link{color:var(--brand-primary);font-weight:700;font-size:12px}
+
+  .amt-plain{font-weight:700;min-width:96px;text-align:right}
+  .master-ref{font-size:11px;color:var(--muted);text-align:right;min-width:70px}
+  .amt-edit{display:inline-flex;align-items:center;border:1px solid var(--color-border);border-radius:7px;overflow:hidden}
+  .amt-edit button{width:28px;height:30px;border:none;background:#faf8f4;font-size:16px;font-weight:700;color:var(--brand-primary);cursor:pointer}
+  .amt-edit input{width:56px;height:30px;border:none;text-align:right;font-family:inherit;font-weight:700;font-size:14px;padding-right:4px}
+  .amt-edit .unit{font-size:11px;color:var(--muted);padding:0 6px 0 2px}
+  .lager{font-size:11px;color:var(--muted);min-width:84px;text-align:right}
+  .diffbadge{font-size:10px;font-weight:900;padding:2px 6px;border-radius:5px;white-space:nowrap;margin-left:6px}
+  .diffbadge.plus{background:#fde3d3;color:#b5641a}
+  .diffbadge.minus{background:#e2ecf4;color:#3f6489}
+  .diffbadge.out{background:#f7dada;color:var(--red)}
+  .diffbadge.new{background:#e8f0d8;color:var(--green-dark)}
+  .acts{display:flex;gap:6px;flex:none}
+  .acts button{font-size:11px;font-weight:700;border:1px solid var(--color-border);background:#fff;border-radius:6px;padding:4px 8px;cursor:pointer;color:var(--ink)}
+  .acts button:hover{background:var(--brand-primary-light)}
+  .acts .undo{color:var(--blue);border-color:#cfdbe8}
+
+  .add-row{display:none;padding:12px 20px;border-bottom:1px solid var(--color-border)}
+  body.editing .add-row{display:block}
+  .add-row button{font-size:13px;font-weight:700;color:var(--brand-primary);background:#fff;border:1px dashed var(--brand-primary);border-radius:8px;padding:9px 14px;cursor:pointer;width:100%}
+
+  .summary{background:#faf8f4;padding:14px 20px;border-bottom:1px solid var(--color-border)}
+  .summary h4{font-size:11px;letter-spacing:1px;text-transform:uppercase;color:var(--muted);margin-bottom:8px}
+  .diffline{display:flex;justify-content:space-between;font-size:13px;padding:2px 0;color:#5a534a}
+  .diffline.none{color:var(--muted);font-style:italic}
+  .costgrid{display:flex;gap:12px;margin-top:10px;flex-wrap:wrap}
+  .costbox{flex:1;min-width:150px;background:#fff;border:1px solid var(--color-border);border-radius:8px;padding:9px 12px}
+  .costbox .k{font-size:11px;color:var(--muted);font-weight:700}
+  .costbox .v{font-size:18px;font-weight:900;margin-top:2px}
+  .costbox.actual{border-color:var(--brand-primary)}
+  .costbox .basis{font-size:10px;color:var(--muted)}
+  .diffsummary-edit{display:none}
+  body.editing .diffsummary-edit{display:block}
+  .delta-cost{font-size:12px;font-weight:700;margin-top:8px}
+  .delta-cost.up{color:var(--red)} .delta-cost.down{color:var(--green-dark)}
+
+  .actionbar{padding:16px 20px;display:flex;gap:12px;align-items:center;flex-wrap:wrap;border-bottom:1px solid var(--color-border)}
+  .btn-primary{background:var(--green);color:#1f2a10;border:none;border-radius:9px;padding:13px 22px;font-size:15px;font-weight:900;cursor:pointer;font-family:inherit}
+  .btn-primary.changed{background:var(--brand-primary);color:#fff}
+  .btn-primary:hover{filter:brightness(.96)}
+  .btn-ghost{background:#fff;border:1px solid var(--color-border);border-radius:9px;padding:13px 18px;font-size:14px;font-weight:700;cursor:pointer;font-family:inherit}
+  .flag{font-size:12px;color:var(--muted);margin-left:auto;text-align:right}
+
+  .method{padding:18px 20px}
+  .method h4{font-size:11px;letter-spacing:1px;text-transform:uppercase;color:var(--muted);margin-bottom:10px}
+  .method p{font-size:14px;margin-bottom:6px}
+  .method ul{margin:2px 0 10px 18px;font-size:14px;color:#4a443c}
+  .method .step{font-weight:700;margin-top:8px}
+
+  .overlay{position:fixed;inset:0;background:rgba(40,32,20,.45);display:none;align-items:center;justify-content:center;padding:20px;z-index:50}
+  .overlay.show{display:flex}
+  .picker{background:#fff;border-radius:12px;width:100%;max-width:420px;overflow:hidden;box-shadow:0 20px 60px rgba(0,0,0,.3)}
+  .picker .ph{background:var(--brand-primary);color:#fff;padding:14px 18px;font-weight:900;display:flex;justify-content:space-between}
+  .picker .ph span.x{cursor:pointer;font-weight:400}
+  .picker input.search{width:calc(100% - 32px);margin:14px 16px;padding:10px 12px;border:1px solid var(--color-border);border-radius:8px;font-family:inherit;font-size:14px}
+  .picker .plist{max-height:300px;overflow:auto}
+  .picker .pitem{padding:11px 18px;border-top:1px solid #efeae3;cursor:pointer;display:flex;justify-content:space-between}
+  .picker .pitem:hover{background:var(--brand-primary-light)}
+  .picker .pc{font-size:12px;color:var(--muted)}
+  .note{max-width:760px;margin:14px auto 0;font-size:12px;color:var(--muted);text-align:center}
+</style>
+</head>
+<body>
+<div class="wrap">
+  <div class="topbar"><span class="logo">Ristet Rug</span><span class="nav">Planlægning · Opskrifter</span></div>
+
+  <div class="card">
+    <div class="head">
+      <span class="back">← Tilbage til listen</span>
+      <div class="titlerow">
+        <div>
+          <div class="title">Falaffel- stegning</div>
+          <div class="subtitle">RR Produktion · producerer <b>Stegt falafelmasse</b></div>
+        </div>
+        <label class="toggle">Juster mængder
+          <span class="switch"><input type="checkbox" id="editToggle" onchange="toggleEdit()"><span class="slider"></span></span>
+        </label>
+      </div>
+    </div>
+
+    <div class="mode-banner"><span class="dot"></span> Afvigelses-tilstand — justér her, ikke i originalopskriften. Ændringer bevares når du slår fra.</div>
+    <div class="edits-banner" id="editsBanner"></div>
+
+    <div class="portionbar">
+      <span class="lbl">Portioner</span>
+      <div class="stepper">
+        <button onclick="bumpPortions(-1)">−</button>
+        <input type="text" id="portInput" value="1" onchange="setPortions(this.value)">
+        <button onclick="bumpPortions(1)">+</button>
+      </div>
+      <span class="lbl">(1 portion = 1 kg færdig vare · decimaler ok, fx 1,3)</span>
+      <div class="weights">
+        <div>Vægt (ingredienser): <b id="ingWeight">921</b> g</div>
+        <div>Færdig vare (planlagt): <b id="plannedYield">1.000</b> g</div>
+        <div class="yield-edit">Faktisk udbytte: <input type="text" id="actualYield" value="1000" onchange="render()"> g</div>
+      </div>
+    </div>
+
+    <div class="sec-label">Ingredienser</div>
+    <div id="ingList"></div>
+    <div class="sec-label">Krydderi</div>
+    <div id="spiceList"></div>
+
+    <div class="add-row"><button onclick="openPicker('add')">+ Tilføj vare (ikke i opskriften)</button></div>
+
+    <div class="summary">
+      <div class="diffsummary-edit">
+        <h4>Afvigelse fra opskrift</h4>
+        <div id="diffSummary"></div>
+      </div>
+      <div class="costgrid">
+        <div class="costbox" id="masterBox">
+          <div class="k">Batch-kost (opskrift)</div>
+          <div class="v"><span id="masterCost">0</span> kr</div>
+          <div class="basis">ekskl. moms</div>
+        </div>
+        <div class="costbox actual" id="actualBox" style="display:none">
+          <div class="k">Faktisk batch-kost</div>
+          <div class="v"><span id="actualCost">0</span> kr</div>
+          <div class="basis">ekskl. moms · sendes som <b>price</b> til Grocy</div>
+        </div>
+      </div>
+      <div class="delta-cost" id="deltaCost"></div>
+    </div>
+
+    <div class="actionbar">
+      <button class="btn-primary" id="mainBtn" onclick="produce()">Træk fra lager</button>
+      <button class="btn-ghost">🛒 Tilføj manglende til indkøb</button>
+      <span class="flag" id="devFlag">Ren opskrift · self-production efter master</span>
+    </div>
+
+    <div class="method">
+      <h4>Fremgangsmåde</h4>
+      <p class="step">Tilberedning</p>
+      <p>1. Forvarm ovnen til 180 grader.</p>
+      <p>2. Forbered massen:</p>
+      <ul>
+        <li>Smuldr TEMPTY-firkanterne i en skål.</li>
+        <li>Tilsæt hvidløgspulver, røget paprika, salt og peber.</li>
+        <li>Bland det grundigt med hænderne.</li>
+      </ul>
+      <p>3. Form falafler og steg ved 180° til de er gyldne.</p>
+    </div>
+  </div>
+
+  <div class="note">Mockup · interaktiv. Ændringer bevares når du slår "Juster mængder" fra og til. Portioner accepterer decimaler (1,3).</div>
+</div>
+
+<div class="overlay" id="overlay">
+  <div class="picker">
+    <div class="ph"><span id="pickerTitle">Vælg vare</span><span class="x" onclick="closePicker()">✕</span></div>
+    <input class="search" id="pickerSearch" placeholder="Søg i Grocy-produkter…" oninput="renderPicker()">
+    <div class="plist" id="pickerList"></div>
+  </div>
+</div>
+
+<script>
+const producedPerPortion = 1000;
+let portions = 1;
+let editMode = false;
+
+let ingredients = [
+  {id:'tempty', name:'Tempty', unit:'g', per:250, lager:0.5, lagerU:'kg', cost:0.080, sub:false, kind:'ing'},
+  {id:'olie',   name:'Olie',   unit:'ml',per:65,  lager:5,   lagerU:'l',  cost:0.020, sub:false, kind:'ing'},
+  {id:'gulerod',name:'Gulerødder - Rå', unit:'g', per:250, lager:13, lagerU:'kg', cost:0.012, sub:false, kind:'ing'},
+  {id:'aerter', name:'Ingrid ærter udblødt', unit:'g', per:300, lager:1, lagerU:'kg', cost:0.015, sub:true, kind:'ing'},
+  {id:'hvidlog',name:'Hvidløgs Pulver', unit:'g', per:15, lager:8.97, lagerU:'kg', cost:0.100, sub:false, kind:'spice'},
+  {id:'paprika',name:'Røget Paprika', unit:'g', per:18, lager:1.8, lagerU:'kg', cost:0.120, sub:false, kind:'spice'},
+  {id:'pebber', name:'pebber - stødt', unit:'g', per:3, lager:0.01, lagerU:'kg', cost:0.150, sub:false, kind:'spice'},
+  {id:'salt',   name:'Salt - alm', unit:'g', per:8, lager:9.77, lagerU:'kg', cost:0.010, sub:false, kind:'spice'},
+  {id:'spids',  name:'Spidskommen', unit:'g', per:12, lager:2.5, lagerU:'kg', cost:0.090, sub:false, kind:'spice'},
+];
+ingredients.forEach(i=>{ i.master=i.per; i.actual=i.per; });
+let added = [];
+
+const catalog = [
+  {id:'c1',name:'Vegansk Mayo',unit:'g',cost:0.050},{id:'c2',name:'Alm Mayo',unit:'g',cost:0.040},
+  {id:'c3',name:'Solsikkeolie',unit:'ml',cost:0.018},{id:'c4',name:'Rapsolie',unit:'ml',cost:0.016},
+  {id:'c5',name:'Kikærter - Rå',unit:'g',cost:0.013},{id:'c6',name:'Persille',unit:'g',cost:0.060},
+  {id:'c7',name:'Koriander',unit:'g',cost:0.050},{id:'c8',name:'Citronsaft',unit:'ml',cost:0.030},
+];
+let pickerMode=null, pickerTargetId=null;
+
+function num(v){ return parseFloat(String(v).replace(',','.'))||0; }
+function fmt(n,dec){ return (Math.round(n*100)/100).toLocaleString('da-DK',{maximumFractionDigits:dec===undefined?2:dec}); }
+
+function r2(x){ return Math.round(x*100)/100; }
+// portion-ændring skalerer ALT proportionalt: master, redigerede actuals, tilføjede varer og udbytte.
+// Afvigelses-forholdet bevares; udeladt (0) forbliver 0.
+function applyPortions(newP){
+  newP=Math.max(0.1,newP);
+  const factor=newP/portions;
+  portions=newP;
+  ingredients.forEach(i=>{ i.master=r2(i.per*portions); i.actual=r2(i.actual*factor); });
+  added.forEach(a=>{ a.actual=r2(a.actual*factor); });
+  const yEl=document.getElementById('actualYield');
+  yEl.value=Math.round((num(yEl.value)*factor)||(producedPerPortion*portions));
+  render();
+}
+function setPortions(v){ applyPortions(num(v)); }
+function bumpPortions(d){ applyPortions(Math.round((portions+d)*10)/10); }
+
+// toggle = rent visnings-skift. Rører ALDRIG data — ændringer bevares.
+function toggleEdit(){ editMode=document.getElementById('editToggle').checked; document.body.classList.toggle('editing',editMode); render(); }
+
+function diffOf(i){ return i.actual-i.master; }
+function step(i){ return (i.unit==='g'||i.unit==='ml')?5:1; }
+function step2(id){ return step(ingredients.find(x=>x.id===id)); }
+function bump(id,d){ const i=ingredients.find(x=>x.id===id); setAmt(id,Math.max(0,i.actual+d)); }
+function setAmt(id,v){ const i=ingredients.find(x=>x.id===id); i.actual=Math.max(0,num(v)); render(); }
+function bumpAdded(id,d){ const a=added.find(x=>x.id===id); a.actual=Math.max(0,a.actual+d); render(); }
+function setAddedAmt(id,v){ const a=added.find(x=>x.id===id); a.actual=Math.max(0,num(v)); render(); }
+function removeAdded(id){ added=added.filter(x=>x.id!==id); render(); }
+
+function rowHTML(i){
+  if(!editMode){
+    const d=diffOf(i); let cls='row',badge='';
+    if(i.actual===0){cls+=' removed';badge='<span class="diffbadge out">udeladt</span>';}
+    else if(d>0){cls+=' dev';badge='<span class="diffbadge plus">+'+fmt(d)+' '+i.unit+'</span>';}
+    else if(d<0){cls+=' dev';badge='<span class="diffbadge minus">'+fmt(d)+' '+i.unit+'</span>';}
+    const amt=i.actual===0?'<span style="color:var(--muted)">udeladt</span>':fmt(i.actual)+' '+i.unit;
+    return `<div class="${cls}"><span class="bullet"></span>
+      <span class="name">${i.name}${i.sub?' <span class="sub-link">[→]</span>':''}${i.actual!==i.master?badge:''}</span>
+      <span class="amt-plain">${amt}</span>
+      <span class="lager">lager ${fmt(i.lager)} ${i.lagerU}</span></div>`;
+  }
+  const d=diffOf(i); let cls='row',badge='';
+  if(i.actual===0){cls+=' removed';badge='<span class="diffbadge out">udeladt</span>';}
+  else if(d>0){cls+=' dev';badge='<span class="diffbadge plus">+'+fmt(d)+' '+i.unit+'</span>';}
+  else if(d<0){cls+=' dev';badge='<span class="diffbadge minus">'+fmt(d)+' '+i.unit+'</span>';}
+  return `<div class="${cls}"><span class="bullet"></span>
+    <span class="name">${i.name}${i.sub?' <span class="sub-link">[→]</span>':''}${i.actual!==i.master?badge:''}</span>
+    <span class="master-ref">opskr. ${fmt(i.master)} ${i.unit}</span>
+    <span class="amt-edit"><button onclick="bump('${i.id}',-step2('${i.id}'))">−</button>
+      <input type="text" value="${fmt(i.actual)}" onchange="setAmt('${i.id}',this.value)"><span class="unit">${i.unit}</span>
+      <button onclick="bump('${i.id}',step2('${i.id}'))">+</button></span>
+    <span class="lager">lager ${fmt(i.lager)} ${i.lagerU}</span>
+    <span class="acts"><button onclick="openPicker('byt','${i.id}')">Byt</button>
+      ${i.actual===0?`<button class="undo" onclick="setAmt('${i.id}',${i.master})">Fortryd</button>`:`<button onclick="setAmt('${i.id}',0)">Fjern</button>`}</span></div>`;
+}
+
+function addedRowHTML(a){
+  const repl=a.replacesId?ingredients.find(x=>x.id===a.replacesId):null;
+  return `<div class="row added"><span class="bullet"></span>
+    <span class="name">${a.name} <span class="diffbadge new">+ny</span><small>${repl?'erstatter '+repl.name:'tilføjet vare'}</small></span>
+    <span class="master-ref">opskr. —</span>
+    <span class="amt-edit"><button onclick="bumpAdded('${a.id}',-5)">−</button>
+      <input type="text" value="${fmt(a.actual)}" onchange="setAddedAmt('${a.id}',this.value)"><span class="unit">${a.unit}</span>
+      <button onclick="bumpAdded('${a.id}',5)">+</button></span>
+    <span class="lager">—</span>
+    <span class="acts"><button onclick="removeAdded('${a.id}')">Fjern</button></span></div>`;
+}
+function addedRowClean(a){
+  const repl=a.replacesId?ingredients.find(x=>x.id===a.replacesId):null;
+  return `<div class="row added"><span class="bullet"></span>
+    <span class="name">${a.name} <span class="diffbadge new">+ny</span><small>${repl?'erstatter '+repl.name:'tilføjet vare'}</small></span>
+    <span class="amt-plain">${fmt(a.actual)} ${a.unit}</span>
+    <span class="lager">—</span></div>`;
+}
+
+function openPicker(mode,t){ pickerMode=mode;pickerTargetId=t||null;
+  document.getElementById('pickerTitle').textContent=mode==='byt'?'Byt vare ud':'Tilføj vare';
+  document.getElementById('pickerSearch').value='';document.getElementById('overlay').classList.add('show');renderPicker(); }
+function closePicker(){ document.getElementById('overlay').classList.remove('show'); }
+function renderPicker(){ const q=(document.getElementById('pickerSearch').value||'').toLowerCase();
+  document.getElementById('pickerList').innerHTML=catalog.filter(c=>c.name.toLowerCase().includes(q))
+    .map(c=>`<div class="pitem" onclick="pickProduct('${c.id}')"><span>${c.name}</span><span class="pc">${fmt(c.cost)} kr/${c.unit}</span></div>`).join(''); }
+function pickProduct(id){ const c=catalog.find(x=>x.id===id);
+  if(pickerMode==='byt'&&pickerTargetId){ const o=ingredients.find(x=>x.id===pickerTargetId); const s=o.actual||o.master; o.actual=0;
+    added.push({id:'a'+Date.now(),name:c.name,unit:c.unit,actual:s,cost:c.cost,replacesId:o.id}); }
+  else added.push({id:'a'+Date.now(),name:c.name,unit:c.unit,actual:50,cost:c.cost,replacesId:null});
+  closePicker();render(); }
+
+function masterCost(){ return ingredients.reduce((s,i)=>s+i.master*i.cost,0); }
+function actualCost(){ return ingredients.reduce((s,i)=>s+i.actual*i.cost,0)+added.reduce((s,a)=>s+a.actual*a.cost,0); }
+function diffList(){ const o=[];
+  ingredients.forEach(i=>{const d=diffOf(i); if(i.actual===0&&i.master>0)o.push(`${i.name}: udeladt (−${fmt(i.master)} ${i.unit})`); else if(d!==0)o.push(`${i.name}: ${d>0?'+':''}${fmt(d)} ${i.unit}`);});
+  added.forEach(a=>{const r=a.replacesId?ingredients.find(x=>x.id===a.replacesId):null; o.push(r?`${a.name}: ${fmt(a.actual)} ${a.unit} (erstatter ${r.name})`:`${a.name}: +${fmt(a.actual)} ${a.unit} (ny)`);});
+  return o; }
+
+function render(){
+  document.getElementById('portInput').value=fmt(portions);
+  const ingW=ingredients.reduce((s,i)=>s+i.master,0);
+  document.getElementById('ingWeight').textContent=fmt(ingW,0);
+  document.getElementById('plannedYield').textContent=fmt(producedPerPortion*portions,0);
+
+  const addedIng=added.filter(a=>{const r=a.replacesId?ingredients.find(x=>x.id===a.replacesId):null;return r?r.kind==='ing':true;});
+  const addedSpice=added.filter(a=>{const r=a.replacesId?ingredients.find(x=>x.id===a.replacesId):null;return r?r.kind==='spice':false;});
+  const addFn=editMode?addedRowHTML:addedRowClean;
+  document.getElementById('ingList').innerHTML=ingredients.filter(i=>i.kind==='ing').map(rowHTML).join('')+addedIng.map(addFn).join('');
+  document.getElementById('spiceList').innerHTML=ingredients.filter(i=>i.kind==='spice').map(rowHTML).join('')+addedSpice.map(addFn).join('');
+
+  const diffs=diffList();
+  const hasDiff=diffs.length>0;
+  document.getElementById('diffSummary').innerHTML=hasDiff?diffs.map(t=>`<div class="diffline">• ${t}</div>`).join(''):'<div class="diffline none">Ingen — trækker nøjagtig efter opskriften</div>';
+
+  // edits-banner i ren tilstand når der findes ændringer
+  const eb=document.getElementById('editsBanner');
+  if(!editMode&&hasDiff){ eb.style.display='flex'; eb.textContent='✎ '+diffs.length+' ændring'+(diffs.length>1?'er':'')+' registreret — slå "Juster mængder" til for at se eller redigere.'; }
+  else eb.style.display='none';
+
+  const mc=masterCost(),ac=actualCost();
+  document.getElementById('masterCost').textContent=fmt(mc);
+  document.getElementById('actualCost').textContent=fmt(ac);
+  document.getElementById('actualBox').style.display=hasDiff?'block':'none';
+  document.getElementById('masterBox').querySelector('.k').textContent=hasDiff?'Opskrift-kost (master)':'Batch-kost (opskrift)';
+  const dc=ac-mc,dEl=document.getElementById('deltaCost');
+  if(!hasDiff||Math.abs(dc)<0.005){dEl.textContent='';}
+  else{dEl.className='delta-cost '+(dc>0?'up':'down');dEl.textContent=(dc>0?'▲ +':'▼ ')+fmt(dc)+' kr vs. opskrift';}
+
+  const btn=document.getElementById('mainBtn'),flag=document.getElementById('devFlag');
+  if(!hasDiff){btn.textContent='Træk fra lager';btn.classList.remove('changed');flag.textContent=editMode?'Ingen afvigelse · self-production efter master':'Ren opskrift · self-production efter master';}
+  else{btn.textContent=`Producér batch (${diffs.length} ændring${diffs.length>1?'er':''})`;btn.classList.add('changed');flag.textContent='Bypass: consume(actuals) + add(yield, price=faktisk)';}
+}
+
+function produce(){
+  const diffs=diffList();
+  if(diffs.length===0){ alert('NORMAL VEJ\n\nPOST /recipes/{id}/consume\n→ master-råvarer + self-production af Stegt falafelmasse (Grocy auto-pris)'); return; }
+  const y=num(document.getElementById('actualYield').value);
+  const lines=ingredients.filter(i=>i.actual>0).map(i=>`consume(${i.name}, ${fmt(i.actual)} ${i.unit})`)
+    .concat(added.filter(a=>a.actual>0).map(a=>`consume(${a.name}, ${fmt(a.actual)} ${a.unit})`));
+  const price=actualCost()/(y||1);
+  alert('REDIGER-VEJ (bypass)\n\n'+lines.join('\n')+`\nadd(Stegt falafelmasse, ${fmt(y,0)} g, self-production, price=${fmt(price)} kr/g)\n\n→ gemmes i production_batch_consumption m. grocy_transaction_id`);
+}
+render();
+</script>
+</body>
+</html>
