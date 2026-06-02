@@ -50,6 +50,22 @@ function _mbIsoDate(d) {
     return y + '-' + m + '-' + dd;
 }
 
+/* ── Tids-blok: pickup-tid øverst, leveringstid mindre nedenunder ──
+ * Har bonen begge tider vises afhentning (Afh) øverst og levering (Lev)
+ * mindre under. Mangler pickup falder vi tilbage til kun leveringstiden. */
+function _mbTimeBlock(bon) {
+    var pickup   = (bon.pickup_time   || '').slice(0, 5);
+    var delivery = (bon.delivery_time || '').slice(0, 5);
+    if (pickup && delivery) {
+        return '<div class="m-bon-time">' +
+            '<div class="m-bon-time-main"><span class="m-bon-time-tag">Afh</span>' + pickup + '</div>' +
+            '<div class="m-bon-time-sub"><span class="m-bon-time-tag">Lev</span>' + delivery + '</div>' +
+        '</div>';
+    }
+    var single = delivery || pickup || '—';
+    return '<div class="m-bon-time"><div class="m-bon-time-main">' + single + '</div></div>';
+}
+
 /* ── Status config (fra BonConfig.js) ── */
 function _mbStatusStyle(code) {
     var s = BON_CONFIG.statuses[code] || BON_CONFIG.statuses[(code || '').toLowerCase()];
@@ -285,7 +301,6 @@ function _mbRenderDateModeList() {
     var html = '';
     bons.forEach(function(bon) {
         var s = _mbStatusStyle(bon.status_code || bon.status);
-        var time = (bon.delivery_time || '').slice(0, 5) || '—';
         var name = bon.contact_name_full || bon.customer_name || bon.company_name || 'Ukendt';
         var sub = '#' + (bon.bon_number || bon.id);
         if (bon.total_units) sub += ' · ' + bon.total_units + ' enh.';
@@ -293,7 +308,7 @@ function _mbRenderDateModeList() {
 
         html +=
             '<div class="m-bon-item" data-id="' + bon.id + '">' +
-                '<div class="m-bon-time">' + time + '</div>' +
+                _mbTimeBlock(bon) +
                 '<div class="m-bon-info">' +
                     '<div class="m-bon-name">' + _mbEsc(name) + '</div>' +
                     '<div class="m-bon-sub">' + sub + '</div>' +
@@ -360,7 +375,6 @@ function _mbRenderDateList() {
     var html = '';
     bons.forEach(function(bon) {
         var s = _mbStatusStyle(bon.status_code || bon.status);
-        var time = (bon.delivery_time || '').slice(0, 5) || '—';
         var name = bon.contact_name_full || bon.customer_name || bon.company_name || 'Ukendt';
         var sub = '#' + (bon.bon_number || bon.id);
         if (bon.total_units) sub += ' · ' + bon.total_units + ' enh.';
@@ -368,7 +382,7 @@ function _mbRenderDateList() {
 
         html +=
             '<div class="m-bon-item" data-id="' + bon.id + '">' +
-                '<div class="m-bon-time">' + time + '</div>' +
+                _mbTimeBlock(bon) +
                 '<div class="m-bon-info">' +
                     '<div class="m-bon-name">' + _mbEsc(name) + '</div>' +
                     '<div class="m-bon-sub">' + sub + '</div>' +
@@ -456,6 +470,36 @@ function _mbRenderNye() {
             _mbShowDetail(parseInt(el.dataset.bonId), { focusMail: focusMail });
         });
     });
+
+    list.querySelectorAll('.m-nye-markread').forEach(function(btn) {
+        btn.addEventListener('click', function(e) {
+            e.stopPropagation();   // åbn ikke bonen
+            _mbMarkNyeMailRead(parseInt(btn.dataset.bonId), parseInt(btn.dataset.mailId), btn);
+        });
+    });
+}
+
+/* Markér én ulæst mail som læst direkte fra Nyt-listen. Fjerner eventet
+ * lokalt (kortet forsvinder med det samme) og opdaterer badge-tæller.
+ * Server broadcaster bon_updated → SSE holder de øvrige views i sync. */
+async function _mbMarkNyeMailRead(bonId, mailId, btn) {
+    if (!bonId || !mailId) return;
+    btn.disabled = true;
+    btn.innerHTML = 'Markerer…';
+    try {
+        await apiFetch('/bons/' + bonId + '/mail/' + mailId + '/read', { method: 'PATCH' });
+        _mbNyeEvents = _mbNyeEvents.filter(function(ev) {
+            return !(ev.event_type === 'unread_mail' && ev.mail && ev.mail.id === mailId);
+        });
+        _mbNyeCount = Math.max(0, _mbNyeCount - 1);
+        _mbRenderNye();
+        _mbUpdateBadges(_mbNyeCount);
+        if (window._mToast) window._mToast('Mail markeret som læst');
+    } catch (e) {
+        btn.disabled = false;
+        btn.innerHTML = '&#10003; Markér læst';
+        if (window._mToast) window._mToast('Fejl — prøv igen');
+    }
 }
 
 function _mbRenderNyeCard(ev) {
@@ -518,8 +562,21 @@ function _mbRenderNyeCard(ev) {
 
     html +=
             '<div class="m-bon-meta-line"><span class="m-bon-when">' + _mbEsc(whenStr) + '</span></div>' +
-            '<div class="m-bon-meta-line">' + _mbEsc(metaLine) + '</div>' +
-        '</div>';
+            '<div class="m-bon-meta-line">' + _mbEsc(metaLine) + '</div>';
+
+    // Ulæst mail → hurtig "Markér læst" direkte fra Nyt-listen, så kortet
+    // forsvinder uden at man først skal åbne bonen.
+    if (isMail && mail) {
+        html +=
+            '<div class="m-nye-actions">' +
+                '<button class="m-nye-markread" data-bon-id="' + bon.id +
+                    '" data-mail-id="' + mail.id + '">' +
+                    '&#10003; Markér læst' +
+                '</button>' +
+            '</div>';
+    }
+
+    html += '</div>';
 
     return html;
 }
