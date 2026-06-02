@@ -11,7 +11,7 @@ const express = require('express');
 const router  = express.Router();
 
 const { getDb }    = require('../db/database');
-const { handle, logChange, nextBonNumber, nextQuoteNumber, getStatusId, getDefaultLocationId, getBon, getBonLines, computeMomsFields, recalcBonTotalUnits } = require('../db/helpers');
+const { handle, logChange, nextBonNumber, nextQuoteNumber, getStatusId, getDefaultLocationId, getBon, getBonLines, computeMomsFields, recalcBonTotalUnits, todayISO } = require('../db/helpers');
 const { broadcast } = require('../shared/sse');
 
 // ─── HELPERS ───────────────────────────────────────────────────────────────
@@ -224,7 +224,7 @@ router.post('/', handle((req, res) => {
     const locationId = getDefaultLocationId();
 
     // Beregn valid_until
-    const quoteDate = b.quote_date || new Date().toISOString().slice(0, 10);
+    const quoteDate = b.quote_date || todayISO();
     let validUntil = b.valid_until;
     if (!validUntil) {
         const d = new Date(quoteDate);

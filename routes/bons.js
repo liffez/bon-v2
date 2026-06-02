@@ -475,7 +475,7 @@ router.post('/', handle((req, res) => {
     `).run(
         bonNumber, statusId, locationId,
         b.customer_id ?? null, b.company_id ?? null, b.price_category_id ?? null,
-        b.order_date ?? new Date().toISOString().slice(0, 10),
+        b.order_date ?? todayISO(),
         b.delivery_date, b.pickup_time ?? null, b.delivery_time ?? null,
         b.delivery_type ?? 'delivery', b.delivery_method ?? null, b.delivery_address_id ?? null,
         b.delivery_notes ?? null, b.delivery_cost ?? null, b.delivery_price ?? null,
@@ -519,7 +519,7 @@ router.post('/:id/copy', handle((req, res) => {
     const srcGroups = db.prepare(`SELECT * FROM bon_menu_groups WHERE bon_id = ? ORDER BY sort_order`).all(sourceId);
 
     const userId = req.session?.userId ?? body.user_id ?? null;
-    const today = new Date().toISOString().slice(0, 10);
+    const today = todayISO();
 
     // Allokeres uden for transaction-blokken — nextBonNumber() har sin egen
     // transaction og kan ikke nestes (SQLite tillader ikke nested transactions).
