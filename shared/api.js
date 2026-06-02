@@ -632,6 +632,12 @@ function fetchScheduleWeek(from, to, status) {
     return apiFetch('/schedule/week' + qs);
 }
 
+/* ── DRIFTSREGNSKAB ──────────────────────────────────────── */
+
+function fetchDriftDay(date, mode) {
+    return apiFetch('/drift/day?date=' + encodeURIComponent(date) + '&mode=' + encodeURIComponent(mode || 'realiseret'));
+}
+
 /* ── CRM ──────────────────────────────────────────────────── */
 
 function fetchCrmStats() {

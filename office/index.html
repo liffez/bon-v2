@@ -27,6 +27,7 @@
   <link rel="stylesheet" href="views/tilbud.css">
   <link rel="stylesheet" href="views/rapporter.css">
   <link rel="stylesheet" href="views/opskrifter.css">
+  <link rel="stylesheet" href="views/drift.css">
   <link rel="stylesheet" href="views/cashflow.css">
   <link rel="stylesheet" href="/assets/leaflet/leaflet.css">
   <link rel="stylesheet" href="/shared/logistik.css?v=2026-05-22">
@@ -713,6 +714,9 @@
           <button class="sidebar-link" data-view="opskrifter">
             <span class="sidebar-icon">📊</span> Opskrifter &amp; priser
           </button>
+          <button class="sidebar-link" data-view="drift">
+            <span class="sidebar-icon">📈</span> Driftsregnskab
+          </button>
 
           <div class="sidebar-group-label">Team</div>
           <a class="sidebar-link" href="/kitchen/vagtplan.html" target="_blank">
@@ -783,6 +787,7 @@
   <script src="views/tilbud.js"></script>
   <script src="views/rapporter.js"></script>
   <script src="views/opskrifter.js"></script>
+  <script src="views/drift.js"></script>
   <script src="views/cashflow.js"></script>
   <script src="/shared/supplier_inbox.js"></script>
   <script src="views/ugeoversigt.js"></script>
@@ -961,6 +966,10 @@
           init: () => initOpskrifter(contentEl),
           cleanup: () => { if (typeof cleanupOpskrifter === 'function') cleanupOpskrifter(); },
         },
+        drift: {
+          init: () => initDrift(contentEl),
+          cleanup: () => { if (typeof cleanupDrift === 'function') cleanupDrift(); },
+        },
         leverandorpost: {
           init: () => initSupplierInbox(contentEl, { openDrawer }),
           cleanup: () => { if (typeof cleanupSupplierInbox === 'function') cleanupSupplierInbox(); },
@@ -1083,6 +1092,7 @@
           rap: 'rapporter',
         },
         opskrifter: { _default: 'opskrifter' },
+        drift: { _default: 'drift' },
       };
 
       // Reverse-map: gammel-view-navn → ny (section, pill) for bagudkompat
