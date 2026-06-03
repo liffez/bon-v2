@@ -60,6 +60,55 @@ function _roleMap(db) {
  *   used_fallback_hours, mode
  * }]
  */
+/**
+ * Map én rå Smartplan-række til en løn-/bemandingsrække. Ren funktion —
+ * deler logik mellem getLabor (én dag) og getLaborMap (helt interval).
+ */
+function _transformRow(r, dato, m, db, roleMap) {
+    // Tid efter mode. Realiseret falder tilbage til planlagt hvis fremmøde
+    // endnu ikke er registreret (markeres med used_fallback_hours).
+    let timer, start, slut, usedFallback = false;
+    if (m === 'forecast') {
+        timer = r.planned_hours;
+        start = r.planned_start;
+        slut  = r.planned_end;
+    } else {
+        if (r.attendance_hours != null) {
+            timer = r.attendance_hours;
+            start = r.attendance_start;
+            slut  = r.attendance_end;
+        } else {
+            timer = r.planned_hours;
+            start = r.planned_start;
+            slut  = r.planned_end;
+            usedFallback = true;
+        }
+    }
+
+    const sats = _wageRate(db, r.employee_id, dato);
+    const rateMissing = sats == null;
+    const kostpris = (rateMissing || timer == null) ? null : timer * sats;
+
+    const roleUnmapped = !roleMap.has(r.jobtype_uuid);
+    const roleClass = roleMap.get(r.jobtype_uuid) || 'other';
+
+    return {
+        employee_id:        r.employee_id,
+        employee_name:      r.employee_name,
+        jobtype_uuid:       r.jobtype_uuid,
+        jobtype_title:      r.jobtype_title,
+        role_class:         roleClass,
+        start, slut,
+        timer:              timer != null ? Number(timer) : null,
+        sats,
+        kostpris,
+        rate_missing:       rateMissing,
+        role_unmapped:      roleUnmapped,
+        used_fallback_hours: usedFallback,
+        mode:               m,
+    };
+}
+
 async function getLabor(dato, mode = 'realiseret') {
     const m = mode === 'forecast' ? 'forecast' : 'realiseret';
     const rows = await smartplan.getLaborRows(dato, dato);
@@ -68,64 +117,31 @@ async function getLabor(dato, mode = 'realiseret') {
 
     return rows
         .filter(r => r.date === dato)
-        .map(r => {
-            // Tid efter mode. Realiseret falder tilbage til planlagt hvis fremmøde
-            // endnu ikke er registreret (markeres med used_fallback_hours).
-            let timer, start, slut, usedFallback = false;
-            if (m === 'forecast') {
-                timer = r.planned_hours;
-                start = r.planned_start;
-                slut  = r.planned_end;
-            } else {
-                if (r.attendance_hours != null) {
-                    timer = r.attendance_hours;
-                    start = r.attendance_start;
-                    slut  = r.attendance_end;
-                } else {
-                    timer = r.planned_hours;
-                    start = r.planned_start;
-                    slut  = r.planned_end;
-                    usedFallback = true;
-                }
-            }
-
-            const sats = _wageRate(db, r.employee_id, dato);
-            const rateMissing = sats == null;
-            const kostpris = (rateMissing || timer == null) ? null : timer * sats;
-
-            const roleUnmapped = !roleMap.has(r.jobtype_uuid);
-            const roleClass = roleMap.get(r.jobtype_uuid) || 'other';
-
-            return {
-                employee_id:        r.employee_id,
-                employee_name:      r.employee_name,
-                jobtype_uuid:       r.jobtype_uuid,
-                jobtype_title:      r.jobtype_title,
-                role_class:         roleClass,
-                start, slut,
-                timer:              timer != null ? Number(timer) : null,
-                sats,
-                kostpris,
-                rate_missing:       rateMissing,
-                role_unmapped:      roleUnmapped,
-                used_fallback_hours: usedFallback,
-                mode:               m,
-            };
-        });
+        .map(r => _transformRow(r, dato, m, db, roleMap));
 }
 
 /**
- * Bekvemhjælper: hent labor for et helt interval, grupperet pr. dato.
+ * Batch: hent labor for et helt interval i ÉT Smartplan-kald, grupperet pr.
+ * dato. Bruges af driftens periode-/uge-visning, så lange perioder ikke koster
+ * ét netværkskald pr. dag. De per-dato lokale opslag (sats, role_map) er rene
+ * SQLite-kald og er billige.
  * @returns {Promise<Object>} { 'YYYY-MM-DD': [labor-rækker], ... }
  */
-async function getLaborPeriod(fromDate, toDate, mode = 'realiseret') {
+async function getLaborMap(fromDate, toDate, mode = 'realiseret') {
     const m = mode === 'forecast' ? 'forecast' : 'realiseret';
-    const rows = await smartplan.getLaborRows(fromDate, toDate);
-    const dates = [...new Set(rows.map(r => r.date).filter(Boolean))].sort();
+    const rows = await smartplan.getLaborRows(fromDate, toDate);   // ét kald, cachet
+    const db = getDb();
+    const roleMap = _roleMap(db);
     const out = {};
-    for (const d of dates) out[d] = await getLabor(d, m);
+    for (const r of rows) {
+        if (!r.date) continue;
+        (out[r.date] || (out[r.date] = [])).push(_transformRow(r, r.date, m, db, roleMap));
+    }
     return out;
 }
+
+/** Bagudkompat-alias — gammelt navn, samme batch-adfærd. */
+const getLaborPeriod = getLaborMap;
 
 /**
  * Synkronisér jobtyper set i Smartplan ind i smartplan_role_map, så Settings
@@ -155,6 +171,7 @@ async function syncRoleMap(fromDate, toDate) {
 
 module.exports = {
     getLabor,
+    getLaborMap,
     getLaborPeriod,
     syncRoleMap,
 };

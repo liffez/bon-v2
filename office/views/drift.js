@@ -153,12 +153,53 @@ function _drLoadWeek() {
 }
 
 // ── Periode-trend ──────────────────────────────────────────
+// Blød grænse: over dette antal dage er driftsresultatet tungt at beregne
+// (dag-for-dag). Vi henter ikke automatisk — brugeren skal bekræfte, og får
+// samtidig en genvej til den lette Økonomi-rapport.
+var DR_PERIOD_SOFT = 62;
+
+function _drDaySpan(from, to) {
+    // UTC-midnat → DST-immun (jan→maj krydser sommertid og ville ellers tælle 1 for lidt)
+    var a = new Date(from + 'T00:00:00Z'), b = new Date(to + 'T00:00:00Z');
+    return Math.round((b - a) / 86400000) + 1;
+}
+
+function _drPeriodHeavyNotice(span) {
+    return '<div class="dr-heavy">' +
+        '<div class="dr-heavy-title">Lang periode — ' + span + ' dage</div>' +
+        '<p class="dr-heavy-text">Driftsresultatet beregnes <strong>dag-for-dag</strong> ' +
+            '(omsætning, vareforbrug, levering og løn pr. dag). For lange perioder kan det tage et øjeblik. ' +
+            'Skal du bare bruge den overordnede omsætnings-trend, er Økonomi-rapporten hurtigere.</p>' +
+        '<div class="dr-heavy-actions">' +
+            '<a class="dr-heavy-pill" id="drPeriodRapporter" href="#">📊 Se omsætnings-trend i Økonomi →</a>' +
+            '<button class="dr-heavy-go" id="drPeriodGo">Beregn alligevel</button>' +
+        '</div>' +
+    '</div>';
+}
+
 function _drLoadPeriod() {
     var s = _driftState;
     var body = s.el && s.el.querySelector('#drBody');
     if (!body) return;
     if (!s.from || !s.to || s.from > s.to) { body.innerHTML = '<div class="dr-error">Vælg en gyldig periode (fra ≤ til).</div>'; return; }
-    body.innerHTML = '<div class="dr-loading">Henter…</div>';
+
+    var span = _drDaySpan(s.from, s.to);
+    var key = s.from + '|' + s.to;
+    // Over blød grænse + ikke bekræftet for præcis dette interval → vis notice
+    // i stedet for at hente. Skifter brugeren dato, matcher nøglen ikke → re-prompt.
+    if (span > DR_PERIOD_SOFT && s.periodConfirmed !== key) {
+        body.innerHTML = _drPeriodHeavyNotice(span);
+        var go = body.querySelector('#drPeriodGo');
+        if (go) go.addEventListener('click', function () { s.periodConfirmed = key; _drLoadPeriod(); });
+        var rap = body.querySelector('#drPeriodRapporter');
+        if (rap) rap.addEventListener('click', function (e) {
+            e.preventDefault();
+            if (window.switchSection) window.switchSection('okonomi', 'rap');
+        });
+        return;
+    }
+
+    body.innerHTML = '<div class="dr-loading">Beregner ' + span + ' dage… et øjeblik.</div>';
     var rf = s.from, rt = s.to, rm = s.mode;
     fetchDriftPeriod(rf, rt, rm).then(function (p) {
         if (s.from !== rf || s.to !== rt || s.mode !== rm) return;   // forældet svar
@@ -196,6 +237,7 @@ function _drRenderPeriod(p) {
             '<td>' + d.date + (d.frozen ? ' <span class="dr-flag">🔒</span>' : '') + '</td>' +
             '<td class="dr-r">' + _drMoney(d.revenue_ex_moms) + '</td>' +
             '<td class="dr-r">' + _drMoney(d.cost_ex_moms) + '</td>' +
+            '<td class="dr-r">' + _drMoney(d.delivery_ex_moms) + '</td>' +
             '<td class="dr-r">' + _drMoney(d.labor_ex_moms) + '</td>' +
             '<td class="dr-r ' + ((d.driftsresultat_ex_moms >= 0) ? 'dr-pos' : 'dr-neg') + '">' + _drMoney(d.driftsresultat_ex_moms) + '</td>' +
             '<td class="dr-r">' + _drPct(d.db_pct) + '</td>' +
@@ -207,6 +249,7 @@ function _drRenderPeriod(p) {
         '<div class="dr-kpis">' +
             kpi('Omsætning (ex moms)', _drMoney(t.revenue_ex_moms)) +
             kpi('Vareforbrug (ex moms)', '−' + _drMoney(t.cost_ex_moms)) +
+            kpi('Levering (ex moms)', '−' + _drMoney(t.delivery_ex_moms)) +
             kpi('Løn (ex moms)', '−' + _drMoney(t.labor_ex_moms)) +
             kpi('Driftsresultat (ex moms)', _drMoney(t.driftsresultat_ex_moms), resultCls) +
             kpi('DB%', _drPct(t.db_pct), resultCls) +
@@ -216,7 +259,7 @@ function _drRenderPeriod(p) {
         '<div class="dr-trend">' + (days.length ? bars : '<div class="dr-empty">Ingen dage.</div>') + '</div>' +
         '<div class="dr-section-title">Dag-for-dag</div>' +
         '<table class="dr-labor"><thead><tr><th>Dato</th><th class="dr-r">Omsætning</th><th class="dr-r">Vareforbrug</th>' +
-            '<th class="dr-r">Løn</th><th class="dr-r">Driftsresultat</th><th class="dr-r">DB%</th><th class="dr-r">Enh.</th></tr></thead>' +
+            '<th class="dr-r">Levering</th><th class="dr-r">Løn</th><th class="dr-r">Driftsresultat</th><th class="dr-r">DB%</th><th class="dr-r">Enh.</th></tr></thead>' +
             '<tbody>' + rows + '</tbody></table>';
 }
 
