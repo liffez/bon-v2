@@ -4222,7 +4222,8 @@ let _dvFields = [];          // working copy af booking_fields_json under redige
 let _dvLastFocusedField = null;  // refererer til { idx, kind: 'template'|'step'|'label' }
 
 /* ── Jobtype-kategorisering (smartplan_role_map — admin-only) ─ */
-const ROLE_LABELS = { production: 'Produktion', delivery: 'Levering', other: 'Andet' };
+// NB: må IKKE hedde ROLE_LABELS — kolliderer med bruger-rolle-labels (~1822) og brækker hele scriptet
+const JOBTYPE_LABELS = { production: 'Produktion', delivery: 'Levering', other: 'Andet' };
 
 async function loadRoleMap() {
     const tb = document.getElementById('rolemap-table');
@@ -4235,8 +4236,8 @@ async function loadRoleMap() {
             return;
         }
         tb.innerHTML = jobtypes.map(function(j) {
-            const opts = Object.keys(ROLE_LABELS).map(function(k) {
-                return '<option value="' + k + '"' + (j.role_class === k ? ' selected' : '') + '>' + ROLE_LABELS[k] + '</option>';
+            const opts = Object.keys(JOBTYPE_LABELS).map(function(k) {
+                return '<option value="' + k + '"' + (j.role_class === k ? ' selected' : '') + '>' + JOBTYPE_LABELS[k] + '</option>';
             }).join('');
             const warn = j.role_class === 'other'
                 ? '<span style="color:#c0392b;font-size:12px">tæller ikke</span>' : '';
