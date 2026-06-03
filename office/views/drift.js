@@ -37,47 +37,137 @@ function _drShiftDate(iso, days) {
 function initDrift(container) {
     _driftState.el = container;
     if (!_driftState.date) _driftState.date = _drTodayISO();
+    if (!_driftState.view) _driftState.view = 'day';
+    if (!_driftState.to)   { _driftState.to = _drShiftDate(_drTodayISO(), -1); _driftState.from = _drShiftDate(_driftState.to, -6); }
     container.innerHTML = '<div class="dr-wrap"><div class="dr-loading">Henter driftsregnskab…</div></div>';
     _drRenderShell();
-    _drLoad();
 }
 
 function cleanupDrift() { _driftState.el = null; }
 
 function _drRenderShell() {
     var s = _driftState;
-    s.el.innerHTML = '' +
-        '<div class="dr-wrap">' +
-            '<div class="dr-toolbar">' +
-                '<button class="dr-nav" id="drPrev">◀</button>' +
-                '<input type="date" id="drDate" value="' + _drEsc(s.date) + '">' +
-                '<button class="dr-nav" id="drNext">▶</button>' +
-                '<button class="dr-today" id="drToday">I dag</button>' +
-                '<div class="dr-mode">' +
-                    '<button class="dr-mode-btn' + (s.mode === 'realiseret' ? ' active' : '') + '" data-mode="realiseret">Realiseret</button>' +
-                    '<button class="dr-mode-btn' + (s.mode === 'forecast' ? ' active' : '') + '" data-mode="forecast">Forecast</button>' +
-                '</div>' +
-                '<span class="dr-mode-note" id="drModeNote"></span>' +
-            '</div>' +
-            '<div id="drBody"><div class="dr-loading">Henter…</div></div>' +
+    var viewToggle =
+        '<div class="dr-view-toggle">' +
+            '<button class="dr-view-btn' + (s.view === 'day' ? ' active' : '') + '" data-view="day">📅 Dag</button>' +
+            '<button class="dr-view-btn' + (s.view === 'period' ? ' active' : '') + '" data-view="period">📈 Periode</button>' +
+        '</div>';
+    var modeBtns =
+        '<div class="dr-mode">' +
+            '<button class="dr-mode-btn' + (s.mode === 'realiseret' ? ' active' : '') + '" data-mode="realiseret">Realiseret</button>' +
+            '<button class="dr-mode-btn' + (s.mode === 'forecast' ? ' active' : '') + '" data-mode="forecast">Forecast</button>' +
         '</div>';
 
+    var toolbar = s.view === 'period'
+        ? '<div class="dr-toolbar">' + viewToggle +
+            '<label class="dr-pl">Fra <input type="date" id="drFrom" value="' + _drEsc(s.from) + '"></label>' +
+            '<label class="dr-pl">Til <input type="date" id="drTo" value="' + _drEsc(s.to) + '"></label>' +
+            modeBtns +
+          '</div>'
+        : '<div class="dr-toolbar">' + viewToggle +
+            '<button class="dr-nav" id="drPrev">◀</button>' +
+            '<input type="date" id="drDate" value="' + _drEsc(s.date) + '">' +
+            '<button class="dr-nav" id="drNext">▶</button>' +
+            '<button class="dr-today" id="drToday">I dag</button>' +
+            modeBtns +
+            '<span class="dr-mode-note" id="drModeNote"></span>' +
+          '</div>';
+
+    s.el.innerHTML = '<div class="dr-wrap">' + toolbar + '<div id="drBody"><div class="dr-loading">Henter…</div></div></div>';
+
     var byId = function (id) { return s.el.querySelector('#' + id); };
-    byId('drDate').addEventListener('change', function (e) { s.date = e.target.value; _drLoad(); });
-    byId('drPrev').addEventListener('click', function () { s.date = _drShiftDate(s.date, -1); _drSync(); _drLoad(); });
-    byId('drNext').addEventListener('click', function () { s.date = _drShiftDate(s.date, 1); _drSync(); _drLoad(); });
-    byId('drToday').addEventListener('click', function () { s.date = _drTodayISO(); _drSync(); _drLoad(); });
-    s.el.querySelectorAll('.dr-mode-btn').forEach(function (b) {
-        b.addEventListener('click', function (e) { s.mode = e.currentTarget.getAttribute('data-mode'); _drRenderShell(); _drLoad(); });
+    s.el.querySelectorAll('.dr-view-btn').forEach(function (b) {
+        b.addEventListener('click', function (e) { s.view = e.currentTarget.getAttribute('data-view'); _drRenderShell(); });
     });
-    byId('drModeNote').textContent = s.mode === 'realiseret'
-        ? 'Leverede bonner + faktisk fremmøde'
-        : 'Bookede bonner + planlagt vagt';
+    s.el.querySelectorAll('.dr-mode-btn').forEach(function (b) {
+        b.addEventListener('click', function (e) { s.mode = e.currentTarget.getAttribute('data-mode'); _drRenderShell(); });
+    });
+
+    if (s.view === 'period') {
+        byId('drFrom').addEventListener('change', function (e) { s.from = e.target.value; _drLoadPeriod(); });
+        byId('drTo').addEventListener('change', function (e) { s.to = e.target.value; _drLoadPeriod(); });
+        _drLoadPeriod();
+    } else {
+        byId('drDate').addEventListener('change', function (e) { s.date = e.target.value; _drLoad(); });
+        byId('drPrev').addEventListener('click', function () { s.date = _drShiftDate(s.date, -1); _drSync(); _drLoad(); });
+        byId('drNext').addEventListener('click', function () { s.date = _drShiftDate(s.date, 1); _drSync(); _drLoad(); });
+        byId('drToday').addEventListener('click', function () { s.date = _drTodayISO(); _drSync(); _drLoad(); });
+        byId('drModeNote').textContent = s.mode === 'realiseret' ? 'Leverede bonner + faktisk fremmøde' : 'Bookede bonner + planlagt vagt';
+        _drLoad();
+    }
 }
 
 function _drSync() {
     var d = _driftState.el && _driftState.el.querySelector('#drDate');
     if (d) d.value = _driftState.date;
+}
+
+// ── Periode-trend ──────────────────────────────────────────
+function _drLoadPeriod() {
+    var s = _driftState;
+    var body = s.el && s.el.querySelector('#drBody');
+    if (!body) return;
+    if (!s.from || !s.to || s.from > s.to) { body.innerHTML = '<div class="dr-error">Vælg en gyldig periode (fra ≤ til).</div>'; return; }
+    body.innerHTML = '<div class="dr-loading">Henter…</div>';
+    var rf = s.from, rt = s.to, rm = s.mode;
+    fetchDriftPeriod(rf, rt, rm).then(function (p) {
+        if (s.from !== rf || s.to !== rt || s.mode !== rm) return;   // forældet svar
+        _drRenderPeriod(p);
+    }).catch(function (err) {
+        body.innerHTML = '<div class="dr-error">Kunne ikke hente: ' + _drEsc(err.message) + '</div>';
+    });
+}
+
+function _drRenderPeriod(p) {
+    var body = _driftState.el.querySelector('#drBody');
+    if (!body) return;
+    var t = p.totals || {};
+    var days = p.days || [];
+    var resultCls = (t.driftsresultat_ex_moms >= 0) ? 'dr-pos' : 'dr-neg';
+
+    var kpi = function (label, val, cls) {
+        return '<div class="dr-kpi ' + (cls || '') + '"><div class="dr-kpi-val">' + val + '</div><div class="dr-kpi-label">' + label + '</div></div>';
+    };
+
+    // Trend: driftsresultat pr. dag (søjler, grøn/rød), skaleret til største |beløb|
+    var maxAbs = Math.max.apply(null, [1].concat(days.map(function (d) { return Math.abs(d.driftsresultat_ex_moms || 0); })));
+    var bars = days.map(function (d) {
+        var v = d.driftsresultat_ex_moms || 0;
+        var h = Math.round(Math.abs(v) / maxAbs * 100);
+        var dd = d.date.slice(8, 10) + '/' + d.date.slice(5, 7);
+        return '<div class="dr-tr-col" title="' + d.date + ': ' + _drMoney(v) + ' ex moms' + (d.frozen ? ' (frosset)' : '') + '">' +
+            '<div class="dr-tr-bar ' + (v >= 0 ? 'dr-tr-pos' : 'dr-tr-neg') + '" style="height:' + h + '%"></div>' +
+            '<div class="dr-tr-day">' + dd + (d.frozen ? ' 🔒' : '') + '</div>' +
+        '</div>';
+    }).join('');
+
+    var rows = days.map(function (d) {
+        return '<tr>' +
+            '<td>' + d.date + (d.frozen ? ' <span class="dr-flag">🔒</span>' : '') + '</td>' +
+            '<td class="dr-r">' + _drMoney(d.revenue_ex_moms) + '</td>' +
+            '<td class="dr-r">' + _drMoney(d.cost_ex_moms) + '</td>' +
+            '<td class="dr-r">' + _drMoney(d.labor_ex_moms) + '</td>' +
+            '<td class="dr-r ' + ((d.driftsresultat_ex_moms >= 0) ? 'dr-pos' : 'dr-neg') + '">' + _drMoney(d.driftsresultat_ex_moms) + '</td>' +
+            '<td class="dr-r">' + _drPct(d.db_pct) + '</td>' +
+            '<td class="dr-r">' + _drNum(d.units, 0) + '</td>' +
+        '</tr>';
+    }).join('');
+
+    body.innerHTML = '' +
+        '<div class="dr-kpis">' +
+            kpi('Omsætning (ex moms)', _drMoney(t.revenue_ex_moms)) +
+            kpi('Vareforbrug (ex moms)', '−' + _drMoney(t.cost_ex_moms)) +
+            kpi('Løn (ex moms)', '−' + _drMoney(t.labor_ex_moms)) +
+            kpi('Driftsresultat (ex moms)', _drMoney(t.driftsresultat_ex_moms), resultCls) +
+            kpi('DB%', _drPct(t.db_pct), resultCls) +
+            kpi('Enheder', _drNum(t.units, 0)) +
+        '</div>' +
+        '<div class="dr-section-title">Driftsresultat pr. dag <span class="dr-sub">(' + (t.day_count || 0) + ' dage · ex moms)</span></div>' +
+        '<div class="dr-trend">' + (days.length ? bars : '<div class="dr-empty">Ingen dage.</div>') + '</div>' +
+        '<div class="dr-section-title">Dag-for-dag</div>' +
+        '<table class="dr-labor"><thead><tr><th>Dato</th><th class="dr-r">Omsætning</th><th class="dr-r">Vareforbrug</th>' +
+            '<th class="dr-r">Løn</th><th class="dr-r">Driftsresultat</th><th class="dr-r">DB%</th><th class="dr-r">Enh.</th></tr></thead>' +
+            '<tbody>' + rows + '</tbody></table>';
 }
 
 function _drLoad() {
@@ -135,7 +225,18 @@ function _drRender(d) {
           '<tbody>' + laborRows + '</tbody></table>'
         : '<div class="dr-empty">Ingen vagter registreret for dagen.</div>';
 
+    var frozenHtml = '';
+    if (d.frozen) {
+        frozenHtml = '<div class="dr-frozen">' +
+            '<span>🔒 Frosset ' + (d.frozen_at ? _drEsc(String(d.frozen_at).slice(0, 16).replace('T', ' ')) : '') +
+            ' — tallene skrider ikke ved senere Smartplan-ændringer.</span>' +
+            (d.can_refreeze ? '<button class="dr-refreeze" id="drRefreeze">🔓 Genberegn fra live</button>'
+                            : '<span class="dr-frozen-note">Kun admin kan genberegne.</span>') +
+            '</div>';
+    }
+
     body.innerHTML = '' +
+        frozenHtml +
         warnHtml +
         '<div class="dr-kpis">' +
             kpi('Omsætning (ex moms)', _drMoney(d.revenue_ex_moms)) +
@@ -157,6 +258,21 @@ function _drRender(d) {
         _drTimelineHtml(d.timeline) +
         '<div class="dr-section-title">Bemanding <span class="dr-sub">(bud ekskluderet fra driftens løn + rate)</span></div>' +
         laborTable;
+
+    var rf = body.querySelector('#drRefreeze');
+    if (rf) rf.addEventListener('click', _drRefreeze);
+}
+
+function _drRefreeze() {
+    var s = _driftState;
+    var btn = s.el && s.el.querySelector('#drRefreeze');
+    if (btn) { btn.disabled = true; btn.textContent = 'Genberegner…'; }
+    refreezeDriftDay(s.date).then(function (d) {
+        if (s.date === d.date) _drRender(d);
+    }).catch(function (err) {
+        if (btn) { btn.disabled = false; btn.textContent = '🔓 Genberegn fra live'; }
+        alert('Kunne ikke genberegne: ' + err.message);
+    });
 }
 
 // Belastnings-tidslinje (§8): enheder/time (søjle) vs produktions-mandetimer/time (søjle).

@@ -637,6 +637,12 @@ function fetchScheduleWeek(from, to, status) {
 function fetchDriftDay(date, mode) {
     return apiFetch('/drift/day?date=' + encodeURIComponent(date) + '&mode=' + encodeURIComponent(mode || 'realiseret'));
 }
+function refreezeDriftDay(date) {
+    return apiFetch('/drift/refreeze', { method: 'POST', body: JSON.stringify({ date }) });
+}
+function fetchDriftPeriod(from, to, mode) {
+    return apiFetch('/drift/period?from=' + encodeURIComponent(from) + '&to=' + encodeURIComponent(to) + '&mode=' + encodeURIComponent(mode || 'realiseret'));
+}
 
 /* ── CRM ──────────────────────────────────────────────────── */
 
