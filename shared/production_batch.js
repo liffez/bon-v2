@@ -114,7 +114,8 @@
             lines: lines,
             allProducts: allProducts,
             picker: null,                 // { mode:'add'|'swap', forIndex, query }
-            yield: base,
+            yield: base,                  // faktisk udbytte (redigerbart)
+            plannedYield: base,           // forventet udbytte (svind-reference)
             addMissing: false,
             nonce: _nonce(),              // R7: genereres ved åbning, genbruges ved retry
             busy: false,
@@ -129,7 +130,7 @@
             l.planned = l.perPortion * _st.portions;
             if (!l.swappedOut) l.actual = l.planned;
         });
-        if (_st.hasOutput) _st.yield = _st.portions;
+        if (_st.hasOutput) { _st.plannedYield = _st.portions; _st.yield = _st.portions; }
     }
 
     function _render() {
@@ -372,6 +373,7 @@
             output_product_id: _st.hasOutput ? _st.recipe.product_id : null,
             portions: _st.portions,
             actual_yield: _st.hasOutput ? _st.yield : 0,
+            planned_yield: _st.hasOutput ? _st.plannedYield : 0,
             output_unit: _st.recipe.recipeUnit || '',
             batch_nonce: _st.nonce,
             add_missing_to_shopping_list: !!_st.addMissing,

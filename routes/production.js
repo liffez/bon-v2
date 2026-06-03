@@ -42,6 +42,7 @@ router.post('/batches', requireAuth(), handle(async (req, res) => {
         output_product_id,
         portions,
         actual_yield,
+        planned_yield,
         output_unit,
         lines,
         batch_nonce,
@@ -105,7 +106,10 @@ router.post('/batches', requireAuth(), handle(async (req, res) => {
             VALUES (?,?,?,?,?,?,?,?, 'draft', ?,?,?,?)
         `).run(
             locationId, recipe_id, hasOutput ? Number(output_product_id) : null, Number(portions) || 1,
-            Number(actual_yield) || 0, (Number(actual_yield) || 0) || null, output_unit || '', batch_nonce,
+            // planned_output_qty = forventet udbytte (svind-reference); falder tilbage til
+            // faktisk hvis frontend ikke sender planned_yield. actual = faktisk udbytte.
+            (Number(planned_yield) || Number(actual_yield) || 0), (Number(actual_yield) || 0) || null,
+            output_unit || '', batch_nonce,
             plan.masterCost, plan.actualCost, notes || null, req.session.userId || null,
         );
         batchId = r.lastInsertRowid;
