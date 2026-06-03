@@ -1957,6 +1957,30 @@ Indtil nu tæller alle bon_lines med i `bons.total_units` så længe `is_accesso
 3. Kør med `--apply` (tager auto-backup)
 4. Justér listen i Settings → System → Enheds-kategorier hvis Grocy bruger andre kategorinavne i produktion
 
+#### Kategori-normalisering — ren Grocy-kilde (3. juni 2026)
+
+Driften viste at emballage stadig blev talt med i enheds-tallet på køkken-dashboardet:
+`total_units` var stale for eksisterende bons (backfill aldrig kørt på prod). Samtidig
+pegede brugeren på den underliggende skrøbelighed: tællingen matcher på kategori-*navne*,
+og default-listen havde dubletter (`"04 Slider"` + `"Slider"`, `"02 Salat"` + `"Salat"`)
+fordi historiske/importerede bon_lines bruger bare-varianter mens nye Grocy-bons bruger
+de nummererede navne.
+
+**Beslutning**: kategorier skal udelukkende komme fra Grocy. Bare-varianter normaliseres
+til Grocy's kanoniske navne, så whitelisten kan være ren (`["01 Sandwich","02 Salat","04 Slider","Burger"]`).
+
+- `scripts/normalize-bon-line-categories.js` — **NYT**. Henter Grocy's kategorier LIVE
+  (`grocyAdapter.getRecipes`) og udleder mapping bare→kanonisk ved at strippe `NN `-præfiks
+  (`04 Slider` ⇒ bare `Slider`). Mål-navne hårdkodes ALDRIG. Opdaterer `bon_lines.category`
+  + rydder `settings.unit_count_categories` op til kanonisk form (dedup). Bare-navne uden
+  Grocy-match (`Tilbehør`, `lunch`, `Frugt`, `x-Levering`, `x- Service`) røres ikke.
+  dry-run default, `--apply` tager backup. Kræver Grocy-adgang (kør på prod).
+- **Deploy-rækkefølge (vigtig)**: kør `normalize-bon-line-categories.js --apply` FØR
+  `backfill-total-units.js --apply`, så `total_units` beregnes på rene kategorier.
+- Data ved analysen: bon_lines havde bl.a. `01 Sandwich` (6.661), `06 Emballage` (4.415),
+  `04 Slider` (3.238) + bare-varianter `Slider` (253), `Salat` (31), `Emballage` (210),
+  `Drikke` (64), `Kager` (63).
+
 ### Menu-grupper persisteres (20. maj 2026)
 
 Gruppering af menu-linjer på køkken-bon-kortet (select-mode → vælg → Gruppér → titel + note)
