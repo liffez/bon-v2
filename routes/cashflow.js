@@ -283,7 +283,7 @@ router.get('/transactions', handle(async (req, res) => {
     if (from) { where += ' AND t.dato >= ?'; params.push(from); }
     if (to)   { where += ' AND t.dato <= ?'; params.push(to); }
     if (unmatched === '1') {
-        where += ' AND t.matched_invoice_id IS NULL AND t.beloeb > 0';
+        where += ' AND t.matched_invoice_id IS NULL AND t.beloeb > 0 AND t.ignored = 0';
     }
 
     const rows = db.prepare(`
@@ -646,6 +646,37 @@ router.delete('/match/:txId', handle(async (req, res) => {
         UPDATE cf_transactions SET matched_invoice_id = NULL, match_confidence = 0
         WHERE id = ?
     `).run(req.params.txId);
+
+    res.json({ ok: true });
+}));
+
+// ─── PATCH /transactions/:txId — Ignorér + note ──────────────
+//
+// Sætter `ignored` (skjuler posteringen fra "kan ikke matches"-listen) og/eller
+// `note` (fri tekst). Bruges til afvisninger/overførsler/gebyrer der aldrig får
+// en faktura. Begge felter er valgfrie — kun de medsendte opdateres.
+
+router.patch('/transactions/:txId', handle(async (req, res) => {
+    const db = getDb();
+
+    const tx = db.prepare('SELECT * FROM cf_transactions WHERE id = ?').get(req.params.txId);
+    if (!tx) return res.status(404).json({ error: 'Transaktion ikke fundet' });
+
+    const sets = [];
+    const params = [];
+    if (req.body.ignored !== undefined) {
+        sets.push('ignored = ?');
+        params.push(req.body.ignored ? 1 : 0);
+    }
+    if (req.body.note !== undefined) {
+        sets.push('note = ?');
+        params.push(req.body.note === null ? null : String(req.body.note).trim() || null);
+    }
+
+    if (sets.length === 0) return res.status(400).json({ error: 'Intet at opdatere' });
+
+    params.push(req.params.txId);
+    db.prepare(`UPDATE cf_transactions SET ${sets.join(', ')} WHERE id = ?`).run(...params);
 
     res.json({ ok: true });
 }));
