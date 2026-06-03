@@ -149,7 +149,9 @@
 
 .rap-bar-row {
   display: grid;
-  grid-template-columns: 28px 1fr 200px 96px;
+  /* Navn sizes til indhold (min 90px så det aldrig kollapser til 0), bjælken
+     er den fleksible kolonne der fylder/krymper — ikke navnet. */
+  grid-template-columns: 28px minmax(90px, 220px) minmax(40px, 1fr) 96px;
   align-items: center;
   gap: 8px;
   font-family: var(--font-body, 'DM Sans', sans-serif);
@@ -394,7 +396,7 @@
     grid-template-columns: 1fr;
   }
   .rap-bar-row {
-    grid-template-columns: 24px 1fr 90px 84px;
+    grid-template-columns: 24px minmax(80px, 200px) minmax(40px, 1fr) 84px;
   }
 }
 
