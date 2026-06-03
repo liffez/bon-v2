@@ -173,8 +173,10 @@ function _rvRenderShell() {
                 '<div class="rv-action-row">' +
                     '<button class="rv-consume-btn" id="rvConsumeBtn">Traek fra lager</button>' +
                     '<button class="rv-shopping-all-btn" id="rvShoppingAllBtn">🛒 Tilfoej manglende til indkoeb</button>' +
+                    '<button class="rv-produce-btn" id="rvProduceBtn" style="display:none;">🍳 Producér</button>' +
                 '</div>' +
                 '<div class="rv-consume-result" id="rvConsumeResult"></div>' +
+                '<div class="rv-produce-mount" id="rvProduceMount"></div>' +
             '</div>' +
             '<div class="rv-note-section" id="rvNoteSection" style="display:none;">' +
                 '<h3>Fremgangsmaade</h3>' +
@@ -195,6 +197,8 @@ function _rvRenderShell() {
     document.getElementById('rvPortionsPlus').addEventListener('click', function() { _rvAdjustPortions(1); });
     document.getElementById('rvConsumeBtn').addEventListener('click', _rvConsumeRecipe);
     document.getElementById('rvShoppingAllBtn').addEventListener('click', _rvAddAllMissingToShoppingList);
+    var produceBtn = document.getElementById('rvProduceBtn');
+    if (produceBtn) produceBtn.addEventListener('click', _rvOpenProduce);
 
     // Delegated click for cart buttons
     _rvContainer.addEventListener('click', function(e) {
@@ -364,8 +368,37 @@ function _rvOpenRecipe(recipeId, addToStack) {
     consumeResult.style.display = 'none';
     consumeResult.className = 'rv-consume-result';
 
+    // Producér-knap: kun for RR Produktion-opskrifter. Ryd evt. åben editor.
+    // For produktions-opskrifter ER "Producér" consume-flowet (consume + evt.
+    // lager-add + afvigelser), så "Træk fra lager" skjules for ikke at konkurrere.
+    var isProd = window.ProductionBatch && window.ProductionBatch.isProductionRecipe(recipe);
+    var produceBtn = document.getElementById('rvProduceBtn');
+    if (produceBtn) produceBtn.style.display = isProd ? '' : 'none';
+    var consumeBtn = document.getElementById('rvConsumeBtn');
+    if (consumeBtn) consumeBtn.style.display = isProd ? 'none' : '';
+    var produceMount = document.getElementById('rvProduceMount');
+    if (produceMount) produceMount.innerHTML = '';
+    if (window.ProductionBatch && window.ProductionBatch.close) {
+        try { window.ProductionBatch.close(); } catch (e) {}
+    }
+
     // Scroll to top
     window.scrollTo(0, 0);
+}
+
+// Åbn produktionsbatch-editoren for den aktuelle RR Produktion-opskrift
+function _rvOpenProduce() {
+    if (!window.ProductionBatch || !_rvCurrentRecipe) return;
+    var mount = document.getElementById('rvProduceMount');
+    if (!mount) return;
+    window.ProductionBatch.open({
+        recipe: _rvCurrentRecipe,
+        ingredients: _rvIngredients,
+        productsMap: _rvProducts,
+        quUnitsMap: _rvQuantityUnits,
+        container: mount
+    });
+    mount.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
 }
 
 function _rvRenderIngredients() {

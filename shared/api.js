@@ -451,6 +451,12 @@ function postGrocyConsumeProducts(items) {
     return apiFetch('/grocy/consume-products', { method: 'POST', body: JSON.stringify({ items }) });
 }
 
+/* ── PRODUKTION (batch record) ───────────────────────────── */
+
+function postProductionBatch(data) {
+    return apiFetch('/production/batches', { method: 'POST', body: JSON.stringify(data) });
+}
+
 /* ── INDKØBSLISTE ────────────────────────────────────────── */
 
 function fetchShoppingList() { return apiFetch('/grocy/shopping-list'); }

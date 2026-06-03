@@ -1,0 +1,96 @@
+/* shared/production_batch.css — Produktionsbatch-editor (trin 3) */
+
+.pb-panel {
+    border: 2px solid var(--brand-primary, #8e631f);
+    border-radius: 10px;
+    background: #fff;
+    padding: 14px 16px;
+    margin-top: 14px;
+    box-shadow: 0 4px 14px rgba(0,0,0,.08);
+}
+
+.pb-head { display: flex; align-items: center; gap: 10px; margin-bottom: 12px; }
+.pb-title { font-weight: 700; font-size: 1.1em; flex: 0 0 auto; }
+.pb-badge { font-size: .78em; padding: 2px 8px; border-radius: 10px; font-weight: 600; }
+.pb-badge-stock   { background: #e6f0e6; color: #2e6b2e; }
+.pb-badge-consume { background: #fdf0e0; color: #8a5a16; }
+.pb-close { margin-left: auto; border: none; background: none; font-size: 1.2em; cursor: pointer; color: #888; line-height: 1; }
+.pb-close:hover { color: #333; }
+
+.pb-portions { display: flex; align-items: center; gap: 8px; margin-bottom: 10px; flex-wrap: wrap; }
+.pb-portions input, .pb-actual-input, .pb-yield input { width: 70px; text-align: center; padding: 6px; border: 1px solid var(--color-border, #d7d1ca); border-radius: 6px; font-size: 1em; }
+.pb-port-note { color: #999; font-size: .8em; }
+
+.pb-step {
+    min-width: 34px; min-height: 34px; border: 1px solid var(--color-border, #d7d1ca);
+    background: #f5f4f2; border-radius: 6px; font-size: 1.1em; cursor: pointer; line-height: 1;
+}
+.pb-step:hover { background: #ece8e2; }
+
+.pb-table { width: 100%; border-collapse: collapse; margin: 6px 0 12px; }
+.pb-table th { text-align: left; font-size: .8em; color: #888; font-weight: 600; padding: 4px 6px; border-bottom: 1px solid var(--color-border, #d7d1ca); }
+.pb-line td { padding: 8px 6px; border-bottom: 1px solid #f0ede8; vertical-align: middle; }
+.pb-line-dev { background: #fffaf2; }
+.pb-l-name { font-weight: 500; }
+.pb-l-master { color: #777; white-space: nowrap; }
+.pb-l-actual { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; }
+.pb-l-unit { color: #888; font-size: .85em; min-width: 24px; }
+.pb-miss, .pb-swap, .pb-rm { min-width: 30px; min-height: 30px; border: 1px solid var(--color-border, #d7d1ca); background: #fff; border-radius: 6px; cursor: pointer; }
+.pb-miss { color: #b5651d; } .pb-miss:hover { background: #fdf0e0; }
+.pb-swap { color: #2e6b8e; } .pb-swap:hover { background: #e6f0f6; }
+.pb-rm { color: #a33; } .pb-rm:hover { background: #fde0e0; }
+.pb-step:disabled, .pb-actual-input:disabled { opacity: .45; cursor: default; }
+.pb-line-swapped .pb-l-name { text-decoration: line-through; color: #999; }
+.pb-l-extra { font-size: .8em; color: #2e6b2e; font-style: italic; }
+
+.pb-tag { font-size: .72em; padding: 1px 6px; border-radius: 8px; font-weight: 600; margin-left: 4px; }
+.pb-tag-out { background: #fde0e0; color: #a33; }
+.pb-tag-adj { background: #fdf3d0; color: #8a6d16; }
+.pb-tag-swap { background: #e1ecf5; color: #2e6b8e; }
+.pb-tag-add { background: #e6f0e6; color: #2e6b2e; }
+
+.pb-add-row { margin: 4px 0 12px; }
+.pb-add-btn { background: #f5f4f2; border: 1px dashed var(--color-border, #d7d1ca); border-radius: 6px; padding: 8px 14px; cursor: pointer; color: #555; font-weight: 600; }
+.pb-add-btn:hover { background: #ece8e2; }
+
+.pb-picker { border: 1px solid var(--brand-primary, #8e631f); border-radius: 8px; padding: 10px; margin-bottom: 12px; background: #fcfbf9; }
+.pb-picker-head { display: flex; align-items: center; gap: 8px; margin-bottom: 8px; }
+.pb-picker-title { font-weight: 600; }
+.pb-picker-head input { flex: 1; padding: 7px; border: 1px solid var(--color-border, #d7d1ca); border-radius: 6px; }
+.pb-pick-cancel { border: none; background: none; color: #888; cursor: pointer; }
+.pb-picker-list { list-style: none; margin: 0; padding: 0; max-height: 220px; overflow-y: auto; }
+.pb-pick-item { padding: 8px 10px; border-radius: 6px; cursor: pointer; }
+.pb-pick-item:hover { background: #f0ede8; }
+.pb-pick-empty { padding: 8px 10px; color: #999; }
+
+.pb-yield { display: flex; align-items: center; gap: 8px; margin-bottom: 10px; }
+.pb-yield label { font-weight: 600; }
+.pb-consume-only { color: #8a5a16; font-size: .9em; background: #fdf0e0; padding: 8px 10px; border-radius: 6px; margin-bottom: 10px; }
+
+.pb-missing-chk { display: block; margin-bottom: 10px; font-size: .9em; cursor: pointer; }
+
+.pb-actions { display: flex; justify-content: flex-end; }
+.pb-produce-btn {
+    background: var(--brand-primary, #8e631f); color: #fff; border: none; border-radius: 8px;
+    padding: 12px 22px; font-size: 1.02em; font-weight: 600; cursor: pointer; min-height: 44px;
+}
+.pb-produce-btn:hover { filter: brightness(1.07); }
+.pb-produce-btn:disabled { opacity: .6; cursor: default; }
+.pb-produce-dev { background: #b5651d; }
+
+.pb-msg { margin-top: 10px; font-size: .9em; }
+.pb-msg-error { color: #b32020; }
+.pb-msg-info { color: #555; }
+
+.pb-result-ok { border-color: #2e6b2e; }
+.pb-result-partial { border-color: #b5651d; }
+.pb-r-body { margin-bottom: 12px; }
+.pb-r-line { padding: 3px 0; }
+.pb-r-fail { color: #b5651d; margin-top: 6px; font-size: .9em; }
+
+/* Producér-knap i recipe_viewer's consume-sektion */
+.rv-produce-btn {
+    background: var(--brand-primary, #8e631f); color: #fff; border: none; border-radius: 8px;
+    padding: 10px 18px; font-size: 1em; font-weight: 600; cursor: pointer; min-height: 44px;
+}
+.rv-produce-btn:hover { filter: brightness(1.07); }

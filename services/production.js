@@ -160,10 +160,10 @@ function unitCostFromStockRow(row) {
  *   conversionLog: string[]
  * }}
  */
-function buildBatchPlan({ portions, actualYield, lines = [], conversions = [], costMap = {} }) {
+function buildBatchPlan({ portions, actualYield, lines = [], conversions = [], costMap = {}, requireYield = true }) {
     const errors = [];
-    if (!(Number(portions) > 0))     errors.push({ code: 'invalid_portions', message: 'Portioner skal være > 0' });
-    if (!(Number(actualYield) > 0))  errors.push({ code: 'invalid_yield', message: 'Faktisk udbytte skal være > 0' });
+    if (!(Number(portions) > 0))                    errors.push({ code: 'invalid_portions', message: 'Portioner skal være > 0' });
+    if (requireYield && !(Number(actualYield) > 0)) errors.push({ code: 'invalid_yield', message: 'Faktisk udbytte skal være > 0' });
 
     const consume = [];
     const consumptionRows = [];
@@ -204,16 +204,11 @@ function buildBatchPlan({ portions, actualYield, lines = [], conversions = [], c
         });
     }
 
-    let actualCost = 0, pricePerUnit = 0;
-    if (!errors.some(e => e.code === 'invalid_yield')) {
-        try {
-            const r = computeBatchPrice(costLines, actualYield);
-            actualCost = r.batchCost;
-            pricePerUnit = r.pricePerUnit;
-        } catch (e) {
-            errors.push({ code: e.code, message: e.message });
-        }
-    }
+    // Batch-kost beregnes ALTID (også for consume-only uden udbytte) — det er
+    // hvad det kostede at lave. Pris pr. enhed kun når der er et udbytte (kun
+    // relevant når en færdigvare lægges på lager).
+    const actualCost   = round2(costLines.reduce((s, l) => s + (Number(l.stockAmount) || 0) * (Number(l.unitCost) || 0), 0));
+    const pricePerUnit = (Number(actualYield) > 0) ? round4(actualCost / Number(actualYield)) : 0;
 
     const masterCost = round2(
         consumptionRows.reduce((s, r) => s + r.planned_qty * (Number(costMap[r.grocy_product_id]) || 0), 0),
