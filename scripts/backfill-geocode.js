@@ -23,7 +23,9 @@ const { geocodeRaw } = require('../services/geocode');
 
 const DB_PATH = process.env.DB_PATH || path.join(__dirname, '../data/bon.db');
 const APPLY = process.argv.includes('--apply');
-const RATE_MS = 120;   // ~8 opslag/s — venligt mod DAWA
+const RATE_MS = 200;   // ~5 adresser/s — venligt mod DAWA (hver adresse kan
+                       // lave op til 4 sekventielle kald: struktureret, q,
+                       // datavask-vask + datavask-mini)
 
 function sleep(ms) {
     return new Promise(resolve => setTimeout(resolve, ms));
@@ -65,7 +67,8 @@ async function main() {
             coords = await geocodeRaw({
                 street: addr.street_name,
                 nr: addr.street_nr,
-                zip: addr.postal_code
+                zip: addr.postal_code,
+                city: addr.city
             });
         } catch (e) {
             coords = null;

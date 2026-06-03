@@ -49,13 +49,69 @@ function coordsFromRow(row) {
 }
 
 // ==========================================
-// geocodeRaw({ street, nr, zip }) → { lat, lon } | null
+// geocodeViaDatavask({ street, nr, zip, city }) → { lat, lon } | null
+//
+// Sidste fallback for v1-synkede adresser med fejlskrevne/ikke-
+// kanoniske vejnavne. DAWA's datavask-tjeneste retter input mod den
+// officielle vejdatabase, fx:
+//   "Prinsesse Charlottesgade 16" → "Prinsesse Charlottes Gade 16"
+//   "HC Andersens Boulevard 2"    → "H.C. Andersens Boulevard 2"
+//
+// Kvalitets-gate: vi accepterer KUN match hvor husnr OG postnr er
+// uændrede (forskelle.husnr===0 && forskelle.postnr===0). Vejnavnet
+// må gerne rettes — det er hele pointen. Gaten afviser vilde gæt på
+// junk-input (fx "Afhentes ved afhentning, 2650" → en tilfældig vej),
+// hvor datavask må ændre husnr/postnr for at finde noget.
+// ==========================================
+async function geocodeViaDatavask({ street, nr, zip, city } = {}) {
+    // V1-data propper ofte etage/dør-junk ind i vej- og husnr-felterne
+    // efter et komma ("Farvergade , 2. sal" + "27 D", "Glasvej" + "3,1").
+    // Danske vejnavne og husnumre indeholder aldrig komma, så vi afkorter
+    // begge ved første komma — det fjerner junk uden at tabe ægte data.
+    const clean = s => (s == null ? '' : String(s).split(',')[0].trim());
+    const streetPart = [clean(street), clean(nr)].filter(Boolean).join(' ');
+    const zipPart = [zip, city]
+        .map(s => (s == null ? '' : String(s).trim()))
+        .filter(Boolean).join(' ');
+    const betegnelse = [streetPart, zipPart].filter(Boolean).join(', ').trim();
+    if (!betegnelse) return null;
+
+    let washed;
+    try {
+        const p = new URLSearchParams({ betegnelse });
+        washed = await dawaFetch(`/datavask/adresser?${p.toString()}`);
+    } catch (e) {
+        return null;
+    }
+    const first = washed && Array.isArray(washed.resultater) ? washed.resultater[0] : null;
+    const adr = first && first.aktueladresse;
+    const diff = first && first.vaskeresultat && first.vaskeresultat.forskelle;
+    if (!adr || !diff) return null;
+
+    // Gate: husnr + postnr SKAL matche eksakt; vejnavnet må rettes.
+    if (diff.husnr !== 0 || diff.postnr !== 0) return null;
+
+    const aid = adr.adgangsadresseid;
+    if (!aid) return null;
+
+    let mini;
+    try {
+        mini = await dawaFetch(`/adgangsadresser/${encodeURIComponent(aid)}?struktur=mini`);
+    } catch (e) {
+        return null;
+    }
+    return coordsFromRow(mini);
+}
+
+// ==========================================
+// geocodeRaw({ street, nr, zip, city }) → { lat, lon } | null
 //
 // Primær: struktureret opslag (vejnavn + husnr + postnr).
-// Fallback: fri-tekst q-søgning hvis det strukturerede giver 0 hits
-// (fanger v1-synkede adresser med skæve husnumre/stavemåder).
+// Fallback 1: fri-tekst q-søgning hvis det strukturerede giver 0 hits.
+// Fallback 2: datavask (retter fejlskrevne vejnavne mod officiel
+//   vejdatabase) — fanger v1-synkede adresser hvor de to første fejler.
 // ==========================================
-async function geocodeRaw({ street, nr, zip } = {}) {
+async function geocodeRaw({ street, nr, zip, city } = {}) {
     if (!street || !String(street).trim()) return null;
 
     // 1) Struktureret opslag
@@ -78,10 +134,14 @@ async function geocodeRaw({ street, nr, zip } = {}) {
     try {
         const fp = new URLSearchParams({ struktur: 'mini', per_side: '1', q });
         results = await dawaFetch(`/adgangsadresser?${fp.toString()}`);
+        coords = coordsFromRow(Array.isArray(results) ? results[0] : null);
+        if (coords) return coords;
     } catch (e) {
-        return null;
+        // falder igennem til datavask
     }
-    return coordsFromRow(Array.isArray(results) ? results[0] : null);
+
+    // 3) Datavask — retter fejlskrevne/ikke-kanoniske vejnavne
+    return geocodeViaDatavask({ street, nr, zip, city });
 }
 
 // ==========================================
@@ -106,7 +166,8 @@ async function geocodeAddress(addressId) {
     const coords = await geocodeRaw({
         street: addr.street_name,
         nr: addr.street_nr,
-        zip: addr.postal_code
+        zip: addr.postal_code,
+        city: addr.city
     });
     if (!coords) return null;
 
