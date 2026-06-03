@@ -2230,6 +2230,28 @@ bliver i Settings (Leveringsmetoder = ægte config; Bestilling-Menu hører under
 dublet top-level-deklaration dræber hele siden lydløst (ingen synlig console-fejl). `node --check`
 på det udtrukne inline-script efter hver redigering.
 
+### CRM bulk lead-import (3. juni 2026)
+> PR #161. Løser at leads kun kunne oprettes manuelt én ad gangen.
+
+Ny pill **CRM → Importér leads** der indlæser en liste af potentielle kunder på én gang —
+fra `.csv`-fil eller indsat direkte fra Excel/Google Sheets.
+
+- **`POST /api/crm/leads/import`** ([routes/crm.js](routes/crm.js)) — pr. række: match firma på
+  **CVR** (ellers eksakt navn) + kontakt på **email** → opret eller berig manglende felter,
+  **ingen dubletter**. Sætter `stage='lead'` i `crm_customer_meta` (synkes til `rfm_scores` med
+  `stage_locked`) — nedgraderer **aldrig** en VIP/aktiv kunde. Valgfrit batch-tag i
+  `crm_customer_meta.tags` + valgfri CVR/Virk-berigelse. `dry_run`-flag → matching + rapport
+  uden writes (driver præcist preview). Auth-gated via `requireAuth()`.
+- **`contact_points` oprettes eksplicit** med `source='manual'`, `is_public=0` (juridisk sikker
+  default) — 053-triggerne fyrer kun ved UPDATE, ikke INSERT, så importen gør det selv.
+- **Frontend** [office/views/crm-leadimport.js](office/views/crm-leadimport.js) — skilletegn-detektion
+  (tab/`;`/`,`), header-genkendelse, kolonne-mapping med auto-gæt, forhåndsvisning + resultattabel
+  med statuspiller. [shared/api.js](shared/api.js) → `importLeads()`. Wired i [office/index.html](office/index.html)
+  (pill + view-map + view-registry).
+- **Ingen migration** (genbruger `customers`/`companies`/`contact_points`/`crm_customer_meta`/`rfm_scores`).
+  Ny route-fil ⇒ server-genstart ved deploy. Verificeret end-to-end mod kørende server + DB +
+  browser-UI (parse, auto-mapping, dry-run-preview, dedup, privatkunde, fejlrækker).
+
 ## Næste opgave
 
 > ✏️ Opdateret 21. maj 2026.
