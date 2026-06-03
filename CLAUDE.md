@@ -2197,6 +2197,39 @@ DOM'en) kunne ikke sende flyvere.
 - Browser-verificeret: knap → modal "Send flyver — NNNN" → besked → Send → flyver POST'es
   og lander i `notifications` med `type='flyver'`.
 
+### Settings-reorg (3. juni 2026)
+> Spec: `docs/CLAUDE_SETTINGS_REORG.md` (alle dele ✅ gennemført)
+
+Settings-sidebaren omstruktureret fra 23 flade punkter + én "Admin"-divider til navngivne
+grupper, og tre operationelle views flyttet ud til de moduler hvor arbejdet hører hjemme.
+Fem PR'er:
+- **Hotfix (#148)**: dobbelt `ROLE_LABELS`-deklaration (en `var` til bruger-roller + en `const`
+  til jobtyper, indført af jobtype-PR #141/#143) brækkede HELE `settings/index.html`'s inline-script
+  → `init()` kørte aldrig, siden var død. Jobtype-varianten omdøbt til `JOBTYPE_LABELS`.
+  (Settings var brudt i prod indtil dette deployedes.)
+- **DEL 1 (#149)**: grupperet sidebar (Denne enhed + Adgang/Team & løn/Bon & salg/Formularer/
+  Integrationer/System & vedligehold). Admin-gating omskrevet — de gamle `#st-admin-sep`/
+  `#st-admin-label` findes ikke længere, ny logik skjuler tomme gruppe-labels dynamisk.
+  Omdøbt: "Tilbud" → "Tilbud — opbygning", "Legoklods-rapport" → "Legoklods-kategorier".
+  `data-section`-id'er + switch-logik uændret.
+- **DEL 2 (#150)**: indkøb-config-dublet fjernet fra Settings (var allerede monteret i office
+  Indkøb → Leverandører via `initIndkobSettings(...,{mode:'page'})`).
+- **DEL 3 (#151)**: produkt-duplikater flyttet til office Indkøb som **4. tab** i
+  `shared/indkob_settings.js` (`data-idx=3`, ved siden af Leverandører/Produkter/Hørkram).
+  API uændret (`/settings/duplicates*`).
+- **DEL 4A (#152)**: Sammenlæg firmaer (merge-wizard) flyttet til **CRM → Værktøjer** som ny
+  pill + ny selvstændig `office/views/crm-verktoj.js` (injicerer egen CSS, egen `escapeHtml`,
+  admin-gated indhold). Merge-API uændret (`/api/admin/merge-companies*`, `requireAuth('admin')`).
+- **DEL 4B**: Berig alle firmaer (bulk) bliver bevidst i Settings (tung handling, friktion ønsket).
+- **DEL 4C**: per-firma "Berig fra CVR" var allerede bygget (`companies.js` + Firma 360°) — ingen kode.
+
+Besluttede åbne valg: Duplikater = 4. tab (ikke egen pill); Leveringsmetoder + Bestilling-Menu
+bliver i Settings (Leveringsmetoder = ægte config; Bestilling-Menu hører under "Formularer"-gruppen).
+
+**Lære (gemt som memory):** `settings/index.html` er én kæmpe inline-`<script>` — en enkelt
+dublet top-level-deklaration dræber hele siden lydløst (ingen synlig console-fejl). `node --check`
+på det udtrukne inline-script efter hver redigering.
+
 ## Næste opgave
 
 > ✏️ Opdateret 21. maj 2026.

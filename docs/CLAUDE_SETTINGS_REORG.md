@@ -295,21 +295,39 @@ Stadig at verificere før patch:
 
 ---
 
+## Status: ✅ GENNEMFØRT (3. juni 2026)
+
+Hele reorg'en er implementeret, browser-verificeret og merget til main:
+
+| Trin | PR | Indhold |
+|---|---|---|
+| Hotfix | #148 | Dobbelt `ROLE_LABELS` brækkede hele settings-scriptet (fundet undervejs, prod-bug) |
+| DEL 1 | #149 | Grupperet sidebar (6 grupper) + admin-gating-fix + 2 omdøbninger |
+| DEL 2 | #150 | Fjern indkøb-config-dublet (var allerede i office) |
+| DEL 3 | #151 | Duplikater → office Indkøb, 4. tab i Indkøbsindstillinger |
+| DEL 4A | #152 | Sammenlæg firmaer → CRM → Værktøjer (`office/views/crm-verktoj.js`) |
+| DEL 4B | — | Berig alle firmaer: urørt, bliver bevidst i Settings |
+| DEL 4C | — | Per-firma enrich: var allerede bygget, ingen kode |
+
+Besluttede åbne valg: Duplikater = 4. tab (ikke egen pill); Leveringsmetoder + Bestilling-Menu bliver i Settings (se "Oversete kandidater").
+
+---
+
 ## Acceptkriterier
 
-| ❌/✅ | Kriterium |
-|---|---|
-| ❌ | Settings-sidebar viser 1 standalone + 6 navngivne grupper; ingen flad "Admin"-blok |
-| ❌ | Alle tilbageblevne nav-punkter skifter til korrekt `#sec-*`-panel (data-section-id'er uændret) |
-| ❌ | `koekkenchef` ser kun tilladte punkter; tomme gruppe-labels skjules; ingen JS-fejl på `null` |
-| ❌ | Indkøb-config åbner i Indkøb-modulet via `initIndkobSettings(el,{mode:'page'})` og fungerer fuldt |
-| ❌ | Produkt-duplikater fungerer som fane i Indkøb-modulet (liste, filter, merge/ignore) |
-| ❌ | Sammenlæg firmaer fungerer under CRM → Værktøjer (søgning, 3-trins wizard, undo) |
-| ❌ | Berig alle firmaer (bulk) fungerer uændret i Settings → System & vedligehold (dry-run + bekræftelse) |
-| ✅ | (4C) Per-firma "Berig fra CVR" findes allerede på Firma 360° (`companies.js`-endpoint) — verificér virker, byg ikke nyt |
-| ❌ | "Tilbud — opbygning" og "Legoklods-kategorier" er omdøbt i både nav og `<h2>` |
-| ❌ | Ingen efterladte/døde referencer i `settings/index.html` (grep rent) |
-| ❌ | Ingen console-fejl i hverken settings-, indkøb- eller CRM-zonen efter flytning |
+| ✅ | Kriterium | Leveret af |
+|---|---|---|
+| ✅ | Settings-sidebar viser 1 standalone + 6 navngivne grupper; ingen flad "Admin"-blok | DEL 1 (#149) |
+| ✅ | Alle tilbageblevne nav-punkter skifter til korrekt `#sec-*`-panel (data-section-id'er uændret) | DEL 1 (#149) |
+| ✅ | Ikke-admin ser kun tilladte punkter; tomme gruppe-labels skjules; ingen JS-fejl på `null` | DEL 1 (#149) — verificeret med kitchen-rolle (3 grupper) |
+| ✅ | Indkøb-config åbner i Indkøb-modulet via `initIndkobSettings(el,{mode:'page'})` og fungerer fuldt | Allerede i office; Settings-dublet fjernet i DEL 2 (#150) |
+| ✅ | Produkt-duplikater fungerer som fane i Indkøb-modulet (liste, filter, merge/ignore) | DEL 3 (#151) — 4. tab |
+| ✅ | Sammenlæg firmaer fungerer under CRM → Værktøjer (søgning, 3-trins wizard, undo) | DEL 4A (#152) |
+| ✅ | Berig alle firmaer (bulk) fungerer uændret i Settings → System & vedligehold | DEL 4B — urørt |
+| ✅ | (4C) Per-firma "Berig fra CVR" findes allerede på Firma 360° (`companies.js`-endpoint) | Allerede bygget — ingen kode |
+| ✅ | "Tilbud — opbygning" og "Legoklods-kategorier" er omdøbt i både nav og `<h2>` | DEL 1 (#149) |
+| ✅ | Ingen efterladte/døde referencer i `settings/index.html` (grep rent) | Verificeret i DEL 2/3/4A |
+| ✅ | Ingen console-fejl i settings-/indkøb-/CRM-zonen efter flytning | Verificeret (eneste fejl = lokal `GROCY_HQ_KEY`, miljø-specifik) |
 
 ---
 
