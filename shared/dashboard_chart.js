@@ -624,8 +624,33 @@ function initMonthlyBarChart(canvasId, data, opts = {}) {
         return 10 * mag;
     }
 
+    const COLOR_THIS_LINE = '#5e4012';
+    const COLOR_PREV_LINE = '#a89c8c';
+
     function getVal(entry) {
-        return state.mode === 'kr' ? (entry.revenue || 0) : (entry.units || 0);
+        if (!entry) return 0;
+        // Regnskabskonvention: omsætning er ex moms (jf. BON_V2_PRINCIPPER.md §6c)
+        return state.mode === 'kr' ? (entry.revenue_excl_moms ?? entry.revenue ?? 0) : (entry.units || 0);
+    }
+
+    // Byg 12 kronologiske måned-slots (sidste 12 mdr.) og par hver med samme
+    // kalendermåned året før. Ruten leverer month som "YYYY-MM"-streng, så vi
+    // slår op på fuld nøgle — det parrer i år vs. sidste år korrekt side om side.
+    function buildSlots() {
+        const now = new Date();
+        const slots = [];
+        for (let i = 11; i >= 0; i--) {
+            const d = new Date(now.getFullYear(), now.getMonth() - i, 1);
+            const pd = new Date(d.getFullYear() - 1, d.getMonth(), 1);
+            const key = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`;
+            const prevKey = `${pd.getFullYear()}-${String(pd.getMonth() + 1).padStart(2, '0')}`;
+            slots.push({ monthNum: d.getMonth() + 1, thisKey: key, prevKey, isCurrent: i === 0 });
+        }
+        return slots;
+    }
+
+    function fmtAxis(v) {
+        return state.mode === 'kr' ? fmtKr(v) : (v >= 1000 ? Math.round(v / 1000) + 'k' : v + '');
     }
 
     function draw() {
@@ -637,84 +662,151 @@ function initMonthlyBarChart(canvasId, data, opts = {}) {
         ctx.scale(dpr, dpr);
         const W = rect.width, H = rect.height;
 
-        const PAD_L = 42, PAD_R = 10, PAD_T = 16, PAD_B = 24;
+        const PAD_L = 46, PAD_R = 52, PAD_T = 30, PAD_B = 24;
         const chartW = W - PAD_L - PAD_R, chartH = H - PAD_T - PAD_B;
 
-        const thisYear = state.data.this_year || [];
-        const prevYear = state.data.prev_year || [];
-        const months = [...new Set([...thisYear.map(e => e.month), ...prevYear.map(e => e.month)])].sort((a, b) => a - b);
-        const N = months.length;
+        const thisMap = {}; (state.data.this_year || []).forEach(e => { thisMap[e.month] = e; });
+        const prevMap = {}; (state.data.prev_year || []).forEach(e => { prevMap[e.month] = e; });
+
+        const slots = buildSlots();
+        const N = slots.length;
         if (N === 0) return;
 
-        const thisMap = {}; thisYear.forEach(e => { thisMap[e.month] = e; });
-        const prevMap = {}; prevYear.forEach(e => { prevMap[e.month] = e; });
-
-        // Current month detection
-        const currentMonth = new Date().getMonth() + 1;
-
-        // yMax
-        let maxVal = 1;
-        months.forEach(m => {
-            if (thisMap[m]) maxVal = Math.max(maxVal, getVal(thisMap[m]));
-            if (prevMap[m]) maxVal = Math.max(maxVal, getVal(prevMap[m]));
+        // Per-slot værdier + løbende akkumulering
+        let cThis = 0, cPrev = 0;
+        const rows = slots.map(s => {
+            const tv = getVal(thisMap[s.thisKey]);
+            const pv = getVal(prevMap[s.prevKey]);
+            cThis += tv; cPrev += pv;
+            return { ...s, tv, pv, cumThis: cThis, cumPrev: cPrev };
         });
-        const yMax = niceMax(maxVal * 1.1);
 
-        // Grid lines
-        const gridCount = 4;
+        // Akser: venstre = månedssøjler, højre = akkumuleret kurve
+        let maxBar = 1, maxCum = 1;
+        rows.forEach(r => {
+            maxBar = Math.max(maxBar, r.tv, r.pv);
+            maxCum = Math.max(maxCum, r.cumThis, r.cumPrev);
+        });
+        const yMax = niceMax(maxBar * 1.1);
+        const cumMax = niceMax(maxCum * 1.05);
+
         hitBoxes = [];
+        const baseY = PAD_T + chartH;
+
+        // Grid + venstre akse (søjler)
+        const gridCount = 4;
         ctx.font = "9px 'Lato',sans-serif";
         for (let i = 1; i <= gridCount; i++) {
             const val = Math.round((yMax / gridCount) * i);
-            const gy = PAD_T + chartH - (val / yMax) * chartH;
+            const gy = baseY - (val / yMax) * chartH;
             ctx.strokeStyle = '#ebebeb'; ctx.lineWidth = 1;
             ctx.beginPath(); ctx.moveTo(PAD_L, gy); ctx.lineTo(W - PAD_R, gy); ctx.stroke();
             ctx.fillStyle = '#c0b9b2';
             ctx.textAlign = 'right'; ctx.textBaseline = 'middle';
-            ctx.fillText(fmtKr(val), PAD_L - 4, gy);
+            ctx.fillText(fmtAxis(val), PAD_L - 4, gy);
+        }
+        // Højre akse (akkumuleret) — dæmpet, så den ikke konkurrerer med søjlernes akse
+        for (let i = 1; i <= gridCount; i++) {
+            const val = Math.round((cumMax / gridCount) * i);
+            const gy = baseY - (val / cumMax) * chartH;
+            ctx.fillStyle = '#bdae9a';
+            ctx.textAlign = 'left'; ctx.textBaseline = 'middle';
+            ctx.fillText(fmtAxis(val), W - PAD_R + 5, gy);
         }
         // Baseline
         ctx.strokeStyle = '#d7d1ca'; ctx.lineWidth = 1;
-        ctx.beginPath(); ctx.moveTo(PAD_L, PAD_T + chartH); ctx.lineTo(W - PAD_R, PAD_T + chartH); ctx.stroke();
+        ctx.beginPath(); ctx.moveTo(PAD_L, baseY); ctx.lineTo(W - PAD_R, baseY); ctx.stroke();
 
         const slotW = chartW / N;
         const barW = slotW * 0.32;
         const gap = 2;
-        const baseY = PAD_T + chartH;
 
-        months.forEach((m, i) => {
+        rows.forEach((r, i) => {
             const cx = PAD_L + (i + 0.5) * slotW;
 
-            // Prev year bar (left)
-            const pv = prevMap[m] ? getVal(prevMap[m]) : 0;
-            if (pv > 0) {
-                const bh = (pv / yMax) * chartH;
+            // Sidste år (venstre, grå)
+            if (r.pv > 0) {
+                const bh = (r.pv / yMax) * chartH;
                 const bx = cx - barW - gap / 2;
                 const by = baseY - bh;
                 ctx.fillStyle = COLOR_PREV;
                 rrect(ctx, bx, by, barW, bh, 2); ctx.fill();
-                hitBoxes.push({ x: bx, y: by, w: barW, h: bh, month: m, year: 'prev', val: pv });
+                hitBoxes.push({ x: bx, y: by, w: barW, h: bh, monthNum: r.monthNum, year: 'prev', val: r.pv, cum: r.cumPrev });
             }
-
-            // This year bar (right)
-            const tv = thisMap[m] ? getVal(thisMap[m]) : 0;
-            if (tv > 0) {
-                const bh = (tv / yMax) * chartH;
+            // I år (højre, brun)
+            if (r.tv > 0) {
+                const bh = (r.tv / yMax) * chartH;
                 const bx = cx + gap / 2;
                 const by = baseY - bh;
-                ctx.globalAlpha = (m === currentMonth) ? 0.5 : 1;
+                ctx.globalAlpha = r.isCurrent ? 0.5 : 1;
                 ctx.fillStyle = COLOR_THIS;
                 rrect(ctx, bx, by, barW, bh, 2); ctx.fill();
                 ctx.globalAlpha = 1;
-                hitBoxes.push({ x: bx, y: by, w: barW, h: bh, month: m, year: 'this', val: tv });
+                hitBoxes.push({ x: bx, y: by, w: barW, h: bh, monthNum: r.monthNum, year: 'this', val: r.tv, cum: r.cumThis });
             }
 
-            // Month label
+            // Månedslabel
             ctx.fillStyle = '#b0a898';
             ctx.font = "9px 'Lato',sans-serif";
             ctx.textAlign = 'center'; ctx.textBaseline = 'top';
-            ctx.fillText(MONTH_LABELS[m - 1] || '', cx, baseY + 6);
+            ctx.fillText(MONTH_LABELS[r.monthNum - 1] || '', cx, baseY + 6);
         });
+
+        // Akkumulerede kurver (højre akse)
+        const cumY = v => baseY - (v / cumMax) * chartH;
+        const cxOf = i => PAD_L + (i + 0.5) * slotW;
+        const drawCumLine = (key, color, dashed) => {
+            ctx.save();
+            ctx.strokeStyle = color; ctx.lineWidth = 2;
+            ctx.setLineDash(dashed ? [5, 4] : []);
+            ctx.beginPath();
+            rows.forEach((r, i) => {
+                const x = cxOf(i), y = cumY(r[key]);
+                if (i === 0) ctx.moveTo(x, y); else ctx.lineTo(x, y);
+            });
+            ctx.stroke();
+            ctx.setLineDash([]);
+            // punkter
+            ctx.fillStyle = color;
+            rows.forEach((r, i) => {
+                ctx.beginPath(); ctx.arc(cxOf(i), cumY(r[key]), 2.5, 0, Math.PI * 2); ctx.fill();
+            });
+            ctx.restore();
+        };
+        drawCumLine('cumPrev', COLOR_PREV_LINE, true);
+        drawCumLine('cumThis', COLOR_THIS_LINE, false);
+
+        // Legende (top)
+        drawLegend(ctx, PAD_L, 10, W - PAD_R);
+    }
+
+    function drawLegend(ctx, x0, y, xMax) {
+        const items = [
+            { type: 'bar', color: COLOR_THIS, label: 'I år' },
+            { type: 'bar', color: COLOR_PREV, label: 'Sidste år' },
+            { type: 'line', color: COLOR_THIS_LINE, dashed: false, label: 'I år akk.' },
+            { type: 'line', color: COLOR_PREV_LINE, dashed: true, label: 'Sidste år akk.' },
+        ];
+        ctx.font = "10px 'Lato',sans-serif";
+        ctx.textAlign = 'left'; ctx.textBaseline = 'middle';
+        let x = x0;
+        for (const it of items) {
+            if (it.type === 'bar') {
+                ctx.fillStyle = it.color;
+                rrect(ctx, x, y - 5, 12, 10, 2); ctx.fill();
+                x += 16;
+            } else {
+                ctx.strokeStyle = it.color; ctx.lineWidth = 2;
+                ctx.setLineDash(it.dashed ? [4, 3] : []);
+                ctx.beginPath(); ctx.moveTo(x, y); ctx.lineTo(x + 16, y); ctx.stroke();
+                ctx.setLineDash([]);
+                x += 20;
+            }
+            ctx.fillStyle = '#7a6f5f';
+            ctx.fillText(it.label, x + 3, y);
+            x += ctx.measureText(it.label).width + 18;
+            if (x > xMax - 40) { /* løber tør for plads — resten klippes pænt */ }
+        }
     }
 
     function getHit(x, y) {
@@ -726,10 +818,12 @@ function initMonthlyBarChart(canvasId, data, opts = {}) {
     }
 
     function showTT(hit, px, py) {
-        const label = MONTH_LABELS[hit.month - 1] || '';
+        const label = MONTH_LABELS[hit.monthNum - 1] || '';
         const yearLabel = hit.year === 'this' ? 'I år' : 'Sidste år';
-        const valStr = state.mode === 'kr' ? hit.val.toLocaleString('da-DK') + ' kr' : hit.val.toLocaleString('da-DK') + ' enh';
-        tooltip.innerHTML = `<div class="tt-kat">${label} — ${yearLabel}</div><div class="tt-enh">${valStr}</div>`;
+        const suffix = state.mode === 'kr' ? ' kr' : ' enh';
+        const valStr = hit.val.toLocaleString('da-DK') + suffix;
+        const cumStr = hit.cum.toLocaleString('da-DK') + suffix;
+        tooltip.innerHTML = `<div class="tt-kat">${label} — ${yearLabel}</div><div class="tt-enh">${valStr}</div><div class="tt-enh" style="opacity:.7">Akk.: ${cumStr}</div>`;
         tooltip.style.display = 'block';
         const tw = tooltip.offsetWidth, th = tooltip.offsetHeight;
         let tx = px + 14, ty = py - th / 2;
