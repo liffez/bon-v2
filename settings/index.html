@@ -523,8 +523,7 @@
 
     <div class="st-nav-label st-group">System &amp; vedligehold</div>
     <button class="st-nav-item st-admin-only" data-section="system">System</button>
-    <!-- Transitionelt: duplicates + merge-companies flyttes til office-moduler i DEL 3/4A (CLAUDE_SETTINGS_REORG.md). Indkøb-config er fjernet her — findes i office Indkøb → Leverandører. -->
-    <button class="st-nav-item st-admin-only" data-section="duplicates">Duplikater</button>
+    <!-- Transitionelt: merge-companies flyttes til CRM i DEL 4A (CLAUDE_SETTINGS_REORG.md). Indkøb-config + duplikater er flyttet til office Indkøb. -->
     <button class="st-nav-item st-admin-only" data-section="merge-companies">Sammenlæg firmaer</button>
     <button class="st-nav-item st-admin-only" data-section="batch-enrich">Berig alle firmaer</button>
   </nav>
@@ -805,32 +804,6 @@
           <button class="st-btn st-btn-sm st-btn-primary" onclick="saveLegoCats()">Gem</button>
         </div>
         <div id="lego-cats-msg" style="font-size:.82rem;margin-top:8px"></div>
-      </div>
-    </div>
-
-    <!-- ════ DUPLIKATER ════ -->
-    <div class="st-section st-admin-only" id="sec-duplicates">
-      <h2>Duplikat-kandidater</h2>
-      <p style="font-size:13px;color:var(--color-text-dim);margin-bottom:12px;">
-        Produkter der sandsynligvis er duplikater i Grocy — opdaget automatisk ved bestilling når samme Hørkram-varenr. bruges af flere produkter.
-      </p>
-      <div style="margin-bottom:12px;">
-        <select id="dup-filter" style="padding:6px 10px;border:1px solid var(--color-border);border-radius:4px;font-size:13px;">
-          <option value="pending">Afventer (ubehandlet)</option>
-          <option value="all">Alle</option>
-          <option value="merged">Merget</option>
-          <option value="not_duplicate">Ikke duplikat</option>
-          <option value="ignored">Ignoreret</option>
-        </select>
-      </div>
-      <table class="st-table" id="dup-table">
-        <thead><tr>
-          <th>Produkt A</th><th>Produkt B</th><th>Varenr.</th><th>Fundet</th><th>Status</th><th></th>
-        </tr></thead>
-        <tbody id="dup-body"></tbody>
-      </table>
-      <div id="dup-empty" style="display:none;text-align:center;padding:24px;color:var(--color-text-dim);font-size:14px;">
-        Ingen duplikat-kandidater fundet.
       </div>
     </div>
 
@@ -1592,7 +1565,6 @@ async function init() {
     loadPlanningPricesSettings();
     loadUnitCategoriesSettings();
     renderDeliveryIcons();
-    loadDuplicates();
     loadActivityPurposes();
   }
 }
@@ -2803,103 +2775,6 @@ async function saveLegoCats() {
   document.getElementById('lego-cats-msg').textContent = '\u2713 Gemt';
   setTimeout(function() { document.getElementById('lego-cats-msg').textContent = ''; }, 2000);
 }
-
-// ─── DUPLIKAT-KANDIDATER ─────────────────────────────────
-
-async function loadDuplicates(statusFilter) {
-    var filter = statusFilter || 'pending';
-    var url = filter === 'all' ? '/settings/duplicates/all' : '/settings/duplicates?status=' + filter;
-    try {
-        var rows = await apiFetch(url);
-        renderDuplicates(rows);
-    } catch (err) {
-        console.warn('[settings] Duplikater fejl:', err.message);
-    }
-}
-
-function renderDuplicates(rows) {
-    var tbody = document.getElementById('dup-body');
-    var empty = document.getElementById('dup-empty');
-    if (!tbody) return;
-
-    tbody.innerHTML = '';
-    if (!rows || rows.length === 0) {
-        empty.style.display = 'block';
-        return;
-    }
-    empty.style.display = 'none';
-
-    for (var i = 0; i < rows.length; i++) {
-        var r = rows[i];
-        var tr = document.createElement('tr');
-        var statusBadge = r.status === 'pending' ? '<span style="color:#e65100;font-weight:700;">⏳ Afventer</span>'
-            : r.status === 'merged' ? '<span style="color:#2e7d32;">✓ Merget</span>'
-            : r.status === 'not_duplicate' ? '<span style="color:#1565c0;">↗ Ikke duplikat</span>'
-            : '<span style="color:#777;">— Ignoreret</span>';
-
-        var date = r.created_at ? (typeof parseServerDate === 'function' ? parseServerDate(r.created_at) : new Date(r.created_at)).toLocaleDateString('da-DK') : '';
-
-        tr.innerHTML =
-            '<td><strong>' + (r.product_name_a || '#' + r.product_id_a) + '</strong><br><span style="font-size:11px;color:#777;">ID: ' + r.product_id_a + '</span></td>' +
-            '<td><strong>' + (r.product_name_b || '#' + r.product_id_b) + '</strong><br><span style="font-size:11px;color:#777;">ID: ' + r.product_id_b + '</span></td>' +
-            '<td><code>' + (r.barcode || '') + '</code><br><span style="font-size:11px;color:#777;">' + (r.barcode_name || '') + '</span></td>' +
-            '<td style="font-size:12px;">' + date + '</td>' +
-            '<td>' + statusBadge + '</td>' +
-            '<td></td>';
-
-        // Action-knapper (kun for pending)
-        var actionCell = tr.querySelector('td:last-child');
-        if (r.status === 'pending') {
-            var mergedBtn = document.createElement('button');
-            mergedBtn.className = 'st-btn st-btn-sm';
-            mergedBtn.textContent = '✓ Merget';
-            mergedBtn.style.cssText = 'margin-right:4px;font-size:11px;padding:3px 8px;';
-            mergedBtn.addEventListener('click', (function(id) {
-                return function() { updateDuplicate(id, 'merged'); };
-            })(r.id));
-            actionCell.appendChild(mergedBtn);
-
-            var notBtn = document.createElement('button');
-            notBtn.className = 'st-btn st-btn-sm';
-            notBtn.textContent = '↗ Ikke dup.';
-            notBtn.style.cssText = 'margin-right:4px;font-size:11px;padding:3px 8px;';
-            notBtn.addEventListener('click', (function(id) {
-                return function() { updateDuplicate(id, 'not_duplicate'); };
-            })(r.id));
-            actionCell.appendChild(notBtn);
-
-            var ignBtn = document.createElement('button');
-            ignBtn.className = 'st-btn st-btn-sm';
-            ignBtn.textContent = '— Ignorer';
-            ignBtn.style.cssText = 'font-size:11px;padding:3px 8px;';
-            ignBtn.addEventListener('click', (function(id) {
-                return function() { updateDuplicate(id, 'ignored'); };
-            })(r.id));
-            actionCell.appendChild(ignBtn);
-        }
-
-        tbody.appendChild(tr);
-    }
-}
-
-async function updateDuplicate(id, status) {
-    try {
-        await apiFetch('/settings/duplicates/' + id, {
-            method: 'PATCH',
-            body: JSON.stringify({ status: status }),
-        });
-        toast('Duplikat opdateret', 'ok');
-        var filter = document.getElementById('dup-filter').value;
-        loadDuplicates(filter === 'all' ? 'all' : filter);
-    } catch (err) {
-        toast('Fejl: ' + err.message, 'err');
-    }
-}
-
-// Filter-dropdown
-document.getElementById('dup-filter')?.addEventListener('change', function() {
-    loadDuplicates(this.value);
-});
 
 // ─── AKTIVITETSFORMÅL ────────────────────────────────────
 
