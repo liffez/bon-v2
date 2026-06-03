@@ -33,12 +33,32 @@ function _drShiftDate(iso, days) {
     d.setDate(d.getDate() + days);
     return new Intl.DateTimeFormat('en-CA', { timeZone: 'Europe/Copenhagen' }).format(d);
 }
+function _drMonday(iso) {
+    var d = new Date(iso + 'T12:00:00');
+    var day = d.getDay();                       // 0=søn
+    var diff = day === 0 ? -6 : 1 - day;
+    d.setDate(d.getDate() + diff);
+    return new Intl.DateTimeFormat('en-CA', { timeZone: 'Europe/Copenhagen' }).format(d);
+}
+function _drISOWeek(iso) {
+    var d = new Date(Date.UTC(+iso.slice(0, 4), +iso.slice(5, 7) - 1, +iso.slice(8, 10)));
+    var dayNum = d.getUTCDay() || 7;
+    d.setUTCDate(d.getUTCDate() + 4 - dayNum);
+    var yearStart = new Date(Date.UTC(d.getUTCFullYear(), 0, 1));
+    return Math.ceil((((d - yearStart) / 86400000) + 1) / 7);
+}
+function _drFmtRange(from, to) {
+    var f = from.slice(8, 10) + '.' + from.slice(5, 7);
+    var t = to.slice(8, 10) + '.' + to.slice(5, 7) + '.' + to.slice(0, 4);
+    return f + '–' + t;
+}
 
 function initDrift(container) {
     _driftState.el = container;
     if (!_driftState.date) _driftState.date = _drTodayISO();
     if (!_driftState.view) _driftState.view = 'day';
     if (!_driftState.to)   { _driftState.to = _drShiftDate(_drTodayISO(), -1); _driftState.from = _drShiftDate(_driftState.to, -6); }
+    if (!_driftState.weekFrom) _driftState.weekFrom = _drMonday(_drTodayISO());
     container.innerHTML = '<div class="dr-wrap"><div class="dr-loading">Henter driftsregnskab…</div></div>';
     _drRenderShell();
 }
@@ -50,6 +70,7 @@ function _drRenderShell() {
     var viewToggle =
         '<div class="dr-view-toggle">' +
             '<button class="dr-view-btn' + (s.view === 'day' ? ' active' : '') + '" data-view="day">📅 Dag</button>' +
+            '<button class="dr-view-btn' + (s.view === 'week' ? ' active' : '') + '" data-view="week">📆 Uge</button>' +
             '<button class="dr-view-btn' + (s.view === 'period' ? ' active' : '') + '" data-view="period">📈 Periode</button>' +
         '</div>';
     var modeBtns =
@@ -58,13 +79,26 @@ function _drRenderShell() {
             '<button class="dr-mode-btn' + (s.mode === 'forecast' ? ' active' : '') + '" data-mode="forecast">Forecast</button>' +
         '</div>';
 
-    var toolbar = s.view === 'period'
-        ? '<div class="dr-toolbar">' + viewToggle +
+    var weekTo = _drShiftDate(s.weekFrom, 6);
+    var weekLabel = 'Uge ' + _drISOWeek(s.weekFrom) + ' · ' + _drFmtRange(s.weekFrom, weekTo);
+
+    var toolbar;
+    if (s.view === 'period') {
+        toolbar = '<div class="dr-toolbar">' + viewToggle +
             '<label class="dr-pl">Fra <input type="date" id="drFrom" value="' + _drEsc(s.from) + '"></label>' +
             '<label class="dr-pl">Til <input type="date" id="drTo" value="' + _drEsc(s.to) + '"></label>' +
             modeBtns +
-          '</div>'
-        : '<div class="dr-toolbar">' + viewToggle +
+          '</div>';
+    } else if (s.view === 'week') {
+        toolbar = '<div class="dr-toolbar">' + viewToggle +
+            '<button class="dr-nav" id="drWeekPrev">◀</button>' +
+            '<span class="dr-week-label" id="drWeekLabel">' + _drEsc(weekLabel) + '</span>' +
+            '<button class="dr-nav" id="drWeekNext">▶</button>' +
+            '<button class="dr-today" id="drWeekToday">Denne uge</button>' +
+            modeBtns +
+          '</div>';
+    } else {
+        toolbar = '<div class="dr-toolbar">' + viewToggle +
             '<button class="dr-nav" id="drPrev">◀</button>' +
             '<input type="date" id="drDate" value="' + _drEsc(s.date) + '">' +
             '<button class="dr-nav" id="drNext">▶</button>' +
@@ -72,6 +106,7 @@ function _drRenderShell() {
             modeBtns +
             '<span class="dr-mode-note" id="drModeNote"></span>' +
           '</div>';
+    }
 
     s.el.innerHTML = '<div class="dr-wrap">' + toolbar + '<div id="drBody"><div class="dr-loading">Henter…</div></div></div>';
 
@@ -87,6 +122,11 @@ function _drRenderShell() {
         byId('drFrom').addEventListener('change', function (e) { s.from = e.target.value; _drLoadPeriod(); });
         byId('drTo').addEventListener('change', function (e) { s.to = e.target.value; _drLoadPeriod(); });
         _drLoadPeriod();
+    } else if (s.view === 'week') {
+        byId('drWeekPrev').addEventListener('click', function () { s.weekFrom = _drShiftDate(s.weekFrom, -7); _drLoadWeek(); });
+        byId('drWeekNext').addEventListener('click', function () { s.weekFrom = _drShiftDate(s.weekFrom, 7); _drLoadWeek(); });
+        byId('drWeekToday').addEventListener('click', function () { s.weekFrom = _drMonday(_drTodayISO()); _drLoadWeek(); });
+        _drLoadWeek();
     } else {
         byId('drDate').addEventListener('change', function (e) { s.date = e.target.value; _drLoad(); });
         byId('drPrev').addEventListener('click', function () { s.date = _drShiftDate(s.date, -1); _drSync(); _drLoad(); });
@@ -100,6 +140,16 @@ function _drRenderShell() {
 function _drSync() {
     var d = _driftState.el && _driftState.el.querySelector('#drDate');
     if (d) d.value = _driftState.date;
+}
+
+// ── Uge-visning: snap til man–søn, genbrug periode-renderingen ──
+function _drLoadWeek() {
+    var s = _driftState;
+    s.from = s.weekFrom;
+    s.to = _drShiftDate(s.weekFrom, 6);
+    var lbl = s.el && s.el.querySelector('#drWeekLabel');
+    if (lbl) lbl.textContent = 'Uge ' + _drISOWeek(s.weekFrom) + ' · ' + _drFmtRange(s.from, s.to);
+    _drLoadPeriod();
 }
 
 // ── Periode-trend ──────────────────────────────────────────
