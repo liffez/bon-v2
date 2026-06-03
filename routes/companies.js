@@ -83,6 +83,72 @@ router.patch('/:id/economic', handle((req, res) => {
     res.json({ ok: true });
 }));
 
+// PATCH /api/companies/:id/identifiers — ret CVR / juridisk navn / EAN manuelt
+// (UI'ets "Berig fra CVR" slår op på det gemte CVR — så et forkert CVR kan kun
+//  rettes herfra. Efter rettelse kan brugeren berige fra det nye nummer.)
+router.patch('/:id/identifiers', handle((req, res) => {
+    const db = getDb();
+    const id = parseInt(req.params.id, 10);
+    if (!Number.isFinite(id)) return res.status(400).json({ error: 'Ugyldigt firma-id' });
+
+    const existing = db.prepare('SELECT cvr, legal_name, ean FROM companies WHERE id = ?').get(id);
+    if (!existing) return res.status(404).json({ error: 'Firma ikke fundet' });
+
+    const body = req.body || {};
+    const updates = {};
+
+    // CVR: 8 cifre eller tom (rydder). Ikke-cifre frasorteres før validering.
+    if (Object.prototype.hasOwnProperty.call(body, 'cvr')) {
+        const raw = (body.cvr ?? '').toString().replace(/\D/g, '');
+        if (raw !== '' && raw.length !== 8) {
+            return res.status(400).json({ error: 'CVR skal være 8 cifre' });
+        }
+        updates.cvr = raw === '' ? null : raw;
+    }
+
+    if (Object.prototype.hasOwnProperty.call(body, 'legal_name')) {
+        const v = (body.legal_name ?? '').toString().trim();
+        updates.legal_name = v === '' ? null : v;
+    }
+
+    if (Object.prototype.hasOwnProperty.call(body, 'ean')) {
+        const raw = (body.ean ?? '').toString().replace(/\D/g, '');
+        if (raw !== '' && raw.length !== 13) {
+            return res.status(400).json({ error: 'EAN skal være 13 cifre' });
+        }
+        updates.ean = raw === '' ? null : raw;
+    }
+
+    const keys = Object.keys(updates);
+    if (keys.length === 0) {
+        return res.status(400).json({ error: 'Ingen felter at opdatere (cvr, legal_name, ean)' });
+    }
+
+    transaction(db, () => {
+        const setClauses = keys.map(k => `${k} = ?`);
+        const args = keys.map(k => updates[k]);
+        args.push(id);
+        db.prepare(`UPDATE companies SET ${setClauses.join(', ')}, updated_at = CURRENT_TIMESTAMP WHERE id = ?`).run(...args);
+
+        for (const k of keys) {
+            if ((existing[k] ?? null) === (updates[k] ?? null)) continue;
+            logChange({
+                entityType: 'company',
+                entityId: id,
+                action: 'update',
+                fieldName: k,
+                oldValue: existing[k],
+                newValue: updates[k],
+                userId: req.session?.user?.id ?? null,
+                notes: 'manuel rettelse',
+            });
+        }
+    });
+
+    const updated = db.prepare('SELECT id, name, cvr, legal_name, ean FROM companies WHERE id = ?').get(id);
+    res.json({ ok: true, company: updated });
+}));
+
 // GET /api/companies/:id/enrich-preview — kør enrichment uden at gemme
 router.get('/:id/enrich-preview', handle(async (req, res) => {
     const db = getDb();
