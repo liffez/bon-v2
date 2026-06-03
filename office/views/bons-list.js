@@ -319,7 +319,9 @@ function _blFormatStatusTime(bon) {
 // Format delivery_events timestamp som HH:MM hvis i dag, ellers "dd/MM HH:MM"
 function _blFormatHandover(iso) {
     if (!iso) return '';
-    var dt = new Date(iso.replace(' ', 'T'));
+    // delivery_events.event_time er UTC (CURRENT_TIMESTAMP) — parseServerDate
+    // tilføjer 'Z' så klokkeslættet ikke vises 1-2 timer forskudt.
+    var dt = (typeof parseServerDate === 'function') ? parseServerDate(iso) : new Date(iso.replace(' ', 'T') + 'Z');
     if (isNaN(dt.getTime())) return iso;
     var today = new Date();
     var sameDay = dt.getFullYear() === today.getFullYear() && dt.getMonth() === today.getMonth() && dt.getDate() === today.getDate();

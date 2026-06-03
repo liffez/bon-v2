@@ -590,7 +590,8 @@ function _mbGroupEventsByTime(events) {
     var groups = { now: [], today: [], yesterday: [], older: [] };
     events.forEach(function(ev) {
         if (!ev.event_at) return;
-        var t = new Date(ev.event_at.replace(' ', 'T'));
+        // event_at er UTC (CURRENT_TIMESTAMP) — parseServerDate tilføjer 'Z'.
+        var t = (typeof parseServerDate === 'function') ? parseServerDate(ev.event_at) : new Date(ev.event_at.replace(' ', 'T') + 'Z');
         if (t >= oneHourAgo) groups.now.push(ev);
         else if (t >= todayStart) groups.today.push(ev);
         else if (t >= yesterdayStart) groups.yesterday.push(ev);
@@ -622,7 +623,8 @@ function _mbCompareByDelivery(a, b) {
 
 function _mbFormatRelative(iso) {
     if (!iso) return '';
-    var t = new Date(iso.replace(' ', 'T'));
+    // UTC-timestamp (CURRENT_TIMESTAMP) — parseServerDate tilføjer 'Z'.
+    var t = (typeof parseServerDate === 'function') ? parseServerDate(iso) : new Date(iso.replace(' ', 'T') + 'Z');
     var diff = (Date.now() - t.getTime()) / 1000;  // sek
     if (diff < 60) return 'Lige nu';
     if (diff < 3600) return 'For ' + Math.floor(diff / 60) + ' min siden';

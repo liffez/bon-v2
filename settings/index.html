@@ -2797,7 +2797,7 @@ function renderDuplicates(rows) {
             : r.status === 'not_duplicate' ? '<span style="color:#1565c0;">↗ Ikke duplikat</span>'
             : '<span style="color:#777;">— Ignoreret</span>';
 
-        var date = r.created_at ? new Date(r.created_at).toLocaleDateString('da-DK') : '';
+        var date = r.created_at ? (typeof parseServerDate === 'function' ? parseServerDate(r.created_at) : new Date(r.created_at)).toLocaleDateString('da-DK') : '';
 
         tr.innerHTML =
             '<td><strong>' + (r.product_name_a || '#' + r.product_id_a) + '</strong><br><span style="font-size:11px;color:#777;">ID: ' + r.product_id_a + '</span></td>' +

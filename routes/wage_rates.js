@@ -18,7 +18,7 @@
 const express   = require('express');
 const router    = express.Router();
 const { getDb }     = require('../db/database');
-const { handle }    = require('../db/helpers');
+const { handle, todayISO } = require('../db/helpers');
 const { requireAuth } = require('../shared/auth');
 const smartplan = require('../services/smartplanAdapter');
 
@@ -203,7 +203,7 @@ router.post('/import', ALL, handle(async (req, res) => {
     if (!rows.length) return res.status(400).json({ error: 'Ingen rækker med en sats fundet i CSV.' });
 
     const roster = await smartplan.getLaborRoster(ROSTER_SINCE);
-    const today = new Date().toISOString().slice(0, 10);
+    const today = todayISO();  // dansk kalenderdato (UTC-slice ramte forkert dag nær midnat)
     res.json(importWageRows(getDb(), rows, roster, today));
 }));
 

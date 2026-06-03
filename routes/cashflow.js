@@ -782,8 +782,8 @@ router.post('/invoices/bulk-confirm-paid', handle(async (req, res) => {
         return res.status(400).json({ error: 'older_than_days skal være ≥ 0' });
     }
 
-    const cutoffDate = new Date(Date.now() - olderThanDays * 86400000)
-        .toISOString().slice(0, 10);
+    // Dansk kalenderdato N dage tilbage (UTC-slice ramte forkert dag nær midnat).
+    const cutoffDate = offsetISO(-olderThanDays);
 
     // Find forfaldne fakturaer ældre end cutoff (forfald < cutoff_date)
     const candidates = db.prepare(`
