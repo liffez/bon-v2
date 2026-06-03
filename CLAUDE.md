@@ -1967,7 +1967,7 @@ fordi historiske/importerede bon_lines bruger bare-varianter mens nye Grocy-bons
 de nummererede navne.
 
 **Beslutning**: kategorier skal udelukkende komme fra Grocy. Bare-varianter normaliseres
-til Grocy's kanoniske navne, så whitelisten kan være ren (`["01 Sandwich","02 Salat","04 Slider","Burger"]`).
+til Grocy's kanoniske navne, så whitelisten kan være ren (`["01 Sandwich","02 Salat","04 Slider"]`).
 
 - `scripts/normalize-bon-line-categories.js` — **NYT**. Henter Grocy's kategorier LIVE
   (`grocyAdapter.getRecipes`) og udleder mapping bare→kanonisk ved at strippe `NN `-præfiks
@@ -1975,6 +1975,10 @@ til Grocy's kanoniske navne, så whitelisten kan være ren (`["01 Sandwich","02 
   + rydder `settings.unit_count_categories` op til kanonisk form (dedup). Bare-navne uden
   Grocy-match (`Tilbehør`, `lunch`, `Frugt`, `x-Levering`, `x- Service`) røres ikke.
   dry-run default, `--apply` tager backup. Kræver Grocy-adgang (kør på prod).
+- `EXTRA_MAP` i scriptet: forretningsregel-overrides for historiske kategorier der IKKE
+  findes i Grocy længere og derfor ikke kan udledes via nummer-strip. Pt. `burger → 01 Sandwich`
+  (burgere var historisk en sandwich-type; ~1.100 linjer). Målet VALIDERES mod Grocy ved
+  kørsel — findes det ikke, springes overriden over (vi opfinder aldrig kategorier).
 - **Deploy-rækkefølge (vigtig)**: kør `normalize-bon-line-categories.js --apply` FØR
   `backfill-total-units.js --apply`, så `total_units` beregnes på rene kategorier.
 - Data ved analysen: bon_lines havde bl.a. `01 Sandwich` (6.661), `06 Emballage` (4.415),

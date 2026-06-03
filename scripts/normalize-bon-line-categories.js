@@ -36,6 +36,16 @@ const grocy = require('../services/grocyAdapter');
 const args = process.argv.slice(2);
 const apply = args.includes('--apply');
 
+// Forretningsregel-overrides: historiske bare-navne der IKKE kan udledes via
+// nummer-strip (kategorien findes ikke længere i Grocy), men hvor driften ved
+// hvad de hører til. Nøgle = bare-navn (lowercase), værdi = mål-kategori.
+// Målet VALIDERES mod Grocy ved kørsel — er det ikke en ægte Grocy-kategori,
+// springes overriden over (så vi aldrig opfinder kategorier).
+//   burger → 01 Sandwich: burgere var historisk en sandwich-type i Grocy.
+const EXTRA_MAP = {
+    'burger': '01 Sandwich',
+};
+
 const DB_PATH = process.env.DB_PATH
     ? path.resolve(process.env.DB_PATH)
     : path.join(__dirname, '..', 'data', 'bon.db');
@@ -88,7 +98,19 @@ function bareForm(name) {
     }
     for (const k of ambiguous) bareToCanon.delete(k);
 
+    // Forretningsregel-overrides — kun hvis målet er en ægte Grocy-kategori.
+    const overrideApplied = [];
+    for (const [bareKey, target] of Object.entries(EXTRA_MAP)) {
+        if (!canonical.has(target)) {
+            console.warn(`  ⚠ Override "${bareKey} → ${target}" springes over: "${target}" findes ikke i Grocy.`);
+            continue;
+        }
+        bareToCanon.set(bareKey.toLowerCase(), target);
+        overrideApplied.push(`${bareKey} → ${target}`);
+    }
+
     console.log(`\nGrocy-kategorier (${canonical.size}): ${[...canonical].sort((a, b) => a.localeCompare(b, 'da')).join(', ')}`);
+    if (overrideApplied.length) console.log(`\nForretningsregel-overrides: ${overrideApplied.join(', ')}`);
     console.log(`\nUdledt mapping (bare → kanonisk):`);
     if (bareToCanon.size === 0) console.log('  (ingen — alle Grocy-kategorier er uden numerisk præfiks)');
     [...bareToCanon.entries()].forEach(([k, v]) => console.log(`  ${k} → ${v}`));
