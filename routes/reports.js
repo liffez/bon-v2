@@ -26,6 +26,10 @@ router.use(requireAuth());
 // ─── Shared constants ────────────────────────────────────────
 
 const REVENUE_CODES = ['LEVERET', 'FAKTURERET', 'BETALT', 'AFSLUTTET'];
+// Booket pipeline: bekræftede/aktive bons der endnu ikke er leveret (≠ realiseret omsætning).
+// Bruges til at vise forventet omsætning på kommende måneder i månedstabellen.
+// AFLYST udelades helt; TILBUD fanges allerede af OFFER_INTERNAL_FILTER.
+const PIPELINE_CODES = ['NY', 'VENTER', 'GODKENDT', 'IGANG', 'KLAR'];
 const OFFER_INTERNAL_FILTER = 'AND COALESCE(b.is_offer, 0) = 0 AND COALESCE(b.is_internal, 0) = 0';
 
 const MONTH_LABELS = [
@@ -374,8 +378,9 @@ router.get('/monthly-table', handle(async (req, res) => {
     const currentMonth = now.getMonth() + 1; // 1-based
     const prevYear = thisYear - 1;
 
-    // Fetch monthly data for a given year
-    function fetchMonthly(year) {
+    // Fetch monthly data for a given year, filtered by a set of status codes.
+    // Index'eres efter month_nr af kalderen.
+    function fetchMonthly(year, codes) {
         const unit = _unitCaseExpr();
         return db.prepare(`
             SELECT
@@ -386,21 +391,29 @@ router.get('/monthly-table', handle(async (req, res) => {
             FROM bons b
             JOIN status_definitions sd ON b.status_id = sd.id
             JOIN bon_lines bl ON bl.bon_id = b.id
-            WHERE sd.code IN (${_statusPlaceholders(REVENUE_CODES)})
+            WHERE sd.code IN (${_statusPlaceholders(codes)})
               ${OFFER_INTERNAL_FILTER}
               AND strftime('%Y', b.delivery_date) = ?
             GROUP BY CAST(strftime('%m', b.delivery_date) AS INTEGER)
-        `).all(...unit.args, ...REVENUE_CODES, year.toString());
+        `).all(...unit.args, ...codes, year.toString());
     }
 
-    const thisData = fetchMonthly(thisYear);
-    const prevData = fetchMonthly(prevYear);
+    function indexByMonth(rows) {
+        const map = {};
+        for (const r of rows) map[r.month_nr] = r;
+        return map;
+    }
 
-    // Index by month
-    const thisMap = {};
-    for (const r of thisData) thisMap[r.month_nr] = r;
-    const prevMap = {};
-    for (const r of prevData) prevMap[r.month_nr] = r;
+    const ACTIVE_CODES = [...REVENUE_CODES, ...PIPELINE_CODES];
+
+    // Realiseret omsætning (leveret+) i år + sidste år
+    const realizedThis = indexByMonth(fetchMonthly(thisYear, REVENUE_CODES));
+    const realizedPrev = indexByMonth(fetchMonthly(prevYear, REVENUE_CODES));
+    // Booket pipeline (bekræftet men ikke leveret) i år — forventet omsætning
+    const bookedThis   = indexByMonth(fetchMonthly(thisYear, PIPELINE_CODES));
+    // Ordrer + enheder tæller ALLE aktive bons (realiseret + booket), så kommende
+    // måneder ikke står 0/0 ved siden af en booket-værdi.
+    const activeThis   = indexByMonth(fetchMonthly(thisYear, ACTIVE_CODES));
 
     // Pending invoice for current month
     const monthStart = `${thisYear}-${String(currentMonth).padStart(2, '0')}-01`;
@@ -417,33 +430,68 @@ router.get('/monthly-table', handle(async (req, res) => {
           AND b.delivery_date >= ? AND b.delivery_date < ?
     `).get(monthStart, monthEnd);
 
+    // YoY æbler-mod-æbler: den nuværende måned er kun delvist gået, så den må
+    // sammenlignes mod SAMME datospan sidste år — ikke hele måneden. Ellers ser
+    // en halv måned altid ud som et fald. (Samme princip som _ytdBounds for KPI-stripen.)
+    const todayDay = now.getDate();
+    const cmStr = String(currentMonth).padStart(2, '0');
+    const prevClampStart = `${prevYear}-${cmStr}-01`;
+    const clampEndDate = new Date(prevYear, currentMonth - 1, todayDay + 1); // Date håndterer overflow
+    const prevClampEnd = `${clampEndDate.getFullYear()}-${String(clampEndDate.getMonth() + 1).padStart(2, '0')}-${String(clampEndDate.getDate()).padStart(2, '0')}`;
+    const prevClampRow = db.prepare(`
+        SELECT COALESCE(SUM(bl.quantity * bl.unit_price), 0) AS revenue
+        FROM bons b
+        JOIN status_definitions sd ON b.status_id = sd.id
+        JOIN bon_lines bl ON bl.bon_id = b.id
+        WHERE sd.code IN (${_statusPlaceholders(REVENUE_CODES)})
+          ${OFFER_INTERNAL_FILTER}
+          AND b.delivery_date >= ? AND b.delivery_date < ?
+    `).get(...REVENUE_CODES, prevClampStart, prevClampEnd);
+
     const rows = [];
     for (let m = 1; m <= 12; m++) {
-        const t = thisMap[m] || { revenue: 0, orders: 0, units: 0 };
-        const p = prevMap[m] || { revenue: 0, orders: 0, units: 0 };
+        const t      = realizedThis[m] || { revenue: 0, orders: 0, units: 0 };
+        const booked = bookedThis[m]   || { revenue: 0, orders: 0, units: 0 };
+        const active = activeThis[m]   || { revenue: 0, orders: 0, units: 0 };
         const isCurrent = m === currentMonth;
+        const isFuture  = m > currentMonth;
 
-        const deltaPct = p.revenue > 0
-            ? Math.round(((t.revenue - p.revenue) / p.revenue) * 1000) / 10
+        // Prev-år til YoY: fuld måned for forgangne måneder, datospan-klampet for
+        // den nuværende (MTD) måned. Fremtidige måneder sammenlignes ikke (is_future).
+        const pRev = isCurrent
+            ? prevClampRow.revenue
+            : (realizedPrev[m]?.revenue || 0);
+
+        const deltaPct = pRev > 0
+            ? Math.round(((t.revenue - pRev) / pRev) * 1000) / 10
             : (t.revenue > 0 ? 100 : 0);
+
+        // Gns. ordreværdi over alle aktive bons (realiseret + booket) så fremtidige
+        // måneder med booket pipeline også får et meningsfuldt tal.
+        const activeRevenue = t.revenue + booked.revenue;
 
         rows.push({
             month_label:      MONTH_LABELS[m - 1],
             is_current:       isCurrent,
-            // Bagudkomp. (incl moms)
+            is_future:        isFuture,
+            // Realiseret omsætning — bagudkomp. (incl moms)
             revenue_this:     t.revenue,
-            revenue_prev:     p.revenue,
+            revenue_prev:     pRev,
             // Eksplicit ex/incl/vat (regnskabskonvention: ex moms primær)
             revenue_this_excl_moms: r2(inclToExcl(t.revenue)),
             revenue_this_incl_moms: r2(t.revenue),
             vat_this_collected:     r2(momsOfIncl(t.revenue)),
-            revenue_prev_excl_moms: r2(inclToExcl(p.revenue)),
-            revenue_prev_incl_moms: r2(p.revenue),
+            revenue_prev_excl_moms: r2(inclToExcl(pRev)),
+            revenue_prev_incl_moms: r2(pRev),
+            // Booket pipeline (forventet, ikke leveret endnu)
+            revenue_booked:           booked.revenue,
+            revenue_booked_excl_moms: r2(inclToExcl(booked.revenue)),
+            revenue_booked_incl_moms: r2(booked.revenue),
             delta_pct:        deltaPct,
-            orders:           t.orders,
-            units:            t.units,
-            avg_order_value:           t.orders > 0 ? Math.round(t.revenue / t.orders) : 0,
-            avg_order_value_excl_moms: t.orders > 0 ? r2(inclToExcl(t.revenue) / t.orders) : 0,
+            orders:           active.orders,
+            units:            active.units,
+            avg_order_value:           active.orders > 0 ? Math.round(activeRevenue / active.orders) : 0,
+            avg_order_value_excl_moms: active.orders > 0 ? r2(inclToExcl(activeRevenue) / active.orders) : 0,
             pending_invoice:           isCurrent ? pendingRow.amount : null,
             pending_invoice_excl_moms: isCurrent ? r2(inclToExcl(pendingRow.amount)) : null,
         });
