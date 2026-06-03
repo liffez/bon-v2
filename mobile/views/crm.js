@@ -895,7 +895,9 @@ var _MC_SENT_EMOJI = { positive: '😊', neutral: '😐', negative: '😟' };
 function _mcTimelineTime(iso) {
     if (!iso) return '';
     var s = String(iso);
-    var then = new Date(s.indexOf('T') === -1 ? s.replace(' ', 'T') : s);
+    // a.created_at er UTC (CURRENT_TIMESTAMP) — parseServerDate tilføjer 'Z'
+    // så klokkeslættet ikke vises 1-2 timer forskudt.
+    var then = (typeof parseServerDate === 'function') ? parseServerDate(s) : new Date((s.indexOf('T') === -1 ? s.replace(' ', 'T') : s) + 'Z');
     if (isNaN(then.getTime())) return '';
     var now = new Date();
     var diffMs = now - then;

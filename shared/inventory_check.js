@@ -644,7 +644,9 @@ function _icCategorize() {
 
     _ic.products.forEach(function(product) {
         var uf = product.userfields || {};
-        var lastChecked = uf.LastCheckedAt ? new Date(uf.LastCheckedAt) : null;
+        // LastCheckedAt skrives som UTC (toISOString); Grocy kan strippe 'Z' ved
+    // returnering — parseServerDate genskaber UTC-tolkningen begge veje.
+    var lastChecked = uf.LastCheckedAt ? ((typeof parseServerDate === 'function') ? parseServerDate(uf.LastCheckedAt) : new Date(uf.LastCheckedAt)) : null;
         var lastCheckedUnit = uf.LastCheckedUnit || null;
         var intervalDays = _icParseIntervalDays(uf);
         var checkStatus = _icComputeCheckStatus(intervalDays, lastChecked, now);
@@ -839,7 +841,9 @@ function _icCreateCard(product, isChecked) {
 
     // Last checked text + unit
     var uf = product.userfields || {};
-    var lastChecked = uf.LastCheckedAt ? new Date(uf.LastCheckedAt) : null;
+    // LastCheckedAt skrives som UTC (toISOString); Grocy kan strippe 'Z' ved
+    // returnering — parseServerDate genskaber UTC-tolkningen begge veje.
+    var lastChecked = uf.LastCheckedAt ? ((typeof parseServerDate === 'function') ? parseServerDate(uf.LastCheckedAt) : new Date(uf.LastCheckedAt)) : null;
     var lastUnit = uf.LastCheckedUnit || null;
     var lastText = lastChecked ? 'Sidst: ' + _icFormatDate(lastChecked) : 'Aldrig tjekket';
     if (lastChecked && lastUnit) {

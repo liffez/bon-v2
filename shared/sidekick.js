@@ -452,7 +452,9 @@ function _skEsc(s) { return (s || '').replace(/&/g, '&amp;').replace(/</g, '&lt;
 
 function _skFormatTime(iso) {
   if (!iso) return '';
-  var d = new Date(iso);
+  // Whiteboard's board_messages.created_at er UTC (CURRENT_TIMESTAMP) uden
+  // marker — parseServerDate tilføjer 'Z' så klokkeslættet ikke vises forskudt.
+  var d = (typeof parseServerDate === 'function') ? parseServerDate(iso) : new Date(String(iso).replace(' ', 'T') + 'Z');
   var h = d.getHours();
   var m = d.getMinutes();
   return (h < 10 ? '0' : '') + h + ':' + (m < 10 ? '0' : '') + m;
