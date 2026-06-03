@@ -73,10 +73,19 @@ async function computeDay(db, date, mode, prefetchedLabor) {
         catch (e) { laborError = e.message; }
     }
 
+    // Løntillæg (§3): satserne i wage_rates er medarbejderens BRUTTOLØN. Den
+    // reelle arbejdsgiveromkostning er højere (feriepenge, ATP, evt. pension).
+    // labor_overhead_pct ganges på den rå brutto-løn. Default 0 = ingen ændring.
+    const overheadPct = Math.max(0,
+        parseFloat(db.prepare(`SELECT value FROM settings WHERE key='labor_overhead_pct'`).get()?.value ?? '0') || 0);
+    const overheadFactor = 1 + overheadPct / 100;
+
     const prod   = laborRows.filter(l => l.role_class === 'production');
     const nonBud = laborRows.filter(l => l.role_class !== 'delivery');
-    const laborDrift      = r2(nonBud.reduce((s, l) => s + (l.kostpris || 0), 0));
-    const laborProduction = r2(prod.reduce((s, l) => s + (l.kostpris || 0), 0));
+    const laborDriftRaw   = r2(nonBud.reduce((s, l) => s + (l.kostpris || 0), 0));
+    const laborProdRaw    = r2(prod.reduce((s, l) => s + (l.kostpris || 0), 0));
+    const laborDrift      = r2(laborDriftRaw * overheadFactor);   // reel omkostning (vist)
+    const laborProduction = r2(laborProdRaw * overheadFactor);
     const hoursProduction = prod.reduce((s, l) => s + (l.timer || 0), 0);
     const driftsresultat  = r2(revenue - cost - delivery - laborDrift);
 
@@ -113,7 +122,8 @@ async function computeDay(db, date, mode, prefetchedLabor) {
         date, mode,
         bon_count: bonAgg.bon_count,
         revenue_ex_moms: revenue, cost_ex_moms: cost, delivery_ex_moms: delivery,
-        labor_ex_moms: laborDrift, driftsresultat_ex_moms: driftsresultat,
+        labor_ex_moms: laborDrift, labor_raw_ex_moms: laborDriftRaw, labor_overhead_pct: overheadPct,
+        driftsresultat_ex_moms: driftsresultat,
         db_pct: revenue > 0 ? r2(driftsresultat / revenue * 100) : null,
         units,
         kapacitetsrate: hoursProduction > 0 ? r2(units / hoursProduction) : null,
@@ -224,6 +234,7 @@ router.get('/period', ALL, handle(async (req, res) => {
             date, frozen: d.frozen,
             revenue_ex_moms: d.revenue_ex_moms, cost_ex_moms: d.cost_ex_moms,
             delivery_ex_moms: d.delivery_ex_moms, labor_ex_moms: d.labor_ex_moms,
+            labor_raw_ex_moms: d.labor_raw_ex_moms,
             driftsresultat_ex_moms: d.driftsresultat_ex_moms, db_pct: d.db_pct,
             units: d.units, bon_count: d.bon_count, kapacitetsrate: d.kapacitetsrate,
         });
@@ -236,6 +247,7 @@ router.get('/period', ALL, handle(async (req, res) => {
         from, to, mode, day_count: days.length,
         revenue_ex_moms: revenue, cost_ex_moms: sum('cost_ex_moms'),
         delivery_ex_moms: sum('delivery_ex_moms'), labor_ex_moms: sum('labor_ex_moms'),
+        labor_raw_ex_moms: sum('labor_raw_ex_moms'),
         driftsresultat_ex_moms: driftsresultat,
         db_pct: revenue > 0 ? r2(driftsresultat / revenue * 100) : null,
         units: days.reduce((s, x) => s + (x.units || 0), 0),

@@ -20,6 +20,13 @@ function _drNum(n, dec) {
     return Number(n).toLocaleString('da-DK', { minimumFractionDigits: 0, maximumFractionDigits: dec == null ? 1 : dec });
 }
 function _drPct(n) { return n == null ? '—' : _drNum(n, 1) + ' %'; }
+// Lille tekst under Løn-kortet: erstatter "ex moms" (der aldrig er moms på løn)
+// med den rå brutto-løn FØR arbejdsgiver-tillæg, så man ser hvad der ligger bag.
+function _drLoenSub(d) {
+    if (d.labor_raw_ex_moms == null) return '';                          // ældre opgørelse uden rå-tal
+    if (!(d.labor_overhead_pct > 0)) return 'rå løn · intet løntillæg sat';
+    return 'rå −' + _drMoney(d.labor_raw_ex_moms) + ' + ' + _drNum(d.labor_overhead_pct, 1) + ' % tillæg';
+}
 function _drEsc(s) {
     return String(s == null ? '' : s).replace(/[&<>"']/g, function (c) {
         return { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c];
@@ -216,8 +223,9 @@ function _drRenderPeriod(p) {
     var days = p.days || [];
     var resultCls = (t.driftsresultat_ex_moms >= 0) ? 'dr-pos' : 'dr-neg';
 
-    var kpi = function (label, val, cls) {
-        return '<div class="dr-kpi ' + (cls || '') + '"><div class="dr-kpi-val">' + val + '</div><div class="dr-kpi-label">' + label + '</div></div>';
+    var kpi = function (label, val, cls, sub) {
+        return '<div class="dr-kpi ' + (cls || '') + '"><div class="dr-kpi-val">' + val + '</div><div class="dr-kpi-label">' + label + '</div>' +
+               (sub ? '<div class="dr-kpi-sub">' + sub + '</div>' : '') + '</div>';
     };
 
     // Trend: driftsresultat pr. dag (søjler, grøn/rød), skaleret til største |beløb|
@@ -250,7 +258,9 @@ function _drRenderPeriod(p) {
             kpi('Omsætning (ex moms)', _drMoney(t.revenue_ex_moms)) +
             kpi('Vareforbrug (ex moms)', '−' + _drMoney(t.cost_ex_moms)) +
             kpi('Levering (ex moms)', '−' + _drMoney(t.delivery_ex_moms)) +
-            kpi('Løn (ex moms)', '−' + _drMoney(t.labor_ex_moms)) +
+            kpi('Løn', '−' + _drMoney(t.labor_ex_moms), '',
+                (t.labor_raw_ex_moms != null && t.labor_raw_ex_moms !== t.labor_ex_moms)
+                    ? 'rå −' + _drMoney(t.labor_raw_ex_moms) + ' + tillæg' : '') +
             kpi('Driftsresultat (ex moms)', _drMoney(t.driftsresultat_ex_moms), resultCls) +
             kpi('DB%', _drPct(t.db_pct), resultCls) +
             kpi('Enheder', _drNum(t.units, 0)) +
@@ -291,9 +301,10 @@ function _drRender(d) {
         ? '<div class="dr-warn">' + warnings.map(function (w) { return '<div>' + w + '</div>'; }).join('') + '</div>'
         : '';
 
-    var kpi = function (label, val, cls) {
+    var kpi = function (label, val, cls, sub) {
         return '<div class="dr-kpi ' + (cls || '') + '"><div class="dr-kpi-val">' + val + '</div>' +
-               '<div class="dr-kpi-label">' + label + '</div></div>';
+               '<div class="dr-kpi-label">' + label + '</div>' +
+               (sub ? '<div class="dr-kpi-sub">' + sub + '</div>' : '') + '</div>';
     };
 
     var laborRows = (d.labor_rows || []).map(function (l) {
@@ -312,10 +323,26 @@ function _drRender(d) {
             '<td>' + flags.join(' ') + '</td>' +
         '</tr>';
     }).join('');
+    // Footer: afstem den rå brutto-løn (sum af sats×timer, ekskl. bud) med det
+    // tillagte tal der vises på Løn-kortet og indgår i driftsresultatet.
+    var laborFoot = '';
+    if (d.labor_raw_ex_moms != null) {
+        laborFoot = '<tr class="dr-foot"><td colspan="5" class="dr-r">Rå løn i alt (ekskl. bud)</td>' +
+            '<td class="dr-r">−' + _drMoney(d.labor_raw_ex_moms) + '</td><td></td></tr>';
+        if (d.labor_overhead_pct > 0) {
+            var tillaeg = (d.labor_ex_moms || 0) - (d.labor_raw_ex_moms || 0);
+            laborFoot += '<tr class="dr-foot"><td colspan="5" class="dr-r">+ ' + _drNum(d.labor_overhead_pct, 1) +
+                ' % løntillæg <span class="dr-sub">(feriepenge, ATP, pension)</span></td>' +
+                '<td class="dr-r">−' + _drMoney(tillaeg) + '</td><td></td></tr>';
+            laborFoot += '<tr class="dr-foot dr-foot-total"><td colspan="5" class="dr-r"><strong>Løn i alt</strong></td>' +
+                '<td class="dr-r"><strong>−' + _drMoney(d.labor_ex_moms) + '</strong></td><td></td></tr>';
+        }
+    }
     var laborTable = (d.labor_rows && d.labor_rows.length)
         ? '<table class="dr-labor"><thead><tr><th>Medarbejder</th><th>Jobtype</th><th>Rolle</th>' +
           '<th class="dr-r">Timer</th><th class="dr-r">Sats</th><th class="dr-r">Kostpris</th><th></th></tr></thead>' +
-          '<tbody>' + laborRows + '</tbody></table>'
+          '<tbody>' + laborRows + '</tbody>' +
+          (laborFoot ? '<tfoot>' + laborFoot + '</tfoot>' : '') + '</table>'
         : '<div class="dr-empty">Ingen vagter registreret for dagen.</div>';
 
     var frozenHtml = '';
@@ -335,7 +362,7 @@ function _drRender(d) {
             kpi('Omsætning (ex moms)', _drMoney(d.revenue_ex_moms)) +
             kpi('Vareforbrug (ex moms)', '−' + _drMoney(d.cost_ex_moms)) +
             kpi('Levering (ex moms)', '−' + _drMoney(d.delivery_ex_moms)) +
-            kpi('Løn (ex moms)', '−' + _drMoney(d.labor_ex_moms)) +
+            kpi('Løn', '−' + _drMoney(d.labor_ex_moms), '', _drLoenSub(d)) +
             kpi('Driftsresultat (ex moms)', _drMoney(d.driftsresultat_ex_moms), resultClass) +
             kpi('DB%', _drPct(d.db_pct), resultClass) +
         '</div>' +

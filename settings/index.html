@@ -1199,6 +1199,20 @@
         <span style="font-size:12px;color:#888">Format: <code>navn,initialer,timeloen,gyldig_fra</code></span>
       </div>
 
+      <h3 style="font-size:15px;margin:0 0 8px">Løntillæg (reel arbejdsgiveromkostning)</h3>
+      <p style="font-size:13px;color:#888;margin-bottom:10px">
+        De importerede satser er medarbejdernes <strong>bruttoløn</strong>. Driftsregnskabet lægger et
+        procent-tillæg oveni for at vise den reelle lønomkostning — typisk feriepenge (~12,5 %),
+        ATP-arbejdsgiverandel og evt. pension. (AM-bidrag og A-skat er allerede trukket fra bruttoløn
+        og skal <strong>ikke</strong> lægges til.) Der er aldrig moms på løn. <code>0</code> = vis rå
+        bruttoløn uden tillæg. Frosne dage opdateres først når de genberegnes.
+      </p>
+      <div style="display:flex;gap:8px;align-items:center;margin-bottom:24px">
+        <input class="st-input" id="labor-overhead" type="number" min="0" step="0.5" style="width:90px"
+               onchange="saveLaborOverhead(this.value)">
+        <span style="font-size:13px;color:#888">% tillæg oveni bruttoløn</span>
+      </div>
+
       <h3 style="font-size:15px;margin:0 0 8px">Nuværende satser</h3>
       <table style="width:100%;border-collapse:collapse;font-size:13px;margin-bottom:24px">
         <thead>
@@ -3474,7 +3488,16 @@ async function saveRoleClass(sel, uuid) {
 /* ── Løn (wage_rates — admin-only) ─────────────────────────── */
 let _wageRoster = [];
 
+async function saveLaborOverhead(val) {
+    const n = Math.max(0, parseFloat(String(val).replace(',', '.')) || 0);
+    const inp = document.getElementById('labor-overhead');
+    if (inp) inp.value = n;
+    await saveSetting('labor_overhead_pct', String(n));
+}
+
 async function loadWageRates() {
+    const ov = document.getElementById('labor-overhead');
+    if (ov) ov.value = allSettings['labor_overhead_pct'] || '0';
     const tb = document.getElementById('wage-roster');
     if (!tb) return;
     tb.innerHTML = '<tr><td colspan="4" style="padding:10px 8px;color:#888">Henter…</td></tr>';

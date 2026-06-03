@@ -1,0 +1,21 @@
+-- ==========================================
+-- Migration 093 — Driftsregnskab: løntillæg (overhead)
+-- Spec: docs/CLAUDE_DRIFTSREGNSKAB.md §3
+--
+-- De importerede timesatser (wage_rates) er medarbejderens BRUTTOLØN — den
+-- rå løn FØR arbejdsgiverens tillæg. Den reelle lønomkostning er højere:
+-- feriepenge (~12,5 % for timelønnede), ATP-arbejdsgiverandel og evt. pension
+-- lægges oveni. (AM-bidrag og A-skat trækkes FRA bruttoløn og er allerede inde
+-- i satsen — de skal IKKE lægges til.)
+--
+-- Der er aldrig moms på løn — driftsregnskabets løn-tal har derfor intet med
+-- moms at gøre; "ex moms"-labellen er erstattet af den rå brutto-løn vist med
+-- småt under det tillagte tal.
+--
+-- labor_overhead_pct = procent-tillæg der ganges på den rå brutto-løn for at
+-- give den reelle arbejdsgiveromkostning i driftsregnskabet.
+-- Default 0 (opt-in): tallene ændrer sig først når admin sætter en procent i
+-- Settings → Løn. Frosne dage bevarer datidens opgørelse indtil de genberegnes.
+-- ==========================================
+
+INSERT OR IGNORE INTO settings (key, value) VALUES ('labor_overhead_pct', '0');

@@ -37,8 +37,26 @@ Desktop, informationstæt. Rolle-gated: kun office/ejer (løn er følsom data).
 Alt i driftsregnskabet er **ex moms** — det er en omsætnings-/resultatanalyse, ikke cashflow.
 - Omsætning: ex moms (`bon_lines` → ex-moms-basis)
 - Vareforbrug: `cost_price` er allerede ex moms
-- Løn: ingen moms
-- Hver figur i UI labels eksplicit "ex moms"
+- Løn: **ingen moms overhovedet** — løn-tallet har intet med moms at gøre. Løn-kortet
+  viser derfor ikke "ex moms"; i stedet vises den rå brutto-løn med småt under det tillagte tal.
+- Øvrige figurer labels eksplicit "ex moms"
+
+### Løntillæg (reel arbejdsgiveromkostning)
+
+Satserne i `wage_rates` (migration 088) er medarbejderens **bruttoløn** — den rå løn FØR
+arbejdsgiverens tillæg. Den reelle lønomkostning er højere: feriepenge (~12,5 % for timelønnede),
+ATP-arbejdsgiverandel og evt. pension lægges oveni. (AM-bidrag og A-skat trækkes FRA bruttoløn og
+er allerede inde i satsen — de lægges IKKE til.)
+
+- `settings.labor_overhead_pct` (migration 093, default `0`) = procent-tillæg ganget på den rå
+  brutto-løn. `computeDay()` i `routes/drift.js` summerer rå brutto pr. medarbejder (`timer × sats`),
+  ganger summen med `(1 + pct/100)`, og bruger det tillagte tal i `labor_ex_moms`, `driftsresultat`
+  og `loenandel_pct`. Den rå sum returneres som `labor_raw_ex_moms`.
+- Redigeres i **Settings → Løn → Løntillæg** (admin-only). `0` = vis rå bruttoløn uændret.
+- Bemandings-tabellens "Kostpris"-kolonne viser rå `timer × sats` pr. medarbejder; tabel-footeren
+  afstemmer rå løn → tillæg → total.
+- **Frosne dage** (§7) bevarer datidens opgørelse (uden `labor_raw_ex_moms`/tillæg) indtil de
+  genberegnes via admin-genberegning — så historiske regnskaber ikke skrider når procenten ændres.
 
 ---
 
