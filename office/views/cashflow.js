@@ -17,6 +17,8 @@ let _cfInvTab = 'alle';
 let _cfInvForm = null;       // null | 'create' | invoice-id
 let _cfResizeHandler = null;
 let _cfOpts = {};            // { openDrawer? } injected from office-shell
+let _cfUnmatched = {};       // tx-id → tx (umatchede posteringer i overblikket)
+let _cfUmInvCache = null;    // cachet liste over udestående fakturaer til match-picker
 
 // Analyse state
 let _cfPaxPeriod = 'maaned';
@@ -115,7 +117,7 @@ async function _cfRenderOverblik() {
             fetchCfWeekly(),
             fetchCfInvoices(_cfInvTab),
             fetchCfUpcoming(),
-            fetchCfTransactions({ unmatched: true, limit: 5 })
+            fetchCfTransactions({ unmatched: true, limit: 25 })
         ]);
 
         _cfBuildOverblik(content, stats, weekly, invoices, upcoming, unmatched);
@@ -125,6 +127,8 @@ async function _cfRenderOverblik() {
 }
 
 function _cfBuildOverblik(el, stats, weekly, invoices, upcoming, unmatched) {
+    _cfUnmatched = {};
+    (unmatched.rows || []).forEach(tx => { _cfUnmatched[tx.id] = tx; });
     const daysSince = _cfDaysSince(stats.last_upload);
     const staleClass = daysSince <= 1 ? 'ok' : '';
     const staleText = daysSince <= 1 ? 'Bankdata opdateret i dag'
@@ -223,16 +227,21 @@ function _cfBuildOverblik(el, stats, weekly, invoices, upcoming, unmatched) {
 
                 ${unmatched.rows.length > 0 ? `
                 <div class="cf-unmatched-card">
-                    <div class="cf-unmatched-header">⚠️ ${unmatched.rows.length} posteringer kan ikke matches</div>
+                    <div class="cf-unmatched-header">⚠️ ${unmatched.total > unmatched.rows.length ? unmatched.rows.length + ' af ' + unmatched.total : unmatched.rows.length} posteringer kan ikke matches</div>
+                    <div id="cfUnmatchedList">
                     ${unmatched.rows.map(tx => `
-                        <div class="cf-unmatched-row" data-tx-id="${tx.id}">
-                            <div>
-                                <div style="font-weight:700">${tx.tekst.substring(0, 30)}</div>
-                                <span style="font-size:11px;color:#8a8580">${_cfFmtDate(tx.dato)}</span>
+                        <div class="cf-unmatched-item" data-tx-id="${tx.id}">
+                            <div class="cf-unmatched-row" data-tx-row="${tx.id}">
+                                <div>
+                                    <div style="font-weight:700">${_cfEsc(tx.tekst).substring(0, 40)}</div>
+                                    <span style="font-size:11px;color:#8a8580">${_cfFmtDate(tx.dato)}${tx.note ? ' · 📝' : ''}</span>
+                                </div>
+                                <div style="font-weight:700;color:${tx.beloeb < 0 ? '#bc3a3a' : '#e8a832'}">${_cfFmt(tx.beloeb)}</div>
                             </div>
-                            <div style="font-weight:700;color:${tx.beloeb < 0 ? '#bc3a3a' : '#e8a832'}">${_cfFmt(tx.beloeb)}</div>
+                            <div class="cf-um-panel" data-tx-panel="${tx.id}" hidden></div>
                         </div>
                     `).join('')}
+                    </div>
                 </div>` : ''}
 
                 ${upcoming.rows.length > 0 ? `
@@ -303,6 +312,124 @@ function _cfBuildOverblik(el, stats, weekly, invoices, upcoming, unmatched) {
         bulkBtn.style.display = _cfInvTab === 'forfaldne' ? '' : 'none';
         bulkBtn.onclick = () => _cfShowBulkModal();
     }
+
+    // Umatchede posteringer — klik på række åbner handlings-panel
+    _cfWireUnmatched(el);
+}
+
+/* ── Umatchede posteringer: match / ignorér / note ── */
+
+function _cfWireUnmatched(el) {
+    const list = el.querySelector('#cfUnmatchedList');
+    if (!list) return;
+    list.querySelectorAll('.cf-unmatched-row').forEach(row => {
+        row.onclick = () => {
+            const id = row.getAttribute('data-tx-row');
+            const panel = list.querySelector(`.cf-um-panel[data-tx-panel="${id}"]`);
+            if (!panel) return;
+            if (!panel.hidden) { panel.hidden = true; return; }
+            // Luk øvrige paneler
+            list.querySelectorAll('.cf-um-panel').forEach(p => { p.hidden = true; });
+            _cfBuildUmPanel(panel, id);
+            panel.hidden = false;
+        };
+    });
+}
+
+function _cfBuildUmPanel(panel, id) {
+    const tx = _cfUnmatched[id] || {};
+    panel.innerHTML = `
+        <div class="cf-um-actions">
+            <button class="cf-um-btn cf-um-match-toggle">🔗 Match til faktura</button>
+            <button class="cf-um-btn cf-um-ignore">🚫 Ignorér</button>
+        </div>
+        <div class="cf-um-match" hidden>
+            <input class="cf-um-search" type="text" placeholder="Søg fakturanr. eller kunde…">
+            <div class="cf-um-inv-list"><div class="cf-um-hint">Henter udestående fakturaer…</div></div>
+        </div>
+        <div class="cf-um-note">
+            <textarea class="cf-um-note-input" rows="2" placeholder="Note (fx 'tilbageført – forkert konto')">${_cfEsc(tx.note || '')}</textarea>
+            <button class="cf-um-btn cf-um-note-save">Gem note</button>
+        </div>
+    `;
+
+    // Ignorér
+    panel.querySelector('.cf-um-ignore').onclick = async (e) => {
+        e.stopPropagation();
+        try {
+            await patchCfTransaction(id, { ignored: 1 });
+            _cfRenderOverblik();
+        } catch (err) { alert('Kunne ikke ignorere: ' + err.message); }
+    };
+
+    // Note
+    panel.querySelector('.cf-um-note-save').onclick = async (e) => {
+        e.stopPropagation();
+        const val = panel.querySelector('.cf-um-note-input').value;
+        try {
+            await patchCfTransaction(id, { note: val });
+            if (_cfUnmatched[id]) _cfUnmatched[id].note = val.trim() || null;
+            e.target.textContent = '✓ Gemt';
+            setTimeout(() => { if (e.target) e.target.textContent = 'Gem note'; }, 1500);
+        } catch (err) { alert('Kunne ikke gemme note: ' + err.message); }
+    };
+
+    // Match-toggle → vis søgefelt + liste
+    const matchBox = panel.querySelector('.cf-um-match');
+    panel.querySelector('.cf-um-match-toggle').onclick = async (e) => {
+        e.stopPropagation();
+        matchBox.hidden = !matchBox.hidden;
+        if (matchBox.hidden) return;
+        const search = matchBox.querySelector('.cf-um-search');
+        search.focus();
+        const invs = await _cfGetUmInvoices();
+        const render = (q) => _cfRenderUmInvList(matchBox.querySelector('.cf-um-inv-list'), invs, q, id);
+        render('');
+        search.oninput = () => render(search.value.trim().toLowerCase());
+    };
+
+    // Stop klik inde i panelet fra at lukke rækken
+    panel.onclick = (e) => e.stopPropagation();
+}
+
+async function _cfGetUmInvoices() {
+    if (_cfUmInvCache) return _cfUmInvCache;
+    try {
+        const res = await fetchCfInvoices('udestaaende');
+        _cfUmInvCache = res.rows || [];
+    } catch (err) {
+        _cfUmInvCache = [];
+    }
+    return _cfUmInvCache;
+}
+
+function _cfRenderUmInvList(host, invs, q, txId) {
+    const filtered = !q ? invs : invs.filter(i =>
+        String(i.id).toLowerCase().includes(q) || (i.kunde || '').toLowerCase().includes(q));
+    if (filtered.length === 0) {
+        host.innerHTML = '<div class="cf-um-hint">Ingen udestående fakturaer matcher.</div>';
+        return;
+    }
+    host.innerHTML = filtered.slice(0, 30).map(i => `
+        <div class="cf-um-inv" data-inv-id="${_cfEsc(String(i.id))}">
+            <div>
+                <span style="font-weight:700">#${_cfEsc(String(i.id))}</span>
+                <span style="color:#8a8580"> · ${_cfEsc(i.kunde || '')}</span>
+            </div>
+            <span style="font-weight:700">${_cfFmt(i.beloeb)}</span>
+        </div>
+    `).join('');
+    host.querySelectorAll('.cf-um-inv').forEach(row => {
+        row.onclick = async (e) => {
+            e.stopPropagation();
+            const invId = row.getAttribute('data-inv-id');
+            try {
+                await matchCfTransaction(txId, invId);
+                _cfUmInvCache = null;   // faktura er nu betalt — ryd cache
+                _cfRenderOverblik();
+            } catch (err) { alert('Match fejlede: ' + err.message); }
+        };
+    });
 }
 
 /* ── Weekly chart ── */

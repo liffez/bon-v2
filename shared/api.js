@@ -1322,6 +1322,10 @@ function unmatchCfTransaction(txId) {
     return apiFetch('/cashflow/match/' + txId, { method: 'DELETE' });
 }
 
+function patchCfTransaction(txId, data) {
+    return apiFetch('/cashflow/transactions/' + txId, { method: 'PATCH', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(data) });
+}
+
 function confirmCfInvoicePaid(invoiceId) {
     return apiFetch('/cashflow/invoices/' + encodeURIComponent(invoiceId) + '/confirm-paid', { method: 'POST' });
 }
