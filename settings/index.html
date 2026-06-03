@@ -1810,6 +1810,12 @@ async function loadGrocyLocations() {
       ? ''
       : ' <button class="st-btn st-btn-sm st-btn-secondary" onclick="setActiveGrocyLocation(' + loc.id + ')" title="Sæt som standard-lokation for Bon v2">Sæt som aktiv</button>';
 
+    // Web-UI = API-URL uden /api-suffix (fx .../api → ...). Åbner Grocy-login i ny fane.
+    var webUrl = (loc.grocy_api_url || '').replace(/\/api\/?$/, '');
+    var openBtn = webUrl
+      ? ' <a class="st-btn st-btn-sm st-btn-secondary" href="' + esc(webUrl) + '" target="_blank" rel="noopener" title="Åbn Grocy-web-UI i ny fane (kræver Grocy-login)">Åbn Grocy ↗</a>'
+      : '';
+
     var div = document.createElement('div');
     div.className = 'st-mail-group';
     if (isActive) div.style.borderLeft = '3px solid var(--color-success, #1f8b4c)';
@@ -1824,6 +1830,7 @@ async function loadGrocyLocations() {
         '<div><span id="grocy-status-' + loc.id + '" class="st-badge st-badge-off">Ikke testet</span> ' +
           '<button class="st-btn st-btn-sm st-btn-secondary" onclick="testGrocyConnection(' + loc.id + ')">Test forbindelse</button>' +
           setActiveBtn +
+          openBtn +
         '</div>' +
       '</div>';
     container.appendChild(div);
