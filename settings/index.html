@@ -65,6 +65,8 @@
       color: var(--color-text-dim); padding: var(--space-s) var(--space-l) 4px;
       font-weight: 600;
     }
+    .st-nav-label.st-group { margin-top: var(--space-m); }
+    .st-nav-label.st-group:first-of-type { margin-top: var(--space-s); }
 
     .st-content {
       flex: 1; padding: var(--space-l);
@@ -493,30 +495,39 @@
 <div class="st-layout">
   <nav class="st-sidebar" id="st-sidebar">
     <button class="st-nav-item" data-section="this-device">Denne enhed</button>
-    <div class="st-nav-sep"></div>
+
+    <div class="st-nav-label st-group">Adgang</div>
     <button class="st-nav-item active" data-section="users">Brugere</button>
     <button class="st-nav-item" data-section="roles">Rollerettigheder</button>
+
+    <div class="st-nav-label st-group">Team &amp; løn</div>
     <button class="st-nav-item" data-section="staff">Medarbejdere</button>
+    <button class="st-nav-item st-admin-only" data-section="jobtype">Jobtype</button>
+
+    <div class="st-nav-label st-group">Bon &amp; salg</div>
     <button class="st-nav-item" data-section="price-cats">Priskategorier</button>
     <button class="st-nav-item" data-section="pay-types">Betalingstyper</button>
-    <div class="st-nav-sep" id="st-admin-sep"></div>
-    <div class="st-nav-label" id="st-admin-label">Admin</div>
-    <button class="st-nav-item st-admin-only" data-section="indkob">Indkøb</button>
+    <button class="st-nav-item st-admin-only" data-section="tilbud">Tilbud — opbygning</button>
+    <button class="st-nav-item st-admin-only" data-section="activity-purposes">Aktivitetsformål</button>
+    <button class="st-nav-item st-admin-only" data-section="delivery-vehicles">Leveringsmetoder</button>
+    <button class="st-nav-item st-admin-only" data-section="lego">Legoklods-kategorier</button>
+
+    <div class="st-nav-label st-group">Formularer</div>
+    <button class="st-nav-item st-admin-only" data-section="formbuilder">Formbuilder</button>
+    <button class="st-nav-item st-admin-only" data-section="bestilling-menu">Bestilling — Menu</button>
+    <button class="st-nav-item st-admin-only" data-section="booking-smagning">Booking — Smagsprøve</button>
+    <button class="st-nav-item st-admin-only" data-section="booking-kontakt">Booking — Kontakt</button>
+
+    <div class="st-nav-label st-group">Integrationer</div>
     <button class="st-nav-item st-admin-only" data-section="grocy">Grocy</button>
     <button class="st-nav-item st-admin-only" data-section="mail">Mail</button>
-    <button class="st-nav-item st-admin-only" data-section="formbuilder">Formbuilder</button>
-    <button class="st-nav-item st-admin-only" data-section="tilbud">Tilbud</button>
-    <button class="st-nav-item st-admin-only" data-section="lego">Legoklods</button>
+
+    <div class="st-nav-label st-group">System &amp; vedligehold</div>
+    <button class="st-nav-item st-admin-only" data-section="system">System</button>
+    <!-- Transitionelt: duplicates + merge-companies flyttes til office-moduler i DEL 3/4A (CLAUDE_SETTINGS_REORG.md). Indkøb-config er fjernet her — findes i office Indkøb → Leverandører. -->
     <button class="st-nav-item st-admin-only" data-section="duplicates">Duplikater</button>
     <button class="st-nav-item st-admin-only" data-section="merge-companies">Sammenlæg firmaer</button>
     <button class="st-nav-item st-admin-only" data-section="batch-enrich">Berig alle firmaer</button>
-    <button class="st-nav-item st-admin-only" data-section="system">System</button>
-    <button class="st-nav-item st-admin-only" data-section="activity-purposes">Aktivitetsformål</button>
-    <button class="st-nav-item st-admin-only" data-section="booking-smagning">Booking — Smagsprøve</button>
-    <button class="st-nav-item st-admin-only" data-section="booking-kontakt">Booking — Kontakt</button>
-    <button class="st-nav-item st-admin-only" data-section="delivery-vehicles">Leveringsmetoder</button>
-    <button class="st-nav-item st-admin-only" data-section="bestilling-menu">Bestilling — Menu</button>
-    <button class="st-nav-item st-admin-only" data-section="jobtype">Jobtype</button>
   </nav>
 
   <div class="st-content">
@@ -773,7 +784,7 @@
 
     <!-- ════ TILBUD ════ -->
     <div class="st-section st-admin-only" id="sec-tilbud">
-      <h2>Tilbud</h2>
+      <h2>Tilbud — opbygning</h2>
       <div class="st-card">
         <h3>Blok-typer til event-tilbud</h3>
         <p style="font-size:.82rem;color:var(--color-text-dim,#7a6f5f);margin-bottom:12px">Definer tidsblokke der bruges i event-skabelonen. R&aelig;kkef&oslash;lgen styrer visning i wizard og p&aring; PDF.</p>
@@ -788,7 +799,7 @@
 
     <!-- ════ LEGOKLODS ════ -->
     <div class="st-section st-admin-only" id="sec-lego">
-      <h2>Legoklods-rapport</h2>
+      <h2>Legoklods-kategorier</h2>
       <div class="st-card">
         <h3>Pax-st&oslash;rrelseskategorier</h3>
         <p style="font-size:.82rem;color:var(--color-text-dim,#7a6f5f);margin-bottom:12px">
@@ -1534,8 +1545,15 @@ async function init() {
   // Skjul admin-sektioner for ikke-admins
   if (currentUser.role !== 'admin') {
     document.querySelectorAll('.st-admin-only').forEach(function(el) { el.style.display = 'none'; });
-    document.getElementById('st-admin-sep').style.display = 'none';
-    document.getElementById('st-admin-label').style.display = 'none';
+    // Skjul gruppe-label hvis alle dens punkter (frem til næste label) er skjult
+    document.querySelectorAll('.st-sidebar .st-group').forEach(function(label) {
+      var n = label.nextElementSibling, anyVisible = false;
+      while (n && !n.classList.contains('st-group')) {
+        if (n.classList.contains('st-nav-item') && n.style.display !== 'none') anyVisible = true;
+        n = n.nextElementSibling;
+      }
+      if (!anyVisible) label.style.display = 'none';
+    });
   }
 
   // Nav-klik
