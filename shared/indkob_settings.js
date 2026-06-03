@@ -8,7 +8,7 @@
 var _isContainer    = null;
 var _isMode         = 'panel';
 var _isActiveTab    = 0;
-var _isTabLoaded    = [false, false, false];
+var _isTabLoaded    = [false, false, false, false];
 
 // Tab 1 data
 var _isSuppliers    = [];
@@ -34,6 +34,10 @@ var _isDeadBarcodes = {};  // varenr → true (udgåede hos Hoka)
 var _isDeadChecked  = false;
 var _isAddPackProductId = null;  // product_id with open pack-size search panel
 
+// Tab 4 data (duplikat-kandidater)
+var _isDupRows      = [];
+var _isDupFilter    = 'pending';
+
 var _isToastTimer   = null;
 
 /* ── Column definitions for Tab 2 ──────────────────────────── */
@@ -53,7 +57,7 @@ async function initIndkobSettings(containerEl, options) {
     _isContainer = containerEl;
     _isMode = (options && options.mode) || 'panel';
     _isActiveTab = 0;
-    _isTabLoaded = [false, false, false];
+    _isTabLoaded = [false, false, false, false];
     _isEditId = null;
     _isProdDirty = {};
 
@@ -126,6 +130,7 @@ function _isRenderShell() {
                 '<div class="is-tab on" data-is="tab" data-idx="0">Leverandører</div>' +
                 '<div class="is-tab" data-is="tab" data-idx="1">Produkter</div>' +
                 '<div class="is-tab" data-is="tab" data-idx="2">Hørkram</div>' +
+                '<div class="is-tab" data-is="tab" data-idx="3">Duplikater</div>' +
             '</div>' +
             '<div class="is-body" id="isBody"></div>' +
         '</div>';
@@ -167,6 +172,9 @@ function _isHandleClick(e) {
         if (typeof toggleIndkobSettings === 'function') toggleIndkobSettings();
         return;
     }
+
+    // ─── Tab 4: Duplikater ───
+    if (action === 'dup-act') { _isUpdateDuplicate(id, t.dataset.status); return; }
 
     // ─── Tab 1: Suppliers ───
     if (action === 'sup-edit')    { _isEditSupplier(id); return; }
@@ -221,6 +229,11 @@ function _isHandleChange(e) {
     }
     if (action === 'prod-supplier' || action === 'prod-minstock') {
         _isProdFieldChange(t);
+        return;
+    }
+    if (action === 'dup-filter') {
+        _isDupFilter = t.value;
+        _isLoadDuplicates();
         return;
     }
 }
@@ -304,6 +317,10 @@ async function _isLoadTabData(idx) {
                 return !linkedProductIds[p.id] && p.shopping_location_id !== null;
             });
         }
+
+        if (idx === 3) {
+            _isDupRows = await _isFetchDuplicates(_isDupFilter);
+        }
     } catch (err) {
         console.error('[is] tab data error:', err);
         body.innerHTML = '<div class="is-loading">Fejl ved indlæsning: ' + (err.message || '') + '</div>';
@@ -322,6 +339,7 @@ function _isRenderTab(idx) {
     if (idx === 0) _isRenderSuppliers(body);
     if (idx === 1) _isRenderProducts(body);
     if (idx === 2) _isRenderHorkram(body);
+    if (idx === 3) _isRenderDuplicates(body);
 }
 
 /* ══════════════════════════════════════════════════════════════
@@ -1687,6 +1705,97 @@ async function _isHkBatchPriceUpdate() {
     setTimeout(function() {
         _isRenderTab(2);
     }, 1500);
+}
+
+/* ══════════════════════════════════════════════════════════════
+   TAB 4 — DUPLIKATER (produkt-duplikat-kandidater)
+   Flyttet fra settings/index.html (CLAUDE_SETTINGS_REORG.md DEL 3).
+   API uændret: /settings/duplicates* (routes/settings.js).
+   ══════════════════════════════════════════════════════════════ */
+async function _isFetchDuplicates(filter) {
+    var f = filter || 'pending';
+    var url = f === 'all' ? '/settings/duplicates/all' : '/settings/duplicates?status=' + f;
+    try {
+        return await apiFetch(url) || [];
+    } catch (err) {
+        console.warn('[is] Duplikater fejl:', err.message);
+        return [];
+    }
+}
+
+async function _isLoadDuplicates() {
+    _isDupRows = await _isFetchDuplicates(_isDupFilter);
+    var body = document.getElementById('isBody');
+    if (body) _isRenderDuplicates(body);
+}
+
+function _isRenderDuplicates(body) {
+    var rows = _isDupRows || [];
+    var filterOpts = [
+        ['pending', 'Afventer (ubehandlet)'],
+        ['all', 'Alle'],
+        ['merged', 'Merget'],
+        ['not_duplicate', 'Ikke duplikat'],
+        ['ignored', 'Ignoreret'],
+    ];
+    var optsHtml = filterOpts.map(function(o) {
+        return '<option value="' + o[0] + '"' + (o[0] === _isDupFilter ? ' selected' : '') + '>' + o[1] + '</option>';
+    }).join('');
+
+    var html = '<div class="is-section">' +
+        '<h3 style="margin:0 0 6px">Duplikat-kandidater</h3>' +
+        '<p style="font-size:13px;color:var(--color-text-dim,#777);margin-bottom:12px">Produkter der sandsynligvis er duplikater i Grocy — opdaget automatisk ved bestilling når samme Hørkram-varenr. bruges af flere produkter.</p>' +
+        '<div style="margin-bottom:12px"><select data-is="dup-filter" style="padding:6px 10px;border:1px solid var(--color-border);border-radius:4px;font-size:13px">' + optsHtml + '</select></div>';
+
+    if (!rows.length) {
+        html += '<div style="text-align:center;padding:24px;color:var(--color-text-dim,#777);font-size:14px">Ingen duplikat-kandidater fundet.</div>';
+    } else {
+        html += '<table style="width:100%;border-collapse:collapse;font-size:13px">' +
+            '<thead><tr style="text-align:left;border-bottom:2px solid var(--color-border)">' +
+            '<th style="padding:6px 8px">Produkt A</th><th style="padding:6px 8px">Produkt B</th>' +
+            '<th style="padding:6px 8px">Varenr.</th><th style="padding:6px 8px">Fundet</th>' +
+            '<th style="padding:6px 8px">Status</th><th></th></tr></thead><tbody>';
+        rows.forEach(function(r) {
+            var statusBadge = r.status === 'pending' ? '<span style="color:#e65100;font-weight:700">⏳ Afventer</span>'
+                : r.status === 'merged' ? '<span style="color:#2e7d32">✓ Merget</span>'
+                : r.status === 'not_duplicate' ? '<span style="color:#1565c0">↗ Ikke duplikat</span>'
+                : '<span style="color:#777">— Ignoreret</span>';
+            var date = r.created_at
+                ? (typeof parseServerDate === 'function' ? parseServerDate(r.created_at) : new Date(r.created_at)).toLocaleDateString('da-DK')
+                : '';
+            var actions = '';
+            if (r.status === 'pending') {
+                actions =
+                    '<button class="is-add-btn" data-is="dup-act" data-id="' + r.id + '" data-status="merged" style="font-size:11px;padding:3px 8px;margin-right:4px">✓ Merget</button>' +
+                    '<button class="is-add-btn" data-is="dup-act" data-id="' + r.id + '" data-status="not_duplicate" style="font-size:11px;padding:3px 8px;margin-right:4px">↗ Ikke dup.</button>' +
+                    '<button class="is-add-btn" data-is="dup-act" data-id="' + r.id + '" data-status="ignored" style="font-size:11px;padding:3px 8px">— Ignorer</button>';
+            }
+            html += '<tr style="border-bottom:1px solid var(--color-border)">' +
+                '<td style="padding:6px 8px"><strong>' + _isEsc(r.product_name_a || ('#' + r.product_id_a)) + '</strong><br><span style="font-size:11px;color:#777">ID: ' + r.product_id_a + '</span></td>' +
+                '<td style="padding:6px 8px"><strong>' + _isEsc(r.product_name_b || ('#' + r.product_id_b)) + '</strong><br><span style="font-size:11px;color:#777">ID: ' + r.product_id_b + '</span></td>' +
+                '<td style="padding:6px 8px"><code>' + _isEsc(r.barcode || '') + '</code><br><span style="font-size:11px;color:#777">' + _isEsc(r.barcode_name || '') + '</span></td>' +
+                '<td style="padding:6px 8px;font-size:12px">' + date + '</td>' +
+                '<td style="padding:6px 8px">' + statusBadge + '</td>' +
+                '<td style="padding:6px 8px;white-space:nowrap">' + actions + '</td>' +
+            '</tr>';
+        });
+        html += '</tbody></table>';
+    }
+    html += '</div>';
+    body.innerHTML = html;
+}
+
+async function _isUpdateDuplicate(id, status) {
+    try {
+        await apiFetch('/settings/duplicates/' + id, {
+            method: 'PATCH',
+            body: JSON.stringify({ status: status }),
+        });
+        _isToast('Duplikat opdateret');
+        _isLoadDuplicates();
+    } catch (err) {
+        _isToast('Fejl: ' + err.message, true);
+    }
 }
 
 /* ══════════════════════════════════════════════════════════════
