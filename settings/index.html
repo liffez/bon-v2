@@ -516,7 +516,7 @@
     <button class="st-nav-item st-admin-only" data-section="booking-kontakt">Booking — Kontakt</button>
     <button class="st-nav-item st-admin-only" data-section="delivery-vehicles">Leveringsmetoder</button>
     <button class="st-nav-item st-admin-only" data-section="bestilling-menu">Bestilling — Menu</button>
-    <button class="st-nav-item st-admin-only" data-section="loen">Løn</button>
+    <button class="st-nav-item st-admin-only" data-section="jobtype">Jobtype</button>
   </nav>
 
   <div class="st-content">
@@ -1395,11 +1395,41 @@
     </div>
   </div>
 
-    <!-- Løn (admin-only, følsomt) -->
-    <div class="st-section st-admin-only" id="sec-loen">
-      <h2>Løn</h2>
+    <!-- Jobtype & løn (admin-only, følsomt) -->
+    <div class="st-section st-admin-only" id="sec-jobtype">
+      <h2>Jobtype</h2>
+      <p style="font-size:13px;color:#888;margin-bottom:16px">
+        Kategorisering af Smartplan-jobtyper og timeløn pr. medarbejder, brugt til driftsregnskabet.
+        <strong>Kun synligt for admin.</strong> Dette er <em>ikke</em> det samme som brugerrollen
+        (admin/køkken) under Brugere — den styrer adgang til selve systemet.
+      </p>
+
+      <h3 style="font-size:15px;margin:0 0 8px">Kategorisering af jobtyper</h3>
       <p style="font-size:13px;color:#888;margin-bottom:8px">
-        Timeløn pr. medarbejder, brugt til driftsregnskabet. <strong>Kun synligt for admin.</strong>
+        Smartplan har intet rolle-felt, så jobtypen afgør om en medarbejders timer og løn tæller med i driften:
+      </p>
+      <ul style="font-size:13px;color:#888;margin:0 0 14px;padding-left:20px;line-height:1.6">
+        <li><strong>Produktion</strong> — tæller i kapacitetsrate + lønandel (kok, salg, assistent)</li>
+        <li><strong>Levering</strong> — bud/chauffør, ekskluderet fra driften (hører til leveringsmodulet)</li>
+        <li><strong>Andet</strong> — vises, men tæller hverken i rate eller lønandel</li>
+      </ul>
+      <p style="font-size:12px;color:#888;margin-bottom:8px">
+        Nye jobtyper starter som <em>Andet</em> og markeres som ukategoriseret i driftsregnskabet, indtil du sætter dem her.
+      </p>
+      <table style="width:100%;border-collapse:collapse;font-size:13px;margin-bottom:28px">
+        <thead>
+          <tr style="text-align:left;border-bottom:2px solid var(--color-border)">
+            <th style="padding:6px 8px">Jobtype</th>
+            <th style="padding:6px 8px;width:200px">Kategori</th>
+            <th style="padding:6px 8px;width:90px"></th>
+          </tr>
+        </thead>
+        <tbody id="rolemap-table"><tr><td colspan="3" style="padding:10px 8px;color:#888">Henter…</td></tr></tbody>
+      </table>
+
+      <h3 style="font-size:15px;margin:0 0 8px">Timeløn</h3>
+      <p style="font-size:13px;color:#888;margin-bottom:8px">
+        Timeløn pr. medarbejder, brugt til driftsregnskabet.
       </p>
       <p style="font-size:13px;color:#888;margin-bottom:16px">
         Smartplan leverer kun timer (ikke løn), så satser vedligeholdes her via en lille CSV du selv styrer.
@@ -1536,8 +1566,8 @@ async function init() {
       if (sec === 'delivery-vehicles') loadDeliveryVehicles();
       // Lazy load bestilling-menu
       if (sec === 'bestilling-menu') bmInit();
-      // Lazy load løn
-      if (sec === 'loen') loadWageRates();
+      // Lazy load jobtype-kategorisering + løn
+      if (sec === 'jobtype') { loadRoleMap(); loadWageRates(); }
     });
   });
 
@@ -4190,6 +4220,61 @@ let _dvVariables = [];
 let _dvEditingId = null;
 let _dvFields = [];          // working copy af booking_fields_json under redigering
 let _dvLastFocusedField = null;  // refererer til { idx, kind: 'template'|'step'|'label' }
+
+/* ── Jobtype-kategorisering (smartplan_role_map — admin-only) ─ */
+const ROLE_LABELS = { production: 'Produktion', delivery: 'Levering', other: 'Andet' };
+
+async function loadRoleMap() {
+    const tb = document.getElementById('rolemap-table');
+    if (!tb) return;
+    tb.innerHTML = '<tr><td colspan="3" style="padding:10px 8px;color:#888">Henter…</td></tr>';
+    try {
+        const { jobtypes } = await fetchRoleMap();
+        if (!jobtypes || !jobtypes.length) {
+            tb.innerHTML = '<tr><td colspan="3" style="padding:10px 8px;color:#888">Ingen jobtyper fundet i Smartplan endnu.</td></tr>';
+            return;
+        }
+        tb.innerHTML = jobtypes.map(function(j) {
+            const opts = Object.keys(ROLE_LABELS).map(function(k) {
+                return '<option value="' + k + '"' + (j.role_class === k ? ' selected' : '') + '>' + ROLE_LABELS[k] + '</option>';
+            }).join('');
+            const warn = j.role_class === 'other'
+                ? '<span style="color:#c0392b;font-size:12px">tæller ikke</span>' : '';
+            return '<tr style="border-bottom:1px solid var(--color-border)">'
+                + '<td style="padding:6px 8px">' + esc(j.jobtype_title || '(uden navn)') + '</td>'
+                + '<td style="padding:6px 8px">'
+                +   '<select class="st-input" style="width:100%" '
+                +   'onchange="saveRoleClass(this, \'' + esc(j.jobtype_uuid) + '\')">' + opts + '</select>'
+                + '</td>'
+                + '<td style="padding:6px 8px" data-rm-status="' + esc(j.jobtype_uuid) + '">' + warn + '</td>'
+                + '</tr>';
+        }).join('');
+    } catch (err) {
+        tb.innerHTML = '<tr><td colspan="3" style="padding:10px 8px;color:#c0392b">Fejl: ' + esc(err.message) + '</td></tr>';
+    }
+}
+
+async function saveRoleClass(sel, uuid) {
+    const roleClass = sel.value;
+    const cell = document.querySelector('[data-rm-status="' + (window.CSS && CSS.escape ? CSS.escape(uuid) : uuid) + '"]');
+    if (cell) { cell.style.color = '#888'; cell.innerHTML = 'Gemmer…'; }
+    sel.disabled = true;
+    try {
+        await updateRoleClass(uuid, roleClass);
+        if (cell) {
+            cell.style.color = '#2e7d32';
+            cell.innerHTML = '✓ gemt';
+            setTimeout(function() {
+                cell.style.color = '';
+                cell.innerHTML = roleClass === 'other' ? '<span style="color:#c0392b;font-size:12px">tæller ikke</span>' : '';
+            }, 1500);
+        }
+    } catch (err) {
+        if (cell) { cell.style.color = '#c0392b'; cell.innerHTML = 'Fejl'; }
+    } finally {
+        sel.disabled = false;
+    }
+}
 
 /* ── Løn (wage_rates — admin-only) ─────────────────────────── */
 let _wageRoster = [];

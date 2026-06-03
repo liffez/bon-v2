@@ -1493,7 +1493,18 @@ function extractCompanyContacts(companyId, text, sourceUrl) {
     });
 }
 
-// ─── LØN (wage_rates — admin-only) ───────────────────────────
+// ─── JOBTYPE & LØN (admin-only) ──────────────────────────────
+
+function fetchRoleMap() {
+    return apiFetch('/role-map');
+}
+
+function updateRoleClass(jobtypeUuid, roleClass) {
+    return apiFetch('/role-map/' + encodeURIComponent(jobtypeUuid), {
+        method: 'PATCH',
+        body: JSON.stringify({ role_class: roleClass }),
+    });
+}
 
 function fetchWageRates() {
     return apiFetch('/wage-rates');

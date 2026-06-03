@@ -127,6 +127,7 @@ app.use('/api/admin/batch-enrich', require('./routes/admin-batch-enrich'));
 app.use('/api/cvr',        require('./routes/cvr'));
 app.use('/api/settings',   require('./routes/settings'));
 app.use('/api/wage-rates', require('./routes/wage_rates'));
+app.use('/api/role-map',   require('./routes/role_map'));
 app.use('/api/drift',      require('./routes/drift'));
 app.use('/api/grocy',          require('./routes/grocy'));
 app.use('/api/smartplan',      require('./routes/smartplan'));
