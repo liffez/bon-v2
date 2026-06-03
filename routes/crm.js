@@ -8,9 +8,10 @@
 const express = require('express');
 const router = express.Router();
 const { getDb } = require('../db/database');
-const { handle, logChange } = require('../db/helpers');
+const { handle, logChange, transaction } = require('../db/helpers');
 const { requireAuth } = require('../shared/auth');
 const { broadcast } = require('../shared/sse');
+const { validateContactValue } = require('../shared/contactPoints');
 
 router.use(requireAuth());
 
@@ -1309,6 +1310,291 @@ router.patch('/pipeline/:id/move', handle((req, res) => {
     broadcast('bon_updated', { id: bonId });
 
     res.json({ success: true });
+}));
+
+// ════════════════════════════════════════════════════════════
+// LEAD-IMPORT — POST /leads/import
+// ════════════════════════════════════════════════════════════
+// Bulk-indlæsning af leads fra CSV/regneark. Pr. række:
+//   1. Match firma på CVR (ellers eksakt navn) — berig manglende felter, opret ikke dublet.
+//   2. Match kontakt på email — berig, ellers opret.
+//   3. Opret contact_points eksplicit (053-triggerne fyrer KUN ved UPDATE, ikke INSERT).
+//   4. Sæt stage='lead' i crm_customer_meta — kun for nye/meta-løse kunder (nedgrader aldrig VIP/aktiv).
+//   5. Valgfrit batch-tag i crm_customer_meta.tags + valgfri CVR/Virk-berigelse.
+// dry_run=true → kun matching + rapport, ingen writes (driver et præcist preview).
+
+function _liNormCvr(c) {
+    return (c == null ? '' : String(c)).replace(/\D/g, '');
+}
+
+function _liFindCompany(db, { cvr, name }) {
+    const dc = _liNormCvr(cvr);
+    if (dc.length === 8) {
+        const row = db.prepare(`
+            SELECT * FROM companies
+             WHERE is_active = 1
+               AND REPLACE(REPLACE(COALESCE(cvr,''),' ',''),'-','') = ?
+             ORDER BY id LIMIT 1
+        `).get(dc);
+        if (row) return row;
+    }
+    if (name && name.trim()) {
+        const row = db.prepare(`
+            SELECT * FROM companies
+             WHERE is_active = 1 AND LOWER(TRIM(name)) = LOWER(TRIM(?))
+             ORDER BY id LIMIT 1
+        `).get(name);
+        if (row) return row;
+    }
+    return null;
+}
+
+function _liFindCustomerByEmail(db, email) {
+    const v = (email || '').trim().toLowerCase();
+    if (!v) return null;
+    return db.prepare(`
+        SELECT * FROM customers
+         WHERE is_active = 1 AND LOWER(TRIM(COALESCE(email,''))) = ?
+         ORDER BY id LIMIT 1
+    `).get(v);
+}
+
+// Opret/genaktivér et contact_point. Returnerer true hvis et NYT punkt blev oprettet.
+function _liEnsureContactPoint(db, entityType, entityId, kind, value) {
+    const val = validateContactValue(kind, value);
+    if (!val.ok) return false;
+    const existing = db.prepare(`
+        SELECT id FROM contact_points
+         WHERE entity_type = ? AND entity_id = ? AND kind = ? AND value = ?
+    `).get(entityType, entityId, kind, val.normalized);
+    if (existing) {
+        db.prepare(`
+            UPDATE contact_points
+               SET is_active = 1, last_seen_at = CURRENT_TIMESTAMP, updated_at = CURRENT_TIMESTAMP
+             WHERE id = ?
+        `).run(existing.id);
+        return false;
+    }
+    const hasPrimary = db.prepare(`
+        SELECT 1 FROM contact_points
+         WHERE entity_type = ? AND entity_id = ? AND kind = ? AND is_primary = 1 AND is_active = 1
+    `).get(entityType, entityId, kind);
+    db.prepare(`
+        INSERT INTO contact_points
+            (entity_type, entity_id, kind, value, source, is_public, is_primary, last_seen_at)
+        VALUES (?, ?, ?, ?, 'manual', 0, ?, CURRENT_TIMESTAMP)
+    `).run(entityType, entityId, kind, val.normalized, hasPrimary ? 0 : 1);
+    return true;
+}
+
+function _liAddTag(db, customerId, tag) {
+    if (!tag) return;
+    const row = db.prepare('SELECT tags FROM crm_customer_meta WHERE customer_id = ?').get(customerId);
+    let arr = [];
+    if (row && row.tags) { try { arr = JSON.parse(row.tags) || []; } catch { arr = []; } }
+    if (!Array.isArray(arr)) arr = [];
+    if (!arr.includes(tag)) arr.push(tag);
+    db.prepare('UPDATE crm_customer_meta SET tags = ?, updated_at = CURRENT_TIMESTAMP WHERE customer_id = ?')
+      .run(JSON.stringify(arr), customerId);
+}
+
+// Sæt stage='lead' KUN hvis kunden ikke allerede har et stadie. Returnerer det gældende stadie.
+function _liSetLeadStageIfNew(db, customerId, userId) {
+    const existing = db.prepare('SELECT stage FROM crm_customer_meta WHERE customer_id = ?').get(customerId);
+    if (existing) return existing.stage;
+
+    db.prepare("INSERT INTO crm_customer_meta (customer_id, stage) VALUES (?, 'lead')").run(customerId);
+
+    // Synk til rfm_scores (stage_locked så RFM batch-job respekterer det manuelle valg) — som /stage-endpointet
+    const cust = db.prepare('SELECT company_id FROM customers WHERE id = ?').get(customerId);
+    if (cust?.company_id) {
+        const rfmExists = db.prepare('SELECT 1 FROM rfm_scores WHERE company_id = ?').get(cust.company_id);
+        if (rfmExists) {
+            db.prepare(`
+                UPDATE rfm_scores SET stage = 'lead', stage_locked = 1, stage_locked_by = ?, stage_locked_at = datetime('now')
+                 WHERE company_id = ?
+            `).run(userId, cust.company_id);
+        } else {
+            db.prepare(`
+                INSERT INTO rfm_scores (company_id, stage, stage_locked, stage_locked_by, stage_locked_at)
+                VALUES (?, 'lead', 1, ?, datetime('now'))
+            `).run(cust.company_id, userId);
+        }
+    }
+    return 'lead';
+}
+
+router.post('/leads/import', handle(async (req, res) => {
+    const db = getDb();
+    const userId = req.session?.user?.id ?? req.session?.userId ?? null;
+    const body = req.body || {};
+    const rows = Array.isArray(body.rows) ? body.rows : null;
+    const dryRun = body.dry_run === true;
+    const doEnrich = body.enrich === true;
+    const tag = (typeof body.tag === 'string' && body.tag.trim()) ? body.tag.trim().slice(0, 80) : null;
+
+    if (!rows) return res.status(400).json({ error: 'rows skal være et array' });
+    if (rows.length === 0) return res.status(400).json({ error: 'Ingen rækker at importere' });
+    if (rows.length > 2000) return res.status(413).json({ error: 'Maks 2000 rækker pr. import' });
+
+    let enrichFn = null;
+    if (doEnrich) {
+        try { enrichFn = require('../services/cvrEnrichment').enrich; } catch { enrichFn = null; }
+    }
+
+    const summary = {
+        total: rows.length, companies_created: 0, companies_enriched: 0,
+        customers_created: 0, customers_matched: 0, leads_set: 0, errors: 0,
+    };
+    const results = [];
+    let anyWritten = false;
+
+    for (let i = 0; i < rows.length; i++) {
+        const raw = rows[i] || {};
+        const r = {
+            company_name: (raw.company_name || '').toString().trim(),
+            cvr:          (raw.cvr || '').toString().trim(),
+            ean:          (raw.ean || '').toString().trim(),
+            first_name:   (raw.first_name || '').toString().trim(),
+            last_name:    (raw.last_name || '').toString().trim(),
+            email:        (raw.email || '').toString().trim(),
+            phone:        (raw.phone || '').toString().trim(),
+            notes:        (raw.notes || '').toString().trim(),
+            is_private:   raw.is_private === true || raw.is_private === 'true' || raw.is_private === 1,
+        };
+        const out = { index: i, status: 'ok' };
+
+        try {
+            // Validering: en række skal kunne identificeres
+            if (r.is_private) {
+                if (!r.email && !r.first_name) throw new Error('Privatkunde mangler navn eller email');
+            } else if (!r.company_name && !_liNormCvr(r.cvr)) {
+                throw new Error('Mangler firmanavn eller CVR');
+            }
+
+            // ── Match (read-only) ──
+            let company = r.is_private ? null : _liFindCompany(db, { cvr: r.cvr, name: r.company_name });
+            const companyAction = r.is_private ? 'none' : (company ? 'matched' : 'create');
+            let customer = _liFindCustomerByEmail(db, r.email);
+            const customerAction = customer ? 'matched' : 'create';
+
+            // ── Valgfri CVR-berigelse (async, uden for transaction) ──
+            let enriched = null;
+            if (enrichFn && !r.is_private && (!company || !company.cvr || !company.legal_name)) {
+                try {
+                    const e = await enrichFn({ cvr: r.cvr || null, ean: r.ean || null, navn: r.company_name || null });
+                    if (e && e.found && e.data) enriched = e.data;
+                } catch { /* berigelse er best-effort */ }
+            }
+
+            out.company_action = companyAction;
+            out.company_id = company?.id || null;
+            out.company_name = r.company_name || enriched?.legal_name || null;
+            out.customer_action = customerAction;
+            out.customer_id = customer?.id || null;
+            out.enriched = !!enriched;
+
+            if (dryRun) { results.push(out); continue; }
+
+            // ── Writes (én transaction pr. række — én dårlig række ruller ikke hele batchen) ──
+            transaction(db, () => {
+                // Firma
+                if (!r.is_private) {
+                    if (!company) {
+                        const cvrToUse = _liNormCvr(r.cvr) || _liNormCvr(enriched?.cvr);
+                        const name = r.company_name || enriched?.legal_name
+                            || (cvrToUse ? `CVR ${cvrToUse}` : 'Ukendt firma');
+                        const ins = db.prepare(`
+                            INSERT INTO companies (name, cvr, ean, phone, email, notes)
+                            VALUES (?, ?, ?, ?, ?, ?)
+                        `).run(name, cvrToUse || null, r.ean || null, r.phone || null, r.email || null, r.notes || null);
+                        company = { id: Number(ins.lastInsertRowid), cvr: cvrToUse || null, legal_name: null };
+                        summary.companies_created++;
+                        logChange({
+                            entityType: 'company', entityId: company.id, action: 'create',
+                            fieldName: 'import', newValue: name, userId,
+                            notes: `lead-import${tag ? ' tag=' + tag : ''}`,
+                        });
+                        if (enriched?.legal_name) {
+                            db.prepare(`
+                                UPDATE companies
+                                   SET legal_name = ?, last_enriched_at = CURRENT_TIMESTAMP,
+                                       last_enriched_source = ?, updated_at = CURRENT_TIMESTAMP
+                                 WHERE id = ?
+                            `).run(enriched.legal_name, 'import-enrich', company.id);
+                        }
+                    } else {
+                        // Berig matchet firma — fyld kun TOMME felter
+                        const sets = [], args = [];
+                        if (!company.cvr && (_liNormCvr(r.cvr) || _liNormCvr(enriched?.cvr))) {
+                            sets.push('cvr = ?'); args.push(_liNormCvr(r.cvr) || _liNormCvr(enriched.cvr));
+                        }
+                        if (!company.ean && r.ean) { sets.push('ean = ?'); args.push(r.ean); }
+                        if (!company.phone && r.phone) { sets.push('phone = ?'); args.push(r.phone); }
+                        if (!company.email && r.email) { sets.push('email = ?'); args.push(r.email); }
+                        if (!company.legal_name && enriched?.legal_name) { sets.push('legal_name = ?'); args.push(enriched.legal_name); }
+                        if (sets.length) {
+                            args.push(company.id);
+                            db.prepare(`UPDATE companies SET ${sets.join(', ')}, updated_at = CURRENT_TIMESTAMP WHERE id = ?`).run(...args);
+                            summary.companies_enriched++;
+                        }
+                    }
+                    if (r.email) _liEnsureContactPoint(db, 'company', company.id, 'email', r.email);
+                    if (r.phone) _liEnsureContactPoint(db, 'company', company.id, 'phone', r.phone);
+                }
+
+                // Kontakt
+                if (!customer) {
+                    const fn = r.first_name
+                        || (r.email ? r.email.split('@')[0] : '')
+                        || r.company_name || 'Kontakt';
+                    const ins = db.prepare(`
+                        INSERT INTO customers (company_id, first_name, last_name, phone, email, notes)
+                        VALUES (?, ?, ?, ?, ?, ?)
+                    `).run(company?.id || null, fn, r.last_name || null, r.phone || null, r.email || null, r.notes || null);
+                    customer = { id: Number(ins.lastInsertRowid) };
+                    summary.customers_created++;
+                    logChange({
+                        entityType: 'customer', entityId: customer.id, action: 'create',
+                        fieldName: 'import', newValue: fn, userId,
+                        notes: `lead-import${tag ? ' tag=' + tag : ''}`,
+                    });
+                } else {
+                    summary.customers_matched++;
+                    const sets = [], args = [];
+                    if (!customer.company_id && company?.id) { sets.push('company_id = ?'); args.push(company.id); }
+                    if (!customer.phone && r.phone) { sets.push('phone = ?'); args.push(r.phone); }
+                    if (sets.length) {
+                        args.push(customer.id);
+                        db.prepare(`UPDATE customers SET ${sets.join(', ')}, updated_at = CURRENT_TIMESTAMP WHERE id = ?`).run(...args);
+                    }
+                }
+                if (r.email) _liEnsureContactPoint(db, 'customer', customer.id, 'email', r.email);
+                if (r.phone) _liEnsureContactPoint(db, 'customer', customer.id, 'phone', r.phone);
+
+                // Stadie + tag
+                const stage = _liSetLeadStageIfNew(db, customer.id, userId);
+                if (stage === 'lead') summary.leads_set++;
+                if (tag) _liAddTag(db, customer.id, tag);
+            });
+
+            anyWritten = true;
+            out.company_id = company?.id || null;
+            out.customer_id = customer.id;
+            results.push(out);
+        } catch (err) {
+            out.status = 'error';
+            out.message = err.message;
+            summary.errors++;
+            results.push(out);
+        }
+    }
+
+    if (anyWritten) {
+        broadcast('crm_stage_changed', { source: 'lead_import' });
+    }
+
+    res.json({ ok: true, dry_run: dryRun, summary, rows: results });
 }));
 
 module.exports = router;

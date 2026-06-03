@@ -784,6 +784,7 @@
   <script src="views/crm-kundeindsigt.js"></script>
   <script src="views/crm-reaktivering.js"></script>
   <script src="views/crm-prospekter.js"></script>
+  <script src="views/crm-leadimport.js"></script>
   <script src="views/fakturering.js"></script>
   <script src="views/tilbud.js"></script>
   <script src="views/rapporter.js"></script>
@@ -952,6 +953,10 @@
           init: () => initCrmVerktoj(contentEl),
           cleanup: () => {},
         },
+        'crm-leadimport': {
+          init: () => initCrmLeadimport(contentEl),
+          cleanup: () => { if (typeof cleanupCrmLeadimport === 'function') cleanupCrmLeadimport(); },
+        },
         fakturering: {
           init: () => initFakturering(contentEl, { openDrawer }),
           cleanup: () => { if (typeof cleanupFakturering === 'function') cleanupFakturering(); },
@@ -1036,6 +1041,7 @@
           { id: 'prospekter', label: 'Prospekter' },
           { id: 'reakt', label: 'Re-aktivering' },
           { id: 'indsigt', label: 'Indsigt' },
+          { id: 'import', label: 'Importér leads' },
           { id: 'verktoj', label: 'Værktøjer' },
         ],
         tilbud: null,
@@ -1077,6 +1083,7 @@
           prospekter: 'crm-prospekter',
           reakt: 'crm-reaktivering',
           indsigt: 'crm-kundeindsigt',
+          import: 'crm-leadimport',
           verktoj: 'crm-verktoj',
         },
         tilbud: { _default: 'tilbud' },

@@ -719,6 +719,14 @@ function movePipelineCard(bonId, column) {
     });
 }
 
+// Bulk-import af leads. payload = { rows, tag?, enrich?, dry_run? }
+function importLeads(payload) {
+    return apiFetch('/crm/leads/import', {
+        method: 'POST',
+        body: JSON.stringify(payload),
+    });
+}
+
 function postCrmActivity(data) {
     return apiFetch('/crm/activity', {
         method: 'POST',
