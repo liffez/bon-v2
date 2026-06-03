@@ -9,7 +9,6 @@
   <script src="../shared/density.js"></script>
   <link rel="stylesheet" href="../shared/components.css">
   <link rel="stylesheet" href="../shared/bon_kort.css">
-  <link rel="stylesheet" href="../shared/indkob_settings.css">
   <style>
     * { box-sizing: border-box; margin: 0; padding: 0; }
 
@@ -751,12 +750,6 @@
       </table>
       <button class="st-btn st-btn-primary st-btn-add" onclick="showNewPayTypeForm()">+ Ny</button>
       <div id="new-ptype-form" style="display:none"></div>
-    </div>
-
-    <!-- ════ INDKØB ════ -->
-    <div class="st-section st-admin-only" id="sec-indkob">
-      <h2>Indkøb</h2>
-      <div id="indkob-settings-container" class="is-mode-page"></div>
     </div>
 
     <!-- ════ GROCY ════ -->
@@ -1514,7 +1507,6 @@
 <script src="../shared/api.js"></script>
 <script src="../shared/utils.js"></script>
 <script src="../shared/env_badge.js"></script>
-<script src="../shared/indkob_settings.js"></script>
 <script>
 // ═══════════════════════════════════════════════════════════
 // Settings UI — vanilla JS
@@ -1557,7 +1549,6 @@ async function init() {
   }
 
   // Nav-klik
-  var _indkobSettingsInit = false;
   var _rolesLoaded = false;
   document.querySelectorAll('.st-nav-item').forEach(function(btn) {
     btn.addEventListener('click', function() {
@@ -1567,11 +1558,6 @@ async function init() {
       document.querySelectorAll('.st-section').forEach(function(s) { s.classList.remove('active'); });
       document.getElementById('sec-' + sec).classList.add('active');
 
-      // Lazy init indkøb settings
-      if (sec === 'indkob' && !_indkobSettingsInit) {
-        _indkobSettingsInit = true;
-        initIndkobSettings(document.getElementById('indkob-settings-container'), { mode: 'page' });
-      }
       // Lazy load roles matrix
       if (sec === 'roles' && !_rolesLoaded) {
         _rolesLoaded = true;
