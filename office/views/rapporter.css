@@ -330,6 +330,21 @@
   font-weight: 600;
 }
 
+/* Booket pipeline (forventet, ikke leveret endnu) — dæmpet blå for at skille det
+   visuelt fra realiseret omsætning */
+.rap-month-table .rap-booked {
+  color: #4a7ab0;
+  font-weight: 600;
+}
+
+/* Fremtidige måneder: kun booket pipeline, ingen realiseret omsætning endnu */
+.rap-month-table tr.future td {
+  color: #a8a09a;
+}
+.rap-month-table tr.future .rap-booked {
+  color: #4a7ab0;
+}
+
 .rap-mtd-badge {
   display: inline-block;
   font-size: 9px;

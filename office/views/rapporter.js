@@ -575,7 +575,8 @@ function _rapRenderMonthlyTable(data) {
   let html = `<table class="rap-month-table">
     <thead><tr>
       <th>Måned</th>
-      <th class="text-right">Omsætning (ex moms)</th>
+      <th class="text-right">Realiseret (ex moms)</th>
+      <th class="text-right">Booket (ex moms)</th>
       <th class="text-right">vs. forrige år</th>
       <th class="text-right">Ordrer</th>
       <th class="text-right">Enheder</th>
@@ -585,18 +586,25 @@ function _rapRenderMonthlyTable(data) {
 
   for (const row of rows) {
     const isCurrent = !!row.is_current;
-    const cls = isCurrent ? ' class="current"' : '';
+    const isFuture  = !!row.is_future;
+    const cls = isCurrent ? ' class="current"' : (isFuture ? ' class="future"' : '');
     const mtd = isCurrent ? ' <span class="rap-mtd-badge">MTD</span>' : '';
     // Brug *_excl_moms-felter primært (regnskabskonvention)
     const rev     = row.revenue_this_excl_moms ?? row.revenue_this ?? row.revenue ?? 0;
     const revPrev = row.revenue_prev_excl_moms ?? row.revenue_prev ?? 0;
 
-    // delta vs prev year
-    const deltaRev = rev - revPrev;
+    // Booket pipeline (forventet, ikke leveret endnu)
+    const booked = row.revenue_booked_excl_moms ?? row.revenue_booked ?? 0;
+    const bookedHtml = booked > 0
+      ? `<span class="rap-booked">${_rapFmtKr(booked)}</span>`
+      : '—';
+
+    // delta vs prev year — fremtidige måneder kan ikke sammenlignes (intet realiseret endnu)
     let deltaHtml;
-    if (!revPrev) {
+    if (isFuture || !revPrev) {
       deltaHtml = '—';
     } else {
+      const deltaRev = rev - revPrev;
       const deltaPct = (deltaRev / Math.abs(revPrev) * 100).toFixed(0);
       const arrow = deltaRev >= 0 ? '&#9650;' : '&#9660;';
       const cls2 = deltaRev > 0 ? 'delta-up' : deltaRev < 0 ? 'delta-down' : '';
@@ -613,11 +621,12 @@ function _rapRenderMonthlyTable(data) {
 
     html += `<tr${cls}>
       <td>${row.month_label || '?'}${mtd}</td>
-      <td class="text-right">${_rapFmtKr(rev)}</td>
+      <td class="text-right">${rev > 0 ? _rapFmtKr(rev) : '—'}</td>
+      <td class="text-right">${bookedHtml}</td>
       <td class="text-right">${deltaHtml}</td>
       <td class="text-right">${_rapFmt(row.orders)}</td>
       <td class="text-right">${_rapFmt(row.units)}</td>
-      <td class="text-right">${_rapFmtKr(avg)}</td>
+      <td class="text-right">${avg > 0 ? _rapFmtKr(avg) : '—'}</td>
       <td class="text-right">${ufaktHtml}</td>
     </tr>`;
   }
