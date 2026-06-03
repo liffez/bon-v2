@@ -99,7 +99,46 @@ router.get('/day', ALL, handle(async (req, res) => {
 
     const driftsresultat = r2(revenue - cost - delivery - laborDrift);
 
+    // ── Belastnings-tidslinje (§8): enheder/time vs produktions-mandetimer/time ──
+    const tlBons = db.prepare(`
+        SELECT b.total_units AS units, b.delivery_time AS dtime, b.pickup_time AS ptime
+          FROM bons b
+          JOIN status_definitions sd ON sd.id = b.status_id
+         WHERE b.delivery_date = ?
+           AND COALESCE(b.is_offer, 0) = 0
+           AND COALESCE(b.is_internal, 0) = 0
+           ${statusClause}
+    `).all(date, ...statusArgs);
+
+    const hourOf = (t) => { const m = String(t || '').match(/(\d{1,2}):(\d{2})/); return m ? parseInt(m[1], 10) : null; };
+    const minOf  = (t) => { const m = String(t || '').match(/(\d{1,2}):(\d{2})/); return m ? (+m[1]) * 60 + (+m[2]) : null; };
+
+    const unitsByHour = {};
+    for (const b of tlBons) {
+        const h = hourOf(b.dtime) ?? hourOf(b.ptime);          // leveres/klar — fallback afhentning
+        if (h == null) continue;
+        unitsByHour[h] = (unitsByHour[h] || 0) + (Number(b.units) || 0);
+    }
+    // Produktions-mandetimer pr. time (vagt-overlap, kun production-roller §6a)
+    const manhoursByHour = {};
+    for (const l of prod) {
+        const s = minOf(l.start), e = minOf(l.slut);
+        if (s == null || e == null || e <= s) continue;
+        for (let h = Math.floor(s / 60); h < Math.ceil(e / 60); h++) {
+            const overlap = (Math.min(e, (h + 1) * 60) - Math.max(s, h * 60)) / 60;
+            if (overlap > 0) manhoursByHour[h] = (manhoursByHour[h] || 0) + overlap;
+        }
+    }
+    const allHours = [...Object.keys(unitsByHour), ...Object.keys(manhoursByHour)].map(Number);
+    const hMin = allHours.length ? Math.min(...allHours) : 8;
+    const hMax = allHours.length ? Math.max(...allHours) : 16;
+    const timeline = [];
+    for (let h = hMin; h <= hMax; h++) {
+        timeline.push({ hour: h, units: r2(unitsByHour[h] || 0), manhours: r2(manhoursByHour[h] || 0) });
+    }
+
     res.json({
+        timeline,
         date, mode,
         bon_count: bonAgg.bon_count,
         // Alle beløb ex moms

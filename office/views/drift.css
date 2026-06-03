@@ -44,3 +44,16 @@
 
 .dr-flag { font-size: .75em; padding: 1px 6px; border-radius: 8px; background: #eee; color: #777; margin-right: 4px; }
 .dr-flag-warn { background: #fde0e0; color: #a33; }
+
+/* Belastnings-tidslinje (§8) */
+.dr-timeline { display: flex; align-items: flex-end; gap: 6px; height: 150px; padding: 8px 4px 0; border-bottom: 1px solid var(--color-border, #d7d1ca); overflow-x: auto; }
+.dr-tl-col { display: flex; flex-direction: column; align-items: center; min-width: 34px; flex: 1; height: 100%; }
+.dr-tl-bars { display: flex; align-items: flex-end; gap: 3px; height: 100%; width: 100%; justify-content: center; }
+.dr-tl-bar { width: 12px; border-radius: 3px 3px 0 0; min-height: 2px; transition: height .2s; }
+.dr-tl-units { background: var(--brand-primary, #8e631f); }
+.dr-tl-man { background: #6b9ec4; }
+.dr-tl-under .dr-tl-units { background: #c0392b; }
+.dr-tl-hour { font-size: 11px; color: #999; margin-top: 4px; }
+.dr-lg { display: inline-block; width: 9px; height: 9px; border-radius: 2px; vertical-align: middle; }
+.dr-lg-u { background: var(--brand-primary, #8e631f); }
+.dr-lg-m { background: #6b9ec4; }

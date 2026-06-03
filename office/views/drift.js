@@ -154,6 +154,30 @@ function _drRender(d) {
             '<div class="dr-metric"><span>Bonner</span><strong>' + _drNum(d.bon_count, 0) + '</strong></div>' +
             '<div class="dr-metric"><span>Produktionstimer</span><strong>' + _drNum(d.hours_production, 1) + '</strong></div>' +
         '</div>' +
+        _drTimelineHtml(d.timeline) +
         '<div class="dr-section-title">Bemanding <span class="dr-sub">(bud ekskluderet fra driftens løn + rate)</span></div>' +
         laborTable;
+}
+
+// Belastnings-tidslinje (§8): enheder/time (søjle) vs produktions-mandetimer/time (søjle).
+// Røde timer = belastning uden bemanding (underbemandet).
+function _drTimelineHtml(tl) {
+    if (!tl || !tl.length) return '';
+    var maxU = Math.max.apply(null, [1].concat(tl.map(function (t) { return t.units; })));
+    var maxM = Math.max.apply(null, [0.5].concat(tl.map(function (t) { return t.manhours; })));
+    var cols = tl.map(function (t) {
+        var uh = Math.round(t.units / maxU * 100);
+        var mh = Math.round(t.manhours / maxM * 100);
+        var under = t.units > 0 && t.manhours <= 0;
+        return '<div class="dr-tl-col' + (under ? ' dr-tl-under' : '') + '">' +
+            '<div class="dr-tl-bars">' +
+                '<div class="dr-tl-bar dr-tl-units" style="height:' + uh + '%" title="' + _drNum(t.units, 0) + ' enheder"></div>' +
+                '<div class="dr-tl-bar dr-tl-man" style="height:' + mh + '%" title="' + _drNum(t.manhours, 1) + ' mandetimer"></div>' +
+            '</div>' +
+            '<div class="dr-tl-hour">' + t.hour + '</div>' +
+        '</div>';
+    }).join('');
+    return '<div class="dr-section-title">Belastnings-tidslinje ' +
+        '<span class="dr-sub">(<i class="dr-lg dr-lg-u"></i> enheder · <i class="dr-lg dr-lg-m"></i> produktions-mandetimer, pr. time)</span></div>' +
+        '<div class="dr-timeline">' + cols + '</div>';
 }
