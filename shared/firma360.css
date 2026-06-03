@@ -211,6 +211,38 @@
     color: var(--color-text, #1f2024);
 }
 
+/* Redigerbare stamdata-rækker (CVR / EAN / juridisk navn) */
+.f3-row-editable .f3-edit-btn {
+    opacity: 0;
+    border: none;
+    background: none;
+    cursor: pointer;
+    color: var(--color-text-dim, #7c8089);
+    font-size: 13px;
+    padding: 0 2px;
+    line-height: 1;
+    transition: opacity 0.12s, color 0.12s;
+}
+.f3-row-editable:hover .f3-edit-btn { opacity: 1; }
+.f3-row-editable .f3-edit-btn:hover { color: var(--brand-primary, #8e631f); }
+.f3-edit-wrap {
+    flex: 1;
+    display: flex;
+    gap: 6px;
+    align-items: center;
+}
+.f3-edit-input {
+    flex: 1;
+    min-width: 0;
+    padding: 4px 8px;
+    border: 1px solid var(--brand-primary, #8e631f);
+    border-radius: 5px;
+    font-size: 13px;
+    font-family: inherit;
+}
+.f3-edit-input:focus { outline: none; box-shadow: 0 0 0 2px rgba(142, 99, 31, 0.18); }
+.f3-edit-save { color: var(--brand-primary, #8e631f); font-weight: 600; }
+
 .f3-actions {
     margin-top: 14px;
     display: flex;

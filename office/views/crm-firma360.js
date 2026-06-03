@@ -169,9 +169,9 @@ function _f3RenderOversigt(el) {
                     <span class="f3-card-title">Stamdata</span>
                 </div>
                 <div class="f3-card-b">
-                    <div class="f3-row"><span class="f3-lbl">CVR</span><span class="f3-val">${company.cvr ? company.cvr : '<span class="f3-muted">—</span>'}</span></div>
-                    <div class="f3-row"><span class="f3-lbl">EAN</span><span class="f3-val">${company.ean ? company.ean : '<span class="f3-muted">—</span>'}</span></div>
-                    <div class="f3-row"><span class="f3-lbl">Juridisk</span><span class="f3-val">${company.legal_name ? escapeHtml(company.legal_name) : '<span class="f3-muted">—</span>'}</span></div>
+                    ${_f3EditableRow('CVR', 'cvr', company.cvr)}
+                    ${_f3EditableRow('EAN', 'ean', company.ean)}
+                    ${_f3EditableRow('Juridisk', 'legal_name', company.legal_name)}
                     <div class="f3-row"><span class="f3-lbl">Branche</span><span class="f3-val">${company.branch ? escapeHtml(company.branch) : '<span class="f3-muted">—</span>'}</span></div>
                     <div class="f3-row"><span class="f3-lbl">Selskabsform</span><span class="f3-val">${company.company_type ? escapeHtml(company.company_type) : '<span class="f3-muted">—</span>'}</span></div>
                     <div class="f3-row"><span class="f3-lbl">Ansatte</span><span class="f3-val">${company.employee_count ? company.employee_count : '<span class="f3-muted">—</span>'}</span></div>
@@ -215,6 +215,8 @@ function _f3RenderOversigt(el) {
     // Event-binding
     el.querySelector('#f3-enrich-btn')?.addEventListener('click', _f3OpenEnrich);
     el.querySelector('#f3-paste-btn')?.addEventListener('click', _f3OpenPaste);
+    el.querySelectorAll('.f3-edit-btn[data-edit-field]').forEach(btn =>
+        btn.addEventListener('click', () => _f3StartEditField(btn.dataset.editField)));
     el.querySelectorAll('.f3-cp-toggle-public').forEach(btn =>
         btn.addEventListener('click', _f3HandleTogglePublic));
     el.querySelectorAll('.f3-cp-delete').forEach(btn =>
@@ -226,6 +228,91 @@ function _f3RenderOversigt(el) {
     el.querySelectorAll('.f3-flag-remove').forEach(btn =>
         btn.addEventListener('click', () => _f3RemoveFlag(parseInt(btn.dataset.flagId, 10))));
     el.querySelector('#f3-flag-add-btn')?.addEventListener('click', _f3AddFlag);
+}
+
+// ─── Redigerbare stamdata-felter (CVR / EAN / juridisk navn) ─
+
+const _F3_FIELD_META = {
+    cvr:        { label: 'CVR',     placeholder: '8 cifre',  inputmode: 'numeric' },
+    ean:        { label: 'EAN',     placeholder: '13 cifre', inputmode: 'numeric' },
+    legal_name: { label: 'Juridisk', placeholder: 'Juridisk navn' },
+};
+
+function _f3EditableRow(label, field, value) {
+    const val = value
+        ? (field === 'legal_name' ? escapeHtml(value) : escapeHtml(String(value)))
+        : '<span class="f3-muted">—</span>';
+    return `<div class="f3-row f3-row-editable" data-field-row="${field}">
+        <span class="f3-lbl">${label}</span>
+        <span class="f3-val">${val}</span>
+        <button class="f3-edit-btn" data-edit-field="${field}" title="Ret ${label}">✎</button>
+    </div>`;
+}
+
+function _f3StartEditField(field) {
+    const meta = _F3_FIELD_META[field];
+    const row = _f3State.container?.querySelector(`[data-field-row="${field}"]`);
+    if (!meta || !row || row.classList.contains('editing')) return;
+
+    const current = _f3State.data?.company?.[field] ?? '';
+    row.classList.add('editing');
+    row.innerHTML = `
+        <span class="f3-lbl">${meta.label}</span>
+        <span class="f3-edit-wrap">
+            <input type="text" class="f3-edit-input" value="${escapeHtml(String(current))}"
+                   placeholder="${meta.placeholder}"${meta.inputmode ? ` inputmode="${meta.inputmode}"` : ''}>
+            <button class="f3-btn-sm f3-edit-save">Gem</button>
+            <button class="f3-btn-sm f3-edit-cancel">Annullér</button>
+        </span>`;
+
+    const input = row.querySelector('.f3-edit-input');
+    input.focus();
+    input.select();
+
+    const save = () => _f3SaveField(field, input.value);
+    row.querySelector('.f3-edit-save').addEventListener('click', save);
+    row.querySelector('.f3-edit-cancel').addEventListener('click', _f3Reload);
+    input.addEventListener('keydown', (e) => {
+        if (e.key === 'Enter') { e.preventDefault(); save(); }
+        else if (e.key === 'Escape') { e.preventDefault(); _f3Reload(); }
+    });
+}
+
+async function _f3SaveField(field, rawValue) {
+    const before = _f3State.data?.company?.[field] ?? null;
+    const value = rawValue.trim();
+
+    // Klient-side validering (serveren validerer også)
+    if (field === 'cvr') {
+        const digits = value.replace(/\D/g, '');
+        if (digits !== '' && digits.length !== 8) {
+            _f3ShowToast('CVR skal være 8 cifre', 'error'); return;
+        }
+    } else if (field === 'ean') {
+        const digits = value.replace(/\D/g, '');
+        if (digits !== '' && digits.length !== 13) {
+            _f3ShowToast('EAN skal være 13 cifre', 'error'); return;
+        }
+    }
+
+    try {
+        await patchCompanyIdentifiers(_f3State.companyId, { [field]: value });
+    } catch (err) {
+        _f3ShowToast('Kunne ikke gemme: ' + (err.message || 'fejl'), 'error');
+        return;
+    }
+
+    await _f3Reload();
+    _f3ShowToast(_F3_FIELD_META[field].label + ' opdateret', 'success');
+
+    // Hvis CVR blev ændret, tilbyd at hente firmadata fra det nye nummer
+    if (field === 'cvr') {
+        const after = value.replace(/\D/g, '');
+        if (after && after !== (before || '') &&
+            window.confirm('CVR rettet. Vil du hente firmadata (juridisk navn, branche, kontaktpunkter) fra det nye CVR nu?')) {
+            _f3OpenEnrich();
+        }
+    }
 }
 
 // ─── Påmindelser (CLAUDE_KUNDE_FLAGS.md) ────────────────────
