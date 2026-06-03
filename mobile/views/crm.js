@@ -610,7 +610,9 @@ function _mcStageLabel(s) {
 
 function _mcTimeAgo(iso) {
     if (!iso) return '';
-    var then = new Date(iso.replace(' ', 'T'));
+    // last_contact_at / callback (created_at) er UTC — parseServerDate undgår
+    // dag-skift nær midnat.
+    var then = (typeof parseServerDate === 'function') ? parseServerDate(iso) : new Date(iso.replace(' ', 'T') + 'Z');
     var now = new Date();
     var diffDays = Math.floor((now - then) / 86400000);
     if (diffDays < 1) return 'i dag';

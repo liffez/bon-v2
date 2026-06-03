@@ -1048,7 +1048,9 @@ async function _f3ReloadCps() {
 
 function _f3FormatDate(iso) {
     if (!iso) return '—';
-    const d = new Date(iso);
+    // last_enriched_at / flag created_at er UTC — parseServerDate undgår
+    // off-by-one på datoen for hændelser i UTC-aftenvinduet.
+    const d = (typeof parseServerDate === 'function') ? parseServerDate(iso) : new Date(iso);
     if (isNaN(d.getTime())) return iso;
     return d.toLocaleDateString('da-DK', { day: '2-digit', month: 'short', year: 'numeric' });
 }
