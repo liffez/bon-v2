@@ -93,8 +93,14 @@ function _kiShellHtml() {
 .ki-panel { background: #fff; border: 1px solid var(--color-border, #d7d1ca); border-radius: 8px; padding: 16px; }
 .ki-panel h3 { margin: 0 0 12px; font-size: 14px; color: #666; text-transform: uppercase; letter-spacing: 0.5px; }
 .ki-slider-row { display: flex; align-items: center; gap: 8px; margin-bottom: 8px; }
-.ki-slider-row label { width: 80px; font-size: 13px; }
-.ki-slider-row input[type=range] { flex: 1; }
+.ki-slider-row label { flex: 0 0 112px; font-size: 13px; display: flex; align-items: center; }
+.ki-slider-row input[type=range] { flex: 1; min-width: 0; }
+.ki-info { display: inline-flex; align-items: center; justify-content: center; width: 15px; height: 15px; margin-left: 5px; border-radius: 50%; background: #e3ddd4; color: #6b5836; font-size: 10px; font-weight: 700; font-family: var(--font-body, sans-serif); cursor: help; position: relative; flex: 0 0 auto; }
+.ki-info:hover { background: var(--brand-primary, #8e631f); color: #fff; }
+.ki-info::after { content: attr(data-tip); position: absolute; left: 50%; top: 150%; transform: translateX(-50%); width: 210px; background: #2b2b2b; color: #fff; padding: 8px 10px; border-radius: 6px; font-size: 12px; font-weight: 400; line-height: 1.45; text-transform: none; letter-spacing: normal; white-space: normal; text-align: left; z-index: 60; opacity: 0; pointer-events: none; transition: opacity 0.12s; box-shadow: 0 4px 14px rgba(0,0,0,0.28); }
+.ki-info::before { content: ''; position: absolute; left: 50%; top: 150%; transform: translate(-50%, -5px); border: 5px solid transparent; border-bottom-color: #2b2b2b; opacity: 0; pointer-events: none; transition: opacity 0.12s; z-index: 60; }
+.ki-info:hover::after, .ki-info:hover::before { opacity: 1; }
+.ki-panel h3 .ki-info { vertical-align: middle; }
 .ki-slider-row .ki-val { width: 36px; text-align: right; font-size: 13px; font-weight: 600; }
 .ki-btn { padding: 8px 16px; border: none; border-radius: 6px; cursor: pointer; font-size: 13px; }
 .ki-btn-primary { background: var(--brand-primary, #8e631f); color: #fff; }
@@ -153,20 +159,20 @@ function _kiRenderSidebar() {
 
     el.innerHTML = `
         <div class="ki-panel">
-            <h3>RFM-vægte</h3>
-            ${_kiSlider('w_r', 'Recency (R)', cfg.w_r || 35)}
-            ${_kiSlider('w_f', 'Frequency (F)', cfg.w_f || 40)}
-            ${_kiSlider('w_m', 'Monetary (M)', cfg.w_m || 25)}
+            <h3>RFM-vægte ${_kiInfo('RFM scorer hver kunde 0–100 ud fra tre ting: hvornår de sidst købte (Recency), hvor ofte (Frequency) og hvor meget (Monetary). Vægtene afgør hvor meget hver del tæller — de skaleres automatisk til 100% tilsammen.')}</h3>
+            ${_kiSlider('w_r', 'Recency (R)', cfg.w_r || 35, 0, 100, 'Hvor for nylig kunden sidst har bestilt. Højere vægt belønner kunder der har handlet for nylig.')}
+            ${_kiSlider('w_f', 'Frequency (F)', cfg.w_f || 40, 0, 100, 'Hvor ofte kunden bestiller. Højere vægt belønner trofaste gengangere.')}
+            ${_kiSlider('w_m', 'Monetary (M)', cfg.w_m || 25, 0, 100, 'Hvor stor kunden er — målt i gæster eller kroner (jf. Monetary-mål). Højere vægt belønner de store kunder.')}
             <div style="margin-top:8px;font-size:11px;color:#888">Normaliseres automatisk til 100%</div>
         </div>
         <div class="ki-panel">
-            <h3>Tærskler</h3>
-            ${_kiSlider('vip_pct', 'VIP (top %)', cfg.vip_pct || 15, 5, 30)}
-            ${_kiSlider('aktiv_pct', 'Aktiv (top %)', cfg.aktiv_pct || 50, 20, 80)}
-            ${_kiSlider('recency_days', 'Recency (dage)', cfg.recency_days || 180, 30, 730)}
+            <h3>Tærskler ${_kiInfo('Grænserne der inddeler kunderne i segmenter (VIP, Aktiv, Sovende, Lead) ud fra deres RFM-score og hvornår de sidst bestilte.')}</h3>
+            ${_kiSlider('vip_pct', 'VIP (top %)', cfg.vip_pct || 15, 5, 30, 'De bedste X% af kunderne (efter RFM-score) markeres som VIP.')}
+            ${_kiSlider('aktiv_pct', 'Aktiv (top %)', cfg.aktiv_pct || 50, 20, 80, 'De bedste X% regnes som Aktive. Resten bliver Sovende eller Leads.')}
+            ${_kiSlider('recency_days', 'Recency (dage)', cfg.recency_days || 180, 30, 730, 'En kunde bliver markeret Sovende hvis der er gået flere end så mange dage siden sidste ordre.')}
         </div>
         <div class="ki-panel">
-            <h3>Monetary-mål</h3>
+            <h3>Monetary-mål ${_kiInfo('Vælg hvad \'Monetary (M)\' måles på når kunderne scores: antal gæster pr. event, eller kroner i omsætning.')}</h3>
             <div style="display:flex;gap:8px">
                 <button class="ki-btn ${cfg.monetary_mode !== 'revenue' ? 'ki-btn-primary' : 'ki-btn-secondary'}"
                     onclick="_kiSetMonetary('pax')">Gæster</button>
@@ -179,7 +185,7 @@ function _kiRenderSidebar() {
         </button>
         ${_kiIcp ? `
         <div class="ki-panel">
-            <h3>ICP-profil (${_kiIcp.source === 'vip' ? 'VIP' : 'Top 25%'})</h3>
+            <h3>ICP-profil (${_kiIcp.source === 'vip' ? 'VIP' : 'Top 25%'}) ${_kiInfo('Ideal Customer Profile — gennemsnitsbilledet af dine bedste kunder (VIP eller top 25%). Brug den til at genkende nye emner der ligner dine bedste kunder.')}</h3>
             <div class="ki-icp">
                 <div class="ki-icp-item"><div class="ki-icp-label">Firmaer</div><div class="ki-icp-value">${_kiIcp.company_count || 0}</div></div>
                 <div class="ki-icp-item"><div class="ki-icp-label">Gns. ordrer</div><div class="ki-icp-value">${_kiIcp.avg_orders || 0}</div></div>
@@ -203,11 +209,15 @@ function _kiRenderSidebar() {
     `;
 }
 
-function _kiSlider(key, label, value, min, max) {
+function _kiInfo(tip) {
+    return `<span class="ki-info" data-tip="${tip}">i</span>`;
+}
+
+function _kiSlider(key, label, value, min, max, tip) {
     min = min || 0;
     max = max || 100;
     return `<div class="ki-slider-row">
-        <label>${label}</label>
+        <label>${label}${tip ? _kiInfo(tip) : ''}</label>
         <input type="range" min="${min}" max="${max}" value="${value}" id="ki-sl-${key}"
             oninput="document.getElementById('ki-sv-${key}').textContent=this.value">
         <span class="ki-val" id="ki-sv-${key}">${value}</span>
