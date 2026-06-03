@@ -34,7 +34,7 @@ function r2(n) { return Math.round(((n || 0) + Number.EPSILON) * 100) / 100; }
 
 /* ── Kerne-beregning (genbruges af /day + /refreeze) ─────── */
 
-async function computeDay(db, date, mode) {
+async function computeDay(db, date, mode, prefetchedLabor) {
     const statusClause = mode === 'realiseret'
         ? `AND sd.code IN (${REALISERET_STATUS.map(() => '?').join(',')})`
         : `AND sd.code <> 'AFLYST'`;
@@ -63,9 +63,15 @@ async function computeDay(db, date, mode) {
     const delivery = r2(bonAgg.delivery_ex);
     const units    = Number(bonAgg.units) || 0;
 
+    // prefetchedLabor: forud-hentet løn for denne dato (periode-batch). Et array
+    // (også tomt) betyder "allerede hentet" → spring per-dag Smartplan-kaldet over.
     let laborRows = [], laborError = null;
-    try { laborRows = await labor.getLabor(date, mode); }
-    catch (e) { laborError = e.message; }
+    if (Array.isArray(prefetchedLabor)) {
+        laborRows = prefetchedLabor;
+    } else {
+        try { laborRows = await labor.getLabor(date, mode); }
+        catch (e) { laborError = e.message; }
+    }
 
     const prod   = laborRows.filter(l => l.role_class === 'production');
     const nonBud = laborRows.filter(l => l.role_class !== 'delivery');
@@ -176,12 +182,12 @@ router.post('/refreeze', ADMIN, handle(async (req, res) => {
 
 // Læs én dag til periode-visning: frosset snapshot hvis det findes (afsluttet
 // dag), ellers live beregning. Opretter IKKE snapshot (kun /day fryser).
-async function readDay(db, date, mode) {
+async function readDay(db, date, mode, prefetchedLabor) {
     if (date < todayISO() && mode === 'realiseret') {
         const snap = db.prepare('SELECT data_json FROM labor_day_snapshot WHERE snapshot_date=? AND mode=?').get(date, mode);
         if (snap) return { ...JSON.parse(snap.data_json), frozen: true };
     }
-    return { ...(await computeDay(db, date, mode)), frozen: false };
+    return { ...(await computeDay(db, date, mode, prefetchedLabor)), frozen: false };
 }
 
 router.get('/period', ALL, handle(async (req, res) => {
@@ -190,18 +196,30 @@ router.get('/period', ALL, handle(async (req, res) => {
     if (!from || !to) return res.status(400).json({ error: 'from + to (YYYY-MM-DD) kræves' });
     const mode = req.query.mode === 'forecast' ? 'forecast' : 'realiseret';
 
-    // Byg dagsliste (cap 62 dage)
+    // Byg dagsliste. Hårdt loft = 1 år: AFVIS (fejl) frem for tavs afkortning,
+    // så et urealistisk stort interval ikke ser ud som om hele perioden er med.
+    const MAX_DAYS = 366;
     const dates = [];
     for (let d = new Date(from + 'T12:00:00'); ; d.setDate(d.getDate() + 1)) {
         const iso = new Intl.DateTimeFormat('en-CA', { timeZone: 'Europe/Copenhagen' }).format(d);
-        if (iso > to || dates.length >= 62) break;
+        if (iso > to) break;
+        if (dates.length >= MAX_DAYS) {
+            return res.status(400).json({ error: `Vælg højst ${MAX_DAYS} dage (1 år) ad gangen.`, code: 'PERIOD_TOO_LONG', max_days: MAX_DAYS });
+        }
         dates.push(iso);
     }
 
     const db = getDb();
+
+    // Batch-hent løn for hele intervallet i ÉT Smartplan-kald (i stedet for ét
+    // pr. dag). Frosne fortidsdage læses fra snapshot og rører ikke dette map.
+    let laborMap = {};
+    try { laborMap = await labor.getLaborMap(from, to, mode); }
+    catch (_) { laborMap = {}; }   // Smartplan nede → løn=0 (samme som per-dag-fejl)
+
     const days = [];
     for (const date of dates) {
-        const d = await readDay(db, date, mode);
+        const d = await readDay(db, date, mode, laborMap[date] || []);
         days.push({
             date, frozen: d.frozen,
             revenue_ex_moms: d.revenue_ex_moms, cost_ex_moms: d.cost_ex_moms,
