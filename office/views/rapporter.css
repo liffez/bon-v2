@@ -149,7 +149,7 @@
 
 .rap-bar-row {
   display: grid;
-  grid-template-columns: 28px 1fr minmax(100px, 200px) auto;
+  grid-template-columns: 28px 1fr 200px 96px;
   align-items: center;
   gap: 8px;
   font-family: var(--font-body, 'DM Sans', sans-serif);
@@ -379,7 +379,7 @@
     grid-template-columns: 1fr;
   }
   .rap-bar-row {
-    grid-template-columns: 24px 1fr 80px auto;
+    grid-template-columns: 24px 1fr 90px 84px;
   }
 }
 
