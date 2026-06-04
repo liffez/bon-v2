@@ -1,0 +1,89 @@
+{
+  "_note": "RR-specifik POST /orders eksempel + 201-response. Kilde: Postman-workspace 'Public API Client example RistetRug - ByExpressen' (screenshot 3. juni 2026). Bruges til at verificere buildOrderPayload + priceQuote-kostekstraktion mod ægte Ristet Rug-værdier.",
+  "request": {
+    "customernumber": 18062101,
+    "fkproduct": 39,
+    "external_api_id": "1008",
+    "stops": [
+      { "fkplace": 3233, "notepublic": "kl. 11, 3 kasser" },
+      { "contactperson": "Test Jozsi", "street": "Bryghuspladsen", "housenumber": 8, "addition": "", "zip": "1473", "city": "København", "notepublic": "Leif" }
+    ]
+  },
+  "response": {
+    "data": [
+      {
+        "uuid": "442499c4-1ed6-4623-bd77-bcb3dc10bfc3",
+        "numberformatted": "240.400.087",
+        "customernumber": 18062101,
+        "status": "open",
+        "writeprotection": "none",
+        "created": "2024-01-22T12:14:57+01:00",
+        "displaytime": "2024-01-22T11:14:59+01:00",
+        "reftime": "2024-01-22T12:15:00+01:00",
+        "finished": "",
+        "fkcarrier": null,
+        "fkproduct": 39,
+        "fkcustomer": 1659,
+        "customerreferenceorder": "",
+        "contactperson": "",
+        "notepublic": "",
+        "noteinhouse": "",
+        "external_api_uuid": "",
+        "external_api_data": "",
+        "flags": { "new": 1 },
+        "stops": [
+          {
+            "id": 1493267,
+            "fkorderuuid": "442499c4-1ed6-4623-bd77-bcb3dc10bfc3",
+            "position": 1,
+            "tw_estimated_end": "2024-01-22T12:45:00+01:00",
+            "name": "Nordic Fast Food",
+            "alias": "Ristet Rug (Nørrebro)",
+            "fkplace": 3233,
+            "placetype": "place",
+            "street": "Prinsesse Charlottes Gade",
+            "hnr_add_sfx": "16",
+            "zip": "2200",
+            "city": "København N",
+            "isocode": "DNK",
+            "notepublic": "kl. 11, 3 kasser"
+          },
+          {
+            "id": 1493268,
+            "fkorderuuid": "442499c4-1ed6-4623-bd77-bcb3dc10bfc3",
+            "position": 2,
+            "tw_estimated_begin": "2024-01-22T12:35:00+01:00",
+            "tw_estimated_end": "2024-01-22T13:10:00+01:00",
+            "fkplace": 1215,
+            "placetype": "address",
+            "housenumber": 8,
+            "hnr_add_sfx": "8",
+            "zip": "1473",
+            "city": "København K",
+            "contactperson": "Test Jozsi",
+            "notepublic": "Leif"
+          }
+        ],
+        "ordersurchargequantities": [],
+        "orderpricescalequantities": [],
+        "downloadlinks": {
+          "download_pod": "https://byexpressen.lobolink.eu/lobo/sandbox/api/v3/public/downloads/pdf/pod/442499c4-1ed6-4623-bd77-bcb3dc10bfc3",
+          "download_shipdoc": "https://byexpressen.lobolink.eu/lobo/sandbox/api/v3/public/downloads/pdf/shipdoc/442499c4-1ed6-4623-bd77-bcb3dc10bfc3"
+        },
+        "discountpercentage": 0,
+        "discount": 0,
+        "routedistance": 3531,
+        "distanceestimate": 3531,
+        "co2saving": 459,
+        "extrachargecost": 0,
+        "pricescalecost": 0,
+        "expendituresgrossum": null,
+        "vatrate": 25,
+        "vat": 22.5,
+        "costtotal_net": 90,
+        "costtotal_gross": 112.5
+      }
+    ],
+    "meta": { "count": 1, "totalcount": 1 }
+  }
+}

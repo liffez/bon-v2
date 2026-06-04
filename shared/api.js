@@ -1612,6 +1612,23 @@ function fetchDeliveryEvents(bonId) {
     return apiFetch('/delivery/events?bon_id=' + bonId);
 }
 
+// Lobo/By-expressen — live kostpris for én bon (opretter + sletter en
+// orderdraft hos Lobo; INGEN ordre bookes). Returnerer { cost_ex, cost_incl,
+// customer_ex, margin, routedistance, co2saving }.
+function fetchLoboQuote(bonId, boxes) {
+    var qs = '/delivery/lobo/quote?bon_id=' + bonId;
+    if (boxes != null && boxes !== '') qs += '&boxes=' + encodeURIComponent(boxes);
+    return apiFetch(qs);
+}
+
+// Lobo/By-expressen — rigtig booking (dispatch). Mod productive kræves confirm:true.
+function bookLoboDelivery(data) {
+    return apiFetch('/delivery/lobo/book', {
+        method: 'POST',
+        body: JSON.stringify(data),
+    });
+}
+
 // Spor 2 — leverings-forslag. data: { bon_id } eller
 // { lat, lng, delivery_time?, boxes?, pax? }
 function calculateDelivery(data) {

@@ -394,7 +394,10 @@ function _logRenderBons() {
                 '<span class="log-bon-status status-' + statusCls + '">' + _logEsc(b.status_code || '') + '</span>' +
               '</div>' +
               addrHtml +
-              '<div class="log-bon-meta">' + routeLine + '</div>' +
+              '<div class="log-bon-meta">' + routeLine +
+                (onRoute ? '' : '<button class="log-byex-btn" data-byex="' + b.id + '" title="Hent live By-ex pris">💰 By-ex pris</button>') +
+              '</div>' +
+              '<div class="log-byex-result" data-byex-result="' + b.id + '" hidden></div>' +
             '</div>' +
         '</div>';
     }).join('');
@@ -455,8 +458,52 @@ function _logOnBonClick(e) {
     }
     // Adresse-link → lad browseren åbne Google Maps; åbn ikke draweren.
     if (e.target.closest('.log-bon-addr-link')) return;
+    // Kasse-stepper i By-ex resultatet → gen-hent med justeret antal.
+    var boxBtn = e.target.closest('.log-box-btn');
+    if (boxBtn) {
+        var resEl = row.querySelector('.log-byex-result');
+        var cur = resEl ? (parseInt(resEl.getAttribute('data-boxes'), 10) || 0) : 0;
+        _logFetchByExPrice(id, row, Math.max(0, cur + parseInt(boxBtn.getAttribute('data-box'), 10)));
+        return;
+    }
+    // "By-ex pris"-knap → hent live kostpris inline (åbn ikke draweren).
+    if (e.target.closest('.log-byex-btn')) { _logFetchByExPrice(id, row); return; }
     // Alt andet på rækken → åbn bon-draweren.
     if (_logOptions.openDrawer) _logOptions.openDrawer(id);
+}
+
+// On-demand By-ex (Lobo) kostpris for én bon. Opretter + sletter en orderdraft
+// hos Lobo (INGEN ordre, intet bud) og viser kostpris + margin inline.
+function _logFetchByExPrice(id, row, boxes) {
+    var btn = row.querySelector('.log-byex-btn');
+    var out = row.querySelector('.log-byex-result[data-byex-result="' + id + '"]');
+    if (!out) return;
+    if (btn) btn.disabled = true;
+    out.hidden = false;
+    out.className = 'log-byex-result loading';
+    out.textContent = 'Henter By-ex pris…';
+    fetchLoboQuote(id, boxes).then(function(q) {
+        var kr = function(n) { return n == null ? '–' : Number(n).toLocaleString('da-DK', { maximumFractionDigits: 2 }) + ' kr'; };
+        var dist = q.routedistance != null ? ' · ' + (q.routedistance / 1000).toLocaleString('da-DK', { maximumFractionDigits: 1 }) + ' km' : '';
+        var marginHtml = '';
+        if (q.margin != null) {
+            marginHtml = ' · <span class="byex-margin ' + (q.margin < 0 ? 'neg' : 'pos') + '">margin '
+                + (q.margin >= 0 ? '+' : '') + kr(q.margin) + '</span>';
+        }
+        out.setAttribute('data-boxes', q.boxes);
+        out.className = 'log-byex-result ok';
+        out.innerHTML = '🚴 <strong>' + kr(q.cost_ex) + '</strong> <span class="byex-dim">ex moms</span>' + marginHtml + dist
+            + ' · <span class="log-box-stepper">Kasser <button type="button" class="log-box-btn" data-box="-1">−</button>'
+            + '<span class="log-box-n">' + q.boxes + '</span>'
+            + '<button type="button" class="log-box-btn" data-box="1">+</button></span>';
+    }).catch(function(err) {
+        out.className = 'log-byex-result err';
+        out.textContent = (err && err.code === 'config')
+            ? 'By-ex ikke konfigureret endnu'
+            : 'Kunne ikke hente pris: ' + ((err && err.message) || 'fejl');
+    }).finally(function() {
+        if (btn) btn.disabled = false;
+    });
 }
 
 /* ── Vælg-bar (opret tur) ──────────────────────────────── */

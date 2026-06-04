@@ -108,7 +108,7 @@ async function computePickupTime(bon, vehicle) {
 //
 // Returnerer det oprettede event (med id).
 // ==========================================
-async function logBookingEvent({ bonId, vehicleId, reference = null, status = 'booked', userId = null, note = null }) {
+async function logBookingEvent({ bonId, vehicleId, reference = null, status = 'booked', userId = null, note = null, snapshot = null }) {
     if (!bonId) throw new Error('bonId påkrævet');
     if (!vehicleId) throw new Error('vehicleId påkrævet');
     if (!VALID_BOOKING_STATUSES.has(status)) {
@@ -153,8 +153,8 @@ async function logBookingEvent({ bonId, vehicleId, reference = null, status = 'b
         const insertResult = db.prepare(`
             INSERT INTO delivery_events
                 (bon_id, event_type, provider, external_reference,
-                 vehicle_id, booked_by_user_id, notes, event_time)
-            VALUES (?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP)
+                 vehicle_id, booked_by_user_id, notes, snapshot_json, event_time)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP)
         `).run(
             bonId,
             eventType,
@@ -162,7 +162,8 @@ async function logBookingEvent({ bonId, vehicleId, reference = null, status = 'b
             reference,
             vehicleId,
             userId,
-            noteWithStatus
+            noteWithStatus,
+            snapshot ? JSON.stringify(snapshot) : null
         );
 
         const eventId = insertResult.lastInsertRowid;
