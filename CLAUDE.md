@@ -56,6 +56,13 @@ Skift til produktion (`grocycafe`) sker først ved release.
 `default_grocy_location_id = 3` (Test) i settings-tabellen styrer dette.
 Lokationer defineres i `locations`-tabellen: HQ=grocycafe, Trailer=grocytrailer, Test=grocytest.
 
+**Lokalt login (udvikling/browser-test):** Det rigtige `admin@ristetrug.dk`-password er
+ikke kendt. Brug i stedet en dedikeret lokal test-admin:
+`dev@ristetrug.dk` / `dev1234` (PIN `9999`, rolle admin). Den ligger i den lokale
+`data/bon.db` (ikke i git) og persisterer mellem sessioner. Genskab/nulstil med
+`npm run dev-admin` (`scripts/dev-admin.js` — idempotent, nægter at køre i production).
+Test mod **syntetiske** data og ryd op bagefter — dev-DB'en har rigtige kunde-/mail-data.
+
 **Smartplan:** OAuth2 via `SMARTPLAN_CLIENT_ID` + `SMARTPLAN_CLIENT_SECRET` i `.env`.
 API base: `https://api.smartplanapp.io/v2`. Token-endpoint: `/o/token/`.
 
