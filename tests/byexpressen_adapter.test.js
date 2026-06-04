@@ -12,6 +12,8 @@ const path = require('node:path');
 
 const {
     createByExpressenAdapter,
+    resolveLoboConfig,
+    bonToOrderInput,
     ByExpressenError,
     extractCostEx,
     computeHmac,
@@ -320,6 +322,46 @@ test('priceQuote opretter draft og returnerer Lobos kostpris (RR: 90 kr ex moms)
     assert.strictEqual(q.co2saving, 459);
     assert.strictEqual(q.uuid, '442499c4-1ed6-4623-bd77-bcb3dc10bfc3');
     assert.ok(posted, 'draft blev POSTet');
+});
+
+/* ── CONFIG-RESOLUTION + BON-MAPPING ──────────────────────── */
+
+test('resolveLoboConfig merger vogn-config + .env-creds', () => {
+    const row = { booking_api_config_json: JSON.stringify({ base_url: 'x', customernumber: 18062101, fkproduct: 39 }) };
+    const { config, credentials } = resolveLoboConfig(row, { BY_EKS_USWER: 'u', BY_EX_CODE: 'p' });
+    assert.strictEqual(config.fkproduct, 39);
+    assert.deepStrictEqual(credentials, { user: 'u', pass: 'p' });
+});
+
+test('resolveLoboConfig kaster ved manglende creds eller config', () => {
+    const row = { booking_api_config_json: '{"base_url":"x"}' };
+    assert.throws(() => resolveLoboConfig(row, {}), ByExpressenError);
+    assert.throws(() => resolveLoboConfig({}, { BY_EKS_USWER: 'u', BY_EX_CODE: 'p' }), ByExpressenError);
+});
+
+test('bonToOrderInput mapper bon.delivery_address → leverings-stop', () => {
+    const bon = {
+        id: 3248,
+        bon_number: 'B3248',
+        delivery_notes: 'opg. 6, kode 1234',
+        day_contact_name: 'Anne',
+        delivery_address: { street_name: 'Bryghuspladsen', street_nr: '8', postal_code: '1473', city: 'København' },
+    };
+    const input = bonToOrderInput(bon, { pickupNote: 'kl. 11' });
+    assert.strictEqual(input.external_api_id, 3248);           // integer
+    assert.strictEqual(input.external_api_data, 'B3248');      // bonnr m. præfiks som string
+    assert.strictEqual(input.delivery.street, 'Bryghuspladsen');
+    assert.strictEqual(input.delivery.housenumber, 8);         // tal-del
+    assert.strictEqual(input.delivery.zip, '1473');
+    assert.strictEqual(input.delivery.contactperson, 'Anne');
+    assert.strictEqual(input.deliveryNote, 'opg. 6, kode 1234');
+    assert.strictEqual(input.pickupNote, 'kl. 11');
+});
+
+test('bonToOrderInput splitter husnummer med bogstav (8B → housenumber 8 + addition B)', () => {
+    const input = bonToOrderInput({ id: 1, delivery_address: { street_name: 'Vej', street_nr: '8B', postal_code: '2200', city: 'Kbh' } });
+    assert.strictEqual(input.delivery.housenumber, 8);
+    assert.strictEqual(input.delivery.addition, 'B');
 });
 
 /* ── HMAC-VERIFIKATION (ren krypto) ───────────────────────── */

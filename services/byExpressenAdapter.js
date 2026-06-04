@@ -451,6 +451,71 @@ function mapLoboEvent(target, event) {
     return EVENT_MAP[`${target}.${event}`] ?? null;
 }
 
+/* ══════════════════════════════════════════════════════════════
+   CONFIG-RESOLUTION (ren funktion) — vogn-row + env → {config, credentials}
+   ══════════════════════════════════════════════════════════════ */
+
+function resolveLoboConfig(vehicleRow, env = process.env) {
+    if (!vehicleRow) throw new ByExpressenError('By-expressen-vogn ikke fundet');
+    let cfg = vehicleRow.booking_api_config || null;
+    if (!cfg && vehicleRow.booking_api_config_json) {
+        try { cfg = JSON.parse(vehicleRow.booking_api_config_json); }
+        catch { throw new ByExpressenError('Ugyldig booking_api_config_json på vognen'); }
+    }
+    if (!cfg) throw new ByExpressenError('booking_api_config_json mangler på vognen');
+
+    const user = env.BY_EKS_USWER || env.BYEXPRESSEN_USER;
+    const pass = env.BY_EX_CODE || env.BYEXPRESSEN_PASS;
+    if (!user || !pass) throw new ByExpressenError('Lobo-credentials mangler i .env (BY_EKS_USWER/BY_EX_CODE)');
+
+    return { config: cfg, credentials: { user, pass } };
+}
+
+/* ══════════════════════════════════════════════════════════════
+   BON → ORDRE-INPUT (ren funktion)
+   ══════════════════════════════════════════════════════════════
+   Mapper en getBon()-formet bon til buildOrderPayload-input.
+   bon.delivery_address = { street_name, street_nr, postal_code, city, ... }.
+   Husnummer splittes i tal + evt. bogstav-tillæg (Lobo: housenumber=int).
+   ══════════════════════════════════════════════════════════════ */
+
+function bonToOrderInput(bon, opts = {}) {
+    const a = bon.delivery_address || {};
+    const nr = String(a.street_nr ?? '').trim();
+    const m = nr.match(/^(\d+)\s*(.*)$/);
+    const delivery = {
+        street: a.street_name || undefined,
+        ...(m ? { housenumber: parseInt(m[1], 10) } : (nr ? { hnr_add_sfx: nr } : {})),
+        ...(m && m[2] ? { addition: m[2] } : {}),
+        zip: a.postal_code || undefined,
+        city: a.city || undefined,
+        contactperson: bon.day_contact_name || bon.contact_name_full || undefined,
+    };
+    return {
+        external_api_id: bon.id,                              // integer (Lobo-krav)
+        external_api_data: bon.bon_number || undefined,       // string (bonnr m. præfiks)
+        delivery,
+        deliveryNote: bon.delivery_notes || undefined,
+        ...(opts.deliveryDeadlineIso ? { deliveryDeadlineIso: opts.deliveryDeadlineIso } : {}),
+        ...(opts.pickupNote ? { pickupNote: opts.pickupNote } : {}),
+        ...(Array.isArray(opts.surcharges) ? { surcharges: opts.surcharges } : {}),
+    };
+}
+
+/* ══════════════════════════════════════════════════════════════
+   BUILDER — henter By-expressen-vognen fra DB + creds fra .env
+   ══════════════════════════════════════════════════════════════ */
+
+function getByExpressenAdapter(opts = {}) {
+    const db = opts.db || require('../db/database').getDb();
+    const row = db.prepare(
+        `SELECT id, code, booking_method, booking_api_config_json
+         FROM delivery_vehicles WHERE code = 'byekspressen'`
+    ).get();
+    const { config, credentials } = resolveLoboConfig(row, opts.env);
+    return createByExpressenAdapter({ config, credentials, fetchImpl: opts.fetchImpl });
+}
+
 /* ── intern: parse json uden at kaste ── */
 async function safeJson(res) {
     try { return await res.json(); } catch { return null; }
@@ -458,6 +523,9 @@ async function safeJson(res) {
 
 module.exports = {
     createByExpressenAdapter,
+    getByExpressenAdapter,
+    resolveLoboConfig,
+    bonToOrderInput,
     ByExpressenError,
     DEFAULT_BOOKING_SCOPES,
     extractCostEx,
