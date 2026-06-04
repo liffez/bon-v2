@@ -982,10 +982,13 @@ function _f3RenderPasteResults(result) {
     const sourceText = result.source_url
         ? `Kilde: ${escapeHtml(result.source_url)}`
         : 'Ingen kilde-URL angivet';
+    const truncNote = stats.truncated
+        ? ' · <span style="color:var(--brand-primary)">listen er afkortet — klistr en mindre/mere præcis del ind hvis du mangler nogen</span>'
+        : '';
 
     overlay.querySelector('.f3-modal-f').innerHTML = `
         <div class="f3-modal-f-info">
-            ${stats.total_emails_found || 0} emails + ${stats.total_phones_found || 0} telefoner fundet · ${sourceText}
+            ${stats.total_emails_found || 0} emails + ${stats.total_phones_found || 0} telefoner fundet · ${sourceText}${truncNote}
         </div>
         <div class="f3-modal-f-actions">
             <button class="f3-btn" type="button" data-close>Annullér</button>

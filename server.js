@@ -28,7 +28,22 @@ if (IS_PROD && (!process.env.SESSION_SECRET || process.env.SESSION_SECRET === 'd
 
 // ─── MIDDLEWARE ─────────────────────────────────────────────────────────────
 
-app.use(express.json());
+// Limit hævet til 600kb: paste-flows (fx Firma 360° "Tilføj offentlige kontakter")
+// annoncerer 500kb rå tekst, og JSON-escaping kan gøre payloaden lidt større.
+app.use(express.json({ limit: '600kb' }));
+
+// Body-parser fejl (for stor payload, ugyldig JSON) → ren JSON i stedet for
+// Express' default HTML-svar, som frontendens apiFetch ikke kan parse (ville
+// give en kryptisk "API fejl: 413" eller hænge).
+app.use((err, req, res, next) => {
+  if (err && (err.type === 'entity.too.large' || err.status === 413)) {
+    return res.status(413).json({ error: 'Indholdet er for stort (max ~500 KB). Klistr en mindre del ind — fx kun footer/kontakt-sektionen.' });
+  }
+  if (err && (err.type === 'entity.parse.failed' || err instanceof SyntaxError)) {
+    return res.status(400).json({ error: 'Kunne ikke læse forespørgslen (ugyldig JSON).' });
+  }
+  next(err);
+});
 
 const session = require('express-session');
 const SqliteSessionStore = require('./db/session-store')(session);
