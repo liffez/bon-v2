@@ -26,11 +26,28 @@ function buildSurcharges(bon, cfg = {}) {
     return out;
 }
 
+// included_boxes for surcharge-beregning: cfg har forrang, ellers vognens
+// cost_formula (By-expressen: 2 kasser inkluderet).
+function resolveIncludedBoxes(cfg, vehicle) {
+    if (cfg.included_boxes != null) return Number(cfg.included_boxes) || 0;
+    if (vehicle && vehicle.cost_formula_json) {
+        try { const f = JSON.parse(vehicle.cost_formula_json); if (f.included_boxes != null) return Number(f.included_boxes) || 0; } catch { /* ignore */ }
+    }
+    return 0;
+}
+
 // Pris-tilbud: opret orderdraft → læs Lobos kostpris → slet kladden igen.
 // Returnerer kostpris (ex/incl), kundepris (fra vognens cost_formula) + margin.
-async function quoteForBon({ bon, vehicle, adapter }) {
-    const cfg = adapter.config || {};
-    const input = bonToOrderInput(bon, { pickupNote: 'pris-tjek', surcharges: buildSurcharges(bon, cfg) });
+// `boxes` (valgfri) overstyrer bonens kasse-antal — ekstra kasser koster mere
+// (surcharge hos Lobo + extra_box_cost i kundeprisen).
+async function quoteForBon({ bon, vehicle, adapter, boxes = null }) {
+    const cfg = { ...(adapter.config || {}) };
+    if (cfg.included_boxes == null) cfg.included_boxes = resolveIncludedBoxes(cfg, vehicle);
+
+    const effectiveBoxes = boxes != null && boxes !== '' ? Math.max(0, parseInt(boxes, 10) || 0) : (Number(bon.boxes) || 0);
+    const bonForCalc = { ...bon, boxes: effectiveBoxes };
+
+    const input = bonToOrderInput(bonForCalc, { pickupNote: 'pris-tjek', surcharges: buildSurcharges(bonForCalc, cfg) });
     const payload = adapter.buildOrderPayload(input);
 
     const quote = await adapter.priceQuote(payload);
@@ -39,7 +56,7 @@ async function quoteForBon({ bon, vehicle, adapter }) {
     }
 
     const costEx = quote.cost_ex;
-    const customerEx = vehicle ? (estimateCost(vehicle, bon) ?? null) : null;
+    const customerEx = vehicle ? (estimateCost(vehicle, bonForCalc) ?? null) : null;
     const margin = (customerEx != null && costEx != null)
         ? Math.round((customerEx - costEx) * 100) / 100
         : null;
@@ -51,18 +68,24 @@ async function quoteForBon({ bon, vehicle, adapter }) {
         margin,                          // advarsel-grundlag (negativ = vi taber) — blokerer ALDRIG
         routedistance: quote.routedistance,
         co2saving: quote.co2saving,
+        boxes: effectiveBoxes,
+        included_boxes: cfg.included_boxes,
     };
 }
 
 // Rigtig booking: POST /orders → skriv delivery_events (booked + snapshot) +
 // bons.delivery_cost (api) + SSE. Ved Lobo-fejl logges et 'failed'-event.
-async function bookForBon({ bon, vehicle, adapter, userId = null, deps = {} }) {
+async function bookForBon({ bon, vehicle, adapter, userId = null, boxes = null, deps = {} }) {
     const logBookingEvent = deps.logBookingEvent || require('./delivery_log').logBookingEvent;
     const setActualCost = deps.setActualCost || require('./delivery_log').setActualCost;
     const broadcast = deps.broadcast || require('../shared/sse').broadcast;
 
-    const cfg = adapter.config || {};
-    const input = bonToOrderInput(bon, { surcharges: buildSurcharges(bon, cfg) });
+    const cfg = { ...(adapter.config || {}) };
+    if (cfg.included_boxes == null) cfg.included_boxes = resolveIncludedBoxes(cfg, vehicle);
+    const effectiveBoxes = boxes != null && boxes !== '' ? Math.max(0, parseInt(boxes, 10) || 0) : (Number(bon.boxes) || 0);
+    const bonForCalc = { ...bon, boxes: effectiveBoxes };
+
+    const input = bonToOrderInput(bonForCalc, { surcharges: buildSurcharges(bonForCalc, cfg) });
     const payload = adapter.buildOrderPayload(input);
 
     let order;

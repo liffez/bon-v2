@@ -118,6 +118,14 @@
 .log-byex-result .byex-dim { color: var(--color-text-dim, #8a8580); }
 .log-byex-result .byex-margin.pos { color: #2e7d32; font-weight: 600; }
 .log-byex-result .byex-margin.neg { color: #bc181b; font-weight: 600; }
+.log-box-stepper { white-space: nowrap; }
+.log-box-stepper .log-box-n { display: inline-block; min-width: 12px; text-align: center; font-weight: 700; margin: 0 2px; }
+.log-box-btn {
+    width: 18px; height: 18px; line-height: 1; padding: 0; vertical-align: middle;
+    border: 1px solid #d7c7a8; border-radius: 4px; background: #fff;
+    color: var(--brand-primary, #8e631f); font-size: 13px; font-weight: 700; cursor: pointer;
+}
+.log-box-btn:hover { border-color: var(--brand-primary, #8e631f); }
 .log-bon-onroute { color: var(--brand-primary, #8e631f); font-weight: 600; }
 .log-bon-booked { color: #3a6a2e; font-weight: 600; }
 /* Vogn tildelt via det gamle delivery_method-felt (ikke en formel booking) —

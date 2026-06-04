@@ -702,6 +702,14 @@
 .drawer-lobo-quote .lq-margin.pos { color: #2e7d32; }
 .drawer-lobo-quote .lq-margin.neg { color: #bc181b; }
 .drawer-lobo-quote .lq-warn { margin-top: 6px; color: #bc181b; font-weight: 600; }
+.drawer-lobo-quote .lq-stepper { display: inline-flex; align-items: center; gap: 8px; }
+.drawer-lobo-quote .lq-box-n { min-width: 16px; text-align: center; }
+.drawer-lobo-quote .lq-box-btn {
+    width: 22px; height: 22px; line-height: 1; padding: 0;
+    border: 1px solid #d7c7a8; border-radius: 5px; background: #fff;
+    color: var(--brand-primary, #8e631f); font-size: 15px; font-weight: 700; cursor: pointer;
+}
+.drawer-lobo-quote .lq-box-btn:hover { background: #fff; border-color: var(--brand-primary, #8e631f); }
 
 .btn-drawer-logistik {
     background: #fff;

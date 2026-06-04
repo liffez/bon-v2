@@ -1586,8 +1586,10 @@ function fetchDeliveryEvents(bonId) {
 // Lobo/By-expressen — live kostpris for én bon (opretter + sletter en
 // orderdraft hos Lobo; INGEN ordre bookes). Returnerer { cost_ex, cost_incl,
 // customer_ex, margin, routedistance, co2saving }.
-function fetchLoboQuote(bonId) {
-    return apiFetch('/delivery/lobo/quote?bon_id=' + bonId);
+function fetchLoboQuote(bonId, boxes) {
+    var qs = '/delivery/lobo/quote?bon_id=' + bonId;
+    if (boxes != null && boxes !== '') qs += '&boxes=' + encodeURIComponent(boxes);
+    return apiFetch(qs);
 }
 
 // Lobo/By-expressen — rigtig booking (dispatch). Mod productive kræves confirm:true.

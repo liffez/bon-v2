@@ -58,6 +58,31 @@ test('quoteForBon: kostpris fra Lobo + kundepris fra vogn + margin, og kladde sl
     assert.strictEqual(priced.stops[0].fkplace, 3233);
 });
 
+test('quoteForBon: kasse-override styrer surcharge-antal + kundepris', async () => {
+    let priced = null;
+    const adapter = fakeAdapter({
+        priceQuote: async (p) => { priced = p; return { uuid: 'd', cost_ex: 100, cost_incl: 125 }; },
+        deleteOrderDraft: async () => true,
+    });
+    // 5 kasser, 2 inkluderet → 3 ekstra
+    const q = await quoteForBon({ bon: BON, vehicle: VEHICLE, adapter, boxes: 5 });
+    assert.strictEqual(q.boxes, 5);
+    assert.strictEqual(q.included_boxes, 2);
+    assert.deepStrictEqual(priced.ordersurchargequantities, [{ fksurcharge: 389, quantity: 3 }]);
+    assert.strictEqual(q.customer_ex, 304); // 154 + 3×50
+});
+
+test('quoteForBon: kasse-antal under/lig inkluderet → ingen surcharge', async () => {
+    let priced = null;
+    const adapter = fakeAdapter({
+        priceQuote: async (p) => { priced = p; return { uuid: 'd', cost_ex: 100 }; },
+        deleteOrderDraft: async () => true,
+    });
+    const q = await quoteForBon({ bon: BON, vehicle: VEHICLE, adapter, boxes: 2 });
+    assert.strictEqual(q.boxes, 2);
+    assert.ok(!priced.ordersurchargequantities, 'ingen surcharge ved 2 kasser');
+});
+
 test('quoteForBon: negativ margin rapporteres (men intet blokeres)', async () => {
     const adapter = fakeAdapter({
         priceQuote: async () => ({ uuid: 'd', cost_ex: 300, cost_incl: 375 }),

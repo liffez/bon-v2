@@ -636,28 +636,34 @@ class BonDrawer {
             openDeliveryNote(this.bonId, bon.delivery_vehicle_id || null);
         };
 
-        // "Hent Lobo-pris" — on-demand live kostpris hos By-expressen. Opretter en
+        // "By-ex pris" — on-demand live kostpris hos By-expressen. Opretter en
         // kortvarig orderdraft hos Lobo (slettes straks) — INGEN ordre, intet bud.
+        // Kasse-antal kan justeres → ekstra kasser koster mere.
         const quoteBtn = section.querySelector('.btn-drawer-lobo-quote');
         const quoteEl = section.querySelector('.drawer-lobo-quote');
         if (quoteBtn && quoteEl) {
-            quoteBtn.onclick = async () => {
+            const kr = (n) => n == null ? '–' : Number(n).toLocaleString('da-DK', { minimumFractionDigits: 0, maximumFractionDigits: 2 }) + ' kr';
+            let quoteBoxes = null; // null = lad serveren bruge bonens kasse-antal
+            const renderQuote = async () => {
                 quoteBtn.disabled = true;
-                const orig = quoteBtn.textContent;
-                quoteBtn.textContent = 'Henter…';
                 quoteEl.hidden = false;
                 quoteEl.className = 'drawer-lobo-quote loading';
                 quoteEl.textContent = 'Henter By-ex pris…';
                 try {
-                    const q = await fetchLoboQuote(this.bonId);
-                    const kr = (n) => n == null ? '–' : Number(n).toLocaleString('da-DK', { minimumFractionDigits: 0, maximumFractionDigits: 2 }) + ' kr';
+                    const q = await fetchLoboQuote(this.bonId, quoteBoxes);
+                    quoteBoxes = q.boxes;  // synk til det serveren regnede med
                     const dist = q.routedistance != null ? (q.routedistance / 1000).toLocaleString('da-DK', { maximumFractionDigits: 1 }) + ' km' : '';
                     const marginCls = q.margin == null ? '' : (q.margin < 0 ? 'neg' : 'pos');
                     const marginTxt = q.margin == null ? '' :
                         `<span class="lq-margin ${marginCls}">margin ${q.margin >= 0 ? '+' : ''}${kr(q.margin)}</span>`;
+                    const incl = q.included_boxes != null ? ` <span class="lq-dim">(${q.included_boxes} inkl.)</span>` : '';
                     quoteEl.className = 'drawer-lobo-quote ok';
                     quoteEl.innerHTML =
                         `<div class="lq-head">🚴 By-ex pris</div>` +
+                        `<div class="lq-row lq-boxes"><span>Kasser${incl}</span>` +
+                          `<span class="lq-stepper"><button type="button" class="lq-box-btn" data-box="-1">−</button>` +
+                          `<strong class="lq-box-n">${q.boxes}</strong>` +
+                          `<button type="button" class="lq-box-btn" data-box="1">+</button></span></div>` +
                         `<div class="lq-row"><span>Kostpris</span><strong>${kr(q.cost_ex)} <span class="lq-dim">ex moms</span></strong></div>` +
                         (q.cost_incl != null ? `<div class="lq-row lq-dim"><span></span><span>${kr(q.cost_incl)} incl</span></div>` : '') +
                         (q.customer_ex != null ? `<div class="lq-row"><span>Kundepris (std)</span><span>${kr(q.customer_ex)} ex</span></div>` : '') +
@@ -666,14 +672,21 @@ class BonDrawer {
                         (q.margin != null && q.margin < 0 ? `<div class="lq-warn">⚠ Lobo-prisen overstiger kundeprisen — I taber på leveringen.</div>` : '');
                 } catch (err) {
                     quoteEl.className = 'drawer-lobo-quote err';
-                    const code = err.code || '';
-                    quoteEl.textContent = code === 'config'
-                        ? 'Lobo er ikke konfigureret endnu (mangler API-opsætning).'
+                    quoteEl.textContent = (err.code === 'config')
+                        ? 'By-ex er ikke konfigureret endnu (mangler API-opsætning).'
                         : 'Kunne ikke hente pris: ' + (err.message || 'fejl');
                 } finally {
                     quoteBtn.disabled = false;
-                    quoteBtn.textContent = orig;
                 }
+            };
+            quoteBtn.onclick = () => { quoteBoxes = null; renderQuote(); };
+            // Kasse-stepper (delegeret — knapperne gen-renderes ved hver quote)
+            quoteEl.onclick = (e) => {
+                const b = e.target.closest('.lq-box-btn');
+                if (!b) return;
+                const delta = parseInt(b.getAttribute('data-box'), 10);
+                quoteBoxes = Math.max(0, (Number(quoteBoxes) || 0) + delta);
+                renderQuote();
             };
         }
 

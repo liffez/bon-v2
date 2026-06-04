@@ -1298,7 +1298,7 @@ router.get('/lobo/quote', requireAuth(), handle(async (req, res) => {
     const ctx = loadLoboContext(req, res);
     if (!ctx) return;
     try {
-        const quote = await quoteForBon(ctx);
+        const quote = await quoteForBon({ ...ctx, boxes: req.query.boxes });
         res.json(quote);
     } catch (e) {
         const status = e instanceof ByExpressenError ? (e.status || 502) : 502;
@@ -1320,7 +1320,7 @@ router.post('/lobo/book', requireAuth(), handle(async (req, res) => {
         });
     }
     try {
-        const result = await bookForBon({ ...ctx, userId: req.session.userId });
+        const result = await bookForBon({ ...ctx, userId: req.session.userId, boxes: req.body.boxes });
         res.status(201).json({ ok: true, ...result });
     } catch (e) {
         const status = e instanceof ByExpressenError ? (e.status || 502) : 502;
