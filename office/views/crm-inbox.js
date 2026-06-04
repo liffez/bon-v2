@@ -14,6 +14,7 @@ let _inbMailbox = '';        // '' = alle, 'bon' = bon@, 'kontakt' = kontakt@
 let _inbFromDate = '';
 let _inbBulkMode = false;
 let _inbBulkSelected = new Set();
+let _inbComposing = false;    // true mens svar-komposeren er åben (beskytter mod reload-clobber)
 
 function initCrmInbox(containerEl, opts) {
     _inbContainer = containerEl;
@@ -32,6 +33,7 @@ function cleanupCrmInbox() {
     _inbFromDate = '';
     _inbBulkMode = false;
     _inbBulkSelected = new Set();
+    _inbComposing = false;
 }
 
 function _inbRenderShell() {
@@ -247,7 +249,9 @@ async function _inbLoadData() {
         _inbMails = await apiFetch('/mail/unmatched?' + params.toString());
         _inbRenderList();
         document.getElementById('inbCount').textContent = _inbMails.length;
-        if (_inbSelected) {
+        if (_inbComposing) {
+            // Svar-komposer er åben — behold preview, opdatér kun liste/tæller
+        } else if (_inbSelected) {
             const still = _inbMails.find(m => m.id === _inbSelected.id);
             if (still) _inbRenderPreview(still);
             else { _inbSelected = null; document.getElementById('inbPreview').innerHTML = '<div class="inb-empty">Vælg en mail fra listen</div>'; }
@@ -341,6 +345,7 @@ function _inbSelectRow(row) {
     const id = parseInt(row.dataset.id);
     const mail = _inbMails.find(m => m.id === id);
     if (mail) {
+        _inbComposing = false;
         _inbSelected = mail;
         document.querySelectorAll('.inb-mail-row').forEach(r => r.classList.remove('selected'));
         row.classList.add('selected');
@@ -403,7 +408,9 @@ function _inbRenderPreview(mail) {
         bouncePanel +
         '<div class="inb-preview-body">' + _inbEscape(mail.body_text || '') + '</div>' +
         '<div class="inb-actions">' +
-            '<button class="inb-action-btn primary" onclick="_inbShowLinkBon()">Link til Bon</button>' +
+            '<button class="inb-action-btn primary" onclick="_inbShowReply()">↩ Svar</button>' +
+            '<button class="inb-action-btn" onclick="_inbCreateLead()">+ Opret lead</button>' +
+            '<button class="inb-action-btn" onclick="_inbShowLinkBon()">Link til Bon</button>' +
             '<button class="inb-action-btn" onclick="_inbShowLinkKunde()">Link til Kunde</button>' +
             '<button class="inb-action-btn danger" onclick="_inbIgnore()">Ignorer</button>' +
         '</div>' +
@@ -536,6 +543,83 @@ async function _inbIgnore() {
         alert('Fejl: ' + err.message);
     }
 }
+
+// ─── Svar + opret lead ──────────────────────────────────────
+
+function _inbEscapeAttr(str) {
+    return _inbEscape(String(str || '')).replace(/"/g, '&quot;');
+}
+
+// Åbn svar-komposeren i preview-panelet. noteHtml = valgfri grøn status-linje øverst.
+function _inbShowReply(noteHtml) {
+    if (!_inbSelected) return;
+    const el = document.getElementById('inbLinkForm');
+    if (!el) return;
+    _inbComposing = true;
+    const m = _inbSelected;
+    const reSubject = (m.subject && /^re:/i.test(m.subject.trim())) ? m.subject : ('Re: ' + (m.subject || ''));
+    const fromKontakt = m.mailbox && m.mailbox.toLowerCase().indexOf('kontakt') !== -1;
+    const mailboxLabel = fromKontakt ? 'kontakt@ristetrug.dk' : 'bon@ristetrug.dk';
+    el.innerHTML =
+        '<div class="inb-link-form">' +
+            (noteHtml ? '<div style="color:#2e7d32;font-weight:700;font-size:12px;margin-bottom:8px">' + noteHtml + '</div>' : '') +
+            '<strong>Svar til ' + _inbEscape(m.from_name || m.from_email || '') + '</strong>' +
+            '<div style="font-size:11px;color:var(--color-text-dim);margin-top:4px">Til: ' + _inbEscape(m.from_email || '') + ' · sendes fra ' + mailboxLabel + '</div>' +
+            '<input type="text" class="inb-link-input" id="inbReplySubject" value="' + _inbEscapeAttr(reSubject) + '">' +
+            '<textarea class="inb-link-input" id="inbReplyText" rows="8" placeholder="Skriv dit svar…" style="resize:vertical;min-height:150px;line-height:1.6"></textarea>' +
+            '<div style="display:flex;gap:8px;margin-top:8px">' +
+                '<button class="inb-action-btn primary" id="inbReplySendBtn" onclick="_inbSendReply()">Send svar</button>' +
+                '<button class="inb-action-btn" onclick="_inbCancelReply()">Annuller</button>' +
+            '</div>' +
+        '</div>';
+    const ta = document.getElementById('inbReplyText');
+    if (ta) ta.focus();
+}
+window._inbShowReply = _inbShowReply;
+
+function _inbCancelReply() {
+    _inbComposing = false;
+    if (_inbSelected) _inbRenderPreview(_inbSelected);
+}
+window._inbCancelReply = _inbCancelReply;
+
+async function _inbSendReply() {
+    if (!_inbSelected) return;
+    const subjEl = document.getElementById('inbReplySubject');
+    const textEl = document.getElementById('inbReplyText');
+    const btn = document.getElementById('inbReplySendBtn');
+    const text = textEl ? textEl.value.trim() : '';
+    if (!text) { alert('Skriv et svar først'); return; }
+    if (btn) { btn.disabled = true; btn.textContent = 'Sender…'; }
+    try {
+        await replyToUnmatchedMail(_inbSelected.id, { subject: subjEl ? subjEl.value : '', text: text });
+        _inbComposing = false;
+        _inbSelected = null;
+        await _inbLoadData();
+        document.getElementById('inbPreview').innerHTML = '<div class="inb-empty">✓ Svar sendt — afsenderen ligger nu som lead i CRM</div>';
+    } catch (err) {
+        if (btn) { btn.disabled = false; btn.textContent = 'Send svar'; }
+        alert('Kunne ikke sende svar: ' + err.message);
+    }
+}
+window._inbSendReply = _inbSendReply;
+
+async function _inbCreateLead() {
+    if (!_inbSelected) return;
+    try {
+        const res = await createLeadFromUnmatchedMail(_inbSelected.id);
+        // Mailen er nu linket (forsvinder fra open-listen ved reload), men vi bliver
+        // i preview og åbner svar-feltet med det samme.
+        _inbSelected.status = 'linked';
+        _inbSelected.linked_customer_id = res.customer_id;
+        const word = res.created ? 'Lead oprettet' : 'Knyttet til eksisterende kunde';
+        _inbShowReply('✓ ' + word + ' — du kan svare nu (eller åbne kunden i CRM)');
+        _inbLoadData();   // opdatér liste + badge i baggrunden; preview bevares via _inbComposing
+    } catch (err) {
+        alert('Kunne ikke oprette lead: ' + err.message);
+    }
+}
+window._inbCreateLead = _inbCreateLead;
 
 // ─── Filter handlers ────────────────────────────────────────
 

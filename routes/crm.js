@@ -11,7 +11,11 @@ const { getDb } = require('../db/database');
 const { handle, logChange, transaction } = require('../db/helpers');
 const { requireAuth } = require('../shared/auth');
 const { broadcast } = require('../shared/sse');
-const { validateContactValue } = require('../shared/contactPoints');
+const {
+    findCustomerByEmail: _liFindCustomerByEmail,
+    ensureContactPoint:  _liEnsureContactPoint,
+    setLeadStageIfNew:   _liSetLeadStageIfNew,
+} = require('../services/leadCreate');
 
 router.use(requireAuth());
 
@@ -1349,44 +1353,6 @@ function _liFindCompany(db, { cvr, name }) {
     return null;
 }
 
-function _liFindCustomerByEmail(db, email) {
-    const v = (email || '').trim().toLowerCase();
-    if (!v) return null;
-    return db.prepare(`
-        SELECT * FROM customers
-         WHERE is_active = 1 AND LOWER(TRIM(COALESCE(email,''))) = ?
-         ORDER BY id LIMIT 1
-    `).get(v);
-}
-
-// Opret/genaktivér et contact_point. Returnerer true hvis et NYT punkt blev oprettet.
-function _liEnsureContactPoint(db, entityType, entityId, kind, value) {
-    const val = validateContactValue(kind, value);
-    if (!val.ok) return false;
-    const existing = db.prepare(`
-        SELECT id FROM contact_points
-         WHERE entity_type = ? AND entity_id = ? AND kind = ? AND value = ?
-    `).get(entityType, entityId, kind, val.normalized);
-    if (existing) {
-        db.prepare(`
-            UPDATE contact_points
-               SET is_active = 1, last_seen_at = CURRENT_TIMESTAMP, updated_at = CURRENT_TIMESTAMP
-             WHERE id = ?
-        `).run(existing.id);
-        return false;
-    }
-    const hasPrimary = db.prepare(`
-        SELECT 1 FROM contact_points
-         WHERE entity_type = ? AND entity_id = ? AND kind = ? AND is_primary = 1 AND is_active = 1
-    `).get(entityType, entityId, kind);
-    db.prepare(`
-        INSERT INTO contact_points
-            (entity_type, entity_id, kind, value, source, is_public, is_primary, last_seen_at)
-        VALUES (?, ?, ?, ?, 'manual', 0, ?, CURRENT_TIMESTAMP)
-    `).run(entityType, entityId, kind, val.normalized, hasPrimary ? 0 : 1);
-    return true;
-}
-
 function _liAddTag(db, customerId, tag) {
     if (!tag) return;
     const row = db.prepare('SELECT tags FROM crm_customer_meta WHERE customer_id = ?').get(customerId);
@@ -1396,32 +1362,6 @@ function _liAddTag(db, customerId, tag) {
     if (!arr.includes(tag)) arr.push(tag);
     db.prepare('UPDATE crm_customer_meta SET tags = ?, updated_at = CURRENT_TIMESTAMP WHERE customer_id = ?')
       .run(JSON.stringify(arr), customerId);
-}
-
-// Sæt stage='lead' KUN hvis kunden ikke allerede har et stadie. Returnerer det gældende stadie.
-function _liSetLeadStageIfNew(db, customerId, userId) {
-    const existing = db.prepare('SELECT stage FROM crm_customer_meta WHERE customer_id = ?').get(customerId);
-    if (existing) return existing.stage;
-
-    db.prepare("INSERT INTO crm_customer_meta (customer_id, stage) VALUES (?, 'lead')").run(customerId);
-
-    // Synk til rfm_scores (stage_locked så RFM batch-job respekterer det manuelle valg) — som /stage-endpointet
-    const cust = db.prepare('SELECT company_id FROM customers WHERE id = ?').get(customerId);
-    if (cust?.company_id) {
-        const rfmExists = db.prepare('SELECT 1 FROM rfm_scores WHERE company_id = ?').get(cust.company_id);
-        if (rfmExists) {
-            db.prepare(`
-                UPDATE rfm_scores SET stage = 'lead', stage_locked = 1, stage_locked_by = ?, stage_locked_at = datetime('now')
-                 WHERE company_id = ?
-            `).run(userId, cust.company_id);
-        } else {
-            db.prepare(`
-                INSERT INTO rfm_scores (company_id, stage, stage_locked, stage_locked_by, stage_locked_at)
-                VALUES (?, 'lead', 1, ?, datetime('now'))
-            `).run(cust.company_id, userId);
-        }
-    }
-    return 'lead';
 }
 
 router.post('/leads/import', handle(async (req, res) => {

@@ -930,6 +930,19 @@ function bulkIgnoreUnmatchedMails(ids) {
     });
 }
 
+// Opret afsenderen som privat lead + knyt mailen til den nye kunde
+function createLeadFromUnmatchedMail(id) {
+    return apiFetch('/mail/unmatched/' + id + '/create-lead', { method: 'POST' });
+}
+
+// Svar på en ufordelt mail (opretter lead hvis mailen ikke er knyttet til en kunde endnu)
+function replyToUnmatchedMail(id, data) {
+    return apiFetch('/mail/unmatched/' + id + '/reply', {
+        method: 'POST',
+        body: JSON.stringify(data),
+    });
+}
+
 /* ── TILBUD ─────────────────────────────────────────────── */
 
 function fetchQuotes(params) {
