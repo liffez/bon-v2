@@ -89,12 +89,15 @@ Adapteren er **søskende til `grocyAdapter.js`/`hokaAdapter.js`** — eneste ste
   "base_url": "https://byexpressen.lobolink.eu/lobo/api/v3/public/",
   "sandbox_url": "https://byexpressen.lobolink.eu/lobo/sandbox/api/v3/public/",
   "use_sandbox": true,
-  "fkcustomer": 18062101,
-  "fkproduct": null,        // V2 — std cykelbud Kbh, vælges fra GET /products
-  "fkpayment": null,        // fra GET /payments
-  "hq_fkplace": null        // HQ som gemt place (verifyAddress på HQ-adressen én gang)
+  "customernumber": 18062101,   // RR's kundenummer (de bruger customernumber, ikke fkcustomer)
+  "fkproduct": 39,              // Kbh-cykelbud (fra RR's egen eksempel-ordre)
+  "hq_fkplace": 3233,           // Ristet Rug (Nørrebro) som gemt place
+  "fkpayment": null             // valgfri — udelades hvis null (RR-eksemplet sætter den ikke)
 }
 ```
+> Værdierne `customernumber`/`fkproduct`/`hq_fkplace` er bekræftet fra RR's egen
+> Postman-eksempel (`tests/fixtures/lobo/rr_order_example.json`). Verificér mod live
+> `GET /products` når scopes er på (produkt-id kan afvige sandbox vs. produktiv).
 
 **Secret i `.env`** (aldrig i settings/frontend):
 ```
@@ -114,7 +117,9 @@ BY_EX_CODE=<password>
 | `autocomplete(q)` | `GET /addresses/autocomplete/streetsandplaces?querystring=` | Adresseforslag |
 | `getProducts()` | `GET /products?_embed=timemodel,surcharges,pricescales` | Produkter + priskala (V2 + estimat) |
 | `getPayments()` | `GET /payments` | `fkpayment`-værdi |
-| `priceQuote(bon, cfg)` | `POST /orderdrafts` → `GET /orderdrafts/{uuid}?_embed=ordersurchargequantities,...` | **Lobo-beregnet kostpris ex moms** (se §8). Lader draft udløbe (5 min) eller `DELETE`. |
+| `priceQuote(payload)` | `POST /orderdrafts` (+ evt. `GET …?_embed=accounting`) | `{ cost_ex, cost_incl, routedistance, co2saving, uuid }` — **`costtotal_net` direkte fra svaret** (se §8). Lader draft udløbe (5 min) eller `DELETE`. |
+| `buildOrderPayload(input)` | (ren funktion) | Bygger body: `customernumber`+`fkproduct`+`stops[]` (fkplace eller inline-adresse)+`external_api_id`+evt. `ordersurchargequantities`. |
+| `extractCostEx(order)` | (ren funktion) | Læser `costtotal_net` (top-niveau eller `accounting`). |
 | `bookOrder(payload)` | `POST /orders` (atomisk, embedded stops+surcharges) | `{uuid, numberformatted, ...}` — hele svaret som snapshot |
 | `convertDraft(uuid)` | `PUT /orderdrafts/{uuid}/order` | (alt. flow) draft → rigtig ordre |
 | `getOrder(uuid)` | `GET /orders/{uuid}?_embed=stops,downloadlinks,dispatchedto` | Status/fallback hvis webhook svigter |
@@ -149,10 +154,11 @@ BY_EX_CODE=<password>
 
 ```
 1. Bon med leveringsmetode = By-expressen, ingen aktiv booking.
-2. verifyAddress(bon.delivery_address)  → fkplace + grøn "verificeret".
-   (fejl → autocomplete + manuel korrektion; ingen booking før verify OK)
-3. priceQuote(bon)  → POST /orderdrafts (HQ pickup + kunde-stop + surcharges)
-        → læs Lobo-beregnet kostpris_ex  (§8)
+2. Adresse: stop kan gives som INLINE-adresse (street/housenumber/zip/city/contactperson)
+   — Lobo resolver selv. verifyAddress() er VALGFRI (brug ved tvivlsom adresse →
+   fkplace + grøn "verificeret"). RR's eget eksempel sender inline uden verify.
+3. priceQuote(bon)  → POST /orderdrafts (HQ fkplace=3233 pickup + kunde-stop + surcharges)
+        → læs costtotal_net (kostpris ex moms) direkte fra svaret  (§8)
 4. kundepris_ex = standardmodel (Settings)   [se §8]
 5. MARGIN-VAGT (§9): margin = kundepris_ex − kostpris_ex
         margin < 0 → vis ADVARSEL (rød), men book-knap forbliver aktiv
@@ -193,14 +199,19 @@ BY_EX_CODE=<password>
 **Princip:** Lobo ejer kostprisen. Vi spørger, før vi forpligter os.
 
 ```
-POST /orderdrafts (samme body som order)        → uuid + Lobo beregner pris
-GET  /orderdrafts/{uuid}?_embed=ordersurchargequantities,...   → kostpris_ex
+POST /orderdrafts (samme body som order)   → uuid + Lobo beregner pris i SVARET
+  → læs costtotal_net (ex moms) direkte fra draft-svaret
   margin OK?  → PUT /orderdrafts/{uuid}/order    (committer, inden 5 min)
   ellers      → DELETE /orderdrafts/{uuid}        (eller lad udløbe)
 ```
 
-- **Kostpris** = pricescale (efter afstand/zone) + Σ surcharge `unitcost × quantity`. Hentes fra draften — aldrig hardkodet.
+- **Kostpris = `costtotal_net`** (ex moms) — Lobo leverer et færdigt felt på ordren/draften.
+  Verificeret mod RR's egen ordre: `costtotal_net: 90`, `costtotal_gross: 112.5`,
+  `vatrate: 25`, `vat: 22.5` (+ `routedistance`, `co2saving`). **Ingen formel, ingen
+  kalibrering** — feltet er autoritativt. Ligger på top-niveau eller under embedded
+  `accounting` → `extractCostEx()` tjekker begge.
 - **Kundepris** = standardmodel i Settings (`delivery_std_price_ex` + `extra_box_price_ex × max(0, kasser−inkluderet)`). Dette er hvad vi opkræver kunden, uafhængigt af Lobos kostpris.
+- **Bonus:** `co2saving` fra samme svar kan fødes til CO2-modulet (jf. `docs/CLAUDE_CO2.md`).
 - **Moms:** alle DB-felter ex moms i bon-domænet undtagen visning. Fakturalinje for levering: `unit_price` **incl moms** (moms-doktrin §6b) → brug `shared/moms.js` `exclToIncl()`. **Ingen `*1.25`** (pre-commit-hook blokerer).
 - Enhver prisvisning labels med ex/incl — aldrig bare "Total".
 
@@ -213,7 +224,8 @@ const { inclToExcl, exclToIncl } = require('../shared/moms');
 const included  = settings.delivery_included_boxes;            // fx 2
 const extra     = Math.max(0, boxCount - included);
 const customerEx = settings.delivery_std_price_ex + extra * settings.delivery_extra_box_price_ex;
-const costEx     = await adapter.priceQuote(bon);              // fra Lobo (orderdraft)
+const quote      = await adapter.priceQuote(payload);         // orderdraft → costtotal_net
+const costEx     = quote.cost_ex;                             // Lobos kostpris ex moms
 const margin     = customerEx - costEx;
 if (margin < 0) {
   // VIS rød advarsel "vi taber på leveringen" — men book-knappen forbliver aktiv.

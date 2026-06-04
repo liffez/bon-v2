@@ -13,6 +13,7 @@ const path = require('node:path');
 const {
     createByExpressenAdapter,
     ByExpressenError,
+    extractCostEx,
     computeHmac,
     verifyWebhookSignature,
     mapLoboEvent,
@@ -52,10 +53,9 @@ const CONFIG = {
     base_url: 'https://byexpressen.lobolink.eu/lobo/api/v3/public/',
     sandbox_url: 'https://byexpressen.lobolink.eu/lobo/sandbox/api/v3/public/',
     use_sandbox: true,
-    fkcustomer: 18062101,
-    fkproduct: 1,
-    fkpayment: 1,
-    hq_fkplace: 1988,
+    customernumber: 18062101,   // RR's kundenummer (de bruger customernumber, ikke fkcustomer)
+    fkproduct: 39,              // RR's Kbh-cykelbud (fra RR-eksemplet)
+    hq_fkplace: 3233,           // Ristet Rug (Nørrebro) som gemt sted
 };
 const CREDS = { user: 'ristetrug18062101', pass: 'hemmelig' };
 
@@ -186,54 +186,53 @@ test('verifyAddress POSTer korrekt body og returnerer data[0] (med fkplace)', as
 
 /* ── ORDRE-BODY (ren funktion) ────────────────────────────── */
 
-test('buildOrderPayload bygger HQ-pickup + kunde-stop + surcharges', () => {
+test('buildOrderPayload: HQ-fkplace pickup + inline kunde-adresse + external_api_id', () => {
     const adapter = createByExpressenAdapter({ config: CONFIG, credentials: CREDS, fetchImpl: mockFetch(() => resp(200, {})) });
     const body = adapter.buildOrderPayload({
         reftime: '2026-06-10T12:00:00+02:00',
-        customerreferenceorder: 3248,
-        notepublic: 'Ring ved port',
-        hqFkplace: 1988,
-        deliveryFkplace: 2409,
+        external_api_id: 3248,
+        pickupNote: 'kl. 11, 3 kasser',
+        delivery: { street: 'Bryghuspladsen', housenumber: 8, zip: '1473', city: 'København', contactperson: 'Test Jozsi' },
         deliveryDeadlineIso: '2026-06-10T12:00:00+02:00',
         deliveryNote: 'opg. 6',
         surcharges: [{ fksurcharge: 2, quantity: 1 }, { fksurcharge: 9, quantity: 0 }],
-        external_api_data: 'bon:3248',
     });
-    assert.strictEqual(body.fkcustomer, 18062101);
-    assert.strictEqual(body.fkproduct, 1);
-    assert.strictEqual(body.customerreferenceorder, '3248');   // altid string
+    assert.strictEqual(body.customernumber, 18062101);   // RR bruger customernumber
+    assert.strictEqual(body.fkproduct, 39);
+    assert.strictEqual(body.external_api_id, '3248');    // altid string
+    assert.ok(!('fkpayment' in body), 'fkpayment udeladt når ikke sat i config');
     assert.strictEqual(body.stops.length, 2);
-    assert.strictEqual(body.stops[0].fkplace, 1988);
-    assert.strictEqual(body.stops[0].position, 1);
-    assert.strictEqual(body.stops[1].fkplace, 2409);
+    assert.strictEqual(body.stops[0].fkplace, 3233);     // HQ default fra config.hq_fkplace
+    assert.strictEqual(body.stops[0].notepublic, 'kl. 11, 3 kasser');
+    assert.strictEqual(body.stops[1].street, 'Bryghuspladsen');   // inline-adresse
+    assert.strictEqual(body.stops[1].contactperson, 'Test Jozsi');
     assert.strictEqual(body.stops[1].tw_fixed_end, '2026-06-10T12:00:00+02:00');
     assert.strictEqual(body.ordersurchargequantities.length, 1, 'quantity=0 frasorteres');
     assert.strictEqual(body.ordersurchargequantities[0].fksurcharge, 2);
-    assert.strictEqual(body.external_api_data, 'bon:3248');
 });
 
-test('buildOrderPayload-nøgler er en delmængde af den dokumenterede ordre-body', () => {
-    // Hent den rigtige "POST /orders --- Complete order"-body fra fixturen
-    const fx = JSON.parse(fs.readFileSync(path.join(__dirname, 'fixtures/lobo/lobo_api_docs.json'), 'utf8'));
-    const flat = [];
-    (function w(items) { for (const it of items || []) { if (it.item) w(it.item); else flat.push(it); } })(fx.item);
-    const orderReq = flat.find(it => it.name.includes('/orders --- Complete order within one request'));
-    const docBody = JSON.parse(orderReq.request.body.raw);
-    const docKeys = new Set(Object.keys(docBody));
-    const docStopKeys = new Set(docBody.stops.flatMap(s => Object.keys(s)));
+test('buildOrderPayload med fkplace-leverings-stop', () => {
+    const adapter = createByExpressenAdapter({ config: CONFIG, credentials: CREDS, fetchImpl: mockFetch(() => resp(200, {})) });
+    const body = adapter.buildOrderPayload({ delivery: { fkplace: 2409 } });
+    assert.strictEqual(body.stops[1].fkplace, 2409);
+    assert.ok(!('street' in body.stops[1]));
+});
 
+test('buildOrderPayload matcher RR-eksemplets struktur (rr_order_example.json)', () => {
+    const rr = JSON.parse(fs.readFileSync(path.join(__dirname, 'fixtures/lobo/rr_order_example.json'), 'utf8')).request;
     const adapter = createByExpressenAdapter({ config: CONFIG, credentials: CREDS, fetchImpl: mockFetch(() => resp(200, {})) });
     const body = adapter.buildOrderPayload({
-        reftime: 'x', customerreferenceorder: 1, hqFkplace: 1, deliveryFkplace: 2,
-        deliveryDeadlineIso: 'y', surcharges: [{ fksurcharge: 2, quantity: 1 }], external_api_data: 'z',
+        external_api_id: '1008',
+        pickupNote: 'kl. 11, 3 kasser',
+        delivery: { contactperson: 'Test Jozsi', street: 'Bryghuspladsen', housenumber: 8, addition: '', zip: '1473', city: 'København' },
+        deliveryNote: 'Leif',
     });
-    for (const k of Object.keys(body)) {
-        if (k === 'external_api_data') continue; // dokumenteret på response, gyldigt at sætte på request
-        assert.ok(docKeys.has(k), `ordre-nøgle "${k}" findes i den dokumenterede body`);
-    }
-    for (const k of Object.keys(body.stops[1])) {
-        assert.ok(docStopKeys.has(k), `stop-nøgle "${k}" findes i dokumenteret stop`);
-    }
+    assert.strictEqual(body.customernumber, rr.customernumber);
+    assert.strictEqual(body.fkproduct, rr.fkproduct);
+    assert.strictEqual(body.external_api_id, rr.external_api_id);
+    assert.strictEqual(body.stops[0].fkplace, rr.stops[0].fkplace);
+    assert.strictEqual(body.stops[1].street, rr.stops[1].street);
+    assert.strictEqual(body.stops[1].contactperson, rr.stops[1].contactperson);
 });
 
 /* ── ORDRE / WEBHOOK-kald (url+metode) ────────────────────── */
@@ -263,6 +262,37 @@ test('registerWebhook sender target=order + event + url og returnerer hmac_key',
     });
     const wh = await adapter.registerWebhook('dispatched', 'https://bon.ristetrug.dk/api/webhooks/lobo');
     assert.strictEqual(wh.hmac_key, 'deadbeef');
+});
+
+/* ── PRIS / KOSTPRIS (costtotal_net) ──────────────────────── */
+
+test('extractCostEx læser costtotal_net (ex moms) — top-niveau og accounting', () => {
+    assert.strictEqual(extractCostEx({ costtotal_net: 90 }), 90);
+    assert.strictEqual(extractCostEx({ accounting: { costtotal_net: 55.98 } }), 55.98);
+    assert.strictEqual(extractCostEx({}), null);
+    assert.strictEqual(extractCostEx(null), null);
+});
+
+test('priceQuote opretter draft og returnerer Lobos kostpris (RR: 90 kr ex moms)', async () => {
+    const tok = makeJwt({ exp: Math.floor(Date.now() / 1000) + 600 });
+    const rr = JSON.parse(fs.readFileSync(path.join(__dirname, 'fixtures/lobo/rr_order_example.json'), 'utf8'));
+    let posted = null;
+    const adapter = makeAdapter((url, init) => {
+        if (url.endsWith('/token')) return resp(201, { status: 'ok', token: tok });
+        if (url.endsWith('/orderdrafts') && init.method === 'POST') {
+            posted = JSON.parse(init.body);
+            // draft-svar bærer samme cost-felter som en ordre (Lobo beregner ved oprettelse)
+            return resp(201, rr.response);
+        }
+        throw new Error('uventet kald: ' + url);
+    });
+    const q = await adapter.priceQuote({ external_api_id: '1008', delivery: { fkplace: 1215 } });
+    assert.strictEqual(q.cost_ex, 90, 'kostpris ex moms fra costtotal_net');
+    assert.strictEqual(q.cost_incl, 112.5);
+    assert.strictEqual(q.routedistance, 3531);
+    assert.strictEqual(q.co2saving, 459);
+    assert.strictEqual(q.uuid, '442499c4-1ed6-4623-bd77-bcb3dc10bfc3');
+    assert.ok(posted, 'draft blev POSTet');
 });
 
 /* ── HMAC-VERIFIKATION (ren krypto) ───────────────────────── */

@@ -176,69 +176,90 @@ function createByExpressenAdapter({ config, credentials, fetchImpl = fetch, now 
 
     /**
      * Byg en Lobo ordre-/orderdraft-body for ÉN bon (HQ pickup + ét kunde-stop).
+     * Verificeret mod RR's egen eksempel-body (tests/fixtures/lobo/rr_order_example.json):
+     * de bruger `customernumber` (ikke `fkcustomer`), `external_api_id` til vores
+     * reference, og et stop kan gives som `fkplace` ELLER inline-adresse (Lobo
+     * resolver selv — `verifyAddress` er valgfri, ikke påkrævet).
+     *
      * @param {object} input
-     *   { reftime, customerreferenceorder, notepublic, hqFkplace,
-     *     deliveryFkplace, deliveryDeadlineIso, deliveryNote,
-     *     surcharges: [{ fksurcharge, quantity }] }
+     *   { reftime?, external_api_id?, notepublic?,
+     *     pickup?:  { fkplace } | { street,housenumber,zip,city,... },   // default: config.hq_fkplace
+     *     pickupNote?,
+     *     delivery: { fkplace } | { street,housenumber,zip,city,contactperson?,isocode? },
+     *     deliveryDeadlineIso?, deliveryNote?,
+     *     surcharges?: [{ fksurcharge, quantity }] }
      */
     function buildOrderPayload(input) {
         const cfg = config;
         const body = {
-            fkcustomer: cfg.fkcustomer,
+            customernumber: cfg.customernumber ?? cfg.fkcustomer,
             fkproduct: cfg.fkproduct,
-            fkpayment: cfg.fkpayment,
-            reftime: input.reftime,
-            customerreferenceorder: String(input.customerreferenceorder ?? ''),
-            notepublic: input.notepublic ?? '',
-            noteinhouse: input.noteinhouse ?? '',
-            stops: [
-                { position: 1, fkplace: input.hqFkplace },
-                {
-                    position: 2,
-                    fkplace: input.deliveryFkplace,
-                    ...(input.deliveryDeadlineIso ? { tw_fixed_end: input.deliveryDeadlineIso } : {}),
-                    notepublic: input.deliveryNote ?? '',
-                },
-            ],
+            ...(cfg.fkpayment != null ? { fkpayment: cfg.fkpayment } : {}),
+            ...(input.reftime ? { reftime: input.reftime } : {}),
+            ...(input.external_api_id != null ? { external_api_id: String(input.external_api_id) } : {}),
+            ...(input.notepublic ? { notepublic: input.notepublic } : {}),
+            stops: [],
         };
+
+        const pickup = input.pickup || { fkplace: cfg.hq_fkplace };
+        body.stops.push({
+            position: 1,
+            ...stopFields(pickup),
+            ...(input.pickupNote ? { notepublic: input.pickupNote } : {}),
+        });
+
+        const d = input.delivery || {};
+        body.stops.push({
+            position: 2,
+            ...stopFields(d),
+            ...(input.deliveryDeadlineIso ? { tw_fixed_end: input.deliveryDeadlineIso } : {}),
+            ...(input.deliveryNote ? { notepublic: input.deliveryNote } : {}),
+        });
+
         if (Array.isArray(input.surcharges) && input.surcharges.length) {
-            body.ordersurchargequantities = input.surcharges
-                .filter(s => s && s.quantity > 0)
+            const sc = input.surcharges.filter(s => s && s.quantity > 0)
                 .map(s => ({ fksurcharge: s.fksurcharge, quantity: s.quantity }));
+            if (sc.length) body.ordersurchargequantities = sc;
         }
-        // To-vejs kobling: gem vores bon-reference hos Lobo
-        if (input.external_api_data != null) body.external_api_data = String(input.external_api_data);
         return body;
+    }
+
+    // Et stop kan refereres med fkplace (gemt sted) eller inline-adresse.
+    function stopFields(s) {
+        if (s.fkplace) return { fkplace: s.fkplace };
+        const out = {};
+        for (const k of ['full_address', 'street', 'housenumber', 'addition', 'suffix',
+            'hnr_add_sfx', 'zip', 'city', 'isocode', 'contactperson']) {
+            if (s[k] != null) out[k] = s[k];
+        }
+        return out;
     }
 
     /* ── PRIS-TILBUD via orderdraft (§8) ──────────────────── */
 
     /**
-     * Opret en orderdraft, læs pris-komponenterne tilbage, og returnér et
-     * estimat. Drafts udløber selv efter ~5 min — kalderen kan enten
+     * Opret en orderdraft og læs Lobos beregnede kostpris (`costtotal_net`, ex moms)
+     * direkte fra svaret. Drafts udløber selv efter ~5 min — kalderen kan enten
      * convertDraftToOrder(uuid) (committer) eller deleteOrderDraft(uuid).
      *
-     * VIGTIGT: Lobo returnerer IKKE et samlet pris-felt på ordren. Kostprisen
-     * udledes af pricescale-graduations + surcharges. Den eksakte formel
-     * (især `percentageofroutecost`) SKAL kalibreres mod en rigtig booking
-     * før go-live → estimatet er markeret `_needs_calibration: true`.
+     * Lobo returnerer kostprisen som et færdigt felt (verificeret mod RR's egen
+     * ordre: costtotal_net=90, costtotal_gross=112.5, vatrate=25). Ingen formel
+     * eller kalibrering nødvendig. Hvis create-svaret mod forventning ikke bærer
+     * cost-feltet, hentes draften med ?_embed=...,accounting.
      */
     async function priceQuote(payload) {
-        const draft = await createOrderDraft(payload);
-        const uuid = draft && draft.uuid;
-        // Hent pris-komponenter (separate ressourcer)
-        const [psq, ssq] = await Promise.all([
-            authedFetch('GET', `orderpricescalequantities?fkorder[eq]=${encodeURIComponent(uuid)}`).then(r => r.data).catch(() => null),
-            authedFetch('GET', `ordersurchargequantities?fkorder[eq]=${encodeURIComponent(uuid)}`).then(r => r.data).catch(() => null),
-        ]);
-        const estimate = estimateCostEx({ pricescaleQuantities: psq, surchargeQuantities: ssq, products: null });
+        let order = await createOrderDraft(payload);
+        const uuid = order && order.uuid;
+        if (extractCostEx(order) === null && uuid) {
+            order = await getOrderDraft(uuid);   // sikrer accounting-felter
+        }
         return {
             uuid,
-            draft,
-            pricescaleQuantities: psq,
-            surchargeQuantities: ssq,
-            cost_ex_estimate: estimate.cost_ex,
-            _needs_calibration: estimate._needs_calibration,
+            order,
+            cost_ex: extractCostEx(order),                       // det vi betaler Lobo (ex moms)
+            cost_incl: order && (order.costtotal_gross ?? (order.accounting && order.accounting.costtotal_gross)) || null,
+            routedistance: (order && (order.routedistance ?? (order.accounting && order.accounting.routedistance))) ?? null,
+            co2saving: (order && (order.co2saving ?? (order.accounting && order.accounting.co2saving))) ?? null,
         };
     }
 
@@ -248,7 +269,7 @@ function createByExpressenAdapter({ config, credentials, fetchImpl = fetch, now 
     }
 
     async function getOrderDraft(uuid) {
-        const r = await authedFetch('GET', `orderdrafts/${uuid}?_embed=stops,ordersurchargequantities,downloadlinks`);
+        const r = await authedFetch('GET', `orderdrafts/${uuid}?_embed=stops,ordersurchargequantities,downloadlinks,accounting`);
         return Array.isArray(r.data) ? r.data[0] : r.data;
     }
 
@@ -337,25 +358,20 @@ function createByExpressenAdapter({ config, credentials, fetchImpl = fetch, now 
 }
 
 /* ══════════════════════════════════════════════════════════════
-   PRIS-ESTIMAT (ren funktion)
+   KOSTPRIS-EKSTRAKTION (ren funktion)
    ══════════════════════════════════════════════════════════════
-   Best-effort kostpris ex moms ud fra Lobo-komponenter.
-   Lobo har INTET samlet pris-felt; dette er den oplagte fortolkning:
-     Σ(graduation.unitcost × pricescaleQuantity.quantity) + Σ(surcharge.unitcost × ssq.quantity)
-   MEN `percentageofroutecost` + graduations-valg er ikke fuldt afdækket fra
-   docs → markeres `_needs_calibration: true` indtil verificeret mod en rigtig
-   booking. Margin-vagten bruger estimatet KUN som advarsel (§9), aldrig blokering.
+   Lobo leverer kostprisen som et færdigt felt på ordren/draften:
+     costtotal_net   = kostpris EX moms  (det vi betaler Lobo → bons.delivery_cost)
+     costtotal_gross = incl moms
+     vatrate / vat   = momssats / momsbeløb
+   Feltet ligger enten på top-niveau (set i RR's ordre) eller under et embedded
+   `accounting`-objekt (set i de generiske docs). Vi tjekker begge.
    ══════════════════════════════════════════════════════════════ */
 
-function estimateCostEx({ pricescaleQuantities, surchargeQuantities, products } = {}) {
-    // Uden komponenter kan vi ikke estimere
-    if (!pricescaleQuantities && !surchargeQuantities) {
-        return { cost_ex: null, _needs_calibration: true };
-    }
-    // Bevidst konservativ: vi returnerer null-cost + flag indtil formlen er
-    // kalibreret mod en rigtig faktura. (Komponenterne returneres af priceQuote
-    // så UI kan vise dem, men vi påstår ikke en præcis kr-værdi endnu.)
-    return { cost_ex: null, _needs_calibration: true };
+function extractCostEx(order) {
+    if (!order || typeof order !== 'object') return null;
+    const net = order.costtotal_net ?? (order.accounting && order.accounting.costtotal_net);
+    return typeof net === 'number' ? net : null;
 }
 
 /* ══════════════════════════════════════════════════════════════
@@ -407,7 +423,7 @@ async function safeJson(res) {
 module.exports = {
     createByExpressenAdapter,
     ByExpressenError,
-    estimateCostEx,
+    extractCostEx,
     computeHmac,
     verifyWebhookSignature,
     mapLoboEvent,
