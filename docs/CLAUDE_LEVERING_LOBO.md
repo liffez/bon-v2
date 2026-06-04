@@ -49,10 +49,11 @@ Rev. 1 var skrevet før Spor 1+2 og før API'et var afdækket. Følgende er rett
 | Produktiv | `https://byexpressen.lobolink.eu/lobo/api/v3/public/` |
 | Sandbox | `https://byexpressen.lobolink.eu/lobo/sandbox/api/v3/public/` |
 
-- **Auth:** `POST /token` med **HTTP Basic Auth** (user+pass) → `201 {status:"ok", token}` (JWT). Verificeret.
+- **Auth:** `POST /token` med **HTTP Basic Auth** (user+pass) **OG en JSON-body = array af ønskede scopes** → `201 {status:"ok", token}` (JWT). Verificeret live.
+- **VIGTIGT (verificeret 4. juni 2026):** scopes ANMODES i token-body'en. Sender man ingen body → token får `scope:[]` → 403 på ALT. Serveren giver snittet af (anmodet, tilladt-i-frontend). `getToken()` sender derfor altid scope-arrayen (`DEFAULT_BOOKING_SCOPES`).
 - Alle øvrige kald: `Authorization: Bearer <token>`.
-- **Token-levetid sættes i LOBO frontend** (default ~10 min). **Streng rate-limit på `/token`**, relaxed på auth'ede kald → cache token, re-auth kun ved expiry/401.
-- **Scopes:** token bærer brugerens scopes. Mangler scope → `403 "Not in scope: ..."`. Scopes sættes i frontend (§14 Fase 0).
+- **Token-levetid ~10 min** (bekræftet). **Streng rate-limit på `/token`**, relaxed på auth'ede kald → cache token, re-auth kun ved expiry/401.
+- **Granted scopes (live 4. juni 2026): 31/38.** IKKE tilladt: `order.delete`, `payment.read`, `statistic.read`, `place.read:all`, `embed.place:jcard`, `order.create:in_the_past`, `orderdrafts.order:in_the_past`. → `order.delete` mangler ⇒ **cancel-via-API virker ikke endnu** (bed Lobo slå den til).
 - Konventioner: svar pakkes i `{data:[...], meta:{count,totalcount}}`. Bool = int 0/1. Datoer ISO-8601 (`2022-06-14T20:41:42+02:00`). Filtrering `?prop[eq]=`, paging `?_offset=&_limit=`, embed `?_embed=`.
 
 ---
@@ -95,9 +96,11 @@ Adapteren er **søskende til `grocyAdapter.js`/`hokaAdapter.js`** — eneste ste
   "fkpayment": null             // valgfri — udelades hvis null (RR-eksemplet sætter den ikke)
 }
 ```
-> Værdierne `customernumber`/`fkproduct`/`hq_fkplace` er bekræftet fra RR's egen
-> Postman-eksempel (`tests/fixtures/lobo/rr_order_example.json`). Verificér mod live
-> `GET /products` når scopes er på (produkt-id kan afvige sandbox vs. produktiv).
+> Værdierne er bekræftet **live** (productive `GET /products`/`/surcharges` 4. juni 2026):
+> `fkproduct: 39` = produktet **"Food"** (det RR bruger). Ekstra-kasse-tillæg for Food =
+> **`fksurcharge: 389`** ("størrelsestillæg", `unitcost: 50`); lørdagslevering = `273`.
+> `payment.read` er ikke tilladt → `fkpayment` kan ikke læses, men er valgfri (RR sætter den ikke).
+> `scopes` udelades typisk fra config (adapteren bruger `DEFAULT_BOOKING_SCOPES`); sæt kun for at override.
 
 **Secret i `.env`** (aldrig i settings/frontend):
 ```
@@ -248,25 +251,25 @@ if (margin < 0) {
 | SSE | `delivery_event {bon_id, external_reference, status}` (polymorft → semantisk FK-navn, jf. konvention; **ikke** `bon_*`). |
 | Fallback | `getOrder(uuid)` kan poll'es manuelt fra logistik. |
 
-**Event-mapping (autoritativ — fra `GET /webhookevents`):**
+**Event-mapping (live `GET /webhookevents` 4. juni 2026 — 7 events):**
 
 | Lobo-event | `delivery_events.event_type` | UI-strip |
 |------------|------------------------------|----------|
-| `order.created` | (logges som `booked` ved vores oprettelse) | Booket |
 | `order.dispatched` | `assigned` | Tildelt bud |
 | `order.stopvisitedorsigned` | `picked_up` / `delivered` (disambiguér via `GET /orders/{uuid}` stop-tilstand: position 1 = afhentet, sidste = leveret) | Afhentet / Leveret |
 | `order.finished` | `delivered` | Leveret (+ POD via `/downloads`) |
-| `order.deleted` | `cancelled` | Annulleret |
+| `order.trashed` / `order.withdrawn` | `cancelled` | Annulleret |
 | `order.changed` | (note-event, opdatér snapshot) | — |
-| `order.approved` / `order.accounted` | (regnskab — valgfrit) | — |
+| `order.accounted` | (regnskab — valgfrit) | — |
 
-> Ingen separat `failed`-event hos Lobo. `failed` reserveres til vores egne fejl (fx booking-kald fejlede).
+> Live-events afviger fra de generiske docs: der er **ingen** `order.created`/`order.deleted`/`order.approved` live — i stedet `order.trashed`/`order.withdrawn`. Vi logger selv `booked` ved oprettelse (intet created-event at lytte på). `failed` reserveres til vores egne booking-fejl. EVENT_MAP beholder doc-navnene som harmløs fallback.
 
 ---
 
 ## 11. Afbestilling & status-triggers
 
-- Logistik/drawer "Afbestil bud" → `cancelOrder(uuid)`:
+- Logistik/drawer "Afbestil bud" → `cancelOrder(uuid)` (`DELETE /orders/{uuid}`):
+  - **OBS:** `order.delete`-scope er IKKE tilladt live (4. juni 2026) → kald giver 403 indtil Lobo slår den til. Indtil da: cancel falder tilbage til manuel popout / "ring til Byekspressen".
   - 204 → `delivery_events (cancelled)`, ryd vogn-tildeling, SSE. (Genbrug `services/delivery_log.js cancelBooking()`.)
   - Ordren **locked** → API afviser → "ring til Byekspressen" + log `failed`/note-event.
 - Eksisterende AFLYST-trigger: hvis bonnen har aktiv Lobo-booking → kald `cancelOrder()`.
@@ -305,22 +308,22 @@ if (margin < 0) {
 ### Fase 0 — Klar / blokeret
 - [x] Sandbox + produktiv URL (`byexpressen.lobolink.eu`)
 - [x] User + password (`.env`: `BY_EKS_USWER`/`BY_EX_CODE`), kundenr `18062101`
-- [x] Auth-kontrakt verificeret (`POST /token` Basic → 201)
+- [x] Auth-kontrakt verificeret (`POST /token` Basic + scope-body → 201)
 - [x] API-shapes afdækket (fixture)
-- [ ] **SCOPES** sat i LOBO frontend (`/lobo/#!/system/apiAccess/`) — se scope-liste nedenfor. **Blokerer alt.**
-- [ ] **Sandbox oppe** igen (var 500 d. 3. juni 2026)
-- [ ] **(V2)** `fkproduct` (std cykelbud) + `fkpayment` fra `GET /products`/`/payments` (kræver scopes)
+- [x] **Scopes virker** — anmodes i token-body; 31/38 tilladt live (4. juni 2026). Læse-/booking-kald verificeret (`GET /products` → 200).
+- [x] **(V2)** `fkproduct: 39` (Food) + ekstra-kasse `fksurcharge: 389` (50 kr) bekræftet live.
+- [ ] **Bed Lobo slå `order.delete` til** (mangler) — ellers virker cancel-via-API ikke. (Også `payment.read`/`statistic.read` hvis vi vil bruge dem.)
+- [ ] **Sandbox oppe** igen (var 500 d. 3. juni 2026) — til write-/webhook-test.
 
-**Scope-liste at bede Lobo om:**
+**Scopes adapteren anmoder om (`DEFAULT_BOOKING_SCOPES`) — server giver snittet med frontend:**
 ```
-address.verify · address.autocomplete:streets_and_places · product.read · surcharge.read
-payment.read · order.read · order.create · order.edit · order.delete
-orderdraft.read · orderdraft.create · orderdraft.edit · orderdraft.order · orderdraft.delete
-ordersurchargequantity.read · ordersurchargequantity.set · ordersurchargequantity.delete
-orderpricescalequantity.read · stop.read · customer.read
-place.read:used_before · place.read:all
+embed.order:accounting · embed.order:downloadlinks · address.verify
+address.autocomplete:streets_and_places · product.read · surcharge.read · pricescale.read
+order.read · order.create · order.edit · order.delete
+orderdraft.read · orderdraft.create · orderdraft.order · orderdraft.delete
+ordersurchargequantity.read · ordersurchargequantity.set · orderpricescalequantity.read
+stop.read · stop.create · customer.read · place.read:used_before
 webhook.read · webhook.create · webhook.delete · webhookevent.read
-embed.order:downloadlinks · statistic.read
 ```
 
 ### Fase A — Adapter (sandbox)
@@ -357,8 +360,9 @@ embed.order:downloadlinks · statistic.read
 
 | Punkt | |
 |-------|--|
-| Login til LOBO frontend for at sætte scopes — har du adgang, eller skal Jürgen gøre det? | ⏳ |
-| Sandbox 500 — Jürgen skal fikse før write-test | ⏳ |
+| Bed Lobo slå `order.delete` til (mangler) — ellers ingen cancel-via-API | ⏳ |
+| Sandbox 500 — Jürgen skal fikse før write-/webhook-test | ⏳ |
+| ~~Login til frontend for scopes~~ — løst: scopes anmodes i token-body, 31/38 virker live | ✅ |
 | Leveringslinje på faktura: incl moms vs. intern ex — bekræft reconciliation (V6) | ⏳ |
 | Skal ekspres-/ladcykel-produkter være valgbare i UI, eller kun std-cykelbud? | ⏳ |
 | `delivery_std_price_ex` / `extra_box_price_ex` / `included_boxes` — bekræft værdier i Settings | ⏳ |

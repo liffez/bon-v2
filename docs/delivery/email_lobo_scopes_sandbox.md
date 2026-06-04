@@ -1,56 +1,23 @@
-# Udkast — mail til Lobo (Jürgen) om scopes + sandbox
+# Udkast — mail til Lobo (Jürgen) om order.delete-scope + sandbox
 
 > To: info@lobo.at (Jürgen Kurzmann) · Cc: sebastian@by-expressen.dk
-> Subject: Ristet Rug — API v3 scopes + sandbox (HTTP 500)
+> Subject: Ristet Rug — API v3: order.delete scope + sandbox (HTTP 500)
 
 ---
 
 Hi Jürgen,
 
-We're building the API v3.1 integration for Ristet Rug (customer no. **18062101**, API user `ristetrug18062101`) to create cycle-courier orders automatically and receive status/POD back via webhook. Authentication already works (`POST /token` returns a valid JWT), but we've hit two things:
+We're building the API v3.1 integration for Ristet Rug (customer no. **18062101**, API user `ristetrug18062101`) to create courier orders automatically and receive status/POD back via webhook. Auth + scopes (requested in the token body) work well — we can already read products, surcharges and webhook events. Two things remain:
 
-**1. The API user has no scopes**
+**1. Please enable the `order.delete` scope (and ideally `payment.read`, `statistic.read`)**
 
-Every authenticated resource call returns `403 "Not in scope: token is not allowed to ..."`, and the decoded token shows `"scope": []`. Could you enable the following scopes for the user `ristetrug18062101` in the LOBO frontend (or let me know if we can do this ourselves under *System → API access* and how)?
-
-```
-address.verify
-address.autocomplete:streets_and_places
-product.read
-surcharge.read
-payment.read
-order.read
-order.create
-order.edit
-order.delete
-orderdraft.read
-orderdraft.create
-orderdraft.edit
-orderdraft.order
-orderdraft.delete
-ordersurchargequantity.read
-ordersurchargequantity.set
-ordersurchargequantity.delete
-orderpricescalequantity.read
-stop.read
-customer.read
-place.read:used_before
-place.read:all
-webhook.read
-webhook.create
-webhook.delete
-webhookevent.read
-embed.order:downloadlinks
-statistic.read
-```
+Most scopes are enabled. A few that we request in the token body are dropped (not allowed for the user): `order.delete`, `payment.read`, `statistic.read`, `place.read:all`. We specifically need **`order.delete`** to be able to cancel a booking via the API. Could you enable it for `ristetrug18062101` (and ideally `payment.read` + `statistic.read` too)?
 
 **2. The sandbox is returning HTTP 500**
 
-`https://byexpressen.lobolink.eu/lobo/sandbox/api/v3/public/` returns an empty-body HTTP 500 on every route (including the root and `/token`). The productive base on the same host responds correctly (`401 "Token not found."` at root). We'd like to do all booking/cancel/webhook testing against sandbox before going live — could you check the sandbox environment?
+`https://byexpressen.lobolink.eu/lobo/sandbox/api/v3/public/` returns an empty-body HTTP 500 on every route (root, `/token`, everything). The productive base on the same host responds correctly. We need a working sandbox to test order creation / cancel / webhooks before going live — could you check the sandbox environment?
 
-A couple of quick confirmations would also help:
-- For the **productive** environment, is the same user/credentials valid, or do we get separate productive credentials?
-- Which **product id** is the standard Copenhagen cycle courier (`GET /products`), and the relevant **payment id** (`GET /payments`)? We'll read these via the API once scopes are enabled, but a pointer saves a round-trip.
+One confirmation on **webhooks**: we'll subscribe to `order.dispatched`, `order.stopvisitedorsigned`, `order.finished`, `order.trashed`/`order.withdrawn` via `POST /webhooks` and verify incoming calls using the per-webhook `hmac_key`. Could you confirm exactly **what string the HMAC signature is computed over** (full URL incl. query parameters? query string only?) and **which header** carries the signature? That's the one detail we can't determine without a live sandbox callback.
 
 Thanks a lot,
 Leif — Ristet Rug
@@ -61,11 +28,11 @@ Leif — Ristet Rug
 
 Hej Sebastian,
 
-Vi er i gang med API v3.1-integrationen, så vi automatisk kan oprette cykelbud-ordrer hos jer og få status + kvittering (POD) retur via webhook. Login virker (token kommer fint retur), men vi mangler to ting fra Lobo/Jürgen:
+Vi er langt med API v3.1-integrationen — login + scopes virker, og vi kan allerede hente produkter, tillæg og webhook-events. To ting mangler vi fra Lobo/Jürgen:
 
-1. **Scopes** — vores API-bruger (`ristetrug18062101`, kundenr 18062101) har ingen scopes, så alle kald giver 403. Listen over de scopes vi skal bruge står ovenfor (engelsk).
-2. **Sandbox er nede** — `…/lobo/sandbox/api/v3/public/` svarer HTTP 500 på alt. Vi vil gerne teste booking mod sandbox før vi går live. Kan I få den tjekket?
+1. **`order.delete`-scope** skal slås til på vores API-bruger (`ristetrug18062101`) — ellers kan vi ikke afbestille en booking via API'et. Gerne også `payment.read` + `statistic.read`.
+2. **Sandbox er nede** — `…/lobo/sandbox/api/v3/public/` svarer HTTP 500 på alt. Vi skal bruge sandbox til at teste oprettelse/afbestilling/webhooks før vi går live.
 
-Og gerne en bekræftelse på: hvilket produkt-id er standard cykelbud i København, og kan vi selv sætte scopes i LOBO-frontenden under System → API access, eller skal Jürgen gøre det?
+Og gerne en bekræftelse på webhook-signaturen: hvad beregnes HMAC'en over (hele URL'en inkl. query, eller kun query-strengen), og hvilken header indeholder signaturen?
 
 Tak!

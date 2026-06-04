@@ -51,6 +51,26 @@ function decodeJwtPayload(token) {
 }
 
 /* ══════════════════════════════════════════════════════════════
+   SCOPES — anmodes i /token-body'en. Serveren giver snittet af (anmodet,
+   tilladt-i-LOBO-frontend). Live-tjek 4. juni 2026: 31/38 tilladt;
+   `order.delete`, `payment.read`, `statistic.read`, `place.read:all` m.fl. var
+   IKKE slået til (skal bedes om hos Lobo før cancel-via-API virker).
+   ══════════════════════════════════════════════════════════════ */
+
+const DEFAULT_BOOKING_SCOPES = [
+    'embed.order:accounting', 'embed.order:downloadlinks',
+    'address.verify', 'address.autocomplete:streets_and_places',
+    'product.read', 'surcharge.read', 'pricescale.read',
+    'order.read', 'order.create', 'order.edit', 'order.delete',
+    'orderdraft.read', 'orderdraft.create', 'orderdraft.order', 'orderdraft.delete',
+    'ordersurchargequantity.read', 'ordersurchargequantity.set',
+    'orderpricescalequantity.read',
+    'stop.read', 'stop.create',
+    'customer.read', 'place.read:used_before',
+    'webhook.read', 'webhook.create', 'webhook.delete', 'webhookevent.read',
+];
+
+/* ══════════════════════════════════════════════════════════════
    FACTORY
    ══════════════════════════════════════════════════════════════ */
 
@@ -81,11 +101,15 @@ function createByExpressenAdapter({ config, credentials, fetchImpl = fetch, now 
         if (_token && now() < _expiresAt - 30_000) return _token;
 
         const basic = 'Basic ' + Buffer.from(`${credentials.user}:${credentials.pass}`).toString('base64');
+        // VIGTIGT: scopes ANMODES i body'en. Uden body → token får scope:[] → 403
+        // på alt. Serveren giver snittet af (anmodet, tilladt-i-frontend).
+        const scopes = config.scopes || DEFAULT_BOOKING_SCOPES;
         let res;
         try {
             res = await fetchImpl(base + 'token', {
                 method: 'POST',
-                headers: { Authorization: basic, Accept: 'application/json' },
+                headers: { Authorization: basic, 'Content-Type': 'application/json', Accept: 'application/json' },
+                body: JSON.stringify(scopes),
             });
         } catch (e) {
             throw new ByExpressenError('Netværksfejl ved /token: ' + e.message, { code: 'network' });
@@ -400,15 +424,23 @@ function verifyWebhookSignature(payloadString, signatureHex, hmacKey, algorithm 
    LOBO WEBHOOK-EVENT → delivery_events.event_type (autoritativ mapping)
    ══════════════════════════════════════════════════════════════ */
 
+// Live-tjek 4. juni 2026 (GET /webhookevents productive) gav 7 events:
+//   order.trashed, order.dispatched, order.withdrawn, order.changed,
+//   order.stopvisitedorsigned, order.finished, order.accounted
+// (ingen order.created/deleted/approved live — vi logger selv 'booked' ved oprettelse).
+// Doc-varianterne bevares som harmløs fallback hvis miljøer afviger.
 const EVENT_MAP = {
-    'order.created':            'booked',
-    'order.dispatched':        'assigned',
+    'order.dispatched':          'assigned',
     'order.stopvisitedorsigned': null,   // disambiguér via GET /orders/{uuid} stops → picked_up | delivered
-    'order.finished':          'delivered',
-    'order.deleted':           'cancelled',
-    'order.changed':           null,     // note-event — opdatér snapshot, ingen status-skift
-    'order.approved':          null,
-    'order.accounted':         null,
+    'order.finished':            'delivered',
+    'order.trashed':             'cancelled',
+    'order.withdrawn':           'cancelled',
+    'order.changed':             null,     // note-event — opdatér snapshot, ingen status-skift
+    'order.accounted':           null,
+    // fallback (doc-navne, ikke set live):
+    'order.created':             'booked',
+    'order.deleted':             'cancelled',
+    'order.approved':            null,
 };
 
 function mapLoboEvent(target, event) {
@@ -423,6 +455,7 @@ async function safeJson(res) {
 module.exports = {
     createByExpressenAdapter,
     ByExpressenError,
+    DEFAULT_BOOKING_SCOPES,
     extractCostEx,
     computeHmac,
     verifyWebhookSignature,

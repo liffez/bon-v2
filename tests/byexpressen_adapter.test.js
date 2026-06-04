@@ -84,6 +84,33 @@ test('getToken bruger Basic Auth mod sandbox-base og returnerer token', async ()
     assert.strictEqual(t, tok);
 });
 
+test('getToken ANMODER scopes i body (ellers scope:[] → 403 på alt)', async () => {
+    const tok = makeJwt({ exp: Math.floor(Date.now() / 1000) + 600 });
+    let body = null;
+    const adapter = makeAdapter((url, init) => {
+        assert.ok(url.endsWith('/token'));
+        body = JSON.parse(init.body);
+        return resp(201, { status: 'ok', token: tok });
+    });
+    await adapter.getToken();
+    assert.ok(Array.isArray(body), 'body er et scope-array');
+    assert.ok(body.includes('order.create'), 'indeholder booking-scopes');
+    assert.ok(body.includes('address.verify'));
+    assert.ok(body.includes('webhook.create'));
+});
+
+test('getToken bruger config.scopes hvis sat', async () => {
+    const tok = makeJwt({ exp: Math.floor(Date.now() / 1000) + 600 });
+    let body = null;
+    const adapter = createByExpressenAdapter({
+        config: { ...CONFIG, scopes: ['product.read', 'order.read'] },
+        credentials: CREDS,
+        fetchImpl: mockFetch((url, init) => { body = JSON.parse(init.body); return resp(201, { status: 'ok', token: tok }); }),
+    });
+    await adapter.getToken();
+    assert.deepStrictEqual(body, ['product.read', 'order.read']);
+});
+
 test('getToken cacher token og kalder ikke /token igen før udløb', async () => {
     const tok = makeJwt({ exp: Math.floor(Date.now() / 1000) + 600 });
     const fetchImpl = mockFetch(() => resp(201, { status: 'ok', token: tok }));
@@ -316,14 +343,17 @@ test('verifyWebhookSignature tåler "sha256="-præfiks', () => {
 
 /* ── EVENT-MAPPING ────────────────────────────────────────── */
 
-test('mapLoboEvent matcher den autoritative event-tabel', () => {
+test('mapLoboEvent matcher live-events (4. juni 2026)', () => {
     assert.strictEqual(mapLoboEvent('order', 'dispatched'), 'assigned');
     assert.strictEqual(mapLoboEvent('order', 'finished'), 'delivered');
-    assert.strictEqual(mapLoboEvent('order', 'deleted'), 'cancelled');
-    assert.strictEqual(mapLoboEvent('order', 'created'), 'booked');
+    assert.strictEqual(mapLoboEvent('order', 'trashed'), 'cancelled');   // live cancel-event
+    assert.strictEqual(mapLoboEvent('order', 'withdrawn'), 'cancelled'); // live cancel-event
     assert.strictEqual(mapLoboEvent('order', 'stopvisitedorsigned'), null); // disambigueres via GET /orders
     assert.strictEqual(mapLoboEvent('order', 'changed'), null);
+    assert.strictEqual(mapLoboEvent('order', 'accounted'), null);
     assert.strictEqual(mapLoboEvent('order', 'ukendt'), null);
+    // doc-fallback bevaret:
+    assert.strictEqual(mapLoboEvent('order', 'deleted'), 'cancelled');
 });
 
 /* ── JWT-DEKODNING mod den RIGTIGE fixture-token ──────────── */
