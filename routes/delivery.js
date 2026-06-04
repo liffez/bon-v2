@@ -32,6 +32,8 @@ const { calculateForBon, getHqCoords } = require('../services/delivery_calc');
 const { healthCheck } = require('../services/routing');
 const { geocodeAddress } = require('../services/geocode');
 const { computeRoute, applyRouteProposal, PICKUP_LOCKED_STATUSES } = require('../services/route_planner');
+const { getByExpressenAdapter, ByExpressenError } = require('../services/byExpressenAdapter');
+const { quoteForBon, bookForBon } = require('../services/lobo_booking');
 
 // ==========================================
 // GET /api/delivery/vehicles
@@ -1267,5 +1269,63 @@ router.post('/incidents', requireAuth(), (req, res) => {
 
     req.pipe(bb);
 });
+
+// ==========================================
+// LOBO / BYEKSPRESSEN — pris + booking (Fase B)
+// ==========================================
+
+// Hjælp: hent bon + By-expressen-vogn + adapter, eller send fejl-respons.
+function loadLoboContext(req, res) {
+    const bonId = parseInt(req.query.bon_id || req.body.bon_id, 10);
+    if (!bonId) { res.status(400).json({ error: 'bon_id påkrævet' }); return null; }
+    const bon = getBon(bonId);
+    if (!bon) { res.status(404).json({ error: 'Bon ikke fundet' }); return null; }
+    if (!bon.delivery_address || !bon.delivery_address.street_name) {
+        res.status(400).json({ error: 'Bon mangler leveringsadresse' }); return null;
+    }
+    const vehicle = getDb().prepare(
+        `SELECT * FROM delivery_vehicles WHERE code = 'byekspressen'`
+    ).get();
+    let adapter;
+    try { adapter = getByExpressenAdapter(); }
+    catch (e) { res.status(503).json({ error: e.message, code: e.code || 'config' }); return null; }
+    return { bon, vehicle, adapter };
+}
+
+// GET /api/delivery/lobo/quote?bon_id=
+// Live pris-tilbud (opretter + sletter en orderdraft — INGEN ordre, intet bud).
+router.get('/lobo/quote', requireAuth(), handle(async (req, res) => {
+    const ctx = loadLoboContext(req, res);
+    if (!ctx) return;
+    try {
+        const quote = await quoteForBon(ctx);
+        res.json(quote);
+    } catch (e) {
+        const status = e instanceof ByExpressenError ? (e.status || 502) : 502;
+        res.status(status).json({ error: e.message, code: e.code, body: e.body });
+    }
+}));
+
+// POST /api/delivery/lobo/book  { bon_id, confirm? }
+// Rigtig booking (dispatch). GATE: mod productive kræves confirm:true, da et
+// rigtigt bud sendes og order.delete-scope (cancel via API) ikke er aktiv endnu.
+router.post('/lobo/book', requireAuth(), handle(async (req, res) => {
+    const ctx = loadLoboContext(req, res);
+    if (!ctx) return;
+    const cfg = ctx.adapter.config || {};
+    if (!cfg.use_sandbox && req.body.confirm !== true) {
+        return res.status(412).json({
+            error: 'Booking mod produktion sender et rigtigt bud og kan ikke afbestilles via API (order.delete mangler). Send confirm:true for at fortsætte.',
+            code: 'confirm_required',
+        });
+    }
+    try {
+        const result = await bookForBon({ ...ctx, userId: req.session.userId });
+        res.status(201).json({ ok: true, ...result });
+    } catch (e) {
+        const status = e instanceof ByExpressenError ? (e.status || 502) : 502;
+        res.status(status).json({ error: e.message, code: e.code, body: e.body });
+    }
+}));
 
 module.exports = router;

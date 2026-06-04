@@ -334,16 +334,22 @@ webhook.read · webhook.create · webhook.delete · webhookevent.read
 - [ ] Unit-tests mod fixture
 
 ### Fase B — Booking
-- [ ] `priceQuote()` via orderdraft + margin-vagt (§8/§9)
-- [ ] `bookOrder()` (atomisk `POST /orders`) + draft-convert
-- [ ] Skriv `bons` + `delivery_events` + `snapshot_json` (ny migration verificeret)
-- [ ] `booking_method='api'` gør "Bestil bud"-popout til API-kald + fallback til manuel
+- [x] `priceQuote()` via orderdraft + margin (`services/lobo_booking.js quoteForBon`) — **live-verificeret** (100 kr)
+- [x] `bookOrder()` (atomisk `POST /orders`) (`bookForBon`) — kode + mocked tests (dispatch venter på sandbox)
+- [x] Skriv `bons` + `delivery_events` + `snapshot_json` (migration 093, `logBookingEvent` udvidet)
+- [x] Endpoints: `GET /api/delivery/lobo/quote` + `POST /api/delivery/lobo/book` (book gated: confirm mod productive)
+- [ ] `booking_method='api'` gør "Bestil bud"-popout til API-kald + fallback til manuel (frontend — næste)
 
 ### Fase C — Webhook
-- [ ] `GET /api/webhooks/lobo` + HMAC-SHA256-validering + idempotens
-- [ ] `registerWebhook()` engangs pr. event + gem `hmac_key`
-- [ ] Event-mapping → `delivery_events` + `getOrder` for stop-detaljer + SSE
-- [ ] Strip + kø-tag opdaterer live
+- [x] `POST/GET /api/webhooks/lobo` + idempotens + event-mapping → `delivery_events` + SSE (`services/lobo_webhook.js`)
+- [x] HMAC-validering bygget (konfigurerbar; default FRA via `lobo_webhook_verify`-setting indtil signatur-format bekræftet mod sandbox)
+- [x] `stopvisitedorsigned` disambigueres via `getOrder` (pickup/delivery)
+- [ ] `registerWebhook()` engangs pr. event + gem `hmac_key` (kræver sandbox)
+- [ ] Bekræft signatur-format (hvad signeres + header) mod sandbox → slå `lobo_webhook_verify=1`
+- [ ] Strip + kø-tag opdaterer live (frontend lytter allerede på `delivery_event`?)
+
+> **Webhook-verify-settings** (valgfri, default'er i route): `lobo_webhook_verify` (`'0'`/`'1'`),
+> `lobo_webhook_sig_header`, `lobo_webhook_sign_target` (`querystring`/`fullurl`), `lobo_webhook_hmac_key`.
 
 ### Fase D — POD + cancel
 - [ ] `cancelOrder()` + AFLYST-trigger (genbrug `delivery_log.cancelBooking`)

@@ -3,6 +3,50 @@ const router = express.Router();
 const { getDb } = require('../db/database');
 const { logChange, nextBonNumber, getStatusId } = require('../db/helpers');
 const { broadcast } = require('../shared/sse');
+const { verifyLoboRequest, applyWebhookEvent } = require('../services/lobo_webhook');
+
+// ==========================================
+// POST/GET /api/webhooks/lobo  (Byekspressen status-events)
+// System-til-system (ingen session) — verificeres via HMAC (når formatet er
+// bekræftet mod sandbox; indtil da springes verifikationen over m. advarsel).
+// Svarer ALTID 200 så Lobo ikke re-køer ved vores fejl.
+// ==========================================
+router.all('/lobo', async (req, res) => {
+    try {
+        const db = getDb();
+        const rawQuery = req.url.includes('?') ? req.url.slice(req.url.indexOf('?') + 1) : '';
+        const query = { ...req.query, ...(req.body && typeof req.body === 'object' ? req.body : {}) };
+
+        // Hent verifikations-settings
+        const get = (k) => { const r = db.prepare('SELECT value FROM settings WHERE key = ?').get(k); return r ? r.value : null; };
+        const v = verifyLoboRequest({
+            rawQuery,
+            headers: req.headers,
+            settings: {
+                verify: get('lobo_webhook_verify') || '0',
+                sig_header: get('lobo_webhook_sig_header'),
+                sign_target: get('lobo_webhook_sign_target'),
+                hmac_key: get('lobo_webhook_hmac_key'),
+                full_url: req.originalUrl,
+            },
+        });
+        if (!v.ok) { console.warn('[webhook/lobo] afvist:', v.reason); return res.json({ ok: false }); }
+        if (v.skipped) console.warn('[webhook/lobo] HMAC-verifikation sprunget over (lobo_webhook_verify≠1)');
+
+        // getOrder til stopvisitedorsigned-disambiguering (lazy — kun hvis nødvendigt)
+        let getOrder = null;
+        if (query.event === 'stopvisitedorsigned') {
+            try { getOrder = require('../services/byExpressenAdapter').getByExpressenAdapter().getOrder; }
+            catch (e) { console.warn('[webhook/lobo] kunne ikke bygge adapter til getOrder:', e.message); }
+        }
+
+        const result = await applyWebhookEvent({ query, db, broadcast, getOrder });
+        if (!result.ok) console.warn('[webhook/lobo] ikke anvendt:', result.reason);
+    } catch (err) {
+        console.error('[webhook/lobo]', err);
+    }
+    res.json({ ok: true });
+});
 
 // Default formular-felt → bon-felt mapping (bruges i Settings UI til nulstilling)
 const DEFAULT_FIELD_MAP = {
