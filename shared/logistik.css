@@ -103,7 +103,21 @@
 .log-addr-pin {
     width: 11px; height: 11px; vertical-align: -1px; margin-right: 3px; opacity: 0.7;
 }
-.log-bon-meta { margin-top: 3px; font-size: 12px; }
+.log-bon-meta { margin-top: 3px; font-size: 12px; display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+/* By-ex pris (on-demand kostpris i logistik) */
+.log-byex-btn {
+    background: #fff; color: var(--brand-primary, #8e631f);
+    border: 1px solid var(--brand-primary, #8e631f); border-radius: 5px;
+    padding: 1px 7px; font-size: 11px; font-weight: 600; cursor: pointer;
+}
+.log-byex-btn:hover { background: #faf4e8; }
+.log-byex-btn:disabled { opacity: .6; cursor: default; }
+.log-byex-result { margin-top: 4px; font-size: 12px; }
+.log-byex-result.loading { color: var(--color-text-dim, #8a8580); font-style: italic; }
+.log-byex-result.err { color: #9a2a2a; }
+.log-byex-result .byex-dim { color: var(--color-text-dim, #8a8580); }
+.log-byex-result .byex-margin.pos { color: #2e7d32; font-weight: 600; }
+.log-byex-result .byex-margin.neg { color: #bc181b; font-weight: 600; }
 .log-bon-onroute { color: var(--brand-primary, #8e631f); font-weight: 600; }
 .log-bon-booked { color: #3a6a2e; font-weight: 600; }
 /* Vogn tildelt via det gamle delivery_method-felt (ikke en formel booking) —

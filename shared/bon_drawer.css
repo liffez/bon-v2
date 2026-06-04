@@ -671,6 +671,38 @@
 .btn-drawer-bestil-bud:hover { background: #74521a; }
 .drawer-bestil-icon { margin-right: 4px; }
 
+/* Hent Lobo-pris (on-demand kostpris) */
+.btn-drawer-lobo-quote {
+    background: #fff;
+    color: var(--brand-primary, #8e631f);
+    border: 1px solid var(--brand-primary, #8e631f);
+    border-radius: 6px;
+    padding: 6px 12px;
+    font-size: 13px;
+    font-weight: 600;
+    cursor: pointer;
+}
+.btn-drawer-lobo-quote:hover { background: #faf4e8; }
+.btn-drawer-lobo-quote:disabled { opacity: .6; cursor: default; }
+
+.drawer-lobo-quote {
+    margin: 8px 0;
+    padding: 10px 12px;
+    border-radius: 8px;
+    font-size: 13px;
+    background: #faf4e8;
+    border: 1px solid #e7d7b8;
+}
+.drawer-lobo-quote.loading { color: var(--color-text-dim, #8a7a55); font-style: italic; }
+.drawer-lobo-quote.err { background: #fbecec; border-color: #e3b9b9; color: #9a2a2a; }
+.drawer-lobo-quote .lq-head { font-weight: 700; margin-bottom: 6px; }
+.drawer-lobo-quote .lq-row { display: flex; justify-content: space-between; gap: 10px; line-height: 1.7; }
+.drawer-lobo-quote .lq-dim { color: var(--color-text-dim, #8a7a55); font-weight: 400; }
+.drawer-lobo-quote .lq-margin { font-weight: 700; }
+.drawer-lobo-quote .lq-margin.pos { color: #2e7d32; }
+.drawer-lobo-quote .lq-margin.neg { color: #bc181b; }
+.drawer-lobo-quote .lq-warn { margin-top: 6px; color: #bc181b; font-weight: 600; }
+
 .btn-drawer-logistik {
     background: #fff;
     border: 1px solid var(--color-border, #d7d1ca);

@@ -151,6 +151,7 @@ class BonDrawer {
                         <label class="drawer-label">Bestil bud</label>
                         <div class="drawer-delivery-actions">
                             <button type="button" class="btn-drawer-logistik" data-action="see-logistik">📍 Se i logistik</button>
+                            <button type="button" class="btn-drawer-lobo-quote" data-action="lobo-quote" title="Hent live pris hos By-expressen">💰 By-ex pris</button>
                             <button type="button" class="btn-drawer-bestil-bud" data-action="bestil">
                                 <span class="drawer-bestil-icon">📦</span> <span class="drawer-bestil-label">Bestil hos…</span>
                             </button>
@@ -158,6 +159,7 @@ class BonDrawer {
                         </div>
                     </div>
                     <div class="drawer-delivery-status">
+                        <div class="drawer-lobo-quote" hidden></div>
                         <div class="drawer-delivery-current"></div>
                         <div class="drawer-delivery-suggestion"></div>
                         <div class="drawer-delivery-cost-row">
@@ -633,6 +635,47 @@ class BonDrawer {
             // gemmer booking. Ingen onBooked-callback nødvendig.
             openDeliveryNote(this.bonId, bon.delivery_vehicle_id || null);
         };
+
+        // "Hent Lobo-pris" — on-demand live kostpris hos By-expressen. Opretter en
+        // kortvarig orderdraft hos Lobo (slettes straks) — INGEN ordre, intet bud.
+        const quoteBtn = section.querySelector('.btn-drawer-lobo-quote');
+        const quoteEl = section.querySelector('.drawer-lobo-quote');
+        if (quoteBtn && quoteEl) {
+            quoteBtn.onclick = async () => {
+                quoteBtn.disabled = true;
+                const orig = quoteBtn.textContent;
+                quoteBtn.textContent = 'Henter…';
+                quoteEl.hidden = false;
+                quoteEl.className = 'drawer-lobo-quote loading';
+                quoteEl.textContent = 'Henter By-ex pris…';
+                try {
+                    const q = await fetchLoboQuote(this.bonId);
+                    const kr = (n) => n == null ? '–' : Number(n).toLocaleString('da-DK', { minimumFractionDigits: 0, maximumFractionDigits: 2 }) + ' kr';
+                    const dist = q.routedistance != null ? (q.routedistance / 1000).toLocaleString('da-DK', { maximumFractionDigits: 1 }) + ' km' : '';
+                    const marginCls = q.margin == null ? '' : (q.margin < 0 ? 'neg' : 'pos');
+                    const marginTxt = q.margin == null ? '' :
+                        `<span class="lq-margin ${marginCls}">margin ${q.margin >= 0 ? '+' : ''}${kr(q.margin)}</span>`;
+                    quoteEl.className = 'drawer-lobo-quote ok';
+                    quoteEl.innerHTML =
+                        `<div class="lq-head">🚴 By-ex pris</div>` +
+                        `<div class="lq-row"><span>Kostpris</span><strong>${kr(q.cost_ex)} <span class="lq-dim">ex moms</span></strong></div>` +
+                        (q.cost_incl != null ? `<div class="lq-row lq-dim"><span></span><span>${kr(q.cost_incl)} incl</span></div>` : '') +
+                        (q.customer_ex != null ? `<div class="lq-row"><span>Kundepris (std)</span><span>${kr(q.customer_ex)} ex</span></div>` : '') +
+                        (marginTxt ? `<div class="lq-row">${marginTxt}${dist ? `<span class="lq-dim">${dist}</span>` : ''}</div>` :
+                            (dist ? `<div class="lq-row lq-dim"><span>${dist}</span></div>` : '')) +
+                        (q.margin != null && q.margin < 0 ? `<div class="lq-warn">⚠ Lobo-prisen overstiger kundeprisen — I taber på leveringen.</div>` : '');
+                } catch (err) {
+                    quoteEl.className = 'drawer-lobo-quote err';
+                    const code = err.code || '';
+                    quoteEl.textContent = code === 'config'
+                        ? 'Lobo er ikke konfigureret endnu (mangler API-opsætning).'
+                        : 'Kunne ikke hente pris: ' + (err.message || 'fejl');
+                } finally {
+                    quoteBtn.disabled = false;
+                    quoteBtn.textContent = orig;
+                }
+            };
+        }
 
         // "Se i logistik" — åbn logistik-viewet fokuseret på denne bon.
         const seeLogistikBtn = section.querySelector('.btn-drawer-logistik');
