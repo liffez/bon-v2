@@ -44,6 +44,21 @@ function _rapFmtKr(n) {
   return Number(n).toLocaleString('da-DK') + ' kr';
 }
 
+// Drill-down: åbn Kunde 360° / Firma 360° fra top-kunde-listen.
+// Bruger eksisterende globals (graceful degradation hvis ikke loadet endnu).
+function _rapDrillCustomer(entityType, id) {
+  if (!id) return;
+  if (entityType === 'company') {
+    if (typeof window.openFirma360 === 'function') window.openFirma360(id);
+  } else if (typeof window.openKunde360 === 'function') {
+    window.openKunde360(id);
+  }
+}
+
+function _rapGotoFakturering() {
+  if (typeof window.officeGoto === 'function') window.officeGoto('fakturering');
+}
+
 function _rapDeltaHtml(current, prev, mode) {
   // mode: 'pct' | 'abs'
   if (prev == null || prev === 0) return '<span class="rap-kpi-delta delta-neutral">—</span>';
@@ -254,18 +269,25 @@ function _rapRenderKPIs(d) {
       value: _rapFmtKr(pendingInvoice),
       label: 'Ufaktureret (ex moms)',
       delta: '',
-      sub: d.pending_count != null ? d.pending_count + ' bons' : ''
+      sub: d.pending_count != null ? d.pending_count + ' bons' : '',
+      // Klik → Fakturering (kun når der faktisk er noget at fakturere)
+      action: (d.pending_count > 0) ? 'fakturering' : null
     }
   ];
 
   el.innerHTML = cards.map(c => `
-    <div class="rap-kpi">
+    <div class="rap-kpi${c.action ? ' rap-clickable' : ''}"${c.action ? ` data-action="${c.action}" title="Åbn fakturering →"` : ''}>
       <div class="rap-kpi-value">${c.value}</div>
       <div class="rap-kpi-label">${c.label}</div>
       ${c.delta ? '<div>' + c.delta + '</div>' : ''}
       ${c.sub ? '<div class="rap-kpi-sub">' + c.sub + '</div>' : ''}
     </div>
   `).join('');
+
+  el.onclick = (e) => {
+    const card = e.target.closest('.rap-kpi[data-action="fakturering"]');
+    if (card) _rapGotoFakturering();
+  };
 }
 
 // ─── Monthly bar chart ──────────────────────────────────────────────
@@ -307,13 +329,23 @@ function _rapRenderTopCustomers(data) {
     const pct = (val / maxVal * 100).toFixed(1);
     const displayVal = byRevenue ? _rapFmtKr(val) : _rapFmt(val);
     const name = item.display_name || item.company_name || item.customer_name || 'Ukendt';
-    return `<div class="rap-bar-row">
+    // top-customers returnerer id + entity_type (company|customer) → klik åbner profil
+    const id = item.id;
+    const etype = item.entity_type === 'company' ? 'company' : 'customer';
+    const drill = id != null;
+    const attrs = drill ? ` rap-clickable" data-cust-id="${id}" data-entity-type="${etype}" title="Åbn profil → ${name}` : '';
+    return `<div class="rap-bar-row${attrs}">
       <span class="rap-rank">${idx + 1}.</span>
       <span class="rap-name" title="${name}">${name}</span>
       <div class="rap-bar"><div class="rap-bar-fill" style="width:${pct}%"></div></div>
       <span class="rap-value">${displayVal}</span>
     </div>`;
   }).join('') + '</div>';
+
+  el.onclick = (e) => {
+    const row = e.target.closest('.rap-bar-row[data-cust-id]');
+    if (row) _rapDrillCustomer(row.dataset.entityType, row.dataset.custId);
+  };
 }
 
 // ─── Categories (stacked bar + table) ───────────────────────────────
@@ -614,7 +646,7 @@ function _rapRenderMonthlyTable(data) {
     // ufaktureret (ex moms)
     const ufakt = row.pending_invoice_excl_moms ?? row.pending_invoice ?? 0;
     const ufaktHtml = ufakt > 0
-      ? `<span class="ufakt-warn">${_rapFmtKr(ufakt)}</span>`
+      ? `<span class="ufakt-warn rap-ufakt-link" data-action="fakturering" title="Åbn fakturering →">${_rapFmtKr(ufakt)}</span>`
       : '—';
 
     const avg = row.avg_order_value_excl_moms ?? row.avg_order_value ?? (row.orders ? Math.round(rev / row.orders) : 0);
@@ -633,6 +665,11 @@ function _rapRenderMonthlyTable(data) {
 
   html += '</tbody></table>';
   el.innerHTML = html;
+
+  el.onclick = (e) => {
+    const link = e.target.closest('[data-action="fakturering"]');
+    if (link) _rapGotoFakturering();
+  };
 }
 
 // ─── toggle wiring ──────────────────────────────────────────────────

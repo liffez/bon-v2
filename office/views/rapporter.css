@@ -187,6 +187,37 @@
   min-width: 2px;
 }
 
+/* ── Klikbar drill-down (frontend-only interaktivitet) ───────────────── */
+.rap-bar-row.rap-clickable {
+  cursor: pointer;
+  border-radius: 6px;
+  padding: 4px 6px;
+  margin: 0 -6px;           /* bleed så bjælke-justeringen er uændret */
+  transition: background .12s ease;
+}
+.rap-bar-row.rap-clickable:hover {
+  background: var(--brand-primary-light, #f1e6b2);
+}
+.rap-bar-row.rap-clickable:hover .rap-name {
+  text-decoration: underline;
+}
+
+.rap-kpi.rap-clickable {
+  cursor: pointer;
+  transition: box-shadow .12s ease, transform .12s ease;
+}
+.rap-kpi.rap-clickable:hover {
+  box-shadow: 0 3px 12px rgba(0,0,0,.12);
+  transform: translateY(-1px);
+}
+
+.rap-ufakt-link {
+  cursor: pointer;
+}
+.rap-ufakt-link:hover {
+  text-decoration: underline;
+}
+
 .rap-value {
   text-align: right;
   font-weight: 600;
