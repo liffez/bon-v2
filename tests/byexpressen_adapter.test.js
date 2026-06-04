@@ -226,7 +226,7 @@ test('buildOrderPayload: HQ-fkplace pickup + inline kunde-adresse + external_api
     });
     assert.strictEqual(body.customernumber, 18062101);   // RR bruger customernumber
     assert.strictEqual(body.fkproduct, 39);
-    assert.strictEqual(body.external_api_id, '3248');    // altid string
+    assert.strictEqual(body.external_api_id, 3248);      // integer (Lobo: NOT_INTEGER ved string)
     assert.ok(!('fkpayment' in body), 'fkpayment udeladt når ikke sat i config');
     assert.strictEqual(body.stops.length, 2);
     assert.strictEqual(body.stops[0].fkplace, 3233);     // HQ default fra config.hq_fkplace
@@ -256,7 +256,7 @@ test('buildOrderPayload matcher RR-eksemplets struktur (rr_order_example.json)',
     });
     assert.strictEqual(body.customernumber, rr.customernumber);
     assert.strictEqual(body.fkproduct, rr.fkproduct);
-    assert.strictEqual(body.external_api_id, rr.external_api_id);
+    assert.strictEqual(body.external_api_id, parseInt(rr.external_api_id, 10)); // integer
     assert.strictEqual(body.stops[0].fkplace, rr.stops[0].fkplace);
     assert.strictEqual(body.stops[1].street, rr.stops[1].street);
     assert.strictEqual(body.stops[1].contactperson, rr.stops[1].contactperson);

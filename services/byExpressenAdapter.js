@@ -62,7 +62,7 @@ const DEFAULT_BOOKING_SCOPES = [
     'address.verify', 'address.autocomplete:streets_and_places',
     'product.read', 'surcharge.read', 'pricescale.read',
     'order.read', 'order.create', 'order.edit', 'order.delete',
-    'orderdraft.read', 'orderdraft.create', 'orderdraft.order', 'orderdraft.delete',
+    'orderdraft.read', 'orderdraft.create', 'orderdraft.edit', 'orderdraft.order', 'orderdraft.delete',
     'ordersurchargequantity.read', 'ordersurchargequantity.set',
     'orderpricescalequantity.read',
     'stop.read', 'stop.create',
@@ -220,7 +220,11 @@ function createByExpressenAdapter({ config, credentials, fetchImpl = fetch, now 
             fkproduct: cfg.fkproduct,
             ...(cfg.fkpayment != null ? { fkpayment: cfg.fkpayment } : {}),
             ...(input.reftime ? { reftime: input.reftime } : {}),
-            ...(input.external_api_id != null ? { external_api_id: String(input.external_api_id) } : {}),
+            // external_api_id SKAL være integer (Lobo: NOT_INTEGER ved string).
+            // Til ikke-numeriske referencer (fx bonnr med bogstav-præfiks) bruges
+            // external_api_data (string).
+            ...(input.external_api_id != null ? { external_api_id: parseInt(input.external_api_id, 10) } : {}),
+            ...(input.external_api_data != null ? { external_api_data: String(input.external_api_data) } : {}),
             ...(input.notepublic ? { notepublic: input.notepublic } : {}),
             stops: [],
         };

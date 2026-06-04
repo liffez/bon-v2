@@ -312,6 +312,7 @@ if (margin < 0) {
 - [x] API-shapes afdækket (fixture)
 - [x] **Scopes virker** — anmodes i token-body; 31/38 tilladt live (4. juni 2026). Læse-/booking-kald verificeret (`GET /products` → 200).
 - [x] **(V2)** `fkproduct: 39` (Food) + ekstra-kasse `fksurcharge: 389` (50 kr) bekræftet live.
+- [x] **priceQuote LIVE-verificeret** (4. juni 2026): orderdraft mod productive (HQ 3233 → Bryghuspladsen 8) → `costtotal_net: 100` kr ex moms (125 incl, 3464 m, co2 450), kladde slettet igen. Hele adapter-kæden virker. To fund: `external_api_id` skal være **integer** (string → `NOT_INTEGER`); kladde-oprettelse med embedded stops kræver **`orderdraft.edit`**-scope.
 - [ ] **Bed Lobo slå `order.delete` til** (mangler) — ellers virker cancel-via-API ikke. (Også `payment.read`/`statistic.read` hvis vi vil bruge dem.)
 - [ ] **Sandbox oppe** igen (var 500 d. 3. juni 2026) — til write-/webhook-test.
 
@@ -320,7 +321,7 @@ if (margin < 0) {
 embed.order:accounting · embed.order:downloadlinks · address.verify
 address.autocomplete:streets_and_places · product.read · surcharge.read · pricescale.read
 order.read · order.create · order.edit · order.delete
-orderdraft.read · orderdraft.create · orderdraft.order · orderdraft.delete
+orderdraft.read · orderdraft.create · orderdraft.edit · orderdraft.order · orderdraft.delete
 ordersurchargequantity.read · ordersurchargequantity.set · orderpricescalequantity.read
 stop.read · stop.create · customer.read · place.read:used_before
 webhook.read · webhook.create · webhook.delete · webhookevent.read
