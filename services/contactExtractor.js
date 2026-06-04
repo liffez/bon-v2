@@ -31,6 +31,11 @@ const PERSONAL_PATTERNS = [
 // Email regex — pragmatisk men dækker de fleste reelle adresser
 const EMAIL_RE = /\b[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}\b/g;
 
+// Sikkerhedsnet: en kontaktside har aldrig hundredvis af reelle numre/emails.
+// Et stort HTML-paste (kildekode med id'er/datoer) kan ellers producere tusindvis
+// af falske telefon-kandidater og fryse browseren når de renderes. Cap pr. type.
+const MAX_PER_KIND = 100;
+
 // Telefon-regex (DK-format).
 // Fanger: 12345678, 12 34 56 78, 12-34-56-78, +45 12 34 56 78, +4512345678
 const PHONE_RE = /(?:\+45[\s.\-–—]?)?(?:\d[\s.\-–—]?){7,9}\d/g;
@@ -143,23 +148,35 @@ function extractContacts({ text, sourceUrl } = {}) {
             context_snippet: makeSnippet(cleaned, m.index, raw.length),
             proposed_is_public: cls === 'public' ? 1 : 0,
         });
+        if (emailHits.length >= MAX_PER_KIND) break;
     }
 
     // ── Telefoner ──
     const phoneHits = [];
     const seenPhones = new Set();
+    let phonesTruncated = false;
     PHONE_RE.lastIndex = 0;
     while ((m = PHONE_RE.exec(cleaned)) !== null) {
         const raw = m[0].trim();
-        // Krydsreferér mod CVR-mønster — hvis der står "CVR" eller "VAT" eller "P-nr" inden
-        // for ±20 tegn, så er det formentlig CVR/P-nr og ikke telefon.
+        // Adjacency-guard: hvis tegnet lige før eller efter matchet er et ciffer,
+        // er dette en del af et længere tal-løb (id, timestamp, beløb) — ikke et
+        // telefonnummer. Stripper langt de fleste HTML-falske positiver.
+        const before = m.index > 0 ? cleaned[m.index - 1] : '';
+        const after  = cleaned[m.index + m[0].length] || '';
+        if (/\d/.test(before) || /\d/.test(after)) continue;
+        // Krydsreferér mod CVR-mønster — kun teksten FØR nummeret tjekkes, fordi
+        // CVR/VAT/P-nr altid skrives som "CVR: 12345678" (nøgleord før tallet).
+        // Tidligere medtog vi også 5 tegn EFTER, hvilket fejlagtigt undertrykte
+        // et rigtigt telefonnummer der tilfældigvis stod lige før "CVR:" på næste linje.
         const ctxStart = Math.max(0, m.index - 20);
-        const ctxEnd   = Math.min(cleaned.length, m.index + raw.length + 5);
-        const ctx      = cleaned.slice(ctxStart, ctxEnd).toLowerCase();
-        if (/\b(cvr|vat|p-?nr|p\.\s*nr|momsnr)\b/.test(ctx)) continue;
+        const ctxBefore = cleaned.slice(ctxStart, m.index).toLowerCase();
+        if (/\b(cvr|vat|p-?nr|p\.\s*nr|momsnr)\b/.test(ctxBefore)) continue;
         // Eksklusér rene år-formater (fx "2024 — 2026")
         const digitsOnly = raw.replace(/\D/g, '');
         if (digitsOnly.length === 4 && /^(19|20)\d{2}$/.test(digitsOnly)) continue;
+        // Eksklusér år-intervaller (fx "2024-2026", "1998–2024") — to årstal
+        // skrevet sammen giver 8 cifre og lignede ellers et telefonnummer.
+        if (/^(?:19|20)\d{2}\s*[-–—]\s*(?:19|20)\d{2}$/.test(raw)) continue;
         if (!looksLikePhone(raw)) continue;
         const norm = normalizePhone(raw);
         const dedupKey = norm.replace(/\s/g, '');
@@ -172,6 +189,7 @@ function extractContacts({ text, sourceUrl } = {}) {
             context_snippet: makeSnippet(cleaned, m.index, raw.length),
             proposed_is_public: 0,
         });
+        if (phoneHits.length >= MAX_PER_KIND) { phonesTruncated = true; break; }
     }
 
     const candidates = [...emailHits, ...phoneHits];
@@ -181,6 +199,7 @@ function extractContacts({ text, sourceUrl } = {}) {
         classified_public:   candidates.filter(c => c.classification === 'public').length,
         classified_personal: candidates.filter(c => c.classification === 'personal').length,
         unknown:             candidates.filter(c => c.classification === 'unknown').length,
+        truncated:           phonesTruncated,
     };
 
     return {
