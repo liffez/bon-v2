@@ -12,6 +12,7 @@
     "migrate": "node --experimental-sqlite db/migrate.js",
     "seed": "node --experimental-sqlite db/seed.js",
     "setup": "node --experimental-sqlite db/migrate.js && node --experimental-sqlite db/seed.js",
+    "dev-admin": "node --experimental-sqlite scripts/dev-admin.js",
     "test:check": "node --env-file=.env.test tests/scripts/safety_check.js --skip-db-check",
     "test:migrate": "node --env-file=.env.test --experimental-sqlite db/migrate.js",
     "test:fixture": "node --env-file=.env.test --experimental-sqlite tests/scripts/apply_fixture.js tests/fixtures/seed_planning.sql",

@@ -1,10 +1,11 @@
 const express = require('express');
 const router = express.Router();
 const { getDb } = require('../db/database');
-const { handle } = require('../db/helpers');
+const { handle, transaction } = require('../db/helpers');
 const { requireAuth } = require('../shared/auth');
-const { sendFromTemplate } = require('../services/mailService');
+const { sendFromTemplate, sendMail } = require('../services/mailService');
 const { broadcast } = require('../shared/sse');
+const { createPrivateLead } = require('../services/leadCreate');
 
 function broadcastUnmatchedCount(db) {
     const row = db.prepare(`SELECT COUNT(*) AS c FROM mail_unmatched WHERE status = 'open'`).get();
@@ -320,6 +321,136 @@ router.post('/unmatched/bulk', requireAuth('admin'), handle(async (req, res) => 
 
     broadcastUnmatchedCount(db);
     res.json({ ok: true, updated: result.changes });
+}));
+
+// ─── Opret lead / svar fra indbakken ────────────────────────
+
+// Del et fri-tekst afsendernavn op i fornavn/efternavn. Tom → createPrivateLead
+// falder tilbage til email-prefikset.
+function splitName(fromName) {
+    const n = (fromName || '').trim();
+    if (!n) return { firstName: '', lastName: '' };
+    const parts = n.split(/\s+/);
+    if (parts.length === 1) return { firstName: parts[0], lastName: '' };
+    return { firstName: parts.slice(0, -1).join(' '), lastName: parts[parts.length - 1] };
+}
+
+// Knyt en ufordelt mail til en kundes aktive tråd — opretter tråden hvis den ikke
+// findes (samme find-or-create-logik som mailService.sendMail bruger på customer_id),
+// indsætter den oprindelige mail som indgående besked og markerer den linket.
+// Idempotent: en allerede-linket mail genindsættes ikke.
+function linkUnmatchedToCustomer(db, um, customerId, userId) {
+    let thread = db.prepare(
+        `SELECT id FROM mail_threads WHERE customer_id = ? AND status = 'active' ORDER BY updated_at DESC LIMIT 1`
+    ).get(customerId);
+    let threadId = thread?.id;
+
+    if (!threadId) {
+        threadId = db.prepare(
+            `INSERT INTO mail_threads (customer_id, subject, status, created_at, updated_at)
+             VALUES (?, ?, 'active', datetime('now'), datetime('now'))`
+        ).run(customerId, um.subject || '').lastInsertRowid;
+    } else {
+        db.prepare(`UPDATE mail_threads SET updated_at = datetime('now') WHERE id = ?`).run(threadId);
+    }
+
+    if (um.status !== 'linked') {
+        db.prepare(`
+            INSERT INTO mail_messages (thread_id, message_id, direction, from_email, from_name, to_email, subject, body_text, is_read, imap_uid, mailbox, received_at)
+            VALUES (?, ?, 'in', ?, ?, ?, ?, ?, 1, ?, ?, ?)
+        `).run(threadId, um.message_id, um.from_email, um.from_name, um.to_email || um.mailbox, um.subject, um.body_text, um.imap_uid, um.mailbox, um.received_at);
+        db.prepare(`
+            UPDATE mail_unmatched
+               SET status = 'linked', linked_customer_id = ?, handled_by_user_id = ?, handled_at = CURRENT_TIMESTAMP
+             WHERE id = ?
+        `).run(customerId, userId, um.id);
+    }
+
+    return Number(threadId);
+}
+
+// POST /api/mail/unmatched/:id/create-lead
+// Opret afsenderen som privat lead (kunde uden firma) og knyt mailen til den nye kunde.
+router.post('/unmatched/:id/create-lead', requireAuth('admin'), handle((req, res) => {
+    const id = parseInt(req.params.id);
+    const db = getDb();
+    const userId = req.session?.user?.id ?? req.session?.userId ?? null;
+
+    const um = db.prepare('SELECT * FROM mail_unmatched WHERE id = ?').get(id);
+    if (!um) return res.status(404).json({ error: 'Mail ikke fundet' });
+    if (!um.from_email) return res.status(400).json({ error: 'Mailen har ingen afsender-email' });
+
+    const { firstName, lastName } = splitName(um.from_name);
+
+    let customerId, threadId, created;
+    transaction(db, () => {
+        const lead = createPrivateLead(db, {
+            firstName, lastName, email: um.from_email,
+            userId, sourceLabel: 'opret-lead-fra-mail',
+        });
+        customerId = lead.customerId;
+        created = lead.created;
+        threadId = linkUnmatchedToCustomer(db, um, customerId, userId);
+    });
+
+    broadcastUnmatchedCount(db);
+    broadcast('crm_stage_changed', { source: 'inbox_lead' });
+    res.json({ ok: true, customer_id: customerId, thread_id: threadId, created });
+}));
+
+// POST /api/mail/unmatched/:id/reply  { subject?, text }
+// Send et svar til afsenderen. Knytter mailen til en kunde først (opretter lead
+// hvis den ikke allerede er linket) så svaret bliver tråd-historik.
+router.post('/unmatched/:id/reply', requireAuth('admin'), handle(async (req, res) => {
+    const id = parseInt(req.params.id);
+    const { subject, text } = req.body || {};
+    if (!text || !String(text).trim()) return res.status(400).json({ error: 'text er påkrævet' });
+
+    const db = getDb();
+    const userId = req.session?.user?.id ?? req.session?.userId ?? null;
+
+    const um = db.prepare('SELECT * FROM mail_unmatched WHERE id = ?').get(id);
+    if (!um) return res.status(404).json({ error: 'Mail ikke fundet' });
+    if (!um.from_email) return res.status(400).json({ error: 'Mailen har ingen afsender-email' });
+
+    // 1) Sørg for at afsenderen findes som kunde (opret lead hvis nødvendig).
+    //    Vi linker IKKE mailen endnu — så hvis afsendelsen fejler, bliver den
+    //    liggende i indbakken og kan prøves igen.
+    let customerId = um.linked_customer_id || null;
+    if (!customerId) {
+        transaction(db, () => {
+            const { firstName, lastName } = splitName(um.from_name);
+            const lead = createPrivateLead(db, {
+                firstName, lastName, email: um.from_email,
+                userId, sourceLabel: 'svar-fra-indbakke',
+            });
+            customerId = lead.customerId;
+        });
+    }
+
+    // 2) Send svaret — sendMail finder/opretter kundens aktive tråd og tilføjer outbound.
+    //    Svar fra samme mailbox som mailen kom ind på (kontakt@ ellers bon@).
+    const smtpPrefix = (um.mailbox && um.mailbox.toLowerCase().includes('kontakt')) ? 'smtp_kontakt' : 'smtp';
+    const replySubject = (subject && String(subject).trim()) || ('Re: ' + (um.subject || ''));
+    const result = await sendMail({
+        to: um.from_email,
+        subject: replySubject,
+        text,
+        customerId,
+        context: { type: 'customer', number: customerId },
+        smtpPrefix,
+        userId,
+    });
+
+    // 3) Afsendelsen lykkedes — knyt nu den oprindelige mail ind i samme tråd og
+    //    markér den håndteret (indgående besked sorteres før svaret pga. received_at).
+    transaction(db, () => {
+        linkUnmatchedToCustomer(db, um, customerId, userId);
+    });
+
+    broadcastUnmatchedCount(db);
+    broadcast('crm_stage_changed', { source: 'inbox_reply' });
+    res.json({ ok: true, customer_id: customerId, thread_id: result.threadId, message_id: result.messageId });
 }));
 
 /* ── POLL KONTROL ─────────────────────────────────────────── */
