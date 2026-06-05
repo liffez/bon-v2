@@ -5,7 +5,7 @@
 const test = require('node:test');
 const assert = require('node:assert');
 
-const { quoteForBon, bookForBon, buildSurcharges } = require('../services/lobo_booking');
+const { quoteForBon, bookForBon, buildSurcharges, defaultBoxesForBon, composeCostEx } = require('../services/lobo_booking');
 const { createByExpressenAdapter } = require('../services/byExpressenAdapter');
 
 const CONFIG = {
@@ -39,6 +39,45 @@ test('buildSurcharges: ekstra kasser ud over included → surcharge 389', () => 
     assert.deepStrictEqual(buildSurcharges({ boxes: 5 }, { extra_box_surcharge_id: 389, included_boxes: 0 }), [{ fksurcharge: 389, quantity: 5 }]);
 });
 
+/* ── composeCostEx (grundpris + 50/kasse over inkluderede) ── */
+
+test('composeCostEx: Lobo-grundpris + extra_box_cost × ekstra kasser', () => {
+    assert.strictEqual(composeCostEx(100, 2, CONFIG, VEHICLE), 100);   // = inkl. → +0
+    assert.strictEqual(composeCostEx(100, 3, CONFIG, VEHICLE), 150);   // +1×50
+    assert.strictEqual(composeCostEx(100, 5, CONFIG, VEHICLE), 250);   // +3×50
+    assert.strictEqual(composeCostEx(100, 1, CONFIG, VEHICLE), 100);   // under inkl. → +0
+    assert.strictEqual(composeCostEx(null, 5, CONFIG, VEHICLE), null); // ingen grundpris
+});
+
+/* ── defaultBoxesForBon ───────────────────────────────────── */
+
+test('defaultBoxesForBon: bons.boxes har forrang når sat', () => {
+    assert.strictEqual(defaultBoxesForBon({ boxes: 4, total_units: 99 }, 16), 4);
+});
+
+test('defaultBoxesForBon: udledt fra total_units / pax_per_box (rundet op, min 1)', () => {
+    assert.strictEqual(defaultBoxesForBon({ total_units: 60 }, 16), 4);   // ceil(60/16)=4
+    assert.strictEqual(defaultBoxesForBon({ total_units: 16 }, 16), 1);
+    assert.strictEqual(defaultBoxesForBon({ total_units: 1 }, 16), 1);    // min 1
+    assert.strictEqual(defaultBoxesForBon({ pax: 32 }, 16), 2);           // fallback til pax
+    assert.strictEqual(defaultBoxesForBon({ total_units: 0, pax: 0 }, 16), 0); // ingen arbejdsmængde
+    assert.strictEqual(defaultBoxesForBon({ boxes: 0, total_units: 50 }, 25), 2); // boxes=0 → udled
+});
+
+test('quoteForBon: uden boxes-override udledes kasse-antal fra bonen', async () => {
+    let priced = null;
+    const adapter = fakeAdapter({
+        priceQuote: async (p) => { priced = p; return { uuid: 'd', cost_ex: 100 }; },
+        deleteOrderDraft: async () => true,
+    });
+    // bon uden boxes, 80 enheder, 16/kasse → 5 kasser → 3 ekstra ud over 2 inkl.
+    const bon = { id: 1, total_units: 80, delivery_address: { street_name: 'X', street_nr: '1', postal_code: '2200', city: 'Kbh' } };
+    const q = await quoteForBon({ bon, vehicle: VEHICLE, adapter, paxPerBox: 16 });
+    assert.strictEqual(q.boxes, 5);
+    assert.strictEqual(q.cost_ex, 250);  // Lobo grundpris 100 + 3×50
+    assert.ok(!priced.ordersurchargequantities, 'intet kasse-tillæg sendt til Lobo (vi lægger selv til)');
+});
+
 /* ── quoteForBon ──────────────────────────────────────────── */
 
 test('quoteForBon: kostpris fra Lobo + kundepris fra vogn + margin, og kladde slettes', async () => {
@@ -48,28 +87,28 @@ test('quoteForBon: kostpris fra Lobo + kundepris fra vogn + margin, og kladde sl
         deleteOrderDraft: async (uuid) => { deleted = uuid; return true; },
     });
     const q = await quoteForBon({ bon: BON, vehicle: VEHICLE, adapter });
-    assert.strictEqual(q.cost_ex, 100);
+    assert.strictEqual(q.cost_ex, 150);              // grundpris 100 + 1 ekstra kasse × 50
+    assert.strictEqual(q.cost_incl, 187.5);          // exclToIncl(150)
     assert.strictEqual(q.customer_ex, 204);          // 154 + 1 ekstra kasse × 50
-    assert.strictEqual(q.margin, 104);               // 204 − 100
+    assert.strictEqual(q.margin, 54);                // 204 − 150 (konstant base-markup)
     assert.strictEqual(q.routedistance, 3464);
     assert.strictEqual(deleted, 'draft-1', 'kladden blev slettet');
-    // payloaden indeholdt surcharge for den ekstra kasse
-    assert.deepStrictEqual(priced.ordersurchargequantities, [{ fksurcharge: 389, quantity: 1 }]);
+    assert.ok(!priced.ordersurchargequantities, 'intet kasse-tillæg sendt til Lobo');
     assert.strictEqual(priced.stops[0].fkplace, 3233);
 });
 
-test('quoteForBon: kasse-override styrer surcharge-antal + kundepris', async () => {
-    let priced = null;
+test('quoteForBon: kasse-override → 50/kasse lægges til BÅDE kost og kundepris', async () => {
     const adapter = fakeAdapter({
-        priceQuote: async (p) => { priced = p; return { uuid: 'd', cost_ex: 100, cost_incl: 125 }; },
+        priceQuote: async () => ({ uuid: 'd', cost_ex: 100, cost_incl: 125 }),
         deleteOrderDraft: async () => true,
     });
     // 5 kasser, 2 inkluderet → 3 ekstra
     const q = await quoteForBon({ bon: BON, vehicle: VEHICLE, adapter, boxes: 5 });
     assert.strictEqual(q.boxes, 5);
     assert.strictEqual(q.included_boxes, 2);
-    assert.deepStrictEqual(priced.ordersurchargequantities, [{ fksurcharge: 389, quantity: 3 }]);
+    assert.strictEqual(q.cost_ex, 250);     // 100 + 3×50 (det By-ex tager)
     assert.strictEqual(q.customer_ex, 304); // 154 + 3×50
+    assert.strictEqual(q.margin, 54);       // konstant — ekstra kasser er gennemstik
 });
 
 test('quoteForBon: kasse-antal under/lig inkluderet → ingen surcharge', async () => {
@@ -80,7 +119,8 @@ test('quoteForBon: kasse-antal under/lig inkluderet → ingen surcharge', async 
     });
     const q = await quoteForBon({ bon: BON, vehicle: VEHICLE, adapter, boxes: 2 });
     assert.strictEqual(q.boxes, 2);
-    assert.ok(!priced.ordersurchargequantities, 'ingen surcharge ved 2 kasser');
+    assert.strictEqual(q.cost_ex, 100);  // = inkluderede → intet kasse-tillæg
+    assert.ok(!priced.ordersurchargequantities, 'intet kasse-tillæg sendt til Lobo');
 });
 
 test('quoteForBon: negativ margin rapporteres (men intet blokeres)', async () => {
@@ -88,8 +128,10 @@ test('quoteForBon: negativ margin rapporteres (men intet blokeres)', async () =>
         priceQuote: async () => ({ uuid: 'd', cost_ex: 300, cost_incl: 375 }),
         deleteOrderDraft: async () => true,
     });
+    // BON = 3 kasser → 1 ekstra: kost 300+50=350, kunde 204 → margin -146
     const q = await quoteForBon({ bon: BON, vehicle: VEHICLE, adapter });
-    assert.strictEqual(q.margin, -96); // 204 − 300
+    assert.strictEqual(q.cost_ex, 350);
+    assert.strictEqual(q.margin, -146);
 });
 
 /* ── bookForBon ───────────────────────────────────────────── */
@@ -104,12 +146,12 @@ test('bookForBon: booker, skriver delivery_event(booked+snapshot) + actual cost 
     };
     const r = await bookForBon({ bon: BON, vehicle: VEHICLE, adapter, userId: 5, deps });
     assert.strictEqual(r.uuid, 'ord-9');
-    assert.strictEqual(r.cost_ex, 100);
+    assert.strictEqual(r.cost_ex, 150);  // grundpris 100 + 1 ekstra kasse × 50 (BON = 3 kasser)
     assert.strictEqual(calls.log.length, 1);
     assert.strictEqual(calls.log[0].status, 'booked');
     assert.strictEqual(calls.log[0].reference, 'ord-9');
     assert.ok(calls.log[0].snapshot, 'snapshot gemmes');
-    assert.deepStrictEqual(calls.cost, { bonId: 3248, amount: 100, source: 'api', userId: 5 });
+    assert.deepStrictEqual(calls.cost, { bonId: 3248, amount: 150, source: 'api', userId: 5 });
     assert.strictEqual(calls.sse.ev, 'delivery_event');
     assert.strictEqual(calls.sse.d.bon_id, 3248);
 });

@@ -1289,7 +1289,10 @@ function loadLoboContext(req, res) {
     let adapter;
     try { adapter = getByExpressenAdapter(); }
     catch (e) { res.status(503).json({ error: e.message, code: e.code || 'config' }); return null; }
-    return { bon, vehicle, adapter };
+    // pax_per_box til default-kasse-udledning når bonen ikke har boxes sat
+    const ppbRow = getDb().prepare(`SELECT value FROM settings WHERE key = 'default_pax_per_box'`).get();
+    const paxPerBox = ppbRow && Number(ppbRow.value) > 0 ? Number(ppbRow.value) : 16;
+    return { bon, vehicle, adapter, paxPerBox };
 }
 
 // GET /api/delivery/lobo/quote?bon_id=

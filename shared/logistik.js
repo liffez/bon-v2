@@ -462,6 +462,7 @@ function _logOnBonClick(e) {
     var boxBtn = e.target.closest('.log-box-btn');
     if (boxBtn) {
         var resEl = row.querySelector('.log-byex-result');
+        if (resEl && resEl.classList.contains('busy')) return;  // undgå dobbeltklik mens den henter
         var cur = resEl ? (parseInt(resEl.getAttribute('data-boxes'), 10) || 0) : 0;
         _logFetchByExPrice(id, row, Math.max(0, cur + parseInt(boxBtn.getAttribute('data-box'), 10)));
         return;
@@ -480,8 +481,16 @@ function _logFetchByExPrice(id, row, boxes) {
     if (!out) return;
     if (btn) btn.disabled = true;
     out.hidden = false;
-    out.className = 'log-byex-result loading';
-    out.textContent = 'Henter By-ex pris…';
+    // Ved kasse-justering: behold linjen + dæmp kun (intet blink). Første gang: vis "Henter".
+    var isUpdate = out.classList.contains('ok');
+    if (isUpdate) {
+        out.classList.add('busy');
+        var nEl = out.querySelector('.log-box-n');
+        if (nEl && boxes != null) nEl.textContent = boxes;
+    } else {
+        out.className = 'log-byex-result loading';
+        out.textContent = 'Henter By-ex pris…';
+    }
     fetchLoboQuote(id, boxes).then(function(q) {
         var kr = function(n) { return n == null ? '–' : Number(n).toLocaleString('da-DK', { maximumFractionDigits: 2 }) + ' kr'; };
         var dist = q.routedistance != null ? ' · ' + (q.routedistance / 1000).toLocaleString('da-DK', { maximumFractionDigits: 1 }) + ' km' : '';

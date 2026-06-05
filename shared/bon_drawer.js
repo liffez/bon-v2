@@ -644,11 +644,18 @@ class BonDrawer {
         if (quoteBtn && quoteEl) {
             const kr = (n) => n == null ? '–' : Number(n).toLocaleString('da-DK', { minimumFractionDigits: 0, maximumFractionDigits: 2 }) + ' kr';
             let quoteBoxes = null; // null = lad serveren bruge bonens kasse-antal
-            const renderQuote = async () => {
+            const renderQuote = async (isUpdate) => {
                 quoteBtn.disabled = true;
                 quoteEl.hidden = false;
-                quoteEl.className = 'drawer-lobo-quote loading';
-                quoteEl.textContent = 'Henter By-ex pris…';
+                if (isUpdate && quoteEl.classList.contains('ok')) {
+                    // Behold kortet — dæmp kun + opdatér kasse-tallet straks (intet blink)
+                    quoteEl.classList.add('busy');
+                    const nEl = quoteEl.querySelector('.lq-box-n');
+                    if (nEl && quoteBoxes != null) nEl.textContent = quoteBoxes;
+                } else {
+                    quoteEl.className = 'drawer-lobo-quote loading';
+                    quoteEl.textContent = 'Henter By-ex pris…';
+                }
                 try {
                     const q = await fetchLoboQuote(this.bonId, quoteBoxes);
                     quoteBoxes = q.boxes;  // synk til det serveren regnede med
@@ -679,14 +686,14 @@ class BonDrawer {
                     quoteBtn.disabled = false;
                 }
             };
-            quoteBtn.onclick = () => { quoteBoxes = null; renderQuote(); };
+            quoteBtn.onclick = () => { quoteBoxes = null; renderQuote(false); };
             // Kasse-stepper (delegeret — knapperne gen-renderes ved hver quote)
             quoteEl.onclick = (e) => {
                 const b = e.target.closest('.lq-box-btn');
-                if (!b) return;
+                if (!b || quoteEl.classList.contains('busy')) return;
                 const delta = parseInt(b.getAttribute('data-box'), 10);
                 quoteBoxes = Math.max(0, (Number(quoteBoxes) || 0) + delta);
-                renderQuote();
+                renderQuote(true);
             };
         }
 

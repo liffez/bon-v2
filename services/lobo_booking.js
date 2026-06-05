@@ -13,6 +13,20 @@
 
 const { extractCostEx, bonToOrderInput } = require('./byExpressenAdapter');
 const { estimateCost } = require('./booking_template');
+const { exclToIncl } = require('../shared/moms');
+
+// Default antal transportkasser for en bon:
+//   1) bons.boxes hvis sat (>0) — det manuelt indtastede antal,
+//   2) ellers udledt: ceil(arbejdsmængde / pax_per_box), hvor arbejdsmængde =
+//      total_units (hvis >0) ellers pax — samme basis som resten af appen.
+// Returnerer mindst 1 hvis der er en arbejdsmængde, ellers 0.
+function defaultBoxesForBon(bon, paxPerBox = 16) {
+    if (bon && bon.boxes != null && Number(bon.boxes) > 0) return Number(bon.boxes);
+    const ppb = Number(paxPerBox) > 0 ? Number(paxPerBox) : 16;
+    const workload = Number(bon && bon.total_units) > 0 ? Number(bon.total_units) : (Number(bon && bon.pax) || 0);
+    if (workload <= 0) return 0;
+    return Math.max(1, Math.ceil(workload / ppb));
+}
 
 // Ekstra-kasse-tillæg → ordersurchargequantities. cfg fra vognens booking_api_config.
 function buildSurcharges(bon, cfg = {}) {
@@ -36,18 +50,41 @@ function resolveIncludedBoxes(cfg, vehicle) {
     return 0;
 }
 
+// Pris pr. ekstra kasse (det By-ex tager pr. kasse over de inkluderede).
+// cfg har forrang, ellers vognens cost_formula.extra_box_cost.
+function resolveExtraBoxCost(cfg, vehicle) {
+    if (cfg.extra_box_cost != null) return Number(cfg.extra_box_cost) || 0;
+    if (vehicle && vehicle.cost_formula_json) {
+        try { const f = JSON.parse(vehicle.cost_formula_json); if (f.extra_box_cost != null) return Number(f.extra_box_cost) || 0; } catch { /* ignore */ }
+    }
+    return 0;
+}
+
+// Kostpris ex moms = Lobos GRUNDpris (uden tillæg) + det By-ex tager pr. ekstra
+// kasse over de inkluderede. Vi lægger selv kasse-tillægget til frem for at
+// stole på Lobos `costtotal_net` — dens størrelsestillæg er fladt (samme beløb
+// uanset antal ekstra kasser), mens By-ex reelt opkræver pr. kasse.
+function composeCostEx(loboBaseEx, boxes, cfg, vehicle) {
+    if (loboBaseEx == null) return null;
+    const included = cfg.included_boxes != null ? Number(cfg.included_boxes) : resolveIncludedBoxes(cfg, vehicle);
+    const extra = Math.max(0, (Number(boxes) || 0) - included);
+    return Math.round((loboBaseEx + resolveExtraBoxCost(cfg, vehicle) * extra) * 100) / 100;
+}
+
 // Pris-tilbud: opret orderdraft → læs Lobos kostpris → slet kladden igen.
 // Returnerer kostpris (ex/incl), kundepris (fra vognens cost_formula) + margin.
 // `boxes` (valgfri) overstyrer bonens kasse-antal — ekstra kasser koster mere
 // (surcharge hos Lobo + extra_box_cost i kundeprisen).
-async function quoteForBon({ bon, vehicle, adapter, boxes = null }) {
+async function quoteForBon({ bon, vehicle, adapter, boxes = null, paxPerBox = 16 }) {
     const cfg = { ...(adapter.config || {}) };
     if (cfg.included_boxes == null) cfg.included_boxes = resolveIncludedBoxes(cfg, vehicle);
 
-    const effectiveBoxes = boxes != null && boxes !== '' ? Math.max(0, parseInt(boxes, 10) || 0) : (Number(bon.boxes) || 0);
+    const effectiveBoxes = boxes != null && boxes !== '' ? Math.max(0, parseInt(boxes, 10) || 0) : defaultBoxesForBon(bon, paxPerBox);
     const bonForCalc = { ...bon, boxes: effectiveBoxes };
 
-    const input = bonToOrderInput(bonForCalc, { pickupNote: 'pris-tjek', surcharges: buildSurcharges(bonForCalc, cfg) });
+    // Send INGEN kasse-tillæg til Lobo — vi vil have den rene GRUNDpris og lægger
+    // selv 50/kasse til (composeCostEx), da Lobos eget tillæg er fladt.
+    const input = bonToOrderInput(bonForCalc, { pickupNote: 'pris-tjek' });
     const payload = adapter.buildOrderPayload(input);
 
     const quote = await adapter.priceQuote(payload);
@@ -55,37 +92,41 @@ async function quoteForBon({ bon, vehicle, adapter, boxes = null }) {
         try { await adapter.deleteOrderDraft(quote.uuid); } catch { /* kladden udløber selv efter 5 min */ }
     }
 
-    const costEx = quote.cost_ex;
+    const costEx = composeCostEx(quote.cost_ex, effectiveBoxes, cfg, vehicle);
+    const costIncl = costEx != null ? exclToIncl(costEx) : null;
     const customerEx = vehicle ? (estimateCost(vehicle, bonForCalc) ?? null) : null;
     const margin = (customerEx != null && costEx != null)
         ? Math.round((customerEx - costEx) * 100) / 100
         : null;
 
     return {
-        cost_ex: costEx,
-        cost_incl: quote.cost_incl,
+        cost_ex: costEx,                 // Lobo grundpris + 50/kasse over inkluderede
+        cost_incl: costIncl,
         customer_ex: customerEx,
         margin,                          // advarsel-grundlag (negativ = vi taber) — blokerer ALDRIG
         routedistance: quote.routedistance,
         co2saving: quote.co2saving,
         boxes: effectiveBoxes,
         included_boxes: cfg.included_boxes,
+        extra_box_cost: resolveExtraBoxCost(cfg, vehicle),
     };
 }
 
 // Rigtig booking: POST /orders → skriv delivery_events (booked + snapshot) +
 // bons.delivery_cost (api) + SSE. Ved Lobo-fejl logges et 'failed'-event.
-async function bookForBon({ bon, vehicle, adapter, userId = null, boxes = null, deps = {} }) {
+async function bookForBon({ bon, vehicle, adapter, userId = null, boxes = null, paxPerBox = 16, deps = {} }) {
     const logBookingEvent = deps.logBookingEvent || require('./delivery_log').logBookingEvent;
     const setActualCost = deps.setActualCost || require('./delivery_log').setActualCost;
     const broadcast = deps.broadcast || require('../shared/sse').broadcast;
 
     const cfg = { ...(adapter.config || {}) };
     if (cfg.included_boxes == null) cfg.included_boxes = resolveIncludedBoxes(cfg, vehicle);
-    const effectiveBoxes = boxes != null && boxes !== '' ? Math.max(0, parseInt(boxes, 10) || 0) : (Number(bon.boxes) || 0);
+    const effectiveBoxes = boxes != null && boxes !== '' ? Math.max(0, parseInt(boxes, 10) || 0) : defaultBoxesForBon(bon, paxPerBox);
     const bonForCalc = { ...bon, boxes: effectiveBoxes };
 
-    const input = bonToOrderInput(bonForCalc, { surcharges: buildSurcharges(bonForCalc, cfg) });
+    // Send INGEN kasse-tillæg til Lobo — kostprisen sammensættes af grundpris +
+    // 50/kasse (composeCostEx), jf. By-ex's faktiske takst pr. kasse over 2.
+    const input = bonToOrderInput(bonForCalc);
     const payload = adapter.buildOrderPayload(input);
 
     let order;
@@ -98,7 +139,7 @@ async function bookForBon({ bon, vehicle, adapter, userId = null, boxes = null, 
         throw e;
     }
 
-    const costEx = extractCostEx(order);
+    const costEx = composeCostEx(extractCostEx(order), effectiveBoxes, cfg, vehicle);
     await logBookingEvent({
         bonId: bon.id, vehicleId: vehicle.id, reference: order.uuid,
         status: 'booked', userId, snapshot: order,
@@ -111,4 +152,4 @@ async function bookForBon({ bon, vehicle, adapter, userId = null, boxes = null, 
     return { uuid: order.uuid, cost_ex: costEx, order };
 }
 
-module.exports = { quoteForBon, bookForBon, buildSurcharges };
+module.exports = { quoteForBon, bookForBon, buildSurcharges, defaultBoxesForBon, composeCostEx, resolveExtraBoxCost };

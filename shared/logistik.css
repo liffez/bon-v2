@@ -114,6 +114,7 @@
 .log-byex-btn:disabled { opacity: .6; cursor: default; }
 .log-byex-result { margin-top: 4px; font-size: 12px; }
 .log-byex-result.loading { color: var(--color-text-dim, #8a8580); font-style: italic; }
+.log-byex-result.busy { opacity: .55; transition: opacity .12s; }
 .log-byex-result.err { color: #9a2a2a; }
 .log-byex-result .byex-dim { color: var(--color-text-dim, #8a8580); }
 .log-byex-result .byex-margin.pos { color: #2e7d32; font-weight: 600; }
