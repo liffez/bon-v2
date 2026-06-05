@@ -78,8 +78,18 @@
         return body.length > 260 || newlines > 5;
     }
 
-    function attachmentsHtml(atts) {
-        var ok = (atts || []).filter(function (a) { return a && a.id; });
+    /* Har beskeden en HTML-krop vi skal rendere (frem for ren tekst)? */
+    function hasHtmlBody(m) {
+        return !!(m && m.body_html && String(m.body_html).trim());
+    }
+
+    function attachmentsHtml(atts, hideInline) {
+        var ok = (atts || []).filter(function (a) {
+            if (!a || !a.id) return false;
+            // Inline billeder vises inde i HTML-kroppen — ikke som 📎-link.
+            if (hideInline && a.is_inline) return false;
+            return true;
+        });
         if (!ok.length) return '';
         return '<div class="mt-msg-atts">' + ok.map(function (a) {
             var kb = Math.round((a.size_bytes || 0) / 1024);
@@ -89,18 +99,58 @@
         }).join('') + '</div>';
     }
 
+    /* Byg et komplet, isoleret HTML-dokument til en mail-krop.
+       Renderes i en sandboxed iframe uden allow-scripts — afsenderens JS kan
+       aldrig køre. cid:-billeder peges om til vores inline-endpoint, og en
+       CSP begrænser hvilke ressourcer der overhovedet må hentes. */
+    function buildMailDoc(m) {
+        var html = String(m.body_html || '');
+        // Fjern scripts/base defensivt (sandbox blokerer også scripts).
+        html = html
+            .replace(/<script[\s\S]*?<\/script>/gi, '')
+            .replace(/<base\b[^>]*>/gi, '');
+
+        // cid:CONTENT_ID → inline-URL for den gemte vedhæftning.
+        (m.attachments || []).forEach(function (a) {
+            if (!a || !a.content_id || a.id == null) return;
+            if (typeof mailInlineUrl !== 'function') return;
+            var cid = String(a.content_id).replace(/^<|>$/g, '');
+            var reCid = cid.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+            var re = new RegExp('cid:' + reCid, 'gi');
+            html = html.replace(re, mailInlineUrl(a.id));
+        });
+
+        var csp = "default-src 'none'; img-src 'self' data: https: http:; "
+            + "style-src 'unsafe-inline'; font-src data: https: http:; "
+            + "media-src 'none'; frame-src 'none'; object-src 'none'; "
+            + "base-uri 'none'; form-action 'none';";
+
+        return '<!doctype html><html><head><meta charset="utf-8">'
+            + '<meta http-equiv="Content-Security-Policy" content="' + csp + '">'
+            + '<meta name="referrer" content="no-referrer">'
+            + '<base target="_blank">'
+            + '<style>html,body{margin:0;padding:0;background:#fff;}'
+            + 'body{font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,Helvetica,Arial,sans-serif;'
+            + 'font-size:13px;line-height:1.5;color:#1a1917;padding:10px 12px;word-break:break-word;overflow-wrap:anywhere;}'
+            + 'img{max-width:100%;height:auto;}table{max-width:100%;}*{max-width:100%;box-sizing:border-box;}'
+            + 'a{color:#8e631f;}</style>'
+            + '</head><body>' + html + '</body></html>';
+    }
+
     function msgHtml(m, idx) {
         var isIn = m.direction === 'in';
         var isUnread = isIn && !m.is_read;
         var who = isIn ? (m.from_name || m.from_email || 'Ukendt') : 'Ristet Rug';
         var when = fmtDate(m.received_at || m.sent_at || m.created_at);
         var subject = m.subject || m._threadSubject || '';
-        var body = (m.body_text || '').replace(/\r\n/g, '\n').trim();
         var bonTag = m.bon_number ? ' · #' + esc(m.bon_number) : '';
-        var long = isLongBody(body);
+        var isHtml = hasHtmlBody(m);
+        var body = (m.body_text || '').replace(/\r\n/g, '\n').trim();
+        var long = !isHtml && isLongBody(body); // tekst-kollaps; HTML kollapses efter måling
 
         var h = '<div class="mt-msg ' + (isIn ? 'mt-in' : 'mt-out')
             + (isUnread ? ' mt-unread' : '') + (long ? ' mt-collapsible' : '')
+            + (isHtml ? ' mt-html' : '')
             + '" data-mt-idx="' + idx + '">';
         h += '<div class="mt-msg-head">'
             + '<span class="mt-msg-from">' + esc(who) + bonTag + '</span>'
@@ -109,11 +159,90 @@
             + '</span>'
             + '</div>';
         if (subject) h += '<div class="mt-msg-subject">' + esc(subject) + '</div>';
-        h += '<div class="mt-msg-body">' + (body ? esc(body) : '<span class="mt-msg-nobody">(ingen tekst)</span>') + '</div>';
-        if (long) h += '<button type="button" class="mt-msg-more"></button>';
-        h += attachmentsHtml(m.attachments);
+        if (isHtml) {
+            // iframen indsættes af renderHistory (srcdoc kan ikke stå i en HTML-streng).
+            h += '<div class="mt-msg-html" data-mt-html="' + idx + '">'
+                + '<div class="mt-html-loading">Indlæser mail…</div></div>';
+        } else {
+            h += '<div class="mt-msg-body">' + (body ? esc(body) : '<span class="mt-msg-nobody">(ingen tekst)</span>') + '</div>';
+            if (long) h += '<button type="button" class="mt-msg-more"></button>';
+        }
+        h += attachmentsHtml(m.attachments, isHtml);
         h += '</div>';
         return h;
+    }
+
+    /* ── Iframe-størrelse + kollaps for HTML-mails ─────────────── */
+    var HTML_COLLAPSE_PX = 460;
+
+    function sizeFrame(iframe) {
+        try {
+            var d = iframe.contentDocument;
+            if (!d || !d.body) return;
+            var h = Math.max(d.documentElement.scrollHeight, d.body.scrollHeight);
+            if (h) iframe.style.height = (h + 6) + 'px';
+        } catch (e) { /* opak origin — bør ikke ske med allow-same-origin */ }
+    }
+
+    function applyCollapse(host, iframe) {
+        if (host._mtExpanded || host._mtCollapseSet) return;
+        var fh = parseInt(iframe.style.height, 10) || 0;
+        if (fh <= HTML_COLLAPSE_PX) return;
+        host._mtCollapseSet = true;
+        host.classList.add('mt-html-collapsed');
+        var btn = document.createElement('button');
+        btn.type = 'button';
+        btn.className = 'mt-msg-more mt-html-more';
+        btn.textContent = 'Vis hele mailen ▾';
+        btn.addEventListener('click', function (ev) {
+            ev.stopPropagation();
+            host._mtExpanded = true;
+            host.classList.remove('mt-html-collapsed');
+            btn.remove();
+        });
+        host.parentNode.insertBefore(btn, host.nextSibling);
+    }
+
+    function wireFrame(iframe, host) {
+        sizeFrame(iframe);
+        applyCollapse(host, iframe);
+        try {
+            var imgs = iframe.contentDocument.images;
+            for (var i = 0; i < imgs.length; i++) {
+                imgs[i].addEventListener('load', function () { sizeFrame(iframe); applyCollapse(host, iframe); });
+                imgs[i].addEventListener('error', function () { sizeFrame(iframe); });
+            }
+        } catch (e) { /* ignore */ }
+        // Re-mål efterhånden som billeder/fonte lander.
+        [150, 500, 1200].forEach(function (t) {
+            setTimeout(function () { sizeFrame(iframe); applyCollapse(host, iframe); }, t);
+        });
+    }
+
+    function mountHtmlFrames(container, msgs) {
+        container.querySelectorAll('.mt-msg-html[data-mt-html]').forEach(function (host) {
+            var m = msgs[parseInt(host.getAttribute('data-mt-html'), 10)];
+            if (!m) return;
+            var iframe = document.createElement('iframe');
+            iframe.className = 'mt-html-frame';
+            iframe.setAttribute('sandbox', 'allow-same-origin allow-popups allow-popups-to-escape-sandbox');
+            iframe.setAttribute('referrerpolicy', 'no-referrer');
+            iframe.setAttribute('scrolling', 'no');
+            iframe.title = 'Mail-indhold';
+            iframe.addEventListener('load', function () { wireFrame(iframe, host); });
+            host.innerHTML = '';
+            host.appendChild(iframe);
+            iframe.srcdoc = buildMailDoc(m);
+
+            // Hvis containeren er skjult ved montering (fx kollapset drawer-sektion)
+            // måler iframen til 0 — re-mål når den bliver synlig igen.
+            if (window.ResizeObserver) {
+                try {
+                    var ro = new ResizeObserver(function () { sizeFrame(iframe); applyCollapse(host, iframe); });
+                    ro.observe(host);
+                } catch (e) { /* ignore */ }
+            }
+        });
     }
 
     /* Render mail-historik ind i container. */
@@ -146,6 +275,9 @@
         html += '<div class="mt-thread"' + listStyle + '>'
             + msgs.map(msgHtml).join('') + '</div>';
         container.innerHTML = html;
+
+        // HTML-mails: indsæt sandboxed iframes (kan ikke stå i innerHTML-strengen).
+        mountHtmlFrames(container, msgs);
 
         // Interaktion: klik på boble → fold ud/ind + markér læst.
         container.querySelectorAll('.mt-msg').forEach(function (el) {

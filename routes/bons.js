@@ -1110,7 +1110,7 @@ router.get('/:id/mail', handle(async (req, res) => {
     for (const t of threads) {
         t.messages = db.prepare(`
             SELECT mm.*,
-                   (SELECT json_group_array(json_object('id', ma.id, 'filename', ma.filename, 'mime_type', ma.mime_type, 'size_bytes', ma.size_bytes))
+                   (SELECT json_group_array(json_object('id', ma.id, 'filename', ma.filename, 'mime_type', ma.mime_type, 'size_bytes', ma.size_bytes, 'content_id', ma.content_id, 'is_inline', ma.is_inline))
                     FROM mail_attachments ma WHERE ma.message_id = mm.id) as attachments_json
             FROM mail_messages mm WHERE mm.thread_id = ? ORDER BY mm.created_at ASC
         `).all(t.id);

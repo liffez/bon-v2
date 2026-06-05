@@ -629,6 +629,7 @@ async function processInboundMail(parsed, uid, mailbox) {
     // Save attachments
     if (attachments.length > 0) {
         await saveAttachments(messageDbId, attachments, messageId);
+        db.prepare(`UPDATE mail_messages SET has_attachments = 1 WHERE id = ?`).run(messageDbId);
     }
 
     // Count unread for SSE
@@ -688,13 +689,19 @@ async function saveAttachments(messageDbId, attachments, emailMessageId) {
         const filename = att.filename || `attachment_${Date.now()}`;
         const filepath = path.join(dir, filename);
 
+        // Inline (CID-refererede) billeder: mailparser sætter `cid` (uden < >) og
+        // markerer dem med `related: true` / contentDisposition 'inline'. content_id
+        // bruges til at koble <img src="cid:..."> i body_html til den gemte fil.
+        const contentId = att.cid || (att.contentId ? String(att.contentId).replace(/^<|>$/g, '') : null);
+        const isInline = (att.related === true || att.contentDisposition === 'inline') && contentId ? 1 : 0;
+
         try {
             fs.writeFileSync(filepath, att.content);
 
             db.prepare(
-                `INSERT INTO mail_attachments (message_id, filename, file_path, mime_type, size_bytes, created_at)
-                 VALUES (?, ?, ?, ?, ?, datetime('now'))`
-            ).run(messageDbId, filename, filepath, att.contentType || 'application/octet-stream', att.size || att.content.length);
+                `INSERT INTO mail_attachments (message_id, filename, file_path, mime_type, size_bytes, content_id, is_inline, created_at)
+                 VALUES (?, ?, ?, ?, ?, ?, ?, datetime('now'))`
+            ).run(messageDbId, filename, filepath, att.contentType || 'application/octet-stream', att.size || att.content.length, contentId, isInline);
         } catch (err) {
             console.error(`[mail] Fejl ved gem af vedhæftning "${filename}":`, err.message);
         }

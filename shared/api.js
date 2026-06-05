@@ -604,6 +604,11 @@ function mailAttachmentUrl(mailAttachmentId) {
     return API_BASE + '/attachments/mail/' + mailAttachmentId + '/download';
 }
 
+// Visnings-URL for inline (CID-refererede) billeder i HTML-mails.
+function mailInlineUrl(mailAttachmentId) {
+    return API_BASE + '/attachments/mail/' + mailAttachmentId + '/inline';
+}
+
 function attachmentUrl(attachmentId) {
     return API_BASE + '/attachments/' + attachmentId + '/download';
 }

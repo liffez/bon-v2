@@ -139,6 +139,46 @@
 .mt-msg-more::after { content: 'Vis hele beskeden ▾'; }
 .mt-expanded .mt-msg-more::after { content: 'Skjul ▴'; }
 
+/* ── HTML-mails (sandboxed iframe) ────────────────────────── */
+/* HTML-mails får et bredt, hvidt "kort" frem for den smalle chat-boble —
+   tabeller og inline-billeder har brug for pladsen. */
+.mt-msg.mt-html {
+    max-width: 100%;
+    width: 100%;
+    align-self: stretch;
+    background: #fff;
+    border: 1px solid var(--color-border, #d7d1ca);
+    padding: 9px 11px;
+}
+.mt-msg.mt-html.mt-unread { background: #fff8ef; }
+
+.mt-msg-html {
+    margin-top: 4px;
+    border-radius: 6px;
+    overflow: hidden;
+}
+.mt-html-frame {
+    width: 100%;
+    min-height: 40px;
+    border: 0;
+    display: block;
+    background: #fff;
+}
+.mt-html-loading {
+    color: var(--color-text-dim, #999);
+    font-size: 12px;
+    font-style: italic;
+    padding: 6px 2px;
+}
+.mt-html-collapsed {
+    max-height: 460px;
+    overflow: hidden;
+    -webkit-mask-image: linear-gradient(180deg, #000 82%, transparent);
+    mask-image: linear-gradient(180deg, #000 82%, transparent);
+}
+.mt-html-more { margin-top: 6px; }
+.mt-html-more::after { content: none; } /* fast tekst sættes i JS */
+
 /* ── Vedhæftninger ────────────────────────────────────────── */
 .mt-msg-atts {
     margin-top: 6px;
