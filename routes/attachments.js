@@ -165,4 +165,24 @@ router.get('/mail/:id/download', requireAuth(), handle(async (req, res) => {
     res.download(row.file_path, row.filename);
 }));
 
+// ─── GET /mail/:id/inline ────────────────────────────────────────────────────
+// Servér en mail-vedhæftning til VISNING (ikke download) — bruges af inline
+// (CID-refererede) billeder i HTML-mails. Vises i en sandboxed iframe der deler
+// origin, så session-cookien følger med og requireAuth kan beskytte den.
+
+router.get('/mail/:id/inline', requireAuth(), handle(async (req, res) => {
+    const db = getDb();
+    const row = db.prepare('SELECT filename, file_path, mime_type FROM mail_attachments WHERE id = ?')
+        .get(parseInt(req.params.id));
+
+    if (!row) return res.status(404).end();
+    if (!fs.existsSync(row.file_path)) return res.status(404).end();
+
+    res.setHeader('Content-Type', row.mime_type || 'application/octet-stream');
+    res.setHeader('Content-Disposition', 'inline');
+    res.setHeader('X-Content-Type-Options', 'nosniff');
+    res.setHeader('Cache-Control', 'private, max-age=86400');
+    fs.createReadStream(row.file_path).pipe(res);
+}));
+
 module.exports = router;

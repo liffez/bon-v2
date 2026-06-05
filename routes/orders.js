@@ -268,12 +268,18 @@ router.get('/pending/:id/mail', handle((req, res) => {
 
     const thread = db.prepare('SELECT * FROM mail_threads WHERE id = ?').get(po.mail_thread_id);
     const messages = db.prepare(`
-        SELECT id, thread_id, direction, from_email, from_name, to_email, subject,
-               body_text, is_read, has_attachments, sent_at, received_at, created_at
-        FROM mail_messages
-        WHERE thread_id = ?
-        ORDER BY COALESCE(sent_at, received_at, created_at) ASC
+        SELECT mm.id, mm.thread_id, mm.direction, mm.from_email, mm.from_name, mm.to_email, mm.subject,
+               mm.body_text, mm.body_html, mm.is_read, mm.has_attachments, mm.sent_at, mm.received_at, mm.created_at,
+               (SELECT json_group_array(json_object('id', ma.id, 'filename', ma.filename, 'mime_type', ma.mime_type, 'size_bytes', ma.size_bytes, 'content_id', ma.content_id, 'is_inline', ma.is_inline))
+                FROM mail_attachments ma WHERE ma.message_id = mm.id) as attachments_json
+        FROM mail_messages mm
+        WHERE mm.thread_id = ?
+        ORDER BY COALESCE(mm.sent_at, mm.received_at, mm.created_at) ASC
     `).all(po.mail_thread_id);
+    messages.forEach(m => {
+        m.attachments = m.attachments_json ? JSON.parse(m.attachments_json) : [];
+        delete m.attachments_json;
+    });
 
     res.json({ thread, messages });
 }));
