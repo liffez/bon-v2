@@ -381,7 +381,7 @@ class BonDrawer {
 
         this.el.querySelector('.drawer-copy').addEventListener('click', async () => {
             if (!this.bonId) return;
-            if (this.isDirty && !confirm('Du har ugemte ændringer. Kopiér alligevel — uden at gemme dem først?')) return;
+            if (this.dirty && !confirm('Du har ugemte ændringer. Kopiér alligevel — uden at gemme dem først?')) return;
             if (!confirm('Kopiér denne bon? Den nye bon får status NY og dagens dato som ordredato.')) return;
             const btn = this.el.querySelector('.drawer-copy');
             const oldHtml = btn.innerHTML;
@@ -404,8 +404,11 @@ class BonDrawer {
             if (e.key === 'Escape' && this.el.classList.contains('open')) this.hide();
         });
 
-        // Dirty tracking on all fields
+        // Dirty tracking on all fields — undtagen mail-compose-felterne, som også
+        // bærer .drawer-field men ikke er bon-felter (det at skrive en mail må ikke
+        // markere bonen som ugemt eller tænde Gem-knappen).
         this.el.querySelectorAll('.drawer-field').forEach(field => {
+            if (field.closest('.drawer-mail-section')) return;
             const event = field.tagName === 'SELECT' || field.type === 'checkbox' ? 'change' : 'input';
             field.addEventListener(event, () => this._markDirty());
         });
@@ -448,6 +451,10 @@ class BonDrawer {
         this.bonId = bonId;
         this.dirty = false;
         this._pendingChanges = {};
+        // _render() populerer felterne — bl.a. KundeSoeg.select() der fyrer onSelect →
+        // _updateField → _markDirty. _loading-vagten gør _markDirty til en no-op imens,
+        // så draweren ikke fejlagtigt markeres som ændret ved hver åbning.
+        this._loading = true;
         try {
             this.data = await fetchBon(bonId);
             this._render();
@@ -458,6 +465,12 @@ class BonDrawer {
             }
         } catch (err) {
             console.error('Kunne ikke hente bon:', err);
+        } finally {
+            this._loading = false;
+            // Render-tidens onSelect kan have fyldt _pendingChanges — nulstil så kun
+            // ægte bruger-ændringer tæller.
+            this._pendingChanges = {};
+            this.dirty = false;
         }
     }
 
@@ -1248,6 +1261,9 @@ class BonDrawer {
     _updateField(fieldName, value) {
         if (!this._pendingChanges) this._pendingChanges = {};
         this._pendingChanges[fieldName] = value;
+        // Kunde-, firma- og adresse-skift går gennem _updateField og skal også
+        // tælle som ugemte ændringer — ellers lukker draweren uden at advare.
+        this._markDirty();
     }
 
     _toggleDeliveryFields(type) {
@@ -1268,6 +1284,7 @@ class BonDrawer {
        ══════════════════════════════════════════════════════ */
 
     _markDirty() {
+        if (this._loading) return;
         this.dirty = true;
         this.el.querySelector('.drawer-header').classList.add('has-changes');
         this.el.querySelector('.btn-drawer-gem').disabled = false;
@@ -1339,7 +1356,9 @@ class BonDrawer {
         if (!confirm('Er du sikker på du vil slette denne bon? Handlingen kan ikke fortrydes.')) return;
         try {
             await patchBonStatus(this.bonId, 'AFLYST');
-            this.hide();
+            // Bonen er aflyst — spørg ikke om at gemme eventuelle felt-ændringer.
+            this.dirty = false;
+            this._doHide();
         } catch (err) {
             alert(err.message || 'Kunne ikke slette/aflyse bon');
         }
@@ -1385,11 +1404,75 @@ class BonDrawer {
     }
 
     hide() {
-        if (this.dirty && !confirm('Du har ugemte ændringer. Luk alligevel?')) return;
+        if (this.dirty) {
+            this._confirmClose();
+            return;
+        }
+        this._doHide();
+    }
+
+    _doHide() {
         this.el.classList.remove('open');
         this.overlayEl.classList.remove('open');
         document.body.style.overflow = '';
         this.dirty = false;
+    }
+
+    /**
+     * 3-vejs luk-dialog ved ugemte ændringer: Gem og luk / Luk uden at gemme / Bliv.
+     * Erstatter den gamle 2-vejs confirm() der kun kunne kassere eller blive.
+     */
+    _confirmClose() {
+        // Undgå dobbelt-dialog hvis hide() kaldes igen mens dialogen er åben.
+        if (this._closeDialogEl) return;
+
+        const overlay = document.createElement('div');
+        overlay.className = 'drawer-confirm-overlay';
+        overlay.innerHTML = `
+            <div class="drawer-confirm" role="dialog" aria-modal="true">
+                <div class="drawer-confirm-title">Ugemte ændringer</div>
+                <div class="drawer-confirm-body">Du har ændringer der ikke er gemt. Hvad vil du gøre?</div>
+                <div class="drawer-confirm-actions">
+                    <button type="button" class="drawer-confirm-stay">Bliv</button>
+                    <button type="button" class="drawer-confirm-discard">Luk uden at gemme</button>
+                    <button type="button" class="drawer-confirm-save">Gem og luk</button>
+                </div>
+            </div>`;
+        document.body.appendChild(overlay);
+        this._closeDialogEl = overlay;
+
+        const cleanup = () => {
+            overlay.remove();
+            this._closeDialogEl = null;
+            document.removeEventListener('keydown', onKey, true);
+        };
+        const onKey = (e) => {
+            if (e.key === 'Escape') { e.stopPropagation(); cleanup(); }
+        };
+        document.addEventListener('keydown', onKey, true);
+
+        overlay.querySelector('.drawer-confirm-stay').addEventListener('click', cleanup);
+        overlay.addEventListener('click', (e) => { if (e.target === overlay) cleanup(); });
+
+        overlay.querySelector('.drawer-confirm-discard').addEventListener('click', () => {
+            cleanup();
+            this._doHide();
+        });
+
+        overlay.querySelector('.drawer-confirm-save').addEventListener('click', async () => {
+            const saveBtn = overlay.querySelector('.drawer-confirm-save');
+            saveBtn.disabled = true;
+            saveBtn.textContent = 'Gemmer…';
+            await this._save();   // _save() håndterer selv fejl (alert) og rydder dirty ved succes
+            if (this.dirty) {
+                // Gem fejlede — _save() viser selv en alert; lad dialogen blive åben.
+                saveBtn.disabled = false;
+                saveBtn.textContent = 'Gem og luk';
+                return;
+            }
+            cleanup();
+            this._doHide();
+        });
     }
 
     get isOpen() {

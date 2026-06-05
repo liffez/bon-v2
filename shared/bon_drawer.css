@@ -872,3 +872,99 @@
     color: #9a6a1a;
     padding-left: 22px;
 }
+
+/* ── Luk-bekræftelse (ugemte ændringer) ──
+   Matcher shared/modal.css' tone: cream-kantet panel, brun titel, blød skygge. */
+.drawer-confirm-overlay {
+    position: fixed;
+    inset: 0;
+    background: rgba(0, 0, 0, 0.45);
+    z-index: 1100;               /* over draweren (950), dens overlay (900) og evt. modal (1000) */
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    padding: var(--space-l, 24px);
+    animation: drawerConfirmFade 0.18s ease;
+}
+.drawer-confirm {
+    background: var(--color-surface, #ffffff);
+    border: 1px solid var(--color-border, #d7d1ca);
+    border-top: 3px solid var(--brand-primary, #8e631f);
+    border-radius: 14px;
+    box-shadow: 0 8px 32px rgba(0, 0, 0, 0.18), 0 2px 8px rgba(0, 0, 0, 0.1);
+    max-width: 440px;
+    width: 100%;
+    padding: var(--space-l, 24px);
+    animation: drawerConfirmRise 0.2s ease;
+}
+.drawer-confirm-title {
+    font-size: 16px;
+    font-weight: 700;
+    margin-bottom: var(--space-s, 8px);
+    color: var(--brand-primary, #8e631f);
+}
+.drawer-confirm-body {
+    font-size: 14px;
+    color: var(--color-text, #333333);
+    line-height: 1.5;
+    margin-bottom: var(--space-l, 24px);
+}
+.drawer-confirm-actions {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    justify-content: flex-end;
+    gap: var(--space-s, 8px);
+}
+.drawer-confirm-actions button {
+    padding: 8px 20px;
+    border-radius: 6px;
+    font-size: 14px;
+    font-weight: 600;
+    font-family: inherit;
+    cursor: pointer;
+    border: 1px solid var(--color-border, #d7d1ca);
+    background: var(--color-surface, #ffffff);
+    color: var(--color-text, #333333);
+    transition: background 0.15s, color 0.15s, filter 0.15s, border-color 0.15s;
+}
+/* Variant-reglerne scopes under .drawer-confirm-actions så de vinder over
+   den generiske '.drawer-confirm-actions button'-regel (samme/lavere specificitet ellers). */
+/* 'Bliv' — neutral, skubbet til venstre væk fra de to luk-knapper */
+.drawer-confirm-actions .drawer-confirm-stay {
+    margin-right: auto;
+    border-color: transparent;
+    background: transparent;
+    color: var(--color-text-dim, #8a8580);
+}
+.drawer-confirm-actions .drawer-confirm-stay:hover {
+    background: var(--color-background, #f5f4f2);
+    color: var(--color-text, #333333);
+}
+/* 'Luk uden at gemme' — destruktiv, jeres brand-røde */
+.drawer-confirm-actions .drawer-confirm-discard {
+    color: var(--color-red, #bc181b);
+    border-color: var(--color-red, #bc181b);
+    background: var(--color-surface, #ffffff);
+}
+.drawer-confirm-actions .drawer-confirm-discard:hover {
+    background: var(--color-red, #bc181b);
+    color: #ffffff;
+}
+/* 'Gem og luk' — primær, samme brune som Gem-knappen */
+.drawer-confirm-actions .drawer-confirm-save {
+    background: var(--brand-primary, #8e631f);
+    border-color: var(--brand-primary, #8e631f);
+    color: #ffffff;
+}
+.drawer-confirm-actions .drawer-confirm-save:hover { filter: brightness(1.1); }
+.drawer-confirm-actions .drawer-confirm-save:disabled { opacity: 0.5; cursor: not-allowed; filter: none; }
+
+@keyframes drawerConfirmFade {
+    from { opacity: 0; }
+    to   { opacity: 1; }
+}
+@keyframes drawerConfirmRise {
+    from { opacity: 0; transform: translateY(16px); }
+    to   { opacity: 1; transform: translateY(0); }
+}

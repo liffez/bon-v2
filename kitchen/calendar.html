@@ -72,10 +72,12 @@
             drawer.show();
         }
 
-        // Override drawer hide for URL-sync
-        const origHide = drawer.hide.bind(drawer);
-        drawer.hide = function() {
-            origHide();
+        // Sync URL når draweren faktisk lukker. Wrap _doHide (det reelle luk),
+        // ikke hide() — hide() kan blive afbrudt af 3-vejs "ugemte ændringer"-dialogen,
+        // og så skal ?bon ikke fjernes fra URL'en.
+        const origDoHide = drawer._doHide.bind(drawer);
+        drawer._doHide = function() {
+            origDoHide();
             const url = new URL(window.location);
             if (url.searchParams.has('bon')) {
                 url.searchParams.delete('bon');
