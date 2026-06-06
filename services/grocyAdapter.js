@@ -641,7 +641,7 @@ async function updateShoppingListItem(id, fields) {
  * @param {Array<{grocy_recipe_id: number, quantity: number}>} lines  Bon-linjer
  * @returns {Array<{product_id: number, product_name: string, amount: number, success: boolean, error?: string}>}
  */
-async function consumeRecipes(lines) {
+async function consumeRecipes(lines, overrides = null) {
     const validLines = lines.filter(l => l.grocy_recipe_id);
     if (!validLines.length) return [];
 
@@ -657,6 +657,23 @@ async function consumeRecipes(lines) {
     }
 
     if (!items.length) return [];
+
+    // Pakke-overrides (event-prep §6): erstat den BOM-beregnede mængde med den
+    // faktisk pakkede for de produkter brugeren har justeret. overrides er et Map
+    // (eller plain object) product_id → packed_amount i stock-units. Produkter
+    // uden override bruger den beregnede mængde. Orphan-overrides (produkter der
+    // ikke længere er i opskriften) ignoreres.
+    if (overrides) {
+        const get = overrides instanceof Map
+            ? (pid) => (overrides.has(pid) ? overrides.get(pid) : undefined)
+            : (pid) => overrides[pid];
+        for (const item of items) {
+            const ov = get(item.product_id);
+            if (ov !== undefined && ov !== null && !Number.isNaN(Number(ov))) {
+                item.amount_stock = Number(ov);
+            }
+        }
+    }
 
     // ── Stock-snapshot: behov for partial-consume + auto-shopping-list ──
     //

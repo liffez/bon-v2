@@ -156,8 +156,12 @@ function autoConsumeBonInventory(bonId) {
         if (!autoDeduct || autoDeduct.value !== '1') return;
     }
     const lines = getBonLines(bonId);
+    // Manuelle pakke-overrides (kun event-prep-bons har dem) — trækker den
+    // faktisk pakkede mængde i stedet for den BOM-beregnede, så HQ-lageret
+    // afspejler hvad der fysisk forlod huset (inkl. buffer).
+    const packingOverrides = getPrepPackingOverrides(bonId);
     const { consumeRecipes } = require('../services/grocyAdapter');
-    consumeRecipes(lines).then(results => {
+    consumeRecipes(lines, packingOverrides).then(results => {
         const failed  = results.filter(r => !r.success);
         const partial = results.filter(r => r.partial);
         if (failed.length) {
@@ -174,6 +178,18 @@ function autoConsumeBonInventory(bonId) {
     }).catch(err => {
         console.error(`[grocy_consume] bon ${bonId}: fejl:`, err.message);
     });
+}
+
+// Manuelle pakke-overrides på en (event-prep) bon. Returnerer et Map
+// product_id → packed_amount (stock-units). Bruges af autoConsumeBonInventory
+// til at trække den faktisk pakkede mængde i stedet for den BOM-beregnede.
+function getPrepPackingOverrides(bonId) {
+    const rows = getDb().prepare(
+        `SELECT product_id, packed_amount FROM prep_packing_overrides WHERE bon_id = ?`
+    ).all(bonId);
+    const map = new Map();
+    for (const r of rows) map.set(parseInt(r.product_id), parseFloat(r.packed_amount));
+    return map;
 }
 
 // Visuelle grupper på køkken-bonens menu-liste (titel + note + rækkefølge).
@@ -322,7 +338,7 @@ function getUserById(id) {
 
 module.exports = {
     nextBonNumber, nextQuoteNumber, logChange, handle,
-    getBon, getBonLines, getBonMenuGroups, getStatusId, getDefaultLocationId,
+    getBon, getBonLines, getBonMenuGroups, getPrepPackingOverrides, getStatusId, getDefaultLocationId,
     todayISO, offsetISO,
     autoConsumeBonInventory,
     getUnitCountCategories, invalidateUnitCountCache, recalcBonTotalUnits,

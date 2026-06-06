@@ -643,3 +643,23 @@
 }
 .pakke-toggle-btn.active { background: #fff; color: #2a2a2a; box-shadow: 0 1px 2px rgba(0,0,0,0.08); }
 .pakke-toggle-btn:hover:not(.active) { color: #2a2a2a; }
+
+/* Editbare pakke-mængder (event-prep buffer-justering) */
+.pakke-edit-hint { font-size: 11px; color: #888; margin: -4px 0 10px; }
+.pakke-locked-hint { color: #8a6d1a; background: #fcf7e8; padding: 6px 10px; border-radius: 4px; }
+.pakke-qty-input {
+    width: 56px; padding: 3px 6px; border: 1px solid #d7d1ca; border-radius: 4px;
+    text-align: right; font-size: 13px; font-weight: 600; font-variant-numeric: tabular-nums;
+    color: #2a2a2a; background: #fff;
+}
+.pakke-qty-input:hover { border-color: #b8b2aa; }
+.pakke-qty-input:focus { outline: none; border-color: var(--brand-primary, #8e631f); box-shadow: 0 0 0 2px rgba(142,99,31,0.12); }
+.pakke-qty-input.pakke-qty-edited { border-color: #c87b0f; background: #fff8ec; color: #b8650c; }
+.pakke-qty.pakke-qty-edited { color: #b8650c; font-weight: 700; }
+.pakke-orig { font-size: 11px; color: #c87b0f; font-style: italic; }
+.pakke-reset {
+    border: none; background: none; cursor: pointer; color: #999; font-size: 14px;
+    padding: 0 2px; line-height: 1; border-radius: 3px;
+}
+.pakke-reset:hover { color: var(--brand-primary, #8e631f); background: #f0ede8; }
+.pakke-progress-saved { background: #d6f0d8 !important; color: #1e6b2c !important; border-color: #1e6b2c !important; }
