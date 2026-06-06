@@ -9,6 +9,7 @@
  *   Response:
  *     {
  *       bons_nye: <count>,                // web-orders der ikke er acknowledged
+ *       bons_ulaest_mail: <count>,        // bons med ulæst indgående mail
  *       crm_indbakke: <count>,            // mail_unmatched med status='open'
  *       tilbud_aktive: <count>,           // bons med is_offer=1 og åben offer_status
  *       indkob_leverandorpost: <count>,   // ulæste indgående mails på PO+supplier-tråde
@@ -28,6 +29,7 @@ router.get('/badges', requireAuth(), handle((req, res) => {
     const db = getDb();
     const result = {
         bons_nye: 0,
+        bons_ulaest_mail: 0,
         crm_indbakke: 0,
         tilbud_aktive: 0,
         indkob_leverandorpost: 0,
@@ -45,6 +47,21 @@ router.get('/badges', requireAuth(), handle((req, res) => {
         `).get();
         result.bons_nye = row?.c || 0;
     } catch (e) { console.warn('[nav/badges] bons_nye:', e.message); }
+
+    // ── Ulæst mail på bons: indgående, ulæste mails knyttet til en bon ──
+    // Matcher samme mønster som unread_mail-filteret i GET /api/bons.
+    // Tæller distinkte bons (ikke beskeder) så badgen matcher rækkerne i listen.
+    try {
+        const row = db.prepare(`
+            SELECT COUNT(DISTINCT mt.bon_id) AS c
+            FROM mail_messages mm
+            JOIN mail_threads mt ON mt.id = mm.thread_id
+            WHERE mm.direction = 'in'
+              AND mm.is_read = 0
+              AND mt.bon_id IS NOT NULL
+        `).get();
+        result.bons_ulaest_mail = row?.c || 0;
+    } catch (e) { console.warn('[nav/badges] bons_ulaest_mail:', e.message); }
 
     // ── CRM indbakke: ufordelte mails ───────────────────────────────────
     // Bruger mail_unmatched-tabellen (samme som GET /api/mail/unmatched)

@@ -46,21 +46,21 @@
     <div class="m-toast" id="mToast"></div>
 
     <!-- Scripts (cache-bust via build-tag — bumpes ved deploy) -->
-    <script>window.__MV = '2026-05-29-1';</script>
-    <script src="/BonConfig.js?v=2026-05-29-1"></script>
-    <script src="/shared/utils.js?v=2026-05-29-1"></script>
-    <script src="/shared/delivery_icons.js?v=2026-05-29-1"></script>
-    <script src="/shared/moms.js?v=2026-05-29-1"></script>
-    <script src="/shared/api.js?v=2026-05-29-1"></script>
-    <script src="/shared/mail_thread.js?v=2026-05-29-1"></script>
-    <script src="/shared/varemodtagelse.js?v=2026-05-29-1"></script>
-    <script src="/shared/inventory_check.js?v=2026-05-29-1"></script>
-    <script src="/mobile/views/bons.js?v=2026-05-29-1"></script>
-    <script src="/mobile/views/modtag.js?v=2026-05-29-1"></script>
-    <script src="/mobile/views/lager.js?v=2026-05-29-1"></script>
-    <script src="/mobile/views/crm.js?v=2026-05-29-1"></script>
-    <script src="/mobile/views/oversigt.js?v=2026-05-29-1"></script>
-    <script src="/mobile/views/levering.js?v=2026-05-29-1"></script>
+    <script>window.__MV = '2026-06-06-1';</script>
+    <script src="/BonConfig.js?v=2026-06-06-1"></script>
+    <script src="/shared/utils.js?v=2026-06-06-1"></script>
+    <script src="/shared/delivery_icons.js?v=2026-06-06-1"></script>
+    <script src="/shared/moms.js?v=2026-06-06-1"></script>
+    <script src="/shared/api.js?v=2026-06-06-1"></script>
+    <script src="/shared/mail_thread.js?v=2026-06-06-1"></script>
+    <script src="/shared/varemodtagelse.js?v=2026-06-06-1"></script>
+    <script src="/shared/inventory_check.js?v=2026-06-06-1"></script>
+    <script src="/mobile/views/bons.js?v=2026-06-06-1"></script>
+    <script src="/mobile/views/modtag.js?v=2026-06-06-1"></script>
+    <script src="/mobile/views/lager.js?v=2026-06-06-1"></script>
+    <script src="/mobile/views/crm.js?v=2026-06-06-1"></script>
+    <script src="/mobile/views/oversigt.js?v=2026-06-06-1"></script>
+    <script src="/mobile/views/levering.js?v=2026-06-06-1"></script>
     <script>
     (async function() {
         /* ── Auth ── */
@@ -254,8 +254,11 @@
             if (v === 'bons'     && typeof _mbHandleSSE  === 'function') _mbHandleSSE(eventName, data);
             if (v === 'oversigt' && typeof _movHandleSSE === 'function') _movHandleSSE(eventName, data);
             if (v === 'crm'      && typeof _mcrmHandleSSE === 'function') _mcrmHandleSSE(eventName, data);
-            // Bons-tæller i nav-badge skal opdateres for alle views
-            if (eventName === 'bon_created' || eventName === 'bon_updated' || eventName === 'bon_status') {
+            // Bons-tæller i nav-badge skal opdateres for alle views — også ved ny
+            // indgående mail, fordi "Nye"-tabben tæller bons + ulæste mails samlet
+            // (pending-inbox-modellen, jf. CLAUDE.md).
+            if (eventName === 'bon_created' || eventName === 'bon_updated'
+                || eventName === 'bon_status' || eventName === 'mail_received') {
                 _mScheduleNewBadgeReload();
             }
         }
@@ -275,9 +278,13 @@
         if (typeof connectSSE === 'function') {
             try {
                 connectSSE('/api/sse', {
-                    bon_created: function(d) { _mDispatchSSE('bon_created', d); },
-                    bon_updated: function(d) { _mDispatchSSE('bon_updated', d); },
-                    bon_status:  function(d) { _mDispatchSSE('bon_status',  d); },
+                    bon_created:   function(d) { _mDispatchSSE('bon_created',   d); },
+                    bon_updated:   function(d) { _mDispatchSSE('bon_updated',   d); },
+                    bon_status:    function(d) { _mDispatchSSE('bon_status',    d); },
+                    // Ny indgående mail på en bon → bons-view re-loader (✉-badge
+                    // på rækken, Nye-tab pending-inbox) + nav-tæller opdateres.
+                    // connectSSE() viser allerede den globale toast oveni.
+                    mail_received: function(d) { _mDispatchSSE('mail_received', d); },
                 });
             } catch (e) { /* lydløst — SSE er nice-to-have på mobil */ }
         }

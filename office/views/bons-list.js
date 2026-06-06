@@ -181,6 +181,17 @@ function _renderBonsListShell() {
         btn.className = 'bl-filter-btn';
         btn.dataset.filter = filters[i].key;
         btn.textContent = filters[i].label;
+        // Tæller-badge på ULÆST MAIL — fyldes af det globale nav-badge-system
+        // (data-badge="bons_ulaest_mail"). Gør indkommende mail synlig uden at
+        // man først skal klikke filteret.
+        if (filters[i].key === 'mail') {
+            var mailBadge = document.createElement('span');
+            mailBadge.className = 'bl-filter-badge';
+            mailBadge.dataset.badge = 'bons_ulaest_mail';
+            mailBadge.style.display = 'none';
+            btn.appendChild(document.createTextNode(' '));
+            btn.appendChild(mailBadge);
+        }
         btn.addEventListener('click', _blOnFilterClick);
         filterBar.appendChild(btn);
     }
@@ -262,6 +273,10 @@ function _renderBonsListShell() {
     });
 
     _blUpdateFilterButtons();
+
+    // Få det globale nav-badge-system til at fylde mail-tælleren på ULÆST MAIL-
+    // knappen (viewet mountes efter den initiale badge-load, så DOM'en var tom da).
+    if (typeof window.loadNavBadges === 'function') window.loadNavBadges();
 }
 
 // Status-sub-tekst: "leveret 09:42" / "i gang 10:15 · 22 min" / "klar 10:31 · 6 min"
@@ -841,5 +856,11 @@ function _blHandleBonUpdated(data) {
 }
 
 function _blHandleBonStatus(data) {
+    _blLoadData();
+}
+
+// Ny indgående mail på en bon → re-fetch så ✉-badgen på rækken (og ULÆST MAIL-
+// tælleren) opdateres live uden reload.
+function _blHandleMailReceived(data) {
     _blLoadData();
 }
