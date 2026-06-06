@@ -857,9 +857,14 @@
 @keyframes bmToastIn { from { opacity: 0; transform: translateY(10px); } to { opacity: 1; transform: translateY(0); } }
 
 /* ── Production bon styling ──────────────────────────────── */
+/* Produktionsbons læser blåt (som i kalenderen): venstre-stribe overstyres til
+   blå uanset status. Tidligere lå en 4px blå border bag den 6px brede status-
+   ::before-stribe, så den guld/brune status-farve dækkede den helt. */
 .bon-production {
-    border-left: 4px solid #4a7ab0 !important;
-    background: linear-gradient(135deg, #f0f4fa 0%, var(--color-surface, #fff) 40%);
+    background: linear-gradient(135deg, #eaf1f9 0%, var(--color-surface, #fff) 45%);
+}
+.bon-production::before {
+    background: #4a7ab0 !important;
 }
 .bon-prod-badge {
     font-size: 14px; margin-left: 3px; vertical-align: middle;
