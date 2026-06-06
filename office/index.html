@@ -220,6 +220,10 @@
       line-height: 1;
     }
     .sidebar-badge.gold { background: #C8962A; }
+    .sidebar-badge.mail { background: #d4781a; }
+    /* Når et nav-punkt har to badges sidder kun den første mod højre kant —
+       de øvrige følger umiddelbart efter. */
+    .sidebar-badge ~ .sidebar-badge { margin-left: 4px; }
     .sidebar-bottom {
       border-top: 1px solid rgba(255,255,255,0.1);
       padding: 10px 8px;
@@ -351,6 +355,20 @@
       color: #fff;
       border-color: var(--brand-primary, #8e631f);
     }
+    .bl-filter-badge {
+      display: inline-block;
+      min-width: 16px;
+      padding: 1px 5px;
+      border-radius: 9px;
+      background: #d4781a;
+      color: #fff;
+      font-size: 11px;
+      font-weight: 700;
+      line-height: 1.4;
+      vertical-align: middle;
+    }
+    /* På aktivt (brunt) filter står badgen hvid med brun tekst for kontrast. */
+    .bl-filter-btn.active .bl-filter-badge { background: #fff; color: var(--brand-primary, #8e631f); }
     .bl-date-wrap {
       display: flex;
       align-items: center;
@@ -685,6 +703,7 @@
           <button class="sidebar-link" data-view="bons">
             <span class="sidebar-icon">📋</span> Bons
             <span class="sidebar-badge" data-badge="bons_nye" style="display:none"></span>
+            <span class="sidebar-badge mail" data-badge="bons_ulaest_mail" title="Ulæste mails på bons" style="display:none"></span>
           </button>
 
           <div class="sidebar-group-label">Salg</div>
@@ -1508,6 +1527,13 @@
         },
         rfm_config_changed: (data) => {
           if (typeof _kiHandleSSE === 'function') _kiHandleSSE('rfm_config_changed', data);
+        },
+        mail_received: (data) => {
+          // Indgående mail på en bon. connectSSE() viser allerede en toast +
+          // opdaterer bon-kort globalt; her opdaterer vi office-specifikt:
+          // bons-listen (✉-badge på rækken) + sidebar/filter-tælleren.
+          if (typeof _blHandleMailReceived === 'function') _blHandleMailReceived(data);
+          scheduleBadgeReload();  // bons_ulaest_mail
         },
         mail_unmatched: (data) => {
           if (typeof _inbHandleSSE === 'function') _inbHandleSSE('mail_unmatched', data);
