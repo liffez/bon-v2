@@ -107,6 +107,21 @@ function computeEventCost(eventId) {
     return row?.c ?? 0;
 }
 
+// Event-CO₂ (§7). co2e ligger på BÅDE prep- og salgsbons (samme opskrifter), så
+// en usfiltreret sum tæller footprintet dobbelt. CO₂ er ikke pris-gated som
+// P&L'en (hvor produktion selv-udelukkes via 0-pris), så vi ekskluderer
+// produktion EKSPLICIT og tæller kun salgs-/udgiftsbons (= faktisk omsætning).
+function computeEventCO2(eventId) {
+    const row = getDb().prepare(`
+        SELECT COALESCE(SUM(bl.co2e * bl.quantity), 0) AS co2
+        FROM bons b
+        JOIN bon_lines bl ON bl.bon_id = b.id
+        LEFT JOIN price_categories pc ON b.price_category_id = pc.id
+        WHERE b.event_id = ? AND (pc.code IS NULL OR pc.code != 'produktion')
+    `).get(eventId);
+    return Math.round((row?.co2 ?? 0) * 100) / 100;
+}
+
 // Opløs en bons FAKTISK pakkede råvarer (consume-items + pakke-overrides).
 // Samme grundlag som det Grocy trækker ved LEVERET. Returnerer
 // [{ product_id, product_name, amount_stock, qu_id_stock }].
@@ -261,6 +276,7 @@ router.get('/:id/overview', requireAuth(), handle(async (req, res) => {
     const pnl = computeEventPnL(bons);
     pnl.cost_estimated = computeEventCost(event.id);
     pnl.result = Math.round((pnl.revenue_excl - pnl.cost_estimated - pnl.expenses) * 100) / 100;
+    pnl.co2e_total = computeEventCO2(event.id);
 
     // Forecast pr. dag pr. kategori. Vi sender også de dage events spænder over
     // (start_date → end_date eller bare start_date hvis ingen end_date).
@@ -482,6 +498,40 @@ router.post('/:id/return', requireAuth(), handle(async (req, res) => {
     const items = Array.isArray(req.body?.items) ? req.body.items : null;
     if (!items) return res.status(400).json({ error: 'items (array) er påkrævet' });
 
+    // Parent-produkter med no_own_stock=1 (fx "kål" → Hvidkål/Spidskål) kan ikke
+    // modtage lager direkte i Grocy. Vi omdirigerer returen til det barn der
+    // FAKTISK HAR VARER PÅ LAGER (det der er i brug) — fald tilbage til første
+    // aktive barn hvis ingen har lager. Samme tankegang som consume's
+    // børn-substitution. Byg parent→børn-map + stock-map.
+    let prodMap = new Map(), childrenByParent = new Map(), stockByPid = new Map();
+    try {
+        const [products, stock] = await Promise.all([grocy.getProducts(), grocy.getStock()]);
+        prodMap = new Map(products.map(p => [parseInt(p.id), p]));
+        for (const s of stock) stockByPid.set(parseInt(s.product_id), parseFloat(s.amount) || 0);
+        for (const p of products) {
+            if (p.parent_product_id) {
+                const par = parseInt(p.parent_product_id);
+                if (!childrenByParent.has(par)) childrenByParent.set(par, []);
+                childrenByParent.get(par).push(p);
+            }
+        }
+    } catch (err) {
+        console.warn('[events] kunne ikke hente produkter/stock til parent-resolve:', err.message);
+    }
+    function resolveAddTarget(pid) {
+        const prod = prodMap.get(pid);
+        if (prod && String(prod.no_own_stock) === '1') {
+            const kids = (childrenByParent.get(pid) || []).filter(k => String(k.active) !== '0');
+            if (kids.length) {
+                // Vælg barnet med mest lager (det der er i brug); ellers første
+                const sorted = kids.slice().sort((a, b) =>
+                    (stockByPid.get(parseInt(b.id)) || 0) - (stockByPid.get(parseInt(a.id)) || 0));
+                return parseInt(sorted[0].id);
+            }
+        }
+        return pid;
+    }
+
     // Læg hver talt rest tilbage på HQ-lageret via Grocy stock-add. Sekventielt
     // så fejlede produkter er kendte; partial success tilladt (fortsæt ved fejl).
     const results = [];
@@ -489,9 +539,12 @@ router.post('/:id/return', requireAuth(), handle(async (req, res) => {
         const pid = parseInt(it.product_id);
         const amt = Number(it.amount);
         if (!pid || Number.isNaN(amt) || amt <= 0) continue;
+        const target = resolveAddTarget(pid);
         try {
-            await grocy.addToStock(pid, amt);
-            results.push({ product_id: pid, amount: amt, success: true });
+            await grocy.addToStock(target, amt);
+            const r = { product_id: pid, amount: amt, success: true };
+            if (target !== pid) r.added_to_child = target;
+            results.push(r);
         } catch (err) {
             results.push({ product_id: pid, amount: amt, success: false, error: err.message });
         }
