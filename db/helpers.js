@@ -128,27 +128,13 @@ function autoConsumeBonInventory(bonId) {
         console.log(`[grocy_consume] bon ${bonId}: lager allerede trukket — skipper (idempotens)`);
         return;
     }
-    // Vej B (CLAUDE_EVENT.md §11): event-modulet ejer sit eget træk uafhængigt af
-    // det globale inventory_auto_deduct-flag. En let-event prep/top-up-bon
-    // (event_id sat, model='light', price_category='produktion') trækker ALTID
-    // ved LEVERET — også når flaget er '0'. Resten af forretningen styres af flaget
-    // som hidtil. Idempotens-vagten ovenfor sikrer at en evt. senere Vej A-flip
-    // ikke laver dobbelttræk på den samme prep-bon.
-    const isEventProduction =
-        bon.event_id != null
-        && bon.event_model === 'light'
-        && bon.price_category_code === 'produktion';
-    if (!isEventProduction) {
-        const autoDeduct = db.prepare(`SELECT value FROM settings WHERE key = 'inventory_auto_deduct'`).get();
-        if (!autoDeduct || autoDeduct.value !== '1') return;
-    }
-    // Event-scoped no-deduct (CLAUDE_EVENT.md §5): en LET-event-salgsbon (kontant/faktura
-    // → LEVERET) må ikke trække HQ-lager — prep-/top-up-bonnen (price_category=
-    // 'produktion') ejer trækket, så varerne ikke tælles dobbelt. Scoped til
-    // events.model='light': festival-events HAR et sporet lokalt lager og SKAL trække
-    // (fra festival-lokationen — bygges i festival-modellen), så de gates ikke her.
-    // Alt uden event_id trækker normalt (butikssalg → HQ). Sæt inventory_deducted=1
-    // med en sporbar grund så idempotens-vagten og changelog er entydige.
+    // Event-scoped no-deduct (CLAUDE_EVENT.md §5) FØRST — en let-event salgsbon
+    // må ALDRIG trække HQ-lager, uanset om det globale auto-deduct-flag er
+    // tændt eller ej. Vi logger og markerer eksplicit 'event_prep_owns_stock'
+    // så sporbarheden er entydig (uden denne tidlige gate ville en let-event
+    // salgsbon med flag='0' bare returnere tidligt og efterlade INGEN log —
+    // skippet ville se ud som "ren tilfældighed" fremfor en bevidst beslutning).
+    // Festival-events gates ikke (de skal trække fra deres egen lokation).
     if (bon.event_id != null && bon.event_model === 'light' && bon.price_category_code !== 'produktion') {
         db.prepare(
             `UPDATE bons SET inventory_deducted = 1, inventory_deducted_at = CURRENT_TIMESTAMP WHERE id = ?`
@@ -156,6 +142,18 @@ function autoConsumeBonInventory(bonId) {
         logChange({ entityType: 'bon', entityId: bonId, action: 'grocy_consume', fieldName: 'stock', oldValue: null, newValue: 'event_prep_owns_stock' });
         console.log(`[grocy_consume] bon ${bonId}: event-salgsbon — træk sprunget over (prep ejer HQ-lageret)`);
         return;
+    }
+    // Vej B (CLAUDE_EVENT.md §11): det globale auto-deduct-flag styrer resten af
+    // forretningen. En let-event prep/top-up-bon undtages — den trækker uanset
+    // flag-state fordi event-modulet ejer sit eget træk. Idempotens-vagten ovenfor
+    // sikrer at en evt. senere Vej A-flip ikke laver dobbelttræk på samme prep-bon.
+    const isEventProduction =
+        bon.event_id != null
+        && bon.event_model === 'light'
+        && bon.price_category_code === 'produktion';
+    if (!isEventProduction) {
+        const autoDeduct = db.prepare(`SELECT value FROM settings WHERE key = 'inventory_auto_deduct'`).get();
+        if (!autoDeduct || autoDeduct.value !== '1') return;
     }
     const lines = getBonLines(bonId);
     const { consumeRecipes } = require('../services/grocyAdapter');
@@ -204,13 +202,16 @@ function getBon(id) {
             c.email   AS contact_email,
             co.name   AS company_name,
             co.phone  AS company_phone,
-            pc.code   AS price_category_code
+            pc.code   AS price_category_code,
+            ev.name   AS event_name,
+            ev.model  AS event_model
         FROM bons b
         JOIN   status_definitions sd ON b.status_id  = sd.id
         JOIN   locations l           ON b.location_id = l.id
         LEFT JOIN customers c        ON b.customer_id = c.id
         LEFT JOIN companies co       ON b.company_id  = co.id
         LEFT JOIN price_categories pc ON b.price_category_id = pc.id
+        LEFT JOIN events ev          ON b.event_id = ev.id
         WHERE b.id = ?
     `).get(id);
     if (!bon) return null;

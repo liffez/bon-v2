@@ -664,6 +664,103 @@ async function showRavarer(cardId) {
 }
 
 /**
+ * Pakkeliste-modal: vises kun på event-prep/top-up-bons (CLAUDE_EVENT.md §3).
+ * Lister linjerne grupperet efter Grocy-kategori med checkboxes der gemmes
+ * lokalt (sessionStorage). MVP: ingen DB-persistens af enkelt-linje-state
+ * — vi har allerede prep_ingredients_ready/prep_supplies_ready på bonen til
+ * det grove "pakket"-flag.
+ */
+async function showPakkeliste(cardId) {
+    const card = document.getElementById(cardId);
+    if (!card) return;
+    const bonId = cardId.replace('bon', '');
+    const bonNr = card.querySelector('.bon-id')?.textContent?.trim() || '#' + bonId;
+    openModal({
+        title: `📦 Pakkeliste — ${esc(bonNr)}`,
+        bodyHtml: '<div class="changelog-empty">Henter pakkeliste…</div>',
+    });
+    try {
+        const res = await fetch(`/api/bons/${bonId}`, { credentials: 'same-origin' });
+        const bon = await res.json();
+        const body = document.querySelector('.modal-body');
+        if (body) body.innerHTML = _buildPakkelisteHtml(bon);
+        // Bind checkbox-handlers
+        const storageKey = `pakkeliste_${bonId}`;
+        const state = JSON.parse(sessionStorage.getItem(storageKey) || '{}');
+        body?.querySelectorAll('input[data-pakke-line]').forEach(cb => {
+            const lineId = cb.dataset.pakkeLine;
+            cb.checked = !!state[lineId];
+            cb.addEventListener('change', () => {
+                state[lineId] = cb.checked;
+                sessionStorage.setItem(storageKey, JSON.stringify(state));
+                _updatePakkelisteProgress(body, bon);
+                cb.closest('.pakke-line')?.classList.toggle('pakke-done', cb.checked);
+            });
+            cb.closest('.pakke-line')?.classList.toggle('pakke-done', cb.checked);
+        });
+        _updatePakkelisteProgress(body, bon);
+    } catch (err) {
+        console.error('Fejl ved hentning af pakkeliste:', err);
+        const body = document.querySelector('.modal-body');
+        if (body) body.innerHTML = `<div class="changelog-empty">Kunne ikke hente pakkeliste.</div>`;
+    }
+}
+
+function _buildPakkelisteHtml(bon) {
+    const lines = bon.lines || [];
+    if (lines.length === 0) {
+        return '<div class="changelog-empty">Ingen linjer på denne bon endnu — tilføj varer først.</div>';
+    }
+    // Grupper efter category (fra Grocy "grupper"-userfield). Linjer uden kategori
+    // samles under "Øvrigt".
+    const groups = {};
+    for (const line of lines) {
+        const key = line.category || 'Øvrigt';
+        (groups[key] = groups[key] || []).push(line);
+    }
+    const eventLabel = bon.event_name ? ` til <strong>${esc(bon.event_name)}</strong>` : '';
+    let html = `
+        <div class="pakke-intro">
+            <div>Pak det her ned og tag det med fra HQ${eventLabel}.</div>
+            <div class="pakke-progress" id="pakkeProgress">0 / ${lines.length} pakket</div>
+        </div>
+        <div class="pakke-groups">`;
+    const sortedKeys = Object.keys(groups).sort((a, b) => a.localeCompare(b, 'da'));
+    for (const cat of sortedKeys) {
+        html += `<div class="pakke-group">
+            <div class="pakke-group-head">${esc(cat)} <span class="pakke-group-count">(${groups[cat].length})</span></div>`;
+        for (const line of groups[cat]) {
+            const qty = Number(line.quantity || 0);
+            const unit = esc(line.unit || 'stk');
+            html += `<label class="pakke-line">
+                <input type="checkbox" data-pakke-line="${line.id}">
+                <span class="pakke-qty">${qty}</span>
+                <span class="pakke-unit">${unit}</span>
+                <span class="pakke-name">${esc(line.product_name || '')}</span>
+                ${line.special_request ? `<span class="pakke-note">— ${esc(line.special_request)}</span>` : ''}
+            </label>`;
+        }
+        html += `</div>`;
+    }
+    html += `</div>
+        <div class="pakke-doctrine">
+            Når prep-bonnen sættes til <strong>LEVERET</strong> trækkes varerne fra Grocy HQ-lokationen.
+            Dagssalget på pladsen trækker ikke HQ igen.
+        </div>`;
+    return html;
+}
+
+function _updatePakkelisteProgress(body, bon) {
+    const total = (bon.lines || []).length;
+    const done = body.querySelectorAll('input[data-pakke-line]:checked').length;
+    const el = body.querySelector('#pakkeProgress');
+    if (el) {
+        el.textContent = `${done} / ${total} pakket`;
+        el.classList.toggle('pakke-progress-done', done === total && total > 0);
+    }
+}
+
+/**
  * Sæt råvarer-niveau og re-render modal.
  */
 function _setRavarerLevel(level) {

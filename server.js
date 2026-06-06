@@ -131,6 +131,7 @@ app.use('/api/payment-types',  require('./routes/payment_types'));
 app.use('/api/sse',            require('./shared/sse'));
 app.use('/api/bons',      require('./routes/kitchen'));   // /today matcher først
 app.use('/api/bons',      require('./routes/bons'));
+app.use('/api/events',    require('./routes/events'));
 app.use('/api/statuses',  require('./routes/statuses'));
 app.use('/api/customers',  require('./routes/customers'));
 app.use('/api/companies',  require('./routes/companies'));

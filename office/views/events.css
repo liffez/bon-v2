@@ -1,0 +1,99 @@
+/* office/views/events.css — Event-modul */
+
+.ev-page { padding: 24px; max-width: 1200px; }
+.ev-toolbar { display: flex; align-items: center; justify-content: space-between; margin-bottom: 16px; }
+.ev-page-title { font-family: var(--font-heading, Georgia, serif); font-size: 22px; margin: 0; color: #2a2a2a; }
+.ev-detail-head { display: flex; align-items: center; gap: 12px; margin-bottom: 4px; }
+.ev-detail-head .ev-page-title { flex: 1; }
+.ev-detail-meta { color: #777; font-size: 13px; margin-bottom: 18px; }
+
+.ev-list { display: grid; gap: 12px; grid-template-columns: repeat(auto-fill, minmax(320px, 1fr)); }
+.ev-card { background: #fff; border: 1px solid var(--color-border, #d7d1ca); border-radius: 8px; padding: 14px 16px; cursor: pointer; transition: box-shadow 0.15s, transform 0.05s; }
+.ev-card:hover { box-shadow: 0 2px 8px rgba(0,0,0,0.08); transform: translateY(-1px); }
+.ev-card-head { display: flex; justify-content: space-between; align-items: flex-start; gap: 8px; margin-bottom: 6px; }
+.ev-card-title { margin: 0; font-size: 16px; font-weight: 600; color: #2a2a2a; }
+.ev-card-badges { display: flex; gap: 4px; flex-wrap: wrap; }
+.ev-card-meta { font-size: 12px; color: #888; display: flex; gap: 6px; flex-wrap: wrap; }
+
+.ev-badge { font-size: 11px; padding: 2px 8px; border-radius: 10px; white-space: nowrap; font-weight: 600; }
+.ev-badge-light    { background: #fff4e0; color: #8e631f; }
+.ev-badge-festival { background: #ffe6f0; color: #a8336e; }
+.ev-status-planning  { background: #f0f0f0; color: #555; }
+.ev-status-active    { background: #d6f0d8; color: #1e6b2c; }
+.ev-status-done      { background: #e8e8e8; color: #555; }
+.ev-status-cancelled { background: #f5d6d6; color: #8a2222; }
+
+.ev-empty, .ev-loading { padding: 40px; text-align: center; color: #999; }
+.ev-error { padding: 20px; background: #fdecec; color: #8a2222; border-radius: 6px; }
+
+.ev-doctrine {
+    margin-top: 28px; padding: 12px 16px; background: #fcf7e8; border-left: 4px solid #8e631f;
+    border-radius: 4px; font-size: 13px; color: #5a4a2a; line-height: 1.55;
+}
+
+/* P&L strip */
+.ev-pnl-strip {
+    display: grid; grid-template-columns: repeat(5, 1fr); gap: 1px;
+    background: var(--color-border, #d7d1ca); border: 1px solid var(--color-border, #d7d1ca);
+    border-radius: 6px; overflow: hidden; margin: 20px 0;
+}
+.ev-pnl-cell { background: #fff; padding: 14px 12px; text-align: center; }
+.ev-pnl-val { font-family: var(--font-heading, Georgia, serif); font-size: 22px; color: #2a2a2a; }
+.ev-pnl-lbl { font-size: 11px; color: #999; margin-top: 2px; text-transform: uppercase; letter-spacing: 0.5px; }
+.ev-pnl-result .ev-pnl-val { color: #1e6b2c; font-weight: 700; }
+
+/* Actions */
+.ev-actions { display: flex; gap: 8px; margin-bottom: 24px; flex-wrap: wrap; }
+.ev-btn {
+    padding: 7px 14px; border-radius: 4px; border: 1px solid var(--color-border, #d7d1ca);
+    background: #fff; color: #2a2a2a; font-size: 13px; cursor: pointer; transition: background 0.1s, border-color 0.1s;
+}
+.ev-btn:hover { background: #f5f4f2; border-color: #b8b2aa; }
+.ev-btn-primary { background: var(--brand-primary, #8e631f); color: #fff; border-color: var(--brand-primary, #8e631f); }
+.ev-btn-primary:hover { background: #7a541a; border-color: #7a541a; }
+.ev-btn-ghost { background: transparent; border-color: transparent; }
+.ev-btn-ghost:hover { background: #f0ede8; }
+.ev-btn-small { font-size: 12px; padding: 4px 10px; }
+.ev-link { background: none; border: none; color: var(--brand-primary, #8e631f); cursor: pointer; padding: 0; text-decoration: underline; font-size: inherit; }
+
+/* Role sections */
+.ev-role-section { margin: 16px 0; padding: 14px 16px; background: #fff; border: 1px solid var(--color-border, #d7d1ca); border-radius: 6px; }
+.ev-role-empty { opacity: 0.7; }
+.ev-role-head { font-weight: 600; color: #2a2a2a; margin-bottom: 10px; font-size: 14px; }
+.ev-role-count { color: #999; font-weight: normal; }
+.ev-role-empty-text { color: #999; font-size: 12px; font-style: italic; }
+.ev-bon-table { width: 100%; border-collapse: collapse; font-size: 13px; }
+.ev-bon-table th { text-align: left; padding: 6px 8px; color: #888; font-weight: 500; font-size: 11px; text-transform: uppercase; border-bottom: 1px solid #eee; }
+.ev-bon-table td { padding: 8px; border-bottom: 1px solid #f0f0f0; }
+.ev-bon-table tr[data-bon-id] { cursor: pointer; }
+.ev-bon-table tr[data-bon-id]:hover { background: #fafaf8; }
+.ev-bon-num { font-family: 'SF Mono', monospace; font-weight: 600; color: var(--brand-primary, #8e631f); }
+.ev-bon-status { padding: 2px 8px; border-radius: 8px; color: #fff; font-size: 11px; font-weight: 600; }
+.ev-bon-flag { color: #1e6b2c; font-size: 11px; }
+.ev-num { text-align: right; font-variant-numeric: tabular-nums; }
+
+/* Modal */
+.ev-modal-overlay {
+    position: fixed; inset: 0; background: rgba(0,0,0,0.5); z-index: 1000;
+    display: flex; align-items: center; justify-content: center;
+}
+.ev-modal {
+    background: #fff; border-radius: 8px; padding: 24px; max-width: 720px; width: calc(100% - 40px);
+    max-height: 90vh; overflow-y: auto;
+}
+.ev-modal h3 { margin: 0 0 16px 0; font-family: var(--font-heading, Georgia, serif); font-size: 18px; color: #2a2a2a; }
+.ev-modal-form label { display: block; margin-bottom: 12px; color: #555; font-size: 12px; font-weight: 500; }
+.ev-modal-form input[type=text], .ev-modal-form input[type=date], .ev-modal-form input[type=number], .ev-modal-form textarea, .ev-modal-form select {
+    width: 100%; padding: 7px 10px; margin-top: 4px; border: 1px solid var(--color-border, #d7d1ca);
+    border-radius: 4px; font-size: 13px; font-family: inherit;
+}
+.ev-modal-form input[type=number] { width: auto; }
+.ev-modal-hint { background: #fcf7e8; padding: 10px 12px; border-radius: 4px; font-size: 12px; color: #5a4a2a; margin-bottom: 14px; }
+.ev-modal-error { background: #fdecec; color: #8a2222; padding: 8px 12px; border-radius: 4px; margin-top: 8px; font-size: 13px; }
+.ev-modal-actions { display: flex; justify-content: flex-end; gap: 8px; margin-top: 16px; }
+
+.ev-line-table-wrap { margin: 8px 0 14px; }
+.ev-line-table { width: 100%; border-collapse: collapse; font-size: 12px; margin-bottom: 6px; }
+.ev-line-table th { font-size: 10px; text-transform: uppercase; color: #888; text-align: left; padding: 4px 6px; border-bottom: 1px solid #eee; font-weight: 500; }
+.ev-line-table td { padding: 4px 6px; border-bottom: 1px solid #f8f8f8; }
+.ev-line-table input { padding: 4px 6px; font-size: 12px; }
