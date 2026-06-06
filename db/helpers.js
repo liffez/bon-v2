@@ -112,16 +112,56 @@ function getBonLines(bonId) {
 // Grocy-kaldet afventes ikke, så et langsomt/nede Grocy ikke blokerer svaret.
 function autoConsumeBonInventory(bonId) {
     const db = getDb();
-    const autoDeduct = db.prepare(`SELECT value FROM settings WHERE key = 'inventory_auto_deduct'`).get();
-    if (!autoDeduct || autoDeduct.value !== '1') return;
-    const already = db.prepare(`SELECT inventory_deducted FROM bons WHERE id = ?`).get(bonId);
-    if (already?.inventory_deducted === 1) {
+    // Slå bon op FØR flag-tjek — vi har brug for event-kontekst både til Vej B-
+    // overstyringen og §5-gaten. Priskategori læses via FK→code
+    // (price_categories.code) — IKKE den denormaliserede bons.price_category-TEXT-
+    // kolonne, der ikke skrives ved nye bons og er stale.
+    const bon = db.prepare(`
+        SELECT b.inventory_deducted, b.event_id, e.model AS event_model, pc.code AS price_category_code
+        FROM bons b
+        LEFT JOIN price_categories pc ON b.price_category_id = pc.id
+        LEFT JOIN events e            ON b.event_id          = e.id
+        WHERE b.id = ?
+    `).get(bonId);
+    if (!bon) return;
+    if (bon.inventory_deducted === 1) {
         console.log(`[grocy_consume] bon ${bonId}: lager allerede trukket — skipper (idempotens)`);
         return;
     }
+    // Event-scoped no-deduct (CLAUDE_EVENT.md §5) FØRST — en let-event salgsbon
+    // må ALDRIG trække HQ-lager, uanset om det globale auto-deduct-flag er
+    // tændt eller ej. Vi logger og markerer eksplicit 'event_prep_owns_stock'
+    // så sporbarheden er entydig (uden denne tidlige gate ville en let-event
+    // salgsbon med flag='0' bare returnere tidligt og efterlade INGEN log —
+    // skippet ville se ud som "ren tilfældighed" fremfor en bevidst beslutning).
+    // Festival-events gates ikke (de skal trække fra deres egen lokation).
+    if (bon.event_id != null && bon.event_model === 'light' && bon.price_category_code !== 'produktion') {
+        db.prepare(
+            `UPDATE bons SET inventory_deducted = 1, inventory_deducted_at = CURRENT_TIMESTAMP WHERE id = ?`
+        ).run(bonId);
+        logChange({ entityType: 'bon', entityId: bonId, action: 'grocy_consume', fieldName: 'stock', oldValue: null, newValue: 'event_prep_owns_stock' });
+        console.log(`[grocy_consume] bon ${bonId}: event-salgsbon — træk sprunget over (prep ejer HQ-lageret)`);
+        return;
+    }
+    // Vej B (CLAUDE_EVENT.md §11): det globale auto-deduct-flag styrer resten af
+    // forretningen. En let-event prep/top-up-bon undtages — den trækker uanset
+    // flag-state fordi event-modulet ejer sit eget træk. Idempotens-vagten ovenfor
+    // sikrer at en evt. senere Vej A-flip ikke laver dobbelttræk på samme prep-bon.
+    const isEventProduction =
+        bon.event_id != null
+        && bon.event_model === 'light'
+        && bon.price_category_code === 'produktion';
+    if (!isEventProduction) {
+        const autoDeduct = db.prepare(`SELECT value FROM settings WHERE key = 'inventory_auto_deduct'`).get();
+        if (!autoDeduct || autoDeduct.value !== '1') return;
+    }
     const lines = getBonLines(bonId);
+    // Manuelle pakke-overrides (kun event-prep-bons har dem) — trækker den
+    // faktisk pakkede mængde i stedet for den BOM-beregnede, så HQ-lageret
+    // afspejler hvad der fysisk forlod huset (inkl. buffer).
+    const packingOverrides = getPrepPackingOverrides(bonId);
     const { consumeRecipes } = require('../services/grocyAdapter');
-    consumeRecipes(lines).then(results => {
+    consumeRecipes(lines, packingOverrides).then(results => {
         const failed  = results.filter(r => !r.success);
         const partial = results.filter(r => r.partial);
         if (failed.length) {
@@ -138,6 +178,18 @@ function autoConsumeBonInventory(bonId) {
     }).catch(err => {
         console.error(`[grocy_consume] bon ${bonId}: fejl:`, err.message);
     });
+}
+
+// Manuelle pakke-overrides på en (event-prep) bon. Returnerer et Map
+// product_id → packed_amount (stock-units). Bruges af autoConsumeBonInventory
+// til at trække den faktisk pakkede mængde i stedet for den BOM-beregnede.
+function getPrepPackingOverrides(bonId) {
+    const rows = getDb().prepare(
+        `SELECT product_id, packed_amount FROM prep_packing_overrides WHERE bon_id = ?`
+    ).all(bonId);
+    const map = new Map();
+    for (const r of rows) map.set(parseInt(r.product_id), parseFloat(r.packed_amount));
+    return map;
 }
 
 // Visuelle grupper på køkken-bonens menu-liste (titel + note + rækkefølge).
@@ -166,13 +218,16 @@ function getBon(id) {
             c.email   AS contact_email,
             co.name   AS company_name,
             co.phone  AS company_phone,
-            pc.code   AS price_category_code
+            pc.code   AS price_category_code,
+            ev.name   AS event_name,
+            ev.model  AS event_model
         FROM bons b
         JOIN   status_definitions sd ON b.status_id  = sd.id
         JOIN   locations l           ON b.location_id = l.id
         LEFT JOIN customers c        ON b.customer_id = c.id
         LEFT JOIN companies co       ON b.company_id  = co.id
         LEFT JOIN price_categories pc ON b.price_category_id = pc.id
+        LEFT JOIN events ev          ON b.event_id = ev.id
         WHERE b.id = ?
     `).get(id);
     if (!bon) return null;
@@ -283,7 +338,7 @@ function getUserById(id) {
 
 module.exports = {
     nextBonNumber, nextQuoteNumber, logChange, handle,
-    getBon, getBonLines, getBonMenuGroups, getStatusId, getDefaultLocationId,
+    getBon, getBonLines, getBonMenuGroups, getPrepPackingOverrides, getStatusId, getDefaultLocationId,
     todayISO, offsetISO,
     autoConsumeBonInventory,
     getUnitCountCategories, invalidateUnitCountCache, recalcBonTotalUnits,

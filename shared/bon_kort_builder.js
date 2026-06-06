@@ -35,6 +35,8 @@ const VIEW_ACTIONS = {
         { tooltip: 'Send flyver',   icon: '<path d="M22 2L11 13"/><path d="M22 2l-7 20-4-9-9-4 20-7z"/>', onclick: 'sendFlyver' },
         { tooltip: 'Send mail',     icon: '<path d="M4 4h16c1.1 0 2 .9 2 2v12c0 1.1-.9 2-2 2H4c-1.1 0-2-.9-2-2V6c0-1.1.9-2 2-2z"/><polyline points="22,6 12,13 2,6"/>', onclick: 'openBonMail' },
         { tooltip: 'Råvarer',       icon: '<line x1="16.5" y1="9.4" x2="7.5" y2="4.21"/><path d="M21 16V8a2 2 0 00-1-1.73l-7-4a2 2 0 00-2 0l-7 4A2 2 0 003 8v8a2 2 0 001 1.73l7 4a2 2 0 002 0l7-4A2 2 0 0021 16z"/><polyline points="3.27 6.96 12 12.01 20.73 6.96"/><line x1="12" y1="22.08" x2="12" y2="12"/>', onclick: 'showRavarer' },
+        // Event-specifik: pakkeliste-knap vises kun på prep/top-up-bonner i et event
+        { tooltip: 'Pakkeliste',    icon: '<path d="M21 16V8a2 2 0 00-1-1.73l-7-4a2 2 0 00-2 0l-7 4A2 2 0 003 8v8a2 2 0 001 1.73l7 4a2 2 0 002 0l7-4A2 2 0 0021 16z"/><polyline points="7.5 4.21 12 6.81 16.5 4.21"/><polyline points="7.5 19.79 7.5 14.6 3 12"/><polyline points="21 12 16.5 14.6 16.5 19.79"/><polyline points="3.27 6.96 12 12.01 20.73 6.96"/><line x1="12" y1="22.08" x2="12" y2="12"/>', onclick: 'showPakkeliste', condition: isEventPrep },
         { tooltip: 'Se i logistik', icon: '<rect x="1" y="6" width="13" height="10" rx="1"/><path d="M14 9h4l3 3v4h-7z"/><circle cx="5" cy="18.5" r="2"/><circle cx="17" cy="18.5" r="2"/>', onclick: 'openLogistik' },
         { tooltip: 'Sammentælling', icon: '<line x1="4" y1="6" x2="20" y2="6"/><line x1="4" y1="10" x2="14" y2="10"/><line x1="4" y1="14" x2="20" y2="14"/><line x1="4" y1="18" x2="14" y2="18"/><polyline points="17 14 20 17 17 20"/>', onclick: 'showSummary' },
     ],
@@ -44,6 +46,7 @@ const VIEW_ACTIONS = {
         { tooltip: 'Send flyver',   icon: '<path d="M22 2L11 13"/><path d="M22 2l-7 20-4-9-9-4 20-7z"/>', onclick: 'sendFlyver' },
         { tooltip: 'Send mail',     icon: '<path d="M4 4h16c1.1 0 2 .9 2 2v12c0 1.1-.9 2-2 2H4c-1.1 0-2-.9-2-2V6c0-1.1.9-2 2-2z"/><polyline points="22,6 12,13 2,6"/>', onclick: 'openBonMail' },
         { tooltip: 'Råvarer',       icon: '<line x1="16.5" y1="9.4" x2="7.5" y2="4.21"/><path d="M21 16V8a2 2 0 00-1-1.73l-7-4a2 2 0 00-2 0l-7 4A2 2 0 003 8v8a2 2 0 001 1.73l7 4a2 2 0 002 0l7-4A2 2 0 0021 16z"/><polyline points="3.27 6.96 12 12.01 20.73 6.96"/><line x1="12" y1="22.08" x2="12" y2="12"/>', onclick: 'showRavarer' },
+        { tooltip: 'Pakkeliste',    icon: '<path d="M21 16V8a2 2 0 00-1-1.73l-7-4a2 2 0 00-2 0l-7 4A2 2 0 003 8v8a2 2 0 001 1.73l7 4a2 2 0 002 0l7-4A2 2 0 0021 16z"/><polyline points="7.5 4.21 12 6.81 16.5 4.21"/><polyline points="7.5 19.79 7.5 14.6 3 12"/><polyline points="21 12 16.5 14.6 16.5 19.79"/><polyline points="3.27 6.96 12 12.01 20.73 6.96"/><line x1="12" y1="22.08" x2="12" y2="12"/>', onclick: 'showPakkeliste', condition: isEventPrep },
         { tooltip: 'Se i logistik', icon: '<rect x="1" y="6" width="13" height="10" rx="1"/><path d="M14 9h4l3 3v4h-7z"/><circle cx="5" cy="18.5" r="2"/><circle cx="17" cy="18.5" r="2"/>', onclick: 'openLogistik' },
         { tooltip: 'Sammentælling', icon: '<line x1="4" y1="6" x2="20" y2="6"/><line x1="4" y1="10" x2="14" y2="10"/><line x1="4" y1="18" x2="14" y2="18"/><polyline points="17 14 20 17 17 20"/>', onclick: 'showSummary' },
     ],
@@ -63,14 +66,22 @@ const VIEW_ACTIONS = {
 };
 
 /* ── _buildActions ─────────────────────────────────────────── */
-function _buildActions(viewName, cardId) {
+// Conditions: action.condition(bonData) skal returnere true for at vise knappen.
+// Bruges fx til pakkeliste der kun giver mening på event-prep-bonner.
+function isEventPrep(b) {
+    return !!(b && b.event_id && b.price_category === 'produktion');
+}
+
+function _buildActions(viewName, cardId, bonData) {
     const actions = VIEW_ACTIONS[viewName] || VIEW_ACTIONS['all'];
-    return actions.map(a => {
-        const click = a.onclick ? ` onclick="${a.onclick}('${cardId}')"` : '';
-        return `<button class="action-btn" data-tooltip="${a.tooltip}"${click}>
+    return actions
+        .filter(a => !a.condition || a.condition(bonData))
+        .map(a => {
+            const click = a.onclick ? ` onclick="${a.onclick}('${cardId}')"` : '';
+            return `<button class="action-btn" data-tooltip="${a.tooltip}"${click}>
             <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">${a.icon}</svg>
         </button>`;
-    }).join('');
+        }).join('');
 }
 
 /* ══════════════════════════════════════════════════════════════
@@ -180,6 +191,14 @@ function createCard(bonData, viewName) {
 
     const prodBadge  = bonData.price_category === 'produktion' ? ' <span class="bon-prod-badge" title="Produktionsbon">🔧</span>' : '';
     const mailBadge  = bonData.unread_mail_count ? ' <span class="bon-mail-badge" title="' + bonData.unread_mail_count + ' ulæst mail">' + mailIcon(14) + '</span>' : '';
+    // Event-badge — vises på alle bons der hører til et event. Hjælper køkkenet
+    // med at se hvad bonnen er til (prep til Roskilde vs. en almindelig
+    // catering-ordre). Klikbar via parent — vi binder ingen handler her, men
+    // tooltip viser eventets navn.
+    const evEsc = (typeof esc === 'function' ? esc : (s) => s);
+    const eventBadge = bonData.event_id
+        ? ` <span class="bon-event-badge" title="Event: ${evEsc(bonData.event_name || '')}">🎪 ${evEsc(bonData.event_name || 'Event')}</span>`
+        : '';
     // Afhentnings-bons: pickup_time = delivery_time (samme tid) — vis ikke
     // pilen "→ tid" to gange. Kun leverings-bons har en separat leveringstid.
     const levTimeHtml = (bonData.delivery_time && bonData.order_type !== 'pickup')
@@ -191,7 +210,7 @@ function createCard(bonData, viewName) {
 
         <div class="bon-header">
             <div class="bon-header-row1">
-                <div class="bon-id">#${bonData.bon_number || id}${prodBadge}${mailBadge}</div>
+                <div class="bon-id">#${bonData.bon_number || id}${prodBadge}${eventBadge}${mailBadge}</div>
                 <div class="bon-units">
                     <span class="bon-units-main">${bonData.units}<span class="bon-units-label">${bonData.unit_label || 'ENH'}</span></span>
                     ${paxHtml}
@@ -238,7 +257,7 @@ function createCard(bonData, viewName) {
         <!-- Actions — sæt per view -->
         <div class="bon-actions">
             <div class="bon-actions-left">
-                ${_buildActions(viewName, cardId)}
+                ${_buildActions(viewName, cardId, bonData)}
             </div>
             ${mods.select ? `
             <button class="select-toggle-btn" id="selBtn${num}" onclick="enterSelect('${cardId}')">

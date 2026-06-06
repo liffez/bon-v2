@@ -1024,6 +1024,57 @@ router.get('/:id/ingredients', handle(async (req, res) => {
     });
 }));
 
+// ─── PAKKE-OVERRIDES (event-prep §6) ────────────────────────────────────────
+// Manuelle justeringer af de råvare-mængder der pakkes/tages med fra HQ.
+// Overrider den BOM-beregnede mængde → trækkes fra HQ ved LEVERET.
+
+router.get('/:id/packing', handle((req, res) => {
+    const id = parseInt(req.params.id);
+    const rows = getDb().prepare(`
+        SELECT product_id, product_name, packed_amount, unit
+        FROM prep_packing_overrides WHERE bon_id = ? ORDER BY product_id
+    `).all(id);
+    res.json({ overrides: rows });
+}));
+
+router.put('/:id/packing', handle((req, res) => {
+    const db = getDb();
+    const id = parseInt(req.params.id);
+    const bon = getBon(id);
+    if (!bon) return res.status(404).json({ error: 'Bon ikke fundet' });
+    // Lås efter lager-træk: en ændring efter LEVERET ville skabe inkonsistens mod
+    // Grocy. Vi tjekker BÅDE status (deterministisk + øjeblikkelig ved LEVERET) og
+    // inventory_deducted-flaget (async sat efter consume) — status fanger race-vinduet
+    // hvor flaget endnu ikke er sat, men consume allerede er i gang.
+    const TERMINAL = ['LEVERET', 'FAKTURERET', 'BETALT', 'AFSLUTTET'];
+    if (bon.inventory_deducted === 1 || TERMINAL.includes(bon.status_code)) {
+        return res.status(409).json({ error: 'Bonen er allerede leveret — pakke-mængder kan ikke ændres', code: 'ALREADY_DEDUCTED' });
+    }
+    const items = Array.isArray(req.body?.overrides) ? req.body.overrides : null;
+    if (!items) return res.status(400).json({ error: 'overrides (array) er påkrævet' });
+
+    transaction(db, () => {
+        db.prepare(`DELETE FROM prep_packing_overrides WHERE bon_id = ?`).run(id);
+        const ins = db.prepare(`
+            INSERT INTO prep_packing_overrides (bon_id, product_id, product_name, packed_amount, unit, updated_at)
+            VALUES (?, ?, ?, ?, ?, CURRENT_TIMESTAMP)
+        `);
+        for (const it of items) {
+            const pid = parseInt(it.product_id);
+            const amt = Number(it.packed_amount);
+            if (!pid || Number.isNaN(amt) || amt < 0) continue;
+            ins.run(id, pid, it.product_name ?? null, amt, it.unit ?? null);
+        }
+    });
+    logChange({ entityType: 'bon', entityId: id, action: 'update', fieldName: 'packing', userId: req.body?.user_id ?? req.session?.userId });
+    broadcast('bon_updated', { id });
+    const rows = db.prepare(`
+        SELECT product_id, product_name, packed_amount, unit
+        FROM prep_packing_overrides WHERE bon_id = ? ORDER BY product_id
+    `).all(id);
+    res.json({ overrides: rows });
+}));
+
 // ─── CHANGELOG ──────────────────────────────────────────────────────────────
 
 router.get('/:id/changelog', handle((req, res) => {

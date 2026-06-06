@@ -16,6 +16,7 @@ router.get('/today', handle((req, res) => {
             b.pax, b.total_units, b.kitchen_info, b.delivery_type, b.delivery_method,
             b.prep_ingredients_ready, b.prep_supplies_ready,
             b.kitchen_selects, b.customer_collects, b.price_category,
+            b.event_id, e.name AS event_name, e.model AS event_model,
             sd.code  AS status_code,
             sd.label AS status_label,
             sd.color AS status_color,
@@ -35,6 +36,7 @@ router.get('/today', handle((req, res) => {
         LEFT JOIN companies co       ON b.company_id  = co.id
         LEFT JOIN addresses a        ON b.delivery_address_id = a.id
         LEFT JOIN delivery_vehicles dv ON b.delivery_vehicle_id = dv.id
+        LEFT JOIN events e             ON b.event_id = e.id
         WHERE b.delivery_date = ?
           AND sd.code IN ('GODKENDT', 'IGANG', 'KLAR', 'LEVERET')
         ORDER BY COALESCE(b.pickup_time, b.delivery_time), b.id
@@ -67,6 +69,7 @@ router.get('/later', handle((req, res) => {
             b.pax, b.total_units, b.kitchen_info, b.delivery_type, b.delivery_method,
             b.prep_ingredients_ready, b.prep_supplies_ready,
             b.kitchen_selects, b.customer_collects, b.is_offer, b.price_category,
+            b.event_id, e.name AS event_name, e.model AS event_model,
             sd.code  AS status_code,
             sd.label AS status_label,
             sd.color AS status_color,
@@ -86,6 +89,7 @@ router.get('/later', handle((req, res) => {
         LEFT JOIN companies co       ON b.company_id  = co.id
         LEFT JOIN addresses a        ON b.delivery_address_id = a.id
         LEFT JOIN delivery_vehicles dv ON b.delivery_vehicle_id = dv.id
+        LEFT JOIN events e             ON b.event_id = e.id
         WHERE b.delivery_date >= ?
           AND b.delivery_date <= ?
           AND (sd.code IN ('VENTER', 'GODKENDT', 'IGANG', 'KLAR') OR b.is_offer = 1)

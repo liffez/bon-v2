@@ -664,6 +664,291 @@ async function showRavarer(cardId) {
 }
 
 /**
+ * Pakkeliste-modal: vises kun på event-prep/top-up-bons (CLAUDE_EVENT.md §3).
+ *
+ * Datamodel: bon-linjerne er PRODUKTIONSMÅL ("60 Falafel"), men det der
+ * faktisk pakkes er RÅVARER + EMBALLAGE (eksploderet via Grocy-BOM). Sandwich
+ * laves on-the-spot på pladsen. To toggle-niveauer:
+ *
+ *   📦 Råvarer (default) — det fysiske pakkearbejde (720 Brød Rug, 60 kg
+ *       falafel-mix, 8 kg salat, 60 RR Boks emballage…). Samme niveau som
+ *       det Grocy faktisk trækker ved LEVERET via consumeRecipes.
+ *   🔧 Produktion — bon-linjerne som måltal (60 Falafel + sub-recipes).
+ *       Nyttigt for at se "hvad er målet" før man fokuserer på råvarer.
+ *
+ * Checkboxes pr. linje gemmes i sessionStorage. Hver niveau har sit eget
+ * checkbox-state (man kan markere "Brød Rug pakket" uden at det rører
+ * "Falafel-måltal nået").
+ */
+let _pakkeData = null;       // { production, raw } fra fetchBonIngredients
+let _pakkeBon = null;        // bon-objekt (inkl. lines)
+let _pakkeBonId = null;
+let _pakkeLevel = 'raw';     // default: råvarer (det der pakkes)
+let _pakkeOverrides = {};    // product_id → packed_amount (manuelle justeringer)
+let _pakkeSaveTimer = null;  // debounce til auto-gem af overrides
+
+async function showPakkeliste(cardId) {
+    const card = document.getElementById(cardId);
+    if (!card) return;
+    const bonId = cardId.replace('bon', '');
+    const bonNr = card.querySelector('.bon-id')?.textContent?.trim() || '#' + bonId;
+    _pakkeBonId = bonId;
+    _pakkeLevel = sessionStorage.getItem(`pakke_level_${bonId}`) || 'raw';
+    openModal({
+        title: `📦 Pakkeliste — ${esc(bonNr)}`,
+        bodyHtml: '<div class="changelog-empty">Henter pakkeliste…</div>',
+    });
+    try {
+        const [bonRes, ingredients, packing] = await Promise.all([
+            fetch(`/api/bons/${bonId}`, { credentials: 'same-origin' }).then(r => r.json()),
+            fetchBonIngredients(bonId).catch(() => ({ production: { ingredients: [], groups: [] }, raw: { ingredients: [], groups: [] } })),
+            fetch(`/api/bons/${bonId}/packing`, { credentials: 'same-origin' }).then(r => r.json()).catch(() => ({ overrides: [] })),
+        ]);
+        _pakkeBon = bonRes;
+        _pakkeData = ingredients;
+        // Override-map: product_id → packed_amount
+        _pakkeOverrides = {};
+        for (const o of (packing.overrides || [])) _pakkeOverrides[o.product_id] = Number(o.packed_amount);
+        _renderPakkeliste();
+    } catch (err) {
+        console.error('Fejl ved hentning af pakkeliste:', err);
+        const body = document.querySelector('.modal-body');
+        if (body) body.innerHTML = `<div class="changelog-empty">Kunne ikke hente pakkeliste: ${esc(err.message || '')}</div>`;
+    }
+}
+
+function _setPakkeLevel(level) {
+    if (!_pakkeData) return;
+    _pakkeLevel = level;
+    sessionStorage.setItem(`pakke_level_${_pakkeBonId}`, level);
+    _renderPakkeliste();
+}
+
+// Gem pakke-overrides til serveren (debounced). Sender kun de produkter der
+// rent faktisk afviger fra det BOM-beregnede — resten bruger den beregnede
+// mængde server-side.
+function _schedulePakkeSave() {
+    clearTimeout(_pakkeSaveTimer);
+    _pakkeSaveTimer = setTimeout(_savePakkeOverrides, 500);
+}
+
+async function _savePakkeOverrides() {
+    if (!_pakkeBonId) return;
+    const overrides = Object.entries(_pakkeOverrides).map(([pid, amt]) => {
+        // Find navn/enhed fra det rå datasæt til snapshot
+        const ing = (_pakkeData?.raw?.ingredients || []).find(i => String(i.product_id) === String(pid));
+        return {
+            product_id: parseInt(pid),
+            packed_amount: Number(amt),
+            product_name: ing?.product_name || null,
+            unit: ing?.unit || ing?.stock_unit || null,
+        };
+    });
+    try {
+        const res = await fetch(`/api/bons/${_pakkeBonId}/packing`, {
+            method: 'PUT',
+            headers: { 'Content-Type': 'application/json' },
+            credentials: 'same-origin',
+            body: JSON.stringify({ overrides }),
+        });
+        if (!res.ok) {
+            const body = document.querySelector('.modal-body');
+            if (res.status === 409 && body) {
+                // Bonen blev leveret imens — genindlæs read-only
+                showPakkeliste('bon' + _pakkeBonId);
+            }
+            return;
+        }
+        const statusEl = document.querySelector('#pakkeProgress');
+        if (statusEl) {
+            const prev = statusEl.textContent;
+            statusEl.textContent = '✓ gemt';
+            statusEl.classList.add('pakke-progress-saved');
+            setTimeout(() => { statusEl.classList.remove('pakke-progress-saved'); _updatePakkelisteProgress(document.querySelector('.modal-body')); }, 1200);
+        }
+    } catch (err) {
+        console.error('Kunne ikke gemme pakke-justering:', err);
+    }
+}
+
+function _renderPakkeliste() {
+    const body = document.querySelector('.modal-body');
+    if (!body) return;
+    body.innerHTML = _buildPakkelisteHtml(_pakkeBon, _pakkeData, _pakkeLevel);
+    // Bind checkbox-handlers (per-niveau storage så råvare/produktion er adskilte)
+    const storageKey = `pakkeliste_${_pakkeBonId}_${_pakkeLevel}`;
+    const state = JSON.parse(sessionStorage.getItem(storageKey) || '{}');
+    body.querySelectorAll('input[data-pakke-line]').forEach(cb => {
+        const lineKey = cb.dataset.pakkeLine;
+        cb.checked = !!state[lineKey];
+        cb.addEventListener('change', () => {
+            state[lineKey] = cb.checked;
+            sessionStorage.setItem(storageKey, JSON.stringify(state));
+            _updatePakkelisteProgress(body);
+            cb.closest('.pakke-line')?.classList.toggle('pakke-done', cb.checked);
+        });
+        cb.closest('.pakke-line')?.classList.toggle('pakke-done', cb.checked);
+    });
+
+    // Editbare mængde-felter (kun råvare-niveau, ikke-leveret bon)
+    body.querySelectorAll('.pakke-qty-input').forEach(inp => {
+        // Undgå at checkbox-toggle trigges når man klikker i feltet
+        inp.addEventListener('click', e => e.preventDefault());
+        const commit = () => {
+            const pid = parseInt(inp.dataset.pakkePid);
+            const computed = Number(inp.dataset.pakkeComputed);
+            const val = inp.value === '' ? computed : Number(inp.value);
+            if (Number.isNaN(val) || val < 0) { inp.value = String(computed); return; }
+            // Tæt på computed (float-tolerance) → fjern override
+            if (Math.abs(val - computed) < 0.0001) {
+                delete _pakkeOverrides[pid];
+            } else {
+                _pakkeOverrides[pid] = val;
+            }
+            _schedulePakkeSave();
+        };
+        inp.addEventListener('change', () => { commit(); _renderPakkeliste(); });
+        inp.addEventListener('input', commit);
+    });
+
+    // Reset-knapper (↺ → tilbage til standard)
+    body.querySelectorAll('.pakke-reset').forEach(btn => {
+        btn.addEventListener('click', e => {
+            e.preventDefault();
+            const pid = parseInt(btn.dataset.pakkeReset);
+            delete _pakkeOverrides[pid];
+            _schedulePakkeSave();
+            _renderPakkeliste();
+        });
+    });
+
+    _updatePakkelisteProgress(body);
+}
+
+function _buildPakkelisteHtml(bon, data, level) {
+    const lines = bon.lines || [];
+    if (lines.length === 0) {
+        return '<div class="changelog-empty">Ingen linjer på denne bon endnu — tilføj varer først.</div>';
+    }
+    const eventLabel = bon.event_name ? ` til <strong>${esc(bon.event_name)}</strong>` : '';
+    const isRaw = (level === 'raw');
+    const toggle = `
+        <div class="pakke-toggle">
+            <button type="button" class="pakke-toggle-btn ${isRaw ? 'active' : ''}" onclick="_setPakkeLevel('raw')">📦 Råvarer</button>
+            <button type="button" class="pakke-toggle-btn ${!isRaw ? 'active' : ''}" onclick="_setPakkeLevel('production')">🔧 Produktionsmål</button>
+        </div>`;
+    const lockedNow = (bon.inventory_deducted === 1);
+    const intro = `
+        <div class="pakke-intro">
+            <div>${isRaw
+                ? `Pak det her ned og tag det med fra HQ${eventLabel}. <em>(Sandwich laves on-the-spot — vi pakker råvarer + emballage)</em>`
+                : `Produktionsmål — det her skal kunne laves på eventet${eventLabel}.`}</div>
+            <div class="pakke-progress" id="pakkeProgress">0 / 0 pakket</div>
+        </div>${toggle}
+        ${isRaw && !lockedNow ? '<div class="pakke-edit-hint">Klik på et tal for at justere — fx tage lidt buffer med. Ændringen trækkes fra HQ ved levering.</div>' : ''}
+        ${isRaw && lockedNow ? '<div class="pakke-edit-hint pakke-locked-hint">🔒 Bonen er leveret — mængderne er trukket fra HQ og kan ikke ændres.</div>' : ''}`;
+
+    const locked = (bon.inventory_deducted === 1);
+    let items = [];
+    if (isRaw) {
+        // Råvare-niveau: eksploderede ingredienser fra `raw`-data.
+        // `computed` = BOM-beregnet mængde. `qty` = override hvis sat, ellers computed.
+        items = (data?.raw?.ingredients || []).map(ing => {
+            const pid = ing.product_id;
+            const computed = Number(ing.amount_needed || ing.needed_stock || ing.needed_display || 0);
+            const hasOverride = Object.prototype.hasOwnProperty.call(_pakkeOverrides, pid);
+            return {
+                key: 'r' + pid,
+                productId: pid,
+                computed,
+                qty: hasOverride ? _pakkeOverrides[pid] : computed,
+                overridden: hasOverride,
+                editable: true,
+                unit: ing.unit || ing.stock_unit || ing.purchase_unit || 'stk',
+                name: ing.product_name || ing.name || '',
+                category: ing.ingredient_group || ing.category || 'Råvarer',
+                note: ing.special_request,
+            };
+        });
+    } else {
+        // Produktion-niveau: opskrifts-linjer som de står på bonen
+        items = lines.map(l => ({
+            key: 'l' + l.id,
+            qty: Number(l.quantity || 0),
+            unit: l.unit || 'stk',
+            name: l.product_name,
+            category: l.category || 'Øvrigt',
+            note: l.special_request,
+        }));
+        // Tilføj sub-recipes hvis backenden leverer dem
+        for (const sub of (data?.production?.groups || []).flatMap(g => g.subRecipes || [])) {
+            items.push({ key: 'sub' + sub.recipe_id, qty: Number(sub.weight_g || sub.amount || 0), unit: 'g', name: '↳ ' + sub.name, category: 'Underopskrifter', note: null });
+        }
+    }
+    if (items.length === 0) {
+        return intro + `<div class="changelog-empty">Ingen ${isRaw ? 'råvarer' : 'produktionslinjer'} fundet. ${isRaw ? 'Tjek at recipes har ingredienser i Grocy.' : 'Tilføj linjer til bonen.'}</div>`;
+    }
+
+    // Grupper efter kategori
+    const groups = {};
+    for (const it of items) {
+        (groups[it.category] = groups[it.category] || []).push(it);
+    }
+    let html = intro + `<div class="pakke-groups">`;
+    const sortedKeys = Object.keys(groups).sort((a, b) => {
+        // Emballage altid sidst
+        const aE = /emballage|kasser/i.test(a), bE = /emballage|kasser/i.test(b);
+        if (aE !== bE) return aE ? 1 : -1;
+        return a.localeCompare(b, 'da');
+    });
+    for (const cat of sortedKeys) {
+        html += `<div class="pakke-group">
+            <div class="pakke-group-head">${esc(cat)} <span class="pakke-group-count">(${groups[cat].length})</span></div>`;
+        for (const it of groups[cat]) {
+            const fmt = (n) => n < 1 ? Number(n).toFixed(2) : (n < 10 ? Number(n).toFixed(1) : String(Math.round(n)));
+            // Editbart tal kun på råvare-niveau når bonen ikke er leveret
+            const qtyCell = (it.editable && !locked)
+                ? `<input type="number" min="0" step="any" class="pakke-qty-input ${it.overridden ? 'pakke-qty-edited' : ''}"
+                        value="${fmt(it.qty)}" data-pakke-pid="${it.productId}" data-pakke-computed="${it.computed}"
+                        data-pakke-name="${esc(it.name)}" data-pakke-unit="${esc(it.unit)}"
+                        title="${it.overridden ? 'Standard: ' + fmt(it.computed) : ''}">`
+                : `<span class="pakke-qty ${it.overridden ? 'pakke-qty-edited' : ''}">${fmt(it.qty)}</span>`;
+            const resetBtn = (it.editable && !locked && it.overridden)
+                ? `<button type="button" class="pakke-reset" data-pakke-reset="${it.productId}" data-pakke-computed="${it.computed}" title="Nulstil til standard (${fmt(it.computed)})">↺</button>`
+                : '';
+            html += `<label class="pakke-line">
+                <input type="checkbox" data-pakke-line="${esc(it.key)}">
+                ${qtyCell}
+                <span class="pakke-unit">${esc(it.unit)}</span>
+                <span class="pakke-name">${esc(it.name)}</span>
+                ${it.overridden ? `<span class="pakke-orig">(standard ${fmt(it.computed)})</span>` : ''}
+                ${resetBtn}
+                ${it.note ? `<span class="pakke-note">— ${esc(it.note)}</span>` : ''}
+            </label>`;
+        }
+        html += `</div>`;
+    }
+    html += `</div>
+        <div class="pakke-doctrine">
+            ${isRaw
+                ? 'Når prep-bonnen sættes til <strong>LEVERET</strong>, trækker Grocy <em>præcis disse mængder</em> fra HQ-lokationen. På pladsen bygges sandwich/slider on-the-spot fra råvarerne.'
+                : 'Det er målet for hvad der skal kunne laves på eventet. Skift til 📦 Råvarer for at se hvad der faktisk pakkes ned.'}
+        </div>`;
+    return html;
+}
+
+function _updatePakkelisteProgress(body) {
+    const inputs = body.querySelectorAll('input[data-pakke-line]');
+    const total = inputs.length;
+    const done = body.querySelectorAll('input[data-pakke-line]:checked').length;
+    const el = body.querySelector('#pakkeProgress');
+    if (el) {
+        el.textContent = `${done} / ${total} pakket`;
+        el.classList.toggle('pakke-progress-done', done === total && total > 0);
+    }
+}
+
+/**
  * Sæt råvarer-niveau og re-render modal.
  */
 function _setRavarerLevel(level) {

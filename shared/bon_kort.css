@@ -857,14 +857,30 @@
 @keyframes bmToastIn { from { opacity: 0; transform: translateY(10px); } to { opacity: 1; transform: translateY(0); } }
 
 /* ── Production bon styling ──────────────────────────────── */
+/* Produktionsbons læser blåt (som i kalenderen): venstre-stribe overstyres til
+   blå uanset status. Tidligere lå en 4px blå border bag den 6px brede status-
+   ::before-stribe, så den guld/brune status-farve dækkede den helt. */
 .bon-production {
-    border-left: 4px solid #4a7ab0 !important;
-    background: linear-gradient(135deg, #f0f4fa 0%, var(--color-surface, #fff) 40%);
+    background: linear-gradient(135deg, #eaf1f9 0%, var(--color-surface, #fff) 45%);
+}
+.bon-production::before {
+    background: #4a7ab0 !important;
 }
 .bon-prod-badge {
     font-size: 14px; margin-left: 3px; vertical-align: middle;
 }
 .cal-bon-id .bon-prod-badge { font-size: 1.2em; }
+
+/* Event-badge — vises på bons der hører til et event (CLAUDE_EVENT.md) */
+.bon-event-badge {
+    font-size: 11px; font-weight: 600;
+    margin-left: 6px; padding: 2px 7px; border-radius: 10px;
+    background: #fff4e0; color: #8e631f;
+    vertical-align: middle; white-space: nowrap;
+    display: inline-block; max-width: 180px; overflow: hidden;
+    text-overflow: ellipsis; line-height: 1.4;
+}
+.cal-bon-id .bon-event-badge { font-size: 0.85em; }
 
 /* ── Mail badge on bon header ────────────────────────────── */
 .bon-mail-badge {

@@ -724,6 +724,9 @@
             <span class="sidebar-icon">🛒</span> Indkøb
             <span class="sidebar-badge" data-badge="indkob_leverandorpost" style="display:none"></span>
           </button>
+          <button class="sidebar-link" data-view="events">
+            <span class="sidebar-icon">🎪</span> Events
+          </button>
 
           <div class="sidebar-group-label">Økonomi</div>
           <button class="sidebar-link" data-view="okonomi">
@@ -812,6 +815,8 @@
   <script src="views/cashflow.js"></script>
   <script src="/shared/supplier_inbox.js"></script>
   <script src="views/ugeoversigt.js"></script>
+  <script src="views/events.js"></script>
+  <link rel="stylesheet" href="views/events.css">
   <script src="/shared/logistik.js?v=2026-05-22"></script>
   <script src="views/logistik-historik.js"></script>
   <!-- Indkøb (genbruger kitchen-komponenter) -->
@@ -1037,6 +1042,10 @@
           init: () => initLogistikHistory(contentEl, { openDrawer }),
           cleanup: () => { if (typeof cleanupLogistikHistory === 'function') cleanupLogistikHistory(); },
         },
+        events: {
+          init: () => initEvents(contentEl, { openDrawer }),
+          cleanup: () => { if (typeof cleanupEvents === 'function') cleanupEvents(); },
+        },
       };
 
       // ──────────────────────────────────────────────────────────────────────
@@ -1081,6 +1090,7 @@
           { id: 'penge', label: 'Pengestrøm' },
           { id: 'rap', label: 'Rapporter' },
         ],
+        events: null,
       };
 
       // SECTION_VIEW_MAP — oversætter (sidebar-section, pill) → internt view-navn
@@ -1128,6 +1138,7 @@
         },
         opskrifter: { _default: 'opskrifter' },
         drift: { _default: 'drift' },
+        events: { _default: 'events' },
       };
 
       // Reverse-map: gammel-view-navn → ny (section, pill) for bagudkompat
