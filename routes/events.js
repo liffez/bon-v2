@@ -24,6 +24,7 @@ const {
 const { getDb }    = require('../db/database');
 const { broadcast } = require('../shared/sse');
 const { requireAuth } = require('../shared/auth');
+const grocy = require('../services/grocyAdapter');
 
 // ─── helpers ───────────────────────────────────────────────────────────────
 
@@ -180,7 +181,7 @@ router.patch('/:id', requireAuth(), handle((req, res) => {
 
 // ─── EVENT OVERBLIK ────────────────────────────────────────────────────────
 
-router.get('/:id/overview', requireAuth(), handle((req, res) => {
+router.get('/:id/overview', requireAuth(), handle(async (req, res) => {
     const event = getEvent(req.params.id);
     if (!event) return res.status(404).json({ error: 'Event ikke fundet' });
     const bons = getEventBons(event.id);
@@ -197,7 +198,81 @@ router.get('/:id/overview', requireAuth(), handle((req, res) => {
     const pnl = computeEventPnL(bons);
     pnl.cost_estimated = computeEventCost(event.id);
     pnl.result = Math.round((pnl.revenue_excl - pnl.cost_estimated - pnl.expenses) * 100) / 100;
-    res.json({ event, bons, pnl });
+
+    // Forecast pr. dag pr. kategori. Vi sender også de dage events spænder over
+    // (start_date → end_date eller bare start_date hvis ingen end_date).
+    const forecast = getDb().prepare(`
+        SELECT id, forecast_date, category, expected_qty, notes
+        FROM event_forecast WHERE event_id = ? ORDER BY forecast_date, category
+    `).all(event.id);
+    const days = [];
+    if (event.start_date) {
+        const start = new Date(event.start_date + 'T12:00:00');
+        const end   = event.end_date ? new Date(event.end_date + 'T12:00:00') : start;
+        for (let d = new Date(start); d <= end; d.setDate(d.getDate() + 1)) {
+            days.push(d.toISOString().slice(0, 10));
+        }
+    }
+    // Kategori-liste fra Grocy `grupper`-userfield. Vi udlæser distinct fra
+    // sellable recipes — det matcher hvad køkkenet faktisk arbejder med
+    // (sandwich, salat, slider, drikke, kager). Emballage-kategorien filtreres
+    // bort: det er pakke-materiale, ikke noget kunden køber.
+    let categories = [];
+    try {
+        const recipes = await grocy.getRecipes();
+        const set = new Set();
+        for (const r of recipes) {
+            const cat = (r.category || '').trim();
+            if (!cat) continue;
+            // Filtrér kategorier der ikke er "noget kunden køber":
+            //   - Emballage / underopskrifter (Grocy interne)
+            //   - RR Produktion / RR produktion Hurtig (interne produktionsbatches)
+            //   - "x-" prefiks (Service, Levering — administrative)
+            //   - Tilbehør & Bokse (emballage-variant)
+            if (/emballage|underopskrift|tilbeh.r/i.test(cat)) continue;
+            if (/^rr\s*produktion/i.test(cat)) continue;
+            if (/^x-?\s*/i.test(cat)) continue;
+            set.add(cat);
+        }
+        categories = Array.from(set).sort((a, b) => a.localeCompare(b, 'da'));
+    } catch (err) {
+        console.warn('[events] kunne ikke hente Grocy-kategorier:', err.message);
+    }
+
+    res.json({ event, bons, pnl, forecast, days, categories });
+}));
+
+// ─── FORECAST CRUD (pr-kategori, pr-dag) ───────────────────────────────────
+// PUT erstatter hele forecast-tabellen for eventet (idempotent reconcile).
+// Tomme/0-værdier slettes så vi ikke akkumulerer støj.
+
+router.put('/:id/forecast', requireAuth(), handle((req, res) => {
+    const db = getDb();
+    const event = getEvent(req.params.id);
+    if (!event) return res.status(404).json({ error: 'Event ikke fundet' });
+    const items = Array.isArray(req.body?.items) ? req.body.items : null;
+    if (!items) return res.status(400).json({ error: 'items (array) er påkrævet' });
+
+    transaction(db, () => {
+        db.prepare(`DELETE FROM event_forecast WHERE event_id = ?`).run(event.id);
+        const ins = db.prepare(`
+            INSERT INTO event_forecast (event_id, forecast_date, category, expected_qty, notes, updated_at)
+            VALUES (?, ?, ?, ?, ?, CURRENT_TIMESTAMP)
+        `);
+        for (const it of items) {
+            const qty = Math.max(0, parseInt(it.expected_qty, 10) || 0);
+            if (qty === 0) continue;
+            if (!it.forecast_date || !it.category) continue;
+            ins.run(event.id, it.forecast_date, String(it.category).trim(), qty, it.notes ?? null);
+        }
+    });
+    logChange({ entityType: 'event', entityId: event.id, action: 'update', fieldName: 'forecast', userId: req.session?.userId });
+    broadcast('event_updated', { id: event.id });
+    const forecast = db.prepare(`
+        SELECT id, forecast_date, category, expected_qty, notes
+        FROM event_forecast WHERE event_id = ? ORDER BY forecast_date, category
+    `).all(event.id);
+    res.json({ forecast });
 }));
 
 // ─── EVENT-BON GENERATOR ───────────────────────────────────────────────────

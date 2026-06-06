@@ -97,3 +97,51 @@
 .ev-line-table th { font-size: 10px; text-transform: uppercase; color: #888; text-align: left; padding: 4px 6px; border-bottom: 1px solid #eee; font-weight: 500; }
 .ev-line-table td { padding: 4px 6px; border-bottom: 1px solid #f8f8f8; }
 .ev-line-table input { padding: 4px 6px; font-size: 12px; }
+
+/* ── Forecast-tabel ────────────────────────────────────────── */
+.ev-forecast { background: #fff; border: 1px solid var(--color-border, #d7d1ca); border-radius: 6px; margin: 20px 0; }
+.ev-forecast-empty { padding: 18px; color: #999; font-size: 13px; font-style: italic; text-align: center; }
+.ev-forecast-empty code { background: #f5f4f2; padding: 1px 5px; border-radius: 3px; font-size: 12px; }
+.ev-forecast-head { padding: 12px 16px; border-bottom: 1px solid #f0f0f0; display: flex; align-items: baseline; justify-content: space-between; gap: 12px; flex-wrap: wrap; }
+.ev-forecast-title { font-weight: 600; color: #2a2a2a; font-size: 14px; }
+.ev-forecast-hint { color: #888; font-size: 12px; }
+.ev-forecast-tablewrap { overflow-x: auto; }
+.ev-forecast-table { width: 100%; border-collapse: collapse; font-size: 13px; }
+.ev-forecast-table th, .ev-forecast-table td { padding: 6px 8px; text-align: center; border-bottom: 1px solid #f5f5f5; white-space: nowrap; }
+.ev-forecast-table thead th { background: #fafaf8; font-weight: 600; color: #555; font-size: 11px; text-transform: uppercase; letter-spacing: 0.4px; }
+.ev-forecast-table tfoot th { background: #fcf7e8; font-weight: 700; color: #5a4a2a; border-top: 2px solid #d7c89b; }
+.ev-fc-day { text-align: left; color: #2a2a2a; font-weight: 500; }
+.ev-fc-total { font-variant-numeric: tabular-nums; }
+.ev-fc-grand { color: var(--brand-primary, #8e631f); font-size: 14px; }
+.ev-fc-input {
+    width: 56px; padding: 4px 6px; border: 1px solid transparent; border-radius: 4px;
+    background: transparent; text-align: center; font-size: 13px; font-variant-numeric: tabular-nums;
+    transition: border-color 0.1s, background 0.1s;
+}
+.ev-fc-input:hover { border-color: #e0d8cc; background: #fafaf8; }
+.ev-fc-input:focus { outline: none; border-color: var(--brand-primary, #8e631f); background: #fff; }
+.ev-fc-act { text-align: right; }
+.ev-forecast-foot { padding: 8px 16px; border-top: 1px solid #f0f0f0; min-height: 28px; }
+.ev-fc-status { font-size: 12px; color: #888; }
+.ev-fc-status.ok { color: #1e6b2c; }
+.ev-fc-status.err { color: #8a2222; }
+
+/* ── Måltal-strip i generator-modal ────────────────────────── */
+.ev-target-strip {
+    display: flex; flex-wrap: wrap; gap: 6px;
+    padding: 10px 12px; background: #fcf7e8; border-radius: 6px;
+    margin: 0 0 14px; align-items: center;
+}
+.ev-target-head { font-weight: 600; color: #5a4a2a; font-size: 12px; margin-right: 6px; flex-basis: 100%; }
+.ev-target-pill {
+    display: inline-flex; gap: 6px; align-items: center;
+    padding: 4px 10px; background: #fff; border: 1px solid #d7c89b; border-radius: 14px;
+    font-size: 12px;
+}
+.ev-target-cat { color: #5a4a2a; font-weight: 500; }
+.ev-target-progress { color: #2a2a2a; font-variant-numeric: tabular-nums; }
+.ev-target-current { font-weight: 700; }
+.ev-target-met { background: #d6f0d8; border-color: #1e6b2c; }
+.ev-target-met .ev-target-current { color: #1e6b2c; }
+.ev-target-over { background: #fff4e0; border-color: #c87b0f; }
+.ev-target-over .ev-target-current { color: #c87b0f; }

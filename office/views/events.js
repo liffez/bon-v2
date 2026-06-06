@@ -19,6 +19,7 @@ let _evContainer = null;
 let _evOpts      = {};
 let _evRecipes   = null;        // cache af Grocy-recipes
 let _evCurrentId = null;        // null = liste, ellers detalje
+let _evState     = {};          // forecast/days/categories/event — fylders ved render
 
 function _evEsc(s) { if (s == null) return ''; return String(s).replace(/[&<>"']/g, ch => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[ch])); }
 function _evFmtDate(d) { if (!d) return '—'; const dt = new Date(d + 'T12:00:00'); return dt.toLocaleDateString('da-DK', { day:'2-digit', month:'short', year:'numeric' }); }
@@ -118,6 +119,14 @@ async function _evRenderDetail(id) {
         const ev = data.event;
         const bons = data.bons;
         const pnl = data.pnl;
+        const forecast = data.forecast || [];
+        const days = data.days || [];
+        const categories = data.categories || [];
+        // Gem på state så generator-modal kan finde måltal pr. kategori pr. dag
+        _evState.forecast = forecast;
+        _evState.days = days;
+        _evState.categories = categories;
+        _evState.event = ev;
         const byRole = { prep: [], topup: [], sales: [], expense: [] };
         bons.forEach(b => { (byRole[b.role] || (byRole[b.role] = [])).push(b); });
 
@@ -146,6 +155,8 @@ async function _evRenderDetail(id) {
                     <div class="ev-pnl-cell"><div class="ev-pnl-val">${_evFmtKr(pnl.expenses)}</div><div class="ev-pnl-lbl">Udgifter</div></div>
                     <div class="ev-pnl-cell ev-pnl-result"><div class="ev-pnl-val">${_evFmtKr(pnl.result)}</div><div class="ev-pnl-lbl">Resultat</div></div>
                 </div>
+
+                ${_evForecastTable(ev, days, categories, forecast)}
 
                 <div class="ev-actions">
                     <button class="ev-btn ev-btn-primary" data-act="gen" data-role="prep">+ Generér prep-bon</button>
@@ -178,10 +189,163 @@ async function _evRenderDetail(id) {
                 if (_evOpts.openDrawer) _evOpts.openDrawer(bonId);
             });
         });
+        _evBindForecastHandlers(ev);
     } catch (err) {
         _evContainer.innerHTML = `<div class="ev-error">Kunne ikke hente event: ${_evEsc(err.message)} <button class="ev-link" data-act="back">Tilbage</button></div>`;
         _evContainer.querySelector('[data-act="back"]')?.addEventListener('click', () => { _evCurrentId = null; _evRender(); });
     }
+}
+
+// ── FORECAST TABEL ───────────────────────────────────────────────────────
+// Pr. dag (rækker) × kategori (kolonner) — pr-celle indtaster brugeren hvor
+// mange færdige produkter (sandwich/slider/kage/drikke) der forventes solgt.
+// Køkkenet bruger tallene som måltal når de pakker. Auto-gem på blur.
+
+function _evForecastKey(date, cat) { return date + '|' + cat; }
+
+function _evForecastTable(ev, days, categories, forecast) {
+    const map = {};
+    for (const f of forecast) map[_evForecastKey(f.forecast_date, f.category)] = f.expected_qty;
+
+    // Tomt event uden Grocy-kategorier: vis info-tekst
+    if (categories.length === 0) {
+        return `<div class="ev-forecast ev-forecast-empty">
+            Forecast-tabellen kræver Grocy-kategorier (recipes med <code>grupper</code>-userfield og <code>sellable=1</code>).
+            Ingen tilgængelige lige nu.
+        </div>`;
+    }
+    if (days.length === 0) {
+        return `<div class="ev-forecast ev-forecast-empty">Sæt en startdato på eventet for at planlægge forecast.</div>`;
+    }
+
+    // Beregn kolonne-totaler
+    const colTotals = {};
+    for (const cat of categories) colTotals[cat] = 0;
+    for (const d of days) for (const cat of categories) colTotals[cat] += (map[_evForecastKey(d, cat)] || 0);
+    const grandTotal = Object.values(colTotals).reduce((a, b) => a + b, 0);
+
+    let html = `
+    <div class="ev-forecast">
+        <div class="ev-forecast-head">
+            <div class="ev-forecast-title">📋 Forecast — forventet salg pr. kategori</div>
+            <div class="ev-forecast-hint">Tal-input pr. celle. Auto-gemmer. Driver pakkeliste-måltal + top-up-forslag.</div>
+        </div>
+        <div class="ev-forecast-tablewrap">
+        <table class="ev-forecast-table">
+            <thead>
+                <tr>
+                    <th class="ev-fc-day">Dag</th>
+                    ${categories.map(c => `<th class="ev-fc-cat">${_evEsc(c)}</th>`).join('')}
+                    <th class="ev-fc-total">Total</th>
+                    <th class="ev-fc-act"></th>
+                </tr>
+            </thead>
+            <tbody>`;
+    for (const d of days) {
+        let rowTotal = 0;
+        const cells = categories.map(cat => {
+            const qty = map[_evForecastKey(d, cat)] || 0;
+            rowTotal += qty;
+            return `<td><input type="number" min="0" step="1" value="${qty || ''}" placeholder="0"
+                    data-fc-date="${d}" data-fc-cat="${_evEsc(cat)}" class="ev-fc-input"></td>`;
+        }).join('');
+        html += `<tr>
+            <td class="ev-fc-day">${_evFmtDate(d)}</td>
+            ${cells}
+            <td class="ev-fc-total" data-fc-rowtotal="${d}">${rowTotal || ''}</td>
+            <td class="ev-fc-act">
+                <button class="ev-btn ev-btn-small" data-act="gen-from-forecast" data-fc-date="${d}" title="Generér prep-bon der dækker dagens forecast">+ Prep</button>
+            </td>
+        </tr>`;
+    }
+    html += `</tbody>
+            <tfoot>
+                <tr>
+                    <th class="ev-fc-day">Total</th>
+                    ${categories.map(c => `<th class="ev-fc-total" data-fc-coltotal="${_evEsc(c)}">${colTotals[c] || ''}</th>`).join('')}
+                    <th class="ev-fc-total ev-fc-grand">${grandTotal || ''}</th>
+                    <th></th>
+                </tr>
+            </tfoot>
+        </table>
+        </div>
+        <div class="ev-forecast-foot">
+            <span id="ev-fc-status" class="ev-fc-status"></span>
+        </div>
+    </div>`;
+    return html;
+}
+
+function _evBindForecastHandlers(ev) {
+    const inputs = _evContainer.querySelectorAll('.ev-fc-input');
+    if (inputs.length === 0) return;
+    let saveTimer = null;
+    const status = () => _evContainer.querySelector('#ev-fc-status');
+    const showStatus = (text, cls) => {
+        const s = status();
+        if (!s) return;
+        s.textContent = text;
+        s.className = 'ev-fc-status' + (cls ? ' ' + cls : '');
+    };
+
+    const saveAll = async () => {
+        const items = [];
+        _evContainer.querySelectorAll('.ev-fc-input').forEach(inp => {
+            const qty = parseInt(inp.value, 10);
+            if (!qty || qty <= 0) return;
+            items.push({ forecast_date: inp.dataset.fcDate, category: inp.dataset.fcCat, expected_qty: qty });
+        });
+        try {
+            showStatus('Gemmer…');
+            const res = await _evFetch(`/events/${ev.id}/forecast`, { method: 'PUT', body: JSON.stringify({ items }) });
+            _evState.forecast = res.forecast || [];
+            // Genberegn række/kolonne-totaler i UI uden full re-render
+            _evRecalcForecastTotals();
+            showStatus('✓ Gemt', 'ok');
+            setTimeout(() => showStatus(''), 1500);
+        } catch (err) {
+            showStatus('Fejl: ' + err.message, 'err');
+        }
+    };
+    const scheduleSave = () => {
+        clearTimeout(saveTimer);
+        saveTimer = setTimeout(saveAll, 400);
+    };
+
+    inputs.forEach(inp => {
+        inp.addEventListener('input', () => { _evRecalcForecastTotals(); scheduleSave(); });
+        inp.addEventListener('blur', () => { clearTimeout(saveTimer); saveAll(); });
+    });
+
+    _evContainer.querySelectorAll('[data-act="gen-from-forecast"]').forEach(btn => {
+        btn.addEventListener('click', () => {
+            const date = btn.dataset.fcDate;
+            _evOpenGenModal(_evState.event, 'prep', { forecastDate: date });
+        });
+    });
+}
+
+function _evRecalcForecastTotals() {
+    if (!_evContainer) return;
+    const rows = new Map();   // date → sum
+    const cols = new Map();   // cat → sum
+    let grand = 0;
+    _evContainer.querySelectorAll('.ev-fc-input').forEach(inp => {
+        const v = parseInt(inp.value, 10) || 0;
+        rows.set(inp.dataset.fcDate, (rows.get(inp.dataset.fcDate) || 0) + v);
+        cols.set(inp.dataset.fcCat, (cols.get(inp.dataset.fcCat) || 0) + v);
+        grand += v;
+    });
+    _evContainer.querySelectorAll('[data-fc-rowtotal]').forEach(td => {
+        const t = rows.get(td.dataset.fcRowtotal) || 0;
+        td.textContent = t || '';
+    });
+    _evContainer.querySelectorAll('[data-fc-coltotal]').forEach(th => {
+        const t = cols.get(th.dataset.fcColtotal) || 0;
+        th.textContent = t || '';
+    });
+    const g = _evContainer.querySelector('.ev-fc-grand');
+    if (g) g.textContent = grand || '';
 }
 
 function _evRoleSection(role, bons) {
@@ -244,7 +408,8 @@ function _evOpenNewModal() {
 
 // ── MODAL: generér bon ───────────────────────────────────────────────────
 
-async function _evOpenGenModal(event, role) {
+async function _evOpenGenModal(event, role, opts) {
+    opts = opts || {};
     if (!_evRecipes) {
         try {
             const data = await _evFetch('/grocy/recipes');
@@ -255,15 +420,42 @@ async function _evOpenGenModal(event, role) {
     const isProd = (role === 'prep' || role === 'topup');
     const isExpense = role === 'expense';
     const priceMode = isProd ? 'produktion' : 'catering';
-    // Sortér recipes pænt efter kategori + navn
+    // Gruppér recipes efter kategori (Grocy `grupper`) som <optgroup>
     const recipes = (_evRecipes || []).slice().sort((a, b) => {
         const ca = (a.category || 'zz'), cb = (b.category || 'zz');
         if (ca !== cb) return ca.localeCompare(cb, 'da');
         return (a.name || '').localeCompare(b.name || '', 'da');
     });
-    const recipeOpts = recipes.map(r =>
-        `<option value="${r.id}" data-cat="${_evEsc(r.category||'')}" data-unit="${_evEsc(r.unit||'stk')}" data-price="${r.prices?.[priceMode] ?? 0}" data-cost="${r.cost_price ?? 0}" data-co2e="${r.co2e ?? ''}">${_evEsc(r.name)} ${r.category ? '· ' + _evEsc(r.category) : ''}</option>`
+    const byCat = {};
+    for (const r of recipes) {
+        const cat = r.category || '(uden kategori)';
+        (byCat[cat] = byCat[cat] || []).push(r);
+    }
+    const recipeOpts = Object.keys(byCat).sort((a, b) => a.localeCompare(b, 'da')).map(cat =>
+        `<optgroup label="${_evEsc(cat)}">` +
+        byCat[cat].map(r =>
+            `<option value="${r.id}" data-cat="${_evEsc(r.category||'')}" data-unit="${_evEsc(r.unit||'stk')}" data-price="${r.prices?.[priceMode] ?? 0}" data-cost="${r.cost_price ?? 0}" data-co2e="${r.co2e ?? ''}">${_evEsc(r.name)}</option>`
+        ).join('') +
+        `</optgroup>`
     ).join('');
+
+    // Måltal pr. kategori — hvis vi åbnede modalen fra "+ Prep dag N",
+    // viser vi en strip øverst med forecast for den dag.
+    const forecastDate = opts.forecastDate || null;
+    let targetStrip = '';
+    if (forecastDate && Array.isArray(_evState.forecast)) {
+        const todayTargets = _evState.forecast.filter(f => f.forecast_date === forecastDate);
+        if (todayTargets.length > 0) {
+            targetStrip = `<div class="ev-target-strip">
+                <div class="ev-target-head">📋 Måltal — ${_evFmtDate(forecastDate)}</div>
+                ${todayTargets.map(t => `
+                    <div class="ev-target-pill" data-target-cat="${_evEsc(t.category)}">
+                        <span class="ev-target-cat">${_evEsc(t.category)}</span>
+                        <span class="ev-target-progress"><span class="ev-target-current" data-target-current="${_evEsc(t.category)}">0</span> / ${t.expected_qty}</span>
+                    </div>`).join('')}
+            </div>`;
+        }
+    }
 
     _evModal(`
         <h3>${_EV_ROLE_ICON[role]} ${_EV_ROLE_LABEL[role]} — ${_evEsc(event.name)}</h3>
@@ -274,7 +466,8 @@ async function _evOpenGenModal(event, role) {
                 ? 'Indtast udgift (fee, benzin, bro). Total bliver negativ — udgiften netter ikke mod omsætning, men vises som omkostning.'
                 : 'Vælg menuer kunden køber. Priskategori: <strong>catering</strong>. Status: <strong>GODKENDT</strong>.'}
         </div>
-        <label>Dato${isProd ? ' (prep-pakning)' : ''}<input type="date" id="evm-date" value="${event.start_date}"></label>
+        ${targetStrip}
+        <label>Dato${isProd ? ' (prep-pakning)' : ''}<input type="date" id="evm-date" value="${forecastDate || event.start_date}"></label>
         ${!isExpense ? '<label>Tilføj fra Grocy<select id="evm-recipe"><option value="">— vælg opskrift —</option>' + recipeOpts + '</select></label>' : ''}
         <div class="ev-line-table-wrap">
             <table class="ev-line-table">
@@ -334,11 +527,35 @@ async function _evOpenGenModal(event, role) {
             const q = Number(tr.querySelector('[data-f=qty]').value) || 0;
             const p = Number(tr.querySelector('[data-f=price]').value) || 0;
             tr.querySelector('[data-f=total]').textContent = _evFmtKr(q * p);
+            _evRecalcTargets();
         };
         tr.querySelector('[data-f=qty]').addEventListener('input', recalc);
         tr.querySelector('[data-f=price]').addEventListener('input', recalc);
-        tr.querySelector('[data-f=del]').addEventListener('click', () => tr.remove());
+        tr.querySelector('[data-f=del]').addEventListener('click', () => { tr.remove(); _evRecalcTargets(); });
         recalc();
+    }
+
+    function _evRecalcTargets() {
+        // Tæl linjer pr. kategori og opdater "X / Y"-måltal i strip
+        const sums = {};
+        linesEl.querySelectorAll('tr[data-line]').forEach(row => {
+            const cat = row.dataset.category;
+            if (!cat) return;
+            const q = Number(row.querySelector('[data-f=qty]').value) || 0;
+            sums[cat] = (sums[cat] || 0) + q;
+        });
+        document.querySelectorAll('[data-target-current]').forEach(el => {
+            const cat = el.dataset.targetCurrent;
+            const v = sums[cat] || 0;
+            el.textContent = v;
+            const pill = el.closest('.ev-target-pill');
+            if (pill) {
+                const totalText = pill.querySelector('.ev-target-progress')?.textContent || '';
+                const expected = parseInt(totalText.split('/').pop().trim(), 10) || 0;
+                pill.classList.toggle('ev-target-met', v >= expected && expected > 0);
+                pill.classList.toggle('ev-target-over', v > expected && expected > 0);
+            }
+        });
     }
     if (selectEl) {
         selectEl.addEventListener('change', () => {
