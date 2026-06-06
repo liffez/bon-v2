@@ -532,7 +532,12 @@ async function processInboundMail(parsed, uid, mailbox) {
             const bon = db.prepare('SELECT id FROM bons WHERE bon_number = ?').get(String(tagResult.bonNumber));
             if (bon) {
                 bonId = bon.id;
-                if (tagResult.customerNumber) customerId = tagResult.customerNumber;
+                // Verificér kunden findes før vi sætter FK'en — ellers fejler
+                // INSERT INTO mail_threads(customer_id) med FOREIGN KEY constraint.
+                if (tagResult.customerNumber) {
+                    const cust = db.prepare('SELECT id FROM customers WHERE id = ?').get(tagResult.customerNumber);
+                    if (cust) customerId = cust.id;
+                }
             }
         } else if (tagResult.routing === 'offer') {
             const bon = db.prepare('SELECT id FROM bons WHERE bon_number = ? AND is_offer = 1').get(String(tagResult.offerNumber));
@@ -544,7 +549,10 @@ async function processInboundMail(parsed, uid, mailbox) {
             const sup = db.prepare('SELECT id FROM suppliers WHERE id = ?').get(tagResult.supplierNumber);
             if (sup) supplierId = sup.id;
         } else if (tagResult.routing === 'customer') {
-            customerId = tagResult.customerNumber;
+            // Verificér kunden findes (samme FK-beskyttelse som ovenfor) — en
+            // #k-NNN-tag mod en slettet/forkert kunde må ikke crashe pollen.
+            const cust = db.prepare('SELECT id FROM customers WHERE id = ?').get(tagResult.customerNumber);
+            if (cust) customerId = cust.id;
         }
 
         // Find or create thread if we have a match
