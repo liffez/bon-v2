@@ -145,3 +145,25 @@
 .ev-target-met .ev-target-current { color: #1e6b2c; }
 .ev-target-over { background: #fff4e0; border-color: #c87b0f; }
 .ev-target-over .ev-target-current { color: #c87b0f; }
+
+/* ── Retur-sektion (§6) ────────────────────────────────────── */
+.ev-return-section { margin: 16px 0; padding: 14px 16px; background: #fff; border: 1px solid var(--color-border, #d7d1ca); border-radius: 6px; }
+.ev-return-head { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
+.ev-return-head .ev-role-head { margin-bottom: 0; }
+.ev-return-intro { color: #888; font-size: 13px; margin-top: 8px; line-height: 1.5; }
+.ev-return-explain { background: #fcf7e8; padding: 10px 12px; border-radius: 4px; font-size: 12px; color: #5a4a2a; margin: 10px 0; line-height: 1.5; }
+.ev-return-tablewrap { overflow-x: auto; }
+.ev-return-table { width: 100%; border-collapse: collapse; font-size: 13px; }
+.ev-return-table th { text-align: right; padding: 6px 8px; color: #888; font-weight: 500; font-size: 11px; text-transform: uppercase; border-bottom: 1px solid #eee; }
+.ev-return-table th:first-child { text-align: left; }
+.ev-return-table td { padding: 6px 8px; border-bottom: 1px solid #f3f3f3; }
+.ev-ret-name { text-align: left; color: #2a2a2a; }
+.ev-ret-unit { color: #aaa; font-size: 11px; }
+.ev-ret-suggest { color: #1e6b2c; font-weight: 600; }
+.ev-ret-input {
+    width: 70px; padding: 4px 6px; border: 1px solid #d7d1ca; border-radius: 4px;
+    text-align: right; font-size: 13px; font-variant-numeric: tabular-nums;
+}
+.ev-ret-input:focus { outline: none; border-color: var(--brand-primary, #8e631f); box-shadow: 0 0 0 2px rgba(142,99,31,0.12); }
+.ev-return-actions { display: flex; align-items: center; justify-content: flex-end; gap: 12px; margin-top: 12px; }
+.ev-target-sub { font-weight: normal; color: #aaa; font-size: 11px; }

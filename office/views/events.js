@@ -126,6 +126,7 @@ async function _evRenderDetail(id) {
         _evState.forecast = forecast;
         _evState.days = days;
         _evState.categories = categories;
+        _evState.prepped = data.prepped || {};   // "date|category" → allerede prepped
         _evState.event = ev;
         const byRole = { prep: [], topup: [], sales: [], expense: [] };
         bons.forEach(b => { (byRole[b.role] || (byRole[b.role] = [])).push(b); });
@@ -170,6 +171,16 @@ async function _evRenderDetail(id) {
                 ${_evRoleSection('sales',   byRole.sales)}
                 ${_evRoleSection('expense', byRole.expense)}
 
+                <div class="ev-return-section" id="evReturnSection">
+                    <div class="ev-return-head">
+                        <div class="ev-role-head">↩️ Retur &amp; afstemning</div>
+                        <button class="ev-btn" data-act="return-calc">Beregn retur-forslag</button>
+                    </div>
+                    <div class="ev-return-body" id="evReturnBody">
+                        <div class="ev-return-intro">Når eventet er slut: beregn hvad der er tilbage (pakket − solgt), tæl fysisk, og bogfør resten tilbage på HQ-lageret.</div>
+                    </div>
+                </div>
+
                 ${ev.model === 'light' ? `
                 <div class="ev-doctrine">
                     <strong>§5-gate aktiv:</strong> salgsbonner trækker ikke HQ-lager (prep ejer trækket).
@@ -190,10 +201,85 @@ async function _evRenderDetail(id) {
             });
         });
         _evBindForecastHandlers(ev);
+        _evContainer.querySelector('[data-act="return-calc"]')
+            ?.addEventListener('click', () => _evLoadReturnSuggestion(ev));
     } catch (err) {
         _evContainer.innerHTML = `<div class="ev-error">Kunne ikke hente event: ${_evEsc(err.message)} <button class="ev-link" data-act="back">Tilbage</button></div>`;
         _evContainer.querySelector('[data-act="back"]')?.addEventListener('click', () => { _evCurrentId = null; _evRender(); });
     }
+}
+
+// ── RETUR (§6) ───────────────────────────────────────────────────────────
+
+async function _evLoadReturnSuggestion(ev) {
+    const body = document.getElementById('evReturnBody');
+    if (!body) return;
+    body.innerHTML = '<div class="ev-return-intro">Beregner event-beholdning…</div>';
+    try {
+        const data = await _evFetch(`/events/${ev.id}/return-suggestion`);
+        const items = data.items || [];
+        if (items.length === 0) {
+            body.innerHTML = '<div class="ev-return-intro">Ingen råvarer at returnere — opret prep-bons (og evt. salgsbons) først.</div>';
+            return;
+        }
+        body.innerHTML = `
+            <div class="ev-return-explain">
+                <strong>Forslag</strong> = pakket (prep + top-up) − solgt. Justér "Faktisk talt" til det I tæller på pladsen (differencen er spild). Klik <em>Bogfør retur</em> for at lægge det tilbage på HQ.
+            </div>
+            <div class="ev-return-tablewrap">
+            <table class="ev-return-table">
+                <thead><tr><th>Råvare</th><th>Pakket</th><th>Solgt</th><th>Forslag (rest)</th><th>Faktisk talt</th></tr></thead>
+                <tbody>
+                ${items.map(it => `
+                    <tr data-ret-pid="${it.product_id}">
+                        <td class="ev-ret-name">${_evEsc(it.product_name)}</td>
+                        <td class="ev-num">${_evFmtNum(it.prepped)} <span class="ev-ret-unit">${_evEsc(it.unit)}</span></td>
+                        <td class="ev-num">${_evFmtNum(it.sold)}</td>
+                        <td class="ev-num ev-ret-suggest">${_evFmtNum(it.suggested_rest)}</td>
+                        <td><input type="number" min="0" step="any" class="ev-ret-input" value="${_evFmtNum(it.suggested_rest)}" data-ret-pid="${it.product_id}"></td>
+                    </tr>`).join('')}
+                </tbody>
+            </table>
+            </div>
+            <div class="ev-return-actions">
+                <span id="evReturnStatus" class="ev-fc-status"></span>
+                <button class="ev-btn ev-btn-primary" data-act="return-book">↩️ Bogfør retur til HQ</button>
+            </div>`;
+        body.querySelector('[data-act="return-book"]')?.addEventListener('click', () => _evBookReturn(ev, body));
+    } catch (err) {
+        body.innerHTML = `<div class="ev-error">Kunne ikke beregne retur: ${_evEsc(err.message)}</div>`;
+    }
+}
+
+async function _evBookReturn(ev, body) {
+    const items = [];
+    body.querySelectorAll('.ev-ret-input').forEach(inp => {
+        const pid = parseInt(inp.dataset.retPid);
+        const amt = Number(inp.value);
+        if (pid && amt > 0) items.push({ product_id: pid, amount: amt });
+    });
+    if (items.length === 0) { alert('Ingen mængder at returnere.'); return; }
+    const btn = body.querySelector('[data-act="return-book"]');
+    const status = document.getElementById('evReturnStatus');
+    if (btn) btn.disabled = true;
+    if (status) status.textContent = 'Bogfører…';
+    try {
+        const res = await _evFetch(`/events/${ev.id}/return`, { method: 'POST', body: JSON.stringify({ items }) });
+        const failed = (res.results || []).filter(r => !r.success);
+        if (status) {
+            status.textContent = `✓ ${res.returned_count} råvarer lagt på HQ-lager${failed.length ? ` · ${failed.length} fejl` : ''}`;
+            status.className = 'ev-fc-status ' + (failed.length ? 'err' : 'ok');
+        }
+    } catch (err) {
+        if (status) { status.textContent = 'Fejl: ' + err.message; status.className = 'ev-fc-status err'; }
+    } finally {
+        if (btn) btn.disabled = false;
+    }
+}
+
+function _evFmtNum(n) {
+    const v = Number(n) || 0;
+    return v < 1 ? v.toFixed(2) : (v < 10 ? v.toFixed(1) : String(Math.round(v)));
 }
 
 // ── FORECAST TABEL ───────────────────────────────────────────────────────
@@ -440,19 +526,25 @@ async function _evOpenGenModal(event, role, opts) {
     ).join('');
 
     // Måltal pr. kategori — hvis vi åbnede modalen fra "+ Prep dag N",
-    // viser vi en strip øverst med forecast for den dag.
+    // viser vi en strip øverst med forecast for den dag. Baseline = allerede
+    // prepped (fra eksisterende bons) så strippen viser reel fremdrift; det
+    // brugeren tilføjer i denne modal lægges oveni (top-up-flow).
     const forecastDate = opts.forecastDate || null;
     let targetStrip = '';
+    const _prepped = _evState.prepped || {};
     if (forecastDate && Array.isArray(_evState.forecast)) {
         const todayTargets = _evState.forecast.filter(f => f.forecast_date === forecastDate);
         if (todayTargets.length > 0) {
             targetStrip = `<div class="ev-target-strip">
-                <div class="ev-target-head">📋 Måltal — ${_evFmtDate(forecastDate)}</div>
-                ${todayTargets.map(t => `
-                    <div class="ev-target-pill" data-target-cat="${_evEsc(t.category)}">
+                <div class="ev-target-head">📋 Måltal — ${_evFmtDate(forecastDate)} <span class="ev-target-sub">(allerede prepped + denne bon / forecast)</span></div>
+                ${todayTargets.map(t => {
+                    const base = _prepped[`${forecastDate}|${t.category}`] || 0;
+                    return `
+                    <div class="ev-target-pill ${base >= t.expected_qty ? 'ev-target-met' : ''}" data-target-cat="${_evEsc(t.category)}" data-target-base="${base}">
                         <span class="ev-target-cat">${_evEsc(t.category)}</span>
-                        <span class="ev-target-progress"><span class="ev-target-current" data-target-current="${_evEsc(t.category)}">0</span> / ${t.expected_qty}</span>
-                    </div>`).join('')}
+                        <span class="ev-target-progress"><span class="ev-target-current" data-target-current="${_evEsc(t.category)}">${base}</span> / ${t.expected_qty}</span>
+                    </div>`;
+                }).join('')}
             </div>`;
         }
     }
@@ -536,7 +628,7 @@ async function _evOpenGenModal(event, role, opts) {
     }
 
     function _evRecalcTargets() {
-        // Tæl linjer pr. kategori og opdater "X / Y"-måltal i strip
+        // Tæl linjer pr. kategori i denne modal + læg allerede-prepped baseline til
         const sums = {};
         linesEl.querySelectorAll('tr[data-line]').forEach(row => {
             const cat = row.dataset.category;
@@ -546,9 +638,10 @@ async function _evOpenGenModal(event, role, opts) {
         });
         document.querySelectorAll('[data-target-current]').forEach(el => {
             const cat = el.dataset.targetCurrent;
-            const v = sums[cat] || 0;
-            el.textContent = v;
             const pill = el.closest('.ev-target-pill');
+            const base = pill ? (Number(pill.dataset.targetBase) || 0) : 0;
+            const v = base + (sums[cat] || 0);
+            el.textContent = v;
             if (pill) {
                 const totalText = pill.querySelector('.ev-target-progress')?.textContent || '';
                 const expected = parseInt(totalText.split('/').pop().trim(), 10) || 0;

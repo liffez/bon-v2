@@ -17,8 +17,8 @@
 const express = require('express');
 const router  = express.Router();
 const {
-    handle, logChange, getBon, getStatusId, getDefaultLocationId,
-    todayISO, nextBonNumber, recalcBonTotalUnits, transaction,
+    handle, logChange, getBon, getBonLines, getStatusId, getDefaultLocationId,
+    getPrepPackingOverrides, todayISO, nextBonNumber, recalcBonTotalUnits, transaction,
     inclToExcl
 } = require('../db/helpers');
 const { getDb }    = require('../db/database');
@@ -105,6 +105,69 @@ function computeEventCost(eventId) {
         WHERE b.event_id = ? AND pc.code = 'produktion'
     `).get(eventId);
     return row?.c ?? 0;
+}
+
+// Opløs en bons FAKTISK pakkede råvarer (consume-items + pakke-overrides).
+// Samme grundlag som det Grocy trækker ved LEVERET. Returnerer
+// [{ product_id, product_name, amount_stock, qu_id_stock }].
+async function resolvePackedRaw(bonId, applyOverrides) {
+    const { resolveConsumeItems } = require('../services/ingredientResolver');
+    const lines = getBonLines(bonId);
+    if (!lines.some(l => l.grocy_recipe_id)) return [];
+    const items = await resolveConsumeItems(lines);
+    if (applyOverrides) {
+        const ov = getPrepPackingOverrides(bonId);
+        for (const it of items) {
+            if (ov.has(it.product_id)) it.amount_stock = ov.get(it.product_id);
+        }
+    }
+    return items;
+}
+
+// Beregn event-beholdning (rest_på_eventet) pr. råvare:
+//   rest = (prep + top-ups, m/overrides)  −  solgt (BOM-eksploderet)
+// Alt i stock-units. Returnerer { items: [{product_id, name, unit, prepped, sold, suggested_rest}] }.
+async function computeReturnSuggestion(event) {
+    const bons = getEventBons(event.id);
+    const [products, qus] = await Promise.all([grocy.getProducts(), grocy.getQuantityUnits()]);
+    const prodMap = new Map(products.map(p => [parseInt(p.id), p]));
+    const quMap   = new Map(qus.map(u => [parseInt(u.id), u]));
+
+    const prepped = new Map();   // pid → amount
+    const sold    = new Map();
+    const names   = new Map();
+
+    for (const b of bons) {
+        const isProd = b.price_category_code === 'produktion';
+        const isExpense = (b.total_price ?? 0) < 0 && !isProd;
+        if (isExpense) continue;
+        const items = await resolvePackedRaw(b.id, isProd);   // overrides kun relevante på prep
+        const target = isProd ? prepped : sold;
+        for (const it of items) {
+            target.set(it.product_id, (target.get(it.product_id) || 0) + it.amount_stock);
+            if (!names.has(it.product_id)) names.set(it.product_id, it.product_name);
+        }
+    }
+
+    const allPids = new Set([...prepped.keys(), ...sold.keys()]);
+    const items = [];
+    for (const pid of allPids) {
+        const p = prepped.get(pid) || 0;
+        const s = sold.get(pid) || 0;
+        const rest = Math.max(0, p - s);
+        const prod = prodMap.get(pid) || {};
+        const unit = quMap.get(parseInt(prod.qu_id_stock))?.name || '';
+        items.push({
+            product_id: pid,
+            product_name: names.get(pid) || prod.name || `#${pid}`,
+            unit,
+            prepped: Math.round(p * 100) / 100,
+            sold: Math.round(s * 100) / 100,
+            suggested_rest: Math.round(rest * 100) / 100,
+        });
+    }
+    items.sort((a, b) => (a.product_name || '').localeCompare(b.product_name || '', 'da'));
+    return { items };
 }
 
 // ─── EVENTS — CRUD ─────────────────────────────────────────────────────────
@@ -239,7 +302,21 @@ router.get('/:id/overview', requireAuth(), handle(async (req, res) => {
         console.warn('[events] kunne ikke hente Grocy-kategorier:', err.message);
     }
 
-    res.json({ event, bons, pnl, forecast, days, categories });
+    // Allerede prepped pr. (dato, kategori) i færdig-produkt-enheder. Driver
+    // top-up: forecast_dag_N − prepped = mangler at preppe. Summerer linjer fra
+    // prep/top-up-bons (price_category='produktion') grupperet på bon.delivery_date.
+    const preppedRows = getDb().prepare(`
+        SELECT b.delivery_date AS date, bl.category AS category, COALESCE(SUM(bl.quantity), 0) AS qty
+        FROM bons b
+        JOIN bon_lines bl ON bl.bon_id = b.id
+        LEFT JOIN price_categories pc ON b.price_category_id = pc.id
+        WHERE b.event_id = ? AND pc.code = 'produktion' AND bl.category IS NOT NULL
+        GROUP BY b.delivery_date, bl.category
+    `).all(event.id);
+    const prepped = {};   // "date|category" → qty
+    for (const r of preppedRows) prepped[`${r.date}|${r.category}`] = r.qty;
+
+    res.json({ event, bons, pnl, forecast, days, categories, prepped });
 }));
 
 // ─── FORECAST CRUD (pr-kategori, pr-dag) ───────────────────────────────────
@@ -386,6 +463,47 @@ router.post('/:id/bons', requireAuth(), handle((req, res) => {
     broadcast('bon_created', { id: result, bon_number: bonNumber, event_id: event.id });
     broadcast('event_updated', { id: event.id });
     res.status(201).json(getBon(result));
+}));
+
+// ─── RETUR / HJEMKOMST (§6) ────────────────────────────────────────────────
+// Beregner event-beholdning pr. råvare (prep+topup − solgt) som forslag.
+// Køkkenet tæller fysisk og justerer, og bogfører returen som lager-add til HQ.
+
+router.get('/:id/return-suggestion', requireAuth(), handle(async (req, res) => {
+    const event = getEvent(req.params.id);
+    if (!event) return res.status(404).json({ error: 'Event ikke fundet' });
+    const suggestion = await computeReturnSuggestion(event);
+    res.json(suggestion);
+}));
+
+router.post('/:id/return', requireAuth(), handle(async (req, res) => {
+    const event = getEvent(req.params.id);
+    if (!event) return res.status(404).json({ error: 'Event ikke fundet' });
+    const items = Array.isArray(req.body?.items) ? req.body.items : null;
+    if (!items) return res.status(400).json({ error: 'items (array) er påkrævet' });
+
+    // Læg hver talt rest tilbage på HQ-lageret via Grocy stock-add. Sekventielt
+    // så fejlede produkter er kendte; partial success tilladt (fortsæt ved fejl).
+    const results = [];
+    for (const it of items) {
+        const pid = parseInt(it.product_id);
+        const amt = Number(it.amount);
+        if (!pid || Number.isNaN(amt) || amt <= 0) continue;
+        try {
+            await grocy.addToStock(pid, amt);
+            results.push({ product_id: pid, amount: amt, success: true });
+        } catch (err) {
+            results.push({ product_id: pid, amount: amt, success: false, error: err.message });
+        }
+    }
+    const ok = results.filter(r => r.success).length;
+    logChange({
+        entityType: 'event', entityId: event.id, action: 'update', fieldName: 'return',
+        newValue: `retur bogført: ${ok}/${results.length} produkter lagt på HQ-lager`,
+        userId: req.session?.userId,
+    });
+    broadcast('event_updated', { id: event.id });
+    res.json({ results, returned_count: ok });
 }));
 
 module.exports = router;
