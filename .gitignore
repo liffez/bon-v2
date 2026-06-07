@@ -9,6 +9,9 @@ npm-debug.log*
 # Test-output (genereres ved hver kørsel)
 tests/reports/
 tests/fixtures/grocy_snapshot.json
+test-results/
+playwright-report/
+.last-run.json
 
 # DB-backups + fix-logs (lokal historik — ikke kode)
 data/*.backup-*

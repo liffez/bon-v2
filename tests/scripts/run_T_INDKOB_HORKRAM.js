@@ -63,8 +63,22 @@ function record(id, group, status, detail = '') {
     else if (VERBOSE)           console.log(`  ✓ ${id}${detail ? ' — ' + detail : ''}`);
 }
 
+let SESSION_COOKIE = null;
+
+async function login() {
+    const res = await fetch(`${SERVER_URL}/api/auth/pin`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ pin: '1234' }),
+    });
+    if (res.status !== 200) throw new Error(`Login fejlede: ${res.status}`);
+    SESSION_COOKIE = res.headers.get('set-cookie')?.split(';')[0];
+    if (!SESSION_COOKIE) throw new Error('Ingen set-cookie ved login');
+}
+
 async function api(method, pathPart, body = null) {
     const opts = { method, headers: {} };
+    if (SESSION_COOKIE) opts.headers['Cookie'] = SESSION_COOKIE;
     if (body) {
         opts.headers['Content-Type'] = 'application/json';
         opts.body = JSON.stringify(body);
@@ -1184,6 +1198,9 @@ async function main() {
     console.log(`[run_T_INDKOB_HORKRAM] Basket-PUT: ${SKIP_BASKET ? 'SKIP' : 'live mod Hoka (V2 afgiver aldrig ordrer)'}`);
 
     db = openDb(process.env.DB_PATH);
+
+    // Login — horkram/orders/purchasing-endpoints kræver nu en session (requireAuth)
+    await login();
 
     // Initial cleanup af eventuelle pre-existing test-data.
     // Vigtig: cirkulær FK mellem purchase_orders.mail_thread_id ↔ mail_threads.purchase_order_id.
