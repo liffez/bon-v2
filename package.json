@@ -1,7 +1,7 @@
 {
   "name": "bon-v2",
   "version": "2.0.0",
-  "description": "Ristet Rug \u2014 Bon v2 Order Management System",
+  "description": "Ristet Rug — Bon v2 Order Management System",
   "main": "server.js",
   "engines": {
     "node": ">=22"
@@ -48,7 +48,9 @@
     "test:run-fakturering": "node --env-file=.env.test --experimental-sqlite tests/scripts/run_T_FAKTURERING.js",
     "test:run-tilbud": "node --env-file=.env.test --experimental-sqlite tests/scripts/run_T_TILBUD.js",
     "test:run-dashboard": "node --env-file=.env.test --experimental-sqlite tests/scripts/run_T_DASHBOARD.js",
-    "test:run-opskrifter": "node --env-file=.env.test --experimental-sqlite tests/scripts/run_T_OPSKRIFTER.js"
+    "test:run-opskrifter": "node --env-file=.env.test --experimental-sqlite tests/scripts/run_T_OPSKRIFTER.js",
+    "test:ui": "playwright test",
+    "test:ui-indkob": "playwright test T_INDKOB_UI"
   },
   "dependencies": {
     "bcryptjs": "^2.4.3",
@@ -59,5 +61,8 @@
     "imapflow": "^1.2.13",
     "mailparser": "^3.7.1",
     "nodemailer": "^8.0.2"
+  },
+  "devDependencies": {
+    "@playwright/test": "1.60.0"
   }
 }
