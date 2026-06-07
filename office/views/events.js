@@ -146,8 +146,13 @@ async function _evRenderDetail(id) {
                             : '<span class="ev-badge ev-badge-festival">🎡 Festival</span>'}
                         <span class="ev-badge ev-status-${ev.status}">${_EV_STATUS_LABEL[ev.status] || ev.status}</span>
                     </div>
+                    <div class="ev-detail-actions">
+                        <button class="ev-btn ev-btn-small" data-act="edit-event">✎ Redigér</button>
+                        <button class="ev-btn ev-btn-small ev-btn-danger" data-act="delete-event">🗑 Slet</button>
+                    </div>
                 </div>
-                <div class="ev-detail-meta">${period} · ${_evEsc(ev.location_name)}${ev.notes ? ' · ' + _evEsc(ev.notes) : ''}</div>
+                <div class="ev-detail-meta">${period} · ${_evEsc(ev.location_name)}${ev.event_address ? ' · 📍 ' + _evEsc(ev.event_address) : ''}</div>
+                ${ev.notes ? `<div class="ev-detail-notes">📝 ${_evEsc(ev.notes)}</div>` : ''}
 
                 <div class="ev-pnl-strip">
                     <div class="ev-pnl-cell"><div class="ev-pnl-val">${_evFmtKr(pnl.revenue_incl)}</div><div class="ev-pnl-lbl">Omsætning (inkl moms)</div></div>
@@ -192,6 +197,10 @@ async function _evRenderDetail(id) {
 
         _evContainer.querySelector('[data-act="back"]')
             .addEventListener('click', () => { _evCurrentId = null; _evRender(); });
+        _evContainer.querySelector('[data-act="edit-event"]')
+            ?.addEventListener('click', () => _evOpenEventModal(ev));
+        _evContainer.querySelector('[data-act="delete-event"]')
+            ?.addEventListener('click', () => _evDeleteEvent(ev));
         _evContainer.querySelectorAll('[data-act="gen"]').forEach(btn => {
             btn.addEventListener('click', () => _evOpenGenModal(ev, btn.dataset.role));
         });
@@ -462,35 +471,83 @@ function _evRoleSection(role, bons) {
         </div>`;
 }
 
-// ── MODAL: opret event ───────────────────────────────────────────────────
+// ── MODAL: opret/redigér event ───────────────────────────────────────────
+// ev = null → opret. ev = objekt → redigér (PATCH).
 
-function _evOpenNewModal() {
+function _evOpenNewModal() { _evOpenEventModal(null); }
+
+function _evOpenEventModal(ev) {
+    const isEdit = !!ev;
     const today = new Date().toISOString().slice(0, 10);
+    const v = (s) => _evEsc(s == null ? '' : s);
+    const statusOpt = (val, lbl) => `<option value="${val}" ${ev && ev.status === val ? 'selected' : ''}>${lbl}</option>`;
     _evModal(`
-        <h3>Nyt event</h3>
-        <label>Navn<input type="text" id="evm-name" placeholder="Roskilde 2026" required></label>
+        <h3>${isEdit ? 'Redigér event' : 'Nyt event'}</h3>
+        <label>Navn<input type="text" id="evm-name" placeholder="Roskilde 2026" value="${v(ev && ev.name)}" required></label>
         <label>Model
-            <select id="evm-model">
-                <option value="light" selected>Let (alt fra HQ)</option>
-                <option value="festival">Festival (lokal sporing — ikke bygget endnu)</option>
+            <select id="evm-model" ${isEdit ? 'disabled' : ''}>
+                <option value="light" ${!ev || ev.model === 'light' ? 'selected' : ''}>Let (alt fra HQ)</option>
+                <option value="festival" ${ev && ev.model === 'festival' ? 'selected' : ''}>Festival (lokal sporing — ikke bygget endnu)</option>
             </select>
         </label>
-        <label>Startdato<input type="date" id="evm-start" value="${today}" required></label>
-        <label>Slutdato (valgfri)<input type="date" id="evm-end"></label>
-        <label>Noter<textarea id="evm-notes" rows="2" placeholder="Plads, kontaktperson, særlige aftaler…"></textarea></label>
+        ${isEdit ? `<label>Status
+            <select id="evm-status">
+                ${statusOpt('planning', 'Planlægning')}
+                ${statusOpt('active', 'Aktiv')}
+                ${statusOpt('done', 'Afsluttet')}
+                ${statusOpt('cancelled', 'Aflyst')}
+            </select>
+        </label>` : ''}
+        <label>Startdato<input type="date" id="evm-start" value="${ev ? v(ev.start_date) : today}" required></label>
+        <label>Slutdato (valgfri)<input type="date" id="evm-end" value="${v(ev && ev.end_date)}"></label>
+        <label>Adresse / sted (valgfri)<input type="text" id="evm-address" placeholder="Festivalpladsen, Darupvej 19, Roskilde" value="${v(ev && ev.event_address)}"></label>
+        <label>Noter<textarea id="evm-notes" rows="3" placeholder="Kontaktperson, særlige aftaler, parkering…">${v(ev && ev.notes)}</textarea></label>
     `, async () => {
         const body = {
             name: document.getElementById('evm-name').value.trim(),
-            model: document.getElementById('evm-model').value,
             start_date: document.getElementById('evm-start').value,
             end_date: document.getElementById('evm-end').value || null,
+            event_address: document.getElementById('evm-address').value.trim() || null,
             notes: document.getElementById('evm-notes').value.trim() || null,
         };
         if (!body.name) throw new Error('Navn er påkrævet');
-        const ev = await _evFetch('/events', { method: 'POST', body: JSON.stringify(body) });
-        _evCurrentId = ev.id;
+        if (!body.start_date) throw new Error('Startdato er påkrævet');
+        if (isEdit) {
+            body.status = document.getElementById('evm-status').value;
+            await _evFetch(`/events/${ev.id}`, { method: 'PATCH', body: JSON.stringify(body) });
+        } else {
+            body.model = document.getElementById('evm-model').value;
+            const created = await _evFetch('/events', { method: 'POST', body: JSON.stringify(body) });
+            _evCurrentId = created.id;
+        }
         _evRender();
     });
+}
+
+// Slet event (med bekræftelse). Afkobler bons og sletter eventet.
+async function _evDeleteEvent(ev) {
+    const ok = confirm(`Slet eventet "${ev.name}"?\n\nTilknyttede bons (prep, salg osv.) bevares som almindelige bons — de bliver bare afkoblet fra eventet. Forecast slettes. Dette kan ikke fortrydes.`);
+    if (!ok) return;
+    try {
+        const res = await _evFetch(`/events/${ev.id}`, { method: 'DELETE' });
+        const n = res.unlinked_bons || 0;
+        _evCurrentId = null;
+        _evRender();
+        // Lille kvittering
+        setTimeout(() => {
+            const tb = _evContainer && _evContainer.querySelector('.ev-toolbar');
+            if (tb) {
+                const note = document.createElement('span');
+                note.className = 'ev-fc-status ok';
+                note.style.marginLeft = '12px';
+                note.textContent = `✓ Event slettet${n ? ` · ${n} bons afkoblet` : ''}`;
+                tb.appendChild(note);
+                setTimeout(() => note.remove(), 4000);
+            }
+        }, 100);
+    } catch (err) {
+        alert('Kunne ikke slette event: ' + err.message);
+    }
 }
 
 // ── MODAL: generér bon ───────────────────────────────────────────────────

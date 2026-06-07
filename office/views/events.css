@@ -168,3 +168,9 @@
 .ev-ret-input:focus { outline: none; border-color: var(--brand-primary, #8e631f); box-shadow: 0 0 0 2px rgba(142,99,31,0.12); }
 .ev-return-actions { display: flex; align-items: center; justify-content: flex-end; gap: 12px; margin-top: 12px; }
 .ev-target-sub { font-weight: normal; color: #aaa; font-size: 11px; }
+
+/* Event-detalje: rediger/slet + adresse/noter */
+.ev-detail-actions { display: flex; gap: 6px; margin-left: auto; }
+.ev-btn-danger { color: #a32626; border-color: #e0c0c0; }
+.ev-btn-danger:hover { background: #fdecec; border-color: #d09090; }
+.ev-detail-notes { color: #777; font-size: 13px; margin-bottom: 14px; line-height: 1.5; max-width: 800px; }

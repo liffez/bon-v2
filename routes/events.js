@@ -195,7 +195,7 @@ router.get('/', requireAuth(), handle((req, res) => {
     const rows = db.prepare(`
         SELECT e.id, e.name, e.model, e.start_date, e.end_date, e.status,
                e.location_id, l.name AS location_name, l.code AS location_code,
-               e.notes, e.created_at,
+               e.notes, e.event_address, e.created_at,
                (SELECT COUNT(*) FROM bons WHERE event_id = e.id) AS bon_count
         FROM events e
         JOIN locations l ON e.location_id = l.id
@@ -224,12 +224,12 @@ router.post('/', requireAuth(), handle((req, res) => {
     }
     const locationId = b.location_id ?? getDefaultLocationId();
     const result = db.prepare(`
-        INSERT INTO events (name, location_id, model, start_date, end_date, status, notes, created_by_user_id)
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+        INSERT INTO events (name, location_id, model, start_date, end_date, status, notes, event_address, created_by_user_id)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
     `).run(
         b.name, locationId, model, b.start_date,
         b.end_date ?? null, b.status ?? 'planning',
-        b.notes ?? null,
+        b.notes ?? null, b.event_address ?? null,
         req.session?.userId ?? null
     );
     const ev = getEvent(result.lastInsertRowid);
@@ -243,7 +243,7 @@ router.patch('/:id', requireAuth(), handle((req, res) => {
     const id = req.params.id;
     const ev = getEvent(id);
     if (!ev) return res.status(404).json({ error: 'Event ikke fundet' });
-    const ALLOWED = ['name','start_date','end_date','status','notes','model','location_id'];
+    const ALLOWED = ['name','start_date','end_date','status','notes','model','location_id','event_address'];
     const updates = [], params = [];
     for (const key of ALLOWED) {
         if (key in req.body) { updates.push(`${key} = ?`); params.push(req.body[key]); }
@@ -255,6 +255,29 @@ router.patch('/:id', requireAuth(), handle((req, res) => {
     logChange({ entityType: 'event', entityId: id, action: 'update', userId: req.session?.userId });
     broadcast('event_updated', { id: updated.id });
     res.json(updated);
+}));
+
+// Slet event. Afkobler tilknyttede bons (sætter event_id=NULL — de bevares som
+// almindelige bons med deres data/lager-træk intakt) og sletter derefter
+// eventet. event_forecast cascader; prep_packing_overrides hænger på bons og
+// bevares. Returnerer hvor mange bons der blev afkoblet.
+router.delete('/:id', requireAuth(), handle((req, res) => {
+    const db = getDb();
+    const id = parseInt(req.params.id);
+    const ev = getEvent(id);
+    if (!ev) return res.status(404).json({ error: 'Event ikke fundet' });
+    let unlinked = 0;
+    transaction(db, () => {
+        unlinked = db.prepare(`UPDATE bons SET event_id = NULL WHERE event_id = ?`).run(id).changes;
+        db.prepare(`DELETE FROM events WHERE id = ?`).run(id);
+    });
+    logChange({
+        entityType: 'event', entityId: id, action: 'delete',
+        oldValue: ev.name, newValue: `slettet (${unlinked} bons afkoblet)`,
+        userId: req.session?.userId,
+    });
+    broadcast('event_deleted', { id });
+    res.json({ deleted: true, unlinked_bons: unlinked });
 }));
 
 // ─── EVENT OVERBLIK ────────────────────────────────────────────────────────
