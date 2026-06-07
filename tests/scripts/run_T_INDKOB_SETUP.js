@@ -56,8 +56,22 @@ function record(id, group, status, detail = '') {
     else if (VERBOSE)           console.log(`  ✓ ${id}${detail ? ' — ' + detail : ''}`);
 }
 
+let SESSION_COOKIE = null;
+
+async function login() {
+    const res = await fetch(`${SERVER_URL}/api/auth/pin`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ pin: '1234' }),
+    });
+    if (res.status !== 200) throw new Error(`Login fejlede: ${res.status}`);
+    SESSION_COOKIE = res.headers.get('set-cookie')?.split(';')[0];
+    if (!SESSION_COOKIE) throw new Error('Ingen set-cookie ved login');
+}
+
 async function api(method, pathPart, body = null) {
     const opts = { method, headers: {} };
+    if (SESSION_COOKIE) opts.headers['Cookie'] = SESSION_COOKIE;
     if (body) {
         opts.headers['Content-Type'] = 'application/json';
         opts.body = JSON.stringify(body);
@@ -1067,6 +1081,9 @@ async function main() {
     console.log(`[run_T_INDKOB_SETUP] Grocy:  ${process.env.GROCY_API_URL}`);
 
     db = openDb(process.env.DB_PATH);
+
+    // Login — purchasing-endpoints kræver nu en session (requireAuth)
+    await login();
 
     // Initial cleanup af eventuelle pre-existing test-data fra fejlede kørsler
     db.prepare("DELETE FROM suppliers WHERE name LIKE 'T_INDKOB_SETUP_%'").run();
