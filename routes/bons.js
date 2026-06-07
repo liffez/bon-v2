@@ -1199,7 +1199,7 @@ router.post('/:id/mail', handle(async (req, res) => {
 
     const { sendMail, sendFromTemplate } = require('../services/mailService');
     const context = { type: 'bon', number: parseInt(bon.bon_number.replace(/\D/g, '')) };
-    const userId = req.session?.user?.id || null;
+    const userId = req.session?.userId || null;
 
     let result;
     if (templateKey) {
