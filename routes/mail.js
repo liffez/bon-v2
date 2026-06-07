@@ -1,7 +1,7 @@
 const express = require('express');
 const router = express.Router();
 const { getDb } = require('../db/database');
-const { handle, transaction } = require('../db/helpers');
+const { handle, getUserId, transaction } = require('../db/helpers');
 const { requireAuth } = require('../shared/auth');
 const { sendFromTemplate, sendMail } = require('../services/mailService');
 const { broadcast } = require('../shared/sse');
@@ -263,7 +263,7 @@ router.patch('/unmatched/:id', requireAuth('admin'), handle(async (req, res) => 
     const id = parseInt(req.params.id);
     const { status, linked_customer_id, linked_bon_id } = req.body;
     const db = getDb();
-    const userId = req.session?.user?.id || null;
+    const userId = getUserId(req);
 
     if (status === 'linked') {
         // Create thread + message from unmatched
@@ -311,7 +311,7 @@ router.post('/unmatched/bulk', requireAuth('admin'), handle(async (req, res) => 
     if (!cleanIds.length) return res.status(400).json({ error: 'ingen gyldige ids' });
 
     const db = getDb();
-    const userId = req.session?.user?.id || null;
+    const userId = getUserId(req);
     const placeholders = cleanIds.map(() => '?').join(',');
     const result = db.prepare(`
         UPDATE mail_unmatched
@@ -374,7 +374,7 @@ function linkUnmatchedToCustomer(db, um, customerId, userId) {
 router.post('/unmatched/:id/create-lead', requireAuth('admin'), handle((req, res) => {
     const id = parseInt(req.params.id);
     const db = getDb();
-    const userId = req.session?.user?.id ?? req.session?.userId ?? null;
+    const userId = getUserId(req);
 
     const um = db.prepare('SELECT * FROM mail_unmatched WHERE id = ?').get(id);
     if (!um) return res.status(404).json({ error: 'Mail ikke fundet' });
@@ -407,7 +407,7 @@ router.post('/unmatched/:id/reply', requireAuth('admin'), handle(async (req, res
     if (!text || !String(text).trim()) return res.status(400).json({ error: 'text er påkrævet' });
 
     const db = getDb();
-    const userId = req.session?.user?.id ?? req.session?.userId ?? null;
+    const userId = getUserId(req);
 
     const um = db.prepare('SELECT * FROM mail_unmatched WHERE id = ?').get(id);
     if (!um) return res.status(404).json({ error: 'Mail ikke fundet' });

@@ -336,13 +336,23 @@ function getUserById(id) {
     return getDb().prepare('SELECT id, name, email, role, pin FROM users WHERE id = ? AND is_active = 1').get(id);
 }
 
+/**
+ * Den indloggede brugers id fra sessionen, eller null.
+ * Login sætter ET fladt felt: req.session.userId (jf. routes/auth.js).
+ * `req.session.user` populeres ALDRIG — læs derfor ALDRIG req.session.user.id.
+ * Brug denne helper i stedet for at gentage mønstret (og fejle igen).
+ */
+function getUserId(req) {
+    return req?.session?.userId ?? null;
+}
+
 module.exports = {
     nextBonNumber, nextQuoteNumber, logChange, handle,
     getBon, getBonLines, getBonMenuGroups, getPrepPackingOverrides, getStatusId, getDefaultLocationId,
     todayISO, offsetISO,
     autoConsumeBonInventory,
     getUnitCountCategories, invalidateUnitCountCache, recalcBonTotalUnits,
-    hashPassword, verifyPassword, getUserByEmail, getUserById,
+    hashPassword, verifyPassword, getUserByEmail, getUserById, getUserId,
     transaction,
     // Moms-helpers (re-eksporteret fra shared/moms.js — én definition for hele Bon v2)
     MOMS_RATE: moms.MOMS_RATE,

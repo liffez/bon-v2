@@ -1,7 +1,7 @@
 const express = require('express');
 const router = express.Router();
 const { getDb } = require('../db/database');
-const { handle, logChange, transaction } = require('../db/helpers');
+const { handle, getUserId, logChange, transaction } = require('../db/helpers');
 const { enrich } = require('../services/cvrEnrichment');
 const { buildCompanyDiff, FIELD_MAP } = require('../services/companyDiff');
 const { syncPrimaryCache, validateContactValue } = require('../shared/contactPoints');
@@ -77,7 +77,7 @@ router.patch('/:id/economic', handle((req, res) => {
         fieldName: 'economic_customer_id',
         oldValue: existing.economic_customer_id,
         newValue: economic_customer_id,
-        userId: req.session?.user?.id,
+        userId: getUserId(req),
     });
 
     res.json({ ok: true });
@@ -139,7 +139,7 @@ router.patch('/:id/identifiers', handle((req, res) => {
                 fieldName: k,
                 oldValue: existing[k],
                 newValue: updates[k],
-                userId: req.session?.user?.id ?? null,
+                userId: getUserId(req),
                 notes: 'manuel rettelse',
             });
         }
@@ -244,7 +244,7 @@ router.post('/:id/enrich', handle((req, res) => {
                         fieldName: key,
                         oldValue: oldVal,
                         newValue: newVal,
-                        userId: req.session?.user?.id ?? null,
+                        userId: getUserId(req),
                         notes: `kilde=${kilde || 'ukendt'} konfidens=${konfidens || ''}`,
                     });
                     fieldsUpdated++;
@@ -307,7 +307,7 @@ router.post('/:id/enrich', handle((req, res) => {
                 action: existing ? 'enrich_cp_touch' : 'enrich_cp_create',
                 fieldName: cp.kind,
                 newValue: validation.normalized,
-                userId: req.session?.user?.id ?? null,
+                userId: getUserId(req),
                 notes: `source=cvr public=${isPub}`,
             });
         }

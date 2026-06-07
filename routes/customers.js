@@ -1,7 +1,7 @@
 const express    = require('express');
 const router     = express.Router();
 const { getDb }  = require('../db/database');
-const { handle, logChange } = require('../db/helpers');
+const { handle, getUserId, logChange } = require('../db/helpers');
 
 // GET /api/customers?q=&company_id=
 router.get('/', handle((req, res) => {
@@ -98,7 +98,7 @@ router.patch('/:id/economic', handle((req, res) => {
             entityType: 'customer', entityId: Number(id), action: 'update',
             fieldName: 'economic_contact_id',
             oldValue: existing.economic_contact_id, newValue: economic_contact_id,
-            userId: req.session?.user?.id,
+            userId: getUserId(req),
         });
     }
 
@@ -109,7 +109,7 @@ router.patch('/:id/economic', handle((req, res) => {
             entityType: 'customer', entityId: Number(id), action: 'update',
             fieldName: 'economic_customer_id',
             oldValue: existing.economic_customer_id, newValue: economic_customer_id,
-            userId: req.session?.user?.id,
+            userId: getUserId(req),
         });
     }
 
@@ -153,7 +153,7 @@ router.post('/:id/mail', handle(async (req, res) => {
 
     const { sendMail, renderTemplate } = require('../services/mailService');
     const context = { type: 'customer', number: customerId };
-    const userId = req.session?.user?.id || null;
+    const userId = getUserId(req);
 
     // Validér booking-flow whitelist
     const flow = (booking_flow === 'kontakt') ? 'kontakt' : 'smagning';
