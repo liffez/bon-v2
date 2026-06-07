@@ -20,6 +20,11 @@
 const express = require('express');
 const router  = express.Router();
 const parser  = require('../services/hokaParser');
+const { requireAuth } = require('../shared/auth');
+
+// Hele Hørkram-proxyen logger ind med firmaets ægte Hørkram-credentials.
+// Kræv login (alle aktive roller) så proxyen ikke kan bruges uautentificeret.
+router.use(requireAuth());
 
 const HOKA_BASE = 'https://www.hoka.dk';
 const UA = 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36';
@@ -544,37 +549,47 @@ router.put('/basket/add', async (req, res) => {
         }
         if (!targetBasketId) return res.status(500).json({ error: 'Kunne ikke finde aktiv kurv' });
 
-        // Resolve SalesUnitIndex for alle varer via snapshot
-        // Hoka bruger SalesUnitIndex (0, 1, ...) i PUT — ikke Code/Quantity
-        for (const p of products) {
+        // Resolve SalesUnitIndex for alle varer via snapshot.
+        // Hoka bruger SalesUnitIndex (0, 1, ...) i PUT — ikke Code/Quantity.
+        // Batch: snapshots-endpointet tager op til 20 id'er pr. kald, så vi
+        // henter alle på én gang (chunks à 20) i stedet for ét kald pr. vare.
+        const dd = deliveryDate();
+        const snapMap = new Map();  // String(Id) → snapshot
+        const snapIds = [...new Set(products
+            .map(p => parseInt(p.varenummer || p.productId))
+            .filter(id => id && !isNaN(id)))];
+        for (let i = 0; i < snapIds.length; i += 20) {
+            const chunk = snapIds.slice(i, i + 20);
             try {
-                const dd = deliveryDate();
-                const snapUrl = `${HOKA_BASE}/api/catalog/products/snapshots?id=${parseInt(p.varenummer || p.productId)}&expectedDeliveryDate=${encodeURIComponent(dd)}`;
+                const snapUrl = `${HOKA_BASE}/api/catalog/products/snapshots?${chunk.map(id => `id=${id}`).join('&')}&expectedDeliveryDate=${encodeURIComponent(dd)}`;
                 const snapRes = await fetchWithAuth(snapUrl);
                 if (snapRes.ok) {
                     const snapData = await snapRes.json();
                     const snapArr = Array.isArray(snapData) ? snapData : Array.isArray(snapData?.Model) ? snapData.Model : [];
-                    if (snapArr.length > 0) {
-                        const su = snapArr[0].SalesUnits?.Values;
-                        if (su && su.length > 0) {
-                            // Find matching unit by code, eller brug default
-                            let match;
-                            if (p.salesUnitCode && p.salesUnitCode !== 'st') {
-                                match = su.find(u => u.Code === p.salesUnitCode);
-                            }
-                            if (!match) {
-                                match = su.find(u => u.IsDefault) || su[0];
-                            }
-                            const idx = su.findIndex(u => u.Code === match.Code);
-                            p._salesUnitIndex = idx >= 0 ? idx : 0;
-                            p.salesUnitCode = match.Code;
-                            p.salesUnitQuantity = match.Quantity || 1;
-                            console.log(`[Hørkram] SalesUnit for ${p.varenummer}: ${match.Code} idx=${p._salesUnitIndex} (${match.TextSingular || ''})`);
-                        }
-                    }
+                    for (const s of snapArr) snapMap.set(String(s.Id), s);
                 }
             } catch (e) {
-                console.log(`[Hørkram] ⚠ Snapshot lookup for salesUnit fejlede: ${e.message}`);
+                console.log(`[Hørkram] ⚠ Snapshot batch-lookup for salesUnit fejlede: ${e.message}`);
+            }
+        }
+
+        for (const p of products) {
+            const snap = snapMap.get(String(parseInt(p.varenummer || p.productId)));
+            const su = snap?.SalesUnits?.Values;
+            if (su && su.length > 0) {
+                // Find matching unit by code, eller brug default
+                let match;
+                if (p.salesUnitCode && p.salesUnitCode !== 'st') {
+                    match = su.find(u => u.Code === p.salesUnitCode);
+                }
+                if (!match) {
+                    match = su.find(u => u.IsDefault) || su[0];
+                }
+                const idx = su.findIndex(u => u.Code === match.Code);
+                p._salesUnitIndex = idx >= 0 ? idx : 0;
+                p.salesUnitCode = match.Code;
+                p.salesUnitQuantity = match.Quantity || 1;
+                console.log(`[Hørkram] SalesUnit for ${p.varenummer}: ${match.Code} idx=${p._salesUnitIndex} (${match.TextSingular || ''})`);
             }
         }
 
@@ -745,8 +760,9 @@ router.get('/delivery-dates', async (req, res) => {
 router.get('/dropsize', async (req, res) => {
     try {
         const subtotal = parseFloat(req.query.subtotal) || 0;
-        const date = req.query.date || new Date().toISOString();
-        const dateStr = encodeURIComponent(new Date(date).toISOString());
+        const d = req.query.date ? new Date(req.query.date) : new Date();
+        if (isNaN(d.getTime())) return res.status(400).json({ error: 'Ugyldig date-parameter' });
+        const dateStr = encodeURIComponent(d.toISOString());
         const apiRes = await fetchWithAuth(
             `${HOKA_BASE}/api/delivery/dropsize/ofbasket?basketSubTotal=${subtotal}&expectedDeliveryDate=${dateStr}`
         );

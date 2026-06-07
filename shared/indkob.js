@@ -432,6 +432,31 @@ function _ibBuildGroups() {
             grp.totalUnreadMail += (grp.pendingOrders[pi].unread_mail || 0);
         }
     }
+
+    // Kurven holdt referencer til de GAMLE entry-objekter; en rebuild (fx via
+    // indkommende leverandør-mail over SSE) laver nye entries, så de gamle
+    // referencer bliver forældede og "Gå til kurv" finder ingenting. Re-bind
+    // kurven til de nye entries via product.id, så identitets-opslagene virker.
+    _ibReconcileCart();
+}
+
+/* Re-bind _ibCartItems til de aktuelle entry-objekter (nøglet på product.id). */
+function _ibReconcileCart() {
+    if (!_ibCartItems || !_ibCartItems.length) return;
+    var wanted = {};
+    _ibCartItems.forEach(function(e) { if (e && e.product) wanted[e.product.id] = true; });
+    var fresh = [];
+    for (var gk in _ibGroups) {
+        var its = _ibGroups[gk].items;
+        for (var i = 0; i < its.length; i++) {
+            var ent = its[i];
+            if (ent.product && wanted[ent.product.id]) {
+                ent.inCart = true;
+                fresh.push(ent);
+            }
+        }
+    }
+    _ibCartItems = fresh;
 }
 
 /* ── Barcode sorting ───────────────────────────────────────── */
@@ -1665,6 +1690,7 @@ async function _ibAddToCart(productId) {
 }
 
 async function _ibGotoCart(groupKey) {
+    if (_ibBusy) return;
     var g = _ibGroups[groupKey];
     if (!g) return;
 
@@ -2131,6 +2157,7 @@ async function _ibGenerateIntBarcode(grocyProductId) {
 
 /* ── Produktionsbon ────────────────────────────────────────── */
 async function _ibCreateProductionBon(groupKey, singleProductId) {
+    if (_ibBusy) return;
     var g = _ibGroups[groupKey];
     if (!g) return;
 
@@ -2138,25 +2165,28 @@ async function _ibCreateProductionBon(groupKey, singleProductId) {
     var items = [];
     g.items.forEach(function(entry) {
         if (entry.isOrdered) return;
-        if (singleProductId && entry.product_id != singleProductId) return;
-        var p = _ibProducts[entry.product_id];
+        var p = entry.product;
         if (!p) return;
+        if (singleProductId && p.id != singleProductId) return;
         // Use qty if set, otherwise fall back to shopping list need amount
-        var qty = entry.qty || Math.ceil(parseFloat(entry.needAmount) || 1);
+        var qty = entry.qty || Math.ceil(parseFloat(entry.need) || 1);
         items.push({ entry: entry, product: p, qty: qty });
     });
 
     if (!items.length) { _ibToast('Ingen varer at oprette bon for', true); return; }
 
-    // Default: i morgen
+    // Default: i morgen (lokal dato — ikke UTC, der ellers viser forkert dag efter midnat)
     var tomorrow = new Date();
     tomorrow.setDate(tomorrow.getDate() + 1);
-    var dateStr = tomorrow.toISOString().slice(0, 10);
+    var dateStr = tomorrow.getFullYear() + '-'
+        + String(tomorrow.getMonth() + 1).padStart(2, '0') + '-'
+        + String(tomorrow.getDate()).padStart(2, '0');
 
     // Prompt for date
     var chosen = prompt('Produktionsbon dato (ÅÅÅÅ-MM-DD):', dateStr);
     if (!chosen) return;
 
+    _ibBusy = true;
     try {
         // Create bon — intern produktion, ingen kunde/levering
         var bon = await createBon({
@@ -2182,7 +2212,7 @@ async function _ibCreateProductionBon(groupKey, singleProductId) {
             try {
                 await postBonLine(bon.id, {
                     product_name: p.name,
-                    grocy_recipe_id: entry.grocy_recipe_id || null,
+                    grocy_recipe_id: p.grocy_recipe_id || null,
                     quantity: item.qty,
                     unit: entry.needUnit || p.qu_id_stock_name || 'stk',
                     unit_price: 0,
@@ -2193,9 +2223,11 @@ async function _ibCreateProductionBon(groupKey, singleProductId) {
                 console.error('[indkob] line error:', e);
             }
 
-            // Remove from Grocy shopping list
-            if (entry.shopping_list_id) {
-                try { await deleteShoppingListItem(entry.shopping_list_id); } catch (e) { /* */ }
+            // Fjern fra Grocy shopping list — én entry kan dække flere sl-linjer
+            var slItems = entry.allItems || [];
+            for (var j = 0; j < slItems.length; j++) {
+                if (!slItems[j] || !slItems[j].id) continue;
+                try { await deleteShoppingListItem(slItems[j].id); } catch (e) { /* */ }
             }
         }
 
@@ -2208,6 +2240,8 @@ async function _ibCreateProductionBon(groupKey, singleProductId) {
         _ibRender();
     } catch (err) {
         _ibToast('Fejl: ' + (err.message || ''), true);
+    } finally {
+        _ibBusy = false;
     }
 }
 
@@ -2259,10 +2293,12 @@ function _ibAddProductAutocomplete(q) {
 }
 
 async function _ibAddProductConfirm() {
+    if (_ibBusy) return;
     if (!_ibAddProdSelected) { _ibToast('Vælg et produkt først', true); return; }
     var qtyInp = document.getElementById('ibAddProdQty');
     var qty = parseInt(qtyInp ? qtyInp.value : 1) || 1;
 
+    _ibBusy = true;
     try {
         await addShoppingListProduct(_ibAddProdSelected.id, qty, 1);
         _ibToast(_ibAddProdSelected.name + ' tilføjet (' + qty + ')');
@@ -2275,6 +2311,8 @@ async function _ibAddProductConfirm() {
         _ibRender();
     } catch (err) {
         _ibToast('Fejl: ' + (err.message || ''), true);
+    } finally {
+        _ibBusy = false;
     }
 }
 

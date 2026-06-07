@@ -25,7 +25,12 @@ const express = require('express');
 const router  = express.Router();
 const { getDb }  = require('../db/database');
 const { handle } = require('../db/helpers');
+const { requireAuth } = require('../shared/auth');
 const grocy = require('../services/grocyAdapter');
+
+// Indkøb må laves af alle aktive roller (ikke kun admin), men kræver login.
+// Lukker bl.a. den åbne udgående-mail-vektor via kontakt@.
+router.use(requireAuth());
 
 /* ── GET /suppliers ─────────────────────────────────────── */
 
@@ -405,7 +410,7 @@ router.post('/suppliers/:id/mail', handle(async (req, res) => {
     }
     if (!subject || !body) return res.status(400).json({ error: 'subject og body er påkrævet' });
 
-    const userId = req.session?.user?.id || null;
+    const userId = req.session?.userId || null;
 
     const result = await mailService.sendMail({
         to: recipient,

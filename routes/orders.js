@@ -26,7 +26,13 @@ const express = require('express');
 const router  = express.Router();
 const { getDb }  = require('../db/database');
 const { handle, logChange, todayISO } = require('../db/helpers');
+const { transaction } = require('../db/compat');
 const { broadcast } = require('../shared/sse');
+const { requireAuth } = require('../shared/auth');
+
+// Alle ordre-endpoints kræver login (indkøb må laves af alle aktive roller,
+// ikke kun admin). Lukker bl.a. den åbne udgående-mail-vektor via kontakt@.
+router.use(requireAuth());
 
 /* ── Helpers ─────────────────────────────────────────────── */
 
@@ -66,7 +72,7 @@ router.get('/pending', handle((req, res) => {
         FROM purchase_orders po
         LEFT JOIN suppliers s ON po.supplier_id = s.id
         WHERE po.status IN ('draft', 'sent', 'confirmed', 'partially_received')
-        ORDER BY po.expected_delivery_date ASC, po.created_at DESC
+        ORDER BY po.expected_delivery_date IS NULL, po.expected_delivery_date ASC, po.created_at DESC
     `).all();
 
     res.json(orders);
@@ -92,18 +98,6 @@ router.post('/pending', handle(async (req, res) => {
         notes, items, sent_via, send_email,
     } = req.body;
 
-    // Find eller opret leverandør
-    let supId = supplier_id;
-    if (!supId && supplier_name) {
-        let sup = db.prepare(`SELECT id FROM suppliers WHERE name = ?`).get(supplier_name);
-        if (!sup) {
-            const result = db.prepare(`INSERT INTO suppliers (name, integration_type) VALUES (?, 'manual')`).run(supplier_name);
-            supId = result.lastInsertRowid;
-        } else {
-            supId = sup.id;
-        }
-    }
-
     // location_id = Ristet Rugs siteId (HQ/Trailer). NOT NULL i DB.
     // Fald-back til default_grocy_location_id fra settings hvis ikke angivet.
     let locId = location_id || null;
@@ -111,49 +105,70 @@ router.post('/pending', handle(async (req, res) => {
         const setting = db.prepare(`SELECT value FROM settings WHERE key = 'default_grocy_location_id'`).get();
         locId = setting ? parseInt(setting.value) : 1; // 1 = HQ fallback
     }
-    const userId = req.session?.user?.id || null;
+    const userId = req.session?.userId || null;
 
-    const result = db.prepare(`
-        INSERT INTO purchase_orders (
-            location_id, supplier_id, grocy_location_id, order_reference, status,
-            expected_delivery_date, notes, sent_via,
-            created_by_user_id, sent_at, created_at, updated_at
-        ) VALUES (?, ?, ?, ?, 'sent', ?, ?, ?, ?, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)
-    `).run(
-        locId, supId, grocy_location_id || null, order_reference || null,
-        expected_delivery_date || null,
-        notes || null, sent_via || 'manual', userId
-    );
-
-    const orderId = result.lastInsertRowid;
-
-    // Indsæt linjer
-    if (Array.isArray(items) && items.length > 0) {
-        const insertLine = db.prepare(`
-            INSERT INTO purchase_order_lines (
-                purchase_order_id, supplier_product_id, item_id,
-                quantity_ordered, unit_quantity, price_per_pack, line_total,
-                shopping_list_id, grocy_product_id, grocy_shopping_list_id,
-                barcode_value
-            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-        `);
-
-        for (const item of items) {
-            insertLine.run(
-                orderId,
-                item.supplier_product_id || null,
-                item.item_id || item.product_id || item.grocy_product_id || null,
-                item.quantity_ordered || item.quantity || 0,
-                item.unit_quantity || null,
-                item.price_per_pack || null,
-                item.line_total || null,
-                null, // shopping_list_id (v2 lokal tabel — bruges ikke, har FK)
-                item.grocy_product_id || null,
-                item.grocy_shopping_list_id || null,
-                item.barcode || item.varenr || null
-            );
+    // Leverandør-resolve + header + linjer er én atomisk enhed: fejler en linje
+    // halvvejs, må vi ikke efterlade en PO med delvise data (eller en dublet-leverandør).
+    const orderId = transaction(db, () => {
+        // Find eller opret leverandør
+        let supId = supplier_id;
+        if (!supId && supplier_name) {
+            let sup = db.prepare(`SELECT id FROM suppliers WHERE name = ?`).get(supplier_name);
+            if (!sup) {
+                const r = db.prepare(`INSERT INTO suppliers (name, integration_type) VALUES (?, 'manual')`).run(supplier_name);
+                supId = r.lastInsertRowid;
+            } else {
+                supId = sup.id;
+            }
         }
-    }
+
+        const result = db.prepare(`
+            INSERT INTO purchase_orders (
+                location_id, supplier_id, grocy_location_id, order_reference, status,
+                expected_delivery_date, notes, sent_via,
+                created_by_user_id, sent_at, created_at, updated_at
+            ) VALUES (?, ?, ?, ?, 'sent', ?, ?, ?, ?, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)
+        `).run(
+            locId, supId, grocy_location_id || null, order_reference || null,
+            expected_delivery_date || null,
+            notes || null, sent_via || 'manual', userId
+        );
+
+        const newOrderId = result.lastInsertRowid;
+
+        // Indsæt linjer
+        if (Array.isArray(items) && items.length > 0) {
+            const insertLine = db.prepare(`
+                INSERT INTO purchase_order_lines (
+                    purchase_order_id, supplier_product_id, item_id,
+                    quantity_ordered, unit_quantity, price_per_pack, line_total,
+                    shopping_list_id, grocy_product_id, grocy_shopping_list_id,
+                    barcode_value
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            `);
+
+            for (const item of items) {
+                insertLine.run(
+                    newOrderId,
+                    item.supplier_product_id || null,
+                    item.item_id || item.product_id || item.grocy_product_id || null,
+                    item.quantity_ordered || item.quantity || 0,
+                    item.unit_quantity || null,
+                    item.price_per_pack || null,
+                    item.line_total || null,
+                    null, // shopping_list_id (v2 lokal tabel — bruges ikke, har FK)
+                    item.grocy_product_id || null,
+                    item.grocy_shopping_list_id || null,
+                    item.barcode || item.varenr || null
+                );
+            }
+        }
+
+        return newOrderId;
+    });
+
+    // supId bruges nedenfor til mail — genhent fra den oprettede ordre
+    const supId = db.prepare(`SELECT supplier_id FROM purchase_orders WHERE id = ?`).get(orderId)?.supplier_id || null;
 
     logChange({ entityType: 'purchase_order', entityId: orderId, action: 'create', userId });
     broadcast('order_created', { id: orderId });
@@ -304,7 +319,7 @@ router.post('/pending/:id/mail', handle(async (req, res) => {
     if (!po) return res.status(404).json({ error: 'Ordre ikke fundet' });
     if (!po.contact_email) return res.status(400).json({ error: 'Leverandøren har ingen e-mail' });
 
-    const userId = req.session?.user?.id || null;
+    const userId = req.session?.userId || null;
 
     // Find latest inbound message_id for In-Reply-To header
     let inReplyTo = null;
