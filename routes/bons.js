@@ -110,14 +110,16 @@ router.get('/', handle((req, res) => {
     if (location) { where.push('l.code = ?'); args.push(location); }
 
     // Søgning — bonnumre er præcis 4 cifre:
-    //   • ≤ 4 cifre  → prefix-match på bon_number (1, 33, 338, 3387)
+    //   • ≤ 4 cifre  → match på bon_number (1, 33, 338, 3387). bon_number har et
+    //                  præfiks ("B4037", "cafe-3485"), så vi matcher BÅDE prefix
+    //                  (rene tal-numre) OG suffix (cifrene efter præfikset).
     //   • > 4 cifre  → telefon (kan ikke være bonnummer)
     //   • bogstaver  → kunde- og firma-navn (LIKE %q%)
     if (q) {
         const isDigits = /^\d+$/.test(q);
         if (isDigits && q.length <= 4) {
-            where.push('(b.bon_number LIKE ?)');
-            args.push(`${q}%`);
+            where.push('(b.bon_number LIKE ? OR b.bon_number LIKE ?)');
+            args.push(`${q}%`, `%${q}`);
         } else if (isDigits) {
             where.push('(c.phone LIKE ?)');
             args.push(`%${q}%`);
