@@ -158,12 +158,12 @@ function createByExpressenAdapter({ config, credentials, fetchImpl = fetch, now 
 
         const parsed = await safeJson(res);
         if (res.status === 403) {
-            const msg = (parsed && parsed.message) || 'Forbidden';
-            throw new ByExpressenError(msg, { status: 403, code: 'no_scope', body: parsed });
+            const { message } = describeLoboError(parsed, 403, 'Forbidden');
+            throw new ByExpressenError(message, { status: 403, code: 'no_scope', body: parsed });
         }
         if (!res.ok) {
-            const msg = (parsed && parsed.message) || `HTTP ${res.status}`;
-            throw new ByExpressenError(`${method} ${path}: ${msg}`, { status: res.status, body: parsed });
+            const { message, code } = describeLoboError(parsed, res.status);
+            throw new ByExpressenError(`${method} ${path}: ${message}`, { status: res.status, code, body: parsed });
         }
         return { ok: true, status: res.status, data: parsed && parsed.data, meta: parsed && parsed.meta, raw: parsed };
     }
@@ -396,6 +396,55 @@ function createByExpressenAdapter({ config, credentials, fetchImpl = fetch, now 
    `accounting`-objekt (set i de generiske docs). Vi tjekker begge.
    ══════════════════════════════════════════════════════════════ */
 
+/* ══════════════════════════════════════════════════════════════
+   FEJL-FORMATERING (ren funktion)
+   ══════════════════════════════════════════════════════════════
+   Lobo svarer på fejl med { status:"error [Validation]", message:{...} } hvor
+   `message` ofte er et NESTED OBJEKT (felt-fejl), ikke en streng. Tidligere
+   blev det interpoleret direkte → "[object Object]" og skjulte den rigtige
+   årsag for kontoret. Her oversættes de almindelige former til læsbar dansk:
+     - Verification → ADDRESS_NOT_FOUND  (Lobo kunne ikke slå adressen op)
+     - Validation   → manglende/forkerte stop-felter
+   Returnerer { message, code } — code bruges af frontenden til pænere visning.
+   ══════════════════════════════════════════════════════════════ */
+
+function flattenLoboLeaves(obj, prefix = '') {
+    const out = [];
+    for (const [k, v] of Object.entries(obj)) {
+        const key = prefix ? `${prefix}.${k}` : k;
+        if (v && typeof v === 'object') out.push(...flattenLoboLeaves(v, key));
+        else out.push(`${key}: ${v}`);
+    }
+    return out;
+}
+
+function describeLoboError(parsed, status, fallback = null) {
+    if (!parsed || typeof parsed !== 'object') {
+        return { message: fallback || `HTTP ${status}`, code: null };
+    }
+    const m = parsed.message;
+    if (typeof m === 'string' && m) return { message: m, code: null };
+    if (m && typeof m === 'object') {
+        // Adresse ikke fundet/verificerbar hos Lobo (typisk per-bon-årsag).
+        if (m.ADDRESS_NOT_FOUND && typeof m.ADDRESS_NOT_FOUND === 'object') {
+            const a = m.ADDRESS_NOT_FOUND;
+            const line = [[a.street, a.housenumber].filter(v => v != null && v !== '').join(' '),
+                          [a.zip, a.city].filter(v => v != null && v !== '').join(' ')]
+                          .filter(Boolean).join(', ');
+            return {
+                message: `Adressen kunne ikke verificeres hos By-expressen${line ? ': ' + line : ''}. Tjek vej, husnummer og postnummer på bonen.`,
+                code: 'address_not_found',
+            };
+        }
+        // Generel validerings-/verifikationsfejl: flad nested felt-fejl ud.
+        const leaves = flattenLoboLeaves(m);
+        const detail = leaves.length ? leaves.join('; ') : JSON.stringify(m);
+        const prefix = typeof parsed.status === 'string' ? parsed.status : 'Fejl';
+        return { message: `${prefix}: ${detail}`, code: 'validation' };
+    }
+    return { message: (typeof parsed.status === 'string' && parsed.status) || fallback || `HTTP ${status}`, code: null };
+}
+
 function extractCostEx(order) {
     if (!order || typeof order !== 'object') return null;
     const net = order.costtotal_net ?? (order.accounting && order.accounting.costtotal_net);
@@ -481,10 +530,21 @@ function resolveLoboConfig(vehicleRow, env = process.env) {
 
 function bonToOrderInput(bon, opts = {}) {
     const a = bon.delivery_address || {};
-    const nr = String(a.street_nr ?? '').trim();
+    let street = String(a.street_name ?? '').trim();
+    let nr = String(a.street_nr ?? '').trim();
+    // v1-synkede adresser har ofte husnummeret bagt ind i street_name med tomt
+    // street_nr (fx "Arne Jacobsens Allé 12"). Lobo kræver et separat
+    // housenumber, så vi trækker et efterstillet husnr (m. evt. bogstav) ud.
+    // Et husnr i STARTEN (fx "10. Februar Vej") røres ikke — regex'en kræver
+    // tekst før tallet.
+    if (!nr && street) {
+        const cleaned = street.replace(/[,\s]+$/, '');
+        const sm = cleaned.match(/^(.*\D)[\s,]+(\d+\s*[A-Za-z]?)$/);
+        if (sm) { street = sm[1].trim().replace(/,$/, ''); nr = sm[2].replace(/\s+/g, ''); }
+    }
     const m = nr.match(/^(\d+)\s*(.*)$/);
     const delivery = {
-        street: a.street_name || undefined,
+        street: street || undefined,
         ...(m ? { housenumber: parseInt(m[1], 10) } : (nr ? { hnr_add_sfx: nr } : {})),
         ...(m && m[2] ? { addition: m[2] } : {}),
         zip: a.postal_code || undefined,
@@ -528,6 +588,7 @@ module.exports = {
     bonToOrderInput,
     ByExpressenError,
     DEFAULT_BOOKING_SCOPES,
+    describeLoboError,
     extractCostEx,
     computeHmac,
     verifyWebhookSignature,

@@ -513,15 +513,34 @@ async function _k3SelectDawa(item) {
     document.getElementById('k3DawaInput').value = item.tekst;
 
     try {
-        const resp = await fetch(item.adresse?.href || 'https://api.dataforsyningen.dk/adresser/' + item.adresse?.id);
-        const addr = await resp.json();
+        // DAWA's autocomplete-item bærer allerede de flade felter på .adresse
+        // (vejnavn/husnr/postnr/postnrnavn + x=lon/y=lat). Den fulde /adresser/{id}
+        // ressource nester dem under adgangsadresse, så et 2. fetch + flad læsning
+        // gav undefined → adressen blev gemt forkert. Brug item.adresse direkte;
+        // fald kun tilbage til nested ressource hvis vejnavn mangler.
+        let a = item.adresse || {};
+        if (!a.vejnavn) {
+            const href = a.href || (a.id && 'https://api.dataforsyningen.dk/adresser/' + a.id);
+            if (href) {
+                const full = await (await fetch(href)).json();
+                const ag = full.adgangsadresse || {};
+                const koord = ag.adgangspunkt && ag.adgangspunkt.koordinater;
+                a = {
+                    vejnavn: (ag.vejstykke && ag.vejstykke.navn) || '',
+                    husnr: ag.husnr || '',
+                    postnr: (ag.postnummer && ag.postnummer.nr) || '',
+                    postnrnavn: (ag.postnummer && ag.postnummer.navn) || '',
+                    x: koord && koord[0], y: koord && koord[1],
+                };
+            }
+        }
         _k3DawaAddress = {
-            street_name: addr.vejnavn || '',
-            street_nr: addr.husnr || '',
-            postal_code: addr.postnr || '',
-            city: addr.postnrnavn || '',
-            lat: addr.adgangsadresse?.adgangspunkt?.koordinater?.[1] || null,
-            lon: addr.adgangsadresse?.adgangspunkt?.koordinater?.[0] || null,
+            street_name: a.vejnavn || '',
+            street_nr: a.husnr || '',
+            postal_code: a.postnr || '',
+            city: a.postnrnavn || '',
+            lat: a.y != null ? Number(a.y) : null,
+            lon: a.x != null ? Number(a.x) : null,
             label: item.tekst,
         };
 

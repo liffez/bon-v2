@@ -692,9 +692,13 @@ class BonDrawer {
                         (q.margin != null && q.margin < 0 ? `<div class="lq-warn">⚠ Lobo-prisen overstiger kundeprisen — I taber på leveringen.</div>` : '');
                 } catch (err) {
                     quoteEl.className = 'drawer-lobo-quote err';
-                    quoteEl.textContent = (err.code === 'config')
-                        ? 'By-ex er ikke konfigureret endnu (mangler API-opsætning).'
-                        : 'Kunne ikke hente pris: ' + (err.message || 'fejl');
+                    if (err.code === 'config') {
+                        quoteEl.textContent = 'By-ex er ikke konfigureret endnu (mangler API-opsætning).';
+                    } else if (err.code === 'address_not_found') {
+                        quoteEl.textContent = err.message || 'Adressen kunne ikke verificeres hos By-expressen.';
+                    } else {
+                        quoteEl.textContent = 'Kunne ikke hente pris: ' + (err.message || 'fejl');
+                    }
                 } finally {
                     quoteBtn.disabled = false;
                 }
@@ -1551,19 +1555,40 @@ class BonDrawer {
         const results = this.el.querySelector('.drawer-dawa-results');
         results.style.display = 'none';
 
-        // Hent fuld adresse-data
         try {
-            const resp = await fetch(item.adresse?.href || `https://api.dataforsyningen.dk/adresser/${item.adresse?.id}`);
-            const addr = await resp.json();
+            // DAWA's autocomplete-item bærer ALLEREDE de flade felter på .adresse
+            // (vejnavn/husnr/postnr/postnrnavn + x=lon/y=lat i WGS84). Den gamle
+            // kode lavede et 2. fetch mod /adresser/{id} og læste vejnavn/husnr/postnr
+            // dér — men på den fulde ressource ligger de NESTED under adgangsadresse,
+            // så de blev undefined og adressen blev gemt som kun det første ord
+            // ("Arne"). Brug item.adresse direkte; fald kun tilbage til den fulde
+            // ressource (nested) hvis item.adresse mangler vejnavn.
+            let a = item.adresse || {};
+            if (!a.vejnavn) {
+                const href = a.href || (a.id && `https://api.dataforsyningen.dk/adresser/${a.id}`);
+                if (href) {
+                    const full = await (await fetch(href)).json();
+                    const ag = full.adgangsadresse || {};
+                    const koord = ag.adgangspunkt && ag.adgangspunkt.koordinater;
+                    a = {
+                        vejnavn: (ag.vejstykke && ag.vejstykke.navn) || '',
+                        husnr: ag.husnr || '',
+                        postnr: (ag.postnummer && ag.postnummer.nr) || '',
+                        postnrnavn: (ag.postnummer && ag.postnummer.navn) || '',
+                        x: koord && koord[0], y: koord && koord[1],
+                    };
+                }
+            }
 
             const addressData = {
-                street_name: addr.vejnavn || item.tekst.split(' ')[0],
-                street_nr: addr.husnr || '',
-                postal_code: addr.postnr || '',
-                city: addr.postnrnavn || '',
-                lat: addr.adgangsadresse?.adgangspunkt?.koordinater?.[1] || null,
-                lon: addr.adgangsadresse?.adgangspunkt?.koordinater?.[0] || null,
+                street_name: a.vejnavn || '',
+                street_nr: a.husnr || '',
+                postal_code: a.postnr || '',
+                city: a.postnrnavn || '',
+                lat: a.y != null ? Number(a.y) : null,
+                lon: a.x != null ? Number(a.x) : null,
             };
+            if (!addressData.street_name) { console.error('DAWA: kunne ikke udlede vejnavn', item); return; }
 
             // Gem adresse
             const result = await createAddress(addressData);

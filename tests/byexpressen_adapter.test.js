@@ -15,6 +15,7 @@ const {
     resolveLoboConfig,
     bonToOrderInput,
     ByExpressenError,
+    describeLoboError,
     extractCostEx,
     computeHmac,
     verifyWebhookSignature,
@@ -362,6 +363,50 @@ test('bonToOrderInput splitter husnummer med bogstav (8B → housenumber 8 + add
     const input = bonToOrderInput({ id: 1, delivery_address: { street_name: 'Vej', street_nr: '8B', postal_code: '2200', city: 'Kbh' } });
     assert.strictEqual(input.delivery.housenumber, 8);
     assert.strictEqual(input.delivery.addition, 'B');
+});
+
+test('bonToOrderInput trækker husnr ud af street_name når street_nr er tomt (v1-data)', () => {
+    // "Arne Jacobsens Allé 12" med tomt street_nr → Lobo kræver separat housenumber.
+    const a = bonToOrderInput({ id: 1, delivery_address: { street_name: 'Arne Jacobsens Allé 12', street_nr: '', postal_code: '2300', city: 'Kbh S' } });
+    assert.strictEqual(a.delivery.street, 'Arne Jacobsens Allé');
+    assert.strictEqual(a.delivery.housenumber, 12);
+    // med bogstav + trailing komma
+    const b = bonToOrderInput({ id: 1, delivery_address: { street_name: 'Testvej 12B,', street_nr: '', postal_code: '2200', city: 'Kbh' } });
+    assert.strictEqual(b.delivery.street, 'Testvej');
+    assert.strictEqual(b.delivery.housenumber, 12);
+    assert.strictEqual(b.delivery.addition, 'B');
+    // husnr i STARTEN må ikke fejltolkes som vejnummer
+    const c = bonToOrderInput({ id: 1, delivery_address: { street_name: '10. Februar Vej', street_nr: '', postal_code: '2200', city: 'Kbh' } });
+    assert.strictEqual(c.delivery.street, '10. Februar Vej');
+    assert.strictEqual(c.delivery.housenumber, undefined);
+});
+
+/* ── FEJL-FORMATERING (Lobo svarer med nested objekt-message) ── */
+
+test('describeLoboError oversætter ADDRESS_NOT_FOUND til læsbar dansk besked', () => {
+    const r = describeLoboError({
+        status: 'error [Verification]',
+        message: { ADDRESS_NOT_FOUND: { position: 2, street: 'Testvej', housenumber: 1, zip: '9999', city: 'Nowhere' } },
+    }, 409);
+    assert.strictEqual(r.code, 'address_not_found');
+    assert.match(r.message, /kunne ikke verificeres/i);
+    assert.match(r.message, /Testvej 1, 9999 Nowhere/);
+});
+
+test('describeLoboError flader nested validerings-message ud (ikke [object Object])', () => {
+    const r = describeLoboError({
+        status: 'error [Validation]',
+        message: { stops: { 1: { street: 'REQUIRED', zip: 'REQUIRED' } } },
+    }, 400);
+    assert.strictEqual(r.code, 'validation');
+    assert.doesNotMatch(r.message, /\[object Object\]/);
+    assert.match(r.message, /stops\.1\.street: REQUIRED/);
+});
+
+test('describeLoboError lader streng-message passere uændret (403-scope)', () => {
+    const r = describeLoboError({ status: 'error [Forbidden]', message: 'Not in scope: token is not allowed' }, 403);
+    assert.strictEqual(r.code, null);
+    assert.strictEqual(r.message, 'Not in scope: token is not allowed');
 });
 
 /* ── HMAC-VERIFIKATION (ren krypto) ───────────────────────── */
