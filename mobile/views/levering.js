@@ -16,6 +16,8 @@ var _lvUser      = null;
 var _lvData      = { routes: [] };
 var _lvGeo       = null;    // { lat, lng } — bedste kendte position
 var _lvDetail    = null;    // { routeId, stopId } når detalje-skærm vises
+var _lvDate      = null;    // YYYY-MM-DD — den viste dag (null = i dag ved første load)
+var _lvToday     = null;    // YYYY-MM-DD — serverens "i dag" (sat fra svar)
 
 /* Problem-flow state */
 var _lvProblem = null;      // { stop, route, step, type, photo, note }
@@ -35,6 +37,7 @@ async function initMobileLevering(container, user) {
     _lvUser      = user || window._mUser || null;
     _lvDetail    = null;
     _lvProblem   = null;
+    _lvDate      = null;   // første load = i dag
     _lvRequestGeo();
     await _lvLoad();
 }
@@ -57,15 +60,28 @@ function _lvRequestGeo() {
 /* ── Data ──────────────────────────────────────────────── */
 async function _lvLoad() {
     if (!_lvContainer) return;
-    _lvContainer.innerHTML = '<div class="m-loading">Henter dagens tur...</div>';
+    _lvContainer.innerHTML = '<div class="m-loading">Henter tur...</div>';
     try {
-        _lvData = await fetchCourierToday();
+        _lvData = await fetchCourierToday(_lvDate || undefined);
     } catch (e) {
         _lvContainer.innerHTML = '<div class="m-bon-empty">Kunne ikke hente ruter</div>';
         return;
     }
+    _lvDate  = _lvData.date || _lvDate;
+    _lvToday = _lvData.today || _lvToday || _lvData.date;
     _lvRender();
 }
+
+function _lvIsToday() { return _lvDate === _lvToday; }
+
+/* Dato-navigation — skift dag og genindlæs. */
+function _lvGoDate(iso) {
+    _lvDate    = iso;
+    _lvDetail  = null;
+    _lvProblem = null;
+    _lvLoad();
+}
+function _lvShiftDay(delta) { _lvGoDate(_lvAddDays(_lvDate, delta)); }
 
 function _lvFindStop(stopId) {
     for (var i = 0; i < _lvData.routes.length; i++) {
@@ -91,30 +107,57 @@ function _lvRender() {
 /* ── Liste — dagens ruter ──────────────────────────────── */
 function _lvRenderList() {
     var routes = _lvData.routes || [];
-    if (!routes.length) {
-        _lvContainer.innerHTML =
-            '<div class="m-lv-empty">' +
-                '<div class="m-lv-empty-icon">&#128666;</div>' +
-                '<div>Ingen ture til dig i dag</div>' +
-                '<div class="m-lv-empty-sub">Ruter du er tildelt som chauffør dukker op her.</div>' +
-            '</div>';
-        return;
-    }
+    var html = _lvDateNav();
 
-    var html = '';
-    routes.forEach(function(r) {
-        html += _lvRouteHeader(r);
-        var stops = r.stops || [];
-        if (!stops.length) {
-            html += '<div class="m-bon-empty">Ingen stop på ruten</div>';
-        } else {
-            stops.forEach(function(s, i) {
-                html += _lvStopCard(s, i + 1, stops.length);
-            });
-        }
-    });
+    if (!routes.length) {
+        html += _lvEmptyState();
+    } else {
+        routes.forEach(function(r) {
+            html += _lvRouteHeader(r);
+            var stops = r.stops || [];
+            if (!stops.length) {
+                html += '<div class="m-bon-empty">Ingen stop på ruten</div>';
+            } else {
+                stops.forEach(function(s, i) {
+                    html += _lvStopCard(s, i + 1, stops.length);
+                });
+            }
+        });
+    }
     _lvContainer.innerHTML = html;
     _lvAttachListHandlers();
+}
+
+/* Dato-bjælke: ◀ dag ▶ + "Til i dag" når man har bladret væk. */
+function _lvDateNav() {
+    var today = _lvIsToday();
+    return (
+        '<div class="m-lv-datenav">' +
+            '<button class="m-lv-datenav-arrow" id="lvPrev" aria-label="Forrige dag">&#8249;</button>' +
+            '<div class="m-lv-datenav-mid">' +
+                '<span class="m-lv-datenav-day">' + _lvEsc(_lvDayLabel(_lvDate)) + '</span>' +
+                (today ? '' : '<button class="m-lv-datenav-today" id="lvToday">Til i dag</button>') +
+            '</div>' +
+            '<button class="m-lv-datenav-arrow" id="lvNext" aria-label="Næste dag">&#8250;</button>' +
+        '</div>'
+    );
+}
+
+/* Tom dag — peg på næste tur hvis der er en. */
+function _lvEmptyState() {
+    var nd = _lvData.next_date;
+    var html = '<div class="m-lv-empty">' +
+        '<div class="m-lv-empty-icon">&#128666;</div>' +
+        '<div>' + (_lvIsToday() ? 'Ingen ture til dig i dag' : 'Ingen ture denne dag') + '</div>';
+    if (nd) {
+        html += '<div class="m-lv-empty-sub">Næste tur: <strong>' + _lvEsc(_lvDayLabel(nd)) + '</strong></div>' +
+            '<button class="m-lv-next-trip" id="lvNextTrip" data-date="' + nd + '">' +
+                'Gå til næste tur &#8250;</button>';
+    } else {
+        html += '<div class="m-lv-empty-sub">Ruter du er tildelt som chauffør dukker op her.</div>';
+    }
+    html += '</div>';
+    return html;
 }
 
 function _lvRouteHeader(r) {
@@ -129,7 +172,11 @@ function _lvRouteHeader(r) {
     var completed = r.status === 'completed';
 
     var actionHtml = '';
-    if (completed) {
+    if (!_lvIsToday()) {
+        // Andre dage end i dag er kun til orientering — ingen kør/marker-knapper.
+        actionHtml = '<div class="m-lv-route-progress">Planlagt tur' +
+            (r.pickup_time ? ' &middot; afgang ' + _lvTime(r.pickup_time) : '') + '</div>';
+    } else if (completed) {
         actionHtml = '<div class="m-lv-route-done">&#10004; Tur afsluttet</div>';
     } else if (!departed) {
         actionHtml = '<button class="m-lv-depart-btn" data-depart="' + r.id + '">' +
@@ -186,6 +233,15 @@ function _lvStopCard(s, seq, total) {
 }
 
 function _lvAttachListHandlers() {
+    var prev = document.getElementById('lvPrev');
+    if (prev) prev.addEventListener('click', function() { _lvShiftDay(-1); });
+    var next = document.getElementById('lvNext');
+    if (next) next.addEventListener('click', function() { _lvShiftDay(1); });
+    var todayBtn = document.getElementById('lvToday');
+    if (todayBtn) todayBtn.addEventListener('click', function() { _lvGoDate(_lvToday); });
+    var nextTrip = document.getElementById('lvNextTrip');
+    if (nextTrip) nextTrip.addEventListener('click', function() { _lvGoDate(nextTrip.dataset.date); });
+
     _lvContainer.querySelectorAll('[data-depart]').forEach(function(btn) {
         btn.addEventListener('click', function(e) {
             e.stopPropagation();
@@ -317,8 +373,11 @@ function _lvRenderDetail(route, s) {
         html += '</div>';
     }
 
-    /* Handlinger */
-    if (done) {
+    /* Handlinger — kun på dagens tur. Andre dage er kun til orientering. */
+    if (!_lvIsToday()) {
+        html += '<div class="m-lv-actionbar"><div class="m-lv-done-state">' +
+            '&#128197; Planlagt — markeres på dagen</div></div>';
+    } else if (done) {
         var label = s.status === 'leveret' ? '&#10004; Leveret' : '&#9888; Problem logget';
         html += '<div class="m-lv-actionbar"><div class="m-lv-done-state ' + s.status + '">' + label + '</div></div>';
     } else {
@@ -529,6 +588,31 @@ function _lvPayment(pt) {
 
 function _lvTime(t) {
     return t ? String(t).slice(0, 5) : '';
+}
+
+var _LV_WD = ['søn', 'man', 'tir', 'ons', 'tor', 'fre', 'lør'];
+var _LV_MO = ['jan', 'feb', 'mar', 'apr', 'maj', 'jun', 'jul', 'aug', 'sep', 'okt', 'nov', 'dec'];
+
+/* Læg dage til en YYYY-MM-DD i lokal tid (undgår UTC-forskydning). */
+function _lvAddDays(iso, delta) {
+    var p = String(iso).split('-');
+    var d = new Date(Number(p[0]), Number(p[1]) - 1, Number(p[2]));
+    d.setDate(d.getDate() + delta);
+    return d.getFullYear() + '-' +
+        String(d.getMonth() + 1).padStart(2, '0') + '-' +
+        String(d.getDate()).padStart(2, '0');
+}
+
+function _lvDayLabel(iso) {
+    if (!iso) return '';
+    if (_lvToday) {
+        if (iso === _lvToday)                return 'I dag';
+        if (iso === _lvAddDays(_lvToday, 1)) return 'I morgen';
+        if (iso === _lvAddDays(_lvToday, -1)) return 'I går';
+    }
+    var p = String(iso).split('-');
+    var d = new Date(Number(p[0]), Number(p[1]) - 1, Number(p[2]));
+    return _LV_WD[d.getDay()] + '. ' + d.getDate() + '. ' + _LV_MO[d.getMonth()];
 }
 
 function _lvDur(min) {

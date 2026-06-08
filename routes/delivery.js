@@ -990,14 +990,18 @@ router.get('/couriers', requireAuth(), handle((req, res) => {
 }));
 
 // ──────────────────────────────────────────
-// GET /api/delivery/courier/today
-// Den indloggede chaufførs egne ruter i dag — med stop, adresse,
+// GET /api/delivery/courier/today?date=YYYY-MM-DD
+// Den indloggede chaufførs egne ruter — med stop, adresse,
 // kontakt og indhold. Driver courier-mobilen.
+// Uden ?date= vises i dag. Med ?date= kan chaufføren bladre frem
+// (og tilbage) i dagene. `next_date` peger på den næste dag efter
+// den viste med en tildelt tur, så mobilen kan hoppe direkte derhen.
 // ──────────────────────────────────────────
 router.get('/courier/today', requireAuth(), handle((req, res) => {
     const db = getDb();
     const userId = req.session?.userId || null;
     const today = todayISO();
+    const date = /^\d{4}-\d{2}-\d{2}$/.test(req.query.date || '') ? req.query.date : today;
 
     const routes = db.prepare(`
         SELECT r.id, r.route_date, r.status, r.pickup_time, r.actual_departure,
@@ -1007,7 +1011,7 @@ router.get('/courier/today', requireAuth(), handle((req, res) => {
         JOIN delivery_vehicles v ON v.id = r.vehicle_id
         WHERE r.route_date = ? AND r.courier_user_id = ? AND r.status != 'cancelled'
         ORDER BY r.pickup_time, r.id
-    `).all(today, userId);
+    `).all(date, userId);
 
     const stopStmt = db.prepare(`
         SELECT s.id AS stop_id, s.bon_id, s.sequence, s.eta, s.status, s.completed_at,
@@ -1040,7 +1044,14 @@ router.get('/courier/today', requireAuth(), handle((req, res) => {
             s.incidents = incStmt.all(s.stop_id);
         }
     }
-    res.json({ date: today, routes });
+
+    const nextDate = db.prepare(`
+        SELECT MIN(route_date) AS d
+        FROM delivery_routes
+        WHERE courier_user_id = ? AND status != 'cancelled' AND route_date > ?
+    `).get(userId, date).d || null;
+
+    res.json({ date, today, next_date: nextDate, routes });
 }));
 
 // ──────────────────────────────────────────
