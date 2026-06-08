@@ -72,6 +72,19 @@ function _inbRenderShell() {
             .inb-mail-meta { font-size: 11px; color: var(--color-text-dim, #aaa); margin-top: 4px; display: flex; justify-content: space-between; }
             .inb-mail-parsed { font-size: 11px; color: var(--brand-primary); margin-top: 2px; font-weight: 600; }
 
+            /* ── Tråd-svar (allerede routet, vist for synlighed) ──── */
+            .inb-mail-row.is-thread { border-left: 3px solid #5a8a5a; }
+            .inb-entity-chip {
+                display: inline-block; font-size: 10px; font-weight: 700;
+                color: #3c6b3c; background: #e8f2e8; padding: 1px 7px;
+                border-radius: 4px; margin-bottom: 4px; max-width: 100%;
+                white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+            }
+            .inb-thread-banner {
+                font-size: 12px; color: #3c6b3c; background: #e8f2e8;
+                padding: 8px 12px; border-radius: 6px; margin-bottom: 12px;
+            }
+
             .inb-preview-panel {
                 background: var(--color-surface, #fff); border-radius: 10px;
                 box-shadow: 0 1px 4px rgba(0,0,0,0.07); padding: 24px; overflow-y: auto;
@@ -235,7 +248,7 @@ function _inbRenderShell() {
         <div class="inb-layout">
             <div class="inb-list-panel">
                 <div class="inb-list-header">
-                    <span>Ufordelte mails</span>
+                    <span>Indbakke · alt indgående</span>
                     <span class="inb-count" id="inbCount">0</span>
                 </div>
                 <div id="inbList"></div>
@@ -251,16 +264,17 @@ function _inbRenderShell() {
 async function _inbLoadData() {
     if (!_inbActive) return;
     try {
-        const params = new URLSearchParams({ status: 'open' });
+        const params = new URLSearchParams();
         if (_inbFromDate) params.set('from_date', _inbFromDate);
         if (_inbMailbox) params.set('mailbox', _inbMailbox);
-        _inbMails = await apiFetch('/mail/unmatched?' + params.toString());
+        // Samlet indbakke: ufordelte (kind='unmatched') + ulæste tråd-svar (kind='thread')
+        _inbMails = await apiFetch('/mail/inbox' + (params.toString() ? '?' + params.toString() : ''));
         _inbRenderList();
         document.getElementById('inbCount').textContent = _inbMails.length;
         if (_inbComposing) {
             // Svar-komposer er åben — behold preview, opdatér kun liste/tæller
         } else if (_inbSelected) {
-            const still = _inbMails.find(m => m.id === _inbSelected.id);
+            const still = _inbMails.find(m => m.key === _inbSelected.key);
             if (still) _inbRenderPreview(still);
             else { _inbSelected = null; document.getElementById('inbPreview').innerHTML = '<div class="inb-empty">Vælg en mail fra listen</div>'; }
         }
@@ -278,7 +292,12 @@ function _inbRenderList() {
         return;
     }
 
+    const ENTITY_ICON = { customer: '👤', bon: '🧾', purchase_order: '📦', supplier: '🚚', none: '✉' };
+    const ENTITY_WORD = { customer: 'Kunde', bon: 'Bon', purchase_order: 'Indkøbsordre', supplier: 'Leverandør', none: 'Tråd' };
+
     el.innerHTML = _inbMails.map(m => {
+        const isThread = m.kind === 'thread';
+        // Tråd-svar: kun unmatched kan bulk-vælges/checkes
         const bounceBadge = m.is_bounce
             ? '<span class="inb-bounce-badge">🚨 BOUNCE</span>'
             : '';
@@ -287,18 +306,25 @@ function _inbRenderList() {
               (m.bounce_customer_name ? ' · <strong>' + _inbEscape(m.bounce_customer_name) + '</strong>' : ' · <em>ukendt kunde</em>') +
               '</div>'
             : '';
-        const isChecked = _inbBulkSelected.has(m.id);
-        const checkboxHtml = _inbBulkMode
-            ? '<div class="inb-mail-check"><input type="checkbox" data-id="' + m.id + '"' + (isChecked ? ' checked' : '') + '></div>'
+        const entityChip = isThread
+            ? '<div class="inb-entity-chip">' + (ENTITY_ICON[m.entity_type] || '✉') + ' ' +
+              (ENTITY_WORD[m.entity_type] || 'Tråd') + ' · ' + _inbEscape(m.entity_label || '') + '</div>'
             : '';
+        const canBulk = _inbBulkMode && !isThread;
+        const isChecked = !isThread && _inbBulkSelected.has(m.id);
+        const checkboxHtml = canBulk
+            ? '<div class="inb-mail-check"><input type="checkbox" data-um-id="' + m.id + '"' + (isChecked ? ' checked' : '') + '></div>'
+            : (_inbBulkMode && isThread ? '<div class="inb-mail-check"></div>' : '');
         const rowClasses = 'inb-mail-row'
-            + (_inbSelected && _inbSelected.id === m.id ? ' selected' : '')
+            + (_inbSelected && _inbSelected.key === m.key ? ' selected' : '')
+            + (isThread ? ' is-thread' : '')
             + (m.is_bounce ? ' is-bounce' : '')
             + (_inbBulkMode ? ' bulk-mode' : '')
             + (isChecked ? ' bulk-checked' : '');
-        return '<div class="' + rowClasses + '" data-id="' + m.id + '" tabindex="0">' +
+        return '<div class="' + rowClasses + '" data-key="' + m.key + '" tabindex="0">' +
             checkboxHtml +
             '<div class="inb-mail-body">' +
+                entityChip +
                 '<div class="inb-mail-from">' + bounceBadge + (m.from_name || m.from_email || 'Ukendt') + '</div>' +
                 '<div class="inb-mail-subject">' + (m.subject || '(intet emne)') + '</div>' +
                 '<div class="inb-mail-meta">' +
@@ -312,10 +338,12 @@ function _inbRenderList() {
     }).join('');
 
     el.querySelectorAll('.inb-mail-row').forEach(row => {
+        const isThreadRow = !row.querySelector('input[type="checkbox"]') && row.classList.contains('is-thread');
         row.addEventListener('click', (e) => {
-            if (_inbBulkMode) {
+            if (_inbBulkMode && !isThreadRow) {
                 if (e.target.tagName === 'INPUT') return; // checkbox håndteres separat
-                _inbBulkToggle(parseInt(row.dataset.id));
+                const cb = row.querySelector('input[type="checkbox"]');
+                if (cb) _inbBulkToggle(parseInt(cb.dataset.umId));
             } else {
                 _inbSelectRow(row);
             }
@@ -324,7 +352,7 @@ function _inbRenderList() {
         if (cb) {
             cb.addEventListener('click', (e) => {
                 e.stopPropagation();
-                _inbBulkToggle(parseInt(row.dataset.id));
+                _inbBulkToggle(parseInt(cb.dataset.umId));
             });
         }
         row.addEventListener('keydown', (e) => {
@@ -350,8 +378,8 @@ function _inbRenderList() {
 }
 
 function _inbSelectRow(row) {
-    const id = parseInt(row.dataset.id);
-    const mail = _inbMails.find(m => m.id === id);
+    const key = row.dataset.key;
+    const mail = _inbMails.find(m => m.key === key);
     if (mail) {
         _inbComposing = false;
         _inbSelected = mail;
@@ -364,6 +392,33 @@ function _inbSelectRow(row) {
 function _inbRenderPreview(mail) {
     const el = document.getElementById('inbPreview');
     if (!el) return;
+
+    // ── Tråd-svar (allerede routet til kunde/bon/PO/leverandør) ──
+    // Vises her så indbakken ser ALT indgående. Handlinger: åbn hos entiteten
+    // (hvor det fulde svar-flow lever) + markér læst (rydder fra indbakken).
+    if (mail.kind === 'thread') {
+        const ENTITY_WORD = { customer: 'kunde', bon: 'bon', purchase_order: 'indkøbsordre', supplier: 'leverandør', none: 'tråd' };
+        const word = ENTITY_WORD[mail.entity_type] || 'tråd';
+        const canOpen = mail.entity_type !== 'none' && mail.entity_id;
+        el.innerHTML =
+            '<div class="inb-preview-header">' +
+                '<div class="inb-thread-banner">↪ Allerede knyttet til ' + word + ': <strong>' + _inbEscape(mail.entity_label || '') + '</strong></div>' +
+                '<div class="inb-preview-from">' + (mail.from_name || 'Ukendt') + ' &lt;' + (mail.from_email || '') + '&gt;</div>' +
+                '<div class="inb-preview-subject">' + (mail.subject || '(intet emne)') + '</div>' +
+                '<div class="inb-preview-date">' + _inbFmtReceivedAt(mail.received_at) + ' · ' + (mail.mailbox || '') + '</div>' +
+            '</div>' +
+            '<div class="inb-preview-body" id="inbBodyHost"></div>' +
+            '<div class="inb-actions">' +
+                (canOpen ? '<button class="inb-action-btn primary" onclick="_inbOpenThreadEntity()">Åbn hos ' + word + ' →</button>' : '') +
+                '<button class="inb-action-btn" onclick="_inbMarkThreadRead()">✓ Markér læst</button>' +
+            '</div>';
+        const bodyHost = document.getElementById('inbBodyHost');
+        if (bodyHost) {
+            if (window.MailThread && typeof MailThread.renderBody === 'function') MailThread.renderBody(bodyHost, mail);
+            else bodyHost.textContent = mail.body_text || '';
+        }
+        return;
+    }
 
     // Bounce-banner — vises prominent når mail er en bounce
     let bouncePanel = '';
@@ -486,6 +541,36 @@ async function _inbMarkBounceHandled() {
     }
 }
 window._inbMarkBounceHandled = _inbMarkBounceHandled;
+
+// ─── Tråd-svar-handlers (kind='thread') ─────────────────────
+
+async function _inbMarkThreadRead() {
+    if (!_inbSelected || _inbSelected.kind !== 'thread') return;
+    try {
+        await apiFetch('/mail/message/' + _inbSelected.message_id + '/read', { method: 'PATCH' });
+        _inbSelected = null;
+        _inbLoadData();
+        document.getElementById('inbPreview').innerHTML = '<div class="inb-empty">✓ Markeret som læst</div>';
+    } catch (err) {
+        alert('Kunne ikke markere læst: ' + err.message);
+    }
+}
+window._inbMarkThreadRead = _inbMarkThreadRead;
+
+function _inbOpenThreadEntity() {
+    const m = _inbSelected;
+    if (!m || m.kind !== 'thread') return;
+    if (m.entity_type === 'customer' && typeof window.openKunde360 === 'function') {
+        window.openKunde360(m.entity_id);
+    } else if (m.entity_type === 'bon' && typeof window.openDrawer === 'function') {
+        window.openDrawer(m.entity_id);
+    } else if ((m.entity_type === 'purchase_order' || m.entity_type === 'supplier') && typeof window.officeGoto === 'function') {
+        window.officeGoto('leverandorpost');
+    } else {
+        alert('Kan ikke åbne denne tråd direkte — find den under ' + (m.entity_label || 'entiteten') + '.');
+    }
+}
+window._inbOpenThreadEntity = _inbOpenThreadEntity;
 
 function _inbEscape(str) {
     return str.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
@@ -711,7 +796,8 @@ function _inbBulkToggle(id) {
 window._inbBulkToggle = _inbBulkToggle;
 
 function _inbBulkSelectAll() {
-    _inbMails.forEach(m => _inbBulkSelected.add(m.id));
+    // Kun ufordelte kan bulk-ignoreres — tråd-svar er allerede knyttet til en entitet
+    _inbMails.forEach(m => { if (m.kind !== 'thread') _inbBulkSelected.add(m.id); });
     _inbRenderList();
     _inbUpdateBulkBar();
 }
@@ -756,7 +842,10 @@ window._inbBulkIgnore = _inbBulkIgnore;
 
 function _inbHandleSSE(eventType, data) {
     if (!_inbActive) return;
-    if (eventType === 'mail_unmatched') {
-        _inbLoadData();
+    // Genindlæs på enhver mail-bevægelse: ny ufordelt (mail_unmatched), nyt tråd-svar
+    // (mail_received), eller en mail markeret læst et andet sted (mail_read).
+    if (eventType === 'mail_unmatched' || eventType === 'mail_received' || eventType === 'mail_read') {
+        // Undgå at klippe brugerens svar-komposer væk midt i skrivning
+        if (!_inbComposing) _inbLoadData();
     }
 }
