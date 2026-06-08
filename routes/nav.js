@@ -63,13 +63,19 @@ router.get('/badges', requireAuth(), handle((req, res) => {
         result.bons_ulaest_mail = row?.c || 0;
     } catch (e) { console.warn('[nav/badges] bons_ulaest_mail:', e.message); }
 
-    // ── CRM indbakke: ufordelte mails ───────────────────────────────────
-    // Bruger mail_unmatched-tabellen (samme som GET /api/mail/unmatched)
+    // ── CRM indbakke: SAMLET indgående (matcher GET /api/mail/inbox) ────
+    // Ufordelte (status='open') + ALLE ulæste indgående tråd-svar. Et tråd-svar
+    // kan også tælle i bons_ulaest_mail / indkob_leverandorpost — bevidst: det
+    // popper op begge steder, men indbakken er det centrale catch-all.
     try {
-        const row = db.prepare(`
-            SELECT COUNT(*) AS c FROM mail_unmatched WHERE status = 'open'
+        const um = db.prepare(`SELECT COUNT(*) AS c FROM mail_unmatched WHERE status = 'open'`).get();
+        const thr = db.prepare(`
+            SELECT COUNT(*) AS c
+            FROM mail_messages mm
+            JOIN mail_threads mt ON mt.id = mm.thread_id
+            WHERE mm.direction = 'in' AND mm.is_read = 0 AND mt.status = 'active'
         `).get();
-        result.crm_indbakke = row?.c || 0;
+        result.crm_indbakke = (um?.c || 0) + (thr?.c || 0);
     } catch (e) { console.warn('[nav/badges] crm_indbakke:', e.message); }
 
     // ── Aktive tilbud: is_offer=1 og ikke afsluttede ────────────────────

@@ -12,6 +12,29 @@ function broadcastUnmatchedCount(db) {
     broadcast('mail_unmatched', { count: row?.c || 0 });
 }
 
+// Resolér entitet + label for en tråd — bruges af den samlede indbakke så
+// tråd-svar (kunde/bon/PO/leverandør) kan vises og linkes.
+function threadEntity(db, t) {
+    if (t.bon_id) {
+        const b = db.prepare('SELECT bon_number FROM bons WHERE id = ?').get(t.bon_id);
+        return { type: 'bon', id: t.bon_id, label: b ? ('Bon ' + b.bon_number) : ('Bon #' + t.bon_id), email: null };
+    }
+    if (t.customer_id) {
+        const c = db.prepare('SELECT first_name, last_name, email FROM customers WHERE id = ?').get(t.customer_id);
+        const name = c ? [c.first_name, c.last_name].filter(Boolean).join(' ').trim() : '';
+        return { type: 'customer', id: t.customer_id, label: name || ('Kunde #' + t.customer_id), email: c ? c.email : null };
+    }
+    if (t.purchase_order_id) {
+        const po = db.prepare('SELECT po.id, s.name FROM purchase_orders po LEFT JOIN suppliers s ON po.supplier_id = s.id WHERE po.id = ?').get(t.purchase_order_id);
+        return { type: 'purchase_order', id: t.purchase_order_id, label: po ? ('Indkøbsordre #' + po.id + (po.name ? ' · ' + po.name : '')) : ('PO #' + t.purchase_order_id), email: null };
+    }
+    if (t.supplier_id) {
+        const s = db.prepare('SELECT name FROM suppliers WHERE id = ?').get(t.supplier_id);
+        return { type: 'supplier', id: t.supplier_id, label: s ? s.name : ('Leverandør #' + t.supplier_id), email: null };
+    }
+    return { type: 'none', id: null, label: 'Tråd uden entitet', email: null };
+}
+
 // GET /api/mail/templates — tilgængelig for alle auth'd brugere
 router.get('/templates', requireAuth(), handle((req, res) => {
     const rows = getDb().prepare('SELECT id, key, label, subject, body_text, updated_at FROM mail_templates ORDER BY id').all();
@@ -265,6 +288,107 @@ router.get('/unmatched', requireAuth('admin'), handle(async (req, res) => {
     }
 
     res.json(items);
+}));
+
+// GET /api/mail/inbox — SAMLET indbakke: ufordelte mails (status='open') +
+// ALLE ulæste indgående tråd-svar (kunde/bon/PO/leverandør). Sikrer at intet
+// indgående mail kan "forsvinde" ind i en entitets-visning uden også at være
+// synligt ét centralt sted. Hvert item har `kind` ('unmatched'|'thread') og en
+// unik `key` (kollision mellem mail_unmatched.id og mail_messages.id undgås).
+router.get('/inbox', requireAuth('admin'), handle((req, res) => {
+    const db = getDb();
+    const mailbox = req.query.mailbox;      // 'bon' | 'kontakt' | undefined
+    const fromDate = req.query.from_date;
+    const items = [];
+
+    // ── 1. Ufordelte (open) ──
+    const umWhere = ["status = 'open'"];
+    const umArgs = [];
+    if (fromDate) { umWhere.push('COALESCE(received_at, created_at) >= ?'); umArgs.push(fromDate); }
+    if (mailbox)  { umWhere.push('mailbox LIKE ?'); umArgs.push('%' + mailbox + '%'); }
+    const unmatched = db.prepare(
+        `SELECT * FROM mail_unmatched WHERE ${umWhere.join(' AND ')}`
+    ).all(...umArgs);
+    const attUm = db.prepare(
+        `SELECT id, filename, mime_type, size_bytes, content_id, is_inline
+         FROM mail_attachments WHERE unmatched_id = ? ORDER BY id`
+    );
+    for (const m of unmatched) {
+        m.attachments = attUm.all(m.id);
+        m.has_attachments = m.attachments.length ? 1 : 0;
+        if (isBounceMail(m.from_email)) {
+            m.is_bounce = true;
+            const recipient = parseBouncedRecipient(m.body_text);
+            if (recipient) {
+                m.bounce_recipient = recipient;
+                const customer = lookupCustomerByEmail(db, recipient);
+                if (customer) {
+                    m.bounce_customer_id = customer.customer_id;
+                    m.bounce_customer_name = [customer.first_name, customer.last_name].filter(Boolean).join(' ').trim();
+                    m.bounce_customer_phone = customer.phone || null;
+                    m.bounce_customer_company = customer.company_name || null;
+                }
+            }
+        }
+        items.push({ kind: 'unmatched', key: 'u' + m.id, sort_at: m.received_at || m.created_at, ...m });
+    }
+
+    // ── 2. Ulæste tråd-svar (indgående, ulæst, aktiv tråd) ──
+    const tWhere = ["mm.direction = 'in'", 'mm.is_read = 0', "mt.status = 'active'"];
+    const tArgs = [];
+    if (fromDate) { tWhere.push('COALESCE(mm.received_at, mm.created_at) >= ?'); tArgs.push(fromDate); }
+    if (mailbox)  { tWhere.push('mm.mailbox LIKE ?'); tArgs.push('%' + mailbox + '%'); }
+    const threadMsgs = db.prepare(`
+        SELECT mm.id AS message_id, mm.thread_id, mm.from_email, mm.from_name, mm.subject,
+               mm.body_text, mm.body_html, mm.received_at, mm.created_at, mm.mailbox,
+               mt.bon_id, mt.customer_id, mt.purchase_order_id, mt.supplier_id
+        FROM mail_messages mm
+        JOIN mail_threads mt ON mt.id = mm.thread_id
+        WHERE ${tWhere.join(' AND ')}
+    `).all(...tArgs);
+    const attMsg = db.prepare(
+        `SELECT id, filename, mime_type, size_bytes, content_id, is_inline
+         FROM mail_attachments WHERE message_id = ? ORDER BY id`
+    );
+    for (const m of threadMsgs) {
+        const ent = threadEntity(db, m);
+        m.attachments = attMsg.all(m.message_id);
+        m.has_attachments = m.attachments.length ? 1 : 0;
+        items.push({
+            kind: 'thread', key: 'm' + m.message_id, sort_at: m.received_at || m.created_at,
+            entity_type: ent.type, entity_id: ent.id, entity_label: ent.label, entity_email: ent.email,
+            ...m
+        });
+    }
+
+    // Nyeste først (string-sammenligning på ISO-timestamps er kronologisk korrekt)
+    items.sort((a, b) => String(b.sort_at || '').localeCompare(String(a.sort_at || '')));
+    res.json(items);
+}));
+
+// PATCH /api/mail/message/:id/read — markér ét indgående tråd-svar som læst.
+// Generisk (virker for kunde/bon/PO/leverandør) så den samlede indbakke kan
+// rydde et item uden at kende entitets-typen. Broadcaster mail_read så badges
+// + de dedikerede visninger opdaterer.
+router.patch('/message/:id/read', requireAuth('admin'), handle((req, res) => {
+    const id = parseInt(req.params.id);
+    if (!id) return res.status(400).json({ error: 'Ugyldigt id' });
+    const db = getDb();
+    const msg = db.prepare(`
+        SELECT mm.id, mm.thread_id, mt.bon_id, mt.customer_id, mt.purchase_order_id, mt.supplier_id
+        FROM mail_messages mm JOIN mail_threads mt ON mt.id = mm.thread_id
+        WHERE mm.id = ?
+    `).get(id);
+    if (!msg) return res.status(404).json({ error: 'Besked ikke fundet' });
+
+    db.prepare(`UPDATE mail_messages SET is_read = 1 WHERE id = ? AND direction = 'in'`).run(id);
+
+    broadcast('mail_read', {
+        message_id: id, thread_id: msg.thread_id,
+        bon_id: msg.bon_id, customer_id: msg.customer_id,
+        purchase_order_id: msg.purchase_order_id, supplier_id: msg.supplier_id
+    });
+    res.json({ ok: true });
 }));
 
 router.patch('/unmatched/:id', requireAuth('admin'), handle(async (req, res) => {

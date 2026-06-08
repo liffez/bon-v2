@@ -1540,15 +1540,22 @@
           if (typeof _kiHandleSSE === 'function') _kiHandleSSE('rfm_config_changed', data);
         },
         mail_received: (data) => {
-          // Indgående mail på en bon. connectSSE() viser allerede en toast +
+          // Indgående mail på en bon/tråd. connectSSE() viser allerede en toast +
           // opdaterer bon-kort globalt; her opdaterer vi office-specifikt:
-          // bons-listen (✉-badge på rækken) + sidebar/filter-tælleren.
+          // bons-listen (✉-badge på rækken), den samlede mail-indbakke + tælleren.
           if (typeof _blHandleMailReceived === 'function') _blHandleMailReceived(data);
+          if (typeof _inbHandleSSE === 'function') _inbHandleSSE('mail_received', data);
           scheduleBadgeReload();  // bons_ulaest_mail
         },
         mail_unmatched: (data) => {
           if (typeof _inbHandleSSE === 'function') _inbHandleSSE('mail_unmatched', data);
           scheduleBadgeReload();  // crm_indbakke
+        },
+        mail_read: (data) => {
+          // En tråd-mail er markeret læst (her eller et andet sted) → fjern fra
+          // den samlede indbakke + genberegn badges.
+          if (typeof _inbHandleSSE === 'function') _inbHandleSSE('mail_read', data);
+          scheduleBadgeReload();
         },
         // quote_created / quote_updated fjernet i Patch I (maj 2026).
         // Backend sender bon_*-events også for tilbud (jf. Patch F). _tilbudHandleSSE
