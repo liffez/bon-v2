@@ -245,6 +245,25 @@
         });
     }
 
+    /* Render ÉN mail-krop (uden chat-boble/afsender-header) ind i en container.
+       HTML-mails vises i sandboxed iframe med inline CID-billeder; ren-tekst
+       vises escaped. Bruges af CRM-indbakken hvor afsender/emne vises separat. */
+    function renderBody(container, m) {
+        if (!container) return;
+        m = m || {};
+        if (hasHtmlBody(m)) {
+            container.innerHTML = '<div class="mt-msg mt-html mt-standalone">'
+                + '<div class="mt-msg-html" data-mt-html="0">'
+                + '<div class="mt-html-loading">Indlæser mail…</div></div></div>';
+            mountHtmlFrames(container, [m]);
+        } else {
+            var body = (m.body_text || '').replace(/\r\n/g, '\n').trim();
+            container.innerHTML = '<div class="mt-msg-body mt-standalone-body">'
+                + (body ? esc(body) : '<span class="mt-msg-nobody">(ingen tekst)</span>')
+                + '</div>';
+        }
+    }
+
     /* Render mail-historik ind i container. */
     function renderHistory(container, opts) {
         if (!container) return;
@@ -398,6 +417,7 @@
 
     window.MailThread = {
         renderHistory: renderHistory,
+        renderBody: renderBody,
         fmtDate: fmtDate,
         normalize: normalize,
         buildVars: buildVars,
