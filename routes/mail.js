@@ -3,7 +3,7 @@ const router = express.Router();
 const { getDb } = require('../db/database');
 const { handle, transaction } = require('../db/helpers');
 const { requireAuth } = require('../shared/auth');
-const { sendFromTemplate, sendMail } = require('../services/mailService');
+const { sendFromTemplate, sendMail, refetchUnmatchedMail } = require('../services/mailService');
 const { broadcast } = require('../shared/sse');
 const { createPrivateLead } = require('../services/leadCreate');
 
@@ -237,8 +237,16 @@ router.get('/unmatched', requireAuth('admin'), handle(async (req, res) => {
         SELECT * FROM mail_unmatched WHERE ${where.join(' AND ')} ORDER BY COALESCE(received_at, created_at) DESC
     `).all(...args);
 
+    // Vedhæftninger (inkl. inline CID-billeder) til mail-visningen
+    const attStmt = db.prepare(
+        `SELECT id, filename, mime_type, size_bytes, content_id, is_inline
+         FROM mail_attachments WHERE unmatched_id = ? ORDER BY id`
+    );
+
     // Enrich bounces med fejlet modtager + kunde-lookup
     for (const item of items) {
+        item.attachments = attStmt.all(item.id);
+        item.has_attachments = item.attachments.length > 0 ? 1 : 0;
         if (isBounceMail(item.from_email)) {
             item.is_bounce = true;
             const recipient = parseBouncedRecipient(item.body_text);
@@ -274,10 +282,17 @@ router.patch('/unmatched/:id', requireAuth('admin'), handle(async (req, res) => 
             INSERT INTO mail_threads (subject, bon_id, customer_id) VALUES (?, ?, ?)
         `).run(um.subject || '', linked_bon_id || null, linked_customer_id || null).lastInsertRowid;
 
-        db.prepare(`
-            INSERT INTO mail_messages (thread_id, message_id, direction, from_email, from_name, to_email, subject, body_text, is_read, imap_uid, mailbox, received_at)
-            VALUES (?, ?, 'in', ?, ?, ?, ?, ?, 0, ?, ?, ?)
-        `).run(threadId, um.message_id, um.from_email, um.from_name, um.to_email || um.mailbox, um.subject, um.body_text, um.imap_uid, um.mailbox, um.received_at);
+        const newMsgId = db.prepare(`
+            INSERT INTO mail_messages (thread_id, message_id, direction, from_email, from_name, to_email, subject, body_text, body_html, is_read, imap_uid, mailbox, received_at)
+            VALUES (?, ?, 'in', ?, ?, ?, ?, ?, ?, 0, ?, ?, ?)
+        `).run(threadId, um.message_id, um.from_email, um.from_name, um.to_email || um.mailbox, um.subject, um.body_text, um.body_html, um.imap_uid, um.mailbox, um.received_at).lastInsertRowid;
+
+        // Flyt evt. vedhæftninger (inkl. inline CID-billeder) med over til beskeden
+        // så de fortsat vises i tråd-visningen.
+        const moved = db.prepare(`UPDATE mail_attachments SET message_id = ?, unmatched_id = NULL WHERE unmatched_id = ?`).run(Number(newMsgId), id);
+        if (moved.changes > 0) {
+            db.prepare(`UPDATE mail_messages SET has_attachments = 1 WHERE id = ?`).run(Number(newMsgId));
+        }
 
         db.prepare(`
             UPDATE mail_unmatched SET status = 'linked', linked_customer_id = ?, linked_bon_id = ?, handled_by_user_id = ?, handled_at = CURRENT_TIMESTAMP
@@ -294,6 +309,19 @@ router.patch('/unmatched/:id', requireAuth('admin'), handle(async (req, res) => 
         res.json({ ok: true });
     } else {
         res.status(400).json({ error: 'status skal være linked eller ignored' });
+    }
+}));
+
+// POST /api/mail/unmatched/:id/refetch — hent mailen igen fra serveren for at
+// få body_html + inline-billeder (mails gemt før migration 099 mangler dem).
+router.post('/unmatched/:id/refetch', requireAuth('admin'), handle(async (req, res) => {
+    const id = parseInt(req.params.id);
+    if (!id) return res.status(400).json({ error: 'Ugyldigt id' });
+    try {
+        const result = await refetchUnmatchedMail(id);
+        res.json(result);
+    } catch (e) {
+        res.status(502).json({ error: e.message });
     }
 }));
 

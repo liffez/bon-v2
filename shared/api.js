@@ -940,6 +940,11 @@ function createLeadFromUnmatchedMail(id) {
     return apiFetch('/mail/unmatched/' + id + '/create-lead', { method: 'POST' });
 }
 
+// Hent en ufordelt mail igen fra serveren (body_html + inline-billeder)
+function refetchUnmatchedMail(id) {
+    return apiFetch('/mail/unmatched/' + id + '/refetch', { method: 'POST' });
+}
+
 // Svar på en ufordelt mail (opretter lead hvis mailen ikke er knyttet til en kunde endnu)
 function replyToUnmatchedMail(id, data) {
     return apiFetch('/mail/unmatched/' + id + '/reply', {

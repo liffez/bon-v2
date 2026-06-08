@@ -89,6 +89,14 @@ function _inbRenderShell() {
                 border-bottom: 1px solid var(--color-border);
                 max-height: 400px; overflow-y: auto;
             }
+            /* HTML-mails sizer/kollapser selv (MailThread) — drop tekst-cap + pre-wrap */
+            .inb-preview-body:has(.mt-html) { white-space: normal; max-height: none; overflow: visible; }
+            .inb-refetch-bar {
+                display: flex; align-items: center; gap: 10px; flex-wrap: wrap;
+                margin: 12px 0; padding: 10px 12px; font-size: 13px;
+                background: var(--brand-primary-light, #f1e6b2);
+                border: 1px solid var(--color-border); border-radius: 8px;
+            }
             .inb-actions { display: flex; gap: 8px; margin-top: 16px; flex-wrap: wrap; }
             .inb-action-btn {
                 padding: 8px 18px; border-radius: 8px; border: 1px solid var(--color-border, #ddd);
@@ -399,6 +407,16 @@ function _inbRenderPreview(mail) {
             '</div>';
     }
 
+    // Inline-billeder vises kun hvis vi har HTML-kroppen. Mails modtaget før
+    // migration 099 har ingen body_html → tilbyd "hent fra server" når teksten
+    // røber et skjult CID-billede ([cid:...]).
+    const hasHtml = !!(mail.body_html && String(mail.body_html).trim());
+    const cidHint = !hasHtml && /\[?cid:/i.test(mail.body_text || '');
+    const refetchBar = cidHint
+        ? '<div class="inb-refetch-bar">🖼 Denne mail indeholder billeder der ikke er hentet endnu. ' +
+          '<button class="inb-action-btn" id="inbRefetchBtn" onclick="_inbRefetch()">Hent billeder fra serveren</button></div>'
+        : '';
+
     el.innerHTML =
         '<div class="inb-preview-header">' +
             '<div class="inb-preview-from">' + (mail.from_name || 'Ukendt') + ' &lt;' + (mail.from_email || '') + '&gt;</div>' +
@@ -406,7 +424,8 @@ function _inbRenderPreview(mail) {
             '<div class="inb-preview-date">' + _inbFmtReceivedAt(mail.received_at) + ' · ' + (mail.mailbox || '') + '</div>' +
         '</div>' +
         bouncePanel +
-        '<div class="inb-preview-body">' + _inbEscape(mail.body_text || '') + '</div>' +
+        refetchBar +
+        '<div class="inb-preview-body" id="inbBodyHost"></div>' +
         '<div class="inb-actions">' +
             '<button class="inb-action-btn primary" onclick="_inbShowReply()">↩ Svar</button>' +
             '<button class="inb-action-btn" onclick="_inbCreateLead()">+ Opret lead</button>' +
@@ -415,7 +434,32 @@ function _inbRenderPreview(mail) {
             '<button class="inb-action-btn danger" onclick="_inbIgnore()">Ignorer</button>' +
         '</div>' +
         '<div id="inbLinkForm"></div>';
+
+    // Render mail-kroppen: HTML-mails (med inline CID-billeder) i sandboxed iframe
+    // via den fælles MailThread-komponent; ren-tekst escaped.
+    const bodyHost = document.getElementById('inbBodyHost');
+    if (bodyHost) {
+        if (window.MailThread && typeof MailThread.renderBody === 'function') {
+            MailThread.renderBody(bodyHost, mail);
+        } else {
+            bodyHost.textContent = mail.body_text || '';
+        }
+    }
 }
+
+async function _inbRefetch() {
+    if (!_inbSelected) return;
+    const btn = document.getElementById('inbRefetchBtn');
+    if (btn) { btn.disabled = true; btn.textContent = 'Henter…'; }
+    try {
+        await refetchUnmatchedMail(_inbSelected.id);
+        await _inbLoadData();   // genindlæser liste + re-renderer preview med body_html + billeder
+    } catch (e) {
+        if (btn) { btn.disabled = false; btn.textContent = 'Prøv igen'; }
+        alert('Kunne ikke hente billeder: ' + (e.message || 'fejl'));
+    }
+}
+window._inbRefetch = _inbRefetch;
 
 // ─── Bounce-handlers ────────────────────────────────────────
 

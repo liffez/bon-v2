@@ -602,12 +602,12 @@ async function processInboundMail(parsed, uid, mailbox) {
 
         // Indsæt direkte med status='ignored' for kendte spam/auto-afsendere,
         // så de ikke ophober sig i CRM Indbakke. Patterns matcher migration 066.
-        db.prepare(
-            `INSERT INTO mail_unmatched (imap_uid, mailbox, message_id, from_email, from_name, subject, body_text, received_at,
+        const umIns = db.prepare(
+            `INSERT INTO mail_unmatched (imap_uid, mailbox, message_id, from_email, from_name, subject, body_text, body_html, received_at,
              parsed_email, parsed_name, parsed_company, status, handled_at, created_at)
-             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, datetime('now'))`
+             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, datetime('now'))`
         ).run(
-            uid, mailbox, messageId, fromAddr, fromName, subject, bodyText, receivedAt,
+            uid, mailbox, messageId, fromAddr, fromName, subject, bodyText, bodyHtml, receivedAt,
             forwardInfo?.email || null, forwardInfo?.name || null, forwardInfo?.company || null,
             autoIgnore ? 'ignored' : 'open',
             autoIgnore ? new Date().toISOString() : null
@@ -616,6 +616,12 @@ async function processInboundMail(parsed, uid, mailbox) {
         if (autoIgnore) {
             console.log(`[mail] Auto-ignored: "${subject}" fra ${fromAddr}`);
             return;
+        }
+
+        // Gem vedhæftninger (inkl. inline CID-billeder) så de kan vises i CRM-indbakken.
+        if (attachments.length > 0) {
+            try { await saveAttachments({ unmatchedId: Number(umIns.lastInsertRowid) }, attachments, messageId); }
+            catch (e) { console.error('[mail] kunne ikke gemme vedhæftninger for ufordelt mail:', e.message); }
         }
 
         // Count unmatched for SSE (kun 'open' tæller)
@@ -636,7 +642,7 @@ async function processInboundMail(parsed, uid, mailbox) {
 
     // Save attachments
     if (attachments.length > 0) {
-        await saveAttachments(messageDbId, attachments, messageId);
+        await saveAttachments({ messageId: messageDbId }, attachments, messageId);
         db.prepare(`UPDATE mail_messages SET has_attachments = 1 WHERE id = ?`).run(messageDbId);
     }
 
@@ -682,9 +688,12 @@ async function processInboundMail(parsed, uid, mailbox) {
 /**
  * Gem vedhæftninger til disk + mail_attachments tabel.
  */
-async function saveAttachments(messageDbId, attachments, emailMessageId) {
+// owner = { messageId } (trådet besked) ELLER { unmatchedId } (ufordelt mail).
+// Samme tabel + samme inline-serve-endpoint dækker begge.
+async function saveAttachments(owner, attachments, emailMessageId) {
+    const ownerId = owner.messageId != null ? owner.messageId : owner.unmatchedId;
     // Sanitize messageId for use as directory name
-    const safeName = (emailMessageId || String(messageDbId))
+    const safeName = (emailMessageId || ('um_' + String(ownerId)))
         .replace(/[<>:"/\\|?*]/g, '_')
         .replace(/\s+/g, '_')
         .slice(0, 200);
@@ -707,9 +716,9 @@ async function saveAttachments(messageDbId, attachments, emailMessageId) {
             fs.writeFileSync(filepath, att.content);
 
             db.prepare(
-                `INSERT INTO mail_attachments (message_id, filename, file_path, mime_type, size_bytes, content_id, is_inline, created_at)
-                 VALUES (?, ?, ?, ?, ?, ?, ?, datetime('now'))`
-            ).run(messageDbId, filename, filepath, att.contentType || 'application/octet-stream', att.size || att.content.length, contentId, isInline);
+                `INSERT INTO mail_attachments (message_id, unmatched_id, filename, file_path, mime_type, size_bytes, content_id, is_inline, created_at)
+                 VALUES (?, ?, ?, ?, ?, ?, ?, ?, datetime('now'))`
+            ).run(owner.messageId ?? null, owner.unmatchedId ?? null, filename, filepath, att.contentType || 'application/octet-stream', att.size || att.content.length, contentId, isInline);
         } catch (err) {
             console.error(`[mail] Fejl ved gem af vedhæftning "${filename}":`, err.message);
         }
@@ -719,6 +728,70 @@ async function saveAttachments(messageDbId, attachments, emailMessageId) {
 // ─── POLLING ────────────────────────────────────────────
 
 let pollingTimers = [];
+
+// Find IMAP-config for en given postkasse (mailbox = imap-brugeren).
+function _configForMailbox(mailbox) {
+    const build = (prefix) => {
+        const user = getSetting('imap_' + prefix + '_user');
+        if (!user || user !== mailbox) return null;
+        return {
+            host: getSetting('imap_' + prefix + '_host'),
+            port: getSetting('imap_' + prefix + '_port'),
+            user,
+            password: prefix === 'bon'
+                ? (process.env.IMAP_BON_PASSWORD || '')
+                : (process.env.IMAP_KONTAKT_PASSWORD || ''),
+        };
+    };
+    return build('bon') || build('kontakt');
+}
+
+// Hent en ALLEREDE ufordelt mail igen fra serveren for at få body_html +
+// inline-billeder. Eksisterende mail_unmatched-rækker (gemt før migration 099)
+// har ingen HTML/vedhæftninger; dette fylder dem ud uden at vente på ny poll.
+// Idempotent: rydder gamle vedhæftninger for mailen før gen-gem.
+async function refetchUnmatchedMail(unmatchedId) {
+    const db = getDb();
+    const row = db.prepare('SELECT id, imap_uid, mailbox FROM mail_unmatched WHERE id = ?').get(unmatchedId);
+    if (!row) throw new Error('Mail ikke fundet');
+    if (row.imap_uid == null) throw new Error('Mailen mangler IMAP-UID og kan ikke hentes igen');
+
+    const cfg = _configForMailbox(row.mailbox);
+    if (!cfg || !cfg.host || !cfg.user || !cfg.password) {
+        throw new Error('Ingen IMAP-opsætning for postkassen "' + row.mailbox + '"');
+    }
+
+    const portNum = parseInt(cfg.port || '993');
+    const client = new ImapFlow({
+        host: cfg.host, port: portNum, secure: portNum === 993,
+        auth: { user: cfg.user, pass: cfg.password }, logger: false,
+    });
+
+    let parsed = null;
+    try {
+        await client.connect();
+        const lock = await client.getMailboxLock('INBOX');
+        try {
+            // Hent netop denne UID (uid:true gør range til en UID-range).
+            for await (const m of client.fetch(String(row.imap_uid), { uid: true, source: true }, { uid: true })) {
+                if (m && m.source) parsed = await simpleParser(m.source);
+            }
+        } finally { lock.release(); }
+    } finally {
+        try { await client.logout(); } catch (_) { /* ignore */ }
+    }
+
+    if (!parsed) throw new Error('Mailen findes ikke længere på serveren');
+
+    const bodyHtml = parsed.html || null;
+    const attachments = parsed.attachments || [];
+    db.prepare('UPDATE mail_unmatched SET body_html = ? WHERE id = ?').run(bodyHtml, row.id);
+    db.prepare('DELETE FROM mail_attachments WHERE unmatched_id = ?').run(row.id);
+    if (attachments.length > 0) {
+        await saveAttachments({ unmatchedId: row.id }, attachments, parsed.messageId);
+    }
+    return { ok: true, has_html: !!bodyHtml, attachments: attachments.length };
+}
 
 async function startPolling() {
     // Ryd evt. eksisterende timers
@@ -795,6 +868,7 @@ module.exports = {
     sendFromTemplate,
     startPolling,
     triggerPoll,
+    refetchUnmatchedMail,
     renderTemplate,
     generateBookingToken,
     getPollState,
