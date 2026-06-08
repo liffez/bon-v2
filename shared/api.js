@@ -1393,6 +1393,10 @@ function fetchCfUpcoming() {
     return apiFetch('/cashflow/upcoming');
 }
 
+function fetchCfSuggestMatches() {
+    return apiFetch('/cashflow/suggest-matches');
+}
+
 /* ── RFM & KUNDEINDSIGT ────────────────────────────────────── */
 
 function fetchRfmScores(params) {
