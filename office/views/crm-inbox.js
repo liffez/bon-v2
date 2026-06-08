@@ -551,13 +551,19 @@ async function _inbLinkToBon() {
     if (!bonNumber) { alert('Skriv et bonnummer'); return; }
 
     try {
-        const bons = await apiFetch('/bons?q=' + bonNumber + '&limit=1');
+        const bons = await apiFetch('/bons?q=' + encodeURIComponent(bonNumber) + '&limit=10');
         const rows = Array.isArray(bons) ? bons : (bons.rows || []);
         if (!rows.length) { alert('Bon ikke fundet'); return; }
-        await patchUnmatchedMail(_inbSelected.id, { status: 'linked', linked_bon_id: rows[0].id });
+        // Brugeren skriver typisk hele nummeret (cifre "4037" eller "B4037").
+        // Foretræk eksakt bon_number-match, derefter eksakt cifre-match, ellers første.
+        const typedDigits = bonNumber.replace(/\D/g, '');
+        const match = rows.find(r => String(r.bon_number).toLowerCase() === bonNumber.toLowerCase())
+                   || (typedDigits && rows.find(r => String(r.bon_number).replace(/\D/g, '') === typedDigits))
+                   || rows[0];
+        await patchUnmatchedMail(_inbSelected.id, { status: 'linked', linked_bon_id: match.id });
         _inbSelected = null;
         _inbLoadData();
-        document.getElementById('inbPreview').innerHTML = '<div class="inb-empty">Mail linket til bon #' + rows[0].bon_number + '</div>';
+        document.getElementById('inbPreview').innerHTML = '<div class="inb-empty">Mail linket til bon #' + match.bon_number + '</div>';
     } catch (err) {
         alert('Fejl: ' + err.message);
     }
