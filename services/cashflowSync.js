@@ -18,7 +18,8 @@
  *
  * Faktura-ID-strategi:
  *   id = fakturanummer parset ud af invoice_info hvis findes, ellers
- *   "B<bon_number>" som placeholder. Hvis brugeren indtaster fakturanummer
+ *   bon_number ("B4053") som placeholder (eller "B"+id hvis bon_number mangler).
+ *   Hvis brugeren indtaster fakturanummer
  *   senere, opdateres både cf_invoices.id og cf_transactions.matched_invoice_id
  *   i samme transaction.
  *
@@ -126,7 +127,7 @@ function findInvoiceByBonId(db, bonId) {
 function computeInvoiceId(bon) {
     const parsed = parseInvoiceNumber(bon.invoice_info);
     if (parsed) return parsed;
-    return `B${bon.bon_number ?? bon.id}`;
+    return (bon.bon_number ? String(bon.bon_number) : `B${bon.id}`);
 }
 
 /**
@@ -264,7 +265,7 @@ function syncCashflowInvoice(db, bonId) {
             let finalId = targetId;
             const clash = db.prepare(`SELECT bon_id FROM cf_invoices WHERE id = ?`).get(finalId);
             if (clash) {
-                finalId = `B${bon.bon_number ?? bon.id}`;
+                finalId = (bon.bon_number ? String(bon.bon_number) : `B${bon.id}`);
                 const clash2 = db.prepare(`SELECT 1 FROM cf_invoices WHERE id = ?`).get(finalId);
                 if (clash2) {
                     return { action: 'skipped', reason: 'id_conflict', invoice_id: targetId };
