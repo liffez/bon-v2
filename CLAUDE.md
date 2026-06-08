@@ -78,7 +78,7 @@ Mail-skabeloner i `mail_templates`-tabellen:
 - `order_email` — bestilling til leverandør ({{leverandoer}}, {{vareliste}}, {{leveringsdato}})
 
 `smtpPrefix`-parameter i `sendMail()` styrer transport: `'smtp'` = bon@, `'smtp_kontakt'` eller `'kontakt'` = kontakt@.
-IMAP polling hvert 5. minut — router mails via `#B{num}` og `#K{num}` tags i emne.
+IMAP polling hvert 5. minut — router mails via `#b-{num}` (bon) og `#k-{num}` (kunde) tags i emne. Tag-præfikserne styres af `mail_tag_*_prefix`-settings (bon `b-`, tilbud `t-`, kunde `k-`, indkøbsordre `po-`, leverandør `s-`) — adskilt fra bon-nummerets visnings-præfiks (`bon_number_prefix`, fx `B`).
 
 ---
 
@@ -598,7 +598,7 @@ Oprettes under Grocy → Manage master data → Userfields.
 - [x] Migration 014: SMTP kontakt@ settings seed
 - [x] npm: nodemailer, imapflow
 - [x] `services/mailService.js` — SMTP afsendelse (2 transports: bon@ + kontakt@) + IMAP polling + tag-routing (#B/#K)
-  - `parseTag(subject)` — regex for `#B{num}` og `#K{num}`
+  - `parseTag(subject)` — regex for `#b-{num}` og `#k-{num}` (præfikser fra settings)
   - `renderTemplate(body, vars)` — `{{variabel}}` substitution + signatur
   - `sendMail({ to, subject, bodyText, bonId, smtpPrefix })` — SMTP send, gem i bon_mails
   - `sendFromTemplate({ templateKey, to, vars, bonId })` — skabelon-baseret afsendelse

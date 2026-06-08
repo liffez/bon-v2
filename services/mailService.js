@@ -478,6 +478,32 @@ async function pollMailbox(config) {
 /**
  * Behandl en enkelt indgående mail (fra simpleParser output).
  */
+// Find en bon ud fra det NUMERISKE tag (#b-NNN / #t-NNN). Tagget bærer kun
+// cifrene (routes/bons.js strippede bon_number med /\D/g), men bon_number har
+// et prefix ("B4046", "cafe-3485"), så en eksakt streng-match fejler altid.
+// Vi matcher derfor exact først, derefter på cifrene i bon_number.
+// (Verificeret: 0 numeriske kollisioner i 3002 bons — v1 cafe-<4000, v2 B≥4000.)
+function matchBonByTagNumber(db, num, opts = {}) {
+    if (num == null) return null;
+    const offer = !!opts.offer;
+    // bon-tag (#b-) matcher kun rigtige bons; tilbud-tag (#t-) kun tilbud —
+    // ellers kunne et numerisk fallback krydse mellem en bon og et tilbud.
+    const offerClause = offer ? ' AND is_offer = 1' : ' AND COALESCE(is_offer, 0) = 0';
+    // 1) eksakt bon_number (dækker rene tal-numre, hvis nogen)
+    let row = db.prepare(`SELECT id, bon_number FROM bons WHERE bon_number = ?${offerClause}`).get(String(num));
+    if (row) return row;
+    // 2) numerisk-del fallback: bon_number ender på cifrene (B4046 / cafe-3485)
+    const cands = db.prepare(
+        `SELECT id, bon_number FROM bons WHERE bon_number LIKE ?${offerClause} ORDER BY id DESC`
+    ).all('%' + num);
+    const exact = cands.filter(c => String(c.bon_number).replace(/\D/g, '') === String(num));
+    if (exact.length === 0) return null;
+    if (exact.length > 1) {
+        console.warn(`[mail] flertydigt bon-tag #${num}: ${exact.map(e => e.bon_number).join(', ')} — vælger nyeste (${exact[0].bon_number})`);
+    }
+    return exact[0];
+}
+
 async function processInboundMail(parsed, uid, mailbox) {
     const db = getDb();
 
@@ -529,7 +555,7 @@ async function processInboundMail(parsed, uid, mailbox) {
     // 2. Tag matching
     if (!threadId) {
         if (tagResult.routing === 'bon' || tagResult.routing === 'bon+customer') {
-            const bon = db.prepare('SELECT id FROM bons WHERE bon_number = ?').get(String(tagResult.bonNumber));
+            const bon = matchBonByTagNumber(db, tagResult.bonNumber);
             if (bon) {
                 bonId = bon.id;
                 // Verificér kunden findes før vi sætter FK'en — ellers fejler
@@ -540,7 +566,7 @@ async function processInboundMail(parsed, uid, mailbox) {
                 }
             }
         } else if (tagResult.routing === 'offer') {
-            const bon = db.prepare('SELECT id FROM bons WHERE bon_number = ? AND is_offer = 1').get(String(tagResult.offerNumber));
+            const bon = matchBonByTagNumber(db, tagResult.offerNumber, { offer: true });
             if (bon) bonId = bon.id;
         } else if (tagResult.routing === 'purchase_order') {
             const po = db.prepare('SELECT id FROM purchase_orders WHERE id = ?').get(tagResult.purchaseOrderNumber);
