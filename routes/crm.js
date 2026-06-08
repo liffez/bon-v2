@@ -8,7 +8,7 @@
 const express = require('express');
 const router = express.Router();
 const { getDb } = require('../db/database');
-const { handle, logChange, transaction } = require('../db/helpers');
+const { handle, getUserId, logChange, transaction } = require('../db/helpers');
 const { requireAuth } = require('../shared/auth');
 const { broadcast } = require('../shared/sse');
 const {
@@ -1366,7 +1366,7 @@ function _liAddTag(db, customerId, tag) {
 
 router.post('/leads/import', handle(async (req, res) => {
     const db = getDb();
-    const userId = req.session?.user?.id ?? req.session?.userId ?? null;
+    const userId = getUserId(req);
     const body = req.body || {};
     const rows = Array.isArray(body.rows) ? body.rows : null;
     const dryRun = body.dry_run === true;

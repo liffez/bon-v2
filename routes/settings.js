@@ -1,7 +1,7 @@
 const express    = require('express');
 const router     = express.Router();
 const { getDb }  = require('../db/database');
-const { handle, invalidateUnitCountCache } = require('../db/helpers');
+const { handle, getUserId, invalidateUnitCountCache } = require('../db/helpers');
 const { requireAuth, invalidatePermCache } = require('../shared/auth');
 
 // GET /api/settings
@@ -146,7 +146,7 @@ router.post('/duplicates', handle((req, res) => {
 router.patch('/duplicates/:id', handle((req, res) => {
     const db = getDb();
     const { status, notes } = req.body;
-    const userId = req.session?.user?.id || null;
+    const userId = getUserId(req);
 
     db.prepare(`
         UPDATE duplicate_candidates

@@ -12,7 +12,7 @@
 const express = require('express');
 const router  = express.Router();
 const { getDb } = require('../db/database');
-const { handle, logChange, transaction } = require('../db/helpers');
+const { handle, getUserId, logChange, transaction } = require('../db/helpers');
 const {
     syncPrimaryCache,
     clearOtherPrimaries,
@@ -149,7 +149,7 @@ router.post('/', handle((req, res) => {
             action: 'contact_point_create',
             fieldName: kind,
             newValue: validation.normalized,
-            userId: req.session?.user?.id ?? null,
+            userId: getUserId(req),
             notes: `source=${src} public=${isPub} primary=${isPrim}` + (purpose ? ` purpose=${purpose}` : ''),
         });
     });
@@ -250,7 +250,7 @@ router.patch('/:id', handle((req, res) => {
             fieldName: cp.kind,
             oldValue: cp.value,
             newValue,
-            userId: req.session?.user?.id ?? null,
+            userId: getUserId(req),
         });
     });
 
@@ -282,7 +282,7 @@ router.patch('/:id/toggle-public', handle((req, res) => {
         action: newPublic === 1 ? 'contact_point_make_public' : 'contact_point_make_private',
         fieldName: cp.kind,
         newValue: cp.value,
-        userId: req.session?.user?.id ?? null,
+        userId: getUserId(req),
     });
 
     res.json(getCp(db, id));
@@ -319,7 +319,7 @@ router.delete('/:id', handle((req, res) => {
             action: 'contact_point_delete',
             fieldName: cp.kind,
             oldValue: cp.value,
-            userId: req.session?.user?.id ?? null,
+            userId: getUserId(req),
         });
     });
 

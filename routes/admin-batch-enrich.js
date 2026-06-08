@@ -20,7 +20,7 @@
 const express = require('express');
 const router  = express.Router();
 const { getDb } = require('../db/database');
-const { handle, transaction, logChange } = require('../db/helpers');
+const { handle, getUserId, transaction, logChange } = require('../db/helpers');
 const { requireAuth } = require('../shared/auth');
 const { broadcast } = require('../shared/sse');
 const { enrich } = require('../services/cvrEnrichment');
@@ -88,7 +88,7 @@ router.post('/', handle(async (req, res) => {
     const maxAgeDays = parseInt(req.body?.max_age_days, 10) || 90;
     const dryRun = !!req.body?.dry_run;
     const limit = parseInt(req.body?.limit, 10) || null;
-    const userId = req.session?.user?.id ?? null;
+    const userId = getUserId(req);
 
     // Find firmaer
     let candidatesSql = `
@@ -359,7 +359,7 @@ router.post('/apply', handle(async (req, res) => {
     const proposalsById = new Map(_job.proposals.map(p => [p.company_id, p]));
 
     let totalFields = 0, totalCps = 0, errors = 0, applied = 0;
-    const userId = req.session?.user?.id ?? null;
+    const userId = getUserId(req);
 
     for (const sel of selections) {
         const orig = proposalsById.get(sel.company_id);

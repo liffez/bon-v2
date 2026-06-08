@@ -19,7 +19,7 @@
 const express = require('express');
 const router  = express.Router();
 const { getDb } = require('../db/database');
-const { handle, transaction } = require('../db/helpers');
+const { handle, getUserId, transaction } = require('../db/helpers');
 const { requireAuth } = require('../shared/auth');
 const { broadcast } = require('../shared/sse');
 
@@ -386,7 +386,7 @@ router.post('/', handle((req, res) => {
                 created_at: new Date().toISOString(),
             };
 
-            const userId = req.session?.user?.id ?? null;
+            const userId = getUserId(req);
             const insert = db.prepare(`
                 INSERT INTO changelog (entity_type, entity_id, action, field_name, new_value, user_id, notes)
                 VALUES ('company', ?, 'merge', NULL, ?, ?, ?)

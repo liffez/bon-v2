@@ -16,7 +16,7 @@
 const express   = require('express');
 const router    = express.Router();
 const { getDb } = require('../db/database');
-const { handle, logChange } = require('../db/helpers');
+const { handle, getUserId, logChange } = require('../db/helpers');
 const { broadcast } = require('../shared/sse');
 
 // ----------- Helpers -----------
@@ -101,7 +101,7 @@ router.post('/', handle((req, res) => {
         return res.status(404).json({ error: `${entity_type} ikke fundet` });
     }
 
-    const userId = req.session?.user?.id ?? null;
+    const userId = getUserId(req);
     const cleanTitle = String(title).trim();
     const cleanBody  = body ? String(body).trim() || null : null;
 
@@ -157,7 +157,7 @@ router.patch('/:id', handle((req, res) => {
     args.push(id);
     db.prepare(`UPDATE entity_flags SET ${sets.join(', ')} WHERE id = ?`).run(...args);
 
-    const userId = req.session?.user?.id ?? null;
+    const userId = getUserId(req);
     logChange({
         entityType: existing.entity_type,
         entityId:   existing.entity_id,
@@ -185,7 +185,7 @@ router.post('/:id/dismiss', handle((req, res) => {
     if (flag.dismissed_at) return res.status(400).json({ error: 'Allerede dismissed' });
 
     const { bon_id, note } = req.body || {};
-    const userId = req.session?.user?.id ?? null;
+    const userId = getUserId(req);
 
     db.prepare(`
         UPDATE entity_flags
@@ -225,7 +225,7 @@ router.post('/:id/ack', handle((req, res) => {
     if (!flag) return res.status(404).json({ error: 'Flag ikke fundet' });
     if (flag.dismissed_at) return res.status(400).json({ error: 'Flag er dismissed' });
 
-    const userId = req.session?.user?.id ?? null;
+    const userId = getUserId(req);
 
     // UPSERT — idempotent. Ny ack eller refresh af eksisterende.
     db.prepare(`

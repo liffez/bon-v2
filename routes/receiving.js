@@ -17,7 +17,7 @@
 const express = require('express');
 const router  = express.Router();
 const { getDb }  = require('../db/database');
-const { handle, logChange } = require('../db/helpers');
+const { handle, getUserId, logChange } = require('../db/helpers');
 const { broadcast } = require('../shared/sse');
 const grocy = require('../services/grocyAdapter');
 
@@ -139,7 +139,7 @@ router.post('/complete', handle(async (req, res) => {
                     purchase_order_id,
                     missingCount > 0 ? 1 : 0,
                     deviation_note || null,
-                    req.session?.user?.id || null
+                    getUserId(req)
                 );
 
                 const grId = grResult.lastInsertRowid;
