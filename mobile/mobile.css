@@ -1470,14 +1470,79 @@ body.m-modtag-active .m-content { padding-bottom: 0; }
    COURIER — levering.js (Delivery Spor 2 · S2.3)
    ════════════════════════════════════════════════════════════ */
 
+/* ── Dato-navigation ── */
+.m-lv-datenav {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    padding: 10px 12px;
+    position: sticky;
+    top: 0;
+    z-index: 5;
+    background: var(--color-background);
+    border-bottom: 1px solid var(--color-border);
+}
+.m-lv-datenav-arrow {
+    flex-shrink: 0;
+    width: 44px;
+    height: 44px;
+    border: 1px solid var(--color-border);
+    border-radius: 10px;
+    background: #fff;
+    font-size: 22px;
+    line-height: 1;
+    color: var(--brand-primary);
+    cursor: pointer;
+}
+.m-lv-datenav-arrow:active { background: var(--brand-primary-light); }
+.m-lv-datenav-mid {
+    flex: 1;
+    min-width: 0;
+    text-align: center;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 2px;
+}
+.m-lv-datenav-day {
+    font-size: 16px;
+    font-weight: 700;
+    text-transform: capitalize;
+}
+.m-lv-datenav-today {
+    border: 0;
+    background: none;
+    padding: 0;
+    font: inherit;
+    font-size: 12px;
+    color: var(--brand-primary);
+    text-decoration: underline;
+    cursor: pointer;
+}
+.m-lv-datenav-today:active { opacity: 0.6; }
+
 /* Tom-tilstand */
 .m-lv-empty {
     text-align: center;
-    padding: 56px 24px;
+    padding: 48px 24px;
     color: var(--color-text-dim);
 }
 .m-lv-empty-icon { font-size: 44px; margin-bottom: 12px; }
 .m-lv-empty-sub { font-size: 13px; margin-top: 6px; }
+.m-lv-next-trip {
+    margin-top: 18px;
+    height: 48px;
+    padding: 0 22px;
+    background: var(--brand-primary);
+    color: #fff;
+    border: 0;
+    border-radius: 10px;
+    font-family: inherit;
+    font-size: 15px;
+    font-weight: 700;
+    cursor: pointer;
+}
+.m-lv-next-trip:active { background: #6d4c14; }
 
 /* ── Rute-header ── */
 .m-lv-route {

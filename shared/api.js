@@ -1727,8 +1727,9 @@ function bookDeliveryRoute(routeId, data) {
 
 // ─── Delivery Spor 2 — courier (S2.3) ──────────────────────────
 
-function fetchCourierToday() {
-    return apiFetch('/delivery/courier/today');
+// date (valgfri, YYYY-MM-DD) — uden = i dag. Lader chaufføren bladre i dagene.
+function fetchCourierToday(date) {
+    return apiFetch('/delivery/courier/today' + (date ? '?date=' + encodeURIComponent(date) : ''));
 }
 
 function departDeliveryRoute(routeId) {
