@@ -13,6 +13,7 @@
  * GET  /api/cashflow/weekly            — 8-ugers chart-data
  * POST /api/cashflow/match/:txId       — Manuel match
  * DELETE /api/cashflow/match/:txId     — Fjern match
+ * GET  /api/cashflow/suggest-matches   — Forslag: forfaldne ↔ umatchede bankposteringer
  * POST /api/cashflow/invoices/:id/confirm-paid  — Bekræft som betalt (sync bon-status)
  * POST /api/cashflow/invoices/:id/reject-match  — Forkast match (fakturaen tilbage til forfaldne)
  * POST /api/cashflow/invoices/bulk-confirm-paid — Bulk-bekræft forfaldne ældre end N dage
@@ -682,6 +683,92 @@ router.patch('/transactions/:txId', handle(async (req, res) => {
     db.prepare(`UPDATE cf_transactions SET ${sets.join(', ')} WHERE id = ?`).run(...params);
 
     res.json({ ok: true });
+}));
+
+// ─── GET /suggest-matches — Forslag til forfaldne fakturaer ──────────────
+//
+// For hver FORFALDEN, ubetalt faktura: find den bedste umatchede, indgående
+// bankpostering med et beløb der passer (samme asymmetriske tolerance som
+// runMatchLogic). FORSKELLEN fra auto-matchet: ingen 14-dages dato-vinduescutoff
+// — overskredne fakturaer er PER DEFINITION betalt sent (eller tidligt, men
+// aldrig matchet), så det er præcis den hale auto-matchet kasserer som "støj".
+//
+// Resultatet hjælper kontoret med at dobbelttjekke forfaldne mod banken uden at
+// have banken åben ved siden af. Greedy dedup: hver tx foreslås til højst én
+// faktura (den med stærkest signal), så samme betaling ikke dukker op to gange.
+//
+// Returnerer { suggestions: { [invoice_id]: { tx_id, dato, tekst, beloeb,
+// has_invoice_nr, amount_exact } } } — nøglet på faktura-id for nem opslag.
+
+router.get('/suggest-matches', handle(async (req, res) => {
+    const db = getDb();
+    const today = todayISO();
+
+    const overdue = db.prepare(`
+        SELECT id, beloeb, forfald FROM cf_invoices
+        WHERE betalt = 0 AND forfald < ?
+        ORDER BY forfald ASC
+    `).all(today);
+
+    if (overdue.length === 0) return res.json({ suggestions: {} });
+
+    const unmatched = db.prepare(`
+        SELECT id, dato, tekst, beloeb FROM cf_transactions
+        WHERE matched_invoice_id IS NULL AND beloeb > 0 AND COALESCE(ignored, 0) = 0
+    `).all();
+
+    const { relativePct, extraMax } = getMatchTolerance(db);
+    const relativeRatio = relativePct / 100;
+    const usedTx = new Set();
+    const suggestions = {};
+
+    // Forfald ASC → ældste (mest presserende) faktura får først lov at "tage"
+    // en passende postering.
+    for (const inv of overdue) {
+        let best = null;
+        let bestScore = -Infinity;
+
+        for (const tx of unmatched) {
+            if (usedTx.has(tx.id)) continue;
+
+            const diff = tx.beloeb - inv.beloeb;
+            const ratio = Math.abs(diff) / Math.abs(inv.beloeb);
+            const withinRelative = ratio <= relativeRatio;
+            const withinExtraAbove = diff > 0 && diff <= extraMax;
+            if (!withinRelative && !withinExtraAbove) continue;
+
+            const nums = (tx.tekst || '').match(/\d{4,}/g) || [];
+            const hasInvNr = nums.some(n => n === String(inv.id));
+            const amountExact = Math.abs(diff) < 0.01;
+            const daysDiff = Math.abs(
+                (new Date(tx.dato) - new Date(inv.forfald)) / 86400000
+            );
+
+            // Rangering: fakturanr i tekst > eksakt beløb > tættest på forfald.
+            const score = (hasInvNr ? 100000 : 0)
+                + (amountExact ? 10000 : 0)
+                - daysDiff;
+
+            if (score > bestScore) {
+                bestScore = score;
+                best = { tx, hasInvNr, amountExact };
+            }
+        }
+
+        if (best) {
+            usedTx.add(best.tx.id);
+            suggestions[inv.id] = {
+                tx_id: best.tx.id,
+                dato: best.tx.dato,
+                tekst: best.tx.tekst,
+                beloeb: best.tx.beloeb,
+                has_invoice_nr: best.hasInvNr,
+                amount_exact: best.amountExact,
+            };
+        }
+    }
+
+    res.json({ suggestions });
 }));
 
 // ─── POST /invoices/:id/confirm-paid — Bekræft betalt + sync bon ──────────

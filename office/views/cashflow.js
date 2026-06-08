@@ -618,7 +618,73 @@ function _cfBuildInvoiceRows(rows, tab) {
     // Wire knap-handlers i ekspanderede rækker.
     if (expanded) _cfWireMatchActions(container);
     // Wire quick-action-knapper i forfaldne-rækker.
-    if (quickActions) _cfWireQuickActions(container);
+    if (quickActions) {
+        _cfWireQuickActions(container);
+        // Hent bank-match-forslag og injicér inline under hver forfalden faktura
+        // der har et muligt match. Asynkront + non-blocking — listen vises straks,
+        // forslagene popper ind et øjeblik efter.
+        _cfApplySuggestions(container);
+    }
+}
+
+/* ── Bank-match-forslag på forfaldne fakturaer ──
+ *
+ * Henter GET /suggest-matches og indsætter en fremhævet linje under hver
+ * forfalden faktura med et muligt umatchet bankindbetaling. Ét klik på
+ * "✓ Match & betalt" kobler tx'en til fakturaen (markerer betalt) + bekræfter
+ * (synker bon-status til BETALT). Gør det muligt at dobbelttjekke forfaldne mod
+ * banken uden at have netbanken åben ved siden af.
+ */
+async function _cfApplySuggestions(container) {
+    let data;
+    try {
+        data = await fetchCfSuggestMatches();
+    } catch { return; }
+    const suggestions = data?.suggestions || {};
+    // Containeren kan være blevet re-rendret mens kaldet kørte — tjek at vi
+    // stadig er i forfaldne-fanen før vi injicerer.
+    if (_cfInvTab !== 'forfaldne') return;
+
+    Object.entries(suggestions).forEach(([invId, s]) => {
+        const row = container.querySelector(`.cf-inv-row[data-inv-id="${CSS.escape(invId)}"]`);
+        if (!row || row.querySelector('.cf-suggest-line')) return;
+
+        const reason = s.has_invoice_nr
+            ? 'fakturanr. i teksten'
+            : s.amount_exact ? 'samme beløb' : 'beløb passer ca.';
+        const line = document.createElement('div');
+        line.className = 'cf-suggest-line';
+        line.innerHTML = `
+            <span class="cf-suggest-icon">💡</span>
+            <span class="cf-suggest-text">
+                Muligt match: ${_cfFmtDate(s.dato)} · ${_cfFmt(s.beloeb)} ·
+                <span class="cf-suggest-memo" title="${_cfEsc(s.tekst)}">"${_cfEsc(_cfTruncate(s.tekst, 50))}"</span>
+                <span class="cf-suggest-reason">${reason}</span>
+            </span>
+            <button class="cf-quick-btn cf-suggest-apply" data-inv-id="${_cfEsc(invId)}" data-tx-id="${s.tx_id}">✓ Match &amp; betalt</button>
+        `;
+        row.appendChild(line);
+    });
+
+    container.querySelectorAll('.cf-suggest-apply').forEach(btn => {
+        btn.onclick = async (ev) => {
+            ev.stopPropagation();
+            const invId = btn.dataset.invId;
+            const txId = btn.dataset.txId;
+            btn.disabled = true;
+            try {
+                await matchCfTransaction(txId, invId);
+                const res = await confirmCfInvoicePaid(invId);
+                _cfShowToast(res.bon_status_changed
+                    ? `Faktura #${invId} matchet & betalt · bon flyttet til BETALT`
+                    : `Faktura #${invId} matchet & betalt`);
+                await _cfReloadInvoices();
+            } catch (err) {
+                _cfShowToast(`Fejl: ${err.message}`, true);
+                btn.disabled = false;
+            }
+        };
+    });
 }
 
 /* ── Wire quick-actions (Forfaldne-fanen) ── */
