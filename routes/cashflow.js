@@ -495,10 +495,13 @@ router.get('/stats', handle(async (req, res) => {
     const today = todayISO();
     const in30 = offsetISO(30);
 
-    // Latest saldo
+    // Bankindestående = saldo (løbende balance) på den NYESTE postering.
+    // Bank-CSV'en er nyeste-først og indsættes i fil-rækkefølge, så inden for
+    // den nyeste dato har den nyeste postering det LAVESTE id. Derfor id ASC
+    // (ikke DESC — det gav den ÆLDSTE postering den dag → forkert/halv saldo).
     const latestTx = db.prepare(`
         SELECT saldo FROM cf_transactions WHERE saldo IS NOT NULL
-        ORDER BY dato DESC, id DESC LIMIT 1
+        ORDER BY dato DESC, id ASC LIMIT 1
     `).get();
 
     // Outstanding invoices
