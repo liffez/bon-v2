@@ -32,7 +32,6 @@ var _webOrdersData = null;
 var _webOrdersBadgeCount = 0;
 var _activeFilters = {};        // status-key → true
 var _filterCount   = 0;
-var _showAflyst    = false;     // AFLYST skjules som default — egen toggle (ikke del af _activeFilters)
 var _calendarData  = null;
 var _staffData     = null;
 var _sortColumn    = 'delivery_date';
@@ -70,7 +69,6 @@ function initCalendar(containerEl, options) {
             _filterCount = Object.keys(_activeFilters).length;
         } catch(e) { _activeFilters = {}; _filterCount = 0; }
     }
-    _showAflyst = localStorage.getItem('cal_show_aflyst') === '1';
 
     _renderShell();
     _loadData();
@@ -155,7 +153,11 @@ function _buildStatusFilters() {
 
     if (typeof BON_CONFIG === 'undefined' || !BON_CONFIG.statuses) return bar;
 
-    var statuses = BON_CONFIG.statuses;
+    // AFLYST findes ikke i BON_CONFIG.statuses (indgår ikke i status-bar/sekvens),
+    // men skal kunne filtreres i kalenderen som enhver anden status.
+    var statuses = Object.assign({}, BON_CONFIG.statuses, {
+        'aflyst': { label: 'AFLYST', color: '#8a8a8a', text: '#ffffff' }
+    });
     for (var key in statuses) {
         if (!statuses.hasOwnProperty(key)) continue;
         var cfg = statuses[key];
@@ -188,23 +190,6 @@ function _buildStatusFilters() {
         bar.appendChild(btn);
     }
 
-    // AFLYST — egen toggle, skjult som default. Indgår IKKE i _activeFilters/
-    // _filterCount: de øvrige pills er en "skjul"-mængde hvor tom = vis alt,
-    // mens AFLYST skal være skjult selv uden aktive filtre.
-    var aflystBtn = document.createElement('button');
-    aflystBtn.className = 'cal-filter-btn' + (_showAflyst ? '' : ' hidden');
-    aflystBtn.dataset.status = 'aflyst';
-    aflystBtn.textContent = 'AFLYST';
-    aflystBtn.style.setProperty('--filter-color', '#8a8a8a');
-    aflystBtn.style.setProperty('--filter-text', '#ffffff');
-    aflystBtn.addEventListener('click', function() {
-        _showAflyst = !_showAflyst;
-        this.classList.toggle('hidden', !_showAflyst);
-        localStorage.setItem('cal_show_aflyst', _showAflyst ? '1' : '0');
-        _applyFilters();
-    });
-    bar.appendChild(aflystBtn);
-
     if (_filterCount > 0) bar.classList.add('has-filter');
     return bar;
 }
@@ -217,10 +202,7 @@ function _applyFilters() {
         var status = entry.dataset.status;
         var isOffer = entry.dataset.offer === 'true';
 
-        if (status === 'aflyst' && !_showAflyst) {
-            // AFLYST har sin egen toggle og skjules uanset øvrige filtre
-            entry.dataset.hidden = 'true';
-        } else if (_filterCount === 0) {
+        if (_filterCount === 0) {
             // No filters = show everything
             entry.dataset.hidden = 'false';
         } else if (_activeFilters[status]) {
