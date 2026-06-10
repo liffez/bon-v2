@@ -1512,6 +1512,18 @@
           if (typeof _woHandleSSE === 'function') _woHandleSSE('bon_status', data);
           scheduleBadgeReload();  // LEVERET → fakturering-køen
         },
+        bon_deleted: (data) => {
+          // Permanent sletning — view-handlers filtrerer på event-navn, så vi
+          // genbruger 'bon_status'-stien (effekten er den samme: re-fetch liste).
+          if (typeof _blHandleBonStatus === 'function') _blHandleBonStatus(data);
+          if (typeof _dashHandleSSE === 'function') _dashHandleSSE('bon_status', data);
+          if (typeof _faktHandleSSE === 'function') _faktHandleSSE('bon_status', data);
+          if (typeof _rapportHandleSSE === 'function') _rapportHandleSSE('bon_status', data);
+          if (typeof _uoHandleSSE === 'function') _uoHandleSSE('bon_status', data);
+          if (typeof _tilbudHandleSSE === 'function') _tilbudHandleSSE('bon_status', data);
+          if (typeof _woHandleSSE === 'function') _woHandleSSE('bon_status', data);
+          scheduleBadgeReload();
+        },
         crm_activity_created: (data) => {
           if (typeof _crmDashHandleSSE === 'function') _crmDashHandleSSE('crm_activity_created', data);
           if (typeof _k3HandleSSE === 'function') _k3HandleSSE('crm_activity_created', data);

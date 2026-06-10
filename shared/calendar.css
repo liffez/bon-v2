@@ -270,6 +270,15 @@
     --bon-text: #ffffff;
 }
 
+/* AFLYST — dæmpet + gennemstreget når den vises via AFLYST-togglen */
+.cal-bon-entry[data-status="aflyst"] {
+    opacity: 0.55;
+    text-decoration: line-through;
+}
+.cal-list-row[data-status="aflyst"] {
+    opacity: 0.55;
+}
+
 .cal-bon-entry[data-offer="true"] {
     background: color-mix(in srgb, var(--bon-color, #999) 50%, white);
     border: 1px dashed var(--bon-color, #999);

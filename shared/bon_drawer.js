@@ -1357,7 +1357,22 @@ class BonDrawer {
        ══════════════════════════════════════════════════════ */
 
     async _handleDelete() {
-        if (!confirm('Er du sikker på du vil slette denne bon? Handlingen kan ikke fortrydes.')) return;
+        // To-trins: aktiv bon → aflys (soft). Allerede aflyst bon → slet permanent.
+        const isAflyst = (this.data && this.data.status_code) === 'AFLYST';
+
+        if (isAflyst) {
+            if (!confirm('Bonen er aflyst. Vil du slette den PERMANENT?\n\nAlle linjer, historik og mails på bonen fjernes. Handlingen kan ikke fortrydes.')) return;
+            try {
+                await deleteBon(this.bonId);
+                this.dirty = false;
+                this._doHide();
+            } catch (err) {
+                alert(err.message || 'Kunne ikke slette bon');
+            }
+            return;
+        }
+
+        if (!confirm('Bonen aflyses (status AFLYST). Vil du fortsætte?\n\nTip: åbn den aflyste bon og tryk "Slet bon" igen for at slette den permanent.')) return;
         try {
             await patchBonStatus(this.bonId, 'AFLYST');
             // Bonen er aflyst — spørg ikke om at gemme eventuelle felt-ændringer.

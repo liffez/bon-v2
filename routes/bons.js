@@ -3,6 +3,7 @@ const router  = express.Router();
 const { getDb } = require('../db/database');
 const { handle, logChange, getBon, getBonLines, getBonMenuGroups, getStatusId, getDefaultLocationId, todayISO, nextBonNumber, computeMomsFields, recalcBonTotalUnits, transaction, autoConsumeBonInventory } = require('../db/helpers');
 const { broadcast } = require('../shared/sse');
+const { requireAuth } = require('../shared/auth');
 const grocy   = require('../services/grocyAdapter');
 const { syncCashflowInvoice } = require('../services/cashflowSync');
 // quConvert bruges nu via services/ingredientResolver.js
@@ -798,6 +799,69 @@ router.patch('/:id/status', handle((req, res) => {
         confirmation_message:  transition?.confirmation_message ?? null,
         triggers
     });
+}));
+
+// ─── DELETE /api/bons/:id — permanent sletning ──────────────────────────────
+// Sikkerhedsnet: kun bons med status AFLYST kan slettes permanent — alt andet
+// skal aflyses først (drawerens "Slet bon" gør netop det i to trin).
+// Rydder alle refererende tabeller i én transaction (mønster fra
+// scripts/cleanup-test-bons.js + nyere tabeller fra migration 069/073).
+
+router.delete('/:id', requireAuth(), handle((req, res) => {
+    const db = getDb();
+    const id = parseInt(req.params.id);
+
+    const bon = db.prepare(`
+        SELECT b.id, b.bon_number, sd.code AS status_code
+        FROM bons b JOIN status_definitions sd ON b.status_id = sd.id
+        WHERE b.id = ?
+    `).get(id);
+    if (!bon) return res.status(404).json({ error: 'Bon ikke fundet' });
+
+    if (bon.status_code !== 'AFLYST') {
+        return res.status(409).json({
+            error: `Kun aflyste bons kan slettes permanent — bonen har status ${bon.status_code}. Aflys den først.`
+        });
+    }
+
+    transaction(db, () => {
+        // Mail-kæden: attachments → messages → threads
+        db.prepare(`DELETE FROM mail_attachments WHERE message_id IN
+            (SELECT id FROM mail_messages WHERE thread_id IN
+                (SELECT id FROM mail_threads WHERE bon_id = ?))`).run(id);
+        db.prepare(`DELETE FROM mail_messages WHERE thread_id IN
+            (SELECT id FROM mail_threads WHERE bon_id = ?)`).run(id);
+        db.prepare(`DELETE FROM mail_threads WHERE bon_id = ?`).run(id);
+
+        // SET NULL hvor koblingen kun er reference/audit
+        db.prepare(`UPDATE shopping_list SET source_bon_id = NULL WHERE source_bon_id = ?`).run(id);
+        db.prepare(`UPDATE mail_unmatched SET linked_bon_id = NULL WHERE linked_bon_id = ?`).run(id);
+        db.prepare(`UPDATE crm_unmatched_emails SET linked_bon_id = NULL WHERE linked_bon_id = ?`).run(id);
+        db.prepare(`UPDATE quotes SET converted_to_bon_id = NULL WHERE converted_to_bon_id = ?`).run(id);
+        db.prepare(`UPDATE entity_flags SET dismissed_on_bon_id = NULL WHERE dismissed_on_bon_id = ?`).run(id);
+
+        // DELETE for rækker der er bon-ejede
+        db.prepare(`DELETE FROM web_orders WHERE bon_id = ?`).run(id);
+        db.prepare(`DELETE FROM notifications WHERE bon_id = ?`).run(id);
+        db.prepare(`DELETE FROM delivery_events WHERE bon_id = ?`).run(id);
+        db.prepare(`DELETE FROM crm_activities WHERE bon_id = ?`).run(id);
+        db.prepare(`DELETE FROM geo_calculations WHERE bon_id = ?`).run(id);
+        db.prepare(`DELETE FROM flag_acks WHERE bon_id = ?`).run(id);
+        db.prepare(`DELETE FROM delivery_incidents WHERE bon_id = ?`).run(id);
+        db.prepare(`DELETE FROM delivery_route_stops WHERE bon_id = ?`).run(id);
+        db.prepare(`DELETE FROM attachments WHERE entity_type = 'bon' AND entity_id = ?`).run(id);
+
+        // Polymorf changelog
+        db.prepare(`DELETE FROM changelog WHERE entity_type = 'bon' AND entity_id = ?`).run(id);
+
+        // Selve bonen — CASCADE rydder bon_lines, bon_menu_groups, prep_packing_overrides.
+        // cf_invoices.bon_id er ON DELETE SET NULL (migration 078).
+        db.prepare(`DELETE FROM bons WHERE id = ?`).run(id);
+    });
+
+    console.log(`[bons] Bon ${id} (${bon.bon_number}) permanent slettet af user ${req.session?.userId ?? '?'}`);
+    broadcast('bon_deleted', { id, bon_number: bon.bon_number });
+    res.json({ ok: true, deleted: id });
 }));
 
 // ─── PATCH /api/bons/:id/prep — opdater prep-checks ────────────────────────
