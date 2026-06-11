@@ -43,12 +43,20 @@ med `event_id`. "Magien" er en foreign key + en query — intet andet.
 | Rolle | Genereres som | Lagertræk | Økonomi |
 |-------|---------------|-----------|---------|
 | Prep / pakkeliste | Produktionsbon (`price_category='produktion'`) | **Træk HQ** ved LEVERET | 0 kr (0-pris) |
-| Top-up (dag 2+) | Opfølgende produktionsbon | **Træk HQ** | 0 kr |
+| Top-up | Opfølgende produktionsbon | **Træk HQ** | 0 kr |
 | Dagssalg | Salgsbon → **LEVERET** (kontant/faktura), **event-scoped no-deduct** | Intet | Omsætning |
 | Udgifter (fee, benzin, bro) | Negative `bon_lines` | Intet | Omkostning |
 | Retur / hjemkomst | Varemodtagelse til HQ | **Tilbageførsel** | — |
 
-Prep-bonnen ejer lagertrækket. Alt andet i eventet rører ikke HQ-lageret undtagen returen.
+Prep-bonnerne ejer lagertrækket. Alt andet i eventet rører ikke HQ-lageret undtagen returen.
+
+**Flere prep-bons pr. event (migration 101):** Et flerdags-event kan have én prep-bon pr. dag
+(køkkenet prepper løbende afhængigt af hvordan eventet er sat sammen). Rollen persisteres på
+`bons.event_role` ved generering — generatorens valg (prep/topup/sales/expense) er autoritativt.
+Bons fra før migrationen (event_role IS NULL) klassificeres med fallback-heuristik: første
+produktionsbon pr. `delivery_date` = prep, efterfølgende samme dag = top-up. Prep og top-up
+opfører sig i øvrigt identisk (HQ-træk, pakkeliste, packing-overrides, vareforbrug i P&L) —
+forskellen er ren betydning: prep = planlagt pakning, top-up = opfølgende indhentning.
 
 **FVST-sporbarhed:** prep-/top-up-bonnerne er samtidig logbogen over hvad der fysisk forlod huset
 (hvad, hvornår via LEVERET-timestamp, evt. batch/temp). Returen er en varemodtagelse. Begge ender er

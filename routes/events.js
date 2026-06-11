@@ -48,7 +48,7 @@ function getEventBons(eventId) {
         SELECT b.id, b.bon_number, b.delivery_date, b.pickup_time, b.delivery_time,
                b.pax, b.total_units, b.total_price, b.payment_type,
                b.created_at, b.kitchen_info, b.customer_wishes, b.internal_notes,
-               b.inventory_deducted,
+               b.inventory_deducted, b.event_role,
                sd.code  AS status_code,
                sd.label AS status_label,
                sd.color AS status_color,
@@ -65,10 +65,13 @@ function getEventBons(eventId) {
 // Klassificer en event-bon i en af de fire roller.
 // Match spec'en (§3): prep + top-up + dagssalg + udgift. Hjemkomst er en
 // varemodtagelse, ikke en bon — ignoreres i bon-listen.
+// Rollen persisteres på bons.event_role ved generering (migration 101) så et
+// flerdags-event kan have flere prep-bons. Fallback-heuristik for ældre bons:
+// første produktionsbon pr. delivery_date = prep, resten samme dag = top-up.
 function classifyRole(bon, eventStart) {
+    if (bon.event_role) return bon.event_role;
     if (bon.price_category_code === 'produktion') {
-        // Første produktionsbon (efter oprettelsestid) = prep; resten = top-up
-        return bon._is_first_production ? 'prep' : 'topup';
+        return bon._is_first_production_on_date ? 'prep' : 'topup';
     }
     if ((bon.total_price ?? 0) < 0) return 'expense';
     return 'sales';
@@ -313,15 +316,16 @@ router.get('/:id/overview', requireAuth(), handle(async (req, res) => {
     const event = getEvent(req.params.id);
     if (!event) return res.status(404).json({ error: 'Event ikke fundet' });
     const bons = getEventBons(event.id);
-    // Marker første produktionsbon som "prep" (oprettelsesrækkefølge).
-    let seenProduction = false;
+    // Fallback for bons uden persisteret event_role: marker første
+    // produktionsbon pr. delivery_date som "prep" (oprettelsesrækkefølge).
+    const seenProductionDates = new Set();
     for (const b of bons) {
         if (b.price_category_code === 'produktion') {
-            b._is_first_production = !seenProduction;
-            seenProduction = true;
+            b._is_first_production_on_date = !seenProductionDates.has(b.delivery_date);
+            seenProductionDates.add(b.delivery_date);
         }
         b.role = classifyRole(b, event.start_date);
-        delete b._is_first_production;
+        delete b._is_first_production_on_date;
     }
     const pnl = computeEventPnL(bons);
     pnl.cost_estimated = computeEventCost(event.id);
@@ -463,7 +467,7 @@ router.post('/:id/bons', requireAuth(), handle((req, res) => {
     const result = transaction(db, () => {
         const r = db.prepare(`
             INSERT INTO bons (
-                bon_number, status_id, location_id, price_category_id, price_category, event_id,
+                bon_number, status_id, location_id, price_category_id, price_category, event_id, event_role,
                 order_date, delivery_date, pickup_time, delivery_time,
                 delivery_type, delivery_address_id, pax, total_units, payment_type,
                 kitchen_info, customer_wishes, internal_notes,
@@ -472,7 +476,7 @@ router.post('/:id/bons', requireAuth(), handle((req, res) => {
                 prep_ingredients_ready, prep_supplies_ready, kitchen_selects, customer_collects,
                 created_at, updated_at
             ) VALUES (
-                ?, ?, ?, ?, ?, ?,
+                ?, ?, ?, ?, ?, ?, ?,
                 ?, ?, ?, ?,
                 ?, ?, ?, ?, ?,
                 ?, ?, ?,
@@ -482,7 +486,7 @@ router.post('/:id/bons', requireAuth(), handle((req, res) => {
                 CURRENT_TIMESTAMP, CURRENT_TIMESTAMP
             )
         `).run(
-            bonNumber, statusId, event.location_id, pc.id, pc.code, event.id,
+            bonNumber, statusId, event.location_id, pc.id, pc.code, event.id, role,
             orderDate, deliveryDate, b.pickup_time ?? null, b.delivery_time ?? null,
             b.delivery_type ?? 'event', addressId, b.pax ?? 0, 0, b.payment_type ?? (isProduction ? 'cash' : 'cash'),
             b.kitchen_info ?? null, b.customer_wishes ?? null, b.internal_notes ?? null,
