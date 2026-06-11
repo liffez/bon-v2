@@ -76,7 +76,7 @@ function _faktRender() {
                 <div class="fakt-sum-card">
                     <div class="fakt-sum-label">Faktureret ${monthName}</div>
                     <div class="fakt-sum-val">${_faktFmt(summary.done_amount_month)} kr</div>
-                    <div class="fakt-sum-sub">${summary.done_count_month} bonner</div>
+                    <div class="fakt-sum-sub">${summary.done_count_month} bonner &middot; inkl. moms</div>
                 </div>
             </div>
 
