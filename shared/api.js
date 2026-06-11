@@ -652,6 +652,9 @@ function fetchScheduleWeek(from, to, status) {
 function fetchDriftDay(date, mode) {
     return apiFetch('/drift/day?date=' + encodeURIComponent(date) + '&mode=' + encodeURIComponent(mode || 'realiseret'));
 }
+function fetchDriftDayBons(date, mode) {
+    return apiFetch('/drift/day/bons?date=' + encodeURIComponent(date) + '&mode=' + encodeURIComponent(mode || 'realiseret'));
+}
 function refreezeDriftDay(date) {
     return apiFetch('/drift/refreeze', { method: 'POST', body: JSON.stringify({ date }) });
 }

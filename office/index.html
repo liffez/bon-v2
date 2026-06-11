@@ -1003,7 +1003,7 @@
           cleanup: () => { if (typeof cleanupOpskrifter === 'function') cleanupOpskrifter(); },
         },
         drift: {
-          init: () => initDrift(contentEl),
+          init: () => initDrift(contentEl, { openDrawer }),
           cleanup: () => { if (typeof cleanupDrift === 'function') cleanupDrift(); },
         },
         leverandorpost: {

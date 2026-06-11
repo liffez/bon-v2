@@ -25,6 +25,14 @@
 .dr-kpi.dr-pos .dr-kpi-val { color: #2e7d32; }
 .dr-kpi.dr-neg .dr-kpi-val { color: #b32020; }
 
+/* Drill-down: klikbare KPI-pills + bon-modal */
+.dr-kpi-drill { cursor: pointer; transition: border-color .12s, box-shadow .12s; }
+.dr-kpi-drill:hover, .dr-kpi-drill:focus-visible { border-color: var(--brand-primary, #8e631f); box-shadow: 0 1px 6px rgba(142, 99, 31, .18); outline: none; }
+.dr-drill-arrow { color: var(--brand-primary, #8e631f); font-weight: 700; }
+.dr-bon-table { min-width: 560px; }
+.dr-bon-row { cursor: pointer; }
+.dr-bon-row:hover td { background: #faf6ee; }
+
 .dr-section-title { font-weight: 700; font-size: 16px; margin: 22px 0 10px; }
 .dr-section-title .dr-sub { font-weight: 400; font-size: 13px; color: #999; }
 
