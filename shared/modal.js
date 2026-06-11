@@ -934,7 +934,63 @@ function _buildPakkelisteHtml(bon, data, level) {
                 ? 'Når prep-bonnen sættes til <strong>LEVERET</strong>, trækker Grocy <em>præcis disse mængder</em> fra HQ-lokationen. På pladsen bygges sandwich/slider on-the-spot fra råvarerne.'
                 : 'Det er målet for hvad der skal kunne laves på eventet. Skift til 📦 Råvarer for at se hvad der faktisk pakkes ned.'}
         </div>`;
+
+    // "Marker som LEVERET" direkte fra pakkelisten — det naturlige sted at
+    // afslutte pakningen. Confirm-advarsel inden (lagertrækket sker ved LEVERET).
+    const terminal = ['LEVERET', 'FAKTURERET', 'BETALT', 'AFSLUTTET', 'AFLYST'];
+    if (!locked && bon.status_code && !terminal.includes(bon.status_code)) {
+        html += `
+        <div class="pakke-deliver">
+            <button type="button" class="pakke-deliver-btn" onclick="_pakkeMarkDelivered()">🚚 Pakket &amp; afsted — marker som LEVERET</button>
+            <span class="pakke-deliver-hint">Trækker mængderne ovenfor fra HQ-lageret</span>
+            <span class="pakke-deliver-err" id="pakkeDeliverErr"></span>
+        </div>`;
+    }
     return html;
+}
+
+/**
+ * Marker pakkelistens bon som LEVERET (med advarsel). LEVERET udløser
+ * lagertrækket i Grocy (autoConsumeBonInventory), så springet skal bekræftes
+ * eksplicit. Efter succes re-hentes bonen og listen vises låst (🔒).
+ */
+async function _pakkeMarkDelivered() {
+    if (!_pakkeBonId || !_pakkeBon) return;
+    const nr = _pakkeBon.bon_number ? `${_pakkeBon.bon_number}` : 'bonen';
+    const ok = confirm(
+        `Markér ${nr} som LEVERET?\n\n` +
+        `Råvarerne på pakkelisten trækkes fra HQ-lageret i Grocy med det samme, ` +
+        `og mængderne kan ikke justeres bagefter.`
+    );
+    if (!ok) return;
+    const btn = document.querySelector('.pakke-deliver-btn');
+    const errEl = document.getElementById('pakkeDeliverErr');
+    if (errEl) errEl.textContent = '';
+    if (btn) { btn.disabled = true; btn.textContent = 'Markerer som leveret…'; }
+    try {
+        const res = await fetch(`/api/bons/${_pakkeBonId}/status`, {
+            method: 'PATCH',
+            headers: { 'Content-Type': 'application/json' },
+            credentials: 'same-origin',
+            body: JSON.stringify({ status_code: 'LEVERET' }),
+        });
+        if (!res.ok) {
+            let msg = res.statusText;
+            try { msg = (await res.json()).error || msg; } catch {}
+            throw new Error(msg);
+        }
+        // Re-hent bonen direkte (kortet kan være fjernet fra DOM af SSE) og
+        // vis listen i låst tilstand.
+        const bonRes = await fetch(`/api/bons/${_pakkeBonId}`, { credentials: 'same-origin' }).then(r => r.json());
+        _pakkeBon = bonRes;
+        _renderPakkeliste();
+    } catch (err) {
+        console.error('Kunne ikke markere som leveret:', err);
+        const e2 = document.getElementById('pakkeDeliverErr');
+        if (e2) e2.textContent = 'Fejl: ' + (err.message || err);
+        const b2 = document.querySelector('.pakke-deliver-btn');
+        if (b2) { b2.disabled = false; b2.textContent = '🚚 Pakket & afsted — marker som LEVERET'; }
+    }
 }
 
 function _updatePakkelisteProgress(body) {
