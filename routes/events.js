@@ -25,6 +25,7 @@ const { getDb }    = require('../db/database');
 const { broadcast } = require('../shared/sse');
 const { requireAuth } = require('../shared/auth');
 const grocy = require('../services/grocyAdapter');
+const { geocodeAddress } = require('../services/geocode');
 
 // ─── helpers ───────────────────────────────────────────────────────────────
 
@@ -120,6 +121,31 @@ function computeEventCO2(eventId) {
         WHERE b.event_id = ? AND (pc.code IS NULL OR pc.code != 'produktion')
     `).get(eventId);
     return Math.round((row?.co2 ?? 0) * 100) / 100;
+}
+
+// Find adresse-id til genererede bons (delivery_address_id — vises i drawer,
+// logistik, kort-links). To veje:
+//   1) event_address_id sat (DAWA-valgt i event-modalen) → brug den direkte.
+//      Struktureret + geokodet allerede ved event-oprettelsen.
+//   2) Fritekst-fallback: gem teksten som street_name og lad DAWA geokode
+//      fire-and-forget (må aldrig blokere bon-oprettelsen). Genbrug pr.
+//      (event-navn, adressetekst) så hver bon ikke spawner en ny række.
+function resolveEventAddressId(event) {
+    if (event.event_address_id) return event.event_address_id;
+    if (!event.event_address) return null;
+    const db = getDb();
+    const existing = db.prepare(`
+        SELECT id FROM addresses WHERE label = ? AND street_name = ?
+    `).get(event.name, event.event_address);
+    if (existing) return existing.id;
+    const r = db.prepare(`
+        INSERT INTO addresses (label, street_name) VALUES (?, ?)
+    `).run(event.name, event.event_address);
+    const id = Number(r.lastInsertRowid);
+    geocodeAddress(id).catch(err => {
+        console.warn(`[events] geokodning af event-adresse #${id} fejlede:`, err.message);
+    });
+    return id;
 }
 
 // Opløs en bons FAKTISK pakkede råvarer (consume-items + pakke-overrides).
@@ -224,12 +250,13 @@ router.post('/', requireAuth(), handle((req, res) => {
     }
     const locationId = b.location_id ?? getDefaultLocationId();
     const result = db.prepare(`
-        INSERT INTO events (name, location_id, model, start_date, end_date, status, notes, event_address, created_by_user_id)
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+        INSERT INTO events (name, location_id, model, start_date, end_date, status, notes, event_address, event_address_id, created_by_user_id)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     `).run(
         b.name, locationId, model, b.start_date,
         b.end_date ?? null, b.status ?? 'planning',
         b.notes ?? null, b.event_address ?? null,
+        b.event_address_id ?? null,
         req.session?.userId ?? null
     );
     const ev = getEvent(result.lastInsertRowid);
@@ -243,7 +270,7 @@ router.patch('/:id', requireAuth(), handle((req, res) => {
     const id = req.params.id;
     const ev = getEvent(id);
     if (!ev) return res.status(404).json({ error: 'Event ikke fundet' });
-    const ALLOWED = ['name','start_date','end_date','status','notes','model','location_id','event_address'];
+    const ALLOWED = ['name','start_date','end_date','status','notes','model','location_id','event_address','event_address_id','open_hours_json'];
     const updates = [], params = [];
     for (const key of ALLOWED) {
         if (key in req.body) { updates.push(`${key} = ?`); params.push(req.body[key]); }
@@ -394,7 +421,7 @@ router.put('/:id/forecast', requireAuth(), handle((req, res) => {
 // ─── EVENT-BON GENERATOR ───────────────────────────────────────────────────
 // Ét generelt endpoint der opretter en bon bundet til eventet, med linjer.
 // `role` styrer:
-//   - 'prep' / 'topup'  → price_category='produktion', status=NY (køkkenet ser den)
+//   - 'prep' / 'topup'  → price_category='produktion', status=GODKENDT (på køkkenets tavle)
 //   - 'sales'           → price_category=catering (default), status=GODKENDT
 //   - 'expense'         → price_category=catering, status=GODKENDT, negativ total
 // Bonen behandles efterfølgende via normale status-skift (KLAR/LEVERET/BETALT)
@@ -419,23 +446,26 @@ router.post('/:id/bons', requireAuth(), handle((req, res) => {
     const pc      = getPriceCategoryByCode(pcCode);
     if (!pc) return res.status(500).json({ error: `Priskategori '${pcCode}' findes ikke i price_categories` });
 
-    // Status: prep/topup = NY (køkkenet prepper), sales/expense = GODKENDT.
-    // Brugeren kan overskrive med b.status_code (fx hvis salgsbonnen registreres
-    // efter levering og skal hoppe direkte til LEVERET).
-    const startStatus = b.status_code ?? (isProduction ? 'NY' : 'GODKENDT');
+    // Status: alle roller starter på GODKENDT. Prep/top-up er bevidst genereret
+    // arbejde (ikke en ubehandlet indkommende bestilling), og køkkenets I dag-
+    // tavle viser kun GODKENDT/IGANG/KLAR/LEVERET — en NY-bon ville aldrig
+    // dukke op der. Brugeren kan overskrive med b.status_code (fx hvis
+    // salgsbonnen registreres efter levering og skal direkte til LEVERET).
+    const startStatus = b.status_code ?? 'GODKENDT';
     const statusId = getStatusId(startStatus);
     if (!statusId) return res.status(400).json({ error: `Ukendt status: ${startStatus}` });
 
     const bonNumber = nextBonNumber();
     const deliveryDate = b.delivery_date ?? event.start_date;
     const orderDate    = b.order_date ?? todayISO();
+    const addressId    = resolveEventAddressId(event);
 
     const result = transaction(db, () => {
         const r = db.prepare(`
             INSERT INTO bons (
                 bon_number, status_id, location_id, price_category_id, price_category, event_id,
                 order_date, delivery_date, pickup_time, delivery_time,
-                delivery_type, pax, total_units, payment_type,
+                delivery_type, delivery_address_id, pax, total_units, payment_type,
                 kitchen_info, customer_wishes, internal_notes,
                 created_by_user_id, is_internal,
                 total_price, total_with_delivery,
@@ -444,7 +474,7 @@ router.post('/:id/bons', requireAuth(), handle((req, res) => {
             ) VALUES (
                 ?, ?, ?, ?, ?, ?,
                 ?, ?, ?, ?,
-                ?, ?, ?, ?,
+                ?, ?, ?, ?, ?,
                 ?, ?, ?,
                 ?, ?,
                 0, 0,
@@ -454,7 +484,7 @@ router.post('/:id/bons', requireAuth(), handle((req, res) => {
         `).run(
             bonNumber, statusId, event.location_id, pc.id, pc.code, event.id,
             orderDate, deliveryDate, b.pickup_time ?? null, b.delivery_time ?? null,
-            b.delivery_type ?? 'event', b.pax ?? 0, 0, b.payment_type ?? (isProduction ? 'cash' : 'cash'),
+            b.delivery_type ?? 'event', addressId, b.pax ?? 0, 0, b.payment_type ?? (isProduction ? 'cash' : 'cash'),
             b.kitchen_info ?? null, b.customer_wishes ?? null, b.internal_notes ?? null,
             req.session?.userId ?? null, role === 'expense' ? 1 : 0
         );

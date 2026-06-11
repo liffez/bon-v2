@@ -299,9 +299,15 @@ function _evFmtNum(n) {
 
 function _evForecastKey(date, cat) { return date + '|' + cat; }
 
+function _evParseOpenHours(ev) {
+    try { return ev && ev.open_hours_json ? (JSON.parse(ev.open_hours_json) || {}) : {}; }
+    catch { return {}; }
+}
+
 function _evForecastTable(ev, days, categories, forecast) {
     const map = {};
     for (const f of forecast) map[_evForecastKey(f.forecast_date, f.category)] = f.expected_qty;
+    const openHours = _evParseOpenHours(ev);
 
     // Tomt event uden Grocy-kategorier: vis info-tekst
     if (categories.length === 0) {
@@ -331,6 +337,7 @@ function _evForecastTable(ev, days, categories, forecast) {
             <thead>
                 <tr>
                     <th class="ev-fc-day">Dag</th>
+                    <th class="ev-fc-oh">Åbent</th>
                     ${categories.map(c => `<th class="ev-fc-cat">${_evEsc(c)}</th>`).join('')}
                     <th class="ev-fc-total">Total</th>
                     <th class="ev-fc-act"></th>
@@ -347,6 +354,9 @@ function _evForecastTable(ev, days, categories, forecast) {
         }).join('');
         html += `<tr>
             <td class="ev-fc-day">${_evFmtDate(d)}</td>
+            <td class="ev-fc-oh"><input type="text" class="ev-oh-input" maxlength="40"
+                value="${_evEsc(openHours[d] || '')}" placeholder="fx 10–18" data-oh-date="${d}"
+                title="Åbningstid på pladsen denne dag — vises også i prep-modalen"></td>
             ${cells}
             <td class="ev-fc-total" data-fc-rowtotal="${d}">${rowTotal || ''}</td>
             <td class="ev-fc-act">
@@ -358,6 +368,7 @@ function _evForecastTable(ev, days, categories, forecast) {
             <tfoot>
                 <tr>
                     <th class="ev-fc-day">Total</th>
+                    <th class="ev-fc-oh"></th>
                     ${categories.map(c => `<th class="ev-fc-total" data-fc-coltotal="${_evEsc(c)}">${colTotals[c] || ''}</th>`).join('')}
                     <th class="ev-fc-total ev-fc-grand">${grandTotal || ''}</th>
                     <th></th>
@@ -411,6 +422,31 @@ function _evBindForecastHandlers(ev) {
     inputs.forEach(inp => {
         inp.addEventListener('input', () => { _evRecalcForecastTotals(); scheduleSave(); });
         inp.addEventListener('blur', () => { clearTimeout(saveTimer); saveAll(); });
+    });
+
+    // Åbningstider pr. dag — gemmes som JSON på eventet (PATCH), separat fra
+    // forecast-items. Debounced så vi ikke spammer mens der tastes.
+    let ohTimer = null;
+    const saveOpenHours = async () => {
+        const obj = {};
+        _evContainer.querySelectorAll('.ev-oh-input').forEach(inp => {
+            const v = inp.value.trim();
+            if (v) obj[inp.dataset.ohDate] = v;
+        });
+        const json = Object.keys(obj).length ? JSON.stringify(obj) : null;
+        try {
+            showStatus('Gemmer…');
+            await _evFetch(`/events/${ev.id}`, { method: 'PATCH', body: JSON.stringify({ open_hours_json: json }) });
+            if (_evState.event) _evState.event.open_hours_json = json;
+            showStatus('✓ Gemt', 'ok');
+            setTimeout(() => showStatus(''), 1500);
+        } catch (err) {
+            showStatus('Fejl: ' + err.message, 'err');
+        }
+    };
+    _evContainer.querySelectorAll('.ev-oh-input').forEach(inp => {
+        inp.addEventListener('input', () => { clearTimeout(ohTimer); ohTimer = setTimeout(saveOpenHours, 600); });
+        inp.addEventListener('blur', () => { clearTimeout(ohTimer); saveOpenHours(); });
     });
 
     _evContainer.querySelectorAll('[data-act="gen-from-forecast"]').forEach(btn => {
@@ -481,6 +517,9 @@ function _evOpenEventModal(ev) {
     const today = new Date().toISOString().slice(0, 10);
     const v = (s) => _evEsc(s == null ? '' : s);
     const statusOpt = (val, lbl) => `<option value="${val}" ${ev && ev.status === val ? 'selected' : ''}>${lbl}</option>`;
+    // DAWA-state: pickedAddr = valgt forslag (struktureret + koordinater),
+    // addrDirty = brugeren har rørt feltet siden modal-åbning.
+    let pickedAddr = null, addrDirty = false;
     _evModal(`
         <h3>${isEdit ? 'Redigér event' : 'Nyt event'}</h3>
         <label>Navn<input type="text" id="evm-name" placeholder="Roskilde 2026" value="${v(ev && ev.name)}" required></label>
@@ -500,18 +539,40 @@ function _evOpenEventModal(ev) {
         </label>` : ''}
         <label>Startdato<input type="date" id="evm-start" value="${ev ? v(ev.start_date) : today}" required></label>
         <label>Slutdato (valgfri)<input type="date" id="evm-end" value="${v(ev && ev.end_date)}"></label>
-        <label>Adresse / sted (valgfri)<input type="text" id="evm-address" placeholder="Festivalpladsen, Darupvej 19, Roskilde" value="${v(ev && ev.event_address)}"></label>
+        <label>Adresse / sted (valgfri)
+            <span class="ev-dawa-wrap">
+                <input type="text" id="evm-address" placeholder="Festivalpladsen, Darupvej 19, Roskilde" value="${v(ev && ev.event_address)}" autocomplete="off">
+                <span class="ev-dawa-results" id="evm-address-results"></span>
+            </span>
+            <span class="ev-dawa-hint" id="evm-address-hint">${ev && ev.event_address_id ? '✓ DAWA-valideret adresse med koordinater' : ''}</span>
+        </label>
         <label>Noter<textarea id="evm-notes" rows="3" placeholder="Kontaktperson, særlige aftaler, parkering…">${v(ev && ev.notes)}</textarea></label>
     `, async () => {
+        const addrText = document.getElementById('evm-address').value.trim();
         const body = {
             name: document.getElementById('evm-name').value.trim(),
             start_date: document.getElementById('evm-start').value,
             end_date: document.getElementById('evm-end').value || null,
-            event_address: document.getElementById('evm-address').value.trim() || null,
+            event_address: addrText || null,
             notes: document.getElementById('evm-notes').value.trim() || null,
         };
         if (!body.name) throw new Error('Navn er påkrævet');
         if (!body.start_date) throw new Error('Startdato er påkrævet');
+        // DAWA-valgt adresse → opret struktureret addresses-række NU (med
+        // koordinater) og peg eventet på den. Fritekst-redigering rydder
+        // koblingen — bons falder så tilbage til geokodnings-forsøget.
+        if (pickedAddr && addrText) {
+            const r = await fetch('/api/addresses', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                credentials: 'same-origin',
+                body: JSON.stringify({ ...pickedAddr, label: body.name }),
+            });
+            if (!r.ok) throw new Error('Kunne ikke gemme adressen');
+            body.event_address_id = (await r.json()).id;
+        } else if (addrDirty) {
+            body.event_address_id = null;
+        }
         if (isEdit) {
             body.status = document.getElementById('evm-status').value;
             await _evFetch(`/events/${ev.id}`, { method: 'PATCH', body: JSON.stringify(body) });
@@ -521,6 +582,58 @@ function _evOpenEventModal(ev) {
             _evCurrentId = created.id;
         }
         _evRender();
+    });
+
+    // DAWA-autocomplete på adressefeltet — valideret adresse + koordinater
+    // allerede ved event-oprettelsen (i stedet for først senere på bonnen).
+    const addrInput = document.getElementById('evm-address');
+    const addrResults = document.getElementById('evm-address-results');
+    const addrHint = document.getElementById('evm-address-hint');
+    let dawaTimer = null;
+    addrInput.addEventListener('input', () => {
+        addrDirty = true;
+        pickedAddr = null;
+        if (addrHint) addrHint.textContent = addrInput.value.trim()
+            ? 'Fritekst — vælg et forslag for valideret adresse med koordinater' : '';
+        clearTimeout(dawaTimer);
+        const q = addrInput.value.trim();
+        if (q.length < 3) { addrResults.style.display = 'none'; return; }
+        dawaTimer = setTimeout(async () => {
+            try {
+                const resp = await fetch(`https://api.dataforsyningen.dk/adresser/autocomplete?q=${encodeURIComponent(q)}&per_side=5`);
+                const data = await resp.json();
+                addrResults.innerHTML = '';
+                if (!Array.isArray(data) || data.length === 0) { addrResults.style.display = 'none'; return; }
+                addrResults.style.display = 'block';
+                for (const item of data) {
+                    const div = document.createElement('div');
+                    div.className = 'ev-dawa-item';
+                    div.textContent = item.tekst;
+                    // mousedown (ikke click) så valget når at fyre før input-blur
+                    div.addEventListener('mousedown', (e) => {
+                        e.preventDefault();
+                        const a = item.adresse || {};
+                        pickedAddr = {
+                            street_name: a.vejnavn || item.tekst,
+                            street_nr: a.husnr || null,
+                            postal_code: a.postnr || null,
+                            city: a.postnrnavn || null,
+                            lat: a.y ?? null,
+                            lon: a.x ?? null,
+                        };
+                        addrInput.value = item.tekst;
+                        addrResults.style.display = 'none';
+                        if (addrHint) addrHint.textContent = '✓ DAWA-valideret — koordinater gemmes med eventet';
+                    });
+                    addrResults.appendChild(div);
+                }
+            } catch (err) {
+                console.warn('DAWA fejl:', err);
+            }
+        }, 300);
+    });
+    addrInput.addEventListener('blur', () => {
+        setTimeout(() => { if (addrResults) addrResults.style.display = 'none'; }, 150);
     });
 }
 
@@ -611,13 +724,14 @@ async function _evOpenGenModal(event, role, opts) {
         <h3>${_EV_ROLE_ICON[role]} ${_EV_ROLE_LABEL[role]} — ${_evEsc(event.name)}</h3>
         <div class="ev-modal-hint">
             ${isProd
-              ? 'Vælg menuer/varer der skal med fra HQ. Priskategori: <strong>produktion</strong> (0 kr). Status: <strong>NY</strong> — havner på køkkenets I dag-tavle.'
+              ? 'Vælg menuer/varer der skal med fra HQ. Bonnen er bevidst <strong>0 kr</strong> (produktion) — kolonnen <em>Kostpris ex</em> snapshottes pr. linje og driver Vareforbrug i P&amp;L. Status: <strong>GODKENDT</strong> — havner på køkkenets I dag-tavle på prep-datoen.'
               : isExpense
                 ? 'Indtast udgift (fee, benzin, bro). Total bliver negativ — udgiften netter ikke mod omsætning, men vises som omkostning.'
                 : 'Vælg menuer kunden køber. Priskategori: <strong>catering</strong>. Status: <strong>GODKENDT</strong>.'}
         </div>
         ${targetStrip}
         <label>Dato${isProd ? ' (prep-pakning)' : ''}<input type="date" id="evm-date" value="${forecastDate || event.start_date}"></label>
+        <div class="ev-modal-oh" id="evm-oh" style="display:none"></div>
         ${!isExpense ? '<label>Tilføj fra Grocy<select id="evm-recipe"><option value="">— vælg opskrift —</option>' + recipeOpts + '</select></label>' : ''}
         <div class="ev-line-table-wrap">
             <table class="ev-line-table">
@@ -633,14 +747,18 @@ async function _evOpenGenModal(event, role, opts) {
         linesEl.querySelectorAll('tr[data-line]').forEach(row => {
             const name = row.querySelector('[data-f=name]').value.trim();
             if (!name) return;
+            // Prod-bons: pris-feltet ER kostprisen (kolonnen hedder "Kostpris ex").
+            // unit_price tvinges til 0 (prep/top-up = 0 kr, spec §3) og feltet
+            // snapshottes som cost_price så vareforbrug/P&L får rigtige tal.
+            const fieldVal = Number(row.querySelector('[data-f=price]').value) || 0;
             lines.push({
                 product_name: name,
                 grocy_recipe_id: row.dataset.recipeId ? parseInt(row.dataset.recipeId) : null,
                 category: row.dataset.category || null,
                 quantity: Number(row.querySelector('[data-f=qty]').value) || 1,
                 unit: row.querySelector('[data-f=unit]').value || 'stk',
-                unit_price: Number(row.querySelector('[data-f=price]').value) || 0,
-                cost_price: row.dataset.cost ? Number(row.dataset.cost) : (isProd ? Number(row.querySelector('[data-f=price]').value) : null),
+                unit_price: isProd ? 0 : fieldVal,
+                cost_price: isProd ? fieldVal : (row.dataset.cost ? Number(row.dataset.cost) : null),
                 co2e: row.dataset.co2e ? Number(row.dataset.co2e) : null,
             });
         });
@@ -654,6 +772,18 @@ async function _evOpenGenModal(event, role, opts) {
         await _evFetch(`/events/${event.id}/bons`, { method: 'POST', body: JSON.stringify(body) });
         _evRender();
     });
+
+    // Åbningstid for valgt dato (fra forecast-tabellens "Åbent"-kolonne)
+    const ohMap = _evParseOpenHours(_evState.event || event);
+    const ohEl = document.getElementById('evm-oh');
+    const dateEl = document.getElementById('evm-date');
+    const updateOh = () => {
+        if (!ohEl || !dateEl) return;
+        const t = ohMap[dateEl.value];
+        ohEl.textContent = t ? `🕐 Åbent på pladsen denne dag: ${t}` : '';
+        ohEl.style.display = t ? '' : 'none';
+    };
+    if (dateEl) { dateEl.addEventListener('change', updateOh); updateOh(); }
 
     // Tilføj-linje knap (opskrift → fyld tabel)
     const linesEl = document.getElementById('evm-lines');
@@ -717,7 +847,9 @@ async function _evOpenGenModal(event, role, opts) {
                 name: opt.text.split(' ·')[0],
                 category: opt.dataset.cat,
                 unit: opt.dataset.unit,
-                price: Number(opt.dataset.price),
+                // Prod-modal viser kostprisen i pris-feltet (kolonne "Kostpris ex")
+                // — salgspris for produktion er pr. definition 0 og sættes ved submit.
+                price: Math.round((isProd ? Number(opt.dataset.cost) : Number(opt.dataset.price)) * 100) / 100,
                 cost: Number(opt.dataset.cost),
                 co2e: opt.dataset.co2e,
                 qty: 1,

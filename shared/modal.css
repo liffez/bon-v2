@@ -632,6 +632,20 @@
     font-size: 12px; color: #5a4a2a; line-height: 1.4;
 }
 
+/* "Marker som LEVERET" fra pakkelisten */
+.pakke-deliver {
+    margin-top: 12px; display: flex; align-items: center; gap: 10px; flex-wrap: wrap;
+}
+.pakke-deliver-btn {
+    border: none; background: #2e7d32; color: #fff; border-radius: 6px;
+    padding: 10px 16px; font-size: 13px; font-weight: 600; cursor: pointer;
+    transition: background 0.1s;
+}
+.pakke-deliver-btn:hover:not(:disabled) { background: #256729; }
+.pakke-deliver-btn:disabled { opacity: 0.6; cursor: default; }
+.pakke-deliver-hint { font-size: 11px; color: #888; }
+.pakke-deliver-err { font-size: 12px; color: #8a2222; font-weight: 600; }
+
 /* Toggle: Råvarer / Produktionsmål */
 .pakke-toggle {
     display: inline-flex; background: #f5f4f2; border-radius: 6px; padding: 2px;
