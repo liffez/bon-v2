@@ -26,6 +26,11 @@ const USERFIELD_TO_CATEGORY = {
     SalespriceWaiste:     'waiste',
 };
 
+// Omvendt map: price_category_code → Grocy userfield-navn (bruges af write-back)
+const CATEGORY_TO_USERFIELD = Object.fromEntries(
+    Object.entries(USERFIELD_TO_CATEGORY).map(([uf, code]) => [code, uf])
+);
+
 /**
  * Tjekker settings-flag og kører backfill hvis ikke gjort.
  * Idempotent — kalder backfill maks én gang per setting-flag-reset.
@@ -126,6 +131,58 @@ async function runBackfill(opts = {}) {
     };
 }
 
+/**
+ * Synk Grocy Salesprice*-userfields → item_prices (Grocy er master).
+ * Kaldes fra refresh-costs (route + nightly cron) med allerede-hentede recipes.
+ * Opdaterer kun rækker hvor prisen reelt afviger (>0,005 kr) så updated_at ikke
+ * churner; sletter rækker hvis prisen er fjernet/0 i Grocy.
+ *
+ * @param {Array} rawRecipes - fra grocyAdapter.getRecipesRaw()
+ * @param {object} [opts]
+ * @param {object} [opts.db] - DB-handle (standalone scripts sender openDb()-handle)
+ * @returns {{scanned: number, updated: number, deleted: number}}
+ */
+function syncPricesFromGrocy(rawRecipes, opts = {}) {
+    const db = opts.db || getDb();
+
+    const catRows = db.prepare(`SELECT id, code FROM price_categories`).all();
+    const codeToId = {};
+    for (const r of catRows) codeToId[r.code] = r.id;
+
+    const upsert = db.prepare(`
+        INSERT INTO item_prices (item_type, item_id, price_category_id, price, updated_at, updated_by_user_id)
+        VALUES ('recipe', ?, ?, ?, CURRENT_TIMESTAMP, NULL)
+        ON CONFLICT(item_type, item_id, price_category_id) DO UPDATE SET
+            price = excluded.price,
+            updated_at = CURRENT_TIMESTAMP,
+            updated_by_user_id = NULL
+        WHERE abs(item_prices.price - excluded.price) > 0.005
+    `);
+    const del = db.prepare(`
+        DELETE FROM item_prices
+        WHERE item_type = 'recipe' AND item_id = ? AND price_category_id = ?
+    `);
+
+    let updated = 0;
+    let deleted = 0;
+    for (const recipe of rawRecipes) {
+        const uf = recipe.userfields || {};
+        for (const [userfield, categoryCode] of Object.entries(USERFIELD_TO_CATEGORY)) {
+            const categoryId = codeToId[categoryCode];
+            if (!categoryId) continue;
+
+            const inclMoms = parseFloat(uf[userfield]);
+            if (!Number.isFinite(inclMoms) || inclMoms <= 0) {
+                deleted += del.run(recipe.id, categoryId).changes;
+                continue;
+            }
+            updated += upsert.run(recipe.id, categoryId, round2(inclToExcl(inclMoms))).changes;
+        }
+    }
+
+    return { scanned: rawRecipes.length, updated, deleted };
+}
+
 function round2(n) {
     return Math.round((n ?? 0) * 100) / 100;
 }
@@ -133,5 +190,7 @@ function round2(n) {
 module.exports = {
     backfillIfNeeded,
     runBackfill,
+    syncPricesFromGrocy,
     USERFIELD_TO_CATEGORY,
+    CATEGORY_TO_USERFIELD,
 };
