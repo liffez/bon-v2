@@ -5,6 +5,8 @@
  * Spec: docs/CLAUDE_DRIFTSREGNSKAB.md §1/§4/§6/§6a/§7/§8.
  *
  * GET  /api/drift/day?date=&mode=  Dagsresultat (live el. frosset snapshot)
+ * GET  /api/drift/day/bons?date=&mode=  Per-bon nedbrydning, altid live
+ *                                  (fallback for snapshots fra før bons-feltet)
  * POST /api/drift/refreeze {date}  Admin: genberegn frosset dag fra live data
  *
  * MOMS (§3): ALT ex moms. line_total er INCL → Moms.inclToExcl; cost_price +
@@ -32,9 +34,52 @@ const REALISERET_STATUS = ['LEVERET', 'FAKTURERET', 'BETALT', 'AFSLUTTET'];
 
 function r2(n) { return Math.round(((n || 0) + Number.EPSILON) * 100) / 100; }
 
+/* ── Per-bon nedbrydning (drill-down fra KPI-pills) ──────── */
+// Samme filtre som computeDay's aggregater, så summen af rækkerne stemmer
+// krone for krone med pills'ene. Subqueries (ikke JOIN bon_lines) så bons
+// uden linjer stadig tæller med i levering/enheder — som i bonAgg.
+
+function computeDayBons(db, date, mode) {
+    const statusClause = mode === 'realiseret'
+        ? `AND sd.code IN (${REALISERET_STATUS.map(() => '?').join(',')})`
+        : `AND sd.code <> 'AFLYST'`;
+    const statusArgs = mode === 'realiseret' ? REALISERET_STATUS : [];
+
+    const rows = db.prepare(`
+        SELECT b.id, b.bon_number,
+               sd.code AS status_code,
+               c.first_name || ' ' || COALESCE(c.last_name, '') AS contact_name_full,
+               co.name AS company_name,
+               COALESCE(b.delivery_cost, 0) AS delivery_ex,
+               COALESCE(b.total_units, 0)   AS units,
+               COALESCE((SELECT SUM(bl.line_total)              FROM bon_lines bl WHERE bl.bon_id = b.id), 0) AS revenue_incl,
+               COALESCE((SELECT SUM(bl.quantity * bl.cost_price) FROM bon_lines bl WHERE bl.bon_id = b.id), 0) AS cost_ex
+          FROM bons b
+          JOIN status_definitions sd ON sd.id = b.status_id
+          LEFT JOIN customers c  ON c.id  = b.customer_id
+          LEFT JOIN companies co ON co.id = b.company_id
+         WHERE b.delivery_date = ? AND COALESCE(b.is_offer,0)=0 AND COALESCE(b.is_internal,0)=0 ${statusClause}
+         ORDER BY revenue_incl DESC, b.bon_number
+    `).all(date, ...statusArgs);
+
+    return rows.map(r => ({
+        id: r.id,
+        bon_number: r.bon_number,
+        status_code: r.status_code,
+        customer: (r.company_name || (r.contact_name_full || '').trim() || null),
+        contact: (r.contact_name_full || '').trim() || null,
+        revenue_ex_moms: r2(inclToExcl(r.revenue_incl)),
+        cost_ex_moms: r2(r.cost_ex),
+        delivery_ex_moms: r2(r.delivery_ex),
+        units: Number(r.units) || 0,
+    }));
+}
+
 /* ── Kerne-beregning (genbruges af /day + /refreeze) ─────── */
 
-async function computeDay(db, date, mode, prefetchedLabor) {
+// skipBons: periode-visningen smider per-bon data væk — spring beregningen over
+// dér (op til 366 dage). /day + /refreeze beregner den altid (ryger i snapshot).
+async function computeDay(db, date, mode, prefetchedLabor, skipBons) {
     const statusClause = mode === 'realiseret'
         ? `AND sd.code IN (${REALISERET_STATUS.map(() => '?').join(',')})`
         : `AND sd.code <> 'AFLYST'`;
@@ -136,6 +181,9 @@ async function computeDay(db, date, mode, prefetchedLabor) {
         rate_missing_count:  laborRows.filter(l => l.rate_missing).length,
         role_unmapped_count: laborRows.filter(l => l.role_unmapped).length,
         labor_error: laborError,
+        // Per-bon nedbrydning til drill-down — med i frosne snapshots fremover,
+        // så drill-down på en frosset dag viser præcis de tal der blev frosset.
+        ...(skipBons ? {} : { bons: computeDayBons(db, date, mode) }),
     };
 }
 
@@ -147,6 +195,18 @@ function saveSnapshot(db, date, mode, data, userId) {
         DO UPDATE SET data_json = excluded.data_json, frozen_at = datetime('now'), frozen_by_user_id = excluded.frozen_by_user_id
     `).run(getDefaultLocationId() || null, date, mode, JSON.stringify(data), userId || null);
 }
+
+/* ── GET /day/bons — per-bon nedbrydning, altid live ─────── */
+// Fallback for frosne snapshots fra før `bons` kom med i computeDay-outputtet.
+// Beregner live og kan derfor afvige fra et frosset aggregat — frontenden
+// flager det. (Registreres FØR /day så Express ikke matcher den som /day.)
+
+router.get('/day/bons', ALL, handle(async (req, res) => {
+    const date = /^\d{4}-\d{2}-\d{2}$/.test(req.query.date) ? req.query.date : null;
+    if (!date) return res.status(400).json({ error: 'date (YYYY-MM-DD) kræves' });
+    const mode = req.query.mode === 'forecast' ? 'forecast' : 'realiseret';
+    res.json({ date, mode, live: true, bons: computeDayBons(getDb(), date, mode) });
+}));
 
 /* ── GET /day ────────────────────────────────────────────── */
 
@@ -197,7 +257,7 @@ async function readDay(db, date, mode, prefetchedLabor) {
         const snap = db.prepare('SELECT data_json FROM labor_day_snapshot WHERE snapshot_date=? AND mode=?').get(date, mode);
         if (snap) return { ...JSON.parse(snap.data_json), frozen: true };
     }
-    return { ...(await computeDay(db, date, mode, prefetchedLabor)), frozen: false };
+    return { ...(await computeDay(db, date, mode, prefetchedLabor, true)), frozen: false };
 }
 
 router.get('/period', ALL, handle(async (req, res) => {

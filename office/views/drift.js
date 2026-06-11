@@ -60,8 +60,9 @@ function _drFmtRange(from, to) {
     return f + '–' + t;
 }
 
-function initDrift(container) {
+function initDrift(container, opts) {
     _driftState.el = container;
+    _driftState.openDrawer = (opts && opts.openDrawer) || null;
     if (!_driftState.date) _driftState.date = _drTodayISO();
     if (!_driftState.view) _driftState.view = 'day';
     if (!_driftState.to)   { _driftState.to = _drShiftDate(_drTodayISO(), -1); _driftState.from = _drShiftDate(_driftState.to, -6); }
@@ -290,6 +291,7 @@ function _drLoad() {
 function _drRender(d) {
     var body = _driftState.el.querySelector('#drBody');
     if (!body) return;
+    _driftState.day = d;   // drill-down (bon-modal) læser herfra
 
     var resultClass = d.driftsresultat_ex_moms >= 0 ? 'dr-pos' : 'dr-neg';
 
@@ -301,9 +303,12 @@ function _drRender(d) {
         ? '<div class="dr-warn">' + warnings.map(function (w) { return '<div>' + w + '</div>'; }).join('') + '</div>'
         : '';
 
-    var kpi = function (label, val, cls, sub) {
-        return '<div class="dr-kpi ' + (cls || '') + '"><div class="dr-kpi-val">' + val + '</div>' +
-               '<div class="dr-kpi-label">' + label + '</div>' +
+    // drill: 'bons' = åbn per-bon nedbrydning · 'logistik' = hop til Logistik for dagen
+    var kpi = function (label, val, cls, sub, drill) {
+        return '<div class="dr-kpi ' + (cls || '') + (drill ? ' dr-kpi-drill' : '') + '"' +
+               (drill ? ' data-drill="' + drill + '" title="' + (drill === 'logistik' ? 'Åbn Logistik for dagen' : 'Se bonnerne bag tallet') + '" role="button" tabindex="0"' : '') + '>' +
+               '<div class="dr-kpi-val">' + val + '</div>' +
+               '<div class="dr-kpi-label">' + label + (drill ? ' <span class="dr-drill-arrow">›</span>' : '') + '</div>' +
                (sub ? '<div class="dr-kpi-sub">' + sub + '</div>' : '') + '</div>';
     };
 
@@ -359,9 +364,9 @@ function _drRender(d) {
         frozenHtml +
         warnHtml +
         '<div class="dr-kpis">' +
-            kpi('Omsætning (ex moms)', _drMoney(d.revenue_ex_moms)) +
-            kpi('Vareforbrug (ex moms)', '−' + _drMoney(d.cost_ex_moms)) +
-            kpi('Levering (ex moms)', '−' + _drMoney(d.delivery_ex_moms)) +
+            kpi('Omsætning (ex moms)', _drMoney(d.revenue_ex_moms), '', '', 'bons') +
+            kpi('Vareforbrug (ex moms)', '−' + _drMoney(d.cost_ex_moms), '', '', 'bons') +
+            kpi('Levering (ex moms)', '−' + _drMoney(d.delivery_ex_moms), '', '', 'logistik') +
             kpi('Løn', '−' + _drMoney(d.labor_ex_moms), '', _drLoenSub(d)) +
             kpi('Driftsresultat (ex moms)', _drMoney(d.driftsresultat_ex_moms), resultClass) +
             kpi('DB%', _drPct(d.db_pct), resultClass) +
@@ -372,7 +377,7 @@ function _drRender(d) {
             '<div class="dr-metric"><span>Lønandel (produktion)</span><strong>' + _drPct(d.loenandel_pct) + '</strong></div>' +
             '<div class="dr-metric"><span>Vareforbrug pr. enhed</span><strong>' + (d.vareforbrug_pr_enhed == null ? '—' : _drMoney(d.vareforbrug_pr_enhed)) + '</strong></div>' +
             '<div class="dr-metric"><span>Enheder</span><strong>' + _drNum(d.units, 0) + '</strong></div>' +
-            '<div class="dr-metric"><span>Bonner</span><strong>' + _drNum(d.bon_count, 0) + '</strong></div>' +
+            '<div class="dr-metric dr-kpi-drill" data-drill="bons" title="Se bonnerne bag tallet" role="button" tabindex="0"><span>Bonner <span class="dr-drill-arrow">›</span></span><strong>' + _drNum(d.bon_count, 0) + '</strong></div>' +
             '<div class="dr-metric"><span>Produktionstimer</span><strong>' + _drNum(d.hours_production, 1) + '</strong></div>' +
         '</div>' +
         _drTimelineHtml(d.timeline) +
@@ -381,6 +386,88 @@ function _drRender(d) {
 
     var rf = body.querySelector('#drRefreeze');
     if (rf) rf.addEventListener('click', _drRefreeze);
+
+    body.querySelectorAll('[data-drill]').forEach(function (el) {
+        var go = function () {
+            var drill = el.getAttribute('data-drill');
+            if (drill === 'logistik') {
+                if (window.openLogistikForBon) window.openLogistikForBon(null, _driftState.date);
+            } else {
+                _drOpenBonModal();
+            }
+        };
+        el.addEventListener('click', go);
+        el.addEventListener('keydown', function (e) { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); go(); } });
+    });
+}
+
+// ── Per-bon nedbrydning (drill-down modal) ─────────────────
+// Bruger `day.bons` fra API'et (live eller frosset snapshot — tallene stemmer
+// med pills'ene). Ældre frosne snapshots mangler feltet → hent live med ⚠-flag.
+function _drOpenBonModal() {
+    var s = _driftState, d = s.day;
+    if (!d || typeof openModal !== 'function') return;
+    if (Array.isArray(d.bons)) {
+        _drShowBonModal(d, d.bons, false);
+    } else {
+        fetchDriftDayBons(d.date, d.mode).then(function (r) {
+            if (_driftState.day === d) _drShowBonModal(d, r.bons || [], true);
+        }).catch(function (err) {
+            openModal({ title: 'Bonner — ' + _drEsc(d.date), bodyHtml: '<div class="dr-error">Kunne ikke hente: ' + _drEsc(err.message) + '</div>' });
+        });
+    }
+}
+
+function _drShowBonModal(d, bons, liveFallback) {
+    var sum = function (k) { return bons.reduce(function (a, b) { return a + (b[k] || 0); }, 0); };
+
+    var warnHtml = liveFallback && d.frozen
+        ? '<div class="dr-warn"><div>⚠ Dagen er frosset, men snapshottet er fra før per-bon nedbrydningen — listen er beregnet live og kan afvige fra de frosne tal. Admin kan genberegne dagen for at synkronisere.</div></div>'
+        : '';
+
+    var rows = bons.map(function (b) {
+        var name = b.customer || '—';
+        var sub = (b.contact && b.contact !== b.customer) ? ' <span class="dr-sub">' + _drEsc(b.contact) + '</span>' : '';
+        return '<tr class="dr-bon-row" data-bon-id="' + b.id + '" title="Åbn bon">' +
+            '<td>' + _drEsc(b.bon_number) + '</td>' +
+            '<td>' + _drEsc(name) + sub + '</td>' +
+            '<td><span class="dr-flag">' + _drEsc(b.status_code) + '</span></td>' +
+            '<td class="dr-r">' + _drMoney(b.revenue_ex_moms) + '</td>' +
+            '<td class="dr-r">' + (b.cost_ex_moms ? '−' + _drMoney(b.cost_ex_moms) : '0 kr') + '</td>' +
+            '<td class="dr-r">' + (b.delivery_ex_moms ? '−' + _drMoney(b.delivery_ex_moms) : '<span class="dr-sub">0 kr</span>') + '</td>' +
+            '<td class="dr-r">' + _drNum(b.units, 0) + '</td>' +
+        '</tr>';
+    }).join('');
+
+    var foot = '<tr class="dr-foot dr-foot-total">' +
+        '<td colspan="3"><strong>I alt (' + bons.length + ' bonner)</strong></td>' +
+        '<td class="dr-r"><strong>' + _drMoney(sum('revenue_ex_moms')) + '</strong></td>' +
+        '<td class="dr-r"><strong>−' + _drMoney(sum('cost_ex_moms')) + '</strong></td>' +
+        '<td class="dr-r"><strong>−' + _drMoney(sum('delivery_ex_moms')) + '</strong></td>' +
+        '<td class="dr-r"><strong>' + _drNum(sum('units'), 0) + '</strong></td></tr>';
+
+    var modeLabel = d.mode === 'forecast' ? 'forecast' : 'realiseret';
+    var bodyHtml = warnHtml +
+        (bons.length
+            ? '<table class="dr-labor dr-bon-table"><thead><tr><th>Bon</th><th>Kunde</th><th>Status</th>' +
+              '<th class="dr-r">Omsætning</th><th class="dr-r">Vareforbrug</th><th class="dr-r">Levering</th><th class="dr-r">Enh.</th></tr></thead>' +
+              '<tbody>' + rows + '</tbody><tfoot>' + foot + '</tfoot></table>' +
+              '<div class="dr-sub" style="margin-top:8px">Alle beløb ex moms · ' + modeLabel + (d.frozen && !liveFallback ? ' · 🔒 fra frosset snapshot' : '') + '</div>'
+            : '<div class="dr-empty">Ingen bonner indgår i dagens tal.</div>');
+
+    openModal({ title: 'Bonner bag tallene — ' + _drEsc(d.date), bodyHtml: bodyHtml });
+
+    var overlay = document.querySelector('.modal-overlay');
+    if (!overlay) return;
+    overlay.querySelectorAll('.dr-bon-row').forEach(function (tr) {
+        tr.addEventListener('click', function () {
+            var id = parseInt(tr.getAttribute('data-bon-id'), 10);
+            if (!id) return;
+            closeModal();
+            if (_driftState.openDrawer) _driftState.openDrawer(id);
+            else if (window.openDrawer) window.openDrawer(id);
+        });
+    });
 }
 
 function _drRefreeze() {
