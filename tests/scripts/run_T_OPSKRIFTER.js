@@ -512,6 +512,14 @@ async function runItemPrices() {
         return;
     }
 
+    // Snapshot R1's Grocy store-pris (incl moms) — PUT skriver nu tilbage til
+    // Grocy-userfieldet, så vi skal kunne gendanne i cleanup.
+    try {
+        const gr = await api('GET', '/api/grocy/recipes');
+        const r1 = (gr.body || []).find(x => x.id === R1);
+        created.r1StoreInclOriginal = r1?.prices?.store ?? 0;
+    } catch (e) { created.r1StoreInclOriginal = 0; }
+
     // IP_01: PUT opretter ny pris (forventer overwrite siden seed populerede den)
     const p1 = await api('PUT', '/api/item-prices', {
         item_type: 'recipe',
@@ -561,6 +569,19 @@ async function runItemPrices() {
     });
     if (p3.status === 400) record('T_OPS_IP_05', 'PRICES', 'PASS');
     else record('T_OPS_IP_05', 'PRICES', 'FAIL', `status=${p3.status} (forventet 400)`);
+
+    // IP_06: PUT skriver tilbage til Grocy Salesprice-userfield (incl moms).
+    // Sidste gemte pris var 99.00 ex → 123.75 incl i Grocy (§6b: exclToIncl).
+    try {
+        const gr = await api('GET', '/api/grocy/recipes');
+        const r1 = (gr.body || []).find(x => x.id === R1);
+        const grocyIncl = r1?.prices?.store;
+        if (grocyIncl != null && Math.abs(grocyIncl - 123.75) < FLOAT_TOL) {
+            record('T_OPS_IP_06', 'PRICES', 'PASS', `Grocy store=${grocyIncl} incl`);
+        } else {
+            record('T_OPS_IP_06', 'PRICES', 'FAIL', `Grocy store=${grocyIncl} (forventet 123.75 incl)`);
+        }
+    } catch (e) { record('T_OPS_IP_06', 'PRICES', 'FAIL', e.message); }
 }
 
 // ════════════════════════════════════════════════════════════
@@ -590,6 +611,22 @@ async function runCleanup() {
     // Slet test-targets
     for (const cat of TEST_CATEGORIES) {
         db.prepare(`DELETE FROM recipe_db_targets WHERE category = ?`).run(cat);
+    }
+
+    // Gendan R1's Grocy store-pris (item-price-testene skrev tilbage til Grocy)
+    if (created.testRecipes.R1 && created.r1StoreInclOriginal != null) {
+        try {
+            const exclOriginal = Math.round((created.r1StoreInclOriginal / 1.25) * 100) / 100;
+            await api('PUT', '/api/item-prices', {
+                item_type: 'recipe',
+                item_id: created.testRecipes.R1,
+                price_category_code: 'store',
+                price_excl_moms: exclOriginal,
+            });
+            console.log(`  ✓ R1 Grocy store-pris gendannet til ${created.r1StoreInclOriginal} incl`);
+        } catch (e) {
+            console.log(`  ⚠ Kunne ikke gendanne R1 Grocy-pris: ${e.message}`);
+        }
     }
 
     console.log('  ✓ Cleanup færdig');

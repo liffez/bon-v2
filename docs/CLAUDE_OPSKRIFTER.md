@@ -549,6 +549,35 @@ priser i `item_prices` IKKE overskrives. Brug `force=2` for at også overskrive.
 
 ---
 
+## To-vejs sync: Grocy er master (juni 2026)
+
+Backfillen ovenfor var oprindelig et engangs-løft, hvorefter `item_prices` var
+**frakoblet** Grocy: redigeringer i viewet landede kun lokalt, og Grocy-prisændringer
+slog ikke igennem i analysen — mens VarePicker fortsat solgte til Grocy-priserne.
+Det er lukket med to mekanismer (Grocy er altid master):
+
+1. **Write-back** — `PUT /api/item-prices` (item_type='recipe') skriver FØRST til
+   Grocy-userfieldet (`Moms.exclToIncl(price)` — §6b: Salesprice* er incl moms) via
+   `grocyAdapter.updateRecipeUserfields()`. Fejler Grocy → 503, og der gemmes INTET
+   lokalt, så de to aldrig divergerer. item_type 'product'/'local' er fortsat lokale.
+2. **Pull-sync** — `syncPricesFromGrocy(rawRecipes)` i `itemPriceBackfill.js` kaldes
+   fra både `POST /api/recipes/refresh-costs` og nightly `scripts/refresh-recipe-costs.js`.
+   Upsert'er Grocy → item_prices (kun rækker der reelt afviger, så `updated_at` ikke
+   churner), sletter rækker hvis prisen er fjernet/0 i Grocy. `updated_by_user_id`
+   sættes NULL ved sync-skrivninger ("kom fra Grocy").
+
+**Deploy-engangstrin:** kør `scripts/reconcile-item-prices.js` (dry-run) FØR første
+refresh efter deploy — den lister rækker hvor item_prices afviger fra Grocy.
+`--push` = view-redigeringer var de rigtige (lokal → Grocy), `--pull` = Grocy var
+den rigtige. `updated_by_user_id` kan IKKE bruges til at skelne manuel/backfill
+(backfillen stemplede også bruger-id).
+
+**Kendt fix samme omgang:** `scripts/refresh-recipe-costs.js` kaldte `openDb()` uden
+sti-argument og crashede derfor altid (cron-jobbet har aldrig kunnet køre). Rettet
+til `openDb(process.env.DB_PATH)`.
+
+---
+
 ## Implementeringsrækkefølge
 
 1. **Migration 068** — recreate `item_prices` med `item_type` + ny `recipe_cost_cache` + ny `recipe_db_targets` (uden seed)

@@ -590,6 +590,9 @@ function _opsPanelBodyHtml(r) {
                     &nbsp;·&nbsp; DB kr ex moms: <strong>${_opsFmtKr(r.db_kr_excl_moms)}</strong>
                     &nbsp;·&nbsp; DB%: <strong>${_opsFmtPct(r.db_pct)}</strong>
                 </span>
+                <span class="label" style="grid-column:1/-1;font-size:11px;color:#8a8378">
+                    Gemmes også i Grocy (som pris inkl. moms)
+                </span>
             </div>
         </div>
     `;
@@ -651,7 +654,7 @@ function _opsBindPanelEvents(r) {
                 price_category_code: _opsState.priceCategory,
                 price_excl_moms: val,
             });
-            _opsToast('Pris gemt');
+            _opsToast('Pris gemt (også i Grocy)');
             _opsClosePanel();
             _opsLoad();
         } catch (err) {

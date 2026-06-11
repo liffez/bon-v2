@@ -25,7 +25,7 @@ const express = require('express');
 const router = express.Router();             // monteres på /api/recipes
 const itemPricesRouter = express.Router();   // monteres på /api/item-prices
 const { getDb } = require('../db/database');
-const { handle, logChange, inclToExcl } = require('../db/helpers');
+const { handle, logChange, inclToExcl, exclToIncl } = require('../db/helpers');
 const { requireAuth } = require('../shared/auth');
 const grocyAdapter = require('../services/grocyAdapter');
 const itemPriceBackfill = require('../services/itemPriceBackfill');
@@ -371,8 +371,18 @@ router.post('/refresh-costs', handle(async (req, res) => {
         }
     }
 
+    // Synk også salgspriser Grocy → item_prices (Grocy er master; redigeringer i
+    // viewet er allerede skrevet tilbage til Grocy, så overwrite er sikkert).
+    let priceSync = null;
+    try {
+        priceSync = itemPriceBackfill.syncPricesFromGrocy(rawRecipes);
+    } catch (err) {
+        errors.push({ price_sync: true, error: err.message });
+    }
+
     const result = {
         refreshed,
+        price_sync: priceSync,
         errors: errors.length ? errors : undefined,
         duration_ms: Date.now() - t0,
         refreshed_at: new Date().toISOString(),
@@ -409,7 +419,7 @@ router.post('/backfill', requireAuth('admin'), handle(async (req, res) => {
 // Bemærk: monteret på sin egen router så public path bliver /api/item-prices
 // (matcher spec). Selve handleren ligger her for at holde modul-sammenhæng.
 
-itemPricesRouter.put('/', handle((req, res) => {
+itemPricesRouter.put('/', handle(async (req, res) => {
     const { item_type, item_id, price_category_code, price_excl_moms } = req.body || {};
 
     if (!['recipe', 'product', 'local'].includes(item_type)) {
@@ -430,6 +440,26 @@ itemPricesRouter.put('/', handle((req, res) => {
     const pcId = _getPriceCategoryId(price_category_code);
     if (!pcId) {
         return res.status(400).json({ error: `Ukendt price_category_code: ${price_category_code}` });
+    }
+
+    // Write-back til Grocy FØRST (Grocy er master for recipe-salgspriser — §6b:
+    // Salesprice*-userfields er INCL moms). Fejler Grocy gemmes der INTET lokalt,
+    // så item_prices og Grocy aldrig divergerer.
+    if (item_type === 'recipe') {
+        const userfield = itemPriceBackfill.CATEGORY_TO_USERFIELD[price_category_code];
+        if (userfield) {
+            const priceInclMoms = r2(exclToIncl(priceNum));
+            try {
+                await grocyAdapter.updateRecipeUserfields(Number(item_id), {
+                    [userfield]: String(priceInclMoms),
+                });
+            } catch (err) {
+                return res.status(503).json({
+                    error: 'Grocy ikke tilgængelig — prisen blev IKKE gemt',
+                    detail: err.message,
+                });
+            }
+        }
     }
 
     const userId = req.session?.userId || null;

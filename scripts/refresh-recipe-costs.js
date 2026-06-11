@@ -31,6 +31,7 @@ process.env.DB_PATH = process.env.DB_PATH || path.join(__dirname, '..', 'data', 
 
 const { openDb } = require('../db/compat');
 const grocyAdapter = require('../services/grocyAdapter');
+const { syncPricesFromGrocy } = require('../services/itemPriceBackfill');
 
 function r2(n) { return Math.round((n ?? 0) * 100) / 100; }
 
@@ -40,7 +41,8 @@ function logLine(msg) {
 
 async function main() {
     const t0 = Date.now();
-    const db = openDb();
+    // openDb() kræver eksplicit sti (ingen default) — uden arg crasher scriptet
+    const db = openDb(process.env.DB_PATH);
 
     // Verificér at recipe_cost_cache findes (migration 068 kørt)
     const tableExists = db.prepare(
@@ -89,6 +91,15 @@ async function main() {
             errors++;
             logLine(`  fejl ved recipe ${recipe.id} (${recipe.name}): ${err.message}`);
         }
+    }
+
+    // Synk salgspriser Grocy → item_prices (Grocy er master)
+    try {
+        const sync = syncPricesFromGrocy(rawRecipes, { db });
+        logLine(`Pris-sync: ${sync.updated} opdateret, ${sync.deleted} slettet (af ${sync.scanned} recipes)`);
+    } catch (err) {
+        errors++;
+        logLine(`  fejl ved pris-sync: ${err.message}`);
     }
 
     const duration = Date.now() - t0;
