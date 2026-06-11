@@ -10,12 +10,19 @@
     border-bottom: 1px solid var(--color-border);
     padding: 10px 20px;
     position: sticky;
-    top: 44px; /* under topbar */
+    top: 44px; /* under kitchen-topbar */
     z-index: 200;
     display: flex;
     align-items: center;
     gap: 16px;
     flex-wrap: wrap;
+}
+
+/* Office: scroll-containeren er .office-main (ikke window), så kitchen-offsettet
+   på 44px skubber headeren ned over filter-knapperne fra start. top: 0 = stick
+   til toppen af scrolleren uden initial overlap. */
+.zone-office .cal-header {
+    top: 0;
 }
 
 .cal-month-nav {
@@ -268,6 +275,15 @@
 .cal-bon-entry[data-production="true"] {
     --bon-color: #4a7ab0;
     --bon-text: #ffffff;
+}
+
+/* AFLYST — dæmpet + gennemstreget når den vises via AFLYST-togglen */
+.cal-bon-entry[data-status="aflyst"] {
+    opacity: 0.55;
+    text-decoration: line-through;
+}
+.cal-list-row[data-status="aflyst"] {
+    opacity: 0.55;
 }
 
 .cal-bon-entry[data-offer="true"] {

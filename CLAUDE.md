@@ -275,20 +275,54 @@ Standard-arbejdsgang ved slutningen af en Claude Code-session der har lavet ænd
 > Vent på et klart "ja" (eller en specifik instruktion) før du kører nogen af kommandoerne nedenfor.
 > Hold sessionen åben og afvent næste besked — afslut den ikke selv.
 
+> **TEST FØR MERGE (standard fra 10. juni 2026):** Brugeren tester ændringen i drift
+> FRA BRANCHEN, FØR der merges. Merge med `--delete-branch` sletter branchen og rydder
+> dermed worktree-sessionen op — og så er sessionen væk netop når brugeren opdager
+> noget der skal rettes. Merge er derfor ALTID sidste skridt, efter godkendelse i drift.
+>
+> **Claude leverer ALTID de præcise terminal-kommandoer** brugeren skal køre på
+> Hetzner ved hvert trin (test fra branch / hent rettelser / skift tilbage til main) —
+> kopier-klar med det rigtige branch-navn indsat, så brugeren ikke selv skal regne
+> git-flowet ud.
+
 **Claude gør — KUN efter brugerens go:**
 ```bash
 git commit -m "..."                                    # commit-besked beskriver hvad + hvorfor
 git push -u origin <branch>                            # branch er typisk claude/<navn>
 gh pr create --base main --title "..." --body "..."    # PR-body fungerer som changelog
-gh pr merge --squash --delete-branch                   # main får én commit per feature — kun hvis brugeren beder om merge
+# ── STOP: vent på at brugeren har testet fra branchen og godkendt i drift ──
+gh pr merge --squash --delete-branch                   # SIDSTE skridt — kun efter godkendelse
 ```
 
 **Bruger gør (SSH'et ind på Hetzner-serveren som `leif`):**
+
+*Trin 1 — test fra branchen (før merge):*
 ```bash
-cd ~/bon-v2                       # = /home/leif/bon-v2
-git pull
-sudo systemctl restart bon-v2     # kun hvis nødvendigt (kode-ændringer, ikke kun docs)
+cd ~/bon-v2                                # = /home/leif/bon-v2
+git fetch origin
+git checkout claude/<branch>               # Claude indsætter det rigtige branch-navn
+sudo systemctl restart bon-v2              # kun ved kode-ændringer (ikke kun docs)
 ```
+
+*Trin 2 — hvis Claude pusher rettelser til samme branch undervejs:*
+```bash
+cd ~/bon-v2
+git pull                                   # branchen tracker allerede origin
+sudo systemctl restart bon-v2
+```
+
+*Trin 3 — efter godkendelse og Claudes merge → tilbage til main:*
+```bash
+cd ~/bon-v2
+git checkout main
+git pull
+sudo systemctl restart bon-v2              # main = det testede + squash, genstart for en sikkerheds skyld
+```
+
+**Forbehold ved branch-test:** branches med nye `db/migrations/`-filer kører migrationen
+ved restart — vær påpasselig med at hoppe frem/tilbage mellem branch og main ved
+migrations-PR'er (migrationen ruller IKKE tilbage ved checkout af main). Husk også
+hård browser-refresh (Cmd+Shift+R) efter deploy — JS/CSS kan være cachet.
 
 **Regler:**
 - Migrations kører automatisk ved server-start. Hvis commit'en indeholder en ny `db/migrations/`-fil → genstart kræves

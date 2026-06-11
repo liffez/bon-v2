@@ -153,7 +153,11 @@ function _buildStatusFilters() {
 
     if (typeof BON_CONFIG === 'undefined' || !BON_CONFIG.statuses) return bar;
 
-    var statuses = BON_CONFIG.statuses;
+    // AFLYST findes ikke i BON_CONFIG.statuses (indgår ikke i status-bar/sekvens),
+    // men skal kunne filtreres i kalenderen som enhver anden status.
+    var statuses = Object.assign({}, BON_CONFIG.statuses, {
+        'aflyst': { label: 'AFLYST', color: '#8a8a8a', text: '#ffffff' }
+    });
     for (var key in statuses) {
         if (!statuses.hasOwnProperty(key)) continue;
         var cfg = statuses[key];
@@ -868,6 +872,9 @@ function _initSSE() {
             console.log('SSE tilsluttet (calendar)');
         },
         bon_status: function() {
+            _loadData();
+        },
+        bon_deleted: function() {
             _loadData();
         },
         bon_updated: function() {

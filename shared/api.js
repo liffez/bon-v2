@@ -43,6 +43,10 @@ function fetchBon(id) {
     return apiFetch('/bons/' + id);
 }
 
+function deleteBon(id) {
+    return apiFetch('/bons/' + id, { method: 'DELETE' });
+}
+
 function patchBonStatus(id, statusCode, userId) {
     return apiFetch('/bons/' + id + '/status', {
         method: 'PATCH',
