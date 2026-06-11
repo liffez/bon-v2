@@ -509,6 +509,12 @@ router.post('/', handle((req, res) => {
 // og menu-grupper. Nulstiller workflow-felter (status, prep, lager-træk,
 // kvitteret, courier-booking, tilbuds-flag, v1-sync). Body kan optionelt
 // overskrive delivery_date/pickup_time/delivery_time (typisk brugscase).
+//
+// Event-bons: event_id + event_role bevares på kopien. Uden dem ville en
+// kopieret prep-bon falde ud af eventets prep-liste/P&L OG miste Vej B-
+// undtagelsen i autoConsumeBonInventory — den ville aldrig trække HQ-lager
+// ved LEVERET når det globale auto-deduct-flag er slukket. Typisk brugscase:
+// flerdags-event med ens dage → kopiér dag 1's prep-bon til dag 2.
 
 router.post('/:id/copy', handle((req, res) => {
     const db = getDb();
@@ -534,6 +540,7 @@ router.post('/:id/copy', handle((req, res) => {
         const ins = db.prepare(`
             INSERT INTO bons (
                 bon_number, status_id, location_id, customer_id, company_id, price_category_id,
+                event_id, event_role,
                 order_date, delivery_date, pickup_time, delivery_time,
                 delivery_type, delivery_method, delivery_address_id,
                 delivery_notes, delivery_price,
@@ -544,6 +551,7 @@ router.post('/:id/copy', handle((req, res) => {
                 created_by_user_id, is_internal
             ) VALUES (
                 ?,?,?,?,?,?,
+                ?,?,
                 ?,?,?,?,
                 ?,?,?,
                 ?,?,
@@ -556,6 +564,7 @@ router.post('/:id/copy', handle((req, res) => {
         `).run(
             bonNumber, statusId, src.location_id,
             src.customer_id, src.company_id, src.price_category_id,
+            src.event_id, src.event_role,
             today,
             body.delivery_date ?? src.delivery_date,
             body.pickup_time ?? src.pickup_time,

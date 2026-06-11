@@ -382,7 +382,10 @@ class BonDrawer {
         this.el.querySelector('.drawer-copy').addEventListener('click', async () => {
             if (!this.bonId) return;
             if (this.dirty && !confirm('Du har ugemte ændringer. Kopiér alligevel — uden at gemme dem først?')) return;
-            if (!confirm('Kopiér denne bon? Den nye bon får status NY og dagens dato som ordredato.')) return;
+            const evNote = this.data?.event_id
+                ? `\n\nBonen er koblet til eventet "${this.data.event_name || ''}" — kopien bliver i eventet med samme rolle. Husk at rette datoen hvis den skal dække en anden dag.`
+                : '';
+            if (!confirm('Kopiér denne bon? Den nye bon får status NY og dagens dato som ordredato.' + evNote)) return;
             const btn = this.el.querySelector('.drawer-copy');
             const oldHtml = btn.innerHTML;
             btn.disabled = true;
