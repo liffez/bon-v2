@@ -66,7 +66,7 @@ function _faktRender() {
                 <div class="fakt-sum-card">
                     <div class="fakt-sum-label">Ufaktureret beløb</div>
                     <div class="fakt-sum-val">${_faktFmt(summary.pending_amount)} kr</div>
-                    <div class="fakt-sum-sub">inkl. moms</div>
+                    <div class="fakt-sum-sub">inkl. moms &middot; ${_faktFmt(Moms.inclToExcl(summary.pending_amount))} kr ex</div>
                 </div>
                 <div class="fakt-sum-card">
                     <div class="fakt-sum-label">Heraf EAN</div>
@@ -76,7 +76,7 @@ function _faktRender() {
                 <div class="fakt-sum-card">
                     <div class="fakt-sum-label">Faktureret ${monthName}</div>
                     <div class="fakt-sum-val">${_faktFmt(summary.done_amount_month)} kr</div>
-                    <div class="fakt-sum-sub">${summary.done_count_month} bonner &middot; inkl. moms</div>
+                    <div class="fakt-sum-sub">${summary.done_count_month} bonner &middot; inkl. moms &middot; ${_faktFmt(Moms.inclToExcl(summary.done_amount_month))} kr ex</div>
                 </div>
             </div>
 
