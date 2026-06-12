@@ -160,8 +160,11 @@ function autoConsumeBonInventory(bonId) {
     // faktisk pakkede mængde i stedet for den BOM-beregnede, så HQ-lageret
     // afspejler hvad der fysisk forlod huset (inkl. buffer).
     const packingOverrides = getPrepPackingOverrides(bonId);
+    // Ekstra buffer-varer (event-prep): produkter køkkenet tager MED OVENI
+    // opskrifterne (fx 1 kg ekstra mayonnaise). Trækkes oven i BOM-forbruget.
+    const packingExtras = getPrepPackingExtras(bonId);
     const { consumeRecipes } = require('../services/grocyAdapter');
-    consumeRecipes(lines, packingOverrides).then(results => {
+    consumeRecipes(lines, packingOverrides, packingExtras).then(results => {
         const failed  = results.filter(r => !r.success);
         const partial = results.filter(r => r.partial);
         if (failed.length) {
@@ -190,6 +193,15 @@ function getPrepPackingOverrides(bonId) {
     const map = new Map();
     for (const r of rows) map.set(parseInt(r.product_id), parseFloat(r.packed_amount));
     return map;
+}
+
+// Ekstra buffer-varer på en (event-prep) bon. Returnerer et array
+// [{ product_id, amount }] i stock-units. Bruges af autoConsumeBonInventory →
+// consumeRecipes til at trække ekstra-varer OVENI opskrifts-forbruget.
+function getPrepPackingExtras(bonId) {
+    return getDb().prepare(
+        `SELECT product_id, amount FROM prep_packing_extras WHERE bon_id = ?`
+    ).all(bonId).map(r => ({ product_id: parseInt(r.product_id), amount: parseFloat(r.amount) }));
 }
 
 // Visuelle grupper på køkken-bonens menu-liste (titel + note + rækkefølge).
@@ -348,7 +360,7 @@ function getUserId(req) {
 
 module.exports = {
     nextBonNumber, nextQuoteNumber, logChange, handle,
-    getBon, getBonLines, getBonMenuGroups, getPrepPackingOverrides, getStatusId, getDefaultLocationId,
+    getBon, getBonLines, getBonMenuGroups, getPrepPackingOverrides, getPrepPackingExtras, getStatusId, getDefaultLocationId,
     todayISO, offsetISO,
     autoConsumeBonInventory,
     getUnitCountCategories, invalidateUnitCountCache, recalcBonTotalUnits,

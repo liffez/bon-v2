@@ -641,7 +641,7 @@ async function updateShoppingListItem(id, fields) {
  * @param {Array<{grocy_recipe_id: number, quantity: number}>} lines  Bon-linjer
  * @returns {Array<{product_id: number, product_name: string, amount: number, success: boolean, error?: string}>}
  */
-async function consumeRecipes(lines, overrides = null) {
+async function consumeRecipes(lines, overrides = null, extras = null) {
     const validLines = lines.filter(l => l.grocy_recipe_id);
     if (!validLines.length) return [];
 
@@ -708,6 +708,40 @@ async function consumeRecipes(lines, overrides = null) {
         let sum = ownStock;
         for (const kid of kids) sum += stockByPid.get(kid) || 0;
         return sum;
+    }
+
+    // ── Ekstra buffer-varer (event-prep §6): læg OVENI BOM-forbruget ──
+    //
+    // Køkkenet tager ofte lidt ekstra med ud over opskrifterne (fx 1 kg ekstra
+    // mayonnaise ved siden af den senneps-mayo der allerede er blandet hjemmefra).
+    // En extra ADDERER til forbruget — i modsætning til en override der ERSTATTER.
+    // Falder varen sammen med en BOM-vare (samme product_id), lægges mængden oveni;
+    // ellers tilføjes en ny consume-post med metadata fra products-snapshottet.
+    if (extras && extras.length) {
+        const productMap = new Map(products.map(p => [parseInt(p.id), p]));
+        const itemByPid = new Map(items.map(it => [it.product_id, it]));
+        for (const ex of extras) {
+            const pid = parseInt(ex.product_id);
+            const amt = Number(ex.amount);
+            if (!pid || Number.isNaN(amt) || amt <= 0) continue;
+            const existing = itemByPid.get(pid);
+            if (existing) {
+                existing.amount_stock += amt;
+            } else {
+                const p = productMap.get(pid) || {};
+                const newItem = {
+                    product_id:        pid,
+                    product_name:      p.name || ex.product_name || `Produkt #${pid}`,
+                    amount_stock:      amt,
+                    qu_id_stock:       p.qu_id_stock || null,
+                    qu_id_purchase:    p.qu_id_purchase || null,
+                    parent_product_id: p.parent_product_id ? parseInt(p.parent_product_id) : null,
+                    purchase_factor:   1,
+                };
+                items.push(newItem);
+                itemByPid.set(pid, newItem);
+            }
+        }
     }
 
     // ── Consume hvert produkt med partial-fallback + shopping-list-add ──

@@ -683,9 +683,19 @@ async function showRavarer(cardId) {
 let _pakkeData = null;       // { production, raw } fra fetchBonIngredients
 let _pakkeBon = null;        // bon-objekt (inkl. lines)
 let _pakkeBonId = null;
-let _pakkeLevel = 'raw';     // default: råvarer (det der pakkes)
-let _pakkeOverrides = {};    // product_id → packed_amount (manuelle justeringer)
-let _pakkeSaveTimer = null;  // debounce til auto-gem af overrides
+let _pakkeLevel = 'pack';    // 'pack' = det vi pakker (produktions-niveau) | 'goal' = retter der skal laves
+let _pakkeOverrides = {};    // product_id → packed_amount (buffer-in-place på direkte varer)
+let _pakkeExtras = [];       // [{ product_id, product_name, amount, unit }] — ekstra varer oveni
+let _pakkeSaveTimer = null;  // debounce til auto-gem af overrides + extras
+let _pakkeProducts = null;   // Grocy produkt-cache til "tag ekstra med"-vælger (lazy)
+let _pakkeUnitMap = null;    // qu_id → enheds-label (lazy, sammen med _pakkeProducts)
+
+// Ældre sessionStorage-værdier ('raw'/'production') → nye ('pack'/'goal')
+function _pakkeNormLevel(lvl) {
+    if (lvl === 'raw') return 'pack';
+    if (lvl === 'production') return 'goal';
+    return (lvl === 'pack' || lvl === 'goal') ? lvl : 'pack';
+}
 
 async function showPakkeliste(cardId) {
     const card = document.getElementById(cardId);
@@ -693,7 +703,7 @@ async function showPakkeliste(cardId) {
     const bonId = cardId.replace('bon', '');
     const bonNr = card.querySelector('.bon-id')?.textContent?.trim() || '#' + bonId;
     _pakkeBonId = bonId;
-    _pakkeLevel = sessionStorage.getItem(`pakke_level_${bonId}`) || 'raw';
+    _pakkeLevel = _pakkeNormLevel(sessionStorage.getItem(`pakke_level_${bonId}`));
     openModal({
         title: `📦 Pakkeliste — ${esc(bonNr)}`,
         bodyHtml: '<div class="changelog-empty">Henter pakkeliste…</div>',
@@ -701,14 +711,21 @@ async function showPakkeliste(cardId) {
     try {
         const [bonRes, ingredients, packing] = await Promise.all([
             fetch(`/api/bons/${bonId}`, { credentials: 'same-origin' }).then(r => r.json()),
-            fetchBonIngredients(bonId).catch(() => ({ production: { ingredients: [], groups: [] }, raw: { ingredients: [], groups: [] } })),
-            fetch(`/api/bons/${bonId}/packing`, { credentials: 'same-origin' }).then(r => r.json()).catch(() => ({ overrides: [] })),
+            fetchBonIngredients(bonId).catch(() => ({ production: { ingredients: [], groups: [], sub_recipes: [] }, raw: { ingredients: [], groups: [] } })),
+            fetch(`/api/bons/${bonId}/packing`, { credentials: 'same-origin' }).then(r => r.json()).catch(() => ({ overrides: [], extras: [] })),
         ]);
         _pakkeBon = bonRes;
         _pakkeData = ingredients;
-        // Override-map: product_id → packed_amount
+        // Override-map: product_id → packed_amount (buffer på direkte varer)
         _pakkeOverrides = {};
         for (const o of (packing.overrides || [])) _pakkeOverrides[o.product_id] = Number(o.packed_amount);
+        // Ekstra-varer (lægges oveni opskrifterne)
+        _pakkeExtras = (packing.extras || []).map(x => ({
+            product_id: parseInt(x.product_id),
+            product_name: x.product_name || '',
+            amount: Number(x.amount),
+            unit: x.unit || '',
+        }));
         _renderPakkeliste();
     } catch (err) {
         console.error('Fejl ved hentning af pakkeliste:', err);
@@ -724,19 +741,26 @@ function _setPakkeLevel(level) {
     _renderPakkeliste();
 }
 
-// Gem pakke-overrides til serveren (debounced). Sender kun de produkter der
-// rent faktisk afviger fra det BOM-beregnede — resten bruger den beregnede
-// mængde server-side.
+// Gem pakke-justeringer til serveren (debounced). Sender både overrides (buffer
+// på direkte varer — kun dem der afviger fra det BOM-beregnede) og extras (varer
+// der tages med oveni). Resten bruger den beregnede mængde server-side.
 function _schedulePakkeSave() {
     clearTimeout(_pakkeSaveTimer);
-    _pakkeSaveTimer = setTimeout(_savePakkeOverrides, 500);
+    _pakkeSaveTimer = setTimeout(_savePacking, 500);
 }
 
-async function _savePakkeOverrides() {
+// Find navn/enhed for et produkt-id i det resolvede datasæt (produktion først,
+// så råvarer) — til snapshot på override-rækken.
+function _pakkeFindIngredient(pid) {
+    const inProd = (_pakkeData?.production?.ingredients || []).find(i => String(i.product_id) === String(pid));
+    if (inProd) return inProd;
+    return (_pakkeData?.raw?.ingredients || []).find(i => String(i.product_id) === String(pid));
+}
+
+async function _savePacking() {
     if (!_pakkeBonId) return;
     const overrides = Object.entries(_pakkeOverrides).map(([pid, amt]) => {
-        // Find navn/enhed fra det rå datasæt til snapshot
-        const ing = (_pakkeData?.raw?.ingredients || []).find(i => String(i.product_id) === String(pid));
+        const ing = _pakkeFindIngredient(pid);
         return {
             product_id: parseInt(pid),
             packed_amount: Number(amt),
@@ -744,12 +768,18 @@ async function _savePakkeOverrides() {
             unit: ing?.unit || ing?.stock_unit || null,
         };
     });
+    const extras = _pakkeExtras.map(x => ({
+        product_id: x.product_id,
+        amount: Number(x.amount),
+        product_name: x.product_name || null,
+        unit: x.unit || null,
+    }));
     try {
         const res = await fetch(`/api/bons/${_pakkeBonId}/packing`, {
             method: 'PUT',
             headers: { 'Content-Type': 'application/json' },
             credentials: 'same-origin',
-            body: JSON.stringify({ overrides }),
+            body: JSON.stringify({ overrides, extras }),
         });
         if (!res.ok) {
             const body = document.querySelector('.modal-body');
@@ -822,6 +852,40 @@ function _renderPakkeliste() {
         });
     });
 
+    // Ekstra-varer: mængde-redigering
+    body.querySelectorAll('.pakke-extra-qty').forEach(inp => {
+        inp.addEventListener('click', e => e.preventDefault());
+        const commit = () => {
+            const pid = parseInt(inp.dataset.pakkeXpid);
+            const ex = _pakkeExtras.find(x => x.product_id === pid);
+            if (!ex) return;
+            const val = Number(inp.value);
+            if (Number.isNaN(val) || val < 0) { inp.value = String(ex.amount); return; }
+            ex.amount = val;
+            _schedulePakkeSave();
+        };
+        inp.addEventListener('change', () => { commit(); _renderPakkeliste(); });
+        inp.addEventListener('input', commit);
+    });
+
+    // Ekstra-varer: fjern
+    body.querySelectorAll('.pakke-extra-remove').forEach(btn => {
+        btn.addEventListener('click', e => {
+            e.preventDefault();
+            const pid = parseInt(btn.dataset.pakkeXremove);
+            _pakkeExtras = _pakkeExtras.filter(x => x.product_id !== pid);
+            _schedulePakkeSave();
+            _renderPakkeliste();
+        });
+    });
+
+    // "Tag ekstra med"-vælger: søg Grocy-varer
+    const search = body.querySelector('.pakke-extra-search');
+    if (search) {
+        search.addEventListener('input', () => _pakkeRenderExtraResults(search.value));
+        search.addEventListener('focus', () => { _pakkeEnsureProducts().then(() => _pakkeRenderExtraResults(search.value)); });
+    }
+
     _updatePakkelisteProgress(body);
 }
 
@@ -830,49 +894,62 @@ function _buildPakkelisteHtml(bon, data, level) {
     if (lines.length === 0) {
         return '<div class="changelog-empty">Ingen linjer på denne bon endnu — tilføj varer først.</div>';
     }
+    const fmt = (n) => n < 1 ? Number(n).toFixed(2) : (n < 10 ? Number(n).toFixed(1) : String(Math.round(n)));
     const eventLabel = bon.event_name ? ` til <strong>${esc(bon.event_name)}</strong>` : '';
-    const isRaw = (level === 'raw');
+    const isPack = (level === 'pack');
+    const locked = (bon.inventory_deducted === 1);
     const toggle = `
         <div class="pakke-toggle">
-            <button type="button" class="pakke-toggle-btn ${isRaw ? 'active' : ''}" onclick="_setPakkeLevel('raw')">📦 Råvarer</button>
-            <button type="button" class="pakke-toggle-btn ${!isRaw ? 'active' : ''}" onclick="_setPakkeLevel('production')">🔧 Produktionsmål</button>
+            <button type="button" class="pakke-toggle-btn ${isPack ? 'active' : ''}" onclick="_setPakkeLevel('pack')">📦 Pak ned</button>
+            <button type="button" class="pakke-toggle-btn ${!isPack ? 'active' : ''}" onclick="_setPakkeLevel('goal')">🍽 Skal laves</button>
         </div>`;
-    const lockedNow = (bon.inventory_deducted === 1);
     const intro = `
         <div class="pakke-intro">
-            <div>${isRaw
-                ? `Pak det her ned og tag det med fra HQ${eventLabel}. <em>(Sandwich laves on-the-spot — vi pakker råvarer + emballage)</em>`
-                : `Produktionsmål — det her skal kunne laves på eventet${eventLabel}.`}</div>
+            <div>${isPack
+                ? `Pak det her ned og tag det med fra HQ${eventLabel}. <em>(Dressinger er blandet hjemmefra og pakkes som færdige varer — ikke salt og peber hver for sig.)</em>`
+                : `Det her skal kunne laves på eventet${eventLabel}.`}</div>
             <div class="pakke-progress" id="pakkeProgress">0 / 0 pakket</div>
         </div>${toggle}
-        ${isRaw && !lockedNow ? '<div class="pakke-edit-hint">Klik på et tal for at justere — fx tage lidt buffer med. Ændringen trækkes fra HQ ved levering.</div>' : ''}
-        ${isRaw && lockedNow ? '<div class="pakke-edit-hint pakke-locked-hint">🔒 Bonen er leveret — mængderne er trukket fra HQ og kan ikke ændres.</div>' : ''}`;
+        ${isPack && !locked ? '<div class="pakke-edit-hint">Klik på et tal for at justere — eller tag ekstra med nederst. Det trækkes fra HQ ved levering.</div>' : ''}
+        ${isPack && locked ? '<div class="pakke-edit-hint pakke-locked-hint">🔒 Bonen er leveret — mængderne er trukket fra HQ og kan ikke ændres.</div>' : ''}`;
 
-    const locked = (bon.inventory_deducted === 1);
     let items = [];
-    if (isRaw) {
-        // Råvare-niveau: eksploderede ingredienser fra `raw`-data.
-        // `computed` = BOM-beregnet mængde. `qty` = override hvis sat, ellers computed.
-        items = (data?.raw?.ingredients || []).map(ing => {
+    if (isPack) {
+        // Pak-niveau (produktion): direkte varer + dressinger som færdige items.
+        // Direkte varer er redigerbare (buffer-in-place → override). Dressinger
+        // (underopskrifter) vises som ét færdigt item — ikke eksploderet til salt/peber.
+        const prod = data?.production || {};
+        items = (prod.ingredients || []).map(ing => {
             const pid = ing.product_id;
             const computed = Number(ing.amount_needed || ing.needed_stock || ing.needed_display || 0);
             const hasOverride = Object.prototype.hasOwnProperty.call(_pakkeOverrides, pid);
             return {
+                type: 'edit',
                 key: 'r' + pid,
                 productId: pid,
                 computed,
                 qty: hasOverride ? _pakkeOverrides[pid] : computed,
                 overridden: hasOverride,
-                editable: true,
                 unit: ing.unit || ing.stock_unit || ing.purchase_unit || 'stk',
                 name: ing.product_name || ing.name || '',
-                category: ing.ingredient_group || ing.category || 'Råvarer',
+                category: ing.ingredient_group || ing.category || 'Øvrige',
                 note: ing.special_request,
             };
         });
+        for (const sub of (prod.sub_recipes || [])) {
+            items.push({
+                type: 'sub',
+                key: 'sub' + sub.recipe_id,
+                displayAmount: sub.amount,           // forformateret streng ("2,16 kg")
+                name: sub.recipe_name,
+                category: 'Blandet hjemmefra',
+                note: null,
+            });
+        }
     } else {
-        // Produktion-niveau: opskrifts-linjer som de står på bonen
+        // Skal-laves-niveau: opskrifts-linjer som de står på bonen (referencen).
         items = lines.map(l => ({
+            type: 'static',
             key: 'l' + l.id,
             qty: Number(l.quantity || 0),
             unit: l.unit || 'stk',
@@ -880,13 +957,9 @@ function _buildPakkelisteHtml(bon, data, level) {
             category: l.category || 'Øvrigt',
             note: l.special_request,
         }));
-        // Tilføj sub-recipes hvis backenden leverer dem
-        for (const sub of (data?.production?.groups || []).flatMap(g => g.subRecipes || [])) {
-            items.push({ key: 'sub' + sub.recipe_id, qty: Number(sub.weight_g || sub.amount || 0), unit: 'g', name: '↳ ' + sub.name, category: 'Underopskrifter', note: null });
-        }
     }
     if (items.length === 0) {
-        return intro + `<div class="changelog-empty">Ingen ${isRaw ? 'råvarer' : 'produktionslinjer'} fundet. ${isRaw ? 'Tjek at recipes har ingredienser i Grocy.' : 'Tilføj linjer til bonen.'}</div>`;
+        return intro + `<div class="changelog-empty">Ingen ${isPack ? 'varer' : 'linjer'} fundet. ${isPack ? 'Tjek at opskrifterne har ingredienser i Grocy.' : 'Tilføj linjer til bonen.'}</div>`;
     }
 
     // Grupper efter kategori
@@ -905,21 +978,28 @@ function _buildPakkelisteHtml(bon, data, level) {
         html += `<div class="pakke-group">
             <div class="pakke-group-head">${esc(cat)} <span class="pakke-group-count">(${groups[cat].length})</span></div>`;
         for (const it of groups[cat]) {
-            const fmt = (n) => n < 1 ? Number(n).toFixed(2) : (n < 10 ? Number(n).toFixed(1) : String(Math.round(n)));
-            // Editbart tal kun på råvare-niveau når bonen ikke er leveret
-            const qtyCell = (it.editable && !locked)
-                ? `<input type="number" min="0" step="any" class="pakke-qty-input ${it.overridden ? 'pakke-qty-edited' : ''}"
+            let qtyCell, unitCell;
+            if (it.type === 'sub') {
+                // Dressing/underopskrift: forformateret mængde inkl. enhed, ikke redigerbar.
+                qtyCell = `<span class="pakke-qty pakke-qty-sub">${esc(it.displayAmount || '')}</span>`;
+                unitCell = '';
+            } else if (it.type === 'edit' && !locked) {
+                qtyCell = `<input type="number" min="0" step="any" class="pakke-qty-input ${it.overridden ? 'pakke-qty-edited' : ''}"
                         value="${fmt(it.qty)}" data-pakke-pid="${it.productId}" data-pakke-computed="${it.computed}"
                         data-pakke-name="${esc(it.name)}" data-pakke-unit="${esc(it.unit)}"
-                        title="${it.overridden ? 'Standard: ' + fmt(it.computed) : ''}">`
-                : `<span class="pakke-qty ${it.overridden ? 'pakke-qty-edited' : ''}">${fmt(it.qty)}</span>`;
-            const resetBtn = (it.editable && !locked && it.overridden)
+                        title="${it.overridden ? 'Standard: ' + fmt(it.computed) : ''}">`;
+                unitCell = `<span class="pakke-unit">${esc(it.unit)}</span>`;
+            } else {
+                qtyCell = `<span class="pakke-qty ${it.overridden ? 'pakke-qty-edited' : ''}">${fmt(it.qty)}</span>`;
+                unitCell = `<span class="pakke-unit">${esc(it.unit)}</span>`;
+            }
+            const resetBtn = (it.type === 'edit' && !locked && it.overridden)
                 ? `<button type="button" class="pakke-reset" data-pakke-reset="${it.productId}" data-pakke-computed="${it.computed}" title="Nulstil til standard (${fmt(it.computed)})">↺</button>`
                 : '';
             html += `<label class="pakke-line">
                 <input type="checkbox" data-pakke-line="${esc(it.key)}">
                 ${qtyCell}
-                <span class="pakke-unit">${esc(it.unit)}</span>
+                ${unitCell}
                 <span class="pakke-name">${esc(it.name)}</span>
                 ${it.overridden ? `<span class="pakke-orig">(standard ${fmt(it.computed)})</span>` : ''}
                 ${resetBtn}
@@ -928,11 +1008,38 @@ function _buildPakkelisteHtml(bon, data, level) {
         }
         html += `</div>`;
     }
-    html += `</div>
-        <div class="pakke-doctrine">
-            ${isRaw
-                ? 'Når prep-bonnen sættes til <strong>LEVERET</strong>, trækker Grocy <em>præcis disse mængder</em> fra HQ-lokationen. På pladsen bygges sandwich/slider on-the-spot fra råvarerne.'
-                : 'Det er målet for hvad der skal kunne laves på eventet. Skift til 📦 Råvarer for at se hvad der faktisk pakkes ned.'}
+    html += `</div>`;
+
+    // Ekstra-varer (kun pak-niveau): buffer der tages med OVENI opskrifterne.
+    if (isPack && (_pakkeExtras.length > 0 || !locked)) {
+        html += `<div class="pakke-extras">
+            <div class="pakke-extras-head">➕ Ekstra med <span class="pakke-extras-sub">— buffer oveni opskrifterne</span></div>`;
+        for (const ex of _pakkeExtras) {
+            const qtyCell = locked
+                ? `<span class="pakke-qty">${fmt(ex.amount)}</span>`
+                : `<input type="number" min="0" step="any" class="pakke-extra-qty" value="${fmt(ex.amount)}" data-pakke-xpid="${ex.product_id}">`;
+            const removeBtn = locked ? '' : `<button type="button" class="pakke-extra-remove" data-pakke-xremove="${ex.product_id}" title="Fjern">×</button>`;
+            html += `<label class="pakke-line pakke-extra-line">
+                <input type="checkbox" data-pakke-line="x${ex.product_id}">
+                ${qtyCell}
+                <span class="pakke-unit">${esc(ex.unit || '')}</span>
+                <span class="pakke-name">${esc(ex.product_name || ('#' + ex.product_id))}</span>
+                ${removeBtn}
+            </label>`;
+        }
+        if (!locked) {
+            html += `<div class="pakke-extra-add">
+                <input type="text" class="pakke-extra-search" placeholder="+ Tag ekstra med — søg vare…" autocomplete="off">
+                <div class="pakke-extra-results"></div>
+            </div>`;
+        }
+        html += `</div>`;
+    }
+
+    html += `<div class="pakke-doctrine">
+            ${isPack
+                ? 'Når prep-bonnen sættes til <strong>LEVERET</strong>, trækker Grocy råvarerne bag dressingerne <em>+ de ekstra varer</em> fra HQ-lageret. Du ser de færdige varer — Grocy holder styr på komponenterne.'
+                : 'Det er målet for hvad der skal kunne laves på eventet. Skift til 📦 Pak ned for at se hvad der pakkes.'}
         </div>`;
 
     // "Marker som LEVERET" direkte fra pakkelisten — det naturlige sted at
@@ -947,6 +1054,56 @@ function _buildPakkelisteHtml(bon, data, level) {
         </div>`;
     }
     return html;
+}
+
+// Hent Grocy-produkter + enheder til "tag ekstra med"-vælgeren (lazy, én gang).
+async function _pakkeEnsureProducts() {
+    if (_pakkeProducts) return;
+    try {
+        const [products, units] = await Promise.all([
+            fetch('/api/grocy/products', { credentials: 'same-origin' }).then(r => r.json()),
+            fetch('/api/grocy/quantity-units', { credentials: 'same-origin' }).then(r => r.json()).catch(() => []),
+        ]);
+        _pakkeUnitMap = {};
+        for (const u of (units || [])) _pakkeUnitMap[u.id] = u.name_short || u.name || '';
+        _pakkeProducts = (products || []).map(p => ({
+            id: parseInt(p.id),
+            name: p.name || '',
+            unit: _pakkeUnitMap[p.qu_id_stock] || '',
+        })).filter(p => p.id && p.name).sort((a, b) => a.name.localeCompare(b.name, 'da'));
+    } catch (err) {
+        console.error('Kunne ikke hente produkter til ekstra-vælger:', err);
+        _pakkeProducts = [];
+    }
+}
+
+// Render søgeresultater i ekstra-vælgeren (filtreret på navn, ekskl. allerede valgte).
+function _pakkeRenderExtraResults(q) {
+    const box = document.querySelector('.pakke-extra-results');
+    if (!box) return;
+    const term = (q || '').trim().toLowerCase();
+    if (!_pakkeProducts || term.length < 2) { box.innerHTML = ''; return; }
+    const already = new Set(_pakkeExtras.map(x => x.product_id));
+    const matches = _pakkeProducts
+        .filter(p => p.name.toLowerCase().includes(term) && !already.has(p.id))
+        .slice(0, 12);
+    if (!matches.length) { box.innerHTML = '<div class="pakke-extra-nohit">Ingen varer matcher</div>'; return; }
+    box.innerHTML = matches.map(p =>
+        `<button type="button" class="pakke-extra-hit" data-pakke-xadd="${p.id}">${esc(p.name)}${p.unit ? ` <span class="pakke-extra-hit-unit">${esc(p.unit)}</span>` : ''}</button>`
+    ).join('');
+    box.querySelectorAll('.pakke-extra-hit').forEach(btn => {
+        btn.addEventListener('click', () => _pakkeAddExtra(parseInt(btn.dataset.pakkeXadd)));
+    });
+}
+
+// Læg en vare på ekstra-listen (default 1 i stock-enhed) og gem.
+function _pakkeAddExtra(pid) {
+    if (!_pakkeProducts) return;
+    const p = _pakkeProducts.find(x => x.id === pid);
+    if (!p || _pakkeExtras.some(x => x.product_id === pid)) return;
+    _pakkeExtras.push({ product_id: pid, product_name: p.name, amount: 1, unit: p.unit || '' });
+    _schedulePakkeSave();
+    _renderPakkeliste();
 }
 
 /**
