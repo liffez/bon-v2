@@ -263,7 +263,27 @@ router.get('/new', handle((req, res) => {
               AND mt.bon_id IS NOT NULL
               AND mm.received_at > ?
         `).get(mailFloor).n;
-        return res.json({ count: newBonCount + mailCount, last_seen_at: null });
+        // kontakt@-mail: matchede tråde uden bon (kunde/leverandør/indkøbsordre)
+        const kontaktThreadCount = db.prepare(`
+            SELECT COUNT(*) AS n
+            FROM mail_messages mm
+            JOIN mail_threads mt ON mm.thread_id = mt.id
+            WHERE mm.direction = 'in' AND mm.is_read = 0
+              AND mm.mailbox LIKE '%kontakt%'
+              AND mt.bon_id IS NULL AND mt.status = 'active'
+              AND mm.received_at > ?
+        `).get(mailFloor).n;
+        // kontakt@-mail: ufordelt post (ingen tag matchede ved IMAP-routing)
+        const unmatchedCount = db.prepare(`
+            SELECT COUNT(*) AS n
+            FROM mail_unmatched
+            WHERE status = 'open' AND mailbox LIKE '%kontakt%'
+              AND COALESCE(received_at, created_at) > ?
+        `).get(mailFloor).n;
+        return res.json({
+            count: newBonCount + mailCount + kontaktThreadCount + unmatchedCount,
+            last_seen_at: null,
+        });
     }
 
     const limit  = Math.min(parseInt(req.query.limit)  || 30, 100);
@@ -315,6 +335,42 @@ router.get('/new', handle((req, res) => {
         LIMIT ?
     `).all(mailFloor, fetchSize);
 
+    // kontakt@-mail på matchede tråde UDEN bon (kunde/leverandør/indkøbsordre).
+    // Bon-tilknyttede tråde dækkes allerede af unreadMails ovenfor (uanset
+    // mailbox), så her filtreres bevidst på bon_id IS NULL for at undgå dubletter.
+    const kontaktThreadMails = db.prepare(`
+        SELECT
+            mm.id AS mail_id, mm.subject, mm.body_text, mm.from_email, mm.from_name,
+            mm.received_at AS event_at,
+            mt.customer_id, mt.purchase_order_id, mt.supplier_id,
+            cu.first_name AS cust_first, cu.last_name AS cust_last,
+            s.name AS supplier_name,
+            po.id AS po_id, ps.name AS po_supplier_name
+        FROM mail_messages mm
+        JOIN mail_threads mt ON mm.thread_id = mt.id
+        LEFT JOIN customers cu ON mt.customer_id = cu.id
+        LEFT JOIN suppliers s ON mt.supplier_id = s.id
+        LEFT JOIN purchase_orders po ON mt.purchase_order_id = po.id
+        LEFT JOIN suppliers ps ON po.supplier_id = ps.id
+        WHERE mm.direction = 'in' AND mm.is_read = 0
+          AND mm.mailbox LIKE '%kontakt%'
+          AND mt.bon_id IS NULL AND mt.status = 'active'
+          AND mm.received_at > ?
+        ORDER BY mm.received_at DESC
+        LIMIT ?
+    `).all(mailFloor, fetchSize);
+
+    // kontakt@-mail i ufordelt post (intet tag matchede ved IMAP-routing)
+    const unmatchedKontakt = db.prepare(`
+        SELECT id AS mail_id, subject, body_text, from_email, from_name,
+               COALESCE(received_at, created_at) AS event_at
+        FROM mail_unmatched
+        WHERE status = 'open' AND mailbox LIKE '%kontakt%'
+          AND COALESCE(received_at, created_at) > ?
+        ORDER BY COALESCE(received_at, created_at) DESC
+        LIMIT ?
+    `).all(mailFloor, fetchSize);
+
     const events = [];
     for (const b of newBons) {
         events.push({
@@ -356,6 +412,59 @@ router.get('/new', handle((req, res) => {
                 subject: m.subject,
                 preview: _mailPreview(m.body_text),
                 from_address: m.from_email,
+            },
+        });
+    }
+
+    // kontakt@ tråd-mails (kunde/leverandør/indkøbsordre — ingen bon at åbne)
+    for (const m of kontaktThreadMails) {
+        let entityType, entityLabel;
+        if (m.supplier_id) {
+            entityType = 'supplier';
+            entityLabel = 'Leverandør: ' + (m.supplier_name || ('#' + m.supplier_id));
+        } else if (m.purchase_order_id) {
+            entityType = 'purchase_order';
+            entityLabel = 'Indkøbsordre #' + m.po_id + (m.po_supplier_name ? ' · ' + m.po_supplier_name : '');
+        } else if (m.customer_id) {
+            entityType = 'customer';
+            const name = [m.cust_first, m.cust_last].filter(Boolean).join(' ').trim();
+            entityLabel = 'Kunde: ' + (name || ('#' + m.customer_id));
+        } else {
+            entityType = 'thread';
+            entityLabel = m.from_name || m.from_email || 'Mail';
+        }
+        events.push({
+            event_type:   'kontakt_mail',
+            event_at:     m.event_at,
+            seen:         false,
+            mail_kind:    'thread',
+            entity_type:  entityType,
+            entity_label: entityLabel,
+            mail: {
+                id: m.mail_id,
+                subject: m.subject,
+                preview: _mailPreview(m.body_text),
+                from_address: m.from_email,
+                from_name: m.from_name || null,
+            },
+        });
+    }
+
+    // kontakt@ ufordelt post
+    for (const m of unmatchedKontakt) {
+        events.push({
+            event_type:   'kontakt_mail',
+            event_at:     m.event_at,
+            seen:         false,
+            mail_kind:    'unmatched',
+            entity_type:  'unmatched',
+            entity_label: 'Ufordelt post',
+            mail: {
+                id: m.mail_id,
+                subject: m.subject,
+                preview: _mailPreview(m.body_text),
+                from_address: m.from_email,
+                from_name: m.from_name || null,
             },
         });
     }

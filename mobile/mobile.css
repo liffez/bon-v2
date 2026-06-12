@@ -1373,7 +1373,8 @@ body.m-modtag-active .m-content { padding-bottom: 0; }
     justify-content: flex-end;
     margin-top: 10px;
 }
-.m-nye-markread {
+.m-nye-markread,
+.m-nye-kontaktread {
     font-size: 13px; font-weight: 600;
     padding: 10px 16px;
     border: 1px solid var(--color-border);
@@ -1382,8 +1383,33 @@ body.m-modtag-active .m-content { padding-bottom: 0; }
     color: var(--brand-primary);
     cursor: pointer;
 }
-.m-nye-markread:active { background: var(--color-background); }
-.m-nye-markread:disabled { opacity: 0.6; }
+.m-nye-markread:active,
+.m-nye-kontaktread:active { background: var(--color-background); }
+.m-nye-markread:disabled,
+.m-nye-kontaktread:disabled { opacity: 0.6; }
+
+/* kontakt@-mail kort i Nyt: tap udvider (ingen bon at åbne) */
+.m-bon-kontakt { cursor: pointer; }
+.m-bon-kontakt .m-bon-badge {
+    max-width: 62%;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+.m-bon-mail-from {
+    font-size: 12px;
+    color: var(--color-text-dim);
+    margin: 2px 0;
+    word-break: break-word;
+}
+/* Sammenfoldet: skjul afsenderlinje + klip preview til 1 linje.
+   Udvidet (.expanded): vis afsender + fuld preview. */
+.m-bon-kontakt:not(.expanded) .m-bon-mail-from { display: none; }
+.m-bon-kontakt:not(.expanded) .m-bon-mail-preview { -webkit-line-clamp: 1; }
+.m-bon-kontakt.expanded .m-bon-mail-preview {
+    display: block;
+    -webkit-line-clamp: none;
+}
 
 /* Empty-state i Nye */
 .m-nye-empty {
