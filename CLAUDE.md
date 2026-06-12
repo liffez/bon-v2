@@ -2313,6 +2313,29 @@ fra `.csv`-fil eller indsat direkte fra Excel/Google Sheets.
   [db/helpers.js](db/helpers.js) · [routes/bons.js](routes/bons.js) · [shared/modal.js](shared/modal.js)+css.
 - **Tests:** `scripts/test-recipe-factor.js` (8) + `scripts/test-prep-packing.js` udvidet til 12 (extras). Begge grønne.
 
+### Event top-up-forslag — forecast minus beregnet rest (13. juni 2026)
+> Spec: `docs/CLAUDE_EVENT.md §6` (nu ✅ implementeret). Driftsbehov: top-up-bonnen skal vide hvad
+> der allerede står i traileren ud fra prep-bonnen, så man hverken henter for meget eller for lidt.
+
+- **`computeTopupSuggestion(event, date)`** i [routes/events.js](routes/events.js) +
+  `GET /api/events/:id/topup-suggestion?date=`:
+  - `rest = preppet (prep+topup, delivery_date ≤ dato) − solgt (salg, delivery_date < dato)` —
+    dagens salg er ikke sket endnu; en allerede oprettet topup-bon på dagen reducerer forslaget.
+  - Kategori-niveau: `forslag = max(0, forecast_dag_N − rest)`. Forecasten er pr. kategori →
+    fordeles pro-rata på prep-mixets produkter (`allocateInteger`, largest remainder).
+  - Råvare-niveau: BOM-behov af forslaget mod BOM-rest (m/pakke-overrides) → **fetch**
+    ("hent mere fra HQ") + **surplus** ("rigeligt på pladsen — behøver ikke hentes").
+    Degraderer gracefully til kun kategori-niveau hvis Grocy er nede (kategori-delen er ren SQL).
+  - Resten er et GÆT ("vi er trætte om aftenen" — salget er ikke altid tastet): `sales_bon_count`
+    sendes med, UI viser antagelsen eksplicit (⚠ ved 0 salgsbons), alt frit justerbart.
+- **UI** ([office/views/events.js](office/views/events.js)): "+ Top-up"-modalen pre-fylder linjer fra
+  forslaget, viser kategori-tabel (Forecast/Preppet/Solgt/Rest/Forslag) + foldbart råvare-tjek.
+  Default-dato = i dag hvis midt i eventet (lokal dato — ikke `toISOString`/UTC-buggen).
+  Dato-skift genberegner og erstatter linjerne.
+- **Test:** `scripts/test-topup-suggestion.js` — 35 asserts (mockede Grocy/BOM, ægte helper:
+  kategori-math, clamp, datofiltre, allokering, fetch/surplus, degradering, tomt event). Grøn.
+- Browser-verificeret end-to-end mod syntetisk event (oprettet + ryddet op igen).
+
 ## Næste opgave
 
 > ✏️ Opdateret 21. maj 2026.

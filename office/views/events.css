@@ -168,6 +168,28 @@
 .ev-target-over { background: #fff4e0; border-color: #c87b0f; }
 .ev-target-over .ev-target-current { color: #c87b0f; }
 
+/* ── Top-up-forslag i generator-modal (§6) ─────────────────── */
+.ev-topup-strip { margin: 0 0 14px; }
+.ev-topup-loading { color: #888; font-size: 12px; padding: 8px 0; }
+.ev-topup-note { background: #fcf7e8; padding: 8px 12px; border-radius: 4px; font-size: 12px; color: #5a4a2a; line-height: 1.5; margin-bottom: 8px; }
+.ev-topup-table { width: 100%; border-collapse: collapse; font-size: 12px; margin-bottom: 8px; }
+.ev-topup-table th { text-align: right; padding: 4px 8px; color: #888; font-weight: 500; font-size: 10px; text-transform: uppercase; border-bottom: 1px solid #eee; }
+.ev-topup-table th:first-child { text-align: left; }
+.ev-topup-table td { padding: 4px 8px; border-bottom: 1px solid #f3f3f3; }
+.ev-topup-table td:first-child { text-align: left; color: #2a2a2a; }
+.ev-topup-need td { background: #fffaf2; }
+.ev-topup-sug { font-weight: 700; color: #1e6b2c; }
+tr:not(.ev-topup-need) .ev-topup-sug { color: #999; font-weight: 500; }
+.ev-topup-empty { color: #888; font-size: 12px; padding: 6px 0; }
+.ev-topup-warn { background: #fdf0ee; color: #8a2222; padding: 6px 10px; border-radius: 4px; font-size: 12px; margin-bottom: 6px; }
+.ev-topup-raw { margin: 4px 0 8px; font-size: 12px; }
+.ev-topup-raw summary { cursor: pointer; color: #5a4a2a; padding: 4px 0; }
+.ev-topup-raw-grp { margin: 8px 0 4px; padding-left: 8px; }
+.ev-topup-raw-h { font-weight: 600; font-size: 11px; color: #5a4a2a; margin-bottom: 4px; }
+.ev-topup-raw-row { display: flex; justify-content: space-between; gap: 12px; padding: 2px 0; border-bottom: 1px dotted #f0ece4; }
+.ev-topup-dim { color: #999; }
+.ev-topup-dim .ev-num { color: #999; }
+
 /* ── Retur-sektion (§6) ────────────────────────────────────── */
 .ev-return-section { margin: 16px 0; padding: 14px 16px; background: #fff; border: 1px solid var(--color-border, #d7d1ca); border-radius: 6px; }
 .ev-return-head { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
