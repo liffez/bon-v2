@@ -676,7 +676,16 @@ async function _evOpenGenModal(event, role, opts) {
     }
     const isProd = (role === 'prep' || role === 'topup');
     const isExpense = role === 'expense';
-    const priceMode = isProd ? 'produktion' : 'catering';
+    // Salg/udgift bruger FESTIVAL-salgspris (events sælges til festivalpris).
+    const priceMode = isProd ? 'produktion' : 'festival';
+
+    // Salgsbon: pre-fyld linjerne fra eventets prep-bonner (de færdige menuer
+    // vi tog med). Hentes før modalen bygges så addLine kan fyre dem ind nederst.
+    let salesPrefill = null;
+    if (role === 'sales') {
+        try { salesPrefill = await _evFetch(`/events/${event.id}/sales-prefill`); }
+        catch (e) { salesPrefill = null; }
+    }
     // Gruppér recipes efter kategori (Grocy `grupper`) som <optgroup>
     const recipes = (_evRecipes || []).slice().sort((a, b) => {
         const ca = (a.category || 'zz'), cb = (b.category || 'zz');
@@ -727,7 +736,7 @@ async function _evOpenGenModal(event, role, opts) {
               ? 'Vælg menuer/varer der skal med fra HQ. Bonnen er bevidst <strong>0 kr</strong> (produktion) — kolonnen <em>Kostpris ex</em> snapshottes pr. linje og driver Vareforbrug i P&amp;L. Status: <strong>GODKENDT</strong> — havner på køkkenets I dag-tavle på prep-datoen.'
               : isExpense
                 ? 'Indtast udgift (fee, benzin, bro). Total bliver negativ — udgiften netter ikke mod omsætning, men vises som omkostning.'
-                : 'Vælg menuer kunden køber. Priskategori: <strong>catering</strong>. Status: <strong>GODKENDT</strong>.'}
+                : 'Pre-udfyldt fra eventets <strong>prep-bonner</strong> (de færdige menuer vi tog med). Priskategori: <strong>festival</strong>. Antal = preppet — <em>justér ned</em> for spild, smagsprøver mm. Status: <strong>GODKENDT</strong>.'}
         </div>
         ${targetStrip}
         <label>Dato${isProd ? ' (prep-pakning)' : ''}<input type="date" id="evm-date" value="${forecastDate || event.start_date}"></label>
@@ -769,6 +778,8 @@ async function _evOpenGenModal(event, role, opts) {
             internal_notes: document.getElementById('evm-note').value.trim() || null,
             lines,
         };
+        // Salg/udgift på et event sælges til festivalpris (matcher pre-fill + priceMode).
+        if (!isProd && !isExpense) body.price_category_code = 'festival';
         await _evFetch(`/events/${event.id}/bons`, { method: 'POST', body: JSON.stringify(body) });
         _evRender();
     });
@@ -859,6 +870,23 @@ async function _evOpenGenModal(event, role, opts) {
     }
     document.getElementById('evm-add-line').addEventListener('click', () => addLine({}));
     if (isExpense) addLine({ name: 'Udgift', price: 0 });
+
+    // Salgsbon: fyld de pre-udfyldte menuer (fra prep-bonnerne) ind. Antal =
+    // preppet (start-gæt, justeres ned for spild). Pris = festival-salgspris.
+    if (role === 'sales' && salesPrefill && Array.isArray(salesPrefill.lines)) {
+        for (const l of salesPrefill.lines) {
+            addLine({
+                recipeId: l.grocy_recipe_id || null,
+                name:     l.product_name,
+                category: l.category,
+                unit:     l.unit,
+                price:    l.unit_price,
+                cost:     l.cost_price,
+                co2e:     l.co2e,
+                qty:      l.quantity,
+            });
+        }
+    }
 }
 
 // ── MODAL primitive (rene event handlers — ingen eksterne deps) ──────────

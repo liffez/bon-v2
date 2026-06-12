@@ -44,7 +44,7 @@ med `event_id`. "Magien" er en foreign key + en query — intet andet.
 |-------|---------------|-----------|---------|
 | Prep / pakkeliste | Produktionsbon (`price_category='produktion'`) | **Træk HQ** ved LEVERET | 0 kr (0-pris) |
 | Top-up | Opfølgende produktionsbon | **Træk HQ** | 0 kr |
-| Dagssalg | Salgsbon → **LEVERET** (kontant/faktura), **event-scoped no-deduct** | Intet | Omsætning |
+| Dagssalg | Salgsbon (`price_category='festival'`) → **LEVERET** (kontant/faktura), **event-scoped no-deduct** | Intet | Omsætning |
 | Udgifter (fee, benzin, bro) | Negative `bon_lines` | Intet | Omkostning |
 | Retur / hjemkomst | Varemodtagelse til HQ | **Tilbageførsel** | — |
 
@@ -272,9 +272,19 @@ Tilføj til `CLAUDE.md`:
 - **Retur parent-redirect:** Grocy-parents (no_own_stock=1, fx kål) kan ikke modtage lager → returen
   omdirigeres til det barn der har mest lager (Hvidkål/Spidskål).
 - **Bon-kort:** produktionsbons (inkl. event-prep) får blå venstre-stribe (status-::before overstyret).
+- **Salgs-pris = festival, ikke catering (Leif, 2026-06-13):** event-/festivalsalg sælges til
+  festival-pris. Salgs-/udgiftsbonner defaulter til `price_category='festival'` (POST `/:id/bons`),
+  og salgs-modalens prisopslag (`priceMode`) + pre-fill bruger `prices.festival`. §5-gaten er uberørt
+  (festival ≠ produktion → stadig no-deduct på light-model).
+- **Salgs-bon pre-fill (2026-06-13):** "+ Salgsbon" pre-udfylder linjerne fra eventets **prep-bonner**
+  (kun prep-rollen, ikke top-up — union på tværs af eventet, summeret pr. produkt). Vi sælger hele
+  menuer, ikke pakkelistens råvarer, så kilden er prep-bonnernes `bon_lines` (færdig-produkt-niveau).
+  Antal = preppet (start-gæt, justeres NED for spild/smagsprøver). Pris = festival fra Grocy.
+  Endpoint: `GET /api/events/:id/sales-prefill`. Frontend fylder via eksisterende `addLine`.
 
 **Tests:** `scripts/test-event-gate.js` (15) + `scripts/test-prep-packing.js` (12 — override + extras) +
 `scripts/test-recipe-factor.js` (8 — underopskrift-skalering) +
+`scripts/test-sales-prefill.js` (7 — prep-only union + festival-pris) +
 `scripts/verify-event-prereqs.js` (read-only prod-forudsætningstjek).
 
 **Endnu ikke bygget:** varemodtagelses-*registrering* af returen (returen er pt. en ren Grocy stock-add,
