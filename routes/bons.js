@@ -648,7 +648,7 @@ router.post('/:id/copy', handle((req, res) => {
 
         const ins = db.prepare(`
             INSERT INTO bons (
-                bon_number, status_id, location_id, customer_id, company_id, price_category_id,
+                bon_number, status_id, location_id, customer_id, company_id, price_category_id, price_category,
                 event_id, event_role,
                 order_date, delivery_date, pickup_time, delivery_time,
                 delivery_type, delivery_method, delivery_address_id,
@@ -659,7 +659,7 @@ router.post('/:id/copy', handle((req, res) => {
                 day_contact_name, day_contact_phone,
                 created_by_user_id, is_internal
             ) VALUES (
-                ?,?,?,?,?,?,
+                ?,?,?,?,?,?,?,
                 ?,?,
                 ?,?,?,?,
                 ?,?,?,
@@ -672,7 +672,7 @@ router.post('/:id/copy', handle((req, res) => {
             )
         `).run(
             bonNumber, statusId, src.location_id,
-            src.customer_id, src.company_id, src.price_category_id,
+            src.customer_id, src.company_id, src.price_category_id, src.price_category,
             src.event_id, src.event_role,
             today,
             body.delivery_date ?? src.delivery_date,
