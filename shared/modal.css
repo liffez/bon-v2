@@ -716,3 +716,31 @@
 .pakke-extra-hit:hover { background: #f3ede2; border-color: var(--brand-primary, #8e631f); }
 .pakke-extra-hit-unit { color: #999; font-size: 11px; }
 .pakke-extra-nohit { padding: 6px 10px; font-size: 12px; color: #999; font-style: italic; }
+
+/* Read-only forhåndsvisning af lagertræk */
+.pakke-preview { margin-top: 12px; }
+.pakke-preview-btn {
+    border: 1px solid var(--color-border, #d7d1ca); background: #fff; cursor: pointer;
+    padding: 7px 12px; border-radius: 5px; font-size: 13px; color: #2a2a2a; font-weight: 600;
+}
+.pakke-preview-btn:hover:not(:disabled) { border-color: var(--brand-primary, #8e631f); background: #faf7f1; }
+.pakke-preview-btn:disabled { opacity: 0.6; cursor: default; }
+.pakke-preview-hint { font-size: 11px; color: #888; margin-left: 8px; }
+.pakke-preview-panel:not(:empty) {
+    margin-top: 8px; border: 1px solid var(--color-border, #d7d1ca); border-radius: 6px;
+    padding: 8px 10px; background: #fcfbf9;
+}
+.pakke-preview-loading { font-size: 13px; color: #888; padding: 4px 2px; }
+.pakke-preview-table { width: 100%; border-collapse: collapse; font-size: 13px; }
+.pakke-preview-table th {
+    text-align: left; font-size: 11px; color: #888; font-weight: 600;
+    border-bottom: 1px solid var(--color-border, #d7d1ca); padding: 4px 6px;
+}
+.pakke-preview-table th.num, .pakke-preview-table td.num { text-align: right; font-variant-numeric: tabular-nums; }
+.pakke-preview-table td { padding: 4px 6px; border-bottom: 1px solid #efeae3; vertical-align: top; }
+.pakke-preview-table tr:last-child td { border-bottom: none; }
+.pakke-preview-unit { color: #999; font-size: 11px; }
+.pakke-preview-table .breakdown { color: #777; font-size: 12px; }
+.pakke-preview-extra { color: var(--brand-primary, #8e631f); font-weight: 600; }
+.pakke-preview-short { color: #b8650c; font-weight: 600; font-size: 11px; margin-left: 4px; }
+.pakke-preview-foot { font-size: 11px; color: #888; margin-top: 6px; }

@@ -1,7 +1,7 @@
 const express = require('express');
 const router  = express.Router();
 const { getDb } = require('../db/database');
-const { handle, logChange, getBon, getBonLines, getBonMenuGroups, getStatusId, getDefaultLocationId, todayISO, nextBonNumber, computeMomsFields, recalcBonTotalUnits, transaction, autoConsumeBonInventory } = require('../db/helpers');
+const { handle, logChange, getBon, getBonLines, getBonMenuGroups, getStatusId, getDefaultLocationId, todayISO, nextBonNumber, computeMomsFields, recalcBonTotalUnits, transaction, autoConsumeBonInventory, getPrepPackingOverrides, getPrepPackingExtras } = require('../db/helpers');
 const { broadcast } = require('../shared/sse');
 const { requireAuth } = require('../shared/auth');
 const grocy   = require('../services/grocyAdapter');
@@ -1288,6 +1288,20 @@ router.put('/:id/packing', handle((req, res) => {
         FROM prep_packing_extras WHERE bon_id = ? ORDER BY product_id
     `).all(id);
     res.json({ overrides, extras });
+}));
+
+// Read-only forhåndsvisning af lagertrækket: PRÆCIS hvad LEVERET ville trække
+// fra HQ (opskrifts-komponenter + overrides + extras) UDEN at røre Grocy-lageret.
+// Bruger samme delte resolverings-helpers som det rigtige consume → garanteret match.
+router.get('/:id/packing/consume-preview', handle(async (req, res) => {
+    const id = parseInt(req.params.id);
+    const bon = getBon(id);
+    if (!bon) return res.status(404).json({ error: 'Bon ikke fundet' });
+    const lines     = getBonLines(id);
+    const overrides = getPrepPackingOverrides(id);
+    const extras    = getPrepPackingExtras(id);
+    const { items } = await grocy.planConsume(lines, overrides, extras);
+    res.json({ bon_id: bon.id, bon_number: bon.bon_number, items });
 }));
 
 // ─── CHANGELOG ──────────────────────────────────────────────────────────────

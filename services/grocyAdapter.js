@@ -630,6 +630,93 @@ async function updateShoppingListItem(id, fields) {
 }
 
 /**
+ * Anvend pakke-justeringer på en resolved consume-liste (REN, ingen Grocy-kald).
+ * Delt af consumeRecipes (det rigtige træk) og planConsume (read-only preview),
+ * så preview garanteret matcher virkeligheden.
+ *
+ * - overrides ERSTATTER en vares mængde (buffer-in-place på direkte varer).
+ * - extras ADDERER oveni (eller tilføjer en ny consume-post hvis varen ikke er
+ *   i opskrifterne).
+ * Hver vare annoteres med recipe_amount/override_amount/extra_amount til preview.
+ *
+ * @param {Array} items   resolveConsumeItems-output (muteres + returneres)
+ * @param {Map|Object|null} overrides  product_id → packed_amount (stock-units)
+ * @param {Array|null} extras  [{ product_id, amount, product_name? }]
+ * @param {Map} productMap  product_id → Grocy-produkt (til nye extra-varers metadata)
+ */
+function applyPackingAdjustments(items, overrides, extras, productMap) {
+    for (const it of items) it.recipe_amount = it.amount_stock;
+
+    if (overrides) {
+        const get = overrides instanceof Map
+            ? (pid) => (overrides.has(pid) ? overrides.get(pid) : undefined)
+            : (pid) => overrides[pid];
+        for (const it of items) {
+            const ov = get(it.product_id);
+            if (ov !== undefined && ov !== null && !Number.isNaN(Number(ov))) {
+                it.amount_stock = Number(ov);
+                it.override_amount = Number(ov);
+            }
+        }
+    }
+
+    if (extras && extras.length) {
+        const itemByPid = new Map(items.map(it => [it.product_id, it]));
+        for (const ex of extras) {
+            const pid = parseInt(ex.product_id);
+            const amt = Number(ex.amount);
+            if (!pid || Number.isNaN(amt) || amt <= 0) continue;
+            const existing = itemByPid.get(pid);
+            if (existing) {
+                existing.amount_stock += amt;
+                existing.extra_amount = (existing.extra_amount || 0) + amt;
+            } else {
+                const p = (productMap && productMap.get(pid)) || {};
+                const ni = {
+                    product_id:        pid,
+                    product_name:      p.name || ex.product_name || `Produkt #${pid}`,
+                    amount_stock:      amt,
+                    qu_id_stock:       p.qu_id_stock || null,
+                    qu_id_purchase:    p.qu_id_purchase || null,
+                    parent_product_id: p.parent_product_id ? parseInt(p.parent_product_id) : null,
+                    purchase_factor:   1,
+                    recipe_amount:     0,
+                    extra_amount:      amt,
+                };
+                items.push(ni);
+                itemByPid.set(pid, ni);
+            }
+        }
+    }
+    return items;
+}
+
+/**
+ * Byg en effektiv-lager-funktion: en parent-vare (fx "Kål") har selv stock=0,
+ * men dens børn (Spidskål, Hvidkål) har lager — summér familien.
+ */
+function makeEffectiveStock(stock, products) {
+    const stockByPid = new Map();
+    for (const s of stock) stockByPid.set(parseInt(s.product_id), parseFloat(s.amount) || 0);
+    const childrenByParent = new Map();
+    for (const p of products) {
+        if (p.parent_product_id) {
+            const par = parseInt(p.parent_product_id);
+            if (!childrenByParent.has(par)) childrenByParent.set(par, []);
+            childrenByParent.get(par).push(parseInt(p.id));
+        }
+    }
+    return function effectiveStock(pid) {
+        const ownStock = stockByPid.get(pid) || 0;
+        const kids = childrenByParent.get(pid) || [];
+        if (!kids.length) return ownStock;
+        let sum = ownStock;
+        for (const kid of kids) sum += stockByPid.get(kid) || 0;
+        return sum;
+    };
+}
+
+/**
  * Forbruger ingredienser fra Grocy-lager for en liste bon-linjer.
  *
  * Ny tilgang (erstatter gammel recipe-level consume):
@@ -658,29 +745,7 @@ async function consumeRecipes(lines, overrides = null, extras = null) {
 
     if (!items.length) return [];
 
-    // Pakke-overrides (event-prep §6): erstat den BOM-beregnede mængde med den
-    // faktisk pakkede for de produkter brugeren har justeret. overrides er et Map
-    // (eller plain object) product_id → packed_amount i stock-units. Produkter
-    // uden override bruger den beregnede mængde. Orphan-overrides (produkter der
-    // ikke længere er i opskriften) ignoreres.
-    if (overrides) {
-        const get = overrides instanceof Map
-            ? (pid) => (overrides.has(pid) ? overrides.get(pid) : undefined)
-            : (pid) => overrides[pid];
-        for (const item of items) {
-            const ov = get(item.product_id);
-            if (ov !== undefined && ov !== null && !Number.isNaN(Number(ov))) {
-                item.amount_stock = Number(ov);
-            }
-        }
-    }
-
-    // ── Stock-snapshot: behov for partial-consume + auto-shopping-list ──
-    //
-    // For hvert produkt skal vi vide hvor meget der ER på lager. Det er ikke trivielt
-    // pga. parent-produkter: en parent har selv stock_amount=0, men dens børn har
-    // stock (kål = Hvidkål + Spidskål). Vi bygger derfor en helper der finder den
-    // effektive samlede stock for et produkt (sum over familie hvis det er en parent).
+    // ── Stock + produkter (til partial-consume, parent-substitution, extra-metadata) ──
     let stock = [];
     let products = [];
     try {
@@ -689,60 +754,14 @@ async function consumeRecipes(lines, overrides = null, extras = null) {
         console.warn('[consume] Kunne ikke hente stock/products til partial-check:', err.message);
         // Fortsæt uden partial-logik — fallback til simple consume
     }
-    const stockByPid = new Map();
-    for (const s of stock) stockByPid.set(parseInt(s.product_id), parseFloat(s.amount) || 0);
+    const productMap = new Map(products.map(p => [parseInt(p.id), p]));
 
-    // For parent: sum over alle børns stock. For ikke-parent: bare egen stock.
-    const childrenByParent = new Map();
-    for (const p of products) {
-        if (p.parent_product_id) {
-            const par = parseInt(p.parent_product_id);
-            if (!childrenByParent.has(par)) childrenByParent.set(par, []);
-            childrenByParent.get(par).push(parseInt(p.id));
-        }
-    }
-    function effectiveStock(pid) {
-        const ownStock = stockByPid.get(pid) || 0;
-        const kids = childrenByParent.get(pid) || [];
-        if (kids.length === 0) return ownStock;
-        let sum = ownStock;
-        for (const kid of kids) sum += stockByPid.get(kid) || 0;
-        return sum;
-    }
+    // Pakke-justeringer (overrides erstatter, extras adderer) — DELT med planConsume,
+    // så den read-only preview garanteret matcher det rigtige træk.
+    applyPackingAdjustments(items, overrides, extras, productMap);
+    if (!items.length) return [];
 
-    // ── Ekstra buffer-varer (event-prep §6): læg OVENI BOM-forbruget ──
-    //
-    // Køkkenet tager ofte lidt ekstra med ud over opskrifterne (fx 1 kg ekstra
-    // mayonnaise ved siden af den senneps-mayo der allerede er blandet hjemmefra).
-    // En extra ADDERER til forbruget — i modsætning til en override der ERSTATTER.
-    // Falder varen sammen med en BOM-vare (samme product_id), lægges mængden oveni;
-    // ellers tilføjes en ny consume-post med metadata fra products-snapshottet.
-    if (extras && extras.length) {
-        const productMap = new Map(products.map(p => [parseInt(p.id), p]));
-        const itemByPid = new Map(items.map(it => [it.product_id, it]));
-        for (const ex of extras) {
-            const pid = parseInt(ex.product_id);
-            const amt = Number(ex.amount);
-            if (!pid || Number.isNaN(amt) || amt <= 0) continue;
-            const existing = itemByPid.get(pid);
-            if (existing) {
-                existing.amount_stock += amt;
-            } else {
-                const p = productMap.get(pid) || {};
-                const newItem = {
-                    product_id:        pid,
-                    product_name:      p.name || ex.product_name || `Produkt #${pid}`,
-                    amount_stock:      amt,
-                    qu_id_stock:       p.qu_id_stock || null,
-                    qu_id_purchase:    p.qu_id_purchase || null,
-                    parent_product_id: p.parent_product_id ? parseInt(p.parent_product_id) : null,
-                    purchase_factor:   1,
-                };
-                items.push(newItem);
-                itemByPid.set(pid, newItem);
-            }
-        }
-    }
+    const effectiveStock = makeEffectiveStock(stock, products);
 
     // ── Consume hvert produkt med partial-fallback + shopping-list-add ──
     //
@@ -814,6 +833,56 @@ async function consumeRecipes(lines, overrides = null, extras = null) {
     _cache.delete('stock');
     _cache.delete('shopping_list');
     return results;
+}
+
+/**
+ * Read-only: beregn PRÆCIS hvad consumeRecipes ville trække fra HQ for en bon
+ * (inkl. overrides + extras) UDEN at kalde Grocy's consume. Bruger NØJAGTIG de
+ * samme delte helpers (applyPackingAdjustments + makeEffectiveStock) som det
+ * rigtige træk, så drift kan verificere lagertrækket før LEVERET uden risiko.
+ *
+ * @returns {Promise<{ items: Array<{ product_id, product_name, recipe_amount,
+ *   override_amount, extra_amount, final_amount, in_stock, shortfall }> }>}
+ */
+async function planConsume(lines, overrides = null, extras = null) {
+    const validLines = (lines || []).filter(l => l.grocy_recipe_id);
+    const { resolveConsumeItems } = require('./ingredientResolver');
+
+    let items = [];
+    if (validLines.length) items = await resolveConsumeItems(validLines);
+    if (!items.length && !(extras && extras.length)) return { items: [] };
+
+    let stock = [];
+    let products = [];
+    let units = [];
+    try {
+        [stock, products, units] = await Promise.all([getStock(), getProducts(), getQuantityUnits()]);
+    } catch (err) {
+        console.warn('[planConsume] Kunne ikke hente stock/products:', err.message);
+    }
+    const productMap = new Map(products.map(p => [parseInt(p.id), p]));
+    const unitMap = new Map(units.map(u => [u.id, u.name_short || u.name || '']));
+    applyPackingAdjustments(items, overrides, extras, productMap);
+
+    const effectiveStock = makeEffectiveStock(stock, products);
+    const result = items.map(it => {
+        const inStock = effectiveStock(it.product_id);
+        const final = it.amount_stock;
+        const p = productMap.get(it.product_id) || {};
+        return {
+            product_id:      it.product_id,
+            product_name:    it.product_name,
+            unit:            unitMap.get(it.qu_id_stock ?? p.qu_id_stock) || '',
+            recipe_amount:   it.recipe_amount || 0,
+            override_amount: it.override_amount ?? null,
+            extra_amount:    it.extra_amount || 0,
+            final_amount:    final,
+            in_stock:        inStock,
+            shortfall:       Math.max(0, final - inStock),
+        };
+    }).sort((a, b) => a.product_name.localeCompare(b.product_name, 'da'));
+
+    return { items: result };
 }
 
 /**
@@ -1030,6 +1099,7 @@ module.exports = {
     deleteRecipeNesting,
     // Write — stock + shopping
     consumeRecipes,
+    planConsume,
     consumeProduct,
     addToStock,
     addToStockFull,

@@ -1042,6 +1042,16 @@ function _buildPakkelisteHtml(bon, data, level) {
                 : 'Det er målet for hvad der skal kunne laves på eventet. Skift til 📦 Pak ned for at se hvad der pakkes.'}
         </div>`;
 
+    // Read-only forhåndsvisning af lagertrækket — se præcis hvad LEVERET ville
+    // trække fra HQ (inkl. ekstra-varer) UDEN at røre lageret.
+    if (isPack) {
+        html += `<div class="pakke-preview">
+            <button type="button" class="pakke-preview-btn" onclick="_pakkePreviewConsume(this)">🔍 Forhåndsvis lagertræk</button>
+            <span class="pakke-preview-hint">Se præcis hvad LEVERET ville trække fra HQ — uden at røre lageret</span>
+            <div class="pakke-preview-panel" id="pakkePreviewPanel"></div>
+        </div>`;
+    }
+
     // "Marker som LEVERET" direkte fra pakkelisten — det naturlige sted at
     // afslutte pakningen. Confirm-advarsel inden (lagertrækket sker ved LEVERET).
     const terminal = ['LEVERET', 'FAKTURERET', 'BETALT', 'AFSLUTTET', 'AFLYST'];
@@ -1104,6 +1114,47 @@ function _pakkeAddExtra(pid) {
     _pakkeExtras.push({ product_id: pid, product_name: p.name, amount: 1, unit: p.unit || '' });
     _schedulePakkeSave();
     _renderPakkeliste();
+}
+
+// Read-only forhåndsvisning: hent og vis præcis hvad LEVERET ville trække fra HQ
+// (opskrifts-komponenter + overrides + extras) uden at røre Grocy-lageret.
+async function _pakkePreviewConsume(btn) {
+    const panel = document.getElementById('pakkePreviewPanel');
+    if (!panel || !_pakkeBonId) return;
+    if (btn) { btn.disabled = true; btn.textContent = 'Henter…'; }
+    panel.innerHTML = '<div class="pakke-preview-loading">Beregner lagertræk…</div>';
+    try {
+        const data = await fetch(`/api/bons/${_pakkeBonId}/packing/consume-preview`, { credentials: 'same-origin' }).then(r => r.json());
+        const items = data.items || [];
+        const fmt = (n) => n == null ? '' : (Math.abs(n) < 1 ? Number(n).toFixed(2) : (Math.abs(n) < 10 ? Number(n).toFixed(1) : String(Math.round(n))));
+        if (!items.length) {
+            panel.innerHTML = '<div class="pakke-preview-loading">Intet at trække — bonen har ingen opskrifts-varer eller ekstra-varer.</div>';
+        } else {
+            const anyShort = items.some(it => it.shortfall > 0.001);
+            let h = `<table class="pakke-preview-table"><thead><tr>
+                <th>Vare</th><th class="num">Trækkes</th><th>Heraf</th><th class="num">På lager</th></tr></thead><tbody>`;
+            for (const it of items) {
+                const parts = [];
+                if (it.override_amount != null) parts.push(`buffer-sat ${fmt(it.override_amount)}`);
+                else if (it.recipe_amount > 0) parts.push(`opskrift ${fmt(it.recipe_amount)}`);
+                if (it.extra_amount > 0) parts.push(`<span class="pakke-preview-extra">+ekstra ${fmt(it.extra_amount)}</span>`);
+                const short = it.shortfall > 0.001 ? `<span class="pakke-preview-short" title="HQ har ikke nok — resten lægges på indkøbslisten">⚠ mangler ${fmt(it.shortfall)}</span>` : '';
+                h += `<tr>
+                    <td>${esc(it.product_name)}</td>
+                    <td class="num"><strong>${fmt(it.final_amount)}</strong> <span class="pakke-preview-unit">${esc(it.unit || '')}</span></td>
+                    <td class="breakdown">${parts.join(' ') || '—'}</td>
+                    <td class="num">${fmt(it.in_stock)} ${short}</td>
+                </tr>`;
+            }
+            h += `</tbody></table>`;
+            h += `<div class="pakke-preview-foot">${items.length} varer trækkes ved LEVERET${anyShort ? ' · ⚠ noget mangler på HQ (lægges på indkøbslisten)' : ''}. Intet er trukket endnu — dette er kun en forhåndsvisning.</div>`;
+            panel.innerHTML = h;
+        }
+    } catch (err) {
+        panel.innerHTML = `<div class="pakke-preview-loading">Kunne ikke hente forhåndsvisning: ${esc(err.message || '')}</div>`;
+    } finally {
+        if (btn) { btn.disabled = false; btn.textContent = '🔍 Forhåndsvis lagertræk'; }
+    }
 }
 
 /**
