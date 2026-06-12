@@ -686,7 +686,8 @@ let _pakkeBonId = null;
 let _pakkeLevel = 'pack';    // 'pack' = det vi pakker (produktions-niveau) | 'goal' = retter der skal laves
 let _pakkeOverrides = {};    // product_id → packed_amount (buffer-in-place på direkte varer)
 let _pakkeExtras = [];       // [{ product_id, product_name, amount, unit }] — ekstra varer oveni
-let _pakkeSaveTimer = null;  // debounce til auto-gem af overrides + extras
+let _pakkeRecipeFactors = {};// recipe_id → factor (skalering af underopskrifter, fx Frisk Grønt)
+let _pakkeSaveTimer = null;  // debounce til auto-gem af overrides + extras + recipe-faktorer
 let _pakkeProducts = null;   // Grocy produkt-cache til "tag ekstra med"-vælger (lazy)
 let _pakkeUnitMap = null;    // qu_id → enheds-label (lazy, sammen med _pakkeProducts)
 
@@ -726,6 +727,12 @@ async function showPakkeliste(cardId) {
             amount: Number(x.amount),
             unit: x.unit || '',
         }));
+        // Underopskrift-skalering: recipe_id → factor
+        _pakkeRecipeFactors = {};
+        for (const r of (packing.recipe_overrides || [])) {
+            const f = Number(r.factor);
+            if (f > 0) _pakkeRecipeFactors[r.recipe_id] = f;
+        }
         _renderPakkeliste();
     } catch (err) {
         console.error('Fejl ved hentning af pakkeliste:', err);
@@ -774,12 +781,16 @@ async function _savePacking() {
         product_name: x.product_name || null,
         unit: x.unit || null,
     }));
+    const recipe_overrides = Object.entries(_pakkeRecipeFactors).map(([rid, f]) => ({
+        recipe_id: parseInt(rid),
+        factor: Number(f),
+    }));
     try {
         const res = await fetch(`/api/bons/${_pakkeBonId}/packing`, {
             method: 'PUT',
             headers: { 'Content-Type': 'application/json' },
             credentials: 'same-origin',
-            body: JSON.stringify({ overrides, extras }),
+            body: JSON.stringify({ overrides, extras, recipe_overrides }),
         });
         if (!res.ok) {
             const body = document.querySelector('.modal-body');
@@ -820,8 +831,9 @@ function _renderPakkeliste() {
         cb.closest('.pakke-line')?.classList.toggle('pakke-done', cb.checked);
     });
 
-    // Editbare mængde-felter (kun råvare-niveau, ikke-leveret bon)
-    body.querySelectorAll('.pakke-qty-input').forEach(inp => {
+    // Editbare mængde-felter for DIREKTE varer (override pr. product_id).
+    // :not(.pakke-rfactor-input) — underopskrift-felterne håndteres separat nedenfor.
+    body.querySelectorAll('.pakke-qty-input:not(.pakke-rfactor-input)').forEach(inp => {
         // Undgå at checkbox-toggle trigges når man klikker i feltet
         inp.addEventListener('click', e => e.preventDefault());
         const commit = () => {
@@ -841,12 +853,36 @@ function _renderPakkeliste() {
         inp.addEventListener('input', commit);
     });
 
-    // Reset-knapper (↺ → tilbage til standard)
+    // Editbare mængde-felter for UNDEROPSKRIFTER (skaleringsfaktor pr. recipe_id).
+    // Indtastet mængde / standard-mængde = factor → råvarerne skaleres ved LEVERET.
+    body.querySelectorAll('.pakke-rfactor-input').forEach(inp => {
+        inp.addEventListener('click', e => e.preventDefault());
+        const commit = () => {
+            const rid = parseInt(inp.dataset.pakkeRid);
+            const computed = Number(inp.dataset.pakkeRcomputed);
+            const val = inp.value === '' ? computed : Number(inp.value);
+            if (Number.isNaN(val) || val < 0 || !computed) { inp.value = String(computed); return; }
+            const factor = val / computed;
+            if (Math.abs(factor - 1) < 0.0001) {
+                delete _pakkeRecipeFactors[rid];
+            } else {
+                _pakkeRecipeFactors[rid] = factor;
+            }
+            _schedulePakkeSave();
+        };
+        inp.addEventListener('change', () => { commit(); _renderPakkeliste(); });
+        inp.addEventListener('input', commit);
+    });
+
+    // Reset-knapper (↺ → tilbage til standard) — både direkte varer og underopskrifter
     body.querySelectorAll('.pakke-reset').forEach(btn => {
         btn.addEventListener('click', e => {
             e.preventDefault();
-            const pid = parseInt(btn.dataset.pakkeReset);
-            delete _pakkeOverrides[pid];
+            if (btn.dataset.pakkeRreset != null) {
+                delete _pakkeRecipeFactors[parseInt(btn.dataset.pakkeRreset)];
+            } else {
+                delete _pakkeOverrides[parseInt(btn.dataset.pakkeReset)];
+            }
             _schedulePakkeSave();
             _renderPakkeliste();
         });
@@ -895,6 +931,9 @@ function _buildPakkelisteHtml(bon, data, level) {
         return '<div class="changelog-empty">Ingen linjer på denne bon endnu — tilføj varer først.</div>';
     }
     const fmt = (n) => n < 1 ? Number(n).toFixed(2) : (n < 10 ? Number(n).toFixed(1) : String(Math.round(n)));
+    // Vægt-formatter til underopskrifter (kg/g): bevar op til 2 decimaler, så
+    // "13,63 kg" ikke afrundes til "14". Heltal vises uden decimaler.
+    const fmtW = (n) => { const r = Math.round(Number(n) * 100) / 100; return Number.isInteger(r) ? String(r) : String(r); };
     const eventLabel = bon.event_name ? ` til <strong>${esc(bon.event_name)}</strong>` : '';
     const isPack = (level === 'pack');
     const locked = (bon.inventory_deducted === 1);
@@ -937,14 +976,36 @@ function _buildPakkelisteHtml(bon, data, level) {
             };
         });
         for (const sub of (prod.sub_recipes || [])) {
-            items.push({
-                type: 'sub',
-                key: 'sub' + sub.recipe_id,
-                displayAmount: sub.amount,           // forformateret streng ("2,16 kg")
-                name: sub.recipe_name,
-                category: 'Blandet hjemmefra',
-                note: null,
-            });
+            const rid = sub.recipe_id;
+            const wg = Number(sub.weight_grams) || 0;
+            const factor = _pakkeRecipeFactors[rid] || 1;
+            if (wg > 0) {
+                // Redigerbar: skaler underopskriftens råvarer via factor.
+                const big = wg >= 1000;
+                const compVal = big ? wg / 1000 : wg;   // standard-mængde i vist enhed
+                items.push({
+                    type: 'sub',
+                    key: 'sub' + rid,
+                    recipeId: rid,
+                    computed: compVal,
+                    qty: compVal * factor,
+                    scaled: Math.abs(factor - 1) > 0.0001,
+                    unit: big ? 'kg' : 'g',
+                    name: sub.recipe_name,
+                    category: 'Blandet hjemmefra',
+                    note: null,
+                });
+            } else {
+                // Ingen vægt (servings-baseret) — vis som før, ikke redigerbar.
+                items.push({
+                    type: 'sub-static',
+                    key: 'sub' + rid,
+                    displayAmount: sub.amount,
+                    name: sub.recipe_name,
+                    category: 'Blandet hjemmefra',
+                    note: null,
+                });
+            }
         }
     } else {
         // Skal-laves-niveau: opskrifts-linjer som de står på bonen (referencen).
@@ -978,30 +1039,41 @@ function _buildPakkelisteHtml(bon, data, level) {
         html += `<div class="pakke-group">
             <div class="pakke-group-head">${esc(cat)} <span class="pakke-group-count">(${groups[cat].length})</span></div>`;
         for (const it of groups[cat]) {
-            let qtyCell, unitCell;
-            if (it.type === 'sub') {
-                // Dressing/underopskrift: forformateret mængde inkl. enhed, ikke redigerbar.
+            let qtyCell, unitCell, resetBtn = '';
+            const showStd = it.overridden || (it.type === 'sub' && it.scaled);
+            if (it.type === 'sub-static') {
+                // Servings-baseret underopskrift: forformateret mængde, ikke redigerbar.
                 qtyCell = `<span class="pakke-qty pakke-qty-sub">${esc(it.displayAmount || '')}</span>`;
                 unitCell = '';
+            } else if (it.type === 'sub' && !locked) {
+                // Underopskrift med vægt: redigerbar → skalerer råvarer proportionalt.
+                qtyCell = `<input type="number" min="0" step="any" class="pakke-qty-input pakke-rfactor-input ${it.scaled ? 'pakke-qty-edited' : ''}"
+                        value="${fmtW(it.qty)}" data-pakke-rid="${it.recipeId}" data-pakke-rcomputed="${it.computed}"
+                        title="${it.scaled ? 'Standard: ' + fmtW(it.computed) : ''}">`;
+                unitCell = `<span class="pakke-unit">${esc(it.unit)}</span>`;
+                resetBtn = it.scaled
+                    ? `<button type="button" class="pakke-reset" data-pakke-rreset="${it.recipeId}" title="Nulstil til standard (${fmtW(it.computed)})">↺</button>`
+                    : '';
             } else if (it.type === 'edit' && !locked) {
                 qtyCell = `<input type="number" min="0" step="any" class="pakke-qty-input ${it.overridden ? 'pakke-qty-edited' : ''}"
                         value="${fmt(it.qty)}" data-pakke-pid="${it.productId}" data-pakke-computed="${it.computed}"
                         data-pakke-name="${esc(it.name)}" data-pakke-unit="${esc(it.unit)}"
                         title="${it.overridden ? 'Standard: ' + fmt(it.computed) : ''}">`;
                 unitCell = `<span class="pakke-unit">${esc(it.unit)}</span>`;
+                resetBtn = it.overridden
+                    ? `<button type="button" class="pakke-reset" data-pakke-reset="${it.productId}" data-pakke-computed="${it.computed}" title="Nulstil til standard (${fmt(it.computed)})">↺</button>`
+                    : '';
             } else {
-                qtyCell = `<span class="pakke-qty ${it.overridden ? 'pakke-qty-edited' : ''}">${fmt(it.qty)}</span>`;
-                unitCell = `<span class="pakke-unit">${esc(it.unit)}</span>`;
+                // Låst (leveret): vis skaleret/justeret mængde som tekst.
+                qtyCell = `<span class="pakke-qty ${showStd ? 'pakke-qty-edited' : ''}">${(it.type === 'sub' ? fmtW : fmt)(it.qty)}</span>`;
+                unitCell = `<span class="pakke-unit">${esc(it.unit || '')}</span>`;
             }
-            const resetBtn = (it.type === 'edit' && !locked && it.overridden)
-                ? `<button type="button" class="pakke-reset" data-pakke-reset="${it.productId}" data-pakke-computed="${it.computed}" title="Nulstil til standard (${fmt(it.computed)})">↺</button>`
-                : '';
             html += `<label class="pakke-line">
                 <input type="checkbox" data-pakke-line="${esc(it.key)}">
                 ${qtyCell}
                 ${unitCell}
                 <span class="pakke-name">${esc(it.name)}</span>
-                ${it.overridden ? `<span class="pakke-orig">(standard ${fmt(it.computed)})</span>` : ''}
+                ${showStd ? `<span class="pakke-orig">(standard ${(it.type === 'sub' ? fmtW : fmt)(it.computed)})</span>` : ''}
                 ${resetBtn}
                 ${it.note ? `<span class="pakke-note">— ${esc(it.note)}</span>` : ''}
             </label>`;

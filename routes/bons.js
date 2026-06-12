@@ -1,7 +1,7 @@
 const express = require('express');
 const router  = express.Router();
 const { getDb } = require('../db/database');
-const { handle, logChange, getBon, getBonLines, getBonMenuGroups, getStatusId, getDefaultLocationId, todayISO, nextBonNumber, computeMomsFields, recalcBonTotalUnits, transaction, autoConsumeBonInventory, getPrepPackingOverrides, getPrepPackingExtras } = require('../db/helpers');
+const { handle, logChange, getBon, getBonLines, getBonMenuGroups, getStatusId, getDefaultLocationId, todayISO, nextBonNumber, computeMomsFields, recalcBonTotalUnits, transaction, autoConsumeBonInventory, getPrepPackingOverrides, getPrepPackingExtras, getPrepPackingRecipeFactors } = require('../db/helpers');
 const { broadcast } = require('../shared/sse');
 const { requireAuth } = require('../shared/auth');
 const grocy   = require('../services/grocyAdapter');
@@ -1224,7 +1224,12 @@ router.get('/:id/packing', handle((req, res) => {
         SELECT product_id, product_name, amount, unit
         FROM prep_packing_extras WHERE bon_id = ? ORDER BY product_id
     `).all(id);
-    res.json({ overrides, extras });
+    // Underopskrift-skalering (Frisk Grønt, dressinger — se migration 103).
+    const recipe_overrides = db.prepare(`
+        SELECT recipe_id, factor
+        FROM prep_packing_recipe_overrides WHERE bon_id = ? ORDER BY recipe_id
+    `).all(id);
+    res.json({ overrides, extras, recipe_overrides });
 }));
 
 router.put('/:id/packing', handle((req, res) => {
@@ -1243,10 +1248,11 @@ router.put('/:id/packing', handle((req, res) => {
     // Begge arrays er valgfrie, men mindst ét skal være med. Sender klienten kun
     // det ene, reconciler vi kun det — det andet røres ikke (bagudkompatibelt med
     // ældre klienter der kun kender overrides).
-    const overrideItems = Array.isArray(req.body?.overrides) ? req.body.overrides : null;
-    const extraItems    = Array.isArray(req.body?.extras)    ? req.body.extras    : null;
-    if (!overrideItems && !extraItems) {
-        return res.status(400).json({ error: 'overrides eller extras (array) er påkrævet' });
+    const overrideItems = Array.isArray(req.body?.overrides)        ? req.body.overrides        : null;
+    const extraItems    = Array.isArray(req.body?.extras)           ? req.body.extras           : null;
+    const recipeItems   = Array.isArray(req.body?.recipe_overrides) ? req.body.recipe_overrides : null;
+    if (!overrideItems && !extraItems && !recipeItems) {
+        return res.status(400).json({ error: 'overrides, extras eller recipe_overrides (array) er påkrævet' });
     }
 
     transaction(db, () => {
@@ -1276,6 +1282,20 @@ router.put('/:id/packing', handle((req, res) => {
                 insX.run(id, pid, it.product_name ?? null, amt, it.unit ?? null);
             }
         }
+        if (recipeItems) {
+            db.prepare(`DELETE FROM prep_packing_recipe_overrides WHERE bon_id = ?`).run(id);
+            const insR = db.prepare(`
+                INSERT INTO prep_packing_recipe_overrides (bon_id, recipe_id, factor, updated_at)
+                VALUES (?, ?, ?, CURRENT_TIMESTAMP)
+            `);
+            for (const it of recipeItems) {
+                const rid = parseInt(it.recipe_id);
+                const f   = Number(it.factor);
+                // factor=1 (eller ~1) er ingen ændring → gem ikke
+                if (!rid || Number.isNaN(f) || f <= 0 || Math.abs(f - 1) < 0.0001) continue;
+                insR.run(id, rid, f);
+            }
+        }
     });
     logChange({ entityType: 'bon', entityId: id, action: 'update', fieldName: 'packing', userId: req.body?.user_id ?? req.session?.userId });
     broadcast('bon_updated', { id });
@@ -1287,7 +1307,11 @@ router.put('/:id/packing', handle((req, res) => {
         SELECT product_id, product_name, amount, unit
         FROM prep_packing_extras WHERE bon_id = ? ORDER BY product_id
     `).all(id);
-    res.json({ overrides, extras });
+    const recipe_overrides = db.prepare(`
+        SELECT recipe_id, factor
+        FROM prep_packing_recipe_overrides WHERE bon_id = ? ORDER BY recipe_id
+    `).all(id);
+    res.json({ overrides, extras, recipe_overrides });
 }));
 
 // Read-only forhåndsvisning af lagertrækket: PRÆCIS hvad LEVERET ville trække
@@ -1297,10 +1321,11 @@ router.get('/:id/packing/consume-preview', handle(async (req, res) => {
     const id = parseInt(req.params.id);
     const bon = getBon(id);
     if (!bon) return res.status(404).json({ error: 'Bon ikke fundet' });
-    const lines     = getBonLines(id);
-    const overrides = getPrepPackingOverrides(id);
-    const extras    = getPrepPackingExtras(id);
-    const { items } = await grocy.planConsume(lines, overrides, extras);
+    const lines         = getBonLines(id);
+    const overrides     = getPrepPackingOverrides(id);
+    const extras        = getPrepPackingExtras(id);
+    const recipeFactors = getPrepPackingRecipeFactors(id);
+    const { items } = await grocy.planConsume(lines, overrides, extras, recipeFactors);
     res.json({ bon_id: bon.id, bon_number: bon.bon_number, items });
 }));
 

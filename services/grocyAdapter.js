@@ -728,7 +728,7 @@ function makeEffectiveStock(stock, products) {
  * @param {Array<{grocy_recipe_id: number, quantity: number}>} lines  Bon-linjer
  * @returns {Array<{product_id: number, product_name: string, amount: number, success: boolean, error?: string}>}
  */
-async function consumeRecipes(lines, overrides = null, extras = null) {
+async function consumeRecipes(lines, overrides = null, extras = null, recipeFactors = null) {
     const validLines = lines.filter(l => l.grocy_recipe_id);
     if (!validLines.length) return [];
 
@@ -737,7 +737,7 @@ async function consumeRecipes(lines, overrides = null, extras = null) {
 
     let items;
     try {
-        items = await resolveConsumeItems(validLines);
+        items = await resolveConsumeItems(validLines, recipeFactors);
     } catch (err) {
         console.error('[consume] Fejl ved ingredient-opløsning:', err);
         return [{ product_id: 0, product_name: '(resolver fejl)', amount: 0, success: false, error: err.message }];
@@ -844,12 +844,12 @@ async function consumeRecipes(lines, overrides = null, extras = null) {
  * @returns {Promise<{ items: Array<{ product_id, product_name, recipe_amount,
  *   override_amount, extra_amount, final_amount, in_stock, shortfall }> }>}
  */
-async function planConsume(lines, overrides = null, extras = null) {
+async function planConsume(lines, overrides = null, extras = null, recipeFactors = null) {
     const validLines = (lines || []).filter(l => l.grocy_recipe_id);
     const { resolveConsumeItems } = require('./ingredientResolver');
 
     let items = [];
-    if (validLines.length) items = await resolveConsumeItems(validLines);
+    if (validLines.length) items = await resolveConsumeItems(validLines, recipeFactors);
     if (!items.length && !(extras && extras.length)) return { items: [] };
 
     let stock = [];
