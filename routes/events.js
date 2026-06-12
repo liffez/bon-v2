@@ -389,6 +389,79 @@ router.get('/:id/overview', requireAuth(), handle(async (req, res) => {
     res.json({ event, bons, pnl, forecast, days, categories, prepped });
 }));
 
+// ─── SALGS-BON PRE-FILL (menu-punkter fra prep-bonnerne) ───────────────────
+// Salgsbonnen pre-udfyldes med de FÆRDIGE menuer fra eventets prep-bonner —
+// det vi tog med fra HQ. Vi sælger hele menuer, ikke pakkelistens råvarer, så
+// kilden er prep-bonnernes bon_lines (færdig-produkt-niveau), ikke pakkelisten.
+//
+// Beslutninger (Leif, jun 2026):
+//   • KUN prep-rollen tæller (ikke top-up).
+//   • Antal = summen af preppet pr. produkt på tværs af eventets prep-bonner
+//     (union). Det er et START-gæt — justeres NED for spild, smagsprøver, ting
+//     der ryger på gulvet osv. (differencen = svind, jf. §6's retur/spild).
+//   • Pris = FESTIVAL-salgspris fra Grocy. Events/festivaler sælger til
+//     festivalpris (afviger fra spec §3's 'catering' — forretningsbeslutning).
+// Aggregér salgs-bon pre-fill for et event. Testbar helper (jf.
+// computeEventPnL/Cost/CO2) — ruten kalder bare denne + res.json.
+async function computeSalesPrefill(event) {
+    // Find prep-bonnerne via samme rolle-klassifikation som overview viser.
+    const bons = getEventBons(event.id);
+    const seenProductionDates = new Set();
+    for (const b of bons) {
+        if (b.price_category_code === 'produktion') {
+            b._is_first_production_on_date = !seenProductionDates.has(b.delivery_date);
+            seenProductionDates.add(b.delivery_date);
+        }
+        b.role = classifyRole(b, event.start_date);
+    }
+    const prepIds = bons.filter(b => b.role === 'prep').map(b => b.id);
+    if (prepIds.length === 0) return { lines: [], price_category_code: 'festival' };
+
+    // Aggregér prep-linjer pr. produkt (grocy_recipe_id når sat, ellers navn).
+    const ph = prepIds.map(() => '?').join(',');
+    const rows = getDb().prepare(`
+        SELECT bl.grocy_recipe_id AS grocy_recipe_id,
+               bl.product_name    AS product_name,
+               bl.category        AS category,
+               bl.unit            AS unit,
+               COALESCE(SUM(bl.quantity), 0) AS qty
+        FROM bon_lines bl
+        WHERE bl.bon_id IN (${ph})
+        GROUP BY bl.grocy_recipe_id, bl.product_name, bl.category, bl.unit
+        ORDER BY bl.category, bl.product_name
+    `).all(...prepIds);
+
+    // Festival-salgspris (+ kostpris/CO₂-snapshot) fra Grocy pr. opskrift.
+    let recById = {};
+    try {
+        const recipes = await grocy.getRecipes();
+        for (const r of recipes) recById[r.id] = r;
+    } catch (err) {
+        console.warn('[events] sales-prefill: kunne ikke hente Grocy-priser:', err.message);
+    }
+
+    const lines = rows.map(r => {
+        const rec = r.grocy_recipe_id ? recById[r.grocy_recipe_id] : null;
+        return {
+            grocy_recipe_id: r.grocy_recipe_id ?? null,
+            product_name:    r.product_name,
+            category:        r.category ?? null,
+            unit:            r.unit ?? 'stk',
+            quantity:        r.qty,
+            unit_price:      rec ? (rec.prices?.festival ?? 0) : 0,
+            cost_price:      rec ? (rec.cost_price ?? null) : null,
+            co2e:            rec ? (rec.co2e ?? null) : null,
+        };
+    });
+    return { lines, price_category_code: 'festival' };
+}
+
+router.get('/:id/sales-prefill', requireAuth(), handle(async (req, res) => {
+    const event = getEvent(req.params.id);
+    if (!event) return res.status(404).json({ error: 'Event ikke fundet' });
+    res.json(await computeSalesPrefill(event));
+}));
+
 // ─── FORECAST CRUD (pr-kategori, pr-dag) ───────────────────────────────────
 // PUT erstatter hele forecast-tabellen for eventet (idempotent reconcile).
 // Tomme/0-værdier slettes så vi ikke akkumulerer støj.
@@ -444,9 +517,12 @@ router.post('/:id/bons', requireAuth(), handle((req, res) => {
         return res.status(400).json({ error: 'lines (array) er påkrævet' });
     }
 
-    // Priskategori
+    // Priskategori. Prep/top-up = produktion (0 kr). Salg/udgift defaulter til
+    // FESTIVAL — events/festivaler sælges til festivalpris (Leif, jun 2026;
+    // afviger fra spec §3's 'catering'). Frontenden kan overskrive via
+    // b.price_category_code.
     const isProduction = (role === 'prep' || role === 'topup');
-    const pcCode  = isProduction ? 'produktion' : (b.price_category_code ?? 'catering');
+    const pcCode  = isProduction ? 'produktion' : (b.price_category_code ?? 'festival');
     const pc      = getPriceCategoryByCode(pcCode);
     if (!pc) return res.status(500).json({ error: `Priskategori '${pcCode}' findes ikke i price_categories` });
 
@@ -617,3 +693,5 @@ router.post('/:id/return', requireAuth(), handle(async (req, res) => {
 }));
 
 module.exports = router;
+// Eksponér ren helper til test (rammer den ægte aggregering + festival-opslag).
+module.exports.computeSalesPrefill = computeSalesPrefill;
