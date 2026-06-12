@@ -55,7 +55,7 @@
     <script src="/shared/mail_thread.js?v=2026-06-06-1"></script>
     <script src="/shared/varemodtagelse.js?v=2026-06-06-1"></script>
     <script src="/shared/inventory_check.js?v=2026-06-06-1"></script>
-    <script src="/mobile/views/bons.js?v=2026-06-06-1"></script>
+    <script src="/mobile/views/bons.js?v=2026-06-12-1"></script>
     <script src="/mobile/views/modtag.js?v=2026-06-06-1"></script>
     <script src="/mobile/views/lager.js?v=2026-06-06-1"></script>
     <script src="/mobile/views/crm.js?v=2026-06-06-1"></script>
@@ -258,7 +258,8 @@
             // indgående mail, fordi "Nye"-tabben tæller bons + ulæste mails samlet
             // (pending-inbox-modellen, jf. CLAUDE.md).
             if (eventName === 'bon_created' || eventName === 'bon_updated'
-                || eventName === 'bon_status' || eventName === 'mail_received') {
+                || eventName === 'bon_status' || eventName === 'mail_received'
+                || eventName === 'mail_unmatched') {
                 _mScheduleNewBadgeReload();
             }
         }
@@ -285,6 +286,8 @@
                     // på rækken, Nye-tab pending-inbox) + nav-tæller opdateres.
                     // connectSSE() viser allerede den globale toast oveni.
                     mail_received: function(d) { _mDispatchSSE('mail_received', d); },
+                    // Ufordelt kontakt@-post (intet tag matchede) → opdater "Nyt".
+                    mail_unmatched: function(d) { _mDispatchSSE('mail_unmatched', d); },
                 });
             } catch (e) { /* lydløst — SSE er nice-to-have på mobil */ }
         }

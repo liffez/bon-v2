@@ -370,7 +370,10 @@ router.get('/inbox', requireAuth('admin'), handle((req, res) => {
 // Generisk (virker for kunde/bon/PO/leverandør) så den samlede indbakke kan
 // rydde et item uden at kende entitets-typen. Broadcaster mail_read så badges
 // + de dedikerede visninger opdaterer.
-router.patch('/message/:id/read', requireAuth('admin'), handle((req, res) => {
+// requireAuth() (ikke admin): den delte indbakke vises også i mobilens "Nyt"-tab,
+// så alle roller skal kunne markere en indgående mail læst. Selve link-flowet
+// (opret tråd/kunde) forbliver admin via PATCH /unmatched/:id.
+router.patch('/message/:id/read', requireAuth(), handle((req, res) => {
     const id = parseInt(req.params.id);
     if (!id) return res.status(400).json({ error: 'Ugyldigt id' });
     const db = getDb();
@@ -434,6 +437,25 @@ router.patch('/unmatched/:id', requireAuth('admin'), handle(async (req, res) => 
     } else {
         res.status(400).json({ error: 'status skal være linked eller ignored' });
     }
+}));
+
+// POST /api/mail/unmatched/:id/dismiss — markér ufordelt mail som håndteret
+// (status='ignored'). Adskilt fra den admin-only PATCH /unmatched/:id så
+// mobilens "Nyt"-tab kan rydde ufordelt kontakt@-post uden at åbne det fulde
+// link-flow (opret tråd/kunde) for ikke-admin-roller. For ufordelt post er
+// "markér læst" = "håndteret", da tabellen ingen is_read-kolonne har.
+router.post('/unmatched/:id/dismiss', requireAuth(), handle((req, res) => {
+    const id = parseInt(req.params.id);
+    if (!id) return res.status(400).json({ error: 'Ugyldigt id' });
+    const db = getDb();
+    const userId = getUserId(req);
+    const um = db.prepare(`SELECT id FROM mail_unmatched WHERE id = ? AND status = 'open'`).get(id);
+    if (!um) return res.status(404).json({ error: 'Ikke fundet eller allerede håndteret' });
+    db.prepare(`
+        UPDATE mail_unmatched SET status = 'ignored', handled_by_user_id = ?, handled_at = CURRENT_TIMESTAMP WHERE id = ?
+    `).run(userId, id);
+    broadcastUnmatchedCount(db);
+    res.json({ ok: true });
 }));
 
 // POST /api/mail/unmatched/:id/refetch — hent mailen igen fra serveren for at

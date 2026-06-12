@@ -464,6 +464,11 @@ function _mbRenderNye() {
 
     list.querySelectorAll('.m-bon-item').forEach(function(el) {
         el.addEventListener('click', function() {
+            // kontakt@-mail har ingen bon → udvid kortet inline i stedet.
+            if (el.dataset.eventType === 'kontakt_mail') {
+                el.classList.toggle('expanded');
+                return;
+            }
             _mbFromSearch = false;
             // Når man trykker på en ulæst mail → spring direkte til mailflowet.
             var focusMail = el.dataset.eventType === 'unread_mail';
@@ -477,6 +482,43 @@ function _mbRenderNye() {
             _mbMarkNyeMailRead(parseInt(btn.dataset.bonId), parseInt(btn.dataset.mailId), btn);
         });
     });
+
+    list.querySelectorAll('.m-nye-kontaktread').forEach(function(btn) {
+        btn.addEventListener('click', function(e) {
+            e.stopPropagation();   // udvid ikke kortet
+            _mbMarkKontaktRead(btn.dataset.mailKind, parseInt(btn.dataset.mailId), btn);
+        });
+    });
+}
+
+/* Markér en kontakt@-mail som håndteret direkte fra Nyt-listen.
+ * thread-mail → PATCH /mail/message/:id/read (is_read=1)
+ * ufordelt post → POST /mail/unmatched/:id/dismiss (status='ignored')
+ * Begge fjerner eventet lokalt + opdaterer badge; server broadcaster så
+ * office-visningerne holdes i sync. */
+async function _mbMarkKontaktRead(kind, mailId, btn) {
+    if (!mailId) return;
+    btn.disabled = true;
+    btn.innerHTML = 'Markerer…';
+    try {
+        if (kind === 'unmatched') {
+            await apiFetch('/mail/unmatched/' + mailId + '/dismiss', { method: 'POST' });
+        } else {
+            await apiFetch('/mail/message/' + mailId + '/read', { method: 'PATCH' });
+        }
+        _mbNyeEvents = _mbNyeEvents.filter(function(ev) {
+            return !(ev.event_type === 'kontakt_mail' && ev.mail
+                     && ev.mail.id === mailId && ev.mail_kind === kind);
+        });
+        _mbNyeCount = Math.max(0, _mbNyeCount - 1);
+        _mbRenderNye();
+        _mbUpdateBadges(_mbNyeCount);
+        if (window._mToast) window._mToast(kind === 'unmatched' ? 'Mail håndteret' : 'Mail markeret som læst');
+    } catch (e) {
+        btn.disabled = false;
+        btn.innerHTML = '&#10003; Markér læst';
+        if (window._mToast) window._mToast('Fejl — prøv igen');
+    }
 }
 
 /* Markér én ulæst mail som læst direkte fra Nyt-listen. Fjerner eventet
@@ -502,7 +544,57 @@ async function _mbMarkNyeMailRead(bonId, mailId, btn) {
     }
 }
 
+// kontakt@-mail har ingen bon at åbne → eget kort med udvid-i-stedet-for-naviger
+// + "Markér læst" (jf. brugervalg: "Udvid + Markér læst").
+var _MB_KONTAKT_BADGE = {
+    supplier:       { bg: '#e3edf7', text: '#2c5d8a' },
+    customer:       { bg: '#e6f3ea', text: '#2e6b3f' },
+    purchase_order: { bg: '#efe7f5', text: '#6a3d8a' },
+    unmatched:      { bg: '#fbeed9', text: '#9a6212' },
+    thread:         { bg: '#eceae7', text: '#6b6258' },
+};
+
+function _mbRenderKontaktCard(ev) {
+    var mail = ev.mail || {};
+    var badge = _MB_KONTAKT_BADGE[ev.entity_type] || _MB_KONTAKT_BADGE.thread;
+    var mailIcon = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">' +
+        '<path d="M4 4h16c1.1 0 2 .9 2 2v12c0 1.1-.9 2-2 2H4c-1.1 0-2-.9-2-2V6c0-1.1.9-2 2-2z"/>' +
+        '<polyline points="22,6 12,13 2,6"/></svg>';
+
+    var subject = mail.subject || '(uden emne)';
+    var fromStr = mail.from_name ? (mail.from_name + ' <' + (mail.from_address || '') + '>')
+                                 : (mail.from_address || '');
+    var whenStr = _mbFormatRelative(ev.event_at);
+
+    var html =
+        '<div class="m-bon-item m-bon-nye m-bon-kontakt unseen mail"' +
+            ' data-event-type="kontakt_mail"' +
+            ' data-mail-kind="' + (ev.mail_kind || 'thread') + '"' +
+            ' data-mail-id="' + mail.id + '">' +
+            '<div class="m-bon-row1">' +
+                '<span class="m-bon-source">' + mailIcon + ' kontakt@</span>' +
+                '<span class="m-bon-badge" style="background:' + badge.bg + ';color:' + badge.text + '">' +
+                    _mbEsc(ev.entity_label || 'Mail') + '</span>' +
+            '</div>' +
+            '<div class="m-bon-customer">' + _mbEsc(subject) + '</div>';
+
+    if (fromStr) html += '<div class="m-bon-mail-from">Fra: ' + _mbEsc(fromStr) + '</div>';
+    if (mail.preview) html += '<div class="m-bon-mail-preview">"' + _mbEsc(mail.preview) + '"</div>';
+
+    html +=
+            '<div class="m-bon-meta-line"><span class="m-bon-when">' + _mbEsc(whenStr) + '</span></div>' +
+            '<div class="m-nye-actions">' +
+                '<button class="m-nye-kontaktread" data-mail-kind="' + (ev.mail_kind || 'thread') +
+                    '" data-mail-id="' + mail.id + '">&#10003; Markér læst</button>' +
+            '</div>' +
+        '</div>';
+
+    return html;
+}
+
 function _mbRenderNyeCard(ev) {
+    if (ev.event_type === 'kontakt_mail') return _mbRenderKontaktCard(ev);
+
     var bon = ev.bon;
     var mail = ev.mail;
     var s = _mbStatusStyle(bon.status_code);
