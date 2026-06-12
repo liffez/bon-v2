@@ -273,10 +273,45 @@ Tilføj til `CLAUDE.md`:
   omdirigeres til det barn der har mest lager (Hvidkål/Spidskål).
 - **Bon-kort:** produktionsbons (inkl. event-prep) får blå venstre-stribe (status-::before overstyret).
 
-**Tests:** `scripts/test-event-gate.js` (15) + `scripts/test-prep-packing.js` (7) +
+**Tests:** `scripts/test-event-gate.js` (15) + `scripts/test-prep-packing.js` (12 — override + extras) +
+`scripts/test-recipe-factor.js` (8 — underopskrift-skalering) +
 `scripts/verify-event-prereqs.js` (read-only prod-forudsætningstjek).
 
 **Endnu ikke bygget:** varemodtagelses-*registrering* af returen (returen er pt. en ren Grocy stock-add,
 ikke en `goods_receipts`-post). Spild som eksplicit felt (pt. implicit = forslag − faktisk talt).
+
+### 14b. Pakkeliste v2 — produktions-niveau + buffer-mekanismer (jun 2026)
+
+Driftsfeedback: råvare-niveauet eksploderede dressinger/Frisk Grønt til salt, peber,
+tahini osv. — men de blandes færdige hjemmefra. Pakkelisten viser nu **produktions-
+niveau**: direkte varer + underopskrifter som ét færdigt item (ikke eksploderet).
+
+**Tre buffer-mekanismer** (alle forretnings-sande — trækkes fra HQ ved LEVERET):
+1. **override** (`097_prep_packing_overrides`, pr. produkt): ERSTATTER en direkte vares
+   mængde. Buffer-in-place på fx Brød Rug.
+2. **extra** (`102_prep_packing_extras`, pr. produkt): LÆGGER en konkret vare OVENI
+   opskrifterne (fx 1 kg ekstra mayonnaise ved siden af). "➕ Tag ekstra med"-vælger.
+3. **recipe-factor** (`103_prep_packing_recipe_overrides`, pr. underopskrift): SKALERER
+   en underopskrifts råvarer proportionalt. Justeres Frisk Grønt fra 13,63→16 kg, gemmes
+   `factor = 16/13,63`; ved LEVERET ganges faktoren på underopskriftens råvare-multiplier
+   i `resolveConsumeItems` (kål, spinat … skaleres tilsvarende).
+
+**Read-only forhåndsvisning** (`GET /:id/packing/consume-preview` → `grocyAdapter.planConsume`):
+viser PRÆCIS hvad LEVERET ville trække fra HQ (komponenter + overrides + extras + recipe-
+faktorer) uden at røre lageret — så drift kan verificere før de trykker. Consume-logikken er
+udtrukket til delte helpers (`applyPackingAdjustments` + `makeEffectiveStock`) som BÅDE det
+rigtige `consumeRecipes` OG preview'en bruger → garanteret match.
+
+**Filer (udover §14):** `services/ingredientResolver.js` (`resolveConsumeItems(lines, recipeFactors)`
++ `weight_grams` på production sub_recipes) · `grocyAdapter.js` (`planConsume`, delte helpers,
+`consumeRecipes(lines, overrides, extras, recipeFactors)`) · `db/helpers.js` (`getPrepPackingExtras`,
+`getPrepPackingRecipeFactors`) · `routes/bons.js` (packing GET/PUT m. extras+recipe_overrides +
+consume-preview) · `shared/modal.{js,css}` (produktions-niveau pakkeliste, "tag ekstra med",
+redigerbare underopskrifter, preview-tabel).
+
+**Tests:** `scripts/test-recipe-factor.js` (8 — faktor-skalering i resolveren: ×1,5 på Frisk Grønt,
+rekursion ned i nestet dressing, uafhængige/komponerende faktorer) + `scripts/test-prep-packing.js`
+udvidet til 12 (S6–S9: extras adderer/ny vare/override+extra/ugyldige). Browser-verificeret end-to-end +
+backend-roundtrip (overrides/extras/recipe_overrides). Live Grocy-skalering verificeres via preview på grocytest.
 
 *Grundlag: design-session m. Leif (jun 2026) + kodeverifikation: grocyAdapter.js, routes/grocy.js, bon_kort_builder.js, reports.js, bon_v2_datamodel_v2.md. Implementeret + verificeret end-to-end jun 2026.*
