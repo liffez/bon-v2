@@ -335,10 +335,13 @@ function formatLevel(aggregated, stockMap, quConversions, unitMap, subRecipeAgg)
                 display = `${s} ${sr.unit}`;
             }
             return {
-                recipe_id:   sr.recipe_id,
-                recipe_name: sr.recipe_name,
-                amount:      display,
-                servings:    sr.servings,
+                recipe_id:    sr.recipe_id,
+                recipe_name:  sr.recipe_name,
+                amount:       display,
+                // Numerisk standard-vægt (ekskl. emballage) — bruges af pakkelisten
+                // til redigerbar buffer (factor = ønsket / weight_grams).
+                weight_grams: weightG,
+                servings:     sr.servings,
             };
         }).sort((a, b) => a.recipe_name.localeCompare(b.recipe_name, 'da'));
     }
@@ -399,7 +402,7 @@ function findConversionFactorToGrams(conversions, productId, fromQuId, unitMap) 
  * @param {Array} recipeLines  Bon-linjer med grocy_recipe_id + quantity
  * @returns {Array<{ product_id, amount_stock, product_name }>}
  */
-async function resolveConsumeItems(recipeLines) {
+async function resolveConsumeItems(recipeLines, recipeFactors = null) {
     if (!recipeLines.length) return [];
 
     const [
@@ -480,7 +483,14 @@ async function resolveConsumeItems(recipeLines) {
 
             const subBaseServings = parseInt(subRaw.base_servings) || 1;
             const nestingServings = parseFloat(nesting.servings) || 1;
-            const subMultiplier = (nestingServings * parentMultiplier) / subBaseServings;
+            let subMultiplier = (nestingServings * parentMultiplier) / subBaseServings;
+
+            // Buffer-skalering (event-prep §6): tager køkkenet fx 17 % mere Frisk
+            // Grønt med, ganges faktoren på multiplieren → ALLE underopskriftens
+            // råvarer (og dybere underopskrifter, via rekursionen nedenfor) skaleres
+            // tilsvarende. Ingen faktor → uændret.
+            const subFactor = recipeFactors && recipeFactors.get(subRecipeId);
+            if (subFactor && subFactor > 0) subMultiplier *= subFactor;
 
             const subIngs = posByRecipe[subRecipeId] || [];
             for (const ing of subIngs) {

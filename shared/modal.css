@@ -677,3 +677,70 @@
 }
 .pakke-reset:hover { color: var(--brand-primary, #8e631f); background: #f0ede8; }
 .pakke-progress-saved { background: #d6f0d8 !important; color: #1e6b2c !important; border-color: #1e6b2c !important; }
+
+/* Dressinger/underopskrifter — færdige items (forformateret mængde inkl. enhed) */
+.pakke-qty-sub {
+    font-variant-numeric: tabular-nums; font-weight: 600; color: #2a2a2a;
+    min-width: 64px; text-align: right; white-space: nowrap;
+}
+
+/* Ekstra-varer (buffer oveni opskrifterne) */
+.pakke-extras {
+    margin-top: 14px; background: #fbf8f2;
+    border: 1px dashed var(--brand-primary, #8e631f); border-radius: 6px; padding: 10px 12px;
+}
+.pakke-extras-head { font-weight: 600; font-size: 13px; color: var(--brand-primary, #8e631f); margin-bottom: 6px; }
+.pakke-extras-sub { color: #999; font-weight: normal; font-size: 12px; }
+.pakke-extra-line { background: transparent; }
+.pakke-extra-qty {
+    width: 56px; padding: 3px 6px; font-size: 13px; font-variant-numeric: tabular-nums;
+    text-align: right; border: 1px solid #d7d1ca; border-radius: 4px; background: #fff;
+}
+.pakke-extra-qty:focus { outline: none; border-color: var(--brand-primary, #8e631f); box-shadow: 0 0 0 2px rgba(142,99,31,0.12); }
+.pakke-extra-remove {
+    border: none; background: none; cursor: pointer; color: #b06; font-size: 18px;
+    padding: 0 4px; line-height: 1; border-radius: 3px; color: #a33;
+}
+.pakke-extra-remove:hover { background: #f6e3e3; color: #8a2222; }
+.pakke-extra-add { position: relative; margin-top: 6px; }
+.pakke-extra-search {
+    width: 100%; box-sizing: border-box; padding: 7px 10px; font-size: 13px;
+    border: 1px solid #d7d1ca; border-radius: 4px; background: #fff;
+}
+.pakke-extra-search:focus { outline: none; border-color: var(--brand-primary, #8e631f); box-shadow: 0 0 0 2px rgba(142,99,31,0.12); }
+.pakke-extra-results { display: flex; flex-direction: column; gap: 2px; margin-top: 4px; }
+.pakke-extra-hit {
+    text-align: left; border: 1px solid transparent; background: #fff; cursor: pointer;
+    padding: 6px 10px; border-radius: 4px; font-size: 13px; color: #2a2a2a;
+}
+.pakke-extra-hit:hover { background: #f3ede2; border-color: var(--brand-primary, #8e631f); }
+.pakke-extra-hit-unit { color: #999; font-size: 11px; }
+.pakke-extra-nohit { padding: 6px 10px; font-size: 12px; color: #999; font-style: italic; }
+
+/* Read-only forhåndsvisning af lagertræk */
+.pakke-preview { margin-top: 12px; }
+.pakke-preview-btn {
+    border: 1px solid var(--color-border, #d7d1ca); background: #fff; cursor: pointer;
+    padding: 7px 12px; border-radius: 5px; font-size: 13px; color: #2a2a2a; font-weight: 600;
+}
+.pakke-preview-btn:hover:not(:disabled) { border-color: var(--brand-primary, #8e631f); background: #faf7f1; }
+.pakke-preview-btn:disabled { opacity: 0.6; cursor: default; }
+.pakke-preview-hint { font-size: 11px; color: #888; margin-left: 8px; }
+.pakke-preview-panel:not(:empty) {
+    margin-top: 8px; border: 1px solid var(--color-border, #d7d1ca); border-radius: 6px;
+    padding: 8px 10px; background: #fcfbf9;
+}
+.pakke-preview-loading { font-size: 13px; color: #888; padding: 4px 2px; }
+.pakke-preview-table { width: 100%; border-collapse: collapse; font-size: 13px; }
+.pakke-preview-table th {
+    text-align: left; font-size: 11px; color: #888; font-weight: 600;
+    border-bottom: 1px solid var(--color-border, #d7d1ca); padding: 4px 6px;
+}
+.pakke-preview-table th.num, .pakke-preview-table td.num { text-align: right; font-variant-numeric: tabular-nums; }
+.pakke-preview-table td { padding: 4px 6px; border-bottom: 1px solid #efeae3; vertical-align: top; }
+.pakke-preview-table tr:last-child td { border-bottom: none; }
+.pakke-preview-unit { color: #999; font-size: 11px; }
+.pakke-preview-table .breakdown { color: #777; font-size: 12px; }
+.pakke-preview-extra { color: var(--brand-primary, #8e631f); font-weight: 600; }
+.pakke-preview-short { color: #b8650c; font-weight: 600; font-size: 11px; margin-left: 4px; }
+.pakke-preview-foot { font-size: 11px; color: #888; margin-top: 6px; }

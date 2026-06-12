@@ -2293,6 +2293,26 @@ fra `.csv`-fil eller indsat direkte fra Excel/Google Sheets.
   Ny route-fil ⇒ server-genstart ved deploy. Verificeret end-to-end mod kørende server + DB +
   browser-UI (parse, auto-mapping, dry-run-preview, dedup, privatkunde, fejlrækker).
 
+### Event-pakkeliste v2 — produktions-niveau + buffer-mekanismer (12. juni 2026)
+> Spec: `docs/CLAUDE_EVENT.md §14b`. Driftsfeedback: pakkelisten eksploderede dressinger/Frisk
+> Grønt til salt/peber/tahini — men de blandes færdige hjemmefra og pakkes som færdige varer.
+
+- **Produktions-niveau pakkeliste** ([shared/modal.js](shared/modal.js) `showPakkeliste`): direkte varer
+  + underopskrifter som ét færdigt item ("Blandet hjemmefra"), ikke eksploderet. Tabs `📦 Pak ned` / `🍽 Skal laves`.
+- **Tre buffer-mekanismer** (alle trækkes fra HQ ved LEVERET):
+  - override (migration 097, pr. produkt): ERSTATTER en direkte vares mængde.
+  - **extra** (migration 102 `prep_packing_extras`, pr. produkt): LÆGGER en konkret vare OVENI ("➕ Tag ekstra med"-vælger).
+  - **recipe-factor** (migration 103 `prep_packing_recipe_overrides`, pr. underopskrift): SKALERER en
+    underopskrifts råvarer proportionalt. Frisk Grønt 13,63→16 kg ⇒ `factor=16/13,63`; ved LEVERET ganges
+    faktoren på råvare-multiplieren i `resolveConsumeItems` (kål, spinat … skaleres, inkl. nestede underopskrifter).
+- **Read-only forhåndsvisning** `GET /api/bons/:id/packing/consume-preview` → `grocyAdapter.planConsume`:
+  viser PRÆCIS hvad LEVERET ville trække fra HQ uden at røre lageret. Consume-logikken er udtrukket til delte
+  helpers (`applyPackingAdjustments` + `makeEffectiveStock`) som BÅDE `consumeRecipes` OG preview bruger → garanteret match.
+- Filer: [services/ingredientResolver.js](services/ingredientResolver.js) (`resolveConsumeItems(lines, recipeFactors)`
+  + `weight_grams` på production sub_recipes) · [services/grocyAdapter.js](services/grocyAdapter.js) ·
+  [db/helpers.js](db/helpers.js) · [routes/bons.js](routes/bons.js) · [shared/modal.js](shared/modal.js)+css.
+- **Tests:** `scripts/test-recipe-factor.js` (8) + `scripts/test-prep-packing.js` udvidet til 12 (extras). Begge grønne.
+
 ## Næste opgave
 
 > ✏️ Opdateret 21. maj 2026.

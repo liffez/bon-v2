@@ -36,14 +36,15 @@ global.fetch = async (url, opts) => {
     // Stock: rigeligt på lager så intet bliver partial
     if (u.includes('/stock') && method === 'GET' && !/products\/\d+/.test(u)) {
         return { ok: true, status: 200, json: async () => ([
-            { product_id: 1, amount: 1000 }, { product_id: 2, amount: 1000 },
+            { product_id: 1, amount: 1000 }, { product_id: 2, amount: 1000 }, { product_id: 3, amount: 1000 },
         ]) };
     }
-    // Products
+    // Products (3 = Mayonnaise, bruges som ekstra-vare der ikke er i opskriften)
     if (u.includes('/objects/products')) {
         return { ok: true, status: 200, json: async () => ([
             { id: 1, name: 'Brød Rug', qu_id_stock: 1, qu_id_purchase: 1, parent_product_id: null },
             { id: 2, name: 'Falaffel', qu_id_stock: 1, qu_id_purchase: 1, parent_product_id: null },
+            { id: 3, name: 'Mayonnaise', qu_id_stock: 1, qu_id_purchase: 1, parent_product_id: null },
         ]) };
     }
     // Consume POST → capture
@@ -57,9 +58,12 @@ global.fetch = async (url, opts) => {
     return { ok: true, status: 200, json: async () => ([]) };
 };
 
-// Sæt env så grocyAdapter har en base-url (ellers kan getGrocyConfig fejle)
+// Sæt env så grocyAdapter's getGrocyConfig passerer for den aktive lokation
+// (key-fallback er GROCY_<CODE>_KEY). global.fetch er fuldt mocket ovenfor, så
+// der sker aldrig rigtigt netværk uanset hvilken url lokationen har.
 process.env.GROCY_TEST_URL = process.env.GROCY_TEST_URL || 'http://mock.local/api';
 process.env.GROCY_TEST_KEY = process.env.GROCY_TEST_KEY || 'mock';
+process.env.GROCY_HQ_KEY   = process.env.GROCY_HQ_KEY   || 'mock';
 
 let pass = 0, fail = 0;
 const ok = (c, m) => { if (c) { console.log('  \x1b[32m✓\x1b[0m', m); pass++; } else { console.log('  \x1b[31m✗\x1b[0m', m); fail++; } };
@@ -109,6 +113,39 @@ const ok = (c, m) => { if (c) { console.log('  \x1b[32m✓\x1b[0m', m); pass++; 
     const brod5 = consumeCalls.find(c => c.product_id === 1);
     const orphan = consumeCalls.find(c => c.product_id === 999);
     ok(brod5?.amount === 30 && !orphan, 'Beregnet mængde bevaret, orphan ikke trukket');
+
+    // ── Ekstra-varer (migration 102): lægges OVENI BOM-forbruget ──
+
+    // S6: ny ekstra-vare (ikke i opskrift) → trækkes med sin egen mængde
+    console.log('\nS6 · Ekstra ny vare (Mayonnaise 5) — trækkes oveni');
+    consumeCalls.length = 0;
+    await grocy.consumeRecipes(lines, null, [{ product_id: 3, amount: 5 }]);
+    const mayo6 = consumeCalls.find(c => c.product_id === 3);
+    const brod6 = consumeCalls.find(c => c.product_id === 1);
+    ok(mayo6?.amount === 5, `Mayonnaise = 5 (ekstra), fik ${mayo6?.amount}`);
+    ok(brod6?.amount === 30, `Brød Rug uændret = 30, fik ${brod6?.amount}`);
+
+    // S7: ekstra PÅ en eksisterende BOM-vare → adderer (erstatter IKKE)
+    console.log('\nS7 · Ekstra på eksisterende vare (Brød Rug +10) — adderer');
+    consumeCalls.length = 0;
+    await grocy.consumeRecipes(lines, null, [{ product_id: 1, amount: 10 }]);
+    const brod7 = consumeCalls.find(c => c.product_id === 1);
+    ok(brod7?.amount === 40, `Brød Rug = 30 + 10 = 40, fik ${brod7?.amount}`);
+
+    // S8: override + extra på SAMME vare → override erstatter, derefter adderer extra
+    console.log('\nS8 · Override 30→40 + extra +5 på Brød Rug = 45');
+    consumeCalls.length = 0;
+    await grocy.consumeRecipes(lines, new Map([[1, 40]]), [{ product_id: 1, amount: 5 }]);
+    const brod8 = consumeCalls.find(c => c.product_id === 1);
+    ok(brod8?.amount === 45, `Brød Rug = 40 (override) + 5 (extra) = 45, fik ${brod8?.amount}`);
+
+    // S9: ugyldige extras (amount 0, pid 0) ignoreres
+    console.log('\nS9 · Ugyldige extras ignoreres');
+    consumeCalls.length = 0;
+    await grocy.consumeRecipes(lines, null, [{ product_id: 3, amount: 0 }, { product_id: 0, amount: 5 }]);
+    const mayo9 = consumeCalls.find(c => c.product_id === 3);
+    const zero9 = consumeCalls.find(c => c.product_id === 0);
+    ok(!mayo9 && !zero9, `Hverken amount=0 eller pid=0 trukket (fik ${consumeCalls.length} ekstra)`);
 
     console.log('\n─────────────────────────────────────────');
     console.log(fail === 0 ? `\x1b[32m${pass} PASS\x1b[0m · 0 FAIL` : `\x1b[32m${pass} PASS\x1b[0m · \x1b[31m${fail} FAIL\x1b[0m`);

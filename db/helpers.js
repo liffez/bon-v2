@@ -160,8 +160,14 @@ function autoConsumeBonInventory(bonId) {
     // faktisk pakkede mængde i stedet for den BOM-beregnede, så HQ-lageret
     // afspejler hvad der fysisk forlod huset (inkl. buffer).
     const packingOverrides = getPrepPackingOverrides(bonId);
+    // Ekstra buffer-varer (event-prep): produkter køkkenet tager MED OVENI
+    // opskrifterne (fx 1 kg ekstra mayonnaise). Trækkes oven i BOM-forbruget.
+    const packingExtras = getPrepPackingExtras(bonId);
+    // Underopskrift-skalering (event-prep): tager køkkenet fx mere Frisk Grønt med,
+    // skaleres underopskriftens råvarer proportionalt (factor pr. recipe_id).
+    const recipeFactors = getPrepPackingRecipeFactors(bonId);
     const { consumeRecipes } = require('../services/grocyAdapter');
-    consumeRecipes(lines, packingOverrides).then(results => {
+    consumeRecipes(lines, packingOverrides, packingExtras, recipeFactors).then(results => {
         const failed  = results.filter(r => !r.success);
         const partial = results.filter(r => r.partial);
         if (failed.length) {
@@ -189,6 +195,30 @@ function getPrepPackingOverrides(bonId) {
     ).all(bonId);
     const map = new Map();
     for (const r of rows) map.set(parseInt(r.product_id), parseFloat(r.packed_amount));
+    return map;
+}
+
+// Ekstra buffer-varer på en (event-prep) bon. Returnerer et array
+// [{ product_id, amount }] i stock-units. Bruges af autoConsumeBonInventory →
+// consumeRecipes til at trække ekstra-varer OVENI opskrifts-forbruget.
+function getPrepPackingExtras(bonId) {
+    return getDb().prepare(
+        `SELECT product_id, amount FROM prep_packing_extras WHERE bon_id = ?`
+    ).all(bonId).map(r => ({ product_id: parseInt(r.product_id), amount: parseFloat(r.amount) }));
+}
+
+// Underopskrift-skaleringsfaktorer på en (event-prep) bon. Returnerer et Map
+// recipe_id → factor. Bruges af resolveConsumeItems til at skalere en
+// underopskrifts råvarer proportionalt (fx 1,17 = 17 % mere Frisk Grønt).
+function getPrepPackingRecipeFactors(bonId) {
+    const rows = getDb().prepare(
+        `SELECT recipe_id, factor FROM prep_packing_recipe_overrides WHERE bon_id = ?`
+    ).all(bonId);
+    const map = new Map();
+    for (const r of rows) {
+        const f = parseFloat(r.factor);
+        if (f > 0) map.set(parseInt(r.recipe_id), f);
+    }
     return map;
 }
 
@@ -348,7 +378,7 @@ function getUserId(req) {
 
 module.exports = {
     nextBonNumber, nextQuoteNumber, logChange, handle,
-    getBon, getBonLines, getBonMenuGroups, getPrepPackingOverrides, getStatusId, getDefaultLocationId,
+    getBon, getBonLines, getBonMenuGroups, getPrepPackingOverrides, getPrepPackingExtras, getPrepPackingRecipeFactors, getStatusId, getDefaultLocationId,
     todayISO, offsetISO,
     autoConsumeBonInventory,
     getUnitCountCategories, invalidateUnitCountCache, recalcBonTotalUnits,
