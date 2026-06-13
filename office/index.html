@@ -791,6 +791,7 @@
   <script src="/assets/leaflet/leaflet-heat.js"></script>
   <script src="views/bons-list.js"></script>
   <script src="views/web-orders.js"></script>
+  <script src="views/activity-log.js"></script>
   <script src="views/bons-calendar.js"></script>
   <script src="views/planning.js"></script>
   <script src="views/dashboard.js"></script>
@@ -931,6 +932,10 @@
           init: () => initWebOrders(contentEl, { openDrawer }),
           cleanup: () => { if (typeof cleanupWebOrders === 'function') cleanupWebOrders(); },
         },
+        'activity-log': {
+          init: () => initActivityLog(contentEl, { openDrawer }),
+          cleanup: () => { if (typeof cleanupActivityLog === 'function') cleanupActivityLog(); },
+        },
         calendar: {
           init: () => initOfficeCalendar(contentEl, { openDrawer, openNewBon: () => modal.open() }),
           cleanup: () => { if (typeof cleanupOfficeCalendar === 'function') cleanupOfficeCalendar(); },
@@ -1062,6 +1067,7 @@
           { id: 'uge', label: 'Ugeoversigt' },
           { id: 'plan', label: 'Planlægning' },
           { id: 'nye', label: 'Ubekræftede', badge: 'bons_nye' },
+          { id: 'log', label: 'Log' },
         ],
         crm: [
           { id: 'pipeline', label: 'Pipeline', def: true },
@@ -1104,6 +1110,7 @@
           uge: 'ugeoversigt',
           plan: 'planning',
           nye: 'web-orders',
+          log: 'activity-log',
         },
         crm: {
           _default: 'crm-dashboard',
@@ -1488,6 +1495,7 @@
           if (typeof _uoHandleSSE === 'function') _uoHandleSSE('bon_created', data);
           if (typeof _tilbudHandleSSE === 'function') _tilbudHandleSSE('bon_created', data);
           if (typeof _woHandleSSE === 'function') _woHandleSSE('bon_created', data);
+          if (typeof _alHandleSSE === 'function') _alHandleSSE('bon_created', data);
           if (data && data.source === 'web_order') _showWebOrderToast(data);
           scheduleBadgeReload();  // bons_nye + tilbud_aktive + okonomi_fakturering kan ændre sig
         },
@@ -1510,6 +1518,7 @@
           if (typeof _uoHandleSSE === 'function') _uoHandleSSE('bon_status', data);
           if (typeof _tilbudHandleSSE === 'function') _tilbudHandleSSE('bon_status', data);
           if (typeof _woHandleSSE === 'function') _woHandleSSE('bon_status', data);
+          if (typeof _alHandleSSE === 'function') _alHandleSSE('bon_status', data);
           scheduleBadgeReload();  // LEVERET → fakturering-køen
         },
         bon_deleted: (data) => {
