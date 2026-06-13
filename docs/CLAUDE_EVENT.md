@@ -113,7 +113,7 @@ til Zettle-integrationen når den bygges:
 
 ---
 
-## 6. Event-beholdning (beregnet) + de to forslag — top-up & retur (blokerende)
+## 6. Event-beholdning (beregnet) + de to forslag — top-up & retur  ✅ implementeret
 
 Eventet har intet sporet lager, men event-viewet **beregner** en løbende rest af de loggede bevægelser
 (ingen ekstra Grocy). Samme beregning driver både top-up- og retur-forslaget:
@@ -130,6 +130,29 @@ retur-forslag  (hjemkomst)    = rest_på_eventet
 - Begge forslag er **forudfyldte og frit justerbare**: top-up'en redigeres før den hentes, returen før den bogføres.
 - Retur bogføres som varemodtagelse mod HQ; QU-actuals indtastes i display-enhed → konvertér server-side før
   Grocy-add (samme klasse som F13/28%-bug'en).
+
+**Top-up-forslag — implementeret (jun 2026):** `computeTopupSuggestion(event, date)` i
+`routes/events.js` + `GET /api/events/:id/topup-suggestion?date=`. Beregner på TO niveauer:
+
+- **Datofiltre:** produktion (prep+topup) med `delivery_date ≤ dato` = "er på pladsen";
+  salg med `delivery_date < dato` = "solgt indtil i morges" (dagens salg er ikke sket endnu).
+  En allerede oprettet topup-bon på dagen reducerer dermed forslaget (idempotent-agtigt).
+- **Kategori/produkt-niveau:** `rest = prepped − solgt` pr. kategori, `forslag = max(0, forecast − rest)`.
+  Forecasten er pr. KATEGORI — forslaget fordeles pro-rata på de produkter der faktisk er preppet
+  i kategorien (largest-remainder-afrunding via `allocateInteger`). Forecast-kategori uden prep-mix
+  → warning ("vælg selv produkter").
+- **Råvare-niveau:** `behov = BOM(allokerede produkter)` mod `rest_råvare = BOM(produktion m/pakke-
+  overrides) − BOM(salg)` → **fetch** ("hent mere fra HQ") og **surplus** ("rigeligt på pladsen —
+  behøver ikke hentes"). Degraderer gracefully til kun kategori-niveau hvis Grocy er nede
+  (kategori-delen er ren SQL).
+- **Antagelses-ærlighed:** resten er et GÆT ud fra registrerede salgsbons ("vi er trætte om
+  aftenen" — salget er ikke altid tastet). `sales_bon_count` sendes med; UI'en viser antagelsen
+  eksplicit (⚠-banner ved 0 salgsbons) og alt er frit justerbart.
+- **UI:** "+ Top-up"-modalen (office events-view) pre-fylder linjerne med de allokerede produkter,
+  viser kategori-tabel (Forecast/Preppet/Solgt/Rest/Forslag) + foldbart råvare-tjek. Default-dato =
+  i dag hvis midt i eventet (lokal dato, ikke `toISOString` — UTC-buggen). Dato-skift genberegner
+  og erstatter linjerne.
+- **Test:** `scripts/test-topup-suggestion.js` (35 asserts — mockede Grocy/BOM-kald, ægte helper).
 
 ---
 
@@ -251,7 +274,8 @@ Tilføj til `CLAUDE.md`:
 **Filer:**
 - `routes/events.js` — CRUD + `/:id/overview` (bons, P&L, CO₂, forecast, days, categories, prepped) +
   `/:id/bons` (generator: prep/topup/salg/udgift) + `/:id/forecast` (PUT reconcile) +
-  `/:id/return-suggestion` + `/:id/return` (addToStock til HQ).
+  `/:id/return-suggestion` + `/:id/return` (addToStock til HQ) +
+  `/:id/topup-suggestion?date=` (§6: forecast − beregnet rest, kategori- + råvare-niveau).
 - `db/helpers.js` — `autoConsumeBonInventory` (§5-gate + Vej B-override) + `getPrepPackingOverrides`.
 - `services/grocyAdapter.js` — `consumeRecipes(lines, overrides)` (override erstatter beregnet mængde).
 - `routes/bons.js` — `GET/PUT /:id/packing` (pakke-overrides, låst efter LEVERET).
@@ -282,9 +306,13 @@ Tilføj til `CLAUDE.md`:
   Antal = preppet (start-gæt, justeres NED for spild/smagsprøver). Pris = festival fra Grocy.
   Endpoint: `GET /api/events/:id/sales-prefill`. Frontend fylder via eksisterende `addLine`.
 
+- **Top-up-forslag (2026-06-13):** "+ Top-up" pre-udfylder fra `GET /api/events/:id/topup-suggestion?date=`
+  — se §6 for formler, datofiltre, pro-rata-allokering og graceful Grocy-degradering.
+
 **Tests:** `scripts/test-event-gate.js` (15) + `scripts/test-prep-packing.js` (12 — override + extras) +
 `scripts/test-recipe-factor.js` (8 — underopskrift-skalering) +
 `scripts/test-sales-prefill.js` (7 — prep-only union + festival-pris) +
+`scripts/test-topup-suggestion.js` (35 — §6 top-up: kategori-math, datofiltre, allokering, råvare-fetch/surplus, degradering) +
 `scripts/verify-event-prereqs.js` (read-only prod-forudsætningstjek).
 
 **Endnu ikke bygget:** varemodtagelses-*registrering* af returen (returen er pt. en ren Grocy stock-add,

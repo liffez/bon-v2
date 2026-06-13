@@ -214,6 +214,212 @@ async function computeReturnSuggestion(event) {
     return { items };
 }
 
+// ─── TOP-UP-FORSLAG (§6) ───────────────────────────────────────────────────
+// Morgen dag N: hvad mangler der at blive hentet fra HQ, og hvad står der
+// allerede rigeligt af på pladsen?
+//
+//   rest_på_eventet  = (prep + top-ups, delivery_date ≤ dato)
+//                    − solgt (salgs-bons, delivery_date < dato — dagens salg er ikke sket endnu)
+//   forslag          = forecast_dag_N − rest          (clamp ≥ 0)
+//
+// Beregnes på TO niveauer:
+//   • Kategori/produkt (færdige menuer) — det topup-bonnen består af.
+//     Forecasten er pr. KATEGORI, så kategori-forslaget fordeles pro-rata på
+//     de produkter der faktisk er preppet i kategorien (prep-mixet er den
+//     eneste bro fra kategori-tal til konkrete opskrifter → BOM).
+//   • Råvarer — behov (BOM af de allokerede produkter) mod beregnet råvare-rest
+//     (BOM af produktion m/pakke-overrides − BOM af salg). Giver "hent mere"
+//     og "rigeligt på pladsen" — pakkevejledning, ikke bon-linjer.
+//
+// VIGTIGT: resten er et GÆT baseret på loggede bevægelser ("vi er trætte om
+// aftenen" — salget er ikke altid tastet). sales_bon_count sendes med så
+// frontenden kan vise antagelsen tydeligt, og alt er frit justerbart.
+
+// Largest-remainder-afrunding: fordel `total` (heltal) på vægte så summen
+// rammer præcist. Returnerer array af heltal i samme rækkefølge som weights.
+function allocateInteger(total, weights) {
+    const sumW = weights.reduce((a, b) => a + b, 0);
+    if (sumW <= 0 || total <= 0) return weights.map(() => 0);
+    const exact = weights.map(w => total * w / sumW);
+    const floors = exact.map(Math.floor);
+    let remainder = total - floors.reduce((a, b) => a + b, 0);
+    // Fordel resten til de største decimaler
+    const order = exact.map((v, i) => ({ i, frac: v - floors[i] }))
+        .sort((a, b) => b.frac - a.frac);
+    for (let k = 0; k < order.length && remainder > 0; k++, remainder--) {
+        floors[order[k].i]++;
+    }
+    return floors;
+}
+
+async function computeTopupSuggestion(event, date) {
+    const db = getDb();
+
+    // ── 1) Kategori-niveau: prepped/solgt/rest i færdig-produkt-enheder ──
+    // Produktion på pladsen (alle prep/topup-bons t.o.m. dato).
+    const preppedRows = db.prepare(`
+        SELECT bl.category AS category, bl.grocy_recipe_id AS rid,
+               bl.product_name AS name, bl.unit AS unit,
+               COALESCE(SUM(bl.quantity), 0) AS qty
+        FROM bons b
+        JOIN bon_lines bl ON bl.bon_id = b.id
+        LEFT JOIN price_categories pc ON b.price_category_id = pc.id
+        WHERE b.event_id = ? AND pc.code = 'produktion' AND b.delivery_date <= ?
+        GROUP BY bl.category, bl.grocy_recipe_id, bl.product_name, bl.unit
+    `).all(event.id, date);
+
+    // Solgt indtil i morges (salgs-bons FØR dato; udgifter ekskluderet).
+    const soldRows = db.prepare(`
+        SELECT bl.category AS category, COALESCE(SUM(bl.quantity), 0) AS qty
+        FROM bons b
+        JOIN bon_lines bl ON bl.bon_id = b.id
+        LEFT JOIN price_categories pc ON b.price_category_id = pc.id
+        WHERE b.event_id = ? AND b.delivery_date < ?
+          AND (pc.code IS NULL OR pc.code != 'produktion')
+          AND COALESCE(b.event_role, 'sales') != 'expense'
+          AND b.total_price >= 0
+        GROUP BY bl.category
+    `).all(event.id, date);
+
+    const salesBonCount = db.prepare(`
+        SELECT COUNT(*) AS c FROM bons b
+        LEFT JOIN price_categories pc ON b.price_category_id = pc.id
+        WHERE b.event_id = ? AND b.delivery_date < ?
+          AND (pc.code IS NULL OR pc.code != 'produktion')
+          AND COALESCE(b.event_role, 'sales') != 'expense'
+          AND b.total_price >= 0
+    `).get(event.id, date)?.c ?? 0;
+
+    const forecastRows = db.prepare(`
+        SELECT category, expected_qty FROM event_forecast
+        WHERE event_id = ? AND forecast_date = ?
+    `).all(event.id, date);
+
+    const preppedByCat = new Map();   // cat → qty
+    const mixByCat     = new Map();   // cat → [{rid, name, unit, qty}]
+    for (const r of preppedRows) {
+        const cat = r.category || '(uden kategori)';
+        preppedByCat.set(cat, (preppedByCat.get(cat) || 0) + r.qty);
+        if (!mixByCat.has(cat)) mixByCat.set(cat, []);
+        mixByCat.get(cat).push(r);
+    }
+    const soldByCat = new Map();
+    for (const r of soldRows) soldByCat.set(r.category || '(uden kategori)', r.qty);
+    const forecastByCat = new Map();
+    for (const r of forecastRows) forecastByCat.set(r.category, r.expected_qty);
+
+    // Kategori-tabellen: union af forecast- og prepped-kategorier.
+    const allCats = new Set([...forecastByCat.keys(), ...preppedByCat.keys()]);
+    const categories = [];
+    const warnings = [];
+    const allocatedProducts = [];   // [{grocy_recipe_id, product_name, category, unit, quantity}]
+    for (const cat of allCats) {
+        const fc      = forecastByCat.get(cat) || 0;
+        const prepped = preppedByCat.get(cat) || 0;
+        const sold    = soldByCat.get(cat) || 0;
+        const rest    = Math.max(0, prepped - sold);
+        const suggestion = Math.max(0, fc - rest);
+        categories.push({ category: cat, forecast: fc, prepped, sold, rest, suggestion });
+
+        if (suggestion <= 0) continue;
+        const mix = mixByCat.get(cat) || [];
+        if (mix.length === 0) {
+            warnings.push(`${cat}: forecast ${fc} men intet prep-mix at fordele på — vælg selv produkter.`);
+            continue;
+        }
+        const alloc = allocateInteger(suggestion, mix.map(m => m.qty));
+        for (let i = 0; i < mix.length; i++) {
+            if (alloc[i] <= 0) continue;
+            allocatedProducts.push({
+                grocy_recipe_id: mix[i].rid ?? null,
+                product_name:    mix[i].name,
+                category:        cat,
+                unit:            mix[i].unit || 'stk',
+                quantity:        alloc[i],
+            });
+        }
+    }
+    categories.sort((a, b) => a.category.localeCompare(b.category, 'da'));
+
+    // ── 2) Råvare-niveau: behov (BOM af forslag) mod beregnet rest ──────
+    // Genbruger resolvePackedRaw (consume-items + pakke-overrides) så tallene
+    // matcher hvad LEVERET faktisk ville trække. Kræver Grocy — degraderer
+    // gracefully til kun kategori-niveau hvis Grocy er utilgængelig
+    // (kategori-forslaget er ren SQL og stadig brugbart).
+    const raw = [];
+    try {
+        const bons = getEventBons(event.id);
+        const preppedRaw = new Map(), soldRaw = new Map(), rawNames = new Map();
+        for (const b of bons) {
+            const isProd = b.price_category_code === 'produktion';
+            const isExpense = (b.event_role === 'expense') || ((b.total_price ?? 0) < 0 && !isProd);
+            if (isExpense) continue;
+            if (isProd  && b.delivery_date >  date) continue;   // fremtidig prep er ikke på pladsen
+            if (!isProd && b.delivery_date >= date) continue;   // dagens salg er ikke sket endnu
+            const items = await resolvePackedRaw(b.id, isProd);
+            const target = isProd ? preppedRaw : soldRaw;
+            for (const it of items) {
+                target.set(it.product_id, (target.get(it.product_id) || 0) + it.amount_stock);
+                if (!rawNames.has(it.product_id)) rawNames.set(it.product_id, it.product_name);
+            }
+        }
+
+        // Behov: BOM-eksplodér de allokerede produkter (kun dem med recipe-id).
+        const { resolveConsumeItems } = require('../services/ingredientResolver');
+        const bomLines = allocatedProducts.filter(p => p.grocy_recipe_id);
+        const needRaw = new Map();
+        if (bomLines.length > 0) {
+            const items = await resolveConsumeItems(bomLines);
+            for (const it of items) {
+                needRaw.set(it.product_id, (needRaw.get(it.product_id) || 0) + it.amount_stock);
+                if (!rawNames.has(it.product_id)) rawNames.set(it.product_id, it.product_name);
+            }
+        }
+
+        // Enheder fra Grocy (best effort — tomme strenge ved fejl).
+        let prodMap = new Map(), quMap = new Map();
+        try {
+            const [products, qus] = await Promise.all([grocy.getProducts(), grocy.getQuantityUnits()]);
+            prodMap = new Map(products.map(p => [parseInt(p.id), p]));
+            quMap   = new Map(qus.map(u => [parseInt(u.id), u]));
+        } catch (err) {
+            console.warn('[events] topup: kunne ikke hente produkter/enheder:', err.message);
+        }
+
+        const allPids = new Set([...needRaw.keys(), ...preppedRaw.keys(), ...soldRaw.keys()]);
+        for (const pid of allPids) {
+            const need = needRaw.get(pid) || 0;
+            const rest = Math.max(0, (preppedRaw.get(pid) || 0) - (soldRaw.get(pid) || 0));
+            const fetch   = Math.max(0, need - rest);
+            const surplus = Math.max(0, rest - need);
+            if (need === 0 && rest === 0) continue;
+            const prod = prodMap.get(pid) || {};
+            raw.push({
+                product_id:   pid,
+                product_name: rawNames.get(pid) || prod.name || `#${pid}`,
+                unit:         quMap.get(parseInt(prod.qu_id_stock))?.name || '',
+                needed:  Math.round(need * 100) / 100,
+                rest:    Math.round(rest * 100) / 100,
+                fetch:   Math.round(fetch * 100) / 100,
+                surplus: Math.round(surplus * 100) / 100,
+            });
+        }
+        raw.sort((a, b) => (b.fetch - a.fetch) || (a.product_name || '').localeCompare(b.product_name || '', 'da'));
+    } catch (err) {
+        console.warn('[events] topup: råvare-niveau utilgængeligt (Grocy):', err.message);
+        warnings.push('Råvare-tjek utilgængeligt — kunne ikke nå Grocy. Kategori-forslaget gælder stadig.');
+    }
+
+    return {
+        date,
+        sales_bon_count: salesBonCount,
+        categories,
+        products: allocatedProducts,
+        raw,
+        warnings,
+    };
+}
+
 // ─── EVENTS — CRUD ─────────────────────────────────────────────────────────
 
 router.get('/', requireAuth(), handle((req, res) => {
@@ -462,6 +668,20 @@ router.get('/:id/sales-prefill', requireAuth(), handle(async (req, res) => {
     res.json(await computeSalesPrefill(event));
 }));
 
+// ─── TOP-UP-FORSLAG (§6) ───────────────────────────────────────────────────
+// Morgen-beregning: forecast_dag_N − beregnet rest på pladsen. Se helper-
+// kommentaren ved computeTopupSuggestion for formler og antagelser.
+
+router.get('/:id/topup-suggestion', requireAuth(), handle(async (req, res) => {
+    const event = getEvent(req.params.id);
+    if (!event) return res.status(404).json({ error: 'Event ikke fundet' });
+    const date = req.query.date || event.start_date;
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(date)) {
+        return res.status(400).json({ error: 'date skal være YYYY-MM-DD' });
+    }
+    res.json(await computeTopupSuggestion(event, date));
+}));
+
 // ─── FORECAST CRUD (pr-kategori, pr-dag) ───────────────────────────────────
 // PUT erstatter hele forecast-tabellen for eventet (idempotent reconcile).
 // Tomme/0-værdier slettes så vi ikke akkumulerer støj.
@@ -693,5 +913,7 @@ router.post('/:id/return', requireAuth(), handle(async (req, res) => {
 }));
 
 module.exports = router;
-// Eksponér ren helper til test (rammer den ægte aggregering + festival-opslag).
+// Eksponér rene helpers til test (rammer den ægte aggregering + festival-opslag).
 module.exports.computeSalesPrefill = computeSalesPrefill;
+module.exports.computeTopupSuggestion = computeTopupSuggestion;
+module.exports.allocateInteger = allocateInteger;

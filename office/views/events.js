@@ -686,6 +686,18 @@ async function _evOpenGenModal(event, role, opts) {
         try { salesPrefill = await _evFetch(`/events/${event.id}/sales-prefill`); }
         catch (e) { salesPrefill = null; }
     }
+
+    // Top-up: default-dato = i dag hvis vi står midt i eventet (det er en
+    // morgen-beregning), ellers start_date. Lokal dato — IKKE toISOString
+    // (UTC-"i dag"-buggen).
+    const isTopup = role === 'topup';
+    let defaultDate = opts.forecastDate || event.start_date;
+    if (isTopup && !opts.forecastDate) {
+        const d = new Date();
+        const today = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+        const end = event.end_date || event.start_date;
+        if (today >= event.start_date && today <= end) defaultDate = today;
+    }
     // Gruppér recipes efter kategori (Grocy `grupper`) som <optgroup>
     const recipes = (_evRecipes || []).slice().sort((a, b) => {
         const ca = (a.category || 'zz'), cb = (b.category || 'zz');
@@ -732,14 +744,17 @@ async function _evOpenGenModal(event, role, opts) {
     _evModal(`
         <h3>${_EV_ROLE_ICON[role]} ${_EV_ROLE_LABEL[role]} — ${_evEsc(event.name)}</h3>
         <div class="ev-modal-hint">
-            ${isProd
+            ${isTopup
+              ? 'Forslaget = <strong>forecast − beregnet rest på pladsen</strong> (preppet − solgt). Resten er et gæt ud fra de registrerede salgsbons — <em>justér frit</em>. Bonnen er 0 kr (produktion), status <strong>GODKENDT</strong>.'
+              : isProd
               ? 'Vælg menuer/varer der skal med fra HQ. Bonnen er bevidst <strong>0 kr</strong> (produktion) — kolonnen <em>Kostpris ex</em> snapshottes pr. linje og driver Vareforbrug i P&amp;L. Status: <strong>GODKENDT</strong> — havner på køkkenets I dag-tavle på prep-datoen.'
               : isExpense
                 ? 'Indtast udgift (fee, benzin, bro). Total bliver negativ — udgiften netter ikke mod omsætning, men vises som omkostning.'
                 : 'Pre-udfyldt fra eventets <strong>prep-bonner</strong> (de færdige menuer vi tog med). Priskategori: <strong>festival</strong>. Antal = preppet — <em>justér ned</em> for spild, smagsprøver mm. Status: <strong>GODKENDT</strong>.'}
         </div>
         ${targetStrip}
-        <label>Dato${isProd ? ' (prep-pakning)' : ''}<input type="date" id="evm-date" value="${forecastDate || event.start_date}"></label>
+        <label>Dato${isProd ? ' (prep-pakning)' : ''}<input type="date" id="evm-date" value="${defaultDate}"></label>
+        ${isTopup ? '<div id="evm-topup" class="ev-topup-strip"></div>' : ''}
         <div class="ev-modal-oh" id="evm-oh" style="display:none"></div>
         ${!isExpense ? '<label>Tilføj fra Grocy<select id="evm-recipe"><option value="">— vælg opskrift —</option>' + recipeOpts + '</select></label>' : ''}
         <div class="ev-line-table-wrap">
@@ -886,6 +901,74 @@ async function _evOpenGenModal(event, role, opts) {
                 qty:      l.quantity,
             });
         }
+    }
+
+    // Top-up: §6-forslaget (forecast − beregnet rest) for valgt dato.
+    // Pre-fylder linjerne med de allokerede produkter og viser kategori-tabel
+    // + råvare-tjek (hent mere / rigeligt på pladsen). Dato-skift genberegner
+    // og ERSTATTER linjerne (de er auto-genererede — manuelt arbejde lægges
+    // ovenpå bagefter).
+    async function loadTopupSuggestion(date) {
+        const host = document.getElementById('evm-topup');
+        if (!host) return;
+        host.innerHTML = '<div class="ev-topup-loading">Beregner forslag — forecast minus rest på pladsen…</div>';
+        try {
+            const s = await _evFetch(`/events/${event.id}/topup-suggestion?date=${encodeURIComponent(date)}`);
+            const fetchList   = (s.raw || []).filter(r => r.fetch > 0);
+            const surplusList = (s.raw || []).filter(r => r.surplus > 0.01);
+            host.innerHTML = `
+                <div class="ev-topup-note">${s.sales_bon_count > 0
+                    ? `Rest beregnet ud fra <strong>${s.sales_bon_count} registreret${s.sales_bon_count === 1 ? '' : 'e'} salgsbon${s.sales_bon_count === 1 ? '' : 'ner'}</strong>. Er aftensalget ikke tastet endnu, er resten sat for højt — justér forslaget op.`
+                    : '⚠ <strong>Ingen salgsbons registreret endnu</strong> — beregningen antager at intet er solgt. Tjek pladsen og justér frit.'}</div>
+                ${(s.categories || []).length ? `
+                <table class="ev-topup-table">
+                    <thead><tr><th>Kategori</th><th>Forecast</th><th>Preppet</th><th>Solgt</th><th>Rest</th><th>Forslag</th></tr></thead>
+                    <tbody>${s.categories.map(c => `
+                        <tr class="${c.suggestion > 0 ? 'ev-topup-need' : ''}">
+                            <td>${_evEsc(c.category)}</td>
+                            <td class="ev-num">${c.forecast}</td>
+                            <td class="ev-num">${c.prepped}</td>
+                            <td class="ev-num">${c.sold}</td>
+                            <td class="ev-num">${c.rest}</td>
+                            <td class="ev-num ev-topup-sug">${c.suggestion > 0 ? '+' + c.suggestion : '✓ dækket'}</td>
+                        </tr>`).join('')}</tbody>
+                </table>` : '<div class="ev-topup-empty">Intet forecast og intet preppet for denne dag — sæt forecast i tabellen på event-siden, eller tilføj linjer manuelt.</div>'}
+                ${(s.warnings || []).map(w => `<div class="ev-topup-warn">⚠ ${_evEsc(w)}</div>`).join('')}
+                ${(fetchList.length || surplusList.length) ? `
+                <details class="ev-topup-raw">
+                    <summary>📦 Råvare-tjek: ${fetchList.length ? `<strong>${fetchList.length} at hente</strong>` : 'intet at hente'} · ${surplusList.length} rigeligt på pladsen</summary>
+                    ${fetchList.length ? `<div class="ev-topup-raw-grp">
+                        <div class="ev-topup-raw-h">🛒 Hent mere fra HQ</div>
+                        ${fetchList.map(r => `<div class="ev-topup-raw-row"><span>${_evEsc(r.product_name)}</span><span class="ev-num">${_evFmtNum(r.fetch)} ${_evEsc(r.unit)}</span></div>`).join('')}
+                    </div>` : ''}
+                    ${surplusList.length ? `<div class="ev-topup-raw-grp">
+                        <div class="ev-topup-raw-h">✅ Rigeligt på pladsen — behøver ikke hentes</div>
+                        ${surplusList.map(r => `<div class="ev-topup-raw-row ev-topup-dim"><span>${_evEsc(r.product_name)}</span><span class="ev-num">${_evFmtNum(r.surplus)} ${_evEsc(r.unit)}</span></div>`).join('')}
+                    </div>` : ''}
+                </details>` : ''}`;
+            // Pre-fyld linjer med de allokerede produkter (erstatter auto-fill).
+            linesEl.innerHTML = '';
+            for (const p of (s.products || [])) {
+                const rec = (_evRecipes || []).find(r => r.id === p.grocy_recipe_id);
+                addLine({
+                    recipeId: p.grocy_recipe_id || null,
+                    name:     p.product_name,
+                    category: p.category,
+                    unit:     p.unit,
+                    qty:      p.quantity,
+                    // Prod-modal: pris-feltet ER kostprisen (kolonne "Kostpris ex").
+                    price:    Math.round((rec?.cost_price ?? 0) * 100) / 100,
+                    cost:     rec?.cost_price ?? 0,
+                    co2e:     rec?.co2e ?? '',
+                });
+            }
+        } catch (err) {
+            host.innerHTML = `<div class="ev-topup-warn">Kunne ikke beregne forslag: ${_evEsc(err.message)}</div>`;
+        }
+    }
+    if (isTopup) {
+        loadTopupSuggestion(defaultDate);
+        dateEl?.addEventListener('change', () => loadTopupSuggestion(dateEl.value));
     }
 }
 
