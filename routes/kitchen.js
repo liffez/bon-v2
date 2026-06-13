@@ -359,6 +359,8 @@ router.get('/log', handle((req, res) => {
             b.bon_number,
             b.delivery_date,
             b.delivery_time,
+            b.pax,
+            b.total_units,
             COALESCE(
                 NULLIF(TRIM(c.first_name || ' ' || COALESCE(c.last_name, '')), ''),
                 co.name,

@@ -61,6 +61,26 @@ function _alTime(d) {
     return String(d.getHours()).padStart(2, '0') + ':' + String(d.getMinutes()).padStart(2, '0');
 }
 
+// Kort leveringsdato fra 'YYYY-MM-DD' (lokal middag → ingen TZ-forskydning)
+function _alShortDate(dateStr) {
+    if (!dateStr) return '';
+    const d = new Date(dateStr + 'T12:00:00');
+    if (isNaN(d)) return '';
+    return `${_AL_DAYS[d.getDay()]} ${d.getDate()}. ${_AL_MONTHS[d.getMonth()]}`;
+}
+
+// Meta for en bestilling: enheder (hvis sat) ellers pax + leveringstidspunkt
+function _alOrderMeta(r) {
+    const parts = [];
+    if (r.total_units && r.total_units > 0) parts.push(`${r.total_units} enh.`);
+    else if (r.pax)                         parts.push(`${r.pax} pax`);
+    const date = _alShortDate(r.delivery_date);
+    const time = r.delivery_time ? String(r.delivery_time).slice(0, 5) : '';
+    const lev = [date, time && `kl. ${time}`].filter(Boolean).join(' ');
+    if (lev) parts.push(`lev. ${lev}`);
+    return parts.join(' · ');
+}
+
 // Status-kode → farvet pille via BON_CONFIG (samme kilde som bon-kort/kalender)
 function _alStatusPill(code) {
     if (!code) return '<span class="al-pill al-pill-muted">—</span>';
@@ -149,6 +169,7 @@ function _alRenderShell() {
             }
             .al-bon-link:hover { text-decoration: underline; }
             .al-customer { color: var(--color-text, #333); }
+            .al-meta { color: var(--color-text-dim, #999); font-size: 12px; }
             .al-arrow { color: var(--color-text-dim, #aaa); margin: 0 5px; }
             .al-pill {
                 display: inline-block; padding: 1px 8px; border-radius: 10px;
@@ -273,7 +294,9 @@ function _alRenderRow(r, d) {
     let kind, detail;
     if (isOrder) {
         kind = `<span class="al-kind al-kind-order">📥 Bestilling</span>`;
-        detail = `Ny web-bestilling — <span class="al-customer">${cust}</span>`;
+        const meta = _alOrderMeta(r);
+        detail = `Ny web-bestilling — <span class="al-customer">${cust}</span>`
+               + (meta ? ` <span class="al-meta">· ${_alEscape(meta)}</span>` : '');
     } else {
         kind = `<span class="al-kind al-kind-status">🔄 Status</span>`;
         detail = `${_alStatusPill(r.old_value)}<span class="al-arrow">→</span>${_alStatusPill(r.new_value)} <span class="al-customer">${cust}</span>`;
