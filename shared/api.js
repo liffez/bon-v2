@@ -39,6 +39,14 @@ function fetchBons(params) {
     return apiFetch('/bons' + (qs ? '?' + qs : ''));
 }
 
+// Aktivitetslog: web-bestillinger + statusskift (routes/kitchen.js → /bons/log)
+function fetchActivityLog(params = {}) {
+    const clean = {};
+    Object.entries(params).forEach(([k, v]) => { if (v != null && v !== '') clean[k] = v; });
+    const qs = new URLSearchParams(clean).toString();
+    return apiFetch('/bons/log' + (qs ? '?' + qs : ''));
+}
+
 function fetchBon(id) {
     return apiFetch('/bons/' + id);
 }

@@ -318,6 +318,67 @@ router.get('/calendar', handle((req, res) => {
     res.json({ year, month, calStart, calEnd, days, weekTotals });
 }));
 
+// GET /api/bons/log — aktivitetslog: web-bestillinger der kom ind + statusskift
+//   ?type=all|orders|status   (default: all)
+//   ?q=<bon-nummer>           (valgfrit fritekst-filter på bon#)
+//   ?limit=&offset=           (paginering, default 80 / 0)
+// Trækker fra changelog: action='status_change' samt action='create' med
+// field_name='web_order' (sidstnævnte = en bestilling lagt via bestillingssiden).
+router.get('/log', handle((req, res) => {
+    const db = getDb();
+
+    const type   = ['orders', 'status'].includes(req.query.type) ? req.query.type : 'all';
+    const q      = (req.query.q || '').trim();
+    const limit  = Math.min(Math.max(parseInt(req.query.limit) || 80, 1), 300);
+    const offset = Math.max(parseInt(req.query.offset) || 0, 0);
+
+    // Hver gren er et selvstændigt prædikat — type-filteret vælger hvilke der tæller.
+    const ORDER_PRED  = "(cl.action = 'create' AND cl.field_name = 'web_order')";
+    const STATUS_PRED = "cl.action = 'status_change'";
+    let actionClause;
+    if (type === 'orders')      actionClause = ORDER_PRED;
+    else if (type === 'status') actionClause = STATUS_PRED;
+    else                        actionClause = `(${ORDER_PRED} OR ${STATUS_PRED})`;
+
+    const args = [];
+    let where = `cl.entity_type = 'bon' AND ${actionClause}`;
+    if (q) {
+        where += ' AND b.bon_number LIKE ?';
+        args.push(`%${q}%`);
+    }
+
+    const rows = db.prepare(`
+        SELECT
+            cl.id,
+            cl.action,
+            cl.field_name,
+            cl.old_value,
+            cl.new_value,
+            cl.created_at,
+            cl.entity_id              AS bon_id,
+            b.bon_number,
+            b.delivery_date,
+            b.delivery_time,
+            COALESCE(
+                NULLIF(TRIM(c.first_name || ' ' || COALESCE(c.last_name, '')), ''),
+                co.name,
+                '—'
+            )                         AS customer_name,
+            co.name                   AS company_name,
+            u.name                    AS user_name
+        FROM changelog cl
+        JOIN bons b               ON cl.entity_id = b.id
+        LEFT JOIN customers c     ON b.customer_id = c.id
+        LEFT JOIN companies co    ON b.company_id = co.id
+        LEFT JOIN users u         ON cl.user_id = u.id
+        WHERE ${where}
+        ORDER BY cl.created_at DESC, cl.id DESC
+        LIMIT ? OFFSET ?
+    `).all(...args, limit, offset);
+
+    res.json({ rows, limit, offset, has_more: rows.length === limit });
+}));
+
 /** Lokal dato som YYYY-MM-DD (undgår toISOString() UTC-forskydning) */
 function _localDateStr(d) {
     return d.getFullYear() + '-' + String(d.getMonth() + 1).padStart(2, '0') + '-' + String(d.getDate()).padStart(2, '0');
