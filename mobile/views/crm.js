@@ -505,11 +505,17 @@ async function _mcLoadAllCustomers() {
             if (_mcStage && _mcStage !== 'all') qs += '&stage=' + encodeURIComponent(_mcStage);
             var data = await apiFetch('/crm/customers' + qs);
             _mcAllCustomers = Array.isArray(data) ? data : (data.customers || []);
-            // Sort alphabetically by display name
+            // Sortér efter aktivitet (som office: flest ordrer/omsætning øverst), så
+            // den kunde der faktisk har historik ligger over evt. tomme dublet-rækker.
+            // Tie-break: nyeste kontakt, derefter navn.
             _mcAllCustomers.sort(function(a, b) {
-                var na = (a.name || a.company_name || '').trim();
-                var nb = (b.name || b.company_name || '').trim();
-                return na.localeCompare(nb, 'da');
+                var oa = a.total_orders || 0, ob = b.total_orders || 0;
+                if (ob !== oa) return ob - oa;
+                var ra = a.total_revenue || 0, rb = b.total_revenue || 0;
+                if (rb !== ra) return rb - ra;
+                var ca = String(a.last_contact_at || ''), cb = String(b.last_contact_at || '');
+                if (cb !== ca) return cb.localeCompare(ca);
+                return _mcNormName(a.name || a.company_name).localeCompare(_mcNormName(b.name || b.company_name), 'da');
             });
         }
         _mcRenderCustomerList(_mcAllCustomers);
@@ -546,7 +552,7 @@ function _mcRenderCustomerList(customers) {
 
     var html = '<div class="m-cust-count">' + filtered.length + ' kunder</div>';
     filtered.forEach(function(c) {
-        var cName = (c.name || '').trim() || c.company_name || '(uden navn)';
+        var cName = _mcNormName(c.name) || _mcNormName(c.company_name) || '(uden navn)';
         var cId = c.id;
         var stage = c.stage || null;
         var stageLabel = _mcStageLabel(stage);
@@ -566,9 +572,10 @@ function _mcRenderCustomerList(customers) {
             if (c.last_order_date) {
                 metaParts.push('<span class="m-cust-ico" title="Sidste ordre">&#128230;</span>' + _mcFormatDate(c.last_order_date));
             }
-            // Total orders
+            // Total orders — vist eksplicit så dublet-rækker (0 ordrer) er nemme
+            // at skelne fra den rigtige kunde med historik.
             if (c.total_orders) {
-                metaParts.push(c.total_orders + ' &times;');
+                metaParts.push('<span class="m-cust-ico" title="Antal ordrer">&#128722;</span>' + c.total_orders);
             }
             // Last contact
             if (c.last_contact_at) {
@@ -581,7 +588,7 @@ function _mcRenderCustomerList(customers) {
                 (stage ? '<span class="m-cust-dot st-' + stage + '" title="' + stageLabel + '"></span>' : '<span class="m-cust-dot st-none"></span>') +
                 '<div class="m-cust-info">' +
                     '<div class="m-cust-name">' + _mcEsc(cName) +
-                        (c.company_name && c.name ? ' <span class="m-cust-company">' + _mcEsc(c.company_name) + '</span>' : '') +
+                        (c.company_name && c.name ? ' <span class="m-cust-company">' + _mcEsc(_mcNormName(c.company_name)) + '</span>' : '') +
                     '</div>' +
                     (metaParts.length ? '<div class="m-cust-meta">' + metaParts.join(' · ') + '</div>' : '') +
                 '</div>' +
@@ -862,6 +869,12 @@ function _mcEsc(str) {
     var d = document.createElement('div');
     d.textContent = String(str);
     return d.innerHTML;
+}
+
+// Normalisér navn: kollaps whitespace (nogle importerede rækker har \n i alle
+// felter, så dublet-navne ellers ser forskellige ud og sorteres usammenhængende).
+function _mcNormName(s) {
+    return String(s || '').replace(/\s+/g, ' ').trim();
 }
 
 /* ── Historik (timeline) ── */
