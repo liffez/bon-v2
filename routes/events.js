@@ -719,8 +719,8 @@ router.put('/:id/forecast', requireAuth(), handle((req, res) => {
 // Ét generelt endpoint der opretter en bon bundet til eventet, med linjer.
 // `role` styrer:
 //   - 'prep' / 'topup'  → price_category='produktion', status=GODKENDT (på køkkenets tavle)
-//   - 'sales'           → price_category=catering (default), status=GODKENDT
-//   - 'expense'         → price_category=catering, status=GODKENDT, negativ total
+//   - 'sales'           → price_category='festival' (default), status=BETALT (solgt + betalt på stedet)
+//   - 'expense'         → price_category='festival' (default), status=GODKENDT, negativ total
 // Bonen behandles efterfølgende via normale status-skift (KLAR/LEVERET/BETALT)
 // — gaten i autoConsumeBonInventory tager sig af lager-konsekvenserne.
 
@@ -746,12 +746,19 @@ router.post('/:id/bons', requireAuth(), handle((req, res) => {
     const pc      = getPriceCategoryByCode(pcCode);
     if (!pc) return res.status(500).json({ error: `Priskategori '${pcCode}' findes ikke i price_categories` });
 
-    // Status: alle roller starter på GODKENDT. Prep/top-up er bevidst genereret
-    // arbejde (ikke en ubehandlet indkommende bestilling), og køkkenets I dag-
-    // tavle viser kun GODKENDT/IGANG/KLAR/LEVERET — en NY-bon ville aldrig
-    // dukke op der. Brugeren kan overskrive med b.status_code (fx hvis
-    // salgsbonnen registreres efter levering og skal direkte til LEVERET).
-    const startStatus = b.status_code ?? 'GODKENDT';
+    // Status-default afhænger af rolle:
+    //   sales → BETALT. En event-salgsbon registreres FRA en salgsrapport — varerne
+    //     er solgt og pengene indkasseret på stedet (POS-konvention, jf. status-flow).
+    //     BETALT er en REVENUE_CODE, så omsætningen tæller med i økonomirapporten med
+    //     det samme uden et manuelt status-flip. Springer LEVERET over med vilje:
+    //     auto-consume fyrer kun på LEVERET, og prep-bonnerne ejer allerede HQ-lager-
+    //     trækket (§5-gaten) — en salgsbon må ikke dobbelt-trække.
+    //   prep/topup/expense → GODKENDT. Prep/top-up er bevidst genereret arbejde der skal
+    //     på køkkenets I dag-tavle (viser kun GODKENDT/IGANG/KLAR/LEVERET). Udgift netter
+    //     ikke mod omsætning (is_internal=1).
+    // Brugeren kan altid overskrive med b.status_code.
+    const defaultStatus = role === 'sales' ? 'BETALT' : 'GODKENDT';
+    const startStatus = b.status_code ?? defaultStatus;
     const statusId = getStatusId(startStatus);
     if (!statusId) return res.status(400).json({ error: `Ukendt status: ${startStatus}` });
 
