@@ -377,6 +377,35 @@ function workloadRoleSql(col = 'event_role') {
     return `COALESCE(${col}, '') NOT IN ('sales','expense')`;
 }
 
+/**
+ * ── Salgs-enheder (økonomi-linsen) ──────────────────────────────────
+ * Spejlbilledet af produktions-workload: økonomi-/omsætningsvisninger
+ * (rapporter, dashboard MTD, top-produkter) tæller SOLGTE enheder. Dér må
+ * produktions-bonnerne (priskategori 'produktion' = prep/top-up, 0 kr) IKKE
+ * tælle med — de er intern produktion, ikke salg. Festival-salget (priskategori
+ * 'festival') tæller derimod fuldt med. Dermed tælles festival-maden aldrig
+ * dobbelt: produktions-linsen ekskluderer salg, salgs-linsen ekskluderer produktion.
+ *
+ * Omsætning/kr røres ALDRIG — produktion er alligevel 0 kr, så den påvirker ikke
+ * revenue. Kun enheds-/antalstal gates med dette.
+ *
+ * NB: brug FK'en price_categories.code (join på price_category_id) — IKKE den
+ * denormaliserede bons.price_category-TEXT, der er stale på nye bons.
+ */
+/** True hvis bonen tæller som salg (ikke intern produktion). */
+function countsAsSale(bon) {
+    return (bon && bon.price_category_code) !== 'produktion';
+}
+
+/**
+ * SQL-fragment til WHERE/CASE der ekskluderer produktion fra salgs-enheder.
+ * `col` er kolonne-udtrykket for priskategori-koden (fx 'pc.code'). Kræver at
+ * price_categories er joinet via price_category_id.
+ */
+function salesPriceCategorySql(col = 'pc.code') {
+    return `COALESCE(${col}, '') != 'produktion'`;
+}
+
 // ─── AUTH HELPERS ──────────────────────────────────────────
 
 async function hashPassword(plain) {
@@ -412,6 +441,7 @@ module.exports = {
     autoConsumeBonInventory,
     getUnitCountCategories, invalidateUnitCountCache, recalcBonTotalUnits,
     WORKLOAD_EXCLUDED_EVENT_ROLES, countsAsWorkload, workloadRoleSql,
+    countsAsSale, salesPriceCategorySql,
     hashPassword, verifyPassword, getUserByEmail, getUserById, getUserId,
     transaction,
     // Moms-helpers (re-eksporteret fra shared/moms.js — én definition for hele Bon v2)

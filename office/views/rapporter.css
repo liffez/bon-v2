@@ -279,6 +279,21 @@
   vertical-align: middle;
 }
 
+/* Produktion = intern produktion, ikke salg — dæmpet så enheds-tallet ikke
+   forveksles med solgte enheder. */
+.rap-cat-note {
+  font-size: 11px;
+  font-style: italic;
+  color: var(--color-text-dim, #9a8f82);
+  font-weight: 400;
+}
+.rap-cat-table .rap-cat-row-prod td {
+  color: var(--color-text-dim, #9a8f82);
+}
+.rap-cat-prod-units {
+  white-space: nowrap;
+}
+
 /* --- Lego month chips --- */
 .rap-lego-months {
   display: flex;

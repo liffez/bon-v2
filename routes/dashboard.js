@@ -12,7 +12,7 @@
 const express       = require('express');
 const router        = express.Router();
 const { getDb }     = require('../db/database');
-const { handle, inclToExcl, momsOfIncl, todayISO, countsAsWorkload, workloadRoleSql } = require('../db/helpers');
+const { handle, inclToExcl, momsOfIncl, todayISO, countsAsWorkload, workloadRoleSql, salesPriceCategorySql } = require('../db/helpers');
 const { requireAuth } = require('../shared/auth');
 const { getShifts } = require('../services/smartplanAdapter');
 
@@ -285,11 +285,16 @@ router.get('/today', handle(async (req, res) => {
     const DELIVERED_CODES = ['LEVERET', 'FAKTURERET', 'AFSLUTTET', 'BETALT'];
     const OPEN_CODES      = ['NY', 'VENTER', 'GODKENDT', 'IGANG', 'KLAR'];
 
+    // Enheder = SOLGTE enheder → produktion (prep/top-up, 0 kr) tæller IKKE med.
+    // Omsætning (total_price) tæller ALT (produktion er alligevel 0 kr).
     const mtdDelivered = db.prepare(`
         SELECT COALESCE(SUM(b.total_price), 0) AS revenue,
-               COALESCE(SUM(CASE WHEN b.total_units > 0 THEN b.total_units ELSE COALESCE(b.pax, 0) END), 0) AS units
+               COALESCE(SUM(CASE WHEN ${salesPriceCategorySql('pc.code')}
+                                 THEN (CASE WHEN b.total_units > 0 THEN b.total_units ELSE COALESCE(b.pax, 0) END)
+                                 ELSE 0 END), 0) AS units
         FROM bons b
         JOIN status_definitions sd ON b.status_id = sd.id
+        LEFT JOIN price_categories pc ON pc.id = b.price_category_id
         WHERE b.delivery_date >= ? AND b.delivery_date <= ?
           AND sd.code IN (${DELIVERED_CODES.map(() => '?').join(',')})
           AND COALESCE(b.is_offer, 0) = 0
@@ -319,9 +324,12 @@ router.get('/today', handle(async (req, res) => {
 
     const lyMtd = db.prepare(`
         SELECT COALESCE(SUM(b.total_price), 0) AS revenue,
-               COALESCE(SUM(CASE WHEN b.total_units > 0 THEN b.total_units ELSE COALESCE(b.pax, 0) END), 0) AS units
+               COALESCE(SUM(CASE WHEN ${salesPriceCategorySql('pc.code')}
+                                 THEN (CASE WHEN b.total_units > 0 THEN b.total_units ELSE COALESCE(b.pax, 0) END)
+                                 ELSE 0 END), 0) AS units
         FROM bons b
         JOIN status_definitions sd ON b.status_id = sd.id
+        LEFT JOIN price_categories pc ON pc.id = b.price_category_id
         WHERE b.delivery_date >= ? AND b.delivery_date <= ?
           AND sd.code IN (${DELIVERED_CODES.map(() => '?').join(',')})
           AND COALESCE(b.is_offer, 0) = 0
@@ -394,7 +402,7 @@ router.get('/stats', handle(async (req, res) => {
         SELECT
             b.id, b.bon_number, b.delivery_date,
             b.total_units, b.total_price, b.pax,
-            b.price_category,
+            b.price_category, b.event_role,
             COALESCE(co.name, c.first_name || ' ' || COALESCE(c.last_name,'')) AS customer_name
         FROM bons b
         JOIN status_definitions sd ON b.status_id = sd.id
@@ -410,9 +418,13 @@ router.get('/stats', handle(async (req, res) => {
     // Last year data (364 days back from each end)
     const lyStartDate = _dateOffset(startDate, -364);
     const lyEndDate   = _dateOffset(endDate, -364);
+    // Enh-mode = produktions-volumen → festival-salg ekskluderes så festival-maden
+    // ikke dobbelttælles (prep + salg). Kr (total_price) tæller alt.
     const lyRows = db.prepare(`
         SELECT b.delivery_date,
-               SUM(CASE WHEN b.total_units > 0 THEN b.total_units ELSE COALESCE(b.pax, 0) END) AS total_units,
+               SUM(CASE WHEN ${workloadRoleSql('b.event_role')}
+                        THEN (CASE WHEN b.total_units > 0 THEN b.total_units ELSE COALESCE(b.pax, 0) END)
+                        ELSE 0 END) AS total_units,
                SUM(b.total_price) AS total_price
         FROM bons b
         JOIN status_definitions sd ON b.status_id = sd.id
@@ -486,13 +498,15 @@ router.get('/stats', handle(async (req, res) => {
                 bon_number: b.bon_number,
                 category: PRICE_CAT_LABELS[b.price_category] || b.price_category || 'Store',
                 customer_name: (b.customer_name || '').trim(),
-                units: (b.total_units > 0 ? b.total_units : (b.pax || 0)),
+                // Enh-mode: festival-salg giver 0 enheder (produktionen er talt i prep-klodsen),
+                // men klodsen vises stadig i Kr-mode via price. Produktion (prep) tæller med.
+                units: countsAsWorkload(b) ? (b.total_units > 0 ? b.total_units : (b.pax || 0)) : 0,
                 // Bagudkomp.: price = total_price (incl moms)
                 price: b.total_price || 0,
                 price_excl_moms: r2(inclToExcl(b.total_price || 0)),
                 price_incl_moms: r2(b.total_price || 0),
             })),
-            total_units: dateBons.reduce((s, b) => s + (b.total_units > 0 ? b.total_units : (b.pax || 0)), 0),
+            total_units: dateBons.reduce((s, b) => s + (countsAsWorkload(b) ? (b.total_units > 0 ? b.total_units : (b.pax || 0)) : 0), 0),
             // Bagudkomp.: total_price = incl moms
             total_price:           totalPriceIncl,
             total_price_excl_moms: r2(inclToExcl(totalPriceIncl)),
@@ -527,10 +541,12 @@ router.get('/top-products', handle(async (req, res) => {
         FROM bon_lines bl
         JOIN bons b ON bl.bon_id = b.id
         JOIN status_definitions sd ON b.status_id = sd.id
+        LEFT JOIN price_categories pc ON pc.id = b.price_category_id
         WHERE b.delivery_date >= ? AND b.delivery_date <= ?
           AND sd.code != 'AFLYST'
           AND COALESCE(b.is_offer, 0) = 0
           AND COALESCE(b.is_internal, 0) = 0
+          AND ${salesPriceCategorySql('pc.code')}
           AND bl.product_name IS NOT NULL AND bl.product_name != ''
           AND bl.is_accessory = 0
         GROUP BY bl.product_name
