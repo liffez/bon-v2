@@ -176,7 +176,7 @@ async function _evRenderDetail(id) {
                     <div class="ev-pnl-cell"><div class="ev-pnl-val">${_evFmtKr(pnl.revenue_incl)}</div><div class="ev-pnl-lbl">Omsætning (inkl moms)</div></div>
                     <div class="ev-pnl-cell"><div class="ev-pnl-val">${_evFmtKr(pnl.revenue_excl)}</div><div class="ev-pnl-lbl">Omsætning (ex moms)</div></div>
                     <div class="ev-pnl-cell"><div class="ev-pnl-val">${_evFmtKr(pnl.cost_estimated)}</div><div class="ev-pnl-lbl">Vareforbrug (ex moms)</div></div>
-                    <div class="ev-pnl-cell"><div class="ev-pnl-val">${_evFmtKr(pnl.expenses)}</div><div class="ev-pnl-lbl">Udgifter</div></div>
+                    <div class="ev-pnl-cell"><div class="ev-pnl-val">${_evFmtKr(pnl.expenses_excl ?? pnl.expenses)}</div><div class="ev-pnl-lbl">Udgifter (ex moms)</div></div>
                     <div class="ev-pnl-cell ev-pnl-result"><div class="ev-pnl-val">${_evFmtKr(pnl.result)}</div><div class="ev-pnl-lbl">Resultat</div></div>
                     <div class="ev-pnl-cell ev-pnl-co2"><div class="ev-pnl-val">${_evFmtNum(pnl.co2e_total || 0)}</div><div class="ev-pnl-lbl">🌱 CO₂e (kg)</div></div>
                 </div>
@@ -767,17 +767,17 @@ async function _evOpenGenModal(event, role, opts) {
               : isProd
               ? 'Vælg menuer/varer der skal med fra HQ. Bonnen er bevidst <strong>0 kr</strong> (produktion) — kolonnen <em>Kostpris ex</em> snapshottes pr. linje og driver Vareforbrug i P&amp;L. Status: <strong>GODKENDT</strong> — havner på køkkenets I dag-tavle på prep-datoen.'
               : isExpense
-                ? 'Indtast udgift (fee, benzin, bro). Total bliver negativ — udgiften netter ikke mod omsætning, men vises som omkostning.'
+                ? 'Indtast udgift (fee, benzin, bro) — eller vælg en udgifts-menu fra Grocy (fylder kun <em>navnet</em>; beløb og antal taster du selv). Total bliver negativ; udgiften netter ikke mod omsætning, men vises som omkostning. <strong>⚠ Sæt moms pr. linje</strong> — default er <em>uden moms</em> (Grocy-kostpris og service er ex moms), skift til <em>med moms</em> for kvitteringer hvor beløbet er incl moms.'
                 : 'Pre-udfyldt fra eventets <strong>prep-bonner</strong> (de færdige menuer vi tog med). Priskategori: <strong>festival</strong>. Antal = preppet — <em>justér ned</em> for spild, smagsprøver mm. Status: <strong>BETALT</strong> — omsætningen tæller med i økonomirapporten med det samme. Delrapporterer du, så opdater <em>samme</em> bon hen ad dagen.'}
         </div>
         ${targetStrip}
         <label>Dato${isProd ? ' (prep-pakning)' : ''}<input type="date" id="evm-date" value="${defaultDate}"></label>
         ${isTopup ? '<div id="evm-topup" class="ev-topup-strip"></div>' : ''}
         <div class="ev-modal-oh" id="evm-oh" style="display:none"></div>
-        ${!isExpense ? '<label>Tilføj fra Grocy<select id="evm-recipe"><option value="">— vælg opskrift —</option>' + recipeOpts + '</select></label>' : ''}
+        <label>Tilføj fra Grocy<select id="evm-recipe"><option value="">— vælg ${isExpense ? 'produkt' : 'opskrift'} —</option>${recipeOpts}</select></label>
         <div class="ev-line-table-wrap">
             <table class="ev-line-table">
-                <thead><tr><th>Vare</th><th>Antal</th><th>Enhed</th><th>${isProd ? 'Kostpris ex' : 'Pris/stk incl'}</th><th>Total</th><th></th></tr></thead>
+                <thead><tr><th>Vare</th><th>Antal</th><th>Enhed</th><th>${isProd ? 'Kostpris ex' : (isExpense ? 'Beløb' : 'Pris/stk incl')}</th>${isExpense ? '<th>Moms</th>' : ''}<th>Total</th><th></th></tr></thead>
                 <tbody id="evm-lines"></tbody>
             </table>
             <button type="button" class="ev-btn ev-btn-small" id="evm-add-line">+ Tom linje</button>
@@ -793,6 +793,7 @@ async function _evOpenGenModal(event, role, opts) {
             // unit_price tvinges til 0 (prep/top-up = 0 kr, spec §3) og feltet
             // snapshottes som cost_price så vareforbrug/P&L får rigtige tal.
             const fieldVal = Number(row.querySelector('[data-f=price]').value) || 0;
+            const momsSel = row.querySelector('[data-f=moms]');
             lines.push({
                 product_name: name,
                 grocy_recipe_id: row.dataset.recipeId ? parseInt(row.dataset.recipeId) : null,
@@ -802,6 +803,9 @@ async function _evOpenGenModal(event, role, opts) {
                 unit_price: isProd ? 0 : fieldVal,
                 cost_price: isProd ? fieldVal : (row.dataset.cost ? Number(row.dataset.cost) : null),
                 co2e: row.dataset.co2e ? Number(row.dataset.co2e) : null,
+                // Kun udgiftslinjer bærer moms-flag (uden moms = 0). Server tvinger
+                // alle andre linjetyper til incl moms uanset.
+                moms_included: momsSel ? Number(momsSel.value) : 1,
             });
         });
         if (lines.length === 0) throw new Error('Tilføj mindst én linje');
@@ -839,14 +843,23 @@ async function _evOpenGenModal(event, role, opts) {
         if (data.category) tr.dataset.category = data.category;
         if (data.cost) tr.dataset.cost = data.cost;
         if (data.co2e) tr.dataset.co2e = data.co2e;
+        const momsVal = String(data.momsIncluded ?? 0);
         tr.innerHTML = `
             <td><input type="text" data-f="name" value="${_evEsc(data.name || '')}" placeholder="Navn"></td>
             <td><input type="number" data-f="qty" value="${data.qty || 1}" min="1" step="1" style="width:60px"></td>
             <td><input type="text" data-f="unit" value="${_evEsc(data.unit || 'stk')}" style="width:50px"></td>
             <td><input type="number" data-f="price" value="${data.price ?? 0}" step="0.01" style="width:80px"></td>
+            ${isExpense ? `<td><select data-f="moms" class="ev-moms-sel"><option value="0">uden moms</option><option value="1">med moms</option></select></td>` : ''}
             <td class="ev-num" data-f="total">—</td>
             <td><button type="button" class="ev-link" data-f="del">×</button></td>`;
         linesEl.appendChild(tr);
+        const momsSel = tr.querySelector('[data-f=moms]');
+        if (momsSel) {
+            momsSel.value = momsVal;
+            const syncMomsWarn = () => momsSel.classList.toggle('ev-moms-warn', momsSel.value === '0');
+            momsSel.addEventListener('change', syncMomsWarn);
+            syncMomsWarn();
+        }
         const recalc = () => {
             const q = Number(tr.querySelector('[data-f=qty]').value) || 0;
             const p = Number(tr.querySelector('[data-f=price]').value) || 0;
@@ -886,23 +899,32 @@ async function _evOpenGenModal(event, role, opts) {
         selectEl.addEventListener('change', () => {
             const opt = selectEl.options[selectEl.selectedIndex];
             if (!opt || !opt.value) return;
-            addLine({
-                recipeId: opt.value,
-                name: opt.text.split(' ·')[0],
-                category: opt.dataset.cat,
-                unit: opt.dataset.unit,
-                // Prod-modal viser kostprisen i pris-feltet (kolonne "Kostpris ex")
-                // — salgspris for produktion er pr. definition 0 og sættes ved submit.
-                price: Math.round((isProd ? Number(opt.dataset.cost) : Number(opt.dataset.price)) * 100) / 100,
-                cost: Number(opt.dataset.cost),
-                co2e: opt.dataset.co2e,
-                qty: 1,
-            });
+            if (isExpense) {
+                // Udgifts-menuen bruges KUN til at fylde linjenavnet. Beløbet tastes
+                // manuelt (pris=0) og moms vælges pr. linje (default uden moms). Vi
+                // kobler bevidst IKKE recipe-id/kategori/cost/co2e på — en udgift må
+                // ikke tælle som enheder eller bære menuens CO₂ ind i event-footprintet.
+                addLine({ name: opt.text.split(' ·')[0], unit: opt.dataset.unit, price: 0, momsIncluded: 0, qty: 1 });
+            } else {
+                addLine({
+                    recipeId: opt.value,
+                    name: opt.text.split(' ·')[0],
+                    category: opt.dataset.cat,
+                    unit: opt.dataset.unit,
+                    // Prod-modal viser kostprisen i pris-feltet (kolonne "Kostpris ex")
+                    // — salgspris for produktion er pr. definition 0 og sættes ved submit.
+                    price: Math.round((isProd ? Number(opt.dataset.cost) : Number(opt.dataset.price)) * 100) / 100,
+                    cost: Number(opt.dataset.cost),
+                    co2e: opt.dataset.co2e,
+                    momsIncluded: 1,
+                    qty: 1,
+                });
+            }
             selectEl.value = '';
         });
     }
     document.getElementById('evm-add-line').addEventListener('click', () => addLine({}));
-    if (isExpense) addLine({ name: 'Udgift', price: 0 });
+    if (isExpense) addLine({ name: 'Udgift', price: 0, momsIncluded: 0 });
 
     // Salgsbon: fyld de pre-udfyldte menuer (fra prep-bonnerne) ind. Antal =
     // preppet (start-gæt, justeres ned for spild). Pris = festival-salgspris.

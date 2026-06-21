@@ -160,6 +160,16 @@ retur-forslag  (hjemkomst)    = rest_på_eventet
 
 - **P&L** = Σ salgsbon-omsætning − vareforbrug (kostpris ex moms) − udgiftsbon. Alt ex moms (moms-doktrin).
 - **Udgiftsbon** tagges som omkostning — må **ikke** nette mod omsætning (ellers falder omsætningstallet).
+- **Udgifts-moms pr. linje:** udgiftslinjer er ikke altid incl moms — et Grocy-produkt brugt som
+  udgift har kostpris ex moms, og en service-fee er momsfri. `bon_lines.moms_included` (migration 104)
+  markerer pr. linje om beløbet er incl (1) eller ex (0) moms. `computeEventExpenses` summerer
+  udgiftslinjer og konverterer incl→ex via `inclToExcl` (kun for `moms_included=1`), så P&L'en
+  forbliver ex moms uanset hvordan beløbet er tastet. Generator-modalen har en moms-vælger pr.
+  udgiftslinje (default **uden moms**, fremhævet amber) + Grocy-picker. Grocy-valget fylder **kun
+  linjenavnet** (udgifts-menuer i Grocy tiltænkt at dække ekstra udgifter) — beløb tastes manuelt og
+  moms vælges pr. linje; recipe-id/kategori/cost/co2e kobles bevidst IKKE på, så udgiften ikke tæller
+  som enheder eller bærer menuens CO₂ ind i event-footprintet.
+  P&L-strippens udgifts-celle er mærket **"Udgifter (ex moms)"**.
 - **Udeluk produktion fra event-tal:** omsætning selv-udelukkes via 0-pris (prep/topup = 0 kr).
   **CO₂ er ikke pris-gated** → event-CO₂ ekskluderer `price_category='produktion'` EKSPLICIT, ellers
   tælles prep-footprintet dobbelt (co2e ligger på både prep- og salgsbons fra samme opskrifter).

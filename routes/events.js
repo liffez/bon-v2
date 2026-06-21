@@ -90,12 +90,39 @@ function computeEventPnL(bons) {
     // Vareforbrug = sum af cost_price * quantity på prep-bonner (ex moms).
     // For MVP: hentes via separat query for at undgå at slæbe linjer rundt.
     const revenue_excl = inclToExcl(revenue_incl);
+    // Udgiftsbonner gemmes incl moms (moms-doktrin §6b: bons.total_price er incl
+    // moms). P&L'en er ex moms (§7/spec linje 161 "Alt ex moms"), så udgiften
+    // konverteres til ex moms før den trækkes fra — ellers blandes momsgrundlag.
+    const expenses_excl = inclToExcl(expenses);
     return {
         revenue_incl, revenue_excl,
-        expenses, cost_estimated: cost,
-        // P&L = omsætning ex moms − vareforbrug ex moms − udgifter
-        result: Math.round((revenue_excl - cost - expenses) * 100) / 100
+        expenses, expenses_excl, cost_estimated: cost,
+        // P&L = omsætning ex moms − vareforbrug ex moms − udgifter ex moms
+        result: Math.round((revenue_excl - cost - expenses_excl) * 100) / 100
     };
+}
+
+// Udgifter til event-P&L'en, ex moms, beregnet PR. LINJE. Udgiftslinjer kan
+// være incl moms (kvittering: benzin/bro/stadeleje) eller ex moms (Grocy-produkt-
+// kostpris, service-fee) — moms_included-flaget på bon_lines afgør det. Vi
+// identificerer udgiftsbonner præcis som computeEventPnL (ikke-produktion +
+// negativ total) så HVILKE bonner der tæller ikke ændrer sig — kun HVORDAN moms
+// håndteres. line_total er negativt på udgiftslinjer → abs() giver beløbet.
+function computeEventExpenses(eventId) {
+    const rows = getDb().prepare(`
+        SELECT bl.line_total, bl.moms_included
+        FROM bons b
+        JOIN bon_lines bl ON bl.bon_id = b.id
+        LEFT JOIN price_categories pc ON b.price_category_id = pc.id
+        WHERE b.event_id = ? AND COALESCE(pc.code,'') != 'produktion' AND b.total_price < 0
+    `).all(eventId);
+    let incl = 0, excl = 0;
+    for (const r of rows) {
+        const amt = Math.abs(r.line_total ?? 0);
+        incl += amt;
+        excl += r.moms_included ? inclToExcl(amt) : amt;   // ex moms: behold som-er
+    }
+    return { incl: Math.round(incl * 100) / 100, excl: Math.round(excl * 100) / 100 };
 }
 
 function computeEventCost(eventId) {
@@ -535,7 +562,12 @@ router.get('/:id/overview', requireAuth(), handle(async (req, res) => {
     }
     const pnl = computeEventPnL(bons);
     pnl.cost_estimated = computeEventCost(event.id);
-    pnl.result = Math.round((pnl.revenue_excl - pnl.cost_estimated - pnl.expenses) * 100) / 100;
+    // Præcis udgifts-beregning pr. linje (incl/ex moms) — overskriver grov-summen
+    // fra computeEventPnL, på samme måde som cost overskrives ovenfor.
+    const exp = computeEventExpenses(event.id);
+    pnl.expenses = exp.incl;
+    pnl.expenses_excl = exp.excl;
+    pnl.result = Math.round((pnl.revenue_excl - pnl.cost_estimated - pnl.expenses_excl) * 100) / 100;
     pnl.co2e_total = computeEventCO2(event.id);
 
     // Forecast pr. dag pr. kategori. Vi sender også de dage events spænder over
@@ -805,12 +837,15 @@ router.post('/:id/bons', requireAuth(), handle((req, res) => {
             const unitPrice = Number(line.unit_price ?? 0);
             const lineTotal = sign * qty * unitPrice;
             total += lineTotal;
+            // Moms-markering: kun udgiftslinjer må være ex moms (0). Alle andre
+            // linjetyper holder doktrin-default'en incl moms (1) uanset payload.
+            const momsIncluded = (role === 'expense' && Number(line.moms_included) === 0) ? 0 : 1;
             db.prepare(`
                 INSERT INTO bon_lines (
                     bon_id, grocy_recipe_id, product_name, category, quantity, unit,
                     special_request, unit_price, line_total, cost_price, co2e,
-                    sort_order
-                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                    moms_included, sort_order
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             `).run(
                 bonId,
                 line.grocy_recipe_id ?? null,
@@ -823,6 +858,7 @@ router.post('/:id/bons', requireAuth(), handle((req, res) => {
                 lineTotal,
                 line.cost_price ?? null,
                 line.co2e ?? null,
+                momsIncluded,
                 i
             );
         }
