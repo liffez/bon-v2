@@ -160,6 +160,25 @@ console.log('\ncomputeProspectScores — integration');
     assert(names.includes('Lead Naer Offentlig') && names.includes('Lead Naer Uni'),
         'tætte leads (≤10km, ikke blacklistet) bevares');
 
+    // Nedre grænse: ≥ 10 km → kun det fjerne lead (40km), tætte (2-3km) ud
+    res = computeProspectScores({ minKm: 10 });
+    const minNames = res.rows.map(r => r.name);
+    assert(minNames.includes('Lead Fjern Offentlig'), 'minKm 10 beholder 40km-lead');
+    assert(!minNames.includes('Lead Naer Offentlig') && !minNames.includes('Lead Naer Uni'),
+        'minKm 10 fjerner tætte leads (for nær)');
+    assert(res.meta.distance_min_km === 10, 'meta.distance_min_km sat');
+
+    // Interval 10–50 km → kun 40km-leadet ligger i båndet
+    res = computeProspectScores({ minKm: 10, maxKm: 50 });
+    assert(res.rows.length === 1 && res.rows[0].name === 'Lead Fjern Offentlig',
+        'interval 10–50 km giver kun leadet i båndet');
+
+    // Interval 0–5 km → kun de tætte (2-3km), 40km ude
+    res = computeProspectScores({ minKm: 0, maxKm: 5 });
+    const bandNames = res.rows.map(r => r.name);
+    assert(bandNames.includes('Lead Naer Offentlig') && !bandNames.includes('Lead Fjern Offentlig'),
+        'interval 0–5 km giver tætte, ikke fjerne');
+
     // Blacklist
     db.prepare("UPDATE settings SET value = ? WHERE key = 'prospect_branch_blacklist'")
         .run(JSON.stringify(['Spam-branche']));

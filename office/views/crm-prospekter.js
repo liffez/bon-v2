@@ -10,7 +10,8 @@ let _prosMeta = null;
 let _prosIcp = null;
 let _prosDebounce = null;
 let _prosSearch = '';
-let _prosMaxKm = '';        // afstands-filter (km, '' = intet filter)
+let _prosMinKm = '';        // afstands-interval, nedre grænse (km, '' = ingen)
+let _prosMaxKm = '';        // afstands-interval, øvre grænse (km, '' = ingen)
 let _prosBlacklist = [];    // skjulte brancher
 
 function initCrmProspekter(container) {
@@ -67,7 +68,7 @@ async function _prosLoadData() {
     try {
         // ICP-fit beregnes nu server-side (samme kilde som Indsigt-fanen).
         const [data, icp] = await Promise.all([
-            fetchRfmProspects({ maxKm: _prosMaxKm }),
+            fetchRfmProspects({ minKm: _prosMinKm, maxKm: _prosMaxKm }),
             _prosIcp ? Promise.resolve(_prosIcp) : fetchRfmIcp('vip'),
         ]);
         _prosData = data.rows || [];
@@ -76,9 +77,8 @@ async function _prosLoadData() {
         // Synkronisér lokale filter-felter fra serverens sandhed (settings)
         if (_prosMeta) {
             _prosBlacklist = Array.isArray(_prosMeta.blacklist) ? _prosMeta.blacklist : [];
-            if (_prosMaxKm === '' && _prosMeta.distance_max_km != null) {
-                _prosMaxKm = String(_prosMeta.distance_max_km);
-            }
+            if (_prosMinKm === '' && _prosMeta.distance_min_km != null) _prosMinKm = String(_prosMeta.distance_min_km);
+            if (_prosMaxKm === '' && _prosMeta.distance_max_km != null) _prosMaxKm = String(_prosMeta.distance_max_km);
         }
         _prosRender();
     } catch (err) {
@@ -132,9 +132,13 @@ function _prosShellHtml() {
         <h2>Prospekter</h2>
         <div class="pros-toolbar">
             <input type="text" placeholder="Søg..." id="pros-search" oninput="_prosOnSearch(this.value)">
-            <span class="pros-dist" title="Vis kun firmaer inden for så mange km fra HQ (fugleflugt). Tom = alle.">
-                ≤ <input type="number" min="0" step="1" id="pros-maxkm" placeholder="km"
-                    onchange="_prosSetMaxKm(this.value)"> km
+            <span class="pros-dist" title="Vis kun firmaer i et km-interval fra HQ (fugleflugt). Tomme felter = ingen grænse.">
+                Afstand
+                <input type="number" min="0" step="1" id="pros-minkm" placeholder="min"
+                    onchange="_prosSetDist('min', this.value)">
+                –
+                <input type="number" min="0" step="1" id="pros-maxkm" placeholder="max"
+                    onchange="_prosSetDist('max', this.value)"> km
             </span>
         </div>
     </div>
@@ -149,9 +153,12 @@ function _prosShellHtml() {
 function _prosRender() {
     if (!_prosActive || !_prosData) return;
 
-    // Afstands-filter-felt synkroniseres fra state
+    // Afstands-interval-felter synkroniseres fra state (rør ikke det fokuserede)
+    const minKmInput = document.getElementById('pros-minkm');
+    if (minKmInput && document.activeElement !== minKmInput) minKmInput.value = _prosMinKm;
     const maxKmInput = document.getElementById('pros-maxkm');
     if (maxKmInput && document.activeElement !== maxKmInput) maxKmInput.value = _prosMaxKm;
+    const distActive = _prosMinKm !== '' || _prosMaxKm !== '';
 
     // ICP strip
     const strip = document.getElementById('pros-icp-strip');
@@ -175,7 +182,7 @@ function _prosRender() {
     // Note: leads skjult af afstands-filter pga. manglende koordinater
     const noteEl = document.getElementById('pros-note');
     if (noteEl) {
-        const hidden = _prosMeta && _prosMaxKm !== '' ? (_prosMeta.hidden_no_coords || 0) : 0;
+        const hidden = _prosMeta && distActive ? (_prosMeta.hidden_no_coords || 0) : 0;
         if (hidden > 0) {
             noteEl.style.display = '';
             noteEl.textContent = `${hidden} firma${hidden === 1 ? '' : 'er'} skjult af afstands-filteret — mangler adresse-koordinater (kør geokodning).`;
@@ -202,7 +209,11 @@ function _prosRender() {
     if (countEl) {
         const parts = [`${filtered.length} leads`];
         if (_prosSearch) parts.push('filtreret');
-        if (_prosMaxKm !== '') parts.push(`≤ ${_prosMaxKm} km`);
+        if (distActive) {
+            if (_prosMinKm !== '' && _prosMaxKm !== '') parts.push(`${_prosMinKm}–${_prosMaxKm} km`);
+            else if (_prosMaxKm !== '') parts.push(`≤ ${_prosMaxKm} km`);
+            else parts.push(`≥ ${_prosMinKm} km`);
+        }
         countEl.textContent = parts.join(' · ');
     }
 
@@ -282,12 +293,15 @@ function _prosOnSearch(val) {
     _prosDebounce = setTimeout(() => _prosRender(), 200);
 }
 
-// Afstands-filter: gem som settings-default (delt forretningspræference) + reload
-async function _prosSetMaxKm(val) {
+// Afstands-interval: gem som settings-default (delt forretningspræference) + reload.
+// which = 'min' | 'max'
+async function _prosSetDist(which, val) {
     const trimmed = (val == null ? '' : String(val)).trim();
     const num = parseFloat(trimmed);
-    _prosMaxKm = trimmed !== '' && Number.isFinite(num) && num > 0 ? String(num) : '';
-    try { await patchSetting('prospect_distance_max_km', _prosMaxKm); } catch { /* reload viser stadig */ }
+    const clean = trimmed !== '' && Number.isFinite(num) && num > 0 ? String(num) : '';
+    if (which === 'min') _prosMinKm = clean; else _prosMaxKm = clean;
+    const key = which === 'min' ? 'prospect_distance_min_km' : 'prospect_distance_max_km';
+    try { await patchSetting(key, clean); } catch { /* reload viser stadig serverens tilstand */ }
     _prosLoadData();
 }
 

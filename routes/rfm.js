@@ -243,9 +243,9 @@ router.get('/reactivation', handle((req, res) => {
 
 // ─── GET /prospects ─────────────────────────────────────────
 // Lead-firmaer med gradueret ICP-fit (branche + størrelse + afstand).
-// Query: ?q= søgning, ?maxKm= afstands-filter (overstyrer settings-default).
+// Query: ?q= søgning, ?minKm/?maxKm= afstands-interval (overstyrer settings-default).
 router.get('/prospects', handle((req, res) => {
-    const result = computeProspectScores({ q: req.query.q, maxKm: req.query.maxKm });
+    const result = computeProspectScores({ q: req.query.q, minKm: req.query.minKm, maxKm: req.query.maxKm });
     res.json(result);
 }));
 

@@ -19,7 +19,7 @@
 
 const path = require('path');
 const { openDb } = require('../db/compat');
-const { geocodeRaw } = require('../services/geocode');
+const { geocodeRaw, DawaError } = require('../services/geocode');
 
 const DB_PATH = process.env.DB_PATH || path.join(__dirname, '../data/bon.db');
 const APPLY = process.argv.includes('--apply');
@@ -58,11 +58,13 @@ async function main() {
     console.log('');
 
     let ok = 0;
-    const failures = [];
+    const noMatch = [];     // DAWA nåede frem, men fandt ingen adresse
+    const throttled = [];   // DAWA blokerede/strubede os (selv efter retries)
 
     for (let i = 0; i < rows.length; i++) {
         const addr = rows[i];
         let coords = null;
+        let recorded = false;
         try {
             coords = await geocodeRaw({
                 street: addr.street_name,
@@ -71,6 +73,9 @@ async function main() {
                 city: addr.city
             });
         } catch (e) {
+            if (e instanceof DawaError && e.throttled) throttled.push(addrLabel(addr));
+            else noMatch.push(addrLabel(addr));
+            recorded = true;
             coords = null;
         }
 
@@ -80,25 +85,33 @@ async function main() {
                 db.prepare('UPDATE addresses SET lat = ?, lon = ? WHERE id = ?')
                     .run(coords.lat, coords.lon, addr.id);
             }
-        } else {
-            failures.push(addrLabel(addr));
+        } else if (!recorded) {
+            // returnerede null uden exception = ægte no-match
+            noMatch.push(addrLabel(addr));
         }
 
         if ((i + 1) % 25 === 0 || i === rows.length - 1) {
             process.stdout.write(
-                `\r  ${i + 1}/${rows.length} behandlet — ${ok} geokodet, ${failures.length} fejlede`
+                `\r  ${i + 1}/${rows.length} behandlet — ${ok} geokodet, ${noMatch.length} uden match, ${throttled.length} blokeret`
             );
         }
         await sleep(RATE_MS);
     }
 
     console.log('\n');
-    if (failures.length) {
-        console.log(`${failures.length} adresse(r) kunne ikke geokodes (ufuldstændige adresser):`);
-        for (const f of failures) console.log('  ✗ ' + f);
+
+    if (throttled.length) {
+        console.log(`⚠ ${throttled.length} adresse(r) blev BLOKERET af DAWA (rate-limit/throttling) selv efter retries.`);
+        console.log('  Det er ikke et dataproblem — DAWA struber serverens IP. Vent et par minutter');
+        console.log('  og kør scriptet igen (det er idempotent og fortsætter hvor det slap).');
         console.log('');
     }
-    console.log(`Færdig: ${ok} geokodet, ${failures.length} fejlede.`);
+    if (noMatch.length) {
+        console.log(`${noMatch.length} adresse(r) kunne ikke matches (ufuldstændige/ukendte adresser):`);
+        for (const f of noMatch) console.log('  ✗ ' + f);
+        console.log('');
+    }
+    console.log(`Færdig: ${ok} geokodet, ${noMatch.length} uden match, ${throttled.length} blokeret.`);
     if (!APPLY && ok > 0) {
         console.log('Dette var en dry-run — kør med --apply for at skrive coords.');
     }

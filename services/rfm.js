@@ -346,7 +346,7 @@ function getProspectFitConfig(db) {
     const rows = db.prepare(`
         SELECT key, value FROM settings WHERE key IN (
             'prospect_fit_w_branch','prospect_fit_w_size','prospect_fit_w_distance',
-            'prospect_distance_max_km','prospect_branch_blacklist'
+            'prospect_distance_min_km','prospect_distance_max_km','prospect_branch_blacklist'
         )`).all();
     const m = {};
     for (const r of rows) m[r.key] = r.value;
@@ -357,14 +357,18 @@ function getProspectFitConfig(db) {
         if (Array.isArray(parsed)) blacklist = parsed.filter(Boolean).map(s => String(s));
     } catch { /* ignorér ugyldig JSON → ingen blacklist */ }
 
-    const rawMax = m.prospect_distance_max_km;
-    const maxKm = rawMax != null && String(rawMax).trim() !== '' ? parseFloat(rawMax) : null;
+    const parseKm = (raw) => {
+        if (raw == null || String(raw).trim() === '') return null;
+        const v = parseFloat(raw);
+        return Number.isFinite(v) && v > 0 ? v : null;   // 0/tom = intet filter
+    };
 
     return {
         w_branch: parseFloat(m.prospect_fit_w_branch) || 50,
         w_size: parseFloat(m.prospect_fit_w_size) || 20,
         w_distance: parseFloat(m.prospect_fit_w_distance) || 30,
-        distance_max_km: Number.isFinite(maxKm) && maxKm > 0 ? maxKm : null,
+        distance_min_km: parseKm(m.prospect_distance_min_km),
+        distance_max_km: parseKm(m.prospect_distance_max_km),
         branch_blacklist: blacklist,
     };
 }
@@ -462,12 +466,16 @@ function computeProspectScores(opts = {}) {
     const ref = getVipReference(db);
     const hq = getHqCoords(db);
 
-    // Afstands-filter: eksplicit opts.maxKm vinder over settings-default
-    let maxKm = cfg.distance_max_km;
-    if (opts.maxKm != null && String(opts.maxKm).trim() !== '') {
-        const m = parseFloat(opts.maxKm);
-        maxKm = Number.isFinite(m) && m > 0 ? m : null;
-    }
+    // Afstands-interval: eksplicit opts vinder over settings-default.
+    // 0/tom = ingen grænse i den ende.
+    const optKm = (raw, fallback) => {
+        if (raw == null || String(raw).trim() === '') return fallback;
+        const v = parseFloat(raw);
+        return Number.isFinite(v) && v > 0 ? v : null;
+    };
+    const minKm = optKm(opts.minKm, cfg.distance_min_km);
+    const maxKm = optKm(opts.maxKm, cfg.distance_max_km);
+    const hasDistanceFilter = minKm != null || maxKm != null;
 
     const params = [];
     let searchWhere = '';
@@ -507,10 +515,11 @@ function computeProspectScores(opts = {}) {
 
         const sc = scoreProspect(lead, ref, hq, cfg);
 
-        if (maxKm != null) {
-            // Distance-filter aktivt: kun firmaer vi kan bekræfte er i range.
+        if (hasDistanceFilter) {
+            // Afstands-interval aktivt: kun firmaer vi kan bekræfte er i range.
             if (sc.distance_km == null) { hiddenNoCoords++; continue; }
-            if (sc.distance_km > maxKm) { hiddenDistance++; continue; }
+            if (maxKm != null && sc.distance_km > maxKm) { hiddenDistance++; continue; }
+            if (minKm != null && sc.distance_km < minKm) { hiddenDistance++; continue; }
         }
 
         lead.icp_fit = sc.fit;
@@ -533,6 +542,7 @@ function computeProspectScores(opts = {}) {
         rows,
         meta: {
             total: rows.length,
+            distance_min_km: minKm,
             distance_max_km: maxKm,
             hq_available: !!hq,
             vip_branch_count: Object.keys(ref.shares).length,
