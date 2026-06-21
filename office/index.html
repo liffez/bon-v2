@@ -1496,6 +1496,7 @@
           if (typeof _tilbudHandleSSE === 'function') _tilbudHandleSSE('bon_created', data);
           if (typeof _woHandleSSE === 'function') _woHandleSSE('bon_created', data);
           if (typeof _alHandleSSE === 'function') _alHandleSSE('bon_created', data);
+          if (typeof _evHandleSSE === 'function') _evHandleSSE('bon_created', data);
           if (data && data.source === 'web_order') _showWebOrderToast(data);
           scheduleBadgeReload();  // bons_nye + tilbud_aktive + okonomi_fakturering kan ændre sig
         },
@@ -1508,6 +1509,7 @@
           if (typeof _tilbudHandleSSE === 'function') _tilbudHandleSSE('bon_updated', data);
           if (typeof _woHandleSSE === 'function') _woHandleSSE('bon_updated', data);
           if (typeof _logHandleSSE === 'function') _logHandleSSE('bon_updated', data);
+          if (typeof _evHandleSSE === 'function') _evHandleSSE('bon_updated', data);
           scheduleBadgeReload();  // acknowledge-flag på bons_nye kan ændre sig
         },
         bon_status: (data) => {
@@ -1519,6 +1521,7 @@
           if (typeof _tilbudHandleSSE === 'function') _tilbudHandleSSE('bon_status', data);
           if (typeof _woHandleSSE === 'function') _woHandleSSE('bon_status', data);
           if (typeof _alHandleSSE === 'function') _alHandleSSE('bon_status', data);
+          if (typeof _evHandleSSE === 'function') _evHandleSSE('bon_status', data);
           scheduleBadgeReload();  // LEVERET → fakturering-køen
         },
         bon_deleted: (data) => {
@@ -1531,7 +1534,11 @@
           if (typeof _uoHandleSSE === 'function') _uoHandleSSE('bon_status', data);
           if (typeof _tilbudHandleSSE === 'function') _tilbudHandleSSE('bon_status', data);
           if (typeof _woHandleSSE === 'function') _woHandleSSE('bon_status', data);
+          if (typeof _evHandleSSE === 'function') _evHandleSSE('bon_status', data);
           scheduleBadgeReload();
+        },
+        event_updated: (data) => {
+          if (typeof _evHandleSSE === 'function') _evHandleSSE('event_updated', data);
         },
         crm_activity_created: (data) => {
           if (typeof _crmDashHandleSSE === 'function') _crmDashHandleSSE('crm_activity_created', data);
