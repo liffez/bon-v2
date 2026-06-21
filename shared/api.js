@@ -18,6 +18,7 @@ async function apiFetch(path, options = {}) {
         const err = new Error(body.error || `API fejl: ${res.status}`);
         err.status = res.status;
         if (body.code) err.code = body.code;
+        err.body = body;   // hele fejl-payloaden (fx can_force) tilgængelig for kalderen
         throw err;
     }
     return res.json();
@@ -55,10 +56,12 @@ function deleteBon(id) {
     return apiFetch('/bons/' + id, { method: 'DELETE' });
 }
 
-function patchBonStatus(id, statusCode, userId) {
+function patchBonStatus(id, statusCode, userId, force) {
+    const payload = { status_code: statusCode, user_id: userId };
+    if (force) payload.force = true;   // admin-override af ellers ugyldig status-vej
     return apiFetch('/bons/' + id + '/status', {
         method: 'PATCH',
-        body: JSON.stringify({ status_code: statusCode, user_id: userId }),
+        body: JSON.stringify(payload),
     });
 }
 

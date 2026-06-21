@@ -973,17 +973,29 @@ class BonDrawer {
         });
     }
 
-    async _setStatus(statusKey) {
+    async _setStatus(statusKey, force) {
         if (!this.data) return;
         const curStatus = statusToFrontend(this.data.status_code || '');
         if (statusKey === curStatus) return;
         const backendCode = statusToBackend(statusKey);
+        const fromLabel = (BON_CONFIG.statuses[curStatus] || {}).label || curStatus;
+        const toLabel = (BON_CONFIG.statuses[statusKey] || {}).label || statusKey;
         try {
-            await patchBonStatus(this.bonId, backendCode);
+            await patchBonStatus(this.bonId, backendCode, undefined, force);
             this.data.status_code = backendCode;
             this._renderStatusBar();
             this._showStatusFlash();
         } catch (err) {
+            // Admin-override: en ellers ugyldig status-vej kan tvinges igennem.
+            // Backenden afviser med code='TRANSITION_NOT_ALLOWED' + can_force=true
+            // når den indloggede session er admin. Vi spørger om bekræftelse og
+            // prøver igen med force:true.
+            if (!force && err.code === 'TRANSITION_NOT_ALLOWED' && err.body && err.body.can_force) {
+                if (confirm(`"${fromLabel}" → "${toLabel}" er ikke en normal status-vej.\n\nVil du overstyre som admin? (Springer normal valideringsrækkefølge over.)`)) {
+                    return this._setStatus(statusKey, true);
+                }
+                return;
+            }
             alert(err.message || 'Kunne ikke skifte status');
         }
     }

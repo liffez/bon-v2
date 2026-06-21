@@ -824,22 +824,24 @@ router.patch('/:id/status', handle((req, res) => {
     // privilege escalation. Også audit-user-id kommer fra session — body.user_id
     // accepteres ikke til auth eller audit (D-2b fix).
     const isForce = force === true;
-    let isAdmin = false;
     const sessionUserId = req.session?.userId ?? null;
+    // Slå session-brugerens rolle op ALTID (ikke kun ved force) — så can_force kan
+    // beregnes korrekt allerede på den første ikke-force-request der afvises, og
+    // frontenden ved om admin-override er en mulighed.
+    const sessionUser = sessionUserId
+        ? db.prepare(`SELECT role FROM users WHERE id = ? AND is_active = 1`).get(sessionUserId)
+        : null;
+    const isAdmin = !!(sessionUser && sessionUser.role === 'admin');
     if (isForce) {
         if (!sessionUserId) {
             return res.status(401).json({ error: 'Force-mode kræver login' });
         }
-        const sessionUser = db.prepare(
-            `SELECT role FROM users WHERE id = ? AND is_active = 1`
-        ).get(sessionUserId);
         if (!sessionUser) {
             return res.status(401).json({ error: 'Session-bruger ikke gyldig' });
         }
-        if (sessionUser.role !== 'admin') {
+        if (!isAdmin) {
             return res.status(403).json({ error: 'Force-mode kræver admin-rolle' });
         }
-        isAdmin = true;
     }
 
     // Slå transition op (uanset force-mode — vi bruger triggers_json længere nede).
@@ -854,6 +856,10 @@ router.patch('/:id/status', handle((req, res) => {
     if (!transition && !(isForce && isAdmin)) {
         return res.status(400).json({
             error: `Transition ${bon.current_code} → ${status_code} er ikke tilladt`,
+            code: 'TRANSITION_NOT_ALLOWED',
+            // Maskinlæsbart flag så frontenden kan tilbyde admin-override (force:true)
+            // præcist når en normal status-vej afvises — uden at matche på dansk tekst.
+            can_force: isAdmin,
             hint: 'Admins kan overstyre med {force: true}'
         });
     }
