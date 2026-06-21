@@ -92,9 +92,9 @@ function _prosShellHtml() {
     return `
 <style>
 .pros-wrap { padding: 24px; max-width: 900px; }
-.pros-header { display: flex; justify-content: space-between; align-items: flex-start; margin-bottom: 16px; }
+.pros-header { display: flex; justify-content: space-between; align-items: flex-start; margin-bottom: 16px; flex-wrap: wrap; gap: 10px; }
 .pros-header h2 { margin: 0; font-family: var(--font-heading, serif); }
-.pros-toolbar { display: flex; gap: 8px; align-items: center; }
+.pros-toolbar { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
 .pros-toolbar input { padding: 6px 10px; border: 1px solid #ccc; border-radius: 6px; font-size: 13px; width: 200px; }
 .pros-btn { padding: 6px 14px; border: none; border-radius: 6px; cursor: pointer; font-size: 13px; }
 .pros-btn-primary { background: var(--brand-primary, #8e631f); color: #fff; }
