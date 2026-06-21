@@ -1129,6 +1129,13 @@ function _mcThTime(iso) {
     return (window.MailThread && MailThread.fmtDate) ? MailThread.fmtDate(iso) : _mcFormatDate(iso);
 }
 
+// Link-chip med tag-nummer: kunde → "🔗 Navn · #k-3857"
+function _mcLinkChip(link) {
+    if (!link) return '<span class="mc-tag warn">⚠ ikke knyttet</span>';
+    var num = link.type === 'customer' ? ' · #k-' + link.id : '';
+    return '<span class="mc-tag lnk">🔗 ' + _mcEsc(link.label || '') + num + '</span>';
+}
+
 function _mcRenderInboxList() {
     var list = document.getElementById('mcInboxList');
     if (!list) return;
@@ -1137,8 +1144,7 @@ function _mcRenderInboxList() {
     list.innerHTML = _mcThreads.map(function(t) {
         var sent = (t.handling_status !== 'aaben' && t.last_outbound_at)
             ? '<div class="mc-th-sent">↗ Sendt ' + _mcThTime(t.last_outbound_at) + '</div>' : '';
-        var linkTag = t.link ? '<span class="mc-tag lnk">🔗 ' + _mcEsc(t.link.label || '') + '</span>'
-                             : '<span class="mc-tag warn">⚠ ikke knyttet</span>';
+        var linkTag = _mcLinkChip(t.link);
         var snz = (t.snoozed && t.snooze_until) ? '<span class="mc-snz">⏰ ' + _mcThTime(t.snooze_until) + '</span>' : '';
         return '<div class="mc-th ' + (t.has_unread ? 'unread' : '') + '" onclick="_mcOpenInboxThread(' + t.id + ')">' +
             '<div class="mc-th-from">' + _mcEsc(t.from || '') + '</div>' +
@@ -1169,7 +1175,7 @@ async function _mcOpenInboxThread(id) {
             '<div class="mc-sheet">' +
                 '<div class="mc-sheet-head">' +
                     '<div class="mc-sheet-subj">' + _mcEsc(t.subject || '') + '</div>' +
-                    '<div style="font-size:11px;color:#8a8580;margin-top:3px">' + _mcEsc(t.from || '') + ' · <span class="mc-st ' + t.handling_status + '">' + (ST[t.handling_status] || '') + '</span></div>' +
+                    '<div style="font-size:11px;color:#8a8580;margin-top:3px">' + _mcEsc(t.from || '') + ((t.link && t.link.type === 'customer') ? ' · #k-' + t.link.id : '') + ' · <span class="mc-st ' + t.handling_status + '">' + (ST[t.handling_status] || '') + '</span></div>' +
                 '</div>' +
                 '<div class="mc-sheet-body" id="mcSheetBody"></div>' +
                 '<div class="mc-sheet-foot">' +

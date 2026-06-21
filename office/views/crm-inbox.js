@@ -413,6 +413,13 @@ function _inbThreadTime(iso) {
     return (window.MailThread && MailThread.fmtDate) ? MailThread.fmtDate(iso) : _inbFmtReceivedAt(iso);
 }
 
+// Link-chip med tag-nummer: kunde → "🔗 Navn · #k-3857" (bon-label har allerede bonnummeret)
+function _inbLinkChip(link) {
+    if (!link) return '<span class="inb-tag2 warn">⚠ ikke knyttet</span>';
+    var num = link.type === 'customer' ? ' · #k-' + link.id : '';
+    return '<span class="inb-tag2 lnk">🔗 ' + _inbEscape(link.label || '') + num + '</span>';
+}
+
 function _inbRenderThreadList() {
     const el = document.getElementById('inbList');
     if (!el) return;
@@ -424,9 +431,7 @@ function _inbRenderThreadList() {
     el.innerHTML = _inbThreads.map(t => {
         const sent = (t.handling_status !== 'aaben' && t.last_outbound_at)
             ? `<div class="inb-th-sent">↗ Sendt ${_inbThreadTime(t.last_outbound_at)}${t.last_outbound_by ? ' · ' + _inbEscape(t.last_outbound_by) : ''}</div>` : '';
-        const linkTag = t.link
-            ? `<span class="inb-tag2 lnk">🔗 ${_inbEscape(t.link.label || '')}</span>`
-            : `<span class="inb-tag2 warn">⚠ ikke knyttet</span>`;
+        const linkTag = _inbLinkChip(t.link);
         const snz = t.snoozed && t.snooze_until ? `<span class="inb-snz">⏰ ${_inbThreadTime(t.snooze_until)}</span>` : '';
         return `<div class="inb-th-row ${t.has_unread ? 'unread' : ''} ${_inbThreadSel === t.id ? 'sel' : ''}" data-id="${t.id}" onclick="_inbOpenThread(${t.id})">
             <div class="inb-th-top"><span class="inb-dot2"></span><span class="inb-th-from">${_inbEscape(t.from || '')}</span><span class="inb-th-time">${_inbThreadTime(t.time)}</span></div>
@@ -463,9 +468,7 @@ function _inbRenderThreadReader(data) {
     const t = data.thread;
     _inbThreadEntity = t.link || null;
     const ST = { aaben:'Åben', afventer_kunde:'Afventer kunde', afsluttet:'Afsluttet' };
-    const linkTag = t.link
-        ? `<span class="inb-tag2 lnk">🔗 ${_inbEscape(t.link.label || '')}</span>`
-        : `<span class="inb-tag2 warn">⚠ ikke knyttet</span>`;
+    const linkTag = _inbLinkChip(t.link);
     const snz = t.snoozed && t.snooze_until ? `<span class="inb-snz">⏰ rykker ${_inbThreadTime(t.snooze_until)}</span>` : '';
     const isBon = t.link && t.link.type === 'bon';
     const isCust = t.link && t.link.type === 'customer';
