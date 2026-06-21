@@ -98,6 +98,10 @@
 .ev-line-table th { font-size: 10px; text-transform: uppercase; color: #888; text-align: left; padding: 4px 6px; border-bottom: 1px solid #eee; font-weight: 500; }
 .ev-line-table td { padding: 4px 6px; border-bottom: 1px solid #f8f8f8; }
 .ev-line-table input { padding: 4px 6px; font-size: 12px; }
+/* Moms-vælger pr. udgiftslinje — "uden moms" fremhæves (amber) så man tager
+   bevidst stilling; "med moms" tonet ned til neutral grøn. */
+.ev-moms-sel { padding: 3px 6px; font-size: 12px; border: 1px solid #d7d1ca; border-radius: 4px; }
+.ev-moms-sel.ev-moms-warn { border-color: #d99a00; background: #fff7e0; color: #7a5800; font-weight: 600; }
 
 /* ── Forecast-tabel ────────────────────────────────────────── */
 .ev-forecast { background: #fff; border: 1px solid var(--color-border, #d7d1ca); border-radius: 6px; margin: 20px 0; }

@@ -1,0 +1,15 @@
+-- Per-linje moms-markering på bon_lines (primært event-udgiftslinjer).
+--
+-- Moms-doktrin §6b: bon_lines.unit_price/line_total er INCL moms. Det holder for
+-- alle salgs-/produktionslinjer. MEN event-udgifter er ikke altid incl moms:
+--   • et Grocy-produkt brugt som udgift har kostpris EX moms (Grocy-doktrin)
+--   • en service-fee er momsfri i forvejen
+-- Derfor markeres pr. linje om beløbet er incl eller ex moms, så event-P&L'en
+-- kan konvertere korrekt til ex moms (routes/events.js computeEventExpenses).
+--
+--   moms_included = 1  → beløbet er INCL moms (doktrin-default for alle bon_lines)
+--   moms_included = 0  → beløbet er EX moms (Grocy-udgift, service-fee)
+--
+-- Default 1 bevarer eksisterende adfærd for alle nuværende linjer; kun
+-- udgiftslinjer sætter eksplicit 0 fra generator-modalen.
+ALTER TABLE bon_lines ADD COLUMN moms_included INTEGER NOT NULL DEFAULT 1;
