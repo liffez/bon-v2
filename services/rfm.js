@@ -308,17 +308,16 @@ function computeIcpProfile(source) {
 }
 
 // ─── Prospekt-fit (CRM Prospekter) ──────────────────────────
-// Gradueret ICP-fit for lead-firmaer ud fra tre signaler:
-//   branche-match (vægtet efter VIP-andel), firmastørrelse (blød),
-//   leveringsafstand (fugleflugt fra HQ). Kører server-side så Indsigt
-//   og Prospekter deler kilde. Vægte/filtre konfigureres via settings
-//   (migration 105) — få knapper nu, klar til flere senere.
+// Gradueret ICP-fit for lead-firmaer ud fra to PÅLIDELIGE signaler:
+//   branche-match (vægtet efter VIP-andel) + firmastørrelse (blød).
+// Afstand indgår BEVIDST IKKE i fit-scoren: firma-adressen er ofte
+// hovedkontoret (≠ leveringssted), så HQ-afstand forudsiger ikke
+// prospekt-kvalitet (fx Silvan: HQ i Jylland, leverer i København).
+// distance_km beregnes dog stadig til visning + et opt-in afstands-filter.
+// Kører server-side så Indsigt og Prospekter deler kilde.
 
 const EARTH_KM = 6371;
 const RAD = Math.PI / 180;
-// Reference-afstand: emner inden for så mange km får fuld afstands-score,
-// derover aftager den lineært til 0. Stor-København-skala.
-const DISTANCE_DECAY_KM = 25;
 
 function haversineKm(lat1, lon1, lat2, lon2) {
     const dLat = (lat2 - lat1) * RAD;
@@ -366,7 +365,8 @@ function getProspectFitConfig(db) {
     return {
         w_branch: parseFloat(m.prospect_fit_w_branch) || 50,
         w_size: parseFloat(m.prospect_fit_w_size) || 20,
-        w_distance: parseFloat(m.prospect_fit_w_distance) || 30,
+        // prospect_fit_w_distance er bevidst ikke længere i brug — afstand
+        // indgår ikke i fit-scoren (firma-adresse ≠ leveringssted).
         distance_min_km: parseKm(m.prospect_distance_min_km),
         distance_max_km: parseKm(m.prospect_distance_max_km),
         branch_blacklist: blacklist,
@@ -410,9 +410,11 @@ function getVipReference(db) {
 
 /**
  * Beregn fit-breakdown for ét lead mod VIP-reference + HQ.
- * Hvert signal er enten et tal 0..1 eller null (= mangler → udelades fra
- * vægtningen, så manglende data ikke straffer). Branche er altid til stede
- * (0 = ingen match er informativt). Returnerer { fit, branch, size, distance, distance_km }.
+ * Fit bygger KUN på branche + størrelse. Hvert signal er et tal 0..1 eller
+ * null (= mangler → udelades fra vægtningen, så manglende data ikke straffer).
+ * Branche er altid til stede (0 = ingen match er informativt).
+ * distance_km beregnes til visning/filter men indgår IKKE i fit.
+ * Returnerer { fit, branch, size, distance_km }.
  */
 function scoreProspect(lead, ref, hq, cfg) {
     // Branche: andel hos VIP normaliseret så den hyppigste VIP-branche = 1.0
@@ -428,19 +430,17 @@ function scoreProspect(lead, ref, hq, cfg) {
         size = 1 / (1 + Math.abs(Math.log(ratio)));
     }
 
-    // Afstand: fugleflugt fra HQ, lineært aftagende til DISTANCE_DECAY_KM
-    let distance = null;
+    // Afstand: fugleflugt fra HQ til firma-adressen — KUN til visning/filter.
+    // Indgår bevidst ikke i fit (firma-adresse er ofte hovedkontor, ≠ leveringssted).
     let distance_km = null;
     if (hq && Number.isFinite(lead.lat) && Number.isFinite(lead.lon)) {
-        distance_km = haversineKm(hq.lat, hq.lon, lead.lat, lead.lon);
-        distance = Math.max(0, 1 - distance_km / DISTANCE_DECAY_KM);
+        distance_km = Math.round(haversineKm(hq.lat, hq.lon, lead.lat, lead.lon) * 10) / 10;
     }
 
-    // Vægtet gennemsnit over de signaler der faktisk er til stede
+    // Fit = vægtet gennemsnit af branche + størrelse (renormaliseret)
     const parts = [
         { v: branch, w: cfg.w_branch },
         { v: size, w: cfg.w_size },
-        { v: distance, w: cfg.w_distance },
     ].filter(p => p.v != null && p.w > 0);
 
     const wSum = parts.reduce((a, p) => a + p.w, 0);
@@ -450,8 +450,7 @@ function scoreProspect(lead, ref, hq, cfg) {
         fit,
         branch: Math.round(branch * 100),
         size: size == null ? null : Math.round(size * 100),
-        distance: distance == null ? null : Math.round(distance * 100),
-        distance_km: distance_km == null ? null : Math.round(distance_km * 10) / 10,
+        distance_km,
     };
 }
 
@@ -523,7 +522,7 @@ function computeProspectScores(opts = {}) {
         }
 
         lead.icp_fit = sc.fit;
-        lead.fit_breakdown = { branch: sc.branch, size: sc.size, distance: sc.distance };
+        lead.fit_breakdown = { branch: sc.branch, size: sc.size };
         lead.distance_km = sc.distance_km;
         delete lead.lat;
         delete lead.lon;
@@ -551,7 +550,7 @@ function computeProspectScores(opts = {}) {
             hidden_blacklist: hiddenBlacklist,
             hidden_distance: hiddenDistance,
             hidden_no_coords: hiddenNoCoords,
-            weights: { branch: cfg.w_branch, size: cfg.w_size, distance: cfg.w_distance },
+            weights: { branch: cfg.w_branch, size: cfg.w_size },
             blacklist: cfg.branch_blacklist,
         },
     };

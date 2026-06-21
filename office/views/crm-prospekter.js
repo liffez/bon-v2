@@ -132,8 +132,8 @@ function _prosShellHtml() {
         <h2>Prospekter</h2>
         <div class="pros-toolbar">
             <input type="text" placeholder="Søg..." id="pros-search" oninput="_prosOnSearch(this.value)">
-            <span class="pros-dist" title="Vis kun firmaer i et km-interval fra HQ (fugleflugt). Tomme felter = ingen grænse.">
-                Afstand
+            <span class="pros-dist" title="Filtrér på firma-adressens afstand fra HQ (fugleflugt). OBS: firma-adressen er ofte hovedkontoret, ikke leveringsstedet — tæller ikke i fit-scoren. Tomme felter = ingen grænse.">
+                Firma-afstand
                 <input type="number" min="0" step="1" id="pros-minkm" placeholder="min"
                     onchange="_prosSetDist('min', this.value)">
                 –
@@ -234,11 +234,10 @@ function _prosRender() {
         const cardStyle = isClickable ? ' style="cursor:pointer"' : '';
         const nameTitle = cid ? ' title="Åbn kundeprofil"' : '';
         const distBadge = p.distance_km != null
-            ? `<span class="pros-dist-badge" title="Fugleflugt fra HQ">${String(p.distance_km).replace('.', ',')} km</span>` : '';
+            ? `<span class="pros-dist-badge" title="Afstand til firma-adressen (ofte hovedkontor) — fugleflugt fra HQ. Tæller ikke i fit-scoren.">${String(p.distance_km).replace('.', ',')} km</span>` : '';
         const bd = p.fit_breakdown || {};
         const fitTitle = `Branche ${bd.branch ?? 0}` +
-            (bd.size != null ? ` · Størrelse ${bd.size}` : '') +
-            (bd.distance != null ? ` · Afstand ${bd.distance}` : '');
+            (bd.size != null ? ` · Størrelse ${bd.size}` : '');
         return `
         <div class="pros-card" data-company-id="${p.company_id || 0}" data-customer-id="${cid}" data-name="${_prosAttr(p.name)}"${cardStyle}>
             <div class="pros-info">

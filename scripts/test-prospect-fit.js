@@ -36,7 +36,7 @@ function near(a, b, eps, msg) { assert(Math.abs(a - b) <= eps, `${msg} (≈${b},
 // ─── 1) scoreProspect (ren funktion) ────────────────────────
 console.log('\nscoreProspect — math');
 {
-    const cfg = { w_branch: 50, w_size: 20, w_distance: 30 };
+    const cfg = { w_branch: 50, w_size: 20 };
     const ref = { shares: { A: 0.6, B: 0.2 }, maxShare: 0.6, avgEmployees: 1000 };
     const hq = { lat: 55.6934, lon: 12.5523 };
 
@@ -53,19 +53,18 @@ console.log('\nscoreProspect — math');
     const big = scoreProspect({ branch: 'A', employee_count: 1000 * Math.E, lat: 55.6934, lon: 12.5523 }, ref, hq, cfg);
     assert(big.size === 50, 'faktor e større giver size=50 (1/(1+|ln e|))');
 
-    // Afstand: 0 km → 100, decay-grænse (25 km) → 0, midt → 50
-    assert(a.distance === 100, 'samme position som HQ giver distance=100');
-    // Et punkt ~12,5 km nord for HQ ≈ 0.1125 grader lat
-    const mid = scoreProspect({ branch: 'A', employee_count: 1000, lat: 55.6934 + 12.5 / 111, lon: 12.5523 }, ref, hq, cfg);
-    near(mid.distance, 50, 3, 'punkt 12,5 km væk giver distance≈50');
+    // Afstand beregnes til visning, men indgår IKKE i fit
+    assert(a.distance_km === 0, 'samme position som HQ giver distance_km=0');
+    const far = scoreProspect({ branch: 'A', employee_count: 1000, lat: 55.6934 + 12.5 / 111, lon: 12.5523 }, ref, hq, cfg);
+    near(far.distance_km, 12.5, 0.5, 'punkt ~12,5 km nord giver distance_km≈12,5');
+    assert(far.fit === a.fit, 'afstand påvirker IKKE fit (samme branche+størrelse → samme fit)');
 
     // Manglende signaler renormaliseres (straffer ikke)
     const noGeo = scoreProspect({ branch: 'A', employee_count: 1000 }, ref, hq, cfg);
-    assert(noGeo.distance === null, 'manglende coords → distance=null');
-    // fit over branch(100)+size(100) vægtet 50/20 = 100
-    assert(noGeo.fit === 100, 'manglende afstand renormaliserer (branch+size) → 100');
+    assert(noGeo.distance_km === null, 'manglende coords → distance_km=null');
+    assert(noGeo.fit === 100, 'fit = branche(100)+størrelse(100) → 100');
     const branchOnly = scoreProspect({ branch: 'A' }, ref, hq, cfg);
-    assert(branchOnly.size === null && branchOnly.distance === null, 'kun branche → size+distance null');
+    assert(branchOnly.size === null, 'kun branche → size null');
     assert(branchOnly.fit === 100, 'kun branche-signal → fit fra branche alene');
 
     // Spredning: forskellige inputs giver forskellige fits
@@ -127,12 +126,15 @@ console.log('\ncomputeProspectScores — integration');
 
     assert(res.rows.length === 6, 'alle 6 leads scores uden filtre');
     const fits = res.rows.map(r => r.icp_fit);
-    assert(new Set(fits).size >= 4, `fits spreder sig (ikke flad) — ${fits.length} leads, ${new Set(fits).size} unikke`);
+    assert(new Set(fits).size >= 3, `fits spreder sig (ikke flad) — ${fits.length} leads, ${new Set(fits).size} unikke`);
 
-    assert(byName['Lead Naer Offentlig'].icp_fit > byName['Lead Fjern Offentlig'].icp_fit,
-        'tæt dominant-branche > fjern dominant-branche (afstand tæller)');
+    // Afstand påvirker IKKE fit: tæt og fjern med samme branche+størrelse scorer ens
+    assert(byName['Lead Naer Offentlig'].icp_fit === byName['Lead Fjern Offentlig'].icp_fit,
+        'tæt og fjern (samme branche+størrelse) får samme fit — afstand tæller ikke');
+    assert(byName['Lead Naer Offentlig'].distance_km < byName['Lead Fjern Offentlig'].distance_km,
+        'men distance_km beregnes stadig (tæt < fjern)');
     assert(byName['Lead Naer Offentlig'].icp_fit > byName['Lead Naer Uni'].icp_fit,
-        'tæt dominant-branche > tæt rarere-branche (branche-andel tæller)');
+        'dominant-branche > rarere-branche (branche-andel tæller)');
     assert(byName['Lead Restaurant'].icp_fit === Math.min(...fits),
         'ikke-VIP-branche + lille firma = lavest fit');
 
