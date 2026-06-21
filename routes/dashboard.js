@@ -12,7 +12,7 @@
 const express       = require('express');
 const router        = express.Router();
 const { getDb }     = require('../db/database');
-const { handle, inclToExcl, momsOfIncl, todayISO } = require('../db/helpers');
+const { handle, inclToExcl, momsOfIncl, todayISO, countsAsWorkload, workloadRoleSql } = require('../db/helpers');
 const { requireAuth } = require('../shared/auth');
 const { getShifts } = require('../services/smartplanAdapter');
 
@@ -82,7 +82,7 @@ router.get('/today', handle(async (req, res) => {
     // Totals (inkl. leveret — hele dagen). Produktionsbons (is_internal=1) tælles separat
     // så de ikke inflaterer omsætning/KPI'er, men stadig er synlige i køkkenets dagsoverblik.
     const allBons = db.prepare(`
-        SELECT b.pax, b.total_units, b.total_price
+        SELECT b.pax, b.total_units, b.total_price, b.event_role
         FROM bons b
         JOIN status_definitions sd ON b.status_id = sd.id
         WHERE b.delivery_date = ?
@@ -91,10 +91,13 @@ router.get('/today', handle(async (req, res) => {
           AND COALESCE(b.is_internal, 0) = 0
     `).all(today);
 
+    // total_units = produktions-workload → festival-salg ekskluderes (allerede talt i
+    // prep-bonnen), så "I dag"-tallet matcher kalenderen. total_price (omsætning) tæller
+    // ALT — dér er festival-salget pengene, og prep er produktion (≈0 kr).
     const totals = {
         bon_count:   allBons.length,
-        total_units: allBons.reduce((s, b) => s + (b.total_units > 0 ? b.total_units : (b.pax || 0)), 0),
-        total_pax:   allBons.reduce((s, b) => s + (b.pax || 0), 0),
+        total_units: allBons.reduce((s, b) => s + (countsAsWorkload(b) ? (b.total_units > 0 ? b.total_units : (b.pax || 0)) : 0), 0),
+        total_pax:   allBons.reduce((s, b) => s + (countsAsWorkload(b) ? (b.pax || 0) : 0), 0),
         total_price: allBons.reduce((s, b) => s + (b.total_price || 0), 0),
     };
 
@@ -122,6 +125,7 @@ router.get('/today', handle(async (req, res) => {
         JOIN status_definitions sd ON b.status_id = sd.id
         WHERE b.delivery_date = ?
           AND sd.code NOT IN ('AFLYST')
+          AND ${workloadRoleSql('b.event_role')}
           AND bl.category IS NOT NULL AND bl.category != ''
         GROUP BY bl.category
         ORDER BY bl.category

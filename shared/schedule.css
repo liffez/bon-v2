@@ -94,12 +94,63 @@
 /* ── Grid ───────────────────────────────────────────────── */
 .uge-grid {
   display: grid;
-  grid-template-columns: 84px repeat(7, 1fr);
+  grid-template-columns: 84px repeat(7, 1fr) 86px;
   border: 1px solid var(--color-border);
   border-radius: 8px;
   overflow: hidden;
   background: var(--color-surface, #fff);
+  margin-bottom: 12px;
+}
+
+/* TOTAL-kolonne (yderst til højre) — bevidst dæmpet, stjæler ikke fokus */
+.uge-col-header.total,
+.uge-cell.total {
+  background: var(--color-background);
+  border-left: 2px solid var(--color-border);
+}
+.uge-col-header.total .uge-day-name { color: var(--color-text-dim); }
+.uge-cell.total {
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  text-align: center;
+  gap: 1px;
+}
+.uge-cell.total .uge-total-main {
+  font-size: 16px;
+  font-weight: 700;
+  color: var(--color-text);
+  font-variant-numeric: tabular-nums;
+}
+.uge-cell.total .uge-total-sub {
+  font-size: 10px;
+  color: var(--color-text-dim);
+}
+
+/* Footer-sum under grid'et — diskret enkeltlinje */
+.uge-week-foot {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px 18px;
+  align-items: baseline;
+  padding: 8px 12px;
   margin-bottom: 20px;
+  font-size: 12px;
+  color: var(--color-text-dim);
+  background: var(--color-background);
+  border: 1px solid var(--color-border);
+  border-radius: 8px;
+}
+.uge-week-foot .uge-week-foot-label {
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: .4px;
+  font-size: 11px;
+  color: var(--color-text);
+}
+.uge-week-foot b {
+  color: var(--color-text);
+  font-variant-numeric: tabular-nums;
 }
 
 /* Kolonne-headere */

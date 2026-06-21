@@ -39,6 +39,12 @@ var _plExtraPicker = null; // VarePicker instance
 var _PL_WEEKDAYS = ['Søn','Man','Tir','Ons','Tor','Fre','Lør'];
 var _PL_MONTHS   = ['jan','feb','mar','apr','maj','jun','jul','aug','sep','okt','nov','dec'];
 
+/* Festival-salgsbons (event_role='sales') + udgifter er IKKE produktion — maden er
+   allerede talt i prep-bonnen. Spejler db/helpers.js countsAsWorkload(). */
+function _plCountsAsWorkload(b) {
+    return !b || (b.event_role !== 'sales' && b.event_role !== 'expense');
+}
+
 /* ══════════════════════════════════════════════════════════════
    INIT
    ══════════════════════════════════════════════════════════════ */
@@ -326,7 +332,7 @@ function _plRenderBonList(bons) {
     if (countEl) {
         var totalUnits = 0;
         bons.forEach(function(b) {
-            if (_plSelectedIds.has(b.id)) totalUnits += (b.total_units > 0 ? b.total_units : (b.pax || 0));
+            if (_plSelectedIds.has(b.id) && _plCountsAsWorkload(b)) totalUnits += (b.total_units > 0 ? b.total_units : (b.pax || 0));
         });
         countEl.textContent = bons.length + ' bons · ' + totalUnits + ' enh';
     }
@@ -373,7 +379,7 @@ function _plUpdateCount() {
     if (!countEl) return;
     var totalUnits = 0;
     _plBons.forEach(function(b) {
-        if (_plSelectedIds.has(b.id)) totalUnits += (b.total_units > 0 ? b.total_units : (b.pax || 0));
+        if (_plSelectedIds.has(b.id) && _plCountsAsWorkload(b)) totalUnits += (b.total_units > 0 ? b.total_units : (b.pax || 0));
     });
     var count = 0;
     _plBons.forEach(function(b) { if (_plSelectedIds.has(b.id)) count++; });
@@ -517,6 +523,9 @@ function _plAggregate() {
     _plBons.forEach(function(bon) {
         if (!_plSelectedIds.has(bon.id)) return;
         if (!bon.lines) return;
+        // Festival-salgsbons (event_role='sales') + udgifter er IKKE produktion —
+        // maden er allerede talt i prep-bonnen. Spring dem over i produktions-aggregeringen.
+        if (bon.event_role === 'sales' || bon.event_role === 'expense') return;
         bon.lines.forEach(addLine);
     });
 

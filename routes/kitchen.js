@@ -1,7 +1,7 @@
 const express       = require('express');
 const router        = express.Router();
 const { getDb }     = require('../db/database');
-const { handle, getBonLines, getBonMenuGroups, todayISO, offsetISO } = require('../db/helpers');
+const { handle, getBonLines, getBonMenuGroups, todayISO, offsetISO, countsAsWorkload } = require('../db/helpers');
 // grocyAdapter bruges nu via services/ingredientResolver.js
 // quConvert bruges nu via services/ingredientResolver.js
 
@@ -133,7 +133,7 @@ router.get('/planning', handle((req, res) => {
     const bons = db.prepare(`
         SELECT
             b.id, b.bon_number, b.delivery_date, b.pickup_time, b.delivery_time,
-            b.pax, b.total_units, b.is_offer, b.price_category,
+            b.pax, b.total_units, b.is_offer, b.price_category, b.event_role,
             b.delivery_type, b.delivery_method,
             sd.code  AS status_code,
             sd.label AS status_label,
@@ -259,7 +259,7 @@ router.get('/calendar', handle((req, res) => {
         SELECT
             b.id, b.bon_number, b.delivery_date, b.pickup_time, b.delivery_time,
             b.pax, b.total_units, b.delivery_type, b.payment_type, b.is_offer,
-            b.price_category,
+            b.price_category, b.event_role,
             sd.code  AS status_code,
             sd.label AS status_label,
             sd.color AS status_color,
@@ -288,6 +288,9 @@ router.get('/calendar', handle((req, res) => {
             days[d].totals.offers++;
         } else if (bon.status_code === 'AFLYST') {
             // AFLYST tæller ikke med i workload/pax/units — bon vises stadig i cellen
+        } else if (!countsAsWorkload(bon)) {
+            // Festival-salgsbons (event_role='sales') + udgifter tæller IKKE — maden
+            // er allerede talt i prep-bonnen. Bon vises stadig i cellen (som AFLYST).
         } else {
             const pax   = bon.pax || 0;
             const units = bon.total_units || 0;

@@ -149,7 +149,7 @@ router.get('/', handle((req, res) => {
         SELECT
             b.id, b.bon_number, b.delivery_date, b.delivery_time, b.pickup_time,
             b.courier_arrival_time,
-            b.pax, b.total_units, b.total_price,
+            b.pax, b.total_units, b.total_price, b.event_role,
             b.payment_type, b.delivery_type, b.delivery_method, b.kitchen_selects,
             b.price_category_id,
             pc.code  AS price_category_code,

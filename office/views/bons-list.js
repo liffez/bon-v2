@@ -516,6 +516,9 @@ function _blRenderSummary() {
     for (var i = 0; i < _blBons.length; i++) {
         var b = _blBons[i];
         if (b.is_offer || b.status_code === 'AFLYST') continue;
+        // Festival-salgsbons (event_role='sales') + udgifter tæller ikke som produktion
+        // (allerede talt i prep-bonnen) — undgår dobbelttælling i belastningsoverblikket.
+        if (b.event_role === 'sales' || b.event_role === 'expense') continue;
         var pax = b.pax || 0;
         var units = b.total_units || 0;
         workload += units > 0 ? units : pax;

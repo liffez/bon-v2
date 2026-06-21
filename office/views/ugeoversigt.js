@@ -245,6 +245,7 @@ function _uoRenderGrid() {
 
     var today = _uoToday();
     var days = _uoData.days || [];
+    var totals = _uoData.totals || {};
     var html = '<div class="uge-grid">';
 
     // ── Kolonne-headere ──
@@ -262,6 +263,8 @@ function _uoRenderGrid() {
             '<div class="uge-day-date">' + dateNum + '</div>' +
         '</div>';
     }
+    // TOTAL-kolonne header
+    html += '<div class="uge-col-header total"><div class="uge-day-name">Total</div></div>';
 
     // ── Række 1: Produktion ──
     html += '<div class="uge-row-label"><div class="uge-row-label-text"><span class="uge-row-icon">📋</span> Prod.</div></div>';
@@ -285,6 +288,11 @@ function _uoRenderGrid() {
             '</div>';
         }
     }
+    // TOTAL-celle: produktion
+    html += '<div class="uge-cell total">' +
+        '<div class="uge-total-main">' + (totals.production_units || 0) + '</div>' +
+        '<div class="uge-total-sub">enh · ' + (totals.bon_count || 0) + ' bon.</div>' +
+    '</div>';
 
     // ── Række 2: Personale ──
     html += '<div class="uge-row-label"><div class="uge-row-label-text"><span class="uge-row-icon">👥</span> Pers.</div></div>';
@@ -318,6 +326,11 @@ function _uoRenderGrid() {
             '</div>';
         }
     }
+    // TOTAL-celle: personale
+    html += '<div class="uge-cell total">' +
+        '<div class="uge-total-main">' + (totals.staff_hours || 0) + 't</div>' +
+        '<div class="uge-total-sub">' + (totals.staff_count || 0) + ' vagter</div>' +
+    '</div>';
 
     // ── Række 3: Lager ──
     html += '<div class="uge-row-label" style="border-bottom:none"><div class="uge-row-label-text"><span class="uge-row-icon">📦</span> Lager</div></div>';
@@ -349,8 +362,23 @@ function _uoRenderGrid() {
             '</div>';
         }
     }
+    // TOTAL-celle: lager
+    html += '<div class="uge-cell total" style="border-bottom:none">' +
+        '<div class="uge-total-main">' + (totals.stock_checked || 0) + '/' + (totals.stock_total || 0) + '</div>' +
+        '<div class="uge-total-sub">tjekket</div>' +
+    '</div>';
 
     html += '</div>';
+
+    // ── Footer-sum (diskret) ──
+    html += '<div class="uge-week-foot">' +
+        '<span class="uge-week-foot-label">Uge ' + (_uoData.week_number || '') + ' i alt</span>' +
+        '<span><b>' + (totals.production_units || 0) + '</b> enheder</span>' +
+        '<span><b>' + (totals.bon_count || 0) + '</b> bonner</span>' +
+        '<span><b>' + (totals.staff_hours || 0) + '</b> persontimer</span>' +
+        '<span><b>' + (totals.stock_checked || 0) + '/' + (totals.stock_total || 0) + '</b> lager tjekket</span>' +
+    '</div>';
+
     wrap.innerHTML = html;
 
     // Klik-handlers

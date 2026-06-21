@@ -10,7 +10,7 @@
 const express       = require('express');
 const router        = express.Router();
 const { getDb }     = require('../db/database');
-const { handle, todayISO }    = require('../db/helpers');
+const { handle, todayISO, countsAsWorkload }    = require('../db/helpers');
 const { requireAuth } = require('../shared/auth');
 const { getShifts } = require('../services/smartplanAdapter');
 
@@ -115,7 +115,7 @@ router.get('/week', handle(async (req, res) => {
     }
 
     const bons = db.prepare(`
-        SELECT b.id, b.bon_number, b.total_units, b.pax,
+        SELECT b.id, b.bon_number, b.total_units, b.pax, b.event_role,
                b.pickup_time, b.delivery_time,
                sd.code AS status_code, sd.color AS status_color, sd.label AS status_label,
                COALESCE(co.name, cu.first_name || ' ' || cu.last_name) AS customer_name,
@@ -188,7 +188,12 @@ router.get('/week', handle(async (req, res) => {
                     customer_name: b.customer_name,
                     total_units: b.total_units || 0,
                     pax: b.pax || 0,
-                    workload: (b.total_units && b.total_units > 0) ? b.total_units : (b.pax || 0),
+                    event_role: b.event_role || null,
+                    // Festival-salgsbons + udgifter tæller IKKE som produktion (allerede
+                    // talt i prep-bonnen) — workload=0, men bonnen vises stadig i dagen.
+                    workload: countsAsWorkload(b)
+                        ? ((b.total_units && b.total_units > 0) ? b.total_units : (b.pax || 0))
+                        : 0,
                     pickup_time: b.pickup_time || null,
                     delivery_time: b.delivery_time || null,
                     stock_status: !hasLines ? 'no_lines' : (allLinked ? 'ok' : 'missing'),
@@ -327,12 +332,26 @@ router.get('/week', handle(async (req, res) => {
         };
     });
 
+    // ── Uge-total (sum på tværs af de 7 dage) ──
+    // Produktions-enheder = workload (festival-salg ekskluderet, jf. ovenfor).
+    const weekTotals = days.reduce((acc, d) => {
+        acc.production_units += d.production.total_units || 0;
+        acc.bon_count        += d.production.count || 0;
+        acc.staff_count      += d.staff.count || 0;
+        acc.staff_hours      += d.staff.total_hours || 0;
+        acc.stock_checked    += d.stock.checked || 0;
+        acc.stock_total      += d.stock.total || 0;
+        return acc;
+    }, { production_units: 0, bon_count: 0, staff_count: 0, staff_hours: 0, stock_checked: 0, stock_total: 0 });
+    weekTotals.staff_hours = Math.round(weekTotals.staff_hours * 10) / 10;
+
     res.json({
         week: {
             from,
             to,
             week_number: _getISOWeek(from),
             days,
+            totals: weekTotals,
         },
     });
 }));
