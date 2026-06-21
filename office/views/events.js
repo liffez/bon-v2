@@ -780,7 +780,7 @@ async function _evOpenGenModal(event, role, opts) {
                 <thead><tr><th>Vare</th><th>Antal</th><th>Enhed</th><th>${isProd ? 'Kostpris ex' : (isExpense ? 'Beløb' : 'Pris/stk incl')}</th>${isExpense ? '<th>Moms</th>' : ''}<th>Total</th><th></th></tr></thead>
                 <tbody id="evm-lines"></tbody>
             </table>
-            <button type="button" class="ev-btn ev-btn-small" id="evm-add-line">+ Tom linje</button>
+            <button type="button" class="ev-btn ev-btn-small" id="evm-add-line">+ Fritekst-linje</button>
         </div>
         <label>Note (valgfri)<input type="text" id="evm-note" placeholder="${isProd ? 'Pakke-instrukser, hvilken kasse…' : 'Eventuel reference…'}"></label>
     `, async () => {
