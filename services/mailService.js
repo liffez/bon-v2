@@ -245,7 +245,7 @@ function _clearSentMails() {
 /**
  * Send en mail via SMTP. Gemmer i mail_threads + mail_messages.
  */
-async function sendMail({ to, subject, text, context, bonId = null, customerId = null, purchaseOrderId = null, supplierId = null, inReplyTo = null, references = null, smtpPrefix = 'smtp', userId = null, attachments = [] }) {
+async function sendMail({ to, subject, text, context, bonId = null, customerId = null, purchaseOrderId = null, supplierId = null, inReplyTo = null, references = null, smtpPrefix = 'smtp', userId = null, attachments = [], isSystem = false, threadId = null }) {
     const enabledKey = smtpPrefix === 'smtp_kontakt' ? 'smtp_kontakt_enabled' : 'smtp_enabled';
     if (getSetting(enabledKey) !== '1') {
         throw new Error(`SMTP (${smtpPrefix}) er ikke aktiveret`);
@@ -261,30 +261,32 @@ async function sendMail({ to, subject, text, context, bonId = null, customerId =
 
     const from = getSetting(`${smtpPrefix}_from`) || getSetting(`${smtpPrefix}_user`);
 
-    // Find or create thread
+    // Find or create thread. threadId kan gives eksplicit (svar fra indbakken) så
+    // svaret garanteret havner i DENNE tråd — ikke kundens senest-opdaterede.
     const db = getDb();
-    let threadId;
 
-    if (purchaseOrderId) {
-        const existing = db.prepare(
-            `SELECT id FROM mail_threads WHERE purchase_order_id = ? AND status = 'active' ORDER BY updated_at DESC LIMIT 1`
-        ).get(purchaseOrderId);
-        threadId = existing?.id;
-    } else if (supplierId) {
-        const existing = db.prepare(
-            `SELECT id FROM mail_threads WHERE supplier_id = ? AND purchase_order_id IS NULL AND status = 'active' ORDER BY updated_at DESC LIMIT 1`
-        ).get(supplierId);
-        threadId = existing?.id;
-    } else if (bonId) {
-        const existing = db.prepare(
-            `SELECT id FROM mail_threads WHERE bon_id = ? AND status = 'active' ORDER BY updated_at DESC LIMIT 1`
-        ).get(bonId);
-        threadId = existing?.id;
-    } else if (customerId) {
-        const existing = db.prepare(
-            `SELECT id FROM mail_threads WHERE customer_id = ? AND status = 'active' ORDER BY updated_at DESC LIMIT 1`
-        ).get(customerId);
-        threadId = existing?.id;
+    if (!threadId) {
+        if (purchaseOrderId) {
+            const existing = db.prepare(
+                `SELECT id FROM mail_threads WHERE purchase_order_id = ? AND status = 'active' ORDER BY updated_at DESC LIMIT 1`
+            ).get(purchaseOrderId);
+            threadId = existing?.id;
+        } else if (supplierId) {
+            const existing = db.prepare(
+                `SELECT id FROM mail_threads WHERE supplier_id = ? AND purchase_order_id IS NULL AND status = 'active' ORDER BY updated_at DESC LIMIT 1`
+            ).get(supplierId);
+            threadId = existing?.id;
+        } else if (bonId) {
+            const existing = db.prepare(
+                `SELECT id FROM mail_threads WHERE bon_id = ? AND status = 'active' ORDER BY updated_at DESC LIMIT 1`
+            ).get(bonId);
+            threadId = existing?.id;
+        } else if (customerId) {
+            const existing = db.prepare(
+                `SELECT id FROM mail_threads WHERE customer_id = ? AND status = 'active' ORDER BY updated_at DESC LIMIT 1`
+            ).get(customerId);
+            threadId = existing?.id;
+        }
     }
 
     if (!threadId) {
@@ -351,8 +353,25 @@ async function sendMail({ to, subject, text, context, bonId = null, customerId =
     // Update message with SMTP messageId
     db.prepare(`UPDATE mail_messages SET message_id = ? WHERE id = ?`).run(info.messageId, messageDbId);
 
+    // ── Indbakke-håndtering (CLAUDE_INDBAKKE.md) ──
+    // Kun kunde/bon-tråde har en handling_status; PO/leverandør-tråde røres ikke.
+    // is_system = auto-bekræftelse (booking/web-ordre) → afsluttet (intet svar forventet).
+    // Menneske-svar → afventer_kunde (vi venter nu på kunden).
+    const isCustomerThread = !purchaseOrderId && !supplierId && (bonId || customerId);
+    if (isCustomerThread) {
+        db.prepare(
+            `UPDATE mail_threads SET handling_status = ?, last_outbound_at = datetime('now') WHERE id = ?`
+        ).run(isSystem ? 'afsluttet' : 'afventer_kunde', threadId);
+    }
+    if (isSystem) {
+        db.prepare(`UPDATE mail_messages SET is_system = 1 WHERE id = ?`).run(messageDbId);
+    }
+
     // SSE broadcast
     broadcast('mail_sent', { bon_id: bonId, customer_id: customerId, purchase_order_id: purchaseOrderId, supplier_id: supplierId, thread_id: threadId });
+    if (isCustomerThread) {
+        broadcast('mail_thread_updated', { thread_id: threadId, handling_status: isSystem ? 'afsluttet' : 'afventer_kunde', has_unread: 0 });
+    }
     if (purchaseOrderId) {
         broadcast('po_mail_sent', { purchase_order_id: purchaseOrderId, thread_id: threadId });
     }
@@ -369,7 +388,7 @@ async function sendMail({ to, subject, text, context, bonId = null, customerId =
  * bookingFlow / bookingIntent videregives til renderTemplate så {{booking_link}}
  * kan generere et token bundet til kunde + sælger + flow + intent.
  */
-async function sendFromTemplate({ templateKey, to, vars, bonId = null, customerId = null, purchaseOrderId = null, supplierId = null, context = null, userId = null, attachments = [], smtpPrefix = 'smtp', bookingFlow = 'smagning', bookingIntent = null }) {
+async function sendFromTemplate({ templateKey, to, vars, bonId = null, customerId = null, purchaseOrderId = null, supplierId = null, context = null, userId = null, attachments = [], smtpPrefix = 'smtp', bookingFlow = 'smagning', bookingIntent = null, isSystem = false }) {
     const tmpl = getDb().prepare('SELECT subject, body_text FROM mail_templates WHERE key = ?').get(templateKey);
     if (!tmpl) throw new Error(`Skabelon '${templateKey}' ikke fundet`);
 
@@ -385,7 +404,7 @@ async function sendFromTemplate({ templateKey, to, vars, bonId = null, customerI
     const subject = renderTemplate(tmpl.subject, enrichedVars, { ...renderCtx, appendSignature: false });
     const text    = renderTemplate(tmpl.body_text, enrichedVars, renderCtx);
 
-    return sendMail({ to, subject, text, context, bonId, customerId, purchaseOrderId, supplierId, userId, attachments, smtpPrefix });
+    return sendMail({ to, subject, text, context, bonId, customerId, purchaseOrderId, supplierId, userId, attachments, smtpPrefix, isSystem });
 }
 
 // ─── IMAP ───────────────────────────────────────────────
@@ -502,6 +521,21 @@ function matchBonByTagNumber(db, num, opts = {}) {
         console.warn(`[mail] flertydigt bon-tag #${num}: ${exact.map(e => e.bon_number).join(', ')} — vælger nyeste (${exact[0].bon_number})`);
     }
     return exact[0];
+}
+
+// Slå kunde op via afsender-email — contact_points (autoritativ) + customers.email
+// (cache). Bruges til at route mail fra en KENDT kunde uden emne-tag direkte ind i
+// en tråd (CLAUDE_INDBAKKE.md §4 pkt. 3) i stedet for den ufordelte indbakke.
+function findCustomerByEmail(db, email) {
+    if (!email) return null;
+    const e = email.toLowerCase();
+    const cp = db.prepare(
+        `SELECT cp.entity_id AS id FROM contact_points cp
+         WHERE cp.entity_type = 'customer' AND cp.kind = 'email' AND LOWER(cp.value) = ? LIMIT 1`
+    ).get(e);
+    if (cp) return { id: cp.id };
+    const c = db.prepare(`SELECT id FROM customers WHERE LOWER(email) = ? LIMIT 1`).get(e);
+    return c ? { id: c.id } : null;
 }
 
 async function processInboundMail(parsed, uid, mailbox) {
@@ -621,7 +655,28 @@ async function processInboundMail(parsed, uid, mailbox) {
         }
     }
 
-    // 3. Unmatched — no thread, no tag
+    // 3a. Kendt kunde uden tag → tråd (CLAUDE_INDBAKKE.md §4 pkt. 3). Spam/auto-ignore
+    //     og bounces (ukendt afsender) falder igennem til mail_unmatched nedenfor.
+    if (!threadId && !shouldAutoIgnore(fromAddr, subject)) {
+        const cust = findCustomerByEmail(db, fromAddr);
+        if (cust) {
+            customerId = cust.id;
+            const existing = db.prepare(
+                `SELECT id FROM mail_threads WHERE customer_id = ? AND status = 'active' ORDER BY updated_at DESC LIMIT 1`
+            ).get(customerId);
+            if (existing) {
+                threadId = existing.id;
+                db.prepare(`UPDATE mail_threads SET updated_at = datetime('now') WHERE id = ?`).run(threadId);
+            } else {
+                threadId = db.prepare(
+                    `INSERT INTO mail_threads (customer_id, subject, status, handling_status, created_at, updated_at)
+                     VALUES (?, ?, 'active', 'aaben', datetime('now'), datetime('now'))`
+                ).run(customerId, subject).lastInsertRowid;
+            }
+        }
+    }
+
+    // 3b. Unmatched — no thread, no tag, ukendt afsender
     if (!threadId) {
         const forwardInfo = parseForwardedSender(bodyText);
         const autoIgnore = shouldAutoIgnore(fromAddr, subject);
@@ -665,6 +720,20 @@ async function processInboundMail(parsed, uid, mailbox) {
          VALUES (?, 'in', ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 0, ?, datetime('now'))`
     ).run(threadId, fromAddr, fromName, toAddr, subject, bodyText, bodyHtml, messageId, inReplyTo, uid, mailbox, receivedAt);
     const messageDbId = msgIns.lastInsertRowid;
+
+    // ── Auto-genåbning (CLAUDE_INDBAKKE.md §3) ──
+    // Inbound på en kunde/bon-tråd → 'aaben', ryd snooze, markér ulæst. Fanger
+    // "det uforudsete": en afsluttet/snoozet tråd popper tilbage i Åbne. PO/leverandør
+    // røres ikke (de har handling_status = NULL og egen status-håndtering).
+    if (!purchaseOrderId && !supplierId && (bonId || customerId)) {
+        db.prepare(
+            `UPDATE mail_threads
+                SET handling_status = 'aaben', snooze_until = NULL, has_unread = 1,
+                    last_inbound_at = ?, status = 'active'
+              WHERE id = ?`
+        ).run(receivedAt, threadId);
+        broadcast('mail_thread_updated', { thread_id: threadId, handling_status: 'aaben', has_unread: 1 });
+    }
 
     // Save attachments
     if (attachments.length > 0) {
@@ -898,6 +967,8 @@ module.exports = {
     renderTemplate,
     generateBookingToken,
     getPollState,
+    processInboundMail,
+    findCustomerByEmail,
     // Test-mode-guard (kun til runner-brug)
     _setMockTransport,
     _clearMockTransport,

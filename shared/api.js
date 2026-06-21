@@ -971,6 +971,46 @@ function replyToUnmatchedMail(id, data) {
     });
 }
 
+/* ── SAMLET INDBAKKE (mail_threads) ─────────────────────── */
+
+// Liste over kunde/bon-tråde med handling_status. status: aabne|udsat|kunde|luk|mine|ikke_knyttet|alle
+function fetchMailThreads(params) {
+    var qs = params ? '?' + new URLSearchParams(params).toString() : '';
+    return apiFetch('/mail/threads' + qs);
+}
+
+function fetchMailThread(id) {
+    return apiFetch('/mail/threads/' + id);
+}
+
+function fetchMailThreadCounts() {
+    return apiFetch('/mail/threads/counts');
+}
+
+// Svar på en tråd. data: { body, remind_days? }
+function replyMailThread(id, data) {
+    return apiFetch('/mail/threads/' + id + '/reply', {
+        method: 'POST',
+        body: JSON.stringify(data),
+    });
+}
+
+// Opdatér tråd. data: { handling_status?, snooze_days?, snooze_until?, assigned_to? }
+function patchMailThread(id, data) {
+    return apiFetch('/mail/threads/' + id, {
+        method: 'PATCH',
+        body: JSON.stringify(data),
+    });
+}
+
+// Prefill til bon-draweren (+ valgfri knytning via { bon_id })
+function mailThreadCreateBon(id, data) {
+    return apiFetch('/mail/threads/' + id + '/create-bon', {
+        method: 'POST',
+        body: JSON.stringify(data || {}),
+    });
+}
+
 /* ── TILBUD ─────────────────────────────────────────────── */
 
 function fetchQuotes(params) {

@@ -288,6 +288,8 @@
                     mail_received: function(d) { _mDispatchSSE('mail_received', d); },
                     // Ufordelt kontakt@-post (intet tag matchede) → opdater "Nyt".
                     mail_unmatched: function(d) { _mDispatchSSE('mail_unmatched', d); },
+                    // Indbakke-tråd skiftede handling_status/snooze (CRM-fanen).
+                    mail_thread_updated: function(d) { _mDispatchSSE('mail_thread_updated', d); },
                 });
             } catch (e) { /* lydløst — SSE er nice-to-have på mobil */ }
         }

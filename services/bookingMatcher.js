@@ -435,7 +435,8 @@ async function sendInternalNotification({ ownerId, flow, customerId, meetingType
             to: owner.email,
             vars,
             customerId,
-            smtpPrefix: 'smtp_kontakt'
+            smtpPrefix: 'smtp_kontakt',
+            isSystem: true   // intern notif → rør ikke kundens handling_status
         });
         console.log(`[booking] Intern notif sendt til ${owner.email} (owner #${ownerId})`);
     } catch (err) {

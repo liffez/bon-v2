@@ -359,7 +359,8 @@ async function handleWebOrder(data) {
         adresseBlok,
         oenskerBlok
       },
-      bonId
+      bonId,
+      isSystem: true   // auto-bekræftelse → afsluttet, ikke "afventer kunde"
     }).then(() => {
       console.log(`[web-order] Bekræftelsesmail sendt til ${data.email.trim()} for bon #${bonNumber}`);
     }).catch(mailErr => {
@@ -393,7 +394,8 @@ async function handleWebOrder(data) {
         oenskerBlok: ownerOenskerBlok,
         drawerLink
       },
-      bonId
+      bonId,
+      isSystem: true   // intern auto-notifikation → ikke "afventer kunde"
     }).then(() => {
       console.log(`[web-order] Ejer-notifikation sendt til ${ownerEmail} for bon #${bonNumber}`);
     }).catch(mailErr => {

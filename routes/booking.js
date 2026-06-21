@@ -552,7 +552,8 @@ async function sendBookingMails({ flow, customerEmail, customerId, ownerId, meet
                     customerId,
                     userId: ownerId,
                     context: { type: 'customer', number: customerId },
-                    smtpPrefix: 'smtp_kontakt'
+                    smtpPrefix: 'smtp_kontakt',
+                    isSystem: true
                 });
                 console.log(`[booking-smagning] Bekræftelse sendt til ${customerEmail}`);
             } else if (flow === 'kontakt') {
@@ -564,7 +565,8 @@ async function sendBookingMails({ flow, customerEmail, customerId, ownerId, meet
                     customerId,
                     userId: ownerId,
                     context: { type: 'customer', number: customerId },
-                    smtpPrefix: 'smtp_kontakt'
+                    smtpPrefix: 'smtp_kontakt',
+                    isSystem: true
                 });
                 console.log(`[booking-kontakt] Bekræftelse sendt til ${customerEmail}`);
             }

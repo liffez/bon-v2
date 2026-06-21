@@ -159,6 +159,306 @@ router.post('/test', requireAuth('admin'), handle(async (req, res) => {
     }
 }));
 
+/* ── SAMLET INDBAKKE (mail_threads) ───────────────────────── */
+// CLAUDE_INDBAKKE.md. Kunde/bon-tråde med handling_status (aaben/afventer_kunde/
+// afsluttet) + snooze. PO/leverandør-tråde (handling_status IS NULL) lækker aldrig
+// ind her. Identitet altid fra session. requireAuth() (ikke admin) så office + mobil
+// CRM begge kan bruge indbakken — samme præcedens som PATCH /message/:id/read.
+
+function _initials(name) {
+    if (!name) return '?';
+    const p = String(name).trim().split(/\s+/).filter(Boolean);
+    const s = (p[0]?.[0] || '') + (p.length > 1 ? (p[p.length - 1][0] || '') : '');
+    return s.toUpperCase() || '?';
+}
+
+// Byg list-rækken: afsender-visning, kilde (bon@/kontakt@), sendt-stempel, link, assignee.
+function formatThreadRow(db, t) {
+    const ent = threadEntity(db, t);
+    const latest = db.prepare(
+        `SELECT from_email, from_name, subject, mailbox, COALESCE(received_at, sent_at, created_at) AS at
+         FROM mail_messages WHERE thread_id = ? ORDER BY id DESC LIMIT 1`
+    ).get(t.id) || {};
+    const lastOut = db.prepare(
+        `SELECT u.name AS user_name FROM mail_messages mm LEFT JOIN users u ON u.id = mm.created_by_user_id
+         WHERE mm.thread_id = ? AND mm.direction = 'out' ORDER BY mm.id DESC LIMIT 1`
+    ).get(t.id);
+    const mailbox = latest.mailbox || '';
+    const src = mailbox.toLowerCase().includes('kontakt') ? 'kontakt' : 'bon';
+    const from = (ent.type !== 'none') ? ent.label : (latest.from_name || latest.from_email || '(ukendt afsender)');
+    let assignee = null;
+    if (t.assigned_to) {
+        const u = db.prepare('SELECT name FROM users WHERE id = ?').get(t.assigned_to);
+        if (u) assignee = { id: t.assigned_to, name: u.name, initials: _initials(u.name) };
+    }
+    return {
+        id: t.id,
+        subject: t.subject || latest.subject || '(uden emne)',
+        from,
+        email: ent.email || latest.from_email || null,
+        src,
+        handling_status: t.handling_status,
+        snoozed: !!t.snoozed,
+        snooze_until: t.snooze_until || null,
+        has_unread: !!t.has_unread,
+        last_inbound_at: t.last_inbound_at || null,
+        last_outbound_at: t.last_outbound_at || null,
+        last_outbound_by: lastOut ? (lastOut.user_name || null) : null,
+        time: t.last_inbound_at || t.last_outbound_at || latest.at || null,
+        link: ent.type === 'none' ? null : { type: ent.type, id: ent.id, label: ent.label },
+        assignee
+    };
+}
+
+const SNOOZED_SQL = "(mt.snooze_until IS NOT NULL AND mt.snooze_until > datetime('now'))";
+
+// GET /api/mail/threads?status=&mailbox=&q=&limit=
+router.get('/threads', requireAuth(), handle((req, res) => {
+    const db = getDb();
+    const status = req.query.status || 'aabne';
+    const mailbox = req.query.mailbox;     // 'bon' | 'kontakt'
+    const q = (req.query.q || '').trim();
+    const limit = Math.min(parseInt(req.query.limit) || 200, 500);
+
+    const where = ['mt.handling_status IS NOT NULL'];
+    const args = [];
+
+    if (q) {
+        const like = '%' + q + '%';
+        where.push(`(mt.subject LIKE ? OR EXISTS (SELECT 1 FROM mail_messages mm
+                     WHERE mm.thread_id = mt.id AND (mm.body_text LIKE ? OR mm.from_email LIKE ? OR mm.from_name LIKE ?)))`);
+        args.push(like, like, like, like);
+    } else {
+        if (status === 'aabne')         where.push(`mt.handling_status = 'aaben' AND NOT ${SNOOZED_SQL}`);
+        else if (status === 'udsat')    where.push(SNOOZED_SQL);
+        else if (status === 'kunde')    where.push(`mt.handling_status = 'afventer_kunde' AND NOT ${SNOOZED_SQL}`);
+        else if (status === 'luk')      where.push(`mt.handling_status = 'afsluttet'`);
+        else if (status === 'ikke_knyttet') where.push(`mt.bon_id IS NULL AND mt.customer_id IS NULL AND NOT ${SNOOZED_SQL}`);
+        else if (status === 'mine')   { where.push(`mt.handling_status = 'aaben' AND mt.assigned_to = ? AND NOT ${SNOOZED_SQL}`); args.push(getUserId(req)); }
+        // 'alle' → ingen ekstra
+    }
+    if (mailbox) {
+        where.push(`EXISTS (SELECT 1 FROM mail_messages mm WHERE mm.thread_id = mt.id AND mm.mailbox LIKE ?)`);
+        args.push('%' + mailbox + '%');
+    }
+
+    const rows = db.prepare(`
+        SELECT mt.*, ${SNOOZED_SQL} AS snoozed
+        FROM mail_threads mt
+        WHERE ${where.join(' AND ')}
+        ORDER BY COALESCE(mt.last_inbound_at, mt.last_outbound_at, mt.updated_at) DESC
+        LIMIT ?
+    `).all(...args, limit);
+
+    res.json(rows.map(t => formatThreadRow(db, t)));
+}));
+
+// GET /api/mail/threads/count?scope=open — badge-tal (åbne, ikke-snoozede)
+router.get('/threads/count', requireAuth(), handle((req, res) => {
+    const db = getDb();
+    const row = db.prepare(
+        `SELECT COUNT(*) AS c FROM mail_threads mt
+         WHERE mt.handling_status = 'aaben' AND NOT ${SNOOZED_SQL}`
+    ).get();
+    res.json({ count: row?.c || 0 });
+}));
+
+// GET /api/mail/threads/counts — tal til alle filter-chips (inkl. ufordelt)
+router.get('/threads/counts', requireAuth(), handle((req, res) => {
+    const db = getDb();
+    const row = db.prepare(`
+        SELECT
+          SUM(CASE WHEN handling_status = 'aaben'         AND NOT ${SNOOZED_SQL} THEN 1 ELSE 0 END) AS aabne,
+          SUM(CASE WHEN ${SNOOZED_SQL}                                          THEN 1 ELSE 0 END) AS udsat,
+          SUM(CASE WHEN handling_status = 'afventer_kunde' AND NOT ${SNOOZED_SQL} THEN 1 ELSE 0 END) AS kunde,
+          SUM(CASE WHEN handling_status = 'afsluttet'                           THEN 1 ELSE 0 END) AS luk,
+          COUNT(*)                                                                                  AS alle
+        FROM mail_threads mt WHERE mt.handling_status IS NOT NULL
+    `).get();
+    const um = db.prepare(`SELECT COUNT(*) AS c FROM mail_unmatched WHERE status = 'open'`).get();
+    res.json({
+        aabne: row.aabne || 0, udsat: row.udsat || 0, kunde: row.kunde || 0,
+        luk: row.luk || 0, alle: row.alle || 0, ufordelt: um.c || 0,
+    });
+}));
+
+// GET /api/mail/threads/:id — tråd + beskeder. Markerer inbound læst.
+router.get('/threads/:id', requireAuth(), handle((req, res) => {
+    const id = parseInt(req.params.id);
+    const db = getDb();
+    const t = db.prepare(`SELECT mt.*, ${SNOOZED_SQL} AS snoozed FROM mail_threads mt WHERE mt.id = ?`).get(id);
+    if (!t || t.handling_status == null) return res.status(404).json({ error: 'Tråd ikke fundet' });
+
+    const messages = db.prepare(`
+        SELECT id, direction, is_system, from_email, from_name, to_email, subject,
+               body_text, body_html, has_attachments, mailbox,
+               COALESCE(received_at, sent_at, created_at) AS at, created_by_user_id
+        FROM mail_messages WHERE thread_id = ? ORDER BY COALESCE(received_at, sent_at, created_at), id
+    `).all(id);
+    const attStmt = db.prepare(
+        `SELECT id, filename, mime_type, size_bytes, content_id, is_inline
+         FROM mail_attachments WHERE message_id = ? ORDER BY id`
+    );
+    const userStmt = db.prepare('SELECT name FROM users WHERE id = ?');
+    for (const m of messages) {
+        m.attachments = m.has_attachments ? attStmt.all(m.id) : [];
+        m.sent_by = m.created_by_user_id ? (userStmt.get(m.created_by_user_id)?.name || null) : null;
+    }
+
+    // Markér inbound læst (åbning = læst, men IKKE håndteret)
+    const upd = db.prepare(`UPDATE mail_messages SET is_read = 1 WHERE thread_id = ? AND direction = 'in' AND is_read = 0`).run(id);
+    if (upd.changes > 0 || t.has_unread) {
+        db.prepare(`UPDATE mail_threads SET has_unread = 0 WHERE id = ?`).run(id);
+        broadcast('mail_thread_updated', { thread_id: id, handling_status: t.handling_status, has_unread: 0 });
+        broadcast('mail_read', { thread_id: id, bon_id: t.bon_id, customer_id: t.customer_id });
+    }
+
+    res.json({ thread: formatThreadRow(db, { ...t, has_unread: 0 }), messages });
+}));
+
+// Byg reply-context (tag) for en tråd
+function threadReplyContext(db, t) {
+    if (t.bon_id) {
+        const b = db.prepare('SELECT bon_number FROM bons WHERE id = ?').get(t.bon_id);
+        const num = b ? parseInt(String(b.bon_number).replace(/\D/g, '')) : null;
+        return num ? { type: 'bon', number: num } : null;
+    }
+    if (t.customer_id) return { type: 'customer', number: t.customer_id };
+    return null;
+}
+
+// POST /api/mail/threads/:id/reply { body, remind_days? }
+router.post('/threads/:id/reply', requireAuth(), handle(async (req, res) => {
+    const id = parseInt(req.params.id);
+    const { body, remind_days } = req.body || {};
+    if (!body || !String(body).trim()) return res.status(400).json({ error: 'body er påkrævet' });
+
+    const db = getDb();
+    const userId = getUserId(req);
+    const t = db.prepare('SELECT * FROM mail_threads WHERE id = ?').get(id);
+    if (!t || t.handling_status == null) return res.status(404).json({ error: 'Tråd ikke fundet' });
+
+    // Modtager: seneste indgående afsender, ellers entitetens email
+    const ent = threadEntity(db, t);
+    const latestIn = db.prepare(
+        `SELECT from_email, mailbox FROM mail_messages WHERE thread_id = ? AND direction = 'in' AND from_email IS NOT NULL ORDER BY id DESC LIMIT 1`
+    ).get(id);
+    const to = (latestIn && latestIn.from_email) || ent.email;
+    if (!to) return res.status(400).json({ error: 'Kan ikke finde en modtager-adresse for tråden' });
+
+    const lastMailbox = db.prepare(`SELECT mailbox FROM mail_messages WHERE thread_id = ? AND mailbox IS NOT NULL ORDER BY id DESC LIMIT 1`).get(id);
+    const smtpPrefix = (lastMailbox && String(lastMailbox.mailbox).toLowerCase().includes('kontakt')) ? 'smtp_kontakt' : 'smtp';
+
+    const result = await sendMail({
+        to,
+        subject: 'Re: ' + (t.subject || ''),
+        text: body,
+        context: threadReplyContext(db, t),
+        bonId: t.bon_id || null,
+        customerId: t.customer_id || null,
+        threadId: id,            // svar går garanteret til DENNE tråd
+        smtpPrefix,
+        userId,
+    });
+
+    // sendMail har sat afventer_kunde for kunde/bon-tråde. Sæt snooze + (for NULL-tråde)
+    // også handling_status eksplicit, så svar-flowet er ensartet uanset entitet.
+    const remindDays = parseInt(remind_days);
+    const setSnooze = Number.isInteger(remindDays) && remindDays > 0;
+    db.prepare(`
+        UPDATE mail_threads
+           SET handling_status = 'afventer_kunde',
+               snooze_until = ${setSnooze ? `datetime('now', '+' || ? || ' days')` : 'NULL'}
+         WHERE id = ?
+    `).run(...(setSnooze ? [remindDays, id] : [id]));
+
+    broadcast('mail_thread_updated', { thread_id: id, handling_status: 'afventer_kunde', has_unread: 0 });
+    res.json({ ok: true, thread_id: id, message_id: result.messageId, snoozed: setSnooze });
+}));
+
+// PATCH /api/mail/threads/:id { handling_status?, snooze_days?, snooze_until?, assigned_to? }
+router.patch('/threads/:id', requireAuth(), handle((req, res) => {
+    const id = parseInt(req.params.id);
+    const db = getDb();
+    const t = db.prepare('SELECT * FROM mail_threads WHERE id = ?').get(id);
+    if (!t || t.handling_status == null) return res.status(404).json({ error: 'Tråd ikke fundet' });
+
+    const { handling_status, snooze_days, snooze_until, assigned_to } = req.body || {};
+    const sets = [];
+    const args = [];
+
+    if (handling_status !== undefined) {
+        if (!['aaben', 'afventer_kunde', 'afsluttet'].includes(handling_status)) {
+            return res.status(400).json({ error: 'Ugyldig handling_status' });
+        }
+        sets.push('handling_status = ?'); args.push(handling_status);
+        // Afslut rydder snooze; genåbning rydder også snooze
+        if (handling_status === 'afsluttet' || handling_status === 'aaben') {
+            sets.push('snooze_until = NULL');
+        }
+    }
+    if (snooze_days !== undefined) {
+        const d = parseInt(snooze_days);
+        if (!Number.isInteger(d) || d <= 0) return res.status(400).json({ error: 'snooze_days skal være > 0' });
+        sets.push(`snooze_until = datetime('now', '+' || ? || ' days')`); args.push(d);
+    } else if (snooze_until !== undefined) {
+        sets.push('snooze_until = ?'); args.push(snooze_until || null);
+    }
+    if (assigned_to !== undefined) { sets.push('assigned_to = ?'); args.push(assigned_to || null); }
+
+    if (!sets.length) return res.json({ ok: true });
+
+    sets.push(`updated_at = datetime('now')`);
+    db.prepare(`UPDATE mail_threads SET ${sets.join(', ')} WHERE id = ?`).run(...args, id);
+
+    const updated = db.prepare(`SELECT mt.*, ${SNOOZED_SQL} AS snoozed FROM mail_threads mt WHERE mt.id = ?`).get(id);
+    broadcast('mail_thread_updated', { thread_id: id, handling_status: updated.handling_status, has_unread: !!updated.has_unread });
+    res.json({ ok: true, thread: formatThreadRow(db, updated) });
+}));
+
+// POST /api/mail/threads/:id/create-bon — prefill til bon-draweren (+ valgfri knytning)
+router.post('/threads/:id/create-bon', requireAuth(), handle((req, res) => {
+    const id = parseInt(req.params.id);
+    const db = getDb();
+    const t = db.prepare('SELECT * FROM mail_threads WHERE id = ?').get(id);
+    if (!t || t.handling_status == null) return res.status(404).json({ error: 'Tråd ikke fundet' });
+
+    // Valgfri knytning: når draweren har gemt bonen sender den bon_id retur
+    if (req.body && req.body.bon_id) {
+        const bonId = parseInt(req.body.bon_id);
+        const bon = db.prepare('SELECT id FROM bons WHERE id = ?').get(bonId);
+        if (bon) {
+            db.prepare(`UPDATE mail_threads SET bon_id = ?, updated_at = datetime('now') WHERE id = ?`).run(bonId, id);
+            broadcast('mail_thread_updated', { thread_id: id, handling_status: t.handling_status, has_unread: !!t.has_unread });
+            return res.json({ ok: true, linked: true, bon_id: bonId });
+        }
+    }
+
+    // Prefill: kendt kunde (+ firma) ellers seneste indgående afsender
+    let prefill = { customer_id: null, company_id: null, name: null, email: null };
+    if (t.customer_id) {
+        const c = db.prepare(`
+            SELECT c.id, c.first_name, c.last_name, c.email, c.company_id, co.name AS company_name
+            FROM customers c LEFT JOIN companies co ON co.id = c.company_id WHERE c.id = ?
+        `).get(t.customer_id);
+        if (c) prefill = {
+            customer_id: c.id, company_id: c.company_id || null,
+            name: [c.first_name, c.last_name].filter(Boolean).join(' ').trim(), email: c.email || null,
+            company_name: c.company_name || null,
+        };
+    } else {
+        const latestIn = db.prepare(
+            `SELECT from_email, from_name FROM mail_messages WHERE thread_id = ? AND direction = 'in' ORDER BY id DESC LIMIT 1`
+        ).get(id);
+        if (latestIn) {
+            const c = latestIn.from_email ? lookupCustomerByEmail(db, latestIn.from_email) : null;
+            if (c) prefill = { customer_id: c.customer_id, company_id: null, name: [c.first_name, c.last_name].filter(Boolean).join(' ').trim(), email: c.email };
+            else prefill = { customer_id: null, company_id: null, name: latestIn.from_name || null, email: latestIn.from_email || null };
+        }
+    }
+    res.json({ ok: true, prefill });
+}));
+
 /* ── UFORDELT INDBAKKE ────────────────────────────────────── */
 
 // ─── BOUNCE-DETECTION HELPERS ─────────────────────────────
