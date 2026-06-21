@@ -2215,6 +2215,8 @@ async function resetFieldMap() {
 function loadSystemSection() {
   var fields = [
     { key: 'company_name',               label: 'Firmanavn',                    type: 'text' },
+    { key: 'company_phone',              label: 'Firmatelefon',                 type: 'text',  placeholder: 'fx +45 50 50 50 50', width: 220 },
+    { key: 'company_email',              label: 'Firma-email',                  type: 'email', placeholder: 'fx kontakt@ristetrug.dk', width: 280 },
     { key: 'bon_number_prefix',          label: 'Bon-nummer pr\u00e6fiks',      type: 'text' },
     { key: 'bon_number_next',            label: 'N\u00e6ste bon-nummer',        type: 'number' },
     { key: 'default_pax_per_box',        label: 'Pax per kasse',                type: 'number' },
