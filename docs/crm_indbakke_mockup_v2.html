@@ -1,0 +1,482 @@
+<!DOCTYPE html>
+<html lang="da">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Bon v2 — Indbakke (mockup v2)</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Lato:ital,wght@0,400;0,700;0,900;1,400&family=Playfair+Display:wght@600;700&display=swap" rel="stylesheet">
+<style>
+:root{
+  --brown:#8e631f; --brown-dark:#6b4a17;
+  --sidebar:#574330; --sidebar-dark:#4a3829; --sidebar-active:#3d2f22;
+  --yellow:#f1e6b2; --yellow-light:#f7f2d9; --yellow-pale:#fdfbf3;
+  --blue:#7594b3; --blue-light:#e8f0f6;
+  --green:#a5bf75; --green-dark:#7a9c54; --green-light:#e8f2dc;
+  --red:#bc181b; --red-light:#fde8e8;
+  --orange:#e8a832; --orange-light:#fef3d6;
+  --purple:#9b59b6; --purple-light:#f3e8f7;
+  --gray:#d7d1ca; --gray-light:#f5f4f2; --gray-medium:#b5afa8; --gray-dark:#8a8580;
+  --white:#fff; --black:#333; --ink:#2c2620;
+}
+*{box-sizing:border-box;margin:0;padding:0}
+body{font-family:'Lato',sans-serif;background:#ece7df;color:var(--black);padding:20px;line-height:1.45}
+.wrap{max-width:1480px;margin:0 auto}
+.legend{background:var(--white);border:1px solid var(--gray);border-radius:12px;padding:14px 18px;margin-bottom:18px;font-size:13px;color:#555}
+.legend b{color:var(--ink)}
+.legend .row{display:flex;gap:24px;flex-wrap:wrap;align-items:center;margin-top:8px}
+.toggle{display:inline-flex;align-items:center;gap:8px;cursor:pointer;user-select:none}
+.toggle input{display:none}
+.switch{width:38px;height:22px;background:var(--gray);border-radius:99px;position:relative;transition:.2s}
+.switch::after{content:"";position:absolute;width:18px;height:18px;border-radius:50%;background:#fff;top:2px;left:2px;transition:.2s}
+.toggle input:checked + .switch{background:var(--green-dark)}
+.toggle input:checked + .switch::after{left:18px}
+.fab-note{font-size:11px;color:#8a7a60}
+
+.app{display:flex;background:var(--white);border-radius:16px;overflow:hidden;box-shadow:0 10px 40px rgba(60,40,20,.12);min-height:760px;border:1px solid #ddd5ca}
+.side{width:188px;background:linear-gradient(180deg,var(--sidebar),var(--sidebar-dark));color:#e9ddca;flex-shrink:0;padding:14px 0}
+.brand{display:flex;align-items:center;gap:8px;padding:4px 16px 2px}
+.brand .name{font-family:'Playfair Display',serif;font-weight:700;font-size:17px;color:#f3e9d6}
+.brand-sub{font-size:9px;letter-spacing:.5px;color:#b9a884;padding:0 16px 12px;display:flex;align-items:center;gap:8px}
+.kbtn{background:rgba(255,255,255,.12);border:none;color:#f0e6d2;font-size:9px;font-weight:700;padding:3px 7px;border-radius:6px;letter-spacing:.5px}
+.navgrp{font-size:9px;letter-spacing:1px;color:#a08f6e;padding:14px 16px 4px;font-weight:700}
+.nav{display:flex;align-items:center;gap:9px;padding:7px 16px;font-size:13.5px;color:#ddceb4;cursor:pointer;position:relative}
+.nav .ic{width:17px;text-align:center;font-size:14px}
+.nav:hover{background:rgba(0,0,0,.12)}
+.nav.active{background:var(--sidebar-active);color:#fff;font-weight:700}
+.nav.active::before{content:"";position:absolute;left:0;top:0;bottom:0;width:3px;background:var(--orange)}
+.badge{margin-left:auto;background:var(--red);color:#fff;font-size:10px;font-weight:700;border-radius:99px;padding:1px 6px;min-width:18px;text-align:center}
+.badge.amber{background:var(--orange)}
+
+.main{flex:1;display:flex;flex-direction:column;min-width:0}
+.topbar{display:flex;align-items:center;gap:8px;padding:14px 22px;border-bottom:1px solid var(--gray-light);flex-wrap:wrap}
+.pagetitle{font-family:'Playfair Display',serif;font-weight:700;font-size:21px;color:var(--ink);margin-right:14px}
+.pill{background:var(--gray-light);border:none;border-radius:99px;padding:7px 15px;font-size:13px;font-weight:700;color:#6b6258;cursor:pointer;font-family:inherit}
+.pill.active{background:var(--brown);color:#fff}
+.pill .pb{background:var(--red);color:#fff;font-size:10px;border-radius:99px;padding:0 6px;margin-left:5px}
+
+.inbox{flex:1;display:flex;min-height:0}
+.filters{padding:14px 18px 6px;display:flex;gap:8px;flex-wrap:wrap;align-items:center;border-bottom:1px solid var(--gray-light)}
+.chip{border:1px solid var(--gray);background:#fff;border-radius:99px;padding:6px 13px;font-size:12.5px;font-weight:700;color:#6b6258;cursor:pointer;display:inline-flex;align-items:center;gap:6px;font-family:inherit}
+.chip.on{background:var(--ink);color:#fff;border-color:var(--ink)}
+.chip .cnt{background:rgba(0,0,0,.12);border-radius:99px;padding:0 6px;font-size:11px}
+.chip.on .cnt{background:rgba(255,255,255,.25)}
+.chip.src{font-weight:400}
+.chip.src.on{background:var(--brown);border-color:var(--brown);color:#fff}
+.spacer{flex:1}
+.search{border:1px solid var(--gray);border-radius:99px;padding:6px 12px;font-size:13px;width:210px;font-family:inherit}
+.chip.mine{display:none}
+body.multiuser .chip.mine{display:inline-flex}
+
+.panes{flex:1;display:flex;min-height:0}
+.list{width:392px;border-right:1px solid var(--gray-light);overflow-y:auto;flex-shrink:0}
+.list-head{padding:10px 18px;font-size:11px;letter-spacing:.5px;color:var(--gray-dark);font-weight:700;text-transform:uppercase;position:sticky;top:0;background:#fff;border-bottom:1px solid var(--gray-light);z-index:2}
+.item{padding:13px 18px;border-bottom:1px solid var(--gray-light);cursor:pointer;position:relative;border-left:3px solid transparent}
+.item:hover{background:var(--yellow-pale)}
+.item.sel{background:var(--yellow-light);border-left-color:var(--brown)}
+.item.unread .from{font-weight:900}
+.item.unread .subj{font-weight:700;color:var(--ink)}
+.item .top{display:flex;align-items:center;gap:8px;margin-bottom:3px}
+.dot{width:8px;height:8px;border-radius:50%;flex-shrink:0;background:transparent}
+.item.unread .dot{background:var(--orange)}
+.from{font-size:14px;color:var(--ink);flex:1;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;font-weight:700}
+.time{font-size:11px;color:var(--gray-dark);flex-shrink:0}
+.subj{font-size:13px;color:#5a544c;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.sentline{font-size:11px;color:var(--green-dark);margin-top:3px;display:flex;align-items:center;gap:4px}
+.meta{display:flex;align-items:center;gap:6px;margin-top:6px;flex-wrap:wrap}
+.tag{font-size:10px;font-weight:700;padding:1px 7px;border-radius:99px;letter-spacing:.3px}
+.tag.bon{background:var(--blue-light);color:#3d5e80}
+.tag.kontakt{background:var(--yellow-light);color:#8a6a1a}
+.tag.lnk{background:var(--gray-light);color:#6b6258}
+.tag.warn{background:var(--orange-light);color:#9a6a10}
+.st{font-size:10px;font-weight:900;padding:1px 8px;border-radius:99px;letter-spacing:.4px;text-transform:uppercase}
+.st.aaben{background:var(--orange-light);color:#9a6a10}
+.st.kunde{background:var(--blue-light);color:#3d5e80}
+.st.luk{background:var(--green-light);color:#5a7a36}
+.snooze-chip{font-size:10px;font-weight:700;padding:1px 7px;border-radius:99px;background:var(--purple-light);color:#7a3d96}
+.assignee{width:22px;height:22px;border-radius:50%;background:var(--brown);color:#fff;font-size:10px;font-weight:700;display:flex;align-items:center;justify-content:center}
+
+.read{flex:1;display:flex;flex-direction:column;min-width:0}
+.read-empty{flex:1;display:flex;flex-direction:column;align-items:center;justify-content:center;color:var(--gray-dark);gap:8px}
+.read-head{padding:18px 24px 14px;border-bottom:1px solid var(--gray-light)}
+.read-subj{font-family:'Playfair Display',serif;font-size:19px;font-weight:700;color:var(--ink);margin-bottom:8px}
+.read-meta{display:flex;align-items:center;gap:10px;flex-wrap:wrap;font-size:13px;color:#5a544c}
+.read-actions{display:flex;gap:8px;flex-wrap:wrap;padding:12px 24px;border-bottom:1px solid var(--gray-light);background:var(--yellow-pale);position:relative}
+.btn{border:1px solid var(--gray);background:#fff;border-radius:9px;padding:8px 14px;font-size:13px;font-weight:700;cursor:pointer;font-family:inherit;color:var(--ink);display:inline-flex;align-items:center;gap:6px}
+.btn:hover{background:var(--gray-light)}
+.btn.primary{background:var(--brown);color:#fff;border-color:var(--brown)}
+.btn.primary:hover{background:var(--brown-dark)}
+.btn.ok{background:var(--green-dark);color:#fff;border-color:var(--green-dark)}
+.btn.ghost{background:transparent;border-color:transparent;color:#6b6258}
+.snooze-menu{position:absolute;top:54px;background:#fff;border:1px solid var(--gray);border-radius:12px;box-shadow:0 8px 28px rgba(0,0,0,.16);padding:6px;z-index:9;display:none}
+.snooze-menu.open{display:block}
+.snooze-menu button{display:block;width:100%;text-align:left;border:none;background:none;padding:9px 14px;font-size:13.5px;font-family:inherit;border-radius:8px;cursor:pointer;color:var(--ink)}
+.snooze-menu button:hover{background:var(--purple-light)}
+.thread{flex:1;overflow-y:auto;padding:18px 24px;background:#fbf9f5}
+.msg{border-radius:12px;padding:13px 16px;margin-bottom:14px;font-size:13.5px;max-width:88%;border:1px solid transparent}
+.msg.in{background:#fff;border-color:#eadfca;border-left:3px solid var(--orange)}
+.msg.out{background:var(--green-light);border-color:#d3e3bd;margin-left:auto}
+.msg.sys{background:var(--blue-light);border-color:#c9dcec;margin-left:auto}
+.msg-head{display:flex;justify-content:space-between;gap:12px;font-size:12px;color:var(--gray-dark);margin-bottom:6px}
+.msg-from{font-weight:700;color:var(--ink)}
+.sent-stamp{font-size:11px;color:var(--green-dark);font-weight:700;margin-top:6px;display:flex;align-items:center;gap:5px}
+.msg.sys .sent-stamp{color:#3d5e80}
+.composer{border-top:1px solid var(--gray-light);padding:12px 24px;background:#fff}
+.composer textarea{width:100%;border:1px solid var(--gray);border-radius:10px;padding:10px;font-family:inherit;font-size:13.5px;min-height:60px;resize:vertical}
+.composer .crow{display:flex;gap:8px;align-items:center;margin-top:8px;flex-wrap:wrap}
+.toast{position:fixed;bottom:22px;left:50%;transform:translateX(-50%) translateY(120px);background:var(--ink);color:#fff;padding:11px 20px;border-radius:99px;font-size:13px;font-weight:700;transition:.3s;z-index:99;box-shadow:0 6px 20px rgba(0,0,0,.25);max-width:90vw;text-align:center}
+.toast.show{transform:translateX(-50%) translateY(0)}
+
+/* ---- mobile frame: ægte CRM-fanestruktur ---- */
+.mob-wrap{position:fixed;right:26px;bottom:26px;z-index:50}
+.phone{width:308px;height:624px;background:#fff;border-radius:34px;border:9px solid #2c2620;box-shadow:0 18px 50px rgba(0,0,0,.35);overflow:hidden;display:flex;flex-direction:column;position:relative}
+.phone-head{background:linear-gradient(180deg,var(--sidebar),var(--sidebar-dark));color:#f3e9d6;padding:14px 14px 0;flex-shrink:0}
+.phone-head .pt{font-family:'Playfair Display',serif;font-weight:700;font-size:16px;display:flex;align-items:center;gap:7px;padding-bottom:10px}
+.mtabs{display:flex;gap:0}
+.mtab{flex:1;text-align:center;font-size:12px;font-weight:700;padding:9px 4px;color:#cdbb9a;border-bottom:3px solid transparent;position:relative}
+.mtab.on{color:#fff;border-bottom-color:var(--orange)}
+.mtab .mb{position:absolute;top:5px;right:14px;background:var(--orange);color:#3d2f22;border-radius:99px;font-size:9px;font-weight:900;padding:0 5px}
+.msubtabs{display:flex;gap:6px;padding:8px 10px;background:#fff;border-bottom:1px solid var(--gray-light);overflow-x:auto}
+.msub{font-size:11px;font-weight:700;padding:4px 10px;border-radius:99px;background:var(--gray-light);color:#6b6258;white-space:nowrap}
+.msub.on{background:var(--ink);color:#fff}
+.phone-list{flex:1;overflow-y:auto;background:var(--gray-light)}
+.mitem{background:#fff;margin:8px;border-radius:12px;padding:11px 12px;box-shadow:0 1px 3px rgba(0,0,0,.06);position:relative;overflow:hidden}
+.mitem .actions{position:absolute;right:0;top:0;bottom:0;display:flex;transform:translateX(140px);transition:.25s}
+.mitem.swiped .actions{transform:translateX(0)}
+.mitem .act{width:70px;display:flex;flex-direction:column;align-items:center;justify-content:center;color:#fff;font-size:11px;font-weight:700;gap:2px;cursor:pointer}
+.mitem .act.done{background:var(--green-dark)}
+.mitem .act.snz{background:var(--purple)}
+.mitem .mfrom{font-weight:900;font-size:13.5px;color:var(--ink);display:flex;align-items:center;gap:6px}
+.mitem .msubj{font-size:12.5px;color:#5a544c;margin-top:2px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.mitem .msent{font-size:10.5px;color:var(--green-dark);margin-top:4px}
+.mitem .mmeta{display:flex;gap:6px;margin-top:7px;align-items:center;flex-wrap:wrap}
+.phone-hint{font-size:10px;color:var(--gray-dark);text-align:center;padding:6px;background:#fff;flex-shrink:0}
+.mob-label{text-align:center;font-size:11px;color:#7a6a50;font-weight:700;margin-top:8px;background:#fff;border-radius:99px;padding:4px 0}
+/* mobile bottom-sheet reader */
+.sheet{position:absolute;left:0;right:0;bottom:0;top:34%;background:#fff;border-radius:18px 18px 0 0;box-shadow:0 -8px 30px rgba(0,0,0,.2);transform:translateY(110%);transition:.28s;display:flex;flex-direction:column;z-index:5}
+.sheet.open{transform:translateY(0)}
+.sheet-head{padding:12px 14px;border-bottom:1px solid var(--gray-light)}
+.sheet-subj{font-family:'Playfair Display',serif;font-weight:700;font-size:14px;color:var(--ink)}
+.sheet-body{flex:1;overflow-y:auto;padding:12px 14px;background:#fbf9f5}
+.smsg{border-radius:10px;padding:9px 11px;margin-bottom:9px;font-size:12px;border:1px solid transparent}
+.smsg.in{background:#fff;border-color:#eadfca;border-left:3px solid var(--orange)}
+.smsg.out{background:var(--green-light);border-color:#d3e3bd}
+.smsg.sys{background:var(--blue-light);border-color:#c9dcec}
+.smsg .sh{font-size:10px;color:var(--gray-dark);margin-bottom:3px;display:flex;justify-content:space-between}
+.sheet-foot{display:flex;gap:6px;padding:10px 12px;border-top:1px solid var(--gray-light);flex-wrap:wrap}
+.sbtn{flex:1;border:1px solid var(--gray);background:#fff;border-radius:9px;padding:9px;font-size:12px;font-weight:700;font-family:inherit;color:var(--ink);min-width:64px}
+.sbtn.ok{background:var(--green-dark);color:#fff;border-color:var(--green-dark)}
+.sbtn.snz{background:var(--purple);color:#fff;border-color:var(--purple)}
+.sbtn.primary{background:var(--brown);color:#fff;border-color:var(--brown)}
+@media(max-width:1380px){.mob-wrap{display:none}}
+</style>
+</head>
+<body>
+<div class="wrap">
+  <div class="legend">
+    <b>Mockup v2 — CRM ▸ Indbakke.</b> Læst ≠ håndteret. Nyt i v2: <b>⏰ Snooze</b> (popper tilbage i Åbne på datoen), <b>sendt-synlighed</b> (hvad/hvornår vi har svaret), og telefonen viser den <b>rigtige CRM-fanestruktur</b> (Service calls · Kunder · Indbakke) — afløser dagens <code>mailto:</code>-bounce.
+    <div class="row">
+      <label class="toggle"><input type="checkbox" id="muToggle" onchange="document.body.classList.toggle('multiuser',this.checked)"><span class="switch"></span> Vis fremtid: <b>flere brugere</b> (tildeling + "Mine")</label>
+      <span class="fab-note">▸ Prøv: åbn tråd → <b>⏰ Udsæt</b> · <b>Send svar</b> (→ Afventer kunde, sendt-stempel) · <b>↩︎ Simulér kundesvar</b> på lukket tråd → genåbner.</span>
+    </div>
+  </div>
+
+  <div class="app">
+    <div class="side">
+      <div class="brand"><span style="font-size:19px">🥪</span><span class="name">Ristet Rug</span></div>
+      <div class="brand-sub">BON V2 · OFFICE <button class="kbtn">⇄ KØKKEN</button></div>
+      <div class="navgrp">OVERBLIK</div>
+      <div class="nav"><span class="ic">🏠</span>Dashboard</div>
+      <div class="navgrp">ORDRER</div>
+      <div class="nav"><span class="ic">📋</span>Bons</div>
+      <div class="navgrp">SALG</div>
+      <div class="nav active"><span class="ic">👥</span>CRM <span class="badge" id="sideBadge">5</span></div>
+      <div class="nav"><span class="ic">💬</span>Tilbud <span class="badge amber">2</span></div>
+      <div class="navgrp">DRIFT</div>
+      <div class="nav"><span class="ic">🚚</span>Logistik</div>
+      <div class="nav"><span class="ic">🛒</span>Indkøb</div>
+      <div class="nav"><span class="ic">🎪</span>Events</div>
+      <div class="navgrp">ØKONOMI</div>
+      <div class="nav"><span class="ic">💰</span>Økonomi <span class="badge amber">1</span></div>
+      <div class="nav"><span class="ic">📊</span>Opskrifter &amp; priser</div>
+      <div class="nav"><span class="ic">📈</span>Driftsregnskab</div>
+      <div class="navgrp">TEAM</div>
+      <div class="nav"><span class="ic">📅</span>Vagtplan</div>
+    </div>
+
+    <div class="main">
+      <div class="topbar">
+        <span class="pagetitle">Indbakke</span>
+        <button class="pill">Pipeline</button>
+        <button class="pill">Kontakter</button>
+        <button class="pill">Kampagner</button>
+        <button class="pill active">Indbakke <span class="pb" id="topBadge">5</span></button>
+        <button class="pill">Prospekter</button>
+        <button class="pill">Re-aktivering</button>
+        <button class="pill">Indsigt</button>
+        <button class="pill">Værktøjer</button>
+      </div>
+
+      <div class="inbox">
+        <div style="flex:1;display:flex;flex-direction:column;min-height:0">
+          <div class="filters">
+            <button class="chip on" data-f="aabne" onclick="setFilter('aabne')">Åbne <span class="cnt" id="c-aabne">0</span></button>
+            <button class="chip mine" data-f="mine" onclick="setFilter('mine')">Mine <span class="cnt" id="c-mine">0</span></button>
+            <button class="chip" data-f="udsat" onclick="setFilter('udsat')">⏰ Udsat <span class="cnt" id="c-udsat">0</span></button>
+            <button class="chip" data-f="kunde" onclick="setFilter('kunde')">Afventer kunde <span class="cnt" id="c-kunde">0</span></button>
+            <button class="chip" data-f="luk" onclick="setFilter('luk')">Afsluttet <span class="cnt" id="c-luk">0</span></button>
+            <button class="chip" data-f="alle" onclick="setFilter('alle')">Alle</button>
+            <span style="width:1px;height:22px;background:var(--gray);margin:0 4px"></span>
+            <button class="chip src" data-src="bon" onclick="toggleSrc('bon')">bon@</button>
+            <button class="chip src" data-src="kontakt" onclick="toggleSrc('kontakt')">kontakt@</button>
+            <span class="spacer"></span>
+            <input class="search" placeholder="🔍 Søg al mail (også afsluttet)…" oninput="doSearch(this.value)">
+          </div>
+          <div class="panes">
+            <div class="list" id="list"></div>
+            <div class="read" id="read">
+              <div class="read-empty"><div style="font-size:34px">📭</div><div>Vælg en tråd fra listen</div></div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- MOBILE: rigtig CRM-fanestruktur -->
+<div class="mob-wrap">
+  <div class="phone">
+    <div class="phone-head">
+      <div class="pt">👥 CRM</div>
+      <div class="mtabs">
+        <div class="mtab">Service calls</div>
+        <div class="mtab">Kunder</div>
+        <div class="mtab on">Indbakke<span class="mb" id="mTabBadge">5</span></div>
+      </div>
+    </div>
+    <div class="msubtabs">
+      <span class="msub on">Åbne</span>
+      <span class="msub">⏰ Udsat</span>
+      <span class="msub">Afventer</span>
+      <span class="msub">Afsluttet</span>
+    </div>
+    <div class="phone-list" id="phoneList"></div>
+    <div class="phone-hint">← swipe: ✓ Afslut / ⏰ Udsæt · tap: læs + hurtigsvar</div>
+    <!-- bottom sheet reader -->
+    <div class="sheet" id="sheet">
+      <div class="sheet-head"><div class="sheet-subj" id="sheetSubj"></div></div>
+      <div class="sheet-body" id="sheetBody"></div>
+      <div class="sheet-foot">
+        <button class="sbtn ok" onclick="sheetDone()">✓ Afslut</button>
+        <button class="sbtn snz" onclick="sheetSnooze()">⏰ Udsæt</button>
+        <button class="sbtn primary" onclick="sheetReply()">✉️ Svar</button>
+        <button class="sbtn" onclick="closeSheet()">Luk</button>
+      </div>
+    </div>
+  </div>
+  <div class="mob-label">📱 Afløser <code>mailto:</code>-bouncet</div>
+</div>
+
+<div class="toast" id="toast"></div>
+
+<script>
+/* status: 'aaben' | 'kunde' | 'luk'   ·   snooze: ISO-dato eller null (skjuler fra Åbne til datoen) */
+let threads = [
+  {id:1, from:"KSKP Svarmail Serviceportal", email:"serviceportal02@kk.dk", subj:"KS8645605 – Spørgsmål og rådgivning indkøb sag…", src:"kontakt", link:null, status:"aaben", unread:true, time:"19/6 10:24", snooze:null, assignee:null,
+    body:[{dir:"in",from:"KSKP Serviceportal",t:"19/6 10:24",x:"Vedr. sag KS8645605 — vi mangler dokumentation. Returnér venligst inden d. 30/6."}]},
+  {id:2, from:"Maria Lind Nielsen", email:"mlni@silvan.dk", subj:"Frokost levering: Silvan Fields", src:"kontakt", link:"Kunde · Marie Fonager", status:"aaben", unread:true, time:"3/6 15:58", snooze:null, assignee:null,
+    body:[{dir:"in",from:"Maria Lind Nielsen",t:"3/6 15:58",x:"Hej, kan I levere frokost til ca. 35 personer torsdag d. 12/6 i Silvan Fields? Vh Maria"}]},
+  {id:3, from:"Soli Langhoff de Thurah", email:"soli@kbh-el-service.dk", subj:"Sandwiches/madpakker torsdag d. 4/6", src:"bon", link:null, status:"aaben", unread:true, time:"28/5 08:44", snooze:null, assignee:null,
+    body:[{dir:"in",from:"Soli Langhoff de Thurah",t:"28/5 08:44",x:"Vi skal bruge 18 madpakker torsdag d. 4/6 til levering kl. 11.30. Kan det lade sig gøre?"}]},
+  {id:4, from:"Louise Dandanell Ørsted", email:"ldo@laederstraede20.dk", subj:"5 vegetariske sandwich til i dag kl 11.45/12.00", src:"bon", link:"#B4091", status:"aaben", unread:false, time:"22/5 10:13", snooze:null, assignee:null,
+    body:[{dir:"in",from:"Louise Dandanell Ørsted",t:"22/5 10:13",x:"Kan I nå 5 vegetariske sandwich til i dag kl. 11.45–12.00? Læderstræde 20."}]},
+  {id:5, from:"Susie Tranekjær", email:"sust@jeudan.dk", subj:"SV: #k-4455 Gratis frokost for 2 igen?", src:"kontakt", link:"Kunde · Susie Tranekjær", status:"kunde", unread:false, time:"27/4 12:54", snooze:"24/6", assignee:null,
+    body:[
+      {dir:"out",from:"Ristet Rug · Anne",t:"27/4 12:33",x:"Hej Susie, hvis du møder andre der kunne have gavn af en gratis frokost, så send dem min vej…"},
+      {dir:"in",from:"Susie Tranekjær",t:"27/4 12:54",x:"Hej Anne, de synes det var super lækkert. Jeg følger op — Christoffer er på ferie denne uge."}
+    ]},
+  {id:6, from:"Aviaaja Jensen", email:"booking@brightside.dk", subj:"Bekræftelse af din bestilling (#B4096)", src:"bon", link:"#B4096", status:"luk", unread:false, time:"19/6 21:36", snooze:null, assignee:null, system:true,
+    body:[{dir:"sys",from:"Ristet Rug · system",t:"19/6 21:36",x:"Kære Aviaaja, tak for din bestilling #B4096 — 37 enheder, levering man. 22/6 kl. 10.30."}]},
+  {id:7, from:"Lisbeth Jacobsen", email:"lisbeth@firma.dk", subj:"SV: Bekræftelse af din bestilling (#B4097)", src:"bon", link:"#B4097", status:"kunde", unread:false, time:"20/6 09:10", snooze:null, assignee:null,
+    body:[
+      {dir:"sys",from:"Ristet Rug · system",t:"19/6 20:31",x:"Kære Lisbeth, tak for din bestilling #B4097 — 14 pax, levering søn. 21/6 kl. 12.45."},
+      {dir:"in",from:"Lisbeth Jacobsen",t:"20/6 08:50",x:"Kan vi rykke leveringen til kl. 13.00?"},
+      {dir:"out",from:"Ristet Rug · Anne",t:"20/6 09:10",x:"Hej Lisbeth, noteret — vi leverer kl. 13.00. God søndag!"}
+    ]},
+  {id:8, from:"Morten Suhr Andreasen", email:"morten@kunde.dk", subj:"Tak for god frokost", src:"kontakt", link:"Kunde · Morten S.", status:"luk", unread:false, time:"8/6 13:28", snooze:null, assignee:null,
+    body:[{dir:"in",from:"Morten Suhr Andreasen",t:"8/6 13:28",x:"Bare lige tak — super forplejning til vores møde."}]},
+];
+
+const ME="AN";
+let curFilter="aabne", srcFilter={bon:false,kontakt:false}, selId=null, searchQ="";
+const stLabel={aaben:"Åben",kunde:"Afventer kunde",luk:"Afsluttet"};
+
+function lastOut(t){for(let i=t.body.length-1;i>=0;i--){if(t.body[i].dir==="out"||t.body[i].dir==="sys")return t.body[i];}return null;}
+function isSnoozed(t){return !!t.snooze;}
+
+function counts(){
+  const c={aabne:0,udsat:0,kunde:0,luk:0,mine:0};
+  threads.forEach(t=>{
+    if(t.status==="aaben"&&!isSnoozed(t)) c.aabne++;
+    if(isSnoozed(t)) c.udsat++;
+    if(t.status==="kunde"&&!isSnoozed(t)) c.kunde++;
+    if(t.status==="luk") c.luk++;
+    if(t.status==="aaben"&&!isSnoozed(t)&&t.assignee===ME) c.mine++;
+  });
+  return c;
+}
+function visible(){
+  return threads.filter(t=>{
+    const anySrc=srcFilter.bon||srcFilter.kontakt;
+    if(anySrc&&!srcFilter[t.src]) return false;
+    if(searchQ){const hay=(t.from+" "+t.subj+" "+t.email+" "+(t.link||"")+" "+t.body.map(b=>b.x).join(" ")).toLowerCase();return hay.includes(searchQ);}
+    if(curFilter==="alle") return true;
+    if(curFilter==="aabne") return t.status==="aaben"&&!isSnoozed(t);
+    if(curFilter==="udsat") return isSnoozed(t);
+    if(curFilter==="kunde") return t.status==="kunde"&&!isSnoozed(t);
+    if(curFilter==="luk") return t.status==="luk";
+    if(curFilter==="mine") return t.status==="aaben"&&!isSnoozed(t)&&t.assignee===ME;
+    return true;
+  });
+}
+function render(){
+  const c=counts();
+  c_aabne.textContent=c.aabne;c_udsat.textContent=c.udsat;c_kunde.textContent=c.kunde;c_luk.textContent=c.luk;c_mine.textContent=c.mine;
+  sideBadge.textContent=c.aabne;topBadge.textContent=c.aabne;mTabBadge.textContent=c.aabne;
+
+  const list=document.getElementById("list");
+  const items=visible();
+  const head = searchQ?`Søgning · ${items.length} træffere`:
+    curFilter==="aabne"?"Åbne — kræver handling":
+    curFilter==="udsat"?"Udsatte (popper tilbage på datoen)":
+    curFilter==="kunde"?"Afventer svar fra kunde":
+    curFilter==="luk"?"Afsluttede (arkiv · søgbar)":
+    curFilter==="mine"?"Tildelt mig":"Alle tråde";
+  list.innerHTML=`<div class="list-head">${head}</div>`;
+  if(!items.length) list.innerHTML+=`<div style="padding:40px 18px;text-align:center;color:var(--gray-dark)"><div style="font-size:30px">🎉</div>Intet her</div>`;
+  items.forEach(t=>{
+    const lo=lastOut(t);
+    const sentLine=(t.status!=="aaben"&&lo)?`<div class="sentline">↗ Sendt ${lo.t} · ${lo.from.replace('Ristet Rug · ','')}</div>`:``;
+    const el=document.createElement("div");
+    el.className="item"+(t.unread?" unread":"")+(t.id===selId?" sel":"");
+    el.onclick=()=>openThread(t.id);
+    el.innerHTML=`
+      <div class="top"><span class="dot"></span><span class="from">${t.from}</span><span class="time">${t.time}</span></div>
+      <div class="subj">${t.subj}</div>${sentLine}
+      <div class="meta">
+        <span class="tag ${t.src}">${t.src}@</span>
+        ${t.link?`<span class="tag lnk">🔗 ${t.link}</span>`:`<span class="tag warn">⚠︎ ikke knyttet</span>`}
+        <span class="st ${t.status}">${stLabel[t.status]}</span>
+        ${isSnoozed(t)?`<span class="snooze-chip">⏰ ${t.snooze}</span>`:``}
+        ${t.assignee&&document.body.classList.contains('multiuser')?`<span class="assignee">${t.assignee}</span>`:``}
+      </div>`;
+    list.appendChild(el);
+  });
+  renderPhone();
+}
+function msgRow(m){
+  const stamp=(m.dir==="out")?`<div class="sent-stamp">↗ Sendt ${m.t} · ${m.from.replace('Ristet Rug · ','')}</div>`:
+              (m.dir==="sys")?`<div class="sent-stamp">⚙︎ Auto-sendt ${m.t} · system</div>`:``;
+  return `<div class="msg ${m.dir}"><div class="msg-head"><span class="msg-from">${m.from}</span><span>${m.t}</span></div><div>${m.x}</div>${stamp}</div>`;
+}
+function openThread(id){
+  selId=id;const t=threads.find(x=>x.id===id);t.unread=false;
+  const reopen=(t.status==="luk"||t.status==="kunde"||isSnoozed(t))?`<button class="btn ghost" onclick="simReply(${t.id})">↩︎ Simulér kundesvar</button>`:"";
+  document.getElementById("read").innerHTML=`
+    <div class="read-head">
+      <div class="read-subj">${t.subj}</div>
+      <div class="read-meta">
+        <span class="tag ${t.src}">${t.src}@</span><span>${t.from} &lt;${t.email}&gt;</span>
+        <span class="st ${t.status}">${stLabel[t.status]}</span>
+        ${isSnoozed(t)?`<span class="snooze-chip">⏰ rykker ${t.snooze}</span>`:``}
+        ${t.link?`<span class="tag lnk">🔗 ${t.link}</span>`:`<span class="tag warn">⚠︎ ikke knyttet</span>`}
+      </div>
+    </div>
+    <div class="read-actions">
+      <button class="btn ok" onclick="markDone(${t.id})">✓ Afslut</button>
+      <button class="btn" onclick="toggleSnooze(event,${t.id})">⏰ Udsæt ▾</button>
+      <div class="snooze-menu" id="snzMenu">
+        <button onclick="setSnooze(${t.id},'i morgen')">I morgen</button>
+        <button onclick="setSnooze(${t.id},'+3 dage')">Om 3 dage</button>
+        <button onclick="setSnooze(${t.id},'+1 uge')">Om 1 uge</button>
+        <button onclick="setSnooze(${t.id},'+1 mdr')">Om 1 måned</button>
+      </div>
+      <button class="btn primary" onclick="newBon(${t.id})">📋 Opret bon fra mail</button>
+      ${t.link?``:`<button class="btn">🔗 Knyt</button>`}
+      ${reopen}
+    </div>
+    <div class="thread">${t.body.map(msgRow).join("")}</div>
+    <div class="composer">
+      <textarea placeholder="Skriv svar…  (sender via systemet → status → Afventer kunde, {{tag}} indsættes så svaret routes)"></textarea>
+      <div class="crow">
+        <button class="btn primary" onclick="sendReply(${t.id})">✉️ Send svar</button>
+        <button class="btn">📅 Booking-link</button>
+        <button class="btn">📎 Skabelon ▾</button>
+        <label class="toggle" style="margin-left:auto;font-size:12px"><input type="checkbox" checked><span class="switch"></span> Rykk mig om 3 dage hvis intet svar</label>
+      </div>
+    </div>`;
+  render();
+}
+function toast(m){const t=document.getElementById("toast");t.textContent=m;t.classList.add("show");clearTimeout(t._);t._=setTimeout(()=>t.classList.remove("show"),2400);}
+function toggleSnooze(e,id){e.stopPropagation();document.getElementById("snzMenu").classList.toggle("open");}
+function setSnooze(id,label){const t=threads.find(x=>x.id===id);const map={'i morgen':'22/6','+3 dage':'24/6','+1 uge':'28/6','+1 mdr':'21/7'};t.snooze=map[label]||'24/6';toast(`⏰ Udsat til ${t.snooze} → popper tilbage i Åbne`);afterMutate(id);}
+function markDone(id){const t=threads.find(x=>x.id===id);t.status="luk";t.snooze=null;toast("Afsluttet → arkiv (stadig søgbar)");afterMutate(id);}
+function sendReply(id){const t=threads.find(x=>x.id===id);t.body.push({dir:"out",from:"Ristet Rug · Anne",t:"nu",x:"(dit svar…)"});t.status="kunde";t.snooze="24/6";toast("Svar sendt → Afventer kunde · rykker 24/6");openThread(id);}
+function simReply(id){const t=threads.find(x=>x.id===id);t.body.push({dir:"in",from:t.from,t:"nu",x:"(nyt svar fra kunden…)"});t.status="aaben";t.snooze=null;t.unread=true;toast("⚡ Kundesvar → tråden GENÅBNET i Åbne");openThread(id);}
+function newBon(id){const t=threads.find(x=>x.id===id);toast("→ Bon-drawer åbner, kunde forudfyldt fra "+t.email);}
+function afterMutate(id){document.getElementById("snzMenu")&&document.getElementById("snzMenu").classList.remove("open");
+  if(curFilter==="aabne"||curFilter==="mine"||curFilter==="udsat"){selId=null;document.getElementById("read").innerHTML=`<div class="read-empty"><div style="font-size:34px">✓</div><div>Håndteret — vælg næste</div></div>`;}
+  else openThread(id); render();}
+function setFilter(f){curFilter=f;searchQ="";document.querySelector('.search').value="";document.querySelectorAll('.chip[data-f]').forEach(c=>c.classList.toggle('on',c.dataset.f===f));render();}
+function toggleSrc(s){srcFilter[s]=!srcFilter[s];document.querySelector(`.chip[data-src="${s}"]`).classList.toggle('on',srcFilter[s]);render();}
+function doSearch(v){searchQ=v.trim().toLowerCase();render();}
+
+/* ---------- mobile ---------- */
+let sheetId=null;
+function renderPhone(){
+  const pl=document.getElementById("phoneList");pl.innerHTML="";
+  const open=threads.filter(t=>t.status==="aaben"&&!isSnoozed(t));
+  if(!open.length){pl.innerHTML=`<div style="text-align:center;padding:40px 10px;color:var(--gray-dark)"><div style="font-size:28px">🎉</div>Alt håndteret</div>`;return;}
+  open.forEach(t=>{
+    const el=document.createElement("div");el.className="mitem";
+    el.innerHTML=`
+      <div class="actions">
+        <div class="act done" onclick="event.stopPropagation();mDone(${t.id})">✓<span>Afslut</span></div>
+        <div class="act snz" onclick="event.stopPropagation();mSnooze(${t.id})">⏰<span>Udsæt</span></div>
+      </div>
+      <div class="mfrom"><span class="dot" style="background:var(--orange)"></span>${t.from}</div>
+      <div class="msubj">${t.subj}</div>
+      <div class="mmeta"><span class="tag ${t.src}">${t.src}@</span><span class="st aaben">Åben</span>${t.link?``:`<span class="tag warn">⚠︎</span>`}</div>`;
+    let sx=0;
+    el.addEventListener('click',()=>{if(el.classList.contains('swiped')){el.classList.remove('swiped');}else{openSheet(t.id);}});
+    // simpel "swipe": dobbelt-klik-agtig — klik på selve kortet i højre kant afslører handlinger
+    el.addEventListener('contextmenu',(e)=>{e.preventDefault();el.classList.toggle('swiped');});
+    // gør swipe nem at demo'e: lille knap-zone
+    el.addEventListener('mousedown',(e)=>{sx=e.clientX;});
+    el.addEventListener('mouseup',(e)=>{if(sx-e.clientX>30){el.classList.add('swiped');} });
+    pl.appendChild(el);
+  });
+}
+function mDone(id){markDoneSilent(id);toast("✓ Afsluttet");}
+function mSnooze(id){const t=threads.find(x=>x.id===id);t.snooze="24/6";toast("⏰ Udsat til 24/6");render();}
+function markDoneSilent(id){const t=threads.find(x=>x.id===id);t.status="luk";t.snooze=null;render();}
+function openSheet(id){sheetId=id;const t=threads.find(x=>x.id===id);t.unread=false;
+  document.getElementById("sheetSubj").textContent=t.subj;
+  document.getElementById("sheetBody").innerHTML=t.body.map(m=>{
+    const stamp=(m.dir==="out")?`<div style="font-size:10px;color:var(--green-dark);font-weight:700;margin-top:4px">↗ Sendt ${m.t}</div>`:
+                (m.dir==="sys")?`<div style="font-size:10px;color:#3d5e80;font-weight:700;margin-top:4px">⚙︎ Auto ${m.t}</div>`:``;
+    return `<div class="smsg ${m.dir}"><div class="sh"><span>${m.from}</span><span>${m.t}</span></div><div>${m.x}</div>${stamp}</div>`;
+  }).join("");
+  document.getElementById("sheet").classList.add("open");render();
+}
+function closeSheet(){document.getElementById("sheet").classList.remove("open");sheetId=null;}
+function sheetDone(){markDoneSilent(sheetId);toast("✓ Afsluttet");closeSheet();}
+function sheetSnooze(){mSnooze(sheetId);closeSheet();}
+function sheetReply(){const t=threads.find(x=>x.id===sheetId);t.body.push({dir:"out",from:"Ristet Rug · Anne",t:"nu",x:"(svar…)"});t.status="kunde";t.snooze="24/6";toast("Svar sendt → Afventer kunde");closeSheet();}
+
+render();
+</script>
+</body>
+</html>
