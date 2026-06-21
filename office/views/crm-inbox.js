@@ -252,7 +252,7 @@ function _inbRenderShell() {
             .inb-chips { display:flex; gap:6px; align-items:center; flex-wrap:wrap; margin-bottom:12px; padding:0 4px; }
             .inb-chip { border:1px solid var(--color-border,#d7d1ca); background:#fff; border-radius:99px; padding:6px 13px; font-size:12.5px; font-weight:700; color:#6b6258; cursor:pointer; font-family:inherit; display:inline-flex; align-items:center; gap:6px; }
             .inb-chip:hover { border-color: var(--brand-primary); }
-            .inb-chip.on { background: var(--color-ink,#2c2620); color:#fff; border-color: var(--color-ink,#2c2620); }
+            .inb-chip.on { background: var(--brand-primary,#8e631f); color:#fff; border-color: var(--brand-primary,#8e631f); }
             .inb-chip .cnt { background: rgba(0,0,0,.12); border-radius:99px; padding:0 6px; font-size:11px; }
             .inb-chip.on .cnt { background: rgba(255,255,255,.25); }
             .inb-chip.src { font-weight:400; }

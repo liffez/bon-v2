@@ -1055,7 +1055,7 @@ function _mcInboxStyle() {
     return '<style>' +
     '.mc-subtabs{display:flex;gap:6px;padding:8px 10px;overflow-x:auto;border-bottom:1px solid var(--color-border,#eee)}' +
     '.mc-sub{font-size:12px;font-weight:700;padding:5px 12px;border-radius:99px;background:var(--color-background,#f5f4f2);color:#6b6258;white-space:nowrap;border:none;font-family:inherit}' +
-    '.mc-sub.on{background:#2c2620;color:#fff}' +
+    '.mc-sub.on{background:var(--brand-primary,#8e631f);color:#fff}' +
     '.mc-sub .b{background:rgba(0,0,0,.15);border-radius:99px;padding:0 5px;margin-left:4px;font-size:10px}' +
     '.mc-sub.on .b{background:rgba(255,255,255,.25)}' +
     '.mc-th{background:#fff;margin:8px 10px;border-radius:12px;padding:11px 13px;box-shadow:0 1px 3px rgba(0,0,0,.06)}' +
