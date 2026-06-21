@@ -54,6 +54,24 @@ window.cleanupEvents = function cleanupEvents() {
     _evCurrentId = null;
 };
 
+// ── SSE: hold event-detaljen live ────────────────────────────────────────
+// Når en bon under eventet skifter status eller opdateres (fx fra bon-draweren),
+// gen-renderes detaljen så Prep/Dagssalg/Udgift-listerne afspejler det uden
+// manuel reload. Guards: kun ved åbent event-detalje, spring over hvis man er
+// midt i en inline-redigering (forecast/åbningstider) eller har en modal åben.
+// Debounced — status + updated-events lander ofte sammen.
+let _evSSETimer = null;
+window._evHandleSSE = function _evHandleSSE(eventName, data) {
+    if (_evCurrentId == null || !_evContainer) return;
+    const fa = document.activeElement;
+    if (fa && _evContainer.contains(fa) && ['INPUT', 'SELECT', 'TEXTAREA'].includes(fa.tagName)) return;
+    if (document.querySelector('.ev-modal-overlay')) return;
+    clearTimeout(_evSSETimer);
+    _evSSETimer = setTimeout(() => {
+        if (_evCurrentId != null && _evContainer) _evRenderDetail(_evCurrentId);
+    }, 350);
+};
+
 // ── RENDER LISTE ─────────────────────────────────────────────────────────
 
 async function _evRender() {
