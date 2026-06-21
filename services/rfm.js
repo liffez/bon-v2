@@ -307,9 +307,255 @@ function computeIcpProfile(source) {
     };
 }
 
+// ─── Prospekt-fit (CRM Prospekter) ──────────────────────────
+// Gradueret ICP-fit for lead-firmaer ud fra tre signaler:
+//   branche-match (vægtet efter VIP-andel), firmastørrelse (blød),
+//   leveringsafstand (fugleflugt fra HQ). Kører server-side så Indsigt
+//   og Prospekter deler kilde. Vægte/filtre konfigureres via settings
+//   (migration 105) — få knapper nu, klar til flere senere.
+
+const EARTH_KM = 6371;
+const RAD = Math.PI / 180;
+// Reference-afstand: emner inden for så mange km får fuld afstands-score,
+// derover aftager den lineært til 0. Stor-København-skala.
+const DISTANCE_DECAY_KM = 25;
+
+function haversineKm(lat1, lon1, lat2, lon2) {
+    const dLat = (lat2 - lat1) * RAD;
+    const dLon = (lon2 - lon1) * RAD;
+    const a = Math.sin(dLat / 2) ** 2 +
+        Math.cos(lat1 * RAD) * Math.cos(lat2 * RAD) * Math.sin(dLon / 2) ** 2;
+    return 2 * EARTH_KM * Math.asin(Math.min(1, Math.sqrt(a)));
+}
+
+/** HQ-koordinater fra settings (samme kilde som delivery-modulet). */
+function getHqCoords(db) {
+    const rows = db.prepare(
+        "SELECT key, value FROM settings WHERE key IN ('delivery_hq_lat','delivery_hq_lon')"
+    ).all();
+    const m = {};
+    for (const r of rows) m[r.key] = r.value;
+    const lat = Number(m.delivery_hq_lat);
+    const lon = Number(m.delivery_hq_lon);
+    if (!Number.isFinite(lat) || !Number.isFinite(lon)) return null;
+    return { lat, lon };
+}
+
+/** Prospekt-fit konfiguration fra settings (vægte + filtre). */
+function getProspectFitConfig(db) {
+    const rows = db.prepare(`
+        SELECT key, value FROM settings WHERE key IN (
+            'prospect_fit_w_branch','prospect_fit_w_size','prospect_fit_w_distance',
+            'prospect_distance_max_km','prospect_branch_blacklist'
+        )`).all();
+    const m = {};
+    for (const r of rows) m[r.key] = r.value;
+
+    let blacklist = [];
+    try {
+        const parsed = JSON.parse(m.prospect_branch_blacklist || '[]');
+        if (Array.isArray(parsed)) blacklist = parsed.filter(Boolean).map(s => String(s));
+    } catch { /* ignorér ugyldig JSON → ingen blacklist */ }
+
+    const rawMax = m.prospect_distance_max_km;
+    const maxKm = rawMax != null && String(rawMax).trim() !== '' ? parseFloat(rawMax) : null;
+
+    return {
+        w_branch: parseFloat(m.prospect_fit_w_branch) || 50,
+        w_size: parseFloat(m.prospect_fit_w_size) || 20,
+        w_distance: parseFloat(m.prospect_fit_w_distance) || 30,
+        distance_max_km: Number.isFinite(maxKm) && maxKm > 0 ? maxKm : null,
+        branch_blacklist: blacklist,
+    };
+}
+
+/**
+ * Reference-profil af VIP-firmaer brugt til fit-scoring:
+ *  - shares: branche → andel (0..1) af VIP-firmaer i den branche
+ *  - maxShare: største branche-andel (til normalisering)
+ *  - avgEmployees: gns. antal ansatte blandt VIP'er (til størrelses-match)
+ */
+function getVipReference(db) {
+    const branchRows = db.prepare(`
+        SELECT c.branch AS branch, COUNT(*) AS n
+        FROM rfm_scores s
+        JOIN companies c ON c.id = s.company_id
+        WHERE s.stage = 'vip' AND s.order_count > 0 AND c.branch IS NOT NULL
+        GROUP BY c.branch
+    `).all();
+
+    const totalBranch = branchRows.reduce((a, r) => a + r.n, 0);
+    const shares = {};
+    let maxShare = 0;
+    for (const r of branchRows) {
+        const sh = totalBranch ? r.n / totalBranch : 0;
+        shares[r.branch] = sh;
+        if (sh > maxShare) maxShare = sh;
+    }
+
+    const avgRow = db.prepare(`
+        SELECT AVG(c.employee_count) AS avg_emp
+        FROM rfm_scores s
+        JOIN companies c ON c.id = s.company_id
+        WHERE s.stage = 'vip' AND s.order_count > 0
+          AND c.employee_count IS NOT NULL AND c.employee_count > 0
+    `).get();
+
+    return { shares, maxShare, avgEmployees: avgRow?.avg_emp || null };
+}
+
+/**
+ * Beregn fit-breakdown for ét lead mod VIP-reference + HQ.
+ * Hvert signal er enten et tal 0..1 eller null (= mangler → udelades fra
+ * vægtningen, så manglende data ikke straffer). Branche er altid til stede
+ * (0 = ingen match er informativt). Returnerer { fit, branch, size, distance, distance_km }.
+ */
+function scoreProspect(lead, ref, hq, cfg) {
+    // Branche: andel hos VIP normaliseret så den hyppigste VIP-branche = 1.0
+    let branch = 0;
+    if (lead.branch && ref.maxShare > 0 && ref.shares[lead.branch]) {
+        branch = ref.shares[lead.branch] / ref.maxShare;
+    }
+
+    // Størrelse: blød nærhed til VIP-gennemsnit (skalafri, peak ved ratio=1)
+    let size = null;
+    if (lead.employee_count > 0 && ref.avgEmployees > 0) {
+        const ratio = lead.employee_count / ref.avgEmployees;
+        size = 1 / (1 + Math.abs(Math.log(ratio)));
+    }
+
+    // Afstand: fugleflugt fra HQ, lineært aftagende til DISTANCE_DECAY_KM
+    let distance = null;
+    let distance_km = null;
+    if (hq && Number.isFinite(lead.lat) && Number.isFinite(lead.lon)) {
+        distance_km = haversineKm(hq.lat, hq.lon, lead.lat, lead.lon);
+        distance = Math.max(0, 1 - distance_km / DISTANCE_DECAY_KM);
+    }
+
+    // Vægtet gennemsnit over de signaler der faktisk er til stede
+    const parts = [
+        { v: branch, w: cfg.w_branch },
+        { v: size, w: cfg.w_size },
+        { v: distance, w: cfg.w_distance },
+    ].filter(p => p.v != null && p.w > 0);
+
+    const wSum = parts.reduce((a, p) => a + p.w, 0);
+    const fit = wSum > 0 ? Math.round(parts.reduce((a, p) => a + p.v * p.w, 0) / wSum * 100) : 0;
+
+    return {
+        fit,
+        branch: Math.round(branch * 100),
+        size: size == null ? null : Math.round(size * 100),
+        distance: distance == null ? null : Math.round(distance * 100),
+        distance_km: distance_km == null ? null : Math.round(distance_km * 10) / 10,
+    };
+}
+
+/**
+ * Hent lead-firmaer med gradueret ICP-fit.
+ * opts: { q?, maxKm? } — maxKm overstyrer settings-filteret (UI-slider).
+ * Returnerer { rows, meta } hvor meta beskriver scoring-grundlaget.
+ */
+function computeProspectScores(opts = {}) {
+    const db = getDb();
+    const cfg = getProspectFitConfig(db);
+    const ref = getVipReference(db);
+    const hq = getHqCoords(db);
+
+    // Afstands-filter: eksplicit opts.maxKm vinder over settings-default
+    let maxKm = cfg.distance_max_km;
+    if (opts.maxKm != null && String(opts.maxKm).trim() !== '') {
+        const m = parseFloat(opts.maxKm);
+        maxKm = Number.isFinite(m) && m > 0 ? m : null;
+    }
+
+    const params = [];
+    let searchWhere = '';
+    if (opts.q) {
+        searchWhere = ' AND (c.name LIKE ? OR c.branch LIKE ? OR c.cvr LIKE ?)';
+        params.push(`%${opts.q}%`, `%${opts.q}%`, `%${opts.q}%`);
+    }
+
+    const leads = db.prepare(`
+        SELECT s.*, c.name, c.cvr, c.branch, c.employee_count, c.company_type,
+               c.is_personal, c.phone AS company_phone, c.email AS company_email,
+               a.lat AS lat, a.lon AS lon,
+               (SELECT first_name || ' ' || COALESCE(last_name,'')
+                FROM customers WHERE company_id = c.id AND is_active = 1
+                ORDER BY is_primary_contact DESC LIMIT 1) AS primary_contact_name,
+               (SELECT phone FROM customers WHERE company_id = c.id AND is_active = 1
+                ORDER BY is_primary_contact DESC LIMIT 1) AS primary_contact_phone,
+               (SELECT id FROM customers WHERE company_id = c.id AND is_active = 1
+                ORDER BY is_primary_contact DESC LIMIT 1) AS primary_customer_id
+        FROM rfm_scores s
+        JOIN companies c ON c.id = s.company_id
+        LEFT JOIN addresses a ON a.id = c.address_id
+        WHERE s.stage = 'lead'
+          AND c.is_active = 1
+          AND c.is_personal = 0
+          ${searchWhere}
+    `).all(...params);
+
+    const blacklist = new Set(cfg.branch_blacklist);
+    const rows = [];
+    let hiddenBlacklist = 0;
+    let hiddenDistance = 0;
+    let hiddenNoCoords = 0;
+
+    for (const lead of leads) {
+        if (lead.branch && blacklist.has(lead.branch)) { hiddenBlacklist++; continue; }
+
+        const sc = scoreProspect(lead, ref, hq, cfg);
+
+        if (maxKm != null) {
+            // Distance-filter aktivt: kun firmaer vi kan bekræfte er i range.
+            if (sc.distance_km == null) { hiddenNoCoords++; continue; }
+            if (sc.distance_km > maxKm) { hiddenDistance++; continue; }
+        }
+
+        lead.icp_fit = sc.fit;
+        lead.fit_breakdown = { branch: sc.branch, size: sc.size, distance: sc.distance };
+        lead.distance_km = sc.distance_km;
+        delete lead.lat;
+        delete lead.lon;
+        rows.push(lead);
+    }
+
+    // Sortér: bedste fit først, derefter nærmest (kendt afstand før ukendt)
+    rows.sort((a, b) => {
+        if ((b.icp_fit || 0) !== (a.icp_fit || 0)) return (b.icp_fit || 0) - (a.icp_fit || 0);
+        const da = a.distance_km == null ? Infinity : a.distance_km;
+        const dbb = b.distance_km == null ? Infinity : b.distance_km;
+        return da - dbb;
+    });
+
+    return {
+        rows,
+        meta: {
+            total: rows.length,
+            distance_max_km: maxKm,
+            hq_available: !!hq,
+            vip_branch_count: Object.keys(ref.shares).length,
+            vip_avg_employees: ref.avgEmployees == null ? null : Math.round(ref.avgEmployees),
+            with_distance: rows.filter(r => r.distance_km != null).length,
+            hidden_blacklist: hiddenBlacklist,
+            hidden_distance: hiddenDistance,
+            hidden_no_coords: hiddenNoCoords,
+            weights: { branch: cfg.w_branch, size: cfg.w_size, distance: cfg.w_distance },
+            blacklist: cfg.branch_blacklist,
+        },
+    };
+}
+
 module.exports = {
     ensurePersonalCompanies,
     getRfmConfig,
     computeRfmScores,
     computeIcpProfile,
+    getProspectFitConfig,
+    getVipReference,
+    getHqCoords,
+    haversineKm,
+    scoreProspect,
+    computeProspectScores,
 };

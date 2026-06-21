@@ -6,9 +6,12 @@
 let _prosContainer = null;
 let _prosActive = false;
 let _prosData = null;
+let _prosMeta = null;
 let _prosIcp = null;
 let _prosDebounce = null;
 let _prosSearch = '';
+let _prosMaxKm = '';        // afstands-filter (km, '' = intet filter)
+let _prosBlacklist = [];    // skjulte brancher
 
 function initCrmProspekter(container) {
     _prosContainer = container;
@@ -62,32 +65,21 @@ function _prosHandleSSE(event) {
 async function _prosLoadData() {
     if (!_prosActive) return;
     try {
+        // ICP-fit beregnes nu server-side (samme kilde som Indsigt-fanen).
         const [data, icp] = await Promise.all([
-            fetchRfmProspects(),
+            fetchRfmProspects({ maxKm: _prosMaxKm }),
             _prosIcp ? Promise.resolve(_prosIcp) : fetchRfmIcp('vip'),
         ]);
-        _prosData = data;
+        _prosData = data.rows || [];
+        _prosMeta = data.meta || null;
         _prosIcp = icp;
-
-        // Beregn ICP-fit client-side
-        if (_prosIcp?.top_branches?.length) {
-            const topBranches = new Set(_prosIcp.top_branches.slice(0, 3).map(b => b.branch));
-            const avgEmp = _prosIcp.avg_employees || 50;
-
-            for (const p of _prosData) {
-                let fit = 0;
-                if (p.branch && topBranches.has(p.branch)) fit += 40;
-                if (p.employee_count) {
-                    const ratio = p.employee_count / avgEmp;
-                    if (ratio >= 0.3 && ratio <= 3) fit += 30;
-                    else if (ratio >= 0.1 && ratio <= 5) fit += 15;
-                }
-                if (p.branch) fit += 10; // Har branchedata = bedre kvalitet
-                p.icp_fit = fit;
+        // Synkronisér lokale filter-felter fra serverens sandhed (settings)
+        if (_prosMeta) {
+            _prosBlacklist = Array.isArray(_prosMeta.blacklist) ? _prosMeta.blacklist : [];
+            if (_prosMaxKm === '' && _prosMeta.distance_max_km != null) {
+                _prosMaxKm = String(_prosMeta.distance_max_km);
             }
-            _prosData.sort((a, b) => (b.icp_fit || 0) - (a.icp_fit || 0));
         }
-
         _prosRender();
     } catch (err) {
         if (_prosContainer) _prosContainer.querySelector('#pros-list').innerHTML =
@@ -125,15 +117,30 @@ function _prosShellHtml() {
 .pros-btn-sm:hover { background: #f5f3f0; }
 .pros-empty { text-align: center; padding: 40px; color: #888; }
 .pros-count { font-size: 13px; color: #888; margin-bottom: 12px; }
+.pros-dist { display: flex; align-items: center; gap: 6px; font-size: 12px; color: #666; }
+.pros-dist input { width: 56px; padding: 6px 8px; border: 1px solid #ccc; border-radius: 6px; font-size: 13px; text-align: right; }
+.pros-dist-badge { display: inline-block; padding: 1px 7px; background: #eef3e6; color: #3d7a0a; border-radius: 10px; font-size: 11px; white-space: nowrap; }
+.pros-bl-row { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; margin-bottom: 12px; font-size: 12px; }
+.pros-bl-chip { display: inline-flex; align-items: center; gap: 5px; padding: 3px 8px; background: #f3e6e6; color: #8a3d3d; border-radius: 12px; }
+.pros-bl-chip button { border: none; background: none; color: #8a3d3d; cursor: pointer; font-size: 13px; line-height: 1; padding: 0; }
+.pros-hide { padding: 4px 8px; border: 1px solid #e3cccc; border-radius: 6px; background: #fff; cursor: pointer; font-size: 12px; color: #8a3d3d; }
+.pros-hide:hover { background: #f9efef; }
+.pros-note { font-size: 12px; color: #a07b2a; background: #fbf6e8; border-radius: 6px; padding: 6px 10px; margin-bottom: 12px; }
 </style>
 <div class="pros-wrap">
     <div class="pros-header">
         <h2>Prospekter</h2>
         <div class="pros-toolbar">
             <input type="text" placeholder="Søg..." id="pros-search" oninput="_prosOnSearch(this.value)">
+            <span class="pros-dist" title="Vis kun firmaer inden for så mange km fra HQ (fugleflugt). Tom = alle.">
+                ≤ <input type="number" min="0" step="1" id="pros-maxkm" placeholder="km"
+                    onchange="_prosSetMaxKm(this.value)"> km
+            </span>
         </div>
     </div>
     <div class="pros-icp-strip" id="pros-icp-strip"></div>
+    <div class="pros-bl-row" id="pros-blacklist"></div>
+    <div class="pros-note" id="pros-note" style="display:none"></div>
     <div class="pros-count" id="pros-count"></div>
     <div id="pros-list"></div>
 </div>`;
@@ -141,6 +148,10 @@ function _prosShellHtml() {
 
 function _prosRender() {
     if (!_prosActive || !_prosData) return;
+
+    // Afstands-filter-felt synkroniseres fra state
+    const maxKmInput = document.getElementById('pros-maxkm');
+    if (maxKmInput && document.activeElement !== maxKmInput) maxKmInput.value = _prosMaxKm;
 
     // ICP strip
     const strip = document.getElementById('pros-icp-strip');
@@ -151,7 +162,32 @@ function _prosRender() {
             ).join('');
     }
 
-    // Filter
+    // Blacklist-chips (skjulte brancher)
+    const blRow = document.getElementById('pros-blacklist');
+    if (blRow) {
+        blRow.innerHTML = _prosBlacklist.length
+            ? '<span style="color:#888">Skjulte brancher:</span> ' + _prosBlacklist.map(b =>
+                `<span class="pros-bl-chip">${_prosEsc(b)}<button title="Vis igen" onclick="_prosUnhideBranch('${_prosAttr(b)}')">✕</button></span>`
+              ).join('')
+            : '';
+    }
+
+    // Note: leads skjult af afstands-filter pga. manglende koordinater
+    const noteEl = document.getElementById('pros-note');
+    if (noteEl) {
+        const hidden = _prosMeta && _prosMaxKm !== '' ? (_prosMeta.hidden_no_coords || 0) : 0;
+        if (hidden > 0) {
+            noteEl.style.display = '';
+            noteEl.textContent = `${hidden} firma${hidden === 1 ? '' : 'er'} skjult af afstands-filteret — mangler adresse-koordinater (kør geokodning).`;
+        } else if (_prosMeta && !_prosMeta.hq_available) {
+            noteEl.style.display = '';
+            noteEl.textContent = 'HQ-koordinater er ikke sat — afstand kan ikke beregnes. Sæt dem i delivery-indstillinger.';
+        } else {
+            noteEl.style.display = 'none';
+        }
+    }
+
+    // Filter (søgning er client-side over de allerede hentede rækker)
     let filtered = _prosData;
     if (_prosSearch) {
         const q = _prosSearch.toLowerCase();
@@ -163,7 +199,12 @@ function _prosRender() {
     }
 
     const countEl = document.getElementById('pros-count');
-    if (countEl) countEl.textContent = `${filtered.length} leads` + (_prosSearch ? ` (filtreret)` : '');
+    if (countEl) {
+        const parts = [`${filtered.length} leads`];
+        if (_prosSearch) parts.push('filtreret');
+        if (_prosMaxKm !== '') parts.push(`≤ ${_prosMaxKm} km`);
+        countEl.textContent = parts.join(' · ');
+    }
 
     const list = document.getElementById('pros-list');
     if (!list) return;
@@ -181,22 +222,29 @@ function _prosRender() {
         const isClickable = cid || p.company_id;
         const cardStyle = isClickable ? ' style="cursor:pointer"' : '';
         const nameTitle = cid ? ' title="Åbn kundeprofil"' : '';
+        const distBadge = p.distance_km != null
+            ? `<span class="pros-dist-badge" title="Fugleflugt fra HQ">${String(p.distance_km).replace('.', ',')} km</span>` : '';
+        const bd = p.fit_breakdown || {};
+        const fitTitle = `Branche ${bd.branch ?? 0}` +
+            (bd.size != null ? ` · Størrelse ${bd.size}` : '') +
+            (bd.distance != null ? ` · Afstand ${bd.distance}` : '');
         return `
         <div class="pros-card" data-company-id="${p.company_id || 0}" data-customer-id="${cid}" data-name="${_prosAttr(p.name)}"${cardStyle}>
             <div class="pros-info">
                 <div class="pros-name"${nameTitle}>${_prosEsc(p.name)}</div>
                 <div class="pros-meta">
-                    ${p.branch ? p.branch + ' · ' : ''}
+                    ${p.branch ? _prosEsc(p.branch) + ' · ' : ''}
                     ${p.employee_count ? p.employee_count + ' ansatte · ' : ''}
-                    ${p.company_type ? p.company_type + ' · ' : ''}
-                    ${p.cvr ? 'CVR ' + p.cvr : 'Ingen CVR'}
+                    ${p.cvr ? 'CVR ' + _prosEsc(p.cvr) : 'Ingen CVR'}
+                    ${distBadge ? ' · ' + distBadge : ''}
                 </div>
             </div>
-            <div class="pros-fit">
+            <div class="pros-fit" title="${_prosAttr(fitTitle)}">
                 <div class="pros-fit-val ${fitCls}">${fit}</div>
                 <div class="pros-fit-label">ICP-fit</div>
             </div>
             <div class="pros-actions">
+                ${p.branch ? `<button class="pros-hide" onclick="_prosHideBranch('${_prosAttr(p.branch)}')" title="Skjul alle firmaer i denne branche">⊘ Branche</button>` : ''}
                 ${p.primary_contact_phone ? '<a href="tel:' + p.primary_contact_phone + '" class="pros-btn-sm">📞</a>' : ''}
                 <button class="pros-btn-sm" onclick="_prosOpenProfile(${p.primary_customer_id || 0})">Profil</button>
                 <button class="pros-btn-sm" onclick="_prosActivate(${p.company_id})" title="Aktiver">✓ Aktiv</button>
@@ -232,6 +280,32 @@ function _prosOnSearch(val) {
     _prosSearch = val;
     if (_prosDebounce) clearTimeout(_prosDebounce);
     _prosDebounce = setTimeout(() => _prosRender(), 200);
+}
+
+// Afstands-filter: gem som settings-default (delt forretningspræference) + reload
+async function _prosSetMaxKm(val) {
+    const trimmed = (val == null ? '' : String(val)).trim();
+    const num = parseFloat(trimmed);
+    _prosMaxKm = trimmed !== '' && Number.isFinite(num) && num > 0 ? String(num) : '';
+    try { await patchSetting('prospect_distance_max_km', _prosMaxKm); } catch { /* reload viser stadig */ }
+    _prosLoadData();
+}
+
+function _prosHideBranch(branch) {
+    if (!branch || _prosBlacklist.includes(branch)) return;
+    _prosBlacklist = _prosBlacklist.concat([branch]);
+    _prosSaveBlacklist();
+}
+
+function _prosUnhideBranch(branch) {
+    _prosBlacklist = _prosBlacklist.filter(b => b !== branch);
+    _prosSaveBlacklist();
+}
+
+async function _prosSaveBlacklist() {
+    try { await patchSetting('prospect_branch_blacklist', JSON.stringify(_prosBlacklist)); }
+    catch { /* reload viser stadig serverens tilstand */ }
+    _prosLoadData();
 }
 
 function _prosOpenProfile(customerId) {
