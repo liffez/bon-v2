@@ -38,8 +38,7 @@ async function initMobileCrm(container, user) {
             '<button class="m-tab" data-tab="search">Kunder</button>' +
             '<button class="m-tab" data-tab="inbox">Indbakke<span class="m-tab-badge" id="mcInboxBadge" style="display:none"></span></button>' +
         '</div>' +
-        '<div id="mcContent"></div>' +
-        '<div id="mcSheetHost"></div>';
+        '<div id="mcContent"></div>';
 
     container.querySelectorAll('.m-tab').forEach(function(tab) {
         tab.addEventListener('click', function() {
@@ -1071,8 +1070,8 @@ function _mcInboxStyle() {
     '.mc-st{font-size:10px;font-weight:900;padding:1px 8px;border-radius:99px;text-transform:uppercase}' +
     '.mc-st.aaben{background:#fef3d6;color:#9a6a10}.mc-st.afventer_kunde{background:#e8f0f6;color:#3d5e80}.mc-st.afsluttet{background:#e8f2dc;color:#5a7a36}' +
     '.mc-snz{font-size:10px;font-weight:700;padding:1px 7px;border-radius:99px;background:#f3e8f7;color:#7a3d96}' +
-    '.mc-sheet-ov{position:fixed;inset:0;background:rgba(0,0,0,.4);z-index:60;display:flex;align-items:flex-end}' +
-    '.mc-sheet{background:#fff;width:100%;max-height:85vh;border-radius:18px 18px 0 0;display:flex;flex-direction:column}' +
+    '.mc-sheet-ov{position:fixed;inset:0;background:rgba(0,0,0,.4);z-index:1000;display:flex;align-items:flex-end}' +
+    '.mc-sheet{background:#fff;width:100%;max-height:85vh;border-radius:18px 18px 0 0;display:flex;flex-direction:column;padding-bottom:env(safe-area-inset-bottom,0)}' +
     '.mc-sheet-head{padding:12px 14px;border-bottom:1px solid var(--color-border,#eee)}' +
     '.mc-sheet-subj{font-weight:800;font-size:14px;color:#2c2620}' +
     '.mc-sheet-body{flex:1;overflow-y:auto;padding:10px 14px;background:#fbf9f5}' +
@@ -1150,10 +1149,17 @@ function _mcRenderInboxList() {
     }).join('');
 }
 
+// Sheet'et lægges på document.body (root stacking-context) så det kommer OVER den
+// faste bundnav (.m-nav, z-index 50) — ikke fanget i CRM-containerens stacking-context.
+function _mcSheetRoot() {
+    var r = document.getElementById('mcSheetRoot');
+    if (!r) { r = document.createElement('div'); r.id = 'mcSheetRoot'; document.body.appendChild(r); }
+    return r;
+}
+
 async function _mcOpenInboxThread(id) {
     _mcSheetId = id;
-    var host = document.getElementById('mcSheetHost');
-    if (!host) return;
+    var host = _mcSheetRoot();
     host.innerHTML = '<div class="mc-sheet-ov"><div class="mc-sheet"><div class="mc-sheet-head"><div class="mc-sheet-subj">Henter…</div></div><div class="mc-sheet-body"></div></div></div>';
     try {
         var data = await fetchMailThread(id);
@@ -1191,7 +1197,7 @@ async function _mcOpenInboxThread(id) {
 
 function _mcCloseSheet() {
     _mcSheetId = null;
-    var host = document.getElementById('mcSheetHost');
+    var host = document.getElementById('mcSheetRoot');
     if (host) host.innerHTML = '';
 }
 
