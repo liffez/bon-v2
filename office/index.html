@@ -913,6 +913,8 @@
       const modal = new BonOpretModal({
         onCreated: (bonId) => { drawer.open(bonId, { justCreated: true }); }
       });
+      // Global åbner for "Opret bon fra mail" i indbakken (prefill ignoreres af open() pt.)
+      window.openBonOpretModal = (opts) => modal.open(opts);
 
       // ─── View switching ──────────────────────────────────
       const contentEl = document.getElementById('office-content');
@@ -1583,6 +1585,11 @@
           // En tråd-mail er markeret læst (her eller et andet sted) → fjern fra
           // den samlede indbakke + genberegn badges.
           if (typeof _inbHandleSSE === 'function') _inbHandleSSE('mail_read', data);
+          scheduleBadgeReload();
+        },
+        mail_thread_updated: (data) => {
+          // Indbakke-tråd skiftede handling_status/snooze (her eller et andet sted).
+          if (typeof _inbHandleSSE === 'function') _inbHandleSSE('mail_thread_updated', data);
           scheduleBadgeReload();
         },
         // quote_created / quote_updated fjernet i Patch I (maj 2026).

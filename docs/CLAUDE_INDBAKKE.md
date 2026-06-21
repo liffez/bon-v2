@@ -250,14 +250,41 @@ CRM:  [ Service calls ]  [ Kunder ]  [ Indbakke • ]
 
 ---
 
-## 8. Uden for scope (senere)
+## 8. Implementeringsstatus (21. juni 2026)
 
-- **Drop af `mail_unmatched`-tabellen.** Ny routing (§4) skriver ukendt inbound som tråde, men de
-  **eksisterende åbne `mail_unmatched`-rækker** skal migreres til tråde i en opfølgende migration —
-  inkl. at re-pointe `mail_attachments.unmatched_id` → `message_id`. Behold tabellen + crm-inbox.js'
-  unmatched-gren indtil migreringen er kørt og verificeret. (Samme forsigtighed som `_old_bon_mails`.)
-- Poll af Sendt-mappe (ekstern-svar-detektion).
-- Fuld "Mine"/team-tildeling som default (afventer flere salgsbrugere).
+**Bygget + verificeret** (browser + `tests/inbox_handling.test.js`, 15/15):
+- Migration `104_inbox_handling.sql` (ALTER + backfill + settings).
+- Lifecycle i `services/mailService.js`: svar→`afventer_kunde`, inbound auto-genåbner, **kendt** kunde
+  uden tag → tråd, `isSystem` på auto-bekræftelser (web-ordre + booking).
+- `/api/mail/threads*` (liste/detalje/reply/patch/create-bon/count/**counts**) i `routes/mail.js`.
+- Office `crm-inbox.js`: livscyklus-chips + **Ufordelt**-chip (bevarer bounce/bulk/refetch fra den
+  gamle visning) + tråd-læser m. composer/afslut/udsæt.
+- Mobil `crm.js`: 3. fane "Indbakke" m. badge, undertabs, bottom-sheet læser + hurtigsvar/afslut/udsæt.
+
+## 9. Opfølgning (TODO — egne opgaver/issues)
+
+> Bevidst udskudt ved første implementering. Skal i drift-test + evt. egne GitHub-issues.
+
+- **9a — Migrér eksisterende tag-mærkede ufordelte mails → tråde.** Mange gamle kunde-svar med
+  `#b-`/`#k-`-tag ligger stadig i `mail_unmatched` (fx *"SV: Tak for din bestilling (B4097) #b-4097"*),
+  fordi de kom ind før tag-routing/denne feature. Ny inbound routes korrekt, men de gamle skal flyttes
+  af en backfill: match tag → bon/kunde → opret/find tråd, indsæt som `in`-besked, re-point
+  `mail_attachments.unmatched_id` → `message_id`, sæt `status='linked'`. Indtil da linkes de manuelt
+  i **Ufordelt**-chippen.
+- **9b — Ukendt afsender → tråd (§4 pkt. 4).** Udskudt: ukendt/bounce/spam bliver stadig i
+  `mail_unmatched` (bevarer bounce-UX). Når 9a+9b er kørt og verificeret → **drop `mail_unmatched`** +
+  crm-inbox.js' unmatched-gren (samme forsigtighed som `_old_bon_mails`).
+- **9c — "Opret bon fra mail": prefyld.** `POST /threads/:id/create-bon` returnerer allerede
+  `{customer_id, company_id, name, email}`, men `BonOpretModal.open()` understøtter ikke prefill endnu.
+  Wire prefill (KundeSoeg-forvalg) + send `mail_thread_id` retur så bonen knyttes til tråden ved gem.
+- **9d — Mobil swipe.** Lige nu åbner tap en bottom-sheet med Afslut/Udsæt/Send. Spec'ens venstre-swipe
+  (genbrug bons-viewets touch-mønster) er ikke bygget — nice-to-have.
+- **9e — Poll af Sendt-mappe** (ekstern-svar-detektion fra Outlook/Apple Mail, §7).
+- **9f — Fuld "Mine"/team-tildeling** som default (`inbox_assignment_enabled`, afventer flere salgsbrugere).
+
+> **Drift-note (Hetzner):** "Link til Bon" i Ufordelt **virker** — men kun når bonnummeret findes i DB.
+> Den lokale dev-DB er et snapshot og mangler nogle bons (fx B4097 → 0 træffere lokalt), så linket
+> fejler lokalt. På prod hvor bonen findes, virker det. Verificér på Hetzner med et bonnummer der findes.
 
 ---
 
