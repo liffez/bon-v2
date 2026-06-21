@@ -13,6 +13,7 @@ let _prosSearch = '';
 let _prosMinKm = '';        // afstands-interval, nedre grænse (km, '' = ingen)
 let _prosMaxKm = '';        // afstands-interval, øvre grænse (km, '' = ingen)
 let _prosBlacklist = [];    // skjulte brancher
+let _prosBranchFilter = ''; // klik på ICP-chip → vis kun denne branche
 
 function initCrmProspekter(container) {
     _prosContainer = container;
@@ -98,7 +99,9 @@ function _prosShellHtml() {
 .pros-btn { padding: 6px 14px; border: none; border-radius: 6px; cursor: pointer; font-size: 13px; }
 .pros-btn-primary { background: var(--brand-primary, #8e631f); color: #fff; }
 .pros-icp-strip { display: flex; gap: 8px; flex-wrap: wrap; margin-bottom: 16px; font-size: 12px; }
-.pros-icp-chip { padding: 4px 10px; background: #f5f0e0; border-radius: 12px; color: #8e631f; }
+.pros-icp-chip { padding: 4px 10px; background: #f5f0e0; border-radius: 12px; color: #8e631f; cursor: pointer; user-select: none; }
+.pros-icp-chip:hover { background: #ece0c4; }
+.pros-icp-chip.active { background: var(--brand-primary, #8e631f); color: #fff; }
 .pros-card { background: #fff; border: 1px solid var(--color-border, #d7d1ca); border-radius: 8px;
              padding: 14px; margin-bottom: 10px; display: flex; justify-content: space-between; align-items: center; }
 .pros-card:hover { box-shadow: 0 2px 6px rgba(0,0,0,0.06); }
@@ -160,13 +163,14 @@ function _prosRender() {
     if (maxKmInput && document.activeElement !== maxKmInput) maxKmInput.value = _prosMaxKm;
     const distActive = _prosMinKm !== '' || _prosMaxKm !== '';
 
-    // ICP strip
+    // ICP strip — chips er klikbare: filtrér listen til den branche
     const strip = document.getElementById('pros-icp-strip');
     if (strip && _prosIcp?.top_branches) {
         strip.innerHTML = '<span style="color:#888">ICP brancher:</span> ' +
-            _prosIcp.top_branches.slice(0, 4).map(b =>
-                `<span class="pros-icp-chip">${_prosEsc(b.branch)} (${b.pct}%)</span>`
-            ).join('');
+            _prosIcp.top_branches.slice(0, 4).map(b => {
+                const active = _prosBranchFilter === b.branch;
+                return `<span class="pros-icp-chip${active ? ' active' : ''}" title="${active ? 'Klik for at rydde filteret' : 'Vis kun leads i denne branche'}" onclick="_prosToggleBranch('${_prosAttr(b.branch)}')">${_prosEsc(b.branch)} (${b.pct}%)</span>`;
+            }).join('');
     }
 
     // Blacklist-chips (skjulte brancher)
@@ -194,11 +198,12 @@ function _prosRender() {
         }
     }
 
-    // Filter (søgning er client-side over de allerede hentede rækker)
+    // Filter (søgning + branche-fokus er client-side over de hentede rækker)
     let filtered = _prosData;
+    if (_prosBranchFilter) filtered = filtered.filter(p => p.branch === _prosBranchFilter);
     if (_prosSearch) {
         const q = _prosSearch.toLowerCase();
-        filtered = _prosData.filter(p =>
+        filtered = filtered.filter(p =>
             (p.name || '').toLowerCase().includes(q) ||
             (p.branch || '').toLowerCase().includes(q) ||
             (p.cvr || '').includes(q)
@@ -208,6 +213,7 @@ function _prosRender() {
     const countEl = document.getElementById('pros-count');
     if (countEl) {
         const parts = [`${filtered.length} leads`];
+        if (_prosBranchFilter) parts.push(_prosBranchFilter);
         if (_prosSearch) parts.push('filtreret');
         if (distActive) {
             if (_prosMinKm !== '' && _prosMaxKm !== '') parts.push(`${_prosMinKm}–${_prosMaxKm} km`);
@@ -290,6 +296,12 @@ function _prosOnSearch(val) {
     _prosSearch = val;
     if (_prosDebounce) clearTimeout(_prosDebounce);
     _prosDebounce = setTimeout(() => _prosRender(), 200);
+}
+
+// Klik på ICP-branche-chip → vis kun den branche (klik igen rydder). Client-side.
+function _prosToggleBranch(branch) {
+    _prosBranchFilter = (_prosBranchFilter === branch) ? '' : branch;
+    _prosRender();
 }
 
 // Afstands-interval: gem som settings-default (delt forretningspræference) + reload.
