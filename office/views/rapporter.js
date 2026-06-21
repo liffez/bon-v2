@@ -396,9 +396,19 @@ function _rapRenderCategories(data) {
     const deltaCls = deltaVal > 0 ? 'delta-up' : deltaVal < 0 ? 'delta-down' : '';
     const deltaText = deltaVal !== 0 ? ((deltaVal > 0 ? '+' : '') + _rapFmtKr(deltaVal)) : '—';
 
-    tableHtml += `<tr>
-      <td><span class="rap-cat-dot" style="background:${color}"></span>${label}</td>
-      <td class="text-right">${_rapFmt(cat.units)}</td>
+    // Produktion (prep/top-up) er intern produktion, ikke salg. Enheds-tallet er
+    // produktionsvolumen — mærkes tydeligt så det ikke læses som solgte enheder.
+    const isProd = cat.is_production;
+    const labelHtml = isProd
+      ? `${label} <span class="rap-cat-note">· produktion (intern, ikke salg)</span>`
+      : label;
+    const unitsHtml = isProd
+      ? `<span class="rap-cat-prod-units" title="Produktionsvolumen — ikke solgte enheder">${_rapFmt(cat.units)} <span class="rap-cat-note">prod.</span></span>`
+      : _rapFmt(cat.units);
+
+    tableHtml += `<tr${isProd ? ' class="rap-cat-row-prod"' : ''}>
+      <td><span class="rap-cat-dot" style="background:${color}"></span>${labelHtml}</td>
+      <td class="text-right">${unitsHtml}</td>
       <td class="text-right">${_rapFmtKr(catRev)}</td>
       <td class="text-right">${pct}%</td>
       <td class="text-right ${deltaCls}">${deltaText}</td>

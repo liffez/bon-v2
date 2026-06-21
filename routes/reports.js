@@ -17,7 +17,7 @@
 const express       = require('express');
 const router        = express.Router();
 const { getDb }     = require('../db/database');
-const { handle, inclToExcl, momsOfIncl, getUnitCountCategories } = require('../db/helpers');
+const { handle, inclToExcl, momsOfIncl, getUnitCountCategories, salesPriceCategorySql } = require('../db/helpers');
 const { requireAuth } = require('../shared/auth');
 
 // ─── Auth on all routes ──────────────────────────────────────
@@ -91,6 +91,22 @@ function _unitCaseExpr() {
     if (cats.length === 0) return { sql: '0', args: [] };
     const placeholders = cats.map(() => '?').join(',');
     return { sql: `CASE WHEN bl.category IN (${placeholders}) THEN bl.quantity ELSE 0 END`, args: cats };
+}
+
+/**
+ * Som _unitCaseExpr, men SALGS-linsen: produktions-bonner (priskategori
+ * 'produktion' = prep/top-up) tæller IKKE som solgte enheder. Kræver at
+ * price_categories er joinet som `pc` (via price_category_id). Bruges i økonomi-
+ * /omsætningsrapporter så festival-maden ikke dobbelttælles (prep + salg).
+ */
+function _salesUnitCaseExpr() {
+    const cats = getUnitCountCategories();
+    if (cats.length === 0) return { sql: '0', args: [] };
+    const placeholders = cats.map(() => '?').join(',');
+    return {
+        sql: `CASE WHEN ${salesPriceCategorySql('pc.code')} AND bl.category IN (${placeholders}) THEN bl.quantity ELSE 0 END`,
+        args: cats,
+    };
 }
 
 /**
@@ -202,7 +218,7 @@ router.get('/monthly', handle(async (req, res) => {
     const prevStartMonth = `${prevStartDate.getFullYear()}-${String(prevStartDate.getMonth() + 1).padStart(2, '0')}`;
     const prevEndMonth = `${prevEndDate.getFullYear()}-${String(prevEndDate.getMonth() + 1).padStart(2, '0')}`;
 
-    const unit = _unitCaseExpr();
+    const unit = _salesUnitCaseExpr();   // salgs-enheder: ekskl. produktion
 
     const thisYearRows = db.prepare(`
         SELECT
@@ -213,6 +229,7 @@ router.get('/monthly', handle(async (req, res) => {
         FROM bons b
         JOIN status_definitions sd ON b.status_id = sd.id
         JOIN bon_lines bl ON bl.bon_id = b.id
+        LEFT JOIN price_categories pc ON pc.id = b.price_category_id
         WHERE sd.code IN (${_statusPlaceholders(REVENUE_CODES)})
           ${OFFER_INTERNAL_FILTER}
           AND strftime('%Y-%m', b.delivery_date) >= ?
@@ -230,6 +247,7 @@ router.get('/monthly', handle(async (req, res) => {
         FROM bons b
         JOIN status_definitions sd ON b.status_id = sd.id
         JOIN bon_lines bl ON bl.bon_id = b.id
+        LEFT JOIN price_categories pc ON pc.id = b.price_category_id
         WHERE sd.code IN (${_statusPlaceholders(REVENUE_CODES)})
           ${OFFER_INTERNAL_FILTER}
           AND strftime('%Y-%m', b.delivery_date) >= ?
@@ -354,6 +372,10 @@ router.get('/categories', handle(async (req, res) => {
         return rows.map(r => ({
             code:    r.code,
             label:   r.label || r.code,
+            // Produktion (prep/top-up) er intern produktion — 0 kr, IKKE salg. Enheds-tallet
+            // vises stadig (køkkenets produktionsvolumen), men frontenden mærker rækken så
+            // tallet ikke læses som solgte enheder. Salgs-andelen er allerede 0 % (0 kr).
+            is_production: r.code === 'produktion',
             units:   r.units,
             revenue: r.revenue,                                  // bagudkomp. (incl moms)
             revenue_excl_moms: r2(inclToExcl(r.revenue)),
@@ -381,7 +403,7 @@ router.get('/monthly-table', handle(async (req, res) => {
     // Fetch monthly data for a given year, filtered by a set of status codes.
     // Index'eres efter month_nr af kalderen.
     function fetchMonthly(year, codes) {
-        const unit = _unitCaseExpr();
+        const unit = _salesUnitCaseExpr();   // salgs-enheder: ekskl. produktion
         return db.prepare(`
             SELECT
                 CAST(strftime('%m', b.delivery_date) AS INTEGER) AS month_nr,
@@ -391,6 +413,7 @@ router.get('/monthly-table', handle(async (req, res) => {
             FROM bons b
             JOIN status_definitions sd ON b.status_id = sd.id
             JOIN bon_lines bl ON bl.bon_id = b.id
+            LEFT JOIN price_categories pc ON pc.id = b.price_category_id
             WHERE sd.code IN (${_statusPlaceholders(codes)})
               ${OFFER_INTERNAL_FILTER}
               AND strftime('%Y', b.delivery_date) = ?
@@ -690,8 +713,10 @@ router.get('/top-categories', handle(async (req, res) => {
         FROM bon_lines bl
         JOIN bons b ON bl.bon_id = b.id
         JOIN status_definitions sd ON b.status_id = sd.id
+        LEFT JOIN price_categories pc ON pc.id = b.price_category_id
         WHERE sd.code IN (${_statusPlaceholders(REVENUE_CODES)})
           ${OFFER_INTERNAL_FILTER}
+          AND ${salesPriceCategorySql('pc.code')}
           AND bl.is_accessory = 0
           AND strftime('%Y', b.delivery_date) = ?
         GROUP BY COALESCE(bl.category, 'Uden kategori')
@@ -705,8 +730,10 @@ router.get('/top-categories', handle(async (req, res) => {
         FROM bon_lines bl
         JOIN bons b ON bl.bon_id = b.id
         JOIN status_definitions sd ON b.status_id = sd.id
+        LEFT JOIN price_categories pc ON pc.id = b.price_category_id
         WHERE sd.code IN (${_statusPlaceholders(REVENUE_CODES)})
           ${OFFER_INTERNAL_FILTER}
+          AND ${salesPriceCategorySql('pc.code')}
           AND bl.is_accessory = 0
           AND strftime('%Y', b.delivery_date) = ?
     `).get(...REVENUE_CODES, thisYear);
