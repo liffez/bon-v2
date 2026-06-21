@@ -21,6 +21,15 @@ function getSetting(key) {
     return row?.value ?? '';
 }
 
+// Firma-kontaktinfo til "ikke tilgængelig"-fallback på de offentlige booking-sider.
+// Hentes fra settings (migration 025) — aldrig hardcodet i HTML.
+function contactInfo() {
+    return {
+        phone: getSetting('company_phone'),
+        email: getSetting('company_email'),
+    };
+}
+
 // ─── PUBLIC: meeting-types ─────────────────────────────────────────────────
 // Bruges af tools/booking-smagning.html. Returnerer altid 200.
 // Hvis modulet er deaktiveret eller default-ejer mangler: { available: false, ... }.
@@ -29,8 +38,9 @@ router.get('/meeting-types', handle((req, res) => {
     const enabled = getSetting('booking_smagning_enabled') === '1';
     const ownerSet = !!getSetting('booking_default_owner_user_id');
 
-    if (!enabled) return res.json({ available: false, reason: 'disabled', meeting_types: [] });
-    if (!ownerSet) return res.json({ available: false, reason: 'unconfigured', meeting_types: [] });
+    const contact = contactInfo();
+    if (!enabled) return res.json({ available: false, reason: 'disabled', meeting_types: [], contact });
+    if (!ownerSet) return res.json({ available: false, reason: 'unconfigured', meeting_types: [], contact });
 
     const rows = getDb().prepare(`
         SELECT id, key, label, emoji, description, duration_min
@@ -39,7 +49,7 @@ router.get('/meeting-types', handle((req, res) => {
         ORDER BY sort_order, id
     `).all();
 
-    res.json({ available: true, meeting_types: rows });
+    res.json({ available: true, meeting_types: rows, contact });
 }));
 
 // ─── PUBLIC: contact-reasons ───────────────────────────────────────────────
@@ -48,8 +58,9 @@ router.get('/contact-reasons', handle((req, res) => {
     const enabled = getSetting('booking_kontakt_enabled') === '1';
     const ownerSet = !!getSetting('booking_default_owner_user_id');
 
-    if (!enabled) return res.json({ available: false, reason: 'disabled', contact_reasons: [] });
-    if (!ownerSet) return res.json({ available: false, reason: 'unconfigured', contact_reasons: [] });
+    const contact = contactInfo();
+    if (!enabled) return res.json({ available: false, reason: 'disabled', contact_reasons: [], contact });
+    if (!ownerSet) return res.json({ available: false, reason: 'unconfigured', contact_reasons: [], contact });
 
     const rows = getDb().prepare(`
         SELECT id, key, label, emoji, description
@@ -58,7 +69,7 @@ router.get('/contact-reasons', handle((req, res) => {
         ORDER BY sort_order, id
     `).all();
 
-    res.json({ available: true, contact_reasons: rows });
+    res.json({ available: true, contact_reasons: rows, contact });
 }));
 
 // ─── PUBLIC: slots ─────────────────────────────────────────────────────────

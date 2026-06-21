@@ -275,7 +275,7 @@
   <div id="unavailable" class="unavailable hidden">
     <h2>Booking er ikke tilgængelig lige nu</h2>
     <p>Vi tager ikke imod online-bookings i øjeblikket.<br>
-       Du er velkommen til at ringe til os på <strong>+45 50 50 50 50</strong> eller skrive til <strong>kontakt@ristetrug.dk</strong>.</p>
+       <span id="unavailable-contact">Du er velkommen til at kontakte os.</span></p>
   </div>
 
   <!-- Hovedformular -->
@@ -394,17 +394,31 @@ const state = {
   monthSlots:   {},      // dato → boolean (har mindst ét ledigt slot) for cal-disabling
   monthLoading: null,    // Promise mens måned hentes
   token:        null,    // ?t=TOKEN i URL — sendes med ved submit hvis sat
-  tokenInfo:    null     // { customer, sales_user, intent_meeting_type, used }
+  tokenInfo:    null,    // { customer, sales_user, intent_meeting_type, used }
+  contact:      null     // { phone, email } fra settings (company_phone/company_email)
 };
 
 // ============================================================
 // INIT
 // ============================================================
+
+// Firma-kontaktinfo fra settings (company_phone/company_email) — aldrig hardcodet.
+function renderContact(contact) {
+  state.contact = contact || null;
+  const el = document.getElementById('unavailable-contact');
+  if (!el || !contact) return;
+  const parts = [];
+  if (contact.phone) parts.push('ringe til os på <strong>' + contact.phone + '</strong>');
+  if (contact.email) parts.push('skrive til <strong>' + contact.email + '</strong>');
+  if (parts.length) el.innerHTML = 'Du er velkommen til at ' + parts.join(' eller ') + '.';
+}
+
 async function init() {
   try {
     // Hent mødetyper først (afgør om modulet er tilgængeligt)
     const r = await fetch(CFG.apiBase + '/meeting-types');
     const data = await r.json();
+    renderContact(data.contact);
     if (!data.available || !data.meeting_types?.length) {
       document.getElementById('booking-form').classList.add('hidden');
       document.getElementById('unavailable').classList.remove('hidden');
@@ -812,7 +826,9 @@ document.getElementById('booking-form').addEventListener('submit', async e => {
     btn.classList.remove('loading');
     btn.disabled = false;
     const banner = document.getElementById('err-banner');
-    banner.innerHTML = '⚠️ Der opstod en fejl ved afsendelse. Prøv igen om lidt, eller skriv direkte til <a href="mailto:kontakt@ristetrug.dk">kontakt@ristetrug.dk</a>.';
+    const email = state.contact?.email;
+    banner.innerHTML = '⚠️ Der opstod en fejl ved afsendelse. Prøv igen om lidt'
+      + (email ? ', eller skriv direkte til <a href="mailto:' + email + '">' + email + '</a>' : '') + '.';
     banner.classList.remove('hidden');
   }
 });
