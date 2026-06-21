@@ -200,8 +200,12 @@ function _moRenderDays(dates, bonsByDate, shiftsByDate) {
         var totalUnits = 0;
         var statusCounts = {};
         bons.forEach(function(b) {
-            var units = (b.total_units && b.total_units > 0) ? b.total_units : (b.pax || 0);
-            totalUnits += units;
+            // Festival-salgsbons + udgifter tæller ikke som produktion (allerede talt i
+            // prep-bonnen) — undgår dobbelttælling i travlheds-tallet.
+            if (b.event_role !== 'sales' && b.event_role !== 'expense') {
+                var units = (b.total_units && b.total_units > 0) ? b.total_units : (b.pax || 0);
+                totalUnits += units;
+            }
             var code = (b.status_code || b.status || 'ny').toLowerCase();
             statusCounts[code] = (statusCounts[code] || 0) + 1;
         });

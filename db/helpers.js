@@ -348,6 +348,35 @@ function recalcBonTotalUnits(db, bonId) {
     return total;
 }
 
+/**
+ * ── Event-roller og produktions-workload ───────────────────────────
+ * Et festival-/event-salg er splittet i to slags bonner (event_role):
+ *   - prep / topup  → det køkkenet PRODUCERER (priskategori 'produktion')
+ *   - sales         → det der SÆLGES på pladsen (samme mad, allerede talt i prep)
+ *   - expense       → en udgiftslinje (negativ pris)
+ *
+ * Køkken-planlægningsvisninger (kalender, ugeoversigt, planlægning, dashboard
+ * "I dag") tæller PRODUKTIONS-enheder/workload. Dér må 'sales' og 'expense'
+ * IKKE tælle med — ellers dobbelttælles festival-maden (prep + salg). Salget
+ * hører hjemme i økonomi-/omsætnings-tallene (rapporter, MTD), hvor det tælles
+ * som sædvanligt. Dette er ÉN sandhed for reglen — brug den alle steder.
+ */
+const WORKLOAD_EXCLUDED_EVENT_ROLES = ['sales', 'expense'];
+
+/** True hvis bonen tæller som produktions-workload (ikke festival-salg/udgift). */
+function countsAsWorkload(bon) {
+    return !WORKLOAD_EXCLUDED_EVENT_ROLES.includes(bon && bon.event_role);
+}
+
+/**
+ * SQL-fragment til WHERE/CASE der ekskluderer festival-salg + udgift fra
+ * produktions-enheder. `col` er kolonne-udtrykket for event_role (fx 'b.event_role').
+ * NULL = normal bon → tæller med.
+ */
+function workloadRoleSql(col = 'event_role') {
+    return `COALESCE(${col}, '') NOT IN ('sales','expense')`;
+}
+
 // ─── AUTH HELPERS ──────────────────────────────────────────
 
 async function hashPassword(plain) {
@@ -382,6 +411,7 @@ module.exports = {
     todayISO, offsetISO,
     autoConsumeBonInventory,
     getUnitCountCategories, invalidateUnitCountCache, recalcBonTotalUnits,
+    WORKLOAD_EXCLUDED_EVENT_ROLES, countsAsWorkload, workloadRoleSql,
     hashPassword, verifyPassword, getUserByEmail, getUserById, getUserId,
     transaction,
     // Moms-helpers (re-eksporteret fra shared/moms.js — én definition for hele Bon v2)
