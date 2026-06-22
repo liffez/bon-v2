@@ -338,6 +338,7 @@
     <div class="st-nav-label st-group">Formularer</div>
     <button class="st-nav-item st-admin-only" data-section="formbuilder">Formbuilder</button>
     <button class="st-nav-item st-admin-only" data-section="bestilling-menu">Bestilling — Menu</button>
+    <button class="st-nav-item st-office-only" data-section="hastebestilling">Hastebestilling</button>
     <button class="st-nav-item st-admin-only" data-section="booking-smagning">Booking — Smagsprøve</button>
     <button class="st-nav-item st-admin-only" data-section="booking-kontakt">Booking — Kontakt</button>
 
@@ -1039,6 +1040,27 @@
     </div>
 
     <!-- ════ BESTILLING — MENU ════ -->
+    <div class="st-section st-office-only" id="sec-hastebestilling">
+      <h2>Hastebestilling</h2>
+      <p style="font-size:13px;color:#888;margin-bottom:16px">
+        Åbn den offentlige bestillingsformular trods normal deadline — fx når en kunde ringer og skal bestille til i morgen efter fristen.
+      </p>
+
+      <!-- Hastebestilling — åbn trods deadline (kun i dag) -->
+      <div style="background:#fff;border:1px solid var(--color-border);border-radius:8px;padding:14px 16px;margin-bottom:18px">
+        <div style="font-weight:600;font-size:14px;margin-bottom:4px">⏰ Hastebestilling — åbn trods deadline</div>
+        <div style="font-size:12px;color:#888;margin-bottom:12px;line-height:1.5">
+          Lader kunder bestille selv om den normale frist er passeret — og åbner også for ellers lukkede dage.
+          Gælder <strong>kun i dag</strong>: i morgen falder alt automatisk tilbage til normal cut-off.
+        </div>
+        <div style="display:flex;gap:12px;align-items:center;flex-wrap:wrap">
+          <span id="co-state" style="font-size:13px;font-weight:600">Henter…</span>
+          <span style="flex:1"></span>
+          <button type="button" class="st-btn" id="co-toggle-btn" onclick="coToggle()">…</button>
+        </div>
+      </div>
+    </div>
+
     <div class="st-section st-admin-only" id="sec-bestilling-menu">
       <h2>Bestilling — Menu</h2>
       <p style="font-size:13px;color:#888;margin-bottom:16px">
@@ -1081,20 +1103,6 @@
           <span style="flex:1"></span>
           <button type="button" class="st-btn-secondary" onclick="bsReload()">Annullér</button>
           <button type="button" class="st-btn" id="bs-save-btn" onclick="bsSave()">Gem indstillinger</button>
-        </div>
-      </div>
-
-      <!-- Hastebestilling — åbn trods deadline (kun i dag) -->
-      <div style="background:#fff;border:1px solid var(--color-border);border-radius:8px;padding:14px 16px;margin-bottom:18px">
-        <div style="font-weight:600;font-size:14px;margin-bottom:4px">⏰ Hastebestilling — åbn trods deadline</div>
-        <div style="font-size:12px;color:#888;margin-bottom:12px;line-height:1.5">
-          Lader kunder bestille selv om den normale frist er passeret — og åbner også for ellers lukkede dage.
-          Gælder <strong>kun i dag</strong>: i morgen falder alt automatisk tilbage til normal cut-off.
-        </div>
-        <div style="display:flex;gap:12px;align-items:center;flex-wrap:wrap">
-          <span id="co-state" style="font-size:13px;font-weight:600">Henter…</span>
-          <span style="flex:1"></span>
-          <button type="button" class="st-btn" id="co-toggle-btn" onclick="coToggle()">…</button>
         </div>
       </div>
 
@@ -1317,6 +1325,10 @@ async function init() {
   // Skjul admin-sektioner for ikke-admins
   if (currentUser.role !== 'admin') {
     document.querySelectorAll('.st-admin-only').forEach(function(el) { el.style.display = 'none'; });
+    // st-office-only = admin + office; skjul for øvrige roller
+    if (currentUser.role !== 'office') {
+      document.querySelectorAll('.st-office-only').forEach(function(el) { el.style.display = 'none'; });
+    }
     // Skjul gruppe-label hvis alle dens punkter (frem til næste label) er skjult
     document.querySelectorAll('.st-sidebar .st-group').forEach(function(label) {
       var n = label.nextElementSibling, anyVisible = false;
@@ -1350,6 +1362,8 @@ async function init() {
       if (sec === 'delivery-vehicles') loadDeliveryVehicles();
       // Lazy load bestilling-menu
       if (sec === 'bestilling-menu') bmInit();
+      // Hastebestilling-toggle (eget punkt, office-synligt)
+      if (sec === 'hastebestilling') coLoad();
       // Lazy load jobtype-kategorisering + løn
       if (sec === 'jobtype') { loadRoleMap(); loadWageRates(); }
     });
@@ -3955,7 +3969,6 @@ async function bmInit() {
   bsRenderDayCheckboxes();
   await bmLoadSource();
   await bsLoad();
-  await coLoad();
   await bmLoad();
 }
 
