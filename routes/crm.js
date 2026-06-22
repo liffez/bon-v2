@@ -540,9 +540,74 @@ router.get('/suggestions', handle((req, res) => {
         });
     }
 
+    // Filtrér snoozede forslag væk (kunde + type, jf. "Skjul"-knappen) — frigør
+    // slots så de næste i køen roterer ind. Én query, ikke et led pr. blok.
+    const snoozed = new Set(
+        db.prepare(`
+            SELECT customer_id || ':' || type AS k
+            FROM crm_suggestion_snoozes
+            WHERE snoozed_until > datetime('now')
+        `).all().map(r => r.k)
+    );
+    const visible = snoozed.size
+        ? suggestions.filter(s => !snoozed.has(s.customer_id + ':' + s.type))
+        : suggestions;
+
     // Round-robin frem for ren priority-sort, så hver type får plads i top-8
     // (ellers mætter sæson/overdue feeden og review_ask skæres væk).
-    res.json(interleaveSuggestions(suggestions));
+    res.json(interleaveSuggestions(visible));
+}));
+
+// ─── POST /suggestions/snooze ───────────────────────────────
+// Skjul et smart-forslag i N dage (default 14), per kunde + type. Upsert, så
+// gentaget skjul blot forlænger. Filtreres ud i GET /suggestions.
+router.post('/suggestions/snooze', handle((req, res) => {
+    const db = getDb();
+    const { customer_id, type } = req.body;
+    const days = parseInt(req.body.days, 10) || 14;
+    if (!customer_id || !type) {
+        return res.status(400).json({ error: 'customer_id og type kræves' });
+    }
+    const userId = getUserId(req);
+    db.prepare(`
+        INSERT INTO crm_suggestion_snoozes (customer_id, type, snoozed_until, created_by)
+        VALUES (?, ?, datetime('now', ?), ?)
+        ON CONFLICT(customer_id, type) DO UPDATE SET
+            snoozed_until = excluded.snoozed_until,
+            created_by    = excluded.created_by,
+            created_at    = CURRENT_TIMESTAMP
+    `).run(customer_id, type, '+' + days + ' days', userId);
+    res.json({ ok: true, days });
+}));
+
+// ─── GET /suggestions/snoozed ───────────────────────────────
+// Aktive (ikke-udløbne) snoozes med kunde/firma-navn → "N skjult"-listen.
+router.get('/suggestions/snoozed', handle((req, res) => {
+    const db = getDb();
+    const rows = db.prepare(`
+        SELECT s.customer_id, s.type, s.snoozed_until,
+               c.first_name || ' ' || COALESCE(c.last_name, '') AS customer_name,
+               co.name AS company_name
+        FROM crm_suggestion_snoozes s
+        JOIN customers c ON c.id = s.customer_id
+        LEFT JOIN companies co ON c.company_id = co.id
+        WHERE s.snoozed_until > datetime('now')
+        ORDER BY s.snoozed_until ASC
+    `).all();
+    res.json(rows);
+}));
+
+// ─── POST /suggestions/unsnooze ─────────────────────────────
+// Fortryd et skjul før de 14 dage er gået → forslaget kan komme tilbage.
+router.post('/suggestions/unsnooze', handle((req, res) => {
+    const db = getDb();
+    const { customer_id, type } = req.body;
+    if (!customer_id || !type) {
+        return res.status(400).json({ error: 'customer_id og type kræves' });
+    }
+    db.prepare(`DELETE FROM crm_suggestion_snoozes WHERE customer_id = ? AND type = ?`)
+        .run(customer_id, type);
+    res.json({ ok: true });
 }));
 
 // ─── GET /service-calls ─────────────────────────────────────

@@ -19,6 +19,14 @@ Specet er gennemgået mod kildekoden. Det meste holder 1:1; nedenstående juster
 har **forrang** over de tilsvarende afsnit længere nede (særligt "Status" og
 "Rækkefølge-anbefaling").
 
+> **Implementeret (juni 2026):**
+> - **Fase 1** (`review_ask`) — migration 108, blok §6 i `GET /suggestions`, dashboard-knap "⭐ Spurgt". Verificeret i drift.
+> - **Idé ① — round-robin feed-budget** — `interleaveSuggestions()` i `routes/crm.js`. Hver type får plads i top-8 (løste at 7 sæson-kort skjulte review). Verificeret i drift.
+> - **Idé ② — snooze ("🙈 Skjul")** — migration 109 (`crm_suggestion_snoozes`), per kunde+type, 14 dage, JS-filter før round-robin. Inkl. "🙈 N skjult"-knap med "↩︎ Vis igen"-fortryd og et ⓘ info-felt der forklarer hvordan forslagene laves.
+> - Tests: `scripts/test-crm-review.js` (22 asserts: detektion + snooze-filter + round-robin).
+>
+> Resterende idéer (③ outcome-måling, ④ Fase 4-gating, Fase 2/3/5) er endnu ikke bygget.
+
 ### Faktuelle rettelser (verificeret mod koden)
 
 - **Migrationsnumre:** specet siger "≥ 086" flere steder. Højeste migration er reelt

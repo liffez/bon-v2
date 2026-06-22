@@ -160,6 +160,54 @@ try {
     assert(!ids.has(c08), 'REV — positiv uden for 21-dages-vindue → ekskluderet');
     assert(!ids.has(c09), 'REV — stage \'lead\' → ekskluderet');
 
+    // ─── snooze-filter (migration 109 + GET /suggestions-filter, revision idé ②) ───
+    console.log('\n=== snooze-filter ===');
+    db.prepare(`INSERT INTO crm_suggestion_snoozes (customer_id, type, snoozed_until)
+                VALUES (?, 'review_ask', datetime('now','+14 days'))`).run(c01);
+    const snoozedSet = new Set(db.prepare(`
+        SELECT customer_id || ':' || type AS k FROM crm_suggestion_snoozes
+        WHERE snoozed_until > datetime('now')
+    `).all().map(r => r.k));
+    assert(snoozedSet.has(c01 + ':review_ask'), 'SNOOZE — aktiv snooze findes for c01:review_ask');
+    assert(!snoozedSet.has(c06 + ':review_ask'), 'SNOOZE — ikke-snoozet kunde påvirkes ikke');
+
+    // udløbet snooze tæller ikke
+    db.prepare(`INSERT INTO crm_suggestion_snoozes (customer_id, type, snoozed_until)
+                VALUES (?, 'review_ask', datetime('now','-1 days'))`).run(c06);
+    const snoozedSet2 = new Set(db.prepare(`
+        SELECT customer_id || ':' || type AS k FROM crm_suggestion_snoozes
+        WHERE snoozed_until > datetime('now')
+    `).all().map(r => r.k));
+    assert(!snoozedSet2.has(c06 + ':review_ask'), 'SNOOZE — udløbet snooze tæller ikke');
+
+    // re-snooze (UNIQUE upsert) opdaterer samme række, ingen dublet
+    db.prepare(`
+        INSERT INTO crm_suggestion_snoozes (customer_id, type, snoozed_until)
+        VALUES (?, 'review_ask', datetime('now','+30 days'))
+        ON CONFLICT(customer_id, type) DO UPDATE SET snoozed_until = excluded.snoozed_until
+    `).run(c01);
+    const dupCount = db.prepare(`SELECT COUNT(*) AS n FROM crm_suggestion_snoozes WHERE customer_id = ? AND type = 'review_ask'`).get(c01).n;
+    assert(dupCount === 1, 'SNOOZE — re-snooze upserter (ingen dublet)');
+
+    // snoozed-list-query (GET /suggestions/snoozed) viser kun aktive + joiner navn
+    const snoozedList = db.prepare(`
+        SELECT s.customer_id, s.type, c.first_name AS customer_name
+        FROM crm_suggestion_snoozes s
+        JOIN customers c ON c.id = s.customer_id
+        WHERE s.snoozed_until > datetime('now')
+        ORDER BY s.snoozed_until ASC
+    `).all();
+    assert(snoozedList.length === 1 && snoozedList[0].customer_id === c01,
+        'SNOOZE — snoozed-list viser kun aktive (c01), med navn');
+
+    // unsnooze (DELETE) fjerner rækken → ikke længere skjult
+    db.prepare(`DELETE FROM crm_suggestion_snoozes WHERE customer_id = ? AND type = 'review_ask'`).run(c01);
+    const afterUnsnooze = db.prepare(`
+        SELECT COUNT(*) AS n FROM crm_suggestion_snoozes
+        WHERE customer_id = ? AND type = 'review_ask' AND snoozed_until > datetime('now')
+    `).get(c01).n;
+    assert(afterUnsnooze === 0, 'SNOOZE — unsnooze fjerner rækken');
+
     // ─── interleaveSuggestions (round-robin feed-budget, revision idé ①) ───
     // Ren funktion — ingen DB. Sikrer at review_ask ikke begraves bag sæson/overdue.
     const { interleaveSuggestions } = require('../routes/crm');
