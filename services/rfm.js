@@ -556,6 +556,78 @@ function computeProspectScores(opts = {}) {
     };
 }
 
+// ─── Re-aktivering ──────────────────────────────────────────
+// Sovende firmaer med højt potentiale. Tærskler er justerbare (migration 107):
+//   min. historiske ordrer + karantæne efter seneste kontakt. recency_days
+//   (hvornår = sovende) styres af rfm_config.
+
+/** Re-aktiverings-tærskler fra settings (fallback ved manglende/ugyldig værdi). */
+function getReactivationConfig(db) {
+    const sm = {};
+    for (const r of db.prepare(
+        "SELECT key, value FROM settings WHERE key IN ('reactivation_min_orders','reactivation_quarantine_days')"
+    ).all()) sm[r.key] = r.value;
+    // Fallback kun ved manglende/ugyldig værdi — 0 er gyldig (karantæne=0 = ingen karantæne),
+    // så brug ikke `|| default` (0 er falsy).
+    const num = (raw, def, floor) => { const v = parseInt(raw, 10); return Number.isFinite(v) && v >= floor ? v : def; };
+    const minOrders = num(sm.reactivation_min_orders, 2, 1);
+    const quarantineDays = num(sm.reactivation_quarantine_days, 30, 0);
+    return { min_orders: minOrders, quarantine_days: quarantineDays, recency_days: getRfmConfig(db).recency_days };
+}
+
+/**
+ * Sovende firmaer med højt potentiale, sorteret efter F+M-score.
+ * Returnerer { rows, config }.
+ */
+function getReactivationCandidates(db) {
+    const cfg = getReactivationConfig(db);
+    const quarantineModifier = '-' + cfg.quarantine_days + ' days';
+
+    const rows = db.prepare(`
+        SELECT s.*, c.name, c.cvr, c.branch, c.employee_count, c.is_personal,
+               c.phone AS company_phone, c.email AS company_email,
+               (SELECT first_name || ' ' || COALESCE(last_name,'')
+                FROM customers WHERE company_id = c.id AND is_active = 1
+                ORDER BY is_primary_contact DESC LIMIT 1) AS primary_contact_name,
+               (SELECT phone FROM customers WHERE company_id = c.id AND is_active = 1
+                ORDER BY is_primary_contact DESC LIMIT 1) AS primary_contact_phone,
+               (SELECT id FROM customers WHERE company_id = c.id AND is_active = 1
+                ORDER BY is_primary_contact DESC LIMIT 1) AS primary_customer_id,
+               CAST(s.f_score * 0.55 + s.m_score * 0.45 AS INTEGER) AS potential_score
+        FROM rfm_scores s
+        JOIN companies c ON c.id = s.company_id
+        WHERE s.stage = 'dormant'
+          AND s.order_count >= ?
+          AND s.days_since_last > ?
+          AND c.is_active = 1
+          AND s.company_id NOT IN (
+              SELECT DISTINCT cu2.company_id
+              FROM crm_activities a
+              JOIN customers cu2 ON cu2.id = a.customer_id
+              WHERE a.created_at >= date('now', ?)
+                AND cu2.company_id IS NOT NULL
+          )
+        ORDER BY potential_score DESC
+        LIMIT 100
+    `).all(cfg.min_orders, cfg.recency_days, quarantineModifier);
+
+    // Sidst bestilte produkt for åbningslinje
+    for (const row of rows) {
+        row.last_order_detail = db.prepare(`
+            SELECT b.delivery_date, b.pax,
+                   (SELECT bl.product_name FROM bon_lines bl WHERE bl.bon_id = b.id
+                    AND COALESCE(bl.category,'') NOT IN ('06 Emballage','x-Levering','Emballage','x- Service')
+                    ORDER BY bl.quantity DESC LIMIT 1) AS top_product
+            FROM bons b
+            WHERE b.company_id = ?
+              AND (b.is_offer = 0 OR b.is_offer IS NULL) AND b.is_internal = 0
+            ORDER BY b.delivery_date DESC LIMIT 1
+        `).get(row.company_id) || null;
+    }
+
+    return { rows, config: cfg };
+}
+
 module.exports = {
     ensurePersonalCompanies,
     getRfmConfig,
@@ -567,4 +639,6 @@ module.exports = {
     haversineKm,
     scoreProspect,
     computeProspectScores,
+    getReactivationConfig,
+    getReactivationCandidates,
 };
