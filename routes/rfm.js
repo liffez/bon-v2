@@ -10,7 +10,7 @@ const { getDb } = require('../db/database');
 const { handle } = require('../db/helpers');
 const { requireAuth } = require('../shared/auth');
 const { broadcast } = require('../shared/sse');
-const { computeRfmScores, getRfmConfig, computeIcpProfile, computeProspectScores } = require('../services/rfm');
+const { computeRfmScores, getRfmConfig, computeIcpProfile, computeProspectScores, getReactivationCandidates } = require('../services/rfm');
 
 router.use(requireAuth());
 
@@ -190,55 +190,10 @@ router.patch('/scores/:companyId/unlock', handle((req, res) => {
 }));
 
 // ─── GET /reactivation ──────────────────────────────────────
-// Sovende firmaer med højt potentiale, sorteret efter F+M score
+// Sovende firmaer med højt potentiale, sorteret efter F+M score.
+// Tærskler (min. ordrer + karantæne) er justerbare — se services/rfm.js.
 router.get('/reactivation', handle((req, res) => {
-    const db = getDb();
-    const cfg = getRfmConfig(db);
-
-    const rows = db.prepare(`
-        SELECT s.*, c.name, c.cvr, c.branch, c.employee_count, c.is_personal,
-               c.phone AS company_phone, c.email AS company_email,
-               (SELECT first_name || ' ' || COALESCE(last_name,'')
-                FROM customers WHERE company_id = c.id AND is_active = 1
-                ORDER BY is_primary_contact DESC LIMIT 1) AS primary_contact_name,
-               (SELECT phone FROM customers WHERE company_id = c.id AND is_active = 1
-                ORDER BY is_primary_contact DESC LIMIT 1) AS primary_contact_phone,
-               (SELECT id FROM customers WHERE company_id = c.id AND is_active = 1
-                ORDER BY is_primary_contact DESC LIMIT 1) AS primary_customer_id,
-               CAST(s.f_score * 0.55 + s.m_score * 0.45 AS INTEGER) AS potential_score
-        FROM rfm_scores s
-        JOIN companies c ON c.id = s.company_id
-        WHERE s.stage = 'dormant'
-          AND s.order_count >= 2
-          AND s.days_since_last > ?
-          AND c.is_active = 1
-          AND s.company_id NOT IN (
-              SELECT DISTINCT cu2.company_id
-              FROM crm_activities a
-              JOIN customers cu2 ON cu2.id = a.customer_id
-              WHERE a.created_at >= date('now', '-30 days')
-                AND cu2.company_id IS NOT NULL
-          )
-        ORDER BY potential_score DESC
-        LIMIT 100
-    `).all(cfg.recency_days);
-
-    // Tilføj sidst bestilte produkt for åbningslinje
-    for (const row of rows) {
-        const lastOrder = db.prepare(`
-            SELECT b.delivery_date, b.pax,
-                   (SELECT bl.product_name FROM bon_lines bl WHERE bl.bon_id = b.id
-                    AND COALESCE(bl.category,'') NOT IN ('06 Emballage','x-Levering','Emballage','x- Service')
-                    ORDER BY bl.quantity DESC LIMIT 1) AS top_product
-            FROM bons b
-            WHERE b.company_id = ?
-              AND (b.is_offer = 0 OR b.is_offer IS NULL) AND b.is_internal = 0
-            ORDER BY b.delivery_date DESC LIMIT 1
-        `).get(row.company_id);
-        row.last_order_detail = lastOrder || null;
-    }
-
-    res.json(rows);
+    res.json(getReactivationCandidates(getDb()));
 }));
 
 // ─── GET /prospects ─────────────────────────────────────────

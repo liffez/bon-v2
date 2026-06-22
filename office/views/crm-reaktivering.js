@@ -7,6 +7,7 @@
 let _reakContainer = null;
 let _reakActive = false;
 let _reakData = null;
+let _reakConfig = null;
 let _reakDebounce = null;
 let _reakPurposes = null;
 
@@ -53,6 +54,14 @@ function _reakHandleSSE(event) {
     }
 }
 
+// Justér re-aktiverings-tærskel → gem som setting + reload
+async function _reakSetConfig(key, val) {
+    const floor = key === 'reactivation_min_orders' ? 1 : 0;
+    const num = Math.max(floor, parseInt(val, 10) || floor);
+    try { await patchSetting(key, String(num)); } catch { /* reload viser stadig serverens tilstand */ }
+    _reakLoadData();
+}
+
 async function _reakLoadData() {
     if (!_reakActive) return;
     try {
@@ -60,7 +69,9 @@ async function _reakLoadData() {
             fetchRfmReactivation(),
             _reakPurposes ? Promise.resolve(_reakPurposes) : fetchActivityPurposes(),
         ]);
-        _reakData = data;
+        // Bagudkompatibel: endpointet returnerer nu { rows, config } (var et array)
+        _reakData = Array.isArray(data) ? data : (data.rows || []);
+        _reakConfig = (data && data.config) || null;
         _reakPurposes = purposes;
         _reakRender();
     } catch (err) {
@@ -76,6 +87,13 @@ function _reakShellHtml() {
 .reak-header { margin-bottom: 16px; }
 .reak-header h2 { margin: 0 0 4px; font-family: var(--font-heading, serif); }
 .reak-header p { margin: 0; color: #888; font-size: 13px; }
+.reak-config { display: flex; align-items: center; gap: 14px; flex-wrap: wrap; margin-top: 10px;
+               font-size: 12px; color: #666; background: #faf8f5; border: 1px solid var(--color-border, #d7d1ca);
+               border-radius: 8px; padding: 8px 12px; }
+.reak-config label { display: flex; align-items: center; gap: 6px; }
+.reak-config input { width: 52px; padding: 5px 7px; border: 1px solid #ccc; border-radius: 6px;
+                     font-size: 13px; text-align: right; }
+.reak-config .reak-cfg-hint { color: #999; }
 .reak-card { background: #fff; border: 1px solid var(--color-border, #d7d1ca); border-radius: 8px;
              padding: 16px; margin-bottom: 12px; transition: box-shadow 0.2s; }
 .reak-card:hover { box-shadow: 0 2px 8px rgba(0,0,0,0.08); }
@@ -107,6 +125,7 @@ function _reakShellHtml() {
     <div class="reak-header">
         <h2>Re-aktivering</h2>
         <p id="reak-subtitle">Indlæser...</p>
+        <div class="reak-config" id="reak-config" style="display:none"></div>
     </div>
     <div id="reak-list"></div>
 </div>`;
@@ -117,6 +136,27 @@ function _reakRender() {
 
     const subtitle = document.getElementById('reak-subtitle');
     if (subtitle) subtitle.textContent = `${_reakData.length} sovende kunder med potentiale \u00b7 sorteret efter fit`;
+
+    // Justerbare t\u00e6rskler (r\u00f8r ikke et felt der er i fokus)
+    const cfgEl = document.getElementById('reak-config');
+    if (cfgEl && _reakConfig) {
+        const active = document.activeElement;
+        if (!(active && active.classList && active.classList.contains('reak-cfg-input'))) {
+            cfgEl.style.display = '';
+            cfgEl.innerHTML = `
+                <label title="Mindste antal historiske ordrer f\u00f8r et sovende firma vises som emne">
+                    Min. ordrer
+                    <input type="number" min="1" step="1" class="reak-cfg-input" value="${_reakConfig.min_orders}"
+                        onchange="_reakSetConfig('reactivation_min_orders', this.value)">
+                </label>
+                <label title="Skjul firmaer der er kontaktet inden for s\u00e5 mange dage">
+                    Karant\u00e6ne
+                    <input type="number" min="0" step="1" class="reak-cfg-input" value="${_reakConfig.quarantine_days}"
+                        onchange="_reakSetConfig('reactivation_quarantine_days', this.value)"> dage
+                </label>
+                <span class="reak-cfg-hint">Sovende efter ${_reakConfig.recency_days} dage (\u00e6ndres i Kundeindsigt)</span>`;
+        }
+    }
 
     const list = document.getElementById('reak-list');
     if (!list) return;
