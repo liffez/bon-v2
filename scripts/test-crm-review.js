@@ -160,6 +160,31 @@ try {
     assert(!ids.has(c08), 'REV — positiv uden for 21-dages-vindue → ekskluderet');
     assert(!ids.has(c09), 'REV — stage \'lead\' → ekskluderet');
 
+    // ─── interleaveSuggestions (round-robin feed-budget, revision idé ①) ───
+    // Ren funktion — ingen DB. Sikrer at review_ask ikke begraves bag sæson/overdue.
+    const { interleaveSuggestions } = require('../routes/crm');
+    const fake = [
+        { type: 'overdue_customer', priority: 2, id: 'o1' },
+        ...Array.from({ length: 7 }, (_, i) => ({ type: 'season_reminder', priority: 2, id: 's' + i })),
+        { type: 'review_ask', priority: 2, id: 'r1' },
+        { type: 'review_ask', priority: 2, id: 'r2' },
+    ];
+    const out = interleaveSuggestions(fake);
+    const top8 = out.slice(0, 8).map(s => s.type);
+
+    console.log('\n=== interleaveSuggestions ===');
+    assert(out.length === fake.length, 'RR — alle forslag bevares (intet tabt)');
+    assert(out[0].type === 'overdue_customer', 'RR — overdue først (type-rækkefølge)');
+    assert(out[1].type === 'review_ask', 'RR — review_ask i top, ikke begravet bag sæson');
+    assert(top8.filter(t => t === 'review_ask').length === 2, 'RR — begge review-kort i top-8');
+    assert(top8.filter(t => t === 'season_reminder').length <= 6, 'RR — sæson mætter ikke længere top-8');
+
+    const pr = interleaveSuggestions([
+        { type: 'review_ask', priority: 3, id: 'low' },
+        { type: 'review_ask', priority: 1, id: 'high' },
+    ]);
+    assert(pr[0].id === 'high' && pr[1].id === 'low', 'RR — priority bevares inden for type');
+
     console.log(`\n${pass} passed · ${fail} failed`);
     cleanup();
     process.exit(fail ? 1 : 0);

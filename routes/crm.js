@@ -19,6 +19,47 @@ const {
 
 router.use(requireAuth());
 
+// Round-robin-interleave af suggestions: hver forslagstype får repræsentation i
+// toppen, så feeden ikke mættes af én type (fx 7 sæson-kort skubber review_ask ud
+// af top-8). Inden for hver type bevares priority/sekundær-orden. Type-rækkefølgen
+// styrer hvem der kommer først ved lige stand i hver runde (vigtigst → mindst
+// hastende). Jf. CLAUDE_CRM_TRIKS.md revision idé ①.
+const SUGGESTION_TYPE_ORDER = [
+    'overdue_customer',
+    'review_ask',
+    'expiring_offer',
+    'uncontacted_lead',
+    'dormant_highvalue',
+    'season_reminder',
+];
+
+function interleaveSuggestions(suggestions) {
+    const byType = new Map();
+    for (const s of suggestions) {
+        if (!byType.has(s.type)) byType.set(s.type, []);
+        byType.get(s.type).push(s);
+    }
+    // sortér hver types egen kø efter priority (stabil sort → bevarer sekundær orden)
+    for (const list of byType.values()) {
+        list.sort((a, b) => a.priority - b.priority);
+    }
+    // kendte typer i fast rækkefølge + evt. ukendte bagest (fremtidssikring)
+    const types = [
+        ...SUGGESTION_TYPE_ORDER.filter(t => byType.has(t)),
+        ...[...byType.keys()].filter(t => !SUGGESTION_TYPE_ORDER.includes(t)),
+    ];
+    const ordered = [];
+    let added = true;
+    while (added) {
+        added = false;
+        for (const t of types) {
+            const list = byType.get(t);
+            if (list && list.length) { ordered.push(list.shift()); added = true; }
+        }
+    }
+    return ordered;
+}
+
 // ─── GET /stats ─────────────────────────────────────────────
 router.get('/stats', handle((req, res) => {
     const db = getDb();
@@ -499,8 +540,9 @@ router.get('/suggestions', handle((req, res) => {
         });
     }
 
-    suggestions.sort((a, b) => a.priority - b.priority);
-    res.json(suggestions);
+    // Round-robin frem for ren priority-sort, så hver type får plads i top-8
+    // (ellers mætter sæson/overdue feeden og review_ask skæres væk).
+    res.json(interleaveSuggestions(suggestions));
 }));
 
 // ─── GET /service-calls ─────────────────────────────────────
@@ -1603,3 +1645,4 @@ router.post('/leads/import', handle(async (req, res) => {
 }));
 
 module.exports = router;
+module.exports.interleaveSuggestions = interleaveSuggestions;  // eksporteret til test
