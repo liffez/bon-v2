@@ -14,6 +14,7 @@ let _prosMinKm = '';        // afstands-interval, nedre grænse (km, '' = ingen)
 let _prosMaxKm = '';        // afstands-interval, øvre grænse (km, '' = ingen)
 let _prosBlacklist = [];    // skjulte brancher
 let _prosBranchFilter = ''; // klik på ICP-chip → vis kun denne branche
+let _prosWeightsOpen = false; // vægtnings-panel åbent?
 
 function initCrmProspekter(container) {
     _prosContainer = container;
@@ -129,6 +130,15 @@ function _prosShellHtml() {
 .pros-hide { padding: 4px 8px; border: 1px solid #e3cccc; border-radius: 6px; background: #fff; cursor: pointer; font-size: 12px; color: #8a3d3d; }
 .pros-hide:hover { background: #f9efef; }
 .pros-note { font-size: 12px; color: #a07b2a; background: #fbf6e8; border-radius: 6px; padding: 6px 10px; margin-bottom: 12px; }
+.pros-cog { padding: 6px 10px; border: 1px solid #ccc; border-radius: 6px; background: #fff; cursor: pointer; font-size: 13px; }
+.pros-cog:hover { background: #f5f3f0; }
+.pros-weights { background: #faf8f5; border: 1px solid var(--color-border, #d7d1ca); border-radius: 8px; padding: 12px 16px; margin-bottom: 16px; max-width: 460px; }
+.pros-weights h4 { margin: 0 0 4px; font-size: 13px; }
+.pros-weights .pw-hint { font-size: 12px; color: #888; margin-bottom: 10px; }
+.pros-w-row { display: flex; align-items: center; gap: 10px; margin-bottom: 6px; font-size: 13px; }
+.pros-w-row label { flex: 0 0 90px; }
+.pros-w-row input[type=range] { flex: 1; }
+.pros-w-row .pw-pct { flex: 0 0 44px; text-align: right; font-weight: 600; color: #8e631f; }
 </style>
 <div class="pros-wrap">
     <div class="pros-header">
@@ -143,8 +153,10 @@ function _prosShellHtml() {
                 <input type="number" min="0" step="1" id="pros-maxkm" placeholder="max"
                     onchange="_prosSetDist('max', this.value)"> km
             </span>
+            <button class="pros-cog" title="Justér hvor meget branche vs. størrelse vejer i fit-scoren" onclick="_prosToggleWeights()">⚙ Vægtning</button>
         </div>
     </div>
+    <div class="pros-weights" id="pros-weights" style="display:none"></div>
     <div class="pros-icp-strip" id="pros-icp-strip"></div>
     <div class="pros-bl-row" id="pros-blacklist"></div>
     <div class="pros-note" id="pros-note" style="display:none"></div>
@@ -172,6 +184,8 @@ function _prosRender() {
                 return `<span class="pros-icp-chip${active ? ' active' : ''}" title="${active ? 'Klik for at rydde filteret' : 'Vis kun leads i denne branche'}" onclick="_prosToggleBranch('${_prosAttr(b.branch)}')">${_prosEsc(b.branch)} (${b.pct}%)</span>`;
             }).join('');
     }
+
+    _prosRenderWeights();
 
     // Blacklist-chips (skjulte brancher)
     const blRow = document.getElementById('pros-blacklist');
@@ -302,6 +316,49 @@ function _prosOnSearch(val) {
 function _prosToggleBranch(branch) {
     _prosBranchFilter = (_prosBranchFilter === branch) ? '' : branch;
     _prosRender();
+}
+
+// ── Fit-vægtning (branche vs. størrelse) ────────────────────
+function _prosToggleWeights() {
+    _prosWeightsOpen = !_prosWeightsOpen;
+    _prosRenderWeights();
+}
+
+function _prosRenderWeights() {
+    const el = document.getElementById('pros-weights');
+    if (!el) return;
+    if (!_prosWeightsOpen || !_prosMeta?.weights) { el.style.display = 'none'; return; }
+    const w = _prosMeta.weights;
+    const wb = Number(w.branch) || 0, ws = Number(w.size) || 0;
+    const sum = wb + ws || 1;
+    const pct = v => Math.round(v / sum * 100);
+    // Rør ikke en slider der er ved at blive trukket
+    const active = document.activeElement;
+    if (active && active.classList && active.classList.contains('pw-slider')) return;
+    el.style.display = '';
+    el.innerHTML = `
+        <h4>Fit-vægtning</h4>
+        <div class="pw-hint">Hvor meget hver del vejer i fit-scoren. Normaliseres til 100% tilsammen.</div>
+        <div class="pros-w-row">
+            <label>Branche</label>
+            <input type="range" class="pw-slider" min="0" max="100" value="${wb}" id="pw-branch"
+                oninput="document.getElementById('pw-branch-pct').textContent=this.value" onchange="_prosSetWeight('branch', this.value)">
+            <span class="pw-pct" id="pw-branch-pct">${wb}</span>
+        </div>
+        <div class="pros-w-row">
+            <label>Størrelse</label>
+            <input type="range" class="pw-slider" min="0" max="100" value="${ws}" id="pw-size"
+                oninput="document.getElementById('pw-size-pct').textContent=this.value" onchange="_prosSetWeight('size', this.value)">
+            <span class="pw-pct" id="pw-size-pct">${ws}</span>
+        </div>
+        <div class="pw-hint">Effektivt: branche ${pct(wb)}% · størrelse ${pct(ws)}%</div>`;
+}
+
+async function _prosSetWeight(which, val) {
+    const num = Math.max(0, parseInt(val, 10) || 0);
+    const key = which === 'branch' ? 'prospect_fit_w_branch' : 'prospect_fit_w_size';
+    try { await patchSetting(key, String(num)); } catch { /* reload viser stadig serverens tilstand */ }
+    _prosLoadData();
 }
 
 // Afstands-interval: gem som settings-default (delt forretningspræference) + reload.

@@ -23,6 +23,7 @@ const {
     scoreProspect,
     computeProspectScores,
     getVipReference,
+    getProspectFitConfig,
     haversineKm,
 } = require('../services/rfm');
 
@@ -70,6 +71,13 @@ console.log('\nscoreProspect — math');
     // Spredning: forskellige inputs giver forskellige fits
     const fits = [a.fit, b.fit, x.fit, big.fit];
     assert(new Set(fits).size >= 3, 'forskellige emner giver forskellige fit-scores (spredning)');
+
+    // Vægt 0 er gyldig: størrelse=0 → kun branche tæller (uanset størrelse)
+    const cfg0 = { w_branch: 50, w_size: 0 };
+    const bigOnlyBranch = scoreProspect({ branch: 'A', employee_count: 5000 }, ref, hq, cfg0);
+    const smallOnlyBranch = scoreProspect({ branch: 'A', employee_count: 50 }, ref, hq, cfg0);
+    assert(bigOnlyBranch.fit === 100 && smallOnlyBranch.fit === 100,
+        'w_size=0 → samme branche scorer ens uanset størrelse (begge 100)');
 }
 
 console.log('\nhaversineKm');
@@ -195,6 +203,14 @@ console.log('\ncomputeProspectScores — integration');
     assert(res.meta.distance_max_km === 10, 'settings-default afstands-filter aktiveres');
     assert(!res.rows.some(r => r.name === 'Lead Fjern Offentlig'), 'settings-filter fjerner fjerne leads');
     db.prepare("UPDATE settings SET value = '' WHERE key = 'prospect_distance_max_km'").run();
+
+    // Fit-vægt: 0 er en gyldig settings-værdi (ikke fallback til default)
+    db.prepare("UPDATE settings SET value = '0' WHERE key = 'prospect_fit_w_size'").run();
+    assert(getProspectFitConfig(db).w_size === 0, 'w_size=0 i settings respekteres (ikke fallback til 20)');
+    res = computeProspectScores();
+    assert(res.meta.weights.size === 0, 'meta afspejler w_size=0');
+    db.prepare("UPDATE settings SET value = '20' WHERE key = 'prospect_fit_w_size'").run();
+    assert(getProspectFitConfig(db).w_size === 20, 'default gendannet (20)');
 }
 
 console.log(`\n${pass} passed, ${fail} failed`);

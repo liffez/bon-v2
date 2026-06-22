@@ -362,9 +362,12 @@ function getProspectFitConfig(db) {
         return Number.isFinite(v) && v > 0 ? v : null;   // 0/tom = intet filter
     };
 
+    // Fallback kun ved manglende/ugyldig værdi — 0 er en gyldig vægt
+    // (fx størrelse=0 = "scor kun på branche"), så brug ikke `|| default`.
+    const num = (raw, def) => { const v = parseFloat(raw); return Number.isFinite(v) && v >= 0 ? v : def; };
     return {
-        w_branch: parseFloat(m.prospect_fit_w_branch) || 50,
-        w_size: parseFloat(m.prospect_fit_w_size) || 20,
+        w_branch: num(m.prospect_fit_w_branch, 50),
+        w_size: num(m.prospect_fit_w_size, 20),
         // prospect_fit_w_distance er bevidst ikke længere i brug — afstand
         // indgår ikke i fit-scoren (firma-adresse ≠ leveringssted).
         distance_min_km: parseKm(m.prospect_distance_min_km),
