@@ -1488,8 +1488,11 @@ function fetchRfmReactivation() {
     return apiFetch('/rfm/reactivation');
 }
 
-function fetchRfmProspects() {
-    return apiFetch('/rfm/prospects');
+function fetchRfmProspects(params) {
+    var clean = {};
+    if (params) for (var k in params) { if (params[k] != null && params[k] !== '') clean[k] = params[k]; }
+    var qs = Object.keys(clean).length ? '?' + new URLSearchParams(clean).toString() : '';
+    return apiFetch('/rfm/prospects' + qs);
 }
 
 function fetchRfmIcp(source) {

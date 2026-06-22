@@ -10,7 +10,7 @@ const { getDb } = require('../db/database');
 const { handle } = require('../db/helpers');
 const { requireAuth } = require('../shared/auth');
 const { broadcast } = require('../shared/sse');
-const { computeRfmScores, getRfmConfig, computeIcpProfile } = require('../services/rfm');
+const { computeRfmScores, getRfmConfig, computeIcpProfile, computeProspectScores } = require('../services/rfm');
 
 router.use(requireAuth());
 
@@ -242,30 +242,11 @@ router.get('/reactivation', handle((req, res) => {
 }));
 
 // ─── GET /prospects ─────────────────────────────────────────
-// Lead-firmaer, evt. med ICP-fit scoring
+// Lead-firmaer med gradueret ICP-fit (branche + størrelse + afstand).
+// Query: ?q= søgning, ?minKm/?maxKm= afstands-interval (overstyrer settings-default).
 router.get('/prospects', handle((req, res) => {
-    const db = getDb();
-
-    const rows = db.prepare(`
-        SELECT s.*, c.name, c.cvr, c.branch, c.employee_count, c.company_type,
-               c.is_personal, c.phone AS company_phone, c.email AS company_email,
-               (SELECT first_name || ' ' || COALESCE(last_name,'')
-                FROM customers WHERE company_id = c.id AND is_active = 1
-                ORDER BY is_primary_contact DESC LIMIT 1) AS primary_contact_name,
-               (SELECT phone FROM customers WHERE company_id = c.id AND is_active = 1
-                ORDER BY is_primary_contact DESC LIMIT 1) AS primary_contact_phone,
-               (SELECT id FROM customers WHERE company_id = c.id AND is_active = 1
-                ORDER BY is_primary_contact DESC LIMIT 1) AS primary_customer_id
-        FROM rfm_scores s
-        JOIN companies c ON c.id = s.company_id
-        WHERE s.stage = 'lead'
-          AND c.is_active = 1
-          AND c.is_personal = 0
-        ORDER BY c.branch IS NOT NULL DESC, c.name ASC
-        LIMIT 200
-    `).all();
-
-    res.json(rows);
+    const result = computeProspectScores({ q: req.query.q, minKm: req.query.minKm, maxKm: req.query.maxKm });
+    res.json(result);
 }));
 
 // ─── GET /icp ───────────────────────────────────────────────
