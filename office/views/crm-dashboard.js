@@ -435,12 +435,33 @@ function _crmRenderShell() {
 
             <div class="crm-card" id="crmSuggestions">
                 <div class="crm-card-head" style="display:flex;justify-content:space-between;align-items:center;margin-bottom:10px;">
-                    <h3 style="margin:0;">Smart forslag</h3>
-                    <button class="crm-sug-action-btn" id="crmReactivateBtn" type="button"
-                            style="padding:6px 12px;border-radius:8px;border:1px solid var(--brand-primary,#8e631f);background:var(--color-surface,#fff);color:var(--brand-primary,#8e631f);font-size:12px;font-weight:600;cursor:pointer;font-family:inherit;">
-                        🔄 Reaktivér sovende
-                    </button>
+                    <h3 style="margin:0;display:flex;align-items:center;gap:6px;">Smart forslag
+                        <button id="crmSugInfoBtn" type="button" title="Hvordan laves forslagene?"
+                                onclick="_crmToggleSugInfo()"
+                                style="width:18px;height:18px;line-height:16px;text-align:center;border-radius:50%;border:1px solid var(--color-border,#d7d1ca);background:var(--color-surface,#fff);color:var(--color-text-dim,#888);font-size:11px;cursor:pointer;font-family:inherit;padding:0;">ⓘ</button>
+                    </h3>
+                    <div style="display:flex;gap:8px;align-items:center;">
+                        <button id="crmSnoozedBtn" type="button" onclick="_crmToggleSnoozedPanel()"
+                                style="display:none;padding:6px 12px;border-radius:8px;border:1px solid var(--color-border,#d7d1ca);background:var(--color-surface,#fff);color:var(--color-text-dim,#888);font-size:12px;font-weight:600;cursor:pointer;font-family:inherit;"></button>
+                        <button class="crm-sug-action-btn" id="crmReactivateBtn" type="button"
+                                style="padding:6px 12px;border-radius:8px;border:1px solid var(--brand-primary,#8e631f);background:var(--color-surface,#fff);color:var(--brand-primary,#8e631f);font-size:12px;font-weight:600;cursor:pointer;font-family:inherit;">
+                            🔄 Reaktivér sovende
+                        </button>
+                    </div>
                 </div>
+                <div id="crmSugInfo" style="display:none;margin-bottom:12px;padding:12px 14px;background:var(--brand-primary-light,#f1e6b2);border-radius:8px;font-size:12.5px;line-height:1.55;color:var(--color-text,#3a2f25);">
+                    <strong>Sådan laves forslagene:</strong> de genereres automatisk ud fra dine kunder og bons — ingen manuel kuration. Seks typer indgår:
+                    <ul style="margin:8px 0 0;padding-left:18px;">
+                        <li>📞 <strong>Forsinket</strong> — fast kunde der er over sit normale bestillingsinterval</li>
+                        <li>⭐ <strong>Anbefaling</strong> — kunde med en frisk positiv stemning (godt øjeblik at bede om en anmeldelse/henvisning)</li>
+                        <li>📅 <strong>Sæson</strong> — bestilte på denne tid sidste år, intet for nylig</li>
+                        <li>🆕 <strong>Nyt lead</strong> — oprettet men endnu ikke kontaktet</li>
+                        <li>💤 <strong>Sovende</strong> — højværdikunde uden ordre i lang tid</li>
+                        <li>🧾 <strong>Udløbende tilbud</strong> — tilbud der snart udløber</li>
+                    </ul>
+                    Listen <strong>blander typerne</strong> (round-robin), så ingen type fylder det hele. Et forslag <strong>forsvinder når du har handlet på det</strong> — og du kan <strong>skjule</strong> et kort i 14 dage med “🙈 Skjul”, så de næste i køen kommer til.
+                </div>
+                <div id="crmSnoozedPanel" style="display:none;margin-bottom:12px;"></div>
                 <div id="crmSuggestionsList"></div>
             </div>
         </div>
@@ -464,7 +485,7 @@ async function _crmLoadData() {
     if (!_crmActive) return;
 
     try {
-        const [stats, briefing, suggestions, serviceCalls, callbacks, callLog, meetings] = await Promise.all([
+        const [stats, briefing, suggestions, serviceCalls, callbacks, callLog, meetings, snoozed] = await Promise.all([
             fetchCrmStats(),
             fetchCrmBriefing(),
             fetchCrmSuggestions(),
@@ -472,11 +493,13 @@ async function _crmLoadData() {
             fetchCrmCallbacks(),
             fetchCrmCallLog({ limit: 6 }),
             fetchCrmUpcomingMeetings({ days: 30, limit: 10 }),
+            fetchSnoozedSuggestions().catch(() => []),
         ]);
 
         _crmRenderKPIs(stats);
         _crmRenderBriefing(briefing);
         _crmRenderSuggestions(suggestions);
+        _crmRenderSnoozedButton(snoozed);
         _crmRenderServiceCalls(serviceCalls);
         _crmRenderCallbacks(callbacks);
         _crmRenderUpcomingMeetings(meetings);
@@ -569,20 +592,25 @@ function _crmRenderSuggestions(suggestions) {
         return;
     }
 
-    el.innerHTML = suggestions.slice(0, 8).map(s =>
-        '<div class="crm-suggestion" data-customer-id="' + s.customer_id + '">' +
+    el.innerHTML = suggestions.slice(0, 8).map(s => {
+        const ring = s.phone ? '<a class="crm-sug-btn primary" href="tel:' + s.phone.replace(/\s/g, '') + '">📞 Ring</a>' : '';
+        // 'review' → log at vi har spurgt (kortet forsvinder via dedupe ved næste reload);
+        // alle andre forslag → åbn profil.
+        // "Skjul" snoozer (kunde + type) i 14 dage → frigør slotten så andre roterer ind.
+        const skjul = '<button class="crm-sug-btn" title="Skjul dette forslag i 14 dage" onclick="_crmSnoozeSuggestion(' + s.customer_id + ', \'' + s.type + '\')">🙈 Skjul</button>';
+        const actionBtns = (s.action === 'review'
+            ? ring + '<button class="crm-sug-btn" onclick="_crmAskedForReview(' + s.customer_id + ')">⭐ Spurgt</button>'
+            : ring + '<button class="crm-sug-btn" onclick="_crmOpenKunde(' + s.customer_id + ')">👤 Profil</button>') + skjul;
+        return '<div class="crm-suggestion" data-customer-id="' + s.customer_id + '">' +
             '<div class="crm-sug-header">' +
                 '<span class="crm-sug-icon">' + s.icon + '</span>' +
                 '<span class="crm-sug-title">' + s.title + '</span>' +
             '</div>' +
             '<div class="crm-sug-detail">' + s.detail + '</div>' +
             '<div class="crm-sug-reason">' + s.reason + '</div>' +
-            '<div class="crm-sug-actions">' +
-                (s.phone ? '<a class="crm-sug-btn primary" href="tel:' + s.phone.replace(/\s/g, '') + '">📞 Ring</a>' : '') +
-                '<button class="crm-sug-btn" onclick="_crmOpenKunde(' + s.customer_id + ')">👤 Profil</button>' +
-            '</div>' +
-        '</div>'
-    ).join('');
+            '<div class="crm-sug-actions">' + actionBtns + '</div>' +
+        '</div>';
+    }).join('');
 }
 
 function _crmRenderServiceCalls(calls) {
@@ -805,6 +833,102 @@ async function _crmMarkHandled(customerId, bonId) {
     } catch (err) {
         console.error('[crm] Mark handled error:', err);
         alert('Kunne ikke markere: ' + (err.message || 'Ukendt fejl'));
+    }
+}
+
+// CRM-trik: log at vi har bedt kunden om en anbefaling. Aktiviteten tagges med
+// purpose 'anbefaling' så review_ask-forslaget dedupes væk. SSE crm_activity_created
+// → _crmDashHandleSSE → _crmLoadData genindlæser feeden, og kortet forsvinder.
+async function _crmAskedForReview(customerId) {
+    try {
+        const purposes = await fetchActivityPurposes();
+        const p = (purposes || []).find(x => x.key === 'anbefaling');
+        await postCrmActivity({
+            customer_id: customerId,
+            type: 'note',
+            text: 'Bedt om anbefaling/anmeldelse',
+            purpose_id: p ? p.id : null,
+        });
+    } catch (err) {
+        console.error('[crm] Ask review error:', err);
+        alert('Kunne ikke logge: ' + (err.message || 'Ukendt fejl'));
+    }
+}
+
+// Fold info-panelet om hvordan forslagene laves ind/ud.
+function _crmToggleSugInfo() {
+    const el = document.getElementById('crmSugInfo');
+    if (el) el.style.display = el.style.display === 'none' ? 'block' : 'none';
+}
+
+// Skjul (snooze) et forslag i 14 dage — kun denne kunde + denne type. Frigør
+// slotten så de næste i køen roterer ind. Optimistisk: fjern kortet straks,
+// genindlæs derefter så et nyt forslag fylder pladsen.
+async function _crmSnoozeSuggestion(customerId, type) {
+    try {
+        const card = document.querySelector('.crm-suggestion[data-customer-id="' + customerId + '"]');
+        if (card) card.style.opacity = '0.4';
+        await snoozeSuggestion({ customer_id: customerId, type: type });
+        _crmLoadData();
+    } catch (err) {
+        console.error('[crm] Snooze error:', err);
+        alert('Kunne ikke skjule: ' + (err.message || 'Ukendt fejl'));
+        _crmLoadData();
+    }
+}
+
+// "N skjult"-knap: vises kun når der er aktive snoozes.
+let _crmSnoozedCache = [];
+function _crmRenderSnoozedButton(list) {
+    _crmSnoozedCache = Array.isArray(list) ? list : [];
+    const btn = document.getElementById('crmSnoozedBtn');
+    if (!btn) return;
+    if (_crmSnoozedCache.length === 0) {
+        btn.style.display = 'none';
+        const panel = document.getElementById('crmSnoozedPanel');
+        if (panel) { panel.style.display = 'none'; panel.innerHTML = ''; }
+    } else {
+        btn.style.display = '';
+        btn.textContent = '🙈 ' + _crmSnoozedCache.length + ' skjult';
+    }
+}
+
+// Fold listen over skjulte forslag ind/ud (hver med "Vis igen"-fortryd).
+function _crmToggleSnoozedPanel() {
+    const panel = document.getElementById('crmSnoozedPanel');
+    if (!panel) return;
+    if (panel.style.display !== 'none' && panel.innerHTML) {
+        panel.style.display = 'none';
+        return;
+    }
+    const TYPE_LABELS = {
+        overdue_customer: 'Forsinket', review_ask: 'Anbefaling', season_reminder: 'Sæson',
+        uncontacted_lead: 'Nyt lead', dormant_highvalue: 'Sovende', expiring_offer: 'Udløbende tilbud',
+        company_anniversary: 'Jubilæum',
+    };
+    panel.innerHTML = '<div style="padding:12px 14px;background:var(--color-bg,#f5f4f2);border:1px solid var(--color-border,#d7d1ca);border-radius:8px;font-size:12.5px;">' +
+        '<strong>Skjulte forslag</strong> — kommer automatisk tilbage efter 14 dage:' +
+        _crmSnoozedCache.map(s =>
+            '<div style="display:flex;justify-content:space-between;align-items:center;gap:10px;padding:6px 0;border-top:1px solid var(--color-border,#e5e0d8);">' +
+                '<span>' + (TYPE_LABELS[s.type] || s.type) + ' · <strong>' + (s.customer_name || ('#' + s.customer_id)) + '</strong>' +
+                    (s.company_name ? ' · ' + s.company_name : '') + '</span>' +
+                '<button class="crm-sug-btn" onclick="_crmUnsnooze(' + s.customer_id + ', \'' + s.type + '\')">↩︎ Vis igen</button>' +
+            '</div>'
+        ).join('') +
+    '</div>';
+    panel.style.display = 'block';
+}
+
+// Fortryd et skjul → forslaget kan komme tilbage på listen.
+async function _crmUnsnooze(customerId, type) {
+    try {
+        await unsnoozeSuggestion({ customer_id: customerId, type: type });
+        const panel = document.getElementById('crmSnoozedPanel');
+        if (panel) { panel.style.display = 'none'; panel.innerHTML = ''; }
+        _crmLoadData();
+    } catch (err) {
+        console.error('[crm] Unsnooze error:', err);
+        alert('Kunne ikke vise igen: ' + (err.message || 'Ukendt fejl'));
     }
 }
 

@@ -757,6 +757,28 @@ function postCrmActivity(data) {
     });
 }
 
+// Skjul (snooze) et smart-forslag i et antal dage (default 14 server-side).
+// data: { customer_id, type, days? }
+function snoozeSuggestion(data) {
+    return apiFetch('/crm/suggestions/snooze', {
+        method: 'POST',
+        body: JSON.stringify(data),
+    });
+}
+
+// Aktive skjulte forslag (til "N skjult"-listen).
+function fetchSnoozedSuggestions() {
+    return apiFetch('/crm/suggestions/snoozed');
+}
+
+// Fortryd et skjul. data: { customer_id, type }
+function unsnoozeSuggestion(data) {
+    return apiFetch('/crm/suggestions/unsnooze', {
+        method: 'POST',
+        body: JSON.stringify(data),
+    });
+}
+
 function patchCrmCustomerStage(id, stage) {
     return apiFetch('/crm/customer/' + id + '/stage', {
         method: 'PATCH',
