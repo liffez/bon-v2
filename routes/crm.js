@@ -434,6 +434,71 @@ router.get('/suggestions', handle((req, res) => {
         });
     }
 
+    // 6. GLAD KUNDE → BED OM ANBEFALING
+    //    Kunder med en positiv stemning registreret for nylig, som vi endnu ikke har
+    //    bedt om en anbefaling/anmeldelse. Rider 100% på sentiment der allerede fanges
+    //    af servicekaldet. Dedupe på purpose 'anbefaling'.
+    //    Tærskler navngivet (jf. CLAUDE_CRM_TRIKS.md revision pkt. 8 — ingen magiske
+    //    tal i WHERE). Spejles af scripts/test-crm-review.js — hold queries i sync.
+    const REVIEW_POSITIVE_WINDOW_DAYS = 21;   // hvor frisk skal den positive stemning være
+    const REVIEW_DEDUPE_DAYS          = 180;  // bed ikke om anbefaling oftere end hvert halve år
+    const reviewRows = db.prepare(`
+        SELECT
+            c.id AS customer_id,
+            c.first_name || ' ' || COALESCE(c.last_name, '') AS name,
+            c.phone,
+            co.name AS company_name,
+            a.sentiment,
+            a.created_at AS sentiment_at,
+            a.text AS last_note
+        FROM crm_activities a
+        JOIN customers c ON c.id = a.customer_id
+        LEFT JOIN companies co ON c.company_id = co.id
+        JOIN crm_customer_meta cm ON cm.customer_id = c.id
+        WHERE a.sentiment = 'positive'
+            AND a.created_at > date('now', ?)
+            AND cm.stage IN ('active', 'vip')
+            -- ekskludér interne firmaer; privatkunder (uden firma) er valide
+            AND (co.is_internal = 0 OR co.id IS NULL)
+            -- kun den seneste stemning pr. kunde — en nyere neutral/negativ aflyser
+            AND a.id = (
+                SELECT a2.id FROM crm_activities a2
+                WHERE a2.customer_id = c.id AND a2.sentiment IS NOT NULL
+                ORDER BY a2.created_at DESC LIMIT 1
+            )
+            -- dedupe: ikke allerede bedt om anbefaling inden for vinduet
+            AND NOT EXISTS (
+                SELECT 1 FROM crm_activities a3
+                JOIN activity_purposes ap ON ap.id = a3.purpose_id
+                WHERE a3.customer_id = c.id
+                    AND ap.key = 'anbefaling'
+                    AND a3.created_at > date('now', ?)
+            )
+            -- service-opfølgning, ikke markedsføring → kun do_not_contact gælder
+            -- (jf. consent-doktrin i routes/campaigns.js; INTET marketing_consent-krav)
+            AND COALESCE(cm.do_not_contact, 0) != 1
+        ORDER BY a.created_at DESC
+        LIMIT 6
+    `).all('-' + REVIEW_POSITIVE_WINDOW_DAYS + ' days', '-' + REVIEW_DEDUPE_DAYS + ' days');
+
+    for (const r of reviewRows) {
+        suggestions.push({
+            type: 'review_ask',
+            priority: 2,
+            icon: '⭐',
+            title: r.name + ' var glad — bed om en anbefaling',
+            detail: (r.company_name || 'Privat') + ' · positiv ' + (r.sentiment_at || '').substring(0, 10),
+            reason: 'Sidste kontakt var positiv' +
+                (r.last_note ? ' ("' + r.last_note.substring(0, 60) + '")' : '') +
+                '. Godt øjeblik at bede om en Google-anmeldelse eller en henvisning.',
+            customer_id: r.customer_id,
+            customer_name: r.name,
+            company_name: r.company_name,
+            phone: r.phone,
+            action: 'review',
+        });
+    }
+
     suggestions.sort((a, b) => a.priority - b.priority);
     res.json(suggestions);
 }));

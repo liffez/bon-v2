@@ -569,20 +569,23 @@ function _crmRenderSuggestions(suggestions) {
         return;
     }
 
-    el.innerHTML = suggestions.slice(0, 8).map(s =>
-        '<div class="crm-suggestion" data-customer-id="' + s.customer_id + '">' +
+    el.innerHTML = suggestions.slice(0, 8).map(s => {
+        const ring = s.phone ? '<a class="crm-sug-btn primary" href="tel:' + s.phone.replace(/\s/g, '') + '">📞 Ring</a>' : '';
+        // 'review' → log at vi har spurgt (kortet forsvinder via dedupe ved næste reload);
+        // alle andre forslag → åbn profil.
+        const actionBtns = s.action === 'review'
+            ? ring + '<button class="crm-sug-btn" onclick="_crmAskedForReview(' + s.customer_id + ')">⭐ Spurgt</button>'
+            : ring + '<button class="crm-sug-btn" onclick="_crmOpenKunde(' + s.customer_id + ')">👤 Profil</button>';
+        return '<div class="crm-suggestion" data-customer-id="' + s.customer_id + '">' +
             '<div class="crm-sug-header">' +
                 '<span class="crm-sug-icon">' + s.icon + '</span>' +
                 '<span class="crm-sug-title">' + s.title + '</span>' +
             '</div>' +
             '<div class="crm-sug-detail">' + s.detail + '</div>' +
             '<div class="crm-sug-reason">' + s.reason + '</div>' +
-            '<div class="crm-sug-actions">' +
-                (s.phone ? '<a class="crm-sug-btn primary" href="tel:' + s.phone.replace(/\s/g, '') + '">📞 Ring</a>' : '') +
-                '<button class="crm-sug-btn" onclick="_crmOpenKunde(' + s.customer_id + ')">👤 Profil</button>' +
-            '</div>' +
-        '</div>'
-    ).join('');
+            '<div class="crm-sug-actions">' + actionBtns + '</div>' +
+        '</div>';
+    }).join('');
 }
 
 function _crmRenderServiceCalls(calls) {
@@ -805,6 +808,25 @@ async function _crmMarkHandled(customerId, bonId) {
     } catch (err) {
         console.error('[crm] Mark handled error:', err);
         alert('Kunne ikke markere: ' + (err.message || 'Ukendt fejl'));
+    }
+}
+
+// CRM-trik: log at vi har bedt kunden om en anbefaling. Aktiviteten tagges med
+// purpose 'anbefaling' så review_ask-forslaget dedupes væk. SSE crm_activity_created
+// → _crmDashHandleSSE → _crmLoadData genindlæser feeden, og kortet forsvinder.
+async function _crmAskedForReview(customerId) {
+    try {
+        const purposes = await fetchActivityPurposes();
+        const p = (purposes || []).find(x => x.key === 'anbefaling');
+        await postCrmActivity({
+            customer_id: customerId,
+            type: 'note',
+            text: 'Bedt om anbefaling/anmeldelse',
+            purpose_id: p ? p.id : null,
+        });
+    } catch (err) {
+        console.error('[crm] Ask review error:', err);
+        alert('Kunne ikke logge: ' + (err.message || 'Ukendt fejl'));
     }
 }
 
