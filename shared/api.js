@@ -1845,6 +1845,11 @@ function acknowledgeBon(bonId, undo = false) {
     });
 }
 
+// Fælles "Nyt der kræver handling"-feed til office-topbarens indikator.
+function fetchNavAttention() {
+    return apiFetch('/nav/attention');
+}
+
 // ─── Opskrifter & priser ──────────────────────────────────────
 
 function fetchRecipesOverview(params = {}) {

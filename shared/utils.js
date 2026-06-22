@@ -138,8 +138,9 @@ function getClientId() {
  *       notification: (data) => handleNotification(data),
  *   });
  */
-function connectSSE(url, handlers) {
+function connectSSE(url, handlers, opts) {
     const es = new EventSource(url || '/api/sse');
+    opts = opts || {};
 
     for (const [eventName, handler] of Object.entries(handlers)) {
         es.addEventListener(eventName, (e) => {
@@ -151,29 +152,34 @@ function connectSSE(url, handlers) {
         });
     }
 
-    // ── Global mail-received handler ──
-    es.addEventListener('mail_received', (e) => {
-        try {
-            const data = JSON.parse(e.data);
-            // Opdater mail-badge på bon-kort
-            const card = document.getElementById('bon' + data.bon_id);
-            if (card) {
-                const idEl = card.querySelector('.bon-id');
-                if (idEl && !idEl.querySelector('.bon-mail-badge')) {
-                    idEl.insertAdjacentHTML('beforeend', ' <span class="bon-mail-badge" title="Ulæst mail">' + mailIcon(14) + '</span>');
+    // Office bruger sin egen samlede "Nyt"-toast + topbar-indikator, så den
+    // undertrykker de generiske mail-toasts her (undgår dobbelt-toast).
+    // Kitchen-zonen sender ikke flaget og beholder de generiske toasts.
+    if (!opts.suppressMailToast) {
+        // ── Global mail-received handler ──
+        es.addEventListener('mail_received', (e) => {
+            try {
+                const data = JSON.parse(e.data);
+                // Opdater mail-badge på bon-kort
+                const card = document.getElementById('bon' + data.bon_id);
+                if (card) {
+                    const idEl = card.querySelector('.bon-id');
+                    if (idEl && !idEl.querySelector('.bon-mail-badge')) {
+                        idEl.insertAdjacentHTML('beforeend', ' <span class="bon-mail-badge" title="Ulæst mail">' + mailIcon(14) + '</span>');
+                    }
                 }
-            }
-            // Toast notification
-            _showMailToast(data);
-        } catch (err) { console.error('SSE mail_received error:', err); }
-    });
+                // Toast notification
+                _showMailToast(data);
+            } catch (err) { console.error('SSE mail_received error:', err); }
+        });
 
-    es.addEventListener('mail_unmatched', (e) => {
-        try {
-            const data = JSON.parse(e.data);
-            _showMailToast({ unmatched: true, count: data.count });
-        } catch (err) { /* stille */ }
-    });
+        es.addEventListener('mail_unmatched', (e) => {
+            try {
+                const data = JSON.parse(e.data);
+                _showMailToast({ unmatched: true, count: data.count });
+            } catch (err) { /* stille */ }
+        });
+    }
 
     es.onerror = () => {
         console.warn('SSE forbindelse tabt — genopkobler automatisk…');

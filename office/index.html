@@ -112,6 +112,71 @@
     .office-topbar-search-input::placeholder {
       color: var(--color-text-dim, #888);
     }
+
+    /* ── Fælles "Nyt der kræver handling"-indikator ── */
+    .office-attn-btn {
+      display: flex; align-items: center; gap: 6px;
+      background: transparent;
+      border: 1px solid var(--color-border, #d7d1ca);
+      color: #6B4C2A;
+      padding: 6px 10px; border-radius: 8px;
+      cursor: pointer; font-size: 13px; font-weight: 500; font-family: inherit;
+    }
+    .office-attn-btn:hover { background: var(--color-background, #f5f4f2); }
+    .office-attn-btn.has-new { border-color: #E24B4A; }
+    .office-attn-btn.pulse { animation: attnPulse 1.2s ease-in-out 3; }
+    @keyframes attnPulse {
+      0%, 100% { box-shadow: 0 0 0 0 rgba(226,75,74,0); }
+      50%      { box-shadow: 0 0 0 4px rgba(226,75,74,0.28); }
+    }
+    .office-attn-count {
+      background: #E24B4A; color: #fff;
+      font-size: 11px; font-weight: 500;
+      min-width: 18px; height: 18px; border-radius: 9px;
+      display: inline-flex; align-items: center; justify-content: center; padding: 0 5px;
+    }
+    .office-attn-panel {
+      position: absolute; top: calc(100% + 8px); right: 0;
+      width: 380px; max-width: 90vw;
+      background: #fff;
+      border: 1px solid var(--color-border, #d7d1ca);
+      border-radius: 12px;
+      box-shadow: 0 4px 16px rgba(0,0,0,0.12);
+      z-index: 1200; overflow: hidden;
+      max-height: 70vh; overflow-y: auto;
+    }
+    .office-attn-head {
+      display: flex; align-items: center; justify-content: space-between;
+      padding: 12px 14px; border-bottom: 1px solid var(--color-border, #eee);
+      font-size: 14px; font-weight: 500;
+    }
+    .office-attn-grp {
+      padding: 10px 14px 4px; display: flex; align-items: center; gap: 6px;
+      font-size: 12px; font-weight: 500; color: #666;
+    }
+    .office-attn-grp.sep { border-top: 1px solid var(--color-border, #eee); margin-top: 4px; }
+    .office-attn-row {
+      display: flex; align-items: center; gap: 10px;
+      padding: 9px 14px; cursor: pointer;
+    }
+    .office-attn-row:hover { background: var(--color-background, #f5f4f2); }
+    .office-attn-row.web  { border-left: 3px solid #EF9F27; }
+    .office-attn-row.mail { border-left: 3px solid #378ADD; }
+    .office-attn-row .ar-main { flex: 1; min-width: 0; }
+    .office-attn-row .ar-title { font-size: 13px; font-weight: 500; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+    .office-attn-row .ar-sub { font-size: 12px; color: #666; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+    .office-attn-ack {
+      font-size: 11px; padding: 4px 9px; cursor: pointer; white-space: nowrap;
+      border: 1px solid var(--color-border, #d7d1ca); border-radius: 6px;
+      background: #fff; color: #6B4C2A; font-family: inherit;
+    }
+    .office-attn-ack:hover { background: var(--color-background, #f5f4f2); }
+    .office-attn-tag {
+      font-size: 10px; font-weight: 500; padding: 2px 7px; border-radius: 10px; white-space: nowrap;
+    }
+    .office-attn-tag.uf  { background: #FAEEDA; color: #854F0B; }
+    .office-attn-tag.kc  { background: #E6F1FB; color: #0C447C; }
+    .office-attn-empty { padding: 24px 14px; text-align: center; color: #999; font-size: 13px; }
     .office-body {
       display: flex;
       flex: 1;
@@ -680,6 +745,14 @@
       <div class="office-topbar-search">
         <input type="text" id="office-global-search" class="office-topbar-search-input"
                placeholder="🔍 Søg bons, kunder, varer..." autocomplete="off">
+      </div>
+      <div id="attn-wrap" style="position:relative;">
+        <button id="attn-btn" class="office-attn-btn" aria-label="Nyt der kræver handling" title="Nyt der kræver handling">
+          <span aria-hidden="true">🔔</span>
+          <span>Nyt</span>
+          <span id="attn-count" class="office-attn-count" style="display:none">0</span>
+        </button>
+        <div id="attn-panel" class="office-attn-panel" style="display:none"></div>
       </div>
       <div id="office-topbar-right" style="display:flex;align-items:center;gap:12px;font-size:13px;"></div>
     </div>
@@ -1416,6 +1489,150 @@
       window.scheduleBadgeReload = scheduleBadgeReload;
       loadNavBadges();
 
+      // ─── Fælles "Nyt der kræver handling"-indikator i topbaren ───
+      // Samler nye web-bestillinger + mail der kan blive en ordre, så de to
+      // ting man ikke må overse altid har ét synligt sted — uanset view.
+      // Tæller = bons_nye + crm_indbakke (samme tal som sidebar-badges).
+      let _attnData = { web_orders: [], mail: [], counts: { web: 0, mail: 0, total: 0 } };
+      let _attnReloadTimer = null;
+      let _attnAutoChecked = false;
+      const _attnWrap  = document.getElementById('attn-wrap');
+      const _attnBtn   = document.getElementById('attn-btn');
+      const _attnPanel = document.getElementById('attn-panel');
+      const _attnCount = document.getElementById('attn-count');
+
+      function _attnMeta(w) {
+        const parts = [];
+        if (w.delivery_date) {
+          try { parts.push(formatDanishDate(w.delivery_date)); } catch (e) { parts.push(w.delivery_date); }
+        }
+        if (w.total_units > 0) parts.push(w.total_units + ' enh.');
+        else if (w.pax > 0)    parts.push(w.pax + ' pax');
+        return parts.join(' · ');
+      }
+
+      function renderAttention() {
+        const total = (_attnData.counts && _attnData.counts.total) || 0;
+        if (_attnCount) {
+          _attnCount.textContent = total > 99 ? '99+' : total;
+          _attnCount.style.display = total > 0 ? 'inline-flex' : 'none';
+        }
+        if (_attnBtn) _attnBtn.classList.toggle('has-new', total > 0);
+        if (!_attnPanel) return;
+
+        const web  = _attnData.web_orders || [];
+        const mail = _attnData.mail || [];
+        let html = '<div class="office-attn-head"><span>Nyt der kræver handling</span></div>';
+
+        if (total === 0) {
+          html += '<div class="office-attn-empty">✓ Alt er set — intet venter</div>';
+        } else {
+          html += '<div class="office-attn-grp">🛒 Nye web-bestillinger (' + web.length + ')</div>';
+          web.forEach(function(w) {
+            const who = w.customer_name || w.company_name || 'Ukendt';
+            const subParts = [];
+            if (w.company_name && w.company_name !== who) subParts.push(w.company_name);
+            const meta = _attnMeta(w);
+            if (meta) subParts.push(meta);
+            html += '<div class="office-attn-row web" data-bon="' + w.bon_id + '">'
+              + '<div class="ar-main"><div class="ar-title">#' + esc(String(w.bon_number || w.bon_id)) + ' · ' + esc(who) + '</div>'
+              + '<div class="ar-sub">' + esc(subParts.join(' · ')) + '</div></div>'
+              + '<button class="office-attn-ack" data-ack="' + w.bon_id + '">Bekræft</button></div>';
+          });
+
+          html += '<div class="office-attn-grp sep">✉ Mail der kan blive en ordre (' + mail.length + ')</div>';
+          mail.forEach(function(m) {
+            const isUf = m.kind === 'unmatched';
+            html += '<div class="office-attn-row mail" data-mail-kind="' + m.kind + '"' + (m.bon_id ? ' data-mail-bon="' + m.bon_id + '"' : '') + '>'
+              + '<div class="ar-main"><div class="ar-title">' + esc(m.subject || '(uden emne)') + '</div>'
+              + '<div class="ar-sub">' + esc(m.from || '') + '</div></div>'
+              + '<span class="office-attn-tag ' + (isUf ? 'uf' : 'kc') + '">' + (isUf ? 'Ufordelt' : 'Kendt kunde') + '</span></div>';
+          });
+        }
+
+        _attnPanel.innerHTML = html;
+
+        _attnPanel.querySelectorAll('.office-attn-row.web').forEach(function(row) {
+          row.addEventListener('click', function() {
+            closeAttention();
+            if (typeof openDrawer === 'function') openDrawer(row.dataset.bon);
+          });
+        });
+        _attnPanel.querySelectorAll('[data-ack]').forEach(function(btn) {
+          btn.addEventListener('click', function(e) {
+            e.stopPropagation();
+            const id = btn.dataset.ack;
+            acknowledgeBon(id).catch(function(){ /* SSE retter alligevel op */ });
+            _attnData.web_orders = (_attnData.web_orders || []).filter(function(w){ return String(w.bon_id) !== String(id); });
+            _attnData.counts.web = _attnData.web_orders.length;
+            _attnData.counts.total = _attnData.counts.web + (_attnData.mail || []).length;
+            renderAttention();
+            scheduleBadgeReload();
+          });
+        });
+        _attnPanel.querySelectorAll('.office-attn-row.mail').forEach(function(row) {
+          row.addEventListener('click', function() {
+            closeAttention();
+            switchSection('crm', 'indbakke');
+          });
+        });
+      }
+
+      function openAttention() {
+        if (!_attnPanel) return;
+        _attnPanel.style.display = 'block';
+        if (_attnBtn) _attnBtn.classList.remove('pulse');
+      }
+      function closeAttention() {
+        if (_attnPanel) _attnPanel.style.display = 'none';
+      }
+      function toggleAttention() {
+        if (!_attnPanel) return;
+        if (_attnPanel.style.display === 'block') closeAttention(); else openAttention();
+      }
+
+      async function loadAttention() {
+        try {
+          const data = await fetchNavAttention();
+          _attnData = data || { web_orders: [], mail: [], counts: { web: 0, mail: 0, total: 0 } };
+          renderAttention();
+          // Auto-åbn + pulse én gang pr. login hvis der er noget at se.
+          if (!_attnAutoChecked) {
+            _attnAutoChecked = true;
+            const total = (_attnData.counts && _attnData.counts.total) || 0;
+            if (total > 0 && !sessionStorage.getItem('attn_login_seen')) {
+              sessionStorage.setItem('attn_login_seen', '1');
+              openAttention();
+              if (_attnBtn) { _attnBtn.classList.add('pulse'); }
+            }
+          }
+        } catch (e) { console.warn('[nav/attention]', e && e.message ? e.message : e); }
+      }
+      function scheduleAttentionReload() {
+        if (_attnReloadTimer) clearTimeout(_attnReloadTimer);
+        _attnReloadTimer = setTimeout(loadAttention, 300);
+      }
+
+      // Samlet, klikbar live-toast (erstatter web-order + mail-toasts i office).
+      function _showAttentionToast(msg) {
+        const existing = document.querySelector('.web-order-toast');
+        if (existing) existing.remove();
+        const t = document.createElement('div');
+        t.className = 'web-order-toast';
+        t.textContent = msg;
+        t.onclick = function() { openAttention(); t.remove(); };
+        document.body.appendChild(t);
+        setTimeout(function(){ if (t.parentNode) t.remove(); }, 12000);
+      }
+
+      if (_attnBtn) _attnBtn.addEventListener('click', function(e) { e.stopPropagation(); toggleAttention(); });
+      document.addEventListener('click', function(e) {
+        if (_attnWrap && !_attnWrap.contains(e.target) && _attnPanel && _attnPanel.style.display === 'block') closeAttention();
+      });
+      window.loadAttention = loadAttention;
+      window.scheduleAttentionReload = scheduleAttentionReload;
+      loadAttention();
+
       // ─── Initial view fra URL ──────────────────────────
       // Parser ?view=<section>&pill=<pill>. Hvis view er en kendt section,
       // bruger vi switchSection (giver default-pill hvis pill mangler).
@@ -1473,24 +1690,6 @@
         }
       });
 
-      // ─── Web-order toast notification ────────────────────
-      function _showWebOrderToast(data) {
-        var existing = document.querySelector('.web-order-toast');
-        if (existing) existing.remove();
-        var bonNr = data.bon_number ? '#' + data.bon_number : '#' + data.id;
-        var toast = document.createElement('div');
-        toast.className = 'web-order-toast';
-        toast.innerHTML = '🛒 Ny web-bestilling: ' + bonNr + ' — klik for at åbne';
-        toast.onclick = function() {
-          if (typeof drawer !== 'undefined' && drawer && typeof drawer.open === 'function') {
-            drawer.open(data.id);
-          }
-          toast.remove();
-        };
-        document.body.appendChild(toast);
-        setTimeout(function() { if (toast.parentNode) toast.remove(); }, 12000);
-      }
-
       // ─── SSE (always active) ─────────────────────────────
       connectSSE('/api/sse', {
         bon_created: (data) => {
@@ -1503,8 +1702,11 @@
           if (typeof _woHandleSSE === 'function') _woHandleSSE('bon_created', data);
           if (typeof _alHandleSSE === 'function') _alHandleSSE('bon_created', data);
           if (typeof _evHandleSSE === 'function') _evHandleSSE('bon_created', data);
-          if (data && data.source === 'web_order') _showWebOrderToast(data);
-          scheduleBadgeReload();  // bons_nye + tilbud_aktive + okonomi_fakturering kan ændre sig
+          if (data && data.source === 'web_order') {
+            _showAttentionToast('🛒 Ny web-bestilling: #' + (data.bon_number || data.id) + ' — klik for at åbne');
+          }
+          scheduleBadgeReload();       // bons_nye + tilbud_aktive + okonomi_fakturering kan ændre sig
+          scheduleAttentionReload();   // ny bon → opdater topbar-indikatoren
         },
         bon_updated: (data) => {
           if (typeof _blHandleBonUpdated === 'function') _blHandleBonUpdated(data);
@@ -1517,6 +1719,7 @@
           if (typeof _logHandleSSE === 'function') _logHandleSSE('bon_updated', data);
           if (typeof _evHandleSSE === 'function') _evHandleSSE('bon_updated', data);
           scheduleBadgeReload();  // acknowledge-flag på bons_nye kan ændre sig
+          scheduleAttentionReload();
         },
         bon_status: (data) => {
           if (typeof _blHandleBonStatus === 'function') _blHandleBonStatus(data);
@@ -1529,6 +1732,7 @@
           if (typeof _alHandleSSE === 'function') _alHandleSSE('bon_status', data);
           if (typeof _evHandleSSE === 'function') _evHandleSSE('bon_status', data);
           scheduleBadgeReload();  // LEVERET → fakturering-køen
+          scheduleAttentionReload();
         },
         bon_deleted: (data) => {
           // Permanent sletning — view-handlers filtrerer på event-navn, så vi
@@ -1542,6 +1746,7 @@
           if (typeof _woHandleSSE === 'function') _woHandleSSE('bon_status', data);
           if (typeof _evHandleSSE === 'function') _evHandleSSE('bon_status', data);
           scheduleBadgeReload();
+          scheduleAttentionReload();
         },
         event_updated: (data) => {
           if (typeof _evHandleSSE === 'function') _evHandleSSE('event_updated', data);
@@ -1579,22 +1784,28 @@
           // bons-listen (✉-badge på rækken), den samlede mail-indbakke + tælleren.
           if (typeof _blHandleMailReceived === 'function') _blHandleMailReceived(data);
           if (typeof _inbHandleSSE === 'function') _inbHandleSSE('mail_received', data);
+          _showAttentionToast('✉ Ny mail — klik for at se');
           scheduleBadgeReload();  // bons_ulaest_mail
+          scheduleAttentionReload();
         },
         mail_unmatched: (data) => {
           if (typeof _inbHandleSSE === 'function') _inbHandleSSE('mail_unmatched', data);
+          _showAttentionToast('✉ Ny ufordelt mail — kan blive en ordre');
           scheduleBadgeReload();  // crm_indbakke
+          scheduleAttentionReload();
         },
         mail_read: (data) => {
           // En tråd-mail er markeret læst (her eller et andet sted) → fjern fra
           // den samlede indbakke + genberegn badges.
           if (typeof _inbHandleSSE === 'function') _inbHandleSSE('mail_read', data);
           scheduleBadgeReload();
+          scheduleAttentionReload();
         },
         mail_thread_updated: (data) => {
           // Indbakke-tråd skiftede handling_status/snooze (her eller et andet sted).
           if (typeof _inbHandleSSE === 'function') _inbHandleSSE('mail_thread_updated', data);
           scheduleBadgeReload();
+          scheduleAttentionReload();
         },
         // quote_created / quote_updated fjernet i Patch I (maj 2026).
         // Backend sender bon_*-events også for tilbud (jf. Patch F). _tilbudHandleSSE
@@ -1639,7 +1850,7 @@
         delivery_incident_logged: (data) => {
           if (typeof _logHandleSSE === 'function') _logHandleSSE('delivery_incident_logged', data);
         },
-      });
+      }, { suppressMailToast: true });
     })();
   </script>
   <script src="/shared/help-system.js"></script>

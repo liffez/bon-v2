@@ -123,4 +123,103 @@ router.get('/badges', requireAuth(), handle((req, res) => {
     res.json(result);
 }));
 
+// ── GET /api/nav/attention ──────────────────────────────────────────
+// Fælles "Nyt der kræver handling"-feed til topbar-indikatoren.
+// Samler de to ting man ikke må overse i office:
+//   1. Nye web-bestillinger (bons med web_order + acknowledged_at IS NULL)
+//   2. Mail der kan blive en ordre (ufordelt + åbne kunde/bon-tråde)
+// Tællerne matcher bons_nye + crm_indbakke i /badges, så topbar og sidebar
+// aldrig modsiger hinanden.
+router.get('/attention', requireAuth(), handle((req, res) => {
+    const db = getDb();
+    const out = { web_orders: [], mail: [], counts: { web: 0, mail: 0, total: 0 } };
+
+    // ── Nye web-bestillinger ────────────────────────────────────────
+    try {
+        out.web_orders = db.prepare(`
+            SELECT b.id            AS bon_id,
+                   b.bon_number    AS bon_number,
+                   b.delivery_date AS delivery_date,
+                   b.total_units   AS total_units,
+                   b.pax           AS pax,
+                   TRIM(COALESCE(c.first_name, '') || ' ' || COALESCE(c.last_name, '')) AS customer_name,
+                   co.name         AS company_name,
+                   b.created_at    AS created_at
+            FROM bons b
+            JOIN web_orders wo ON wo.bon_id = b.id
+            LEFT JOIN customers c ON c.id = b.customer_id
+            LEFT JOIN companies co ON co.id = b.company_id
+            WHERE b.acknowledged_at IS NULL
+            ORDER BY b.created_at DESC
+            LIMIT 50
+        `).all();
+    } catch (e) { console.warn('[nav/attention] web_orders:', e.message); }
+
+    // ── Mail: ufordelt (ukendt afsender) ────────────────────────────
+    let unmatched = [];
+    try {
+        unmatched = db.prepare(`
+            SELECT id, from_email, from_name, subject, received_at, parsed_name, parsed_company
+            FROM mail_unmatched
+            WHERE status = 'open'
+            ORDER BY received_at DESC
+            LIMIT 50
+        `).all().map(m => ({
+            kind: 'unmatched',
+            id: m.id,
+            from: m.from_name || m.parsed_name || m.from_email || 'Ukendt afsender',
+            from_email: m.from_email,
+            subject: m.subject || '(uden emne)',
+            customer_name: m.parsed_company || null,
+            received_at: m.received_at,
+        }));
+    } catch (e) { console.warn('[nav/attention] unmatched:', e.message); }
+
+    // ── Mail: åbne kunde/bon-tråde (kræver handling, ikke PO/leverandør) ──
+    let threads = [];
+    try {
+        threads = db.prepare(`
+            SELECT mt.id            AS thread_id,
+                   mt.bon_id        AS bon_id,
+                   mt.subject       AS subject,
+                   mt.updated_at    AS received_at,
+                   TRIM(COALESCE(c.first_name, '') || ' ' || COALESCE(c.last_name, '')) AS customer_name,
+                   b.bon_number     AS bon_number,
+                   (SELECT mm.from_email FROM mail_messages mm
+                     WHERE mm.thread_id = mt.id AND mm.direction = 'in'
+                     ORDER BY mm.received_at DESC LIMIT 1) AS from_email
+            FROM mail_threads mt
+            LEFT JOIN customers c ON c.id = mt.customer_id
+            LEFT JOIN bons b ON b.id = mt.bon_id
+            WHERE mt.handling_status = 'aaben'
+              AND mt.purchase_order_id IS NULL
+              AND mt.supplier_id IS NULL
+              AND NOT (mt.snooze_until IS NOT NULL AND mt.snooze_until > datetime('now'))
+            ORDER BY mt.updated_at DESC
+            LIMIT 50
+        `).all().map(t => ({
+            kind: 'thread',
+            id: t.thread_id,
+            thread_id: t.thread_id,
+            bon_id: t.bon_id || null,
+            bon_number: t.bon_number || null,
+            from: t.customer_name || t.from_email || 'Kunde',
+            from_email: t.from_email,
+            subject: t.subject || '(uden emne)',
+            customer_name: t.customer_name || null,
+            received_at: t.received_at,
+        }));
+    } catch (e) { console.warn('[nav/attention] threads:', e.message); }
+
+    out.mail = unmatched.concat(threads)
+        .sort((a, b) => String(b.received_at || '').localeCompare(String(a.received_at || '')));
+
+    out.counts.web = out.web_orders.length;
+    out.counts.mail = out.mail.length;
+    out.counts.total = out.counts.web + out.counts.mail;
+
+    res.set('Cache-Control', 'no-cache');
+    res.json(out);
+}));
+
 module.exports = router;
