@@ -16,13 +16,37 @@ function broadcastUnmatchedCount(db) {
 // tråd-svar (kunde/bon/PO/leverandør) kan vises og linkes.
 function threadEntity(db, t) {
     if (t.bon_id) {
-        const b = db.prepare('SELECT bon_number FROM bons WHERE id = ?').get(t.bon_id);
-        return { type: 'bon', id: t.bon_id, label: b ? ('Bon ' + b.bon_number) : ('Bon #' + t.bon_id), email: null };
+        const b = db.prepare(`
+            SELECT b.bon_number, b.total_units, b.pax,
+                   c.first_name, c.last_name,
+                   co.name AS company_name
+            FROM bons b
+            LEFT JOIN customers c  ON c.id  = b.customer_id
+            LEFT JOIN companies co ON co.id = b.company_id
+            WHERE b.id = ?`).get(t.bon_id);
+        const cname = b ? [b.first_name, b.last_name].filter(Boolean).join(' ').trim() : '';
+        return {
+            type: 'bon', id: t.bon_id,
+            label: b ? ('Bon ' + b.bon_number) : ('Bon #' + t.bon_id),
+            email: null,
+            customer_name: cname || null,
+            company_name: b ? (b.company_name || null) : null,
+            units: b ? (b.total_units || 0) : 0,
+            pax: b ? (b.pax || 0) : 0,
+        };
     }
     if (t.customer_id) {
-        const c = db.prepare('SELECT first_name, last_name, email FROM customers WHERE id = ?').get(t.customer_id);
+        const c = db.prepare(`
+            SELECT c.first_name, c.last_name, c.email, co.name AS company_name
+            FROM customers c LEFT JOIN companies co ON co.id = c.company_id
+            WHERE c.id = ?`).get(t.customer_id);
         const name = c ? [c.first_name, c.last_name].filter(Boolean).join(' ').trim() : '';
-        return { type: 'customer', id: t.customer_id, label: name || ('Kunde #' + t.customer_id), email: c ? c.email : null };
+        return {
+            type: 'customer', id: t.customer_id,
+            label: name || ('Kunde #' + t.customer_id),
+            email: c ? c.email : null,
+            company_name: c ? (c.company_name || null) : null,
+        };
     }
     if (t.purchase_order_id) {
         const po = db.prepare('SELECT po.id, s.name FROM purchase_orders po LEFT JOIN suppliers s ON po.supplier_id = s.id WHERE po.id = ?').get(t.purchase_order_id);
@@ -185,7 +209,12 @@ function formatThreadRow(db, t) {
     ).get(t.id);
     const mailbox = latest.mailbox || '';
     const src = mailbox.toLowerCase().includes('kontakt') ? 'kontakt' : 'bon';
-    const from = (ent.type !== 'none') ? ent.label : (latest.from_name || latest.from_email || '(ukendt afsender)');
+    // "from" = den menneskelige modpart. For bon-tråde er ent.label "Bon B4096"
+    // (vises som chip via link), så her foretrækkes kunde-/firmanavn.
+    let from;
+    if (ent.type === 'bon') from = ent.customer_name || ent.company_name || ent.label;
+    else if (ent.type !== 'none') from = ent.label;
+    else from = latest.from_name || latest.from_email || '(ukendt afsender)';
     let assignee = null;
     if (t.assigned_to) {
         const u = db.prepare('SELECT name FROM users WHERE id = ?').get(t.assigned_to);
@@ -205,7 +234,13 @@ function formatThreadRow(db, t) {
         last_outbound_at: t.last_outbound_at || null,
         last_outbound_by: lastOut ? (lastOut.user_name || null) : null,
         time: t.last_inbound_at || t.last_outbound_at || latest.at || null,
-        link: ent.type === 'none' ? null : { type: ent.type, id: ent.id, label: ent.label },
+        link: ent.type === 'none' ? null : {
+            type: ent.type, id: ent.id, label: ent.label,
+            customer_name: ent.customer_name || null,
+            company_name: ent.company_name || null,
+            units: ent.units || null,
+            pax: ent.pax || null,
+        },
         assignee
     };
 }

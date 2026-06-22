@@ -278,6 +278,7 @@ function _inbRenderShell() {
             .inb-tag2.kontakt { background:#f7f2d9; color:#8a6a1a; }
             .inb-tag2.lnk { background: var(--color-background,#f5f4f2); color:#6b6258; }
             .inb-tag2.warn { background:#fef3d6; color:#9a6a10; }
+            .inb-ent-meta { font-size:10px; font-weight:600; color:#8a8178; }
             .inb-st { font-size:10px; font-weight:900; padding:1px 8px; border-radius:99px; text-transform:uppercase; }
             .inb-st.aaben { background:#fef3d6; color:#9a6a10; }
             .inb-st.afventer_kunde { background:#e8f0f6; color:#3d5e80; }
@@ -420,6 +421,19 @@ function _inbLinkChip(link) {
     return '<span class="inb-tag2 lnk">🔗 ' + _inbEscape(link.label || '') + num + '</span>';
 }
 
+// Standardiseret kontekst-linje for en tråd: firma + antal (bon) — vises ud over
+// link-chippen (bon#) og afsendernavnet, så indbakken altid viser hvem + hvor meget.
+function _inbEntityMeta(link) {
+    if (!link) return '';
+    var bits = [];
+    if (link.company_name) bits.push(_inbEscape(link.company_name));
+    if (link.type === 'bon') {
+        if (link.units) bits.push(link.units + ' enh.');
+        else if (link.pax) bits.push(link.pax + ' pax');
+    }
+    return bits.length ? '<span class="inb-ent-meta">' + bits.join(' · ') + '</span>' : '';
+}
+
 function _inbRenderThreadList() {
     const el = document.getElementById('inbList');
     if (!el) return;
@@ -439,6 +453,7 @@ function _inbRenderThreadList() {
             <div class="inb-th-meta">
                 <span class="inb-tag2 ${t.src}">${t.src}@</span>
                 ${linkTag}
+                ${_inbEntityMeta(t.link)}
                 <span class="inb-st ${t.handling_status}">${ST[t.handling_status] || ''}</span>
                 ${snz}
             </div>
@@ -479,7 +494,7 @@ function _inbRenderThreadReader(data) {
             <div class="inb-preview-date">
                 <span class="inb-tag2 ${t.src}">${t.src}@</span>
                 <span class="inb-st ${t.handling_status}">${ST[t.handling_status] || ''}</span>
-                ${snz} ${linkTag}
+                ${snz} ${linkTag} ${_inbEntityMeta(t.link)}
             </div>
         </div>
         <div class="inb-rd-actions">
