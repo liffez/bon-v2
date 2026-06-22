@@ -1084,6 +1084,20 @@
         </div>
       </div>
 
+      <!-- Hastebestilling — åbn trods deadline (kun i dag) -->
+      <div style="background:#fff;border:1px solid var(--color-border);border-radius:8px;padding:14px 16px;margin-bottom:18px">
+        <div style="font-weight:600;font-size:14px;margin-bottom:4px">⏰ Hastebestilling — åbn trods deadline</div>
+        <div style="font-size:12px;color:#888;margin-bottom:12px;line-height:1.5">
+          Lader kunder bestille selv om den normale frist er passeret — og åbner også for ellers lukkede dage.
+          Gælder <strong>kun i dag</strong>: i morgen falder alt automatisk tilbage til normal cut-off.
+        </div>
+        <div style="display:flex;gap:12px;align-items:center;flex-wrap:wrap">
+          <span id="co-state" style="font-size:13px;font-weight:600">Henter…</span>
+          <span style="flex:1"></span>
+          <button type="button" class="st-btn" id="co-toggle-btn" onclick="coToggle()">…</button>
+        </div>
+      </div>
+
       <!-- Kilde-toggle -->
       <div style="background:#fafaf8;border:1px solid var(--color-border);border-radius:8px;padding:14px 16px;margin-bottom:18px">
         <div style="font-weight:600;font-size:14px;margin-bottom:8px">Kilde til menu</div>
@@ -3941,7 +3955,65 @@ async function bmInit() {
   bsRenderDayCheckboxes();
   await bmLoadSource();
   await bsLoad();
+  await coLoad();
   await bmLoad();
+}
+
+// ─── Hastebestilling — åbn trods deadline (kun i dag) ────────
+function _coTodayISO() {
+  const d = new Date();
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+}
+
+async function coLoad() {
+  try {
+    const r = await fetch('/api/settings', { credentials: 'include' });
+    const all = await r.json();
+    const val = (all.find(s => s.key === 'bestilling.cutoff_override_date')?.value || '').trim();
+    coRenderState(val === _coTodayISO());
+  } catch (e) {
+    coRenderState(false);
+  }
+}
+
+function coRenderState(active) {
+  const state = document.getElementById('co-state');
+  const btn = document.getElementById('co-toggle-btn');
+  if (!state || !btn) return;
+  if (active) {
+    state.textContent = '🟢 Aktiv i dag — fristen er åben';
+    state.style.color = '#15803d';
+    btn.textContent = 'Luk igen';
+    btn.style.background = '#dc2626';
+  } else {
+    state.textContent = '⚪ Ikke aktiv — normal cut-off gælder';
+    state.style.color = '#888';
+    btn.textContent = 'Åbn for i dag';
+    btn.style.background = '';
+  }
+  btn.dataset.active = active ? '1' : '0';
+}
+
+async function coToggle() {
+  const btn = document.getElementById('co-toggle-btn');
+  if (!btn) return;
+  const activating = btn.dataset.active !== '1';
+  if (activating && !confirm('Åbn for hastebestilling resten af i dag?\n\nKunder kan bestille selv om fristen er passeret — også på normalt lukkede dage. Det nulstilles automatisk i morgen.')) return;
+  btn.disabled = true;
+  try {
+    await fetch('/api/settings/bestilling.cutoff_override_date', {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json' },
+      credentials: 'include',
+      body: JSON.stringify({ value: activating ? _coTodayISO() : '' })
+    });
+    coRenderState(activating);
+    toast(activating ? 'Hastebestilling åbnet for i dag' : 'Hastebestilling lukket', 'success');
+  } catch (e) {
+    toast('Kunne ikke opdatere: ' + e.message, 'error');
+  } finally {
+    btn.disabled = false;
+  }
 }
 
 // ─── Bestilling — åbningstider/deadline (settings) ──────────

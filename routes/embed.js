@@ -12,6 +12,7 @@ const express = require('express');
 const path = require('path');
 const router = express.Router();
 const { getDb } = require('../db/database');
+const { todayISO } = require('../db/helpers');
 const grocyAdapter = require('../services/grocyAdapter');
 
 const ALLOWED_MENUS = ['standard']; // udvides når flere menuer kommer
@@ -115,6 +116,10 @@ router.get('/config', (req, res) => {
     cutoff: { time: 12, leadDays: 1, days: ['mon', 'tue', 'wed', 'thu', 'fri', 'sat'] },
     delivery: null,
     deliveryDays: ['mon', 'tue', 'wed', 'thu', 'fri', 'sat'],
+    // Hastebestilling: åbnes manuelt i Settings og gælder KUN den dato den blev sat.
+    // Gemmes som ISO-dato (bestilling.cutoff_override_date); når den ikke længere
+    // matcher dagens danske dato falder alt automatisk tilbage til normal cut-off.
+    cutoffOverride: false,
   };
 
   for (const r of rows) {
@@ -139,6 +144,10 @@ router.get('/config', (req, res) => {
         break;
       case 'bestilling.delivery_config':
         try { config.delivery = JSON.parse(r.value); } catch (e) { config.delivery = null; }
+        break;
+      case 'bestilling.cutoff_override_date':
+        // Aktiv kun hvis den gemte dato er dagens danske dato. Selv-nulstillende.
+        config.cutoffOverride = (r.value || '').trim() === todayISO();
         break;
     }
   }
