@@ -15,6 +15,7 @@ const router  = express.Router();
 const { getDb }       = require('../db/database');
 const { handle }      = require('../db/helpers');
 const { requireAuth } = require('../shared/auth');
+const { broadcast }   = require('../shared/sse');
 
 /* ── GET / — liste ───────────────────────────────────────── */
 
@@ -53,6 +54,7 @@ router.post('/', requireAuth(), handle((req, res) => {
     ).get(grocy_location_id, cleanName);
     if (archived) {
         db.prepare('UPDATE physical_units SET archived_at = NULL WHERE id = ?').run(archived.id);
+        broadcast('physical_unit_changed', { grocy_location_id: Number(grocy_location_id), action: 'created' });
         return res.json(db.prepare('SELECT * FROM physical_units WHERE id = ?').get(archived.id));
     }
 
@@ -60,6 +62,7 @@ router.post('/', requireAuth(), handle((req, res) => {
         'INSERT INTO physical_units (grocy_location_id, name, sort_order) VALUES (?, ?, ?)'
     ).run(grocy_location_id, cleanName, sort_order || 0);
 
+    broadcast('physical_unit_changed', { grocy_location_id: Number(grocy_location_id), action: 'created' });
     res.status(201).json(
         db.prepare('SELECT * FROM physical_units WHERE id = ?').get(result.lastInsertRowid)
     );
@@ -98,6 +101,7 @@ router.patch('/:id', requireAuth(), handle((req, res) => {
         db.prepare('UPDATE physical_units SET sort_order = ? WHERE id = ?').run(parseInt(sort_order) || 0, id);
     }
 
+    broadcast('physical_unit_changed', { grocy_location_id: Number(unit.grocy_location_id), action: 'updated' });
     res.json(db.prepare('SELECT * FROM physical_units WHERE id = ?').get(id));
 }));
 
