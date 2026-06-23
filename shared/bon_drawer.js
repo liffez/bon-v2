@@ -645,7 +645,11 @@ class BonDrawer {
             `<div class="lst-row"><span>Status</span><strong>${esc(label)}${d.number ? ` <span class="lst-dim">${esc(d.number)}</span>` : ''}</strong></div>` +
             (d.carrier ? `<div class="lst-row"><span>Bud</span><span>${esc(d.carrier)}</span></div>` : '') +
             (d.eta && (d.eta.begin || d.eta.end) ? `<div class="lst-row"><span>Forventet levering</span><span>${t(d.eta.begin)}–${t(d.eta.end)}</span></div>` : '') +
-            (d.cost_ex != null ? `<div class="lst-row"><span>${d.delivered ? 'Endelig pris' : 'Pris'}</span><span>${kr(d.cost_ex)} <span class="lst-dim">ex</span></span></div>` : '') +
+            // Pris = vores registrerede kostpris (samme tal som badge + faktisk
+            // omkostning); Lobos rå pris bruges kun som fallback hvis intet er gemt.
+            ((d.recorded_cost_ex != null || d.cost_ex != null)
+                ? `<div class="lst-row"><span>Kostpris</span><span>${kr(d.recorded_cost_ex != null ? d.recorded_cost_ex : d.cost_ex)} <span class="lst-dim">ex</span></span></div>`
+                : '') +
             // Kvittering (POD) findes først EFTER levering — vis kun link når leveret.
             (d.has_pod && d.delivered
                 ? `<div class="lst-row"><a class="lst-pod" href="${loboPodUrl(this.bonId)}" target="_blank" rel="noopener">📄 Åbn kvittering (PDF)</a></div>`

@@ -1441,12 +1441,13 @@ router.get('/lobo/order-status', requireAuth(), handle(async (req, res) => {
     try {
         const order = await adapter.getOrder(uuid);
         const norm = normalizeLoboOrder(order);
-        // Når leveret + Lobo har en endelig pris: gem den som faktisk omkostning.
-        if (norm && norm.delivered && norm.cost_ex != null) {
-            try { setActualCost({ bonId, amount: norm.cost_ex, source: 'api', userId: req.session.userId }); }
-            catch (e) { console.warn('[lobo/order-status] setActualCost:', e.message); }
-        }
-        res.json({ booked: true, ...norm });
+        // Vis den SAMME kostpris som resten af systemet: vores registrerede
+        // bons.delivery_cost (= composeCostEx ved booking, inkl. kasse-tillæg for
+        // Food). Lobos rå costtotal_net mangler kasse-tillægget, så den overskriver
+        // vi IKKE — den reelle faktura indtastes manuelt i "Faktisk omkostning".
+        const bonRow = getDb().prepare('SELECT delivery_cost FROM bons WHERE id = ?').get(bonId);
+        const recordedCostEx = bonRow && bonRow.delivery_cost != null ? Number(bonRow.delivery_cost) : null;
+        res.json({ booked: true, ...norm, recorded_cost_ex: recordedCostEx });
     } catch (e) {
         const status = e instanceof ByExpressenError ? (e.status || 502) : 502;
         res.status(status).json({ error: e.message, code: e.code });
