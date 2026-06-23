@@ -338,11 +338,16 @@ function createByExpressenAdapter({ config, credentials, fetchImpl = fetch, now 
     /* ── POD / downloads ──────────────────────────────────── */
 
     // Returnerer rå Response (pdf-binær) — kalderen streamer/gemmer.
+    // VIGTIGT: download-URL'en indeholder et per-ordre sikkerheds-token (?sc=...)
+    // som vi IKKE kan rekonstruere — derfor henter vi ordren og bruger Lobos egen
+    // `downloadlinks.download_pod`-URL direkte (verificeret: rekonstrueret sti → 403,
+    // Lobos URL → 200).
     async function downloadPod(uuid) {
+        const order = await getOrder(uuid);
+        const url = order && order.downloadlinks && order.downloadlinks.download_pod;
+        if (!url) throw new ByExpressenError('Ingen kvittering tilgængelig endnu', { status: 404, code: 'no_pod' });
         const token = await getToken();
-        const res = await fetchImpl(base + `downloads/order/pod/${uuid}`, {
-            headers: { Authorization: 'Bearer ' + token },
-        });
+        const res = await fetchImpl(url, { headers: { Authorization: 'Bearer ' + token } });
         if (!res.ok) throw new ByExpressenError(`POD-download fejlede (${res.status})`, { status: res.status });
         return res;
     }
