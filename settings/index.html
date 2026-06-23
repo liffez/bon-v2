@@ -947,6 +947,27 @@
           <h3 style="margin:0;font-size:16px" id="dv-editor-title">Rediger leveringsmetode</h3>
           <button type="button" class="st-btn-secondary" onclick="dvCloseEditor()">Luk</button>
         </div>
+        <div id="dv-lobo-sandbox" style="display:none;margin-bottom:14px;padding:12px;border:1px solid #e7c98a;border-radius:8px;background:#fdf6e3">
+          <div style="display:flex;justify-content:space-between;align-items:flex-start;gap:12px">
+            <div>
+              <div style="font-weight:600;font-size:14px">🧪 Test-tilstand (sandkasse)</div>
+              <div style="font-size:12px;color:#7a6a3a;margin-top:2px">Slået TIL: bestillinger går til By-expressens sandkasse — der sendes <strong>ingen rigtige bud</strong>. Slået FRA: rigtige bestillinger sendes til produktion.</div>
+              <div id="dv-lobo-host" style="font-size:11px;color:#999;margin-top:4px;font-family:monospace"></div>
+            </div>
+            <label style="display:inline-flex;align-items:center;cursor:pointer;flex:none">
+              <input type="checkbox" id="dv-lobo-sandbox-toggle" onchange="dvToggleLoboSandbox(this.checked)" style="width:20px;height:20px;cursor:pointer">
+            </label>
+          </div>
+        </div>
+        <div id="dv-lobo-webhooks" style="display:none;margin-bottom:14px;padding:12px;border:1px solid #cdd9e3;border-radius:8px;background:#f6f9fc">
+          <div style="font-weight:600;font-size:14px">🔔 Webhooks — live-status (selvkalibrerende)</div>
+          <div style="font-size:12px;color:#5a6b78;margin-top:2px">Registrér webhooks hos By-expressen så bon-status opdaterer live. HMAC-verifikationen <strong>kalibreres automatisk</strong> fra det første rigtige callback — ingen manuel opsætning.</div>
+          <div id="dv-lobo-wh-status" style="font-size:12px;margin-top:8px;color:#333"></div>
+          <div style="display:flex;gap:8px;margin-top:10px">
+            <button type="button" class="st-btn-secondary" onclick="dvRegisterLoboWebhooks()">Registrér / forny</button>
+            <button type="button" class="st-btn-secondary" onclick="dvUnregisterLoboWebhooks()">Afregistrér</button>
+          </div>
+        </div>
         <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px;margin-bottom:14px">
           <div>
             <label class="st-label">Navn (vist i UI)</label>
@@ -3717,6 +3738,21 @@ function dvEditVehicle(id) {
     _dvRenderVarChips();
     dvOnMethodChange();
 
+    // By-expressen: master-kontakt for sandkasse-tilstand (kun denne vogn).
+    const loboBox = document.getElementById('dv-lobo-sandbox');
+    const loboWh = document.getElementById('dv-lobo-webhooks');
+    if (v.code === 'byekspressen') {
+        const cfg = v.booking_api_config || {};
+        document.getElementById('dv-lobo-sandbox-toggle').checked = !!cfg.use_sandbox;
+        document.getElementById('dv-lobo-host').textContent = cfg.use_sandbox ? (cfg.sandbox_url || '') : (cfg.base_url || '');
+        loboBox.style.display = '';
+        loboWh.style.display = '';
+        dvLoadLoboWebhookStatus();
+    } else {
+        loboBox.style.display = 'none';
+        loboWh.style.display = 'none';
+    }
+
     const editor = document.getElementById('dv-editor');
     editor.style.display = '';
     editor.scrollIntoView({ behavior: 'smooth', block: 'start' });
@@ -3822,6 +3858,65 @@ function dvMoveField(idx, delta) {
 window.dvAddField = dvAddField;
 window.dvRemoveField = dvRemoveField;
 window.dvMoveField = dvMoveField;
+
+async function dvToggleLoboSandbox(enabled) {
+    try {
+        await setLoboSandbox(enabled);
+        const v = _dvVehicles.find(x => x.id === _dvEditingId);
+        if (v && v.booking_api_config) v.booking_api_config.use_sandbox = !!enabled;
+        const cfg = (v && v.booking_api_config) || {};
+        document.getElementById('dv-lobo-host').textContent = enabled ? (cfg.sandbox_url || '') : (cfg.base_url || '');
+        toast(enabled ? 'Sandkasse slået TIL — ingen rigtige bud sendes' : 'Sandkasse slået FRA — produktion er aktiv');
+    } catch (e) {
+        document.getElementById('dv-lobo-sandbox-toggle').checked = !enabled;
+        toast('Kunne ikke skifte tilstand: ' + (e.message || e), 'error');
+    }
+}
+window.dvToggleLoboSandbox = dvToggleLoboSandbox;
+
+async function dvLoadLoboWebhookStatus() {
+    const el = document.getElementById('dv-lobo-wh-status');
+    if (!el) return;
+    el.textContent = 'Henter status…';
+    try {
+        const s = await fetchLoboWebhookStatus();
+        if (!s.registered) { el.innerHTML = '<span style="color:#888">Ingen webhooks registreret endnu.</span>'; return; }
+        const cal = s.calibrated
+            ? `<span style="color:#1d6b45;font-weight:600">✓ Kalibreret</span> (header <code>${s.sig_header || '?'}</code>, signerer <code>${s.sign_target || '?'}</code>) — verifikation aktiv`
+            : '<span style="color:#9a6a1a;font-weight:600">⏳ Afventer kalibrering</span> — slås automatisk til ved første rigtige callback';
+        el.innerHTML = `Registreret: <strong>${s.events.length}</strong> events (${s.events.join(', ')})<br>` +
+            `URL: <code style="font-size:11px">${s.url || '–'}</code><br>${cal}`;
+    } catch (e) {
+        el.innerHTML = '<span style="color:#9a2a2a">Kunne ikke hente status: ' + (e.message || e) + '</span>';
+    }
+}
+
+async function dvRegisterLoboWebhooks() {
+    const el = document.getElementById('dv-lobo-wh-status');
+    el.textContent = 'Registrerer…';
+    try {
+        const r = await registerLoboWebhooks(window.location.origin);
+        toast('Webhooks registreret (' + r.registered.length + ' events)' + (r.sandbox ? ' — OBS: sandkasse-tilstand, der fyrer ingen callbacks' : ''));
+        await dvLoadLoboWebhookStatus();
+    } catch (e) {
+        toast('Kunne ikke registrere: ' + (e.message || e), 'error');
+        await dvLoadLoboWebhookStatus();
+    }
+}
+
+async function dvUnregisterLoboWebhooks() {
+    if (!confirm('Afregistrér alle By-expressen-webhooks og nulstil HMAC-kalibreringen?')) return;
+    try {
+        await unregisterLoboWebhooks();
+        toast('Webhooks afregistreret');
+        await dvLoadLoboWebhookStatus();
+    } catch (e) {
+        toast('Kunne ikke afregistrere: ' + (e.message || e), 'error');
+    }
+}
+window.dvLoadLoboWebhookStatus = dvLoadLoboWebhookStatus;
+window.dvRegisterLoboWebhooks = dvRegisterLoboWebhooks;
+window.dvUnregisterLoboWebhooks = dvUnregisterLoboWebhooks;
 
 function dvCloseEditor() {
     _dvEditingId = null;

@@ -1696,11 +1696,58 @@ function fetchLoboQuote(bonId, boxes) {
     return apiFetch(qs);
 }
 
+// Lobo/By-expressen — se-og-ret-panel: felter der sendes + vindue + pris.
+// data: { bon_id, pickup_time?, boxes?, fkproduct?, contact?, note?, reference? }
+function previewLoboBooking(data) {
+    return apiFetch('/delivery/lobo/preview', {
+        method: 'POST',
+        body: JSON.stringify(data),
+    });
+}
+
+// Lobo/By-expressen — webhook-registrering + selvkalibrerings-status (admin).
+function fetchLoboWebhookStatus() {
+    return apiFetch('/delivery/lobo/webhooks');
+}
+function registerLoboWebhooks(publicBaseUrl) {
+    return apiFetch('/delivery/lobo/webhooks/register', {
+        method: 'POST',
+        body: JSON.stringify(publicBaseUrl ? { public_base_url: publicBaseUrl } : {}),
+    });
+}
+function unregisterLoboWebhooks() {
+    return apiFetch('/delivery/lobo/webhooks', { method: 'DELETE' });
+}
+
+// Lobo/By-expressen — trin 3: on-demand status for booket ordre (status/ETA/POD/pris).
+function fetchLoboOrderStatus(bonId) {
+    return apiFetch('/delivery/lobo/order-status?bon_id=' + bonId);
+}
+
+// URL til kvitterings-PDF (POD) — åbnes i ny fane (server-proxy med bearer-token).
+function loboPodUrl(bonId) {
+    return '/api/delivery/lobo/pod?bon_id=' + bonId;
+}
+
 // Lobo/By-expressen — rigtig booking (dispatch). Mod productive kræves confirm:true.
+// data: { bon_id, confirm?, ...overrides } — overrides = samme felter som preview.
 function bookLoboDelivery(data) {
     return apiFetch('/delivery/lobo/book', {
         method: 'POST',
         body: JSON.stringify(data),
+    });
+}
+
+// Lobo/By-expressen — sandkasse-tilstand (til badge + Settings master-kontakt).
+function fetchLoboStatus() {
+    return apiFetch('/delivery/lobo/status');
+}
+
+// Lobo/By-expressen — master-kontakt (admin): slå sandkasse til/fra globalt.
+function setLoboSandbox(enabled) {
+    return apiFetch('/delivery/lobo/sandbox', {
+        method: 'POST',
+        body: JSON.stringify({ enabled: !!enabled }),
     });
 }
 

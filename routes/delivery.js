@@ -33,7 +33,27 @@ const { healthCheck } = require('../services/routing');
 const { geocodeAddress } = require('../services/geocode');
 const { computeRoute, applyRouteProposal, PICKUP_LOCKED_STATUSES } = require('../services/route_planner');
 const { getByExpressenAdapter, ByExpressenError } = require('../services/byExpressenAdapter');
-const { quoteForBon, bookForBon } = require('../services/lobo_booking');
+const { quoteForBon, bookForBon, previewBooking, normalizeLoboOrder } = require('../services/lobo_booking');
+
+// Felter office må overstyre i se-og-ret-panelet (whitelist mod payload-injection).
+function pickLoboOverrides(src = {}) {
+    const out = {};
+    for (const k of ['pickup_time', 'boxes', 'fkproduct', 'contact', 'note', 'reference']) {
+        if (src[k] !== undefined && src[k] !== null) out[k] = src[k];
+    }
+    return out;
+}
+
+// Seneste By-expressen-ordre-uuid for en bon (fra delivery_events 'booked'-event).
+function loboOrderUuidForBon(bonId) {
+    const row = getDb().prepare(
+        `SELECT external_reference FROM delivery_events
+         WHERE bon_id = ? AND provider = 'byekspressen'
+           AND external_reference IS NOT NULL AND event_type = 'booked'
+         ORDER BY id DESC LIMIT 1`
+    ).get(bonId);
+    return row ? row.external_reference : null;
+}
 
 // ==========================================
 // GET /api/delivery/vehicles
@@ -1320,9 +1340,25 @@ router.get('/lobo/quote', requireAuth(), handle(async (req, res) => {
     }
 }));
 
-// POST /api/delivery/lobo/book  { bon_id, confirm? }
+// POST /api/delivery/lobo/preview  { bon_id, ...overrides }
+// Se-og-ret-panelet: viser de felter By-expressen modtager + Lobos leveringsvindue
+// + pris (opretter + sletter en orderdraft — INGEN ordre, intet bud).
+router.post('/lobo/preview', requireAuth(), handle(async (req, res) => {
+    const ctx = loadLoboContext(req, res);
+    if (!ctx) return;
+    try {
+        const result = await previewBooking({ ...ctx, overrides: pickLoboOverrides(req.body) });
+        res.json(result);
+    } catch (e) {
+        const status = e instanceof ByExpressenError ? (e.status || 502) : 502;
+        res.status(status).json({ error: e.message, code: e.code, body: e.body });
+    }
+}));
+
+// POST /api/delivery/lobo/book  { bon_id, confirm?, ...overrides }
 // Rigtig booking (dispatch). GATE: mod productive kræves confirm:true, da et
 // rigtigt bud sendes og order.delete-scope (cancel via API) ikke er aktiv endnu.
+// overrides (samme som /preview) sikrer at det bookede = det office så.
 router.post('/lobo/book', requireAuth(), handle(async (req, res) => {
     const ctx = loadLoboContext(req, res);
     if (!ctx) return;
@@ -1334,12 +1370,180 @@ router.post('/lobo/book', requireAuth(), handle(async (req, res) => {
         });
     }
     try {
-        const result = await bookForBon({ ...ctx, userId: req.session.userId, boxes: req.body.boxes });
+        const result = await bookForBon({ ...ctx, userId: req.session.userId, overrides: pickLoboOverrides(req.body) });
         res.status(201).json({ ok: true, ...result });
     } catch (e) {
         const status = e instanceof ByExpressenError ? (e.status || 502) : 502;
         res.status(status).json({ error: e.message, code: e.code, body: e.body });
     }
+}));
+
+// GET /api/delivery/lobo/status
+// Sandkasse-tilstand + om By-expressen er konfigureret. Bruges af bon-drawer +
+// logistik til at vise SANDKASSE-badgen og af Settings til at vise master-kontakten.
+router.get('/lobo/status', requireAuth(), handle((req, res) => {
+    const row = getDb().prepare(
+        `SELECT booking_method, booking_api_config_json FROM delivery_vehicles WHERE code = 'byekspressen'`
+    ).get();
+    let cfg = null;
+    if (row && row.booking_api_config_json) {
+        try { cfg = JSON.parse(row.booking_api_config_json); } catch { cfg = null; }
+    }
+    const host = cfg ? (cfg.use_sandbox ? cfg.sandbox_url : cfg.base_url) || null : null;
+    res.json({
+        configured: !!cfg,
+        use_sandbox: !!(cfg && cfg.use_sandbox),
+        booking_method: row ? row.booking_method : null,
+        host,
+    });
+}));
+
+// POST /api/delivery/lobo/sandbox  { enabled }  (admin)
+// Master-kontakt: vender use_sandbox i By-expressen-vognens config. json_set bevarer
+// alle øvrige nøgler. Slår igennem med det samme (adapteren bygges pr. kald fra DB).
+router.post('/lobo/sandbox', requireAuth('admin'), handle((req, res) => {
+    const enabled = req.body.enabled ? 1 : 0;
+    const db = getDb();
+    const row = db.prepare(
+        `SELECT id, booking_api_config_json FROM delivery_vehicles WHERE code = 'byekspressen'`
+    ).get();
+    if (!row) return res.status(404).json({ error: 'By-expressen-vogn ikke fundet' });
+    db.prepare(
+        `UPDATE delivery_vehicles
+         SET booking_api_config_json = json_set(booking_api_config_json, '$.use_sandbox', json(?))
+         WHERE id = ?`
+    ).run(enabled ? 'true' : 'false', row.id);
+    logChange({
+        entityType: 'delivery_vehicle', entityId: row.id, action: 'update',
+        fieldName: 'use_sandbox', newValue: String(!!enabled), userId: req.session.userId,
+    });
+    broadcast('lobo_sandbox_changed', { use_sandbox: !!enabled });
+    res.json({ ok: true, use_sandbox: !!enabled });
+}));
+
+// GET /api/delivery/lobo/order-status?bon_id=
+// Trin 3: on-demand status for en booket By-expressen-ordre (status, bud, ETA,
+// kvittering, endelig pris). Bruger ingen webhooks — poller GET /orders/{uuid}.
+router.get('/lobo/order-status', requireAuth(), handle(async (req, res) => {
+    const bonId = parseInt(req.query.bon_id, 10);
+    if (!bonId) return res.status(400).json({ error: 'bon_id påkrævet' });
+    const uuid = loboOrderUuidForBon(bonId);
+    if (!uuid) return res.json({ booked: false });
+    let adapter;
+    try { adapter = getByExpressenAdapter(); }
+    catch (e) { return res.status(503).json({ error: e.message, code: e.code || 'config' }); }
+    try {
+        const order = await adapter.getOrder(uuid);
+        const norm = normalizeLoboOrder(order);
+        // Når leveret + Lobo har en endelig pris: gem den som faktisk omkostning.
+        if (norm && norm.delivered && norm.cost_ex != null) {
+            try { setActualCost({ bonId, amount: norm.cost_ex, source: 'api', userId: req.session.userId }); }
+            catch (e) { console.warn('[lobo/order-status] setActualCost:', e.message); }
+        }
+        res.json({ booked: true, ...norm });
+    } catch (e) {
+        const status = e instanceof ByExpressenError ? (e.status || 502) : 502;
+        res.status(status).json({ error: e.message, code: e.code });
+    }
+}));
+
+// GET /api/delivery/lobo/pod?bon_id=
+// Proxy af kvitterings-PDF (POD) — Lobos download-URL kræver bearer-token, så vi
+// henter den server-side og streamer den til browseren.
+router.get('/lobo/pod', requireAuth(), handle(async (req, res) => {
+    const bonId = parseInt(req.query.bon_id, 10);
+    if (!bonId) return res.status(400).send('bon_id påkrævet');
+    const uuid = loboOrderUuidForBon(bonId);
+    if (!uuid) return res.status(404).send('Ingen By-expressen-ordre på bonen');
+    let adapter;
+    try { adapter = getByExpressenAdapter(); }
+    catch (e) { return res.status(503).send(e.message); }
+    try {
+        const podRes = await adapter.downloadPod(uuid);
+        res.setHeader('Content-Type', podRes.headers.get('content-type') || 'application/pdf');
+        res.setHeader('Content-Disposition', `inline; filename="pod-${uuid}.pdf"`);
+        res.send(Buffer.from(await podRes.arrayBuffer()));
+    } catch (e) {
+        res.status(502).send('Kvittering ikke tilgængelig: ' + e.message);
+    }
+}));
+
+// ── Webhook-registrering + selvkalibrering (trin "live-push") ──────────────
+const LOBO_WEBHOOK_EVENTS = ['dispatched', 'stopvisitedorsigned', 'finished', 'changed', 'trashed', 'withdrawn'];
+
+function _settingsGetter(db) {
+    return (k) => { const r = db.prepare('SELECT value FROM settings WHERE key = ?').get(k); return r ? r.value : null; };
+}
+function _settingsSetter(db) {
+    return (k, v) => db.prepare(
+        `INSERT INTO settings (key, value) VALUES (?, ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value`
+    ).run(k, v == null ? null : String(v));
+}
+
+// GET /api/delivery/lobo/webhooks  (admin) — registrerings- + kalibrerings-status.
+router.get('/lobo/webhooks', requireAuth('admin'), handle((req, res) => {
+    const get = _settingsGetter(getDb());
+    let events = []; try { events = Object.keys(JSON.parse(get('lobo_webhook_keys') || '{}')); } catch { /* */ }
+    res.json({
+        url: get('lobo_webhook_url'),
+        events,
+        registered: events.length > 0,
+        verify: get('lobo_webhook_verify') || '0',
+        calibrated: (get('lobo_webhook_verify') || '0') === '1',
+        sig_header: get('lobo_webhook_sig_header'),
+        sign_target: get('lobo_webhook_sign_target'),
+    });
+}));
+
+// POST /api/delivery/lobo/webhooks/register  (admin)
+// Registrér webhooks hos By-expressen pegende på vores modtager + gem per-event
+// hmac-nøgler. Verifikation forbliver FRA indtil første callback selvkalibrerer.
+router.post('/lobo/webhooks/register', requireAuth('admin'), handle(async (req, res) => {
+    const db = getDb();
+    const get = _settingsGetter(db), setS = _settingsSetter(db);
+    const base = String(req.body.public_base_url || get('lobo_webhook_public_url') || get('booking_public_url_base') || '')
+        .trim().replace(/\/+$/, '');
+    if (!base) return res.status(400).json({ error: 'public_base_url mangler (sæt lobo_webhook_public_url i settings eller send public_base_url)', code: 'no_url' });
+    const url = base + '/api/webhooks/lobo';
+    let adapter;
+    try { adapter = getByExpressenAdapter(); }
+    catch (e) { return res.status(503).json({ error: e.message, code: e.code || 'config' }); }
+
+    const keys = {}, ids = {}, errors = {};
+    for (const ev of LOBO_WEBHOOK_EVENTS) {
+        try { const w = await adapter.registerWebhook(ev, url); keys[ev] = w.hmac_key; ids[ev] = w.id; }
+        catch (e) { errors[ev] = e.message; }
+    }
+    if (!Object.keys(keys).length) {
+        return res.status(502).json({ error: 'Ingen webhooks kunne registreres', errors });
+    }
+    setS('lobo_webhook_url', url);
+    setS('lobo_webhook_keys', JSON.stringify(keys));
+    setS('lobo_webhook_ids', JSON.stringify(ids));
+    setS('lobo_webhook_algorithm', 'sha256');
+    if (get('lobo_webhook_verify') == null) setS('lobo_webhook_verify', '0');
+    res.json({
+        ok: true, url, registered: Object.keys(keys), errors,
+        sandbox: !!(adapter.config && adapter.config.use_sandbox),
+        note: 'Verifikation slås automatisk til når første rigtige callback kalibrerer signatur-formatet.',
+    });
+}));
+
+// DELETE /api/delivery/lobo/webhooks  (admin) — afregistrér + nulstil kalibrering.
+router.delete('/lobo/webhooks', requireAuth('admin'), handle(async (req, res) => {
+    const db = getDb();
+    const get = _settingsGetter(db);
+    let ids = {}; try { ids = JSON.parse(get('lobo_webhook_ids') || '{}'); } catch { /* */ }
+    let deleted = [];
+    try {
+        const adapter = getByExpressenAdapter();
+        for (const [ev, id] of Object.entries(ids)) { try { await adapter.deleteWebhook(id); deleted.push(ev); } catch { /* */ } }
+    } catch (e) { /* afregistrér best-effort — ryd settings uanset */ }
+    for (const k of ['lobo_webhook_url', 'lobo_webhook_keys', 'lobo_webhook_ids', 'lobo_webhook_sig_header', 'lobo_webhook_sign_target']) {
+        db.prepare('DELETE FROM settings WHERE key = ?').run(k);
+    }
+    _settingsSetter(db)('lobo_webhook_verify', '0');
+    res.json({ ok: true, deleted });
 }));
 
 module.exports = router;

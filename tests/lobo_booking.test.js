@@ -5,7 +5,7 @@
 const test = require('node:test');
 const assert = require('node:assert');
 
-const { quoteForBon, bookForBon, buildSurcharges, defaultBoxesForBon, composeCostEx } = require('../services/lobo_booking');
+const { quoteForBon, bookForBon, buildSurcharges, defaultBoxesForBon, composeCostEx, normalizeLoboOrder } = require('../services/lobo_booking');
 const { createByExpressenAdapter } = require('../services/byExpressenAdapter');
 
 const CONFIG = {
@@ -163,4 +163,47 @@ test('bookForBon: Lobo-fejl → logger failed-event og kaster videre', async () 
     await assert.rejects(() => bookForBon({ bon: BON, vehicle: VEHICLE, adapter, userId: 1, deps }), /boom/);
     assert.strictEqual(logged.length, 1);
     assert.strictEqual(logged[0].status, 'failed');
+});
+
+// ── normalizeLoboOrder (trin 3 — status-panel) ──
+test('normalizeLoboOrder: leveret ordre → delivered + endelig pris + ETA + POD', () => {
+    const n = normalizeLoboOrder({
+        uuid: 'ord-1', numberformatted: '262.600.016', status: 'finished', fkcarrier: 42,
+        costtotal_net: 100, costtotal_gross: 125, routedistance: 684,
+        downloadlinks: { download_pod: 'https://x/pod' },
+        stops: [
+            { position: 1, tw_estimated_begin: 'A', tw_estimated_end: 'B' },
+            { position: 2, tw_estimated_begin: 'C', tw_estimated_end: 'D' },
+        ],
+    });
+    assert.strictEqual(n.delivered, true);
+    assert.strictEqual(n.status, 'finished');
+    assert.strictEqual(n.carrier, 'Bud #42');       // fkcarrier-fallback (carrier.read ikke tildelt)
+    assert.strictEqual(n.cost_ex, 100);
+    assert.strictEqual(n.cost_incl, 125);
+    assert.strictEqual(n.has_pod, true);
+    assert.deepStrictEqual(n.eta, { begin: 'C', end: 'D' });       // leverings-stop (position 2)
+    assert.deepStrictEqual(n.pickup_eta, { begin: 'A', end: 'B' });
+});
+
+test('normalizeLoboOrder: planlagt ordre → ikke leveret, pris fra accounting-embed', () => {
+    const n = normalizeLoboOrder({
+        uuid: 'ord-2', status: 'planned',
+        accounting: { costtotal_net: 150, costtotal_gross: 187.5 },
+        stops: [{ position: 1 }, { position: 2, tw_estimated_end: 'E' }],
+    });
+    assert.strictEqual(n.delivered, false);
+    assert.strictEqual(n.cost_ex, 150);             // fallback til accounting.costtotal_net
+    assert.strictEqual(n.has_pod, false);
+    assert.strictEqual(n.carrier, null);
+});
+
+test('normalizeLoboOrder: signeret leverings-stop tæller som leveret', () => {
+    const n = normalizeLoboOrder({ uuid: 'ord-3', status: 'open', stops: [{ position: 1 }, { position: 2, signed: 1 }] });
+    assert.strictEqual(n.delivered, true);
+});
+
+test('normalizeLoboOrder: null/tom → null', () => {
+    assert.strictEqual(normalizeLoboOrder(null), null);
+    assert.strictEqual(normalizeLoboOrder(undefined), null);
 });
