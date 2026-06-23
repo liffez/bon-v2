@@ -23,9 +23,10 @@ har **forrang** over de tilsvarende afsnit længere nede (særligt "Status" og
 > - **Fase 1** (`review_ask`) — migration 108, blok §6 i `GET /suggestions`, dashboard-knap "⭐ Spurgt". Verificeret i drift.
 > - **Idé ① — round-robin feed-budget** — `interleaveSuggestions()` i `routes/crm.js`. Hver type får plads i top-8 (løste at 7 sæson-kort skjulte review). Verificeret i drift.
 > - **Idé ② — snooze ("🙈 Skjul")** — migration 109 (`crm_suggestion_snoozes`), per kunde+type, 14 dage, JS-filter før round-robin. Inkl. "🙈 N skjult"-knap med "↩︎ Vis igen"-fortryd og et ⓘ info-felt der forklarer hvordan forslagene laves.
-> - Tests: `scripts/test-crm-review.js` (22 asserts: detektion + snooze-filter + round-robin).
+> - **A / idé ③ — outcome-måling** (#227) — migration 110 (`crm_activities.outcome`), `POST /activity` accepterer+validerer outcome, "⭐ Spurgt…" folder en udfalds-vælger ud (👍 vil anmelde / 🤷 måske / 👎 nej), og `GET /suggestions/review-stats` viser en 180-dages-status i ⓘ-panelet.
+> - Tests: `scripts/test-crm-review.js` (25 asserts: detektion + snooze-filter + outcome + round-robin).
 >
-> Resterende idéer (③ outcome-måling, ④ Fase 4-gating, Fase 2/3/5) er endnu ikke bygget.
+> Planlagt (GitHub epic #232): B #228 (Fase 5) · C #229 (worklist-komponent) · D #230 (Fase 2+3) · E #231 (Fase 4, afventer CVR-data + consent).
 
 ### Faktuelle rettelser (verificeret mod koden)
 
