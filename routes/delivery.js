@@ -358,12 +358,24 @@ router.post('/calculate', requireAuth(), handle(async (req, res) => {
             }
         }
 
+        // Udled kasse-antal når bonen ikke har det sat (boxes-kolonnen er ofte
+        // tom; kasser beregnes ellers først i panelet). 154 er By-expressens
+        // MINIMUM — kasse-priserne lægges til via estimateCost. Samme udledning
+        // som defaultBoxesForBon: ceil(arbejdsmængde / pax_per_box).
+        let estBoxes = Number(bon.boxes) > 0 ? Number(bon.boxes) : 0;
+        if (!estBoxes) {
+            const ppbRow = getDb().prepare(`SELECT value FROM settings WHERE key = 'default_pax_per_box'`).get();
+            const ppb = ppbRow && Number(ppbRow.value) > 0 ? Number(ppbRow.value) : 16;
+            const workload = Number(bon.total_units) > 0 ? Number(bon.total_units) : (Number(bon.pax) || 0);
+            estBoxes = workload > 0 ? Math.max(1, Math.ceil(workload / ppb)) : 0;
+        }
+
         input = {
             addressId: bon.delivery_address_id || null,
             lat: aLat,
             lon: aLon,
             delivery_time: bon.delivery_time || null,
-            boxes: bon.boxes,
+            boxes: estBoxes,
             pax: bon.pax
         };
     } else {
