@@ -64,8 +64,12 @@ function resolveExtraBoxCost(cfg, vehicle) {
 // kasse over de inkluderede. Vi lægger selv kasse-tillægget til frem for at
 // stole på Lobos `costtotal_net` — dens størrelsestillæg er fladt (samme beløb
 // uanset antal ekstra kasser), mens By-ex reelt opkræver pr. kasse.
-function composeCostEx(loboBaseEx, boxes, cfg, vehicle) {
+// applyBoxSurcharge: kun for Food (39) lægger By-expressen 50/ekstra-kasse oveni
+// Lobos grundpris. For ikke-Food-produkter (Medium/Large til lange ture) er Lobos
+// pris allerede komplet (pr. km) — så returnér den uændret.
+function composeCostEx(loboBaseEx, boxes, cfg, vehicle, applyBoxSurcharge = true) {
     if (loboBaseEx == null) return null;
+    if (!applyBoxSurcharge) return Math.round(loboBaseEx * 100) / 100;
     const included = cfg.included_boxes != null ? Number(cfg.included_boxes) : resolveIncludedBoxes(cfg, vehicle);
     const extra = Math.max(0, (Number(boxes) || 0) - included);
     return Math.round((loboBaseEx + resolveExtraBoxCost(cfg, vehicle) * extra) * 100) / 100;
@@ -279,8 +283,11 @@ async function previewBooking({ bon, vehicle, adapter, overrides = {}, paxPerBox
     const quote = await adapter.priceQuote(payload);
     if (quote && quote.uuid) { try { await adapter.deleteOrderDraft(quote.uuid); } catch { /* udløber selv */ } }
 
+    // Food (= vognens default-produkt) får kasse-tillæg lokalt; andre produkter
+    // (lange ture, pr. km) bruger Lobos pris direkte.
+    const isFood = Number(preview.fkproduct) === Number(cfg.fkproduct);
     const win = extractWindow(quote.order);
-    const costEx = composeCostEx(quote.cost_ex, boxes, cfg, vehicle);
+    const costEx = composeCostEx(quote.cost_ex, boxes, cfg, vehicle, isFood);
     const costIncl = costEx != null ? exclToIncl(costEx) : null;
     const customerEx = vehicle ? (estimateCost(vehicle, { ...bon, boxes }) ?? null) : null;
     const margin = (customerEx != null && costEx != null) ? Math.round((customerEx - costEx) * 100) / 100 : null;
@@ -288,11 +295,22 @@ async function previewBooking({ bon, vehicle, adapter, overrides = {}, paxPerBox
     const deadlineIso = isoFor(bon, hhmm(bon.delivery_time));
     const isLate = (win && win.end && deadlineIso) ? (new Date(win.end) > new Date(deadlineIso)) : false;
 
+    // Supply-area-advarsel: Food dækker kun bynært (vognens max_distance_km). Draften
+    // afslører IKKE out-of-area (kun den rigtige booking gør) — så vi advarer proaktivt
+    // når Food vælges til en tur længere end leveringsområdet.
+    const maxKm = vehicle && vehicle.max_distance_km ? Number(vehicle.max_distance_km) : null;
+    const distKm = quote.routedistance != null ? quote.routedistance / 1000 : null;
+    const supplyWarning = !!(isFood && maxKm && distKm && distKm > maxKm);
+
     return {
         preview,
         window: win ? { begin: win.begin, end: win.end, deadline_iso: deadlineIso, is_late: isLate } : null,
         price: { cost_ex: costEx, cost_incl: costIncl, customer_ex: customerEx, margin },
         bon_fields: bonControlFields(bon, boxes),
+        routedistance: quote.routedistance ?? null,
+        supply_warning: supplyWarning,
+        max_distance_km: maxKm,
+        is_food: isFood,
     };
 }
 
@@ -309,7 +327,8 @@ async function bookForBon({ bon, vehicle, adapter, userId = null, overrides = {}
     // bagudkompat: ældre kald sendte boxes direkte; fold ind i overrides.
     const ov = { ...overrides, paxPerBox };
     if (ov.boxes == null && boxes != null) ov.boxes = boxes;
-    const { input, boxes: effectiveBoxes } = composeLoboBooking(bon, vehicle, cfg, ov);
+    const { input, preview, boxes: effectiveBoxes } = composeLoboBooking(bon, vehicle, cfg, ov);
+    const isFood = Number(preview.fkproduct) === Number(cfg.fkproduct);
     const payload = adapter.buildOrderPayload(input);
 
     let order;
@@ -322,7 +341,7 @@ async function bookForBon({ bon, vehicle, adapter, userId = null, overrides = {}
         throw e;
     }
 
-    const costEx = composeCostEx(extractCostEx(order), effectiveBoxes, cfg, vehicle);
+    const costEx = composeCostEx(extractCostEx(order), effectiveBoxes, cfg, vehicle, isFood);
     await logBookingEvent({
         bonId: bon.id, vehicleId: vehicle.id, reference: order.uuid,
         status: 'booked', userId, snapshot: order,

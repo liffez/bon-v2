@@ -725,6 +725,12 @@ class BonDrawer {
             ? `<div class="lbp-window ${winCls}">${w.is_late ? '⚠' : '✓'} Vindue fra By-expressen: <strong>${t(w.begin)}–${t(w.end)}</strong>${bf.delivery_time ? (w.is_late ? ` (efter kundens ${esc(bf.delivery_time)})` : ` (inden kundens ${esc(bf.delivery_time)})`) : ''}</div>`
             : '<div class="lbp-window">Tryk "Hent" for vindue & pris</div>';
 
+        // Supply-area-advarsel: Food dækker kun bynært — lange ture skal bruge Large/Medium.
+        const distKm = data.routedistance != null ? (data.routedistance / 1000).toFixed(1) : null;
+        const supplyHtml = data.supply_warning
+            ? `<div class="lbp-window late">⚠ Food dækker typisk kun bynære leveringer (~${esc(data.max_distance_km)} km).${distKm ? ` Denne tur er ${esc(distKm)} km` : ''} — Food kan blive <strong>afvist ved booking</strong>. Vælg <strong>Large</strong> eller <strong>Medium</strong> (lange ture, pr. km).</div>`
+            : '';
+
         const marginCls = pr.margin == null ? '' : (pr.margin < 0 ? 'neg' : 'pos');
 
         host.className = 'drawer-lobo-panel ok';
@@ -742,10 +748,12 @@ class BonDrawer {
               `<label class="lbp-l">Note (kort)</label><input class="lbp-note" type="text" maxlength="60" value="${esc(p.delivery_note)}">` +
             `</div>` +
             winHtml +
+            supplyHtml +
             `<div class="lbp-prices">` +
               `<span>Kostpris <strong>${kr(pr.cost_ex)}</strong> <span class="lbp-dim">ex</span></span>` +
               (pr.margin != null ? `<span class="lbp-margin ${marginCls}">margin ${pr.margin >= 0 ? '+' : ''}${kr(pr.margin)}</span>` : '') +
             `</div>` +
+            `<div class="lbp-err" hidden></div>` +
             `<div class="lbp-preview"><div class="lbp-sub">Sådan modtager By-expressen det</div>` +
               `<div class="lbp-pre-line">Reference: ${esc(p.reference)}</div>` +
               `<div class="lbp-pre-line">Afhentning: kl. ${esc(p.pickup_time || '–')}${p.pickup_note ? ' · ' + esc(p.pickup_note) : ''}</div>` +
@@ -775,8 +783,25 @@ class BonDrawer {
             this.load(this.bonId);
         } catch (err) {
             if (btn) { btn.disabled = false; btn.textContent = sandbox ? 'Bestil i sandkasse' : 'Bestil rigtigt bud'; }
-            alert('Booking fejlede: ' + ((err && err.message) || 'ukendt fejl'));
+            const msg = (err && err.message) || 'ukendt fejl';
+            if (/OUTSIDE_SUPPLYAREA|supply area/i.test(msg)) {
+                // Food dækker ikke adressen — foreslå Large og bed office hente igen.
+                const sel = host && host.querySelector('.lbp-product');
+                if (sel && sel.value === '39') { sel.value = '9'; this._loboGatherOverrides(); }
+                this._loboShowError(host, '⚠ Adressen er udenfor Foods leveringsområde. Skiftet til Large (lange ture, pr. km) — tryk "↻ Hent vindue & pris" og bestil igen.');
+            } else if (/address|verificeres/i.test(msg)) {
+                this._loboShowError(host, '⚠ ' + msg + ' Ret leveringsadressen på bonen, eller brug "Bestil hos…" (manuel).');
+            } else {
+                this._loboShowError(host, 'Booking fejlede: ' + msg);
+            }
         }
+    }
+
+    _loboShowError(host, text) {
+        const el = host && host.querySelector('.lbp-err');
+        if (!el) { alert(text); return; }
+        el.textContent = text;
+        el.hidden = false;
     }
 
     async _loadDelivery(bon) {

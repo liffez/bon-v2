@@ -49,6 +49,14 @@ test('composeCostEx: Lobo-grundpris + extra_box_cost × ekstra kasser', () => {
     assert.strictEqual(composeCostEx(null, 5, CONFIG, VEHICLE), null); // ingen grundpris
 });
 
+test('composeCostEx: ikke-Food (applyBoxSurcharge=false) → Lobos pris uændret (pr. km)', () => {
+    // Lange ture (Medium/Large) prissættes pr. km af Lobo — INGEN 50/kasse oveni.
+    assert.strictEqual(composeCostEx(358.4, 7, CONFIG, VEHICLE, false), 358.4);
+    assert.strictEqual(composeCostEx(196, 5, CONFIG, VEHICLE, false), 196);
+    // Food (true/default) lægger stadig kasse-tillæg til.
+    assert.strictEqual(composeCostEx(196, 7, CONFIG, VEHICLE, true), 196 + 5 * 50);
+});
+
 /* ── defaultBoxesForBon ───────────────────────────────────── */
 
 test('defaultBoxesForBon: bons.boxes har forrang når sat', () => {
