@@ -968,6 +968,14 @@
             <button type="button" class="st-btn-secondary" onclick="dvUnregisterLoboWebhooks()">Afregistrér</button>
           </div>
         </div>
+        <div id="dv-lobo-pricing" style="display:none;margin-bottom:14px;padding:12px;border:1px solid #cdd9e3;border-radius:8px;background:#f6f9fc">
+          <div style="font-weight:600;font-size:14px">💰 Pris-regel — foreslået kundepris (lange ture)</div>
+          <div style="font-size:12px;color:#5a6b78;margin-top:2px;margin-bottom:8px">Når buddet koster mere end standardprisen, foreslår panelet en kundepris: <strong>kostpris + markup</strong>, rundet op til nærmeste beløb (aldrig under standardpris).</div>
+          <div style="display:flex;gap:12px;align-items:flex-end">
+            <div><label class="st-label">Markup %</label><input type="number" id="dv-lobo-markup" class="st-input" min="0" step="1" style="width:90px" onchange="dvSaveLoboPricing()"></div>
+            <div><label class="st-label">Rund op til (kr)</label><input type="number" id="dv-lobo-round" class="st-input" min="1" step="1" style="width:110px" onchange="dvSaveLoboPricing()"></div>
+          </div>
+        </div>
         <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px;margin-bottom:14px">
           <div>
             <label class="st-label">Navn (vist i UI)</label>
@@ -3747,10 +3755,13 @@ function dvEditVehicle(id) {
         document.getElementById('dv-lobo-host').textContent = cfg.use_sandbox ? (cfg.sandbox_url || '') : (cfg.base_url || '');
         loboBox.style.display = '';
         loboWh.style.display = '';
+        document.getElementById('dv-lobo-pricing').style.display = '';
         dvLoadLoboWebhookStatus();
+        dvLoadLoboPricing();
     } else {
         loboBox.style.display = 'none';
         loboWh.style.display = 'none';
+        document.getElementById('dv-lobo-pricing').style.display = 'none';
     }
 
     const editor = document.getElementById('dv-editor');
@@ -3917,6 +3928,27 @@ async function dvUnregisterLoboWebhooks() {
 window.dvLoadLoboWebhookStatus = dvLoadLoboWebhookStatus;
 window.dvRegisterLoboWebhooks = dvRegisterLoboWebhooks;
 window.dvUnregisterLoboWebhooks = dvUnregisterLoboWebhooks;
+
+async function dvLoadLoboPricing() {
+    try {
+        const rows = await fetchSettings();
+        const get = (k, def) => { const r = (rows || []).find(x => x.key === k); return r && r.value != null ? r.value : def; };
+        document.getElementById('dv-lobo-markup').value = get('lobo_customer_markup_pct', '10');
+        document.getElementById('dv-lobo-round').value = get('lobo_customer_round_to', '25');
+    } catch (e) {
+        document.getElementById('dv-lobo-markup').value = '10';
+        document.getElementById('dv-lobo-round').value = '25';
+    }
+}
+async function dvSaveLoboPricing() {
+    try {
+        await patchSetting('lobo_customer_markup_pct', document.getElementById('dv-lobo-markup').value || '0');
+        await patchSetting('lobo_customer_round_to', document.getElementById('dv-lobo-round').value || '25');
+        toast('Pris-regel gemt');
+    } catch (e) { toast('Kunne ikke gemme: ' + (e.message || e), 'error'); }
+}
+window.dvLoadLoboPricing = dvLoadLoboPricing;
+window.dvSaveLoboPricing = dvSaveLoboPricing;
 
 function dvCloseEditor() {
     _dvEditingId = null;

@@ -756,6 +756,11 @@ class BonDrawer {
               `<span>Kostpris <strong>${kr(pr.cost_ex)}</strong> <span class="lbp-dim">ex</span></span>` +
               (pr.margin != null ? `<span class="lbp-margin ${marginCls}">margin ${pr.margin >= 0 ? '+' : ''}${kr(pr.margin)}</span>` : '') +
             `</div>` +
+            // Foreslået kundepris (lille positiv margin) — kun på lange ture hvor standard ikke dækker.
+            (pr.suggested_customer_ex != null
+                ? `<div class="lbp-suggest"><span>💡 Foreslået kundepris <strong>${kr(pr.suggested_customer_ex)}</strong> <span class="lbp-dim">ex · margin +${kr(pr.suggested_margin)}</span></span>` +
+                  `<button type="button" class="lbp-apply-price">Brug</button></div>`
+                : '') +
             `<div class="lbp-err" hidden></div>` +
             `<div class="lbp-preview"><div class="lbp-sub">Sådan modtager By-expressen det</div>` +
               `<div class="lbp-pre-line">Reference: ${esc(p.reference)}</div>` +
@@ -769,6 +774,26 @@ class BonDrawer {
 
         host.querySelector('.lbp-fetch').onclick = () => { this._loboGatherOverrides(); this._loboFetchPreview(); };
         host.querySelector('.lbp-book').onclick = () => { this._loboGatherOverrides(); this._loboBook(sandbox); };
+        const applyBtn = host.querySelector('.lbp-apply-price');
+        if (applyBtn) applyBtn.onclick = () => this._loboApplyPrice();
+    }
+
+    async _loboApplyPrice() {
+        const pr = (this._loboData && this._loboData.price) || {};
+        if (pr.suggested_customer_ex == null) return;
+        if (!(window.Moms && window.Moms.exclToIncl)) return;
+        const incl = Math.round(window.Moms.exclToIncl(pr.suggested_customer_ex) * 100) / 100;  // delivery_price er INCL moms
+        const host = this.el.querySelector('.drawer-lobo-panel');
+        const btn = host && host.querySelector('.lbp-apply-price');
+        if (btn) { btn.disabled = true; btn.textContent = 'Gemmer…'; }
+        try {
+            await patchBon(this.bonId, { delivery_price: incl });
+            if (btn) { btn.textContent = '✓ Sat'; }
+            this.load(this.bonId);   // genindlæs → leveringspris-felt + drawer opdateres
+        } catch (e) {
+            if (btn) { btn.disabled = false; btn.textContent = 'Brug'; }
+            this._loboShowError(host, 'Kunne ikke sætte kundepris: ' + ((e && e.message) || 'fejl'));
+        }
     }
 
     async _loboBook(sandbox) {

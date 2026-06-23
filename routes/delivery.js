@@ -1323,7 +1323,13 @@ function loadLoboContext(req, res) {
     // pax_per_box til default-kasse-udledning når bonen ikke har boxes sat
     const ppbRow = getDb().prepare(`SELECT value FROM settings WHERE key = 'default_pax_per_box'`).get();
     const paxPerBox = ppbRow && Number(ppbRow.value) > 0 ? Number(ppbRow.value) : 16;
-    return { bon, vehicle, adapter, paxPerBox };
+    // Pris-regel for foreslået kundepris på lange ture (default 10% / rundet til 25).
+    const getS = (k) => { const r = getDb().prepare('SELECT value FROM settings WHERE key = ?').get(k); return r ? r.value : null; };
+    const pricing = {
+        markup_pct: getS('lobo_customer_markup_pct') != null ? Number(getS('lobo_customer_markup_pct')) : 10,
+        round_to: getS('lobo_customer_round_to') != null ? Number(getS('lobo_customer_round_to')) : 25,
+    };
+    return { bon, vehicle, adapter, paxPerBox, pricing };
 }
 
 // GET /api/delivery/lobo/quote?bon_id=

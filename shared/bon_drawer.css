@@ -748,6 +748,10 @@
 .drawer-lobo-panel .lbp-margin.neg { color: #9a2a2a; }
 .drawer-lobo-panel .lbp-preview { background: #f5f4f2; border-radius: 6px; padding: 8px 10px; margin-bottom: 10px; font-family: ui-monospace, Menlo, monospace; font-size: 12px; }
 .drawer-lobo-panel .lbp-pre-line { line-height: 1.6; }
+.drawer-lobo-panel .lbp-suggest { display: flex; align-items: center; justify-content: space-between; gap: 10px; margin-bottom: 10px; padding: 7px 10px; border-radius: 5px; background: #eef6ee; color: #1d6b45; font-size: 12px; }
+.drawer-lobo-panel .lbp-apply-price { flex: none; padding: 4px 12px; border: 1px solid #1d6b45; background: #fff; color: #1d6b45; border-radius: 5px; cursor: pointer; font-size: 12px; font-weight: 600; }
+.drawer-lobo-panel .lbp-apply-price:hover { background: #1d6b45; color: #fff; }
+.drawer-lobo-panel .lbp-apply-price:disabled { opacity: .6; cursor: default; }
 .drawer-lobo-panel .lbp-err { margin-bottom: 10px; padding: 8px 10px; border-radius: 5px; background: #fbecec; color: #9a2a2a; font-size: 12px; line-height: 1.5; }
 .drawer-lobo-panel .lbp-actions { display: flex; gap: 8px; }
 .drawer-lobo-panel .lbp-fetch { flex: 1; padding: 8px; border: 1px solid var(--color-border, #d7d1ca); background: #fff; border-radius: 6px; cursor: pointer; font-size: 13px; }

@@ -5,7 +5,7 @@
 const test = require('node:test');
 const assert = require('node:assert');
 
-const { quoteForBon, bookForBon, buildSurcharges, defaultBoxesForBon, composeCostEx, normalizeLoboOrder } = require('../services/lobo_booking');
+const { quoteForBon, bookForBon, buildSurcharges, defaultBoxesForBon, composeCostEx, normalizeLoboOrder, suggestCustomerPrice } = require('../services/lobo_booking');
 const { createByExpressenAdapter } = require('../services/byExpressenAdapter');
 
 const CONFIG = {
@@ -214,4 +214,12 @@ test('normalizeLoboOrder: signeret leverings-stop tæller som leveret', () => {
 test('normalizeLoboOrder: null/tom → null', () => {
     assert.strictEqual(normalizeLoboOrder(null), null);
     assert.strictEqual(normalizeLoboOrder(undefined), null);
+});
+
+test('suggestCustomerPrice: lange ture → kostpris + markup rundet op (positiv margin)', () => {
+    assert.strictEqual(suggestCustomerPrice(358.4, 200, 10, 25), 400);  // 358.4×1.1=394.2 → op til 400
+    assert.strictEqual(suggestCustomerPrice(196, 100, 10, 25), 225);    // 215.6 → 225
+    assert.strictEqual(suggestCustomerPrice(200, 200, 10, 25), 225);    // = → 220 → 225
+    assert.strictEqual(suggestCustomerPrice(100, 200, 10, 25), null);   // standard dækker → ingen anbefaling
+    assert.strictEqual(suggestCustomerPrice(null, 200, 10, 25), null);  // ingen kostpris
 });

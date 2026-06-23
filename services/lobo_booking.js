@@ -64,6 +64,19 @@ function resolveExtraBoxCost(cfg, vehicle) {
 // kasse over de inkluderede. Vi lægger selv kasse-tillægget til frem for at
 // stole på Lobos `costtotal_net` — dens størrelsestillæg er fladt (samme beløb
 // uanset antal ekstra kasser), mens By-ex reelt opkræver pr. kasse.
+// Foreslået kundepris (ex moms) på lange ture hvor standardprisen ikke dækker
+// buddet: kostpris × (1 + markup%), rundet op til nærmeste `roundTo` kr, aldrig
+// under standardprisen. Returnerer null når standardprisen allerede dækker
+// kostprisen (så vises ingen anbefaling). Ren funktion — testbar.
+function suggestCustomerPrice(costEx, customerEx, markupPct = 10, roundTo = 25) {
+    if (costEx == null) return null;
+    if (customerEx != null && customerEx > costEx) return null;   // margin allerede positiv
+    const raw = costEx * (1 + (Number(markupPct) || 0) / 100);
+    const step = Number(roundTo) > 0 ? Number(roundTo) : 25;
+    const rounded = Math.ceil(raw / step) * step;
+    return Math.max(rounded, Number(customerEx) || 0);
+}
+
 // applyBoxSurcharge: kun for Food (39) lægger By-expressen 50/ekstra-kasse oveni
 // Lobos grundpris. For ikke-Food-produkter (Medium/Large til lange ture) er Lobos
 // pris allerede komplet (pr. km) — så returnér den uændret.
@@ -274,7 +287,7 @@ function normalizeLoboOrder(order) {
 
 // Preview: opret kort draft → læs vindue + pris → slet draft. INGEN ordre/bud.
 // Returnerer alt panelet skal bruge: felter der sendes, Lobos vindue, pris, bon-felter.
-async function previewBooking({ bon, vehicle, adapter, overrides = {}, paxPerBox = 16 }) {
+async function previewBooking({ bon, vehicle, adapter, overrides = {}, paxPerBox = 16, pricing = {} }) {
     const cfg = { ...(adapter.config || {}) };
     if (cfg.included_boxes == null) cfg.included_boxes = resolveIncludedBoxes(cfg, vehicle);
     const { input, preview, boxes } = composeLoboBooking(bon, vehicle, cfg, { ...overrides, paxPerBox });
@@ -292,6 +305,10 @@ async function previewBooking({ bon, vehicle, adapter, overrides = {}, paxPerBox
     const customerEx = vehicle ? (estimateCost(vehicle, { ...bon, boxes }) ?? null) : null;
     const margin = (customerEx != null && costEx != null) ? Math.round((customerEx - costEx) * 100) / 100 : null;
 
+    // Foreslået kundepris med lille positiv margin (lange ture). Regel fra settings.
+    const suggestedEx = suggestCustomerPrice(costEx, customerEx, pricing.markup_pct, pricing.round_to);
+    const suggestedMargin = (suggestedEx != null && costEx != null) ? Math.round((suggestedEx - costEx) * 100) / 100 : null;
+
     const deadlineIso = isoFor(bon, hhmm(bon.delivery_time));
     const isLate = (win && win.end && deadlineIso) ? (new Date(win.end) > new Date(deadlineIso)) : false;
 
@@ -305,7 +322,7 @@ async function previewBooking({ bon, vehicle, adapter, overrides = {}, paxPerBox
     return {
         preview,
         window: win ? { begin: win.begin, end: win.end, deadline_iso: deadlineIso, is_late: isLate } : null,
-        price: { cost_ex: costEx, cost_incl: costIncl, customer_ex: customerEx, margin },
+        price: { cost_ex: costEx, cost_incl: costIncl, customer_ex: customerEx, margin, suggested_customer_ex: suggestedEx, suggested_margin: suggestedMargin },
         bon_fields: bonControlFields(bon, boxes),
         routedistance: quote.routedistance ?? null,
         supply_warning: supplyWarning,
@@ -358,5 +375,5 @@ module.exports = {
     quoteForBon, bookForBon, previewBooking, composeLoboBooking,
     buildSurcharges, defaultBoxesForBon, composeCostEx, resolveExtraBoxCost,
     defaultPickupHHMM, defaultContact, defaultDeliveryNote, extractWindow, bonControlFields,
-    normalizeLoboOrder,
+    normalizeLoboOrder, suggestCustomerPrice,
 };
