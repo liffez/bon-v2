@@ -205,7 +205,11 @@ function composeLoboBooking(bon, vehicle, cfg, overrides = {}) {
     const deliveryTimeStr = hhmm(bon.delivery_time);
     const note = [deliveryTimeStr ? ('Leveres kl. ' + deliveryTimeStr) : '', (noteExtra || '').trim()]
         .filter(Boolean).join(' · ');
-    const reference = overrides.reference != null ? String(overrides.reference) : (bon.bon_number || '');
+    // Reference til By-expressen: bonnummer med #-præfiks (som i Bon v2's visning),
+    // medmindre office har overstyret. Undgå dobbelt-# hvis bon_number allerede har et.
+    const reference = overrides.reference != null
+        ? String(overrides.reference)
+        : (bon.bon_number ? (String(bon.bon_number).startsWith('#') ? String(bon.bon_number) : '#' + bon.bon_number) : '');
     const fkproduct = overrides.fkproduct != null && overrides.fkproduct !== ''
         ? parseInt(overrides.fkproduct, 10) : cfg.fkproduct;
     const pickupNote = boxes > 0 ? `${boxes} kasser` : null;
