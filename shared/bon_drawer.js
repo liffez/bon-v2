@@ -676,7 +676,8 @@ class BonDrawer {
         if (!host) return;
         const v = (sel) => { const el = host.querySelector(sel); return el ? el.value : undefined; };
         const ov = {};
-        const pickup = v('.lbp-pickup'); if (pickup) ov.pickup_time = pickup;
+        // Afhentningstid styres IKKE her — den kommer fra bonnens pickup_time
+        // (Levering-sektionen). Ét sted at rette tider.
         const boxes = v('.lbp-boxes'); if (boxes !== undefined && boxes !== '') ov.boxes = boxes;
         const prod = v('.lbp-product'); if (prod) ov.fkproduct = prod;
         const contact = v('.lbp-contact'); if (contact !== undefined) ov.contact = contact;
@@ -745,14 +746,16 @@ class BonDrawer {
             `<div class="lbp-head">🚲 Bestil via By-expressen ${badge}</div>` +
             control +
             `<div class="lbp-fields">` +
-              `<label class="lbp-l">Reference</label><input class="lbp-ref" type="text" value="${esc(p.reference)}">` +
+              // Tider styres ÉT sted: bonnens Levering-sektion ovenfor. Vises read-only
+              // her så man ikke retter samme tid to forskellige steder.
+              `<div class="lbp-times-ro">⏱ Afhentning <strong>${esc(p.pickup_time || '–')}</strong> · Leveres senest <strong>${esc(bf.delivery_time || '–')}</strong> <span class="lbp-dim">— ret tider i Levering ovenfor</span></div>` +
               `<div class="lbp-row2">` +
-                `<div><label class="lbp-l">Afhentning hos os</label><input class="lbp-pickup" type="time" value="${esc(p.pickup_time)}"></div>` +
+                `<div><label class="lbp-l">Reference</label><input class="lbp-ref" type="text" value="${esc(p.reference)}"></div>` +
                 `<div><label class="lbp-l">Kasser</label><input class="lbp-boxes" type="number" min="1" value="${esc(p.boxes)}"></div>` +
               `</div>` +
               `<label class="lbp-l">Produkt</label><select class="lbp-product">${prodOpts}</select>` +
               `<label class="lbp-l">Kontakt (navn + tlf)</label><input class="lbp-contact" type="text" value="${esc(p.contactperson)}">` +
-              `<label class="lbp-l">Note (kort)</label><input class="lbp-note" type="text" maxlength="60" value="${esc(p.delivery_note)}">` +
+              `<label class="lbp-l">Note — speciel info (leveringstid tilføjes automatisk)</label><input class="lbp-note" type="text" maxlength="40" value="${esc(p.note_extra || '')}" placeholder="fx etage, port, kode">` +
             `</div>` +
             winHtml +
             supplyHtml +

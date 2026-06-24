@@ -199,7 +199,12 @@ function composeLoboBooking(bon, vehicle, cfg, overrides = {}) {
     const pickupHHMM = overrides.pickup_time ? hhmm(overrides.pickup_time) : defaultPickupHHMM(bon);
     const reftime = isoFor(bon, pickupHHMM);
     const contact = overrides.contact != null ? String(overrides.contact) : defaultContact(bon);
-    const note = overrides.note != null ? String(overrides.note) : defaultDeliveryNote(bon);
+    // Note = "Leveres kl. {bonnens leveringstid}" (auto fra LEVERING — ét sted) +
+    // den redigerbare speciel-info. Office retter kun speciel-infoen.
+    const noteExtra = overrides.note != null ? String(overrides.note) : (bon.delivery_notes || '').trim();
+    const deliveryTimeStr = hhmm(bon.delivery_time);
+    const note = [deliveryTimeStr ? ('Leveres kl. ' + deliveryTimeStr) : '', (noteExtra || '').trim()]
+        .filter(Boolean).join(' · ');
     const reference = overrides.reference != null ? String(overrides.reference) : (bon.bon_number || '');
     const fkproduct = overrides.fkproduct != null && overrides.fkproduct !== ''
         ? parseInt(overrides.fkproduct, 10) : cfg.fkproduct;
@@ -221,7 +226,7 @@ function composeLoboBooking(bon, vehicle, cfg, overrides = {}) {
         deliveryNote: note,
         delivery: { ...(base.delivery || {}), contactperson: contact || undefined },
     };
-    const preview = { reference, fkproduct, contactperson: contact, pickup_time: pickupHHMM, pickup_note: pickupNote, delivery_note: note, reftime, boxes };
+    const preview = { reference, fkproduct, contactperson: contact, pickup_time: pickupHHMM, pickup_note: pickupNote, delivery_note: note, note_extra: noteExtra, reftime, boxes };
     return { input, preview, boxes };
 }
 

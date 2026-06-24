@@ -736,6 +736,7 @@
 .drawer-lobo-panel .lbp-kv span:last-child, .drawer-lobo-panel .lbp-kv strong { text-align: right; }
 .drawer-lobo-panel .lbp-fields { display: flex; flex-direction: column; gap: 4px; }
 .drawer-lobo-panel .lbp-l { font-size: 11px; color: #8a7a55; margin-top: 6px; }
+.drawer-lobo-panel .lbp-times-ro { font-size: 12px; padding: 7px 9px; margin-bottom: 6px; border-radius: 5px; background: #f5f4f2; color: #444; }
 .drawer-lobo-panel .lbp-row2 { display: flex; gap: 8px; }
 .drawer-lobo-panel .lbp-row2 > div { flex: 1; }
 .drawer-lobo-panel input, .drawer-lobo-panel select { width: 100%; padding: 6px 8px; border: 1px solid var(--color-border, #d7d1ca); border-radius: 5px; font-size: 13px; box-sizing: border-box; }
