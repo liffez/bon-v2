@@ -802,6 +802,17 @@
 }
 .btn-drawer-logistik:hover { background: var(--color-background, #f5f4f2); }
 
+/* ── BESTIL BUD: foldbar status-linje ── */
+.drawer-delivery-summary { display: flex; align-items: center; gap: 8px; padding: 9px 11px; border: 1px solid var(--color-border, #d7d1ca); border-radius: 8px; background: #fff; cursor: pointer; font-size: 14px; user-select: none; }
+.drawer-delivery-summary:hover { background: #faf9f7; }
+.drawer-delivery-summary.booked { background: #f1f9f4; border-color: #bfe0cb; }
+.drawer-delivery-summary .dds-icon { font-size: 16px; line-height: 1; }
+.drawer-delivery-summary .dds-text { flex: 1; }
+.drawer-delivery-summary .dds-toggle { color: #8a7a55; font-size: 12px; transition: transform .15s; }
+.drawer-delivery-section:not(.collapsed) .drawer-delivery-summary .dds-toggle { transform: rotate(180deg); }
+.drawer-delivery-section.collapsed .drawer-delivery-body { display: none; }
+.drawer-delivery-body { margin-top: 8px; }
+
 .drawer-delivery-actions { display: flex; gap: 6px; align-items: center; flex-wrap: wrap; }
 .btn-drawer-cancel-bud {
     background: transparent;
