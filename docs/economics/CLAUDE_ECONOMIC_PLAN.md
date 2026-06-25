@@ -286,8 +286,11 @@ Specs i `tests/specs/T_ECONOMIC.md`, runner i `tests/scripts/run_T_economic.js`.
 - **T-5 testbon har INGEN rabat.** ✅ (moms-test #7's ex-moms-linjesum-assertion holder.)
 - **EAN er VIGTIGT (stor kundeandel)** og håndteres uden separat kanal: e-conomic sender EAN ved
   bogføring (CVR ✅ + EAN + kontaktperson på kunden). Rekvisition leveres af kunden når påkrævet.
-- **Betalingsbetingelse:** står på kunden i e-conomic ("står på hjemmesiden"). ⚠️ Bekræft: skal vi
-  helt udelade `paymentTerms` fra payloaden (så den arver fra kunden), eller sende default (1)?
+- **Betalingsbetingelse:** BESLUTTET — send ALTID default `paymentTermsNumber: 1` (Netto 8 dage).
+  Alle kunder er Netto 8 i dag, og betingelsen printes på fakturaen af layoutet (bekræftet på
+  referencefakturaen). Afvigende vilkår = undtagelse for den ene kunde senere. ✅
+- **Email-idé (Leif):** læg et link til RR's betalingsbetingelser i bekræftelsesmailen kunden får.
+  Kræver INGEN kode — tilføj linket i `booking_confirmation`-skabelonen via Settings → Mail. ✅
 
 ---
 

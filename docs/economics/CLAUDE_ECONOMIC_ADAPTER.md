@@ -184,12 +184,12 @@ i den eksisterende vehicle-admin (`PATCH /vehicles/:id`). Mapning:
 | Volvo (volvo) | 103 |
 | Taxa (taxi) | 100 |
 
-**Per-kunde paymentTerms (bygges først ved behov):** e-conomic-kunden har sin
-egen betalingsbetingelse. I dag er alt Netto 8 dage, så settings-default dækker.
-Får I senere en kunde på afvigende vilkår, så lad kundens betingelse vinde
-(udelad `paymentTerms` fra payloaden så e-conomic arver fra kunden, ELLER læs
-et override-felt på `companies`/`customers`). Strukturen tillader det uden
-ombygning — det er kun ét felt.
+**Betalingsbetingelse — BESLUTTET (25. juni):** Send ALTID `paymentTerms: { paymentTermsNumber: 1 }`
+(Netto 8 dage) fra settings. Alle RR-kunder er Netto 8 dage i dag, og betingelsen printes på
+fakturaen af layoutet (referencefakturaen viser "Betalingsbetingelser: Netto 8 dage - forfald …").
+Får I senere én kunde på afvigende vilkår, laves en undtagelse for den (udelad `paymentTerms`
+så e-conomic arver fra kunden, ELLER læs et override-felt på `companies`/`customers`) — strukturen
+tillader det uden ombygning, det er kun ét felt.
 
 **Flow (KUN udkast — vi bogfører ALDRIG automatisk):**
 1. Forhåndstjek: blokér hvis kunde-nr ELLER en linjes recipe-nr mangler (se fejlhåndtering).
