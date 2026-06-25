@@ -36,6 +36,15 @@ Konvertér derfor hver pris til ex moms med `shared/moms.js` før den sendes.
 > få POST'en til at fejle. Nedenstående er forankret i e-conomics egen
 > draft-invoice-skabelon.
 
+**Verificeret mod e-conomic REST API (25. juni 2026):**
+- Linje-rabat-feltet hedder `discountPercentage` (0–100) — bekræftet. ✅
+- Referencer: `references.salesPerson` ("Vor ref"), `references.customerContact` ("Deres ref"),
+  `references.other` (fri tekst). "att."-personen = `recipient.attention`.
+- Number-shortcut-formen (`customerNumber`/`paymentTermsNumber`/`layoutNumber`/`vatZoneNumber`/
+  `customerContactNumber`/`employeeNumber`/`productNumber`) er gyldig — `.self`-URI er ikke nødvendig.
+- Levering: bekræft mod live-skema om det er inline `delivery {address,zip,city,...}` eller
+  `deliveryLocation`-reference (Simon har tokens — afklares ved build). Resten er bekræftet.
+
 **Nøglefakta der adskiller sig fra maj-spec'en:**
 
 | Felt | Korrekt form | Note |
@@ -144,7 +153,10 @@ function buildDraftInvoice(bon) {
                 country:      'Danmark',
             },
         } : {}),
-        references: { other: buildReference(bon) },  // bon-nr (+ rekvisition, se EAN)
+        references: {
+            other: buildReference(bon),                  // bon-nr (+ rekvisition, se EAN)
+            // salesPerson: { employeeNumber: ... },      // "Vor ref" — valgfrit, hvis vi mapper sælger → e-conomic-medarbejder
+        },
         lines,
     };
 }
@@ -286,13 +298,25 @@ kan rette det. Blokerende forudsætninger, ikke advarsler man klikker væk.
 
 **A. Solgt recipe uden e-conomic-nummer.** En ny recipe kan være solgt *før* den er
 oprettet i e-conomic (userfield tomt). En linje med tomt `productNumber` afvises.
-→ Returnér de ramte recipes, så de oprettes i e-conomic + nummeret tastes i Grocy-
-userfeltet inden fakturering.
+→ **Gør opmærksom på at nummeret mangler** og guid til oprettelse. Tre veje (besluttet 25. juni):
+  1. **Opret rigtig vare** i e-conomic + tast nummeret i Grocy-userfeltet (det normale).
+  2. **Auto-opret via API** (valgfri forbedring): `POST /products` i e-conomic → skriv nummeret
+     tilbage i Grocy-userfeltet. e-conomic-numre er stabile, men nye recipes opstår løbende,
+     så dette kan fjerne meget manuelt arbejde. Bygges hvis manuelt bliver for tungt.
+  3. **Engangsvare-nummer** (Leifs løsning): for ægte engangsvarer/sjældne ting, brug ét fast
+     "engangs"-produktnummer i e-conomic (gemt i settings, fx `economic_oneoff_product_number`)
+     og **overskriv `description` + `unitNetPrice`** på linjen. Så blokeres bonen ikke for noget
+     der aldrig sælges igen.
 
-**B. Kunde uden e-conomic-nummer.** De fleste firmaer/privatkunder har sandsynligvis
-IKKE `economic_customer_id` sat (kun manuelt koblede). `resolveEconomicCustomer(bon)`
-returnerer da `null`. → Returnér "kunden er ikke koblet til e-conomic" med link til
-firma/kunde, så kontoret kobler den (eller opretter kunden i e-conomic) først.
+**B. Kunde (eller kontaktperson) uden e-conomic-nummer.** Nye kunder kommer ofte og skal
+oprettes i e-conomic. `resolveEconomicCustomer(bon)` returnerer `null` hvis kunden mangler.
+**Kontaktpersoner ("att.") skal også have et e-conomic-nummer** (kontakter bor under firmaet
+i e-conomic — `customers.economic_contact_id`). → To veje:
+  1. **Dokument-flow (besluttet, som taxa-booking):** generér et lille dokument/clipboard med
+     kundens (og kontaktens) info → opret manuelt i e-conomic → tast nummeret tilbage. Genbrug
+     popout-mønstret fra delivery-booking.
+  2. **Auto-opret via API** (senere): `POST /customers` (+ kontakt) → skriv numre tilbage.
+Indtil kunde-/kontaktnummer findes: blokér bonen med "kunden mangler i e-conomic" + dokument-knap.
 
 ---
 
@@ -369,31 +393,39 @@ som sikkerhedsnet (de er enige: `WHEN (=0 or null)` overskriver aldrig en sat v�
 
 ---
 
-## EAN / OFFENTLIG FAKTURERING (Nemhandel / OIOUBL)
+## EAN / OFFENTLIG FAKTURERING (Nemhandel / OIOUBL) — VIGTIG (stor andel af kunderne)
 
-Reference-fakturaen går til **Region Hovedstaden** (EAN 5798001021593) — en offentlig
-kunde. Offentlige/EAN-kunder er en **anden afsendelseskanal** end en almindelig DK-faktura
-og har obligatoriske felter som ellers ikke kræves:
+En stor del af RR's kunder er offentlige og bruger EAN (fx Region Hovedstaden, EAN 5798001021593
+på reference-fakturaen). EAN er derfor **ikke** en niche der kan udskydes længe — men den gode
+nyhed (verificeret mod e-conomic REST API, 25. juni) er at det passer ind i "kun draft"-modellen:
+
+**e-conomic sender selv EAN-fakturaen ved bogføring.** Vi behøver ikke bygge en separat
+OIOUBL-kanal. Når et menneske bogfører udkastet i e-conomic (eller vi senere automatiserer det),
+sendes det elektronisk — forudsat:
+- gyldigt **CVR på agreementet** (Nordic Fast Food har det) ✅
+- gyldigt **EAN-nummer på kunden** (`companies.ean` → skal være sat på e-conomic-kunden)
+- en **kontaktperson på kunden** (`customers.economic_contact_id`)
+- `/self` har `canSendElectronicInvoice: true` (tjek ved opsætning)
 
 | Krav | Hvor i Bon v2 | Status |
 |------|---------------|--------|
-| **EAN-nummer** | `companies.ean` (findes) | ✅ |
-| **Rekvisitions-/PSP-reference** | fakturaen viser "psp L-22060-00013" | ⚠️ intet dedikeret felt — ligger i dag i fri-tekst (`invoice_info`) |
-| **att-person** | `customers.economic_contact_id` / fakturaens "att.Professor …" | delvist |
+| EAN-nummer | `companies.ean` (findes; kan slås op i EAN-registret) | skal også stå på e-conomic-kunden |
+| Kontaktperson | `customers.economic_contact_id` | skal være sat (jf. fejlhåndtering B) |
+| Rekvisition/PSP | fakturaen viser "psp L-22060-00013" | leveres af kunden NÅR den er påkrævet → `references.other` |
 
-**To problemer før EAN sættes i drift:**
+**Fase 1 (anbefalet — INGEN ekstra kanal):**
+- Byg IKKE en separat blokering af EAN-kunder. Behandl dem som almindelige draft-fakturaer.
+- Sørg for at EAN-kunder har EAN + kontaktperson på e-conomic-kunden (ellers fejler bogføringen
+  → fang det i forhåndstjekket: EAN-kunde uden kontaktperson → blokér med klar besked).
+- Rekvisition: kunden leverer den når den er påkrævet → læg den i `references.other` (sammen med
+  bon-nr via `buildReference`). Et struktureret `requisition_ref`-felt på bon er en nice-to-have,
+  men fri-tekst/`invoice_info` kan bruges indtil da.
+- Mennesket bogfører i e-conomic UI → EAN sendes automatisk.
 
-1. **Manglende rekvisitionsfelt.** Region H (og de fleste offentlige) AFVISER en EAN-faktura
-   uden korrekt rekvisitions-/ordrenummer. Det skal med i `references.other`. Der er intet
-   struktureret felt i dag → overvej et `requisition_ref`-felt frem for at grave det ud af fri-tekst.
-2. **Anden kanal.** En EAN-faktura skal sendes via Nemhandel (bogført + afsendt som OIOUBL),
-   ikke bare oprettes som almindeligt udkast. Kræver ekstra e-conomic-opsætning.
-
-**Anbefaling — fase 1:** Byg KUN almindelige fakturaer. **Detektér EAN-kunder**
-(`company.ean` sat eller `company.invoice_method === 'ean'`) og **blokér dem eksplicit**
-med klar besked, så vi ALDRIG sender en offentlig faktura gennem den forkerte kanal eller
-uden rekvisition. EAN-flowet bygges som egen fase når rekvisitionsfeltet + Nemhandel-
-opsætningen er på plads. (`buildReference()` har allerede `requisition_ref`-pladsholderen.)
+**Fase 2 (automatisering, valgfri):** Bogfør + send EAN via API:
+`POST /invoices/booked` med `{ draftInvoice: { draftInvoiceNumber }, bookWithNumber, sendBy: "ean" }`.
+Status spores via `GET /invoices/sent`. Dette bryder "kun draft"-princippet bevidst FOR EAN —
+beslut separat om I vil automatisere bogføringen for offentlige kunder, eller beholde det manuelt.
 
 ---
 

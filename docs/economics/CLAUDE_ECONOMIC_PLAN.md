@@ -89,7 +89,8 @@ uændret (leveret + ikke kontant); udkastet ændrer kun visningen, ikke hvornår
 - [ ] Settings-rækker (key/value i `settings`-tabellen):
   `economic_default_payment_terms_number=1`, `economic_layout_number=19`,
   `economic_delivery_fallback_product_number=17`,
-  `economic_draft_url` (URL-skabelon til kladde-deeplink, fx `https://secure.e-conomic.com/...{nr}` — bekræft format).
+  `economic_draft_url` (URL-skabelon til kladde-deeplink, fx `https://secure.e-conomic.com/...{nr}` — bekræft format),
+  `economic_oneoff_product_number` (engangsvare-nr til linjer uden rigtigt nummer — overskriv tekst+beløb).
   (Ingen miljøgebyr-setting — miljøgebyr er en Grocy-recipe og kommer med som almindelig linje.)
 - [ ] `delivery_vehicles.economic_product_number` udfyldt pr. køretøj (17/103/103/100) —
   bruges KUN til det nye logistik-systems linjeløse levering.
@@ -128,6 +129,11 @@ uændret (leveret + ikke kontant); udkastet ændrer kun visningen, ikke hvornår
    - På overstregede (udkast-sendt) bons: link **"Åbn kladde i e-conomic →"** (`economic_draft_url`).
    - Nyt summary-kort **"Kladder venter · N"** + evt. badge på Økonomi-nav.
 7. **`shared/api.js`:** `createEconomicDraft(bonId)`.
+8. **Kunde/kontakt-oprettelse (dokument-flow):** når kunde- eller kontaktnummer mangler, generér
+   et clipboard/dokument med info (genbrug delivery-popout-mønstret) → office opretter i e-conomic
+   → taster nummer tilbage på firma/kunde. (API-oprettelse `POST /customers` som senere forbedring.)
+9. **Engangsvare-fallback:** linje uden recipe-nummer kan bruge `economic_oneoff_product_number`
+   med overskrevet `description` + `unitNetPrice` (i stedet for hård blokering for engangsting).
 
 ### Payload-detaljer
 Følg `CLAUDE_ECONOMIC_ADAPTER.md` 1:1: ex moms via `shared/moms.js`, `date=todayISO()`,
@@ -137,10 +143,16 @@ logistik-systems linjeløse `delivery_price` syntetiseres fra køretøjets varen
 
 ---
 
-## SPOR 3 — EAN/offentlig (senere)
-- Detektér `company.ean`/`invoice_method='ean'` → **blokér i fase 1** med klar besked.
-- Når den bygges: `requisition_ref`-felt (på bon), Nemhandel/OIOUBL-afsendelse, obligatorisk
-  rekvisition i `references.other`. Se ADAPTER → EAN-sektionen.
+## SPOR 3 — EAN/offentlig (VIGTIG — stor andel af kunderne; ikke udskudt)
+**Opdateret 25. juni:** EAN er IKKE en separat kanal vi skal bygge. e-conomic sender selv EAN
+ved bogføring (kræver CVR på agreement ✅ + EAN + kontaktperson på kunden). Derfor:
+- EAN-kunder behandles som **almindelige draft-fakturaer** — ingen blokering bare fordi de er EAN.
+- Forhåndstjek: EAN-kunde (`company.ean` sat) UDEN kontaktperson (`economic_contact_id`) → blokér
+  med klar besked (ellers fejler e-conomics bogføring).
+- Rekvisition leveres af kunden når påkrævet → `references.other` (via `buildReference`).
+- Mennesket bogfører i e-conomic UI → EAN sendes automatisk.
+- **Fase 2 (valgfri automatisering):** `POST /invoices/booked` med `sendBy: "ean"` + spor via
+  `GET /invoices/sent`. Bryder bevidst "kun draft" for offentlige — separat beslutning.
 
 ## SPOR 4 — Reconciliation (senere, hører til cashflow)
 - OpenAPI `bookedentries` + matched entries → match betaling/bogføring på `invoice_number`,
@@ -200,12 +212,15 @@ Specs i `tests/specs/T_ECONOMIC.md`, runner i `tests/scripts/run_T_economic.js`.
    besluttet: overstregning i køen + bonen bliver til den faktureres (se workflow-sektionen).
 2. **`sellable=1`-fælden.** `getRecipes()` skjuler ude-af-sæson-recipes; economic-nummeret SKAL
    slås op fra de rå recipes, ellers fejler forsinkede fakturaer. Indbygget i plan (punkt 3).
-3. **vatZone hardcoded = 1.** EU/eksport-kunder ville få forkert momszone. Fase 1 antager DK.
-   EAN/offentlige (fx Region H på reference-fakturaen) er en helt anden kanal — blokeres i fase 1.
+3. **vatZone hardcoded = 1.** EU/eksport-kunder ville få forkert momszone. Fase 1 antager DK
+   (indenlandsk) — inkl. EAN/offentlige, der også er indenlandske (vatZone 1). EU/eksport
+   håndteres separat hvis det bliver relevant.
 4. **Øre-drift.** Sum af afrundede ex-moms-linjer × 1,25 rammer ikke altid `total_price` på øren.
    Besluttet: e-conomics total er sandhed; preview viser e-conomics tal. Test 23 verificerer inden for øre.
-5. **`economic_contact_id` kun på `customers`, ikke `companies`.** "att."-personen hænger på
-   kontaktpersonen, ikke firmaet — fint for nu (`recipient.attention` udelades hvis tom).
+5. **Kontaktpersoner skal have eget e-conomic-nummer.** "att."-personen bor som kontakt under
+   firmaet i e-conomic (`customers.economic_contact_id`). For EAN-kunder er en kontaktperson
+   PÅKRÆVET (ellers fejler bogføring). → kontakt-numre skal med i opret-/kobl-flowet (samme
+   dokument/API-vej som kunder, jf. ADAPTER fejlhåndtering B).
 6. **Idempotency-vindue = 1 time** hos e-conomic. Kombineret med `economic_draft_number`-guarden
    er dublet-risikoen dækket både kortvarigt (key) og varigt (felt).
 7. **Backfill-disciplin.** Adapteren læser kun det færdige Grocy-userfield. Hvis backfill er
@@ -250,6 +265,29 @@ Specs i `tests/specs/T_ECONOMIC.md`, runner i `tests/scripts/run_T_economic.js`.
   momskode. Bemærk skellet i Grocy: "Rabat" (momspligtig) vs. "Rabat - afgift -" (afgift, momsfri). ✅
 - **Følge-konsekvens:** levering/service/gebyr er Grocy-recipes → normale linjer. Eneste særtilfælde
   er det nye logistik-systems `bon.delivery_price` (uden linje), der syntetiseres fra køretøjets varenr.
+
+### Bekræftet 25. juni (dine svar + API-tjek)
+- **Payload-format verificeret mod e-conomic REST API:** `discountPercentage` (0–100) er rigtigt
+  linje-felt; `references.salesPerson`/`customerContact`/`other` findes; number-shortcuts er gyldige.
+  (Levering inline `delivery` vs `deliveryLocation` bekræftes mod live-skema ved build.)
+- **Manglende recipe-nummer:** gør opmærksom + guid til oprettelse. 3 veje: opret rigtig vare /
+  auto-opret via `POST /products` (valgfri) / **engangs-produktnummer + overskriv tekst+beløb** for
+  ægte engangsvarer (`economic_oneoff_product_number` i settings).
+- **Nye kunder:** kommer ofte → dokument/clipboard-flow (som taxa-booking) → opret manuelt i
+  e-conomic → tast nummer tilbage. (API-oprettelse `POST /customers` som senere forbedring.)
+- **Kontaktpersoner:** bor under firmaet i e-conomic og skal også have et e-conomic-nummer
+  (`economic_contact_id`). Påkrævet for EAN-kunder.
+- **e-conomic-numre er stabile**, men nye recipes opstår løbende → backfill engangs + vedligehold.
+- **Vi sender ALDRIG moms selv** — e-conomic regner ud fra varens momskode + kundens momszone.
+- **Kun nye bons faktureres.** ✅
+- **Konverteret tilbud → bon beholder `offer_discount_percent`.** ✅ (rabat bevares)
+- **En bon har ALDRIG både `delivery_price` OG en x-Levering-linje.** ✅ (ingen dobbelttælling —
+  synteselinje-guarden er dermed bælte+seler, ikke strengt nødvendig.)
+- **T-5 testbon har INGEN rabat.** ✅ (moms-test #7's ex-moms-linjesum-assertion holder.)
+- **EAN er VIGTIGT (stor kundeandel)** og håndteres uden separat kanal: e-conomic sender EAN ved
+  bogføring (CVR ✅ + EAN + kontaktperson på kunden). Rekvisition leveres af kunden når påkrævet.
+- **Betalingsbetingelse:** står på kunden i e-conomic ("står på hjemmesiden"). ⚠️ Bekræft: skal vi
+  helt udelade `paymentTerms` fra payloaden (så den arver fra kunden), eller sende default (1)?
 
 ---
 
