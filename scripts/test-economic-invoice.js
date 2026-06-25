@@ -73,11 +73,11 @@ console.log('\n── Payload-builder (ren logik) ──');
         lines: [{ id: 1, product_name: 'A', quantity: 1, unit_price: 100, economic_product_number: '30' }],
     };
     const p = inv.buildDraftInvoice(bon, SETTINGS);
-    const dl = p.lines.find(l => l.product.productNumber === 103);
+    const dl = p.lines.find(l => l.product.productNumber === '103');
     ok('#4 synteselinje med køretøj-varenr 103', !!dl && Math.abs(dl.unitNetPrice - 80) < 0.01);
     // fallback når intet køretøj
     const p2 = inv.buildDraftInvoice({ ...bon, delivery_vehicle_economic_product_number: null }, SETTINGS);
-    ok('#4 fallback 17 uden køretøj', !!p2.lines.find(l => l.product.productNumber === 17));
+    ok('#4 fallback 17 uden køretøj', !!p2.lines.find(l => l.product.productNumber === '17'));
     // x-Levering-linje findes → ingen synteselinje
     const bon3 = { ...bon, lines: [...bon.lines, { id: 2, product_name: 'Levering RR', quantity: 1, unit_price: 250, economic_product_number: '103', category: 'x-Levering' }] };
     const p3 = inv.buildDraftInvoice(bon3, SETTINGS);
@@ -130,7 +130,7 @@ console.log('\n── Engangsvare-fallback ──');
     try { inv.buildDraftInvoice(bon, SETTINGS); } catch { threw = true; }
     ok('#12 kaster uden nummer (strict)', threw);
     const p = inv.buildDraftInvoice(bon, SETTINGS, { oneoffForMissing: true });
-    ok('#12 engangsnummer 999 + bevaret tekst/beløb', p.lines[0].product.productNumber === 999 && p.lines[0].description === 'Engangsting');
+    ok('#12 engangsnummer 999 + bevaret tekst/beløb', p.lines[0].product.productNumber === '999' && p.lines[0].description === 'Engangsting');
 }
 
 console.log('\n── Rabat-trigger (frisk temp-DB) ──');

@@ -58,7 +58,7 @@ Konvertér derfor hver pris til ex moms med `shared/moms.js` før den sendes.
 | `references.other` | bon-nr (+ rekvisition/PSP) | Fakturaens reference ("3484 …"). Se EAN-sektion |
 | `paymentTerms` | `{ paymentTermsNumber }` | Fra settings (1 = Netto 8 dage) |
 | `layout` | `{ layoutNumber }` | Fra settings (19) |
-| linje-`product` | `{ productNumber }` | `economic_product_number`-userfield pr. Grocy-**recipe** (via `grocy_recipe_id`) |
+| linje-`product` | `{ productNumber }` (**String!**) | `economic_product_number`-userfield pr. Grocy-**recipe** (via `grocy_recipe_id`). ⚠️ Skal sendes som STRING — e-conomics skema afviser et tal (verificeret 25. juni mod live API) |
 | linje-`unitNetPrice` | ex moms, **maks. 2 decimaler** | e-conomic regner selv linjesum + moms |
 | linje-`discountPercentage` | `bon.offer_discount_percent` | Pr. linje. Se RABAT-sektion |
 | levering | almindelig linje i `lines` med eget `product` | IKKE et separat `delivery_line`-objekt |
@@ -201,9 +201,12 @@ tillader det uden ombygning, det er kun ét felt.
    — matches tilbage via reconciliation (OpenAPI `bookedentries`, jf. AUTH §7), så et
    uafsendt udkast ikke fejl-markeres som faktureret.
 
-**Idempotency:** Sæt `Idempotency-Key: bon-${bon.id}-draft` på POST'en (jf. AUTH §4)
-så netværks-retry ikke laver dublet-udkast. Guard desuden i kode: byg ikke et nyt udkast
-hvis bonen allerede har et gemt `draftInvoiceNumber`.
+**Idempotency:** Sæt `Idempotency-Key: bon-${bon.id}-${contentHash}` på POST'en (content-hash =
+sha1 af payload, første 12 tegn). ⚠️ Brug IKKE en fast `bon-${id}-draft`-nøgle: e-conomic cacher
+nøglen i 1 time og afviser samme nøgle med ændret indhold ("PayloadChanged") — fx en redigeret bon
+gen-sendt inden for 1 time (verificeret 25. juni mod live API). Content-hash gør at ægte netværks-
+retries (samme payload) dedupes, mens ændret indhold får en ny nøgle. Re-send efter success
+forhindres separat af `economic_draft_number`-guarden.
 
 **Vigtigt:**
 - `bon_lines.cost_price` er allerede ex moms — bruges ikke i payload (kun til DB).

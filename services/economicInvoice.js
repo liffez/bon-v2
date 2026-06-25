@@ -13,6 +13,7 @@
  * ════════════════════════════════════════════════════════════
  */
 
+const crypto = require('node:crypto');
 const { inclToExcl } = require('../shared/moms');
 const { getDb } = require('../db/database');
 const eco = require('./economicAdapter');
@@ -113,10 +114,11 @@ function buildDraftInvoice(bon, settings, opts = {}) {
     const oneoff = settings.oneoffProductNumber;
 
     const lines = (bon.lines || []).map((line, i) => {
-        let productNumber = hasProductNumber(line) ? Number(line.economic_product_number) : null;
+        // productNumber SKAL være String pr. e-conomics skema (varenr kan være alfanumerisk).
+        let productNumber = hasProductNumber(line) ? String(line.economic_product_number) : null;
         if (productNumber == null) {
             if (opts.oneoffForMissing && oneoff != null) {
-                productNumber = oneoff;   // engangsvare: overskriv tekst+beløb (de er allerede på linjen)
+                productNumber = String(oneoff);   // engangsvare: overskriv tekst+beløb (de er allerede på linjen)
             } else {
                 throw new Error(
                     `Linje "${line.product_name}" mangler economic_product_number — kør forhåndstjek først.`
@@ -144,7 +146,7 @@ function buildDraftInvoice(bon, settings, opts = {}) {
             || settings.deliveryFallbackProductNumber;
         const dl = {
             lineNumber:   lines.length + 1,
-            product:      { productNumber: Number(deliveryNo) },
+            product:      { productNumber: String(deliveryNo) },
             description:  bon.delivery_vehicle_label ? `Levering (${bon.delivery_vehicle_label})` : 'Levering',
             quantity:     1,
             unitNetPrice: round2(inclToExcl(bon.delivery_price)),
@@ -203,10 +205,15 @@ async function createDraftInvoice(bon, { invoiceDate, oneoffForMissing } = {}) {
     }
     const settings = getEconomicSettings();
     const payload = buildDraftInvoice(bon, settings, { invoiceDate, oneoffForMissing });
+    // Idempotency-nøgle = bon-id + content-hash: ægte netværks-retry (samme payload)
+    // dedupes; ændret indhold (redigeret bon gen-sendt inden for 1t) får en ny nøgle
+    // og undgår e-conomics "PayloadChanged"-fejl. Re-send efter success forhindres
+    // separat af economic_draft_number-guarden i routes.
+    const hash = crypto.createHash('sha1').update(JSON.stringify(payload)).digest('hex').slice(0, 12);
     const res = await eco.rest('/invoices/drafts', {
         method: 'POST',
         body: payload,
-        idempotencyKey: `bon-${bon.id}-draft`,
+        idempotencyKey: `bon-${bon.id}-${hash}`,
     });
     return { draftInvoiceNumber: res?.draftInvoiceNumber ?? null, raw: res };
 }
