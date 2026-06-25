@@ -101,17 +101,20 @@ uændret (leveret + ikke kontant); udkastet ændrer kun visningen, ikke hvornår
 
 ---
 
-## SPOR 1 — Auth-lag
+## SPOR 1 — Auth-lag ✅ BYGGET + VERIFICERET (25. juni 2026)
 
-**Filer:** `.env` (+ `.env.example`), `services/economicAdapter.js`, `server.js` (intet mount nødvendigt — adapter er et service-modul).
+**Filer:** `services/economicAdapter.js` (ny), `scripts/economic-self-check.js` (ny),
+`.env.example` (opdateret). Intet server-mount nødvendigt — adapter er et service-modul.
 
-1. `.env`: `ECONOMIC_APP_SECRET_TOKEN`, `ECONOMIC_AGREEMENT_GRANT_TOKEN`,
-   `ECONOMIC_REST_BASE=https://restapi.e-conomic.com`, `ECONOMIC_OPENAPI_BASE=https://apis.e-conomic.com`.
-2. `services/economicAdapter.js` (AUTH §4): `authHeaders()`, `ecoFetch()`, `rest()`, `openapi()`,
-   fejlklasser `EconomicAuthError`/`EconomicRateError`/`EconomicError`. `node:fetch` — ingen npm-pakke.
-3. `getSelf()` → `rest('/self')`. Verificér server-side at `companyName` indeholder Nordic Fast Food.
+1. ✅ `.env`: `ECONOMIC_APP_SECRET` + `ECONOMIC_AGREEMENT_GRANT` (deployede navne; `*_TOKEN`
+   accepteres som alias). Baser defaulter til restapi/apis.e-conomic.com.
+2. ✅ `services/economicAdapter.js`: `authHeaders()`, `ecoFetch()` (timeout + 401/403/429-håndtering),
+   `rest()`, `openapi()`, `getSelf()`, `verifyConnection()`, `isConfigured()`, fejlklasser
+   (`EconomicError`/`EconomicConfigError`/`EconomicAuthError`/`EconomicRateError`). global fetch — ingen npm-pakke.
+3. ✅ Verificeret lokalt mod rigtigt regnskab: `node scripts/economic-self-check.js`
+   → "Forbundet til e-conomic: Nordic Fast Food" (agreement 1073932).
 
-**Gate:** Ingen payload-arbejde før `/self` svarer korrekt fra serveren.
+**Gate bestået** — Spor 2 kan bygges.
 
 ---
 

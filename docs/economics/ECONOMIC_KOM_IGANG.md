@@ -50,12 +50,12 @@ token blive nødvendig.
 
 Specs: CLAUDE_ECONOMIC_AUTH.md (forbindelse) + CLAUDE_ECONOMIC_ADAPTER.md (payload).
 
-### Spor 1 — Auth-lag (kan startes NU, uafhængigt af RR-tal)
-1. Tilføj til .env: ECONOMIC_APP_SECRET_TOKEN, ECONOMIC_AGREEMENT_GRANT_TOKEN,
-   ECONOMIC_REST_BASE, ECONOMIC_OPENAPI_BASE (se AUTH §3).
-2. services/economicAdapter.js — auth-wrapper med begge headers,
-   rest()/openapi()-indgange, fejlklasser for 401/429 (se AUTH §4–5).
-3. Verificér server-side: GET /self returnerer "Ristet Rug". GATE før spor 2.
+### Spor 1 — Auth-lag ✅ BYGGET + VERIFICERET (25. juni 2026)
+1. ✅ .env: ECONOMIC_APP_SECRET + ECONOMIC_AGREEMENT_GRANT (baser defaulter; se AUTH §3).
+2. ✅ services/economicAdapter.js — auth-wrapper (begge headers), rest()/openapi(),
+   fejlklasser (config/401/403/429), timeout, verifyConnection().
+3. ✅ Verificeret: `node scripts/economic-self-check.js` → "Nordic Fast Food" (agreement 1073932).
+   GATE bestået — Spor 2 kan bygges.
 
 ### Spor 2 — Faktura-adapter (afventer settings + Grocy-backfill)
 Forudsætter: settings-værdier nedenfor + userfield economic_product_number i

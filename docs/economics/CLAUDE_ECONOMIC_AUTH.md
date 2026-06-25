@@ -49,11 +49,16 @@ ingen offset/jump-til-side. Pagineringshjælpere skal håndtere begge mønstre.
 ## 3. .env (krypteret at-rest, aldrig i git)
 
 ```
-ECONOMIC_APP_SECRET_TOKEN=...      # X-AppSecretToken
-ECONOMIC_AGREEMENT_GRANT_TOKEN=... # X-AgreementGrantToken
+ECONOMIC_APP_SECRET=...            # X-AppSecretToken  (deployet navn)
+ECONOMIC_AGREEMENT_GRANT=...       # X-AgreementGrantToken  (deployet navn)
+# Baser er valgfri — adapteren defaulter til disse:
 ECONOMIC_REST_BASE=https://restapi.e-conomic.com
 ECONOMIC_OPENAPI_BASE=https://apis.e-conomic.com
 ```
+
+> Navne: `ECONOMIC_APP_SECRET` / `ECONOMIC_AGREEMENT_GRANT` er de faktiske, deployede navne
+> (verificeret 25. juni — `/self` → "Nordic Fast Food", agreement 1073932). Adapteren accepterer
+> også `*_TOKEN`-varianterne som alias, så begge virker.
 
 - Tokens dekrypteres **kun server-side** i selve kald-øjeblikket.
 - Aldrig til browseren — frontend ser højst en maskeret version (sidste 4 tegn).
