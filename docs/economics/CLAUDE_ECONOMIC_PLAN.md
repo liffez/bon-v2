@@ -48,11 +48,17 @@ at ændre noget, bliver bonen i køen → office sender den igen → **dublet-ud
 > **Visuelt skel:** overstreget i *Afventer* = udkast sendt, venter på din godkendelse i e-conomic.
 > Overstreget i *Faktureret* = helt færdig. Begge er overstregede, men ligger i hver sin sektion.
 
-**Link til e-conomic (tilføjet 25. juni 2026):** På en overstreget (udkast-sendt) bon vises et
-direkte link "Åbn kladde i e-conomic →" der hopper til selve fakturakladden, så office kan
-godkende/bogføre uden at lede. Kræver e-conomics deep-link-URL til en draft-invoice
-(byg af `draftInvoiceNumber`). ⚠️ Bekræft det præcise URL-format mod e-conomic — gem evt. en
-`economic_draft_url`-skabelon i settings så formatet kan rettes uden deploy.
+**Link til e-conomic (tilføjet 25. juni 2026) — VALGFRIT, degraderer pænt:** Et per-kladde
+deep-link findes muligvis ikke (e-conomics nye UI er en SPA). Funktionen bygges derfor robust:
+- **Altid:** vis `economic_draft_number` på den overstregede bon, så office kan finde kladden i
+  e-conomic via nummeret.
+- **Hvis muligt:** et "Åbn kladde i e-conomic →"-link. Drives af en valgfri settings-skabelon
+  `economic_draft_url` med `{nr}`-pladsholder:
+  - per-kladde deep-link hvis et stabilt format findes (Simon bekræfter når han er logget ind),
+  - ellers et generelt link til kladde-listen i e-conomic (uden `{nr}`), så man lander det rigtige sted,
+  - er skabelonen tom → intet link, kun nummeret.
+
+Ingen funktionalitet afhænger af at deep-linket findes — det er ren bekvemmelighed oven på nummeret.
 
 **Tæller på ventende kladder (tilføjet 25. juni 2026):** Vis et tal "N kladder venter på
 godkendelse" (bons med `economic_draft_number` sat MEN endnu ikke faktureret) — som et ekstra
@@ -89,7 +95,8 @@ uændret (leveret + ikke kontant); udkastet ændrer kun visningen, ikke hvornår
 - [ ] Settings-rækker (key/value i `settings`-tabellen):
   `economic_default_payment_terms_number=1`, `economic_layout_number=19`,
   `economic_delivery_fallback_product_number=17`,
-  `economic_draft_url` (URL-skabelon til kladde-deeplink, fx `https://secure.e-conomic.com/...{nr}` — bekræft format),
+  `economic_draft_url` (VALGFRI URL-skabelon — per-kladde `{nr}`-link hvis det findes, ellers
+  generelt kladde-liste-link, ellers tom = vis kun nummeret),
   `economic_oneoff_product_number` (engangsvare-nr til linjer uden rigtigt nummer — overskriv tekst+beløb).
   (Ingen miljøgebyr-setting — miljøgebyr er en Grocy-recipe og kommer med som almindelig linje.)
 - [ ] `delivery_vehicles.economic_product_number` udfyldt pr. køretøj (17/103/103/100) —
@@ -121,12 +128,13 @@ uændret (leveret + ikke kontant); udkastet ændrer kun visningen, ikke hvornår
      gem `economic_draft_number`+`economic_draft_at` → changelog + SSE `bon_updated`.
    - Forhåndstjek-endpoint (eller del af samme svar): returnér 422 + liste over manglende
      recipe-/kunde-numre i stedet for at bygge payloaden.
-   - Kø-response inkluderer `economic_draft_number` + en `economic_draft_url` (bygget af
-     draft-nr + settings-skabelon) + en tæller "kladder venter" til summary-striben.
+   - Kø-response inkluderer `economic_draft_number` + (valgfrit) `economic_draft_url` (kun hvis
+     settings-skabelon er sat) + en tæller "kladder venter" til summary-striben.
 6. **`office/views/fakturering.js`:**
    - "Send til e-conomic"-knap pr. bon → kald endpoint → vis bonen **overstreget** + draft-nr;
      fejl (422) → vis blokeringsliste. Bevar "Markér faktureret".
-   - På overstregede (udkast-sendt) bons: link **"Åbn kladde i e-conomic →"** (`economic_draft_url`).
+   - På overstregede (udkast-sendt) bons: altid vis draft-nr; **"Åbn kladde i e-conomic →"**-link
+     KUN hvis `economic_draft_url` er sat (degraderer pænt hvis deep-link ikke findes).
    - Nyt summary-kort **"Kladder venter · N"** + evt. badge på Økonomi-nav.
 7. **`shared/api.js`:** `createEconomicDraft(bonId)`.
 8. **Kunde/kontakt-oprettelse (dokument-flow):** når kunde- eller kontaktnummer mangler, generér
@@ -254,9 +262,10 @@ Specs i `tests/specs/T_ECONOMIC.md`, runner i `tests/scripts/run_T_economic.js`.
   fakturerede). De bliver i køen indtil de faktisk faktureres → flytter så til "Faktureret".
   Udkast giver kun overstregning + re-send-guard. ✅
 - **Pre-flight:** JA — byg readiness-tjek der lister bons/varer uden e-conomic-nummer FØR go-live. ✅
-- **Link + tæller (Leifs idé):** udkast-sendte bons får et "Åbn kladde i e-conomic →"-link, og
-  fakturerings-striben får et "Kladder venter · N"-kort. ✅ (Eneste udestående: bekræft e-conomics
-  præcise deep-link-URL til en draft-invoice → gemmes som `economic_draft_url`-skabelon i settings.)
+- **Tæller (Leifs idé):** fakturerings-striben får et "Kladder venter · N"-kort. ✅
+- **Link til e-conomic:** VALGFRIT. Et per-kladde deep-link findes muligvis ikke (SPA-UI) — derfor
+  vises altid kladde-nummeret, og linket er en valgfri bekvemmelighed (per-kladde hvis muligt,
+  ellers generelt kladde-liste-link, ellers intet). Ingen funktionalitet afhænger af det. ✅
 - **Rabat-backfill:** INGEN tilbagevirkende kraft. Triggeren rammer kun nye bons; eksisterende
   ufakturerede bons for rabat-kunden får ikke rabatten automatisk. ✅
 - **Miljøbidrag:** findes som **Grocy-produkt** (29 kr, x-Levering) — håndteres som en almindelig
