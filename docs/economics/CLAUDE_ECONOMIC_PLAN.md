@@ -53,24 +53,34 @@ at ændre noget, bliver bonen i køen → office sender den igen → **dublet-ud
 Observerede URL'er i e-conomic-UI'et:
 | Hvad | URL | Brugbarhed |
 |------|-----|-----------|
-| Kladde (draft) | `secure.e-conomic.com/sales/invoicing/invoices/{internt_id}` | ⚠️ path-id ≠ fakturanr (skærmbillede: `/invoices/369` men titel "Fakturanr. 4113"). Kan ikke bygges fra `draftInvoiceNumber` alene — kræver det interne id (returneres måske i REST-svaret; bekræft) |
+| Kladde — REST (API) | `restapi.e-conomic.com/invoices/drafts/{draftInvoiceNumber}` | ✅ dokumenteret. Kladden har sit EGET nummer (`draftInvoiceNumber`), auto-tildelt + returneret i POST-svaret. Men dette er en JSON/API-adresse — ikke til browseren |
+| Kladde — web-UI | `secure.e-conomic.com/sales/invoicing/invoices/{internt_web_id}` | ⚠️ web-id ≠ draftInvoiceNumber (skærmbillede: `/invoices/369` men titel "Fakturanr. 4113"). API'et giver os 4113, ikke 369 → web-deeplinket kan IKKE bygges fra API-svaret |
 | Bogført faktura (PDF) | `secure.e-conomic.com/secure/include/visfaktura.asp?ops={ops}&bogf=1&faknr={fakturanr}` | ✅ `faknr` = det rigtige fakturanr. ⚠️ `ops` (fx 28745949) uvist om stabilt pr. agreement el. pr. dokument |
 | Kladde-liste | `secure.e-conomic.com/sales/invoicing/invoices` | ✅ virker altid (generelt) |
 | Arkiv (bogførte) | `secure.e-conomic.com/sales/invoicing/archive` | ✅ virker altid (generelt) |
 
 **Design (robust, uafhængigt af om deep-link kan bygges):**
 - **Altid:** vis `economic_draft_number` på den overstregede bon.
-- **Kladde-link:** brug `economic_draft_url`-skabelon hvis den kan bygges (afklar om REST returnerer
-  det interne id), ellers fald tilbage til det generelle kladde-liste-link. Tom skabelon → kun nummeret.
+- **Kladde-link:** vi har `draftInvoiceNumber` fra API'et (kladdens eget nr.), men web-UI-id'et
+  kan vi ikke aflede → vis nummeret + det generelle kladde-liste-link. Én test ved build afgør om
+  vi kan gøre det bedre: prøv manuelt `secure.e-conomic.com/sales/invoicing/invoices/{draftInvoiceNumber}`
+  — hvis UI'et også accepterer kladdens eget nummer dér, kan vi alligevel bygge et per-kladde-link.
 - **Bogført-link (når bonen er faktureret):** byg PDF-link af `invoice_number` + `economic_ops`
   (settings) → pålideligt link til den endelige faktura i arkivet. Bekræft at `ops` er stabilt;
   ellers brug det generelle arkiv-link.
 
 Ingen funktionalitet afhænger af at et deep-link kan bygges — det er ren bekvemmelighed oven på nummeret.
 
-**At afklare ved build (Simon, med login):** (1) returnerer REST-draft-svaret det interne UI-id
-så kladde-deep-linket kan bygges? (2) er `ops` i `visfaktura.asp` stabilt pr. agreement (så det
-kan ligge fast i settings)?
+**At afklare ved build (Simon, med login) — 5-sekunders tests:** (1) accepterer web-UI'et kladdens
+eget `draftInvoiceNumber` i URL'en (`/sales/invoicing/invoices/{draftInvoiceNumber}`)? Hvis ja →
+per-kladde-link virker alligevel. (2) er `ops` i `visfaktura.asp` stabilt pr. agreement (så det
+kan ligge fast i settings)? Begge er ja/nej der ikke blokerer noget — kun om linket bliver
+per-dokument eller generelt.
+
+> **Bekræftet i e-conomics REST-docs (25. juni):** `draftInvoiceNumber` er kladdens eget,
+> auto-tildelte nummer; REST self = `restapi.e-conomic.com/invoices/drafts/{draftInvoiceNumber}`;
+> bogføring giver et separat `bookedInvoiceNumber`. API'et dokumenterer altså nummersystemet —
+> det er kun det interne *web-UI*-id (369-typen) der ikke eksponeres via API.
 
 **Tæller på ventende kladder (tilføjet 25. juni 2026):** Vis et tal "N kladder venter på
 godkendelse" (bons med `economic_draft_number` sat MEN endnu ikke faktureret) — som et ekstra
