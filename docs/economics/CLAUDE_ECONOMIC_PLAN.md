@@ -3,6 +3,11 @@
 > Læs FØRST: `CLAUDE_ECONOMIC_AUTH.md` (forbindelse) + `CLAUDE_ECONOMIC_ADAPTER.md` (payload).
 > Denne fil er *hvordan vi bygger og tester det* — ikke en gentagelse af payload/auth.
 > Status: ikke bygget. Plan skrevet 25. juni 2026 (grounded mod faktisk kode).
+>
+> **Ny session der skal bygge dette:** læs alle 4 filer i `docs/economics/` (AUTH, ADAPTER,
+> KOM_IGANG, PLAN). Alle beslutninger er taget og står i "AFKLARET". Start med Spor 1 (auth) —
+> det har ingen afhængigheder. Bygges via dry-run/preview + branch-test FØR go-live
+> (se "TESTSTRATEGI FØR GO-LIVE"). Specs er sandheden; spørg ikke om det der allerede er besluttet.
 
 ---
 
@@ -233,6 +238,39 @@ Specs i `tests/specs/T_ECONOMIC.md`, runner i `tests/scripts/run_T_economic.js`.
     rabat synlig. (Demo = kun GET reelt; brug til payload-validering + ét rigtigt udkast på RR-kontoen.)
 23. Ét **rigtigt** udkast på en simpel intern test-bon → gennemse i e-conomic → slet udkastet igen.
     Bekræft at totalen matcher bonen (incl moms) inden for øre.
+
+---
+
+## TESTSTRATEGI FØR GO-LIVE — sikker live-test uden mockup
+
+Den vigtige pointe: **et udkast i e-conomic gør INGENTING indtil et menneske bogfører det.**
+Det betyder at integrationen er nærmest ufarlig at teste mod det rigtige Nordic Fast Food-regnskab
+— ingen kunde ser noget, intet sendes, intet bogføres. Derfor behøver vi ikke en kompliceret mockup.
+
+**To billige testniveauer, før noget overhovedet rammer e-conomic:**
+1. **Dry-run / preview (ingen e-conomic-kald):** byg `buildDraftInvoice(bon)` og returnér payloaden
+   som JSON i et preview-endpoint/UI uden at POST'e. Det er "mockup'en" — man ser præcis hvad der
+   ville blive sendt (linjer ex moms, rabat, levering, referencer, totaler) for en hvilken som helst
+   rigtig bon, helt uden side-effekter. Byg dette FØRST; det fanger 90 % af fejlene gratis.
+2. **Pre-flight readiness:** kør readiness-tjekket (manglende recipe-/kunde-/kontaktnumre) mod de
+   rigtige data, så vi ved hvad der ville blive blokeret — uden at sende noget.
+
+**Live-test på branchen (det du foreslog — ja, det er vejen):**
+- Push branchen → checkout på Hetzner → `sudo systemctl restart bon-v2` (standard deploy-flow,
+  test FRA branch FØR merge). Kør mod **grocytest** + det **rigtige** e-conomic-regnskab.
+- Opret udkast fra en **syntetisk test-bon** (prefix `T_ECON_`) → åbn udkastet i e-conomic →
+  verificér felter mod referencefakturaen → **slet udkastet igen** i e-conomic.
+- Reversibelt hele vejen: udkast slettes med `DELETE /invoices/drafts/{draftInvoiceNumber}` (eller i
+  UI); nulstil bonens `economic_draft_number` for at gen-teste. Intet er bogført, intet er sendt.
+- Verificér mindst: en normal erhvervs-bon, en rabat-bon (12,5 %), en bon med levering + miljøgebyr,
+  en EAN-kunde (udkast oprettes; bogfør IKKE — eller bogfør ét bevidst og slet/kreditér bagefter
+  hvis I vil se EAN-afsendelsen).
+- **Merge først efter din godkendelse i drift** (jf. deploy-reglerne). Branchen overlever merge.
+
+**Hvorfor ikke en mockup:** en fuld e-conomic-mock ville skulle efterligne moms-beregning, layout,
+nummertildeling og bogføring — meget arbejde for ringe værdi, når ægte udkast er gratis og
+reversible. Mock bruges kun i unit/integration-tests (hurtige, deterministiske); den ægte
+verifikation sker mod rigtige udkast vi sletter.
 
 ---
 
