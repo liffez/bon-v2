@@ -48,17 +48,29 @@ at ændre noget, bliver bonen i køen → office sender den igen → **dublet-ud
 > **Visuelt skel:** overstreget i *Afventer* = udkast sendt, venter på din godkendelse i e-conomic.
 > Overstreget i *Faktureret* = helt færdig. Begge er overstregede, men ligger i hver sin sektion.
 
-**Link til e-conomic (tilføjet 25. juni 2026) — VALGFRIT, degraderer pænt:** Et per-kladde
-deep-link findes muligvis ikke (e-conomics nye UI er en SPA). Funktionen bygges derfor robust:
-- **Altid:** vis `economic_draft_number` på den overstregede bon, så office kan finde kladden i
-  e-conomic via nummeret.
-- **Hvis muligt:** et "Åbn kladde i e-conomic →"-link. Drives af en valgfri settings-skabelon
-  `economic_draft_url` med `{nr}`-pladsholder:
-  - per-kladde deep-link hvis et stabilt format findes (Simon bekræfter når han er logget ind),
-  - ellers et generelt link til kladde-listen i e-conomic (uden `{nr}`), så man lander det rigtige sted,
-  - er skabelonen tom → intet link, kun nummeret.
+**Link til e-conomic (opdateret 25. juni 2026 m. observerede URL-mønstre) — VALGFRIT, degraderer pænt.**
 
-Ingen funktionalitet afhænger af at deep-linket findes — det er ren bekvemmelighed oven på nummeret.
+Observerede URL'er i e-conomic-UI'et:
+| Hvad | URL | Brugbarhed |
+|------|-----|-----------|
+| Kladde (draft) | `secure.e-conomic.com/sales/invoicing/invoices/{internt_id}` | ⚠️ path-id ≠ fakturanr (skærmbillede: `/invoices/369` men titel "Fakturanr. 4113"). Kan ikke bygges fra `draftInvoiceNumber` alene — kræver det interne id (returneres måske i REST-svaret; bekræft) |
+| Bogført faktura (PDF) | `secure.e-conomic.com/secure/include/visfaktura.asp?ops={ops}&bogf=1&faknr={fakturanr}` | ✅ `faknr` = det rigtige fakturanr. ⚠️ `ops` (fx 28745949) uvist om stabilt pr. agreement el. pr. dokument |
+| Kladde-liste | `secure.e-conomic.com/sales/invoicing/invoices` | ✅ virker altid (generelt) |
+| Arkiv (bogførte) | `secure.e-conomic.com/sales/invoicing/archive` | ✅ virker altid (generelt) |
+
+**Design (robust, uafhængigt af om deep-link kan bygges):**
+- **Altid:** vis `economic_draft_number` på den overstregede bon.
+- **Kladde-link:** brug `economic_draft_url`-skabelon hvis den kan bygges (afklar om REST returnerer
+  det interne id), ellers fald tilbage til det generelle kladde-liste-link. Tom skabelon → kun nummeret.
+- **Bogført-link (når bonen er faktureret):** byg PDF-link af `invoice_number` + `economic_ops`
+  (settings) → pålideligt link til den endelige faktura i arkivet. Bekræft at `ops` er stabilt;
+  ellers brug det generelle arkiv-link.
+
+Ingen funktionalitet afhænger af at et deep-link kan bygges — det er ren bekvemmelighed oven på nummeret.
+
+**At afklare ved build (Simon, med login):** (1) returnerer REST-draft-svaret det interne UI-id
+så kladde-deep-linket kan bygges? (2) er `ops` i `visfaktura.asp` stabilt pr. agreement (så det
+kan ligge fast i settings)?
 
 **Tæller på ventende kladder (tilføjet 25. juni 2026):** Vis et tal "N kladder venter på
 godkendelse" (bons med `economic_draft_number` sat MEN endnu ikke faktureret) — som et ekstra
@@ -95,8 +107,9 @@ uændret (leveret + ikke kontant); udkastet ændrer kun visningen, ikke hvornår
 - [ ] Settings-rækker (key/value i `settings`-tabellen):
   `economic_default_payment_terms_number=1`, `economic_layout_number=19`,
   `economic_delivery_fallback_product_number=17`,
-  `economic_draft_url` (VALGFRI URL-skabelon — per-kladde `{nr}`-link hvis det findes, ellers
-  generelt kladde-liste-link, ellers tom = vis kun nummeret),
+  `economic_draft_url` (VALGFRI — kladde-link; per-kladde hvis internt id kendes, ellers generelt
+  kladde-liste-link, ellers tom),
+  `economic_invoice_url` + `economic_ops` (VALGFRI — bogført-faktura-PDF-link via `visfaktura.asp?ops={ops}&bogf=1&faknr={nr}`),
   `economic_oneoff_product_number` (engangsvare-nr til linjer uden rigtigt nummer — overskriv tekst+beløb).
   (Ingen miljøgebyr-setting — miljøgebyr er en Grocy-recipe og kommer med som almindelig linje.)
 - [ ] `delivery_vehicles.economic_product_number` udfyldt pr. køretøj (17/103/103/100) —
