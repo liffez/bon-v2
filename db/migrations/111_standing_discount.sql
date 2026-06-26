@@ -1,4 +1,4 @@
--- 106_standing_discount.sql
+-- 111_standing_discount.sql  (omnummereret fra 106 ifm. merge med main)
 -- Aktiverer den stående kunderabat (companies/customers.discount_percent), som
 -- indtil nu kun blev læst men aldrig anvendt. Spec: CLAUDE_ECONOMIC_ADAPTER.md → RABAT.
 --

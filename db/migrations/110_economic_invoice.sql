@@ -1,4 +1,4 @@
--- 105_economic_invoice.sql
+-- 110_economic_invoice.sql  (omnummereret fra 105 ifm. merge med main)
 -- E-conomic faktura-integration (Spor 2).
 -- Spec: docs/economics/CLAUDE_ECONOMIC_ADAPTER.md + CLAUDE_ECONOMIC_PLAN.md
 --
