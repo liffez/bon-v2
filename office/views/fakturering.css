@@ -402,6 +402,95 @@
 }
 .fakt-eco-saved { color: #5a8a3a; font-size: 12px; font-weight: 700; }
 
+/* ── E-conomic: send-knap, kladde-tilstand, forhåndsvisning ── */
+.fakt-btn-eco {
+  padding: 12px 22px;
+  border-radius: 6px;
+  font-size: 14px;
+  font-weight: 700;
+  font-family: inherit;
+  cursor: pointer;
+  border: none;
+  background: #3a6ea5;
+  color: #fff;
+  transition: background .15s;
+}
+.fakt-btn-eco:hover { background: #2f5d8c; }
+.fakt-eco-draft-tag {
+  font-size: 12px;
+  font-weight: 700;
+  color: #3a6ea5;
+  background: #e8f0f6;
+  border: 1px solid #b9cee0;
+  border-radius: 6px;
+  padding: 8px 12px;
+}
+/* Overstreget kø-række når udkast er sendt */
+.fakt-row-drafted .fakt-bon-num,
+.fakt-row-drafted .fakt-row-kunde { text-decoration: line-through; opacity: .6; }
+.fakt-badge-draft {
+  background: #e8f0f6; color: #3a6ea5;
+  font-size: 10px; font-weight: 700;
+  padding: 2px 6px; border-radius: 4px; margin-left: 4px;
+}
+
+/* Overlay til forhåndsvisning + blokeringsliste */
+.fakt-eco-overlay {
+  position: fixed; inset: 0;
+  background: rgba(0,0,0,.45); z-index: 1100;
+  display: flex; align-items: center; justify-content: center;
+  padding: 24px;
+}
+.fakt-eco-modal {
+  background: var(--color-surface, #fff);
+  border-radius: 12px;
+  width: min(720px, 100%);
+  max-height: 86vh; display: flex; flex-direction: column;
+  box-shadow: 0 12px 48px rgba(0,0,0,.25);
+}
+.fakt-eco-modal-head {
+  display: flex; align-items: center; justify-content: space-between;
+  padding: 16px 20px; border-bottom: 1px solid var(--color-border, #d7d1ca);
+  font-weight: 700; font-size: 15px;
+}
+.fakt-eco-modal-x {
+  background: none; border: none; cursor: pointer; font-size: 18px;
+  color: var(--color-text-dim, #888); line-height: 1;
+}
+.fakt-eco-modal-body { padding: 18px 20px; overflow-y: auto; }
+
+.fakt-eco-pv-meta { display: grid; grid-template-columns: 1fr 1fr; gap: 8px 24px; margin-bottom: 14px; }
+.fakt-eco-pv-meta > div { display: flex; flex-direction: column; }
+.fakt-eco-pv-meta span { font-size: 11px; color: var(--color-text-dim, #888); }
+.fakt-eco-pv-table { width: 100%; border-collapse: collapse; font-size: 13px; }
+.fakt-eco-pv-table th, .fakt-eco-pv-table td { padding: 6px 8px; border-bottom: 1px solid var(--color-border, #ece8e2); text-align: left; }
+.fakt-eco-pv-table th.r, .fakt-eco-pv-table td.r { text-align: right; white-space: nowrap; }
+.fakt-eco-pv-table .mono { font-family: monospace; font-size: 12px; }
+.fakt-eco-pv-disc { color: #bc181b; font-size: 11px; font-weight: 700; }
+.fakt-eco-pv-sums { margin-top: 12px; }
+.fakt-eco-pv-sums > div { display: flex; justify-content: space-between; padding: 3px 0; font-size: 13px; }
+.fakt-eco-pv-sums .tot { border-top: 1px solid var(--color-border, #d7d1ca); margin-top: 4px; padding-top: 8px; }
+.fakt-eco-pv-note { font-size: 12px; color: var(--color-text-dim, #888); margin-top: 14px; font-style: italic; }
+
+.fakt-eco-block-lead { font-size: 13px; margin: 0 0 10px; }
+.fakt-eco-block-list { margin: 0 0 10px; padding-left: 18px; font-size: 13px; }
+.fakt-eco-block-list li { margin: 4px 0; }
+.fakt-eco-block-products {
+  margin: 0; padding: 10px 14px; list-style: none;
+  background: var(--color-background, #f5f4f2); border-radius: 8px; font-size: 13px;
+}
+.fakt-eco-block-products li { padding: 2px 0; }
+.fakt-eco-block-products .mono { font-family: monospace; font-size: 11px; color: var(--color-text-dim, #888); }
+
+/* Foreslå kunde/kontakt fra e-conomic */
+.fakt-sug-sec { font-weight: 700; font-size: 12px; color: var(--color-text-dim, #888); margin: 16px 0 6px; text-transform: uppercase; letter-spacing: .3px; }
+.fakt-sug-row { display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 8px 10px; border: 1px solid var(--color-border, #ece8e2); border-radius: 8px; margin-bottom: 6px; font-size: 13px; }
+.fakt-sug-row .mono { font-family: monospace; font-size: 11px; color: var(--color-text-dim, #888); }
+.fakt-sug-tag { background: #e8f0f6; color: #3a6ea5; font-size: 10px; font-weight: 700; padding: 2px 6px; border-radius: 4px; }
+.fakt-sug-btn { padding: 6px 14px; background: #3a6ea5; color: #fff; border: none; border-radius: 6px; font-size: 12px; font-weight: 700; font-family: inherit; cursor: pointer; white-space: nowrap; }
+.fakt-sug-btn:hover { background: #2f5d8c; }
+.fakt-sug-none { padding: 10px 12px; background: var(--color-background, #f5f4f2); border-radius: 8px; font-size: 13px; margin-bottom: 6px; }
+
 /* Confirm dialog overlay */
 .fakt-confirm-overlay {
   position: fixed;

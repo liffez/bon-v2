@@ -910,6 +910,39 @@ function fetchInvoiceQueue(includeDone) {
     return apiFetch('/invoices/queue' + qs);
 }
 
+/* ── E-CONOMIC FAKTURAUDKAST (Spor 2) ───────────────────── */
+
+// Dry-run: byg payloaden uden at sende. Returnerer { payload, readiness, ... }.
+function previewEconomicDraft(bonId) {
+    return apiFetch('/invoices/' + bonId + '/economic-preview');
+}
+
+// Opret fakturaudkast i e-conomic. opts: { oneoff_for_missing? }.
+function createEconomicDraft(bonId, opts) {
+    return apiFetch('/invoices/' + bonId + '/economic-draft', {
+        method: 'POST',
+        body: JSON.stringify(opts || {}),
+    });
+}
+
+// Pre-flight: hvilke kø-bons ville blive blokeret + "kladder venter"-tæller.
+function fetchEconomicReadiness() {
+    return apiFetch('/invoices/economic-readiness');
+}
+
+// Slå bonens firma op i e-conomic (CVR/EAN/navn) + hent kontakter → forslag til kobling.
+function suggestEconomicCustomer(bonId) {
+    return apiFetch('/invoices/' + bonId + '/economic-customer-suggest');
+}
+
+// Opret bonens firma (+ kontakt) som ny kunde i e-conomic, skriv numrene tilbage.
+function createEconomicCustomer(bonId, opts) {
+    return apiFetch('/invoices/' + bonId + '/economic-create-customer', {
+        method: 'POST',
+        body: JSON.stringify(opts || {}),
+    });
+}
+
 function patchCompanyEconomic(companyId, economicCustomerId) {
     return apiFetch('/companies/' + companyId + '/economic', {
         method: 'PATCH',

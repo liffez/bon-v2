@@ -7,7 +7,9 @@
  */
 
 /* globals apiFetch, fetchInvoiceQueue, patchBonStatus, patchCompanyEconomic,
-           patchCustomerEconomic, patchBon, connectSSE */
+           patchCustomerEconomic, patchBon, connectSSE,
+           previewEconomicDraft, createEconomicDraft, fetchEconomicReadiness,
+           suggestEconomicCustomer, createEconomicCustomer */
 
 let _faktData = null;
 let _faktSelected = null;
@@ -73,6 +75,12 @@ function _faktRender() {
                     <div class="fakt-sum-val">${summary.ean_count}</div>
                     <div class="fakt-sum-sub">offentlige kunder</div>
                 </div>
+                ${summary.drafts_waiting ? `
+                <div class="fakt-sum-card">
+                    <div class="fakt-sum-label">Kladder venter</div>
+                    <div class="fakt-sum-val">${summary.drafts_waiting}</div>
+                    <div class="fakt-sum-sub">sendt &middot; afventer bogføring i e-conomic</div>
+                </div>` : ''}
                 <div class="fakt-sum-card">
                     <div class="fakt-sum-label">Faktureret ${monthName}</div>
                     <div class="fakt-sum-val">${_faktFmt(summary.done_amount_month)} kr</div>
@@ -172,9 +180,15 @@ function _faktRowHtml(bon, isDone) {
         : '<span class="fakt-badge fakt-badge-normal">Faktura</span>';
     const dateStr = _faktDateShort(bon.delivery_date);
     const selected = _faktSelected?.id === bon.id ? ' selected' : '';
+    // Udkast sendt til e-conomic → vis overstreget (bliver i køen til faktureret).
+    const drafted = bon.economic_draft_number != null;
+    const draftCls = drafted ? ' fakt-row-drafted' : '';
+    const draftBadge = drafted
+        ? `<span class="fakt-badge fakt-badge-draft" title="Kladde sendt til e-conomic">&#9993; Kladde ${bon.economic_draft_number}</span>`
+        : '';
 
     return `
-        <div class="fakt-row${selected}" data-bon-id="${bon.id}">
+        <div class="fakt-row${selected}${draftCls}" data-bon-id="${bon.id}">
             <div class="fakt-row-age">
                 <div class="fakt-age-dot" style="background:${dotColor}"></div>
                 <div class="fakt-age-days">${days}d</div>
@@ -187,7 +201,7 @@ function _faktRowHtml(bon, isDone) {
                 <div class="fakt-row-kunde">${_escHtml(displayName)}</div>
                 <div class="fakt-row-sub">
                     ${dateStr} &middot; ${bon.pax || 0} pax
-                    ${badgeHtml}
+                    ${badgeHtml}${draftBadge}
                 </div>
             </div>
         </div>
@@ -435,13 +449,19 @@ function _faktSelectBon(bon) {
 }
 
 function _faktActionBarHtml(bon, isBottom) {
+    const drafted = bon.economic_draft_number != null;
+    const ecoBtns = drafted
+        ? `<span class="fakt-eco-draft-tag">&#9993; Kladde ${bon.economic_draft_number} sendt</span>
+           <button class="fakt-btn-ghost" onclick="_faktPreviewEconomic(${bon.id})">Forhåndsvis</button>`
+        : `<button class="fakt-btn-ghost" onclick="_faktPreviewEconomic(${bon.id})">Forhåndsvis</button>
+           <button class="fakt-btn-eco" onclick="_faktSendEconomic(${bon.id})">&#128229; Send til e-conomic</button>`;
     return `
         <div class="fakt-action-bar">
             <button class="fakt-btn-green" onclick="_faktMarkFaktureret(${bon.id})">&#10003; Markér faktureret</button>
             <div style="flex:1"></div>
             ${isBottom
                 ? `<button class="fakt-btn-ghost" onclick="_faktOpenBon(${bon.id})">Åbn og rediger bon &#8599;</button>`
-                : `<div class="fakt-eco-teaser">&#128279; e-conomic integration kommer — vil automatisk oprette fakturaklade</div>`
+                : ecoBtns
             }
         </div>
     `;
@@ -455,6 +475,208 @@ function _faktNoteRow(label, value) {
             <div class="fakt-info-val">${_escHtml(value)}</div>
         </div>
     `;
+}
+
+// ── E-conomic: send udkast / forhåndsvisning ─────────────────
+async function _faktSendEconomic(bonId) {
+    const bon = _faktData?.pending.find(b => b.id === bonId);
+    if (!bon) return;
+    try {
+        const res = await createEconomicDraft(bonId);
+        bon.economic_draft_number = res.economic_draft_number;
+        if (_faktData.summary) _faktData.summary.drafts_waiting = (_faktData.summary.drafts_waiting || 0) + 1;
+        _faktShowToast(`Kladde ${res.economic_draft_number} oprettet i e-conomic for #${bon.bon_number}`);
+        _faktRender();
+        _faktSelectBon(bon);
+    } catch (err) {
+        if (err.status === 422 && err.body?.readiness) {
+            _faktEcoOverlay(`Bon #${bon.bon_number} kan ikke sendes endnu`,
+                `<p class="fakt-eco-block-lead">Følgende mangler i e-conomic, før et udkast kan oprettes:</p>
+                 ${_faktReadinessHtml(err.body.readiness, bonId)}`);
+        } else if (err.status === 409) {
+            bon.economic_draft_number = err.body?.economic_draft_number ?? bon.economic_draft_number;
+            _faktShowToast(`Udkast findes allerede (kladde ${err.body?.economic_draft_number || ''})`);
+            _faktSelectBon(bon);
+        } else {
+            _faktShowToast('e-conomic: ' + (err.body?.error || err.message));
+        }
+    }
+}
+
+async function _faktPreviewEconomic(bonId) {
+    const bon = _faktData?.pending.find(b => b.id === bonId) || _faktSelected;
+    try {
+        const pv = await previewEconomicDraft(bonId);
+        let body;
+        if (pv.payload) {
+            const p = pv.payload;
+            const exTotal = p.lines.reduce((s, l) => s + (l.unitNetPrice || 0) * (l.quantity || 0), 0);
+            const inclTotal = window.Moms.exclToIncl(exTotal);
+            const momsAmt = inclTotal - exTotal;
+            body = `
+                <div class="fakt-eco-pv-meta">
+                    <div><span>Modtager</span><strong>${_escHtml(p.recipient?.name || '')}</strong></div>
+                    <div><span>e-conomic kunde-nr</span><strong>${p.customer?.customerNumber ?? '—'}</strong></div>
+                    <div><span>Reference</span><strong>${_escHtml(p.references?.other || '')}</strong></div>
+                    <div><span>Fakturadato</span><strong>${_escHtml(p.date || '')}</strong></div>
+                    ${p.delivery ? `<div><span>Leveringsdato</span><strong>${_escHtml(p.delivery.deliveryDate || '')}</strong></div>` : ''}
+                </div>
+                <table class="fakt-eco-pv-table">
+                    <thead><tr><th>Varenr</th><th>Tekst</th><th class="r">Antal</th><th class="r">Stk-pris (ex)</th><th class="r">Linje (ex)</th></tr></thead>
+                    <tbody>
+                        ${p.lines.map(l => `<tr>
+                            <td class="mono">${_escHtml(l.product?.productNumber || '')}</td>
+                            <td>${_escHtml(l.description || '')}${l.discountPercentage ? ` <span class="fakt-eco-pv-disc">−${l.discountPercentage}%</span>` : ''}</td>
+                            <td class="r">${l.quantity}</td>
+                            <td class="r">${_faktFmt(l.unitNetPrice)}</td>
+                            <td class="r">${_faktFmt((l.unitNetPrice || 0) * (l.quantity || 0))}</td>
+                        </tr>`).join('')}
+                    </tbody>
+                </table>
+                <div class="fakt-eco-pv-sums">
+                    <div><span>Linje-priser (ex moms)</span><span>${_faktFmt(exTotal)} kr</span></div>
+                    <div><span>Moms (25%, beregnes af e-conomic)</span><span>${_faktFmt(momsAmt)} kr</span></div>
+                    <div class="tot"><span><strong>Total til kunde (incl moms)</strong></span><span><strong>${_faktFmt(inclTotal)} kr</strong></span></div>
+                </div>
+                <p class="fakt-eco-pv-note">Forhåndsvisning — intet er sendt. e-conomic beregner selv momsen ud fra varens momskode.</p>`;
+        } else {
+            body = `<p class="fakt-eco-block-lead">Udkastet kan ikke bygges endnu:</p>${_faktReadinessHtml(pv.readiness, bonId)}`;
+            if (!pv.settings_ok) body += `<p class="fakt-eco-pv-note">⚠ e-conomic-indstillinger (betalingsbetingelse/layout) mangler i Settings.</p>`;
+        }
+        _faktEcoOverlay(`Forhåndsvisning — kladde til e-conomic (#${bon?.bon_number ?? bonId})`, body);
+    } catch (err) {
+        _faktShowToast('Forhåndsvisning fejlede: ' + (err.body?.error || err.message));
+    }
+}
+
+function _faktReadinessHtml(r, bonId) {
+    if (!r) return '';
+    const items = [];
+    if (r.missingCustomer) items.push('Kunden mangler et e-conomic kunde-nr (tilføj det under “Kunde &amp; firma”).');
+    if (r.eanWithoutContact) items.push('EAN-kunde uden kontaktperson — e-conomic kræver en kontakt for at sende EAN-faktura.');
+    if (r.missingProducts && r.missingProducts.length) {
+        items.push(`${r.missingProducts.length} vare(r) mangler et e-conomic varenr:`);
+    }
+    const showSuggest = bonId && (r.missingCustomer || r.eanWithoutContact);
+    return `
+        <ul class="fakt-eco-block-list">${items.map(i => `<li>${i}</li>`).join('')}</ul>
+        ${r.missingProducts && r.missingProducts.length ? `
+        <ul class="fakt-eco-block-products">
+            ${r.missingProducts.map(p => `<li>${_escHtml(p.product_name)} <span class="mono">(recipe ${p.grocy_recipe_id ?? '—'})</span></li>`).join('')}
+        </ul>` : ''}
+        ${showSuggest ? `<button class="fakt-btn-eco" style="margin-top:12px" onclick="_faktSuggestEconomic(${bonId})">&#128269; Foreslå kunde fra e-conomic</button>` : ''}`;
+}
+
+// ── Foreslå + kobl kunde/kontakt fra e-conomic ───────────────
+async function _faktSuggestEconomic(bonId) {
+    _faktEcoOverlay('Søger i e-conomic…', '<p class="fakt-eco-pv-note">Slår firmaet op + henter kontakter…</p>');
+    let s;
+    try { s = await suggestEconomicCustomer(bonId); }
+    catch (err) { _faktEcoOverlay('Forslag fejlede', `<p>${_escHtml(err.body?.error || err.message)}</p>`); return; }
+
+    const cands = s.customer_candidates || [];
+    const coName = s.company?.name || s.person?.name || '';
+    let html = `<p class="fakt-eco-block-lead">For <strong>${_escHtml(coName)}</strong>${s.company?.cvr ? ` <span class="mono">(CVR ${_escHtml(s.company.cvr)})</span>` : ''}:</p>`;
+
+    // 1) Kunde-kandidater
+    if (cands.length) {
+        html += `<div class="fakt-sug-sec">Kunde i e-conomic</div>`;
+        html += cands.map(c => {
+            const already = (s.company?.already || s.person?.already) === c.number;
+            return `<div class="fakt-sug-row">
+                <div><strong>#${c.number}</strong> ${_escHtml(c.name)} <span class="fakt-sug-tag">${c.match.toUpperCase()}-match</span>${c.cvr ? ` <span class="mono">${_escHtml(c.cvr)}</span>` : ''}</div>
+                ${already ? '<span class="fakt-eco-saved">koblet &#10003;</span>'
+                          : `<button class="fakt-sug-btn" onclick="_faktCoupleCustomer('${s.target_type}',${s.target_id},'${c.number}',${bonId})">Kobl</button>`}
+            </div>`;
+        }).join('');
+    } else {
+        html += `<div class="fakt-sug-none">Ingen kunde fundet i e-conomic for dette firma.
+            <div style="margin-top:8px"><button class="fakt-sug-btn" onclick="_faktCreateEconomic(${bonId})">&#10133; Opret i e-conomic</button></div>
+        </div>`;
+    }
+
+    // 2) Kontakter (kun hvis vi har et kundenummer at hænge dem på)
+    if (s.contacts && s.person) {
+        html += `<div class="fakt-sug-sec">Kontaktperson — bonens person: <strong>${_escHtml(s.person.name)}</strong></div>`;
+        if (s.contacts.list.length) {
+            html += s.contacts.list.slice(0, 8).map(ct => {
+                const already = s.person.already === ct.number;
+                const sug = s.contacts.suggested && s.contacts.suggested.number === ct.number;
+                return `<div class="fakt-sug-row">
+                    <div>${_escHtml(ct.name)}${ct.email ? ` <span class="mono">${_escHtml(ct.email)}</span>` : ''} ${sug ? '<span class="fakt-sug-tag">foreslået</span>' : ''}</div>
+                    ${already ? '<span class="fakt-eco-saved">koblet &#10003;</span>'
+                              : `<button class="fakt-sug-btn" onclick="_faktCoupleContact(${s.person.id},'${ct.number}',${bonId})">Kobl</button>`}
+                </div>`;
+            }).join('');
+        }
+        if (s.contacts.person_is_new) {
+            html += `<div class="fakt-sug-none">Bonens person matcher ingen eksisterende kontakt → <strong>ny kontakt</strong>.
+                <div style="margin-top:8px"><button class="fakt-sug-btn" onclick="_faktCreateEconomic(${bonId})">&#10133; Opret kontakt i e-conomic</button></div>
+            </div>`;
+        }
+    }
+
+    _faktEcoOverlay('Foreslå kunde/kontakt fra e-conomic', html);
+}
+
+async function _faktCoupleCustomer(targetType, targetId, ecoNumber, bonId) {
+    try {
+        if (targetType === 'company') await patchCompanyEconomic(targetId, ecoNumber);
+        else await patchCustomerEconomic(targetId, { economic_customer_id: ecoNumber });
+        _faktShowToast(`Kunde koblet til e-conomic #${ecoNumber}`);
+        await _faktLoadQueue();
+        _faktSuggestEconomic(bonId);   // genåbn så kontakt-koblingen kan gøres
+    } catch (err) { _faktShowToast('Kobling fejlede: ' + (err.body?.error || err.message)); }
+}
+
+async function _faktCreateEconomic(bonId) {
+    try {
+        const r = await createEconomicCustomer(bonId);
+        const msg = r.created_customer
+            ? `Kunde oprettet i e-conomic (#${r.economic_customer_id})${r.economic_contact_id ? ` + kontakt #${r.economic_contact_id}` : ''}`
+            : `Kontakt oprettet i e-conomic (#${r.economic_contact_id})`;
+        _faktShowToast(msg);
+        await _faktLoadQueue();
+        _faktCloseEcoOverlay();
+        const bon = _faktData?.pending.find(b => b.id === bonId);
+        if (bon) _faktSelectBon(bon);
+    } catch (err) {
+        if (err.status === 409) _faktShowToast('Allerede koblet i e-conomic');
+        else _faktShowToast('Oprettelse fejlede: ' + (err.body?.error || err.message));
+    }
+}
+
+async function _faktCoupleContact(customerId, contactNumber, bonId) {
+    try {
+        await patchCustomerEconomic(customerId, { economic_contact_id: contactNumber });
+        _faktShowToast(`Kontakt koblet (#${contactNumber})`);
+        await _faktLoadQueue();
+        _faktCloseEcoOverlay();
+        const bon = _faktData?.pending.find(b => b.id === bonId);
+        if (bon) _faktSelectBon(bon);
+    } catch (err) { _faktShowToast('Kobling fejlede: ' + (err.body?.error || err.message)); }
+}
+
+function _faktEcoOverlay(title, bodyHtml) {
+    _faktCloseEcoOverlay();
+    const ov = document.createElement('div');
+    ov.className = 'fakt-eco-overlay';
+    ov.id = 'fakt-eco-overlay';
+    ov.innerHTML = `
+        <div class="fakt-eco-modal">
+            <div class="fakt-eco-modal-head">
+                <span>${title}</span>
+                <button class="fakt-eco-modal-x" onclick="_faktCloseEcoOverlay()">&#10005;</button>
+            </div>
+            <div class="fakt-eco-modal-body">${bodyHtml}</div>
+        </div>`;
+    ov.addEventListener('click', (e) => { if (e.target === ov) _faktCloseEcoOverlay(); });
+    document.body.appendChild(ov);
+}
+
+function _faktCloseEcoOverlay() {
+    const ov = document.getElementById('fakt-eco-overlay');
+    if (ov) ov.remove();
 }
 
 // ── E-conomic inline edit ────────────────────────────────────

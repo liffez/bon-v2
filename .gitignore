@@ -18,6 +18,9 @@ data/*.backup-*
 data/*.pre-*
 data/*-fix-log-*.json
 
+# Review-CSV'er (ægte kundedata — aldrig i git)
+data/*.csv
+
 # Arkiv-blobs (binære, ikke versionsstyrede)
 *.zip
 

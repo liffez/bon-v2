@@ -172,7 +172,10 @@ function buildDraftInvoice(bon, settings, opts = {}) {
         lines,
     };
     if (contactNo != null && String(contactNo).trim() !== '') {
+        // Kontakten sættes BÅDE som modtager-att. og som "Deres reference"
+        // (references.customerContact) — matcher RR's bogførte fakturaer 1:1.
         payload.recipient.attention = { customerContactNumber: Number(contactNo) };
+        payload.references.customerContact = { customerContactNumber: Number(contactNo) };
     }
     if (addr && (addr.street_name || addr.city)) {
         payload.delivery = {
