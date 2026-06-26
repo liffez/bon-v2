@@ -217,7 +217,8 @@ function createByExpressenAdapter({ config, credentials, fetchImpl = fetch, now 
         const cfg = config;
         const body = {
             customernumber: cfg.customernumber ?? cfg.fkcustomer,
-            fkproduct: cfg.fkproduct,
+            // fkproduct kan overstyres pr. ordre (lange ture kan ikke bruge Food=39).
+            fkproduct: input.fkproduct != null ? input.fkproduct : cfg.fkproduct,
             ...(cfg.fkpayment != null ? { fkpayment: cfg.fkpayment } : {}),
             ...(input.reftime ? { reftime: input.reftime } : {}),
             // external_api_id SKAL være integer (Lobo: NOT_INTEGER ved string).
@@ -225,6 +226,9 @@ function createByExpressenAdapter({ config, credentials, fetchImpl = fetch, now 
             // external_api_data (string).
             ...(input.external_api_id != null ? { external_api_id: parseInt(input.external_api_id, 10) } : {}),
             ...(input.external_api_data != null ? { external_api_data: String(input.external_api_data) } : {}),
+            // customerreferenceorder = det SYNLIGE reference-felt hos By-expressen
+            // (her bonnummeret, fx "#B4089"). Adskilt fra external_api_* (vores linking).
+            ...(input.customerreferenceorder ? { customerreferenceorder: String(input.customerreferenceorder) } : {}),
             ...(input.notepublic ? { notepublic: input.notepublic } : {}),
             stops: [],
         };
@@ -319,7 +323,10 @@ function createByExpressenAdapter({ config, credentials, fetchImpl = fetch, now 
     }
 
     async function getOrder(uuid) {
-        const r = await authedFetch('GET', `orders/${uuid}?_embed=stops,downloadlinks,dispatchedto`);
+        // NB: `dispatchedto` udelades — embed kræver carrier.read-scope (ikke tildelt,
+        // ligesom payment.read/order.delete). Bud-info hentes fra `fkcarrier` i stedet.
+        // `accounting` giver den endelige pris (embed.order:accounting-scope ER tildelt).
+        const r = await authedFetch('GET', `orders/${uuid}?_embed=stops,downloadlinks,accounting`);
         return Array.isArray(r.data) ? r.data[0] : r.data;
     }
 
@@ -331,11 +338,16 @@ function createByExpressenAdapter({ config, credentials, fetchImpl = fetch, now 
     /* ── POD / downloads ──────────────────────────────────── */
 
     // Returnerer rå Response (pdf-binær) — kalderen streamer/gemmer.
+    // VIGTIGT: download-URL'en indeholder et per-ordre sikkerheds-token (?sc=...)
+    // som vi IKKE kan rekonstruere — derfor henter vi ordren og bruger Lobos egen
+    // `downloadlinks.download_pod`-URL direkte (verificeret: rekonstrueret sti → 403,
+    // Lobos URL → 200).
     async function downloadPod(uuid) {
+        const order = await getOrder(uuid);
+        const url = order && order.downloadlinks && order.downloadlinks.download_pod;
+        if (!url) throw new ByExpressenError('Ingen kvittering tilgængelig endnu', { status: 404, code: 'no_pod' });
         const token = await getToken();
-        const res = await fetchImpl(base + `downloads/order/pod/${uuid}`, {
-            headers: { Authorization: 'Bearer ' + token },
-        });
+        const res = await fetchImpl(url, { headers: { Authorization: 'Bearer ' + token } });
         if (!res.ok) throw new ByExpressenError(`POD-download fejlede (${res.status})`, { status: res.status });
         return res;
     }
