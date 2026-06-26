@@ -170,7 +170,7 @@
 
   <div id="unavailable" class="unavailable hidden">
     <h2>Kontaktformularen er ikke tilgængelig</h2>
-    <p>Du er velkommen til at ringe til os på <strong>+45 50 50 50 50</strong> eller skrive til <strong>kontakt@ristetrug.dk</strong>.</p>
+    <p id="unavailable-contact">Du er velkommen til at kontakte os.</p>
   </div>
 
   <form id="kontakt-form" class="form-body" novalidate>
@@ -242,13 +242,26 @@ const state = {
   selectedReason: null,
   thankyouTpl: null,
   token: null,         // ?t=TOKEN i URL
-  tokenInfo: null
+  tokenInfo: null,
+  contact: null        // { phone, email } fra settings (company_phone/company_email)
 };
+
+// Firma-kontaktinfo fra settings (company_phone/company_email) — aldrig hardcodet.
+function renderContact(contact) {
+  state.contact = contact || null;
+  const el = document.getElementById('unavailable-contact');
+  if (!el || !contact) return;
+  const parts = [];
+  if (contact.phone) parts.push('ringe til os på <strong>' + contact.phone + '</strong>');
+  if (contact.email) parts.push('skrive til <strong>' + contact.email + '</strong>');
+  if (parts.length) el.innerHTML = 'Du er velkommen til at ' + parts.join(' eller ') + '.';
+}
 
 async function init() {
   try {
     const r = await fetch(CFG.apiBase + '/contact-reasons');
     const data = await r.json();
+    renderContact(data.contact);
     if (!data.available || !data.contact_reasons?.length) {
       document.getElementById('kontakt-form').classList.add('hidden');
       document.getElementById('unavailable').classList.remove('hidden');
@@ -444,7 +457,9 @@ document.getElementById('kontakt-form').addEventListener('submit', async e => {
     btn.classList.remove('loading');
     btn.disabled = false;
     const banner = document.getElementById('err-banner');
-    banner.innerHTML = '⚠️ Der opstod en fejl. Prøv igen om lidt, eller skriv direkte til <a href="mailto:kontakt@ristetrug.dk">kontakt@ristetrug.dk</a>.';
+    const email = state.contact?.email;
+    banner.innerHTML = '⚠️ Der opstod en fejl. Prøv igen om lidt'
+      + (email ? ', eller skriv direkte til <a href="mailto:' + email + '">' + email + '</a>' : '') + '.';
     banner.classList.remove('hidden');
   }
 });

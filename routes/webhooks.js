@@ -3,12 +3,14 @@ const router = express.Router();
 const { getDb } = require('../db/database');
 const { logChange, nextBonNumber, getStatusId } = require('../db/helpers');
 const { broadcast } = require('../shared/sse');
-const { verifyLoboRequest, applyWebhookEvent } = require('../services/lobo_webhook');
+const { verifyLoboRequest, applyWebhookEvent, calibrateLoboSignature } = require('../services/lobo_webhook');
 
 // ==========================================
 // POST/GET /api/webhooks/lobo  (Byekspressen status-events)
-// System-til-system (ingen session) — verificeres via HMAC (når formatet er
-// bekræftet mod sandbox; indtil da springes verifikationen over m. advarsel).
+// System-til-system (ingen session). SELVKALIBRERENDE HMAC: indtil formatet er
+// opdaget brute-forcer vi det første callback mod de gemte per-event-nøgler;
+// ved match gemmes formatet + verifikation slås til automatisk. Indtil da
+// accepteres events (verify=0) så intet tabes — trin 3-pollingen dækker status.
 // Svarer ALTID 200 så Lobo ikke re-køer ved vores fejl.
 // ==========================================
 router.all('/lobo', async (req, res) => {
@@ -16,26 +18,57 @@ router.all('/lobo', async (req, res) => {
         const db = getDb();
         const rawQuery = req.url.includes('?') ? req.url.slice(req.url.indexOf('?') + 1) : '';
         const query = { ...req.query, ...(req.body && typeof req.body === 'object' ? req.body : {}) };
+        const event = query.event;
 
-        // Hent verifikations-settings
         const get = (k) => { const r = db.prepare('SELECT value FROM settings WHERE key = ?').get(k); return r ? r.value : null; };
-        const v = verifyLoboRequest({
+        const setS = (k, v) => db.prepare(
+            `INSERT INTO settings (key, value) VALUES (?, ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value`
+        ).run(k, String(v));
+
+        const parts = {
             rawQuery,
-            headers: req.headers,
+            pathQuery: req.originalUrl,
+            registeredUrl: get('lobo_webhook_url') || '',
+            body: typeof req.body === 'string' ? req.body
+                : (req.body && Object.keys(req.body).length ? JSON.stringify(req.body) : ''),
+        };
+        const algorithm = get('lobo_webhook_algorithm') || 'sha256';
+        const keysJson = get('lobo_webhook_keys');
+
+        // ── Selvkalibrering: opdag formatet fra første callback ──
+        if ((get('lobo_webhook_verify') || '0') !== '1' && keysJson) {
+            try {
+                const keys = JSON.parse(keysJson) || {};
+                const hit = calibrateLoboSignature({ parts, headers: req.headers, keys, algorithm });
+                if (hit) {
+                    setS('lobo_webhook_sig_header', hit.sig_header);
+                    setS('lobo_webhook_sign_target', hit.sign_target);
+                    setS('lobo_webhook_verify', '1');
+                    console.warn(`[webhook/lobo] ✓ HMAC AUTO-KALIBRERET: header='${hit.sig_header}', signeret='${hit.sign_target}' (match via event ${hit.matched_event}). Verifikation slået TIL.`);
+                } else {
+                    console.warn('[webhook/lobo] kalibrering: intet HMAC-match endnu — callback accepteret, format stadig ukendt.');
+                }
+            } catch (e) { console.warn('[webhook/lobo] kalibrering fejlede:', e.message); }
+        }
+
+        // ── Verificér (kun aktivt når kalibreret) ──
+        const v = verifyLoboRequest({
+            parts, headers: req.headers, event,
             settings: {
                 verify: get('lobo_webhook_verify') || '0',
                 sig_header: get('lobo_webhook_sig_header'),
                 sign_target: get('lobo_webhook_sign_target'),
+                keys: keysJson,
                 hmac_key: get('lobo_webhook_hmac_key'),
-                full_url: req.originalUrl,
+                algorithm,
             },
         });
         if (!v.ok) { console.warn('[webhook/lobo] afvist:', v.reason); return res.json({ ok: false }); }
-        if (v.skipped) console.warn('[webhook/lobo] HMAC-verifikation sprunget over (lobo_webhook_verify≠1)');
+        if (v.skipped) console.warn('[webhook/lobo] HMAC-verifikation sprunget over (afventer kalibrering)');
 
         // getOrder til stopvisitedorsigned-disambiguering (lazy — kun hvis nødvendigt)
         let getOrder = null;
-        if (query.event === 'stopvisitedorsigned') {
+        if (event === 'stopvisitedorsigned') {
             try { getOrder = require('../services/byExpressenAdapter').getByExpressenAdapter().getOrder; }
             catch (e) { console.warn('[webhook/lobo] kunne ikke bygge adapter til getOrder:', e.message); }
         }

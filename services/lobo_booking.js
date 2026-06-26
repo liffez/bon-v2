@@ -64,8 +64,25 @@ function resolveExtraBoxCost(cfg, vehicle) {
 // kasse over de inkluderede. Vi lægger selv kasse-tillægget til frem for at
 // stole på Lobos `costtotal_net` — dens størrelsestillæg er fladt (samme beløb
 // uanset antal ekstra kasser), mens By-ex reelt opkræver pr. kasse.
-function composeCostEx(loboBaseEx, boxes, cfg, vehicle) {
+// Foreslået kundepris (ex moms) på lange ture hvor standardprisen ikke dækker
+// buddet: kostpris × (1 + markup%), rundet op til nærmeste `roundTo` kr, aldrig
+// under standardprisen. Returnerer null når standardprisen allerede dækker
+// kostprisen (så vises ingen anbefaling). Ren funktion — testbar.
+function suggestCustomerPrice(costEx, customerEx, markupPct = 10, roundTo = 25) {
+    if (costEx == null) return null;
+    if (customerEx != null && customerEx > costEx) return null;   // margin allerede positiv
+    const raw = costEx * (1 + (Number(markupPct) || 0) / 100);
+    const step = Number(roundTo) > 0 ? Number(roundTo) : 25;
+    const rounded = Math.ceil(raw / step) * step;
+    return Math.max(rounded, Number(customerEx) || 0);
+}
+
+// applyBoxSurcharge: kun for Food (39) lægger By-expressen 50/ekstra-kasse oveni
+// Lobos grundpris. For ikke-Food-produkter (Medium/Large til lange ture) er Lobos
+// pris allerede komplet (pr. km) — så returnér den uændret.
+function composeCostEx(loboBaseEx, boxes, cfg, vehicle, applyBoxSurcharge = true) {
     if (loboBaseEx == null) return null;
+    if (!applyBoxSurcharge) return Math.round(loboBaseEx * 100) / 100;
     const included = cfg.included_boxes != null ? Number(cfg.included_boxes) : resolveIncludedBoxes(cfg, vehicle);
     const extra = Math.max(0, (Number(boxes) || 0) - included);
     return Math.round((loboBaseEx + resolveExtraBoxCost(cfg, vehicle) * extra) * 100) / 100;
@@ -112,21 +129,235 @@ async function quoteForBon({ bon, vehicle, adapter, boxes = null, paxPerBox = 16
     };
 }
 
+/* ══════════════════════════════════════════════════════════════
+   FELT-SAMMENSÆTNING — det By-expressen faktisk modtager
+   ══════════════════════════════════════════════════════════════
+   Gør hvad office ville skrive manuelt: navn+tlf i ét kontaktfelt,
+   kort note med kundens leveringstid + speciel info, bonnr som synlig
+   reference (customerreferenceorder), og afhentningstid som reftime
+   (driver Lobos leveringsvindue). `overrides` lader office rette hvert
+   felt før bestilling — det previewede er præcis det bookede.
+   ══════════════════════════════════════════════════════════════ */
+
+// '+02:00' / '+01:00' for en dansk kalenderdato (sommer/vinter).
+function dkOffset(dateStr) {
+    try {
+        const d = new Date((dateStr || '2026-01-01') + 'T12:00:00Z');
+        const p = new Intl.DateTimeFormat('en-US', { timeZone: 'Europe/Copenhagen', timeZoneName: 'longOffset' })
+            .formatToParts(d).find(x => x.type === 'timeZoneName');
+        return ((p && p.value) || 'GMT+01:00').replace('GMT', '') || '+01:00';
+    } catch { return '+01:00'; }
+}
+
+// HH:MM − minutter → HH:MM.
+function subMinutesHHMM(hhmm, mins) {
+    const m = /^(\d{1,2}):(\d{2})$/.exec(hhmm || '');
+    if (!m) return null;
+    let t = (+m[1]) * 60 + (+m[2]) - mins;
+    t = ((t % 1440) + 1440) % 1440;
+    return String(Math.floor(t / 60)).padStart(2, '0') + ':' + String(t % 60).padStart(2, '0');
+}
+
+function hhmm(v) { return v ? String(v).slice(0, 5) : null; }
+
+// Default afhentningstid: bonnens pickup_time, ellers leveringstid − 45 min.
+function defaultPickupHHMM(bon) {
+    if (bon.pickup_time) return hhmm(bon.pickup_time);
+    const dl = hhmm(bon.delivery_time);
+    return dl ? subMinutesHHMM(dl, 45) : null;
+}
+
+// Kontakt-på-dagen: navn + tlf i ét felt (Lobo har intet separat telefonfelt).
+function defaultContact(bon) {
+    const name = (bon.day_contact_name || bon.contact_name_full || '').trim();
+    const phone = (bon.day_contact_phone || bon.contact_phone || '').trim();
+    return [name, phone].filter(Boolean).join(' ').trim();
+}
+
+// Kort leverings-note: kundens leveringstid + (afkortet) speciel info.
+function defaultDeliveryNote(bon) {
+    const dl = hhmm(bon.delivery_time);
+    const info = (bon.delivery_notes || '').trim();
+    const parts = [];
+    if (dl) parts.push('Leveres kl. ' + dl);
+    if (info) parts.push(info.length > 60 ? info.slice(0, 57) + '…' : info);
+    return parts.join(' · ');
+}
+
+// ISO-datetime fra bonnens dato + et HH:MM-klokkeslæt (dansk offset).
+function isoFor(bon, hhmmStr) {
+    return (hhmmStr && bon.delivery_date)
+        ? `${bon.delivery_date}T${hhmmStr}:00${dkOffset(bon.delivery_date)}`
+        : null;
+}
+
+// Saml alle felter (med overrides) → { input til buildOrderPayload, preview, boxes }.
+function composeLoboBooking(bon, vehicle, cfg, overrides = {}) {
+    const boxes = overrides.boxes != null && overrides.boxes !== ''
+        ? Math.max(0, parseInt(overrides.boxes, 10) || 0)
+        : defaultBoxesForBon(bon, overrides.paxPerBox || 16);
+    const pickupHHMM = overrides.pickup_time ? hhmm(overrides.pickup_time) : defaultPickupHHMM(bon);
+    const reftime = isoFor(bon, pickupHHMM);
+    const contact = overrides.contact != null ? String(overrides.contact) : defaultContact(bon);
+    // Note = "Leveres kl. {bonnens leveringstid}" (auto fra LEVERING — ét sted) +
+    // den redigerbare speciel-info. Office retter kun speciel-infoen.
+    const noteExtra = overrides.note != null ? String(overrides.note) : (bon.delivery_notes || '').trim();
+    const deliveryTimeStr = hhmm(bon.delivery_time);
+    const note = [deliveryTimeStr ? ('Leveres kl. ' + deliveryTimeStr) : '', (noteExtra || '').trim()]
+        .filter(Boolean).join(' · ');
+    // Reference til By-expressen: bonnummer med #-præfiks (som i Bon v2's visning),
+    // medmindre office har overstyret. Undgå dobbelt-# hvis bon_number allerede har et.
+    const reference = overrides.reference != null
+        ? String(overrides.reference)
+        : (bon.bon_number ? (String(bon.bon_number).startsWith('#') ? String(bon.bon_number) : '#' + bon.bon_number) : '');
+    const fkproduct = overrides.fkproduct != null && overrides.fkproduct !== ''
+        ? parseInt(overrides.fkproduct, 10) : cfg.fkproduct;
+    // Afhentnings-note: bonnummer + kasse-antal. customerreferenceorder vises kun
+    // på kvitteringen, ikke i By-expressens ordre-/opgavevisning — så bonnummeret
+    // gentages her, så det er synligt i Stop/Note-kolonnen ved afhentning.
+    const pickupNote = [reference, boxes > 0 ? `${boxes} kasser` : null].filter(Boolean).join(' · ');
+
+    // VIGTIGT: vi sender IKKE kasse-tillæg (ordersurchargequantity) til Lobo.
+    // 1) Lobos størrelsestillæg er FLADT (samme uanset antal) — vi lægger selv
+    //    50/kasse til via composeCostEx på Lobos GRUNDpris.
+    // 2) Tillægget er produkt-specifikt (389 hører til Food) → INVALID_SURCHARGE
+    //    ved andre produkter (fx Large på lange ture).
+    // Buddet får kasse-antallet via afhentnings-noten ("N kasser") i stedet.
+    const base = bonToOrderInput({ ...bon, boxes });   // adresse-split + external_api_*
+    const input = {
+        ...base,
+        fkproduct,
+        customerreferenceorder: reference,
+        ...(reftime ? { reftime } : {}),
+        ...(pickupNote ? { pickupNote } : {}),
+        deliveryNote: note,
+        delivery: { ...(base.delivery || {}), contactperson: contact || undefined },
+    };
+    const preview = { reference, fkproduct, contactperson: contact, pickup_time: pickupHHMM, pickup_note: pickupNote, delivery_note: note, note_extra: noteExtra, reftime, boxes };
+    return { input, preview, boxes };
+}
+
+// Leveringsvindue (tw_estimated på leverings-stoppet) fra en draft/ordre.
+function extractWindow(order) {
+    if (!order || !Array.isArray(order.stops)) return null;
+    const d = order.stops.find(s => s.position === 2) || order.stops[order.stops.length - 1];
+    if (!d) return null;
+    return { begin: d.tw_estimated_begin || null, end: d.tw_estimated_end || null };
+}
+
+// Bon-felter til "tjek op imod"-kolonnen i sandkasse.
+function bonControlFields(bon, boxes) {
+    const a = bon.delivery_address || {};
+    const addr = [
+        [a.street_name, a.street_nr].filter(Boolean).join(' '),
+        [a.postal_code, a.city].filter(Boolean).join(' '),
+    ].filter(Boolean).join(', ');
+    return {
+        company: bon.company_name || null,
+        address: addr || null,
+        contact_name: bon.day_contact_name || bon.contact_name_full || null,
+        contact_phone: bon.day_contact_phone || bon.contact_phone || null,
+        boxes,
+        delivery_time: hhmm(bon.delivery_time),
+        delivery_notes: bon.delivery_notes || null,
+    };
+}
+
+// Normalisér en Lobo-ordre (GET /orders/{uuid}?_embed=stops,downloadlinks,dispatchedto)
+// til det status-panelet skal bruge. Ren funktion — testbar uden netværk.
+function normalizeLoboOrder(order) {
+    if (!order) return null;
+    const stops = Array.isArray(order.stops) ? order.stops : [];
+    const delivery = stops.find(s => s.position === 2) || stops[stops.length - 1] || null;
+    const pickup = stops.find(s => s.position === 1) || null;
+    const dl = order.downloadlinks || {};
+    const dt = order.dispatchedto || null;
+    const carrier = dt && (dt.name || dt.displayname || dt.fullname)
+        ? (dt.name || dt.displayname || dt.fullname)
+        : (order.fkcarrier ? ('Bud #' + order.fkcarrier) : null);
+    const costEx = order.costtotal_net ?? (order.accounting && order.accounting.costtotal_net) ?? null;
+    const costIncl = order.costtotal_gross ?? (order.accounting && order.accounting.costtotal_gross) ?? null;
+    const status = order.status || null;
+    // leveret = status 'finished' ELLER leverings-stop er signeret/besøgt/har faktisk sluttid
+    const delivered = status === 'finished'
+        || !!(delivery && (delivery.signed || delivery.visited || delivery.tw_real_end));
+    const win = (s) => s ? { begin: s.tw_estimated_begin || null, end: s.tw_estimated_end || null } : null;
+    return {
+        uuid: order.uuid || null,
+        number: order.numberformatted || null,
+        status,
+        carrier,
+        delivered,
+        eta: win(delivery),
+        pickup_eta: win(pickup),
+        has_pod: !!dl.download_pod,
+        cost_ex: typeof costEx === 'number' ? costEx : null,
+        cost_incl: typeof costIncl === 'number' ? costIncl : null,
+        routedistance: order.routedistance ?? null,
+    };
+}
+
+// Preview: opret kort draft → læs vindue + pris → slet draft. INGEN ordre/bud.
+// Returnerer alt panelet skal bruge: felter der sendes, Lobos vindue, pris, bon-felter.
+async function previewBooking({ bon, vehicle, adapter, overrides = {}, paxPerBox = 16, pricing = {} }) {
+    const cfg = { ...(adapter.config || {}) };
+    if (cfg.included_boxes == null) cfg.included_boxes = resolveIncludedBoxes(cfg, vehicle);
+    const { input, preview, boxes } = composeLoboBooking(bon, vehicle, cfg, { ...overrides, paxPerBox });
+    const payload = adapter.buildOrderPayload(input);
+
+    const quote = await adapter.priceQuote(payload);
+    if (quote && quote.uuid) { try { await adapter.deleteOrderDraft(quote.uuid); } catch { /* udløber selv */ } }
+
+    // Food (= vognens default-produkt) får kasse-tillæg lokalt; andre produkter
+    // (lange ture, pr. km) bruger Lobos pris direkte.
+    const isFood = Number(preview.fkproduct) === Number(cfg.fkproduct);
+    const win = extractWindow(quote.order);
+    const costEx = composeCostEx(quote.cost_ex, boxes, cfg, vehicle, isFood);
+    const costIncl = costEx != null ? exclToIncl(costEx) : null;
+    const customerEx = vehicle ? (estimateCost(vehicle, { ...bon, boxes }) ?? null) : null;
+    const margin = (customerEx != null && costEx != null) ? Math.round((customerEx - costEx) * 100) / 100 : null;
+
+    // Foreslået kundepris med lille positiv margin (lange ture). Regel fra settings.
+    const suggestedEx = suggestCustomerPrice(costEx, customerEx, pricing.markup_pct, pricing.round_to);
+    const suggestedMargin = (suggestedEx != null && costEx != null) ? Math.round((suggestedEx - costEx) * 100) / 100 : null;
+
+    const deadlineIso = isoFor(bon, hhmm(bon.delivery_time));
+    const isLate = (win && win.end && deadlineIso) ? (new Date(win.end) > new Date(deadlineIso)) : false;
+
+    // Supply-area-advarsel: Food dækker kun bynært (vognens max_distance_km). Draften
+    // afslører IKKE out-of-area (kun den rigtige booking gør) — så vi advarer proaktivt
+    // når Food vælges til en tur længere end leveringsområdet.
+    const maxKm = vehicle && vehicle.max_distance_km ? Number(vehicle.max_distance_km) : null;
+    const distKm = quote.routedistance != null ? quote.routedistance / 1000 : null;
+    const supplyWarning = !!(isFood && maxKm && distKm && distKm > maxKm);
+
+    return {
+        preview,
+        window: win ? { begin: win.begin, end: win.end, deadline_iso: deadlineIso, is_late: isLate } : null,
+        price: { cost_ex: costEx, cost_incl: costIncl, customer_ex: customerEx, margin, suggested_customer_ex: suggestedEx, suggested_margin: suggestedMargin },
+        bon_fields: bonControlFields(bon, boxes),
+        routedistance: quote.routedistance ?? null,
+        supply_warning: supplyWarning,
+        max_distance_km: maxKm,
+        is_food: isFood,
+    };
+}
+
 // Rigtig booking: POST /orders → skriv delivery_events (booked + snapshot) +
 // bons.delivery_cost (api) + SSE. Ved Lobo-fejl logges et 'failed'-event.
-async function bookForBon({ bon, vehicle, adapter, userId = null, boxes = null, paxPerBox = 16, deps = {} }) {
+// `overrides` (samme som previewBooking) sikrer at det bookede = det previewede.
+async function bookForBon({ bon, vehicle, adapter, userId = null, overrides = {}, boxes = null, paxPerBox = 16, deps = {} }) {
     const logBookingEvent = deps.logBookingEvent || require('./delivery_log').logBookingEvent;
     const setActualCost = deps.setActualCost || require('./delivery_log').setActualCost;
     const broadcast = deps.broadcast || require('../shared/sse').broadcast;
 
     const cfg = { ...(adapter.config || {}) };
     if (cfg.included_boxes == null) cfg.included_boxes = resolveIncludedBoxes(cfg, vehicle);
-    const effectiveBoxes = boxes != null && boxes !== '' ? Math.max(0, parseInt(boxes, 10) || 0) : defaultBoxesForBon(bon, paxPerBox);
-    const bonForCalc = { ...bon, boxes: effectiveBoxes };
-
-    // Send INGEN kasse-tillæg til Lobo — kostprisen sammensættes af grundpris +
-    // 50/kasse (composeCostEx), jf. By-ex's faktiske takst pr. kasse over 2.
-    const input = bonToOrderInput(bonForCalc);
+    // bagudkompat: ældre kald sendte boxes direkte; fold ind i overrides.
+    const ov = { ...overrides, paxPerBox };
+    if (ov.boxes == null && boxes != null) ov.boxes = boxes;
+    const { input, preview, boxes: effectiveBoxes } = composeLoboBooking(bon, vehicle, cfg, ov);
+    const isFood = Number(preview.fkproduct) === Number(cfg.fkproduct);
     const payload = adapter.buildOrderPayload(input);
 
     let order;
@@ -139,7 +370,7 @@ async function bookForBon({ bon, vehicle, adapter, userId = null, boxes = null, 
         throw e;
     }
 
-    const costEx = composeCostEx(extractCostEx(order), effectiveBoxes, cfg, vehicle);
+    const costEx = composeCostEx(extractCostEx(order), effectiveBoxes, cfg, vehicle, isFood);
     await logBookingEvent({
         bonId: bon.id, vehicleId: vehicle.id, reference: order.uuid,
         status: 'booked', userId, snapshot: order,
@@ -152,4 +383,9 @@ async function bookForBon({ bon, vehicle, adapter, userId = null, boxes = null, 
     return { uuid: order.uuid, cost_ex: costEx, order };
 }
 
-module.exports = { quoteForBon, bookForBon, buildSurcharges, defaultBoxesForBon, composeCostEx, resolveExtraBoxCost };
+module.exports = {
+    quoteForBon, bookForBon, previewBooking, composeLoboBooking,
+    buildSurcharges, defaultBoxesForBon, composeCostEx, resolveExtraBoxCost,
+    defaultPickupHHMM, defaultContact, defaultDeliveryNote, extractWindow, bonControlFields,
+    normalizeLoboOrder, suggestCustomerPrice,
+};

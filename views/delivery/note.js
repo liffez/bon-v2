@@ -52,7 +52,7 @@
         selectedVehicleId: initialVehicleParam ? Number(initialVehicleParam) : null,
         vehicles: [],
         payload: null,
-        mode: 'fields',                   // 'fields' | 'text'
+        mode: 'text',                     // 'fields' | 'text' — samlet tekst er default (nemmest at kopiere)
         copiedFields: new Set(),          // husker hvilke felter er kopieret (UX)
         loading: true,
         saving: false,

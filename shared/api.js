@@ -757,6 +757,28 @@ function postCrmActivity(data) {
     });
 }
 
+// Skjul (snooze) et smart-forslag i et antal dage (default 14 server-side).
+// data: { customer_id, type, days? }
+function snoozeSuggestion(data) {
+    return apiFetch('/crm/suggestions/snooze', {
+        method: 'POST',
+        body: JSON.stringify(data),
+    });
+}
+
+// Aktive skjulte forslag (til "N skjult"-listen).
+function fetchSnoozedSuggestions() {
+    return apiFetch('/crm/suggestions/snoozed');
+}
+
+// Fortryd et skjul. data: { customer_id, type }
+function unsnoozeSuggestion(data) {
+    return apiFetch('/crm/suggestions/unsnooze', {
+        method: 'POST',
+        body: JSON.stringify(data),
+    });
+}
+
 function patchCrmCustomerStage(id, stage) {
     return apiFetch('/crm/customer/' + id + '/stage', {
         method: 'PATCH',
@@ -1001,6 +1023,46 @@ function replyToUnmatchedMail(id, data) {
     return apiFetch('/mail/unmatched/' + id + '/reply', {
         method: 'POST',
         body: JSON.stringify(data),
+    });
+}
+
+/* ── SAMLET INDBAKKE (mail_threads) ─────────────────────── */
+
+// Liste over kunde/bon-tråde med handling_status. status: aabne|udsat|kunde|luk|mine|ikke_knyttet|alle
+function fetchMailThreads(params) {
+    var qs = params ? '?' + new URLSearchParams(params).toString() : '';
+    return apiFetch('/mail/threads' + qs);
+}
+
+function fetchMailThread(id) {
+    return apiFetch('/mail/threads/' + id);
+}
+
+function fetchMailThreadCounts() {
+    return apiFetch('/mail/threads/counts');
+}
+
+// Svar på en tråd. data: { body, remind_days? }
+function replyMailThread(id, data) {
+    return apiFetch('/mail/threads/' + id + '/reply', {
+        method: 'POST',
+        body: JSON.stringify(data),
+    });
+}
+
+// Opdatér tråd. data: { handling_status?, snooze_days?, snooze_until?, assigned_to? }
+function patchMailThread(id, data) {
+    return apiFetch('/mail/threads/' + id, {
+        method: 'PATCH',
+        body: JSON.stringify(data),
+    });
+}
+
+// Prefill til bon-draweren (+ valgfri knytning via { bon_id })
+function mailThreadCreateBon(id, data) {
+    return apiFetch('/mail/threads/' + id + '/create-bon', {
+        method: 'POST',
+        body: JSON.stringify(data || {}),
     });
 }
 
@@ -1481,8 +1543,11 @@ function fetchRfmReactivation() {
     return apiFetch('/rfm/reactivation');
 }
 
-function fetchRfmProspects() {
-    return apiFetch('/rfm/prospects');
+function fetchRfmProspects(params) {
+    var clean = {};
+    if (params) for (var k in params) { if (params[k] != null && params[k] !== '') clean[k] = params[k]; }
+    var qs = Object.keys(clean).length ? '?' + new URLSearchParams(clean).toString() : '';
+    return apiFetch('/rfm/prospects' + qs);
 }
 
 function fetchRfmIcp(source) {
@@ -1686,11 +1751,58 @@ function fetchLoboQuote(bonId, boxes) {
     return apiFetch(qs);
 }
 
+// Lobo/By-expressen — se-og-ret-panel: felter der sendes + vindue + pris.
+// data: { bon_id, pickup_time?, boxes?, fkproduct?, contact?, note?, reference? }
+function previewLoboBooking(data) {
+    return apiFetch('/delivery/lobo/preview', {
+        method: 'POST',
+        body: JSON.stringify(data),
+    });
+}
+
+// Lobo/By-expressen — webhook-registrering + selvkalibrerings-status (admin).
+function fetchLoboWebhookStatus() {
+    return apiFetch('/delivery/lobo/webhooks');
+}
+function registerLoboWebhooks(publicBaseUrl) {
+    return apiFetch('/delivery/lobo/webhooks/register', {
+        method: 'POST',
+        body: JSON.stringify(publicBaseUrl ? { public_base_url: publicBaseUrl } : {}),
+    });
+}
+function unregisterLoboWebhooks() {
+    return apiFetch('/delivery/lobo/webhooks', { method: 'DELETE' });
+}
+
+// Lobo/By-expressen — trin 3: on-demand status for booket ordre (status/ETA/POD/pris).
+function fetchLoboOrderStatus(bonId) {
+    return apiFetch('/delivery/lobo/order-status?bon_id=' + bonId);
+}
+
+// URL til kvitterings-PDF (POD) — åbnes i ny fane (server-proxy med bearer-token).
+function loboPodUrl(bonId) {
+    return '/api/delivery/lobo/pod?bon_id=' + bonId;
+}
+
 // Lobo/By-expressen — rigtig booking (dispatch). Mod productive kræves confirm:true.
+// data: { bon_id, confirm?, ...overrides } — overrides = samme felter som preview.
 function bookLoboDelivery(data) {
     return apiFetch('/delivery/lobo/book', {
         method: 'POST',
         body: JSON.stringify(data),
+    });
+}
+
+// Lobo/By-expressen — sandkasse-tilstand (til badge + Settings master-kontakt).
+function fetchLoboStatus() {
+    return apiFetch('/delivery/lobo/status');
+}
+
+// Lobo/By-expressen — master-kontakt (admin): slå sandkasse til/fra globalt.
+function setLoboSandbox(enabled) {
+    return apiFetch('/delivery/lobo/sandbox', {
+        method: 'POST',
+        body: JSON.stringify({ enabled: !!enabled }),
     });
 }
 
@@ -1833,6 +1945,11 @@ function acknowledgeBon(bonId, undo = false) {
         method: 'PATCH',
         body: JSON.stringify({ undo }),
     });
+}
+
+// Fælles "Nyt der kræver handling"-feed til office-topbarens indikator.
+function fetchNavAttention() {
+    return apiFetch('/nav/attention');
 }
 
 // ─── Opskrifter & priser ──────────────────────────────────────

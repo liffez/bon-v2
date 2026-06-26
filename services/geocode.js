@@ -17,23 +17,65 @@ const { getDb } = require('../db/database');
 
 const DAWA_BASE = 'https://api.dataforsyningen.dk';
 const TIMEOUT_MS = 6000;
+// DAWA beder klienter identificere sig (Fair Use). Uden User-Agent struber/
+// blokerer de IP'en efter en byge — det var årsagen til at en backfill kunne
+// fejle på ~alle adresser efter de første par. Sæt en sigende UA.
+const USER_AGENT = 'bon-v2/2.0 (+https://ristetrug.dk; kontakt@ristetrug.dk)';
+const MAX_RETRIES = 4;
+
+function sleep(ms) { return new Promise(r => setTimeout(r, ms)); }
+
+class DawaError extends Error {
+    constructor(message, { status = null, throttled = false } = {}) {
+        super(message);
+        this.name = 'DawaError';
+        this.status = status;
+        this.throttled = throttled;
+    }
+}
 
 // ==========================================
-// Tynd fetch-wrapper med timeout.
+// Fetch-wrapper med timeout, User-Agent og retry-med-backoff.
+// Throttling (HTTP 429/503) og transiente netværksfejl prøves igen med
+// eksponentiel backoff (respekterer Retry-After). Vedvarende fejl kastes
+// som DawaError med .status/.throttled så kaldere kan skelne throttling
+// fra "ingen match".
 // ==========================================
 async function dawaFetch(path) {
-    const controller = new AbortController();
-    const timer = setTimeout(() => controller.abort(), TIMEOUT_MS);
-    try {
-        const res = await fetch(`${DAWA_BASE}${path}`, {
-            signal: controller.signal,
-            headers: { Accept: 'application/json' }
-        });
-        if (!res.ok) throw new Error(`DAWA svarede ${res.status}`);
-        return await res.json();
-    } finally {
-        clearTimeout(timer);
+    let lastErr = null;
+    for (let attempt = 0; attempt <= MAX_RETRIES; attempt++) {
+        const controller = new AbortController();
+        const timer = setTimeout(() => controller.abort(), TIMEOUT_MS);
+        try {
+            const res = await fetch(`${DAWA_BASE}${path}`, {
+                signal: controller.signal,
+                headers: { Accept: 'application/json', 'User-Agent': USER_AGENT }
+            });
+            if (res.ok) return await res.json();
+
+            // 429 (rate limit) + 503 (midlertidigt overbelastet) → vent og prøv igen
+            if (res.status === 429 || res.status === 503) {
+                const retryAfter = parseInt(res.headers.get('retry-after'), 10);
+                const wait = Number.isFinite(retryAfter)
+                    ? retryAfter * 1000
+                    : Math.min(8000, 500 * 2 ** attempt);  // 500, 1000, 2000, 4000, 8000
+                lastErr = new DawaError(`DAWA svarede ${res.status}`, { status: res.status, throttled: true });
+                if (attempt < MAX_RETRIES) { await sleep(wait); continue; }
+                throw lastErr;
+            }
+            // Andre HTTP-fejl: ikke transiente → kast med det samme
+            throw new DawaError(`DAWA svarede ${res.status}`, { status: res.status });
+        } catch (e) {
+            if (e instanceof DawaError && !e.throttled) throw e;     // permanent HTTP-fejl
+            // Netværksfejl/timeout/abort → transient, prøv igen
+            lastErr = e instanceof DawaError ? e : new DawaError(e.message || 'netværksfejl', { throttled: true });
+            if (attempt < MAX_RETRIES) { await sleep(Math.min(8000, 500 * 2 ** attempt)); continue; }
+            throw lastErr;
+        } finally {
+            clearTimeout(timer);
+        }
     }
+    throw lastErr || new DawaError('ukendt fejl');
 }
 
 // ==========================================
@@ -46,6 +88,21 @@ function coordsFromRow(row) {
     const lat = Number(row.y);
     if (!Number.isFinite(lat) || !Number.isFinite(lon)) return null;
     return { lat, lon };
+}
+
+// ==========================================
+// Kald DAWA. Throttling (efter retries opbrugt) re-kastes så kaldere kan
+// skelne "DAWA blokerer os" fra "ingen match" — alt andet (no-match,
+// permanent HTTP-fejl) bliver til null så vi kan falde videre til næste
+// strategi.
+// ==========================================
+async function tryFetch(path) {
+    try {
+        return await dawaFetch(path);
+    } catch (e) {
+        if (e instanceof DawaError && e.throttled) throw e;
+        return null;
+    }
 }
 
 // ==========================================
@@ -76,13 +133,7 @@ async function geocodeViaDatavask({ street, nr, zip, city } = {}) {
     const betegnelse = [streetPart, zipPart].filter(Boolean).join(', ').trim();
     if (!betegnelse) return null;
 
-    let washed;
-    try {
-        const p = new URLSearchParams({ betegnelse });
-        washed = await dawaFetch(`/datavask/adresser?${p.toString()}`);
-    } catch (e) {
-        return null;
-    }
+    const washed = await tryFetch(`/datavask/adresser?${new URLSearchParams({ betegnelse }).toString()}`);
     const first = washed && Array.isArray(washed.resultater) ? washed.resultater[0] : null;
     const adr = first && first.aktueladresse;
     const diff = first && first.vaskeresultat && first.vaskeresultat.forskelle;
@@ -94,12 +145,7 @@ async function geocodeViaDatavask({ street, nr, zip, city } = {}) {
     const aid = adr.adgangsadresseid;
     if (!aid) return null;
 
-    let mini;
-    try {
-        mini = await dawaFetch(`/adgangsadresser/${encodeURIComponent(aid)}?struktur=mini`);
-    } catch (e) {
-        return null;
-    }
+    const mini = await tryFetch(`/adgangsadresser/${encodeURIComponent(aid)}?struktur=mini`);
     return coordsFromRow(mini);
 }
 
@@ -120,25 +166,16 @@ async function geocodeRaw({ street, nr, zip, city } = {}) {
     if (nr) params.set('husnr', String(nr).trim());
     if (zip) params.set('postnr', String(zip).trim());
 
-    let results = null;
-    try {
-        results = await dawaFetch(`/adgangsadresser?${params.toString()}`);
-    } catch (e) {
-        results = null;
-    }
+    let results = await tryFetch(`/adgangsadresser?${params.toString()}`);
     let coords = coordsFromRow(Array.isArray(results) ? results[0] : null);
     if (coords) return coords;
 
     // 2) Fri-tekst fallback
     const q = [street, nr, zip].filter(Boolean).join(' ').trim();
-    try {
-        const fp = new URLSearchParams({ struktur: 'mini', per_side: '1', q });
-        results = await dawaFetch(`/adgangsadresser?${fp.toString()}`);
-        coords = coordsFromRow(Array.isArray(results) ? results[0] : null);
-        if (coords) return coords;
-    } catch (e) {
-        // falder igennem til datavask
-    }
+    const fp = new URLSearchParams({ struktur: 'mini', per_side: '1', q });
+    results = await tryFetch(`/adgangsadresser?${fp.toString()}`);
+    coords = coordsFromRow(Array.isArray(results) ? results[0] : null);
+    if (coords) return coords;
 
     // 3) Datavask — retter fejlskrevne/ikke-kanoniske vejnavne
     return geocodeViaDatavask({ street, nr, zip, city });
@@ -163,12 +200,21 @@ async function geocodeAddress(addressId) {
         return { lat: addr.lat, lon: addr.lon };
     }
 
-    const coords = await geocodeRaw({
-        street: addr.street_name,
-        nr: addr.street_nr,
-        zip: addr.postal_code,
-        city: addr.city
-    });
+    // Live fire-and-forget-sti: throttling må aldrig boble op og crashe
+    // kalderen (routes/addresses.js) — sluk den til null her. Backfill-
+    // scriptet kalder geocodeRaw direkte og kan stadig se throttling.
+    let coords = null;
+    try {
+        coords = await geocodeRaw({
+            street: addr.street_name,
+            nr: addr.street_nr,
+            zip: addr.postal_code,
+            city: addr.city
+        });
+    } catch (e) {
+        if (e instanceof DawaError && e.throttled) return null;
+        throw e;
+    }
     if (!coords) return null;
 
     db.prepare('UPDATE addresses SET lat = ?, lon = ? WHERE id = ?')
@@ -176,4 +222,4 @@ async function geocodeAddress(addressId) {
     return coords;
 }
 
-module.exports = { geocodeRaw, geocodeAddress };
+module.exports = { geocodeRaw, geocodeAddress, DawaError };

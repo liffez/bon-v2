@@ -7,12 +7,17 @@
 
 var _mcContainer = null;
 var _mcUser = null;
-var _mcTab = 'calls';     // 'calls' | 'search'
+var _mcTab = 'calls';     // 'calls' | 'search' | 'inbox'
 var _mcCalls = [];
 var _mcSearchTimer = null;
 var _mcDays = 7;          // 7 | 14 | 30
 var _mcOrdersCache = {};  // customerId -> orders
 var _mcPurposes = null;   // cached activity_purposes
+
+// ── Indbakke (mail_threads) ──
+var _mcInboxView = 'aabne';   // aabne | udsat | kunde | luk
+var _mcThreads = [];
+var _mcSheetId = null;
 
 var _MC_DUE_CHIPS = [
     { key: '1',  label: 'I morgen' },
@@ -27,9 +32,11 @@ async function initMobileCrm(container, user) {
     _mcUser = user;
 
     container.innerHTML =
+        _mcInboxStyle() +
         '<div class="m-tabs">' +
             '<button class="m-tab active" data-tab="calls">Service calls</button>' +
             '<button class="m-tab" data-tab="search">Kunder</button>' +
+            '<button class="m-tab" data-tab="inbox">Indbakke<span class="m-tab-badge" id="mcInboxBadge" style="display:none"></span></button>' +
         '</div>' +
         '<div id="mcContent"></div>';
 
@@ -40,11 +47,13 @@ async function initMobileCrm(container, user) {
                 t.classList.toggle('active', t.dataset.tab === _mcTab);
             });
             if (_mcTab === 'calls') _mcLoadCalls();
+            else if (_mcTab === 'inbox') _mcLoadInbox();
             else _mcShowSearch();
         });
     });
 
-    _mcLoadPurposes(); // non-blocking
+    _mcLoadPurposes();  // non-blocking
+    _mcLoadInboxCount(); // non-blocking — badge på Indbakke-fanen
     await _mcLoadCalls();
 }
 
@@ -1030,5 +1039,196 @@ function _mcWireHistorik(wrap) {
             timeline.classList.add('show-all');
             showMoreBtn.style.display = 'none';
         });
+    }
+}
+
+/* ════════════════ INDBAKKE (mail_threads) ════════════════ */
+// CLAUDE_INDBAKKE.md §6. Afløser mailto:-bouncet — svar lever nu i appen.
+
+var _mcInboxCounts = {};
+var _MC_INBOX_TABS = [
+    { k: 'aabne', label: 'Åbne' }, { k: 'udsat', label: '⏰ Udsat' },
+    { k: 'kunde', label: 'Afventer' }, { k: 'luk', label: 'Afsluttet' }
+];
+
+function _mcInboxStyle() {
+    return '<style>' +
+    '.mc-subtabs{display:flex;gap:6px;padding:8px 10px;overflow-x:auto;border-bottom:1px solid var(--color-border,#eee)}' +
+    '.mc-sub{font-size:12px;font-weight:700;padding:5px 12px;border-radius:99px;background:var(--color-background,#f5f4f2);color:#6b6258;white-space:nowrap;border:none;font-family:inherit}' +
+    '.mc-sub.on{background:var(--brand-primary,#8e631f);color:#fff}' +
+    '.mc-sub .b{background:rgba(0,0,0,.15);border-radius:99px;padding:0 5px;margin-left:4px;font-size:10px}' +
+    '.mc-sub.on .b{background:rgba(255,255,255,.25)}' +
+    '.mc-th{background:#fff;margin:8px 10px;border-radius:12px;padding:11px 13px;box-shadow:0 1px 3px rgba(0,0,0,.06)}' +
+    '.mc-th-from{font-weight:800;font-size:14px;color:#2c2620;display:flex;align-items:center;gap:6px}' +
+    '.mc-th.unread .mc-th-from::before{content:"";width:8px;height:8px;border-radius:50%;background:#e8a832;display:inline-block;flex-shrink:0}' +
+    '.mc-th-subj{font-size:12.5px;color:#5a544c;margin-top:3px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}' +
+    '.mc-th-sent{font-size:10.5px;color:#5a7a36;margin-top:4px}' +
+    '.mc-th-meta{display:flex;gap:6px;align-items:center;flex-wrap:wrap;margin-top:7px}' +
+    '.mc-tag{font-size:10px;font-weight:700;padding:1px 7px;border-radius:99px}' +
+    '.mc-tag.bon{background:#e8f0f6;color:#3d5e80}.mc-tag.kontakt{background:#f7f2d9;color:#8a6a1a}' +
+    '.mc-tag.lnk{background:#f5f4f2;color:#6b6258}.mc-tag.warn{background:#fef3d6;color:#9a6a10}' +
+    '.mc-st{font-size:10px;font-weight:900;padding:1px 8px;border-radius:99px;text-transform:uppercase}' +
+    '.mc-st.aaben{background:#fef3d6;color:#9a6a10}.mc-st.afventer_kunde{background:#e8f0f6;color:#3d5e80}.mc-st.afsluttet{background:#e8f2dc;color:#5a7a36}' +
+    '.mc-snz{font-size:10px;font-weight:700;padding:1px 7px;border-radius:99px;background:#f3e8f7;color:#7a3d96}' +
+    '.mc-sheet-ov{position:fixed;inset:0;background:rgba(0,0,0,.4);z-index:1000;display:flex;align-items:flex-end}' +
+    '.mc-sheet{background:#fff;width:100%;max-height:85vh;border-radius:18px 18px 0 0;display:flex;flex-direction:column;padding-bottom:env(safe-area-inset-bottom,0)}' +
+    '.mc-sheet-head{padding:12px 14px;border-bottom:1px solid var(--color-border,#eee)}' +
+    '.mc-sheet-subj{font-weight:800;font-size:14px;color:#2c2620}' +
+    '.mc-sheet-body{flex:1;overflow-y:auto;padding:10px 14px;background:#fbf9f5}' +
+    '.mc-sheet-foot{padding:10px 12px;border-top:1px solid var(--color-border,#eee)}' +
+    '.mc-sheet-foot textarea{width:100%;border:1px solid var(--color-border,#ddd);border-radius:10px;padding:9px;font-family:inherit;font-size:13px;min-height:60px;resize:vertical}' +
+    '.mc-sheet-btns{display:flex;gap:6px;margin-top:8px}' +
+    '.mc-sbtn{flex:1;border:1px solid var(--color-border,#ddd);background:#fff;border-radius:10px;padding:10px;font-size:13px;font-weight:700;font-family:inherit;color:#2c2620}' +
+    '.mc-sbtn.ok{background:#7a9c54;color:#fff;border-color:#7a9c54}.mc-sbtn.snz{background:#9b59b6;color:#fff;border-color:#9b59b6}.mc-sbtn.primary{background:var(--brand-primary,#8e631f);color:#fff;border-color:var(--brand-primary,#8e631f)}' +
+    '.mc-inbox-empty{text-align:center;padding:40px 16px;color:#8a8580}' +
+    '</style>';
+}
+
+function _mcLoadInboxCount() {
+    if (typeof fetchMailThreadCounts !== 'function') return;
+    fetchMailThreadCounts().then(function(c) {
+        _mcInboxCounts = c || {};
+        var b = document.getElementById('mcInboxBadge');
+        if (b) {
+            if (c && c.aabne > 0) { b.textContent = c.aabne; b.style.display = ''; }
+            else b.style.display = 'none';
+        }
+        if (_mcTab === 'inbox') _mcRenderInboxSubtabs();
+    }).catch(function() {});
+}
+
+async function _mcLoadInbox() {
+    var content = document.getElementById('mcContent');
+    if (!content) return;
+    content.innerHTML = '<div id="mcSubtabs" class="mc-subtabs"></div><div id="mcInboxList"></div>';
+    _mcRenderInboxSubtabs();
+    var list = document.getElementById('mcInboxList');
+    list.innerHTML = '<div class="mc-inbox-empty">Henter…</div>';
+    try {
+        _mcThreads = await fetchMailThreads({ status: _mcInboxView });
+        _mcRenderInboxList();
+    } catch (e) {
+        list.innerHTML = '<div class="mc-inbox-empty">Kunne ikke hente indbakke</div>';
+    }
+    _mcLoadInboxCount();
+}
+
+function _mcRenderInboxSubtabs() {
+    var el = document.getElementById('mcSubtabs');
+    if (!el) return;
+    el.innerHTML = _MC_INBOX_TABS.map(function(t) {
+        var c = _mcInboxCounts[t.k];
+        return '<button class="mc-sub ' + (_mcInboxView === t.k ? 'on' : '') + '" onclick="_mcSetInboxView(\'' + t.k + '\')">' +
+            t.label + (c ? ' <span class="b">' + c + '</span>' : '') + '</button>';
+    }).join('');
+}
+
+function _mcSetInboxView(v) { _mcInboxView = v; _mcLoadInbox(); }
+
+function _mcThTime(iso) {
+    return (window.MailThread && MailThread.fmtDate) ? MailThread.fmtDate(iso) : _mcFormatDate(iso);
+}
+
+// Link-chip med tag-nummer: kunde → "🔗 Navn · #k-3857"
+function _mcLinkChip(link) {
+    if (!link) return '<span class="mc-tag warn">⚠ ikke knyttet</span>';
+    var num = link.type === 'customer' ? ' · #k-' + link.id : '';
+    return '<span class="mc-tag lnk">🔗 ' + _mcEsc(link.label || '') + num + '</span>';
+}
+
+function _mcRenderInboxList() {
+    var list = document.getElementById('mcInboxList');
+    if (!list) return;
+    if (!_mcThreads.length) { list.innerHTML = '<div class="mc-inbox-empty">🎉 Intet her</div>'; return; }
+    var ST = { aaben: 'Åben', afventer_kunde: 'Afventer', afsluttet: 'Afsluttet' };
+    list.innerHTML = _mcThreads.map(function(t) {
+        var sent = (t.handling_status !== 'aaben' && t.last_outbound_at)
+            ? '<div class="mc-th-sent">↗ Sendt ' + _mcThTime(t.last_outbound_at) + '</div>' : '';
+        var linkTag = _mcLinkChip(t.link);
+        var snz = (t.snoozed && t.snooze_until) ? '<span class="mc-snz">⏰ ' + _mcThTime(t.snooze_until) + '</span>' : '';
+        return '<div class="mc-th ' + (t.has_unread ? 'unread' : '') + '" onclick="_mcOpenInboxThread(' + t.id + ')">' +
+            '<div class="mc-th-from">' + _mcEsc(t.from || '') + '</div>' +
+            '<div class="mc-th-subj">' + _mcEsc(t.subject || '') + '</div>' + sent +
+            '<div class="mc-th-meta"><span class="mc-tag ' + t.src + '">' + t.src + '@</span>' + linkTag +
+            '<span class="mc-st ' + t.handling_status + '">' + (ST[t.handling_status] || '') + '</span>' + snz + '</div>' +
+        '</div>';
+    }).join('');
+}
+
+// Sheet'et lægges på document.body (root stacking-context) så det kommer OVER den
+// faste bundnav (.m-nav, z-index 50) — ikke fanget i CRM-containerens stacking-context.
+function _mcSheetRoot() {
+    var r = document.getElementById('mcSheetRoot');
+    if (!r) { r = document.createElement('div'); r.id = 'mcSheetRoot'; document.body.appendChild(r); }
+    return r;
+}
+
+async function _mcOpenInboxThread(id) {
+    _mcSheetId = id;
+    var host = _mcSheetRoot();
+    host.innerHTML = '<div class="mc-sheet-ov"><div class="mc-sheet"><div class="mc-sheet-head"><div class="mc-sheet-subj">Henter…</div></div><div class="mc-sheet-body"></div></div></div>';
+    try {
+        var data = await fetchMailThread(id);
+        var t = data.thread;
+        var ST = { aaben: 'Åben', afventer_kunde: 'Afventer', afsluttet: 'Afsluttet' };
+        host.innerHTML = '<div class="mc-sheet-ov" onclick="if(event.target===this)_mcCloseSheet()">' +
+            '<div class="mc-sheet">' +
+                '<div class="mc-sheet-head">' +
+                    '<div class="mc-sheet-subj">' + _mcEsc(t.subject || '') + '</div>' +
+                    '<div style="font-size:11px;color:#8a8580;margin-top:3px">' + _mcEsc(t.from || '') + ((t.link && t.link.type === 'customer') ? ' · #k-' + t.link.id : '') + ' · <span class="mc-st ' + t.handling_status + '">' + (ST[t.handling_status] || '') + '</span></div>' +
+                '</div>' +
+                '<div class="mc-sheet-body" id="mcSheetBody"></div>' +
+                '<div class="mc-sheet-foot">' +
+                    '<textarea id="mcReplyText" placeholder="Hurtigsvar…"></textarea>' +
+                    '<div class="mc-sheet-btns">' +
+                        '<button class="mc-sbtn ok" onclick="_mcInboxDone(' + id + ')">✓ Afslut</button>' +
+                        '<button class="mc-sbtn snz" onclick="_mcInboxSnooze(' + id + ',3)">⏰ Udsæt</button>' +
+                        '<button class="mc-sbtn primary" onclick="_mcInboxReply(' + id + ')">Send</button>' +
+                    '</div>' +
+                    '<button class="mc-sbtn" style="width:100%;margin-top:6px" onclick="_mcCloseSheet()">Luk</button>' +
+                '</div>' +
+            '</div></div>';
+        var body = document.getElementById('mcSheetBody');
+        if (body && window.MailThread && MailThread.renderHistory) {
+            MailThread.renderHistory(body, { messages: (data.messages || []).map(function(m) { return Object.assign({}, m, { created_at: m.at, is_read: true }); }) });
+        } else if (body) {
+            body.textContent = (data.messages || []).map(function(m) { return m.body_text; }).join('\n\n———\n\n');
+        }
+        _mcLoadInboxCount();
+    } catch (e) {
+        _mcCloseSheet();
+        alert('Kunne ikke åbne tråd: ' + e.message);
+    }
+}
+
+function _mcCloseSheet() {
+    _mcSheetId = null;
+    var host = document.getElementById('mcSheetRoot');
+    if (host) host.innerHTML = '';
+}
+
+async function _mcInboxDone(id) {
+    try { await patchMailThread(id, { handling_status: 'afsluttet' }); _mcCloseSheet(); _mcLoadInbox(); }
+    catch (e) { alert('Fejl: ' + e.message); }
+}
+
+async function _mcInboxSnooze(id, days) {
+    try { await patchMailThread(id, { snooze_days: days }); _mcCloseSheet(); _mcLoadInbox(); }
+    catch (e) { alert('Fejl: ' + e.message); }
+}
+
+async function _mcInboxReply(id) {
+    var ta = document.getElementById('mcReplyText');
+    var body = ta ? ta.value.trim() : '';
+    if (!body) { alert('Skriv et svar først'); return; }
+    try { await replyMailThread(id, { body: body, remind_days: 3 }); _mcCloseSheet(); _mcLoadInbox(); }
+    catch (e) { alert('Kunne ikke sende: ' + e.message); }
+}
+
+/* ── SSE: indbakke live-opdatering ── */
+function _mcrmHandleSSE(eventName, data) {
+    if (eventName === 'mail_thread_updated' || eventName === 'mail_received' || eventName === 'mail_read') {
+        _mcLoadInboxCount();
+        if (_mcTab === 'inbox' && !_mcSheetId) _mcLoadInbox();
     }
 }

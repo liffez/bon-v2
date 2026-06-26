@@ -1212,6 +1212,7 @@ function _k3RenderProfile() {
         '<div class="k3-avatar">' + initial + '</div>' +
         '<div class="k3-name-block">' +
             '<div class="k3-name">' + fullName + '</div>' +
+            '<div style="font-size:11px;color:var(--color-text-dim,#999);margin-top:1px;letter-spacing:.3px" title="Kundenummer — brug som #k-' + _k3CustomerId + ' i mail-emner (tag)">#k-' + _k3CustomerId + '</div>' +
             (c.company_name && c.company_id
                 ? '<div class="k3-company"><a href="?view=kontakter&tab=firmaer&company=' + c.company_id + '" class="k3-company-link" data-company-id="' + c.company_id + '">' + c.company_name + ' →</a></div>'
                 : (c.company_name ? '<div class="k3-company">' + c.company_name + '</div>' : '')) +

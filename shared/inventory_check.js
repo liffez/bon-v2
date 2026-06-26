@@ -36,7 +36,8 @@ var _ic = {
     priorities:    {},          // productId -> "high"|"low"
     physicalUnits: {},          // locationId -> [{ id, name, sort_order, archived_at }] fra server
 
-    isChecking:    false
+    isChecking:    false,
+    _sse:          null         // dedikeret EventSource til live-sync af enheder
 };
 
 var _icContainer = null;       // root DOM element
@@ -75,6 +76,9 @@ async function _icLoadInitial() {
 
         // Render setup view
         _icRenderSetup();
+
+        // Live-sync: lyt efter enheder tilføjet/ændret på andre devices
+        _icInitSSE();
 
     } catch (err) {
         _icContainer.innerHTML = '<div class="ic-empty"><h3>Fejl ved indlæsning</h3><p>' + esc(err.message) + '</p></div>';
@@ -157,6 +161,60 @@ async function _icRemoveUnit(locationId, unitName) {
     await updatePhysicalUnit(id, { archived: true });
     if (_ic.physicalUnits[locationId]) {
         _ic.physicalUnits[locationId] = _ic.physicalUnits[locationId].filter(function(u) { return u.id !== id; });
+    }
+}
+
+// ════════════════════════════════════════════════════════════
+// LIVE-SYNC (SSE) — enheder tilføjet/ændret på andre devices
+// ════════════════════════════════════════════════════════════
+
+function _icInitSSE() {
+    // Kun én forbindelse pr. side — _ic er modul-global, så den overlever re-mount
+    if (_ic._sse || typeof EventSource === 'undefined') return;
+    try {
+        var es = new EventSource('/api/sse');
+        es.addEventListener('physical_unit_changed', function(e) {
+            try { _icOnPhysicalUnitChanged(JSON.parse(e.data)); }
+            catch (err) { /* stille */ }
+        });
+        _ic._sse = es;
+    } catch (e) {
+        // SSE ikke tilgængelig — degradér stille (listen virker stadig ved genvalg/reload)
+    }
+}
+
+function _icOnPhysicalUnitChanged(data) {
+    // Ignorér hvis ingen lokation er valgt, eller eventet gælder en anden lokation
+    if (!_ic.locationId) return;
+    if (Number(data.grocy_location_id) !== Number(_ic.locationId)) return;
+    _icRefreshUnitsLive();
+}
+
+async function _icRefreshUnitsLive() {
+    var prevSelection = _ic.physicalUnit;
+    try {
+        var units = await fetchPhysicalUnits(_ic.locationId, false);
+        _ic.physicalUnits[_ic.locationId] = units || [];
+    } catch (e) {
+        return;  // netværksfejl — behold den nuværende liste
+    }
+
+    _icUpdateUnitsDropdown();   // genbygger dropdown (nulstiller valg)
+    _icUpdateUnitsConfig();     // genbygger enheds-tags
+
+    // Gendan brugerens valg hvis enheden stadig findes
+    var names    = _icGetUnitsForLocation(_ic.locationId);
+    var sel      = _icContainer.querySelector('#icUnitSelect');
+    var startBtn = _icContainer.querySelector('#icStartBtn');
+    if (prevSelection && names.indexOf(prevSelection) !== -1) {
+        _ic.physicalUnit = prevSelection;
+        if (sel) sel.value = prevSelection;
+        if (startBtn) startBtn.disabled = false;
+    } else if (prevSelection) {
+        // Den valgte enhed blev fjernet et andet sted
+        _ic.physicalUnit = '';
+        if (sel) sel.value = '';
+        if (startBtn) startBtn.disabled = true;
     }
 }
 

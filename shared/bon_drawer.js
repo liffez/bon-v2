@@ -149,30 +149,39 @@ class BonDrawer {
                 <div class="drawer-section drawer-delivery-section" data-drawer-section="bestil-bud">
                     <div class="drawer-label-row">
                         <label class="drawer-label">Bestil bud</label>
+                        <span class="drawer-lobo-sandbox-badge" hidden title="By-expressen kører i sandkasse — bestillinger sender ingen rigtige bud">🧪 SANDKASSE</span>
+                    </div>
+                    <!-- Altid synlig: status-linje (klik = fold ud/ind) -->
+                    <div class="drawer-delivery-summary" data-action="toggle-delivery"></div>
+                    <!-- Altid synlig når der er en By-ex API-booking: live status -->
+                    <div class="drawer-lobo-status" hidden></div>
+                    <!-- Foldbar: handlinger + forslag + pris + historik -->
+                    <div class="drawer-delivery-body">
                         <div class="drawer-delivery-actions">
                             <button type="button" class="btn-drawer-logistik" data-action="see-logistik">📍 Se i logistik</button>
                             <button type="button" class="btn-drawer-lobo-quote" data-action="lobo-quote" title="Hent live pris hos By-expressen">💰 By-ex pris</button>
+                            <button type="button" class="btn-drawer-lobo-panel" data-action="lobo-panel" title="Se og ret hvad der sendes — hent vindue + pris">🚲 By-ex booking</button>
                             <button type="button" class="btn-drawer-bestil-bud" data-action="bestil">
                                 <span class="drawer-bestil-icon">📦</span> <span class="drawer-bestil-label">Bestil hos…</span>
                             </button>
                             <button type="button" class="btn-drawer-cancel-bud" data-action="cancel" hidden>Annullér</button>
                         </div>
-                    </div>
-                    <div class="drawer-delivery-status">
-                        <div class="drawer-lobo-quote" hidden></div>
-                        <div class="drawer-delivery-current"></div>
-                        <div class="drawer-delivery-suggestion"></div>
-                        <div class="drawer-delivery-cost-row">
-                            <div class="drawer-field-group" style="flex:1">
-                                <label class="drawer-sublabel">Faktisk omkostning (kr)</label>
-                                <input type="number" class="drawer-field drawer-delivery-cost-input"
-                                       min="0" step="1" placeholder="Indtast når faktura modtages">
+                        <div class="drawer-delivery-status">
+                            <div class="drawer-lobo-quote" hidden></div>
+                            <div class="drawer-lobo-panel" hidden></div>
+                            <div class="drawer-delivery-suggestion"></div>
+                            <div class="drawer-delivery-cost-row">
+                                <div class="drawer-field-group" style="flex:1">
+                                    <label class="drawer-sublabel">Faktisk omkostning (kr)</label>
+                                    <input type="number" class="drawer-field drawer-delivery-cost-input"
+                                           min="0" step="1" placeholder="Indtast når faktura modtages">
+                                </div>
+                                <div class="drawer-field-group" style="flex:0 0 auto; padding-top:18px">
+                                    <button type="button" class="btn-drawer-cost-save" disabled>Gem</button>
+                                </div>
                             </div>
-                            <div class="drawer-field-group" style="flex:0 0 auto; padding-top:18px">
-                                <button type="button" class="btn-drawer-cost-save" disabled>Gem</button>
-                            </div>
+                            <div class="drawer-delivery-events"></div>
                         </div>
-                        <div class="drawer-delivery-events"></div>
                     </div>
                 </div>
 
@@ -604,6 +613,250 @@ class BonDrawer {
         this._pendingChanges = {};
     }
 
+    async _refreshLoboSandboxBadge() {
+        const badge = this.el.querySelector('.drawer-lobo-sandbox-badge');
+        if (!badge || typeof fetchLoboStatus !== 'function') return;
+        try {
+            const st = await fetchLoboStatus();
+            badge.hidden = !(st && st.use_sandbox);
+        } catch { /* badge skjult ved fejl — lydløst */ }
+    }
+
+    /* ══════════════════════════════════════════════════════
+       BY-EXPRESSEN status-panel (trin 3 — polling, ingen webhook)
+       ══════════════════════════════════════════════════════ */
+
+    async _loadLoboStatus() {
+        const host = this.el.querySelector('.drawer-lobo-status');
+        if (!host || typeof fetchLoboOrderStatus !== 'function') return;
+        let data;
+        try { data = await fetchLoboOrderStatus(this.bonId); }
+        catch { host.hidden = true; return; }
+        if (!data || !data.booked) { host.hidden = true; return; }
+        host.hidden = false;
+        this._renderLoboStatus(host, data);
+    }
+
+    _renderLoboStatus(host, d) {
+        const esc = (s) => String(s == null ? '' : s).replace(/[&<>"]/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
+        const kr = (n) => n == null ? '–' : Number(n).toLocaleString('da-DK', { maximumFractionDigits: 2 }) + ' kr';
+        const t = (iso) => iso ? String(iso).slice(11, 16) : '–';
+        const STATUS = { open: 'Oprettet', planned: 'Planlagt', dispatched: 'Tildelt bud', stopvisitedorsigned: 'Undervejs', finished: 'Leveret', accounted: 'Afregnet', changed: 'Ændret', trashed: 'Annulleret', withdrawn: 'Annulleret' };
+        const label = STATUS[d.status] || d.status || '–';
+        const cls = d.delivered ? 'done' : (d.status === 'dispatched' || d.status === 'stopvisitedorsigned' ? 'active' : 'pending');
+        host.className = 'drawer-lobo-status ' + cls;
+        host.innerHTML =
+            `<div class="lst-head"><span>🚲 By-ex status</span><button type="button" class="lst-refresh" title="Opdater">↻</button></div>` +
+            `<div class="lst-row"><span>Status</span><strong>${esc(label)}${d.number ? ` <span class="lst-dim">${esc(d.number)}</span>` : ''}</strong></div>` +
+            (d.carrier ? `<div class="lst-row"><span>Bud</span><span>${esc(d.carrier)}</span></div>` : '') +
+            (d.eta && (d.eta.begin || d.eta.end) ? `<div class="lst-row"><span>Forventet levering</span><span>${t(d.eta.begin)}–${t(d.eta.end)}</span></div>` : '') +
+            // Pris = vores registrerede kostpris (samme tal som badge + faktisk
+            // omkostning); Lobos rå pris bruges kun som fallback hvis intet er gemt.
+            ((d.recorded_cost_ex != null || d.cost_ex != null)
+                ? `<div class="lst-row"><span>Kostpris</span><span>${kr(d.recorded_cost_ex != null ? d.recorded_cost_ex : d.cost_ex)} <span class="lst-dim">ex</span></span></div>`
+                : '') +
+            // Kvittering (POD) findes først EFTER levering — vis kun link når leveret.
+            (d.has_pod && d.delivered
+                ? `<div class="lst-row"><a class="lst-pod" href="${loboPodUrl(this.bonId)}" target="_blank" rel="noopener">📄 Åbn kvittering (PDF)</a></div>`
+                : (d.has_pod ? `<div class="lst-row lst-dim">📄 Kvittering klar efter levering</div>` : ''));
+        const rb = host.querySelector('.lst-refresh');
+        if (rb) rb.onclick = () => this._loadLoboStatus();
+    }
+
+    /* ══════════════════════════════════════════════════════
+       BY-EXPRESSEN se-og-ret-panel (trin 2)
+       ══════════════════════════════════════════════════════ */
+
+    _toggleLoboPanel() {
+        const host = this.el.querySelector('.drawer-lobo-panel');
+        if (!host) return;
+        if (!host.hidden) { host.hidden = true; return; }
+        host.hidden = false;
+        this._loboOverrides = {};
+        this._loboFetchPreview();
+    }
+
+    _loboGatherOverrides() {
+        const host = this.el.querySelector('.drawer-lobo-panel');
+        if (!host) return;
+        const v = (sel) => { const el = host.querySelector(sel); return el ? el.value : undefined; };
+        const ov = {};
+        // Afhentningstid styres IKKE her — den kommer fra bonnens pickup_time
+        // (Levering-sektionen). Ét sted at rette tider.
+        const boxes = v('.lbp-boxes'); if (boxes !== undefined && boxes !== '') ov.boxes = boxes;
+        const prod = v('.lbp-product'); if (prod) ov.fkproduct = prod;
+        const contact = v('.lbp-contact'); if (contact !== undefined) ov.contact = contact;
+        const note = v('.lbp-note'); if (note !== undefined) ov.note = note;
+        const ref = v('.lbp-ref'); if (ref) ov.reference = ref;
+        this._loboOverrides = ov;
+    }
+
+    async _loboFetchPreview() {
+        const host = this.el.querySelector('.drawer-lobo-panel');
+        if (!host) return;
+        host.className = 'drawer-lobo-panel loading';
+        host.textContent = 'Henter fra By-expressen…';
+        let sandbox = false;
+        try { const st = await fetchLoboStatus(); sandbox = !!(st && st.use_sandbox); } catch { /* */ }
+        try {
+            const data = await previewLoboBooking({ bon_id: this.bonId, ...(this._loboOverrides || {}) });
+            this._loboData = data;
+            this._loboRenderPanel(host, data, sandbox);
+        } catch (err) {
+            host.className = 'drawer-lobo-panel err';
+            host.textContent = (err && err.code === 'config') ? 'By-ex er ikke konfigureret endnu (mangler API-opsætning).'
+                : (err && err.code === 'address_not_found') ? (err.message || 'Adressen kunne ikke verificeres hos By-expressen — brug "Bestil hos…" (manuel).')
+                : ((err && err.message) || 'Kunne ikke hente fra By-expressen.');
+        }
+    }
+
+    _loboRenderPanel(host, data, sandbox) {
+        const esc = (s) => String(s == null ? '' : s).replace(/[&<>"]/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
+        const kr = (n) => n == null ? '–' : Number(n).toLocaleString('da-DK', { maximumFractionDigits: 2 }) + ' kr';
+        const t = (iso) => iso ? String(iso).slice(11, 16) : '–';
+        const p = data.preview || {};
+        const w = data.window || null;
+        const pr = data.price || {};
+        const bf = data.bon_fields || {};
+        const PRODUCTS = [{ id: 39, name: 'Food (standard)' }, { id: 9, name: 'Large (Standard) — lange ture' }, { id: 5, name: 'Medium (Economy)' }];
+        const curProd = p.fkproduct != null ? Number(p.fkproduct) : 39;
+        const prodOpts = PRODUCTS.map(x => `<option value="${x.id}" ${x.id === curProd ? 'selected' : ''}>${esc(x.name)}</option>`).join('');
+
+        const badge = sandbox ? '<span class="lbp-badge">🧪 SANDKASSE</span>' : '';
+        const control = sandbox ? (
+            `<div class="lbp-control"><div class="lbp-sub">Fra bonnen — tjek op imod</div>` +
+            `<div class="lbp-kv"><span>Firma</span><span>${esc(bf.company || '–')}</span></div>` +
+            `<div class="lbp-kv"><span>Adresse</span><span>${esc(bf.address || '–')}</span></div>` +
+            `<div class="lbp-kv"><span>Kontakt på dagen</span><strong>${esc(bf.contact_name || '–')}${bf.contact_phone ? ' · ' + esc(bf.contact_phone) : ''}</strong></div>` +
+            `<div class="lbp-kv"><span>Antal kasser</span><span>${esc(bf.boxes)}</span></div>` +
+            `<div class="lbp-kv"><span>Ønsker senest</span><strong>${esc(bf.delivery_time || '–')}</strong></div>` +
+            `<div class="lbp-kv"><span>Info</span><span>${esc(bf.delivery_notes || '–')}</span></div></div>`
+        ) : '';
+
+        const winCls = w && w.is_late ? 'late' : 'ok';
+        const winHtml = w
+            ? `<div class="lbp-window ${winCls}">${w.is_late ? '⚠' : '✓'} Vindue fra By-expressen: <strong>${t(w.begin)}–${t(w.end)}</strong>${bf.delivery_time ? (w.is_late ? ` (efter kundens ${esc(bf.delivery_time)})` : ` (inden kundens ${esc(bf.delivery_time)})`) : ''}</div>`
+            : '<div class="lbp-window">Tryk "Hent" for vindue & pris</div>';
+
+        // For sent? Regn ud hvor tidligt afhentningen skal rykkes for at ramme kundens tid.
+        let lateHelpHtml = '';
+        if (w && w.is_late && bf.delivery_time && p.pickup_time) {
+            const toMin = (s) => { const m = /^(\d{1,2}):(\d{2})/.exec(s || ''); return m ? (+m[1]) * 60 + (+m[2]) : null; };
+            const fmt = (x) => { x = ((x % 1440) + 1440) % 1440; return String(Math.floor(x / 60)).padStart(2, '0') + ':' + String(x % 60).padStart(2, '0'); };
+            const pm = toMin(p.pickup_time), em = toMin(t(w.end)), dm = toMin(bf.delivery_time);
+            if (pm != null && em != null && dm != null && em > dm) {
+                const needed = fmt(pm - (em - dm));
+                lateHelpHtml = `<div class="lbp-window late">↑ Ret <strong>afhentning til senest ${needed}</strong> i Levering ovenfor — så rammer vinduet kundens ${esc(bf.delivery_time)}. Tryk derefter "↻ Hent vindue & pris".</div>`;
+            }
+        }
+
+        // Supply-area-advarsel: Food dækker kun bynært — lange ture skal bruge Large/Medium.
+        const distKm = data.routedistance != null ? (data.routedistance / 1000).toFixed(1) : null;
+        const supplyHtml = data.supply_warning
+            ? `<div class="lbp-window late">⚠ Food dækker typisk kun bynære leveringer (~${esc(data.max_distance_km)} km).${distKm ? ` Denne tur er ${esc(distKm)} km` : ''} — Food kan blive <strong>afvist ved booking</strong>. Vælg <strong>Large</strong> eller <strong>Medium</strong> (lange ture, pr. km).</div>`
+            : '';
+
+        const marginCls = pr.margin == null ? '' : (pr.margin < 0 ? 'neg' : 'pos');
+
+        host.className = 'drawer-lobo-panel ok';
+        host.innerHTML =
+            `<div class="lbp-head">🚲 Bestil via By-expressen ${badge}</div>` +
+            control +
+            `<div class="lbp-fields">` +
+              // Tider styres ÉT sted: bonnens Levering-sektion ovenfor. Vises read-only
+              // her så man ikke retter samme tid to forskellige steder.
+              `<div class="lbp-times-ro">⏱ Afhentning <strong>${esc(p.pickup_time || '–')}</strong> · Leveres senest <strong>${esc(bf.delivery_time || '–')}</strong> <span class="lbp-dim">— ret tider i Levering ovenfor</span></div>` +
+              `<div class="lbp-row2">` +
+                `<div><label class="lbp-l">Reference</label><input class="lbp-ref" type="text" value="${esc(p.reference)}"></div>` +
+                `<div><label class="lbp-l">Kasser</label><input class="lbp-boxes" type="number" min="1" value="${esc(p.boxes)}"></div>` +
+              `</div>` +
+              `<label class="lbp-l">Produkt</label><select class="lbp-product">${prodOpts}</select>` +
+              `<label class="lbp-l">Kontakt (navn + tlf)</label><input class="lbp-contact" type="text" value="${esc(p.contactperson)}">` +
+              `<label class="lbp-l">Note — speciel info (leveringstid tilføjes automatisk)</label><input class="lbp-note" type="text" maxlength="40" value="${esc(p.note_extra || '')}" placeholder="fx etage, port, kode">` +
+            `</div>` +
+            winHtml +
+            lateHelpHtml +
+            supplyHtml +
+            `<div class="lbp-prices">` +
+              `<span>Kostpris <strong>${kr(pr.cost_ex)}</strong> <span class="lbp-dim">ex</span></span>` +
+              (pr.margin != null ? `<span class="lbp-margin ${marginCls}">margin ${pr.margin >= 0 ? '+' : ''}${kr(pr.margin)}</span>` : '') +
+            `</div>` +
+            // Foreslået kundepris (lille positiv margin) — kun på lange ture hvor standard ikke dækker.
+            (pr.suggested_customer_ex != null
+                ? `<div class="lbp-suggest"><span>💡 Foreslået kundepris <strong>${kr(pr.suggested_customer_ex)}</strong> <span class="lbp-dim">ex · margin +${kr(pr.suggested_margin)}</span></span>` +
+                  `<button type="button" class="lbp-apply-price">Brug</button></div>`
+                : '') +
+            `<div class="lbp-err" hidden></div>` +
+            `<div class="lbp-preview"><div class="lbp-sub">Sådan modtager By-expressen det</div>` +
+              `<div class="lbp-pre-line">Reference: ${esc(p.reference)}</div>` +
+              `<div class="lbp-pre-line">Afhentning: kl. ${esc(p.pickup_time || '–')}${p.pickup_note ? ' · ' + esc(p.pickup_note) : ''}</div>` +
+              `<div class="lbp-pre-line">Kontakt: ${esc(p.contactperson)}</div>` +
+              `<div class="lbp-pre-line">Note: ${esc(p.delivery_note)}</div></div>` +
+            `<div class="lbp-actions">` +
+              `<button type="button" class="lbp-fetch">↻ Hent vindue & pris</button>` +
+              `<button type="button" class="lbp-book">${sandbox ? 'Bestil i sandkasse' : 'Bestil rigtigt bud'}</button>` +
+            `</div>`;
+
+        host.querySelector('.lbp-fetch').onclick = () => { this._loboGatherOverrides(); this._loboFetchPreview(); };
+        host.querySelector('.lbp-book').onclick = () => { this._loboGatherOverrides(); this._loboBook(sandbox); };
+        const applyBtn = host.querySelector('.lbp-apply-price');
+        if (applyBtn) applyBtn.onclick = () => this._loboApplyPrice();
+    }
+
+    async _loboApplyPrice() {
+        const pr = (this._loboData && this._loboData.price) || {};
+        if (pr.suggested_customer_ex == null) return;
+        if (!(window.Moms && window.Moms.exclToIncl)) return;
+        const incl = Math.round(window.Moms.exclToIncl(pr.suggested_customer_ex) * 100) / 100;  // delivery_price er INCL moms
+        const host = this.el.querySelector('.drawer-lobo-panel');
+        const btn = host && host.querySelector('.lbp-apply-price');
+        if (btn) { btn.disabled = true; btn.textContent = 'Gemmer…'; }
+        try {
+            await patchBon(this.bonId, { delivery_price: incl });
+            if (btn) { btn.textContent = '✓ Sat'; }
+            this.load(this.bonId);   // genindlæs → leveringspris-felt + drawer opdateres
+        } catch (e) {
+            if (btn) { btn.disabled = false; btn.textContent = 'Brug'; }
+            this._loboShowError(host, 'Kunne ikke sætte kundepris: ' + ((e && e.message) || 'fejl'));
+        }
+    }
+
+    async _loboBook(sandbox) {
+        if (!sandbox) {
+            if (!confirm('Du sender nu et RIGTIGT bud til By-expressen.\n\nDet kan IKKE afbestilles via systemet — kun ved at ringe til dem. Fortsæt?')) return;
+        }
+        const host = this.el.querySelector('.drawer-lobo-panel');
+        const btn = host && host.querySelector('.lbp-book');
+        if (btn) { btn.disabled = true; btn.textContent = 'Bestiller…'; }
+        try {
+            const data = { bon_id: this.bonId, ...(this._loboOverrides || {}) };
+            if (!sandbox) data.confirm = true;
+            await bookLoboDelivery(data);
+            if (host) { host.className = 'drawer-lobo-panel ok'; host.innerHTML = `<div class="lbp-done">✓ Booket hos By-expressen${sandbox ? ' (sandkasse)' : ''}</div>`; }
+            this.load(this.bonId);
+        } catch (err) {
+            if (btn) { btn.disabled = false; btn.textContent = sandbox ? 'Bestil i sandkasse' : 'Bestil rigtigt bud'; }
+            const msg = (err && err.message) || 'ukendt fejl';
+            if (/OUTSIDE_SUPPLYAREA|supply area/i.test(msg)) {
+                // Food dækker ikke adressen — foreslå Large og bed office hente igen.
+                const sel = host && host.querySelector('.lbp-product');
+                if (sel && sel.value === '39') { sel.value = '9'; this._loboGatherOverrides(); }
+                this._loboShowError(host, '⚠ Adressen er udenfor Foods leveringsområde. Skiftet til Large (lange ture, pr. km) — tryk "↻ Hent vindue & pris" og bestil igen.');
+            } else if (/address|verificeres/i.test(msg)) {
+                this._loboShowError(host, '⚠ ' + msg + ' Ret leveringsadressen på bonen, eller brug "Bestil hos…" (manuel).');
+            } else {
+                this._loboShowError(host, 'Booking fejlede: ' + msg);
+            }
+        }
+    }
+
+    _loboShowError(host, text) {
+        const el = host && host.querySelector('.lbp-err');
+        if (!el) { alert(text); return; }
+        el.textContent = text;
+        el.hidden = false;
+    }
+
     async _loadDelivery(bon) {
         const section = this.el.querySelector('[data-drawer-section="bestil-bud"]');
         if (!section) return;
@@ -615,7 +868,11 @@ class BonDrawer {
         }
         section.style.display = '';
 
-        const currentEl = section.querySelector('.drawer-delivery-current');
+        // SANDKASSE-badge — vises når By-expressen kører i sandkasse-tilstand.
+        this._refreshLoboSandboxBadge();
+        // Trin 3: status for en allerede booket By-expressen-ordre (polling).
+        this._loadLoboStatus();
+
         const eventsEl = section.querySelector('.drawer-delivery-events');
         const costInput = section.querySelector('.drawer-delivery-cost-input');
         const costSaveBtn = section.querySelector('.btn-drawer-cost-save');
@@ -651,6 +908,9 @@ class BonDrawer {
             // gemmer booking. Ingen onBooked-callback nødvendig.
             openDeliveryNote(this.bonId, bon.delivery_vehicle_id || null);
         };
+
+        const panelBtn = section.querySelector('.btn-drawer-lobo-panel');
+        if (panelBtn) panelBtn.onclick = () => this._toggleLoboPanel();
 
         // "By-ex pris" — on-demand live kostpris hos By-expressen. Opretter en
         // kortvarig orderdraft hos Lobo (slettes straks) — INGEN ordre, intet bud.
@@ -768,27 +1028,47 @@ class BonDrawer {
         this._renderDeliveryCurrent(bon);
         this._renderDeliverySuggestion();
         this._renderDeliveryEvents();
+
+        // Kollaps som standard når der ER booket (statuslinjen viser det vigtige);
+        // fold ud når der IKKE er booket (så office ser handlinger + forslag).
+        const booked = !!(bon.courier_provider || bon.delivery_vehicle_id);
+        section.classList.toggle('collapsed', booked);
+        const summaryEl = section.querySelector('.drawer-delivery-summary');
+        if (summaryEl) summaryEl.onclick = () => section.classList.toggle('collapsed');
     }
 
+    _deliveryIcon(bon) {
+        const m = String(bon.delivery_method || bon.courier_provider || '').toLowerCase();
+        if (/taxa|taxi/.test(m)) return '🚕';
+        if (/bike|cykel|byek|byex|express/.test(m)) return '🚴';
+        if (/volvo|bil|van/.test(m)) return '🚐';
+        if (/pickup|afhent/.test(m)) return '🏠';
+        return '🚚';
+    }
+
+    // Altid-synlig status-linje: hurtigt svar på "er der booket et bud?".
     _renderDeliveryCurrent(bon) {
-        const el = this.el.querySelector('.drawer-delivery-current');
+        const el = this.el.querySelector('.drawer-delivery-summary');
         if (!el) return;
 
-        const parts = [];
-        if (bon.courier_provider) {
-            parts.push('<strong>' + esc(bon.courier_provider) + '</strong>');
+        const booked = !!(bon.courier_provider || bon.delivery_vehicle_id);
+        let inner;
+        if (booked) {
+            const parts = [];
+            if (bon.courier_provider) parts.push('<strong>' + esc(bon.courier_provider) + '</strong>');
+            if (bon.delivery_cost != null) {
+                const src = bon.delivery_cost_source === 'api' ? '(API)'
+                    : bon.delivery_cost_source === 'manual' ? '(man.)' : '';
+                parts.push(bon.delivery_cost + ' kr ' + src);
+            } else if (bon.delivery_cost_estimated != null) {
+                parts.push('estimat ca. ' + bon.delivery_cost_estimated + ' kr');
+            }
+            inner = `<span class="dds-icon">${this._deliveryIcon(bon)}</span><span class="dds-text">${parts.join(' · ') || 'Booket'}</span>`;
+        } else {
+            inner = `<span class="dds-icon">📍</span><span class="dds-text">Ikke booket endnu</span>`;
         }
-        if (bon.delivery_cost != null) {
-            const sourceLabel = bon.delivery_cost_source === 'api' ? '(API)'
-                : bon.delivery_cost_source === 'manual' ? '(manuelt)' : '';
-            parts.push(bon.delivery_cost + ' kr ' + sourceLabel);
-        } else if (bon.delivery_cost_estimated != null) {
-            parts.push('estimat ca. ' + bon.delivery_cost_estimated + ' kr');
-        }
-
-        el.innerHTML = parts.length
-            ? '<div class="drawer-delivery-current-pill">' + parts.join(' · ') + '</div>'
-            : '<div class="drawer-delivery-empty">Ingen booking endnu</div>';
+        el.classList.toggle('booked', booked);
+        el.innerHTML = inner + `<span class="dds-toggle" aria-hidden="true">▾</span>`;
     }
 
     // Leverings-forslag (Spor 2): afstand fra HQ + vogn-anbefaling.

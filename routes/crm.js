@@ -19,6 +19,47 @@ const {
 
 router.use(requireAuth());
 
+// Round-robin-interleave af suggestions: hver forslagstype får repræsentation i
+// toppen, så feeden ikke mættes af én type (fx 7 sæson-kort skubber review_ask ud
+// af top-8). Inden for hver type bevares priority/sekundær-orden. Type-rækkefølgen
+// styrer hvem der kommer først ved lige stand i hver runde (vigtigst → mindst
+// hastende). Jf. CLAUDE_CRM_TRIKS.md revision idé ①.
+const SUGGESTION_TYPE_ORDER = [
+    'overdue_customer',
+    'review_ask',
+    'expiring_offer',
+    'uncontacted_lead',
+    'dormant_highvalue',
+    'season_reminder',
+];
+
+function interleaveSuggestions(suggestions) {
+    const byType = new Map();
+    for (const s of suggestions) {
+        if (!byType.has(s.type)) byType.set(s.type, []);
+        byType.get(s.type).push(s);
+    }
+    // sortér hver types egen kø efter priority (stabil sort → bevarer sekundær orden)
+    for (const list of byType.values()) {
+        list.sort((a, b) => a.priority - b.priority);
+    }
+    // kendte typer i fast rækkefølge + evt. ukendte bagest (fremtidssikring)
+    const types = [
+        ...SUGGESTION_TYPE_ORDER.filter(t => byType.has(t)),
+        ...[...byType.keys()].filter(t => !SUGGESTION_TYPE_ORDER.includes(t)),
+    ];
+    const ordered = [];
+    let added = true;
+    while (added) {
+        added = false;
+        for (const t of types) {
+            const list = byType.get(t);
+            if (list && list.length) { ordered.push(list.shift()); added = true; }
+        }
+    }
+    return ordered;
+}
+
 // ─── GET /stats ─────────────────────────────────────────────
 router.get('/stats', handle((req, res) => {
     const db = getDb();
@@ -434,8 +475,139 @@ router.get('/suggestions', handle((req, res) => {
         });
     }
 
-    suggestions.sort((a, b) => a.priority - b.priority);
-    res.json(suggestions);
+    // 6. GLAD KUNDE → BED OM ANBEFALING
+    //    Kunder med en positiv stemning registreret for nylig, som vi endnu ikke har
+    //    bedt om en anbefaling/anmeldelse. Rider 100% på sentiment der allerede fanges
+    //    af servicekaldet. Dedupe på purpose 'anbefaling'.
+    //    Tærskler navngivet (jf. CLAUDE_CRM_TRIKS.md revision pkt. 8 — ingen magiske
+    //    tal i WHERE). Spejles af scripts/test-crm-review.js — hold queries i sync.
+    const REVIEW_POSITIVE_WINDOW_DAYS = 21;   // hvor frisk skal den positive stemning være
+    const REVIEW_DEDUPE_DAYS          = 180;  // bed ikke om anbefaling oftere end hvert halve år
+    const reviewRows = db.prepare(`
+        SELECT
+            c.id AS customer_id,
+            c.first_name || ' ' || COALESCE(c.last_name, '') AS name,
+            c.phone,
+            co.name AS company_name,
+            a.sentiment,
+            a.created_at AS sentiment_at,
+            a.text AS last_note
+        FROM crm_activities a
+        JOIN customers c ON c.id = a.customer_id
+        LEFT JOIN companies co ON c.company_id = co.id
+        JOIN crm_customer_meta cm ON cm.customer_id = c.id
+        WHERE a.sentiment = 'positive'
+            AND a.created_at > date('now', ?)
+            AND cm.stage IN ('active', 'vip')
+            -- ekskludér interne firmaer; privatkunder (uden firma) er valide
+            AND (co.is_internal = 0 OR co.id IS NULL)
+            -- kun den seneste stemning pr. kunde — en nyere neutral/negativ aflyser
+            AND a.id = (
+                SELECT a2.id FROM crm_activities a2
+                WHERE a2.customer_id = c.id AND a2.sentiment IS NOT NULL
+                ORDER BY a2.created_at DESC LIMIT 1
+            )
+            -- dedupe: ikke allerede bedt om anbefaling inden for vinduet
+            AND NOT EXISTS (
+                SELECT 1 FROM crm_activities a3
+                JOIN activity_purposes ap ON ap.id = a3.purpose_id
+                WHERE a3.customer_id = c.id
+                    AND ap.key = 'anbefaling'
+                    AND a3.created_at > date('now', ?)
+            )
+            -- service-opfølgning, ikke markedsføring → kun do_not_contact gælder
+            -- (jf. consent-doktrin i routes/campaigns.js; INTET marketing_consent-krav)
+            AND COALESCE(cm.do_not_contact, 0) != 1
+        ORDER BY a.created_at DESC
+        LIMIT 6
+    `).all('-' + REVIEW_POSITIVE_WINDOW_DAYS + ' days', '-' + REVIEW_DEDUPE_DAYS + ' days');
+
+    for (const r of reviewRows) {
+        suggestions.push({
+            type: 'review_ask',
+            priority: 2,
+            icon: '⭐',
+            title: r.name + ' var glad — bed om en anbefaling',
+            detail: (r.company_name || 'Privat') + ' · positiv ' + (r.sentiment_at || '').substring(0, 10),
+            reason: 'Sidste kontakt var positiv' +
+                (r.last_note ? ' ("' + r.last_note.substring(0, 60) + '")' : '') +
+                '. Godt øjeblik at bede om en Google-anmeldelse eller en henvisning.',
+            customer_id: r.customer_id,
+            customer_name: r.name,
+            company_name: r.company_name,
+            phone: r.phone,
+            action: 'review',
+        });
+    }
+
+    // Filtrér snoozede forslag væk (kunde + type, jf. "Skjul"-knappen) — frigør
+    // slots så de næste i køen roterer ind. Én query, ikke et led pr. blok.
+    const snoozed = new Set(
+        db.prepare(`
+            SELECT customer_id || ':' || type AS k
+            FROM crm_suggestion_snoozes
+            WHERE snoozed_until > datetime('now')
+        `).all().map(r => r.k)
+    );
+    const visible = snoozed.size
+        ? suggestions.filter(s => !snoozed.has(s.customer_id + ':' + s.type))
+        : suggestions;
+
+    // Round-robin frem for ren priority-sort, så hver type får plads i top-8
+    // (ellers mætter sæson/overdue feeden og review_ask skæres væk).
+    res.json(interleaveSuggestions(visible));
+}));
+
+// ─── POST /suggestions/snooze ───────────────────────────────
+// Skjul et smart-forslag i N dage (default 14), per kunde + type. Upsert, så
+// gentaget skjul blot forlænger. Filtreres ud i GET /suggestions.
+router.post('/suggestions/snooze', handle((req, res) => {
+    const db = getDb();
+    const { customer_id, type } = req.body;
+    const days = parseInt(req.body.days, 10) || 14;
+    if (!customer_id || !type) {
+        return res.status(400).json({ error: 'customer_id og type kræves' });
+    }
+    const userId = getUserId(req);
+    db.prepare(`
+        INSERT INTO crm_suggestion_snoozes (customer_id, type, snoozed_until, created_by)
+        VALUES (?, ?, datetime('now', ?), ?)
+        ON CONFLICT(customer_id, type) DO UPDATE SET
+            snoozed_until = excluded.snoozed_until,
+            created_by    = excluded.created_by,
+            created_at    = CURRENT_TIMESTAMP
+    `).run(customer_id, type, '+' + days + ' days', userId);
+    res.json({ ok: true, days });
+}));
+
+// ─── GET /suggestions/snoozed ───────────────────────────────
+// Aktive (ikke-udløbne) snoozes med kunde/firma-navn → "N skjult"-listen.
+router.get('/suggestions/snoozed', handle((req, res) => {
+    const db = getDb();
+    const rows = db.prepare(`
+        SELECT s.customer_id, s.type, s.snoozed_until,
+               c.first_name || ' ' || COALESCE(c.last_name, '') AS customer_name,
+               co.name AS company_name
+        FROM crm_suggestion_snoozes s
+        JOIN customers c ON c.id = s.customer_id
+        LEFT JOIN companies co ON c.company_id = co.id
+        WHERE s.snoozed_until > datetime('now')
+        ORDER BY s.snoozed_until ASC
+    `).all();
+    res.json(rows);
+}));
+
+// ─── POST /suggestions/unsnooze ─────────────────────────────
+// Fortryd et skjul før de 14 dage er gået → forslaget kan komme tilbage.
+router.post('/suggestions/unsnooze', handle((req, res) => {
+    const db = getDb();
+    const { customer_id, type } = req.body;
+    if (!customer_id || !type) {
+        return res.status(400).json({ error: 'customer_id og type kræves' });
+    }
+    db.prepare(`DELETE FROM crm_suggestion_snoozes WHERE customer_id = ? AND type = ?`)
+        .run(customer_id, type);
+    res.json({ ok: true });
 }));
 
 // ─── GET /service-calls ─────────────────────────────────────
@@ -1538,3 +1710,4 @@ router.post('/leads/import', handle(async (req, res) => {
 }));
 
 module.exports = router;
+module.exports.interleaveSuggestions = interleaveSuggestions;  // eksporteret til test

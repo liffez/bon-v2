@@ -338,6 +338,7 @@
     <div class="st-nav-label st-group">Formularer</div>
     <button class="st-nav-item st-admin-only" data-section="formbuilder">Formbuilder</button>
     <button class="st-nav-item st-admin-only" data-section="bestilling-menu">Bestilling — Menu</button>
+    <button class="st-nav-item st-office-only" data-section="hastebestilling">Hastebestilling</button>
     <button class="st-nav-item st-admin-only" data-section="booking-smagning">Booking — Smagsprøve</button>
     <button class="st-nav-item st-admin-only" data-section="booking-kontakt">Booking — Kontakt</button>
 
@@ -946,6 +947,35 @@
           <h3 style="margin:0;font-size:16px" id="dv-editor-title">Rediger leveringsmetode</h3>
           <button type="button" class="st-btn-secondary" onclick="dvCloseEditor()">Luk</button>
         </div>
+        <div id="dv-lobo-sandbox" style="display:none;margin-bottom:14px;padding:12px;border:1px solid #e7c98a;border-radius:8px;background:#fdf6e3">
+          <div style="display:flex;justify-content:space-between;align-items:flex-start;gap:12px">
+            <div>
+              <div style="font-weight:600;font-size:14px">🧪 Test-tilstand (sandkasse)</div>
+              <div style="font-size:12px;color:#7a6a3a;margin-top:2px">Slået TIL: bestillinger går til By-expressens sandkasse — der sendes <strong>ingen rigtige bud</strong>. Slået FRA: rigtige bestillinger sendes til produktion.</div>
+              <div id="dv-lobo-host" style="font-size:11px;color:#999;margin-top:4px;font-family:monospace"></div>
+            </div>
+            <label style="display:inline-flex;align-items:center;cursor:pointer;flex:none">
+              <input type="checkbox" id="dv-lobo-sandbox-toggle" onchange="dvToggleLoboSandbox(this.checked)" style="width:20px;height:20px;cursor:pointer">
+            </label>
+          </div>
+        </div>
+        <div id="dv-lobo-webhooks" style="display:none;margin-bottom:14px;padding:12px;border:1px solid #cdd9e3;border-radius:8px;background:#f6f9fc">
+          <div style="font-weight:600;font-size:14px">🔔 Webhooks — live-status (selvkalibrerende)</div>
+          <div style="font-size:12px;color:#5a6b78;margin-top:2px">Registrér webhooks hos By-expressen så bon-status opdaterer live. HMAC-verifikationen <strong>kalibreres automatisk</strong> fra det første rigtige callback — ingen manuel opsætning.</div>
+          <div id="dv-lobo-wh-status" style="font-size:12px;margin-top:8px;color:#333"></div>
+          <div style="display:flex;gap:8px;margin-top:10px">
+            <button type="button" class="st-btn-secondary" onclick="dvRegisterLoboWebhooks()">Registrér / forny</button>
+            <button type="button" class="st-btn-secondary" onclick="dvUnregisterLoboWebhooks()">Afregistrér</button>
+          </div>
+        </div>
+        <div id="dv-lobo-pricing" style="display:none;margin-bottom:14px;padding:12px;border:1px solid #cdd9e3;border-radius:8px;background:#f6f9fc">
+          <div style="font-weight:600;font-size:14px">💰 Pris-regel — foreslået kundepris (lange ture)</div>
+          <div style="font-size:12px;color:#5a6b78;margin-top:2px;margin-bottom:8px">Når buddet koster mere end standardprisen, foreslår panelet en kundepris: <strong>kostpris + markup</strong>, rundet op til nærmeste beløb (aldrig under standardpris).</div>
+          <div style="display:flex;gap:12px;align-items:flex-end">
+            <div><label class="st-label">Markup %</label><input type="number" id="dv-lobo-markup" class="st-input" min="0" step="1" style="width:90px" onchange="dvSaveLoboPricing()"></div>
+            <div><label class="st-label">Rund op til (kr)</label><input type="number" id="dv-lobo-round" class="st-input" min="1" step="1" style="width:110px" onchange="dvSaveLoboPricing()"></div>
+          </div>
+        </div>
         <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px;margin-bottom:14px">
           <div>
             <label class="st-label">Navn (vist i UI)</label>
@@ -1039,6 +1069,27 @@
     </div>
 
     <!-- ════ BESTILLING — MENU ════ -->
+    <div class="st-section st-office-only" id="sec-hastebestilling">
+      <h2>Hastebestilling</h2>
+      <p style="font-size:13px;color:#888;margin-bottom:16px">
+        Åbn den offentlige bestillingsformular trods normal deadline — fx når en kunde ringer og skal bestille til i morgen efter fristen.
+      </p>
+
+      <!-- Hastebestilling — åbn trods deadline (kun i dag) -->
+      <div style="background:#fff;border:1px solid var(--color-border);border-radius:8px;padding:14px 16px;margin-bottom:18px">
+        <div style="font-weight:600;font-size:14px;margin-bottom:4px">⏰ Hastebestilling — åbn trods deadline</div>
+        <div style="font-size:12px;color:#888;margin-bottom:12px;line-height:1.5">
+          Lader kunder bestille selv om den normale frist er passeret — og åbner også for ellers lukkede dage.
+          Gælder <strong>kun i dag</strong>: i morgen falder alt automatisk tilbage til normal cut-off.
+        </div>
+        <div style="display:flex;gap:12px;align-items:center;flex-wrap:wrap">
+          <span id="co-state" style="font-size:13px;font-weight:600">Henter…</span>
+          <span style="flex:1"></span>
+          <button type="button" class="st-btn" id="co-toggle-btn" onclick="coToggle()">…</button>
+        </div>
+      </div>
+    </div>
+
     <div class="st-section st-admin-only" id="sec-bestilling-menu">
       <h2>Bestilling — Menu</h2>
       <p style="font-size:13px;color:#888;margin-bottom:16px">
@@ -1303,6 +1354,10 @@ async function init() {
   // Skjul admin-sektioner for ikke-admins
   if (currentUser.role !== 'admin') {
     document.querySelectorAll('.st-admin-only').forEach(function(el) { el.style.display = 'none'; });
+    // st-office-only = admin + office; skjul for øvrige roller
+    if (currentUser.role !== 'office') {
+      document.querySelectorAll('.st-office-only').forEach(function(el) { el.style.display = 'none'; });
+    }
     // Skjul gruppe-label hvis alle dens punkter (frem til næste label) er skjult
     document.querySelectorAll('.st-sidebar .st-group').forEach(function(label) {
       var n = label.nextElementSibling, anyVisible = false;
@@ -1336,6 +1391,8 @@ async function init() {
       if (sec === 'delivery-vehicles') loadDeliveryVehicles();
       // Lazy load bestilling-menu
       if (sec === 'bestilling-menu') bmInit();
+      // Hastebestilling-toggle (eget punkt, office-synligt)
+      if (sec === 'hastebestilling') coLoad();
       // Lazy load jobtype-kategorisering + løn
       if (sec === 'jobtype') { loadRoleMap(); loadWageRates(); }
     });
@@ -2215,6 +2272,8 @@ async function resetFieldMap() {
 function loadSystemSection() {
   var fields = [
     { key: 'company_name',               label: 'Firmanavn',                    type: 'text' },
+    { key: 'company_phone',              label: 'Firmatelefon',                 type: 'text',  placeholder: 'fx +45 50 50 50 50', width: 220 },
+    { key: 'company_email',              label: 'Firma-email',                  type: 'email', placeholder: 'fx kontakt@ristetrug.dk', width: 280 },
     { key: 'bon_number_prefix',          label: 'Bon-nummer pr\u00e6fiks',      type: 'text' },
     { key: 'bon_number_next',            label: 'N\u00e6ste bon-nummer',        type: 'number' },
     { key: 'default_pax_per_box',        label: 'Pax per kasse',                type: 'number' },
@@ -3687,6 +3746,24 @@ function dvEditVehicle(id) {
     _dvRenderVarChips();
     dvOnMethodChange();
 
+    // By-expressen: master-kontakt for sandkasse-tilstand (kun denne vogn).
+    const loboBox = document.getElementById('dv-lobo-sandbox');
+    const loboWh = document.getElementById('dv-lobo-webhooks');
+    if (v.code === 'byekspressen') {
+        const cfg = v.booking_api_config || {};
+        document.getElementById('dv-lobo-sandbox-toggle').checked = !!cfg.use_sandbox;
+        document.getElementById('dv-lobo-host').textContent = cfg.use_sandbox ? (cfg.sandbox_url || '') : (cfg.base_url || '');
+        loboBox.style.display = '';
+        loboWh.style.display = '';
+        document.getElementById('dv-lobo-pricing').style.display = '';
+        dvLoadLoboWebhookStatus();
+        dvLoadLoboPricing();
+    } else {
+        loboBox.style.display = 'none';
+        loboWh.style.display = 'none';
+        document.getElementById('dv-lobo-pricing').style.display = 'none';
+    }
+
     const editor = document.getElementById('dv-editor');
     editor.style.display = '';
     editor.scrollIntoView({ behavior: 'smooth', block: 'start' });
@@ -3792,6 +3869,86 @@ function dvMoveField(idx, delta) {
 window.dvAddField = dvAddField;
 window.dvRemoveField = dvRemoveField;
 window.dvMoveField = dvMoveField;
+
+async function dvToggleLoboSandbox(enabled) {
+    try {
+        await setLoboSandbox(enabled);
+        const v = _dvVehicles.find(x => x.id === _dvEditingId);
+        if (v && v.booking_api_config) v.booking_api_config.use_sandbox = !!enabled;
+        const cfg = (v && v.booking_api_config) || {};
+        document.getElementById('dv-lobo-host').textContent = enabled ? (cfg.sandbox_url || '') : (cfg.base_url || '');
+        toast(enabled ? 'Sandkasse slået TIL — ingen rigtige bud sendes' : 'Sandkasse slået FRA — produktion er aktiv');
+    } catch (e) {
+        document.getElementById('dv-lobo-sandbox-toggle').checked = !enabled;
+        toast('Kunne ikke skifte tilstand: ' + (e.message || e), 'error');
+    }
+}
+window.dvToggleLoboSandbox = dvToggleLoboSandbox;
+
+async function dvLoadLoboWebhookStatus() {
+    const el = document.getElementById('dv-lobo-wh-status');
+    if (!el) return;
+    el.textContent = 'Henter status…';
+    try {
+        const s = await fetchLoboWebhookStatus();
+        if (!s.registered) { el.innerHTML = '<span style="color:#888">Ingen webhooks registreret endnu.</span>'; return; }
+        const cal = s.calibrated
+            ? `<span style="color:#1d6b45;font-weight:600">✓ Kalibreret</span> (header <code>${s.sig_header || '?'}</code>, signerer <code>${s.sign_target || '?'}</code>) — verifikation aktiv`
+            : '<span style="color:#9a6a1a;font-weight:600">⏳ Afventer kalibrering</span> — slås automatisk til ved første rigtige callback';
+        el.innerHTML = `Registreret: <strong>${s.events.length}</strong> events (${s.events.join(', ')})<br>` +
+            `URL: <code style="font-size:11px">${s.url || '–'}</code><br>${cal}`;
+    } catch (e) {
+        el.innerHTML = '<span style="color:#9a2a2a">Kunne ikke hente status: ' + (e.message || e) + '</span>';
+    }
+}
+
+async function dvRegisterLoboWebhooks() {
+    const el = document.getElementById('dv-lobo-wh-status');
+    el.textContent = 'Registrerer…';
+    try {
+        const r = await registerLoboWebhooks(window.location.origin);
+        toast('Webhooks registreret (' + r.registered.length + ' events)' + (r.sandbox ? ' — OBS: sandkasse-tilstand, der fyrer ingen callbacks' : ''));
+        await dvLoadLoboWebhookStatus();
+    } catch (e) {
+        toast('Kunne ikke registrere: ' + (e.message || e), 'error');
+        await dvLoadLoboWebhookStatus();
+    }
+}
+
+async function dvUnregisterLoboWebhooks() {
+    if (!confirm('Afregistrér alle By-expressen-webhooks og nulstil HMAC-kalibreringen?')) return;
+    try {
+        await unregisterLoboWebhooks();
+        toast('Webhooks afregistreret');
+        await dvLoadLoboWebhookStatus();
+    } catch (e) {
+        toast('Kunne ikke afregistrere: ' + (e.message || e), 'error');
+    }
+}
+window.dvLoadLoboWebhookStatus = dvLoadLoboWebhookStatus;
+window.dvRegisterLoboWebhooks = dvRegisterLoboWebhooks;
+window.dvUnregisterLoboWebhooks = dvUnregisterLoboWebhooks;
+
+async function dvLoadLoboPricing() {
+    try {
+        const rows = await fetchSettings();
+        const get = (k, def) => { const r = (rows || []).find(x => x.key === k); return r && r.value != null ? r.value : def; };
+        document.getElementById('dv-lobo-markup').value = get('lobo_customer_markup_pct', '10');
+        document.getElementById('dv-lobo-round').value = get('lobo_customer_round_to', '25');
+    } catch (e) {
+        document.getElementById('dv-lobo-markup').value = '10';
+        document.getElementById('dv-lobo-round').value = '25';
+    }
+}
+async function dvSaveLoboPricing() {
+    try {
+        await patchSetting('lobo_customer_markup_pct', document.getElementById('dv-lobo-markup').value || '0');
+        await patchSetting('lobo_customer_round_to', document.getElementById('dv-lobo-round').value || '25');
+        toast('Pris-regel gemt');
+    } catch (e) { toast('Kunne ikke gemme: ' + (e.message || e), 'error'); }
+}
+window.dvLoadLoboPricing = dvLoadLoboPricing;
+window.dvSaveLoboPricing = dvSaveLoboPricing;
 
 function dvCloseEditor() {
     _dvEditingId = null;
@@ -3940,6 +4097,63 @@ async function bmInit() {
   await bmLoadSource();
   await bsLoad();
   await bmLoad();
+}
+
+// ─── Hastebestilling — åbn trods deadline (kun i dag) ────────
+function _coTodayISO() {
+  const d = new Date();
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+}
+
+async function coLoad() {
+  try {
+    const r = await fetch('/api/settings', { credentials: 'include' });
+    const all = await r.json();
+    const val = (all.find(s => s.key === 'bestilling.cutoff_override_date')?.value || '').trim();
+    coRenderState(val === _coTodayISO());
+  } catch (e) {
+    coRenderState(false);
+  }
+}
+
+function coRenderState(active) {
+  const state = document.getElementById('co-state');
+  const btn = document.getElementById('co-toggle-btn');
+  if (!state || !btn) return;
+  if (active) {
+    state.textContent = '🟢 Aktiv i dag — fristen er åben';
+    state.style.color = '#15803d';
+    btn.textContent = 'Luk igen';
+    btn.style.background = '#dc2626';
+  } else {
+    state.textContent = '⚪ Ikke aktiv — normal cut-off gælder';
+    state.style.color = '#888';
+    btn.textContent = 'Åbn for i dag';
+    btn.style.background = '';
+  }
+  btn.dataset.active = active ? '1' : '0';
+}
+
+async function coToggle() {
+  const btn = document.getElementById('co-toggle-btn');
+  if (!btn) return;
+  const activating = btn.dataset.active !== '1';
+  if (activating && !confirm('Åbn for hastebestilling resten af i dag?\n\nKunder kan bestille selv om fristen er passeret — også på normalt lukkede dage. Det nulstilles automatisk i morgen.')) return;
+  btn.disabled = true;
+  try {
+    await fetch('/api/settings/bestilling.cutoff_override_date', {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json' },
+      credentials: 'include',
+      body: JSON.stringify({ value: activating ? _coTodayISO() : '' })
+    });
+    coRenderState(activating);
+    toast(activating ? 'Hastebestilling åbnet for i dag' : 'Hastebestilling lukket', 'success');
+  } catch (e) {
+    toast('Kunne ikke opdatere: ' + e.message, 'error');
+  } finally {
+    btn.disabled = false;
+  }
 }
 
 // ─── Bestilling — åbningstider/deadline (settings) ──────────

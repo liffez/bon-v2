@@ -276,9 +276,13 @@ Standard-arbejdsgang ved slutningen af en Claude Code-session der har lavet ænd
 > Hold sessionen åben og afvent næste besked — afslut den ikke selv.
 
 > **TEST FØR MERGE (standard fra 10. juni 2026):** Brugeren tester ændringen i drift
-> FRA BRANCHEN, FØR der merges. Merge med `--delete-branch` sletter branchen og rydder
-> dermed worktree-sessionen op — og så er sessionen væk netop når brugeren opdager
-> noget der skal rettes. Merge er derfor ALTID sidste skridt, efter godkendelse i drift.
+> FRA BRANCHEN, FØR der merges. Merge er ALTID sidste skridt, efter godkendelse i drift.
+>
+> **MERGE SLETTER ALDRIG BRANCHEN (opdateret 15. juni 2026):** Brug `gh pr merge --squash`
+> UDEN `--delete-branch`. Tidligere slettede merge branchen → worktreen → sessionen forsvandt
+> netop når brugeren opdagede noget der skulle rettes. Nu overlever branch + worktree + session
+> merge. Branch-oprydning er et SEPARAT, bevidst trin (se "Branch-oprydning" nedenfor) — aldrig
+> en bivirkning af merge.
 >
 > **Claude leverer ALTID de præcise terminal-kommandoer** brugeren skal køre på
 > Hetzner ved hvert trin (test fra branch / hent rettelser / skift tilbage til main) —
@@ -291,7 +295,7 @@ git commit -m "..."                                    # commit-besked beskriver
 git push -u origin <branch>                            # branch er typisk claude/<navn>
 gh pr create --base main --title "..." --body "..."    # PR-body fungerer som changelog
 # ── STOP: vent på at brugeren har testet fra branchen og godkendt i drift ──
-gh pr merge --squash --delete-branch                   # SIDSTE skridt — kun efter godkendelse
+gh pr merge --squash                                   # SIDSTE skridt — UDEN --delete-branch (sessionen overlever)
 ```
 
 **Bruger gør (SSH'et ind på Hetzner-serveren som `leif`):**
@@ -318,6 +322,20 @@ git checkout main
 git pull
 sudo systemctl restart bon-v2              # main = det testede + squash, genstart for en sikkerheds skyld
 ```
+
+**Branch-oprydning (separat trin — aldrig ved merge):** Fordi merge ikke længere sletter
+branchen, hober merged branches sig op på origin. Ryd op bevidst, i ro — ikke midt i en session.
+Kør status-scriptet for at se hvad der kan slettes:
+
+```bash
+cd ~/bon-v2 && ./scripts/status.sh
+```
+
+Det viser server-branch + deployet commit, branches hvis indhold allerede er i main (kan
+trygt slettes, med kopier-klare `git push origin --delete`-linjer) og branches med ændringer
+der IKKE er i main (tjek før sletning). Ren git — ingen `gh`/intet at installere (serveren har
+ikke `gh`). Bemærk: pga. squash-merge kan `git branch --merged` IKKE bruges — scriptet tjekker
+i stedet om branchens egne ændringer allerede ligger i main (syntetisk commit-tree + `git cherry`).
 
 **Forbehold ved branch-test:** branches med nye `db/migrations/`-filer kører migrationen
 ved restart — vær påpasselig med at hoppe frem/tilbage mellem branch og main ved

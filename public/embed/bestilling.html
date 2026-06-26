@@ -80,6 +80,17 @@
       margin-top: .75rem;
       font-weight: 600;
     }
+    .rush-banner {
+      margin-top: .75rem;
+      background: #fff6df;
+      color: #7a4d05;
+      border: 1px solid #f0c969;
+      border-radius: 10px;
+      padding: .55rem .9rem;
+      font-size: .82rem;
+      font-weight: 700;
+      line-height: 1.4;
+    }
 
     /* "Sådan virker det" foldout */
     .how-wrap { background: var(--brand-light); border-bottom: 1px solid #e8dcc4; }
@@ -413,6 +424,7 @@
     </h1>
     <p>Frisk og velsmagende catering leveret til dit møde.<br>Ingen mindstemængde — I får en faktura bagefter.</p>
     <div class="cutoff-note" id="cutoff-note">⏰ Henter åbningstider…</div>
+    <div class="rush-banner" id="rush-banner" style="display:none">⏰ Åbent for hastebestilling i dag — du kan bestille selv om den normale frist er passeret.</div>
   </div>
 
   <!-- "Sådan virker det" foldout -->
@@ -652,7 +664,8 @@ let CFG = {
   base: { lat: 55.6961, lon: 12.5574 },
   cutoff: { time: 12, leadDays: 1, days: ['mon','tue','wed','thu','fri','sat'] },
   deliveryDays: ['mon','tue','wed','thu','fri','sat'],
-  delivery: null
+  delivery: null,
+  cutoffOverride: false // hastebestilling — åbnet manuelt i Settings, gælder kun i dag
 };
 
 let MENU_DATA = null;
@@ -673,15 +686,23 @@ const DOW = ['sun','mon','tue','wed','thu','fri','sat'];
 const DAY_NAMES_DA = ['søndag','mandag','tirsdag','onsdag','torsdag','fredag','lørdag'];
 
 function dowKey(d) { return DOW[d.getDay()]; }
-function isOpenForDelivery(d) { return CFG.deliveryDays.includes(dowKey(d)); }
+function isOpenForDelivery(d) { return CFG.cutoffOverride || CFG.deliveryDays.includes(dowKey(d)); }
 function isOpenForCutoff(d) { return CFG.cutoff.days.includes(dowKey(d)); }
+
+// Hastebestilling-banner — vises kun når Settings har åbnet for det i dag
+function renderRushBanner() {
+  const el = document.getElementById('rush-banner');
+  if (el) el.style.display = CFG.cutoffOverride ? '' : 'none';
+}
 
 // ════════════════════════════════════════════════════════
 // LOAD CONFIG + MENU
 // ════════════════════════════════════════════════════════
 async function loadConfig() {
   try {
-    const r = await fetch('/embed/config', { credentials: 'omit' });
+    // no-store: hastebestilling-flaget skal være friskt ved hver form-load,
+    // ellers kan en kunde se en forældet (lukket) tilstand op til 60 sek.
+    const r = await fetch('/embed/config', { credentials: 'omit', cache: 'no-store' });
     if (!r.ok) throw new Error('config_failed');
     const cfg = await r.json();
     if (cfg.base?.lat) CFG.base.lat = cfg.base.lat;
@@ -691,6 +712,8 @@ async function loadConfig() {
     if (Array.isArray(cfg.cutoff?.days)) CFG.cutoff.days = cfg.cutoff.days;
     if (Array.isArray(cfg.deliveryDays)) CFG.deliveryDays = cfg.deliveryDays;
     if (cfg.delivery) CFG.delivery = cfg.delivery;
+    CFG.cutoffOverride = !!cfg.cutoffOverride;
+    renderRushBanner();
   } catch (e) {
     console.warn('[embed] Kunne ikke hente config — bruger default:', e.message);
   }
@@ -827,7 +850,7 @@ function checkCutoff() {
   }
 
   const cutoff = getCutoffDate(day);
-  if (now > cutoff) {
+  if (now > cutoff && !CFG.cutoffOverride) {
     el.innerHTML = `<div class="date-notice err"><strong>⚠️ Deadline passeret for denne dato</strong><br>
       <span style="font-size:.82em">Deadline var ${DAY_NAMES_DA[cutoff.getDay()]} kl. ${CFG.cutoff.time}:00.<br>
       Hastebestilling? <a href="mailto:${FALLBACK_EMAIL}?subject=Hastebestilling ${di.value}" style="color:inherit;font-weight:700;">Skriv til os direkte →</a></span></div>`;

@@ -5,7 +5,7 @@
 const test = require('node:test');
 const assert = require('node:assert');
 
-const { verifyLoboRequest, applyWebhookEvent } = require('../services/lobo_webhook');
+const { verifyLoboRequest, applyWebhookEvent, calibrateLoboSignature, signCandidates } = require('../services/lobo_webhook');
 const { computeHmac } = require('../services/byExpressenAdapter');
 
 // Minimal fake-db der dækker præcis de queries applyWebhookEvent bruger.
@@ -45,7 +45,7 @@ function collectSSE() { const out = []; return { fn: (ev, d) => out.push({ ev, d
 /* ── verifyLoboRequest ────────────────────────────────────── */
 
 test('verifyLoboRequest: verifikation slået fra → springes over (ok)', () => {
-    const r = verifyLoboRequest({ rawQuery: 'a=1', headers: {}, settings: { verify: '0' } });
+    const r = verifyLoboRequest({ parts: { rawQuery: 'a=1' }, headers: {}, settings: { verify: '0' } });
     assert.deepStrictEqual([r.ok, r.skipped], [true, true]);
 });
 
@@ -53,10 +53,10 @@ test('verifyLoboRequest: korrekt HMAC accepteres, forkert afvises', () => {
     const key = 'deadbeef';
     const rawQuery = 'ts=1&event=dispatched&target=order&orderuuid=ord-9';
     const sig = computeHmac(rawQuery, key);
-    const base = { rawQuery, settings: { verify: '1', sig_header: 'x-lobo-signature', hmac_key: key } };
+    const base = { parts: { rawQuery }, event: 'dispatched', settings: { verify: '1', sig_header: 'x-lobo-signature', sign_target: 'query', hmac_key: key } };
     assert.strictEqual(verifyLoboRequest({ ...base, headers: { 'x-lobo-signature': sig } }).ok, true);
     assert.strictEqual(verifyLoboRequest({ ...base, headers: { 'x-lobo-signature': 'bad' } }).ok, false);
-    assert.strictEqual(verifyLoboRequest({ rawQuery, headers: {}, settings: { verify: '1' } }).ok, false); // ingen nøgle
+    assert.strictEqual(verifyLoboRequest({ parts: { rawQuery }, headers: {}, settings: { verify: '1' } }).ok, false); // ingen nøgle
 });
 
 /* ── applyWebhookEvent ────────────────────────────────────── */
@@ -118,4 +118,75 @@ test('applyWebhookEvent: changed → ingen status-ændring (men markeret behandl
     assert.strictEqual(r.status, null);
     assert.strictEqual(r.reason, 'no_status_change');
     assert.strictEqual(sse.out.length, 0, 'ingen SSE ved note-event');
+});
+
+// ══════════════════════════════════════════════════════════════
+// SELVKALIBRERENDE HMAC — beviser at formatet kan opdages automatisk
+// fra ét simuleret Lobo-callback (uden rigtigt netværk/callback).
+// ══════════════════════════════════════════════════════════════
+
+// Simulér at Lobo signerer en bestemt kandidat-streng med en bestemt nøgle
+// og lægger digesten i en bestemt header.
+function signLikeLobo({ parts, key, target, header, prefix = '' }) {
+    const str = signCandidates(parts)[target];
+    const sig = prefix + computeHmac(str, key, 'sha256');
+    return { [header]: sig };
+}
+
+const KEYS = { dispatched: 'key-AAA', finished: 'key-BBB', changed: 'key-CCC' };
+const PARTS = {
+    rawQuery: 'ts=1719230400&event=finished&target=order&orderuuid=ord-9',
+    pathQuery: '/api/webhooks/lobo?ts=1719230400&event=finished&target=order&orderuuid=ord-9',
+    registeredUrl: 'https://bon.ristetrug.dk/api/webhooks/lobo',
+    body: '',
+};
+
+test('calibrate: opdager query-streng-signatur + den rigtige per-event nøgle', () => {
+    const headers = signLikeLobo({ parts: PARTS, key: KEYS.finished, target: 'query', header: 'x-lobo-signature' });
+    const hit = calibrateLoboSignature({ parts: PARTS, headers, keys: KEYS });
+    assert.ok(hit, 'match fundet');
+    assert.strictEqual(hit.sig_header, 'x-lobo-signature');
+    assert.strictEqual(hit.sign_target, 'query');
+    assert.strictEqual(hit.matched_event, 'finished');  // valgte den nøgle der faktisk signerede
+});
+
+test('calibrate: opdager full_url-signatur (anden header + sha256=-præfiks)', () => {
+    const headers = signLikeLobo({ parts: PARTS, key: KEYS.finished, target: 'full_url', header: 'x-signature', prefix: 'sha256=' });
+    const hit = calibrateLoboSignature({ parts: PARTS, headers, keys: KEYS });
+    assert.ok(hit);
+    assert.strictEqual(hit.sig_header, 'x-signature');
+    assert.strictEqual(hit.sign_target, 'full_url');
+});
+
+test('calibrate: intet match med forkerte nøgler → null (format forbliver ukendt)', () => {
+    const headers = signLikeLobo({ parts: PARTS, key: 'en-helt-anden-nøgle', target: 'query', header: 'x-lobo-signature' });
+    const hit = calibrateLoboSignature({ parts: PARTS, headers, keys: KEYS });
+    assert.strictEqual(hit, null);
+});
+
+test('end-to-end: kalibrér → gem format → verifyLoboRequest accepterer ægte + afviser forfalsket', () => {
+    // 1) Første callback kalibrerer
+    const headers1 = signLikeLobo({ parts: PARTS, key: KEYS.finished, target: 'query', header: 'x-lobo-signature' });
+    const hit = calibrateLoboSignature({ parts: PARTS, headers: headers1, keys: KEYS });
+    const settings = {
+        verify: '1',
+        sig_header: hit.sig_header,
+        sign_target: hit.sign_target,
+        keys: JSON.stringify(KEYS),
+        algorithm: 'sha256',
+    };
+    // 2) Efterfølgende ægte callback verificeres OK (nøgle vælges pr. event)
+    const okRes = verifyLoboRequest({ parts: PARTS, headers: headers1, event: 'finished', settings });
+    assert.strictEqual(okRes.ok, true);
+    assert.strictEqual(okRes.reason, 'verified');
+    // 3) Forfalsket signatur afvises
+    const badRes = verifyLoboRequest({ parts: PARTS, headers: { 'x-lobo-signature': 'deadbeef'.repeat(8) }, event: 'finished', settings });
+    assert.strictEqual(badRes.ok, false);
+    assert.strictEqual(badRes.reason, 'bad_signature');
+});
+
+test('verifyLoboRequest: ukalibreret (verify≠1) → skipped (accepterer, logger)', () => {
+    const r = verifyLoboRequest({ parts: PARTS, headers: {}, event: 'finished', settings: { verify: '0' } });
+    assert.strictEqual(r.ok, true);
+    assert.strictEqual(r.skipped, true);
 });

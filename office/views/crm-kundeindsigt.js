@@ -133,8 +133,11 @@ function _kiShellHtml() {
 .ki-icp-label { font-size: 11px; color: #888; }
 .ki-icp-value { font-size: 16px; font-weight: 600; }
 .ki-branch-list { list-style: none; padding: 0; margin: 8px 0 0; }
-.ki-branch-list li { display: flex; align-items: center; gap: 6px; margin-bottom: 4px; font-size: 12px; }
-.ki-branch-bar { height: 6px; border-radius: 3px; background: var(--brand-primary, #8e631f); }
+.ki-branch-list li { display: grid; grid-template-columns: 1fr 56px 34px; align-items: center; gap: 8px; margin-bottom: 5px; font-size: 12px; }
+.ki-branch-name { min-width: 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.ki-branch-track { display: block; height: 6px; border-radius: 3px; background: #ece7df; overflow: hidden; }
+.ki-branch-bar { display: block; height: 100%; min-width: 2px; border-radius: 3px; background: var(--brand-primary, #8e631f); }
+.ki-branch-pct { text-align: right; color: #666; font-variant-numeric: tabular-nums; }
 .ki-coverage { font-size: 12px; margin-top: 8px; padding: 8px; background: #f9f7f4; border-radius: 6px; }
 .ki-computing { text-align: center; padding: 20px; color: #888; }
 </style>
@@ -195,11 +198,15 @@ function _kiRenderSidebar() {
             ${_kiIcp.top_branches?.length ? `
             <h3 style="margin-top:12px">Brancher</h3>
             <ul class="ki-branch-list">
-                ${_kiIcp.top_branches.map(b => `
-                    <li><span style="width:100px">${b.branch}</span>
-                        <div class="ki-branch-bar" style="width:${b.pct * 2}px"></div>
-                        <span>${b.pct}%</span></li>
-                `).join('')}
+                ${(() => {
+                    const maxPct = Math.max(..._kiIcp.top_branches.map(b => b.pct), 1);
+                    return _kiIcp.top_branches.map(b => `
+                    <li>
+                        <span class="ki-branch-name" title="${_kiAttr(b.branch)}">${_kiEsc(b.branch)}</span>
+                        <span class="ki-branch-track"><span class="ki-branch-bar" style="width:${Math.round(b.pct / maxPct * 100)}%"></span></span>
+                        <span class="ki-branch-pct">${b.pct}%</span>
+                    </li>`).join('');
+                })()}
             </ul>` : ''}
             <div class="ki-coverage">
                 Branchedækning: ${_kiIcp.branch_coverage_pct}%
