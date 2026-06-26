@@ -738,6 +738,18 @@ class BonDrawer {
             ? `<div class="lbp-window ${winCls}">${w.is_late ? '⚠' : '✓'} Vindue fra By-expressen: <strong>${t(w.begin)}–${t(w.end)}</strong>${bf.delivery_time ? (w.is_late ? ` (efter kundens ${esc(bf.delivery_time)})` : ` (inden kundens ${esc(bf.delivery_time)})`) : ''}</div>`
             : '<div class="lbp-window">Tryk "Hent" for vindue & pris</div>';
 
+        // For sent? Regn ud hvor tidligt afhentningen skal rykkes for at ramme kundens tid.
+        let lateHelpHtml = '';
+        if (w && w.is_late && bf.delivery_time && p.pickup_time) {
+            const toMin = (s) => { const m = /^(\d{1,2}):(\d{2})/.exec(s || ''); return m ? (+m[1]) * 60 + (+m[2]) : null; };
+            const fmt = (x) => { x = ((x % 1440) + 1440) % 1440; return String(Math.floor(x / 60)).padStart(2, '0') + ':' + String(x % 60).padStart(2, '0'); };
+            const pm = toMin(p.pickup_time), em = toMin(t(w.end)), dm = toMin(bf.delivery_time);
+            if (pm != null && em != null && dm != null && em > dm) {
+                const needed = fmt(pm - (em - dm));
+                lateHelpHtml = `<div class="lbp-window late">↑ Ret <strong>afhentning til senest ${needed}</strong> i Levering ovenfor — så rammer vinduet kundens ${esc(bf.delivery_time)}. Tryk derefter "↻ Hent vindue & pris".</div>`;
+            }
+        }
+
         // Supply-area-advarsel: Food dækker kun bynært — lange ture skal bruge Large/Medium.
         const distKm = data.routedistance != null ? (data.routedistance / 1000).toFixed(1) : null;
         const supplyHtml = data.supply_warning
@@ -763,6 +775,7 @@ class BonDrawer {
               `<label class="lbp-l">Note — speciel info (leveringstid tilføjes automatisk)</label><input class="lbp-note" type="text" maxlength="40" value="${esc(p.note_extra || '')}" placeholder="fx etage, port, kode">` +
             `</div>` +
             winHtml +
+            lateHelpHtml +
             supplyHtml +
             `<div class="lbp-prices">` +
               `<span>Kostpris <strong>${kr(pr.cost_ex)}</strong> <span class="lbp-dim">ex</span></span>` +
