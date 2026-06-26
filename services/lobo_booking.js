@@ -212,7 +212,10 @@ function composeLoboBooking(bon, vehicle, cfg, overrides = {}) {
         : (bon.bon_number ? (String(bon.bon_number).startsWith('#') ? String(bon.bon_number) : '#' + bon.bon_number) : '');
     const fkproduct = overrides.fkproduct != null && overrides.fkproduct !== ''
         ? parseInt(overrides.fkproduct, 10) : cfg.fkproduct;
-    const pickupNote = boxes > 0 ? `${boxes} kasser` : null;
+    // Afhentnings-note: bonnummer + kasse-antal. customerreferenceorder vises kun
+    // på kvitteringen, ikke i By-expressens ordre-/opgavevisning — så bonnummeret
+    // gentages her, så det er synligt i Stop/Note-kolonnen ved afhentning.
+    const pickupNote = [reference, boxes > 0 ? `${boxes} kasser` : null].filter(Boolean).join(' · ');
 
     // VIGTIGT: vi sender IKKE kasse-tillæg (ordersurchargequantity) til Lobo.
     // 1) Lobos størrelsestillæg er FLADT (samme uanset antal) — vi lægger selv
