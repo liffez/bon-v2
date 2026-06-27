@@ -9,7 +9,7 @@
 /* globals apiFetch, fetchInvoiceQueue, patchBonStatus, patchCompanyEconomic,
            patchCustomerEconomic, patchBon, connectSSE,
            previewEconomicDraft, createEconomicDraft, fetchEconomicReadiness,
-           suggestEconomicCustomer, createEconomicCustomer */
+           suggestEconomicCustomer, createEconomicCustomer, fetchDeliveryCustomerPrice */
 
 let _faktData = null;
 let _faktSelected = null;
@@ -311,6 +311,10 @@ function _faktSelectBon(bon) {
                     <div class="fakt-info-row">
                         <div class="fakt-info-label">Metode</div>
                         <div class="fakt-info-val">${_faktDeliveryLabel(bon.delivery_method)}</div>
+                    </div>
+                    <div class="fakt-info-row">
+                        <div class="fakt-info-label">Leveringspris<br><span style="font-size:10px;opacity:.7">til kunde, faktureres</span></div>
+                        <div class="fakt-info-val" id="fakt-delivery-price"></div>
                     </div>` : ''}
                 </div>
             </div>
@@ -445,6 +449,57 @@ function _faktSelectBon(bon) {
         _faktRenderEcoField('fakt-eco-kontakt', bon.customer?.economic_contact_id, 'kontakt', bon);
     } else if (bon.customer) {
         _faktRenderEcoField('fakt-eco-privat', bon.customer.economic_customer_id, 'privat', bon);
+    }
+    if (bon.delivery_method) _faktRenderDeliveryPrice(bon);
+}
+
+// ── Leveringspris (kunde) — vises/sættes ved fakturering ─────
+function _faktRenderDeliveryPrice(bon) {
+    const el = document.getElementById('fakt-delivery-price');
+    if (!el) return;
+    const has = bon.delivery_price != null && Number(bon.delivery_price) > 0;
+    el.innerHTML = has
+        ? `<div class="fakt-eco-field"><span class="fakt-eco-num">${_faktFmt(bon.delivery_price)} kr</span>
+             <button class="fakt-eco-edit-btn" onclick="_faktDeliveryPriceEdit(${bon.id})">ret</button></div>`
+        : `<div class="fakt-eco-field"><span class="fakt-eco-empty">Ikke sat — faktureres ikke</span>
+             <button class="fakt-eco-edit-btn" onclick="_faktDeliveryPriceEdit(${bon.id})">+ Sæt / foreslå</button></div>`;
+}
+
+async function _faktDeliveryPriceEdit(bonId) {
+    const el = document.getElementById('fakt-delivery-price');
+    if (!el) return;
+    const bon = _faktSelected;
+    el.innerHTML = `<span style="font-size:12px;color:var(--color-text-dim)">Henter By-ex-pris…</span>`;
+    let s = {};
+    try { s = await fetchDeliveryCustomerPrice(bonId); } catch (e) { /* fortsæt — manuel indtastning */ }
+    const cur = (bon && bon.delivery_price) || (s && s.current_delivery_price) || '';
+    const sug = s && s.suggested_incl != null ? s.suggested_incl : null;
+    const srcLabel = s && s.source === 'receipt' ? 'fra By-ex kvittering'
+                   : s && s.source === 'estimate' ? 'By-ex estimat (hvad By-ex ville forlange)' : '';
+    el.innerHTML = `
+        <div class="fakt-eco-input-wrap">
+            <input class="fakt-eco-input" id="fakt-dp-input" value="${cur}" placeholder="kr incl moms" style="width:90px">
+            <button class="fakt-eco-save-btn" onclick="_faktDeliveryPriceSave(${bonId})">Gem</button>
+            <button class="fakt-eco-cancel-btn" onclick="_faktSelectBon(_faktSelected)">&#10005;</button>
+        </div>
+        ${sug != null ? `<div style="font-size:11px;margin-top:5px">💡 Foreslået <strong>${_faktFmt(sug)} kr</strong>
+            <span style="color:var(--color-text-dim)">${srcLabel} + ${s.markup_pct}%</span>
+            <button class="fakt-eco-edit-btn" style="margin-left:6px" onclick="document.getElementById('fakt-dp-input').value='${sug}'">brug</button></div>` : ''}`;
+    document.getElementById('fakt-dp-input')?.focus();
+}
+
+async function _faktDeliveryPriceSave(bonId) {
+    const inp = document.getElementById('fakt-dp-input');
+    if (!inp) return;
+    const val = parseFloat((inp.value || '').replace(',', '.'));
+    if (isNaN(val) || val < 0) { _faktShowToast('Ugyldig pris'); return; }
+    try {
+        await patchBon(bonId, { delivery_price: Math.round(val * 100) / 100 });
+        if (_faktSelected) _faktSelected.delivery_price = val;
+        _faktShowToast(`Leveringspris sat til ${_faktFmt(val)} kr`);
+        if (_faktSelected) _faktSelectBon(_faktSelected);
+    } catch (err) {
+        _faktShowToast('Kunne ikke gemme: ' + (err.body?.error || err.message));
     }
 }
 

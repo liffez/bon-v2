@@ -1753,6 +1753,11 @@ function fetchDeliveryEvents(bonId) {
     return apiFetch('/delivery/events?bon_id=' + bonId);
 }
 
+// Foreslået kundepris for levering (By-ex-pris/kvittering + markup, incl moms).
+function fetchDeliveryCustomerPrice(bonId) {
+    return apiFetch('/delivery/customer-price?bon_id=' + bonId);
+}
+
 // Lobo/By-expressen — live kostpris for én bon (opretter + sletter en
 // orderdraft hos Lobo; INGEN ordre bookes). Returnerer { cost_ex, cost_incl,
 // customer_ex, margin, routedistance, co2saving }.

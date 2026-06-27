@@ -57,6 +57,8 @@ router.get('/queue', handle((req, res) => {
             b.day_contact_name,
             b.day_contact_phone,
             b.payment_type,
+            b.delivery_price,
+            b.delivery_cost,
             b.economic_draft_number,
             b.economic_draft_at,
             sd.code AS status_code,
@@ -205,6 +207,8 @@ function formatBon(row) {
         day_contact_phone: row.day_contact_phone,
         price_category_code:  row.price_category_code,
         price_category_label: row.price_category_label,
+        delivery_price:       row.delivery_price,
+        delivery_cost:        row.delivery_cost,
         economic_draft_number: row.economic_draft_number,
         economic_draft_at:     row.economic_draft_at,
         customer: {
