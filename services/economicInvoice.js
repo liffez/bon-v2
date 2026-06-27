@@ -64,6 +64,15 @@ function recipientName(bon) {
    FORHÅNDSTJEK (blokerende — recipe-nr, kunde-nr, EAN-kontakt)
    ══════════════════════════════════════════════════════════════ */
 
+// Kategorier der IKKE faktureres: en linje uden varenr i disse udelades stille
+// (ikke på fakturaen, ikke blokerende). Pt. faktureres KUN transportkasser blandt
+// emballage (de HAR varenr 56/58); andre bokse + prep skal ikke med.
+// En mad-/levering-/service-linje uden varenr blokerer stadig (ægte gap).
+const NONINVOICE_CATEGORIES = new Set([
+    '06 Emballage', 'Tilbehør & Bokse', 'RR Produktion', 'RR produktion Hurtig', 'lunch',
+]);
+function isNoninvoice(line) { return NONINVOICE_CATEGORIES.has(line.category); }
+
 /**
  * Tjek om en (beriget) bon kan faktureres. Linjer skal være beriget med
  * economic_product_number (fra grocyAdapter.getEconomicProductMap) før dette kald.
@@ -72,8 +81,9 @@ function recipientName(bon) {
  */
 function checkReadiness(bon) {
     const lines = bon.lines || [];
+    // Kun fakturérbare linjer uden varenr blokerer. Bokse/prep uden varenr udelades stille.
     const missingProducts = lines
-        .filter(l => !hasProductNumber(l))
+        .filter(l => !hasProductNumber(l) && !isNoninvoice(l))
         .map(l => ({ line_id: l.id, product_name: l.product_name, grocy_recipe_id: l.grocy_recipe_id }));
 
     const missingCustomer = resolveEconomicCustomer(bon) == null;
@@ -113,20 +123,22 @@ function buildDraftInvoice(bon, settings, opts = {}) {
     const lineDiscount = Number(bon.offer_discount_percent) || 0;
     const oneoff = settings.oneoffProductNumber;
 
-    const lines = (bon.lines || []).map((line, i) => {
+    const lines = [];
+    let ln = 0;
+    for (const line of (bon.lines || [])) {
         // productNumber SKAL være String pr. e-conomics skema (varenr kan være alfanumerisk).
         let productNumber = hasProductNumber(line) ? String(line.economic_product_number) : null;
         if (productNumber == null) {
             if (opts.oneoffForMissing && oneoff != null) {
                 productNumber = String(oneoff);   // engangsvare: overskriv tekst+beløb (de er allerede på linjen)
             } else {
-                throw new Error(
-                    `Linje "${line.product_name}" mangler economic_product_number — kør forhåndstjek først.`
-                );
+                // Ingen varenr → faktureres ikke (fx anden boks). checkReadiness har
+                // allerede blokeret, hvis det var en fakturérbar linje. Udelad stille.
+                continue;
             }
         }
         const lineObj = {
-            lineNumber:   i + 1,
+            lineNumber:   ++ln,
             product:      { productNumber },
             description:  line.special_request
                             ? `${line.product_name} (${line.special_request})`
@@ -135,8 +147,8 @@ function buildDraftInvoice(bon, settings, opts = {}) {
             unitNetPrice: round2(inclToExcl(line.unit_price)),   // EX moms, 2 decimaler
         };
         if (lineDiscount) lineObj.discountPercentage = lineDiscount;
-        return lineObj;
-    });
+        lines.push(lineObj);
+    }
 
     // Leveringslinje KUN når levering ligger på bon.delivery_price uden en x-Levering-linje
     // (det nye logistik-systems linjeløse levering). x-Levering-recipes er allerede normale linjer.
@@ -145,7 +157,7 @@ function buildDraftInvoice(bon, settings, opts = {}) {
         const deliveryNo = bon.delivery_vehicle_economic_product_number
             || settings.deliveryFallbackProductNumber;
         const dl = {
-            lineNumber:   lines.length + 1,
+            lineNumber:   ++ln,
             product:      { productNumber: String(deliveryNo) },
             description:  bon.delivery_vehicle_label ? `Levering (${bon.delivery_vehicle_label})` : 'Levering',
             quantity:     1,
@@ -169,6 +181,9 @@ function buildDraftInvoice(bon, settings, opts = {}) {
             vatZone: { vatZoneNumber: 1 },         // indenlandsk DK (også EAN/offentlige)
         },
         references: { other: buildReference(bon) },
+        // Bon-nummeret i overskriften ("#B4111") — RR's konvention, og match-nøglen
+        // for cashflow-afstemningen (services/cashflowReconcile.js parser den).
+        ...(bon.bon_number ? { notes: { heading: `#${bon.bon_number}` } } : {}),
         lines,
     };
     if (contactNo != null && String(contactNo).trim() !== '') {
