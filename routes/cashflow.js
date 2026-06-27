@@ -1211,4 +1211,42 @@ router.get('/upcoming', handle(async (req, res) => {
     res.json({ rows });
 }));
 
+// ─── e-conomic-afstemning (Pengestrøm delta B) ──────────────────────────────
+// POST /api/cashflow/reconcile  { dry_run?, since? }
+// Læser e-conomics bogførte fakturaer → markér cf_invoices betalt via bon-nr i
+// fakturaens overskrift. Skriver kun til vores egen cf_invoices + vandmærke.
+const economicAdapter = require('../services/economicAdapter');
+const { reconcile } = require('../services/cashflowReconcile');
+
+router.post('/reconcile', handle(async (req, res) => {
+    if (!economicAdapter.isConfigured()) {
+        return res.status(503).json({ error: 'e-conomic er ikke konfigureret (tokens mangler i .env)' });
+    }
+    const db = getDb();
+    const dryRun = req.body?.dry_run === true;
+    const since  = req.body?.since || undefined;
+    let result;
+    try {
+        result = await reconcile(db, { dryRun, since });
+    } catch (e) {
+        if (e instanceof economicAdapter.EconomicAuthError) return res.status(502).json({ error: 'e-conomic-adgang skal genetableres', detail: e.message });
+        if (e instanceof economicAdapter.EconomicRateError) return res.status(503).json({ error: 'e-conomic rate limit ramt — prøv igen senere' });
+        return res.status(502).json({ error: 'e-conomic-afstemning fejlede', detail: e.message });
+    }
+    if (!dryRun && result.flipped > 0) {
+        logChange({ entityType: 'cashflow', entityId: 0, action: 'economic_reconcile',
+            fieldName: 'betalt', oldValue: null, newValue: String(result.flipped),
+            userId: req.session?.userId ?? null, notes: `vandmærke → ${result.newWatermark}` });
+        broadcast('cashflow_reconciled', { flipped: result.flipped, watermark: result.newWatermark });
+    }
+    res.json(result);
+}));
+
+// GET /api/cashflow/reconcile/status — vandmærke + om e-conomic er konfigureret
+router.get('/reconcile/status', handle((req, res) => {
+    const db = getDb();
+    const watermark = db.prepare(`SELECT value FROM cf_meta WHERE key = 'economic_booked_until'`).get()?.value || null;
+    res.json({ economic_booked_until: watermark || null, configured: economicAdapter.isConfigured() });
+}));
+
 module.exports = router;

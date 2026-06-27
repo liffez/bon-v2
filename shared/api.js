@@ -1435,6 +1435,17 @@ function fetchCfStats() {
     return apiFetch('/cashflow/stats');
 }
 
+// e-conomic-afstemning (delta B): markér cf_invoices betalt fra e-conomics bogføring.
+function reconcileCashflow(opts) {
+    return apiFetch('/cashflow/reconcile', {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(opts || {}),
+    });
+}
+function fetchReconcileStatus() {
+    return apiFetch('/cashflow/reconcile/status');
+}
+
 function fetchCfWeekly() {
     return apiFetch('/cashflow/weekly');
 }

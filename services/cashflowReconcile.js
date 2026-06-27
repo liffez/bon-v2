@@ -1,0 +1,96 @@
+/**
+ * services/cashflowReconcile.js
+ * ════════════════════════════════════════════════════════════════════════
+ * e-conomic → Bon: afstem BETALT-status på fakturaer (Pengestrøm delta B).
+ * Spec: docs/economics/CLAUDE_PENGESTROEM.md §2.B.
+ *
+ * Læser e-conomics bogførte fakturaer via REST /invoices/booked (samme auth som
+ * resten af adapteren — INGEN OpenAPI nødvendig). `remainder === 0` = betalt.
+ *
+ * MATCH-NØGLE: bon-nummeret i fakturaens OVERSKRIFT (`notes.heading`), IKKE
+ * e-conomics eget fakturanummer (de er forskellige serier — et nummer-match er
+ * tilfældigt). Kontoret skriver bon-nummeret/-numrene i overskriften ("4111",
+ * "4093 & 4094", "#B4013"). Vi trækker alle 3-5-cifrede tal ud og matcher mod
+ * digits(cf_invoices.id) (cf_invoices.id er bon-baseret, fx "B4112"). Én faktura
+ * kan dække flere bons → alle deres cf_invoices opdateres. Rykker vandmærket
+ * (cf_meta.economic_booked_until) til seneste bogførte dato.
+ *
+ * KUN læsning fra e-conomic (vi bogfører/betaler aldrig). Skriver kun til vores
+ * egen cf_invoices + cf_meta. Idempotent: kører den igen → ingen ekstra ændringer.
+ * ════════════════════════════════════════════════════════════════════════
+ */
+'use strict';
+const eco = require('./economicAdapter');
+
+const digits = (s) => String(s || '').replace(/\D/g, '');
+
+/** Hent bogførte fakturaer fra e-conomic, valgfrit filtreret på dato ≥ since. */
+async function fetchBookedSince(since) {
+    const enc = encodeURIComponent;
+    const filter = since ? '&filter=' + enc('date$gte:' + since) : '';
+    let out = [], skip = 0;
+    while (true) {
+        const r = await eco.rest(`/invoices/booked?pagesize=100&skippages=${skip}${filter}`);
+        out = out.concat(r.collection || []);
+        if (!r.pagination?.nextPage || ++skip > 200) break;
+    }
+    return out;
+}
+
+/**
+ * Afstem cf_invoices mod e-conomics betalt-status.
+ * @param {DatabaseSync} db
+ * @param {{ dryRun?: boolean, since?: string }} opts
+ *   dryRun (default true) — beregn ændringer uden at skrive.
+ *   since — overstyr startdato; ellers cf_meta.economic_booked_until.
+ * @returns {Promise<{scanned,matched,flipped,since,newWatermark,dryRun,changes}>}
+ */
+async function reconcile(db, { dryRun = true, since } = {}) {
+    const getMeta = (k) => db.prepare('SELECT value FROM cf_meta WHERE key = ?').get(k)?.value || null;
+    const sinceDate = since || getMeta('economic_booked_until') || null;
+
+    const booked = await fetchBookedSince(sinceDate);
+
+    // cf_invoices indekseret på digit-strippet fakturanummer
+    const cfByNum = new Map();
+    for (const r of db.prepare('SELECT id, betalt, bon_id FROM cf_invoices').all()) {
+        cfByNum.set(digits(r.id), r);
+    }
+
+    let scanned = 0, matched = 0, flipped = 0, noHeading = 0, newWatermark = sinceDate;
+    const changes = [];
+    const seenCf = new Set();                      // undgå dobbelt-flip hvis to fakturaer peger på samme bon
+    for (const inv of booked) {
+        scanned++;
+        if (inv.date && (!newWatermark || inv.date > newWatermark)) newWatermark = inv.date;
+        const heading = inv.notes?.heading || '';
+        const bonNums = heading.match(/\d{3,5}/g) || [];   // ét eller flere bon-numre i overskriften
+        if (!bonNums.length) { noHeading++; continue; }     // tom/beskrivende overskrift (fx "Michelin")
+        const paid = inv.remainder === 0;
+        for (const num of bonNums) {
+            const cf = cfByNum.get(num);
+            if (!cf) continue;                              // bon-nr uden cf_invoice (ikke Bon-v2-bon)
+            matched++;
+            if (paid && cf.betalt !== 1 && !seenCf.has(cf.id)) {
+                seenCf.add(cf.id);
+                flipped++;
+                changes.push({ cf_id: cf.id, bon_id: cf.bon_id, booked_no: inv.bookedInvoiceNumber, heading, date: inv.date });
+            }
+        }
+    }
+
+    if (!dryRun && changes.length) {
+        const upd = db.prepare(`UPDATE cf_invoices
+            SET betalt = 1, betalt_dato = ?, betalingstype = COALESCE(betalingstype, 'bank')
+            WHERE id = ?`);
+        for (const c of changes) upd.run(c.date, c.cf_id);
+    }
+    if (!dryRun && newWatermark) {
+        db.prepare(`INSERT INTO cf_meta (key, value) VALUES ('economic_booked_until', ?)
+                    ON CONFLICT(key) DO UPDATE SET value = excluded.value`).run(newWatermark);
+    }
+
+    return { scanned, matched, flipped, since: sinceDate, newWatermark, dryRun, changes };
+}
+
+module.exports = { reconcile, fetchBookedSince };
