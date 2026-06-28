@@ -22,7 +22,7 @@ const express = require('express');
 const router  = express.Router();
 
 const { getDb }       = require('../db/database');
-const { handle, logChange, getDefaultLocationId, todayISO } = require('../db/helpers');
+const { handle, logChange, getDefaultLocationId, todayISO, bonUnitsExpr } = require('../db/helpers');
 const { requireAuth } = require('../shared/auth');
 const { inclToExcl }  = require('../shared/moms');
 const labor           = require('../services/laborAdapter');
@@ -44,6 +44,7 @@ function computeDayBons(db, date, mode) {
         ? `AND sd.code IN (${REALISERET_STATUS.map(() => '?').join(',')})`
         : `AND sd.code <> 'AFLYST'`;
     const statusArgs = mode === 'realiseret' ? REALISERET_STATUS : [];
+    const unitsExpr = bonUnitsExpr();
 
     const rows = db.prepare(`
         SELECT b.id, b.bon_number,
@@ -51,7 +52,8 @@ function computeDayBons(db, date, mode) {
                c.first_name || ' ' || COALESCE(c.last_name, '') AS contact_name_full,
                co.name AS company_name,
                COALESCE(b.delivery_cost, 0) AS delivery_ex,
-               COALESCE(b.total_units, 0)   AS units,
+               COALESCE((SELECT SUM(${unitsExpr.contrib}) FROM bon_lines bl ${unitsExpr.join}
+                          WHERE bl.bon_id = b.id AND (bl.is_accessory = 0 OR bl.is_accessory IS NULL)), 0) AS units,
                COALESCE((SELECT SUM(bl.line_total)              FROM bon_lines bl WHERE bl.bon_id = b.id), 0) AS revenue_incl,
                COALESCE((SELECT SUM(bl.quantity * bl.cost_price) FROM bon_lines bl WHERE bl.bon_id = b.id), 0) AS cost_ex
           FROM bons b
@@ -60,7 +62,7 @@ function computeDayBons(db, date, mode) {
           LEFT JOIN companies co ON co.id = b.company_id
          WHERE b.delivery_date = ? AND COALESCE(b.is_offer,0)=0 AND COALESCE(b.is_internal,0)=0 ${statusClause}
          ORDER BY revenue_incl DESC, b.bon_number
-    `).all(date, ...statusArgs);
+    `).all(...unitsExpr.args, date, ...statusArgs);
 
     return rows.map(r => ({
         id: r.id,
@@ -96,17 +98,29 @@ async function computeDay(db, date, mode, prefetchedLabor, skipBons) {
 
     const bonAgg = db.prepare(`
         SELECT COALESCE(SUM(b.delivery_cost),0) AS delivery_ex,
-               COALESCE(SUM(b.total_units),0)   AS units,
                COUNT(*)                         AS bon_count
           FROM bons b
           JOIN status_definitions sd ON sd.id = b.status_id
          WHERE b.delivery_date = ? AND COALESCE(b.is_offer,0)=0 AND COALESCE(b.is_internal,0)=0 ${statusClause}
     `).get(date, ...statusArgs);
 
+    // Enheder beregnes LIVE fra bon_lines (boks-aware) — aldrig fra det cachede
+    // bons.total_units, så et forældet felt ikke kan smitte driftsregnskabet.
+    const unitsExpr = bonUnitsExpr();
+    const unitsAgg = db.prepare(`
+        SELECT COALESCE(SUM(${unitsExpr.contrib}), 0) AS units
+          FROM bons b
+          JOIN status_definitions sd ON sd.id = b.status_id
+          JOIN bon_lines bl ON bl.bon_id = b.id
+          ${unitsExpr.join}
+         WHERE b.delivery_date = ? AND COALESCE(b.is_offer,0)=0 AND COALESCE(b.is_internal,0)=0 ${statusClause}
+           AND (bl.is_accessory = 0 OR bl.is_accessory IS NULL)
+    `).get(...unitsExpr.args, date, ...statusArgs);
+
     const revenue  = r2(inclToExcl(lineAgg.revenue_incl));
     const cost     = r2(lineAgg.cost_ex);
     const delivery = r2(bonAgg.delivery_ex);
-    const units    = Number(bonAgg.units) || 0;
+    const units    = Number(unitsAgg.units) || 0;
 
     // prefetchedLabor: forud-hentet løn for denne dato (periode-batch). Et array
     // (også tomt) betyder "allerede hentet" → spring per-dag Smartplan-kaldet over.

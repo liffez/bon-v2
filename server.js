@@ -193,6 +193,12 @@ app.use('/data', express.static(path.join(__dirname, 'data'), { extensions: ['js
 const { startPolling } = require('./services/mailService');
 startPolling().catch(err => console.error('[mail] Polling fejl ved opstart:', err.message));
 
+// Opbyg recipe_unit_counts (boks-aware enheds-tælling) ved opstart — ikke-blokerende.
+// Holder tabellen frisk efter Grocy-recipe-/nesting-ændringer mellem deploys.
+const { refreshRecipeUnitCountsSafe } = require('./services/recipeUnits');
+refreshRecipeUnitCountsSafe(require('./db/database').getDb(), 'startup')
+    .then(n => n && console.log(`[recipeUnits] ${n} recipes mappet ved opstart`));
+
 
 // ─── START ─────────────────────────────────────────────────────────────────
 

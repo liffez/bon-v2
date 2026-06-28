@@ -606,6 +606,9 @@ router.post('/', handle((req, res) => {
     logChange({ entityType: 'bon', entityId: result.lastInsertRowid, action: 'create', newValue: bonNumber, userId: b.created_by_user_id });
     // Server-autoritativ recalc (linjer kan være indsat i samme request via /lines, men typisk ingen endnu)
     // POS-undtagelse: se kommentar over recalcBonTotal-definitionen
+    // total_units er ALTID afledt af linjerne (boks-aware) — aldrig payload-værdien,
+    // så en ny bon uden linjer får 0 (ikke et tilfældigt pax-tal der senere divergerer).
+    recalcBonTotalUnits(getDb(), result.lastInsertRowid);
     recalcBonTotal(getDb(), result.lastInsertRowid);
     const newBon = getBon(result.lastInsertRowid);
     broadcast('bon_created', { id: newBon.id, bon_number: newBon.bon_number });

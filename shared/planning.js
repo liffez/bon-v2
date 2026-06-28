@@ -297,7 +297,15 @@ function _plLoadData() {
     }
 
     fetchBonsPlanning(_plFrom, _plTo, statusParam).then(function(bons) {
-        _plBons = bons || [];
+        // Dedup på id — API'et returnerer hver bon én gang, men en defensiv
+        // dedup forhindrer dobbelt-rækker (set fx B4069 vist to gange) hvis et
+        // svar/SSE-flow nogensinde leverer samme bon to gange.
+        var seen = {};
+        _plBons = (bons || []).filter(function(b) {
+            if (seen[b.id]) return false;
+            seen[b.id] = true;
+            return true;
+        });
         _plLoading = false;
 
         // Filtrer tilbud hvis ikke vist
