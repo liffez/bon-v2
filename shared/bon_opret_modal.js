@@ -254,6 +254,7 @@ class BonOpretModal {
             delivery_type: deliveryType,
             pax: pax,
             price_category_id: priceCatId,
+            payment_type: this.selectedCustomer.default_payment_type || 'invoice',
         };
 
         // Disable knap under submit
