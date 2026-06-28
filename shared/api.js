@@ -1544,6 +1544,14 @@ function deleteCfAllocation(allocId) {
     return apiFetch('/cashflow/allocations/' + allocId, { method: 'DELETE' });
 }
 
+function fetchCfEventsOnDate(date) {
+    return apiFetch('/cashflow/events-on-date?date=' + encodeURIComponent(date || ''));
+}
+
+function fetchCfEventIncome() {
+    return apiFetch('/cashflow/event-income');
+}
+
 /* ── RFM & KUNDEINDSIGT ────────────────────────────────────── */
 
 function fetchRfmScores(params) {

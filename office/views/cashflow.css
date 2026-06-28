@@ -889,6 +889,38 @@
 }
 .cf-um-target:hover { background: #f0f5e9; border-color: #7a9c54; }
 .cf-alloc-foot { margin-top: 8px; }
+.cf-alloc-suggest {
+  display: flex; flex-wrap: wrap; align-items: center; gap: 6px;
+  margin-bottom: 8px;
+}
+.cf-suggest-lbl { font-size: 11px; color: #8a8580; }
+.cf-suggest-chip {
+  font-size: 11.5px; font-weight: 600;
+  padding: 4px 9px; border-radius: 14px; cursor: pointer;
+  border: 1px solid #7a9c54; background: #f0f5e9; color: #3f5a2a;
+}
+.cf-suggest-chip:hover { background: #7a9c54; color: white; }
+
+/* ── §2.E Event-indtægtsoverblik ── */
+.cf-event-income-card {
+  background: white; border-radius: 10px; overflow: hidden;
+  border: 1px solid #cfe0b8; margin-top: 12px;
+}
+.cf-event-income-header {
+  display: flex; justify-content: space-between; align-items: center;
+  padding: 11px 14px; background: #f0f5e9;
+  font-weight: 700; font-size: 13px; color: #3f5a2a;
+}
+.cf-event-income-total { font-weight: 800; }
+.cf-event-income-row {
+  display: flex; justify-content: space-between; align-items: center;
+  gap: 10px; padding: 10px 14px; border-top: 1px solid #eef0ea;
+}
+.cf-event-income-name > div:first-child { font-weight: 600; font-size: 13px; }
+.cf-event-income-sub { font-size: 11px; color: #8a8580; }
+.cf-event-income-amts { text-align: right; white-space: nowrap; }
+.cf-event-income-net { font-weight: 700; font-size: 13px; display: block; }
+.cf-event-income-fee { font-size: 10.5px; color: #8a8580; }
 
 /* ── Upcoming card ── */
 .cf-upcoming-card {

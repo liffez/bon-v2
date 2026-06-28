@@ -904,6 +904,63 @@ router.get('/match-targets', handle(async (req, res) => {
     res.json({ targets });
 }));
 
+// ─── GET /events-on-date — auto-forslag: events der overlapper en dato ───────
+//
+// §2.E auto-forslag: en indbetaling med dato inden for (eller kort efter) et
+// events periode er sandsynligvis direkte event-salg. Buffer efter end_date
+// fanger afregninger der lander 1-få dage efter eventet (Zettle/MobilePay).
+router.get('/events-on-date', handle(async (req, res) => {
+    const db = getDb();
+    const date = String(req.query.date || '').slice(0, 10);
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(date)) return res.json({ events: [] });
+    const events = db.prepare(`
+        SELECT id, name, start_date, end_date FROM events
+        WHERE date(start_date) <= date(?)
+          AND date(?) <= date(COALESCE(end_date, start_date), '+5 days')
+        ORDER BY start_date DESC
+    `).all(date, date);
+    res.json({ events: events.map(e => ({
+        type: 'event', id: e.id, label: `🎪 ${e.name}`,
+        sublabel: [e.start_date, e.end_date].filter(Boolean).join(' → '),
+    })) });
+}));
+
+// ─── GET /event-income — per-event-indtægtsoverblik (bank-afstemt) ───────────
+//
+// §2.E: "Festival X = Y kr ind". Brutto = Σ event-allokeringer. Gebyr = Σ fee-
+// allokeringer på de SAMME transaktioner (Zettle/MobilePay-gebyr hører til samme
+// indbetaling). Netto = brutto + gebyr (gebyr er negativt). Kun events med
+// mindst én kobling vises, med mindre ?all=1.
+router.get('/event-income', handle(async (req, res) => {
+    const db = getDb();
+    const rows = db.prepare(`
+        SELECT
+            e.id, e.name, e.start_date, e.end_date,
+            COALESCE(SUM(a.amount), 0) AS gross,
+            COUNT(DISTINCT a.transaction_id) AS tx_count,
+            COALESCE((
+                SELECT SUM(f.amount) FROM cf_allocations f
+                WHERE f.target_type = 'fee' AND f.transaction_id IN (
+                    SELECT transaction_id FROM cf_allocations
+                    WHERE target_type = 'event' AND target_id = CAST(e.id AS TEXT)
+                )
+            ), 0) AS fees
+        FROM events e
+        LEFT JOIN cf_allocations a
+            ON a.target_type = 'event' AND a.target_id = CAST(e.id AS TEXT)
+        GROUP BY e.id
+        ORDER BY e.start_date DESC
+    `).all();
+    const events = rows
+        .filter(r => req.query.all === '1' || r.tx_count > 0)
+        .map(r => ({
+            id: r.id, name: r.name, start_date: r.start_date, end_date: r.end_date,
+            gross: r2(r.gross), fees: r2(r.fees), net: r2(r.gross + r.fees),
+            tx_count: r.tx_count,
+        }));
+    res.json({ events });
+}));
+
 // ─── GET /suggest-matches — Forslag til forfaldne fakturaer ──────────────
 //
 // For hver FORFALDEN, ubetalt faktura: find den bedste umatchede, indgående

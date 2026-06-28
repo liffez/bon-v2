@@ -126,21 +126,22 @@ async function _cfRenderOverblik() {
     content.innerHTML = '<div class="cf-empty"><div class="cf-empty-icon">⏳</div>Henter data...</div>';
 
     try {
-        const [stats, weekly, invoices, upcoming, unmatched] = await Promise.all([
+        const [stats, weekly, invoices, upcoming, unmatched, eventIncome] = await Promise.all([
             fetchCfStats(),
             fetchCfWeekly(),
             fetchCfInvoices(_cfInvTab),
             fetchCfUpcoming(),
-            fetchCfTransactions({ unmatched: true, limit: 25 })
+            fetchCfTransactions({ unmatched: true, limit: 25 }),
+            fetchCfEventIncome().catch(() => ({ events: [] }))
         ]);
 
-        _cfBuildOverblik(content, stats, weekly, invoices, upcoming, unmatched);
+        _cfBuildOverblik(content, stats, weekly, invoices, upcoming, unmatched, eventIncome);
     } catch (err) {
         content.innerHTML = `<div class="cf-empty"><div class="cf-empty-icon">⚠️</div>${err.message}</div>`;
     }
 }
 
-function _cfBuildOverblik(el, stats, weekly, invoices, upcoming, unmatched) {
+function _cfBuildOverblik(el, stats, weekly, invoices, upcoming, unmatched, eventIncome) {
     _cfUnmatched = {};
     (unmatched.rows || []).forEach(tx => { _cfUnmatched[tx.id] = tx; });
     const daysSince = _cfDaysSince(stats.last_upload);
@@ -260,6 +261,8 @@ function _cfBuildOverblik(el, stats, weekly, invoices, upcoming, unmatched) {
                     </div>
                 </div>` : ''}
 
+                ${_cfEventIncomeCard(eventIncome)}
+
                 ${upcoming.rows.length > 0 ? `
                 <div class="cf-upcoming-card">
                     <div class="cf-upcoming-header">Forfalder snart</div>
@@ -372,6 +375,32 @@ function _cfWireUnmatched(el) {
     });
 }
 
+/** §2.E per-event-indtægtsoverblik — kompakt kort (kun events med koblinger). */
+function _cfEventIncomeCard(eventIncome) {
+    const events = (eventIncome && eventIncome.events) || [];
+    if (!events.length) return '';
+    const totalNet = events.reduce((s, e) => s + (e.net || 0), 0);
+    return `
+        <div class="cf-event-income-card">
+            <div class="cf-event-income-header">
+                <span>🎪 Event-indtægt (bank-afstemt)</span>
+                <span class="cf-event-income-total">${_cfFmt(totalNet)}</span>
+            </div>
+            ${events.map(e => `
+                <div class="cf-event-income-row">
+                    <div class="cf-event-income-name">
+                        <div>${_cfEsc(e.name)}</div>
+                        <div class="cf-event-income-sub">${[e.start_date, e.end_date].filter(Boolean).join(' → ')} · ${e.tx_count} ${e.tx_count === 1 ? 'indbetaling' : 'indbetalinger'}</div>
+                    </div>
+                    <div class="cf-event-income-amts">
+                        <span class="cf-event-income-net">${_cfFmt(e.net)}</span>
+                        ${Math.abs(e.fees) >= 0.01 ? `<span class="cf-event-income-fee">brutto ${_cfFmt(e.gross)} · gebyr ${_cfFmt(e.fees)}</span>` : ''}
+                    </div>
+                </div>
+            `).join('')}
+        </div>`;
+}
+
 async function _cfBuildUmPanel(panel, id) {
     const tx = _cfUnmatched[id] || {};
     _cfAllocDraft[id] = { lines: [], existing: [] };
@@ -386,6 +415,7 @@ async function _cfBuildUmPanel(panel, id) {
                 <span class="cf-alloc-rest" data-rest></span>
             </div>
             <div class="cf-alloc-lines" data-lines></div>
+            <div class="cf-alloc-suggest" data-suggest hidden></div>
             <div class="cf-alloc-search-wrap">
                 <input class="cf-um-search" type="text" placeholder="Søg bon, faktura eller event…" autocomplete="off">
                 <button class="cf-um-btn cf-alloc-fee" title="Tilføj gebyr-linje (negativ)">+ Gebyr</button>
@@ -439,6 +469,8 @@ async function _cfBuildUmPanel(panel, id) {
             clearTimeout(_cfAllocSearchTimer);
             _cfAllocSearchTimer = setTimeout(() => _cfSearchTargets(panel, id, search.value.trim()), 220);
         };
+        // §2.E auto-forslag: events der overlapper transaktionens dato
+        _cfLoadEventSuggestions(panel, id, tx.dato);
     };
 
     // Gebyr-linje
@@ -563,17 +595,45 @@ async function _cfSearchTargets(panel, id, q) {
         row.onclick = (e) => {
             e.stopPropagation();
             const t = targets[+row.getAttribute('data-tgt')];
-            const d = _cfAllocDraft[id];
-            // undgå dublet
-            if (d.lines.some(l => l.target_type === t.type && String(l.target_id) === String(t.id))) return;
-            const rest = _cfAllocRest(id);
-            d.lines.push({
-                target_type: t.type, target_id: t.id, label: t.label, sublabel: t.sublabel,
-                amount: rest > 0.01 ? rest : 0,   // default = resterende beløb (1:1 = ét klik)
-            });
             host.innerHTML = '';
             panel.querySelector('.cf-um-search').value = '';
-            _cfRenderAllocLines(panel, id);
+            _cfAddAllocTarget(panel, id, t);
+        };
+    });
+}
+
+/** Tilføj et mål som staged allokerings-linje (default beløb = resterende). */
+function _cfAddAllocTarget(panel, id, t) {
+    const d = _cfAllocDraft[id];
+    if (d.lines.some(l => l.target_type === t.type && String(l.target_id) === String(t.id))) return;
+    const rest = _cfAllocRest(id);
+    d.lines.push({
+        target_type: t.type, target_id: t.id, label: t.label, sublabel: t.sublabel,
+        amount: rest > 0.01 ? rest : 0,   // default = resterende beløb (1:1 = ét klik)
+    });
+    _cfRenderAllocLines(panel, id);
+}
+
+/** §2.E: hent + render event-forslag (dato-overlap) som ét-klik-chips. */
+async function _cfLoadEventSuggestions(panel, id, date) {
+    const host = panel.querySelector('[data-suggest]');
+    if (!host || !date) return;
+    let events = [];
+    try { events = (await fetchCfEventsOnDate(date)).events || []; } catch { events = []; }
+    // skjul allerede-koblede events
+    const d = _cfAllocDraft[id] || { lines: [], existing: [] };
+    const taken = new Set([...(d.lines || []), ...(d.existing || [])]
+        .filter(l => l.target_type === 'event').map(l => String(l.target_id)));
+    events = events.filter(e => !taken.has(String(e.id)));
+    if (!events.length) { host.hidden = true; host.innerHTML = ''; return; }
+    host.hidden = false;
+    host.innerHTML = '<span class="cf-suggest-lbl">Forslag (samme dato):</span>' +
+        events.map((e, i) => `<button class="cf-suggest-chip" data-sug="${i}">${_cfEsc(e.label)}</button>`).join('');
+    host.querySelectorAll('.cf-suggest-chip').forEach(chip => {
+        chip.onclick = (ev) => {
+            ev.stopPropagation();
+            _cfAddAllocTarget(panel, id, events[+chip.getAttribute('data-sug')]);
+            _cfLoadEventSuggestions(panel, id, date);  // fjern den valgte fra forslag
         };
     });
 }

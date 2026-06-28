@@ -81,7 +81,18 @@ ALTER TABLE bons ADD COLUMN faktureret_at  TEXT;    -- sættes ved "Markér fakt
 - `invoice_number` tastes samme sted (manuelt nu; auto sat af reconcile (B) når booked-nummeret kendes).
 - `cashflowSync` skifter fra fri-tekst-parse til at læse `bons.invoice_number` (med fri-tekst som fallback i overgangen).
 
-### E. Direkte salg / event-indtægt (besluttet 27. juni — bygges som næste)
+### E. Direkte salg / event-indtægt (E.1+E.2 bygget 29. juni · E.3 udestår)
+> **Status:** event-kobling, auto-forslag og per-event-overblik er bygget oven på `cf_allocations`
+> (target_type='event') — IKKE et separat `matched_event_id`-felt (jf. §2.F-beslutning). Tilbage: E.3
+> "opret bon fra indbetaling". Konkret bygget:
+> - ✅ **Kobl til event** = allokering (target_type='event') via universel søgning (§2.F)
+> - ✅ **Auto-forslag** `GET /cashflow/events-on-date?date=` — events hvis interval (+5 dages buffer
+>   efter end_date, fanger Zettle/MobilePay-afregning der lander efter eventet) dækker tx-datoen.
+>   Vises som ét-klik-chips øverst i alloc-panelet, allerede-koblede skjules.
+> - ✅ **Per-event-indtægtsoverblik** `GET /cashflow/event-income` — brutto (Σ event-allokeringer),
+>   gebyr (Σ fee-allokeringer på samme tx), netto, tx-antal. Kompakt kort i Overblik-tabben.
+> - ⏳ **E.3 Opret bon fra indbetaling** — afventer design-afklaring (kunde, price_category, status, event_role).
+
 > B afstemmer kun FAKTURA-indtægter. Den anden halvdel er **direkte salg ved events**
 > (festival, POS/Zettle, kontant) hvor der **ikke er skrevet en faktura** — de havner
 > ellers permanent i "kan ikke matches". Det er det egentlige markerings-arbejde for kontoret.
@@ -245,8 +256,9 @@ opret-bon-fra-indbetaling, per-event-indtægtsoverblik) bygges oven på `cf_allo
 3. ✅ **Split-allokering + universel kobling (F) — BYGGET 29. juni.** Migration 115 `cf_allocations`
    + backfill, allokerings-endpoints, `GET /cashflow/match-targets`, split-UI. Browser-verificeret.
    `cf_allocations` ligger nu klar som mål for E's event-kobling (target_type='event').
-4. **Direkte salg / event-indtægt (E).** Kobl-til-event + opret-bon-fra-indbetaling + auto-forslag på
-   dato-overlap + per-event-indtægtsoverblik — implementeret som allokeringer (target_type='event'). (§2.E + §2.F.)
+4. **Direkte salg / event-indtægt (E).** ✅ E.1 auto-forslag (`/events-on-date`) + E.2 per-event-overblik
+   (`/event-income`) bygget 29. juni oven på `cf_allocations` (target='event'). ⏳ E.3 opret-bon-fra-
+   indbetaling udestår (design-afklaring).
 5. `bons.invoice_number` + `faktureret_at` + wiring i "Markér faktureret" (C) — koordinér med Spor 2.
 6. Forecast tier-2 i `/upcoming` (D).
 
