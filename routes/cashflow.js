@@ -26,7 +26,8 @@ const express       = require('express');
 const router        = express.Router();
 const Busboy        = require('busboy');
 const { getDb }     = require('../db/database');
-const { handle, inclToExcl, momsOfIncl, logChange, todayISO, offsetISO } = require('../db/helpers');
+const { handle, inclToExcl, momsOfIncl, logChange, todayISO, offsetISO,
+        getStatusId, getDefaultLocationId, nextBonNumber, recalcBonTotalUnits } = require('../db/helpers');
 const { requireAuth } = require('../shared/auth');
 const { broadcast } = require('../shared/sse');
 const { transaction } = require('../db/compat');
@@ -959,6 +960,121 @@ router.get('/event-income', handle(async (req, res) => {
             tx_count: r.tx_count,
         }));
     res.json({ events });
+}));
+
+// ─── POST /create-bon-from-tx — §2.E.3: opret salgsbon fra en indbetaling ────
+//
+// Direkte salg ved event (Zettle/MobilePay/kontant) uden faktura. Opretter en
+// rigtig BETALT salgsbon (event_role='sales', price_category='festival') og
+// allokerer transaktionen til den. Hvis eventet ALLEREDE har en salgsbon
+// (besluttet: "hvis der ikke er en bon til eventet skal der oprettes en"),
+// genbruges den — linjer tilføjes i stedet for at oprette en dublet.
+//
+// Linjer er fleksible: én samle-linje ("Direkte salg") ELLER salg pr. menu-linje.
+// Valgfri gebyr-linje (Zettle/MobilePay) gør at brutto kan overstige netto.
+// Σ(linjer) + gebyr må ikke overstige transaktionens (resterende) beløb.
+//
+// Body: { transaction_id, event_id?, payment_type, lines:[{name,amount}], fee?:{kind,amount} }
+router.post('/create-bon-from-tx', handle(async (req, res) => {
+    const db = getDb();
+    const { transaction_id, event_id = null, payment_type = 'card', fee = null } = req.body;
+    const lines = Array.isArray(req.body.lines) ? req.body.lines : [];
+
+    const tx = db.prepare('SELECT * FROM cf_transactions WHERE id = ?').get(transaction_id);
+    if (!tx) return res.status(404).json({ error: 'Transaktion ikke fundet' });
+    if (!lines.length) return res.status(400).json({ error: 'Mindst én linje kræves' });
+
+    // Valider + normaliser linjer
+    const cleanLines = [];
+    for (const l of lines) {
+        const amount = r2(Number(l.amount));
+        if (!Number.isFinite(amount) || amount <= 0) return res.status(400).json({ error: 'Linje-beløb skal være > 0' });
+        cleanLines.push({ name: String(l.name || 'Direkte salg').trim() || 'Direkte salg', amount });
+    }
+    const linesSum = r2(cleanLines.reduce((s, l) => s + l.amount, 0));
+
+    // Valider event hvis angivet
+    let event = null;
+    if (event_id != null) {
+        event = db.prepare('SELECT id, name, start_date FROM events WHERE id = ?').get(event_id);
+        if (!event) return res.status(404).json({ error: `Event ${event_id} findes ikke` });
+    }
+
+    // Valider gebyr (negativ) + allokerings-invariant mod tx (inkl. eksisterende)
+    const feeAmount = fee && fee.amount != null ? r2(Number(fee.amount)) : 0;
+    if (feeAmount > 0) return res.status(400).json({ error: 'Gebyr skal være ≤ 0' });
+    const existingAlloc = db.prepare('SELECT COALESCE(SUM(amount),0) AS s FROM cf_allocations WHERE transaction_id = ?').get(transaction_id).s;
+    const allocTotal = r2(existingAlloc + linesSum + feeAmount);
+    if (Math.abs(allocTotal) - Math.abs(tx.beloeb) > 0.01) {
+        return res.status(400).json({ error: `Σ allokeret (${allocTotal}) overstiger indbetalingen (${tx.beloeb})` });
+    }
+    if (allocTotal !== 0 && Math.sign(allocTotal) !== Math.sign(tx.beloeb)) {
+        return res.status(400).json({ error: 'Allokering må ikke vende indbetalingens fortegn' });
+    }
+
+    const userId = req.session.userId || null;
+
+    // Beslut bon-genbrug + hent nummer/status/lokation UDEN FOR transaction()
+    // (nextBonNumber/getStatusId åbner selv transactions → nested = fejl).
+    const existingBon = event ? db.prepare(
+        "SELECT id, bon_number FROM bons WHERE event_id = ? AND event_role = 'sales' ORDER BY id LIMIT 1"
+    ).get(event.id) : null;
+    const newBonNumber = existingBon ? null : nextBonNumber();
+    const betaltStatusId = existingBon ? null : getStatusId('BETALT');
+    const defaultLocationId = existingBon ? null : getDefaultLocationId();
+
+    const result = transaction(db, () => {
+        let bonId = existingBon ? existingBon.id : null;
+        let bonNumber = existingBon ? existingBon.bon_number : newBonNumber;
+        let created = false;
+        if (!bonId) {
+            const ins = db.prepare(`
+                INSERT INTO bons (
+                    bon_number, status_id, location_id, order_date, delivery_date,
+                    price_category, payment_type, event_id, event_role,
+                    pax, total_units, total_price, total_with_delivery, created_by_user_id
+                ) VALUES (?,?,?,?,?,?,?,?,?,0,0,0,0,?)
+            `).run(
+                bonNumber, betaltStatusId, defaultLocationId, todayISO(),
+                tx.dato, 'festival', payment_type,
+                event ? event.id : null, event ? 'sales' : null,
+                userId
+            );
+            bonId = ins.lastInsertRowid;
+            created = true;
+            logChange({ entityType: 'bon', entityId: bonId, action: 'create', newValue: bonNumber, userId });
+        }
+
+        // Tilføj linjer (priser er INCL moms per doktrin)
+        const sortBase = db.prepare('SELECT COALESCE(MAX(sort_order),0) AS m FROM bon_lines WHERE bon_id = ?').get(bonId).m;
+        const lineStmt = db.prepare(`
+            INSERT INTO bon_lines (bon_id, product_name, category, quantity, unit, unit_price, line_total, sort_order, moms_included)
+            VALUES (?, ?, 'Event-salg', 1, 'stk', ?, ?, ?, 1)
+        `);
+        cleanLines.forEach((l, i) => lineStmt.run(bonId, l.name, l.amount, l.amount, sortBase + i + 1));
+
+        // Server-autoritativ total
+        recalcBonTotalUnits(db, bonId);
+        const total = db.prepare('SELECT COALESCE(SUM(line_total),0) AS s FROM bon_lines WHERE bon_id = ?').get(bonId).s;
+        db.prepare('UPDATE bons SET total_price = ?, total_with_delivery = ? WHERE id = ?').run(r2(total), r2(total), bonId);
+
+        // Allokér transaktionen til bonen (+ evt. gebyr-linje)
+        const allocStmt = db.prepare(`
+            INSERT INTO cf_allocations (transaction_id, target_type, target_id, amount, note, created_by)
+            VALUES (?, ?, ?, ?, ?, ?)
+        `);
+        allocStmt.run(transaction_id, 'bon', String(bonId), linesSum, 'Opret bon fra indbetaling', userId);
+        if (feeAmount < 0) {
+            allocStmt.run(transaction_id, 'fee', String(fee.kind || 'gebyr'), feeAmount, null, userId);
+        }
+        syncTxFromAllocations(db, transaction_id);
+
+        return { bonId, bonNumber, created };
+    });
+
+    broadcast(result.created ? 'bon_created' : 'bon_updated', { id: result.bonId, bon_number: result.bonNumber });
+    broadcast('cashflow_allocation', { transaction_id: Number(transaction_id) });
+    res.json({ ok: true, bon_id: result.bonId, bon_number: result.bonNumber, created: result.created });
 }));
 
 // ─── GET /suggest-matches — Forslag til forfaldne fakturaer ──────────────

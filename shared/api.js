@@ -1552,6 +1552,12 @@ function fetchCfEventIncome() {
     return apiFetch('/cashflow/event-income');
 }
 
+function createBonFromCfTx(data) {
+    return apiFetch('/cashflow/create-bon-from-tx', {
+        method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(data)
+    });
+}
+
 /* ── RFM & KUNDEINDSIGT ────────────────────────────────────── */
 
 function fetchRfmScores(params) {

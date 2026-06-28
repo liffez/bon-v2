@@ -21,6 +21,8 @@ let _cfUnmatched = {};       // tx-id → tx (umatchede posteringer i overblikke
 let _cfUmInvCache = null;    // (legacy — ikke længere brugt af panelet)
 let _cfAllocDraft = {};      // tx-id → { lines:[{target_type,target_id,label,sublabel,amount}], existing:[] }
 let _cfAllocSearchTimer = null;
+let _cfBonDraft = {};        // tx-id → { lines:[{name,amount}] } til "opret bon fra indbetaling"
+const _CF_PAY_OPTS = [['card','Kort/Zettle'],['mobilepay','MobilePay'],['cash','Kontant'],['pos','POS']];
 
 const _CF_FEE_KINDS = [
     { id: 'zettle', label: 'Zettle-gebyr' },
@@ -407,8 +409,10 @@ async function _cfBuildUmPanel(panel, id) {
     panel.innerHTML = `
         <div class="cf-um-actions">
             <button class="cf-um-btn cf-um-alloc-toggle">🔗 Kobl / split</button>
+            <button class="cf-um-btn cf-um-bon-toggle">🧾 Opret bon</button>
             <button class="cf-um-btn cf-um-ignore">🚫 Ignorér</button>
         </div>
+        <div class="cf-um-bon" hidden></div>
         <div class="cf-um-alloc" hidden>
             <div class="cf-alloc-head">
                 <span>Fordel <strong>${_cfFmt(tx.beloeb)}</strong></span>
@@ -477,6 +481,15 @@ async function _cfBuildUmPanel(panel, id) {
     panel.querySelector('.cf-alloc-fee').onclick = (e) => {
         e.stopPropagation();
         _cfShowFeePicker(panel, id);
+    };
+
+    // Opret bon fra indbetaling (§2.E.3)
+    const bonBox = panel.querySelector('.cf-um-bon');
+    panel.querySelector('.cf-um-bon-toggle').onclick = async (e) => {
+        e.stopPropagation();
+        bonBox.hidden = !bonBox.hidden;
+        if (bonBox.hidden) return;
+        await _cfBuildBonForm(panel, id, tx);
     };
 
     // Gem allokering
@@ -659,6 +672,103 @@ function _cfShowFeePicker(panel, id) {
             _cfRenderAllocLines(panel, id);
         };
     });
+}
+
+/** §2.E.3 — formular: opret salgsbon fra en indbetaling. */
+async function _cfBuildBonForm(panel, id, tx) {
+    const box = panel.querySelector('.cf-um-bon');
+    _cfBonDraft[id] = { lines: [{ name: 'Direkte salg', amount: tx.beloeb }] };
+    let events = [];
+    try { events = (await fetchCfEventsOnDate(tx.dato)).events || []; } catch { events = []; }
+    const evtOptions = '<option value="">Ingen / standalone</option>' +
+        events.map(e => `<option value="${e.id}">${_cfEsc(e.label.replace('🎪 ', ''))}</option>`).join('');
+    const payOptions = _CF_PAY_OPTS.map(([v, l]) => `<option value="${v}">${l}</option>`).join('');
+    box.innerHTML = `
+        <div class="cf-bon-hint">Opretter BETALT salgsbon${events.length ? ' (event-forslag fra dato)' : ''} + kobler indbetalingen til den.</div>
+        <div class="cf-bon-row">
+            <label>Event</label>
+            <select class="cf-bon-event">${evtOptions}</select>
+        </div>
+        <div class="cf-bon-row">
+            <label>Betaling</label>
+            <select class="cf-bon-pay">${payOptions}</select>
+        </div>
+        <div class="cf-bon-lines" data-bon-lines></div>
+        <button class="cf-um-btn cf-bon-addline">+ linje</button>
+        <div class="cf-bon-row cf-bon-fee-row">
+            <label>Gebyr</label>
+            <input class="cf-bon-fee-amt" type="number" step="0.01" placeholder="0 (valgfrit, negativt)">
+        </div>
+        <div class="cf-bon-foot">
+            <span class="cf-bon-sum"></span>
+            <button class="cf-um-btn cf-um-btn-primary cf-bon-create">Opret bon</button>
+        </div>
+    `;
+    if (events.length) box.querySelector('.cf-bon-event').value = String(events[0].id);
+
+    box.querySelector('.cf-bon-addline').onclick = (e) => {
+        e.stopPropagation();
+        _cfBonDraft[id].lines.push({ name: '', amount: 0 });
+        _cfRenderBonLines(panel, id, tx);
+    };
+    box.querySelector('.cf-bon-fee-amt').oninput = () => _cfUpdateBonSum(panel, id, tx);
+    box.querySelector('.cf-bon-create').onclick = async (e) => {
+        e.stopPropagation();
+        const eventId = box.querySelector('.cf-bon-event').value || null;
+        const payment = box.querySelector('.cf-bon-pay').value;
+        const feeRaw = Number(box.querySelector('.cf-bon-fee-amt').value);
+        const lines = _cfBonDraft[id].lines.filter(l => Number(l.amount) > 0)
+            .map(l => ({ name: l.name || 'Direkte salg', amount: Number(l.amount) }));
+        if (!lines.length) { alert('Mindst én linje med beløb > 0'); return; }
+        const body = { transaction_id: id, event_id: eventId ? Number(eventId) : null, payment_type: payment, lines };
+        if (Number.isFinite(feeRaw) && feeRaw < 0) body.fee = { kind: payment === 'mobilepay' ? 'mobilepay' : 'zettle', amount: feeRaw };
+        try {
+            const r = await createBonFromCfTx(body);
+            _cfRenderOverblik();
+            setTimeout(() => alert(`${r.created ? 'Bon oprettet' : 'Tilføjet til eventets salgsbon'}: #${r.bon_number}`), 50);
+        } catch (err) { alert('Kunne ikke oprette bon: ' + err.message); }
+    };
+
+    _cfRenderBonLines(panel, id, tx);
+}
+
+function _cfRenderBonLines(panel, id, tx) {
+    const host = panel.querySelector('[data-bon-lines]');
+    const lines = _cfBonDraft[id].lines;
+    host.innerHTML = lines.map((l, i) => `
+        <div class="cf-bon-line">
+            <input class="cf-bon-line-name" type="text" placeholder="Varenavn" value="${_cfEsc(l.name)}" data-bl-name="${i}">
+            <input class="cf-bon-line-amt" type="number" step="0.01" value="${l.amount}" data-bl-amt="${i}">
+            ${lines.length > 1 ? `<button class="cf-alloc-del" data-bl-del="${i}">✕</button>` : '<span style="width:18px"></span>'}
+        </div>
+    `).join('');
+    host.querySelectorAll('[data-bl-name]').forEach(inp => {
+        inp.onclick = (e) => e.stopPropagation();
+        inp.oninput = () => { lines[+inp.getAttribute('data-bl-name')].name = inp.value; };
+    });
+    host.querySelectorAll('[data-bl-amt]').forEach(inp => {
+        inp.onclick = (e) => e.stopPropagation();
+        inp.oninput = () => { lines[+inp.getAttribute('data-bl-amt')].amount = Number(inp.value) || 0; _cfUpdateBonSum(panel, id, tx); };
+    });
+    host.querySelectorAll('[data-bl-del]').forEach(btn => {
+        btn.onclick = (e) => { e.stopPropagation(); lines.splice(+btn.getAttribute('data-bl-del'), 1); _cfRenderBonLines(panel, id, tx); };
+    });
+    _cfUpdateBonSum(panel, id, tx);
+}
+
+function _cfUpdateBonSum(panel, id, tx) {
+    const lines = _cfBonDraft[id].lines;
+    const linesSum = lines.reduce((s, l) => s + (Number(l.amount) || 0), 0);
+    const fee = Number(panel.querySelector('.cf-bon-fee-amt')?.value) || 0;
+    const alloc = Math.round((linesSum + fee) * 100) / 100;
+    const diff = Math.round((tx.beloeb - alloc) * 100) / 100;
+    const el = panel.querySelector('.cf-bon-sum');
+    const over = alloc > tx.beloeb + 0.01;
+    el.innerHTML = `Linjer ${_cfFmt(linesSum)}${fee ? ' · gebyr ' + _cfFmt(fee) : ''} = <strong>${_cfFmt(alloc)}</strong>` +
+        (Math.abs(diff) < 0.01 ? ' ✓' : ` · rest ${_cfFmt(diff)}`);
+    el.classList.toggle('cf-bon-sum-over', over);
+    const btn = panel.querySelector('.cf-bon-create');
+    if (btn) btn.disabled = over || linesSum <= 0;
 }
 
 /* ── Weekly chart ── */
