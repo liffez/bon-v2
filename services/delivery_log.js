@@ -270,7 +270,7 @@ function setActualCost({ bonId, amount, source = 'manual', userId = null, note =
 
     const db = getDb();
     const bon = db.prepare(`
-        SELECT id, delivery_cost, delivery_cost_source FROM bons WHERE id = ?
+        SELECT id, delivery_cost, delivery_cost_source, delivery_price FROM bons WHERE id = ?
     `).get(bonId);
     if (!bon) throw new Error(`Bon ${bonId} ikke fundet`);
 
@@ -284,6 +284,25 @@ function setActualCost({ bonId, amount, source = 'manual', userId = null, note =
                 updated_at = CURRENT_TIMESTAMP
             WHERE id = ?
         `).run(numAmount, source, bonId);
+
+        // Auto-udfyld kundepris (delivery_price) = kostpris + markup, så den ikke
+        // skal sættes manuelt. Overskriver ALDRIG en allerede sat kundepris med
+        // positiv margin (suggestCustomerPrice returnerer null i så fald).
+        try {
+            const { suggestCustomerPrice } = require('./lobo_booking');
+            const { inclToExcl, exclToIncl } = require('../shared/moms');
+            const getNum = (k) => { const r = db.prepare('SELECT value FROM settings WHERE key = ?').get(k); return r && r.value !== '' ? Number(r.value) : null; };
+            const markupPct = getNum('lobo_customer_markup_pct') ?? 10;
+            const roundTo   = getNum('lobo_customer_round_to') ?? 25;
+            const currentEx = bon.delivery_price > 0 ? inclToExcl(bon.delivery_price) : null;
+            const suggestedEx = suggestCustomerPrice(numAmount, currentEx, markupPct, roundTo);  // numAmount = kostpris EX moms
+            if (suggestedEx != null) {
+                const incl = Math.round(exclToIncl(suggestedEx) * 100) / 100;   // delivery_price er INCL moms
+                db.prepare(`UPDATE bons SET delivery_price = ? WHERE id = ?`).run(incl, bonId);
+                logChange({ entityType: 'bon', entityId: bonId, action: 'update', fieldName: 'delivery_price',
+                    oldValue: bon.delivery_price, newValue: incl, userId, notes: `Auto-foreslået kundepris (kostpris ${numAmount} + ${markupPct}%)` });
+            }
+        } catch (e) { /* markup-helper utilgængelig → spring auto-udfyld over */ }
 
         logChange({
             entityType: 'bon',

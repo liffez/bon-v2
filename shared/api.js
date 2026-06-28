@@ -932,6 +932,39 @@ function fetchInvoiceQueue(includeDone) {
     return apiFetch('/invoices/queue' + qs);
 }
 
+/* ── E-CONOMIC FAKTURAUDKAST (Spor 2) ───────────────────── */
+
+// Dry-run: byg payloaden uden at sende. Returnerer { payload, readiness, ... }.
+function previewEconomicDraft(bonId) {
+    return apiFetch('/invoices/' + bonId + '/economic-preview');
+}
+
+// Opret fakturaudkast i e-conomic. opts: { oneoff_for_missing? }.
+function createEconomicDraft(bonId, opts) {
+    return apiFetch('/invoices/' + bonId + '/economic-draft', {
+        method: 'POST',
+        body: JSON.stringify(opts || {}),
+    });
+}
+
+// Pre-flight: hvilke kø-bons ville blive blokeret + "kladder venter"-tæller.
+function fetchEconomicReadiness() {
+    return apiFetch('/invoices/economic-readiness');
+}
+
+// Slå bonens firma op i e-conomic (CVR/EAN/navn) + hent kontakter → forslag til kobling.
+function suggestEconomicCustomer(bonId) {
+    return apiFetch('/invoices/' + bonId + '/economic-customer-suggest');
+}
+
+// Opret bonens firma (+ kontakt) som ny kunde i e-conomic, skriv numrene tilbage.
+function createEconomicCustomer(bonId, opts) {
+    return apiFetch('/invoices/' + bonId + '/economic-create-customer', {
+        method: 'POST',
+        body: JSON.stringify(opts || {}),
+    });
+}
+
 function patchCompanyEconomic(companyId, economicCustomerId) {
     return apiFetch('/companies/' + companyId + '/economic', {
         method: 'PATCH',
@@ -1402,6 +1435,17 @@ function fetchCfStats() {
     return apiFetch('/cashflow/stats');
 }
 
+// e-conomic-afstemning (delta B): markér cf_invoices betalt fra e-conomics bogføring.
+function reconcileCashflow(opts) {
+    return apiFetch('/cashflow/reconcile', {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(opts || {}),
+    });
+}
+function fetchReconcileStatus() {
+    return apiFetch('/cashflow/reconcile/status');
+}
+
 function fetchCfWeekly() {
     return apiFetch('/cashflow/weekly');
 }
@@ -1707,6 +1751,11 @@ function cancelDelivery(data) {
 
 function fetchDeliveryEvents(bonId) {
     return apiFetch('/delivery/events?bon_id=' + bonId);
+}
+
+// Foreslået kundepris for levering (By-ex-pris/kvittering + markup, incl moms).
+function fetchDeliveryCustomerPrice(bonId) {
+    return apiFetch('/delivery/customer-price?bon_id=' + bonId);
 }
 
 // Lobo/By-expressen — live kostpris for én bon (opretter + sletter en

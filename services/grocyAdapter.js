@@ -460,6 +460,25 @@ function getRecipesRawMap() {
 }
 
 /**
+ * Map: recipe_id (number) → economic_product_number (string|null) fra Grocy-userfield.
+ * Læser RÅ recipes (IKKE getRecipes(), som filtrerer sellable=1) — en bon kan faktureres
+ * efter sæson, hvor recipen er sellable=0. Bruges af e-conomic-fakturaadapteren.
+ * Tomme/manglende numre udelades, så opslag returnerer undefined → linjen blokeres (by design).
+ */
+function getEconomicProductMap() {
+    return getRecipesRaw().then(arr => {
+        const m = new Map();
+        for (const r of arr) {
+            const num = r.userfields?.economic_product_number;
+            if (num != null && String(num).trim() !== '') {
+                m.set(r.id, String(num).trim());
+            }
+        }
+        return m;
+    });
+}
+
+/**
  * Tilføj varer til Grocy indkøbsliste.
  * @param {Array<{product_id: number, amount: number, note?: string}>} items
  */
@@ -1074,6 +1093,7 @@ module.exports = {
     getRecipes,
     getRecipesRaw,
     getRecipesRawMap,
+    getEconomicProductMap,
     getRecipeFulfillment,
     getRecipeIngredients,
     getRecipeNestings,

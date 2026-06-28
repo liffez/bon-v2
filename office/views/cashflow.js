@@ -142,6 +142,8 @@ function _cfBuildOverblik(el, stats, weekly, invoices, upcoming, unmatched) {
                 <span>${staleText}</span>
             </div>
             <div style="display:flex;gap:8px;align-items:center">
+                <span class="cf-econ-badge" id="cfEconBadge" title="Seneste dato e-conomic har bogført til"></span>
+                <button class="cf-upload-btn" id="cfReconcileBtn" title="Hent betalt-status fra e-conomic">⟳ Synk e-conomic</button>
                 <button class="cf-upload-btn" id="cfUploadBtn">↑ Upload CSV</button>
                 <input type="file" id="cfCsvInput" accept=".csv" style="display:none">
             </div>
@@ -297,6 +299,26 @@ function _cfBuildOverblik(el, stats, weekly, invoices, upcoming, unmatched) {
             uploadBtn.textContent = '↑ Upload CSV';
             uploadBtn.disabled = false;
             csvInput.value = '';
+        }
+    };
+
+    // e-conomic-afstemning: badge (vandmærke) + "Synk e-conomic"-knap
+    const econBadge = el.querySelector('#cfEconBadge');
+    const reconBtn = el.querySelector('#cfReconcileBtn');
+    fetchReconcileStatus().then(s => {
+        if (!econBadge) return;
+        if (!s.configured) { econBadge.textContent = 'e-conomic ikke konfigureret'; reconBtn.disabled = true; }
+        else econBadge.textContent = s.economic_booked_until ? `Fakturastatus ajour til ${s.economic_booked_until}` : 'Ikke afstemt endnu';
+    }).catch(() => {});
+    if (reconBtn) reconBtn.onclick = async () => {
+        try {
+            reconBtn.textContent = 'Synker...'; reconBtn.disabled = true;
+            const r = await reconcileCashflow({});
+            alert(`Afstemning færdig!\n\n${r.scanned} fakturaer scannet\n${r.matched} koblet til bons\n${r.flipped} markeret betalt`);
+            _cfRenderOverblik();
+        } catch (err) {
+            alert('Afstemning fejlede: ' + err.message);
+            reconBtn.textContent = '⟳ Synk e-conomic'; reconBtn.disabled = false;
         }
     };
 

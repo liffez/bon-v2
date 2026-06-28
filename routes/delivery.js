@@ -33,7 +33,8 @@ const { healthCheck } = require('../services/routing');
 const { geocodeAddress } = require('../services/geocode');
 const { computeRoute, applyRouteProposal, PICKUP_LOCKED_STATUSES } = require('../services/route_planner');
 const { getByExpressenAdapter, ByExpressenError } = require('../services/byExpressenAdapter');
-const { quoteForBon, bookForBon, previewBooking, normalizeLoboOrder } = require('../services/lobo_booking');
+const { quoteForBon, bookForBon, previewBooking, normalizeLoboOrder, suggestCustomerPrice } = require('../services/lobo_booking');
+const { exclToIncl: _exclToIncl } = require('../shared/moms');
 
 // Felter office må overstyre i se-og-ret-panelet (whitelist mod payload-injection).
 function pickLoboOverrides(src = {}) {
@@ -1356,6 +1357,47 @@ router.get('/lobo/quote', requireAuth(), handle(async (req, res) => {
         const status = e instanceof ByExpressenError ? (e.status || 502) : 502;
         res.status(status).json({ error: e.message, code: e.code, body: e.body });
     }
+}));
+
+// GET /api/delivery/customer-price?bon_id=
+// Foreslået KUNDEPRIS for levering (incl moms) = By-ekspressen-pris + markup.
+// By-ex-pris = faktisk kostpris (delivery_cost) hvis sat (kvittering), ellers et
+// live By-ex-tilbud ("hvad By-ex ville forlange" — også for Volvo/cykel/taxa).
+router.get('/customer-price', requireAuth(), handle(async (req, res) => {
+    const db = getDb();
+    const bonId = parseInt(req.query.bon_id, 10);
+    const bon = db.prepare('SELECT id, delivery_cost, delivery_price FROM bons WHERE id = ?').get(bonId);
+    if (!bon) return res.status(404).json({ error: 'Bon ikke fundet' });
+
+    const getNum = (k) => { const r = db.prepare('SELECT value FROM settings WHERE key = ?').get(k); return r && r.value !== '' ? Number(r.value) : null; };
+    const markupPct = getNum('lobo_customer_markup_pct') ?? 10;
+    const roundTo   = getNum('lobo_customer_round_to') ?? 25;
+
+    let costEx = null, source = null;
+    if (bon.delivery_cost != null && Number(bon.delivery_cost) > 0) {
+        costEx = Number(bon.delivery_cost);
+        source = 'receipt';                 // faktisk By-ex kvittering-kostpris
+    } else {
+        // Hent et live By-ex-tilbud (samme funktion som "By-ex pris"-knappen bruger).
+        const ctx = loadLoboContext(req, res);
+        if (!ctx) return;                   // loadLoboContext har allerede svaret ved fejl
+        try {
+            const q = await quoteForBon({ ...ctx, boxes: req.query.boxes });
+            costEx = q.cost_ex;
+            source = 'estimate';            // By-ex ville forlange (estimat)
+        } catch (e) {
+            const status = e instanceof ByExpressenError ? (e.status || 502) : 502;
+            return res.status(status).json({ error: 'Kunne ikke hente By-ex-pris: ' + e.message, code: e.code });
+        }
+    }
+
+    const suggestedEx = costEx != null ? suggestCustomerPrice(costEx, null, markupPct, roundTo) : null;
+    const suggestedIncl = suggestedEx != null ? Math.round(_exclToIncl(suggestedEx) * 100) / 100 : null;
+    res.json({
+        bon_id: bonId, source, markup_pct: markupPct,
+        by_ex_cost_ex: costEx, suggested_ex: suggestedEx, suggested_incl: suggestedIncl,
+        current_delivery_price: bon.delivery_price,
+    });
 }));
 
 // POST /api/delivery/lobo/preview  { bon_id, ...overrides }
