@@ -868,6 +868,17 @@
       </div>
       <div id="uc-status" style="font-size:11px;color:var(--color-text-dim);min-height:16px"></div>
 
+      <h4 style="margin-top:18px;font-size:13px;font-weight:700">Ekstra-retter der tæller som 1 enhed</h4>
+      <div style="font-size:12px;color:var(--color-text-dim);margin-bottom:10px;line-height:1.6;max-width:600px">
+        Enkelt-retter der skal tælle som enhed selvom deres kategori ikke er valgt ovenfor — fx <strong>Børne Bokse</strong>, der ligger i den blandede kategori "Tilbehør &amp; Bokse". <strong>Kombo-bokse</strong> (fx "Alm slider Boks" = 3 sliders) ekspanderes automatisk via Grocy-underopskrifter og skal <em>ikke</em> tilføjes her.
+      </div>
+      <div id="ue-list" style="display:flex;flex-wrap:wrap;gap:8px;margin-bottom:12px;min-height:34px"></div>
+      <div style="display:flex;gap:8px;align-items:center;margin-bottom:14px">
+        <select id="ue-add-select" class="st-input" style="flex:1;max-width:340px"></select>
+        <button class="st-btn st-btn-primary" type="button" onclick="ueAddSelected()">+ Tilføj</button>
+      </div>
+      <div id="ue-status" style="font-size:11px;color:var(--color-text-dim);min-height:16px"></div>
+
       <h3 style="margin-top:24px;font-size:15px;font-weight:700">Planlægningsbon</h3>
       <div style="display:flex;gap:12px;align-items:center;margin-bottom:14px">
         <label style="width:280px;font-size:14px;font-weight:500">Vis priser i planlægningsbon</label>
@@ -2419,8 +2430,9 @@ function _ucParse(raw) {
 
 async function loadUnitCategoriesSettings() {
   _ucSelected = _ucParse(allSettings['unit_count_categories']);
+  var recipes = [];
   try {
-    var recipes = await fetchGrocyRecipes();
+    recipes = await fetchGrocyRecipes();
     var seen = new Set();
     _ucAllCats = [];
     (recipes || []).forEach(function(r) {
@@ -2438,6 +2450,7 @@ async function loadUnitCategoriesSettings() {
     if (!_ucAllCats.includes(c)) _ucAllCats.push(c);
   });
   _ucRender();
+  _ueInit(recipes);
 }
 
 function _ucRender() {
@@ -2486,6 +2499,82 @@ async function _ucSave() {
     allSettings['unit_count_categories'] = json;
     if (status) {
       status.textContent = 'Gemt — kører igen ved næste bon-ændring. For historiske bons: kør scripts/backfill-total-units.js --apply';
+      setTimeout(function() { if (status.textContent.indexOf('Gemt') === 0) status.textContent = ''; }, 6000);
+    }
+  } catch (e) {
+    if (status) status.textContent = 'Fejl: ' + (e.message || e);
+  }
+}
+
+// ─── EKSTRA-RETTER (fx Børne Bokse) ──────────────────────
+// Recipe-id der tæller som 1 enhed selvom kategorien ikke er valgt ovenfor.
+// Gemmes som JSON-array af id i unit_count_extra_recipes. Kombo-bokse
+// ekspanderes automatisk via Grocy-nestings og skal IKKE stå her.
+
+var _ueSelected = [];      // array af recipe-id (number)
+var _ueRecipeMap = {};     // id → navn
+
+function _ueInit(recipes) {
+  _ueSelected = _ucParse(allSettings['unit_count_extra_recipes']).map(Number).filter(function(n){ return !isNaN(n); });
+  _ueRecipeMap = {};
+  (recipes || []).forEach(function(r) { _ueRecipeMap[Number(r.id)] = r.name; });
+  _ueRender(recipes || []);
+}
+
+function _ueRender(recipes) {
+  var list = document.getElementById('ue-list');
+  var sel  = document.getElementById('ue-add-select');
+  if (!list || !sel) return;
+
+  if (_ueSelected.length === 0) {
+    list.innerHTML = '<span style="font-size:13px;color:var(--color-text-dim);font-style:italic">Ingen — kun kategorierne ovenfor tæller</span>';
+  } else {
+    list.innerHTML = _ueSelected.map(function(id) {
+      var name = _ueRecipeMap[id] || ('Recipe #' + id);
+      return '<span class="ue-chip" style="display:inline-flex;align-items:center;gap:6px;padding:5px 10px;background:var(--brand-primary-light);border:1px solid var(--color-border);border-radius:14px;font-size:13px">' +
+        esc(name) + ' <span style="color:var(--color-text-dim);font-size:11px">#' + id + '</span>' +
+        '<button type="button" onclick="ueRemove(' + id + ')" style="border:none;background:none;cursor:pointer;font-size:14px;line-height:1;color:var(--color-text-dim);padding:0" title="Fjern">×</button>' +
+      '</span>';
+    }).join('');
+  }
+
+  var available = (recipes || []).filter(function(r) { return _ueSelected.indexOf(Number(r.id)) === -1; })
+    .sort(function(a, b) { return (a.name || '').localeCompare(b.name || '', 'da'); });
+  sel.innerHTML = '<option value="">— vælg ret —</option>' +
+    available.map(function(r) { return '<option value="' + Number(r.id) + '">' + esc(r.name) + (r.category ? ' (' + esc(r.category) + ')' : '') + '</option>'; }).join('');
+}
+
+async function ueAddSelected() {
+  var sel = document.getElementById('ue-add-select');
+  if (!sel || !sel.value) return;
+  var id = Number(sel.value);
+  if (_ueSelected.indexOf(id) !== -1) return;
+  _ueSelected.push(id);
+  await _ueSave();
+  // genbyg dropdown fra alle recipes (hentes via map-nøgler kan ikke; brug fetch)
+  var recipes = [];
+  try { recipes = await fetchGrocyRecipes(); } catch (e) {}
+  (recipes || []).forEach(function(r){ _ueRecipeMap[Number(r.id)] = r.name; });
+  _ueRender(recipes);
+}
+
+async function ueRemove(id) {
+  _ueSelected = _ueSelected.filter(function(x) { return x !== Number(id); });
+  await _ueSave();
+  var recipes = [];
+  try { recipes = await fetchGrocyRecipes(); } catch (e) {}
+  _ueRender(recipes);
+}
+
+async function _ueSave() {
+  var status = document.getElementById('ue-status');
+  if (status) status.textContent = 'Gemmer…';
+  try {
+    var json = JSON.stringify(_ueSelected);
+    await saveSetting('unit_count_extra_recipes', json);
+    allSettings['unit_count_extra_recipes'] = json;
+    if (status) {
+      status.textContent = 'Gemt — for historiske bons: kør scripts/backfill-total-units.js --apply';
       setTimeout(function() { if (status.textContent.indexOf('Gemt') === 0) status.textContent = ''; }, 6000);
     }
   } catch (e) {

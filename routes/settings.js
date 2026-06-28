@@ -58,8 +58,12 @@ router.post('/locations/:id/test-grocy', requireAuth('admin'), handle(async (req
 router.patch('/:key', handle((req, res) => {
     const { value } = req.body;
     getDb().prepare(`INSERT INTO settings (key, value) VALUES (?,?) ON CONFLICT(key) DO UPDATE SET value = ?, updated_at = CURRENT_TIMESTAMP`).run(req.params.key, value, value);
-    // Invalidér cache for helpers der læser settings ved hver bon-recalc
-    if (req.params.key === 'unit_count_categories') invalidateUnitCountCache();
+    // Invalidér cache for helpers der læser settings ved hver bon-recalc + genopbyg
+    // recipe_unit_counts (enheds-kategorier/extra-recipes påvirker boks-tællingen).
+    if (req.params.key === 'unit_count_categories' || req.params.key === 'unit_count_extra_recipes') {
+        invalidateUnitCountCache();
+        require('../services/recipeUnits').refreshRecipeUnitCountsSafe(getDb(), 'settings');
+    }
     res.json({ key: req.params.key, value });
 }));
 

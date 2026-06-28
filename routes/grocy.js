@@ -14,6 +14,12 @@ const router  = express.Router();
 const { handle } = require('../db/helpers');
 const grocy    = require('../services/grocyAdapter');
 const packSizeGuard = require('../services/packSizeGuard');
+const { getDb } = require('../db/database');
+const { refreshRecipeUnitCountsSafe } = require('../services/recipeUnits');
+
+// Genopbyg recipe_unit_counts efter recipe-grupper-/nesting-ændringer (boks-aware
+// enheds-tælling). Fire-and-forget — grocyAdapter har allerede ryddet sin cache.
+function bumpRecipeUnits() { refreshRecipeUnitCountsSafe(getDb(), 'grocy-write'); }
 
 /* ── Opskrifter ───────────────────────────────────────────── */
 
@@ -114,6 +120,7 @@ router.put('/recipes/:id', handle(async (req, res) => {
 
 router.put('/recipes/:id/userfields', handle(async (req, res) => {
     await grocy.updateRecipeUserfields(parseInt(req.params.id), req.body);
+    bumpRecipeUnits();   // grupper kan have ændret sig → påvirker tællbarhed
     res.json({ ok: true });
 }));
 
@@ -136,16 +143,20 @@ router.delete('/recipes-pos/:id', handle(async (req, res) => {
 /* ── Recipe nestings (sub-recipes) CRUD ──────────────────── */
 
 router.post('/recipes-nestings', handle(async (req, res) => {
-    res.json(await grocy.createRecipeNesting(req.body));
+    const r = await grocy.createRecipeNesting(req.body);
+    bumpRecipeUnits();   // ny underopskrift → kan gøre en recipe til en boks
+    res.json(r);
 }));
 
 router.put('/recipes-nestings/:id', handle(async (req, res) => {
     await grocy.updateRecipeNesting(parseInt(req.params.id), req.body);
+    bumpRecipeUnits();
     res.json({ ok: true });
 }));
 
 router.delete('/recipes-nestings/:id', handle(async (req, res) => {
     await grocy.deleteRecipeNesting(parseInt(req.params.id));
+    bumpRecipeUnits();
     res.json({ ok: true });
 }));
 
