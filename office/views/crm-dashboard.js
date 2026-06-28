@@ -460,6 +460,7 @@ function _crmRenderShell() {
                         <li>🧾 <strong>Udløbende tilbud</strong> — tilbud der snart udløber</li>
                     </ul>
                     Listen <strong>blander typerne</strong> (round-robin), så ingen type fylder det hele. Et forslag <strong>forsvinder når du har handlet på det</strong> — og du kan <strong>skjule</strong> et kort i 14 dage med “🙈 Skjul”, så de næste i køen kommer til.
+                    <div id="crmReviewStat" style="margin-top:10px;padding-top:8px;border-top:1px solid rgba(0,0,0,0.08);"></div>
                 </div>
                 <div id="crmSnoozedPanel" style="display:none;margin-bottom:12px;"></div>
                 <div id="crmSuggestionsList"></div>
@@ -485,7 +486,7 @@ async function _crmLoadData() {
     if (!_crmActive) return;
 
     try {
-        const [stats, briefing, suggestions, serviceCalls, callbacks, callLog, meetings, snoozed] = await Promise.all([
+        const [stats, briefing, suggestions, serviceCalls, callbacks, callLog, meetings, snoozed, reviewStat] = await Promise.all([
             fetchCrmStats(),
             fetchCrmBriefing(),
             fetchCrmSuggestions(),
@@ -494,12 +495,14 @@ async function _crmLoadData() {
             fetchCrmCallLog({ limit: 6 }),
             fetchCrmUpcomingMeetings({ days: 30, limit: 10 }),
             fetchSnoozedSuggestions().catch(() => []),
+            fetchReviewStats().catch(() => null),
         ]);
 
         _crmRenderKPIs(stats);
         _crmRenderBriefing(briefing);
         _crmRenderSuggestions(suggestions);
         _crmRenderSnoozedButton(snoozed);
+        _crmRenderReviewStat(reviewStat);
         _crmRenderServiceCalls(serviceCalls);
         _crmRenderCallbacks(callbacks);
         _crmRenderUpcomingMeetings(meetings);
@@ -599,7 +602,7 @@ function _crmRenderSuggestions(suggestions) {
         // "Skjul" snoozer (kunde + type) i 14 dage → frigør slotten så andre roterer ind.
         const skjul = '<button class="crm-sug-btn" title="Skjul dette forslag i 14 dage" onclick="_crmSnoozeSuggestion(' + s.customer_id + ', \'' + s.type + '\')">🙈 Skjul</button>';
         const actionBtns = (s.action === 'review'
-            ? ring + '<button class="crm-sug-btn" onclick="_crmAskedForReview(' + s.customer_id + ')">⭐ Spurgt</button>'
+            ? ring + '<button class="crm-sug-btn" onclick="_crmReviewPick(this, ' + s.customer_id + ')">⭐ Spurgt…</button>'
             : ring + '<button class="crm-sug-btn" onclick="_crmOpenKunde(' + s.customer_id + ')">👤 Profil</button>') + skjul;
         return '<div class="crm-suggestion" data-customer-id="' + s.customer_id + '">' +
             '<div class="crm-sug-header">' +
@@ -836,22 +839,39 @@ async function _crmMarkHandled(customerId, bonId) {
     }
 }
 
-// CRM-trik: log at vi har bedt kunden om en anbefaling. Aktiviteten tagges med
-// purpose 'anbefaling' så review_ask-forslaget dedupes væk. SSE crm_activity_created
-// → _crmDashHandleSSE → _crmLoadData genindlæser feeden, og kortet forsvinder.
-async function _crmAskedForReview(customerId) {
+// CRM-trik A (outcome-måling): "⭐ Spurgt…" folder en lille udfalds-vælger ud i
+// kortet, så vi fanger hvad kunden svarede (vil anmelde / måske / nej). Det er
+// det der gør at vi senere kan se om trikket virker.
+function _crmReviewPick(btn, customerId) {
+    const actions = btn.closest('.crm-suggestion')?.querySelector('.crm-sug-actions');
+    if (!actions) return;
+    actions.innerHTML =
+        '<span style="font-size:12px;color:var(--color-text-dim,#888);align-self:center;">Hvad sagde de?</span>' +
+        '<button class="crm-sug-btn primary" onclick="_crmLogReview(' + customerId + ', \'success\')">👍 Vil anmelde</button>' +
+        '<button class="crm-sug-btn" onclick="_crmLogReview(' + customerId + ', \'pending\')">🤷 Måske</button>' +
+        '<button class="crm-sug-btn" onclick="_crmLogReview(' + customerId + ', \'declined\')">👎 Nej</button>' +
+        '<button class="crm-sug-btn" title="Fortryd" onclick="_crmLoadData()">✕</button>';
+}
+
+// Log anbefalings-aktiviteten med udfald. Purpose 'anbefaling' dedupe'r kortet væk;
+// outcome måler effekten. SSE crm_activity_created → _crmLoadData genindlæser feeden.
+async function _crmLogReview(customerId, outcome) {
+    const LABELS = { success: 'vil anmelde', pending: 'måske/senere', declined: 'nej tak' };
     try {
         const purposes = await fetchActivityPurposes();
         const p = (purposes || []).find(x => x.key === 'anbefaling');
         await postCrmActivity({
             customer_id: customerId,
             type: 'note',
-            text: 'Bedt om anbefaling/anmeldelse',
+            text: 'Bedt om anbefaling — ' + (LABELS[outcome] || outcome),
             purpose_id: p ? p.id : null,
+            outcome: outcome,
         });
+        _crmLoadData();
     } catch (err) {
-        console.error('[crm] Ask review error:', err);
+        console.error('[crm] Log review error:', err);
         alert('Kunne ikke logge: ' + (err.message || 'Ukendt fejl'));
+        _crmLoadData();
     }
 }
 
@@ -891,6 +911,18 @@ function _crmRenderSnoozedButton(list) {
         btn.style.display = '';
         btn.textContent = '🙈 ' + _crmSnoozedCache.length + ' skjult';
     }
+}
+
+// Outcome-måling (CRM-trik A): vis hvor godt anbefalings-trikket virker i ⓘ-panelet.
+function _crmRenderReviewStat(stat) {
+    const el = document.getElementById('crmReviewStat');
+    if (!el) return;
+    if (!stat || !stat.asked) {
+        el.innerHTML = '<span style="color:var(--color-text-dim,#888);">📊 Anbefalinger (180 dage): endnu ingen registreret.</span>';
+        return;
+    }
+    el.innerHTML = '📊 <strong>Anbefalinger (180 dage):</strong> ' + stat.asked + ' spurgt · ' +
+        (stat.success || 0) + ' vil anmelde · ' + (stat.declined || 0) + ' nej · ' + (stat.pending || 0) + ' afventer';
 }
 
 // Fold listen over skjulte forslag ind/ud (hver med "Vis igen"-fortryd).

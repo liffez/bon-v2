@@ -779,6 +779,11 @@ function unsnoozeSuggestion(data) {
     });
 }
 
+// Outcome-måling for anbefalings-trikket (180 dage).
+function fetchReviewStats() {
+    return apiFetch('/crm/suggestions/review-stats');
+}
+
 function patchCrmCustomerStage(id, stage) {
     return apiFetch('/crm/customer/' + id + '/stage', {
         method: 'PATCH',
