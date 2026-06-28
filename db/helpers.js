@@ -357,17 +357,31 @@ function invalidateUnitCountCache() {
  *   join     LEFT JOIN mod recipe_unit_counts (boks-ekspansion)
  *   args     bind-parametre der hører til `contrib` (skal komme FØRST i .get/.all)
  *
- * Logik: brug recipe_unit_counts.unit_count hvis recipen er kendt (boks=3,
- * almindelig=1, emballage=0); ellers fallback til kategori-/extra-match (=1)
- * for linjer uden recipe-id eller før tabellen er opbygget. Tilbehør (is_accessory)
- * filtreres i WHERE af kald-stedet.
+ * ARKIV-ROBUST tællbarhed (vigtig): en linje TÆLLER hvis ÉN af disse holder:
+ *   1) linjens SNAPSHOT-kategori (bon_lines.category) er tællende, ELLER
+ *   2) recipen er på extra-listen (fx Børne Bokse), ELLER
+ *   3) recipens NUVÆRENDE Grocy-kategori er tællende (ruc.unit_count >= 1) —
+ *      fanger fejl-kategoriserede snapshots (fx 'lunch' → grocy '01 Sandwich').
+ * Snapshot-kriteriet (1) er afgørende: når en opskrift ARKIVERES (flyttes til
+ * "gamle opskrifter" i Grocy) skifter dens grupper, og ruc.unit_count bliver 0 —
+ * men historiske bons skal stadig tælle den slider de FAKTISK solgte. Derfor må
+ * arkivering aldrig ændre fortidens tal.
+ *
+ * Boks-MULTIPLIKATOR (×3 for slider-bokse) kommer fortsat fra recipe_unit_counts:
+ * når ruc.unit_count >= 2 er det en kombo-boks → gang med antallet; ellers ×1.
+ * En arkiveret boks der beholder sine underopskrifter tæller stadig korrekt
+ * (børnene er tællende → ruc forbliver 3). Tilbehør (is_accessory) filtreres i
+ * WHERE af kald-stedet.
  */
 function bonUnitsExpr() {
     const cats = getUnitCountCategories();
     const extra = getUnitCountExtraRecipes();
     const catClause = cats.length ? `bl.category IN (${cats.map(() => '?').join(',')})` : '0';
     const extraClause = extra.length ? `bl.grocy_recipe_id IN (${extra.map(() => '?').join(',')})` : '0';
-    const contrib = `bl.quantity * COALESCE(ruc.unit_count, CASE WHEN ${catClause} OR ${extraClause} THEN 1 ELSE 0 END)`;
+    const contrib = `bl.quantity * CASE
+        WHEN ${catClause} OR ${extraClause} OR COALESCE(ruc.unit_count, 0) >= 1
+        THEN CASE WHEN COALESCE(ruc.unit_count, 0) >= 2 THEN ruc.unit_count ELSE 1 END
+        ELSE 0 END`;
     const join = `LEFT JOIN recipe_unit_counts ruc ON ruc.grocy_recipe_id = bl.grocy_recipe_id`;
     return { contrib, join, args: [...cats, ...extra] };
 }
