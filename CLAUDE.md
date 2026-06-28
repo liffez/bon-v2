@@ -2354,6 +2354,31 @@ fra `.csv`-fil eller indsat direkte fra Excel/Google Sheets.
   kategori-math, clamp, datofiltre, allokering, fetch/surplus, degradering, tomt event). Grøn.
 - Browser-verificeret end-to-end mod syntetisk event (oprettet + ryddet op igen).
 
+### Pengestrøm §2.F + §2.E — split-allokering + direkte event-salg (29. juni 2026)
+> Spec: `docs/economics/CLAUDE_PENGESTROEM.md` §2.F + §2.E. Løser tre drift-sager der brød den
+> stive 1:1-bank-afstemning: faktura split på flere bons, bon der ikke kunne kobles (søgning så
+> kun udestaaende), og Zettle/event-indtægt uden faktura.
+
+- **Migration 115:** `cf_allocations` (én tx → ét/flere mål MED beløb; target_type invoice|bon|event|fee).
+  Backfill af eksisterende `matched_invoice_id` → 1:1-allokering. `matched_invoice_id` bevares som
+  denormaliseret hurtig-sti — sandheden er allokeringerne.
+- **§2.F:** `POST/DELETE /api/cashflow/allocations`, `GET /transactions/:id/allocations`,
+  `GET /match-targets` (universel union: bons + fakturaer + events). "Kan ikke matches"-listen er nu
+  allokerings-bevidst. **To-akset status:** allokering rører IKKE `cf_invoices.betalt` (bank-afstemt ≠
+  e-conomic-bogført — reconcile B ejer `betalt`). Split-UI i panelet (flere linjer m. beløb, gebyr-linje,
+  rest-tæller). Brutto+gebyr-model: Zettle-netto = event-brutto + negativ gebyr-linje.
+- **§2.E (direkte event-salg, bygget på cf_allocations — IKKE matched_event_id):**
+  `GET /events-on-date` (auto-forslag på dato-overlap, +5 dages buffer) · `GET /event-income`
+  (per-event brutto/gebyr/netto-kort i Overblik) · `POST /create-bon-from-tx` (opret BETALT salgsbon,
+  event_role='sales', festival-pris, ingen kunde; genbruger eventets salgsbon hvis den findes; fleksible
+  linjer + valgfri gebyr). "🧾 Opret bon"-knap i alloc-panelet.
+- `shared/api.js`: 7 nye wrappers (allocations, match-targets, events-on-date, event-income, create-bon-from-tx).
+- Caseliste + beslutninger afklaret med Leif (brutto+gebyr, ingen forudbetaling, MobilePay relevant,
+  status BETALT, samlefaktura→bons) — i specens §2.F.4/§2.F.5 + §2.E.
+- Drive-by: `scripts/test-cashflow-sync.js` brugte urealistiske bon-numre uden B-præfiks (stale fixtures
+  → FK-crash); rettet til prod-format. 28/0 grøn.
+- Browser-verificeret end-to-end mod kopi af prod-data; testdata ryddet, kopi pristine.
+
 ## Næste opgave
 
 > ✏️ Opdateret 21. maj 2026.
