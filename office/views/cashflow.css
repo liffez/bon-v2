@@ -837,6 +837,59 @@
 }
 .cf-um-note-save { align-self: flex-start; }
 
+/* ── §2.F Split-allokering ── */
+.cf-um-btn-primary {
+  background: #7a9c54;
+  color: white;
+  border-color: #6b8a49;
+  font-weight: 600;
+}
+.cf-um-btn-primary:hover:not(:disabled) { background: #6b8a49; }
+.cf-um-btn-primary:disabled { opacity: .45; cursor: default; }
+.cf-alloc-head {
+  display: flex; justify-content: space-between; align-items: center;
+  font-size: 12px; margin-bottom: 8px;
+}
+.cf-alloc-rest { font-weight: 700; color: #8a8580; }
+.cf-alloc-rest-zero { color: #5a8a3a; }
+.cf-alloc-rest-over { color: #bc3a3a; }
+.cf-alloc-lines { display: flex; flex-direction: column; gap: 5px; margin-bottom: 8px; }
+.cf-alloc-line {
+  display: flex; align-items: center; gap: 8px;
+  font-size: 12px; padding: 6px 8px;
+  border: 1px solid var(--color-border, #d7d1ca); border-radius: 6px;
+  background: #fcfbfa;
+}
+.cf-alloc-line-saved { background: #f0f5e9; border-color: #cfe0b8; }
+.cf-alloc-line-lbl { flex: 1; min-width: 0; }
+.cf-alloc-line-lbl > div:first-child { font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.cf-alloc-sub { font-size: 10.5px; color: #8a8580; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.cf-alloc-badge {
+  font-size: 9.5px; font-weight: 700; color: white;
+  padding: 2px 6px; border-radius: 4px; text-transform: uppercase;
+  letter-spacing: .3px; flex-shrink: 0;
+}
+.cf-alloc-amt {
+  width: 92px; text-align: right; font-size: 12px; font-weight: 600;
+  padding: 4px 6px; border: 1px solid var(--color-border, #d7d1ca); border-radius: 5px;
+}
+.cf-alloc-amt-fixed { font-weight: 700; font-size: 12px; white-space: nowrap; }
+.cf-alloc-del {
+  border: none; background: none; color: #bc3a3a; cursor: pointer;
+  font-size: 13px; padding: 2px 4px; flex-shrink: 0;
+}
+.cf-alloc-search-wrap { display: flex; gap: 6px; align-items: flex-start; }
+.cf-alloc-search-wrap .cf-um-search { margin-bottom: 0; }
+.cf-alloc-fee { flex-shrink: 0; }
+.cf-um-target-list { max-height: 200px; overflow-y: auto; margin-top: 6px; }
+.cf-um-target {
+  display: flex; align-items: center; gap: 8px;
+  font-size: 12px; padding: 7px 8px; border-radius: 5px; cursor: pointer;
+  border: 1px solid transparent;
+}
+.cf-um-target:hover { background: #f0f5e9; border-color: #7a9c54; }
+.cf-alloc-foot { margin-top: 8px; }
+
 /* ── Upcoming card ── */
 .cf-upcoming-card {
   background: white;

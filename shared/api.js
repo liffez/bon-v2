@@ -1521,6 +1521,29 @@ function fetchCfSuggestMatches() {
     return apiFetch('/cashflow/suggest-matches');
 }
 
+/* ── §2.F Split-allokering + universel kobling ─────────────── */
+function fetchCfMatchTargets(q, opts = {}) {
+    const p = new URLSearchParams({ q: q || '' });
+    if (opts.date) p.set('date', opts.date);
+    if (opts.limit) p.set('limit', opts.limit);
+    return apiFetch('/cashflow/match-targets?' + p.toString());
+}
+
+function fetchCfAllocations(txId) {
+    return apiFetch('/cashflow/transactions/' + txId + '/allocations');
+}
+
+function createCfAllocations(txId, allocations) {
+    return apiFetch('/cashflow/allocations', {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ transaction_id: txId, allocations })
+    });
+}
+
+function deleteCfAllocation(allocId) {
+    return apiFetch('/cashflow/allocations/' + allocId, { method: 'DELETE' });
+}
+
 /* ── RFM & KUNDEINDSIGT ────────────────────────────────────── */
 
 function fetchRfmScores(params) {

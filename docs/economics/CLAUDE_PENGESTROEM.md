@@ -102,6 +102,104 @@ ALTER TABLE bons ADD COLUMN faktureret_at  TEXT;    -- sættes ved "Markér fakt
 endnu ikke faktureret** ("Afventer fakturering"-køen som fremtidig indtægt), forfald ≈ `delivery_date` + Netto-dage.
 Kontant/kort/MobilePay tæller IKKE (betalt ved levering → dukker op som CSV-bevægelse). Alt incl. moms.
 
+### F. Split-allokering, universel kobling + to-akset status (tre-eksempel-delta — juni 2026)
+> **Hvorfor dette tillæg.** Drift afdækkede tre konkrete sager, der hver er symptom på et
+> strukturelt hul §A–E ikke lukker. §E's model er **`matched_event_id` enkelt-FK, "én tx → ét mål"**
+> — den dækker den daglige Zettle-batch (ét event), men **ikke split**: én indbetaling der dækker
+> flere bons, eller én faktura betalt ad flere gange. Beslutning (Leif, juni 2026): koblings-mål er
+> **fleksibelt** (faktura ELLER bon ELLER event), direkte salg **attribueres til event**, og bank-
+> afstemningen er et **blivende** mellem-sync-værktøj (e-conomic er sandhed, men afstemmes kun hver
+> 14. dag / månedligt).
+>
+> **De tre sager → de fire huller:**
+> | Live-sag | Hul | §A–E dækker? |
+> |----------|-----|--------------|
+> | Faktura 4112, REBEL FOOD 137.092 → 3 event-bons, betalt men ikke i e-conomic endnu | Kardinalitet: 1 tx → N mål m. beløb; + status-konflation | Nej (`matched_invoice_id`/`bon_id` er enkelt-FK; `betalt` blander to fakta) |
+> | Bon 4001 findes, men ses ikke i koblings-feltet | Søge-scope: feltet henter kun `udestaaende` cf_invoices | Nej |
+> | Zettle Michelin = kontant-indbetaling fra andet event | §E dækker — men kun 1:1 (ikke split-batch) | Delvist |
+
+#### F.1 Kerne-primitiv: `cf_allocations` (én join-tabel opløser kardinaliteten)
+```sql
+CREATE TABLE cf_allocations (
+  id             INTEGER PRIMARY KEY AUTOINCREMENT,
+  transaction_id INTEGER NOT NULL REFERENCES cf_transactions(id) ON DELETE CASCADE,
+  target_type    TEXT NOT NULL CHECK (target_type IN ('invoice','bon','event','fee')),
+  target_id      TEXT NOT NULL,        -- cf_invoices.id (fakturanr, TEXT) | bons.id | events.id | fee-kategori
+  amount         REAL NOT NULL,        -- INCL moms; del af tx.beloeb (negativ ved kreditnota/refusion)
+  note           TEXT,
+  created_at     DATETIME DEFAULT CURRENT_TIMESTAMP,
+  created_by     INTEGER REFERENCES users(id) ON DELETE SET NULL
+);
+CREATE INDEX idx_cf_alloc_tx     ON cf_allocations(transaction_id);
+CREATE INDEX idx_cf_alloc_target ON cf_allocations(target_type, target_id);
+```
+- **Én tx → mange allokeringer** (split: 4112 → 3 rækker). **Ét mål ← mange allokeringer** (rater/aconto).
+- **Invariant:** `Σ amount pr. tx === tx.beloeb` når tx er fuldt afstemt (fee-allokeringer tæller med, se F.5).
+  Rest (`beloeb − Σ amount`) = **uallokeret** → tx er *delvist* afstemt (ikke skjult fra listen).
+  Forudbetaling/depositum modelleres IKKE (afklaret 29. juni: forekommer ikke) — en overskydende rest er
+  derfor en fejl/afrunding, ikke en bevidst forudbetaling.
+- **Bagudkompat (vigtigt — ingen big-bang):** `cf_transactions.matched_invoice_id` og §E's
+  `matched_event_id` **bevares**, men bliver en **denormaliseret hurtig-sti for det rene 1:1-tilfælde**
+  (præcis én allokering) — samme cache-mønster som `contact_points` → `companies.email`. Sandheden er
+  allokeringerne. Migration backfiller eksisterende `matched_invoice_id` → én `cf_allocations`-række.
+  → **§E bygges oven på `cf_allocations` (target_type='event'), ikke på et separat enkelt-FK-felt.**
+  Ellers skal event-koblingen omskrives når split lander. (Se §7 — bekræft denne rækkefølge.)
+
+#### F.2 To-akset status — "betalt i banken" ≠ "bogført i e-conomic"
+§1 siger "kroner fra bank, status fra e-conomic". Dette gør de **to akser eksplicitte** og forbyder
+at de smeltes til ét flag (roden til 4112's "betalt men ikke i economic endnu"):
+
+| Akse | Kilde | Hyppighed | Felt |
+|------|-------|-----------|------|
+| **Bank-afstemt** (operationel) | `cf_allocations` dækker målets beløb | løbende, kontoret selv | *afledt* (Σ allokeringer ≥ beløb) |
+| **E-conomic-bogført** (autoritativ) | reconcile B (`remainder===0`) | hver 14. dag / md. | `cf_invoices.betalt` |
+
+- Et mål kan være **bank-afstemt men ikke bogført** (4112) — UI viser to separate flueben, aldrig ét.
+- Bank-afstemt er det kontoret styrer mellem e-conomic-syncs (præcis behovet Leif beskrev).
+- Når B senere bogfører målet, **konflikter det ikke** med en eksisterende bank-allokering — de er to akser. Vandmærket (§A) forhindrer at B gen-matcher den manuelt allokerede hale.
+
+#### F.3 Universel koblings-søgning (løser bon 4001)
+Bugkilde i dag: `_cfGetUmInvoices()` henter kun `fetchCfInvoices('udestaaende')`
+([office/views/cashflow.js](office/views/cashflow.js)) → betalte/forfaldne/bon-uden-cf_invoice ses aldrig.
+- **Nyt endpoint** `GET /cashflow/match-targets?q=&date=` → typet union: **bons** (bon_number/kunde/beløb/dato,
+  uanset status) · **cf_invoices** (betalt eller ej) · **events** (navn + start/end). Erstatter den smalle liste.
+- **Auto-forslag** bevares fra §E: tx-dato inden for events `start_date`–`end_date` → foreslå eventet.
+  Udvid med: beløb ≈ bon-total / fakturanr i tekst → foreslå bon/faktura (samme signal som matchmotoren).
+
+#### F.4 Brutto vs. netto på kort-/MobilePay-afregning (besluttet 29. juni)
+Zettle/MobilePay-afregning rammer banken **netto** (efter udbyder-gebyr), men event-salget er **brutto**.
+Beslutning: **vis brutto, gebyr som egen linje** — så per-event-omsætningen er det faktiske salg.
+Modellen klarer det inden for invarianten med en **negativ fee-allokering**:
+```
+Zettle-afregning, event "Michelin":  tx.beloeb = +9.105 (netto)
+  → allokering 1: target=event   amount = +9.300   (brutto salg)
+  → allokering 2: target=fee      amount =   −195   (Zettle-gebyr)
+  Σ = 9.105 = tx.beloeb ✓
+```
+- **Per-event-overblik** (§E) summerer kun `target_type='event'` → viser brutto (9.300). Gebyr-linjen
+  hører til samme tx, så "brutto / gebyr / netto" pr. event er afledt uden ekstra felt.
+- Bruttobeløbet tastes fra Zettle/MobilePay-rapporten; gebyret kan udfyldes som `netto − brutto`.
+- Gælder også §E's `matched_event_id`-1:1-sti: en gebyr-fri afregning er bare én event-allokering.
+
+#### F.5 Fuld case-liste = acceptkriterier (byg IKKE før alle er gennemtænkt)
+| # | Case | Forventet håndtering |
+|---|------|----------------------|
+| 1 | Samlefaktura: 1 indbetaling → N bons (4112) | 1 tx → N allokeringer (**target=bon**, besluttet). Bank-afstemt straks; bogført afventer B |
+| 2 | Delvis / aconto / rater: N indbetalinger → 1 mål | N allokeringer på samme target. Mål bank-afstemt når Σ ≥ beløb; ellers "delvist (X af Y)" |
+| 3 | Zettle/**MobilePay**/kontant-batch dækker N events | 1 tx → N event-allokeringer (+ fee-linje pr. F.4). Generaliserer §E's 1:1 |
+| 4 | Kreditnota / refusion (penge UD mod et mål) | Negativ tx → negativ allokering. Reducerer målets bank-afstemte sum |
+| 5 | Støj uden mål — **bankgebyr/renter · intern overførsel · løn/privathævning/SKAT** | Kategorisér (ikke blind-ignorér): `ignored` udvides med disse 3 grund-kategorier + note |
+| 6 | 1 indbetaling = faktura + Zettle på samme event | Blandede mål-typer i samme tx (target_type pr. allokering) — modellen tillader det |
+| 7 | Indbetaling > Σ kendte mål | Rest forbliver uallokeret; tx vises som delvist afstemt, ikke skjult (IKKE forudbetaling — sker ikke) |
+| 8 | Mål allerede e-conomic-bogført, nyt bank-match dukker op | Vandmærke-guard (§A) + to-akset status forhindrer dobbelt-tælling |
+| 9 | "Opret bon fra indbetalingen" (intet internt spor — §E) | Opret rigtig bon for direkte salg → allokér tx til den nye bon |
+
+**Afklaret som IKKE relevant (29. juni — byg ikke):** forudbetaling/depositum · gavekort/klippekort ·
+én betaling fra flere kunder · modregning (leverandør = kunde). MobilePay-afregning ER relevant (case 3).
+
+> **Listen er bevidst ikke udtømmende.** Inden migration 115 skrives: kør den igennem med Leif og
+> tilføj de cases driften kender og denne ikke fanger (fx valuta, samlebetaling på tværs af måneder).
+
 ---
 
 ## 3. Hvad der IKKE skal bygges (det duplikerer drift-kode)
@@ -120,18 +218,37 @@ INSERT OR IGNORE INTO cf_meta (key, value) VALUES ('economic_booked_until', '');
 -- ikke her. Lander de allerede via Spor 2 → denne migration rører dem ikke.
 ```
 
+**`115_cashflow_allocations.sql`** (§2.F — næste ledige nr.; 114 er taget på branch i flight — bekræft mod main ved build):
+```sql
+-- cf_allocations (DDL i §2.F.1) + backfill af eksisterende 1:1-matches:
+INSERT INTO cf_allocations (transaction_id, target_type, target_id, amount)
+  SELECT id, 'invoice', matched_invoice_id, beloeb
+  FROM cf_transactions WHERE matched_invoice_id IS NOT NULL;
+-- (+ tilsvarende backfill af §E's matched_event_id hvis det allerede er landet før 115)
+-- matched_invoice_id/matched_event_id DROPPES IKKE — de bliver 1:1-hurtig-sti (§2.F.1).
+```
+**Skriv først 115 når §2.F.5-caselisten er gennemgået (gjort 29. juni).**
+
 ---
 
 ## 5. Byggerækkefølge
-**A + B er bygget (27. juni)** — service + endpoint + cron + UI + 12 tests. **E er næste opgave (28. juni).**
+**A + B er bygget (27. juni). F er bygget (29. juni)** — migration 115 `cf_allocations`, allokerings-
+endpoints (`POST/DELETE /allocations`, `GET /transactions/:id/allocations`, `GET /match-targets`),
+to-akset status (allokering rører IKKE `betalt`), split-UI i "kan ikke matches"-listen. Browser-
+verificeret mod prod-data-kopi: alle tre live-sager (4001 universel kobling, split, Zettle event+gebyr).
+**E er næste opgave** — event-kobling som selvstændig feature (auto-forslag på dato-overlap,
+opret-bon-fra-indbetaling, per-event-indtægtsoverblik) bygges oven på `cf_allocations` (target='event').
 1. `cf_meta['economic_booked_until']` + vandmærke-guard i matchmotoren (A). ✅
 2. **`services/cashflowReconcile.js` (B).** REST `/invoices/booked` → `remainder===0`=betalt →
    `cf_invoices.betalt` + ryk vandmærke. Match via **bon-nr i overskriften** (`notes.heading`, fx "#B4111" /
    "4093 & 4094") — IKKE fakturanummeret (separate serier). Nightly cron + "⟳ Synk e-conomic"-knap. ✅
-3. **Direkte salg / event-indtægt (E) — næste opgave.** `cf_transactions.matched_event_id` + kobl-til-event +
-   opret-bon-fra-indbetaling + auto-forslag på dato-overlap + per-event-indtægtsoverblik. (Spec §2.E.)
-4. `bons.invoice_number` + `faktureret_at` + wiring i "Markér faktureret" (C) — koordinér med Spor 2.
-5. Forecast tier-2 i `/upcoming` (D).
+3. ✅ **Split-allokering + universel kobling (F) — BYGGET 29. juni.** Migration 115 `cf_allocations`
+   + backfill, allokerings-endpoints, `GET /cashflow/match-targets`, split-UI. Browser-verificeret.
+   `cf_allocations` ligger nu klar som mål for E's event-kobling (target_type='event').
+4. **Direkte salg / event-indtægt (E).** Kobl-til-event + opret-bon-fra-indbetaling + auto-forslag på
+   dato-overlap + per-event-indtægtsoverblik — implementeret som allokeringer (target_type='event'). (§2.E + §2.F.)
+5. `bons.invoice_number` + `faktureret_at` + wiring i "Markér faktureret" (C) — koordinér med Spor 2.
+6. Forecast tier-2 i `/upcoming` (D).
 
 ---
 
@@ -141,6 +258,10 @@ INSERT OR IGNORE INTO cf_meta (key, value) VALUES ('economic_booked_until', '');
 - Forfald = `faktureret_at` + Netto-dage.
 - KPI "heraf moms" via `shared/moms.js`.
 - (Fase 2) mock `openapi()` bookedentries: `dueAmount=0` → `cf_invoices.betalt=1`; match via bon-nr i reference; vandmærke rykkes.
+- **(§2.F) Split:** 1 tx → 3 allokeringer; Σ = beløb → mål bank-afstemt; Σ < beløb → "delvist". Σ > |beloeb| afvises (invariant).
+- **(§2.F) To akser:** mål bank-afstemt men `cf_invoices.betalt=0` → begge flueben uafhængige; B-bogføring konflikter ikke.
+- **(§2.F) Universel kobling:** `match-targets?q=` finder bon uden cf_invoice + betalt faktura (bon 4001-regression).
+- **(§2.F) Kreditnota:** negativ tx → negativ allokering reducerer målets afstemte sum.
 
 ---
 
@@ -152,6 +273,9 @@ INSERT OR IGNORE INTO cf_meta (key, value) VALUES ('economic_booked_until', '');
 | `invoice_number`+`faktureret_at` ejes af e-conomic Spor 2 (anbefalet) — bekræft rækkefølge | Simon | åben |
 | Bekræft at booked-faktura eksponerer `references.other` (til bon-nr-match) på de NYE fakturaer | Simon | åben (gamle matches via fakturanr) |
 | "Bankdata for gammel"-tærskel (dage) → `cf_meta` eller settings | Leif | åben |
+| **(§2.F) §E bygger på `cf_allocations` (target='event'), ikke separat `matched_event_id`-FK | Leif | ✅ besluttet 29. juni |
+| **(§2.F) Caseliste §2.F.5 gennemgået + edge-cases afklaret (brutto/gebyr, forudbetaling, MobilePay) | Leif | ✅ gjort 29. juni |
+| **(§2.F) Samlefaktura-mål: allokér til de N **bons** (ikke en samle-cf_invoice) | Leif | ✅ besluttet 29. juni |
 
 ---
 

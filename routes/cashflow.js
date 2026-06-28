@@ -284,11 +284,19 @@ router.get('/transactions', handle(async (req, res) => {
     if (from) { where += ' AND t.dato >= ?'; params.push(from); }
     if (to)   { where += ' AND t.dato <= ?'; params.push(to); }
     if (unmatched === '1') {
-        where += ' AND t.matched_invoice_id IS NULL AND t.beloeb > 0 AND t.ignored = 0';
+        // §2.F: "kan ikke matches" = indgående, ikke-ignoreret, IKKE 1:1-matchet (legacy)
+        // OG ikke fuldt dækket af allokeringer. En tx der er fuldt allokeret til
+        // bons/events (uden matched_invoice_id) forsvinder herfra; en delvist
+        // allokeret tx bliver stående (mangler stadig arbejde).
+        where += ` AND t.beloeb > 0 AND t.ignored = 0 AND t.matched_invoice_id IS NULL
+            AND ABS(t.beloeb - COALESCE(
+                (SELECT SUM(a.amount) FROM cf_allocations a WHERE a.transaction_id = t.id), 0
+            )) >= 0.01`;
     }
 
     const rows = db.prepare(`
-        SELECT t.*, i.kunde AS matched_kunde
+        SELECT t.*, i.kunde AS matched_kunde,
+            COALESCE((SELECT SUM(a.amount) FROM cf_allocations a WHERE a.transaction_id = t.id), 0) AS allocated
         FROM cf_transactions t
         LEFT JOIN cf_invoices i ON t.matched_invoice_id = i.id
         WHERE ${where}
@@ -683,6 +691,217 @@ router.patch('/transactions/:txId', handle(async (req, res) => {
     db.prepare(`UPDATE cf_transactions SET ${sets.join(', ')} WHERE id = ?`).run(...params);
 
     res.json({ ok: true });
+}));
+
+// ════════════════════════════════════════════════════════════
+// §2.F — SPLIT-ALLOKERING + UNIVERSEL KOBLING
+// Spec: docs/economics/CLAUDE_PENGESTROEM.md §2.F.
+// cf_allocations kobler én banktransaktion til ét/flere mål MED beløb.
+// Sandheden er allokeringerne; matched_invoice_id er en 1:1-hurtig-sti.
+// betalt-flaget RØRES IKKE her — det er e-conomic-aksen (reconcile B).
+// ════════════════════════════════════════════════════════════
+
+const ALLOC_TYPES = new Set(['invoice', 'bon', 'event', 'fee']);
+
+/** Genberegn 1:1-hurtig-sti (matched_invoice_id) + confidence ud fra allokeringer. */
+function syncTxFromAllocations(db, txId) {
+    const tx = db.prepare('SELECT beloeb FROM cf_transactions WHERE id = ?').get(txId);
+    if (!tx) return;
+    const allocs = db.prepare(
+        'SELECT target_type, target_id, amount FROM cf_allocations WHERE transaction_id = ?'
+    ).all(txId);
+    const sum = allocs.reduce((s, a) => s + a.amount, 0);
+    const fully = Math.abs(sum - tx.beloeb) < 0.01;
+    // Hurtig-sti kun når der er PRÆCIS én allokering, den er til en faktura, og den dækker fuldt.
+    const matched = (allocs.length === 1 && allocs[0].target_type === 'invoice' && fully)
+        ? allocs[0].target_id : null;
+    db.prepare('UPDATE cf_transactions SET matched_invoice_id = ?, match_confidence = ? WHERE id = ?')
+        .run(matched, fully ? 100 : 0, txId);
+}
+
+/** Slå et alloker­ings-måls label op (til visning). target_amount = målets eget
+ *  reference-beløb (IKKE allokeringens — den ligger på selve allocation-rækken). */
+function resolveTargetLabel(db, type, id) {
+    if (type === 'invoice') {
+        const i = db.prepare('SELECT id, kunde, beloeb FROM cf_invoices WHERE id = ?').get(id);
+        return i ? { label: `Faktura #${i.id}`, sublabel: i.kunde || '', target_amount: i.beloeb } : { label: `Faktura #${id}`, sublabel: '(slettet)' };
+    }
+    if (type === 'bon') {
+        const b = db.prepare(`
+            SELECT b.bon_number, b.total_with_delivery, b.delivery_date,
+                   c.first_name || ' ' || COALESCE(c.last_name,'') AS contact, co.name AS company
+            FROM bons b LEFT JOIN customers c ON b.customer_id = c.id
+            LEFT JOIN companies co ON b.company_id = co.id WHERE b.id = ?
+        `).get(id);
+        return b ? { label: `Bon #${b.bon_number}`, sublabel: (b.company || b.contact || '').trim(), target_amount: b.total_with_delivery } : { label: `Bon ${id}`, sublabel: '(slettet)' };
+    }
+    if (type === 'event') {
+        const e = db.prepare('SELECT name, start_date, end_date FROM events WHERE id = ?').get(id);
+        return e ? { label: `🎪 ${e.name}`, sublabel: [e.start_date, e.end_date].filter(Boolean).join(' → ') } : { label: `Event ${id}`, sublabel: '(slettet)' };
+    }
+    // fee
+    const FEE_LABELS = { zettle: 'Zettle-gebyr', mobilepay: 'MobilePay-gebyr', gebyr: 'Gebyr' };
+    return { label: FEE_LABELS[id] || `Gebyr (${id})`, sublabel: '' };
+}
+
+// ─── GET /transactions/:txId/allocations — allokeringer for én tx ────────────
+router.get('/transactions/:txId/allocations', handle(async (req, res) => {
+    const db = getDb();
+    const tx = db.prepare('SELECT * FROM cf_transactions WHERE id = ?').get(req.params.txId);
+    if (!tx) return res.status(404).json({ error: 'Transaktion ikke fundet' });
+
+    const rows = db.prepare(
+        'SELECT * FROM cf_allocations WHERE transaction_id = ? ORDER BY id'
+    ).all(req.params.txId);
+    const allocations = rows.map(a => ({ ...a, ...resolveTargetLabel(db, a.target_type, a.target_id) }));
+
+    const allocated = r2(rows.reduce((s, a) => s + a.amount, 0));
+    res.json({
+        transaction: { id: tx.id, dato: tx.dato, tekst: tx.tekst, beloeb: tx.beloeb },
+        allocations,
+        allocated,
+        remaining: r2(tx.beloeb - allocated),
+        fully_allocated: Math.abs(allocated - tx.beloeb) < 0.01,
+    });
+}));
+
+// ─── POST /allocations — opret én eller flere allokeringer for en tx ─────────
+//
+// Body: { transaction_id, allocations: [{ target_type, target_id, amount, note? }] }
+// (enkelt allokering kan også sendes fladt: { transaction_id, target_type, ... })
+router.post('/allocations', handle(async (req, res) => {
+    const db = getDb();
+    const txId = req.body.transaction_id;
+    let incoming = Array.isArray(req.body.allocations) ? req.body.allocations
+        : (req.body.target_type ? [req.body] : null);
+    if (!txId || !incoming || incoming.length === 0) {
+        return res.status(400).json({ error: 'Mangler transaction_id eller allocations' });
+    }
+
+    const tx = db.prepare('SELECT * FROM cf_transactions WHERE id = ?').get(txId);
+    if (!tx) return res.status(404).json({ error: 'Transaktion ikke fundet' });
+
+    // Valider hver allokering
+    const clean = [];
+    for (const a of incoming) {
+        if (!ALLOC_TYPES.has(a.target_type)) {
+            return res.status(400).json({ error: `Ugyldig target_type: ${a.target_type}` });
+        }
+        const amount = r2(Number(a.amount));
+        if (!Number.isFinite(amount) || amount === 0) {
+            return res.status(400).json({ error: 'amount skal være et tal forskelligt fra 0' });
+        }
+        const targetId = String(a.target_id ?? '').trim();
+        if (!targetId) return res.status(400).json({ error: 'Mangler target_id' });
+        // Verificér at målet findes (fee er fri kategori)
+        if (a.target_type === 'invoice' && !db.prepare('SELECT 1 FROM cf_invoices WHERE id = ?').get(targetId))
+            return res.status(404).json({ error: `Faktura ${targetId} findes ikke` });
+        if (a.target_type === 'bon' && !db.prepare('SELECT 1 FROM bons WHERE id = ?').get(targetId))
+            return res.status(404).json({ error: `Bon ${targetId} findes ikke` });
+        if (a.target_type === 'event' && !db.prepare('SELECT 1 FROM events WHERE id = ?').get(targetId))
+            return res.status(404).json({ error: `Event ${targetId} findes ikke` });
+        clean.push({ target_type: a.target_type, target_id: targetId, amount, note: a.note ? String(a.note).trim() : null });
+    }
+
+    // Invariant: |Σ(eksisterende + nye)| må ikke overstige |beloeb|, og må ikke vende fortegn.
+    const existing = db.prepare('SELECT COALESCE(SUM(amount),0) AS s FROM cf_allocations WHERE transaction_id = ?').get(txId).s;
+    const total = r2(existing + clean.reduce((s, a) => s + a.amount, 0));
+    if (Math.abs(total) - Math.abs(tx.beloeb) > 0.01) {
+        return res.status(400).json({ error: `Σ allokeret (${total}) overstiger transaktionens beløb (${tx.beloeb})` });
+    }
+    if (total !== 0 && Math.sign(total) !== Math.sign(tx.beloeb)) {
+        return res.status(400).json({ error: 'Allokering må ikke vende transaktionens fortegn' });
+    }
+
+    transaction(db, () => {
+        const stmt = db.prepare(`
+            INSERT INTO cf_allocations (transaction_id, target_type, target_id, amount, note, created_by)
+            VALUES (?, ?, ?, ?, ?, ?)
+        `);
+        for (const a of clean) stmt.run(txId, a.target_type, a.target_id, a.amount, a.note, req.session.userId || null);
+        syncTxFromAllocations(db, txId);
+    });
+
+    broadcast('cashflow_allocation', { transaction_id: Number(txId) });
+    res.json({ ok: true, count: clean.length });
+}));
+
+// ─── DELETE /allocations/:id — fjern én allokering ───────────────────────────
+router.delete('/allocations/:id', handle(async (req, res) => {
+    const db = getDb();
+    const row = db.prepare('SELECT * FROM cf_allocations WHERE id = ?').get(req.params.id);
+    if (!row) return res.status(404).json({ error: 'Allokering ikke fundet' });
+
+    transaction(db, () => {
+        db.prepare('DELETE FROM cf_allocations WHERE id = ?').run(req.params.id);
+        syncTxFromAllocations(db, row.transaction_id);
+    });
+
+    broadcast('cashflow_allocation', { transaction_id: row.transaction_id });
+    res.json({ ok: true });
+}));
+
+// ─── GET /match-targets — universel koblings-søgning (bons + fakturaer + events)
+//
+// Løser bon 4001: den gamle søgning så kun udestaaende fakturaer. Her søges i
+// HELE universet: enhver bon (uanset status), enhver faktura (betalt eller ej),
+// ethvert event. ?q= fri tekst, ?date= valgfri (event-overlap-forslag i UI).
+router.get('/match-targets', handle(async (req, res) => {
+    const db = getDb();
+    const q = String(req.query.q || '').trim();
+    const lim = Math.min(parseInt(req.query.limit || '12'), 25);
+    if (q.length < 1) return res.json({ targets: [] });
+    const like = `%${q}%`;
+    const digits = q.replace(/\D/g, '');
+
+    // Bons: søg bon_number, kunde, firma. Tal → også direkte bon_number/id-match.
+    const bons = db.prepare(`
+        SELECT b.id, b.bon_number, b.total_with_delivery, b.delivery_date,
+               c.first_name || ' ' || COALESCE(c.last_name,'') AS contact, co.name AS company,
+               sd.label AS status_label
+        FROM bons b
+        LEFT JOIN customers c  ON b.customer_id = c.id
+        LEFT JOIN companies co ON b.company_id  = co.id
+        LEFT JOIN status_definitions sd ON b.status_id = sd.id
+        WHERE b.is_offer = 0 AND (
+            CAST(b.bon_number AS TEXT) LIKE ? OR co.name LIKE ?
+            OR (c.first_name || ' ' || COALESCE(c.last_name,'')) LIKE ?
+            ${digits ? 'OR CAST(b.id AS TEXT) = ?' : ''}
+        )
+        ORDER BY b.delivery_date DESC LIMIT ?
+    `).all(like, like, like, ...(digits ? [digits] : []), lim);
+
+    // Fakturaer: betalt ELLER ej (modsat den gamle udestaaende-only).
+    const invoices = db.prepare(`
+        SELECT id, kunde, beloeb, forfald, betalt FROM cf_invoices
+        WHERE CAST(id AS TEXT) LIKE ? OR kunde LIKE ?
+        ORDER BY forfald DESC LIMIT ?
+    `).all(like, like, lim);
+
+    // Events: navn-match.
+    const events = db.prepare(`
+        SELECT id, name, start_date, end_date FROM events
+        WHERE name LIKE ? ORDER BY start_date DESC LIMIT ?
+    `).all(like, Math.min(lim, 10));
+
+    const targets = [
+        ...bons.map(b => ({
+            type: 'bon', id: b.id, label: `Bon #${b.bon_number}`,
+            sublabel: [(b.company || b.contact || '').trim(), b.status_label].filter(Boolean).join(' · '),
+            amount: b.total_with_delivery, date: b.delivery_date,
+        })),
+        ...invoices.map(i => ({
+            type: 'invoice', id: i.id, label: `Faktura #${i.id}`,
+            sublabel: [i.kunde, i.betalt ? 'betalt' : 'udestående'].filter(Boolean).join(' · '),
+            amount: i.beloeb, date: i.forfald,
+        })),
+        ...events.map(e => ({
+            type: 'event', id: e.id, label: `🎪 ${e.name}`,
+            sublabel: [e.start_date, e.end_date].filter(Boolean).join(' → '),
+            amount: null, date: e.start_date,
+        })),
+    ];
+    res.json({ targets });
 }));
 
 // ─── GET /suggest-matches — Forslag til forfaldne fakturaer ──────────────

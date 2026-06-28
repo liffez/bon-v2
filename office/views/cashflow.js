@@ -18,7 +18,21 @@ let _cfInvForm = null;       // null | 'create' | invoice-id
 let _cfResizeHandler = null;
 let _cfOpts = {};            // { openDrawer? } injected from office-shell
 let _cfUnmatched = {};       // tx-id → tx (umatchede posteringer i overblikket)
-let _cfUmInvCache = null;    // cachet liste over udestående fakturaer til match-picker
+let _cfUmInvCache = null;    // (legacy — ikke længere brugt af panelet)
+let _cfAllocDraft = {};      // tx-id → { lines:[{target_type,target_id,label,sublabel,amount}], existing:[] }
+let _cfAllocSearchTimer = null;
+
+const _CF_FEE_KINDS = [
+    { id: 'zettle', label: 'Zettle-gebyr' },
+    { id: 'mobilepay', label: 'MobilePay-gebyr' },
+    { id: 'gebyr', label: 'Gebyr' },
+];
+const _CF_TARGET_BADGE = {
+    bon:     { txt: 'Bon',     bg: '#4a6e96' },
+    invoice: { txt: 'Faktura', bg: '#8e631f' },
+    event:   { txt: 'Event',   bg: '#7a9c54' },
+    fee:     { txt: 'Gebyr',   bg: '#bc3a3a' },
+};
 
 // Analyse state
 let _cfPaxPeriod = 'maaned';
@@ -358,16 +372,28 @@ function _cfWireUnmatched(el) {
     });
 }
 
-function _cfBuildUmPanel(panel, id) {
+async function _cfBuildUmPanel(panel, id) {
     const tx = _cfUnmatched[id] || {};
+    _cfAllocDraft[id] = { lines: [], existing: [] };
     panel.innerHTML = `
         <div class="cf-um-actions">
-            <button class="cf-um-btn cf-um-match-toggle">🔗 Match til faktura</button>
+            <button class="cf-um-btn cf-um-alloc-toggle">🔗 Kobl / split</button>
             <button class="cf-um-btn cf-um-ignore">🚫 Ignorér</button>
         </div>
-        <div class="cf-um-match" hidden>
-            <input class="cf-um-search" type="text" placeholder="Søg fakturanr. eller kunde…">
-            <div class="cf-um-inv-list"><div class="cf-um-hint">Henter udestående fakturaer…</div></div>
+        <div class="cf-um-alloc" hidden>
+            <div class="cf-alloc-head">
+                <span>Fordel <strong>${_cfFmt(tx.beloeb)}</strong></span>
+                <span class="cf-alloc-rest" data-rest></span>
+            </div>
+            <div class="cf-alloc-lines" data-lines></div>
+            <div class="cf-alloc-search-wrap">
+                <input class="cf-um-search" type="text" placeholder="Søg bon, faktura eller event…" autocomplete="off">
+                <button class="cf-um-btn cf-alloc-fee" title="Tilføj gebyr-linje (negativ)">+ Gebyr</button>
+            </div>
+            <div class="cf-um-target-list"></div>
+            <div class="cf-alloc-foot">
+                <button class="cf-um-btn cf-um-btn-primary cf-alloc-save" disabled>Gem allokering</button>
+            </div>
         </div>
         <div class="cf-um-note">
             <textarea class="cf-um-note-input" rows="2" placeholder="Note (fx 'tilbageført – forkert konto')">${_cfEsc(tx.note || '')}</textarea>
@@ -396,60 +422,181 @@ function _cfBuildUmPanel(panel, id) {
         } catch (err) { alert('Kunne ikke gemme note: ' + err.message); }
     };
 
-    // Match-toggle → vis søgefelt + liste
-    const matchBox = panel.querySelector('.cf-um-match');
-    panel.querySelector('.cf-um-match-toggle').onclick = async (e) => {
+    // Kobl/split-toggle → vis allokerings-UI + hent evt. eksisterende allokeringer
+    const allocBox = panel.querySelector('.cf-um-alloc');
+    panel.querySelector('.cf-um-alloc-toggle').onclick = async (e) => {
         e.stopPropagation();
-        matchBox.hidden = !matchBox.hidden;
-        if (matchBox.hidden) return;
-        const search = matchBox.querySelector('.cf-um-search');
+        allocBox.hidden = !allocBox.hidden;
+        if (allocBox.hidden) return;
+        try {
+            const r = await fetchCfAllocations(id);
+            _cfAllocDraft[id].existing = r.allocations || [];
+        } catch { _cfAllocDraft[id].existing = []; }
+        _cfRenderAllocLines(panel, id);
+        const search = panel.querySelector('.cf-um-search');
         search.focus();
-        const invs = await _cfGetUmInvoices();
-        const render = (q) => _cfRenderUmInvList(matchBox.querySelector('.cf-um-inv-list'), invs, q, id);
-        render('');
-        search.oninput = () => render(search.value.trim().toLowerCase());
+        search.oninput = () => {
+            clearTimeout(_cfAllocSearchTimer);
+            _cfAllocSearchTimer = setTimeout(() => _cfSearchTargets(panel, id, search.value.trim()), 220);
+        };
+    };
+
+    // Gebyr-linje
+    panel.querySelector('.cf-alloc-fee').onclick = (e) => {
+        e.stopPropagation();
+        _cfShowFeePicker(panel, id);
+    };
+
+    // Gem allokering
+    panel.querySelector('.cf-alloc-save').onclick = async (e) => {
+        e.stopPropagation();
+        const lines = _cfAllocDraft[id].lines;
+        if (!lines.length) return;
+        try {
+            await createCfAllocations(id, lines.map(l => ({
+                target_type: l.target_type, target_id: l.target_id, amount: l.amount
+            })));
+            _cfRenderOverblik();
+        } catch (err) { alert('Kunne ikke gemme: ' + err.message); }
     };
 
     // Stop klik inde i panelet fra at lukke rækken
     panel.onclick = (e) => e.stopPropagation();
 }
 
-async function _cfGetUmInvoices() {
-    if (_cfUmInvCache) return _cfUmInvCache;
-    try {
-        const res = await fetchCfInvoices('udestaaende');
-        _cfUmInvCache = res.rows || [];
-    } catch (err) {
-        _cfUmInvCache = [];
-    }
-    return _cfUmInvCache;
+/** Σ allokeret (eksisterende + draft) og resterende uallokeret beløb. */
+function _cfAllocRest(id) {
+    const tx = _cfUnmatched[id] || { beloeb: 0 };
+    const d = _cfAllocDraft[id] || { lines: [], existing: [] };
+    const exist = (d.existing || []).reduce((s, a) => s + (a.amount || 0), 0);
+    const staged = (d.lines || []).reduce((s, a) => s + (Number(a.amount) || 0), 0);
+    return Math.round((tx.beloeb - exist - staged) * 100) / 100;
 }
 
-function _cfRenderUmInvList(host, invs, q, txId) {
-    const filtered = !q ? invs : invs.filter(i =>
-        String(i.id).toLowerCase().includes(q) || (i.kunde || '').toLowerCase().includes(q));
-    if (filtered.length === 0) {
-        host.innerHTML = '<div class="cf-um-hint">Ingen udestående fakturaer matcher.</div>';
-        return;
-    }
-    host.innerHTML = filtered.slice(0, 30).map(i => `
-        <div class="cf-um-inv" data-inv-id="${_cfEsc(String(i.id))}">
-            <div>
-                <span style="font-weight:700">#${_cfEsc(String(i.id))}</span>
-                <span style="color:#8a8580"> · ${_cfEsc(i.kunde || '')}</span>
-            </div>
-            <span style="font-weight:700">${_cfFmt(i.beloeb)}</span>
+/** Render eksisterende + staged allokerings-linjer + rest-indikator. */
+function _cfRenderAllocLines(panel, id) {
+    const d = _cfAllocDraft[id] || { lines: [], existing: [] };
+    const host = panel.querySelector('[data-lines]');
+    const badge = (t) => { const b = _CF_TARGET_BADGE[t] || { txt: t, bg: '#999' }; return `<span class="cf-alloc-badge" style="background:${b.bg}">${b.txt}</span>`; };
+
+    const existHtml = (d.existing || []).map(a => `
+        <div class="cf-alloc-line cf-alloc-line-saved">
+            ${badge(a.target_type)}
+            <div class="cf-alloc-line-lbl"><div>${_cfEsc(a.label || '')}</div><div class="cf-alloc-sub">${_cfEsc(a.sublabel || '')}</div></div>
+            <span class="cf-alloc-amt-fixed">${_cfFmt(a.amount)}</span>
+            <button class="cf-alloc-del" data-del-alloc="${a.id}" title="Fjern">✕</button>
         </div>
     `).join('');
-    host.querySelectorAll('.cf-um-inv').forEach(row => {
-        row.onclick = async (e) => {
+
+    const stagedHtml = (d.lines || []).map((l, idx) => `
+        <div class="cf-alloc-line">
+            ${badge(l.target_type)}
+            <div class="cf-alloc-line-lbl"><div>${_cfEsc(l.label || '')}</div><div class="cf-alloc-sub">${_cfEsc(l.sublabel || '')}</div></div>
+            <input class="cf-alloc-amt" type="number" step="0.01" value="${l.amount}" data-amt-idx="${idx}">
+            <button class="cf-alloc-del" data-stage-idx="${idx}" title="Fjern">✕</button>
+        </div>
+    `).join('');
+
+    host.innerHTML = existHtml + stagedHtml || '<div class="cf-um-hint">Søg og vælg mål nedenfor for at fordele beløbet.</div>';
+
+    // Rest-indikator
+    const rest = _cfAllocRest(id);
+    const restEl = panel.querySelector('[data-rest]');
+    restEl.textContent = 'Rest: ' + _cfFmt(rest);
+    restEl.classList.toggle('cf-alloc-rest-zero', Math.abs(rest) < 0.01);
+    restEl.classList.toggle('cf-alloc-rest-over', rest < -0.01);
+
+    // Save aktiv når mindst én staged linje + ingen over-allokering
+    const save = panel.querySelector('.cf-alloc-save');
+    save.disabled = !(d.lines || []).length || rest < -0.01;
+
+    // Wire beløbs-input
+    host.querySelectorAll('.cf-alloc-amt').forEach(inp => {
+        inp.onclick = (e) => e.stopPropagation();
+        inp.oninput = () => {
+            const i = +inp.getAttribute('data-amt-idx');
+            d.lines[i].amount = Math.round((Number(inp.value) || 0) * 100) / 100;
+            // opdater kun rest + save (undgå fuld re-render så fokus bevares)
+            const rest2 = _cfAllocRest(id);
+            restEl.textContent = 'Rest: ' + _cfFmt(rest2);
+            restEl.classList.toggle('cf-alloc-rest-zero', Math.abs(rest2) < 0.01);
+            restEl.classList.toggle('cf-alloc-rest-over', rest2 < -0.01);
+            save.disabled = !d.lines.length || rest2 < -0.01;
+        };
+    });
+    // Fjern staged
+    host.querySelectorAll('[data-stage-idx]').forEach(btn => {
+        btn.onclick = (e) => { e.stopPropagation(); d.lines.splice(+btn.getAttribute('data-stage-idx'), 1); _cfRenderAllocLines(panel, id); };
+    });
+    // Slet gemt allokering
+    host.querySelectorAll('[data-del-alloc]').forEach(btn => {
+        btn.onclick = async (e) => {
             e.stopPropagation();
-            const invId = row.getAttribute('data-inv-id');
             try {
-                await matchCfTransaction(txId, invId);
-                _cfUmInvCache = null;   // faktura er nu betalt — ryd cache
-                _cfRenderOverblik();
-            } catch (err) { alert('Match fejlede: ' + err.message); }
+                await deleteCfAllocation(btn.getAttribute('data-del-alloc'));
+                const r = await fetchCfAllocations(id);
+                d.existing = r.allocations || [];
+                _cfRenderAllocLines(panel, id);
+            } catch (err) { alert('Kunne ikke fjerne: ' + err.message); }
+        };
+    });
+}
+
+/** Universel søgning (bons + fakturaer + events) → resultatliste. */
+async function _cfSearchTargets(panel, id, q) {
+    const host = panel.querySelector('.cf-um-target-list');
+    if (!host) return;
+    if (q.length < 1) { host.innerHTML = ''; return; }
+    host.innerHTML = '<div class="cf-um-hint">Søger…</div>';
+    let targets = [];
+    try { targets = (await fetchCfMatchTargets(q)).targets || []; } catch { targets = []; }
+    if (!targets.length) { host.innerHTML = '<div class="cf-um-hint">Ingen mål matcher.</div>'; return; }
+    const badge = (t) => { const b = _CF_TARGET_BADGE[t] || { txt: t, bg: '#999' }; return `<span class="cf-alloc-badge" style="background:${b.bg}">${b.txt}</span>`; };
+    host.innerHTML = targets.map((t, i) => `
+        <div class="cf-um-target" data-tgt="${i}">
+            ${badge(t.type)}
+            <div class="cf-alloc-line-lbl"><div>${_cfEsc(t.label || '')}</div><div class="cf-alloc-sub">${_cfEsc(t.sublabel || '')}</div></div>
+            <span class="cf-alloc-amt-fixed">${t.amount != null ? _cfFmt(t.amount) : ''}</span>
+        </div>
+    `).join('');
+    host.querySelectorAll('.cf-um-target').forEach(row => {
+        row.onclick = (e) => {
+            e.stopPropagation();
+            const t = targets[+row.getAttribute('data-tgt')];
+            const d = _cfAllocDraft[id];
+            // undgå dublet
+            if (d.lines.some(l => l.target_type === t.type && String(l.target_id) === String(t.id))) return;
+            const rest = _cfAllocRest(id);
+            d.lines.push({
+                target_type: t.type, target_id: t.id, label: t.label, sublabel: t.sublabel,
+                amount: rest > 0.01 ? rest : 0,   // default = resterende beløb (1:1 = ét klik)
+            });
+            host.innerHTML = '';
+            panel.querySelector('.cf-um-search').value = '';
+            _cfRenderAllocLines(panel, id);
+        };
+    });
+}
+
+/** Lille gebyr-vælger (Zettle/MobilePay/Gebyr) → tilføjer negativ linje. */
+function _cfShowFeePicker(panel, id) {
+    const host = panel.querySelector('.cf-um-target-list');
+    host.innerHTML = _CF_FEE_KINDS.map((f, i) => `
+        <div class="cf-um-target" data-fee="${i}">
+            <span class="cf-alloc-badge" style="background:${_CF_TARGET_BADGE.fee.bg}">Gebyr</span>
+            <div class="cf-alloc-line-lbl"><div>${f.label}</div><div class="cf-alloc-sub">negativ linje</div></div>
+        </div>
+    `).join('');
+    host.querySelectorAll('.cf-um-target').forEach(row => {
+        row.onclick = (e) => {
+            e.stopPropagation();
+            const f = _CF_FEE_KINDS[+row.getAttribute('data-fee')];
+            const d = _cfAllocDraft[id];
+            const rest = _cfAllocRest(id);
+            // gebyr er negativt; foreslå at det dækker en evt. NEGATIV rest, ellers 0
+            d.lines.push({ target_type: 'fee', target_id: f.id, label: f.label, sublabel: '', amount: rest < -0.01 ? rest : 0 });
+            host.innerHTML = '';
+            _cfRenderAllocLines(panel, id);
         };
     });
 }
