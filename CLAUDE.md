@@ -1717,7 +1717,7 @@ Det var ikke muligt at lave en booking om eller fortryde den fra bon-draweren �
 > Status: KOMPLET. Bug der lagde 25 % moms ovenpå incl-priser er rettet og forebygget.
 
 - [x] **Moms-doktrin** tilføjet til `BON_V2_PRINCIPPER.md` sektion 6b (hvor moms ligger gemt) + 6c (7 visningsregler)
-- [x] **`shared/moms.js`** — fælles helpers: `inclToExcl`, `excrToIncl`, `momsOfIncl`, `computeMomsFields`. Eksponeres som `window.Moms` i browser, re-eksporteres fra `db/helpers.js` på server-siden
+- [x] **`shared/moms.js`** — fælles helpers: `inclToExcl`, `exclToIncl`, `momsOfIncl`, `computeMomsFields`. Eksponeres som `window.Moms` i browser, re-eksporteres fra `db/helpers.js` på server-siden
 - [x] **13 områder migreret** fra magic `* 1.25` / `* 0.25` / `/ 1.25` til Moms.* helpers (tilbud, fakturering, planlægning, modal, dashboard, rapporter, indkøb, mail-templates osv.)
 - [x] **Pre-commit-hook aktiveret** — blokerer nye `1.25`/`0.25`-multiplikationer uden for `shared/moms.js` og `tests/`
 - [x] **Backend leverer pre-beregnede moms-felter** — API-responses for bons/quotes/invoices indeholder `total_incl_moms`, `total_excl_moms`, `moms_amount` så frontends ikke selv regner

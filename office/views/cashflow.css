@@ -57,6 +57,17 @@
   font-size: 12px;
   font-weight: 700;
 }
+.cf-econ-badge {
+  display: inline-flex;
+  align-items: center;
+  background: #eef2f6;
+  color: #4a5b6b;
+  padding: 5px 12px;
+  border-radius: 20px;
+  font-size: 12px;
+  font-weight: 600;
+  white-space: nowrap;
+}
 
 .cf-stale-badge.ok { background: #7a9c54; }
 
