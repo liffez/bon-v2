@@ -754,53 +754,36 @@ async function _cfBuildBonForm(panel, id, tx) {
 function _cfRenderBonLines(panel, id, tx) {
     const host = panel.querySelector('[data-bon-lines]');
     const lines = _cfBonDraft[id].lines;
-    const hasRecipes = (_cfRecipeCache || []).length > 0;
-    const datalist = hasRecipes
-        ? `<datalist id="cf-recipe-dl">${_cfRecipeCache.map(r => `<option value="${_cfEsc(r.name)}"></option>`).join('')}</datalist>`
-        : '';
-    host.innerHTML = datalist + lines.map((l, i) => {
+    host.innerHTML = lines.map((l, i) => {
         const hint = l.grocy_recipe_id
             ? `✓ Grocy: ${_cfEsc(l.category || '')}${l._festival ? ' · ref. ' + _cfFmt(l._festival) + '/stk' : ''}`
             : '';
         return `
         <div class="cf-bon-line">
-            <input class="cf-bon-line-name" type="text" ${hasRecipes ? 'list="cf-recipe-dl"' : ''} placeholder="Varenavn / Grocy-menu" value="${_cfEsc(l.name)}" data-bl-name="${i}">
+            <input class="cf-bon-line-name" type="text" autocomplete="off" placeholder="Varenavn / Grocy-menu" value="${_cfEsc(l.name)}" data-bl-name="${i}">
             <input class="cf-bon-line-qty" type="number" min="1" step="1" value="${l.quantity || 1}" title="Antal solgt" data-bl-qty="${i}">
             <input class="cf-bon-line-amt" type="number" step="0.01" value="${l.amount}" title="Beløb (total, inkl. moms)" data-bl-amt="${i}">
             ${lines.length > 1 ? `<button class="cf-alloc-del" data-bl-del="${i}">✕</button>` : '<span style="width:18px"></span>'}
         </div>
+        <div class="cf-recipe-results" data-bl-res="${i}"></div>
         <div class="cf-bon-line-hint" data-bl-hint="${i}">${hint}</div>`;
     }).join('');
 
     host.querySelectorAll('[data-bl-name]').forEach(inp => {
+        const i = +inp.getAttribute('data-bl-name');
         inp.onclick = (e) => e.stopPropagation();
+        inp.onfocus = () => _cfRenderRecipeSuggestions(panel, id, tx, i, inp.value);
         inp.oninput = () => {
-            const i = +inp.getAttribute('data-bl-name');
-            const line = lines[i];
-            line.name = inp.value;
+            lines[i].name = inp.value;
             const rec = _cfRecipeByName ? _cfRecipeByName.get(inp.value.trim().toLowerCase()) : null;
-            if (rec) {
-                line.grocy_recipe_id = rec.id;
-                line.category = rec.category || null;
-                line.cost_price = rec.cost_price ?? null;
-                line.co2e = rec.co2e ?? null;
-                line._festival = _cfRecipeFestival(rec);
-                // bekvemmelighed: forudfyld beløb fra Grocy-pris KUN hvis tomt (klobrer aldrig
-                // et beløb du selv har sat — event-prisen kan afvige fra Grocy)
-                if (!Number(line.amount)) {
-                    line.amount = Math.round((line._festival || 0) * (Number(line.quantity) || 1) * 100) / 100;
-                    const amtEl = host.querySelector(`[data-bl-amt="${i}"]`);
-                    if (amtEl) amtEl.value = line.amount;
-                    _cfUpdateBonSum(panel, id, tx);
-                }
-            } else {
-                line.grocy_recipe_id = null; line.category = null;
-                line.cost_price = null; line.co2e = null; line._festival = null;
-            }
-            const hintEl = host.querySelector(`[data-bl-hint="${i}"]`);
-            if (hintEl) hintEl.innerHTML = rec
-                ? `✓ Grocy: ${_cfEsc(rec.category || '')}${line._festival ? ' · ref. ' + _cfFmt(line._festival) + '/stk' : ''}` : '';
+            if (rec) _cfApplyRecipeToLine(panel, id, tx, i, rec);
+            else _cfClearRecipeFromLine(panel, id, i);
+            _cfRenderRecipeSuggestions(panel, id, tx, i, inp.value);
         };
+        inp.onblur = () => setTimeout(() => {
+            const r = host.querySelector(`[data-bl-res="${i}"]`);
+            if (r) { r.classList.remove('open'); r.innerHTML = ''; }
+        }, 160);
     });
     host.querySelectorAll('[data-bl-qty]').forEach(inp => {
         inp.onclick = (e) => e.stopPropagation();
@@ -814,6 +797,67 @@ function _cfRenderBonLines(panel, id, tx) {
         btn.onclick = (e) => { e.stopPropagation(); lines.splice(+btn.getAttribute('data-bl-del'), 1); _cfRenderBonLines(panel, id, tx); };
     });
     _cfUpdateBonSum(panel, id, tx);
+}
+
+/** Sæt en valgt Grocy-opskrift på en linje (delt af klik + eksakt-navn-match). */
+function _cfApplyRecipeToLine(panel, id, tx, i, rec) {
+    const host = panel.querySelector('[data-bon-lines]');
+    const line = _cfBonDraft[id].lines[i];
+    line.grocy_recipe_id = rec.id;
+    line.category = rec.category || null;
+    line.cost_price = rec.cost_price ?? null;
+    line.co2e = rec.co2e ?? null;
+    line._festival = _cfRecipeFestival(rec);
+    // forudfyld beløb fra Grocy-pris KUN hvis tomt (klobrer aldrig et indtastet beløb —
+    // event-prisen kan afvige fra Grocy)
+    if (!Number(line.amount)) {
+        line.amount = Math.round((line._festival || 0) * (Number(line.quantity) || 1) * 100) / 100;
+        const amtEl = host.querySelector(`[data-bl-amt="${i}"]`);
+        if (amtEl) amtEl.value = line.amount;
+        _cfUpdateBonSum(panel, id, tx);
+    }
+    const hintEl = host.querySelector(`[data-bl-hint="${i}"]`);
+    if (hintEl) hintEl.innerHTML = `✓ Grocy: ${_cfEsc(rec.category || '')}${line._festival ? ' · ref. ' + _cfFmt(line._festival) + '/stk' : ''}`;
+}
+
+function _cfClearRecipeFromLine(panel, id, i) {
+    const line = _cfBonDraft[id].lines[i];
+    line.grocy_recipe_id = null; line.category = null;
+    line.cost_price = null; line.co2e = null; line._festival = null;
+    const hintEl = panel.querySelector(`[data-bon-lines] [data-bl-hint="${i}"]`);
+    if (hintEl) hintEl.innerHTML = '';
+}
+
+/** Custom menu-dropdown (bredere end input) der viser navn + kategori, så slider
+ *  og sandwich kan skelnes (native datalist afkortede til input-bredden). */
+function _cfRenderRecipeSuggestions(panel, id, tx, i, query) {
+    const host = panel.querySelector('[data-bon-lines]');
+    const box = host.querySelector(`[data-bl-res="${i}"]`);
+    if (!box) return;
+    const recipes = _cfRecipeCache || [];
+    if (!recipes.length) { box.classList.remove('open'); box.innerHTML = ''; return; }
+    const q = (query || '').trim().toLowerCase();
+    const matches = (q ? recipes.filter(r => r.name.toLowerCase().includes(q)) : recipes).slice(0, 30);
+    if (!matches.length) { box.classList.remove('open'); box.innerHTML = ''; return; }
+    box.innerHTML = matches.map((r, k) => `
+        <div class="cf-recipe-opt" data-ri="${k}">
+            <span class="cf-recipe-opt-name">${_cfEsc(r.name)}</span>
+            <span class="cf-recipe-opt-cat">${_cfEsc(r.category || '')}</span>
+        </div>`).join('');
+    box.classList.add('open');
+    box.querySelectorAll('.cf-recipe-opt').forEach(opt => {
+        // mousedown preventDefault → input mister ikke fokus før klikket registreres
+        opt.onmousedown = (e) => { e.preventDefault(); e.stopPropagation(); };
+        opt.onclick = (e) => {
+            e.stopPropagation();
+            const rec = matches[+opt.getAttribute('data-ri')];
+            _cfBonDraft[id].lines[i].name = rec.name;
+            const nameEl = host.querySelector(`[data-bl-name="${i}"]`);
+            if (nameEl) nameEl.value = rec.name;
+            _cfApplyRecipeToLine(panel, id, tx, i, rec);
+            box.classList.remove('open'); box.innerHTML = '';
+        };
+    });
 }
 
 function _cfUpdateBonSum(panel, id, tx) {

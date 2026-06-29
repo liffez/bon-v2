@@ -927,6 +927,26 @@
 .cf-bon-line-amt { width: 92px; text-align: right; font-size: 12px; padding: 5px 7px; border: 1px solid var(--color-border, #d7d1ca); border-radius: 5px; }
 .cf-bon-line-hint { font-size: 10.5px; color: #5a8a3a; padding: 1px 2px 3px; min-height: 0; }
 .cf-bon-line-hint:empty { display: none; }
+/* Custom menu-dropdown — bredere end input + viser kategori (slider vs sandwich) */
+.cf-recipe-results {
+  display: none; margin: 2px 0 4px;
+  border: 1px solid var(--color-border, #d7d1ca); border-radius: 6px;
+  background: white; max-height: 210px; overflow-y: auto;
+  box-shadow: 0 4px 14px rgba(0,0,0,.10);
+}
+.cf-recipe-results.open { display: block; }
+.cf-recipe-opt {
+  display: flex; justify-content: space-between; align-items: center; gap: 10px;
+  padding: 6px 9px; font-size: 12px; cursor: pointer;
+  border-bottom: 1px solid #f1eee9;
+}
+.cf-recipe-opt:last-child { border-bottom: none; }
+.cf-recipe-opt:hover { background: #f0f5e9; }
+.cf-recipe-opt-name { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.cf-recipe-opt-cat {
+  font-size: 10px; color: #6a6560; background: #f0ece6;
+  padding: 1px 7px; border-radius: 8px; white-space: nowrap; flex-shrink: 0;
+}
 .cf-bon-addline { align-self: flex-start; }
 .cf-bon-foot { display: flex; justify-content: space-between; align-items: center; gap: 8px; margin-top: 4px; }
 .cf-bon-sum { font-size: 11.5px; color: #6a6560; }
