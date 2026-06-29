@@ -290,7 +290,14 @@ function _cfBuildOverblik(el, stats, weekly, invoices, upcoming, unmatched, even
                         </div>
                     `).join('')}
                     </div>
-                </div>` : ''}
+                </div>` : (stats.economic_booked_until ? `
+                <div class="cf-unmatched-card cf-unmatched-clear">
+                    <div class="cf-unmatched-header" style="color:#5a8a3a">✓ Ingen manuelle bankposteringer</div>
+                    <div style="font-size:11.5px;color:#6a6560;padding:2px 2px 4px">
+                        Alt til og med <strong>${_cfFmtDate(stats.economic_booked_until)}</strong> er afregnet i e-conomic.
+                        Kun posteringer efter den dato kræver manuel matchning.
+                    </div>
+                </div>` : '')}
 
                 ${_cfEventIncomeCard(eventIncome)}
 

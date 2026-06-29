@@ -307,6 +307,11 @@ router.get('/transactions', handle(async (req, res) => {
             AND ABS(t.beloeb - COALESCE(
                 (SELECT SUM(a.amount) FROM cf_allocations a WHERE a.transaction_id = t.id), 0
             )) >= 0.01`;
+        // VANDMÆRKE (§2.A): posteringer til og med economic_booked_until er afregnet
+        // i e-conomic → de er ikke kontorets manuelle opgave. Skjul dem fra listen,
+        // så kun de genuint nye (efter vandmærket) står tilbage at matche.
+        const wm = db.prepare(`SELECT value FROM cf_meta WHERE key = 'economic_booked_until'`).get()?.value;
+        if (wm) { where += ' AND t.dato > ?'; params.push(wm); }
     }
 
     const rows = db.prepare(`
@@ -559,11 +564,15 @@ router.get('/stats', handle(async (req, res) => {
     // Last upload
     const lastUpload = db.prepare(`SELECT value FROM cf_meta WHERE key = 'last_upload_at'`).get();
 
-    // Unmatched count
+    // Unmatched count — samme logik som "kan ikke matches"-listen: indgående,
+    // ikke-ignoreret, ikke matchet/allokeret, OG efter e-conomic-vandmærket.
+    const wmStat = db.prepare(`SELECT value FROM cf_meta WHERE key = 'economic_booked_until'`).get()?.value;
     const unmatchedCount = db.prepare(`
-        SELECT COUNT(*) AS cnt FROM cf_transactions
-        WHERE matched_invoice_id IS NULL AND beloeb > 0
-    `).get();
+        SELECT COUNT(*) AS cnt FROM cf_transactions t
+        WHERE t.matched_invoice_id IS NULL AND t.beloeb > 0 AND t.ignored = 0
+          AND ABS(t.beloeb - COALESCE((SELECT SUM(a.amount) FROM cf_allocations a WHERE a.transaction_id = t.id), 0)) >= 0.01
+          ${wmStat ? 'AND t.dato > ?' : ''}
+    `).get(...(wmStat ? [wmStat] : []));
 
     // Cashflow-konvention: faktiske bankbevægelser er incl. moms.
     // Vi udstiller incl-moms-totaler som primær — plus heraf moms-forpligtelse
@@ -586,7 +595,8 @@ router.get('/stats', handle(async (req, res) => {
         expected_30d_vat_liability:   r2(momsOfIncl(expected30.total)),
         expected_30d_count: expected30.count,
         last_upload: lastUpload?.value ?? null,
-        unmatched_count: unmatchedCount.cnt
+        unmatched_count: unmatchedCount.cnt,
+        economic_booked_until: wmStat || null
     });
 }));
 
