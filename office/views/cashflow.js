@@ -523,6 +523,12 @@ async function _cfBuildUmPanel(panel, id) {
         e.stopPropagation();
         const lines = _cfAllocDraft[id].lines;
         if (!lines.length) return;
+        // En linje uden beløb (0) kan ikke gemmes — giv en tydelig besked frem for
+        // en kryptisk 400 fra backend. Brugeren sætter et beløb eller fjerner linjen.
+        if (lines.some(l => !Number(l.amount))) {
+            alert('En eller flere linjer mangler et beløb. Sæt et beløb — eller fjern linjen med ✕ — før du gemmer.');
+            return;
+        }
         try {
             await createCfAllocations(id, lines.map(l => ({
                 target_type: l.target_type, target_id: l.target_id, amount: l.amount
@@ -554,7 +560,7 @@ function _cfRenderAllocLines(panel, id) {
         <div class="cf-alloc-line cf-alloc-line-saved">
             ${badge(a.target_type, (a.amount || 0) < 0 && a.target_type === 'bon')}
             <div class="cf-alloc-line-lbl"><div>${_cfEsc(a.label || '')}</div><div class="cf-alloc-sub">${_cfEsc(a.sublabel || '')}</div></div>
-            <span class="cf-alloc-amt-fixed">${_cfFmt(a.amount)}</span>
+            <input class="cf-alloc-amt cf-alloc-amt-saved" type="number" step="0.01" value="${a.amount}" data-edit-alloc="${a.id}" title="Ret beløb (gemmes ved Enter/tab)">
             <button class="cf-alloc-del" data-del-alloc="${a.id}" title="Fjern">✕</button>
         </div>
     `).join('');
@@ -609,6 +615,31 @@ function _cfRenderAllocLines(panel, id) {
                 d.existing = r.allocations || [];
                 _cfRenderAllocLines(panel, id);
             } catch (err) { alert('Kunne ikke fjerne: ' + err.message); }
+        };
+    });
+    // Ret beløb på en GEMT allokering (PATCH ved ændring/blur). Live-rest mens man
+    // taster; gemmer ved 'change' (Enter/tab/blur).
+    host.querySelectorAll('[data-edit-alloc]').forEach(inp => {
+        inp.onclick = (e) => e.stopPropagation();
+        inp.oninput = () => {
+            const a = (d.existing || []).find(x => String(x.id) === inp.getAttribute('data-edit-alloc'));
+            if (a) a.amount = Math.round((Number(inp.value) || 0) * 100) / 100;
+            const rest2 = _cfAllocRest(id);
+            restEl.textContent = 'Rest: ' + _cfFmt(rest2);
+            restEl.classList.toggle('cf-alloc-rest-zero', Math.abs(rest2) < 0.01);
+            restEl.classList.toggle('cf-alloc-rest-over', rest2 < -0.01);
+        };
+        inp.onchange = async () => {
+            const allocId = inp.getAttribute('data-edit-alloc');
+            const amount = Math.round((Number(inp.value) || 0) * 100) / 100;
+            if (!amount) { inp.classList.add('cf-amt-invalid'); return; }
+            inp.classList.remove('cf-amt-invalid');
+            try {
+                await patchCfAllocation(allocId, amount);
+                const r = await fetchCfAllocations(id);
+                d.existing = r.allocations || [];
+                _cfRenderAllocLines(panel, id);
+            } catch (err) { alert('Kunne ikke gemme beløb: ' + err.message); }
         };
     });
 }

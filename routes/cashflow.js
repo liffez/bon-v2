@@ -851,6 +851,37 @@ router.post('/allocations', handle(async (req, res) => {
     res.json({ ok: true, count: clean.length });
 }));
 
+// ─── PATCH /allocations/:id — ret beløbet på en gemt allokering ──────────────
+router.patch('/allocations/:id', handle(async (req, res) => {
+    const db = getDb();
+    const row = db.prepare('SELECT * FROM cf_allocations WHERE id = ?').get(req.params.id);
+    if (!row) return res.status(404).json({ error: 'Allokering ikke fundet' });
+    const amount = r2(Number(req.body.amount));
+    if (!Number.isFinite(amount) || amount === 0) {
+        return res.status(400).json({ error: 'amount skal være et tal forskelligt fra 0' });
+    }
+    const tx = db.prepare('SELECT beloeb FROM cf_transactions WHERE id = ?').get(row.transaction_id);
+    // Invariant mod tx: Σ(andre allokeringer) + nyt beløb må ikke overstige |beloeb|
+    // eller vende fortegn.
+    const others = db.prepare(
+        'SELECT COALESCE(SUM(amount),0) AS s FROM cf_allocations WHERE transaction_id = ? AND id != ?'
+    ).get(row.transaction_id, row.id).s;
+    const total = r2(others + amount);
+    if (Math.abs(total) - Math.abs(tx.beloeb) > 0.01) {
+        return res.status(400).json({ error: `Σ allokeret (${total}) overstiger transaktionens beløb (${tx.beloeb})` });
+    }
+    if (total !== 0 && Math.sign(total) !== Math.sign(tx.beloeb)) {
+        return res.status(400).json({ error: 'Allokering må ikke vende transaktionens fortegn' });
+    }
+
+    transaction(db, () => {
+        db.prepare('UPDATE cf_allocations SET amount = ? WHERE id = ?').run(amount, row.id);
+        syncTxFromAllocations(db, row.transaction_id);
+    });
+    broadcast('cashflow_allocation', { transaction_id: row.transaction_id });
+    res.json({ ok: true });
+}));
+
 // ─── DELETE /allocations/:id — fjern én allokering ───────────────────────────
 router.delete('/allocations/:id', handle(async (req, res) => {
     const db = getDb();

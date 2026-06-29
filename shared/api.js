@@ -1544,6 +1544,12 @@ function deleteCfAllocation(allocId) {
     return apiFetch('/cashflow/allocations/' + allocId, { method: 'DELETE' });
 }
 
+function patchCfAllocation(allocId, amount) {
+    return apiFetch('/cashflow/allocations/' + allocId, {
+        method: 'PATCH', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ amount })
+    });
+}
+
 function fetchCfEventsOnDate(date) {
     return apiFetch('/cashflow/events-on-date?date=' + encodeURIComponent(date || ''));
 }
