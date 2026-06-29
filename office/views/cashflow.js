@@ -755,7 +755,8 @@ async function _cfBuildBonForm(panel, id, tx) {
         try {
             const r = await createBonFromCfTx(body);
             _cfRenderOverblik();
-            setTimeout(() => alert(`${r.created ? 'Bon oprettet' : 'Tilføjet til eventets salgsbon'}: #${r.bon_number}`), 50);
+            setTimeout(() => alert(`${r.created ? 'Bon oprettet' : 'Tilføjet til eventets salgsbon'}: #${r.bon_number}`
+                + (r.expense_bon_id ? '\nAfgift/gebyr bogført som event-udgift.' : '')), 50);
         } catch (err) { alert('Kunne ikke oprette bon: ' + err.message); }
     };
 

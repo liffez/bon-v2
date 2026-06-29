@@ -95,9 +95,15 @@ ALTER TABLE bons ADD COLUMN faktureret_at  TEXT;    -- sættes ved "Markér fakt
 >   ELLER salg pr. menu-linje. **Linjer kan vælges som rigtige Grocy-menuer** (autocomplete på varenavn via
 >   `GET /api/grocy/recipes`): valg fylder `grocy_recipe_id` + rigtig kategori + kostpris/CO2 → konsistent
 >   med normale bons (tæller i omsætnings-/kategori-/margin-rapporter). Pr. linje: antal + beløb (total).
->   Grocy-festivalprisen vises kun som **reference-hint** — beløbet styres af brugeren (event-prisen kan
->   afvige fra Grocy). Fri-tekst stadig muligt (kategori 'Event-salg', ingen recipe-id). Event-dropdown =
->   ALLE events (via `GET /api/events`), dato-overlap forvalgt (`/cashflow/events-on-date`, +5d buffer).
+>   Grocy-festivalprisen vises kun som **reference-hint** — beløb-feltet er linjens TOTAL og styres af
+>   brugeren (event-prisen afviger ofte fra Grocy; forudfyldes IKKE). Fri-tekst stadig muligt (kategori
+>   'Event-salg', ingen recipe-id). Event-dropdown = ALLE events (`GET /api/events`), dato-overlap forvalgt.
+> - ✅ **Brutto vs. netto + afgift som event-udgift (besluttet 29. juni).** Ved event-afregning (fx Zettle)
+>   taster kontoret BRUTTO-salget pr. menu; differencen til netto-indbetalingen (udbyder-gebyr + arrangør-
+>   afgift, fx Tivoli 10%) fyldes med ét klik via **"= rest"** i Gebyr/afgift-feltet. På et EVENT bogføres
+>   denne afgift/gebyr som en **udgiftsbon** (event_role='expense', genbruger eventets udgiftsbon) — så den
+>   tæller i eventets P&L (ikke kun som bank-fradrag). Standalone (uden event) → fee-allokering som før.
+>   Faktura-linjer i Zettle-rapporten hører IKKE til kort/kontant-afregningen (separate cf_invoices).
 > - ✅ **Per-event-indtægtsoverblik** `GET /cashflow/event-income` — bank-afstemt pr. event beregnet fra
 >   allokeringer på eventets BONS: brutto (salgsbons), fradrag (udgiftsbons + udbyder-gebyr på samme tx),
 >   netto, tx-antal. Matcher event-P&L'en (samme bons) → ingen divergens/dobbelttælling. Kort i Overblik.

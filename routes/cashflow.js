@@ -1061,9 +1061,18 @@ router.post('/create-bon-from-tx', handle(async (req, res) => {
     const existingBon = event ? db.prepare(
         "SELECT id, bon_number FROM bons WHERE event_id = ? AND event_role = 'sales' ORDER BY id LIMIT 1"
     ).get(event.id) : null;
+    const betaltStatusId = getStatusId('BETALT');
+    const defaultLocationId = getDefaultLocationId();
     const newBonNumber = existingBon ? null : nextBonNumber();
-    const betaltStatusId = existingBon ? null : getStatusId('BETALT');
-    const defaultLocationId = existingBon ? null : getDefaultLocationId();
+
+    // Gebyr/afgift på et EVENT bogføres som en UDGIFTSBON (event_role='expense'),
+    // så det tæller med i eventets P&L (besluttet 29. juni). Uden event (standalone)
+    // bliver det blot en fee-allokering på banken. Hent udgiftsbon-nr uden for tx.
+    const wantExpenseBon = !!(event && feeAmount < 0);
+    const existingExpenseBon = wantExpenseBon ? db.prepare(
+        "SELECT id, bon_number FROM bons WHERE event_id = ? AND event_role = 'expense' ORDER BY id LIMIT 1"
+    ).get(event.id) : null;
+    const newExpenseBonNumber = (wantExpenseBon && !existingExpenseBon) ? nextBonNumber() : null;
 
     const result = transaction(db, () => {
         let bonId = existingBon ? existingBon.id : null;
@@ -1110,17 +1119,53 @@ router.post('/create-bon-from-tx', handle(async (req, res) => {
             VALUES (?, ?, ?, ?, ?, ?)
         `);
         allocStmt.run(transaction_id, 'bon', String(bonId), linesSum, 'Opret bon fra indbetaling', userId);
+
+        let expenseBonId = null, expenseBonNumber = null, expenseCreated = false;
         if (feeAmount < 0) {
-            allocStmt.run(transaction_id, 'fee', String(fee.kind || 'gebyr'), feeAmount, null, userId);
+            if (wantExpenseBon) {
+                // Bogfør afgift/gebyr som en UDGIFTSBON på eventet (event_role='expense'),
+                // så det tæller i eventets P&L. Genbrug eventets udgiftsbon hvis den findes.
+                expenseBonId = existingExpenseBon ? existingExpenseBon.id : null;
+                expenseBonNumber = existingExpenseBon ? existingExpenseBon.bon_number : newExpenseBonNumber;
+                if (!expenseBonId) {
+                    const ei = db.prepare(`
+                        INSERT INTO bons (
+                            bon_number, status_id, location_id, order_date, delivery_date,
+                            price_category, payment_type, event_id, event_role,
+                            pax, total_units, total_price, total_with_delivery, created_by_user_id
+                        ) VALUES (?,?,?,?,?,?,?,?,'expense',0,0,0,0,?)
+                    `).run(
+                        expenseBonNumber, betaltStatusId, defaultLocationId, todayISO(),
+                        tx.dato, 'festival', payment_type, event.id, userId
+                    );
+                    expenseBonId = ei.lastInsertRowid;
+                    expenseCreated = true;
+                    logChange({ entityType: 'bon', entityId: expenseBonId, action: 'create', newValue: expenseBonNumber, userId });
+                }
+                const esort = db.prepare('SELECT COALESCE(MAX(sort_order),0) AS m FROM bon_lines WHERE bon_id = ?').get(expenseBonId).m;
+                db.prepare(`
+                    INSERT INTO bon_lines (bon_id, product_name, category, quantity, unit, unit_price, line_total, sort_order, moms_included)
+                    VALUES (?, 'Afgift/gebyr', 'Udgift', 1, 'stk', ?, ?, ?, 1)
+                `).run(expenseBonId, feeAmount, feeAmount, esort + 1);
+                const etotal = db.prepare('SELECT COALESCE(SUM(line_total),0) AS s FROM bon_lines WHERE bon_id = ?').get(expenseBonId).s;
+                db.prepare('UPDATE bons SET total_price = ?, total_with_delivery = ? WHERE id = ?').run(r2(etotal), r2(etotal), expenseBonId);
+                allocStmt.run(transaction_id, 'bon', String(expenseBonId), feeAmount, 'Afgift/gebyr (event-udgift)', userId);
+            } else {
+                // standalone (ingen event): behold som fee-allokering på banken
+                allocStmt.run(transaction_id, 'fee', String(fee.kind || 'gebyr'), feeAmount, null, userId);
+            }
         }
         syncTxFromAllocations(db, transaction_id);
 
-        return { bonId, bonNumber, created };
+        return { bonId, bonNumber, created, expenseBonId, expenseBonNumber, expenseCreated };
     });
 
     broadcast(result.created ? 'bon_created' : 'bon_updated', { id: result.bonId, bon_number: result.bonNumber });
+    if (result.expenseBonId) {
+        broadcast(result.expenseCreated ? 'bon_created' : 'bon_updated', { id: result.expenseBonId, bon_number: result.expenseBonNumber });
+    }
     broadcast('cashflow_allocation', { transaction_id: Number(transaction_id) });
-    res.json({ ok: true, bon_id: result.bonId, bon_number: result.bonNumber, created: result.created });
+    res.json({ ok: true, bon_id: result.bonId, bon_number: result.bonNumber, created: result.created, expense_bon_id: result.expenseBonId });
 }));
 
 // ─── GET /suggest-matches — Forslag til forfaldne fakturaer ──────────────
