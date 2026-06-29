@@ -40,16 +40,22 @@ async function _cfLoadRecipes() {
 }
 function _cfRecipeFestival(r) { return (r && r.prices && Number(r.prices.festival)) || null; }
 
+// Justeringer dækker differencen mellem allokeret og indbetaling — begge veje:
+// negativ (gebyr/afgift trækkes fra) ELLER positiv (fx levering der ikke kom med
+// på bonen, drikkepenge, afrunding).
 const _CF_FEE_KINDS = [
-    { id: 'zettle', label: 'Zettle-gebyr' },
-    { id: 'mobilepay', label: 'MobilePay-gebyr' },
-    { id: 'gebyr', label: 'Gebyr' },
+    { id: 'gebyr', label: 'Gebyr (−)' },
+    { id: 'afgift', label: 'Afgift (−)' },
+    { id: 'zettle', label: 'Zettle-gebyr (−)' },
+    { id: 'levering', label: 'Levering (+)' },
+    { id: 'drikkepenge', label: 'Drikkepenge (+)' },
+    { id: 'diff', label: 'Difference / afrunding (±)' },
 ];
 const _CF_TARGET_BADGE = {
     bon:     { txt: 'Bon',     bg: '#4a6e96' },
     invoice: { txt: 'Faktura', bg: '#8e631f' },
     event:   { txt: 'Event',   bg: '#7a9c54' },
-    fee:     { txt: 'Gebyr',   bg: '#bc3a3a' },
+    fee:     { txt: 'Just.',   bg: '#7a8a96' },
 };
 function _cfBadgeHtml(type, expense) {
     const b = expense ? { txt: 'Udgift', bg: '#bc3a3a' } : (_CF_TARGET_BADGE[type] || { txt: type, bg: '#999' });
@@ -444,7 +450,7 @@ async function _cfBuildUmPanel(panel, id) {
             <div class="cf-alloc-lines" data-lines></div>
             <div class="cf-alloc-search-wrap">
                 <input class="cf-um-search" type="text" placeholder="Søg bon, faktura eller event…" autocomplete="off">
-                <button class="cf-um-btn cf-alloc-fee" title="Tilføj gebyr-linje (negativ)">+ Gebyr</button>
+                <button class="cf-um-btn cf-alloc-fee" title="Tilføj justering (+/−): gebyr/afgift eller levering/diff">+ Justering</button>
             </div>
             <div class="cf-um-target-list"></div>
             <div class="cf-alloc-foot">
@@ -657,13 +663,16 @@ function _cfAddAllocTarget(panel, id, t) {
     _cfRenderAllocLines(panel, id);
 }
 
-/** Lille gebyr-vælger (Zettle/MobilePay/Gebyr) → tilføjer negativ linje. */
+/** Justerings-vælger (+/−) → tilføjer en linje der dækker resten (begge veje:
+ *  gebyr/afgift negativt, levering/drikkepenge positivt). Default = den aktuelle
+ *  rest, så ét klik balancerer. */
 function _cfShowFeePicker(panel, id) {
     const host = panel.querySelector('.cf-um-target-list');
+    const rest = _cfAllocRest(id);
     host.innerHTML = _CF_FEE_KINDS.map((f, i) => `
         <div class="cf-um-target" data-fee="${i}">
-            <span class="cf-alloc-badge" style="background:${_CF_TARGET_BADGE.fee.bg}">Gebyr</span>
-            <div class="cf-alloc-line-lbl"><div>${f.label}</div><div class="cf-alloc-sub">negativ linje</div></div>
+            <span class="cf-alloc-badge" style="background:${_CF_TARGET_BADGE.fee.bg}">Just.</span>
+            <div class="cf-alloc-line-lbl"><div>${f.label}</div><div class="cf-alloc-sub">fylder resten (${_cfFmt(rest)})</div></div>
         </div>
     `).join('');
     host.querySelectorAll('.cf-um-target').forEach(row => {
@@ -671,9 +680,9 @@ function _cfShowFeePicker(panel, id) {
             e.stopPropagation();
             const f = _CF_FEE_KINDS[+row.getAttribute('data-fee')];
             const d = _cfAllocDraft[id];
-            const rest = _cfAllocRest(id);
-            // gebyr er negativt; foreslå at det dækker en evt. NEGATIV rest, ellers 0
-            d.lines.push({ target_type: 'fee', target_id: f.id, label: f.label, sublabel: '', amount: rest < -0.01 ? rest : 0 });
+            const r = _cfAllocRest(id);
+            // Default = resten (uanset fortegn) så linjen balancerer i ét klik.
+            d.lines.push({ target_type: 'fee', target_id: f.id, label: f.label, sublabel: '', amount: Math.abs(r) > 0.01 ? r : 0 });
             host.innerHTML = '';
             _cfRenderAllocLines(panel, id);
         };
