@@ -178,6 +178,7 @@ async function _evRenderDetail(id) {
                     <div class="ev-pnl-cell"><div class="ev-pnl-val">${_evFmtKr(pnl.cost_estimated)}</div><div class="ev-pnl-lbl">Vareforbrug (ex moms)</div></div>
                     <div class="ev-pnl-cell"><div class="ev-pnl-val">${_evFmtKr(pnl.expenses_excl ?? pnl.expenses)}</div><div class="ev-pnl-lbl">Udgifter (ex moms)</div></div>
                     <div class="ev-pnl-cell ev-pnl-result"><div class="ev-pnl-val">${_evFmtKr(pnl.result)}</div><div class="ev-pnl-lbl">Resultat</div></div>
+                    <div class="ev-pnl-cell ev-pnl-bank"><div class="ev-pnl-val">${_evFmtKr(pnl.bank_reconciled || 0)}</div><div class="ev-pnl-lbl">🏦 Bank-afstemt (inkl moms)${pnl.bank_reconciled_tx ? ' · ' + pnl.bank_reconciled_tx + ' indb.' : ' · intet afstemt'}</div></div>
                     <div class="ev-pnl-cell ev-pnl-co2"><div class="ev-pnl-val">${_evFmtNum(pnl.co2e_total || 0)}</div><div class="ev-pnl-lbl">🌱 CO₂e (kg)</div></div>
                 </div>
 
