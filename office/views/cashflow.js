@@ -665,13 +665,23 @@ function _cfShowFeePicker(panel, id) {
 async function _cfBuildBonForm(panel, id, tx) {
     const box = panel.querySelector('.cf-um-bon');
     _cfBonDraft[id] = { lines: [{ name: 'Direkte salg', amount: tx.beloeb }] };
-    let events = [];
-    try { events = (await fetchCfEventsOnDate(tx.dato)).events || []; } catch { events = []; }
+    // Alle events i dropdownen (så man altid kan vælge det rigtige), men event(s)
+    // hvis periode overlapper indbetalingens dato forvælges + markeres "samme dato".
+    let allEvents = [], overlapIds = new Set();
+    try {
+        const [all, onDate] = await Promise.all([
+            fetchEventsList().catch(() => ({ events: [] })),
+            fetchCfEventsOnDate(tx.dato).catch(() => ({ events: [] })),
+        ]);
+        allEvents = all.events || [];
+        overlapIds = new Set((onDate.events || []).map(e => String(e.id)));
+    } catch { allEvents = []; }
+    const preselect = allEvents.find(e => overlapIds.has(String(e.id)));
     const evtOptions = '<option value="">Ingen / standalone</option>' +
-        events.map(e => `<option value="${e.id}">${_cfEsc(e.label.replace('🎪 ', ''))}</option>`).join('');
+        allEvents.map(e => `<option value="${e.id}">${_cfEsc(e.name)}${overlapIds.has(String(e.id)) ? ' · samme dato' : ''}</option>`).join('');
     const payOptions = _CF_PAY_OPTS.map(([v, l]) => `<option value="${v}">${l}</option>`).join('');
     box.innerHTML = `
-        <div class="cf-bon-hint">Opretter BETALT salgsbon${events.length ? ' (event-forslag fra dato)' : ''} + kobler indbetalingen til den.</div>
+        <div class="cf-bon-hint">Opretter BETALT salgsbon${preselect ? ' (event forvalgt fra dato)' : ''} + kobler indbetalingen til den.</div>
         <div class="cf-bon-row">
             <label>Event</label>
             <select class="cf-bon-event">${evtOptions}</select>
@@ -691,7 +701,7 @@ async function _cfBuildBonForm(panel, id, tx) {
             <button class="cf-um-btn cf-um-btn-primary cf-bon-create">Opret bon</button>
         </div>
     `;
-    if (events.length) box.querySelector('.cf-bon-event').value = String(events[0].id);
+    if (preselect) box.querySelector('.cf-bon-event').value = String(preselect.id);
 
     box.querySelector('.cf-bon-addline').onclick = (e) => {
         e.stopPropagation();

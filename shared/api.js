@@ -1548,6 +1548,10 @@ function fetchCfEventsOnDate(date) {
     return apiFetch('/cashflow/events-on-date?date=' + encodeURIComponent(date || ''));
 }
 
+function fetchEventsList(status) {
+    return apiFetch('/events' + (status ? '?status=' + encodeURIComponent(status) : ''));
+}
+
 function fetchCfEventIncome() {
     return apiFetch('/cashflow/event-income');
 }
