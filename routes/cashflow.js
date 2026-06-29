@@ -856,6 +856,9 @@ router.get('/match-targets', handle(async (req, res) => {
     const digits = q.replace(/\D/g, '');
 
     // Bons: søg bon_number, kunde, firma. Tal → også direkte bon_number/id-match.
+    // UDGIFTS-BONS ekskluderes (event_role='expense' = penge UD, fx kommission/afgift,
+    // har negativ total) — det giver ingen mening at koble en indkommende indbetaling
+    // til en udgift. Negative totaler skjules generelt af samme grund.
     const bons = db.prepare(`
         SELECT b.id, b.bon_number, b.total_with_delivery, b.delivery_date,
                c.first_name || ' ' || COALESCE(c.last_name,'') AS contact, co.name AS company,
@@ -864,7 +867,10 @@ router.get('/match-targets', handle(async (req, res) => {
         LEFT JOIN customers c  ON b.customer_id = c.id
         LEFT JOIN companies co ON b.company_id  = co.id
         LEFT JOIN status_definitions sd ON b.status_id = sd.id
-        WHERE b.is_offer = 0 AND (
+        WHERE b.is_offer = 0
+          AND COALESCE(b.event_role, '') <> 'expense'
+          AND COALESCE(b.total_with_delivery, 0) >= 0
+          AND (
             CAST(b.bon_number AS TEXT) LIKE ? OR co.name LIKE ?
             OR (c.first_name || ' ' || COALESCE(c.last_name,'')) LIKE ?
             ${digits ? 'OR CAST(b.id AS TEXT) = ?' : ''}
