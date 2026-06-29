@@ -82,7 +82,10 @@ function _cfFmtDate(iso) {
     const d = new Date(iso);
     const day = d.getDate();
     const mon = _CF_MONTHS[d.getMonth()].toLowerCase();
-    return `${day}. ${mon}`;
+    // Vis året når datoen ikke er i indeværende år — så gamle fakturaer er
+    // tydelige uden at rode nutidige datoer til.
+    const y = d.getFullYear();
+    return y === new Date().getFullYear() ? `${day}. ${mon}` : `${day}. ${mon} ${y}`;
 }
 
 function _cfDaysSince(iso) {

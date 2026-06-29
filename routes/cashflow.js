@@ -363,6 +363,11 @@ router.get('/invoices', handle(async (req, res) => {
     const params = [];
     if (tab === 'udestaaende' || tab === 'forfaldne') params.push(today);
 
+    // Udestående/forfaldne sorteres ÆLDSTE først (mest presserende øverst). Alle
+    // andre tabs (alle/betalt/sandsynlig) sorteres NYESTE først, så listen viser
+    // de relevante, seneste fakturaer i stedet for de 200 ældste fra arkivet.
+    const orderDir = (tab === 'udestaaende' || tab === 'forfaldne') ? 'ASC' : 'DESC';
+
     const rows = db.prepare(`
         SELECT
             i.*,
@@ -374,7 +379,7 @@ router.get('/invoices', handle(async (req, res) => {
         LEFT JOIN bons b              ON i.bon_id = b.id
         LEFT JOIN status_definitions sd ON b.status_id = sd.id
         WHERE ${where}
-        ORDER BY i.forfald ASC
+        ORDER BY i.forfald ${orderDir}
         LIMIT ? OFFSET ?
     `).all(...params, parseInt(limit), parseInt(offset));
 
