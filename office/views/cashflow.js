@@ -21,8 +21,24 @@ let _cfUnmatched = {};       // tx-id → tx (umatchede posteringer i overblikke
 let _cfUmInvCache = null;    // (legacy — ikke længere brugt af panelet)
 let _cfAllocDraft = {};      // tx-id → { lines:[{target_type,target_id,label,sublabel,amount}], existing:[] }
 let _cfAllocSearchTimer = null;
-let _cfBonDraft = {};        // tx-id → { lines:[{name,amount}] } til "opret bon fra indbetaling"
+let _cfBonDraft = {};        // tx-id → { lines:[...] } til "opret bon fra indbetaling"
+let _cfRecipeCache = null;   // Grocy sellable recipes (id,name,category,prices,cost_price,co2e)
+let _cfRecipeByName = null;  // Map: lowercased navn → recipe
 const _CF_PAY_OPTS = [['card','Kort/Zettle'],['mobilepay','MobilePay'],['cash','Kontant'],['pos','POS']];
+
+/** Hent + cache Grocy-opskrifter (til menu-autocomplete i Opret bon). Tom ved fejl. */
+async function _cfLoadRecipes() {
+    if (_cfRecipeCache) return _cfRecipeCache;
+    try {
+        const raw = await fetchGrocyRecipes();
+        _cfRecipeCache = (Array.isArray(raw) ? raw : (raw.recipes || []))
+            .map(r => ({ ...r, name: (r.name || '').trim() }))
+            .filter(r => r.name);
+    } catch { _cfRecipeCache = []; }
+    _cfRecipeByName = new Map(_cfRecipeCache.map(r => [r.name.toLowerCase(), r]));
+    return _cfRecipeCache;
+}
+function _cfRecipeFestival(r) { return (r && r.prices && Number(r.prices.festival)) || null; }
 
 const _CF_FEE_KINDS = [
     { id: 'zettle', label: 'Zettle-gebyr' },
@@ -664,14 +680,16 @@ function _cfShowFeePicker(panel, id) {
 /** §2.E.3 — formular: opret salgsbon fra en indbetaling. */
 async function _cfBuildBonForm(panel, id, tx) {
     const box = panel.querySelector('.cf-um-bon');
-    _cfBonDraft[id] = { lines: [{ name: 'Direkte salg', amount: tx.beloeb }] };
+    _cfBonDraft[id] = { lines: [{ name: 'Direkte salg', quantity: 1, amount: tx.beloeb, grocy_recipe_id: null, category: null }] };
     // Alle events i dropdownen (så man altid kan vælge det rigtige), men event(s)
     // hvis periode overlapper indbetalingens dato forvælges + markeres "samme dato".
+    // Grocy-opskrifter hentes parallelt til menu-autocomplete på linjerne.
     let allEvents = [], overlapIds = new Set();
     try {
         const [all, onDate] = await Promise.all([
             fetchEventsList().catch(() => ({ events: [] })),
             fetchCfEventsOnDate(tx.dato).catch(() => ({ events: [] })),
+            _cfLoadRecipes(),
         ]);
         allEvents = all.events || [];
         overlapIds = new Set((onDate.events || []).map(e => String(e.id)));
@@ -705,7 +723,7 @@ async function _cfBuildBonForm(panel, id, tx) {
 
     box.querySelector('.cf-bon-addline').onclick = (e) => {
         e.stopPropagation();
-        _cfBonDraft[id].lines.push({ name: '', amount: 0 });
+        _cfBonDraft[id].lines.push({ name: '', quantity: 1, amount: 0, grocy_recipe_id: null, category: null });
         _cfRenderBonLines(panel, id, tx);
     };
     box.querySelector('.cf-bon-fee-amt').oninput = () => _cfUpdateBonSum(panel, id, tx);
@@ -715,7 +733,11 @@ async function _cfBuildBonForm(panel, id, tx) {
         const payment = box.querySelector('.cf-bon-pay').value;
         const feeRaw = Number(box.querySelector('.cf-bon-fee-amt').value);
         const lines = _cfBonDraft[id].lines.filter(l => Number(l.amount) > 0)
-            .map(l => ({ name: l.name || 'Direkte salg', amount: Number(l.amount) }));
+            .map(l => ({
+                name: l.name || 'Direkte salg', quantity: Number(l.quantity) || 1, amount: Number(l.amount),
+                grocy_recipe_id: l.grocy_recipe_id || null, category: l.category || null,
+                cost_price: l.cost_price ?? null, co2e: l.co2e ?? null,
+            }));
         if (!lines.length) { alert('Mindst én linje med beløb > 0'); return; }
         const body = { transaction_id: id, event_id: eventId ? Number(eventId) : null, payment_type: payment, lines };
         if (Number.isFinite(feeRaw) && feeRaw < 0) body.fee = { kind: payment === 'mobilepay' ? 'mobilepay' : 'zettle', amount: feeRaw };
@@ -732,16 +754,57 @@ async function _cfBuildBonForm(panel, id, tx) {
 function _cfRenderBonLines(panel, id, tx) {
     const host = panel.querySelector('[data-bon-lines]');
     const lines = _cfBonDraft[id].lines;
-    host.innerHTML = lines.map((l, i) => `
+    const hasRecipes = (_cfRecipeCache || []).length > 0;
+    const datalist = hasRecipes
+        ? `<datalist id="cf-recipe-dl">${_cfRecipeCache.map(r => `<option value="${_cfEsc(r.name)}"></option>`).join('')}</datalist>`
+        : '';
+    host.innerHTML = datalist + lines.map((l, i) => {
+        const hint = l.grocy_recipe_id
+            ? `✓ Grocy: ${_cfEsc(l.category || '')}${l._festival ? ' · ref. ' + _cfFmt(l._festival) + '/stk' : ''}`
+            : '';
+        return `
         <div class="cf-bon-line">
-            <input class="cf-bon-line-name" type="text" placeholder="Varenavn" value="${_cfEsc(l.name)}" data-bl-name="${i}">
-            <input class="cf-bon-line-amt" type="number" step="0.01" value="${l.amount}" data-bl-amt="${i}">
+            <input class="cf-bon-line-name" type="text" ${hasRecipes ? 'list="cf-recipe-dl"' : ''} placeholder="Varenavn / Grocy-menu" value="${_cfEsc(l.name)}" data-bl-name="${i}">
+            <input class="cf-bon-line-qty" type="number" min="1" step="1" value="${l.quantity || 1}" title="Antal solgt" data-bl-qty="${i}">
+            <input class="cf-bon-line-amt" type="number" step="0.01" value="${l.amount}" title="Beløb (total, inkl. moms)" data-bl-amt="${i}">
             ${lines.length > 1 ? `<button class="cf-alloc-del" data-bl-del="${i}">✕</button>` : '<span style="width:18px"></span>'}
         </div>
-    `).join('');
+        <div class="cf-bon-line-hint" data-bl-hint="${i}">${hint}</div>`;
+    }).join('');
+
     host.querySelectorAll('[data-bl-name]').forEach(inp => {
         inp.onclick = (e) => e.stopPropagation();
-        inp.oninput = () => { lines[+inp.getAttribute('data-bl-name')].name = inp.value; };
+        inp.oninput = () => {
+            const i = +inp.getAttribute('data-bl-name');
+            const line = lines[i];
+            line.name = inp.value;
+            const rec = _cfRecipeByName ? _cfRecipeByName.get(inp.value.trim().toLowerCase()) : null;
+            if (rec) {
+                line.grocy_recipe_id = rec.id;
+                line.category = rec.category || null;
+                line.cost_price = rec.cost_price ?? null;
+                line.co2e = rec.co2e ?? null;
+                line._festival = _cfRecipeFestival(rec);
+                // bekvemmelighed: forudfyld beløb fra Grocy-pris KUN hvis tomt (klobrer aldrig
+                // et beløb du selv har sat — event-prisen kan afvige fra Grocy)
+                if (!Number(line.amount)) {
+                    line.amount = Math.round((line._festival || 0) * (Number(line.quantity) || 1) * 100) / 100;
+                    const amtEl = host.querySelector(`[data-bl-amt="${i}"]`);
+                    if (amtEl) amtEl.value = line.amount;
+                    _cfUpdateBonSum(panel, id, tx);
+                }
+            } else {
+                line.grocy_recipe_id = null; line.category = null;
+                line.cost_price = null; line.co2e = null; line._festival = null;
+            }
+            const hintEl = host.querySelector(`[data-bl-hint="${i}"]`);
+            if (hintEl) hintEl.innerHTML = rec
+                ? `✓ Grocy: ${_cfEsc(rec.category || '')}${line._festival ? ' · ref. ' + _cfFmt(line._festival) + '/stk' : ''}` : '';
+        };
+    });
+    host.querySelectorAll('[data-bl-qty]').forEach(inp => {
+        inp.onclick = (e) => e.stopPropagation();
+        inp.oninput = () => { lines[+inp.getAttribute('data-bl-qty')].quantity = Number(inp.value) || 1; };
     });
     host.querySelectorAll('[data-bl-amt]').forEach(inp => {
         inp.onclick = (e) => e.stopPropagation();

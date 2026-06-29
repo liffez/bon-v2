@@ -92,8 +92,12 @@ ALTER TABLE bons ADD COLUMN faktureret_at  TEXT;    -- sættes ved "Markér fakt
 > - ✅ **Opret bon fra indbetaling** `POST /cashflow/create-bon-from-tx` — DEN kanoniske vej til event-penge.
 >   Opretter BETALT salgsbon (event_role='sales', price_category='festival', customer NULL) + allokerer tx
 >   til den. Genbruger eventets eksisterende salgsbon hvis den findes. Linjer fleksible — én samle-linje
->   ELLER salg pr. menu-linje (kategori 'Event-salg' så salget tæller i linje-baserede omsætningsrapporter);
->   valgfri gebyr-linje. Event-dropdown prefyldes fra `GET /cashflow/events-on-date?date=` (dato-overlap +5d).
+>   ELLER salg pr. menu-linje. **Linjer kan vælges som rigtige Grocy-menuer** (autocomplete på varenavn via
+>   `GET /api/grocy/recipes`): valg fylder `grocy_recipe_id` + rigtig kategori + kostpris/CO2 → konsistent
+>   med normale bons (tæller i omsætnings-/kategori-/margin-rapporter). Pr. linje: antal + beløb (total).
+>   Grocy-festivalprisen vises kun som **reference-hint** — beløbet styres af brugeren (event-prisen kan
+>   afvige fra Grocy). Fri-tekst stadig muligt (kategori 'Event-salg', ingen recipe-id). Event-dropdown =
+>   ALLE events (via `GET /api/events`), dato-overlap forvalgt (`/cashflow/events-on-date`, +5d buffer).
 > - ✅ **Per-event-indtægtsoverblik** `GET /cashflow/event-income` — bank-afstemt pr. event beregnet fra
 >   allokeringer på eventets BONS: brutto (salgsbons), fradrag (udgiftsbons + udbyder-gebyr på samme tx),
 >   netto, tx-antal. Matcher event-P&L'en (samme bons) → ingen divergens/dobbelttælling. Kort i Overblik.

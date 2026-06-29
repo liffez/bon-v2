@@ -983,7 +983,12 @@ router.get('/event-income', handle(async (req, res) => {
 // Valgfri gebyr-linje (Zettle/MobilePay) gør at brutto kan overstige netto.
 // Σ(linjer) + gebyr må ikke overstige transaktionens (resterende) beløb.
 //
-// Body: { transaction_id, event_id?, payment_type, lines:[{name,amount}], fee?:{kind,amount} }
+// Body: { transaction_id, event_id?, payment_type,
+//         lines:[{name, quantity?, amount, grocy_recipe_id?, category?, cost_price?, co2e?}],
+//         fee?:{kind,amount} }
+// En linje kan være fri-tekst (lump) ELLER en rigtig Grocy-menu (grocy_recipe_id +
+// kategori) så salget er konsistent med resten af systemet. amount = linjens TOTAL;
+// quantity = antal solgt (default 1) → unit_price = amount/quantity.
 router.post('/create-bon-from-tx', handle(async (req, res) => {
     const db = getDb();
     const { transaction_id, event_id = null, payment_type = 'card', fee = null } = req.body;
@@ -998,7 +1003,16 @@ router.post('/create-bon-from-tx', handle(async (req, res) => {
     for (const l of lines) {
         const amount = r2(Number(l.amount));
         if (!Number.isFinite(amount) || amount <= 0) return res.status(400).json({ error: 'Linje-beløb skal være > 0' });
-        cleanLines.push({ name: String(l.name || 'Direkte salg').trim() || 'Direkte salg', amount });
+        const qty = Number(l.quantity) > 0 ? Number(l.quantity) : 1;
+        cleanLines.push({
+            name: String(l.name || 'Direkte salg').trim() || 'Direkte salg',
+            amount, qty,
+            unit_price: r2(amount / qty),
+            grocy_recipe_id: l.grocy_recipe_id != null ? Number(l.grocy_recipe_id) : null,
+            category: l.category ? String(l.category) : 'Event-salg',
+            cost_price: l.cost_price != null ? r2(Number(l.cost_price)) : null,
+            co2e: l.co2e != null ? Number(l.co2e) : null,
+        });
     }
     const linesSum = r2(cleanLines.reduce((s, l) => s + l.amount, 0));
 
@@ -1054,13 +1068,17 @@ router.post('/create-bon-from-tx', handle(async (req, res) => {
             logChange({ entityType: 'bon', entityId: bonId, action: 'create', newValue: bonNumber, userId });
         }
 
-        // Tilføj linjer (priser er INCL moms per doktrin)
+        // Tilføj linjer (priser er INCL moms per doktrin). Grocy-menu → grocy_recipe_id
+        // + rigtig kategori; fri-tekst → kategori 'Event-salg'. line_total = amount.
         const sortBase = db.prepare('SELECT COALESCE(MAX(sort_order),0) AS m FROM bon_lines WHERE bon_id = ?').get(bonId).m;
         const lineStmt = db.prepare(`
-            INSERT INTO bon_lines (bon_id, product_name, category, quantity, unit, unit_price, line_total, sort_order, moms_included)
-            VALUES (?, ?, 'Event-salg', 1, 'stk', ?, ?, ?, 1)
+            INSERT INTO bon_lines (bon_id, grocy_recipe_id, product_name, category, quantity, unit, unit_price, line_total, cost_price, co2e, sort_order, moms_included)
+            VALUES (?, ?, ?, ?, ?, 'stk', ?, ?, ?, ?, ?, 1)
         `);
-        cleanLines.forEach((l, i) => lineStmt.run(bonId, l.name, l.amount, l.amount, sortBase + i + 1));
+        cleanLines.forEach((l, i) => lineStmt.run(
+            bonId, l.grocy_recipe_id, l.name, l.category, l.qty,
+            l.unit_price, l.amount, l.cost_price, l.co2e, sortBase + i + 1
+        ));
 
         // Server-autoritativ total
         recalcBonTotalUnits(db, bonId);
