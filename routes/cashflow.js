@@ -307,11 +307,23 @@ router.get('/transactions', handle(async (req, res) => {
             AND ABS(t.beloeb - COALESCE(
                 (SELECT SUM(a.amount) FROM cf_allocations a WHERE a.transaction_id = t.id), 0
             )) >= 0.01`;
-        // VANDMÆRKE (§2.A): posteringer til og med economic_booked_until er afregnet
-        // i e-conomic → de er ikke kontorets manuelle opgave. Skjul dem fra listen,
-        // så kun de genuint nye (efter vandmærket) står tilbage at matche.
-        const wm = db.prepare(`SELECT value FROM cf_meta WHERE key = 'economic_booked_until'`).get()?.value;
-        if (wm) { where += ' AND t.dato > ?'; params.push(wm); }
+        const q = String(req.query.q || '').trim();
+        if (q) {
+            // SØGNING går på tværs af ALT — også posteringer FØR vandmærket. Det er
+            // sådan event-/direkte-salg-indbetalinger (Zettle/kontant) findes frem:
+            // de er ikke faktura-afregnet i e-conomic, men skal kobles til event-
+            // salgsbons. Søg på tekst eller beløb.
+            const digits = q.replace(/\D/g, '');
+            where += ' AND (t.tekst LIKE ?' + (digits ? ' OR CAST(t.beloeb AS TEXT) LIKE ?' : '') + ')';
+            params.push(`%${q}%`);
+            if (digits) params.push(`%${digits}%`);
+        } else {
+            // VANDMÆRKE (§2.A): posteringer til og med economic_booked_until er
+            // afregnet i e-conomic → ikke kontorets manuelle opgave. Skjul dem, så
+            // kun de genuint nye (efter vandmærket) står tilbage at matche.
+            const wm = db.prepare(`SELECT value FROM cf_meta WHERE key = 'economic_booked_until'`).get()?.value;
+            if (wm) { where += ' AND t.dato > ?'; params.push(wm); }
+        }
     }
 
     const rows = db.prepare(`

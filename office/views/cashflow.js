@@ -18,6 +18,8 @@ let _cfInvForm = null;       // null | 'create' | invoice-id
 let _cfResizeHandler = null;
 let _cfOpts = {};            // { openDrawer? } injected from office-shell
 let _cfUnmatched = {};       // tx-id → tx (umatchede posteringer i overblikket)
+let _cfWatermark = null;     // economic_booked_until (til "afregnet"-besked)
+let _cfUmSearchTimer = null; // debounce for søgning i kan-ikke-matches
 let _cfUmInvCache = null;    // (legacy — ikke længere brugt af panelet)
 let _cfAllocDraft = {};      // tx-id → { lines:[{target_type,target_id,label,sublabel,amount}], existing:[] }
 let _cfAllocSearchTimer = null;
@@ -175,6 +177,7 @@ async function _cfRenderOverblik() {
 function _cfBuildOverblik(el, stats, weekly, invoices, upcoming, unmatched, eventIncome) {
     _cfUnmatched = {};
     (unmatched.rows || []).forEach(tx => { _cfUnmatched[tx.id] = tx; });
+    _cfWatermark = stats.economic_booked_until || null;
     const daysSince = _cfDaysSince(stats.last_upload);
     const staleClass = daysSince <= 1 ? 'ok' : '';
     const staleText = daysSince <= 1 ? 'Bankdata opdateret i dag'
@@ -273,31 +276,11 @@ function _cfBuildOverblik(el, stats, weekly, invoices, upcoming, unmatched, even
                     <div class="cf-last-upload">${stats.last_upload ? 'Sidst uploadet: ' + new Date(stats.last_upload).toLocaleString('da-DK') : 'Ingen upload endnu'}</div>
                 </div>
 
-                ${unmatched.rows.length > 0 ? `
-                <div class="cf-unmatched-card">
-                    <div class="cf-unmatched-header">⚠️ ${unmatched.total > unmatched.rows.length ? unmatched.rows.length + ' af ' + unmatched.total : unmatched.rows.length} posteringer kan ikke matches</div>
-                    <div id="cfUnmatchedList">
-                    ${unmatched.rows.map(tx => `
-                        <div class="cf-unmatched-item" data-tx-id="${tx.id}">
-                            <div class="cf-unmatched-row" data-tx-row="${tx.id}">
-                                <div>
-                                    <div style="font-weight:700">${_cfEsc(tx.tekst).substring(0, 40)}</div>
-                                    <span style="font-size:11px;color:#8a8580">${_cfFmtDate(tx.dato)}${tx.note ? ' · 📝' : ''}</span>
-                                </div>
-                                <div style="font-weight:700;color:${tx.beloeb < 0 ? '#bc3a3a' : '#e8a832'}">${_cfFmt(tx.beloeb)}</div>
-                            </div>
-                            <div class="cf-um-panel" data-tx-panel="${tx.id}" hidden></div>
-                        </div>
-                    `).join('')}
-                    </div>
-                </div>` : (stats.economic_booked_until ? `
-                <div class="cf-unmatched-card cf-unmatched-clear">
-                    <div class="cf-unmatched-header" style="color:#5a8a3a">✓ Ingen manuelle bankposteringer</div>
-                    <div style="font-size:11.5px;color:#6a6560;padding:2px 2px 4px">
-                        Alt til og med <strong>${_cfFmtDate(stats.economic_booked_until)}</strong> er afregnet i e-conomic.
-                        Kun posteringer efter den dato kræver manuel matchning.
-                    </div>
-                </div>` : '')}
+                <div class="cf-unmatched-card" id="cfUnmatchedCard">
+                    <input class="cf-um-list-search" id="cfUmSearch" type="text" autocomplete="off"
+                        placeholder="🔎 Søg postering (event, beløb, tekst) — også afregnede…">
+                    <div id="cfUnmatchedArea">${_cfUnmatchedAreaHtml(unmatched.rows, unmatched.total, false, stats.economic_booked_until)}</div>
+                </div>
 
                 ${_cfEventIncomeCard(eventIncome)}
 
@@ -396,21 +379,72 @@ function _cfBuildOverblik(el, stats, weekly, invoices, upcoming, unmatched, even
 
 /* ── Umatchede posteringer: match / ignorér / note ── */
 
+/** Én række i kan-ikke-matches-listen. */
+function _cfUnmatchedRowHtml(tx) {
+    return `<div class="cf-unmatched-item" data-tx-id="${tx.id}">
+        <div class="cf-unmatched-row" data-tx-row="${tx.id}">
+            <div>
+                <div style="font-weight:700">${_cfEsc(tx.tekst).substring(0, 40)}</div>
+                <span style="font-size:11px;color:#8a8580">${_cfFmtDate(tx.dato)}${tx.note ? ' · 📝' : ''}</span>
+            </div>
+            <div style="font-weight:700;color:${tx.beloeb < 0 ? '#bc3a3a' : '#e8a832'}">${_cfFmt(tx.beloeb)}</div>
+        </div>
+        <div class="cf-um-panel" data-tx-panel="${tx.id}" hidden></div>
+    </div>`;
+}
+
+/** Indhold i kan-ikke-matches-området: liste, søgeresultat eller "afregnet"-besked. */
+function _cfUnmatchedAreaHtml(rows, total, isSearch, watermark) {
+    rows = rows || [];
+    if (rows.length === 0) {
+        if (isSearch) return '<div class="cf-um-hint" style="padding:6px 2px">Ingen posteringer matcher søgningen.</div>';
+        if (watermark) return `<div class="cf-unmatched-header" style="color:#5a8a3a;margin:0">✓ Ingen manuelle bankposteringer</div>
+            <div style="font-size:11.5px;color:#6a6560;padding:2px 2px 4px">Alt til og med <strong>${_cfFmtDate(watermark)}</strong> er afregnet i e-conomic. Søg ovenfor for at finde event-/direkte-salg-indbetalinger.</div>`;
+        return '<div class="cf-um-hint" style="padding:6px 2px">Ingen umatchede posteringer.</div>';
+    }
+    const cnt = total > rows.length ? rows.length + ' af ' + total : '' + rows.length;
+    const header = isSearch ? `🔎 ${cnt} fundet (også afregnede)` : `⚠️ ${cnt} posteringer kan ikke matches`;
+    return `<div class="cf-unmatched-header">${header}</div>
+        <div id="cfUnmatchedList">${rows.map(_cfUnmatchedRowHtml).join('')}</div>`;
+}
+
 function _cfWireUnmatched(el) {
-    const list = el.querySelector('#cfUnmatchedList');
-    if (!list) return;
-    list.querySelectorAll('.cf-unmatched-row').forEach(row => {
-        row.onclick = () => {
-            const id = row.getAttribute('data-tx-row');
-            const panel = list.querySelector(`.cf-um-panel[data-tx-panel="${id}"]`);
-            if (!panel) return;
-            if (!panel.hidden) { panel.hidden = true; return; }
-            // Luk øvrige paneler
-            list.querySelectorAll('.cf-um-panel').forEach(p => { p.hidden = true; });
-            _cfBuildUmPanel(panel, id);
-            panel.hidden = false;
+    const wireRows = () => {
+        const list = el.querySelector('#cfUnmatchedList');
+        if (!list) return;
+        list.querySelectorAll('.cf-unmatched-row').forEach(row => {
+            row.onclick = () => {
+                const id = row.getAttribute('data-tx-row');
+                const panel = list.querySelector(`.cf-um-panel[data-tx-panel="${id}"]`);
+                if (!panel) return;
+                if (!panel.hidden) { panel.hidden = true; return; }
+                list.querySelectorAll('.cf-um-panel').forEach(p => { p.hidden = true; });
+                _cfBuildUmPanel(panel, id);
+                panel.hidden = false;
+            };
+        });
+    };
+    wireRows();
+
+    // Søgning: finder enhver postering — også de e-conomic-afregnede før vandmærket
+    // (så event-/direkte-salg-indbetalinger kan graves frem og kobles til salgsbons).
+    const search = el.querySelector('#cfUmSearch');
+    if (search) {
+        search.oninput = () => {
+            clearTimeout(_cfUmSearchTimer);
+            const q = search.value.trim();
+            _cfUmSearchTimer = setTimeout(async () => {
+                const area = el.querySelector('#cfUnmatchedArea');
+                if (!area) return;
+                try {
+                    const res = await fetchCfTransactions({ unmatched: true, q, limit: 50 });
+                    (res.rows || []).forEach(tx => { _cfUnmatched[tx.id] = tx; });
+                    area.innerHTML = _cfUnmatchedAreaHtml(res.rows, res.total, !!q, _cfWatermark);
+                    wireRows();
+                } catch { /* lydløst */ }
+            }, 250);
         };
-    });
+    }
 }
 
 /** §2.E per-event-indtægtsoverblik — kompakt kort (kun events med koblinger). */

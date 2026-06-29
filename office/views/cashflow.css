@@ -876,6 +876,11 @@
 .cf-alloc-amt-fixed { font-weight: 700; font-size: 12px; white-space: nowrap; }
 .cf-alloc-amt-saved { background: #fbfdf8; }
 .cf-amt-invalid { border-color: #bc3a3a !important; background: #fdf0f0; }
+.cf-um-list-search {
+  width: 100%; box-sizing: border-box; font-size: 12px;
+  padding: 7px 9px; margin-bottom: 8px;
+  border: 1px solid var(--color-border, #d7d1ca); border-radius: 6px;
+}
 .cf-alloc-del {
   border: none; background: none; color: #bc3a3a; cursor: pointer;
   font-size: 13px; padding: 2px 4px; flex-shrink: 0;
