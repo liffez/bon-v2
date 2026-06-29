@@ -1799,7 +1799,7 @@ router.get('/upcoming', handle(async (req, res) => {
 // Læser e-conomics bogførte fakturaer → markér cf_invoices betalt via bon-nr i
 // fakturaens overskrift. Skriver kun til vores egen cf_invoices + vandmærke.
 const economicAdapter = require('../services/economicAdapter');
-const { reconcile } = require('../services/cashflowReconcile');
+const { reconcile, matchByEconomicNumber } = require('../services/cashflowReconcile');
 
 router.post('/reconcile', handle(async (req, res) => {
     if (!economicAdapter.isConfigured()) {
@@ -1811,16 +1811,20 @@ router.post('/reconcile', handle(async (req, res) => {
     let result;
     try {
         result = await reconcile(db, { dryRun, since });
+        // Efter e-conomic-numrene er gemt: kobl umatchede bank-indbetalinger via
+        // fakturanummeret i bankteksten (verificeret link, ikke dato-fold).
+        const m = matchByEconomicNumber(db, { dryRun });
+        result.linked = m.linked;
     } catch (e) {
         if (e instanceof economicAdapter.EconomicAuthError) return res.status(502).json({ error: 'e-conomic-adgang skal genetableres', detail: e.message });
         if (e instanceof economicAdapter.EconomicRateError) return res.status(503).json({ error: 'e-conomic rate limit ramt — prøv igen senere' });
         return res.status(502).json({ error: 'e-conomic-afstemning fejlede', detail: e.message });
     }
-    if (!dryRun && result.flipped > 0) {
+    if (!dryRun && (result.flipped > 0 || result.linked > 0)) {
         logChange({ entityType: 'cashflow', entityId: 0, action: 'economic_reconcile',
             fieldName: 'betalt', oldValue: null, newValue: String(result.flipped),
-            userId: req.session?.userId ?? null, notes: `vandmærke → ${result.newWatermark}` });
-        broadcast('cashflow_reconciled', { flipped: result.flipped, watermark: result.newWatermark });
+            userId: req.session?.userId ?? null, notes: `vandmærke → ${result.newWatermark} · ${result.numbered} nr · ${result.linked} koblet` });
+        broadcast('cashflow_reconciled', { flipped: result.flipped, linked: result.linked, watermark: result.newWatermark });
     }
     res.json(result);
 }));

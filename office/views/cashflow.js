@@ -352,7 +352,7 @@ function _cfBuildOverblik(el, stats, weekly, invoices, upcoming, unmatched, even
         try {
             reconBtn.textContent = 'Synker...'; reconBtn.disabled = true;
             const r = await reconcileCashflow({});
-            alert(`Afstemning færdig!\n\n${r.scanned} fakturaer scannet\n${r.matched} koblet til bons\n${r.flipped} markeret betalt`);
+            alert(`Afstemning færdig!\n\n${r.scanned} fakturaer scannet\n${r.matched} koblet til bons\n${r.flipped} markeret betalt\n${r.numbered ?? 0} fakturanr gemt\n${r.linked ?? 0} bank-indbetalinger koblet via fakturanr`);
             _cfRenderOverblik();
         } catch (err) {
             alert('Afstemning fejlede: ' + err.message);

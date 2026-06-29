@@ -252,6 +252,23 @@ Zettle-afregning, event "Michelin":  tx.beloeb = +9.105 (netto)
   uden for §E's ±5-dages auto-forslag — eventet vælges da manuelt i Opret-bon-dropdownen. Kan
   udvides til en større event-kontant-buffer hvis driften ønsker det.
 
+##### Verificeret bank↔faktura-link via e-conomic-fakturanummer (29. juni — bygget)
+Folden antager kun "pre-vandmærke = bogført". For at *verificere* (ikke antage) kobles de
+historiske indbetalinger nu via e-conomics bogførte fakturanummer:
+- **Migration 117:** `cf_invoices.economic_number` (TEXT, nullable) + indeks.
+- **`cashflowReconcile.reconcile`** gemmer `inv.bookedInvoiceNumber` på den matchede `cf_invoice`
+  (også når den allerede er betalt) — den henter den allerede, gemte den bare ikke.
+- **`cashflowReconcile.matchByEconomicNumber(db)`** kobler umatchede bank-indbetalinger →
+  `cf_invoices` når **fakturanummeret står i bankteksten** ("FAKTURA 3957") **OG beløbet** er
+  inden for tolerance (nummer alene er lige så tilfældigt som beløb alene — begge kræves).
+  Rører ikke betalt-status. Kaldes automatisk efter `reconcile` i `POST /api/cashflow/reconcile`.
+- **Backfill:** "⟳ Synk e-conomic" kører kun FREM fra vandmærket. Historiske numre udfyldes
+  ÉN gang via `scripts/backfill-economic-numbers.js --apply` (henter alle bogførte fra `--since`,
+  default 2024-01-01). Idempotent. På testdata: 210 af 394 foldede har et fakturanr i teksten →
+  bliver verificeret koblet; ~184 navne-baserede + event-kontant bliver tilbage (sidstnævnte løftet).
+- **Samlefaktura** (flere bons deler ét bogført nummer): matcheren kræver beløbs-match på en
+  ENKELT `cf_invoice` → samlebetalinger auto-kobles ikke 1:1 (de er ægte split-arbejde, §2.F).
+
 ---
 
 ## 3. Hvad der IKKE skal bygges (det duplikerer drift-kode)

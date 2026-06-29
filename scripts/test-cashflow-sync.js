@@ -6,6 +6,7 @@ const path = require('path');
 const { openDb } = require('../db/compat');
 const { runMigrations } = require('../db/migrate');
 const { syncCashflowInvoice, parseInvoiceNumber, computeDueDate } = require('../services/cashflowSync');
+const { matchByEconomicNumber } = require('../services/cashflowReconcile');
 
 const TMP = path.join(__dirname, '..', 'data', 'test-cashflow-sync.db');
 if (fs.existsSync(TMP)) fs.unlinkSync(TMP);
@@ -130,6 +131,24 @@ console.log('\n— Nul beløb → skip —');
 const bon7 = makeBon({ bon_number: 'B1007', status_code: 'FAKTURERET', total_price: 0 });
 r = syncCashflowInvoice(db, bon7);
 assert(r.action === 'skipped' && r.reason === 'zero_amount', `skip 0 kr (got ${r.action}/${r.reason})`);
+
+console.log('\n— matchByEconomicNumber: kobl bank-indbetaling via e-conomic-fakturanr —');
+// faktura med gemt bogført fakturanr (det reconcile ville have gemt)
+db.prepare(`INSERT INTO cf_invoices (id, kunde, beloeb, forfald, betalt, economic_number) VALUES ('B2001', 'Test', 24016.25, '2026-03-15', 1, '3957')`).run();
+// A: nummer i tekst + rigtigt beløb → skal kobles
+db.prepare(`INSERT INTO cf_transactions (dato, tekst, beloeb) VALUES ('2026-03-10', 'FAKTURA 3957', 24016.25)`).run();
+// B: samme nummer men forkert beløb → må IKKE kobles (guard mod tilfældigt nummer-match)
+db.prepare(`INSERT INTO cf_transactions (dato, tekst, beloeb) VALUES ('2026-03-10', 'FAKTURA 3957', 90000)`).run();
+// C: rigtigt beløb men intet nummer → må ikke kobles af DENNE matcher
+db.prepare(`INSERT INTO cf_transactions (dato, tekst, beloeb) VALUES ('2026-03-10', 'Overforsel uden nr', 24016.25)`).run();
+const mres = matchByEconomicNumber(db, { dryRun: false });
+const txA = db.prepare(`SELECT matched_invoice_id FROM cf_transactions WHERE tekst='FAKTURA 3957' AND beloeb=24016.25`).get();
+const txB = db.prepare(`SELECT matched_invoice_id FROM cf_transactions WHERE tekst='FAKTURA 3957' AND beloeb=90000`).get();
+const txC = db.prepare(`SELECT matched_invoice_id FROM cf_transactions WHERE tekst='Overforsel uden nr'`).get();
+assert(txA.matched_invoice_id === 'B2001', `nummer+beløb-match koblet (got ${txA.matched_invoice_id})`);
+assert(txB.matched_invoice_id === null, `nummer men forkert beløb IKKE koblet (guard)`);
+assert(txC.matched_invoice_id === null, `intet nummer i tekst IKKE koblet`);
+assert(mres.linked === 1, `linked-tæller = 1 (got ${mres.linked})`);
 
 // Cleanup
 db.close();
