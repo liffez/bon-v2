@@ -886,12 +886,9 @@ router.get('/match-targets', handle(async (req, res) => {
         ORDER BY forfald DESC LIMIT ?
     `).all(like, like, lim);
 
-    // Events: navn-match.
-    const events = db.prepare(`
-        SELECT id, name, start_date, end_date FROM events
-        WHERE name LIKE ? ORDER BY start_date DESC LIMIT ?
-    `).all(like, Math.min(lim, 10));
-
+    // Events er BEVIDST IKKE koblings-mål her: event-indtægt skal altid gå gennem en
+    // salgsbon (besluttet — bons er sandheden for event-økonomi). Brug "Opret bon"
+    // (target_type='bon') i stedet — den laver salgsbonnen + afstemmer i ét hug.
     const targets = [
         ...bons.map(b => {
             const expense = b.event_role === 'expense';
@@ -905,11 +902,6 @@ router.get('/match-targets', handle(async (req, res) => {
             type: 'invoice', id: i.id, label: `Faktura #${i.id}`,
             sublabel: [i.kunde, i.betalt ? 'betalt' : 'udestående'].filter(Boolean).join(' · '),
             amount: i.beloeb, date: i.forfald,
-        })),
-        ...events.map(e => ({
-            type: 'event', id: e.id, label: `🎪 ${e.name}`,
-            sublabel: [e.start_date, e.end_date].filter(Boolean).join(' → '),
-            amount: null, date: e.start_date,
         })),
     ];
     res.json({ targets });
@@ -944,21 +936,27 @@ router.get('/events-on-date', handle(async (req, res) => {
 // mindst én kobling vises, med mindre ?all=1.
 router.get('/event-income', handle(async (req, res) => {
     const db = getDb();
+    // Bank-afstemt indtægt pr. event = Σ allokeringer på eventets BONS (ikke bare
+    // event-allokeringer — dem findes ikke længere; event-penge er altid salgsbons).
+    // brutto = allokeringer til salgsbons, udgift = allokeringer til udgiftsbons (negativ)
+    // + udbyder-gebyr (fee-allokeringer på de SAMME transaktioner). netto = brutto + udgift.
     const rows = db.prepare(`
         SELECT
             e.id, e.name, e.start_date, e.end_date,
-            COALESCE(SUM(a.amount), 0) AS gross,
+            COALESCE(SUM(CASE WHEN COALESCE(b.event_role,'') <> 'expense' THEN a.amount ELSE 0 END), 0) AS gross,
+            COALESCE(SUM(CASE WHEN COALESCE(b.event_role,'') =  'expense' THEN a.amount ELSE 0 END), 0) AS expenses,
             COUNT(DISTINCT a.transaction_id) AS tx_count,
             COALESCE((
                 SELECT SUM(f.amount) FROM cf_allocations f
                 WHERE f.target_type = 'fee' AND f.transaction_id IN (
-                    SELECT transaction_id FROM cf_allocations
-                    WHERE target_type = 'event' AND target_id = CAST(e.id AS TEXT)
+                    SELECT a2.transaction_id FROM cf_allocations a2
+                    JOIN bons b2 ON a2.target_type = 'bon' AND a2.target_id = CAST(b2.id AS TEXT)
+                    WHERE b2.event_id = e.id
                 )
             ), 0) AS fees
         FROM events e
-        LEFT JOIN cf_allocations a
-            ON a.target_type = 'event' AND a.target_id = CAST(e.id AS TEXT)
+        JOIN bons b ON b.event_id = e.id
+        JOIN cf_allocations a ON a.target_type = 'bon' AND a.target_id = CAST(b.id AS TEXT)
         GROUP BY e.id
         ORDER BY e.start_date DESC
     `).all();
@@ -966,7 +964,8 @@ router.get('/event-income', handle(async (req, res) => {
         .filter(r => req.query.all === '1' || r.tx_count > 0)
         .map(r => ({
             id: r.id, name: r.name, start_date: r.start_date, end_date: r.end_date,
-            gross: r2(r.gross), fees: r2(r.fees), net: r2(r.gross + r.fees),
+            gross: r2(r.gross), fees: r2(r.expenses + r.fees),
+            net: r2(r.gross + r.expenses + r.fees),
             tx_count: r.tx_count,
         }));
     res.json({ events });

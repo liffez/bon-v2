@@ -81,21 +81,24 @@ ALTER TABLE bons ADD COLUMN faktureret_at  TEXT;    -- sættes ved "Markér fakt
 - `invoice_number` tastes samme sted (manuelt nu; auto sat af reconcile (B) når booked-nummeret kendes).
 - `cashflowSync` skifter fra fri-tekst-parse til at læse `bons.invoice_number` (med fri-tekst som fallback i overgangen).
 
-### E. Direkte salg / event-indtægt (KOMPLET 29. juni — bygget på cf_allocations)
-> Event-kobling, auto-forslag, per-event-overblik OG opret-bon-fra-indbetaling er bygget oven på
-> `cf_allocations` (target_type='event'/'bon') — IKKE et separat `matched_event_id`-felt (§2.F-beslutning).
-> - ✅ **Kobl til event** = allokering (target_type='event') via universel søgning (§2.F)
-> - ✅ **Auto-forslag** `GET /cashflow/events-on-date?date=` — events hvis interval (+5 dages buffer
->   efter end_date, fanger Zettle/MobilePay-afregning der lander efter eventet) dækker tx-datoen.
->   Vises som ét-klik-chips øverst i alloc-panelet, allerede-koblede skjules.
-> - ✅ **Per-event-indtægtsoverblik** `GET /cashflow/event-income` — brutto (Σ event-allokeringer),
->   gebyr (Σ fee-allokeringer på samme tx), netto, tx-antal. Kompakt kort i Overblik-tabben.
-> - ✅ **Opret bon fra indbetaling** `POST /cashflow/create-bon-from-tx` — opretter BETALT salgsbon
->   (event_role='sales', price_category='festival', customer NULL) + allokerer tx til den. Beslutninger
->   (Leif 29. juni): status=BETALT; ingen kunde (event er grupperingen); **genbruger eventets
->   eksisterende salgsbon** hvis den findes (ellers opret); linjer er fleksible — én samle-linje ELLER
->   salg pr. menu-linje (kategori 'Event-salg' så salget tæller i linje-baserede oms­ætningsrapporter);
->   valgfri gebyr-linje (brutto > netto). Formular i alloc-panelets "🧾 Opret bon"-knap.
+### E. Direkte salg / event-indtægt (KOMPLET 29. juni — event-indtægt ALTID via salgsbon)
+> **Kernebeslutning (Leif 29. juni): bons er den eneste sandhed for event-økonomi.** `routes/events.js`
+> beregner P&L udelukkende fra eventets bons (0 referencer til cf_allocations). En "bar" event-allokering
+> (target_type='event') ville derfor være usynlig i event-regnskabet → forbudt. Event-indtægt går ALTID
+> gennem en salgsbon; bank-afstemning kobler indbetalinger til de bons (target_type='bon').
+> - ❌ **Bar "Kobl til event" FJERNET.** `match-targets` returnerer ikke længere events; auto-forslags-chips
+>   i split-panelet fjernet. Migration 116 rydder eksisterende bare event-allokeringer (de berørte
+>   indbetalinger vender tilbage til "kan ikke matches" og laves korrekt via Opret bon).
+> - ✅ **Opret bon fra indbetaling** `POST /cashflow/create-bon-from-tx` — DEN kanoniske vej til event-penge.
+>   Opretter BETALT salgsbon (event_role='sales', price_category='festival', customer NULL) + allokerer tx
+>   til den. Genbruger eventets eksisterende salgsbon hvis den findes. Linjer fleksible — én samle-linje
+>   ELLER salg pr. menu-linje (kategori 'Event-salg' så salget tæller i linje-baserede omsætningsrapporter);
+>   valgfri gebyr-linje. Event-dropdown prefyldes fra `GET /cashflow/events-on-date?date=` (dato-overlap +5d).
+> - ✅ **Per-event-indtægtsoverblik** `GET /cashflow/event-income` — bank-afstemt pr. event beregnet fra
+>   allokeringer på eventets BONS: brutto (salgsbons), fradrag (udgiftsbons + udbyder-gebyr på samme tx),
+>   netto, tx-antal. Matcher event-P&L'en (samme bons) → ingen divergens/dobbelttælling. Kort i Overblik.
+> - **Eksisterende bons + netto-afregning:** har eventet allerede salgsbons (fx Rebel Food-festival),
+>   splittes bank-indbetalingen direkte på dem (salg + udgiftsbons som fradrag, §2.F) — ingen ny bon nødvendig.
 
 > B afstemmer kun FAKTURA-indtægter. Den anden halvdel er **direkte salg ved events**
 > (festival, POS/Zettle, kontant) hvor der **ikke er skrevet en faktura** — de havner

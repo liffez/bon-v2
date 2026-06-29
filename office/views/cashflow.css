@@ -889,17 +889,6 @@
 }
 .cf-um-target:hover { background: #f0f5e9; border-color: #7a9c54; }
 .cf-alloc-foot { margin-top: 8px; }
-.cf-alloc-suggest {
-  display: flex; flex-wrap: wrap; align-items: center; gap: 6px;
-  margin-bottom: 8px;
-}
-.cf-suggest-lbl { font-size: 11px; color: #8a8580; }
-.cf-suggest-chip {
-  font-size: 11.5px; font-weight: 600;
-  padding: 4px 9px; border-radius: 14px; cursor: pointer;
-  border: 1px solid #7a9c54; background: #f0f5e9; color: #3f5a2a;
-}
-.cf-suggest-chip:hover { background: #7a9c54; color: white; }
 
 /* ── §2.E Event-indtægtsoverblik ── */
 .cf-event-income-card {

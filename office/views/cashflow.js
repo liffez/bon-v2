@@ -400,7 +400,7 @@ function _cfEventIncomeCard(eventIncome) {
                     </div>
                     <div class="cf-event-income-amts">
                         <span class="cf-event-income-net">${_cfFmt(e.net)}</span>
-                        ${Math.abs(e.fees) >= 0.01 ? `<span class="cf-event-income-fee">brutto ${_cfFmt(e.gross)} · gebyr ${_cfFmt(e.fees)}</span>` : ''}
+                        ${Math.abs(e.fees) >= 0.01 ? `<span class="cf-event-income-fee">brutto ${_cfFmt(e.gross)} · fradrag ${_cfFmt(e.fees)}</span>` : ''}
                     </div>
                 </div>
             `).join('')}
@@ -423,7 +423,6 @@ async function _cfBuildUmPanel(panel, id) {
                 <span class="cf-alloc-rest" data-rest></span>
             </div>
             <div class="cf-alloc-lines" data-lines></div>
-            <div class="cf-alloc-suggest" data-suggest hidden></div>
             <div class="cf-alloc-search-wrap">
                 <input class="cf-um-search" type="text" placeholder="Søg bon, faktura eller event…" autocomplete="off">
                 <button class="cf-um-btn cf-alloc-fee" title="Tilføj gebyr-linje (negativ)">+ Gebyr</button>
@@ -477,8 +476,6 @@ async function _cfBuildUmPanel(panel, id) {
             clearTimeout(_cfAllocSearchTimer);
             _cfAllocSearchTimer = setTimeout(() => _cfSearchTargets(panel, id, search.value.trim()), 220);
         };
-        // §2.E auto-forslag: events der overlapper transaktionens dato
-        _cfLoadEventSuggestions(panel, id, tx.dato);
     };
 
     // Gebyr-linje
@@ -591,7 +588,8 @@ function _cfRenderAllocLines(panel, id) {
     });
 }
 
-/** Universel søgning (bons + fakturaer + events) → resultatliste. */
+/** Universel søgning (bons + fakturaer) → resultatliste. Events kobles IKKE her —
+ *  event-indtægt går altid via "Opret bon" (salgsbon), så det er i event-regnskabet. */
 async function _cfSearchTargets(panel, id, q) {
     const host = panel.querySelector('.cf-um-target-list');
     if (!host) return;
@@ -638,30 +636,6 @@ function _cfAddAllocTarget(panel, id, t) {
         expense: isExpense,
     });
     _cfRenderAllocLines(panel, id);
-}
-
-/** §2.E: hent + render event-forslag (dato-overlap) som ét-klik-chips. */
-async function _cfLoadEventSuggestions(panel, id, date) {
-    const host = panel.querySelector('[data-suggest]');
-    if (!host || !date) return;
-    let events = [];
-    try { events = (await fetchCfEventsOnDate(date)).events || []; } catch { events = []; }
-    // skjul allerede-koblede events
-    const d = _cfAllocDraft[id] || { lines: [], existing: [] };
-    const taken = new Set([...(d.lines || []), ...(d.existing || [])]
-        .filter(l => l.target_type === 'event').map(l => String(l.target_id)));
-    events = events.filter(e => !taken.has(String(e.id)));
-    if (!events.length) { host.hidden = true; host.innerHTML = ''; return; }
-    host.hidden = false;
-    host.innerHTML = '<span class="cf-suggest-lbl">Forslag (samme dato):</span>' +
-        events.map((e, i) => `<button class="cf-suggest-chip" data-sug="${i}">${_cfEsc(e.label)}</button>`).join('');
-    host.querySelectorAll('.cf-suggest-chip').forEach(chip => {
-        chip.onclick = (ev) => {
-            ev.stopPropagation();
-            _cfAddAllocTarget(panel, id, events[+chip.getAttribute('data-sug')]);
-            _cfLoadEventSuggestions(panel, id, date);  // fjern den valgte fra forslag
-        };
-    });
 }
 
 /** Lille gebyr-vælger (Zettle/MobilePay/Gebyr) → tilføjer negativ linje. */
