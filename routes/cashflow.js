@@ -258,6 +258,20 @@ router.post('/upload', (req, res) => {
         db.prepare(`INSERT OR REPLACE INTO cf_meta (key, value) VALUES ('last_upload_at', ?)`)
             .run(new Date().toISOString());
 
+        // Bankindestående: bank-CSV'en er nyeste-først, så den ØVERSTE række med
+        // saldo er den aktuelle kontosaldo. Fang den eksplicit her (robust på tværs
+        // af uploads — den gamle id-baserede heuristik brød pga. INSERT OR IGNORE,
+        // der genbruger gamle id'er → fil-rækkefølgen kunne ikke udledes fra id).
+        // Dato-guard: re-upload af et ÆLDRE kontoudtog må ikke rulle saldoen tilbage.
+        const newestWithSaldo = rows.find(r => r.saldo != null);
+        if (newestWithSaldo) {
+            const prevDate = db.prepare(`SELECT value FROM cf_meta WHERE key = 'current_balance_date'`).get()?.value || '';
+            if (!prevDate || newestWithSaldo.dato >= prevDate) {
+                db.prepare(`INSERT OR REPLACE INTO cf_meta (key, value) VALUES ('current_balance', ?)`).run(String(newestWithSaldo.saldo));
+                db.prepare(`INSERT OR REPLACE INTO cf_meta (key, value) VALUES ('current_balance_date', ?)`).run(newestWithSaldo.dato);
+            }
+        }
+
         // Run match logic
         const matched = runMatchLogic(db);
 
@@ -505,14 +519,19 @@ router.get('/stats', handle(async (req, res) => {
     const today = todayISO();
     const in30 = offsetISO(30);
 
-    // Bankindestående = saldo (løbende balance) på den NYESTE postering.
-    // Bank-CSV'en er nyeste-først og indsættes i fil-rækkefølge, så inden for
-    // den nyeste dato har den nyeste postering det LAVESTE id. Derfor id ASC
-    // (ikke DESC — det gav den ÆLDSTE postering den dag → forkert/halv saldo).
-    const latestTx = db.prepare(`
-        SELECT saldo FROM cf_transactions WHERE saldo IS NOT NULL
-        ORDER BY dato DESC, id ASC LIMIT 1
-    `).get();
+    // Bankindestående = kontosaldoen fanget ved seneste CSV-upload (øverste/nyeste
+    // række). Det er robust på tværs af uploads. Fallback til den gamle id-baserede
+    // heuristik for DBs der ikke har gen-uploadet siden fixet (den er upålidelig
+    // pga. INSERT OR IGNORE, men bedre end ingenting indtil næste upload).
+    const metaBalance = db.prepare(`SELECT value FROM cf_meta WHERE key = 'current_balance'`).get();
+    let bankBalance = metaBalance != null ? parseFloat(metaBalance.value) : null;
+    if (!Number.isFinite(bankBalance)) {
+        const latestTx = db.prepare(`
+            SELECT saldo FROM cf_transactions WHERE saldo IS NOT NULL
+            ORDER BY dato DESC, id ASC LIMIT 1
+        `).get();
+        bankBalance = latestTx?.saldo ?? null;
+    }
 
     // Outstanding invoices
     const outstanding = db.prepare(`
@@ -545,7 +564,7 @@ router.get('/stats', handle(async (req, res) => {
     // Vi udstiller incl-moms-totaler som primær — plus heraf moms-forpligtelse
     // og ex-moms-tal (disponibelt for drift). Se BON_V2_PRINCIPPER.md sektion 6c.
     res.json({
-        saldo: latestTx?.saldo ?? null,
+        saldo: bankBalance,
         // Udestående fakturaer — kundens fakturabeløb (incl moms)
         outstanding_total: outstanding.total,
         outstanding_total_incl_moms: outstanding.total,
