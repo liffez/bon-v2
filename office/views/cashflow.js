@@ -398,8 +398,8 @@ function _cfUnmatchedAreaHtml(rows, total, isSearch, watermark) {
     rows = rows || [];
     if (rows.length === 0) {
         if (isSearch) return '<div class="cf-um-hint" style="padding:6px 2px">Ingen posteringer matcher søgningen.</div>';
-        if (watermark) return `<div class="cf-unmatched-header" style="color:#5a8a3a;margin:0">✓ Ingen manuelle bankposteringer</div>
-            <div style="font-size:11.5px;color:#6a6560;padding:2px 2px 4px">Alt til og med <strong>${_cfFmtDate(watermark)}</strong> er afregnet i e-conomic. Søg ovenfor for at finde event-/direkte-salg-indbetalinger.</div>`;
+        if (watermark) return `<div class="cf-unmatched-header" style="color:#5a8a3a;margin:0">✓ Ingen uafklarede bankposteringer</div>
+            <div style="font-size:11.5px;color:#6a6560;padding:2px 2px 4px">Alle posteringer er enten nye eller afstemt mod en betalt faktura (på beløb). Søg ovenfor for at finde event-/direkte-salg-indbetalinger.</div>`;
         return '<div class="cf-um-hint" style="padding:6px 2px">Ingen umatchede posteringer.</div>';
     }
     const cnt = total > rows.length ? rows.length + ' af ' + total : '' + rows.length;

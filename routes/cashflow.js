@@ -318,11 +318,23 @@ router.get('/transactions', handle(async (req, res) => {
             params.push(`%${q}%`);
             if (digits) params.push(`%${digits}%`);
         } else {
-            // VANDMÆRKE (§2.A): posteringer til og med economic_booked_until er
-            // afregnet i e-conomic → ikke kontorets manuelle opgave. Skjul dem, så
-            // kun de genuint nye (efter vandmærket) står tilbage at matche.
+            // AFSTEMNINGS-TJEK (besluttet 29. juni — ikke ren dato-skjul):
+            // Posteringer EFTER vandmærket vises altid (nye, mangler at blive matchet).
+            // Posteringer FØR/PÅ vandmærket vises KUN hvis de IKKE kan afstemmes mod en
+            // BETALT faktura på beløb (samme tolerance som auto-matcheren). De der
+            // matcher en betalt faktura antages afregnet i e-conomic og skjules; resten
+            // er reelt uafklarede (fx event-/direkte-salg eller fejl) og bliver stående.
             const wm = db.prepare(`SELECT value FROM cf_meta WHERE key = 'economic_booked_until'`).get()?.value;
-            if (wm) { where += ' AND t.dato > ?'; params.push(wm); }
+            if (wm) {
+                const { relativePct, extraMax } = getMatchTolerance(db);
+                where += ` AND (t.dato > ? OR NOT EXISTS (
+                    SELECT 1 FROM cf_invoices i WHERE i.betalt = 1 AND (
+                        ABS(i.beloeb - t.beloeb) <= i.beloeb * ?
+                        OR (t.beloeb - i.beloeb > 0 AND t.beloeb - i.beloeb <= ?)
+                    )
+                ))`;
+                params.push(wm, relativePct / 100, extraMax);
+            }
         }
     }
 
@@ -577,14 +589,26 @@ router.get('/stats', handle(async (req, res) => {
     const lastUpload = db.prepare(`SELECT value FROM cf_meta WHERE key = 'last_upload_at'`).get();
 
     // Unmatched count — samme logik som "kan ikke matches"-listen: indgående,
-    // ikke-ignoreret, ikke matchet/allokeret, OG efter e-conomic-vandmærket.
+    // ikke-ignoreret, ikke matchet/allokeret, OG (efter vandmærket ELLER ikke
+    // afstemmeligt mod en betalt faktura — afstemnings-tjek).
     const wmStat = db.prepare(`SELECT value FROM cf_meta WHERE key = 'economic_booked_until'`).get()?.value;
+    let unmatchedWmClause = '', unmatchedWmParams = [];
+    if (wmStat) {
+        const { relativePct, extraMax } = getMatchTolerance(db);
+        unmatchedWmClause = ` AND (t.dato > ? OR NOT EXISTS (
+            SELECT 1 FROM cf_invoices i WHERE i.betalt = 1 AND (
+                ABS(i.beloeb - t.beloeb) <= i.beloeb * ?
+                OR (t.beloeb - i.beloeb > 0 AND t.beloeb - i.beloeb <= ?)
+            )
+        ))`;
+        unmatchedWmParams = [wmStat, relativePct / 100, extraMax];
+    }
     const unmatchedCount = db.prepare(`
         SELECT COUNT(*) AS cnt FROM cf_transactions t
         WHERE t.matched_invoice_id IS NULL AND t.beloeb > 0 AND t.ignored = 0
           AND ABS(t.beloeb - COALESCE((SELECT SUM(a.amount) FROM cf_allocations a WHERE a.transaction_id = t.id), 0)) >= 0.01
-          ${wmStat ? 'AND t.dato > ?' : ''}
-    `).get(...(wmStat ? [wmStat] : []));
+          ${unmatchedWmClause}
+    `).get(...unmatchedWmParams);
 
     // Cashflow-konvention: faktiske bankbevægelser er incl. moms.
     // Vi udstiller incl-moms-totaler som primær — plus heraf moms-forpligtelse
