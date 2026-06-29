@@ -711,8 +711,9 @@ async function _cfBuildBonForm(panel, id, tx) {
         <div class="cf-bon-lines" data-bon-lines></div>
         <button class="cf-um-btn cf-bon-addline">+ linje</button>
         <div class="cf-bon-row cf-bon-fee-row">
-            <label>Gebyr</label>
+            <label>Gebyr/afgift</label>
             <input class="cf-bon-fee-amt" type="number" step="0.01" placeholder="0 (valgfrit, negativt)">
+            <button class="cf-um-btn cf-bon-fee-rest" type="button" title="Fyld med resten (brutto − netto = afgift/gebyr)">= rest</button>
         </div>
         <div class="cf-bon-foot">
             <span class="cf-bon-sum"></span>
@@ -727,6 +728,16 @@ async function _cfBuildBonForm(panel, id, tx) {
         _cfRenderBonLines(panel, id, tx);
     };
     box.querySelector('.cf-bon-fee-amt').oninput = () => _cfUpdateBonSum(panel, id, tx);
+    // "= rest": fyld gebyr/afgift med differencen brutto-linjer − netto-indbetaling
+    // (fx Tivoli 10% afgift + Zettle-gebyr), så Σ rammer indbetalingen.
+    box.querySelector('.cf-bon-fee-rest').onclick = (e) => {
+        e.stopPropagation();
+        const linesSum = _cfBonDraft[id].lines.reduce((s, l) => s + (Number(l.amount) || 0), 0);
+        const fee = Math.round((tx.beloeb - linesSum) * 100) / 100;  // negativ når brutto > netto
+        const feeEl = box.querySelector('.cf-bon-fee-amt');
+        feeEl.value = fee < 0 ? fee : 0;
+        _cfUpdateBonSum(panel, id, tx);
+    };
     box.querySelector('.cf-bon-create').onclick = async (e) => {
         e.stopPropagation();
         const eventId = box.querySelector('.cf-bon-event').value || null;
@@ -808,14 +819,8 @@ function _cfApplyRecipeToLine(panel, id, tx, i, rec) {
     line.cost_price = rec.cost_price ?? null;
     line.co2e = rec.co2e ?? null;
     line._festival = _cfRecipeFestival(rec);
-    // forudfyld beløb fra Grocy-pris KUN hvis tomt (klobrer aldrig et indtastet beløb —
-    // event-prisen kan afvige fra Grocy)
-    if (!Number(line.amount)) {
-        line.amount = Math.round((line._festival || 0) * (Number(line.quantity) || 1) * 100) / 100;
-        const amtEl = host.querySelector(`[data-bl-amt="${i}"]`);
-        if (amtEl) amtEl.value = line.amount;
-        _cfUpdateBonSum(panel, id, tx);
-    }
+    // Beløb-feltet er linjens TOTAL (fx fra Zettle) — det forudfyldes IKKE fra
+    // Grocy-prisen (event-prisen afviger ofte). Grocy-stykprisen vises kun som hint.
     const hintEl = host.querySelector(`[data-bl-hint="${i}"]`);
     if (hintEl) hintEl.innerHTML = `✓ Grocy: ${_cfEsc(rec.category || '')}${line._festival ? ' · ref. ' + _cfFmt(line._festival) + '/stk' : ''}`;
 }
