@@ -625,8 +625,14 @@ function _cfAddAllocTarget(panel, id, t) {
     if (d.lines.some(l => l.target_type === t.type && String(l.target_id) === String(t.id))) return;
     const isExpense = t.expense || (t.amount != null && t.amount < 0);
     const rest = _cfAllocRest(id);
-    const amount = isExpense ? Math.round((t.amount || 0) * 100) / 100
-                             : (rest > 0.01 ? rest : 0);
+    let amount;
+    if (isExpense) {
+        amount = Math.round((t.amount || 0) * 100) / 100;      // negativ udgift → fradrag
+    } else if (t.amount != null && t.amount > 0) {
+        amount = Math.round(t.amount * 100) / 100;             // bonnens/fakturaens eget beløb → auto-fradrag fra resten
+    } else {
+        amount = rest > 0.01 ? rest : 0;                       // ukendt beløb (event/uprissat bon) → resten
+    }
     d.lines.push({
         target_type: t.type, target_id: t.id, label: t.label, sublabel: t.sublabel, amount,
         expense: isExpense,
