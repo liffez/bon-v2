@@ -287,6 +287,12 @@ router.post('/upload', (req, res) => {
     req.pipe(bb);
 });
 
+// Event-/direkte-salg-indbetalinger genkendes på bankteksten: de er ALDRIG
+// faktura-afregnet i e-conomic (ingen bon at matche mod) og kræver at der laves
+// en salgsbon. De løftes derfor OVER vandmærke-folden så de ikke begraves blandt
+// de bogførte. Mønstret matcher t.tekst (LOWER). Udvid her hvis nye kanaler dukker op.
+const EVENT_CASH_SQL = `(LOWER(t.tekst) LIKE '%zettle%' OR LOWER(t.tekst) LIKE '%mobilepay%' OR LOWER(t.tekst) LIKE '%kontant%' OR LOWER(t.tekst) LIKE '%vipps%')`;
+
 // ─── GET /transactions ──────────────────────────────────────
 
 router.get('/transactions', handle(async (req, res) => {
@@ -298,6 +304,7 @@ router.get('/transactions', handle(async (req, res) => {
 
     if (from) { where += ' AND t.dato >= ?'; params.push(from); }
     if (to)   { where += ' AND t.dato <= ?'; params.push(to); }
+    let foldedCount = 0;
     if (unmatched === '1') {
         // §2.F: "kan ikke matches" = indgående, ikke-ignoreret, IKKE 1:1-matchet (legacy)
         // OG ikke fuldt dækket af allokeringer. En tx der er fuldt allokeret til
@@ -308,8 +315,9 @@ router.get('/transactions', handle(async (req, res) => {
                 (SELECT SUM(a.amount) FROM cf_allocations a WHERE a.transaction_id = t.id), 0
             )) >= 0.01`;
         const q = String(req.query.q || '').trim();
+        const includeFolded = req.query.include_folded === '1';
         if (q) {
-            // SØGNING går på tværs af ALT — også posteringer FØR vandmærket. Det er
+            // SØGNING går på tværs af ALT — også foldede/pre-vandmærke posteringer. Det er
             // sådan event-/direkte-salg-indbetalinger (Zettle/kontant) findes frem:
             // de er ikke faktura-afregnet i e-conomic, men skal kobles til event-
             // salgsbons. Søg på tekst eller beløb.
@@ -318,29 +326,38 @@ router.get('/transactions', handle(async (req, res) => {
             params.push(`%${q}%`);
             if (digits) params.push(`%${digits}%`);
         } else {
-            // AFSTEMNINGS-TJEK (besluttet 29. juni — ikke ren dato-skjul):
-            // Posteringer EFTER vandmærket vises altid (nye, mangler at blive matchet).
-            // Posteringer FØR/PÅ vandmærket vises KUN hvis de IKKE kan afstemmes mod en
-            // BETALT faktura på beløb (samme tolerance som auto-matcheren). De der
-            // matcher en betalt faktura antages afregnet i e-conomic og skjules; resten
-            // er reelt uafklarede (fx event-/direkte-salg eller fejl) og bliver stående.
+            // VANDMÆRKE-FOLD (besluttet 29. juni — fold, IKKE skjul):
+            // Vandmærket = den dato e-conomic har bogført fakturaer til. Posteringer EFTER
+            // vandmærket er nye/ubogførte → vises altid. Posteringer FØR/PÅ vandmærket
+            // antages bogført i e-conomic → FOLDES (ikke skjult): de tælles i folded_count
+            // og hentes frem med include_folded=1 ELLER via søgning. Intet forsvinder.
+            //
+            // Det tidligere "match-mod-betalt-faktura-på-beløb"-tjek er FJERNET: med ~2.900
+            // fakturaer rammer næsten ethvert beløb tilfældigt en betalt faktura (±2%), så
+            // det skjulte event-kontant som "Zettle Michelin" (9.105 matchede 5 urelaterede
+            // fakturaer). Ren dato-fold er ærlig og reversibel. Pålidelig auto-afstemning
+            // kommer med e-conomic-fakturanummer-koblingen (spec §2.C).
             const wm = db.prepare(`SELECT value FROM cf_meta WHERE key = 'economic_booked_until'`).get()?.value;
-            if (wm) {
-                const { relativePct, extraMax } = getMatchTolerance(db);
-                where += ` AND (t.dato > ? OR NOT EXISTS (
-                    SELECT 1 FROM cf_invoices i WHERE i.betalt = 1 AND (
-                        ABS(i.beloeb - t.beloeb) <= i.beloeb * ?
-                        OR (t.beloeb - i.beloeb > 0 AND t.beloeb - i.beloeb <= ?)
-                    )
-                ))`;
-                params.push(wm, relativePct / 100, extraMax);
+            if (wm && !includeFolded) {
+                // Event-kontant løftes OVER folden — også pre-vandmærke — fordi de aldrig
+                // er faktura-afregnet og kræver en salgsbon. De foldede = pre-vandmærke
+                // MINUS event-kontant.
+                foldedCount = db.prepare(`
+                    SELECT COUNT(*) AS cnt FROM cf_transactions t
+                    WHERE t.beloeb > 0 AND t.ignored = 0 AND t.matched_invoice_id IS NULL
+                      AND ABS(t.beloeb - COALESCE((SELECT SUM(a.amount) FROM cf_allocations a WHERE a.transaction_id = t.id), 0)) >= 0.01
+                      AND t.dato <= ? AND NOT ${EVENT_CASH_SQL}
+                `).get(wm).cnt;
+                where += ` AND (t.dato > ? OR ${EVENT_CASH_SQL})`;
+                params.push(wm);
             }
         }
     }
 
     const rows = db.prepare(`
         SELECT t.*, i.kunde AS matched_kunde,
-            COALESCE((SELECT SUM(a.amount) FROM cf_allocations a WHERE a.transaction_id = t.id), 0) AS allocated
+            COALESCE((SELECT SUM(a.amount) FROM cf_allocations a WHERE a.transaction_id = t.id), 0) AS allocated,
+            CASE WHEN ${EVENT_CASH_SQL} THEN 1 ELSE 0 END AS is_event_cash
         FROM cf_transactions t
         LEFT JOIN cf_invoices i ON t.matched_invoice_id = i.id
         WHERE ${where}
@@ -352,7 +369,7 @@ router.get('/transactions', handle(async (req, res) => {
         SELECT COUNT(*) AS cnt FROM cf_transactions t WHERE ${where}
     `).get(...params);
 
-    res.json({ rows, total: total.cnt });
+    res.json({ rows, total: total.cnt, folded_count: foldedCount });
 }));
 
 // ─── GET /invoices ──────────────────────────────────────────
@@ -588,27 +605,21 @@ router.get('/stats', handle(async (req, res) => {
     // Last upload
     const lastUpload = db.prepare(`SELECT value FROM cf_meta WHERE key = 'last_upload_at'`).get();
 
-    // Unmatched count — samme logik som "kan ikke matches"-listen: indgående,
-    // ikke-ignoreret, ikke matchet/allokeret, OG (efter vandmærket ELLER ikke
-    // afstemmeligt mod en betalt faktura — afstemnings-tjek).
+    // Unmatched count — vandmærke-fold (samme logik som "kan ikke matches"-listen):
+    // indgående, ikke-ignoreret, ikke matchet/allokeret. unmatched_count = de
+    // ACTIONABLE (efter vandmærket); folded_count = de foldede (pre-vandmærke,
+    // antaget e-conomic-bogført, men ikke skjult — hentes via include_folded/søg).
     const wmStat = db.prepare(`SELECT value FROM cf_meta WHERE key = 'economic_booked_until'`).get()?.value;
-    let unmatchedWmClause = '', unmatchedWmParams = [];
-    if (wmStat) {
-        const { relativePct, extraMax } = getMatchTolerance(db);
-        unmatchedWmClause = ` AND (t.dato > ? OR NOT EXISTS (
-            SELECT 1 FROM cf_invoices i WHERE i.betalt = 1 AND (
-                ABS(i.beloeb - t.beloeb) <= i.beloeb * ?
-                OR (t.beloeb - i.beloeb > 0 AND t.beloeb - i.beloeb <= ?)
-            )
-        ))`;
-        unmatchedWmParams = [wmStat, relativePct / 100, extraMax];
-    }
+    const baseUnmatched = `t.matched_invoice_id IS NULL AND t.beloeb > 0 AND t.ignored = 0
+        AND ABS(t.beloeb - COALESCE((SELECT SUM(a.amount) FROM cf_allocations a WHERE a.transaction_id = t.id), 0)) >= 0.01`;
     const unmatchedCount = db.prepare(`
         SELECT COUNT(*) AS cnt FROM cf_transactions t
-        WHERE t.matched_invoice_id IS NULL AND t.beloeb > 0 AND t.ignored = 0
-          AND ABS(t.beloeb - COALESCE((SELECT SUM(a.amount) FROM cf_allocations a WHERE a.transaction_id = t.id), 0)) >= 0.01
-          ${unmatchedWmClause}
-    `).get(...unmatchedWmParams);
+        WHERE ${baseUnmatched} ${wmStat ? `AND (t.dato > ? OR ${EVENT_CASH_SQL})` : ''}
+    `).get(...(wmStat ? [wmStat] : []));
+    const foldedCount = wmStat ? db.prepare(`
+        SELECT COUNT(*) AS cnt FROM cf_transactions t
+        WHERE ${baseUnmatched} AND t.dato <= ? AND NOT ${EVENT_CASH_SQL}
+    `).get(wmStat).cnt : 0;
 
     // Cashflow-konvention: faktiske bankbevægelser er incl. moms.
     // Vi udstiller incl-moms-totaler som primær — plus heraf moms-forpligtelse
@@ -632,6 +643,7 @@ router.get('/stats', handle(async (req, res) => {
         expected_30d_count: expected30.count,
         last_upload: lastUpload?.value ?? null,
         unmatched_count: unmatchedCount.cnt,
+        folded_count: foldedCount,
         economic_booked_until: wmStat || null
     });
 }));

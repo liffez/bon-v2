@@ -279,7 +279,7 @@ function _cfBuildOverblik(el, stats, weekly, invoices, upcoming, unmatched, even
                 <div class="cf-unmatched-card" id="cfUnmatchedCard">
                     <input class="cf-um-list-search" id="cfUmSearch" type="text" autocomplete="off"
                         placeholder="🔎 Søg postering (event, beløb, tekst) — også afregnede…">
-                    <div id="cfUnmatchedArea">${_cfUnmatchedAreaHtml(unmatched.rows, unmatched.total, false, stats.economic_booked_until)}</div>
+                    <div id="cfUnmatchedArea">${_cfUnmatchedAreaHtml(unmatched.rows, unmatched.total, false, stats.economic_booked_until, unmatched.folded_count)}</div>
                 </div>
 
                 ${_cfEventIncomeCard(eventIncome)}
@@ -381,10 +381,13 @@ function _cfBuildOverblik(el, stats, weekly, invoices, upcoming, unmatched, even
 
 /** Én række i kan-ikke-matches-listen. */
 function _cfUnmatchedRowHtml(tx) {
-    return `<div class="cf-unmatched-item" data-tx-id="${tx.id}">
+    const eventTag = tx.is_event_cash
+        ? `<span class="cf-event-cash-tag" title="Ligner event-/direkte-salg — kobl til event via en salgsbon">🎪 kræver salgsbon</span>`
+        : '';
+    return `<div class="cf-unmatched-item${tx.is_event_cash ? ' cf-event-cash' : ''}" data-tx-id="${tx.id}">
         <div class="cf-unmatched-row" data-tx-row="${tx.id}">
             <div>
-                <div style="font-weight:700">${_cfEsc(tx.tekst).substring(0, 40)}</div>
+                <div style="font-weight:700">${_cfEsc(tx.tekst).substring(0, 40)}${eventTag}</div>
                 <span style="font-size:11px;color:#8a8580">${_cfFmtDate(tx.dato)}${tx.note ? ' · 📝' : ''}</span>
             </div>
             <div style="font-weight:700;color:${tx.beloeb < 0 ? '#bc3a3a' : '#e8a832'}">${_cfFmt(tx.beloeb)}</div>
@@ -393,40 +396,78 @@ function _cfUnmatchedRowHtml(tx) {
     </div>`;
 }
 
-/** Indhold i kan-ikke-matches-området: liste, søgeresultat eller "afregnet"-besked. */
-function _cfUnmatchedAreaHtml(rows, total, isSearch, watermark) {
+/** Fold-expander: "▸ vis N tidligere (foldet)" — henter pre-vandmærke posteringer. */
+function _cfFoldToggleHtml(foldedCount, isExpanded) {
+    if (!foldedCount) return '';
+    return `<button class="cf-fold-toggle" id="cfFoldToggle" data-expanded="${isExpanded ? '1' : '0'}">
+        ${isExpanded ? '▾ skjul' : '▸ vis'} ${foldedCount} tidligere (bogført i e-conomic)
+    </button>`;
+}
+
+/** Indhold i kan-ikke-matches-området: liste, søgeresultat eller fold-besked.
+ *  foldedCount = pre-vandmærke posteringer (foldet, ikke skjult). */
+function _cfUnmatchedAreaHtml(rows, total, isSearch, watermark, foldedCount = 0) {
     rows = rows || [];
     if (rows.length === 0) {
         if (isSearch) return '<div class="cf-um-hint" style="padding:6px 2px">Ingen posteringer matcher søgningen.</div>';
-        if (watermark) return `<div class="cf-unmatched-header" style="color:#5a8a3a;margin:0">✓ Ingen uafklarede bankposteringer</div>
-            <div style="font-size:11.5px;color:#6a6560;padding:2px 2px 4px">Alle posteringer er enten nye eller afstemt mod en betalt faktura (på beløb). Søg ovenfor for at finde event-/direkte-salg-indbetalinger.</div>`;
-        return '<div class="cf-um-hint" style="padding:6px 2px">Ingen umatchede posteringer.</div>';
+        // Ingen actionable (post-vandmærke) — men foldede kan ligge gemt (event-kontant mm.)
+        const head = watermark
+            ? `<div class="cf-unmatched-header" style="color:#5a8a3a;margin:0">✓ Ingen nye uafklarede posteringer</div>
+               <div style="font-size:11.5px;color:#6a6560;padding:2px 2px 4px">Alt efter vandmærket (${_cfFmtDate(watermark)}) er matchet. Tidligere posteringer er bogført i e-conomic — fold ud eller søg for at finde event-/direkte-salg-indbetalinger.</div>`
+            : '<div class="cf-um-hint" style="padding:6px 2px">Ingen umatchede posteringer.</div>';
+        return head + _cfFoldToggleHtml(foldedCount, false) + `<div id="cfUnmatchedList"></div>`;
     }
     const cnt = total > rows.length ? rows.length + ' af ' + total : '' + rows.length;
-    const header = isSearch ? `🔎 ${cnt} fundet (også afregnede)` : `⚠️ ${cnt} posteringer kan ikke matches`;
+    const header = isSearch ? `🔎 ${cnt} fundet (også bogførte)` : `⚠️ ${cnt} posteringer kan ikke matches`;
     return `<div class="cf-unmatched-header">${header}</div>
-        <div id="cfUnmatchedList">${rows.map(_cfUnmatchedRowHtml).join('')}</div>`;
+        <div id="cfUnmatchedList">${rows.map(_cfUnmatchedRowHtml).join('')}</div>
+        ${isSearch ? '' : _cfFoldToggleHtml(foldedCount, false)}`;
 }
 
 function _cfWireUnmatched(el) {
     const wireRows = () => {
         const list = el.querySelector('#cfUnmatchedList');
-        if (!list) return;
-        list.querySelectorAll('.cf-unmatched-row').forEach(row => {
-            row.onclick = () => {
-                const id = row.getAttribute('data-tx-row');
-                const panel = list.querySelector(`.cf-um-panel[data-tx-panel="${id}"]`);
-                if (!panel) return;
-                if (!panel.hidden) { panel.hidden = true; return; }
-                list.querySelectorAll('.cf-um-panel').forEach(p => { p.hidden = true; });
-                _cfBuildUmPanel(panel, id);
-                panel.hidden = false;
+        if (list) {
+            list.querySelectorAll('.cf-unmatched-row').forEach(row => {
+                row.onclick = () => {
+                    const id = row.getAttribute('data-tx-row');
+                    const panel = list.querySelector(`.cf-um-panel[data-tx-panel="${id}"]`);
+                    if (!panel) return;
+                    if (!panel.hidden) { panel.hidden = true; return; }
+                    list.querySelectorAll('.cf-um-panel').forEach(p => { p.hidden = true; });
+                    _cfBuildUmPanel(panel, id);
+                    panel.hidden = false;
+                };
+            });
+        }
+        // Fold-toggle: hent pre-vandmærke posteringer (eller fold dem væk igen).
+        const fold = el.querySelector('#cfFoldToggle');
+        if (fold) {
+            fold.onclick = async () => {
+                const expand = fold.getAttribute('data-expanded') !== '1';
+                const area = el.querySelector('#cfUnmatchedArea');
+                if (!area) return;
+                fold.disabled = true;
+                try {
+                    const res = await fetchCfTransactions({ unmatched: true, limit: 500, includeFolded: expand });
+                    (res.rows || []).forEach(tx => { _cfUnmatched[tx.id] = tx; });
+                    if (expand) {
+                        // vist alt (post+pre) — header + liste + "skjul"-knap
+                        const cnt = res.total > res.rows.length ? res.rows.length + ' af ' + res.total : '' + res.rows.length;
+                        area.innerHTML = `<div class="cf-unmatched-header">${cnt} posteringer (inkl. tidligere)</div>
+                            <div id="cfUnmatchedList">${res.rows.map(_cfUnmatchedRowHtml).join('')}</div>
+                            ${_cfFoldToggleHtml(res.rows.length, true)}`;
+                    } else {
+                        area.innerHTML = _cfUnmatchedAreaHtml(res.rows, res.total, false, _cfWatermark, res.folded_count);
+                    }
+                    wireRows();
+                } catch { fold.disabled = false; }
             };
-        });
+        }
     };
     wireRows();
 
-    // Søgning: finder enhver postering — også de e-conomic-afregnede før vandmærket
+    // Søgning: finder enhver postering — også de e-conomic-bogførte før vandmærket
     // (så event-/direkte-salg-indbetalinger kan graves frem og kobles til salgsbons).
     const search = el.querySelector('#cfUmSearch');
     if (search) {
@@ -437,9 +478,11 @@ function _cfWireUnmatched(el) {
                 const area = el.querySelector('#cfUnmatchedArea');
                 if (!area) return;
                 try {
-                    const res = await fetchCfTransactions({ unmatched: true, q, limit: 50 });
+                    const res = q
+                        ? await fetchCfTransactions({ unmatched: true, q, limit: 50 })
+                        : await fetchCfTransactions({ unmatched: true, limit: 25 });
                     (res.rows || []).forEach(tx => { _cfUnmatched[tx.id] = tx; });
-                    area.innerHTML = _cfUnmatchedAreaHtml(res.rows, res.total, !!q, _cfWatermark);
+                    area.innerHTML = _cfUnmatchedAreaHtml(res.rows, res.total, !!q, _cfWatermark, res.folded_count);
                     wireRows();
                 } catch { /* lydløst */ }
             }, 250);

@@ -232,6 +232,26 @@ Zettle-afregning, event "Michelin":  tx.beloeb = +9.105 (netto)
 > **Listen er bevidst ikke udtømmende.** Inden migration 115 skrives: kør den igennem med Leif og
 > tilføj de cases driften kender og denne ikke fanger (fx valuta, samlebetaling på tværs af måneder).
 
+#### F.6 "Kan ikke matches"-listen: vandmærke-FOLD + event-kontant løftet over (29. juni)
+
+> **Hvorfor.** Et tidligt forsøg på at *skjule* posteringer der "matcher en betalt faktura på
+> beløb" var en fejl: med ~2.900 fakturaer rammer næsten ethvert beløb tilfældigt en betalt
+> faktura (±2%), så det skjulte event-kontant (fx "Zettle Michelin" 9.105 matchede 5 urelaterede
+> fakturaer). Beløbs-match er lige så tilfældigt som fakturanummer-match (jf. B) — fjernet.
+
+- **Princip:** en postering *skjules ALDRIG* automatisk. Den foldes eller løftes — men er altid
+  findbar via søgning (søg går på tværs af ALT, også pre-vandmærke).
+- **Vandmærke-FOLD:** posteringer EFTER `economic_booked_until` er actionable → vises. Posteringer
+  FØR/PÅ vandmærket antages bogført i e-conomic (B) → **foldes** bag "▸ vis N tidligere" (ikke skjult).
+  `GET /transactions?unmatched=1` returnerer `folded_count`; `&include_folded=1` henter dem frem.
+- **Event-kontant løftes OVER folden:** bankposteringer hvis tekst matcher `EVENT_CASH_SQL`
+  (Zettle/MobilePay/kontant/Vipps, positive) vises ØVERST med **🎪 kræver salgsbon**-tag — også
+  pre-vandmærke — fordi de aldrig er faktura-afregnet og kræver en salgsbon (§E's "Opret bon").
+  `unmatched_count` tæller dem med; `folded_count` ekskluderer dem (`is_event_cash`-flag pr. række).
+- **Bevidst lille hul:** Zettle-afregninger halter typisk ~en uge efter event-datoen, så de falder
+  uden for §E's ±5-dages auto-forslag — eventet vælges da manuelt i Opret-bon-dropdownen. Kan
+  udvides til en større event-kontant-buffer hvis driften ønsker det.
+
 ---
 
 ## 3. Hvad der IKKE skal bygges (det duplikerer drift-kode)

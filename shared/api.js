@@ -1457,6 +1457,7 @@ function fetchCfTransactions(opts) {
     if (opts && opts.unmatched) params.push('unmatched=1');
     if (opts && opts.limit) params.push('limit=' + opts.limit);
     if (opts && opts.q) params.push('q=' + encodeURIComponent(opts.q));
+    if (opts && opts.includeFolded) params.push('include_folded=1');
     var qs = params.length ? '?' + params.join('&') : '';
     return apiFetch('/cashflow/transactions' + qs);
 }
