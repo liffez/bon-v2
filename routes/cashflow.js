@@ -799,12 +799,14 @@ function resolveTargetLabel(db, type, id) {
     }
     if (type === 'bon') {
         const b = db.prepare(`
-            SELECT b.bon_number, b.total_with_delivery, b.delivery_date,
+            SELECT b.bon_number, b.delivery_date,
+                   COALESCE(NULLIF(b.total_with_delivery,0), NULLIF(b.total_price,0),
+                            (SELECT COALESCE(SUM(line_total),0) FROM bon_lines bl WHERE bl.bon_id = b.id)) AS bon_total,
                    c.first_name || ' ' || COALESCE(c.last_name,'') AS contact, co.name AS company
             FROM bons b LEFT JOIN customers c ON b.customer_id = c.id
             LEFT JOIN companies co ON b.company_id = co.id WHERE b.id = ?
         `).get(id);
-        return b ? { label: `Bon #${b.bon_number}`, sublabel: (b.company || b.contact || '').trim(), target_amount: b.total_with_delivery } : { label: `Bon ${id}`, sublabel: '(slettet)' };
+        return b ? { label: `Bon #${b.bon_number}`, sublabel: (b.company || b.contact || '').trim(), target_amount: b.bon_total } : { label: `Bon ${id}`, sublabel: '(slettet)' };
     }
     if (type === 'event') {
         const e = db.prepare('SELECT name, start_date, end_date FROM events WHERE id = ?').get(id);
@@ -963,7 +965,11 @@ router.get('/match-targets', handle(async (req, res) => {
     // så de indsættes som negativ allokering. Kun ægte data-anomalier (negativ total
     // UDEN expense-rolle) skjules.
     const bons = db.prepare(`
-        SELECT b.id, b.bon_number, b.total_with_delivery, b.delivery_date, b.event_role,
+        SELECT b.id, b.bon_number, b.delivery_date, b.event_role,
+               -- Rigtig bon-total: total_with_delivery → total_price → linje-sum.
+               -- (Gamle cafe-bons har tom total_with_delivery, men total_price/linjer er sat.)
+               COALESCE(NULLIF(b.total_with_delivery,0), NULLIF(b.total_price,0),
+                        (SELECT COALESCE(SUM(line_total),0) FROM bon_lines bl WHERE bl.bon_id = b.id)) AS bon_total,
                c.first_name || ' ' || COALESCE(c.last_name,'') AS contact, co.name AS company,
                sd.label AS status_label
         FROM bons b
@@ -971,7 +977,7 @@ router.get('/match-targets', handle(async (req, res) => {
         LEFT JOIN companies co ON b.company_id  = co.id
         LEFT JOIN status_definitions sd ON b.status_id = sd.id
         WHERE b.is_offer = 0
-          AND (COALESCE(b.event_role,'') = 'expense' OR COALESCE(b.total_with_delivery, 0) >= 0)
+          AND (COALESCE(b.event_role,'') = 'expense' OR COALESCE(NULLIF(b.total_with_delivery,0), NULLIF(b.total_price,0), 0) >= 0)
           AND (
             CAST(b.bon_number AS TEXT) LIKE ? OR co.name LIKE ?
             OR (c.first_name || ' ' || COALESCE(c.last_name,'')) LIKE ?
@@ -996,7 +1002,7 @@ router.get('/match-targets', handle(async (req, res) => {
             return {
                 type: 'bon', id: b.id, label: `Bon #${b.bon_number}${expense ? ' (udgift)' : ''}`,
                 sublabel: [(b.company || b.contact || '').trim(), b.status_label].filter(Boolean).join(' · '),
-                amount: b.total_with_delivery, date: b.delivery_date, expense,
+                amount: b.bon_total, date: b.delivery_date, expense,
             };
         }),
         ...invoices.map(i => ({
