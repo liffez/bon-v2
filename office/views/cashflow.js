@@ -380,14 +380,18 @@ function _cfBuildOverblik(el, stats, weekly, invoices, upcoming, unmatched, even
 /* ── Umatchede posteringer: match / ignorér / note ── */
 
 /** Én række i kan-ikke-matches-listen. */
+const _CF_CAT_TAG = {
+    event_cash:    { cls: 'cf-cat-event',   txt: '🎪 kræver salgsbon',     tip: 'Event-/direkte-salg — kobl til event via en salgsbon (historik)' },
+    invoice_check: { cls: 'cf-cat-invoice', txt: '📄 tjek mod e-conomic',  tip: 'Fakturabetaling i åbent regnskabsår — tjek at den er afregnet i e-conomic' },
+    large_check:   { cls: 'cf-cat-large',   txt: '🔍 stort ukoblet — tjek',  tip: 'Større beløb uden fakturareference (alle år) — kan være et event uden bon eller en overførsel der bør verificeres' },
+};
 function _cfUnmatchedRowHtml(tx) {
-    const eventTag = tx.is_event_cash
-        ? `<span class="cf-event-cash-tag" title="Ligner event-/direkte-salg — kobl til event via en salgsbon">🎪 kræver salgsbon</span>`
-        : '';
-    return `<div class="cf-unmatched-item${tx.is_event_cash ? ' cf-event-cash' : ''}" data-tx-id="${tx.id}">
+    const cat = _CF_CAT_TAG[tx.category];
+    const tag = cat ? `<span class="cf-cat-tag ${cat.cls}" title="${cat.tip}">${cat.txt}</span>` : '';
+    return `<div class="cf-unmatched-item${cat ? ' ' + cat.cls + '-row' : ''}" data-tx-id="${tx.id}">
         <div class="cf-unmatched-row" data-tx-row="${tx.id}">
             <div>
-                <div style="font-weight:700">${_cfEsc(tx.tekst).substring(0, 40)}${eventTag}</div>
+                <div style="font-weight:700">${_cfEsc(tx.tekst).substring(0, 40)}${tag}</div>
                 <span style="font-size:11px;color:#8a8580">${_cfFmtDate(tx.dato)}${tx.note ? ' · 📝' : ''}</span>
             </div>
             <div style="font-weight:700;color:${tx.beloeb < 0 ? '#bc3a3a' : '#e8a832'}">${_cfFmt(tx.beloeb)}</div>
@@ -400,25 +404,23 @@ function _cfUnmatchedRowHtml(tx) {
 function _cfFoldToggleHtml(foldedCount, isExpanded) {
     if (!foldedCount) return '';
     return `<button class="cf-fold-toggle" id="cfFoldToggle" data-expanded="${isExpanded ? '1' : '0'}">
-        ${isExpanded ? '▾ skjul' : '▸ vis'} ${foldedCount} tidligere (bogført i e-conomic)
+        ${isExpanded ? '▾ skjul' : '▸ vis'} ${foldedCount} foldede (afregnede fakturaer + småt)
     </button>`;
 }
 
 /** Indhold i kan-ikke-matches-området: liste, søgeresultat eller fold-besked.
- *  foldedCount = pre-vandmærke posteringer (foldet, ikke skjult). */
+ *  Listen er kategori-triaget: kun event-kontant / faktura-tjek / muligt event vises;
+ *  afregnede fakturaer + småt foldes (findbar via fold-ud eller søgning). */
 function _cfUnmatchedAreaHtml(rows, total, isSearch, watermark, foldedCount = 0) {
     rows = rows || [];
     if (rows.length === 0) {
         if (isSearch) return '<div class="cf-um-hint" style="padding:6px 2px">Ingen posteringer matcher søgningen.</div>';
-        // Ingen actionable (post-vandmærke) — men foldede kan ligge gemt (event-kontant mm.)
-        const head = watermark
-            ? `<div class="cf-unmatched-header" style="color:#5a8a3a;margin:0">✓ Ingen nye uafklarede posteringer</div>
-               <div style="font-size:11.5px;color:#6a6560;padding:2px 2px 4px">Alt efter vandmærket (${_cfFmtDate(watermark)}) er matchet. Tidligere posteringer er bogført i e-conomic — fold ud eller søg for at finde event-/direkte-salg-indbetalinger.</div>`
-            : '<div class="cf-um-hint" style="padding:6px 2px">Ingen umatchede posteringer.</div>';
+        const head = `<div class="cf-unmatched-header" style="color:#5a8a3a;margin:0">✓ Intet kræver en hånd</div>
+               <div style="font-size:11.5px;color:#6a6560;padding:2px 2px 4px">Ingen event-kontant, fakturaer at tjekke eller store ukoblede beløb. Fold ud eller søg for at finde afregnede posteringer.</div>`;
         return head + _cfFoldToggleHtml(foldedCount, false) + `<div id="cfUnmatchedList"></div>`;
     }
     const cnt = total > rows.length ? rows.length + ' af ' + total : '' + rows.length;
-    const header = isSearch ? `🔎 ${cnt} fundet (også bogførte)` : `⚠️ ${cnt} posteringer kan ikke matches`;
+    const header = isSearch ? `🔎 ${cnt} fundet (også afregnede)` : `⚠️ ${cnt} kræver en hånd`;
     return `<div class="cf-unmatched-header">${header}</div>
         <div id="cfUnmatchedList">${rows.map(_cfUnmatchedRowHtml).join('')}</div>
         ${isSearch ? '' : _cfFoldToggleHtml(foldedCount, false)}`;

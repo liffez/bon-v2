@@ -832,12 +832,16 @@
 }
 .cf-fold-toggle:hover { background: #ece8e2; }
 .cf-fold-toggle:disabled { opacity: 0.5; cursor: default; }
-.cf-event-cash { background: #fff6ea; border-radius: 7px; }
-.cf-event-cash-tag {
+.cf-cat-tag {
   display: inline-block; margin-left: 7px; padding: 1px 7px; border-radius: 10px;
-  background: #f3d9a8; color: #8a5a16; font-size: 10px; font-weight: 700;
-  vertical-align: middle; white-space: nowrap;
+  font-size: 10px; font-weight: 700; vertical-align: middle; white-space: nowrap;
 }
+.cf-cat-event   { background: #f3d9a8; color: #8a5a16; }   /* 🎪 event-kontant */
+.cf-cat-invoice { background: #cfe0f0; color: #2a5a8a; }   /* 📄 faktura-tjek */
+.cf-cat-large   { background: #e6d4ec; color: #6a3a8a; }   /* 🔍 muligt event */
+.cf-cat-event-row   { background: #fff6ea; border-radius: 7px; }
+.cf-cat-invoice-row { background: #f0f5fa; border-radius: 7px; }
+.cf-cat-large-row   { background: #f7f1fa; border-radius: 7px; }
 .cf-um-note { margin-top: 8px; display: flex; flex-direction: column; gap: 6px; }
 .cf-um-note-input {
   width: 100%;

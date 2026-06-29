@@ -293,71 +293,107 @@ router.post('/upload', (req, res) => {
 // de bogførte. Mønstret matcher t.tekst (LOWER). Udvid her hvis nye kanaler dukker op.
 const EVENT_CASH_SQL = `(LOWER(t.tekst) LIKE '%zettle%' OR LOWER(t.tekst) LIKE '%mobilepay%' OR LOWER(t.tekst) LIKE '%kontant%' OR LOWER(t.tekst) LIKE '%vipps%')`;
 
+// Kategorisering af "kan ikke matches"-listen (29. juni — Leifs model). Bankteksten +
+// dato + beløb afgør om en postering KRÆVER en hånd, eller kan foldes som afregnet:
+//   event_cash   — Zettle/MobilePay/kontant → kræver salgsbon (historik), ALLE år    → SURFACE 🎪
+//   invoice_check— fakturanr i tekst, ÅBENT regnskabsår → tjek op mod e-conomic        → SURFACE 📄
+//   large_check  — stort beløb UDEN fakturareference → muligt event uden bon           → SURFACE 🔍
+//   invoice_paid — fakturanr i tekst, LUKKET regnskabsår → afregnet faktura            → FOLD
+//   minor        — lille beløb, ingen reference → støj (typisk leverings-±)            → FOLD
+// Lukket år + stor-grænse er settings (cf_accounts_closed_year, cf_check_large_threshold).
+const FAKTURA_RE = /faktur|fakt|fak[\s.\-]|fa\.?nr|faknr|invoice/i;
+function cfCategorize(tx, closedYear, largeThreshold) {
+    const t = String(tx.tekst || '');
+    if (/zettle|mobilepay|vipps|kontant/i.test(t)) return 'event_cash';   // 🎪 alle år (historik-bon)
+    const year = parseInt(String(tx.dato).slice(0, 4), 10) || 9999;
+    const hasFaktura = FAKTURA_RE.test(t) || /^\s*\d{3,6}\s*$/.test(t);   // "FAKTURA 3957" / "Fa.nr. 3865" / bare "3898"
+    if (hasFaktura) {
+        // Klart fakturanr i teksten: lukket regnskabsår = afregnet (fold), åbent år = tjek.
+        return year <= closedYear ? 'invoice_paid' : 'invoice_check';
+    }
+    // INGEN fakturanr — inkl. "Overførsel"/kundenavn/"Leverandør". En sådan postering kan
+    // godt VÆRE en faktura (overførsel uden nr), men også et event uden bon. Store beløb
+    // løftes derfor til tjek UANSET år — også lukket 2025 ("SLUTAFREGNING RF25" = festival
+    // der mangler en historik-bon). Småt foldes som støj (typisk leverings-±).
+    if (Math.abs(tx.beloeb) >= largeThreshold) return 'large_check';
+    return 'minor';
+}
+const CF_SURFACE_CATS = new Set(['event_cash', 'invoice_check', 'large_check']);
+function cfTriageSettings(db) {
+    const closedYear = parseInt(db.prepare(`SELECT value FROM settings WHERE key='cf_accounts_closed_year'`).get()?.value, 10);
+    const large = parseFloat(db.prepare(`SELECT value FROM settings WHERE key='cf_check_large_threshold'`).get()?.value);
+    return {
+        closedYear: Number.isFinite(closedYear) ? closedYear : 2025,
+        largeThreshold: Number.isFinite(large) && large > 0 ? large : 3000,
+    };
+}
+
 // ─── GET /transactions ──────────────────────────────────────
 
 router.get('/transactions', handle(async (req, res) => {
     const db = getDb();
     const { from, to, unmatched, limit = '200', offset = '0' } = req.query;
+    const q = String(req.query.q || '').trim();
+    const includeFolded = req.query.include_folded === '1';
 
+    // Fælles SQL for "kan ikke matches"-kandidater: indgående, ikke-ignoreret, ikke
+    // 1:1-matchet, ikke fuldt allokeret.
+    const UNMATCHED_WHERE = `t.beloeb > 0 AND t.ignored = 0 AND t.matched_invoice_id IS NULL
+        AND ABS(t.beloeb - COALESCE((SELECT SUM(a.amount) FROM cf_allocations a WHERE a.transaction_id = t.id), 0)) >= 0.01`;
+
+    // ── Kategoriseret "kan ikke matches"-liste (uden søgning) ──────────────────
+    // Hent ALLE kandidater, kategorisér i JS (cfCategorize), og vis kun dem der
+    // KRÆVER en hånd (event_cash/invoice_check/large_check). Resten foldes (findbar
+    // via include_folded=1 eller søgning). Intet forsvinder.
+    if (unmatched === '1' && !q) {
+        const { closedYear, largeThreshold } = cfTriageSettings(db);
+        const cands = db.prepare(`
+            SELECT t.*, i.kunde AS matched_kunde,
+                COALESCE((SELECT SUM(a.amount) FROM cf_allocations a WHERE a.transaction_id = t.id), 0) AS allocated
+            FROM cf_transactions t
+            LEFT JOIN cf_invoices i ON t.matched_invoice_id = i.id
+            WHERE ${UNMATCHED_WHERE}
+            ORDER BY t.beloeb DESC
+        `).all();
+        for (const tx of cands) {
+            tx.category = cfCategorize(tx, closedYear, largeThreshold);
+            tx.is_event_cash = tx.category === 'event_cash' ? 1 : 0;
+        }
+        const surface = cands.filter(t => CF_SURFACE_CATS.has(t.category));
+        const folded  = cands.filter(t => !CF_SURFACE_CATS.has(t.category));
+        const rows = includeFolded ? cands : surface;
+        const countBy = (c) => surface.filter(t => t.category === c).length;
+        return res.json({
+            rows,
+            total: rows.length,
+            folded_count: folded.length,
+            counts: {
+                event_cash: countBy('event_cash'),
+                invoice_check: countBy('invoice_check'),
+                large_check: countBy('large_check'),
+                folded: folded.length,
+            },
+        });
+    }
+
+    // ── Øvrige tilfælde: søgning i umatchede, eller almindelig tx-liste ─────────
     let where = '1=1';
     const params = [];
-
     if (from) { where += ' AND t.dato >= ?'; params.push(from); }
     if (to)   { where += ' AND t.dato <= ?'; params.push(to); }
-    let foldedCount = 0;
     if (unmatched === '1') {
-        // §2.F: "kan ikke matches" = indgående, ikke-ignoreret, IKKE 1:1-matchet (legacy)
-        // OG ikke fuldt dækket af allokeringer. En tx der er fuldt allokeret til
-        // bons/events (uden matched_invoice_id) forsvinder herfra; en delvist
-        // allokeret tx bliver stående (mangler stadig arbejde).
-        where += ` AND t.beloeb > 0 AND t.ignored = 0 AND t.matched_invoice_id IS NULL
-            AND ABS(t.beloeb - COALESCE(
-                (SELECT SUM(a.amount) FROM cf_allocations a WHERE a.transaction_id = t.id), 0
-            )) >= 0.01`;
-        const q = String(req.query.q || '').trim();
-        const includeFolded = req.query.include_folded === '1';
-        if (q) {
-            // SØGNING går på tværs af ALT — også foldede/pre-vandmærke posteringer. Det er
-            // sådan event-/direkte-salg-indbetalinger (Zettle/kontant) findes frem:
-            // de er ikke faktura-afregnet i e-conomic, men skal kobles til event-
-            // salgsbons. Søg på tekst eller beløb.
-            const digits = q.replace(/\D/g, '');
-            where += ' AND (t.tekst LIKE ?' + (digits ? ' OR CAST(t.beloeb AS TEXT) LIKE ?' : '') + ')';
-            params.push(`%${q}%`);
-            if (digits) params.push(`%${digits}%`);
-        } else {
-            // VANDMÆRKE-FOLD (besluttet 29. juni — fold, IKKE skjul):
-            // Vandmærket = den dato e-conomic har bogført fakturaer til. Posteringer EFTER
-            // vandmærket er nye/ubogførte → vises altid. Posteringer FØR/PÅ vandmærket
-            // antages bogført i e-conomic → FOLDES (ikke skjult): de tælles i folded_count
-            // og hentes frem med include_folded=1 ELLER via søgning. Intet forsvinder.
-            //
-            // Det tidligere "match-mod-betalt-faktura-på-beløb"-tjek er FJERNET: med ~2.900
-            // fakturaer rammer næsten ethvert beløb tilfældigt en betalt faktura (±2%), så
-            // det skjulte event-kontant som "Zettle Michelin" (9.105 matchede 5 urelaterede
-            // fakturaer). Ren dato-fold er ærlig og reversibel. Pålidelig auto-afstemning
-            // kommer med e-conomic-fakturanummer-koblingen (spec §2.C).
-            const wm = db.prepare(`SELECT value FROM cf_meta WHERE key = 'economic_booked_until'`).get()?.value;
-            if (wm && !includeFolded) {
-                // Event-kontant løftes OVER folden — også pre-vandmærke — fordi de aldrig
-                // er faktura-afregnet og kræver en salgsbon. De foldede = pre-vandmærke
-                // MINUS event-kontant.
-                foldedCount = db.prepare(`
-                    SELECT COUNT(*) AS cnt FROM cf_transactions t
-                    WHERE t.beloeb > 0 AND t.ignored = 0 AND t.matched_invoice_id IS NULL
-                      AND ABS(t.beloeb - COALESCE((SELECT SUM(a.amount) FROM cf_allocations a WHERE a.transaction_id = t.id), 0)) >= 0.01
-                      AND t.dato <= ? AND NOT ${EVENT_CASH_SQL}
-                `).get(wm).cnt;
-                where += ` AND (t.dato > ? OR ${EVENT_CASH_SQL})`;
-                params.push(wm);
-            }
-        }
+        // SØGNING går på tværs af ALT — også foldede posteringer (sådan graves event-/
+        // direkte-salg frem). Søg på tekst eller beløb.
+        where += ` AND ${UNMATCHED_WHERE}`;
+        const digits = q.replace(/\D/g, '');
+        where += ' AND (t.tekst LIKE ?' + (digits ? ' OR CAST(t.beloeb AS TEXT) LIKE ?' : '') + ')';
+        params.push(`%${q}%`);
+        if (digits) params.push(`%${digits}%`);
     }
 
     const rows = db.prepare(`
         SELECT t.*, i.kunde AS matched_kunde,
-            COALESCE((SELECT SUM(a.amount) FROM cf_allocations a WHERE a.transaction_id = t.id), 0) AS allocated,
-            CASE WHEN ${EVENT_CASH_SQL} THEN 1 ELSE 0 END AS is_event_cash
+            COALESCE((SELECT SUM(a.amount) FROM cf_allocations a WHERE a.transaction_id = t.id), 0) AS allocated
         FROM cf_transactions t
         LEFT JOIN cf_invoices i ON t.matched_invoice_id = i.id
         WHERE ${where}
@@ -365,11 +401,17 @@ router.get('/transactions', handle(async (req, res) => {
         LIMIT ? OFFSET ?
     `).all(...params, parseInt(limit), parseInt(offset));
 
-    const total = db.prepare(`
-        SELECT COUNT(*) AS cnt FROM cf_transactions t WHERE ${where}
-    `).get(...params);
+    // Tilføj kategori/flag til søgeresultater så frontend kan vise tags
+    if (unmatched === '1') {
+        const { closedYear, largeThreshold } = cfTriageSettings(db);
+        for (const tx of rows) {
+            tx.category = cfCategorize(tx, closedYear, largeThreshold);
+            tx.is_event_cash = tx.category === 'event_cash' ? 1 : 0;
+        }
+    }
 
-    res.json({ rows, total: total.cnt, folded_count: foldedCount });
+    const total = db.prepare(`SELECT COUNT(*) AS cnt FROM cf_transactions t WHERE ${where}`).get(...params);
+    res.json({ rows, total: total.cnt, folded_count: 0 });
 }));
 
 // ─── GET /invoices ──────────────────────────────────────────
@@ -605,21 +647,21 @@ router.get('/stats', handle(async (req, res) => {
     // Last upload
     const lastUpload = db.prepare(`SELECT value FROM cf_meta WHERE key = 'last_upload_at'`).get();
 
-    // Unmatched count — vandmærke-fold (samme logik som "kan ikke matches"-listen):
-    // indgående, ikke-ignoreret, ikke matchet/allokeret. unmatched_count = de
-    // ACTIONABLE (efter vandmærket); folded_count = de foldede (pre-vandmærke,
-    // antaget e-conomic-bogført, men ikke skjult — hentes via include_folded/søg).
-    const wmStat = db.prepare(`SELECT value FROM cf_meta WHERE key = 'economic_booked_until'`).get()?.value;
-    const baseUnmatched = `t.matched_invoice_id IS NULL AND t.beloeb > 0 AND t.ignored = 0
-        AND ABS(t.beloeb - COALESCE((SELECT SUM(a.amount) FROM cf_allocations a WHERE a.transaction_id = t.id), 0)) >= 0.01`;
-    const unmatchedCount = db.prepare(`
-        SELECT COUNT(*) AS cnt FROM cf_transactions t
-        WHERE ${baseUnmatched} ${wmStat ? `AND (t.dato > ? OR ${EVENT_CASH_SQL})` : ''}
-    `).get(...(wmStat ? [wmStat] : []));
-    const foldedCount = wmStat ? db.prepare(`
-        SELECT COUNT(*) AS cnt FROM cf_transactions t
-        WHERE ${baseUnmatched} AND t.dato <= ? AND NOT ${EVENT_CASH_SQL}
-    `).get(wmStat).cnt : 0;
+    // Unmatched count — samme kategori-triage som "kan ikke matches"-listen.
+    // unmatched_count = de ACTIONABLE (event_cash/invoice_check/large_check);
+    // folded_count = de foldede (invoice_paid/minor — afregnet/støj, ikke skjult).
+    const { closedYear: cfClosedYear, largeThreshold: cfLargeThreshold } = cfTriageSettings(db);
+    const unmatchedCands = db.prepare(`
+        SELECT t.tekst, t.dato, t.beloeb FROM cf_transactions t
+        WHERE t.matched_invoice_id IS NULL AND t.beloeb > 0 AND t.ignored = 0
+          AND ABS(t.beloeb - COALESCE((SELECT SUM(a.amount) FROM cf_allocations a WHERE a.transaction_id = t.id), 0)) >= 0.01
+    `).all();
+    let unmatchedActionable = 0, foldedCount = 0;
+    for (const tx of unmatchedCands) {
+        if (CF_SURFACE_CATS.has(cfCategorize(tx, cfClosedYear, cfLargeThreshold))) unmatchedActionable++;
+        else foldedCount++;
+    }
+    const unmatchedCount = { cnt: unmatchedActionable };
 
     // Cashflow-konvention: faktiske bankbevægelser er incl. moms.
     // Vi udstiller incl-moms-totaler som primær — plus heraf moms-forpligtelse
@@ -644,7 +686,7 @@ router.get('/stats', handle(async (req, res) => {
         last_upload: lastUpload?.value ?? null,
         unmatched_count: unmatchedCount.cnt,
         folded_count: foldedCount,
-        economic_booked_until: wmStat || null
+        economic_booked_until: db.prepare(`SELECT value FROM cf_meta WHERE key = 'economic_booked_until'`).get()?.value || null
     });
 }));
 
@@ -1836,4 +1878,6 @@ router.get('/reconcile/status', handle((req, res) => {
     res.json({ economic_booked_until: watermark || null, configured: economicAdapter.isConfigured() });
 }));
 
+// Eksportér kategoriserings-helperen til test (regressionssikring af triage-reglerne)
+router.cfCategorize = cfCategorize;
 module.exports = router;

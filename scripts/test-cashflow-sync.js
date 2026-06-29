@@ -150,6 +150,23 @@ assert(txB.matched_invoice_id === null, `nummer men forkert beløb IKKE koblet (
 assert(txC.matched_invoice_id === null, `intet nummer i tekst IKKE koblet`);
 assert(mres.linked === 1, `linked-tæller = 1 (got ${mres.linked})`);
 
+console.log('\n— cfCategorize: triage af "kan ikke matches"-listen —');
+const { cfCategorize } = require('../routes/cashflow');
+const cat = (tekst, dato, beloeb) => cfCategorize({ tekst, dato, beloeb }, 2025, 3000);
+assert(cat('Zettle Michelin', '2026-06-09', 9105) === 'event_cash', 'Zettle → event_cash');
+assert(cat('MobilePay: Festival', '2025-07-01', 5000) === 'event_cash', 'MobilePay 2025 → event_cash (historik uanset år)');
+assert(cat('FAKTURA 3957', '2026-04-28', 24016) === 'invoice_check', 'faktura 2026 → invoice_check');
+assert(cat('FAKTURA 3957', '2025-04-28', 24016) === 'invoice_paid', 'faktura 2025 → invoice_paid (lukket år)');
+assert(cat('Fa.nr. 3865', '2026-03-18', 3437) === 'invoice_check', 'Fa.nr. (bred regex) → invoice_check');
+assert(cat('3898', '2026-04-13', 59994) === 'invoice_check', 'bart nummer 2026 → invoice_check');
+assert(cat('GLADSAXE KOMMUNE', '2026-01-29', 12459) === 'large_check', 'stort uden ref 2026 → large_check');
+assert(cat('GLADSAXE KOMMUNE', '2026-01-29', 800) === 'minor', 'lille uden ref → minor');
+assert(cat('SLUTAFREGNING RF25', '2025-10-08', 23545) === 'large_check', 'stort uden ref LUKKET år (2025-event) → large_check');
+assert(cat('Overførsel', '2026-05-01', 30000) === 'large_check', 'stor overførsel uden nr → large_check (kan være faktura ELLER event)');
+assert(cat('Overførsel', '2025-05-01', 30000) === 'large_check', 'stor overførsel 2025 → large_check (se på store 2025-beløb)');
+assert(cat('Overførsel', '2025-05-01', 800) === 'minor', 'lille overførsel → minor (støj)');
+assert(cat('LEVERANDØR: 9026793', '2025-01-05', 30768) === 'large_check', 'stor leverandør-ref → large_check');
+
 // Cleanup
 db.close();
 fs.unlinkSync(TMP);

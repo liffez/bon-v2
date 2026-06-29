@@ -239,18 +239,28 @@ Zettle-afregning, event "Michelin":  tx.beloeb = +9.105 (netto)
 > faktura (±2%), så det skjulte event-kontant (fx "Zettle Michelin" 9.105 matchede 5 urelaterede
 > fakturaer). Beløbs-match er lige så tilfældigt som fakturanummer-match (jf. B) — fjernet.
 
-- **Princip:** en postering *skjules ALDRIG* automatisk. Den foldes eller løftes — men er altid
-  findbar via søgning (søg går på tværs af ALT, også pre-vandmærke).
-- **Vandmærke-FOLD:** posteringer EFTER `economic_booked_until` er actionable → vises. Posteringer
-  FØR/PÅ vandmærket antages bogført i e-conomic (B) → **foldes** bag "▸ vis N tidligere" (ikke skjult).
-  `GET /transactions?unmatched=1` returnerer `folded_count`; `&include_folded=1` henter dem frem.
-- **Event-kontant løftes OVER folden:** bankposteringer hvis tekst matcher `EVENT_CASH_SQL`
-  (Zettle/MobilePay/kontant/Vipps, positive) vises ØVERST med **🎪 kræver salgsbon**-tag — også
-  pre-vandmærke — fordi de aldrig er faktura-afregnet og kræver en salgsbon (§E's "Opret bon").
-  `unmatched_count` tæller dem med; `folded_count` ekskluderer dem (`is_event_cash`-flag pr. række).
+- **Princip:** en postering *skjules ALDRIG* automatisk. Den foldes — men er altid findbar via
+  søgning (søg går på tværs af ALT) eller "▸ vis N foldede". Intet forsvinder.
+- **KATEGORI-TRIAGE** (afløser den oprindelige rene vandmærke-fold — Leifs model, 29. juni).
+  `cfCategorize(tx)` i `routes/cashflow.js` afgør pr. postering ud fra **banktekst + dato + beløb**:
+  | Kategori | Regel | Handling |
+  |----------|-------|----------|
+  | `event_cash` 🎪 | Zettle/MobilePay/kontant/Vipps | SURFACE — kræver salgsbon (historik), ALLE år |
+  | `invoice_check` 📄 | fakturanr i tekst, ÅBENT regnskabsår | SURFACE — tjek mod e-conomic |
+  | `large_check` 🔍 | beløb ≥ `cf_check_large_threshold`, INGEN fakturanr, ALLE år | SURFACE — stort ukoblet (muligt event / overførsel der bør verificeres) |
+  | `invoice_paid` | fakturanr i tekst, LUKKET regnskabsår (≤ `cf_accounts_closed_year`) | FOLD — afregnet |
+  | `minor` | lille beløb uden fakturanr | FOLD — støj (typisk leverings-±) |
+  - **Lukket regnskabsår** (`cf_accounts_closed_year`, default 2025): faktura-betalinger MED nr fra/før
+    er afregnet → foldes. Senere år tjekkes. Event-kontant + store ukoblede løftes dog uanset år.
+  - **"Overførsel"/kundenavn uden fakturanr** ("Overførsel", "Betaling fra KK", "Leverandør:") kan
+    BÅDE være en faktura-betaling (vi ikke kan auto-koble) OG et event uden bon. De foldes derfor IKKE
+    blindt: er beløbet stort (≥ grænsen) løftes det til `large_check` uanset år — så et 2025-event som
+    "SLUTAFREGNING RF25" (23.545) fanges. Småt foldes som `minor`. Grænsen (default 10.000) holder
+    listen fokuseret; sænk den i Settings for at være mere grundig.
+  - `GET /transactions?unmatched=1` returnerer `rows` (kun surface), `folded_count`, `counts{event_cash,invoice_check,large_check,folded}`. `&include_folded=1` henter de foldede; `&q=` søger på tværs.
+  - `cf_match_extra_tolerance_max` hævet 350 → **400** (variabel levering + miljøgebyr).
 - **Bevidst lille hul:** Zettle-afregninger halter typisk ~en uge efter event-datoen, så de falder
-  uden for §E's ±5-dages auto-forslag — eventet vælges da manuelt i Opret-bon-dropdownen. Kan
-  udvides til en større event-kontant-buffer hvis driften ønsker det.
+  uden for §E's ±5-dages auto-forslag — eventet vælges da manuelt i Opret-bon-dropdownen.
 
 ##### Verificeret bank↔faktura-link via e-conomic-fakturanummer (29. juni — bygget)
 Folden antager kun "pre-vandmærke = bogført". For at *verificere* (ikke antage) kobles de
