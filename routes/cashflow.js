@@ -856,11 +856,13 @@ router.get('/match-targets', handle(async (req, res) => {
     const digits = q.replace(/\D/g, '');
 
     // Bons: søg bon_number, kunde, firma. Tal → også direkte bon_number/id-match.
-    // UDGIFTS-BONS ekskluderes (event_role='expense' = penge UD, fx kommission/afgift,
-    // har negativ total) — det giver ingen mening at koble en indkommende indbetaling
-    // til en udgift. Negative totaler skjules generelt af samme grund.
+    // UDGIFTS-BONS (event_role='expense', fx kommission/afgift) MEDTAGES — de har
+    // negativ total og kan vælges som FRADRAG i en netto-afregning (fx festival-
+    // arrangør der trækker sin provision før udbetaling). Markeres med expense=true
+    // så de indsættes som negativ allokering. Kun ægte data-anomalier (negativ total
+    // UDEN expense-rolle) skjules.
     const bons = db.prepare(`
-        SELECT b.id, b.bon_number, b.total_with_delivery, b.delivery_date,
+        SELECT b.id, b.bon_number, b.total_with_delivery, b.delivery_date, b.event_role,
                c.first_name || ' ' || COALESCE(c.last_name,'') AS contact, co.name AS company,
                sd.label AS status_label
         FROM bons b
@@ -868,8 +870,7 @@ router.get('/match-targets', handle(async (req, res) => {
         LEFT JOIN companies co ON b.company_id  = co.id
         LEFT JOIN status_definitions sd ON b.status_id = sd.id
         WHERE b.is_offer = 0
-          AND COALESCE(b.event_role, '') <> 'expense'
-          AND COALESCE(b.total_with_delivery, 0) >= 0
+          AND (COALESCE(b.event_role,'') = 'expense' OR COALESCE(b.total_with_delivery, 0) >= 0)
           AND (
             CAST(b.bon_number AS TEXT) LIKE ? OR co.name LIKE ?
             OR (c.first_name || ' ' || COALESCE(c.last_name,'')) LIKE ?
@@ -892,11 +893,14 @@ router.get('/match-targets', handle(async (req, res) => {
     `).all(like, Math.min(lim, 10));
 
     const targets = [
-        ...bons.map(b => ({
-            type: 'bon', id: b.id, label: `Bon #${b.bon_number}`,
-            sublabel: [(b.company || b.contact || '').trim(), b.status_label].filter(Boolean).join(' · '),
-            amount: b.total_with_delivery, date: b.delivery_date,
-        })),
+        ...bons.map(b => {
+            const expense = b.event_role === 'expense';
+            return {
+                type: 'bon', id: b.id, label: `Bon #${b.bon_number}${expense ? ' (udgift)' : ''}`,
+                sublabel: [(b.company || b.contact || '').trim(), b.status_label].filter(Boolean).join(' · '),
+                amount: b.total_with_delivery, date: b.delivery_date, expense,
+            };
+        }),
         ...invoices.map(i => ({
             type: 'invoice', id: i.id, label: `Faktura #${i.id}`,
             sublabel: [i.kunde, i.betalt ? 'betalt' : 'udestående'].filter(Boolean).join(' · '),

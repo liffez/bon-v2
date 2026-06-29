@@ -35,6 +35,10 @@ const _CF_TARGET_BADGE = {
     event:   { txt: 'Event',   bg: '#7a9c54' },
     fee:     { txt: 'Gebyr',   bg: '#bc3a3a' },
 };
+function _cfBadgeHtml(type, expense) {
+    const b = expense ? { txt: 'Udgift', bg: '#bc3a3a' } : (_CF_TARGET_BADGE[type] || { txt: type, bg: '#999' });
+    return `<span class="cf-alloc-badge" style="background:${b.bg}">${b.txt}</span>`;
+}
 
 // Analyse state
 let _cfPaxPeriod = 'maaned';
@@ -522,11 +526,11 @@ function _cfAllocRest(id) {
 function _cfRenderAllocLines(panel, id) {
     const d = _cfAllocDraft[id] || { lines: [], existing: [] };
     const host = panel.querySelector('[data-lines]');
-    const badge = (t) => { const b = _CF_TARGET_BADGE[t] || { txt: t, bg: '#999' }; return `<span class="cf-alloc-badge" style="background:${b.bg}">${b.txt}</span>`; };
+    const badge = (t, exp) => _cfBadgeHtml(t, exp);
 
     const existHtml = (d.existing || []).map(a => `
         <div class="cf-alloc-line cf-alloc-line-saved">
-            ${badge(a.target_type)}
+            ${badge(a.target_type, (a.amount || 0) < 0 && a.target_type === 'bon')}
             <div class="cf-alloc-line-lbl"><div>${_cfEsc(a.label || '')}</div><div class="cf-alloc-sub">${_cfEsc(a.sublabel || '')}</div></div>
             <span class="cf-alloc-amt-fixed">${_cfFmt(a.amount)}</span>
             <button class="cf-alloc-del" data-del-alloc="${a.id}" title="Fjern">✕</button>
@@ -535,7 +539,7 @@ function _cfRenderAllocLines(panel, id) {
 
     const stagedHtml = (d.lines || []).map((l, idx) => `
         <div class="cf-alloc-line">
-            ${badge(l.target_type)}
+            ${badge(l.target_type, l.expense)}
             <div class="cf-alloc-line-lbl"><div>${_cfEsc(l.label || '')}</div><div class="cf-alloc-sub">${_cfEsc(l.sublabel || '')}</div></div>
             <input class="cf-alloc-amt" type="number" step="0.01" value="${l.amount}" data-amt-idx="${idx}">
             <button class="cf-alloc-del" data-stage-idx="${idx}" title="Fjern">✕</button>
@@ -596,10 +600,9 @@ async function _cfSearchTargets(panel, id, q) {
     let targets = [];
     try { targets = (await fetchCfMatchTargets(q)).targets || []; } catch { targets = []; }
     if (!targets.length) { host.innerHTML = '<div class="cf-um-hint">Ingen mål matcher.</div>'; return; }
-    const badge = (t) => { const b = _CF_TARGET_BADGE[t] || { txt: t, bg: '#999' }; return `<span class="cf-alloc-badge" style="background:${b.bg}">${b.txt}</span>`; };
     host.innerHTML = targets.map((t, i) => `
         <div class="cf-um-target" data-tgt="${i}">
-            ${badge(t.type)}
+            ${_cfBadgeHtml(t.type, t.expense)}
             <div class="cf-alloc-line-lbl"><div>${_cfEsc(t.label || '')}</div><div class="cf-alloc-sub">${_cfEsc(t.sublabel || '')}</div></div>
             <span class="cf-alloc-amt-fixed">${t.amount != null ? _cfFmt(t.amount) : ''}</span>
         </div>
@@ -615,14 +618,18 @@ async function _cfSearchTargets(panel, id, q) {
     });
 }
 
-/** Tilføj et mål som staged allokerings-linje (default beløb = resterende). */
+/** Tilføj et mål som staged allokerings-linje. Udgifts-bons (negativ) indsættes
+ *  med deres negative beløb (fradrag); øvrige med resterende beløb. */
 function _cfAddAllocTarget(panel, id, t) {
     const d = _cfAllocDraft[id];
     if (d.lines.some(l => l.target_type === t.type && String(l.target_id) === String(t.id))) return;
+    const isExpense = t.expense || (t.amount != null && t.amount < 0);
     const rest = _cfAllocRest(id);
+    const amount = isExpense ? Math.round((t.amount || 0) * 100) / 100
+                             : (rest > 0.01 ? rest : 0);
     d.lines.push({
-        target_type: t.type, target_id: t.id, label: t.label, sublabel: t.sublabel,
-        amount: rest > 0.01 ? rest : 0,   // default = resterende beløb (1:1 = ét klik)
+        target_type: t.type, target_id: t.id, label: t.label, sublabel: t.sublabel, amount,
+        expense: isExpense,
     });
     _cfRenderAllocLines(panel, id);
 }

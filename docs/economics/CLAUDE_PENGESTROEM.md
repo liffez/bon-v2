@@ -180,6 +180,10 @@ Bugkilde i dag: `_cfGetUmInvoices()` henter kun `fetchCfInvoices('udestaaende')`
   uanset status) · **cf_invoices** (betalt eller ej) · **events** (navn + start/end). Erstatter den smalle liste.
 - **Auto-forslag** bevares fra §E: tx-dato inden for events `start_date`–`end_date` → foreslå eventet.
   Udvid med: beløb ≈ bon-total / fakturanr i tekst → foreslå bon/faktura (samme signal som matchmotoren).
+- **Udgifts-bons MEDTAGES som negative fradrag** (`event_role='expense'`, fx festival-arrangørens
+  provision/afgift). Ved netto-afregning (arrangør trækker sin andel før udbetaling) vælges salgsbonnen
+  (brutto, +) sammen med udgifts-bonnerne (−); Σ rammer netto-indbetalingen. De markeres "Udgift" i UI og
+  indsættes med deres negative total. Kun ægte data-anomalier (negativ total UDEN expense-rolle) skjules.
 
 #### F.4 Brutto vs. netto på kort-/MobilePay-afregning (besluttet 29. juni)
 Zettle/MobilePay-afregning rammer banken **netto** (efter udbyder-gebyr), men event-salget er **brutto**.
