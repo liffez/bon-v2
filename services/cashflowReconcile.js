@@ -60,16 +60,24 @@ async function reconcile(db, { dryRun = true, since } = {}) {
     let scanned = 0, matched = 0, flipped = 0, noHeading = 0, numbered = 0, newWatermark = sinceDate;
     const changes = [];
     const numberChanges = [];                      // {cf_id, economic_number} — gem bogført fakturanr
+    const mirror = [];                             // spejl af ALLE bogførte fakturaer (cf_economic_invoices)
     const seenCf = new Set();                      // undgå dobbelt-flip hvis to fakturaer peger på samme bon
     const seenNum = new Set();
     for (const inv of booked) {
         scanned++;
         if (inv.date && (!newWatermark || inv.date > newWatermark)) newWatermark = inv.date;
         const heading = inv.notes?.heading || '';
+        const ecoNo = inv.bookedInvoiceNumber != null ? String(inv.bookedInvoiceNumber) : null;
+        // Spejl ENHVER bogført faktura (også uden bon-nr i overskrift) — grundlaget for
+        // at genkende bank-indbetalinger som afregnede fakturaer uden bon-kobling.
+        if (ecoNo) mirror.push({
+            booked_no: ecoNo, date: inv.date || null,
+            gross_amount: inv.grossAmount ?? inv.netAmount ?? null,
+            remainder: inv.remainder ?? null, heading,
+        });
         const bonNums = heading.match(/\d{3,5}/g) || [];   // ét eller flere bon-numre i overskriften
         if (!bonNums.length) { noHeading++; continue; }     // tom/beskrivende overskrift (fx "Michelin")
         const paid = inv.remainder === 0;
-        const ecoNo = inv.bookedInvoiceNumber != null ? String(inv.bookedInvoiceNumber) : null;
         for (const num of bonNums) {
             const cf = cfByNum.get(num);
             if (!cf) continue;                              // bon-nr uden cf_invoice (ikke Bon-v2-bon)
@@ -99,12 +107,20 @@ async function reconcile(db, { dryRun = true, since } = {}) {
         const updNo = db.prepare(`UPDATE cf_invoices SET economic_number = ? WHERE id = ?`);
         for (const c of numberChanges) updNo.run(c.economic_number, c.cf_id);
     }
+    if (!dryRun && mirror.length) {
+        const upM = db.prepare(`INSERT INTO cf_economic_invoices (booked_no, date, gross_amount, remainder, heading, updated_at)
+            VALUES (?, ?, ?, ?, ?, datetime('now'))
+            ON CONFLICT(booked_no) DO UPDATE SET
+                date = excluded.date, gross_amount = excluded.gross_amount,
+                remainder = excluded.remainder, heading = excluded.heading, updated_at = datetime('now')`);
+        for (const m of mirror) upM.run(m.booked_no, m.date, m.gross_amount, m.remainder, m.heading);
+    }
     if (!dryRun && newWatermark) {
         db.prepare(`INSERT INTO cf_meta (key, value) VALUES ('economic_booked_until', ?)
                     ON CONFLICT(key) DO UPDATE SET value = excluded.value`).run(newWatermark);
     }
 
-    return { scanned, matched, flipped, numbered, since: sinceDate, newWatermark, dryRun, changes };
+    return { scanned, matched, flipped, numbered, mirrored: mirror.length, since: sinceDate, newWatermark, dryRun, changes };
 }
 
 /** Læs match-tolerance fra settings (samme defaults som routes/cashflow.js). */

@@ -46,6 +46,7 @@ const sinceArg = (args.find(a => a.startsWith('--since=')) || '').split('=')[1] 
         console.log(`e-conomic bogførte fakturaer scannet : ${r.scanned}`);
         console.log(`  koblet til bons (via overskrift)   : ${r.matched}`);
         console.log(`  fakturanumre ${apply ? 'gemt' : 'ville gemmes'}              : ${r.numbered}`);
+        console.log(`  fakturaer spejlet (cf_economic_invoices)  : ${r.mirrored}`);
         console.log(`  betalt-status ${apply ? 'flippet' : 'ville flippes'}            : ${r.flipped}`);
         console.log(`  vandmærke → ${r.newWatermark}`);
 

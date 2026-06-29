@@ -167,6 +167,14 @@ assert(cat('Overførsel', '2025-05-01', 30000) === 'large_check', 'stor overfør
 assert(cat('Overførsel', '2025-05-01', 800) === 'minor', 'lille overførsel → minor (støj)');
 assert(cat('LEVERANDØR: 9026793', '2025-01-05', 30768) === 'large_check', 'stor leverandør-ref → large_check');
 
+// Genkendelse mod bogførte e-conomic-fakturanumre (cf_economic_invoices-spejl)
+const booked = new Set(['3700', '4112']);
+const catB = (tekst, dato, beloeb) => cfCategorize({ tekst, dato, beloeb }, 2025, 3000, booked);
+assert(catB('FAKTURA 3700', '2026-04-01', 5000) === 'invoice_paid', '2026-faktura med RIGTIGT bogført nr → invoice_paid (afregnet)');
+assert(catB('FAK 4112, REBEL FOOD', '2026-06-26', 137092) === 'invoice_paid', 'samlefaktura-nr findes bogført → invoice_paid (uanset bon-beløb)');
+assert(catB('FAKTURA 9999', '2026-04-01', 5000) === 'invoice_check', '2026-faktura med UKENDT nr → invoice_check (ægte undtagelse)');
+assert(catB('FAKTURA 9999', '2025-04-01', 5000) === 'invoice_paid', 'ukendt nr men lukket år → invoice_paid (fold)');
+
 // Cleanup
 db.close();
 fs.unlinkSync(TMP);

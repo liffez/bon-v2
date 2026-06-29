@@ -302,13 +302,27 @@ const EVENT_CASH_SQL = `(LOWER(t.tekst) LIKE '%zettle%' OR LOWER(t.tekst) LIKE '
 //   minor        — lille beløb, ingen reference → støj (typisk leverings-±)            → FOLD
 // Lukket år + stor-grænse er settings (cf_accounts_closed_year, cf_check_large_threshold).
 const FAKTURA_RE = /faktur|fakt|fak[\s.\-]|fa\.?nr|faknr|invoice/i;
-function cfCategorize(tx, closedYear, largeThreshold) {
+/** Set af e-conomics bogførte fakturanumre (cf_economic_invoices) til genkendelse. */
+function cfBookedSet(db) {
+    try {
+        return new Set(db.prepare('SELECT booked_no FROM cf_economic_invoices').all().map(r => String(r.booked_no)));
+    } catch { return new Set(); }   // tabel findes evt. ikke endnu (før migration 119)
+}
+function cfCategorize(tx, closedYear, largeThreshold, bookedSet) {
     const t = String(tx.tekst || '');
     if (/zettle|mobilepay|vipps|kontant/i.test(t)) return 'event_cash';   // 🎪 alle år (historik-bon)
     const year = parseInt(String(tx.dato).slice(0, 4), 10) || 9999;
     const hasFaktura = FAKTURA_RE.test(t) || /^\s*\d{3,6}\s*$/.test(t);   // "FAKTURA 3957" / "Fa.nr. 3865" / bare "3898"
     if (hasFaktura) {
-        // Klart fakturanr i teksten: lukket regnskabsår = afregnet (fold), åbent år = tjek.
+        // Findes nummeret som et RIGTIGT bogført e-conomic-fakturanr? → afregnet faktura → fold.
+        // (Indbetalingen = fakturaens beløb, der kan dække flere bons — derfor genkender vi
+        //  på fakturanummeret direkte, ikke på bon-beløbet.)
+        if (bookedSet && bookedSet.size) {
+            const nums = t.match(/\d{3,6}/g) || [];
+            if (nums.some(n => bookedSet.has(n))) return 'invoice_paid';
+        }
+        // Ellers: lukket regnskabsår = afregnet (fold), åbent år = ÆGTE undtagelse → tjek
+        // (nummer der ikke matcher nogen bogført faktura — fejl, kreditnota, fremtidig).
         return year <= closedYear ? 'invoice_paid' : 'invoice_check';
     }
     // INGEN fakturanr — inkl. "Overførsel"/kundenavn/"Leverandør". En sådan postering kan
@@ -347,6 +361,7 @@ router.get('/transactions', handle(async (req, res) => {
     // via include_folded=1 eller søgning). Intet forsvinder.
     if (unmatched === '1' && !q) {
         const { closedYear, largeThreshold } = cfTriageSettings(db);
+        const bookedSet = cfBookedSet(db);
         const cands = db.prepare(`
             SELECT t.*, i.kunde AS matched_kunde,
                 COALESCE((SELECT SUM(a.amount) FROM cf_allocations a WHERE a.transaction_id = t.id), 0) AS allocated
@@ -356,7 +371,7 @@ router.get('/transactions', handle(async (req, res) => {
             ORDER BY t.beloeb DESC
         `).all();
         for (const tx of cands) {
-            tx.category = cfCategorize(tx, closedYear, largeThreshold);
+            tx.category = cfCategorize(tx, closedYear, largeThreshold, bookedSet);
             tx.is_event_cash = tx.category === 'event_cash' ? 1 : 0;
         }
         const surface = cands.filter(t => CF_SURFACE_CATS.has(t.category));
@@ -404,8 +419,9 @@ router.get('/transactions', handle(async (req, res) => {
     // Tilføj kategori/flag til søgeresultater så frontend kan vise tags
     if (unmatched === '1') {
         const { closedYear, largeThreshold } = cfTriageSettings(db);
+        const bookedSet = cfBookedSet(db);
         for (const tx of rows) {
-            tx.category = cfCategorize(tx, closedYear, largeThreshold);
+            tx.category = cfCategorize(tx, closedYear, largeThreshold, bookedSet);
             tx.is_event_cash = tx.category === 'event_cash' ? 1 : 0;
         }
     }
@@ -651,6 +667,7 @@ router.get('/stats', handle(async (req, res) => {
     // unmatched_count = de ACTIONABLE (event_cash/invoice_check/large_check);
     // folded_count = de foldede (invoice_paid/minor — afregnet/støj, ikke skjult).
     const { closedYear: cfClosedYear, largeThreshold: cfLargeThreshold } = cfTriageSettings(db);
+    const cfBooked = cfBookedSet(db);
     const unmatchedCands = db.prepare(`
         SELECT t.tekst, t.dato, t.beloeb FROM cf_transactions t
         WHERE t.matched_invoice_id IS NULL AND t.beloeb > 0 AND t.ignored = 0
@@ -658,7 +675,7 @@ router.get('/stats', handle(async (req, res) => {
     `).all();
     let unmatchedActionable = 0, foldedCount = 0;
     for (const tx of unmatchedCands) {
-        if (CF_SURFACE_CATS.has(cfCategorize(tx, cfClosedYear, cfLargeThreshold))) unmatchedActionable++;
+        if (CF_SURFACE_CATS.has(cfCategorize(tx, cfClosedYear, cfLargeThreshold, cfBooked))) unmatchedActionable++;
         else foldedCount++;
     }
     const unmatchedCount = { cnt: unmatchedActionable };

@@ -276,8 +276,23 @@ historiske indbetalinger nu via e-conomics bogførte fakturanummer:
   ÉN gang via `scripts/backfill-economic-numbers.js --apply` (henter alle bogførte fra `--since`,
   default 2024-01-01). Idempotent. På testdata: 210 af 394 foldede har et fakturanr i teksten →
   bliver verificeret koblet; ~184 navne-baserede + event-kontant bliver tilbage (sidstnævnte løftet).
-- **Samlefaktura** (flere bons deler ét bogført nummer): matcheren kræver beløbs-match på en
+- **Samlefaktura** (flere bons deler ét bogført nummer): 1:1-matcheren kræver beløbs-match på en
   ENKELT `cf_invoice` → samlebetalinger auto-kobles ikke 1:1 (de er ægte split-arbejde, §2.F).
+
+###### Faktura-genkendelse via e-conomic-spejl (30. juni — bygget)
+Diagnose på prod afslørede: 55 af 74 umatchede 📄-indbetalinger HAVDE et gemt `economic_number`,
+men koblede ikke — fordi indbetalingen = **fakturaens** beløb (samlefaktura/levering lagt til i
+e-conomic), ikke bon-beløbet 1:1-matcheren sammenligner med. Og overskriften INDEHOLDER bon-nr
+(fx 4091, #B4117) — så reconcile læser rigtigt felt; problemet var beløbs-aksen.
+- **Migration 119:** `cf_economic_invoices` (booked_no, date, gross_amount, remainder, heading) —
+  spejl af ALLE bogførte e-conomic-fakturaer. `reconcile` upserter hver bogført faktura hertil
+  (også dem UDEN bon-kobling). `mirrored` i resultatet; backfill rapporterer det.
+- **`cfCategorize`** tager nu et `bookedSet` (alle bogførte fakturanumre). En faktura-indbetaling
+  hvis nummer findes i settet → genkendt som **afregnet faktura** → `invoice_paid` (FOLD), uden
+  at kræve bon-kobling eller beløbs-match. `invoice_check` (📄, SURFACE) bliver så kun de ÆGTE
+  undtagelser: et fakturanr der IKKE matcher nogen bogført faktura (tastefejl/kreditnota/fremtidig).
+- Effekt (testdata-simulering): 📄 invoice_check 63 → **1**; surfaced 97 → **35** (event-kontant +
+  store ukoblede + ægte undtagelser). Kræver at backfill er kørt så spejlet er fyldt.
 
 ---
 
