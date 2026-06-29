@@ -36,18 +36,24 @@ const sinceArg = (args.find(a => a.startsWith('--since=')) || '').split('=')[1] 
 
     console.log(`${apply ? '🔧 APPLY' : '🔍 DRY-RUN'} — backfill e-conomic-fakturanumre fra ${sinceArg}\n`);
 
-    // reconcile gemmer economic_number (+ flipper betalt + rykker vandmærke)
-    const r = await reconcile(db, { dryRun: !apply, since: sinceArg });
-    console.log(`e-conomic bogførte fakturaer scannet : ${r.scanned}`);
-    console.log(`  koblet til bons (via overskrift)   : ${r.matched}`);
-    console.log(`  fakturanumre ${apply ? 'gemt' : 'ville gemmes'}              : ${r.numbered}`);
-    console.log(`  betalt-status ${apply ? 'flippet' : 'ville flippes'}            : ${r.flipped}`);
-    console.log(`  vandmærke → ${r.newWatermark}`);
+    // matchByEconomicNumber slår indbetalinger op mod de GEMTE numre. For at give et
+    // sandt preview kører dry-run alt for ALVOR i en transaktion og ruller tilbage —
+    // ellers ville numrene ikke være gemt endnu og linket-tælleren altid vise 0.
+    if (!apply) db.exec('BEGIN');
+    try {
+        // reconcile gemmer economic_number (+ flipper betalt + rykker vandmærke)
+        const r = await reconcile(db, { dryRun: false, since: sinceArg });
+        console.log(`e-conomic bogførte fakturaer scannet : ${r.scanned}`);
+        console.log(`  koblet til bons (via overskrift)   : ${r.matched}`);
+        console.log(`  fakturanumre ${apply ? 'gemt' : 'ville gemmes'}              : ${r.numbered}`);
+        console.log(`  betalt-status ${apply ? 'flippet' : 'ville flippes'}            : ${r.flipped}`);
+        console.log(`  vandmærke → ${r.newWatermark}`);
 
-    // kobl bank-indbetalinger via det gemte nummer
-    const m = matchByEconomicNumber(db, { dryRun: !apply });
-    console.log(`\nbank-indbetalinger ${apply ? 'koblet' : 'ville kobles'} via fakturanr : ${m.linked}`);
-
-    if (!apply) console.log('\n(dry-run — intet skrevet. Kør med --apply for at gemme.)');
+        // kobl bank-indbetalinger via det gemte nummer
+        const m = matchByEconomicNumber(db, { dryRun: false });
+        console.log(`\nbank-indbetalinger ${apply ? 'koblet' : 'ville kobles'} via fakturanr : ${m.linked}`);
+    } finally {
+        if (!apply) { db.exec('ROLLBACK'); console.log('\n(dry-run — kørt i transaktion og rullet tilbage, intet skrevet. Kør med --apply for at gemme.)'); }
+    }
     db.close();
 })().catch(e => { console.error('✗ Fejl:', e.message); process.exit(1); });
