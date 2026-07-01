@@ -164,7 +164,8 @@ function _pcRenderForm() {
     var purchaseQu = stockQu;
     var firstLoc   = _pc.master.locations[0];
     var hverdagUf  = _pcGetUserfield('HverDag');
-    var co2eUf     = _pcGetUserfield('Co2e');
+    // CO₂ håndteres ikke længere her — det gamle products.Co2e er deprecated (→ Co2e_OLD, CO₂ F1).
+    // Det nye vægt-felt (kg/stk) tilføjes i CO₂ F2 (docs/CLAUDE_CO2.md §3).
     var stockName  = (stockQu && stockQu.name) || '';
 
     _pc.container.innerHTML =
@@ -221,12 +222,6 @@ function _pcRenderForm() {
                         '</div>'
                         : '<div class="pc-field"></div>') +
                 '</div>' +
-                (co2eUf ?
-                    '<div class="pc-field">' +
-                        '<label>CO₂e <span class="pc-hintspan">(kg pr. lager-enhed, valgfri)</span></label>' +
-                        '<input type="number" id="pcCo2e" min="0" step="0.001" placeholder="0.00">' +
-                    '</div>'
-                    : '') +
                 '<div class="pc-row pc-row-3">' +
                     '<div class="pc-field">' +
                         '<label>Antal på lager nu <span class="pc-hintspan">(<span id="pcStockUnitLabel">' + _pcEsc(stockName) + '</span>)</span></label>' +
@@ -589,7 +584,6 @@ function _pcSubmit() {
     var shoppingLocationId = _pcVal('pcShoppingLocation');
     var minStock          = _pcVal('pcMinStock');
     var hverdag           = _pcVal('pcHverdag');
-    var co2e              = _pcVal('pcCo2e');
     var initialAmount     = _pcVal('pcInitialAmount');
     var initialPrice      = _pcVal('pcInitialPrice');
     var bestBefore        = _pcVal('pcBestBefore');
@@ -645,7 +639,6 @@ function _pcSubmit() {
         .then(function() {
             var ufBody = {};
             if (hverdag && _pcGetUserfield('HverDag')) ufBody.HverDag = hverdag;
-            if (co2e && _pcGetUserfield('Co2e'))       ufBody.Co2e    = co2e;
             if (Object.keys(ufBody).length === 0) return;
             return putGrocyProductUserfields(productId, ufBody).catch(function(e) {
                 warnings.push('Userfields kunne ikke gemmes: ' + e.message);
