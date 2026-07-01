@@ -192,6 +192,7 @@ function _pcRenderForm() {
                 '</div>' +
                 '<div class="pc-hint">Kilo for vægt-baserede varer, Stk for tællelige (fx løg, æg, hvidløg).</div>' +
                 '<div id="pcQuConversion"></div>' +
+                '<div id="pcWeightField"></div>' +
                 '<div class="pc-row">' +
                     '<div class="pc-field">' +
                         '<label>Default-lokation <span class="pc-req">*</span></label>' +
@@ -285,6 +286,7 @@ function _pcRenderForm() {
         _pcSet('pcBarcode', _pc.prefillBarcode);
     }
     _pcCheckQuConversion();
+    _pcCheckWeightField();
     setTimeout(function() {
         var nameEl = document.getElementById('pcName');
         if (nameEl) nameEl.focus();
@@ -320,6 +322,7 @@ function _pcWireEvents() {
 
 function _pcOnStockQuChange() {
     _pcCheckQuConversion();
+    _pcCheckWeightField();
     _pcUpdateAmountHint();
     var sel = document.getElementById('pcQuStock');
     var chosen = _pc.master.units.find(function(u) { return u.id == sel.value; });
@@ -372,6 +375,57 @@ function _pcUpdateAmountHint() {
     var packs = amount / factor;
     var roundedPacks = Math.round(packs * 100) / 100;
     hintEl.textContent = '≈ ' + roundedPacks + ' ' + ((purchaseUnit && purchaseUnit.name) || '');
+}
+
+/* ── CO₂ kg-vej (vægt pr. stk) — spec CLAUDE_CO2.md §3 ──────────────
+ * Tællevarer (stock = Antal) mangler en vej til kg. Uden den kan varen
+ * hverken indgå i CO₂- eller kostpris-beregning (de deler kg-konverteringen).
+ * Feltet er VALGFRIT — varen oprettes uanset; mangler den, flages det.
+ * "Vej N stk → Y gram" (ikke 1 — en serviet på 1,2 g kan ikke vejes enkeltvis).
+ */
+function _pcIsWeightUnit(unit) {
+    if (!unit) return false;
+    var n = (unit.name || '').toLowerCase();
+    return ['kilo', 'kg', 'kilogram', 'gram', 'g'].indexOf(n) !== -1;
+}
+
+function _pcCheckWeightField() {
+    var box = document.getElementById('pcWeightField');
+    if (!box) return;
+    var stockId   = _pcVal('pcQuStock');
+    var stockUnit = _pc.master.units.find(function(u) { return u.id == stockId; });
+    // Allerede vægt-baseret (Kilo/Gram) → ingen kg-vej nødvendig
+    if (!stockUnit || _pcIsWeightUnit(stockUnit)) { box.innerHTML = ''; return; }
+    box.innerHTML =
+        '<div class="pc-qu-conversion">' +
+            '<strong>CO₂ kg-vej</strong> <span class="pc-hintspan">(vægt pr. ' +
+                _pcEsc(stockUnit.name) + ' — til CO₂ + kostpris, valgfri)</span>' +
+            '<div class="pc-weight-row">Vej ' +
+                '<input type="number" id="pcWeighCount" min="1" step="1" value="1"> ' +
+                _pcEsc(stockUnit.name) + ' → ' +
+                '<input type="number" id="pcWeighGrams" min="0" step="any" placeholder="gram"> g' +
+            '</div>' +
+            '<div id="pcWeightPreview" class="pc-qu-helper">Uden vægt kan varen ikke indgå i CO₂-/kostpris-beregning — kan tilføjes senere.</div>' +
+        '</div>';
+    var c = document.getElementById('pcWeighCount');
+    var g = document.getElementById('pcWeighGrams');
+    if (c) c.addEventListener('input', _pcUpdateWeightPreview);
+    if (g) g.addEventListener('input', _pcUpdateWeightPreview);
+}
+
+function _pcUpdateWeightPreview() {
+    var el = document.getElementById('pcWeightPreview');
+    if (!el) return;
+    var cnt  = parseFloat(_pcVal('pcWeighCount')) || 1;
+    var gram = parseFloat(_pcVal('pcWeighGrams'));
+    if (!gram || gram <= 0 || cnt <= 0) {
+        el.textContent = 'Uden vægt kan varen ikke indgå i CO₂-/kostpris-beregning — kan tilføjes senere.';
+        return;
+    }
+    var perG  = gram / cnt;
+    var perKg = perG / 1000;
+    el.textContent = '1 stk ≈ ' + (Math.round(perG * 100) / 100) + ' g = ' +
+                     (Math.round(perKg * 100000) / 100000) + ' kg';
 }
 
 function _pcStringSimilarity(a, b) {
@@ -634,6 +688,27 @@ function _pcSubmit() {
                 factor: quFactor
             }).catch(function(e) {
                 warnings.push('QU-konvertering kunne ikke oprettes: ' + e.message);
+            });
+        })
+        .then(function() {
+            // CO₂ kg-vej: opret Antal→Kilo-konvertering (spec §3). Valgfrit.
+            var kiloUnit = _pcFindUnit('kilo') || _pcFindUnit('kg') || _pcFindUnit('kilogram');
+            var stockUnit = _pc.master.units.find(function(u) { return u.id == parseInt(quStock); });
+            if (!kiloUnit || _pcIsWeightUnit(stockUnit)) return; // allerede vægt-baseret
+            var gram = parseFloat(_pcVal('pcWeighGrams'));
+            var cnt  = parseFloat(_pcVal('pcWeighCount')) || 1;
+            if (!gram || gram <= 0) {
+                warnings.push('CO₂ kg-vej mangler — varen kan ikke indgå i CO₂-/kostpris-beregning før den er sat.');
+                return;
+            }
+            var kgPerStk = (gram / cnt) / 1000;
+            return postGrocyQuConversion({
+                product_id: productId,
+                from_qu_id: parseInt(quStock),
+                to_qu_id: kiloUnit.id,
+                factor: kgPerStk
+            }).catch(function(e) {
+                warnings.push('CO₂ kg-vej kunne ikke oprettes: ' + e.message);
             });
         })
         .then(function() {
