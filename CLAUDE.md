@@ -2379,6 +2379,33 @@ fra `.csv`-fil eller indsat direkte fra Excel/Google Sheets.
   → FK-crash); rettet til prod-format. 28/0 grøn.
 - Browser-verificeret end-to-end mod kopi af prod-data; testdata ryddet, kopi pristine.
 
+### Pengestrøm §2.F.6 — kategori-triage + e-conomic-genkendelse + find-værktøjer (29.-30. juni 2026)
+> Spec: `docs/economics/CLAUDE_PENGESTROEM.md` §2.F.6. Drevet af Leifs drifttest på branchen.
+> Løser at "kan ikke matches" var uoverskuelig (396 poster) og ubrugelig til at FINDE en bestemt
+> indbetaling. Otte commits, alle browser-verificeret mod prod-data-kopi, testdata ryddet hver gang.
+
+- **Vandmærke-FOLD (ikke skjul):** det tidligere "match-mod-betalt-faktura-på-beløb"-tjek var en fejl
+  (med ~2.900 fakturaer rammer ethvert beløb tilfældigt en betalt faktura → skjulte event-kontant som
+  "Zettle Michelin"). Fjernet. Foldede poster er findbare via chip/søgning.
+- **Kategori-triage** (`cfCategorize`, banktekst+dato+beløb): `event_cash` 🎪 (Zettle/MobilePay/kontant,
+  alle år, kræver salgsbon) · `invoice_check` 📄 (fakturanr, åbent år) · `large_check` 🔍 (≥ grænse, ingen
+  fakturanr, ALLE år — fanger "SLUTAFREGNING RF25") → SURFACE. `invoice_paid`/`minor` → FOLD.
+  Settings: `cf_accounts_closed_year` (2025), `cf_check_large_threshold` (10.000), tolerance 350→**400**.
+- **E-conomic-fakturanummer-link (migration 117):** `cf_invoices.economic_number` — reconcile gemmer
+  `bookedInvoiceNumber` (overskriften INDEHOLDER bon-nr, fx 4091/#B4117 — verificeret via diagnose).
+  `matchByEconomicNumber` kobler indbetaling via nr+beløb i bankteksten.
+- **E-conomic-spejl (migration 119):** `cf_economic_invoices` — reconcile spejler ALLE bogførte fakturaer
+  (også uden bon-kobling). `cfCategorize` genkender en faktura-indbetaling som afregnet blot ved at nummeret
+  findes i spejlet → 📄-listen skrumper til ægte undtagelser (testdata: 63 → 1; surfaced 97 → 35).
+  Backfill: `scripts/backfill-economic-numbers.js --apply` (engangs, fylder spejl + numre; dry-run kører i
+  transaktion + rollback for sandt preview). Diagnose: `scripts/diagnose-cashflow-match.js` (read-only).
+- **Find-værktøjer:** kategori-chips + dato/beløb-filtre + sortering i "kan ikke matches"
+  (`?category/from/to/min/sort`). Event-side **"Find indbetaling"** (`/candidates-for-event`, ±14 dage) →
+  "Opret salgsbon" → bon arver eventets **lokation, dato (start_date) og adresse**.
+- **Fakturaform-UX:** foldbar header (✎ Faktura <nr> · <kunde>), valgt-række fremhævet, liste scroller
+  uafhængigt (`#cfInvRows` max-height).
+- **Tests:** `scripts/test-cashflow-sync.js` 49/0 (cfCategorize-regler + bookedSet-genkendelse + matchByEconomicNumber).
+
 ## Næste opgave
 
 > ✏️ Opdateret 21. maj 2026.
