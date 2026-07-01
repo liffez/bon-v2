@@ -294,6 +294,18 @@ e-conomic), ikke bon-beløbet 1:1-matcheren sammenligner med. Og overskriften IN
 - Effekt (testdata-simulering): 📄 invoice_check 63 → **1**; surfaced 97 → **35** (event-kontant +
   store ukoblede + ægte undtagelser). Kræver at backfill er kørt så spejlet er fyldt.
 
+###### Find-værktøjer: liste-filtre + event-side "Find indbetaling" (30. juni — bygget)
+Listen skal kunne bruges til at FINDE en bestemt indbetaling (fx kontant-event uden bon), ikke kun tømmes.
+- **Kategori-chips** i "kan ikke matches": `Alle · 🎪 Event-kontant · 📄 Faktura-tjek · 🔍 Store ukoblede · Foldede`
+  (hver med antal). Ét klik isolerer kategorien. **Dato-interval + min-beløb + sortering** (Beløb/Dato) +
+  Ryd. `GET /transactions?unmatched=1` accepterer `category`/`from`/`to`/`min`/`sort`; `counts` er altid over
+  ALLE kandidater så chip-tallene er faste. Priskategori/betalingstype findes IKKE på en bankpostering (bon-felter)
+  — kategorien er indbetalingens "type".
+- **Event-side "Find indbetaling"** (`office/views/events.js`): knap på event-detaljen → modal med ukoblede
+  bank-poster ±14 dage omkring event-datoen (`GET /cashflow/candidates-for-event?event_id=` — spejl af
+  `/events-on-date`, Zettle-afregninger halter). Hver kandidat har "Opret salgsbon" → `create-bon-from-tx`
+  (BETALT salgsbon på eventet + kobler beløbet, festivalpris) → eventet viser omsætning + 🏦 bank-afstemt.
+
 ---
 
 ## 3. Hvad der IKKE skal bygges (det duplikerer drift-kode)

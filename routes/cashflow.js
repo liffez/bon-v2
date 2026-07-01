@@ -362,32 +362,49 @@ router.get('/transactions', handle(async (req, res) => {
     if (unmatched === '1' && !q) {
         const { closedYear, largeThreshold } = cfTriageSettings(db);
         const bookedSet = cfBookedSet(db);
+        // Filtre (chips + dato/beløb): category = all|event_cash|invoice_check|large_check|folded
+        const category = String(req.query.category || '').trim();
+        const minAmount = Math.abs(parseFloat(req.query.min)) || 0;
+        const fromD = req.query.from || null, toD = req.query.to || null;
+        const sort = req.query.sort === 'date' ? 'date' : 'amount';
         const cands = db.prepare(`
             SELECT t.*, i.kunde AS matched_kunde,
                 COALESCE((SELECT SUM(a.amount) FROM cf_allocations a WHERE a.transaction_id = t.id), 0) AS allocated
             FROM cf_transactions t
             LEFT JOIN cf_invoices i ON t.matched_invoice_id = i.id
             WHERE ${UNMATCHED_WHERE}
-            ORDER BY t.beloeb DESC
         `).all();
         for (const tx of cands) {
             tx.category = cfCategorize(tx, closedYear, largeThreshold, bookedSet);
             tx.is_event_cash = tx.category === 'event_cash' ? 1 : 0;
         }
-        const surface = cands.filter(t => CF_SURFACE_CATS.has(t.category));
-        const folded  = cands.filter(t => !CF_SURFACE_CATS.has(t.category));
-        const rows = includeFolded ? cands : surface;
-        const countBy = (c) => surface.filter(t => t.category === c).length;
+        // Tællere over ALLE kandidater — så chip-tallene er faste uafhængigt af aktivt filter.
+        const cntCat = (c) => cands.filter(t => t.category === c).length;
+        const counts = {
+            event_cash: cntCat('event_cash'),
+            invoice_check: cntCat('invoice_check'),
+            large_check: cntCat('large_check'),
+            folded: cands.filter(t => !CF_SURFACE_CATS.has(t.category)).length,
+        };
+        counts.surface = counts.event_cash + counts.invoice_check + counts.large_check;
+        // Kategori-filter. "Foldede" = de foldede (afregnet/støj); en surface-kategori = kun den;
+        // "Alle"/default = alle surface-kategorier (event+faktura+store). Ingen chip viser
+        // bogstaveligt ALT (det ville være tusindvis af afregnede posteringer).
+        let filtered;
+        if (category === 'folded') filtered = cands.filter(t => !CF_SURFACE_CATS.has(t.category));
+        else if (['event_cash', 'invoice_check', 'large_check'].includes(category)) filtered = cands.filter(t => t.category === category);
+        else filtered = cands.filter(t => CF_SURFACE_CATS.has(t.category)); // 'all' / default = surface
+        // Dato + min-beløb (kombineres med kategori)
+        if (fromD) filtered = filtered.filter(t => t.dato >= fromD);
+        if (toD)   filtered = filtered.filter(t => t.dato <= toD);
+        if (minAmount) filtered = filtered.filter(t => Math.abs(t.beloeb) >= minAmount);
+        // Sortering: beløb (default) eller dato, begge faldende
+        filtered.sort((a, b) => sort === 'date' ? String(b.dato).localeCompare(String(a.dato)) : b.beloeb - a.beloeb);
         return res.json({
-            rows,
-            total: rows.length,
-            folded_count: folded.length,
-            counts: {
-                event_cash: countBy('event_cash'),
-                invoice_check: countBy('invoice_check'),
-                large_check: countBy('large_check'),
-                folded: folded.length,
-            },
+            rows: filtered,
+            total: filtered.length,
+            folded_count: counts.folded,
+            counts,
         });
     }
 
@@ -1104,6 +1121,33 @@ router.get('/events-on-date', handle(async (req, res) => {
         type: 'event', id: e.id, label: `🎪 ${e.name}`,
         sublabel: [e.start_date, e.end_date].filter(Boolean).join(' → '),
     })) });
+}));
+
+// §2.E: "Find indbetaling" fra event-siden — ukoblede bank-poster NÆR event-datoen.
+// Spejlet af /events-on-date: der finder vi events for en indbetaling; her finder vi
+// indbetalinger for et event. ±14 dages buffer (Zettle-afregninger halter). Kategori-tag med.
+router.get('/candidates-for-event', handle((req, res) => {
+    const db = getDb();
+    const eventId = parseInt(req.query.event_id, 10);
+    if (!eventId) return res.status(400).json({ error: 'event_id kræves' });
+    const ev = db.prepare('SELECT id, name, start_date, end_date FROM events WHERE id = ?').get(eventId);
+    if (!ev) return res.status(404).json({ error: 'event findes ikke' });
+    const end = ev.end_date || ev.start_date;
+    const rows = db.prepare(`
+        SELECT t.*, COALESCE((SELECT SUM(a.amount) FROM cf_allocations a WHERE a.transaction_id = t.id), 0) AS allocated
+        FROM cf_transactions t
+        WHERE t.beloeb > 0 AND t.ignored = 0 AND t.matched_invoice_id IS NULL
+          AND ABS(t.beloeb - COALESCE((SELECT SUM(a.amount) FROM cf_allocations a WHERE a.transaction_id = t.id), 0)) >= 0.01
+          AND date(t.dato) BETWEEN date(?, '-14 days') AND date(?, '+14 days')
+        ORDER BY t.beloeb DESC
+    `).all(ev.start_date, end);
+    const { closedYear, largeThreshold } = cfTriageSettings(db);
+    const bookedSet = cfBookedSet(db);
+    for (const tx of rows) {
+        tx.category = cfCategorize(tx, closedYear, largeThreshold, bookedSet);
+        tx.is_event_cash = tx.category === 'event_cash' ? 1 : 0;
+    }
+    res.json({ event: ev, rows });
 }));
 
 // ─── GET /event-income — per-event-indtægtsoverblik (bank-afstemt) ───────────

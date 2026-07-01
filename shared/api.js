@@ -1458,6 +1458,9 @@ function fetchCfTransactions(opts) {
     if (opts && opts.limit) params.push('limit=' + opts.limit);
     if (opts && opts.q) params.push('q=' + encodeURIComponent(opts.q));
     if (opts && opts.includeFolded) params.push('include_folded=1');
+    if (opts && opts.category) params.push('category=' + encodeURIComponent(opts.category));
+    if (opts && opts.min) params.push('min=' + opts.min);
+    if (opts && opts.sort) params.push('sort=' + opts.sort);
     var qs = params.length ? '?' + params.join('&') : '';
     return apiFetch('/cashflow/transactions' + qs);
 }
@@ -1568,6 +1571,10 @@ function createBonFromCfTx(data) {
     return apiFetch('/cashflow/create-bon-from-tx', {
         method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(data)
     });
+}
+
+function fetchCandidatesForEvent(eventId) {
+    return apiFetch('/cashflow/candidates-for-event?event_id=' + encodeURIComponent(eventId));
 }
 
 /* ── RFM & KUNDEINDSIGT ────────────────────────────────────── */
