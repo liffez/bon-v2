@@ -570,6 +570,18 @@ router.get('/:id/overview', requireAuth(), handle(async (req, res) => {
     pnl.result = Math.round((pnl.revenue_excl - pnl.cost_estimated - pnl.expenses_excl) * 100) / 100;
     pnl.co2e_total = computeEventCO2(event.id);
 
+    // Bank-afstemt: Σ pengestrøms-allokeringer på eventets bons (salg + · udgift −,
+    // incl moms). Giver overblik over hvor meget af eventets økonomi der faktisk er
+    // afstemt mod banken (jf. CLAUDE_PENGESTROEM.md §2.E).
+    const bankRecon = getDb().prepare(`
+        SELECT COALESCE(SUM(a.amount), 0) AS s, COUNT(DISTINCT a.transaction_id) AS tx
+        FROM cf_allocations a
+        JOIN bons b ON a.target_type = 'bon' AND a.target_id = CAST(b.id AS TEXT)
+        WHERE b.event_id = ?
+    `).get(event.id);
+    pnl.bank_reconciled = Math.round((bankRecon.s || 0) * 100) / 100;
+    pnl.bank_reconciled_tx = bankRecon.tx || 0;
+
     // Forecast pr. dag pr. kategori. Vi sender også de dage events spænder over
     // (start_date → end_date eller bare start_date hvis ingen end_date).
     const forecast = getDb().prepare(`

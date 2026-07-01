@@ -326,6 +326,11 @@
 
 .cf-inv-row:last-child { border-bottom: none; }
 
+/* Fakturaliste scroller uafhængigt, så redigeringsformen kan blive stående ovenover */
+#cfInvRows { max-height: 50vh; overflow-y: auto; }
+/* Den faktura man redigerer fremhæves så man ser hvilken linje det er */
+.cf-inv-row-selected { background: #fff6ea !important; box-shadow: inset 3px 0 0 var(--brand-primary, #8e631f); }
+
 .cf-inv-main {
   display: grid;
   grid-template-columns: 60px 1fr 90px 90px 80px;
@@ -824,6 +829,42 @@
 }
 .cf-um-inv:hover { background: #f0f5e9; border-color: #7a9c54; }
 .cf-um-hint { font-size: 11px; color: #8a8580; padding: 6px 2px; }
+/* Kategori-chips */
+.cf-um-chips { display: flex; flex-wrap: wrap; gap: 5px; margin: 8px 0 6px; }
+.cf-um-chip {
+  display: inline-flex; align-items: center; gap: 5px; padding: 3px 9px;
+  background: #f3f1ee; border: 1px solid #e0dad2; border-radius: 14px;
+  color: #6a6560; font-size: 11px; font-weight: 600; cursor: pointer; transition: all 0.12s;
+}
+.cf-um-chip:hover { background: #ece8e2; }
+.cf-um-chip.active { background: var(--brand-primary, #8e631f); border-color: var(--brand-primary, #8e631f); color: #fff; }
+.cf-um-chip-n {
+  background: rgba(0,0,0,0.08); border-radius: 9px; padding: 0 6px;
+  font-size: 10px; font-weight: 700; min-width: 16px; text-align: center;
+}
+.cf-um-chip.active .cf-um-chip-n { background: rgba(255,255,255,0.28); }
+/* Filterrække */
+.cf-um-filters { display: flex; flex-wrap: wrap; align-items: center; gap: 6px 10px; margin-bottom: 8px; font-size: 11px; color: #6a6560; }
+.cf-um-filters label { display: inline-flex; align-items: center; gap: 4px; }
+.cf-um-filters input {
+  border: 1px solid #d7d1ca; border-radius: 5px; padding: 3px 5px; font-size: 11px; color: #3a352f;
+}
+.cf-um-filters input[type=number] { width: 68px; }
+.cf-um-sort, .cf-um-clear {
+  border: 1px solid #d7d1ca; border-radius: 5px; padding: 3px 9px; background: #fff;
+  color: #6a6560; font-size: 11px; font-weight: 600; cursor: pointer;
+}
+.cf-um-sort:hover, .cf-um-clear:hover { background: #f3f1ee; }
+.cf-cat-tag {
+  display: inline-block; margin-left: 7px; padding: 1px 7px; border-radius: 10px;
+  font-size: 10px; font-weight: 700; vertical-align: middle; white-space: nowrap;
+}
+.cf-cat-event   { background: #f3d9a8; color: #8a5a16; }   /* 🎪 event-kontant */
+.cf-cat-invoice { background: #cfe0f0; color: #2a5a8a; }   /* 📄 faktura-tjek */
+.cf-cat-large   { background: #e6d4ec; color: #6a3a8a; }   /* 🔍 muligt event */
+.cf-cat-event-row   { background: #fff6ea; border-radius: 7px; }
+.cf-cat-invoice-row { background: #f0f5fa; border-radius: 7px; }
+.cf-cat-large-row   { background: #f7f1fa; border-radius: 7px; }
 .cf-um-note { margin-top: 8px; display: flex; flex-direction: column; gap: 6px; }
 .cf-um-note-input {
   width: 100%;
@@ -836,6 +877,129 @@
   resize: vertical;
 }
 .cf-um-note-save { align-self: flex-start; }
+
+/* ── §2.F Split-allokering ── */
+.cf-um-btn-primary {
+  background: #7a9c54;
+  color: white;
+  border-color: #6b8a49;
+  font-weight: 600;
+}
+.cf-um-btn-primary:hover:not(:disabled) { background: #6b8a49; }
+.cf-um-btn-primary:disabled { opacity: .45; cursor: default; }
+.cf-alloc-head {
+  display: flex; justify-content: space-between; align-items: center;
+  font-size: 12px; margin-bottom: 8px;
+}
+.cf-alloc-rest { font-weight: 700; color: #8a8580; }
+.cf-alloc-rest-zero { color: #5a8a3a; }
+.cf-alloc-rest-over { color: #bc3a3a; }
+.cf-alloc-lines { display: flex; flex-direction: column; gap: 5px; margin-bottom: 8px; }
+.cf-alloc-line {
+  display: flex; align-items: center; gap: 8px;
+  font-size: 12px; padding: 6px 8px;
+  border: 1px solid var(--color-border, #d7d1ca); border-radius: 6px;
+  background: #fcfbfa;
+}
+.cf-alloc-line-saved { background: #f0f5e9; border-color: #cfe0b8; }
+.cf-alloc-line-lbl { flex: 1; min-width: 0; }
+.cf-alloc-line-lbl > div:first-child { font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.cf-alloc-sub { font-size: 10.5px; color: #8a8580; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.cf-alloc-badge {
+  font-size: 9.5px; font-weight: 700; color: white;
+  padding: 2px 6px; border-radius: 4px; text-transform: uppercase;
+  letter-spacing: .3px; flex-shrink: 0;
+}
+.cf-alloc-amt {
+  width: 92px; text-align: right; font-size: 12px; font-weight: 600;
+  padding: 4px 6px; border: 1px solid var(--color-border, #d7d1ca); border-radius: 5px;
+}
+.cf-alloc-amt-fixed { font-weight: 700; font-size: 12px; white-space: nowrap; }
+.cf-alloc-amt-saved { background: #fbfdf8; }
+.cf-amt-invalid { border-color: #bc3a3a !important; background: #fdf0f0; }
+.cf-um-list-search {
+  width: 100%; box-sizing: border-box; font-size: 12px;
+  padding: 7px 9px; margin-bottom: 8px;
+  border: 1px solid var(--color-border, #d7d1ca); border-radius: 6px;
+}
+.cf-alloc-del {
+  border: none; background: none; color: #bc3a3a; cursor: pointer;
+  font-size: 13px; padding: 2px 4px; flex-shrink: 0;
+}
+.cf-alloc-search-wrap { display: flex; gap: 6px; align-items: flex-start; }
+.cf-alloc-search-wrap .cf-um-search { margin-bottom: 0; }
+.cf-alloc-fee { flex-shrink: 0; }
+.cf-um-target-list { max-height: 200px; overflow-y: auto; margin-top: 6px; }
+.cf-um-target {
+  display: flex; align-items: center; gap: 8px;
+  font-size: 12px; padding: 7px 8px; border-radius: 5px; cursor: pointer;
+  border: 1px solid transparent;
+}
+.cf-um-target:hover { background: #f0f5e9; border-color: #7a9c54; }
+.cf-alloc-foot { margin-top: 8px; }
+
+/* ── §2.E Event-indtægtsoverblik ── */
+.cf-event-income-card {
+  background: white; border-radius: 10px; overflow: hidden;
+  border: 1px solid #cfe0b8; margin-top: 12px;
+}
+.cf-event-income-header {
+  display: flex; justify-content: space-between; align-items: center;
+  padding: 11px 14px; background: #f0f5e9;
+  font-weight: 700; font-size: 13px; color: #3f5a2a;
+}
+.cf-event-income-total { font-weight: 800; }
+.cf-event-income-row {
+  display: flex; justify-content: space-between; align-items: center;
+  gap: 10px; padding: 10px 14px; border-top: 1px solid #eef0ea;
+}
+.cf-event-income-name > div:first-child { font-weight: 600; font-size: 13px; }
+.cf-event-income-sub { font-size: 11px; color: #8a8580; }
+.cf-event-income-amts { text-align: right; white-space: nowrap; }
+.cf-event-income-net { font-weight: 700; font-size: 13px; display: block; }
+.cf-event-income-fee { font-size: 10.5px; color: #8a8580; }
+
+/* ── §2.E.3 Opret bon fra indbetaling ── */
+.cf-um-bon { display: flex; flex-direction: column; gap: 8px; margin-bottom: 8px; }
+.cf-bon-hint { font-size: 11px; color: #8a8580; }
+.cf-bon-row { display: flex; align-items: center; gap: 8px; }
+.cf-bon-row > label { font-size: 12px; width: 64px; flex-shrink: 0; color: #6a6560; }
+.cf-bon-row select, .cf-bon-fee-amt {
+  flex: 1; font-size: 12px; padding: 5px 7px;
+  border: 1px solid var(--color-border, #d7d1ca); border-radius: 5px;
+}
+.cf-bon-lines { display: flex; flex-direction: column; gap: 5px; }
+.cf-bon-line { display: flex; align-items: center; gap: 6px; }
+.cf-bon-line-name { flex: 1; min-width: 0; font-size: 12px; padding: 5px 7px; border: 1px solid var(--color-border, #d7d1ca); border-radius: 5px; }
+.cf-bon-line-qty { width: 48px; text-align: right; font-size: 12px; padding: 5px 5px; border: 1px solid var(--color-border, #d7d1ca); border-radius: 5px; }
+.cf-bon-line-amt { width: 92px; text-align: right; font-size: 12px; padding: 5px 7px; border: 1px solid var(--color-border, #d7d1ca); border-radius: 5px; }
+.cf-bon-line-hint { font-size: 10.5px; color: #5a8a3a; padding: 1px 2px 3px; min-height: 0; }
+.cf-bon-line-hint:empty { display: none; }
+/* Custom menu-dropdown — bredere end input + viser kategori (slider vs sandwich) */
+.cf-recipe-results {
+  display: none; margin: 2px 0 4px;
+  border: 1px solid var(--color-border, #d7d1ca); border-radius: 6px;
+  background: white; max-height: 210px; overflow-y: auto;
+  box-shadow: 0 4px 14px rgba(0,0,0,.10);
+}
+.cf-recipe-results.open { display: block; }
+.cf-recipe-opt {
+  display: flex; justify-content: space-between; align-items: center; gap: 10px;
+  padding: 6px 9px; font-size: 12px; cursor: pointer;
+  border-bottom: 1px solid #f1eee9;
+}
+.cf-recipe-opt:last-child { border-bottom: none; }
+.cf-recipe-opt:hover { background: #f0f5e9; }
+.cf-recipe-opt-name { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.cf-recipe-opt-cat {
+  font-size: 10px; color: #6a6560; background: #f0ece6;
+  padding: 1px 7px; border-radius: 8px; white-space: nowrap; flex-shrink: 0;
+}
+.cf-bon-addline { align-self: flex-start; }
+.cf-bon-fee-rest { flex-shrink: 0; white-space: nowrap; font-size: 11px; padding: 5px 8px; }
+.cf-bon-foot { display: flex; justify-content: space-between; align-items: center; gap: 8px; margin-top: 4px; }
+.cf-bon-sum { font-size: 11.5px; color: #6a6560; }
+.cf-bon-sum-over { color: #bc3a3a; font-weight: 600; }
 
 /* ── Upcoming card ── */
 .cf-upcoming-card {
@@ -884,15 +1048,35 @@
 .cf-days-badge.normal  { background: #e8f0f6; color: #3a6a9a; }
 
 /* ── Invoice CRUD modal ── */
+/* Faktura-redigeringsform: fastgjort øverst (sticky) så listen kan scrolle under.
+   Foldbar via headeren — headeren bliver stående så man ser hvilken faktura. */
+#cfInvFormArea { position: sticky; top: 0; z-index: 5; }
 .cf-inv-form {
+  background: #f5f4f2;
+  border: 1px solid #e0dad2;
+  border-radius: 8px;
+  margin: 12px 0;
+  box-shadow: 0 2px 8px rgba(0,0,0,0.06);
+}
+.cf-inv-form-head {
+  display: flex; align-items: center; justify-content: space-between;
+  padding: 10px 14px; cursor: pointer; border-bottom: 1px solid #e0dad2;
+}
+.cf-inv-form.collapsed .cf-inv-form-head { border-bottom: none; }
+.cf-inv-form-title { font-weight: 700; font-size: 13px; color: #3a352f; }
+.cf-inv-form-hbtns { display: flex; gap: 4px; }
+.cf-inv-form-icon {
+  border: none; background: transparent; cursor: pointer; font-size: 14px;
+  color: #8a8580; padding: 2px 7px; border-radius: 5px; line-height: 1;
+}
+.cf-inv-form-icon:hover { background: #e8e4de; color: #3a352f; }
+.cf-inv-form-body {
   display: grid;
   grid-template-columns: 1fr 1fr;
   gap: 12px;
   padding: 16px;
-  background: #f5f4f2;
-  border-radius: 8px;
-  margin: 12px 0;
 }
+.cf-inv-form.collapsed .cf-inv-form-body { display: none; }
 
 .cf-inv-form label {
   font-size: 11px;

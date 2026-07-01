@@ -178,6 +178,7 @@ async function _evRenderDetail(id) {
                     <div class="ev-pnl-cell"><div class="ev-pnl-val">${_evFmtKr(pnl.cost_estimated)}</div><div class="ev-pnl-lbl">Vareforbrug (ex moms)</div></div>
                     <div class="ev-pnl-cell"><div class="ev-pnl-val">${_evFmtKr(pnl.expenses_excl ?? pnl.expenses)}</div><div class="ev-pnl-lbl">Udgifter (ex moms)</div></div>
                     <div class="ev-pnl-cell ev-pnl-result"><div class="ev-pnl-val">${_evFmtKr(pnl.result)}</div><div class="ev-pnl-lbl">Resultat</div></div>
+                    <div class="ev-pnl-cell ev-pnl-bank"><div class="ev-pnl-val">${_evFmtKr(pnl.bank_reconciled || 0)}</div><div class="ev-pnl-lbl">🏦 Bank-afstemt (inkl moms)${pnl.bank_reconciled_tx ? ' · ' + pnl.bank_reconciled_tx + ' indb.' : ' · intet afstemt'}</div></div>
                     <div class="ev-pnl-cell ev-pnl-co2"><div class="ev-pnl-val">${_evFmtNum(pnl.co2e_total || 0)}</div><div class="ev-pnl-lbl">🌱 CO₂e (kg)</div></div>
                 </div>
 
@@ -188,6 +189,7 @@ async function _evRenderDetail(id) {
                     <button class="ev-btn" data-act="gen" data-role="topup">+ Top-up</button>
                     <button class="ev-btn" data-act="gen" data-role="sales">+ Salgsbon</button>
                     <button class="ev-btn" data-act="gen" data-role="expense">+ Udgift</button>
+                    <button class="ev-btn" data-act="find-payment">🔍 Find indbetaling</button>
                 </div>
 
                 ${_evRoleSection('prep',    byRole.prep)}
@@ -231,6 +233,8 @@ async function _evRenderDetail(id) {
         _evBindForecastHandlers(ev);
         _evContainer.querySelector('[data-act="return-calc"]')
             ?.addEventListener('click', () => _evLoadReturnSuggestion(ev));
+        _evContainer.querySelector('[data-act="find-payment"]')
+            ?.addEventListener('click', () => _evOpenFindPayment(ev));
     } catch (err) {
         _evContainer.innerHTML = `<div class="ev-error">Kunne ikke hente event: ${_evEsc(err.message)} <button class="ev-link" data-act="back">Tilbage</button></div>`;
         _evContainer.querySelector('[data-act="back"]')?.addEventListener('click', () => { _evCurrentId = null; _evRender(); });
@@ -1010,6 +1014,63 @@ async function _evOpenGenModal(event, role, opts) {
         loadTopupSuggestion(defaultDate);
         dateEl?.addEventListener('change', () => loadTopupSuggestion(dateEl.value));
     }
+}
+
+// ── "Find indbetaling": ukoblede bank-poster nær event-datoen → opret salgsbon ──
+
+const _EV_CAT_LABEL = {
+    event_cash: '🎪 event-kontant', invoice_check: '📄 faktura',
+    large_check: '🔍 stort ukoblet', invoice_paid: 'afregnet', minor: 'småt',
+};
+async function _evOpenFindPayment(ev) {
+    let data;
+    try { data = await fetchCandidatesForEvent(ev.id); }
+    catch (e) { alert('Kunne ikke hente indbetalinger: ' + e.message); return; }
+    const rows = data.rows || [];
+    const rowsHtml = rows.length
+        ? rows.map(tx => `
+            <div class="ev-fp-row">
+                <div class="ev-fp-info">
+                    <div class="ev-fp-tekst">${_evEsc(String(tx.tekst || '').slice(0, 42))} <span class="ev-fp-cat">${_EV_CAT_LABEL[tx.category] || ''}</span></div>
+                    <div class="ev-fp-meta">${_evEsc(tx.dato)}</div>
+                </div>
+                <div class="ev-fp-kr">${_evFmtKr(tx.beloeb)}</div>
+                <button type="button" class="ev-btn ev-btn-primary ev-fp-add" data-tx="${tx.id}" data-kr="${tx.beloeb}">Opret salgsbon</button>
+            </div>`).join('')
+        : `<div class="ev-fp-empty">Ingen ukoblede indbetalinger ±14 dage omkring ${_evEsc(ev.start_date)}.<br>Ligger afregningen længere væk, så søg den frem i Pengestrøm.</div>`;
+    const overlay = document.createElement('div');
+    overlay.className = 'ev-modal-overlay';
+    overlay.innerHTML = `
+        <div class="ev-modal" role="dialog">
+            <div class="ev-fp-head">🔍 Find indbetaling — ${_evEsc(ev.name)}</div>
+            <div class="ev-fp-sub">Ukoblede bank-indbetalinger nær event-datoen. "Opret salgsbon" laver en BETALT salgsbon på eventet og kobler beløbet (festivalpris). Justér linjer/gebyr bagefter i Pengestrøm hvis du vil dele brutto + afgift.</div>
+            <div class="ev-fp-list">${rowsHtml}</div>
+            <div class="ev-modal-error" style="display:none"></div>
+            <div class="ev-modal-actions"><button type="button" class="ev-btn ev-btn-ghost" data-act="close">Luk</button></div>
+        </div>`;
+    document.body.appendChild(overlay);
+    const onKey = (e) => { if (e.key === 'Escape') cleanup(); };
+    const cleanup = () => { overlay.remove(); document.removeEventListener('keydown', onKey); };
+    document.addEventListener('keydown', onKey);
+    overlay.querySelector('[data-act=close]').addEventListener('click', cleanup);
+    overlay.addEventListener('click', e => { if (e.target === overlay) cleanup(); });
+    const errEl = overlay.querySelector('.ev-modal-error');
+    overlay.querySelectorAll('.ev-fp-add').forEach(btn => {
+        btn.addEventListener('click', async () => {
+            const txId = parseInt(btn.getAttribute('data-tx'), 10);
+            const kr = Number(btn.getAttribute('data-kr'));
+            btn.disabled = true; btn.textContent = 'Opretter…'; errEl.style.display = 'none';
+            try {
+                await createBonFromCfTx({ transaction_id: txId, event_id: ev.id, payment_type: 'card',
+                    lines: [{ name: 'Direkte salg', amount: kr, quantity: 1, category: 'Event-salg' }] });
+                cleanup();
+                _evRenderDetail(ev.id);   // refresh — eventet viser nu omsætning + bank-afstemt
+            } catch (e) {
+                btn.disabled = false; btn.textContent = 'Opret salgsbon';
+                errEl.style.display = ''; errEl.textContent = e.message || String(e);
+            }
+        });
+    });
 }
 
 // ── MODAL primitive (rene event handlers — ingen eksterne deps) ──────────

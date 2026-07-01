@@ -2362,7 +2362,7 @@ fra `.csv`-fil eller indsat direkte fra Excel/Google Sheets.
 ### Moduler bygget efter 21. maj — efterdokumenteret (29. juni 2026)
 > Disse moduler blev bygget mellem maj og juni, men status-sektionen ovenfor stoppede
 > ved 21. maj. Efterdokumenteret ved en tracker-oprydning 29. juni 2026 (verificeret mod kode,
-> migrations op til 114). 6 GitHub-issues lukket som færdige (#64, #70, #71, #77, #85, #132).
+> migrations op til 119). 6 GitHub-issues lukket som færdige (#64, #70, #71, #77, #85, #132).
 
 #### Driftsregnskab (dagsbaseret resultatanalyse) — #132 ✅
 - [x] `routes/drift.js` — `GET /api/drift/day?date=&mode=` (dagsresultat, live/frosset), `GET /api/drift/day/bons` (per-bon nedbrydning, altid live), `POST /api/drift/refreeze` (admin), `GET /api/drift/period?from=&to=` (trend)
@@ -2413,9 +2413,61 @@ fra `.csv`-fil eller indsat direkte fra Excel/Google Sheets.
 - 112 — `cf_meta.economic_booked_until` (e-conomic-afstemnings-vandmærke)
 - 113 — `recipe_unit_counts` (boks-aware enheder) + `settings.unit_count_extra_recipes`
 
+### Pengestrøm §2.F + §2.E — split-allokering + direkte event-salg (29. juni 2026)
+> Spec: `docs/economics/CLAUDE_PENGESTROEM.md` §2.F + §2.E. Løser tre drift-sager der brød den
+> stive 1:1-bank-afstemning: faktura split på flere bons, bon der ikke kunne kobles (søgning så
+> kun udestaaende), og Zettle/event-indtægt uden faktura.
+
+- **Migration 115:** `cf_allocations` (én tx → ét/flere mål MED beløb; target_type invoice|bon|event|fee).
+  Backfill af eksisterende `matched_invoice_id` → 1:1-allokering. `matched_invoice_id` bevares som
+  denormaliseret hurtig-sti — sandheden er allokeringerne.
+- **§2.F:** `POST/DELETE /api/cashflow/allocations`, `GET /transactions/:id/allocations`,
+  `GET /match-targets` (universel union: bons + fakturaer + events). "Kan ikke matches"-listen er nu
+  allokerings-bevidst. **To-akset status:** allokering rører IKKE `cf_invoices.betalt` (bank-afstemt ≠
+  e-conomic-bogført — reconcile B ejer `betalt`). Split-UI i panelet (flere linjer m. beløb, gebyr-linje,
+  rest-tæller). Brutto+gebyr-model: Zettle-netto = event-brutto + negativ gebyr-linje.
+- **§2.E (direkte event-salg, bygget på cf_allocations — IKKE matched_event_id):**
+  `GET /events-on-date` (auto-forslag på dato-overlap, +5 dages buffer) · `GET /event-income`
+  (per-event brutto/gebyr/netto-kort i Overblik) · `POST /create-bon-from-tx` (opret BETALT salgsbon,
+  event_role='sales', festival-pris, ingen kunde; genbruger eventets salgsbon hvis den findes; fleksible
+  linjer + valgfri gebyr). "🧾 Opret bon"-knap i alloc-panelet.
+- `shared/api.js`: 7 nye wrappers (allocations, match-targets, events-on-date, event-income, create-bon-from-tx).
+- Caseliste + beslutninger afklaret med Leif (brutto+gebyr, ingen forudbetaling, MobilePay relevant,
+  status BETALT, samlefaktura→bons) — i specens §2.F.4/§2.F.5 + §2.E.
+- Drive-by: `scripts/test-cashflow-sync.js` brugte urealistiske bon-numre uden B-præfiks (stale fixtures
+  → FK-crash); rettet til prod-format. 28/0 grøn.
+- Browser-verificeret end-to-end mod kopi af prod-data; testdata ryddet, kopi pristine.
+
+### Pengestrøm §2.F.6 — kategori-triage + e-conomic-genkendelse + find-værktøjer (29.-30. juni 2026)
+> Spec: `docs/economics/CLAUDE_PENGESTROEM.md` §2.F.6. Drevet af Leifs drifttest på branchen.
+> Løser at "kan ikke matches" var uoverskuelig (396 poster) og ubrugelig til at FINDE en bestemt
+> indbetaling. Otte commits, alle browser-verificeret mod prod-data-kopi, testdata ryddet hver gang.
+
+- **Vandmærke-FOLD (ikke skjul):** det tidligere "match-mod-betalt-faktura-på-beløb"-tjek var en fejl
+  (med ~2.900 fakturaer rammer ethvert beløb tilfældigt en betalt faktura → skjulte event-kontant som
+  "Zettle Michelin"). Fjernet. Foldede poster er findbare via chip/søgning.
+- **Kategori-triage** (`cfCategorize`, banktekst+dato+beløb): `event_cash` 🎪 (Zettle/MobilePay/kontant,
+  alle år, kræver salgsbon) · `invoice_check` 📄 (fakturanr, åbent år) · `large_check` 🔍 (≥ grænse, ingen
+  fakturanr, ALLE år — fanger "SLUTAFREGNING RF25") → SURFACE. `invoice_paid`/`minor` → FOLD.
+  Settings: `cf_accounts_closed_year` (2025), `cf_check_large_threshold` (10.000), tolerance 350→**400**.
+- **E-conomic-fakturanummer-link (migration 117):** `cf_invoices.economic_number` — reconcile gemmer
+  `bookedInvoiceNumber` (overskriften INDEHOLDER bon-nr, fx 4091/#B4117 — verificeret via diagnose).
+  `matchByEconomicNumber` kobler indbetaling via nr+beløb i bankteksten.
+- **E-conomic-spejl (migration 119):** `cf_economic_invoices` — reconcile spejler ALLE bogførte fakturaer
+  (også uden bon-kobling). `cfCategorize` genkender en faktura-indbetaling som afregnet blot ved at nummeret
+  findes i spejlet → 📄-listen skrumper til ægte undtagelser (testdata: 63 → 1; surfaced 97 → 35).
+  Backfill: `scripts/backfill-economic-numbers.js --apply` (engangs, fylder spejl + numre; dry-run kører i
+  transaktion + rollback for sandt preview). Diagnose: `scripts/diagnose-cashflow-match.js` (read-only).
+- **Find-værktøjer:** kategori-chips + dato/beløb-filtre + sortering i "kan ikke matches"
+  (`?category/from/to/min/sort`). Event-side **"Find indbetaling"** (`/candidates-for-event`, ±14 dage) →
+  "Opret salgsbon" → bon arver eventets **lokation, dato (start_date) og adresse**.
+- **Fakturaform-UX:** foldbar header (✎ Faktura <nr> · <kunde>), valgt-række fremhævet, liste scroller
+  uafhængigt (`#cfInvRows` max-height).
+- **Tests:** `scripts/test-cashflow-sync.js` 49/0 (cfCategorize-regler + bookedSet-genkendelse + matchByEconomicNumber).
+
 ## Næste opgave
 
-> ✏️ Tracker-oprydning 29. juni 2026 — koden er på migration 114; status-sektionen ovenfor
+> ✏️ Tracker-oprydning 29. juni 2026 — koden er på migration 119; status-sektionen ovenfor
 > stoppede ved 21. maj. Bygget men nu efterdokumenteret (egne sektioner ovenfor):
 > **Driftsregnskab, Produktionsbatch, E-conomic-adapter, Lobo/Byekspressen, Outreach+CRM-triks,
 > Event-modul.** 6 GitHub-issues lukket som færdige (#64, #70, #71, #77, #85, #132). 30 issues
