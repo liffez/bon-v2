@@ -1241,7 +1241,7 @@ router.post('/create-bon-from-tx', handle(async (req, res) => {
     // Valider event hvis angivet
     let event = null;
     if (event_id != null) {
-        event = db.prepare('SELECT id, name, start_date FROM events WHERE id = ?').get(event_id);
+        event = db.prepare('SELECT id, name, start_date, location_id, event_address_id FROM events WHERE id = ?').get(event_id);
         if (!event) return res.status(404).json({ error: `Event ${event_id} findes ikke` });
     }
 
@@ -1268,6 +1268,12 @@ router.post('/create-bon-from-tx', handle(async (req, res) => {
     const defaultLocationId = getDefaultLocationId();
     const newBonNumber = existingBon ? null : nextBonNumber();
 
+    // Event-arv: en salgs-/udgiftsbon oprettet fra et event overtager eventets
+    // lokation, dato (event-datoen, ikke bankdatoen) og leveringsadresse.
+    const bonLocationId = (event && event.location_id) ? event.location_id : defaultLocationId;
+    const bonDeliveryDate = (event && event.start_date) ? event.start_date : tx.dato;
+    const bonAddressId = event ? (event.event_address_id || null) : null;
+
     // Gebyr/afgift på et EVENT bogføres som en UDGIFTSBON (event_role='expense'),
     // så det tæller med i eventets P&L (besluttet 29. juni). Uden event (standalone)
     // bliver det blot en fee-allokering på banken. Hent udgiftsbon-nr uden for tx.
@@ -1285,13 +1291,13 @@ router.post('/create-bon-from-tx', handle(async (req, res) => {
             const ins = db.prepare(`
                 INSERT INTO bons (
                     bon_number, status_id, location_id, order_date, delivery_date,
-                    price_category, payment_type, event_id, event_role,
+                    price_category, payment_type, event_id, event_role, delivery_address_id,
                     pax, total_units, total_price, total_with_delivery, created_by_user_id
-                ) VALUES (?,?,?,?,?,?,?,?,?,0,0,0,0,?)
+                ) VALUES (?,?,?,?,?,?,?,?,?,?,0,0,0,0,?)
             `).run(
-                bonNumber, betaltStatusId, defaultLocationId, todayISO(),
-                tx.dato, 'festival', payment_type,
-                event ? event.id : null, event ? 'sales' : null,
+                bonNumber, betaltStatusId, bonLocationId, todayISO(),
+                bonDeliveryDate, 'festival', payment_type,
+                event ? event.id : null, event ? 'sales' : null, bonAddressId,
                 userId
             );
             bonId = ins.lastInsertRowid;
@@ -1334,12 +1340,12 @@ router.post('/create-bon-from-tx', handle(async (req, res) => {
                     const ei = db.prepare(`
                         INSERT INTO bons (
                             bon_number, status_id, location_id, order_date, delivery_date,
-                            price_category, payment_type, event_id, event_role,
+                            price_category, payment_type, event_id, event_role, delivery_address_id,
                             pax, total_units, total_price, total_with_delivery, created_by_user_id
-                        ) VALUES (?,?,?,?,?,?,?,?,'expense',0,0,0,0,?)
+                        ) VALUES (?,?,?,?,?,?,?,?,'expense',?,0,0,0,0,?)
                     `).run(
-                        expenseBonNumber, betaltStatusId, defaultLocationId, todayISO(),
-                        tx.dato, 'festival', payment_type, event.id, userId
+                        expenseBonNumber, betaltStatusId, bonLocationId, todayISO(),
+                        bonDeliveryDate, 'festival', payment_type, event.id, bonAddressId, userId
                     );
                     expenseBonId = ei.lastInsertRowid;
                     expenseCreated = true;
