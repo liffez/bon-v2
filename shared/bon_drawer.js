@@ -1315,7 +1315,7 @@ class BonDrawer {
             return;
         }
         var _esc = typeof esc === 'function' ? esc : function(s) { return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;'); };
-        list.innerHTML = lines.map(function(l) {
+        var linesHtml = lines.map(function(l) {
             var special = l.special_request
                 ? '<div class="drawer-line-special">' + _esc(l.special_request) + '</div>'
                 : '';
@@ -1327,6 +1327,18 @@ class BonDrawer {
                 '<button class="drawer-line-del" title="Fjern">&times;</button>' +
             '</div>';
         }).join('');
+        // Total (linje_total er INCL moms, jf. §6b) — vis sum + heraf moms via Moms-helper.
+        var totalIncl = lines.reduce(function(s, l) { return s + (Number(l.line_total) || 0); }, 0);
+        totalIncl = Math.round(totalIncl * 100) / 100;
+        var momsTxt = '';
+        if (typeof window !== 'undefined' && window.Moms && typeof window.Moms.momsOfIncl === 'function') {
+            momsTxt = ' · heraf moms ' + Math.round(window.Moms.momsOfIncl(totalIncl)) + ' kr';
+        }
+        list.innerHTML = linesHtml +
+            '<div class="drawer-line-total">' +
+                '<span class="drawer-line-total-label">I alt (inkl. moms)' + momsTxt + '</span>' +
+                '<span class="drawer-line-total-amount">' + totalIncl.toLocaleString('da-DK', { maximumFractionDigits: 0 }) + ' kr</span>' +
+            '</div>';
 
         var self = this;
 

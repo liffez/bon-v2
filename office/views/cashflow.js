@@ -18,7 +18,53 @@ let _cfInvForm = null;       // null | 'create' | invoice-id
 let _cfResizeHandler = null;
 let _cfOpts = {};            // { openDrawer? } injected from office-shell
 let _cfUnmatched = {};       // tx-id → tx (umatchede posteringer i overblikket)
-let _cfUmInvCache = null;    // cachet liste over udestående fakturaer til match-picker
+let _cfWatermark = null;     // economic_booked_until (til "afregnet"-besked)
+let _cfUmSearchTimer = null; // debounce for søgning i kan-ikke-matches
+let _cfUmFilter = { category: 'all', from: '', to: '', min: '', sort: 'amount' }; // kan-ikke-matches filtre
+let _cfUmFilterTimer = null;
+let _cfUmInvCache = null;    // (legacy — ikke længere brugt af panelet)
+let _cfAllocDraft = {};      // tx-id → { lines:[{target_type,target_id,label,sublabel,amount}], existing:[] }
+let _cfAllocSearchTimer = null;
+let _cfBonDraft = {};        // tx-id → { lines:[...] } til "opret bon fra indbetaling"
+let _cfRecipeCache = null;   // Grocy sellable recipes (id,name,category,prices,cost_price,co2e)
+let _cfRecipeByName = null;  // Map: lowercased navn → recipe
+const _CF_PAY_OPTS = [['card','Kort/Zettle'],['mobilepay','MobilePay'],['cash','Kontant'],['pos','POS']];
+
+/** Hent + cache Grocy-opskrifter (til menu-autocomplete i Opret bon). Tom ved fejl. */
+async function _cfLoadRecipes() {
+    if (_cfRecipeCache) return _cfRecipeCache;
+    try {
+        const raw = await fetchGrocyRecipes();
+        _cfRecipeCache = (Array.isArray(raw) ? raw : (raw.recipes || []))
+            .map(r => ({ ...r, name: (r.name || '').trim() }))
+            .filter(r => r.name);
+    } catch { _cfRecipeCache = []; }
+    _cfRecipeByName = new Map(_cfRecipeCache.map(r => [r.name.toLowerCase(), r]));
+    return _cfRecipeCache;
+}
+function _cfRecipeFestival(r) { return (r && r.prices && Number(r.prices.festival)) || null; }
+
+// Justeringer dækker differencen mellem allokeret og indbetaling — begge veje:
+// negativ (gebyr/afgift trækkes fra) ELLER positiv (fx levering der ikke kom med
+// på bonen, drikkepenge, afrunding).
+const _CF_FEE_KINDS = [
+    { id: 'gebyr', label: 'Gebyr (−)' },
+    { id: 'afgift', label: 'Afgift (−)' },
+    { id: 'zettle', label: 'Zettle-gebyr (−)' },
+    { id: 'levering', label: 'Levering (+)' },
+    { id: 'drikkepenge', label: 'Drikkepenge (+)' },
+    { id: 'diff', label: 'Difference / afrunding (±)' },
+];
+const _CF_TARGET_BADGE = {
+    bon:     { txt: 'Bon',     bg: '#4a6e96' },
+    invoice: { txt: 'Faktura', bg: '#8e631f' },
+    event:   { txt: 'Event',   bg: '#7a9c54' },
+    fee:     { txt: 'Just.',   bg: '#7a8a96' },
+};
+function _cfBadgeHtml(type, expense) {
+    const b = expense ? { txt: 'Udgift', bg: '#bc3a3a' } : (_CF_TARGET_BADGE[type] || { txt: type, bg: '#999' });
+    return `<span class="cf-alloc-badge" style="background:${b.bg}">${b.txt}</span>`;
+}
 
 // Analyse state
 let _cfPaxPeriod = 'maaned';
@@ -46,7 +92,10 @@ function _cfFmtDate(iso) {
     const d = new Date(iso);
     const day = d.getDate();
     const mon = _CF_MONTHS[d.getMonth()].toLowerCase();
-    return `${day}. ${mon}`;
+    // Vis året når datoen ikke er i indeværende år — så gamle fakturaer er
+    // tydelige uden at rode nutidige datoer til.
+    const y = d.getFullYear();
+    return y === new Date().getFullYear() ? `${day}. ${mon}` : `${day}. ${mon} ${y}`;
 }
 
 function _cfDaysSince(iso) {
@@ -112,23 +161,25 @@ async function _cfRenderOverblik() {
     content.innerHTML = '<div class="cf-empty"><div class="cf-empty-icon">⏳</div>Henter data...</div>';
 
     try {
-        const [stats, weekly, invoices, upcoming, unmatched] = await Promise.all([
+        const [stats, weekly, invoices, upcoming, unmatched, eventIncome] = await Promise.all([
             fetchCfStats(),
             fetchCfWeekly(),
             fetchCfInvoices(_cfInvTab),
             fetchCfUpcoming(),
-            fetchCfTransactions({ unmatched: true, limit: 25 })
+            fetchCfTransactions({ unmatched: true, limit: 500, sort: _cfUmFilter.sort }),
+            fetchCfEventIncome().catch(() => ({ events: [] }))
         ]);
 
-        _cfBuildOverblik(content, stats, weekly, invoices, upcoming, unmatched);
+        _cfBuildOverblik(content, stats, weekly, invoices, upcoming, unmatched, eventIncome);
     } catch (err) {
         content.innerHTML = `<div class="cf-empty"><div class="cf-empty-icon">⚠️</div>${err.message}</div>`;
     }
 }
 
-function _cfBuildOverblik(el, stats, weekly, invoices, upcoming, unmatched) {
+function _cfBuildOverblik(el, stats, weekly, invoices, upcoming, unmatched, eventIncome) {
     _cfUnmatched = {};
     (unmatched.rows || []).forEach(tx => { _cfUnmatched[tx.id] = tx; });
+    _cfWatermark = stats.economic_booked_until || null;
     const daysSince = _cfDaysSince(stats.last_upload);
     const staleClass = daysSince <= 1 ? 'ok' : '';
     const staleText = daysSince <= 1 ? 'Bankdata opdateret i dag'
@@ -227,24 +278,21 @@ function _cfBuildOverblik(el, stats, weekly, invoices, upcoming, unmatched) {
                     <div class="cf-last-upload">${stats.last_upload ? 'Sidst uploadet: ' + new Date(stats.last_upload).toLocaleString('da-DK') : 'Ingen upload endnu'}</div>
                 </div>
 
-                ${unmatched.rows.length > 0 ? `
-                <div class="cf-unmatched-card">
-                    <div class="cf-unmatched-header">⚠️ ${unmatched.total > unmatched.rows.length ? unmatched.rows.length + ' af ' + unmatched.total : unmatched.rows.length} posteringer kan ikke matches</div>
-                    <div id="cfUnmatchedList">
-                    ${unmatched.rows.map(tx => `
-                        <div class="cf-unmatched-item" data-tx-id="${tx.id}">
-                            <div class="cf-unmatched-row" data-tx-row="${tx.id}">
-                                <div>
-                                    <div style="font-weight:700">${_cfEsc(tx.tekst).substring(0, 40)}</div>
-                                    <span style="font-size:11px;color:#8a8580">${_cfFmtDate(tx.dato)}${tx.note ? ' · 📝' : ''}</span>
-                                </div>
-                                <div style="font-weight:700;color:${tx.beloeb < 0 ? '#bc3a3a' : '#e8a832'}">${_cfFmt(tx.beloeb)}</div>
-                            </div>
-                            <div class="cf-um-panel" data-tx-panel="${tx.id}" hidden></div>
-                        </div>
-                    `).join('')}
+                <div class="cf-unmatched-card" id="cfUnmatchedCard">
+                    <input class="cf-um-list-search" id="cfUmSearch" type="text" autocomplete="off"
+                        placeholder="🔎 Søg postering (event, beløb, tekst) — også afregnede…">
+                    <div class="cf-um-chips" id="cfUmChips">${_cfChipsHtml(unmatched.counts)}</div>
+                    <div class="cf-um-filters" id="cfUmFilters">
+                        <label>Fra <input type="date" id="cfUmFrom" value="${_cfUmFilter.from}"></label>
+                        <label>Til <input type="date" id="cfUmTo" value="${_cfUmFilter.to}"></label>
+                        <label>Min <input type="number" id="cfUmMin" placeholder="kr" min="0" step="500" value="${_cfUmFilter.min}"></label>
+                        <button class="cf-um-sort" id="cfUmSort" title="Skift sortering">${_cfUmFilter.sort === 'date' ? 'Dato ↓' : 'Beløb ↓'}</button>
+                        <button class="cf-um-clear" id="cfUmClear" title="Ryd filtre">Ryd</button>
                     </div>
-                </div>` : ''}
+                    <div id="cfUnmatchedArea">${_cfUnmatchedAreaHtml(unmatched.rows, unmatched.total, false)}</div>
+                </div>
+
+                ${_cfEventIncomeCard(eventIncome)}
 
                 ${upcoming.rows.length > 0 ? `
                 <div class="cf-upcoming-card">
@@ -314,7 +362,7 @@ function _cfBuildOverblik(el, stats, weekly, invoices, upcoming, unmatched) {
         try {
             reconBtn.textContent = 'Synker...'; reconBtn.disabled = true;
             const r = await reconcileCashflow({});
-            alert(`Afstemning færdig!\n\n${r.scanned} fakturaer scannet\n${r.matched} koblet til bons\n${r.flipped} markeret betalt`);
+            alert(`Afstemning færdig!\n\n${r.scanned} fakturaer scannet\n${r.matched} koblet til bons\n${r.flipped} markeret betalt\n${r.numbered ?? 0} fakturanr gemt\n${r.linked ?? 0} bank-indbetalinger koblet via fakturanr`);
             _cfRenderOverblik();
         } catch (err) {
             alert('Afstemning fejlede: ' + err.message);
@@ -341,33 +389,197 @@ function _cfBuildOverblik(el, stats, weekly, invoices, upcoming, unmatched) {
 
 /* ── Umatchede posteringer: match / ignorér / note ── */
 
-function _cfWireUnmatched(el) {
-    const list = el.querySelector('#cfUnmatchedList');
-    if (!list) return;
-    list.querySelectorAll('.cf-unmatched-row').forEach(row => {
-        row.onclick = () => {
-            const id = row.getAttribute('data-tx-row');
-            const panel = list.querySelector(`.cf-um-panel[data-tx-panel="${id}"]`);
-            if (!panel) return;
-            if (!panel.hidden) { panel.hidden = true; return; }
-            // Luk øvrige paneler
-            list.querySelectorAll('.cf-um-panel').forEach(p => { p.hidden = true; });
-            _cfBuildUmPanel(panel, id);
-            panel.hidden = false;
-        };
-    });
+/** Én række i kan-ikke-matches-listen. */
+const _CF_CAT_TAG = {
+    event_cash:    { cls: 'cf-cat-event',   txt: '🎪 kræver salgsbon',     tip: 'Event-/direkte-salg — kobl til event via en salgsbon (historik)' },
+    invoice_check: { cls: 'cf-cat-invoice', txt: '📄 tjek mod e-conomic',  tip: 'Fakturabetaling i åbent regnskabsår — tjek at den er afregnet i e-conomic' },
+    large_check:   { cls: 'cf-cat-large',   txt: '🔍 stort ukoblet — tjek',  tip: 'Større beløb uden fakturareference (alle år) — kan være et event uden bon eller en overførsel der bør verificeres' },
+};
+function _cfUnmatchedRowHtml(tx) {
+    const cat = _CF_CAT_TAG[tx.category];
+    const tag = cat ? `<span class="cf-cat-tag ${cat.cls}" title="${cat.tip}">${cat.txt}</span>` : '';
+    return `<div class="cf-unmatched-item${cat ? ' ' + cat.cls + '-row' : ''}" data-tx-id="${tx.id}">
+        <div class="cf-unmatched-row" data-tx-row="${tx.id}">
+            <div>
+                <div style="font-weight:700">${_cfEsc(tx.tekst).substring(0, 40)}${tag}</div>
+                <span style="font-size:11px;color:#8a8580">${_cfFmtDate(tx.dato)}${tx.note ? ' · 📝' : ''}</span>
+            </div>
+            <div style="font-weight:700;color:${tx.beloeb < 0 ? '#bc3a3a' : '#e8a832'}">${_cfFmt(tx.beloeb)}</div>
+        </div>
+        <div class="cf-um-panel" data-tx-panel="${tx.id}" hidden></div>
+    </div>`;
 }
 
-function _cfBuildUmPanel(panel, id) {
+/** Kategori-chips til "kan ikke matches" — filtrer listen med ét klik. */
+const _CF_CHIPS = [
+    { key: 'all',           label: 'Alle',             ck: 'surface' },
+    { key: 'event_cash',    label: '🎪 Event-kontant', ck: 'event_cash' },
+    { key: 'invoice_check', label: '📄 Faktura-tjek',  ck: 'invoice_check' },
+    { key: 'large_check',   label: '🔍 Store ukoblede', ck: 'large_check' },
+    { key: 'folded',        label: 'Foldede',          ck: 'folded' },
+];
+function _cfChipsHtml(counts) {
+    counts = counts || {};
+    return _CF_CHIPS.map(c => {
+        const active = _cfUmFilter.category === c.key ? ' active' : '';
+        return `<button class="cf-um-chip${active}" data-cat="${c.key}">${c.label}<span class="cf-um-chip-n">${counts[c.ck] ?? 0}</span></button>`;
+    }).join('');
+}
+
+/** Indhold i kan-ikke-matches-området: liste eller tom-besked (kategori-triaget via chips). */
+function _cfUnmatchedAreaHtml(rows, total, isSearch) {
+    rows = rows || [];
+    if (rows.length === 0) {
+        if (isSearch) return '<div class="cf-um-hint" style="padding:6px 2px">Ingen posteringer matcher søgningen.</div>';
+        return '<div class="cf-um-hint" style="padding:8px 2px;color:#5a8a3a">✓ Ingen posteringer i dette filter.</div>';
+    }
+    const header = isSearch
+        ? `🔎 ${total} fundet (også afregnede)`
+        : (_cfUmFilter.category === 'folded' ? `${total} foldede (afregnet + småt)` : `⚠️ ${total} kræver en hånd`);
+    return `<div class="cf-unmatched-header">${header}</div>
+        <div id="cfUnmatchedList">${rows.map(_cfUnmatchedRowHtml).join('')}</div>`;
+}
+
+/** Hent umatchede med aktivt filter (_cfUmFilter) + gen-render chips + liste. */
+async function _cfReloadUnmatched(el) {
+    const area = el.querySelector('#cfUnmatchedArea');
+    if (!area) return;
+    const f = _cfUmFilter;
+    try {
+        const res = await fetchCfTransactions({ unmatched: true, limit: 500,
+            category: f.category, from: f.from || undefined, to: f.to || undefined,
+            min: f.min || undefined, sort: f.sort });
+        (res.rows || []).forEach(tx => { _cfUnmatched[tx.id] = tx; });
+        const chips = el.querySelector('#cfUmChips');
+        if (chips) chips.innerHTML = _cfChipsHtml(res.counts);
+        area.innerHTML = _cfUnmatchedAreaHtml(res.rows, res.total, false);
+        _cfWireUnmatched(el);
+    } catch { /* lydløst */ }
+}
+
+function _cfWireUnmatched(el) {
+    // Rækker: klik → panel
+    const list = el.querySelector('#cfUnmatchedList');
+    if (list) {
+        list.querySelectorAll('.cf-unmatched-row').forEach(row => {
+            row.onclick = () => {
+                const id = row.getAttribute('data-tx-row');
+                const panel = list.querySelector(`.cf-um-panel[data-tx-panel="${id}"]`);
+                if (!panel) return;
+                if (!panel.hidden) { panel.hidden = true; return; }
+                list.querySelectorAll('.cf-um-panel').forEach(p => { p.hidden = true; });
+                _cfBuildUmPanel(panel, id);
+                panel.hidden = false;
+            };
+        });
+    }
+    // Chips: klik → skift kategori-filter
+    el.querySelectorAll('.cf-um-chip').forEach(chip => {
+        chip.onclick = () => {
+            _cfUmFilter.category = chip.getAttribute('data-cat') || 'all';
+            const s = el.querySelector('#cfUmSearch'); if (s) s.value = '';
+            _cfReloadUnmatched(el);
+        };
+    });
+    // Dato/min/sort/ryd
+    const from = el.querySelector('#cfUmFrom'), to = el.querySelector('#cfUmTo'), min = el.querySelector('#cfUmMin');
+    const applyFilter = () => {
+        clearTimeout(_cfUmFilterTimer);
+        _cfUmFilterTimer = setTimeout(() => {
+            _cfUmFilter.from = from ? from.value : '';
+            _cfUmFilter.to = to ? to.value : '';
+            _cfUmFilter.min = min ? min.value : '';
+            _cfReloadUnmatched(el);
+        }, 300);
+    };
+    if (from) from.onchange = applyFilter;
+    if (to) to.onchange = applyFilter;
+    if (min) min.oninput = applyFilter;
+    const sortBtn = el.querySelector('#cfUmSort');
+    if (sortBtn) sortBtn.onclick = () => {
+        _cfUmFilter.sort = _cfUmFilter.sort === 'date' ? 'amount' : 'date';
+        sortBtn.textContent = _cfUmFilter.sort === 'date' ? 'Dato ↓' : 'Beløb ↓';
+        _cfReloadUnmatched(el);
+    };
+    const clearBtn = el.querySelector('#cfUmClear');
+    if (clearBtn) clearBtn.onclick = () => {
+        _cfUmFilter = { category: 'all', from: '', to: '', min: '', sort: 'amount' };
+        ['#cfUmFrom', '#cfUmTo', '#cfUmMin'].forEach(sel => { const n = el.querySelector(sel); if (n) n.value = ''; });
+        const s = el.querySelector('#cfUmSearch'); if (s) s.value = '';
+        const sb = el.querySelector('#cfUmSort'); if (sb) sb.textContent = 'Beløb ↓';
+        _cfReloadUnmatched(el);
+    };
+    // Søgning: på tværs af ALT (også afregnede) — tom søgning falder tilbage til filteret
+    const search = el.querySelector('#cfUmSearch');
+    if (search) {
+        search.oninput = () => {
+            clearTimeout(_cfUmSearchTimer);
+            const q = search.value.trim();
+            _cfUmSearchTimer = setTimeout(async () => {
+                const area = el.querySelector('#cfUnmatchedArea');
+                if (!area) return;
+                if (!q) { _cfReloadUnmatched(el); return; }
+                try {
+                    const res = await fetchCfTransactions({ unmatched: true, q, limit: 50 });
+                    (res.rows || []).forEach(tx => { _cfUnmatched[tx.id] = tx; });
+                    area.innerHTML = _cfUnmatchedAreaHtml(res.rows, res.total, true);
+                    _cfWireUnmatched(el);
+                } catch { /* lydløst */ }
+            }, 250);
+        };
+    }
+}
+
+/** §2.E per-event-indtægtsoverblik — kompakt kort (kun events med koblinger). */
+function _cfEventIncomeCard(eventIncome) {
+    const events = (eventIncome && eventIncome.events) || [];
+    if (!events.length) return '';
+    const totalNet = events.reduce((s, e) => s + (e.net || 0), 0);
+    return `
+        <div class="cf-event-income-card">
+            <div class="cf-event-income-header">
+                <span>🎪 Event-indtægt (bank-afstemt)</span>
+                <span class="cf-event-income-total">${_cfFmt(totalNet)}</span>
+            </div>
+            ${events.map(e => `
+                <div class="cf-event-income-row">
+                    <div class="cf-event-income-name">
+                        <div>${_cfEsc(e.name)}</div>
+                        <div class="cf-event-income-sub">${[e.start_date, e.end_date].filter(Boolean).join(' → ')} · ${e.tx_count} ${e.tx_count === 1 ? 'indbetaling' : 'indbetalinger'}</div>
+                    </div>
+                    <div class="cf-event-income-amts">
+                        <span class="cf-event-income-net">${_cfFmt(e.net)}</span>
+                        ${Math.abs(e.fees) >= 0.01 ? `<span class="cf-event-income-fee">brutto ${_cfFmt(e.gross)} · fradrag ${_cfFmt(e.fees)}</span>` : ''}
+                    </div>
+                </div>
+            `).join('')}
+        </div>`;
+}
+
+async function _cfBuildUmPanel(panel, id) {
     const tx = _cfUnmatched[id] || {};
+    _cfAllocDraft[id] = { lines: [], existing: [] };
     panel.innerHTML = `
         <div class="cf-um-actions">
-            <button class="cf-um-btn cf-um-match-toggle">🔗 Match til faktura</button>
+            <button class="cf-um-btn cf-um-alloc-toggle">🔗 Kobl / split</button>
+            <button class="cf-um-btn cf-um-bon-toggle">🧾 Opret bon</button>
             <button class="cf-um-btn cf-um-ignore">🚫 Ignorér</button>
         </div>
-        <div class="cf-um-match" hidden>
-            <input class="cf-um-search" type="text" placeholder="Søg fakturanr. eller kunde…">
-            <div class="cf-um-inv-list"><div class="cf-um-hint">Henter udestående fakturaer…</div></div>
+        <div class="cf-um-bon" hidden></div>
+        <div class="cf-um-alloc" hidden>
+            <div class="cf-alloc-head">
+                <span>Fordel <strong>${_cfFmt(tx.beloeb)}</strong></span>
+                <span class="cf-alloc-rest" data-rest></span>
+            </div>
+            <div class="cf-alloc-lines" data-lines></div>
+            <div class="cf-alloc-search-wrap">
+                <input class="cf-um-search" type="text" placeholder="Søg bon, faktura eller event…" autocomplete="off">
+                <button class="cf-um-btn cf-alloc-fee" title="Tilføj justering (+/−): gebyr/afgift eller levering/diff">+ Justering</button>
+            </div>
+            <div class="cf-um-target-list"></div>
+            <div class="cf-alloc-foot">
+                <button class="cf-um-btn cf-um-btn-primary cf-alloc-save" disabled>Gem allokering</button>
+            </div>
         </div>
         <div class="cf-um-note">
             <textarea class="cf-um-note-input" rows="2" placeholder="Note (fx 'tilbageført – forkert konto')">${_cfEsc(tx.note || '')}</textarea>
@@ -396,62 +608,444 @@ function _cfBuildUmPanel(panel, id) {
         } catch (err) { alert('Kunne ikke gemme note: ' + err.message); }
     };
 
-    // Match-toggle → vis søgefelt + liste
-    const matchBox = panel.querySelector('.cf-um-match');
-    panel.querySelector('.cf-um-match-toggle').onclick = async (e) => {
+    // Kobl/split-toggle → vis allokerings-UI + hent evt. eksisterende allokeringer
+    const allocBox = panel.querySelector('.cf-um-alloc');
+    panel.querySelector('.cf-um-alloc-toggle').onclick = async (e) => {
         e.stopPropagation();
-        matchBox.hidden = !matchBox.hidden;
-        if (matchBox.hidden) return;
-        const search = matchBox.querySelector('.cf-um-search');
+        allocBox.hidden = !allocBox.hidden;
+        if (allocBox.hidden) return;
+        try {
+            const r = await fetchCfAllocations(id);
+            _cfAllocDraft[id].existing = r.allocations || [];
+        } catch { _cfAllocDraft[id].existing = []; }
+        _cfRenderAllocLines(panel, id);
+        const search = panel.querySelector('.cf-um-search');
         search.focus();
-        const invs = await _cfGetUmInvoices();
-        const render = (q) => _cfRenderUmInvList(matchBox.querySelector('.cf-um-inv-list'), invs, q, id);
-        render('');
-        search.oninput = () => render(search.value.trim().toLowerCase());
+        search.oninput = () => {
+            clearTimeout(_cfAllocSearchTimer);
+            _cfAllocSearchTimer = setTimeout(() => _cfSearchTargets(panel, id, search.value.trim()), 220);
+        };
+    };
+
+    // Gebyr-linje
+    panel.querySelector('.cf-alloc-fee').onclick = (e) => {
+        e.stopPropagation();
+        _cfShowFeePicker(panel, id);
+    };
+
+    // Opret bon fra indbetaling (§2.E.3)
+    const bonBox = panel.querySelector('.cf-um-bon');
+    panel.querySelector('.cf-um-bon-toggle').onclick = async (e) => {
+        e.stopPropagation();
+        bonBox.hidden = !bonBox.hidden;
+        if (bonBox.hidden) return;
+        await _cfBuildBonForm(panel, id, tx);
+    };
+
+    // Gem allokering
+    panel.querySelector('.cf-alloc-save').onclick = async (e) => {
+        e.stopPropagation();
+        const lines = _cfAllocDraft[id].lines;
+        if (!lines.length) return;
+        // En linje uden beløb (0) kan ikke gemmes — giv en tydelig besked frem for
+        // en kryptisk 400 fra backend. Brugeren sætter et beløb eller fjerner linjen.
+        if (lines.some(l => !Number(l.amount))) {
+            alert('En eller flere linjer mangler et beløb. Sæt et beløb — eller fjern linjen med ✕ — før du gemmer.');
+            return;
+        }
+        try {
+            await createCfAllocations(id, lines.map(l => ({
+                target_type: l.target_type, target_id: l.target_id, amount: l.amount
+            })));
+            _cfRenderOverblik();
+        } catch (err) { alert('Kunne ikke gemme: ' + err.message); }
     };
 
     // Stop klik inde i panelet fra at lukke rækken
     panel.onclick = (e) => e.stopPropagation();
 }
 
-async function _cfGetUmInvoices() {
-    if (_cfUmInvCache) return _cfUmInvCache;
-    try {
-        const res = await fetchCfInvoices('udestaaende');
-        _cfUmInvCache = res.rows || [];
-    } catch (err) {
-        _cfUmInvCache = [];
-    }
-    return _cfUmInvCache;
+/** Σ allokeret (eksisterende + draft) og resterende uallokeret beløb. */
+function _cfAllocRest(id) {
+    const tx = _cfUnmatched[id] || { beloeb: 0 };
+    const d = _cfAllocDraft[id] || { lines: [], existing: [] };
+    const exist = (d.existing || []).reduce((s, a) => s + (a.amount || 0), 0);
+    const staged = (d.lines || []).reduce((s, a) => s + (Number(a.amount) || 0), 0);
+    return Math.round((tx.beloeb - exist - staged) * 100) / 100;
 }
 
-function _cfRenderUmInvList(host, invs, q, txId) {
-    const filtered = !q ? invs : invs.filter(i =>
-        String(i.id).toLowerCase().includes(q) || (i.kunde || '').toLowerCase().includes(q));
-    if (filtered.length === 0) {
-        host.innerHTML = '<div class="cf-um-hint">Ingen udestående fakturaer matcher.</div>';
-        return;
-    }
-    host.innerHTML = filtered.slice(0, 30).map(i => `
-        <div class="cf-um-inv" data-inv-id="${_cfEsc(String(i.id))}">
-            <div>
-                <span style="font-weight:700">#${_cfEsc(String(i.id))}</span>
-                <span style="color:#8a8580"> · ${_cfEsc(i.kunde || '')}</span>
-            </div>
-            <span style="font-weight:700">${_cfFmt(i.beloeb)}</span>
+/** Render eksisterende + staged allokerings-linjer + rest-indikator. */
+function _cfRenderAllocLines(panel, id) {
+    const d = _cfAllocDraft[id] || { lines: [], existing: [] };
+    const host = panel.querySelector('[data-lines]');
+    const badge = (t, exp) => _cfBadgeHtml(t, exp);
+
+    const existHtml = (d.existing || []).map(a => `
+        <div class="cf-alloc-line cf-alloc-line-saved">
+            ${badge(a.target_type, (a.amount || 0) < 0 && a.target_type === 'bon')}
+            <div class="cf-alloc-line-lbl"><div>${_cfEsc(a.label || '')}</div><div class="cf-alloc-sub">${_cfEsc(a.sublabel || '')}</div></div>
+            <input class="cf-alloc-amt cf-alloc-amt-saved" type="number" step="0.01" value="${a.amount}" data-edit-alloc="${a.id}" title="Ret beløb (gemmes ved Enter/tab)">
+            <button class="cf-alloc-del" data-del-alloc="${a.id}" title="Fjern">✕</button>
         </div>
     `).join('');
-    host.querySelectorAll('.cf-um-inv').forEach(row => {
-        row.onclick = async (e) => {
-            e.stopPropagation();
-            const invId = row.getAttribute('data-inv-id');
-            try {
-                await matchCfTransaction(txId, invId);
-                _cfUmInvCache = null;   // faktura er nu betalt — ryd cache
-                _cfRenderOverblik();
-            } catch (err) { alert('Match fejlede: ' + err.message); }
+
+    const stagedHtml = (d.lines || []).map((l, idx) => `
+        <div class="cf-alloc-line">
+            ${badge(l.target_type, l.expense)}
+            <div class="cf-alloc-line-lbl"><div>${_cfEsc(l.label || '')}</div><div class="cf-alloc-sub">${_cfEsc(l.sublabel || '')}</div></div>
+            <input class="cf-alloc-amt" type="number" step="0.01" value="${l.amount}" data-amt-idx="${idx}">
+            <button class="cf-alloc-del" data-stage-idx="${idx}" title="Fjern">✕</button>
+        </div>
+    `).join('');
+
+    host.innerHTML = existHtml + stagedHtml || '<div class="cf-um-hint">Søg og vælg mål nedenfor for at fordele beløbet.</div>';
+
+    // Rest-indikator
+    const rest = _cfAllocRest(id);
+    const restEl = panel.querySelector('[data-rest]');
+    restEl.textContent = 'Rest: ' + _cfFmt(rest);
+    restEl.classList.toggle('cf-alloc-rest-zero', Math.abs(rest) < 0.01);
+    restEl.classList.toggle('cf-alloc-rest-over', rest < -0.01);
+
+    // Save aktiv når mindst én staged linje + ingen over-allokering
+    const save = panel.querySelector('.cf-alloc-save');
+    save.disabled = !(d.lines || []).length || rest < -0.01;
+
+    // Wire beløbs-input
+    host.querySelectorAll('.cf-alloc-amt').forEach(inp => {
+        inp.onclick = (e) => e.stopPropagation();
+        inp.oninput = () => {
+            const i = +inp.getAttribute('data-amt-idx');
+            d.lines[i].amount = Math.round((Number(inp.value) || 0) * 100) / 100;
+            // opdater kun rest + save (undgå fuld re-render så fokus bevares)
+            const rest2 = _cfAllocRest(id);
+            restEl.textContent = 'Rest: ' + _cfFmt(rest2);
+            restEl.classList.toggle('cf-alloc-rest-zero', Math.abs(rest2) < 0.01);
+            restEl.classList.toggle('cf-alloc-rest-over', rest2 < -0.01);
+            save.disabled = !d.lines.length || rest2 < -0.01;
         };
     });
+    // Fjern staged
+    host.querySelectorAll('[data-stage-idx]').forEach(btn => {
+        btn.onclick = (e) => { e.stopPropagation(); d.lines.splice(+btn.getAttribute('data-stage-idx'), 1); _cfRenderAllocLines(panel, id); };
+    });
+    // Slet gemt allokering
+    host.querySelectorAll('[data-del-alloc]').forEach(btn => {
+        btn.onclick = async (e) => {
+            e.stopPropagation();
+            try {
+                await deleteCfAllocation(btn.getAttribute('data-del-alloc'));
+                const r = await fetchCfAllocations(id);
+                d.existing = r.allocations || [];
+                _cfRenderAllocLines(panel, id);
+            } catch (err) { alert('Kunne ikke fjerne: ' + err.message); }
+        };
+    });
+    // Ret beløb på en GEMT allokering (PATCH ved ændring/blur). Live-rest mens man
+    // taster; gemmer ved 'change' (Enter/tab/blur).
+    host.querySelectorAll('[data-edit-alloc]').forEach(inp => {
+        inp.onclick = (e) => e.stopPropagation();
+        inp.oninput = () => {
+            const a = (d.existing || []).find(x => String(x.id) === inp.getAttribute('data-edit-alloc'));
+            if (a) a.amount = Math.round((Number(inp.value) || 0) * 100) / 100;
+            const rest2 = _cfAllocRest(id);
+            restEl.textContent = 'Rest: ' + _cfFmt(rest2);
+            restEl.classList.toggle('cf-alloc-rest-zero', Math.abs(rest2) < 0.01);
+            restEl.classList.toggle('cf-alloc-rest-over', rest2 < -0.01);
+        };
+        inp.onchange = async () => {
+            const allocId = inp.getAttribute('data-edit-alloc');
+            const amount = Math.round((Number(inp.value) || 0) * 100) / 100;
+            if (!amount) { inp.classList.add('cf-amt-invalid'); return; }
+            inp.classList.remove('cf-amt-invalid');
+            try {
+                await patchCfAllocation(allocId, amount);
+                const r = await fetchCfAllocations(id);
+                d.existing = r.allocations || [];
+                _cfRenderAllocLines(panel, id);
+            } catch (err) { alert('Kunne ikke gemme beløb: ' + err.message); }
+        };
+    });
+}
+
+/** Universel søgning (bons + fakturaer) → resultatliste. Events kobles IKKE her —
+ *  event-indtægt går altid via "Opret bon" (salgsbon), så det er i event-regnskabet. */
+async function _cfSearchTargets(panel, id, q) {
+    const host = panel.querySelector('.cf-um-target-list');
+    if (!host) return;
+    if (q.length < 1) { host.innerHTML = ''; return; }
+    host.innerHTML = '<div class="cf-um-hint">Søger…</div>';
+    let targets = [];
+    try { targets = (await fetchCfMatchTargets(q)).targets || []; } catch { targets = []; }
+    if (!targets.length) { host.innerHTML = '<div class="cf-um-hint">Ingen mål matcher.</div>'; return; }
+    host.innerHTML = targets.map((t, i) => `
+        <div class="cf-um-target" data-tgt="${i}">
+            ${_cfBadgeHtml(t.type, t.expense)}
+            <div class="cf-alloc-line-lbl"><div>${_cfEsc(t.label || '')}</div><div class="cf-alloc-sub">${_cfEsc(t.sublabel || '')}</div></div>
+            <span class="cf-alloc-amt-fixed">${t.amount != null ? _cfFmt(t.amount) : ''}</span>
+        </div>
+    `).join('');
+    host.querySelectorAll('.cf-um-target').forEach(row => {
+        row.onclick = (e) => {
+            e.stopPropagation();
+            const t = targets[+row.getAttribute('data-tgt')];
+            host.innerHTML = '';
+            panel.querySelector('.cf-um-search').value = '';
+            _cfAddAllocTarget(panel, id, t);
+        };
+    });
+}
+
+/** Tilføj et mål som staged allokerings-linje. Udgifts-bons (negativ) indsættes
+ *  med deres negative beløb (fradrag); øvrige med resterende beløb. */
+function _cfAddAllocTarget(panel, id, t) {
+    const d = _cfAllocDraft[id];
+    if (d.lines.some(l => l.target_type === t.type && String(l.target_id) === String(t.id))) return;
+    const isExpense = t.expense || (t.amount != null && t.amount < 0);
+    const rest = _cfAllocRest(id);
+    let amount;
+    if (isExpense) {
+        amount = Math.round((t.amount || 0) * 100) / 100;      // negativ udgift → fradrag
+    } else if (t.amount != null && t.amount > 0) {
+        amount = Math.round(t.amount * 100) / 100;             // bonnens/fakturaens eget beløb → auto-fradrag fra resten
+    } else {
+        amount = rest > 0.01 ? rest : 0;                       // ukendt beløb (event/uprissat bon) → resten
+    }
+    d.lines.push({
+        target_type: t.type, target_id: t.id, label: t.label, sublabel: t.sublabel, amount,
+        expense: isExpense,
+    });
+    _cfRenderAllocLines(panel, id);
+}
+
+/** Justerings-vælger (+/−) → tilføjer en linje der dækker resten (begge veje:
+ *  gebyr/afgift negativt, levering/drikkepenge positivt). Default = den aktuelle
+ *  rest, så ét klik balancerer. */
+function _cfShowFeePicker(panel, id) {
+    const host = panel.querySelector('.cf-um-target-list');
+    const rest = _cfAllocRest(id);
+    host.innerHTML = _CF_FEE_KINDS.map((f, i) => `
+        <div class="cf-um-target" data-fee="${i}">
+            <span class="cf-alloc-badge" style="background:${_CF_TARGET_BADGE.fee.bg}">Just.</span>
+            <div class="cf-alloc-line-lbl"><div>${f.label}</div><div class="cf-alloc-sub">fylder resten (${_cfFmt(rest)})</div></div>
+        </div>
+    `).join('');
+    host.querySelectorAll('.cf-um-target').forEach(row => {
+        row.onclick = (e) => {
+            e.stopPropagation();
+            const f = _CF_FEE_KINDS[+row.getAttribute('data-fee')];
+            const d = _cfAllocDraft[id];
+            const r = _cfAllocRest(id);
+            // Default = resten (uanset fortegn) så linjen balancerer i ét klik.
+            d.lines.push({ target_type: 'fee', target_id: f.id, label: f.label, sublabel: '', amount: Math.abs(r) > 0.01 ? r : 0 });
+            host.innerHTML = '';
+            _cfRenderAllocLines(panel, id);
+        };
+    });
+}
+
+/** §2.E.3 — formular: opret salgsbon fra en indbetaling. */
+async function _cfBuildBonForm(panel, id, tx) {
+    const box = panel.querySelector('.cf-um-bon');
+    _cfBonDraft[id] = { lines: [{ name: 'Direkte salg', quantity: 1, amount: tx.beloeb, grocy_recipe_id: null, category: null }] };
+    // Alle events i dropdownen (så man altid kan vælge det rigtige), men event(s)
+    // hvis periode overlapper indbetalingens dato forvælges + markeres "samme dato".
+    // Grocy-opskrifter hentes parallelt til menu-autocomplete på linjerne.
+    let allEvents = [], overlapIds = new Set();
+    try {
+        const [all, onDate] = await Promise.all([
+            fetchEventsList().catch(() => ({ events: [] })),
+            fetchCfEventsOnDate(tx.dato).catch(() => ({ events: [] })),
+            _cfLoadRecipes(),
+        ]);
+        allEvents = all.events || [];
+        overlapIds = new Set((onDate.events || []).map(e => String(e.id)));
+    } catch { allEvents = []; }
+    const preselect = allEvents.find(e => overlapIds.has(String(e.id)));
+    const evtOptions = '<option value="">Ingen / standalone</option>' +
+        allEvents.map(e => `<option value="${e.id}">${_cfEsc(e.name)}${overlapIds.has(String(e.id)) ? ' · samme dato' : ''}</option>`).join('');
+    const payOptions = _CF_PAY_OPTS.map(([v, l]) => `<option value="${v}">${l}</option>`).join('');
+    box.innerHTML = `
+        <div class="cf-bon-hint">Opretter BETALT salgsbon${preselect ? ' (event forvalgt fra dato)' : ''} + kobler indbetalingen til den.</div>
+        <div class="cf-bon-row">
+            <label>Event</label>
+            <select class="cf-bon-event">${evtOptions}</select>
+        </div>
+        <div class="cf-bon-row">
+            <label>Betaling</label>
+            <select class="cf-bon-pay">${payOptions}</select>
+        </div>
+        <div class="cf-bon-lines" data-bon-lines></div>
+        <button class="cf-um-btn cf-bon-addline">+ linje</button>
+        <div class="cf-bon-row cf-bon-fee-row">
+            <label>Gebyr/afgift</label>
+            <input class="cf-bon-fee-amt" type="number" step="0.01" placeholder="0 (valgfrit, negativt)">
+            <button class="cf-um-btn cf-bon-fee-rest" type="button" title="Fyld med resten (brutto − netto = afgift/gebyr)">= rest</button>
+        </div>
+        <div class="cf-bon-foot">
+            <span class="cf-bon-sum"></span>
+            <button class="cf-um-btn cf-um-btn-primary cf-bon-create">Opret bon</button>
+        </div>
+    `;
+    if (preselect) box.querySelector('.cf-bon-event').value = String(preselect.id);
+
+    box.querySelector('.cf-bon-addline').onclick = (e) => {
+        e.stopPropagation();
+        _cfBonDraft[id].lines.push({ name: '', quantity: 1, amount: 0, grocy_recipe_id: null, category: null });
+        _cfRenderBonLines(panel, id, tx);
+    };
+    box.querySelector('.cf-bon-fee-amt').oninput = () => _cfUpdateBonSum(panel, id, tx);
+    // "= rest": fyld gebyr/afgift med differencen brutto-linjer − netto-indbetaling
+    // (fx Tivoli 10% afgift + Zettle-gebyr), så Σ rammer indbetalingen.
+    box.querySelector('.cf-bon-fee-rest').onclick = (e) => {
+        e.stopPropagation();
+        const linesSum = _cfBonDraft[id].lines.reduce((s, l) => s + (Number(l.amount) || 0), 0);
+        const fee = Math.round((tx.beloeb - linesSum) * 100) / 100;  // negativ når brutto > netto
+        const feeEl = box.querySelector('.cf-bon-fee-amt');
+        feeEl.value = fee < 0 ? fee : 0;
+        _cfUpdateBonSum(panel, id, tx);
+    };
+    box.querySelector('.cf-bon-create').onclick = async (e) => {
+        e.stopPropagation();
+        const eventId = box.querySelector('.cf-bon-event').value || null;
+        const payment = box.querySelector('.cf-bon-pay').value;
+        const feeRaw = Number(box.querySelector('.cf-bon-fee-amt').value);
+        const lines = _cfBonDraft[id].lines.filter(l => Number(l.amount) > 0)
+            .map(l => ({
+                name: l.name || 'Direkte salg', quantity: Number(l.quantity) || 1, amount: Number(l.amount),
+                grocy_recipe_id: l.grocy_recipe_id || null, category: l.category || null,
+                cost_price: l.cost_price ?? null, co2e: l.co2e ?? null,
+            }));
+        if (!lines.length) { alert('Mindst én linje med beløb > 0'); return; }
+        const body = { transaction_id: id, event_id: eventId ? Number(eventId) : null, payment_type: payment, lines };
+        if (Number.isFinite(feeRaw) && feeRaw < 0) body.fee = { kind: payment === 'mobilepay' ? 'mobilepay' : 'zettle', amount: feeRaw };
+        try {
+            const r = await createBonFromCfTx(body);
+            _cfRenderOverblik();
+            setTimeout(() => alert(`${r.created ? 'Bon oprettet' : 'Tilføjet til eventets salgsbon'}: #${r.bon_number}`
+                + (r.expense_bon_id ? '\nAfgift/gebyr bogført som event-udgift.' : '')), 50);
+        } catch (err) { alert('Kunne ikke oprette bon: ' + err.message); }
+    };
+
+    _cfRenderBonLines(panel, id, tx);
+}
+
+function _cfRenderBonLines(panel, id, tx) {
+    const host = panel.querySelector('[data-bon-lines]');
+    const lines = _cfBonDraft[id].lines;
+    host.innerHTML = lines.map((l, i) => {
+        const hint = l.grocy_recipe_id
+            ? `✓ Grocy: ${_cfEsc(l.category || '')}${l._festival ? ' · ref. ' + _cfFmt(l._festival) + '/stk' : ''}`
+            : '';
+        return `
+        <div class="cf-bon-line">
+            <input class="cf-bon-line-name" type="text" autocomplete="off" placeholder="Varenavn / Grocy-menu" value="${_cfEsc(l.name)}" data-bl-name="${i}">
+            <input class="cf-bon-line-qty" type="number" min="1" step="1" value="${l.quantity || 1}" title="Antal solgt" data-bl-qty="${i}">
+            <input class="cf-bon-line-amt" type="number" step="0.01" value="${l.amount}" title="Beløb (total, inkl. moms)" data-bl-amt="${i}">
+            ${lines.length > 1 ? `<button class="cf-alloc-del" data-bl-del="${i}">✕</button>` : '<span style="width:18px"></span>'}
+        </div>
+        <div class="cf-recipe-results" data-bl-res="${i}"></div>
+        <div class="cf-bon-line-hint" data-bl-hint="${i}">${hint}</div>`;
+    }).join('');
+
+    host.querySelectorAll('[data-bl-name]').forEach(inp => {
+        const i = +inp.getAttribute('data-bl-name');
+        inp.onclick = (e) => e.stopPropagation();
+        inp.onfocus = () => _cfRenderRecipeSuggestions(panel, id, tx, i, inp.value);
+        inp.oninput = () => {
+            lines[i].name = inp.value;
+            const rec = _cfRecipeByName ? _cfRecipeByName.get(inp.value.trim().toLowerCase()) : null;
+            if (rec) _cfApplyRecipeToLine(panel, id, tx, i, rec);
+            else _cfClearRecipeFromLine(panel, id, i);
+            _cfRenderRecipeSuggestions(panel, id, tx, i, inp.value);
+        };
+        inp.onblur = () => setTimeout(() => {
+            const r = host.querySelector(`[data-bl-res="${i}"]`);
+            if (r) { r.classList.remove('open'); r.innerHTML = ''; }
+        }, 160);
+    });
+    host.querySelectorAll('[data-bl-qty]').forEach(inp => {
+        inp.onclick = (e) => e.stopPropagation();
+        inp.oninput = () => { lines[+inp.getAttribute('data-bl-qty')].quantity = Number(inp.value) || 1; };
+    });
+    host.querySelectorAll('[data-bl-amt]').forEach(inp => {
+        inp.onclick = (e) => e.stopPropagation();
+        inp.oninput = () => { lines[+inp.getAttribute('data-bl-amt')].amount = Number(inp.value) || 0; _cfUpdateBonSum(panel, id, tx); };
+    });
+    host.querySelectorAll('[data-bl-del]').forEach(btn => {
+        btn.onclick = (e) => { e.stopPropagation(); lines.splice(+btn.getAttribute('data-bl-del'), 1); _cfRenderBonLines(panel, id, tx); };
+    });
+    _cfUpdateBonSum(panel, id, tx);
+}
+
+/** Sæt en valgt Grocy-opskrift på en linje (delt af klik + eksakt-navn-match). */
+function _cfApplyRecipeToLine(panel, id, tx, i, rec) {
+    const host = panel.querySelector('[data-bon-lines]');
+    const line = _cfBonDraft[id].lines[i];
+    line.grocy_recipe_id = rec.id;
+    line.category = rec.category || null;
+    line.cost_price = rec.cost_price ?? null;
+    line.co2e = rec.co2e ?? null;
+    line._festival = _cfRecipeFestival(rec);
+    // Beløb-feltet er linjens TOTAL (fx fra Zettle) — det forudfyldes IKKE fra
+    // Grocy-prisen (event-prisen afviger ofte). Grocy-stykprisen vises kun som hint.
+    const hintEl = host.querySelector(`[data-bl-hint="${i}"]`);
+    if (hintEl) hintEl.innerHTML = `✓ Grocy: ${_cfEsc(rec.category || '')}${line._festival ? ' · ref. ' + _cfFmt(line._festival) + '/stk' : ''}`;
+}
+
+function _cfClearRecipeFromLine(panel, id, i) {
+    const line = _cfBonDraft[id].lines[i];
+    line.grocy_recipe_id = null; line.category = null;
+    line.cost_price = null; line.co2e = null; line._festival = null;
+    const hintEl = panel.querySelector(`[data-bon-lines] [data-bl-hint="${i}"]`);
+    if (hintEl) hintEl.innerHTML = '';
+}
+
+/** Custom menu-dropdown (bredere end input) der viser navn + kategori, så slider
+ *  og sandwich kan skelnes (native datalist afkortede til input-bredden). */
+function _cfRenderRecipeSuggestions(panel, id, tx, i, query) {
+    const host = panel.querySelector('[data-bon-lines]');
+    const box = host.querySelector(`[data-bl-res="${i}"]`);
+    if (!box) return;
+    const recipes = _cfRecipeCache || [];
+    if (!recipes.length) { box.classList.remove('open'); box.innerHTML = ''; return; }
+    const q = (query || '').trim().toLowerCase();
+    const matches = (q ? recipes.filter(r => r.name.toLowerCase().includes(q)) : recipes).slice(0, 30);
+    if (!matches.length) { box.classList.remove('open'); box.innerHTML = ''; return; }
+    box.innerHTML = matches.map((r, k) => `
+        <div class="cf-recipe-opt" data-ri="${k}">
+            <span class="cf-recipe-opt-name">${_cfEsc(r.name)}</span>
+            <span class="cf-recipe-opt-cat">${_cfEsc(r.category || '')}</span>
+        </div>`).join('');
+    box.classList.add('open');
+    box.querySelectorAll('.cf-recipe-opt').forEach(opt => {
+        // mousedown preventDefault → input mister ikke fokus før klikket registreres
+        opt.onmousedown = (e) => { e.preventDefault(); e.stopPropagation(); };
+        opt.onclick = (e) => {
+            e.stopPropagation();
+            const rec = matches[+opt.getAttribute('data-ri')];
+            _cfBonDraft[id].lines[i].name = rec.name;
+            const nameEl = host.querySelector(`[data-bl-name="${i}"]`);
+            if (nameEl) nameEl.value = rec.name;
+            _cfApplyRecipeToLine(panel, id, tx, i, rec);
+            box.classList.remove('open'); box.innerHTML = '';
+        };
+    });
+}
+
+function _cfUpdateBonSum(panel, id, tx) {
+    const lines = _cfBonDraft[id].lines;
+    const linesSum = lines.reduce((s, l) => s + (Number(l.amount) || 0), 0);
+    const fee = Number(panel.querySelector('.cf-bon-fee-amt')?.value) || 0;
+    const alloc = Math.round((linesSum + fee) * 100) / 100;
+    const diff = Math.round((tx.beloeb - alloc) * 100) / 100;
+    const el = panel.querySelector('.cf-bon-sum');
+    const over = alloc > tx.beloeb + 0.01;
+    el.innerHTML = `Linjer ${_cfFmt(linesSum)}${fee ? ' · gebyr ' + _cfFmt(fee) : ''} = <strong>${_cfFmt(alloc)}</strong>` +
+        (Math.abs(diff) < 0.01 ? ' ✓' : ` · rest ${_cfFmt(diff)}`);
+    el.classList.toggle('cf-bon-sum-over', over);
+    const btn = panel.querySelector('.cf-bon-create');
+    if (btn) btn.disabled = over || linesSum <= 0;
 }
 
 /* ── Weekly chart ── */
@@ -1000,6 +1594,10 @@ function _cfRefreshKpiStrip(stats) {
 }
 
 /* ── Invoice form ── */
+function _cfClearInvSelection(el) {
+    (el || document).querySelectorAll('.cf-inv-row.cf-inv-row-selected').forEach(r => r.classList.remove('cf-inv-row-selected'));
+}
+
 async function _cfShowInvForm(el, editId) {
     const area = el.querySelector('#cfInvFormArea');
     if (!area) return;
@@ -1011,29 +1609,57 @@ async function _cfShowInvForm(el, editId) {
     }
 
     area.innerHTML = `
-    <div class="cf-inv-form">
-        <label>Fakturanummer <input type="text" id="cfInvId" value="${inv ? inv.id : ''}" ${inv ? 'readonly' : ''}></label>
-        <label>Kunde <input type="text" id="cfInvKunde" value="${inv ? inv.kunde : ''}"></label>
-        <label>Beløb (kr) <input type="number" id="cfInvBeloeb" step="0.01" value="${inv ? inv.beloeb : ''}"></label>
-        <label>Forfaldsdato <input type="date" id="cfInvForfald" value="${inv ? inv.forfald : ''}"></label>
-        <label>Betalingstype
-            <select id="cfInvType">
-                <option value="">—</option>
-                <option value="ean" ${inv?.betalingstype === 'ean' ? 'selected' : ''}>EAN</option>
-                <option value="bank" ${inv?.betalingstype === 'bank' ? 'selected' : ''}>Bank</option>
-                <option value="kontant" ${inv?.betalingstype === 'kontant' ? 'selected' : ''}>Kontant</option>
-            </select>
-        </label>
-        <label>Noter <input type="text" id="cfInvNoter" value="${inv?.noter || ''}"></label>
-        <div class="cf-inv-form-actions">
-            ${inv ? `<button class="cf-btn cf-btn-danger" id="cfInvDel">Slet</button>` : ''}
-            ${inv && !inv.betalt ? `<button class="cf-btn cf-btn-ghost" id="cfInvMarkPaid">Markér betalt</button>` : ''}
-            <button class="cf-btn cf-btn-ghost" id="cfInvCancel">Annuller</button>
-            <button class="cf-btn cf-btn-primary" id="cfInvSave">${inv ? 'Gem' : 'Opret'}</button>
+    <div class="cf-inv-form" id="cfInvFormBox">
+        <div class="cf-inv-form-head" id="cfInvFormHead">
+            <span class="cf-inv-form-title">${inv ? '✎ Faktura ' + _cfEsc(inv.id) + (inv.kunde ? ' · ' + _cfEsc(inv.kunde) : '') : '+ Ny faktura'}</span>
+            <span class="cf-inv-form-hbtns">
+                <button type="button" class="cf-inv-form-icon" id="cfInvCollapse" title="Fold sammen/ud">▾</button>
+                <button type="button" class="cf-inv-form-icon" id="cfInvClose" title="Luk">✕</button>
+            </span>
+        </div>
+        <div class="cf-inv-form-body">
+            <label>Fakturanummer <input type="text" id="cfInvId" value="${inv ? inv.id : ''}" ${inv ? 'readonly' : ''}></label>
+            <label>Kunde <input type="text" id="cfInvKunde" value="${inv ? inv.kunde : ''}"></label>
+            <label>Beløb (kr) <input type="number" id="cfInvBeloeb" step="0.01" value="${inv ? inv.beloeb : ''}"></label>
+            <label>Forfaldsdato <input type="date" id="cfInvForfald" value="${inv ? inv.forfald : ''}"></label>
+            <label>Betalingstype
+                <select id="cfInvType">
+                    <option value="">—</option>
+                    <option value="ean" ${inv?.betalingstype === 'ean' ? 'selected' : ''}>EAN</option>
+                    <option value="bank" ${inv?.betalingstype === 'bank' ? 'selected' : ''}>Bank</option>
+                    <option value="kontant" ${inv?.betalingstype === 'kontant' ? 'selected' : ''}>Kontant</option>
+                </select>
+            </label>
+            <label>Noter <input type="text" id="cfInvNoter" value="${inv?.noter || ''}"></label>
+            <div class="cf-inv-form-actions">
+                ${inv ? `<button class="cf-btn cf-btn-danger" id="cfInvDel">Slet</button>` : ''}
+                ${inv && !inv.betalt ? `<button class="cf-btn cf-btn-ghost" id="cfInvMarkPaid">Markér betalt</button>` : ''}
+                <button class="cf-btn cf-btn-ghost" id="cfInvCancel">Annuller</button>
+                <button class="cf-btn cf-btn-primary" id="cfInvSave">${inv ? 'Gem' : 'Opret'}</button>
+            </div>
         </div>
     </div>`;
 
-    area.querySelector('#cfInvCancel').onclick = () => { area.innerHTML = ''; };
+    // Markér den valgte faktura-række så man kan se hvad man redigerer
+    _cfClearInvSelection(el);
+    if (editId) {
+        const selRow = el.querySelector(`.cf-inv-row[data-inv-id="${CSS.escape(editId)}"]`);
+        if (selRow) selRow.classList.add('cf-inv-row-selected');
+    }
+    const closeForm = () => { area.innerHTML = ''; _cfClearInvSelection(el); };
+    // Fold sammen/ud: behold headeren (så man ser hvilken faktura) men skjul felterne
+    const box = area.querySelector('#cfInvFormBox');
+    const collapseBtn = area.querySelector('#cfInvCollapse');
+    collapseBtn.onclick = () => {
+        box.classList.toggle('collapsed');
+        collapseBtn.textContent = box.classList.contains('collapsed') ? '▸' : '▾';
+    };
+    area.querySelector('#cfInvFormHead').onclick = (e) => {
+        if (e.target.closest('.cf-inv-form-icon')) return;   // knapperne har egne handlers
+        collapseBtn.click();
+    };
+    area.querySelector('#cfInvClose').onclick = closeForm;
+    area.querySelector('#cfInvCancel').onclick = closeForm;
 
     area.querySelector('#cfInvSave').onclick = async () => {
         const data = {

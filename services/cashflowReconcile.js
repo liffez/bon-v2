@@ -53,17 +53,28 @@ async function reconcile(db, { dryRun = true, since } = {}) {
 
     // cf_invoices indekseret på digit-strippet fakturanummer
     const cfByNum = new Map();
-    for (const r of db.prepare('SELECT id, betalt, bon_id FROM cf_invoices').all()) {
+    for (const r of db.prepare('SELECT id, betalt, bon_id, economic_number FROM cf_invoices').all()) {
         cfByNum.set(digits(r.id), r);
     }
 
-    let scanned = 0, matched = 0, flipped = 0, noHeading = 0, newWatermark = sinceDate;
+    let scanned = 0, matched = 0, flipped = 0, noHeading = 0, numbered = 0, newWatermark = sinceDate;
     const changes = [];
+    const numberChanges = [];                      // {cf_id, economic_number} — gem bogført fakturanr
+    const mirror = [];                             // spejl af ALLE bogførte fakturaer (cf_economic_invoices)
     const seenCf = new Set();                      // undgå dobbelt-flip hvis to fakturaer peger på samme bon
+    const seenNum = new Set();
     for (const inv of booked) {
         scanned++;
         if (inv.date && (!newWatermark || inv.date > newWatermark)) newWatermark = inv.date;
         const heading = inv.notes?.heading || '';
+        const ecoNo = inv.bookedInvoiceNumber != null ? String(inv.bookedInvoiceNumber) : null;
+        // Spejl ENHVER bogført faktura (også uden bon-nr i overskrift) — grundlaget for
+        // at genkende bank-indbetalinger som afregnede fakturaer uden bon-kobling.
+        if (ecoNo) mirror.push({
+            booked_no: ecoNo, date: inv.date || null,
+            gross_amount: inv.grossAmount ?? inv.netAmount ?? null,
+            remainder: inv.remainder ?? null, heading,
+        });
         const bonNums = heading.match(/\d{3,5}/g) || [];   // ét eller flere bon-numre i overskriften
         if (!bonNums.length) { noHeading++; continue; }     // tom/beskrivende overskrift (fx "Michelin")
         const paid = inv.remainder === 0;
@@ -71,10 +82,17 @@ async function reconcile(db, { dryRun = true, since } = {}) {
             const cf = cfByNum.get(num);
             if (!cf) continue;                              // bon-nr uden cf_invoice (ikke Bon-v2-bon)
             matched++;
+            // Gem e-conomics bogførte fakturanr på cf_invoice (også hvis allerede betalt) —
+            // grundlaget for at koble bank-indbetalingen via nummeret i bankteksten.
+            if (ecoNo && cf.economic_number !== ecoNo && !seenNum.has(cf.id)) {
+                seenNum.add(cf.id);
+                numbered++;
+                numberChanges.push({ cf_id: cf.id, economic_number: ecoNo });
+            }
             if (paid && cf.betalt !== 1 && !seenCf.has(cf.id)) {
                 seenCf.add(cf.id);
                 flipped++;
-                changes.push({ cf_id: cf.id, bon_id: cf.bon_id, booked_no: inv.bookedInvoiceNumber, heading, date: inv.date });
+                changes.push({ cf_id: cf.id, bon_id: cf.bon_id, booked_no: ecoNo, heading, date: inv.date });
             }
         }
     }
@@ -85,12 +103,83 @@ async function reconcile(db, { dryRun = true, since } = {}) {
             WHERE id = ?`);
         for (const c of changes) upd.run(c.date, c.cf_id);
     }
+    if (!dryRun && numberChanges.length) {
+        const updNo = db.prepare(`UPDATE cf_invoices SET economic_number = ? WHERE id = ?`);
+        for (const c of numberChanges) updNo.run(c.economic_number, c.cf_id);
+    }
+    if (!dryRun && mirror.length) {
+        const upM = db.prepare(`INSERT INTO cf_economic_invoices (booked_no, date, gross_amount, remainder, heading, updated_at)
+            VALUES (?, ?, ?, ?, ?, datetime('now'))
+            ON CONFLICT(booked_no) DO UPDATE SET
+                date = excluded.date, gross_amount = excluded.gross_amount,
+                remainder = excluded.remainder, heading = excluded.heading, updated_at = datetime('now')`);
+        for (const m of mirror) upM.run(m.booked_no, m.date, m.gross_amount, m.remainder, m.heading);
+    }
     if (!dryRun && newWatermark) {
         db.prepare(`INSERT INTO cf_meta (key, value) VALUES ('economic_booked_until', ?)
                     ON CONFLICT(key) DO UPDATE SET value = excluded.value`).run(newWatermark);
     }
 
-    return { scanned, matched, flipped, since: sinceDate, newWatermark, dryRun, changes };
+    return { scanned, matched, flipped, numbered, mirrored: mirror.length, since: sinceDate, newWatermark, dryRun, changes };
 }
 
-module.exports = { reconcile, fetchBookedSince };
+/** Læs match-tolerance fra settings (samme defaults som routes/cashflow.js). */
+function getTolerance(db) {
+    const pct = parseFloat(db.prepare(`SELECT value FROM settings WHERE key = 'cf_match_relative_tolerance_pct'`).get()?.value);
+    const extra = parseFloat(db.prepare(`SELECT value FROM settings WHERE key = 'cf_match_extra_tolerance_max'`).get()?.value);
+    return {
+        relativePct: Number.isFinite(pct) && pct >= 0 ? pct : 2.0,
+        extraMax: Number.isFinite(extra) && extra >= 0 ? extra : 350,
+    };
+}
+
+/**
+ * Kobl umatchede bank-indbetalinger til fakturaer via e-conomics bogførte
+ * fakturanummer i bankteksten ("FAKTURA 3957" → cf_invoices.economic_number=3957).
+ * VERIFICERET link: nummer i tekst OG beløb inden for tolerance (også allerede
+ * betalte fakturaer — disse er afregnet, men ikke koblet 1:1 i bank-visningen).
+ * Rører IKKE betalt-status (det ejer reconcile/e-conomic). Idempotent.
+ * @returns {{ linked, changes }}
+ */
+function matchByEconomicNumber(db, { dryRun = false } = {}) {
+    const { relativePct, extraMax } = getTolerance(db);
+    const ratio = relativePct / 100;
+
+    // economic_number → [{id, beloeb}]   (én samlefaktura → flere bons deler nummer)
+    const byNum = new Map();
+    for (const i of db.prepare(`SELECT id, beloeb, economic_number FROM cf_invoices
+                                WHERE economic_number IS NOT NULL AND economic_number != ''`).all()) {
+        const k = digits(i.economic_number);
+        if (!k) continue;
+        if (!byNum.has(k)) byNum.set(k, []);
+        byNum.get(k).push(i);
+    }
+
+    const unmatched = db.prepare(`SELECT id, tekst, beloeb FROM cf_transactions
+        WHERE matched_invoice_id IS NULL AND beloeb > 0 AND ignored = 0`).all();
+
+    const changes = [];
+    for (const tx of unmatched) {
+        const nums = tx.tekst.match(/\d{3,6}/g) || [];
+        let hit = null;
+        for (const n of nums) {
+            const cands = byNum.get(n);
+            if (!cands) continue;
+            for (const inv of cands) {
+                const diff = tx.beloeb - inv.beloeb;
+                const within = Math.abs(diff) / Math.abs(inv.beloeb) <= ratio || (diff > 0 && diff <= extraMax);
+                if (within) { hit = inv; break; }       // nummer + beløb → høj sikkerhed
+            }
+            if (hit) break;
+        }
+        if (hit) changes.push({ tx_id: tx.id, invoice_id: hit.id });
+    }
+
+    if (!dryRun && changes.length) {
+        const upd = db.prepare(`UPDATE cf_transactions SET matched_invoice_id = ?, match_confidence = 95 WHERE id = ?`);
+        for (const c of changes) upd.run(c.invoice_id, c.tx_id);
+    }
+    return { linked: changes.length, changes };
+}
+
+module.exports = { reconcile, fetchBookedSince, matchByEconomicNumber };

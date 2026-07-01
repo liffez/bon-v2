@@ -1461,6 +1461,11 @@ function fetchCfTransactions(opts) {
     if (opts && opts.to)   params.push('to=' + opts.to);
     if (opts && opts.unmatched) params.push('unmatched=1');
     if (opts && opts.limit) params.push('limit=' + opts.limit);
+    if (opts && opts.q) params.push('q=' + encodeURIComponent(opts.q));
+    if (opts && opts.includeFolded) params.push('include_folded=1');
+    if (opts && opts.category) params.push('category=' + encodeURIComponent(opts.category));
+    if (opts && opts.min) params.push('min=' + opts.min);
+    if (opts && opts.sort) params.push('sort=' + opts.sort);
     var qs = params.length ? '?' + params.join('&') : '';
     return apiFetch('/cashflow/transactions' + qs);
 }
@@ -1524,6 +1529,57 @@ function fetchCfUpcoming() {
 
 function fetchCfSuggestMatches() {
     return apiFetch('/cashflow/suggest-matches');
+}
+
+/* ── §2.F Split-allokering + universel kobling ─────────────── */
+function fetchCfMatchTargets(q, opts = {}) {
+    const p = new URLSearchParams({ q: q || '' });
+    if (opts.date) p.set('date', opts.date);
+    if (opts.limit) p.set('limit', opts.limit);
+    return apiFetch('/cashflow/match-targets?' + p.toString());
+}
+
+function fetchCfAllocations(txId) {
+    return apiFetch('/cashflow/transactions/' + txId + '/allocations');
+}
+
+function createCfAllocations(txId, allocations) {
+    return apiFetch('/cashflow/allocations', {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ transaction_id: txId, allocations })
+    });
+}
+
+function deleteCfAllocation(allocId) {
+    return apiFetch('/cashflow/allocations/' + allocId, { method: 'DELETE' });
+}
+
+function patchCfAllocation(allocId, amount) {
+    return apiFetch('/cashflow/allocations/' + allocId, {
+        method: 'PATCH', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ amount })
+    });
+}
+
+function fetchCfEventsOnDate(date) {
+    return apiFetch('/cashflow/events-on-date?date=' + encodeURIComponent(date || ''));
+}
+
+function fetchEventsList(status) {
+    return apiFetch('/events' + (status ? '?status=' + encodeURIComponent(status) : ''));
+}
+
+function fetchCfEventIncome() {
+    return apiFetch('/cashflow/event-income');
+}
+
+function createBonFromCfTx(data) {
+    return apiFetch('/cashflow/create-bon-from-tx', {
+        method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(data)
+    });
+}
+
+function fetchCandidatesForEvent(eventId) {
+    return apiFetch('/cashflow/candidates-for-event?event_id=' + encodeURIComponent(eventId));
 }
 
 /* ── RFM & KUNDEINDSIGT ────────────────────────────────────── */

@@ -591,6 +591,24 @@
     color: var(--color-text-dim, #8a8580);
     white-space: nowrap;
 }
+.drawer-line-total {
+    display: flex;
+    justify-content: space-between;
+    align-items: baseline;
+    gap: 10px;
+    padding: 8px 4px 2px;
+    margin-top: 4px;
+    border-top: 1.5px solid var(--color-border, #d7d1ca);
+}
+.drawer-line-total-label {
+    font-size: var(--font-size-s, 12px);
+    color: var(--color-text-dim, #8a8580);
+}
+.drawer-line-total-amount {
+    font-weight: 700;
+    font-size: var(--font-size-m, 15px);
+    white-space: nowrap;
+}
 .drawer-line-del {
     background: none;
     border: none;
