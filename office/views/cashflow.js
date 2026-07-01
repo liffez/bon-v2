@@ -1594,6 +1594,10 @@ function _cfRefreshKpiStrip(stats) {
 }
 
 /* ── Invoice form ── */
+function _cfClearInvSelection(el) {
+    (el || document).querySelectorAll('.cf-inv-row.cf-inv-row-selected').forEach(r => r.classList.remove('cf-inv-row-selected'));
+}
+
 async function _cfShowInvForm(el, editId) {
     const area = el.querySelector('#cfInvFormArea');
     if (!area) return;
@@ -1605,29 +1609,57 @@ async function _cfShowInvForm(el, editId) {
     }
 
     area.innerHTML = `
-    <div class="cf-inv-form">
-        <label>Fakturanummer <input type="text" id="cfInvId" value="${inv ? inv.id : ''}" ${inv ? 'readonly' : ''}></label>
-        <label>Kunde <input type="text" id="cfInvKunde" value="${inv ? inv.kunde : ''}"></label>
-        <label>Beløb (kr) <input type="number" id="cfInvBeloeb" step="0.01" value="${inv ? inv.beloeb : ''}"></label>
-        <label>Forfaldsdato <input type="date" id="cfInvForfald" value="${inv ? inv.forfald : ''}"></label>
-        <label>Betalingstype
-            <select id="cfInvType">
-                <option value="">—</option>
-                <option value="ean" ${inv?.betalingstype === 'ean' ? 'selected' : ''}>EAN</option>
-                <option value="bank" ${inv?.betalingstype === 'bank' ? 'selected' : ''}>Bank</option>
-                <option value="kontant" ${inv?.betalingstype === 'kontant' ? 'selected' : ''}>Kontant</option>
-            </select>
-        </label>
-        <label>Noter <input type="text" id="cfInvNoter" value="${inv?.noter || ''}"></label>
-        <div class="cf-inv-form-actions">
-            ${inv ? `<button class="cf-btn cf-btn-danger" id="cfInvDel">Slet</button>` : ''}
-            ${inv && !inv.betalt ? `<button class="cf-btn cf-btn-ghost" id="cfInvMarkPaid">Markér betalt</button>` : ''}
-            <button class="cf-btn cf-btn-ghost" id="cfInvCancel">Annuller</button>
-            <button class="cf-btn cf-btn-primary" id="cfInvSave">${inv ? 'Gem' : 'Opret'}</button>
+    <div class="cf-inv-form" id="cfInvFormBox">
+        <div class="cf-inv-form-head" id="cfInvFormHead">
+            <span class="cf-inv-form-title">${inv ? '✎ Faktura ' + _cfEsc(inv.id) + (inv.kunde ? ' · ' + _cfEsc(inv.kunde) : '') : '+ Ny faktura'}</span>
+            <span class="cf-inv-form-hbtns">
+                <button type="button" class="cf-inv-form-icon" id="cfInvCollapse" title="Fold sammen/ud">▾</button>
+                <button type="button" class="cf-inv-form-icon" id="cfInvClose" title="Luk">✕</button>
+            </span>
+        </div>
+        <div class="cf-inv-form-body">
+            <label>Fakturanummer <input type="text" id="cfInvId" value="${inv ? inv.id : ''}" ${inv ? 'readonly' : ''}></label>
+            <label>Kunde <input type="text" id="cfInvKunde" value="${inv ? inv.kunde : ''}"></label>
+            <label>Beløb (kr) <input type="number" id="cfInvBeloeb" step="0.01" value="${inv ? inv.beloeb : ''}"></label>
+            <label>Forfaldsdato <input type="date" id="cfInvForfald" value="${inv ? inv.forfald : ''}"></label>
+            <label>Betalingstype
+                <select id="cfInvType">
+                    <option value="">—</option>
+                    <option value="ean" ${inv?.betalingstype === 'ean' ? 'selected' : ''}>EAN</option>
+                    <option value="bank" ${inv?.betalingstype === 'bank' ? 'selected' : ''}>Bank</option>
+                    <option value="kontant" ${inv?.betalingstype === 'kontant' ? 'selected' : ''}>Kontant</option>
+                </select>
+            </label>
+            <label>Noter <input type="text" id="cfInvNoter" value="${inv?.noter || ''}"></label>
+            <div class="cf-inv-form-actions">
+                ${inv ? `<button class="cf-btn cf-btn-danger" id="cfInvDel">Slet</button>` : ''}
+                ${inv && !inv.betalt ? `<button class="cf-btn cf-btn-ghost" id="cfInvMarkPaid">Markér betalt</button>` : ''}
+                <button class="cf-btn cf-btn-ghost" id="cfInvCancel">Annuller</button>
+                <button class="cf-btn cf-btn-primary" id="cfInvSave">${inv ? 'Gem' : 'Opret'}</button>
+            </div>
         </div>
     </div>`;
 
-    area.querySelector('#cfInvCancel').onclick = () => { area.innerHTML = ''; };
+    // Markér den valgte faktura-række så man kan se hvad man redigerer
+    _cfClearInvSelection(el);
+    if (editId) {
+        const selRow = el.querySelector(`.cf-inv-row[data-inv-id="${CSS.escape(editId)}"]`);
+        if (selRow) selRow.classList.add('cf-inv-row-selected');
+    }
+    const closeForm = () => { area.innerHTML = ''; _cfClearInvSelection(el); };
+    // Fold sammen/ud: behold headeren (så man ser hvilken faktura) men skjul felterne
+    const box = area.querySelector('#cfInvFormBox');
+    const collapseBtn = area.querySelector('#cfInvCollapse');
+    collapseBtn.onclick = () => {
+        box.classList.toggle('collapsed');
+        collapseBtn.textContent = box.classList.contains('collapsed') ? '▸' : '▾';
+    };
+    area.querySelector('#cfInvFormHead').onclick = (e) => {
+        if (e.target.closest('.cf-inv-form-icon')) return;   // knapperne har egne handlers
+        collapseBtn.click();
+    };
+    area.querySelector('#cfInvClose').onclick = closeForm;
+    area.querySelector('#cfInvCancel').onclick = closeForm;
 
     area.querySelector('#cfInvSave').onclick = async () => {
         const data = {
