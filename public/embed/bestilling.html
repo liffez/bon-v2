@@ -665,7 +665,8 @@ let CFG = {
   cutoff: { time: 12, leadDays: 1, days: ['mon','tue','wed','thu','fri','sat'] },
   deliveryDays: ['mon','tue','wed','thu','fri','sat'],
   delivery: null,
-  cutoffOverride: false // hastebestilling — åbnet manuelt i Settings, gælder kun i dag
+  cutoffOverride: false, // hastebestilling — åbnet manuelt i Settings, gælder kun i dag
+  closedDates: [] // ferielukket/lukkedage — [{from,to,label}]
 };
 
 let MENU_DATA = null;
@@ -688,6 +689,19 @@ const DAY_NAMES_DA = ['søndag','mandag','tirsdag','onsdag','torsdag','fredag','
 function dowKey(d) { return DOW[d.getDay()]; }
 function isOpenForDelivery(d) { return CFG.cutoffOverride || CFG.deliveryDays.includes(dowKey(d)); }
 function isOpenForCutoff(d) { return CFG.cutoff.days.includes(dowKey(d)); }
+
+// Ferielukket: returnér det matchende {from,to,label}-interval for en ISO-dato,
+// ellers null. ISO-datoer sammenlignes leksikografisk (from <= dato <= to).
+const MONTHS_DA = ['januar','februar','marts','april','maj','juni','juli','august','september','oktober','november','december'];
+function fmtDaDate(iso) {
+  const p = String(iso).split('-');
+  if (p.length !== 3) return iso;
+  return `${parseInt(p[2],10)}. ${MONTHS_DA[parseInt(p[1],10)-1] || ''}`.trim();
+}
+function closedRangeFor(iso) {
+  if (!iso) return null;
+  return (CFG.closedDates || []).find(r => r.from && r.to && iso >= r.from && iso <= r.to) || null;
+}
 
 // Hastebestilling-banner — vises kun når Settings har åbnet for det i dag
 function renderRushBanner() {
@@ -712,6 +726,7 @@ async function loadConfig() {
     if (Array.isArray(cfg.cutoff?.days)) CFG.cutoff.days = cfg.cutoff.days;
     if (Array.isArray(cfg.deliveryDays)) CFG.deliveryDays = cfg.deliveryDays;
     if (cfg.delivery) CFG.delivery = cfg.delivery;
+    if (Array.isArray(cfg.closedDates)) CFG.closedDates = cfg.closedDates;
     CFG.cutoffOverride = !!cfg.cutoffOverride;
     renderRushBanner();
   } catch (e) {
@@ -840,6 +855,20 @@ function checkCutoff() {
   const day = new Date(di.value + 'T12:00:00');
   const dow = day.getDay();
   const now = new Date();
+
+  // Ferielukket — har forrang, kan IKKE omgås af hastebestilling.
+  const closed = closedRangeFor(di.value);
+  if (closed) {
+    const periode = closed.from === closed.to
+      ? fmtDaDate(closed.from)
+      : `${fmtDaDate(closed.from)}–${fmtDaDate(closed.to)}`;
+    const navn = closed.label ? `${closed.label} (${periode})` : periode;
+    el.innerHTML = `<div class="date-notice err"><strong>🏖️ Vi holder lukket ${navn}</strong><br>
+      <span style="font-size:.82em">Vælg venligst en dato uden for perioden. Akut behov? <a href="mailto:${FALLBACK_EMAIL}?subject=Levering ${di.value}" style="color:inherit;font-weight:700;">Kontakt os direkte →</a></span></div>`;
+    if (submitBtn) submitBtn.disabled = true;
+    postHeight();
+    return;
+  }
 
   if (!isOpenForDelivery(day)) {
     el.innerHTML = `<div class="date-notice err"><strong>📅 Vi leverer ikke om ${DAY_NAMES_DA[dow]}en</strong><br>

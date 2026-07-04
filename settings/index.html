@@ -1146,6 +1146,26 @@
         </div>
       </div>
 
+      <!-- Ferielukket / lukkedage -->
+      <div style="background:#fafaf8;border:1px solid var(--color-border);border-radius:8px;padding:14px 16px;margin-bottom:18px">
+        <div style="font-weight:600;font-size:14px;margin-bottom:4px">🏖️ Ferielukket / lukkedage</div>
+        <div style="font-size:12px;color:#888;margin-bottom:14px">Spærrer leveringsdatoer i formularen. Kunden ser en besked og kan ikke sende bestilling for datoer i perioderne. Gælder også helligdage — tilføj dem som enkelte lukkedage.</div>
+
+        <div id="bcd-list" style="display:flex;flex-direction:column;gap:8px;margin-bottom:12px"></div>
+
+        <div style="display:flex;gap:8px;flex-wrap:wrap;margin-bottom:14px">
+          <button type="button" class="st-btn-secondary" onclick="bcdAddPeriod()">+ Tilføj ferieperiode</button>
+          <button type="button" class="st-btn-secondary" onclick="bcdAddSingle()">+ Tilføj enkelt lukkedag</button>
+        </div>
+
+        <div style="display:flex;gap:10px;align-items:center;padding-top:10px;border-top:1px dashed #ddd">
+          <span id="bcd-preview" style="font-size:12px;color:#888"></span>
+          <span style="flex:1"></span>
+          <button type="button" class="st-btn-secondary" onclick="bcdReload()">Annullér</button>
+          <button type="button" class="st-btn" id="bcd-save-btn" onclick="bcdSave()">Gem lukkedage</button>
+        </div>
+      </div>
+
       <!-- Kilde-toggle -->
       <div style="background:#fafaf8;border:1px solid var(--color-border);border-radius:8px;padding:14px 16px;margin-bottom:18px">
         <div style="font-weight:600;font-size:14px;margin-bottom:8px">Kilde til menu</div>
@@ -4185,6 +4205,7 @@ async function bmInit() {
   bsRenderDayCheckboxes();
   await bmLoadSource();
   await bsLoad();
+  await bcdLoad();
   await bmLoad();
 }
 
@@ -4375,6 +4396,138 @@ async function bsSave() {
 
 window.bsReload = bsReload;
 window.bsSave = bsSave;
+
+// ─── Bestilling — ferielukket/lukkedage ─────────────────────
+// Model i state: [{ from, to, label }] (enkeltdag => from === to).
+let _bcdRows = [];
+let _bcdDirty = false;
+
+function bcdEscape(s) {
+  return String(s == null ? '' : s).replace(/[&<>"]/g, c => ({ '&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;' }[c]));
+}
+
+async function bcdLoad() {
+  try {
+    const r = await fetch('/api/settings', { credentials: 'include' });
+    const all = await r.json();
+    const raw = all.find(s => s.key === 'bestilling.closed_dates')?.value || '[]';
+    let arr = [];
+    try { arr = JSON.parse(raw); } catch (e) { arr = []; }
+    _bcdRows = (Array.isArray(arr) ? arr : []).map(x => ({
+      from: String(x.from || x.to || '').trim(),
+      to: String(x.to || x.from || '').trim(),
+      label: String(x.label || '').trim(),
+      single: String(x.from || '').trim() === String(x.to || '').trim()
+    }));
+    _bcdDirty = false;
+    bcdRender();
+  } catch (e) {
+    toast('Kunne ikke hente lukkedage: ' + e.message, 'error');
+  }
+}
+
+function bcdReload() {
+  if (_bcdDirty && !confirm('Annullér ugemte ændringer i lukkedage?')) return;
+  bcdLoad();
+}
+
+function bcdMarkDirty() { _bcdDirty = true; bcdUpdateBtnState(); bcdUpdatePreview(); }
+
+function bcdAddPeriod() { _bcdRows.push({ from:'', to:'', label:'', single:false }); bcdMarkDirty(); bcdRender(); }
+function bcdAddSingle() { _bcdRows.push({ from:'', to:'', label:'', single:true }); bcdMarkDirty(); bcdRender(); }
+function bcdRemove(i) { _bcdRows.splice(i, 1); bcdMarkDirty(); bcdRender(); }
+
+function bcdRender() {
+  const wrap = document.getElementById('bcd-list');
+  if (!wrap) return;
+  if (!_bcdRows.length) {
+    wrap.innerHTML = '<div style="font-size:12px;color:#aaa;font-style:italic">Ingen lukkedage — bestillingsformen er åben efter de normale åbningstider.</div>';
+    bcdUpdateBtnState(); bcdUpdatePreview();
+    return;
+  }
+  wrap.innerHTML = _bcdRows.map((r, i) => {
+    const dateFields = r.single
+      ? `<input type="date" value="${bcdEscape(r.from)}" oninput="bcdSet(${i},'both',this.value)" class="st-input" style="max-width:170px">`
+      : `<input type="date" value="${bcdEscape(r.from)}" oninput="bcdSet(${i},'from',this.value)" class="st-input" style="max-width:160px">
+         <span style="color:#888">→</span>
+         <input type="date" value="${bcdEscape(r.to)}" oninput="bcdSet(${i},'to',this.value)" class="st-input" style="max-width:160px">`;
+    return `<div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap;background:#fff;border:1px solid var(--color-border);border-radius:6px;padding:8px 10px">
+      <span style="font-size:11px;color:#888;min-width:70px">${r.single ? 'Lukkedag' : 'Periode'}</span>
+      ${dateFields}
+      <input type="text" value="${bcdEscape(r.label)}" oninput="bcdSet(${i},'label',this.value)" placeholder="Navn (fx Sommerferie)" class="st-input" style="flex:1;min-width:140px">
+      <button type="button" class="st-btn-secondary" onclick="bcdRemove(${i})" title="Fjern" style="padding:4px 10px">✕</button>
+    </div>`;
+  }).join('');
+  bcdUpdateBtnState(); bcdUpdatePreview();
+}
+
+function bcdSet(i, field, val) {
+  const r = _bcdRows[i];
+  if (!r) return;
+  if (field === 'both') { r.from = val; r.to = val; }
+  else if (field === 'from') { r.from = val; if (r.to && r.to < val) r.to = val; }
+  else if (field === 'to') { r.to = val; }
+  else if (field === 'label') { r.label = val; }
+  _bcdDirty = true;
+  bcdUpdateBtnState(); bcdUpdatePreview();
+}
+
+function bcdUpdateBtnState() {
+  const btn = document.getElementById('bcd-save-btn');
+  if (!btn) return;
+  btn.textContent = _bcdDirty ? 'Gem lukkedage •' : 'Gem lukkedage';
+  btn.style.background = _bcdDirty ? '#dc2626' : '';
+}
+
+function bcdUpdatePreview() {
+  const span = document.getElementById('bcd-preview');
+  if (!span) return;
+  const valid = _bcdRows.filter(r => r.from && r.to);
+  span.textContent = valid.length
+    ? `${valid.length} lukket ${valid.length === 1 ? 'periode/dag' : 'perioder/dage'}`
+    : 'Ingen lukkedage';
+  span.style.color = '#888';
+}
+
+async function bcdSave() {
+  // Validér + normalisér
+  const out = [];
+  for (const r of _bcdRows) {
+    if (!r.from && !r.to) continue; // spring helt tomme rækker over
+    const from = r.from || r.to;
+    const to = r.single ? from : (r.to || r.from);
+    if (!from || !to) return toast('Udfyld begge datoer på alle perioder', 'error');
+    if (to < from) return toast('Slutdato kan ikke være før startdato', 'error');
+    out.push({ from, to, label: (r.label || '').trim() });
+  }
+
+  const btn = document.getElementById('bcd-save-btn');
+  btn.disabled = true; btn.textContent = 'Gemmer…';
+  try {
+    const r = await fetch('/api/settings/bestilling.closed_dates', {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json' },
+      credentials: 'include',
+      body: JSON.stringify({ value: JSON.stringify(out) })
+    });
+    if (!r.ok) throw new Error('HTTP ' + r.status);
+    _bcdDirty = false;
+    toast('Lukkedage gemt');
+    bcdLoad();
+  } catch (e) {
+    toast('Kunne ikke gemme: ' + e.message, 'error');
+  } finally {
+    btn.disabled = false;
+    bcdUpdateBtnState();
+  }
+}
+
+window.bcdAddPeriod = bcdAddPeriod;
+window.bcdAddSingle = bcdAddSingle;
+window.bcdRemove = bcdRemove;
+window.bcdSet = bcdSet;
+window.bcdReload = bcdReload;
+window.bcdSave = bcdSave;
 
 
 async function bmLoadSource() {

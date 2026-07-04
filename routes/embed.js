@@ -120,6 +120,9 @@ router.get('/config', (req, res) => {
     // Gemmes som ISO-dato (bestilling.cutoff_override_date); når den ikke længere
     // matcher dagens danske dato falder alt automatisk tilbage til normal cut-off.
     cutoffOverride: false,
+    // Ferielukket/lukkedage: array af {from,to,label}. Formularen spærrer
+    // leveringsdatoer i disse intervaller og viser labelen.
+    closedDates: [],
   };
 
   for (const r of rows) {
@@ -148,6 +151,21 @@ router.get('/config', (req, res) => {
       case 'bestilling.cutoff_override_date':
         // Aktiv kun hvis den gemte dato er dagens danske dato. Selv-nulstillende.
         config.cutoffOverride = (r.value || '').trim() === todayISO();
+        break;
+      case 'bestilling.closed_dates':
+        // Normalisér til {from,to,label}[] — tåler tom/ugyldig JSON gracefully.
+        try {
+          const arr = JSON.parse(r.value);
+          config.closedDates = Array.isArray(arr)
+            ? arr
+                .map(x => ({
+                  from: String(x.from || x.to || '').trim(),
+                  to: String(x.to || x.from || '').trim(),
+                  label: String(x.label || '').trim(),
+                }))
+                .filter(x => x.from && x.to)
+            : [];
+        } catch (e) { config.closedDates = []; }
         break;
     }
   }
