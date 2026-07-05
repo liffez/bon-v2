@@ -76,10 +76,16 @@ assert('Empty subject', r.routing, 'unmatched');
 r = parseSubject(null, p);
 assert('Null subject', r.routing, 'unmatched');
 
-// Custom prefixes
-r = parseSubject('#o-500 test', { bon: 'o-', offer: 'x-', customer: 'c-' });
+// Custom prefixes (fuldt 5-nøgle-objekt — matcher getPrefixes()-formen)
+r = parseSubject('#o-500 test', { bon: 'o-', offer: 'x-', customer: 'c-', purchase_order: 'p-', supplier: 'q-' });
 assert('Custom prefix bon', r.routing, 'bon');
 assert('Custom prefix bon number', r.bonNumber, 500);
+
+// Regression (F2): et partielt prefix-objekt må ikke crashe — manglende led
+// (purchase_order/supplier) skal falde tilbage til defaults, ikke kaste TypeError.
+r = parseSubject('#o-500 test', { bon: 'o-' });
+assert('Partial prefix: no crash, bon match', r.routing, 'bon');
+assert('Partial prefix: default supplier fallback', parseSubject('#s-9 hej', { bon: 'o-' }).routing, 'supplier');
 
 // ── Test buildTag ───────────────────────────────────────────
 console.log('\n=== buildTag() ===');
