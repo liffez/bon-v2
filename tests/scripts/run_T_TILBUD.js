@@ -718,10 +718,13 @@ async function runPatch() {
     } catch (e) { record('T_TIL_PATCH_05', 'PATCH', 'FAIL', e.message); }
 
     // PATCH_06: total_units ekskluderer accessory + is_accessory gemmes — Patch I lukker F72
+    // Siden migration 070 tæller kun whitelisted kategorier (01 Sandwich m.fl.) i total_units —
+    // en kategori-løs linje giver 0. 'Main' får derfor en tællende kategori så F72-regressionen
+    // (is_accessory gemmes + accessory ekskluderes fra units) stadig verificeres.
     try {
         await api('PATCH', `/api/quotes/${created.quotes.WITH_LINES}`, {
             lines: [
-                { product_name: 'Main',    quantity: 5,  unit_price: 100, is_accessory: 0 },
+                { product_name: 'Main',    category: '01 Sandwich', quantity: 5,  unit_price: 100, is_accessory: 0 },
                 { product_name: 'Servietter', quantity: 50, unit_price: 0, is_accessory: 1 },
             ],
         });
