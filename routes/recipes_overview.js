@@ -284,18 +284,27 @@ router.get('/overview', handle(async (req, res) => {
     const okoCount = recipes.filter(r => r.is_organic).length;
 
     const totalRevenue = recipes.reduce((s, r) => s + r.revenue_excl_moms, 0);
-    const totalDbKr = recipes.reduce((s, r) => {
-        // db_kr_excl_moms × sold_units (vægt med faktisk volumen)
-        if (r.db_kr_excl_moms == null) return s;
-        return s + r.db_kr_excl_moms * r.sold_units;
-    }, 0);
+
+    // Vægtet DB% skal være et ægte vægtet gennemsnit af rækkernes db_pct, dvs.
+    // tæller og nævner SKAL bruge samme pris-grundlag (den valgte priskategoris
+    // teoretiske pris). Tidligere delte vi teoretisk DB med FAKTISK omsætning →
+    // inkommensurabelt, og resultatet kunne overstige den højeste enkelt-række
+    // (matematisk umuligt for et vægtet gennemsnit). Summér begge over de SAMME
+    // rækker (hvor DB kan beregnes).
+    let totalDbKr = 0;
+    let totalWeightRevenue = 0;   // Σ(kategori-salgspris_excl × sold_units)
+    for (const r of recipes) {
+        if (r.db_kr_excl_moms == null || r.sales_price_excl_moms == null) continue;
+        totalDbKr += r.db_kr_excl_moms * r.sold_units;
+        totalWeightRevenue += r.sales_price_excl_moms * r.sold_units;
+    }
     const totalCo2 = recipes.reduce((s, r) => s + r.co2_total_period, 0);
 
     const shareUnderTargetPct = activeCount > 0
         ? r2(underTargetCount / activeCount * 100)
         : 0;
-    const avgDbPctWeighted = totalRevenue > 0
-        ? r2(totalDbKr / totalRevenue * 100)
+    const avgDbPctWeighted = totalWeightRevenue > 0
+        ? r2(totalDbKr / totalWeightRevenue * 100)
         : 0;
 
     res.json({
