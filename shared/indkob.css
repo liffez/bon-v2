@@ -154,7 +154,9 @@ body.zone-office .ib-toolbar { top: 0; }
 }
 .ib-panel.open { display: block; }
 .ib-panel.udl { border-color: var(--ib-red); }
-.ib-panel-inner { padding: 10px 16px; }
+/* Cap højden så lange lister (17/27 varer) scroller INDE i panelet i stedet
+   for at skubbe "Tilføj valgte"-footeren under fold'en (#257). */
+.ib-panel-inner { padding: 10px 16px; max-height: 44vh; overflow-y: auto; }
 .ib-panel-item {
     display: flex;
     align-items: center;
@@ -231,6 +233,36 @@ body.zone-office .ib-toolbar { top: 0; }
     font-family: inherit;
 }
 .ib-panel-add.rd { background: var(--ib-red); }
+
+/* "Antal enheder"-microlabel foran stepperen — så tallet ikke er ulabelet
+   og ikke forveksles med dage i udløbs-panelet (#257) */
+.ib-panel-qlabel {
+    font-size: 10px;
+    color: var(--color-text-dim, #999);
+    font-weight: 700;
+    text-transform: uppercase;
+    letter-spacing: .3px;
+    margin-right: 2px;
+    white-space: nowrap;
+}
+/* Add-knap pr. række — tilføj enkeltvis uden at scrolle til batch-knappen (#257).
+   Farvet/fyldt, tydeligt adskilt fra stepperens runde ±. */
+.ib-panel-rowadd {
+    margin-left: 6px;
+    padding: 5px 10px;
+    background: var(--brand-primary);
+    color: #fff;
+    border: none;
+    border-radius: 6px;
+    font-size: 11px;
+    font-weight: 700;
+    cursor: pointer;
+    font-family: inherit;
+    white-space: nowrap;
+    flex-shrink: 0;
+}
+.ib-panel-rowadd:hover { filter: brightness(1.08); }
+.ib-panel.udl .ib-panel-rowadd { background: var(--ib-red); }
 
 /* Add product autocomplete */
 .ib-add-ac {
