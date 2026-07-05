@@ -234,7 +234,8 @@ body.zone-office .ib-toolbar { top: 0; }
 }
 .ib-panel-add.rd { background: var(--ib-red); }
 
-/* "Antal"-microlabel foran stepperen — så tallet ikke er ulabelet (#257) */
+/* "Antal enheder"-microlabel foran stepperen — så tallet ikke er ulabelet
+   og ikke forveksles med dage i udløbs-panelet (#257) */
 .ib-panel-qlabel {
     font-size: 10px;
     color: var(--color-text-dim, #999);
@@ -242,6 +243,7 @@ body.zone-office .ib-toolbar { top: 0; }
     text-transform: uppercase;
     letter-spacing: .3px;
     margin-right: 2px;
+    white-space: nowrap;
 }
 /* Add-knap pr. række — tilføj enkeltvis uden at scrolle til batch-knappen (#257).
    Farvet/fyldt, tydeligt adskilt fra stepperens runde ±. */

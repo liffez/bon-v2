@@ -785,7 +785,7 @@ function _ibRenderPanels() {
             h += '<div class="ib-panel-meta">Min: ' + _ibFmtNum(minStock) + ' · Lager: ' + _ibFmtNum(parseFloat(mp.amount) || 0);
             if (locName) h += ' · ' + _ibEsc(locName);
             h += '</div></div>';
-            h += '<div class="ib-panel-qc"><span class="ib-panel-qlabel">Antal</span>';
+            h += '<div class="ib-panel-qc"><span class="ib-panel-qlabel" title="Antal enheder at tilføje til indkøbslisten">Antal enheder</span>';
             h += '<button class="ib-panel-qb" data-ib="panel-minus" data-idx="' + m + '">−</button>';
             h += '<input class="ib-panel-qi" type="number" value="' + suggest + '" min="1" data-idx="' + m + '">';
             h += '<button class="ib-panel-qb" data-ib="panel-plus" data-idx="' + m + '">+</button>';
@@ -819,7 +819,7 @@ function _ibRenderPanels() {
             h += '<input type="checkbox" class="ib-panel-chk" checked data-product-id="' + dprod.id + '">';
             h += '<div class="ib-panel-info"><div class="ib-panel-name">' + _ibEsc(dprod.name) + '</div>';
             h += '<div class="ib-panel-meta">Udløber: ' + (dp.best_before_date || '?') + ' · Lager: ' + _ibFmtNum(parseFloat(dp.amount) || 0) + '</div></div>';
-            h += '<div class="ib-panel-qc"><span class="ib-panel-qlabel">Antal</span>';
+            h += '<div class="ib-panel-qc"><span class="ib-panel-qlabel" title="Antal enheder at tilføje til indkøbslisten">Antal enheder</span>';
             h += '<button class="ib-panel-qb" data-ib="panel-minus" data-idx="' + d + '">−</button>';
             h += '<input class="ib-panel-qi" type="number" value="1" min="1" data-idx="' + d + '">';
             h += '<button class="ib-panel-qb" data-ib="panel-plus" data-idx="' + d + '">+</button>';
