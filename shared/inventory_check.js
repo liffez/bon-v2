@@ -31,6 +31,7 @@ var _ic = {
     quantityUnits: {},          // qu_id -> name
     conversions:   [],          // quantity_unit_conversions (salgs-/forbrugsenhed-visning)
     allProducts:   [],          // ALL products (for "add unexpected")
+    productsById:  {},          // id -> fuldt produkt (kort får kun et udsnit)
     products:      [],          // Products for current location
     grocyStock:    {},          // productId -> { amount, unit, bestBefore }
     counts:        {},          // productId -> { units: { unitName: amount }, total }
@@ -582,6 +583,11 @@ async function _icStartCheck() {
             return p.active === '1' || p.active === 1 || p.active === true;
         });
 
+        // Id -> fuldt produkt. _icCreateCard får kun et kategoriseret udsnit
+        // (uden qu_id_*-felter), så enhed + salgs-/forbrugsenhed slås op her.
+        _ic.productsById = {};
+        _ic.allProducts.forEach(function(p) { _ic.productsById[p.id] = p; });
+
         // Filter products belonging to this location
         _ic.products = _ic.allProducts.filter(function(p) {
             var locId = parseInt(p.location_id) || 0;
@@ -885,8 +891,13 @@ function _icCreateCard(product, isChecked) {
     card.className = 'ic-card';
     card.dataset.productId = product.id;
 
+    // product er det kategoriserede udsnit (mangler qu_id_*-felter) — slå det
+    // fulde produkt op så enhed + salgs-/forbrugsenhed kan resolves.
+    var fullProduct = (_ic.productsById && _ic.productsById[product.id]) || product;
     var stockInfo = _ic.grocyStock[product.id];
-    var unitName = stockInfo ? stockInfo.unit : '';
+    // Enhed altid vist (som lageroversigten): fald tilbage til produktets
+    // lager-enhed når varen ikke har en lagerpost (fx 0 på lager).
+    var unitName = (stockInfo && stockInfo.unit) ? stockInfo.unit : (_ic.quantityUnits[fullProduct.qu_id_stock] || '');
     var grocyAmount = _icRound(stockInfo ? stockInfo.amount : 0);
 
     var countData = _ic.counts[product.id];
@@ -895,7 +906,7 @@ function _icCreateCard(product, isChecked) {
 
     // Sekundær enhed(er) — fx "(≈ 6 kasser)" (salgs-/forbrugsenhed, kun hvor konvertering findes)
     var altSuffix = '';
-    var alts = _icAltConv(product);
+    var alts = _icAltConv(fullProduct);
     if (alts.length && grocyAmount > 0) {
         altSuffix = ' <span class="ic-card-alt">(' + alts.map(function(a) {
             return '&#8776; ' + _icRound(grocyAmount * a.factor, 1) + ' ' + esc(a.unit);
@@ -1179,7 +1190,8 @@ function _icShowSummary() {
         var grocyAmount = _icRound(_ic.grocyStock[product.id] ? _ic.grocyStock[product.id].amount : 0);
         var countData = _ic.counts[product.id];
         var totalCounted = _icRound(countData ? (countData.total || 0) : 0);
-        var unitName = _ic.grocyStock[product.id] ? _ic.grocyStock[product.id].unit : '';
+        var _si = _ic.grocyStock[product.id];
+        var unitName = (_si && _si.unit) ? _si.unit : (_ic.quantityUnits[product.qu_id_stock] || '');
 
         if (!countData || !countData.units || Object.keys(countData.units).length === 0) {
             if (grocyAmount > 0) {
