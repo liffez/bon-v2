@@ -107,22 +107,25 @@ router.get('/forecast', handle(async (req, res) => {
     ]);
 
     // ── Flet per produkt: historisk (sæson/snit) + booket ──
+    // Flet på needed_stock (lager-enhed = fælles base). Enheds-konvertering
+    // (indkøbsenhed / kg) sker hos frontenden via de rå faktorer, så toggle
+    // er øjeblikkelig uden gen-fetch (#254).
+    const fields = (ing) => ({
+        product_id: ing.product_id, product_name: ing.product_name,
+        ingredient_group: ing.ingredient_group,
+        purchase_unit: ing.purchase_unit,
+        purchase_factor: ing.purchase_factor,
+        purchase_is_real_unit: ing.purchase_is_real_unit,
+        grams_factor: ing.grams_factor,
+    });
     const merged = new Map();
     for (const ing of histRes.raw.ingredients) {
-        merged.set(ing.product_id, {
-            product_id: ing.product_id, product_name: ing.product_name,
-            unit: ing.unit, ingredient_group: ing.ingredient_group,
-            historic: (ing.amount_needed || 0) * scale, booked: 0,
-        });
+        merged.set(ing.product_id, { ...fields(ing), historic_stock: (ing.needed_stock || 0) * scale, booked_stock: 0 });
     }
     for (const ing of bookedRes.raw.ingredients) {
         const m = merged.get(ing.product_id);
-        if (m) m.booked = ing.amount_needed || 0;
-        else merged.set(ing.product_id, {
-            product_id: ing.product_id, product_name: ing.product_name,
-            unit: ing.unit, ingredient_group: ing.ingredient_group,
-            historic: 0, booked: ing.amount_needed || 0,
-        });
+        if (m) m.booked_stock = ing.needed_stock || 0;
+        else merged.set(ing.product_id, { ...fields(ing), historic_stock: 0, booked_stock: ing.needed_stock || 0 });
     }
 
     // ── Produkt → leverandør (via Grocy shopping_location_id → supplier_grocy_locations) ──
@@ -139,8 +142,8 @@ router.get('/forecast', handle(async (req, res) => {
     const round = (n) => Math.round(n * 100) / 100;
     const groups = new Map();
     for (const m of merged.values()) {
-        const forecast = Math.max(m.historic, m.booked);
-        if (forecast <= 0) continue;
+        const forecast_stock = Math.max(m.historic_stock, m.booked_stock);
+        if (forecast_stock <= 0) continue;
         const loc = prodLoc.get(m.product_id);
         const sup = loc != null ? locToSupplier.get(loc) : null;
         const key = sup ? String(sup.id) : '__none__';
@@ -148,14 +151,17 @@ router.get('/forecast', handle(async (req, res) => {
             groups.set(key, { supplier_id: sup?.id ?? null, supplier_name: sup?.name ?? 'Uden leverandør', items: [] });
         }
         groups.get(key).items.push({
-            product_id: m.product_id, product_name: m.product_name, unit: m.unit,
+            product_id: m.product_id, product_name: m.product_name,
             ingredient_group: m.ingredient_group,
-            historic_qty: round(m.historic), booked_qty: round(m.booked), forecast_qty: round(forecast),
+            // Rå mængder i lager-enhed + faktorer — frontenden konverterer per enheds-mode.
+            historic_stock: round(m.historic_stock), booked_stock: round(m.booked_stock), forecast_stock: round(forecast_stock),
+            purchase_unit: m.purchase_unit, purchase_factor: m.purchase_factor,
+            purchase_is_real_unit: m.purchase_is_real_unit, grams_factor: m.grams_factor,
         });
     }
 
     const suppliers = [...groups.values()]
-        .map(g => { g.items.sort((a, b) => b.forecast_qty - a.forecast_qty); return g; })
+        .map(g => { g.items.sort((a, b) => b.forecast_stock - a.forecast_stock); return g; })
         .sort((a, b) =>
             (a.supplier_id === null ? 1 : 0) - (b.supplier_id === null ? 1 : 0) ||
             a.supplier_name.localeCompare(b.supplier_name, 'da'));

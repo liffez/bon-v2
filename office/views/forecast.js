@@ -11,8 +11,23 @@
  * Mounts via office/index.html → indkob-forecast-view. Entry: initForecast(el).
  */
 
-let _fcState = { from: null, to: null, data: null, loading: false };
+let _fcState = { from: null, to: null, data: null, loading: false, mode: 'purchase' };
 let _fcEl = null;
+
+try { const m = localStorage.getItem('fc_unit_mode'); if (m === 'kg' || m === 'purchase') _fcState.mode = m; } catch (_) {}
+
+// Konverter en lager-enheds-mængde til den valgte enheds-mode.
+// - 'purchase': lager→indkøbsenhed (rund forecast op til hele enheder)
+// - 'kg': vejet hvor grams_factor findes; ellers fallback til indkøbsenhed
+//         (uvejbar → vises i sin bestillbare enhed, markeret weighed=false)
+function _fcConv(stockVal, item, roundUp) {
+  if (_fcState.mode === 'kg' && item.grams_factor != null) {
+    return { qty: stockVal * item.grams_factor / 1000, unit: 'kg', weighed: true };
+  }
+  const q = stockVal * (item.purchase_factor || 1);
+  const qty = (roundUp && item.purchase_is_real_unit) ? Math.ceil(q) : Math.round(q * 100) / 100;
+  return { qty, unit: item.purchase_unit || '', weighed: false };
+}
 
 function _fcISO(d) {
   const p = (n) => String(n).padStart(2, '0');
@@ -105,6 +120,13 @@ function initForecast(el) {
           <button class="fc-btn" data-fc-weeks="4">4 uger</button>
           <button class="fc-btn" data-fc-weeks="8">8 uger</button>
         </div>
+        <div class="fc-field">
+          <label>Enhed</label>
+          <div class="fc-quick" id="fcModeToggle">
+            <button class="fc-btn ${_fcState.mode === 'purchase' ? 'primary' : ''}" data-fc-mode="purchase">Indkøbsenhed</button>
+            <button class="fc-btn ${_fcState.mode === 'kg' ? 'primary' : ''}" data-fc-mode="kg">Kilo</button>
+          </div>
+        </div>
         <button class="fc-btn primary" id="fcRun">Beregn forecast</button>
       </div>
       <div id="fcResults"><div class="fc-empty">Vælg en periode og tryk “Beregn forecast”.</div></div>
@@ -115,6 +137,12 @@ function initForecast(el) {
     _fcState.to = el.querySelector('#fcTo').value;
     _fcLoad();
   });
+  el.querySelectorAll('[data-fc-mode]').forEach((b) => b.addEventListener('click', () => {
+    _fcState.mode = b.dataset.fcMode;
+    try { localStorage.setItem('fc_unit_mode', _fcState.mode); } catch (_) {}
+    el.querySelectorAll('[data-fc-mode]').forEach((x) => x.classList.toggle('primary', x.dataset.fcMode === _fcState.mode));
+    if (_fcState.data) _fcRender();   // øjeblikkelig re-render, ingen gen-fetch
+  }));
   el.querySelectorAll('[data-fc-weeks]').forEach((b) => b.addEventListener('click', () => {
     const from = el.querySelector('#fcFrom').value || _fcISO(new Date());
     const to = _fcAddDays(from, parseInt(b.dataset.fcWeeks) * 7 - 1);
@@ -154,10 +182,11 @@ function _fcRender() {
     ? `rullende 8-ugers snit (${_fcFmtDate(d.fallback.trail_from)}–${_fcFmtDate(d.fallback.trail_to)}, ${d.fallback.trail_bon_count} bons)`
     : `samme periode sidste år (${_fcFmtDate(d.seasonal_from)}–${_fcFmtDate(d.seasonal_to)}, ${d.seasonal_bon_count} bons)`;
 
+  const modeLabel = _fcState.mode === 'kg' ? 'kilo (hvor vejbar)' : 'indkøbsenhed';
   let h = `<div class="fc-meta">
       Periode <strong>${_fcFmtDate(d.from)}–${_fcFmtDate(d.to)}</strong> ·
-      historisk signal: ${histLabel} · allerede booket: ${d.booked_bon_count} bons.<br>
-      <span class="fc-sub">Forecast = det største af historisk forventning og allerede-booket behov. Alt er cirka-tal — juster inden du melder ud.</span>
+      historisk signal: ${histLabel} · allerede booket: ${d.booked_bon_count} bons · enhed: ${modeLabel}.<br>
+      <span class="fc-sub">Forecast = det største af historisk forventning og allerede-booket behov. Alt er cirka-tal — juster inden du melder ud.${_fcState.mode === 'kg' ? ' Varer uden vægt i Grocy vises i deres bestillbare enhed (kan ikke vejes endnu).' : ''}</span>
     </div>`;
 
   if (d.used_fallback) {
@@ -189,12 +218,18 @@ function _fcRender() {
           <th class="num">Booket</th>
         </tr></thead>
         <tbody>
-          ${sup.items.map((it) => `<tr>
+          ${sup.items.map((it) => {
+            const fc = _fcConv(it.forecast_stock, it, true);
+            const se = _fcConv(it.historic_stock, it, false);
+            const bo = _fcConv(it.booked_stock, it, false);
+            const unweighed = (_fcState.mode === 'kg' && !fc.weighed);
+            return `<tr>
             <td>${_fcEsc(it.product_name)}</td>
-            <td class="num fc-fc">${_fcNum(it.forecast_qty)} ${_fcEsc(it.unit || '')}</td>
-            <td class="num fc-sub">${_fcNum(it.historic_qty)}</td>
-            <td class="num fc-sub">${_fcNum(it.booked_qty)}</td>
-          </tr>`).join('')}
+            <td class="num fc-fc">${_fcNum(fc.qty)} <span class="${unweighed ? 'fc-sub' : ''}"${unweighed ? ' title="Ingen vægt i Grocy — vist i bestillbar enhed"' : ''}>${_fcEsc(fc.unit)}</span></td>
+            <td class="num fc-sub">${_fcNum(se.qty)}</td>
+            <td class="num fc-sub">${_fcNum(bo.qty)}</td>
+          </tr>`;
+          }).join('')}
         </tbody>
       </table>
     </div>`;
@@ -239,7 +274,10 @@ function _fcOnCopy(e) {
     if (!sup) return;
     const d = _fcState.data;
     const lines = [`Forecast ${_fcFmtDate(d.from)}–${_fcFmtDate(d.to)} — ${sup.supplier_name}:`, ''];
-    sup.items.forEach((it) => lines.push(`- ${_fcNum(it.forecast_qty)} ${it.unit || ''} ${it.product_name}`.trim()));
+    sup.items.forEach((it) => {
+      const fc = _fcConv(it.forecast_stock, it, true);
+      lines.push(`- ${_fcNum(fc.qty)} ${fc.unit || ''} ${it.product_name}`.replace(/\s+/g, ' ').trim());
+    });
     _fcCopyText(lines.join('\n'), sup.supplier_name);
     return;
   }
