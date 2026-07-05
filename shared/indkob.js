@@ -794,7 +794,7 @@ function _ibRenderPanels() {
         }
         h += '</div>';
         h += '<div class="ib-panel-foot">';
-        h += '<span class="ib-panel-selall" data-ib="selall-missing">Vælg alle</span>';
+        h += '<span class="ib-panel-selall" data-ib="selall-missing">Fravælg alle</span>';
         h += '<button class="ib-panel-cancel" data-ib="close-missing">Luk</button>';
         h += '<button class="ib-panel-add" data-ib="add-missing">Tilføj valgte til listen</button>';
         h += '</div></div>';
@@ -828,7 +828,7 @@ function _ibRenderPanels() {
         }
         h += '</div>';
         h += '<div class="ib-panel-foot">';
-        h += '<span class="ib-panel-selall" data-ib="selall-expiring">Vælg alle</span>';
+        h += '<span class="ib-panel-selall" data-ib="selall-expiring">Fravælg alle</span>';
         h += '<button class="ib-panel-cancel" data-ib="close-expiring">Luk</button>';
         h += '<button class="ib-panel-add rd" data-ib="add-expiring">Tilføj valgte til listen</button>';
         h += '</div></div>';
@@ -1404,9 +1404,14 @@ function _ibHandleClick(e) {
 
         case 'selall-missing':
         case 'selall-expiring':
-            var panel = _ibContainer.querySelector('[data-ib-panel="' + (action.indexOf('missing') >= 0 ? 'missing' : 'expiring') + '"]');
-            if (panel) {
-                panel.querySelectorAll('.ib-panel-chk').forEach(function(chk) { chk.checked = true; });
+            // Toggle: alle valgt → fravælg alle; ellers vælg alle (#257).
+            var selPanel = _ibContainer.querySelector('[data-ib-panel="' + (action.indexOf('missing') >= 0 ? 'missing' : 'expiring') + '"]');
+            if (selPanel) {
+                var selChks = selPanel.querySelectorAll('.ib-panel-chk');
+                var allOn = selChks.length > 0 && Array.prototype.every.call(selChks, function(c) { return c.checked; });
+                var newVal = !allOn;
+                selChks.forEach(function(chk) { chk.checked = newVal; });
+                btn.textContent = newVal ? 'Fravælg alle' : 'Vælg alle';
             }
             break;
 
