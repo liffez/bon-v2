@@ -409,7 +409,12 @@ Oprettes under Grocy → Manage master data → Userfields.
 | `HverDag` | text-single-line | Lageroptælling | Interval i dage for check-frekvens |
 | `LastCheckedAt` | datetime | Lageroptælling | ISO timestamp for sidst-tjekket |
 | `LastCheckedUnit` | text-single-line | Lageroptælling | Hvilken fysisk enhed der sidst blev talt |
-| `Co2e` | number-decimal | VarePicker | CO2-aftryk per enhed |
+| `co2e_per_kg` | number-decimal | CO₂-modul (F1+) | Resolvet CO₂-faktor, kg CO₂e/kg. Fyldes ved import (F4/F3). |
+| `co2e_source` | text-single-line | CO₂-modul (F1+) | `klimadb` \| `material` \| `supplier` \| `manual` \| `na` |
+| `co2e_klima_id` | text-single-line | CO₂-modul (F1+) | CONCITO Ra-ID (NULL hvis ikke fødevare) |
+| `co2e_material` | text-single-line | CO₂-modul (F1+) | Emballage-materiale (`pap`, `LDPE`, …) — NULL for fødevarer |
+| `co2e_version` | text-single-line | CO₂-modul (F1+) | Kildeversion (fx `CONCITO v1.2`) |
+| `Co2e_OLD` | number-decimal | (deprecated) | Tidligere `Co2e` — bevist upålideligt (blandede enheder). Omdøbt i CO₂ F1, læses ikke. Erstattet af `co2e_per_kg`. |
 | `supplier_price_per_kg` | text_single_line | Hørkram scraper | Indkøbspris pr. kg fra leverandør |
 | `price_updated_at` | text_single_line | Hørkram scraper | Timestamp for prisopdatering |
 | `hk_organic` | text_single_line | Hørkram scraper | Økologisk status fra Hørkram |
@@ -1717,7 +1722,7 @@ Det var ikke muligt at lave en booking om eller fortryde den fra bon-draweren �
 > Status: KOMPLET. Bug der lagde 25 % moms ovenpå incl-priser er rettet og forebygget.
 
 - [x] **Moms-doktrin** tilføjet til `BON_V2_PRINCIPPER.md` sektion 6b (hvor moms ligger gemt) + 6c (7 visningsregler)
-- [x] **`shared/moms.js`** — fælles helpers: `inclToExcl`, `excrToIncl`, `momsOfIncl`, `computeMomsFields`. Eksponeres som `window.Moms` i browser, re-eksporteres fra `db/helpers.js` på server-siden
+- [x] **`shared/moms.js`** — fælles helpers: `inclToExcl`, `exclToIncl`, `momsOfIncl`, `computeMomsFields`. Eksponeres som `window.Moms` i browser, re-eksporteres fra `db/helpers.js` på server-siden
 - [x] **13 områder migreret** fra magic `* 1.25` / `* 0.25` / `/ 1.25` til Moms.* helpers (tilbud, fakturering, planlægning, modal, dashboard, rapporter, indkøb, mail-templates osv.)
 - [x] **Pre-commit-hook aktiveret** — blokerer nye `1.25`/`0.25`-multiplikationer uden for `shared/moms.js` og `tests/`
 - [x] **Backend leverer pre-beregnede moms-felter** — API-responses for bons/quotes/invoices indeholder `total_incl_moms`, `total_excl_moms`, `moms_amount` så frontends ikke selv regner
@@ -2354,9 +2359,130 @@ fra `.csv`-fil eller indsat direkte fra Excel/Google Sheets.
   kategori-math, clamp, datofiltre, allokering, fetch/surplus, degradering, tomt event). Grøn.
 - Browser-verificeret end-to-end mod syntetisk event (oprettet + ryddet op igen).
 
+### Moduler bygget efter 21. maj — efterdokumenteret (29. juni 2026)
+> Disse moduler blev bygget mellem maj og juni, men status-sektionen ovenfor stoppede
+> ved 21. maj. Efterdokumenteret ved en tracker-oprydning 29. juni 2026 (verificeret mod kode,
+> migrations op til 119). 6 GitHub-issues lukket som færdige (#64, #70, #71, #77, #85, #132).
+
+#### Driftsregnskab (dagsbaseret resultatanalyse) — #132 ✅
+- [x] `routes/drift.js` — `GET /api/drift/day?date=&mode=` (dagsresultat, live/frosset), `GET /api/drift/day/bons` (per-bon nedbrydning, altid live), `POST /api/drift/refreeze` (admin), `GET /api/drift/period?from=&to=` (trend)
+- [x] `services/laborAdapter.js` — Smartplan-timer × lokale `wage_rates` (tidsversioneret timeløn) + `smartplan_role_map` (jobtype → production|delivery|other)
+- [x] Migrations 088 (`wage_rates` + `smartplan_role_map`), 091 (`labor_day_snapshot` — fryser afsluttede dage ved første visning), 093 (`settings.labor_overhead_pct`)
+- [x] `computeDay()`: revenue incl→ex, cost ex, delivery ex, løn ex m. overhead, enheder, kapacitetsrate, løn-andel %. Alt ex moms. Office-view `office/views/driftsregnskab.js` (ØKONOMI-sektionen)
+- Smartplan leverer KUN timer (ingen løn) — løn er selv-styret CSV (jf. memory `project_smartplan_salary_blocker`)
+
+#### Produktionsbatch MVP — #85 ✅
+- [x] `routes/production.js` — `POST /api/production/batches` (QU-konvertering server-side, Grocy-consume + self-production add, idempotens via `batch_nonce`), `GET /batches`, `GET /batches/:id`
+- [x] `shared/production_batch.js` — `window.ProductionBatch.open()`-modal: redigér opskrift-kopi før produktion (tilføj/fjern/byt varer, justér mængder, markér afvigelse: justeret/udeladt/byttet/tilføjet), valgfri indkøbsliste-kobling
+- [x] Migrations 089 (`production_batches` + `production_batch_consumption`), 090 (output-produkt nullable → consume-only batches). Alt ex moms
+
+#### E-conomic-adapter — #77 ✅ (MVP draft-faktura)
+- [x] `services/economicAdapter.js` — auth (X-AppSecretToken + X-AgreementGrantToken), REST + OpenAPI base-URLs, fejlklasser (Config/Auth/Rate), timeout
+- [x] `services/economicInvoice.js` — bon → draft-invoice payload-builder (ren funktion), moms-konvertering `line_total` incl→`unitNetPrice` ex via `shared/moms.js`, kunde-resolver (company > customer economic-nr), EAN-tjek, kategori-eksklusion (emballage/prep uden varenr)
+- [x] Migration 110 — `bons.economic_draft_number`/`_at` (guard mod re-send), `customers.discount_percent`, `delivery_vehicles.economic_product_number`, settings (payment_terms/layout/fallback-produkt/draft+invoice URL)
+- [x] Bruges af `routes/invoices.js` + `routes/cashflow.js` + `services/cashflowReconcile.js`. Opretter KUN draft (`POST /invoices/drafts`) — bogfører aldrig automatisk. Idempotens via Idempotency-Key
+- Bemærk: arbejde fortsatte på branch `claude/economic-docs` (Spor 1 + Spor 2 Fase 1 live-verificeret per memory)
+
+#### Lobo/Byekspressen delivery (Spor 2 S2.4) — #64 ✅ (kode bygget)
+- [x] `services/byExpressenAdapter.js` — HTTP Basic → JWT (cachet til expiry), `DEFAULT_BOOKING_SCOPES` (31/38 aktive)
+- [x] `services/lobo_booking.js` — `quoteForBon()` (orderdraft → læs kostpris → slet kladde = pris uden ordre), `bookForBon()` (POST /orders → `delivery_events`), `defaultBoxesForBon()`, `suggestCustomerPrice()` (margin-anbefaling)
+- [x] `services/lobo_webhook.js` — selvkalibrerende HMAC (finder sign_target + header ved første callback), `mapLoboEvent`
+- [x] Migrations 093 (`delivery_events.snapshot_json` + By-ex config seed, provider='lobo', sandbox-toggle), 108 (host → `byexpressen.groupnet.at`, fkpayment=1 faktura). PR #235 (sandkasse-toggle, se-og-ret-panel, status-polling)
+- [x] Integreret i Spor 1's popout-booking + `POST /api/delivery/book`. Ekstern API-adgang (scope/403) kan stadig blokere i drift — se memory `project_lobo_byekspressen_api`
+
+#### Outreach-kampagner + CRM-triks — #80 (delvist), #226/#233 leveret
+- [x] `routes/campaigns.js` — `GET /api/campaigns`, `/pipeline`, `POST /campaigns`, `PATCH /:id`, `POST /:id/members` (jura-validering: B2C+DNC blokeret, B2B uden consent OK), `POST /from-suggestion`
+- [x] Migrations 084-085 (`outreach_campaigns` + `campaign_members`), 105 (prospect-fit-vægte: branche 50% / størrelse 20% / afstand 30% + blacklist), 106 (`prospect_distance_min_km`), 107 (reaktiverings-tærskler), 109 (`crm_suggestion_snoozes` — skjul forslag midlertidigt), 114 (`crm_activities.outcome` = success|partial|declined|no_response|pending)
+- [x] Leveret: review_ask (anbefaling efter glad kunde, #226), snooze + "N skjult", `interleaveSuggestions` round-robin feed-budget, gradueret ICP-fit + afstands-filter (#213), outcome-måling på review-ask (#233)
+- [ ] **Udestår** (#228/#229/#230): `cold_offer`-suggestion (kold tilbudsopfølgning), delt `shared/crm_worklist.js` fundament, sæson- + rytme-lister. **#80 Outreach Fase 1 scope ikke endeligt bekræftet** — review
+
+#### Event-modul (fundament) — bygget (ikke et selvstændigt issue; ≠ Festival #81)
+- [x] `routes/events.js` — `GET/POST /api/events`, `PATCH /:id`, `GET /:id/overview` (bons i 4 roller + P&L), `POST /:id/bons` (generator), `PUT /:id/forecast` (per kategori/dag)
+- [x] `office/views/events.js` — liste + detalje med 4 roller (🎒 prep, 🔄 topup, 💰 dagssalg, 💸 udgift) + P&L + generator, SSE live-reload
+- [x] Migrations 095 (`events` + `bons.event_id`), 096 (`event_forecast`), 098 (event-adresse), 100 (polish), 101 (`bons.event_role`), 104 (`bon_lines.moms_included` — event-udgifter ex moms)
+- [x] **No-deduct gate (§5):** event-salgsbons trækker IKKE HQ-lager (kun prep-bons), håndhævet i `autoConsumeBonInventory` scoped til event_id. "Let event fra HQ"-model — adskilt fra Festival-specens trailer-Grocy + transfer
+- Bygger ovenpå: "Event-pakkeliste v2" + "Event top-up-forslag" (egne sektioner ovenfor)
+
+#### Diverse mindre migrations efter 21. maj
+- 081 — FAKTURERET → BETALT direkte (status-transition)
+- 083 — KLAR → GODKENDT direkte (køkken kan gå tilbage uden IGANG)
+- 094 — mail inline-billeder (`mail_attachments.content_id`/`is_inline`)
+- 099 — `mail_unmatched.body_html` (billeder i CRM-indbakke)
+- 104 — inbox-handling
+- 111 — stående rabat (trigger kopierer company/customer `discount_percent` → `offer_discount_percent` ved INSERT)
+- 112 — `cf_meta.economic_booked_until` (e-conomic-afstemnings-vandmærke)
+- 113 — `recipe_unit_counts` (boks-aware enheder) + `settings.unit_count_extra_recipes`
+
+### Pengestrøm §2.F + §2.E — split-allokering + direkte event-salg (29. juni 2026)
+> Spec: `docs/economics/CLAUDE_PENGESTROEM.md` §2.F + §2.E. Løser tre drift-sager der brød den
+> stive 1:1-bank-afstemning: faktura split på flere bons, bon der ikke kunne kobles (søgning så
+> kun udestaaende), og Zettle/event-indtægt uden faktura.
+
+- **Migration 115:** `cf_allocations` (én tx → ét/flere mål MED beløb; target_type invoice|bon|event|fee).
+  Backfill af eksisterende `matched_invoice_id` → 1:1-allokering. `matched_invoice_id` bevares som
+  denormaliseret hurtig-sti — sandheden er allokeringerne.
+- **§2.F:** `POST/DELETE /api/cashflow/allocations`, `GET /transactions/:id/allocations`,
+  `GET /match-targets` (universel union: bons + fakturaer + events). "Kan ikke matches"-listen er nu
+  allokerings-bevidst. **To-akset status:** allokering rører IKKE `cf_invoices.betalt` (bank-afstemt ≠
+  e-conomic-bogført — reconcile B ejer `betalt`). Split-UI i panelet (flere linjer m. beløb, gebyr-linje,
+  rest-tæller). Brutto+gebyr-model: Zettle-netto = event-brutto + negativ gebyr-linje.
+- **§2.E (direkte event-salg, bygget på cf_allocations — IKKE matched_event_id):**
+  `GET /events-on-date` (auto-forslag på dato-overlap, +5 dages buffer) · `GET /event-income`
+  (per-event brutto/gebyr/netto-kort i Overblik) · `POST /create-bon-from-tx` (opret BETALT salgsbon,
+  event_role='sales', festival-pris, ingen kunde; genbruger eventets salgsbon hvis den findes; fleksible
+  linjer + valgfri gebyr). "🧾 Opret bon"-knap i alloc-panelet.
+- `shared/api.js`: 7 nye wrappers (allocations, match-targets, events-on-date, event-income, create-bon-from-tx).
+- Caseliste + beslutninger afklaret med Leif (brutto+gebyr, ingen forudbetaling, MobilePay relevant,
+  status BETALT, samlefaktura→bons) — i specens §2.F.4/§2.F.5 + §2.E.
+- Drive-by: `scripts/test-cashflow-sync.js` brugte urealistiske bon-numre uden B-præfiks (stale fixtures
+  → FK-crash); rettet til prod-format. 28/0 grøn.
+- Browser-verificeret end-to-end mod kopi af prod-data; testdata ryddet, kopi pristine.
+
+### Pengestrøm §2.F.6 — kategori-triage + e-conomic-genkendelse + find-værktøjer (29.-30. juni 2026)
+> Spec: `docs/economics/CLAUDE_PENGESTROEM.md` §2.F.6. Drevet af Leifs drifttest på branchen.
+> Løser at "kan ikke matches" var uoverskuelig (396 poster) og ubrugelig til at FINDE en bestemt
+> indbetaling. Otte commits, alle browser-verificeret mod prod-data-kopi, testdata ryddet hver gang.
+
+- **Vandmærke-FOLD (ikke skjul):** det tidligere "match-mod-betalt-faktura-på-beløb"-tjek var en fejl
+  (med ~2.900 fakturaer rammer ethvert beløb tilfældigt en betalt faktura → skjulte event-kontant som
+  "Zettle Michelin"). Fjernet. Foldede poster er findbare via chip/søgning.
+- **Kategori-triage** (`cfCategorize`, banktekst+dato+beløb): `event_cash` 🎪 (Zettle/MobilePay/kontant,
+  alle år, kræver salgsbon) · `invoice_check` 📄 (fakturanr, åbent år) · `large_check` 🔍 (≥ grænse, ingen
+  fakturanr, ALLE år — fanger "SLUTAFREGNING RF25") → SURFACE. `invoice_paid`/`minor` → FOLD.
+  Settings: `cf_accounts_closed_year` (2025), `cf_check_large_threshold` (10.000), tolerance 350→**400**.
+- **E-conomic-fakturanummer-link (migration 117):** `cf_invoices.economic_number` — reconcile gemmer
+  `bookedInvoiceNumber` (overskriften INDEHOLDER bon-nr, fx 4091/#B4117 — verificeret via diagnose).
+  `matchByEconomicNumber` kobler indbetaling via nr+beløb i bankteksten.
+- **E-conomic-spejl (migration 119):** `cf_economic_invoices` — reconcile spejler ALLE bogførte fakturaer
+  (også uden bon-kobling). `cfCategorize` genkender en faktura-indbetaling som afregnet blot ved at nummeret
+  findes i spejlet → 📄-listen skrumper til ægte undtagelser (testdata: 63 → 1; surfaced 97 → 35).
+  Backfill: `scripts/backfill-economic-numbers.js --apply` (engangs, fylder spejl + numre; dry-run kører i
+  transaktion + rollback for sandt preview). Diagnose: `scripts/diagnose-cashflow-match.js` (read-only).
+- **Find-værktøjer:** kategori-chips + dato/beløb-filtre + sortering i "kan ikke matches"
+  (`?category/from/to/min/sort`). Event-side **"Find indbetaling"** (`/candidates-for-event`, ±14 dage) →
+  "Opret salgsbon" → bon arver eventets **lokation, dato (start_date) og adresse**.
+- **Fakturaform-UX:** foldbar header (✎ Faktura <nr> · <kunde>), valgt-række fremhævet, liste scroller
+  uafhængigt (`#cfInvRows` max-height).
+- **Tests:** `scripts/test-cashflow-sync.js` 49/0 (cfCategorize-regler + bookedSet-genkendelse + matchByEconomicNumber).
+
 ## Næste opgave
 
-> ✏️ Opdateret 21. maj 2026.
+> ✏️ Tracker-oprydning 29. juni 2026 — koden er på migration 119; status-sektionen ovenfor
+> stoppede ved 21. maj. Bygget men nu efterdokumenteret (egne sektioner ovenfor):
+> **Driftsregnskab, Produktionsbatch, E-conomic-adapter, Lobo/Byekspressen, Outreach+CRM-triks,
+> Event-modul.** 6 GitHub-issues lukket som færdige (#64, #70, #71, #77, #85, #132). 30 issues
+> stadig åbne.
+>
+> **Reelt tilbageværende arbejde (verificeret mod kode 29. juni):**
+> - **CO₂-epic #88 (#105–113)** — ~10-15 % færdigt. Kun det GAMLE `Co2e`-grundlag findes (`bon_lines.co2e`-kolonne + recipe-cache + event-CO₂, alt på upålidelige GLO-tal). Det nye modul (F1 userfields → F8 ESG-eksport) er reelt ikke startet. **F1 (5 nye userfields + deprecér `Co2e`→`Co2e_OLD`) er gating-trinnet — skal bygges først.** Skal bruges snart. Spec: `docs/CLAUDE_CO2.md`
+> - **Festival/multi-lokation #81 (#98–103)** — ~20 % færdigt. `locations`-tabel + `getGrocyConfig(locationId)` findes; festival-specifikke dele (flags `multi_location`/`festival_enabled`, transfer HQ↔Trailer, afstemnings-view) er ustartede. Event-modulet ER IKKE Festival (separat "let event fra HQ"-model). Bygges lidt senere. Spec: `docs/festival/`
+> - **Form Builder #82 (#119–125)** + **field-type-engine #79** — kun spec (`docs/formbuilder/`), ingen kode
+> - **Kunde-portal #83 (#89–97)** — kun spec (`docs/kunde portal/`), kun `external_ref`-kroge findes
+> - **Menu-agent #78** — kun spec (`docs/CLAUDE_MENU_AGENT.md`), ingen Anthropic-SDK-brug
+> - **Mindre features:** #236 leveringsomkostnings-rapport, #165 indkøbs-forecast, #215 leveringsafstand fra bons, #136 Grocy-SSO-genvej
+> - **Tech-debt:** #237 fælles `createBon()`-helper (bon-oprettelse duplikeret i 5 routes), #72 slet ubrugt `services/hokaAdapter.js`, #133 6 tidszone-follow-ups (14 `toISOString().slice` tilbage), #194 bug (drift-levering-tal er incl-moms salgspris)
+> - **Test-specs:** #74 T_CRM, #75 T_CASHFLOW (sidste 2 tracks)
+> - **Ops/ekstern:** #84 Delivery go-live (kør `backfill-geocode.js` mod prod + udfyld templates), #60 Booking-deploy (cron + settings + CORS), #66 Inco-creds, #73 Grocy-audit Trailer+Test, #234 geokod ~425 v1-adresser, #69 malware credential-rotation (memory)
 >
 > **Delivery Spor 2 KOMPLET (S2.0-S2.3, 21. maj 2026).** ORS-vej-routing, DAWA-geokodning, `route_planner`, rute-endpoints, logistik-viewet med Leaflet-kort + historik-heatmap, fælles pickup-model, drag-drop rute-planlægning, delt logistik (køkken + office), courier-mobil (`mobile/views/levering.js`) med depart/leveret/problem-flow, og logistik live-mode. 222 delivery-tests grønne, browser-verificeret end-to-end. Detaljer i Status-sektionen "Delivery — Spor 2". **Mangler kun S2.4** (By-expressen API) som afventer Sebastians credentials — Spor 2 fungerer fuldt uden den via manuel popout-booking. `scripts/backfill-geocode.js` skal køres mod prod-DB før go-live.
 >

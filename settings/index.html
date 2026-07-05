@@ -868,6 +868,17 @@
       </div>
       <div id="uc-status" style="font-size:11px;color:var(--color-text-dim);min-height:16px"></div>
 
+      <h4 style="margin-top:18px;font-size:13px;font-weight:700">Ekstra-retter der tæller som 1 enhed</h4>
+      <div style="font-size:12px;color:var(--color-text-dim);margin-bottom:10px;line-height:1.6;max-width:600px">
+        Enkelt-retter der skal tælle som enhed selvom deres kategori ikke er valgt ovenfor — fx <strong>Børne Bokse</strong>, der ligger i den blandede kategori "Tilbehør &amp; Bokse". <strong>Kombo-bokse</strong> (fx "Alm slider Boks" = 3 sliders) ekspanderes automatisk via Grocy-underopskrifter og skal <em>ikke</em> tilføjes her.
+      </div>
+      <div id="ue-list" style="display:flex;flex-wrap:wrap;gap:8px;margin-bottom:12px;min-height:34px"></div>
+      <div style="display:flex;gap:8px;align-items:center;margin-bottom:14px">
+        <select id="ue-add-select" class="st-input" style="flex:1;max-width:340px"></select>
+        <button class="st-btn st-btn-primary" type="button" onclick="ueAddSelected()">+ Tilføj</button>
+      </div>
+      <div id="ue-status" style="font-size:11px;color:var(--color-text-dim);min-height:16px"></div>
+
       <h3 style="margin-top:24px;font-size:15px;font-weight:700">Planlægningsbon</h3>
       <div style="display:flex;gap:12px;align-items:center;margin-bottom:14px">
         <label style="width:280px;font-size:14px;font-weight:500">Vis priser i planlægningsbon</label>
@@ -946,6 +957,35 @@
         <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:14px">
           <h3 style="margin:0;font-size:16px" id="dv-editor-title">Rediger leveringsmetode</h3>
           <button type="button" class="st-btn-secondary" onclick="dvCloseEditor()">Luk</button>
+        </div>
+        <div id="dv-lobo-sandbox" style="display:none;margin-bottom:14px;padding:12px;border:1px solid #e7c98a;border-radius:8px;background:#fdf6e3">
+          <div style="display:flex;justify-content:space-between;align-items:flex-start;gap:12px">
+            <div>
+              <div style="font-weight:600;font-size:14px">🧪 Test-tilstand (sandkasse)</div>
+              <div style="font-size:12px;color:#7a6a3a;margin-top:2px">Slået TIL: bestillinger går til By-expressens sandkasse — der sendes <strong>ingen rigtige bud</strong>. Slået FRA: rigtige bestillinger sendes til produktion.</div>
+              <div id="dv-lobo-host" style="font-size:11px;color:#999;margin-top:4px;font-family:monospace"></div>
+            </div>
+            <label style="display:inline-flex;align-items:center;cursor:pointer;flex:none">
+              <input type="checkbox" id="dv-lobo-sandbox-toggle" onchange="dvToggleLoboSandbox(this.checked)" style="width:20px;height:20px;cursor:pointer">
+            </label>
+          </div>
+        </div>
+        <div id="dv-lobo-webhooks" style="display:none;margin-bottom:14px;padding:12px;border:1px solid #cdd9e3;border-radius:8px;background:#f6f9fc">
+          <div style="font-weight:600;font-size:14px">🔔 Webhooks — live-status (selvkalibrerende)</div>
+          <div style="font-size:12px;color:#5a6b78;margin-top:2px">Registrér webhooks hos By-expressen så bon-status opdaterer live. HMAC-verifikationen <strong>kalibreres automatisk</strong> fra det første rigtige callback — ingen manuel opsætning.</div>
+          <div id="dv-lobo-wh-status" style="font-size:12px;margin-top:8px;color:#333"></div>
+          <div style="display:flex;gap:8px;margin-top:10px">
+            <button type="button" class="st-btn-secondary" onclick="dvRegisterLoboWebhooks()">Registrér / forny</button>
+            <button type="button" class="st-btn-secondary" onclick="dvUnregisterLoboWebhooks()">Afregistrér</button>
+          </div>
+        </div>
+        <div id="dv-lobo-pricing" style="display:none;margin-bottom:14px;padding:12px;border:1px solid #cdd9e3;border-radius:8px;background:#f6f9fc">
+          <div style="font-weight:600;font-size:14px">💰 Pris-regel — foreslået kundepris (lange ture)</div>
+          <div style="font-size:12px;color:#5a6b78;margin-top:2px;margin-bottom:8px">Når buddet koster mere end standardprisen, foreslår panelet en kundepris: <strong>kostpris + markup</strong>, rundet op til nærmeste beløb (aldrig under standardpris).</div>
+          <div style="display:flex;gap:12px;align-items:flex-end">
+            <div><label class="st-label">Markup %</label><input type="number" id="dv-lobo-markup" class="st-input" min="0" step="1" style="width:90px" onchange="dvSaveLoboPricing()"></div>
+            <div><label class="st-label">Rund op til (kr)</label><input type="number" id="dv-lobo-round" class="st-input" min="1" step="1" style="width:110px" onchange="dvSaveLoboPricing()"></div>
+          </div>
         </div>
         <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px;margin-bottom:14px">
           <div>
@@ -1103,6 +1143,26 @@
           <span style="flex:1"></span>
           <button type="button" class="st-btn-secondary" onclick="bsReload()">Annullér</button>
           <button type="button" class="st-btn" id="bs-save-btn" onclick="bsSave()">Gem indstillinger</button>
+        </div>
+      </div>
+
+      <!-- Ferielukket / lukkedage -->
+      <div style="background:#fafaf8;border:1px solid var(--color-border);border-radius:8px;padding:14px 16px;margin-bottom:18px">
+        <div style="font-weight:600;font-size:14px;margin-bottom:4px">🏖️ Ferielukket / lukkedage</div>
+        <div style="font-size:12px;color:#888;margin-bottom:14px">Spærrer leveringsdatoer i formularen. Kunden ser en besked og kan ikke sende bestilling for datoer i perioderne. Gælder også helligdage — tilføj dem som enkelte lukkedage.</div>
+
+        <div id="bcd-list" style="display:flex;flex-direction:column;gap:8px;margin-bottom:12px"></div>
+
+        <div style="display:flex;gap:8px;flex-wrap:wrap;margin-bottom:14px">
+          <button type="button" class="st-btn-secondary" onclick="bcdAddPeriod()">+ Tilføj ferieperiode</button>
+          <button type="button" class="st-btn-secondary" onclick="bcdAddSingle()">+ Tilføj enkelt lukkedag</button>
+        </div>
+
+        <div style="display:flex;gap:10px;align-items:center;padding-top:10px;border-top:1px dashed #ddd">
+          <span id="bcd-preview" style="font-size:12px;color:#888"></span>
+          <span style="flex:1"></span>
+          <button type="button" class="st-btn-secondary" onclick="bcdReload()">Annullér</button>
+          <button type="button" class="st-btn" id="bcd-save-btn" onclick="bcdSave()">Gem lukkedage</button>
         </div>
       </div>
 
@@ -2390,8 +2450,9 @@ function _ucParse(raw) {
 
 async function loadUnitCategoriesSettings() {
   _ucSelected = _ucParse(allSettings['unit_count_categories']);
+  var recipes = [];
   try {
-    var recipes = await fetchGrocyRecipes();
+    recipes = await fetchGrocyRecipes();
     var seen = new Set();
     _ucAllCats = [];
     (recipes || []).forEach(function(r) {
@@ -2409,6 +2470,7 @@ async function loadUnitCategoriesSettings() {
     if (!_ucAllCats.includes(c)) _ucAllCats.push(c);
   });
   _ucRender();
+  _ueInit(recipes);
 }
 
 function _ucRender() {
@@ -2457,6 +2519,82 @@ async function _ucSave() {
     allSettings['unit_count_categories'] = json;
     if (status) {
       status.textContent = 'Gemt — kører igen ved næste bon-ændring. For historiske bons: kør scripts/backfill-total-units.js --apply';
+      setTimeout(function() { if (status.textContent.indexOf('Gemt') === 0) status.textContent = ''; }, 6000);
+    }
+  } catch (e) {
+    if (status) status.textContent = 'Fejl: ' + (e.message || e);
+  }
+}
+
+// ─── EKSTRA-RETTER (fx Børne Bokse) ──────────────────────
+// Recipe-id der tæller som 1 enhed selvom kategorien ikke er valgt ovenfor.
+// Gemmes som JSON-array af id i unit_count_extra_recipes. Kombo-bokse
+// ekspanderes automatisk via Grocy-nestings og skal IKKE stå her.
+
+var _ueSelected = [];      // array af recipe-id (number)
+var _ueRecipeMap = {};     // id → navn
+
+function _ueInit(recipes) {
+  _ueSelected = _ucParse(allSettings['unit_count_extra_recipes']).map(Number).filter(function(n){ return !isNaN(n); });
+  _ueRecipeMap = {};
+  (recipes || []).forEach(function(r) { _ueRecipeMap[Number(r.id)] = r.name; });
+  _ueRender(recipes || []);
+}
+
+function _ueRender(recipes) {
+  var list = document.getElementById('ue-list');
+  var sel  = document.getElementById('ue-add-select');
+  if (!list || !sel) return;
+
+  if (_ueSelected.length === 0) {
+    list.innerHTML = '<span style="font-size:13px;color:var(--color-text-dim);font-style:italic">Ingen — kun kategorierne ovenfor tæller</span>';
+  } else {
+    list.innerHTML = _ueSelected.map(function(id) {
+      var name = _ueRecipeMap[id] || ('Recipe #' + id);
+      return '<span class="ue-chip" style="display:inline-flex;align-items:center;gap:6px;padding:5px 10px;background:var(--brand-primary-light);border:1px solid var(--color-border);border-radius:14px;font-size:13px">' +
+        esc(name) + ' <span style="color:var(--color-text-dim);font-size:11px">#' + id + '</span>' +
+        '<button type="button" onclick="ueRemove(' + id + ')" style="border:none;background:none;cursor:pointer;font-size:14px;line-height:1;color:var(--color-text-dim);padding:0" title="Fjern">×</button>' +
+      '</span>';
+    }).join('');
+  }
+
+  var available = (recipes || []).filter(function(r) { return _ueSelected.indexOf(Number(r.id)) === -1; })
+    .sort(function(a, b) { return (a.name || '').localeCompare(b.name || '', 'da'); });
+  sel.innerHTML = '<option value="">— vælg ret —</option>' +
+    available.map(function(r) { return '<option value="' + Number(r.id) + '">' + esc(r.name) + (r.category ? ' (' + esc(r.category) + ')' : '') + '</option>'; }).join('');
+}
+
+async function ueAddSelected() {
+  var sel = document.getElementById('ue-add-select');
+  if (!sel || !sel.value) return;
+  var id = Number(sel.value);
+  if (_ueSelected.indexOf(id) !== -1) return;
+  _ueSelected.push(id);
+  await _ueSave();
+  // genbyg dropdown fra alle recipes (hentes via map-nøgler kan ikke; brug fetch)
+  var recipes = [];
+  try { recipes = await fetchGrocyRecipes(); } catch (e) {}
+  (recipes || []).forEach(function(r){ _ueRecipeMap[Number(r.id)] = r.name; });
+  _ueRender(recipes);
+}
+
+async function ueRemove(id) {
+  _ueSelected = _ueSelected.filter(function(x) { return x !== Number(id); });
+  await _ueSave();
+  var recipes = [];
+  try { recipes = await fetchGrocyRecipes(); } catch (e) {}
+  _ueRender(recipes);
+}
+
+async function _ueSave() {
+  var status = document.getElementById('ue-status');
+  if (status) status.textContent = 'Gemmer…';
+  try {
+    var json = JSON.stringify(_ueSelected);
+    await saveSetting('unit_count_extra_recipes', json);
+    allSettings['unit_count_extra_recipes'] = json;
+    if (status) {
+      status.textContent = 'Gemt — for historiske bons: kør scripts/backfill-total-units.js --apply';
       setTimeout(function() { if (status.textContent.indexOf('Gemt') === 0) status.textContent = ''; }, 6000);
     }
   } catch (e) {
@@ -3717,6 +3855,24 @@ function dvEditVehicle(id) {
     _dvRenderVarChips();
     dvOnMethodChange();
 
+    // By-expressen: master-kontakt for sandkasse-tilstand (kun denne vogn).
+    const loboBox = document.getElementById('dv-lobo-sandbox');
+    const loboWh = document.getElementById('dv-lobo-webhooks');
+    if (v.code === 'byekspressen') {
+        const cfg = v.booking_api_config || {};
+        document.getElementById('dv-lobo-sandbox-toggle').checked = !!cfg.use_sandbox;
+        document.getElementById('dv-lobo-host').textContent = cfg.use_sandbox ? (cfg.sandbox_url || '') : (cfg.base_url || '');
+        loboBox.style.display = '';
+        loboWh.style.display = '';
+        document.getElementById('dv-lobo-pricing').style.display = '';
+        dvLoadLoboWebhookStatus();
+        dvLoadLoboPricing();
+    } else {
+        loboBox.style.display = 'none';
+        loboWh.style.display = 'none';
+        document.getElementById('dv-lobo-pricing').style.display = 'none';
+    }
+
     const editor = document.getElementById('dv-editor');
     editor.style.display = '';
     editor.scrollIntoView({ behavior: 'smooth', block: 'start' });
@@ -3822,6 +3978,86 @@ function dvMoveField(idx, delta) {
 window.dvAddField = dvAddField;
 window.dvRemoveField = dvRemoveField;
 window.dvMoveField = dvMoveField;
+
+async function dvToggleLoboSandbox(enabled) {
+    try {
+        await setLoboSandbox(enabled);
+        const v = _dvVehicles.find(x => x.id === _dvEditingId);
+        if (v && v.booking_api_config) v.booking_api_config.use_sandbox = !!enabled;
+        const cfg = (v && v.booking_api_config) || {};
+        document.getElementById('dv-lobo-host').textContent = enabled ? (cfg.sandbox_url || '') : (cfg.base_url || '');
+        toast(enabled ? 'Sandkasse slået TIL — ingen rigtige bud sendes' : 'Sandkasse slået FRA — produktion er aktiv');
+    } catch (e) {
+        document.getElementById('dv-lobo-sandbox-toggle').checked = !enabled;
+        toast('Kunne ikke skifte tilstand: ' + (e.message || e), 'error');
+    }
+}
+window.dvToggleLoboSandbox = dvToggleLoboSandbox;
+
+async function dvLoadLoboWebhookStatus() {
+    const el = document.getElementById('dv-lobo-wh-status');
+    if (!el) return;
+    el.textContent = 'Henter status…';
+    try {
+        const s = await fetchLoboWebhookStatus();
+        if (!s.registered) { el.innerHTML = '<span style="color:#888">Ingen webhooks registreret endnu.</span>'; return; }
+        const cal = s.calibrated
+            ? `<span style="color:#1d6b45;font-weight:600">✓ Kalibreret</span> (header <code>${s.sig_header || '?'}</code>, signerer <code>${s.sign_target || '?'}</code>) — verifikation aktiv`
+            : '<span style="color:#9a6a1a;font-weight:600">⏳ Afventer kalibrering</span> — slås automatisk til ved første rigtige callback';
+        el.innerHTML = `Registreret: <strong>${s.events.length}</strong> events (${s.events.join(', ')})<br>` +
+            `URL: <code style="font-size:11px">${s.url || '–'}</code><br>${cal}`;
+    } catch (e) {
+        el.innerHTML = '<span style="color:#9a2a2a">Kunne ikke hente status: ' + (e.message || e) + '</span>';
+    }
+}
+
+async function dvRegisterLoboWebhooks() {
+    const el = document.getElementById('dv-lobo-wh-status');
+    el.textContent = 'Registrerer…';
+    try {
+        const r = await registerLoboWebhooks(window.location.origin);
+        toast('Webhooks registreret (' + r.registered.length + ' events)' + (r.sandbox ? ' — OBS: sandkasse-tilstand, der fyrer ingen callbacks' : ''));
+        await dvLoadLoboWebhookStatus();
+    } catch (e) {
+        toast('Kunne ikke registrere: ' + (e.message || e), 'error');
+        await dvLoadLoboWebhookStatus();
+    }
+}
+
+async function dvUnregisterLoboWebhooks() {
+    if (!confirm('Afregistrér alle By-expressen-webhooks og nulstil HMAC-kalibreringen?')) return;
+    try {
+        await unregisterLoboWebhooks();
+        toast('Webhooks afregistreret');
+        await dvLoadLoboWebhookStatus();
+    } catch (e) {
+        toast('Kunne ikke afregistrere: ' + (e.message || e), 'error');
+    }
+}
+window.dvLoadLoboWebhookStatus = dvLoadLoboWebhookStatus;
+window.dvRegisterLoboWebhooks = dvRegisterLoboWebhooks;
+window.dvUnregisterLoboWebhooks = dvUnregisterLoboWebhooks;
+
+async function dvLoadLoboPricing() {
+    try {
+        const rows = await fetchSettings();
+        const get = (k, def) => { const r = (rows || []).find(x => x.key === k); return r && r.value != null ? r.value : def; };
+        document.getElementById('dv-lobo-markup').value = get('lobo_customer_markup_pct', '10');
+        document.getElementById('dv-lobo-round').value = get('lobo_customer_round_to', '25');
+    } catch (e) {
+        document.getElementById('dv-lobo-markup').value = '10';
+        document.getElementById('dv-lobo-round').value = '25';
+    }
+}
+async function dvSaveLoboPricing() {
+    try {
+        await patchSetting('lobo_customer_markup_pct', document.getElementById('dv-lobo-markup').value || '0');
+        await patchSetting('lobo_customer_round_to', document.getElementById('dv-lobo-round').value || '25');
+        toast('Pris-regel gemt');
+    } catch (e) { toast('Kunne ikke gemme: ' + (e.message || e), 'error'); }
+}
+window.dvLoadLoboPricing = dvLoadLoboPricing;
+window.dvSaveLoboPricing = dvSaveLoboPricing;
 
 function dvCloseEditor() {
     _dvEditingId = null;
@@ -3969,6 +4205,7 @@ async function bmInit() {
   bsRenderDayCheckboxes();
   await bmLoadSource();
   await bsLoad();
+  await bcdLoad();
   await bmLoad();
 }
 
@@ -4159,6 +4396,138 @@ async function bsSave() {
 
 window.bsReload = bsReload;
 window.bsSave = bsSave;
+
+// ─── Bestilling — ferielukket/lukkedage ─────────────────────
+// Model i state: [{ from, to, label }] (enkeltdag => from === to).
+let _bcdRows = [];
+let _bcdDirty = false;
+
+function bcdEscape(s) {
+  return String(s == null ? '' : s).replace(/[&<>"]/g, c => ({ '&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;' }[c]));
+}
+
+async function bcdLoad() {
+  try {
+    const r = await fetch('/api/settings', { credentials: 'include' });
+    const all = await r.json();
+    const raw = all.find(s => s.key === 'bestilling.closed_dates')?.value || '[]';
+    let arr = [];
+    try { arr = JSON.parse(raw); } catch (e) { arr = []; }
+    _bcdRows = (Array.isArray(arr) ? arr : []).map(x => ({
+      from: String(x.from || x.to || '').trim(),
+      to: String(x.to || x.from || '').trim(),
+      label: String(x.label || '').trim(),
+      single: String(x.from || '').trim() === String(x.to || '').trim()
+    }));
+    _bcdDirty = false;
+    bcdRender();
+  } catch (e) {
+    toast('Kunne ikke hente lukkedage: ' + e.message, 'error');
+  }
+}
+
+function bcdReload() {
+  if (_bcdDirty && !confirm('Annullér ugemte ændringer i lukkedage?')) return;
+  bcdLoad();
+}
+
+function bcdMarkDirty() { _bcdDirty = true; bcdUpdateBtnState(); bcdUpdatePreview(); }
+
+function bcdAddPeriod() { _bcdRows.push({ from:'', to:'', label:'', single:false }); bcdMarkDirty(); bcdRender(); }
+function bcdAddSingle() { _bcdRows.push({ from:'', to:'', label:'', single:true }); bcdMarkDirty(); bcdRender(); }
+function bcdRemove(i) { _bcdRows.splice(i, 1); bcdMarkDirty(); bcdRender(); }
+
+function bcdRender() {
+  const wrap = document.getElementById('bcd-list');
+  if (!wrap) return;
+  if (!_bcdRows.length) {
+    wrap.innerHTML = '<div style="font-size:12px;color:#aaa;font-style:italic">Ingen lukkedage — bestillingsformen er åben efter de normale åbningstider.</div>';
+    bcdUpdateBtnState(); bcdUpdatePreview();
+    return;
+  }
+  wrap.innerHTML = _bcdRows.map((r, i) => {
+    const dateFields = r.single
+      ? `<input type="date" value="${bcdEscape(r.from)}" oninput="bcdSet(${i},'both',this.value)" class="st-input" style="max-width:170px">`
+      : `<input type="date" value="${bcdEscape(r.from)}" oninput="bcdSet(${i},'from',this.value)" class="st-input" style="max-width:160px">
+         <span style="color:#888">→</span>
+         <input type="date" value="${bcdEscape(r.to)}" oninput="bcdSet(${i},'to',this.value)" class="st-input" style="max-width:160px">`;
+    return `<div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap;background:#fff;border:1px solid var(--color-border);border-radius:6px;padding:8px 10px">
+      <span style="font-size:11px;color:#888;min-width:70px">${r.single ? 'Lukkedag' : 'Periode'}</span>
+      ${dateFields}
+      <input type="text" value="${bcdEscape(r.label)}" oninput="bcdSet(${i},'label',this.value)" placeholder="Navn (fx Sommerferie)" class="st-input" style="flex:1;min-width:140px">
+      <button type="button" class="st-btn-secondary" onclick="bcdRemove(${i})" title="Fjern" style="padding:4px 10px">✕</button>
+    </div>`;
+  }).join('');
+  bcdUpdateBtnState(); bcdUpdatePreview();
+}
+
+function bcdSet(i, field, val) {
+  const r = _bcdRows[i];
+  if (!r) return;
+  if (field === 'both') { r.from = val; r.to = val; }
+  else if (field === 'from') { r.from = val; if (r.to && r.to < val) r.to = val; }
+  else if (field === 'to') { r.to = val; }
+  else if (field === 'label') { r.label = val; }
+  _bcdDirty = true;
+  bcdUpdateBtnState(); bcdUpdatePreview();
+}
+
+function bcdUpdateBtnState() {
+  const btn = document.getElementById('bcd-save-btn');
+  if (!btn) return;
+  btn.textContent = _bcdDirty ? 'Gem lukkedage •' : 'Gem lukkedage';
+  btn.style.background = _bcdDirty ? '#dc2626' : '';
+}
+
+function bcdUpdatePreview() {
+  const span = document.getElementById('bcd-preview');
+  if (!span) return;
+  const valid = _bcdRows.filter(r => r.from && r.to);
+  span.textContent = valid.length
+    ? `${valid.length} lukket ${valid.length === 1 ? 'periode/dag' : 'perioder/dage'}`
+    : 'Ingen lukkedage';
+  span.style.color = '#888';
+}
+
+async function bcdSave() {
+  // Validér + normalisér
+  const out = [];
+  for (const r of _bcdRows) {
+    if (!r.from && !r.to) continue; // spring helt tomme rækker over
+    const from = r.from || r.to;
+    const to = r.single ? from : (r.to || r.from);
+    if (!from || !to) return toast('Udfyld begge datoer på alle perioder', 'error');
+    if (to < from) return toast('Slutdato kan ikke være før startdato', 'error');
+    out.push({ from, to, label: (r.label || '').trim() });
+  }
+
+  const btn = document.getElementById('bcd-save-btn');
+  btn.disabled = true; btn.textContent = 'Gemmer…';
+  try {
+    const r = await fetch('/api/settings/bestilling.closed_dates', {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json' },
+      credentials: 'include',
+      body: JSON.stringify({ value: JSON.stringify(out) })
+    });
+    if (!r.ok) throw new Error('HTTP ' + r.status);
+    _bcdDirty = false;
+    toast('Lukkedage gemt');
+    bcdLoad();
+  } catch (e) {
+    toast('Kunne ikke gemme: ' + e.message, 'error');
+  } finally {
+    btn.disabled = false;
+    bcdUpdateBtnState();
+  }
+}
+
+window.bcdAddPeriod = bcdAddPeriod;
+window.bcdAddSingle = bcdAddSingle;
+window.bcdRemove = bcdRemove;
+window.bcdSet = bcdSet;
+window.bcdReload = bcdReload;
+window.bcdSave = bcdSave;
 
 
 async function bmLoadSource() {

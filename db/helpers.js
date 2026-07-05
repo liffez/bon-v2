@@ -306,6 +306,8 @@ function offsetISO(days) {
 
 let _unitCatCache = null;
 let _unitCatCacheUntil = 0;
+let _unitExtraCache = null;
+let _unitExtraCacheUntil = 0;
 
 function getUnitCountCategories() {
     const now = Date.now();
@@ -321,29 +323,82 @@ function getUnitCountCategories() {
     return list;
 }
 
+// Grocy recipe-id der tæller som 1 enhed selvom kategorien ikke er whitelisted
+// (fx Børne Bokse i den blandede "Tilbehør & Bokse"-kategori). Bruges som
+// fallback når en linje ikke har en recipe_unit_counts-række endnu.
+function getUnitCountExtraRecipes() {
+    const now = Date.now();
+    if (_unitExtraCache && now < _unitExtraCacheUntil) return _unitExtraCache;
+    const row = getDb().prepare(`SELECT value FROM settings WHERE key='unit_count_extra_recipes'`).get();
+    let list = [];
+    if (row?.value) {
+        try { list = JSON.parse(row.value); } catch { list = []; }
+        if (!Array.isArray(list)) list = [];
+    }
+    list = list.map(Number).filter(n => Number.isFinite(n));
+    _unitExtraCache = list;
+    _unitExtraCacheUntil = now + 60_000;
+    return list;
+}
+
 function invalidateUnitCountCache() {
     _unitCatCache = null;
     _unitCatCacheUntil = 0;
+    _unitExtraCache = null;
+    _unitExtraCacheUntil = 0;
 }
 
 /**
- * Genberegn total_units på en bon. SUM(quantity) på linjer hvis kategori
- * er i settings.unit_count_categories OG ikke er markeret som tilbehør.
+ * Delt enheds-udtryk — ÉN definition af "hvor mange enheder bidrager en
+ * bon_lines-række med", genbrugt af recalcBonTotalUnits, drift og backfill.
+ *
+ * Forudsætter at bon_lines har alias `bl`. Returnerer:
+ *   contrib  SQL-udtryk for enheds-bidrag pr. linje (skal SUM'es)
+ *   join     LEFT JOIN mod recipe_unit_counts (boks-ekspansion)
+ *   args     bind-parametre der hører til `contrib` (skal komme FØRST i .get/.all)
+ *
+ * ARKIV-ROBUST tællbarhed (vigtig): en linje TÆLLER hvis ÉN af disse holder:
+ *   1) linjens SNAPSHOT-kategori (bon_lines.category) er tællende, ELLER
+ *   2) recipen er på extra-listen (fx Børne Bokse), ELLER
+ *   3) recipens NUVÆRENDE Grocy-kategori er tællende (ruc.unit_count >= 1) —
+ *      fanger fejl-kategoriserede snapshots (fx 'lunch' → grocy '01 Sandwich').
+ * Snapshot-kriteriet (1) er afgørende: når en opskrift ARKIVERES (flyttes til
+ * "gamle opskrifter" i Grocy) skifter dens grupper, og ruc.unit_count bliver 0 —
+ * men historiske bons skal stadig tælle den slider de FAKTISK solgte. Derfor må
+ * arkivering aldrig ændre fortidens tal.
+ *
+ * Boks-MULTIPLIKATOR (×3 for slider-bokse) kommer fortsat fra recipe_unit_counts:
+ * når ruc.unit_count >= 2 er det en kombo-boks → gang med antallet; ellers ×1.
+ * En arkiveret boks der beholder sine underopskrifter tæller stadig korrekt
+ * (børnene er tællende → ruc forbliver 3). Tilbehør (is_accessory) filtreres i
+ * WHERE af kald-stedet.
+ */
+function bonUnitsExpr() {
+    const cats = getUnitCountCategories();
+    const extra = getUnitCountExtraRecipes();
+    const catClause = cats.length ? `bl.category IN (${cats.map(() => '?').join(',')})` : '0';
+    const extraClause = extra.length ? `bl.grocy_recipe_id IN (${extra.map(() => '?').join(',')})` : '0';
+    const contrib = `bl.quantity * CASE
+        WHEN ${catClause} OR ${extraClause} OR COALESCE(ruc.unit_count, 0) >= 1
+        THEN CASE WHEN COALESCE(ruc.unit_count, 0) >= 2 THEN ruc.unit_count ELSE 1 END
+        ELSE 0 END`;
+    const join = `LEFT JOIN recipe_unit_counts ruc ON ruc.grocy_recipe_id = bl.grocy_recipe_id`;
+    return { contrib, join, args: [...cats, ...extra] };
+}
+
+/**
+ * Genberegn total_units på en bon — boks-aware (se bonUnitsExpr).
  * Returnerer den nye total.
  */
 function recalcBonTotalUnits(db, bonId) {
-    const cats = getUnitCountCategories();
-    let total = 0;
-    if (cats.length > 0) {
-        const placeholders = cats.map(() => '?').join(',');
-        total = db.prepare(`
-            SELECT COALESCE(SUM(quantity), 0) AS t
-            FROM bon_lines
-            WHERE bon_id = ?
-              AND (is_accessory = 0 OR is_accessory IS NULL)
-              AND category IN (${placeholders})
-        `).get(bonId, ...cats).t;
-    }
+    const { contrib, join, args } = bonUnitsExpr();
+    const total = db.prepare(`
+        SELECT COALESCE(SUM(${contrib}), 0) AS t
+        FROM bon_lines bl
+        ${join}
+        WHERE bl.bon_id = ?
+          AND (bl.is_accessory = 0 OR bl.is_accessory IS NULL)
+    `).get(...args, bonId).t;
     db.prepare(`UPDATE bons SET total_units = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?`).run(total, bonId);
     return total;
 }
@@ -439,7 +494,8 @@ module.exports = {
     getBon, getBonLines, getBonMenuGroups, getPrepPackingOverrides, getPrepPackingExtras, getPrepPackingRecipeFactors, getStatusId, getDefaultLocationId,
     todayISO, offsetISO,
     autoConsumeBonInventory,
-    getUnitCountCategories, invalidateUnitCountCache, recalcBonTotalUnits,
+    getUnitCountCategories, getUnitCountExtraRecipes, invalidateUnitCountCache,
+    bonUnitsExpr, recalcBonTotalUnits,
     WORKLOAD_EXCLUDED_EVENT_ROLES, countsAsWorkload, workloadRoleSql,
     countsAsSale, salesPriceCategorySql,
     hashPassword, verifyPassword, getUserByEmail, getUserById, getUserId,

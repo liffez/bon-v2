@@ -291,6 +291,15 @@
     margin-top: 6px;
     color: #7a6a30;
 }
+.pc-weight-row {
+    margin-top: 8px;
+    display: flex;
+    align-items: center;
+    gap: 4px;
+    flex-wrap: wrap;
+}
+.pc-weight-row input#pcWeighCount { width: 56px; }
+.pc-weight-row input#pcWeighGrams { width: 90px; }
 
 /* SUBMIT */
 .pc-submit-bar {

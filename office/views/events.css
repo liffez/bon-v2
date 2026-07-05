@@ -83,6 +83,21 @@
     max-height: 90vh; overflow-y: auto;
 }
 .ev-modal h3 { margin: 0 0 16px 0; font-family: var(--font-heading, Georgia, serif); font-size: 18px; color: #2a2a2a; }
+/* Find indbetaling-modal */
+.ev-fp-head { font-family: var(--font-heading, Georgia, serif); font-size: 17px; color: #2a2a2a; margin-bottom: 4px; }
+.ev-fp-sub { font-size: 12px; color: #6a6560; margin-bottom: 14px; line-height: 1.4; }
+.ev-fp-list { display: flex; flex-direction: column; gap: 6px; }
+.ev-fp-row {
+    display: flex; align-items: center; gap: 12px; padding: 8px 10px;
+    border: 1px solid var(--color-border, #e0dad2); border-radius: 7px; background: #faf8f5;
+}
+.ev-fp-info { flex: 1; min-width: 0; }
+.ev-fp-tekst { font-weight: 700; font-size: 13px; color: #3a352f; }
+.ev-fp-cat { font-weight: 600; font-size: 10px; color: #8a5a16; margin-left: 4px; }
+.ev-fp-meta { font-size: 11px; color: #8a8580; }
+.ev-fp-kr { font-weight: 700; font-size: 14px; color: #e8a832; white-space: nowrap; }
+.ev-fp-add { flex-shrink: 0; padding: 5px 12px; font-size: 12px; }
+.ev-fp-empty { padding: 16px 8px; text-align: center; color: #6a6560; font-size: 13px; line-height: 1.5; }
 .ev-modal-form label { display: block; margin-bottom: 12px; color: #555; font-size: 12px; font-weight: 500; }
 .ev-modal-form input[type=text], .ev-modal-form input[type=date], .ev-modal-form input[type=number], .ev-modal-form textarea, .ev-modal-form select {
     width: 100%; padding: 7px 10px; margin-top: 4px; border: 1px solid var(--color-border, #d7d1ca);

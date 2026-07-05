@@ -26,7 +26,8 @@ const express       = require('express');
 const router        = express.Router();
 const Busboy        = require('busboy');
 const { getDb }     = require('../db/database');
-const { handle, inclToExcl, momsOfIncl, logChange, todayISO, offsetISO } = require('../db/helpers');
+const { handle, inclToExcl, momsOfIncl, logChange, todayISO, offsetISO,
+        getStatusId, getDefaultLocationId, nextBonNumber, recalcBonTotalUnits } = require('../db/helpers');
 const { requireAuth } = require('../shared/auth');
 const { broadcast } = require('../shared/sse');
 const { transaction } = require('../db/compat');
@@ -257,6 +258,20 @@ router.post('/upload', (req, res) => {
         db.prepare(`INSERT OR REPLACE INTO cf_meta (key, value) VALUES ('last_upload_at', ?)`)
             .run(new Date().toISOString());
 
+        // Bankindestående: bank-CSV'en er nyeste-først, så den ØVERSTE række med
+        // saldo er den aktuelle kontosaldo. Fang den eksplicit her (robust på tværs
+        // af uploads — den gamle id-baserede heuristik brød pga. INSERT OR IGNORE,
+        // der genbruger gamle id'er → fil-rækkefølgen kunne ikke udledes fra id).
+        // Dato-guard: re-upload af et ÆLDRE kontoudtog må ikke rulle saldoen tilbage.
+        const newestWithSaldo = rows.find(r => r.saldo != null);
+        if (newestWithSaldo) {
+            const prevDate = db.prepare(`SELECT value FROM cf_meta WHERE key = 'current_balance_date'`).get()?.value || '';
+            if (!prevDate || newestWithSaldo.dato >= prevDate) {
+                db.prepare(`INSERT OR REPLACE INTO cf_meta (key, value) VALUES ('current_balance', ?)`).run(String(newestWithSaldo.saldo));
+                db.prepare(`INSERT OR REPLACE INTO cf_meta (key, value) VALUES ('current_balance_date', ?)`).run(newestWithSaldo.dato);
+            }
+        }
+
         // Run match logic
         const matched = runMatchLogic(db);
 
@@ -272,23 +287,145 @@ router.post('/upload', (req, res) => {
     req.pipe(bb);
 });
 
+// Event-/direkte-salg-indbetalinger genkendes på bankteksten: de er ALDRIG
+// faktura-afregnet i e-conomic (ingen bon at matche mod) og kræver at der laves
+// en salgsbon. De løftes derfor OVER vandmærke-folden så de ikke begraves blandt
+// de bogførte. Mønstret matcher t.tekst (LOWER). Udvid her hvis nye kanaler dukker op.
+const EVENT_CASH_SQL = `(LOWER(t.tekst) LIKE '%zettle%' OR LOWER(t.tekst) LIKE '%mobilepay%' OR LOWER(t.tekst) LIKE '%kontant%' OR LOWER(t.tekst) LIKE '%vipps%')`;
+
+// Kategorisering af "kan ikke matches"-listen (29. juni — Leifs model). Bankteksten +
+// dato + beløb afgør om en postering KRÆVER en hånd, eller kan foldes som afregnet:
+//   event_cash   — Zettle/MobilePay/kontant → kræver salgsbon (historik), ALLE år    → SURFACE 🎪
+//   invoice_check— fakturanr i tekst, ÅBENT regnskabsår → tjek op mod e-conomic        → SURFACE 📄
+//   large_check  — stort beløb UDEN fakturareference → muligt event uden bon           → SURFACE 🔍
+//   invoice_paid — fakturanr i tekst, LUKKET regnskabsår → afregnet faktura            → FOLD
+//   minor        — lille beløb, ingen reference → støj (typisk leverings-±)            → FOLD
+// Lukket år + stor-grænse er settings (cf_accounts_closed_year, cf_check_large_threshold).
+const FAKTURA_RE = /faktur|fakt|fak[\s.\-]|fa\.?nr|faknr|invoice/i;
+/** Set af e-conomics bogførte fakturanumre (cf_economic_invoices) til genkendelse. */
+function cfBookedSet(db) {
+    try {
+        return new Set(db.prepare('SELECT booked_no FROM cf_economic_invoices').all().map(r => String(r.booked_no)));
+    } catch { return new Set(); }   // tabel findes evt. ikke endnu (før migration 119)
+}
+function cfCategorize(tx, closedYear, largeThreshold, bookedSet) {
+    const t = String(tx.tekst || '');
+    if (/zettle|mobilepay|vipps|kontant/i.test(t)) return 'event_cash';   // 🎪 alle år (historik-bon)
+    const year = parseInt(String(tx.dato).slice(0, 4), 10) || 9999;
+    const hasFaktura = FAKTURA_RE.test(t) || /^\s*\d{3,6}\s*$/.test(t);   // "FAKTURA 3957" / "Fa.nr. 3865" / bare "3898"
+    if (hasFaktura) {
+        // Findes nummeret som et RIGTIGT bogført e-conomic-fakturanr? → afregnet faktura → fold.
+        // (Indbetalingen = fakturaens beløb, der kan dække flere bons — derfor genkender vi
+        //  på fakturanummeret direkte, ikke på bon-beløbet.)
+        if (bookedSet && bookedSet.size) {
+            const nums = t.match(/\d{3,6}/g) || [];
+            if (nums.some(n => bookedSet.has(n))) return 'invoice_paid';
+        }
+        // Ellers: lukket regnskabsår = afregnet (fold), åbent år = ÆGTE undtagelse → tjek
+        // (nummer der ikke matcher nogen bogført faktura — fejl, kreditnota, fremtidig).
+        return year <= closedYear ? 'invoice_paid' : 'invoice_check';
+    }
+    // INGEN fakturanr — inkl. "Overførsel"/kundenavn/"Leverandør". En sådan postering kan
+    // godt VÆRE en faktura (overførsel uden nr), men også et event uden bon. Store beløb
+    // løftes derfor til tjek UANSET år — også lukket 2025 ("SLUTAFREGNING RF25" = festival
+    // der mangler en historik-bon). Småt foldes som støj (typisk leverings-±).
+    if (Math.abs(tx.beloeb) >= largeThreshold) return 'large_check';
+    return 'minor';
+}
+const CF_SURFACE_CATS = new Set(['event_cash', 'invoice_check', 'large_check']);
+function cfTriageSettings(db) {
+    const closedYear = parseInt(db.prepare(`SELECT value FROM settings WHERE key='cf_accounts_closed_year'`).get()?.value, 10);
+    const large = parseFloat(db.prepare(`SELECT value FROM settings WHERE key='cf_check_large_threshold'`).get()?.value);
+    return {
+        closedYear: Number.isFinite(closedYear) ? closedYear : 2025,
+        largeThreshold: Number.isFinite(large) && large > 0 ? large : 3000,
+    };
+}
+
 // ─── GET /transactions ──────────────────────────────────────
 
 router.get('/transactions', handle(async (req, res) => {
     const db = getDb();
     const { from, to, unmatched, limit = '200', offset = '0' } = req.query;
+    const q = String(req.query.q || '').trim();
+    const includeFolded = req.query.include_folded === '1';
 
+    // Fælles SQL for "kan ikke matches"-kandidater: indgående, ikke-ignoreret, ikke
+    // 1:1-matchet, ikke fuldt allokeret.
+    const UNMATCHED_WHERE = `t.beloeb > 0 AND t.ignored = 0 AND t.matched_invoice_id IS NULL
+        AND ABS(t.beloeb - COALESCE((SELECT SUM(a.amount) FROM cf_allocations a WHERE a.transaction_id = t.id), 0)) >= 0.01`;
+
+    // ── Kategoriseret "kan ikke matches"-liste (uden søgning) ──────────────────
+    // Hent ALLE kandidater, kategorisér i JS (cfCategorize), og vis kun dem der
+    // KRÆVER en hånd (event_cash/invoice_check/large_check). Resten foldes (findbar
+    // via include_folded=1 eller søgning). Intet forsvinder.
+    if (unmatched === '1' && !q) {
+        const { closedYear, largeThreshold } = cfTriageSettings(db);
+        const bookedSet = cfBookedSet(db);
+        // Filtre (chips + dato/beløb): category = all|event_cash|invoice_check|large_check|folded
+        const category = String(req.query.category || '').trim();
+        const minAmount = Math.abs(parseFloat(req.query.min)) || 0;
+        const fromD = req.query.from || null, toD = req.query.to || null;
+        const sort = req.query.sort === 'date' ? 'date' : 'amount';
+        const cands = db.prepare(`
+            SELECT t.*, i.kunde AS matched_kunde,
+                COALESCE((SELECT SUM(a.amount) FROM cf_allocations a WHERE a.transaction_id = t.id), 0) AS allocated
+            FROM cf_transactions t
+            LEFT JOIN cf_invoices i ON t.matched_invoice_id = i.id
+            WHERE ${UNMATCHED_WHERE}
+        `).all();
+        for (const tx of cands) {
+            tx.category = cfCategorize(tx, closedYear, largeThreshold, bookedSet);
+            tx.is_event_cash = tx.category === 'event_cash' ? 1 : 0;
+        }
+        // Tællere over ALLE kandidater — så chip-tallene er faste uafhængigt af aktivt filter.
+        const cntCat = (c) => cands.filter(t => t.category === c).length;
+        const counts = {
+            event_cash: cntCat('event_cash'),
+            invoice_check: cntCat('invoice_check'),
+            large_check: cntCat('large_check'),
+            folded: cands.filter(t => !CF_SURFACE_CATS.has(t.category)).length,
+        };
+        counts.surface = counts.event_cash + counts.invoice_check + counts.large_check;
+        // Kategori-filter. "Foldede" = de foldede (afregnet/støj); en surface-kategori = kun den;
+        // "Alle"/default = alle surface-kategorier (event+faktura+store). Ingen chip viser
+        // bogstaveligt ALT (det ville være tusindvis af afregnede posteringer).
+        let filtered;
+        if (category === 'folded') filtered = cands.filter(t => !CF_SURFACE_CATS.has(t.category));
+        else if (['event_cash', 'invoice_check', 'large_check'].includes(category)) filtered = cands.filter(t => t.category === category);
+        else filtered = cands.filter(t => CF_SURFACE_CATS.has(t.category)); // 'all' / default = surface
+        // Dato + min-beløb (kombineres med kategori)
+        if (fromD) filtered = filtered.filter(t => t.dato >= fromD);
+        if (toD)   filtered = filtered.filter(t => t.dato <= toD);
+        if (minAmount) filtered = filtered.filter(t => Math.abs(t.beloeb) >= minAmount);
+        // Sortering: beløb (default) eller dato, begge faldende
+        filtered.sort((a, b) => sort === 'date' ? String(b.dato).localeCompare(String(a.dato)) : b.beloeb - a.beloeb);
+        return res.json({
+            rows: filtered,
+            total: filtered.length,
+            folded_count: counts.folded,
+            counts,
+        });
+    }
+
+    // ── Øvrige tilfælde: søgning i umatchede, eller almindelig tx-liste ─────────
     let where = '1=1';
     const params = [];
-
     if (from) { where += ' AND t.dato >= ?'; params.push(from); }
     if (to)   { where += ' AND t.dato <= ?'; params.push(to); }
     if (unmatched === '1') {
-        where += ' AND t.matched_invoice_id IS NULL AND t.beloeb > 0 AND t.ignored = 0';
+        // SØGNING går på tværs af ALT — også foldede posteringer (sådan graves event-/
+        // direkte-salg frem). Søg på tekst eller beløb.
+        where += ` AND ${UNMATCHED_WHERE}`;
+        const digits = q.replace(/\D/g, '');
+        where += ' AND (t.tekst LIKE ?' + (digits ? ' OR CAST(t.beloeb AS TEXT) LIKE ?' : '') + ')';
+        params.push(`%${q}%`);
+        if (digits) params.push(`%${digits}%`);
     }
 
     const rows = db.prepare(`
-        SELECT t.*, i.kunde AS matched_kunde
+        SELECT t.*, i.kunde AS matched_kunde,
+            COALESCE((SELECT SUM(a.amount) FROM cf_allocations a WHERE a.transaction_id = t.id), 0) AS allocated
         FROM cf_transactions t
         LEFT JOIN cf_invoices i ON t.matched_invoice_id = i.id
         WHERE ${where}
@@ -296,11 +433,18 @@ router.get('/transactions', handle(async (req, res) => {
         LIMIT ? OFFSET ?
     `).all(...params, parseInt(limit), parseInt(offset));
 
-    const total = db.prepare(`
-        SELECT COUNT(*) AS cnt FROM cf_transactions t WHERE ${where}
-    `).get(...params);
+    // Tilføj kategori/flag til søgeresultater så frontend kan vise tags
+    if (unmatched === '1') {
+        const { closedYear, largeThreshold } = cfTriageSettings(db);
+        const bookedSet = cfBookedSet(db);
+        for (const tx of rows) {
+            tx.category = cfCategorize(tx, closedYear, largeThreshold, bookedSet);
+            tx.is_event_cash = tx.category === 'event_cash' ? 1 : 0;
+        }
+    }
 
-    res.json({ rows, total: total.cnt });
+    const total = db.prepare(`SELECT COUNT(*) AS cnt FROM cf_transactions t WHERE ${where}`).get(...params);
+    res.json({ rows, total: total.cnt, folded_count: 0 });
 }));
 
 // ─── GET /invoices ──────────────────────────────────────────
@@ -340,6 +484,11 @@ router.get('/invoices', handle(async (req, res) => {
     const params = [];
     if (tab === 'udestaaende' || tab === 'forfaldne') params.push(today);
 
+    // Udestående/forfaldne sorteres ÆLDSTE først (mest presserende øverst). Alle
+    // andre tabs (alle/betalt/sandsynlig) sorteres NYESTE først, så listen viser
+    // de relevante, seneste fakturaer i stedet for de 200 ældste fra arkivet.
+    const orderDir = (tab === 'udestaaende' || tab === 'forfaldne') ? 'ASC' : 'DESC';
+
     const rows = db.prepare(`
         SELECT
             i.*,
@@ -351,7 +500,7 @@ router.get('/invoices', handle(async (req, res) => {
         LEFT JOIN bons b              ON i.bon_id = b.id
         LEFT JOIN status_definitions sd ON b.status_id = sd.id
         WHERE ${where}
-        ORDER BY i.forfald ASC
+        ORDER BY i.forfald ${orderDir}
         LIMIT ? OFFSET ?
     `).all(...params, parseInt(limit), parseInt(offset));
 
@@ -496,14 +645,19 @@ router.get('/stats', handle(async (req, res) => {
     const today = todayISO();
     const in30 = offsetISO(30);
 
-    // Bankindestående = saldo (løbende balance) på den NYESTE postering.
-    // Bank-CSV'en er nyeste-først og indsættes i fil-rækkefølge, så inden for
-    // den nyeste dato har den nyeste postering det LAVESTE id. Derfor id ASC
-    // (ikke DESC — det gav den ÆLDSTE postering den dag → forkert/halv saldo).
-    const latestTx = db.prepare(`
-        SELECT saldo FROM cf_transactions WHERE saldo IS NOT NULL
-        ORDER BY dato DESC, id ASC LIMIT 1
-    `).get();
+    // Bankindestående = kontosaldoen fanget ved seneste CSV-upload (øverste/nyeste
+    // række). Det er robust på tværs af uploads. Fallback til den gamle id-baserede
+    // heuristik for DBs der ikke har gen-uploadet siden fixet (den er upålidelig
+    // pga. INSERT OR IGNORE, men bedre end ingenting indtil næste upload).
+    const metaBalance = db.prepare(`SELECT value FROM cf_meta WHERE key = 'current_balance'`).get();
+    let bankBalance = metaBalance != null ? parseFloat(metaBalance.value) : null;
+    if (!Number.isFinite(bankBalance)) {
+        const latestTx = db.prepare(`
+            SELECT saldo FROM cf_transactions WHERE saldo IS NOT NULL
+            ORDER BY dato DESC, id ASC LIMIT 1
+        `).get();
+        bankBalance = latestTx?.saldo ?? null;
+    }
 
     // Outstanding invoices
     const outstanding = db.prepare(`
@@ -526,17 +680,28 @@ router.get('/stats', handle(async (req, res) => {
     // Last upload
     const lastUpload = db.prepare(`SELECT value FROM cf_meta WHERE key = 'last_upload_at'`).get();
 
-    // Unmatched count
-    const unmatchedCount = db.prepare(`
-        SELECT COUNT(*) AS cnt FROM cf_transactions
-        WHERE matched_invoice_id IS NULL AND beloeb > 0
-    `).get();
+    // Unmatched count — samme kategori-triage som "kan ikke matches"-listen.
+    // unmatched_count = de ACTIONABLE (event_cash/invoice_check/large_check);
+    // folded_count = de foldede (invoice_paid/minor — afregnet/støj, ikke skjult).
+    const { closedYear: cfClosedYear, largeThreshold: cfLargeThreshold } = cfTriageSettings(db);
+    const cfBooked = cfBookedSet(db);
+    const unmatchedCands = db.prepare(`
+        SELECT t.tekst, t.dato, t.beloeb FROM cf_transactions t
+        WHERE t.matched_invoice_id IS NULL AND t.beloeb > 0 AND t.ignored = 0
+          AND ABS(t.beloeb - COALESCE((SELECT SUM(a.amount) FROM cf_allocations a WHERE a.transaction_id = t.id), 0)) >= 0.01
+    `).all();
+    let unmatchedActionable = 0, foldedCount = 0;
+    for (const tx of unmatchedCands) {
+        if (CF_SURFACE_CATS.has(cfCategorize(tx, cfClosedYear, cfLargeThreshold, cfBooked))) unmatchedActionable++;
+        else foldedCount++;
+    }
+    const unmatchedCount = { cnt: unmatchedActionable };
 
     // Cashflow-konvention: faktiske bankbevægelser er incl. moms.
     // Vi udstiller incl-moms-totaler som primær — plus heraf moms-forpligtelse
     // og ex-moms-tal (disponibelt for drift). Se BON_V2_PRINCIPPER.md sektion 6c.
     res.json({
-        saldo: latestTx?.saldo ?? null,
+        saldo: bankBalance,
         // Udestående fakturaer — kundens fakturabeløb (incl moms)
         outstanding_total: outstanding.total,
         outstanding_total_incl_moms: outstanding.total,
@@ -553,7 +718,9 @@ router.get('/stats', handle(async (req, res) => {
         expected_30d_vat_liability:   r2(momsOfIncl(expected30.total)),
         expected_30d_count: expected30.count,
         last_upload: lastUpload?.value ?? null,
-        unmatched_count: unmatchedCount.cnt
+        unmatched_count: unmatchedCount.cnt,
+        folded_count: foldedCount,
+        economic_booked_until: db.prepare(`SELECT value FROM cf_meta WHERE key = 'economic_booked_until'`).get()?.value || null
     });
 }));
 
@@ -683,6 +850,531 @@ router.patch('/transactions/:txId', handle(async (req, res) => {
     db.prepare(`UPDATE cf_transactions SET ${sets.join(', ')} WHERE id = ?`).run(...params);
 
     res.json({ ok: true });
+}));
+
+// ════════════════════════════════════════════════════════════
+// §2.F — SPLIT-ALLOKERING + UNIVERSEL KOBLING
+// Spec: docs/economics/CLAUDE_PENGESTROEM.md §2.F.
+// cf_allocations kobler én banktransaktion til ét/flere mål MED beløb.
+// Sandheden er allokeringerne; matched_invoice_id er en 1:1-hurtig-sti.
+// betalt-flaget RØRES IKKE her — det er e-conomic-aksen (reconcile B).
+// ════════════════════════════════════════════════════════════
+
+const ALLOC_TYPES = new Set(['invoice', 'bon', 'event', 'fee']);
+
+/** Genberegn 1:1-hurtig-sti (matched_invoice_id) + confidence ud fra allokeringer. */
+function syncTxFromAllocations(db, txId) {
+    const tx = db.prepare('SELECT beloeb FROM cf_transactions WHERE id = ?').get(txId);
+    if (!tx) return;
+    const allocs = db.prepare(
+        'SELECT target_type, target_id, amount FROM cf_allocations WHERE transaction_id = ?'
+    ).all(txId);
+    const sum = allocs.reduce((s, a) => s + a.amount, 0);
+    const fully = Math.abs(sum - tx.beloeb) < 0.01;
+    // Hurtig-sti kun når der er PRÆCIS én allokering, den er til en faktura, og den dækker fuldt.
+    const matched = (allocs.length === 1 && allocs[0].target_type === 'invoice' && fully)
+        ? allocs[0].target_id : null;
+    db.prepare('UPDATE cf_transactions SET matched_invoice_id = ?, match_confidence = ? WHERE id = ?')
+        .run(matched, fully ? 100 : 0, txId);
+}
+
+/** Slå et alloker­ings-måls label op (til visning). target_amount = målets eget
+ *  reference-beløb (IKKE allokeringens — den ligger på selve allocation-rækken). */
+function resolveTargetLabel(db, type, id) {
+    if (type === 'invoice') {
+        const i = db.prepare('SELECT id, kunde, beloeb FROM cf_invoices WHERE id = ?').get(id);
+        return i ? { label: `Faktura #${i.id}`, sublabel: i.kunde || '', target_amount: i.beloeb } : { label: `Faktura #${id}`, sublabel: '(slettet)' };
+    }
+    if (type === 'bon') {
+        const b = db.prepare(`
+            SELECT b.bon_number, b.delivery_date,
+                   COALESCE(NULLIF(b.total_with_delivery,0), NULLIF(b.total_price,0),
+                            (SELECT COALESCE(SUM(line_total),0) FROM bon_lines bl WHERE bl.bon_id = b.id)) AS bon_total,
+                   c.first_name || ' ' || COALESCE(c.last_name,'') AS contact, co.name AS company
+            FROM bons b LEFT JOIN customers c ON b.customer_id = c.id
+            LEFT JOIN companies co ON b.company_id = co.id WHERE b.id = ?
+        `).get(id);
+        return b ? { label: `Bon #${b.bon_number}`, sublabel: (b.company || b.contact || '').trim(), target_amount: b.bon_total } : { label: `Bon ${id}`, sublabel: '(slettet)' };
+    }
+    if (type === 'event') {
+        const e = db.prepare('SELECT name, start_date, end_date FROM events WHERE id = ?').get(id);
+        return e ? { label: `🎪 ${e.name}`, sublabel: [e.start_date, e.end_date].filter(Boolean).join(' → ') } : { label: `Event ${id}`, sublabel: '(slettet)' };
+    }
+    // fee
+    const FEE_LABELS = { zettle: 'Zettle-gebyr', mobilepay: 'MobilePay-gebyr', gebyr: 'Gebyr' };
+    return { label: FEE_LABELS[id] || `Gebyr (${id})`, sublabel: '' };
+}
+
+// ─── GET /transactions/:txId/allocations — allokeringer for én tx ────────────
+router.get('/transactions/:txId/allocations', handle(async (req, res) => {
+    const db = getDb();
+    const tx = db.prepare('SELECT * FROM cf_transactions WHERE id = ?').get(req.params.txId);
+    if (!tx) return res.status(404).json({ error: 'Transaktion ikke fundet' });
+
+    const rows = db.prepare(
+        'SELECT * FROM cf_allocations WHERE transaction_id = ? ORDER BY id'
+    ).all(req.params.txId);
+    const allocations = rows.map(a => ({ ...a, ...resolveTargetLabel(db, a.target_type, a.target_id) }));
+
+    const allocated = r2(rows.reduce((s, a) => s + a.amount, 0));
+    res.json({
+        transaction: { id: tx.id, dato: tx.dato, tekst: tx.tekst, beloeb: tx.beloeb },
+        allocations,
+        allocated,
+        remaining: r2(tx.beloeb - allocated),
+        fully_allocated: Math.abs(allocated - tx.beloeb) < 0.01,
+    });
+}));
+
+// ─── POST /allocations — opret én eller flere allokeringer for en tx ─────────
+//
+// Body: { transaction_id, allocations: [{ target_type, target_id, amount, note? }] }
+// (enkelt allokering kan også sendes fladt: { transaction_id, target_type, ... })
+router.post('/allocations', handle(async (req, res) => {
+    const db = getDb();
+    const txId = req.body.transaction_id;
+    let incoming = Array.isArray(req.body.allocations) ? req.body.allocations
+        : (req.body.target_type ? [req.body] : null);
+    if (!txId || !incoming || incoming.length === 0) {
+        return res.status(400).json({ error: 'Mangler transaction_id eller allocations' });
+    }
+
+    const tx = db.prepare('SELECT * FROM cf_transactions WHERE id = ?').get(txId);
+    if (!tx) return res.status(404).json({ error: 'Transaktion ikke fundet' });
+
+    // Valider hver allokering
+    const clean = [];
+    for (const a of incoming) {
+        if (!ALLOC_TYPES.has(a.target_type)) {
+            return res.status(400).json({ error: `Ugyldig target_type: ${a.target_type}` });
+        }
+        const amount = r2(Number(a.amount));
+        if (!Number.isFinite(amount) || amount === 0) {
+            return res.status(400).json({ error: 'amount skal være et tal forskelligt fra 0' });
+        }
+        const targetId = String(a.target_id ?? '').trim();
+        if (!targetId) return res.status(400).json({ error: 'Mangler target_id' });
+        // Verificér at målet findes (fee er fri kategori)
+        if (a.target_type === 'invoice' && !db.prepare('SELECT 1 FROM cf_invoices WHERE id = ?').get(targetId))
+            return res.status(404).json({ error: `Faktura ${targetId} findes ikke` });
+        if (a.target_type === 'bon' && !db.prepare('SELECT 1 FROM bons WHERE id = ?').get(targetId))
+            return res.status(404).json({ error: `Bon ${targetId} findes ikke` });
+        if (a.target_type === 'event' && !db.prepare('SELECT 1 FROM events WHERE id = ?').get(targetId))
+            return res.status(404).json({ error: `Event ${targetId} findes ikke` });
+        clean.push({ target_type: a.target_type, target_id: targetId, amount, note: a.note ? String(a.note).trim() : null });
+    }
+
+    // Invariant: |Σ(eksisterende + nye)| må ikke overstige |beloeb|, og må ikke vende fortegn.
+    const existing = db.prepare('SELECT COALESCE(SUM(amount),0) AS s FROM cf_allocations WHERE transaction_id = ?').get(txId).s;
+    const total = r2(existing + clean.reduce((s, a) => s + a.amount, 0));
+    if (Math.abs(total) - Math.abs(tx.beloeb) > 0.01) {
+        return res.status(400).json({ error: `Σ allokeret (${total}) overstiger transaktionens beløb (${tx.beloeb})` });
+    }
+    if (total !== 0 && Math.sign(total) !== Math.sign(tx.beloeb)) {
+        return res.status(400).json({ error: 'Allokering må ikke vende transaktionens fortegn' });
+    }
+
+    transaction(db, () => {
+        const stmt = db.prepare(`
+            INSERT INTO cf_allocations (transaction_id, target_type, target_id, amount, note, created_by)
+            VALUES (?, ?, ?, ?, ?, ?)
+        `);
+        for (const a of clean) stmt.run(txId, a.target_type, a.target_id, a.amount, a.note, req.session.userId || null);
+        syncTxFromAllocations(db, txId);
+    });
+
+    broadcast('cashflow_allocation', { transaction_id: Number(txId) });
+    res.json({ ok: true, count: clean.length });
+}));
+
+// ─── PATCH /allocations/:id — ret beløbet på en gemt allokering ──────────────
+router.patch('/allocations/:id', handle(async (req, res) => {
+    const db = getDb();
+    const row = db.prepare('SELECT * FROM cf_allocations WHERE id = ?').get(req.params.id);
+    if (!row) return res.status(404).json({ error: 'Allokering ikke fundet' });
+    const amount = r2(Number(req.body.amount));
+    if (!Number.isFinite(amount) || amount === 0) {
+        return res.status(400).json({ error: 'amount skal være et tal forskelligt fra 0' });
+    }
+    const tx = db.prepare('SELECT beloeb FROM cf_transactions WHERE id = ?').get(row.transaction_id);
+    // Invariant mod tx: Σ(andre allokeringer) + nyt beløb må ikke overstige |beloeb|
+    // eller vende fortegn.
+    const others = db.prepare(
+        'SELECT COALESCE(SUM(amount),0) AS s FROM cf_allocations WHERE transaction_id = ? AND id != ?'
+    ).get(row.transaction_id, row.id).s;
+    const total = r2(others + amount);
+    if (Math.abs(total) - Math.abs(tx.beloeb) > 0.01) {
+        return res.status(400).json({ error: `Σ allokeret (${total}) overstiger transaktionens beløb (${tx.beloeb})` });
+    }
+    if (total !== 0 && Math.sign(total) !== Math.sign(tx.beloeb)) {
+        return res.status(400).json({ error: 'Allokering må ikke vende transaktionens fortegn' });
+    }
+
+    transaction(db, () => {
+        db.prepare('UPDATE cf_allocations SET amount = ? WHERE id = ?').run(amount, row.id);
+        syncTxFromAllocations(db, row.transaction_id);
+    });
+    broadcast('cashflow_allocation', { transaction_id: row.transaction_id });
+    res.json({ ok: true });
+}));
+
+// ─── DELETE /allocations/:id — fjern én allokering ───────────────────────────
+router.delete('/allocations/:id', handle(async (req, res) => {
+    const db = getDb();
+    const row = db.prepare('SELECT * FROM cf_allocations WHERE id = ?').get(req.params.id);
+    if (!row) return res.status(404).json({ error: 'Allokering ikke fundet' });
+
+    transaction(db, () => {
+        db.prepare('DELETE FROM cf_allocations WHERE id = ?').run(req.params.id);
+        syncTxFromAllocations(db, row.transaction_id);
+    });
+
+    broadcast('cashflow_allocation', { transaction_id: row.transaction_id });
+    res.json({ ok: true });
+}));
+
+// ─── GET /match-targets — universel koblings-søgning (bons + fakturaer + events)
+//
+// Løser bon 4001: den gamle søgning så kun udestaaende fakturaer. Her søges i
+// HELE universet: enhver bon (uanset status), enhver faktura (betalt eller ej),
+// ethvert event. ?q= fri tekst, ?date= valgfri (event-overlap-forslag i UI).
+router.get('/match-targets', handle(async (req, res) => {
+    const db = getDb();
+    const q = String(req.query.q || '').trim();
+    const lim = Math.min(parseInt(req.query.limit || '12'), 25);
+    if (q.length < 1) return res.json({ targets: [] });
+    const like = `%${q}%`;
+    const digits = q.replace(/\D/g, '');
+
+    // Bons: søg bon_number, kunde, firma. Tal → også direkte bon_number/id-match.
+    // UDGIFTS-BONS (event_role='expense', fx kommission/afgift) MEDTAGES — de har
+    // negativ total og kan vælges som FRADRAG i en netto-afregning (fx festival-
+    // arrangør der trækker sin provision før udbetaling). Markeres med expense=true
+    // så de indsættes som negativ allokering. Kun ægte data-anomalier (negativ total
+    // UDEN expense-rolle) skjules.
+    const bons = db.prepare(`
+        SELECT b.id, b.bon_number, b.delivery_date, b.event_role,
+               -- Rigtig bon-total: total_with_delivery → total_price → linje-sum.
+               -- (Gamle cafe-bons har tom total_with_delivery, men total_price/linjer er sat.)
+               COALESCE(NULLIF(b.total_with_delivery,0), NULLIF(b.total_price,0),
+                        (SELECT COALESCE(SUM(line_total),0) FROM bon_lines bl WHERE bl.bon_id = b.id)) AS bon_total,
+               c.first_name || ' ' || COALESCE(c.last_name,'') AS contact, co.name AS company,
+               sd.label AS status_label
+        FROM bons b
+        LEFT JOIN customers c  ON b.customer_id = c.id
+        LEFT JOIN companies co ON b.company_id  = co.id
+        LEFT JOIN status_definitions sd ON b.status_id = sd.id
+        WHERE b.is_offer = 0
+          AND (COALESCE(b.event_role,'') = 'expense' OR COALESCE(NULLIF(b.total_with_delivery,0), NULLIF(b.total_price,0), 0) >= 0)
+          AND (
+            CAST(b.bon_number AS TEXT) LIKE ? OR co.name LIKE ?
+            OR (c.first_name || ' ' || COALESCE(c.last_name,'')) LIKE ?
+            ${digits ? 'OR CAST(b.id AS TEXT) = ?' : ''}
+        )
+        ORDER BY b.delivery_date DESC LIMIT ?
+    `).all(like, like, like, ...(digits ? [digits] : []), lim);
+
+    // Fakturaer: betalt ELLER ej (modsat den gamle udestaaende-only).
+    const invoices = db.prepare(`
+        SELECT id, kunde, beloeb, forfald, betalt FROM cf_invoices
+        WHERE CAST(id AS TEXT) LIKE ? OR kunde LIKE ?
+        ORDER BY forfald DESC LIMIT ?
+    `).all(like, like, lim);
+
+    // Events er BEVIDST IKKE koblings-mål her: event-indtægt skal altid gå gennem en
+    // salgsbon (besluttet — bons er sandheden for event-økonomi). Brug "Opret bon"
+    // (target_type='bon') i stedet — den laver salgsbonnen + afstemmer i ét hug.
+    const targets = [
+        ...bons.map(b => {
+            const expense = b.event_role === 'expense';
+            return {
+                type: 'bon', id: b.id, label: `Bon #${b.bon_number}${expense ? ' (udgift)' : ''}`,
+                sublabel: [(b.company || b.contact || '').trim(), b.status_label].filter(Boolean).join(' · '),
+                amount: b.bon_total, date: b.delivery_date, expense,
+            };
+        }),
+        ...invoices.map(i => ({
+            type: 'invoice', id: i.id, label: `Faktura #${i.id}`,
+            sublabel: [i.kunde, i.betalt ? 'betalt' : 'udestående'].filter(Boolean).join(' · '),
+            amount: i.beloeb, date: i.forfald,
+        })),
+    ];
+    res.json({ targets });
+}));
+
+// ─── GET /events-on-date — auto-forslag: events der overlapper en dato ───────
+//
+// §2.E auto-forslag: en indbetaling med dato inden for (eller kort efter) et
+// events periode er sandsynligvis direkte event-salg. Buffer efter end_date
+// fanger afregninger der lander 1-få dage efter eventet (Zettle/MobilePay).
+router.get('/events-on-date', handle(async (req, res) => {
+    const db = getDb();
+    const date = String(req.query.date || '').slice(0, 10);
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(date)) return res.json({ events: [] });
+    const events = db.prepare(`
+        SELECT id, name, start_date, end_date FROM events
+        WHERE date(start_date) <= date(?)
+          AND date(?) <= date(COALESCE(end_date, start_date), '+5 days')
+        ORDER BY start_date DESC
+    `).all(date, date);
+    res.json({ events: events.map(e => ({
+        type: 'event', id: e.id, label: `🎪 ${e.name}`,
+        sublabel: [e.start_date, e.end_date].filter(Boolean).join(' → '),
+    })) });
+}));
+
+// §2.E: "Find indbetaling" fra event-siden — ukoblede bank-poster NÆR event-datoen.
+// Spejlet af /events-on-date: der finder vi events for en indbetaling; her finder vi
+// indbetalinger for et event. ±14 dages buffer (Zettle-afregninger halter). Kategori-tag med.
+router.get('/candidates-for-event', handle((req, res) => {
+    const db = getDb();
+    const eventId = parseInt(req.query.event_id, 10);
+    if (!eventId) return res.status(400).json({ error: 'event_id kræves' });
+    const ev = db.prepare('SELECT id, name, start_date, end_date FROM events WHERE id = ?').get(eventId);
+    if (!ev) return res.status(404).json({ error: 'event findes ikke' });
+    const end = ev.end_date || ev.start_date;
+    const rows = db.prepare(`
+        SELECT t.*, COALESCE((SELECT SUM(a.amount) FROM cf_allocations a WHERE a.transaction_id = t.id), 0) AS allocated
+        FROM cf_transactions t
+        WHERE t.beloeb > 0 AND t.ignored = 0 AND t.matched_invoice_id IS NULL
+          AND ABS(t.beloeb - COALESCE((SELECT SUM(a.amount) FROM cf_allocations a WHERE a.transaction_id = t.id), 0)) >= 0.01
+          AND date(t.dato) BETWEEN date(?, '-14 days') AND date(?, '+14 days')
+        ORDER BY t.beloeb DESC
+    `).all(ev.start_date, end);
+    const { closedYear, largeThreshold } = cfTriageSettings(db);
+    const bookedSet = cfBookedSet(db);
+    for (const tx of rows) {
+        tx.category = cfCategorize(tx, closedYear, largeThreshold, bookedSet);
+        tx.is_event_cash = tx.category === 'event_cash' ? 1 : 0;
+    }
+    res.json({ event: ev, rows });
+}));
+
+// ─── GET /event-income — per-event-indtægtsoverblik (bank-afstemt) ───────────
+//
+// §2.E: "Festival X = Y kr ind". Brutto = Σ event-allokeringer. Gebyr = Σ fee-
+// allokeringer på de SAMME transaktioner (Zettle/MobilePay-gebyr hører til samme
+// indbetaling). Netto = brutto + gebyr (gebyr er negativt). Kun events med
+// mindst én kobling vises, med mindre ?all=1.
+router.get('/event-income', handle(async (req, res) => {
+    const db = getDb();
+    // Bank-afstemt indtægt pr. event = Σ allokeringer på eventets BONS (ikke bare
+    // event-allokeringer — dem findes ikke længere; event-penge er altid salgsbons).
+    // brutto = allokeringer til salgsbons, udgift = allokeringer til udgiftsbons (negativ)
+    // + udbyder-gebyr (fee-allokeringer på de SAMME transaktioner). netto = brutto + udgift.
+    const rows = db.prepare(`
+        SELECT
+            e.id, e.name, e.start_date, e.end_date,
+            COALESCE(SUM(CASE WHEN COALESCE(b.event_role,'') <> 'expense' THEN a.amount ELSE 0 END), 0) AS gross,
+            COALESCE(SUM(CASE WHEN COALESCE(b.event_role,'') =  'expense' THEN a.amount ELSE 0 END), 0) AS expenses,
+            COUNT(DISTINCT a.transaction_id) AS tx_count,
+            COALESCE((
+                SELECT SUM(f.amount) FROM cf_allocations f
+                WHERE f.target_type = 'fee' AND f.transaction_id IN (
+                    SELECT a2.transaction_id FROM cf_allocations a2
+                    JOIN bons b2 ON a2.target_type = 'bon' AND a2.target_id = CAST(b2.id AS TEXT)
+                    WHERE b2.event_id = e.id
+                )
+            ), 0) AS fees
+        FROM events e
+        JOIN bons b ON b.event_id = e.id
+        JOIN cf_allocations a ON a.target_type = 'bon' AND a.target_id = CAST(b.id AS TEXT)
+        GROUP BY e.id
+        ORDER BY e.start_date DESC
+    `).all();
+    const events = rows
+        .filter(r => req.query.all === '1' || r.tx_count > 0)
+        .map(r => ({
+            id: r.id, name: r.name, start_date: r.start_date, end_date: r.end_date,
+            gross: r2(r.gross), fees: r2(r.expenses + r.fees),
+            net: r2(r.gross + r.expenses + r.fees),
+            tx_count: r.tx_count,
+        }));
+    res.json({ events });
+}));
+
+// ─── POST /create-bon-from-tx — §2.E.3: opret salgsbon fra en indbetaling ────
+//
+// Direkte salg ved event (Zettle/MobilePay/kontant) uden faktura. Opretter en
+// rigtig BETALT salgsbon (event_role='sales', price_category='festival') og
+// allokerer transaktionen til den. Hvis eventet ALLEREDE har en salgsbon
+// (besluttet: "hvis der ikke er en bon til eventet skal der oprettes en"),
+// genbruges den — linjer tilføjes i stedet for at oprette en dublet.
+//
+// Linjer er fleksible: én samle-linje ("Direkte salg") ELLER salg pr. menu-linje.
+// Valgfri gebyr-linje (Zettle/MobilePay) gør at brutto kan overstige netto.
+// Σ(linjer) + gebyr må ikke overstige transaktionens (resterende) beløb.
+//
+// Body: { transaction_id, event_id?, payment_type,
+//         lines:[{name, quantity?, amount, grocy_recipe_id?, category?, cost_price?, co2e?}],
+//         fee?:{kind,amount} }
+// En linje kan være fri-tekst (lump) ELLER en rigtig Grocy-menu (grocy_recipe_id +
+// kategori) så salget er konsistent med resten af systemet. amount = linjens TOTAL;
+// quantity = antal solgt (default 1) → unit_price = amount/quantity.
+router.post('/create-bon-from-tx', handle(async (req, res) => {
+    const db = getDb();
+    const { transaction_id, event_id = null, payment_type = 'card', fee = null } = req.body;
+    const lines = Array.isArray(req.body.lines) ? req.body.lines : [];
+
+    const tx = db.prepare('SELECT * FROM cf_transactions WHERE id = ?').get(transaction_id);
+    if (!tx) return res.status(404).json({ error: 'Transaktion ikke fundet' });
+    if (!lines.length) return res.status(400).json({ error: 'Mindst én linje kræves' });
+
+    // Valider + normaliser linjer
+    const cleanLines = [];
+    for (const l of lines) {
+        const amount = r2(Number(l.amount));
+        if (!Number.isFinite(amount) || amount <= 0) return res.status(400).json({ error: 'Linje-beløb skal være > 0' });
+        const qty = Number(l.quantity) > 0 ? Number(l.quantity) : 1;
+        cleanLines.push({
+            name: String(l.name || 'Direkte salg').trim() || 'Direkte salg',
+            amount, qty,
+            unit_price: r2(amount / qty),
+            grocy_recipe_id: l.grocy_recipe_id != null ? Number(l.grocy_recipe_id) : null,
+            category: l.category ? String(l.category) : 'Event-salg',
+            cost_price: l.cost_price != null ? r2(Number(l.cost_price)) : null,
+            co2e: l.co2e != null ? Number(l.co2e) : null,
+        });
+    }
+    const linesSum = r2(cleanLines.reduce((s, l) => s + l.amount, 0));
+
+    // Valider event hvis angivet
+    let event = null;
+    if (event_id != null) {
+        event = db.prepare('SELECT id, name, start_date, location_id, event_address_id FROM events WHERE id = ?').get(event_id);
+        if (!event) return res.status(404).json({ error: `Event ${event_id} findes ikke` });
+    }
+
+    // Valider gebyr (negativ) + allokerings-invariant mod tx (inkl. eksisterende)
+    const feeAmount = fee && fee.amount != null ? r2(Number(fee.amount)) : 0;
+    if (feeAmount > 0) return res.status(400).json({ error: 'Gebyr skal være ≤ 0' });
+    const existingAlloc = db.prepare('SELECT COALESCE(SUM(amount),0) AS s FROM cf_allocations WHERE transaction_id = ?').get(transaction_id).s;
+    const allocTotal = r2(existingAlloc + linesSum + feeAmount);
+    if (Math.abs(allocTotal) - Math.abs(tx.beloeb) > 0.01) {
+        return res.status(400).json({ error: `Σ allokeret (${allocTotal}) overstiger indbetalingen (${tx.beloeb})` });
+    }
+    if (allocTotal !== 0 && Math.sign(allocTotal) !== Math.sign(tx.beloeb)) {
+        return res.status(400).json({ error: 'Allokering må ikke vende indbetalingens fortegn' });
+    }
+
+    const userId = req.session.userId || null;
+
+    // Beslut bon-genbrug + hent nummer/status/lokation UDEN FOR transaction()
+    // (nextBonNumber/getStatusId åbner selv transactions → nested = fejl).
+    const existingBon = event ? db.prepare(
+        "SELECT id, bon_number FROM bons WHERE event_id = ? AND event_role = 'sales' ORDER BY id LIMIT 1"
+    ).get(event.id) : null;
+    const betaltStatusId = getStatusId('BETALT');
+    const defaultLocationId = getDefaultLocationId();
+    const newBonNumber = existingBon ? null : nextBonNumber();
+
+    // Event-arv: en salgs-/udgiftsbon oprettet fra et event overtager eventets
+    // lokation, dato (event-datoen, ikke bankdatoen) og leveringsadresse.
+    const bonLocationId = (event && event.location_id) ? event.location_id : defaultLocationId;
+    const bonDeliveryDate = (event && event.start_date) ? event.start_date : tx.dato;
+    const bonAddressId = event ? (event.event_address_id || null) : null;
+
+    // Gebyr/afgift på et EVENT bogføres som en UDGIFTSBON (event_role='expense'),
+    // så det tæller med i eventets P&L (besluttet 29. juni). Uden event (standalone)
+    // bliver det blot en fee-allokering på banken. Hent udgiftsbon-nr uden for tx.
+    const wantExpenseBon = !!(event && feeAmount < 0);
+    const existingExpenseBon = wantExpenseBon ? db.prepare(
+        "SELECT id, bon_number FROM bons WHERE event_id = ? AND event_role = 'expense' ORDER BY id LIMIT 1"
+    ).get(event.id) : null;
+    const newExpenseBonNumber = (wantExpenseBon && !existingExpenseBon) ? nextBonNumber() : null;
+
+    const result = transaction(db, () => {
+        let bonId = existingBon ? existingBon.id : null;
+        let bonNumber = existingBon ? existingBon.bon_number : newBonNumber;
+        let created = false;
+        if (!bonId) {
+            const ins = db.prepare(`
+                INSERT INTO bons (
+                    bon_number, status_id, location_id, order_date, delivery_date,
+                    price_category, payment_type, event_id, event_role, delivery_address_id,
+                    pax, total_units, total_price, total_with_delivery, created_by_user_id
+                ) VALUES (?,?,?,?,?,?,?,?,?,?,0,0,0,0,?)
+            `).run(
+                bonNumber, betaltStatusId, bonLocationId, todayISO(),
+                bonDeliveryDate, 'festival', payment_type,
+                event ? event.id : null, event ? 'sales' : null, bonAddressId,
+                userId
+            );
+            bonId = ins.lastInsertRowid;
+            created = true;
+            logChange({ entityType: 'bon', entityId: bonId, action: 'create', newValue: bonNumber, userId });
+        }
+
+        // Tilføj linjer (priser er INCL moms per doktrin). Grocy-menu → grocy_recipe_id
+        // + rigtig kategori; fri-tekst → kategori 'Event-salg'. line_total = amount.
+        const sortBase = db.prepare('SELECT COALESCE(MAX(sort_order),0) AS m FROM bon_lines WHERE bon_id = ?').get(bonId).m;
+        const lineStmt = db.prepare(`
+            INSERT INTO bon_lines (bon_id, grocy_recipe_id, product_name, category, quantity, unit, unit_price, line_total, cost_price, co2e, sort_order, moms_included)
+            VALUES (?, ?, ?, ?, ?, 'stk', ?, ?, ?, ?, ?, 1)
+        `);
+        cleanLines.forEach((l, i) => lineStmt.run(
+            bonId, l.grocy_recipe_id, l.name, l.category, l.qty,
+            l.unit_price, l.amount, l.cost_price, l.co2e, sortBase + i + 1
+        ));
+
+        // Server-autoritativ total
+        recalcBonTotalUnits(db, bonId);
+        const total = db.prepare('SELECT COALESCE(SUM(line_total),0) AS s FROM bon_lines WHERE bon_id = ?').get(bonId).s;
+        db.prepare('UPDATE bons SET total_price = ?, total_with_delivery = ? WHERE id = ?').run(r2(total), r2(total), bonId);
+
+        // Allokér transaktionen til bonen (+ evt. gebyr-linje)
+        const allocStmt = db.prepare(`
+            INSERT INTO cf_allocations (transaction_id, target_type, target_id, amount, note, created_by)
+            VALUES (?, ?, ?, ?, ?, ?)
+        `);
+        allocStmt.run(transaction_id, 'bon', String(bonId), linesSum, 'Opret bon fra indbetaling', userId);
+
+        let expenseBonId = null, expenseBonNumber = null, expenseCreated = false;
+        if (feeAmount < 0) {
+            if (wantExpenseBon) {
+                // Bogfør afgift/gebyr som en UDGIFTSBON på eventet (event_role='expense'),
+                // så det tæller i eventets P&L. Genbrug eventets udgiftsbon hvis den findes.
+                expenseBonId = existingExpenseBon ? existingExpenseBon.id : null;
+                expenseBonNumber = existingExpenseBon ? existingExpenseBon.bon_number : newExpenseBonNumber;
+                if (!expenseBonId) {
+                    const ei = db.prepare(`
+                        INSERT INTO bons (
+                            bon_number, status_id, location_id, order_date, delivery_date,
+                            price_category, payment_type, event_id, event_role, delivery_address_id,
+                            pax, total_units, total_price, total_with_delivery, created_by_user_id
+                        ) VALUES (?,?,?,?,?,?,?,?,'expense',?,0,0,0,0,?)
+                    `).run(
+                        expenseBonNumber, betaltStatusId, bonLocationId, todayISO(),
+                        bonDeliveryDate, 'festival', payment_type, event.id, bonAddressId, userId
+                    );
+                    expenseBonId = ei.lastInsertRowid;
+                    expenseCreated = true;
+                    logChange({ entityType: 'bon', entityId: expenseBonId, action: 'create', newValue: expenseBonNumber, userId });
+                }
+                const esort = db.prepare('SELECT COALESCE(MAX(sort_order),0) AS m FROM bon_lines WHERE bon_id = ?').get(expenseBonId).m;
+                db.prepare(`
+                    INSERT INTO bon_lines (bon_id, product_name, category, quantity, unit, unit_price, line_total, sort_order, moms_included)
+                    VALUES (?, 'Afgift/gebyr', 'Udgift', 1, 'stk', ?, ?, ?, 1)
+                `).run(expenseBonId, feeAmount, feeAmount, esort + 1);
+                const etotal = db.prepare('SELECT COALESCE(SUM(line_total),0) AS s FROM bon_lines WHERE bon_id = ?').get(expenseBonId).s;
+                db.prepare('UPDATE bons SET total_price = ?, total_with_delivery = ? WHERE id = ?').run(r2(etotal), r2(etotal), expenseBonId);
+                allocStmt.run(transaction_id, 'bon', String(expenseBonId), feeAmount, 'Afgift/gebyr (event-udgift)', userId);
+            } else {
+                // standalone (ingen event): behold som fee-allokering på banken
+                allocStmt.run(transaction_id, 'fee', String(fee.kind || 'gebyr'), feeAmount, null, userId);
+            }
+        }
+        syncTxFromAllocations(db, transaction_id);
+
+        return { bonId, bonNumber, created, expenseBonId, expenseBonNumber, expenseCreated };
+    });
+
+    broadcast(result.created ? 'bon_created' : 'bon_updated', { id: result.bonId, bon_number: result.bonNumber });
+    if (result.expenseBonId) {
+        broadcast(result.expenseCreated ? 'bon_created' : 'bon_updated', { id: result.expenseBonId, bon_number: result.expenseBonNumber });
+    }
+    broadcast('cashflow_allocation', { transaction_id: Number(transaction_id) });
+    res.json({ ok: true, bon_id: result.bonId, bon_number: result.bonNumber, created: result.created, expense_bon_id: result.expenseBonId });
 }));
 
 // ─── GET /suggest-matches — Forslag til forfaldne fakturaer ──────────────
@@ -1211,4 +1903,48 @@ router.get('/upcoming', handle(async (req, res) => {
     res.json({ rows });
 }));
 
+// ─── e-conomic-afstemning (Pengestrøm delta B) ──────────────────────────────
+// POST /api/cashflow/reconcile  { dry_run?, since? }
+// Læser e-conomics bogførte fakturaer → markér cf_invoices betalt via bon-nr i
+// fakturaens overskrift. Skriver kun til vores egen cf_invoices + vandmærke.
+const economicAdapter = require('../services/economicAdapter');
+const { reconcile, matchByEconomicNumber } = require('../services/cashflowReconcile');
+
+router.post('/reconcile', handle(async (req, res) => {
+    if (!economicAdapter.isConfigured()) {
+        return res.status(503).json({ error: 'e-conomic er ikke konfigureret (tokens mangler i .env)' });
+    }
+    const db = getDb();
+    const dryRun = req.body?.dry_run === true;
+    const since  = req.body?.since || undefined;
+    let result;
+    try {
+        result = await reconcile(db, { dryRun, since });
+        // Efter e-conomic-numrene er gemt: kobl umatchede bank-indbetalinger via
+        // fakturanummeret i bankteksten (verificeret link, ikke dato-fold).
+        const m = matchByEconomicNumber(db, { dryRun });
+        result.linked = m.linked;
+    } catch (e) {
+        if (e instanceof economicAdapter.EconomicAuthError) return res.status(502).json({ error: 'e-conomic-adgang skal genetableres', detail: e.message });
+        if (e instanceof economicAdapter.EconomicRateError) return res.status(503).json({ error: 'e-conomic rate limit ramt — prøv igen senere' });
+        return res.status(502).json({ error: 'e-conomic-afstemning fejlede', detail: e.message });
+    }
+    if (!dryRun && (result.flipped > 0 || result.linked > 0)) {
+        logChange({ entityType: 'cashflow', entityId: 0, action: 'economic_reconcile',
+            fieldName: 'betalt', oldValue: null, newValue: String(result.flipped),
+            userId: req.session?.userId ?? null, notes: `vandmærke → ${result.newWatermark} · ${result.numbered} nr · ${result.linked} koblet` });
+        broadcast('cashflow_reconciled', { flipped: result.flipped, linked: result.linked, watermark: result.newWatermark });
+    }
+    res.json(result);
+}));
+
+// GET /api/cashflow/reconcile/status — vandmærke + om e-conomic er konfigureret
+router.get('/reconcile/status', handle((req, res) => {
+    const db = getDb();
+    const watermark = db.prepare(`SELECT value FROM cf_meta WHERE key = 'economic_booked_until'`).get()?.value || null;
+    res.json({ economic_booked_until: watermark || null, configured: economicAdapter.isConfigured() });
+}));
+
+// Eksportér kategoriserings-helperen til test (regressionssikring af triage-reglerne)
+router.cfCategorize = cfCategorize;
 module.exports = router;

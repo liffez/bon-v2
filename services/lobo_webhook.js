@@ -11,20 +11,70 @@
 // kan unit-testes uden netværk. Spec: docs/CLAUDE_LEVERING_LOBO.md §10.
 // ==========================================
 
+const crypto = require('node:crypto');
 const { verifyWebhookSignature, mapLoboEvent } = require('./byExpressenAdapter');
 
-// Bestem om en webhook skal accepteres. Indtil signatur-formatet er bekræftet
-// (setting lobo_webhook_verify='1') springes verifikationen over med en advarsel.
-function verifyLoboRequest({ rawQuery, headers = {}, settings = {} }) {
+// ══════════════════════════════════════════════════════════════
+// SELVKALIBRERENDE HMAC
+// ══════════════════════════════════════════════════════════════
+// Lobos docs siger IKKE hvad HMAC'en signeres over eller hvilken header den
+// ligger i (bekræftet doc-hul). I stedet for at gætte: vi gemmer per-event
+// hmac_key'erne ved registrering, og det FØRSTE rigtige callback brute-forcer
+// vi kandidat-strenge × nøgler × headers — finder vi et match, gemmes formatet
+// (header + signeret streng) og verifikation slås til automatisk. Samme
+// navngivne kandidat-sæt bruges i kalibrering OG verifikation.
+
+function signCandidates({ rawQuery = '', pathQuery = '', registeredUrl = '', body = '' } = {}) {
+    const bodyStr = typeof body === 'string' ? body : (body ? JSON.stringify(body) : '');
+    const regFull = registeredUrl
+        ? registeredUrl + (rawQuery ? (registeredUrl.includes('?') ? '&' : '?') + rawQuery : '')
+        : '';
+    return {
+        query: rawQuery,
+        path_query: pathQuery,
+        full_url: regFull,
+        full_url_no_scheme: regFull.replace(/^https?:\/\//, ''),
+        body: bodyStr,
+        body_query: bodyStr + rawQuery,
+        query_body: rawQuery + bodyStr,
+    };
+}
+
+// Auto-opdag signatur-formatet fra ét callback. keys = { event: hmac_key }.
+// Returnerer { sig_header, sign_target, matched_event } ved match, ellers null.
+function calibrateLoboSignature({ parts = {}, headers = {}, keys = {}, algorithm = 'sha256' }) {
+    const cands = signCandidates(parts);
+    const keyList = Object.entries(keys).filter(([, k]) => k);
+    for (const [hk, hvRaw] of Object.entries(headers)) {
+        const hv = Array.isArray(hvRaw) ? hvRaw.join('') : String(hvRaw || '');
+        if (!hv) continue;
+        const hvNorm = hv.toLowerCase().replace(/^.*=/, '');   // tål "sha256=..."-præfiks
+        if (!/^[0-9a-f]{32,128}$/.test(hvNorm)) continue;      // skal ligne en hex-digest
+        for (const [event, key] of keyList) {
+            for (const [target, str] of Object.entries(cands)) {
+                if (str === '') continue;
+                const h = crypto.createHmac(algorithm, key).update(str, 'utf8').digest('hex').toLowerCase();
+                if (hvNorm === h) return { sig_header: hk.toLowerCase(), sign_target: target, matched_event: event };
+            }
+        }
+    }
+    return null;
+}
+
+// Verificér et callback når formatet er kalibreret (lobo_webhook_verify='1').
+// Vælger nøgle pr. event (multi-webhook) + bruger det opdagede format.
+function verifyLoboRequest({ parts = {}, headers = {}, event, settings = {} }) {
     if (settings.verify !== '1') {
         return { ok: true, skipped: true, reason: 'verification_disabled' };
     }
     const header = (settings.sig_header || 'x-lobo-signature').toLowerCase();
     const sig = headers[header];
-    const key = settings.hmac_key;
+    let key = null;
+    if (settings.keys) { try { key = (JSON.parse(settings.keys) || {})[event] || null; } catch { /* */ } }
+    if (!key) key = settings.hmac_key || null;
     if (!key) return { ok: false, reason: 'no_hmac_key' };
-    // signeret streng: default query-strengen (alternativt fuld URL — verificeres live)
-    const payload = settings.sign_target === 'fullurl' ? (settings.full_url || rawQuery) : rawQuery;
+    const cands = signCandidates(parts);
+    const payload = cands[settings.sign_target] != null ? cands[settings.sign_target] : cands.query;
     const ok = verifyWebhookSignature(payload, sig, key, settings.algorithm || 'sha256');
     return { ok, reason: ok ? 'verified' : 'bad_signature' };
 }
@@ -84,8 +134,13 @@ async function applyWebhookEvent({ query, db, broadcast, getOrder = null }) {
          VALUES (?, ?, 'byekspressen', ?, ?, ?, CURRENT_TIMESTAMP)`
     ).run(bonId, status, uuid, marker, snapshot ? JSON.stringify(snapshot) : null);
 
-    if (broadcast) broadcast('delivery_event', { bon_id: bonId, external_reference: uuid, status });
+    if (broadcast) {
+        broadcast('delivery_event', { bon_id: bonId, external_reference: uuid, status });
+        // Live-push: lad bon-drawer + lister opdatere status-panelet via eksisterende
+        // bon_updated-lytter (ingen ny SSE-plumbing nødvendig).
+        broadcast('bon_updated', { id: bonId });
+    }
     return { ok: true, reason: 'applied', status, bon_id: bonId };
 }
 
-module.exports = { verifyLoboRequest, applyWebhookEvent };
+module.exports = { verifyLoboRequest, applyWebhookEvent, calibrateLoboSignature, signCandidates };

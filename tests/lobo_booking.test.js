@@ -5,7 +5,7 @@
 const test = require('node:test');
 const assert = require('node:assert');
 
-const { quoteForBon, bookForBon, buildSurcharges, defaultBoxesForBon, composeCostEx } = require('../services/lobo_booking');
+const { quoteForBon, bookForBon, buildSurcharges, defaultBoxesForBon, composeCostEx, normalizeLoboOrder, suggestCustomerPrice } = require('../services/lobo_booking');
 const { createByExpressenAdapter } = require('../services/byExpressenAdapter');
 
 const CONFIG = {
@@ -47,6 +47,14 @@ test('composeCostEx: Lobo-grundpris + extra_box_cost × ekstra kasser', () => {
     assert.strictEqual(composeCostEx(100, 5, CONFIG, VEHICLE), 250);   // +3×50
     assert.strictEqual(composeCostEx(100, 1, CONFIG, VEHICLE), 100);   // under inkl. → +0
     assert.strictEqual(composeCostEx(null, 5, CONFIG, VEHICLE), null); // ingen grundpris
+});
+
+test('composeCostEx: ikke-Food (applyBoxSurcharge=false) → Lobos pris uændret (pr. km)', () => {
+    // Lange ture (Medium/Large) prissættes pr. km af Lobo — INGEN 50/kasse oveni.
+    assert.strictEqual(composeCostEx(358.4, 7, CONFIG, VEHICLE, false), 358.4);
+    assert.strictEqual(composeCostEx(196, 5, CONFIG, VEHICLE, false), 196);
+    // Food (true/default) lægger stadig kasse-tillæg til.
+    assert.strictEqual(composeCostEx(196, 7, CONFIG, VEHICLE, true), 196 + 5 * 50);
 });
 
 /* ── defaultBoxesForBon ───────────────────────────────────── */
@@ -163,4 +171,55 @@ test('bookForBon: Lobo-fejl → logger failed-event og kaster videre', async () 
     await assert.rejects(() => bookForBon({ bon: BON, vehicle: VEHICLE, adapter, userId: 1, deps }), /boom/);
     assert.strictEqual(logged.length, 1);
     assert.strictEqual(logged[0].status, 'failed');
+});
+
+// ── normalizeLoboOrder (trin 3 — status-panel) ──
+test('normalizeLoboOrder: leveret ordre → delivered + endelig pris + ETA + POD', () => {
+    const n = normalizeLoboOrder({
+        uuid: 'ord-1', numberformatted: '262.600.016', status: 'finished', fkcarrier: 42,
+        costtotal_net: 100, costtotal_gross: 125, routedistance: 684,
+        downloadlinks: { download_pod: 'https://x/pod' },
+        stops: [
+            { position: 1, tw_estimated_begin: 'A', tw_estimated_end: 'B' },
+            { position: 2, tw_estimated_begin: 'C', tw_estimated_end: 'D' },
+        ],
+    });
+    assert.strictEqual(n.delivered, true);
+    assert.strictEqual(n.status, 'finished');
+    assert.strictEqual(n.carrier, 'Bud #42');       // fkcarrier-fallback (carrier.read ikke tildelt)
+    assert.strictEqual(n.cost_ex, 100);
+    assert.strictEqual(n.cost_incl, 125);
+    assert.strictEqual(n.has_pod, true);
+    assert.deepStrictEqual(n.eta, { begin: 'C', end: 'D' });       // leverings-stop (position 2)
+    assert.deepStrictEqual(n.pickup_eta, { begin: 'A', end: 'B' });
+});
+
+test('normalizeLoboOrder: planlagt ordre → ikke leveret, pris fra accounting-embed', () => {
+    const n = normalizeLoboOrder({
+        uuid: 'ord-2', status: 'planned',
+        accounting: { costtotal_net: 150, costtotal_gross: 187.5 },
+        stops: [{ position: 1 }, { position: 2, tw_estimated_end: 'E' }],
+    });
+    assert.strictEqual(n.delivered, false);
+    assert.strictEqual(n.cost_ex, 150);             // fallback til accounting.costtotal_net
+    assert.strictEqual(n.has_pod, false);
+    assert.strictEqual(n.carrier, null);
+});
+
+test('normalizeLoboOrder: signeret leverings-stop tæller som leveret', () => {
+    const n = normalizeLoboOrder({ uuid: 'ord-3', status: 'open', stops: [{ position: 1 }, { position: 2, signed: 1 }] });
+    assert.strictEqual(n.delivered, true);
+});
+
+test('normalizeLoboOrder: null/tom → null', () => {
+    assert.strictEqual(normalizeLoboOrder(null), null);
+    assert.strictEqual(normalizeLoboOrder(undefined), null);
+});
+
+test('suggestCustomerPrice: lange ture → kostpris + markup rundet op (positiv margin)', () => {
+    assert.strictEqual(suggestCustomerPrice(358.4, 200, 10, 25), 400);  // 358.4×1.1=394.2 → op til 400
+    assert.strictEqual(suggestCustomerPrice(196, 100, 10, 25), 225);    // 215.6 → 225
+    assert.strictEqual(suggestCustomerPrice(200, 200, 10, 25), 225);    // = → 220 → 225
+    assert.strictEqual(suggestCustomerPrice(100, 200, 10, 25), null);   // standard dækker → ingen anbefaling
+    assert.strictEqual(suggestCustomerPrice(null, 200, 10, 25), null);  // ingen kostpris
 });

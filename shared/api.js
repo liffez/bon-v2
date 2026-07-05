@@ -779,6 +779,11 @@ function unsnoozeSuggestion(data) {
     });
 }
 
+// Outcome-måling for anbefalings-trikket (180 dage).
+function fetchReviewStats() {
+    return apiFetch('/crm/suggestions/review-stats');
+}
+
 function patchCrmCustomerStage(id, stage) {
     return apiFetch('/crm/customer/' + id + '/stage', {
         method: 'PATCH',
@@ -930,6 +935,39 @@ function ackFlagApi(flagId, bonId, note) {
 function fetchInvoiceQueue(includeDone) {
     var qs = includeDone ? '?include_done=1' : '';
     return apiFetch('/invoices/queue' + qs);
+}
+
+/* ── E-CONOMIC FAKTURAUDKAST (Spor 2) ───────────────────── */
+
+// Dry-run: byg payloaden uden at sende. Returnerer { payload, readiness, ... }.
+function previewEconomicDraft(bonId) {
+    return apiFetch('/invoices/' + bonId + '/economic-preview');
+}
+
+// Opret fakturaudkast i e-conomic. opts: { oneoff_for_missing? }.
+function createEconomicDraft(bonId, opts) {
+    return apiFetch('/invoices/' + bonId + '/economic-draft', {
+        method: 'POST',
+        body: JSON.stringify(opts || {}),
+    });
+}
+
+// Pre-flight: hvilke kø-bons ville blive blokeret + "kladder venter"-tæller.
+function fetchEconomicReadiness() {
+    return apiFetch('/invoices/economic-readiness');
+}
+
+// Slå bonens firma op i e-conomic (CVR/EAN/navn) + hent kontakter → forslag til kobling.
+function suggestEconomicCustomer(bonId) {
+    return apiFetch('/invoices/' + bonId + '/economic-customer-suggest');
+}
+
+// Opret bonens firma (+ kontakt) som ny kunde i e-conomic, skriv numrene tilbage.
+function createEconomicCustomer(bonId, opts) {
+    return apiFetch('/invoices/' + bonId + '/economic-create-customer', {
+        method: 'POST',
+        body: JSON.stringify(opts || {}),
+    });
 }
 
 function patchCompanyEconomic(companyId, economicCustomerId) {
@@ -1402,6 +1440,17 @@ function fetchCfStats() {
     return apiFetch('/cashflow/stats');
 }
 
+// e-conomic-afstemning (delta B): markér cf_invoices betalt fra e-conomics bogføring.
+function reconcileCashflow(opts) {
+    return apiFetch('/cashflow/reconcile', {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(opts || {}),
+    });
+}
+function fetchReconcileStatus() {
+    return apiFetch('/cashflow/reconcile/status');
+}
+
 function fetchCfWeekly() {
     return apiFetch('/cashflow/weekly');
 }
@@ -1412,6 +1461,11 @@ function fetchCfTransactions(opts) {
     if (opts && opts.to)   params.push('to=' + opts.to);
     if (opts && opts.unmatched) params.push('unmatched=1');
     if (opts && opts.limit) params.push('limit=' + opts.limit);
+    if (opts && opts.q) params.push('q=' + encodeURIComponent(opts.q));
+    if (opts && opts.includeFolded) params.push('include_folded=1');
+    if (opts && opts.category) params.push('category=' + encodeURIComponent(opts.category));
+    if (opts && opts.min) params.push('min=' + opts.min);
+    if (opts && opts.sort) params.push('sort=' + opts.sort);
     var qs = params.length ? '?' + params.join('&') : '';
     return apiFetch('/cashflow/transactions' + qs);
 }
@@ -1475,6 +1529,57 @@ function fetchCfUpcoming() {
 
 function fetchCfSuggestMatches() {
     return apiFetch('/cashflow/suggest-matches');
+}
+
+/* ── §2.F Split-allokering + universel kobling ─────────────── */
+function fetchCfMatchTargets(q, opts = {}) {
+    const p = new URLSearchParams({ q: q || '' });
+    if (opts.date) p.set('date', opts.date);
+    if (opts.limit) p.set('limit', opts.limit);
+    return apiFetch('/cashflow/match-targets?' + p.toString());
+}
+
+function fetchCfAllocations(txId) {
+    return apiFetch('/cashflow/transactions/' + txId + '/allocations');
+}
+
+function createCfAllocations(txId, allocations) {
+    return apiFetch('/cashflow/allocations', {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ transaction_id: txId, allocations })
+    });
+}
+
+function deleteCfAllocation(allocId) {
+    return apiFetch('/cashflow/allocations/' + allocId, { method: 'DELETE' });
+}
+
+function patchCfAllocation(allocId, amount) {
+    return apiFetch('/cashflow/allocations/' + allocId, {
+        method: 'PATCH', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ amount })
+    });
+}
+
+function fetchCfEventsOnDate(date) {
+    return apiFetch('/cashflow/events-on-date?date=' + encodeURIComponent(date || ''));
+}
+
+function fetchEventsList(status) {
+    return apiFetch('/events' + (status ? '?status=' + encodeURIComponent(status) : ''));
+}
+
+function fetchCfEventIncome() {
+    return apiFetch('/cashflow/event-income');
+}
+
+function createBonFromCfTx(data) {
+    return apiFetch('/cashflow/create-bon-from-tx', {
+        method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(data)
+    });
+}
+
+function fetchCandidatesForEvent(eventId) {
+    return apiFetch('/cashflow/candidates-for-event?event_id=' + encodeURIComponent(eventId));
 }
 
 /* ── RFM & KUNDEINDSIGT ────────────────────────────────────── */
@@ -1709,6 +1814,11 @@ function fetchDeliveryEvents(bonId) {
     return apiFetch('/delivery/events?bon_id=' + bonId);
 }
 
+// Foreslået kundepris for levering (By-ex-pris/kvittering + markup, incl moms).
+function fetchDeliveryCustomerPrice(bonId) {
+    return apiFetch('/delivery/customer-price?bon_id=' + bonId);
+}
+
 // Lobo/By-expressen — live kostpris for én bon (opretter + sletter en
 // orderdraft hos Lobo; INGEN ordre bookes). Returnerer { cost_ex, cost_incl,
 // customer_ex, margin, routedistance, co2saving }.
@@ -1718,11 +1828,58 @@ function fetchLoboQuote(bonId, boxes) {
     return apiFetch(qs);
 }
 
+// Lobo/By-expressen — se-og-ret-panel: felter der sendes + vindue + pris.
+// data: { bon_id, pickup_time?, boxes?, fkproduct?, contact?, note?, reference? }
+function previewLoboBooking(data) {
+    return apiFetch('/delivery/lobo/preview', {
+        method: 'POST',
+        body: JSON.stringify(data),
+    });
+}
+
+// Lobo/By-expressen — webhook-registrering + selvkalibrerings-status (admin).
+function fetchLoboWebhookStatus() {
+    return apiFetch('/delivery/lobo/webhooks');
+}
+function registerLoboWebhooks(publicBaseUrl) {
+    return apiFetch('/delivery/lobo/webhooks/register', {
+        method: 'POST',
+        body: JSON.stringify(publicBaseUrl ? { public_base_url: publicBaseUrl } : {}),
+    });
+}
+function unregisterLoboWebhooks() {
+    return apiFetch('/delivery/lobo/webhooks', { method: 'DELETE' });
+}
+
+// Lobo/By-expressen — trin 3: on-demand status for booket ordre (status/ETA/POD/pris).
+function fetchLoboOrderStatus(bonId) {
+    return apiFetch('/delivery/lobo/order-status?bon_id=' + bonId);
+}
+
+// URL til kvitterings-PDF (POD) — åbnes i ny fane (server-proxy med bearer-token).
+function loboPodUrl(bonId) {
+    return '/api/delivery/lobo/pod?bon_id=' + bonId;
+}
+
 // Lobo/By-expressen — rigtig booking (dispatch). Mod productive kræves confirm:true.
+// data: { bon_id, confirm?, ...overrides } — overrides = samme felter som preview.
 function bookLoboDelivery(data) {
     return apiFetch('/delivery/lobo/book', {
         method: 'POST',
         body: JSON.stringify(data),
+    });
+}
+
+// Lobo/By-expressen — sandkasse-tilstand (til badge + Settings master-kontakt).
+function fetchLoboStatus() {
+    return apiFetch('/delivery/lobo/status');
+}
+
+// Lobo/By-expressen — master-kontakt (admin): slå sandkasse til/fra globalt.
+function setLoboSandbox(enabled) {
+    return apiFetch('/delivery/lobo/sandbox', {
+        method: 'POST',
+        body: JSON.stringify({ enabled: !!enabled }),
     });
 }
 

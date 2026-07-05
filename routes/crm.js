@@ -610,6 +610,25 @@ router.post('/suggestions/unsnooze', handle((req, res) => {
     res.json({ ok: true });
 }));
 
+// ─── GET /suggestions/review-stats ──────────────────────────
+// Outcome-måling (CRM-trik A): hvor godt virker anbefalings-trikket de sidste
+// 180 dage? Tæller aktiviteter med purpose 'anbefaling' efter outcome.
+router.get('/suggestions/review-stats', handle((req, res) => {
+    const db = getDb();
+    const row = db.prepare(`
+        SELECT
+            COUNT(*) AS asked,
+            SUM(CASE WHEN a.outcome = 'success'  THEN 1 ELSE 0 END) AS success,
+            SUM(CASE WHEN a.outcome = 'declined' THEN 1 ELSE 0 END) AS declined,
+            SUM(CASE WHEN a.outcome = 'pending' OR a.outcome IS NULL THEN 1 ELSE 0 END) AS pending
+        FROM crm_activities a
+        JOIN activity_purposes ap ON ap.id = a.purpose_id
+        WHERE ap.key = 'anbefaling'
+          AND a.created_at > date('now', '-180 days')
+    `).get();
+    res.json(row || { asked: 0, success: 0, declined: 0, pending: 0 });
+}));
+
 // ─── GET /service-calls ─────────────────────────────────────
 router.get('/service-calls', handle((req, res) => {
     const db = getDb();
@@ -1090,21 +1109,27 @@ router.get('/customer-orders/:id', handle((req, res) => {
 // ─── POST /activity ─────────────────────────────────────────
 router.post('/activity', handle((req, res) => {
     const db = getDb();
-    const { customer_id, bon_id, type, result, sentiment, text, due_at, purpose_id, campaign_id } = req.body;
-    // F1: req.session.userId er den korrekte session-nøgle (jf. consent-handler nedenfor).
+    const { customer_id, bon_id, type, result, sentiment, text, due_at, purpose_id, campaign_id, outcome } = req.body;
+    // req.session.userId er den korrekte session-nøgle (jf. consent-handler). req.session.user?.id
+    // var altid undefined → owner_user_id blev altid null (F1).
     const userId = req.session?.userId || null;
 
     if (!customer_id || !type || !text) {
         return res.status(400).json({ error: 'Mangler customer_id, type eller text' });
     }
+    // outcome valideres i serveren (ingen CHECK på kolonnen, jf. migration 110)
+    const OUTCOMES = ['success', 'partial', 'declined', 'no_response', 'pending'];
+    if (outcome && !OUTCOMES.includes(outcome)) {
+        return res.status(400).json({ error: 'ugyldig outcome' });
+    }
 
     const ins = db.prepare(`
         INSERT INTO crm_activities
-            (customer_id, bon_id, type, result, sentiment, text, due_at, owner_user_id, purpose_id, campaign_id)
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            (customer_id, bon_id, type, result, sentiment, text, due_at, owner_user_id, purpose_id, campaign_id, outcome)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     `).run(
         customer_id, bon_id || null, type, result || null, sentiment || null,
-        text, due_at || null, userId, purpose_id || null, campaign_id || null,
+        text, due_at || null, userId, purpose_id || null, campaign_id || null, outcome || null,
     );
 
     const activityId = ins.lastInsertRowid;
@@ -1177,7 +1202,7 @@ router.patch('/customer/:id/stage', handle((req, res) => {
     // Sync til rfm_scores (sæt stage_locked så RFM batch-job respekterer manuelt valg)
     const customer = db.prepare("SELECT company_id FROM customers WHERE id = ?").get(id);
     if (customer?.company_id) {
-        const userId = req.session?.userId || null;  // F1
+        const userId = req.session?.userId || null;
         const rfmExists = db.prepare("SELECT 1 FROM rfm_scores WHERE company_id = ?").get(customer.company_id);
         if (rfmExists) {
             db.prepare(`

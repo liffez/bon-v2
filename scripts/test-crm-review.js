@@ -208,6 +208,25 @@ try {
     `).get(c01).n;
     assert(afterUnsnooze === 0, 'SNOOZE — unsnooze fjerner rækken');
 
+    // ─── outcome-måling (migration 110 + review-stats, CRM-trik A / idé ③) ───
+    console.log('\n=== outcome-måling ===');
+    const reviewStatsSql = `
+        SELECT COUNT(*) AS asked,
+               SUM(CASE WHEN a.outcome='success'  THEN 1 ELSE 0 END) AS success,
+               SUM(CASE WHEN a.outcome='declined' THEN 1 ELSE 0 END) AS declined
+        FROM crm_activities a JOIN activity_purposes ap ON ap.id = a.purpose_id
+        WHERE ap.key = 'anbefaling' AND a.created_at > date('now','-180 days')`;
+    const before = db.prepare(reviewStatsSql).get();
+    // INSERT med outcome-kolonnen beviser samtidig at migration 110 er kørt
+    db.prepare(`INSERT INTO crm_activities (customer_id, type, text, purpose_id, outcome, created_at)
+                VALUES (?, 'note', 'Bedt om anbefaling — vil anmelde', ?, 'success', datetime('now','-2 days'))`).run(c06, anbefalingId);
+    db.prepare(`INSERT INTO crm_activities (customer_id, type, text, purpose_id, outcome, created_at)
+                VALUES (?, 'note', 'Bedt om anbefaling — nej tak', ?, 'declined', datetime('now','-2 days'))`).run(c03, anbefalingId);
+    const after = db.prepare(reviewStatsSql).get();
+    assert(after.asked === before.asked + 2, 'OUTCOME — review-stats tæller nye anbefalinger (kolonne findes)');
+    assert((after.success || 0) === (before.success || 0) + 1, 'OUTCOME — success tælles');
+    assert((after.declined || 0) === (before.declined || 0) + 1, 'OUTCOME — declined tælles');
+
     // ─── interleaveSuggestions (round-robin feed-budget, revision idé ①) ───
     // Ren funktion — ingen DB. Sikrer at review_ask ikke begraves bag sæson/overdue.
     const { interleaveSuggestions } = require('../routes/crm');
