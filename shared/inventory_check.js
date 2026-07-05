@@ -14,7 +14,8 @@
  */
 
 /* global fetchGrocyStock, fetchGrocyProducts, fetchGrocyQuantityUnits,
-          fetchGrocyLocations, postGrocyInventory, putGrocyProductUserfields,
+          fetchGrocyLocations, fetchGrocyQuantityUnitConversions,
+          postGrocyInventory, putGrocyProductUserfields,
           postGrocyShoppingList, esc */
 
 // ════════════════════════════════════════════════════════════
@@ -28,6 +29,7 @@ var _ic = {
 
     locations:     [],          // Grocy locations
     quantityUnits: {},          // qu_id -> name
+    conversions:   [],          // quantity_unit_conversions (salgs-/forbrugsenhed-visning)
     allProducts:   [],          // ALL products (for "add unexpected")
     products:      [],          // Products for current location
     grocyStock:    {},          // productId -> { amount, unit, bestBefore }
@@ -567,11 +569,13 @@ async function _icStartCheck() {
     try {
         var results = await Promise.all([
             fetchGrocyProducts(),
-            fetchGrocyStock()
+            fetchGrocyStock(),
+            fetchGrocyQuantityUnitConversions().catch(function() { return []; })
         ]);
 
         var allProducts = results[0];
         var stockData   = results[1];
+        _ic.conversions = results[2] || [];
 
         // Store all active products for "add unexpected"
         _ic.allProducts = allProducts.filter(function(p) {
@@ -889,7 +893,16 @@ function _icCreateCard(product, isChecked) {
     var totalCounted = _icRound(countData ? (countData.total || 0) : 0);
     var remaining = _icRound(grocyAmount - totalCounted);
 
-    var stockText = 'Grocy: ' + grocyAmount + ' ' + unitName;
+    // Sekundær enhed(er) — fx "(≈ 6 kasser)" (salgs-/forbrugsenhed, kun hvor konvertering findes)
+    var altSuffix = '';
+    var alts = _icAltConv(product);
+    if (alts.length && grocyAmount > 0) {
+        altSuffix = ' <span class="ic-card-alt">(' + alts.map(function(a) {
+            return '&#8776; ' + _icRound(grocyAmount * a.factor, 1) + ' ' + esc(a.unit);
+        }).join(' &middot; ') + ')</span>';
+    }
+
+    var stockText = 'Grocy: ' + grocyAmount + ' ' + unitName + altSuffix;
     if (totalCounted > 0) {
         stockText += ' &middot; Talt: ' + totalCounted;
         if (remaining > 0) {
@@ -1444,6 +1457,47 @@ function _icAddUnexpectedProduct(productId) {
 function _icRound(num, decimals) {
     decimals = decimals || 2;
     return Math.round(num * Math.pow(10, decimals)) / Math.pow(10, decimals);
+}
+
+// ── Enhedskonvertering (stock -> salgs-/forbrugsenhed) ──────────
+// Samme opslags-mønster som recipe_viewer/recipe_designer.
+function _icFindFactor(productId, fromQuId, toQuId) {
+    if (String(fromQuId) === String(toQuId)) return 1;
+    var convs = _ic.conversions || [];
+    var pf = convs.find(function(c) { return c.product_id == productId && c.from_qu_id == fromQuId && c.to_qu_id == toQuId; });
+    if (pf) return parseFloat(pf.factor) || null;
+    var pr = convs.find(function(c) { return c.product_id == productId && c.from_qu_id == toQuId && c.to_qu_id == fromQuId; });
+    if (pr) { var f1 = parseFloat(pr.factor); return f1 ? 1 / f1 : null; }
+    var gf = convs.find(function(c) { return (c.product_id === null || c.product_id === undefined) && c.from_qu_id == fromQuId && c.to_qu_id == toQuId; });
+    if (gf) return parseFloat(gf.factor) || null;
+    var gr = convs.find(function(c) { return (c.product_id === null || c.product_id === undefined) && c.from_qu_id == toQuId && c.to_qu_id == fromQuId; });
+    if (gr) { var f2 = parseFloat(gr.factor); return f2 ? 1 / f2 : null; }
+    return null;
+}
+
+function _icAltConv(product) {
+    if (!product) return [];
+    var stockQu = product.qu_id_stock;
+    if (!stockQu) return [];
+
+    var targets = [];
+    if (product.qu_id_purchase && String(product.qu_id_purchase) !== String(stockQu)) {
+        targets.push(product.qu_id_purchase);
+    }
+    if (product.qu_id_consume &&
+        String(product.qu_id_consume) !== String(stockQu) &&
+        String(product.qu_id_consume) !== String(product.qu_id_purchase)) {
+        targets.push(product.qu_id_consume);
+    }
+
+    var out = [];
+    targets.forEach(function(tq) {
+        var f = _icFindFactor(product.id, stockQu, tq);
+        if (f && isFinite(f)) {
+            out.push({ factor: f, unit: _ic.quantityUnits[tq] || '' });
+        }
+    });
+    return out;
 }
 
 function _icFormatDate(date) {

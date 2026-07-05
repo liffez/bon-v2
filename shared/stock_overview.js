@@ -10,8 +10,10 @@
  */
 
 /* global fetchGrocyStock, fetchGrocyProducts, fetchGrocyQuantityUnits,
-          fetchGrocyLocations, fetchGrocyProductGroups, postGrocyInventory,
-          postGrocyShoppingList, esc */
+          fetchGrocyLocations, fetchGrocyProductGroups, fetchShoppingLocations,
+          fetchGrocyQuantityUnitConversions,
+          postGrocyInventory, postGrocyShoppingList,
+          putGrocyProduct, putGrocyProductUserfields, esc */
 
 // ════════════════════════════════════════════════════════════
 // STATE
@@ -25,6 +27,10 @@ var _soLocationsMap   = {};   // location_id -> name
 var _soLocationsArr   = [];   // raw locations array
 var _soGroupsMap      = {};   // product_group_id -> name
 var _soGroupsArr      = [];   // raw groups array
+var _soShopLocsMap    = {};   // shopping_location_id -> name
+var _soShopLocsArr    = [];   // raw shopping locations array
+var _soConversions    = [];   // raw quantity_unit_conversions (til salgs-/forbrugsenhed-visning)
+var _soEditIds        = [];   // product_ids under redigering (1 = enkelt, >1 = bulk)
 
 var _soFilteredData   = [];   // after filters applied
 var _soSelectMode     = false;
@@ -55,7 +61,9 @@ async function _soLoadData() {
             fetchGrocyProducts(),
             fetchGrocyQuantityUnits(),
             fetchGrocyLocations(),
-            fetchGrocyProductGroups()
+            fetchGrocyProductGroups(),
+            fetchShoppingLocations().catch(function() { return []; }),
+            fetchGrocyQuantityUnitConversions().catch(function() { return []; })
         ]);
 
         var rawStock    = results[0];
@@ -63,6 +71,8 @@ async function _soLoadData() {
         var rawQus      = results[2];
         var rawLocs     = results[3];
         var rawGroups   = results[4];
+        var rawShopLocs = results[5] || [];
+        _soConversions  = results[6] || [];
 
         // Build lookup maps
         _soQUnitsMap = {};
@@ -75,6 +85,10 @@ async function _soLoadData() {
         _soGroupsMap = {};
         _soGroupsArr = rawGroups;
         rawGroups.forEach(function(g) { _soGroupsMap[g.id] = g.name; });
+
+        _soShopLocsMap = {};
+        _soShopLocsArr = rawShopLocs;
+        rawShopLocs.forEach(function(s) { _soShopLocsMap[s.id] = s.name; });
 
         _soProductsMap = {};
         _soAllProducts = rawProducts.filter(function(p) {
@@ -125,7 +139,8 @@ async function _soLoadData() {
                 location_name:      _soLocationsMap[product.location_id] || '',
                 product_group_id:   product.product_group_id,
                 product_group_name: _soGroupsMap[product.product_group_id] || '',
-                min_stock_amount:   minStock
+                min_stock_amount:   minStock,
+                alt_conv:           _soAltConv(product)
             };
         });
 
@@ -158,11 +173,26 @@ function _soBuildShell() {
         '</div>',
         '<div class="so-selection-bar" id="soSelectionBar">',
         '  <span class="so-sel-count" id="soSelCount">0 valgt</span>',
+        '  <button class="so-sel-btn so-sel-edit" data-action="bulk-edit">&#x270E; Rediger valgte</button>',
         '  <button class="so-sel-btn so-sel-shopping" data-action="bulk-shopping">+ Indkoebsliste</button>',
         '  <button class="so-sel-btn" data-action="bulk-clear">Annuller</button>',
         '</div>',
         '<div class="so-toast-area" id="soToastArea"></div>',
-        '<div class="so-content" id="soContent"></div>'
+        '<div class="so-content" id="soContent"></div>',
+        '<div class="so-edit-overlay" id="soEditOverlay">',
+        '  <div class="so-edit-modal" role="dialog" aria-modal="true">',
+        '    <div class="so-edit-header">',
+        '      <h3 id="soEditTitle">Rediger vare</h3>',
+        '      <button class="so-edit-x so-edit-close" title="Luk">&times;</button>',
+        '    </div>',
+        '    <div class="so-edit-body" id="soEditBody"></div>',
+        '    <div class="so-edit-footer">',
+        '      <span class="so-edit-status" id="soEditStatus"></span>',
+        '      <button class="so-sel-btn so-edit-close">Annuller</button>',
+        '      <button class="so-save-btn so-edit-save">Gem</button>',
+        '    </div>',
+        '  </div>',
+        '</div>'
     ].join('\n');
 
     // Event delegation on container
@@ -170,11 +200,12 @@ function _soBuildShell() {
     _soContainer.addEventListener('input', _soHandleInput);
     _soContainer.addEventListener('change', _soHandleChange);
 
-    // Escape to close expand
+    // Escape to close edit modal (first), then expand
     document.addEventListener('keydown', function(e) {
-        if (e.key === 'Escape' && _soCurrentExpand !== null) {
-            _soCloseExpand(_soCurrentExpand);
-        }
+        if (e.key !== 'Escape') return;
+        var ov = document.getElementById('soEditOverlay');
+        if (ov && ov.classList.contains('so-visible')) { _soCloseEdit(); return; }
+        if (_soCurrentExpand !== null) _soCloseExpand(_soCurrentExpand);
     });
 }
 
@@ -203,6 +234,25 @@ function _soPopulateFilters() {
 function _soHandleClick(e) {
     var target = e.target;
 
+    // Edit pencil on a card
+    var editBtn = target.closest('.so-edit-btn');
+    if (editBtn) {
+        e.stopPropagation();
+        var ecard = editBtn.closest('.so-card');
+        if (ecard) _soOpenEdit([parseInt(ecard.getAttribute('data-id'))]);
+        return;
+    }
+
+    // Edit modal: close (× / Annuller / backdrop) or save
+    if (target.closest('.so-edit-close') || target.id === 'soEditOverlay') {
+        _soCloseEdit();
+        return;
+    }
+    if (target.closest('.so-edit-save')) {
+        _soSaveEdit();
+        return;
+    }
+
     // Status pill click -> filter
     var pill = target.closest('.so-status-pill[data-filter]');
     if (pill) {
@@ -220,6 +270,7 @@ function _soHandleClick(e) {
     var selAction = target.closest('[data-action]');
     if (selAction) {
         var action = selAction.getAttribute('data-action');
+        if (action === 'bulk-edit')     { _soOpenBulkEdit(); return; }
         if (action === 'bulk-shopping') { _soBulkAddToShopping(); return; }
         if (action === 'bulk-clear')    { _soClearSelection(); return; }
     }
@@ -434,6 +485,14 @@ function _soRenderCard(item) {
         amountText += ' (' + _soRound(item.amount_opened) + ' aabnet)';
     }
 
+    // Sekundær enhed(er) — fx "≈ 6 kasser" (salgs-/forbrugsenhed, kun hvor konvertering findes)
+    var altHtml = '';
+    if (item.alt_conv && item.alt_conv.length && item.amount > 0) {
+        altHtml = '<span class="so-card-alt">' + item.alt_conv.map(function(a) {
+            return '&#8776; ' + _soRound(item.amount * a.factor, 1) + ' ' + esc(a.unit);
+        }).join(' &middot; ') + '</span>';
+    }
+
     // Min stock warning
     var minHtml = '';
     if (item.min_stock_amount > 0 && item.amount < item.min_stock_amount) {
@@ -467,9 +526,10 @@ function _soRenderCard(item) {
         '  <div class="so-card-name">' + esc(item.name) + '</div>' +
         '  <div class="so-card-meta">' +
         '    <span class="so-card-amount">' + amountText + '</span>' +
-        expiryHtml + minHtml +
+        altHtml + expiryHtml + minHtml +
         '  </div>' +
         '</div>' +
+        '<button class="so-edit-btn" title="Rediger vare">&#x270E;</button>' +
         '</div>' +
         expandHtml +
         '</div>';
@@ -678,6 +738,51 @@ function _soRound(num, decimals) {
     return Math.round(num * factor) / factor;
 }
 
+// ── Enhedskonvertering (stock -> salgs-/forbrugsenhed) ──────────
+// Samme opslags-mønster som recipe_viewer/recipe_designer: produkt-
+// specifik forward/reverse, derefter global forward/reverse.
+function _soFindFactor(productId, fromQuId, toQuId) {
+    if (String(fromQuId) === String(toQuId)) return 1;
+    var convs = _soConversions || [];
+    var pf = convs.find(function(c) { return c.product_id == productId && c.from_qu_id == fromQuId && c.to_qu_id == toQuId; });
+    if (pf) return parseFloat(pf.factor) || null;
+    var pr = convs.find(function(c) { return c.product_id == productId && c.from_qu_id == toQuId && c.to_qu_id == fromQuId; });
+    if (pr) { var f1 = parseFloat(pr.factor); return f1 ? 1 / f1 : null; }
+    var gf = convs.find(function(c) { return (c.product_id === null || c.product_id === undefined) && c.from_qu_id == fromQuId && c.to_qu_id == toQuId; });
+    if (gf) return parseFloat(gf.factor) || null;
+    var gr = convs.find(function(c) { return (c.product_id === null || c.product_id === undefined) && c.from_qu_id == toQuId && c.to_qu_id == fromQuId; });
+    if (gr) { var f2 = parseFloat(gr.factor); return f2 ? 1 / f2 : null; }
+    return null;
+}
+
+// Resolvér salgs-/forbrugsenhed for et produkt -> [{ factor, unit }].
+// Faktorer er statiske (afhænger ikke af mængden), så de kan caches på item'et
+// og ganges på den friske amount ved hver render.
+function _soAltConv(product) {
+    if (!product) return [];
+    var stockQu = product.qu_id_stock;
+    if (!stockQu) return [];
+
+    var targets = [];
+    if (product.qu_id_purchase && String(product.qu_id_purchase) !== String(stockQu)) {
+        targets.push(product.qu_id_purchase);
+    }
+    if (product.qu_id_consume &&
+        String(product.qu_id_consume) !== String(stockQu) &&
+        String(product.qu_id_consume) !== String(product.qu_id_purchase)) {
+        targets.push(product.qu_id_consume);
+    }
+
+    var out = [];
+    targets.forEach(function(tq) {
+        var f = _soFindFactor(product.id, stockQu, tq);
+        if (f && isFinite(f)) {
+            out.push({ factor: f, unit: _soQUnitsMap[tq] || '' });
+        }
+    });
+    return out;
+}
+
 function _soFormatExpiryDate(dateStr) {
     if (!dateStr || dateStr === '2999-12-31') return '';
     var d = new Date(dateStr);
@@ -698,6 +803,234 @@ function _soShowToast(message, type) {
         toast.style.transition = 'opacity 0.4s';
         setTimeout(function() { toast.remove(); }, 400);
     }, 3500);
+}
+
+// ════════════════════════════════════════════════════════════
+// EDIT PRODUCT (stamdata) — enkelt vare + bulk
+// ════════════════════════════════════════════════════════════
+
+function _soOpenBulkEdit() {
+    var ids = Object.keys(_soSelectedIds).map(function(k) { return parseInt(k); });
+    if (ids.length === 0) return;
+    _soOpenEdit(ids);
+}
+
+function _soOpenEdit(ids) {
+    _soEditIds = ids;
+    var bulk = ids.length > 1;
+
+    var titleEl = document.getElementById('soEditTitle');
+    if (titleEl) {
+        titleEl.textContent = bulk
+            ? ('Rediger ' + ids.length + ' varer')
+            : ('Rediger: ' + ((_soProductsMap[ids[0]] || {}).name || 'vare'));
+    }
+
+    var statusEl = document.getElementById('soEditStatus');
+    if (statusEl) {
+        statusEl.textContent = bulk
+            ? 'Kun felter du aendrer skrives til alle valgte varer.'
+            : '';
+    }
+
+    var body = document.getElementById('soEditBody');
+    if (body) body.innerHTML = _soBuildEditForm(ids);
+
+    var saveBtn = _soContainer.querySelector('.so-edit-save');
+    if (saveBtn) saveBtn.disabled = false;
+
+    var ov = document.getElementById('soEditOverlay');
+    if (ov) ov.classList.add('so-visible');
+}
+
+function _soFieldRow(label, controlHtml, hint) {
+    return '<div class="so-edit-row">' +
+        '<label class="so-edit-label">' + esc(label) + '</label>' +
+        '<div class="so-edit-control">' + controlHtml +
+        (hint ? '<div class="so-edit-hint">' + esc(hint) + '</div>' : '') +
+        '</div>' +
+        '</div>';
+}
+
+function _soBuildEditForm(ids) {
+    var bulk = ids.length > 1;
+    var p  = bulk ? {} : (_soProductsMap[ids[0]] || {});
+    var uf = (p && p.userfields) || {};
+
+    function selectField(id, label, arr, current, allowNone, noneLabel) {
+        var html = bulk ? '<option value="__keep__" selected>— behold —</option>' : '';
+        if (allowNone) {
+            var noneSel = (!bulk && (current === null || current === undefined || current === '')) ? ' selected' : '';
+            html += '<option value=""' + noneSel + '>' + esc(noneLabel || '(ingen)') + '</option>';
+        }
+        html += (arr || []).map(function(o) {
+            var sel = (!bulk && String(current) === String(o.id)) ? ' selected' : '';
+            return '<option value="' + o.id + '"' + sel + '>' + esc(o.name) + '</option>';
+        }).join('');
+        return _soFieldRow(label, '<select class="so-edit-input" id="' + id + '">' + html + '</select>');
+    }
+
+    function numField(id, label, val, hint) {
+        var v = (val === null || val === undefined || val === '') ? '' : val;
+        var ph = bulk ? '— behold —' : '';
+        var input = '<input type="number" class="so-edit-input" id="' + id + '" value="' +
+            (bulk ? '' : esc(String(v))) + '" placeholder="' + esc(ph) + '" step="1">';
+        return _soFieldRow(label, input, hint);
+    }
+
+    // Aktiv
+    var activeCtrl;
+    if (bulk) {
+        activeCtrl = '<select class="so-edit-input" id="soEdit_active">' +
+            '<option value="__keep__" selected>— behold —</option>' +
+            '<option value="1">Aktiv</option>' +
+            '<option value="0">Inaktiv</option>' +
+            '</select>';
+    } else {
+        var isActive = (p.active === '1' || p.active === 1 || p.active === true);
+        activeCtrl = '<label class="so-edit-check"><input type="checkbox" id="soEdit_active"' +
+            (isActive ? ' checked' : '') + '> Aktiv</label>';
+    }
+
+    var rows = '';
+    rows += _soFieldRow('Aktiv', activeCtrl);
+    rows += selectField('soEdit_location_id', 'Standardplacering', _soLocationsArr, p.location_id, false);
+    rows += selectField('soEdit_shopping_location_id', 'Standard-butik', _soShopLocsArr, p.shopping_location_id, true, '(ingen)');
+    rows += numField('soEdit_dbb', 'Bedst foer (dage)', p.default_best_before_days, '-1 = udloeber aldrig');
+    rows += selectField('soEdit_group', 'Varegruppe', _soGroupsArr, p.product_group_id, true, '(ingen)');
+    rows += numField('soEdit_hverdag', 'Tjek-interval (dage)', uf.HverDag, 'Hvor ofte varen skal taelles i optaelling. Tom = uaendret.');
+
+    return rows;
+}
+
+async function _soSaveEdit() {
+    var ids = _soEditIds;
+    if (!ids || ids.length === 0) return;
+    var bulk = ids.length > 1;
+    var p  = bulk ? null : (_soProductsMap[ids[0]] || {});
+    var uf = (p && p.userfields) || {};
+
+    var master = {};
+    var user   = {};
+
+    // Aktiv
+    var actEl = document.getElementById('soEdit_active');
+    if (actEl) {
+        if (bulk) {
+            if (actEl.value !== '__keep__') master.active = (actEl.value === '1') ? 1 : 0;
+        } else {
+            var curActive = (p.active === '1' || p.active === 1 || p.active === true) ? 1 : 0;
+            var newActive = actEl.checked ? 1 : 0;
+            if (newActive !== curActive) master.active = newActive;
+        }
+    }
+
+    function readSelect(id, key, current) {
+        var el = document.getElementById(id);
+        if (!el) return;
+        var v = el.value;
+        if (bulk) {
+            if (v === '__keep__') return;
+            master[key] = (v === '') ? null : v;
+            return;
+        }
+        var cur = (current === null || current === undefined || current === '') ? '' : String(current);
+        if (v === cur) return;               // uaendret
+        master[key] = (v === '') ? null : v;
+    }
+    readSelect('soEdit_location_id', 'location_id', p ? p.location_id : null);
+    readSelect('soEdit_shopping_location_id', 'shopping_location_id', p ? p.shopping_location_id : null);
+    readSelect('soEdit_group', 'product_group_id', p ? p.product_group_id : null);
+
+    function readNum(id, bag, key, current) {
+        var el = document.getElementById(id);
+        if (!el) return;
+        var raw = (el.value || '').trim();
+        if (raw === '') return;              // tom = ingen aendring
+        var n = Number(raw);
+        if (!isFinite(n)) return;
+        if (!bulk && current !== null && current !== undefined && current !== '' && Number(current) === n) return;
+        bag[key] = n;
+    }
+    readNum('soEdit_dbb', master, 'default_best_before_days', p ? p.default_best_before_days : null);
+    readNum('soEdit_hverdag', user, 'HverDag', uf.HverDag);
+
+    var mKeys = Object.keys(master);
+    var uKeys = Object.keys(user);
+    if (mKeys.length === 0 && uKeys.length === 0) {
+        _soShowToast('Ingen aendringer', 'info');
+        return;
+    }
+
+    var saveBtn  = _soContainer.querySelector('.so-edit-save');
+    var statusEl = document.getElementById('soEditStatus');
+    if (saveBtn) saveBtn.disabled = true;
+
+    var success = 0, failed = 0;
+    for (var i = 0; i < ids.length; i++) {
+        var id = ids[i];
+        if (statusEl) statusEl.textContent = 'Gemmer ' + (i + 1) + '/' + ids.length + '...';
+        try {
+            if (mKeys.length) await putGrocyProduct(id, master);
+            if (uKeys.length) await putGrocyProductUserfields(id, user);
+            _soApplyEditToLocal(id, master, user);
+            success++;
+        } catch (err) {
+            console.error('[stock_overview] redigering fejlede for ' + id + ':', err);
+            failed++;
+        }
+    }
+
+    _soCloseEdit();
+
+    if (failed === 0) {
+        _soShowToast(bulk ? (success + ' varer opdateret') : 'Vare opdateret', 'success');
+    } else {
+        _soShowToast(success + ' opdateret, ' + failed + ' fejlede', failed === ids.length ? 'error' : 'warn');
+    }
+
+    if (bulk) _soClearSelection();
+    _soApplyFilters();
+}
+
+function _soApplyEditToLocal(id, master, user) {
+    var prod = _soProductsMap[id];
+    if (prod) {
+        for (var k in master) {
+            if (master.hasOwnProperty(k)) prod[k] = master[k];
+        }
+        if (user && Object.keys(user).length) {
+            prod.userfields = prod.userfields || {};
+            for (var u in user) {
+                if (user.hasOwnProperty(u)) prod.userfields[u] = user[u];
+            }
+        }
+    }
+
+    // Deaktiveret -> fjern fra visningen (filtreres alligevel fra ved reload)
+    if (master.hasOwnProperty('active') && (master.active === 0 || master.active === '0')) {
+        _soStockData = _soStockData.filter(function(it) { return it.product_id !== id; });
+        return;
+    }
+
+    var item = _soStockData.find(function(it) { return it.product_id === id; });
+    if (!item) return;
+    if (master.hasOwnProperty('location_id')) {
+        item.location_id   = master.location_id;
+        item.location_name = _soLocationsMap[master.location_id] || '';
+    }
+    if (master.hasOwnProperty('product_group_id')) {
+        item.product_group_id   = master.product_group_id;
+        item.product_group_name = _soGroupsMap[master.product_group_id] || '';
+    }
+}
+
+function _soCloseEdit() {
+    var ov = document.getElementById('soEditOverlay');
+    if (ov) ov.classList.remove('so-visible');
+    _soEditIds = [];
+    var statusEl = document.getElementById('soEditStatus');
+    if (statusEl) statusEl.textContent = '';
 }
 
 // CommonJS export guard — exposes pure functions to Node-based tests (T_STOCK).

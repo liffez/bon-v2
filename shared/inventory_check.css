@@ -392,6 +392,12 @@
     margin-top: 4px;
 }
 
+/* Sekundær enhed — "(≈ 6 kasser)" (salgs-/forbrugsenhed) */
+.ic-card-alt {
+    color: var(--color-text-dim);
+    font-weight: 500;
+}
+
 .ic-card-counted {
     font-size: 12px;
     color: var(--color-green-dark);
