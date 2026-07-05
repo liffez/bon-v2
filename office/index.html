@@ -27,6 +27,7 @@
   <link rel="stylesheet" href="views/tilbud.css">
   <link rel="stylesheet" href="views/rapporter.css">
   <link rel="stylesheet" href="views/opskrifter.css">
+  <link rel="stylesheet" href="views/co2-emballage.css">
   <link rel="stylesheet" href="views/drift.css">
   <link rel="stylesheet" href="views/cashflow.css">
   <link rel="stylesheet" href="/assets/leaflet/leaflet.css">
@@ -812,6 +813,9 @@
           <button class="sidebar-link" data-view="drift">
             <span class="sidebar-icon">📈</span> Driftsregnskab
           </button>
+          <button class="sidebar-link" data-view="co2">
+            <span class="sidebar-icon">🌱</span> CO₂ — Emballage
+          </button>
 
           <div class="sidebar-group-label">Team</div>
           <a class="sidebar-link" href="/kitchen/vagtplan.html" target="_blank">
@@ -885,6 +889,7 @@
   <script src="views/tilbud.js"></script>
   <script src="views/rapporter.js"></script>
   <script src="views/opskrifter.js"></script>
+  <script src="views/co2-emballage.js"></script>
   <script src="views/drift.js"></script>
   <script src="views/cashflow.js"></script>
   <script src="/shared/supplier_inbox.js"></script>
@@ -1091,6 +1096,10 @@
           init: () => initDrift(contentEl, { openDrawer }),
           cleanup: () => { if (typeof cleanupDrift === 'function') cleanupDrift(); },
         },
+        co2: {
+          init: () => initCo2Emballage(contentEl),
+          cleanup: () => { if (typeof cleanupCo2Emballage === 'function') cleanupCo2Emballage(); },
+        },
         leverandorpost: {
           init: () => initSupplierInbox(contentEl, { openDrawer }),
           cleanup: () => { if (typeof cleanupSupplierInbox === 'function') cleanupSupplierInbox(); },
@@ -1234,6 +1243,7 @@
         },
         opskrifter: { _default: 'opskrifter' },
         drift: { _default: 'drift' },
+        co2: { _default: 'co2' },
         events: { _default: 'events' },
       };
 
