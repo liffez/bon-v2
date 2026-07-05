@@ -74,7 +74,8 @@ function runInventory(db) {
     // Migrations
     // Baseline bumpes ved hver migration: opdater når du tilføjer en ny db/migrations/-fil.
     const migs = db.prepare('SELECT COUNT(*) AS c FROM _migrations').get();
-    assertEq('T_DB_INV_01', 'INV', 76, migs.c, 'Antal migrations');
+    // Bevidst hardkodet (fanger utilsigtede skema-drift) — bump ved nye migrationer. 76→122 (re-baseline juli 2026).
+    assertEq('T_DB_INV_01', 'INV', 122, migs.c, 'Antal migrations');
 
     // User-tables (ekskl. sqlite_* og _* — _migrations er bookkeeping, _old_* er legacy)
     const tables = db.prepare(
@@ -83,7 +84,7 @@ function runInventory(db) {
            AND name NOT LIKE 'sqlite\\_%' ESCAPE '\\'
            AND name NOT LIKE '\\_%' ESCAPE '\\'`
     ).get();
-    assertEq('T_DB_INV_02', 'INV', 66, tables.c, 'Antal user-tables');
+    assertEq('T_DB_INV_02', 'INV', 82, tables.c, 'Antal user-tables');
 
     // Views
     const views = db.prepare(
@@ -95,7 +96,7 @@ function runInventory(db) {
     const trgs = db.prepare(
         `SELECT COUNT(*) AS c FROM sqlite_master WHERE type='trigger'`
     ).get();
-    assertEq('T_DB_INV_04', 'INV', 6, trgs.c, 'Antal triggers');
+    assertEq('T_DB_INV_04', 'INV', 7, trgs.c, 'Antal triggers');
 
     // _migrations.filename er unik
     const migDup = db.prepare(

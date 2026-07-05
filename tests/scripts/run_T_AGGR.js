@@ -250,11 +250,11 @@ async function runCancelTests() {
         const nums = bonNumbers(cal.bons);
         assertEq('T_AGGR_AFL_01_bons', 'AFL', ['4003','4004'], nums,
             'calendar 12/5 uden filter inkluderer AFLYST');
-        // Calendar ekskluderer is_offer fra units, og 4004 er ikke is_offer men er AFLYST.
-        // Calendar inkluderer ALLE i units uanset status (kun is_offer ekskluderes).
-        // Forventet: 4003 (103) + 4004 (50) = 153
-        assertEq('T_AGGR_AFL_01_units', 'AFL', 153, cal.totals.units,
-            'calendar.units inkluderer AFLYST når intet filter (4003+4004=153)');
+        // Calendar ekskluderer is_offer fra units — og siden commit 5a23bd6 ekskluderes
+        // AFLYST også fra workload-summer (aflyste bons VISES stadig i kalenderen, jf.
+        // AFL_01_bons ovenfor, men tæller ikke i kapacitet). 4004 er AFLYST → kun 4003.
+        assertEq('T_AGGR_AFL_01_units', 'AFL', 103, cal.totals.units,
+            'calendar.units ekskluderer AFLYST fra workload (kun 4003=103)');
     }
 
     // AFL_02: Planning 12/5 status=AFLYST — 4004 (+ 4008 fra OR is_offer, men 4008 er 14/5)

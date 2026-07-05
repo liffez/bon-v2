@@ -286,11 +286,13 @@ async function runPostLinesCases() {
         }
     }
 
-    // LINES_08: total_units genberegnes ved POST (uden is_accessory)
+    // LINES_08: total_units genberegnes ved POST (uden is_accessory).
+    // Siden migration 070 tæller kun whitelisted kategorier (01 Sandwich m.fl.) i
+    // total_units — linjen skal derfor have en tællende kategori for at recalc kan måles.
     {
         const before = getBonTotals(testBonId).total_units;
         const r = await api('POST', `/api/bons/${testBonId}/lines`, {
-            product_name: 'Test total_units', quantity: 7,
+            product_name: 'Test total_units', category: '01 Sandwich', quantity: 7,
         });
         if (r.status === 201) createdLineIds.push(r.body.id);
         const after = getBonTotals(testBonId).total_units;
@@ -465,9 +467,10 @@ async function runPutLinesCases() {
 async function runDeleteLinesCases() {
     console.log('\n── 4.4 DELETE /:id/lines/:lid ──');
 
-    // Lav 2 lines vi kan slette
+    // Lav 2 lines vi kan slette. lB får en tællende kategori (migration 070: kun
+    // whitelisted kategorier tæller i total_units) så DEL_03 kan måle units-recalc.
     const lA = await api('POST', `/api/bons/${testBonId}/lines`, { product_name: 'DEL_A', quantity: 3, unit_price: 100 });
-    const lB = await api('POST', `/api/bons/${testBonId}/lines`, { product_name: 'DEL_B', quantity: 2, unit_price: 50 });
+    const lB = await api('POST', `/api/bons/${testBonId}/lines`, { product_name: 'DEL_B', category: '01 Sandwich', quantity: 2, unit_price: 50 });
     if (lA.body?.id) createdLineIds.push(lA.body.id);
     if (lB.body?.id) createdLineIds.push(lB.body.id);
 

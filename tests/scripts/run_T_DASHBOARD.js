@@ -154,7 +154,12 @@ async function runSetup() {
         // Ly: today - 365 dage. Spec'en kalder dette "samme dato sidste år" — server bruger -364 dage offset.
         // For at vores LY-bon havner i lyByDate-mappet skal datoen være EXACTLY today-364 (ikke -365).
         const lyD = daysAgo(364);
-        const mtdD = daysFromNow(-5);
+        // MTD-bonen SKAL ligge i indeværende måned — et fast -5-dages offset krydser
+        // månedsskiftet i månedens første dage (dato-skrøbelig fixture; testen var skrevet
+        // midt på måneden). Klamp til d. 1. i indeværende måned.
+        const mtdCandidate = daysFromNow(-5);
+        const firstOfMonth = today().slice(0, 8) + '01';
+        const mtdD = mtdCandidate >= firstOfMonth ? mtdCandidate : firstOfMonth;
 
         created.bons.TODAY_1     = insertBon('TODAY_1',     { status: 'NY',      delivery_date: todayD,    pickup_time: '14:00', pax: 10, total_units: 20, total_price: 1000 });
         created.bons.TODAY_2     = insertBon('TODAY_2',     { status: 'IGANG',   delivery_date: todayD,    pickup_time: '12:00', pax: 20, total_units: 40, total_price: 2000, payment_type: 'card' });
