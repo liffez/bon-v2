@@ -14,7 +14,8 @@
  */
 
 /* global fetchGrocyStock, fetchGrocyProducts, fetchGrocyQuantityUnits,
-          fetchGrocyLocations, postGrocyInventory, putGrocyProductUserfields,
+          fetchGrocyLocations, fetchGrocyQuantityUnitConversions,
+          postGrocyInventory, putGrocyProductUserfields,
           postGrocyShoppingList, esc */
 
 // ════════════════════════════════════════════════════════════
@@ -28,13 +29,16 @@ var _ic = {
 
     locations:     [],          // Grocy locations
     quantityUnits: {},          // qu_id -> name
+    conversions:   [],          // quantity_unit_conversions (salgs-/forbrugsenhed-visning)
     allProducts:   [],          // ALL products (for "add unexpected")
+    productsById:  {},          // id -> fuldt produkt (kort får kun et udsnit)
     products:      [],          // Products for current location
     grocyStock:    {},          // productId -> { amount, unit, bestBefore }
     counts:        {},          // productId -> { units: { unitName: amount }, total }
     skipped:       [],          // productIds skipped in current unit (array)
     priorities:    {},          // productId -> "high"|"low"
     physicalUnits: {},          // locationId -> [{ id, name, sort_order, archived_at }] fra server
+    searchQuery:   '',          // fritekst-filter på varenavn i optællings-listen
 
     isChecking:    false,
     _sse:          null         // dedikeret EventSource til live-sync af enheder
@@ -554,6 +558,7 @@ async function _icStartCheck() {
     }
 
     _ic.isChecking = true;
+    _ic.searchQuery = '';
 
     var emptyEl = _icContainer.querySelector('#icEmptyState');
     if (emptyEl) emptyEl.style.display = 'none';
@@ -567,16 +572,23 @@ async function _icStartCheck() {
     try {
         var results = await Promise.all([
             fetchGrocyProducts(),
-            fetchGrocyStock()
+            fetchGrocyStock(),
+            fetchGrocyQuantityUnitConversions().catch(function() { return []; })
         ]);
 
         var allProducts = results[0];
         var stockData   = results[1];
+        _ic.conversions = results[2] || [];
 
         // Store all active products for "add unexpected"
         _ic.allProducts = allProducts.filter(function(p) {
             return p.active === '1' || p.active === 1 || p.active === true;
         });
+
+        // Id -> fuldt produkt. _icCreateCard får kun et kategoriseret udsnit
+        // (uden qu_id_*-felter), så enhed + salgs-/forbrugsenhed slås op her.
+        _ic.productsById = {};
+        _ic.allProducts.forEach(function(p) { _ic.productsById[p.id] = p; });
 
         // Filter products belonging to this location
         _ic.products = _ic.allProducts.filter(function(p) {
@@ -819,11 +831,35 @@ function _icRenderProgress() {
                 '<button class="ic-btn-secondary" id="icBtnAddProduct">Tilfoej vare</button>' +
                 '<button class="ic-btn-finish" id="icBtnFinish">Afslut optaelling</button>' +
             '</div>' +
+            '<div class="ic-search-row">' +
+                '<input type="text" class="ic-search" id="icSearch" placeholder="Soeg vare i listen...">' +
+                '<button class="ic-search-clear" id="icSearchClear" title="Ryd" style="display:none;">&times;</button>' +
+            '</div>' +
         '</div>';
 
     sec.querySelector('#icBtnNextUnit').addEventListener('click', _icSwitchUnit);
     sec.querySelector('#icBtnAddProduct').addEventListener('click', _icShowAddProduct);
     sec.querySelector('#icBtnFinish').addEventListener('click', _icShowSummary);
+
+    var searchEl = sec.querySelector('#icSearch');
+    var clearEl  = sec.querySelector('#icSearchClear');
+    if (searchEl) {
+        searchEl.value = _ic.searchQuery || '';
+        if (clearEl) clearEl.style.display = _ic.searchQuery ? 'flex' : 'none';
+        searchEl.addEventListener('input', function() {
+            _ic.searchQuery = this.value;
+            if (clearEl) clearEl.style.display = this.value ? 'flex' : 'none';
+            _icRenderProducts();
+        });
+    }
+    if (clearEl) {
+        clearEl.addEventListener('click', function() {
+            _ic.searchQuery = '';
+            if (searchEl) { searchEl.value = ''; searchEl.focus(); }
+            clearEl.style.display = 'none';
+            _icRenderProducts();
+        });
+    }
 }
 
 function _icUpdateProgressLabels() {
@@ -853,22 +889,37 @@ function _icUpdateProgress() {
 
 function _icRenderProducts() {
     var cat = _icCategorize();
+    var q = (_ic.searchQuery || '').toLowerCase().trim();
+
+    var unchecked     = cat.unchecked;
+    var checkedInUnit = cat.checkedInUnit;
+    if (q) {
+        var match = function(p) { return (p.name || '').toLowerCase().indexOf(q) !== -1; };
+        unchecked     = unchecked.filter(match);
+        checkedInUnit = checkedInUnit.filter(match);
+    }
 
     var uncheckedEl = _icContainer.querySelector('#icUncheckedList');
     uncheckedEl.innerHTML = '';
 
-    cat.unchecked.forEach(function(p) {
+    unchecked.forEach(function(p) {
         uncheckedEl.appendChild(_icCreateCard(p, false));
     });
+
+    // Tom-tilstand ved søgning uden match
+    if (q && unchecked.length === 0 && checkedInUnit.length === 0) {
+        uncheckedEl.innerHTML = '<div class="ic-search-empty">Ingen varer matcher &laquo;' +
+            esc(_ic.searchQuery.trim()) + '&raquo;</div>';
+    }
 
     var checkedListEl = _icContainer.querySelector('#icCheckedList');
     checkedListEl.innerHTML = '';
 
-    if (cat.checkedInUnit.length > 0) {
+    if (checkedInUnit.length > 0) {
         _icContainer.querySelector('#icCheckedSection').style.display = 'block';
-        _icContainer.querySelector('#icCheckedCount').textContent = cat.checkedInUnit.length;
+        _icContainer.querySelector('#icCheckedCount').textContent = checkedInUnit.length;
         _icContainer.querySelector('#icCurrentUnit').textContent = _ic.physicalUnit;
-        cat.checkedInUnit.forEach(function(p) {
+        checkedInUnit.forEach(function(p) {
             checkedListEl.appendChild(_icCreateCard(p, true));
         });
     } else {
@@ -881,15 +932,29 @@ function _icCreateCard(product, isChecked) {
     card.className = 'ic-card';
     card.dataset.productId = product.id;
 
+    // product er det kategoriserede udsnit (mangler qu_id_*-felter) — slå det
+    // fulde produkt op så enhed + salgs-/forbrugsenhed kan resolves.
+    var fullProduct = (_ic.productsById && _ic.productsById[product.id]) || product;
     var stockInfo = _ic.grocyStock[product.id];
-    var unitName = stockInfo ? stockInfo.unit : '';
+    // Enhed altid vist (som lageroversigten): fald tilbage til produktets
+    // lager-enhed når varen ikke har en lagerpost (fx 0 på lager).
+    var unitName = (stockInfo && stockInfo.unit) ? stockInfo.unit : (_ic.quantityUnits[fullProduct.qu_id_stock] || '');
     var grocyAmount = _icRound(stockInfo ? stockInfo.amount : 0);
 
     var countData = _ic.counts[product.id];
     var totalCounted = _icRound(countData ? (countData.total || 0) : 0);
     var remaining = _icRound(grocyAmount - totalCounted);
 
-    var stockText = 'Grocy: ' + grocyAmount + ' ' + unitName;
+    // Sekundær enhed(er) — fx "(≈ 6 kasser)" (salgs-/forbrugsenhed, kun hvor konvertering findes)
+    var altSuffix = '';
+    var alts = _icAltConv(fullProduct);
+    if (alts.length && grocyAmount > 0) {
+        altSuffix = ' <span class="ic-card-alt">(' + alts.map(function(a) {
+            return '&#8776; ' + _icRound(grocyAmount * a.factor, 1) + ' ' + esc(a.unit);
+        }).join(' &middot; ') + ')</span>';
+    }
+
+    var stockText = 'Grocy: ' + grocyAmount + ' ' + unitName + altSuffix;
     if (totalCounted > 0) {
         stockText += ' &middot; Talt: ' + totalCounted;
         if (remaining > 0) {
@@ -1093,6 +1158,11 @@ function _icCancelExpand(productId) {
 
 function _icConfirmCount(productId) {
     var input = _icContainer.querySelector('[data-product-id="' + productId + '"] .ic-qty-input');
+    if (!input) {
+        // Tidligere kastede dette en tavs TypeError → optællingen "gemte ikke".
+        _icAlert('Kunne ikke gemme — proev at klikke varen op igen', 'error');
+        return;
+    }
     var amount = parseFloat(input.value) || 0;
     _icSaveCount(productId, amount);
 }
@@ -1166,7 +1236,8 @@ function _icShowSummary() {
         var grocyAmount = _icRound(_ic.grocyStock[product.id] ? _ic.grocyStock[product.id].amount : 0);
         var countData = _ic.counts[product.id];
         var totalCounted = _icRound(countData ? (countData.total || 0) : 0);
-        var unitName = _ic.grocyStock[product.id] ? _ic.grocyStock[product.id].unit : '';
+        var _si = _ic.grocyStock[product.id];
+        var unitName = (_si && _si.unit) ? _si.unit : (_ic.quantityUnits[product.qu_id_stock] || '');
 
         if (!countData || !countData.units || Object.keys(countData.units).length === 0) {
             if (grocyAmount > 0) {
@@ -1304,10 +1375,32 @@ async function _icAddToShopping(productId) {
 }
 
 async function _icSaveAllToGrocy() {
+    // Hent frisk lager-status så vi sammenligner mod Grocys NUVÆRENDE beholdning,
+    // ikke snapshottet fra Start. Ellers kan lageret nå at drive (auto-forbrug når
+    // bons leveres i løbet af dagen), og en optalt mængde der matcher det nuværende
+    // lager afvises af Grocy ("ny mængde == nuværende") → tavs fejl.
+    var freshStock = null;
+    try {
+        var stockData = await fetchGrocyStock();
+        freshStock = {};
+        stockData.forEach(function(item) {
+            freshStock[String(item.product_id)] = parseFloat(item.amount) || 0;
+        });
+    } catch (e) {
+        freshStock = null;  // netværksfejl → fald tilbage til snapshot
+    }
+
+    var currentAmountFor = function(pid) {
+        if (freshStock && Object.prototype.hasOwnProperty.call(freshStock, String(pid))) {
+            return freshStock[String(pid)];
+        }
+        return _ic.grocyStock[pid] ? _ic.grocyStock[pid].amount : 0;
+    };
+
     var discs = [];
 
     _ic.products.forEach(function(product) {
-        var grocyAmount = _ic.grocyStock[product.id] ? _ic.grocyStock[product.id].amount : 0;
+        var grocyAmount = currentAmountFor(product.id);
         var countData = _ic.counts[product.id];
         var totalCounted = countData ? countData.total : undefined;
 
@@ -1317,7 +1410,7 @@ async function _icSaveAllToGrocy() {
     });
 
     if (discs.length === 0) {
-        _icAlert('Ingen aendringer at gemme', 'info');
+        _icAlert('Ingen aendringer at gemme (lager var allerede korrekt)', 'info');
         return;
     }
 
@@ -1444,6 +1537,47 @@ function _icAddUnexpectedProduct(productId) {
 function _icRound(num, decimals) {
     decimals = decimals || 2;
     return Math.round(num * Math.pow(10, decimals)) / Math.pow(10, decimals);
+}
+
+// ── Enhedskonvertering (stock -> salgs-/forbrugsenhed) ──────────
+// Samme opslags-mønster som recipe_viewer/recipe_designer.
+function _icFindFactor(productId, fromQuId, toQuId) {
+    if (String(fromQuId) === String(toQuId)) return 1;
+    var convs = _ic.conversions || [];
+    var pf = convs.find(function(c) { return c.product_id == productId && c.from_qu_id == fromQuId && c.to_qu_id == toQuId; });
+    if (pf) return parseFloat(pf.factor) || null;
+    var pr = convs.find(function(c) { return c.product_id == productId && c.from_qu_id == toQuId && c.to_qu_id == fromQuId; });
+    if (pr) { var f1 = parseFloat(pr.factor); return f1 ? 1 / f1 : null; }
+    var gf = convs.find(function(c) { return (c.product_id === null || c.product_id === undefined) && c.from_qu_id == fromQuId && c.to_qu_id == toQuId; });
+    if (gf) return parseFloat(gf.factor) || null;
+    var gr = convs.find(function(c) { return (c.product_id === null || c.product_id === undefined) && c.from_qu_id == toQuId && c.to_qu_id == fromQuId; });
+    if (gr) { var f2 = parseFloat(gr.factor); return f2 ? 1 / f2 : null; }
+    return null;
+}
+
+function _icAltConv(product) {
+    if (!product) return [];
+    var stockQu = product.qu_id_stock;
+    if (!stockQu) return [];
+
+    var targets = [];
+    if (product.qu_id_purchase && String(product.qu_id_purchase) !== String(stockQu)) {
+        targets.push(product.qu_id_purchase);
+    }
+    if (product.qu_id_consume &&
+        String(product.qu_id_consume) !== String(stockQu) &&
+        String(product.qu_id_consume) !== String(product.qu_id_purchase)) {
+        targets.push(product.qu_id_consume);
+    }
+
+    var out = [];
+    targets.forEach(function(tq) {
+        var f = _icFindFactor(product.id, stockQu, tq);
+        if (f && isFinite(f)) {
+            out.push({ factor: f, unit: _ic.quantityUnits[tq] || '' });
+        }
+    });
+    return out;
 }
 
 function _icFormatDate(date) {

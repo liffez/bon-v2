@@ -288,6 +288,13 @@
     font-weight: 600;
 }
 
+/* Sekundær enhed — "≈ 6 kasser" (salgs-/forbrugsenhed) */
+.so-card-alt {
+    color: var(--color-text-dim);
+    font-weight: 500;
+    white-space: nowrap;
+}
+
 /* ── Expiry badge ───────────────────────── */
 
 .so-expiry { font-weight: 500; }
@@ -423,6 +430,158 @@
 }
 
 .so-shop-btn:hover { background: rgba(165,191,117,0.35); }
+
+/* ── Edit pencil button ─────────────────── */
+
+.so-edit-btn {
+    flex-shrink: 0;
+    width: 34px;
+    height: 34px;
+    border: 1px solid var(--color-border);
+    border-radius: 6px;
+    background: var(--color-background);
+    color: var(--color-text-dim);
+    font-size: 15px;
+    cursor: pointer;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    transition: all 0.15s;
+}
+
+.so-edit-btn:hover { border-color: var(--brand-primary); color: var(--brand-primary); }
+
+/* Skjul blyant i vaelg-flere-tilstand — brug "Rediger valgte" i stedet */
+.so-grid.so-select-mode .so-edit-btn { display: none; }
+
+.so-sel-edit { border-color: rgba(142,99,31,0.4); color: var(--brand-primary); }
+.so-sel-edit:hover { background: var(--brand-primary-light); }
+
+/* ── Edit modal ─────────────────────────── */
+
+.so-edit-overlay {
+    display: none;
+    position: fixed;
+    inset: 0;
+    z-index: 1100;
+    background: rgba(0,0,0,0.45);
+    align-items: flex-start;
+    justify-content: center;
+    padding: 40px 16px;
+    overflow-y: auto;
+}
+
+.so-edit-overlay.so-visible { display: flex; }
+
+.so-edit-modal {
+    background: var(--color-surface);
+    border-radius: 12px;
+    width: 100%;
+    max-width: 460px;
+    box-shadow: 0 12px 40px rgba(0,0,0,0.25);
+    animation: soFadeUp 0.2s ease-out;
+    overflow: hidden;
+}
+
+.so-edit-header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 16px 20px;
+    border-bottom: 1px solid var(--color-border);
+}
+
+.so-edit-header h3 { margin: 0; font-size: 1.05rem; color: var(--color-text); }
+
+.so-edit-x {
+    border: none;
+    background: none;
+    font-size: 24px;
+    line-height: 1;
+    color: var(--color-text-dim);
+    cursor: pointer;
+    padding: 0 4px;
+}
+
+.so-edit-x:hover { color: var(--color-text); }
+
+.so-edit-body { padding: 4px 20px; }
+
+.so-edit-row {
+    display: flex;
+    align-items: flex-start;
+    gap: 12px;
+    padding: 10px 0;
+    border-bottom: 1px solid var(--color-border);
+}
+
+.so-edit-row:last-child { border-bottom: none; }
+
+.so-edit-label {
+    flex: 0 0 130px;
+    font-size: var(--font-size-s);
+    font-weight: 600;
+    color: var(--color-text-dim);
+    padding-top: 12px;
+}
+
+.so-edit-control { flex: 1; min-width: 0; }
+
+.so-edit-input {
+    width: 100%;
+    padding: 10px 12px;
+    border: 1px solid var(--color-border);
+    border-radius: 6px;
+    background: var(--color-background);
+    color: var(--color-text);
+    font: inherit;
+    font-size: 14px;
+    min-height: var(--touch-target-min, 44px);
+    box-sizing: border-box;
+    -webkit-appearance: none;
+}
+
+.so-edit-input:focus { outline: none; border-color: var(--brand-primary); }
+
+.so-edit-check {
+    display: inline-flex;
+    align-items: center;
+    gap: 8px;
+    font-size: 14px;
+    min-height: var(--touch-target-min, 44px);
+    cursor: pointer;
+}
+
+.so-edit-check input { width: 20px; height: 20px; }
+
+.so-edit-hint {
+    font-size: 11px;
+    color: var(--color-text-dim);
+    margin-top: 4px;
+}
+
+.so-edit-footer {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    padding: 14px 20px;
+    border-top: 1px solid var(--color-border);
+    background: var(--color-background);
+}
+
+.so-edit-status {
+    flex: 1;
+    font-size: 11px;
+    color: var(--color-text-dim);
+}
+
+.so-edit-save:disabled { opacity: 0.6; cursor: default; filter: none; }
+
+@media (max-width: 640px) {
+    .so-edit-row { flex-direction: column; gap: 4px; }
+    .so-edit-label { flex-basis: auto; padding-top: 0; }
+    .so-edit-overlay { padding: 16px 10px; }
+}
 
 /* ── Content area ───────────────────────── */
 

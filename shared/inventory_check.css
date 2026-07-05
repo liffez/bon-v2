@@ -392,6 +392,62 @@
     margin-top: 4px;
 }
 
+/* Sekundær enhed — "(≈ 6 kasser)" (salgs-/forbrugsenhed) */
+.ic-card-alt {
+    color: var(--color-text-dim);
+    font-weight: 500;
+}
+
+/* Søgefelt i optællings-listen */
+.ic-search-row {
+    position: relative;
+    margin-top: 10px;
+}
+
+.ic-search {
+    width: 100%;
+    padding: 10px 36px 10px 12px;
+    border: 1px solid var(--color-border);
+    border-radius: 6px;
+    background: var(--color-surface);
+    color: var(--color-text);
+    font: inherit;
+    font-size: 14px;
+    min-height: var(--touch-target-min, 44px);
+    box-sizing: border-box;
+}
+
+.ic-search:focus { outline: none; border-color: var(--brand-primary); }
+.ic-search::placeholder { color: var(--color-text-dim); }
+
+.ic-search-clear {
+    position: absolute;
+    right: 6px;
+    top: 50%;
+    transform: translateY(-50%);
+    width: 30px;
+    height: 30px;
+    border: none;
+    border-radius: 6px;
+    background: none;
+    color: var(--color-text-dim);
+    font-size: 20px;
+    line-height: 1;
+    cursor: pointer;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+}
+
+.ic-search-clear:hover { color: var(--color-text); }
+
+.ic-search-empty {
+    padding: 24px 16px;
+    text-align: center;
+    color: var(--color-text-dim);
+    font-size: 14px;
+}
+
 .ic-card-counted {
     font-size: 12px;
     color: var(--color-green-dark);
@@ -614,7 +670,9 @@
     top: 56px;
     left: 50%;
     transform: translateX(-50%);
-    z-index: 500;
+    /* Over .ic-overlay (z-index 1000) — ellers skjules beskeder (fx "X fejlede"
+       ved 'Gem alle ændringer') bag opsummerings-modalen og fejl bliver tavse. */
+    z-index: 1100;
     display: flex;
     flex-direction: column;
     gap: 8px;

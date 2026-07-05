@@ -1062,8 +1062,22 @@ async function setInventory(productId, amount, bestBeforeDate) {
         new_amount: amount,
     };
     if (bestBeforeDate) body.best_before_date = bestBeforeDate;
-    await grocyPost(`/stock/products/${productId}/inventory`, body);
+    try {
+        await grocyPost(`/stock/products/${productId}/inventory`, body);
+    } catch (err) {
+        // Grocy afviser når new_amount == nuværende beholdning
+        // ("The new amount cannot equal the current stock amount"). For en
+        // optælling/justering betyder det bare at lageret allerede er korrekt
+        // → behandl som no-op, ikke en fejl. (Snapshot kan være forældet pga.
+        // auto-forbrug når bons leveres.)
+        const msg = (err && err.message) || '';
+        if (/cannot equal the current stock amount/i.test(msg)) {
+            return { ok: true, unchanged: true };
+        }
+        throw err;
+    }
     _cache.delete('stock');
+    return { ok: true };
 }
 
 /** Alle lokationer */
