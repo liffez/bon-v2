@@ -146,6 +146,7 @@ app.use('/api/wage-rates', require('./routes/wage_rates'));
 app.use('/api/role-map',   require('./routes/role_map'));
 app.use('/api/drift',      require('./routes/drift'));
 app.use('/api/grocy',          require('./routes/grocy'));
+app.use('/api/co2',            require('./routes/co2'));
 app.use('/api/smartplan',      require('./routes/smartplan'));
 app.use('/api/notifications',  require('./routes/notifications'));
 app.use('/api/price-categories', require('./routes/price_categories'));

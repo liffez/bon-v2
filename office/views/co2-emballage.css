@@ -1,0 +1,78 @@
+/* office/views/co2-emballage.css — CO₂ F3 emballage-tildeler */
+
+.co2-view { padding: 20px 24px 60px; max-width: 1100px; }
+.co2-loading, .co2-error { padding: 40px; text-align: center; color: #6a6359; }
+.co2-error { color: #a33; }
+
+.co2-head { display: flex; align-items: center; justify-content: space-between; }
+.co2-head h1 { font-family: var(--font-heading, serif); font-size: 26px; margin: 0; color: #3a2f1c; }
+.co2-intro { color: #6a6359; margin: 6px 0 18px; max-width: 720px; font-size: 14px; }
+
+/* KPI-strip */
+.co2-kpis { display: flex; gap: 12px; flex-wrap: wrap; margin-bottom: 22px; }
+.co2-kpi { background: #fff; border: 1px solid #e2ddd4; border-radius: 10px;
+    padding: 12px 18px; min-width: 120px; }
+.co2-kpi-val { font-family: var(--font-heading, serif); font-size: 26px; color: #3a2f1c; line-height: 1; }
+.co2-kpi-lbl { font-size: 12px; color: #8a8073; margin-top: 4px; }
+.co2-kpi-green { border-left: 4px solid #4a9d5b; }
+.co2-kpi-amber { border-left: 4px solid #d99a2b; }
+.co2-kpi-grey  { border-left: 4px solid #b8b0a3; }
+.co2-kpi-red   { border-left: 4px solid #c0492f; }
+
+/* Kort */
+.co2-card { background: #fff; border: 1px solid #e2ddd4; border-radius: 12px;
+    padding: 18px 20px; margin-bottom: 22px; }
+.co2-card h2 { font-family: var(--font-heading, serif); font-size: 18px; margin: 0 0 2px; color: #3a2f1c; }
+.co2-sub { color: #8a8073; font-size: 13px; margin: 0 0 12px; }
+.co2-card-head { display: flex; align-items: center; justify-content: space-between;
+    gap: 12px; flex-wrap: wrap; margin-bottom: 10px; }
+.co2-filters { display: flex; gap: 8px; }
+.co2-filters input, .co2-filters select {
+    padding: 7px 10px; border: 1px solid #d7d1ca; border-radius: 8px; font-size: 14px; }
+.co2-filters input { min-width: 200px; }
+
+/* Tabeller */
+.co2-table { width: 100%; border-collapse: collapse; font-size: 14px; }
+.co2-table th { text-align: left; font-size: 12px; text-transform: uppercase;
+    letter-spacing: .03em; color: #9a9083; font-weight: 600;
+    border-bottom: 2px solid #ece7de; padding: 6px 10px; }
+.co2-table td { padding: 8px 10px; border-bottom: 1px solid #f0ece4; vertical-align: middle; }
+.co2-table tr:last-child td { border-bottom: none; }
+.co2-dim { color: #a49a8c; }
+.co2-mat-name, .co2-prod-name { font-weight: 600; color: #3a2f1c; }
+.co2-perkg { font-variant-numeric: tabular-nums; }
+.co2-used { text-align: center; color: #6a6359; font-variant-numeric: tabular-nums; }
+.co2-empty { text-align: center; color: #a49a8c; padding: 18px; }
+
+.co2-factor-in  { width: 90px; padding: 6px 8px; border: 1px solid #d7d1ca; border-radius: 6px;
+    font-size: 14px; font-variant-numeric: tabular-nums; }
+.co2-version-in { width: 150px; padding: 6px 8px; border: 1px solid #d7d1ca; border-radius: 6px; font-size: 13px; }
+.co2-mat-select { padding: 6px 8px; border: 1px solid #d7d1ca; border-radius: 6px; font-size: 14px; min-width: 150px; }
+
+/* Knapper */
+.co2-btn-ghost { background: transparent; border: 1px solid #d7d1ca; border-radius: 8px;
+    padding: 7px 14px; cursor: pointer; color: #5a5142; font-size: 14px; }
+.co2-btn-ghost:hover { background: #f5f2ec; }
+.co2-btn-save { background: var(--brand-primary, #8e631f); color: #fff; border: none;
+    border-radius: 6px; padding: 6px 14px; cursor: pointer; font-size: 13px; }
+.co2-btn-save:hover { filter: brightness(1.08); }
+.co2-btn-save:disabled { opacity: .6; cursor: default; }
+.co2-btn-clear { background: transparent; border: 1px solid #e0d8cd; border-radius: 6px;
+    width: 28px; height: 28px; cursor: pointer; color: #b06a52; font-size: 14px; line-height: 1; }
+.co2-btn-clear:hover { background: #faf3f0; border-color: #d9b8ab; }
+
+/* Status-badges */
+.co2-badge { display: inline-block; padding: 3px 10px; border-radius: 999px;
+    font-size: 12px; font-weight: 600; white-space: nowrap; }
+.co2-badge-grey  { background: #efece6; color: #7a7266; }
+.co2-badge-amber { background: #fcf0d8; color: #986c14; }
+.co2-badge-blue  { background: #e4eefa; color: #3b6ea3; }
+.co2-badge-green { background: #e2f2e5; color: #2f7a41; }
+.co2-badge-red   { background: #fbe6e0; color: #b23c22; }
+
+/* Toast */
+.co2-toast { position: fixed; bottom: 24px; right: 24px; background: #3a2f1c; color: #fff;
+    padding: 12px 18px; border-radius: 10px; font-size: 14px; box-shadow: 0 6px 20px rgba(0,0,0,.2);
+    opacity: 0; transform: translateY(10px); transition: opacity .2s, transform .2s; pointer-events: none; z-index: 9999; }
+.co2-toast-show { opacity: 1; transform: translateY(0); }
+.co2-toast-err { background: #a5341f; }

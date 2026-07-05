@@ -2083,3 +2083,38 @@ function deleteRecipeTarget(category) {
 function grocyRecipeLink(recipeId) {
     return '/api/recipes/grocy-recipe-link/' + recipeId;
 }
+
+/* ── CO₂ — materiale-faktortabel + emballage-tildeler (F3) ─── */
+
+function fetchCo2Materials(includeInactive = false) {
+    return apiFetch('/co2/materials' + (includeInactive ? '?include_inactive=1' : ''));
+}
+
+function patchCo2Material(id, payload) {
+    return apiFetch('/co2/materials/' + id, {
+        method: 'PATCH',
+        body: JSON.stringify(payload),
+    });
+}
+
+function reresolveCo2Material(id) {
+    return apiFetch('/co2/materials/' + id + '/reresolve', { method: 'POST' });
+}
+
+function fetchCo2Packaging() {
+    return apiFetch('/co2/packaging');
+}
+
+function assignCo2Material(productId, material) {
+    return apiFetch('/co2/assign', {
+        method: 'POST',
+        body: JSON.stringify({ product_id: productId, material }),
+    });
+}
+
+function clearCo2Material(productId) {
+    return apiFetch('/co2/clear', {
+        method: 'POST',
+        body: JSON.stringify({ product_id: productId }),
+    });
+}
