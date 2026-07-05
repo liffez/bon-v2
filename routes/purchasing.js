@@ -27,10 +27,147 @@ const { getDb }  = require('../db/database');
 const { handle } = require('../db/helpers');
 const { requireAuth } = require('../shared/auth');
 const grocy = require('../services/grocyAdapter');
+const { resolveIngredients } = require('../services/ingredientResolver');
 
 // Indkøb må laves af alle aktive roller (ikke kun admin), men kræver login.
 // Lukker bl.a. den åbne udgående-mail-vektor via kontakt@.
 router.use(requireAuth());
+
+/* ── GET /forecast ──────────────────────────────────────────
+ * Leverandør-forecast: forventet råvarebehov i en fremtidig periode,
+ * grupperet per leverandør — til at give leverandører et heads-up.
+ *
+ * Model (jf. #165): SÆSON som primært signal — samme periode sidste år
+ * (52 uger = 364 dage tilbage, så ugedage flugter). Falder tilbage til
+ * rullende 8-ugers snit skaleret til vinduet hvis sæson-vinduet er tyndt.
+ * Allerede-bookede fremtidige bons lægges ovenpå: forecast = max(sæson, booket).
+ *
+ * Query: ?from=YYYY-MM-DD&to=YYYY-MM-DD (inklusiv)
+ */
+router.get('/forecast', handle(async (req, res) => {
+    const db = getDb();
+    const { from, to } = req.query;
+    const dateRe = /^\d{4}-\d{2}-\d{2}$/;
+    if (!dateRe.test(from || '') || !dateRe.test(to || '')) {
+        return res.status(400).json({ error: 'from + to (YYYY-MM-DD) påkrævet' });
+    }
+    if (to < from) return res.status(400).json({ error: 'to skal være ≥ from' });
+
+    // Noon-anker + UTC-slice: Europe/Copenhagen (UTC+1/+2) → samme kalenderdato.
+    const shiftDays = (d, delta) => {
+        const dt = new Date(d + 'T12:00:00');
+        dt.setDate(dt.getDate() + delta);
+        return dt.toISOString().slice(0, 10);
+    };
+    const daysInclusive = (a, b) =>
+        Math.round((new Date(b + 'T12:00:00') - new Date(a + 'T12:00:00')) / 86400000) + 1;
+
+    // Bon-linjer i et leveringsvindue (ekskl. tilbud, aflyste, interne).
+    const linesInWindow = (f, t) => db.prepare(`
+        SELECT bl.grocy_recipe_id, bl.quantity
+        FROM bon_lines bl
+        JOIN bons b ON b.id = bl.bon_id
+        JOIN status_definitions sd ON sd.id = b.status_id
+        WHERE b.delivery_date >= ? AND b.delivery_date <= ?
+          AND b.is_offer = 0
+          AND COALESCE(b.is_internal, 0) = 0
+          AND sd.code != 'AFLYST'
+          AND bl.grocy_recipe_id IS NOT NULL
+    `).all(f, t).map(r => ({ grocy_recipe_id: r.grocy_recipe_id, quantity: r.quantity }));
+
+    const countBons = (f, t) => db.prepare(`
+        SELECT COUNT(*) n FROM bons b JOIN status_definitions sd ON sd.id = b.status_id
+        WHERE b.delivery_date >= ? AND b.delivery_date <= ?
+          AND b.is_offer = 0 AND COALESCE(b.is_internal,0) = 0 AND sd.code != 'AFLYST'
+    `).get(f, t).n;
+
+    // ── Vinduer ──
+    const seasonalFrom = shiftDays(from, -364);
+    const seasonalTo   = shiftDays(to, -364);
+    const bookedLines      = linesInWindow(from, to);
+    const bookedBonCount   = countBons(from, to);
+    const seasonalBonCount = countBons(seasonalFrom, seasonalTo);
+
+    // Fallback: tyndt sæson-vindue (< 3 bons) → rullende 8-ugers snit skaleret til vinduet.
+    let histLines = linesInWindow(seasonalFrom, seasonalTo);
+    let scale = 1, usedFallback = false, fallback = null;
+    if (seasonalBonCount < 3) {
+        const trailFrom = shiftDays(from, -56);
+        const trailTo   = shiftDays(from, -1);
+        histLines = linesInWindow(trailFrom, trailTo);
+        scale = daysInclusive(from, to) / 56;
+        usedFallback = true;
+        fallback = { trail_from: trailFrom, trail_to: trailTo, trail_bon_count: countBons(trailFrom, trailTo) };
+    }
+
+    // ── Opløs begge vinduer til råvarer (Grocy-fetches cacher, så 2. kald er billigt) ──
+    const [histRes, bookedRes] = await Promise.all([
+        resolveIngredients(histLines),
+        resolveIngredients(bookedLines),
+    ]);
+
+    // ── Flet per produkt: historisk (sæson/snit) + booket ──
+    const merged = new Map();
+    for (const ing of histRes.raw.ingredients) {
+        merged.set(ing.product_id, {
+            product_id: ing.product_id, product_name: ing.product_name,
+            unit: ing.unit, ingredient_group: ing.ingredient_group,
+            historic: (ing.amount_needed || 0) * scale, booked: 0,
+        });
+    }
+    for (const ing of bookedRes.raw.ingredients) {
+        const m = merged.get(ing.product_id);
+        if (m) m.booked = ing.amount_needed || 0;
+        else merged.set(ing.product_id, {
+            product_id: ing.product_id, product_name: ing.product_name,
+            unit: ing.unit, ingredient_group: ing.ingredient_group,
+            historic: 0, booked: ing.amount_needed || 0,
+        });
+    }
+
+    // ── Produkt → leverandør (via Grocy shopping_location_id → supplier_grocy_locations) ──
+    const products = await grocy.getProducts();
+    const prodLoc = new Map(products.map(p =>
+        [Number(p.id), p.shopping_location_id != null && p.shopping_location_id !== '' ? Number(p.shopping_location_id) : null]));
+    const locToSupplier = new Map();
+    db.prepare(`
+        SELECT sgl.grocy_location_id AS loc, s.id, s.name
+        FROM supplier_grocy_locations sgl JOIN suppliers s ON s.id = sgl.supplier_id
+        WHERE COALESCE(s.is_active, 1) = 1
+    `).all().forEach(r => locToSupplier.set(Number(r.loc), { id: r.id, name: r.name }));
+
+    const round = (n) => Math.round(n * 100) / 100;
+    const groups = new Map();
+    for (const m of merged.values()) {
+        const forecast = Math.max(m.historic, m.booked);
+        if (forecast <= 0) continue;
+        const loc = prodLoc.get(m.product_id);
+        const sup = loc != null ? locToSupplier.get(loc) : null;
+        const key = sup ? String(sup.id) : '__none__';
+        if (!groups.has(key)) {
+            groups.set(key, { supplier_id: sup?.id ?? null, supplier_name: sup?.name ?? 'Uden leverandør', items: [] });
+        }
+        groups.get(key).items.push({
+            product_id: m.product_id, product_name: m.product_name, unit: m.unit,
+            ingredient_group: m.ingredient_group,
+            historic_qty: round(m.historic), booked_qty: round(m.booked), forecast_qty: round(forecast),
+        });
+    }
+
+    const suppliers = [...groups.values()]
+        .map(g => { g.items.sort((a, b) => b.forecast_qty - a.forecast_qty); return g; })
+        .sort((a, b) =>
+            (a.supplier_id === null ? 1 : 0) - (b.supplier_id === null ? 1 : 0) ||
+            a.supplier_name.localeCompare(b.supplier_name, 'da'));
+
+    res.json({
+        from, to,
+        seasonal_from: seasonalFrom, seasonal_to: seasonalTo,
+        seasonal_bon_count: seasonalBonCount, booked_bon_count: bookedBonCount,
+        used_fallback: usedFallback, fallback,
+        suppliers,
+    });
+}));
 
 /* ── GET /suppliers ─────────────────────────────────────── */
 
