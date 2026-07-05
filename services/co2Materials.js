@@ -87,13 +87,15 @@ async function listPackagingProducts(db) {
         if (!packagingGroupIds.has(gid)) continue;
 
         const uf = p.userfields || {};
+        const src = (uf.co2e_source || '').trim();
         const matKey = (uf.co2e_material || '').trim();
         const mat = matKey ? matByKey.get(matKey) : null;
         const perKg = uf.co2e_per_kg != null && uf.co2e_per_kg !== ''
             ? Number(uf.co2e_per_kg) : null;
 
         let status;
-        if (!matKey) status = 'unassigned';
+        if (src === 'na') status = 'na';                  // skjult — ikke relevant for CO₂
+        else if (!matKey) status = 'unassigned';
         else if (!mat) status = 'unknown_material';       // peger på et materiale der ikke findes
         else if (mat.factor == null) status = 'pending_factor';
         else if (perKg == null) status = 'needs_resolve'; // faktor kendes, men ikke skrevet på varen endnu
@@ -144,6 +146,25 @@ async function clearMaterial(db, productId) {
 }
 
 /**
+ * Skjul en vare fra CO₂-workflowet (§1: source='na' = ikke relevant). Rydder
+ * materiale/faktor. Vises ikke i tildeler eller vejeværktøj. Reversibelt.
+ */
+async function hideProduct(db, productId) {
+    await grocy.updateProductUserfields(productId, {
+        co2e_source: 'na', co2e_material: '', co2e_per_kg: '', co2e_version: '',
+    });
+    grocy.clearCache();
+    return { product_id: Number(productId), hidden: true };
+}
+
+/** Fortryd skjul → tilbage til unassigned (source ryddes). */
+async function unhideProduct(db, productId) {
+    await grocy.updateProductUserfields(productId, { co2e_source: '' });
+    grocy.clearCache();
+    return { product_id: Number(productId), hidden: false };
+}
+
+/**
  * Re-resolve ét materiale: skriv den nuværende faktor til ALLE emballagevarer
  * der peger på materialet. Bruges når en faktor lige er udfyldt/ændret.
  * Returnerer antal opdaterede varer.
@@ -170,5 +191,7 @@ module.exports = {
     listPackagingProducts,
     assignMaterial,
     clearMaterial,
+    hideProduct,
+    unhideProduct,
     reresolveMaterial,
 };

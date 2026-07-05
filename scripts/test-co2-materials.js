@@ -154,6 +154,30 @@ function t(name, fn) {
         assert.strictEqual(pkg.find(x => x.id === 84).status, 'unknown_material');
     });
 
+    // 10. skjul → status na, materiale ryddet
+    await co2.hideProduct(db, 84);
+    pkg = await co2.listPackagingProducts(db);
+    t('hide → status na + materiale ryddet', () => {
+        const p = pkg.find(x => x.id === 84);
+        assert.strictEqual(p.status, 'na');
+        assert.strictEqual(p.co2e_material, null);
+        assert.strictEqual(p.co2e_source, 'na');
+    });
+
+    // 11. skjul-vare skrives til Grocy med source=na (verificér write-payload)
+    t('hide skrev co2e_source=na til Grocy', () => {
+        const w = writes.filter(x => x.id === 84).pop();
+        assert.strictEqual(w.fields.co2e_source, 'na');
+        assert.strictEqual(w.fields.co2e_material, '');
+    });
+
+    // 12. vis igen → tilbage til unassigned
+    await co2.unhideProduct(db, 84);
+    pkg = await co2.listPackagingProducts(db);
+    t('unhide → tilbage til unassigned', () => {
+        assert.strictEqual(pkg.find(x => x.id === 84).status, 'unassigned');
+    });
+
     console.log(`\n${pass} PASS · ${fail} FAIL`);
     process.exit(fail ? 1 : 0);
 })();

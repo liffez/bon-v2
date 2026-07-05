@@ -2118,3 +2118,17 @@ function clearCo2Material(productId) {
         body: JSON.stringify({ product_id: productId }),
     });
 }
+
+function hideCo2Product(productId) {
+    return apiFetch('/co2/hide', {
+        method: 'POST',
+        body: JSON.stringify({ product_id: productId }),
+    });
+}
+
+function unhideCo2Product(productId) {
+    return apiFetch('/co2/unhide', {
+        method: 'POST',
+        body: JSON.stringify({ product_id: productId }),
+    });
+}

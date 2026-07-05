@@ -60,6 +60,13 @@
 .co2-btn-clear { background: transparent; border: 1px solid #e0d8cd; border-radius: 6px;
     width: 28px; height: 28px; cursor: pointer; color: #b06a52; font-size: 14px; line-height: 1; }
 .co2-btn-clear:hover { background: #faf3f0; border-color: #d9b8ab; }
+.co2-btn-hide { background: transparent; border: 1px solid #e0d8cd; border-radius: 6px;
+    width: 28px; height: 28px; cursor: pointer; font-size: 13px; line-height: 1; opacity: .65; }
+.co2-btn-hide:hover { opacity: 1; background: #f5f2ec; }
+.co2-btn-sm { padding: 4px 10px; font-size: 12px; }
+.co2-row-actions { display: flex; gap: 6px; align-items: center; }
+.co2-row-hidden td { background: #faf9f7; }
+.co2-row-hidden .co2-prod-name { color: #8a8073; font-weight: 500; }
 
 /* Status-badges */
 .co2-badge { display: inline-block; padding: 3px 10px; border-radius: 999px;
