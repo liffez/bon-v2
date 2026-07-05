@@ -80,7 +80,8 @@ function runDbTests() {
     assertEq('T_BON_DB_01', 'DB', 11, sd.c, 'Antal status_definitions');
 
     const st = db.prepare('SELECT COUNT(*) AS c FROM status_transitions').get();
-    assertEq('T_BON_DB_02', 'DB', 27, st.c, 'Antal status_transitions');
+    // 27 → 30: migration 081 (FAKTURERET→BETALT) + 083 (KLAR→GODKENDT) + udvidet direkte-flow
+    assertEq('T_BON_DB_02', 'DB', 30, st.c, 'Antal status_transitions');
 
     const fkErrs = db.prepare('PRAGMA foreign_key_check(status_transitions)').all();
     assertEq('T_BON_DB_03', 'DB', [], fkErrs, 'FK-check transitions');

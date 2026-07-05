@@ -58,12 +58,14 @@ function assertClose(id, group, expected, actual, tol, label = '') {
 function runConsistencyTests(db) {
     console.log('\n── 3.1 Per-bon konsistens ──');
 
-    // BON_01: total_price = SUM(line_total) for alle 8 bonner
+    // BON_01: total_price = SUM(line_total) for rigtige bons.
+    // Tilbud ekskluderes: offer_price_mode='total'/'blok' sætter en manuel total der bevidst
+    // afviger fra linjesummen (bon 4008 = total-mode tilbud, 4287.5 ≠ linjesum 4122.5).
     {
         const rows = db.prepare(`
             SELECT b.id, b.bon_number, b.total_price,
                    (SELECT ROUND(SUM(line_total), 2) FROM bon_lines WHERE bon_id = b.id) AS sum_lines
-            FROM bons b WHERE b.id BETWEEN 4001 AND 4008
+            FROM bons b WHERE b.id BETWEEN 4001 AND 4008 AND b.is_offer = 0
         `).all();
         const mismatches = rows.filter(r => Math.abs(r.total_price - r.sum_lines) > 0.01);
         assertEq('T_ECON_BON_01', 'BON', [], mismatches,
@@ -122,10 +124,12 @@ function runMomsTests(db) {
             JOIN status_definitions sd ON b.status_id = sd.id
             WHERE b.id BETWEEN 4001 AND 4008 AND sd.code != 'AFLYST'
         `).get();
-        // S4-totaler fra T_PLAN §7.4: 7 bonner ekskl. 4004
-        // 4001+4002+4003+4005+4006+4007+4008 = 5237.5 + 2485 + 5237.5 + 7090 + 2655 + 3807.5 + 4122.5 = 30635
-        assertClose('T_ECON_MOMS_04_incl', 'MOMS', 30635.00, row.sum_incl, 0.01, 'S4 sum incl');
-        assertClose('T_ECON_MOMS_04_moms', 'MOMS', 30635.00 * 0.2, row.sum_moms, 0.01, 'S4 moms-andel');
+        // S4-totaler fra T_PLAN §7.4: 7 bonner ekskl. 4004. Summen er over bons.total_price.
+        // Bon 4008 er et total-mode tilbud → dets total_price er 4287.5 (ikke linjesummen 4122.5);
+        // den oprindelige forventning brugte fejlagtigt 4122.5. Korrekt sum:
+        // 4001+4002+4003+4005+4006+4007+4008 = 5237.5 + 2485 + 5237.5 + 7090 + 2655 + 3807.5 + 4287.5 = 30800
+        assertClose('T_ECON_MOMS_04_incl', 'MOMS', 30800.00, row.sum_incl, 0.01, 'S4 sum incl');
+        assertClose('T_ECON_MOMS_04_moms', 'MOMS', 30800.00 * 0.2, row.sum_moms, 0.01, 'S4 moms-andel');
     }
 }
 
