@@ -121,7 +121,7 @@ async function main() {
     if (!customer) throw new Error('Ingen test-kunde');
 
     const mt = db.prepare("SELECT id, label, duration_min FROM meeting_types WHERE key = 'smagning'").get();
-    const owner = db.prepare("SELECT id FROM users WHERE id = 4").get();
+    const owner = db.prepare("SELECT id FROM users WHERE is_active = 1 AND email IS NOT NULL AND email != '' ORDER BY id LIMIT 1").get();
     if (!mt || !owner) throw new Error('Mangler mt eller owner');
 
     // Husk og restore

@@ -80,8 +80,8 @@ async function main() {
                   || db.prepare("SELECT id FROM customers WHERE is_active = 1 AND email IS NOT NULL ORDER BY id LIMIT 1").get();
     if (!customer) throw new Error('Ingen kunde fundet');
 
-    const owner = db.prepare("SELECT id, email FROM users WHERE id = 4").get();
-    if (!owner) throw new Error('Bruger #4 (Anne) ikke fundet');
+    const owner = db.prepare("SELECT id, email FROM users WHERE is_active = 1 AND email IS NOT NULL AND email != '' ORDER BY id LIMIT 1").get();
+    if (!owner) throw new Error('Ingen aktiv bruger med email — kan ikke teste booking-ejer');
 
     const reason = db.prepare("SELECT id, key, label FROM contact_reasons WHERE key = 'send_menu' AND is_active = 1").get();
     if (!reason) throw new Error('contact_reason "send_menu" ikke fundet');
