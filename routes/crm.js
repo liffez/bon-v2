@@ -1091,7 +1091,8 @@ router.get('/customer-orders/:id', handle((req, res) => {
 router.post('/activity', handle((req, res) => {
     const db = getDb();
     const { customer_id, bon_id, type, result, sentiment, text, due_at, purpose_id, campaign_id } = req.body;
-    const userId = req.session.user?.id || null;
+    // F1: req.session.userId er den korrekte session-nøgle (jf. consent-handler nedenfor).
+    const userId = req.session?.userId || null;
 
     if (!customer_id || !type || !text) {
         return res.status(400).json({ error: 'Mangler customer_id, type eller text' });
@@ -1176,7 +1177,7 @@ router.patch('/customer/:id/stage', handle((req, res) => {
     // Sync til rfm_scores (sæt stage_locked så RFM batch-job respekterer manuelt valg)
     const customer = db.prepare("SELECT company_id FROM customers WHERE id = ?").get(id);
     if (customer?.company_id) {
-        const userId = req.session.user?.id || null;
+        const userId = req.session?.userId || null;  // F1
         const rfmExists = db.prepare("SELECT 1 FROM rfm_scores WHERE company_id = ?").get(customer.company_id);
         if (rfmExists) {
             db.prepare(`
