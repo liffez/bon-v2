@@ -138,6 +138,23 @@ function buildCustomerWishes(data) {
   return parts.length ? parts.join('\n\n') : null;
 }
 
+// Er en ISO-leveringsdato (YYYY-MM-DD) inden for en ferielukket periode?
+// Læser bestilling.closed_dates ([{from,to,label}]); ISO-datoer sammenlignes
+// leksikografisk (from <= dato <= to). Tåler tom/ugyldig JSON gracefully.
+function isClosedDate(db, isoDate) {
+  if (!isoDate) return false;
+  const row = db.prepare("SELECT value FROM settings WHERE key = 'bestilling.closed_dates'").get();
+  if (!row?.value) return false;
+  let ranges;
+  try { ranges = JSON.parse(row.value); } catch (e) { return false; }
+  if (!Array.isArray(ranges)) return false;
+  return ranges.some(r => {
+    const from = String(r.from || r.to || '').trim();
+    const to   = String(r.to || r.from || '').trim();
+    return from && to && isoDate >= from && isoDate <= to;
+  });
+}
+
 async function handleWebOrder(data) {
   const db = getDb();
 
@@ -152,6 +169,13 @@ async function handleWebOrder(data) {
     console.warn('[web-order] Mangler påkrævede felter:', {
       first_name: data.first_name, delivery_date: data.delivery_date, delivery_time: data.delivery_time
     });
+    return null;
+  }
+
+  // 2b. Ferielukket — server-guard (formen spærrer allerede, men et direkte
+  // API-kald skal ikke kunne snige en bestilling ind i en lukket periode).
+  if (isClosedDate(db, data.delivery_date)) {
+    console.warn('[web-order] Afvist — leveringsdato i ferielukket periode:', data.delivery_date);
     return null;
   }
 
