@@ -38,6 +38,7 @@ var _ic = {
     skipped:       [],          // productIds skipped in current unit (array)
     priorities:    {},          // productId -> "high"|"low"
     physicalUnits: {},          // locationId -> [{ id, name, sort_order, archived_at }] fra server
+    searchQuery:   '',          // fritekst-filter på varenavn i optællings-listen
 
     isChecking:    false,
     _sse:          null         // dedikeret EventSource til live-sync af enheder
@@ -557,6 +558,7 @@ async function _icStartCheck() {
     }
 
     _ic.isChecking = true;
+    _ic.searchQuery = '';
 
     var emptyEl = _icContainer.querySelector('#icEmptyState');
     if (emptyEl) emptyEl.style.display = 'none';
@@ -829,11 +831,35 @@ function _icRenderProgress() {
                 '<button class="ic-btn-secondary" id="icBtnAddProduct">Tilfoej vare</button>' +
                 '<button class="ic-btn-finish" id="icBtnFinish">Afslut optaelling</button>' +
             '</div>' +
+            '<div class="ic-search-row">' +
+                '<input type="text" class="ic-search" id="icSearch" placeholder="Soeg vare i listen...">' +
+                '<button class="ic-search-clear" id="icSearchClear" title="Ryd" style="display:none;">&times;</button>' +
+            '</div>' +
         '</div>';
 
     sec.querySelector('#icBtnNextUnit').addEventListener('click', _icSwitchUnit);
     sec.querySelector('#icBtnAddProduct').addEventListener('click', _icShowAddProduct);
     sec.querySelector('#icBtnFinish').addEventListener('click', _icShowSummary);
+
+    var searchEl = sec.querySelector('#icSearch');
+    var clearEl  = sec.querySelector('#icSearchClear');
+    if (searchEl) {
+        searchEl.value = _ic.searchQuery || '';
+        if (clearEl) clearEl.style.display = _ic.searchQuery ? 'flex' : 'none';
+        searchEl.addEventListener('input', function() {
+            _ic.searchQuery = this.value;
+            if (clearEl) clearEl.style.display = this.value ? 'flex' : 'none';
+            _icRenderProducts();
+        });
+    }
+    if (clearEl) {
+        clearEl.addEventListener('click', function() {
+            _ic.searchQuery = '';
+            if (searchEl) { searchEl.value = ''; searchEl.focus(); }
+            clearEl.style.display = 'none';
+            _icRenderProducts();
+        });
+    }
 }
 
 function _icUpdateProgressLabels() {
@@ -863,22 +889,37 @@ function _icUpdateProgress() {
 
 function _icRenderProducts() {
     var cat = _icCategorize();
+    var q = (_ic.searchQuery || '').toLowerCase().trim();
+
+    var unchecked     = cat.unchecked;
+    var checkedInUnit = cat.checkedInUnit;
+    if (q) {
+        var match = function(p) { return (p.name || '').toLowerCase().indexOf(q) !== -1; };
+        unchecked     = unchecked.filter(match);
+        checkedInUnit = checkedInUnit.filter(match);
+    }
 
     var uncheckedEl = _icContainer.querySelector('#icUncheckedList');
     uncheckedEl.innerHTML = '';
 
-    cat.unchecked.forEach(function(p) {
+    unchecked.forEach(function(p) {
         uncheckedEl.appendChild(_icCreateCard(p, false));
     });
+
+    // Tom-tilstand ved søgning uden match
+    if (q && unchecked.length === 0 && checkedInUnit.length === 0) {
+        uncheckedEl.innerHTML = '<div class="ic-search-empty">Ingen varer matcher &laquo;' +
+            esc(_ic.searchQuery.trim()) + '&raquo;</div>';
+    }
 
     var checkedListEl = _icContainer.querySelector('#icCheckedList');
     checkedListEl.innerHTML = '';
 
-    if (cat.checkedInUnit.length > 0) {
+    if (checkedInUnit.length > 0) {
         _icContainer.querySelector('#icCheckedSection').style.display = 'block';
-        _icContainer.querySelector('#icCheckedCount').textContent = cat.checkedInUnit.length;
+        _icContainer.querySelector('#icCheckedCount').textContent = checkedInUnit.length;
         _icContainer.querySelector('#icCurrentUnit').textContent = _ic.physicalUnit;
-        cat.checkedInUnit.forEach(function(p) {
+        checkedInUnit.forEach(function(p) {
             checkedListEl.appendChild(_icCreateCard(p, true));
         });
     } else {
