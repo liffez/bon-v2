@@ -782,13 +782,14 @@ function _ibRenderPanels() {
             h += '<div class="ib-panel-item">';
             h += '<input type="checkbox" class="ib-panel-chk" checked data-product-id="' + prod.id + '">';
             h += '<div class="ib-panel-info"><div class="ib-panel-name">' + _ibEsc(prod.name) + '</div>';
-            h += '<div class="ib-panel-meta">Min: ' + minStock + ' · Lager: ' + (parseFloat(mp.amount) || 0);
+            h += '<div class="ib-panel-meta">Min: ' + _ibFmtNum(minStock) + ' · Lager: ' + _ibFmtNum(parseFloat(mp.amount) || 0);
             if (locName) h += ' · ' + _ibEsc(locName);
             h += '</div></div>';
-            h += '<div class="ib-panel-qc">';
+            h += '<div class="ib-panel-qc"><span class="ib-panel-qlabel">Antal</span>';
             h += '<button class="ib-panel-qb" data-ib="panel-minus" data-idx="' + m + '">−</button>';
             h += '<input class="ib-panel-qi" type="number" value="' + suggest + '" min="1" data-idx="' + m + '">';
             h += '<button class="ib-panel-qb" data-ib="panel-plus" data-idx="' + m + '">+</button>';
+            h += '<button class="ib-panel-rowadd" data-ib="add-panel-row" data-panel="missing" data-idx="' + m + '" data-product-id="' + prod.id + '" title="Tilføj denne vare til indkøbslisten">+ Tilføj</button>';
             h += '</div></div>';
         }
         h += '</div>';
@@ -817,11 +818,12 @@ function _ibRenderPanels() {
             h += '<div class="ib-panel-item">';
             h += '<input type="checkbox" class="ib-panel-chk" checked data-product-id="' + dprod.id + '">';
             h += '<div class="ib-panel-info"><div class="ib-panel-name">' + _ibEsc(dprod.name) + '</div>';
-            h += '<div class="ib-panel-meta">Udløber: ' + (dp.best_before_date || '?') + ' · ' + (parseFloat(dp.amount) || 0) + '</div></div>';
-            h += '<div class="ib-panel-qc">';
+            h += '<div class="ib-panel-meta">Udløber: ' + (dp.best_before_date || '?') + ' · Lager: ' + _ibFmtNum(parseFloat(dp.amount) || 0) + '</div></div>';
+            h += '<div class="ib-panel-qc"><span class="ib-panel-qlabel">Antal</span>';
             h += '<button class="ib-panel-qb" data-ib="panel-minus" data-idx="' + d + '">−</button>';
-            h += '<input class="ib-panel-qi" type="number" value="' + Math.max(1, Math.ceil(parseFloat(dp.amount) || 1)) + '" min="1" data-idx="' + d + '">';
+            h += '<input class="ib-panel-qi" type="number" value="1" min="1" data-idx="' + d + '">';
             h += '<button class="ib-panel-qb" data-ib="panel-plus" data-idx="' + d + '">+</button>';
+            h += '<button class="ib-panel-rowadd" data-ib="add-panel-row" data-panel="expiring" data-idx="' + d + '" data-product-id="' + dprod.id + '" title="Tilføj denne vare til indkøbslisten">+ Tilføj</button>';
             h += '</div></div>';
         }
         h += '</div>';
@@ -1392,6 +1394,14 @@ function _ibHandleClick(e) {
             _ibAddFromPanel('expiring');
             break;
 
+        case 'add-panel-row':
+            _ibAddSinglePanelRow(
+                btn.getAttribute('data-panel'),
+                btn.getAttribute('data-idx'),
+                btn.getAttribute('data-product-id')
+            );
+            break;
+
         case 'selall-missing':
         case 'selall-expiring':
             var panel = _ibContainer.querySelector('[data-ib-panel="' + (action.indexOf('missing') >= 0 ? 'missing' : 'expiring') + '"]');
@@ -1881,6 +1891,26 @@ async function _ibAddFromPanel(type) {
         _ibPanelOpen = null;
         await _ibReloadShoppingList();
         _ibLoadVolatile();
+    } else {
+        // Tidligere fejlede dette tavst (kun console.warn) → brugeren troede add var i stykker.
+        _ibToast('Ingen varer valgt eller kunne ikke tilføjes', true);
+    }
+}
+
+// Tilføj ÉN vare fra et panel (Manglende/Udløbende) direkte til indkøbslisten.
+// Bruger antallet fra rækkens egen stepper. Panelet forbliver åbent så man
+// kan tilføje flere. Fejl vises som toast (ikke tavs console.warn).
+async function _ibAddSinglePanelRow(panelType, idx, productId) {
+    var panelEl = _ibContainer.querySelector('[data-ib-panel="' + panelType + '"]');
+    var input = panelEl ? panelEl.querySelector('.ib-panel-qi[data-idx="' + idx + '"]') : null;
+    var qty = input ? (parseFloat(input.value) || 1) : 1;
+    try {
+        await addShoppingListProduct(parseInt(productId), qty);
+        _ibToast('Tilføjet til listen');
+        await _ibReloadShoppingList();
+        _ibLoadVolatile();   // panelet gen-renderes; _ibPanelOpen bevares → forbliver åbent
+    } catch (err) {
+        _ibToast('Kunne ikke tilføje: ' + err.message, true);
     }
 }
 
