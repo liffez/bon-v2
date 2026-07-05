@@ -8,8 +8,7 @@
 const express = require('express');
 const router  = express.Router();
 const { getDb } = require('../db/database');
-const { logChange, nextBonNumber, getStatusId } = require('../db/helpers');
-const { broadcast } = require('../shared/sse');
+const { createBon } = require('../db/helpers');
 
 // ─── POST /webhook/bestilling ──────────────────────────────────────────────
 // Offentligt endpoint — ingen auth, altid 200 (fejl logges, vises ikke til kunden)
@@ -252,58 +251,30 @@ async function handleWebOrder(data) {
     }
   }
 
-  // 8. Opret bon
-  const statusId  = getStatusId('NY');
-  const bonNumber = nextBonNumber();
-
-  const location = db.prepare("SELECT id FROM locations WHERE code = 'hq' LIMIT 1").get();
-  const locationId = location?.id || 1;
-
-  const defaultCat = db.prepare(
-    "SELECT id FROM price_categories WHERE code = 'catering' LIMIT 1"
-  ).get();
-  const priceCategoryId = defaultCat?.id || null;
-
+  // 8. Opret bon (fælles helper — #237)
   const pax = data.pax ? parseInt(data.pax) : null;
   const customerWishes = buildCustomerWishes(data);
 
   // Saml leverings-info: extra-tekst (etage/indgang) gemmes i delivery_notes
   const deliveryNotes = data.delivery_extra?.trim() || null;
 
-  const bonRes = db.prepare(`
-    INSERT INTO bons (
-      bon_number, status_id, location_id,
-      customer_id, company_id, price_category_id,
-      order_date, delivery_date, delivery_time,
-      delivery_type, delivery_address_id,
-      pax, customer_wishes, invoice_info,
-      day_contact_name, day_contact_phone,
-      delivery_notes,
-      payment_type, created_at, updated_at
-    ) VALUES (
-      ?, ?, ?,
-      ?, ?, ?,
-      date('now'), ?, ?,
-      ?, ?,
-      ?, ?, ?,
-      ?, ?,
-      ?,
-      'invoice', CURRENT_TIMESTAMP, CURRENT_TIMESTAMP
-    )
-  `).run(
-    bonNumber, statusId, locationId,
-    customerId, companyId, priceCategoryId,
-    data.delivery_date, data.delivery_time,
-    deliveryType, addressId,
+  const { bonId, bonNumber } = createBon({
+    customer_id: customerId,
+    company_id: companyId,
+    delivery_date: data.delivery_date,
+    delivery_time: data.delivery_time,
+    delivery_type: deliveryType,
+    delivery_address_id: addressId,
     pax,
-    customerWishes,
-    eanInfo || null,
-    data.contact_person || null,
-    data.contact_phone || null,
-    deliveryNotes
-  );
-
-  const bonId = Number(bonRes.lastInsertRowid);
+    customer_wishes: customerWishes,
+    invoice_info: eanInfo || null,
+    day_contact_name: data.contact_person || null,
+    day_contact_phone: data.contact_phone || null,
+    delivery_notes: deliveryNotes,
+    changelog_field: 'web_order',
+    changelog_message: `Oprettet via web-bestilling (${data.email || fullName})`,
+    broadcast_extra: { source: 'web_order' },
+  });
 
   // 9. Gem i web_orders
   const addr = data.validatedAddress || {};
@@ -333,21 +304,7 @@ async function handleWebOrder(data) {
     bonId
   );
 
-  // 10. Changelog
-  logChange({
-    entityType: 'bon',
-    entityId: bonId,
-    action: 'create',
-    fieldName: 'web_order',
-    oldValue: null,
-    newValue: `Oprettet via web-bestilling (${data.email || fullName})`,
-    userId: null
-  });
-
-  // 11. SSE broadcast
-  broadcast('bon_created', { id: bonId, bon_number: bonNumber, source: 'web_order' });
-
-  // 12. Send bekræftelsesmail til kunden + intern notifikation til ejer
+  // 10. Send bekræftelsesmail til kunden + intern notifikation til ejer
   //     (fire-and-forget — blokerer ikke response)
   const dagnavne = ['søndag','mandag','tirsdag','onsdag','torsdag','fredag','lørdag'];
   const maaneder = ['januar','februar','marts','april','maj','juni','juli','august','september','oktober','november','december'];

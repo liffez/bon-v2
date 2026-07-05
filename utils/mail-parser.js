@@ -13,6 +13,17 @@ const { getDb } = require('../db/database');
 
 const BON_V1_PATTERN = /#Bon:/i;
 
+// Kanoniske default-prefixes. Én kilde til sandhed for både getPrefixes()-fallbacks
+// og fletning af delvise prefix-objekter i parseSubject()/buildTag(). Tilføjes en
+// 6. tag-type, tilføjes den her — så et opkald med et partielt objekt aldrig crasher.
+const DEFAULT_PREFIXES = {
+    bon:            'b-',
+    offer:          't-',
+    customer:       'k-',
+    purchase_order: 'po-',
+    supplier:       's-',
+};
+
 /**
  * Tjek om emne er Bon v1 format (skal ignoreres).
  */
@@ -32,11 +43,11 @@ function getPrefixes() {
     ).all();
     const map = Object.fromEntries(rows.map(r => [r.key, r.value]));
     return {
-        bon:            map.mail_tag_bon_prefix            || 'b-',
-        offer:          map.mail_tag_offer_prefix          || 't-',
-        customer:       map.mail_tag_customer_prefix       || 'k-',
-        purchase_order: map.mail_tag_purchase_order_prefix || 'po-',
-        supplier:       map.mail_tag_supplier_prefix       || 's-',
+        bon:            map.mail_tag_bon_prefix            || DEFAULT_PREFIXES.bon,
+        offer:          map.mail_tag_offer_prefix          || DEFAULT_PREFIXES.offer,
+        customer:       map.mail_tag_customer_prefix       || DEFAULT_PREFIXES.customer,
+        purchase_order: map.mail_tag_purchase_order_prefix || DEFAULT_PREFIXES.purchase_order,
+        supplier:       map.mail_tag_supplier_prefix       || DEFAULT_PREFIXES.supplier,
     };
 }
 
@@ -57,7 +68,9 @@ function parseSubject(subject, prefixes) {
         return { isV1: true, routing: 'ignore', bonNumber: null, offerNumber: null, customerNumber: null, purchaseOrderNumber: null, supplierNumber: null, raw: subject };
     }
 
-    const p = prefixes || getPrefixes();
+    // Flet et evt. delvist prefix-objekt med defaults, så et manglende led
+    // (fx purchase_order/supplier) ikke crasher esc() på undefined.
+    const p = { ...DEFAULT_PREFIXES, ...(prefixes || getPrefixes()) };
     const esc = (s) => s.replace(/[-[\]{}()*+?.,\\^$|#\s]/g, '\\$&');
 
     const bonMatch      = new RegExp(`#${esc(p.bon)}(\\d+)`, 'i').exec(subject);
@@ -100,7 +113,7 @@ function parseSubject(subject, prefixes) {
  */
 function buildTag(context, prefixes) {
     if (!context || !context.type || !context.number) return '';
-    const p = prefixes || getPrefixes();
+    const p = { ...DEFAULT_PREFIXES, ...(prefixes || getPrefixes()) };
     const prefixMap = { bon: p.bon, offer: p.offer, customer: p.customer, purchase_order: p.purchase_order, supplier: p.supplier };
     const prefix = prefixMap[context.type];
     if (!prefix) return '';

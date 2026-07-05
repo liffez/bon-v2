@@ -282,18 +282,27 @@ function formatLevel(aggregated, stockMap, quConversions, unitMap, subRecipeAgg)
         const shortfallStock = Math.max(0, ing.needed_stock - stockAmount);
         let shortfallPurchase = shortfallStock;
         let purchaseUnitName = '';
+        // purchaseFactor = lager→indkøbsenhed (1 = samme enhed / ingen konvertering).
+        // Eksponeres rå så kaldere (fx forecast) kan konvertere TOTALT behov, ikke
+        // kun restbehov-mod-lager (shortfall).
+        let purchaseFactor = 1;
 
         if (ing.qu_id_purchase && ing.qu_id_purchase !== ing.qu_id_stock) {
             const toPurchaseFactor = findConversionFactor(
                 quConversions, ing.product_id, ing.qu_id_stock, ing.qu_id_purchase
             );
-            if (toPurchaseFactor !== null) shortfallPurchase = shortfallStock * toPurchaseFactor;
+            if (toPurchaseFactor !== null) { shortfallPurchase = shortfallStock * toPurchaseFactor; purchaseFactor = toPurchaseFactor; }
             const puUnit = unitMap.get(ing.qu_id_purchase);
             purchaseUnitName = puUnit ? (puUnit.name_short || puUnit.name || '') : '';
         } else {
             const stUnit = unitMap.get(ing.qu_id_stock);
             purchaseUnitName = stUnit ? (stUnit.name_short || stUnit.name || '') : '';
         }
+        const purchaseIsRealUnit = !!(ing.qu_id_purchase && ing.qu_id_purchase !== ing.qu_id_stock);
+
+        // gramsFactor = lager→gram (via findConversionFactorToGrams; null hvis
+        // produktet ikke har en vægt/densitet i Grocy → kan ikke vejes i kg).
+        const gramsFactor = findConversionFactorToGrams(quConversions, ing.product_id, ing.qu_id_stock, unitMap);
 
         return {
             product_id:       ing.product_id,
@@ -305,10 +314,15 @@ function formatLevel(aggregated, stockMap, quConversions, unitMap, subRecipeAgg)
             status,
             ingredient_group: ing.ingredient_group,
             // Rund op til hele purchase-enheder (1 Kasse, 1 Pakke — ikke 0.01)
-            shortfall_purchase: ing.qu_id_purchase && ing.qu_id_purchase !== ing.qu_id_stock
+            shortfall_purchase: purchaseIsRealUnit
                 ? Math.ceil(shortfallPurchase)
                 : Math.ceil(shortfallPurchase * 100) / 100,
             purchase_unit:      purchaseUnitName,
+            // Rå bygge-klodser til enheds-konvertering hos kalderen:
+            needed_stock:       ing.needed_stock,
+            purchase_factor:    purchaseFactor,
+            purchase_is_real_unit: purchaseIsRealUnit,
+            grams_factor:       gramsFactor,   // null = kan ikke vejes
         };
     });
 

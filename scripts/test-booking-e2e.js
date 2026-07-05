@@ -78,8 +78,8 @@ async function main() {
                   || db.prepare("SELECT id FROM customers WHERE is_active = 1 AND email IS NOT NULL ORDER BY id LIMIT 1").get();
     if (!customer) throw new Error('Ingen test-kunde');
 
-    const owner = db.prepare("SELECT id FROM users WHERE id = 4").get();
-    if (!owner) throw new Error('Owner #4 mangler');
+    const owner = db.prepare("SELECT id FROM users WHERE is_active = 1 AND email IS NOT NULL AND email != '' ORDER BY id LIMIT 1").get();
+    if (!owner) throw new Error('Ingen aktiv bruger med email — kan ikke teste booking-ejer');
 
     const mt = db.prepare("SELECT id, label, duration_min, key FROM meeting_types WHERE key = 'smagning'").get();
 

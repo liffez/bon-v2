@@ -897,6 +897,7 @@
   <script src="/shared/product_create.js"></script>
   <script src="/shared/indkob.js"></script>
   <script src="/shared/indkob_settings.js"></script>
+  <script src="views/forecast.js"></script>
 
   <script>
     (async () => {
@@ -1113,6 +1114,13 @@
           },
           cleanup: () => {},
         },
+        'indkob-forecast': {
+          init: () => {
+            if (typeof initForecast === 'function') initForecast(contentEl);
+            else contentEl.innerHTML = '<div style="padding:24px;color:#888">Forecast-modul ikke indlæst</div>';
+          },
+          cleanup: () => { if (typeof cleanupForecast === 'function') cleanupForecast(); },
+        },
         // ─── Logistik (Spor 2 — Workflow B: leveringsoversigt) ────────────────
         logistik: {
           init: () => {
@@ -1167,6 +1175,7 @@
         indkob: [
           { id: 'liste', label: 'Indkøbsliste', def: true },
           { id: 'best', label: 'Bestillinger' },
+          { id: 'forecast', label: 'Forecast' },
           { id: 'lev', label: 'Leverandører' },
           { id: 'post', label: 'Leverandørpost', badge: 'indkob_leverandorpost' },
         ],
@@ -1213,6 +1222,7 @@
           _default: 'indkob-liste',
           liste: 'indkob-liste',
           best: 'indkob-liste',
+          forecast: 'indkob-forecast',
           lev: 'indkob-lev',
           post: 'leverandorpost',
         },

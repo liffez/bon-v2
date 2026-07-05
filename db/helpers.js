@@ -282,6 +282,85 @@ function getDefaultLocationId() {
     return getDb().prepare(`SELECT id FROM locations WHERE is_active = 1 ORDER BY id LIMIT 1`).get()?.id;
 }
 
+// ─── BON-OPRETTELSE (fælles) ──────────────────────────────
+// Ét oprettelsespunkt der ejer de tværgående bekymringer: bon-nummer,
+// status-default, location/priskategori-defaults, INSERT (superset-kolonnesæt),
+// changelog og SSE-broadcast. Call-sites leverer normaliseret input og styrer
+// changelog-tekst + broadcast-metadata gennem opts.
+// Migreret indtil videre: web-orders + webhooks (#237). De øvrige 5 paths
+// (quotes, bons manuel/event, events produktion, seed) adopterer den gradvist.
+function createBon(input = {}) {
+    const db = getDb();
+
+    const statusId  = input.status_id ?? getStatusId(input.status_code || 'NY');
+    const bonNumber = nextBonNumber();
+
+    // Location: default HQ (bevarer web-orders/webhooks-adfærd), overstyrbar.
+    let locationId = input.location_id;
+    if (locationId == null) {
+        const loc = db.prepare("SELECT id FROM locations WHERE code = 'hq' LIMIT 1").get();
+        locationId = loc?.id || 1;
+    }
+
+    // Priskategori: default 'catering' (kode) hvis intet id leveret.
+    let priceCategoryId = input.price_category_id;
+    if (priceCategoryId === undefined) {
+        const cat = db.prepare("SELECT id FROM price_categories WHERE code = ? LIMIT 1")
+                      .get(input.price_category_code || 'catering');
+        priceCategoryId = cat?.id || null;
+    }
+
+    const res = db.prepare(`
+        INSERT INTO bons (
+            bon_number, status_id, location_id,
+            customer_id, company_id, price_category_id,
+            order_date, delivery_date, delivery_time,
+            delivery_type, delivery_address_id,
+            pax, customer_wishes, invoice_info,
+            day_contact_name, day_contact_phone,
+            delivery_notes,
+            payment_type, created_at, updated_at
+        ) VALUES (
+            ?, ?, ?,
+            ?, ?, ?,
+            date('now'), ?, ?,
+            ?, ?,
+            ?, ?, ?,
+            ?, ?,
+            ?,
+            ?, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP
+        )
+    `).run(
+        bonNumber, statusId, locationId,
+        input.customer_id ?? null, input.company_id ?? null, priceCategoryId,
+        input.delivery_date ?? null, input.delivery_time ?? null,
+        input.delivery_type ?? null, input.delivery_address_id ?? null,
+        input.pax ?? null, input.customer_wishes ?? null, input.invoice_info ?? null,
+        input.day_contact_name ?? null, input.day_contact_phone ?? null,
+        input.delivery_notes ?? null,
+        input.payment_type ?? 'invoice'
+    );
+
+    const bonId = Number(res.lastInsertRowid);
+
+    logChange({
+        entityType: 'bon',
+        entityId: bonId,
+        action: 'create',
+        fieldName: input.changelog_field || 'create',
+        oldValue: null,
+        newValue: input.changelog_message || 'Oprettet',
+        userId: input.user_id ?? null,
+    });
+
+    // Lazy-require for at undgå cirkulær afhængighed (samme mønster som
+    // autoConsumeBonInventory's grocyAdapter-require ovenfor).
+    const { broadcast } = require('../shared/sse');
+    broadcast('bon_created', { id: bonId, bon_number: bonNumber, ...(input.broadcast_extra || {}) });
+
+    return { bonId, bonNumber };
+}
+
 // ─── DATO (lokal tid) ─────────────────────────────────────
 // `new Date().toISOString().slice(0,10)` giver UTC-dato. Efter midnat dansk
 // tid (UTC+1/+2) peger den stadig på i går, så "I dag"-filtre rammer
@@ -492,6 +571,7 @@ function getUserId(req) {
 module.exports = {
     nextBonNumber, nextQuoteNumber, logChange, handle,
     getBon, getBonLines, getBonMenuGroups, getPrepPackingOverrides, getPrepPackingExtras, getPrepPackingRecipeFactors, getStatusId, getDefaultLocationId,
+    createBon,
     todayISO, offsetISO,
     autoConsumeBonInventory,
     getUnitCountCategories, getUnitCountExtraRecipes, invalidateUnitCountCache,
