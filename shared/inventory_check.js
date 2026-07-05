@@ -1158,6 +1158,11 @@ function _icCancelExpand(productId) {
 
 function _icConfirmCount(productId) {
     var input = _icContainer.querySelector('[data-product-id="' + productId + '"] .ic-qty-input');
+    if (!input) {
+        // Tidligere kastede dette en tavs TypeError → optællingen "gemte ikke".
+        _icAlert('Kunne ikke gemme — proev at klikke varen op igen', 'error');
+        return;
+    }
     var amount = parseFloat(input.value) || 0;
     _icSaveCount(productId, amount);
 }
@@ -1370,10 +1375,32 @@ async function _icAddToShopping(productId) {
 }
 
 async function _icSaveAllToGrocy() {
+    // Hent frisk lager-status så vi sammenligner mod Grocys NUVÆRENDE beholdning,
+    // ikke snapshottet fra Start. Ellers kan lageret nå at drive (auto-forbrug når
+    // bons leveres i løbet af dagen), og en optalt mængde der matcher det nuværende
+    // lager afvises af Grocy ("ny mængde == nuværende") → tavs fejl.
+    var freshStock = null;
+    try {
+        var stockData = await fetchGrocyStock();
+        freshStock = {};
+        stockData.forEach(function(item) {
+            freshStock[String(item.product_id)] = parseFloat(item.amount) || 0;
+        });
+    } catch (e) {
+        freshStock = null;  // netværksfejl → fald tilbage til snapshot
+    }
+
+    var currentAmountFor = function(pid) {
+        if (freshStock && Object.prototype.hasOwnProperty.call(freshStock, String(pid))) {
+            return freshStock[String(pid)];
+        }
+        return _ic.grocyStock[pid] ? _ic.grocyStock[pid].amount : 0;
+    };
+
     var discs = [];
 
     _ic.products.forEach(function(product) {
-        var grocyAmount = _ic.grocyStock[product.id] ? _ic.grocyStock[product.id].amount : 0;
+        var grocyAmount = currentAmountFor(product.id);
         var countData = _ic.counts[product.id];
         var totalCounted = countData ? countData.total : undefined;
 
@@ -1383,7 +1410,7 @@ async function _icSaveAllToGrocy() {
     });
 
     if (discs.length === 0) {
-        _icAlert('Ingen aendringer at gemme', 'info');
+        _icAlert('Ingen aendringer at gemme (lager var allerede korrekt)', 'info');
         return;
     }
 
