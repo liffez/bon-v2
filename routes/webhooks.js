@@ -1,7 +1,7 @@
 const express = require('express');
 const router = express.Router();
 const { getDb } = require('../db/database');
-const { logChange, nextBonNumber, getStatusId } = require('../db/helpers');
+const { createBon } = require('../db/helpers');
 const { broadcast } = require('../shared/sse');
 const { verifyLoboRequest, applyWebhookEvent, calibrateLoboSignature } = require('../services/lobo_webhook');
 
@@ -200,65 +200,22 @@ async function handleBestilling(data) {
     }
   }
 
-  // 8. Opret bon
-  const statusId  = getStatusId('NY');
-  const bonNumber = nextBonNumber();
-
-  // Default location (HQ)
-  const location = db.prepare("SELECT id FROM locations WHERE code = 'hq' LIMIT 1").get();
-  const locationId = location?.id || 1;
-
-  // Default priskategori (catering)
-  const defaultCat = db.prepare(
-    "SELECT id FROM price_categories WHERE code = 'catering' LIMIT 1"
-  ).get();
-  const priceCategoryId = defaultCat?.id || null;
-
-  const bonRes = db.prepare(`
-    INSERT INTO bons (
-      bon_number, status_id, location_id,
-      customer_id, company_id, price_category_id,
-      order_date, delivery_date, delivery_time,
-      delivery_type, delivery_address_id,
-      pax, customer_wishes, invoice_info,
-      day_contact_name, day_contact_phone,
-      payment_type, created_at, updated_at
-    ) VALUES (
-      ?, ?, ?,
-      ?, ?, ?,
-      date('now'), ?, ?,
-      ?, ?,
-      ?, ?, ?,
-      ?, ?,
-      'invoice', CURRENT_TIMESTAMP, CURRENT_TIMESTAMP
-    )
-  `).run(
-    bonNumber, statusId, locationId,
-    customerId, companyId, priceCategoryId,
-    data.f7_date, data.f7_time,
-    deliveryType, addressId,
-    data.f8 ? parseInt(data.f8) : null,
-    data.f9 || null,
-    invoiceInfo || null,
-    data.f11_navn || null,
-    data.f11_tlf || null
-  );
-
-  const bonId = Number(bonRes.lastInsertRowid);
-
-  // 9. Changelog
-  logChange({
-    entityType: 'bon',
-    entityId: bonId,
-    action: 'create',
-    fieldName: 'webhook',
-    oldValue: null,
-    newValue: `Oprettet via bestillingsformular (${data.f3 || data.f2})`,
-    userId: null
+  // 8. Opret bon (fælles helper — #237)
+  const { bonId, bonNumber } = createBon({
+    customer_id: customerId,
+    company_id: companyId,
+    delivery_date: data.f7_date,
+    delivery_time: data.f7_time,
+    delivery_type: deliveryType,
+    delivery_address_id: addressId,
+    pax: data.f8 ? parseInt(data.f8) : null,
+    customer_wishes: data.f9 || null,
+    invoice_info: invoiceInfo || null,
+    day_contact_name: data.f11_navn || null,
+    day_contact_phone: data.f11_tlf || null,
+    changelog_field: 'webhook',
+    changelog_message: `Oprettet via bestillingsformular (${data.f3 || data.f2})`,
   });
-
-  // 10. SSE broadcast
-  broadcast('bon_created', { id: bonId, bon_number: bonNumber });
 
   console.log(`[webhook] Bon #${bonNumber} oprettet (id=${bonId}, kunde=${firstName} ${lastName || ''})`);
 }
