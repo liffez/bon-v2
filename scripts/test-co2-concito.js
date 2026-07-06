@@ -167,5 +167,37 @@ t('kollision, nær-dublet faktor (<2%) → dedupér, ikke conflict', () => {
     assert.strictEqual(summary.duplicate, 1);
 });
 
+/* 7. manuel udeluk-liste */
+t('manuel udeluk: "Frikadeller" (hakkebøf) → excluded, skrives ikke', () => {
+    const prods = [{ id: 7, name: 'Frikadeller', userfields: {} }];
+    const rows = [{ ingrediens: 'Frikadeller', horkram_varenr: '', klima_id: 'Ra00391', klima_kg: '3.61', horkram_kg: '' }];
+    const { summary } = C.buildPlan(rows, prods, new Map());
+    assert.strictEqual(summary.excluded, 1);
+    assert.strictEqual(summary.write, 0);
+});
+
+/* 8. synonym-grupper (dublet-varer deler faktor) */
+t('buildSynonymMap: Hvidkål ↔ kål', () => {
+    const prods = [{ id: 67, name: 'Hvidkål' }, { id: 199, name: 'kål' }, { id: 1, name: 'Andet' }];
+    const m = C.buildSynonymMap(prods);
+    assert.deepStrictEqual(m.get('67'), [199]);
+    assert.deepStrictEqual(m.get('199'), [67]);
+    assert.strictEqual(m.get('1'), undefined);
+});
+t('buildPlan: write til Hvidkål bærer also=[kål-id]', () => {
+    const prods = [
+        { id: 67, name: 'Hvidkål', userfields: {} },
+        { id: 199, name: 'kål', userfields: {} },
+    ];
+    const syn = C.buildSynonymMap(prods);
+    const rows = [{ ingrediens: 'kål', horkram_varenr: '15284730', klima_id: 'Ra00157', klima_kg: '0.287', horkram_kg: '' }];
+    const bc = new Map([['15284730', 67]]); // Katrines "kål" → Hvidkål via varenr
+    const { entries, summary } = C.buildPlan(rows, prods, bc, syn);
+    assert.strictEqual(entries[0].action, 'write');
+    assert.strictEqual(entries[0].match.product.id, 67);
+    assert.deepStrictEqual(entries[0].also, [199]);   // faktoren skrives også til "kål"
+    assert.strictEqual(summary.synonym_writes, 1);
+});
+
 console.log(`\n${pass} PASS · ${fail} FAIL`);
 process.exit(fail ? 1 : 0);

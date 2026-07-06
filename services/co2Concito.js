@@ -38,6 +38,36 @@ const NAME_ALIASES = {
 // (fx 1,2476 vs 1,25) uden at maskere ægte forskelle (fx 3,61 vs 4,99).
 const COLLISION_REL_TOL = 0.02;
 
+// Katrine-rækker der IKKE skal importeres (normaliseret navn). Bekræftet m. Leif:
+// Grocy's "Frikadeller" ER bønnefrikadellen (= Katrines "Frikadelle med bønner"),
+// så Katrines egen "Frikadeller"-række (hakkebøf) har ingen Grocy-vare.
+const MANUAL_EXCLUDE = new Set(['frikadeller']);
+
+// Synonym-grupper: Grocy har dublet-/variant-varer for samme råvare (bekræftet m.
+// Leif — bl.a. via Grocy parent_product_id: Hvidkål er barn af "kål"). Faktoren
+// skrives til ALLE i gruppen. Angives som normaliserede navne; opløses til
+// produkt-id'er ved kørsel (lokations-robust). [kanonisk, ...synonymer].
+const SYNONYM_GROUPS = [
+    ['hvidkål', 'kål'],
+    ['rødløg rå', 'rødløg sylt'],
+    ['løvstikke frisk', 'løvstikke pakke'],
+];
+
+/** Byg Map<product_id, [synonym product_id, ...]> ud fra SYNONYM_GROUPS + produktliste. */
+function buildSynonymMap(products) {
+    const byNorm = new Map();
+    for (const p of products) { const n = normName(p.name); if (!byNorm.has(n)) byNorm.set(n, p.id); }
+    const map = new Map();
+    for (const group of SYNONYM_GROUPS) {
+        const ids = group.map(n => byNorm.get(n)).filter(id => id != null);
+        for (const id of ids) {
+            const others = ids.filter(x => x !== id);
+            if (others.length) map.set(String(id), others);
+        }
+    }
+    return map;
+}
+
 /* ---------- CSV ---------- */
 
 /** Citat-bevidst CSV-parse → array af række-objekter (header-styret). */
@@ -183,22 +213,39 @@ function matchProduct(row, products, barcodeToPid) {
  * @param barcodeToPid Map
  * @returns { entries, summary }
  */
-function buildPlan(rows, products, barcodeToPid) {
+function buildPlan(rows, products, barcodeToPid, synonymMap) {
+    const syn = synonymMap || new Map();
+    const productById = new Map(products.map(p => [String(p.id), p]));
+    // Har produktet allerede præcis den resolvede faktor? (idempotens-tjek)
+    const hasFactor = (p, fields) => {
+        const uf = (p && p.userfields) || {};
+        return String(uf.co2e_per_kg || '') === fields.co2e_per_kg
+            && (uf.co2e_source || '') === fields.co2e_source
+            && (uf.co2e_klima_id || '') === fields.co2e_klima_id;
+    };
+
     const entries = rows.map(row => {
-        const match = matchProduct(row, products, barcodeToPid);
+        const excluded = MANUAL_EXCLUDE.has(normName(row.ingrediens));
+        const match = excluded ? { product: null, via: 'excluded', score: 0 } : matchProduct(row, products, barcodeToPid);
         const resolved = resolveFields(row);
 
         let action;
-        if (!match.product) action = 'unmatched';
+        let also = [];   // synonym-produkter der (stadig) mangler faktoren
+        if (excluded) action = 'excluded';
+        else if (!match.product) action = 'unmatched';
         else if (!resolved) action = 'no_factor';
         else {
-            const uf = match.product.userfields || {};
-            const same = String(uf.co2e_per_kg || '') === resolved.fields.co2e_per_kg
-                && (uf.co2e_source || '') === resolved.fields.co2e_source
-                && (uf.co2e_klima_id || '') === resolved.fields.co2e_klima_id;
-            action = same ? 'unchanged' : 'write';
+            const canonicalNeeds = !hasFactor(match.product, resolved.fields);
+            // Synonym-dubletter (fx kål ← Hvidkål) der mangler faktoren — uafhængigt
+            // af om canonical selv skal skrives (den kan allerede være opdateret).
+            also = (syn.get(String(match.product.id)) || [])
+                .filter(id => { const sp = productById.get(String(id)); return sp && !hasFactor(sp, resolved.fields); });
+            action = (canonicalNeeds || also.length) ? 'write' : 'unchanged';
+            // writeTargets: canonical (kun hvis den mangler) + trængende synonymer.
+            match._writeTargets = (canonicalNeeds ? [match.product.id] : []).concat(also);
         }
-        return { row, match, resolved, action, suspicious: !!(resolved && resolved.suspicious) };
+        return { row, match, resolved, action, also, writeTargets: (match && match._writeTargets) || [],
+                 suspicious: !!(resolved && resolved.suspicious) };
     });
 
     // Kollision: flere rækker der vil skrive til SAMME produkt (typisk dubleret
@@ -227,9 +274,11 @@ function buildPlan(rows, products, barcodeToPid) {
     }
 
     const summary = { total: rows.length, write: 0, unchanged: 0, no_factor: 0, unmatched: 0,
-                      conflict: 0, duplicate: 0, suspicious: 0, via_varenr: 0, via_navn: 0, via_alias: 0 };
+                      conflict: 0, duplicate: 0, excluded: 0, suspicious: 0,
+                      via_varenr: 0, via_navn: 0, via_alias: 0, synonym_writes: 0 };
     for (const e of entries) {
         summary[e.action]++;
+        if (e.action === 'write') summary.synonym_writes += e.also.length;
         if (e.suspicious) summary.suspicious++;
         if (e.match.via === 'varenr') summary.via_varenr++;
         else if (e.match.via === 'navn') summary.via_navn++;
@@ -239,6 +288,6 @@ function buildPlan(rows, products, barcodeToPid) {
 }
 
 module.exports = {
-    parseCsv, resolveFields, normName, dice, matchProduct, buildPlan,
+    parseCsv, resolveFields, normName, dice, matchProduct, buildPlan, buildSynonymMap,
     KLIMA_VERSION, HORKRAM_VERSION, FACTOR_MAX, NAME_THRESHOLD,
 };
