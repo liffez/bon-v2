@@ -120,14 +120,24 @@ router.post('/clear', AUTH, handle(async (req, res) => {
 // Live CO₂-overblik: kører motoren mod Grocy → dækning + per-opskrift-CO₂ +
 // hyppigst manglende faktor/kg-vej (datakvalitet). Kun opskrifter med ingredienser.
 router.get('/overview', AUTH, handle(async (req, res) => {
-    const [recipesMap, pos, nestings, products, conversions, units] = await Promise.all([
+    const [recipesMap, pos, nestings, products, conversions, units, groups] = await Promise.all([
         grocy.getRecipesRawMap(),
         grocy.getAllRecipesPos(),
         grocy.getRecipeNestings(),
         grocy.getProducts(),
         grocy.getQuantityUnitConversions(),
         grocy.getQuantityUnits(),
+        grocy.getProductGroups(),
     ]);
+    // Klassificér mangler: emballage (fixes i Emballage-tildeler) vs råvare (manuel/ark).
+    const groupName = new Map(groups.map(g => [String(g.id), g.name]));
+    const prodByName = new Map();
+    products.forEach(p => { if (!prodByName.has(p.name)) prodByName.set(p.name, p); });
+    const enrichMissing = (arr) => arr.map(x => {
+        const p = prodByName.get(x.name);
+        const kind = p ? (/emballage/i.test(groupName.get(String(p.product_group_id)) || '') ? 'emballage' : 'raavare') : null;
+        return { ...x, product_id: p ? p.id : null, kind };
+    });
     const recipes = [...recipesMap.values()].map(r => ({ id: r.id, name: r.name, base_servings: r.base_servings }));
     // Enhed + kategori pr. opskrift (fra userfields) — så rapporten kan vise at
     // "6,5 kg/kg produktion" og "0,3 kg/stk sandwich" IKKE er sammenlignelige.
@@ -170,8 +180,22 @@ router.get('/overview', AUTH, handle(async (req, res) => {
             })
             .sort((a, b) => (b.co2e_per_serving || 0) - (a.co2e_per_serving || 0)),
         categories: [...new Set(real.map(r => (meta.get(r.recipe_id) || {}).category).filter(Boolean))].sort((a, b) => a.localeCompare(b, 'da')),
-        missing: { factor: top(mf), kgvej: top(mk) },
+        missing: { factor: enrichMissing(top(mf)), kgvej: enrichMissing(top(mk)) },
     });
+}));
+
+// Manuel råvare-faktor (§1 source='manual') — fallback for råvarer der ikke er i
+// Katrines CONCITO-ark. Overskrives af en fremtidig import hvis arket får varen.
+router.post('/manual-factor', AUTH, handle(async (req, res) => {
+    const { product_id, factor } = req.body || {};
+    if (!product_id) return res.status(400).json({ error: 'product_id kræves' });
+    const f = parseFactor(factor);
+    if (f == null || Number.isNaN(f)) return res.status(400).json({ error: 'Ugyldig faktor' });
+    await grocy.updateProductUserfields(product_id, {
+        co2e_per_kg: String(f), co2e_source: 'manual', co2e_version: 'Manuel',
+    });
+    grocy.clearCache();
+    res.json({ product_id: Number(product_id), factor: f });
 }));
 
 // CO₂ over tid: månedlig Σ(bons.total_co2e) + pax → CO₂ pr. kuvert. Ekskl.

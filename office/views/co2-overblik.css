@@ -44,6 +44,18 @@
 .cov-miss-chip { background: #f5f2ec; border: 1px solid #e6e0d6; border-radius: 999px;
     padding: 4px 10px; font-size: 13px; color: #5a5142; }
 .cov-miss-chip b { color: #8e631f; margin-left: 2px; }
+.cov-miss-chip-click { cursor: pointer; transition: background .12s, border-color .12s; }
+.cov-miss-chip-click:hover { background: #f1e6d4; border-color: #d9c9a8; }
+.cov-miss-chip-edit { background: #fff; border-color: #8e631f; cursor: default; }
+.cov-mf-in { width: 92px; padding: 3px 6px; border: 1px solid #d7d1ca; border-radius: 6px; font-size: 13px; margin: 0 4px; }
+.cov-mf-save { background: var(--brand-primary, #8e631f); color: #fff; border: none; border-radius: 6px;
+    padding: 3px 8px; cursor: pointer; font-size: 12px; }
+
+.cov-toast { position: fixed; bottom: 24px; right: 24px; background: #3a2f1c; color: #fff;
+    padding: 12px 18px; border-radius: 10px; font-size: 14px; box-shadow: 0 6px 20px rgba(0,0,0,.2);
+    opacity: 0; transform: translateY(10px); transition: opacity .2s, transform .2s; pointer-events: none; z-index: 9999; }
+.cov-toast-show { opacity: 1; transform: translateY(0); }
+.cov-toast-err { background: #a5341f; }
 
 /* Chart */
 .cov-chart { width: 100%; height: auto; margin-top: 8px; }

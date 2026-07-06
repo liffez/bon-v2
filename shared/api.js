@@ -2126,3 +2126,10 @@ function fetchCo2Overview() {
 function fetchCo2Timeseries(months) {
     return apiFetch('/co2/timeseries' + (months ? '?months=' + months : ''));
 }
+
+function setCo2ManualFactor(productId, factor) {
+    return apiFetch('/co2/manual-factor', {
+        method: 'POST',
+        body: JSON.stringify({ product_id: productId, factor }),
+    });
+}

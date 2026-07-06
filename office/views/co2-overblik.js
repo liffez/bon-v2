@@ -12,7 +12,7 @@
  * ═══════════════════════════════════════════════════════════
  */
 
-/* globals fetchCo2Overview, fetchCo2Timeseries */
+/* globals fetchCo2Overview, fetchCo2Timeseries, setCo2ManualFactor */
 
 const _covState = {
     container: null,
@@ -103,25 +103,36 @@ function _covDataQuality(ov) {
     const s = ov.summary;
     const mf = ov.missing.factor || [];
     const mk = ov.missing.kgvej || [];
-    const chips = (arr) => arr.length
-        ? arr.map(x => `<span class="cov-miss-chip">${_covEsc(x.name)} <b>${x.count}</b></span>`).join('')
+    const chip = (x, type) => {
+        let act = '';
+        if (type === 'kgvej') act = 'goto-vej';
+        else if (x.kind === 'emballage') act = 'goto-emballage';
+        else if (x.kind === 'raavare' && x.product_id) act = 'manual';
+        const tip = act === 'goto-vej' ? 'Klik → Vej tælle-varer'
+            : act === 'goto-emballage' ? 'Klik → Emballage-tildeler'
+            : act === 'manual' ? 'Klik → sæt faktor manuelt' : '';
+        return `<span class="cov-miss-chip ${act ? 'cov-miss-chip-click' : ''}" ${act ? `data-act="${act}"` : ''}
+            data-pid="${x.product_id || ''}" data-name="${_covEsc(x.name)}" title="${_covEsc(tip)}">${_covEsc(x.name)} <b>${x.count}</b></span>`;
+    };
+    const chips = (arr, type) => arr.length
+        ? arr.map(x => chip(x, type)).join('')
         : '<span class="cov-dim">Intet mangler 🎉</span>';
     return `
       <section class="cov-card">
         <h2>Datakvalitet</h2>
-        <p class="cov-sub">Indgangen til rigtige rapporter — jo mere data, jo mere retvisende bliver tallene.</p>
+        <p class="cov-sub">Indgangen til rigtige rapporter — klik en manglende vare for at rette den.</p>
         <div class="cov-bar">
           <div class="cov-bar-fill" style="width:${s.coverage_pct}%"></div>
           <span class="cov-bar-txt">${s.complete} komplette · ${s.partial} mangler data</span>
         </div>
         <div class="cov-miss-grid">
           <div>
-            <h3>Mangler kg-vej <span class="cov-dim">(vej i køkkenet)</span></h3>
-            <div class="cov-miss-chips">${chips(mk)}</div>
+            <h3>Mangler kg-vej <span class="cov-dim">(→ vej i køkkenet)</span></h3>
+            <div class="cov-miss-chips">${chips(mk, 'kgvej')}</div>
           </div>
           <div>
-            <h3>Mangler faktor <span class="cov-dim">(emballage / råvare)</span></h3>
-            <div class="cov-miss-chips">${chips(mf)}</div>
+            <h3>Mangler faktor <span class="cov-dim">(emballage → tildel · råvare → sæt manuelt)</span></h3>
+            <div class="cov-miss-chips">${chips(mf, 'factor')}</div>
           </div>
         </div>
       </section>`;
@@ -233,6 +244,16 @@ function _covBind() {
     const cat = el.querySelector('#covCategory');
     if (cat) cat.addEventListener('change', (e) => { _covState.category = e.target.value; _covReRenderTable(); });
 
+    // Datakvalitet-chips: klik → ret varen.
+    el.querySelectorAll('.cov-miss-chip-click').forEach(chip => {
+        chip.addEventListener('click', () => {
+            const act = chip.dataset.act;
+            if (act === 'goto-vej' && window.switchSection) window.switchSection('co2', 'vej');
+            else if (act === 'goto-emballage' && window.switchSection) window.switchSection('co2', 'emballage');
+            else if (act === 'manual') _covManualFactor(chip);
+        });
+    });
+
     el.querySelectorAll('.cov-sortable').forEach(th => {
         th.addEventListener('click', () => {
             const key = th.dataset.sort;
@@ -246,6 +267,40 @@ function _covBind() {
 function _covReRenderTable() {
     const tbody = _covState.container.querySelector('.cov-table tbody');
     if (tbody) tbody.innerHTML = _covRecipeRows(_covState.overview.recipes);
+}
+
+// Råvare-chip → inline manuel faktor-input (source=manual).
+function _covManualFactor(chip) {
+    if (chip._editing) return;
+    chip._editing = true;
+    const pid = Number(chip.dataset.pid);
+    const name = chip.dataset.name;
+    const orig = chip.innerHTML;
+    chip.classList.add('cov-miss-chip-edit');
+    chip.innerHTML = `${_covEsc(name)} <input type="number" step="any" min="0" class="cov-mf-in" placeholder="kg CO₂e/kg"> <button class="cov-mf-save">✓</button>`;
+    const inp = chip.querySelector('.cov-mf-in');
+    inp.focus();
+    inp.addEventListener('click', (e) => e.stopPropagation());
+    const cancel = () => { chip.innerHTML = orig; chip.classList.remove('cov-miss-chip-edit'); chip._editing = false; };
+    const save = async (e) => {
+        if (e) e.stopPropagation();
+        const v = inp.value.trim();
+        if (!v) return cancel();
+        try { await setCo2ManualFactor(pid, v); _covToast(`${name}: faktor sat (manuel)`); await _covLoad(); }
+        catch (err) { _covToast('Fejl: ' + err.message, true); cancel(); }
+    };
+    chip.querySelector('.cov-mf-save').addEventListener('click', save);
+    inp.addEventListener('keydown', (e) => { if (e.key === 'Escape') cancel(); if (e.key === 'Enter') save(e); });
+}
+
+function _covToast(msg, isErr) {
+    let t = document.getElementById('covToast');
+    if (!t) { t = document.createElement('div'); t.id = 'covToast'; t.className = 'cov-toast'; document.body.appendChild(t); }
+    t.textContent = msg;
+    t.classList.toggle('cov-toast-err', !!isErr);
+    t.classList.add('cov-toast-show');
+    clearTimeout(t._h);
+    t._h = setTimeout(() => t.classList.remove('cov-toast-show'), 3000);
 }
 
 window.initCo2Overblik = initCo2Overblik;
