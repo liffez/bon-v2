@@ -555,7 +555,9 @@ function getUserByEmail(email) {
 }
 
 function getUserById(id) {
-    return getDb().prepare('SELECT id, name, email, role, pin FROM users WHERE id = ? AND is_active = 1').get(id);
+    // modules_json SKAL med — userCan() læser per-bruger-overrides herfra. Uden
+    // den falder alle overrides lydløst tilbage til rolle-default (var en latent bug).
+    return getDb().prepare('SELECT id, name, email, role, pin, modules_json FROM users WHERE id = ? AND is_active = 1').get(id);
 }
 
 /**

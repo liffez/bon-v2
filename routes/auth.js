@@ -112,7 +112,9 @@ router.post('/logout', (req, res) => {
 });
 
 // GET /api/auth/me — hvem er jeg? (med permissions)
-const MODULES = ['crm', 'tilbud', 'okonomi', 'rapporter', 'settings', 'modtag'];
+// modtag_backdate er en finkornet evne (ikke et modul-område): "må sætte
+// modtagedato på varemodtagelse". Default deny; gives per-bruger via modules_json.
+const MODULES = ['crm', 'tilbud', 'okonomi', 'rapporter', 'settings', 'modtag', 'modtag_backdate'];
 
 router.get('/me', (req, res) => {
   if (!req.session.userId) return res.status(401).json({ error: 'Ikke logget ind' });

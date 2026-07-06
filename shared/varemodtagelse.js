@@ -69,6 +69,7 @@ async function initVaremodtagelse(el) {
         hasDeviation: false, deviationManual: false, deviationType: null, deviationNote: '',
         photoPath: null, notes: '',
         items: [], allApproved: false, itemListOpen: false, busy: false,
+        canBackdate: false, receivedAt: '',
     };
     _vmDom = {};
 
@@ -76,6 +77,11 @@ async function initVaremodtagelse(el) {
         // Hent current user, users, suppliers, shopping list i parallel
         var currentUser = await checkAuth('/shared/login.html');
         if (!currentUser) return;
+
+        // Backdatering: admin altid, ellers per-bruger-evnen 'modtag_backdate'
+        var perms = currentUser.permissions || {};
+        _vmState.canBackdate = currentUser.role === 'admin' || !!perms.modtag_backdate;
+        _vmState.receivedAt = _vmTodayLocal();
 
         var results = await Promise.all([
             fetchStaff(),
@@ -214,6 +220,12 @@ function _vmBuildPage() {
     // ── Bruger
     content.appendChild(_vmBuildUserCard());
 
+    // ── Modtagedato (kun brugere med backdate-evnen — til at registrere bilag
+    //    med korrekt dato hvis de logges for sent. Alle andre registrerer i dag.)
+    if (_vmState.canBackdate) {
+        content.appendChild(_vmBuildDateCard());
+    }
+
     // ── Leverandør
     content.appendChild(_vmBuildSupplierCard());
 
@@ -319,6 +331,39 @@ function _vmBuildUserCard() {
     info.appendChild(sel);
     row.appendChild(info);
     card.appendChild(row);
+    return card;
+}
+
+/* ── Date card (modtagedato) ─────────────────────────────── */
+
+function _vmTodayLocal() {
+    var d = new Date();
+    var m = String(d.getMonth() + 1).padStart(2, '0');
+    var day = String(d.getDate()).padStart(2, '0');
+    return d.getFullYear() + '-' + m + '-' + day;
+}
+
+function _vmBuildDateCard() {
+    var card = document.createElement('div');
+    card.className = 'vm-card';
+
+    var label = document.createElement('div');
+    label.className = 'vm-field-label';
+    label.textContent = 'Modtagedato';
+    card.appendChild(label);
+
+    var input = document.createElement('input');
+    input.type = 'date';
+    input.className = 'vm-date-input';
+    input.value = _vmState.receivedAt;
+    input.max = _vmTodayLocal(); // ingen fremtidige datoer
+    input.style.cssText = 'width:100%;padding:10px 12px;font-size:16px;' +
+        'border:1px solid var(--color-border,#d7d1ca);border-radius:8px;background:#fff;';
+    input.addEventListener('change', function() {
+        _vmState.receivedAt = this.value || _vmTodayLocal();
+    });
+    card.appendChild(input);
+
     return card;
 }
 
@@ -840,7 +885,10 @@ function _vmRenderLagerContent() {
     if (_vmState.items.length === 0) {
         var empty = document.createElement('div');
         empty.className = 'vm-no-supplier-msg';
-        empty.textContent = 'Ingen bestilte varer \u2014 tilf\u00f8j varer nedenfor eller registr\u00e9r kun f\u00f8devarekontrol';
+        empty.style.cssText = 'color:#8a5a00;background:#fff6e0;border:1px solid #f0d48a;' +
+            'border-radius:8px;padding:10px 12px;';
+        empty.textContent = '\u26a0 Ingen varer l\u00e6gges p\u00e5 lager. Du kan registrere kun ' +
+            'f\u00f8devarekontrol \u2014 husk s\u00e5 at l\u00e6gge varerne ind via lageropt\u00e6lling.';
         el.appendChild(empty);
 
         var addBtn0 = document.createElement('button');
@@ -1205,6 +1253,15 @@ function _vmUpdateBtn() {
 
 async function _vmSubmit() {
     if (_vmState.busy) return;
+
+    // Varefri registrering: bekræft at kun fødevarekontrollen gemmes.
+    if (_vmState.items.length === 0) {
+        if (!confirm('Ingen varer lægges på lager.\n\nKun fødevarekontrollen ' +
+            'registreres. Husk at lægge varerne ind via lageroptælling.\n\nFortsæt?')) {
+            return;
+        }
+    }
+
     _vmState.busy = true;
     _vmDom.submitBtn.disabled = true;
     _vmDom.submitBtn.textContent = 'Registrerer...';
@@ -1254,6 +1311,11 @@ async function _vmSubmit() {
             photo_path: _vmState.photoPath,
             notes: _vmState.notes || null,
             items: items,
+
+            // Backdatering: send kun modtagedato når brugeren har evnen OG har
+            // valgt en dato ≠ i dag. Ellers null → serveren bruger faktisk tidspunkt.
+            received_at: (_vmState.canBackdate && _vmState.receivedAt &&
+                _vmState.receivedAt !== _vmTodayLocal()) ? _vmState.receivedAt : null,
         };
 
         var result = await postGoodsReceipt(payload);

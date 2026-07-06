@@ -22,8 +22,8 @@ const Busboy  = require('busboy');
 
 const { getDb }       = require('../db/database');
 const { transaction } = require('../db/compat');
-const { handle }      = require('../db/helpers');
-const { requireAuth } = require('../shared/auth');
+const { handle, getUserById } = require('../db/helpers');
+const { requireAuth, userCan } = require('../shared/auth');
 const grocy           = require('../services/grocyAdapter');
 const webhook         = require('../services/goodsReceiptWebhook');
 
@@ -111,6 +111,7 @@ router.post('/', requireAuth(), handle(async (req, res) => {
         received_by_user_id,
         received_by_name,
         location_id,
+        received_at,
 
         temperature_cool_enabled,
         temperature_cool_value,
@@ -136,9 +137,12 @@ router.post('/', requireAuth(), handle(async (req, res) => {
     // Validering
     if (!supplier_name) return res.status(400).json({ error: 'supplier_name er påkrævet' });
     if (!received_by_name && !received_by_user_id) return res.status(400).json({ error: 'received_by_name er påkrævet' });
-    if (!Array.isArray(items) || items.length === 0) {
-        return res.status(400).json({ error: 'items[] er påkrævet' });
+    if (!Array.isArray(items)) {
+        return res.status(400).json({ error: 'items skal være en liste' });
     }
+    // Varefri registrering (kun fødevarekontrol) er tilladt — når varer købes
+    // uden om indkøbsmodulet er der ingen linjer at lægge på lager. Ad-hoc varer
+    // lægges på lager via lageroptælling, ikke via varemodtagelsen.
 
     // F37: Validér at alle items har product_name (NOT NULL constraint på
     // goods_receipt_items.product_name). Uden denne tjek får UI'en en uforklarlig
@@ -161,6 +165,27 @@ router.post('/', requireAuth(), handle(async (req, res) => {
                 error: `items[${i}].status='${status}' er ugyldig. Tilladte: ${VALID_ITEM_STATUSES.join(', ')}`
             });
         }
+    }
+
+    // Backdatering af modtagedato er admin-only. received_at repræsenterer den
+    // ægte modtage-/kontroldato (fra følgeseddlen); created_at forbliver "nu"
+    // som ærligt revisionsspor for hvornår posten blev tastet ind. FVST-sikkert
+    // — begge datoer bevares, intet skjules.
+    let receivedAtValue = null; // null → COALESCE falder tilbage til datetime('now')
+    if (received_at != null && received_at !== '') {
+        // Admin må altid; andre kun med den finkornede evne 'modtag_backdate'
+        // (gives per-bruger i Settings → Brugere, midlertidigt efter behov).
+        const actor = getUserById(req.session.userId);
+        const canBackdate = req.session.userRole === 'admin' || userCan(actor, 'modtag_backdate');
+        if (!canBackdate) {
+            return res.status(403).json({ error: 'Du har ikke rettighed til at sætte modtagedato' });
+        }
+        const dateStr = String(received_at).slice(0, 10);
+        if (!/^\d{4}-\d{2}-\d{2}$/.test(dateStr) || isNaN(Date.parse(dateStr))) {
+            return res.status(400).json({ error: `received_at='${received_at}' er ugyldig (forventer YYYY-MM-DD)` });
+        }
+        // Kl. 12:00 lokal undgår at datoen skrider en dag ved tidszone-visning.
+        receivedAtValue = `${dateStr} 12:00:00`;
     }
 
     // Resolve receiver-navn FØR transaction: foretrukket eksplicit name,
@@ -198,7 +223,7 @@ router.post('/', requireAuth(), handle(async (req, res) => {
                 date_check_ok, labeling_check_ok, packaging_check_ok,
                 has_deviation, deviation_type, deviation_note,
                 photo_path, notes, status
-            ) VALUES (?, ?, ?, ?, ?, datetime('now'),
+            ) VALUES (?, ?, ?, ?, ?, COALESCE(?, datetime('now')),
                       ?, ?, ?,
                       ?, ?, ?,
                       ?, ?, ?,
@@ -210,6 +235,7 @@ router.post('/', requireAuth(), handle(async (req, res) => {
             location_id || null,
             received_by_user_id || null,
             receiverName,
+            receivedAtValue,
             temperature_cool_enabled ? 1 : 0,
             // F40: '?? null' (ikke '|| null') så 0°C ikke clampes til null
             temperature_cool_enabled ? (temperature_cool_value ?? null) : null,
