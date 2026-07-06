@@ -1,0 +1,144 @@
+#!/usr/bin/env node
+'use strict';
+/*
+ * CO₂ F5 — beregn opskrift-CO₂ og skriv recipes.Co2e (cache).
+ * Spec: docs/CLAUDE_CO2.md §7 + §12 trin 5.
+ *
+ * Henter Grocy-data, kører motoren (services/co2Engine.js) og rapporterer
+ * dækning: hvor mange opskrifter er FULDT beregnet vs. mangler faktor/kg-vej.
+ * --apply skriver recipes.Co2e (kun for komplette opskrifter — vi cacher aldrig
+ * et halvt tal). --oracle sammenligner mod Katrines Samlet Data (test-orakel).
+ *
+ * Brug:
+ *   node scripts/co2-f5-compute.js --location=hq                 # dækningsrapport
+ *   node scripts/co2-f5-compute.js --location=hq --oracle        # + validér mod orakel
+ *   node scripts/co2-f5-compute.js --location=hq --missing       # + list manglende faktor/kg-vej
+ *   node scripts/co2-f5-compute.js --location=hq --apply         # skriv recipes.Co2e (komplette)
+ */
+
+const fs = require('fs');
+const path = require('path');
+const engine = require('../services/co2Engine');
+const { parseCsv, dice } = require('../services/co2Concito');
+
+if (!process.env.GROCY_HQ_URL && !process.env.GROCY_TEST_URL && typeof process.loadEnvFile === 'function') {
+    try { process.loadEnvFile(); } catch (_) {}
+}
+
+const args = process.argv.slice(2);
+const APPLY = args.includes('--apply');
+const ORACLE = args.includes('--oracle');
+const SHOW_MISSING = args.includes('--missing');
+const locArg = (args.find(a => a.startsWith('--location=')) || '').split('=')[1] || '';
+const ALL = ['hq', 'test', 'cafe'];
+let locations;
+if (locArg === 'all') locations = ALL;
+else if (ALL.includes(locArg)) locations = [locArg];
+else { console.error('Brug: --location=hq|test|cafe|all  [--apply] [--oracle] [--missing]'); process.exit(1); }
+
+const ORACLE_PATH = path.join(__dirname, 'co2', 'oracle_samlet_data.csv');
+const ORACLE_TOL = 0.15; // 15% — Katrine kan bruge lidt andre kg-konverteringer
+
+function resolveConfig(code) {
+    const u = process.env[`GROCY_${code.toUpperCase()}_URL`];
+    const k = process.env[`GROCY_${code.toUpperCase()}_KEY`];
+    if (!u || !k) throw new Error(`Mangler GROCY_${code.toUpperCase()}_URL / _KEY i .env`);
+    return { url: u.replace(/\/+$/, ''), key: k };
+}
+async function grocy(cfg, method, p, body) {
+    const res = await fetch(cfg.url + p, {
+        method, headers: { 'GROCY-API-KEY': cfg.key, 'Accept': 'application/json', ...(body ? { 'Content-Type': 'application/json' } : {}) },
+        ...(body ? { body: JSON.stringify(body) } : {}),
+    });
+    if (!res.ok) { const t = await res.text().catch(() => ''); throw new Error(`Grocy ${method} ${p} → ${res.status}: ${t.slice(0, 200)}`); }
+    const t = await res.text();
+    return t ? JSON.parse(t) : {};
+}
+
+const fmt = (n) => (Math.round(n * 10000) / 10000);
+
+async function processLocation(code) {
+    console.log(`\n══ Lokation: ${code.toUpperCase()} ${APPLY ? '(APPLY)' : '(dry-run)'} ══`);
+    const cfg = resolveConfig(code);
+    const [recipes, pos, nestings, products, conversions, units] = await Promise.all([
+        grocy(cfg, 'GET', '/objects/recipes'),
+        grocy(cfg, 'GET', '/objects/recipes_pos'),
+        grocy(cfg, 'GET', '/objects/recipes_nestings'),
+        grocy(cfg, 'GET', '/objects/products'),
+        grocy(cfg, 'GET', '/objects/quantity_unit_conversions'),
+        grocy(cfg, 'GET', '/objects/quantity_units'),
+    ]);
+
+    const results = engine.computeAll({ recipes, pos, nestings, products, conversions, units });
+
+    // Kun opskrifter med mindst én ingrediens (spring tomme/pseudo-opskrifter over).
+    const posRecipeIds = new Set(pos.map(p => p.recipe_id));
+    const nestRecipeIds = new Set(nestings.map(n => n.recipe_id));
+    const real = [...results.values()].filter(r => posRecipeIds.has(r.recipe_id) || nestRecipeIds.has(r.recipe_id));
+
+    const complete = real.filter(r => r.complete);
+    const partial = real.filter(r => !r.complete);
+    console.log(`  Opskrifter med ingredienser: ${real.length}`);
+    console.log(`    ✅ komplette (alle ingredienser har faktor + kg-vej): ${complete.length}`);
+    console.log(`    ⚠ delvise (mangler noget): ${partial.length}`);
+
+    // Hyppigst manglende (aggregeret på tværs af opskrifter)
+    const missFactor = new Map(), missKg = new Map();
+    partial.forEach(r => {
+        r.missing_factor.forEach(x => missFactor.set(x, (missFactor.get(x) || 0) + 1));
+        r.missing_kgvej.forEach(x => missKg.set(x, (missKg.get(x) || 0) + 1));
+    });
+    const top = (m) => [...m.entries()].sort((a, b) => b[1] - a[1]).slice(0, 12).map(([k, v]) => `${k} (${v})`);
+    if (missFactor.size) console.log(`\n  Mangler FAKTOR (top): ${top(missFactor).join(', ')}`);
+    if (missKg.size)     console.log(`  Mangler KG-VEJ (top): ${top(missKg).join(', ')}`);
+
+    if (SHOW_MISSING) {
+        console.log('\n  Delvise opskrifter:');
+        partial.slice(0, 40).forEach(r => console.log(`    · ${r.name}: faktor[${r.missing_factor.join(', ')}] kgvej[${r.missing_kgvej.join(', ')}]`));
+    }
+
+    if (ORACLE) compareOracle(real);
+
+    if (APPLY) {
+        let ok = 0, err = 0;
+        for (const r of complete) {
+            try { await grocy(cfg, 'PUT', `/userfields/recipes/${r.recipe_id}`, { Co2e: String(fmt(r.co2e_per_serving)) }); ok++; }
+            catch (e) { console.log(`    ✗ ${r.name}: ${e.message}`); err++; }
+        }
+        console.log(`\n  → recipes.Co2e skrevet for ${ok} komplette opskrifter${err ? `, fejl: ${err}` : ''}.`);
+    } else {
+        console.log('\n  → dry-run: recipes.Co2e ikke skrevet. Kør med --apply (skriver kun komplette).');
+    }
+}
+
+function compareOracle(real) {
+    let oracle;
+    try { oracle = parseCsv(fs.readFileSync(ORACLE_PATH, 'utf8')); }
+    catch { console.log('\n  (orakel-CSV ikke fundet — spring validering over)'); return; }
+
+    console.log(`\n  ── Orakel-validering (Katrines Samlet Data, ${oracle.length} opskrifter, tol ±${ORACLE_TOL * 100}%) ──`);
+    let matched = 0, within = 0, diverge = 0, incomplete = 0, nomatch = 0;
+    for (const o of oracle) {
+        const target = Number(o.co2e_per_sandwich);
+        // match orakel-navn → Grocy-opskrift (fuzzy)
+        let best = null, bestScore = 0;
+        for (const r of real) { const s = dice(o.produkt, r.name); if (s > bestScore) { bestScore = s; best = r; } }
+        if (!best || bestScore < 0.6) { nomatch++; continue; }
+        matched++;
+        if (!best.complete) { incomplete++; continue; } // kan ikke sammenlignes retfærdigt (mangler data i Grocy)
+        const got = best.co2e_per_serving;
+        const rel = target ? Math.abs(got - target) / target : (got === 0 ? 0 : 1);
+        const ok = rel <= ORACLE_TOL;
+        if (ok) within++; else diverge++;
+        const flag = ok ? '✓' : '✗';
+        if (!ok) console.log(`    ${flag} ${o.produkt.padEnd(18)} orakel ${fmt(target)}  motor ${fmt(got)}  (afvig ${(rel * 100).toFixed(0)}%)`);
+    }
+    console.log(`  Matchede ${matched}/${oracle.length}: ✓ inden for tolerance ${within}, ✗ afviger ${diverge}, ⏳ ufuldstændige i Grocy ${incomplete}, ikke-matchet ${nomatch}`);
+}
+
+(async () => {
+    try {
+        for (const code of locations) await processLocation(code);
+        console.log('\nF5 compute afsluttet.');
+    } catch (err) { console.error('\nFEJL:', err.message); process.exit(1); }
+})();
