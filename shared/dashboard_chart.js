@@ -398,35 +398,63 @@ function buildStaffBadges(containerId, canvasId, days, opts = {}) {
 
     days.forEach((day, i) => {
         const cx = offsetLeft + PAD_L + (i + 0.5) * slotW;
-        const staffList = day.shifts || [];
-        if (!staffList.length) return;
+        const allStaff = day.shifts || [];
+        if (!allStaff.length) return;
+
+        // Split HQ vs. Festival & Events — dashboardet er HQ-fokuseret, så
+        // festival-vagter forurener ikke HQ-tællingen; de vises som egen chip.
+        const hqList = allStaff.filter(s => s.location_class !== 'events');
+        const evList = allStaff.filter(s => s.location_class === 'events');
 
         const typeClass = day.is_today ? 'type-today'
             : day.is_future ? 'type-future'
             : 'type-history';
 
-        if (!alwaysCount && staffList.length <= SHOW_INDIVIDUAL_MAX) {
-            const total = staffList.length;
-            const SPREAD = 22;
-            const startX = cx - ((total - 1) * SPREAD) / 2;
-            staffList.forEach((s, si) => {
+        // ── HQ-bemanding: individuelle avatarer eller tæller ──
+        if (hqList.length) {
+            if (!alwaysCount && hqList.length <= SHOW_INDIVIDUAL_MAX) {
+                const total = hqList.length;
+                const SPREAD = 22;
+                const startX = cx - ((total - 1) * SPREAD) / 2;
+                hqList.forEach((s, si) => {
+                    const el = document.createElement('div');
+                    el.className = `sb ${typeClass}`;
+                    el.style.left = (startX + si * SPREAD) + 'px';
+                    el.innerHTML = `
+                        <div class="sb-av">${s.init || ''}</div>
+                        <div class="sb-tt">${s.name || ''}<br><span style="opacity:.6">${s.tid || ''}</span></div>
+                    `;
+                    container.appendChild(el);
+                });
+            } else {
                 const el = document.createElement('div');
                 el.className = `sb ${typeClass}`;
-                el.style.left = (startX + si * SPREAD) + 'px';
+                el.style.left = cx + 'px';
                 el.innerHTML = `
-                    <div class="sb-av">${s.init || ''}</div>
-                    <div class="sb-tt">${s.name || ''}<br><span style="opacity:.6">${s.tid || ''}</span></div>
+                    <div class="sb-av">${hqList.length}</div>
+                    <span style="font-size:9px">👤</span>
+                    <div class="sb-tt">${hqList.map(s => `${s.name || ''} <span style="opacity:.55">${s.tid || ''}</span>`).join('<br>')}</div>
                 `;
                 container.appendChild(el);
-            });
-        } else {
+            }
+        }
+
+        // ── Festival & Events: altid kompakt chip, forskudt til højre for HQ ──
+        if (evList.length) {
+            let evLeft = cx;
+            if (hqList.length) {
+                const clear = (!alwaysCount && hqList.length <= SHOW_INDIVIDUAL_MAX)
+                    ? ((hqList.length - 1) * 22) / 2 + 20   // ryd rummet for HQ-avatarer
+                    : 26;                                    // ryd HQ-tæller-badgen
+                evLeft = cx + clear;
+            }
             const el = document.createElement('div');
-            el.className = `sb ${typeClass}`;
-            el.style.left = cx + 'px';
+            el.className = `sb sb-events ${typeClass}`;
+            el.style.left = evLeft + 'px';
             el.innerHTML = `
-                <div class="sb-av">${staffList.length}</div>
-                <span style="font-size:9px">👤</span>
-                <div class="sb-tt">${staffList.map(s => `${s.name || ''} <span style="opacity:.55">${s.tid || ''}</span>`).join('<br>')}</div>
+                <div class="sb-av">${evList.length}</div>
+                <span style="font-size:9px">🎪</span>
+                <div class="sb-tt">${evList.map(s => `${s.name || ''} <span style="opacity:.55">${s.tid || ''}</span>`).join('<br>')}</div>
             `;
             container.appendChild(el);
         }
