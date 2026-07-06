@@ -478,3 +478,28 @@
   font-weight: 600;
 }
 .uge-shift-open { opacity: 0.7; font-style: italic; }
+
+/* Festival & Events — bemanding adskilt fra HQ (grid-celle) */
+.uge-events-shift {
+  display: inline-block;
+  margin-top: 3px;
+  padding: 1px 6px;
+  border-radius: 4px;
+  background: #efe6fb;
+  color: #7a4fbf;
+  border: 1px solid #d4c2ef;
+  font-size: 10px;
+  font-weight: 600;
+}
+
+/* Lokations-undertitler i dag-detaljen */
+.uge-shift-group-head {
+  font-size: 10px;
+  font-weight: 700;
+  color: var(--brand-primary, #8e631f);
+  text-transform: uppercase;
+  letter-spacing: .03em;
+  margin: 8px 0 4px;
+}
+.uge-shift-group-head:first-child { margin-top: 0; }
+.uge-shift-group-head.is-events { color: #7a4fbf; }

@@ -240,6 +240,15 @@
     background: var(--brand-primary);
     color: white;
 }
+/* Festival & Events-bemanding — adskilt fra HQ */
+.cal-staff-badge.is-events {
+    color: #7a4fbf;
+    background: #efe6fb;
+}
+.cal-staff-badge.is-events:hover {
+    background: #7a4fbf;
+    color: white;
+}
 
 /* Bon entries in calendar */
 .cal-bons {

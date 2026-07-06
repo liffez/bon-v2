@@ -599,22 +599,29 @@ function _buildDayCell(dateStr, dayData, isCurrentMonth, isToday) {
     dateNum.textContent = new Date(dateStr + 'T00:00:00').getDate();
     dateRow.appendChild(dateNum);
 
-    // Bemanding (Smartplan) — kompakt badge
+    // Bemanding (Smartplan) — adskilte badges for HQ og Festival & Events
     if (_staffData && Array.isArray(_staffData)) {
         var shifts = _staffData.filter(function(s) { return s.date === dateStr; });
         if (shifts.length > 0) {
-            var badge = document.createElement('span');
-            badge.className = 'cal-staff-badge';
-            badge.textContent = '\uD83D\uDC64 ' + shifts.length;
-
-            // Tooltip: tid først, kun fornavn
-            var lines = [];
+            var hqShifts = [], evShifts = [];
             for (var i = 0; i < shifts.length; i++) {
-                var firstName = (shifts[i].employee_name || '').split(' ')[0];
-                lines.push(shifts[i].start_time + '\u2013' + shifts[i].end_time + '  ' + firstName);
+                (shifts[i].location_class === 'events' ? evShifts : hqShifts).push(shifts[i]);
             }
-            badge.title = lines.join('\n');
-            dateRow.appendChild(badge);
+            var appendStaffBadge = function(list, icon, cls) {
+                if (list.length === 0) return;
+                var badge = document.createElement('span');
+                badge.className = 'cal-staff-badge' + (cls ? ' ' + cls : '');
+                badge.textContent = icon + ' ' + list.length;
+                var lines = [];
+                for (var j2 = 0; j2 < list.length; j2++) {
+                    var firstName = (list[j2].employee_name || '').split(' ')[0];
+                    lines.push(list[j2].start_time + '\u2013' + list[j2].end_time + '  ' + firstName);
+                }
+                badge.title = lines.join('\n');
+                dateRow.appendChild(badge);
+            };
+            appendStaffBadge(hqShifts, '\uD83D\uDC64', '');
+            appendStaffBadge(evShifts, '\uD83C\uDFAA', 'is-events');
         }
     }
 

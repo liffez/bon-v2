@@ -300,15 +300,27 @@ function _uoRenderGrid() {
         var d = days[i] || {};
         var staff = d.staff || {};
         var openN = staff.open_count || 0;
+        var evN = staff.events_count || 0;
         var isToday = (d.date === today);
         var isWeekend = i >= 5;
         var cellCls = 'uge-cell';
         if (isToday) cellCls += ' today-col';
         else if (isWeekend) cellCls += ' weekend-col';
 
-        if (!staff.count && !openN) {
+        // Festival & Events-linje (adskilt fra HQ — tæller ikke i kapacitet)
+        var evHtml = evN > 0
+            ? '<div class="uge-events-shift" title="Festival & Events — tæller ikke i HQ-kapacitet">🎪 ' + evN + ' · ' + (staff.events_hours || 0) + ' t</div>'
+            : '';
+
+        if (!staff.count && !openN && !evN) {
             cellCls += ' empty';
             html += '<div class="' + cellCls + '"><div class="uge-cell-empty-txt">Ingen vagter</div></div>';
+        } else if (!staff.count && !openN && evN > 0) {
+            // Kun festival denne dag — ingen HQ-bemanding
+            html += '<div class="' + cellCls + '" data-day="' + i + '">' +
+                '<div class="uge-cell-sub" style="opacity:.6">HQ: ingen</div>' +
+                evHtml +
+            '</div>';
         } else {
             var ratioHtml = '';
             if (staff.ratio != null) {
@@ -323,13 +335,18 @@ function _uoRenderGrid() {
                 '<div class="uge-cell-sub">vagt' + (staff.count === 1 ? '' : 'er') + ' · ' + staff.total_hours + ' t</div>' +
                 ratioHtml +
                 openHtml +
+                evHtml +
             '</div>';
         }
     }
-    // TOTAL-celle: personale
+    // TOTAL-celle: personale (HQ) + festival-timer adskilt
+    var evTotalHtml = (totals.events_staff_hours || 0) > 0
+        ? '<div class="uge-total-sub" style="color:#7a4fbf">🎪 ' + totals.events_staff_hours + 't</div>'
+        : '';
     html += '<div class="uge-cell total">' +
         '<div class="uge-total-main">' + (totals.staff_hours || 0) + 't</div>' +
         '<div class="uge-total-sub">' + (totals.staff_count || 0) + ' vagter</div>' +
+        evTotalHtml +
     '</div>';
 
     // ── Række 3: Lager ──
@@ -375,7 +392,10 @@ function _uoRenderGrid() {
         '<span class="uge-week-foot-label">Uge ' + (_uoData.week_number || '') + ' i alt</span>' +
         '<span><b>' + (totals.production_units || 0) + '</b> enheder</span>' +
         '<span><b>' + (totals.bon_count || 0) + '</b> bonner</span>' +
-        '<span><b>' + (totals.staff_hours || 0) + '</b> persontimer</span>' +
+        '<span><b>' + (totals.staff_hours || 0) + '</b> persontimer (HQ)</span>' +
+        ((totals.events_staff_hours || 0) > 0
+            ? '<span style="color:#7a4fbf"><b>' + totals.events_staff_hours + '</b> festival-timer</span>'
+            : '') +
         '<span><b>' + (totals.stock_checked || 0) + '/' + (totals.stock_total || 0) + '</b> lager tjekket</span>' +
     '</div>';
 
@@ -491,14 +511,32 @@ function _uoRenderDetail(dayIdx) {
     if (day.shifts.length === 0) {
         html += '<div style="font-size:12px;color:var(--color-text-dim);font-style:italic">Ingen vagter</div>';
     } else {
+        var hqSh = [], evSh = [];
         for (var s = 0; s < day.shifts.length; s++) {
-            var shift = day.shifts[s];
-            var shiftCls = 'uge-shift-item' + (shift.is_open ? ' uge-shift-open' : '');
-            html += '<div class="' + shiftCls + '">' +
-                '<div class="uge-shift-avatar">' + _uoEsc(shift.initials || '?') + '</div>' +
-                '<div class="uge-shift-name">' + _uoEsc(shift.name) + '</div>' +
-                '<div class="uge-shift-time">' + (shift.start || '') + '–' + (shift.end || '') + '</div>' +
-            '</div>';
+            (day.shifts[s].location_class === 'events' ? evSh : hqSh).push(day.shifts[s]);
+        }
+        var renderShiftList = function(list) {
+            var out = '';
+            for (var k = 0; k < list.length; k++) {
+                var shift = list[k];
+                var shiftCls = 'uge-shift-item' + (shift.is_open ? ' uge-shift-open' : '');
+                out += '<div class="' + shiftCls + '">' +
+                    '<div class="uge-shift-avatar">' + _uoEsc(shift.initials || '?') + '</div>' +
+                    '<div class="uge-shift-name">' + _uoEsc(shift.name) + '</div>' +
+                    '<div class="uge-shift-time">' + (shift.start || '') + '–' + (shift.end || '') + '</div>' +
+                '</div>';
+            }
+            return out;
+        };
+        // Vis undertitler kun når festival er i spil — ellers ren HQ-liste som før.
+        if (evSh.length > 0) {
+            html += '<div class="uge-shift-group-head">🏠 Ristet Rug (HQ)</div>';
+            html += hqSh.length ? renderShiftList(hqSh)
+                : '<div style="font-size:12px;color:var(--color-text-dim);font-style:italic">Ingen HQ-vagter</div>';
+            html += '<div class="uge-shift-group-head is-events">🎪 Festival &amp; Events</div>';
+            html += renderShiftList(evSh);
+        } else {
+            html += renderShiftList(hqSh);
         }
     }
 

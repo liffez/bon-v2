@@ -209,11 +209,18 @@ router.get('/week', handle(async (req, res) => {
                 initials: (s.employee_name || s.first_name) ? _initials(s.employee_name) : '?',
                 start: s.start_time || '',
                 end: s.end_time || '',
+                location_class: s.location_class === 'events' ? 'events' : 'hq',
             }));
 
         // En vagt uden ejer er LEDIG (udlagt, endnu ikke taget) — tæller ikke som bemanding.
-        const assignedShifts = dayShifts.filter(s => !s.is_open);
-        const openShifts     = dayShifts.filter(s => s.is_open);
+        // Kun HQ-vagter driver produktionskapaciteten; Festival & Events vises adskilt,
+        // så HQ-persontimerne ikke oppustes af festival-bemanding (fx 25 vs. 3 vagter).
+        const hqShifts = dayShifts.filter(s => s.location_class !== 'events');
+        const evShifts = dayShifts.filter(s => s.location_class === 'events');
+        const assignedShifts = hqShifts.filter(s => !s.is_open);   // HQ-bemanding (kapacitet)
+        const openShifts     = hqShifts.filter(s => s.is_open);
+        const evAssigned     = evShifts.filter(s => !s.is_open);
+        const evOpen         = evShifts.filter(s => s.is_open);
 
         // Lager-summary
         const stockChecked = dayBons.filter(b => b.stock_status === 'ok').length;
@@ -228,12 +235,18 @@ router.get('/week', handle(async (req, res) => {
         // Produktion totaler (workload = total_units > 0 ? units : pax)
         const totalUnits = dayBons.reduce((sum, b) => sum + (b.workload || 0), 0);
 
-        // Personale: total timer
-        const totalHours = assignedShifts.reduce((sum, s) => {
+        // Personale: total timer (HQ) + festival-timer adskilt.
+        // Vagter der krydser midnat (fx 16:00–00:00) har end <= start → læg 24 til,
+        // ellers bliver timerne negative (festival-aftenvagter rammer dette).
+        const _sumHours = (list) => list.reduce((sum, s) => {
             const start = _timeToDecimal(s.start);
-            const end = _timeToDecimal(s.end);
-            return sum + (start != null && end != null ? end - start : 0);
+            let end = _timeToDecimal(s.end);
+            if (start == null || end == null) return sum;
+            if (end <= start) end += 24;
+            return sum + (end - start);
         }, 0);
+        const totalHours = _sumHours(assignedShifts);
+        const eventsHours = _sumHours(evAssigned);
 
         // ── Kapacitetsberegning (dagsniveau — kører ALTID) ──
         // Formel: total_workload / tilgængelige persontimer
@@ -320,6 +333,10 @@ router.get('/week', handle(async (req, res) => {
                 total_hours: Math.round(totalHours * 10) / 10,
                 status: staffStatus,
                 ratio: dayRatio,
+                // Festival & Events — adskilt fra HQ, tæller ikke i kapacitet
+                events_count: evAssigned.length,
+                events_open_count: evOpen.length,
+                events_hours: Math.round(eventsHours * 10) / 10,
             },
             stock: {
                 checked: stockChecked,
@@ -339,11 +356,14 @@ router.get('/week', handle(async (req, res) => {
         acc.bon_count        += d.production.count || 0;
         acc.staff_count      += d.staff.count || 0;
         acc.staff_hours      += d.staff.total_hours || 0;
+        acc.events_staff_count += d.staff.events_count || 0;
+        acc.events_staff_hours += d.staff.events_hours || 0;
         acc.stock_checked    += d.stock.checked || 0;
         acc.stock_total      += d.stock.total || 0;
         return acc;
-    }, { production_units: 0, bon_count: 0, staff_count: 0, staff_hours: 0, stock_checked: 0, stock_total: 0 });
+    }, { production_units: 0, bon_count: 0, staff_count: 0, staff_hours: 0, events_staff_count: 0, events_staff_hours: 0, stock_checked: 0, stock_total: 0 });
     weekTotals.staff_hours = Math.round(weekTotals.staff_hours * 10) / 10;
+    weekTotals.events_staff_hours = Math.round(weekTotals.events_staff_hours * 10) / 10;
 
     res.json({
         week: {

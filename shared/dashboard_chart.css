@@ -58,6 +58,10 @@
 .type-future  .sb-av { background: var(--green-dark, #3d7a0a); color: white; }
 .type-history .sb-av { background: var(--gray-dark, #8a8078); color: white; }
 
+/* Festival & Events-chip — adskilt fra HQ-bemanding */
+.sb.sb-events        { background: #efe6fb; border: 1px solid #d4c2ef; color: #7a4fbf; }
+.sb.sb-events .sb-av { background: #7a4fbf; color: white; }
+
 /* Staff tooltip */
 .sb-tt {
     display: none;
