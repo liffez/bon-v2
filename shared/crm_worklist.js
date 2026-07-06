@@ -86,6 +86,19 @@
                                padding: 6px; font-size: 13px; resize: vertical; margin-top: 8px; box-sizing: border-box; }
             .wl-empty { text-align: center; padding: 40px; color: #888; }
             .wl-err { color: #b00; padding: 16px; }
+            .wl-scores { display: flex; gap: 10px; align-items: center; flex-shrink: 0; }
+            .wl-score { font-size: 11px; color: #888; text-align: center; line-height: 1.1; }
+            .wl-score b { display: block; font-size: 16px; color: #333; font-weight: 700; }
+            .wl-potential { font-size: 22px; font-weight: 700; font-family: var(--font-heading, serif);
+                            color: var(--brand-primary, #8e631f); margin-left: 4px; }
+            .wl-controls:empty { display: none; }
+            .wl-config { display: flex; align-items: center; gap: 14px; flex-wrap: wrap; margin-bottom: 12px;
+                         font-size: 12px; color: #666; background: #faf8f5; border: 1px solid var(--color-border, #d7d1ca);
+                         border-radius: 8px; padding: 8px 12px; }
+            .wl-config label { display: flex; align-items: center; gap: 6px; }
+            .wl-cfg-input { width: 52px; padding: 5px 7px; border: 1px solid #ccc; border-radius: 6px;
+                            font-size: 13px; text-align: right; }
+            .wl-cfg-hint { color: #999; }
         `;
         document.head.appendChild(s);
     }
@@ -117,6 +130,8 @@
             getPhone: (r) => r.phone || null,
             buildMeta: (r) => r.company_name || '',
             buildOpener: () => null,
+            buildExtra: () => '',        // valgfri ekstra HTML i kortet (fx RFM-scorer)
+            renderControls: null,        // valgfri (el, { meta, reload }) → data-afhængig config-bar
         }, config);
 
         const uid = 'wl' + (++_seq);
@@ -125,6 +140,7 @@
             listEl: null,
             active: false,
             rows: null,
+            meta: null,      // valgfri config/meta fra { rows, config }-svar
             debounce: null,
         };
 
@@ -138,6 +154,7 @@
                         <span class="wl-sub" id="${uid}-sub">Indlæser…</span>
                     </div>
                     <div class="wl-toolbar" id="${uid}-toolbar"></div>
+                    <div class="wl-controls" id="${uid}-controls"></div>
                     <div id="${uid}-list"></div>
                 </div>`;
             state.listEl = container.querySelector('#' + uid + '-list');
@@ -174,6 +191,7 @@
                 ]);
                 _purposesCache = purposes;
                 state.rows = Array.isArray(rows) ? rows : (rows && rows.rows) || [];
+                state.meta = (rows && !Array.isArray(rows) && (rows.config || rows.meta)) || null;
                 _render();
             } catch (err) {
                 if (state.listEl) state.listEl.innerHTML = '<div class="wl-err">Fejl: ' + esc(err.message) + '</div>';
@@ -219,6 +237,11 @@
             const sub = document.getElementById(uid + '-sub');
             if (sub) sub.textContent = cfg.subtitle(state.rows.length);
 
+            if (cfg.renderControls) {
+                const cEl = state.container && state.container.querySelector('#' + uid + '-controls');
+                if (cEl) cfg.renderControls(cEl, { meta: state.meta, reload: loadData });
+            }
+
             const list = state.listEl;
             if (!list) return;
 
@@ -245,6 +268,7 @@
                             <div class="wl-name"${nameTitle}>${esc(name)}</div>
                             <div class="wl-meta">${meta || ''}</div>
                         </div>
+                        ${cfg.buildExtra ? (cfg.buildExtra(r) || '') : ''}
                     </div>
                     ${opener ? '<div class="wl-opener">' + esc(opener) + '</div>' : ''}
                     <div class="wl-actions">

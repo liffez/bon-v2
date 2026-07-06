@@ -2507,9 +2507,19 @@ ringe til, i stedet for max-8 kort blandet ind i digest-feeden.
   udvidet 14→20 (seasonal+rytme HTTP-cases). `scripts/test-crm-review.js` uændret 25/0 (ingen regression).
 - **Browser-verificeret** end-to-end (kopi af prod-data, dev-DB urørt): alle tre faner renderer korrekt,
   fane-skift, snooze 21→20 med server-side filter, kold tilbud vist via syntetisk seed. Migration 123+124 kørte rent.
-- **Bevidst udeladt:** evt. refaktorering af `crm-reaktivering.js` til en 4. fane "Sovende" oven på
-  komponenten (spec siger valgfrit). `#231` (jubilæum) parkeret (CVR-stiftelsesdato + consent). Dermed
-  er epic #232 færdig på nær #231.
+- **4. fane "Sovende"** (7. juli 2026): re-aktiverings-listen flyttet ind i Ringelisten oven på den
+  delte komponent — nav-punktet "Re-aktivering" (`reakt`-pill) fjernet, så Ringelisten samler
+  Sæson · Fast rytme · Sovende · Kolde tilbud ét sted. **Prospekter forbliver separat** (kold
+  akkvisition — anden aktivitet end at ringe eksisterende kunder). Komponenten fik to valgfri hooks:
+  `buildExtra(row)` (RFM R/F/M + potentiale i kortet) + `renderControls(el,{meta,reload})` (data-afhængig
+  min-ordrer/karantæne-config-bar, fokus-vagtet). `services/rfm.js` `getReactivationCandidates` fik
+  snooze-filter (type `reaktivering`, firma-niveau) så "🙈 Skjul" virker. Config-knapperne (kun
+  redigerbare i det gamle view) bevaret i fanen. Ingen ny migration (genbruger `re_aktivering`-purpose +
+  `crm_suggestion_snoozes`). Tests: `scripts/test-reactivation.js` +4 snooze-cases (19/0). Verificeret via
+  headless render-shim (13/0 — buildExtra/renderControls/meta-stier) + endpoint (56 rows + config).
+- **Bevidst udeladt:** `#231` (jubilæum) parkeret (CVR-stiftelsesdato + consent). Epic #232 er dermed
+  færdig på nær #231. Den gamle `office/views/crm-reaktivering.js` er ikke slettet (stadig loadbar via
+  `switchView('crm-reaktivering')` for bagudkompat) men er ude af nav'en — kan ryddes senere.
 
 ## Næste opgave
 
