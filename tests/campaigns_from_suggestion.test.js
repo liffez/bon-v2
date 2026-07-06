@@ -89,6 +89,32 @@ function _seedDormantCustomer(db, opts) {
     db.prepare(`INSERT INTO bons (customer_id, total_price, delivery_date) VALUES (?, ?, ?)`).run(id, revenue, dateStr);
 }
 
+// Helper: sæson-kunde — én ordre ~365 dage siden (i 10-14 mdr.-vinduet).
+// recent:true lægger også en ordre 10 dage siden (skal ekskludere kunden).
+function _seedSeasonalCustomer(db, opts) {
+    const { id, first_name, company_id = null, recent = false, marketing_consent = 0, do_not_contact = 0 } = opts;
+    db.prepare('INSERT INTO customers (id, first_name, company_id) VALUES (?, ?, ?)').run(id, first_name, company_id);
+    db.prepare('INSERT INTO crm_customer_meta (customer_id, marketing_consent, do_not_contact) VALUES (?, ?, ?)').run(id, marketing_consent, do_not_contact);
+    const d = new Date(); d.setDate(d.getDate() - 365);
+    db.prepare('INSERT INTO bons (customer_id, company_id, total_price, delivery_date) VALUES (?, ?, 5000, ?)').run(id, company_id, d.toISOString().slice(0, 10));
+    if (recent) {
+        const r = new Date(); r.setDate(r.getDate() - 10);
+        db.prepare('INSERT INTO bons (customer_id, company_id, total_price, delivery_date) VALUES (?, ?, 5000, ?)').run(id, company_id, r.toISOString().slice(0, 10));
+    }
+}
+
+// Helper: rytme-kunde — flere ordrer med kontrollerede datoer.
+// Default [400,340,280,220,160] → snit 60 dage, days_since 160 ∈ (1.3×,3×) → med.
+function _seedRytmeCustomer(db, opts, daysAgoList = [400, 340, 280, 220, 160]) {
+    const { id, first_name, company_id = null, marketing_consent = 0, do_not_contact = 0 } = opts;
+    db.prepare('INSERT INTO customers (id, first_name, company_id) VALUES (?, ?, ?)').run(id, first_name, company_id);
+    db.prepare('INSERT INTO crm_customer_meta (customer_id, marketing_consent, do_not_contact) VALUES (?, ?, ?)').run(id, marketing_consent, do_not_contact);
+    for (const da of daysAgoList) {
+        const d = new Date(); d.setDate(d.getDate() - da);
+        db.prepare('INSERT INTO bons (customer_id, company_id, total_price, delivery_date) VALUES (?, ?, 5000, ?)').run(id, company_id, d.toISOString().slice(0, 10));
+    }
+}
+
 const express = require('express');
 const app = express();
 app.use(express.json());
@@ -260,6 +286,80 @@ test('from-suggestion: ugyldig type → 400', async () => {
     });
     assert.strictEqual(r.status, 400);
     assert.strictEqual(r.body.error, 'unsupported_type');
+});
+
+// ─── seasonal (#230 Fase 2) ─────────────────────────────────
+
+test('from-suggestion seasonal: opretter kampagne fra sæson-kunder', async () => {
+    _testDb.prepare('INSERT INTO companies (id, name) VALUES (1, ?)').run('Firma A');
+    _seedSeasonalCustomer(_testDb, { id: 1, first_name: 'Anne', company_id: 1 });
+
+    const r = await req('POST', '/api/campaigns/from-suggestion', {
+        type: 'seasonal', campaign_name: 'Sæson 2026',
+    });
+    assert.strictEqual(r.status, 200);
+    assert.strictEqual(r.body.added, 1);
+    const camp = _testDb.prepare('SELECT description FROM outreach_campaigns WHERE id = ?').get(r.body.campaign_id);
+    assert.ok(camp.description.includes('Sæson'), 'default-beskrivelse nævner Sæson');
+});
+
+test('from-suggestion seasonal: ekskluderer kunde med ordre inden for 60 dage', async () => {
+    _testDb.prepare('INSERT INTO companies (id, name) VALUES (1, ?)').run('Firma A');
+    _seedSeasonalCustomer(_testDb, { id: 1, first_name: 'Anne', company_id: 1, recent: true });
+
+    const r = await req('POST', '/api/campaigns/from-suggestion', {
+        type: 'seasonal', campaign_name: 'Sæson tom',
+    });
+    assert.strictEqual(r.status, 400);
+    assert.strictEqual(r.body.error, 'no_candidates');
+});
+
+test('from-suggestion seasonal: respekterer DNC', async () => {
+    _testDb.prepare('INSERT INTO companies (id, name) VALUES (1, ?)').run('Firma A');
+    _seedSeasonalCustomer(_testDb, { id: 1, first_name: 'Anne', company_id: 1, do_not_contact: 1 });
+
+    const r = await req('POST', '/api/campaigns/from-suggestion', {
+        type: 'seasonal', campaign_name: 'Sæson DNC',
+    });
+    assert.strictEqual(r.body.added, 0);
+    assert.strictEqual(r.body.skipped[0].reason, 'do_not_contact');
+});
+
+// ─── rytme (#230 Fase 3) ────────────────────────────────────
+
+test('from-suggestion rytme: opretter kampagne fra rytme-kunder', async () => {
+    _testDb.prepare('INSERT INTO companies (id, name) VALUES (1, ?)').run('Firma A');
+    _seedRytmeCustomer(_testDb, { id: 1, first_name: 'Bo', company_id: 1 });
+
+    const r = await req('POST', '/api/campaigns/from-suggestion', {
+        type: 'rytme', campaign_name: 'Rytme jan',
+    });
+    assert.strictEqual(r.status, 200);
+    assert.strictEqual(r.body.added, 1);
+    const camp = _testDb.prepare('SELECT description FROM outreach_campaigns WHERE id = ?').get(r.body.campaign_id);
+    assert.ok(/rytme/i.test(camp.description), 'default-beskrivelse nævner rytme');
+});
+
+test('from-suggestion rytme: kunde med kun 4 ordrer → no_candidates', async () => {
+    _testDb.prepare('INSERT INTO companies (id, name) VALUES (1, ?)').run('Firma A');
+    _seedRytmeCustomer(_testDb, { id: 1, first_name: 'Bo', company_id: 1 }, [400, 300, 200, 100]);
+
+    const r = await req('POST', '/api/campaigns/from-suggestion', {
+        type: 'rytme', campaign_name: 'Rytme tom',
+    });
+    assert.strictEqual(r.status, 400);
+    assert.strictEqual(r.body.error, 'no_candidates');
+});
+
+test('from-suggestion rytme: reelt sovende (days_since > 3× snit) → no_candidates', async () => {
+    _testDb.prepare('INSERT INTO companies (id, name) VALUES (1, ?)').run('Firma A');
+    _seedRytmeCustomer(_testDb, { id: 1, first_name: 'Bo', company_id: 1 }, [800, 740, 680, 620, 560]);
+
+    const r = await req('POST', '/api/campaigns/from-suggestion', {
+        type: 'rytme', campaign_name: 'Rytme dormant',
+    });
+    assert.strictEqual(r.status, 400);
+    assert.strictEqual(r.body.error, 'no_candidates');
 });
 
 test('from-suggestion: tomt navn → 400', async () => {

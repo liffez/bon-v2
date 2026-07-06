@@ -693,6 +693,20 @@ function fetchCrmServiceCalls(days) {
     return apiFetch('/crm/service-calls' + qs);
 }
 
+// Ringeliste-endpoints (#232) — fulde arbejdslister bag den fanebaserede Ringeliste.
+function fetchCrmSeason() {
+    return apiFetch('/crm/season');
+}
+
+function fetchCrmRytme(multiplier) {
+    var qs = multiplier ? '?multiplier=' + multiplier : '';
+    return apiFetch('/crm/rytme' + qs);
+}
+
+function fetchCrmColdOffers() {
+    return apiFetch('/crm/cold-offers');
+}
+
 function fetchCrmCustomers(params) {
     var qs = params ? '?' + new URLSearchParams(params).toString() : '';
     return apiFetch('/crm/customers' + qs);

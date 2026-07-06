@@ -884,6 +884,8 @@
   <script src="views/crm-inbox.js"></script>
   <script src="views/crm-kundeindsigt.js"></script>
   <script src="views/crm-reaktivering.js"></script>
+  <script src="../shared/crm_worklist.js"></script>
+  <script src="views/crm-ringeliste.js"></script>
   <script src="views/crm-prospekter.js"></script>
   <script src="views/crm-leadimport.js"></script>
   <script src="views/fakturering.js"></script>
@@ -1064,6 +1066,10 @@
           init: () => initCrmReaktivering(contentEl),
           cleanup: () => { if (typeof cleanupCrmReaktivering === 'function') cleanupCrmReaktivering(); },
         },
+        'crm-ringeliste': {
+          init: () => initCrmRingeliste(contentEl),
+          cleanup: () => { if (typeof cleanupCrmRingeliste === 'function') cleanupCrmRingeliste(); },
+        },
         'crm-prospekter': {
           init: () => initCrmProspekter(contentEl),
           cleanup: () => { if (typeof cleanupCrmProspekter === 'function') cleanupCrmProspekter(); },
@@ -1178,6 +1184,7 @@
         ],
         crm: [
           { id: 'pipeline', label: 'Pipeline', def: true },
+          { id: 'ringeliste', label: 'Ringeliste' },
           { id: 'kontakter', label: 'Kontakter' },
           { id: 'outreach', label: 'Kampagner' },
           { id: 'indbakke', label: 'Indbakke', badge: 'crm_indbakke' },
@@ -1228,6 +1235,7 @@
         crm: {
           _default: 'crm-dashboard',
           pipeline: 'crm-dashboard',
+          ringeliste: 'crm-ringeliste',
           kontakter: 'kontakter',
           outreach: 'crm-outreach',
           indbakke: 'crm-inbox',
@@ -1454,6 +1462,7 @@
           'cashflow':'Office — Pengestrøm',
           'crm-kundeindsigt':'Office — Kundeindsigt',
           'crm-reaktivering':'Office — Re-aktivering',
+          'crm-ringeliste':'Office — Ringeliste',
           'crm-prospekter':'Office — Prospekter'
         };
         if (typeof HelpSystem !== 'undefined') {
@@ -1796,10 +1805,12 @@
           if (typeof _crmDashHandleSSE === 'function') _crmDashHandleSSE('crm_activity_created', data);
           if (typeof _k3HandleSSE === 'function') _k3HandleSSE('crm_activity_created', data);
           if (typeof _reakHandleSSE === 'function') _reakHandleSSE('crm_activity_created', data);
+          if (typeof _ringeHandleSSE === 'function') _ringeHandleSSE('crm_activity_created', data);
         },
         crm_stage_changed: (data) => {
           if (typeof _k3HandleSSE === 'function') _k3HandleSSE('crm_stage_changed', data);
           if (typeof _prosHandleSSE === 'function') _prosHandleSSE('crm_stage_changed', data);
+          if (typeof _ringeHandleSSE === 'function') _ringeHandleSSE('crm_stage_changed', data);
         },
         crm_consent_updated: (data) => {
           if (typeof _k3HandleSSE === 'function') _k3HandleSSE('crm_consent_updated', data);
@@ -1815,6 +1826,7 @@
           if (typeof _kiHandleSSE === 'function') _kiHandleSSE('rfm_computed', data);
           if (typeof _reakHandleSSE === 'function') _reakHandleSSE('rfm_computed', data);
           if (typeof _prosHandleSSE === 'function') _prosHandleSSE('rfm_computed', data);
+          if (typeof _ringeHandleSSE === 'function') _ringeHandleSSE('rfm_computed', data);
         },
         rfm_config_changed: (data) => {
           if (typeof _kiHandleSSE === 'function') _kiHandleSSE('rfm_config_changed', data);

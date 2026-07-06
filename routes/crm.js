@@ -629,6 +629,144 @@ router.get('/suggestions/review-stats', handle((req, res) => {
     res.json(row || { asked: 0, success: 0, declined: 0, pending: 0 });
 }));
 
+// ─── GET /season ────────────────────────────────────────────
+// Fuld sæson-ringeliste (#230) — forfremmelse af 'season_reminder'-forslaget til
+// en arbejdsbar liste. Samme detektion som GET /suggestions §2, men UDEN LIMIT og
+// med snooze-filter (type 'season', jf. shared/crm_worklist.js key). Dedupe på
+// "ingen aktivitet de sidste 30 dage" ligger allerede i queryen → når man har
+// ringet, falder kunden af listen i en måned.
+router.get('/season', handle((req, res) => {
+    const db = getDb();
+    const rows = db.prepare(`
+        SELECT
+            c.id AS customer_id,
+            c.first_name || ' ' || COALESCE(c.last_name, '') AS name,
+            c.phone,
+            co.id AS company_id,
+            co.name AS company_name,
+            b1.delivery_date AS last_year_date,
+            b1.pax,
+            b1.total_price
+        FROM bons b1
+        JOIN customers c ON b1.customer_id = c.id
+        JOIN companies co ON b1.company_id = co.id
+        WHERE b1.is_internal = 0
+            AND co.is_internal = 0
+            AND b1.delivery_date BETWEEN date('now', '-14 months') AND date('now', '-10 months')
+            AND NOT EXISTS (
+                SELECT 1 FROM bons b2
+                WHERE b2.customer_id = c.id AND b2.delivery_date > date('now', '-60 days') AND b2.is_internal = 0
+            )
+            AND NOT EXISTS (
+                SELECT 1 FROM crm_activities a
+                WHERE a.customer_id = c.id AND a.created_at > date('now', '-30 days')
+            )
+            AND NOT EXISTS (
+                SELECT 1 FROM crm_suggestion_snoozes sz
+                WHERE sz.customer_id = c.id AND sz.type = 'season' AND sz.snoozed_until > datetime('now')
+            )
+        GROUP BY c.id
+        ORDER BY b1.total_price DESC
+    `).all();
+    res.json(rows);
+}));
+
+// ─── GET /rytme ─────────────────────────────────────────────
+// Fuld faste-rytme-ringeliste (#230) — forfremmelse af 'overdue_customer'-forslaget.
+// Samme detektion som GET /suggestions §1 (≥5 ordrer, forsinket >mult× eget snit),
+// UDEN LIMIT + øvre grænse ×3 så reelt sovende falder til dormant-flowet i stedet.
+// ?multiplier= (default 1.3) justerer følsomheden. Snooze-filter type 'rytme'.
+router.get('/rytme', handle((req, res) => {
+    const db = getDb();
+    const mult = parseFloat(req.query.multiplier) || 1.3;
+    const rows = db.prepare(`
+        SELECT
+            c.id AS customer_id,
+            c.first_name || ' ' || COALESCE(c.last_name, '') AS name,
+            c.phone,
+            co.id AS company_id,
+            co.name AS company_name,
+            ostats.order_count,
+            ostats.avg_interval_days,
+            ostats.last_order,
+            ostats.days_since
+        FROM customers c
+        JOIN companies co ON c.company_id = co.id
+        JOIN crm_customer_meta cm ON c.id = cm.customer_id
+        JOIN (
+            SELECT
+                b1.customer_id,
+                COUNT(*) AS order_count,
+                MAX(b1.delivery_date) AS last_order,
+                CAST(julianday('now') - julianday(MAX(b1.delivery_date)) AS INTEGER) AS days_since,
+                ROUND(
+                    CAST(julianday(MAX(b1.delivery_date)) - julianday(MIN(b1.delivery_date)) AS REAL)
+                    / NULLIF(COUNT(*) - 1, 0)
+                , 0) AS avg_interval_days
+            FROM bons b1
+            WHERE b1.is_internal = 0
+            GROUP BY b1.customer_id
+            HAVING COUNT(*) >= 5
+        ) ostats ON ostats.customer_id = c.id
+        WHERE co.is_internal = 0
+            AND cm.stage IN ('active', 'vip')
+            AND ostats.avg_interval_days > 0
+            AND ostats.days_since > ostats.avg_interval_days * ?
+            AND ostats.days_since < ostats.avg_interval_days * 3
+            AND NOT EXISTS (
+                SELECT 1 FROM crm_suggestion_snoozes sz
+                WHERE sz.customer_id = c.id AND sz.type = 'rytme' AND sz.snoozed_until > datetime('now')
+            )
+        ORDER BY (ostats.days_since - ostats.avg_interval_days) DESC
+    `).all(mult);
+    res.json(rows);
+}));
+
+// ─── GET /cold-offers ───────────────────────────────────────
+// Kold tilbudsopfølgning (#228 Fase 5): tilbud der ER udløbet uden at være
+// konverteret (offer_status='sent', offer_valid_until < nu) — "fulgte vi op?".
+// Modstykke til det fremadrettede 'expiring_offer'-forslag. Bon-centreret:
+// dedupe pr. TILBUD (bon_id + purpose 'tilbud_opfoelgning'), så opfølgning på ét
+// tilbud ikke skjuler kundens øvrige kolde tilbud. Snooze-filter type 'cold_offer'.
+const COLD_OFFER_MAX_AGE_DAYS = 365;  // vis kun tilbud udløbet inden for det sidste år
+const COLD_OFFER_DEDUPE_DAYS  = 90;   // følg ikke op på samme tilbud oftere end hver 3. md.
+router.get('/cold-offers', handle((req, res) => {
+    const db = getDb();
+    const rows = db.prepare(`
+        SELECT
+            b.id AS bon_id,
+            b.bon_number,
+            b.total_price,
+            b.offer_valid_until,
+            c.id AS customer_id,
+            c.first_name || ' ' || COALESCE(c.last_name, '') AS name,
+            c.phone,
+            co.id AS company_id,
+            co.name AS company_name
+        FROM bons b
+        JOIN customers c ON b.customer_id = c.id
+        LEFT JOIN companies co ON b.company_id = co.id
+        WHERE b.is_offer = 1
+            AND b.offer_status = 'sent'
+            AND b.offer_valid_until < date('now')
+            AND b.offer_valid_until > date('now', ?)
+            AND (co.is_internal = 0 OR co.id IS NULL)
+            AND NOT EXISTS (
+                SELECT 1 FROM crm_activities a
+                JOIN activity_purposes ap ON ap.id = a.purpose_id
+                WHERE a.bon_id = b.id
+                    AND ap.key = 'tilbud_opfoelgning'
+                    AND a.created_at > date('now', ?)
+            )
+            AND NOT EXISTS (
+                SELECT 1 FROM crm_suggestion_snoozes sz
+                WHERE sz.customer_id = c.id AND sz.type = 'cold_offer' AND sz.snoozed_until > datetime('now')
+            )
+        ORDER BY b.offer_valid_until DESC
+    `).all('-' + COLD_OFFER_MAX_AGE_DAYS + ' days', '-' + COLD_OFFER_DEDUPE_DAYS + ' days');
+    res.json(rows);
+}));
+
 // ─── GET /service-calls ─────────────────────────────────────
 router.get('/service-calls', handle((req, res) => {
     const db = getDb();
