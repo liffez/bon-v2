@@ -479,6 +479,25 @@ function recalcBonTotalUnits(db, bonId) {
           AND (bl.is_accessory = 0 OR bl.is_accessory IS NULL)
     `).get(...args, bonId).t;
     db.prepare(`UPDATE bons SET total_units = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?`).run(total, bonId);
+    // F6: total_co2e vedligeholdes samme sted som total_units (kaldes ved alle
+    // linje-ændringer) — så de to bon-aggregater altid er i sync.
+    recalcBonTotalCo2e(db, bonId);
+    return total;
+}
+
+/**
+ * CO₂ F6 — genberegn bons.total_co2e = Σ(bon_lines.co2e × quantity).
+ * bon_lines.co2e er frosset pr. enhed ved linje-oprettelse, så summen er også
+ * frosset (ændres ikke bagud når faktorer opdateres). Kaldes samme steder som
+ * recalcBonTotalUnits. Returnerer den nye total.
+ */
+function recalcBonTotalCo2e(db, bonId) {
+    const total = db.prepare(`
+        SELECT COALESCE(SUM(co2e * quantity), 0) AS t
+          FROM bon_lines
+         WHERE bon_id = ?
+    `).get(bonId).t;
+    db.prepare(`UPDATE bons SET total_co2e = ? WHERE id = ?`).run(total, bonId);
     return total;
 }
 
@@ -577,7 +596,7 @@ module.exports = {
     todayISO, offsetISO,
     autoConsumeBonInventory,
     getUnitCountCategories, getUnitCountExtraRecipes, invalidateUnitCountCache,
-    bonUnitsExpr, recalcBonTotalUnits,
+    bonUnitsExpr, recalcBonTotalUnits, recalcBonTotalCo2e,
     WORKLOAD_EXCLUDED_EVENT_ROLES, countsAsWorkload, workloadRoleSql,
     countsAsSale, salesPriceCategorySql,
     hashPassword, verifyPassword, getUserByEmail, getUserById, getUserId,
