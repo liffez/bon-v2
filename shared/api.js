@@ -2118,3 +2118,37 @@ function clearCo2Material(productId) {
         body: JSON.stringify({ product_id: productId }),
     });
 }
+
+function fetchCo2Overview() {
+    return apiFetch('/co2/overview');
+}
+
+function fetchCo2Timeseries(months) {
+    return apiFetch('/co2/timeseries' + (months ? '?months=' + months : ''));
+}
+
+function setCo2ManualFactor(productId, factor) {
+    return apiFetch('/co2/manual-factor', {
+        method: 'POST',
+        body: JSON.stringify({ product_id: productId, factor }),
+    });
+}
+
+function fetchCo2Synonyms() {
+    return apiFetch('/co2/synonyms');
+}
+
+function addCo2Synonym(canonicalName, synonymName) {
+    return apiFetch('/co2/synonyms', {
+        method: 'POST',
+        body: JSON.stringify({ canonical_name: canonicalName, synonym_name: synonymName }),
+    });
+}
+
+function deleteCo2Synonym(id) {
+    return apiFetch('/co2/synonyms/' + id, { method: 'DELETE' });
+}
+
+function fetchCo2RecipeBreakdown(id) {
+    return apiFetch('/co2/recipe/' + id);
+}

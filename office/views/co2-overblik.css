@@ -1,0 +1,173 @@
+/* office/views/co2-overblik.css — CO₂ F7 overblik/rapport */
+
+.cov-view { padding: 20px 24px 60px; max-width: 1100px; }
+.cov-loading, .cov-error { padding: 40px; text-align: center; color: #6a6359; }
+.cov-error { color: #a33; }
+
+.cov-head { display: flex; align-items: center; justify-content: space-between; }
+.cov-head h1 { font-family: var(--font-heading, serif); font-size: 26px; margin: 0; color: #3a2f1c; }
+.cov-btn-ghost { background: transparent; border: 1px solid #d7d1ca; border-radius: 8px;
+    padding: 7px 14px; cursor: pointer; color: #5a5142; font-size: 14px; }
+.cov-btn-ghost:hover { background: #f5f2ec; }
+.cov-dim { color: #a49a8c; font-weight: 400; }
+
+/* KPI-strip */
+.cov-kpis { display: flex; gap: 12px; flex-wrap: wrap; margin: 18px 0 22px; }
+.cov-kpi { background: #fff; border: 1px solid #e2ddd4; border-radius: 10px;
+    padding: 14px 20px; min-width: 160px; flex: 1; border-left: 4px solid #d7d1ca; }
+.cov-kpi-val { font-family: var(--font-heading, serif); font-size: 30px; color: #3a2f1c; line-height: 1; }
+.cov-kpi-lbl { font-size: 12px; text-transform: uppercase; letter-spacing: .03em; color: #8a8073; margin-top: 6px; }
+.cov-kpi-sub { font-size: 12px; color: #a49a8c; margin-top: 2px; }
+.cov-kpi-green { border-left-color: #4a9d5b; }
+.cov-kpi-amber { border-left-color: #d99a2b; }
+.cov-kpi-red   { border-left-color: #c0492f; }
+
+/* Kort */
+.cov-card { background: #fff; border: 1px solid #e2ddd4; border-radius: 12px;
+    padding: 18px 20px; margin-bottom: 22px; }
+.cov-card h2 { font-family: var(--font-heading, serif); font-size: 18px; margin: 0 0 2px; color: #3a2f1c; }
+.cov-card h3 { font-size: 13px; margin: 0 0 8px; color: #5a5142; }
+.cov-sub { color: #8a8073; font-size: 13px; margin: 0 0 14px; }
+.cov-card-head { display: flex; align-items: center; justify-content: space-between; gap: 12px; flex-wrap: wrap; margin-bottom: 10px; }
+.cov-filters { display: flex; gap: 8px; }
+.cov-filters input, .cov-filters select { padding: 7px 10px; border: 1px solid #d7d1ca; border-radius: 8px; font-size: 14px; }
+.cov-filters input { min-width: 200px; }
+
+/* Datakvalitet — dækningsbjælke + mangel-chips */
+.cov-bar { position: relative; height: 26px; background: #efece6; border-radius: 999px; overflow: hidden; margin-bottom: 16px; }
+.cov-bar-fill { position: absolute; inset: 0 auto 0 0; background: linear-gradient(90deg, #7fbf8c, #4a9d5b); border-radius: 999px; }
+.cov-bar-txt { position: absolute; inset: 0; display: flex; align-items: center; justify-content: center;
+    font-size: 12px; font-weight: 600; color: #3a2f1c; }
+.cov-miss-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 20px; }
+@media (max-width: 720px) { .cov-miss-grid { grid-template-columns: 1fr; } }
+.cov-miss-chips { display: flex; flex-wrap: wrap; gap: 6px; }
+.cov-miss-chip { background: #f5f2ec; border: 1px solid #e6e0d6; border-radius: 999px;
+    padding: 4px 10px; font-size: 13px; color: #5a5142; }
+.cov-miss-chip b { color: #8e631f; margin-left: 2px; }
+.cov-miss-chip-click { cursor: pointer; transition: background .12s, border-color .12s; }
+.cov-miss-chip-click:hover { background: #f1e6d4; border-color: #d9c9a8; }
+.cov-miss-chip-edit { background: #fff; border-color: #8e631f; cursor: default; }
+.cov-mf-in { width: 92px; padding: 3px 6px; border: 1px solid #d7d1ca; border-radius: 6px; font-size: 13px; margin: 0 4px; }
+.cov-mf-save { background: var(--brand-primary, #8e631f); color: #fff; border: none; border-radius: 6px;
+    padding: 3px 8px; cursor: pointer; font-size: 12px; }
+
+.cov-toast { position: fixed; bottom: 24px; right: 24px; background: #3a2f1c; color: #fff;
+    padding: 12px 18px; border-radius: 10px; font-size: 14px; box-shadow: 0 6px 20px rgba(0,0,0,.2);
+    opacity: 0; transform: translateY(10px); transition: opacity .2s, transform .2s; pointer-events: none; z-index: 9999; }
+.cov-toast-show { opacity: 1; transform: translateY(0); }
+.cov-toast-err { background: #a5341f; }
+
+/* Chart */
+.cov-chart { width: 100%; height: auto; margin-top: 8px; }
+.cov-chart-bar { fill: #8e631f; transition: fill .15s; }
+.cov-chart-bar:hover { fill: #b5813a; }
+.cov-chart-axis { stroke: #e2ddd4; stroke-width: 1; }
+.cov-chart-lbl { fill: #a49a8c; font-size: 10px; }
+
+/* Tabel */
+.cov-table { width: 100%; border-collapse: collapse; font-size: 14px; }
+.cov-table th { text-align: left; font-size: 12px; text-transform: uppercase; letter-spacing: .03em;
+    color: #9a9083; font-weight: 600; border-bottom: 2px solid #ece7de; padding: 6px 10px; }
+.cov-table td { padding: 8px 10px; border-bottom: 1px solid #f0ece4; }
+.cov-table tr:last-child td { border-bottom: none; }
+.cov-sortable { cursor: pointer; user-select: none; }
+.cov-sortable:hover { color: #5a5142; }
+.cov-num { text-align: right; font-variant-numeric: tabular-nums; }
+.cov-recipe-name { font-weight: 600; color: #3a2f1c; }
+.cov-recipe-cat { font-weight: 400; font-size: 12px; color: #a49a8c; margin-top: 1px; }
+.cov-empty { text-align: center; color: #a49a8c; padding: 18px; }
+
+.cov-badge { display: inline-block; padding: 3px 10px; border-radius: 999px; font-size: 12px; font-weight: 600; white-space: nowrap; }
+.cov-badge-green { background: #e2f2e5; color: #2f7a41; }
+.cov-badge-amber { background: #fcf0d8; color: #986c14; }
+.cov-badge-blue  { background: #e4eefa; color: #3b6ea3; }
+.cov-badge-red   { background: #fbe6e0; color: #b23c22; }
+.cov-badge-grey  { background: #efece6; color: #7a7266; }
+
+/* Synonymer */
+.cov-syn-del { background: transparent; border: 1px solid #e0d8cd; border-radius: 6px;
+    width: 26px; height: 26px; cursor: pointer; color: #b06a52; font-size: 13px; line-height: 1; }
+.cov-syn-del:hover { background: #faf3f0; border-color: #d9b8ab; }
+.cov-syn-add { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; margin-top: 14px;
+    padding-top: 14px; border-top: 1px solid #f0ece4; }
+.cov-syn-add input { padding: 7px 10px; border: 1px solid #d7d1ca; border-radius: 8px; font-size: 14px; min-width: 190px; }
+.cov-btn-primary { background: var(--brand-primary, #8e631f); color: #fff; border: none; border-radius: 8px;
+    padding: 8px 16px; cursor: pointer; font-size: 14px; }
+.cov-btn-primary:hover { filter: brightness(1.08); }
+.cov-btn-primary:disabled { opacity: .6; cursor: default; }
+
+/* Klikbare opskrift-rækker (→ nedbrydnings-panel) */
+.cov-recipe-row { cursor: pointer; transition: background .1s; }
+.cov-recipe-row:hover { background: #faf7f1; }
+.cov-row-caret { color: #c9beac; font-weight: 700; margin-left: 4px; }
+.cov-recipe-row:hover .cov-row-caret { color: #8e631f; }
+
+/* Graf-aflæsning */
+.cov-chart-readout { font-size: 14px; color: #5a5142; margin: 2px 0 4px; min-height: 20px; }
+.cov-chart-readout b { color: #3a2f1c; }
+.cov-chart-bar-active { fill: #b5813a; }
+.cov-ro-cats { display: flex; flex-wrap: wrap; gap: 4px 14px; margin-top: 4px; font-size: 13px; }
+.cov-ro-cat { display: inline-flex; align-items: center; gap: 4px; }
+
+/* Stacked kategori-graf */
+.cov-chart-seg { transition: opacity .12s; }
+.cov-chart-hit { fill: transparent; cursor: pointer; }
+.cov-chart-hit-active { fill: rgba(142,99,31,.06); }
+.cov-chart-toggle { display: flex; gap: 0; border: 1px solid #d7d1ca; border-radius: 8px; overflow: hidden; }
+.cov-cm-btn { background: #fff; border: none; padding: 5px 12px; font-size: 13px; cursor: pointer; color: #5a5142; }
+.cov-cm-btn + .cov-cm-btn { border-left: 1px solid #e2ddd4; }
+.cov-cm-btn:hover:not(:disabled) { background: #f5f2ec; }
+.cov-cm-btn.cov-cm-on { background: var(--brand-primary, #8e631f); color: #fff; }
+.cov-cm-btn:disabled { opacity: .4; cursor: default; }
+.cov-chart-legend { display: flex; flex-wrap: wrap; gap: 6px 16px; margin-top: 10px; font-size: 13px; color: #5a5142; }
+.cov-leg { display: inline-flex; align-items: center; gap: 6px; }
+.cov-leg-dot { width: 10px; height: 10px; border-radius: 3px; display: inline-block; flex: none; }
+
+/* ─── Drill-down-panel ─────────────────────────────── */
+.cov-panel-overlay { position: fixed; inset: 0; background: rgba(40,32,18,.28);
+    display: flex; justify-content: flex-end; z-index: 10000; opacity: 0; transition: opacity .16s; }
+.cov-panel-overlay.cov-panel-open { opacity: 1; }
+.cov-panel { width: 640px; max-width: 94vw; height: 100%; background: #fff;
+    box-shadow: -8px 0 28px rgba(0,0,0,.18); display: flex; flex-direction: column;
+    transform: translateX(20px); transition: transform .18s; }
+.cov-panel-overlay.cov-panel-open .cov-panel { transform: translateX(0); }
+.cov-panel-head { display: flex; align-items: center; gap: 10px; padding: 16px 20px;
+    border-bottom: 1px solid #ece7de; }
+.cov-panel-title { flex: 1; font-family: var(--font-heading, serif); font-size: 20px; color: #3a2f1c; }
+.cov-panel-back, .cov-panel-x { background: transparent; border: 1px solid #e0d8cd; border-radius: 8px;
+    width: 34px; height: 34px; cursor: pointer; color: #5a5142; font-size: 18px; line-height: 1; }
+.cov-panel-back:hover, .cov-panel-x:hover { background: #f5f2ec; }
+.cov-panel-body { flex: 1; overflow-y: auto; padding: 18px 20px 40px; }
+
+.cov-panel-total { margin-bottom: 16px; }
+.cov-panel-total-val { font-family: var(--font-heading, serif); font-size: 34px; color: #3a2f1c; }
+.cov-panel-total-partial .cov-panel-total-val { color: #986c14; }
+.cov-panel-warn { font-size: 13px; color: #986c14; margin-top: 4px; }
+
+.cov-panel-table { width: 100%; border-collapse: collapse; font-size: 14px; }
+.cov-panel-table th { text-align: left; font-size: 11px; text-transform: uppercase; letter-spacing: .03em;
+    color: #9a9083; font-weight: 600; border-bottom: 2px solid #ece7de; padding: 6px 8px; }
+.cov-panel-table td { padding: 7px 8px; border-bottom: 1px solid #f2eee6; vertical-align: middle; }
+.cov-panel-ing { font-weight: 600; color: #3a2f1c; }
+.cov-panel-sub { cursor: pointer; }
+.cov-panel-sub:hover { background: #faf7f1; }
+.cov-panel-missing td { background: #fdfaf3; }
+.cov-tag { display: inline-block; font-size: 10px; font-weight: 600; text-transform: uppercase;
+    letter-spacing: .03em; color: #8a8073; background: #efece6; border-radius: 4px; padding: 1px 5px; margin-left: 4px; }
+.cov-tag-sub { color: #8e631f; background: #f6edd9; }
+.cov-src { font-size: 11px; color: #a49a8c; }
+
+.cov-bar-col { width: 120px; }
+.cov-pbar { display: inline-block; width: 72px; height: 8px; background: #efece6; border-radius: 999px;
+    overflow: hidden; vertical-align: middle; }
+.cov-pbar-fill { display: block; height: 100%; background: linear-gradient(90deg, #b5813a, #8e631f); }
+.cov-pbar-pct { font-size: 12px; color: #7a7266; margin-left: 6px; font-variant-numeric: tabular-nums; }
+
+.cov-fix-btn { background: #fff; border: 1px solid #8e631f; color: #8e631f; border-radius: 6px;
+    padding: 3px 9px; cursor: pointer; font-size: 12px; margin-left: 6px; }
+.cov-fix-btn:hover { background: #f6edd9; }
+
+.cov-panel-links { display: flex; gap: 10px; margin-top: 22px; padding-top: 16px; border-top: 1px solid #f0ece4; }
+.cov-panel-link { font-size: 14px; color: #8e631f; text-decoration: none; border: 1px solid #e0d8cd;
+    border-radius: 8px; padding: 8px 14px; }
+.cov-panel-link:hover { background: #f6edd9; border-color: #d9c9a8; }

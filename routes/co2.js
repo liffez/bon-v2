@@ -20,6 +20,9 @@ const { getDb } = require('../db/database');
 const { handle, todayISO } = require('../db/helpers');
 const { requireAuth } = require('../shared/auth');
 const co2 = require('../services/co2Materials');
+const grocy = require('../services/grocyAdapter');
+const engine = require('../services/co2Engine');
+const synonyms = require('../services/co2Synonyms');
 
 const ADMIN = requireAuth('admin');
 const AUTH  = requireAuth();
@@ -111,6 +114,178 @@ router.post('/clear', AUTH, handle(async (req, res) => {
     const { product_id } = req.body || {};
     if (!product_id) return res.status(400).json({ error: 'product_id kræves' });
     res.json(await co2.clearMaterial(getDb(), product_id));
+}));
+
+/* ---------- F7: overblik/rapport ---------- */
+
+// Live CO₂-overblik: kører motoren mod Grocy → dækning + per-opskrift-CO₂ +
+// hyppigst manglende faktor/kg-vej (datakvalitet). Kun opskrifter med ingredienser.
+router.get('/overview', AUTH, handle(async (req, res) => {
+    const [recipesMap, pos, nestings, products, conversions, units, groups] = await Promise.all([
+        grocy.getRecipesRawMap(),
+        grocy.getAllRecipesPos(),
+        grocy.getRecipeNestings(),
+        grocy.getProducts(),
+        grocy.getQuantityUnitConversions(),
+        grocy.getQuantityUnits(),
+        grocy.getProductGroups(),
+    ]);
+    // Klassificér mangler: emballage (fixes i Emballage-tildeler) vs råvare (manuel/ark).
+    const groupName = new Map(groups.map(g => [String(g.id), g.name]));
+    const prodByName = new Map();
+    products.forEach(p => { if (!prodByName.has(p.name)) prodByName.set(p.name, p); });
+    const enrichMissing = (arr) => arr.map(x => {
+        const p = prodByName.get(x.name);
+        const kind = p ? (/emballage/i.test(groupName.get(String(p.product_group_id)) || '') ? 'emballage' : 'raavare') : null;
+        return { ...x, product_id: p ? p.id : null, kind };
+    });
+    const recipes = [...recipesMap.values()].map(r => ({ id: r.id, name: r.name, base_servings: r.base_servings }));
+    // Enhed + kategori pr. opskrift (fra userfields) — så rapporten kan vise at
+    // "6,5 kg/kg produktion" og "0,3 kg/stk sandwich" IKKE er sammenlignelige.
+    const meta = new Map([...recipesMap.values()].map(r => {
+        const uf = r.userfields || {};
+        return [r.id, { unit: uf.recipeunit || null, category: uf.grupper || null, sellable: uf.sellable === '1' || uf.sellable === 1 }];
+    }));
+    const results = engine.computeAll({ recipes, pos, nestings, products, conversions, units });
+
+    const posIds = new Set(pos.map(p => p.recipe_id));
+    const nestIds = new Set(nestings.map(n => n.recipe_id));
+    const real = [...results.values()].filter(r => posIds.has(r.recipe_id) || nestIds.has(r.recipe_id));
+    const complete = real.filter(r => r.complete);
+
+    const mf = new Map(), mk = new Map();
+    real.filter(r => !r.complete).forEach(r => {
+        r.missing_factor.forEach(x => mf.set(x, (mf.get(x) || 0) + 1));
+        r.missing_kgvej.forEach(x => mk.set(x, (mk.get(x) || 0) + 1));
+    });
+    const top = (m) => [...m.entries()].sort((a, b) => b[1] - a[1]).slice(0, 15).map(([name, count]) => ({ name, count }));
+
+    res.json({
+        summary: {
+            total: real.length,
+            complete: complete.length,
+            partial: real.length - complete.length,
+            coverage_pct: real.length ? Math.round((complete.length / real.length) * 100) : 0,
+        },
+        recipes: real
+            .map(r => {
+                const m = meta.get(r.recipe_id) || {};
+                return {
+                    id: r.recipe_id, name: r.name,
+                    co2e_per_serving: r.complete ? r.co2e_per_serving : null,
+                    unit: m.unit, category: m.category, sellable: !!m.sellable,
+                    complete: r.complete,
+                    missing_factor: r.missing_factor,
+                    missing_kgvej: r.missing_kgvej,
+                };
+            })
+            .sort((a, b) => (b.co2e_per_serving || 0) - (a.co2e_per_serving || 0)),
+        categories: [...new Set(real.map(r => (meta.get(r.recipe_id) || {}).category).filter(Boolean))].sort((a, b) => a.localeCompare(b, 'da')),
+        missing: { factor: enrichMissing(top(mf)), kgvej: enrichMissing(top(mk)) },
+    });
+}));
+
+// Drill-down: per-råvare-nedbrydning for ÉN opskrift (kg × faktor pr. råvare +
+// andel + underopskrifter). Eksponerer det motoren allerede regner internt.
+router.get('/recipe/:id', AUTH, handle(async (req, res) => {
+    const id = parseInt(req.params.id, 10);
+    if (!Number.isFinite(id)) return res.status(400).json({ error: 'Ugyldigt id' });
+    const [recipesMap, pos, nestings, products, conversions, units, groups] = await Promise.all([
+        grocy.getRecipesRawMap(),
+        grocy.getAllRecipesPos(),
+        grocy.getRecipeNestings(),
+        grocy.getProducts(),
+        grocy.getQuantityUnitConversions(),
+        grocy.getQuantityUnits(),
+        grocy.getProductGroups(),
+    ]);
+    const recipe = recipesMap.get(id);
+    if (!recipe) return res.status(404).json({ error: 'Opskrift ikke fundet' });
+    const recipes = [...recipesMap.values()].map(r => ({ id: r.id, name: r.name, base_servings: r.base_servings }));
+    const bd = engine.breakdownRecipe(id, { recipes, pos, nestings, products, conversions, units, groups });
+    const uf = recipe.userfields || {};
+    res.json({ ...bd, name: recipe.name, unit: uf.recipeunit || null, category: uf.grupper || null });
+}));
+
+// Manuel råvare-faktor (§1 source='manual') — fallback for råvarer der ikke er i
+// Katrines CONCITO-ark. Overskrives af en fremtidig import hvis arket får varen.
+router.post('/manual-factor', AUTH, handle(async (req, res) => {
+    const { product_id, factor } = req.body || {};
+    if (!product_id) return res.status(400).json({ error: 'product_id kræves' });
+    const f = parseFactor(factor);
+    if (f == null || Number.isNaN(f)) return res.status(400).json({ error: 'Ugyldig faktor' });
+    await grocy.updateProductUserfields(product_id, {
+        co2e_per_kg: String(f), co2e_source: 'manual', co2e_version: 'Manuel',
+    });
+    grocy.clearCache();
+    res.json({ product_id: Number(product_id), factor: f });
+}));
+
+/* ---------- synonymer (dublet-vare-regler — synlige + redigerbare) ---------- */
+
+router.get('/synonyms', AUTH, handle(async (req, res) => {
+    res.json({ synonyms: await synonyms.listResolved(getDb()) });
+}));
+
+router.post('/synonyms', AUTH, handle(async (req, res) => {
+    const { canonical_name, synonym_name } = req.body || {};
+    res.json(await synonyms.addSynonym(getDb(), canonical_name, synonym_name));
+}));
+
+router.delete('/synonyms/:id', AUTH, handle((req, res) => {
+    res.json(synonyms.removeSynonym(getDb(), parseInt(req.params.id, 10)));
+}));
+
+// CO₂ over tid: månedlig Σ(bons.total_co2e) + pax → CO₂ pr. kuvert. Ekskl.
+// tilbud + AFLYST. Bemærk: pre-F5-bons bærer gamle frosne tal (se F6-note).
+// Hver måned får desuden by_category: {kategori: kg} summeret fra bon_lines
+// (samme frosne kilde, bare ét niveau dybere) → stacked kategori-graf.
+router.get('/timeseries', AUTH, handle((req, res) => {
+    const db = getDb();
+    const months = Math.min(36, Math.max(1, parseInt(req.query.months, 10) || 12));
+    const window = `-${months} months`;
+    const rows = db.prepare(`
+        SELECT strftime('%Y-%m', b.delivery_date) AS month,
+               COALESCE(SUM(b.total_co2e), 0)     AS co2e,
+               COALESCE(SUM(b.pax), 0)            AS pax,
+               COUNT(*)                           AS bons
+          FROM bons b
+          JOIN status_definitions sd ON b.status_id = sd.id
+         WHERE (b.is_offer = 0 OR b.is_offer IS NULL)
+           AND sd.code != 'AFLYST'
+           AND b.delivery_date >= date('now', ?)
+         GROUP BY month
+         ORDER BY month
+    `).all(window);
+
+    // Kategori-nedbrydning pr. måned (kun linjer med CO₂-tal — dækning vokser
+    // over tid, hvilket er ærligt). Kilde: bon_lines.co2e × quantity (som F6).
+    const catRows = db.prepare(`
+        SELECT strftime('%Y-%m', b.delivery_date)                     AS month,
+               COALESCE(NULLIF(TRIM(bl.category), ''), 'Uden kategori') AS category,
+               SUM(bl.co2e * bl.quantity)                             AS co2e
+          FROM bons b
+          JOIN bon_lines bl        ON bl.bon_id = b.id
+          JOIN status_definitions sd ON b.status_id = sd.id
+         WHERE (b.is_offer = 0 OR b.is_offer IS NULL)
+           AND sd.code != 'AFLYST'
+           AND b.delivery_date >= date('now', ?)
+           AND bl.co2e IS NOT NULL AND bl.co2e > 0
+         GROUP BY month, COALESCE(NULLIF(TRIM(bl.category), ''), 'Uden kategori')
+    `).all(window);
+    const byMonth = new Map();
+    for (const r of catRows) {
+        if (!byMonth.has(r.month)) byMonth.set(r.month, {});
+        byMonth.get(r.month)[r.category] = r.co2e;
+    }
+
+    res.json({
+        months: rows.map(r => ({
+            ...r,
+            co2e_per_pax: r.pax ? r.co2e / r.pax : null,
+            by_category: byMonth.get(r.month) || {},
+        })),
+    });
 }));
 
 module.exports = router;

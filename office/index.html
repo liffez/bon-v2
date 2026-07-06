@@ -28,6 +28,7 @@
   <link rel="stylesheet" href="views/rapporter.css">
   <link rel="stylesheet" href="views/opskrifter.css">
   <link rel="stylesheet" href="views/co2-emballage.css">
+  <link rel="stylesheet" href="views/co2-overblik.css">
   <link rel="stylesheet" href="views/drift.css">
   <link rel="stylesheet" href="views/cashflow.css">
   <link rel="stylesheet" href="/assets/leaflet/leaflet.css">
@@ -814,7 +815,7 @@
             <span class="sidebar-icon">📈</span> Driftsregnskab
           </button>
           <button class="sidebar-link" data-view="co2">
-            <span class="sidebar-icon">🌱</span> CO₂ — Emballage
+            <span class="sidebar-icon">🌱</span> CO₂
           </button>
 
           <div class="sidebar-group-label">Team</div>
@@ -890,6 +891,8 @@
   <script src="views/rapporter.js"></script>
   <script src="views/opskrifter.js"></script>
   <script src="views/co2-emballage.js"></script>
+  <script src="views/co2-overblik.js"></script>
+  <script src="/shared/co2_veje.js"></script>
   <script src="views/drift.js"></script>
   <script src="views/cashflow.js"></script>
   <script src="/shared/supplier_inbox.js"></script>
@@ -1100,6 +1103,14 @@
           init: () => initCo2Emballage(contentEl),
           cleanup: () => { if (typeof cleanupCo2Emballage === 'function') cleanupCo2Emballage(); },
         },
+        'co2-veje': {
+          init: () => initCo2Veje(contentEl),
+          cleanup: () => {},   // co2_veje er stateless render — ingen teardown
+        },
+        'co2-overblik': {
+          init: () => initCo2Overblik(contentEl),
+          cleanup: () => { if (typeof cleanupCo2Overblik === 'function') cleanupCo2Overblik(); },
+        },
         leverandorpost: {
           init: () => initSupplierInbox(contentEl, { openDrawer }),
           cleanup: () => { if (typeof cleanupSupplierInbox === 'function') cleanupSupplierInbox(); },
@@ -1193,6 +1204,11 @@
           { id: 'penge', label: 'Pengestrøm' },
           { id: 'rap', label: 'Rapporter' },
         ],
+        co2: [
+          { id: 'overblik', label: 'Overblik', def: true },
+          { id: 'emballage', label: 'Emballage' },
+          { id: 'vej', label: 'Vej tælle-varer' },
+        ],
         events: null,
       };
 
@@ -1243,7 +1259,12 @@
         },
         opskrifter: { _default: 'opskrifter' },
         drift: { _default: 'drift' },
-        co2: { _default: 'co2' },
+        co2: {
+          _default: 'co2-overblik',
+          overblik: 'co2-overblik',
+          emballage: 'co2',
+          vej: 'co2-veje',
+        },
         events: { _default: 'events' },
       };
 
