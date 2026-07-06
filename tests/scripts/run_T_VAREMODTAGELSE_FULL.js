@@ -158,6 +158,41 @@ async function login() {
     SESSION_COOKIE = setCookie.split(';')[0];
 }
 
+// Admin-session. Test-DB'ens admin-bruger (migration 011) har hverken pin eller
+// password, så vi giver den en midlertidig pin og logger ind via PIN. Returnerer
+// cookien i stedet for at overskrive den globale kitchen-session.
+async function adminLogin() {
+    const admin = db.prepare(
+        `SELECT id FROM users WHERE role = 'admin' AND is_active = 1 ORDER BY id LIMIT 1`
+    ).get();
+    if (!admin) throw new Error('Ingen admin-bruger i test-DB');
+    db.prepare(`UPDATE users SET pin = '9911' WHERE id = ?`).run(admin.id);
+
+    const res = await fetch(`${SERVER_URL}/api/auth/pin`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ pin: '9911', user_id: admin.id }),
+    });
+    if (res.status !== 200) throw new Error(`Admin-login (PIN) fejlede: status=${res.status}`);
+    const setCookie = res.headers.get('set-cookie');
+    if (!setCookie) throw new Error('Ingen set-cookie fra admin-login');
+    return setCookie.split(';')[0];
+}
+
+// Som api(), men med en eksplicit cookie (bruges til admin-session).
+async function apiAs(cookie, method, pathPart, body = null) {
+    const opts = { method, headers: { Cookie: cookie } };
+    if (body !== null) {
+        opts.headers['Content-Type'] = 'application/json';
+        opts.body = JSON.stringify(body);
+    }
+    const res  = await fetch(`${SERVER_URL}${pathPart}`, opts);
+    const text = await res.text();
+    let parsed = null;
+    try { parsed = JSON.parse(text); } catch {}
+    return { status: res.status, body: parsed, raw: text };
+}
+
 function basePayload(overrides = {}) {
     return {
         supplier_name: TEST_SUPPLIER,
@@ -415,12 +450,28 @@ async function runValidationCases() {
         else record('T_VAREMOD_F_VAL_03', 'VAL', 'FAIL', `status=${r.status}`);
     }
 
-    // VAL_04: items=[] → 400
+    // VAL_04: items=[] → 200 (varefri fødevarekontrol-registrering er tilladt).
+    // Tidligere blokeret med 400; ændret så ad-hoc varer (købt uden om
+    // indkøbsmodulet) kan registreres uden varelinjer.
     {
-        const r = await api('POST', '/api/goods-receipts',
-            basePayload({ items: [] }));
-        if (r.status === 400) record('T_VAREMOD_F_VAL_04', 'VAL', 'PASS');
-        else record('T_VAREMOD_F_VAL_04', 'VAL', 'FAIL', `status=${r.status}`);
+        const r = await createReceipt(basePayload({ items: [] }));
+        if (r.status !== 200 || !r.body?.id) {
+            record('T_VAREMOD_F_VAL_04', 'VAL', 'FAIL', `status=${r.status}`);
+        } else {
+            const itemCount = db.prepare(
+                `SELECT COUNT(*) AS n FROM goods_receipt_items WHERE receipt_id = ?`
+            ).get(r.body.id).n;
+            const status = db.prepare(
+                `SELECT status FROM goods_receipts WHERE id = ?`
+            ).get(r.body.id)?.status;
+            if (itemCount === 0 && status === 'approved') {
+                record('T_VAREMOD_F_VAL_04', 'VAL', 'PASS',
+                    VERBOSE ? 'varefri: 0 items, status approved' : '');
+            } else {
+                record('T_VAREMOD_F_VAL_04', 'VAL', 'FAIL',
+                    `items=${itemCount} status=${status} (forventede 0/approved)`);
+            }
+        }
     }
 
     // VAL_05: items=null → 400
@@ -1519,6 +1570,152 @@ async function runUsersCases() {
 // Cleanup
 // ════════════════════════════════════════════════════════════
 
+// ════════════════════════════════════════════════════════════
+// ADHOC + BACKDATE — varefri registrering + admin-modtagedato
+// ════════════════════════════════════════════════════════════
+//
+// Dækker de nye adfærd (issue #278):
+//   - varefri registrering (kun fødevarekontrol) er tilladt + webhook fyrer
+//   - admin kan sætte received_at (modtagedato fra følgeseddel); created_at
+//     forbliver "nu" som ærligt revisionsspor
+//   - ikke-admin der forsøger at sætte received_at afvises (403) uden at
+//     bumpe receipt-counteren
+
+async function runAdhocBackdateCases() {
+    console.log('\n── ADHOC + BACKDATE ──');
+
+    // ADHOC_01: items=[] → 200, 0 varelinjer, status approved, webhook fyret,
+    //           ingen Grocy-mutation (ingen varer at lægge på lager).
+    {
+        await clearWebhookBuffer();
+        const r = await createReceipt(basePayload({ items: [] }));
+        if (r.status !== 200 || !r.body?.id) {
+            record('T_VAREMOD_F_ADHOC_01', 'ADHOC', 'FAIL', `status=${r.status}`);
+        } else {
+            const itemCount = db.prepare(
+                `SELECT COUNT(*) AS n FROM goods_receipt_items WHERE receipt_id = ?`
+            ).get(r.body.id).n;
+            const status = db.prepare(
+                `SELECT status FROM goods_receipts WHERE id = ?`
+            ).get(r.body.id)?.status;
+            await sleep(100);
+            const hooks = await getWebhookBuffer();
+            const fired = hooks.some(h => h.receipt_id === r.body.id);
+            if (itemCount === 0 && status === 'approved' && fired) {
+                record('T_VAREMOD_F_ADHOC_01', 'ADHOC', 'PASS',
+                    VERBOSE ? '0 items, approved, webhook fyret' : '');
+            } else {
+                record('T_VAREMOD_F_ADHOC_01', 'ADHOC', 'FAIL',
+                    `items=${itemCount} status=${status} webhook=${fired}`);
+            }
+        }
+    }
+
+    // BACKDATE_01+02: admin-session
+    let adminCookie = null;
+    try {
+        adminCookie = await adminLogin();
+    } catch (err) {
+        record('T_VAREMOD_F_BACKDATE_01', 'BACKDATE', 'FAIL', err.message);
+        record('T_VAREMOD_F_BACKDATE_02', 'BACKDATE', 'SKIP', 'admin-login fejlede');
+    }
+
+    if (adminCookie) {
+        // BACKDATE_01: admin sætter received_at = fortidsdato → received_at bliver
+        //              den valgte dato (kl 12), created_at forbliver i dag (UTC).
+        {
+            const pastDate = '2026-01-15';
+            const r = await apiAs(adminCookie, 'POST', '/api/goods-receipts',
+                basePayload({ received_at: pastDate }));
+            if (r.status === 200 && r.body?.id) createdReceiptIds.push(r.body.id);
+            if (r.status !== 200) {
+                record('T_VAREMOD_F_BACKDATE_01', 'BACKDATE', 'FAIL', `status=${r.status}`);
+            } else {
+                const row = db.prepare(
+                    `SELECT received_at, created_at FROM goods_receipts WHERE id = ?`
+                ).get(r.body.id);
+                const rcvDate = String(row?.received_at || '').slice(0, 10);
+                const createdDate = String(row?.created_at || '').slice(0, 10);
+                const todayUtc = new Date().toISOString().slice(0, 10);
+                if (rcvDate === pastDate && createdDate === todayUtc) {
+                    record('T_VAREMOD_F_BACKDATE_01', 'BACKDATE', 'PASS',
+                        VERBOSE ? `received_at=${row.received_at}, created_at=${row.created_at}` : '');
+                } else {
+                    record('T_VAREMOD_F_BACKDATE_01', 'BACKDATE', 'FAIL',
+                        `received_at=${row?.received_at} (forventet ${pastDate}), created_at=${row?.created_at} (forventet ${todayUtc})`);
+                }
+            }
+        }
+
+        // BACKDATE_02: admin sender ugyldig dato → 400.
+        {
+            const r = await apiAs(adminCookie, 'POST', '/api/goods-receipts',
+                basePayload({ received_at: 'ikke-en-dato' }));
+            if (r.status === 200 && r.body?.id) createdReceiptIds.push(r.body.id);
+            if (r.status === 400) {
+                record('T_VAREMOD_F_BACKDATE_02', 'BACKDATE', 'PASS');
+            } else {
+                record('T_VAREMOD_F_BACKDATE_02', 'BACKDATE', 'FAIL', `status=${r.status}`);
+            }
+        }
+
+        // BACKDATE_04: en køkken-bruger (ikke admin) MED evnen 'modtag_backdate'
+        //              kan backdatere. Admin tildeler evnen via API, køkken-sessionen
+        //              registrerer, evnen fjernes igen.
+        {
+            const kitchen = db.prepare(
+                `SELECT id FROM users WHERE pin = '1234' AND is_active = 1 LIMIT 1`
+            ).get();
+            if (!kitchen) {
+                record('T_VAREMOD_F_BACKDATE_04', 'BACKDATE', 'SKIP', 'ingen køkken-bruger (pin 1234)');
+            } else {
+                const grant = await apiAs(adminCookie, 'PATCH', `/api/users/${kitchen.id}`,
+                    { modules: { modtag_backdate: true } });
+                const pastDate = '2026-02-20';
+                const r = await api('POST', '/api/goods-receipts',
+                    basePayload({ received_at: pastDate }));
+                if (r.status === 200 && r.body?.id) createdReceiptIds.push(r.body.id);
+                // Fjern evnen igen (best-effort — test:reset rydder alligevel)
+                await apiAs(adminCookie, 'PATCH', `/api/users/${kitchen.id}`,
+                    { modules: { modtag_backdate: null } });
+
+                if (r.status !== 200) {
+                    record('T_VAREMOD_F_BACKDATE_04', 'BACKDATE', 'FAIL',
+                        `grant=${grant.status} post=${r.status}`);
+                } else {
+                    const rcvDate = String(db.prepare(
+                        `SELECT received_at FROM goods_receipts WHERE id = ?`
+                    ).get(r.body.id)?.received_at || '').slice(0, 10);
+                    if (rcvDate === pastDate) {
+                        record('T_VAREMOD_F_BACKDATE_04', 'BACKDATE', 'PASS',
+                            VERBOSE ? 'køkken m. evne kunne backdatere' : '');
+                    } else {
+                        record('T_VAREMOD_F_BACKDATE_04', 'BACKDATE', 'FAIL',
+                            `received_at slice=${rcvDate} (forventet ${pastDate})`);
+                    }
+                }
+            }
+        }
+    }
+
+    // BACKDATE_03: ikke-admin (kitchen-session) UDEN evnen sender received_at → 403 og
+    //              counteren bumpes ikke (afvist før transaction).
+    {
+        const before = readCounter();
+        const r = await api('POST', '/api/goods-receipts',
+            basePayload({ received_at: '2020-01-01' }));
+        const after = readCounter();
+        if (r.status === 200 && r.body?.id) createdReceiptIds.push(r.body.id);
+        if (r.status === 403 && before === after) {
+            record('T_VAREMOD_F_BACKDATE_03', 'BACKDATE', 'PASS',
+                VERBOSE ? 'ikke-admin afvist, counter uændret' : '');
+        } else {
+            record('T_VAREMOD_F_BACKDATE_03', 'BACKDATE', 'FAIL',
+                `status=${r.status}, counter ${before}→${after} (forventede 403 + uændret)`);
+        }
+    }
+}
+
 async function cleanup() {
     if (SKIP_CLEANUP) {
         console.log('\n[cleanup] SKIPPED (--skip-cleanup)');
@@ -1696,6 +1893,7 @@ async function main() {
         await runListCases();
         await runDetailCases();
         await runUsersCases();
+        await runAdhocBackdateCases();
     } catch (err) {
         console.error('[run_T_VAREMODTAGELSE_FULL] FEJL under test:', err.message);
         if (err.stack) console.error(err.stack);

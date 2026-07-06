@@ -508,7 +508,7 @@
       <h2>Brugere</h2>
       <table class="st-table" id="users-table">
         <thead><tr>
-          <th>Navn</th><th>Email</th><th>Rolle</th><th>Tablet PIN</th><th>Mobil PIN</th><th>Aktiv</th><th></th>
+          <th>Navn</th><th>Email</th><th>Rolle</th><th>Tablet PIN</th><th>Mobil PIN</th><th>Aktiv</th><th title="Må sætte modtagedato på varemodtagelse (backdatere bilag)">Modtagedato</th><th></th>
         </tr></thead>
         <tbody id="users-body"></tbody>
       </table>
@@ -1550,6 +1550,9 @@ async function loadUsers() {
   var tbody = document.getElementById('users-body');
   tbody.innerHTML = '';
   users.forEach(function(u) {
+    var mj = {};
+    try { mj = u.modules_json ? JSON.parse(u.modules_json) : {}; } catch (e) {}
+    var canBackdate = mj.modtag_backdate === true;
     var tr = document.createElement('tr');
     tr.innerHTML =
       '<td>' + esc(u.name) + '</td>' +
@@ -1561,6 +1564,8 @@ async function loadUsers() {
       '<td>' + buildPinCell(u.id, 'mobile_pin', u.mobile_pin) + '</td>' +
       '<td><label class="st-toggle"><input type="checkbox" ' + (u.is_active ? 'checked' : '') +
         ' onchange="updateUser(' + u.id + ',\'is_active\',this.checked)"><span class="st-toggle-slider"></span></label></td>' +
+      '<td><label class="st-toggle" title="Må sætte modtagedato (backdatere bilag)"><input type="checkbox" ' + (canBackdate ? 'checked' : '') +
+        ' onchange="updateUserBackdate(' + u.id + ',this.checked)"><span class="st-toggle-slider"></span></label></td>' +
       '<td><button class="st-btn st-btn-sm st-btn-secondary" onclick="togglePwForm(' + u.id + ')">Password</button>' +
         '<div id="pw-form-' + u.id + '" style="display:none;margin-top:4px">' +
           '<input type="password" class="st-input st-input-pw" id="pw-input-' + u.id + '" placeholder="Nyt password">' +
@@ -1609,6 +1614,12 @@ async function updateUser(id, field, value) {
   fields[field] = value;
   await patchUser(id, fields);
   toast('Bruger opdateret');
+}
+
+// Per-bruger evne: må sætte modtagedato på varemodtagelse. null fjerner override.
+async function updateUserBackdate(id, checked) {
+  await patchUser(id, { modules: { modtag_backdate: checked ? true : null } });
+  toast(checked ? 'Må nu sætte modtagedato' : 'Modtagedato-adgang fjernet');
 }
 
 function togglePwForm(id) {
