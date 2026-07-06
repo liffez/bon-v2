@@ -887,7 +887,7 @@ function _vmRenderLagerContent() {
         empty.className = 'vm-no-supplier-msg';
         empty.style.cssText = 'color:#8a5a00;background:#fff6e0;border:1px solid #f0d48a;' +
             'border-radius:8px;padding:10px 12px;';
-        empty.textContent = '\u26a0 Ingen varer l\u00e6gges p\u00e5 lager. Du kan registrere kun ' +
+        empty.textContent = '\u26a0 Ingen varer l\u00e6gges p\u00e5 lager. Du registrerer kun ' +
             'f\u00f8devarekontrol \u2014 husk s\u00e5 at l\u00e6gge varerne ind via lageropt\u00e6lling.';
         el.appendChild(empty);
 
