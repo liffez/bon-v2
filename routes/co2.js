@@ -185,6 +185,28 @@ router.get('/overview', AUTH, handle(async (req, res) => {
     });
 }));
 
+// Drill-down: per-råvare-nedbrydning for ÉN opskrift (kg × faktor pr. råvare +
+// andel + underopskrifter). Eksponerer det motoren allerede regner internt.
+router.get('/recipe/:id', AUTH, handle(async (req, res) => {
+    const id = parseInt(req.params.id, 10);
+    if (!Number.isFinite(id)) return res.status(400).json({ error: 'Ugyldigt id' });
+    const [recipesMap, pos, nestings, products, conversions, units, groups] = await Promise.all([
+        grocy.getRecipesRawMap(),
+        grocy.getAllRecipesPos(),
+        grocy.getRecipeNestings(),
+        grocy.getProducts(),
+        grocy.getQuantityUnitConversions(),
+        grocy.getQuantityUnits(),
+        grocy.getProductGroups(),
+    ]);
+    const recipe = recipesMap.get(id);
+    if (!recipe) return res.status(404).json({ error: 'Opskrift ikke fundet' });
+    const recipes = [...recipesMap.values()].map(r => ({ id: r.id, name: r.name, base_servings: r.base_servings }));
+    const bd = engine.breakdownRecipe(id, { recipes, pos, nestings, products, conversions, units, groups });
+    const uf = recipe.userfields || {};
+    res.json({ ...bd, name: recipe.name, unit: uf.recipeunit || null, category: uf.grupper || null });
+}));
+
 // Manuel råvare-faktor (§1 source='manual') — fallback for råvarer der ikke er i
 // Katrines CONCITO-ark. Overskrives af en fremtidig import hvis arket får varen.
 router.post('/manual-factor', AUTH, handle(async (req, res) => {

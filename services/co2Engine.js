@@ -126,4 +126,98 @@ function computeAll(data) {
     return out;
 }
 
-module.exports = { computeAll, computeRecipe, stockToKg, readFactor, findKiloId };
+/**
+ * Detaljeret nedbrydning for ÉN opskrift (pr. enhed/serving) — til drill-down.
+ * Eksponerer det computeAll allerede regner internt: hver ingrediens' bidrag
+ * (kg × faktor) + andel, underopskrifter som klikbare rækker med deres bidrag.
+ * Alt divideres med base_servings → summen matcher co2e_per_serving i tabellen.
+ * Ufuldstændige ingredienser tælles ikke i totalen men medtages med status,
+ * så man ser præcis hvad der mangler.
+ *
+ * @param data { recipes, pos, nestings, products, conversions, units, groups }
+ * @returns { recipe_id, base_servings, total_per_serving, complete,
+ *            ingredients:[{product_id,name,amount_per_serving,unit,kg,factor,source,
+ *                          contribution,pct,status,is_packaging}],
+ *            sub_recipes:[{recipe_id,name,servings_per_serving,per_serving,
+ *                          contribution,pct,complete}] }
+ */
+function breakdownRecipe(recipeId, data) {
+    const kiloId = findKiloId(data.units || []);
+    const unitName = new Map((data.units || []).map(u => [u.id, u.name_short || u.name]));
+    const groupName = new Map((data.groups || []).map(g => [String(g.id), g.name]));
+
+    const posByRecipe = new Map();
+    for (const p of (data.pos || [])) {
+        if (!posByRecipe.has(p.recipe_id)) posByRecipe.set(p.recipe_id, []);
+        posByRecipe.get(p.recipe_id).push(p);
+    }
+    const nestByRecipe = new Map();
+    for (const n of (data.nestings || [])) {
+        if (!nestByRecipe.has(n.recipe_id)) nestByRecipe.set(n.recipe_id, []);
+        nestByRecipe.get(n.recipe_id).push(n);
+    }
+    const productById  = new Map((data.products || []).map(p => [String(p.id), p]));
+    const recipeById   = new Map((data.recipes  || []).map(r => [r.id, r]));
+    const baseServings = new Map((data.recipes  || []).map(r => [r.id, parseFloat(r.base_servings) || 1]));
+
+    const ctx = { posByRecipe, nestByRecipe, productById, conversions: data.conversions || [], kiloId, baseServings };
+    const memo = new Map();
+    const div = baseServings.get(recipeId) || 1;
+
+    const ingredients = [];
+    for (const p of (posByRecipe.get(recipeId) || [])) {
+        const product = productById.get(String(p.product_id));
+        const amount = parseFloat(p.amount) || 0;
+        if (!product) {
+            ingredients.push({ product_id: null, name: `#${p.product_id}`, amount_per_serving: amount / div,
+                unit: null, kg: null, factor: null, source: null, contribution: null,
+                status: 'unknown_product', is_packaging: false });
+            continue;
+        }
+        const kgFull = stockToKg(product, amount, ctx.conversions, kiloId);
+        const factor = readFactor(product);
+        const uf = product.userfields || {};
+        const grp = groupName.get(String(product.product_group_id)) || '';
+        const kg = kgFull == null ? null : kgFull / div;
+        let status = 'ok', contribution = null;
+        if (kgFull == null) status = 'missing_kgvej';
+        else if (factor == null) status = 'missing_factor';
+        else contribution = kg * factor;
+        ingredients.push({
+            product_id: product.id, name: product.name, amount_per_serving: amount / div,
+            unit: unitName.get(product.qu_id_stock) || null, kg, factor,
+            source: uf.co2e_source || null, contribution, status, is_packaging: /emballage/i.test(grp),
+        });
+    }
+
+    const sub_recipes = [];
+    for (const n of (nestByRecipe.get(recipeId) || [])) {
+        const sub = computeRecipe(n.includes_recipe_id, ctx, memo, new Set());
+        const subBase = baseServings.get(n.includes_recipe_id) || 1;
+        const perServing = subBase ? sub.total / subBase : 0;
+        const servings = parseFloat(n.servings) || 0;
+        const complete = sub.missing_factor.size === 0 && sub.missing_kgvej.size === 0;
+        const r = recipeById.get(n.includes_recipe_id);
+        sub_recipes.push({
+            recipe_id: n.includes_recipe_id, name: r ? r.name : `#${n.includes_recipe_id}`,
+            servings_per_serving: servings / div, per_serving: perServing,
+            contribution: complete ? (perServing * servings) / div : null, complete,
+        });
+    }
+
+    const total = [...ingredients, ...sub_recipes].reduce((a, x) => a + (x.contribution || 0), 0);
+    const withPct = (arr) => arr.map(x => ({
+        ...x, pct: (total > 0 && x.contribution != null) ? (x.contribution / total) * 100 : null,
+    }));
+
+    return {
+        recipe_id: recipeId,
+        base_servings: div,
+        total_per_serving: total,
+        complete: ingredients.every(i => i.status === 'ok') && sub_recipes.every(s => s.complete),
+        ingredients: withPct(ingredients),
+        sub_recipes: withPct(sub_recipes),
+    };
+}
+
+module.exports = { computeAll, computeRecipe, breakdownRecipe, stockToKg, readFactor, findKiloId };

@@ -13,7 +13,7 @@
  */
 
 /* globals fetchCo2Overview, fetchCo2Timeseries, setCo2ManualFactor,
-           fetchCo2Synonyms, addCo2Synonym, deleteCo2Synonym */
+           fetchCo2Synonyms, addCo2Synonym, deleteCo2Synonym, fetchCo2RecipeBreakdown */
 
 const _covState = {
     container: null,
@@ -25,6 +25,8 @@ const _covState = {
     category: '',      // grupper-filter (fx "01 Sandwich")
     sortKey: 'co2e',   // 'co2e' | 'name'
     sortDir: 'desc',
+    panelStack: [],    // drill-down: recipe_id-historik i nedbrydnings-panelet
+    _panelKey: null,
 };
 
 function initCo2Overblik(container) {
@@ -33,6 +35,7 @@ function initCo2Overblik(container) {
     _covLoad();
 }
 function cleanupCo2Overblik() {
+    _covClosePanel();
     _covState.container = null;
     _covState.overview = null;
     _covState.series = null;
@@ -196,15 +199,20 @@ function _covTimeChart(series) {
         const y = H - pad - h;
         const w = bw * 0.7;
         const lbl = m.month.slice(5); // MM
+        const perpax = m.co2e_per_pax != null ? _covNum(m.co2e_per_pax) : '';
         return `<rect x="${x.toFixed(1)}" y="${y.toFixed(1)}" width="${w.toFixed(1)}" height="${Math.max(0, h).toFixed(1)}"
-                    rx="2" class="cov-chart-bar"><title>${m.month}: ${_covNum(m.co2e, 0)} kg · ${m.bons} bons · ${m.co2e_per_pax != null ? _covNum(m.co2e_per_pax) + ' kg/kuvert' : '—'}</title></rect>
+                    rx="2" class="cov-chart-bar" data-month="${m.month}" data-co2e="${_covNum(m.co2e, 0)}" data-bons="${m.bons}" data-perpax="${perpax}"></rect>
                 <text x="${(x + w / 2).toFixed(1)}" y="${H - pad + 12}" text-anchor="middle" class="cov-chart-lbl">${lbl}</text>`;
     }).join('');
     return `
       <section class="cov-card">
         <h2>CO₂ over tid <span class="cov-dim">· seneste 12 mdr (kg CO₂e pr. måned)</span></h2>
+        <div class="cov-chart-readout" id="covChartReadout"><span class="cov-dim">Peg på en søjle…</span></div>
         <svg viewBox="0 0 ${W} ${H}" class="cov-chart" preserveAspectRatio="xMidYMid meet">
+          <line x1="${pad}" y1="${pad}" x2="${pad}" y2="${H - pad}" class="cov-chart-axis"/>
           <line x1="${pad}" y1="${H - pad}" x2="${W - pad}" y2="${H - pad}" class="cov-chart-axis"/>
+          <text x="${pad - 4}" y="${pad + 4}" text-anchor="end" class="cov-chart-lbl">${_covNum(max, 0)} kg</text>
+          <text x="${pad - 4}" y="${H - pad}" text-anchor="end" class="cov-chart-lbl">0</text>
           ${bars}
         </svg>
       </section>`;
@@ -229,8 +237,8 @@ function _covRecipeTable(recipes) {
             </select>
           </div>
         </div>
-        <p class="cov-sub">Bemærk: enheden varierer — en sandwich er pr. <b>stk</b>, en produktions-batch pr. <b>kg</b>. Tal på tværs af enheder er ikke direkte sammenlignelige. Filtrér fx til "01 Sandwich".</p>
-        <table class="cov-table">
+        <p class="cov-sub">Bemærk: enheden varierer — en sandwich er pr. <b>stk</b>, en produktions-batch pr. <b>kg</b>. Tal på tværs af enheder er ikke direkte sammenlignelige. Filtrér fx til "01 Sandwich". <b>Klik en opskrift</b> for at se hvilke råvarer der driver tallet.</p>
+        <table class="cov-table cov-recipe-table">
           <thead><tr>
             <th class="cov-sortable" data-sort="name">Opskrift</th>
             <th class="cov-sortable cov-num" data-sort="co2e">CO₂e / enhed</th>
@@ -267,10 +275,10 @@ function _covRecipeRows(recipes) {
         else if (r.missing_kgvej.length) badge = `<span class="cov-badge cov-badge-blue" title="${_covEsc(r.missing_kgvej.join(', '))}">Mangler kg-vej</span>`;
         else badge = `<span class="cov-badge cov-badge-amber" title="${_covEsc(r.missing_factor.join(', '))}">Mangler faktor</span>`;
         const unit = r.unit ? ' <span class="cov-dim">kg / ' + _covEsc(r.unit) + '</span>' : ' <span class="cov-dim">kg</span>';
-        return `<tr>
+        return `<tr class="cov-recipe-row" data-recipe-id="${r.id}" title="Klik → se nedbrydning">
             <td class="cov-recipe-name">${_covEsc(r.name)}${r.category ? `<div class="cov-recipe-cat">${_covEsc(r.category)}</div>` : ''}</td>
             <td class="cov-num">${r.co2e_per_serving != null ? _covNum(r.co2e_per_serving) + unit : '<span class="cov-dim">—</span>'}</td>
-            <td>${badge}</td>
+            <td>${badge} <span class="cov-row-caret">›</span></td>
         </tr>`;
     }).join('');
 }
@@ -328,11 +336,227 @@ function _covBind() {
             _covReRenderTable();
         });
     });
+
+    _covBindRecipeRows();
+    _covBindChartHover();
+}
+
+// Opskrift-række → åbn nedbrydnings-panel (gen-bindes efter tabel-re-render).
+function _covBindRecipeRows() {
+    const el = _covState.container;
+    if (!el) return;
+    el.querySelectorAll('.cov-recipe-row').forEach(row => {
+        row.addEventListener('click', () => _covOpenPanel(parseInt(row.dataset.recipeId, 10), { reset: true }));
+    });
 }
 
 function _covReRenderTable() {
-    const tbody = _covState.container.querySelector('.cov-table tbody');
-    if (tbody) tbody.innerHTML = _covRecipeRows(_covState.overview.recipes);
+    const tbody = _covState.container.querySelector('.cov-recipe-table tbody');
+    if (tbody) { tbody.innerHTML = _covRecipeRows(_covState.overview.recipes); _covBindRecipeRows(); }
+}
+
+/* ─── Graf-aflæsning: fast linje under grafen der opdaterer på hover ────── */
+
+function _covBindChartHover() {
+    const el = _covState.container;
+    if (!el) return;
+    const readout = el.querySelector('#covChartReadout');
+    if (!readout) return;
+    const bars = el.querySelectorAll('.cov-chart-bar[data-month]');
+    const show = (b) => {
+        readout.innerHTML = `<b>${_covEsc(b.dataset.month)}</b> · ${_covEsc(b.dataset.co2e)} kg CO₂e`
+            + ` · ${_covEsc(b.dataset.bons)} bons`
+            + (b.dataset.perpax ? ` · <b>${_covEsc(b.dataset.perpax)}</b> kg/kuvert` : '');
+    };
+    bars.forEach(b => {
+        b.addEventListener('mouseenter', () => { bars.forEach(x => x.classList.remove('cov-chart-bar-active')); b.classList.add('cov-chart-bar-active'); show(b); });
+    });
+    // Default: seneste måned.
+    if (bars.length) show(bars[bars.length - 1]);
+}
+
+/* ─── Drill-down-panel: per-råvare-nedbrydning ─────────────────────────── */
+
+async function _covOpenPanel(recipeId, opts = {}) {
+    if (!recipeId) return;
+    if (opts.reset) _covState.panelStack = [];
+    _covEnsurePanel();
+    const body = document.getElementById('covPanelBody');
+    body.innerHTML = '<div class="cov-loading">Indlæser nedbrydning…</div>';
+    document.getElementById('covPanelOverlay').classList.add('cov-panel-open');
+    try {
+        const data = await fetchCo2RecipeBreakdown(recipeId);
+        if (!opts.back) _covState.panelStack.push(recipeId);
+        _covRenderPanel(data);
+    } catch (e) {
+        body.innerHTML = `<div class="cov-error">Kunne ikke hente nedbrydning: ${_covEsc(e.message)}</div>`;
+    }
+}
+
+function _covEnsurePanel() {
+    if (document.getElementById('covPanelOverlay')) return;
+    const wrap = document.createElement('div');
+    wrap.id = 'covPanelOverlay';
+    wrap.className = 'cov-panel-overlay';
+    wrap.innerHTML = `<div class="cov-panel" role="dialog" aria-label="CO₂-nedbrydning">
+        <div class="cov-panel-head">
+          <button class="cov-panel-back" id="covPanelBack" title="Tilbage" hidden>‹</button>
+          <div class="cov-panel-title" id="covPanelTitle"></div>
+          <button class="cov-panel-x" id="covPanelClose" title="Luk (Esc)">✕</button>
+        </div>
+        <div class="cov-panel-body" id="covPanelBody"></div>
+      </div>`;
+    document.body.appendChild(wrap);
+    wrap.addEventListener('click', (e) => { if (e.target === wrap) _covClosePanel(); });
+    document.getElementById('covPanelClose').addEventListener('click', _covClosePanel);
+    document.getElementById('covPanelBack').addEventListener('click', () => {
+        _covState.panelStack.pop();                       // nuværende
+        const prev = _covState.panelStack[_covState.panelStack.length - 1];
+        if (prev) _covOpenPanel(prev, { back: true });
+        else _covClosePanel();
+    });
+    _covState._panelKey = (e) => { if (e.key === 'Escape') _covClosePanel(); };
+    document.addEventListener('keydown', _covState._panelKey);
+}
+
+function _covClosePanel() {
+    const o = document.getElementById('covPanelOverlay');
+    if (o) o.remove();
+    if (_covState._panelKey) { document.removeEventListener('keydown', _covState._panelKey); _covState._panelKey = null; }
+    _covState.panelStack = [];
+}
+
+function _covRenderPanel(d) {
+    const title = document.getElementById('covPanelTitle');
+    const body = document.getElementById('covPanelBody');
+    const back = document.getElementById('covPanelBack');
+    if (!title || !body) return;
+    back.hidden = _covState.panelStack.length <= 1;
+
+    const unitLbl = d.unit ? 'kg CO₂e / ' + d.unit : 'kg CO₂e';
+    title.innerHTML = `${_covEsc(d.name)}${d.category ? ` <span class="cov-dim">· ${_covEsc(d.category)}</span>` : ''}`;
+
+    // Total-header
+    const totalTxt = d.complete
+        ? `<div class="cov-panel-total"><span class="cov-panel-total-val">${_covNum(d.total_per_serving)}</span> <span class="cov-dim">${_covEsc(unitLbl)}</span></div>`
+        : `<div class="cov-panel-total cov-panel-total-partial">
+             <span class="cov-panel-total-val">${_covNum(d.total_per_serving)}</span> <span class="cov-dim">${_covEsc(unitLbl)}</span>
+             <div class="cov-panel-warn">⚠ Ufuldstændig — tallet mangler data på nogle råvarer (se nedenfor)</div>
+           </div>`;
+
+    // Kombinér ingredienser + underopskrifter, sortér efter bidrag (mangler nederst)
+    const items = [
+        ...d.ingredients.map(x => ({ ...x, _sub: false })),
+        ...d.sub_recipes.map(x => ({ ...x, _sub: true })),
+    ].sort((a, b) => (b.contribution || -1) - (a.contribution || -1));
+
+    const rows = items.map(x => x._sub ? _covPanelSubRow(x) : _covPanelIngRow(x)).join('');
+
+    body.innerHTML = `
+      ${totalTxt}
+      <table class="cov-panel-table">
+        <thead><tr>
+          <th>Råvare</th><th class="cov-num">Mængde</th><th class="cov-num">kg</th>
+          <th class="cov-num">Faktor</th><th class="cov-num">Bidrag</th><th class="cov-bar-col">Andel</th>
+        </tr></thead>
+        <tbody>${rows || '<tr><td colspan="6" class="cov-empty">Ingen ingredienser.</td></tr>'}</tbody>
+      </table>
+      <div class="cov-panel-links">
+        <a href="/kitchen/recipes.html?recipe=${d.recipe_id}" target="_blank" class="cov-panel-link">🔍 Åbn i køkken-opskrift</a>
+        <a href="/api/recipes/grocy-recipe-link/${d.recipe_id}" target="_blank" class="cov-panel-link">Åbn i Grocy ↗</a>
+      </div>`;
+
+    _covBindPanelRows();
+}
+
+function _covPanelBar(pct) {
+    if (pct == null) return '<span class="cov-dim">—</span>';
+    const w = Math.max(2, Math.min(100, pct));
+    return `<span class="cov-pbar"><span class="cov-pbar-fill" style="width:${w}%"></span></span><span class="cov-pbar-pct">${Math.round(pct)}%</span>`;
+}
+
+function _covPanelIngRow(x) {
+    const amt = `${_covNum(x.amount_per_serving, x.amount_per_serving < 1 ? 3 : 2)}${x.unit ? ' ' + _covEsc(x.unit) : ''}`;
+    if (x.status === 'ok') {
+        const src = x.source ? `<span class="cov-src" title="Kilde">${_covEsc(x.source)}</span>` : '';
+        return `<tr>
+          <td class="cov-panel-ing">${_covEsc(x.name)}${x.is_packaging ? ' <span class="cov-tag">emb.</span>' : ''}</td>
+          <td class="cov-num">${amt}</td>
+          <td class="cov-num">${_covNum(x.kg, 3)}</td>
+          <td class="cov-num">${_covNum(x.factor)} ${src}</td>
+          <td class="cov-num"><b>${_covNum(x.contribution, 3)}</b></td>
+          <td class="cov-bar-col">${_covPanelBar(x.pct)}</td>
+        </tr>`;
+    }
+    // Mangler data → status + handling
+    let msg, act = '', pid = x.product_id || '';
+    if (x.status === 'missing_kgvej') { msg = '<span class="cov-badge cov-badge-blue">Mangler kg-vej</span>'; act = 'goto-vej'; }
+    else if (x.status === 'missing_factor' && x.is_packaging) { msg = '<span class="cov-badge cov-badge-amber">Mangler faktor</span>'; act = 'goto-emballage'; }
+    else if (x.status === 'missing_factor') { msg = '<span class="cov-badge cov-badge-amber">Mangler faktor</span>'; act = 'manual'; }
+    else { msg = '<span class="cov-badge cov-badge-red">Ukendt vare</span>'; }
+    const btn = act === 'manual'
+        ? `<button class="cov-fix-btn" data-act="manual" data-pid="${pid}" data-name="${_covEsc(x.name)}">Sæt faktor</button>`
+        : act ? `<button class="cov-fix-btn" data-act="${act}">Ret →</button>` : '';
+    return `<tr class="cov-panel-missing">
+      <td class="cov-panel-ing">${_covEsc(x.name)}${x.is_packaging ? ' <span class="cov-tag">emb.</span>' : ''}</td>
+      <td class="cov-num">${amt}</td>
+      <td class="cov-num">${x.kg != null ? _covNum(x.kg, 3) : '<span class="cov-dim">—</span>'}</td>
+      <td colspan="3">${msg} ${btn}</td>
+    </tr>`;
+}
+
+function _covPanelSubRow(x) {
+    const st = x.complete ? '' : ' <span class="cov-badge cov-badge-amber">mangler data</span>';
+    return `<tr class="cov-panel-sub" data-sub-id="${x.recipe_id}" title="Klik → åbn underopskrift">
+      <td class="cov-panel-ing">↳ ${_covEsc(x.name)} <span class="cov-tag cov-tag-sub">underopskrift</span></td>
+      <td class="cov-num">${_covNum(x.servings_per_serving, 3)}</td>
+      <td class="cov-num cov-dim">—</td>
+      <td class="cov-num cov-dim">—</td>
+      <td class="cov-num">${x.contribution != null ? '<b>' + _covNum(x.contribution, 3) + '</b>' : st}</td>
+      <td class="cov-bar-col">${_covPanelBar(x.pct)}</td>
+    </tr>`;
+}
+
+function _covBindPanelRows() {
+    const body = document.getElementById('covPanelBody');
+    if (!body) return;
+    // Drill ned i underopskrift
+    body.querySelectorAll('.cov-panel-sub').forEach(row => {
+        row.addEventListener('click', () => _covOpenPanel(parseInt(row.dataset.subId, 10)));
+    });
+    // Ret-knapper
+    body.querySelectorAll('.cov-fix-btn').forEach(btn => {
+        btn.addEventListener('click', (e) => {
+            e.stopPropagation();
+            const act = btn.dataset.act;
+            if (act === 'goto-vej' && window.switchSection) { _covClosePanel(); window.switchSection('co2', 'vej'); }
+            else if (act === 'goto-emballage' && window.switchSection) { _covClosePanel(); window.switchSection('co2', 'emballage'); }
+            else if (act === 'manual') _covPanelManualFactor(btn);
+        });
+    });
+}
+
+// Inline manuel faktor i panelet → skriv → genindlæs panel + overblik.
+function _covPanelManualFactor(btn) {
+    const pid = Number(btn.dataset.pid);
+    const name = btn.dataset.name;
+    const cell = btn.parentElement;
+    cell.innerHTML = `<input type="number" step="any" min="0" class="cov-mf-in" placeholder="kg CO₂e/kg"> <button class="cov-mf-save">✓ Gem</button>`;
+    const inp = cell.querySelector('.cov-mf-in');
+    inp.focus();
+    const save = async () => {
+        const v = inp.value.trim();
+        if (!v) return;
+        try {
+            await setCo2ManualFactor(pid, v);
+            _covToast(`${name}: faktor sat (manuel)`);
+            const cur = _covState.panelStack[_covState.panelStack.length - 1];
+            await _covOpenPanel(cur, { back: true });   // genindlæs uden at ændre stack
+            _covLoad();                                  // opdater overblikket i baggrunden
+        } catch (err) { _covToast('Fejl: ' + err.message, true); }
+    };
+    cell.querySelector('.cov-mf-save').addEventListener('click', save);
+    inp.addEventListener('keydown', (e) => { if (e.key === 'Enter') save(); });
 }
 
 // Råvare-chip → inline manuel faktor-input (source=manual).

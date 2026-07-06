@@ -2148,3 +2148,7 @@ function addCo2Synonym(canonicalName, synonymName) {
 function deleteCo2Synonym(id) {
     return apiFetch('/co2/synonyms/' + id, { method: 'DELETE' });
 }
+
+function fetchCo2RecipeBreakdown(id) {
+    return apiFetch('/co2/recipe/' + id);
+}

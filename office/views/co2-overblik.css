@@ -95,3 +95,63 @@
     padding: 8px 16px; cursor: pointer; font-size: 14px; }
 .cov-btn-primary:hover { filter: brightness(1.08); }
 .cov-btn-primary:disabled { opacity: .6; cursor: default; }
+
+/* Klikbare opskrift-rækker (→ nedbrydnings-panel) */
+.cov-recipe-row { cursor: pointer; transition: background .1s; }
+.cov-recipe-row:hover { background: #faf7f1; }
+.cov-row-caret { color: #c9beac; font-weight: 700; margin-left: 4px; }
+.cov-recipe-row:hover .cov-row-caret { color: #8e631f; }
+
+/* Graf-aflæsning */
+.cov-chart-readout { font-size: 14px; color: #5a5142; margin: 2px 0 4px; min-height: 20px; }
+.cov-chart-readout b { color: #3a2f1c; }
+.cov-chart-bar-active { fill: #b5813a; }
+
+/* ─── Drill-down-panel ─────────────────────────────── */
+.cov-panel-overlay { position: fixed; inset: 0; background: rgba(40,32,18,.28);
+    display: flex; justify-content: flex-end; z-index: 10000; opacity: 0; transition: opacity .16s; }
+.cov-panel-overlay.cov-panel-open { opacity: 1; }
+.cov-panel { width: 640px; max-width: 94vw; height: 100%; background: #fff;
+    box-shadow: -8px 0 28px rgba(0,0,0,.18); display: flex; flex-direction: column;
+    transform: translateX(20px); transition: transform .18s; }
+.cov-panel-overlay.cov-panel-open .cov-panel { transform: translateX(0); }
+.cov-panel-head { display: flex; align-items: center; gap: 10px; padding: 16px 20px;
+    border-bottom: 1px solid #ece7de; }
+.cov-panel-title { flex: 1; font-family: var(--font-heading, serif); font-size: 20px; color: #3a2f1c; }
+.cov-panel-back, .cov-panel-x { background: transparent; border: 1px solid #e0d8cd; border-radius: 8px;
+    width: 34px; height: 34px; cursor: pointer; color: #5a5142; font-size: 18px; line-height: 1; }
+.cov-panel-back:hover, .cov-panel-x:hover { background: #f5f2ec; }
+.cov-panel-body { flex: 1; overflow-y: auto; padding: 18px 20px 40px; }
+
+.cov-panel-total { margin-bottom: 16px; }
+.cov-panel-total-val { font-family: var(--font-heading, serif); font-size: 34px; color: #3a2f1c; }
+.cov-panel-total-partial .cov-panel-total-val { color: #986c14; }
+.cov-panel-warn { font-size: 13px; color: #986c14; margin-top: 4px; }
+
+.cov-panel-table { width: 100%; border-collapse: collapse; font-size: 14px; }
+.cov-panel-table th { text-align: left; font-size: 11px; text-transform: uppercase; letter-spacing: .03em;
+    color: #9a9083; font-weight: 600; border-bottom: 2px solid #ece7de; padding: 6px 8px; }
+.cov-panel-table td { padding: 7px 8px; border-bottom: 1px solid #f2eee6; vertical-align: middle; }
+.cov-panel-ing { font-weight: 600; color: #3a2f1c; }
+.cov-panel-sub { cursor: pointer; }
+.cov-panel-sub:hover { background: #faf7f1; }
+.cov-panel-missing td { background: #fdfaf3; }
+.cov-tag { display: inline-block; font-size: 10px; font-weight: 600; text-transform: uppercase;
+    letter-spacing: .03em; color: #8a8073; background: #efece6; border-radius: 4px; padding: 1px 5px; margin-left: 4px; }
+.cov-tag-sub { color: #8e631f; background: #f6edd9; }
+.cov-src { font-size: 11px; color: #a49a8c; }
+
+.cov-bar-col { width: 120px; }
+.cov-pbar { display: inline-block; width: 72px; height: 8px; background: #efece6; border-radius: 999px;
+    overflow: hidden; vertical-align: middle; }
+.cov-pbar-fill { display: block; height: 100%; background: linear-gradient(90deg, #b5813a, #8e631f); }
+.cov-pbar-pct { font-size: 12px; color: #7a7266; margin-left: 6px; font-variant-numeric: tabular-nums; }
+
+.cov-fix-btn { background: #fff; border: 1px solid #8e631f; color: #8e631f; border-radius: 6px;
+    padding: 3px 9px; cursor: pointer; font-size: 12px; margin-left: 6px; }
+.cov-fix-btn:hover { background: #f6edd9; }
+
+.cov-panel-links { display: flex; gap: 10px; margin-top: 22px; padding-top: 16px; border-top: 1px solid #f0ece4; }
+.cov-panel-link { font-size: 14px; color: #8e631f; text-decoration: none; border: 1px solid #e0d8cd;
+    border-radius: 8px; padding: 8px 14px; }
+.cov-panel-link:hover { background: #f6edd9; border-color: #d9c9a8; }
