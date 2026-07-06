@@ -2465,6 +2465,52 @@ fra `.csv`-fil eller indsat direkte fra Excel/Google Sheets.
   uafhængigt (`#cfInvRows` max-height).
 - **Tests:** `scripts/test-cashflow-sync.js` 49/0 (cfCategorize-regler + bookedSet-genkendelse + matchByEconomicNumber).
 
+### CRM-triks — Ringeliste + fælles worklist-komponent (#229 + #230 + #228, 6. juli 2026)
+> Epic #232. Spec: `docs/CLAUDE_CRM_TRIKS.md`. Lav-friktions "top-of-mind"-ringekøer oven på
+> den eksisterende suggestions-motor. Bygger videre på det allerede leverede (PR #226/#233:
+> review_ask, `interleaveSuggestions` round-robin, snooze, outcome-måling).
+
+Forretningsdrevet: "ring til folk efter ferien" — dedikerede lister der viser HVEM man skal
+ringe til, i stedet for max-8 kort blandet ind i digest-feeden.
+
+- **Data-tjek før build** (mod ægte dev-data): sæson **120** kunder, rytme **21** (afgrænset
+  1,3×–3×), sovende 13. Anbefaling 0 i dev (forventet — kræver friske servicekald-stemninger,
+  fylder sig selv i drift). Grønt lys — arbejdsbare lister, ingen tom/900-rækkers.
+- **#229 — `shared/crm_worklist.js`** (fundament): instans-baseret factory `CrmWorklist.create(cfg)`.
+  Én worklist = kort med navn·meta·opener·**Ring/Log/Profil/🙈 Skjul** + inline log-formular
+  (resultat+stemning+note → `postCrmActivity` med purpose_id) + `ListCampaignSelect` (cherry-pick)
+  + "📣 Opret kampagne af listen" + SSE-debounced reload. Snooze indbygget (kalder
+  `snoozeSuggestion({customer_id, type: key})`). Generaliseret fra `crm-dashboard.js`-mønstret
+  (kort/log/outcome) — IKKE en klon af `crm-reaktivering.js`.
+- **Fanebaseret shell** `office/views/crm-ringeliste.js`: ÉT view med faner (Sæson · Fast rytme,
+  + plads til flere) — beslutning: ét "Ringeliste"-sted frem for N sidebar-pills, så det skalerer.
+  Monterer/afmonterer worklist-instanser ved fane-skift, husker fane i localStorage.
+- **Backend** (`routes/crm.js`): `GET /api/crm/season` + `/rytme` — fulde lister (forfremmelse af
+  `season_reminder`/`overdue_customer`-forslagene, UDEN LIMIT), med **snooze-filter server-side**
+  (`NOT EXISTS crm_suggestion_snoozes` pr. type). Rytme har øvre grænse ×3 så reelt sovende falder
+  til dormant-flowet. Snooze er type-isoleret (season-snooze skjuler ikke i rytme).
+- **`routes/campaigns.js`**: `POST /from-suggestion` udvidet fra kun `dormant` til
+  `['dormant','seasonal','rytme']` — kandidat-query pr. type i en switch, consent/DNC/dedup-loopet
+  genbrugt uændret. `shared/api.js`: `fetchCrmSeason` + `fetchCrmRytme`.
+- **#228 — Fase 5: kold tilbudsopfølgning** (3. fane "Kolde tilbud"): `GET /api/crm/cold-offers` —
+  tilbud der ER udløbet uden konvertering (`is_offer=1`, `offer_status='sent'`, `offer_valid_until < nu`,
+  inden for sidste år). Modstykke til det fremadrettede `expiring_offer`-forslag. **Bon-centreret:**
+  dedupe pr. TILBUD (`crm_activities.bon_id` + purpose `tilbud_opfoelgning`), så opfølgning på ét tilbud
+  ikke skjuler kundens øvrige kolde tilbud. Komponenten fik valgfri `getBonId(row)` → logger opfølgning
+  med `bon_id`. `campaignType: null` (per-tilbud, ikke bulk). Snooze type `cold_offer` (kunde-niveau).
+- **Migration 123**: `fast_rytme`-purpose. **Migration 124**: `tilbud_opfoelgning`-purpose
+  (`saesonoutreach` fra 048 genbruges af sæson).
+- `office/index.html`: pill "Ringeliste" (2. plads under CRM) + view-registrering + SECTION_VIEW_MAP
+  + titel + SSE-forwarding (`_ringeHandleSSE` på crm_activity_created/crm_stage_changed/rfm_computed).
+- **Tests (55 asserts grønne):** `scripts/test-crm-ringeliste.js` (24 — /season + /rytme + /cold-offers
+  detektion + snooze + type-isolation + per-tilbud-dedupe), `tests/campaigns_from_suggestion.test.js`
+  udvidet 14→20 (seasonal+rytme HTTP-cases). `scripts/test-crm-review.js` uændret 25/0 (ingen regression).
+- **Browser-verificeret** end-to-end (kopi af prod-data, dev-DB urørt): alle tre faner renderer korrekt,
+  fane-skift, snooze 21→20 med server-side filter, kold tilbud vist via syntetisk seed. Migration 123+124 kørte rent.
+- **Bevidst udeladt:** evt. refaktorering af `crm-reaktivering.js` til en 4. fane "Sovende" oven på
+  komponenten (spec siger valgfrit). `#231` (jubilæum) parkeret (CVR-stiftelsesdato + consent). Dermed
+  er epic #232 færdig på nær #231.
+
 ## Næste opgave
 
 > ✏️ Tracker-oprydning 29. juni 2026 — koden er på migration 119; status-sektionen ovenfor
