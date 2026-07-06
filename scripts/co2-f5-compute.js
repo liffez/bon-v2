@@ -106,6 +106,33 @@ async function processLocation(code) {
             catch (e) { console.log(`    ✗ ${r.name}: ${e.message}`); err++; }
         }
         console.log(`\n  → recipes.Co2e skrevet for ${ok} komplette opskrifter${err ? `, fejl: ${err}` : ''}.`);
+
+        // Propagér (§3 "computed"): komplet produktions-opskrift PR. KG → output-produktets
+        // co2e_per_kg. Så opskrifter der bruger PRODUKTET (ikke opskriften via nesting)
+        // også bliver komplette. Rører ALDRIG en ægte faktor (Katrine/manuel/material) —
+        // kun tomme eller tidligere 'computed'. Kør igen for at fange de nu-komplette.
+        const recipeById = new Map(recipes.map(r => [r.id, r]));
+        const prodById = new Map(products.map(p => [p.id, p]));
+        let prodOk = 0;
+        for (const r of complete) {
+            const raw = recipeById.get(r.recipe_id);
+            if (!raw || !raw.product_id) continue;
+            const unit = (raw.userfields || {}).recipeunit || '';
+            if (!/^(kg|kilo|kilogram)$/i.test(unit)) continue;   // kun pr. kg → tallet ER pr. kg
+            const outProd = prodById.get(raw.product_id);
+            if (!outProd) continue;
+            const uf = outProd.userfields || {};
+            if (uf.co2e_per_kg && uf.co2e_source !== 'computed') continue;  // ægte faktor — rør ikke
+            const val = String(fmt(r.co2e_per_serving));
+            if (String(uf.co2e_per_kg || '') === val && uf.co2e_source === 'computed') continue; // uændret
+            try {
+                await grocy(cfg, 'PUT', `/userfields/products/${outProd.id}`, {
+                    co2e_per_kg: val, co2e_source: 'computed', co2e_version: 'Beregnet fra opskrift',
+                });
+                prodOk++;
+            } catch (e) { console.log(`    ✗ output-produkt ${outProd.name}: ${e.message}`); }
+        }
+        if (prodOk) console.log(`  → output-produkt-faktorer (computed) skrevet: ${prodOk} — kør igen for at fange de nu-komplette opskrifter.`);
     } else {
         console.log('\n  → dry-run: recipes.Co2e ikke skrevet. Kør med --apply (skriver kun komplette).');
     }

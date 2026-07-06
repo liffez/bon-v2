@@ -70,13 +70,17 @@ async function processLocation(code, rows) {
         if (code && !barcodeToPid.has(code)) barcodeToPid.set(code, b.product_id);
     }
 
-    const { entries, summary } = C.buildPlan(rows, products, barcodeToPid);
+    const synonymMap = C.buildSynonymMap(products);
+    const { entries, summary } = C.buildPlan(rows, products, barcodeToPid, synonymMap);
+    const prodName = new Map(products.map(p => [String(p.id), p.name]));
 
     const matched = summary.write + summary.unchanged + summary.no_factor + summary.conflict + summary.duplicate;
     console.log(`  Rækker: ${summary.total}`);
-    console.log(`    matchet:    ${matched}   (via varenr ${summary.via_varenr}, via navn ${summary.via_navn})`);
+    console.log(`    matchet:    ${matched}   (via varenr ${summary.via_varenr}, via navn ${summary.via_navn}, via alias ${summary.via_alias})`);
     console.log(`      heraf skriv: ${summary.write},  uændret: ${summary.unchanged},  uden faktor: ${summary.no_factor}`);
     if (summary.duplicate) console.log(`      dubletter (samme faktor, dedupet): ${summary.duplicate}`);
+    if (summary.excluded)  console.log(`    udeladt (manuel):  ${summary.excluded}`);
+    if (summary.synonym_writes) console.log(`    + synonym-skrivninger (dublet-varer): ${summary.synonym_writes}`);
     console.log(`    umatchet:   ${summary.unmatched}`);
     if (summary.conflict) console.log(`    ⚠ KONFLIKT (flere rækker → samme produkt, forskellig faktor — skrives IKKE): ${summary.conflict}`);
     if (summary.suspicious) console.log(`    ⚠ mistænkelige faktorer (>${C.FACTOR_MAX}): ${summary.suspicious}`);
@@ -98,9 +102,10 @@ async function processLocation(code, rows) {
     if (writes.length) {
         console.log(`\n  Vil skrive (${writes.length}):`);
         writes.forEach(e => {
-            const via = e.match.via === 'navn' ? `navn ${(e.match.score).toFixed(2)}` : 'varenr';
+            const via = e.match.via === 'navn' ? `navn ${(e.match.score).toFixed(2)}` : e.match.via;
             const susp = e.suspicious ? ' ⚠' : '';
-            console.log(`    • ${e.row.ingrediens.padEnd(24)} → [${e.match.product.id}] ${e.match.product.name.padEnd(22)} ${e.resolved.source} ${e.resolved.fields.co2e_per_kg}${susp}  (${via})`);
+            const also = e.also.length ? ` (+ synonym: ${e.also.map(id => prodName.get(String(id)) || id).join(', ')})` : '';
+            console.log(`    • ${e.row.ingrediens.padEnd(24)} → [${e.match.product.id}] ${e.match.product.name.padEnd(22)} ${e.resolved.source} ${e.resolved.fields.co2e_per_kg}${susp}  (${via})${also}`);
         });
     }
 
@@ -117,8 +122,11 @@ async function processLocation(code, rows) {
     }
     let ok = 0, err = 0;
     for (const e of writes) {
-        try { await grocy(cfg, 'PUT', `/userfields/products/${e.match.product.id}`, e.resolved.fields); ok++; }
-        catch (ex) { console.log(`    ✗ ${e.row.ingrediens}: ${ex.message}`); err++; }
+        // writeTargets = canonical (hvis den mangler) + trængende synonym-dublet-varer.
+        for (const pid of e.writeTargets) {
+            try { await grocy(cfg, 'PUT', `/userfields/products/${pid}`, e.resolved.fields); ok++; }
+            catch (ex) { console.log(`    ✗ ${e.row.ingrediens} → ${pid}: ${ex.message}`); err++; }
+        }
     }
     console.log(`\n  → Skrevet: ${ok}${err ? `, fejl: ${err}` : ''}.`);
 }
