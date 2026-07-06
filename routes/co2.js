@@ -238,9 +238,12 @@ router.delete('/synonyms/:id', AUTH, handle((req, res) => {
 
 // CO₂ over tid: månedlig Σ(bons.total_co2e) + pax → CO₂ pr. kuvert. Ekskl.
 // tilbud + AFLYST. Bemærk: pre-F5-bons bærer gamle frosne tal (se F6-note).
+// Hver måned får desuden by_category: {kategori: kg} summeret fra bon_lines
+// (samme frosne kilde, bare ét niveau dybere) → stacked kategori-graf.
 router.get('/timeseries', AUTH, handle((req, res) => {
     const db = getDb();
     const months = Math.min(36, Math.max(1, parseInt(req.query.months, 10) || 12));
+    const window = `-${months} months`;
     const rows = db.prepare(`
         SELECT strftime('%Y-%m', b.delivery_date) AS month,
                COALESCE(SUM(b.total_co2e), 0)     AS co2e,
@@ -253,8 +256,36 @@ router.get('/timeseries', AUTH, handle((req, res) => {
            AND b.delivery_date >= date('now', ?)
          GROUP BY month
          ORDER BY month
-    `).all(`-${months} months`);
-    res.json({ months: rows.map(r => ({ ...r, co2e_per_pax: r.pax ? r.co2e / r.pax : null })) });
+    `).all(window);
+
+    // Kategori-nedbrydning pr. måned (kun linjer med CO₂-tal — dækning vokser
+    // over tid, hvilket er ærligt). Kilde: bon_lines.co2e × quantity (som F6).
+    const catRows = db.prepare(`
+        SELECT strftime('%Y-%m', b.delivery_date)                     AS month,
+               COALESCE(NULLIF(TRIM(bl.category), ''), 'Uden kategori') AS category,
+               SUM(bl.co2e * bl.quantity)                             AS co2e
+          FROM bons b
+          JOIN bon_lines bl        ON bl.bon_id = b.id
+          JOIN status_definitions sd ON b.status_id = sd.id
+         WHERE (b.is_offer = 0 OR b.is_offer IS NULL)
+           AND sd.code != 'AFLYST'
+           AND b.delivery_date >= date('now', ?)
+           AND bl.co2e IS NOT NULL AND bl.co2e > 0
+         GROUP BY month, COALESCE(NULLIF(TRIM(bl.category), ''), 'Uden kategori')
+    `).all(window);
+    const byMonth = new Map();
+    for (const r of catRows) {
+        if (!byMonth.has(r.month)) byMonth.set(r.month, {});
+        byMonth.get(r.month)[r.category] = r.co2e;
+    }
+
+    res.json({
+        months: rows.map(r => ({
+            ...r,
+            co2e_per_pax: r.pax ? r.co2e / r.pax : null,
+            by_category: byMonth.get(r.month) || {},
+        })),
+    });
 }));
 
 module.exports = router;

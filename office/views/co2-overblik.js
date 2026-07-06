@@ -25,9 +25,14 @@ const _covState = {
     category: '',      // grupper-filter (fx "01 Sandwich")
     sortKey: 'co2e',   // 'co2e' | 'name'
     sortDir: 'desc',
+    chartMode: 'category', // 'category' (stacked) | 'total'
     panelStack: [],    // drill-down: recipe_id-historik i nedbrydnings-panelet
     _panelKey: null,
 };
+
+// Kategori-palet (distinkt men jordnær) + grå til "Øvrige"-halen.
+const _COV_PALETTE = ['#8e631f', '#4a9d5b', '#3b6ea3', '#c08a3a', '#7a5ba6', '#3f8f8a', '#b5563f'];
+const _COV_OTHER_COLOR = '#c9beac';
 
 function initCo2Overblik(container) {
     _covState.container = container;
@@ -186,35 +191,93 @@ function _covDataQuality(ov) {
       </section>`;
 }
 
-/* Blok 3 — CO₂ over tid: månedlige søjler (total) + pr-kuvert-tal */
+/* Blok 3 — CO₂ over tid. To visninger: stacked pr. kategori (default) + total. */
+
+// Global top-N kategorier (efter samlet bidrag) + "Øvrige"-hale. Farve pr. kategori.
+function _covCategoryPlan(series) {
+    const totals = {};
+    series.forEach(m => Object.entries(m.by_category || {}).forEach(([c, v]) => { totals[c] = (totals[c] || 0) + v; }));
+    const sorted = Object.entries(totals).filter(([, v]) => v > 0).sort((a, b) => b[1] - a[1]).map(([c]) => c);
+    const TOP = 7;
+    const top = sorted.slice(0, TOP);
+    const hasOther = sorted.length > TOP;
+    const order = hasOther ? [...top, 'Øvrige'] : top;
+    const color = new Map(top.map((c, i) => [c, _COV_PALETTE[i % _COV_PALETTE.length]]));
+    if (hasOther) color.set('Øvrige', _COV_OTHER_COLOR);
+    return { order, color, otherCats: new Set(sorted.slice(TOP)), hasOther, hasData: sorted.length > 0 };
+}
+
+// Segment-værdier for én måned i plan-rækkefølge (Øvrige = sum af hale).
+function _covMonthStack(m, plan) {
+    const bc = m.by_category || {};
+    return plan.order.map(cat => {
+        let v = 0;
+        if (cat === 'Øvrige') { for (const [c, x] of Object.entries(bc)) if (plan.otherCats.has(c)) v += x; }
+        else v = bc[cat] || 0;
+        return { cat, v };
+    });
+}
+
 function _covTimeChart(series) {
     if (!series.length) {
-        return `<section class="cov-card"><h2>CO₂ over tid</h2><p class="cov-dim">Ingen data i perioden endnu — fyldes efterhånden som bons leveres med CO₂-tal.</p></section>`;
+        return `<section class="cov-card cov-chart-card"><h2>CO₂ over tid</h2><p class="cov-dim">Ingen data i perioden endnu — fyldes efterhånden som bons leveres med CO₂-tal.</p></section>`;
     }
-    const max = Math.max(...series.map(m => m.co2e || 0), 1);
-    const W = 640, H = 180, pad = 28, bw = (W - pad * 2) / series.length;
-    const bars = series.map((m, i) => {
-        const h = (m.co2e / max) * (H - pad * 2);
-        const x = pad + i * bw + bw * 0.15;
-        const y = H - pad - h;
+    const plan = _covCategoryPlan(series);
+    const stacked = _covState.chartMode === 'category' && plan.hasData;
+    _covState._chartSeries = series;
+    _covState._chartPlan = plan;
+
+    const W = 640, H = 190, pad = 30, padL = 52; // padL: ekstra venstre-plads til y-labels (4-cifrede kg)
+    const bw = (W - padL - pad) / series.length;
+    const stackTotal = (m) => _covMonthStack(m, plan).reduce((a, s) => a + s.v, 0);
+    const max = stacked
+        ? Math.max(...series.map(stackTotal), 1)
+        : Math.max(...series.map(m => m.co2e || 0), 1);
+    const scaleY = (H - pad * 2) / max;
+
+    const cols = series.map((m, i) => {
+        const x = padL + i * bw + bw * 0.15;
         const w = bw * 0.7;
         const lbl = m.month.slice(5); // MM
-        const perpax = m.co2e_per_pax != null ? _covNum(m.co2e_per_pax) : '';
-        return `<rect x="${x.toFixed(1)}" y="${y.toFixed(1)}" width="${w.toFixed(1)}" height="${Math.max(0, h).toFixed(1)}"
-                    rx="2" class="cov-chart-bar" data-month="${m.month}" data-co2e="${_covNum(m.co2e, 0)}" data-bons="${m.bons}" data-perpax="${perpax}"></rect>
-                <text x="${(x + w / 2).toFixed(1)}" y="${H - pad + 12}" text-anchor="middle" class="cov-chart-lbl">${lbl}</text>`;
+        let segs;
+        if (stacked) {
+            let acc = 0;
+            segs = _covMonthStack(m, plan).filter(s => s.v > 0).map(s => {
+                const h = s.v * scaleY;
+                acc += h;                     // acc = højde op til segmentets top
+                return `<rect x="${x.toFixed(1)}" y="${(H - pad - acc).toFixed(1)}" width="${w.toFixed(1)}" height="${Math.max(0, h).toFixed(1)}"
+                    class="cov-chart-seg" fill="${plan.color.get(s.cat)}"><title>${_covEsc(m.month)} · ${_covEsc(s.cat)}: ${_covNum(s.v, 0)} kg</title></rect>`;
+            }).join('');
+        } else {
+            const h = (m.co2e || 0) * scaleY;
+            segs = `<rect x="${x.toFixed(1)}" y="${(H - pad - h).toFixed(1)}" width="${w.toFixed(1)}" height="${Math.max(0, h).toFixed(1)}" rx="2" class="cov-chart-bar"></rect>`;
+        }
+        // Gennemsigtig hit-zone til hover-aflæsning (hele kolonnen).
+        const hit = `<rect x="${(padL + i * bw).toFixed(1)}" y="${pad}" width="${bw.toFixed(1)}" height="${H - pad * 2}" class="cov-chart-hit" data-idx="${i}"></rect>`;
+        return `${segs}${hit}<text x="${(x + w / 2).toFixed(1)}" y="${H - pad + 12}" text-anchor="middle" class="cov-chart-lbl">${lbl}</text>`;
     }).join('');
+
+    const legend = stacked ? `<div class="cov-chart-legend">${plan.order.map(cat =>
+        `<span class="cov-leg"><span class="cov-leg-dot" style="background:${plan.color.get(cat)}"></span>${_covEsc(cat)}</span>`).join('')}</div>` : '';
+
     return `
-      <section class="cov-card">
-        <h2>CO₂ over tid <span class="cov-dim">· seneste 12 mdr (kg CO₂e pr. måned)</span></h2>
-        <div class="cov-chart-readout" id="covChartReadout"><span class="cov-dim">Peg på en søjle…</span></div>
+      <section class="cov-card cov-chart-card">
+        <div class="cov-card-head">
+          <h2>CO₂ over tid <span class="cov-dim">· seneste 12 mdr (kg CO₂e pr. måned)</span></h2>
+          <div class="cov-chart-toggle">
+            <button class="cov-cm-btn ${stacked ? 'cov-cm-on' : ''}" data-mode="category" ${plan.hasData ? '' : 'disabled'}>Pr. kategori</button>
+            <button class="cov-cm-btn ${!stacked ? 'cov-cm-on' : ''}" data-mode="total">Total</button>
+          </div>
+        </div>
+        <div class="cov-chart-readout" id="covChartReadout"><span class="cov-dim">Peg på en måned…</span></div>
         <svg viewBox="0 0 ${W} ${H}" class="cov-chart" preserveAspectRatio="xMidYMid meet">
-          <line x1="${pad}" y1="${pad}" x2="${pad}" y2="${H - pad}" class="cov-chart-axis"/>
-          <line x1="${pad}" y1="${H - pad}" x2="${W - pad}" y2="${H - pad}" class="cov-chart-axis"/>
-          <text x="${pad - 4}" y="${pad + 4}" text-anchor="end" class="cov-chart-lbl">${_covNum(max, 0)} kg</text>
-          <text x="${pad - 4}" y="${H - pad}" text-anchor="end" class="cov-chart-lbl">0</text>
-          ${bars}
+          <line x1="${padL}" y1="${pad}" x2="${padL}" y2="${H - pad}" class="cov-chart-axis"/>
+          <line x1="${padL}" y1="${H - pad}" x2="${W - pad}" y2="${H - pad}" class="cov-chart-axis"/>
+          <text x="${padL - 6}" y="${pad + 4}" text-anchor="end" class="cov-chart-lbl">${_covNum(max, 0)}</text>
+          <text x="${padL - 6}" y="${H - pad}" text-anchor="end" class="cov-chart-lbl">0</text>
+          ${cols}
         </svg>
+        ${legend}
       </section>`;
 }
 
@@ -362,17 +425,42 @@ function _covBindChartHover() {
     if (!el) return;
     const readout = el.querySelector('#covChartReadout');
     if (!readout) return;
-    const bars = el.querySelectorAll('.cov-chart-bar[data-month]');
-    const show = (b) => {
-        readout.innerHTML = `<b>${_covEsc(b.dataset.month)}</b> · ${_covEsc(b.dataset.co2e)} kg CO₂e`
-            + ` · ${_covEsc(b.dataset.bons)} bons`
-            + (b.dataset.perpax ? ` · <b>${_covEsc(b.dataset.perpax)}</b> kg/kuvert` : '');
+    const series = _covState._chartSeries || [];
+    const plan = _covState._chartPlan;
+    const stacked = _covState.chartMode === 'category' && plan && plan.hasData;
+    const hits = el.querySelectorAll('.cov-chart-hit');
+
+    const show = (i) => {
+        const m = series[i];
+        if (!m) return;
+        if (stacked) {
+            const segs = _covMonthStack(m, plan).filter(s => s.v > 0).sort((a, b) => b.v - a.v);
+            const tot = segs.reduce((a, s) => a + s.v, 0);
+            const chips = segs.slice(0, 4).map(s =>
+                `<span class="cov-ro-cat"><span class="cov-leg-dot" style="background:${plan.color.get(s.cat)}"></span>${_covEsc(s.cat)} <b>${_covNum(s.v, 0)}</b> <span class="cov-dim">${tot ? Math.round(s.v / tot * 100) : 0}%</span></span>`).join('');
+            readout.innerHTML = `<b>${_covEsc(m.month)}</b> · ${_covNum(tot, 0)} kg CO₂e · ${m.bons} bons<div class="cov-ro-cats">${chips || '<span class="cov-dim">ingen kategori-data</span>'}</div>`;
+        } else {
+            readout.innerHTML = `<b>${_covEsc(m.month)}</b> · ${_covNum(m.co2e, 0)} kg CO₂e · ${m.bons} bons`
+                + (m.co2e_per_pax != null ? ` · <b>${_covNum(m.co2e_per_pax)}</b> kg/kuvert` : '');
+        }
     };
-    bars.forEach(b => {
-        b.addEventListener('mouseenter', () => { bars.forEach(x => x.classList.remove('cov-chart-bar-active')); b.classList.add('cov-chart-bar-active'); show(b); });
+    hits.forEach(h => {
+        const i = parseInt(h.dataset.idx, 10);
+        h.addEventListener('mouseenter', () => { hits.forEach(x => x.classList.remove('cov-chart-hit-active')); h.classList.add('cov-chart-hit-active'); show(i); });
     });
-    // Default: seneste måned.
-    if (bars.length) show(bars[bars.length - 1]);
+    if (series.length) show(series.length - 1); // default: seneste måned
+
+    // Toggle: kategori ↔ total (re-render kun graf-kortet).
+    el.querySelectorAll('.cov-cm-btn').forEach(btn => {
+        btn.addEventListener('click', () => {
+            if (btn.disabled || btn.dataset.mode === _covState.chartMode) return;
+            _covState.chartMode = btn.dataset.mode;
+            const card = el.querySelector('.cov-chart-card');
+            if (!card) return;
+            card.outerHTML = _covTimeChart(_covState._chartSeries || []);
+            _covBindChartHover();
+        });
+    });
 }
 
 /* ─── Drill-down-panel: per-råvare-nedbrydning ─────────────────────────── */

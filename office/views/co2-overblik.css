@@ -106,6 +106,22 @@
 .cov-chart-readout { font-size: 14px; color: #5a5142; margin: 2px 0 4px; min-height: 20px; }
 .cov-chart-readout b { color: #3a2f1c; }
 .cov-chart-bar-active { fill: #b5813a; }
+.cov-ro-cats { display: flex; flex-wrap: wrap; gap: 4px 14px; margin-top: 4px; font-size: 13px; }
+.cov-ro-cat { display: inline-flex; align-items: center; gap: 4px; }
+
+/* Stacked kategori-graf */
+.cov-chart-seg { transition: opacity .12s; }
+.cov-chart-hit { fill: transparent; cursor: pointer; }
+.cov-chart-hit-active { fill: rgba(142,99,31,.06); }
+.cov-chart-toggle { display: flex; gap: 0; border: 1px solid #d7d1ca; border-radius: 8px; overflow: hidden; }
+.cov-cm-btn { background: #fff; border: none; padding: 5px 12px; font-size: 13px; cursor: pointer; color: #5a5142; }
+.cov-cm-btn + .cov-cm-btn { border-left: 1px solid #e2ddd4; }
+.cov-cm-btn:hover:not(:disabled) { background: #f5f2ec; }
+.cov-cm-btn.cov-cm-on { background: var(--brand-primary, #8e631f); color: #fff; }
+.cov-cm-btn:disabled { opacity: .4; cursor: default; }
+.cov-chart-legend { display: flex; flex-wrap: wrap; gap: 6px 16px; margin-top: 10px; font-size: 13px; color: #5a5142; }
+.cov-leg { display: inline-flex; align-items: center; gap: 6px; }
+.cov-leg-dot { width: 10px; height: 10px; border-radius: 3px; display: inline-block; flex: none; }
 
 /* ─── Drill-down-panel ─────────────────────────────── */
 .cov-panel-overlay { position: fixed; inset: 0; background: rgba(40,32,18,.28);
