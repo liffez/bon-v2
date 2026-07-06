@@ -157,6 +157,36 @@ async function smartplanFetch(path) {
 }
 
 /* ══════════════════════════════════════════════════════════════
+   LOKATIONS-KLASSIFIKATION (HQ vs. Festival & Events)
+   ══════════════════════════════════════════════════════════════ */
+
+/**
+ * Navnet på HQ-lokationen i Smartplan (setting `smartplan_hq_location`,
+ * default 'Ristet Rug'). Cachet 1 time — læses via samme _cache som resten.
+ */
+function _hqLocationName() {
+    const cached = getCached('_hqLoc');
+    if (cached != null) return cached;
+    let name = 'Ristet Rug';
+    try {
+        const row = getDb().prepare("SELECT value FROM settings WHERE key = 'smartplan_hq_location'").get();
+        if (row && row.value && String(row.value).trim()) name = String(row.value).trim();
+    } catch { /* ingen DB / setting → default */ }
+    setCached('_hqLoc', name, 60 * 60 * 1000);
+    return name;
+}
+
+/**
+ * Klassificér en lokations-titel som 'hq' | 'events'.
+ * Tom/ukendt lokation → 'hq' (vises i den primære driftsvisning, skjules ikke).
+ */
+function _classifyLocation(locTitle, hqName) {
+    const t = (locTitle || '').trim().toLowerCase();
+    if (!t) return 'hq';
+    return t === (hqName || '').trim().toLowerCase() ? 'hq' : 'events';
+}
+
+/* ══════════════════════════════════════════════════════════════
    NORMALISERING
    ══════════════════════════════════════════════════════════════ */
 
@@ -164,12 +194,13 @@ async function smartplanFetch(path) {
  * Normalisér et Smartplan shift-objekt til vores faste format.
  * Smartplan v2 returnerer: owner.first_name/last_name, jobtype.title, location.title
  */
-function _normalizeShift(shift) {
+function _normalizeShift(shift, hqName) {
     const startDt = shift.start_dt || '';
     const endDt   = shift.end_dt   || '';
     const owner   = shift.owner || {};
 
     const name = [owner.first_name, owner.last_name].filter(Boolean).join(' ') || null;
+    const location = shift.location?.title || '';
 
     return {
         employee_id:   owner.uuid || null,
@@ -179,7 +210,8 @@ function _normalizeShift(shift) {
         start_time:    _extractTime(startDt),
         end_time:      _extractTime(endDt),
         job_type:      shift.jobtype?.title || '',
-        location:      shift.location?.title || '',
+        location,
+        location_class: _classifyLocation(location, hqName),
     };
 }
 
@@ -187,12 +219,13 @@ function _normalizeShift(shift) {
  * Normalisér et Smartplan worklog-objekt (arkiverede vagter).
  * Bruger planned_start_dt/planned_end_dt i stedet for start_dt/end_dt.
  */
-function _normalizeWorklog(wl) {
+function _normalizeWorklog(wl, hqName) {
     const startDt = wl.planned_start_dt || '';
     const endDt   = wl.planned_end_dt   || '';
     const owner   = wl.owner || {};
 
     const name = [owner.first_name, owner.last_name].filter(Boolean).join(' ') || null;
+    const location = wl.location?.title || '';
 
     return {
         employee_id:   owner.uuid || null,
@@ -202,7 +235,8 @@ function _normalizeWorklog(wl) {
         start_time:    _extractTime(startDt),
         end_time:      _extractTime(endDt),
         job_type:      wl.jobtype?.title || '',
-        location:      wl.location?.title || '',
+        location,
+        location_class: _classifyLocation(location, hqName),
     };
 }
 
@@ -242,8 +276,9 @@ async function getShifts(fromDate, toDate) {
         ).catch(() => []),
     ]);
 
-    const normalizedShifts = shifts.map(_normalizeShift);
-    const normalizedWorklogs = worklogs.map(_normalizeWorklog);
+    const hqName = _hqLocationName();
+    const normalizedShifts = shifts.map(s => _normalizeShift(s, hqName));
+    const normalizedWorklogs = worklogs.map(w => _normalizeWorklog(w, hqName));
 
     // Kombiner — worklogs dækker fortid, shifts dækker fremtid.
     // Dedupliker via employee_id+date (shifts har forrang)
@@ -329,10 +364,11 @@ function _hoursBetween(startDt, endDt) {
  * så laborAdapter kan vælge mode og join'e mod wage_rates / role_map.
  * Timer = fuld vagtlængde (shift_duration), ikke fratrukket pause — jf. spec §5.
  */
-function _normalizeLabor(rec, isShift) {
+function _normalizeLabor(rec, isShift, hqName) {
     const owner = rec.owner || {};
     const jt    = rec.jobtype || {};
     const startDt = rec.planned_start_dt || '';
+    const location = rec.location?.title || '';
 
     const plannedHours    = _secToHours(rec.planned_shift_duration)
                           ?? _hoursBetween(rec.planned_start_dt, rec.planned_end_dt);
@@ -352,6 +388,8 @@ function _normalizeLabor(rec, isShift) {
         attendance_end:    _extractTime(rec.attendance_end_dt),
         attendance_hours:  attendanceHours,
         attendance_status: rec.attendance_status || null,
+        location,
+        location_class:    _classifyLocation(location, hqName),
         is_shift:          !!isShift,
     };
 }
@@ -377,18 +415,19 @@ async function getLaborRows(fromDate, toDate) {
         ).catch(() => []),
     ]);
 
+    const hqName = _hqLocationName();
     const rows = [];
     const seen = new Set();
     const keyOf = (r) => (r.employee_id || '') + '_' + r.date + '_' + r.planned_start;
 
     // Worklogs først (forrang) — de bærer attendance.
-    for (const w of worklogs.map(r => _normalizeLabor(r, false))) {
+    for (const w of worklogs.map(r => _normalizeLabor(r, false, hqName))) {
         if (!w.date) continue;
         seen.add(keyOf(w));
         rows.push(w);
     }
     // Shifts udfylder huller (fremtidige dage uden worklog).
-    for (const s of shifts.map(r => _normalizeLabor(r, true))) {
+    for (const s of shifts.map(r => _normalizeLabor(r, true, hqName))) {
         if (!s.date) continue;
         if (!seen.has(keyOf(s))) rows.push(s);
     }

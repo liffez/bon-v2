@@ -462,13 +462,15 @@ router.get('/stats', handle(async (req, res) => {
             const startTime = s.start_time ? s.start_time.slice(0, 5).replace(':00', '') : '';
             const endTime = s.end_time ? s.end_time.slice(0, 5).replace(':00', '') : '';
             const tid = startTime && endTime ? `${startTime}–${endTime}` : '';
-            // Deduplicate by name
-            if (!shiftsByDate[s.date].find(x => x.name === (s.employee_name || firstName))) {
+            const locClass = s.location_class === 'events' ? 'events' : 'hq';
+            // Deduplicate by name+lokation (samme person kan have vagt begge steder samme dag)
+            if (!shiftsByDate[s.date].find(x => x.name === (s.employee_name || firstName) && x.location_class === locClass)) {
                 shiftsByDate[s.date].push({
                     init,
                     name: s.employee_name || firstName,
                     first_name: firstName,
                     tid,
+                    location_class: locClass,
                 });
             }
         }

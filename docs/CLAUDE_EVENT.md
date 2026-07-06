@@ -363,3 +363,77 @@ udvidet til 12 (S6–S9: extras adderer/ny vare/override+extra/ugyldige). Browse
 backend-roundtrip (overrides/extras/recipe_overrides). Live Grocy-skalering verificeres via preview på grocytest.
 
 *Grundlag: design-session m. Leif (jun 2026) + kodeverifikation: grocyAdapter.js, routes/grocy.js, bon_kort_builder.js, reports.js, bon_v2_datamodel_v2.md. Implementeret + verificeret end-to-end jun 2026.*
+
+---
+
+## 15. Prep-kapacitet — rå prep-tider + model-tanker (juli 2026, IKKE bygget)
+
+> Kom op i forlængelse af Smartplan-lokations-splittet (HQ vs Festival & Events).
+> Rå data fra Leif — **omtrentlige, admin-justerbare tal**, ikke facit. Skrevet ned så
+> de ikke går tabt. Modellen er **ikke bygget** — det er design-noter til et senere spor.
+
+### 15.1 Kerne-indsigt: prep har TO former
+En enkelt "prep-faktor" på enhederne holder ikke, fordi prep-arbejde deler sig i:
+
+- **Per-enhed** (skalerer med festivalstørrelse) — dobbelt så stor festival ≈ dobbelt tid.
+- **Per-batch** (fast tid, ~uafhængig af mængde) — sylt/dressing tager det samme uanset 1.000 eller 3.000 enheder.
+
+Ærlig model-form: `prep-timer = Σ(enheder × min/enhed) + Σ(faste batch-timer)`.
+
+### 15.2 Rå prep-tider (Leif, juli 2026 — ca.-tal, skal kunne justeres af Admin)
+
+**Per-enhed:**
+
+| Opgave | Rate | ≈ pr. enhed | ≈ pr. time |
+|--------|------|-------------|------------|
+| Skære sandwich-brød | 1 kasse = 64 emner / 15 min | ~14 sek | ~256 |
+| Skære slider-brød | 1 kasse = **128 slidere** (halv størrelse, samme kasse brød) / 40 min | ~19 sek | ~192 |
+| Skære frikadeller / fiskefrikadeller | 100 stk / 15 min | ~9 sek | ~400 |
+| Skære kartofler (pr. kg) | **UKENDT** — Leif havde ikke tal | — | — |
+| Snitte purløg | **UKENDT** | — | — |
+
+**Per-batch (fast tid):**
+
+| Opgave | Tid | Note |
+|--------|-----|------|
+| Sylt | ~2 t **pr. slags** · typisk 3 slags → ~6 t | ~uafhængig af festivalstørrelse |
+| Blande dressing / mayonnaise | 10 min pr. 2 kg | (semi-per-enhed på kg, men små tal) |
+
+**Holdbarhed / kan laves i forvejen:**
+- Skåret brød: kan **fryses**.
+- Frikadeller: kan **fryses**.
+- Sylt: holder ~**1 måned**.
+- **Caveat:** "kan laves langt i forvejen" betyder IKKE at det *gøres* en måned før. Timingen
+  er elastisk, ikke fast — derfor passer prep dårligt ind i en *daglig* kapacitets-ratio.
+
+### 15.3 Besluttet retning (design-session Leif, juli 2026)
+
+1. **Smartplan er sandhed** for hvem der er på HQ vs. festival (én vagt = én lokation; vi
+   splitter ikke timer inden i en vagt). ✅ implementeret som lokations-split.
+2. **Ingen ratio på festival-bemanding** — festival er salg/service, ikke HQ-produktion.
+   En rigtig festival-kapacitet kræver ordre-fordeling pr. time, som vi kun får fra eget
+   POS (Zettle). ✅ implementeret (festival vist adskilt, ingen ratio).
+3. **Prep hører til som time-budget på EVENTET** (pulje af timer med deadline "klar til
+   samling"), ikke en daglig enh/persontime-ratio. Admin-justerbar hele vejen, seedet fra
+   prep-tider pr. opskrift (min/enhed + fast batch-tid). **Ikke bygget.**
+4. **Ugeoversigt / dags-ratio:** kun **event-prep-bons** (`event_id` + `event_role='prep'`)
+   skal ud af dags-ratioen — automatisk efter type, **intet per-bon flag**. Almindelige
+   HQ-bons tæller som før (ægte samme-dags-belastning). Flaget eftermonteres kun hvis en
+   *ægte* ikke-event flerdages-undtagelse dukker op. **Ikke bygget** (latent: rammer først
+   når en HQ-vagt falder samme dag som en event-prep-bon; i testdata var prep-dagene ubemandede).
+
+   **NB — nuværende adfærd (verificeret i `db/helpers.js`):** `countsAsWorkload` ekskluderer
+   KUN `WORKLOAD_EXCLUDED_EVENT_ROLES = ['sales','expense']`. **`prep` + `topup` TÆLLER MED**
+   som produktions-workload i dag (bevidst: salget er ekskluderet fordi det "allerede er talt
+   i prep-bonnen"). Så en event-prep-bon lander med sit fulde enheds-tal på sin `delivery_date`
+   (fx B4100 = 2250 enh på 08.07 i PROD-rækken). At trække prep ud af *dags-ratioen* uden
+   spredt time-budget ville få festival-produktionen til at forsvinde helt fra kapaciteten —
+   "misvisende rød" byttet til "misvisende tom". Derfor: gør det som time-budget (punkt 3),
+   ikke som en simpel eksklusion.
+
+### 15.4 Åbne spørgsmål før byg
+- Kartoffel- og purløgs-rater mangler (Leif).
+- Prep-vindue: fast antal dage (setting) vs. felt pr. event? Preppes der også *under* eventet (rullende)?
+- Hjemsted for prep-tider pr. opskrift: Grocy-userfield vs. lokal tabel (bør være admin-redigerbart).
+
+*Grundlag: design-session m. Leif (juli 2026), efter Smartplan-lokations-split. Rå tal + retning nedskrevet; model ikke bygget.*
