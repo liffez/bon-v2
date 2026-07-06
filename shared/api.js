@@ -2118,3 +2118,11 @@ function clearCo2Material(productId) {
         body: JSON.stringify({ product_id: productId }),
     });
 }
+
+function fetchCo2Overview() {
+    return apiFetch('/co2/overview');
+}
+
+function fetchCo2Timeseries(months) {
+    return apiFetch('/co2/timeseries' + (months ? '?months=' + months : ''));
+}
