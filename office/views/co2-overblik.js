@@ -20,6 +20,7 @@ const _covState = {
     series: null,
     search: '',
     filter: '',        // '' | 'complete' | 'partial'
+    category: '',      // grupper-filter (fx "01 Sandwich")
     sortKey: 'co2e',   // 'co2e' | 'name'
     sortDir: 'desc',
 };
@@ -161,6 +162,10 @@ function _covRecipeTable(recipes) {
           <h2>CO₂ pr. opskrift</h2>
           <div class="cov-filters">
             <input type="search" id="covSearch" placeholder="Søg opskrift…" value="${_covEsc(_covState.search)}">
+            <select id="covCategory">
+              <option value="">Alle kategorier</option>
+              ${(_covState.overview.categories || []).map(c => `<option value="${_covEsc(c)}" ${c === _covState.category ? 'selected' : ''}>${_covEsc(c)}</option>`).join('')}
+            </select>
             <select id="covFilter">
               <option value="">Alle</option>
               <option value="complete">Komplette</option>
@@ -168,6 +173,7 @@ function _covRecipeTable(recipes) {
             </select>
           </div>
         </div>
+        <p class="cov-sub">Bemærk: enheden varierer — en sandwich er pr. <b>stk</b>, en produktions-batch pr. <b>kg</b>. Tal på tværs af enheder er ikke direkte sammenlignelige. Filtrér fx til "01 Sandwich".</p>
         <table class="cov-table">
           <thead><tr>
             <th class="cov-sortable" data-sort="name">Opskrift</th>
@@ -183,6 +189,7 @@ function _covFilteredRecipes(recipes) {
     const q = _covState.search.trim().toLowerCase();
     let rows = recipes.filter(r => {
         if (q && !r.name.toLowerCase().includes(q)) return false;
+        if (_covState.category && r.category !== _covState.category) return false;
         if (_covState.filter === 'complete' && !r.complete) return false;
         if (_covState.filter === 'partial' && r.complete) return false;
         return true;
@@ -203,9 +210,10 @@ function _covRecipeRows(recipes) {
         if (r.complete) badge = '<span class="cov-badge cov-badge-green">Komplet</span>';
         else if (r.missing_kgvej.length) badge = `<span class="cov-badge cov-badge-blue" title="${_covEsc(r.missing_kgvej.join(', '))}">Mangler kg-vej</span>`;
         else badge = `<span class="cov-badge cov-badge-amber" title="${_covEsc(r.missing_factor.join(', '))}">Mangler faktor</span>`;
+        const unit = r.unit ? ' <span class="cov-dim">kg / ' + _covEsc(r.unit) + '</span>' : ' <span class="cov-dim">kg</span>';
         return `<tr>
-            <td class="cov-recipe-name">${_covEsc(r.name)}</td>
-            <td class="cov-num">${r.co2e_per_serving != null ? _covNum(r.co2e_per_serving) + ' <span class="cov-dim">kg</span>' : '<span class="cov-dim">—</span>'}</td>
+            <td class="cov-recipe-name">${_covEsc(r.name)}${r.category ? `<div class="cov-recipe-cat">${_covEsc(r.category)}</div>` : ''}</td>
+            <td class="cov-num">${r.co2e_per_serving != null ? _covNum(r.co2e_per_serving) + unit : '<span class="cov-dim">—</span>'}</td>
             <td>${badge}</td>
         </tr>`;
     }).join('');
@@ -222,6 +230,8 @@ function _covBind() {
     if (search) search.addEventListener('input', () => { _covState.search = search.value; _covReRenderTable(); });
     const filter = el.querySelector('#covFilter');
     if (filter) filter.addEventListener('change', (e) => { _covState.filter = e.target.value; _covReRenderTable(); });
+    const cat = el.querySelector('#covCategory');
+    if (cat) cat.addEventListener('change', (e) => { _covState.category = e.target.value; _covReRenderTable(); });
 
     el.querySelectorAll('.cov-sortable').forEach(th => {
         th.addEventListener('click', () => {

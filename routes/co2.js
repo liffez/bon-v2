@@ -129,6 +129,12 @@ router.get('/overview', AUTH, handle(async (req, res) => {
         grocy.getQuantityUnits(),
     ]);
     const recipes = [...recipesMap.values()].map(r => ({ id: r.id, name: r.name, base_servings: r.base_servings }));
+    // Enhed + kategori pr. opskrift (fra userfields) — så rapporten kan vise at
+    // "6,5 kg/kg produktion" og "0,3 kg/stk sandwich" IKKE er sammenlignelige.
+    const meta = new Map([...recipesMap.values()].map(r => {
+        const uf = r.userfields || {};
+        return [r.id, { unit: uf.recipeunit || null, category: uf.grupper || null, sellable: uf.sellable === '1' || uf.sellable === 1 }];
+    }));
     const results = engine.computeAll({ recipes, pos, nestings, products, conversions, units });
 
     const posIds = new Set(pos.map(p => p.recipe_id));
@@ -151,14 +157,19 @@ router.get('/overview', AUTH, handle(async (req, res) => {
             coverage_pct: real.length ? Math.round((complete.length / real.length) * 100) : 0,
         },
         recipes: real
-            .map(r => ({
-                id: r.recipe_id, name: r.name,
-                co2e_per_serving: r.complete ? r.co2e_per_serving : null,
-                complete: r.complete,
-                missing_factor: r.missing_factor,
-                missing_kgvej: r.missing_kgvej,
-            }))
+            .map(r => {
+                const m = meta.get(r.recipe_id) || {};
+                return {
+                    id: r.recipe_id, name: r.name,
+                    co2e_per_serving: r.complete ? r.co2e_per_serving : null,
+                    unit: m.unit, category: m.category, sellable: !!m.sellable,
+                    complete: r.complete,
+                    missing_factor: r.missing_factor,
+                    missing_kgvej: r.missing_kgvej,
+                };
+            })
             .sort((a, b) => (b.co2e_per_serving || 0) - (a.co2e_per_serving || 0)),
+        categories: [...new Set(real.map(r => (meta.get(r.recipe_id) || {}).category).filter(Boolean))].sort((a, b) => a.localeCompare(b, 'da')),
         missing: { factor: top(mf), kgvej: top(mk) },
     });
 }));
