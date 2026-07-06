@@ -51,6 +51,8 @@ const SYNONYM_GROUPS = [
     ['hvidkål', 'kål'],
     ['rødløg rå', 'rødløg sylt'],
     ['løvstikke frisk', 'løvstikke pakke'],
+    ['burgerlommer alm', 'små burgerlommer'],   // samme brød, forskellig størrelse (låser sliderne op)
+    ['rødkål rå', 'rødkål sylt'],               // samme rødkål, rå vs syltet
 ];
 
 /** Byg Map<product_id, [synonym product_id, ...]> ud fra SYNONYM_GROUPS + produktliste. */
