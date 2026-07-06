@@ -98,6 +98,12 @@ t('intet match → via none, product null', () => {
     assert.strictEqual(m.via, 'none');
     assert.strictEqual(m.product, null);
 });
+t('manuel alias: "Gris" → Svinekam (via alias)', () => {
+    const prods = [{ id: 50, name: 'Svinekam', userfields: {} }];
+    const m = C.matchProduct({ ingrediens: 'Gris', horkram_varenr: '' }, prods, new Map());
+    assert.strictEqual(m.via, 'alias');
+    assert.strictEqual(m.product.id, 50);
+});
 
 /* 5. buildPlan — actions + idempotens */
 t('buildPlan: write / no_factor / unmatched', () => {
@@ -146,6 +152,19 @@ t('kollision, samme faktor → dedupér (1 write, 1 duplicate)', () => {
     assert.strictEqual(summary.write, 1);
     assert.strictEqual(summary.duplicate, 1);
     assert.strictEqual(summary.conflict, 0);
+});
+
+t('kollision, nær-dublet faktor (<2%) → dedupér, ikke conflict', () => {
+    const prods = [{ id: 137, name: 'Hvidløg - i tern', userfields: {} }];
+    const bc = new Map([['15820433', 137]]);
+    const rows = [
+        { ingrediens: 'Hvidløg - i tern', horkram_varenr: '15820433', klima_id: 'Ra00136', klima_kg: '1.2476', horkram_kg: '' },
+        { ingrediens: 'Hvidløg',          horkram_varenr: '',          klima_id: 'Ra00136', klima_kg: '1.25',   horkram_kg: '' },
+    ];
+    const { summary } = C.buildPlan(rows, prods, bc);
+    assert.strictEqual(summary.conflict, 0);
+    assert.strictEqual(summary.write, 1);
+    assert.strictEqual(summary.duplicate, 1);
 });
 
 console.log(`\n${pass} PASS · ${fail} FAIL`);

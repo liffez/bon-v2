@@ -74,7 +74,7 @@ async function processLocation(code, rows) {
 
     const matched = summary.write + summary.unchanged + summary.no_factor + summary.conflict + summary.duplicate;
     console.log(`  Rækker: ${summary.total}`);
-    console.log(`    matchet:    ${matched}   (via varenr ${summary.via_varenr}, via navn ${summary.via_navn})`);
+    console.log(`    matchet:    ${matched}   (via varenr ${summary.via_varenr}, via navn ${summary.via_navn}, via alias ${summary.via_alias})`);
     console.log(`      heraf skriv: ${summary.write},  uændret: ${summary.unchanged},  uden faktor: ${summary.no_factor}`);
     if (summary.duplicate) console.log(`      dubletter (samme faktor, dedupet): ${summary.duplicate}`);
     console.log(`    umatchet:   ${summary.unmatched}`);
@@ -98,7 +98,7 @@ async function processLocation(code, rows) {
     if (writes.length) {
         console.log(`\n  Vil skrive (${writes.length}):`);
         writes.forEach(e => {
-            const via = e.match.via === 'navn' ? `navn ${(e.match.score).toFixed(2)}` : 'varenr';
+            const via = e.match.via === 'navn' ? `navn ${(e.match.score).toFixed(2)}` : e.match.via;
             const susp = e.suspicious ? ' ⚠' : '';
             console.log(`    • ${e.row.ingrediens.padEnd(24)} → [${e.match.product.id}] ${e.match.product.name.padEnd(22)} ${e.resolved.source} ${e.resolved.fields.co2e_per_kg}${susp}  (${via})`);
         });

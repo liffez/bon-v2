@@ -25,6 +25,19 @@ const FACTOR_MAX = 40;
 // Navne-fuzzy: match accepteres ved score ≥ dette (jf. kodebasens 0.6-tærskel).
 const NAME_THRESHOLD = 0.6;
 
+// Manuelle navne-aliaser: Katrine-navn (normaliseret) → Grocy-produktnavn (normaliseret).
+// Bruges når varenr mangler OG fuzzy ikke rammer. Bekræftet manuelt med Leif (F4-review).
+const NAME_ALIASES = {
+    'olie solsikkekerne': 'olie',
+    'pepper':             'pebber stødt',   // Grocy: "pebber - stødt"
+    'gris':               'svinekam',
+};
+
+// Kollision: to rækker → samme produkt med faktorer inden for denne relative
+// afstand behandles som SAMME (dedupér, ikke konflikt) — fanger rundings-dubletter
+// (fx 1,2476 vs 1,25) uden at maskere ægte forskelle (fx 3,61 vs 4,99).
+const COLLISION_REL_TOL = 0.02;
+
 /* ---------- CSV ---------- */
 
 /** Citat-bevidst CSV-parse → array af række-objekter (header-styret). */
@@ -145,6 +158,12 @@ function matchProduct(row, products, barcodeToPid) {
         const p = products.find(x => String(x.id) === String(pid));
         if (p) return { product: p, via: 'varenr', score: 1 };
     }
+    // Manuel alias (bekræftet med Leif) — matcher på eksakt Grocy-navn.
+    const aliasTarget = NAME_ALIASES[normName(row.ingrediens)];
+    if (aliasTarget) {
+        const p = products.find(x => normName(x.name) === aliasTarget);
+        if (p) return { product: p, via: 'alias', score: 1 };
+    }
     let best = null, bestScore = 0;
     for (const p of products) {
         const s = dice(row.ingrediens, p.name);
@@ -194,8 +213,10 @@ function buildPlan(rows, products, barcodeToPid) {
     });
     for (const idxs of byPid.values()) {
         if (idxs.length < 2) continue;
-        const factors = new Set(idxs.map(i => entries[i].resolved.fields.co2e_per_kg));
-        if (factors.size > 1) {
+        const nums = idxs.map(i => Number(entries[i].resolved.fields.co2e_per_kg));
+        const min = Math.min(...nums), max = Math.max(...nums);
+        const rel = max === 0 ? (min === 0 ? 0 : 1) : (max - min) / Math.abs(max);
+        if (rel > COLLISION_REL_TOL) {
             idxs.forEach(i => { entries[i].action = 'conflict'; });
         } else {
             // samme faktor: behold ét (foretræk varenr-match), resten = duplicate
@@ -206,12 +227,13 @@ function buildPlan(rows, products, barcodeToPid) {
     }
 
     const summary = { total: rows.length, write: 0, unchanged: 0, no_factor: 0, unmatched: 0,
-                      conflict: 0, duplicate: 0, suspicious: 0, via_varenr: 0, via_navn: 0 };
+                      conflict: 0, duplicate: 0, suspicious: 0, via_varenr: 0, via_navn: 0, via_alias: 0 };
     for (const e of entries) {
         summary[e.action]++;
         if (e.suspicious) summary.suspicious++;
         if (e.match.via === 'varenr') summary.via_varenr++;
         else if (e.match.via === 'navn') summary.via_navn++;
+        else if (e.match.via === 'alias') summary.via_alias++;
     }
     return { entries, summary };
 }
