@@ -81,3 +81,17 @@
 .cov-badge-green { background: #e2f2e5; color: #2f7a41; }
 .cov-badge-amber { background: #fcf0d8; color: #986c14; }
 .cov-badge-blue  { background: #e4eefa; color: #3b6ea3; }
+.cov-badge-red   { background: #fbe6e0; color: #b23c22; }
+.cov-badge-grey  { background: #efece6; color: #7a7266; }
+
+/* Synonymer */
+.cov-syn-del { background: transparent; border: 1px solid #e0d8cd; border-radius: 6px;
+    width: 26px; height: 26px; cursor: pointer; color: #b06a52; font-size: 13px; line-height: 1; }
+.cov-syn-del:hover { background: #faf3f0; border-color: #d9b8ab; }
+.cov-syn-add { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; margin-top: 14px;
+    padding-top: 14px; border-top: 1px solid #f0ece4; }
+.cov-syn-add input { padding: 7px 10px; border: 1px solid #d7d1ca; border-radius: 8px; font-size: 14px; min-width: 190px; }
+.cov-btn-primary { background: var(--brand-primary, #8e631f); color: #fff; border: none; border-radius: 8px;
+    padding: 8px 16px; cursor: pointer; font-size: 14px; }
+.cov-btn-primary:hover { filter: brightness(1.08); }
+.cov-btn-primary:disabled { opacity: .6; cursor: default; }

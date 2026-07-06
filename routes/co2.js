@@ -22,6 +22,7 @@ const { requireAuth } = require('../shared/auth');
 const co2 = require('../services/co2Materials');
 const grocy = require('../services/grocyAdapter');
 const engine = require('../services/co2Engine');
+const synonyms = require('../services/co2Synonyms');
 
 const ADMIN = requireAuth('admin');
 const AUTH  = requireAuth();
@@ -196,6 +197,21 @@ router.post('/manual-factor', AUTH, handle(async (req, res) => {
     });
     grocy.clearCache();
     res.json({ product_id: Number(product_id), factor: f });
+}));
+
+/* ---------- synonymer (dublet-vare-regler — synlige + redigerbare) ---------- */
+
+router.get('/synonyms', AUTH, handle(async (req, res) => {
+    res.json({ synonyms: await synonyms.listResolved(getDb()) });
+}));
+
+router.post('/synonyms', AUTH, handle(async (req, res) => {
+    const { canonical_name, synonym_name } = req.body || {};
+    res.json(await synonyms.addSynonym(getDb(), canonical_name, synonym_name));
+}));
+
+router.delete('/synonyms/:id', AUTH, handle((req, res) => {
+    res.json(synonyms.removeSynonym(getDb(), parseInt(req.params.id, 10)));
 }));
 
 // CO₂ over tid: månedlig Σ(bons.total_co2e) + pax → CO₂ pr. kuvert. Ekskl.

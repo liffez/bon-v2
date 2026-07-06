@@ -12,12 +12,14 @@
  * ═══════════════════════════════════════════════════════════
  */
 
-/* globals fetchCo2Overview, fetchCo2Timeseries, setCo2ManualFactor */
+/* globals fetchCo2Overview, fetchCo2Timeseries, setCo2ManualFactor,
+           fetchCo2Synonyms, addCo2Synonym, deleteCo2Synonym */
 
 const _covState = {
     container: null,
     overview: null,
     series: null,
+    synonyms: null,
     search: '',
     filter: '',        // '' | 'complete' | 'partial'
     category: '',      // grupper-filter (fx "01 Sandwich")
@@ -42,9 +44,13 @@ const _covNum = (n, d = 2) => (n == null ? '—' : Number(n).toLocaleString('da-
 
 async function _covLoad() {
     try {
-        const [ov, ts] = await Promise.all([fetchCo2Overview(), fetchCo2Timeseries(12)]);
+        const [ov, ts, syn] = await Promise.all([
+            fetchCo2Overview(), fetchCo2Timeseries(12),
+            fetchCo2Synonyms().catch(() => ({ synonyms: [] })),
+        ]);
         _covState.overview = ov;
         _covState.series = ts.months || [];
+        _covState.synonyms = syn.synonyms || [];
         _covRender();
     } catch (e) {
         if (!_covState.container) return;
@@ -83,11 +89,50 @@ function _covRender() {
         </div>
 
         ${_covDataQuality(ov)}
+        ${_covSynonyms()}
         ${_covTimeChart(series)}
         ${_covRecipeTable(ov.recipes)}
       </div>`;
 
     _covBind();
+}
+
+/* Synonymer — dublet-vare-regler, synlige + redigerbare (ingen skjult fælde) */
+const _COV_SYN_STATUS = {
+    applied:            { label: 'Aktiv',            cls: 'cov-badge-green' },
+    not_applied:        { label: 'Ikke anvendt endnu', cls: 'cov-badge-amber' },
+    mismatch:           { label: '⚠ Forskellige tal', cls: 'cov-badge-red' },
+    canonical_no_factor:{ label: 'Kanonisk mangler faktor', cls: 'cov-badge-amber' },
+    canonical_missing:  { label: '⚠ Kanonisk vare ukendt', cls: 'cov-badge-red' },
+    synonym_missing:    { label: '⚠ Synonym-vare ukendt', cls: 'cov-badge-red' },
+};
+
+function _covSynonyms() {
+    const rows = _covState.synonyms || [];
+    const body = rows.length ? rows.map(r => {
+        const st = _COV_SYN_STATUS[r.status] || { label: r.status, cls: 'cov-badge-grey' };
+        return `<tr data-syn-id="${r.id}">
+            <td><b>${_covEsc(r.synonym_name)}</b> <span class="cov-dim">arver fra</span> ${_covEsc(r.canonical_name)}</td>
+            <td class="cov-num">${r.synonym_factor != null ? _covNum(r.synonym_factor) + ' <span class="cov-dim">kg</span>' : '<span class="cov-dim">—</span>'}</td>
+            <td><span class="cov-badge ${st.cls}">${st.label}</span>${r.note ? `<div class="cov-dim" style="font-size:12px">${_covEsc(r.note)}</div>` : ''}</td>
+            <td><button class="cov-syn-del" data-id="${r.id}" title="Fjern regel">✕</button></td>
+        </tr>`;
+    }).join('') : `<tr><td colspan="4" class="cov-empty">Ingen synonymer endnu.</td></tr>`;
+    return `
+      <section class="cov-card">
+        <h2>Synonymer <span class="cov-dim">· dublet-varer der deler faktor</span></h2>
+        <p class="cov-sub">Her ser du alle antagelser om at to varer er den samme (fx "Små Burgerlommer" = "BurgerLommer - alm"). Tjek at de er rigtige — fjern en der er forkert.</p>
+        <table class="cov-table cov-syn-table">
+          <thead><tr><th>Regel</th><th class="cov-num">Faktor</th><th>Status</th><th></th></tr></thead>
+          <tbody>${body}</tbody>
+        </table>
+        <div class="cov-syn-add">
+          <input type="text" id="covSynSyn" placeholder="Dublet-vare (arver)…">
+          <span class="cov-dim">arver faktor fra</span>
+          <input type="text" id="covSynCanon" placeholder="Kanonisk vare (har faktoren)…">
+          <button class="cov-btn-primary" id="covSynAdd">+ Tilføj synonym</button>
+        </div>
+      </section>`;
 }
 
 function _covKpi(label, value, sub, tone) {
@@ -251,6 +296,27 @@ function _covBind() {
             if (act === 'goto-vej' && window.switchSection) window.switchSection('co2', 'vej');
             else if (act === 'goto-emballage' && window.switchSection) window.switchSection('co2', 'emballage');
             else if (act === 'manual') _covManualFactor(chip);
+        });
+    });
+
+    // Synonymer: tilføj + fjern
+    const synAdd = el.querySelector('#covSynAdd');
+    if (synAdd) synAdd.addEventListener('click', async () => {
+        const syn = el.querySelector('#covSynSyn').value.trim();
+        const canon = el.querySelector('#covSynCanon').value.trim();
+        if (!syn || !canon) { _covToast('Udfyld begge varer', true); return; }
+        synAdd.disabled = true;
+        try {
+            const r = await addCo2Synonym(canon, syn);
+            _covToast(r.warning ? 'Tilføjet — ' + r.warning : (r.propagated ? 'Tilføjet + faktor skrevet' : 'Tilføjet'), !!r.warning);
+            await _covLoad();
+        } catch (e) { _covToast('Fejl: ' + e.message, true); synAdd.disabled = false; }
+    });
+    el.querySelectorAll('.cov-syn-del').forEach(btn => {
+        btn.addEventListener('click', async () => {
+            if (!confirm('Fjern denne synonym-regel? (faktoren på varen bevares)')) return;
+            try { await deleteCo2Synonym(btn.dataset.id); _covToast('Regel fjernet'); await _covLoad(); }
+            catch (e) { _covToast('Fejl: ' + e.message, true); }
         });
     });
 

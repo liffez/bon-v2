@@ -2133,3 +2133,18 @@ function setCo2ManualFactor(productId, factor) {
         body: JSON.stringify({ product_id: productId, factor }),
     });
 }
+
+function fetchCo2Synonyms() {
+    return apiFetch('/co2/synonyms');
+}
+
+function addCo2Synonym(canonicalName, synonymName) {
+    return apiFetch('/co2/synonyms', {
+        method: 'POST',
+        body: JSON.stringify({ canonical_name: canonicalName, synonym_name: synonymName }),
+    });
+}
+
+function deleteCo2Synonym(id) {
+    return apiFetch('/co2/synonyms/' + id, { method: 'DELETE' });
+}

@@ -55,12 +55,17 @@ const SYNONYM_GROUPS = [
     ['rødkål rå', 'rødkål sylt'],               // samme rødkål, rå vs syltet
 ];
 
-/** Byg Map<product_id, [synonym product_id, ...]> ud fra SYNONYM_GROUPS + produktliste. */
-function buildSynonymMap(products) {
+/**
+ * Byg Map<product_id, [synonym product_id, ...]> ud fra synonym-par + produktliste.
+ * @param pairs [[normA, normB], ...] normaliserede navnepar (fra DB via
+ *   co2Synonyms.loadSynonymPairs). Udeladt → falder tilbage til SYNONYM_GROUPS-seed.
+ */
+function buildSynonymMap(products, pairs) {
+    const groups = pairs && pairs.length ? pairs : SYNONYM_GROUPS;
     const byNorm = new Map();
     for (const p of products) { const n = normName(p.name); if (!byNorm.has(n)) byNorm.set(n, p.id); }
     const map = new Map();
-    for (const group of SYNONYM_GROUPS) {
+    for (const group of groups) {
         const ids = group.map(n => byNorm.get(n)).filter(id => id != null);
         for (const id of ids) {
             const others = ids.filter(x => x !== id);

@@ -38,6 +38,19 @@ else { console.error('Brug: --location=hq|test|cafe|all  [--apply] [--unmatched]
 
 const CSV_PATH = path.join(__dirname, 'co2', 'concito_ingredienser.csv');
 
+// Synonym-par fra data/bon.db (co2_synonyms) — flyttet fra hardcodet kode så de kan
+// ses + redigeres i CO₂-rapporten. Fald tilbage til co2Concito's seed hvis tabellen
+// ikke findes eller DB'en er utilgængelig.
+let SYNONYM_PAIRS = null;
+try {
+    const { openDb } = require('../db/compat');
+    const { loadSynonymPairs } = require('../services/co2Synonyms');
+    SYNONYM_PAIRS = loadSynonymPairs(openDb(path.join(__dirname, '..', 'data', 'bon.db')));
+    console.log(`Synonym-par fra DB: ${SYNONYM_PAIRS.length}`);
+} catch (e) {
+    console.log('Synonym-par: bruger seed (DB/tabel utilgængelig:', e.message, ')');
+}
+
 function resolveConfig(code) {
     const u = process.env[`GROCY_${code.toUpperCase()}_URL`];
     const k = process.env[`GROCY_${code.toUpperCase()}_KEY`];
@@ -70,7 +83,7 @@ async function processLocation(code, rows) {
         if (code && !barcodeToPid.has(code)) barcodeToPid.set(code, b.product_id);
     }
 
-    const synonymMap = C.buildSynonymMap(products);
+    const synonymMap = C.buildSynonymMap(products, SYNONYM_PAIRS);
     const { entries, summary } = C.buildPlan(rows, products, barcodeToPid, synonymMap);
     const prodName = new Map(products.map(p => [String(p.id), p.name]));
 
