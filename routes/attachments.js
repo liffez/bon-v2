@@ -31,6 +31,19 @@ function mimeToFileType(mime) {
     return 'document';
 }
 
+// Content-Type til inline-visning udledes af filendelsen (attachments-tabellen
+// gemmer kun file_type = image|pdf|document, ikke den fulde MIME).
+function extToMime(fileName) {
+    const ext = path.extname(fileName || '').toLowerCase();
+    const map = {
+        '.pdf': 'application/pdf',
+        '.png': 'image/png', '.jpg': 'image/jpeg', '.jpeg': 'image/jpeg',
+        '.gif': 'image/gif', '.webp': 'image/webp', '.svg': 'image/svg+xml',
+        '.heic': 'image/heic',
+    };
+    return map[ext] || 'application/octet-stream';
+}
+
 // ─── POST /upload ─────────────────────────────────────────────────────────────
 // multipart/form-data: file + optional entity_type + entity_id
 
@@ -136,6 +149,58 @@ router.post('/upload', requireAuth(), (req, res) => {
 
     req.pipe(bb);
 });
+
+// ─── GET / ───────────────────────────────────────────────────────────────────
+// Liste over vedhæftninger for en entitet: ?entity_type=&entity_id=
+// (fx entity_type=event&entity_id=12)
+
+router.get('/', requireAuth(), handle(async (req, res) => {
+    const entityType = req.query.entity_type;
+    const entityId   = parseInt(req.query.entity_id);
+    if (!entityType || !entityId) {
+        return res.status(400).json({ error: 'entity_type og entity_id kræves' });
+    }
+    const db = getDb();
+    const rows = db.prepare(`
+        SELECT a.id, a.file_name, a.file_type, a.description, a.created_at,
+               a.uploaded_by_user_id, u.name AS uploaded_by_name
+          FROM attachments a
+          LEFT JOIN users u ON u.id = a.uploaded_by_user_id
+         WHERE a.entity_type = ? AND a.entity_id = ?
+         ORDER BY a.created_at DESC, a.id DESC
+    `).all(entityType, entityId);
+    res.json({ attachments: rows });
+}));
+
+// ─── DELETE /:id ───────────────────────────────────────────────────────────────
+// Slet en vedhæftning (fil på disk + DB-række).
+
+router.delete('/:id', requireAuth(), handle(async (req, res) => {
+    const db = getDb();
+    const row = db.prepare('SELECT id, file_path FROM attachments WHERE id = ?')
+        .get(parseInt(req.params.id));
+    if (!row) return res.status(404).json({ error: 'Vedhæftning ikke fundet' });
+    try { if (fs.existsSync(row.file_path)) fs.unlinkSync(row.file_path); }
+    catch (err) { console.error('[attachments] Kunne ikke slette fil:', err.message); }
+    db.prepare('DELETE FROM attachments WHERE id = ?').run(row.id);
+    res.json({ ok: true });
+}));
+
+// ─── GET /:id/inline ───────────────────────────────────────────────────────────
+// Servér til VISNING (billede/PDF i ny fane) frem for download.
+
+router.get('/:id/inline', requireAuth(), handle(async (req, res) => {
+    const db = getDb();
+    const row = db.prepare('SELECT file_name, file_path FROM attachments WHERE id = ?')
+        .get(parseInt(req.params.id));
+    if (!row) return res.status(404).end();
+    if (!fs.existsSync(row.file_path)) return res.status(404).end();
+    res.setHeader('Content-Type', extToMime(row.file_name));
+    res.setHeader('Content-Disposition', 'inline');
+    res.setHeader('X-Content-Type-Options', 'nosniff');
+    res.setHeader('Cache-Control', 'private, max-age=86400');
+    fs.createReadStream(row.file_path).pipe(res);
+}));
 
 // ─── GET /:id/download ───────────────────────────────────────────────────────
 // Download fra generisk attachments-tabel

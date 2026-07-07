@@ -628,6 +628,21 @@ function attachmentUrl(attachmentId) {
     return API_BASE + '/attachments/' + attachmentId + '/download';
 }
 
+// Visnings-URL (billede/PDF i ny fane) for generiske vedhæftninger.
+function attachmentInlineUrl(attachmentId) {
+    return API_BASE + '/attachments/' + attachmentId + '/inline';
+}
+
+// Liste over vedhæftninger for en entitet (fx event).
+function fetchAttachments(entityType, entityId) {
+    return apiFetch('/attachments?entity_type=' + encodeURIComponent(entityType) +
+                    '&entity_id=' + encodeURIComponent(entityId));
+}
+
+function deleteAttachment(attachmentId) {
+    return apiFetch('/attachments/' + attachmentId, { method: 'DELETE' });
+}
+
 /* ── DASHBOARD ────────────────────────────────────────────── */
 
 function fetchDashboardToday() {

@@ -235,4 +235,76 @@ tr:not(.ev-topup-need) .ev-topup-sug { color: #999; font-weight: 500; }
 .ev-detail-actions { display: flex; gap: 6px; margin-left: auto; }
 .ev-btn-danger { color: #a32626; border-color: #e0c0c0; }
 .ev-btn-danger:hover { background: #fdecec; border-color: #d09090; }
-.ev-detail-notes { color: #777; font-size: 13px; margin-bottom: 14px; line-height: 1.5; max-width: 800px; }
+/* Kompakt værktøjs-række under nøgletallene: Info (sammenklap) + fil-pille. */
+.ev-meta-tools { display: flex; align-items: flex-start; gap: 12px; max-width: 900px; margin: 14px 0 18px; }
+
+/* Info-blok — sammenklappelig (én linje lukket → folder ud til redigering). */
+.ev-info-block { flex: 1; min-width: 0; }
+.ev-info-toggle {
+    display: flex; align-items: center; gap: 8px; width: 100%;
+    padding: 8px 12px; font: inherit; font-size: 13px; text-align: left; cursor: pointer;
+    background: #fbf9f4; border: 1px solid #ece4d5; border-radius: 8px; color: #6b5c42;
+}
+.ev-info-toggle:hover { border-color: #ddd2bf; background: #fff; }
+.ev-info-ico { flex: none; }
+.ev-info-title { flex: none; font-weight: 600; }
+.ev-info-preview { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-weight: 400; color: #6d6152; }
+.ev-info-preview.ghost { color: #b3a892; font-style: italic; }
+.ev-info-caret { flex: none; color: #b0a48e; transition: transform .15s; }
+.ev-info-block:not(.collapsed) .ev-info-caret { transform: rotate(180deg); }
+.ev-info-body { margin-top: 8px; }
+.ev-info-status { display: inline-block; margin-top: 4px; font-size: 12px; color: #888; }
+.ev-info-status.ok { color: #1e6b2c; }
+.ev-info-status.err { color: #8a2222; }
+.ev-info-text {
+    width: 100%; box-sizing: border-box; resize: vertical;
+    min-height: 120px; max-height: 400px; padding: 8px 10px; font: inherit; font-size: 13px; line-height: 1.5;
+    color: #444; background: #fff;
+    border: 1px solid #e6ddcd; border-radius: 8px;
+    overflow-y: auto; white-space: pre-wrap;
+}
+.ev-info-text::placeholder { color: #bcb3a2; }
+.ev-info-text:hover { border-color: #d8cdba; }
+.ev-info-text:focus { outline: none; border-color: var(--brand-primary, #8e631f); }
+
+/* Vedhæftninger — pille med antal-badge + popover-liste. */
+.ev-attach-block { position: relative; flex: none; }
+.ev-attach-pill {
+    display: flex; align-items: center; gap: 6px;
+    padding: 8px 12px; font: inherit; font-size: 13px; font-weight: 600; cursor: pointer;
+    background: #fbf9f4; border: 1px solid #ece4d5; border-radius: 999px; color: #6b5c42; white-space: nowrap;
+}
+.ev-attach-pill:hover { border-color: #ddd2bf; background: #fff; }
+.ev-attach-pill.has-files { border-color: #d8cdba; }
+.ev-attach-count {
+    display: inline-flex; align-items: center; justify-content: center; min-width: 18px; height: 18px; padding: 0 5px;
+    font-size: 11px; font-weight: 700; color: #fff; background: var(--brand-primary, #8e631f); border-radius: 999px;
+}
+.ev-attach-caret { color: #b0a48e; font-size: 11px; }
+.ev-attach-pop {
+    position: absolute; top: calc(100% + 6px); right: 0; z-index: 30;
+    width: 340px; max-width: 80vw; max-height: 60vh; overflow-y: auto;
+    background: #fff; border: 1px solid #e0d6c5; border-radius: 10px;
+    box-shadow: 0 8px 28px rgba(60,44,20,.16); padding: 12px;
+}
+.ev-attach-pop-head { display: flex; align-items: center; justify-content: space-between; gap: 10px; font-size: 13px; font-weight: 600; color: #6b5c42; margin-bottom: 8px; }
+.ev-attach-status { font-size: 12px; font-weight: 400; color: #888; }
+.ev-attach-status.ok { color: #1e6b2c; }
+.ev-attach-status.err { color: #8a2222; }
+.ev-attach-list { display: flex; flex-direction: column; gap: 6px; margin-top: 6px; }
+.ev-attach-empty { font-size: 12px; color: #a99; padding: 6px 2px; }
+.ev-attach-item {
+    display: flex; align-items: center; gap: 10px;
+    padding: 7px 10px; background: #fdfcf9;
+    border: 1px solid #ece4d5; border-radius: 8px;
+}
+.ev-attach-item:hover { border-color: #ddd2bf; background: #fff; }
+.ev-attach-link { display: flex; align-items: center; gap: 8px; flex: 1; min-width: 0; text-decoration: none; color: #4a3f2f; }
+.ev-attach-link:hover .ev-attach-name { text-decoration: underline; }
+.ev-attach-ico { font-size: 16px; flex: none; }
+.ev-attach-name { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 13px; }
+.ev-attach-meta { font-size: 11px; color: #a89b86; flex: none; white-space: nowrap; }
+.ev-attach-dl { flex: none; text-decoration: none; color: #8a7c66; font-size: 15px; padding: 0 4px; }
+.ev-attach-dl:hover { color: var(--brand-primary, #8e631f); }
+.ev-attach-del { flex: none; border: none; background: none; cursor: pointer; color: #bca; font-size: 14px; padding: 0 4px; line-height: 1; }
+.ev-attach-del:hover { color: #b23; }

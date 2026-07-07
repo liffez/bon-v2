@@ -170,7 +170,6 @@ async function _evRenderDetail(id) {
                     </div>
                 </div>
                 <div class="ev-detail-meta">${period} · ${_evEsc(ev.location_name)}${ev.event_address ? ' · 📍 ' + _evEsc(ev.event_address) : ''}</div>
-                ${ev.notes ? `<div class="ev-detail-notes">📝 ${_evEsc(ev.notes)}</div>` : ''}
 
                 <div class="ev-pnl-strip">
                     <div class="ev-pnl-cell"><div class="ev-pnl-val">${_evFmtKr(pnl.revenue_incl)}</div><div class="ev-pnl-lbl">Omsætning (inkl moms)</div></div>
@@ -180,6 +179,39 @@ async function _evRenderDetail(id) {
                     <div class="ev-pnl-cell ev-pnl-result"><div class="ev-pnl-val">${_evFmtKr(pnl.result)}</div><div class="ev-pnl-lbl">Resultat</div></div>
                     <div class="ev-pnl-cell ev-pnl-bank"><div class="ev-pnl-val">${_evFmtKr(pnl.bank_reconciled || 0)}</div><div class="ev-pnl-lbl">🏦 Bank-afstemt (inkl moms)${pnl.bank_reconciled_tx ? ' · ' + pnl.bank_reconciled_tx + ' indb.' : ' · intet afstemt'}</div></div>
                     <div class="ev-pnl-cell ev-pnl-co2"><div class="ev-pnl-val">${_evFmtNum(pnl.co2e_total || 0)}</div><div class="ev-pnl-lbl">🌱 CO₂e (kg)</div></div>
+                </div>
+
+                <div class="ev-meta-tools">
+                    <div class="ev-info-block collapsed" id="ev-info-block">
+                        <button type="button" class="ev-info-toggle" data-act="info-toggle" aria-expanded="false">
+                            <span class="ev-info-ico">📝</span>
+                            <span class="ev-info-title">Info</span>
+                            <span class="ev-info-preview" id="ev-info-preview"></span>
+                            <span class="ev-info-caret">▾</span>
+                        </button>
+                        <div class="ev-info-body" id="ev-info-body" hidden>
+                            <textarea class="ev-info-text" id="ev-info-text" rows="5"
+                                placeholder="Kontaktpersoner, telefonnumre, åbningstider, check-in-procedure, parkering, prep-noter…&#10;Flere linjer er ok.">${_evEsc(ev.notes || '')}</textarea>
+                            <span class="ev-info-status" id="ev-info-status"></span>
+                        </div>
+                    </div>
+                    <div class="ev-attach-block" id="ev-attach-block">
+                        <button type="button" class="ev-attach-pill" data-act="attach-toggle" aria-expanded="false">
+                            📎 <span class="ev-attach-pill-label">Filer</span>
+                            <span class="ev-attach-count" id="ev-attach-count" hidden></span>
+                            <span class="ev-attach-caret">▾</span>
+                        </button>
+                        <input type="file" id="ev-attach-input" hidden multiple
+                            accept="application/pdf,image/*,application/vnd.openxmlformats-officedocument.wordprocessingml.document,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet">
+                        <div class="ev-attach-pop" id="ev-attach-pop" hidden>
+                            <div class="ev-attach-pop-head">
+                                <span>Vedhæftninger</span>
+                                <button class="ev-btn ev-btn-small" data-act="attach-add">+ Tilføj fil</button>
+                            </div>
+                            <span class="ev-attach-status" id="ev-attach-status"></span>
+                            <div class="ev-attach-list" id="ev-attach-list"></div>
+                        </div>
+                    </div>
                 </div>
 
                 ${_evForecastTable(ev, days, categories, forecast)}
@@ -235,6 +267,8 @@ async function _evRenderDetail(id) {
             ?.addEventListener('click', () => _evLoadReturnSuggestion(ev));
         _evContainer.querySelector('[data-act="find-payment"]')
             ?.addEventListener('click', () => _evOpenFindPayment(ev));
+        _evBindInfoNotes(ev);
+        _evBindAttachments(ev);
     } catch (err) {
         _evContainer.innerHTML = `<div class="ev-error">Kunne ikke hente event: ${_evEsc(err.message)} <button class="ev-link" data-act="back">Tilbage</button></div>`;
         _evContainer.querySelector('[data-act="back"]')?.addEventListener('click', () => { _evCurrentId = null; _evRender(); });
@@ -403,6 +437,193 @@ function _evForecastTable(ev, days, categories, forecast) {
         </div>
     </div>`;
     return html;
+}
+
+// Inline-redigerbart info-panel på event-overblikket. Bundet til events.notes
+// (fuldt wired: PATCH /events/:id → changelog → SSE). Auto-gem debounced på
+// input + gem ved blur. SSE-handleren guarder mod re-render mens feltet har
+// fokus (jf. _evHandleSSE), så auto-gemmet klobrer ikke teksten.
+function _evBindInfoNotes(ev) {
+    const ta = _evContainer.querySelector('#ev-info-text');
+    if (!ta) return;
+    const statusEl = _evContainer.querySelector('#ev-info-status');
+    const setStatus = (t, cls) => {
+        if (!statusEl) return;
+        statusEl.textContent = t;
+        statusEl.className = 'ev-info-status' + (cls ? ' ' + cls : '');
+    };
+    const autoGrow = () => {
+        // Mål aldrig når feltet er skjult/for smalt (under view-skift eller
+        // re-render, eller i et kollapset viewport) — så wrapper teksten til
+        // hundredvis af linjer og en forkert kæmpe-højde fryses. Feltet er
+        // altid >200px i en rigtig browser (panel max-width 800). CSS
+        // min-height + overflow-y:auto + max-height er backstop.
+        if (ta.clientWidth < 200) return;
+        ta.style.height = 'auto';
+        ta.style.height = Math.min(ta.scrollHeight, 400) + 'px';
+    };
+    let timer = null;
+    const save = async () => {
+        const val = ta.value.trim() || null;
+        if (val === (ev.notes || null)) return;   // ingen ændring → intet kald
+        try {
+            setStatus('Gemmer…');
+            await _evFetch(`/events/${ev.id}`, { method: 'PATCH', body: JSON.stringify({ notes: val }) });
+            ev.notes = val;
+            if (_evState.event) _evState.event.notes = val;
+            setStatus('✓ Gemt', 'ok');
+            setTimeout(() => setStatus(''), 1500);
+        } catch (err) {
+            setStatus('Fejl: ' + err.message, 'err');
+        }
+    };
+    ta.addEventListener('input', () => { autoGrow(); clearTimeout(timer); timer = setTimeout(save, 600); });
+    ta.addEventListener('blur', () => { clearTimeout(timer); save(); });
+
+    // Sammenklap: én linje når lukket (preview af noten), foldes ud til
+    // redigering. Default lukket så info-feltet ikke stjæler hele overblikket.
+    const block   = _evContainer.querySelector('#ev-info-block');
+    const body    = _evContainer.querySelector('#ev-info-body');
+    const toggle  = _evContainer.querySelector('[data-act="info-toggle"]');
+    const preview = _evContainer.querySelector('#ev-info-preview');
+    const updatePreview = () => {
+        if (!preview) return;
+        const val = (ev.notes || '').trim();
+        if (!val) {
+            preview.textContent = 'Tilføj kontakt, åbningstider, check-in…';
+            preview.classList.add('ghost');
+        } else {
+            const lines = val.split('\n').filter(l => l.trim());
+            const first = lines[0] || val;
+            preview.textContent = (first.length > 70 ? first.slice(0, 70) + '…' : first) +
+                (lines.length > 1 ? `  (+${lines.length - 1})` : '');
+            preview.classList.remove('ghost');
+        }
+    };
+    const setOpen = (open) => {
+        if (!block || !body || !toggle) return;
+        block.classList.toggle('collapsed', !open);
+        body.hidden = !open;
+        toggle.setAttribute('aria-expanded', String(open));
+        if (open) requestAnimationFrame(() => { autoGrow(); ta.focus(); });
+    };
+    // Preview afspejler den gemte note; opdatér når feltet forlades (efter gem).
+    ta.addEventListener('blur', () => setTimeout(updatePreview, 50));
+    toggle?.addEventListener('click', () => setOpen(body.hidden));
+    updatePreview();
+}
+
+// Vedhæftninger på eventet (kort, billeder, PDF, dokumenter). Genbruger den
+// generiske polymorfe attachments-tabel med entity_type='event'. Upload +
+// liste + download/vis + slet. Billeder/PDF åbnes til visning; andre hentes.
+const _EV_ATT_ICON = { image: '🖼', pdf: '📄', document: '📎' };
+
+function _evBindAttachments(ev) {
+    const block    = _evContainer.querySelector('#ev-attach-block');
+    const listEl   = _evContainer.querySelector('#ev-attach-list');
+    const input    = _evContainer.querySelector('#ev-attach-input');
+    const addBtn   = _evContainer.querySelector('[data-act="attach-add"]');
+    const pill     = _evContainer.querySelector('[data-act="attach-toggle"]');
+    const pop      = _evContainer.querySelector('#ev-attach-pop');
+    const countEl  = _evContainer.querySelector('#ev-attach-count');
+    const statusEl = _evContainer.querySelector('#ev-attach-status');
+    if (!listEl || !input) return;
+
+    const setStatus = (t, cls) => {
+        if (!statusEl) return;
+        statusEl.textContent = t || '';
+        statusEl.className = 'ev-attach-status' + (cls ? ' ' + cls : '');
+    };
+
+    const setCount = (n) => {
+        if (!countEl) return;
+        countEl.textContent = n;
+        countEl.hidden = !n;
+        pill?.classList.toggle('has-files', !!n);
+    };
+
+    // Popover åbnes/lukkes; luk ved klik udenfor + Escape.
+    let outsideHandler = null;
+    const closePop = () => {
+        if (!pop || pop.hidden) return;
+        pop.hidden = true;
+        pill?.setAttribute('aria-expanded', 'false');
+        if (outsideHandler) { document.removeEventListener('mousedown', outsideHandler, true); document.removeEventListener('keydown', escHandler, true); outsideHandler = null; }
+    };
+    const escHandler = (e) => { if (e.key === 'Escape') closePop(); };
+    const openPop = () => {
+        if (!pop) return;
+        pop.hidden = false;
+        pill?.setAttribute('aria-expanded', 'true');
+        outsideHandler = (e) => { if (block && !block.contains(e.target)) closePop(); };
+        document.addEventListener('mousedown', outsideHandler, true);
+        document.addEventListener('keydown', escHandler, true);
+    };
+    pill?.addEventListener('click', () => { pop && pop.hidden ? openPop() : closePop(); });
+
+    const render = (items) => {
+        setCount(items.length);
+        if (!items.length) {
+            listEl.innerHTML = '<div class="ev-attach-empty">Ingen filer endnu. Vedhæft kort, billeder, PDF…</div>';
+            return;
+        }
+        listEl.innerHTML = items.map(a => {
+            const icon = _EV_ATT_ICON[a.file_type] || '📎';
+            const viewable = a.file_type === 'image' || a.file_type === 'pdf';
+            const openUrl = viewable ? attachmentInlineUrl(a.id) : attachmentUrl(a.id);
+            const by = a.uploaded_by_name ? ` · ${_evEsc(a.uploaded_by_name)}` : '';
+            return `<div class="ev-attach-item" data-att-id="${a.id}">
+                <a class="ev-attach-link" href="${openUrl}" target="_blank" rel="noopener" title="${viewable ? 'Åbn' : 'Hent'}">
+                    <span class="ev-attach-ico">${icon}</span>
+                    <span class="ev-attach-name">${_evEsc(a.file_name)}</span>
+                </a>
+                <span class="ev-attach-meta">${_evFmtDate((a.created_at || '').slice(0, 10))}${by}</span>
+                <a class="ev-attach-dl" href="${attachmentUrl(a.id)}" title="Hent">⬇</a>
+                <button class="ev-attach-del" data-att-del="${a.id}" title="Slet">✕</button>
+            </div>`;
+        }).join('');
+        listEl.querySelectorAll('[data-att-del]').forEach(btn => {
+            btn.addEventListener('click', async () => {
+                const id = parseInt(btn.dataset.attDel, 10);
+                if (!confirm('Slet denne vedhæftning?')) return;
+                try {
+                    await deleteAttachment(id);
+                    load();
+                } catch (err) { setStatus('Kunne ikke slette: ' + err.message, 'err'); }
+            });
+        });
+    };
+
+    const load = async () => {
+        try {
+            const { attachments } = await fetchAttachments('event', ev.id);
+            render(attachments || []);
+        } catch (err) {
+            listEl.innerHTML = `<div class="ev-attach-empty">Kunne ikke hente vedhæftninger: ${_evEsc(err.message)}</div>`;
+        }
+    };
+
+    addBtn?.addEventListener('click', () => input.click());
+    input.addEventListener('change', async () => {
+        const files = [...input.files];
+        input.value = '';   // så samme fil kan vælges igen senere
+        if (!files.length) return;
+        let done = 0;
+        for (const f of files) {
+            setStatus(`Uploader ${done + 1}/${files.length}…`);
+            try {
+                await uploadAttachment(f, 'event', ev.id);
+                done++;
+            } catch (err) {
+                setStatus(`${_evEsc(f.name)}: ${err.message}`, 'err');
+            }
+        }
+        if (done) setStatus(`✓ ${done} fil${done > 1 ? 'er' : ''} tilføjet`, 'ok');
+        setTimeout(() => setStatus(''), 2500);
+        load();
+    });
+
+    load();
 }
 
 function _evBindForecastHandlers(ev) {
