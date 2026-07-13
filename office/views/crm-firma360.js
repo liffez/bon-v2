@@ -169,6 +169,7 @@ function _f3RenderOversigt(el) {
                     <span class="f3-card-title">Stamdata</span>
                 </div>
                 <div class="f3-card-b">
+                    ${_f3EditableRow('Navn', 'name', company.name)}
                     ${_f3EditableRow('CVR', 'cvr', company.cvr)}
                     ${_f3EditableRow('EAN', 'ean', company.ean)}
                     ${_f3EditableRow('Juridisk', 'legal_name', company.legal_name)}
@@ -233,6 +234,7 @@ function _f3RenderOversigt(el) {
 // ─── Redigerbare stamdata-felter (CVR / EAN / juridisk navn) ─
 
 const _F3_FIELD_META = {
+    name:       { label: 'Navn',    placeholder: 'Firmanavn (vises i lister)' },
     cvr:        { label: 'CVR',     placeholder: '8 cifre',  inputmode: 'numeric' },
     ean:        { label: 'EAN',     placeholder: '13 cifre', inputmode: 'numeric' },
     legal_name: { label: 'Juridisk', placeholder: 'Juridisk navn' },
@@ -283,7 +285,11 @@ async function _f3SaveField(field, rawValue) {
     const value = rawValue.trim();
 
     // Klient-side validering (serveren validerer også)
-    if (field === 'cvr') {
+    if (field === 'name') {
+        if (value === '') {
+            _f3ShowToast('Firmanavn må ikke være tomt', 'error'); return;
+        }
+    } else if (field === 'cvr') {
         const digits = value.replace(/\D/g, '');
         if (digits !== '' && digits.length !== 8) {
             _f3ShowToast('CVR skal være 8 cifre', 'error'); return;
@@ -380,6 +386,8 @@ async function _f3RemoveFlag(flagId) {
 
 async function _f3Reload() {
     _f3State.data = await fetchCrmCompany(_f3State.companyId);
+    // Re-render også shell'en så header (navn/legal/CVR/EAN) afspejler nye stamdata.
+    _f3RenderShell();
     _f3RenderTab(_f3State.tab || 'oversigt');
 }
 

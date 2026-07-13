@@ -64,6 +64,23 @@
             .wl-card { background: #fff; border: 1px solid var(--color-border, #d7d1ca); border-radius: 8px;
                        padding: 16px; margin-bottom: 12px; transition: box-shadow 0.2s; cursor: pointer; }
             .wl-card:hover { box-shadow: 0 2px 8px rgba(0,0,0,0.08); }
+            /* Vælg-til-kampagne checkbox — vises kun når select-mode er slået til
+               (ListCampaignSelect sætter [data-cselect="on"] på liste-containeren). */
+            .wl-check { display: none; }
+            [data-cselect="on"] .wl-card { position: relative; padding-left: 48px; }
+            [data-cselect="on"] .wl-check {
+                display: flex; align-items: center; justify-content: center;
+                position: absolute; left: 16px; top: 18px;
+                width: 20px; height: 20px; border-radius: 5px;
+                border: 2px solid var(--color-border, #d7d1ca);
+                background: #fff; color: #fff; font-size: 13px; line-height: 1;
+                transition: background 0.12s, border-color 0.12s;
+            }
+            .wl-card.csel-checked .wl-check {
+                background: var(--brand-primary, #8e631f);
+                border-color: var(--brand-primary, #8e631f);
+            }
+            .wl-card.csel-checked .wl-check::after { content: '✓'; }
             .wl-top { display: flex; justify-content: space-between; align-items: flex-start; gap: 12px; }
             .wl-name { font-size: 16px; font-weight: 600; }
             .wl-name[title] { cursor: pointer; }
@@ -263,6 +280,7 @@
                 return `
                 <div class="wl-card" id="${uid}-card-${i}" data-idx="${i}"
                      data-company-id="${compId}" data-customer-id="${cid}" data-name="${attr(name)}">
+                    <span class="wl-check" aria-hidden="true"></span>
                     <div class="wl-top">
                         <div>
                             <div class="wl-name"${nameTitle}>${esc(name)}</div>
