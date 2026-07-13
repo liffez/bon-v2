@@ -1007,7 +1007,7 @@ function patchCompanyEconomic(companyId, economicCustomerId) {
 }
 
 function patchCompanyIdentifiers(companyId, fields) {
-    // fields: { cvr?, legal_name?, ean? } — kun medsendte felter opdateres
+    // fields: { name?, cvr?, legal_name?, ean? } — kun medsendte felter opdateres
     return apiFetch('/companies/' + companyId + '/identifiers', {
         method: 'PATCH',
         body: JSON.stringify(fields),
