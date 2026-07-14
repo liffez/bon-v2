@@ -1106,3 +1106,9 @@
 .drawer-co2-row-total { background: #eef6ef; font-weight: 700; }
 .drawer-co2-row-total .drawer-co2-row-name { color: #2f6b39; }
 .drawer-co2-missing { padding: 8px 12px; font-size: 12px; color: #98701f; background: #fdf6e6; }
+
+/* CO₂ pr. kuvert */
+.drawer-co2-perkuvert { opacity: 0.9; }
+.drawer-co2-row-perkuvert { background: #f4f9f4; color: #2f6b39; }
+.drawer-co2-row-perkuvert .drawer-co2-row-name { color: #2f6b39; }
+.drawer-co2-row-sub { color: #8a8073; font-weight: 400; font-size: 12px; }
