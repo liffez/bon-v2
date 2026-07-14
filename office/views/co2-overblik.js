@@ -404,11 +404,16 @@ function _covDataQuality(ov) {
 // få lukker mest af hullet. Klik → drill-down (se hvilken råvare der mangler).
 function _covMissingRecipes(list) {
     if (!list.length) return '';
-    const rows = list.map(r =>
-        `<div class="cov-mr-row" data-mr-id="${r.id}" title="Klik → se hvad der mangler i opskriften">
+    const rows = list.map(r => {
+        const acc = r.accuracy_pct;
+        const accBadge = acc != null
+            ? `<span class="cov-mr-acc ${acc >= 80 ? 'hi' : (acc >= 50 ? 'mid' : 'lo')}" title="Andel af opskriftens masse der har CO₂-tal">${acc}% dækket</span>`
+            : '';
+        return `<div class="cov-mr-row" data-mr-id="${r.id}" title="Klik → se hvad der mangler i opskriften">
            <span class="cov-mr-name">${_covEsc(r.name)}</span>
-           <span class="cov-mr-use">${r.bons} bons <span class="cov-dim">·</span> ${_covNum(r.units, 0)} stk</span>
-         </div>`).join('');
+           <span class="cov-mr-right">${accBadge}<span class="cov-mr-use">${r.bons} bons <span class="cov-dim">·</span> ${_covNum(r.units, 0)} stk</span></span>
+         </div>`;
+    }).join('');
     return `
       <div class="cov-mr">
         <h3>Opskrifter uden CO₂-tal <span class="cov-dim">· mest solgt først (seneste 12 mdr) — fiks disse for at lukke mest af hullet</span></h3>
@@ -799,7 +804,7 @@ function _covRenderPanel(d) {
         ? `<div class="cov-panel-total"><span class="cov-panel-total-val">${_covNum(d.total_per_serving)}</span> <span class="cov-dim">${_covEsc(unitLbl)}</span></div>`
         : `<div class="cov-panel-total cov-panel-total-partial">
              <span class="cov-panel-total-val">${_covNum(d.total_per_serving)}</span> <span class="cov-dim">${_covEsc(unitLbl)}</span>
-             <div class="cov-panel-warn">⚠ Ufuldstændig — tallet mangler data på nogle råvarer (se nedenfor)</div>
+             ${_covAccuracyNote(d)}
            </div>`;
 
     // Kombinér ingredienser + underopskrifter, sortér efter bidrag (mangler nederst)
@@ -825,6 +830,24 @@ function _covRenderPanel(d) {
       </div>`;
 
     _covBindPanelRows();
+}
+
+// Nøjagtigheds-note: hvor stor en andel af opskriftens KENDTE masse har en faktor.
+function _covAccuracyNote(d) {
+    const acc = d.accuracy_pct;
+    const missKg = d.missing_kg_per_serving || 0;
+    const parts = [];
+    if (acc != null) {
+        const uncov = 100 - acc;
+        parts.push(`<b>Nøjagtighed ${acc}%</b>`);
+        if (missKg > 0) parts.push(`${_covNum(missKg, 3)} kg${uncov ? ` (${uncov}%)` : ''} uden CO₂-tal`);
+    } else {
+        parts.push('<b>Nøjagtighed ukendt</b>');
+    }
+    if (d.missing_kgvej_count > 0) {
+        parts.push(`${d.missing_kgvej_count} råvare${d.missing_kgvej_count > 1 ? 'r' : ''} med ukendt vægt`);
+    }
+    return `<div class="cov-panel-warn">⚠ ${parts.join(' <span class="cov-dim">·</span> ')}</div>`;
 }
 
 function _covPanelBar(pct) {
@@ -864,11 +887,13 @@ function _covPanelIngRow(x) {
 }
 
 function _covPanelSubRow(x) {
-    const st = x.complete ? '' : ' <span class="cov-badge cov-badge-amber">mangler data</span>';
+    const missKg = x.missing_kg || 0;
+    const st = x.complete ? ''
+        : `<span class="cov-badge cov-badge-amber">mangler data</span>${missKg > 0 ? ` <span class="cov-dim">${_covNum(missKg, 3)} kg uden faktor</span>` : ''}`;
     return `<tr class="cov-panel-sub" data-sub-id="${x.recipe_id}" title="Klik → åbn underopskrift">
       <td class="cov-panel-ing">↳ ${_covEsc(x.name)} <span class="cov-tag cov-tag-sub">underopskrift</span></td>
       <td class="cov-num">${_covNum(x.servings_per_serving, 3)}</td>
-      <td class="cov-num cov-dim">—</td>
+      <td class="cov-num">${x.mass_kg != null ? _covNum(x.mass_kg, 3) : '<span class="cov-dim">—</span>'}</td>
       <td class="cov-num cov-dim">—</td>
       <td class="cov-num">${x.contribution != null ? '<b>' + _covNum(x.contribution, 3) + '</b>' : st}</td>
       <td class="cov-bar-col">${_covPanelBar(x.pct)}</td>

@@ -180,7 +180,7 @@ router.get('/overview', AUTH, handle(async (req, res) => {
     // Impact-rangeret: ufuldstændige opskrifter der FAKTISK sælges på bons
     // (seneste 12 mdr) → fiks disse få for at lukke mest af CO₂-hullet.
     const incompleteIds = new Set(real.filter(r => !r.complete).map(r => r.recipe_id));
-    const nameById = new Map(real.map(r => [r.recipe_id, r.name]));
+    const metaById = new Map(real.map(r => [r.recipe_id, r]));
     let missingRecipes = [];
     try {
         const usage = getDb().prepare(`
@@ -199,7 +199,14 @@ router.get('/overview', AUTH, handle(async (req, res) => {
         `).all();
         missingRecipes = usage
             .filter(u => incompleteIds.has(Number(u.rid)))
-            .map(u => ({ id: Number(u.rid), name: nameById.get(Number(u.rid)) || ('#' + u.rid), bons: u.bons, units: u.units }))
+            .map(u => {
+                const m = metaById.get(Number(u.rid)) || {};
+                return {
+                    id: Number(u.rid), name: m.name || ('#' + u.rid),
+                    bons: u.bons, units: u.units,
+                    accuracy_pct: m.accuracy_pct != null ? m.accuracy_pct : null, // dækket masse-%
+                };
+            })
             .sort((a, b) => b.units - a.units)
             .slice(0, 15);
     } catch (e) { /* bon-forbrug er bonus — fejl må ikke vælte overblikket */ }
