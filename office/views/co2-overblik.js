@@ -157,6 +157,18 @@ function _covKpi(label, value, sub, tone) {
 
 /* Blok — transport-CO₂ (docs/CLAUDE_CO2_TRANSPORT.md §2). */
 
+// Vognfarve — samme palette som leveringsmodulet (migration 074 + logistik-legende):
+// DB-farven vinder; ellers type-fallback med de præcise seed-hex. Grå for pickup/Ukendt.
+function _covMethodColor(m) {
+    if (m && m.color) return m.color;
+    const t = m && m.type;
+    return t === 'volvo' ? '#8e631f'
+        : t === 'taxi' ? '#4a8a3a'
+        : t === 'bike' ? '#2d6da3'
+        : t === 'own-bike' ? '#d98a2b'
+        : '#9a948c';
+}
+
 // Format hjælpere til transport-tabellen.
 const _covKg = (kg) => _covNum(kg, 1) + ' kg';
 const _covAvg = (g) => g == null ? '—' : (g >= 1000 ? _covNum(g / 1000, 1) + ' kg' : Math.round(g) + ' g');
@@ -197,7 +209,7 @@ function _covTransport() {
 
     // Metode-tabel
     const rows = methods.map(m => {
-        const dot = `<span class="cov-tr-dot" style="background:${_covEsc(m.color || '#c9c2b8')}"></span>`;
+        const dot = `<span class="cov-tr-dot" style="background:${_covEsc(_covMethodColor(m))}"></span>`;
         if (m.is_pickup) {
             return `<tr>
               <td>${dot}<span class="cov-tr-name">${_covEsc(m.label)}</span> <span class="cov-dim">· uden for scope</span></td>
@@ -240,7 +252,7 @@ function _covTransport() {
            <span class="cov-tr-m-val">${text}</span>
          </span>`;
     const distRows = methods.map(m => {
-        const col = _covEsc(m.color || '#c9c2b8');
+        const col = _covEsc(_covMethodColor(m));
         const km = m.km || 0, co2 = m.co2_kg || 0;
         return `<div class="cov-tr-drow">
             <span class="cov-tr-dlbl"><span class="cov-tr-dot" style="background:${col}"></span>${_covEsc(m.label)}</span>
