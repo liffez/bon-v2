@@ -262,13 +262,15 @@ function _covTransport() {
         <div class="cov-tr-step"><b>4 · Intet</b>0 — tælles som "mangler data"</div>
       </div>`;
 
-    // Metode-tabel
+    // Metode-tabel. Leverings-% = andel af ALLE leveringer (inkl. afhentning).
+    const totalDeliv = methods.reduce((a, m) => a + (m.deliveries || 0), 0) || 1;
+    const delivCell = (m) => `${m.deliveries} <span class="cov-dim">(${Math.round(m.deliveries / totalDeliv * 100)}%)</span>`;
     const rows = methods.map(m => {
         const dot = `<span class="cov-tr-dot" style="background:${_covEsc(_covMethodColor(m))}"></span>`;
         if (m.is_pickup) {
             return `<tr>
               <td>${dot}<span class="cov-tr-name">${_covEsc(m.label)}</span> <span class="cov-dim">· uden for scope</span></td>
-              <td class="cov-num">${m.deliveries}</td>
+              <td class="cov-num">${delivCell(m)}</td>
               <td class="cov-num cov-dim">—</td>
               <td class="cov-num cov-dim">0 kg</td>
               <td class="cov-num cov-dim">—</td>
@@ -277,7 +279,7 @@ function _covTransport() {
         }
         return `<tr>
           <td>${dot}<span class="cov-tr-name">${_covEsc(m.label)}</span></td>
-          <td class="cov-num">${m.deliveries}</td>
+          <td class="cov-num">${delivCell(m)}</td>
           <td class="cov-num">${_covNum(m.km, 0)}</td>
           <td class="cov-num"><b>${_covKg(m.co2_kg)}</b></td>
           <td class="cov-num">${_covAvg(m.avg_g)}</td>
