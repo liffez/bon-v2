@@ -373,6 +373,13 @@ function mapApiBonToCardData(apiBon) {
         event_id:        apiBon.event_id || null,
         event_name:      apiBon.event_name || '',
         event_model:     apiBon.event_model || '',
+        // CO₂ (Fase 3): 3-delt strip når transport-tal findes; ellers dormant.
+        co2: (apiBon.total_co2e != null || apiBon.transport_co2e_kg != null) ? {
+            food_kg:          apiBon.total_co2e != null ? apiBon.total_co2e : 0,
+            transport_kg:     apiBon.transport_co2e_kg != null ? apiBon.transport_co2e_kg : null,
+            transport_source: apiBon.transport_co2_source || null,
+            method:           apiBon.transport_vehicle_label || '',
+        } : undefined,
     };
 }
 

@@ -2047,8 +2047,23 @@ if (typeof _buildMailVars === 'undefined') {
             momsBeloeb: moms.toLocaleString('da-DK',{minimumFractionDigits:2})+' kr',
             co2PerLinje: menuLines.filter(function(l){return l.co2e;}).map(function(l){return l.product_name+': '+l.co2e+' kg × '+l.quantity+' = '+(l.co2e*l.quantity).toFixed(2);}).join('\n'),
             co2Total: menuLines.reduce(function(s,l){return s+((l.co2e||0)*l.quantity);},0).toFixed(2)+' kg CO₂e',
+            // Transport-CO₂ (Fase 3) — {{co2Total}} forbliver mad+emballage; disse lægges oveni.
+            co2Transport: _drawerCo2Transport(bon).text,
+            co2MedTransport: (menuLines.reduce(function(s,l){return s+((l.co2e||0)*l.quantity);},0) + _drawerCo2Transport(bon).kg).toFixed(2).replace('.',',')+' kg CO₂e',
+            leveringsMetode: bon.transport_vehicle_label || bon.delivery_vehicle_label || _drawerMethodLabel(bon.delivery_method) || '',
         };
     };
+}
+
+// Transport-CO₂ for mail: kg + dansk-formateret tekst (0 hvis ukendt/afhentning).
+function _drawerCo2Transport(bon) {
+    var hasT = bon && bon.transport_co2_source && bon.transport_co2_source !== 'none' && bon.transport_co2e_kg != null;
+    var kg = hasT ? Number(bon.transport_co2e_kg) : 0;
+    return { kg: kg, text: kg.toFixed(2).replace('.', ',') + ' kg' };
+}
+
+function _drawerMethodLabel(method) {
+    return { bike: 'Cykelbud', taxi: 'Taxa', volvo: 'Volvo Duett', pickup: 'Afhentning' }[method] || '';
 }
 
 function _drawerApplyTemplate() {

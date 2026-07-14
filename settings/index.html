@@ -2140,11 +2140,11 @@ var _mailTemplatesCache = [];
 var SYSTEM_KEYS = ['booking_confirmation', 'web_order_confirmation', 'order_email'];
 var TEMPLATE_VARS = {
   'booking_confirmation': ['kundeNavn','bonNummer','leveringsDato','leveringsTidspunkt','leveringsAdresse','pax','firmanavn','tag',
-      'menuUdenPriser','menuMedPriser','totalPris','totalExMoms','momsBeloeb','co2Total'],
+      'menuUdenPriser','menuMedPriser','totalPris','totalExMoms','momsBeloeb','co2Total','co2Transport','co2MedTransport','leveringsMetode'],
   'web_order_confirmation': ['kundeNavn','bonNummer','ordreType','leveringsDato','leveringsTid','pax','adresseBlok','oenskerBlok','tag'],
   'order_email': ['leverandoer','vareliste','dato','leveringsdato','tag'],
   '_default': ['kundeNavn','bonNummer','leveringsDato','leveringsTidspunkt','leveringsAdresse','pax','firmanavn','tag',
-      'menuUdenPriser','menuMedPriser','totalPris','totalExMoms','momsBeloeb']
+      'menuUdenPriser','menuMedPriser','totalPris','totalExMoms','momsBeloeb','co2Total','co2Transport','co2MedTransport','leveringsMetode']
 };
 
 function switchTemplate() {

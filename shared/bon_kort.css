@@ -569,7 +569,10 @@
     font-family: 'Lato', sans-serif;
 }
 .bon-co2 svg { width: 14px; height: 14px; }
-.bon-co2-value { font-weight: 700; }
+.bon-co2-value { font-weight: 400; }
+.bon-co2-value b { font-weight: 700; }
+.bon-co2-method { font-weight: 400; opacity: 0.75; }
+.bon-co2-sep { opacity: 0.4; margin: 0 2px; }
 
 /* ── ACTIONS (altid synlig) ────────────────────────────────── */
 .bon-actions {

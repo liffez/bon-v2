@@ -6,6 +6,7 @@ const { broadcast } = require('../shared/sse');
 const { requireAuth } = require('../shared/auth');
 const grocy   = require('../services/grocyAdapter');
 const { syncCashflowInvoice } = require('../services/cashflowSync');
+const bonTransportCo2 = require('../services/bonTransportCo2');
 // quConvert bruges nu via services/ingredientResolver.js
 
 /**
@@ -546,7 +547,15 @@ router.get('/:id', handle((req, res) => {
         `).all(...args);
     }
 
-    res.json({ ...bon, ...computeMomsFields(bon.total_price) });
+    // Transport-CO₂ pr. bon (Fase 3) — mad-CO₂ = bon.total_co2e, transport lægges ved.
+    const tco2 = bonTransportCo2.computeForBon(getDb(), bon);
+    res.json({
+        ...bon,
+        ...computeMomsFields(bon.total_price),
+        transport_co2e_kg: tco2.kg,
+        transport_co2_source: tco2.source,
+        transport_vehicle_label: tco2.vehicle_label,
+    });
 }));
 
 // ─── POST /api/bons — opret ny bon ─────────────────────────────────────────
