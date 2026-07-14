@@ -226,3 +226,14 @@
     background: #faf8f4; border: 1px solid #ece7de; border-radius: 8px; padding: 5px 8px; }
 .cov-per-panel input[type="date"] { border: 1px solid #d7d1ca; border-radius: 6px; padding: 4px 6px; font-size: 13px; color: #3a2f1c; }
 .cov-per-panel .cov-btn-primary { padding: 5px 12px; font-size: 13px; }
+
+/* Opskrifter uden CO₂-tal (impact-rangeret, brugt på bons) */
+.cov-mr { margin-top: 20px; padding-top: 16px; border-top: 1px solid #f0ece4; }
+.cov-mr h3 { font-size: 13px; margin: 0 0 8px; color: #5a5142; }
+.cov-mr-list { border: 1px solid #eed9a8; border-radius: 8px; overflow: hidden; background: #fdfaf3; }
+.cov-mr-row { display: flex; align-items: center; justify-content: space-between; gap: 12px;
+    padding: 8px 12px; border-bottom: 1px solid #f3e9d2; cursor: pointer; transition: background .1s; }
+.cov-mr-row:last-child { border-bottom: none; }
+.cov-mr-row:hover { background: #faf1dc; }
+.cov-mr-name { font-weight: 600; color: #3a2f1c; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.cov-mr-use { font-variant-numeric: tabular-nums; color: #8a7a52; font-size: 13px; white-space: nowrap; }

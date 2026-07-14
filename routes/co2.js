@@ -177,6 +177,33 @@ router.get('/overview', AUTH, handle(async (req, res) => {
     });
     const top = (m) => [...m.entries()].sort((a, b) => b[1] - a[1]).slice(0, 15).map(([name, count]) => ({ name, count }));
 
+    // Impact-rangeret: ufuldstændige opskrifter der FAKTISK sælges på bons
+    // (seneste 12 mdr) → fiks disse få for at lukke mest af CO₂-hullet.
+    const incompleteIds = new Set(real.filter(r => !r.complete).map(r => r.recipe_id));
+    const nameById = new Map(real.map(r => [r.recipe_id, r.name]));
+    let missingRecipes = [];
+    try {
+        const usage = getDb().prepare(`
+            SELECT bl.grocy_recipe_id AS rid,
+                   COUNT(DISTINCT bl.bon_id)  AS bons,
+                   COALESCE(SUM(bl.quantity), 0) AS units
+              FROM bon_lines bl
+              JOIN bons b ON b.id = bl.bon_id
+              JOIN status_definitions sd ON b.status_id = sd.id
+             WHERE bl.grocy_recipe_id IS NOT NULL
+               AND (b.is_offer = 0 OR b.is_offer IS NULL)
+               AND (b.is_internal = 0 OR b.is_internal IS NULL)
+               AND sd.code != 'AFLYST'
+               AND b.delivery_date >= date('now','localtime','-12 months')
+             GROUP BY bl.grocy_recipe_id
+        `).all();
+        missingRecipes = usage
+            .filter(u => incompleteIds.has(Number(u.rid)))
+            .map(u => ({ id: Number(u.rid), name: nameById.get(Number(u.rid)) || ('#' + u.rid), bons: u.bons, units: u.units }))
+            .sort((a, b) => b.units - a.units)
+            .slice(0, 15);
+    } catch (e) { /* bon-forbrug er bonus — fejl må ikke vælte overblikket */ }
+
     res.json({
         summary: {
             total: real.length,
@@ -199,6 +226,7 @@ router.get('/overview', AUTH, handle(async (req, res) => {
             .sort((a, b) => (b.co2e_per_serving || 0) - (a.co2e_per_serving || 0)),
         categories: [...new Set(real.map(r => (meta.get(r.recipe_id) || {}).category).filter(Boolean))].sort((a, b) => a.localeCompare(b, 'da')),
         missing: { factor: enrichMissing(top(mf)), kgvej: enrichMissing(top(mk)) },
+        missing_recipes: missingRecipes,
     });
 }));
 

@@ -396,7 +396,24 @@ function _covDataQuality(ov) {
             <div class="cov-miss-chips">${chips(mf, 'factor')}</div>
           </div>
         </div>
+        ${_covMissingRecipes(ov.missing_recipes || [])}
       </section>`;
+}
+
+// Impact-rangeret liste: ufuldstændige opskrifter der sælges på bons. Fiks disse
+// få lukker mest af hullet. Klik → drill-down (se hvilken råvare der mangler).
+function _covMissingRecipes(list) {
+    if (!list.length) return '';
+    const rows = list.map(r =>
+        `<div class="cov-mr-row" data-mr-id="${r.id}" title="Klik → se hvad der mangler i opskriften">
+           <span class="cov-mr-name">${_covEsc(r.name)}</span>
+           <span class="cov-mr-use">${r.bons} bons <span class="cov-dim">·</span> ${_covNum(r.units, 0)} stk</span>
+         </div>`).join('');
+    return `
+      <div class="cov-mr">
+        <h3>Opskrifter uden CO₂-tal <span class="cov-dim">· mest solgt først (seneste 12 mdr) — fiks disse for at lukke mest af hullet</span></h3>
+        <div class="cov-mr-list">${rows}</div>
+      </div>`;
 }
 
 /* Blok 3 — CO₂ over tid. To visninger: stacked pr. kategori (default) + total. */
@@ -581,6 +598,14 @@ function _covBind() {
             if (act === 'goto-vej' && window.switchSection) window.switchSection('co2', 'vej');
             else if (act === 'goto-emballage' && window.switchSection) window.switchSection('co2', 'emballage');
             else if (act === 'manual') _covManualFactor(chip);
+        });
+    });
+
+    // Opskrifter uden CO₂-tal: klik → drill-down (se hvad der mangler).
+    el.querySelectorAll('.cov-mr-row').forEach(row => {
+        row.addEventListener('click', () => {
+            const id = parseInt(row.dataset.mrId, 10);
+            if (id) _covOpenPanel(id);
         });
     });
 
