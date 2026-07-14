@@ -190,15 +190,20 @@
 .cov-cov-lo  { background: #f7e2dd; color: #b0432f; }
 .cov-cov-na  { color: #a49a8c; font-weight: 400; }
 
-.cov-tr-bars { margin-top: 20px; }
-.cov-tr-bars-h { font-size: 13px; font-weight: 700; color: #3a2f1c; margin-bottom: 6px; }
-.cov-tr-bar-row { display: grid; grid-template-columns: 150px 1fr 90px; align-items: center;
-    gap: 12px; padding: 5px 0; font-size: 13px; color: #5a5142; }
-.cov-tr-bar-lbl { display: flex; align-items: center; }
-.cov-tr-bar-track { background: #f3efe8; border-radius: 6px; height: 20px; overflow: hidden; }
-.cov-tr-bar-fill { height: 100%; border-radius: 6px; color: #fff; font-size: 11px; font-weight: 700;
-    display: flex; align-items: center; padding-left: 8px; box-sizing: border-box; }
-.cov-tr-bar-km { text-align: right; font-variant-numeric: tabular-nums; color: #8a8073; font-size: 12.5px; }
+/* Fordeling pr. metode — 3-søjlers sammenligning (ture · km · CO₂) */
+.cov-tr-dist { margin-top: 22px; }
+.cov-tr-dist-h { font-size: 13px; font-weight: 700; color: #3a2f1c; margin-bottom: 8px; }
+.cov-tr-drow { display: grid; grid-template-columns: 150px repeat(3, 1fr); align-items: center;
+    gap: 14px; padding: 5px 0; font-size: 13px; color: #5a5142; }
+.cov-tr-dhead { font-size: 10.5px; text-transform: uppercase; letter-spacing: .04em;
+    color: #9a9083; font-weight: 600; padding-bottom: 2px; border-bottom: 1px solid #f0ece4; }
+.cov-tr-dhead > span { text-align: left; }
+.cov-tr-dlbl { display: flex; align-items: center; font-weight: 600; color: #3a2f1c; }
+.cov-tr-m { display: flex; align-items: center; gap: 8px; }
+.cov-tr-m-track { flex: 1; background: #f3efe8; border-radius: 5px; height: 14px; overflow: hidden; min-width: 20px; }
+.cov-tr-m-fill { display: block; height: 100%; border-radius: 5px; min-width: 2px; }
+.cov-tr-m-val { font-variant-numeric: tabular-nums; color: #5a5142; font-size: 12px; white-space: nowrap;
+    min-width: 58px; text-align: right; }
 
 .cov-tr-dq { display: flex; align-items: center; justify-content: space-between; gap: 12px;
     background: #fbf0dc; border: 1px solid #eed9a8; border-radius: 8px;

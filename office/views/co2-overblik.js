@@ -228,21 +228,32 @@ function _covTransport() {
         <td class="cov-num">${_covCovBadge(t.coverage_pct)}</td>
       </tr>`;
 
-    // km-fordelingsgraf (kun ikke-afhentning med km > 0)
-    const kmMethods = methods.filter(m => !m.is_pickup && m.km > 0);
-    const kmTotal = kmMethods.reduce((a, m) => a + m.km, 0) || 1;
-    const bars = kmMethods
-        .slice().sort((a, b) => b.km - a.km)
-        .map(m => {
-            const pct = Math.round(m.km / kmTotal * 100);
-            const col = _covEsc(m.color || '#8e631f');
-            return `<div class="cov-tr-bar-row">
-              <span class="cov-tr-bar-lbl"><span class="cov-tr-dot" style="background:${col}"></span>${_covEsc(m.label)}</span>
-              <span class="cov-tr-bar-track"><span class="cov-tr-bar-fill" style="width:${pct}%;background:${col}">${pct >= 6 ? pct + '%' : ''}</span></span>
-              <span class="cov-tr-bar-km">${_covNum(m.km, 0)} km</span>
-            </div>`;
-        }).join('');
-    const barsBlock = bars ? `<div class="cov-tr-bars"><div class="cov-tr-bars-h">km-fordeling</div>${bars}</div>` : '';
+    // Fordeling pr. metode — tre dimensioner: antal ture, km, CO₂ (alle metoder).
+    // Hver søjle normaliseres til sin egen kolonne-max, så man kan se hvem der
+    // kører flest ture vs. flest km vs. udleder mest CO₂.
+    const maxT = Math.max(1, ...methods.map(m => m.deliveries || 0));
+    const maxK = Math.max(1, ...methods.map(m => m.km || 0));
+    const maxC = Math.max(1, ...methods.map(m => m.co2_kg || 0));
+    const metricCell = (val, max, text, col) =>
+        `<span class="cov-tr-m">
+           <span class="cov-tr-m-track"><span class="cov-tr-m-fill" style="width:${Math.round((val / max) * 100)}%;background:${col}"></span></span>
+           <span class="cov-tr-m-val">${text}</span>
+         </span>`;
+    const distRows = methods.map(m => {
+        const col = _covEsc(m.color || '#c9c2b8');
+        const km = m.km || 0, co2 = m.co2_kg || 0;
+        return `<div class="cov-tr-drow">
+            <span class="cov-tr-dlbl"><span class="cov-tr-dot" style="background:${col}"></span>${_covEsc(m.label)}</span>
+            ${metricCell(m.deliveries, maxT, m.deliveries + (m.deliveries === 1 ? ' tur' : ' ture'), col)}
+            ${metricCell(km, maxK, m.is_pickup ? '—' : _covNum(km, 0) + ' km', col)}
+            ${metricCell(co2, maxC, m.is_pickup ? '—' : _covKg(co2), col)}
+          </div>`;
+    }).join('');
+    const barsBlock = `<div class="cov-tr-dist">
+        <div class="cov-tr-dist-h">Fordeling pr. metode</div>
+        <div class="cov-tr-drow cov-tr-dhead"><span></span><span>Antal ture</span><span>km</span><span>CO₂</span></div>
+        ${distRows}
+      </div>`;
 
     // Datakvalitets-strip (§2.4 — km-data vs. metode/faktor adskilt så tallet er ærligt)
     const unmapped = tr.unmapped_count || 0;
