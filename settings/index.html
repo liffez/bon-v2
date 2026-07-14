@@ -1072,6 +1072,38 @@
             <strong>Tom:</strong> afhentning beregnes fra ORS-køretid + afleveringstid.
           </div>
         </div>
+        <!-- ── CO₂-BEREGNING (transport-CO₂) ─────────────────────────────── -->
+        <div style="margin-top:22px;padding:14px;border:1px solid var(--color-border);border-radius:6px;background:#fbfdf9">
+          <label class="st-label" style="margin:0 0 4px">🌱 CO₂-beregning</label>
+          <div style="font-size:12px;color:#888;margin-bottom:12px">
+            Bruges af CO₂-oversigten. Tom/0 = tæller ikke med. Faktorer er estimater — se metodenoten i rapporten.
+          </div>
+          <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px">
+            <div>
+              <label class="st-label">CO₂-faktor (g CO₂e / km)</label>
+              <input type="number" id="dv-edit-co2-per-km" class="st-input" min="0" step="1" placeholder="0">
+              <div style="margin-top:4px;font-size:11px;color:#888">Fx Volvo 250 · el-taxa 60 · cykelbud 5</div>
+            </div>
+            <div>
+              <label class="st-label">Fast CO₂ pr. tur (g) — fallback</label>
+              <input type="number" id="dv-edit-co2-fixed" class="st-input" min="0" step="1" placeholder="0">
+              <div style="margin-top:4px;font-size:11px;color:#888">Bruges når leveringen ikke har km-data</div>
+            </div>
+            <div>
+              <label class="st-label">Afstands-faktor</label>
+              <input type="number" id="dv-edit-co2-mult" class="st-input" min="0" step="0.1" placeholder="1,0">
+              <div style="margin-top:4px;font-size:11px;color:#888">Kun punkt-til-punkt: Volvo 2,0 (tur/retur) · bud 1,0</div>
+            </div>
+            <div>
+              <label class="st-label">Positionerings-tillæg (km)</label>
+              <input type="number" id="dv-edit-co2-pos" class="st-input" min="0" step="0.1" placeholder="0">
+              <div style="margin-top:4px;font-size:11px;color:#888">Eksterne bud: km fra leverandørens base → HQ. Egne vogne = 0.</div>
+            </div>
+          </div>
+          <div style="margin-top:10px;font-size:11px;color:#888;background:var(--color-background);border-radius:6px;padding:8px 10px">
+            Ligger leveringen på en <strong>beregnet rute</strong>, bruges rutens faktiske km (inkl. retur) og afstands-faktoren ignoreres. Positionerings-tillæg gælder kun eksterne bud (By-expressen, Taxa).
+          </div>
+        </div>
         <div style="margin-top:18px;display:flex;gap:10px;justify-content:flex-end">
           <button type="button" class="st-btn-secondary" onclick="dvCloseEditor()">Annullér</button>
           <button type="button" class="st-btn" id="dv-save-btn" onclick="dvSaveVehicle()">Gem</button>
@@ -3857,6 +3889,11 @@ function dvEditVehicle(id) {
     document.getElementById('dv-edit-template').value = v.booking_template || '';
     document.getElementById('dv-edit-cost').value = v.cost_formula_json || '';
     document.getElementById('dv-edit-pickup-lead').value = v.pickup_lead_min != null ? v.pickup_lead_min : '';
+    // CO₂-beregning (0/1.0 = default → vis tomt så placeholder guider)
+    document.getElementById('dv-edit-co2-per-km').value = v.co2_g_per_km ? v.co2_g_per_km : '';
+    document.getElementById('dv-edit-co2-fixed').value  = v.co2_g_fixed ? v.co2_g_fixed : '';
+    document.getElementById('dv-edit-co2-mult').value   = (v.co2_distance_multiplier != null && v.co2_distance_multiplier !== 1) ? v.co2_distance_multiplier : '';
+    document.getElementById('dv-edit-co2-pos').value    = v.co2_positioning_km ? v.co2_positioning_km : '';
 
     // Booking-fields (felt-for-felt-konfiguration)
     _dvFields = _dvParseFields(v.booking_fields_json);
@@ -4176,6 +4213,12 @@ async function dvSaveVehicle() {
 
     const pickupLeadRaw = document.getElementById('dv-edit-pickup-lead').value.trim();
     data.pickup_lead_min = pickupLeadRaw === '' ? null : parseInt(pickupLeadRaw, 10);
+
+    // CO₂-beregning: tom → backend sætter default (0, mult → 1).
+    data.co2_g_per_km            = document.getElementById('dv-edit-co2-per-km').value.trim();
+    data.co2_g_fixed             = document.getElementById('dv-edit-co2-fixed').value.trim();
+    data.co2_distance_multiplier = document.getElementById('dv-edit-co2-mult').value.trim();
+    data.co2_positioning_km      = document.getElementById('dv-edit-co2-pos').value.trim();
 
     try {
         await patchDeliveryVehicle(_dvEditingId, data);

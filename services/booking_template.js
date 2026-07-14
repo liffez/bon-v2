@@ -208,6 +208,7 @@ function getVehicleById(id) {
                max_capacity_boxes, max_distance_km, pickup_lead_min,
                cost_formula_json, booking_method, booking_url, booking_template,
                booking_fields_json,
+               co2_g_per_km, co2_g_fixed, co2_distance_multiplier, co2_positioning_km,
                booking_api_config_json, supplier_id, is_active, sort_order
         FROM delivery_vehicles
         WHERE id = ?

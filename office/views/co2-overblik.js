@@ -52,13 +52,15 @@ const _covNum = (n, d = 2) => (n == null ? '—' : Number(n).toLocaleString('da-
 
 async function _covLoad() {
     try {
-        const [ov, ts, syn] = await Promise.all([
+        const [ov, ts, syn, tr] = await Promise.all([
             fetchCo2Overview(), fetchCo2Timeseries(12),
             fetchCo2Synonyms().catch(() => ({ synonyms: [] })),
+            fetchCo2Transport(12).catch(() => null),
         ]);
         _covState.overview = ov;
         _covState.series = ts.months || [];
         _covState.synonyms = syn.synonyms || [];
+        _covState.transport = tr;   // { window, methods, total, missing_km_count } | null
         _covRender();
     } catch (e) {
         if (!_covState.container) return;
@@ -91,14 +93,16 @@ function _covRender() {
 
         <div class="cov-kpis">
           ${_covKpi('Dækning', s.coverage_pct + '%', `${s.complete} af ${s.total} opskrifter`, s.coverage_pct >= 80 ? 'green' : (s.coverage_pct >= 40 ? 'amber' : 'red'))}
-          ${_covKpi('CO₂ · seneste 12 mdr', _covNum(periodCo2e, 0), 'kg CO₂e', '')}
-          ${_covKpi('CO₂ pr. kuvert', perPax != null ? _covNum(perPax) : '—', 'kg CO₂e / kuvert', '')}
+          ${_covKpi('CO₂ mad · 12 mdr', _covNum(periodCo2e, 0), 'kg CO₂e · mad + emballage', '')}
+          ${_covTransportKpi()}
+          ${_covKpi('CO₂ pr. kuvert', perPax != null ? _covNum(perPax) : '—', 'kg CO₂e / kuvert · ekskl. transport', '')}
           ${_covKpi('Komplette opskrifter', String(s.complete), 'med fuldt CO₂-tal', 'green')}
         </div>
 
         ${_covDataQuality(ov)}
         ${_covSynonyms()}
         ${_covTimeChart(series)}
+        ${_covTransport()}
         ${_covRecipeTable(ov.recipes)}
       </div>`;
 
@@ -149,6 +153,121 @@ function _covKpi(label, value, sub, tone) {
         <div class="cov-kpi-lbl">${_covEsc(label)}</div>
         <div class="cov-kpi-sub">${_covEsc(sub)}</div>
     </div>`;
+}
+
+/* Blok — transport-CO₂ (docs/CLAUDE_CO2_TRANSPORT.md §2). */
+
+// Format hjælpere til transport-tabellen.
+const _covKg = (kg) => _covNum(kg, 1) + ' kg';
+const _covAvg = (g) => g == null ? '—' : (g >= 1000 ? _covNum(g / 1000, 1) + ' kg' : Math.round(g) + ' g');
+function _covCovBadge(pct) {
+    if (pct == null) return '<span class="cov-cov cov-cov-na">—</span>';
+    const cls = pct >= 80 ? 'cov-cov-hi' : (pct >= 50 ? 'cov-cov-mid' : 'cov-cov-lo');
+    return `<span class="cov-cov ${cls}">${pct}%</span>`;
+}
+
+function _covTransportKpi() {
+    const tr = _covState.transport;
+    if (!tr || !tr.total) return '';
+    const sub = `kg CO₂e · ${tr.total.coverage_pct}% af leveringer har km-data`;
+    return _covKpi('Transport · 12 mdr', _covNum(tr.total.co2_kg, 0), sub, 'green');
+}
+
+function _covTransport() {
+    const tr = _covState.transport;
+    if (!tr) {
+        return `<section class="cov-card"><h2>Transport pr. leveringsmetode</h2>
+            <p class="cov-dim">Transport-CO₂ kunne ikke hentes (kræver leveringsmodulet).</p></section>`;
+    }
+    const methods = tr.methods || [];
+    if (!methods.length) {
+        return `<section class="cov-card"><h2>Transport pr. leveringsmetode <span class="cov-dim">· seneste 12 mdr</span></h2>
+            <p class="cov-sub">Estimeret ud fra kørte km × CO₂-faktor pr. metode. Faktorer sættes i <code>Settings → Leveringsmetoder</code>.</p>
+            <p class="cov-dim">Ingen leveringer i perioden endnu.</p></section>`;
+    }
+
+    // Hierarki-forklaring (fra mockup)
+    const hierarchy = `
+      <div class="cov-tr-hier">
+        <div class="cov-tr-step"><b>1 · Rute beregnet</b>Faktiske rute-km (inkl. retur) × faktor — fordelt pr. stop</div>
+        <div class="cov-tr-step"><b>2 · Punkt-til-punkt</b>HQ→adresse × afstands-faktor × g/km (+ positionering)</div>
+        <div class="cov-tr-step"><b>3 · Ingen km-data</b>Fast CO₂ pr. tur (fallback pr. metode)</div>
+        <div class="cov-tr-step"><b>4 · Intet</b>0 — tælles som "mangler data"</div>
+      </div>`;
+
+    // Metode-tabel
+    const rows = methods.map(m => {
+        const dot = `<span class="cov-tr-dot" style="background:${_covEsc(m.color || '#c9c2b8')}"></span>`;
+        if (m.is_pickup) {
+            return `<tr>
+              <td>${dot}<span class="cov-tr-name">${_covEsc(m.label)}</span> <span class="cov-dim">· uden for scope</span></td>
+              <td class="cov-num">${m.deliveries}</td>
+              <td class="cov-num cov-dim">—</td>
+              <td class="cov-num cov-dim">0 kg</td>
+              <td class="cov-num cov-dim">—</td>
+              <td class="cov-num">${_covCovBadge(null)}</td>
+            </tr>`;
+        }
+        return `<tr>
+          <td>${dot}<span class="cov-tr-name">${_covEsc(m.label)}</span></td>
+          <td class="cov-num">${m.deliveries}</td>
+          <td class="cov-num">${_covNum(m.km, 0)}</td>
+          <td class="cov-num"><b>${_covKg(m.co2_kg)}</b></td>
+          <td class="cov-num">${_covAvg(m.avg_g)}</td>
+          <td class="cov-num">${_covCovBadge(m.coverage_pct)}</td>
+        </tr>`;
+    }).join('');
+
+    const t = tr.total;
+    const foot = `<tr class="cov-tr-foot">
+        <td>I alt <span class="cov-dim">(ekskl. afhentning)</span></td>
+        <td class="cov-num">${t.deliveries}</td>
+        <td class="cov-num">${_covNum(t.km, 0)}</td>
+        <td class="cov-num">${_covKg(t.co2_kg)}</td>
+        <td class="cov-num"></td>
+        <td class="cov-num">${_covCovBadge(t.coverage_pct)}</td>
+      </tr>`;
+
+    // km-fordelingsgraf (kun ikke-afhentning med km > 0)
+    const kmMethods = methods.filter(m => !m.is_pickup && m.km > 0);
+    const kmTotal = kmMethods.reduce((a, m) => a + m.km, 0) || 1;
+    const bars = kmMethods
+        .slice().sort((a, b) => b.km - a.km)
+        .map(m => {
+            const pct = Math.round(m.km / kmTotal * 100);
+            const col = _covEsc(m.color || '#8e631f');
+            return `<div class="cov-tr-bar-row">
+              <span class="cov-tr-bar-lbl"><span class="cov-tr-dot" style="background:${col}"></span>${_covEsc(m.label)}</span>
+              <span class="cov-tr-bar-track"><span class="cov-tr-bar-fill" style="width:${pct}%;background:${col}">${pct >= 6 ? pct + '%' : ''}</span></span>
+              <span class="cov-tr-bar-km">${_covNum(m.km, 0)} km</span>
+            </div>`;
+        }).join('');
+    const barsBlock = bars ? `<div class="cov-tr-bars"><div class="cov-tr-bars-h">km-fordeling</div>${bars}</div>` : '';
+
+    // Datakvalitets-strip (§2.4 — førsteklasses, vist prominent når km mangler)
+    const dq = tr.missing_km_count > 0
+        ? `<div class="cov-tr-dq">
+             <span>⚠ <b>${tr.missing_km_count} leveringer mangler km-data</b> — beregnet med fast fallback pr. tur. Dækning stiger når geodata-backfill kører.</span>
+             <button class="cov-tr-dq-link" id="covTrLogistik">Åbn leveringsmodul →</button>
+           </div>`
+        : '';
+
+    return `
+      <section class="cov-card">
+        <h2>Transport pr. leveringsmetode <span class="cov-dim">· seneste 12 mdr</span></h2>
+        <p class="cov-sub">Estimeret ud fra kørte km × CO₂-faktor pr. metode. Faktorer sættes i <code>Settings → Leveringsmetoder</code>. Afhentning tæller 0 (kundens transport er uden for scope).</p>
+        ${hierarchy}
+        <table class="cov-table cov-tr-table">
+          <thead><tr>
+            <th>Metode</th><th class="cov-num">Leveringer</th><th class="cov-num">km i alt</th>
+            <th class="cov-num">CO₂ i alt</th><th class="cov-num">Gns. pr. levering</th><th class="cov-num">km-dækning</th>
+          </tr></thead>
+          <tbody>${rows}</tbody>
+          <tfoot>${foot}</tfoot>
+        </table>
+        ${barsBlock}
+        ${dq}
+      </section>`;
 }
 
 /* Blok 2 — datakvalitet: dækningsbjælke + hvad mangler mest */
@@ -368,6 +487,13 @@ function _covBind() {
             else if (act === 'goto-emballage' && window.switchSection) window.switchSection('co2', 'emballage');
             else if (act === 'manual') _covManualFactor(chip);
         });
+    });
+
+    // Transport-datakvalitet: link til leveringsmodulet.
+    const trLog = el.querySelector('#covTrLogistik');
+    if (trLog) trLog.addEventListener('click', () => {
+        if (window.switchSection) window.switchSection('logistik');
+        else if (window.switchView) window.switchView('logistik');
     });
 
     // Synonymer: tilføj + fjern

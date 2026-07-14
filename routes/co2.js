@@ -23,6 +23,7 @@ const co2 = require('../services/co2Materials');
 const grocy = require('../services/grocyAdapter');
 const engine = require('../services/co2Engine');
 const synonyms = require('../services/co2Synonyms');
+const transport = require('../services/co2Transport');
 
 const ADMIN = requireAuth('admin');
 const AUTH  = requireAuth();
@@ -286,6 +287,72 @@ router.get('/timeseries', AUTH, handle((req, res) => {
             by_category: byMonth.get(r.month) || {},
         })),
     });
+}));
+
+/* ---------- transport-CO₂ (docs/CLAUDE_CO2_TRANSPORT.md §4 Fase 1.4) ---------- */
+// GET /api/co2/transport?months=12
+// On-the-fly aggregat pr. leveringsmetode: leveringer, km, CO₂, gns, km-dækning.
+// Ingen snapshot — beregnes fra delivery_vehicles-faktorer + geo/rute-km.
+router.get('/transport', AUTH, handle((req, res) => {
+    const db = getDb();
+    let months = parseInt(req.query.months, 10);
+    if (!Number.isInteger(months) || months < 1 || months > 60) months = 12;
+
+    // Vindue: [i dag − N måneder ; i dag]. SQLite date-math (localtime) → ingen UTC-fælde.
+    const win = db.prepare(
+        `SELECT date('now','localtime','-' || ? || ' months') AS from_d, date('now','localtime') AS to_d`
+    ).get(months);
+    const fromD = win.from_d, toD = win.to_d;
+
+    // 1) Vogne → byId + byType (default pr. type = aktiv, laveste sort_order).
+    const vehicles = db.prepare(`
+        SELECT id, code, label, type, color, sort_order, is_active,
+               co2_g_per_km, co2_g_fixed, co2_distance_multiplier, co2_positioning_km
+        FROM delivery_vehicles ORDER BY is_active DESC, sort_order, id
+    `).all();
+    const byId = new Map(vehicles.map(v => [v.id, v]));
+    const byType = new Map();
+    for (const v of vehicles) if (!byType.has(v.type)) byType.set(v.type, v);
+
+    // 2) Bons i vinduet (leverede/planlagte — ekskl. tilbud, interne, aflyste).
+    const bons = db.prepare(`
+        SELECT b.id, b.delivery_method, b.delivery_vehicle_id, b.delivery_address_id
+        FROM bons b
+        JOIN status_definitions sd ON b.status_id = sd.id
+        WHERE b.delivery_date BETWEEN ? AND ?
+          AND b.is_offer = 0 AND b.is_internal = 0
+          AND sd.code != 'AFLYST'
+    `).all(fromD, toD);
+
+    // 3) Rute-stop i vinduet → route-objekt pr. bon (til §3-fordeling).
+    const stopRows = db.prepare(`
+        SELECT rs.bon_id, rs.route_id, rs.distance_from_prev_m, r.total_km
+        FROM delivery_route_stops rs
+        JOIN delivery_routes r ON r.id = rs.route_id
+        WHERE r.route_date BETWEEN ? AND ?
+    `).all(fromD, toD);
+    const routeById = new Map();   // route_id → { total_km, stops:[...] }
+    const bonToRoute = new Map();  // bon_id → route_id
+    for (const s of stopRows) {
+        if (!routeById.has(s.route_id)) routeById.set(s.route_id, { total_km: s.total_km, stops: [] });
+        routeById.get(s.route_id).stops.push({ bon_id: s.bon_id, distance_from_prev_m: s.distance_from_prev_m });
+        bonToRoute.set(s.bon_id, s.route_id);
+    }
+
+    // 4) Geo-afstand pr. adresse (seneste).
+    const geoRows = db.prepare(`
+        SELECT address_id, distance_meters
+        FROM geo_calculations
+        WHERE distance_meters IS NOT NULL
+        ORDER BY calculated_at DESC, id DESC
+    `).all();
+    const addrDist = new Map();
+    for (const g of geoRows) if (!addrDist.has(g.address_id)) addrDist.set(g.address_id, g.distance_meters);
+
+    // 5) Aggregér pr. metode (ren logik i servicen).
+    const agg = transport.aggregateMethods({ bons, byId, byType, routeById, bonToRoute, addrDist });
+
+    res.json({ window: { from: fromD, to: toD, months }, ...agg });
 }));
 
 module.exports = router;
