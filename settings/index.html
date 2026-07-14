@@ -3846,6 +3846,13 @@ function _dvRender() {
             : '—';
         const inactiveStyle = v.is_active ? '' : 'opacity:0.5';
 
+        // CO₂-status: sat hvis g/km eller fast-tur er udfyldt (gælder alle vogntyper).
+        const co2km = Number(v.co2_g_per_km) || 0;
+        const co2fx = Number(v.co2_g_fixed) || 0;
+        const co2Status = (co2km > 0 || co2fx > 0)
+            ? '<span style="color:#5a9b3f">✓ ' + (co2km > 0 ? co2km + ' g/km' : 'fast ' + co2fx + ' g') + '</span>'
+            : '<span style="color:#c79a3a">⚠ mangler</span>';
+
         return '<tr style="' + inactiveStyle + '">' +
             '<td style="padding:6px 8px"><strong>' + esc(v.label) + '</strong>' +
                 ' <span style="font-size:11px;color:#888">(' + esc(v.code) + ')</span></td>' +
@@ -3854,6 +3861,7 @@ function _dvRender() {
             '<td style="padding:6px 8px;text-align:center">' + tplStatus + '</td>' +
             '<td style="padding:6px 8px;text-align:center">' + fieldStatus + '</td>' +
             '<td style="padding:6px 8px;text-align:center">' + urlStatus + '</td>' +
+            '<td style="padding:6px 8px;text-align:center">' + co2Status + '</td>' +
             '<td style="padding:6px 8px;text-align:right">' +
                 '<button class="st-btn-secondary st-btn-sm" onclick="dvEditVehicle(' + v.id + ')">Rediger</button>' +
             '</td>' +
@@ -3869,6 +3877,7 @@ function _dvRender() {
                 '<th style="padding:8px;text-align:center">Samlet tekst</th>' +
                 '<th style="padding:8px;text-align:center">Felter</th>' +
                 '<th style="padding:8px;text-align:center">URL</th>' +
+                '<th style="padding:8px;text-align:center">CO₂</th>' +
                 '<th style="padding:8px"></th>' +
             '</tr></thead>' +
             '<tbody>' + rows + '</tbody>' +
