@@ -316,7 +316,7 @@ router.get('/transport', AUTH, handle((req, res) => {
 
     // 2) Bons i vinduet (leverede/planlagte — ekskl. tilbud, interne, aflyste).
     const bons = db.prepare(`
-        SELECT b.id, b.delivery_method, b.delivery_vehicle_id, b.delivery_address_id
+        SELECT b.id, b.delivery_type, b.delivery_method, b.delivery_vehicle_id, b.delivery_address_id
         FROM bons b
         JOIN status_definitions sd ON b.status_id = sd.id
         WHERE b.delivery_date BETWEEN ? AND ?
@@ -349,8 +349,23 @@ router.get('/transport', AUTH, handle((req, res) => {
     const addrDist = new Map();
     for (const g of geoRows) if (!addrDist.has(g.address_id)) addrDist.set(g.address_id, g.distance_meters);
 
+    // 4b) Adresse-koordinater (haversine-fallback for bons uden ORS-vejcache) + HQ.
+    const addrCoords = new Map();
+    for (const a of db.prepare(
+        `SELECT id, lat, lon FROM addresses WHERE lat IS NOT NULL AND lon IS NOT NULL`
+    ).all()) {
+        addrCoords.set(a.id, { lat: Number(a.lat), lon: Number(a.lon) });
+    }
+    const hqRows = db.prepare(
+        `SELECT key, value FROM settings WHERE key IN ('delivery_hq_lat','delivery_hq_lon')`
+    ).all();
+    const hqMap = {};
+    for (const r of hqRows) hqMap[r.key] = Number(r.value);
+    const hq = (Number.isFinite(hqMap.delivery_hq_lat) && Number.isFinite(hqMap.delivery_hq_lon))
+        ? { lat: hqMap.delivery_hq_lat, lon: hqMap.delivery_hq_lon } : null;
+
     // 5) Aggregér pr. metode (ren logik i servicen).
-    const agg = transport.aggregateMethods({ bons, byId, byType, routeById, bonToRoute, addrDist });
+    const agg = transport.aggregateMethods({ bons, byId, byType, routeById, bonToRoute, addrDist, addrCoords, hq });
 
     res.json({ window: { from: fromD, to: toD, months }, ...agg });
 }));

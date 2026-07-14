@@ -177,6 +177,47 @@ console.log('\naggregateMethods — bucketing, dækning, afhentning, total');
     approx(out.total.co2_kg, 5.8, 'total co2 ≈ 5,8 kg', 0.1);
 }
 
+// --- Fix A: pickup via delivery_type (gamle bons med method=NULL) ------------
+console.log('\naggregateMethods — pickup via delivery_type + Ukendt-adskillelse');
+{
+    const bons = [
+        { id: 1, delivery_type: 'pickup', delivery_method: null, delivery_address_id: 5 }, // gammel afhentning
+        { id: 2, delivery_type: 'delivery', delivery_method: null, delivery_address_id: null }, // ægte ukendt metode
+        { id: 3, delivery_method: 'bike', delivery_address_id: null }, // By-expressen, ingen km → fixed
+    ];
+    const out = aggregateMethods({ bons, byId, byType, routeById: new Map(), bonToRoute: new Map(), addrDist: new Map() });
+    const byLabel = new Map(out.methods.map(m => [m.label, m]));
+    assert(byLabel.get('Afhentning').deliveries === 1, "delivery_type='pickup' m. method=NULL → afhentning (ikke Ukendt)");
+    assert(byLabel.get('Ukendt').deliveries === 1, 'ægte metodeløs levering → Ukendt');
+    assert(out.unmapped_count === 1, 'unmapped_count tæller Ukendt (ikke afhentning)');
+    assert(out.missing_km_count === 1, "missing_km_count = kun 'fixed' (By-expressen), ikke Ukendt");
+    assert(byLabel.get('Ukendt').coverage_pct === null, 'Ukendt har ingen dækning (—), trækker ikke total ned');
+}
+
+// --- Fix B: haversine-fallback fra adresse-koordinater ----------------------
+console.log('\naggregateMethods — haversine-fallback (gamle bons uden ORS-cache)');
+{
+    // HQ = (55.693, 12.552). Adresse ~1 km væk. Ingen ORS-cache → haversine × 1,3.
+    const hq = { lat: 55.69345859, lon: 12.55234495 };
+    const addrCoords = new Map([[9, { lat: 55.6845, lon: 12.5523 }]]); // ~1 km syd
+    const bons = [{ id: 1, delivery_method: 'volvo', delivery_address_id: 9 }];
+    const out = aggregateMethods({
+        bons, byId, byType, routeById: new Map(), bonToRoute: new Map(),
+        addrDist: new Map(), addrCoords, hq,
+    });
+    const volvo = out.methods.find(m => m.label === 'Volvo Duett');
+    assert(volvo.coverage_pct === 100, 'haversine-fallback → dækket (100%)');
+    assert(volvo.km > 0 && volvo.co2_kg > 0, 'haversine gav km + CO₂ > 0');
+    assert(out.missing_km_count === 0, 'ingen "mangler km-data" når adressen har koordinater');
+    // ORS-cache vinder over haversine når begge findes
+    const out2 = aggregateMethods({
+        bons, byId, byType, routeById: new Map(), bonToRoute: new Map(),
+        addrDist: new Map([[9, 20000]]), addrCoords, hq,
+    });
+    const volvo2 = out2.methods.find(m => m.label === 'Volvo Duett');
+    approx(volvo2.km, 40, 'ORS-cache (20 km × mult 2,0 = 40) vinder over haversine', 1);
+}
+
 // --- resultat ---------------------------------------------------------------
 console.log(`\n${pass} PASS · ${fail} FAIL`);
 process.exit(fail ? 1 : 0);

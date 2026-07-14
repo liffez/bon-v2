@@ -13,6 +13,20 @@
 // 'own-bike' (Egen cykel) nås aldrig via legacy — kun via delivery_vehicle_id.
 const METHOD_TO_TYPE = { volvo: 'volvo', bike: 'bike', taxi: 'taxi' };
 
+// Vej-detour-faktor: haversine (fugleflugt) undervurderer vejafstand. ×1,3 er en
+// standard-tilnærmelse når ORS-vejcachen mangler (gamle bons uden ruteberegning).
+const ROAD_FACTOR = 1.3;
+const _RAD = Math.PI / 180;
+
+/** Fugleflugt-afstand i km mellem to koordinater (til estimat-fallback). */
+function haversineKm(lat1, lon1, lat2, lon2) {
+    const dLat = (lat2 - lat1) * _RAD;
+    const dLon = (lon2 - lon1) * _RAD;
+    const a = Math.sin(dLat / 2) ** 2 +
+        Math.cos(lat1 * _RAD) * Math.cos(lat2 * _RAD) * Math.sin(dLon / 2) ** 2;
+    return 6371 * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
+}
+
 /** Robust tal-parse (accepterer dansk decimalkomma). Tom/ugyldig → 0. */
 function num(raw) {
     if (raw == null || raw === '') return 0;
@@ -151,22 +165,36 @@ function transportCo2ForBon({ bon, vehicle, route = null, geoCalc = null }) {
  * @param {Map}    args.addrDist   Map(address_id → distance_meters)
  * @returns {{ methods:Array, total:object, missing_km_count:number }}
  */
-function aggregateMethods({ bons, byId, byType, routeById, bonToRoute, addrDist }) {
+function aggregateMethods({ bons, byId, byType, routeById, bonToRoute, addrDist,
+                           addrCoords = new Map(), hq = null, roadFactor = ROAD_FACTOR }) {
     const buckets = new Map();
     const bucketFor = (key, seed) => {
-        if (!buckets.has(key)) buckets.set(key, Object.assign({ deliveries: 0, grams: 0, km: 0, covered: 0, missing: 0 }, seed));
+        if (!buckets.has(key)) buckets.set(key, Object.assign(
+            { deliveries: 0, grams: 0, km: 0, covered: 0, fixed: 0, none: 0 }, seed));
         return buckets.get(key);
     };
 
     for (const bon of bons) {
-        if (bon.delivery_method === 'pickup') {
+        // Afhentning: primært delivery_type (gamle bons har method=NULL), sekundært method.
+        if (bon.delivery_type === 'pickup' || bon.delivery_method === 'pickup') {
             bucketFor('__pickup__', { label: 'Afhentning', color: '#c9c2b8', type: 'pickup', is_pickup: true }).deliveries++;
             continue;
         }
         const vehicle = resolveVehicle(bon, byId, byType);
         const route = bonToRoute.has(bon.id) ? routeById.get(bonToRoute.get(bon.id)) : null;
-        const dist = bon.delivery_address_id != null ? addrDist.get(bon.delivery_address_id) : undefined;
-        const geoCalc = dist != null ? { distance_meters: dist } : null;
+
+        // Effektiv afstand: ORS-vejcache først, ellers haversine-estimat fra adressens
+        // egne koordinater × vej-faktor (så gamle bons uden ORS-kald stadig får km).
+        let geoCalc = null;
+        const cached = bon.delivery_address_id != null ? addrDist.get(bon.delivery_address_id) : undefined;
+        if (cached != null) {
+            geoCalc = { distance_meters: cached };
+        } else if (hq && bon.delivery_address_id != null && addrCoords.has(bon.delivery_address_id)) {
+            const c = addrCoords.get(bon.delivery_address_id);
+            if (c && Number.isFinite(c.lat) && Number.isFinite(c.lon)) {
+                geoCalc = { distance_meters: haversineKm(hq.lat, hq.lon, c.lat, c.lon) * 1000 * roadFactor };
+            }
+        }
 
         const r = transportCo2ForBon({ bon, vehicle, route, geoCalc });
         const key = vehicle ? `v${vehicle.id}` : '__unknown__';
@@ -177,8 +205,16 @@ function aggregateMethods({ bons, byId, byType, routeById, bonToRoute, addrDist 
         b.grams += r.grams;
         b.km += r.km;
         if (r.source === 'route' || r.source === 'p2p') b.covered++;
-        else b.missing++;
+        else if (r.source === 'fixed') b.fixed++;   // konfigureret, men ingen afstand = "mangler km-data"
+        else b.none++;                              // ukonfigureret faktor / umappet metode = "ikke opsat"
     }
+
+    // Dækning måles KUN blandt leveringer med en konfigureret vogn (covered + fixed).
+    // 'none' (Ukendt/uden faktor) trækker ikke dækningen ned — det er et andet problem.
+    const covPct = (b) => {
+        const denom = b.covered + b.fixed;
+        return denom ? Math.round(b.covered / denom * 100) : null;
+    };
 
     const methods = [...buckets.values()].map(b => ({
         label: b.label,
@@ -189,7 +225,7 @@ function aggregateMethods({ bons, byId, byType, routeById, bonToRoute, addrDist 
         km: b.is_pickup ? null : Math.round(b.km),
         co2_kg: b.is_pickup ? 0 : Math.round(b.grams / 1000 * 10) / 10,
         avg_g: (b.is_pickup || !b.deliveries) ? null : Math.round(b.grams / b.deliveries),
-        coverage_pct: (b.is_pickup || !b.deliveries) ? null : Math.round(b.covered / b.deliveries * 100),
+        coverage_pct: b.is_pickup ? null : covPct(b),
     })).sort((a, b) => {
         if (a.is_pickup !== b.is_pickup) return a.is_pickup ? 1 : -1;
         return b.co2_kg - a.co2_kg;
@@ -197,23 +233,28 @@ function aggregateMethods({ bons, byId, byType, routeById, bonToRoute, addrDist 
 
     const real = [...buckets.values()].filter(b => !b.is_pickup);
     const sum = (f) => real.reduce((s, b) => s + f(b), 0);
-    const totalDeliveries = sum(b => b.deliveries);
+    const totalCovered = sum(b => b.covered);
+    const totalFixed = sum(b => b.fixed);
+    const denom = totalCovered + totalFixed;
 
     return {
         methods,
         total: {
-            deliveries: totalDeliveries,
+            deliveries: sum(b => b.deliveries),
             km: Math.round(sum(b => b.km)),
             co2_kg: Math.round(sum(b => b.grams) / 1000 * 10) / 10,
-            coverage_pct: totalDeliveries ? Math.round(sum(b => b.covered) / totalDeliveries * 100) : 0,
+            coverage_pct: denom ? Math.round(totalCovered / denom * 100) : 0,
         },
-        missing_km_count: sum(b => b.missing),
+        missing_km_count: totalFixed,          // kun konfigureret-uden-afstand
+        unmapped_count: sum(b => b.none),      // Ukendt / uden faktor (separat signal)
     };
 }
 
 module.exports = {
     METHOD_TO_TYPE,
+    ROAD_FACTOR,
     num,
+    haversineKm,
     resolveVehicle,
     factorsOf,
     isConfigured,

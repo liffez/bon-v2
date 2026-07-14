@@ -244,10 +244,18 @@ function _covTransport() {
         }).join('');
     const barsBlock = bars ? `<div class="cov-tr-bars"><div class="cov-tr-bars-h">km-fordeling</div>${bars}</div>` : '';
 
-    // Datakvalitets-strip (§2.4 — førsteklasses, vist prominent når km mangler)
-    const dq = tr.missing_km_count > 0
+    // Datakvalitets-strip (§2.4 — km-data vs. metode/faktor adskilt så tallet er ærligt)
+    const unmapped = tr.unmapped_count || 0;
+    const dqParts = [];
+    if (tr.missing_km_count > 0) {
+        dqParts.push(`⚠ <b>${tr.missing_km_count} leveringer mangler km-data</b> — beregnet med fast fallback. Dækning stiger når adresserne geokodes.`);
+    }
+    if (unmapped > 0) {
+        dqParts.push(`<b>${unmapped}</b> uden registreret leveringsmetode (vises som "Ukendt").`);
+    }
+    const dq = dqParts.length
         ? `<div class="cov-tr-dq">
-             <span>⚠ <b>${tr.missing_km_count} leveringer mangler km-data</b> — beregnet med fast fallback pr. tur. Dækning stiger når geodata-backfill kører.</span>
+             <span>${dqParts.join(' · ')}</span>
              <button class="cov-tr-dq-link" id="covTrLogistik">Åbn leveringsmodul →</button>
            </div>`
         : '';
