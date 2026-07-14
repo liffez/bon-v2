@@ -2152,12 +2152,21 @@ function fetchCo2Overview() {
     return apiFetch('/co2/overview');
 }
 
-function fetchCo2Timeseries(months) {
-    return apiFetch('/co2/timeseries' + (months ? '?months=' + months : ''));
+// Periode: tal (months) ELLER objekt { months } / { from, to } (YYYY-MM-DD).
+function _co2PeriodQuery(period) {
+    if (period == null) return '';
+    if (typeof period === 'number') return '?months=' + period;
+    if (period.from && period.to) return '?from=' + encodeURIComponent(period.from) + '&to=' + encodeURIComponent(period.to);
+    if (period.months) return '?months=' + period.months;
+    return '';
 }
 
-function fetchCo2Transport(months) {
-    return apiFetch('/co2/transport' + (months ? '?months=' + months : ''));
+function fetchCo2Timeseries(period) {
+    return apiFetch('/co2/timeseries' + _co2PeriodQuery(period));
+}
+
+function fetchCo2Transport(period) {
+    return apiFetch('/co2/transport' + _co2PeriodQuery(period));
 }
 
 function setCo2ManualFactor(productId, factor) {

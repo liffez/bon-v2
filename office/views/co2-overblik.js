@@ -28,7 +28,39 @@ const _covState = {
     chartMode: 'category', // 'category' (stacked) | 'total'
     panelStack: [],    // drill-down: recipe_id-historik i nedbrydnings-panelet
     _panelKey: null,
+    period: { months: 12 }, // periode for tal + grafer: { months } | { from, to }
+    customOpen: false,      // brugerdefineret fra/til-panel åbent?
 };
+
+// Periode-label + query-objekt til de periode-baserede endpoints.
+function _covPeriodLabel() {
+    const p = _covState.period || {};
+    if (p.from && p.to) return p.from + ' – ' + p.to;
+    return (p.months || 12) + ' mdr';
+}
+
+// Periode-vælger: presets (3/6/12/24 mdr) + brugerdefineret fra/til-interval.
+function _covPeriodControl() {
+    const p = _covState.period || {};
+    const isCustom = !!(p.from && p.to);
+    const months = isCustom ? null : (p.months || 12);
+    const btns = [3, 6, 12, 24].map(m =>
+        `<button class="cov-per-btn ${(!isCustom && months === m) ? 'active' : ''}" data-months="${m}">${m} mdr</button>`
+    ).join('');
+    const customBtn = `<button class="cov-per-btn ${isCustom ? 'active' : ''}" id="covPerCustomToggle">${isCustom ? _covEsc(_covPeriodLabel()) : 'Tilpas…'}</button>`;
+    const panel = _covState.customOpen ? `
+        <div class="cov-per-panel">
+          <input type="date" id="covPerFrom" value="${isCustom ? p.from : ''}">
+          <span class="cov-dim">–</span>
+          <input type="date" id="covPerTo" value="${isCustom ? p.to : ''}">
+          <button class="cov-btn-primary" id="covPerApply">Anvend</button>
+        </div>` : '';
+    return `<div class="cov-period">
+        ${btns}${customBtn}
+        <span class="cov-per-busy" id="covPeriodBusy" style="visibility:hidden">↻</span>
+        ${panel}
+      </div>`;
+}
 
 // Kategori-palet (distinkt men jordnær) + grå til "Øvrige"-halen.
 const _COV_PALETTE = ['#8e631f', '#4a9d5b', '#3b6ea3', '#c08a3a', '#7a5ba6', '#3f8f8a', '#b5563f'];
@@ -52,10 +84,11 @@ const _covNum = (n, d = 2) => (n == null ? '—' : Number(n).toLocaleString('da-
 
 async function _covLoad() {
     try {
+        const p = _covState.period;
         const [ov, ts, syn, tr] = await Promise.all([
-            fetchCo2Overview(), fetchCo2Timeseries(12),
+            fetchCo2Overview(), fetchCo2Timeseries(p),
             fetchCo2Synonyms().catch(() => ({ synonyms: [] })),
-            fetchCo2Transport(12).catch(() => null),
+            fetchCo2Transport(p).catch(() => null),
         ]);
         _covState.overview = ov;
         _covState.series = ts.months || [];
@@ -67,6 +100,25 @@ async function _covLoad() {
         _covState.container.innerHTML =
             `<div class="cov-error">Kunne ikke indlæse: ${_covEsc(e.message)}<br>
              <small>Kræver forbindelse til den aktive Grocy-lokation.</small></div>`;
+    }
+}
+
+// Skift periode → re-fetch KUN de periode-baserede dele (tidsserie + transport);
+// dækning/opskrifter/datakvalitet er nutids-tilstand og røres ikke.
+async function _covReloadPeriod() {
+    const btn = document.getElementById('covPeriodBusy');
+    if (btn) btn.style.visibility = 'visible';
+    try {
+        const p = _covState.period;
+        const [ts, tr] = await Promise.all([
+            fetchCo2Timeseries(p),
+            fetchCo2Transport(p).catch(() => null),
+        ]);
+        _covState.series = ts.months || [];
+        _covState.transport = tr;
+        _covRender();
+    } catch (e) {
+        if (btn) btn.style.visibility = 'hidden';
     }
 }
 
@@ -88,12 +140,15 @@ function _covRender() {
       <div class="cov-view">
         <div class="cov-head">
           <h1>CO₂ — Overblik</h1>
-          <button class="cov-btn-ghost" id="covRefresh">↻ Opdatér</button>
+          <div class="cov-head-right">
+            ${_covPeriodControl()}
+            <button class="cov-btn-ghost" id="covRefresh">↻ Opdatér</button>
+          </div>
         </div>
 
         <div class="cov-kpis">
           ${_covKpi('Dækning', s.coverage_pct + '%', `${s.complete} af ${s.total} opskrifter`, s.coverage_pct >= 80 ? 'green' : (s.coverage_pct >= 40 ? 'amber' : 'red'))}
-          ${_covKpi('CO₂ mad · 12 mdr', _covNum(periodCo2e, 0), 'kg CO₂e · mad + emballage', '')}
+          ${_covKpi('CO₂ mad · ' + _covPeriodLabel(), _covNum(periodCo2e, 0), 'kg CO₂e · mad + emballage', '')}
           ${_covTransportKpi()}
           ${_covKpi('CO₂ pr. kuvert', perPax != null ? _covNum(perPax) : '—', 'kg CO₂e / kuvert · ekskl. transport', '')}
           ${_covKpi('Komplette opskrifter', String(s.complete), 'med fuldt CO₂-tal', 'green')}
@@ -182,7 +237,7 @@ function _covTransportKpi() {
     const tr = _covState.transport;
     if (!tr || !tr.total) return '';
     const sub = `kg CO₂e · ${tr.total.coverage_pct}% af leveringer har km-data`;
-    return _covKpi('Transport · 12 mdr', _covNum(tr.total.co2_kg, 0), sub, 'green');
+    return _covKpi('Transport · ' + _covPeriodLabel(), _covNum(tr.total.co2_kg, 0), sub, 'green');
 }
 
 function _covTransport() {
@@ -193,7 +248,7 @@ function _covTransport() {
     }
     const methods = tr.methods || [];
     if (!methods.length) {
-        return `<section class="cov-card"><h2>Transport pr. leveringsmetode <span class="cov-dim">· seneste 12 mdr</span></h2>
+        return `<section class="cov-card"><h2>Transport pr. leveringsmetode <span class="cov-dim">· ${_covEsc(_covPeriodLabel())}</span></h2>
             <p class="cov-sub">Estimeret ud fra kørte km × CO₂-faktor pr. metode. Faktorer sættes i <code>Settings → Leveringsmetoder</code>.</p>
             <p class="cov-dim">Ingen leveringer i perioden endnu.</p></section>`;
     }
@@ -285,7 +340,7 @@ function _covTransport() {
 
     return `
       <section class="cov-card">
-        <h2>Transport pr. leveringsmetode <span class="cov-dim">· seneste 12 mdr</span></h2>
+        <h2>Transport pr. leveringsmetode <span class="cov-dim">· ${_covEsc(_covPeriodLabel())}</span></h2>
         <p class="cov-sub">Estimeret ud fra kørte km × CO₂-faktor pr. metode. Faktorer sættes i <code>Settings → Leveringsmetoder</code>. Afhentning tæller 0 (kundens transport er uden for scope).</p>
         ${hierarchy}
         <table class="cov-table cov-tr-table">
@@ -413,7 +468,7 @@ function _covTimeChart(series) {
     return `
       <section class="cov-card cov-chart-card">
         <div class="cov-card-head">
-          <h2>CO₂ over tid <span class="cov-dim">· seneste 12 mdr (kg CO₂e pr. måned)</span></h2>
+          <h2>CO₂ over tid <span class="cov-dim">· ${_covEsc(_covPeriodLabel())} (kg CO₂e pr. måned)</span></h2>
           <div class="cov-chart-toggle">
             <button class="cov-cm-btn ${stacked ? 'cov-cm-on' : ''}" data-mode="category" ${plan.hasData ? '' : 'disabled'}>Pr. kategori</button>
             <button class="cov-cm-btn ${!stacked ? 'cov-cm-on' : ''}" data-mode="total">Total</button>
@@ -525,6 +580,30 @@ function _covBind() {
     if (trLog) trLog.addEventListener('click', () => {
         if (window.switchSection) window.switchSection('logistik');
         else if (window.switchView) window.switchView('logistik');
+    });
+
+    // Periode-vælger: presets + brugerdefineret interval.
+    el.querySelectorAll('.cov-per-btn[data-months]').forEach(b => {
+        b.addEventListener('click', () => {
+            _covState.period = { months: parseInt(b.dataset.months, 10) };
+            _covState.customOpen = false;
+            _covReloadPeriod();
+        });
+    });
+    const perToggle = el.querySelector('#covPerCustomToggle');
+    if (perToggle) perToggle.addEventListener('click', () => {
+        _covState.customOpen = !_covState.customOpen;
+        _covRender();
+    });
+    const perApply = el.querySelector('#covPerApply');
+    if (perApply) perApply.addEventListener('click', () => {
+        const from = (el.querySelector('#covPerFrom') || {}).value;
+        const to = (el.querySelector('#covPerTo') || {}).value;
+        if (!from || !to) { alert('Vælg både fra- og til-dato.'); return; }
+        if (from > to) { alert('Fra-dato skal være før til-dato.'); return; }
+        _covState.period = { from, to };
+        _covState.customOpen = false;
+        _covReloadPeriod();
     });
 
     // Synonymer: tilføj + fjern

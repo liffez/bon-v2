@@ -39,6 +39,21 @@ function parseFactor(raw) {
     return Number.isFinite(n) && n >= 0 ? n : NaN; // NaN → ugyldigt (skelnes fra null=ryd)
 }
 
+// Vindue for periode-baserede CO₂-tal: brugerdefineret from/to (YYYY-MM-DD)
+// vinder; ellers relativt months-vindue (default 12). SQLite date-math (localtime).
+function _resolveCo2Window(db, q) {
+    const rx = /^\d{4}-\d{2}-\d{2}$/;
+    const from = rx.test(q.from || '') ? q.from : null;
+    const to   = rx.test(q.to   || '') ? q.to   : null;
+    if (from && to && from <= to) return { from, to, months: null };
+    let months = parseInt(q.months, 10);
+    if (!Number.isInteger(months) || months < 1 || months > 60) months = 12;
+    const w = db.prepare(
+        `SELECT date('now','localtime','-' || ? || ' months') AS f, date('now','localtime') AS t`
+    ).get(months);
+    return { from: w.f, to: w.t, months };
+}
+
 /* ---------- faktortabel ---------- */
 
 router.get('/materials', AUTH, handle((req, res) => {
@@ -243,8 +258,7 @@ router.delete('/synonyms/:id', AUTH, handle((req, res) => {
 // (samme frosne kilde, bare ét niveau dybere) → stacked kategori-graf.
 router.get('/timeseries', AUTH, handle((req, res) => {
     const db = getDb();
-    const months = Math.min(36, Math.max(1, parseInt(req.query.months, 10) || 12));
-    const window = `-${months} months`;
+    const win = _resolveCo2Window(db, req.query);
     const rows = db.prepare(`
         SELECT strftime('%Y-%m', b.delivery_date) AS month,
                COALESCE(SUM(b.total_co2e), 0)     AS co2e,
@@ -254,10 +268,10 @@ router.get('/timeseries', AUTH, handle((req, res) => {
           JOIN status_definitions sd ON b.status_id = sd.id
          WHERE (b.is_offer = 0 OR b.is_offer IS NULL)
            AND sd.code != 'AFLYST'
-           AND b.delivery_date >= date('now', ?)
+           AND b.delivery_date BETWEEN ? AND ?
          GROUP BY month
          ORDER BY month
-    `).all(window);
+    `).all(win.from, win.to);
 
     // Kategori-nedbrydning pr. måned (kun linjer med CO₂-tal — dækning vokser
     // over tid, hvilket er ærligt). Kilde: bon_lines.co2e × quantity (som F6).
@@ -270,10 +284,10 @@ router.get('/timeseries', AUTH, handle((req, res) => {
           JOIN status_definitions sd ON b.status_id = sd.id
          WHERE (b.is_offer = 0 OR b.is_offer IS NULL)
            AND sd.code != 'AFLYST'
-           AND b.delivery_date >= date('now', ?)
+           AND b.delivery_date BETWEEN ? AND ?
            AND bl.co2e IS NOT NULL AND bl.co2e > 0
          GROUP BY month, COALESCE(NULLIF(TRIM(bl.category), ''), 'Uden kategori')
-    `).all(window);
+    `).all(win.from, win.to);
     const byMonth = new Map();
     for (const r of catRows) {
         if (!byMonth.has(r.month)) byMonth.set(r.month, {});
@@ -281,6 +295,7 @@ router.get('/timeseries', AUTH, handle((req, res) => {
     }
 
     res.json({
+        window: { from: win.from, to: win.to, months: win.months },
         months: rows.map(r => ({
             ...r,
             co2e_per_pax: r.pax ? r.co2e / r.pax : null,
@@ -295,14 +310,8 @@ router.get('/timeseries', AUTH, handle((req, res) => {
 // Ingen snapshot — beregnes fra delivery_vehicles-faktorer + geo/rute-km.
 router.get('/transport', AUTH, handle((req, res) => {
     const db = getDb();
-    let months = parseInt(req.query.months, 10);
-    if (!Number.isInteger(months) || months < 1 || months > 60) months = 12;
-
-    // Vindue: [i dag − N måneder ; i dag]. SQLite date-math (localtime) → ingen UTC-fælde.
-    const win = db.prepare(
-        `SELECT date('now','localtime','-' || ? || ' months') AS from_d, date('now','localtime') AS to_d`
-    ).get(months);
-    const fromD = win.from_d, toD = win.to_d;
+    const win = _resolveCo2Window(db, req.query);
+    const fromD = win.from, toD = win.to, months = win.months;
 
     // 1) Vogne → byId + byType (default pr. type = aktiv, laveste sort_order).
     const vehicles = db.prepare(`

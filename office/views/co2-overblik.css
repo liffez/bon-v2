@@ -212,3 +212,17 @@
 .cov-tr-dq-link { background: none; border: none; color: #8e631f; font-weight: 600;
     cursor: pointer; font-size: 13px; white-space: nowrap; padding: 0; }
 .cov-tr-dq-link:hover { text-decoration: underline; }
+
+/* ── Periode-vælger ───────────────────────────────────────────── */
+.cov-head-right { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; justify-content: flex-end; }
+.cov-period { display: flex; align-items: center; gap: 4px; flex-wrap: wrap; }
+.cov-per-btn { background: #fff; border: 1px solid #d7d1ca; border-radius: 8px;
+    padding: 6px 11px; cursor: pointer; color: #5a5142; font-size: 13px; }
+.cov-per-btn:hover { background: #f5f2ec; }
+.cov-per-btn.active { background: var(--brand-primary, #8e631f); border-color: var(--brand-primary, #8e631f); color: #fff; font-weight: 600; }
+.cov-per-busy { color: var(--brand-primary, #8e631f); font-size: 13px; animation: covSpin 0.8s linear infinite; }
+@keyframes covSpin { to { transform: rotate(360deg); } }
+.cov-per-panel { display: flex; align-items: center; gap: 6px; margin-left: 4px;
+    background: #faf8f4; border: 1px solid #ece7de; border-radius: 8px; padding: 5px 8px; }
+.cov-per-panel input[type="date"] { border: 1px solid #d7d1ca; border-radius: 6px; padding: 4px 6px; font-size: 13px; color: #3a2f1c; }
+.cov-per-panel .cov-btn-primary { padding: 5px 12px; font-size: 13px; }
