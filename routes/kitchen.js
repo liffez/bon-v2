@@ -2,6 +2,23 @@ const express       = require('express');
 const router        = express.Router();
 const { getDb }     = require('../db/database');
 const { handle, getBonLines, getBonMenuGroups, todayISO, offsetISO, countsAsWorkload } = require('../db/helpers');
+const bonTransportCo2 = require('../services/bonTransportCo2');
+
+// Beriger en liste bons med transport-CO₂ pr. bon (Fase 3) — batch, så bon-kortets
+// CO₂-strip kan vise "Mad · Transport · I alt". Kræver at queryen har valgt
+// delivery_type/method/vehicle_id/address_id.
+function _attachTransportCo2(db, bons) {
+    if (!bons || !bons.length) return;
+    const map = bonTransportCo2.computeForBons(db, bons);
+    for (const bon of bons) {
+        const t = map.get(bon.id);
+        if (t) {
+            bon.transport_co2e_kg = t.kg;
+            bon.transport_co2_source = t.source;
+            if (!bon.transport_vehicle_label) bon.transport_vehicle_label = t.vehicle_label;
+        }
+    }
+}
 // grocyAdapter bruges nu via services/ingredientResolver.js
 // quConvert bruges nu via services/ingredientResolver.js
 
@@ -13,7 +30,8 @@ router.get('/today', handle((req, res) => {
     const bons = db.prepare(`
         SELECT
             b.id, b.bon_number, b.delivery_date, b.pickup_time, b.delivery_time,
-            b.pax, b.total_units, b.kitchen_info, b.delivery_type, b.delivery_method,
+            b.pax, b.total_units, b.total_co2e, b.kitchen_info, b.delivery_type, b.delivery_method,
+            b.delivery_vehicle_id, b.delivery_address_id,
             b.prep_ingredients_ready, b.prep_supplies_ready,
             b.kitchen_selects, b.customer_collects, b.price_category,
             b.event_id, e.name AS event_name, e.model AS event_model,
@@ -42,6 +60,7 @@ router.get('/today', handle((req, res) => {
         ORDER BY COALESCE(b.pickup_time, b.delivery_time), b.id
     `).all(today);
 
+    _attachTransportCo2(db, bons);
     for (const bon of bons) {
         bon.lines = getBonLines(bon.id);
         bon.menu_groups = getBonMenuGroups(bon.id);
@@ -66,7 +85,8 @@ router.get('/later', handle((req, res) => {
     const bons = db.prepare(`
         SELECT
             b.id, b.bon_number, b.delivery_date, b.pickup_time, b.delivery_time,
-            b.pax, b.total_units, b.kitchen_info, b.delivery_type, b.delivery_method,
+            b.pax, b.total_units, b.total_co2e, b.kitchen_info, b.delivery_type, b.delivery_method,
+            b.delivery_vehicle_id, b.delivery_address_id,
             b.prep_ingredients_ready, b.prep_supplies_ready,
             b.kitchen_selects, b.customer_collects, b.is_offer, b.price_category,
             b.event_id, e.name AS event_name, e.model AS event_model,
@@ -96,6 +116,7 @@ router.get('/later', handle((req, res) => {
         ORDER BY b.is_offer ASC, b.delivery_date ASC, COALESCE(b.pickup_time, b.delivery_time) ASC, b.id ASC
     `).all(today, endDate);
 
+    _attachTransportCo2(db, bons);
     for (const bon of bons) {
         bon.lines = getBonLines(bon.id);
         bon.menu_groups = getBonMenuGroups(bon.id);

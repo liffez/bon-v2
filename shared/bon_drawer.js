@@ -185,6 +185,12 @@ class BonDrawer {
                     </div>
                 </div>
 
+                <!-- CO₂ -->
+                <div class="drawer-section drawer-co2-section" data-drawer-section="co2" hidden>
+                    <label class="drawer-label">CO₂-aftryk</label>
+                    <div class="drawer-co2-strip"></div>
+                </div>
+
                 <!-- KUNDE -->
                 <div class="drawer-section" data-drawer-section="kunde">
                     <label class="drawer-label">Kunde</label>
@@ -597,6 +603,9 @@ class BonDrawer {
         });
         this._renderLines(d.lines || []);
 
+        // CO₂-aftryk (mad + transport)
+        this._renderCo2(d);
+
         // Noter
         this._setFieldValue('customer_wishes', d.customer_wishes || '');
         this._setFieldValue('invoice_info', d.invoice_info || '');
@@ -611,6 +620,31 @@ class BonDrawer {
 
         this.dirty = false;
         this._pendingChanges = {};
+    }
+
+    // CO₂-strip: "Mad X · Transport Y (metode) · I alt Z". Transport-delen skjules
+    // når bonen ikke har en beregnbar levering (source=none). Skjuler hele sektionen
+    // hvis der hverken er mad- eller transport-tal.
+    _renderCo2(d) {
+        const section = this.el.querySelector('[data-drawer-section="co2"]');
+        if (!section) return;
+        const _esc = typeof esc === 'function' ? esc
+            : (s) => String(s == null ? '' : s).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+        const foodKg = d.total_co2e != null ? Number(d.total_co2e) : null;
+        const hasT = d.transport_co2_source && d.transport_co2_source !== 'none' && d.transport_co2e_kg != null;
+        const tKg = hasT ? Number(d.transport_co2e_kg) : 0;
+        if ((foodKg == null || foodKg === 0) && !hasT) { section.hidden = true; return; }
+        section.hidden = false;
+        const fmt = (kg) => Number(kg || 0).toLocaleString('da-DK', { minimumFractionDigits: 1, maximumFractionDigits: 1 }) + ' kg';
+        const total = (foodKg || 0) + tKg;
+        const parts = [`Mad <b>${fmt(foodKg || 0)}</b>`];
+        if (hasT) {
+            const method = d.transport_vehicle_label ? ` <span class="drawer-co2-method">(${_esc(d.transport_vehicle_label)})</span>` : '';
+            parts.push(`Transport <b>${fmt(tKg)}</b>${method}`);
+        }
+        parts.push(`I alt <b>${fmt(total)} CO₂e</b>`);
+        const strip = section.querySelector('.drawer-co2-strip');
+        if (strip) strip.innerHTML = '🌱 ' + parts.join(' <span class="drawer-co2-sep">·</span> ');
     }
 
     async _refreshLoboSandboxBadge() {
@@ -2047,8 +2081,23 @@ if (typeof _buildMailVars === 'undefined') {
             momsBeloeb: moms.toLocaleString('da-DK',{minimumFractionDigits:2})+' kr',
             co2PerLinje: menuLines.filter(function(l){return l.co2e;}).map(function(l){return l.product_name+': '+l.co2e+' kg × '+l.quantity+' = '+(l.co2e*l.quantity).toFixed(2);}).join('\n'),
             co2Total: menuLines.reduce(function(s,l){return s+((l.co2e||0)*l.quantity);},0).toFixed(2)+' kg CO₂e',
+            // Transport-CO₂ (Fase 3) — {{co2Total}} forbliver mad+emballage; disse lægges oveni.
+            co2Transport: _drawerCo2Transport(bon).text,
+            co2MedTransport: (menuLines.reduce(function(s,l){return s+((l.co2e||0)*l.quantity);},0) + _drawerCo2Transport(bon).kg).toFixed(2).replace('.',',')+' kg CO₂e',
+            leveringsMetode: bon.transport_vehicle_label || bon.delivery_vehicle_label || _drawerMethodLabel(bon.delivery_method) || '',
         };
     };
+}
+
+// Transport-CO₂ for mail: kg + dansk-formateret tekst (0 hvis ukendt/afhentning).
+function _drawerCo2Transport(bon) {
+    var hasT = bon && bon.transport_co2_source && bon.transport_co2_source !== 'none' && bon.transport_co2e_kg != null;
+    var kg = hasT ? Number(bon.transport_co2e_kg) : 0;
+    return { kg: kg, text: kg.toFixed(2).replace('.', ',') + ' kg' };
+}
+
+function _drawerMethodLabel(method) {
+    return { bike: 'Cykelbud', taxi: 'Taxa', volvo: 'Volvo Duett', pickup: 'Afhentning' }[method] || '';
 }
 
 function _drawerApplyTemplate() {

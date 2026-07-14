@@ -36,6 +36,17 @@ const { getByExpressenAdapter, ByExpressenError } = require('../services/byExpre
 const { quoteForBon, bookForBon, previewBooking, normalizeLoboOrder, suggestCustomerPrice } = require('../services/lobo_booking');
 const { exclToIncl: _exclToIncl } = require('../shared/moms');
 
+// Parse et CO₂-faktorfelt (accepterer dansk decimalkomma). Tom/ugyldig → null.
+function co2Num(raw) {
+    if (raw == null || raw === '') return null;
+    let s = String(raw).trim();
+    if (s === '') return null;
+    if (s.includes('.') && s.includes(',')) s = s.replace(/\./g, '').replace(',', '.');
+    else if (s.includes(',')) s = s.replace(',', '.');
+    const n = Number(s);
+    return Number.isFinite(n) && n >= 0 ? n : null;
+}
+
 // Felter office må overstyre i se-og-ret-panelet (whitelist mod payload-injection).
 function pickLoboOverrides(src = {}) {
     const out = {};
@@ -70,6 +81,7 @@ router.get('/vehicles', requireAuth(), handle((req, res) => {
             max_capacity_boxes, max_distance_km, pickup_lead_min,
             cost_formula_json, booking_method, booking_url, booking_template,
             booking_fields_json,
+            co2_g_per_km, co2_g_fixed, co2_distance_multiplier, co2_positioning_km,
             booking_api_config_json, supplier_id, is_active, sort_order,
             created_at, updated_at
         FROM delivery_vehicles
@@ -162,6 +174,7 @@ router.patch('/vehicles/:id', requireAuth('admin'), handle((req, res) => {
         'max_capacity_boxes', 'max_distance_km', 'pickup_lead_min',
         'booking_method', 'booking_url', 'booking_template',
         'booking_fields_json',
+        'co2_g_per_km', 'co2_g_fixed', 'co2_distance_multiplier', 'co2_positioning_km',
         'supplier_id', 'sort_order', 'is_active'
     ];
 
@@ -171,6 +184,11 @@ router.patch('/vehicles/:id', requireAuth('admin'), handle((req, res) => {
         if (req.body[key] !== undefined) {
             let val = req.body[key];
             if (key === 'is_internal' || key === 'is_active') val = val ? 1 : 0;
+            else if (key.startsWith('co2_')) {
+                // REAL-felter: accepter dansk komma, tom → default (0, mult → 1)
+                val = co2Num(val);
+                if (val == null) val = key === 'co2_distance_multiplier' ? 1 : 0;
+            }
             fields.push(`${key} = ?`);
             params.push(val);
         }

@@ -28,11 +28,44 @@ const _covState = {
     chartMode: 'category', // 'category' (stacked) | 'total'
     panelStack: [],    // drill-down: recipe_id-historik i nedbrydnings-panelet
     _panelKey: null,
+    period: { months: 12 }, // periode for tal + grafer: { months } | { from, to }
+    customOpen: false,      // brugerdefineret fra/til-panel åbent?
 };
+
+// Periode-label + query-objekt til de periode-baserede endpoints.
+function _covPeriodLabel() {
+    const p = _covState.period || {};
+    if (p.from && p.to) return p.from + ' – ' + p.to;
+    return (p.months || 12) + ' mdr';
+}
+
+// Periode-vælger: presets (3/6/12/24 mdr) + brugerdefineret fra/til-interval.
+function _covPeriodControl() {
+    const p = _covState.period || {};
+    const isCustom = !!(p.from && p.to);
+    const months = isCustom ? null : (p.months || 12);
+    const btns = [3, 6, 12, 24].map(m =>
+        `<button class="cov-per-btn ${(!isCustom && months === m) ? 'active' : ''}" data-months="${m}">${m} mdr</button>`
+    ).join('');
+    const customBtn = `<button class="cov-per-btn ${isCustom ? 'active' : ''}" id="covPerCustomToggle">${isCustom ? _covEsc(_covPeriodLabel()) : 'Tilpas…'}</button>`;
+    const panel = _covState.customOpen ? `
+        <div class="cov-per-panel">
+          <input type="date" id="covPerFrom" value="${isCustom ? p.from : ''}">
+          <span class="cov-dim">–</span>
+          <input type="date" id="covPerTo" value="${isCustom ? p.to : ''}">
+          <button class="cov-btn-primary" id="covPerApply">Anvend</button>
+        </div>` : '';
+    return `<div class="cov-period">
+        ${btns}${customBtn}
+        <span class="cov-per-busy" id="covPeriodBusy" style="visibility:hidden">↻</span>
+        ${panel}
+      </div>`;
+}
 
 // Kategori-palet (distinkt men jordnær) + grå til "Øvrige"-halen.
 const _COV_PALETTE = ['#8e631f', '#4a9d5b', '#3b6ea3', '#c08a3a', '#7a5ba6', '#3f8f8a', '#b5563f'];
 const _COV_OTHER_COLOR = '#c9beac';
+const _COV_TRANSPORT_CAT = '🚚 Transport';  // separat stak-bane (§2.5), ikke en mad-kategori
 
 function initCo2Overblik(container) {
     _covState.container = container;
@@ -52,19 +85,41 @@ const _covNum = (n, d = 2) => (n == null ? '—' : Number(n).toLocaleString('da-
 
 async function _covLoad() {
     try {
-        const [ov, ts, syn] = await Promise.all([
-            fetchCo2Overview(), fetchCo2Timeseries(12),
+        const p = _covState.period;
+        const [ov, ts, syn, tr] = await Promise.all([
+            fetchCo2Overview(), fetchCo2Timeseries(p),
             fetchCo2Synonyms().catch(() => ({ synonyms: [] })),
+            fetchCo2Transport(p).catch(() => null),
         ]);
         _covState.overview = ov;
         _covState.series = ts.months || [];
         _covState.synonyms = syn.synonyms || [];
+        _covState.transport = tr;   // { window, methods, total, missing_km_count } | null
         _covRender();
     } catch (e) {
         if (!_covState.container) return;
         _covState.container.innerHTML =
             `<div class="cov-error">Kunne ikke indlæse: ${_covEsc(e.message)}<br>
              <small>Kræver forbindelse til den aktive Grocy-lokation.</small></div>`;
+    }
+}
+
+// Skift periode → re-fetch KUN de periode-baserede dele (tidsserie + transport);
+// dækning/opskrifter/datakvalitet er nutids-tilstand og røres ikke.
+async function _covReloadPeriod() {
+    const btn = document.getElementById('covPeriodBusy');
+    if (btn) btn.style.visibility = 'visible';
+    try {
+        const p = _covState.period;
+        const [ts, tr] = await Promise.all([
+            fetchCo2Timeseries(p),
+            fetchCo2Transport(p).catch(() => null),
+        ]);
+        _covState.series = ts.months || [];
+        _covState.transport = tr;
+        _covRender();
+    } catch (e) {
+        if (btn) btn.style.visibility = 'hidden';
     }
 }
 
@@ -86,19 +141,24 @@ function _covRender() {
       <div class="cov-view">
         <div class="cov-head">
           <h1>CO₂ — Overblik</h1>
-          <button class="cov-btn-ghost" id="covRefresh">↻ Opdatér</button>
+          <div class="cov-head-right">
+            ${_covPeriodControl()}
+            <button class="cov-btn-ghost" id="covRefresh">↻ Opdatér</button>
+          </div>
         </div>
 
         <div class="cov-kpis">
           ${_covKpi('Dækning', s.coverage_pct + '%', `${s.complete} af ${s.total} opskrifter`, s.coverage_pct >= 80 ? 'green' : (s.coverage_pct >= 40 ? 'amber' : 'red'))}
-          ${_covKpi('CO₂ · seneste 12 mdr', _covNum(periodCo2e, 0), 'kg CO₂e', '')}
-          ${_covKpi('CO₂ pr. kuvert', perPax != null ? _covNum(perPax) : '—', 'kg CO₂e / kuvert', '')}
+          ${_covKpi('CO₂ mad · ' + _covPeriodLabel(), _covNum(periodCo2e, 0), 'kg CO₂e · mad + emballage', '')}
+          ${_covTransportKpi()}
+          ${_covKpi('CO₂ pr. kuvert', perPax != null ? _covNum(perPax) : '—', 'kg CO₂e / kuvert · ekskl. transport', '')}
           ${_covKpi('Komplette opskrifter', String(s.complete), 'med fuldt CO₂-tal', 'green')}
         </div>
 
         ${_covDataQuality(ov)}
         ${_covSynonyms()}
         ${_covTimeChart(series)}
+        ${_covTransport()}
         ${_covRecipeTable(ov.recipes)}
       </div>`;
 
@@ -151,6 +211,154 @@ function _covKpi(label, value, sub, tone) {
     </div>`;
 }
 
+/* Blok — transport-CO₂ (docs/CLAUDE_CO2_TRANSPORT.md §2). */
+
+// Vognfarve — samme palette som leveringsmodulet (migration 074 + logistik-legende):
+// DB-farven vinder; ellers type-fallback med de præcise seed-hex. Grå for pickup/Ukendt.
+function _covMethodColor(m) {
+    if (m && m.color) return m.color;
+    const t = m && m.type;
+    return t === 'volvo' ? '#8e631f'
+        : t === 'taxi' ? '#4a8a3a'
+        : t === 'bike' ? '#2d6da3'
+        : t === 'own-bike' ? '#d98a2b'
+        : '#9a948c';
+}
+
+// Format hjælpere til transport-tabellen.
+const _covKg = (kg) => _covNum(kg, 1) + ' kg';
+const _covAvg = (g) => g == null ? '—' : (g >= 1000 ? _covNum(g / 1000, 1) + ' kg' : Math.round(g) + ' g');
+function _covCovBadge(pct) {
+    if (pct == null) return '<span class="cov-cov cov-cov-na">—</span>';
+    const cls = pct >= 80 ? 'cov-cov-hi' : (pct >= 50 ? 'cov-cov-mid' : 'cov-cov-lo');
+    return `<span class="cov-cov ${cls}">${pct}%</span>`;
+}
+
+function _covTransportKpi() {
+    const tr = _covState.transport;
+    if (!tr || !tr.total) return '';
+    const sub = `kg CO₂e · ${tr.total.coverage_pct}% af leveringer har km-data`;
+    return _covKpi('Transport · ' + _covPeriodLabel(), _covNum(tr.total.co2_kg, 0), sub, 'green');
+}
+
+function _covTransport() {
+    const tr = _covState.transport;
+    if (!tr) {
+        return `<section class="cov-card"><h2>Transport pr. leveringsmetode</h2>
+            <p class="cov-dim">Transport-CO₂ kunne ikke hentes (kræver leveringsmodulet).</p></section>`;
+    }
+    const methods = tr.methods || [];
+    if (!methods.length) {
+        return `<section class="cov-card"><h2>Transport pr. leveringsmetode <span class="cov-dim">· ${_covEsc(_covPeriodLabel())}</span></h2>
+            <p class="cov-sub">Estimeret ud fra kørte km × CO₂-faktor pr. metode. Faktorer sættes i <code>Settings → Leveringsmetoder</code>.</p>
+            <p class="cov-dim">Ingen leveringer i perioden endnu.</p></section>`;
+    }
+
+    // Hierarki-forklaring (fra mockup)
+    const hierarchy = `
+      <div class="cov-tr-hier">
+        <div class="cov-tr-step"><b>1 · Rute beregnet</b>Faktiske rute-km (inkl. retur) × faktor — fordelt pr. stop</div>
+        <div class="cov-tr-step"><b>2 · Punkt-til-punkt</b>HQ→adresse × afstands-faktor × g/km (+ positionering)</div>
+        <div class="cov-tr-step"><b>3 · Ingen km-data</b>Fast CO₂ pr. tur (fallback pr. metode)</div>
+        <div class="cov-tr-step"><b>4 · Intet</b>0 — tælles som "mangler data"</div>
+      </div>`;
+
+    // Metode-tabel. Leverings-% = andel af ALLE leveringer (inkl. afhentning).
+    const totalDeliv = methods.reduce((a, m) => a + (m.deliveries || 0), 0) || 1;
+    const delivCell = (m) => `${m.deliveries} <span class="cov-dim">(${Math.round(m.deliveries / totalDeliv * 100)}%)</span>`;
+    const rows = methods.map(m => {
+        const dot = `<span class="cov-tr-dot" style="background:${_covEsc(_covMethodColor(m))}"></span>`;
+        if (m.is_pickup) {
+            return `<tr>
+              <td>${dot}<span class="cov-tr-name">${_covEsc(m.label)}</span> <span class="cov-dim">· uden for scope</span></td>
+              <td class="cov-num">${delivCell(m)}</td>
+              <td class="cov-num cov-dim">—</td>
+              <td class="cov-num cov-dim">0 kg</td>
+              <td class="cov-num cov-dim">—</td>
+              <td class="cov-num">${_covCovBadge(null)}</td>
+            </tr>`;
+        }
+        return `<tr>
+          <td>${dot}<span class="cov-tr-name">${_covEsc(m.label)}</span></td>
+          <td class="cov-num">${delivCell(m)}</td>
+          <td class="cov-num">${_covNum(m.km, 0)}</td>
+          <td class="cov-num"><b>${_covKg(m.co2_kg)}</b></td>
+          <td class="cov-num">${_covAvg(m.avg_g)}</td>
+          <td class="cov-num">${_covCovBadge(m.coverage_pct)}</td>
+        </tr>`;
+    }).join('');
+
+    const t = tr.total;
+    const foot = `<tr class="cov-tr-foot">
+        <td>I alt <span class="cov-dim">(ekskl. afhentning)</span></td>
+        <td class="cov-num">${t.deliveries}</td>
+        <td class="cov-num">${_covNum(t.km, 0)}</td>
+        <td class="cov-num">${_covKg(t.co2_kg)}</td>
+        <td class="cov-num"></td>
+        <td class="cov-num">${_covCovBadge(t.coverage_pct)}</td>
+      </tr>`;
+
+    // Fordeling pr. metode — tre dimensioner: antal ture, km, CO₂ (alle metoder).
+    // Hver søjle normaliseres til sin egen kolonne-max, så man kan se hvem der
+    // kører flest ture vs. flest km vs. udleder mest CO₂.
+    const maxT = Math.max(1, ...methods.map(m => m.deliveries || 0));
+    const maxK = Math.max(1, ...methods.map(m => m.km || 0));
+    const maxC = Math.max(1, ...methods.map(m => m.co2_kg || 0));
+    const metricCell = (val, max, text, col) =>
+        `<span class="cov-tr-m">
+           <span class="cov-tr-m-track"><span class="cov-tr-m-fill" style="width:${Math.round((val / max) * 100)}%;background:${col}"></span></span>
+           <span class="cov-tr-m-val">${text}</span>
+         </span>`;
+    const distRows = methods.map(m => {
+        const col = _covEsc(_covMethodColor(m));
+        const km = m.km || 0, co2 = m.co2_kg || 0;
+        return `<div class="cov-tr-drow">
+            <span class="cov-tr-dlbl"><span class="cov-tr-dot" style="background:${col}"></span>${_covEsc(m.label)}</span>
+            ${metricCell(m.deliveries, maxT, m.deliveries + (m.deliveries === 1 ? ' tur' : ' ture'), col)}
+            ${metricCell(km, maxK, m.is_pickup ? '—' : _covNum(km, 0) + ' km', col)}
+            ${metricCell(co2, maxC, m.is_pickup ? '—' : _covKg(co2), col)}
+          </div>`;
+    }).join('');
+    const barsBlock = `<div class="cov-tr-dist">
+        <div class="cov-tr-dist-h">Fordeling pr. metode</div>
+        <div class="cov-tr-drow cov-tr-dhead"><span></span><span>Antal ture</span><span>km</span><span>CO₂</span></div>
+        ${distRows}
+      </div>`;
+
+    // Datakvalitets-strip (§2.4 — km-data vs. metode/faktor adskilt så tallet er ærligt)
+    const unmapped = tr.unmapped_count || 0;
+    const dqParts = [];
+    if (tr.missing_km_count > 0) {
+        dqParts.push(`⚠ <b>${tr.missing_km_count} leveringer mangler km-data</b> — beregnet med fast fallback. Dækning stiger når adresserne geokodes.`);
+    }
+    if (unmapped > 0) {
+        dqParts.push(`<b>${unmapped}</b> uden registreret leveringsmetode (vises som "Ukendt").`);
+    }
+    const dq = dqParts.length
+        ? `<div class="cov-tr-dq">
+             <span>${dqParts.join(' · ')}</span>
+             <button class="cov-tr-dq-link" id="covTrLogistik">Åbn leveringsmodul →</button>
+           </div>`
+        : '';
+
+    return `
+      <section class="cov-card">
+        <h2>Transport pr. leveringsmetode <span class="cov-dim">· ${_covEsc(_covPeriodLabel())}</span></h2>
+        <p class="cov-sub">Estimeret ud fra kørte km × CO₂-faktor pr. metode. Faktorer sættes i <code>Settings → Leveringsmetoder</code>. Afhentning tæller 0 (kundens transport er uden for scope).</p>
+        ${hierarchy}
+        <table class="cov-table cov-tr-table">
+          <thead><tr>
+            <th>Metode</th><th class="cov-num">Leveringer</th><th class="cov-num">km i alt</th>
+            <th class="cov-num">CO₂ i alt</th><th class="cov-num">Gns. pr. levering</th><th class="cov-num">km-dækning</th>
+          </tr></thead>
+          <tbody>${rows}</tbody>
+          <tfoot>${foot}</tfoot>
+        </table>
+        ${barsBlock}
+        ${dq}
+      </section>`;
+}
+
 /* Blok 2 — datakvalitet: dækningsbjælke + hvad mangler mest */
 function _covDataQuality(ov) {
     const s = ov.summary;
@@ -201,18 +409,24 @@ function _covCategoryPlan(series) {
     const TOP = 7;
     const top = sorted.slice(0, TOP);
     const hasOther = sorted.length > TOP;
-    const order = hasOther ? [...top, 'Øvrige'] : top;
+    let order = hasOther ? [...top, 'Øvrige'] : top;
     const color = new Map(top.map((c, i) => [c, _COV_PALETTE[i % _COV_PALETTE.length]]));
     if (hasOther) color.set('Øvrige', _COV_OTHER_COLOR);
-    return { order, color, otherCats: new Set(sorted.slice(TOP)), hasOther, hasData: sorted.length > 0 };
+    // Transport-bane øverst i stakken (§2.5) — kun når der er transport-tal.
+    // Adskilt fra mad-kategorierne; farve = grøn (som transport-sektionen).
+    const hasTransport = series.some(m => (m.transport_co2e || 0) > 0);
+    if (hasTransport) { order = [...order, _COV_TRANSPORT_CAT]; color.set(_COV_TRANSPORT_CAT, '#2e7d32'); }
+    return { order, color, otherCats: new Set(sorted.slice(TOP)), hasOther, hasTransport,
+             hasData: sorted.length > 0 || hasTransport };
 }
 
-// Segment-værdier for én måned i plan-rækkefølge (Øvrige = sum af hale).
+// Segment-værdier for én måned i plan-rækkefølge (Øvrige = sum af hale, Transport = separat felt).
 function _covMonthStack(m, plan) {
     const bc = m.by_category || {};
     return plan.order.map(cat => {
         let v = 0;
-        if (cat === 'Øvrige') { for (const [c, x] of Object.entries(bc)) if (plan.otherCats.has(c)) v += x; }
+        if (cat === _COV_TRANSPORT_CAT) v = m.transport_co2e || 0;
+        else if (cat === 'Øvrige') { for (const [c, x] of Object.entries(bc)) if (plan.otherCats.has(c)) v += x; }
         else v = bc[cat] || 0;
         return { cat, v };
     });
@@ -263,7 +477,7 @@ function _covTimeChart(series) {
     return `
       <section class="cov-card cov-chart-card">
         <div class="cov-card-head">
-          <h2>CO₂ over tid <span class="cov-dim">· seneste 12 mdr (kg CO₂e pr. måned)</span></h2>
+          <h2>CO₂ over tid <span class="cov-dim">· ${_covEsc(_covPeriodLabel())} (kg CO₂e pr. måned)</span></h2>
           <div class="cov-chart-toggle">
             <button class="cov-cm-btn ${stacked ? 'cov-cm-on' : ''}" data-mode="category" ${plan.hasData ? '' : 'disabled'}>Pr. kategori</button>
             <button class="cov-cm-btn ${!stacked ? 'cov-cm-on' : ''}" data-mode="total">Total</button>
@@ -368,6 +582,37 @@ function _covBind() {
             else if (act === 'goto-emballage' && window.switchSection) window.switchSection('co2', 'emballage');
             else if (act === 'manual') _covManualFactor(chip);
         });
+    });
+
+    // Transport-datakvalitet: link til leveringsmodulet.
+    const trLog = el.querySelector('#covTrLogistik');
+    if (trLog) trLog.addEventListener('click', () => {
+        if (window.switchSection) window.switchSection('logistik');
+        else if (window.switchView) window.switchView('logistik');
+    });
+
+    // Periode-vælger: presets + brugerdefineret interval.
+    el.querySelectorAll('.cov-per-btn[data-months]').forEach(b => {
+        b.addEventListener('click', () => {
+            _covState.period = { months: parseInt(b.dataset.months, 10) };
+            _covState.customOpen = false;
+            _covReloadPeriod();
+        });
+    });
+    const perToggle = el.querySelector('#covPerCustomToggle');
+    if (perToggle) perToggle.addEventListener('click', () => {
+        _covState.customOpen = !_covState.customOpen;
+        _covRender();
+    });
+    const perApply = el.querySelector('#covPerApply');
+    if (perApply) perApply.addEventListener('click', () => {
+        const from = (el.querySelector('#covPerFrom') || {}).value;
+        const to = (el.querySelector('#covPerTo') || {}).value;
+        if (!from || !to) { alert('Vælg både fra- og til-dato.'); return; }
+        if (from > to) { alert('Fra-dato skal være før til-dato.'); return; }
+        _covState.period = { from, to };
+        _covState.customOpen = false;
+        _covReloadPeriod();
     });
 
     // Synonymer: tilføj + fjern

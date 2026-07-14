@@ -168,6 +168,9 @@ router.post('/test', requireAuth('admin'), handle(async (req, res) => {
         momsBeloeb: '808,40 kr',
         co2PerLinje: 'Grisen på Rug: 0,42 kg CO₂e × 25 = 10.50',
         co2Total: '12,50 kg CO₂e',
+        co2Transport: '0,90 kg',
+        co2MedTransport: '13,40 kg CO₂e',
+        leveringsMetode: 'By-expressen',
 
         leverandoer: 'Hørkram',
         vareliste: '2× Rugbrød\n5× Smør\n3× Pålæg',

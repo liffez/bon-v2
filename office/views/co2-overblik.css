@@ -171,3 +171,58 @@
 .cov-panel-link { font-size: 14px; color: #8e631f; text-decoration: none; border: 1px solid #e0d8cd;
     border-radius: 8px; padding: 8px 14px; }
 .cov-panel-link:hover { background: #f6edd9; border-color: #d9c9a8; }
+
+/* ── Transport-CO₂ (docs/CLAUDE_CO2_TRANSPORT.md §2) ───────────────── */
+.cov-tr-hier { display: flex; gap: 8px; flex-wrap: wrap; margin: 4px 0 16px; }
+.cov-tr-step { flex: 1; min-width: 170px; font-size: 11.5px; color: #5a5142;
+    background: #faf8f4; border: 1px solid #ece7de; border-radius: 8px; padding: 8px 11px; }
+.cov-tr-step b { display: block; font-size: 10px; text-transform: uppercase; letter-spacing: .04em;
+    color: #8e631f; margin-bottom: 3px; }
+
+.cov-tr-dot { display: inline-block; width: 10px; height: 10px; border-radius: 50%;
+    margin-right: 8px; vertical-align: middle; }
+.cov-tr-name { font-weight: 600; color: #3a2f1c; }
+.cov-tr-table tfoot td { border-top: 2px solid #e2ddd4; font-weight: 700; color: #3a2f1c; padding-top: 10px; }
+
+.cov-cov { font-size: 12px; font-weight: 700; padding: 2px 9px; border-radius: 10px; }
+.cov-cov-hi  { background: #e7f3e9; color: #3f8c50; }
+.cov-cov-mid { background: #fbf0dc; color: #b07818; }
+.cov-cov-lo  { background: #f7e2dd; color: #b0432f; }
+.cov-cov-na  { color: #a49a8c; font-weight: 400; }
+
+/* Fordeling pr. metode — 3-søjlers sammenligning (ture · km · CO₂) */
+.cov-tr-dist { margin-top: 22px; }
+.cov-tr-dist-h { font-size: 13px; font-weight: 700; color: #3a2f1c; margin-bottom: 8px; }
+.cov-tr-drow { display: grid; grid-template-columns: 150px repeat(3, 1fr); align-items: center;
+    gap: 14px; padding: 5px 0; font-size: 13px; color: #5a5142; }
+.cov-tr-dhead { font-size: 10.5px; text-transform: uppercase; letter-spacing: .04em;
+    color: #9a9083; font-weight: 600; padding-bottom: 2px; border-bottom: 1px solid #f0ece4; }
+.cov-tr-dhead > span { text-align: left; }
+.cov-tr-dlbl { display: flex; align-items: center; font-weight: 600; color: #3a2f1c; }
+.cov-tr-m { display: flex; align-items: center; gap: 8px; }
+.cov-tr-m-track { flex: 1; background: #f3efe8; border-radius: 5px; height: 14px; overflow: hidden; min-width: 20px; }
+.cov-tr-m-fill { display: block; height: 100%; border-radius: 5px; min-width: 2px; }
+.cov-tr-m-val { font-variant-numeric: tabular-nums; color: #5a5142; font-size: 12px; white-space: nowrap;
+    min-width: 58px; text-align: right; }
+
+.cov-tr-dq { display: flex; align-items: center; justify-content: space-between; gap: 12px;
+    background: #fbf0dc; border: 1px solid #eed9a8; border-radius: 8px;
+    padding: 10px 14px; margin-top: 16px; font-size: 13px; color: #5a5142; }
+.cov-tr-dq b { color: #3a2f1c; }
+.cov-tr-dq-link { background: none; border: none; color: #8e631f; font-weight: 600;
+    cursor: pointer; font-size: 13px; white-space: nowrap; padding: 0; }
+.cov-tr-dq-link:hover { text-decoration: underline; }
+
+/* ── Periode-vælger ───────────────────────────────────────────── */
+.cov-head-right { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; justify-content: flex-end; }
+.cov-period { display: flex; align-items: center; gap: 4px; flex-wrap: wrap; }
+.cov-per-btn { background: #fff; border: 1px solid #d7d1ca; border-radius: 8px;
+    padding: 6px 11px; cursor: pointer; color: #5a5142; font-size: 13px; }
+.cov-per-btn:hover { background: #f5f2ec; }
+.cov-per-btn.active { background: var(--brand-primary, #8e631f); border-color: var(--brand-primary, #8e631f); color: #fff; font-weight: 600; }
+.cov-per-busy { color: var(--brand-primary, #8e631f); font-size: 13px; animation: covSpin 0.8s linear infinite; }
+@keyframes covSpin { to { transform: rotate(360deg); } }
+.cov-per-panel { display: flex; align-items: center; gap: 6px; margin-left: 4px;
+    background: #faf8f4; border: 1px solid #ece7de; border-radius: 8px; padding: 5px 8px; }
+.cov-per-panel input[type="date"] { border: 1px solid #d7d1ca; border-radius: 6px; padding: 4px 6px; font-size: 13px; color: #3a2f1c; }
+.cov-per-panel .cov-btn-primary { padding: 5px 12px; font-size: 13px; }

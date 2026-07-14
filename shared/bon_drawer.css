@@ -1074,3 +1074,13 @@
     from { opacity: 0; transform: translateY(16px); }
     to   { opacity: 1; transform: translateY(0); }
 }
+
+/* CO₂-aftryk-strip (mad · transport · i alt) */
+.drawer-co2-strip {
+    display: flex; align-items: center; flex-wrap: wrap; gap: 4px;
+    padding: 10px 14px; font-size: 13px; font-weight: 400;
+    color: #2f6b39; background: #eef6ef; border: 1px solid #d5e8d7; border-radius: 8px;
+}
+.drawer-co2-strip b { font-weight: 700; }
+.drawer-co2-method { font-weight: 400; opacity: 0.75; }
+.drawer-co2-sep { opacity: 0.4; margin: 0 3px; }
