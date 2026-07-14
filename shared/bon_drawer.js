@@ -188,7 +188,8 @@ class BonDrawer {
                 <!-- CO₂ -->
                 <div class="drawer-section drawer-co2-section" data-drawer-section="co2" hidden>
                     <label class="drawer-label">CO₂-aftryk</label>
-                    <div class="drawer-co2-strip"></div>
+                    <div class="drawer-co2-strip" role="button" tabindex="0" title="Klik for at se hvad der bidrager"></div>
+                    <div class="drawer-co2-detail" hidden></div>
                 </div>
 
                 <!-- KUNDE -->
@@ -644,7 +645,38 @@ class BonDrawer {
         }
         parts.push(`I alt <b>${fmt(total)} CO₂e</b>`);
         const strip = section.querySelector('.drawer-co2-strip');
-        if (strip) strip.innerHTML = '🌱 ' + parts.join(' <span class="drawer-co2-sep">·</span> ');
+        if (strip) strip.innerHTML = '🌱 ' + parts.join(' <span class="drawer-co2-sep">·</span> ') + ' <span class="drawer-co2-caret">▾</span>';
+
+        // Nedbrydning pr. vare (co2e × antal), sorteret efter bidrag. Varer uden
+        // CO₂-tal tælles ikke med — vises som note så tallet ikke fejllæses som "komplet".
+        const detail = section.querySelector('.drawer-co2-detail');
+        if (detail) {
+            const pct = (kg) => total ? Math.round(kg / total * 100) : 0;
+            const items = (d.lines || [])
+                .map(l => ({ name: l.product_name || '', kg: (Number(l.co2e) || 0) * (Number(l.quantity) || 0) }))
+                .filter(x => x.kg > 0).sort((a, b) => b.kg - a.kg);
+            const missing = (d.lines || []).filter(l => (Number(l.quantity) || 0) > 0 && !(Number(l.co2e) > 0)).length;
+            let rows = items.map(x =>
+                `<div class="drawer-co2-row"><span class="drawer-co2-row-name">${_esc(x.name)}</span>` +
+                `<span class="drawer-co2-row-kg">${fmt(x.kg)}</span><span class="drawer-co2-row-pct">${pct(x.kg)}%</span></div>`).join('');
+            if (hasT) {
+                const tlabel = d.transport_vehicle_label ? ` (${_esc(d.transport_vehicle_label)})` : '';
+                rows += `<div class="drawer-co2-row drawer-co2-row-transport"><span class="drawer-co2-row-name">🚚 Transport${tlabel}</span>` +
+                    `<span class="drawer-co2-row-kg">${fmt(tKg)}</span><span class="drawer-co2-row-pct">${pct(tKg)}%</span></div>`;
+            }
+            const missNote = missing > 0
+                ? `<div class="drawer-co2-missing">⚠ ${missing} vare${missing > 1 ? 'r' : ''} uden CO₂-tal — ikke medregnet</div>` : '';
+            detail.innerHTML = (rows
+                ? rows + `<div class="drawer-co2-row drawer-co2-row-total"><span class="drawer-co2-row-name">I alt</span>` +
+                    `<span class="drawer-co2-row-kg">${fmt(total)}</span><span class="drawer-co2-row-pct">100%</span></div>`
+                : '<div class="drawer-co2-missing">Ingen CO₂-tal på varerne endnu.</div>') + missNote;
+        }
+        if (strip && detail && !strip._co2Bound) {
+            strip._co2Bound = true;
+            const toggle = () => { detail.hidden = !detail.hidden; strip.classList.toggle('open', !detail.hidden); };
+            strip.addEventListener('click', toggle);
+            strip.addEventListener('keydown', (e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); toggle(); } });
+        }
     }
 
     async _refreshLoboSandboxBadge() {
