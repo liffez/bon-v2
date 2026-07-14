@@ -2521,6 +2521,33 @@ ringe til, i stedet for max-8 kort blandet ind i digest-feeden.
   færdig på nær #231. Den gamle `office/views/crm-reaktivering.js` er ikke slettet (stadig loadbar via
   `switchView('crm-reaktivering')` for bagudkompat) men er ude af nav'en — kan ryddes senere.
 
+### Event-modul: Info-panel + vedhæftninger + nøgletal på én linje (PR #287, 7. juli 2026)
+
+Driftsønske: et sted i event-modulet hvor der kan skrives fri info ind, og mulighed for at
+vedhæfte filer (kort, billeder, PDF) til eventet. Plus en throwaway prep-estimat-prototype fra
+`docs/CLAUDE_EVENT.md` §15-drøftelsen.
+
+- **Info på event-overblikket** ([office/views/events.js](office/views/events.js)): `events.notes`
+  gjort synligt + inline-redigerbart (auto-gem via `PATCH /api/events/:id` → changelog → SSE;
+  `_evHandleSSE`-guarden forhindrer re-render mens feltet har fokus). **Sammenklappelig** —
+  én linje med preview af noten når lukket, folder ud til multi-linje redigering. Nøgletallene
+  (P&L-strip) forbliver **øverst**; info + vedhæftninger ligger i en kompakt værktøjs-række under.
+- **Vedhæftninger** (kort/billeder/PDF/dokumenter): genbruger den polymorfe `attachments`-tabel
+  med `entity_type='event'` — **ingen migration**. Filer under `data/attachments/event/<id>/`.
+  Nye endpoints i [routes/attachments.js](routes/attachments.js): liste (`GET /api/attachments?entity_type=&entity_id=`),
+  slet (`DELETE /:id`), inline-visning (`GET /:id/inline`, content-type udledt af filendelse).
+  Upload/download fandtes i forvejen. **UI:** pille med antal-badge → popover med liste
+  (hent/åbn i ny fane/slet), luk ved klik udenfor/Escape. MIME-validering (PDF/billeder/Office)
+  + 10 MB arvet fra upload-endpointet. `shared/api.js`: `fetchAttachments`, `deleteAttachment`,
+  `attachmentInlineUrl`.
+- **Nøgletal på én linje** ([office/views/events.css](office/views/events.css)): P&L-strippens grid
+  rettet fra `repeat(6,1fr)` til `repeat(7,1fr)` — CO₂e-cellen faldt tidligere ned på egen række.
+- **Prep-estimat-prototype** (`scripts/prep-estimate.js`, §15): throwaway beregner (per-enhed +
+  per-batch, §15.2-rater i rettbar blok, flagger UKENDTE rater). **Ikke wired ind i noget** — til
+  kalibrering før vi beslutter datamodel/granularitet for prep-tid-modellen.
+- **Bevidst udeladt:** prep-tid-modellen (§15) er stadig kun design-noter + prototype; dags-ratio-
+  eksklusionen (§15.3 pkt. 4) holdt adskilt. Browser-verificeret end-to-end + godkendt i drift.
+
 ## Næste opgave
 
 > ✏️ Tracker-oprydning 29. juni 2026 — koden er på migration 119; status-sektionen ovenfor
