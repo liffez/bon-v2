@@ -65,6 +65,7 @@ function _covPeriodControl() {
 // Kategori-palet (distinkt men jordnær) + grå til "Øvrige"-halen.
 const _COV_PALETTE = ['#8e631f', '#4a9d5b', '#3b6ea3', '#c08a3a', '#7a5ba6', '#3f8f8a', '#b5563f'];
 const _COV_OTHER_COLOR = '#c9beac';
+const _COV_TRANSPORT_CAT = '🚚 Transport';  // separat stak-bane (§2.5), ikke en mad-kategori
 
 function initCo2Overblik(container) {
     _covState.container = container;
@@ -408,18 +409,24 @@ function _covCategoryPlan(series) {
     const TOP = 7;
     const top = sorted.slice(0, TOP);
     const hasOther = sorted.length > TOP;
-    const order = hasOther ? [...top, 'Øvrige'] : top;
+    let order = hasOther ? [...top, 'Øvrige'] : top;
     const color = new Map(top.map((c, i) => [c, _COV_PALETTE[i % _COV_PALETTE.length]]));
     if (hasOther) color.set('Øvrige', _COV_OTHER_COLOR);
-    return { order, color, otherCats: new Set(sorted.slice(TOP)), hasOther, hasData: sorted.length > 0 };
+    // Transport-bane øverst i stakken (§2.5) — kun når der er transport-tal.
+    // Adskilt fra mad-kategorierne; farve = grøn (som transport-sektionen).
+    const hasTransport = series.some(m => (m.transport_co2e || 0) > 0);
+    if (hasTransport) { order = [...order, _COV_TRANSPORT_CAT]; color.set(_COV_TRANSPORT_CAT, '#2e7d32'); }
+    return { order, color, otherCats: new Set(sorted.slice(TOP)), hasOther, hasTransport,
+             hasData: sorted.length > 0 || hasTransport };
 }
 
-// Segment-værdier for én måned i plan-rækkefølge (Øvrige = sum af hale).
+// Segment-værdier for én måned i plan-rækkefølge (Øvrige = sum af hale, Transport = separat felt).
 function _covMonthStack(m, plan) {
     const bc = m.by_category || {};
     return plan.order.map(cat => {
         let v = 0;
-        if (cat === 'Øvrige') { for (const [c, x] of Object.entries(bc)) if (plan.otherCats.has(c)) v += x; }
+        if (cat === _COV_TRANSPORT_CAT) v = m.transport_co2e || 0;
+        else if (cat === 'Øvrige') { for (const [c, x] of Object.entries(bc)) if (plan.otherCats.has(c)) v += x; }
         else v = bc[cat] || 0;
         return { cat, v };
     });

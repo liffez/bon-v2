@@ -24,6 +24,7 @@ const grocy = require('../services/grocyAdapter');
 const engine = require('../services/co2Engine');
 const synonyms = require('../services/co2Synonyms');
 const transport = require('../services/co2Transport');
+const bonTransportCo2 = require('../services/bonTransportCo2');
 
 const ADMIN = requireAuth('admin');
 const AUTH  = requireAuth();
@@ -294,12 +295,31 @@ router.get('/timeseries', AUTH, handle((req, res) => {
         byMonth.get(r.month)[r.category] = r.co2e;
     }
 
+    // Transport-CO₂ pr. måned (§2.5) — beregnet pr. bon, summeret pr. måned.
+    // Holdes ADSKILT fra co2e (mad-total) så kuvert-KPI'en forbliver ekskl. transport.
+    const tbons = db.prepare(`
+        SELECT b.id, strftime('%Y-%m', b.delivery_date) AS month,
+               b.delivery_type, b.delivery_method, b.delivery_vehicle_id, b.delivery_address_id
+          FROM bons b
+          JOIN status_definitions sd ON b.status_id = sd.id
+         WHERE (b.is_offer = 0 OR b.is_offer IS NULL)
+           AND sd.code != 'AFLYST'
+           AND b.delivery_date BETWEEN ? AND ?
+    `).all(win.from, win.to);
+    const tmap = bonTransportCo2.computeForBons(db, tbons);
+    const transportByMonth = new Map();
+    for (const b of tbons) {
+        const t = tmap.get(b.id);
+        if (t && t.kg) transportByMonth.set(b.month, (transportByMonth.get(b.month) || 0) + t.kg);
+    }
+
     res.json({
         window: { from: win.from, to: win.to, months: win.months },
         months: rows.map(r => ({
             ...r,
             co2e_per_pax: r.pax ? r.co2e / r.pax : null,
             by_category: byMonth.get(r.month) || {},
+            transport_co2e: Math.round((transportByMonth.get(r.month) || 0) * 10) / 10,
         })),
     });
 }));
