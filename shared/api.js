@@ -2192,6 +2192,10 @@ function fetchCo2Transport(period) {
     return apiFetch('/co2/transport' + _co2PeriodQuery(period));
 }
 
+function fetchCo2BonAccuracy(bonId) {
+    return apiFetch('/co2/bon/' + bonId + '/accuracy');
+}
+
 function setCo2ManualFactor(productId, factor) {
     return apiFetch('/co2/manual-factor', {
         method: 'POST',

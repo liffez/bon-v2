@@ -49,12 +49,16 @@ function stockToKg(product, amount, conversions, kiloId) {
  */
 function computeRecipe(recipeId, ctx, memo, stack) {
     if (memo.has(recipeId)) return memo.get(recipeId);
-    if (stack.has(recipeId)) return { total: 0, missing_factor: new Set(), missing_kgvej: new Set() }; // cyklus
+    if (stack.has(recipeId)) return { total: 0, covered_kg: 0, missing_kg: 0, missing_factor: new Set(), missing_kgvej: new Set() }; // cyklus
     stack.add(recipeId);
 
     const missing_factor = new Set();
     const missing_kgvej = new Set();
     let total = 0;
+    // Masse-dækning (til nøjagtigheds-tal): covered_kg = råvarer med både vægt og
+    // faktor · missing_kg = råvarer MED vægt men UDEN faktor. Råvarer uden kg-vej
+    // (missing_kgvej) har ukendt masse og tælles ikke med i nogen af dem.
+    let covered_kg = 0, missing_kg = 0;
 
     for (const p of (ctx.posByRecipe.get(recipeId) || [])) {
         const product = ctx.productById.get(String(p.product_id));
@@ -65,24 +69,34 @@ function computeRecipe(recipeId, ctx, memo, stack) {
         if (kg == null) { missing_kgvej.add(product.name); continue; }
 
         const factor = readFactor(product);
-        if (factor == null) { missing_factor.add(product.name); continue; }
+        if (factor == null) { missing_factor.add(product.name); missing_kg += kg; continue; }
 
         total += kg * factor;
+        covered_kg += kg;
     }
 
     for (const n of (ctx.nestByRecipe.get(recipeId) || [])) {
         const sub = computeRecipe(n.includes_recipe_id, ctx, memo, stack);
         const subBase = ctx.baseServings.get(n.includes_recipe_id) || 1;
-        const perServing = subBase ? sub.total / subBase : 0;
-        total += perServing * (parseFloat(n.servings) || 0);
+        const scale = subBase ? (parseFloat(n.servings) || 0) / subBase : 0;
+        total += sub.total * scale;
+        covered_kg += sub.covered_kg * scale;
+        missing_kg += sub.missing_kg * scale;
         sub.missing_factor.forEach(x => missing_factor.add(x));
         sub.missing_kgvej.forEach(x => missing_kgvej.add(x));
     }
 
     stack.delete(recipeId);
-    const result = { total, missing_factor, missing_kgvej };
+    const result = { total, covered_kg, missing_kg, missing_factor, missing_kgvej };
     memo.set(recipeId, result);
     return result;
+}
+
+/** Nøjagtighed pr. masse: dækket kg / kendt kg. null hvis ingen kendt masse. */
+function accuracyPct(res) {
+    const known = res.covered_kg + res.missing_kg;
+    if (known > 0) return Math.round((res.covered_kg / known) * 100);
+    return (res.missing_factor.size === 0 && res.missing_kgvej.size === 0) ? 100 : null;
 }
 
 /**
@@ -121,6 +135,10 @@ function computeAll(data) {
             missing_factor: [...res.missing_factor],
             missing_kgvej: [...res.missing_kgvej],
             complete: res.missing_factor.size === 0 && res.missing_kgvej.size === 0,
+            covered_kg: res.covered_kg,
+            missing_kg: res.missing_kg,               // masse uden faktor (kendt vægt)
+            accuracy_pct: accuracyPct(res),           // dækket / kendt masse
+            missing_kgvej_count: res.missing_kgvej.size, // råvarer m. ukendt vægt
         });
     }
     return out;
@@ -163,6 +181,8 @@ function breakdownRecipe(recipeId, data) {
     const ctx = { posByRecipe, nestByRecipe, productById, conversions: data.conversions || [], kiloId, baseServings };
     const memo = new Map();
     const div = baseServings.get(recipeId) || 1;
+    // Rekursiv masse-dækning for HELE opskriften (til nøjagtigheds-tallet).
+    const full = computeRecipe(recipeId, ctx, memo, new Set());
 
     const ingredients = [];
     for (const p of (posByRecipe.get(recipeId) || [])) {
@@ -171,7 +191,7 @@ function breakdownRecipe(recipeId, data) {
         if (!product) {
             ingredients.push({ product_id: null, name: `#${p.product_id}`, amount_per_serving: amount / div,
                 unit: null, kg: null, factor: null, source: null, contribution: null,
-                status: 'unknown_product', is_packaging: false });
+                mass_kg: null, missing_kg: null, status: 'unknown_product', is_packaging: false });
             continue;
         }
         const kgFull = stockToKg(product, amount, ctx.conversions, kiloId);
@@ -187,6 +207,8 @@ function breakdownRecipe(recipeId, data) {
             product_id: product.id, name: product.name, amount_per_serving: amount / div,
             unit: unitName.get(product.qu_id_stock) || null, kg, factor,
             source: uf.co2e_source || null, contribution, status, is_packaging: /emballage/i.test(grp),
+            mass_kg: kg,                                              // kendt masse (null hvis kg-vej mangler)
+            missing_kg: status === 'missing_factor' ? kg : (status === 'ok' ? 0 : null), // masse uden faktor
         });
     }
 
@@ -198,10 +220,14 @@ function breakdownRecipe(recipeId, data) {
         const servings = parseFloat(n.servings) || 0;
         const complete = sub.missing_factor.size === 0 && sub.missing_kgvej.size === 0;
         const r = recipeById.get(n.includes_recipe_id);
+        // Masse pr. top-serving: skalér underopskriftens covered/missing_kg ned.
+        const subScale = (subBase ? servings / subBase : 0) / div;
         sub_recipes.push({
             recipe_id: n.includes_recipe_id, name: r ? r.name : `#${n.includes_recipe_id}`,
             servings_per_serving: servings / div, per_serving: perServing,
             contribution: complete ? (perServing * servings) / div : null, complete,
+            mass_kg: (sub.covered_kg + sub.missing_kg) * subScale,   // kendt masse i underopskriften
+            missing_kg: sub.missing_kg * subScale,                   // heraf uden faktor
         });
     }
 
@@ -215,6 +241,11 @@ function breakdownRecipe(recipeId, data) {
         base_servings: div,
         total_per_serving: total,
         complete: ingredients.every(i => i.status === 'ok') && sub_recipes.every(s => s.complete),
+        // Nøjagtighed pr. masse (rekursivt) — hvor stor en andel af de kendte kg har en faktor.
+        accuracy_pct: accuracyPct(full),
+        covered_kg_per_serving: full.covered_kg / div,
+        missing_kg_per_serving: full.missing_kg / div,          // masse uden faktor (kendt vægt)
+        missing_kgvej_count: full.missing_kgvej.size,           // råvarer m. ukendt vægt
         ingredients: withPct(ingredients),
         sub_recipes: withPct(sub_recipes),
     };

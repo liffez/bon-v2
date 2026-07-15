@@ -1143,3 +1143,36 @@
 .drawer-plan-actions { display: flex; justify-content: flex-end; gap: 8px; }
 .drawer-plan-cancel { background: transparent; border: 1px solid var(--color-border); border-radius: 6px; padding: 7px 14px; cursor: pointer; font-size: 13px; }
 .drawer-plan-submit { background: var(--color-sentiment-neu, #C8962A); color: #fff; border: none; border-radius: 6px; padding: 7px 16px; cursor: pointer; font-size: 13px; font-weight: 600; }
+/* CO₂-strip: klikbar → nedbrydning */
+.drawer-co2-strip { cursor: pointer; transition: filter .12s; }
+.drawer-co2-strip:hover { filter: brightness(0.97); }
+.drawer-co2-caret { margin-left: auto; opacity: 0.6; transition: transform .15s; }
+.drawer-co2-strip.open .drawer-co2-caret { transform: rotate(180deg); }
+.drawer-co2-detail {
+    margin-top: 6px; border: 1px solid #d5e8d7; border-radius: 8px; overflow: hidden;
+    font-size: 13px; background: #fff;
+}
+.drawer-co2-row {
+    display: grid; grid-template-columns: 1fr auto 46px; align-items: center; gap: 10px;
+    padding: 7px 12px; border-bottom: 1px solid #eef3ee;
+}
+.drawer-co2-row:last-child { border-bottom: none; }
+.drawer-co2-row-name { color: #3a3a36; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.drawer-co2-row-kg { font-variant-numeric: tabular-nums; color: #2f6b39; font-weight: 600; text-align: right; }
+.drawer-co2-row-pct { font-variant-numeric: tabular-nums; color: #8a8073; text-align: right; }
+.drawer-co2-row-transport { background: #f4f9f4; }
+.drawer-co2-row-total { background: #eef6ef; font-weight: 700; }
+.drawer-co2-row-total .drawer-co2-row-name { color: #2f6b39; }
+.drawer-co2-missing { padding: 8px 12px; font-size: 12px; color: #98701f; background: #fdf6e6; }
+
+/* CO₂ pr. kuvert */
+.drawer-co2-perkuvert { opacity: 0.9; }
+.drawer-co2-row-perkuvert { background: #f4f9f4; color: #2f6b39; }
+.drawer-co2-row-perkuvert .drawer-co2-row-name { color: #2f6b39; }
+.drawer-co2-row-sub { color: #8a8073; font-weight: 400; font-size: 12px; }
+
+/* Bon mad-CO₂ nøjagtigheds-badge (i strippen ved Mad) */
+.drawer-co2-acc-badge { font-size: 11px; font-weight: 700; padding: 1px 7px; border-radius: 9px; margin-left: 4px; }
+.drawer-co2-acc-badge.hi  { background: #d9ecdd; color: #2f7a41; }
+.drawer-co2-acc-badge.mid { background: #f6e6c8; color: #986c14; }
+.drawer-co2-acc-badge.lo  { background: #f3d9d2; color: #a5341f; }
