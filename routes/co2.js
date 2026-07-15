@@ -182,6 +182,7 @@ router.get('/overview', AUTH, handle(async (req, res) => {
     const incompleteIds = new Set(real.filter(r => !r.complete).map(r => r.recipe_id));
     const metaById = new Map(real.map(r => [r.recipe_id, r]));
     let missingRecipes = [];
+    let massCoveragePct = null; // sales-vægtet: dækket masse / kendt masse af det SOLGTE
     try {
         const usage = getDb().prepare(`
             SELECT bl.grocy_recipe_id AS rid,
@@ -209,6 +210,19 @@ router.get('/overview', AUTH, handle(async (req, res) => {
             })
             .sort((a, b) => b.units - a.units)
             .slice(0, 15);
+
+        // Samlet masse-dækning, vægtet efter faktisk salg (seneste 12 mdr):
+        // Σ(dækket kg × solgte enheder) / Σ(kendt kg × solgte enheder).
+        let totCov = 0, totKnown = 0;
+        for (const u of usage) {
+            const m = metaById.get(Number(u.rid));
+            if (!m || m.covered_kg == null) continue;
+            const base = m.base_servings || 1;
+            const units = u.units || 0;
+            totCov += (m.covered_kg / base) * units;
+            totKnown += ((m.covered_kg + m.missing_kg) / base) * units;
+        }
+        if (totKnown > 0) massCoveragePct = Math.round((totCov / totKnown) * 100);
     } catch (e) { /* bon-forbrug er bonus — fejl må ikke vælte overblikket */ }
 
     res.json({
@@ -217,6 +231,7 @@ router.get('/overview', AUTH, handle(async (req, res) => {
             complete: complete.length,
             partial: real.length - complete.length,
             coverage_pct: real.length ? Math.round((complete.length / real.length) * 100) : 0,
+            mass_coverage_pct: massCoveragePct, // sales-vægtet masse-dækning (kan være null)
         },
         recipes: real
             .map(r => {
@@ -286,6 +301,41 @@ router.post('/synonyms', AUTH, handle(async (req, res) => {
 
 router.delete('/synonyms/:id', AUTH, handle((req, res) => {
     res.json(synonyms.removeSynonym(getDb(), parseInt(req.params.id, 10)));
+}));
+
+// Bon-niveau mad-CO₂ nøjagtighed (masse-vægtet): af bonens samlede kg-masse,
+// hvor stor en andel har en faktor. Bruges af draweren ("Mad 17 kg · 94% dækket").
+router.get('/bon/:id/accuracy', AUTH, handle(async (req, res) => {
+    const bonId = parseInt(req.params.id, 10);
+    if (!Number.isFinite(bonId)) return res.status(400).json({ error: 'Ugyldigt id' });
+    const lines = getDb().prepare(
+        `SELECT grocy_recipe_id AS rid, quantity FROM bon_lines WHERE bon_id = ? AND grocy_recipe_id IS NOT NULL`
+    ).all(bonId);
+    if (!lines.length) return res.json({ accuracy_pct: null, covered_kg: 0, missing_kg: 0, lines: 0 });
+
+    const [recipesMap, pos, nestings, products, conversions, units] = await Promise.all([
+        grocy.getRecipesRawMap(), grocy.getAllRecipesPos(), grocy.getRecipeNestings(),
+        grocy.getProducts(), grocy.getQuantityUnitConversions(), grocy.getQuantityUnits(),
+    ]);
+    const recipes = [...recipesMap.values()].map(r => ({ id: r.id, name: r.name, base_servings: r.base_servings }));
+    const results = engine.computeAll({ recipes, pos, nestings, products, conversions, units });
+
+    let covered = 0, missing = 0;
+    for (const l of lines) {
+        const r = results.get(Number(l.rid));
+        if (!r) continue;
+        const base = r.base_servings || 1;
+        const q = Number(l.quantity) || 0;
+        covered += (r.covered_kg / base) * q;
+        missing += (r.missing_kg / base) * q;
+    }
+    const known = covered + missing;
+    res.json({
+        accuracy_pct: known > 0 ? Math.round((covered / known) * 100) : null,
+        covered_kg: covered,
+        missing_kg: missing,
+        lines: lines.length,
+    });
 }));
 
 // CO₂ over tid: månedlig Σ(bons.total_co2e) + pax → CO₂ pr. kuvert. Ekskl.

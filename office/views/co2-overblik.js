@@ -359,6 +359,17 @@ function _covTransport() {
       </section>`;
 }
 
+// Samlet masse-dækning: hvor stor en andel af det SOLGTE (kg-masse, 12 mdr)
+// der har et CO₂-tal. Mere retvisende end opskrift-tælling (en 95%-dækket
+// opskrift tæller ikke som "ufuldstændig" her).
+function _covMassCoveragePill(pct) {
+    if (pct == null) return '';
+    const cls = pct >= 80 ? 'hi' : (pct >= 50 ? 'mid' : 'lo');
+    return `<span class="cov-masscov cov-masscov-${cls}"
+        title="Andel af den solgte mad-masse (kg, seneste 12 mdr) der har en CO₂-faktor. Vægtet efter salg — mere retvisende end antal komplette opskrifter.">
+        Samlet dækning <b>${pct}%</b> <span class="cov-masscov-sub">af det solgte</span></span>`;
+}
+
 /* Blok 2 — datakvalitet: dækningsbjælke + hvad mangler mest */
 function _covDataQuality(ov) {
     const s = ov.summary;
@@ -380,7 +391,10 @@ function _covDataQuality(ov) {
         : '<span class="cov-dim">Intet mangler 🎉</span>';
     return `
       <section class="cov-card">
-        <h2>Datakvalitet</h2>
+        <div class="cov-card-head">
+          <h2>Datakvalitet</h2>
+          ${_covMassCoveragePill(s.mass_coverage_pct)}
+        </div>
         <p class="cov-sub">Indgangen til rigtige rapporter — klik en manglende vare for at rette den.</p>
         <div class="cov-bar">
           <div class="cov-bar-fill" style="width:${s.coverage_pct}%"></div>
