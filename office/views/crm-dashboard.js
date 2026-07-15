@@ -31,7 +31,7 @@ function _crmWireDelegatedClicks() {
         if (e.target.closest('a, button, input, select, textarea')) return;
 
         const cid = target.dataset.customerId;
-        if (cid) { _crmOpenKunde(parseInt(cid, 10)); return; }
+        if (cid) { _crmOpenKunde(parseInt(cid, 10), target.dataset.ktab); return; }
 
         const scrollId = target.dataset.scroll;
         if (scrollId) {
@@ -244,6 +244,42 @@ function _crmRenderShell() {
             .crm-cb-badge.urgent { background: var(--color-sentiment-neg-bg); color: var(--color-sentiment-neg); }
             .crm-cb-badge.today { background: var(--color-sentiment-neu-bg); color: var(--color-sentiment-neu); }
 
+            /* Mine opfølgninger (Fase 4) */
+            .crm-fu-head { display: flex; align-items: center; justify-content: space-between; gap: 10px; }
+            .crm-fu-head h3 { margin: 0; }
+            .crm-fu-ringeliste {
+                background: none; border: none; color: var(--brand-primary, #8e631f);
+                font-size: 12px; font-weight: 700; cursor: pointer; padding: 0; white-space: nowrap;
+            }
+            .crm-fu-ringeliste:hover { text-decoration: underline; }
+            .crm-fu-item {
+                display: flex; align-items: center; gap: 10px;
+                padding: 9px 0; border-bottom: 1px solid var(--color-border, #eee);
+            }
+            .crm-fu-item:last-child { border-bottom: none; }
+            .crm-fu-info { flex: 1; min-width: 0; }
+            .crm-fu-name-row { display: flex; align-items: baseline; gap: 8px; }
+            .crm-fu-name { font-size: 13px; font-weight: 600; }
+            .crm-fu-company { font-size: 11px; color: var(--color-text-dim); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+            .crm-fu-text { font-size: 12px; color: var(--color-text); margin-top: 1px; }
+            .crm-fu-bon {
+                display: inline-block; margin-left: 6px; font-size: 10px; font-weight: 700;
+                color: #3a6a9a; background: #e8f0f7; border-radius: 8px; padding: 0 6px;
+            }
+            .crm-fu-meta { display: flex; flex-direction: column; align-items: flex-end; gap: 3px; flex-shrink: 0; }
+            .crm-fu-kilde { padding: 1px 7px; border-radius: 9px; font-size: 10px; font-weight: 700; white-space: nowrap; }
+            .crm-fu-kilde.planlagt { background: var(--color-sentiment-neu-bg, #FBF3E2); color: var(--color-sentiment-neu, #C8962A); }
+            .crm-fu-kilde.service { background: #e0ecf5; color: #2a6fb0; }
+            .crm-fu-time { font-size: 11px; font-weight: 700; color: var(--color-text-dim); white-space: nowrap; }
+            .crm-fu-time.overdue { color: var(--color-sentiment-neg, #C94040); }
+            .crm-fu-time.overdue::before { content: "⚑ "; }
+            .crm-fu-ring {
+                flex-shrink: 0; font-size: 11px; font-weight: 700; text-decoration: none;
+                color: var(--brand-primary, #8e631f); border: 1px solid var(--color-border);
+                border-radius: 6px; padding: 4px 8px;
+            }
+            .crm-fu-ring:hover { background: var(--brand-primary-light, #f1e6b2); }
+
             /* Activity feed */
             .crm-act-item {
                 display: flex; align-items: flex-start; gap: 10px;
@@ -392,7 +428,10 @@ function _crmRenderShell() {
             </div>
 
             <div class="crm-card" id="crmCallbacksPanel">
-                <h3>📞 Ring tilbage</h3>
+                <div class="crm-fu-head">
+                    <h3>🔔 Mine opfølgninger</h3>
+                    <button class="crm-fu-ringeliste" type="button" onclick="_crmGotoRingeliste()">Se ringeliste →</button>
+                </div>
                 <div id="crmCallbacksList"></div>
             </div>
 
@@ -486,12 +525,12 @@ async function _crmLoadData() {
     if (!_crmActive) return;
 
     try {
-        const [stats, briefing, suggestions, serviceCalls, callbacks, callLog, meetings, snoozed, reviewStat] = await Promise.all([
+        const [stats, briefing, suggestions, serviceCalls, followups, callLog, meetings, snoozed, reviewStat] = await Promise.all([
             fetchCrmStats(),
             fetchCrmBriefing(),
             fetchCrmSuggestions(),
             fetchCrmServiceCalls(7),
-            fetchCrmCallbacks(),
+            fetchCrmFollowups(),
             fetchCrmCallLog({ limit: 6 }),
             fetchCrmUpcomingMeetings({ days: 30, limit: 10 }),
             fetchSnoozedSuggestions().catch(() => []),
@@ -504,7 +543,7 @@ async function _crmLoadData() {
         _crmRenderSnoozedButton(snoozed);
         _crmRenderReviewStat(reviewStat);
         _crmRenderServiceCalls(serviceCalls);
-        _crmRenderCallbacks(callbacks);
+        _crmRenderFollowups(followups);
         _crmRenderUpcomingMeetings(meetings);
         _crmRenderActivityFeed(Array.isArray(callLog) ? callLog : (callLog.rows || []));
         _crmLoadPipeline('');
@@ -964,31 +1003,55 @@ async function _crmUnsnooze(customerId, type) {
     }
 }
 
-function _crmRenderCallbacks(data) {
+// Mine opfølgninger (Fase 4) — forfaldne/dagens planlagte + åbne callbacks i én liste.
+// Forfaldne først (rød ⚑), derefter dagens. Møder + fremtidige vises IKKE her.
+function _crmRenderFollowups(data) {
     const el = document.getElementById('crmCallbacksList');
     if (!el) return;
-    const items = Array.isArray(data) ? data : (data.callbacks || []);
+    const items = (data && data.followups) || (Array.isArray(data) ? data : []);
     if (!items.length) {
-        el.innerHTML = '<div class="crm-empty">Ingen ventende callbacks</div>';
+        el.innerHTML = '<div class="crm-empty">Ingen opfølgninger i dag 🎉</div>';
         return;
     }
-    el.innerHTML = items.slice(0, 5).map((c, i) => {
-        const name = c.customer_name || c.name || 'Ukendt';
+    el.innerHTML = items.slice(0, 12).map((f, i) => {
+        const name = f.name && f.name.trim() ? f.name.trim() : 'Ukendt';
         const init = name.charAt(0).toUpperCase();
         const avClass = 'av-' + (i % 3);
-        const badgeClass = (c.attempts || 0) >= 3 ? 'urgent' : 'today';
-        const badgeText = (c.attempts || 0) >= 3 ? 'Svarer ikke' : 'Ringes';
-        const cid = c.customer_id || '';
-        const rowAttrs = cid ? ' class="crm-cb-item crm-clickable" data-customer-id="' + cid + '" title="Åbn kunde i CRM"' : ' class="crm-cb-item"';
+        const cid = f.customer_id || '';
+        const due = (typeof plannedFmtDue === 'function') ? plannedFmtDue(f.due_at) : { label: f.due_at || '', overdue: false };
+        const isService = f.kilde === 'service';
+        // Callback uden due_at → vis "ring tilbage" som tidspunkt
+        const timeLabel = due.label || (isService ? 'ring tilbage' : '');
+        const kildeBadge = isService
+            ? '<span class="crm-fu-kilde service">Service</span>'
+            : '<span class="crm-fu-kilde planlagt">Planlagt</span>';
+        const bonChip = f.bon_number ? '<span class="crm-fu-bon">#' + escapeHtml(f.bon_number) + '</span>' : '';
+        const ringBtn = f.phone
+            ? '<a class="crm-fu-ring" href="tel:' + escapeHtml(f.phone) + '" title="Ring til ' + escapeHtml(name) + '">📞 Ring</a>'
+            : '';
+        const rowAttrs = cid
+            ? ' class="crm-fu-item crm-clickable" data-customer-id="' + cid + '" data-ktab="activity" title="Åbn kundekort"'
+            : ' class="crm-fu-item"';
         return '<div' + rowAttrs + '>' +
             '<div class="crm-cb-av ' + avClass + '">' + init + '</div>' +
-            '<div class="crm-cb-info">' +
-                '<div class="crm-cb-name">' + name + '</div>' +
-                (c.company_name ? '<div class="crm-cb-company">' + c.company_name + '</div>' : '') +
+            '<div class="crm-fu-info">' +
+                '<div class="crm-fu-name-row">' +
+                    '<span class="crm-fu-name">' + escapeHtml(name) + '</span>' +
+                    (f.company_name ? '<span class="crm-fu-company">' + escapeHtml(f.company_name) + '</span>' : '') +
+                '</div>' +
+                '<div class="crm-fu-text">' + escapeHtml(f.text || '') + bonChip + '</div>' +
             '</div>' +
-            '<span class="crm-cb-badge ' + badgeClass + '">' + badgeText + '</span>' +
+            '<div class="crm-fu-meta">' +
+                kildeBadge +
+                '<span class="crm-fu-time' + (due.overdue ? ' overdue' : '') + '">' + escapeHtml(timeLabel) + '</span>' +
+            '</div>' +
+            ringBtn +
         '</div>';
     }).join('');
+}
+
+function _crmGotoRingeliste() {
+    if (typeof window.switchSection === 'function') window.switchSection('crm', 'ringeliste');
 }
 
 function _crmRenderUpcomingMeetings(items) {
@@ -1191,9 +1254,9 @@ function _crmRenderPipeline(columns) {
 
 // ─── Navigation helpers ─────────────────────────────────────
 
-function _crmOpenKunde(customerId) {
+function _crmOpenKunde(customerId, tab) {
     if (_crmOpts.openKunde360) {
-        _crmOpts.openKunde360(customerId);
+        _crmOpts.openKunde360(customerId, tab ? { tab } : undefined);
     }
 }
 

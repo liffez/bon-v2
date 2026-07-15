@@ -321,7 +321,10 @@ async function showBonInfo(cardIdOrBonId, options) {
         if (body) {
             body.innerHTML = _buildBonInfoHtml(bon);
 
-            // Mail-historik (async, non-blocking) + changelog efter mail
+            // Køkken-synlige kunde-/firma-påmindelser øverst (read-only)
+            _renderInfoFlags(bon, body);
+
+            // Mail-historik → changelog (async, non-blocking)
             _loadInfoMail(bonId, body).then(function() {
                 _loadInfoHistorik(bonId, body);
             });
@@ -410,6 +413,26 @@ async function _loadInfoMail(bonId, bodyEl) {
         // Stille fejl — mail er ikke kritisk for info-modal
         console.warn('[info-mail]', err.message);
     }
+}
+
+/**
+ * Køkken-synlige kunde-/firma-påmindelser som read-only banner øverst i info-modalen.
+ * Filtrerer bon.flags til show_in_kitchen=1. Ingen handlinger (kontoret styrer dem i
+ * draweren). Skjult når der ingen er.
+ */
+function _renderInfoFlags(bon, bodyEl) {
+    const flags = ((bon && bon.flags) || []).filter(function(f) {
+        return f.show_in_kitchen === 1 || f.show_in_kitchen === undefined;
+    });
+    if (!flags.length) return;
+    const rows = flags.map(function(f) {
+        return '<div class="info-paamindelse-item">📌 <span class="info-paamindelse-title">' + esc(f.title) + '</span>' +
+            (f.body ? '<span class="info-paamindelse-body">' + esc(f.body) + '</span>' : '') + '</div>';
+    }).join('');
+    const banner = document.createElement('div');
+    banner.className = 'info-paamindelse';
+    banner.innerHTML = rows;
+    bodyEl.insertBefore(banner, bodyEl.firstChild);  // øverst — mest synlig
 }
 
 /**

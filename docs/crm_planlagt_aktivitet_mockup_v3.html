@@ -1,0 +1,482 @@
+<!DOCTYPE html>
+<html lang="da">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Bon v2 — Planlagt aktivitet · Mockup v3</title>
+<link href="https://fonts.googleapis.com/css2?family=Lato:wght@400;700;900&family=Playfair+Display:wght@700&display=swap" rel="stylesheet">
+<style>
+:root{
+  --black:#333333; --white:#ffffff;
+  --brown:#8e631f; --brown-dark:#6b4a17;
+  --gray-light:#f5f4f2; --gray:#d7d1ca; --gray-medium:#b5afa8; --gray-dark:#8a8580;
+  --yellow-pale:#fdfbf3; --yellow-light:#f7f2d9; --yellow:#f1e6b2;
+  --green:#a5bf75; --green-dark:#6ab04c; --green-light:#e8f2dc;
+  --red:#bc181b; --red-light:#fde8e8;
+  --orange:#e8a832; --orange-light:#fef3d6;
+  --blue:#7594b3; --blue-light:#e8f0f6;
+}
+*{margin:0;padding:0;box-sizing:border-box}
+body{font-family:'Lato',sans-serif;background:#efedea;color:var(--black);font-size:14px;padding:24px}
+.mockup-note{max-width:1060px;margin:0 auto 20px;background:var(--blue-light);border:1px solid var(--blue);border-radius:8px;padding:10px 14px;font-size:13px;color:#3a5570}
+.changelog{max-width:1060px;margin:0 auto 20px;font-size:12px;color:var(--gray-dark);padding:0 4px}
+.changelog b{color:var(--black)}
+.wrap{max-width:1060px;margin:0 auto;display:flex;flex-direction:column;gap:28px}
+.panel{background:var(--white);border:1px solid var(--gray);border-radius:10px;overflow:hidden}
+.panel-label{font-size:11px;font-weight:900;letter-spacing:.08em;text-transform:uppercase;color:var(--gray-dark);padding:10px 16px;border-bottom:1px solid var(--gray-light);background:var(--gray-light)}
+.panel-body{padding:20px}
+
+/* ============ FORM ============ */
+.person-head{display:flex;align-items:center;gap:12px;margin-bottom:16px}
+.avatar{width:44px;height:44px;border-radius:8px;background:var(--brown);color:#fff;display:flex;align-items:center;justify-content:center;font-weight:900;font-size:20px}
+.person-name{font-family:'Playfair Display',serif;font-size:21px;font-weight:700}
+.person-sub{font-size:12px;color:var(--gray-dark)}
+
+.act-form{background:var(--yellow-pale);border:1px solid var(--gray);border-radius:8px;padding:14px}
+.act-row{display:flex;gap:10px;flex-wrap:wrap;align-items:center}
+select,input[type=text],input[type=date],input[type=time],textarea{
+  font-family:'Lato',sans-serif;font-size:14px;border:1px solid var(--gray);border-radius:6px;
+  padding:7px 10px;background:#fff;color:var(--black)}
+select:focus,textarea:focus,input:focus{outline:2px solid var(--brown);outline-offset:-1px}
+#whenSelect{font-weight:700}
+#whenSelect.is-future{border-color:var(--orange);background:var(--orange-light)}
+#whenSelect.is-past{border-color:var(--blue);background:var(--blue-light)}
+.extra-when{display:none;gap:8px;align-items:center}
+.extra-when.show{display:flex}
+input[type=time].optional{color:var(--gray-dark)}
+.time-label{font-size:12px;color:var(--gray-dark)}
+textarea{width:100%;min-height:64px;margin-top:10px;resize:vertical}
+.form-foot{display:flex;justify-content:space-between;align-items:center;margin-top:10px}
+.hint{font-size:12px;color:var(--gray-dark);font-style:italic}
+.btn{font-family:'Lato',sans-serif;font-size:14px;font-weight:700;border:none;border-radius:6px;padding:9px 18px;cursor:pointer}
+.btn-primary{background:var(--brown);color:#fff}
+.btn-primary:hover{background:var(--brown-dark)}
+.btn-plan{background:var(--orange);color:#fff}
+.btn-plan:hover{background:#cf9322}
+.btn-ghost{background:transparent;color:var(--gray-dark);border:1px solid var(--gray)}
+.btn-sm{font-size:12px;padding:5px 10px}
+.btn-outline{background:#fff;color:var(--brown);border:1px solid var(--brown)}
+
+/* Bon-link */
+.bon-link-row{display:flex;gap:8px;align-items:center;margin-top:10px}
+.bon-link-toggle{font-size:12px;color:var(--brown);cursor:pointer;font-weight:700;background:none;border:none;font-family:'Lato',sans-serif}
+.bon-link-toggle:hover{text-decoration:underline}
+.bon-search{display:none;position:relative;flex:1;max-width:340px}
+.bon-search.show{display:block}
+.bon-search input{width:100%}
+.bon-suggest{position:absolute;top:100%;left:0;right:0;background:#fff;border:1px solid var(--gray);border-radius:0 0 6px 6px;box-shadow:0 4px 10px rgba(0,0,0,.08);z-index:5;display:none}
+.bon-suggest.show{display:block}
+.bon-suggest div{padding:8px 10px;cursor:pointer;font-size:13px}
+.bon-suggest div:hover{background:var(--yellow-pale)}
+.bon-chip{display:inline-flex;align-items:center;gap:6px;background:var(--blue-light);color:var(--blue);border:1px solid var(--blue);font-size:12px;font-weight:700;border-radius:12px;padding:2px 10px}
+.bon-chip .x{cursor:pointer;font-weight:900}
+
+/* ============ PLANLAGT ============ */
+.planned-block{border:1px solid var(--yellow);background:var(--yellow-pale);border-radius:8px;margin:18px 0 6px}
+.planned-head{display:flex;align-items:center;gap:8px;padding:9px 14px;border-bottom:1px solid var(--yellow);font-size:11px;font-weight:900;letter-spacing:.07em;text-transform:uppercase;color:var(--brown-dark)}
+.planned-item{display:flex;align-items:center;gap:10px;padding:10px 14px;border-bottom:1px solid var(--yellow-light)}
+.planned-item:last-child{border-bottom:none}
+.pcheck{width:20px;height:20px;border:2px solid var(--gray-medium);border-radius:50%;background:#fff;cursor:pointer;flex-shrink:0}
+.pcheck:hover{border-color:var(--green-dark);background:var(--green-light)}
+.ptype{font-size:11px;font-weight:700;padding:2px 8px;border-radius:10px;background:var(--yellow-light);color:var(--brown-dark);flex-shrink:0}
+.ptext{flex:1}
+.pbon{font-size:11px;font-weight:700;color:var(--blue);background:var(--blue-light);border-radius:10px;padding:1px 8px;flex-shrink:0;cursor:pointer}
+.pbon:hover{text-decoration:underline}
+.pdate{font-size:12px;font-weight:700;color:var(--gray-dark);flex-shrink:0}
+.pdate.overdue{color:var(--red)}
+.pdate.overdue::before{content:"⚑ "}
+
+.result-prompt{display:none;background:var(--green-light);border-top:1px solid var(--green);padding:10px 14px}
+.result-prompt.show{display:block}
+.result-prompt .rp-title{font-size:12px;font-weight:700;color:var(--green-dark);margin-bottom:6px}
+.result-prompt input[type=text]{width:100%;margin-bottom:8px}
+.result-actions{display:flex;gap:8px}
+
+/* ============ TIMELINE ============ */
+.tl-title{font-size:11px;font-weight:900;letter-spacing:.07em;text-transform:uppercase;color:var(--gray-dark);margin:18px 0 8px}
+.tl-item{display:flex;gap:12px;padding:10px 0;border-bottom:1px solid var(--gray-light)}
+.tl-dot{width:10px;height:10px;border-radius:50%;background:var(--brown);margin-top:5px;flex-shrink:0}
+.tl-dot.green{background:var(--green-dark)}
+.tl-dot.blue{background:var(--blue)}
+.tl-meta{font-size:12px;color:var(--gray-dark)}
+.tl-badge{font-size:11px;font-weight:700;padding:1px 7px;border-radius:10px;background:var(--gray-light);color:var(--gray-dark);margin-right:6px}
+
+/* ============ DASHBOARD ============ */
+.fu-item{display:flex;align-items:center;gap:10px;padding:11px 14px;border-bottom:1px solid var(--gray-light)}
+.fu-item:last-child{border-bottom:none}
+.fu-avatar{width:32px;height:32px;border-radius:50%;background:var(--brown);color:#fff;display:flex;align-items:center;justify-content:center;font-weight:900;font-size:14px;flex-shrink:0}
+.fu-avatar.svc{background:var(--blue)}
+.fu-name{font-weight:700}
+.fu-sub{font-size:12px;color:var(--gray-dark)}
+.fu-main{flex:1}
+.fu-src{font-size:10px;font-weight:700;letter-spacing:.05em;text-transform:uppercase;padding:2px 7px;border-radius:9px;flex-shrink:0}
+.fu-src.plan{background:var(--orange-light);color:#9a6d14}
+.fu-src.service{background:var(--blue-light);color:var(--blue)}
+.fu-when{font-size:12px;font-weight:700;color:var(--gray-dark);width:88px;text-align:right;flex-shrink:0}
+.fu-when.overdue{color:var(--red)}
+.btn-ring{background:var(--brown);color:#fff;font-size:12px;font-weight:700;border:none;border-radius:6px;padding:6px 14px;cursor:pointer}
+.btn-ring:hover{background:var(--brown-dark)}
+
+/* ============ BON-INFO MODAL ============ */
+.bon-modal{max-width:420px;border:1px solid var(--gray);border-radius:10px;background:#fff;box-shadow:0 8px 24px rgba(0,0,0,.10);overflow:hidden}
+.bm-head{display:flex;justify-content:space-between;align-items:center;padding:12px 16px;border-bottom:1px solid var(--gray-light)}
+.bm-title{font-weight:900;color:var(--brown-dark)}
+.bm-section{padding:10px 16px;border-bottom:1px solid var(--gray-light);font-size:13px}
+.bm-label{font-size:10px;font-weight:900;letter-spacing:.07em;text-transform:uppercase;color:var(--gray-dark);margin-bottom:3px}
+.bm-planned{background:var(--yellow-pale)}
+.bm-planned .planned-item{padding:6px 0;border:none}
+.bm-foot{display:flex;gap:8px;padding:12px 16px;justify-content:flex-end}
+
+.annot{font-size:12px;color:var(--gray-dark);padding:12px 16px;background:var(--gray-light);border-top:1px solid var(--gray)}
+.annot b{color:var(--black)}
+kbd{background:#fff;border:1px solid var(--gray);border-radius:4px;padding:0 5px;font-size:11px}
+</style>
+</head>
+<body>
+
+<div class="mockup-note">
+<b>Mockup v3 · Planlagt aktivitet.</b> Prøv: vælg "I morgen" (valgfrit klokkeslæt dukker op), vælg "Vælg dato…" og sæt en <i>fortidig</i> dato (bliver bagudrettet log), klik "🔗 Knyt til bon" og vælg #B4120.
+</div>
+<div class="changelog">
+<b>Ændret fra v2:</b> ① klokkeslæt foreslår 09:00 (kan slettes eller ændres) · ② "Planlæg opfølgning" flyttet fra info-modal til bon-draweren — info-modalen er ren info og viser kun "Planlagt på denne bon" som læse-sektion (uden afkrydsning)
+</div>
+
+<div class="wrap">
+
+<!-- ================= VIEW 1 ================= -->
+<div class="panel">
+  <div class="panel-label">View 1 · Kundekort → Aktivitet-fanen</div>
+  <div class="panel-body">
+
+    <div class="person-head">
+      <div class="avatar">H</div>
+      <div>
+        <div class="person-name">Dagny Hoppe</div>
+        <div class="person-sub">#k-4029 · Heartlandt · AKTIV</div>
+      </div>
+    </div>
+
+    <div class="act-form">
+      <div class="act-row">
+        <select id="typeSelect">
+          <option>Opkald</option>
+          <option>Møde</option>
+          <option>Mail</option>
+          <option>Note</option>
+          <option>Opgave</option>
+        </select>
+        <select>
+          <option>— Formål —</option>
+          <option>Mersalg</option>
+          <option>Service</option>
+          <option>Opfølgning på tilbud</option>
+          <option>Administration</option>
+        </select>
+        <select id="whenSelect" onchange="whenChanged()">
+          <option value="now">Nu</option>
+          <option value="tomorrow">I morgen</option>
+          <option value="3d">Om 3 dage</option>
+          <option value="1w">Næste uge</option>
+          <option value="custom">Vælg dato…</option>
+        </select>
+        <span class="extra-when" id="customDate">
+          <input type="date" id="dateInput" onchange="whenChanged()">
+        </span>
+        <span class="extra-when" id="timeWrap">
+          <input type="time" id="timeInput" class="optional" value="09:00">
+          <span class="time-label">forslag — kan slettes</span>
+        </span>
+      </div>
+
+      <textarea placeholder="Noter…" id="noteArea"></textarea>
+
+      <div class="bon-link-row">
+        <button class="bon-link-toggle" id="bonToggle" onclick="toggleBonSearch()">🔗 Knyt til bon…</button>
+        <span class="bon-search" id="bonSearch">
+          <input type="text" placeholder="Søg bon-nr eller kunde…" oninput="showSuggest(this.value)">
+          <div class="bon-suggest" id="bonSuggest">
+            <div onclick="pickBon('#B4120 · Maria Friis Larsen · 540 kr')">#B4120 · Maria Friis Larsen · VACCS · 540 kr</div>
+            <div onclick="pickBon('#B4074 · Andrea Reif Andersen')">#B4074 · Andrea Reif Andersen · 02.08</div>
+          </div>
+        </span>
+        <span id="bonChipWrap"></span>
+      </div>
+
+      <div class="form-foot">
+        <span class="hint" id="formHint">Logges som udført aktivitet nu</span>
+        <button class="btn btn-primary" id="submitBtn" onclick="submitForm()">Log aktivitet</button>
+      </div>
+    </div>
+
+    <!-- Planlagt-blok -->
+    <div class="planned-block" id="plannedBlock">
+      <div class="planned-head">⏰ Planlagt (2)</div>
+
+      <div class="planned-item" id="p1">
+        <div class="pcheck" onclick="openResult('p1')" title="Markér udført"></div>
+        <span class="ptype">Opkald</span>
+        <span class="ptext">Ring vedr. festival 2027 — hør om budget er på plads</span>
+        <span class="pdate overdue">i går</span>
+      </div>
+      <div class="result-prompt" id="p1-result">
+        <div class="rp-title">✓ Udført — log resultat?</div>
+        <input type="text" id="p1-note" placeholder="Hvad kom der ud af det? (valgfri)">
+        <div class="result-actions">
+          <button class="btn btn-primary btn-sm" onclick="completeItem('p1')">Gem</button>
+          <button class="btn btn-ghost btn-sm" onclick="completeItem('p1', true)">Gem uden note</button>
+        </div>
+      </div>
+
+      <div class="planned-item" id="p2">
+        <div class="pcheck" onclick="openResult('p2')" title="Markér udført"></div>
+        <span class="ptype">Opgave</span>
+        <span class="ptext">Lav kreditnota — dobbeltfaktureret levering</span>
+        <span class="pbon">#B4120</span>
+        <span class="pdate">tor 16. jul · 09:00</span>
+      </div>
+      <div class="result-prompt" id="p2-result">
+        <div class="rp-title">✓ Udført — log resultat?</div>
+        <input type="text" id="p2-note" placeholder="Hvad kom der ud af det? (valgfri)">
+        <div class="result-actions">
+          <button class="btn btn-primary btn-sm" onclick="completeItem('p2')">Gem</button>
+          <button class="btn btn-ghost btn-sm" onclick="completeItem('p2', true)">Gem uden note</button>
+        </div>
+      </div>
+    </div>
+
+    <div class="tl-title">Aktivitet</div>
+    <div id="timeline">
+      <div class="tl-item">
+        <div class="tl-dot"></div>
+        <div>
+          <div><span class="tl-badge">Opkald</span>Bestilte 40 kuverter til d. 12/3 — glutenfri til 4</div>
+          <div class="tl-meta">06. jul 2026 · Leif</div>
+        </div>
+      </div>
+      <div class="tl-item">
+        <div class="tl-dot"></div>
+        <div>
+          <div><span class="tl-badge">Mail</span>Tilbud sendt: sommerfrokost 60 pax</div>
+          <div class="tl-meta">28. jun 2026 · Leif</div>
+        </div>
+      </div>
+    </div>
+
+  </div>
+  <div class="annot">
+    <b>Dato-logik (ét felt, tre tilstande):</b> <kbd>Nu</kbd> = log (default, uændret flow) · <b>fremtid</b> = Planlæg (orange) · <b>fortid</b> = bagudrettet log (blå, "Log aktivitet" — <kbd>done_at</kbd> sættes til den valgte dato, markeres <i>registreret senere</i> i timelinen). Klokkeslæt er altid valgfrit. Bon-link er valgfrit og giver chip på den planlagte + visning i bon-info.
+  </div>
+</div>
+
+<!-- ================= VIEW 2 ================= -->
+<div class="panel">
+  <div class="panel-label">View 2 · Dashboard → Mine opfølgninger</div>
+  <div class="panel-body" style="padding:0">
+
+    <div class="fu-item">
+      <div class="fu-avatar">D</div>
+      <div class="fu-main">
+        <div class="fu-name">Dagny Hoppe</div>
+        <div class="fu-sub">Heartlandt · Ring vedr. festival 2027</div>
+      </div>
+      <span class="fu-src plan">Planlagt</span>
+      <span class="fu-when overdue">⚑ i går</span>
+      <button class="btn-ring">📞 Ring</button>
+    </div>
+
+    <div class="fu-item">
+      <div class="fu-avatar svc">R</div>
+      <div class="fu-main">
+        <div class="fu-name">Rasmus Vinther-Schmidt</div>
+        <div class="fu-sub">Finansforbundet · Service-kald efter levering #B4001</div>
+      </div>
+      <span class="fu-src service">Service</span>
+      <span class="fu-when">i dag</span>
+      <button class="btn-ring">📞 Ring</button>
+    </div>
+
+    <div class="fu-item">
+      <div class="fu-avatar">M</div>
+      <div class="fu-main">
+        <div class="fu-name">Maria Friis Larsen</div>
+        <div class="fu-sub">VACCS · Lav kreditnota · <span class="pbon" style="font-size:11px">#B4120</span></div>
+      </div>
+      <span class="fu-src plan">Planlagt</span>
+      <span class="fu-when">i dag 09:00</span>
+      <button class="btn-ring">📞 Ring</button>
+    </div>
+
+  </div>
+  <div class="annot">
+    <b>Sortering:</b> forfaldne først (ældst øverst), derefter dagens — med klokkeslæt før uden. Planlagte med bon-link viser bon-chippen som direkte genvej. Service-callbacks er stadig eget flow — dette er kun en fælles visning.
+  </div>
+</div>
+
+<!-- ================= VIEW 3 ================= -->
+<div class="panel">
+  <div class="panel-label">View 3 · Bon-info-modal (ren info) + bon-drawer (handling)</div>
+  <div class="panel-body" style="background:#efedea;display:flex;justify-content:center;gap:28px;flex-wrap:wrap;padding:28px">
+
+    <div class="bon-modal">
+      <div class="bm-head">
+        <span class="bm-title">Info — #B4120</span>
+        <span style="color:var(--gray-dark);cursor:pointer">✕</span>
+      </div>
+      <div class="bm-section">
+        <div class="bm-label">Betaling</div>
+        Faktura · Butik-priser
+      </div>
+      <div class="bm-section">
+        <div class="bm-label">Bud</div>
+        byekspressen · 100,00 kr
+      </div>
+
+      <!-- NY SEKTION -->
+      <div class="bm-section bm-planned">
+        <div class="bm-label" style="color:var(--brown-dark)">⏰ Planlagt på denne bon (1)</div>
+        <div class="planned-item" style="cursor:default">
+          <span class="ptype">Opgave</span>
+          <span class="ptext" style="font-size:13px">Lav kreditnota — dobbeltfaktureret</span>
+          <span class="pdate">tor 16. jul · 09:00</span>
+        </div>
+      </div>
+
+      <div class="bm-section">
+        <div class="bm-label">Historik (22)</div>
+        <span style="color:var(--gray-dark)">▾</span>
+      </div>
+      <div class="bm-foot">
+        <button class="btn btn-primary btn-sm">Gå til bon →</button>
+        <button class="btn btn-ghost btn-sm">Rediger</button>
+      </div>
+    </div>
+
+    <!-- Drawer-udsnit -->
+    <div class="bon-modal" style="max-width:380px">
+      <div class="bm-head" style="background:var(--yellow-pale)">
+        <span class="bm-title">Bon #B4120 — drawer (udsnit)</span>
+        <span style="color:var(--gray-dark);cursor:pointer">✕</span>
+      </div>
+      <div class="bm-section">
+        <div class="bm-label">Kunde</div>
+        Maria Friis Larsen · VACCS
+      </div>
+      <div class="bm-section">
+        <div class="bm-label">Handlinger</div>
+        <div style="display:flex;gap:8px;flex-wrap:wrap;margin-top:6px">
+          <button class="btn btn-ghost btn-sm">✉ Mail</button>
+          <button class="btn btn-ghost btn-sm">🖨 Print</button>
+          <button class="btn btn-outline btn-sm" onclick="alert('Åbner aktivitetsformularen i overlay, prefilet med:\n· bon_id = #B4120\n· customer_id = Maria Friis Larsen\n· Hvornår = I morgen · kl. 09:00 (forslag)')">⏰ Planlæg opfølgning</button>
+        </div>
+      </div>
+      <div class="bm-section bm-planned">
+        <div class="bm-label" style="color:var(--brown-dark)">⏰ Planlagt på denne bon (1)</div>
+        <div class="planned-item">
+          <div class="pcheck" title="Markér udført" onclick="alert('Markér udført → Log resultat?-prompt (som på kundekortet)')"></div>
+          <span class="ptype">Opgave</span>
+          <span class="ptext" style="font-size:13px">Lav kreditnota — dobbeltfaktureret</span>
+          <span class="pdate">tor 16. jul · 09:00</span>
+        </div>
+      </div>
+    </div>
+
+  </div>
+  <div class="annot">
+    <b>Arbejdsdeling:</b> Info-modalen er ren info — den <i>viser</i> åbne planlagte på bonnen (læse-sektion, ingen afkrydsning), men har ingen handlinger. "Planlæg opfølgning" bor i bon-draweren under Handlinger, prefilet med <kbd>bon_id</kbd> + kunde. I draweren kan planlagte også afkrydses (samme Log resultat?-flow som på kundekortet). Begge sektioner skjules når tomme.
+  </div>
+</div>
+
+</div>
+
+<script>
+function whenChanged(){
+  const sel = document.getElementById('whenSelect');
+  const btn = document.getElementById('submitBtn');
+  const hint = document.getElementById('formHint');
+  const cd = document.getElementById('customDate');
+  const tw = document.getElementById('timeWrap');
+  const di = document.getElementById('dateInput');
+
+  const isCustom = sel.value === 'custom';
+  cd.classList.toggle('show', isCustom);
+
+  let mode = 'now'; // now | future | past
+  if(sel.value === 'tomorrow' || sel.value === '3d' || sel.value === '1w') mode = 'future';
+  if(isCustom && di.value){
+    const today = new Date(); today.setHours(0,0,0,0);
+    const chosen = new Date(di.value);
+    mode = chosen < today ? 'past' : 'future';
+  } else if(isCustom){ mode = 'future'; }
+
+  tw.classList.toggle('show', mode === 'future');
+  sel.classList.toggle('is-future', mode === 'future');
+  sel.classList.toggle('is-past', mode === 'past');
+
+  if(mode === 'future'){
+    btn.textContent = 'Planlæg';
+    btn.classList.remove('btn-primary'); btn.classList.add('btn-plan');
+    hint.textContent = 'Lander i Planlagt + på din opfølgningsliste den dag';
+  } else if(mode === 'past'){
+    btn.textContent = 'Log aktivitet';
+    btn.classList.add('btn-primary'); btn.classList.remove('btn-plan');
+    hint.textContent = 'Bagudrettet log — dateres ' + di.value + ', markeres "registreret senere"';
+  } else {
+    btn.textContent = 'Log aktivitet';
+    btn.classList.add('btn-primary'); btn.classList.remove('btn-plan');
+    hint.textContent = 'Logges som udført aktivitet nu';
+  }
+}
+function submitForm(){
+  const sel = document.getElementById('whenSelect');
+  const di = document.getElementById('dateInput');
+  const ti = document.getElementById('timeInput');
+  let msg;
+  const today = new Date(); today.setHours(0,0,0,0);
+  const isPast = sel.value === 'custom' && di.value && new Date(di.value) < today;
+  if(sel.value === 'now') msg = 'Logget nu (done_at = nu)';
+  else if(isPast) msg = 'Bagudrettet log: done_at = ' + di.value + ' · created_at = nu (revisionsspor bevaret)';
+  else msg = 'Planlagt: due_at sat' + (ti.value ? ' kl. ' + ti.value : ' (kun dato)') + ' · done_at = NULL';
+  alert(msg);
+}
+function toggleBonSearch(){
+  document.getElementById('bonSearch').classList.toggle('show');
+  document.getElementById('bonToggle').style.display = 'none';
+}
+function showSuggest(v){
+  document.getElementById('bonSuggest').classList.toggle('show', v.length > 0);
+}
+function pickBon(label){
+  document.getElementById('bonSearch').classList.remove('show');
+  document.getElementById('bonSuggest').classList.remove('show');
+  document.getElementById('bonChipWrap').innerHTML =
+    '<span class="bon-chip">' + label.split('·')[0].trim() + ' <span class="x" onclick="removeBon()">✕</span></span>';
+}
+function removeBon(){
+  document.getElementById('bonChipWrap').innerHTML = '';
+  document.getElementById('bonToggle').style.display = '';
+}
+function openResult(id){ document.getElementById(id + '-result').classList.add('show'); }
+function completeItem(id, skipNote){
+  const item = document.getElementById(id);
+  const prompt = document.getElementById(id + '-result');
+  const note = skipNote ? '' : document.getElementById(id + '-note').value;
+  const text = item.querySelector('.ptext').textContent;
+  const type = item.querySelector('.ptype').textContent;
+  const bon = item.querySelector('.pbon');
+  const tl = document.getElementById('timeline');
+  const el = document.createElement('div');
+  el.className = 'tl-item';
+  el.innerHTML = '<div class="tl-dot green"></div><div><div><span class="tl-badge">' + type + '</span>' +
+    text + (bon ? ' <span class="pbon" style="font-size:11px">' + bon.textContent + '</span>' : '') +
+    (note ? ' — <i>' + note + '</i>' : '') +
+    '</div><div class="tl-meta">Nu · Leif · <span style="color:var(--green-dark)">✓ planlagt → udført</span></div></div>';
+  tl.prepend(el);
+  item.remove(); prompt.remove();
+  const block = document.getElementById('plannedBlock');
+  const remaining = block.querySelectorAll('.planned-item').length;
+  if(remaining === 0){ block.style.display = 'none'; }
+  else { block.querySelector('.planned-head').textContent = '⏰ Planlagt (' + remaining + ')'; }
+}
+</script>
+</body>
+</html>

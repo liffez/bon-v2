@@ -83,7 +83,7 @@ router.get('/', handle((req, res) => {
 // ----------- POST /api/flags -----------
 
 router.post('/', handle((req, res) => {
-    const { entity_type, entity_id, title, body } = req.body || {};
+    const { entity_type, entity_id, title, body, show_in_kitchen } = req.body || {};
 
     if (!['company', 'customer'].includes(entity_type)) {
         return res.status(400).json({ error: 'entity_type skal være "company" eller "customer"' });
@@ -104,11 +104,13 @@ router.post('/', handle((req, res) => {
     const userId = getUserId(req);
     const cleanTitle = String(title).trim();
     const cleanBody  = body ? String(body).trim() || null : null;
+    // Default 1 (vis for køkken). Kun eksplicit 0/false gør den kontor-kun.
+    const showInKitchen = (show_in_kitchen === 0 || show_in_kitchen === false || show_in_kitchen === '0') ? 0 : 1;
 
     const result = db.prepare(`
-        INSERT INTO entity_flags (entity_type, entity_id, title, body, created_by_user_id)
-        VALUES (?, ?, ?, ?, ?)
-    `).run(entity_type, eId, cleanTitle, cleanBody, userId);
+        INSERT INTO entity_flags (entity_type, entity_id, title, body, show_in_kitchen, created_by_user_id)
+        VALUES (?, ?, ?, ?, ?, ?)
+    `).run(entity_type, eId, cleanTitle, cleanBody, showInKitchen, userId);
 
     const id = result.lastInsertRowid;
     logChange({
@@ -137,7 +139,7 @@ router.patch('/:id', handle((req, res) => {
         return res.status(400).json({ error: 'Flag er dismissed — kan ikke redigeres' });
     }
 
-    const { title, body } = req.body || {};
+    const { title, body, show_in_kitchen } = req.body || {};
     const sets = [];
     const args = [];
 
@@ -146,6 +148,10 @@ router.patch('/:id', handle((req, res) => {
         if (!t) return res.status(400).json({ error: 'title må ikke være tom' });
         sets.push('title = ?');
         args.push(t);
+    }
+    if (show_in_kitchen !== undefined) {
+        sets.push('show_in_kitchen = ?');
+        args.push((show_in_kitchen === 0 || show_in_kitchen === false || show_in_kitchen === '0') ? 0 : 1);
     }
     if (body !== undefined) {
         const b = body ? String(body).trim() || null : null;

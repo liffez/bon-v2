@@ -234,6 +234,7 @@ function createCard(bonData, viewName) {
 
         ${mods.prep && bonData.prep ? _buildPrep(bonData.prep, num) : ''}
         ${customerHtml}
+        ${_buildKitchenFlags(bonData)}
         ${mods.kitchenInfo ? _buildKitchenInfo(bonData, num) : ''}
         ${mods.alerts && bonData.alerts && bonData.alerts.length ? _buildAlerts(bonData.alerts) : ''}
 
@@ -290,6 +291,20 @@ function _buildPrep(prepItems, num) {
             ${p.label}
         </div>`).join('');
     return `<div class="bon-prep">${badges}</div>`;
+}
+
+/**
+ * Køkken-synlige kunde-/firma-påmindelser (read-only strip). Kun når der er nogen.
+ * Kontoret styrer livscyklus i draweren — køkkenet ser blot påmindelsen.
+ */
+function _buildKitchenFlags(bonData) {
+    const flags = bonData.kitchen_flags;
+    if (!flags || !flags.length) return '';
+    const e = (typeof esc === 'function' ? esc : (s) => s);
+    const rows = flags.map(f =>
+        `<div class="bon-paamindelse-item">📌 <span class="bon-paamindelse-title">${e(f.title)}</span>${f.body ? `<span class="bon-paamindelse-body">${e(f.body)}</span>` : ''}</div>`
+    ).join('');
+    return `<div class="bon-paamindelse" title="Påmindelse fra kontoret">${rows}</div>`;
 }
 
 function _buildCustomer(c, num, bonDataForDelivery, contextClass) {
