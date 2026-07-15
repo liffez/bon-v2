@@ -244,3 +244,11 @@
 .cov-mr-acc.hi  { background: #e7f3e9; color: #3f8c50; }
 .cov-mr-acc.mid { background: #fbf0dc; color: #b07818; }
 .cov-mr-acc.lo  { background: #f7e2dd; color: #b0432f; }
+
+/* Samlet masse-dæknings-pill (Datakvalitet) */
+.cov-masscov { font-size: 13px; font-weight: 600; padding: 5px 12px; border-radius: 999px; white-space: nowrap; }
+.cov-masscov b { font-weight: 800; }
+.cov-masscov-sub { font-weight: 400; opacity: 0.8; }
+.cov-masscov-hi  { background: #e7f3e9; color: #3f8c50; }
+.cov-masscov-mid { background: #fbf0dc; color: #b07818; }
+.cov-masscov-lo  { background: #f7e2dd; color: #b0432f; }

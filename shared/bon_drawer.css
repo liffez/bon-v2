@@ -1112,3 +1112,9 @@
 .drawer-co2-row-perkuvert { background: #f4f9f4; color: #2f6b39; }
 .drawer-co2-row-perkuvert .drawer-co2-row-name { color: #2f6b39; }
 .drawer-co2-row-sub { color: #8a8073; font-weight: 400; font-size: 12px; }
+
+/* Bon mad-CO₂ nøjagtigheds-badge (i strippen ved Mad) */
+.drawer-co2-acc-badge { font-size: 11px; font-weight: 700; padding: 1px 7px; border-radius: 9px; margin-left: 4px; }
+.drawer-co2-acc-badge.hi  { background: #d9ecdd; color: #2f7a41; }
+.drawer-co2-acc-badge.mid { background: #f6e6c8; color: #986c14; }
+.drawer-co2-acc-badge.lo  { background: #f3d9d2; color: #a5341f; }

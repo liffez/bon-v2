@@ -606,6 +606,7 @@ class BonDrawer {
 
         // CO₂-aftryk (mad + transport)
         this._renderCo2(d);
+        this._loadCo2Accuracy(this.bonId);
 
         // Noter
         this._setFieldValue('customer_wishes', d.customer_wishes || '');
@@ -641,7 +642,7 @@ class BonDrawer {
         const pax = Number(d.pax) || 0;
         const perKuvert = pax > 0 ? total / pax : null;
         const fmt2 = (kg) => Number(kg || 0).toLocaleString('da-DK', { minimumFractionDigits: 2, maximumFractionDigits: 2 }) + ' kg';
-        const parts = [`Mad <b>${fmt(foodKg || 0)}</b>`];
+        const parts = [`Mad <b>${fmt(foodKg || 0)}</b><span class="drawer-co2-acc" data-co2-acc></span>`];
         if (hasT) {
             const method = d.transport_vehicle_label ? ` <span class="drawer-co2-method">(${_esc(d.transport_vehicle_label)})</span>` : '';
             parts.push(`Transport <b>${fmt(tKg)}</b>${method}`);
@@ -688,6 +689,25 @@ class BonDrawer {
             strip.addEventListener('click', toggle);
             strip.addEventListener('keydown', (e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); toggle(); } });
         }
+    }
+
+    // Bonens mad-CO₂ nøjagtighed (masse-vægtet) — async, non-blocking. Fylder
+    // "· X% dækket" ind ved siden af Mad-tallet. Kræver Grocy (engine).
+    async _loadCo2Accuracy(bonId) {
+        const span = this.el.querySelector('[data-co2-acc]');
+        if (!span || typeof fetchCo2BonAccuracy !== 'function') return;
+        try {
+            const r = await fetchCo2BonAccuracy(bonId);
+            if (this.bonId !== bonId) return; // bruger skiftede bon
+            const el = this.el.querySelector('[data-co2-acc]');
+            if (!el) return;
+            if (r && r.accuracy_pct != null) {
+                const cls = r.accuracy_pct >= 80 ? 'hi' : (r.accuracy_pct >= 50 ? 'mid' : 'lo');
+                el.innerHTML = ` <span class="drawer-co2-acc-badge ${cls}" title="Andel af bonens mad-masse med CO₂-tal">${r.accuracy_pct}% dækket</span>`;
+            } else {
+                el.innerHTML = '';
+            }
+        } catch { /* nøjagtighed er bonus — fejl lydløst */ }
     }
 
     async _refreshLoboSandboxBadge() {
