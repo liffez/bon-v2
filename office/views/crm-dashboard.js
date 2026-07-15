@@ -23,7 +23,7 @@ function _crmWireDelegatedClicks() {
     if (!_crmContainer) return;
     _crmContainer.addEventListener('click', (e) => {
         const target = e.target.closest(
-            '[data-customer-id], [data-scroll], [data-goto], [data-view]'
+            '[data-customer-id], [data-scroll], [data-goto], [data-view], [data-nav]'
         );
         if (!target || !_crmContainer.contains(target)) return;
         // Lad eksisterende interaktive child-elementer (telefon-link,
@@ -32,6 +32,16 @@ function _crmWireDelegatedClicks() {
 
         const cid = target.dataset.customerId;
         if (cid) { _crmOpenKunde(parseInt(cid, 10), target.dataset.ktab); return; }
+
+        // Navigér til en anden CRM-sektion (fx Ringeliste), evt. forudvalgt fane
+        const nav = target.dataset.nav;
+        if (nav && typeof window.switchSection === 'function') {
+            if (target.dataset.navTab) {
+                try { localStorage.setItem('crm_ringeliste_tab', target.dataset.navTab); } catch (_) {}
+            }
+            window.switchSection('crm', nav);
+            return;
+        }
 
         const scrollId = target.dataset.scroll;
         if (scrollId) {
@@ -612,6 +622,10 @@ function _crmRenderBriefing(items) {
         let clickable = '';
         if (item.customer_id) {
             attrs = ' data-customer-id="' + item.customer_id + '" title="Åbn kundeprofil"';
+            clickable = ' crm-clickable';
+        } else if (item.nav) {
+            // Navigér til en anden CRM-sektion (fx Ringeliste), evt. på en bestemt fane
+            attrs = ' data-nav="' + item.nav + '"' + (item.navTab ? ' data-nav-tab="' + item.navTab + '"' : '') + ' title="Åbn liste"';
             clickable = ' crm-clickable';
         } else if (linkToScroll[item.link]) {
             attrs = ' data-scroll="' + linkToScroll[item.link] + '"';

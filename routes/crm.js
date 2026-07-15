@@ -220,9 +220,9 @@ router.get('/briefing', handle((req, res) => {
         FROM crm_activities WHERE created_at >= date('now', '-7 days')
     `).get();
     if (wk.total > 0) {
-        items.push({ icon: '✅', text: 'Denne uge: ' + (wk.calls || 0) + ' opkald, ' + wk.total + ' aktiviteter total', type: 'progress', link: null });
+        items.push({ icon: '✅', text: 'Denne uge: ' + (wk.calls || 0) + ' opkald, ' + wk.total + ' aktiviteter total', type: 'progress', link: null, nav: 'ringeliste' });
     } else {
-        items.push({ icon: '💪', text: 'Ingen aktiviteter logget denne uge — tid til at komme i gang!', type: 'motivation', link: null });
+        items.push({ icon: '💪', text: 'Ingen aktiviteter logget denne uge — tid til at komme i gang!', type: 'motivation', link: null, nav: 'ringeliste' });
     }
 
     const season = db.prepare(`
@@ -237,7 +237,7 @@ router.get('/briefing', handle((req, res) => {
                 AND b2.is_internal = 0
             )
     `).get().c;
-    if (season > 0) items.push({ icon: '📅', text: season + ' kunder bestilte på denne tid sidste år', type: 'insight' });
+    if (season > 0) items.push({ icon: '📅', text: season + ' kunder bestilte på denne tid sidste år', type: 'insight', nav: 'ringeliste', navTab: 'season' });
 
     res.json(items.slice(0, 6));
 }));

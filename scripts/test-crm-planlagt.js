@@ -235,6 +235,9 @@ async function main() {
         console.log('\n═══ briefing "opfølgninger i dag" ═══');
         const briefing = (await http('GET', '/api/crm/briefing')).data;
         assert(Array.isArray(briefing) && briefing.some(b => /opfølgning/.test(b.text)), 'briefing har "opfølgninger i dag"-punkt');
+        // aktivitets-opsummerings-punktet linker til Ringelisten (nav)
+        const wkItem = briefing.find(b => /Denne uge|Ingen aktiviteter/.test(b.text));
+        assert(wkItem && wkItem.nav === 'ringeliste', 'briefing aktivitets-punkt har nav=ringeliste');
 
     } finally {
         if (serverProc) serverProc.kill('SIGTERM');
