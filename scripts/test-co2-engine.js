@@ -235,5 +235,102 @@ t('breakdown: base_servings>1 → per-serving mængder', () => {
     assert.ok(near(bd.total_per_serving, 0.5)); // (0,4×5)/4
 });
 
+/* 8. nøjagtighed — masse-dækning (covered_kg / kendt kg) */
+
+t('nøjagtighed: dækket + uden-faktor masse + %', () => {
+    const data = {
+        units: UNITS, conversions: CONV, products: PRODUCTS,
+        recipes: [{ id: 1, name: 'R', base_servings: 1 }],
+        pos: [
+            { recipe_id: 1, product_id: 100, amount: 1 },     // Brød → 0,12 kg, faktor → covered
+            { recipe_id: 1, product_id: 102, amount: 0.01 },  // Salt → 0,01 kg, INGEN faktor → missing_kg
+        ],
+        nestings: [],
+    };
+    const r = E.computeAll(data).get(1);
+    assert.ok(near(r.covered_kg, 0.12), `covered=${r.covered_kg}`);
+    assert.ok(near(r.missing_kg, 0.01), `missing=${r.missing_kg}`);
+    assert.strictEqual(r.accuracy_pct, 92); // 0,12 / 0,13
+});
+
+t('nøjagtighed: komplet opskrift → 100%', () => {
+    const data = {
+        units: UNITS, conversions: CONV, products: PRODUCTS,
+        recipes: [{ id: 1, name: 'R', base_servings: 1 }],
+        pos: [
+            { recipe_id: 1, product_id: 100, amount: 1 },     // 0,12 covered
+            { recipe_id: 1, product_id: 101, amount: 0.05 },  // 0,05 covered
+        ],
+        nestings: [],
+    };
+    const r = E.computeAll(data).get(1);
+    assert.strictEqual(r.accuracy_pct, 100);
+    assert.strictEqual(r.missing_kg, 0);
+});
+
+t('nøjagtighed: rekursiv — underopskrifts uden-faktor skaleres ind (Falaflen-case)', () => {
+    // Top: brød (dækket). Dressing: ost (dækket) + salt 1,0 kg (INGEN faktor).
+    // Dressing nested med 0,02 servings → salt bidrager 0,02 kg uden faktor til Top.
+    const data = {
+        units: UNITS, conversions: CONV, products: PRODUCTS,
+        recipes: [
+            { id: 1, name: 'Falaflen', base_servings: 1 },
+            { id: 2, name: 'Yoghurt dressing', base_servings: 1 },
+        ],
+        pos: [
+            { recipe_id: 1, product_id: 100, amount: 1 },     // Brød → 0,12 covered
+            { recipe_id: 2, product_id: 101, amount: 0.04 },  // Ost → 0,04 covered
+            { recipe_id: 2, product_id: 102, amount: 1 },     // Salt (rolle: vegansk yoghurt) → 1,0 uden faktor
+        ],
+        nestings: [{ recipe_id: 1, includes_recipe_id: 2, servings: 0.02 }],
+    };
+    const top = E.computeAll(data).get(1);
+    assert.ok(near(top.covered_kg, 0.1208), `covered=${top.covered_kg}`); // 0,12 + 0,04×0,02
+    assert.ok(near(top.missing_kg, 0.02), `missing=${top.missing_kg}`);   // 1,0×0,02
+    assert.strictEqual(top.accuracy_pct, 86); // 0,1208 / 0,1408
+
+    // Samme case via breakdown: opskrift-nøjagtighed + underopskrift-rækkens masse
+    const bd = E.breakdownRecipe(1, data);
+    assert.strictEqual(bd.accuracy_pct, 86);
+    assert.ok(near(bd.missing_kg_per_serving, 0.02));
+    const sub = bd.sub_recipes[0];
+    assert.ok(near(sub.mass_kg, 0.0208), `sub.mass_kg=${sub.mass_kg}`);   // (0,04+1,0)×0,02
+    assert.ok(near(sub.missing_kg, 0.02), `sub.missing_kg=${sub.missing_kg}`);
+});
+
+t('nøjagtighed: kg-vej-mangel tælles IKKE i masse-% (kun kendt masse)', () => {
+    const prods = [
+        { id: 100, name: 'Brød', qu_id_stock: 8, userfields: { co2e_per_kg: '1.0' } },     // 0,12 covered
+        { id: 999, name: 'Ukonverterbar', qu_id_stock: 8, userfields: { co2e_per_kg: '2' } }, // ingen kg-vej
+    ];
+    const data = {
+        units: UNITS, conversions: CONV, products: prods,
+        recipes: [{ id: 1, name: 'R', base_servings: 1 }],
+        pos: [
+            { recipe_id: 1, product_id: 100, amount: 1 },  // covered
+            { recipe_id: 1, product_id: 999, amount: 2 },  // missing_kgvej (ukendt masse)
+        ],
+        nestings: [],
+    };
+    const r = E.computeAll(data).get(1);
+    assert.ok(near(r.covered_kg, 0.12));
+    assert.strictEqual(r.missing_kg, 0);            // ukonverterbar bidrager IKKE til missing_kg
+    assert.strictEqual(r.accuracy_pct, 100);        // 100% af den KENDTE masse
+    assert.strictEqual(r.missing_kgvej_count, 1);   // men flagget separat
+});
+
+t('nøjagtighed: ingen kendt masse → null', () => {
+    const prods = [{ id: 999, name: 'Ukonverterbar', qu_id_stock: 8, userfields: { co2e_per_kg: '2' } }];
+    const data = {
+        units: UNITS, conversions: CONV, products: prods,
+        recipes: [{ id: 1, name: 'R', base_servings: 1 }],
+        pos: [{ recipe_id: 1, product_id: 999, amount: 2 }], // kun kg-vej-mangel
+        nestings: [],
+    };
+    const r = E.computeAll(data).get(1);
+    assert.strictEqual(r.accuracy_pct, null);
+    assert.strictEqual(r.missing_kgvej_count, 1);
+});
+
 console.log(`\n${pass} PASS · ${fail} FAIL`);
 process.exit(fail ? 1 : 0);
