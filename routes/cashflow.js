@@ -26,7 +26,7 @@ const express       = require('express');
 const router        = express.Router();
 const Busboy        = require('busboy');
 const { getDb }     = require('../db/database');
-const { handle, inclToExcl, momsOfIncl, logChange, todayISO, offsetISO,
+const { handle, inclToExcl, exclToIncl, momsOfIncl, logChange, todayISO, offsetISO,
         getStatusId, getDefaultLocationId, nextBonNumber, recalcBonTotalUnits } = require('../db/helpers');
 const { requireAuth } = require('../shared/auth');
 const { broadcast } = require('../shared/sse');
@@ -34,6 +34,24 @@ const { transaction } = require('../db/compat');
 
 /** Round to 2 decimals */
 function r2(n) { return Math.round((n ?? 0) * 100) / 100; }
+
+/**
+ * Løft en bon-total til INCL moms — bankens målestok.
+ *
+ * bon_lines er som hovedregel incl moms (§6b), men udgiftslinjer kan være
+ * bogført ex moms (`moms_included=0`, migration 104) — fx en stadeleje-faktura
+ * hvor event-P&L'en vil have nettobeløbet. Banken trækker bruttobeløbet, så en
+ * allokering der bruger ex-moms-totalen blander to momsgrundlag og går aldrig op.
+ *
+ * exclPart = Σ line_total for linjerne med moms_included=0. Kun den del løftes;
+ * resten af totalen (incl-moms-linjer + evt. levering, der ikke er en bon_line)
+ * bæres uændret igennem. Bons uden ex-moms-linjer rører vi ikke.
+ */
+function momsLoeft(bonTotal, exclPart) {
+    const excl = exclPart ?? 0;
+    if (!excl) return bonTotal;
+    return r2((bonTotal ?? 0) - excl + exclToIncl(excl));
+}
 
 // Admin-only
 router.use(requireAuth('admin'));
@@ -1058,6 +1076,9 @@ router.get('/match-targets', handle(async (req, res) => {
                -- (Gamle cafe-bons har tom total_with_delivery, men total_price/linjer er sat.)
                COALESCE(NULLIF(b.total_with_delivery,0), NULLIF(b.total_price,0),
                         (SELECT COALESCE(SUM(line_total),0) FROM bon_lines bl WHERE bl.bon_id = b.id)) AS bon_total,
+               -- Σ af de linjer der ligger EX moms (moms_included=0) — løftes i momsLoeft().
+               (SELECT COALESCE(SUM(bl.line_total),0) FROM bon_lines bl
+                 WHERE bl.bon_id = b.id AND COALESCE(bl.moms_included,1) = 0) AS excl_part,
                c.first_name || ' ' || COALESCE(c.last_name,'') AS contact, co.name AS company,
                sd.label AS status_label
         FROM bons b
@@ -1090,7 +1111,7 @@ router.get('/match-targets', handle(async (req, res) => {
             return {
                 type: 'bon', id: b.id, label: `Bon #${b.bon_number}${expense ? ' (udgift)' : ''}`,
                 sublabel: [(b.company || b.contact || '').trim(), b.status_label].filter(Boolean).join(' · '),
-                amount: b.bon_total, date: b.delivery_date, expense,
+                amount: momsLoeft(b.bon_total, b.excl_part), date: b.delivery_date, expense,
             };
         }),
         ...invoices.map(i => ({
