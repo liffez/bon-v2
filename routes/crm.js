@@ -1074,15 +1074,24 @@ router.get('/customer/:id', handle((req, res) => {
     // Aktive flag på kunden (jf. docs/CLAUDE_KUNDE_FLAGS.md).
     // Ack-historik begrænset til seneste 10 til display — fuld liste kan
     // hentes via /api/flags?include_dismissed=1.
+    // Aktive påmindelser: kundens EGNE + firmaets (firma-flag gælder også denne
+    // person — de hejses på hendes bons, og de afsluttede vises allerede i hendes
+    // tidslinje. Uden firma-grenen viste vi historikken men ikke det aktuelle).
+    const flagConds = ["(f.entity_type = 'customer' AND f.entity_id = ?)"];
+    const flagArgs  = [id];
+    if (customer.company_id) {
+        flagConds.push("(f.entity_type = 'company' AND f.entity_id = ?)");
+        flagArgs.push(customer.company_id);
+    }
     const flags = db.prepare(`
         SELECT f.*,
                u.name AS created_by_name,
                (SELECT COUNT(*) FROM flag_acks WHERE flag_id = f.id) AS ack_count
         FROM entity_flags f
         LEFT JOIN users u ON f.created_by_user_id = u.id
-        WHERE f.entity_type = 'customer' AND f.entity_id = ? AND f.dismissed_at IS NULL
-        ORDER BY f.created_at DESC
-    `).all(id);
+        WHERE f.dismissed_at IS NULL AND (${flagConds.join(' OR ')})
+        ORDER BY f.entity_type = 'company', f.created_at DESC
+    `).all(...flagArgs);
     const ackBonsStmt = db.prepare(`
         SELECT b.id, b.bon_number, fa.acked_at
         FROM flag_acks fa JOIN bons b ON fa.bon_id = b.id
@@ -1206,6 +1215,68 @@ router.get('/company/:id', handle((req, res) => {
     `);
     for (const f of flags) f.ack_bons = ackBonsStmt.all(f.id);
 
+    // ─── Aktivitet aggregeret på firma-niveau ──────────────
+    // crm_activities hænger på customer_id — firmaets aktivitet er summen på
+    // tværs af dets kontaktpersoner (join via customers.company_id).
+    // customer_name er pointen: på firma-niveau vil man vide HVEM det handlede om.
+    const activities = db.prepare(`
+        SELECT a.id, a.type, a.text, a.result, a.sentiment, a.due_at, a.done_at,
+               a.created_at, a.bon_id, a.customer_id,
+               u.name AS user_name,
+               b.bon_number,
+               c.first_name || ' ' || COALESCE(c.last_name, '') AS customer_name,
+               mt.label AS meeting_type_label, mt.emoji AS meeting_type_emoji,
+               p.label AS purpose_label, p.emoji AS purpose_emoji
+        FROM crm_activities a
+        JOIN customers c ON c.id = a.customer_id
+        LEFT JOIN users u ON u.id = a.owner_user_id
+        LEFT JOIN bons  b ON b.id = a.bon_id
+        LEFT JOIN meeting_types mt ON mt.id = a.meeting_type_id
+        LEFT JOIN activity_purposes p ON p.id = a.purpose_id
+        WHERE c.company_id = ?
+        ORDER BY COALESCE(a.done_at, a.created_at) DESC
+        LIMIT 30
+    `).all(id);
+
+    // Dismissed påmindelser som syntetiske rows (mønster: Kunde 360°, fase 7).
+    // BEGGE typer med — firmaets egne OG kontaktpersonernes — så tidslinjen er
+    // konsistent med sit løfte ("på tværs af firmaets kontaktpersoner").
+    // customer_name skelner dem i UI'et ("på firmaet" vs. personens navn).
+    const dismissedFlags = db.prepare(`
+        SELECT f.id, f.title, f.body, f.dismiss_note, f.dismissed_at, f.entity_type,
+               f.dismissed_on_bon_id, f.dismissed_by_user_id,
+               u.name AS user_name, b.bon_number,
+               CASE WHEN f.entity_type = 'customer'
+                    THEN fc.first_name || ' ' || COALESCE(fc.last_name, '') END AS customer_name
+        FROM entity_flags f
+        LEFT JOIN users u ON f.dismissed_by_user_id = u.id
+        LEFT JOIN bons  b ON f.dismissed_on_bon_id  = b.id
+        LEFT JOIN customers fc ON f.entity_type = 'customer' AND fc.id = f.entity_id
+        WHERE f.dismissed_at IS NOT NULL
+          AND ( (f.entity_type = 'company'  AND f.entity_id = ?)
+             OR (f.entity_type = 'customer' AND f.entity_id IN
+                    (SELECT id FROM customers WHERE company_id = ?)) )
+        ORDER BY f.dismissed_at DESC LIMIT 20
+    `).all(id, id);
+    const synthetic = dismissedFlags.map(f => ({
+        id: 'flag_' + f.id,
+        type: 'dismissed_flag',
+        text: f.title + (f.body ? '\n' + f.body : ''),
+        note: f.dismiss_note,
+        created_at: f.dismissed_at,
+        done_at: f.dismissed_at,
+        bon_id: f.dismissed_on_bon_id,
+        bon_number: f.bon_number,
+        user_name: f.user_name,
+        // null for firma-flag → UI'et viser "på firmaet"
+        customer_name: f.customer_name ? f.customer_name.trim() : null,
+        flag_entity_type: f.entity_type,
+    }));
+
+    const mergedActivities = [...activities, ...synthetic]
+        .sort((a, b) => String(b.done_at || b.created_at || '').localeCompare(String(a.done_at || a.created_at || '')))
+        .slice(0, 30);
+
     res.json({
         company,
         aggregations: {
@@ -1217,6 +1288,7 @@ router.get('/company/:id', handle((req, res) => {
         customers,
         rfm,
         flags,
+        activities: mergedActivities,
     });
 }));
 

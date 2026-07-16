@@ -554,13 +554,77 @@ function _f3RenderMail(el) {
 
 // ─── AKTIVITET-FANEN ───────────────────────────────────────────
 
+const _F3_ACT_ICONS = {
+    call: '📞', service_call: '📞', meeting: '🤝', task: '📋', note: '📝',
+    followup: '🔔', offer_sent: '📤', email_in: '📥', email_out: '📤', dismissed_flag: '🚩',
+};
+const _F3_ACT_LABELS = {
+    call: 'Opkald', service_call: 'Service-kald', meeting: 'Møde', task: 'Opgave', note: 'Note',
+    followup: 'Opfølgning', offer_sent: 'Tilbud sendt', email_in: 'Mail ind', email_out: 'Mail ud',
+    dismissed_flag: 'Påmindelse afsluttet',
+};
+const _F3_RESULT_LABELS = {
+    reached: 'Nået', no_answer: 'Intet svar', busy: 'Optaget', voicemail: 'Besked',
+    callback: 'Callback', email_instead: 'Email',
+};
+const _F3_SENT = { positive: '😊 God', neutral: '😐 Neutral', negative: '😟 Dårlig' };
+
+// Aktivitet aggregeret på tværs af firmaets kontaktpersoner.
+// Hver række viser HVEM den lå på — det er pointen med firma-niveauet.
 function _f3RenderAktivitet(el) {
+    const activities = _f3State.data?.activities || [];
+    if (!activities.length) {
+        el.innerHTML = `
+            <div class="f3-empty">
+                Ingen aktivitet registreret på firmaets kontaktpersoner endnu.<br>
+                <span class="f3-muted-sm">Opkald, noter og møder logget på en kontaktperson dukker op her.</span>
+            </div>`;
+        return;
+    }
+
+    const rows = activities.map(a => {
+        const isFlag = a.type === 'dismissed_flag';
+        const isMeeting = a.type === 'meeting';
+        const icon = _F3_ACT_ICONS[a.type] || '•';
+        let label = _F3_ACT_LABELS[a.type] || a.type;
+        if (isMeeting && a.meeting_type_label) label = a.meeting_type_label;
+        const result = a.result ? ' → ' + (_F3_RESULT_LABELS[a.result] || a.result) : '';
+
+        // Planlagt→udført / stadig planlagt (jf. CLAUDE_CRM_PLANLAGT.md)
+        let annot = '';
+        if (a.due_at && a.done_at) annot = '<span class="f3-act-annot">✓ planlagt → udført</span>';
+        else if (a.due_at && !a.done_at) annot = '<span class="f3-act-annot planlagt">⏰ planlagt</span>';
+
+        // Møder vises på deres mødetidspunkt; øvrige på udført-/oprettet-tidspunkt
+        const when = (isMeeting && a.due_at) ? a.due_at : (a.done_at || a.created_at);
+        const whoOn = a.customer_name && a.customer_name.trim()
+            ? `<span class="f3-act-who" title="Aktiviteten ligger på denne kontaktperson">${escapeHtml(a.customer_name.trim())}</span>`
+            : (isFlag ? '<span class="f3-act-who f3-act-who-company">på firmaet</span>' : '');
+        const bon = a.bon_number ? `<span class="f3-act-bon">#${escapeHtml(a.bon_number)}</span>` : '';
+        const sent = a.sentiment ? `<span class="f3-act-sent ${a.sentiment}">${_F3_SENT[a.sentiment] || a.sentiment}</span>` : '';
+        const purpose = a.purpose_label ? `<span class="f3-act-purpose">${a.purpose_emoji || ''} ${escapeHtml(a.purpose_label)}</span>` : '';
+
+        return `
+            <div class="f3-act-item${isFlag ? ' f3-act-readonly' : ''}">
+                <div class="f3-act-icon">${icon}</div>
+                <div class="f3-act-body">
+                    <div class="f3-act-head">
+                        <span class="f3-act-type">${escapeHtml(label)}${escapeHtml(result)}</span>
+                        ${annot}${whoOn}${bon}
+                        <span class="f3-act-time">${_f3FormatDate(when)}</span>
+                    </div>
+                    ${a.text ? `<div class="f3-act-text">${escapeHtml(a.text)}</div>` : ''}
+                    ${isFlag && a.note ? `<div class="f3-act-note">${escapeHtml(a.note)}</div>` : ''}
+                    ${(sent || purpose || a.user_name) ? `<div class="f3-act-foot">${sent}${purpose}${a.user_name ? `<span class="f3-act-user">${escapeHtml(a.user_name)}</span>` : ''}</div>` : ''}
+                </div>
+            </div>`;
+    }).join('');
+
     el.innerHTML = `
-        <div class="f3-empty">
-            Aggregeret aktivitet på firma-niveau er ikke implementeret endnu.<br>
-            <span class="f3-muted-sm">(crm_activities har p.t. kun customer_id — firma-aggregering kommer senere.)</span>
-        </div>
-    `;
+        <div class="f3-card">
+            <div class="f3-card-h"><span class="f3-card-title">Aktivitet på tværs af firmaets kontaktpersoner (${activities.length})</span></div>
+            <div class="f3-card-b"><div class="f3-act-list">${rows}</div></div>
+        </div>`;
 }
 
 // ─── BERIG-FLOW (Fase 3: fuld modal-UI med diff-checkboxes) ────
