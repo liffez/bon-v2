@@ -307,6 +307,30 @@ function _crmRenderShell() {
                 border-radius: 6px; padding: 4px 8px;
             }
             .crm-fu-ring:hover { background: var(--brand-primary-light, #f1e6b2); }
+            /* Filter-chips + gamle-advarsel */
+            .crm-fu-filters { display: flex; align-items: center; gap: 6px; margin-bottom: 8px; flex-wrap: wrap; }
+            .crm-fu-chip {
+                border: 1px solid var(--color-border); background: var(--color-surface, #fff);
+                border-radius: 12px; padding: 2px 10px; font-size: 11px; font-weight: 600;
+                cursor: pointer; color: var(--color-text-dim); font-family: inherit;
+            }
+            .crm-fu-chip:hover { border-color: var(--brand-primary); }
+            .crm-fu-chip.active { background: var(--brand-primary); border-color: var(--brand-primary); color: #fff; }
+            .crm-fu-chip-n { opacity: .7; font-weight: 400; }
+            .crm-fu-stale-note {
+                margin-left: auto; font-size: 10px; font-weight: 700;
+                color: var(--color-sentiment-neg, #C94040); background: var(--color-sentiment-neg-bg, #FBE9E9);
+                border-radius: 8px; padding: 1px 7px; white-space: nowrap;
+            }
+            /* Luk uden opfølgning */
+            .crm-fu-luk {
+                flex-shrink: 0; width: 22px; height: 22px; border-radius: 50%;
+                border: 1px solid var(--color-border); background: var(--color-surface, #fff);
+                color: var(--color-text-dim); font-size: 11px; cursor: pointer; line-height: 1;
+                opacity: 0; transition: opacity .12s;
+            }
+            .crm-fu-item:hover .crm-fu-luk { opacity: 1; }
+            .crm-fu-luk:hover { border-color: var(--color-sentiment-neg, #C94040); color: var(--color-sentiment-neg, #C94040); }
 
             /* Activity feed */
             .crm-act-item {
@@ -1037,23 +1061,60 @@ async function _crmUnsnooze(customerId, type) {
 
 // Mine opfølgninger (Fase 4) — forfaldne/dagens planlagte + åbne callbacks i én liste.
 // Forfaldne først (rød ⚑), derefter dagens. Møder + fremtidige vises IKKE her.
+let _crmFuFilter = 'alle';           // alle | planlagt | service
+let _crmFuData = [];                 // seneste hentede liste (til filtrering uden reload)
+
+function _crmSetFuFilter(f) {
+    _crmFuFilter = f;
+    _crmRenderFollowups({ followups: _crmFuData });
+}
+
 function _crmRenderFollowups(data) {
     const el = document.getElementById('crmCallbacksList');
     if (!el) return;
-    const items = (data && data.followups) || (Array.isArray(data) ? data : []);
+    const all = (data && data.followups) || (Array.isArray(data) ? data : []);
+    _crmFuData = all;
+
+    // Filter-chips — de to kilder har vidt forskellig karakter (planlagt = noget
+    // DU har besluttet, service = genereret af service-flowet).
+    const staleCount = all.filter(f => f.kilde === 'service' && (f.age_days || 0) >= (window.FOLLOWUP_STALE_DAYS || 30)).length;
+    const counts = {
+        alle: all.length,
+        planlagt: all.filter(f => f.kilde === 'planlagt').length,
+        service: all.filter(f => f.kilde === 'service').length,
+    };
+    const chips = [
+        { key: 'alle', label: 'Alle' },
+        { key: 'planlagt', label: 'Planlagt' },
+        { key: 'service', label: 'Service' },
+    ].map(c => '<button class="crm-fu-chip' + (_crmFuFilter === c.key ? ' active' : '') + '" onclick="_crmSetFuFilter(\'' + c.key + '\')">' +
+        c.label + ' <span class="crm-fu-chip-n">' + counts[c.key] + '</span></button>').join('');
+
+    const items = _crmFuFilter === 'alle' ? all : all.filter(f => f.kilde === _crmFuFilter);
+
+    const filterBar = '<div class="crm-fu-filters">' + chips +
+        (staleCount > 0
+            ? '<span class="crm-fu-stale-note" title="Callbacks uden deadline der er ' + (window.FOLLOWUP_STALE_DAYS || 30) + '+ dage gamle">⚠ ' + staleCount + ' gamle</span>'
+            : '') +
+        '</div>';
+
     if (!items.length) {
-        el.innerHTML = '<div class="crm-empty">Ingen opfølgninger i dag 🎉</div>';
+        el.innerHTML = filterBar + '<div class="crm-empty">' +
+            (all.length ? 'Ingen i dette filter' : 'Ingen opfølgninger i dag 🎉') + '</div>';
         return;
     }
-    el.innerHTML = items.slice(0, 12).map((f, i) => {
+    el.innerHTML = filterBar + items.slice(0, 12).map((f, i) => {
         const name = f.name && f.name.trim() ? f.name.trim() : 'Ukendt';
         const init = name.charAt(0).toUpperCase();
         const avClass = 'av-' + (i % 3);
         const cid = f.customer_id || '';
         const due = (typeof plannedFmtDue === 'function') ? plannedFmtDue(f.due_at) : { label: f.due_at || '', overdue: false };
         const isService = f.kilde === 'service';
-        // Callback uden due_at → vis "ring tilbage" som tidspunkt
-        const timeLabel = due.label || (isService ? 'ring tilbage' : '');
+        // Callbacks har ingen due_at — uden alder ser en 87 dage gammel ud som
+        // en fra i dag. Vis alderen, og markér den rød når den er gammel.
+        const age = (typeof plannedFmtAge === 'function') ? plannedFmtAge(f.age_days, f.created_at) : { label: '', stale: false };
+        const timeLabel = due.label || (isService ? (age.label || 'ring tilbage') : '');
+        const isStale = !due.label && age.stale;
         const kildeBadge = isService
             ? '<span class="crm-fu-kilde service">Service</span>'
             : '<span class="crm-fu-kilde planlagt">Planlagt</span>';
@@ -1061,6 +1122,10 @@ function _crmRenderFollowups(data) {
         const ringBtn = f.phone
             ? '<a class="crm-fu-ring" href="tel:' + escapeHtml(f.phone) + '" title="Ring til ' + escapeHtml(name) + '">📞 Ring</a>'
             : '';
+        // Luk uden opfølgning — så gamle callbacks kan ryddes aktivt i stedet for
+        // at ligge og gøre listen til tapet.
+        const lukBtn = '<button class="crm-fu-luk" title="Luk uden opfølgning" ' +
+            'onclick="event.stopPropagation();_crmCloseFollowup(' + f.id + ',\'' + escapeHtml(name).replace(/'/g, "\\'") + '\')">✕</button>';
         const rowAttrs = cid
             ? ' class="crm-fu-item crm-clickable" data-customer-id="' + cid + '" data-ktab="activity" title="Åbn kundekort"'
             : ' class="crm-fu-item"';
@@ -1075,15 +1140,28 @@ function _crmRenderFollowups(data) {
             '</div>' +
             '<div class="crm-fu-meta">' +
                 kildeBadge +
-                '<span class="crm-fu-time' + (due.overdue ? ' overdue' : '') + '">' + escapeHtml(timeLabel) + '</span>' +
+                '<span class="crm-fu-time' + (due.overdue || isStale ? ' overdue' : '') + '">' + escapeHtml(timeLabel) + '</span>' +
             '</div>' +
-            ringBtn +
+            ringBtn + lukBtn +
         '</div>';
     }).join('');
 }
 
 function _crmGotoRingeliste() {
     if (typeof window.switchSection === 'function') window.switchSection('crm', 'ringeliste');
+}
+
+// Luk en opfølgning uden at logge et opkald. Bruger det eksisterende
+// complete-endpoint (sætter done_at) med en note, så det er sporbart HVORFOR
+// den forsvandt — vi sletter ikke historik.
+async function _crmCloseFollowup(id, name) {
+    if (!confirm('Luk opfølgningen for ' + name + ' uden opfølgning?\n\nDen forsvinder fra listen og markeres som afsluttet i historikken.')) return;
+    try {
+        await completeCrmActivity(id, { note: 'Lukket uden opfølgning' });
+        _crmLoadData();
+    } catch (err) {
+        alert('Fejl: ' + err.message);
+    }
 }
 
 function _crmRenderUpcomingMeetings(items) {

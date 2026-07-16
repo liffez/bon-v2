@@ -54,9 +54,31 @@ function plannedFmtDue(dueAt) {
 // Type-labels/-emoji til visning af planlagte aktiviteter (uden for kunde360).
 const PLANNED_TYPE_LABELS = { call: 'Opkald', service_call: 'Service-kald', meeting: 'Møde', task: 'Opgave', note: 'Note', followup: 'Opfølgning' };
 
+// Hvornår en opfølgning uden deadline regnes som gammel (dage).
+const FOLLOWUP_STALE_DAYS = 30;
+
+/**
+ * Alder på en opfølgning uden due_at (callbacks) → { label, stale }.
+ * Callbacks har ingen deadline, så alderen er eneste signal om at de er glemt.
+ * ageDays kommer fra serveren (SQL julianday-diff); createdAt er fallback.
+ */
+function plannedFmtAge(ageDays, createdAt) {
+    let d = (ageDays === 0 || ageDays) ? Number(ageDays) : null;
+    if (d === null && createdAt) {
+        const t = new Date(String(createdAt).replace(' ', 'T'));
+        if (!isNaN(t.getTime())) d = Math.floor((Date.now() - t.getTime()) / 86400000);
+    }
+    if (d === null || isNaN(d)) return { label: '', stale: false, days: null };
+    if (d <= 0) return { label: 'i dag', stale: false, days: 0 };
+    if (d === 1) return { label: 'i går', stale: false, days: 1 };
+    return { label: d + ' dage', stale: d >= FOLLOWUP_STALE_DAYS, days: d };
+}
+
 if (typeof window !== 'undefined') {
     window.plannedLocalDateISO = plannedLocalDateISO;
     window.plannedComputeWhen = plannedComputeWhen;
     window.plannedFmtDue = plannedFmtDue;
+    window.plannedFmtAge = plannedFmtAge;
     window.PLANNED_TYPE_LABELS = PLANNED_TYPE_LABELS;
+    window.FOLLOWUP_STALE_DAYS = FOLLOWUP_STALE_DAYS;
 }

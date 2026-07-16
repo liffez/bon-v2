@@ -201,6 +201,30 @@ async function main() {
         const firstDue = fu[0];
         assert(firstDue && firstDue.due_at && firstDue.due_at < localISO(0), 'forfaldne først i /followups');
 
+        // ─── Alder på callbacks (de har ingen due_at) ───
+        console.log('\n═══ Alder + luk af gamle callbacks ═══');
+        const db2 = openDb(TEST_DB);   // eget handle — det første blev lukket før server-spawn
+        const cbRow = fu.find(f => f.kilde === 'service');
+        assert(cbRow && cbRow.age_days !== undefined && cbRow.age_days !== null,
+            'callbacks har age_days (uden det ser en 87 dage gammel ud som ny)');
+        assert(cbRow && cbRow.created_at, '/followups returnerer created_at');
+        // Gammel callback → skal markeres stale
+        const oldCb = db2.prepare(`SELECT id FROM crm_activities WHERE result='callback' AND done_at IS NULL LIMIT 1`).get();
+        db2.prepare(`UPDATE crm_activities SET created_at = date('now','-90 days') WHERE id = ?`).run(oldCb.id);
+        const fuOld = (await http('GET', '/api/crm/followups')).data.followups || [];
+        const aged = fuOld.find(f => f.id === oldCb.id);
+        assert(aged && aged.age_days >= 89, `90 dage gammel callback rapporterer age_days (fik ${aged && aged.age_days})`);
+
+        // Luk uden opfølgning: forsvinder fra listen MEN bevares i historikken
+        const closeMe = fuOld.find(f => f.kilde === 'service');
+        const closed = await http('PATCH', `/api/crm/activity/${closeMe.id}/done`, { note: 'Lukket uden opfølgning' });
+        assert(closed.status === 200, 'luk uden opfølgning → 200');
+        const fuAfter = (await http('GET', '/api/crm/followups')).data.followups || [];
+        assert(!fuAfter.some(f => f.id === closeMe.id), 'lukket callback forsvinder fra /followups');
+        const hist = db2.prepare(`SELECT done_at, text FROM crm_activities WHERE id = ?`).get(closeMe.id);
+        assert(!!hist.done_at, 'lukket callback bevares med done_at (ikke slettet)');
+        assert(/Lukket uden opfølgning/.test(hist.text), 'luk-noten er sporbar i historikken');
+
         // ─── /flags show_in_kitchen (Fase B) ───
         console.log('\n═══ /flags show_in_kitchen ═══');
         const fKitchen = await http('POST', '/api/flags', { entity_type: 'customer', entity_id: custId, title: 'KØKKEN-synlig', show_in_kitchen: 1 });

@@ -936,7 +936,10 @@ function _dashRenderFollowups(data) {
         const avClass = _CB_AVATAR_COLORS[i % _CB_AVATAR_COLORS.length];
         const isService = f.kilde === 'service';
         const due = (typeof plannedFmtDue === 'function') ? plannedFmtDue(f.due_at) : { label: f.due_at || '', overdue: false };
-        const timeLabel = due.label || (isService ? 'ring tilbage' : '');
+        // Callbacks har ingen due_at → vis alder, ellers ser en gammel ud som ny
+        const age = (typeof plannedFmtAge === 'function') ? plannedFmtAge(f.age_days, f.created_at) : { label: '', stale: false };
+        const timeLabel = due.label || (isService ? (age.label || 'ring tilbage') : '');
+        const isStale = !due.label && age.stale;
         const kildeBadge = isService
             ? '<span class="od-fu-kilde service">Service</span>'
             : '<span class="od-fu-kilde planlagt">Planlagt</span>';
@@ -950,7 +953,7 @@ function _dashRenderFollowups(data) {
             '</div>' +
             '<div class="od-fu-meta">' +
                 kildeBadge +
-                '<span class="od-fu-time' + (due.overdue ? ' overdue' : '') + '">' + esc(timeLabel) + '</span>' +
+                '<span class="od-fu-time' + (due.overdue || isStale ? ' overdue' : '') + '">' + esc(timeLabel) + '</span>' +
             '</div>' +
         '</div>';
     }).join('');

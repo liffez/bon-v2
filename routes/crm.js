@@ -1467,11 +1467,14 @@ router.get('/followups', handle((req, res) => {
     const db = getDb();
     const rows = db.prepare(`
         SELECT a.id, a.type, a.text, a.due_at, a.bon_id, a.customer_id,
+               a.created_at,
                c.first_name || ' ' || COALESCE(c.last_name, '') AS name,
                co.name AS company_name,
                c.phone,
                b.bon_number,
-               CASE WHEN a.result = 'callback' THEN 'service' ELSE 'planlagt' END AS kilde
+               CASE WHEN a.result = 'callback' THEN 'service' ELSE 'planlagt' END AS kilde,
+               -- Callbacks har ingen due_at → alder er eneste signal om at de er gamle
+               CAST(julianday('now') - julianday(a.created_at) AS INTEGER) AS age_days
         FROM crm_activities a
         JOIN customers c ON c.id = a.customer_id
         LEFT JOIN companies co ON co.id = c.company_id
