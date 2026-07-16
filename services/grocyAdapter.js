@@ -80,7 +80,7 @@ function getGrocyConfig(locationIdOverride) {
         throw new Error(`Lokation "${loc.name}" mangler grocy_api_url.`);
     }
     if (!key) {
-        throw new Error(`Lokation "${loc.name}" mangler grocy_api_key (og GROCY_HQ_KEY er ikke sat i .env).`);
+        throw new Error(`Lokation "${loc.name}" mangler grocy_api_key (og hverken ${envKey} eller GROCY_HQ_KEY er sat i .env).`);
     }
 
     return { url, key, locationName: loc.name };
