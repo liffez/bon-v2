@@ -963,6 +963,12 @@ function _k3RenderShell() {
                 margin-bottom: 6px;
             }
             .k3-flag-title { font-size: 13px; font-weight: 700; color: var(--color-text); line-height: 1.3; }
+            /* Firma-påmindelse på et kundekort: markér at den gælder hele firmaet */
+            .k3-flag-company { border-left-color: #3a6a9a; }
+            .k3-flag-scope {
+                margin-left: 6px; font-size: 10px; font-weight: 600; white-space: nowrap;
+                color: #3a6a9a; background: #e8f0f7; border-radius: 8px; padding: 1px 6px;
+            }
             .k3-flag-body { font-size: 12px; color: var(--color-text); margin-top: 3px; line-height: 1.4; white-space: pre-wrap; word-wrap: break-word; }
             .k3-flag-meta { font-size: 11px; color: var(--color-text-dim); margin-top: 4px; }
             .k3-flag-remove {
@@ -1333,9 +1339,18 @@ function _k3RenderProfile() {
                 const ackMeta = ackCount > 0
                     ? ' · Forstået på ' + ackCount + ' bon' + (ackCount === 1 ? '' : 'er')
                     : '';
-                return '<div class="k3-flag-card" data-flag-id="' + f.id + '">' +
-                    '<button class="k3-flag-remove" title="Fjern permanent" onclick="_k3RemoveFlag(' + f.id + ')">×</button>' +
-                    '<div class="k3-flag-title">🚩 ' + esc(f.title) + '</div>' +
+                // Firma-påmindelser gælder ALLE kontakter under firmaet — markér dem,
+                // så man ikke tror de hører til denne person (og at × rammer bredt).
+                const isCompany = f.entity_type === 'company';
+                const scope = isCompany
+                    ? '<span class="k3-flag-scope">🏢 på firmaet</span>'
+                    : '';
+                const removeTitle = isCompany
+                    ? 'Fjern permanent — påmindelsen gælder hele firmaet'
+                    : 'Fjern permanent';
+                return '<div class="k3-flag-card' + (isCompany ? ' k3-flag-company' : '') + '" data-flag-id="' + f.id + '">' +
+                    '<button class="k3-flag-remove" title="' + removeTitle + '" onclick="_k3RemoveFlag(' + f.id + ', ' + (isCompany ? 'true' : 'false') + ')">×</button>' +
+                    '<div class="k3-flag-title">🚩 ' + esc(f.title) + scope + '</div>' +
                     (f.body ? '<div class="k3-flag-body">' + esc(f.body) + '</div>' : '') +
                     '<div class="k3-flag-meta">Tilføjet ' + formatDanishDate((f.created_at || '').slice(0, 10)) +
                         (f.created_by_name ? ' af ' + esc(f.created_by_name) : '') +
@@ -2037,10 +2052,15 @@ function _k3QaTypeChanged() {
     if (wrap) wrap.style.display = (typeEl && typeEl.value === 'flag') ? '' : 'none';
 }
 
-async function _k3RemoveFlag(flagId) {
-    if (!confirm('Fjern denne påmindelse permanent?')) return;
+async function _k3RemoveFlag(flagId, isCompanyFlag) {
+    // En firma-påmindelse gælder alle kontakter under firmaet — vær eksplicit,
+    // så man ikke fjerner den for hele firmaet i den tro at det kun er denne person.
+    const msg = isCompanyFlag
+        ? 'Denne påmindelse ligger på FIRMAET og gælder alle kontaktpersoner under det.\n\nFjern den permanent for hele firmaet?'
+        : 'Fjern denne påmindelse permanent?';
+    if (!confirm(msg)) return;
     try {
-        await dismissFlagApi(flagId, null, 'Fjernet fra kundekortet');
+        await dismissFlagApi(flagId, null, isCompanyFlag ? 'Fjernet fra kundekortet (firma-påmindelse)' : 'Fjernet fra kundekortet');
         _k3LoadData();
     } catch (err) {
         alert('Fejl: ' + err.message);

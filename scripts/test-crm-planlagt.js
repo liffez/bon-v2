@@ -260,6 +260,30 @@ async function main() {
         assert(flagRow && flagRow.note === 'ordnet', 'dismiss-note følger med');
         assert(flagRow && flagRow.customer_name === null, 'firma-flag har ingen customer_name (hører til firmaet)');
 
+        // ─── To typer påmindelser: firma-flag OG kunde-flag ───
+        console.log('\n═══ Begge påmindelses-typer (firma + kunde) ═══');
+        // Aktivt firma-flag skal ses på kontaktpersonens kundekort (den hejses
+        // på hendes bons — uden dette viste vi historikken men ikke det aktuelle)
+        await http('POST', '/api/flags', { entity_type: 'company', entity_id: companyId, title: 'FIRMAFLAG-aktiv' });
+        const kFlags = (await http('GET', `/api/crm/customer/${custId}`)).data.flags || [];
+        assert(kFlags.some(f => f.title === 'FIRMAFLAG-aktiv' && f.entity_type === 'company'),
+            'aktivt FIRMA-flag vises på kontaktpersonens kundekort');
+        assert(kFlags.every(f => f.entity_type === 'customer' || f.entity_type === 'company'),
+            'flags på kundekort har entity_type så UI kan markere "på firmaet"');
+        // Privatkunde (uden firma) må ikke få firmaets flag
+        const pFlags = (await http('GET', `/api/crm/customer/${custPrivat}`)).data.flags || [];
+        assert(!pFlags.some(f => f.entity_type === 'company'), 'kunde uden firma får ikke firma-flag');
+
+        // Dismissed KUNDE-flag skal med i FIRMAETS tidslinje (begge typer)
+        const kf2 = await http('POST', '/api/flags', { entity_type: 'customer', entity_id: custId, title: 'KUNDEFLAG-test' });
+        await http('POST', `/api/flags/${kf2.data.id}/dismiss`, { note: 'klaret' });
+        const co3 = (await http('GET', `/api/crm/company/${companyId}`)).data;
+        const rows = (co3.activities || []).filter(a => a.type === 'dismissed_flag');
+        const kundeFlagRow = rows.find(a => /KUNDEFLAG-test/.test(a.text));
+        assert(!!kundeFlagRow, 'dismissed KUNDE-flag vises i firmaets tidslinje');
+        assert(kundeFlagRow && !!kundeFlagRow.customer_name, 'kunde-flag i firma-tidslinje har customer_name (hvem)');
+        assert(rows.some(a => a.customer_name === null), 'firma-flag i samme tidslinje har customer_name = null');
+
     } finally {
         if (serverProc) serverProc.kill('SIGTERM');
     }
