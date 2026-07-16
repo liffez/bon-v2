@@ -10,6 +10,7 @@
 - docs/CLAUDE_TILBUD_PRIS.md (hvis du rører pris/moms eller tilbud)
 - docs/CLAUDE_KONTAKTER.md (hvis du rører CRM, firmaer eller kontaktpunkter)
 - docs/CLAUDE_MOMS_AUDIT.md + CLAUDE_MOMS_AUDIT_AUTO.md (audit-værktøjer + automatisering)
+- docs/CLAUDE_CO2.md (hvis du rører CO₂ — F0–F7 er bygget; §1 kildehierarki + §3 `na` + §7 motor)
 - docs/CLAUDE_ECONOMIC_ADAPTER.md (spec — ikke bygget endnu)
 - docs/CLAUDE_MENU_AGENT.md (spec — ikke bygget endnu)
 
@@ -409,7 +410,7 @@ Oprettes under Grocy → Manage master data → Userfields.
 | `SalespriceWaiste` | number-integral | VarePicker | Salgspris waiste |
 | `sellable` | checkbox | VarePicker | Salgbar (vises i picker) |
 | `sellableZettle` | checkbox | POS | Salg via Zettle |
-| `Co2e` | number-decimal | VarePicker | CO2-aftryk per enhed |
+| `Co2e` | number-decimal | VarePicker, CO₂-modul | CO₂-aftryk pr. enhed. **Udfyldes IKKE i hånden** — det er F5-motorens cache, skrevet af `scripts/co2-f5-compute.js --apply` (Σ ingrediens-kg × faktor). Kun komplette opskrifter får et tal; resten står tomt (ærligt). Frontenden fryser værdien på `bon_lines.co2e` ved bon-oprettelse. |
 | `costprice` | number-decimal | VarePicker | Kostpris (fallback — primært bruges Grocy fulfillment `costs`) |
 | `Oeko` | checkbox | VarePicker | Økologisk markering |
 
@@ -2568,7 +2569,7 @@ vedhæfte filer (kort, billeder, PDF) til eventet. Plus en throwaway prep-estima
 > stadig åbne.
 >
 > **Reelt tilbageværende arbejde (verificeret mod kode 29. juni):**
-> - **CO₂-epic #88 (#105–113)** — ~10-15 % færdigt. Kun det GAMLE `Co2e`-grundlag findes (`bon_lines.co2e`-kolonne + recipe-cache + event-CO₂, alt på upålidelige GLO-tal). Det nye modul (F1 userfields → F8 ESG-eksport) er reelt ikke startet. **F1 (5 nye userfields + deprecér `Co2e`→`Co2e_OLD`) er gating-trinnet — skal bygges først.** Skal bruges snart. Spec: `docs/CLAUDE_CO2.md`
+> - **CO₂-epic #88 (#105–113)** — ✅ **F0–F7 KOMPLET og merget** (16. juli 2026). Se sektionen "CO₂-modul" ovenfor for detaljer. Kort: råvarefaktorer importeret fra Katrines CONCITO-ark, beregningsmotor (opskrift-CO₂ = Σ kg×faktor), frosset snapshot pr. bon, transport-CO₂, og en Office-rapport under CO₂-sektionen (dækning · datakvalitet · CO₂ over tid m. kategori-stak · pr. opskrift m. drill-down pr. råvare · synonym-panel · emballage-tildeler · vejeværktøj). **Kun F8 (ESG-eksport) mangler — og det er bevidst et separat eksternt modul** der trækker data fra Bon, ikke en CO₂-pill (Leifs beslutning). **De reelle udeståender er DATA, ikke kode:** (1) køkkenet skal veje ~22 tælle-varer (værktøj: CO₂ → Vej tælle-varer), (2) Katrine skal levere emballage-faktorer fra Klimakompasset + B-listen af krydderi-faktorer. Dækningen stiger af sig selv når de lander. Spec: `docs/CLAUDE_CO2.md`
 > - **Festival/multi-lokation #81 (#98–103)** — ~20 % færdigt. `locations`-tabel + `getGrocyConfig(locationId)` findes; festival-specifikke dele (flags `multi_location`/`festival_enabled`, transfer HQ↔Trailer, afstemnings-view) er ustartede. Event-modulet ER IKKE Festival (separat "let event fra HQ"-model). Bygges lidt senere. Spec: `docs/festival/`
 > - **Form Builder #82 (#119–125)** + **field-type-engine #79** — kun spec (`docs/formbuilder/`), ingen kode
 > - **Kunde-portal #83 (#89–97)** — kun spec (`docs/kunde portal/`), kun `external_ref`-kroge findes
