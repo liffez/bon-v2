@@ -239,6 +239,27 @@ async function main() {
         const wkItem = briefing.find(b => /Denne uge|Ingen aktiviteter/.test(b.text));
         assert(wkItem && wkItem.nav === 'ringeliste', 'briefing aktivitets-punkt har nav=ringeliste');
 
+        // ─── Firma 360° — aktivitet aggregeret via firmaets kunder ───
+        console.log('\n═══ GET /company/:id aktivitet (firma-aggregering) ═══');
+        // Aktivitet på firmaets kontaktperson (custId har company_id = companyId)
+        await http('POST', '/api/crm/activity', { customer_id: custId, type: 'note', text: 'FIRMA-A' });
+        const co = (await http('GET', `/api/crm/company/${companyId}`)).data;
+        const coActs = co.activities || [];
+        assert(Array.isArray(coActs) && coActs.length > 0, 'firma-endpoint returnerer aktiviteter');
+        assert(coActs.some(a => a.text === 'FIRMA-A'), 'aktivitet fra firmaets kunde er med');
+        assert(coActs.every(a => a.type === 'dismissed_flag' || a.customer_name), 'hver aktivitet har customer_name (hvem den lå på)');
+        // privatkundens aktivitet (uden company_id) må IKKE lække ind
+        assert(!coActs.some(a => a.text === 'B-callback'), 'aktivitet fra kunde UDEN firma lækker ikke ind');
+
+        // dismissed firma-flag → syntetisk læse-only række (fase 7-paritet)
+        const cf = await http('POST', '/api/flags', { entity_type: 'company', entity_id: companyId, title: 'FIRMAFLAG-test' });
+        await http('POST', `/api/flags/${cf.data.id}/dismiss`, { note: 'ordnet' });
+        const co2 = (await http('GET', `/api/crm/company/${companyId}`)).data;
+        const flagRow = (co2.activities || []).find(a => a.type === 'dismissed_flag');
+        assert(!!flagRow, 'dismissed firma-flag vises som syntetisk række');
+        assert(flagRow && flagRow.note === 'ordnet', 'dismiss-note følger med');
+        assert(flagRow && flagRow.customer_name === null, 'firma-flag har ingen customer_name (hører til firmaet)');
+
     } finally {
         if (serverProc) serverProc.kill('SIGTERM');
     }

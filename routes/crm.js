@@ -1206,6 +1206,60 @@ router.get('/company/:id', handle((req, res) => {
     `);
     for (const f of flags) f.ack_bons = ackBonsStmt.all(f.id);
 
+    // ─── Aktivitet aggregeret på firma-niveau ──────────────
+    // crm_activities hænger på customer_id — firmaets aktivitet er summen på
+    // tværs af dets kontaktpersoner (join via customers.company_id).
+    // customer_name er pointen: på firma-niveau vil man vide HVEM det handlede om.
+    const activities = db.prepare(`
+        SELECT a.id, a.type, a.text, a.result, a.sentiment, a.due_at, a.done_at,
+               a.created_at, a.bon_id, a.customer_id,
+               u.name AS user_name,
+               b.bon_number,
+               c.first_name || ' ' || COALESCE(c.last_name, '') AS customer_name,
+               mt.label AS meeting_type_label, mt.emoji AS meeting_type_emoji,
+               p.label AS purpose_label, p.emoji AS purpose_emoji
+        FROM crm_activities a
+        JOIN customers c ON c.id = a.customer_id
+        LEFT JOIN users u ON u.id = a.owner_user_id
+        LEFT JOIN bons  b ON b.id = a.bon_id
+        LEFT JOIN meeting_types mt ON mt.id = a.meeting_type_id
+        LEFT JOIN activity_purposes p ON p.id = a.purpose_id
+        WHERE c.company_id = ?
+        ORDER BY COALESCE(a.done_at, a.created_at) DESC
+        LIMIT 30
+    `).all(id);
+
+    // Dismissed firma-flag som syntetiske rows (samme mønster som Kunde 360°,
+    // CLAUDE_KUNDE_FLAGS.md fase 7). Kun firmaets egne flag — kundernes vises
+    // på deres respektive kundekort.
+    const dismissedFlags = db.prepare(`
+        SELECT f.id, f.title, f.body, f.dismiss_note, f.dismissed_at,
+               f.dismissed_on_bon_id, f.dismissed_by_user_id,
+               u.name AS user_name, b.bon_number
+        FROM entity_flags f
+        LEFT JOIN users u ON f.dismissed_by_user_id = u.id
+        LEFT JOIN bons  b ON f.dismissed_on_bon_id  = b.id
+        WHERE f.entity_type = 'company' AND f.entity_id = ? AND f.dismissed_at IS NOT NULL
+        ORDER BY f.dismissed_at DESC LIMIT 20
+    `).all(id);
+    const synthetic = dismissedFlags.map(f => ({
+        id: 'flag_' + f.id,
+        type: 'dismissed_flag',
+        text: f.title + (f.body ? '\n' + f.body : ''),
+        note: f.dismiss_note,
+        created_at: f.dismissed_at,
+        done_at: f.dismissed_at,
+        bon_id: f.dismissed_on_bon_id,
+        bon_number: f.bon_number,
+        user_name: f.user_name,
+        customer_name: null,          // firma-flag hører ikke til én kontaktperson
+        flag_entity_type: 'company',
+    }));
+
+    const mergedActivities = [...activities, ...synthetic]
+        .sort((a, b) => String(b.done_at || b.created_at || '').localeCompare(String(a.done_at || a.created_at || '')))
+        .slice(0, 30);
+
     res.json({
         company,
         aggregations: {
@@ -1217,6 +1271,7 @@ router.get('/company/:id', handle((req, res) => {
         customers,
         rfm,
         flags,
+        activities: mergedActivities,
     });
 }));
 
