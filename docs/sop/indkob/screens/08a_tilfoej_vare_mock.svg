@@ -1,0 +1,57 @@
+<svg viewBox="0 0 1210 560" xmlns="http://www.w3.org/2000/svg" font-family="'Segoe UI','Helvetica Neue',Arial,sans-serif" role="img">
+  <defs></defs>
+  <rect x="0" y="0" width="1210" height="560" fill="#ffffff"/>
+  <text x="20" y="16" font-size="20" fill="#8e631f" text-anchor="start"><tspan x="20" dy="20">"+ Tilføj vare" — søg en Grocy-vare  (rekonstruktion, annoteret)</tspan></text>
+  <text x="20" y="44" font-size="12" fill="#7a6c58" text-anchor="start"><tspan x="20" dy="12">Tro rekonstruktion af UI'et — kan erstattes med et rigtigt screenshot.</tspan></text>
+  <rect x="300" y="100" width="500" height="60" rx="14" fill="#f7f4ee" stroke="#8e631f" stroke-width="2"/>
+  <text x="320" y="118" font-size="15" fill="#5a3f14" text-anchor="start"><tspan x="320" dy="15">+ Tilføj vare</tspan></text>
+  <rect x="320" y="180" width="460" height="34" rx="14" fill="#fff" stroke="#d7d1ca" stroke-width="2"/>
+  <text x="334" y="190" font-size="13" fill="#402d15" text-anchor="start"><tspan x="334" dy="13">falaf</tspan></text>
+  <text x="720" y="190" font-size="14" fill="#402d15" text-anchor="start"><tspan x="720" dy="14">🔍</tspan></text>
+  <rect x="320" y="220" width="460" height="110" rx="14" fill="#fff" stroke="#d7d1ca" stroke-width="2"/>
+  <text x="338" y="236" font-size="13" fill="#402d15" text-anchor="start"><tspan x="338" dy="13">Falaffel</tspan></text>
+  <text x="640" y="236" font-size="11" fill="#7a6c58" text-anchor="start"><tspan x="640" dy="11">🟢 lager 4,3 kg</tspan></text>
+  <text x="338" y="268" font-size="13" fill="#402d15" text-anchor="start"><tspan x="338" dy="13">Falafelblanding</tspan></text>
+  <text x="640" y="268" font-size="11" fill="#7a6c58" text-anchor="start"><tspan x="640" dy="11">🟢 lager 12 kg</tspan></text>
+  <text x="338" y="300" font-size="13" fill="#402d15" text-anchor="start"><tspan x="338" dy="13">Rødløg - Sylt</tspan></text>
+  <text x="640" y="300" font-size="11" fill="#7a6c58" text-anchor="start"><tspan x="640" dy="11">🟢 lager 7</tspan></text>
+  <rect x="320" y="348" width="58" height="32" rx="14" fill="#fff" stroke="#d7d1ca" stroke-width="2"/>
+  <text x="349" y="356" font-size="14" fill="#402d15" text-anchor="middle"><tspan x="349" dy="14">3</tspan></text>
+  <text x="386" y="356" font-size="12" fill="#7a6c58" text-anchor="start"><tspan x="386" dy="12">stk</tspan></text>
+  <rect x="430" y="348" width="90" height="30" rx="14" fill="#3d8b5e" stroke="#2f7d4f" stroke-width="2"/>
+  <text x="475" y="356" font-size="12.5" fill="#fff" text-anchor="middle"><tspan x="475" dy="12.5">Tilføj</tspan></text>
+  <text x="560" y="356" font-size="12.5" fill="#8e631f" text-anchor="start"><tspan x="560" dy="12.5">+ Opret nyt produkt</tspan></text>
+  <ellipse cx="330" cy="170" rx="12" ry="12" fill="#c0392b" stroke="#8f2820" stroke-width="2"/>
+  <text x="330" y="160" font-size="13" fill="#fff" text-anchor="middle"><tspan x="330" dy="13">1</tspan></text>
+  <ellipse cx="330" cy="230" rx="12" ry="12" fill="#c0392b" stroke="#8f2820" stroke-width="2"/>
+  <text x="330" y="220" font-size="13" fill="#fff" text-anchor="middle"><tspan x="330" dy="13">2</tspan></text>
+  <ellipse cx="335" cy="340" rx="12" ry="12" fill="#c0392b" stroke="#8f2820" stroke-width="2"/>
+  <text x="335" y="330" font-size="13" fill="#fff" text-anchor="middle"><tspan x="335" dy="13">3</tspan></text>
+  <ellipse cx="445" cy="340" rx="12" ry="12" fill="#c0392b" stroke="#8f2820" stroke-width="2"/>
+  <text x="445" y="330" font-size="13" fill="#fff" text-anchor="middle"><tspan x="445" dy="13">4</tspan></text>
+  <ellipse cx="565" cy="344" rx="12" ry="12" fill="#c0392b" stroke="#8f2820" stroke-width="2"/>
+  <text x="565" y="334" font-size="13" fill="#fff" text-anchor="middle"><tspan x="565" dy="13">5</tspan></text>
+  <rect x="850" y="100" width="360" height="280" rx="14" fill="#faf6ea" stroke="#e3d08f" stroke-width="2"/>
+  <text x="870" y="116" font-size="15" fill="#5a3f14" text-anchor="start"><tspan x="870" dy="15">"+ Tilføj vare"</tspan></text>
+  <ellipse cx="881" cy="156" rx="11" ry="11" fill="#c0392b" stroke="#8f2820" stroke-width="2"/>
+  <text x="881" y="147" font-size="12" fill="#fff" text-anchor="middle"><tspan x="881" dy="12">1</tspan></text>
+  <text x="902" y="143" font-size="13.5" fill="#402d15" text-anchor="start"><tspan x="902" dy="13.5">Søgefelt</tspan></text>
+  <text x="902" y="161" font-size="11" fill="#7a6c58" text-anchor="start"><tspan x="902" dy="11">skriv varens navn</tspan></text>
+  <ellipse cx="881" cy="200" rx="11" ry="11" fill="#c0392b" stroke="#8f2820" stroke-width="2"/>
+  <text x="881" y="191" font-size="12" fill="#fff" text-anchor="middle"><tspan x="881" dy="12">2</tspan></text>
+  <text x="902" y="187" font-size="13.5" fill="#402d15" text-anchor="start"><tspan x="902" dy="13.5">Vælg resultat</tspan></text>
+  <text x="902" y="205" font-size="11" fill="#7a6c58" text-anchor="start"><tspan x="902" dy="11">klik varen (lager vises)</tspan></text>
+  <ellipse cx="881" cy="244" rx="11" ry="11" fill="#c0392b" stroke="#8f2820" stroke-width="2"/>
+  <text x="881" y="235" font-size="12" fill="#fff" text-anchor="middle"><tspan x="881" dy="12">3</tspan></text>
+  <text x="902" y="231" font-size="13.5" fill="#402d15" text-anchor="start"><tspan x="902" dy="13.5">Antal</tspan></text>
+  <text x="902" y="249" font-size="11" fill="#7a6c58" text-anchor="start"><tspan x="902" dy="11">hvor meget på listen</tspan></text>
+  <ellipse cx="881" cy="288" rx="11" ry="11" fill="#c0392b" stroke="#8f2820" stroke-width="2"/>
+  <text x="881" y="279" font-size="12" fill="#fff" text-anchor="middle"><tspan x="881" dy="12">4</tspan></text>
+  <text x="902" y="275" font-size="13.5" fill="#402d15" text-anchor="start"><tspan x="902" dy="13.5">Tilføj</tspan></text>
+  <text x="902" y="293" font-size="11" fill="#7a6c58" text-anchor="start"><tspan x="902" dy="11">læg på indkøbslisten</tspan></text>
+  <ellipse cx="881" cy="332" rx="11" ry="11" fill="#c0392b" stroke="#8f2820" stroke-width="2"/>
+  <text x="881" y="323" font-size="12" fill="#fff" text-anchor="middle"><tspan x="881" dy="12">5</tspan></text>
+  <text x="902" y="319" font-size="13.5" fill="#402d15" text-anchor="start"><tspan x="902" dy="13.5">+ Opret nyt produkt</tspan></text>
+  <text x="902" y="337" font-size="11" fill="#7a6c58" text-anchor="start"><tspan x="902" dy="11">hvis varen ikke findes i Grocy</tspan></text>
+  <text x="20" y="538" font-size="12" fill="#a89a83" text-anchor="start"><tspan x="20" dy="12">Bon v2 · Indkøb — køkken · + Tilføj vare (08a)</tspan></text>
+</svg>

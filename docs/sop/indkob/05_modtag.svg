@@ -1,0 +1,64 @@
+<svg viewBox="0 0 1300 880" xmlns="http://www.w3.org/2000/svg" font-family="'Segoe UI','Helvetica Neue',Arial,sans-serif" role="img">
+  <defs><marker id="mb0a493" viewBox="0 0 10 10" refX="8" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" fill="#b0a493"/></marker><marker id="m2f7d4f" viewBox="0 0 10 10" refX="8" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" fill="#2f7d4f"/></marker></defs>
+  <rect x="0" y="0" width="1300" height="880" fill="#ffffff"/>
+  <text x="40" y="24" font-size="26" fill="#8e631f" text-anchor="start"><tspan x="40" dy="26">Modtag — varemodtagelse</tspan></text>
+  <text x="41" y="60" font-size="15" fill="#7a6c58" text-anchor="start"><tspan x="41" dy="15">Fødevarekontrol → Lager → og så gør systemet resten automatisk</tspan></text>
+  <rect x="40" y="100" width="380" height="470" rx="14" fill="#faf6ea" stroke="#e3d08f" stroke-width="2"/>
+  <text x="62" y="118" font-size="18" fill="#5a3f14" text-anchor="start"><tspan x="62" dy="18">①  Fødevarekontrol</tspan></text>
+  <text x="62" y="165" font-size="14" fill="#402d15" text-anchor="start"><tspan x="62" dy="14">👤  Registreret af</tspan></text>
+  <text x="88" y="185" font-size="11" fill="#7a6c58" text-anchor="start"><tspan x="88" dy="11">hvem modtager varerne</tspan></text>
+  <text x="62" y="222" font-size="14" fill="#402d15" text-anchor="start"><tspan x="62" dy="14">📦  Leverandør</tspan></text>
+  <text x="88" y="242" font-size="11" fill="#7a6c58" text-anchor="start"><tspan x="88" dy="11">henter de bestilte varer frem</tspan></text>
+  <text x="62" y="279" font-size="14" fill="#402d15" text-anchor="start"><tspan x="62" dy="14">🧊  Kølevarer</tspan></text>
+  <text x="88" y="299" font-size="11" fill="#7a6c58" text-anchor="start"><tspan x="88" dy="11">temperatur, max 5 °C   →  OK / OBS / AFV</tspan></text>
+  <text x="62" y="336" font-size="14" fill="#402d15" text-anchor="start"><tspan x="62" dy="14">❄️  Frysvarer</tspan></text>
+  <text x="88" y="356" font-size="11" fill="#7a6c58" text-anchor="start"><tspan x="88" dy="11">temperatur, max −18 °C</tspan></text>
+  <text x="62" y="393" font-size="14" fill="#402d15" text-anchor="start"><tspan x="62" dy="14">✅  FVST-tjek</tspan></text>
+  <text x="88" y="413" font-size="11" fill="#7a6c58" text-anchor="start"><tspan x="88" dy="11">dato · mærkning · emballage</tspan></text>
+  <text x="62" y="450" font-size="14" fill="#402d15" text-anchor="start"><tspan x="62" dy="14">📷  Foto af følgeseddel</tspan></text>
+  <text x="88" y="470" font-size="11" fill="#7a6c58" text-anchor="start"><tspan x="88" dy="11">anbefalet — gemmes på serveren</tspan></text>
+  <text x="62" y="507" font-size="14" fill="#402d15" text-anchor="start"><tspan x="62" dy="14">⚠️  Afvigelse</tspan></text>
+  <text x="88" y="527" font-size="11" fill="#7a6c58" text-anchor="start"><tspan x="88" dy="11">kun ved problem: returneret / kasseret / …</tspan></text>
+  <rect x="460" y="100" width="380" height="470" rx="14" fill="#faf6ea" stroke="#e3d08f" stroke-width="2"/>
+  <text x="482" y="118" font-size="18" fill="#5a3f14" text-anchor="start"><tspan x="482" dy="18">②  Lager</tspan></text>
+  <text x="482" y="158" font-size="13" fill="#7a6c58" text-anchor="start"><tspan x="482" dy="13">To veje:</tspan></text>
+  <rect x="482" y="182" width="336" height="60" rx="14" fill="#eef6f0" stroke="#2f7d4f" stroke-width="2"/>
+  <text x="500" y="194" font-size="15" fill="#2f7d4f" text-anchor="start"><tspan x="500" dy="15">🟢  Godkend alt</tspan></text>
+  <text x="500" y="216" font-size="11" fill="#7a6c58" text-anchor="start"><tspan x="500" dy="11">alt modtaget som bestilt — ét klik</tspan></text>
+  <rect x="482" y="254" width="336" height="60" rx="14" fill="#ffffff" stroke="#d7d1ca" stroke-width="2"/>
+  <text x="500" y="266" font-size="15" fill="#402d15" text-anchor="start"><tspan x="500" dy="15">▸  Justér enkeltvis</tspan></text>
+  <text x="500" y="288" font-size="11" fill="#7a6c58" text-anchor="start"><tspan x="500" dy="11">hvis noget afviger</tspan></text>
+  <text x="482" y="336" font-size="12.5" fill="#402d15" text-anchor="start"><tspan x="482" dy="12.5">Pr. vare — vælg status + antal:</tspan></text>
+  <rect x="482" y="360" width="78" height="28" rx="14" fill="#e8f3ec" stroke="#b8dcc6" stroke-width="2"/>
+  <text x="521" y="367" font-size="12" fill="#2f7d4f" text-anchor="middle"><tspan x="521" dy="12">✓ OK</tspan></text>
+  <rect x="568" y="360" width="108" height="28" rx="14" fill="#fbeee0" stroke="#e3b877" stroke-width="2"/>
+  <text x="622" y="367" font-size="12" fill="#b06a1a" text-anchor="middle"><tspan x="622" dy="12">− Mangler</tspan></text>
+  <rect x="684" y="360" width="88" height="28" rx="14" fill="#dbe7f3" stroke="#a9c6e0" stroke-width="2"/>
+  <text x="728" y="367" font-size="12" fill="#3d6ea5" text-anchor="middle"><tspan x="728" dy="12">↔ Forkert</tspan></text>
+  <rect x="482" y="396" width="88" height="28" rx="14" fill="#f6e0dd" stroke="#e0aaa2" stroke-width="2"/>
+  <text x="526" y="403" font-size="12" fill="#b3453a" text-anchor="middle"><tspan x="526" dy="12">✕ Skadet</tspan></text>
+  <text x="580" y="402" font-size="12" fill="#7a6c58" text-anchor="start"><tspan x="580" dy="12">+  antal modtaget</tspan></text>
+  <text x="482" y="452" font-size="11.5" fill="#7a6c58" text-anchor="start"><tspan x="482" dy="11.5">Default: OK, og modtaget = forventet.</tspan></text>
+  <polyline points="420,335 460,335" fill="none" stroke="#b0a493" stroke-width="2.5" marker-end="url(#mb0a493)"/>
+  <polyline points="840,335 880,335" fill="none" stroke="#b0a493" stroke-width="2.5" marker-end="url(#mb0a493)"/>
+  <rect x="885" y="300" width="250" height="70" rx="14" fill="#c47a2b" stroke="#a5641c" stroke-width="2"/>
+  <text x="1010" y="322" font-size="17" fill="#ffffff" text-anchor="middle"><tspan x="1010" dy="17">✓ Registrér</tspan></text>
+  <text x="1010" y="346" font-size="14" fill="#fbe6cf" text-anchor="middle"><tspan x="1010" dy="14">varemodtagelse</tspan></text>
+  <polyline points="1010,372 1010,598" fill="none" stroke="#2f7d4f" stroke-width="3" marker-end="url(#m2f7d4f)"/>
+  <rect x="1160" y="100" width="100" height="470" rx="14" fill="#f5f4f2" stroke="#d7d1ca" stroke-width="2"/>
+  <text x="1210" y="300" font-size="26" fill="#1e1e1e" text-anchor="middle"><tspan x="1210" dy="26">🥫</tspan></text>
+  <text x="1210" y="340" font-size="12" fill="#7a6c58" text-anchor="middle"><tspan x="1210" dy="12">Til sidst:</tspan><tspan x="1210" dy="15">sæt varerne</tspan><tspan x="1210" dy="15">på det</tspan><tspan x="1210" dy="15">fysiske</tspan><tspan x="1210" dy="15">lager</tspan></text>
+  <rect x="40" y="605" width="1220" height="235" rx="14" fill="#e8f3ec" stroke="#b8dcc6" stroke-width="2"/>
+  <text x="64" y="624" font-size="17" fill="#2f7d4f" text-anchor="start"><tspan x="64" dy="17">✓ Sker automatisk når du trykker "Registrér varemodtagelse"</tspan></text>
+  <text x="64" y="652" font-size="12.5" fill="#4a5a44" text-anchor="start"><tspan x="64" dy="12.5">📋  Whiteboard får temperaturer + foto        🧾  Kvittering gemmes (VR-nummer)</tspan></text>
+  <rect x="64" y="682" width="372" height="138" rx="14" fill="#ffffff" stroke="#b8dcc6" stroke-width="2"/>
+  <text x="82" y="696" font-size="15" fill="#2f7d4f" text-anchor="start"><tspan x="82" dy="15">✓  OK</tspan></text>
+  <text x="82" y="724" font-size="12.5" fill="#402d15" text-anchor="start"><tspan x="82" dy="12.5">Hele antallet →</tspan><tspan x="82" dy="15.625">elektronisk lager (Grocy)</tspan><tspan x="82" dy="15.625">·  slettes fra listen</tspan></text>
+  <rect x="460" y="682" width="372" height="138" rx="14" fill="#ffffff" stroke="#e3b877" stroke-width="2"/>
+  <text x="478" y="696" font-size="15" fill="#b06a1a" text-anchor="start"><tspan x="478" dy="15">↔ / ✕  Delvist</tspan></text>
+  <text x="478" y="724" font-size="12.5" fill="#402d15" text-anchor="start"><tspan x="478" dy="12.5">Forkert/skadet, antal &gt; 0:</tspan><tspan x="478" dy="15.625">det modtagne → lager</tspan><tspan x="478" dy="15.625">·  resten reduceres på listen</tspan></text>
+  <rect x="856" y="682" width="372" height="138" rx="14" fill="#ffffff" stroke="#e0aaa2" stroke-width="2"/>
+  <text x="874" y="696" font-size="15" fill="#b3453a" text-anchor="start"><tspan x="874" dy="15">−  Mangler</tspan></text>
+  <text x="874" y="724" font-size="12.5" fill="#402d15" text-anchor="start"><tspan x="874" dy="12.5">Intet på lager</tspan><tspan x="874" dy="15.625">·  bliver på listen</tspan><tspan x="874" dy="15.625">   til næste gang</tspan></text>
+  <text x="40" y="856" font-size="12" fill="#a89a83" text-anchor="start"><tspan x="40" dy="12">Bon v2 · Indkøb — køkken · Modtag (5/5)</tspan></text>
+</svg>

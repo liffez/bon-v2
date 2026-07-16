@@ -1,0 +1,26 @@
+<svg viewBox="0 0 560 406" xmlns="http://www.w3.org/2000/svg" font-family="'Segoe UI','Helvetica Neue',Arial,sans-serif" role="img"><rect x="0" y="0" width="560" height="406" fill="#ffffff"/>
+  <rect x="16" y="16" width="528" height="374" rx="14" fill="#fbf8f0" stroke="#e3d08f" stroke-width="2"/>
+  <text x="40" y="34" font-size="19" fill="#8e631f" text-anchor="start"><tspan x="40" dy="19">En vare-række</tspan></text>
+  <text x="40" y="64" font-size="11.5" fill="#7a6c58" text-anchor="start"><tspan x="40" dy="11.5">📸  Læg dit eget screenshot ved siden af — numrene passer til knapperne</tspan></text>
+  <ellipse cx="53" cy="118" rx="13" ry="13" fill="#c0392b" stroke="#8f2820" stroke-width="2"/>
+  <text x="53" y="107" font-size="14" fill="#fff" text-anchor="middle"><tspan x="53" dy="14">1</tspan></text>
+  <text x="80" y="102" font-size="14.5" fill="#402d15" text-anchor="start"><tspan x="80" dy="14.5">Destinations-tag</tspan></text>
+  <text x="80" y="121" font-size="11.5" fill="#7a6c58" text-anchor="start"><tspan x="80" dy="11.5">hvor varen købes (→ leverandør)</tspan></text>
+  <ellipse cx="53" cy="168" rx="13" ry="13" fill="#c0392b" stroke="#8f2820" stroke-width="2"/>
+  <text x="53" y="157" font-size="14" fill="#fff" text-anchor="middle"><tspan x="53" dy="14">2</tspan></text>
+  <text x="80" y="152" font-size="14.5" fill="#402d15" text-anchor="start"><tspan x="80" dy="14.5">Stregkode-chip</tspan></text>
+  <text x="80" y="171" font-size="11.5" fill="#7a6c58" text-anchor="start"><tspan x="80" dy="11.5">vælg leverandør / pakke (klik)</tspan></text>
+  <ellipse cx="53" cy="218" rx="13" ry="13" fill="#c0392b" stroke="#8f2820" stroke-width="2"/>
+  <text x="53" y="207" font-size="14" fill="#fff" text-anchor="middle"><tspan x="53" dy="14">3</tspan></text>
+  <text x="80" y="202" font-size="14.5" fill="#402d15" text-anchor="start"><tspan x="80" dy="14.5">Antal</tspan></text>
+  <text x="80" y="221" font-size="11.5" fill="#7a6c58" text-anchor="start"><tspan x="80" dy="11.5">justér købsmængden (− / +)</tspan></text>
+  <ellipse cx="53" cy="268" rx="13" ry="13" fill="#c0392b" stroke="#8f2820" stroke-width="2"/>
+  <text x="53" y="257" font-size="14" fill="#fff" text-anchor="middle"><tspan x="53" dy="14">4</tspan></text>
+  <text x="80" y="252" font-size="14.5" fill="#402d15" text-anchor="start"><tspan x="80" dy="14.5">Læg i kurv</tspan></text>
+  <text x="80" y="271" font-size="11.5" fill="#7a6c58" text-anchor="start"><tspan x="80" dy="11.5">læg varen i Hørkram-kurven</tspan></text>
+  <ellipse cx="53" cy="318" rx="13" ry="13" fill="#c0392b" stroke="#8f2820" stroke-width="2"/>
+  <text x="53" y="307" font-size="14" fill="#fff" text-anchor="middle"><tspan x="53" dy="14">5</tspan></text>
+  <text x="80" y="302" font-size="14.5" fill="#402d15" text-anchor="start"><tspan x="80" dy="14.5">Kobl varenr.</tspan></text>
+  <text x="80" y="321" font-size="11.5" fill="#7a6c58" text-anchor="start"><tspan x="80" dy="11.5">vare uden leverandør: kobl først</tspan></text>
+  <text x="40" y="372" font-size="11" fill="#a89a83" text-anchor="start"><tspan x="40" dy="11">Bon v2 · Indkøb — køkken · En vare-række (2/5 skærme)</tspan></text>
+</svg>
