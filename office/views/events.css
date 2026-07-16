@@ -18,9 +18,11 @@
 .ev-badge { font-size: 11px; padding: 2px 8px; border-radius: 10px; white-space: nowrap; font-weight: 600; }
 .ev-badge-light    { background: #fff4e0; color: #8e631f; }
 .ev-badge-festival { background: #ffe6f0; color: #a8336e; }
-.ev-status-planning  { background: #f0f0f0; color: #555; }
+/* Fire adskilte kulører — planlægning og afsluttet var to næsten ens gråtoner
+   (#f0f0f0/#e8e8e8) og kunne ikke skelnes i listen. */
+.ev-status-planning  { background: #e2eaf6; color: #3a5a86; }
 .ev-status-active    { background: #d6f0d8; color: #1e6b2c; }
-.ev-status-done      { background: #e8e8e8; color: #555; }
+.ev-status-done      { background: #ece0f5; color: #6a3a8e; }
 .ev-status-cancelled { background: #f5d6d6; color: #8a2222; }
 
 .ev-empty, .ev-loading { padding: 40px; text-align: center; color: #999; }
