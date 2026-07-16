@@ -51,10 +51,21 @@ Disse er sandheden. Al kode skal passe med dem.
 ## Grocy-instans
 
 Under udvikling bruges **grocytest** (`https://grocytest.ristetrug.dk/api`).
-Skift til produktion (`grocycafe`) sker først ved release.
+**Produktion kører på `grocy-hq`** (`https://grocy-hq.ristetrug.dk/api`) — det er dér al
+CO₂-data, faktorer og opskrifter ligger.
 
-`default_grocy_location_id = 3` (Test) i settings-tabellen styrer dette.
-Lokationer defineres i `locations`-tabellen: HQ=grocycafe, Trailer=grocytrailer, Test=grocytest.
+`default_grocy_location_id` i settings-tabellen styrer hvilken der er aktiv. En frisk
+database seedes til **3 (Test)** — en ny installation må aldrig som default skrive i
+produktions-Grocy. Skift via Settings → Grocy ("Sæt som aktiv"), ikke via SQL.
+
+Lokationer i `locations`-tabellen: **HQ=grocy-hq** (produktion), Trailer=grocytrailer,
+Test=grocytest. Produktion har desuden en `cafe`-lokation = `grocycafe` = **den gamle
+HQ-instans** (udfaset — læs den ikke som "HQ"). `.env` har nøgler til begge:
+`GROCY_HQ_*` (grocy-hq) og `GROCY_CAFE_*` (grocycafe).
+
+> ⚠️ Historisk fælde: HQ pegede tidligere på `grocycafe`. Både denne fil og
+> `001_core.sql` sagde det længe efter flytningen, så hver frisk dev-DB pegede forkert
+> (401) og CO₂-rapporten viste 0 % dækning. Rettet 16. juli 2026.
 
 **Lokalt login (udvikling/browser-test):** Det rigtige `admin@ristetrug.dk`-password er
 ikke kendt. Brug i stedet en dedikeret lokal test-admin:

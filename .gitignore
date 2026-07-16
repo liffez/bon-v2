@@ -27,6 +27,11 @@ data/*.csv
 # Claude Code worktrees (lokal arbejdsmappe)
 .claude/worktrees/
 
+# Lokale Claude-indstillinger — kan indeholde hemmeligheder (fx API-nøgler i
+# tilladelsesregler). Repoet er OFFENTLIGT, så vi må ikke stole på at hver
+# maskine har en global gitignore der fanger den.
+.claude/settings.local.json
+
 # Database
 *.db
 *.db-shm
