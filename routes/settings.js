@@ -4,8 +4,30 @@ const { getDb }  = require('../db/database');
 const { handle, getUserId, invalidateUnitCountCache } = require('../db/helpers');
 const { requireAuth, invalidatePermCache } = require('../shared/auth');
 
+// ─── ADGANG ────────────────────────────────────────────────────────────────
+// Der findes INGEN global auth-gate i server.js — hver router sætter sin egen,
+// og denne fil havde ingen. settings-tabellen styrer SMTP, webhook-secrets,
+// nummerserier, session-varigheder og lagertræk, så ubeskyttet er den et angreb
+// på driften, ikke bare en informationslækage.
+//
+// Model: admin som standard. Nogle få nøgler skrives af almindelige brugere fra
+// deres eget view (køkkenets pris-toggle, CRM-listernes tærskler) — de står
+// eksplicit herunder. Alt andet kræver admin. Ny bruger-justerbar indstilling
+// ⇒ tilføj nøglen her BEVIDST; glemmes det, fejler den lukket (403), ikke åbent.
+const USER_WRITABLE_SETTINGS = new Set([
+    'show_prices_in_planning',      // shared/planning.js — køkkenets pris-toggle
+    'reactivation_min_orders',      // office/views/crm-reaktivering.js + ringeliste
+    'reactivation_quarantine_days', // do.
+    'prospect_fit_w_branch',        // office/views/crm-prospekter.js
+    'prospect_fit_w_size',          // do.
+    'prospect_distance_min_km',     // do.
+    'prospect_distance_max_km',     // do.
+    'prospect_branch_blacklist',    // do.
+]);
+
 // GET /api/settings
-router.get('/', handle((req, res) => {
+// requireAuth() (ikke admin): alle inde-loggede zoner læser herfra ved init.
+router.get('/', requireAuth(), handle((req, res) => {
     res.json(getDb().prepare(`SELECT key, value, description FROM settings`).all());
 }));
 
@@ -13,7 +35,7 @@ router.get('/', handle((req, res) => {
 //
 // Returnerer { bike: {icon, label}, taxi: {...}, ... }. Frontends bruger denne
 // til at vise leveringsmetode-ikoner ét sted, så ikoner kan ændres uden kode-deploy.
-router.get('/delivery-icons', handle((req, res) => {
+router.get('/delivery-icons', requireAuth(), handle((req, res) => {
     const row = getDb().prepare(`SELECT value FROM settings WHERE key='delivery_method_icons'`).get();
     if (!row) return res.json({});
     try {
@@ -24,7 +46,7 @@ router.get('/delivery-icons', handle((req, res) => {
 }));
 
 // GET /api/settings/locations
-router.get('/locations', handle((req, res) => {
+router.get('/locations', requireAuth(), handle((req, res) => {
     const rows = getDb().prepare('SELECT id, name, code, grocy_api_url, address, is_active FROM locations ORDER BY id').all();
     res.json(rows);
 }));
@@ -55,7 +77,12 @@ router.post('/locations/:id/test-grocy', requireAuth('admin'), handle(async (req
 }));
 
 // PATCH /api/settings/:key
-router.patch('/:key', handle((req, res) => {
+// requireAuth() fanger uautentificerede kald; rolle-tjekket sker pr. nøgle
+// nedenfor, fordi requireAuth('admin') ville lukke køkkenets pris-toggle ude.
+router.patch('/:key', requireAuth(), handle((req, res) => {
+    if (!USER_WRITABLE_SETTINGS.has(req.params.key) && req.session?.userRole !== 'admin') {
+        return res.status(403).json({ error: 'Kun admin kan ændre denne indstilling' });
+    }
     const { value } = req.body;
     getDb().prepare(`INSERT INTO settings (key, value) VALUES (?,?) ON CONFLICT(key) DO UPDATE SET value = ?, updated_at = CURRENT_TIMESTAMP`).run(req.params.key, value, value);
     // Invalidér cache for helpers der læser settings ved hver bon-recalc + genopbyg
@@ -98,10 +125,14 @@ router.patch('/role-permissions/:role', requireAuth('admin'), handle((req, res) 
     res.json({ ok: true });
 }));
 
-/* ── Duplikat-kandidater (admin) ──────────────────────── */
+/* ── Duplikat-kandidater ───────────────────────────────
+ * requireAuth() (ikke admin): kaldes fra shared/indkob_settings.js, der er
+ * monteret både i køkkenets ⚙-panel og i office' Indkøb-fane. Overskriften
+ * sagde "(admin)", men ruterne har aldrig håndhævet det — og gør det stadig
+ * ikke, for det ville lukke køkkenet ude af duplikat-tabben. */
 
 // GET /api/settings/duplicates
-router.get('/duplicates', handle((req, res) => {
+router.get('/duplicates', requireAuth(), handle((req, res) => {
     const db = getDb();
     const status = req.query.status || 'pending';
     const rows = db.prepare(`
@@ -113,7 +144,7 @@ router.get('/duplicates', handle((req, res) => {
 }));
 
 // GET /api/settings/duplicates/all
-router.get('/duplicates/all', handle((req, res) => {
+router.get('/duplicates/all', requireAuth(), handle((req, res) => {
     const db = getDb();
     const rows = db.prepare(`
         SELECT * FROM duplicate_candidates
@@ -123,7 +154,7 @@ router.get('/duplicates/all', handle((req, res) => {
 }));
 
 // POST /api/settings/duplicates — log nyt duplikat-fund
-router.post('/duplicates', handle((req, res) => {
+router.post('/duplicates', requireAuth(), handle((req, res) => {
     const db = getDb();
     const { product_id_a, product_name_a, product_id_b, product_name_b, barcode, barcode_name } = req.body;
 
@@ -147,7 +178,7 @@ router.post('/duplicates', handle((req, res) => {
 }));
 
 // PATCH /api/settings/duplicates/:id — opdater status
-router.patch('/duplicates/:id', handle((req, res) => {
+router.patch('/duplicates/:id', requireAuth(), handle((req, res) => {
     const db = getDb();
     const { status, notes } = req.body;
     const userId = getUserId(req);
