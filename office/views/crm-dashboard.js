@@ -82,12 +82,25 @@ function _crmRenderShell() {
 
     _crmContainer.innerHTML = `
         <style>
+            /* Layout (2 kolonner):
+                 rk1: KPI-strip (fuld)
+                 rk2: Daglig briefing        | Mine opfølgninger (spænder rk2-3)
+                 rk3: Service-kald           |
+                 rk4: Kommende møder         | Seneste aktivitet
+                 rk5: Pipeline (fuld)
+                 rk6: Smart forslag (fuld)
+               Højre kolonne er bredere end før (400px) så kundenavne ikke knækker. */
             .crm-grid {
                 display: grid;
-                grid-template-columns: 1fr 340px;
-                grid-template-rows: auto auto auto 1fr;
+                grid-template-columns: 1fr 400px;
                 gap: 12px; padding: 0;
+                /* Kort skal have deres EGEN højde — ikke strækkes til rækkens højeste
+                   (ellers får fx Daglig briefing hundredvis af px tomt rum ved siden
+                   af en lang liste). */
+                align-items: start;
             }
+            /* Spænder rk2-3 så Service-kald kan fylde rummet under briefingen */
+            #crmCallbacksPanel { grid-row: span 2; }
             @media (max-width: 900px) { .crm-grid { grid-template-columns: 1fr; } }
 
             .crm-kpi-strip { grid-column: 1 / -1; display: flex; gap: 9px; flex-wrap: wrap; }
@@ -255,6 +268,9 @@ function _crmRenderShell() {
             .crm-cb-badge.today { background: var(--color-sentiment-neu-bg); color: var(--color-sentiment-neu); }
 
             /* Mine opfølgninger (Fase 4) */
+            /* Listen scroller internt — ellers vokser panelet (og dermed rækken)
+               ud af skærmen ved mange opfølgninger. */
+            #crmCallbacksList { max-height: 420px; overflow-y: auto; }
             .crm-fu-head { display: flex; align-items: center; justify-content: space-between; gap: 10px; }
             .crm-fu-head h3 { margin: 0; }
             .crm-fu-ringeliste {
@@ -268,9 +284,11 @@ function _crmRenderShell() {
             }
             .crm-fu-item:last-child { border-bottom: none; }
             .crm-fu-info { flex: 1; min-width: 0; }
-            .crm-fu-name-row { display: flex; align-items: baseline; gap: 8px; }
-            .crm-fu-name { font-size: 13px; font-weight: 600; }
-            .crm-fu-company { font-size: 11px; color: var(--color-text-dim); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+            /* Navn på egen linje (firma nedenunder) — ellers klemmer firmanavnet
+               lange kundenavne ud i 2-3 linjer. Samme mønster som hoved-dashboardet. */
+            .crm-fu-name-row { display: block; min-width: 0; }
+            .crm-fu-name { font-size: 13px; font-weight: 600; display: block; }
+            .crm-fu-company { display: block; font-size: 11px; color: var(--color-text-dim); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
             .crm-fu-text { font-size: 12px; color: var(--color-text); margin-top: 1px; }
             .crm-fu-bon {
                 display: inline-block; margin-left: 6px; font-size: 10px; font-weight: 700;
@@ -445,7 +463,7 @@ function _crmRenderShell() {
                 <div id="crmCallbacksList"></div>
             </div>
 
-            <div class="crm-card" style="grid-column: 1 / -1;" id="crmServiceCalls">
+            <div class="crm-card" id="crmServiceCalls">
                 <h3>📞 Service-kald</h3>
                 <div class="crm-svc-header">
                     <span class="crm-svc-label">Leveringer fra de seneste</span>
@@ -461,7 +479,7 @@ function _crmRenderShell() {
                 <div id="crmServiceCallsList"></div>
             </div>
 
-            <div class="crm-card" style="grid-column: 1 / -1;" id="crmMeetings">
+            <div class="crm-card" id="crmMeetings">
                 <h3>🤝 Kommende bookede møder</h3>
                 <div id="crmMeetingsList"></div>
             </div>
@@ -482,7 +500,7 @@ function _crmRenderShell() {
                 <div class="crm-pipe-board" id="crmPipeBoard"></div>
             </div>
 
-            <div class="crm-card" id="crmSuggestions">
+            <div class="crm-card" style="grid-column: 1 / -1;" id="crmSuggestions">
                 <div class="crm-card-head" style="display:flex;justify-content:space-between;align-items:center;margin-bottom:10px;">
                     <h3 style="margin:0;display:flex;align-items:center;gap:6px;">Smart forslag
                         <button id="crmSugInfoBtn" type="button" title="Hvordan laves forslagene?"
