@@ -243,11 +243,7 @@ function _co2Bind() {
         btn.addEventListener('click', () => _co2SaveMaterial(btn.closest('tr')));
     });
 
-    // Vare: tildel materiale
-    el.querySelectorAll('.co2-mat-select[data-act="assign"]').forEach(sel => {
-        sel.addEventListener('change', () => _co2AssignProduct(sel.closest('tr'), sel.value));
-    });
-
+    // Vare-rækker (tildel/ryd/skjul) — bindes ét sted, også ved re-render.
     _co2BindRowActions(el);
 }
 
