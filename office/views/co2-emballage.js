@@ -17,7 +17,8 @@
  */
 
 /* globals fetchCo2Materials, patchCo2Material, reresolveCo2Material,
-           fetchCo2Packaging, assignCo2Material, clearCo2Material */
+           fetchCo2Packaging, assignCo2Material, clearCo2Material,
+           hideCo2Product, unhideCo2Product */
 
 const _co2State = {
     container: null,
@@ -34,6 +35,7 @@ const CO2_STATUS = {
     needs_resolve:    { label: 'Skal opdateres', cls: 'co2-badge-blue' },
     unknown_material: { label: 'Ukendt materiale', cls: 'co2-badge-red' },
     ok:               { label: 'OK',             cls: 'co2-badge-green' },
+    na:               { label: 'Skjult',         cls: 'co2-badge-grey' },
 };
 
 function initCo2Emballage(container) {
@@ -75,11 +77,12 @@ function _co2Render() {
 
     const prods = _co2State.products;
     const counts = {
-        total: prods.length,
+        total: prods.filter(p => p.status !== 'na').length,   // skjulte tæller ikke med
         ok: prods.filter(p => p.status === 'ok').length,
         pending: prods.filter(p => p.status === 'pending_factor' || p.status === 'needs_resolve').length,
         unassigned: prods.filter(p => p.status === 'unassigned').length,
         unknown: prods.filter(p => p.status === 'unknown_material').length,
+        hidden: prods.filter(p => p.status === 'na').length,
     };
 
     el.innerHTML = `
@@ -99,6 +102,7 @@ function _co2Render() {
           ${_co2Kpi('Mangler faktor', counts.pending, 'amber')}
           ${_co2Kpi('Uden materiale', counts.unassigned, 'grey')}
           ${counts.unknown ? _co2Kpi('Ukendt materiale', counts.unknown, 'red') : ''}
+          ${counts.hidden ? _co2Kpi('Skjult', counts.hidden, 'grey') : ''}
         </div>
 
         <section class="co2-card">
@@ -123,6 +127,7 @@ function _co2Render() {
                 <option value="unassigned">Uden materiale</option>
                 <option value="pending_factor">Mangler faktor</option>
                 <option value="ok">Klar (OK)</option>
+                <option value="na">Skjulte</option>
               </select>
             </div>
           </div>
@@ -165,6 +170,9 @@ function _co2FilteredProducts() {
     const sf = _co2State.statusFilter;
     return _co2State.products.filter(p => {
         if (q && !p.name.toLowerCase().includes(q)) return false;
+        // Skjulte varer vises KUN under "Skjulte"-filteret — ikke i "Alle" eller de øvrige.
+        if (sf === 'na') return p.status === 'na';
+        if (p.status === 'na') return false;
         if (sf === 'ok' && p.status !== 'ok') return false;
         if (sf === 'unassigned' && p.status !== 'unassigned') return false;
         if (sf === 'pending_factor' &&
@@ -181,6 +189,18 @@ function _co2ProductRows() {
 
 function _co2ProductRow(p) {
     const st = CO2_STATUS[p.status] || CO2_STATUS.unassigned;
+
+    // Skjult: forenklet række med "Vis igen"-handling (ingen materiale-valg).
+    if (p.status === 'na') {
+        return `<tr data-pid="${p.id}" class="co2-row-hidden">
+            <td class="co2-prod-name">${_co2Esc(p.name)}</td>
+            <td class="co2-dim">${_co2Esc(p.product_group || '')}</td>
+            <td class="co2-dim" colspan="2">Skjult fra CO₂-workflow</td>
+            <td><span class="co2-badge ${st.cls}">${st.label}</span></td>
+            <td><button class="co2-btn-ghost co2-btn-sm" data-act="unhide">Vis igen</button></td>
+        </tr>`;
+    }
+
     const opts = ['<option value="">— vælg materiale —</option>']
         .concat(_co2State.materials.map(m =>
             `<option value="${_co2Esc(m.key)}" ${m.key === p.co2e_material ? 'selected' : ''}>${_co2Esc(m.label)}</option>`))
@@ -191,9 +211,12 @@ function _co2ProductRow(p) {
         <td><select class="co2-mat-select" data-act="assign">${opts}</select></td>
         <td class="co2-perkg">${p.co2e_per_kg != null ? _co2Num(p.co2e_per_kg) : '<span class="co2-dim">—</span>'}</td>
         <td><span class="co2-badge ${st.cls}">${st.label}</span></td>
-        <td>${p.co2e_material
-            ? `<button class="co2-btn-clear" data-act="clear" title="Ryd tildeling">✕</button>`
-            : ''}</td>
+        <td class="co2-row-actions">
+            ${p.co2e_material
+                ? `<button class="co2-btn-clear" data-act="clear" title="Ryd tildeling">✕</button>`
+                : ''}
+            <button class="co2-btn-hide" data-act="hide" title="Skjul (ikke relevant for CO₂)">🚫</button>
+        </td>
     </tr>`;
 }
 
@@ -225,9 +248,22 @@ function _co2Bind() {
         sel.addEventListener('change', () => _co2AssignProduct(sel.closest('tr'), sel.value));
     });
 
-    // Vare: ryd
-    el.querySelectorAll('[data-act="clear"]').forEach(btn => {
+    _co2BindRowActions(el);
+}
+
+// Bind assign/clear/hide/unhide på produkt-rækker (genbruges ved fuld render + re-render).
+function _co2BindRowActions(scope) {
+    scope.querySelectorAll('.co2-mat-select[data-act="assign"]').forEach(sel => {
+        sel.addEventListener('change', () => _co2AssignProduct(sel.closest('tr'), sel.value));
+    });
+    scope.querySelectorAll('[data-act="clear"]').forEach(btn => {
         btn.addEventListener('click', () => _co2ClearProduct(btn.closest('tr')));
+    });
+    scope.querySelectorAll('[data-act="hide"]').forEach(btn => {
+        btn.addEventListener('click', () => _co2HideProduct(btn.closest('tr')));
+    });
+    scope.querySelectorAll('[data-act="unhide"]').forEach(btn => {
+        btn.addEventListener('click', () => _co2UnhideProduct(btn.closest('tr')));
     });
 }
 
@@ -236,12 +272,7 @@ function _co2ReRenderProducts() {
     const tbody = _co2State.container.querySelector('.co2-products tbody');
     if (!tbody) return;
     tbody.innerHTML = _co2ProductRows();
-    tbody.querySelectorAll('.co2-mat-select[data-act="assign"]').forEach(sel => {
-        sel.addEventListener('change', () => _co2AssignProduct(sel.closest('tr'), sel.value));
-    });
-    tbody.querySelectorAll('[data-act="clear"]').forEach(btn => {
-        btn.addEventListener('click', () => _co2ClearProduct(btn.closest('tr')));
-    });
+    _co2BindRowActions(tbody);
 }
 
 async function _co2SaveMaterial(tr) {
@@ -279,6 +310,27 @@ async function _co2ClearProduct(tr) {
     const pid = Number(tr.dataset.pid);
     try {
         await clearCo2Material(pid);
+        await _co2Load();
+    } catch (e) {
+        _co2Toast('Fejl: ' + e.message, true);
+    }
+}
+
+async function _co2HideProduct(tr) {
+    const pid = Number(tr.dataset.pid);
+    try {
+        await hideCo2Product(pid);
+        _co2Toast('Skjult — se under "Skjulte"');
+        await _co2Load();
+    } catch (e) {
+        _co2Toast('Fejl: ' + e.message, true);
+    }
+}
+
+async function _co2UnhideProduct(tr) {
+    const pid = Number(tr.dataset.pid);
+    try {
+        await unhideCo2Product(pid);
         await _co2Load();
     } catch (e) {
         _co2Toast('Fejl: ' + e.message, true);

@@ -87,6 +87,7 @@ function _cvBuild(container, products, pos, conv, units, groups) {
         if (!used[pid]) return;
         var stockName = _cv.quName[parseInt(p.qu_id_stock)] || '';
         if (_cvIsWeight(stockName) || _cvIsVolume(stockName)) return; // kun tælle-varer
+        if ((p.userfields || {}).co2e_source === 'na') return;        // skjult (ikke relevant for CO₂)
         var already = hasKg[pid] && hasKg[pid][parseInt(p.qu_id_stock)];
         if (already) return;
         items.push({ id: pid, name: p.name, stockQu: parseInt(p.qu_id_stock),

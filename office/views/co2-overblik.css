@@ -152,6 +152,9 @@
 .cov-panel-sub { cursor: pointer; }
 .cov-panel-sub:hover { background: #faf7f1; }
 .cov-panel-missing td { background: #fdfaf3; }
+/* 'na' — bevidst udeladt: dæmpet, ikke alarmerende (det er ikke en mangel) */
+.cov-panel-na td { background: #fafafa; color: #8a8073; }
+.cov-panel-na .cov-panel-ing { font-weight: 400; color: #7a7266; }
 .cov-tag { display: inline-block; font-size: 10px; font-weight: 600; text-transform: uppercase;
     letter-spacing: .03em; color: #8a8073; background: #efece6; border-radius: 4px; padding: 1px 5px; margin-left: 4px; }
 .cov-tag-sub { color: #8e631f; background: #f6edd9; }

@@ -883,6 +883,18 @@ function _covPanelIngRow(x) {
           <td class="cov-bar-col">${_covPanelBar(x.pct)}</td>
         </tr>`;
     }
+    // §1 'na' — bevidst udeladt. Vises (ingen usynlige antagelser), men tæller ikke
+    // og er IKKE en mangel. Kan vises igen i Emballage-tildeleren ("Skjulte"-filter).
+    if (x.status === 'na') {
+        return `<tr class="cov-panel-na">
+          <td class="cov-panel-ing">${_covEsc(x.name)}${x.is_packaging ? ' <span class="cov-tag">emb.</span>' : ''}</td>
+          <td class="cov-num">${amt}</td>
+          <td class="cov-num cov-dim">—</td>
+          <td colspan="3"><span class="cov-badge cov-badge-grey">Ikke relevant</span>
+            <span class="cov-dim">bevidst udeladt — tæller ikke med</span>
+            <button class="cov-fix-btn" data-act="goto-emballage">Vis igen →</button></td>
+        </tr>`;
+    }
     // Mangler data → status + handling
     let msg, act = '', pid = x.product_id || '';
     if (x.status === 'missing_kgvej') { msg = '<span class="cov-badge cov-badge-blue">Mangler kg-vej</span>'; act = 'goto-vej'; }

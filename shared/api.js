@@ -2171,6 +2171,20 @@ function clearCo2Material(productId) {
     });
 }
 
+function hideCo2Product(productId) {
+    return apiFetch('/co2/hide', {
+        method: 'POST',
+        body: JSON.stringify({ product_id: productId }),
+    });
+}
+
+function unhideCo2Product(productId) {
+    return apiFetch('/co2/unhide', {
+        method: 'POST',
+        body: JSON.stringify({ product_id: productId }),
+    });
+}
+
 function fetchCo2Overview() {
     return apiFetch('/co2/overview');
 }

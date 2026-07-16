@@ -332,5 +332,74 @@ t('nøjagtighed: ingen kendt masse → null', () => {
     assert.strictEqual(r.missing_kgvej_count, 1);
 });
 
+/* 8. §1 'na' — bevidst udeladt vare (skjult i emballage-tildeleren).
+      Må IKKE tælle som mangel, ellers nager rapporten om det man lige har skjult. */
+const NA_UNITS = [{ id: 4, name: 'Kilo', name_short: 'kg' }, { id: 8, name: 'Antal', name_short: 'stk' }];
+const NA_CONV = [{ product_id: 200, from_qu_id: 8, to_qu_id: 4, factor: 0.02 }];
+const NA_GROUPS = [{ id: 9, name: '01 Sandwich' }, { id: 10, name: '10 Emballage' }];
+const NA_PRODUCTS = [
+    { id: 101, name: 'Ost', qu_id_stock: 4, product_group_id: 9, userfields: { co2e_per_kg: '5.0', co2e_source: 'klimadb' } },
+    // Skjult: hide() sætter source='na' OG rydder faktoren
+    { id: 200, name: 'Ølkasse', qu_id_stock: 8, product_group_id: 10, userfields: { co2e_per_kg: '', co2e_source: 'na' } },
+    // Skjult UDEN kg-vej (id 201 har ingen konvertering) — må heller ikke flages
+    { id: 201, name: 'Ølkrus', qu_id_stock: 8, product_group_id: 10, userfields: { co2e_per_kg: '', co2e_source: 'na' } },
+];
+const naData = (pos) => ({
+    units: NA_UNITS, conversions: NA_CONV, products: NA_PRODUCTS, groups: NA_GROUPS,
+    recipes: [{ id: 1, name: 'R', base_servings: 1 }], pos, nestings: [],
+});
+
+t("'na' udelades: ingen mangel-flag, opskrift kan blive komplet", () => {
+    const r = E.computeAll(naData([
+        { recipe_id: 1, product_id: 101, amount: 0.1 },   // 0,1 × 5 = 0,5
+        { recipe_id: 1, product_id: 200, amount: 1 },     // skjult → springes over
+    ])).get(1);
+    assert.strictEqual(r.complete, true, 'skjult vare må ikke blokere complete');
+    assert.deepStrictEqual(r.missing_factor, []);
+    assert.ok(near(r.total, 0.5));
+});
+
+t("'na' tælles hverken som dækket eller manglende masse (100% dækning)", () => {
+    const r = E.computeAll(naData([
+        { recipe_id: 1, product_id: 101, amount: 0.1 },
+        { recipe_id: 1, product_id: 200, amount: 1 },
+    ])).get(1);
+    assert.ok(near(r.covered_kg, 0.1), `covered=${r.covered_kg}`);
+    assert.ok(near(r.missing_kg, 0), `missing=${r.missing_kg}`);
+    assert.strictEqual(r.accuracy_pct, 100);
+});
+
+t("'na' uden kg-vej flages heller ikke som missing_kgvej", () => {
+    const r = E.computeAll(naData([
+        { recipe_id: 1, product_id: 101, amount: 0.1 },
+        { recipe_id: 1, product_id: 201, amount: 1 },     // skjult + ingen kg-vej
+    ])).get(1);
+    assert.deepStrictEqual(r.missing_kgvej, []);
+    assert.strictEqual(r.complete, true);
+});
+
+t("breakdown: 'na' vises som status 'na' (synlig, men tæller ikke)", () => {
+    const bd = E.breakdownRecipe(1, naData([
+        { recipe_id: 1, product_id: 101, amount: 0.1 },
+        { recipe_id: 1, product_id: 200, amount: 1 },
+    ]));
+    const na = bd.ingredients.find(i => i.name === 'Ølkasse');
+    assert.strictEqual(na.status, 'na', 'skal vises i nedbrydningen, ikke skjules');
+    assert.strictEqual(na.contribution, null);
+    assert.strictEqual(na.mass_kg, null);
+    assert.strictEqual(na.missing_kg, null);
+    assert.strictEqual(bd.complete, true);
+    assert.ok(near(bd.total_per_serving, 0.5));
+});
+
+t('isExcluded: kun præcis "na" (ikke tom/klimadb)', () => {
+    assert.strictEqual(E.isExcluded({ userfields: { co2e_source: 'na' } }), true);
+    assert.strictEqual(E.isExcluded({ userfields: { co2e_source: ' na ' } }), true); // trimmes
+    assert.strictEqual(E.isExcluded({ userfields: { co2e_source: '' } }), false);
+    assert.strictEqual(E.isExcluded({ userfields: { co2e_source: 'klimadb' } }), false);
+    assert.strictEqual(E.isExcluded({ userfields: {} }), false);
+    assert.strictEqual(E.isExcluded({}), false);
+});
+
 console.log(`\n${pass} PASS · ${fail} FAIL`);
 process.exit(fail ? 1 : 0);

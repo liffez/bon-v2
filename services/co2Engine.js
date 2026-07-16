@@ -12,11 +12,21 @@
 // via produkt-specifik stock→Kilo (kg-vej / densitet) eller global Gram→Kilo.
 // Mangler konverteringen → ingrediensen tælles ikke, men flages (missing_kgvej).
 // Mangler co2e_per_kg → flages (missing_factor). Faktor 0 (fx vand) er gyldig.
+//
+// Undtagelse (§1): co2e_source='na' = varen er bevidst markeret IKKE relevant for
+// CO₂ (skjult i emballage-tildeleren). Den udelades HELT — hverken dækket eller
+// manglende masse, ingen mangel-flag. Ellers ville "skjul" i ét værktøj få
+// rapporten til at nage om præcis den vare, man lige har skjult.
 // ==========================================
 
 'use strict';
 
 const { findConversionFactor } = require('./quConvert');
+
+/** §1: co2e_source='na' → bevidst udeladt fra CO₂-regnskabet (ikke en mangel). */
+function isExcluded(product) {
+    return ((product.userfields || {}).co2e_source || '').trim() === 'na';
+}
 
 /** Find Kilo-enhedens id (fald tilbage til 4 = Grocy-standard). */
 function findKiloId(units) {
@@ -64,6 +74,7 @@ function computeRecipe(recipeId, ctx, memo, stack) {
         const product = ctx.productById.get(String(p.product_id));
         const amount = parseFloat(p.amount) || 0;
         if (!product) { missing_factor.add(`#${p.product_id}`); continue; }
+        if (isExcluded(product)) continue;   // §1 'na' — udelades helt, ikke en mangel
 
         const kg = stockToKg(product, amount, ctx.conversions, ctx.kiloId);
         if (kg == null) { missing_kgvej.add(product.name); continue; }
@@ -200,15 +211,17 @@ function breakdownRecipe(recipeId, data) {
         const grp = groupName.get(String(product.product_group_id)) || '';
         const kg = kgFull == null ? null : kgFull / div;
         let status = 'ok', contribution = null;
-        if (kgFull == null) status = 'missing_kgvej';
+        if (isExcluded(product)) status = 'na';   // §1 — bevidst udeladt (vises, tælles ikke)
+        else if (kgFull == null) status = 'missing_kgvej';
         else if (factor == null) status = 'missing_factor';
         else contribution = kg * factor;
         ingredients.push({
             product_id: product.id, name: product.name, amount_per_serving: amount / div,
-            unit: unitName.get(product.qu_id_stock) || null, kg, factor,
+            unit: unitName.get(product.qu_id_stock) || null, kg: status === 'na' ? null : kg, factor,
             source: uf.co2e_source || null, contribution, status, is_packaging: /emballage/i.test(grp),
-            mass_kg: kg,                                              // kendt masse (null hvis kg-vej mangler)
-            missing_kg: status === 'missing_factor' ? kg : (status === 'ok' ? 0 : null), // masse uden faktor
+            // 'na' udelades af masse-regnskabet i begge retninger (som computeRecipe).
+            mass_kg: status === 'na' ? null : kg,
+            missing_kg: status === 'missing_factor' ? kg : (status === 'ok' ? 0 : null),
         });
     }
 
@@ -240,7 +253,7 @@ function breakdownRecipe(recipeId, data) {
         recipe_id: recipeId,
         base_servings: div,
         total_per_serving: total,
-        complete: ingredients.every(i => i.status === 'ok') && sub_recipes.every(s => s.complete),
+        complete: ingredients.every(i => i.status === 'ok' || i.status === 'na') && sub_recipes.every(s => s.complete),
         // Nøjagtighed pr. masse (rekursivt) — hvor stor en andel af de kendte kg har en faktor.
         accuracy_pct: accuracyPct(full),
         covered_kg_per_serving: full.covered_kg / div,
@@ -251,4 +264,4 @@ function breakdownRecipe(recipeId, data) {
     };
 }
 
-module.exports = { computeAll, computeRecipe, breakdownRecipe, stockToKg, readFactor, findKiloId };
+module.exports = { computeAll, computeRecipe, breakdownRecipe, stockToKg, readFactor, isExcluded, findKiloId };

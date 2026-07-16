@@ -133,6 +133,19 @@ router.post('/clear', AUTH, handle(async (req, res) => {
     res.json(await co2.clearMaterial(getDb(), product_id));
 }));
 
+// Skjul/vis-igen: marker en vare som ikke relevant for CO₂ (source='na').
+router.post('/hide', AUTH, handle(async (req, res) => {
+    const { product_id } = req.body || {};
+    if (!product_id) return res.status(400).json({ error: 'product_id kræves' });
+    res.json(await co2.hideProduct(getDb(), product_id));
+}));
+
+router.post('/unhide', AUTH, handle(async (req, res) => {
+    const { product_id } = req.body || {};
+    if (!product_id) return res.status(400).json({ error: 'product_id kræves' });
+    res.json(await co2.unhideProduct(getDb(), product_id));
+}));
+
 /* ---------- F7: overblik/rapport ---------- */
 
 // Live CO₂-overblik: kører motoren mod Grocy → dækning + per-opskrift-CO₂ +
