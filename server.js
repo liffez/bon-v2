@@ -112,6 +112,55 @@ const webhookCors = (req, res, next) => {
 };
 app.use('/webhook', webhookCors, webOrdersRouter);
 app.use('/webhook', webhookCors, bookingRouter);
+
+// ═══ GLOBAL AUTH-GATE PÅ /api ═══════════════════════════════════════════════
+//
+// Indtil nu satte hver router sin egen auth, og en router uden requireAuth var
+// dermed helt åben for enhver der kunne nå serveren. Fejlen var ikke ondsindet,
+// den var strukturel: at huske auth på hver ny rute er en tilstand man ikke kan
+// holde, og en glemt rute fejlede ÅBENT.
+//
+// Denne gate vender det om: /api kræver login som standard. Glemmer nogen at
+// tænke over adgang på en ny rute, fejler den nu LUKKET — man opdager det med
+// det samme i stedet for om et år.
+//
+// Gaten erstatter IKKE requireAuth i routerne. Den sikrer kun "er du logget
+// ind"; rolle-tjek (admin/office/...) hører fortsat hjemme i den enkelte rute,
+// hvor konteksten er kendt.
+//
+// PUBLIC_API_PATHS er de eneste undtagelser. Listen er bevidst eksplicit og
+// anker-bundet (^…$): en ny public rute skal tilføjes med vilje. `req.path` er
+// her stien EFTER /api — dvs. '/api/auth/login' matches som '/auth/login'.
+const PUBLIC_API_PATHS = [
+    // Login-flowet — sider man per definition ser uden at være logget ind
+    /^\/auth\/login$/,
+    /^\/auth\/pin$/,
+    /^\/auth\/pin-users$/,           // mobile/login.html: bruger-vælgeren før PIN
+
+    // Kundevendt booking (tools/booking-smagning.html + booking-kontakt.html).
+    // BEMÆRK: /booking/meeting-types/intent er sælger-værktøj og matcher IKKE
+    // (anker $), så den fanges korrekt af gaten. Samme for /booking/admin/*.
+    /^\/booking\/meeting-types$/,
+    /^\/booking\/contact-reasons$/,
+    /^\/booking\/slots$/,
+    /^\/booking\/page-templates\/[^/]+$/,
+    /^\/booking\/token\/[^/]+$/,
+
+    // Test-runnernes mail-buffer. Ruten mountes kun når NODE_ENV='test', så
+    // undtagelsen kan ikke nå produktion — men den står her for at være synlig.
+    ...(process.env.NODE_ENV === 'test' ? [/^\/test(\/|$)/] : []),
+];
+
+const { requireAuth: _gateAuth } = require('./shared/auth');
+app.use('/api', (req, res, next) => {
+    if (PUBLIC_API_PATHS.some(re => re.test(req.path))) return next();
+    return _gateAuth()(req, res, next);
+});
+// ════════════════════════════════════════════════════════════════════════════
+
+// Web-ordre-listen. Mountes EFTER gaten (webhooken selv ligger på /webhook
+// ovenfor og er upåvirket). Sidegevinst: aliaset /api/web-orders/bestilling —
+// en utilsigtet public kopi af webhooken — er hermed lukket.
 app.use('/api/web-orders', webOrdersRouter);
 
 // Kort URL for booking-tokens — GET /b/:token → redirect til tools-side
