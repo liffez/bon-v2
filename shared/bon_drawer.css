@@ -1085,6 +1085,64 @@
 .drawer-co2-method { font-weight: 400; opacity: 0.75; }
 .drawer-co2-sep { opacity: 0.4; margin: 0 3px; }
 
+/* ─── Planlagt CRM-opfølgning (Fase 3) ─────────────────────── */
+.drawer-planned-list { display: flex; flex-direction: column; gap: 2px; }
+.drawer-planned-item {
+    display: flex; align-items: center; gap: 10px; padding: 8px 0;
+    border-bottom: 1px solid var(--color-border, #eee);
+}
+.drawer-planned-item--active { background: var(--brand-primary-light, #f1e6b2); border-radius: 6px; padding: 8px; }
+.drawer-plan-check {
+    width: 20px; height: 20px; border: 2px solid var(--color-border); border-radius: 50%;
+    background: var(--color-surface, #fff); cursor: pointer; flex-shrink: 0;
+}
+.drawer-plan-check:hover { border-color: var(--color-sentiment-pos, #2E9E6B); background: var(--color-sentiment-pos-bg, #E6F7F0); }
+.drawer-plan-check--meeting { cursor: default; border-style: dashed; }
+.drawer-plan-type {
+    font-size: 11px; font-weight: 700; padding: 1px 8px; border-radius: 10px;
+    background: var(--brand-primary-light, #f1e6b2); color: var(--brand-primary, #8e631f); flex-shrink: 0;
+}
+.drawer-plan-text { flex: 1; font-size: 13px; }
+.drawer-plan-date { font-size: 12px; font-weight: 700; color: var(--color-text-dim, #8a8580); flex-shrink: 0; }
+.drawer-plan-date.overdue { color: var(--color-sentiment-neg, #C94040); }
+.drawer-plan-date.overdue::before { content: "⚑ "; }
+
+.drawer-plan-result {
+    display: none; background: var(--color-sentiment-pos-bg, #E6F7F0);
+    border-radius: 8px; padding: 10px; margin: 4px 0;
+}
+.drawer-plan-result.show { display: block; }
+.drawer-plan-result-title { font-size: 12px; font-weight: 700; color: var(--color-sentiment-pos, #2E9E6B); margin-bottom: 6px; }
+.drawer-plan-result-row { display: flex; gap: 8px; align-items: center; margin-bottom: 8px; flex-wrap: wrap; }
+.drawer-plan-sent { display: flex; gap: 4px; }
+.drawer-plan-sent-btn {
+    width: 30px; height: 30px; border-radius: 50%; border: 2px solid var(--color-border);
+    background: var(--color-surface, #fff); font-size: 14px; cursor: pointer;
+}
+.drawer-plan-sent-btn.selected { border-color: var(--brand-primary); transform: scale(1.08); }
+.drawer-plan-resnote { width: 100%; margin-bottom: 8px; }
+.drawer-plan-result-actions { display: flex; gap: 8px; align-items: center; }
+.drawer-plan-gem { background: var(--brand-primary); color: #fff; border: none; border-radius: 6px; padding: 5px 12px; font-size: 12px; font-weight: 600; cursor: pointer; }
+.drawer-plan-ghost { background: transparent; color: var(--color-text-dim); border: 1px solid var(--color-border); border-radius: 6px; padding: 5px 12px; font-size: 12px; cursor: pointer; }
+.drawer-plan-cancel-result { background: none; border: none; color: var(--color-text-dim); font-size: 12px; cursor: pointer; margin-left: auto; text-decoration: underline; }
+
+/* Overlay: planlæg opfølgning */
+.drawer-plan-overlay {
+    position: absolute; inset: 0; background: rgba(0,0,0,.28);
+    display: flex; align-items: flex-start; justify-content: center; z-index: 30; padding-top: 64px;
+}
+.drawer-plan-overlay[hidden] { display: none; }
+.drawer-plan-card {
+    background: var(--color-surface, #fff); border-radius: 12px; padding: 16px;
+    width: min(400px, 90%); box-shadow: 0 8px 30px rgba(0,0,0,.2);
+}
+.drawer-plan-head { font-weight: 700; font-size: 15px; margin-bottom: 12px; color: var(--brand-primary); }
+.drawer-plan-row { display: flex; gap: 8px; margin-bottom: 8px; }
+.drawer-plan-row .drawer-field { flex: 1; }
+.drawer-plan-note { width: 100%; margin-bottom: 10px; }
+.drawer-plan-actions { display: flex; justify-content: flex-end; gap: 8px; }
+.drawer-plan-cancel { background: transparent; border: 1px solid var(--color-border); border-radius: 6px; padding: 7px 14px; cursor: pointer; font-size: 13px; }
+.drawer-plan-submit { background: var(--color-sentiment-neu, #C8962A); color: #fff; border: none; border-radius: 6px; padding: 7px 16px; cursor: pointer; font-size: 13px; font-weight: 600; }
 /* CO₂-strip: klikbar → nedbrydning */
 .drawer-co2-strip { cursor: pointer; transition: filter .12s; }
 .drawer-co2-strip:hover { filter: brightness(0.97); }

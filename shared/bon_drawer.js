@@ -65,10 +65,14 @@ class BonDrawer {
         this._bindSSE();
         _drawerInstance = this; // Global reference for drawer mail helpers
 
-        // Flag-strip (påmindelser fra kunde/firma — CLAUDE_KUNDE_FLAGS.md)
+        // Flag-strip (påmindelser fra kunde/firma — CLAUDE_KUNDE_FLAGS.md).
+        // I køkken-zonen: read-only (kun køkken-synlige, ingen Forstået/Fjern —
+        // kontoret styrer livscyklus fra office-draweren).
         if (typeof FlagStrip !== 'undefined') {
+            const kitchenZone = document.body.classList.contains('zone-kitchen');
             this.flagStrip = new FlagStrip(this.el.querySelector('.drawer-flags'), {
                 bonId: null,
+                readOnly: kitchenZone,
                 onChange: () => this.load(this.bonId),
             });
         }
@@ -101,6 +105,7 @@ class BonDrawer {
             <div class="drawer-header">
                 <span class="drawer-title">Bon #---</span>
                 <div class="drawer-header-actions">
+                    <button class="drawer-plan-followup" type="button" title="Planlæg en opfølgning på denne bon">⏰ Planlæg</button>
                     <button class="drawer-flyver" type="button" title="Send flyver til køkkenet">✈ Flyver</button>
                     <button class="drawer-copy" type="button" title="Kopiér bon — opretter ny bon med samme indhold og status NY">⎘ Kopiér</button>
                     <button class="drawer-history" type="button" title="Vis historik">⏱ Historik</button>
@@ -308,6 +313,44 @@ class BonDrawer {
                         </div>
                     </div>
                 </div>
+
+                <!-- PLANLAGT (CRM-opfølgning — office-only, skjules når tom) -->
+                <div class="drawer-section drawer-planned-section" data-drawer-section="planlagt" hidden>
+                    <label class="drawer-label">⏰ Planlagt på denne bon</label>
+                    <div class="drawer-planned-list"></div>
+                </div>
+            </div>
+
+            <!-- Overlay: planlæg opfølgning (office-only) -->
+            <div class="drawer-plan-overlay" hidden>
+                <div class="drawer-plan-card">
+                    <div class="drawer-plan-head">⏰ Planlæg opfølgning</div>
+                    <div class="drawer-plan-row">
+                        <select class="drawer-field drawer-plan-type">
+                            <option value="call">Opkald</option>
+                            <option value="task">Opgave</option>
+                            <option value="note">Note</option>
+                            <option value="followup">Opfølgning</option>
+                            <option value="meeting">Møde</option>
+                        </select>
+                        <select class="drawer-field drawer-plan-when">
+                            <option value="tomorrow">I morgen</option>
+                            <option value="3d">Om 3 dage</option>
+                            <option value="1w">Næste uge</option>
+                            <option value="custom">Vælg dato…</option>
+                            <option value="now">Nu (log)</option>
+                        </select>
+                    </div>
+                    <div class="drawer-plan-row">
+                        <input type="date" class="drawer-field drawer-plan-date" hidden>
+                        <input type="time" class="drawer-field drawer-plan-time" value="09:00">
+                    </div>
+                    <textarea class="drawer-field drawer-textarea drawer-plan-note" rows="2" placeholder="Hvad skal der følges op på?"></textarea>
+                    <div class="drawer-plan-actions">
+                        <button type="button" class="drawer-plan-cancel">Annuller</button>
+                        <button type="button" class="drawer-plan-submit">Planlæg</button>
+                    </div>
+                </div>
             </div>
 
             <div class="drawer-footer">
@@ -392,6 +435,27 @@ class BonDrawer {
                 window.openFlyverComposer(this.bonId, bonNumber);
             } else {
                 console.warn('Flyver-systemet er ikke indlæst på denne side.');
+            }
+        });
+
+        // Planlæg opfølgning (CRM) — åbn overlay
+        this.el.querySelector('.drawer-plan-followup').addEventListener('click', () => this._openPlanOverlay());
+        this.el.querySelector('.drawer-plan-cancel').addEventListener('click', () => this._closePlanOverlay());
+        this.el.querySelector('.drawer-plan-submit').addEventListener('click', () => this._submitPlan());
+        this.el.querySelector('.drawer-plan-when').addEventListener('change', () => this._planWhenChanged());
+        // Afkrydsning / annuller i planlagt-listen (event-delegation)
+        this.el.querySelector('.drawer-planned-list').addEventListener('click', (e) => {
+            const check = e.target.closest('[data-plan-check]');
+            if (check) { this._togglePlanResult(check.getAttribute('data-plan-check')); return; }
+            const gem = e.target.closest('[data-plan-complete]');
+            if (gem) { this._completePlanned(gem.getAttribute('data-plan-complete'), gem.hasAttribute('data-skip')); return; }
+            const cancel = e.target.closest('[data-plan-result-cancel]');
+            if (cancel) { const el = this.el.querySelector('#drawerpr-' + cancel.getAttribute('data-plan-result-cancel')); if (el) el.classList.remove('show'); return; }
+            const sent = e.target.closest('.drawer-plan-sent-btn');
+            if (sent) {
+                const grp = sent.closest('.drawer-plan-sent');
+                grp.querySelectorAll('.drawer-plan-sent-btn').forEach(b => b.classList.remove('selected'));
+                sent.classList.add('selected');
             }
         });
 
@@ -619,6 +683,9 @@ class BonDrawer {
 
         // Delivery — load async (non-blocking)
         this._loadDelivery(d);
+
+        // Planlagt CRM-opfølgning — load async (non-blocking, office-only)
+        this._loadPlanned(d);
 
         this.dirty = false;
         this._pendingChanges = {};
@@ -1324,6 +1391,147 @@ class BonDrawer {
             });
         } catch (err) {
             histEl.innerHTML = '<div style="color:var(--color-red);font-size:12px;padding:4px">Fejl: ' + esc(err.message) + '</div>';
+        }
+    }
+
+    // ─── Planlagt CRM-opfølgning (Fase 3) ───────────────────────
+    async _loadPlanned(bon) {
+        const section = this.el.querySelector('.drawer-planned-section');
+        const listEl = this.el.querySelector('.drawer-planned-list');
+        if (!section || !listEl) return;
+        // Kræver en kunde at knytte opfølgningen til
+        const hasCustomer = !!(bon && bon.customer_id);
+        this.el.querySelector('.drawer-plan-followup').style.display = hasCustomer ? '' : 'none';
+        if (typeof fetchCrmPlanned !== 'function' || !hasCustomer) { section.hidden = true; return; }
+        try {
+            const res = await fetchCrmPlanned({ bon_id: this.bonId });
+            const planned = (res && res.planned) || [];
+            if (!planned.length) { section.hidden = true; listEl.innerHTML = ''; return; }
+            section.hidden = false;
+            const labels = (typeof PLANNED_TYPE_LABELS !== 'undefined') ? PLANNED_TYPE_LABELS : {};
+            listEl.innerHTML = planned.map(p => {
+                const isMeeting = p.type === 'meeting';
+                const due = (typeof plannedFmtDue === 'function') ? plannedFmtDue(p.due_at) : { label: p.due_at || '', overdue: false };
+                const tLabel = (isMeeting && p.meeting_type_label) ? p.meeting_type_label : (labels[p.type] || p.type);
+                const emoji = (isMeeting && p.meeting_type_emoji) ? p.meeting_type_emoji + ' ' : '';
+                const check = isMeeting
+                    ? '<span class="drawer-plan-check drawer-plan-check--meeting" title="Møde — håndteres i mødedetaljen"></span>'
+                    : '<span class="drawer-plan-check" data-plan-check="' + p.id + '" title="Markér udført"></span>';
+                return '<div class="drawer-planned-item" id="drawerp-' + p.id + '">' +
+                        check +
+                        '<span class="drawer-plan-type">' + esc(emoji + tLabel) + '</span>' +
+                        '<span class="drawer-plan-text">' + esc(p.text || '') + '</span>' +
+                        '<span class="drawer-plan-date' + (due.overdue ? ' overdue' : '') + '">' + esc(due.label) + '</span>' +
+                    '</div>' +
+                    '<div class="drawer-plan-result" id="drawerpr-' + p.id + '">' +
+                        '<div class="drawer-plan-result-title">✓ Udført — log resultat?</div>' +
+                        '<div class="drawer-plan-result-row">' +
+                            '<select class="drawer-field drawer-plan-res" id="drawerpr-res-' + p.id + '">' +
+                                '<option value="">— Resultat —</option>' +
+                                '<option value="reached">Nået</option>' +
+                                '<option value="no_answer">Intet svar</option>' +
+                                '<option value="callback">Callback</option>' +
+                                '<option value="email_instead">Email i stedet</option>' +
+                            '</select>' +
+                            '<div class="drawer-plan-sent">' +
+                                '<button type="button" class="drawer-plan-sent-btn" data-s="positive">😊</button>' +
+                                '<button type="button" class="drawer-plan-sent-btn" data-s="neutral">😐</button>' +
+                                '<button type="button" class="drawer-plan-sent-btn" data-s="negative">😟</button>' +
+                            '</div>' +
+                        '</div>' +
+                        '<input type="text" class="drawer-field drawer-plan-resnote" id="drawerpr-note-' + p.id + '" placeholder="Hvad kom der ud af det? (valgfri)">' +
+                        '<div class="drawer-plan-result-actions">' +
+                            '<button type="button" class="drawer-plan-gem" data-plan-complete="' + p.id + '">Gem</button>' +
+                            '<button type="button" class="drawer-plan-ghost" data-plan-complete="' + p.id + '" data-skip>Gem uden resultat</button>' +
+                            '<button type="button" class="drawer-plan-cancel-result" data-plan-result-cancel="' + p.id + '">Annuller</button>' +
+                        '</div>' +
+                    '</div>';
+            }).join('');
+        } catch (err) {
+            console.warn('[drawer-planned]', err.message);
+            section.hidden = true;
+        }
+    }
+
+    _openPlanOverlay() {
+        if (!this.data || !this.data.customer_id) { alert('Bonen har ingen kunde at knytte opfølgningen til.'); return; }
+        const ov = this.el.querySelector('.drawer-plan-overlay');
+        ov.querySelector('.drawer-plan-when').value = 'tomorrow';
+        ov.querySelector('.drawer-plan-type').value = 'call';
+        ov.querySelector('.drawer-plan-note').value = '';
+        ov.querySelector('.drawer-plan-date').hidden = true;
+        ov.querySelector('.drawer-plan-time').value = '09:00';
+        ov.hidden = false;
+        this._planWhenChanged();
+        ov.querySelector('.drawer-plan-note').focus();
+    }
+
+    _closePlanOverlay() {
+        this.el.querySelector('.drawer-plan-overlay').hidden = true;
+    }
+
+    _planWhenChanged() {
+        const ov = this.el.querySelector('.drawer-plan-overlay');
+        const when = ov.querySelector('.drawer-plan-when').value;
+        ov.querySelector('.drawer-plan-date').hidden = (when !== 'custom');
+        // beregn tilstand for knap-label + tid-synlighed
+        const dateVal = ov.querySelector('.drawer-plan-date').value || '';
+        const st = (typeof plannedComputeWhen === 'function') ? plannedComputeWhen(when, dateVal, null) : { mode: when === 'now' ? 'now' : 'plan' };
+        ov.querySelector('.drawer-plan-time').style.display = (st.mode === 'plan') ? '' : 'none';
+        const btn = ov.querySelector('.drawer-plan-submit');
+        btn.textContent = st.mode === 'plan' ? 'Planlæg' : 'Log aktivitet';
+    }
+
+    async _submitPlan() {
+        if (!this.data || !this.data.customer_id) return;
+        const ov = this.el.querySelector('.drawer-plan-overlay');
+        const type = ov.querySelector('.drawer-plan-type').value;
+        const note = ov.querySelector('.drawer-plan-note').value.trim();
+        if (!note) { alert('Skriv hvad der skal følges op på'); return; }
+        const when = ov.querySelector('.drawer-plan-when').value;
+        const dateVal = ov.querySelector('.drawer-plan-date').value || '';
+        const timeVal = ov.querySelector('.drawer-plan-time').value || '';
+        const st = plannedComputeWhen(when, dateVal, timeVal);
+        if (st.incomplete) { alert('Vælg en dato'); return; }
+
+        const body = { customer_id: this.data.customer_id, bon_id: this.bonId, type, text: note };
+        if (st.mode === 'plan') body.due_at = st.due_at;
+        else if (st.mode === 'backdate') body.done_at = st.done_at;
+
+        const btn = ov.querySelector('.drawer-plan-submit');
+        btn.disabled = true;
+        try {
+            await postCrmActivity(body);
+            this._closePlanOverlay();
+            this._loadPlanned(this.data);
+        } catch (err) {
+            alert('Fejl: ' + err.message);
+        } finally {
+            btn.disabled = false;
+        }
+    }
+
+    _togglePlanResult(id) {
+        const el = this.el.querySelector('#drawerpr-' + id);
+        const item = this.el.querySelector('#drawerp-' + id);
+        if (!el) return;
+        const open = el.classList.toggle('show');
+        if (item) item.classList.toggle('drawer-planned-item--active', open);
+    }
+
+    async _completePlanned(id, skip) {
+        const payload = {};
+        if (!skip) {
+            payload.result = this.el.querySelector('#drawerpr-res-' + id)?.value || null;
+            const sentBtn = this.el.querySelector('#drawerpr-' + id + ' .drawer-plan-sent-btn.selected');
+            payload.sentiment = sentBtn ? sentBtn.getAttribute('data-s') : null;
+            payload.note = this.el.querySelector('#drawerpr-note-' + id)?.value || '';
+        }
+        try {
+            await completeCrmActivity(id, payload);
+            this._loadPlanned(this.data);
+        } catch (err) {
+            alert('Fejl: ' + err.message);
         }
     }
 

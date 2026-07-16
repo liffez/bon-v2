@@ -169,6 +169,21 @@
     margin-bottom: 8px;
 }
 
+/* Køkken-synlig kunde-påmindelse (read-only banner øverst i info-modal) */
+.info-paamindelse {
+    margin: 0 0 12px;
+    padding: 9px 12px;
+    background: var(--brand-primary-light, #f1e6b2);
+    border-left: 3px solid var(--brand-primary, #8e631f);
+    border-radius: 6px;
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+}
+.info-paamindelse-item { font-size: 13px; line-height: 1.35; color: var(--color-text, #2a2723); }
+.info-paamindelse-title { font-weight: 700; }
+.info-paamindelse-body { display: block; font-weight: 400; opacity: 0.85; font-size: 12px; }
+
 /* Nøgle/værdi-rækker */
 .info-row {
     display: flex;

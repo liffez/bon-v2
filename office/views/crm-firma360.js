@@ -353,6 +353,7 @@ function _f3RenderFlagsCard() {
                 <div class="f3-flag-add">
                     <input type="text" id="f3-flag-title" class="f3-flag-input" placeholder="Titel (fx 'Fakturaer skal til Anne')">
                     <textarea id="f3-flag-body" class="f3-flag-textarea" placeholder="Detalje (valgfri)"></textarea>
+                    <label class="f3-flag-kitchen"><input type="checkbox" id="f3-flag-office-only"> 🔒 Kun kontor <span class="f3-flag-hint">(køkkenet ser den ikke)</span></label>
                     <button class="f3-btn f3-btn-primary" id="f3-flag-add-btn">+ Tilføj påmindelse</button>
                 </div>
             </div>
@@ -365,9 +366,11 @@ async function _f3AddFlag() {
     const body  = (document.getElementById('f3-flag-body')?.value  || '').trim();
     if (!title) { alert('Skriv en titel'); return; }
     try {
-        await createFlag('company', _f3State.companyId, title, body || null);
+        const officeOnly = document.getElementById('f3-flag-office-only')?.checked;
+        await createFlag('company', _f3State.companyId, title, body || null, !officeOnly);
         document.getElementById('f3-flag-title').value = '';
         document.getElementById('f3-flag-body').value  = '';
+        const oo = document.getElementById('f3-flag-office-only'); if (oo) oo.checked = false;
         await _f3Reload();
     } catch (err) {
         alert('Fejl: ' + err.message);

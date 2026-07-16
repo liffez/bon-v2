@@ -289,6 +289,12 @@
     border-color: var(--color-green-dark);
     background: #f0f6e8;
 }
+/* Read-only (køkken): "info fra kontoret", matcher bon-kortets amber påmindelse */
+.flag-strip.read-only {
+    border-color: var(--brand-primary, #8e631f);
+    background: var(--brand-primary-light, #f1e6b2);
+}
+.flag-strip.read-only .flag-item { border-bottom: none; }
 
 .flag-strip-head {
     display: flex;
@@ -328,6 +334,15 @@
     font-weight: 700;
     color: var(--color-text);
     line-height: 1.3;
+}
+.flag-office-only {
+    font-size: 10px;
+    font-weight: 600;
+    color: var(--color-text-dim, #8a8580);
+    background: rgba(0,0,0,.05);
+    border-radius: 8px;
+    padding: 1px 6px;
+    white-space: nowrap;
 }
 .flag-item-body {
     font-size: 12px;
@@ -373,7 +388,11 @@
 .flag-item.flag-acked .flag-item-title { font-weight: 600; }
 
 /* Skjult i kitchen-zonen — flag er office-only */
-.zone-kitchen .drawer-flags { display: none; }
+/* Køkkenet ser flag-strippen READ-ONLY (kun køkken-synlige — FlagStrip filtrerer selv).
+   Planlagt CRM-opfølgning forbliver office-only (kontor-værktøj). */
+.zone-kitchen .drawer-plan-followup,
+.zone-kitchen .drawer-planned-section,
+.zone-kitchen .drawer-plan-overlay { display: none !important; }
 
 /* ──────────────────────────────────────────────────────────────
    FLAG BADGE — i listviews (bons-list, kunder, firmaer)

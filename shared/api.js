@@ -786,6 +786,27 @@ function postCrmActivity(data) {
     });
 }
 
+// Åbne planlagte aktiviteter (inkl. møder) for én kunde ELLER én bon.
+// params: { customer_id } eller { bon_id }
+function fetchCrmPlanned(params) {
+    const qs = new URLSearchParams(params).toString();
+    return apiFetch('/crm/planned?' + qs);
+}
+
+// Udfør en planlagt aktivitet med struktureret resultat.
+// id + { result?, sentiment?, outcome?, note? }
+function completeCrmActivity(id, data) {
+    return apiFetch('/crm/activity/' + id + '/done', {
+        method: 'PATCH',
+        body: JSON.stringify(data || {}),
+    });
+}
+
+// Dashboard "Mine opfølgninger" (Fase 4-datakilde): forfaldne/dagens planlagte + callbacks.
+function fetchCrmFollowups() {
+    return apiFetch('/crm/followups');
+}
+
 // Skjul (snooze) et smart-forslag i et antal dage (default 14 server-side).
 // data: { customer_id, type, days? }
 function snoozeSuggestion(data) {
@@ -928,12 +949,14 @@ function fetchFlags(entityType, entityId, includeDismissed) {
     return apiFetch('/flags?' + qs.toString());
 }
 
-function createFlag(entityType, entityId, title, body) {
+// showInKitchen: default true (vis for køkken). Sæt false for kontor-kun påmindelser.
+function createFlag(entityType, entityId, title, body, showInKitchen) {
     return apiFetch('/flags', {
         method: 'POST',
         body: JSON.stringify({
             entity_type: entityType, entity_id: entityId,
             title: title, body: body || null,
+            show_in_kitchen: showInKitchen === false ? 0 : 1,
         }),
     });
 }

@@ -23,7 +23,7 @@ function _crmWireDelegatedClicks() {
     if (!_crmContainer) return;
     _crmContainer.addEventListener('click', (e) => {
         const target = e.target.closest(
-            '[data-customer-id], [data-scroll], [data-goto], [data-view]'
+            '[data-customer-id], [data-scroll], [data-goto], [data-view], [data-nav]'
         );
         if (!target || !_crmContainer.contains(target)) return;
         // Lad eksisterende interaktive child-elementer (telefon-link,
@@ -31,7 +31,17 @@ function _crmWireDelegatedClicks() {
         if (e.target.closest('a, button, input, select, textarea')) return;
 
         const cid = target.dataset.customerId;
-        if (cid) { _crmOpenKunde(parseInt(cid, 10)); return; }
+        if (cid) { _crmOpenKunde(parseInt(cid, 10), target.dataset.ktab); return; }
+
+        // Navigér til en anden CRM-sektion (fx Ringeliste), evt. forudvalgt fane
+        const nav = target.dataset.nav;
+        if (nav && typeof window.switchSection === 'function') {
+            if (target.dataset.navTab) {
+                try { localStorage.setItem('crm_ringeliste_tab', target.dataset.navTab); } catch (_) {}
+            }
+            window.switchSection('crm', nav);
+            return;
+        }
 
         const scrollId = target.dataset.scroll;
         if (scrollId) {
@@ -72,12 +82,25 @@ function _crmRenderShell() {
 
     _crmContainer.innerHTML = `
         <style>
+            /* Layout (2 kolonner):
+                 rk1: KPI-strip (fuld)
+                 rk2: Daglig briefing        | Mine opfølgninger (spænder rk2-3)
+                 rk3: Service-kald           |
+                 rk4: Kommende møder         | Seneste aktivitet
+                 rk5: Pipeline (fuld)
+                 rk6: Smart forslag (fuld)
+               Højre kolonne er bredere end før (400px) så kundenavne ikke knækker. */
             .crm-grid {
                 display: grid;
-                grid-template-columns: 1fr 340px;
-                grid-template-rows: auto auto auto 1fr;
+                grid-template-columns: 1fr 400px;
                 gap: 12px; padding: 0;
+                /* Kort skal have deres EGEN højde — ikke strækkes til rækkens højeste
+                   (ellers får fx Daglig briefing hundredvis af px tomt rum ved siden
+                   af en lang liste). */
+                align-items: start;
             }
+            /* Spænder rk2-3 så Service-kald kan fylde rummet under briefingen */
+            #crmCallbacksPanel { grid-row: span 2; }
             @media (max-width: 900px) { .crm-grid { grid-template-columns: 1fr; } }
 
             .crm-kpi-strip { grid-column: 1 / -1; display: flex; gap: 9px; flex-wrap: wrap; }
@@ -244,6 +267,47 @@ function _crmRenderShell() {
             .crm-cb-badge.urgent { background: var(--color-sentiment-neg-bg); color: var(--color-sentiment-neg); }
             .crm-cb-badge.today { background: var(--color-sentiment-neu-bg); color: var(--color-sentiment-neu); }
 
+            /* Mine opfølgninger (Fase 4) */
+            /* Listen scroller internt — ellers vokser panelet (og dermed rækken)
+               ud af skærmen ved mange opfølgninger. */
+            #crmCallbacksList { max-height: 420px; overflow-y: auto; }
+            .crm-fu-head { display: flex; align-items: center; justify-content: space-between; gap: 10px; }
+            .crm-fu-head h3 { margin: 0; }
+            .crm-fu-ringeliste {
+                background: none; border: none; color: var(--brand-primary, #8e631f);
+                font-size: 12px; font-weight: 700; cursor: pointer; padding: 0; white-space: nowrap;
+            }
+            .crm-fu-ringeliste:hover { text-decoration: underline; }
+            .crm-fu-item {
+                display: flex; align-items: center; gap: 10px;
+                padding: 9px 0; border-bottom: 1px solid var(--color-border, #eee);
+            }
+            .crm-fu-item:last-child { border-bottom: none; }
+            .crm-fu-info { flex: 1; min-width: 0; }
+            /* Navn på egen linje (firma nedenunder) — ellers klemmer firmanavnet
+               lange kundenavne ud i 2-3 linjer. Samme mønster som hoved-dashboardet. */
+            .crm-fu-name-row { display: block; min-width: 0; }
+            .crm-fu-name { font-size: 13px; font-weight: 600; display: block; }
+            .crm-fu-company { display: block; font-size: 11px; color: var(--color-text-dim); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+            .crm-fu-text { font-size: 12px; color: var(--color-text); margin-top: 1px; }
+            .crm-fu-bon {
+                display: inline-block; margin-left: 6px; font-size: 10px; font-weight: 700;
+                color: #3a6a9a; background: #e8f0f7; border-radius: 8px; padding: 0 6px;
+            }
+            .crm-fu-meta { display: flex; flex-direction: column; align-items: flex-end; gap: 3px; flex-shrink: 0; }
+            .crm-fu-kilde { padding: 1px 7px; border-radius: 9px; font-size: 10px; font-weight: 700; white-space: nowrap; }
+            .crm-fu-kilde.planlagt { background: var(--color-sentiment-neu-bg, #FBF3E2); color: var(--color-sentiment-neu, #C8962A); }
+            .crm-fu-kilde.service { background: #e0ecf5; color: #2a6fb0; }
+            .crm-fu-time { font-size: 11px; font-weight: 700; color: var(--color-text-dim); white-space: nowrap; }
+            .crm-fu-time.overdue { color: var(--color-sentiment-neg, #C94040); }
+            .crm-fu-time.overdue::before { content: "⚑ "; }
+            .crm-fu-ring {
+                flex-shrink: 0; font-size: 11px; font-weight: 700; text-decoration: none;
+                color: var(--brand-primary, #8e631f); border: 1px solid var(--color-border);
+                border-radius: 6px; padding: 4px 8px;
+            }
+            .crm-fu-ring:hover { background: var(--brand-primary-light, #f1e6b2); }
+
             /* Activity feed */
             .crm-act-item {
                 display: flex; align-items: flex-start; gap: 10px;
@@ -392,11 +456,14 @@ function _crmRenderShell() {
             </div>
 
             <div class="crm-card" id="crmCallbacksPanel">
-                <h3>📞 Ring tilbage</h3>
+                <div class="crm-fu-head">
+                    <h3>🔔 Mine opfølgninger</h3>
+                    <button class="crm-fu-ringeliste" type="button" onclick="_crmGotoRingeliste()">Se ringeliste →</button>
+                </div>
                 <div id="crmCallbacksList"></div>
             </div>
 
-            <div class="crm-card" style="grid-column: 1 / -1;" id="crmServiceCalls">
+            <div class="crm-card" id="crmServiceCalls">
                 <h3>📞 Service-kald</h3>
                 <div class="crm-svc-header">
                     <span class="crm-svc-label">Leveringer fra de seneste</span>
@@ -412,7 +479,7 @@ function _crmRenderShell() {
                 <div id="crmServiceCallsList"></div>
             </div>
 
-            <div class="crm-card" style="grid-column: 1 / -1;" id="crmMeetings">
+            <div class="crm-card" id="crmMeetings">
                 <h3>🤝 Kommende bookede møder</h3>
                 <div id="crmMeetingsList"></div>
             </div>
@@ -433,7 +500,7 @@ function _crmRenderShell() {
                 <div class="crm-pipe-board" id="crmPipeBoard"></div>
             </div>
 
-            <div class="crm-card" id="crmSuggestions">
+            <div class="crm-card" style="grid-column: 1 / -1;" id="crmSuggestions">
                 <div class="crm-card-head" style="display:flex;justify-content:space-between;align-items:center;margin-bottom:10px;">
                     <h3 style="margin:0;display:flex;align-items:center;gap:6px;">Smart forslag
                         <button id="crmSugInfoBtn" type="button" title="Hvordan laves forslagene?"
@@ -486,12 +553,12 @@ async function _crmLoadData() {
     if (!_crmActive) return;
 
     try {
-        const [stats, briefing, suggestions, serviceCalls, callbacks, callLog, meetings, snoozed, reviewStat] = await Promise.all([
+        const [stats, briefing, suggestions, serviceCalls, followups, callLog, meetings, snoozed, reviewStat] = await Promise.all([
             fetchCrmStats(),
             fetchCrmBriefing(),
             fetchCrmSuggestions(),
             fetchCrmServiceCalls(7),
-            fetchCrmCallbacks(),
+            fetchCrmFollowups(),
             fetchCrmCallLog({ limit: 6 }),
             fetchCrmUpcomingMeetings({ days: 30, limit: 10 }),
             fetchSnoozedSuggestions().catch(() => []),
@@ -504,7 +571,7 @@ async function _crmLoadData() {
         _crmRenderSnoozedButton(snoozed);
         _crmRenderReviewStat(reviewStat);
         _crmRenderServiceCalls(serviceCalls);
-        _crmRenderCallbacks(callbacks);
+        _crmRenderFollowups(followups);
         _crmRenderUpcomingMeetings(meetings);
         _crmRenderActivityFeed(Array.isArray(callLog) ? callLog : (callLog.rows || []));
         _crmLoadPipeline('');
@@ -573,6 +640,10 @@ function _crmRenderBriefing(items) {
         let clickable = '';
         if (item.customer_id) {
             attrs = ' data-customer-id="' + item.customer_id + '" title="Åbn kundeprofil"';
+            clickable = ' crm-clickable';
+        } else if (item.nav) {
+            // Navigér til en anden CRM-sektion (fx Ringeliste), evt. på en bestemt fane
+            attrs = ' data-nav="' + item.nav + '"' + (item.navTab ? ' data-nav-tab="' + item.navTab + '"' : '') + ' title="Åbn liste"';
             clickable = ' crm-clickable';
         } else if (linkToScroll[item.link]) {
             attrs = ' data-scroll="' + linkToScroll[item.link] + '"';
@@ -964,31 +1035,55 @@ async function _crmUnsnooze(customerId, type) {
     }
 }
 
-function _crmRenderCallbacks(data) {
+// Mine opfølgninger (Fase 4) — forfaldne/dagens planlagte + åbne callbacks i én liste.
+// Forfaldne først (rød ⚑), derefter dagens. Møder + fremtidige vises IKKE her.
+function _crmRenderFollowups(data) {
     const el = document.getElementById('crmCallbacksList');
     if (!el) return;
-    const items = Array.isArray(data) ? data : (data.callbacks || []);
+    const items = (data && data.followups) || (Array.isArray(data) ? data : []);
     if (!items.length) {
-        el.innerHTML = '<div class="crm-empty">Ingen ventende callbacks</div>';
+        el.innerHTML = '<div class="crm-empty">Ingen opfølgninger i dag 🎉</div>';
         return;
     }
-    el.innerHTML = items.slice(0, 5).map((c, i) => {
-        const name = c.customer_name || c.name || 'Ukendt';
+    el.innerHTML = items.slice(0, 12).map((f, i) => {
+        const name = f.name && f.name.trim() ? f.name.trim() : 'Ukendt';
         const init = name.charAt(0).toUpperCase();
         const avClass = 'av-' + (i % 3);
-        const badgeClass = (c.attempts || 0) >= 3 ? 'urgent' : 'today';
-        const badgeText = (c.attempts || 0) >= 3 ? 'Svarer ikke' : 'Ringes';
-        const cid = c.customer_id || '';
-        const rowAttrs = cid ? ' class="crm-cb-item crm-clickable" data-customer-id="' + cid + '" title="Åbn kunde i CRM"' : ' class="crm-cb-item"';
+        const cid = f.customer_id || '';
+        const due = (typeof plannedFmtDue === 'function') ? plannedFmtDue(f.due_at) : { label: f.due_at || '', overdue: false };
+        const isService = f.kilde === 'service';
+        // Callback uden due_at → vis "ring tilbage" som tidspunkt
+        const timeLabel = due.label || (isService ? 'ring tilbage' : '');
+        const kildeBadge = isService
+            ? '<span class="crm-fu-kilde service">Service</span>'
+            : '<span class="crm-fu-kilde planlagt">Planlagt</span>';
+        const bonChip = f.bon_number ? '<span class="crm-fu-bon">#' + escapeHtml(f.bon_number) + '</span>' : '';
+        const ringBtn = f.phone
+            ? '<a class="crm-fu-ring" href="tel:' + escapeHtml(f.phone) + '" title="Ring til ' + escapeHtml(name) + '">📞 Ring</a>'
+            : '';
+        const rowAttrs = cid
+            ? ' class="crm-fu-item crm-clickable" data-customer-id="' + cid + '" data-ktab="activity" title="Åbn kundekort"'
+            : ' class="crm-fu-item"';
         return '<div' + rowAttrs + '>' +
             '<div class="crm-cb-av ' + avClass + '">' + init + '</div>' +
-            '<div class="crm-cb-info">' +
-                '<div class="crm-cb-name">' + name + '</div>' +
-                (c.company_name ? '<div class="crm-cb-company">' + c.company_name + '</div>' : '') +
+            '<div class="crm-fu-info">' +
+                '<div class="crm-fu-name-row">' +
+                    '<span class="crm-fu-name">' + escapeHtml(name) + '</span>' +
+                    (f.company_name ? '<span class="crm-fu-company">' + escapeHtml(f.company_name) + '</span>' : '') +
+                '</div>' +
+                '<div class="crm-fu-text">' + escapeHtml(f.text || '') + bonChip + '</div>' +
             '</div>' +
-            '<span class="crm-cb-badge ' + badgeClass + '">' + badgeText + '</span>' +
+            '<div class="crm-fu-meta">' +
+                kildeBadge +
+                '<span class="crm-fu-time' + (due.overdue ? ' overdue' : '') + '">' + escapeHtml(timeLabel) + '</span>' +
+            '</div>' +
+            ringBtn +
         '</div>';
     }).join('');
+}
+
+function _crmGotoRingeliste() {
+    if (typeof window.switchSection === 'function') window.switchSection('crm', 'ringeliste');
 }
 
 function _crmRenderUpcomingMeetings(items) {
@@ -1191,9 +1286,9 @@ function _crmRenderPipeline(columns) {
 
 // ─── Navigation helpers ─────────────────────────────────────
 
-function _crmOpenKunde(customerId) {
+function _crmOpenKunde(customerId, tab) {
     if (_crmOpts.openKunde360) {
-        _crmOpts.openKunde360(customerId);
+        _crmOpts.openKunde360(customerId, tab ? { tab } : undefined);
     }
 }
 

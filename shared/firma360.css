@@ -835,6 +835,9 @@
     padding-top: 12px;
     border-top: 1px dashed var(--color-border);
 }
+.f3-flag-kitchen { display: flex; align-items: center; gap: 6px; font-size: 12px; cursor: pointer; color: var(--color-text-dim); }
+.f3-flag-kitchen input { width: 15px; height: 15px; accent-color: var(--brand-primary); }
+.f3-flag-hint { color: var(--color-text-dim); font-size: 11px; }
 .f3-flag-input, .f3-flag-textarea {
     width: 100%;
     padding: 8px 10px;

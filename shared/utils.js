@@ -370,6 +370,8 @@ function mapApiBonToCardData(apiBon) {
         delivery_vehicle_label: apiBon.delivery_vehicle_label || '',
         price_category:  apiBon.price_category || 'catering',
         unread_mail_count: apiBon.unread_mail_count || 0,
+        // Køkken-synlige kunde-/firma-påmindelser (read-only på kortet)
+        kitchen_flags:   apiBon.kitchen_flags || [],
         event_id:        apiBon.event_id || null,
         event_name:      apiBon.event_name || '',
         event_model:     apiBon.event_model || '',

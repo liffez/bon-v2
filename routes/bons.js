@@ -536,7 +536,7 @@ router.get('/:id', handle((req, res) => {
             args.push(bon.company_id);
         }
         bon.flags = getDb().prepare(`
-            SELECT f.id, f.entity_type, f.entity_id, f.title, f.body, f.created_at,
+            SELECT f.id, f.entity_type, f.entity_id, f.title, f.body, f.show_in_kitchen, f.created_at,
                    u.name AS created_by_name,
                    EXISTS(SELECT 1 FROM flag_acks
                           WHERE flag_id = f.id AND bon_id = ?) AS acked_on_this_bon

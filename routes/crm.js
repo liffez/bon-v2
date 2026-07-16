@@ -153,8 +153,14 @@ router.get('/briefing', handle((req, res) => {
     const sc = db.prepare("SELECT COUNT(*) as c FROM v_service_calls_pending").get().c;
     if (sc > 0) items.push({ icon: '📞', text: sc + ' service-kald venter', type: 'action', link: 'svc' });
 
-    const cb = db.prepare("SELECT COUNT(*) as c FROM v_callbacks_pending").get().c;
-    if (cb > 0) items.push({ icon: '🔔', text: cb + ' callback' + (cb > 1 ? 's' : '') + ' at følge op', type: 'action', link: 'callbacks' });
+    // Opfølgninger i dag = forfaldne/dagens planlagte + åbne callbacks (samme kilde
+    // som dashboardets "Mine opfølgninger" — jf. /followups). Ekskluderer møder.
+    const followups = db.prepare(`
+        SELECT COUNT(*) AS c FROM crm_activities a
+        WHERE a.done_at IS NULL AND a.type != 'meeting'
+          AND ( (a.due_at IS NOT NULL AND DATE(a.due_at) <= DATE('now')) OR (a.result = 'callback') )
+    `).get().c;
+    if (followups > 0) items.push({ icon: '🔔', text: followups + ' opfølgning' + (followups > 1 ? 'er' : '') + ' i dag', type: 'action', link: 'callbacks' });
 
     const upcomingMeetings = db.prepare(`
         SELECT COUNT(*) as c FROM crm_activities
@@ -214,9 +220,9 @@ router.get('/briefing', handle((req, res) => {
         FROM crm_activities WHERE created_at >= date('now', '-7 days')
     `).get();
     if (wk.total > 0) {
-        items.push({ icon: '✅', text: 'Denne uge: ' + (wk.calls || 0) + ' opkald, ' + wk.total + ' aktiviteter total', type: 'progress', link: null });
+        items.push({ icon: '✅', text: 'Denne uge: ' + (wk.calls || 0) + ' opkald, ' + wk.total + ' aktiviteter total', type: 'progress', link: null, nav: 'ringeliste' });
     } else {
-        items.push({ icon: '💪', text: 'Ingen aktiviteter logget denne uge — tid til at komme i gang!', type: 'motivation', link: null });
+        items.push({ icon: '💪', text: 'Ingen aktiviteter logget denne uge — tid til at komme i gang!', type: 'motivation', link: null, nav: 'ringeliste' });
     }
 
     const season = db.prepare(`
@@ -231,7 +237,7 @@ router.get('/briefing', handle((req, res) => {
                 AND b2.is_internal = 0
             )
     `).get().c;
-    if (season > 0) items.push({ icon: '📅', text: season + ' kunder bestilte på denne tid sidste år', type: 'insight' });
+    if (season > 0) items.push({ icon: '📅', text: season + ' kunder bestilte på denne tid sidste år', type: 'insight', nav: 'ringeliste', navTab: 'season' });
 
     res.json(items.slice(0, 6));
 }));
@@ -1000,7 +1006,7 @@ router.get('/customer/:id', handle((req, res) => {
         LEFT JOIN contact_reasons cr ON cr.id = a.contact_reason_id
         LEFT JOIN activity_purposes p ON a.purpose_id = p.id
         WHERE a.customer_id = ?
-        ORDER BY a.created_at DESC LIMIT 20
+        ORDER BY COALESCE(a.done_at, a.created_at) DESC LIMIT 20
     `).all(id);
 
     // Dismissed flag som syntetiske aktivitets-rows (CLAUDE_KUNDE_FLAGS.md fase 7).
@@ -1247,7 +1253,7 @@ router.get('/customer-orders/:id', handle((req, res) => {
 // ─── POST /activity ─────────────────────────────────────────
 router.post('/activity', handle((req, res) => {
     const db = getDb();
-    const { customer_id, bon_id, type, result, sentiment, text, due_at, purpose_id, campaign_id, outcome } = req.body;
+    const { customer_id, bon_id, type, result, sentiment, text, due_at, done_at, purpose_id, campaign_id, outcome } = req.body;
     // req.session.userId er den korrekte session-nøgle (jf. consent-handler). req.session.user?.id
     // var altid undefined → owner_user_id blev altid null (F1).
     const userId = req.session?.userId || null;
@@ -1259,6 +1265,11 @@ router.post('/activity', handle((req, res) => {
     const OUTCOMES = ['success', 'partial', 'declined', 'no_response', 'pending'];
     if (outcome && !OUTCOMES.includes(outcome)) {
         return res.status(400).json({ error: 'ugyldig outcome' });
+    }
+    // Planlagt aktivitet (Fase 1): due_at = planlæg frem, done_at = bagudrettet log.
+    // De to udelukker hinanden — en aktivitet er enten planlagt ELLER logget, aldrig begge.
+    if (due_at && done_at) {
+        return res.status(400).json({ error: 'due_at og done_at kan ikke begge være sat' });
     }
 
     const ins = db.prepare(`
@@ -1297,9 +1308,18 @@ router.post('/activity', handle((req, res) => {
         `).run(customer_id);
     }
 
-    // Hvis opkald med reached → markér som done
-    if (['call', 'service_call'].includes(type) && result === 'reached') {
-        db.prepare("UPDATE crm_activities SET done_at = CURRENT_TIMESTAMP WHERE id = ?").run(activityId);
+    // done_at-tilstand (Fase 1 — lukker datahullet hvor loggede aktiviteter blev NULL):
+    //   due_at sat        → planlagt: done_at forbliver NULL (ingen auto-done)
+    //   done_at i body     → bagudrettet log: done_at = valgt fortidig dato (created_at = nu, revisionsspor)
+    //   ellers             → log nu: done_at = CURRENT_TIMESTAMP
+    // Service-callbacks (result='callback') friholdes — de har eget flow og skal
+    // forblive åbne (done_at NULL) på callback-listen.
+    if (!due_at && result !== 'callback') {
+        if (done_at) {
+            db.prepare("UPDATE crm_activities SET done_at = ? WHERE id = ?").run(done_at, activityId);
+        } else {
+            db.prepare("UPDATE crm_activities SET done_at = CURRENT_TIMESTAMP WHERE id = ?").run(activityId);
+        }
     }
 
     broadcast('crm_activity_created', { id: activityId, customer_id, bon_id, type, campaign_id: campaign_id || null });
@@ -1308,15 +1328,94 @@ router.post('/activity', handle((req, res) => {
 
 // ─── PATCH /activity/:id/done ───────────────────────────────
 // Markér aktivitet som afholdt/afsluttet (sætter done_at).
+// Udfør planlagt (Fase 1): resultatet gemmes STRUKTURERET i result/sentiment/outcome
+// (samme felter som service-kald + review-ask-måling, migration 114) — ikke som tekst-append.
+// En valgfri fritekst-note kan stadig appendes til text som supplement.
 router.patch('/activity/:id/done', handle((req, res) => {
     const db = getDb();
     const id = parseInt(req.params.id);
+    const { result, sentiment, outcome, note } = req.body || {};
+
     const a = db.prepare('SELECT id, customer_id FROM crm_activities WHERE id = ?').get(id);
     if (!a) return res.status(404).json({ error: 'Aktivitet ikke fundet' });
 
-    db.prepare("UPDATE crm_activities SET done_at = CURRENT_TIMESTAMP WHERE id = ?").run(id);
+    // outcome valideres mod samme enum som POST (ingen CHECK på kolonnen)
+    const OUTCOMES = ['success', 'partial', 'declined', 'no_response', 'pending'];
+    if (outcome && !OUTCOMES.includes(outcome)) {
+        return res.status(400).json({ error: 'ugyldig outcome' });
+    }
+
+    // COALESCE(?, felt): NULL-param lader det eksisterende felt være urørt.
+    const noteStr = (note || '').trim();
+    db.prepare(`
+        UPDATE crm_activities
+        SET done_at   = CURRENT_TIMESTAMP,
+            result    = COALESCE(?, result),
+            sentiment = COALESCE(?, sentiment),
+            outcome   = COALESCE(?, outcome),
+            text      = CASE WHEN ? != '' THEN text || char(10) || '→ ' || ? ELSE text END
+        WHERE id = ?
+    `).run(result || null, sentiment || null, outcome || null, noteStr, noteStr, id);
+
     broadcast('crm_activity_updated', { id, customer_id: a.customer_id });
     res.json({ ok: true });
+}));
+
+// ─── GET /planned ───────────────────────────────────────────
+// Åbne planlagte aktiviteter (inkl. møder) for én kunde ELLER én bon.
+// Kundekortets Planlagt-blok (customer_id) + bon-drawer/info-modal (bon_id).
+router.get('/planned', handle((req, res) => {
+    const db = getDb();
+    const customerId = req.query.customer_id ? parseInt(req.query.customer_id) : null;
+    const bonId = req.query.bon_id ? parseInt(req.query.bon_id) : null;
+    if (!customerId && !bonId) {
+        return res.status(400).json({ error: 'customer_id eller bon_id kræves' });
+    }
+
+    const rows = db.prepare(`
+        SELECT a.id, a.type, a.text, a.due_at, a.bon_id, a.customer_id,
+               mt.label AS meeting_type_label, mt.emoji AS meeting_type_emoji
+        FROM crm_activities a
+        LEFT JOIN meeting_types mt ON mt.id = a.meeting_type_id
+        WHERE ${customerId ? 'a.customer_id' : 'a.bon_id'} = ?
+          AND a.done_at IS NULL
+          AND a.due_at IS NOT NULL
+        ORDER BY a.due_at ASC
+    `).all(customerId || bonId);
+
+    res.json({ planned: rows });
+}));
+
+// ─── GET /followups ─────────────────────────────────────────
+// Dashboard "Mine opfølgninger" (Fase 4-datakilde). Afløser "Ring tilbage"-visningen:
+// forfaldne/dagens planlagte + åbne callbacks i én liste (forfaldne først).
+// Møder ekskluderet (egen "Kommende bookede møder"-sektion).
+// v1: INGEN owner-filtrering (delt rolle-login gør det misvisende — revision 1).
+router.get('/followups', handle((req, res) => {
+    const db = getDb();
+    const rows = db.prepare(`
+        SELECT a.id, a.type, a.text, a.due_at, a.bon_id, a.customer_id,
+               c.first_name || ' ' || COALESCE(c.last_name, '') AS name,
+               co.name AS company_name,
+               c.phone,
+               b.bon_number,
+               CASE WHEN a.result = 'callback' THEN 'service' ELSE 'planlagt' END AS kilde
+        FROM crm_activities a
+        JOIN customers c ON c.id = a.customer_id
+        LEFT JOIN companies co ON co.id = c.company_id
+        LEFT JOIN bons b ON b.id = a.bon_id
+        WHERE a.done_at IS NULL
+          AND a.type != 'meeting'
+          AND (
+                (a.due_at IS NOT NULL AND DATE(a.due_at) <= DATE('now'))
+             OR (a.result = 'callback')
+              )
+        ORDER BY
+          CASE WHEN a.due_at IS NOT NULL AND DATE(a.due_at) < DATE('now') THEN 0 ELSE 1 END,
+          a.due_at ASC
+    `).all();
+
+    res.json({ followups: rows });
 }));
 
 // ─── PATCH /customer/:id/stage ──────────────────────────────

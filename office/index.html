@@ -850,6 +850,7 @@
   <script src="/shared/moms.js"></script>
   <script src="/shared/delivery_icons.js"></script>
   <script src="../shared/api.js"></script>
+  <script src="../shared/planned.js"></script>
   <script src="../shared/mail_thread.js"></script>
   <script src="../BonConfig.js"></script>
   <script src="../BonConfigBar.js"></script>
@@ -1347,13 +1348,16 @@
       // tilbage-knap (eller swipe-gesture) bringer dem tilbage til forrige
       // view. switchView() bruger fortsat replaceState når URL'en kun
       // synkroniseres uden et reelt nav-skifte.
-      function openKunde360(customerId) {
+      function openKunde360(customerId, opts) {
         const url = new URL(window.location);
         url.searchParams.set('view', 'kontakter');
         url.searchParams.set('tab', 'personer');
         url.searchParams.set('customer', customerId);
         url.searchParams.delete('company');
         url.searchParams.delete('ftab');
+        // Valgfrit: åbn en bestemt fane i Kunde 360° (fx 'activity' → Planlagt-blok synlig)
+        if (opts && opts.tab) url.searchParams.set('ktab', opts.tab);
+        else url.searchParams.delete('ktab');
         history.pushState({}, '', url);
         // Force re-init: switchView returnerer ellers tidligt hvis vi
         // allerede er på 'kontakter'-viewet (fx fordi Firma 360° er åben).
@@ -1801,9 +1805,16 @@
         },
         crm_activity_created: (data) => {
           if (typeof _crmDashHandleSSE === 'function') _crmDashHandleSSE('crm_activity_created', data);
+          if (typeof _dashHandleSSE === 'function') _dashHandleSSE('crm_activity_created', data);
           if (typeof _k3HandleSSE === 'function') _k3HandleSSE('crm_activity_created', data);
           if (typeof _reakHandleSSE === 'function') _reakHandleSSE('crm_activity_created', data);
           if (typeof _ringeHandleSSE === 'function') _ringeHandleSSE('crm_activity_created', data);
+        },
+        crm_activity_updated: (data) => {
+          // Udført planlagt/callback → begge dashboards + kundekort opdaterer
+          if (typeof _crmDashHandleSSE === 'function') _crmDashHandleSSE('crm_activity_created', data);
+          if (typeof _dashHandleSSE === 'function') _dashHandleSSE('crm_activity_created', data);
+          if (typeof _k3HandleSSE === 'function') _k3HandleSSE('crm_activity_created', data);
         },
         crm_stage_changed: (data) => {
           if (typeof _k3HandleSSE === 'function') _k3HandleSSE('crm_stage_changed', data);
