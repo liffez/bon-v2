@@ -570,14 +570,6 @@ async function mergeExecute() {
 }
 window.mergeExecute = mergeExecute;
 
-// escapeHtml er allerede global i office (crm-firmaer.js m.fl.), men defineres
-// her også for at gøre viewet selvstændigt. Function-deklaration = sikker redeklaration.
-function escapeHtml(s) {
-    return String(s ?? '').replace(/[&<>"']/g, ch => ({
-        '&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'
-    }[ch]));
-}
-
 function _cvWireSearch() {
     const winQ = document.getElementById('merge-winner-q');
     const losQ = document.getElementById('merge-loser-q');
