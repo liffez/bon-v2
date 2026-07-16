@@ -22,6 +22,7 @@ const { requireAuth } = require('../shared/auth');
 const co2 = require('../services/co2Materials');
 const grocy = require('../services/grocyAdapter');
 const engine = require('../services/co2Engine');
+const agg = require('../services/co2Aggregate');
 const synonyms = require('../services/co2Synonyms');
 const transport = require('../services/co2Transport');
 const bonTransportCo2 = require('../services/bonTransportCo2');
@@ -43,16 +44,12 @@ function parseFactor(raw) {
 // Vindue for periode-baserede CO₂-tal: brugerdefineret from/to (YYYY-MM-DD)
 // vinder; ellers relativt months-vindue (default 12). SQLite date-math (localtime).
 function _resolveCo2Window(db, q) {
-    const rx = /^\d{4}-\d{2}-\d{2}$/;
-    const from = rx.test(q.from || '') ? q.from : null;
-    const to   = rx.test(q.to   || '') ? q.to   : null;
-    if (from && to && from <= to) return { from, to, months: null };
-    let months = parseInt(q.months, 10);
-    if (!Number.isInteger(months) || months < 1 || months > 60) months = 12;
+    const p = agg.parseCo2Window(q);          // ren parsing/validering (unit-testet)
+    if (p.months == null) return p;           // brugerdefineret from/to
     const w = db.prepare(
         `SELECT date('now','localtime','-' || ? || ' months') AS f, date('now','localtime') AS t`
-    ).get(months);
-    return { from: w.f, to: w.t, months };
+    ).get(p.months);
+    return { from: w.f, to: w.t, months: p.months };
 }
 
 /* ---------- faktortabel ---------- */
@@ -224,18 +221,8 @@ router.get('/overview', AUTH, handle(async (req, res) => {
             .sort((a, b) => b.units - a.units)
             .slice(0, 15);
 
-        // Samlet masse-dækning, vægtet efter faktisk salg (seneste 12 mdr):
-        // Σ(dækket kg × solgte enheder) / Σ(kendt kg × solgte enheder).
-        let totCov = 0, totKnown = 0;
-        for (const u of usage) {
-            const m = metaById.get(Number(u.rid));
-            if (!m || m.covered_kg == null) continue;
-            const base = m.base_servings || 1;
-            const units = u.units || 0;
-            totCov += (m.covered_kg / base) * units;
-            totKnown += ((m.covered_kg + m.missing_kg) / base) * units;
-        }
-        if (totKnown > 0) massCoveragePct = Math.round((totCov / totKnown) * 100);
+        // Samlet masse-dækning, vægtet efter faktisk salg (unit-testet i co2Aggregate).
+        massCoveragePct = agg.weightedMassCoverage(usage, metaById);
     } catch (e) { /* bon-forbrug er bonus — fejl må ikke vælte overblikket */ }
 
     res.json({
@@ -333,22 +320,9 @@ router.get('/bon/:id/accuracy', AUTH, handle(async (req, res) => {
     const recipes = [...recipesMap.values()].map(r => ({ id: r.id, name: r.name, base_servings: r.base_servings }));
     const results = engine.computeAll({ recipes, pos, nestings, products, conversions, units });
 
-    let covered = 0, missing = 0;
-    for (const l of lines) {
-        const r = results.get(Number(l.rid));
-        if (!r) continue;
-        const base = r.base_servings || 1;
-        const q = Number(l.quantity) || 0;
-        covered += (r.covered_kg / base) * q;
-        missing += (r.missing_kg / base) * q;
-    }
-    const known = covered + missing;
-    res.json({
-        accuracy_pct: known > 0 ? Math.round((covered / known) * 100) : null,
-        covered_kg: covered,
-        missing_kg: missing,
-        lines: lines.length,
-    });
+    // Linje-vægtet aggregering (unit-testet i co2Aggregate).
+    const a = agg.aggregateBonAccuracy(lines, results);
+    res.json({ ...a, lines: lines.length });
 }));
 
 // CO₂ over tid: månedlig Σ(bons.total_co2e) + pax → CO₂ pr. kuvert. Ekskl.
@@ -405,11 +379,7 @@ router.get('/timeseries', AUTH, handle((req, res) => {
            AND b.delivery_date BETWEEN ? AND ?
     `).all(win.from, win.to);
     const tmap = bonTransportCo2.computeForBons(db, tbons);
-    const transportByMonth = new Map();
-    for (const b of tbons) {
-        const t = tmap.get(b.id);
-        if (t && t.kg) transportByMonth.set(b.month, (transportByMonth.get(b.month) || 0) + t.kg);
-    }
+    const transportByMonth = agg.sumTransportByMonth(tbons, tmap); // unit-testet i co2Aggregate
 
     res.json({
         window: { from: win.from, to: win.to, months: win.months },
