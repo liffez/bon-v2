@@ -100,11 +100,42 @@ function parseServerDate(s) {
 
 /* ══════════════════════════════════════════════════════════════
    HTML ESCAPE
+
+   To varianter — de er IKKE ens, vælg bevidst:
+
+   esc()        — escaper kun & < >. Bemærk: esc(0) → '' (falsy-tjek), og
+                  anførselstegn slipper igennem. Brug KUN i tekst-kontekst
+                  (mellem tags), aldrig i et attribut: title="${esc(x)}"
+                  kan brydes ud af.
+   escapeHtml() — escaper også " og ', og bevarer 0/false. Sikker i både
+                  tekst- og attribut-kontekst. Foretræk denne i ny kode.
    ══════════════════════════════════════════════════════════════ */
 
 function esc(s) {
     if (!s) return '';
     return String(s).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+}
+
+function escapeHtml(s) {
+    return String(s ?? '').replace(/[&<>"']/g, ch => ({
+        '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;'
+    }[ch]));
+}
+
+/* ══════════════════════════════════════════════════════════════
+   BELØB
+
+   formatKr()  — kompakt beløb MED valuta til visning: 1.500 → "2k kr",
+                 1.500.000 → "1,5 mio kr". Til KPI-tal og kort.
+   (fmtKr() i shared/dashboard_chart.js er en ANDEN funktion: kompakt
+    UDEN valuta, til chart-akser. Slå dem ikke sammen.)
+   ══════════════════════════════════════════════════════════════ */
+
+function formatKr(n) {
+    const v = Math.round(Number(n) || 0);
+    if (v >= 1000000) return (v / 1000000).toFixed(1).replace('.', ',') + ' mio kr';
+    if (v >= 1000)    return (v / 1000).toFixed(0) + 'k kr';
+    return v + ' kr';
 }
 
 /* ══════════════════════════════════════════════════════════════

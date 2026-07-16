@@ -1219,12 +1219,6 @@ function _crmRenderUpcomingMeetings(items) {
     }).join('');
 }
 
-function escapeHtml(s) {
-    return String(s ?? '').replace(/[&<>"']/g, c =>
-        ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c])
-    );
-}
-
 function _crmRenderActivityFeed(items) {
     const el = document.getElementById('crmActivityList');
     if (!el) return;

@@ -277,19 +277,6 @@ function cfFormatDate(iso) {
     return d.toLocaleDateString('da-DK', { day: '2-digit', month: 'short', year: 'numeric' });
 }
 
-function formatKr(n) {
-    const v = Math.round(Number(n) || 0);
-    if (v >= 1000000) return (v / 1000000).toFixed(1).replace('.', ',') + ' mio kr';
-    if (v >= 1000)    return (v / 1000).toFixed(0) + 'k kr';
-    return v + ' kr';
-}
-
-function escapeHtml(s) {
-    return String(s ?? '').replace(/[&<>"']/g, ch => ({
-        '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;'
-    }[ch]));
-}
-
 function cleanupCrmFirmaer() {
     if (_cfState.debounceTimer) clearTimeout(_cfState.debounceTimer);
     _cfState = {
