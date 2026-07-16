@@ -1,0 +1,298 @@
+<!DOCTYPE html>
+<html lang="da">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>CO₂ — Transport · Mockup v1</title>
+<style>
+    :root {
+        --brand-primary: #8e631f;
+        --brand-primary-light: #f1e6b2;
+        --color-background: #f5f4f2;
+        --color-border: #d7d1ca;
+        --green: #2e7d32;
+        --green-light: #e8f3e8;
+        --red: #c0392b;
+        --gray-dark: #6b6259;
+        /* vognfarver — samme som leveringsmodulets kort */
+        --v-volvo: #7a4a12;
+        --v-cykel: #e08a1e;
+        --v-byexp: #2b6cb0;
+        --v-taxa: #2e7d32;
+    }
+    * { margin:0; padding:0; box-sizing:border-box; }
+    body { font-family: -apple-system, "Segoe UI", Roboto, sans-serif; background: var(--color-background); color:#2b2620; padding: 32px; }
+    .page { max-width: 960px; margin: 0 auto; }
+    h1 { font-size: 26px; font-weight: 700; margin-bottom: 4px; }
+    .page-sub { color: var(--gray-dark); font-size: 13px; margin-bottom: 24px; }
+
+    .mock-label { font-size: 11px; text-transform: uppercase; letter-spacing: .8px; color: var(--brand-primary); font-weight: 700; margin: 36px 0 10px; }
+
+    /* ── KPI-RÆKKE ─────────────────────────── */
+    .kpi-row { display: grid; grid-template-columns: repeat(5, 1fr); gap: 12px; }
+    .kpi { background: #fff; border: 1px solid var(--color-border); border-radius: 10px; padding: 14px 16px; border-left: 4px solid var(--color-border); }
+    .kpi.new { border-left-color: var(--green); background: linear-gradient(to bottom right, #fff, #fbfdf9); }
+    .kpi-value { font-size: 24px; font-weight: 700; }
+    .kpi-title { font-size: 11px; text-transform: uppercase; letter-spacing: .5px; font-weight: 700; margin-top: 2px; }
+    .kpi-sub { font-size: 11px; color: var(--gray-dark); margin-top: 2px; }
+    .badge-ny { display:inline-block; background: var(--green); color:#fff; font-size: 9px; font-weight:700; padding: 1px 6px; border-radius: 8px; vertical-align: middle; margin-left: 4px; }
+
+    /* ── SEKTIONS-KORT ─────────────────────── */
+    .card { background:#fff; border:1px solid var(--color-border); border-radius: 12px; padding: 22px 24px; margin-top: 16px; }
+    .card h2 { font-size: 17px; font-weight: 700; }
+    .card-sub { font-size: 12.5px; color: var(--gray-dark); margin: 4px 0 16px; line-height: 1.5; }
+    .card-sub code { background: var(--color-background); padding: 1px 5px; border-radius: 4px; font-size: 11.5px; }
+
+    /* beregnings-hierarki */
+    .hierarchy { display:flex; gap:8px; flex-wrap:wrap; margin-bottom: 18px; }
+    .h-step { font-size: 11.5px; background: var(--color-background); border: 1px solid var(--color-border); border-radius: 8px; padding: 8px 12px; flex:1; min-width: 180px; }
+    .h-step b { display:block; color: var(--brand-primary); font-size: 10px; text-transform: uppercase; letter-spacing:.5px; margin-bottom: 3px; }
+
+    /* metode-tabel */
+    table { width: 100%; border-collapse: collapse; font-size: 13.5px; }
+    th { text-align: left; font-size: 10.5px; text-transform: uppercase; letter-spacing: .5px; color: var(--gray-dark); padding: 8px 10px; border-bottom: 1px solid var(--color-border); }
+    th.num, td.num { text-align: right; font-variant-numeric: tabular-nums; }
+    td { padding: 10px; border-bottom: 1px solid #eeebe6; }
+    tr:last-child td { border-bottom: none; }
+    .dot { display:inline-block; width:10px; height:10px; border-radius:50%; margin-right: 8px; vertical-align: middle; }
+    .method-name { font-weight: 600; }
+    .cov { font-size: 12px; font-weight: 700; padding: 2px 8px; border-radius: 10px; }
+    .cov.hi { background: var(--green-light); color: var(--green); }
+    .cov.mid { background: #fdf3e0; color: #b07818; }
+    .cov.na { color: var(--gray-dark); font-weight: 400; }
+    .muted { color: var(--gray-dark); font-size: 12px; }
+    tfoot td { border-top: 2px solid var(--color-border); font-weight: 700; }
+
+    /* km-fordeling graf */
+    .bars { margin-top: 6px; }
+    .bar-row { display: grid; grid-template-columns: 130px 1fr 110px; align-items: center; gap: 12px; padding: 6px 0; font-size: 13px; }
+    .bar-track { background: var(--color-background); border-radius: 6px; height: 20px; overflow: hidden; }
+    .bar-fill { height: 100%; border-radius: 6px; display:flex; align-items:center; }
+    .bar-pct { color:#fff; font-size: 11px; font-weight: 700; padding-left: 8px; }
+    .bar-km { text-align: right; font-variant-numeric: tabular-nums; color: var(--gray-dark); font-size: 12.5px; }
+
+    /* datakvalitet */
+    .dq { display:flex; align-items:center; justify-content: space-between; background: #fdf3e0; border: 1px solid #eed9a8; border-radius: 8px; padding: 10px 14px; margin-top: 16px; font-size: 13px; }
+    .dq a { color: var(--brand-primary); font-weight: 600; }
+
+    /* ── SETTINGS-SNIPPET ──────────────────── */
+    .settings-form { display:grid; grid-template-columns: 1fr 1fr 1fr; gap: 14px; }
+    .field label { display:block; font-size: 10.5px; text-transform: uppercase; letter-spacing:.5px; color: var(--gray-dark); font-weight: 700; margin-bottom: 4px; }
+    .field input { width: 100%; border: 1px solid var(--color-border); border-radius: 6px; padding: 8px 10px; font-size: 14px; background:#fff; }
+    .field .hint { font-size: 11px; color: var(--gray-dark); margin-top: 4px; line-height: 1.4; }
+    .form-note { grid-column: 1 / -1; font-size: 12px; background: var(--color-background); border-radius: 6px; padding: 10px 12px; color: var(--gray-dark); line-height: 1.5; }
+
+    /* ── BON-KORT STRIP ────────────────────── */
+    .bon-co2 { display:flex; align-items:center; justify-content: flex-end; gap: 14px; padding: 10px 16px; font-size: 12.5px; color: var(--green); background: var(--green-light); border-radius: 8px; max-width: 460px; }
+    .bon-co2 b { font-weight: 700; }
+    .bon-co2 .sep { opacity: .4; }
+
+    /* ── MAIL-SNIPPET ──────────────────────── */
+    .mail { background:#fff; border:1px solid var(--color-border); border-radius: 8px; padding: 16px 18px; font-size: 13.5px; line-height: 1.7; max-width: 560px; }
+    .mail .var { background: var(--brand-primary-light); border-radius: 4px; padding: 0 4px; font-family: ui-monospace, monospace; font-size: 12px; }
+</style>
+</head>
+<body>
+<div class="page">
+
+    <h1>CO₂ — Overblik <span style="font-size:14px; color:var(--gray-dark); font-weight:400;">· mockup: transport indbygget</span></h1>
+    <div class="page-sub">Nye elementer markeret med <span class="badge-ny">NY</span> — resten af siden (Datakvalitet, Synonymer, CO₂ pr. opskrift) er uændret.</div>
+
+    <!-- ═══ KPI-RÆKKE ═══ -->
+    <div class="mock-label">1 · KPI-rækken — transport som eget kort, kuvert-tallet holdes rent</div>
+    <div class="kpi-row">
+        <div class="kpi" style="border-left-color:#e0a832;">
+            <div class="kpi-value">43%</div>
+            <div class="kpi-title">Dækning</div>
+            <div class="kpi-sub">46 af 108 opskrifter</div>
+        </div>
+        <div class="kpi">
+            <div class="kpi-value">10.056</div>
+            <div class="kpi-title">CO₂ mad · 12 mdr</div>
+            <div class="kpi-sub">kg CO₂e · mad + emballage</div>
+        </div>
+        <div class="kpi new">
+            <div class="kpi-value">388 <span class="badge-ny">NY</span></div>
+            <div class="kpi-title">Transport · 12 mdr</div>
+            <div class="kpi-sub">kg CO₂e · 78% af leveringer har km-data</div>
+        </div>
+        <div class="kpi">
+            <div class="kpi-value">0,33</div>
+            <div class="kpi-title">CO₂ pr. kuvert</div>
+            <div class="kpi-sub">kg CO₂e / kuvert · ekskl. transport</div>
+        </div>
+        <div class="kpi" style="border-left-color:var(--green);">
+            <div class="kpi-value">46</div>
+            <div class="kpi-title">Komplette opskrifter</div>
+            <div class="kpi-sub">med fuldt CO₂-tal</div>
+        </div>
+    </div>
+
+    <!-- ═══ TRANSPORT-SEKTION ═══ -->
+    <div class="mock-label">2 · Ny sektion — placeres mellem "CO₂ over tid" og "CO₂ pr. opskrift"</div>
+    <div class="card">
+        <h2>Transport pr. leveringsmetode <span style="font-size:12px; color:var(--gray-dark); font-weight:400;">· seneste 12 mdr</span></h2>
+        <div class="card-sub">
+            Estimeret ud fra kørte km × CO₂-faktor pr. metode. Faktorer konfigureres i <code>Settings → Leveringsmetoder</code>.
+            Afhentning tæller 0 (kundens transport er uden for scope).
+        </div>
+
+        <div class="hierarchy">
+            <div class="h-step"><b>1 · Rute beregnet</b>Faktiske rute-km (inkl. retur) × faktor — fordelt pr. stop på ruten</div>
+            <div class="h-step"><b>2 · Kun punkt-til-punkt</b>OSRM-afstand × afstands-faktor × g/km</div>
+            <div class="h-step"><b>3 · Ingen km-data</b>Fast CO₂ pr. tur (fallback pr. metode)</div>
+            <div class="h-step"><b>4 · Intet</b>0 — tælles som "mangler data"</div>
+        </div>
+
+        <table>
+            <thead>
+                <tr>
+                    <th>Metode</th>
+                    <th class="num">Leveringer</th>
+                    <th class="num">km i alt</th>
+                    <th class="num">CO₂ i alt</th>
+                    <th class="num">Gns. pr. levering</th>
+                    <th class="num">km-dækning</th>
+                </tr>
+            </thead>
+            <tbody>
+                <tr>
+                    <td><span class="dot" style="background:var(--v-volvo)"></span><span class="method-name">Volvo Duett</span></td>
+                    <td class="num">38</td>
+                    <td class="num">1.412</td>
+                    <td class="num"><b>353,0 kg</b></td>
+                    <td class="num">9,3 kg</td>
+                    <td class="num"><span class="cov hi">92%</span></td>
+                </tr>
+                <tr>
+                    <td><span class="dot" style="background:var(--v-taxa)"></span><span class="method-name">Taxa 4×35</span></td>
+                    <td class="num">41</td>
+                    <td class="num">512</td>
+                    <td class="num"><b>30,7 kg</b></td>
+                    <td class="num">749 g</td>
+                    <td class="num"><span class="cov mid">68%</span></td>
+                </tr>
+                <tr>
+                    <td><span class="dot" style="background:var(--v-byexp)"></span><span class="method-name">By-expressen</span></td>
+                    <td class="num">214</td>
+                    <td class="num">926</td>
+                    <td class="num"><b>4,6 kg</b></td>
+                    <td class="num">22 g</td>
+                    <td class="num"><span class="cov mid">74%</span></td>
+                </tr>
+                <tr>
+                    <td><span class="dot" style="background:var(--v-cykel)"></span><span class="method-name">Egen cykel</span></td>
+                    <td class="num">26</td>
+                    <td class="num">84</td>
+                    <td class="num"><b>0 kg</b></td>
+                    <td class="num">0</td>
+                    <td class="num"><span class="cov hi">88%</span></td>
+                </tr>
+                <tr>
+                    <td><span class="dot" style="background:#c9c2b8"></span><span class="method-name">Afhentning</span> <span class="muted">· uden for scope</span></td>
+                    <td class="num">156</td>
+                    <td class="num muted">—</td>
+                    <td class="num muted">0 kg</td>
+                    <td class="num muted">—</td>
+                    <td class="num"><span class="cov na">—</span></td>
+                </tr>
+            </tbody>
+            <tfoot>
+                <tr>
+                    <td>I alt (ekskl. afhentning)</td>
+                    <td class="num">319</td>
+                    <td class="num">2.934</td>
+                    <td class="num">388,3 kg</td>
+                    <td class="num"></td>
+                    <td class="num"><span class="cov mid">78%</span></td>
+                </tr>
+            </tfoot>
+        </table>
+
+        <div style="margin-top:22px;">
+            <div style="font-size:13px; font-weight:700; margin-bottom:6px;">km-fordeling</div>
+            <div class="bars">
+                <div class="bar-row">
+                    <span><span class="dot" style="background:var(--v-volvo)"></span>Volvo Duett</span>
+                    <div class="bar-track"><div class="bar-fill" style="width:48%; background:var(--v-volvo);"><span class="bar-pct">48%</span></div></div>
+                    <span class="bar-km">1.412 km</span>
+                </div>
+                <div class="bar-row">
+                    <span><span class="dot" style="background:var(--v-byexp)"></span>By-expressen</span>
+                    <div class="bar-track"><div class="bar-fill" style="width:32%; background:var(--v-byexp);"><span class="bar-pct">32%</span></div></div>
+                    <span class="bar-km">926 km</span>
+                </div>
+                <div class="bar-row">
+                    <span><span class="dot" style="background:var(--v-taxa)"></span>Taxa 4×35</span>
+                    <div class="bar-track"><div class="bar-fill" style="width:17%; background:var(--v-taxa);"><span class="bar-pct">17%</span></div></div>
+                    <span class="bar-km">512 km</span>
+                </div>
+                <div class="bar-row">
+                    <span><span class="dot" style="background:var(--v-cykel)"></span>Egen cykel</span>
+                    <div class="bar-track"><div class="bar-fill" style="width:3%; background:var(--v-cykel);"><span class="bar-pct" style="padding-left:4px;">3%</span></div></div>
+                    <span class="bar-km">84 km</span>
+                </div>
+            </div>
+        </div>
+
+        <div class="dq">
+            <span>⚠ <b>87 leveringer mangler km-data</b> — beregnet med fast fallback pr. tur (geodata-backfill er et separat projekt)</span>
+            <a href="#">Åbn leveringsmodul →</a>
+        </div>
+    </div>
+
+    <!-- ═══ SETTINGS ═══ -->
+    <div class="mock-label">3 · Settings → Leveringsmetoder → Rediger — tre nye felter (under Cost-formel)</div>
+    <div class="card">
+        <h2 style="font-size:14px;">🌱 CO₂-beregning</h2>
+        <div class="card-sub">Bruges af CO₂-oversigten, bon-kort og kundemails.</div>
+        <div class="settings-form">
+            <div class="field">
+                <label>CO₂-faktor (g CO₂e / km)</label>
+                <input type="number" value="5">
+                <div class="hint">Fx Volvo 250 · el-taxa 60 · cykelbud 5</div>
+            </div>
+            <div class="field">
+                <label>Fast CO₂ pr. tur (g) — fallback</label>
+                <input type="number" value="25">
+                <div class="hint">Bruges når leveringen ikke har km-data</div>
+            </div>
+            <div class="field">
+                <label>Afstands-faktor</label>
+                <input type="number" value="1,0" step="0.1">
+                <div class="hint">Kun punkt-til-punkt: Volvo 2,0 (tur/retur) · bud 1,0 (kun ud)</div>
+            </div>
+            <div class="field">
+                <label>Positionerings-tillæg (km)</label>
+                <input type="number" value="0" step="0.1">
+                <div class="hint">Eksterne bud starter ikke fra HQ: km fra leverandørens base → HQ, lagt oveni hver tur. Egne vogne = 0.</div>
+            </div>
+            <div class="form-note">
+                <b>Bemærk:</b> Når leveringen ligger på en beregnet rute i leveringsmodulet, bruges rutens faktiske km (inkl. retur) og afstands-faktoren ignoreres. Rutens samlede CO₂ fordeles på stoppene. Positionerings-tillægget gælder kun eksterne bud (By-expressen, Taxa), der positionerer fra egen base til HQ før afhentning.
+            </div>
+        </div>
+    </div>
+
+    <!-- ═══ BON-KORT ═══ -->
+    <div class="mock-label">4 · Bon-kortets CO₂-strip — udvidet</div>
+    <div class="bon-co2">
+        <span>🌱</span>
+        <span>Mad <b>4,32 kg</b></span>
+        <span class="sep">·</span>
+        <span>Transport <b>0,9 kg</b> <span style="opacity:.7">(By-expressen)</span></span>
+        <span class="sep">·</span>
+        <span>I alt <b>5,2 kg CO₂e</b></span>
+    </div>
+
+    <!-- ═══ MAIL ═══ -->
+    <div class="mock-label">5 · Mail-skabelon — nye variabler: <code style="font-size:11px;">{{co2Transport}}</code> · <code style="font-size:11px;">{{co2MedTransport}}</code> · <code style="font-size:11px;">{{leveringsMetode}}</code></div>
+    <div class="mail">
+        Levering: <span class="var">{{leveringsMetode}}</span> → <i>Cykelbud (By-expressen)</i><br>
+        CO₂-aftryk for din bestilling: <span class="var">{{co2MedTransport}}</span> → <i>5,2 kg CO₂e</i><br>
+        &nbsp;&nbsp;— heraf transport: <span class="var">{{co2Transport}}</span> → <i>0,9 kg (leveret med cykelbud)</i><br>
+        <span style="font-size:12px; color:var(--gray-dark);">Eksisterende <span class="var">{{co2Total}}</span> forbliver mad + emballage — ingen breaking change i gemte skabeloner.</span>
+    </div>
+
+</div>
+</body>
+</html>

@@ -234,6 +234,7 @@ function createCard(bonData, viewName) {
 
         ${mods.prep && bonData.prep ? _buildPrep(bonData.prep, num) : ''}
         ${customerHtml}
+        ${_buildKitchenFlags(bonData)}
         ${mods.kitchenInfo ? _buildKitchenInfo(bonData, num) : ''}
         ${mods.alerts && bonData.alerts && bonData.alerts.length ? _buildAlerts(bonData.alerts) : ''}
 
@@ -290,6 +291,20 @@ function _buildPrep(prepItems, num) {
             ${p.label}
         </div>`).join('');
     return `<div class="bon-prep">${badges}</div>`;
+}
+
+/**
+ * Køkken-synlige kunde-/firma-påmindelser (read-only strip). Kun når der er nogen.
+ * Kontoret styrer livscyklus i draweren — køkkenet ser blot påmindelsen.
+ */
+function _buildKitchenFlags(bonData) {
+    const flags = bonData.kitchen_flags;
+    if (!flags || !flags.length) return '';
+    const e = (typeof esc === 'function' ? esc : (s) => s);
+    const rows = flags.map(f =>
+        `<div class="bon-paamindelse-item">📌 <span class="bon-paamindelse-title">${e(f.title)}</span>${f.body ? `<span class="bon-paamindelse-body">${e(f.body)}</span>` : ''}</div>`
+    ).join('');
+    return `<div class="bon-paamindelse" title="Påmindelse fra kontoret">${rows}</div>`;
 }
 
 function _buildCustomer(c, num, bonDataForDelivery, contextClass) {
@@ -547,15 +562,23 @@ function _buildMenuItem(item, num) {
         </div>`;
 }
 
-function _buildCo2(co2str) {
-    return `
-        <div class="bon-co2">
-            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+function _buildCo2(co2) {
+    const leaf = `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
                 <path d="M12 2a10 10 0 100 20A10 10 0 0012 2z"/>
                 <path d="M8 12s1-3 4-3 4 3 4 3-1 3-4 3-4-3-4-3z"/>
-            </svg>
-            <span class="bon-co2-value">${co2str}</span>
-        </div>`;
+            </svg>`;
+    // Bagudkompatibelt: string → simpel visning. Objekt → 3-delt (mad · transport · i alt).
+    if (co2 && typeof co2 === 'object') {
+        const fmt = (kg) => Number(kg || 0).toLocaleString('da-DK', { minimumFractionDigits: 1, maximumFractionDigits: 1 }) + ' kg';
+        const hasTransport = co2.transport_kg != null && co2.transport_source && co2.transport_source !== 'none';
+        const total = (Number(co2.food_kg) || 0) + (hasTransport ? Number(co2.transport_kg) || 0 : 0);
+        const method = hasTransport && co2.method ? ` <span class="bon-co2-method">(${co2.method})</span>` : '';
+        const parts = [`Mad <b>${fmt(co2.food_kg)}</b>`];
+        if (hasTransport) parts.push(`Transport <b>${fmt(co2.transport_kg)}</b>${method}`);
+        parts.push(`I alt <b>${fmt(total)} CO₂e</b>`);
+        return `<div class="bon-co2">${leaf}<span class="bon-co2-value">${parts.join(' <span class="bon-co2-sep">·</span> ')}</span></div>`;
+    }
+    return `<div class="bon-co2">${leaf}<span class="bon-co2-value">${co2}</span></div>`;
 }
 
 function _buildSummaryPanel(num, cardId) {

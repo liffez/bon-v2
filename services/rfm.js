@@ -610,6 +610,16 @@ function getReactivationCandidates(db) {
               WHERE a.created_at >= date('now', ?)
                 AND cu2.company_id IS NOT NULL
           )
+          -- "🙈 Skjul" fra Ringeliste-Sovende-fanen (snooze type 'reaktivering',
+          --  keyet på kunde → udeluk firmaet)
+          AND s.company_id NOT IN (
+              SELECT DISTINCT cu3.company_id
+              FROM crm_suggestion_snoozes sz
+              JOIN customers cu3 ON cu3.id = sz.customer_id
+              WHERE sz.type = 'reaktivering'
+                AND sz.snoozed_until > datetime('now')
+                AND cu3.company_id IS NOT NULL
+          )
         ORDER BY potential_score DESC
         LIMIT 100
     `).all(cfg.min_orders, cfg.recency_days, quarantineModifier);

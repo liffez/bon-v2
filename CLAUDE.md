@@ -2465,6 +2465,89 @@ fra `.csv`-fil eller indsat direkte fra Excel/Google Sheets.
   uafhængigt (`#cfInvRows` max-height).
 - **Tests:** `scripts/test-cashflow-sync.js` 49/0 (cfCategorize-regler + bookedSet-genkendelse + matchByEconomicNumber).
 
+### CRM-triks — Ringeliste + fælles worklist-komponent (#229 + #230 + #228, 6. juli 2026)
+> Epic #232. Spec: `docs/CLAUDE_CRM_TRIKS.md`. Lav-friktions "top-of-mind"-ringekøer oven på
+> den eksisterende suggestions-motor. Bygger videre på det allerede leverede (PR #226/#233:
+> review_ask, `interleaveSuggestions` round-robin, snooze, outcome-måling).
+
+Forretningsdrevet: "ring til folk efter ferien" — dedikerede lister der viser HVEM man skal
+ringe til, i stedet for max-8 kort blandet ind i digest-feeden.
+
+- **Data-tjek før build** (mod ægte dev-data): sæson **120** kunder, rytme **21** (afgrænset
+  1,3×–3×), sovende 13. Anbefaling 0 i dev (forventet — kræver friske servicekald-stemninger,
+  fylder sig selv i drift). Grønt lys — arbejdsbare lister, ingen tom/900-rækkers.
+- **#229 — `shared/crm_worklist.js`** (fundament): instans-baseret factory `CrmWorklist.create(cfg)`.
+  Én worklist = kort med navn·meta·opener·**Ring/Log/Profil/🙈 Skjul** + inline log-formular
+  (resultat+stemning+note → `postCrmActivity` med purpose_id) + `ListCampaignSelect` (cherry-pick)
+  + "📣 Opret kampagne af listen" + SSE-debounced reload. Snooze indbygget (kalder
+  `snoozeSuggestion({customer_id, type: key})`). Generaliseret fra `crm-dashboard.js`-mønstret
+  (kort/log/outcome) — IKKE en klon af `crm-reaktivering.js`.
+- **Fanebaseret shell** `office/views/crm-ringeliste.js`: ÉT view med faner (Sæson · Fast rytme,
+  + plads til flere) — beslutning: ét "Ringeliste"-sted frem for N sidebar-pills, så det skalerer.
+  Monterer/afmonterer worklist-instanser ved fane-skift, husker fane i localStorage.
+- **Backend** (`routes/crm.js`): `GET /api/crm/season` + `/rytme` — fulde lister (forfremmelse af
+  `season_reminder`/`overdue_customer`-forslagene, UDEN LIMIT), med **snooze-filter server-side**
+  (`NOT EXISTS crm_suggestion_snoozes` pr. type). Rytme har øvre grænse ×3 så reelt sovende falder
+  til dormant-flowet. Snooze er type-isoleret (season-snooze skjuler ikke i rytme).
+- **`routes/campaigns.js`**: `POST /from-suggestion` udvidet fra kun `dormant` til
+  `['dormant','seasonal','rytme']` — kandidat-query pr. type i en switch, consent/DNC/dedup-loopet
+  genbrugt uændret. `shared/api.js`: `fetchCrmSeason` + `fetchCrmRytme`.
+- **#228 — Fase 5: kold tilbudsopfølgning** (3. fane "Kolde tilbud"): `GET /api/crm/cold-offers` —
+  tilbud der ER udløbet uden konvertering (`is_offer=1`, `offer_status='sent'`, `offer_valid_until < nu`,
+  inden for sidste år). Modstykke til det fremadrettede `expiring_offer`-forslag. **Bon-centreret:**
+  dedupe pr. TILBUD (`crm_activities.bon_id` + purpose `tilbud_opfoelgning`), så opfølgning på ét tilbud
+  ikke skjuler kundens øvrige kolde tilbud. Komponenten fik valgfri `getBonId(row)` → logger opfølgning
+  med `bon_id`. `campaignType: null` (per-tilbud, ikke bulk). Snooze type `cold_offer` (kunde-niveau).
+- **Migration 123**: `fast_rytme`-purpose. **Migration 124**: `tilbud_opfoelgning`-purpose
+  (`saesonoutreach` fra 048 genbruges af sæson).
+- `office/index.html`: pill "Ringeliste" (2. plads under CRM) + view-registrering + SECTION_VIEW_MAP
+  + titel + SSE-forwarding (`_ringeHandleSSE` på crm_activity_created/crm_stage_changed/rfm_computed).
+- **Tests (55 asserts grønne):** `scripts/test-crm-ringeliste.js` (24 — /season + /rytme + /cold-offers
+  detektion + snooze + type-isolation + per-tilbud-dedupe), `tests/campaigns_from_suggestion.test.js`
+  udvidet 14→20 (seasonal+rytme HTTP-cases). `scripts/test-crm-review.js` uændret 25/0 (ingen regression).
+- **Browser-verificeret** end-to-end (kopi af prod-data, dev-DB urørt): alle tre faner renderer korrekt,
+  fane-skift, snooze 21→20 med server-side filter, kold tilbud vist via syntetisk seed. Migration 123+124 kørte rent.
+- **4. fane "Sovende"** (7. juli 2026): re-aktiverings-listen flyttet ind i Ringelisten oven på den
+  delte komponent — nav-punktet "Re-aktivering" (`reakt`-pill) fjernet, så Ringelisten samler
+  Sæson · Fast rytme · Sovende · Kolde tilbud ét sted. **Prospekter forbliver separat** (kold
+  akkvisition — anden aktivitet end at ringe eksisterende kunder). Komponenten fik to valgfri hooks:
+  `buildExtra(row)` (RFM R/F/M + potentiale i kortet) + `renderControls(el,{meta,reload})` (data-afhængig
+  min-ordrer/karantæne-config-bar, fokus-vagtet). `services/rfm.js` `getReactivationCandidates` fik
+  snooze-filter (type `reaktivering`, firma-niveau) så "🙈 Skjul" virker. Config-knapperne (kun
+  redigerbare i det gamle view) bevaret i fanen. Ingen ny migration (genbruger `re_aktivering`-purpose +
+  `crm_suggestion_snoozes`). Tests: `scripts/test-reactivation.js` +4 snooze-cases (19/0). Verificeret via
+  headless render-shim (13/0 — buildExtra/renderControls/meta-stier) + endpoint (56 rows + config).
+- **Bevidst udeladt:** `#231` (jubilæum) parkeret (CVR-stiftelsesdato + consent). Epic #232 er dermed
+  færdig på nær #231. Den gamle `office/views/crm-reaktivering.js` er ikke slettet (stadig loadbar via
+  `switchView('crm-reaktivering')` for bagudkompat) men er ude af nav'en — kan ryddes senere.
+
+### Event-modul: Info-panel + vedhæftninger + nøgletal på én linje (PR #287, 7. juli 2026)
+
+Driftsønske: et sted i event-modulet hvor der kan skrives fri info ind, og mulighed for at
+vedhæfte filer (kort, billeder, PDF) til eventet. Plus en throwaway prep-estimat-prototype fra
+`docs/CLAUDE_EVENT.md` §15-drøftelsen.
+
+- **Info på event-overblikket** ([office/views/events.js](office/views/events.js)): `events.notes`
+  gjort synligt + inline-redigerbart (auto-gem via `PATCH /api/events/:id` → changelog → SSE;
+  `_evHandleSSE`-guarden forhindrer re-render mens feltet har fokus). **Sammenklappelig** —
+  én linje med preview af noten når lukket, folder ud til multi-linje redigering. Nøgletallene
+  (P&L-strip) forbliver **øverst**; info + vedhæftninger ligger i en kompakt værktøjs-række under.
+- **Vedhæftninger** (kort/billeder/PDF/dokumenter): genbruger den polymorfe `attachments`-tabel
+  med `entity_type='event'` — **ingen migration**. Filer under `data/attachments/event/<id>/`.
+  Nye endpoints i [routes/attachments.js](routes/attachments.js): liste (`GET /api/attachments?entity_type=&entity_id=`),
+  slet (`DELETE /:id`), inline-visning (`GET /:id/inline`, content-type udledt af filendelse).
+  Upload/download fandtes i forvejen. **UI:** pille med antal-badge → popover med liste
+  (hent/åbn i ny fane/slet), luk ved klik udenfor/Escape. MIME-validering (PDF/billeder/Office)
+  + 10 MB arvet fra upload-endpointet. `shared/api.js`: `fetchAttachments`, `deleteAttachment`,
+  `attachmentInlineUrl`.
+- **Nøgletal på én linje** ([office/views/events.css](office/views/events.css)): P&L-strippens grid
+  rettet fra `repeat(6,1fr)` til `repeat(7,1fr)` — CO₂e-cellen faldt tidligere ned på egen række.
+- **Prep-estimat-prototype** (`scripts/prep-estimate.js`, §15): throwaway beregner (per-enhed +
+  per-batch, §15.2-rater i rettbar blok, flagger UKENDTE rater). **Ikke wired ind i noget** — til
+  kalibrering før vi beslutter datamodel/granularitet for prep-tid-modellen.
+- **Bevidst udeladt:** prep-tid-modellen (§15) er stadig kun design-noter + prototype; dags-ratio-
+  eksklusionen (§15.3 pkt. 4) holdt adskilt. Browser-verificeret end-to-end + godkendt i drift.
+
 ## Næste opgave
 
 > ✏️ Tracker-oprydning 29. juni 2026 — koden er på migration 119; status-sektionen ovenfor
@@ -3147,3 +3230,5 @@ Body-klasse: `zone-kitchen` eller `zone-office` — styrer touch vs. desktop den
 *19. maj 2026 (delivery popout) — Bud-bestillings-modal erstattet med separat popup-vindue (`/delivery/note/:bon_id`). Migration 071 tilføjer `delivery_vehicles.booking_fields_json` med felt-array hvor hvert felt er en mini-template med `{variabel}`-syntaks. `services/booking_template.js` udvidet med `_renderWithMeta()` + `renderFields()`. `buildBookingPayload` returnerer nu `fields` array. Ny route `routes/delivery_views.js` serverer popout-HTML. `views/delivery/note.{html,css,js}` er standalone side med klikbare felt-chips, step-grouping (By-expressens Lobo-trin), SSE-live-opdatering, sticky header/footer, popup-blocked-fallback. Settings → Leveringsmetoder har felt-editor med ▲▼ reorder + variabel-chip-target switch til fokuseret felt-template. Den gamle `shared/manual_booking_modal.{js,css}` er slettet. 84/84 unit tests grønne. Spec: `docs/CLAUDE_DELIVERY_POPOUT.md`.*
 
 *20. maj 2026 (Delivery Spor 2 — S2.0 + S2.1) — Vej-routing via OpenRouteService + DAWA-geokodning. Migration 073 (`delivery_routes`/`delivery_route_stops`/`delivery_incidents` + `geo_calculations` genskabt med nullable `bon_id`). Nye services: `routing.js` (ORS-wrapper m. afstands-cache), `geocode.js` (DAWA), `delivery_calc.js` (single-bon forslag), `route_planner.js` (computeRoute/applyRouteProposal). `routes/delivery.js` udvidet med `/calculate`, `/health` + 11 rute-endpoints. `office/views/logistik.js`+`.css` — leveringsoversigten (erstatter placeholderen). Constraint-forslag i bon-draweren. Constraint-princip: brud er advarsler, aldrig spærringer — office bestemmer. 143 delivery-tests grønne. Bevidst udskudt: Leaflet-kort, rute-popout-booking, `/history`. Spec: `docs/delivery/CLAUDE_DELIVERY_SPOR2.md`.*
+
+*5. juli 2026 (#251 — re-baseline af Grocy-live test-tracks) — Opfølgning på PR #248 (deterministiske tracks). De 11 Grocy-afhængige tracks re-baselinet mod nuværende kode + live grocytest via fuld procedure pr. track (kill port 4322 → `test:reset` → `test:snapshot` → `test:patch` → frisk `test:server` → track). **Resultat: 392 PASS · 3 FAIL · 5 SKIP.** 10 tracks fuldt grønne og matcher deres dokumenterede baseline præcist — **ingen stale fixtures at rette, ingen ægte produkt-bugs** (modsat #248's ~12 stale assertions). T_GROCY 14/16, T_STOCK 31/31, T_RECIPES 20/20, T_INDKOB_LISTE 38/39, T_INDKOB_SETUP 47/47, T_INDKOB_ADMIN 50/50, T_INDKOB_HORKRAM 54/56, T_VAREMOD_PATCH 26/26, T_VAREMODTAGELSE_FULL 67/67, T_OPSKRIFTER 35/35. De 3 FAIL er alle i **T_INVENTORY (10/13)** og er miljø-betinget — ikke regression: fem grocytest-produkter er udtømt til ~0 lager (pid 16 Kylling-BBQ, 28 Spinat, 33 Rødløg-Sylt, 48 Mayo-Vegansk, 72 Transport Kasser), så `consume` ikke har noget at trække fra ("fik 0"). Consume-logikken bekræftet virksom af T_GROCY/T_STOCK/T_VAREMODTAGELSE_FULL (alle muterer Grocy-lager, alle grønne). 10/13 = accepteret baseline (grocytest-lager toppes IKKE op unilateralt). Spec §41 kræver tilstrækkelig stock som precondition.*

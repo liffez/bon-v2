@@ -129,6 +129,12 @@ async function _rvLoadData() {
         _rvRenderGroupChips();
         _rvFilterRecipes();
 
+        // Deep-link: ?recipe=ID åbner opskriften direkte (fx fra CO₂-rapporten).
+        try {
+            var _rvDeep = parseInt(new URLSearchParams(window.location.search).get('recipe'), 10);
+            if (_rvDeep && _rvRecipeMap[_rvDeep]) _rvOpenRecipe(_rvDeep, false);
+        } catch (_e) { /* ignore */ }
+
     } catch (err) {
         _rvContainer.innerHTML = '<div class="rv-alert rv-alert-error">Fejl ved hentning af data: ' + esc(err.message) + '</div>';
     }

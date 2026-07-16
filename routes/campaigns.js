@@ -753,15 +753,14 @@ router.post('/from-suggestion', handle((req, res) => {
         owner_user_id, assigned_user_id,
     } = req.body || {};
 
-    if (type !== 'dormant') {
-        return res.status(400).json({ error: 'unsupported_type', message: 'kun "dormant" understøttes pt.' });
+    const SUPPORTED_TYPES = ['dormant', 'seasonal', 'rytme'];
+    if (!SUPPORTED_TYPES.includes(type)) {
+        return res.status(400).json({ error: 'unsupported_type', message: `kun ${SUPPORTED_TYPES.join(', ')} understøttes` });
     }
     if (!campaign_name || !String(campaign_name).trim()) {
         return res.status(400).json({ error: 'campaign_name_required' });
     }
 
-    const minDays = parseInt(filter?.days_since_last) || 180;
-    const minRevenue = parseFloat(filter?.min_total_revenue) || 0;
     const name = String(campaign_name).trim();
 
     // 1. Tjek for navn-konflikter (samme regler som POST /api/campaigns)
@@ -779,23 +778,77 @@ router.post('/from-suggestion', handle((req, res) => {
         });
     }
 
-    // 2. Hent dormant-kandidater (samme logik som GET /api/crm/dormant)
-    // + total_revenue-filter + jura-data (consent, DNC)
-    const candidates = db.prepare(`
-        SELECT c.id AS customer_id, c.company_id, c.first_name, c.last_name,
-               MAX(b.delivery_date) AS last_order_date,
-               CAST(julianday('now') - julianday(MAX(b.delivery_date)) AS INTEGER) AS days_since,
-               COUNT(b.id) AS total_orders,
-               COALESCE(SUM(b.total_price), 0) AS total_revenue,
-               cm.marketing_consent, cm.do_not_contact
-          FROM customers c
-     LEFT JOIN crm_customer_meta cm ON cm.customer_id = c.id
-     LEFT JOIN bons b ON b.customer_id = c.id AND b.is_internal = 0 AND (b.is_offer = 0 OR b.is_offer IS NULL)
-         WHERE c.is_active = 1
-      GROUP BY c.id
-        HAVING days_since > ?
-           AND total_revenue >= ?
-    `).all(minDays, minRevenue);
+    // 2. Hent kandidater efter type. Hver gren returnerer SAMME kolonner
+    // (customer_id, company_id, marketing_consent, do_not_contact) så consent/DNC/
+    // dedup-loopet nedenfor er uændret uanset trik.
+    let candidates;
+    let defaultDesc;
+
+    if (type === 'dormant') {
+        const minDays = parseInt(filter?.days_since_last) || 180;
+        const minRevenue = parseFloat(filter?.min_total_revenue) || 0;
+        candidates = db.prepare(`
+            SELECT c.id AS customer_id, c.company_id,
+                   COALESCE(SUM(b.total_price), 0) AS total_revenue,
+                   cm.marketing_consent, cm.do_not_contact
+              FROM customers c
+         LEFT JOIN crm_customer_meta cm ON cm.customer_id = c.id
+         LEFT JOIN bons b ON b.customer_id = c.id AND b.is_internal = 0 AND (b.is_offer = 0 OR b.is_offer IS NULL)
+             WHERE c.is_active = 1
+          GROUP BY c.id
+            HAVING CAST(julianday('now') - julianday(MAX(b.delivery_date)) AS INTEGER) > ?
+               AND total_revenue >= ?
+        `).all(minDays, minRevenue);
+        defaultDesc = `Auto-genereret reaktivering · ${minDays}+ dage uden ordre · min ${Math.round(minRevenue)} kr omsætning`;
+
+    } else if (type === 'seasonal') {
+        // Bestilte på denne tid sidste år, intet de sidste 60 dage. Samme detektion
+        // som GET /api/crm/season, men returnerer kun consent-kolonnerne.
+        candidates = db.prepare(`
+            SELECT c.id AS customer_id, c.company_id,
+                   cm.marketing_consent, cm.do_not_contact
+              FROM customers c
+              JOIN bons b1 ON b1.customer_id = c.id
+                          AND b1.is_internal = 0 AND (b1.is_offer = 0 OR b1.is_offer IS NULL)
+         LEFT JOIN crm_customer_meta cm ON cm.customer_id = c.id
+             WHERE c.is_active = 1
+               AND b1.delivery_date BETWEEN date('now','-14 months') AND date('now','-10 months')
+               AND NOT EXISTS (
+                   SELECT 1 FROM bons b2
+                    WHERE b2.customer_id = c.id AND b2.is_internal = 0
+                      AND b2.delivery_date > date('now','-60 days')
+               )
+          GROUP BY c.id
+        `).all();
+        defaultDesc = 'Sæson-gentagelse · bestilte på denne tid sidste år';
+
+    } else { // rytme
+        // Fast rytme (≥5 ordrer), forsinket ift. eget snit — men ikke så længe væk
+        // at de er reelt sovende (det dækker dormant-typen). Samme øvre grænse ×3
+        // som GET /api/crm/rytme.
+        const mult = parseFloat(filter?.interval_multiplier) || 1.3;
+        candidates = db.prepare(`
+            SELECT c.id AS customer_id, c.company_id,
+                   cm.marketing_consent, cm.do_not_contact
+              FROM customers c
+         LEFT JOIN crm_customer_meta cm ON cm.customer_id = c.id
+              JOIN (
+                  SELECT b1.customer_id,
+                         CAST(julianday('now') - julianday(MAX(b1.delivery_date)) AS INTEGER) AS days_since,
+                         ROUND(CAST(julianday(MAX(b1.delivery_date)) - julianday(MIN(b1.delivery_date)) AS REAL)
+                               / NULLIF(COUNT(*) - 1, 0), 0) AS avg_interval
+                    FROM bons b1
+                   WHERE b1.is_internal = 0
+                GROUP BY b1.customer_id
+                  HAVING COUNT(*) >= 5
+              ) o ON o.customer_id = c.id
+             WHERE c.is_active = 1
+               AND o.avg_interval > 0
+               AND o.days_since > o.avg_interval * ?
+               AND o.days_since < o.avg_interval * 3
+        `).all(mult);
+        defaultDesc = `Faste-rytme-nudge · forsinket >${mult}× eget bestillingssnit`;
+    }
 
     if (candidates.length === 0) {
         return res.status(400).json({ error: 'no_candidates', message: 'Ingen kunder matcher filteret.' });
@@ -813,7 +866,7 @@ router.post('/from-suggestion', handle((req, res) => {
                 VALUES (?, ?, ?, ?)
             `).run(
                 name,
-                description || `Auto-genereret reaktiverings-kampagne · ${minDays}+ dage uden ordre · min ${Math.round(minRevenue)} kr omsætning`,
+                description || defaultDesc,
                 owner_user_id || userId,
                 null,
             );
@@ -821,7 +874,7 @@ router.post('/from-suggestion', handle((req, res) => {
             logChange({
                 entityType: 'outreach_campaign', entityId: campaignId,
                 action: 'create',
-                newValue: JSON.stringify({ name, source: 'from_suggestion', type, filter: { minDays, minRevenue } }),
+                newValue: JSON.stringify({ name, source: 'from_suggestion', type, filter: filter || null }),
                 userId,
             });
 

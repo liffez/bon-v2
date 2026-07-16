@@ -65,10 +65,11 @@ function _dashWireDelegatedClicks() {
         const target = e.target.closest('[data-customer-id], [data-bon-id], [data-goto]');
         if (!target || !_dashContainer.contains(target)) return;
 
-        // Customer → CRM Kunde 360°
+        // Customer → CRM Kunde 360° (ktab='activity' fra opfølgninger → Planlagt-blok synlig)
         const cid = target.dataset.customerId;
         if (cid && typeof window.openKunde360 === 'function') {
-            window.openKunde360(cid);
+            const ktab = target.dataset.ktab;
+            window.openKunde360(cid, ktab ? { tab: ktab } : undefined);
             return;
         }
 
@@ -347,6 +348,14 @@ function _dashRenderShell() {
             }
             .od-cb-badge.urgent { background: var(--color-sentiment-neg-bg, #FBE9E9); color: var(--color-sentiment-neg, #C94040); }
             .od-cb-badge.today  { background: var(--color-sentiment-neu-bg, #FBF3E2); color: var(--color-sentiment-neu, #C8962A); }
+            /* Mine opfølgninger (kompakt) — matcher CRM-dashboardet */
+            .od-fu-meta { display: flex; flex-direction: column; align-items: flex-end; gap: 2px; flex-shrink: 0; }
+            .od-fu-kilde { padding: 1px 7px; border-radius: 9px; font-size: 9px; font-weight: 700; white-space: nowrap; }
+            .od-fu-kilde.planlagt { background: var(--color-sentiment-neu-bg, #FBF3E2); color: var(--color-sentiment-neu, #C8962A); }
+            .od-fu-kilde.service  { background: #e0ecf5; color: #2a6fb0; }
+            .od-fu-time { font-size: 10px; font-weight: 700; color: var(--color-text-dim, #888); white-space: nowrap; }
+            .od-fu-time.overdue { color: var(--color-sentiment-neg, #C94040); }
+            .od-fu-time.overdue::before { content: "⚑ "; }
 
             .od-act-item {
                 display: flex; align-items: flex-start; gap: 10px;
@@ -464,10 +473,10 @@ function _dashRenderShell() {
                     </a>
                     <div class="od-card-body" style="padding:6px 10px;overflow-y:auto;" id="od-prep-body"><div class="od-loading">Henter...</div></div>
                 </div>
-                <!-- CRM: Ring tilbage -->
+                <!-- CRM: Mine opfølgninger -->
                 <div class="od-card" style="flex-shrink:0;">
                     <a class="od-card-head" href="?view=crm-dashboard" style="cursor:pointer;text-decoration:none;color:inherit;">
-                        📞 Ring tilbage
+                        🔔 Mine opfølgninger
                         <span class="od-head-arrow">→</span>
                     </a>
                     <div class="od-card-body" id="od-crm-callbacks" style="padding:8px 12px;max-height:160px;overflow-y:auto;">
@@ -897,11 +906,11 @@ const _CB_AVATAR_COLORS = ['av-green', 'av-gold', 'av-gray'];
 async function _dashLoadCRM() {
     if (!_dashActive) return;
     try {
-        const [callbacks, callLog] = await Promise.all([
-            fetchCrmCallbacks(),
+        const [followups, callLog] = await Promise.all([
+            fetchCrmFollowups(),
             fetchCrmCallLog({ limit: 8 }),
         ]);
-        _dashRenderCallbacks(callbacks);
+        _dashRenderFollowups(followups);
         _dashRenderActivityFeed(Array.isArray(callLog) ? callLog : (callLog.rows || []));
     } catch (e) {
         console.error('[dashboard] CRM load:', e);
@@ -910,29 +919,42 @@ async function _dashLoadCRM() {
     }
 }
 
-function _dashRenderCallbacks(data) {
+// Mine opfølgninger (kompakt) — samme datakilde (/followups) som CRM-dashboardet,
+// så de to lister stemmer overens. Forfaldne først, møder + fremtidige ikke med.
+function _dashRenderFollowups(data) {
     const el = document.getElementById('od-crm-callbacks');
     if (!el) return;
-    const items = Array.isArray(data) ? data : (data.callbacks || []);
+    const items = (data && data.followups) || (Array.isArray(data) ? data : []);
     if (!items.length) {
-        el.innerHTML = '<div class="od-crm-empty">Ingen ventende callbacks</div>';
+        el.innerHTML = '<div class="od-crm-empty">Ingen opfølgninger i dag 🎉</div>';
         return;
     }
-    el.innerHTML = items.slice(0, 5).map((c, i) => {
-        const name = c.customer_name || c.name || 'Ukendt';
+    const esc = (typeof escapeHtml === 'function') ? escapeHtml : (s) => s;
+    el.innerHTML = items.slice(0, 6).map((f, i) => {
+        const name = f.name && f.name.trim() ? f.name.trim() : 'Ukendt';
         const init = name.charAt(0).toUpperCase();
         const avClass = _CB_AVATAR_COLORS[i % _CB_AVATAR_COLORS.length];
-        const badgeClass = (c.attempts || 0) >= 3 ? 'urgent' : 'today';
-        const badgeText = (c.attempts || 0) >= 3 ? 'Svarer ikke' : 'Ringes';
-        const cid = c.customer_id || c.id || '';
-        const clickableAttrs = cid ? `class="od-cb-item od-clickable" data-customer-id="${cid}" title="Åbn kunde i CRM"` : 'class="od-cb-item"';
+        const isService = f.kilde === 'service';
+        const due = (typeof plannedFmtDue === 'function') ? plannedFmtDue(f.due_at) : { label: f.due_at || '', overdue: false };
+        // Callbacks har ingen due_at → vis alder, ellers ser en gammel ud som ny
+        const age = (typeof plannedFmtAge === 'function') ? plannedFmtAge(f.age_days, f.created_at) : { label: '', stale: false };
+        const timeLabel = due.label || (isService ? (age.label || 'ring tilbage') : '');
+        const isStale = !due.label && age.stale;
+        const kildeBadge = isService
+            ? '<span class="od-fu-kilde service">Service</span>'
+            : '<span class="od-fu-kilde planlagt">Planlagt</span>';
+        const cid = f.customer_id || '';
+        const clickableAttrs = cid ? `class="od-cb-item od-clickable" data-customer-id="${cid}" data-ktab="activity" title="Åbn kundekort"` : 'class="od-cb-item"';
         return '<div ' + clickableAttrs + '>' +
             '<div class="od-cb-av ' + avClass + '">' + init + '</div>' +
             '<div class="od-cb-info">' +
-                '<div class="od-cb-name">' + name + '</div>' +
-                (c.company_name ? '<div class="od-cb-company">' + c.company_name + '</div>' : '') +
+                '<div class="od-cb-name">' + esc(name) + '</div>' +
+                (f.company_name ? '<div class="od-cb-company">' + esc(f.company_name) + '</div>' : '') +
             '</div>' +
-            '<span class="od-cb-badge ' + badgeClass + '">' + badgeText + '</span>' +
+            '<div class="od-fu-meta">' +
+                kildeBadge +
+                '<span class="od-fu-time' + (due.overdue || isStale ? ' overdue' : '') + '">' + esc(timeLabel) + '</span>' +
+            '</div>' +
         '</div>';
     }).join('');
 }

@@ -292,11 +292,12 @@ async function runValidationCases() {
         }
     }
 
-    // VAL_03: tom items[] → 400
+    // VAL_03: tom items[] → 200 (varefri fødevarekontrol-registrering er tilladt;
+    // tidligere 400 — ændret så ad-hoc leverancer kan registreres uden varelinjer).
     {
         const r = await api('POST', '/api/goods-receipts',
             basePayload({ items: [] }));
-        if (r.status === 400) {
+        if (r.status === 200 && r.body?.id) {
             record('T_VAREMOD_VAL_03', 'VAL', 'PASS');
         } else {
             record('T_VAREMOD_VAL_03', 'VAL', 'FAIL', `status=${r.status}`);

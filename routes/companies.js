@@ -91,11 +91,18 @@ router.patch('/:id/identifiers', handle((req, res) => {
     const id = parseInt(req.params.id, 10);
     if (!Number.isFinite(id)) return res.status(400).json({ error: 'Ugyldigt firma-id' });
 
-    const existing = db.prepare('SELECT cvr, legal_name, ean FROM companies WHERE id = ?').get(id);
+    const existing = db.prepare('SELECT name, cvr, legal_name, ean FROM companies WHERE id = ?').get(id);
     if (!existing) return res.status(404).json({ error: 'Firma ikke fundet' });
 
     const body = req.body || {};
     const updates = {};
+
+    // Navn: vist firmanavn (bruges i lister + header). NOT NULL — må ikke ryddes.
+    if (Object.prototype.hasOwnProperty.call(body, 'name')) {
+        const v = (body.name ?? '').toString().trim();
+        if (v === '') return res.status(400).json({ error: 'Firmanavn må ikke være tomt' });
+        updates.name = v;
+    }
 
     // CVR: 8 cifre eller tom (rydder). Ikke-cifre frasorteres før validering.
     if (Object.prototype.hasOwnProperty.call(body, 'cvr')) {
@@ -121,7 +128,7 @@ router.patch('/:id/identifiers', handle((req, res) => {
 
     const keys = Object.keys(updates);
     if (keys.length === 0) {
-        return res.status(400).json({ error: 'Ingen felter at opdatere (cvr, legal_name, ean)' });
+        return res.status(400).json({ error: 'Ingen felter at opdatere (name, cvr, legal_name, ean)' });
     }
 
     transaction(db, () => {

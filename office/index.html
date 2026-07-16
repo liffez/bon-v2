@@ -28,6 +28,7 @@
   <link rel="stylesheet" href="views/rapporter.css">
   <link rel="stylesheet" href="views/opskrifter.css">
   <link rel="stylesheet" href="views/co2-emballage.css">
+  <link rel="stylesheet" href="views/co2-overblik.css">
   <link rel="stylesheet" href="views/drift.css">
   <link rel="stylesheet" href="views/cashflow.css">
   <link rel="stylesheet" href="/assets/leaflet/leaflet.css">
@@ -814,7 +815,7 @@
             <span class="sidebar-icon">📈</span> Driftsregnskab
           </button>
           <button class="sidebar-link" data-view="co2">
-            <span class="sidebar-icon">🌱</span> CO₂ — Emballage
+            <span class="sidebar-icon">🌱</span> CO₂
           </button>
 
           <div class="sidebar-group-label">Team</div>
@@ -849,6 +850,7 @@
   <script src="/shared/moms.js"></script>
   <script src="/shared/delivery_icons.js"></script>
   <script src="../shared/api.js"></script>
+  <script src="../shared/planned.js"></script>
   <script src="../shared/mail_thread.js"></script>
   <script src="../BonConfig.js"></script>
   <script src="../BonConfigBar.js"></script>
@@ -883,6 +885,8 @@
   <script src="views/crm-inbox.js"></script>
   <script src="views/crm-kundeindsigt.js"></script>
   <script src="views/crm-reaktivering.js"></script>
+  <script src="../shared/crm_worklist.js"></script>
+  <script src="views/crm-ringeliste.js"></script>
   <script src="views/crm-prospekter.js"></script>
   <script src="views/crm-leadimport.js"></script>
   <script src="views/fakturering.js"></script>
@@ -890,6 +894,8 @@
   <script src="views/rapporter.js"></script>
   <script src="views/opskrifter.js"></script>
   <script src="views/co2-emballage.js"></script>
+  <script src="views/co2-overblik.js"></script>
+  <script src="/shared/co2_veje.js"></script>
   <script src="views/drift.js"></script>
   <script src="views/cashflow.js"></script>
   <script src="/shared/supplier_inbox.js"></script>
@@ -1061,6 +1067,10 @@
           init: () => initCrmReaktivering(contentEl),
           cleanup: () => { if (typeof cleanupCrmReaktivering === 'function') cleanupCrmReaktivering(); },
         },
+        'crm-ringeliste': {
+          init: () => initCrmRingeliste(contentEl),
+          cleanup: () => { if (typeof cleanupCrmRingeliste === 'function') cleanupCrmRingeliste(); },
+        },
         'crm-prospekter': {
           init: () => initCrmProspekter(contentEl),
           cleanup: () => { if (typeof cleanupCrmProspekter === 'function') cleanupCrmProspekter(); },
@@ -1099,6 +1109,14 @@
         co2: {
           init: () => initCo2Emballage(contentEl),
           cleanup: () => { if (typeof cleanupCo2Emballage === 'function') cleanupCo2Emballage(); },
+        },
+        'co2-veje': {
+          init: () => initCo2Veje(contentEl),
+          cleanup: () => {},   // co2_veje er stateless render — ingen teardown
+        },
+        'co2-overblik': {
+          init: () => initCo2Overblik(contentEl),
+          cleanup: () => { if (typeof cleanupCo2Overblik === 'function') cleanupCo2Overblik(); },
         },
         leverandorpost: {
           init: () => initSupplierInbox(contentEl, { openDrawer }),
@@ -1167,11 +1185,11 @@
         ],
         crm: [
           { id: 'pipeline', label: 'Pipeline', def: true },
+          { id: 'ringeliste', label: 'Ringeliste' },
           { id: 'kontakter', label: 'Kontakter' },
           { id: 'outreach', label: 'Kampagner' },
           { id: 'indbakke', label: 'Indbakke', badge: 'crm_indbakke' },
           { id: 'prospekter', label: 'Prospekter' },
-          { id: 'reakt', label: 'Re-aktivering' },
           { id: 'indsigt', label: 'Indsigt' },
           { id: 'import', label: 'Importér leads' },
           { id: 'verktoj', label: 'Værktøjer' },
@@ -1193,6 +1211,11 @@
           { id: 'penge', label: 'Pengestrøm' },
           { id: 'rap', label: 'Rapporter' },
         ],
+        co2: [
+          { id: 'overblik', label: 'Overblik', def: true },
+          { id: 'emballage', label: 'Emballage' },
+          { id: 'vej', label: 'Vej tælle-varer' },
+        ],
         events: null,
       };
 
@@ -1212,11 +1235,11 @@
         crm: {
           _default: 'crm-dashboard',
           pipeline: 'crm-dashboard',
+          ringeliste: 'crm-ringeliste',
           kontakter: 'kontakter',
           outreach: 'crm-outreach',
           indbakke: 'crm-inbox',
           prospekter: 'crm-prospekter',
-          reakt: 'crm-reaktivering',
           indsigt: 'crm-kundeindsigt',
           import: 'crm-leadimport',
           verktoj: 'crm-verktoj',
@@ -1243,7 +1266,12 @@
         },
         opskrifter: { _default: 'opskrifter' },
         drift: { _default: 'drift' },
-        co2: { _default: 'co2' },
+        co2: {
+          _default: 'co2-overblik',
+          overblik: 'co2-overblik',
+          emballage: 'co2',
+          vej: 'co2-veje',
+        },
         events: { _default: 'events' },
       };
 
@@ -1320,13 +1348,16 @@
       // tilbage-knap (eller swipe-gesture) bringer dem tilbage til forrige
       // view. switchView() bruger fortsat replaceState når URL'en kun
       // synkroniseres uden et reelt nav-skifte.
-      function openKunde360(customerId) {
+      function openKunde360(customerId, opts) {
         const url = new URL(window.location);
         url.searchParams.set('view', 'kontakter');
         url.searchParams.set('tab', 'personer');
         url.searchParams.set('customer', customerId);
         url.searchParams.delete('company');
         url.searchParams.delete('ftab');
+        // Valgfrit: åbn en bestemt fane i Kunde 360° (fx 'activity' → Planlagt-blok synlig)
+        if (opts && opts.tab) url.searchParams.set('ktab', opts.tab);
+        else url.searchParams.delete('ktab');
         history.pushState({}, '', url);
         // Force re-init: switchView returnerer ellers tidligt hvis vi
         // allerede er på 'kontakter'-viewet (fx fordi Firma 360° er åben).
@@ -1433,6 +1464,7 @@
           'cashflow':'Office — Pengestrøm',
           'crm-kundeindsigt':'Office — Kundeindsigt',
           'crm-reaktivering':'Office — Re-aktivering',
+          'crm-ringeliste':'Office — Ringeliste',
           'crm-prospekter':'Office — Prospekter'
         };
         if (typeof HelpSystem !== 'undefined') {
@@ -1773,12 +1805,21 @@
         },
         crm_activity_created: (data) => {
           if (typeof _crmDashHandleSSE === 'function') _crmDashHandleSSE('crm_activity_created', data);
+          if (typeof _dashHandleSSE === 'function') _dashHandleSSE('crm_activity_created', data);
           if (typeof _k3HandleSSE === 'function') _k3HandleSSE('crm_activity_created', data);
           if (typeof _reakHandleSSE === 'function') _reakHandleSSE('crm_activity_created', data);
+          if (typeof _ringeHandleSSE === 'function') _ringeHandleSSE('crm_activity_created', data);
+        },
+        crm_activity_updated: (data) => {
+          // Udført planlagt/callback → begge dashboards + kundekort opdaterer
+          if (typeof _crmDashHandleSSE === 'function') _crmDashHandleSSE('crm_activity_created', data);
+          if (typeof _dashHandleSSE === 'function') _dashHandleSSE('crm_activity_created', data);
+          if (typeof _k3HandleSSE === 'function') _k3HandleSSE('crm_activity_created', data);
         },
         crm_stage_changed: (data) => {
           if (typeof _k3HandleSSE === 'function') _k3HandleSSE('crm_stage_changed', data);
           if (typeof _prosHandleSSE === 'function') _prosHandleSSE('crm_stage_changed', data);
+          if (typeof _ringeHandleSSE === 'function') _ringeHandleSSE('crm_stage_changed', data);
         },
         crm_consent_updated: (data) => {
           if (typeof _k3HandleSSE === 'function') _k3HandleSSE('crm_consent_updated', data);
@@ -1794,6 +1835,7 @@
           if (typeof _kiHandleSSE === 'function') _kiHandleSSE('rfm_computed', data);
           if (typeof _reakHandleSSE === 'function') _reakHandleSSE('rfm_computed', data);
           if (typeof _prosHandleSSE === 'function') _prosHandleSSE('rfm_computed', data);
+          if (typeof _ringeHandleSSE === 'function') _ringeHandleSSE('rfm_computed', data);
         },
         rfm_config_changed: (data) => {
           if (typeof _kiHandleSSE === 'function') _kiHandleSSE('rfm_config_changed', data);

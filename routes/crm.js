@@ -153,8 +153,14 @@ router.get('/briefing', handle((req, res) => {
     const sc = db.prepare("SELECT COUNT(*) as c FROM v_service_calls_pending").get().c;
     if (sc > 0) items.push({ icon: '📞', text: sc + ' service-kald venter', type: 'action', link: 'svc' });
 
-    const cb = db.prepare("SELECT COUNT(*) as c FROM v_callbacks_pending").get().c;
-    if (cb > 0) items.push({ icon: '🔔', text: cb + ' callback' + (cb > 1 ? 's' : '') + ' at følge op', type: 'action', link: 'callbacks' });
+    // Opfølgninger i dag = forfaldne/dagens planlagte + åbne callbacks (samme kilde
+    // som dashboardets "Mine opfølgninger" — jf. /followups). Ekskluderer møder.
+    const followups = db.prepare(`
+        SELECT COUNT(*) AS c FROM crm_activities a
+        WHERE a.done_at IS NULL AND a.type != 'meeting'
+          AND ( (a.due_at IS NOT NULL AND DATE(a.due_at) <= DATE('now')) OR (a.result = 'callback') )
+    `).get().c;
+    if (followups > 0) items.push({ icon: '🔔', text: followups + ' opfølgning' + (followups > 1 ? 'er' : '') + ' i dag', type: 'action', link: 'callbacks' });
 
     const upcomingMeetings = db.prepare(`
         SELECT COUNT(*) as c FROM crm_activities
@@ -214,9 +220,9 @@ router.get('/briefing', handle((req, res) => {
         FROM crm_activities WHERE created_at >= date('now', '-7 days')
     `).get();
     if (wk.total > 0) {
-        items.push({ icon: '✅', text: 'Denne uge: ' + (wk.calls || 0) + ' opkald, ' + wk.total + ' aktiviteter total', type: 'progress', link: null });
+        items.push({ icon: '✅', text: 'Denne uge: ' + (wk.calls || 0) + ' opkald, ' + wk.total + ' aktiviteter total', type: 'progress', link: null, nav: 'ringeliste' });
     } else {
-        items.push({ icon: '💪', text: 'Ingen aktiviteter logget denne uge — tid til at komme i gang!', type: 'motivation', link: null });
+        items.push({ icon: '💪', text: 'Ingen aktiviteter logget denne uge — tid til at komme i gang!', type: 'motivation', link: null, nav: 'ringeliste' });
     }
 
     const season = db.prepare(`
@@ -231,7 +237,7 @@ router.get('/briefing', handle((req, res) => {
                 AND b2.is_internal = 0
             )
     `).get().c;
-    if (season > 0) items.push({ icon: '📅', text: season + ' kunder bestilte på denne tid sidste år', type: 'insight' });
+    if (season > 0) items.push({ icon: '📅', text: season + ' kunder bestilte på denne tid sidste år', type: 'insight', nav: 'ringeliste', navTab: 'season' });
 
     res.json(items.slice(0, 6));
 }));
@@ -629,6 +635,144 @@ router.get('/suggestions/review-stats', handle((req, res) => {
     res.json(row || { asked: 0, success: 0, declined: 0, pending: 0 });
 }));
 
+// ─── GET /season ────────────────────────────────────────────
+// Fuld sæson-ringeliste (#230) — forfremmelse af 'season_reminder'-forslaget til
+// en arbejdsbar liste. Samme detektion som GET /suggestions §2, men UDEN LIMIT og
+// med snooze-filter (type 'season', jf. shared/crm_worklist.js key). Dedupe på
+// "ingen aktivitet de sidste 30 dage" ligger allerede i queryen → når man har
+// ringet, falder kunden af listen i en måned.
+router.get('/season', handle((req, res) => {
+    const db = getDb();
+    const rows = db.prepare(`
+        SELECT
+            c.id AS customer_id,
+            c.first_name || ' ' || COALESCE(c.last_name, '') AS name,
+            c.phone,
+            co.id AS company_id,
+            co.name AS company_name,
+            b1.delivery_date AS last_year_date,
+            b1.pax,
+            b1.total_price
+        FROM bons b1
+        JOIN customers c ON b1.customer_id = c.id
+        JOIN companies co ON b1.company_id = co.id
+        WHERE b1.is_internal = 0
+            AND co.is_internal = 0
+            AND b1.delivery_date BETWEEN date('now', '-14 months') AND date('now', '-10 months')
+            AND NOT EXISTS (
+                SELECT 1 FROM bons b2
+                WHERE b2.customer_id = c.id AND b2.delivery_date > date('now', '-60 days') AND b2.is_internal = 0
+            )
+            AND NOT EXISTS (
+                SELECT 1 FROM crm_activities a
+                WHERE a.customer_id = c.id AND a.created_at > date('now', '-30 days')
+            )
+            AND NOT EXISTS (
+                SELECT 1 FROM crm_suggestion_snoozes sz
+                WHERE sz.customer_id = c.id AND sz.type = 'season' AND sz.snoozed_until > datetime('now')
+            )
+        GROUP BY c.id
+        ORDER BY b1.total_price DESC
+    `).all();
+    res.json(rows);
+}));
+
+// ─── GET /rytme ─────────────────────────────────────────────
+// Fuld faste-rytme-ringeliste (#230) — forfremmelse af 'overdue_customer'-forslaget.
+// Samme detektion som GET /suggestions §1 (≥5 ordrer, forsinket >mult× eget snit),
+// UDEN LIMIT + øvre grænse ×3 så reelt sovende falder til dormant-flowet i stedet.
+// ?multiplier= (default 1.3) justerer følsomheden. Snooze-filter type 'rytme'.
+router.get('/rytme', handle((req, res) => {
+    const db = getDb();
+    const mult = parseFloat(req.query.multiplier) || 1.3;
+    const rows = db.prepare(`
+        SELECT
+            c.id AS customer_id,
+            c.first_name || ' ' || COALESCE(c.last_name, '') AS name,
+            c.phone,
+            co.id AS company_id,
+            co.name AS company_name,
+            ostats.order_count,
+            ostats.avg_interval_days,
+            ostats.last_order,
+            ostats.days_since
+        FROM customers c
+        JOIN companies co ON c.company_id = co.id
+        JOIN crm_customer_meta cm ON c.id = cm.customer_id
+        JOIN (
+            SELECT
+                b1.customer_id,
+                COUNT(*) AS order_count,
+                MAX(b1.delivery_date) AS last_order,
+                CAST(julianday('now') - julianday(MAX(b1.delivery_date)) AS INTEGER) AS days_since,
+                ROUND(
+                    CAST(julianday(MAX(b1.delivery_date)) - julianday(MIN(b1.delivery_date)) AS REAL)
+                    / NULLIF(COUNT(*) - 1, 0)
+                , 0) AS avg_interval_days
+            FROM bons b1
+            WHERE b1.is_internal = 0
+            GROUP BY b1.customer_id
+            HAVING COUNT(*) >= 5
+        ) ostats ON ostats.customer_id = c.id
+        WHERE co.is_internal = 0
+            AND cm.stage IN ('active', 'vip')
+            AND ostats.avg_interval_days > 0
+            AND ostats.days_since > ostats.avg_interval_days * ?
+            AND ostats.days_since < ostats.avg_interval_days * 3
+            AND NOT EXISTS (
+                SELECT 1 FROM crm_suggestion_snoozes sz
+                WHERE sz.customer_id = c.id AND sz.type = 'rytme' AND sz.snoozed_until > datetime('now')
+            )
+        ORDER BY (ostats.days_since - ostats.avg_interval_days) DESC
+    `).all(mult);
+    res.json(rows);
+}));
+
+// ─── GET /cold-offers ───────────────────────────────────────
+// Kold tilbudsopfølgning (#228 Fase 5): tilbud der ER udløbet uden at være
+// konverteret (offer_status='sent', offer_valid_until < nu) — "fulgte vi op?".
+// Modstykke til det fremadrettede 'expiring_offer'-forslag. Bon-centreret:
+// dedupe pr. TILBUD (bon_id + purpose 'tilbud_opfoelgning'), så opfølgning på ét
+// tilbud ikke skjuler kundens øvrige kolde tilbud. Snooze-filter type 'cold_offer'.
+const COLD_OFFER_MAX_AGE_DAYS = 365;  // vis kun tilbud udløbet inden for det sidste år
+const COLD_OFFER_DEDUPE_DAYS  = 90;   // følg ikke op på samme tilbud oftere end hver 3. md.
+router.get('/cold-offers', handle((req, res) => {
+    const db = getDb();
+    const rows = db.prepare(`
+        SELECT
+            b.id AS bon_id,
+            b.bon_number,
+            b.total_price,
+            b.offer_valid_until,
+            c.id AS customer_id,
+            c.first_name || ' ' || COALESCE(c.last_name, '') AS name,
+            c.phone,
+            co.id AS company_id,
+            co.name AS company_name
+        FROM bons b
+        JOIN customers c ON b.customer_id = c.id
+        LEFT JOIN companies co ON b.company_id = co.id
+        WHERE b.is_offer = 1
+            AND b.offer_status = 'sent'
+            AND b.offer_valid_until < date('now')
+            AND b.offer_valid_until > date('now', ?)
+            AND (co.is_internal = 0 OR co.id IS NULL)
+            AND NOT EXISTS (
+                SELECT 1 FROM crm_activities a
+                JOIN activity_purposes ap ON ap.id = a.purpose_id
+                WHERE a.bon_id = b.id
+                    AND ap.key = 'tilbud_opfoelgning'
+                    AND a.created_at > date('now', ?)
+            )
+            AND NOT EXISTS (
+                SELECT 1 FROM crm_suggestion_snoozes sz
+                WHERE sz.customer_id = c.id AND sz.type = 'cold_offer' AND sz.snoozed_until > datetime('now')
+            )
+        ORDER BY b.offer_valid_until DESC
+    `).all('-' + COLD_OFFER_MAX_AGE_DAYS + ' days', '-' + COLD_OFFER_DEDUPE_DAYS + ' days');
+    res.json(rows);
+}));
+
 // ─── GET /service-calls ─────────────────────────────────────
 router.get('/service-calls', handle((req, res) => {
     const db = getDb();
@@ -862,7 +1006,7 @@ router.get('/customer/:id', handle((req, res) => {
         LEFT JOIN contact_reasons cr ON cr.id = a.contact_reason_id
         LEFT JOIN activity_purposes p ON a.purpose_id = p.id
         WHERE a.customer_id = ?
-        ORDER BY a.created_at DESC LIMIT 20
+        ORDER BY COALESCE(a.done_at, a.created_at) DESC LIMIT 20
     `).all(id);
 
     // Dismissed flag som syntetiske aktivitets-rows (CLAUDE_KUNDE_FLAGS.md fase 7).
@@ -930,15 +1074,24 @@ router.get('/customer/:id', handle((req, res) => {
     // Aktive flag på kunden (jf. docs/CLAUDE_KUNDE_FLAGS.md).
     // Ack-historik begrænset til seneste 10 til display — fuld liste kan
     // hentes via /api/flags?include_dismissed=1.
+    // Aktive påmindelser: kundens EGNE + firmaets (firma-flag gælder også denne
+    // person — de hejses på hendes bons, og de afsluttede vises allerede i hendes
+    // tidslinje. Uden firma-grenen viste vi historikken men ikke det aktuelle).
+    const flagConds = ["(f.entity_type = 'customer' AND f.entity_id = ?)"];
+    const flagArgs  = [id];
+    if (customer.company_id) {
+        flagConds.push("(f.entity_type = 'company' AND f.entity_id = ?)");
+        flagArgs.push(customer.company_id);
+    }
     const flags = db.prepare(`
         SELECT f.*,
                u.name AS created_by_name,
                (SELECT COUNT(*) FROM flag_acks WHERE flag_id = f.id) AS ack_count
         FROM entity_flags f
         LEFT JOIN users u ON f.created_by_user_id = u.id
-        WHERE f.entity_type = 'customer' AND f.entity_id = ? AND f.dismissed_at IS NULL
-        ORDER BY f.created_at DESC
-    `).all(id);
+        WHERE f.dismissed_at IS NULL AND (${flagConds.join(' OR ')})
+        ORDER BY f.entity_type = 'company', f.created_at DESC
+    `).all(...flagArgs);
     const ackBonsStmt = db.prepare(`
         SELECT b.id, b.bon_number, fa.acked_at
         FROM flag_acks fa JOIN bons b ON fa.bon_id = b.id
@@ -1062,6 +1215,68 @@ router.get('/company/:id', handle((req, res) => {
     `);
     for (const f of flags) f.ack_bons = ackBonsStmt.all(f.id);
 
+    // ─── Aktivitet aggregeret på firma-niveau ──────────────
+    // crm_activities hænger på customer_id — firmaets aktivitet er summen på
+    // tværs af dets kontaktpersoner (join via customers.company_id).
+    // customer_name er pointen: på firma-niveau vil man vide HVEM det handlede om.
+    const activities = db.prepare(`
+        SELECT a.id, a.type, a.text, a.result, a.sentiment, a.due_at, a.done_at,
+               a.created_at, a.bon_id, a.customer_id,
+               u.name AS user_name,
+               b.bon_number,
+               c.first_name || ' ' || COALESCE(c.last_name, '') AS customer_name,
+               mt.label AS meeting_type_label, mt.emoji AS meeting_type_emoji,
+               p.label AS purpose_label, p.emoji AS purpose_emoji
+        FROM crm_activities a
+        JOIN customers c ON c.id = a.customer_id
+        LEFT JOIN users u ON u.id = a.owner_user_id
+        LEFT JOIN bons  b ON b.id = a.bon_id
+        LEFT JOIN meeting_types mt ON mt.id = a.meeting_type_id
+        LEFT JOIN activity_purposes p ON p.id = a.purpose_id
+        WHERE c.company_id = ?
+        ORDER BY COALESCE(a.done_at, a.created_at) DESC
+        LIMIT 30
+    `).all(id);
+
+    // Dismissed påmindelser som syntetiske rows (mønster: Kunde 360°, fase 7).
+    // BEGGE typer med — firmaets egne OG kontaktpersonernes — så tidslinjen er
+    // konsistent med sit løfte ("på tværs af firmaets kontaktpersoner").
+    // customer_name skelner dem i UI'et ("på firmaet" vs. personens navn).
+    const dismissedFlags = db.prepare(`
+        SELECT f.id, f.title, f.body, f.dismiss_note, f.dismissed_at, f.entity_type,
+               f.dismissed_on_bon_id, f.dismissed_by_user_id,
+               u.name AS user_name, b.bon_number,
+               CASE WHEN f.entity_type = 'customer'
+                    THEN fc.first_name || ' ' || COALESCE(fc.last_name, '') END AS customer_name
+        FROM entity_flags f
+        LEFT JOIN users u ON f.dismissed_by_user_id = u.id
+        LEFT JOIN bons  b ON f.dismissed_on_bon_id  = b.id
+        LEFT JOIN customers fc ON f.entity_type = 'customer' AND fc.id = f.entity_id
+        WHERE f.dismissed_at IS NOT NULL
+          AND ( (f.entity_type = 'company'  AND f.entity_id = ?)
+             OR (f.entity_type = 'customer' AND f.entity_id IN
+                    (SELECT id FROM customers WHERE company_id = ?)) )
+        ORDER BY f.dismissed_at DESC LIMIT 20
+    `).all(id, id);
+    const synthetic = dismissedFlags.map(f => ({
+        id: 'flag_' + f.id,
+        type: 'dismissed_flag',
+        text: f.title + (f.body ? '\n' + f.body : ''),
+        note: f.dismiss_note,
+        created_at: f.dismissed_at,
+        done_at: f.dismissed_at,
+        bon_id: f.dismissed_on_bon_id,
+        bon_number: f.bon_number,
+        user_name: f.user_name,
+        // null for firma-flag → UI'et viser "på firmaet"
+        customer_name: f.customer_name ? f.customer_name.trim() : null,
+        flag_entity_type: f.entity_type,
+    }));
+
+    const mergedActivities = [...activities, ...synthetic]
+        .sort((a, b) => String(b.done_at || b.created_at || '').localeCompare(String(a.done_at || a.created_at || '')))
+        .slice(0, 30);
+
     res.json({
         company,
         aggregations: {
@@ -1073,6 +1288,7 @@ router.get('/company/:id', handle((req, res) => {
         customers,
         rfm,
         flags,
+        activities: mergedActivities,
     });
 }));
 
@@ -1109,7 +1325,7 @@ router.get('/customer-orders/:id', handle((req, res) => {
 // ─── POST /activity ─────────────────────────────────────────
 router.post('/activity', handle((req, res) => {
     const db = getDb();
-    const { customer_id, bon_id, type, result, sentiment, text, due_at, purpose_id, campaign_id, outcome } = req.body;
+    const { customer_id, bon_id, type, result, sentiment, text, due_at, done_at, purpose_id, campaign_id, outcome } = req.body;
     // req.session.userId er den korrekte session-nøgle (jf. consent-handler). req.session.user?.id
     // var altid undefined → owner_user_id blev altid null (F1).
     const userId = req.session?.userId || null;
@@ -1121,6 +1337,11 @@ router.post('/activity', handle((req, res) => {
     const OUTCOMES = ['success', 'partial', 'declined', 'no_response', 'pending'];
     if (outcome && !OUTCOMES.includes(outcome)) {
         return res.status(400).json({ error: 'ugyldig outcome' });
+    }
+    // Planlagt aktivitet (Fase 1): due_at = planlæg frem, done_at = bagudrettet log.
+    // De to udelukker hinanden — en aktivitet er enten planlagt ELLER logget, aldrig begge.
+    if (due_at && done_at) {
+        return res.status(400).json({ error: 'due_at og done_at kan ikke begge være sat' });
     }
 
     const ins = db.prepare(`
@@ -1159,9 +1380,18 @@ router.post('/activity', handle((req, res) => {
         `).run(customer_id);
     }
 
-    // Hvis opkald med reached → markér som done
-    if (['call', 'service_call'].includes(type) && result === 'reached') {
-        db.prepare("UPDATE crm_activities SET done_at = CURRENT_TIMESTAMP WHERE id = ?").run(activityId);
+    // done_at-tilstand (Fase 1 — lukker datahullet hvor loggede aktiviteter blev NULL):
+    //   due_at sat        → planlagt: done_at forbliver NULL (ingen auto-done)
+    //   done_at i body     → bagudrettet log: done_at = valgt fortidig dato (created_at = nu, revisionsspor)
+    //   ellers             → log nu: done_at = CURRENT_TIMESTAMP
+    // Service-callbacks (result='callback') friholdes — de har eget flow og skal
+    // forblive åbne (done_at NULL) på callback-listen.
+    if (!due_at && result !== 'callback') {
+        if (done_at) {
+            db.prepare("UPDATE crm_activities SET done_at = ? WHERE id = ?").run(done_at, activityId);
+        } else {
+            db.prepare("UPDATE crm_activities SET done_at = CURRENT_TIMESTAMP WHERE id = ?").run(activityId);
+        }
     }
 
     broadcast('crm_activity_created', { id: activityId, customer_id, bon_id, type, campaign_id: campaign_id || null });
@@ -1170,15 +1400,97 @@ router.post('/activity', handle((req, res) => {
 
 // ─── PATCH /activity/:id/done ───────────────────────────────
 // Markér aktivitet som afholdt/afsluttet (sætter done_at).
+// Udfør planlagt (Fase 1): resultatet gemmes STRUKTURERET i result/sentiment/outcome
+// (samme felter som service-kald + review-ask-måling, migration 114) — ikke som tekst-append.
+// En valgfri fritekst-note kan stadig appendes til text som supplement.
 router.patch('/activity/:id/done', handle((req, res) => {
     const db = getDb();
     const id = parseInt(req.params.id);
+    const { result, sentiment, outcome, note } = req.body || {};
+
     const a = db.prepare('SELECT id, customer_id FROM crm_activities WHERE id = ?').get(id);
     if (!a) return res.status(404).json({ error: 'Aktivitet ikke fundet' });
 
-    db.prepare("UPDATE crm_activities SET done_at = CURRENT_TIMESTAMP WHERE id = ?").run(id);
+    // outcome valideres mod samme enum som POST (ingen CHECK på kolonnen)
+    const OUTCOMES = ['success', 'partial', 'declined', 'no_response', 'pending'];
+    if (outcome && !OUTCOMES.includes(outcome)) {
+        return res.status(400).json({ error: 'ugyldig outcome' });
+    }
+
+    // COALESCE(?, felt): NULL-param lader det eksisterende felt være urørt.
+    const noteStr = (note || '').trim();
+    db.prepare(`
+        UPDATE crm_activities
+        SET done_at   = CURRENT_TIMESTAMP,
+            result    = COALESCE(?, result),
+            sentiment = COALESCE(?, sentiment),
+            outcome   = COALESCE(?, outcome),
+            text      = CASE WHEN ? != '' THEN text || char(10) || '→ ' || ? ELSE text END
+        WHERE id = ?
+    `).run(result || null, sentiment || null, outcome || null, noteStr, noteStr, id);
+
     broadcast('crm_activity_updated', { id, customer_id: a.customer_id });
     res.json({ ok: true });
+}));
+
+// ─── GET /planned ───────────────────────────────────────────
+// Åbne planlagte aktiviteter (inkl. møder) for én kunde ELLER én bon.
+// Kundekortets Planlagt-blok (customer_id) + bon-drawer/info-modal (bon_id).
+router.get('/planned', handle((req, res) => {
+    const db = getDb();
+    const customerId = req.query.customer_id ? parseInt(req.query.customer_id) : null;
+    const bonId = req.query.bon_id ? parseInt(req.query.bon_id) : null;
+    if (!customerId && !bonId) {
+        return res.status(400).json({ error: 'customer_id eller bon_id kræves' });
+    }
+
+    const rows = db.prepare(`
+        SELECT a.id, a.type, a.text, a.due_at, a.bon_id, a.customer_id,
+               mt.label AS meeting_type_label, mt.emoji AS meeting_type_emoji
+        FROM crm_activities a
+        LEFT JOIN meeting_types mt ON mt.id = a.meeting_type_id
+        WHERE ${customerId ? 'a.customer_id' : 'a.bon_id'} = ?
+          AND a.done_at IS NULL
+          AND a.due_at IS NOT NULL
+        ORDER BY a.due_at ASC
+    `).all(customerId || bonId);
+
+    res.json({ planned: rows });
+}));
+
+// ─── GET /followups ─────────────────────────────────────────
+// Dashboard "Mine opfølgninger" (Fase 4-datakilde). Afløser "Ring tilbage"-visningen:
+// forfaldne/dagens planlagte + åbne callbacks i én liste (forfaldne først).
+// Møder ekskluderet (egen "Kommende bookede møder"-sektion).
+// v1: INGEN owner-filtrering (delt rolle-login gør det misvisende — revision 1).
+router.get('/followups', handle((req, res) => {
+    const db = getDb();
+    const rows = db.prepare(`
+        SELECT a.id, a.type, a.text, a.due_at, a.bon_id, a.customer_id,
+               a.created_at,
+               c.first_name || ' ' || COALESCE(c.last_name, '') AS name,
+               co.name AS company_name,
+               c.phone,
+               b.bon_number,
+               CASE WHEN a.result = 'callback' THEN 'service' ELSE 'planlagt' END AS kilde,
+               -- Callbacks har ingen due_at → alder er eneste signal om at de er gamle
+               CAST(julianday('now') - julianday(a.created_at) AS INTEGER) AS age_days
+        FROM crm_activities a
+        JOIN customers c ON c.id = a.customer_id
+        LEFT JOIN companies co ON co.id = c.company_id
+        LEFT JOIN bons b ON b.id = a.bon_id
+        WHERE a.done_at IS NULL
+          AND a.type != 'meeting'
+          AND (
+                (a.due_at IS NOT NULL AND DATE(a.due_at) <= DATE('now'))
+             OR (a.result = 'callback')
+              )
+        ORDER BY
+          CASE WHEN a.due_at IS NOT NULL AND DATE(a.due_at) < DATE('now') THEN 0 ELSE 1 END,
+          a.due_at ASC
+    `).all();
+
+    res.json({ followups: rows });
 }));
 
 // ─── PATCH /customer/:id/stage ──────────────────────────────

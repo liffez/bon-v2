@@ -103,5 +103,31 @@ console.log('\nfallback ved ugyldig værdi');
     db.prepare("UPDATE settings SET value='2' WHERE key='reactivation_min_orders'").run();
 }
 
+// ─── Snooze fra Ringeliste-Sovende ("🙈 Skjul", type 'reaktivering') ───
+console.log('\nsnooze-filter (Ringeliste Sovende)');
+{
+    const C5 = company('ZZ Snooze-kandidat');
+    const c5cust = customer(C5, 'E');
+    dormantScore(C5, 5, 200);
+    assert(names(getReactivationCandidates(db)).includes('ZZ Snooze-kandidat'), 'kandidat før snooze → med');
+
+    db.prepare(`INSERT INTO crm_suggestion_snoozes (customer_id, type, snoozed_until)
+                VALUES (?, 'reaktivering', datetime('now','+14 days'))`).run(c5cust);
+    assert(!names(getReactivationCandidates(db)).includes('ZZ Snooze-kandidat'), 'snoozet (reaktivering) → ude');
+
+    // Anden snooze-type må ikke påvirke reaktiverings-listen (type-isoleret)
+    const C6 = company('ZZ Anden-snooze');
+    const c6cust = customer(C6, 'F');
+    dormantScore(C6, 5, 200);
+    db.prepare(`INSERT INTO crm_suggestion_snoozes (customer_id, type, snoozed_until)
+                VALUES (?, 'season', datetime('now','+14 days'))`).run(c6cust);
+    assert(names(getReactivationCandidates(db)).includes('ZZ Anden-snooze'), 'season-snooze påvirker ikke reaktivering');
+
+    // Udløbet snooze tæller ikke
+    db.prepare(`UPDATE crm_suggestion_snoozes SET snoozed_until=datetime('now','-1 days')
+                WHERE customer_id=? AND type='reaktivering'`).run(c5cust);
+    assert(names(getReactivationCandidates(db)).includes('ZZ Snooze-kandidat'), 'udløbet snooze → med igen');
+}
+
 console.log(`\n${pass} passed, ${fail} failed`);
 process.exit(fail === 0 ? 0 : 1);

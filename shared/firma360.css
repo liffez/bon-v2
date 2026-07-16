@@ -835,6 +835,9 @@
     padding-top: 12px;
     border-top: 1px dashed var(--color-border);
 }
+.f3-flag-kitchen { display: flex; align-items: center; gap: 6px; font-size: 12px; cursor: pointer; color: var(--color-text-dim); }
+.f3-flag-kitchen input { width: 15px; height: 15px; accent-color: var(--brand-primary); }
+.f3-flag-hint { color: var(--color-text-dim); font-size: 11px; }
 .f3-flag-input, .f3-flag-textarea {
     width: 100%;
     padding: 8px 10px;
@@ -864,3 +867,42 @@
     line-height: 1.3;
     vertical-align: middle;
 }
+
+/* ─── Aktivitet-fanen (aggregeret på firma-niveau) ─────────── */
+.f3-act-list { display: flex; flex-direction: column; }
+.f3-act-item {
+    display: flex; gap: 10px; padding: 10px 0;
+    border-bottom: 1px solid var(--color-border, #eee);
+}
+.f3-act-item:last-child { border-bottom: none; }
+.f3-act-readonly { opacity: 0.72; }
+.f3-act-icon {
+    width: 26px; height: 26px; border-radius: 50%; flex-shrink: 0;
+    display: flex; align-items: center; justify-content: center;
+    background: var(--brand-primary-light, #f1e6b2); font-size: 13px;
+}
+.f3-act-body { flex: 1; min-width: 0; }
+.f3-act-head { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; margin-bottom: 2px; }
+.f3-act-type { font-size: 13px; font-weight: 700; }
+.f3-act-annot {
+    font-size: 10px; font-weight: 700; padding: 1px 7px; border-radius: 8px;
+    background: var(--brand-primary-light, #f1e6b2); color: var(--color-sentiment-neu, #C8962A);
+}
+.f3-act-annot.planlagt { background: #fbf3e2; color: #C8962A; }
+/* Hvilken kontaktperson aktiviteten lå på — merværdien på firma-niveau */
+.f3-act-who {
+    font-size: 11px; font-weight: 600; color: #3a6a9a;
+    background: #e8f0f7; border-radius: 8px; padding: 1px 7px;
+}
+.f3-act-who-company { color: var(--color-text-dim, #8a8580); background: rgba(0,0,0,.05); font-style: italic; }
+.f3-act-bon { font-size: 10px; font-weight: 700; color: #3a6a9a; }
+.f3-act-time { margin-left: auto; font-size: 11px; color: var(--color-text-dim, #8a8580); white-space: nowrap; }
+.f3-act-text { font-size: 12.5px; color: var(--color-text, #2a2723); white-space: pre-wrap; line-height: 1.4; }
+.f3-act-note { font-size: 12px; color: var(--color-text-dim, #8a8580); font-style: italic; margin-top: 2px; }
+.f3-act-foot { display: flex; align-items: center; gap: 8px; margin-top: 4px; flex-wrap: wrap; }
+.f3-act-sent { font-size: 10px; font-weight: 700; padding: 1px 7px; border-radius: 8px; }
+.f3-act-sent.positive { background: var(--color-sentiment-pos-bg, #E6F7F0); color: var(--color-sentiment-pos, #2E9E6B); }
+.f3-act-sent.neutral  { background: var(--color-sentiment-neu-bg, #FBF3E2); color: var(--color-sentiment-neu, #C8962A); }
+.f3-act-sent.negative { background: var(--color-sentiment-neg-bg, #FBE9E9); color: var(--color-sentiment-neg, #C94040); }
+.f3-act-purpose { font-size: 10px; color: var(--color-text-dim, #8a8580); }
+.f3-act-user { margin-left: auto; font-size: 10px; color: var(--color-text-dim, #8a8580); }

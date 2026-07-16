@@ -569,7 +569,10 @@
     font-family: 'Lato', sans-serif;
 }
 .bon-co2 svg { width: 14px; height: 14px; }
-.bon-co2-value { font-weight: 700; }
+.bon-co2-value { font-weight: 400; }
+.bon-co2-value b { font-weight: 700; }
+.bon-co2-method { font-weight: 400; opacity: 0.75; }
+.bon-co2-sep { opacity: 0.4; margin: 0 2px; }
 
 /* ── ACTIONS (altid synlig) ────────────────────────────────── */
 .bon-actions {
@@ -894,3 +897,22 @@
     font-size: 2em;
 }
 @keyframes bonMailPulse { 0%, 100% { opacity: 1; } 50% { opacity: 0.4; } }
+
+/* ─── Køkken-synlig kunde-påmindelse (read-only) ──────────── */
+.bon-paamindelse {
+    margin: 6px 0;
+    padding: 7px 10px;
+    background: var(--brand-primary-light, #f1e6b2);
+    border-left: 3px solid var(--brand-primary, #8e631f);
+    border-radius: 6px;
+    display: flex;
+    flex-direction: column;
+    gap: 3px;
+}
+.bon-paamindelse-item {
+    font-size: 13px;
+    color: var(--color-text, #2a2723);
+    line-height: 1.35;
+}
+.bon-paamindelse-title { font-weight: 700; }
+.bon-paamindelse-body { display: block; font-weight: 400; opacity: 0.85; font-size: 12px; }

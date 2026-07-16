@@ -6,6 +6,7 @@ const { broadcast } = require('../shared/sse');
 const { requireAuth } = require('../shared/auth');
 const grocy   = require('../services/grocyAdapter');
 const { syncCashflowInvoice } = require('../services/cashflowSync');
+const bonTransportCo2 = require('../services/bonTransportCo2');
 // quConvert bruges nu via services/ingredientResolver.js
 
 /**
@@ -149,7 +150,7 @@ router.get('/', handle((req, res) => {
         SELECT
             b.id, b.bon_number, b.delivery_date, b.delivery_time, b.pickup_time,
             b.courier_arrival_time,
-            b.pax, b.total_units, b.total_price, b.event_role,
+            b.pax, b.total_units, b.total_co2e, b.total_price, b.event_role,
             b.payment_type, b.delivery_type, b.delivery_method, b.kitchen_selects,
             b.price_category_id,
             pc.code  AS price_category_code,
@@ -535,7 +536,7 @@ router.get('/:id', handle((req, res) => {
             args.push(bon.company_id);
         }
         bon.flags = getDb().prepare(`
-            SELECT f.id, f.entity_type, f.entity_id, f.title, f.body, f.created_at,
+            SELECT f.id, f.entity_type, f.entity_id, f.title, f.body, f.show_in_kitchen, f.created_at,
                    u.name AS created_by_name,
                    EXISTS(SELECT 1 FROM flag_acks
                           WHERE flag_id = f.id AND bon_id = ?) AS acked_on_this_bon
@@ -546,7 +547,15 @@ router.get('/:id', handle((req, res) => {
         `).all(...args);
     }
 
-    res.json({ ...bon, ...computeMomsFields(bon.total_price) });
+    // Transport-CO₂ pr. bon (Fase 3) — mad-CO₂ = bon.total_co2e, transport lægges ved.
+    const tco2 = bonTransportCo2.computeForBon(getDb(), bon);
+    res.json({
+        ...bon,
+        ...computeMomsFields(bon.total_price),
+        transport_co2e_kg: tco2.kg,
+        transport_co2_source: tco2.source,
+        transport_vehicle_label: tco2.vehicle_label,
+    });
 }));
 
 // ─── POST /api/bons — opret ny bon ─────────────────────────────────────────

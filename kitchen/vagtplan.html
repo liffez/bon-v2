@@ -80,6 +80,19 @@
   .pill-name { font-weight:700; }
   .pill-job  { font-size:10px; color:var(--muted); margin-left:auto; }
   .no-shifts { font-size:12px; color:var(--muted); padding:8px 0; }
+
+  /* ══ LOKATIONS-SEKTIONER ══ */
+  .loc-section { margin-top:6px; }
+  .loc-head {
+    display:flex; align-items:center; gap:8px;
+    padding:10px 16px 6px;
+  }
+  .loc-title { font-size:15px; font-weight:900; color:var(--brown-dark); }
+  .loc-count { font-size:11px; font-weight:700; color:var(--brown); background:var(--brown-light); padding:1px 8px; border-radius:8px; }
+  .loc-section.is-events .loc-title { color:#7a4fbf; }
+  .loc-section.is-events .loc-count { color:#7a4fbf; background:#efe6fb; }
+  .loc-section.is-events .day-head .count { color:#7a4fbf; background:#efe6fb; }
+  .loc-empty { padding:2px 16px 6px; font-size:12px; color:var(--muted); }
   </style>
 </head>
 <body data-help-page="kitchen-vagtplan" data-help-page-name="Køkken — Vagtplan">
@@ -91,7 +104,16 @@
   <a class="wc-sp-link" href="https://app.smartplanapp.io/" target="_blank" rel="noopener">Åbn i Smartplan ↗</a>
 </div>
 
-<div id="week" class="week" aria-live="polite">Henter…</div>
+<div id="sections" aria-live="polite">
+  <section class="loc-section is-hq" data-loc="hq">
+    <div class="loc-head"><span class="loc-title">🏠 Ristet Rug (HQ)</span><span class="loc-count" data-count>·</span></div>
+    <div class="week" data-week>Henter…</div>
+  </section>
+  <section class="loc-section is-events" data-loc="events">
+    <div class="loc-head"><span class="loc-title">🎪 Festival &amp; Events</span><span class="loc-count" data-count>·</span></div>
+    <div class="week" data-week></div>
+  </section>
+</div>
 
 <script src="/shared/zone_switcher.js"></script>
 <script src="/shared/kitchen_topbar.js"></script>
@@ -105,8 +127,11 @@
     const fmtDK   = new Intl.DateTimeFormat('da-DK', { day:'2-digit', month:'2-digit', year:'numeric' });
     const fmtWeek = new Intl.DateTimeFormat('da-DK', { weekday:'short' });
 
-    const weekEl   = document.getElementById('week');
     const periodEl = document.getElementById('period');
+    const sections = {
+        hq:     document.querySelector('.loc-section[data-loc="hq"]'),
+        events: document.querySelector('.loc-section[data-loc="events"]'),
+    };
 
     let weekOffset = 0;
 
@@ -119,7 +144,8 @@
     function addDays(d, n) { const x = new Date(d); x.setUTCDate(x.getUTCDate() + n); return x; }
     function ymd(d) { return d.toISOString().slice(0, 10); }
 
-    function buildWeekBoxes(monday) {
+    // Byg 7 tomme dag-bokse i én sektions week-grid.
+    function buildWeekBoxes(weekEl, monday) {
         weekEl.innerHTML = '';
         const todayKey = new Date().toISOString().slice(0, 10);
 
@@ -144,13 +170,61 @@
         }
     }
 
+    // Fyld én sektion med vagter for dens lokations-klasse.
+    function renderSection(section, monday, byDateClass) {
+        const weekEl = section.querySelector('[data-week]');
+        const countEl = section.querySelector('[data-count]');
+        buildWeekBoxes(weekEl, monday);
+
+        let total = 0;
+        for (let i = 0; i < 7; i++) {
+            const key = ymd(addDays(monday, i));
+            const box = weekEl.querySelector(`[data-day="${key}"]`);
+            if (!box) continue;
+
+            const items = (byDateClass[key] || []).sort((a, b) =>
+                (a.start_time || '').localeCompare(b.start_time || '')
+            );
+            total += items.length;
+
+            const head = box.querySelector('.day-head');
+            if (items.length > 0 && head) {
+                const badge = document.createElement('span');
+                badge.className = 'count';
+                badge.textContent = items.length;
+                head.appendChild(badge);
+            }
+
+            const liste = box.querySelector('.liste');
+            if (items.length === 0) {
+                liste.innerHTML = '<div class="no-shifts">Ingen vagter</div>';
+                continue;
+            }
+
+            for (const v of items) {
+                const time = v.start_time && v.end_time
+                    ? `${v.start_time.slice(0,5)}–${v.end_time.slice(0,5)}`
+                    : (v.start_time || '');
+                const name = v.first_name || (v.employee_name || 'Ukendt').split(' ')[0];
+
+                const div = document.createElement('div');
+                div.className = 'pill';
+                div.innerHTML = `
+                    <span class="pill-time">${time}</span>
+                    <span class="pill-name">${name}</span>
+                `;
+                liste.appendChild(div);
+            }
+        }
+        if (countEl) countEl.textContent = total;
+    }
+
     async function loadWeek() {
         const base   = startOfWeek(new Date());
         const monday = addDays(base, weekOffset * 7);
         const sunday = addDays(monday, 6);
 
         periodEl.textContent = `${fmtDK.format(monday)} — ${fmtDK.format(sunday)}`;
-        buildWeekBoxes(monday);
 
         const from = ymd(monday);
         const to   = ymd(sunday);
@@ -160,59 +234,23 @@
             if (!r.ok) throw new Error(`${r.status}`);
             const shifts = await r.json();
 
-            // Group by date
-            const byDate = {};
+            // Group by (location_class, date)
+            const grouped = { hq: {}, events: {} };
             for (const s of shifts) {
                 if (!s.date) continue;
-                if (!byDate[s.date]) byDate[s.date] = [];
-                byDate[s.date].push(s);
+                const cls = s.location_class === 'events' ? 'events' : 'hq';
+                (grouped[cls][s.date] || (grouped[cls][s.date] = [])).push(s);
             }
 
-            // Render per day
-            for (let i = 0; i < 7; i++) {
-                const d   = addDays(monday, i);
-                const key = ymd(d);
-                const box = document.querySelector(`[data-day="${key}"]`);
-                if (!box) continue;
-
-                const items = (byDate[key] || []).sort((a, b) =>
-                    (a.start_time || '').localeCompare(b.start_time || '')
-                );
-
-                const head = box.querySelector('.day-head');
-                if (items.length > 0 && head) {
-                    const badge = document.createElement('span');
-                    badge.className = 'count';
-                    badge.textContent = items.length;
-                    head.appendChild(badge);
-                }
-
-                const liste = box.querySelector('.liste');
-                if (items.length === 0) {
-                    liste.innerHTML = '<div class="no-shifts">Ingen vagter</div>';
-                    continue;
-                }
-
-                for (const v of items) {
-                    const time = v.start_time && v.end_time
-                        ? `${v.start_time.slice(0,5)}–${v.end_time.slice(0,5)}`
-                        : (v.start_time || '');
-                    const name = v.first_name || (v.employee_name || 'Ukendt').split(' ')[0];
-
-                    const div = document.createElement('div');
-                    div.className = 'pill';
-                    div.innerHTML = `
-                        <span class="pill-time">${time}</span>
-                        <span class="pill-name">${name}</span>
-                    `;
-                    liste.appendChild(div);
-                }
-            }
+            renderSection(sections.hq,     monday, grouped.hq);
+            renderSection(sections.events, monday, grouped.events);
         } catch (err) {
             console.error('[vagtplan]', err);
             periodEl.textContent = 'Fejl: kunne ikke hente data';
-            const first = weekEl.querySelector('.liste');
-            if (first) first.innerHTML = '<div class="no-shifts">Tjek server/Smartplan…</div>';
+            for (const key of ['hq', 'events']) {
+                const weekEl = sections[key].querySelector('[data-week]');
+                weekEl.innerHTML = '<div class="no-shifts" style="padding:8px 16px">Tjek server/Smartplan…</div>';
+            }
         }
     }
 

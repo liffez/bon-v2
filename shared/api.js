@@ -628,6 +628,21 @@ function attachmentUrl(attachmentId) {
     return API_BASE + '/attachments/' + attachmentId + '/download';
 }
 
+// Visnings-URL (billede/PDF i ny fane) for generiske vedhæftninger.
+function attachmentInlineUrl(attachmentId) {
+    return API_BASE + '/attachments/' + attachmentId + '/inline';
+}
+
+// Liste over vedhæftninger for en entitet (fx event).
+function fetchAttachments(entityType, entityId) {
+    return apiFetch('/attachments?entity_type=' + encodeURIComponent(entityType) +
+                    '&entity_id=' + encodeURIComponent(entityId));
+}
+
+function deleteAttachment(attachmentId) {
+    return apiFetch('/attachments/' + attachmentId, { method: 'DELETE' });
+}
+
 /* ── DASHBOARD ────────────────────────────────────────────── */
 
 function fetchDashboardToday() {
@@ -693,6 +708,20 @@ function fetchCrmServiceCalls(days) {
     return apiFetch('/crm/service-calls' + qs);
 }
 
+// Ringeliste-endpoints (#232) — fulde arbejdslister bag den fanebaserede Ringeliste.
+function fetchCrmSeason() {
+    return apiFetch('/crm/season');
+}
+
+function fetchCrmRytme(multiplier) {
+    var qs = multiplier ? '?multiplier=' + multiplier : '';
+    return apiFetch('/crm/rytme' + qs);
+}
+
+function fetchCrmColdOffers() {
+    return apiFetch('/crm/cold-offers');
+}
+
 function fetchCrmCustomers(params) {
     var qs = params ? '?' + new URLSearchParams(params).toString() : '';
     return apiFetch('/crm/customers' + qs);
@@ -755,6 +784,27 @@ function postCrmActivity(data) {
         method: 'POST',
         body: JSON.stringify(data),
     });
+}
+
+// Åbne planlagte aktiviteter (inkl. møder) for én kunde ELLER én bon.
+// params: { customer_id } eller { bon_id }
+function fetchCrmPlanned(params) {
+    const qs = new URLSearchParams(params).toString();
+    return apiFetch('/crm/planned?' + qs);
+}
+
+// Udfør en planlagt aktivitet med struktureret resultat.
+// id + { result?, sentiment?, outcome?, note? }
+function completeCrmActivity(id, data) {
+    return apiFetch('/crm/activity/' + id + '/done', {
+        method: 'PATCH',
+        body: JSON.stringify(data || {}),
+    });
+}
+
+// Dashboard "Mine opfølgninger" (Fase 4-datakilde): forfaldne/dagens planlagte + callbacks.
+function fetchCrmFollowups() {
+    return apiFetch('/crm/followups');
 }
 
 // Skjul (snooze) et smart-forslag i et antal dage (default 14 server-side).
@@ -899,12 +949,14 @@ function fetchFlags(entityType, entityId, includeDismissed) {
     return apiFetch('/flags?' + qs.toString());
 }
 
-function createFlag(entityType, entityId, title, body) {
+// showInKitchen: default true (vis for køkken). Sæt false for kontor-kun påmindelser.
+function createFlag(entityType, entityId, title, body, showInKitchen) {
     return apiFetch('/flags', {
         method: 'POST',
         body: JSON.stringify({
             entity_type: entityType, entity_id: entityId,
             title: title, body: body || null,
+            show_in_kitchen: showInKitchen === false ? 0 : 1,
         }),
     });
 }
@@ -978,7 +1030,7 @@ function patchCompanyEconomic(companyId, economicCustomerId) {
 }
 
 function patchCompanyIdentifiers(companyId, fields) {
-    // fields: { cvr?, legal_name?, ean? } — kun medsendte felter opdateres
+    // fields: { name?, cvr?, legal_name?, ean? } — kun medsendte felter opdateres
     return apiFetch('/companies/' + companyId + '/identifiers', {
         method: 'PATCH',
         body: JSON.stringify(fields),
@@ -2131,4 +2183,55 @@ function unhideCo2Product(productId) {
         method: 'POST',
         body: JSON.stringify({ product_id: productId }),
     });
+}
+
+function fetchCo2Overview() {
+    return apiFetch('/co2/overview');
+}
+
+// Periode: tal (months) ELLER objekt { months } / { from, to } (YYYY-MM-DD).
+function _co2PeriodQuery(period) {
+    if (period == null) return '';
+    if (typeof period === 'number') return '?months=' + period;
+    if (period.from && period.to) return '?from=' + encodeURIComponent(period.from) + '&to=' + encodeURIComponent(period.to);
+    if (period.months) return '?months=' + period.months;
+    return '';
+}
+
+function fetchCo2Timeseries(period) {
+    return apiFetch('/co2/timeseries' + _co2PeriodQuery(period));
+}
+
+function fetchCo2Transport(period) {
+    return apiFetch('/co2/transport' + _co2PeriodQuery(period));
+}
+
+function fetchCo2BonAccuracy(bonId) {
+    return apiFetch('/co2/bon/' + bonId + '/accuracy');
+}
+
+function setCo2ManualFactor(productId, factor) {
+    return apiFetch('/co2/manual-factor', {
+        method: 'POST',
+        body: JSON.stringify({ product_id: productId, factor }),
+    });
+}
+
+function fetchCo2Synonyms() {
+    return apiFetch('/co2/synonyms');
+}
+
+function addCo2Synonym(canonicalName, synonymName) {
+    return apiFetch('/co2/synonyms', {
+        method: 'POST',
+        body: JSON.stringify({ canonical_name: canonicalName, synonym_name: synonymName }),
+    });
+}
+
+function deleteCo2Synonym(id) {
+    return apiFetch('/co2/synonyms/' + id, { method: 'DELETE' });
+}
+
+function fetchCo2RecipeBreakdown(id) {
+    return apiFetch('/co2/recipe/' + id);
 }

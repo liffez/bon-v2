@@ -10,6 +10,8 @@ let _k3Opts = {};
 let _k3Active = false;
 let _k3CustomerId = null;
 let _k3Data = null;
+let _k3Planned = [];          // åbne planlagte aktiviteter (inkl. møder) — Fase 2
+let _k3SelectedBon = null;    // { id, label } valgt via bon-link
 let _k3Tab = 'orders';
 let _k3Purposes = null;
 
@@ -26,6 +28,10 @@ function initCrmKunde360(containerEl, opts) {
 
     const params = new URLSearchParams(window.location.search);
     _k3CustomerId = params.get('customer') ? parseInt(params.get('customer')) : null;
+    // Valgfri fane fra deep-link (fx 'activity' fra dashboardets "Mine opfølgninger").
+    // Uden ktab → default 'orders' (så et normalt opslag ikke arver forrige fane).
+    const ktab = params.get('ktab');
+    _k3Tab = (ktab && ['orders', 'activity', 'offers', 'mail'].includes(ktab)) ? ktab : 'orders';
     _k3CompanyFilter = null;
     const companyId = params.get('company') ? parseInt(params.get('company')) : null;
     if (companyId) {
@@ -957,6 +963,12 @@ function _k3RenderShell() {
                 margin-bottom: 6px;
             }
             .k3-flag-title { font-size: 13px; font-weight: 700; color: var(--color-text); line-height: 1.3; }
+            /* Firma-påmindelse på et kundekort: markér at den gælder hele firmaet */
+            .k3-flag-company { border-left-color: #3a6a9a; }
+            .k3-flag-scope {
+                margin-left: 6px; font-size: 10px; font-weight: 600; white-space: nowrap;
+                color: #3a6a9a; background: #e8f0f7; border-radius: 8px; padding: 1px 6px;
+            }
             .k3-flag-body { font-size: 12px; color: var(--color-text); margin-top: 3px; line-height: 1.4; white-space: pre-wrap; word-wrap: break-word; }
             .k3-flag-meta { font-size: 11px; color: var(--color-text-dim); margin-top: 4px; }
             .k3-flag-remove {
@@ -986,6 +998,8 @@ function _k3RenderShell() {
                 font-family: inherit;
             }
             .k3-qa-btn:hover { filter: brightness(1.1); }
+            .k3-qa-kitchen { display: flex; align-items: center; gap: 6px; font-size: 12px; margin: 6px 0; cursor: pointer; color: var(--color-text-dim); }
+            .k3-qa-kitchen input { width: 15px; height: 15px; accent-color: var(--brand-primary); }
 
             /* Stage select */
             .k3-stage-select {
@@ -1056,6 +1070,64 @@ function _k3RenderShell() {
                 background: var(--brand-primary); color: white; font-size: 13px; font-weight: 600; cursor: pointer;
             }
             .k3-af-submit:hover { filter: brightness(1.1); }
+            .k3-af-submit--plan { background: var(--color-sentiment-neu, #C8962A); }
+            .k3-af-submit--back { background: var(--blue, #5a7fa3); }
+            .k3-af-submit--sm { padding: 5px 12px; font-size: 12px; }
+
+            /* Hvornår-felt */
+            .k3-extra-when { display: none; gap: 6px; align-items: center; }
+            .k3-extra-when.show { display: inline-flex; }
+            .k3-time-opt { color: var(--color-text-dim); }
+            .k3-time-label { font-size: 11px; color: var(--color-text-dim); font-style: italic; }
+            .k3-af-foot { display: flex; justify-content: space-between; align-items: center; margin-top: 8px; gap: 10px; }
+            .k3-af-hint { font-size: 12px; color: var(--color-text-dim); font-style: italic; }
+
+            /* Bon-link */
+            .k3-bon-link-row { display: flex; align-items: center; gap: 10px; margin-top: 8px; position: relative; flex-wrap: wrap; }
+            .k3-bon-toggle { font-size: 12px; color: var(--brand-primary); cursor: pointer; font-weight: 700; background: none; border: none; padding: 0; }
+            .k3-bon-toggle:hover { text-decoration: underline; }
+            .k3-bon-search { display: none; position: relative; flex: 1; max-width: 340px; }
+            .k3-bon-search.show { display: block; }
+            .k3-bon-search input { width: 100%; }
+            .k3-bon-suggest { position: absolute; top: 100%; left: 0; right: 0; background: var(--color-surface, #fff); border: 1px solid var(--color-border); border-radius: 0 0 6px 6px; box-shadow: 0 4px 10px rgba(0,0,0,.08); z-index: 5; display: none; max-height: 220px; overflow-y: auto; }
+            .k3-bon-suggest.show { display: block; }
+            .k3-bon-suggest div { padding: 8px 10px; cursor: pointer; font-size: 13px; }
+            .k3-bon-suggest div:hover { background: var(--brand-primary-light, #f1e6b2); }
+            .k3-bon-none { color: var(--color-text-dim); cursor: default !important; }
+            .k3-bon-chip { display: inline-flex; align-items: center; gap: 6px; background: var(--blue-light, #e8f0f7); color: var(--blue, #3a6a9a); border: 1px solid var(--blue, #3a6a9a); font-size: 12px; font-weight: 700; border-radius: 12px; padding: 2px 10px; }
+            .k3-bon-x { cursor: pointer; font-weight: 900; }
+
+            /* Planlagt-blok */
+            .k3-planned-block { border: 1px solid var(--color-sentiment-neu, #C8962A); background: var(--brand-primary-light, #f1e6b2); border-radius: 8px; margin: 18px 0 6px; overflow: hidden; }
+            .k3-planned-head { display: flex; align-items: center; gap: 8px; padding: 9px 14px; border-bottom: 1px solid var(--color-sentiment-neu, #C8962A); font-size: 11px; font-weight: 900; letter-spacing: .07em; text-transform: uppercase; color: var(--brand-primary); }
+            .k3-planned-item { display: flex; align-items: center; gap: 10px; padding: 10px 14px; border-bottom: 1px solid rgba(0,0,0,.06); }
+            .k3-planned-item:last-child { border-bottom: none; }
+            .k3-p-check { width: 20px; height: 20px; border: 2px solid var(--color-border); border-radius: 50%; background: var(--color-surface, #fff); cursor: pointer; flex-shrink: 0; }
+            .k3-p-check:hover { border-color: var(--color-sentiment-pos, #2E9E6B); background: var(--color-sentiment-pos-bg, #E6F7F0); }
+            .k3-p-check--meeting { cursor: default; border-style: dashed; }
+            .k3-p-check--meeting:hover { border-color: var(--color-border); background: var(--color-surface, #fff); }
+            .k3-p-type { font-size: 11px; font-weight: 700; padding: 2px 8px; border-radius: 10px; background: rgba(255,255,255,.6); color: var(--brand-primary); flex-shrink: 0; }
+            .k3-p-text { flex: 1; font-size: 13px; }
+            .k3-p-bon { font-size: 11px; font-weight: 700; color: var(--blue, #3a6a9a); background: var(--blue-light, #e8f0f7); border-radius: 10px; padding: 1px 8px; flex-shrink: 0; cursor: pointer; }
+            .k3-p-bon:hover { text-decoration: underline; }
+            .k3-p-date { font-size: 12px; font-weight: 700; color: var(--color-text-dim); flex-shrink: 0; }
+            .k3-p-date.overdue { color: var(--color-sentiment-neg, #C94040); }
+            .k3-p-date.overdue::before { content: "⚑ "; }
+            .k3-p-result { display: none; background: var(--color-sentiment-pos-bg, #E6F7F0); border-bottom: 1px solid rgba(0,0,0,.06); padding: 10px 14px; }
+            .k3-p-result.show { display: block; }
+            .k3-pr-title { font-size: 12px; font-weight: 700; color: var(--color-sentiment-pos, #2E9E6B); margin-bottom: 6px; }
+            .k3-pr-row { display: flex; gap: 8px; align-items: center; margin-bottom: 8px; flex-wrap: wrap; }
+            .k3-pr-row .k3-sent-btn { width: 32px; height: 32px; font-size: 15px; }
+            .k3-p-result input[type=text] { width: 100%; margin-bottom: 8px; }
+            .k3-pr-actions { display: flex; gap: 8px; align-items: center; }
+            .k3-pr-ghost { background: transparent; color: var(--color-text-dim); border: 1px solid var(--color-border); border-radius: 6px; padding: 5px 12px; font-size: 12px; cursor: pointer; }
+            .k3-pr-cancel { background: none; border: none; color: var(--color-text-dim); font-size: 12px; cursor: pointer; margin-left: auto; text-decoration: underline; }
+            .k3-pr-cancel:hover { color: var(--color-sentiment-neg, #C94040); }
+            .k3-planned-item--active { background: rgba(255,255,255,.45); }
+            .k3-planned-item--active .k3-p-check { border-color: var(--color-sentiment-pos, #2E9E6B); background: var(--color-sentiment-pos-bg, #E6F7F0); }
+
+            /* Timeline-markør (planlagt→udført / bagudrettet) */
+            .k3-tl-annot { font-size: 10px; font-weight: 700; color: var(--color-sentiment-neu, #C8962A); background: var(--brand-primary-light, #f1e6b2); border-radius: 8px; padding: 1px 7px; }
 
             .k3-sentiment-btns { display: flex; gap: 6px; }
             .k3-sent-btn {
@@ -1157,10 +1229,10 @@ function _k3RenderShell() {
             <div class="k3-right">
                 <div class="k3-stat-strip" id="k3StatStrip"></div>
                 <div class="k3-tabs" id="k3Tabs">
-                    <div class="k3-tab active" data-tab="orders">Ordrer</div>
-                    <div class="k3-tab" data-tab="activity">Aktivitet</div>
-                    <div class="k3-tab" data-tab="offers">Tilbud</div>
-                    <div class="k3-tab" data-tab="mail">Mail</div>
+                    <div class="k3-tab${_k3Tab === 'orders' ? ' active' : ''}" data-tab="orders">Ordrer</div>
+                    <div class="k3-tab${_k3Tab === 'activity' ? ' active' : ''}" data-tab="activity">Aktivitet</div>
+                    <div class="k3-tab${_k3Tab === 'offers' ? ' active' : ''}" data-tab="offers">Tilbud</div>
+                    <div class="k3-tab${_k3Tab === 'mail' ? ' active' : ''}" data-tab="mail">Mail</div>
                 </div>
                 <div class="k3-tab-content" id="k3TabContent"></div>
             </div>
@@ -1182,6 +1254,11 @@ async function _k3LoadData() {
     if (!_k3Active || !_k3CustomerId) return;
     try {
         _k3Data = await fetchCrmCustomer(_k3CustomerId);
+        // Åbne planlagte (inkl. møder) — Planlagt-blok på Aktivitet-tabben (Fase 2)
+        try {
+            const p = await fetchCrmPlanned({ customer_id: _k3CustomerId });
+            _k3Planned = p.planned || [];
+        } catch (_) { _k3Planned = []; }
         _k3RenderProfile();
         _k3RenderStatStrip();
         _k3RenderTab();
@@ -1262,9 +1339,18 @@ function _k3RenderProfile() {
                 const ackMeta = ackCount > 0
                     ? ' · Forstået på ' + ackCount + ' bon' + (ackCount === 1 ? '' : 'er')
                     : '';
-                return '<div class="k3-flag-card" data-flag-id="' + f.id + '">' +
-                    '<button class="k3-flag-remove" title="Fjern permanent" onclick="_k3RemoveFlag(' + f.id + ')">×</button>' +
-                    '<div class="k3-flag-title">🚩 ' + esc(f.title) + '</div>' +
+                // Firma-påmindelser gælder ALLE kontakter under firmaet — markér dem,
+                // så man ikke tror de hører til denne person (og at × rammer bredt).
+                const isCompany = f.entity_type === 'company';
+                const scope = isCompany
+                    ? '<span class="k3-flag-scope">🏢 på firmaet</span>'
+                    : '';
+                const removeTitle = isCompany
+                    ? 'Fjern permanent — påmindelsen gælder hele firmaet'
+                    : 'Fjern permanent';
+                return '<div class="k3-flag-card' + (isCompany ? ' k3-flag-company' : '') + '" data-flag-id="' + f.id + '">' +
+                    '<button class="k3-flag-remove" title="' + removeTitle + '" onclick="_k3RemoveFlag(' + f.id + ', ' + (isCompany ? 'true' : 'false') + ')">×</button>' +
+                    '<div class="k3-flag-title">🚩 ' + esc(f.title) + scope + '</div>' +
                     (f.body ? '<div class="k3-flag-body">' + esc(f.body) + '</div>' : '') +
                     '<div class="k3-flag-meta">Tilføjet ' + formatDanishDate((f.created_at || '').slice(0, 10)) +
                         (f.created_by_name ? ' af ' + esc(f.created_by_name) : '') +
@@ -1279,11 +1365,12 @@ function _k3RenderProfile() {
     html += '<div class="k3-quick-add">' +
         '<h4>Tilføj</h4>' +
         '<div class="k3-qa-type">' +
-            '<label><input type="radio" name="k3qaType" value="flag" checked> Påmindelse <span class="k3-qa-hint">(hejses på fremtidige bonner)</span></label>' +
-            '<label><input type="radio" name="k3qaType" value="note"> Note <span class="k3-qa-hint">(gemmes i aktivitet)</span></label>' +
+            '<label><input type="radio" name="k3qaType" value="flag" checked onchange="_k3QaTypeChanged()"> Påmindelse <span class="k3-qa-hint">(hejses på fremtidige bonner)</span></label>' +
+            '<label><input type="radio" name="k3qaType" value="note" onchange="_k3QaTypeChanged()"> Note <span class="k3-qa-hint">(gemmes i aktivitet)</span></label>' +
         '</div>' +
         '<input type="text" id="k3QaTitle" class="k3-qa-title" placeholder="Titel">' +
         '<textarea id="k3QaBody" class="k3-qa-body" placeholder="Detalje (valgfri)"></textarea>' +
+        '<label class="k3-qa-kitchen" id="k3QaKitchenWrap"><input type="checkbox" id="k3QaOfficeOnly"> 🔒 Kun kontor <span class="k3-qa-hint">(køkkenet ser den ikke)</span></label>' +
         '<button class="k3-qa-btn" onclick="_k3SubmitQuickAdd()">Gem</button>' +
     '</div>';
 
@@ -1470,6 +1557,16 @@ function _k3RenderActivity(el) {
                     '<option value="' + p.id + '">' + (p.emoji || '') + ' ' + p.label + '</option>'
                 ).join('') +
             '</select>' +
+            // Hvornår-felt (Fase 2): styrer log/planlæg/bagudrettet-tilstand
+            '<select class="k3-af-select" id="k3ActWhen" onchange="_k3WhenChanged()">' +
+                '<option value="now">Nu</option>' +
+                '<option value="tomorrow">I morgen</option>' +
+                '<option value="3d">Om 3 dage</option>' +
+                '<option value="1w">Næste uge</option>' +
+                '<option value="custom">Vælg dato…</option>' +
+            '</select>' +
+            '<span class="k3-extra-when" id="k3WhenDate"><input type="date" class="k3-af-select" id="k3ActDate" onchange="_k3WhenChanged()"></span>' +
+            '<span class="k3-extra-when" id="k3WhenTime"><input type="time" class="k3-af-select k3-time-opt" id="k3ActTime" value="09:00"><span class="k3-time-label">forslag — kan slettes</span></span>' +
             '<select class="k3-af-select" id="k3ActResult" style="display:none;">' +
                 '<option value="">— Resultat —</option>' +
                 '<option value="reached">Nået</option>' +
@@ -1486,10 +1583,23 @@ function _k3RenderActivity(el) {
             '</div>' +
         '</div>' +
         '<textarea class="k3-af-textarea" id="k3ActText" placeholder="Noter..."></textarea>' +
-        '<div class="k3-af-row" style="justify-content:flex-end;">' +
-            '<button class="k3-af-submit" onclick="_k3SubmitActivity()">Log aktivitet</button>' +
+        // Bon-link (Fase 2, valgfrit): knyt aktiviteten til en bon
+        '<div class="k3-bon-link-row">' +
+            '<button class="k3-bon-toggle" id="k3BonToggle" onclick="_k3ToggleBonSearch()">🔗 Knyt til bon…</button>' +
+            '<span class="k3-bon-search" id="k3BonSearch">' +
+                '<input type="text" class="k3-af-select" id="k3BonInput" placeholder="Søg bon-nr eller kunde…" oninput="_k3ShowBonSuggest(this.value)">' +
+                '<div class="k3-bon-suggest" id="k3BonSuggest"></div>' +
+            '</span>' +
+            '<span id="k3BonChipWrap"></span>' +
+        '</div>' +
+        '<div class="k3-af-foot">' +
+            '<span class="k3-af-hint" id="k3AfHint">Logges som udført aktivitet nu</span>' +
+            '<button class="k3-af-submit" id="k3AfSubmit" onclick="_k3SubmitActivity()">Log aktivitet</button>' +
         '</div>' +
     '</div>';
+
+    // Planlagt-blok (Fase 2): vises KUN når der er åbne planlagte (inkl. møder)
+    html += _k3RenderPlannedBlock(typeLabels, typeIcons);
 
     // Filter chips
     const filters = [
@@ -1536,6 +1646,14 @@ function _k3RenderActivity(el) {
             const time = (a.created_at || '').substring(0, 16).replace('T', ' ');
             const who = a.user_name || '';
 
+            // Fase 2-markører: planlagt→udført (due_at + done_at) og bagudrettet log
+            // (done_at-dato ≠ created_at-dato, ingen due_at).
+            const doneDay = (a.done_at || '').substring(0, 10);
+            const createdDay = (a.created_at || '').substring(0, 10);
+            let annot = '';
+            if (a.due_at && a.done_at) annot = '<span class="k3-tl-annot">✓ planlagt → udført</span>';
+            else if (a.done_at && doneDay && doneDay !== createdDay && !a.due_at) annot = '<span class="k3-tl-annot">registreret senere</span>';
+
             // Meeting-aktiviteter er klikbare (åbner detalje-modal)
             const isMeeting = a.type === 'meeting';
             const cardCursor = isMeeting ? 'cursor:pointer;' : '';
@@ -1563,6 +1681,7 @@ function _k3RenderActivity(el) {
                 '<div class="' + cardClass + '" style="' + cardCursor + '"' + cardClick + '>' +
                     '<div class="k3-tl-header">' +
                         '<span class="k3-tl-type">' + label + flagScope + (resultText ? ' → ' + resultText : '') + '</span>' +
+                        annot +
                         (who ? '<span class="k3-tl-who">' + who + '</span>' : '') +
                         '<span class="k3-tl-time">' + timeDisplay + '</span>' +
                     '</div>' +
@@ -1606,6 +1725,67 @@ function _k3RenderActivity(el) {
     resultEl.addEventListener('change', () => {
         // Sentiment forbliver synligt — result-valg påvirker det ikke
     });
+
+    // Gendan valgt bon-chip (overlever re-render) + init Hvornår-tilstand
+    if (_k3SelectedBon) _k3RenderBonChip();
+    _k3WhenChanged();
+}
+
+// ─── Planlagt-blok (Fase 2) ─────────────────────────────────
+// Vises KUN når der er åbne planlagte (inkl. møder). Ellers helt skjult.
+function _k3RenderPlannedBlock(typeLabels, typeIcons) {
+    const planned = _k3Planned || [];
+    if (!planned.length) return '';
+    let h = '<div class="k3-planned-block"><div class="k3-planned-head">⏰ Planlagt (' + planned.length + ')</div>';
+    planned.forEach(p => {
+        const isMeeting = p.type === 'meeting';
+        const typeLabel = isMeeting && p.meeting_type_label ? p.meeting_type_label : (typeLabels[p.type] || p.type);
+        const emoji = isMeeting && p.meeting_type_emoji ? p.meeting_type_emoji : '';
+        const due = _k3FmtDue(p.due_at);
+        const bonChip = p.bon_id ? '<span class="k3-p-bon" onclick="_k3OpenPlannedBon(' + p.bon_id + ')">#' + (p.bon_number || p.bon_id) + '</span>' : '';
+        // Møder markeres udført via egen detalje-modal (booking-flow) — ikke afkrydsning her.
+        const check = isMeeting
+            ? '<div class="k3-p-check k3-p-check--meeting" title="Møde — håndteres i mødedetaljen"></div>'
+            : '<div class="k3-p-check" onclick="_k3OpenResult(' + p.id + ')" title="Markér udført"></div>';
+        h += '<div class="k3-planned-item" id="k3p-' + p.id + '">' +
+                check +
+                '<span class="k3-p-type">' + (emoji ? emoji + ' ' : '') + esc(typeLabel) + '</span>' +
+                '<span class="k3-p-text">' + esc(p.text || '') + '</span>' +
+                bonChip +
+                '<span class="k3-p-date' + (due.overdue ? ' overdue' : '') + '">' + due.label + '</span>' +
+            '</div>' +
+            // Log resultat?-prompt (struktureret — revision 2)
+            '<div class="k3-p-result" id="k3pr-' + p.id + '">' +
+                '<div class="k3-pr-title">✓ Udført — log resultat?</div>' +
+                '<div class="k3-pr-row">' +
+                    '<select class="k3-af-select" id="k3pr-res-' + p.id + '">' +
+                        '<option value="">— Resultat —</option>' +
+                        '<option value="reached">Nået</option>' +
+                        '<option value="no_answer">Intet svar</option>' +
+                        '<option value="callback">Callback</option>' +
+                        '<option value="email_instead">Email i stedet</option>' +
+                    '</select>' +
+                    '<div class="k3-sentiment-btns">' +
+                        '<button class="k3-sent-btn" data-s="positive" onclick="_k3ToggleSentiment(this)">😊</button>' +
+                        '<button class="k3-sent-btn" data-s="neutral" onclick="_k3ToggleSentiment(this)">😐</button>' +
+                        '<button class="k3-sent-btn" data-s="negative" onclick="_k3ToggleSentiment(this)">😟</button>' +
+                    '</div>' +
+                '</div>' +
+                '<input type="text" class="k3-af-select" id="k3pr-note-' + p.id + '" placeholder="Hvad kom der ud af det? (valgfri)">' +
+                '<div class="k3-pr-actions">' +
+                    '<button class="k3-af-submit k3-af-submit--sm" onclick="_k3CompleteItem(' + p.id + ')">Gem</button>' +
+                    '<button class="k3-pr-ghost" onclick="_k3CompleteItem(' + p.id + ', true)">Gem uden resultat</button>' +
+                    '<button class="k3-pr-cancel" onclick="_k3CancelResult(' + p.id + ')">Annuller</button>' +
+                '</div>' +
+            '</div>';
+    });
+    h += '</div>';
+    return h;
+}
+
+// Formatér due_at → { label, overdue }. Delt helper (shared/planned.js).
+function _k3FmtDue(dueAt) {
+    return plannedFmtDue(dueAt);
 }
 
 async function _k3RenderOffers(el) {
@@ -1669,26 +1849,167 @@ function _k3OpenQuote(quoteId) {
 // ─── Activity form helpers ──────────────────────────────────
 
 function _k3ToggleSentiment(btn) {
-    document.querySelectorAll('.k3-sent-btn').forEach(b => b.classList.remove('selected'));
+    // Scoped til den nærmeste knap-gruppe (der er nu flere: formular + hver planlagt-prompt)
+    const group = btn.closest('.k3-sentiment-btns') || document;
+    group.querySelectorAll('.k3-sent-btn').forEach(b => b.classList.remove('selected'));
     btn.classList.add('selected');
+}
+
+// ─── Hvornår-tilstand (Fase 2) ──────────────────────────────
+// Beregner tilstand ud fra Hvornår-valget. Delegerer til shared/planned.js
+// (plannedComputeWhen) — ét sted for due_at/done_at-logikken.
+function _k3WhenState() {
+    const when = document.getElementById('k3ActWhen')?.value || 'now';
+    const dateVal = document.getElementById('k3ActDate')?.value || '';
+    // tid tilføjes i _k3SubmitActivity (så brugeren kan slette den) — ikke her
+    return plannedComputeWhen(when, dateVal, null);
+}
+
+// Opdaterer synlighed (dato/tid), knap-label/-farve og hint efter Hvornår-valget.
+function _k3WhenChanged() {
+    const when = document.getElementById('k3ActWhen')?.value || 'now';
+    const st = _k3WhenState();
+    const dateWrap = document.getElementById('k3WhenDate');
+    const timeWrap = document.getElementById('k3WhenTime');
+    const btn = document.getElementById('k3AfSubmit');
+    const hint = document.getElementById('k3AfHint');
+    if (!btn) return;
+
+    if (dateWrap) dateWrap.classList.toggle('show', when === 'custom');
+    // Tid vises kun ved planlægning (ikke ved bagudrettet log eller "nu")
+    if (timeWrap) timeWrap.classList.toggle('show', st.mode === 'plan');
+
+    btn.classList.remove('k3-af-submit--plan', 'k3-af-submit--back');
+    if (st.mode === 'plan') {
+        btn.textContent = 'Planlæg';
+        btn.classList.add('k3-af-submit--plan');
+        hint.textContent = 'Planlægges — vises på dashboard på dagen';
+    } else if (st.mode === 'backdate') {
+        btn.textContent = 'Log aktivitet';
+        btn.classList.add('k3-af-submit--back');
+        hint.textContent = 'Registreres bagudrettet som udført på valgt dato';
+    } else {
+        btn.textContent = 'Log aktivitet';
+        hint.textContent = 'Logges som udført aktivitet nu';
+    }
+}
+
+// ─── Bon-link (Fase 2) ──────────────────────────────────────
+function _k3ToggleBonSearch() {
+    const el = document.getElementById('k3BonSearch');
+    if (el) { el.classList.toggle('show'); if (el.classList.contains('show')) document.getElementById('k3BonInput')?.focus(); }
+}
+
+let _k3BonSearchTimer = null;
+function _k3ShowBonSuggest(q) {
+    clearTimeout(_k3BonSearchTimer);
+    const box = document.getElementById('k3BonSuggest');
+    if (!box) return;
+    if (!q || q.trim().length < 2) { box.classList.remove('show'); box.innerHTML = ''; return; }
+    _k3BonSearchTimer = setTimeout(async () => {
+        try {
+            const res = await fetchBons({ q: q.trim(), limit: 8 });
+            const rows = res.bons || res || [];
+            if (!rows.length) { box.innerHTML = '<div class="k3-bon-none">Ingen match</div>'; box.classList.add('show'); return; }
+            box.innerHTML = rows.map(b => {
+                const name = b.contact_name_full || b.company_name || b.customer_name || 'Ukendt';
+                const label = '#' + (b.bon_number || b.id) + ' · ' + name + (b.delivery_date ? ' · ' + b.delivery_date : '');
+                return '<div onclick="_k3PickBon(' + b.id + ',&quot;' + esc(label).replace(/"/g, '&quot;') + '&quot;)">' + esc(label) + '</div>';
+            }).join('');
+            box.classList.add('show');
+        } catch (_) { box.classList.remove('show'); }
+    }, 250);
+}
+
+function _k3PickBon(id, label) {
+    _k3SelectedBon = { id, label };
+    document.getElementById('k3BonSuggest')?.classList.remove('show');
+    document.getElementById('k3BonSearch')?.classList.remove('show');
+    _k3RenderBonChip();
+}
+
+function _k3RenderBonChip() {
+    const wrap = document.getElementById('k3BonChipWrap');
+    const toggle = document.getElementById('k3BonToggle');
+    if (!wrap) return;
+    if (!_k3SelectedBon) { wrap.innerHTML = ''; if (toggle) toggle.style.display = ''; return; }
+    if (toggle) toggle.style.display = 'none';
+    wrap.innerHTML = '<span class="k3-bon-chip">' + esc(_k3SelectedBon.label) + '<span class="k3-bon-x" onclick="_k3ClearBon()">✕</span></span>';
+}
+
+function _k3ClearBon() {
+    _k3SelectedBon = null;
+    _k3RenderBonChip();
+}
+
+// ─── Udfør planlagt (Fase 2) ────────────────────────────────
+// Klik på afkrydsningscirklen åbner/lukker "Log resultat?"-prompten (toggle).
+function _k3OpenResult(id) {
+    const el = document.getElementById('k3pr-' + id);
+    const item = document.getElementById('k3p-' + id);
+    if (!el) return;
+    const open = el.classList.toggle('show');
+    if (item) item.classList.toggle('k3-planned-item--active', open);
+}
+
+// Annuller — luk prompten uden at markere som udført.
+function _k3CancelResult(id) {
+    document.getElementById('k3pr-' + id)?.classList.remove('show');
+    document.getElementById('k3p-' + id)?.classList.remove('k3-planned-item--active');
+}
+
+async function _k3CompleteItem(id, skipResult) {
+    const payload = {};
+    if (!skipResult) {
+        payload.result = document.getElementById('k3pr-res-' + id)?.value || null;
+        const sentBtn = document.querySelector('#k3pr-' + id + ' .k3-sent-btn.selected');
+        payload.sentiment = sentBtn ? sentBtn.dataset.s : null;
+        payload.note = document.getElementById('k3pr-note-' + id)?.value || '';
+    }
+    try {
+        await completeCrmActivity(id, payload);
+        _k3LoadData();
+    } catch (err) {
+        alert('Fejl: ' + err.message);
+    }
+}
+
+function _k3OpenPlannedBon(bonId) {
+    if (typeof _k3Opts !== 'undefined' && _k3Opts.openDrawer) _k3Opts.openDrawer(bonId);
+    else if (typeof window.openDrawer === 'function') window.openDrawer(bonId);
 }
 
 async function _k3SubmitActivity() {
     const type = document.getElementById('k3ActType').value;
     const result = document.getElementById('k3ActResult').value || null;
     const text = document.getElementById('k3ActText').value.trim();
-    const sentBtn = document.querySelector('.k3-sent-btn.selected');
+    const sentBtn = document.querySelector('.k3-activity-form .k3-sent-btn.selected');
     const sentiment = sentBtn ? sentBtn.dataset.s : null;
     const purposeEl = document.getElementById('k3ActPurpose');
     const purpose_id = purposeEl?.value ? parseInt(purposeEl.value) : null;
 
     if (!text) { alert('Skriv en note'); return; }
 
+    // Beregn due_at/done_at inkl. evt. valgt tid (som brugeren kan slette)
+    const when = document.getElementById('k3ActWhen')?.value || 'now';
+    const dateVal = document.getElementById('k3ActDate')?.value || '';
+    const timeVal = document.getElementById('k3ActTime')?.value || '';
+    const st = plannedComputeWhen(when, dateVal, timeVal);
+    if (st.incomplete) { alert('Vælg en dato'); return; }
+
+    const body = { customer_id: _k3CustomerId, type, result, sentiment, text, purpose_id };
+    if (_k3SelectedBon) body.bon_id = _k3SelectedBon.id;
+    if (st.mode === 'plan') {
+        body.due_at = st.due_at;
+        body.result = null;  // en planlagt aktivitet har intet resultat endnu
+    } else if (st.mode === 'backdate') {
+        body.done_at = st.done_at;
+    }
+    // mode 'now' → hverken due_at eller done_at (serveren sætter done_at = nu)
+
     try {
-        await postCrmActivity({
-            customer_id: _k3CustomerId,
-            type, result, sentiment, text, purpose_id,
-        });
+        await postCrmActivity(body);
+        _k3SelectedBon = null;
         _k3LoadData();
     } catch (err) {
         alert('Fejl: ' + err.message);
@@ -1704,7 +2025,8 @@ async function _k3SubmitQuickAdd() {
 
     try {
         if (type === 'flag') {
-            await createFlag('customer', _k3CustomerId, title, body || null);
+            const officeOnly = document.getElementById('k3QaOfficeOnly')?.checked;
+            await createFlag('customer', _k3CustomerId, title, body || null, !officeOnly);
         } else {
             // Note → eksisterende crm_activities-flow. Title + body kombineres til ét tekstfelt.
             await postCrmActivity({
@@ -1715,16 +2037,30 @@ async function _k3SubmitQuickAdd() {
         }
         document.getElementById('k3QaTitle').value = '';
         document.getElementById('k3QaBody').value = '';
+        const officeOnlyEl = document.getElementById('k3QaOfficeOnly');
+        if (officeOnlyEl) officeOnlyEl.checked = false;
         _k3LoadData();
     } catch (err) {
         alert('Fejl: ' + err.message);
     }
 }
 
-async function _k3RemoveFlag(flagId) {
-    if (!confirm('Fjern denne påmindelse permanent?')) return;
+// "Kun kontor"-checkbox giver kun mening for påmindelser — skjul for Note.
+function _k3QaTypeChanged() {
+    const typeEl = document.querySelector('input[name="k3qaType"]:checked');
+    const wrap = document.getElementById('k3QaKitchenWrap');
+    if (wrap) wrap.style.display = (typeEl && typeEl.value === 'flag') ? '' : 'none';
+}
+
+async function _k3RemoveFlag(flagId, isCompanyFlag) {
+    // En firma-påmindelse gælder alle kontakter under firmaet — vær eksplicit,
+    // så man ikke fjerner den for hele firmaet i den tro at det kun er denne person.
+    const msg = isCompanyFlag
+        ? 'Denne påmindelse ligger på FIRMAET og gælder alle kontaktpersoner under det.\n\nFjern den permanent for hele firmaet?'
+        : 'Fjern denne påmindelse permanent?';
+    if (!confirm(msg)) return;
     try {
-        await dismissFlagApi(flagId, null, 'Fjernet fra kundekortet');
+        await dismissFlagApi(flagId, null, isCompanyFlag ? 'Fjernet fra kundekortet (firma-påmindelse)' : 'Fjernet fra kundekortet');
         _k3LoadData();
     } catch (err) {
         alert('Fejl: ' + err.message);

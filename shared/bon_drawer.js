@@ -65,10 +65,14 @@ class BonDrawer {
         this._bindSSE();
         _drawerInstance = this; // Global reference for drawer mail helpers
 
-        // Flag-strip (påmindelser fra kunde/firma — CLAUDE_KUNDE_FLAGS.md)
+        // Flag-strip (påmindelser fra kunde/firma — CLAUDE_KUNDE_FLAGS.md).
+        // I køkken-zonen: read-only (kun køkken-synlige, ingen Forstået/Fjern —
+        // kontoret styrer livscyklus fra office-draweren).
         if (typeof FlagStrip !== 'undefined') {
+            const kitchenZone = document.body.classList.contains('zone-kitchen');
             this.flagStrip = new FlagStrip(this.el.querySelector('.drawer-flags'), {
                 bonId: null,
+                readOnly: kitchenZone,
                 onChange: () => this.load(this.bonId),
             });
         }
@@ -101,6 +105,7 @@ class BonDrawer {
             <div class="drawer-header">
                 <span class="drawer-title">Bon #---</span>
                 <div class="drawer-header-actions">
+                    <button class="drawer-plan-followup" type="button" title="Planlæg en opfølgning på denne bon">⏰ Planlæg</button>
                     <button class="drawer-flyver" type="button" title="Send flyver til køkkenet">✈ Flyver</button>
                     <button class="drawer-copy" type="button" title="Kopiér bon — opretter ny bon med samme indhold og status NY">⎘ Kopiér</button>
                     <button class="drawer-history" type="button" title="Vis historik">⏱ Historik</button>
@@ -183,6 +188,13 @@ class BonDrawer {
                             <div class="drawer-delivery-events"></div>
                         </div>
                     </div>
+                </div>
+
+                <!-- CO₂ -->
+                <div class="drawer-section drawer-co2-section" data-drawer-section="co2" hidden>
+                    <label class="drawer-label">CO₂-aftryk</label>
+                    <div class="drawer-co2-strip" role="button" tabindex="0" title="Klik for at se hvad der bidrager"></div>
+                    <div class="drawer-co2-detail" hidden></div>
                 </div>
 
                 <!-- KUNDE -->
@@ -301,6 +313,44 @@ class BonDrawer {
                         </div>
                     </div>
                 </div>
+
+                <!-- PLANLAGT (CRM-opfølgning — office-only, skjules når tom) -->
+                <div class="drawer-section drawer-planned-section" data-drawer-section="planlagt" hidden>
+                    <label class="drawer-label">⏰ Planlagt på denne bon</label>
+                    <div class="drawer-planned-list"></div>
+                </div>
+            </div>
+
+            <!-- Overlay: planlæg opfølgning (office-only) -->
+            <div class="drawer-plan-overlay" hidden>
+                <div class="drawer-plan-card">
+                    <div class="drawer-plan-head">⏰ Planlæg opfølgning</div>
+                    <div class="drawer-plan-row">
+                        <select class="drawer-field drawer-plan-type">
+                            <option value="call">Opkald</option>
+                            <option value="task">Opgave</option>
+                            <option value="note">Note</option>
+                            <option value="followup">Opfølgning</option>
+                            <option value="meeting">Møde</option>
+                        </select>
+                        <select class="drawer-field drawer-plan-when">
+                            <option value="tomorrow">I morgen</option>
+                            <option value="3d">Om 3 dage</option>
+                            <option value="1w">Næste uge</option>
+                            <option value="custom">Vælg dato…</option>
+                            <option value="now">Nu (log)</option>
+                        </select>
+                    </div>
+                    <div class="drawer-plan-row">
+                        <input type="date" class="drawer-field drawer-plan-date" hidden>
+                        <input type="time" class="drawer-field drawer-plan-time" value="09:00">
+                    </div>
+                    <textarea class="drawer-field drawer-textarea drawer-plan-note" rows="2" placeholder="Hvad skal der følges op på?"></textarea>
+                    <div class="drawer-plan-actions">
+                        <button type="button" class="drawer-plan-cancel">Annuller</button>
+                        <button type="button" class="drawer-plan-submit">Planlæg</button>
+                    </div>
+                </div>
             </div>
 
             <div class="drawer-footer">
@@ -385,6 +435,27 @@ class BonDrawer {
                 window.openFlyverComposer(this.bonId, bonNumber);
             } else {
                 console.warn('Flyver-systemet er ikke indlæst på denne side.');
+            }
+        });
+
+        // Planlæg opfølgning (CRM) — åbn overlay
+        this.el.querySelector('.drawer-plan-followup').addEventListener('click', () => this._openPlanOverlay());
+        this.el.querySelector('.drawer-plan-cancel').addEventListener('click', () => this._closePlanOverlay());
+        this.el.querySelector('.drawer-plan-submit').addEventListener('click', () => this._submitPlan());
+        this.el.querySelector('.drawer-plan-when').addEventListener('change', () => this._planWhenChanged());
+        // Afkrydsning / annuller i planlagt-listen (event-delegation)
+        this.el.querySelector('.drawer-planned-list').addEventListener('click', (e) => {
+            const check = e.target.closest('[data-plan-check]');
+            if (check) { this._togglePlanResult(check.getAttribute('data-plan-check')); return; }
+            const gem = e.target.closest('[data-plan-complete]');
+            if (gem) { this._completePlanned(gem.getAttribute('data-plan-complete'), gem.hasAttribute('data-skip')); return; }
+            const cancel = e.target.closest('[data-plan-result-cancel]');
+            if (cancel) { const el = this.el.querySelector('#drawerpr-' + cancel.getAttribute('data-plan-result-cancel')); if (el) el.classList.remove('show'); return; }
+            const sent = e.target.closest('.drawer-plan-sent-btn');
+            if (sent) {
+                const grp = sent.closest('.drawer-plan-sent');
+                grp.querySelectorAll('.drawer-plan-sent-btn').forEach(b => b.classList.remove('selected'));
+                sent.classList.add('selected');
             }
         });
 
@@ -597,6 +668,10 @@ class BonDrawer {
         });
         this._renderLines(d.lines || []);
 
+        // CO₂-aftryk (mad + transport)
+        this._renderCo2(d);
+        this._loadCo2Accuracy(this.bonId);
+
         // Noter
         this._setFieldValue('customer_wishes', d.customer_wishes || '');
         this._setFieldValue('invoice_info', d.invoice_info || '');
@@ -609,8 +684,97 @@ class BonDrawer {
         // Delivery — load async (non-blocking)
         this._loadDelivery(d);
 
+        // Planlagt CRM-opfølgning — load async (non-blocking, office-only)
+        this._loadPlanned(d);
+
         this.dirty = false;
         this._pendingChanges = {};
+    }
+
+    // CO₂-strip: "Mad X · Transport Y (metode) · I alt Z". Transport-delen skjules
+    // når bonen ikke har en beregnbar levering (source=none). Skjuler hele sektionen
+    // hvis der hverken er mad- eller transport-tal.
+    _renderCo2(d) {
+        const section = this.el.querySelector('[data-drawer-section="co2"]');
+        if (!section) return;
+        const _esc = typeof esc === 'function' ? esc
+            : (s) => String(s == null ? '' : s).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+        const foodKg = d.total_co2e != null ? Number(d.total_co2e) : null;
+        const hasT = d.transport_co2_source && d.transport_co2_source !== 'none' && d.transport_co2e_kg != null;
+        const tKg = hasT ? Number(d.transport_co2e_kg) : 0;
+        if ((foodKg == null || foodKg === 0) && !hasT) { section.hidden = true; return; }
+        section.hidden = false;
+        const fmt = (kg) => Number(kg || 0).toLocaleString('da-DK', { minimumFractionDigits: 1, maximumFractionDigits: 1 }) + ' kg';
+        const total = (foodKg || 0) + tKg;
+        const pax = Number(d.pax) || 0;
+        const perKuvert = pax > 0 ? total / pax : null;
+        const fmt2 = (kg) => Number(kg || 0).toLocaleString('da-DK', { minimumFractionDigits: 2, maximumFractionDigits: 2 }) + ' kg';
+        const parts = [`Mad <b>${fmt(foodKg || 0)}</b><span class="drawer-co2-acc" data-co2-acc></span>`];
+        if (hasT) {
+            const method = d.transport_vehicle_label ? ` <span class="drawer-co2-method">(${_esc(d.transport_vehicle_label)})</span>` : '';
+            parts.push(`Transport <b>${fmt(tKg)}</b>${method}`);
+        }
+        parts.push(`I alt <b>${fmt(total)} CO₂e</b>`);
+        const strip = section.querySelector('.drawer-co2-strip');
+        if (strip) {
+            let html = '🌱 ' + parts.join(' <span class="drawer-co2-sep">·</span> ');
+            if (perKuvert != null) html += ` <span class="drawer-co2-sep">·</span> <span class="drawer-co2-perkuvert"><b>${fmt2(perKuvert)}</b>/kuvert</span>`;
+            strip.innerHTML = html + ' <span class="drawer-co2-caret">▾</span>';
+        }
+
+        // Nedbrydning pr. vare (co2e × antal), sorteret efter bidrag. Varer uden
+        // CO₂-tal tælles ikke med — vises som note så tallet ikke fejllæses som "komplet".
+        const detail = section.querySelector('.drawer-co2-detail');
+        if (detail) {
+            const pct = (kg) => total ? Math.round(kg / total * 100) : 0;
+            const items = (d.lines || [])
+                .map(l => ({ name: l.product_name || '', kg: (Number(l.co2e) || 0) * (Number(l.quantity) || 0) }))
+                .filter(x => x.kg > 0).sort((a, b) => b.kg - a.kg);
+            const missing = (d.lines || []).filter(l => (Number(l.quantity) || 0) > 0 && !(Number(l.co2e) > 0)).length;
+            let rows = items.map(x =>
+                `<div class="drawer-co2-row"><span class="drawer-co2-row-name">${_esc(x.name)}</span>` +
+                `<span class="drawer-co2-row-kg">${fmt(x.kg)}</span><span class="drawer-co2-row-pct">${pct(x.kg)}%</span></div>`).join('');
+            if (hasT) {
+                const tlabel = d.transport_vehicle_label ? ` (${_esc(d.transport_vehicle_label)})` : '';
+                rows += `<div class="drawer-co2-row drawer-co2-row-transport"><span class="drawer-co2-row-name">🚚 Transport${tlabel}</span>` +
+                    `<span class="drawer-co2-row-kg">${fmt(tKg)}</span><span class="drawer-co2-row-pct">${pct(tKg)}%</span></div>`;
+            }
+            const missNote = missing > 0
+                ? `<div class="drawer-co2-missing">⚠ ${missing} vare${missing > 1 ? 'r' : ''} uden CO₂-tal — ikke medregnet</div>` : '';
+            const perKuvertRow = (rows && perKuvert != null)
+                ? `<div class="drawer-co2-row drawer-co2-row-perkuvert"><span class="drawer-co2-row-name">Pr. kuvert <span class="drawer-co2-row-sub">(${pax} pax)</span></span>` +
+                    `<span class="drawer-co2-row-kg">${fmt2(perKuvert)}</span><span class="drawer-co2-row-pct"></span></div>`
+                : '';
+            detail.innerHTML = (rows
+                ? rows + `<div class="drawer-co2-row drawer-co2-row-total"><span class="drawer-co2-row-name">I alt</span>` +
+                    `<span class="drawer-co2-row-kg">${fmt(total)}</span><span class="drawer-co2-row-pct">100%</span></div>` + perKuvertRow
+                : '<div class="drawer-co2-missing">Ingen CO₂-tal på varerne endnu.</div>') + missNote;
+        }
+        if (strip && detail && !strip._co2Bound) {
+            strip._co2Bound = true;
+            const toggle = () => { detail.hidden = !detail.hidden; strip.classList.toggle('open', !detail.hidden); };
+            strip.addEventListener('click', toggle);
+            strip.addEventListener('keydown', (e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); toggle(); } });
+        }
+    }
+
+    // Bonens mad-CO₂ nøjagtighed (masse-vægtet) — async, non-blocking. Fylder
+    // "· X% dækket" ind ved siden af Mad-tallet. Kræver Grocy (engine).
+    async _loadCo2Accuracy(bonId) {
+        const span = this.el.querySelector('[data-co2-acc]');
+        if (!span || typeof fetchCo2BonAccuracy !== 'function') return;
+        try {
+            const r = await fetchCo2BonAccuracy(bonId);
+            if (this.bonId !== bonId) return; // bruger skiftede bon
+            const el = this.el.querySelector('[data-co2-acc]');
+            if (!el) return;
+            if (r && r.accuracy_pct != null) {
+                const cls = r.accuracy_pct >= 80 ? 'hi' : (r.accuracy_pct >= 50 ? 'mid' : 'lo');
+                el.innerHTML = ` <span class="drawer-co2-acc-badge ${cls}" title="Andel af bonens mad-masse med CO₂-tal">${r.accuracy_pct}% dækket</span>`;
+            } else {
+                el.innerHTML = '';
+            }
+        } catch { /* nøjagtighed er bonus — fejl lydløst */ }
     }
 
     async _refreshLoboSandboxBadge() {
@@ -1227,6 +1391,147 @@ class BonDrawer {
             });
         } catch (err) {
             histEl.innerHTML = '<div style="color:var(--color-red);font-size:12px;padding:4px">Fejl: ' + esc(err.message) + '</div>';
+        }
+    }
+
+    // ─── Planlagt CRM-opfølgning (Fase 3) ───────────────────────
+    async _loadPlanned(bon) {
+        const section = this.el.querySelector('.drawer-planned-section');
+        const listEl = this.el.querySelector('.drawer-planned-list');
+        if (!section || !listEl) return;
+        // Kræver en kunde at knytte opfølgningen til
+        const hasCustomer = !!(bon && bon.customer_id);
+        this.el.querySelector('.drawer-plan-followup').style.display = hasCustomer ? '' : 'none';
+        if (typeof fetchCrmPlanned !== 'function' || !hasCustomer) { section.hidden = true; return; }
+        try {
+            const res = await fetchCrmPlanned({ bon_id: this.bonId });
+            const planned = (res && res.planned) || [];
+            if (!planned.length) { section.hidden = true; listEl.innerHTML = ''; return; }
+            section.hidden = false;
+            const labels = (typeof PLANNED_TYPE_LABELS !== 'undefined') ? PLANNED_TYPE_LABELS : {};
+            listEl.innerHTML = planned.map(p => {
+                const isMeeting = p.type === 'meeting';
+                const due = (typeof plannedFmtDue === 'function') ? plannedFmtDue(p.due_at) : { label: p.due_at || '', overdue: false };
+                const tLabel = (isMeeting && p.meeting_type_label) ? p.meeting_type_label : (labels[p.type] || p.type);
+                const emoji = (isMeeting && p.meeting_type_emoji) ? p.meeting_type_emoji + ' ' : '';
+                const check = isMeeting
+                    ? '<span class="drawer-plan-check drawer-plan-check--meeting" title="Møde — håndteres i mødedetaljen"></span>'
+                    : '<span class="drawer-plan-check" data-plan-check="' + p.id + '" title="Markér udført"></span>';
+                return '<div class="drawer-planned-item" id="drawerp-' + p.id + '">' +
+                        check +
+                        '<span class="drawer-plan-type">' + esc(emoji + tLabel) + '</span>' +
+                        '<span class="drawer-plan-text">' + esc(p.text || '') + '</span>' +
+                        '<span class="drawer-plan-date' + (due.overdue ? ' overdue' : '') + '">' + esc(due.label) + '</span>' +
+                    '</div>' +
+                    '<div class="drawer-plan-result" id="drawerpr-' + p.id + '">' +
+                        '<div class="drawer-plan-result-title">✓ Udført — log resultat?</div>' +
+                        '<div class="drawer-plan-result-row">' +
+                            '<select class="drawer-field drawer-plan-res" id="drawerpr-res-' + p.id + '">' +
+                                '<option value="">— Resultat —</option>' +
+                                '<option value="reached">Nået</option>' +
+                                '<option value="no_answer">Intet svar</option>' +
+                                '<option value="callback">Callback</option>' +
+                                '<option value="email_instead">Email i stedet</option>' +
+                            '</select>' +
+                            '<div class="drawer-plan-sent">' +
+                                '<button type="button" class="drawer-plan-sent-btn" data-s="positive">😊</button>' +
+                                '<button type="button" class="drawer-plan-sent-btn" data-s="neutral">😐</button>' +
+                                '<button type="button" class="drawer-plan-sent-btn" data-s="negative">😟</button>' +
+                            '</div>' +
+                        '</div>' +
+                        '<input type="text" class="drawer-field drawer-plan-resnote" id="drawerpr-note-' + p.id + '" placeholder="Hvad kom der ud af det? (valgfri)">' +
+                        '<div class="drawer-plan-result-actions">' +
+                            '<button type="button" class="drawer-plan-gem" data-plan-complete="' + p.id + '">Gem</button>' +
+                            '<button type="button" class="drawer-plan-ghost" data-plan-complete="' + p.id + '" data-skip>Gem uden resultat</button>' +
+                            '<button type="button" class="drawer-plan-cancel-result" data-plan-result-cancel="' + p.id + '">Annuller</button>' +
+                        '</div>' +
+                    '</div>';
+            }).join('');
+        } catch (err) {
+            console.warn('[drawer-planned]', err.message);
+            section.hidden = true;
+        }
+    }
+
+    _openPlanOverlay() {
+        if (!this.data || !this.data.customer_id) { alert('Bonen har ingen kunde at knytte opfølgningen til.'); return; }
+        const ov = this.el.querySelector('.drawer-plan-overlay');
+        ov.querySelector('.drawer-plan-when').value = 'tomorrow';
+        ov.querySelector('.drawer-plan-type').value = 'call';
+        ov.querySelector('.drawer-plan-note').value = '';
+        ov.querySelector('.drawer-plan-date').hidden = true;
+        ov.querySelector('.drawer-plan-time').value = '09:00';
+        ov.hidden = false;
+        this._planWhenChanged();
+        ov.querySelector('.drawer-plan-note').focus();
+    }
+
+    _closePlanOverlay() {
+        this.el.querySelector('.drawer-plan-overlay').hidden = true;
+    }
+
+    _planWhenChanged() {
+        const ov = this.el.querySelector('.drawer-plan-overlay');
+        const when = ov.querySelector('.drawer-plan-when').value;
+        ov.querySelector('.drawer-plan-date').hidden = (when !== 'custom');
+        // beregn tilstand for knap-label + tid-synlighed
+        const dateVal = ov.querySelector('.drawer-plan-date').value || '';
+        const st = (typeof plannedComputeWhen === 'function') ? plannedComputeWhen(when, dateVal, null) : { mode: when === 'now' ? 'now' : 'plan' };
+        ov.querySelector('.drawer-plan-time').style.display = (st.mode === 'plan') ? '' : 'none';
+        const btn = ov.querySelector('.drawer-plan-submit');
+        btn.textContent = st.mode === 'plan' ? 'Planlæg' : 'Log aktivitet';
+    }
+
+    async _submitPlan() {
+        if (!this.data || !this.data.customer_id) return;
+        const ov = this.el.querySelector('.drawer-plan-overlay');
+        const type = ov.querySelector('.drawer-plan-type').value;
+        const note = ov.querySelector('.drawer-plan-note').value.trim();
+        if (!note) { alert('Skriv hvad der skal følges op på'); return; }
+        const when = ov.querySelector('.drawer-plan-when').value;
+        const dateVal = ov.querySelector('.drawer-plan-date').value || '';
+        const timeVal = ov.querySelector('.drawer-plan-time').value || '';
+        const st = plannedComputeWhen(when, dateVal, timeVal);
+        if (st.incomplete) { alert('Vælg en dato'); return; }
+
+        const body = { customer_id: this.data.customer_id, bon_id: this.bonId, type, text: note };
+        if (st.mode === 'plan') body.due_at = st.due_at;
+        else if (st.mode === 'backdate') body.done_at = st.done_at;
+
+        const btn = ov.querySelector('.drawer-plan-submit');
+        btn.disabled = true;
+        try {
+            await postCrmActivity(body);
+            this._closePlanOverlay();
+            this._loadPlanned(this.data);
+        } catch (err) {
+            alert('Fejl: ' + err.message);
+        } finally {
+            btn.disabled = false;
+        }
+    }
+
+    _togglePlanResult(id) {
+        const el = this.el.querySelector('#drawerpr-' + id);
+        const item = this.el.querySelector('#drawerp-' + id);
+        if (!el) return;
+        const open = el.classList.toggle('show');
+        if (item) item.classList.toggle('drawer-planned-item--active', open);
+    }
+
+    async _completePlanned(id, skip) {
+        const payload = {};
+        if (!skip) {
+            payload.result = this.el.querySelector('#drawerpr-res-' + id)?.value || null;
+            const sentBtn = this.el.querySelector('#drawerpr-' + id + ' .drawer-plan-sent-btn.selected');
+            payload.sentiment = sentBtn ? sentBtn.getAttribute('data-s') : null;
+            payload.note = this.el.querySelector('#drawerpr-note-' + id)?.value || '';
+        }
+        try {
+            await completeCrmActivity(id, payload);
+            this._loadPlanned(this.data);
+        } catch (err) {
+            alert('Fejl: ' + err.message);
         }
     }
 
@@ -2047,8 +2352,23 @@ if (typeof _buildMailVars === 'undefined') {
             momsBeloeb: moms.toLocaleString('da-DK',{minimumFractionDigits:2})+' kr',
             co2PerLinje: menuLines.filter(function(l){return l.co2e;}).map(function(l){return l.product_name+': '+l.co2e+' kg × '+l.quantity+' = '+(l.co2e*l.quantity).toFixed(2);}).join('\n'),
             co2Total: menuLines.reduce(function(s,l){return s+((l.co2e||0)*l.quantity);},0).toFixed(2)+' kg CO₂e',
+            // Transport-CO₂ (Fase 3) — {{co2Total}} forbliver mad+emballage; disse lægges oveni.
+            co2Transport: _drawerCo2Transport(bon).text,
+            co2MedTransport: (menuLines.reduce(function(s,l){return s+((l.co2e||0)*l.quantity);},0) + _drawerCo2Transport(bon).kg).toFixed(2).replace('.',',')+' kg CO₂e',
+            leveringsMetode: bon.transport_vehicle_label || bon.delivery_vehicle_label || _drawerMethodLabel(bon.delivery_method) || '',
         };
     };
+}
+
+// Transport-CO₂ for mail: kg + dansk-formateret tekst (0 hvis ukendt/afhentning).
+function _drawerCo2Transport(bon) {
+    var hasT = bon && bon.transport_co2_source && bon.transport_co2_source !== 'none' && bon.transport_co2e_kg != null;
+    var kg = hasT ? Number(bon.transport_co2e_kg) : 0;
+    return { kg: kg, text: kg.toFixed(2).replace('.', ',') + ' kg' };
+}
+
+function _drawerMethodLabel(method) {
+    return { bike: 'Cykelbud', taxi: 'Taxa', volvo: 'Volvo Duett', pickup: 'Afhentning' }[method] || '';
 }
 
 function _drawerApplyTemplate() {

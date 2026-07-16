@@ -169,6 +169,7 @@ function _f3RenderOversigt(el) {
                     <span class="f3-card-title">Stamdata</span>
                 </div>
                 <div class="f3-card-b">
+                    ${_f3EditableRow('Navn', 'name', company.name)}
                     ${_f3EditableRow('CVR', 'cvr', company.cvr)}
                     ${_f3EditableRow('EAN', 'ean', company.ean)}
                     ${_f3EditableRow('Juridisk', 'legal_name', company.legal_name)}
@@ -233,6 +234,7 @@ function _f3RenderOversigt(el) {
 // ─── Redigerbare stamdata-felter (CVR / EAN / juridisk navn) ─
 
 const _F3_FIELD_META = {
+    name:       { label: 'Navn',    placeholder: 'Firmanavn (vises i lister)' },
     cvr:        { label: 'CVR',     placeholder: '8 cifre',  inputmode: 'numeric' },
     ean:        { label: 'EAN',     placeholder: '13 cifre', inputmode: 'numeric' },
     legal_name: { label: 'Juridisk', placeholder: 'Juridisk navn' },
@@ -283,7 +285,11 @@ async function _f3SaveField(field, rawValue) {
     const value = rawValue.trim();
 
     // Klient-side validering (serveren validerer også)
-    if (field === 'cvr') {
+    if (field === 'name') {
+        if (value === '') {
+            _f3ShowToast('Firmanavn må ikke være tomt', 'error'); return;
+        }
+    } else if (field === 'cvr') {
         const digits = value.replace(/\D/g, '');
         if (digits !== '' && digits.length !== 8) {
             _f3ShowToast('CVR skal være 8 cifre', 'error'); return;
@@ -347,6 +353,7 @@ function _f3RenderFlagsCard() {
                 <div class="f3-flag-add">
                     <input type="text" id="f3-flag-title" class="f3-flag-input" placeholder="Titel (fx 'Fakturaer skal til Anne')">
                     <textarea id="f3-flag-body" class="f3-flag-textarea" placeholder="Detalje (valgfri)"></textarea>
+                    <label class="f3-flag-kitchen"><input type="checkbox" id="f3-flag-office-only"> 🔒 Kun kontor <span class="f3-flag-hint">(køkkenet ser den ikke)</span></label>
                     <button class="f3-btn f3-btn-primary" id="f3-flag-add-btn">+ Tilføj påmindelse</button>
                 </div>
             </div>
@@ -359,9 +366,11 @@ async function _f3AddFlag() {
     const body  = (document.getElementById('f3-flag-body')?.value  || '').trim();
     if (!title) { alert('Skriv en titel'); return; }
     try {
-        await createFlag('company', _f3State.companyId, title, body || null);
+        const officeOnly = document.getElementById('f3-flag-office-only')?.checked;
+        await createFlag('company', _f3State.companyId, title, body || null, !officeOnly);
         document.getElementById('f3-flag-title').value = '';
         document.getElementById('f3-flag-body').value  = '';
+        const oo = document.getElementById('f3-flag-office-only'); if (oo) oo.checked = false;
         await _f3Reload();
     } catch (err) {
         alert('Fejl: ' + err.message);
@@ -380,6 +389,8 @@ async function _f3RemoveFlag(flagId) {
 
 async function _f3Reload() {
     _f3State.data = await fetchCrmCompany(_f3State.companyId);
+    // Re-render også shell'en så header (navn/legal/CVR/EAN) afspejler nye stamdata.
+    _f3RenderShell();
     _f3RenderTab(_f3State.tab || 'oversigt');
 }
 
@@ -543,13 +554,77 @@ function _f3RenderMail(el) {
 
 // ─── AKTIVITET-FANEN ───────────────────────────────────────────
 
+const _F3_ACT_ICONS = {
+    call: '📞', service_call: '📞', meeting: '🤝', task: '📋', note: '📝',
+    followup: '🔔', offer_sent: '📤', email_in: '📥', email_out: '📤', dismissed_flag: '🚩',
+};
+const _F3_ACT_LABELS = {
+    call: 'Opkald', service_call: 'Service-kald', meeting: 'Møde', task: 'Opgave', note: 'Note',
+    followup: 'Opfølgning', offer_sent: 'Tilbud sendt', email_in: 'Mail ind', email_out: 'Mail ud',
+    dismissed_flag: 'Påmindelse afsluttet',
+};
+const _F3_RESULT_LABELS = {
+    reached: 'Nået', no_answer: 'Intet svar', busy: 'Optaget', voicemail: 'Besked',
+    callback: 'Callback', email_instead: 'Email',
+};
+const _F3_SENT = { positive: '😊 God', neutral: '😐 Neutral', negative: '😟 Dårlig' };
+
+// Aktivitet aggregeret på tværs af firmaets kontaktpersoner.
+// Hver række viser HVEM den lå på — det er pointen med firma-niveauet.
 function _f3RenderAktivitet(el) {
+    const activities = _f3State.data?.activities || [];
+    if (!activities.length) {
+        el.innerHTML = `
+            <div class="f3-empty">
+                Ingen aktivitet registreret på firmaets kontaktpersoner endnu.<br>
+                <span class="f3-muted-sm">Opkald, noter og møder logget på en kontaktperson dukker op her.</span>
+            </div>`;
+        return;
+    }
+
+    const rows = activities.map(a => {
+        const isFlag = a.type === 'dismissed_flag';
+        const isMeeting = a.type === 'meeting';
+        const icon = _F3_ACT_ICONS[a.type] || '•';
+        let label = _F3_ACT_LABELS[a.type] || a.type;
+        if (isMeeting && a.meeting_type_label) label = a.meeting_type_label;
+        const result = a.result ? ' → ' + (_F3_RESULT_LABELS[a.result] || a.result) : '';
+
+        // Planlagt→udført / stadig planlagt (jf. CLAUDE_CRM_PLANLAGT.md)
+        let annot = '';
+        if (a.due_at && a.done_at) annot = '<span class="f3-act-annot">✓ planlagt → udført</span>';
+        else if (a.due_at && !a.done_at) annot = '<span class="f3-act-annot planlagt">⏰ planlagt</span>';
+
+        // Møder vises på deres mødetidspunkt; øvrige på udført-/oprettet-tidspunkt
+        const when = (isMeeting && a.due_at) ? a.due_at : (a.done_at || a.created_at);
+        const whoOn = a.customer_name && a.customer_name.trim()
+            ? `<span class="f3-act-who" title="Aktiviteten ligger på denne kontaktperson">${escapeHtml(a.customer_name.trim())}</span>`
+            : (isFlag ? '<span class="f3-act-who f3-act-who-company">på firmaet</span>' : '');
+        const bon = a.bon_number ? `<span class="f3-act-bon">#${escapeHtml(a.bon_number)}</span>` : '';
+        const sent = a.sentiment ? `<span class="f3-act-sent ${a.sentiment}">${_F3_SENT[a.sentiment] || a.sentiment}</span>` : '';
+        const purpose = a.purpose_label ? `<span class="f3-act-purpose">${a.purpose_emoji || ''} ${escapeHtml(a.purpose_label)}</span>` : '';
+
+        return `
+            <div class="f3-act-item${isFlag ? ' f3-act-readonly' : ''}">
+                <div class="f3-act-icon">${icon}</div>
+                <div class="f3-act-body">
+                    <div class="f3-act-head">
+                        <span class="f3-act-type">${escapeHtml(label)}${escapeHtml(result)}</span>
+                        ${annot}${whoOn}${bon}
+                        <span class="f3-act-time">${_f3FormatDate(when)}</span>
+                    </div>
+                    ${a.text ? `<div class="f3-act-text">${escapeHtml(a.text)}</div>` : ''}
+                    ${isFlag && a.note ? `<div class="f3-act-note">${escapeHtml(a.note)}</div>` : ''}
+                    ${(sent || purpose || a.user_name) ? `<div class="f3-act-foot">${sent}${purpose}${a.user_name ? `<span class="f3-act-user">${escapeHtml(a.user_name)}</span>` : ''}</div>` : ''}
+                </div>
+            </div>`;
+    }).join('');
+
     el.innerHTML = `
-        <div class="f3-empty">
-            Aggregeret aktivitet på firma-niveau er ikke implementeret endnu.<br>
-            <span class="f3-muted-sm">(crm_activities har p.t. kun customer_id — firma-aggregering kommer senere.)</span>
-        </div>
-    `;
+        <div class="f3-card">
+            <div class="f3-card-h"><span class="f3-card-title">Aktivitet på tværs af firmaets kontaktpersoner (${activities.length})</span></div>
+            <div class="f3-card-b"><div class="f3-act-list">${rows}</div></div>
+        </div>`;
 }
 
 // ─── BERIG-FLOW (Fase 3: fuld modal-UI med diff-checkboxes) ────

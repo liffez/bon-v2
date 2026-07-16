@@ -169,6 +169,21 @@
     margin-bottom: 8px;
 }
 
+/* Køkken-synlig kunde-påmindelse (read-only banner øverst i info-modal) */
+.info-paamindelse {
+    margin: 0 0 12px;
+    padding: 9px 12px;
+    background: var(--brand-primary-light, #f1e6b2);
+    border-left: 3px solid var(--brand-primary, #8e631f);
+    border-radius: 6px;
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+}
+.info-paamindelse-item { font-size: 13px; line-height: 1.35; color: var(--color-text, #2a2723); }
+.info-paamindelse-title { font-weight: 700; }
+.info-paamindelse-body { display: block; font-weight: 400; opacity: 0.85; font-size: 12px; }
+
 /* Nøgle/værdi-rækker */
 .info-row {
     display: flex;
@@ -662,9 +677,9 @@
 .pakke-edit-hint { font-size: 11px; color: #888; margin: -4px 0 10px; }
 .pakke-locked-hint { color: #8a6d1a; background: #fcf7e8; padding: 6px 10px; border-radius: 4px; }
 .pakke-qty-input {
-    width: 56px; padding: 3px 6px; border: 1px solid #d7d1ca; border-radius: 4px;
-    text-align: right; font-size: 13px; font-weight: 600; font-variant-numeric: tabular-nums;
-    color: #2a2a2a; background: #fff;
+    width: 78px; padding: 4px 6px; border: 1px solid #d7d1ca; border-radius: 4px;
+    text-align: right; font-size: 15px; font-weight: 700; font-variant-numeric: tabular-nums;
+    color: #1a1a1a; background: #fff;
 }
 .pakke-qty-input:hover { border-color: #b8b2aa; }
 .pakke-qty-input:focus { outline: none; border-color: var(--brand-primary, #8e631f); box-shadow: 0 0 0 2px rgba(142,99,31,0.12); }

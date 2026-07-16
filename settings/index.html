@@ -508,7 +508,7 @@
       <h2>Brugere</h2>
       <table class="st-table" id="users-table">
         <thead><tr>
-          <th>Navn</th><th>Email</th><th>Rolle</th><th>Tablet PIN</th><th>Mobil PIN</th><th>Aktiv</th><th></th>
+          <th>Navn</th><th>Email</th><th>Rolle</th><th>Tablet PIN</th><th>Mobil PIN</th><th>Aktiv</th><th title="Må sætte modtagedato på varemodtagelse (backdatere bilag)">Modtagedato</th><th></th>
         </tr></thead>
         <tbody id="users-body"></tbody>
       </table>
@@ -1072,6 +1072,38 @@
             <strong>Tom:</strong> afhentning beregnes fra ORS-køretid + afleveringstid.
           </div>
         </div>
+        <!-- ── CO₂-BEREGNING (transport-CO₂) ─────────────────────────────── -->
+        <div style="margin-top:22px;padding:14px;border:1px solid var(--color-border);border-radius:6px;background:#fbfdf9">
+          <label class="st-label" style="margin:0 0 4px">🌱 CO₂-beregning</label>
+          <div style="font-size:12px;color:#888;margin-bottom:12px">
+            Bruges af CO₂-oversigten. Tom/0 = tæller ikke med. Faktorer er estimater — se metodenoten i rapporten.
+          </div>
+          <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px">
+            <div>
+              <label class="st-label">CO₂-faktor (g CO₂e / km)</label>
+              <input type="number" id="dv-edit-co2-per-km" class="st-input" min="0" step="1" placeholder="0">
+              <div style="margin-top:4px;font-size:11px;color:#888">Fx Volvo 250 · el-taxa 60 · cykelbud 5</div>
+            </div>
+            <div>
+              <label class="st-label">Fast CO₂ pr. tur (g) — fallback</label>
+              <input type="number" id="dv-edit-co2-fixed" class="st-input" min="0" step="1" placeholder="0">
+              <div style="margin-top:4px;font-size:11px;color:#888">Bruges når leveringen ikke har km-data</div>
+            </div>
+            <div>
+              <label class="st-label">Afstands-faktor</label>
+              <input type="number" id="dv-edit-co2-mult" class="st-input" min="0" step="0.1" placeholder="1,0">
+              <div style="margin-top:4px;font-size:11px;color:#888">Kun punkt-til-punkt: Volvo 2,0 (tur/retur) · bud 1,0</div>
+            </div>
+            <div>
+              <label class="st-label">Positionerings-tillæg (km)</label>
+              <input type="number" id="dv-edit-co2-pos" class="st-input" min="0" step="0.1" placeholder="0">
+              <div style="margin-top:4px;font-size:11px;color:#888">Eksterne bud: km fra leverandørens base → HQ. Egne vogne = 0.</div>
+            </div>
+          </div>
+          <div style="margin-top:10px;font-size:11px;color:#888;background:var(--color-background);border-radius:6px;padding:8px 10px">
+            Ligger leveringen på en <strong>beregnet rute</strong>, bruges rutens faktiske km (inkl. retur) og afstands-faktoren ignoreres. Positionerings-tillæg gælder kun eksterne bud (By-expressen, Taxa).
+          </div>
+        </div>
         <div style="margin-top:18px;display:flex;gap:10px;justify-content:flex-end">
           <button type="button" class="st-btn-secondary" onclick="dvCloseEditor()">Annullér</button>
           <button type="button" class="st-btn" id="dv-save-btn" onclick="dvSaveVehicle()">Gem</button>
@@ -1550,6 +1582,9 @@ async function loadUsers() {
   var tbody = document.getElementById('users-body');
   tbody.innerHTML = '';
   users.forEach(function(u) {
+    var mj = {};
+    try { mj = u.modules_json ? JSON.parse(u.modules_json) : {}; } catch (e) {}
+    var canBackdate = mj.modtag_backdate === true;
     var tr = document.createElement('tr');
     tr.innerHTML =
       '<td>' + esc(u.name) + '</td>' +
@@ -1561,6 +1596,8 @@ async function loadUsers() {
       '<td>' + buildPinCell(u.id, 'mobile_pin', u.mobile_pin) + '</td>' +
       '<td><label class="st-toggle"><input type="checkbox" ' + (u.is_active ? 'checked' : '') +
         ' onchange="updateUser(' + u.id + ',\'is_active\',this.checked)"><span class="st-toggle-slider"></span></label></td>' +
+      '<td><label class="st-toggle" title="Må sætte modtagedato (backdatere bilag)"><input type="checkbox" ' + (canBackdate ? 'checked' : '') +
+        ' onchange="updateUserBackdate(' + u.id + ',this.checked)"><span class="st-toggle-slider"></span></label></td>' +
       '<td><button class="st-btn st-btn-sm st-btn-secondary" onclick="togglePwForm(' + u.id + ')">Password</button>' +
         '<div id="pw-form-' + u.id + '" style="display:none;margin-top:4px">' +
           '<input type="password" class="st-input st-input-pw" id="pw-input-' + u.id + '" placeholder="Nyt password">' +
@@ -1609,6 +1646,12 @@ async function updateUser(id, field, value) {
   fields[field] = value;
   await patchUser(id, fields);
   toast('Bruger opdateret');
+}
+
+// Per-bruger evne: må sætte modtagedato på varemodtagelse. null fjerner override.
+async function updateUserBackdate(id, checked) {
+  await patchUser(id, { modules: { modtag_backdate: checked ? true : null } });
+  toast(checked ? 'Må nu sætte modtagedato' : 'Modtagedato-adgang fjernet');
 }
 
 function togglePwForm(id) {
@@ -2097,11 +2140,11 @@ var _mailTemplatesCache = [];
 var SYSTEM_KEYS = ['booking_confirmation', 'web_order_confirmation', 'order_email'];
 var TEMPLATE_VARS = {
   'booking_confirmation': ['kundeNavn','bonNummer','leveringsDato','leveringsTidspunkt','leveringsAdresse','pax','firmanavn','tag',
-      'menuUdenPriser','menuMedPriser','totalPris','totalExMoms','momsBeloeb','co2Total'],
+      'menuUdenPriser','menuMedPriser','totalPris','totalExMoms','momsBeloeb','co2Total','co2Transport','co2MedTransport','leveringsMetode'],
   'web_order_confirmation': ['kundeNavn','bonNummer','ordreType','leveringsDato','leveringsTid','pax','adresseBlok','oenskerBlok','tag'],
   'order_email': ['leverandoer','vareliste','dato','leveringsdato','tag'],
   '_default': ['kundeNavn','bonNummer','leveringsDato','leveringsTidspunkt','leveringsAdresse','pax','firmanavn','tag',
-      'menuUdenPriser','menuMedPriser','totalPris','totalExMoms','momsBeloeb']
+      'menuUdenPriser','menuMedPriser','totalPris','totalExMoms','momsBeloeb','co2Total','co2Transport','co2MedTransport','leveringsMetode']
 };
 
 function switchTemplate() {
@@ -3803,6 +3846,13 @@ function _dvRender() {
             : '—';
         const inactiveStyle = v.is_active ? '' : 'opacity:0.5';
 
+        // CO₂-status: sat hvis g/km eller fast-tur er udfyldt (gælder alle vogntyper).
+        const co2km = Number(v.co2_g_per_km) || 0;
+        const co2fx = Number(v.co2_g_fixed) || 0;
+        const co2Status = (co2km > 0 || co2fx > 0)
+            ? '<span style="color:#5a9b3f">✓ ' + (co2km > 0 ? co2km + ' g/km' : 'fast ' + co2fx + ' g') + '</span>'
+            : '<span style="color:#c79a3a">⚠ mangler</span>';
+
         return '<tr style="' + inactiveStyle + '">' +
             '<td style="padding:6px 8px"><strong>' + esc(v.label) + '</strong>' +
                 ' <span style="font-size:11px;color:#888">(' + esc(v.code) + ')</span></td>' +
@@ -3811,6 +3861,7 @@ function _dvRender() {
             '<td style="padding:6px 8px;text-align:center">' + tplStatus + '</td>' +
             '<td style="padding:6px 8px;text-align:center">' + fieldStatus + '</td>' +
             '<td style="padding:6px 8px;text-align:center">' + urlStatus + '</td>' +
+            '<td style="padding:6px 8px;text-align:center">' + co2Status + '</td>' +
             '<td style="padding:6px 8px;text-align:right">' +
                 '<button class="st-btn-secondary st-btn-sm" onclick="dvEditVehicle(' + v.id + ')">Rediger</button>' +
             '</td>' +
@@ -3826,6 +3877,7 @@ function _dvRender() {
                 '<th style="padding:8px;text-align:center">Samlet tekst</th>' +
                 '<th style="padding:8px;text-align:center">Felter</th>' +
                 '<th style="padding:8px;text-align:center">URL</th>' +
+                '<th style="padding:8px;text-align:center">CO₂</th>' +
                 '<th style="padding:8px"></th>' +
             '</tr></thead>' +
             '<tbody>' + rows + '</tbody>' +
@@ -3846,6 +3898,11 @@ function dvEditVehicle(id) {
     document.getElementById('dv-edit-template').value = v.booking_template || '';
     document.getElementById('dv-edit-cost').value = v.cost_formula_json || '';
     document.getElementById('dv-edit-pickup-lead').value = v.pickup_lead_min != null ? v.pickup_lead_min : '';
+    // CO₂-beregning (0/1.0 = default → vis tomt så placeholder guider)
+    document.getElementById('dv-edit-co2-per-km').value = v.co2_g_per_km ? v.co2_g_per_km : '';
+    document.getElementById('dv-edit-co2-fixed').value  = v.co2_g_fixed ? v.co2_g_fixed : '';
+    document.getElementById('dv-edit-co2-mult').value   = (v.co2_distance_multiplier != null && v.co2_distance_multiplier !== 1) ? v.co2_distance_multiplier : '';
+    document.getElementById('dv-edit-co2-pos').value    = v.co2_positioning_km ? v.co2_positioning_km : '';
 
     // Booking-fields (felt-for-felt-konfiguration)
     _dvFields = _dvParseFields(v.booking_fields_json);
@@ -4165,6 +4222,12 @@ async function dvSaveVehicle() {
 
     const pickupLeadRaw = document.getElementById('dv-edit-pickup-lead').value.trim();
     data.pickup_lead_min = pickupLeadRaw === '' ? null : parseInt(pickupLeadRaw, 10);
+
+    // CO₂-beregning: tom → backend sætter default (0, mult → 1).
+    data.co2_g_per_km            = document.getElementById('dv-edit-co2-per-km').value.trim();
+    data.co2_g_fixed             = document.getElementById('dv-edit-co2-fixed').value.trim();
+    data.co2_distance_multiplier = document.getElementById('dv-edit-co2-mult').value.trim();
+    data.co2_positioning_km      = document.getElementById('dv-edit-co2-pos').value.trim();
 
     try {
         await patchDeliveryVehicle(_dvEditingId, data);
