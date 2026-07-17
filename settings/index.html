@@ -817,6 +817,30 @@
       <h2>System</h2>
       <div id="system-fields"></div>
 
+      <h3 style="margin-top:24px;font-size:15px;font-weight:700">Lagertræk</h3>
+      <div style="font-size:12px;color:var(--color-text-dim);margin-bottom:14px;line-height:1.6;max-width:600px;background:var(--color-background);padding:10px 14px;border-radius:6px;border:1px solid var(--color-border)">
+        Når en bon når <strong style="color:var(--color-text)">LEVERET</strong>, trækkes opskrifternes
+        råvarer automatisk fra Grocy-lageret.<br>
+        Er trækket slået fra, bogfører systemet stadig vareforbrug i økonomien — men lageret får det
+        aldrig at vide. <strong style="color:var(--color-text)">De to tal driver fra hinanden i stilhed.</strong>
+      </div>
+
+      <div id="deduct-status" style="margin-bottom:14px"></div>
+
+      <div style="display:flex;gap:12px;align-items:center;margin-bottom:6px">
+        <label style="width:280px;font-size:14px;font-weight:500">Træk lager automatisk ved LEVERET</label>
+        <label class="st-toggle">
+          <input type="checkbox" id="deduct-enabled" onchange="toggleAutoDeduct()">
+          <span class="st-toggle-slider"></span>
+        </label>
+      </div>
+      <p style="font-size:11px;color:var(--color-text-dim);margin:0 0 24px;max-width:600px;line-height:1.6">
+        Tændes den, begynder <em>alle</em> leverede bons at trække fra Grocy — ikke kun events.
+        Tæl lager op først, og tør-kør <code style="font-size:10px">scripts/dry-run-consume.js</code>
+        for at se hvad en dags produktion ville trække. Er opskrifterne skæve, får du negativt lager
+        i stedet for styr på det.
+      </p>
+
       <h3 style="margin-top:24px;font-size:15px;font-weight:700">Kapacitetsplanlægning</h3>
       <div style="font-size:12px;color:var(--color-text-dim);margin-bottom:14px;line-height:1.6;max-width:600px;background:var(--color-background);padding:10px 14px;border-radius:6px;border:1px solid var(--color-border)">
         <strong style="color:var(--color-text)">Belastning = enheder / persontimer</strong><br>
@@ -1474,6 +1498,7 @@ async function init() {
     loadOfferBlocks();
     loadLegoCats();
     loadSystemSection();
+    loadDeductStatus();          // egen fetch — må ikke blokere resten hvis den fejler
     loadCapacitySettings();
     loadPlanningPricesSettings();
     loadUnitCategoriesSettings();
@@ -2376,6 +2401,103 @@ function loadSystemSection() {
 async function saveSystemField(key) {
   var val = document.getElementById('sys-' + key).value;
   await saveSetting(key, val);
+}
+
+// ─── LAGERTRÆK ──────────────────────────────────────────
+// Fejlen i #305 var ikke at flaget stod forkert — det var at ingen kunne SE at
+// det stod forkert. Derfor viser panelet divergensen (leverede bons der aldrig
+// trak), ikke bare kontaktens stilling. Et tal man kan se, er et tal nogen
+// opdager.
+
+function _deductAgo(iso) {
+  if (!iso) return null;
+  var days = Math.floor((Date.now() - new Date(iso.replace(' ', 'T') + 'Z').getTime()) / 86400000);
+  if (days <= 0) return 'i dag';
+  if (days === 1) return 'i går';
+  return days + ' dage siden';
+}
+
+async function loadDeductStatus() {
+  var host = document.getElementById('deduct-status');
+  if (!host) return;
+  var s;
+  try {
+    s = await apiFetch('/settings/inventory-status');
+  } catch (e) {
+    host.innerHTML = '<div style="font-size:12px;color:var(--color-text-dim)">Kunne ikke hente status.</div>';
+    return;
+  }
+
+  var box = document.getElementById('deduct-enabled');
+  if (box) box.checked = !!s.enabled;
+
+  // Spørgsmålet skifter med flagets tilstand — og dermed hvilket vindue der er
+  // relevant. Er trækket FRA, tæller den ophobede skade (90 dage). Er det TIL,
+  // er historikken ligegyldig (gamle bons trækker ikke med tilbagevirkende
+  // kraft); så er spørgsmålet om det virker NU, og det ses på de sidste 7 dage.
+  // Ellers ville tallet stå og lyse i tre måneder efter problemet var løst.
+  var RED = 'var(--color-danger, #bc181b)', GRN = '#2e7d32', DIM = 'var(--color-text-dim)';
+  var last = _deductAgo(s.last_deducted_at);
+  var lines = [];
+  var color, title;
+
+  if (!s.enabled) {
+    color = (s.undeducted_count || 0) > 0 ? RED : DIM;
+    title = 'Lagertræk er slået FRA';
+  } else if ((s.recent_undeducted || 0) > 0) {
+    color = RED;
+    title = 'Lagertræk er slået TIL — men noget slipper igennem';
+  } else {
+    color = GRN;
+    title = 'Lagertræk er slået TIL';
+  }
+
+  lines.push('<div style="display:flex;align-items:center;gap:8px;margin-bottom:6px">'
+    + '<span style="width:8px;height:8px;border-radius:50%;background:' + color + ';display:inline-block"></span>'
+    + '<strong style="color:' + color + '">' + title + '</strong></div>');
+
+  lines.push('<div style="font-size:12px;color:' + DIM + ';line-height:1.7">'
+    + 'Seneste træk: <strong style="color:var(--color-text)">'
+    + (last ? escapeHtml(last) : 'aldrig') + '</strong>'
+    + (s.last_deducted_at ? ' <span style="opacity:.7">(' + escapeHtml(s.last_deducted_at.slice(0, 10)) + ')</span>' : '')
+    + '</div>');
+
+  if (!s.enabled && (s.undeducted_count || 0) > 0) {
+    lines.push('<div style="font-size:12px;color:' + RED + ';line-height:1.7;margin-top:2px">'
+      + '<strong>' + s.undeducted_count + ' af ' + s.delivered_count + '</strong> leverede bons (seneste '
+      + s.window_days + ' dage) har aldrig trukket lager.</div>');
+    lines.push('<div style="font-size:11px;color:' + DIM + ';margin-top:6px;line-height:1.6">'
+      + 'Varerne forlod huset; lageret fik det ikke at vide. Det retter sig ikke af sig selv — '
+      + 'tæl op, og tænd så trækket. Se issue #305.</div>');
+  } else if (s.enabled && (s.recent_undeducted || 0) > 0) {
+    lines.push('<div style="font-size:12px;color:' + RED + ';line-height:1.7;margin-top:2px">'
+      + '<strong>' + s.recent_undeducted + ' af ' + s.recent_delivered + '</strong> bons leveret de seneste '
+      + s.recent_window_days + ' dage har ikke trukket.</div>');
+    lines.push('<div style="font-size:11px;color:' + DIM + ';margin-top:6px;line-height:1.6">'
+      + 'Trækket er tændt, så det burde ikke ske. Kan være en Grocy-fejl eller en bon uden '
+      + 'opskriftskobling — tør-kør <code style="font-size:10px">scripts/dry-run-consume.js</code> og se dækningen.</div>');
+  } else if (s.enabled && s.recent_delivered > 0) {
+    lines.push('<div style="font-size:12px;color:' + GRN + ';line-height:1.7">'
+      + 'Alle ' + s.recent_delivered + ' bons leveret de seneste ' + s.recent_window_days
+      + ' dage har trukket lager.</div>');
+  }
+
+  host.innerHTML = '<div style="background:var(--color-background);border:1px solid var(--color-border);'
+    + 'border-left:3px solid ' + color + ';border-radius:6px;padding:10px 14px;max-width:600px">'
+    + lines.join('') + '</div>';
+}
+
+async function toggleAutoDeduct() {
+  var on = document.getElementById('deduct-enabled').checked;
+  if (on && !confirm(
+      'Tænd lagertræk?\n\n'
+    + 'ALLE leverede bons begynder at trække råvarer fra Grocy — ikke kun events.\n\n'
+    + 'Er lageret talt op, og har du tør-kørt scripts/dry-run-consume.js?')) {
+    document.getElementById('deduct-enabled').checked = false;
+    return;
+  }
+  await saveSetting('inventory_auto_deduct', on ? '1' : '0');
+  await loadDeductStatus();
 }
 
 // ─── KAPACITET ──────────────────────────────────────────
