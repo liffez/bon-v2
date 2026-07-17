@@ -21,6 +21,12 @@ data/*-fix-log-*.json
 # Review-CSV'er (ægte kundedata — aldrig i git)
 data/*.csv
 
+# Genereret output fra scripts/generate-opret-helper.js (indeholder
+# leverandørpriser — og genskabes ved hver kørsel, så det er ikke kilde)
+data/horkram-status.json
+data/horkram-opret-helper.html
+tools/horkram-opret-helper.html
+
 # Arkiv-blobs (binære, ikke versionsstyrede)
 *.zip
 
