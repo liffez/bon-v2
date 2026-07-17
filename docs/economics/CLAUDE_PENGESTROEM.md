@@ -61,6 +61,15 @@ cf_meta['economic_booked_until'] = 'YYYY-MM-DD'   -- seneste dato e-conomic har 
 > Samme REST-API + auth som resten af adapteren — ingen OpenAPI-cursor-pagination nødvendig.
 1. Hent `/invoices/booked` (paginer; filtrér helst på dato **efter** `economic_booked_until` for at
    undgå at gennemgå hele bagkataloget hver gang).
+   > ⚠️ **Fælde (#320 — denne formulering forårsagede fejlen).** Implementeringen filtrerer på
+   > `date$gte:<vandmærke>`, hvor `date` er **fakturadatoen**. Vandmærket rykkes til seneste sete
+   > fakturadato → en faktura hentes kun ÉN gang, omkring sin udstedelse, hvor den per definition
+   > er ubetalt. Men `remainder` ændrer sig **bagudrettet**, når betalingen falder. Resultatet er at
+   > afstemningen aldrig kan flippe `betalt` efter den første fulde kørsel.
+   > Vandmærket er rigtigt til at *opdage nye fakturaer*, forkert til at *spore betalingsstatus*.
+   > Vinduet skal altid dække de stadig-åbne fakturaer, fx
+   > `since = min(vandmærke, ældste ubetalte cf_invoice)` — så rykker vandmærket først forbi en
+   > periode når alt i den er afregnet.
 2. Pr. bogført salgsfaktura: **`remainder === 0` → betalt** (`remainder` = restbeløb/dueAmount, incl moms).
    `dueDate` + `grossAmount` (incl moms) med.
 3. **Match tilbage til bon via `references.other` = bon-nummeret** (vores Spor 2-payload sætter det
@@ -197,6 +206,17 @@ Bugkilde i dag: `_cfGetUmInvoices()` henter kun `fetchCfInvoices('udestaaende')`
   provision/afgift). Ved netto-afregning (arrangør trækker sin andel før udbetaling) vælges salgsbonnen
   (brutto, +) sammen med udgifts-bonnerne (−); Σ rammer netto-indbetalingen. De markeres "Udgift" i UI og
   indsættes med deres negative total. Kun ægte data-anomalier (negativ total UDEN expense-rolle) skjules.
+- **Udgifts-bons løftes til INCL moms — bankens målestok** (#318, juli 2026). En udgiftslinje kan være
+  bogført **ex moms** (`bon_lines.moms_included = 0`, migration 104) fordi event-P&L'en vil have
+  nettobeløbet. Men banken trækker bruttobeløbet, og alt andet i allokeringen (salgsbons, fakturaer,
+  indbetalingen selv) er incl moms — en allokering på ex-moms-totalen blander to momsgrundlag og går
+  aldrig op. `match-targets` leverer derfor `excl_part` (Σ `line_total` hvor `moms_included = 0`), og
+  `momsLoeft()` løfter **kun** den del via `Moms.exclToIncl()`; resten af totalen (incl-moms-linjer +
+  levering, der ikke er en `bon_line`) bæres uændret igennem. Bons uden ex-moms-linjer er urørte.
+  > ⚠️ `moms_included` er binært og kan ikke udtrykke **momsfri** (0 %) — migration 104 lumper selv
+  > service-fees ("momsfri i forvejen") sammen med ex moms. En momsfri udgift (fx et gavebidrag uden
+  > momslinje) løftes derfor med 25 % den ikke har. Indtil #317 er løst: håndtér momsfri udgifter som
+  > **"+ Justering"-linje** i allokeringen frem for en bonlinje.
 
 #### F.4 Brutto vs. netto på kort-/MobilePay-afregning (besluttet 29. juni)
 Zettle/MobilePay-afregning rammer banken **netto** (efter udbyder-gebyr), men event-salget er **brutto**.
