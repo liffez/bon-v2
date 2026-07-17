@@ -427,6 +427,55 @@ function invalidateUnitCountCache() {
     _unitExtraCacheUntil = 0;
 }
 
+// ── Betalingstyper der ikke er omsætning (Modregning/Sponsorat, migration 129) ──
+// Kilde er payment_types.counts_as_revenue-flaget, ikke hardkodede koder — så
+// den næste "gratis"-type koster én række + et flueben i Settings.
+let _nonRevCache = null;
+let _nonRevCacheUntil = 0;
+
+function getNonRevenuePaymentCodes() {
+    const now = Date.now();
+    if (_nonRevCache && now < _nonRevCacheUntil) return _nonRevCache;
+    let codes = [];
+    try {
+        codes = getDb()
+            .prepare(`SELECT code FROM payment_types WHERE COALESCE(counts_as_revenue, 1) = 0`)
+            .all()
+            .map(r => r.code);
+    } catch { codes = []; }  // kolonnen findes ikke før migration 129 er kørt
+    _nonRevCache = codes;
+    _nonRevCacheUntil = now + 60_000;
+    return codes;
+}
+
+function invalidateNonRevenueCache() {
+    _nonRevCache = null;
+    _nonRevCacheUntil = 0;
+}
+
+function _nonRevCodeList() {
+    const codes = getNonRevenuePaymentCodes();
+    if (!codes.length) return null;
+    return codes.map(c => `'${String(c).replace(/'/g, "''")}'`).join(', ');
+}
+
+// SQL-multiplikator til krone-summer: 0 for ikke-omsætnings-betalingstyper, 1 ellers.
+// Brug: `SUM(b.total_price ${revenueFactorSQL('b')})`. Rører ALDRIG enheder/pax.
+// Bruges hvor bonnen stadig skal tælle med i aktivitet (produktion/enheder/P&L-omkostning)
+// men ikke bidrage kroner. Returnerer '' når ingen typer er markeret.
+function revenueFactorSQL(bonAlias = 'b') {
+    const list = _nonRevCodeList();
+    return list ? ` * CASE WHEN ${bonAlias}.payment_type IN (${list}) THEN 0 ELSE 1 END` : '';
+}
+
+// WHERE-fragment der udelukker ikke-omsætnings-bons HELT. Brug hvor en giveaway
+// ville forvrænge tallet ved at bidrage enheder/omkostning uden omsætning (fx
+// opskrift-margin). Brug: `... WHERE 1=1 ${nonRevenueBonExcludeSQL('b')}`.
+function nonRevenueBonExcludeSQL(bonAlias = 'b') {
+    const list = _nonRevCodeList();
+    return list ? ` AND COALESCE(${bonAlias}.payment_type, '') NOT IN (${list})` : '';
+}
+
 /**
  * Delt enheds-udtryk — ÉN definition af "hvor mange enheder bidrager en
  * bon_lines-række med", genbrugt af recalcBonTotalUnits, drift og backfill.
@@ -596,6 +645,7 @@ module.exports = {
     todayISO, offsetISO,
     autoConsumeBonInventory,
     getUnitCountCategories, getUnitCountExtraRecipes, invalidateUnitCountCache,
+    getNonRevenuePaymentCodes, revenueFactorSQL, nonRevenueBonExcludeSQL, invalidateNonRevenueCache,
     bonUnitsExpr, recalcBonTotalUnits, recalcBonTotalCo2e,
     WORKLOAD_EXCLUDED_EVENT_ROLES, countsAsWorkload, workloadRoleSql,
     countsAsSale, salesPriceCategorySql,

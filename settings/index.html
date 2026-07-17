@@ -567,7 +567,7 @@
     <div class="st-section" id="sec-pay-types">
       <h2>Betalingstyper</h2>
       <table class="st-table">
-        <thead><tr><th>Kode</th><th>Label</th><th></th></tr></thead>
+        <thead><tr><th>Kode</th><th>Label</th><th>Tæller som omsætning</th><th></th></tr></thead>
         <tbody id="ptypes-body"></tbody>
       </table>
       <button class="st-btn st-btn-primary st-btn-add" onclick="showNewPayTypeForm()">+ Ny</button>
@@ -1898,9 +1898,11 @@ async function loadPaymentTypes() {
   tbody.innerHTML = '';
   types.forEach(function(t) {
     var tr = document.createElement('tr');
+    var isRev = (t.counts_as_revenue === undefined || t.counts_as_revenue === null) ? 1 : Number(t.counts_as_revenue);
     tr.innerHTML =
       '<td><input class="st-input locked" value="' + esc(t.code) + '" readonly></td>' +
       '<td><input class="st-input" id="ptype-label-' + t.id + '" value="' + esc(t.label) + '"></td>' +
+      '<td style="text-align:center"><input type="checkbox" id="ptype-rev-' + t.id + '"' + (isRev ? ' checked' : '') + ' title="Fravælg for gratis/byttet — bonnen tælles ikke med i omsætningen"></td>' +
       '<td><button class="st-btn st-btn-sm st-btn-primary" onclick="savePayType(' + t.id + ')">Gem</button></td>';
     tbody.appendChild(tr);
   });
@@ -1909,7 +1911,8 @@ async function loadPaymentTypes() {
 async function savePayType(id) {
   var label = document.getElementById('ptype-label-' + id).value.trim();
   if (!label) return toast('Label er påkrævet', 'error');
-  await patchPaymentType(id, { label: label });
+  var revEl = document.getElementById('ptype-rev-' + id);
+  await patchPaymentType(id, { label: label, counts_as_revenue: (revEl && revEl.checked) ? 1 : 0 });
   toast('Betalingstype opdateret');
 }
 

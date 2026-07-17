@@ -74,7 +74,7 @@ const SORT_WHITELIST = {
 
 router.get('/', handle((req, res) => {
     const db = getDb();
-    const { status, date, date_from, date_to, q, location, unread_mail, sort, dir, limit, offset, company_id, customer_id } = req.query;
+    const { status, date, date_from, date_to, q, location, unread_mail, sort, dir, limit, offset, company_id, customer_id, payment_type } = req.query;
     const where = ['(b.is_offer = 0 OR b.is_offer IS NULL)'];
     const args  = [];
 
@@ -110,6 +110,15 @@ router.get('/', handle((req, res) => {
     if (date_to)   { where.push('b.delivery_date <= ?'); args.push(date_to); }
 
     if (location) { where.push('l.code = ?'); args.push(location); }
+
+    // Betalingstype — kommasepareret (bruges bl.a. til at finde modregning/sponsorat)
+    if (payment_type) {
+        const pts = payment_type.split(',').map(s => s.trim()).filter(Boolean);
+        if (pts.length) {
+            where.push('b.payment_type IN (' + pts.map(() => '?').join(',') + ')');
+            args.push(...pts);
+        }
+    }
 
     // Søgning — bonnumre er præcis 4 cifre:
     //   • ≤ 4 cifre  → match på bon_number (1, 33, 338, 3387). bon_number har et

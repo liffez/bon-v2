@@ -22,7 +22,7 @@ const express = require('express');
 const router  = express.Router();
 
 const { getDb }       = require('../db/database');
-const { handle, logChange, getDefaultLocationId, todayISO, bonUnitsExpr } = require('../db/helpers');
+const { handle, logChange, getDefaultLocationId, todayISO, bonUnitsExpr, revenueFactorSQL } = require('../db/helpers');
 const { requireAuth } = require('../shared/auth');
 const { inclToExcl }  = require('../shared/moms');
 const labor           = require('../services/laborAdapter');
@@ -54,7 +54,7 @@ function computeDayBons(db, date, mode) {
                COALESCE(b.delivery_cost, 0) AS delivery_ex,
                COALESCE((SELECT SUM(${unitsExpr.contrib}) FROM bon_lines bl ${unitsExpr.join}
                           WHERE bl.bon_id = b.id AND (bl.is_accessory = 0 OR bl.is_accessory IS NULL)), 0) AS units,
-               COALESCE((SELECT SUM(bl.line_total)              FROM bon_lines bl WHERE bl.bon_id = b.id), 0) AS revenue_incl,
+               COALESCE((SELECT SUM(bl.line_total${revenueFactorSQL('b')}) FROM bon_lines bl WHERE bl.bon_id = b.id), 0) AS revenue_incl,
                COALESCE((SELECT SUM(bl.quantity * bl.cost_price) FROM bon_lines bl WHERE bl.bon_id = b.id), 0) AS cost_ex
           FROM bons b
           JOIN status_definitions sd ON sd.id = b.status_id
@@ -88,7 +88,7 @@ async function computeDay(db, date, mode, prefetchedLabor, skipBons) {
     const statusArgs = mode === 'realiseret' ? REALISERET_STATUS : [];
 
     const lineAgg = db.prepare(`
-        SELECT COALESCE(SUM(bl.line_total), 0)               AS revenue_incl,
+        SELECT COALESCE(SUM(bl.line_total${revenueFactorSQL('b')}), 0) AS revenue_incl,
                COALESCE(SUM(bl.quantity * bl.cost_price), 0) AS cost_ex
           FROM bons b
           JOIN bon_lines bl ON bl.bon_id = b.id

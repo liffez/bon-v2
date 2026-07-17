@@ -151,6 +151,14 @@ function _rapShellHtml() {
       <div id="rap-month-table-content" style="overflow-x:auto" class="rap-loading" style="min-height:200px"></div>
     </div>
   </div>
+
+  <div class="rap-card" id="rap-giveaways">
+    <div class="rap-card-head">
+      <h3 class="rap-card-title">Sponsorat &amp; modregning (ikke omsætning)</h3>
+      <span style="font-size:.78rem;color:var(--color-text-dim,#7a6f5f)">Ægte værdi givet væk/byttet i år — tælles ikke med i omsætningen</span>
+    </div>
+    <div id="rap-giveaways-content" class="rap-loading" style="min-height:70px"></div>
+  </div>
 </div>`;
 }
 
@@ -194,7 +202,7 @@ function _rapportHandleSSE(event, data) {
 async function _rapLoadAll() {
   if (!_rapActive) return;
   try {
-    const [summary, monthly, topCust, categories, monthlyTable, lego, cumulative, topCats] = await Promise.all([
+    const [summary, monthly, topCust, categories, monthlyTable, lego, cumulative, topCats, giveaways] = await Promise.all([
       fetchReportsSummary(),
       fetchReportsMonthly(),
       fetchReportsTopCustomers(_rapCustSortBy),
@@ -203,9 +211,10 @@ async function _rapLoadAll() {
       _rapFetchLego(),
       fetchReportsCumulative(),
       fetchReportsTopCategories(),
+      fetchReportsGiveaways(),
     ]);
     if (!_rapActive) return;
-    _rapRenderAll(summary, monthly, topCust, categories, monthlyTable, lego, cumulative, topCats);
+    _rapRenderAll(summary, monthly, topCust, categories, monthlyTable, lego, cumulative, topCats, giveaways);
   } catch (err) {
     if (!_rapActive) return;
     _rapContainer.innerHTML = '<div style="padding:40px;text-align:center;color:red">Fejl: ' + err.message + '</div>';
@@ -214,7 +223,7 @@ async function _rapLoadAll() {
 
 // ─── render orchestrator ────────────────────────────────────────────
 
-function _rapRenderAll(summary, monthly, topCust, categories, monthlyTable, lego, cumulative, topCats) {
+function _rapRenderAll(summary, monthly, topCust, categories, monthlyTable, lego, cumulative, topCats, giveaways) {
   // destroy existing charts
   for (const key of Object.keys(_rapCharts)) {
     const h = _rapCharts[key];
@@ -230,6 +239,34 @@ function _rapRenderAll(summary, monthly, topCust, categories, monthlyTable, lego
   _rapRenderCumulative(cumulative);
   _rapRenderTopCategories(topCats);
   _rapRenderMonthlyTable(monthlyTable);
+  _rapRenderGiveaways(giveaways);
+}
+
+// ─── Sponsorat & modregning (ikke omsætning) ────────────────────────
+function _rapRenderGiveaways(d) {
+  const el = document.getElementById('rap-giveaways-content');
+  if (!el) return;
+  el.classList.remove('rap-loading');
+  const types = (d && d.types) || [];
+  if (!types.length) {
+    el.innerHTML = '<div style="padding:12px 4px;color:var(--color-text-dim,#7a6f5f)">Ingen sponsorat eller modregning registreret i år.</div>';
+    return;
+  }
+  const rows = types.map(t =>
+    '<div style="display:flex;justify-content:space-between;gap:12px;padding:6px 4px;border-top:1px solid var(--color-border,#e5ded3)">'
+      + '<span>' + _rapEsc(t.label) + ' <span style="color:var(--color-text-dim,#7a6f5f)">· ' + t.orders + (t.orders === 1 ? ' bon' : ' bons') + '</span></span>'
+      + '<strong>' + _rapFmtKr(Math.round(t.total_excl_moms)) + '</strong>'
+    + '</div>'
+  ).join('');
+  el.innerHTML =
+    '<div style="display:flex;justify-content:space-between;align-items:baseline;gap:12px;padding:2px 4px 8px">'
+      + '<span style="font-size:.82rem;color:var(--color-text-dim,#7a6f5f)">' + d.orders + ' bons — ægte værdi ex moms</span>'
+      + '<span style="font-size:1.35rem;font-family:var(--font-heading,inherit)"><strong>' + _rapFmtKr(Math.round(d.total_excl_moms)) + '</strong></span>'
+    + '</div>' + rows;
+}
+
+function _rapEsc(s) {
+  return String(s == null ? '' : s).replace(/[&<>"]/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
 }
 
 // ─── KPIs ───────────────────────────────────────────────────────────

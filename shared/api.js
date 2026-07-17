@@ -1475,6 +1475,14 @@ function fetchReportsTopCategories() {
     return apiFetch('/reports/top-categories');
 }
 
+// Modregning/Sponsorat — ikke omsætning, men findbar (ægte beløb givet væk/byttet).
+function fetchReportsGiveaways(from, to) {
+    var qs = [];
+    if (from) qs.push('from=' + encodeURIComponent(from));
+    if (to)   qs.push('to='   + encodeURIComponent(to));
+    return apiFetch('/reports/giveaways' + (qs.length ? '?' + qs.join('&') : ''));
+}
+
 /* ── CASHFLOW ────────────────────────────────────────── */
 
 async function uploadCashflowCSV(file) {
