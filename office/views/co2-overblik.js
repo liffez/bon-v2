@@ -421,7 +421,7 @@ function _covMissingRecipes(list) {
     const rows = list.map(r => {
         const acc = r.accuracy_pct;
         const accBadge = acc != null
-            ? `<span class="cov-mr-acc ${acc >= 80 ? 'hi' : (acc >= 50 ? 'mid' : 'lo')}" title="Andel af opskriftens masse der har CO₂-tal">${acc}% dækket</span>`
+            ? `<span class="cov-mr-acc ${acc >= 80 ? 'hi' : (acc >= 50 ? 'mid' : 'lo')}" title="Andel af opskriftens masse der har CO₂-tal">${_covPct(acc)}% dækket</span>`
             : '';
         return `<div class="cov-mr-row" data-mr-id="${r.id}" title="Klik → se hvad der mangler i opskriften">
            <span class="cov-mr-name">${_covEsc(r.name)}</span>
@@ -590,10 +590,42 @@ function _covRecipeRows(recipes) {
         const unit = r.unit ? ' <span class="cov-dim">kg / ' + _covEsc(r.unit) + '</span>' : ' <span class="cov-dim">kg</span>';
         return `<tr class="cov-recipe-row" data-recipe-id="${r.id}" title="Klik → se nedbrydning">
             <td class="cov-recipe-name">${_covEsc(r.name)}${r.category ? `<div class="cov-recipe-cat">${_covEsc(r.category)}</div>` : ''}</td>
-            <td class="cov-num">${r.co2e_per_serving != null ? _covNum(r.co2e_per_serving) + unit : '<span class="cov-dim">—</span>'}</td>
+            <td class="cov-num">${_covValueCell(r, unit)}</td>
             <td>${badge} <span class="cov-row-caret">›</span></td>
         </tr>`;
     }).join('');
+}
+
+/**
+ * Tal-cellen i opskrift-tabellen. Tre tilstande — backenden har allerede afgjort
+ * hvilken (estimated sættes kun når hullet er målbart, jf. routes/co2.js):
+ *   • komplet  → tallet rent
+ *   • estimat  → "≈ tal" + hvor stor en del af massen der er dækket
+ *   • kg-vej   → "—" (hullets størrelse er ukendt, så en procent ville lyve)
+ */
+function _covValueCell(r, unit) {
+    if (r.co2e_per_serving == null) return '<span class="cov-dim">—</span>';
+    const val = _covNum(r.co2e_per_serving) + unit;
+    if (!r.estimated) return val;
+
+    const pct = r.accuracy_pct;
+    const tone = pct == null ? 'amber' : (pct >= 95 ? 'green' : (pct >= 80 ? 'amber' : 'red'));
+    const txt = pct == null ? 'delvist' : _covPct(pct) + ' % dækket';
+    const miss = r.missing_factor.length;
+    const tip = `Tallet mangler ${miss} råvare${miss === 1 ? '' : 'r'} uden faktor: `
+        + _covEsc(r.missing_factor.join(', '));
+    return `<span class="cov-approx" title="${tip}">≈ ${val}</span>
+        <div class="cov-cover cov-cover-${tone}" title="${tip}">${txt}</div>`;
+}
+
+/**
+ * Dækningsprocent til visning — kun for opskrifter vi VED er ufuldstændige.
+ * Motoren regner % af KENDT masse og runder af, så 99,78 % bliver til 100.
+ * "100 % dækket" ved siden af "Mangler faktor" er selvmodsigende og får folk
+ * til at tvivle på tallet, så vi siger "> 99" i stedet.
+ */
+function _covPct(pct) {
+    return pct >= 100 ? '> 99' : _covNum(pct, 0);
 }
 
 /* ─── Events ──────────────────────────────────────────────── */
@@ -853,7 +885,7 @@ function _covAccuracyNote(d) {
     const parts = [];
     if (acc != null) {
         const uncov = 100 - acc;
-        parts.push(`<b>Nøjagtighed ${acc}%</b>`);
+        parts.push(`<b>Nøjagtighed ${d.complete ? acc : _covPct(acc)}%</b>`);
         if (missKg > 0) parts.push(`${_covNum(missKg, 3)} kg${uncov ? ` (${uncov}%)` : ''} uden CO₂-tal`);
     } else {
         parts.push('<b>Nøjagtighed ukendt</b>');

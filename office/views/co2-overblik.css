@@ -77,6 +77,13 @@
 .cov-recipe-cat { font-weight: 400; font-size: 12px; color: #a49a8c; margin-top: 1px; }
 .cov-empty { text-align: center; color: #a49a8c; padding: 18px; }
 
+/* Delvist tal: "≈ 0,42 kg / stk" + hvor stor en del af massen der er dækket. */
+.cov-approx { color: #5a5142; }
+.cov-cover { font-size: 11px; font-weight: 600; margin-top: 2px; white-space: nowrap; }
+.cov-cover-green { color: #2f7a41; }
+.cov-cover-amber { color: #986c14; }
+.cov-cover-red   { color: #b23c22; }
+
 .cov-badge { display: inline-block; padding: 3px 10px; border-radius: 999px; font-size: 12px; font-weight: 600; white-space: nowrap; }
 .cov-badge-green { background: #e2f2e5; color: #2f7a41; }
 .cov-badge-amber { background: #fcf0d8; color: #986c14; }
