@@ -243,6 +243,12 @@ Nye filer placeres præcis der de hører hjemme — kopieres ikke.
   - Grocy råvarepriser + `costprice` (recipe fulfillment `costs`) er ex moms
   - `bon_lines.unit_price`, `bon_lines.line_total`, `bons.total_price`, `bons.delivery_price` er **INCL. moms**
   - `bon_lines.cost_price` er **EX moms**
+  - **Undtagelse — `bon_lines.moms_included = 0`** (migration 104, kun udgiftslinjer på events):
+    linjen ligger EX moms. Tjek ALTID flaget når en udgiftsbon skal omregnes; `total_price`
+    er da ikke incl moms. To forbrugere gør det korrekt, hver på sin måde:
+    `computeEventExpenses` (routes/events.js) summerer til ex moms til P&L'en, og
+    `momsLoeft` (routes/cashflow.js) løfter til incl moms fordi banken flytter bruttokroner.
+    Flaget er binært og kan IKKE udtrykke *momsfri* (0 %) — se issue #317.
   - Frontends regner ALDRIG selv moms — de bruger:
     - Pre-beregnede felter fra API (`total_incl_moms`, `total_excl_moms`, `moms_amount`)
     - Helpers fra `shared/moms.js` (også eksponeret som `window.Moms`): `inclToExcl`, `momsOfIncl`, `computeMomsFields`
@@ -2475,6 +2481,50 @@ fra `.csv`-fil eller indsat direkte fra Excel/Google Sheets.
 - **Fakturaform-UX:** foldbar header (✎ Faktura <nr> · <kunde>), valgt-række fremhævet, liste scroller
   uafhængigt (`#cfInvRows` max-height).
 - **Tests:** `scripts/test-cashflow-sync.js` 49/0 (cfCategorize-regler + bookedSet-genkendelse + matchByEconomicNumber).
+
+### Pengestrøm — udgiftsbons allokeres i bankens moms-grundlag (#318, 17. juli 2026)
+
+En bank-afstemning i drift kunne ikke gemmes: "Gem allokering" var grå, fordi summen af
+linjerne oversteg indbetalingen. `/api/cashflow/match-targets` returnerede bon-totalen råt
+fra `total_price` — men udgiftsbons kan have linjer bogført **ex moms**
+(`moms_included = 0`, migration 104), fx en stadeleje-faktura hvor event-P&L'en vil have
+nettobeløbet. Banken flytter bruttokroner, så allokeringen blandede to momsgrundlag og
+kunne aldrig gå op. Alt andet i allokeringen (salgsbons, fakturaer, indbetalingen selv)
+er incl moms.
+
+- **`momsLoeft(bonTotal, exclPart)`** ([routes/cashflow.js](routes/cashflow.js)) løfter KUN
+  ex-moms-delen via `Moms.exclToIncl()`. Resten af totalen (incl-moms-linjer + levering, der
+  ikke er en `bon_line`) bæres uændret igennem, så bons uden ex-moms-linjer er urørte.
+  `match-targets` leverer `excl_part` = Σ `line_total` for linjer med `moms_included = 0`.
+- Verificeret mod en syntetisk udgiftsbon oprettet via produktionskoden
+  (`POST /api/events/:id/bons`, `role=expense`): udgift −N → −1,25N (= fakturaens brutto),
+  salgsbon M → M (uændret). `test-cashflow-sync` 49/0 · `moms_audit_e2e` 18/0.
+- **Kendt begrænsning (#317):** `moms_included` er binært og kan ikke udtrykke *momsfri*.
+  Migration 104 lumper selv service-fees ("momsfri i forvejen") sammen med ex moms. En
+  momsfri udgiftslinje løftes med 25 % den ikke har. Indtil videre: håndtér momsfri udgifter
+  som "+ Justering"-linje i allokeringen frem for en bonlinje.
+- Desuden: event-oversigtens status-badges havde to næsten ens gråtoner (planlægning
+  `#f0f0f0` / afsluttet `#e8e8e8`). Fire adskilte kulører nu — blå/grøn/lilla/rød.
+
+**Fund fra samme gennemgang (ikke løst — egne issues):**
+- **#319** — faktureringskøen er *status*-drevet (`GET /api/invoices/queue` viser kun LEVERET).
+  Sættes en bon til FAKTURERET/AFSLUTTET i hånden uden at der findes en kladde eller bogført
+  faktura, forlader den køen, men `cf_invoices`-rækken bliver liggende med en forfaldsdato
+  beregnet ud fra bonnen → den dukker op under "Forfaldne" og ligner en dårlig betaler.
+  Intet sted mødes de to sandheder. **Bemærk:** manglende `economic_number` er kun et signal
+  for v2-bons — v1-æra (`cafe-*`) er betalt uden i over tusind tilfælde.
+- **#320** — `cashflowReconcile` filtrerer på `date$gte:<vandmærke>`, altså *fakturadatoen*.
+  En faktura ses derfor én gang, omkring udstedelsen hvor den per definition er ubetalt, og
+  aldrig igen — men betaling sker bagefter. E-conomic-aksen kan reelt ikke længere flippe
+  `betalt`; kun bank-matchet (conf ≥ 70) fanger betalinger. Gør ingen skade i dag, men
+  bliver farligere efterhånden som e-conomic-integrationen tages i brug.
+- **Byttehandel har intet felt.** En bon der leveres men afregnes i en modydelse (ikke penge)
+  kan kun udtrykkes ved at lyve om `payment_type` eller nulstille priserne. Begge dele er
+  forkerte: prisen er ægte, kun afregningsformen er en anden. Rette sted er en ny række i
+  `payment_types` (fx `barter`/"Modregning") — CRUD findes i Settings, ingen migration, og al
+  logik hænger allerede på `payment_type = 'invoice'`. En ny *priskategori* ville derimod
+  kræve et nyt `Salesprice*`-userfield i Grocy på alle opskrifter + kodeændring i
+  `grocyAdapter`, og 0-priser ville slette omsætningen ud af rapporter og margin-analyse.
 
 ### CRM-triks — Ringeliste + fælles worklist-komponent (#229 + #230 + #228, 6. juli 2026)
 > Epic #232. Spec: `docs/CLAUDE_CRM_TRIKS.md`. Lav-friktions "top-of-mind"-ringekøer oven på
