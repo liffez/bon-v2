@@ -582,7 +582,8 @@ function _lvVehicleIcon(type) {
 }
 
 function _lvPayment(pt) {
-    var map = { invoice: 'Faktura', card: 'Kort', mobilepay: 'MobilePay', cash: 'Kontant', pos: 'POS' };
+    var map = { invoice: 'Faktura', card: 'Kort', mobilepay: 'MobilePay', cash: 'Kontant', pos: 'POS',
+                barter: 'Modregning', sponsorship: 'Sponsorat' };
     return map[pt] || (pt || '—');
 }
 
