@@ -267,7 +267,8 @@ async function showHistorik(cardIdOrOpts) {
    ══════════════════════════════════════════════════════════════ */
 
 /** Danske labels for info-modal */
-const _PAY_LABELS       = { invoice: 'Faktura', card: 'Kort', mobilepay: 'MobilePay', cash: 'Kontant', pos: 'POS' };
+const _PAY_LABELS       = { invoice: 'Faktura', card: 'Kort', mobilepay: 'MobilePay', cash: 'Kontant', pos: 'POS',
+                            barter: 'Modregning', sponsorship: 'Sponsorat' };
 const _DEL_TYPE_LABELS  = { delivery: 'Levering', pickup: 'Afhentning', event: 'Event' };
 const _DEL_METHOD_LABELS = { bike: 'Cykel', taxi: 'Taxa', volvo: 'Volvo', pickup: 'Afhentning' };
 const _PRICE_CAT_LABELS = { store: 'Butik', catering: 'Catering', festival: 'Festival', produktion: 'Produktion', waiste: 'Waiste' };

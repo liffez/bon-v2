@@ -45,6 +45,8 @@ const BON_CONFIG = {
 
     /**
      * Betalingstyper der springer 'faktureret' over i sekvensen.
+     * VÆRDIERNE ER payment_types.code — ikke labels. ('kontant' stod her før og
+     * ramte aldrig, fordi koden er 'cash'.)
      */
-    skipFaktureret: ['kontant'],
+    skipFaktureret: ['cash', 'barter', 'sponsorship'],
 };
