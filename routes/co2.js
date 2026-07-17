@@ -236,9 +236,19 @@ router.get('/overview', AUTH, handle(async (req, res) => {
         recipes: real
             .map(r => {
                 const m = meta.get(r.recipe_id) || {};
+                // Hvornår tør vi vise et delvist tal? Kun når hullet kan MÅLES.
+                //   • faktor-hul  → råvarens vægt er kendt og tælles i missing_kg,
+                //     så accuracy_pct er retvisende (0,006 kg stjerneanis i en
+                //     rødkåls-batch = ~100 % dækket) → vis tallet + dækningsgrad.
+                //   • kg-vej-hul  → vægten er UKENDT, så råvaren indgår hverken i
+                //     covered_kg eller missing_kg (co2Engine §"Masse-dækning").
+                //     accuracy_pct ville vise 100 % og lyve → intet tal.
+                const kgvejGap = r.missing_kgvej.length > 0;
                 return {
                     id: r.recipe_id, name: r.name,
-                    co2e_per_serving: r.complete ? r.co2e_per_serving : null,
+                    co2e_per_serving: kgvejGap ? null : r.co2e_per_serving,
+                    accuracy_pct: kgvejGap ? null : r.accuracy_pct,
+                    estimated: !r.complete && !kgvejGap,  // tal vist, men ikke fuldt dækket
                     unit: m.unit, category: m.category, sellable: !!m.sellable,
                     complete: r.complete,
                     missing_factor: r.missing_factor,
