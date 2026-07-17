@@ -62,6 +62,19 @@ function getEventBons(eventId) {
     `).all(eventId);
 }
 
+// ─── AFLYSTE BONS: synlige i listen, aldrig i tallene ──────────────────────
+// En aflyst prep-bon er historik ("der VAR en plan") og skal blive stående i
+// overblikkets bon-liste. Men den forlod aldrig huset og blev aldrig solgt, så
+// den må ikke tælle i vareforbrug, CO₂, P&L, salgs-prefill eller de beregnede
+// rest-/top-up-/retur-tal. Hver beregning filtrerer selv (frem for at stole på
+// at kalderen har gjort det), fordi flere af dem er eksporteret til test.
+// SQL-fragmentet kræver at forespørgslen har `bons` aliaset `b`.
+const EXCLUDE_CANCELLED_SQL =
+    `AND b.status_id != (SELECT id FROM status_definitions WHERE code = 'AFLYST')`;
+
+const isCancelled = bon => bon.status_code === 'AFLYST';
+const activeBons  = bons => bons.filter(b => !isCancelled(b));
+
 // Klassificer en event-bon i en af de fire roller.
 // Match spec'en (§3): prep + top-up + dagssalg + udgift. Hjemkomst er en
 // varemodtagelse, ikke en bon — ignoreres i bon-listen.
@@ -81,7 +94,7 @@ function classifyRole(bon, eventStart) {
 // (matcher hvordan totals gemmes i v2 — moms-doktrinen §6b).
 function computeEventPnL(bons) {
     let revenue_incl = 0, expenses = 0, cost = 0;
-    for (const b of bons) {
+    for (const b of activeBons(bons)) {
         const price = b.total_price ?? 0;
         if (b.price_category_code === 'produktion') continue;     // prep/top-up = 0 kr, irrelevant for P&L
         if (price < 0) expenses += -price;                         // udgiftsbon (negativ linje)
@@ -115,6 +128,7 @@ function computeEventExpenses(eventId) {
         JOIN bon_lines bl ON bl.bon_id = b.id
         LEFT JOIN price_categories pc ON b.price_category_id = pc.id
         WHERE b.event_id = ? AND COALESCE(pc.code,'') != 'produktion' AND b.total_price < 0
+          ${EXCLUDE_CANCELLED_SQL}
     `).all(eventId);
     let incl = 0, excl = 0;
     for (const r of rows) {
@@ -134,6 +148,7 @@ function computeEventCost(eventId) {
         JOIN bon_lines bl ON bl.bon_id = b.id
         LEFT JOIN price_categories pc ON b.price_category_id = pc.id
         WHERE b.event_id = ? AND pc.code = 'produktion'
+          ${EXCLUDE_CANCELLED_SQL}
     `).get(eventId);
     return row?.c ?? 0;
 }
@@ -149,6 +164,7 @@ function computeEventCO2(eventId) {
         JOIN bon_lines bl ON bl.bon_id = b.id
         LEFT JOIN price_categories pc ON b.price_category_id = pc.id
         WHERE b.event_id = ? AND (pc.code IS NULL OR pc.code != 'produktion')
+          ${EXCLUDE_CANCELLED_SQL}
     `).get(eventId);
     return Math.round((row?.co2 ?? 0) * 100) / 100;
 }
@@ -199,7 +215,7 @@ async function resolvePackedRaw(bonId, applyOverrides) {
 //   rest = (prep + top-ups, m/overrides)  −  solgt (BOM-eksploderet)
 // Alt i stock-units. Returnerer { items: [{product_id, name, unit, prepped, sold, suggested_rest}] }.
 async function computeReturnSuggestion(event) {
-    const bons = getEventBons(event.id);
+    const bons = activeBons(getEventBons(event.id));
     const [products, qus] = await Promise.all([grocy.getProducts(), grocy.getQuantityUnits()]);
     const prodMap = new Map(products.map(p => [parseInt(p.id), p]));
     const quMap   = new Map(qus.map(u => [parseInt(u.id), u]));
@@ -292,6 +308,7 @@ async function computeTopupSuggestion(event, date) {
         JOIN bon_lines bl ON bl.bon_id = b.id
         LEFT JOIN price_categories pc ON b.price_category_id = pc.id
         WHERE b.event_id = ? AND pc.code = 'produktion' AND b.delivery_date <= ?
+          ${EXCLUDE_CANCELLED_SQL}
         GROUP BY bl.category, bl.grocy_recipe_id, bl.product_name, bl.unit
     `).all(event.id, date);
 
@@ -305,6 +322,7 @@ async function computeTopupSuggestion(event, date) {
           AND (pc.code IS NULL OR pc.code != 'produktion')
           AND COALESCE(b.event_role, 'sales') != 'expense'
           AND b.total_price >= 0
+          ${EXCLUDE_CANCELLED_SQL}
         GROUP BY bl.category
     `).all(event.id, date);
 
@@ -315,6 +333,7 @@ async function computeTopupSuggestion(event, date) {
           AND (pc.code IS NULL OR pc.code != 'produktion')
           AND COALESCE(b.event_role, 'sales') != 'expense'
           AND b.total_price >= 0
+          ${EXCLUDE_CANCELLED_SQL}
     `).get(event.id, date)?.c ?? 0;
 
     const forecastRows = db.prepare(`
@@ -375,7 +394,7 @@ async function computeTopupSuggestion(event, date) {
     // (kategori-forslaget er ren SQL og stadig brugbart).
     const raw = [];
     try {
-        const bons = getEventBons(event.id);
+        const bons = activeBons(getEventBons(event.id));
         const preppedRaw = new Map(), soldRaw = new Map(), rawNames = new Map();
         for (const b of bons) {
             const isProd = b.price_category_code === 'produktion';
@@ -655,7 +674,10 @@ router.get('/:id/overview', requireAuth(), handle(async (req, res) => {
 // computeEventPnL/Cost/CO2) — ruten kalder bare denne + res.json.
 async function computeSalesPrefill(event) {
     // Find prep-bonnerne via samme rolle-klassifikation som overview viser.
-    const bons = getEventBons(event.id);
+    // Aflyste bons frasorteres FØR klassifikationen: ellers ville en aflyst
+    // produktionsbon lægge beslag på 'prep'-rollen i fallback-heuristikken og
+    // skubbe den rigtige prep-bon ned som 'topup'.
+    const bons = activeBons(getEventBons(event.id));
     const seenProductionDates = new Set();
     for (const b of bons) {
         if (b.price_category_code === 'produktion') {
@@ -972,3 +994,9 @@ module.exports = router;
 module.exports.computeSalesPrefill = computeSalesPrefill;
 module.exports.computeTopupSuggestion = computeTopupSuggestion;
 module.exports.allocateInteger = allocateInteger;
+module.exports.getEventBons = getEventBons;
+module.exports.computeEventPnL = computeEventPnL;
+module.exports.computeEventCost = computeEventCost;
+module.exports.computeEventCO2 = computeEventCO2;
+module.exports.computeEventExpenses = computeEventExpenses;
+module.exports.computeReturnSuggestion = computeReturnSuggestion;
