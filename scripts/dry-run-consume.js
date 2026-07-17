@@ -42,6 +42,21 @@
 // ============================================================
 'use strict';
 
+const path = require('path');
+const fs   = require('fs');
+
+// Load .env FØR grocyAdapter requires — så GROCY_HQ_KEY o.l. er i miljøet når
+// getGrocyConfig læser dem. Uden dette skulle scriptet køres med node's
+// --env-file, hvilket er nemt at glemme; her virker et rent `node dry-run…`.
+// Samme mønster som booking-reminders.js + check-inventory-deduct.js.
+const envPath = path.join(__dirname, '..', '.env');
+if (fs.existsSync(envPath)) {
+    fs.readFileSync(envPath, 'utf8').split('\n').forEach(line => {
+        const m = line.match(/^([A-Z_][A-Z0-9_]*)=(.*)$/);
+        if (m && !process.env[m[1]]) process.env[m[1]] = m[2].replace(/^["']|["']$/g, '');
+    });
+}
+
 const { getDb } = require('../db/database');
 const { todayISO, offsetISO } = require('../db/helpers');
 const grocy = require('../services/grocyAdapter');
