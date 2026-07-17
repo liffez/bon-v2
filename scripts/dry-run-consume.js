@@ -56,6 +56,12 @@ if (fs.existsSync(envPath)) {
         if (m && !process.env[m[1]]) process.env[m[1]] = m[2].replace(/^["']|["']$/g, '');
     });
 }
+// .env'ens DB_PATH er relativ (./data/bon.db) — den virker kun når man kører fra
+// repo-roden. Kørt fra scripts/ ville den ramme scripts/data/bon.db (tom DB →
+// 0 bons). Gør den absolut mod repo-roden, så scriptet virker fra enhver mappe.
+if (process.env.DB_PATH && !path.isAbsolute(process.env.DB_PATH)) {
+    process.env.DB_PATH = path.resolve(__dirname, '..', process.env.DB_PATH);
+}
 
 const { getDb } = require('../db/database');
 const { todayISO, offsetISO } = require('../db/helpers');
