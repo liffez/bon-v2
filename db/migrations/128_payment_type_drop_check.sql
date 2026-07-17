@@ -30,6 +30,29 @@
 -- en tabel der ikke findes (samme fælde som migration 041 noterer).
 -- Triggers på bons forsvinder automatisk med DROP TABLE og genskabes til sidst.
 
+-- ── 0. SKEMA-VAGT — SKAL stå før alt andet ──────────────────────────────────
+-- CREATE TABLE bons_new nedenfor er et ØJEBLIKSBILLEDE af skemaet som det så ud
+-- da denne migration blev skrevet (63 kolonner). Tilføjer en anden migration en
+-- kolonne til bons FØR 128 kører, ville genopbygningen tabe den kolonne LYDLØST:
+-- ingen fejl, ingen advarsel, bare data der er væk.
+--
+-- Vagten gør den fejlmåde umulig. Er kolonnetallet ikke 63, bryder INSERT'en
+-- CHECK'en → migrationen afbryder → serveren starter ikke med en halvfærdig DB.
+-- Den står FØR PRAGMA/DROP VIEW, så intet er rørt når den fyrer.
+--
+-- Fyrer den: tilføj den nye kolonne til BÅDE CREATE TABLE bons_new og til begge
+-- kolonnelister i INSERT ... SELECT nedenfor, og ret tallet her.
+--
+-- (Omdøbte/fjernede kolonner fanges af INSERT ... SELECT der fejler på et ukendt
+-- navn — vagten dækker det tilfælde skemaet stadig tæller 63.)
+DROP TABLE IF EXISTS _guard_128;
+CREATE TABLE _guard_128 (x TEXT CHECK (x = 'ok'));
+INSERT INTO _guard_128 SELECT CASE
+    WHEN (SELECT count(*) FROM pragma_table_info('bons')) = 63 THEN 'ok'
+    ELSE 'STOP: bons har ikke 63 kolonner — skemaet er ændret siden migration 128 blev skrevet. Opdatér CREATE TABLE + INSERT-listerne i 128 før den køres.'
+END;
+DROP TABLE _guard_128;
+
 PRAGMA foreign_keys = OFF;
 
 -- ── 1. Drop views der læser bons (blokerer ellers rename) ────────────────────
