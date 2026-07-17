@@ -1134,6 +1134,7 @@ module.exports = {
     // Write — stock + shopping
     consumeRecipes,
     planConsume,
+    makeEffectiveStock,
     consumeProduct,
     addToStock,
     addToStockFull,

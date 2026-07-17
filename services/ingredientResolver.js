@@ -56,8 +56,12 @@ async function resolveIngredients(recipeLines) {
 
     // ── Lookup-maps ──
     const recipeMap = new Map(recipes.map(r => [r.id, r]));
-    const stockMap = {};
-    stockArr.forEach(s => { stockMap[s.product_id] = parseFloat(s.amount) || 0; });
+    // Effektivt lager PR PRODUKT inkl. parent/child-substitution: et parent-produkt
+    // ("kål") har typisk eget lager = 0, men børnene (Spidskål, Hvidkål) har lageret.
+    // Grocy's consume + tør-kørsel (planConsume) ruller børnenes lager op på parenten
+    // via makeEffectiveStock — visningen skal bruge SAMME kilde, ellers står et
+    // parent-produkt fejlagtigt som rødt "0" selvom børnene har rigeligt (#327).
+    const effectiveStock = grocy.makeEffectiveStock(stockArr, products);
     const productMap = new Map(products.map(p => [p.id, p]));
     const unitMap = new Map(quantityUnits.map(u => [u.id, u]));
 
@@ -251,18 +255,21 @@ async function resolveIngredients(recipeLines) {
     }
 
     // ── Format & klassificér ──
-    const production = formatLevel(prodAgg, stockMap, quConversions, unitMap, subRecipeAgg);
-    const raw        = formatLevel(rawAgg, stockMap, quConversions, unitMap, null);
+    const production = formatLevel(prodAgg, effectiveStock, quConversions, unitMap, subRecipeAgg);
+    const raw        = formatLevel(rawAgg, effectiveStock, quConversions, unitMap, null);
 
     return { production, raw };
 }
 
 /**
  * Formatér et aggregeringsniveau til gruppestruktur med statusser.
+ *
+ * @param {Function} effectiveStock  (product_id) → lager i stock-units inkl.
+ *   parent/child-substitution (fra grocy.makeEffectiveStock).
  */
-function formatLevel(aggregated, stockMap, quConversions, unitMap, subRecipeAgg) {
+function formatLevel(aggregated, effectiveStock, quConversions, unitMap, subRecipeAgg) {
     const ingredients = [...aggregated.values()].map(ing => {
-        const stockAmount = stockMap[ing.product_id] || 0;
+        const stockAmount = effectiveStock(ing.product_id);
 
         let status;
         if (stockAmount >= ing.needed_stock)       status = 'ok';

@@ -21,7 +21,8 @@
 var _rvRecipes        = [];       // all recipes (filtered to active)
 var _rvProducts       = {};       // product_id -> product
 var _rvQuantityUnits  = {};       // qu_id -> unit name
-var _rvStock          = {};       // product_id -> amount
+var _rvStock          = {};       // product_id -> eget lager (stock-units)
+var _rvChildrenByParent = {};     // parent_product_id -> [child product_id] (til parent/child-lager)
 var _rvRecipeMap      = {};       // recipe_id -> recipe object
 var _rvAllRecipesPos  = {};       // recipe_id -> [ingredients]
 var _rvAllNestings    = [];       // all nestings (raw)
@@ -107,6 +108,19 @@ async function _rvLoadData() {
         // Stock map
         _rvStock = {};
         rawStock.forEach(function(s) { _rvStock[s.product_id] = parseFloat(s.amount) || 0; });
+
+        // Parent/child-lager: et parent-produkt ("kål") har typisk eget lager = 0,
+        // mens børnene (Spidskål, Hvidkål) holder lageret. Grocy-consume ruller
+        // børnenes lager op på parenten via subproduct-substitution — visningen
+        // skal gøre det samme, ellers står parenten fejlagtigt som rødt "0" (#327).
+        _rvChildrenByParent = {};
+        rawProducts.forEach(function(p) {
+            if (p.parent_product_id) {
+                var par = parseInt(p.parent_product_id);
+                if (!_rvChildrenByParent[par]) _rvChildrenByParent[par] = [];
+                _rvChildrenByParent[par].push(parseInt(p.id));
+            }
+        });
 
         // All recipe positions grouped by recipe_id
         _rvAllRecipesPos = {};
@@ -542,10 +556,10 @@ function _rvRenderIngredientItem(ing, multiplier) {
     var baseDisplayAmount = _rvGetDisplayAmount(ing);
     var amount = _rvRound(baseDisplayAmount * multiplier);
 
-    // Stock comparison in stock units
+    // Stock comparison in stock units (inkl. parent/child-substitution)
     var baseStockAmount = parseFloat(ing.amount) || 0;
     var neededStock = _rvRound(baseStockAmount * multiplier);
-    var stockAmount = _rvRound(_rvStock[ing.product_id] || 0);
+    var stockAmount = _rvRound(_rvEffectiveStock(ing.product_id));
 
     // Stock status
     var statusClass = 'unknown';
@@ -647,8 +661,8 @@ async function _rvAddAllMissingToShoppingList() {
     _rvIngredients.forEach(function(ing) {
         var baseAmount = parseFloat(ing.amount) || 0;
         var neededStock = baseAmount * multiplier;
-        var stockAmount = _rvStock[ing.product_id] || 0;
-        if (stockAmount >= neededStock) return; // nok på lager
+        var stockAmount = _rvEffectiveStock(ing.product_id);
+        if (stockAmount >= neededStock) return; // nok på lager (inkl. parent/child)
 
         var missing = _rvRound(Math.max(0, neededStock - stockAmount));
         if (missing <= 0) return;
@@ -941,6 +955,17 @@ function _rvShowList() {
 // ════════════════════════════════════════════════════════════
 // UNIT CONVERSION HELPERS
 // ════════════════════════════════════════════════════════════
+
+// Effektivt lager for et produkt: eget lager + summen af børnenes lager.
+// Spejler grocyAdapter.makeEffectiveStock (server-side) så visning + consume er enige.
+function _rvEffectiveStock(productId) {
+    var own = _rvStock[productId] || 0;
+    var kids = _rvChildrenByParent[productId];
+    if (!kids || !kids.length) return own;
+    var sum = own;
+    for (var i = 0; i < kids.length; i++) sum += _rvStock[kids[i]] || 0;
+    return sum;
+}
 
 function _rvGetDisplayAmount(ing) {
     var product = _rvProducts[ing.product_id];
