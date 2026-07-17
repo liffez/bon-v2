@@ -26,7 +26,8 @@ var _rdRecipeMap     = {};       // recipe_id -> recipe
 var _rdProducts      = [];       // raw products array
 var _rdProductMap    = {};       // product_id -> product
 var _rdQuantityUnits = {};       // qu_id -> unit name
-var _rdStock         = {};       // product_id -> amount
+var _rdStock         = {};       // product_id -> eget lager (stock-units)
+var _rdChildrenByParent = {};    // parent_product_id -> [child product_id] (parent/child-lager)
 var _rdQuConversions = [];       // unit conversions (raw)
 var _rdAllPositions  = [];       // all recipe positions (raw)
 var _rdAllNestings   = [];       // all nestings (raw)
@@ -119,6 +120,18 @@ async function _rdLoadData(background) {
 
         _rdStock = {};
         rawStock.forEach(function(s) { _rdStock[s.product_id] = parseFloat(s.amount) || 0; });
+
+        // Parent/child-lager: parent-produkter ("kål", no_own_stock=1) har eget lager
+        // = 0, men børnene holder lageret. Ruller børnene op så visningen ikke viser
+        // rødt "0" for et parent-produkt der reelt har rigeligt via børnene (#327).
+        _rdChildrenByParent = {};
+        rawProducts.forEach(function(p) {
+            if (p.parent_product_id) {
+                var par = parseInt(p.parent_product_id);
+                if (!_rdChildrenByParent[par]) _rdChildrenByParent[par] = [];
+                _rdChildrenByParent[par].push(parseInt(p.id));
+            }
+        });
 
         _rdAllPositions = rawPos;
         _rdAllNestings  = rawNestings;
@@ -643,7 +656,7 @@ function _rdRecalcSummary() {
             totalWeight += _rdCalcWeightGrams(rawScaled, stockUnitName, ing.product_id, stockQuId);
         }
 
-        var stockAmt = _rdStock[ing.product_id] || 0;
+        var stockAmt = _rdEffectiveStock(ing.product_id);
         if (stockAmt >= rawScaled) inStock++; else missing++;
     });
 
@@ -696,7 +709,7 @@ function _rdRenderIngredients() {
             var baseDisplayAmt = _rdGetDisplayAmount(ing);
             var scaled = _rdRound(baseDisplayAmt * mult, 2);
             var fmt = _rdFormatAmount(scaled, unitName);
-            var stockAmt = _rdStock[ing.product_id] || 0;
+            var stockAmt = _rdEffectiveStock(ing.product_id);
             var rawScaled = (parseFloat(ing.amount) || 0) * mult;
             var stockClass = stockAmt >= rawScaled ? 'rd-ok' : (stockAmt > 0 ? 'rd-low' : 'rd-missing');
 
@@ -843,7 +856,7 @@ function _rdOnAcInput(q) {
     if (!matches.length) { dd.classList.remove('rd-open'); return; }
 
     dd.innerHTML = matches.map(function(p) {
-        var stockAmt = _rdStock[p.id] || 0;
+        var stockAmt = _rdEffectiveStock(p.id);
         var unitName = _rdQuantityUnits[p.qu_id_stock] || '';
         var dotStyle = stockAmt > 0 ? 'color:var(--color-green-dark)' : 'color:var(--color-red)';
         return '<div class="rd-ac-item" data-pid="' + p.id + '">' +
@@ -1362,6 +1375,17 @@ function _rdRound(num, dec) {
     if (dec === undefined) dec = 2;
     var p = Math.pow(10, dec);
     return Math.round(num * p) / p;
+}
+
+// Effektivt lager: eget lager + summen af børnenes lager (parent/child-substitution,
+// spejler grocyAdapter.makeEffectiveStock så visning + consume er enige — #327).
+function _rdEffectiveStock(productId) {
+    var own = _rdStock[productId] || 0;
+    var kids = _rdChildrenByParent[productId];
+    if (!kids || !kids.length) return own;
+    var sum = own;
+    for (var i = 0; i < kids.length; i++) sum += _rdStock[kids[i]] || 0;
+    return sum;
 }
 
 function _rdGetDisplayAmount(ing) {
