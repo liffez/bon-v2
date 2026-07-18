@@ -108,6 +108,25 @@ function caseGroupAndSort() {
     };
     const tie = IC._icCategorize().unchecked.map(x => x.name);
     ok('7h BB tie-breaker: tidligst udløb først', tie[0] === 'ForfaldenTidligBB', 'fik: ' + tie.join(' > '));
+
+    // 7i — stjernen (manuel prioritet) slår gruppen. En stjernemarkeret, IKKE-forfalden vare
+    // skal ligge over en uforfalden-men-overskredet vare. Regression fanget i drift 18/7:
+    // 4-gruppe-omskrivningen havde demoteret prioritet fra trin 1 til trin 2.
+    resetState();
+    _ic.products = [
+        prod(20, 'ForfaldenUdenStjerne', { HverDag: '7', LastCheckedAt: daysAgoISO(40) }),  // gruppe 0
+        prod(21, 'StjerneIkkeForfalden', { HverDag: '30', LastCheckedAt: daysAgoISO(1) })   // gruppe 3
+    ];
+    _ic.priorities = { 21: 'high' };
+    const stjerne = IC._icCategorize().unchecked.map(x => x.name);
+    ok('7i stjerne slår gruppe (manuel markering vinder)', stjerne[0] === 'StjerneIkkeForfalden',
+        'fik: ' + stjerne.join(' > '));
+
+    // 7j — uden stjerne er gruppe-rækkefølgen uændret (Bug 3-fixet er intakt)
+    _ic.priorities = {};
+    const udenStjerne = IC._icCategorize().unchecked.map(x => x.name);
+    ok('7j uden stjerne: gruppen bestemmer', udenStjerne[0] === 'ForfaldenUdenStjerne',
+        'fik: ' + udenStjerne.join(' > '));
 }
 
 // ════════════════════════════════════════════════════════════

@@ -807,13 +807,17 @@ function _icCategorize() {
     var prioOrder = { high: 0, normal: 1, low: 2 };
 
     unchecked.sort(function(a, b) {
-        // 1. Gruppe (Forfaldne < Aldrig tjekket < Snart < Ikke-forfaldne)
-        if (a.group !== b.group) return a.group - b.group;
-
-        // 2. Manuel prioritet
+        // 1. Manuel prioritet (stjernen) — en bevidst menneskelig besked slår automatikken.
+        //    Står FØR gruppen: har nogen stjernemarkeret en vare, skal den øverst, også selvom
+        //    den ikke er forfalden. Ellers holder markeringen ikke hvad den lover.
+        //    (Uændret adfærd fra før 4-gruppe-omskrivningen — for varer uden markering,
+        //    dvs. langt de fleste, er sorteringen identisk med gruppe-først.)
         var aPrio = prioOrder[_ic.priorities[a.id] || 'normal'];
         var bPrio = prioOrder[_ic.priorities[b.id] || 'normal'];
         if (aPrio !== bPrio) return aPrio - bPrio;
+
+        // 2. Gruppe (Forfaldne < Aldrig tjekket < Snart < Ikke-forfaldne)
+        if (a.group !== b.group) return a.group - b.group;
 
         // 3. Check-ratio (højere = mere presserende)
         var aRatio = a.checkStatus.ratio === Infinity ? 9999 : (a.checkStatus.ratio || 0);
@@ -1007,8 +1011,8 @@ function _icCreateCard(product, isChecked) {
     var expiryHtml = '';
     var days = product.daysUntilExpiry;
     if (days !== undefined && days !== Infinity) {
-        if (days < 0)       expiryHtml = ' <span class="ic-expiry-warn">Udloebet</span>';
-        else if (days === 0) expiryHtml = ' <span class="ic-expiry-warn">Udloeber i dag</span>';
+        if (days < 0)       expiryHtml = ' <span class="ic-expiry-warn">Udløbet</span>';
+        else if (days === 0) expiryHtml = ' <span class="ic-expiry-warn">Udløber i dag</span>';
         else if (days <= 3)  expiryHtml = ' <span class="ic-expiry-soon">' + days + ' dag' + (days > 1 ? 'e' : '') + '</span>';
     }
 

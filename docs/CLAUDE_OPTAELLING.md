@@ -118,7 +118,17 @@ sorten.
 3. **Snart forfaldne** (`checkStatus=soon`)
 4. **Ikke-forfaldne** (resten)
 
-Inden for hver gruppe: manuel prioritet → check-ratio → **best-before kun som tie-breaker**.
+**Manuel prioritet (stjernen) står FØR grupperne.** En stjernemarkering er en bevidst
+menneskelig besked — den skal slå automatikken, ellers holder markeringen ikke hvad den
+lover. Samme logik som ✓/⏭-princippet: brugerens eksplicitte handling vinder.
+Fuld rækkefølge: **prioritet → gruppe → check-ratio → best-before (kun tie-breaker) → navn.**
+For varer uden markering (langt de fleste) er resultatet identisk med gruppe-først.
+
+> **Regression fanget i drift 18. juli 2026:** 4-gruppe-omskrivningen havde flyttet prioritet
+> fra trin 1 til trin 2, så en stjernemarkeret ikke-forfalden vare blev begravet under de
+> forfaldne. Rettet + låst af T_OPTAELLING 7i/7j. Lære: rør ikke rangordenen i en sortering
+> som en sidegevinst — det er en adfærdsændring, også når den ser ud som oprydning.
+
 Varer talt i denne session flyttes til bunden (checked-liste), ikke blandet ind.
 
 > **UTC-fælde (memory `project_utc_today_bug`):** gruppe 2 ("aldrig/i dag tjekket") og
