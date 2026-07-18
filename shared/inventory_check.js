@@ -35,7 +35,11 @@ var _ic = {
     products:      [],          // Products for current location
     grocyStock:    {},          // productId -> { amount, unit, bestBefore }
     counts:        {},          // productId -> { units: { unitName: amount }, total }
-    skipped:       [],          // productIds skipped in current unit (array)
+    skipped:       [],          // productIds skipped in current unit (array — spejl af skippedByUnit)
+    skippedByUnit: {},          // unitName -> [productId]  (hele sessionen, ikke kun aktiv enhed)
+    decisions:     {},          // productId -> 'notrack' | 'discontinued'  (⋯-menu, skrives ved commit)
+    countUnitPref: {},          // "<pid>|<enhed>" -> qu_id — sidst brugte tælleenhed i den kontekst
+    startedAt:     null,        // ISO — hvornår sessionen begyndte (drives genoptag-banneret)
     priorities:    {},          // productId -> "high"|"low"
     physicalUnits: {},          // locationId -> [{ id, name, sort_order, archived_at }] fra server
     searchQuery:   '',          // fritekst-filter på varenavn i optællings-listen
@@ -80,6 +84,13 @@ async function _icLoadInitial() {
 
         // Render setup view
         _icRenderSetup();
+
+        // Kvittering fra sidste optælling — står til den lukkes, ikke 3 sekunder.
+        var receipt = _icLoadReceipt();
+        if (receipt && receipt.text) {
+            _icContainer.querySelector('#icReceiptText').textContent = receipt.text;
+            _icContainer.querySelector('#icReceipt').classList.add('ic-visible');
+        }
 
         // Live-sync: lyt efter enheder tilføjet/ændret på andre devices
         _icInitSSE();
@@ -226,52 +237,110 @@ async function _icRefreshUnitsLive() {
 // COUNTING STATE PERSISTENCE (localStorage)
 // ════════════════════════════════════════════════════════════
 
+// Lokal dato (ikke UTC). new Date().toISOString() giver UTC-datoen — i dansk
+// sommertid er kl. 22:00 allerede "i morgen" i UTC. Se memory project_utc_today_bug.
+function _icLocalDate(d) {
+    d = d || new Date();
+    var m = d.getMonth() + 1, day = d.getDate();
+    return d.getFullYear() + '-' + (m < 10 ? '0' : '') + m + '-' + (day < 10 ? '0' : '') + day;
+}
+
+// Sessionen er IKKE dags-scoped. Spec §6 bygger på at en optælling kan genoptages
+// over flere dage (derfor gemmes grocyAtCount pr. vare, ikke ét session-snapshot).
+// En dato i nøglen ville tavst smide counts væk ved midnat.
 function _icSessionKey() {
-    var today = new Date().toISOString().split('T')[0];
-    return 'ic_counts_' + _ic.locationId + '_' + today;
+    return 'ic_counts_' + _ic.locationId;
+}
+
+// Engangsoprydning: de gamle dags-scopede nøgler (ic_counts_<loc>_<YYYY-MM-DD>).
+// Nyeste for DENNE lokation overtages hvis den nye nøgle er tom; resten slettes,
+// så de ikke bliver liggende for evigt.
+function _icMigrateLegacySessions() {
+    var legacyRe = /^ic_counts_(\d+)_(\d{4}-\d{2}-\d{2})$/;
+    var mine = [], all = [];
+    try {
+        for (var i = 0; i < localStorage.length; i++) {
+            var k = localStorage.key(i);
+            var m = k && k.match(legacyRe);
+            if (!m) continue;
+            all.push(k);
+            if (parseInt(m[1]) === _ic.locationId) mine.push({ key: k, date: m[2] });
+        }
+    } catch (e) { return null; }
+
+    var adopted = null;
+    if (mine.length) {
+        mine.sort(function(a, b) { return a.date < b.date ? 1 : -1; });   // nyeste først
+        try { adopted = JSON.parse(localStorage.getItem(mine[0].key)); } catch (e) { adopted = null; }
+    }
+    all.forEach(function(k) { try { localStorage.removeItem(k); } catch (e) {} });
+    return adopted;
 }
 
 function _icLoadCounts() {
+    var data = null;
     try {
         var stored = localStorage.getItem(_icSessionKey());
-        if (stored) {
-            var data = JSON.parse(stored);
-            _ic.counts = data.counts || {};
-        } else {
-            _ic.counts = {};
-        }
-    } catch (e) {
-        _ic.counts = {};
-    }
+        if (stored) data = JSON.parse(stored);
+    } catch (e) { data = null; }
+
+    if (!data) data = _icMigrateLegacySessions();
+    else _icMigrateLegacySessions();     // ryd op uanset
+
+    data = data || {};
+    _ic.counts        = data.counts || {};
+    _ic.skippedByUnit = data.skippedByUnit || {};
+    _ic.decisions     = data.decisions || {};
+    _ic.startedAt     = data.startedAt || null;
+
+    if (!_ic.startedAt && Object.keys(_ic.counts).length) _ic.startedAt = new Date().toISOString();
 }
 
 function _icSaveCounts() {
-    localStorage.setItem(_icSessionKey(), JSON.stringify({ counts: _ic.counts }));
+    if (!_ic.startedAt) _ic.startedAt = new Date().toISOString();
+    // try/catch: localStorage findes ikke i Node (tests), og Safari i privat
+    // tilstand kaster på setItem. En optælling må ikke dø af det.
+    try {
+        localStorage.setItem(_icSessionKey(), JSON.stringify({
+            counts:        _ic.counts,
+            skippedByUnit: _ic.skippedByUnit,
+            decisions:     _ic.decisions,
+            startedAt:     _ic.startedAt
+        }));
+    } catch (e) {}
 }
 
 function _icClearCounts() {
-    localStorage.removeItem(_icSessionKey());
+    try { localStorage.removeItem(_icSessionKey()); } catch (e) {}
     _ic.counts = {};
+    _ic.skippedByUnit = {};
+    _ic.decisions = {};
+    _ic.skipped = [];
+    _ic.startedAt = null;
+}
+
+// Er sessionen startet på en tidligere dag? (driver genoptag-banneret)
+function _icSessionIsOld() {
+    if (!_ic.startedAt) return false;
+    if (!Object.keys(_ic.counts).length && !Object.keys(_ic.decisions).length) return false;
+    return _icLocalDate(new Date(_ic.startedAt)) !== _icLocalDate();
 }
 
 // ════════════════════════════════════════════════════════════
-// SKIP STATE PERSISTENCE (sessionStorage per unit)
+// SKIP STATE — del af sessionen (samme levetid som counts)
 // ════════════════════════════════════════════════════════════
-
-function _icSkipKey() {
-    return 'ic_skip_' + _ic.locationId + '_' + _ic.physicalUnit;
-}
+// Lå før i sessionStorage og døde ved fane-luk, mens counts overlevede. To
+// levetider i samme session gjorde "Fortryd" utroværdig.
 
 function _icLoadSkipped() {
-    try {
-        _ic.skipped = JSON.parse(sessionStorage.getItem(_icSkipKey()) || '[]');
-    } catch (e) {
-        _ic.skipped = [];
-    }
+    _ic.skipped = (_ic.skippedByUnit && _ic.skippedByUnit[_ic.physicalUnit]) || [];
 }
 
 function _icSaveSkipped() {
-    sessionStorage.setItem(_icSkipKey(), JSON.stringify(_ic.skipped));
+    if (!_ic.skippedByUnit) _ic.skippedByUnit = {};
+    if (_ic.skipped && _ic.skipped.length) _ic.skippedByUnit[_ic.physicalUnit] = _ic.skipped;
+    else delete _ic.skippedByUnit[_ic.physicalUnit];
+    _icSaveCounts();
 }
 
 // ════════════════════════════════════════════════════════════
@@ -288,7 +357,54 @@ function _icLoadPriorities() {
 }
 
 function _icSavePriorities() {
-    localStorage.setItem('ic_priorities', JSON.stringify(_ic.priorities));
+    try { localStorage.setItem('ic_priorities', JSON.stringify(_ic.priorities)); } catch (e) {}
+}
+
+// ════════════════════════════════════════════════════════════
+// TÆLLEENHED — huskes pr. vare OG fysisk enhed
+// ════════════════════════════════════════════════════════════
+// Samme vare tælles ofte i forskellige enheder alt efter hvor den står (bøtter i
+// kølerummet, kasser på tørlageret). Konteksten er derfor vare+enhed, ikke vare.
+// Det er et forslag, ikke en låsning — togglen står altid synlig på kortet.
+
+function _icPrefKey(productId, physicalUnit) {
+    return productId + '|' + (physicalUnit || _ic.physicalUnit);
+}
+
+function _icLoadCountUnitPrefs() {
+    try {
+        _ic.countUnitPref = JSON.parse(localStorage.getItem('ic_countunit') || '{}');
+    } catch (e) {
+        _ic.countUnitPref = {};
+    }
+}
+
+function _icRememberCountUnit(productId, quId) {
+    _ic.countUnitPref[_icPrefKey(productId)] = quId;
+    try { localStorage.setItem('ic_countunit', JSON.stringify(_ic.countUnitPref)); } catch (e) {}
+}
+
+function _icPreferredCountUnit(productId) {
+    var v = _ic.countUnitPref[_icPrefKey(productId)];
+    return (v === undefined || v === null) ? null : v;
+}
+
+// ════════════════════════════════════════════════════════════
+// KVITTERING — bliver stående til den lukkes eller en ny session starter
+// ════════════════════════════════════════════════════════════
+
+function _icSaveReceipt(text) {
+    try { localStorage.setItem('ic_receipt', JSON.stringify({ text: text, at: new Date().toISOString() })); } catch (e) {}
+}
+
+function _icLoadReceipt() {
+    try { return JSON.parse(localStorage.getItem('ic_receipt') || 'null'); } catch (e) { return null; }
+}
+
+function _icClearReceipt() {
+    try { localStorage.removeItem('ic_receipt'); } catch (e) {}
+    var el = _icContainer && _icContainer.querySelector('#icReceipt');
+    if (el) el.classList.remove('ic-visible');
 }
 
 // ════════════════════════════════════════════════════════════
@@ -323,6 +439,21 @@ function _icRenderSetup() {
 
     _icContainer.innerHTML =
         '<div class="ic-alert-box"></div>' +
+
+        // Kvittering fra sidste optælling — bliver stående til den lukkes.
+        '<div class="ic-receipt" id="icReceipt">' +
+            '<span id="icReceiptText"></span>' +
+            '<button class="ic-receipt-close" id="icReceiptClose" title="Luk">&times;</button>' +
+        '</div>' +
+
+        // Genoptag-banner: sessionen blev startet en tidligere dag.
+        '<div class="ic-resume" id="icResume">' +
+            '<span id="icResumeText"></span>' +
+            '<span class="ic-resume-actions">' +
+                '<button class="ic-btn-secondary" id="icResumeKeep">Fortsæt</button>' +
+                '<button class="ic-btn-secondary" id="icResumeReset">Start forfra</button>' +
+            '</span>' +
+        '</div>' +
 
         '<div class="ic-location-bar">' +
             '<div class="ic-form-group">' +
@@ -374,14 +505,14 @@ function _icRenderSetup() {
         '<div class="ic-overlay" id="icSummaryOverlay">' +
             '<div class="ic-modal">' +
                 '<div class="ic-modal-header">' +
-                    '<h2>Optælling afsluttet</h2>' +
+                    '<h2>Gem og luk</h2>' +
                     '<p id="icSummaryLoc"></p>' +
                 '</div>' +
                 '<div class="ic-modal-body" id="icSummaryBody"></div>' +
                 '<div class="ic-modal-footer">' +
-                    '<button class="ic-btn-close" id="icSummaryClose">Luk</button>' +
-                    '<button class="ic-btn-shopping" id="icSummaryShop">Tilføj manglende til indkøb</button>' +
-                    '<button class="ic-btn-save-all" id="icSummarySave">Gem alle ændringer</button>' +
+                    '<button class="ic-btn-close" id="icSummaryClose">Tilbage</button>' +
+                    '<button class="ic-btn-shopping" id="icSummaryShop">Sæt manglende på indkøbslisten</button>' +
+                    '<button class="ic-btn-save-all" id="icSummarySave">Gem og luk</button>' +
                 '</div>' +
             '</div>' +
         '</div>' +
@@ -403,7 +534,27 @@ function _icRenderSetup() {
             '</div>' +
         '</div>';
 
+    // Klik udenfor lukker et åbent kort-menu.
+    if (!document.body.dataset.icMenuBound) {
+        document.body.dataset.icMenuBound = '1';
+        document.body.addEventListener('click', function(e) {
+            if (e.target.closest && e.target.closest('[data-menu], [data-action="more"]')) return;
+            _icCloseAllCardMenus();
+        });
+    }
+
     // Wire up events
+    _icContainer.querySelector('#icReceiptClose').addEventListener('click', _icClearReceipt);
+    _icContainer.querySelector('#icResumeKeep').addEventListener('click', function() {
+        _icContainer.querySelector('#icResume').classList.remove('ic-visible');
+    });
+    _icContainer.querySelector('#icResumeReset').addEventListener('click', function() {
+        if (!confirm('Vil du slette det du allerede har talt og starte forfra?')) return;
+        _icClearCounts();
+        _icContainer.querySelector('#icResume').classList.remove('ic-visible');
+        _icRenderProducts();
+        _icUpdateProgress();
+    });
     _icContainer.querySelector('#icLocSelect').addEventListener('change', _icOnLocationChange);
     _icContainer.querySelector('#icUnitSelect').addEventListener('change', _icOnUnitChange);
     _icContainer.querySelector('#icStartBtn').addEventListener('click', _icStartCheck);
@@ -643,6 +794,11 @@ async function _icStartCheck() {
         // Load counting state
         _icLoadCounts();
         _icLoadSkipped();
+        _icLoadCountUnitPrefs();
+        _icShowResumeBanner();
+        // Kvitteringen hører til den FORRIGE optælling. Står den endnu når en ny
+        // begynder, ligner den en kvittering for det man er i gang med.
+        _icClearReceipt();
 
         if (loadEl) loadEl.style.display = 'none';
         var listEl = _icContainer.querySelector('#icProductList');
@@ -659,26 +815,28 @@ async function _icStartCheck() {
 }
 
 // ════════════════════════════════════════════════════════════
-// SWITCH TO NEXT UNIT
+// SKIFT FYSISK ENHED
 // ════════════════════════════════════════════════════════════
 
-function _icSwitchUnit() {
-    // Save current skip state
-    _icSaveSkipped();
-
+// Skift til en navngiven enhed (enheds-chips). Tællinger er gemt pr. enhed i
+// counts[id].units, så de står urørte når man skifter frem og tilbage.
+function _icSwitchToUnit(unitName) {
+    if (!unitName || unitName === _ic.physicalUnit) return;
     var units = _icGetUnitsForLocation(_ic.locationId);
-    var idx = units.indexOf(_ic.physicalUnit);
-    var nextIdx = (idx + 1) % units.length;
+    if (units.indexOf(unitName) === -1) return;
 
-    _ic.physicalUnit = units[nextIdx];
-    _icContainer.querySelector('#icUnitSelect').value = _ic.physicalUnit;
+    _icSaveSkipped();                 // gem skip for den enhed vi forlader
+
+    _ic.physicalUnit = unitName;
+    var sel = _icContainer.querySelector('#icUnitSelect');
+    if (sel) sel.value = _ic.physicalUnit;
 
     _icLoadSkipped();
     _icRenderProducts();
-    _icUpdateProgress();
+    _icUpdateProgress();          // renderer også chips (aktiv-markering + tællere)
     _icUpdateProgressLabels();
-    _icAlert('Skiftet til: ' + _ic.physicalUnit, 'info');
 }
+
 
 // ════════════════════════════════════════════════════════════
 // CATEGORIZE PRODUCTS (sort logic)
@@ -744,6 +902,8 @@ function _icCategorize() {
     var checkedInUnit = [];
     var locUnits = _icGetUnitsForLocation(_ic.locationId);
 
+    var skippedList = [];
+
     _ic.products.forEach(function(product) {
         var uf = product.userfields || {};
         // LastCheckedAt skrives som UTC (toISOString); Grocy kan strippe 'Z' ved
@@ -769,10 +929,18 @@ function _icCategorize() {
             return;
         }
 
-        if (skippedInThisUnit) return;
-
         // Bug 4 — vis kun varen i den enhed den (rullende) hører til.
         if (!_icVisibleInUnit(product, locUnits)) return;
+
+        // Sprunget over: forsvinder ikke længere, men samles nederst så
+        // "Fortryd" er lige ved hånden (spec 7).
+        if (skippedInThisUnit) {
+            skippedList.push({
+                id: product.id, name: product.name, userfields: product.userfields,
+                status: 'skipped'
+            });
+            return;
+        }
 
         var stockInfo    = _ic.grocyStock[product.id];
         var grocyAmount  = _icRound(stockInfo ? stockInfo.amount : 0);
@@ -831,7 +999,9 @@ function _icCategorize() {
         return a.name.localeCompare(b.name, 'da');
     });
 
-    return { unchecked: unchecked, checkedInUnit: checkedInUnit };
+    skippedList.sort(function(a, b) { return a.name.localeCompare(b.name, 'da'); });
+
+    return { unchecked: unchecked, checkedInUnit: checkedInUnit, skipped: skippedList };
 }
 
 // ════════════════════════════════════════════════════════════
@@ -847,10 +1017,10 @@ function _icRenderProgress() {
                 '<span class="ic-progress-location" id="icProgLoc">' + esc(_ic.locationName) + '</span>' +
                 '<span class="ic-progress-unit" id="icProgUnit">' + esc(_ic.physicalUnit) + '</span>' +
             '</div>' +
+            '<div class="ic-unit-chips" id="icUnitChips"></div>' +
             '<div class="ic-progress-track"><div class="ic-progress-bar" id="icProgBar"></div></div>' +
             '<div class="ic-progress-text" id="icProgText">0 / 0 tjekket</div>' +
             '<div class="ic-progress-actions">' +
-                '<button class="ic-btn-secondary" id="icBtnNextUnit">Næste enhed</button>' +
                 '<button class="ic-btn-secondary" id="icBtnAddProduct">Tilføj vare</button>' +
                 '<button class="ic-btn-finish" id="icBtnFinish">Afslut optælling</button>' +
             '</div>' +
@@ -860,7 +1030,7 @@ function _icRenderProgress() {
             '</div>' +
         '</div>';
 
-    sec.querySelector('#icBtnNextUnit').addEventListener('click', _icSwitchUnit);
+    _icRenderUnitChips();
     sec.querySelector('#icBtnAddProduct').addEventListener('click', _icShowAddProduct);
     sec.querySelector('#icBtnFinish').addEventListener('click', _icShowSummary);
 
@@ -885,6 +1055,52 @@ function _icRenderProgress() {
     }
 }
 
+// Genoptag-banner: sessionen blev startet en tidligere dag. Vi kaster den ikke væk
+// af sig selv (spec §6: en optælling kan strække sig over flere dage) — vi spørger.
+function _icShowResumeBanner() {
+    var el = _icContainer.querySelector('#icResume');
+    if (!el) return;
+    if (!_icSessionIsOld()) { el.classList.remove('ic-visible'); return; }
+
+    var d = new Date(_ic.startedAt);
+    var dage = Math.round((new Date(_icLocalDate()) - new Date(_icLocalDate(d))) / 86400000);
+    var hvornår = dage === 1 ? 'i går' : 'for ' + dage + ' dage siden';
+    var tid = d.toLocaleTimeString('da-DK', { hour: '2-digit', minute: '2-digit' });
+    var antal = Object.keys(_ic.counts).length;
+
+    _icContainer.querySelector('#icResumeText').textContent =
+        'Du har en optælling i gang, startet ' + hvornår + ' kl. ' + tid +
+        ' med ' + antal + ' vare' + (antal === 1 ? '' : 'r') + ' talt.';
+    el.classList.add('ic-visible');
+}
+
+// Enheds-chips: én pr. fysisk enhed på lokationen, med antal talte varer.
+// Erstatter den gamle "Næste enhed"-knap, der kun kunne cykle én vej og skjulte
+// at man kan tælle den samme vare flere steder.
+function _icRenderUnitChips() {
+    var host = _icContainer.querySelector('#icUnitChips');
+    if (!host) return;
+
+    var units = _icGetUnitsForLocation(_ic.locationId);
+    host.innerHTML = '';
+
+    units.forEach(function(u) {
+        var n = 0;
+        Object.keys(_ic.counts).forEach(function(pid) {
+            var c = _ic.counts[pid];
+            if (c && c.units && c.units[u] !== undefined) n++;
+        });
+
+        var btn = document.createElement('button');
+        btn.className = 'ic-unit-chip' + (u === _ic.physicalUnit ? ' ic-active' : '');
+        btn.type = 'button';
+        btn.dataset.unit = u;
+        btn.innerHTML = esc(u) + (n ? '<span class="ic-unit-chip-count">' + n + '</span>' : '');
+        btn.addEventListener('click', function() { _icSwitchToUnit(u); });
+        host.appendChild(btn);
+    });
+}
+
 function _icUpdateProgressLabels() {
     var locEl = _icContainer.querySelector('#icProgLoc');
     var unitEl = _icContainer.querySelector('#icProgUnit');
@@ -902,8 +1118,18 @@ function _icUpdateProgress() {
 
     var bar = _icContainer.querySelector('#icProgBar');
     var text = _icContainer.querySelector('#icProgText');
+    // Chip-tællerne følger tællingen — ellers stod "KØL-1 2" i stedet for 3
+    // indtil man skiftede enhed.
+    _icRenderUnitChips();
+
     if (bar) bar.style.width = pct + '%';
-    if (text) text.textContent = checked + ' / ' + total + ' tjekket i ' + _ic.physicalUnit;
+    if (text) {
+        // Sprungne tæller ikke med som tjekket - de får deres egen note, så
+        // tallet ikke lyver om hvor langt man er.
+        var nSkip = (cat.skipped || []).length;
+        text.textContent = checked + ' / ' + total + ' tjekket i ' + _ic.physicalUnit +
+            (nSkip ? ' \u00B7 ' + nSkip + ' sprunget over' : '');
+    }
 }
 
 // ════════════════════════════════════════════════════════════
@@ -929,11 +1155,20 @@ function _icRenderProducts() {
         uncheckedEl.appendChild(_icCreateCard(p, false));
     });
 
-    // Tom-tilstand ved søgning uden match
-    if (q && unchecked.length === 0 && checkedInUnit.length === 0) {
+    var skippedNow = cat.skipped || [];
+    if (q) skippedNow = skippedNow.filter(function(p) { return (p.name || '').toLowerCase().indexOf(q) !== -1; });
+
+    // Tom-tilstand ved søgning uden match — SKAL afgøres før de sprungne kort
+    // tilføjes, ellers overskriver innerHTML dem. En søgning der kun rammer en
+    // sprunget vare påstod tidligere at varen ikke fandtes.
+    if (q && unchecked.length === 0 && checkedInUnit.length === 0 && skippedNow.length === 0) {
         uncheckedEl.innerHTML = '<div class="ic-search-empty">Ingen varer matcher &laquo;' +
             esc(_ic.searchQuery.trim()) + '&raquo;</div>';
     }
+
+    skippedNow.forEach(function(p) {
+        uncheckedEl.appendChild(_icCreateCard(p, false));
+    });
 
     var checkedListEl = _icContainer.querySelector('#icCheckedList');
     checkedListEl.innerHTML = '';
@@ -1042,14 +1277,70 @@ function _icCreateCard(product, isChecked) {
     // Default value for expanded input
     var defaultVal = remaining > 0 ? remaining : grocyAmount;
 
-    var actionsHtml = '';
-    if (!isChecked) {
-        actionsHtml =
-            '<div class="ic-card-actions">' +
-                '<button class="ic-action-btn ic-btn-accept" data-action="accept" title="Tallet passer — godkend">\u2714</button>' +
-                '<button class="ic-action-btn ic-btn-skip" data-action="skip" title="Spring over — tæl den ikke nu">\u23ED</button>' +
-            '</div>';
+    // Er varen sprunget over i denne enhed? Den skjules ikke længere — den dæmpes,
+    // så "Fortryd" er lige så billig som selve springet (spec §7).
+    var isSkipped = _ic.skipped.indexOf(product.id) !== -1;
+    if (isSkipped) card.className += ' ic-skipped';
+
+    // Beslutning fra kortets menu, endnu ikke skrevet (sker ved commit).
+    var decision = _ic.decisions[product.id] || null;
+    if (decision) card.className += ' ic-decided';
+
+    // 1 tryk direkte på kortet til de hyppige arbejdsskridt; menuen til de
+    // sjældne beslutninger der ændrer varens opsætning (spec §7:
+    // omkostning følger hyppighed, ikke konsekvens-frygt).
+    var actionsHtml = '<div class="ic-card-actions">';
+    if (!isChecked && !isSkipped && !decision) {
+        actionsHtml +=
+            '<button class="ic-action-btn ic-btn-accept" data-action="accept" title="Tallet passer — godkend">\u2714</button>' +
+            '<button class="ic-action-btn ic-btn-skip" data-action="skip" title="Spring over — tæl den ikke nu">\u23ED</button>';
     }
+    actionsHtml +=
+        '<button class="ic-action-btn ic-btn-more" data-action="more" title="Flere valg">&#x22EF;</button>' +
+        '</div>';
+
+    var menuHtml =
+        '<div class="ic-card-menu" data-menu>' +
+            '<button data-action="notrack">' +
+                (decision === 'notrack' ? 'Fortryd &ndash; skal tælles fast igen' : 'Skal ikke tælles fast') +
+            '</button>' +
+            '<button class="ic-menu-danger" data-action="discontinued">' +
+                (decision === 'discontinued' ? 'Fortryd &ndash; varen bruges stadig' : 'Varen findes ikke mere') +
+            '</button>' +
+        '</div>';
+
+    var noteHtml = '';
+    if (isSkipped) {
+        noteHtml = '<div class="ic-card-note">Sprunget over i ' + esc(_ic.physicalUnit) +
+            '<button data-action="unskip">Fortryd</button></div>';
+    } else if (decision === 'notrack') {
+        noteHtml = '<div class="ic-card-note">Bliver ikke husket til fast optælling, når du gemmer.' +
+            '<button data-action="undecide">Fortryd</button></div>';
+    } else if (decision === 'discontinued') {
+        noteHtml = '<div class="ic-card-note ic-note-danger">Sættes til 0 og tages af listerne, når du gemmer.' +
+            '<button data-action="undecide">Fortryd</button></div>';
+    }
+
+    // Tælleenheder: lagerenhed + evt. købs-/forbrugsenhed. Vises kun når
+    // der faktisk er noget at vælge imellem.
+    var cuOpts   = _icCountUnitOptions(fullProduct);
+    var cuActive = _icPickCountUnit(fullProduct, cuOpts);
+    var cuHtml   = '';
+    if (cuOpts.length > 1 && cuActive) {
+        cuHtml = '<div class="ic-count-units">';
+        cuOpts.forEach(function(o) {
+            cuHtml += '<button class="ic-count-unit' + (String(o.quId) === String(cuActive.quId) ? ' ic-active' : '') +
+                '" data-action="countunit" data-qu="' + esc(String(o.quId)) + '" data-tostock="' + o.toStock + '">' +
+                esc(o.name) + '</button>';
+        });
+        cuHtml += '</div>';
+    }
+
+    // Indtastningen står i den valgte tælleenhed; data-tostock oversætter
+    // til lagerenhed ved gem. Default-tallet omregnes derfor til samme enhed.
+    var activeToStock = cuActive ? cuActive.toStock : 1;
+    var activeCuName  = cuActive ? cuActive.name : unitName;
+    var inputVal      = _icRound(defaultVal / activeToStock);
 
     card.innerHTML =
         '<div class="ic-card-main">' +
@@ -1064,15 +1355,21 @@ function _icCreateCard(product, isChecked) {
             '</div>' +
             actionsHtml +
         '</div>' +
+        menuHtml +
+        noteHtml +
         '<div class="ic-expanded">' +
+            cuHtml +
             '<div class="ic-qty-row">' +
                 '<div class="ic-qty-main">' +
                     '<button class="ic-qty-btn" data-action="minus">\u2212</button>' +
                     // type="text" + inputmode: et type="number"-felt afviser komma (value bliver
                     // tom), og danskere taster komma. data-grocy forbliver rå (punktum) — maskinværdi.
-                    '<input type="text" inputmode="decimal" class="ic-qty-input" value="' + _icFmt(defaultVal) + '" data-grocy="' + _icRound(grocyAmount) + '">' +
+                    // data-tostock ganges på det indtastede tal før skrivning, så
+                    // Grocy altid får lagerenheden. data-grocy/-tostock er rå
+                    // maskinværdier (punktum) - aldrig _icFmt på dem.
+                    '<input type="text" inputmode="decimal" class="ic-qty-input" value="' + _icFmt(inputVal) + '" data-grocy="' + _icRound(grocyAmount) + '" data-tostock="' + activeToStock + '">' +
                     '<button class="ic-qty-btn" data-action="plus">+</button>' +
-                    '<span class="ic-qty-unit">' + esc(unitName) + '</span>' +
+                    '<span class="ic-qty-unit">' + esc(activeCuName) + '</span>' +
                 '</div>' +
                 '<div class="ic-qty-fractions">' +
                     '<button class="ic-fraction-btn" data-action="frac" data-frac="0.25">&frac14;</button>' +
@@ -1082,6 +1379,7 @@ function _icCreateCard(product, isChecked) {
                 '</div>' +
                 '<button class="ic-qty-confirm" data-action="confirm">Gem</button>' +
             '</div>' +
+            '<div class="ic-conv-line"></div>' +
         '</div>';
 
     // Delegate events from card
@@ -1093,6 +1391,7 @@ function _icCreateCard(product, isChecked) {
 
         if (action === 'accept')   _icMarkSeen(pid);
         else if (action === 'skip')     _icMarkSkipped(pid);
+        else if (action === 'unskip')   { e.stopPropagation(); _icUnskip(pid); }
         else if (action === 'expand')   _icToggleExpand(pid);
         else if (action === 'priority') { e.stopPropagation(); _icTogglePriority(pid); }
         else if (action === 'minus')    _icAdjustQty(pid, -1);
@@ -1100,7 +1399,20 @@ function _icCreateCard(product, isChecked) {
         else if (action === 'frac')     _icSetFraction(pid, parseFloat(btn.dataset.frac));
         else if (action === 'cancel')   _icCancelExpand(pid);
         else if (action === 'confirm')  _icConfirmCount(pid);
+        else if (action === 'more')     { e.stopPropagation(); _icToggleCardMenu(card); }
+        else if (action === 'countunit'){ e.stopPropagation(); _icSetCountUnit(card, btn); }
+        else if (action === 'notrack')  { e.stopPropagation(); _icDecide(pid, 'notrack'); }
+        else if (action === 'discontinued') { e.stopPropagation(); _icDecide(pid, 'discontinued'); }
+        else if (action === 'undecide') { e.stopPropagation(); _icDecide(pid, null); }
     });
+
+    // Live-konvertering: "3 bøtter er 4,5 kg" mens man taster.
+    var qtyInput = card.querySelector('.ic-qty-input');
+    if (qtyInput) {
+        qtyInput.addEventListener('input', function() { _icUpdateConvLine(card); });
+        _icRefreshFractionLabels(card);
+        _icUpdateConvLine(card);
+    }
 
     return card;
 }
@@ -1119,17 +1431,107 @@ function _icMarkSeen(productId) {
     _icSaveCount(productId, amount);
 }
 
+// Spring over: varen forsvinder ikke længere fra listen - den dæmpes med en
+// Fortryd ved siden af. Gjorde vi springet 1-tryks-let, skal fortrydelsen være
+// det også (spec 7).
 function _icMarkSkipped(productId) {
-    var card = _icContainer.querySelector('[data-product-id="' + productId + '"]');
-    if (card) card.classList.add('ic-hiding');
-
-    _ic.skipped.push(productId);
+    if (_ic.skipped.indexOf(productId) === -1) _ic.skipped.push(productId);
     _icSaveSkipped();
+    _icRenderProducts();
+    _icUpdateProgress();
+}
 
-    setTimeout(function() {
-        _icRenderProducts();
-        _icUpdateProgress();
-    }, 300);
+function _icUnskip(productId) {
+    var i = _ic.skipped.indexOf(productId);
+    if (i !== -1) _ic.skipped.splice(i, 1);
+    _icSaveSkipped();
+    _icRenderProducts();
+    _icUpdateProgress();
+}
+
+// Kortets menu (de sjældne beslutninger). Kun én åben ad gangen.
+// ic-menu-open sættes på KORTET, ikke menuen: kortet har overflow:hidden, som
+// ellers klipper menuen af ved sin egen kant (se .ic-menu-open i css'en).
+function _icCloseAllCardMenus(root) {
+    root = root || document;
+    var open = root.querySelectorAll('[data-menu].ic-visible');
+    for (var i = 0; i < open.length; i++) open[i].classList.remove('ic-visible');
+    var cards = root.querySelectorAll('.ic-card.ic-menu-open');
+    for (var j = 0; j < cards.length; j++) cards[j].classList.remove('ic-menu-open');
+}
+
+function _icToggleCardMenu(card) {
+    var menu = card.querySelector('[data-menu]');
+    if (!menu) return;
+    var willOpen = !menu.classList.contains('ic-visible');
+    _icCloseAllCardMenus(_icContainer);
+    if (willOpen) {
+        menu.classList.add('ic-visible');
+        card.classList.add('ic-menu-open');
+    }
+}
+
+// Beslutning fra menuen. Skrives IKKE nu - først ved commit, som alt andet
+// (spec 3: intet går til lageret før "Gem og luk").
+function _icDecide(productId, kind) {
+    if (kind === 'discontinued') {
+        // String-sammenligning som i slutskærmen: Grocy kan returnere id som
+        // streng, og netop her skal navnet frem — det er den ene destruktive
+        // handling i modulet.
+        var p = _ic.products.find(function(x) { return String(x.id) === String(productId); });
+        var navn = p ? p.name : 'Varen';
+        if (!confirm('Bruger I slet ikke "' + navn + '" mere?\n\n' +
+                     'Lageret sættes til 0, og varen tages af listerne, når du gemmer.')) return;
+    }
+    if (kind === null) delete _ic.decisions[productId];
+    else _ic.decisions[productId] = kind;
+    _icSaveCounts();
+    _icRenderProducts();
+    _icUpdateProgress();
+}
+
+// Skift tælleenhed på et åbent kort. Tallet i feltet bevares som MÆNGDE i
+// den nye enhed konverteret fra den gamle, så "1 kasse" ikke pludselig bliver
+// "1 kg". Valget huskes til næste gang (vare + fysisk enhed).
+function _icSetCountUnit(card, btn) {
+    var input = card.querySelector('.ic-qty-input');
+    if (!input) return;
+
+    var oldToStock = _icParseNum(input.dataset.tostock) || 1;
+    var newToStock = _icParseNum(btn.dataset.tostock) || 1;
+    var stockVal   = _icParseNum(input.value) * oldToStock;      // -> lagerenhed
+    input.value = _icFmt(_icRound(stockVal / newToStock));       // -> ny tælleenhed
+    input.dataset.tostock = newToStock;
+
+    var sibs = card.querySelectorAll('.ic-count-unit');
+    for (var i = 0; i < sibs.length; i++) sibs[i].classList.remove('ic-active');
+    btn.classList.add('ic-active');
+
+    var unitLabel = card.querySelector('.ic-qty-unit');
+    if (unitLabel) unitLabel.textContent = btn.textContent;
+
+    _icRememberCountUnit(parseInt(card.dataset.productId), btn.dataset.qu);
+    _icRefreshFractionLabels(card);
+    _icUpdateConvLine(card);
+}
+
+// "3 bøtter er 4,5 kg" - står altid under feltet i pakke-mode, så man kan se
+// hvad der faktisk bliver skrevet på lageret.
+function _icUpdateConvLine(card) {
+    var line  = card.querySelector('.ic-conv-line');
+    var input = card.querySelector('.ic-qty-input');
+    if (!line || !input) return;
+
+    var toStock = _icParseNum(input.dataset.tostock) || 1;
+    if (toStock === 1) { line.textContent = ''; return; }
+
+    var qty      = _icParseNum(input.value);
+    var cuName   = (card.querySelector('.ic-qty-unit') || {}).textContent || '';
+    var pid      = parseInt(card.dataset.productId);
+    var full     = (_ic.productsById && _ic.productsById[pid]) || {};
+    var stockNm  = (_ic.grocyStock[pid] && _ic.grocyStock[pid].unit) ||
+                   _ic.quantityUnits[full.qu_id_stock] || '';
+    line.textContent = _icFmt(qty) + ' ' + cuName + ' er ' + _icFmt(_icRound(qty * toStock)) + ' ' + stockNm;
 }
 
 function _icToggleExpand(productId) {
@@ -1165,11 +1567,56 @@ function _icAdjustQty(productId, delta) {
     input.value = _icFmt(val);
 }
 
+// Er tælleenheden en STYKVARE man kan tage en halv af (bøtte, kasse, hovedkål),
+// eller en ren MÅLENHED (gram af kilo)?
+//
+// Grocy skelner ikke, så vi bruger størrelsesforholdet: en stykvare vejer en
+// mærkbar del af lagerenheden (1 kålhoved = 0,8 kg · 1 bøtte = 0,25 kg), mens en
+// målenhed er en lillebitte brøkdel (1 gram = 0,001 kg). Tærsklen er et skøn —
+// den skal valideres i køkkenet, ikke udledes af mere kode.
+var _IC_PACK_MIN_SHARE = 0.05;   // 1 tælleenhed skal være ≥ 5 % af en lagerenhed
+
+function _icIsPackUnit(toStock) {
+    return toStock !== 1 && toStock >= _IC_PACK_MIN_SHARE;
+}
+
 function _icSetFraction(productId, fraction) {
-    var input = _icContainer.querySelector('[data-product-id="' + productId + '"] .ic-qty-input');
+    var card = _icContainer.querySelector('[data-product-id="' + productId + '"]');
+    var input = card && card.querySelector('.ic-qty-input');
     if (!input) return;
-    var grocy = _icParseNum(input.dataset.grocy);
-    input.value = _icFmt(Math.round(grocy * fraction * 100) / 100);
+    var toStock = _icParseNum(input.dataset.tostock) || 1;
+
+    if (_icIsPackUnit(toStock)) {
+        // Stykvare (bøtte, kasse, hovedkål): brøken er en del af ÉN af dem —
+        // den halvtomme bøtte, det halve kålhoved.
+        input.value = _icFmt(_icRound(fraction));
+    } else {
+        // Lagerenhed eller ren målenhed (gram af kilo): "¼ gram" ville være
+        // meningsløst, så brøken beholder sin oprindelige betydning — så stor en
+        // del af det forventede lager, vist i den enhed man tæller i.
+        var grocy = _icParseNum(input.dataset.grocy);
+        input.value = _icFmt(_icRound((grocy * fraction) / toStock));
+    }
+    _icRefreshFractionLabels(card);
+    _icUpdateConvLine(card);
+}
+
+// Brøkerne skifter betydning med tælleenheden. Gør det synligt i tooltip'en, så
+// samme knap ikke betyder to ting i tavshed.
+function _icRefreshFractionLabels(card) {
+    if (!card) return;
+    var input = card.querySelector('.ic-qty-input');
+    if (!input) return;
+    var toStock = _icParseNum(input.dataset.tostock) || 1;
+    var cuName  = (card.querySelector('.ic-qty-unit') || {}).textContent || '';
+    var btns    = card.querySelectorAll('.ic-fraction-btn[data-frac]');
+    for (var i = 0; i < btns.length; i++) {
+        var f = btns[i].dataset.frac;
+        var ord = f === '0.25' ? 'En kvart' : f === '0.5' ? 'En halv' : 'Trekvart';
+        btns[i].title = _icIsPackUnit(toStock)
+            ? ord + ' ' + cuName
+            : ord + ' af det der burde stå på lageret';
+    }
 }
 
 function _icCancelExpand(productId) {
@@ -1177,7 +1624,11 @@ function _icCancelExpand(productId) {
     if (card) {
         card.classList.remove('ic-open');
         var input = card.querySelector('.ic-qty-input');
-        if (input) input.value = _icFmt(_icParseNum(input.dataset.grocy));
+        if (input) {
+            var toStock = _icParseNum(input.dataset.tostock) || 1;
+            input.value = _icFmt(_icRound(_icParseNum(input.dataset.grocy) / toStock));
+            _icUpdateConvLine(card);
+        }
     }
 }
 
@@ -1188,7 +1639,10 @@ function _icConfirmCount(productId) {
         _icAlert('Kunne ikke gemme — prøv at klikke varen op igen', 'error');
         return;
     }
-    var amount = _icParseNum(input.value);
+    // Grocy får ALTID lagerenheden (spec 5): det indtastede tal ganges med
+    // data-tostock (1 når man tæller i lagerenheden).
+    var toStock = _icParseNum(input.dataset.tostock) || 1;
+    var amount = _icRound(_icParseNum(input.value) * toStock);
     _icSaveCount(productId, amount);
 }
 
@@ -1223,6 +1677,10 @@ function _icSaveCount(productId, amount) {
     // Bug 1: LastCheckedAt/LastCheckedUnit skrives IKKE her længere — kun ved commit
     // (_icSaveAllToGrocy), og kun for varer der faktisk blev talt. En afbrudt session
     // efterlader dermed ingen spor i Grocy.
+
+    // Alt ovenfor er ren state. DOM-delen springes over uden container (Node-tests),
+    // så tælle-logikken kan verificeres uden en browser.
+    if (!_icContainer) return;
 
     // Animate card out then re-render
     var card = _icContainer.querySelector('[data-product-id="' + productId + '"]');
@@ -1424,9 +1882,32 @@ async function _icShowSummary() {
         html += '</div>';
     }
 
+    // Beslutninger fra kortets menu - vises samlet, så man ser hvad man har
+    // besluttet undervejs før det bliver skrevet.
+    var decided = Object.keys(_ic.decisions || {});
+    if (decided.length > 0) {
+        html += '<div class="ic-summary-section"><h3>Ændringer til varerne (' + decided.length + ')</h3>';
+        decided.forEach(function(pid) {
+            var p = _ic.products.find(function(x) { return String(x.id) === String(pid); });
+            var kind = _ic.decisions[pid];
+            var tekst = kind === 'discontinued'
+                ? 'Sættes til 0 og tages af listerne'
+                : 'Bliver ikke husket til fast optælling';
+            html +=
+                '<div class="ic-summary-item ' + (kind === 'discontinued' ? 'ic-miss' : 'ic-disc') + '">' +
+                    '<div class="ic-summary-item-name">' + esc(p ? p.name : ('Vare ' + pid)) + '</div>' +
+                    '<div class="ic-summary-item-detail">' + tekst + '</div>' +
+                    '<div class="ic-summary-item-actions">' +
+                        '<button class="ic-btn-add-shop" data-undecide="' + pid + '">Fortryd</button>' +
+                    '</div>' +
+                '</div>';
+        });
+        html += '</div>';
+    }
+
     if (okItems.length > 0) {
         html += '<div class="ic-summary-section"><h3>OK (' + okItems.length + ')</h3>' +
-            '<p style="color:var(--color-text-dim);font-size:13px;">' + okItems.length + ' varer stemmer med Grocy</p></div>';
+            '<p style="color:var(--color-text-dim);font-size:13px;">' + okItems.length + ' varer stemmer med lageret</p></div>';
     }
 
     body.innerHTML = html;
@@ -1439,6 +1920,13 @@ async function _icShowSummary() {
             if (overrideBtn) { _icResolveConflict(parseInt(overrideBtn.dataset.override), 'override'); return; }
             var keepBtn = e.target.closest('[data-keep]');
             if (keepBtn) { _icResolveConflict(parseInt(keepBtn.dataset.keep), 'keep'); return; }
+            var undecideBtn = e.target.closest('[data-undecide]');
+            if (undecideBtn) {
+                delete _ic.decisions[undecideBtn.dataset.undecide];
+                _icSaveCounts();
+                _icShowSummary();
+                return;
+            }
             // "Ret" på en ikke-fundet vare: skriv den faktiske optalte mængde fra input-feltet.
             var correctInputBtn = e.target.closest('[data-correct-input]');
             if (correctInputBtn) {
@@ -1528,33 +2016,122 @@ async function _icAddToShopping(productId) {
     }
 }
 
-async function _icSaveAllToGrocy() {
-    // Genbrug det friske lager fra summary-visningen (fanget for sekunder siden); fald
-    // tilbage til en frisk fetch hvis det mangler. Samme snapshot → summary og commit
-    // divergerer aldrig.
-    var freshStock = _ic._commitFresh || await _icFetchFreshStock();
+// ── Commit: plan → udfør → besked → UI ──────────────────────────
+// Delt op så den mest sikkerhedskritiske kode i modulet kan køres uden en
+// browser. Før lå skrivninger og DOM-opdateringer i samme funktion, og så
+// kunne commit-stien kun nås gennem brugerfladen — dvs. reelt kun testes i
+// hånden. T_OPTAELLING injicerer nu attrap-Grocy og asserterer hvilke kald
+// der faktisk fyrer.
 
-    // §6 — konflikt-gate: en vare hvor Grocy har flyttet sig siden brugeren talte, og som
-    // ikke er afklaret, må IKKE overskrives tavst. Kræv afklaring først.
+// Ren: hvad SKAL der skrives? Rører hverken Grocy eller DOM.
+function _icPlanCommit(freshStock) {
     var toWrite = [];
     var pendingConflicts = 0;
     var keepCount = 0;
 
     _ic.products.forEach(function(product) {
         var cls = _icClassifyCounted(product, freshStock);
-        if (!cls) return;                                   // ikke talt
-        if (cls.conflict) { pendingConflicts++; return; }   // uafklaret konflikt
-        if (cls.resolved === 'keep') { keepCount++; return; } // behold Grocys tal → glem count
+        if (!cls) return;                                     // ikke talt
+        // §6 — konflikt-gate: en vare hvor Grocy har flyttet sig siden brugeren
+        // talte, og som ikke er afklaret, må IKKE overskrives tavst.
+        if (cls.conflict) { pendingConflicts++; return; }
+        if (cls.resolved === 'keep') { keepCount++; return; } // behold lagerets tal
         toWrite.push({ id: product.id, cls: cls });
     });
 
-    if (pendingConflicts > 0) {
-        _icAlert(pendingConflicts + ' vare(r) har fået et nyt lagertal, mens du talte. Vælg øverst hvilket tal der er rigtigt, før du gemmer.', 'warning');
+    return {
+        toWrite: toWrite,
+        pendingConflicts: pendingConflicts,
+        keepCount: keepCount,
+        decisionIds: Object.keys(_ic.decisions || {})
+    };
+}
+
+// Udfører planen mod Grocy. Ingen DOM — returnerer hvad der lykkedes.
+async function _icExecuteCommit(plan) {
+    var invWritten = 0, invFailed = 0;
+
+    for (var i = 0; i < plan.toWrite.length; i++) {
+        var it = plan.toWrite[i];
+        // Bug 2 — ingen best-before (Grocy bevarer eksisterende batches og
+        // daterer surplus via default_best_before_days).
+        if (it.cls.needsWrite) {
+            try {
+                await postGrocyInventory(it.id, it.cls.total);
+                invWritten++;
+            } catch (err) {
+                console.error('Failed to update ' + it.id + ':', err);
+                invFailed++;
+                continue;   // spring stemplingen over hvis lager-skrivningen fejlede
+            }
+        }
+        // Bug 1 — LastCheckedAt/LastCheckedUnit skrives KUN her, kun for varer
+        // der faktisk blev talt. _icUpdateLastChecked sluger egne fejl.
+        await _icUpdateLastChecked(it.id, it.cls.lastUnit);
+    }
+
+    // Beslutninger fra kortets menu — først her, som alt andet (spec §3).
+    var notrackDone = 0, discDone = 0, decFailed = 0;
+    for (var d = 0; d < plan.decisionIds.length; d++) {
+        var dpid = parseInt(plan.decisionIds[d]);
+        var kind = _ic.decisions[plan.decisionIds[d]];
+        try {
+            if (kind === 'notrack') {
+                // Tom HverDag = passiv vare: stiger aldrig til tops i sorteringen.
+                await putGrocyProductUserfields(dpid, { HverDag: '' });
+                notrackDone++;
+            } else if (kind === 'discontinued') {
+                await postGrocyInventory(dpid, 0);
+                await putGrocyProduct(dpid, { active: 0 });
+                discDone++;
+            }
+        } catch (err) {
+            console.error('Beslutning fejlede for ' + dpid + ':', err);
+            decFailed++;
+        }
+    }
+
+    return {
+        invWritten: invWritten, invFailed: invFailed,
+        notrackDone: notrackDone, discDone: discDone, decFailed: decFailed
+    };
+}
+
+// Ren: kvitteringsteksten. Sproget følger §7 — sig hvad der skete for
+// brugeren, ikke hvad systemet gjorde.
+function _icCommitMessage(plan, res) {
+    var dele = [];
+    if (res.invWritten > 0)  dele.push(res.invWritten + ' vare' + (res.invWritten === 1 ? '' : 'r') + ' rettet på lageret');
+    if (plan.toWrite.length) dele.push(plan.toWrite.length + ' sat som talt');
+    if (plan.keepCount > 0)  dele.push(plan.keepCount + ' beholdt lagerets tal');
+    if (res.notrackDone > 0) dele.push(res.notrackDone + ' tælles ikke fast mere');
+    if (res.discDone > 0)    dele.push(res.discDone + ' taget af listerne');
+    return 'Gemt. ' + (dele.length ? dele.join(', ') : 'Ingen ændringer') + '.';
+}
+
+// Ren: fejlteksten. Skeln de to slags — en lager-skrivning der fejlede er
+// noget andet end en vare der ikke kunne tages af listerne.
+function _icCommitErrorMessage(res) {
+    var fejl = [];
+    if (res.invFailed > 0) fejl.push(res.invFailed + ' lager-rettelse' + (res.invFailed === 1 ? '' : 'r'));
+    if (res.decFailed > 0) fejl.push(res.decFailed + ' ændring til varerne');
+    return res.invWritten + ' gemt, men ' + fejl.join(' og ') + ' fejlede';
+}
+
+async function _icSaveAllToGrocy() {
+    // Genbrug det friske lager fra summary-visningen (fanget for sekunder siden);
+    // fald tilbage til en frisk fetch hvis det mangler. Samme snapshot → summary
+    // og commit divergerer aldrig.
+    var freshStock = _ic._commitFresh || await _icFetchFreshStock();
+    var plan = _icPlanCommit(freshStock);
+
+    if (plan.pendingConflicts > 0) {
+        _icAlert(plan.pendingConflicts + ' vare(r) har fået et nyt lagertal, mens du talte. Vælg øverst hvilket tal der er rigtigt, før du gemmer.', 'warning');
         return;
     }
 
-    if (toWrite.length === 0) {
-        _icAlert('Ingen ændringer at gemme', 'info');
+    if (plan.toWrite.length === 0 && plan.decisionIds.length === 0) {
+        _icAlert('Der er ikke noget at gemme', 'info');
         _ic._commitFresh = null;
         _icClearCounts();
         _icCloseSummary();
@@ -1563,40 +2140,29 @@ async function _icSaveAllToGrocy() {
     }
 
     _icAlert('Gemmer...', 'info');
+    var res = await _icExecuteCommit(plan);
 
-    var invWritten = 0;
-    var invFailed  = 0;
-
-    for (var i = 0; i < toWrite.length; i++) {
-        var it = toWrite[i];
-        // Bug 2 — ingen best-before (Grocy bevarer eksisterende batches, daterer surplus
-        // via default_best_before_days).
-        if (it.cls.needsWrite) {
-            try {
-                await postGrocyInventory(it.id, it.cls.total);
-                invWritten++;
-            } catch (err) {
-                console.error('Failed to update ' + it.id + ':', err);
-                invFailed++;
-                continue;   // spring userfield-stempling over hvis lager-skrivning fejlede
-            }
-        }
-        // Bug 1 — LastCheckedAt/LastCheckedUnit skrives KUN her, kun for talte varer,
-        // med den enhed varen blev talt i. _icUpdateLastChecked sluger egne fejl.
-        await _icUpdateLastChecked(it.id, it.cls.lastUnit);
+    if (res.invFailed > 0 || res.decFailed > 0) {
+        _icAlert(_icCommitErrorMessage(res), 'warning');
+        return;
     }
 
-    if (invFailed === 0) {
-        var msg = 'Gemt. ' + invWritten + ' vare(r) rettet på lageret, ' + toWrite.length + ' sat som talt';
-        if (keepCount > 0) msg += ' (' + keepCount + ' beholdt lagerets tal)';
-        _icAlert(msg, 'success');
-        _ic._commitFresh = null;
-        _icClearCounts();
-        _icCloseSummary();
-        _icResetUI();
-    } else {
-        _icAlert(invWritten + ' gemt, ' + invFailed + ' fejlede', 'warning');
+    var msg = _icCommitMessage(plan, res);
+    _icAlert(msg, 'success');
+
+    // Kvitteringen bliver stående til den lukkes — en 3-sekunders toast er væk
+    // før man har nået at læse den (spec §7).
+    _icSaveReceipt(msg);
+    var rEl = _icContainer && _icContainer.querySelector('#icReceipt');
+    if (rEl) {
+        _icContainer.querySelector('#icReceiptText').textContent = msg;
+        rEl.classList.add('ic-visible');
     }
+
+    _ic._commitFresh = null;
+    _icClearCounts();
+    _icCloseSummary();
+    _icResetUI();
 }
 
 async function _icAddAllToShopping() {
@@ -1754,10 +2320,46 @@ function _icAltConv(product) {
     targets.forEach(function(tq) {
         var f = _icFindFactor(product.id, stockQu, tq);
         if (f && isFinite(f)) {
-            out.push({ factor: f, unit: _ic.quantityUnits[tq] || '' });
+            out.push({ factor: f, unit: _ic.quantityUnits[tq] || '', quId: tq });
         }
     });
     return out;
+}
+
+// ── Tælleenheder ────────────────────────────────────────────────
+// Hvilke enheder må man tælle denne vare i? Lagerenheden altid først (så den er
+// default hvis intet andet er husket), derefter købs-/forbrugsenhed hvor der
+// findes en konvertering. `toStock` ganges på det indtastede tal før skrivning —
+// Grocy modtager ALTID lagerenheden (spec §5).
+function _icCountUnitOptions(product) {
+    if (!product || !product.qu_id_stock) return [];
+    var stockQu = product.qu_id_stock;
+    var out = [{
+        quId:    stockQu,
+        name:    _ic.quantityUnits[stockQu] || '',
+        toStock: 1,
+        isStock: true
+    }];
+    _icAltConv(product).forEach(function(a) {
+        // _icAltConv giver faktoren lager → alt (1 kg = 4 bøtter), så vejen
+        // tilbage er 1/faktor (1 bøtte = 0,25 kg).
+        if (!a.factor || !isFinite(a.factor) || a.factor === 0) return;
+        out.push({ quId: a.quId, name: a.unit, toStock: 1 / a.factor, isStock: false });
+    });
+    return out;
+}
+
+// Hvilken tælleenhed skal kortet åbne i? Sidst brugte i netop denne
+// vare+enheds-kontekst, ellers lagerenheden.
+function _icPickCountUnit(product, opts) {
+    opts = opts || _icCountUnitOptions(product);
+    if (!opts.length) return null;
+    var pref = _icPreferredCountUnit(product.id);
+    if (pref !== null) {
+        var hit = opts.find(function(o) { return String(o.quId) === String(pref); });
+        if (hit) return hit;
+    }
+    return opts[0];
 }
 
 function _icFormatDate(date) {
@@ -1765,7 +2367,7 @@ function _icFormatDate(date) {
     var d = new Date(date);
     var diffDays = Math.floor((new Date() - d) / (1000 * 60 * 60 * 24));
     if (diffDays === 0) return 'I dag';
-    if (diffDays === 1) return 'I gaar';
+    if (diffDays === 1) return 'I går';
     if (diffDays < 7) return diffDays + ' dage siden';
     return d.toLocaleDateString('da-DK', { day: 'numeric', month: 'short' });
 }
@@ -1785,6 +2387,19 @@ if (typeof module !== 'undefined' && module.exports) {
         _icFindFactor: _icFindFactor,
         _icAltConv: _icAltConv,
         _icGetUnitsForLocation: _icGetUnitsForLocation,
+        // PR 2 — tælleenheder, session-nøgle og beslutninger
+        _icCountUnitOptions: _icCountUnitOptions,
+        _icPickCountUnit: _icPickCountUnit,
+        _icIsPackUnit: _icIsPackUnit,
+        _icLocalDate: _icLocalDate,
+        _icSessionKey: _icSessionKey,
+        _icSessionIsOld: _icSessionIsOld,
+        _icSaveCount: _icSaveCount,
+        // Commit-stien, splittet så den kan køres uden browser
+        _icPlanCommit: _icPlanCommit,
+        _icExecuteCommit: _icExecuteCommit,
+        _icCommitMessage: _icCommitMessage,
+        _icCommitErrorMessage: _icCommitErrorMessage,
         // Delt state-reference så tests kan opsætte syntetiske scenarier (T_OPTAELLING).
         _ic: _ic
     };

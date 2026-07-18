@@ -53,6 +53,7 @@
     "test:run-optaelling": "node tests/scripts/run_T_OPTAELLING.js",
     "test:ui": "playwright test",
     "test:ui-indkob": "playwright test T_INDKOB_UI",
+    "test:ui-optaelling": "playwright test T_OPTAELLING_UI",
     "test:inbox": "node --env-file=.env.test --experimental-sqlite tests/inbox_handling.test.js"
   },
   "dependencies": {
@@ -66,6 +67,6 @@
     "nodemailer": "^8.0.2"
   },
   "devDependencies": {
-    "@playwright/test": "1.60.0"
+    "@playwright/test": "^1.60.0"
   }
 }
