@@ -316,7 +316,7 @@ function _icAlert(message, type) {
 // ════════════════════════════════════════════════════════════
 
 function _icRenderSetup() {
-    var locOptions = '<option value="">-- Vaelg lokation --</option>';
+    var locOptions = '<option value="">-- Vælg lokation --</option>';
     _ic.locations.forEach(function(loc) {
         locOptions += '<option value="' + loc.id + '">' + esc(loc.name) + '</option>';
     });
@@ -331,7 +331,7 @@ function _icRenderSetup() {
             '</div>' +
             '<div class="ic-form-group">' +
                 '<label>Fysisk enhed</label>' +
-                '<select id="icUnitSelect"><option value="">-- Vaelg lokation foerst --</option></select>' +
+                '<select id="icUnitSelect"><option value="">-- Vælg lokation først --</option></select>' +
             '</div>' +
             '<div class="ic-bar-actions">' +
                 '<button class="ic-btn ic-btn-primary" id="icStartBtn" disabled>Start</button>' +
@@ -344,7 +344,7 @@ function _icRenderSetup() {
             '<div class="ic-unit-tags" id="icUnitTags"></div>' +
             '<div class="ic-add-unit-row">' +
                 '<input type="text" id="icNewUnitInput" placeholder="Ny enhed (fx KOL-2, FRYS-1)">' +
-                '<button class="ic-btn-primary" id="icAddUnitBtn">+ Tilfoej</button>' +
+                '<button class="ic-btn-primary" id="icAddUnitBtn">+ Tilføj</button>' +
             '</div>' +
         '</div>' +
 
@@ -352,8 +352,8 @@ function _icRenderSetup() {
 
         '<div class="ic-product-list" id="icProductArea">' +
             '<div class="ic-empty" id="icEmptyState">' +
-                '<h3>Vaelg lokation og fysisk enhed for at starte</h3>' +
-                '<p>Tael maengder i hver fysisk enhed - systemet tracker paa tvaers.</p>' +
+                '<h3>Vælg lokation og fysisk enhed for at starte</h3>' +
+                '<p>Du kan tælle den samme vare flere steder — vi lægger tallene sammen for dig.</p>' +
             '</div>' +
             '<div class="ic-loading" id="icLoadingState" style="display:none;">' +
                 '<div class="ic-spinner"></div><p>Henter produkter...</p>' +
@@ -374,14 +374,14 @@ function _icRenderSetup() {
         '<div class="ic-overlay" id="icSummaryOverlay">' +
             '<div class="ic-modal">' +
                 '<div class="ic-modal-header">' +
-                    '<h2>Optaelling afsluttet</h2>' +
+                    '<h2>Optælling afsluttet</h2>' +
                     '<p id="icSummaryLoc"></p>' +
                 '</div>' +
                 '<div class="ic-modal-body" id="icSummaryBody"></div>' +
                 '<div class="ic-modal-footer">' +
                     '<button class="ic-btn-close" id="icSummaryClose">Luk</button>' +
-                    '<button class="ic-btn-shopping" id="icSummaryShop">Tilfoej manglende til indkoeb</button>' +
-                    '<button class="ic-btn-save-all" id="icSummarySave">Gem alle aendringer</button>' +
+                    '<button class="ic-btn-shopping" id="icSummaryShop">Tilføj manglende til indkøb</button>' +
+                    '<button class="ic-btn-save-all" id="icSummarySave">Gem alle ændringer</button>' +
                 '</div>' +
             '</div>' +
         '</div>' +
@@ -390,7 +390,7 @@ function _icRenderSetup() {
         '<div class="ic-overlay" id="icAddOverlay">' +
             '<div class="ic-modal" style="max-width:500px;">' +
                 '<div class="ic-modal-header">' +
-                    '<h2>Tilfoej vare</h2>' +
+                    '<h2>Tilføj vare</h2>' +
                     '<p>Fandt en vare der ikke var paa listen?</p>' +
                 '</div>' +
                 '<div class="ic-modal-body">' +
@@ -429,7 +429,7 @@ async function _icOnLocationChange() {
     var locId = sel.value;
 
     if (!locId) {
-        _icContainer.querySelector('#icUnitSelect').innerHTML = '<option value="">-- Vaelg lokation foerst --</option>';
+        _icContainer.querySelector('#icUnitSelect').innerHTML = '<option value="">-- Vælg lokation først --</option>';
         _icContainer.querySelector('#icStartBtn').disabled = true;
         return;
     }
@@ -459,6 +459,7 @@ function _icOnUnitChange() {
 
 function _icResetUI() {
     _ic.isChecking = false;
+    _ic._commitFresh = null;
     var prog = _icContainer.querySelector('#icProgressSection');
     if (prog) prog.style.display = 'none';
     var list = _icContainer.querySelector('#icProductList');
@@ -483,7 +484,7 @@ function _icUpdateUnitsConfig() {
     var units = _icGetUnitsForLocation(_ic.locationId);
 
     if (units.length === 0) {
-        tagsEl.innerHTML = '<span style="color:var(--color-text-dim);font-size:13px;">Ingen enheder. Tilfoej fx "KOL-1", "FRYS-1"</span>';
+        tagsEl.innerHTML = '<span style="color:var(--color-text-dim);font-size:13px;">Ingen enheder. Tilføj fx "KØL-1", "FRYS-1"</span>';
     } else {
         tagsEl.innerHTML = '';
         units.forEach(function(unit) {
@@ -503,10 +504,10 @@ function _icUpdateUnitsDropdown() {
     var units = _icGetUnitsForLocation(_ic.locationId);
 
     if (units.length === 0) {
-        unitSel.innerHTML = '<option value="">-- Tilfoej enheder foerst --</option>';
+        unitSel.innerHTML = '<option value="">-- Tilføj enheder først --</option>';
         _icContainer.querySelector('#icStartBtn').disabled = true;
     } else {
-        var html = '<option value="">-- Vaelg enhed --</option>';
+        var html = '<option value="">-- Vælg enhed --</option>';
         units.forEach(function(u) {
             html += '<option value="' + esc(u) + '">' + esc(u) + '</option>';
         });
@@ -524,9 +525,9 @@ async function _icDoAddUnit() {
         input.value = '';
         _icUpdateUnitsConfig();
         _icUpdateUnitsDropdown();
-        _icAlert('Tilfojet: ' + name, 'success');
+        _icAlert('Tilføjet: ' + name, 'success');
     } catch (e) {
-        _icAlert('Kunne ikke tilfoeje: ' + (e.message || 'ukendt fejl'), 'error');
+        _icAlert('Kunne ikke tilføje: ' + (e.message || 'ukendt fejl'), 'error');
     }
 }
 
@@ -553,7 +554,7 @@ async function _icDoRemoveUnit(unitName) {
 
 async function _icStartCheck() {
     if (!_ic.locationId || !_ic.physicalUnit) {
-        _icAlert('Vaelg baade lokation og fysisk enhed', 'warning');
+        _icAlert('Vælg både lokation og fysisk enhed', 'warning');
         return;
     }
 
@@ -590,11 +591,18 @@ async function _icStartCheck() {
         _ic.productsById = {};
         _ic.allProducts.forEach(function(p) { _ic.productsById[p.id] = p; });
 
-        // Filter products belonging to this location
+        // Bug 4 — rullende membership: hvilke varer er "i spil" for denne lokation.
+        // IKKE default_consume_location_id (den trak frostvarer ind i køle-listen).
+        //   - talt i en enhed under DENNE lokation (LastCheckedUnit ∈ units(L)) → med
+        //   - ellers hører varen til her via Grocy location_id → med (blød fallback, beslutning E:
+        //     en vare rullet til en anden lokations enhed forsvinder ikke tavst fra sit hjem)
+        var _locUnits = _icGetUnitsForLocation(_ic.locationId);
         _ic.products = _ic.allProducts.filter(function(p) {
+            var uf = p.userfields || {};
+            var lcu = uf.LastCheckedUnit || null;
+            if (lcu && _locUnits.indexOf(lcu) !== -1) return true;
             var locId = parseInt(p.location_id) || 0;
-            var consumeLocId = parseInt(p.default_consume_location_id) || 0;
-            return locId === _ic.locationId || consumeLocId === _ic.locationId;
+            return locId === _ic.locationId;
         });
 
         // Build stock map
@@ -707,16 +715,40 @@ function _icComputeCheckStatus(intervalDays, lastChecked, now) {
     return { status: 'ok', ratio: ratio, daysSince: ds };
 }
 
+// Bug 4 — hører varen til DENNE fysiske enheds liste? (blød fallback, beslutning E)
+//   LastCheckedUnit == enhed                     → vis  (rullet hertil)
+//   LastCheckedUnit ∈ andre enheder under lok.   → skjul (rullet til anden enhed her)
+//   location_id == lok.                          → vis  (fallback: hører til her)
+//   ellers                                       → skjul
+function _icVisibleInUnit(product, locUnits) {
+    var uf = product.userfields || {};
+    var lcu = uf.LastCheckedUnit || null;
+    if (lcu === _ic.physicalUnit) return true;
+    if (lcu && locUnits.indexOf(lcu) !== -1) return false;
+    return (parseInt(product.location_id) || 0) === _ic.locationId;
+}
+
+// Bug 3 — 4 grupper (lavere index = højere i listen):
+//   0 Forfaldne · 1 Aldrig tjekket · 2 Snart · 3 Ikke-forfaldne (inkl. passiv, beslutning C)
+function _icGroupOf(intervalDays, lastChecked, checkStatus) {
+    if (!intervalDays) return 3;                          // passiv (HverDag tom) → altid nederst
+    if (!lastChecked) return 1;                           // ønsket tracket, aldrig talt
+    if (checkStatus.status === 'overdue') return 0;       // forfaldne
+    if (checkStatus.status === 'soon')    return 2;       // snart forfaldne
+    return 3;                                             // ok → ikke-forfaldne
+}
+
 function _icCategorize() {
     var now = new Date();
     var unchecked = [];
     var checkedInUnit = [];
+    var locUnits = _icGetUnitsForLocation(_ic.locationId);
 
     _ic.products.forEach(function(product) {
         var uf = product.userfields || {};
         // LastCheckedAt skrives som UTC (toISOString); Grocy kan strippe 'Z' ved
-    // returnering — parseServerDate genskaber UTC-tolkningen begge veje.
-    var lastChecked = uf.LastCheckedAt ? ((typeof parseServerDate === 'function') ? parseServerDate(uf.LastCheckedAt) : new Date(uf.LastCheckedAt)) : null;
+        // returnering — parseServerDate genskaber UTC-tolkningen begge veje.
+        var lastChecked = uf.LastCheckedAt ? ((typeof parseServerDate === 'function') ? parseServerDate(uf.LastCheckedAt) : new Date(uf.LastCheckedAt)) : null;
         var lastCheckedUnit = uf.LastCheckedUnit || null;
         var intervalDays = _icParseIntervalDays(uf);
         var checkStatus = _icComputeCheckStatus(intervalDays, lastChecked, now);
@@ -739,6 +771,9 @@ function _icCategorize() {
 
         if (skippedInThisUnit) return;
 
+        // Bug 4 — vis kun varen i den enhed den (rullende) hører til.
+        if (!_icVisibleInUnit(product, locUnits)) return;
+
         var stockInfo    = _ic.grocyStock[product.id];
         var grocyAmount  = _icRound(stockInfo ? stockInfo.amount : 0);
         var countedTotal = _icRound(countData ? (countData.total || 0) : 0);
@@ -750,11 +785,6 @@ function _icCategorize() {
             daysUntilExpiry = Math.ceil((expiry - now) / (1000 * 60 * 60 * 24));
         }
 
-        // checkedTodayHere: true if checked today in this specific physical unit
-        var todayStr = now.toISOString().slice(0, 10);
-        var lastStr = lastChecked ? lastChecked.toISOString().slice(0, 10) : null;
-        var checkedTodayHere = lastStr === todayStr && lastCheckedUnit === _ic.physicalUnit;
-
         unchecked.push({
             id:               product.id,
             name:             product.name,
@@ -764,7 +794,7 @@ function _icCategorize() {
             lastCheckedUnit:  lastCheckedUnit,
             intervalDays:     intervalDays,
             checkStatus:      checkStatus,
-            checkedTodayHere: checkedTodayHere,
+            group:            _icGroupOf(intervalDays, lastChecked, checkStatus),
             daysUntilExpiry:  daysUntilExpiry,
             grocyAmount:      grocyAmount,
             countedTotal:     countedTotal,
@@ -772,40 +802,33 @@ function _icCategorize() {
         });
     });
 
-    // Sort: priority -> check-status (overdue/soon) -> expiry urgency -> never-checked -> oldest-checked -> alpha
+    // Bug 3 — sortér: gruppe → manuel prioritet → check-ratio (mest presserende først)
+    //          → best-before KUN som tie-breaker → navn.
     var prioOrder = { high: 0, normal: 1, low: 2 };
-    var statusOrder = { overdue: 0, soon: 1, ok: 2, neutral: 3 };
 
     unchecked.sort(function(a, b) {
-        // 1. Manual priority
+        // 1. Manuel prioritet (stjernen) — en bevidst menneskelig besked slår automatikken.
+        //    Står FØR gruppen: har nogen stjernemarkeret en vare, skal den øverst, også selvom
+        //    den ikke er forfalden. Ellers holder markeringen ikke hvad den lover.
+        //    (Uændret adfærd fra før 4-gruppe-omskrivningen — for varer uden markering,
+        //    dvs. langt de fleste, er sorteringen identisk med gruppe-først.)
         var aPrio = prioOrder[_ic.priorities[a.id] || 'normal'];
         var bPrio = prioOrder[_ic.priorities[b.id] || 'normal'];
         if (aPrio !== bPrio) return aPrio - bPrio;
 
-        // 2. Check-status from HverDag (overdue first, then soon)
-        var aCS = statusOrder[a.checkStatus.status];
-        var bCS = statusOrder[b.checkStatus.status];
-        if (aCS !== bCS) return aCS - bCS;
+        // 2. Gruppe (Forfaldne < Aldrig tjekket < Snart < Ikke-forfaldne)
+        if (a.group !== b.group) return a.group - b.group;
 
-        // 3. Within same check-status: higher ratio = more urgent
+        // 3. Check-ratio (højere = mere presserende)
         var aRatio = a.checkStatus.ratio === Infinity ? 9999 : (a.checkStatus.ratio || 0);
         var bRatio = b.checkStatus.ratio === Infinity ? 9999 : (b.checkStatus.ratio || 0);
         if (aRatio !== bRatio) return bRatio - aRatio;
 
-        // 4. Expiry urgency
-        var aUrgent = a.daysUntilExpiry <= 3;
-        var bUrgent = b.daysUntilExpiry <= 3;
-        if (aUrgent && !bUrgent) return -1;
-        if (!aUrgent && bUrgent) return 1;
-        if (aUrgent && bUrgent) return a.daysUntilExpiry - b.daysUntilExpiry;
+        // 4. Best-before som tie-breaker (tidligst udløb først; Infinity sidst)
+        if (a.daysUntilExpiry !== b.daysUntilExpiry) return a.daysUntilExpiry - b.daysUntilExpiry;
 
-        // 5. Never checked first
-        if (!a.lastChecked && !b.lastChecked) return a.name.localeCompare(b.name, 'da');
-        if (!a.lastChecked) return -1;
-        if (!b.lastChecked) return 1;
-
-        // 6. Oldest checked first
-        return a.lastChecked - b.lastChecked;
+        // 5. Navn
+        return a.name.localeCompare(b.name, 'da');
     });
 
     return { unchecked: unchecked, checkedInUnit: checkedInUnit };
@@ -827,9 +850,9 @@ function _icRenderProgress() {
             '<div class="ic-progress-track"><div class="ic-progress-bar" id="icProgBar"></div></div>' +
             '<div class="ic-progress-text" id="icProgText">0 / 0 tjekket</div>' +
             '<div class="ic-progress-actions">' +
-                '<button class="ic-btn-secondary" id="icBtnNextUnit">Naeste enhed</button>' +
-                '<button class="ic-btn-secondary" id="icBtnAddProduct">Tilfoej vare</button>' +
-                '<button class="ic-btn-finish" id="icBtnFinish">Afslut optaelling</button>' +
+                '<button class="ic-btn-secondary" id="icBtnNextUnit">Næste enhed</button>' +
+                '<button class="ic-btn-secondary" id="icBtnAddProduct">Tilføj vare</button>' +
+                '<button class="ic-btn-finish" id="icBtnFinish">Afslut optælling</button>' +
             '</div>' +
             '<div class="ic-search-row">' +
                 '<input type="text" class="ic-search" id="icSearch" placeholder="Soeg vare i listen...">' +
@@ -950,11 +973,11 @@ function _icCreateCard(product, isChecked) {
     var alts = _icAltConv(fullProduct);
     if (alts.length && grocyAmount > 0) {
         altSuffix = ' <span class="ic-card-alt">(' + alts.map(function(a) {
-            return '&#8776; ' + _icRound(grocyAmount * a.factor, 1) + ' ' + esc(a.unit);
+            return '&#8776; ' + _icFmt(grocyAmount * a.factor, 1) + ' ' + esc(a.unit);
         }).join(' &middot; ') + ')</span>';
     }
 
-    var stockText = 'Grocy: ' + grocyAmount + ' ' + unitName + altSuffix;
+    var stockText = 'På lageret: ' + _icFmt(grocyAmount) + ' ' + unitName + altSuffix;
     if (totalCounted > 0) {
         stockText += ' &middot; Talt: ' + totalCounted;
         if (remaining > 0) {
@@ -988,15 +1011,15 @@ function _icCreateCard(product, isChecked) {
     var expiryHtml = '';
     var days = product.daysUntilExpiry;
     if (days !== undefined && days !== Infinity) {
-        if (days < 0)       expiryHtml = ' <span class="ic-expiry-warn">Udloebet</span>';
-        else if (days === 0) expiryHtml = ' <span class="ic-expiry-warn">Udloeber i dag</span>';
+        if (days < 0)       expiryHtml = ' <span class="ic-expiry-warn">Udløbet</span>';
+        else if (days === 0) expiryHtml = ' <span class="ic-expiry-warn">Udløber i dag</span>';
         else if (days <= 3)  expiryHtml = ' <span class="ic-expiry-soon">' + days + ' dag' + (days > 1 ? 'e' : '') + '</span>';
     }
 
     // Counted text for checked items
     var countedHtml = '';
     if (isChecked && product.countedAmount !== undefined) {
-        countedHtml = '<div class="ic-card-counted">Talt ' + _icRound(product.countedAmount) + ' ' + esc(unitName) + ' i ' + esc(_ic.physicalUnit) + '</div>';
+        countedHtml = '<div class="ic-card-counted">Talt ' + _icFmt(product.countedAmount) + ' ' + esc(unitName) + ' i ' + esc(_ic.physicalUnit) + '</div>';
     }
 
     // Priority
@@ -1023,8 +1046,8 @@ function _icCreateCard(product, isChecked) {
     if (!isChecked) {
         actionsHtml =
             '<div class="ic-card-actions">' +
-                '<button class="ic-action-btn ic-btn-accept" data-action="accept" title="Accepter maengde">\u2714</button>' +
-                '<button class="ic-action-btn ic-btn-skip" data-action="skip" title="Ikke her">\u23ED</button>' +
+                '<button class="ic-action-btn ic-btn-accept" data-action="accept" title="Tallet passer — godkend">\u2714</button>' +
+                '<button class="ic-action-btn ic-btn-skip" data-action="skip" title="Spring over — tæl den ikke nu">\u23ED</button>' +
             '</div>';
     }
 
@@ -1045,7 +1068,9 @@ function _icCreateCard(product, isChecked) {
             '<div class="ic-qty-row">' +
                 '<div class="ic-qty-main">' +
                     '<button class="ic-qty-btn" data-action="minus">\u2212</button>' +
-                    '<input type="number" class="ic-qty-input" value="' + defaultVal + '" min="0" step="0.5" data-grocy="' + _icRound(grocyAmount) + '">' +
+                    // type="text" + inputmode: et type="number"-felt afviser komma (value bliver
+                    // tom), og danskere taster komma. data-grocy forbliver rå (punktum) — maskinværdi.
+                    '<input type="text" inputmode="decimal" class="ic-qty-input" value="' + _icFmt(defaultVal) + '" data-grocy="' + _icRound(grocyAmount) + '">' +
                     '<button class="ic-qty-btn" data-action="plus">+</button>' +
                     '<span class="ic-qty-unit">' + esc(unitName) + '</span>' +
                 '</div>' +
@@ -1135,16 +1160,16 @@ function _icTogglePriority(productId) {
 function _icAdjustQty(productId, delta) {
     var input = _icContainer.querySelector('[data-product-id="' + productId + '"] .ic-qty-input');
     if (!input) return;
-    var val = parseFloat(input.value) || 0;
+    var val = _icParseNum(input.value);
     val = _icRound(Math.max(0, val + delta));
-    input.value = val;
+    input.value = _icFmt(val);
 }
 
 function _icSetFraction(productId, fraction) {
     var input = _icContainer.querySelector('[data-product-id="' + productId + '"] .ic-qty-input');
     if (!input) return;
-    var grocy = parseFloat(input.dataset.grocy) || 0;
-    input.value = Math.round(grocy * fraction * 100) / 100;
+    var grocy = _icParseNum(input.dataset.grocy);
+    input.value = _icFmt(Math.round(grocy * fraction * 100) / 100);
 }
 
 function _icCancelExpand(productId) {
@@ -1152,7 +1177,7 @@ function _icCancelExpand(productId) {
     if (card) {
         card.classList.remove('ic-open');
         var input = card.querySelector('.ic-qty-input');
-        if (input) input.value = parseFloat(input.dataset.grocy) || 0;
+        if (input) input.value = _icFmt(_icParseNum(input.dataset.grocy));
     }
 }
 
@@ -1160,10 +1185,10 @@ function _icConfirmCount(productId) {
     var input = _icContainer.querySelector('[data-product-id="' + productId + '"] .ic-qty-input');
     if (!input) {
         // Tidligere kastede dette en tavs TypeError → optællingen "gemte ikke".
-        _icAlert('Kunne ikke gemme — proev at klikke varen op igen', 'error');
+        _icAlert('Kunne ikke gemme — prøv at klikke varen op igen', 'error');
         return;
     }
-    var amount = parseFloat(input.value) || 0;
+    var amount = _icParseNum(input.value);
     _icSaveCount(productId, amount);
 }
 
@@ -1174,20 +1199,30 @@ function _icSaveCount(productId, amount) {
         _ic.counts[productId] = { units: {}, total: 0 };
     }
 
-    _ic.counts[productId].units[_ic.physicalUnit] = amount;
+    var c = _ic.counts[productId];
+    c.units[_ic.physicalUnit] = amount;
+    // Hvilken fysisk enhed varen sidst blev talt i → bliver LastCheckedUnit ved commit (Bug 1).
+    c.lastUnit = _ic.physicalUnit;
+    // Concurrency-baseline (§6): Grocy-mængden brugeren SÅ da hun talte. Fanges én gang
+    // (første tælling i sessionen) så den overlever recount + enhedsskift. Ved commit
+    // sammenlignes den mod frisk lager for at opdage at Grocy har flyttet sig under sessionen.
+    if (c.grocyAtCount === undefined) {
+        c.grocyAtCount = _ic.grocyStock[productId] ? _icRound(_ic.grocyStock[productId].amount) : 0;
+    }
 
     // Recalculate total
     var sum = 0;
-    var units = _ic.counts[productId].units;
+    var units = c.units;
     for (var u in units) {
         if (units.hasOwnProperty(u)) sum += units[u];
     }
-    _ic.counts[productId].total = _icRound(sum);
+    c.total = _icRound(sum);
 
     _icSaveCounts();
 
-    // Update LastCheckedAt in Grocy (fire and forget)
-    _icUpdateLastChecked(productId);
+    // Bug 1: LastCheckedAt/LastCheckedUnit skrives IKKE her længere — kun ved commit
+    // (_icSaveAllToGrocy), og kun for varer der faktisk blev talt. En afbrudt session
+    // efterlader dermed ingen spor i Grocy.
 
     // Animate card out then re-render
     var card = _icContainer.querySelector('[data-product-id="' + productId + '"]');
@@ -1199,11 +1234,12 @@ function _icSaveCount(productId, amount) {
     }, 300);
 }
 
-async function _icUpdateLastChecked(productId) {
+// Skrives KUN ved commit (Bug 1), pr. talt vare, med den enhed varen blev talt i.
+async function _icUpdateLastChecked(productId, unitName) {
     try {
         await putGrocyProductUserfields(productId, {
             LastCheckedAt: new Date().toISOString(),
-            LastCheckedUnit: _ic.physicalUnit
+            LastCheckedUnit: unitName || _ic.physicalUnit
         });
     } catch (err) {
         // Not critical -- userfields may not exist
@@ -1222,62 +1258,142 @@ function _icToggleCheckedList() {
 // SUMMARY
 // ════════════════════════════════════════════════════════════
 
-function _icShowSummary() {
+// ── Commit-hjælpere (delt af summary-visning + gem-alle) ─────────────
+// Frisk lager: fresh-fetch, fald tilbage til session-snapshot ved netværksfejl.
+async function _icFetchFreshStock() {
+    try {
+        var stockData = await fetchGrocyStock();
+        var m = {};
+        stockData.forEach(function(item) { m[String(item.product_id)] = parseFloat(item.amount) || 0; });
+        return m;
+    } catch (e) {
+        return null;
+    }
+}
+function _icFreshAmountFor(freshStock, pid) {
+    if (freshStock && Object.prototype.hasOwnProperty.call(freshStock, String(pid))) {
+        return freshStock[String(pid)];
+    }
+    return _ic.grocyStock[pid] ? _ic.grocyStock[pid].amount : 0;
+}
+// Klassificér en talt vare mod frisk lager. Delt sandhed for summary og commit,
+// så de aldrig divergerer.
+function _icClassifyCounted(product, freshStock) {
+    var countData = _ic.counts[product.id];
+    if (!countData || !countData.units || Object.keys(countData.units).length === 0) return null;
+    var total    = _icRound(countData.total || 0);
+    var grocyNow = _icRound(_icFreshAmountFor(freshStock, product.id));
+    var baseline = (countData.grocyAtCount === undefined) ? null : _icRound(countData.grocyAtCount);
+    // §6: Grocy har flyttet sig siden brugeren talte → konflikt (medmindre afklaret).
+    var conflict = baseline !== null && Math.abs(grocyNow - baseline) > 0.01 && !countData.conflictResolved;
+    return {
+        total: total, grocyNow: grocyNow, baseline: baseline,
+        conflict: conflict, resolved: countData.conflictResolved || null,
+        needsWrite: Math.abs(total - grocyNow) > 0.01,
+        lastUnit: countData.lastUnit || _ic.physicalUnit,
+        countsByUnit: countData.units
+    };
+}
+
+async function _icShowSummary() {
     var overlay = _icContainer.querySelector('#icSummaryOverlay');
     var body    = _icContainer.querySelector('#icSummaryBody');
     var locEl   = _icContainer.querySelector('#icSummaryLoc');
     locEl.textContent = _ic.locationName;
+    overlay.classList.add('ic-visible');
+    body.innerHTML = '<p style="padding:20px;color:var(--color-text-dim);">Henter frisk lager fra Grocy…</p>';
 
+    // §6 — sammenlign altid mod Grocys NUVÆRENDE beholdning (auto-forbrug kan have drevet
+    // lageret under sessionen). Gemmes så commit bruger nøjagtig samme snapshot.
+    var freshStock = await _icFetchFreshStock();
+    _ic._commitFresh = freshStock;
+
+    var conflicts = [];
     var discrepancies = [];
     var notFound = [];
     var okItems = [];
 
     _ic.products.forEach(function(product) {
-        var grocyAmount = _icRound(_ic.grocyStock[product.id] ? _ic.grocyStock[product.id].amount : 0);
-        var countData = _ic.counts[product.id];
-        var totalCounted = _icRound(countData ? (countData.total || 0) : 0);
         var _si = _ic.grocyStock[product.id];
         var unitName = (_si && _si.unit) ? _si.unit : (_ic.quantityUnits[product.qu_id_stock] || '');
+        var cls = _icClassifyCounted(product, freshStock);
 
-        if (!countData || !countData.units || Object.keys(countData.units).length === 0) {
+        if (!cls) {
+            var grocyAmount = _icRound(_icFreshAmountFor(freshStock, product.id));
             if (grocyAmount > 0) {
                 notFound.push({ id: product.id, name: product.name, grocyAmount: grocyAmount, unitName: unitName });
             }
-        } else if (Math.abs(totalCounted - grocyAmount) > 0.01) {
+            return;
+        }
+
+        if (cls.conflict) {
+            conflicts.push({ id: product.id, name: product.name, unitName: unitName, cls: cls });
+        } else if (cls.resolved) {
+            // afklaret konflikt — vis i konflikt-sektionen med sin resolution
+            conflicts.push({ id: product.id, name: product.name, unitName: unitName, cls: cls });
+        } else if (cls.needsWrite) {
             discrepancies.push({
-                id: product.id,
-                name: product.name,
-                grocyAmount: grocyAmount,
-                countedAmount: totalCounted,
-                difference: _icRound(totalCounted - grocyAmount),
-                unitName: unitName,
-                countsByUnit: countData.units
+                id: product.id, name: product.name,
+                grocyAmount: cls.grocyNow, countedAmount: cls.total,
+                difference: _icRound(cls.total - cls.grocyNow),
+                unitName: unitName, countsByUnit: cls.countsByUnit
             });
         } else {
-            okItems.push({ id: product.id, name: product.name, grocyAmount: grocyAmount, unitName: unitName });
+            okItems.push({ id: product.id, name: product.name, grocyAmount: cls.grocyNow, unitName: unitName });
         }
     });
+
+    var pendingConflicts = conflicts.filter(function(c) { return c.cls.conflict; }).length;
 
     var html =
         '<div class="ic-stats-row">' +
             '<div class="ic-stat-card"><div class="ic-stat-number">' + Object.keys(_ic.counts).length + '</div><div class="ic-stat-label">Varer talt</div></div>' +
+            (conflicts.length > 0 ? '<div class="ic-stat-card"><div class="ic-stat-number" style="color:' + (pendingConflicts > 0 ? 'var(--color-red)' : 'var(--color-green)') + '">' + pendingConflicts + '</div><div class="ic-stat-label">Tallet ændret</div></div>' : '') +
             '<div class="ic-stat-card"><div class="ic-stat-number" style="color:' + (discrepancies.length > 0 ? 'var(--color-orange)' : 'var(--color-green)') + '">' + discrepancies.length + '</div><div class="ic-stat-label">Afvigelser</div></div>' +
-            '<div class="ic-stat-card"><div class="ic-stat-number" style="color:' + (notFound.length > 0 ? 'var(--color-red)' : 'var(--color-green)') + '">' + notFound.length + '</div><div class="ic-stat-label">Ikke fundet</div></div>' +
+            '<div class="ic-stat-card"><div class="ic-stat-number" style="color:' + (notFound.length > 0 ? 'var(--color-red)' : 'var(--color-green)') + '">' + notFound.length + '</div><div class="ic-stat-label">Ikke talt</div></div>' +
         '</div>';
+
+    if (conflicts.length > 0) {
+        html += '<div class="ic-summary-section"><h3>&#9888; Tallet har ændret sig, mens du talte (' + conflicts.length + ')</h3>' +
+            '<p style="color:var(--color-text-dim);font-size:13px;">Lagertallet er blevet ændret, efter du talte disse varer — måske har en anden rettet det, eller en bon er blevet leveret imens. Vælg for hver vare, hvilket tal der er rigtigt.</p>';
+        conflicts.forEach(function(item) {
+            var c = item.cls;
+            var actions;
+            if (c.resolved === 'override') {
+                actions = '<span style="color:var(--color-orange);font-weight:600;">Bruger dit tal</span>';
+            } else if (c.resolved === 'keep') {
+                actions = '<span style="color:var(--color-text-dim);font-weight:600;">Beholder lagerets tal</span>';
+            } else {
+                actions =
+                    '<button class="ic-btn-correct" data-override="' + item.id + '">Mit tal er rigtigt (' + _icFmt(c.total) + ')</button>' +
+                    '<button class="ic-btn-add-shop" data-keep="' + item.id + '">Lagerets tal er rigtigt (' + _icFmt(c.grocyNow) + ')</button>';
+            }
+            html +=
+                '<div class="ic-summary-item ic-disc" data-product-id="' + item.id + '">' +
+                    '<div class="ic-summary-item-name">' + esc(item.name) + '</div>' +
+                    '<div class="ic-summary-item-detail">' +
+                        'Da du talte stod der: ' + _icFmt(c.baseline) + ' &rarr; nu står der: ' + _icFmt(c.grocyNow) + ' ' + esc(item.unitName) + '<br>' +
+                        '<small>Du talte: ' + _icFmt(c.total) + '</small>' +
+                    '</div>' +
+                    '<div class="ic-summary-item-actions">' + actions + '</div>' +
+                '</div>';
+        });
+        html += '</div>';
+    }
 
     if (discrepancies.length > 0) {
         html += '<div class="ic-summary-section"><h3>Afvigelser (' + discrepancies.length + ')</h3>';
         discrepancies.forEach(function(item) {
             var sign = item.difference > 0 ? '+' : '';
             var unitsDetail = Object.keys(item.countsByUnit).map(function(u) {
-                return u + ': ' + _icRound(item.countsByUnit[u]);
+                return u + ': ' + _icFmt(item.countsByUnit[u]);
             }).join(', ');
 
             html +=
                 '<div class="ic-summary-item ic-disc" data-product-id="' + item.id + '">' +
                     '<div class="ic-summary-item-name">' + esc(item.name) + '</div>' +
                     '<div class="ic-summary-item-detail">' +
-                        'Grocy: ' + item.grocyAmount + ' &rarr; Talt: ' + item.countedAmount + ' (' + sign + item.difference + ') ' + esc(item.unitName) + '<br>' +
+                        'På lageret: ' + _icFmt(item.grocyAmount) + ' &rarr; Du talte: ' + _icFmt(item.countedAmount) + ' (' + sign + _icFmt(item.difference) + ') ' + esc(item.unitName) + '<br>' +
                         '<small>' + esc(unitsDetail) + '</small>' +
                     '</div>' +
                     '<div class="ic-summary-item-actions">' +
@@ -1289,15 +1405,19 @@ function _icShowSummary() {
     }
 
     if (notFound.length > 0) {
-        html += '<div class="ic-summary-section"><h3>Ikke fundet (' + notFound.length + ')</h3>';
+        html += '<div class="ic-summary-section"><h3>Ikke talt (' + notFound.length + ')</h3>' +
+            '<p style="color:var(--color-text-dim);font-size:12px;margin:0 0 8px;">Disse varer står på lageret, men du har ikke talt dem. Fandt du dem alligevel? Skriv hvor meget der er, og tryk Ret. Er de v&aelig;k, tryk »S&aelig;t til 0«.</p>';
         notFound.forEach(function(item) {
             html +=
                 '<div class="ic-summary-item ic-miss" data-product-id="' + item.id + '">' +
                     '<div class="ic-summary-item-name">' + esc(item.name) + '</div>' +
-                    '<div class="ic-summary-item-detail">Grocy: ' + item.grocyAmount + ' ' + esc(item.unitName) + '</div>' +
+                    '<div class="ic-summary-item-detail">På lageret: ' + _icFmt(item.grocyAmount) + ' ' + esc(item.unitName) + '</div>' +
                     '<div class="ic-summary-item-actions">' +
-                        '<button class="ic-btn-correct" data-correct="' + item.id + '" data-amount="0">Saet til 0</button>' +
-                        '<button class="ic-btn-add-shop" data-shop="' + item.id + '">Indkoeb</button>' +
+                        '<input class="ic-nf-amount" data-nf-input="' + item.id + '" inputmode="decimal" placeholder="antal" ' +
+                            'style="width:70px;height:32px;border:1px solid var(--color-border);border-radius:8px;text-align:center;font-size:14px;">' +
+                        '<button class="ic-btn-correct" data-correct-input="' + item.id + '">Ret</button>' +
+                        '<button class="ic-btn-correct" data-correct="' + item.id + '" data-amount="0">Sæt til 0</button>' +
+                        '<button class="ic-btn-add-shop" data-shop="' + item.id + '">Indkøb</button>' +
                     '</div>' +
                 '</div>';
         });
@@ -1311,20 +1431,49 @@ function _icShowSummary() {
 
     body.innerHTML = html;
 
-    // Delegate clicks in summary
-    body.addEventListener('click', function(e) {
-        var correctBtn = e.target.closest('[data-correct]');
-        if (correctBtn) {
-            _icCorrectInventory(parseInt(correctBtn.dataset.correct), parseFloat(correctBtn.dataset.amount));
-            return;
-        }
-        var shopBtn = e.target.closest('[data-shop]');
-        if (shopBtn) {
-            _icAddToShopping(parseInt(shopBtn.dataset.shop));
-        }
-    });
+    // Delegate clicks — bind KUN én gang (summary re-renderes ved konflikt-afklaring).
+    if (!body.dataset.icBound) {
+        body.dataset.icBound = '1';
+        body.addEventListener('click', function(e) {
+            var overrideBtn = e.target.closest('[data-override]');
+            if (overrideBtn) { _icResolveConflict(parseInt(overrideBtn.dataset.override), 'override'); return; }
+            var keepBtn = e.target.closest('[data-keep]');
+            if (keepBtn) { _icResolveConflict(parseInt(keepBtn.dataset.keep), 'keep'); return; }
+            // "Ret" på en ikke-fundet vare: skriv den faktiske optalte mængde fra input-feltet.
+            var correctInputBtn = e.target.closest('[data-correct-input]');
+            if (correctInputBtn) {
+                var pid = parseInt(correctInputBtn.dataset.correctInput);
+                var inp = body.querySelector('[data-nf-input="' + pid + '"]');
+                var raw = inp ? String(inp.value).trim() : '';
+                if (raw === '' || isNaN(parseFloat(raw.replace(',', '.')))) {
+                    _icAlert('Skriv en mængde først', 'warning');
+                    if (inp) inp.focus();
+                    return;
+                }
+                _icCorrectInventory(pid, _icParseNum(raw));   // komma → punktum før Grocy
+                return;
+            }
+            var correctBtn = e.target.closest('[data-correct]');
+            if (correctBtn) {
+                _icCorrectInventory(parseInt(correctBtn.dataset.correct), parseFloat(correctBtn.dataset.amount));
+                return;
+            }
+            var shopBtn = e.target.closest('[data-shop]');
+            if (shopBtn) {
+                _icAddToShopping(parseInt(shopBtn.dataset.shop));
+            }
+        });
+    }
+}
 
-    overlay.classList.add('ic-visible');
+// §6 — brugeren afklarer en konflikt: 'override' (skriv min optælling ved commit) eller
+// 'keep' (behold Grocys tal, glem min optælling for denne vare).
+function _icResolveConflict(productId, mode) {
+    var c = _ic.counts[productId];
+    if (!c) return;
+    c.conflictResolved = mode;
+    _icSaveCounts();
+    _icShowSummary();   // re-render med opdateret status
 }
 
 function _icCloseSummary() {
@@ -1337,7 +1486,12 @@ function _icCloseSummary() {
 
 async function _icCorrectInventory(productId, newAmount) {
     try {
-        await postGrocyInventory(productId, newAmount, '2999-12-31');
+        // Bug 2 — ingen best-before: Grocy bevarer eksisterende batches og daterer et evt.
+        // surplus via produktets default_best_before_days (verificeret mod grocytest).
+        await postGrocyInventory(productId, newAmount);
+        // Stempl som tjekket (observeret) — samme userfield-skrivning som commit (Bug 1).
+        var _cc = _ic.counts[productId];
+        await _icUpdateLastChecked(productId, (_cc && _cc.lastUnit) ? _cc.lastUnit : _ic.physicalUnit);
         _icAlert('Lager rettet', 'success');
 
         var item = _icContainer.querySelector('.ic-summary-item[data-product-id="' + productId + '"]');
@@ -1359,15 +1513,15 @@ async function _icAddToShopping(productId) {
         await postGrocyShoppingList([{
             product_id: productId,
             amount:     grocyAmount,
-            note:       'Manglede ved optaelling ' + new Date().toLocaleDateString('da-DK')
+            note:       'Manglede ved optælling ' + new Date().toLocaleDateString('da-DK')
         }]);
 
-        _icAlert((product ? product.name : 'Produkt') + ' tilfojet til indkoebsliste', 'success');
+        _icAlert((product ? product.name : 'Produkt') + ' tilføjet til indkøbsliste', 'success');
 
         var item = _icContainer.querySelector('.ic-summary-item[data-product-id="' + productId + '"]');
         if (item) {
             var btn = item.querySelector('[data-shop]');
-            if (btn) { btn.textContent = 'Tilfojet'; btn.disabled = true; }
+            if (btn) { btn.textContent = 'Tilføjet'; btn.disabled = true; }
         }
     } catch (err) {
         _icAlert('Fejl: ' + err.message, 'error');
@@ -1375,67 +1529,73 @@ async function _icAddToShopping(productId) {
 }
 
 async function _icSaveAllToGrocy() {
-    // Hent frisk lager-status så vi sammenligner mod Grocys NUVÆRENDE beholdning,
-    // ikke snapshottet fra Start. Ellers kan lageret nå at drive (auto-forbrug når
-    // bons leveres i løbet af dagen), og en optalt mængde der matcher det nuværende
-    // lager afvises af Grocy ("ny mængde == nuværende") → tavs fejl.
-    var freshStock = null;
-    try {
-        var stockData = await fetchGrocyStock();
-        freshStock = {};
-        stockData.forEach(function(item) {
-            freshStock[String(item.product_id)] = parseFloat(item.amount) || 0;
-        });
-    } catch (e) {
-        freshStock = null;  // netværksfejl → fald tilbage til snapshot
-    }
+    // Genbrug det friske lager fra summary-visningen (fanget for sekunder siden); fald
+    // tilbage til en frisk fetch hvis det mangler. Samme snapshot → summary og commit
+    // divergerer aldrig.
+    var freshStock = _ic._commitFresh || await _icFetchFreshStock();
 
-    var currentAmountFor = function(pid) {
-        if (freshStock && Object.prototype.hasOwnProperty.call(freshStock, String(pid))) {
-            return freshStock[String(pid)];
-        }
-        return _ic.grocyStock[pid] ? _ic.grocyStock[pid].amount : 0;
-    };
-
-    var discs = [];
+    // §6 — konflikt-gate: en vare hvor Grocy har flyttet sig siden brugeren talte, og som
+    // ikke er afklaret, må IKKE overskrives tavst. Kræv afklaring først.
+    var toWrite = [];
+    var pendingConflicts = 0;
+    var keepCount = 0;
 
     _ic.products.forEach(function(product) {
-        var grocyAmount = currentAmountFor(product.id);
-        var countData = _ic.counts[product.id];
-        var totalCounted = countData ? countData.total : undefined;
-
-        if (totalCounted !== undefined && Math.abs(totalCounted - grocyAmount) > 0.01) {
-            discs.push({ id: product.id, newAmount: totalCounted });
-        }
+        var cls = _icClassifyCounted(product, freshStock);
+        if (!cls) return;                                   // ikke talt
+        if (cls.conflict) { pendingConflicts++; return; }   // uafklaret konflikt
+        if (cls.resolved === 'keep') { keepCount++; return; } // behold Grocys tal → glem count
+        toWrite.push({ id: product.id, cls: cls });
     });
 
-    if (discs.length === 0) {
-        _icAlert('Ingen aendringer at gemme (lager var allerede korrekt)', 'info');
+    if (pendingConflicts > 0) {
+        _icAlert(pendingConflicts + ' vare(r) har fået et nyt lagertal, mens du talte. Vælg øverst hvilket tal der er rigtigt, før du gemmer.', 'warning');
         return;
     }
 
-    _icAlert('Gemmer ' + discs.length + ' aendringer...', 'info');
-
-    var success = 0;
-    var failed  = 0;
-
-    for (var i = 0; i < discs.length; i++) {
-        try {
-            await postGrocyInventory(discs[i].id, discs[i].newAmount, '2999-12-31');
-            success++;
-        } catch (err) {
-            console.error('Failed to update ' + discs[i].id + ':', err);
-            failed++;
-        }
+    if (toWrite.length === 0) {
+        _icAlert('Ingen ændringer at gemme', 'info');
+        _ic._commitFresh = null;
+        _icClearCounts();
+        _icCloseSummary();
+        _icResetUI();
+        return;
     }
 
-    if (failed === 0) {
-        _icAlert('Alle ' + success + ' aendringer gemt!', 'success');
+    _icAlert('Gemmer...', 'info');
+
+    var invWritten = 0;
+    var invFailed  = 0;
+
+    for (var i = 0; i < toWrite.length; i++) {
+        var it = toWrite[i];
+        // Bug 2 — ingen best-before (Grocy bevarer eksisterende batches, daterer surplus
+        // via default_best_before_days).
+        if (it.cls.needsWrite) {
+            try {
+                await postGrocyInventory(it.id, it.cls.total);
+                invWritten++;
+            } catch (err) {
+                console.error('Failed to update ' + it.id + ':', err);
+                invFailed++;
+                continue;   // spring userfield-stempling over hvis lager-skrivning fejlede
+            }
+        }
+        // Bug 1 — LastCheckedAt/LastCheckedUnit skrives KUN her, kun for talte varer,
+        // med den enhed varen blev talt i. _icUpdateLastChecked sluger egne fejl.
+        await _icUpdateLastChecked(it.id, it.cls.lastUnit);
+    }
+
+    if (invFailed === 0) {
+        var msg = 'Gemt. ' + invWritten + ' vare(r) rettet på lageret, ' + toWrite.length + ' sat som talt';
+        if (keepCount > 0) msg += ' (' + keepCount + ' beholdt lagerets tal)';
+        _icAlert(msg, 'success');
+        _ic._commitFresh = null;
         _icClearCounts();
         _icCloseSummary();
         _icResetUI();
     } else {
-        _icAlert(success + ' gemt, ' + failed + ' fejlede', 'warning');
+        _icAlert(invWritten + ' gemt, ' + invFailed + ' fejlede', 'warning');
     }
 }
 
@@ -1447,7 +1607,7 @@ async function _icAddAllToShopping() {
         var countData = _ic.counts[product.id];
 
         if (grocyAmount > 0 && (!countData || !countData.units || Object.keys(countData.units).length === 0)) {
-            missing.push({ product_id: product.id, amount: grocyAmount, note: 'Manglede ved optaelling ' + new Date().toLocaleDateString('da-DK') });
+            missing.push({ product_id: product.id, amount: grocyAmount, note: 'Manglede ved optælling ' + new Date().toLocaleDateString('da-DK') });
         }
     });
 
@@ -1456,11 +1616,11 @@ async function _icAddAllToShopping() {
         return;
     }
 
-    _icAlert('Tilfojer ' + missing.length + ' varer til indkoebsliste...', 'info');
+    _icAlert('Tilføjer ' + missing.length + ' varer til indkøbsliste...', 'info');
 
     try {
         await postGrocyShoppingList(missing);
-        _icAlert(missing.length + ' varer tilfojet til indkoebsliste', 'success');
+        _icAlert(missing.length + ' varer tilføjet til indkøbsliste', 'success');
     } catch (err) {
         _icAlert('Fejl: ' + err.message, 'error');
     }
@@ -1527,12 +1687,32 @@ function _icAddUnexpectedProduct(productId) {
     _ic.products.push(product);
     _icCloseAddProduct();
     _icRenderProducts();
-    _icAlert(product.name + ' tilfojet til optaelling', 'success');
+    _icAlert(product.name + ' tilføjet til optælling', 'success');
 }
 
 // ════════════════════════════════════════════════════════════
 // HELPERS
 // ════════════════════════════════════════════════════════════
+
+// ── Tal: komma til mennesker, punktum til Grocy ──────────────────
+// Verificeret mod grocytest: /stock/products/:id/inventory kræver et JSON-tal
+// (float). En streng med komma afvises hårdt ("must be of type float, string
+// given"). Derfor: ALDRIG _icFmt på noget der sendes til API'et eller gemmes i
+// et data-attribut — kun på tekst mennesker læser.
+function _icFmt(num, decimals) {
+    if (num === null || num === undefined || num === '') return '';
+    var n = (typeof num === 'number') ? num : parseFloat(String(num).replace(',', '.'));
+    if (!isFinite(n)) return String(num);
+    return String(_icRound(n, decimals)).replace('.', ',');
+}
+
+// Læser brugerindtastning: accepterer både "2,5" og "2.5" → 2.5 (JS-tal).
+// parseFloat('2,5') giver 2 — derfor må rå parseFloat aldrig bruges på input.
+function _icParseNum(v) {
+    if (v === null || v === undefined) return 0;
+    var n = parseFloat(String(v).trim().replace(',', '.'));
+    return isFinite(n) ? n : 0;
+}
 
 function _icRound(num, decimals) {
     decimals = decimals || 2;
@@ -1595,6 +1775,17 @@ function _icFormatDate(date) {
 if (typeof module !== 'undefined' && module.exports) {
     module.exports = {
         _icParseIntervalDays: _icParseIntervalDays,
-        _icComputeCheckStatus: _icComputeCheckStatus
+        _icComputeCheckStatus: _icComputeCheckStatus,
+        _icGroupOf: _icGroupOf,
+        _icVisibleInUnit: _icVisibleInUnit,
+        _icClassifyCounted: _icClassifyCounted,
+        _icCategorize: _icCategorize,
+        _icFmt: _icFmt,
+        _icParseNum: _icParseNum,
+        _icFindFactor: _icFindFactor,
+        _icAltConv: _icAltConv,
+        _icGetUnitsForLocation: _icGetUnitsForLocation,
+        // Delt state-reference så tests kan opsætte syntetiske scenarier (T_OPTAELLING).
+        _ic: _ic
     };
 }

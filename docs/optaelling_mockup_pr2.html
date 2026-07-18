@@ -1,0 +1,377 @@
+<!DOCTYPE html>
+<html lang="da">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Optælling PR 2 — mockup</title>
+<style>
+  :root{
+    --brand-primary:#8e631f; --brand-primary-light:#f1e6b2;
+    --color-background:#f5f4f2; --color-surface:#fff; --color-border:#d7d1ca;
+    --color-text:#2b2420; --color-text-dim:#8a7f76;
+    --color-green:#a5bf75; --color-green-dark:#7a9c54; --color-red:#bc181b; --color-orange:#e8a832;
+    --font-body:'DM Sans',system-ui,'Segoe UI',sans-serif;
+    --font-heading:'Playfair Display',Georgia,serif;
+  }
+  *{box-sizing:border-box}
+  body{margin:0;background:#e9e6e2;font-family:var(--font-body);color:var(--color-text);
+       display:flex;flex-direction:column;align-items:center;padding:16px 10px 60px;min-height:100vh}
+  .note{max-width:460px;width:100%;font-size:12px;color:#6a6058;margin:0 0 12px;line-height:1.5}
+  .note b{color:var(--brand-primary)}
+  .app{max-width:460px;width:100%;background:var(--color-background);border:1px solid var(--color-border);
+       border-radius:16px;overflow:hidden;box-shadow:0 6px 24px rgba(0,0,0,.08)}
+  .receipt{display:none;background:#eef6e6;border-bottom:1px solid var(--color-green);
+           padding:10px 14px;font-size:13px;color:var(--color-green-dark);align-items:center;gap:8px}
+  .receipt.show{display:flex}
+  .receipt .x{margin-left:auto;background:none;border:none;color:var(--color-green-dark);cursor:pointer;font-size:16px}
+  .hd{background:var(--color-surface);border-bottom:1px solid var(--color-border);padding:12px 14px}
+  .hd .loc{font-size:12px;color:var(--color-text-dim);text-transform:uppercase;letter-spacing:.04em}
+  .hd .prog{font-size:14px;margin-top:2px}
+  .hd .prog b{font-family:var(--font-heading)}
+  .chips{display:flex;gap:8px;padding:10px 14px;background:var(--color-surface);
+         border-bottom:1px solid var(--color-border);overflow-x:auto}
+  .chip{flex:0 0 auto;border:1px solid var(--color-border);background:var(--color-background);
+        border-radius:22px;padding:7px 14px;font-size:14px;cursor:pointer;white-space:nowrap}
+  .chip .cnt{display:inline-block;margin-left:6px;background:var(--brand-primary-light);color:#6b4c1a;
+             border-radius:10px;padding:0 6px;font-size:11px;font-weight:700}
+  .chip.active{background:var(--brand-primary);color:#fff;border-color:var(--brand-primary)}
+  .chip.active .cnt{background:rgba(255,255,255,.25);color:#fff}
+  .list{padding:10px}
+  .card{background:var(--color-surface);border:1px solid var(--color-border);border-left:5px solid var(--color-border);
+        border-radius:12px;padding:10px 12px;margin-bottom:9px;position:relative}
+  .card.overdue{border-left-color:var(--color-red)}
+  .card.soon{border-left-color:var(--color-orange)}
+  .card.done{border-left-color:var(--color-green);background:#f6faf0}
+  .card .top{display:flex;align-items:flex-start;gap:8px}
+  .card .nm{font-weight:600;font-size:15px}
+  .card .sub{font-size:12px;color:var(--color-text-dim);margin-top:2px}
+  .badge{font-size:11px;font-weight:700;border-radius:8px;padding:1px 6px;margin-left:6px;white-space:nowrap}
+  .badge.od{background:#fbe6e6;color:var(--color-red)} .badge.so{background:#fdf0d8;color:#9a6a10}
+  .badge.here{background:var(--brand-primary-light);color:#6b4c1a}
+  .grow{flex:1;cursor:pointer}
+  .dots{background:none;border:none;font-size:20px;color:var(--color-text-dim);cursor:pointer;line-height:1;padding:0 4px}
+  /* 1-tryks arbejdsskridt: store touch-targets direkte på kortet */
+  .quick{width:44px;height:44px;border-radius:11px;border:1px solid var(--color-border);
+         background:var(--color-background);font-size:18px;cursor:pointer;display:flex;
+         align-items:center;justify-content:center;flex:0 0 auto}
+  .quick.ok{background:var(--color-green);border-color:var(--color-green-dark);color:#fff}
+  .card.skipped{opacity:.5}
+  .skipnote{font-size:12px;color:var(--color-text-dim);margin-top:6px}
+  .skipnote button{background:none;border:none;color:var(--brand-primary);font-size:12px;
+                   text-decoration:underline;cursor:pointer;padding:0 0 0 6px}
+  .qgroup{display:flex;align-items:center;gap:8px;margin-top:10px}
+  .step{width:38px;height:38px;border-radius:10px;border:1px solid var(--color-border);background:var(--color-background);
+        font-size:20px;cursor:pointer;display:flex;align-items:center;justify-content:center}
+  .qval{width:64px;height:38px;border:1px solid var(--color-border);border-radius:10px;text-align:center;font-size:16px}
+  .unitToggle{display:flex;border:1px solid var(--color-border);border-radius:10px;overflow:hidden;margin-left:auto}
+  .unitToggle button{border:none;background:var(--color-background);padding:0 12px;height:38px;font-size:13px;cursor:pointer}
+  .unitToggle button.on{background:var(--brand-primary);color:#fff}
+  .conv{font-size:12px;color:var(--color-green-dark);margin-top:6px;min-height:16px}
+  .save{margin-top:10px;display:flex;gap:8px}
+  .save button{flex:1;height:38px;border-radius:10px;border:none;font-size:14px;font-weight:600;cursor:pointer}
+  .save .ok{background:var(--brand-primary);color:#fff}
+  .save .cancel{background:var(--color-border);color:#4a423b}
+  .menu{position:absolute;right:10px;top:38px;background:#fff;border:1px solid var(--color-border);border-radius:10px;
+        box-shadow:0 8px 24px rgba(0,0,0,.15);z-index:5;display:none;min-width:190px;overflow:hidden}
+  .menu.show{display:block}
+  .menu button{display:block;width:100%;text-align:left;border:none;background:none;padding:11px 14px;font-size:14px;cursor:pointer}
+  .menu button:hover{background:var(--color-background)}
+  .menu button.danger{color:var(--color-red)}
+  .foot{position:sticky;bottom:0;background:var(--color-surface);border-top:1px solid var(--color-border);padding:10px 14px;display:flex;gap:8px}
+  .foot button{flex:1;height:44px;border-radius:12px;border:none;font-size:15px;font-weight:700;cursor:pointer}
+  .foot .finish{background:var(--brand-primary);color:#fff}
+  .overlay{position:fixed;inset:0;background:rgba(0,0,0,.4);display:none;align-items:flex-end;justify-content:center;z-index:20}
+  .overlay.show{display:flex}
+  .sheet{background:var(--color-background);width:100%;max-width:460px;max-height:88vh;overflow:auto;border-radius:16px 16px 0 0}
+  .sheet h2{font-family:var(--font-heading);font-size:20px;margin:0;padding:16px 16px 4px}
+  .sheet .sub2{padding:0 16px 12px;font-size:13px;color:var(--color-text-dim)}
+  .statrow{display:flex;gap:8px;padding:0 12px 12px}
+  .stat{flex:1;background:var(--color-surface);border:1px solid var(--color-border);border-radius:12px;padding:10px 6px;text-align:center}
+  .stat .n{font-family:var(--font-heading);font-size:22px} .stat .l{font-size:11px;color:var(--color-text-dim)}
+  .sec{padding:4px 14px 12px}
+  .sec h3{font-size:14px;margin:0 0 6px}
+  .sitem{background:var(--color-surface);border:1px solid var(--color-border);border-radius:10px;padding:9px 11px;margin-bottom:7px}
+  .sitem.disc{border-left:4px solid var(--color-orange)} .sitem.conf{border-left:4px solid var(--color-red)}
+  .sitem .snm{font-weight:600;font-size:14px} .sitem .sd{font-size:12px;color:var(--color-text-dim);margin-top:2px}
+  .sacts{margin-top:7px;display:flex;gap:6px}
+  .sacts button{border-radius:8px;border:1px solid var(--color-border);background:var(--color-background);padding:6px 10px;font-size:12px;cursor:pointer}
+  .sacts .prim{background:var(--brand-primary);color:#fff;border-color:var(--brand-primary)}
+  .sfoot{padding:12px 14px;display:flex;gap:8px;position:sticky;bottom:0;background:var(--color-background);border-top:1px solid var(--color-border)}
+  .sfoot button{flex:1;height:44px;border-radius:12px;border:none;font-size:15px;font-weight:700;cursor:pointer}
+  .sfoot .close{background:var(--color-border);color:#4a423b} .sfoot .commit{background:var(--brand-primary);color:#fff}
+  .tag{display:inline-block;font-size:11px;color:var(--color-text-dim)}
+</style>
+</head>
+<body>
+<p class="note">
+  <b>Mockup — Optælling PR 2</b> (docs/optaelling_mockup_pr2.html). Klikbar, ingen backend, syntetiske data.
+  <i>Denne boks er en note til os der bygger — den er ikke en del af skærmen. Alt inde i selve
+  appen nedenfor er skrevet i almindeligt sprog til den der står og tæller.</i>
+  Fire PR 2-elementer: <b>enheds-chips</b> (skift enhed, tælling bevaret pr. enhed),
+  <b>tælleenheder</b> (tæl i pakke → live "= kg"), <b>⋯-menu</b> (Skal ikke tjekkes · Udgået),
+  og <b>ny slutskærm</b> ("Gem og luk") med konflikt-sektionen fra PR 1 + <b>blivende kvitteringsbanner</b>.
+  PR 1's data-logik er allerede bygget — dette er kun UX-laget.
+  <br><br>
+  <b>Interaktions-princip:</b> omkostning følger <i>hyppighed</i>, ikke konsekvens-frygt.
+  <b>1 tryk</b> på kortet til hyppige arbejdsskridt (<b>✓</b> godkend · <b>⏭</b> spring over) — med billig
+  <i>Fortryd</i> som modstykke. <b>2 tryk</b> (⋯) til beslutninger der ændrer stamdata
+  (Skal ikke tjekkes = rydder HverDag · Udgået = 0 + deaktivér), hvor friktionen er pointen.
+</p>
+
+<div class="app">
+  <div class="receipt" id="receipt">
+    <span id="receiptTxt">✓ Gemt</span>
+    <button class="x" id="receiptClose">×</button>
+  </div>
+  <div class="hd">
+    <div class="loc">Køleskab</div>
+    <div class="prog" id="progTxt"></div>
+  </div>
+  <div class="chips" id="chips"></div>
+  <div class="list" id="list"></div>
+  <div class="foot"><button class="finish" id="finishBtn">Afslut optælling</button></div>
+</div>
+
+<div class="overlay" id="overlay">
+  <div class="sheet">
+    <h2>Gem og luk</h2>
+    <div class="sub2">Køleskab · gennemgå før du gemmer til Grocy</div>
+    <div class="statrow">
+      <div class="stat"><div class="n">3</div><div class="l">Varer talt</div></div>
+      <div class="stat"><div class="n" style="color:var(--color-red)">1</div><div class="l">Ændret i Grocy</div></div>
+      <div class="stat"><div class="n" style="color:var(--color-orange)">1</div><div class="l">Afvigelser</div></div>
+    </div>
+    <div class="sec">
+      <h3>⚠ Ændret i Grocy siden du talte (1)</h3>
+      <div class="sitem conf">
+        <div class="snm">Mozzarella</div>
+        <div class="sd">Da du talte: 5,0 → nu i Grocy: 3,1 kg &middot; <span class="tag">din optælling: 5,0</span></div>
+        <div class="sacts" id="confActs">
+          <button class="prim" data-conf="override">Overskriv (din: 5,0)</button>
+          <button data-conf="keep">Behold (Grocy: 3,1)</button>
+        </div>
+      </div>
+    </div>
+    <div class="sec">
+      <h3>Afvigelser (1)</h3>
+      <div class="sitem disc">
+        <div class="snm">Æg</div>
+        <div class="sd">Grocy: 7,1 → Talt: 5,0 (−2,1) kg</div>
+        <div class="sacts"><button class="prim">Ret</button></div>
+      </div>
+    </div>
+    <div class="sec">
+      <h3>OK (1)</h3>
+      <div class="sd" style="font-size:12px;color:var(--color-text-dim)">Kartofler stemmer med Grocy</div>
+    </div>
+    <div class="sfoot">
+      <button class="close" id="endBack">Tilbage</button>
+      <button class="commit" id="commitBtn">Gem og luk</button>
+    </div>
+  </div>
+</div>
+
+<script>
+var UNITS = ['KØL-1','KØL-2','FRYS-1'];
+var activeUnit = 'KØL-1';
+var products = [
+  { id:9,  name:'Æg',         grocy:7.06, pack:{name:'bakke', factor:0.6},  status:'overdue', badge:'⏰ forfalden' },
+  { id:13, name:'Mozzarella', grocy:3.13, pack:{name:'pose',  factor:0.25}, status:'soon',    badge:'⏳ snart' },
+  { id:17, name:'Kartofler',  grocy:9.82, pack:{name:'sæk',   factor:5},    status:'',        badge:'' },
+  { id:21, name:'Smør',       grocy:2.00, pack:{name:'pakke', factor:0.25}, status:'',        badge:'' }
+];
+var counts = { 9: { 'KØL-1': { qty:5, mode:'stock' } } };  // Æg forudtalt i KØL-1
+var skipped = {};    // unit -> { id:true }  (spring over huskes pr. fysisk enhed)
+var expanded = {};   // id -> {mode, qty}
+var conflictResolved = null;
+
+function nf(n){ return (Math.round(n*10)/10).toString().replace('.',','); }
+function prodById(id){ return products.find(function(p){return p.id===id;}); }
+
+function renderChips(){
+  var el = document.getElementById('chips'); el.innerHTML='';
+  UNITS.forEach(function(u){
+    var n = products.filter(function(p){ return counts[p.id] && counts[p.id][u]!==undefined; }).length;
+    var c = document.createElement('button');
+    c.className='chip'+(u===activeUnit?' active':'');
+    c.innerHTML = u + (n?'<span class="cnt">'+n+'</span>':'');
+    c.addEventListener('click',function(){ activeUnit=u; expanded={}; render(); });
+    el.appendChild(c);
+  });
+}
+
+function render(){
+  renderChips();
+  var done = products.filter(function(p){ return counts[p.id] && counts[p.id][activeUnit]!==undefined; }).length;
+  document.getElementById('progTxt').innerHTML = done+' / '+products.length+' tjekket i <b>'+activeUnit+'</b>';
+  var list = document.getElementById('list'); list.innerHTML='';
+  products.forEach(function(p){ list.appendChild(buildCard(p)); });
+}
+
+function buildCard(p){
+  var c = counts[p.id] && counts[p.id][activeUnit];
+  var isSkipped = skipped[activeUnit] && skipped[activeUnit][p.id];
+  var card = document.createElement('div');
+  card.className='card '+(c?'done':p.status)+(isSkipped?' skipped':'');
+
+  var top = document.createElement('div'); top.className='top';
+  var grow = document.createElement('div'); grow.className='grow';
+  var badge = c ? '<span class="badge here">✓ talt her: '+nf(c.mode==='pack'?c.qty*p.pack.factor:c.qty)+' kg</span>'
+                : (p.badge? '<span class="badge '+(p.status==='overdue'?'od':'so')+'">'+p.badge+'</span>':'');
+  grow.innerHTML = '<span class="nm">'+p.name+'</span>'+badge+'<div class="sub">Grocy: '+nf(p.grocy)+' kg</div>';
+  grow.addEventListener('click',function(){ if(!isSkipped) toggleExpand(p.id); });
+  top.appendChild(grow);
+
+  if(!isSkipped){
+    // 1 TRYK — hyppige arbejdsskridt, direkte på kortet
+    var okBtn = document.createElement('button'); okBtn.className='quick ok'; okBtn.textContent='✓';
+    okBtn.title='Godkend: tæl = Grocys tal';
+    okBtn.addEventListener('click',function(e){ e.stopPropagation(); quickApprove(p.id); });
+
+    var skipBtn = document.createElement('button'); skipBtn.className='quick'; skipBtn.textContent='⏭';
+    skipBtn.title='Spring over i denne enhed';
+    skipBtn.addEventListener('click',function(e){ e.stopPropagation(); skipItem(p.id); });
+
+    top.appendChild(okBtn); top.appendChild(skipBtn);
+  }
+
+  // 2 TRYK — beslutninger der ændrer stamdata, bag ⋯
+  var dots = document.createElement('button'); dots.className='dots'; dots.textContent='⋯';
+  dots.addEventListener('click',function(e){ e.stopPropagation(); toggleMenu(p.id); });
+  top.appendChild(dots);
+  card.appendChild(top);
+
+  var menu = document.createElement('div'); menu.className='menu'; menu.id='menu-'+p.id;
+  [['notrack','Skal ikke tælles fast',''],['discontinued','Varen findes ikke mere','danger']]
+    .forEach(function(m){
+      var b=document.createElement('button'); if(m[2]) b.className=m[2]; b.textContent=m[1];
+      b.addEventListener('click',function(e){ e.stopPropagation(); menuAct(p.id, m[0]); });
+      menu.appendChild(b);
+    });
+  card.appendChild(menu);
+
+  if(isSkipped){
+    var sn=document.createElement('div'); sn.className='skipnote';
+    sn.innerHTML='Sprunget over i '+activeUnit;
+    var undo=document.createElement('button'); undo.textContent='Fortryd';
+    undo.addEventListener('click',function(e){ e.stopPropagation(); unskipItem(p.id); });
+    sn.appendChild(undo); card.appendChild(sn);
+  }
+
+  if(expanded[p.id] && !isSkipped) card.appendChild(buildExpand(p));
+  return card;
+}
+
+// 1-tryks handlinger — billig fortryd er modstykket til lav friktion
+function quickApprove(id){
+  var p=prodById(id);
+  if(!counts[id]) counts[id]={};
+  counts[id][activeUnit]={ qty:p.grocy, mode:'stock' };
+  delete expanded[id];
+  render();
+}
+function skipItem(id){
+  if(!skipped[activeUnit]) skipped[activeUnit]={};
+  skipped[activeUnit][id]=true;
+  delete expanded[id];
+  render();
+}
+function unskipItem(id){
+  if(skipped[activeUnit]) delete skipped[activeUnit][id];
+  render();
+}
+
+function buildExpand(p){
+  var st = expanded[p.id];
+  var wrap = document.createElement('div');
+  var q = document.createElement('div'); q.className='qgroup';
+  var minus=document.createElement('button'); minus.className='step'; minus.textContent='−';
+  var val=document.createElement('input'); val.className='qval'; val.value=nf(st.qty);
+  var plus=document.createElement('button'); plus.className='step'; plus.textContent='+';
+  var tog=document.createElement('div'); tog.className='unitToggle';
+  var bKg=document.createElement('button'); bKg.textContent='kg'; bKg.className=st.mode==='stock'?'on':'';
+  var bPk=document.createElement('button'); bPk.textContent=p.pack.name; bPk.className=st.mode==='pack'?'on':'';
+  tog.appendChild(bKg); tog.appendChild(bPk);
+  q.appendChild(minus); q.appendChild(val); q.appendChild(plus); q.appendChild(tog);
+
+  var conv=document.createElement('div'); conv.className='conv';
+  function updConv(){
+    if(st.mode==='pack') conv.textContent=nf(st.qty)+' '+p.pack.name+' er '+nf(st.qty*p.pack.factor)+' kg';
+    else conv.textContent='';
+  }
+  minus.addEventListener('click',function(){ st.qty=Math.max(0,(parseFloat(val.value.replace(',','.'))||0)-1); val.value=nf(st.qty); updConv(); });
+  plus.addEventListener('click',function(){ st.qty=(parseFloat(val.value.replace(',','.'))||0)+1; val.value=nf(st.qty); updConv(); });
+  val.addEventListener('input',function(){ st.qty=parseFloat(val.value.replace(',','.'))||0; updConv(); });
+  bKg.addEventListener('click',function(){ st.mode='stock'; bKg.className='on'; bPk.className=''; updConv(); });
+  bPk.addEventListener('click',function(){ st.mode='pack'; bPk.className='on'; bKg.className=''; updConv(); });
+
+  var save=document.createElement('div'); save.className='save';
+  var ok=document.createElement('button'); ok.className='ok'; ok.textContent='Gem';
+  var cancel=document.createElement('button'); cancel.className='cancel'; cancel.textContent='Færdig';
+  ok.addEventListener('click',function(){ saveCount(p.id); });
+  cancel.addEventListener('click',function(){ toggleExpand(p.id); });
+  save.appendChild(ok); save.appendChild(cancel);
+
+  wrap.appendChild(q); wrap.appendChild(conv); wrap.appendChild(save);
+  updConv();
+  return wrap;
+}
+
+function toggleExpand(id){
+  if(expanded[id]){ delete expanded[id]; }
+  else {
+    var ex = counts[id] && counts[id][activeUnit];
+    expanded[id] = ex ? { mode:ex.mode, qty:ex.qty } : { mode:'stock', qty:1 };
+  }
+  render();
+}
+function saveCount(id){
+  var st = expanded[id];
+  if(!counts[id]) counts[id]={};
+  counts[id][activeUnit] = { qty:st.qty, mode:st.mode };
+  delete expanded[id];
+  render();
+}
+function toggleMenu(id){
+  var m=document.getElementById('menu-'+id);
+  var show=!m.classList.contains('show');
+  document.querySelectorAll('.menu').forEach(function(x){x.classList.remove('show');});
+  if(show) m.classList.add('show');
+}
+function menuAct(id,act){
+  document.querySelectorAll('.menu').forEach(function(x){x.classList.remove('show');});
+  var p=prodById(id);
+  if(act==='notrack'){ p.badge=''; p.status=''; alert('“'+p.name+'” bliver ikke længere husket til fast optælling.\n\nDen ligger stadig på listen — den rykker bare ikke op i toppen mere.'); }
+  if(act==='discontinued'){ if(confirm('Bruger I slet ikke “'+p.name+'” mere?\n\nLageret sættes til 0, og varen fjernes fra listerne, når du gemmer.')) alert('“'+p.name+'” er markeret som udgået.'); }
+  render();
+}
+document.body.addEventListener('click',function(){ document.querySelectorAll('.menu').forEach(function(x){x.classList.remove('show');}); });
+
+// End screen
+document.getElementById('finishBtn').addEventListener('click',function(){ document.getElementById('overlay').classList.add('show'); });
+document.getElementById('endBack').addEventListener('click',function(){ document.getElementById('overlay').classList.remove('show'); });
+document.getElementById('receiptClose').addEventListener('click',function(){ document.getElementById('receipt').classList.remove('show'); });
+document.getElementById('confActs').addEventListener('click',function(e){
+  var b=e.target.closest('[data-conf]'); if(!b) return;
+  conflictResolved=b.getAttribute('data-conf');
+  document.getElementById('confActs').innerHTML = conflictResolved==='override'
+    ? '<span style="color:var(--color-orange);font-weight:600;font-size:13px">Overskriver med din optælling</span>'
+    : '<span style="color:var(--color-text-dim);font-weight:600;font-size:13px">Beholder Grocys tal</span>';
+});
+document.getElementById('commitBtn').addEventListener('click',function(){
+  if(!conflictResolved){ alert('1 vare ændrede sig i Grocy siden du talte — afklar den øverst før du gemmer.'); return; }
+  document.getElementById('overlay').classList.remove('show');
+  document.getElementById('receiptTxt').textContent = conflictResolved==='keep'
+    ? '✓ Gemt: 1 lager-rettelse, 2 varer markeret tjekket (1 beholdt Grocys tal)'
+    : '✓ Gemt: 2 lager-rettelser, 3 varer markeret tjekket';
+  document.getElementById('receipt').classList.add('show');
+  counts={}; skipped={}; expanded={}; conflictResolved=null; render();
+  document.getElementById('confActs').innerHTML =
+    '<button class="prim" data-conf="override">Overskriv (din: 5,0)</button>'+
+    '<button data-conf="keep">Behold (Grocy: 3,1)</button>';
+});
+
+render();
+</script>
+</body>
+</html>

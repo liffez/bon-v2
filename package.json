@@ -50,6 +50,7 @@
     "test:run-tilbud": "node --env-file=.env.test --experimental-sqlite tests/scripts/run_T_TILBUD.js",
     "test:run-dashboard": "node --env-file=.env.test --experimental-sqlite tests/scripts/run_T_DASHBOARD.js",
     "test:run-opskrifter": "node --env-file=.env.test --experimental-sqlite tests/scripts/run_T_OPSKRIFTER.js",
+    "test:run-optaelling": "node tests/scripts/run_T_OPTAELLING.js",
     "test:ui": "playwright test",
     "test:ui-indkob": "playwright test T_INDKOB_UI",
     "test:inbox": "node --env-file=.env.test --experimental-sqlite tests/inbox_handling.test.js"
