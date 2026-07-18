@@ -2652,11 +2652,20 @@ pakke" eller "en del af det forventede lager". Grocy skelner ikke stykvare fra m
 tærsklen (`_IC_PACK_MIN_SHARE = 0,05`) er et skøn. Kålhovedet er grænsetilfældet: 0,8 kg,
 altså *mindre* end lagerenheden, men "et halvt kålhoved" giver god mening. Efterprøv i køkkenet.
 
-**Tests:** `tests/scripts/run_T_OPTAELLING.js` — **112 PASS · 0 FAIL · 0 SKIP** (pure runner,
-ingen server/Grocy). Commit-stien er splittet i `_icPlanCommit` / `_icExecuteCommit` /
-`_icCommitMessage`, så den kan køres med injicerede Grocy-attrapper (case 16) i stedet for
-kun at kunne nås gennem brugerfladen. Mutations-testet: tre bevidste fejl i kilden blev
-alle fanget. Browser-verificeret end-to-end mod grocytest med før-tilstand noteret og
+**Tests — to runnere, fordi den ene ikke kan se layout:**
+- `npm run test:run-optaelling` — **112 PASS · 0 FAIL · 0 SKIP** (pure, ingen server/Grocy).
+  Commit-stien er splittet i `_icPlanCommit` / `_icExecuteCommit` / `_icCommitMessage`, så
+  den kan køres med injicerede Grocy-attrapper (case 16) i stedet for kun at kunne nås
+  gennem brugerfladen.
+- `npm run test:ui-optaelling` — **8 PASS** (Playwright, mod test:server + grocytest).
+  Dækker det logik-tests ikke kan se: at ⋯-menuen ikke klippes af kortets `overflow:hidden`,
+  at en sprunget vare kan findes ved søgning, at enheds-chips bevarer tællingen, og at
+  tælleenheds-skift omregner frem for bare at skifte etiket. Spec'en skriver aldrig til
+  Grocy — "Gem og luk" trykkes aldrig.
+
+Begge er **mutations-testet**: fem bevidste fejl indført i kildekoden blev alle fanget.
+To af dem (klippet menu, søgning der skjulte en sprunget vare) var ægte fejl der slap
+gennem 112 unit-tests og først blev set i drift — derfor findes UI-spec'en. Browser-verificeret end-to-end mod grocytest med før-tilstand noteret og
 rullet tilbage: lager rettet, `LastCheckedUnit` flyttet, **best-before bevaret**, ikke-talt vare
 urørt. Spec: `tests/specs/T_OPTAELLING.md`.
 

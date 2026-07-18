@@ -539,8 +539,7 @@ function _icRenderSetup() {
         document.body.dataset.icMenuBound = '1';
         document.body.addEventListener('click', function(e) {
             if (e.target.closest && e.target.closest('[data-menu], [data-action="more"]')) return;
-            var open = document.querySelectorAll('[data-menu].ic-visible');
-            for (var i = 0; i < open.length; i++) open[i].classList.remove('ic-visible');
+            _icCloseAllCardMenus();
         });
     }
 
@@ -1451,13 +1450,25 @@ function _icUnskip(productId) {
 }
 
 // Kortets menu (de sjældne beslutninger). Kun én åben ad gangen.
+// ic-menu-open sættes på KORTET, ikke menuen: kortet har overflow:hidden, som
+// ellers klipper menuen af ved sin egen kant (se .ic-menu-open i css'en).
+function _icCloseAllCardMenus(root) {
+    root = root || document;
+    var open = root.querySelectorAll('[data-menu].ic-visible');
+    for (var i = 0; i < open.length; i++) open[i].classList.remove('ic-visible');
+    var cards = root.querySelectorAll('.ic-card.ic-menu-open');
+    for (var j = 0; j < cards.length; j++) cards[j].classList.remove('ic-menu-open');
+}
+
 function _icToggleCardMenu(card) {
     var menu = card.querySelector('[data-menu]');
     if (!menu) return;
     var willOpen = !menu.classList.contains('ic-visible');
-    var all = _icContainer.querySelectorAll('[data-menu].ic-visible');
-    for (var i = 0; i < all.length; i++) all[i].classList.remove('ic-visible');
-    if (willOpen) menu.classList.add('ic-visible');
+    _icCloseAllCardMenus(_icContainer);
+    if (willOpen) {
+        menu.classList.add('ic-visible');
+        card.classList.add('ic-menu-open');
+    }
 }
 
 // Beslutning fra menuen. Skrives IKKE nu - først ved commit, som alt andet

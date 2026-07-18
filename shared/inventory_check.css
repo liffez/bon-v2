@@ -1128,6 +1128,16 @@
 /* Kortet er ankeret for menuens absolutte placering. */
 .ic-card { position: relative; }
 
+/* Kortet har overflow:hidden (linje 320) for at klippe de runde hjørner og
+   ic-hiding-animationen. Det klippede også ⋯-menuen af ved kortets kant — og
+   z-index hjælper ikke mod overflow. Mens menuen er åben slås klipningen fra,
+   og kortet løftes over sine naboer: et senere søskende-kort ville ellers
+   tegne ovenpå, fordi begge ligger på z-index auto. */
+.ic-card.ic-menu-open {
+    overflow: visible;
+    z-index: 20;
+}
+
 @media (max-width: 600px) {
     .ic-unit-chip { min-height: 44px; }
     .ic-count-unit { min-height: 40px; }

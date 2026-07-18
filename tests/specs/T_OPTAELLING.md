@@ -58,9 +58,20 @@ til hjem-lokation). Varen forsvinder ikke tavst.
 - Case 11 `conflict=false` ved drift → tavs last-writer-wins → auto-deduct-forbrug overskrives.
 
 ## 7. Filer
-- Kode: `shared/inventory_check.js`
-- Runner: `tests/scripts/run_T_OPTAELLING.js`
-- npm: `test:run-optaelling`
+- Kode: `shared/inventory_check.js` + `.css`
+- Runner (logik): `tests/scripts/run_T_OPTAELLING.js` — npm: `test:run-optaelling`
+- Runner (UI): `tests/playwright/T_OPTAELLING_UI.spec.js` — npm: `test:ui-optaelling`
+
+### Hvorfor to runnere
+Den pure runner kan ikke se layout. To fejl slap igennem den og blev først fundet
+manuelt: ⋯-menuen klippet af kortets `overflow:hidden`, og en søgning der kun ramte
+en sprunget vare der viste "Ingen varer matcher". Begge er render-fejl. Playwright-
+spec'en kører mod den rigtige side og asserterer det logik-testene ikke kan se —
+at elementer er synlige, klikbare og ikke dækket af naboer (`elementFromPoint`).
+
+Spec'en opretter to fysiske enheder (`T_OPT-1`/`T_OPT-2`) på den Grocy-lokation der
+har flest produkter, og arkiverer dem bagefter. **Den skriver aldrig til Grocy** —
+"Gem og luk" trykkes aldrig, så optællingen lever kun i localStorage.
 
 ## 8. Hvad vi ved
 BB-adfærd verificeret empirisk mod grocytest (Grocy 4.6.0, 18. juli 2026): udelad
@@ -72,7 +83,15 @@ Tracken er komplet for #331.
 
 Case 16 er **mutations-testet**: tre bevidste fejl indført i kildekoden blev alle
 fanget — genindført `'2999-12-31'` (16b), stempling af ikke-talte varer (16c/16d),
-og ombyttet rækkefølge i "varen findes ikke mere" (16p). Hvis optællingen udvides (fx server-side session-lås fra #243),
+og ombyttet rækkefølge i "varen findes ikke mere" (16p).
+
+UI-spec'en er mutations-testet på samme måde: fjernet `overflow: visible` fra
+`.ic-menu-open` → UI_02 fejler; tom-tilstanden flyttet tilbage før de sprungne kort
+→ UI_06 fejler.
+
+**Stadig udækket:** ingen tests for selve `_icSaveAllToGrocy`-orkestreringen i en
+browser (UI-spec'en trykker bevidst aldrig "Gem og luk", for ikke at skrive til
+grocytest). Skrivningerne er dækket logisk af case 16 med attrapper. Hvis optællingen udvides (fx server-side session-lås fra #243),
 hører nye cases til her.
 
 Åbent til drift, ikke til kode: tærsklen i `_icIsPackUnit` (`_IC_PACK_MIN_SHARE = 0,05`)
