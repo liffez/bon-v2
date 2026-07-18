@@ -656,6 +656,15 @@ function _blRenderTable() {
             statusInner += '<span class="bl-status-time">' + esc(statusTime) + '</span>';
         }
 
+        // Fakturavagt (#319): markeret faktureret, men ingen faktura findes.
+        // Udledt af serveren — forsvinder af sig selv når kladden dukker op.
+        if (bon.missing_invoice) {
+            statusInner += '<span class="bl-missing-invoice"'
+                + ' title="Markeret faktureret, men der findes hverken e-conomic-kladde'
+                + ' eller bogført faktura — kunden har ikke fået en regning">'
+                + '⚠ ingen faktura</span>';
+        }
+
         statusInner += '<button type="button" class="bl-history-btn"'
             + ' data-bon-id="' + bon.id + '"'
             + ' data-bon-number="' + esc(bon.bon_number) + '"'

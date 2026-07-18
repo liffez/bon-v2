@@ -841,6 +841,24 @@
         i stedet for styr på det.
       </p>
 
+      <h3 style="margin-top:24px;font-size:15px;font-weight:700">Fakturavagt</h3>
+      <div style="font-size:12px;color:var(--color-text-dim);margin-bottom:14px;line-height:1.6;max-width:600px;background:var(--color-background);padding:10px 14px;border-radius:6px;border:1px solid var(--color-border)">
+        Markeres en bon <strong style="color:var(--color-text)">FAKTURERET</strong> eller
+        <strong style="color:var(--color-text)">AFSLUTTET</strong> uden at der findes en e-conomic-kladde
+        eller en bogført faktura, spørger systemet én gang — og sætter et mærke på bonnen.<br>
+        Mærket forsvinder <strong style="color:var(--color-text)">af sig selv</strong> når fakturaen dukker op.<br>
+        <span style="margin-top:4px;display:inline-block">Modregning, sponsorat, kontant og POS springes over — de skal aldrig faktureres.</span>
+      </div>
+      <div style="display:flex;gap:12px;align-items:center;margin-bottom:6px">
+        <label style="width:280px;font-size:14px;font-weight:500">Vagten gælder fra</label>
+        <input class="st-input" id="invoice-guard-from" type="date" style="width:160px"
+               onchange="saveSetting('invoice_guard_from_date', this.value)">
+      </div>
+      <p style="font-size:11px;color:var(--color-text-dim);margin:0 0 24px;max-width:600px;line-height:1.6">
+        Bons leveret før denne dato vurderes ikke. Sæt den til dagen e-conomic-rutinen startede —
+        ellers ville vagten lyse på hver eneste historiske bon, og så holder man op med at se den.
+      </p>
+
       <h3 style="margin-top:24px;font-size:15px;font-weight:700">Kapacitetsplanlægning</h3>
       <div style="font-size:12px;color:var(--color-text-dim);margin-bottom:14px;line-height:1.6;max-width:600px;background:var(--color-background);padding:10px 14px;border-radius:6px;border:1px solid var(--color-border)">
         <strong style="color:var(--color-text)">Belastning = enheder / persontimer</strong><br>
@@ -2514,6 +2532,10 @@ function loadCapacitySettings() {
   document.getElementById('cap-yellow').value = allSettings['capacity_threshold_yellow'] || '45';
   document.getElementById('cap-thresholds').style.display = enabled ? 'block' : 'none';
   document.getElementById('cap-prod-start').value = allSettings['production_start_time'] || '08:00';
+
+  // Fakturavagt (#319) — skæringsdato
+  var guardEl = document.getElementById('invoice-guard-from');
+  if (guardEl) guardEl.value = allSettings['invoice_guard_from_date'] || '';
 }
 
 async function toggleCapacity() {

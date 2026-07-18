@@ -307,6 +307,22 @@
     font-style: italic;
 }
 
+/* Fakturavagt (#319) — bonnen er faktureret, men ingen faktura findes.
+   Udledt mærke: forsvinder af sig selv når kladden dukker op. */
+.drawer-invoice-warning {
+    margin-top: 8px;
+    padding: 8px 10px;
+    border-radius: 5px;
+    background: #fdf3e3;
+    border-left: 3px solid #d98324;
+    color: #7a4a10;
+    font-size: 12px;
+    line-height: 1.45;
+}
+.drawer-invoice-warning .diw-sub {
+    color: #a07340;
+}
+
 .drawer-status-flash {
     display: inline-block;
     font-size: 13px;
