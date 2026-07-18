@@ -364,6 +364,27 @@ hård browser-refresh (Cmd+Shift+R) efter deploy — JS/CSS kan være cachet.
 - Settings-ændringer der peger på Grocy/Smartplan/SMTP kræver ikke genstart (læses ved hver brug eller har egen cache-invalidation)
 - Hvis PR'en kun rører `docs/`, `*.md` eller `tests/` → ingen `git pull` på server nødvendig
 
+**Hvilke tests kan køres HVOR (vigtigt — spar dig selv turen):**
+
+| Type | Kommando | Server? | Hvorfor |
+|---|---|---|---|
+| Pure runnere | fx `npm run test:run-optaelling` | ✅ ja | Ingen server, ingen Grocy, ingen DB — kører hvor som helst |
+| Track-runnere | `test:run-*`, `test:inv` m.fl. | ⚠️ nej | Kræver `.env.test` + `test.db` + testserver på 4322 + grocytest |
+| UI-tests | `test:ui*` (Playwright) | ❌ **nej** | `@playwright/test` er en **devDependency** og er ikke installeret i drift. Den ville trække ~150 MB Chromium ned på produktionsmaskinen. Kør dem lokalt. |
+
+`npm run test:ui-optaelling` på serveren giver `sh: 1: playwright: not found` — det er
+**forventet og korrekt**, ikke en fejl der skal rettes. UI-tests hører til på
+udviklingsmaskinen (eller i CI), ikke på Hetzner.
+
+Lokalt, første gang:
+```bash
+npm i -D @playwright/test && npx playwright install chromium
+npm run test:ui-optaelling
+```
+
+Det du reelt skal teste **på serveren**, er selve UI'et i browseren. Playwright-spec'en er
+en sikkerhedssnor for fremtidige ændringer — ikke en erstatning for at kigge på det i drift.
+
 **Issue-lukning (commit ≠ luk):**
 - `Closes #N` i PR-bodyen → **kun** når issuet er fuldt løst af denne ændring (features, bugs, tech-debt). Lukker automatisk ved squash-merge til `main` — aldrig på en løs commit.
 - `Refs #N` → når PR'en kun rører *en del* af et issue (fx en delopgave under et epic) uden at afslutte det. Lukker ikke.
