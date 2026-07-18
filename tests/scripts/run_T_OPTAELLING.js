@@ -287,12 +287,184 @@ function caseDecimals() {
 }
 
 // ════════════════════════════════════════════════════════════
-// SKIP — PR 2-cases
+// PR 2 — enheds-chips, tælleenheder, beslutninger, session-nøgle
 // ════════════════════════════════════════════════════════════
-function casePr2Skips() {
-    skip('8 enheds-chips bevarer tælling', 'PR 2 (UX)');
-    skip('9 ⋯ Skal ikke tjekkes → HverDag=""', 'PR 2 (UX)');
-    skip('10 ⋯ Udgået → inventory 0 + active=0', 'PR 2 (kræver produkt-patch-endpoint)');
+
+// Case 8 — enheds-chips må aldrig tabe en tælling. Skifter man frem og
+// tilbage mellem KØL-1 og KØL-2 skal begge tal stå urørt, og totalen (det
+// der skrives til lageret) skal være summen.
+function caseUnitChips() {
+    section('Case 8 — enheds-chips bevarer tælling');
+    resetState();
+    _ic.products = [{ id: 7, name: 'Mozzarella', userfields: {} }];
+    _ic.grocyStock[7] = { amount: 5, unit: 'Kilo', bestBefore: null };
+
+    _ic.physicalUnit = 'KØL-1';
+    IC._icSaveCount(7, 3);
+    _ic.physicalUnit = 'KØL-2';
+    IC._icSaveCount(7, 1.5);
+
+    ok('8a tælling i KØL-1 bevaret efter enhedsskift', _ic.counts[7].units['KØL-1'] === 3,
+       'fik ' + _ic.counts[7].units['KØL-1']);
+    ok('8b tælling i KØL-2 gemt', _ic.counts[7].units['KØL-2'] === 1.5);
+    ok('8c total = sum over enheder', _ic.counts[7].total === 4.5, 'fik ' + _ic.counts[7].total);
+    ok('8d lastUnit = sidst talte enhed', _ic.counts[7].lastUnit === 'KØL-2');
+
+    // Tilbage til første enhed og tæl om — den anden enhed må ikke røres.
+    _ic.physicalUnit = 'KØL-1';
+    IC._icSaveCount(7, 2);
+    ok('8e recount i KØL-1 rører ikke KØL-2', _ic.counts[7].units['KØL-2'] === 1.5);
+    ok('8f total genberegnet efter recount', _ic.counts[7].total === 3.5, 'fik ' + _ic.counts[7].total);
+
+    // §6-baseline fanges én gang, så den overlever recount + enhedsskift.
+    ok('8g grocyAtCount-baseline uændret af recount', _ic.counts[7].grocyAtCount === 5);
+}
+
+// Case 9/10 — beslutningerne fra kortets menu skrives FØRST ved commit
+// (spec §3: intet går til lageret før "Gem og luk"). Her låser vi at de
+// ligger i sessionen, og at commit-stien indeholder de rigtige skrivninger.
+function caseDecisions() {
+    section('Case 9/10 — beslutninger fra kortmenuen');
+    resetState();
+    _ic.decisions = { '7': 'notrack', '9': 'discontinued' };
+
+    ok('9a beslutning ligger i sessionen', _ic.decisions['7'] === 'notrack');
+    ok('10a udgået-beslutning ligger i sessionen', _ic.decisions['9'] === 'discontinued');
+
+    // Commit-stien: "Skal ikke tælles fast" rydder HverDag.
+    ok('9b commit skriver HverDag=""',
+       /putGrocyProductUserfields\(\s*dpid\s*,\s*\{\s*HverDag:\s*''\s*\}\s*\)/.test(SRC));
+
+    // "Varen findes ikke mere": lager 0 + deaktivér produktet.
+    ok('10b commit sætter lager til 0', /postGrocyInventory\(dpid,\s*0\)/.test(SRC));
+    ok('10c commit deaktiverer produktet', /putGrocyProduct\(dpid,\s*\{\s*active:\s*0\s*\}\)/.test(SRC));
+
+    // Destruktivt → skal bekræftes (3 tryk i alt, spec §7).
+    const decideFn = SRC.slice(SRC.indexOf('function _icDecide'), SRC.indexOf('function _icSetCountUnit'));
+    ok('10d udgået kræver bekræftelse', decideFn.indexOf('confirm(') !== -1);
+
+    // Beslutninger må ikke skrives fra kort-handlingen — kun ved commit.
+    ok('9c _icDecide skriver ikke til Grocy',
+       decideFn.indexOf('putGrocyProduct') === -1 && decideFn.indexOf('postGrocyInventory') === -1);
+}
+
+// Case 13 — tælleenheder: tæl i pakke, skriv i lagerenhed.
+function caseCountUnits() {
+    section('Case 13 — tælleenheder');
+    resetState();
+    // 1 kg = 4 bøtter  →  1 bøtte = 0,25 kg
+    _ic.conversions = [{ product_id: 7, from_qu_id: 4, to_qu_id: 12, factor: 4 }];
+    const prod = { id: 7, qu_id_stock: 4, qu_id_purchase: 12 };
+
+    const opts = IC._icCountUnitOptions(prod);
+    ok('13a lagerenhed er første valg', opts.length === 2 && opts[0].isStock === true);
+    ok('13b lagerenhed har toStock=1', opts[0].toStock === 1);
+    ok('13c pakke-enhed omregner til lagerenhed', Math.abs(opts[1].toStock - 0.25) < 1e-9,
+       'fik ' + opts[1].toStock);
+    ok('13d pakke-enhed har navn', opts[1].name === 'Bøtte', 'fik ' + opts[1].name);
+
+    // 3 bøtter skal blive 0,75 kg på lageret.
+    ok('13e 3 bøtter = 0,75 kg', Math.abs(3 * opts[1].toStock - 0.75) < 1e-9);
+
+    // Ingen konvertering → kun lagerenheden, ingen fejl (spec §7 fallback).
+    const bare = IC._icCountUnitOptions({ id: 8, qu_id_stock: 4, qu_id_purchase: 99 });
+    ok('13f uden konvertering: kun lagerenhed', bare.length === 1 && bare[0].isStock === true);
+
+    // Hukommelsen er pr. vare OG fysisk enhed — samme vare tælles ofte i
+    // forskellige enheder alt efter hvor den står.
+    _ic.countUnitPref = {};
+    _ic.physicalUnit = 'KØL-1';
+    _ic.countUnitPref[7 + '|KØL-1'] = 12;
+    ok('13g husket tælleenhed vælges', String(IC._icPickCountUnit(prod).quId) === '12');
+    _ic.physicalUnit = 'TØR-1';
+    ok('13h anden fysisk enhed → lagerenhed igen', IC._icPickCountUnit(prod).isStock === true);
+    ok('13i skrivning sker altid i lagerenhed (kommentar-anker)',
+       /Grocy f.r ALTID lagerenheden/.test(SRC));
+
+    // Brøk-knapperne: "en kvart pakke" giver kun mening når tælleenheden er
+    // STØRRE end lagerenheden. For en mindre enhed (gram af kilo) ville
+    // "¼ gram" være meningsløst — der beholder brøken sin gamle betydning.
+    const frac = SRC.slice(SRC.indexOf('function _icSetFraction'),
+                           SRC.indexOf('function _icRefreshFractionLabels'));
+    ok('13j brøk deler ÉN stykvare via _icIsPackUnit', /_icIsPackUnit\(toStock\)/.test(frac));
+    ok('13k målenhed falder tilbage til andel af forventet lager',
+       /grocy\s*\*\s*fraction\)\s*\/\s*toStock/.test(frac));
+
+    // Stykvare vs. målenhed. Kålhovedet (0,8 kg) er det vigtige tilfælde: det er
+    // mindre end lagerenheden, men "et halvt kålhoved" giver god mening.
+    ok('13l lagerenhed er ikke en stykvare', IC._icIsPackUnit(1) === false);
+    ok('13m bøtte (0,25 kg) er en stykvare', IC._icIsPackUnit(0.25) === true);
+    ok('13n hovedkål (0,8 kg) er en stykvare', IC._icIsPackUnit(0.8) === true);
+    ok('13o kasse (5 kg) er en stykvare', IC._icIsPackUnit(5) === true);
+    ok('13p gram (0,001 kg) er en målenhed', IC._icIsPackUnit(0.001) === false);
+}
+
+// Case 14 — session-nøglen. Fundet under PR 2: den var UTC-dateret, så en
+// aftenoptælling skiftede nøgle ved dansk kl. 22 og forsvandt.
+function caseSessionKey() {
+    section('Case 14 — session-nøgle uden UTC-dato');
+    resetState();
+
+    ok('14a nøgle er ikke dato-scopet', IC._icSessionKey() === 'ic_counts_6',
+       'fik ' + IC._icSessionKey());
+    ok('14b nøglen indeholder ingen dato', !/\d{4}-\d{2}-\d{2}/.test(IC._icSessionKey()));
+
+    // Lokal dato, ikke UTC (memory project_utc_today_bug).
+    const nytaarsaften = new Date(2026, 11, 31, 23, 30, 0);   // lokal 31/12 kl. 23:30
+    ok('14c _icLocalDate bruger lokal dato', IC._icLocalDate(nytaarsaften) === '2026-12-31',
+       'fik ' + IC._icLocalDate(nytaarsaften));
+    ok('14d ingen toISOString i session-nøglen',
+       SRC.slice(SRC.indexOf('function _icSessionKey'), SRC.indexOf('function _icMigrateLegacySessions'))
+          .indexOf('toISOString') === -1);
+
+    // Genoptag-banner: kun når der faktisk ER noget at genoptage.
+    _ic.startedAt = null; _ic.counts = {};
+    ok('14e tom session er ikke "gammel"', IC._icSessionIsOld() === false);
+    _ic.startedAt = daysAgoISO(2);
+    _ic.counts = { 7: { units: { 'KØL-1': 1 }, total: 1 } };
+    ok('14f session fra i forgårs er gammel', IC._icSessionIsOld() === true);
+    _ic.startedAt = new Date().toISOString();
+    ok('14g session fra i dag er ikke gammel', IC._icSessionIsOld() === false);
+}
+
+// Case 15 — sprunget over forsvinder ikke længere fra listen.
+function caseSkipVisible() {
+    section('Case 15 — sprunget over bliver synligt');
+    resetState();
+    _ic.products = [
+        { id: 7, name: 'Mozzarella', location_id: 6, userfields: {} },
+        { id: 8, name: 'Æg',         location_id: 6, userfields: {} }
+    ];
+    _ic.grocyStock[7] = { amount: 5, unit: 'Kilo', bestBefore: null };
+    _ic.grocyStock[8] = { amount: 2, unit: 'Kilo', bestBefore: null };
+    _ic.skipped = [7];
+
+    const cat = IC._icCategorize();
+    ok('15a sprunget vare er ikke i den utjekkede liste',
+       cat.unchecked.filter(p => p.id === 7).length === 0);
+    ok('15b sprunget vare forsvinder ikke — den er i skipped',
+       (cat.skipped || []).filter(p => p.id === 7).length === 1);
+    ok('15c ikke-sprunget vare er upåvirket',
+       cat.unchecked.filter(p => p.id === 8).length === 1);
+    ok('15d sprunget tæller ikke som tjekket', cat.checkedInUnit.length === 0);
+
+    // 15g — søgning der KUN rammer en sprunget vare må ikke udløse tom-tilstanden.
+    // De sprungne kort appendes til samme liste, så en innerHTML-overskrivning
+    // bagefter ville slette dem: varen ligger der, men søgningen påstod nej.
+    const render = SRC.slice(SRC.indexOf('function _icRenderProducts'),
+                             SRC.indexOf('function _icCreateCard'));
+    const tomTilstand = render.indexOf('ic-search-empty');
+    const appendSkip  = render.indexOf('skippedNow.forEach');
+    ok('15g tom-tilstand afgøres før de sprungne kort tilføjes',
+       tomTilstand !== -1 && appendSkip !== -1 && tomTilstand < appendSkip);
+    ok('15h tom-tilstand tæller sprungne med', /skippedNow\.length\s*===\s*0/.test(render));
+
+    // Skip lever nu lige så længe som counts (ikke sessionStorage).
+    ok('15e skip gemmes i sessionens localStorage-payload',
+       /skippedByUnit:\s*_ic\.skippedByUnit/.test(SRC));
+    // Kun omtale i kommentarer er fint — det er brugen der ville give to
+    // forskellige levetider i samme session igen.
+    ok('15f ingen sessionStorage-kald tilbage', !/sessionStorage\s*\.\s*(get|set|remove)Item/.test(SRC));
 }
 
 // ── Main ────────────────────────────────────────────────────
@@ -300,7 +472,9 @@ function main() {
     console.log('[run_T_OPTAELLING] Pure runner — ingen server/Grocy');
     // Verificér export-guard
     const required = ['_icGroupOf', '_icVisibleInUnit', '_icClassifyCounted', '_icCategorize',
-                      '_icFindFactor', '_icGetUnitsForLocation', '_icFmt', '_icParseNum', '_ic'];
+                      '_icFindFactor', '_icGetUnitsForLocation', '_icFmt', '_icParseNum', '_ic',
+                      '_icCountUnitOptions', '_icPickCountUnit', '_icLocalDate', '_icIsPackUnit',
+                      '_icSessionKey', '_icSessionIsOld', '_icSaveCount'];
     const missing = required.filter(k => IC[k] === undefined);
     if (missing.length) {
         console.error('[run_T_OPTAELLING] SETUP-fejl: manglende export: ' + missing.join(', '));
@@ -313,7 +487,11 @@ function main() {
     caseConversion();
     caseSourceGuards();
     caseDecimals();
-    casePr2Skips();
+    caseUnitChips();
+    caseDecisions();
+    caseCountUnits();
+    caseSessionKey();
+    caseSkipVisible();
 
     console.log(`\n[run_T_OPTAELLING] ${passes} PASS · ${fails} FAIL · ${skips} SKIP`);
     process.exit(fails > 0 ? 1 : 0);

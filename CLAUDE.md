@@ -2609,6 +2609,54 @@ vedhæfte filer (kort, billeder, PDF) til eventet. Plus en throwaway prep-estima
 - **Bevidst udeladt:** prep-tid-modellen (§15) er stadig kun design-noter + prototype; dags-ratio-
   eksklusionen (§15.3 pkt. 4) holdt adskilt. Browser-verificeret end-to-end + godkendt i drift.
 
+### Lageroptælling — rullende session-model (#331, PR 1 #332 + PR 2, 18. juli 2026)
+> Spec: `docs/CLAUDE_OPTAELLING.md` (første spec for optællingen) · Mockup: `docs/optaelling_mockup_pr2.html`
+> Optællingen er backstoppet der re-baseliner Grocy-lageret. Efter #305 (auto-deduct tændt)
+> er den vigtigere end nogensinde — og den forgiftede sine egne data.
+
+**PR 1 — fire stille-datafejl** ([shared/inventory_check.js](shared/inventory_check.js)):
+`LastCheckedAt` blev skrevet ved HVER tælling (afbrudt session = "tjekket i dag" i Grocy uden
+at lageret blev rettet) · hardkodet `2999-12-31` stemplede optalt surplus som "udløber aldrig" ·
+sorteringen kunne løfte en nyligt tjekket vare over en ikke-tjekket · `default_consume_location_id`
+trak frostvarer ind i køle-listen. Plus concurrency-vagt (§6): baseline pr. vare på
+tælletidspunktet, ingen tavs last-writer-wins.
+
+**PR 2 — UX-redesign** (samme fil + `.css`):
+- **Enheds-chips** erstatter "Næste enhed" — alle fysiske enheder synlige med antal talte varer.
+  Tælling bevares pr. enhed (`counts[id].units`), så samme vare kan tælles flere steder.
+- **Tælleenheder**: tæl i "3 bøtter", skriv i kg. Live-konvertering under feltet viser hvad der
+  faktisk lander på lageret. Enheden huskes pr. **vare + fysisk enhed** (bøtter i køl, kasser på
+  tørlager) — et forslag, ikke en låsning; togglen står altid synlig.
+- **⋯-menu** (2 tryk, kun beslutninger): "Skal ikke tælles fast" (`HverDag=""`) · "Varen findes
+  ikke mere" (lager 0 + `active=0`, bekræftes). ✓ godkend og ⏭ spring over bliver på kortet
+  (1 tryk) — omkostning følger hyppighed, ikke konsekvens-frygt.
+- **Sprungne varer forsvinder ikke** — de dæmpes med "Sprunget over i \<enhed\> · Fortryd", og
+  progress viser "· N sprunget over" så tallet ikke lyver.
+- **Ny slutskærm** ("Gem og luk") med beslutnings-sektion + **blivende kvitteringsbanner**
+  (en 3-sek toast er væk før man har nået at læse den).
+
+**To ekstra datafejl fundet under PR 2** (begge rettet):
+- `_icSessionKey()` brugte UTC-dato → dansk kl. 22 er UTC "i morgen", så en aftenoptælling
+  skiftede nøgle og mistede alle counts. Samme fælde som memory `project_utc_today_bug`.
+- Den dags-scopede nøgle modsagde spec §6's egen fler-dags-præmis og efterlod døde
+  localStorage-nøgler. Nøglen er nu `ic_counts_<lokation>` med `startedAt` i payloadet;
+  en session fra i går møder et genoptag-banner i stedet for at blive kasseret bag ryggen
+  på brugeren. Skip flyttet fra `sessionStorage` ind i samme payload (samme levetid som counts).
+
+**Sprog** (spec §7): ingen systemord i UI — "Grocy" ude af brugerteksten, konflikt-valg hedder
+"Mit tal er rigtigt" / "Lagerets tal er rigtigt", ikke "Overskriv"/"Behold". Mockup'en er ældre
+end det princip og blev bevidst fraveget tre steder.
+
+**Åbent til drift, ikke til kode:** `_icIsPackUnit()` afgør om ¼ ½ ¾ betyder "en del af én
+pakke" eller "en del af det forventede lager". Grocy skelner ikke stykvare fra målenhed, så
+tærsklen (`_IC_PACK_MIN_SHARE = 0,05`) er et skøn. Kålhovedet er grænsetilfældet: 0,8 kg,
+altså *mindre* end lagerenheden, men "et halvt kålhoved" giver god mening. Efterprøv i køkkenet.
+
+**Tests:** `tests/scripts/run_T_OPTAELLING.js` — **91 PASS · 0 FAIL · 0 SKIP** (pure runner,
+ingen server/Grocy). Browser-verificeret end-to-end mod grocytest med før-tilstand noteret og
+rullet tilbage: lager rettet, `LastCheckedUnit` flyttet, **best-before bevaret**, ikke-talt vare
+urørt. Spec: `tests/specs/T_OPTAELLING.md`.
+
 ## Næste opgave
 
 > ✏️ Tracker-oprydning 29. juni 2026 — koden er på migration 119; status-sektionen ovenfor

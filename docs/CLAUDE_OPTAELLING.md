@@ -287,9 +287,57 @@ concurrency. Ligger uden for PR 1/2 medmindre driften viser reelle kollisioner.
 - Concurrency-minimum (§6): frisk-lager-tjek + bekræftelse ved drevet beholdning
 - T_OPTAELLING cases 1–7 (§10)
 
-**PR 2 — UX-redesign:**
+**PR 2 — UX-redesign: ✅ LEVERET (18. juli 2026)**
 - Enheds-chips, tælleenheder, ⋯-menu, ny slutskærm + kvitteringsbanner
-- T_OPTAELLING cases 8–11
+- T_OPTAELLING cases 8–10 + 13–15 (89 PASS · 0 FAIL · 0 SKIP)
+- **Plus to datafejl fundet undervejs** (§4 Bug 5 + Bug 6) — begge rettet her
+
+### Fundet under PR 2 (ikke i den oprindelige analyse)
+
+**Bug 5 — session-nøglen var UTC-dateret.** `_icSessionKey()` brugte
+`new Date().toISOString().split('T')[0]`. Dansk sommertid er UTC+2, så kl. 22:00 dansk
+er UTC allerede *næste dag* → nøglen skiftede midt i en aftenoptælling og alle counts
+forsvandt tavst. Samme fælde som §4 Bug 3 advarer om for grupperingen — den var bare også
+i nøglen. **Fix:** `_icLocalDate()` (lokale getters) + nøglen af-dato'et helt.
+
+**Bug 6 — dags-scopet nøgle modsagde §6.** §6 begrunder `grocyAtCount`-pr.-vare med at en
+optælling kan genoptages over flere dage — men datoen i nøglen smed counts væk ved midnat,
+og de gamle nøgler blev aldrig ryddet (én død localStorage-nøgle pr. lokation pr. dag).
+**Fix:** nøglen er nu `ic_counts_<lokation>`, payloadet bærer `startedAt`, og en session
+fra en tidligere dag møder et genoptag-banner ("Fortsæt" / "Start forfra") i stedet for
+at blive kasseret bag ryggen på brugeren. Gamle nøgler migreres én gang og slettes.
+
+**Skip flyttet fra `sessionStorage` til sessionens payload.** Skip døde ved fane-luk mens
+counts overlevede — to levetider i samme session gjorde "Fortryd" utroværdig.
+
+### Afvigelser fra mockup'en (bevidste)
+
+Mockup'en er ældre end sprog-princippet i §7 og blev fraveget tre steder:
+- Konflikt-knapperne hedder **"Mit tal er rigtigt" / "Lagerets tal er rigtigt"** (§7), ikke
+  mockup'ens "Overskriv" / "Behold".
+- Ordet **"Grocy" er ude af brugerteksten** ("Henter det nyeste lagertal…", "stemmer med
+  lageret") — systemord per §7.
+- **Sprungne varer forsvinder ikke** fra listen; de dæmpes med "Sprunget over i \<enhed\> ·
+  Fortryd", og progress-linjen får "· N sprunget over" så tallet ikke lyver.
+
+### Brøk-knapper og tælleenheder (åben til validering i køkkenet)
+
+Brøkerne (¼ ½ ¾) skifter betydning med tælleenheden:
+- **Stykvare** (bøtte, kasse, hovedkål) → en del af ÉN af dem (den halvtomme bøtte).
+- **Lagerenhed eller ren målenhed** (gram af kilo) → som før: så stor en del af det
+  forventede lager. "¼ gram" ville være meningsløst.
+
+Grocy skelner ikke mellem stykvare og målenhed, så `_icIsPackUnit()` bruger
+størrelsesforholdet: 1 tælleenhed skal være **≥ 5 %** af en lagerenhed
+(`_IC_PACK_MIN_SHARE`). Kålhovedet er det afgørende tilfælde — 0,8 kg, altså *mindre* end
+lagerenheden, men "et halvt kålhoved" giver god mening. **Tærsklen er et skøn og bør
+efterprøves i drift**, ikke udledes af mere kode. Tooltip'en siger hvad knappen betyder
+netop nu, så samme knap ikke betyder to ting i tavshed.
+
+**Tælleenheden huskes pr. vare OG fysisk enhed** (`ic_countunit`), fordi samme vare tælles
+i forskellige enheder alt efter hvor den står — bøtter i kølerummet, kasser på tørlageret.
+Det er et forslag, ikke en låsning: togglen står altid synlig, og konverteringslinjen
+("640 Gram er 0,64 Kilo") viser hele tiden hvad der faktisk skrives på lageret.
 
 **Følgeopgave (separat lille, efter PR 1):** varemodtagelse sætter `LastCheckedUnit` når en
 vare modtages i en fysisk enhed — så en netop modtaget vare tæller som "observeret der".
