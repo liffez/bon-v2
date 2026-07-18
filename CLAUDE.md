@@ -400,9 +400,15 @@ Runnere der taler direkte til DB eller adapteren (T_DB, T_ECON, T_ECONOMIC, T_GR
 T_RECONCILE) rører aldrig `/api` og er upåvirkede.
 
 **`.env.test` hører ikke på serveren.** Den er gitignored og er et udviklingsartefakt.
-Ligger den i drift, peger `--env-file=.env.test` på noget der ser ud som en testkonfiguration
-men indeholder produktionsværdier — og så kan track-runnere pludselig ramme prod-DB'en.
 Tjek med `ls -la ~/bon-v2/.env.test` og slet den hvis den er der.
+
+Fælden er konkret: `.env.example` er skabelonen for **produktion** og sætter
+`NODE_ENV=production` + `DB_PATH=./data/bon.db`. Gør man `cp .env.example .env.test` —
+den nærliggende bevægelse, når der ikke findes en test-skabelon — peger "testmiljøet"
+dermed på driftens database. Præcis dét var sket på Hetzner (#338).
+
+Brug derfor **`.env.test.example`** som udgangspunkt. Den sætter `DB_PATH=./data/test.db`,
+`NODE_ENV=test` og `GROCY_API_URL` mod grocytest — de tre `safety_check` kigger efter.
 
 `npm run test:migrate` er siden #338 garderet med `--require-test-env`, som kalder
 `safety_check` og afbryder (exit 2) hvis `NODE_ENV`/`DB_PATH`/`GROCY_API_URL` ikke peger på

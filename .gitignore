@@ -1,6 +1,10 @@
 # Miljøvariabler — aldrig i git!
 .env
 .env.*
+# Skabeloner SKAL med i git — de indeholder ingen hemmeligheder, og uden dem
+# improviserer folk (fx `cp .env.example .env.test`, som giver produktionsværdier).
+!.env.example
+!.env.test.example
 
 # Node
 node_modules/
