@@ -57,6 +57,13 @@ function resetState() {
     _ic.quantityUnits = { 4: 'Kilo', 8: 'Antal', 12: 'Bøtte' };
     _ic.conversions = [];
     _ic._commitFresh = null;
+    // Hele sessionen skal nulstilles, ikke kun counts. Manglede disse fire, og
+    // beslutninger fra en tidligere case blødte ind i den næste — commit-testen
+    // så pludselig Grocy-kald den ikke selv havde opsat.
+    _ic.decisions = {};
+    _ic.skippedByUnit = {};
+    _ic.countUnitPref = {};
+    _ic.startedAt = null;
 }
 
 // ════════════════════════════════════════════════════════════
@@ -331,13 +338,8 @@ function caseDecisions() {
     ok('9a beslutning ligger i sessionen', _ic.decisions['7'] === 'notrack');
     ok('10a udgået-beslutning ligger i sessionen', _ic.decisions['9'] === 'discontinued');
 
-    // Commit-stien: "Skal ikke tælles fast" rydder HverDag.
-    ok('9b commit skriver HverDag=""',
-       /putGrocyProductUserfields\(\s*dpid\s*,\s*\{\s*HverDag:\s*''\s*\}\s*\)/.test(SRC));
-
-    // "Varen findes ikke mere": lager 0 + deaktivér produktet.
-    ok('10b commit sætter lager til 0', /postGrocyInventory\(dpid,\s*0\)/.test(SRC));
-    ok('10c commit deaktiverer produktet', /putGrocyProduct\(dpid,\s*\{\s*active:\s*0\s*\}\)/.test(SRC));
+    // (9b/10b/10c er nu rigtige adfærdstest i case 16 — de var kilde-scans,
+    // som består selv hvis kaldet er gjort uopnåeligt.)
 
     // Destruktivt → skal bekræftes (3 tryk i alt, spec §7).
     const decideFn = SRC.slice(SRC.indexOf('function _icDecide'), SRC.indexOf('function _icSetCountUnit'));
@@ -467,14 +469,209 @@ function caseSkipVisible() {
     ok('15f ingen sessionStorage-kald tilbage', !/sessionStorage\s*\.\s*(get|set|remove)Item/.test(SRC));
 }
 
+
+// ════════════════════════════════════════════════════════════
+// CASE 16 — commit-stien kørt med attrap-Grocy
+// ════════════════════════════════════════════════════════════
+// Det her er den mest sikkerhedskritiske kode i modulet: hvad der rent
+// faktisk bliver skrevet til lageret. Tidligere var den kun dækket af
+// kilde-scans (regex mod filens tekst), som består selv hvis kaldet er
+// gjort uopnåeligt — de beviser at koden er skrevet, ikke at den virker.
+// Her injiceres attrapper for Grocy-funktionerne, commit'et køres, og vi
+// asserterer præcis hvilke kald der fyrer, i hvilken rækkefølge.
+
+let _realConsoleError = null;
+
+function installFakeGrocy(failOn) {
+    const calls = [];
+    failOn = failOn || {};
+
+    // De bevidste fejl-cases logger via console.error i produktionskoden.
+    // Det er korrekt opførsel, men støjer i en grøn kørsel — dæmp den mens
+    // attrappen er installeret.
+    if (Object.keys(failOn).length && !_realConsoleError) {
+        _realConsoleError = console.error;
+        console.error = function() {};
+    }
+
+    globalThis.postGrocyInventory = async function(id, amount, bestBefore) {
+        calls.push({ fn: 'inventory', id, amount, bestBefore, argc: arguments.length });
+        if (failOn.inventory === id) throw new Error('attrap: lager-skrivning fejlede');
+        return { ok: true };
+    };
+    globalThis.putGrocyProductUserfields = async function(id, fields) {
+        calls.push({ fn: 'userfields', id, fields });
+        if (failOn.userfields === id) throw new Error('attrap: userfield-skrivning fejlede');
+        return { ok: true };
+    };
+    globalThis.putGrocyProduct = async function(id, body) {
+        calls.push({ fn: 'product', id, body });
+        if (failOn.product === id) throw new Error('attrap: produkt-opdatering fejlede');
+        return { ok: true };
+    };
+    return calls;
+}
+
+function removeFakeGrocy() {
+    if (_realConsoleError) { console.error = _realConsoleError; _realConsoleError = null; }
+    delete globalThis.postGrocyInventory;
+    delete globalThis.putGrocyProductUserfields;
+    delete globalThis.putGrocyProduct;
+}
+
+// Byg en talt vare: produkt + lager + count med baseline.
+function counted(id, name, grocyAmount, countedTotal, opts) {
+    opts = opts || {};
+    _ic.products.push({ id, name, location_id: 6, qu_id_stock: 4, userfields: {} });
+    _ic.grocyStock[id] = { amount: grocyAmount, unit: 'Kilo', bestBefore: null };
+    _ic.counts[id] = {
+        units: { 'KØL-1': countedTotal },
+        total: countedTotal,
+        lastUnit: opts.lastUnit || 'KØL-1',
+        grocyAtCount: opts.baseline === undefined ? grocyAmount : opts.baseline
+    };
+    if (opts.resolved) _ic.counts[id].conflictResolved = opts.resolved;
+}
+
+async function caseCommitExecution() {
+    section('Case 16 — commit-stien med attrap-Grocy');
+
+    // ── 16a-e: hvad bliver skrevet, og hvad bliver IKKE skrevet ──
+    resetState();
+    counted(1, 'Ændret',    5, 3);          // afviger → skal skrives
+    counted(2, 'Uændret',   4, 4);          // stemmer → kun stemples
+    _ic.products.push({ id: 3, name: 'Ikke talt', location_id: 6, userfields: {} });
+    _ic.grocyStock[3] = { amount: 9, unit: 'Kilo', bestBefore: null };
+
+    let calls = installFakeGrocy();
+    let plan = IC._icPlanCommit({ '1': 5, '2': 4, '3': 9 });
+    let res  = await IC._icExecuteCommit(plan);
+
+    const inv = calls.filter(c => c.fn === 'inventory');
+    ok('16a kun den afvigende vare får en lager-skrivning',
+       inv.length === 1 && inv[0].id === 1 && inv[0].amount === 3,
+       JSON.stringify(inv));
+
+    // Bug 2 — ægte assertion nu: best-before må ALDRIG sendes med.
+    ok('16b lager-skrivning sender ingen best-before (Bug 2)',
+       inv[0].argc === 2 && inv[0].bestBefore === undefined,
+       'argc=' + inv[0].argc + ' bb=' + inv[0].bestBefore);
+
+    const stamped = calls.filter(c => c.fn === 'userfields' && c.fields.LastCheckedAt).map(c => c.id);
+    ok('16c begge talte varer stemples som tjekket',
+       stamped.length === 2 && stamped.includes(1) && stamped.includes(2), JSON.stringify(stamped));
+
+    // Bug 1 — den ikke-talte vare må ikke efterlade spor overhovedet.
+    ok('16d ikke-talt vare røres slet ikke (Bug 1)',
+       calls.every(c => c.id !== 3), JSON.stringify(calls.filter(c => c.id === 3)));
+    ok('16e stemplet bærer den enhed varen blev talt i',
+       calls.find(c => c.fn === 'userfields' && c.id === 1).fields.LastCheckedUnit === 'KØL-1');
+    ok('16f resultat tæller korrekt', res.invWritten === 1 && res.invFailed === 0);
+    removeFakeGrocy();
+
+    // ── 16g-i: konflikt-gaten blokerer FAKTISK ──
+    resetState();
+    counted(1, 'Drevet', 5, 3, { baseline: 5 });     // baseline 5, men frisk lager er 9
+    calls = installFakeGrocy();
+    plan = IC._icPlanCommit({ '1': 9 });
+    ok('16g uafklaret konflikt havner i planen', plan.pendingConflicts === 1);
+    ok('16h konflikt-varen er ikke i skrive-listen', plan.toWrite.length === 0);
+    ok('16i intet blev skrevet ved konflikt', calls.length === 0);
+    removeFakeGrocy();
+
+    // "Lagerets tal er rigtigt" → varen glemmes, intet skrives
+    resetState();
+    counted(1, 'Behold lagerets', 5, 3, { baseline: 5, resolved: 'keep' });
+    calls = installFakeGrocy();
+    plan = IC._icPlanCommit({ '1': 9 });
+    res  = await IC._icExecuteCommit(plan);
+    ok('16j "lagerets tal er rigtigt" skriver intet', calls.length === 0);
+    ok('16k den tælles som beholdt', plan.keepCount === 1 && plan.toWrite.length === 0);
+    removeFakeGrocy();
+
+    // "Mit tal er rigtigt" → skrives alligevel
+    resetState();
+    counted(1, 'Mit tal', 5, 3, { baseline: 5, resolved: 'override' });
+    calls = installFakeGrocy();
+    plan = IC._icPlanCommit({ '1': 9 });
+    await IC._icExecuteCommit(plan);
+    ok('16l "mit tal er rigtigt" skriver optællingen',
+       calls.some(c => c.fn === 'inventory' && c.id === 1 && c.amount === 3));
+    removeFakeGrocy();
+
+    // ── 16m-p: beslutningerne fra kortets menu (9b/10b/10c) ──
+    resetState();
+    _ic.decisions = { '7': 'notrack', '9': 'discontinued' };
+    calls = installFakeGrocy();
+    plan = IC._icPlanCommit({});
+    res  = await IC._icExecuteCommit(plan);
+
+    const hverdag = calls.find(c => c.fn === 'userfields' && c.id === 7);
+    ok('16m "skal ikke tælles fast" rydder HverDag',
+       hverdag && hverdag.fields.HverDag === '' && Object.keys(hverdag.fields).length === 1,
+       JSON.stringify(hverdag));
+
+    const disc = calls.filter(c => c.id === 9);
+    ok('16n "varen findes ikke mere" sætter lageret til 0',
+       disc.some(c => c.fn === 'inventory' && c.amount === 0));
+    ok('16o "varen findes ikke mere" deaktiverer produktet',
+       disc.some(c => c.fn === 'product' && c.body.active === 0));
+    ok('16p lageret nulstilles FØR produktet deaktiveres',
+       disc.findIndex(c => c.fn === 'inventory') < disc.findIndex(c => c.fn === 'product'),
+       JSON.stringify(disc.map(c => c.fn)));
+    ok('16q beslutninger tælles hver for sig',
+       res.notrackDone === 1 && res.discDone === 1 && res.decFailed === 0);
+    removeFakeGrocy();
+
+    // ── 16r-t: fejl håndteres og holdes adskilt ──
+    resetState();
+    counted(1, 'Fejler', 5, 3);
+    calls = installFakeGrocy({ inventory: 1 });
+    plan = IC._icPlanCommit({ '1': 5 });
+    res  = await IC._icExecuteCommit(plan);
+    ok('16r fejlet lager-skrivning tælles', res.invFailed === 1 && res.invWritten === 0);
+    ok('16s en vare hvis lager fejlede bliver IKKE stemplet som tjekket',
+       !calls.some(c => c.fn === 'userfields' && c.id === 1),
+       'ellers ville den se tjekket ud uden at være rettet');
+    removeFakeGrocy();
+
+    resetState();
+    _ic.decisions = { '9': 'discontinued' };
+    calls = installFakeGrocy({ product: 9 });
+    plan = IC._icPlanCommit({});
+    res  = await IC._icExecuteCommit(plan);
+    ok('16t beslutnings-fejl blandes ikke sammen med lager-fejl',
+       res.decFailed === 1 && res.invFailed === 0);
+    removeFakeGrocy();
+
+    // ── 16u-w: kvitteringsteksten ──
+    const msg = IC._icCommitMessage(
+        { toWrite: [1, 2], keepCount: 1 },
+        { invWritten: 1, notrackDone: 1, discDone: 0 });
+    ok('16u kvittering nævner det der skete', /1 vare rettet på lageret/.test(msg) &&
+       /2 sat som talt/.test(msg) && /1 beholdt lagerets tal/.test(msg) &&
+       /1 tælles ikke fast mere/.test(msg), msg);
+    ok('16v kvittering bruger ingen systemord',
+       !/Grocy|commit|overskriv|userfield|HverDag/i.test(msg), msg);
+    const tom = IC._icCommitMessage({ toWrite: [], keepCount: 0 },
+                                    { invWritten: 0, notrackDone: 0, discDone: 0 });
+    ok('16w tom commit siger "Ingen ændringer"', /Ingen ændringer/.test(tom), tom);
+
+    const fejlMsg = IC._icCommitErrorMessage({ invWritten: 2, invFailed: 1, decFailed: 1 });
+    ok('16x fejlbesked skelner de to slags fejl',
+       /1 lager-rettelse/.test(fejlMsg) && /1 ændring til varerne/.test(fejlMsg), fejlMsg);
+}
+
 // ── Main ────────────────────────────────────────────────────
-function main() {
+async function main() {
     console.log('[run_T_OPTAELLING] Pure runner — ingen server/Grocy');
     // Verificér export-guard
     const required = ['_icGroupOf', '_icVisibleInUnit', '_icClassifyCounted', '_icCategorize',
                       '_icFindFactor', '_icGetUnitsForLocation', '_icFmt', '_icParseNum', '_ic',
                       '_icCountUnitOptions', '_icPickCountUnit', '_icLocalDate', '_icIsPackUnit',
-                      '_icSessionKey', '_icSessionIsOld', '_icSaveCount'];
+                      '_icSessionKey', '_icSessionIsOld', '_icSaveCount',
+                      '_icPlanCommit', '_icExecuteCommit', '_icCommitMessage',
+                      '_icCommitErrorMessage'];
     const missing = required.filter(k => IC[k] === undefined);
     if (missing.length) {
         console.error('[run_T_OPTAELLING] SETUP-fejl: manglende export: ' + missing.join(', '));
@@ -492,9 +689,13 @@ function main() {
     caseCountUnits();
     caseSessionKey();
     caseSkipVisible();
+    await caseCommitExecution();
 
     console.log(`\n[run_T_OPTAELLING] ${passes} PASS · ${fails} FAIL · ${skips} SKIP`);
     process.exit(fails > 0 ? 1 : 0);
 }
 
-main();
+main().catch(err => {
+    console.error('[run_T_OPTAELLING] Uventet fejl:', err);
+    process.exit(1);
+});

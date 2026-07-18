@@ -42,6 +42,7 @@ To regressions-guards scanner kildefilen (Bug 1: intet `_icUpdateLastChecked`-ka
 | 12 | Decimaler: komma til mennesker, punktum til Grocy | `_icFmt`/`_icParseNum`; guard mod visnings-tal der glemmes i `_icFmt`. | 1 |
 | 13 | Tælleenheder | Lagerenhed først; pakke-enhed omregnes via `toStock`; manglende konvertering → kun lagerenhed. Hukommelse er pr. vare **og** fysisk enhed. Brøk-reglen (stykvare vs. målenhed) låst med kålhovedet som grænsetilfælde. | 2 |
 | 14 | Session-nøgle uden UTC-dato | Nøglen er `ic_counts_<lok>` uden dato; `_icLocalDate` bruger lokale getters; genoptag-banner kun når der faktisk er noget at genoptage. | 2 |
+| 16 | Commit-stien kørt med attrap-Grocy | `_icPlanCommit` + `_icExecuteCommit` med injicerede Grocy-attrapper: hvilke kald fyrer, med hvilke argumenter, i hvilken rækkefølge. Dækker Bug 1 + Bug 2 som **adfærd** (ikke kilde-scan), konflikt-gaten, keep/override, begge beslutninger inkl. rækkefølgen lager-0-før-deaktivering, fejl-adskillelse og kvitteringsteksten. | 2 |
 | 15 | Sprunget over bliver synligt | Sprungne varer forsvinder ikke — de havner i `cat.skipped`, tæller ikke som tjekket, og skip persisteres i sessionens payload (ingen `sessionStorage`-kald tilbage). | 2 |
 
 ## 5. Eksempel (case 6 — cross-location fallback, beslutning E)
@@ -67,7 +68,11 @@ best_before → Grocy daterer surplus via `default_best_before_days`, rører ikk
 batches, FIFO-consumer ved formindskelse. Se `docs/CLAUDE_OPTAELLING.md` §4 Bug 2-boks.
 
 ## 9. Næste
-Tracken er komplet for #331. Hvis optællingen udvides (fx server-side session-lås fra #243),
+Tracken er komplet for #331.
+
+Case 16 er **mutations-testet**: tre bevidste fejl indført i kildekoden blev alle
+fanget — genindført `'2999-12-31'` (16b), stempling af ikke-talte varer (16c/16d),
+og ombyttet rækkefølge i "varen findes ikke mere" (16p). Hvis optællingen udvides (fx server-side session-lås fra #243),
 hører nye cases til her.
 
 Åbent til drift, ikke til kode: tærsklen i `_icIsPackUnit` (`_IC_PACK_MIN_SHARE = 0,05`)
@@ -75,7 +80,7 @@ afgør om en brøk betyder "en del af én pakke" eller "en del af det forventede
 Grocy skelner ikke stykvare fra målenhed, så det er et skøn — efterprøv det i køkkenet.
 
 ## 10. Status
-**91 PASS · 0 FAIL · 0 SKIP.** Cases 1–15 automatiseret (pure runner, ingen server/Grocy).
+**112 PASS · 0 FAIL · 0 SKIP.** Cases 1–16 automatiseret (pure runner, ingen server/Grocy).
 
 Browser-verificeret end-to-end mod grocytest 18. juli 2026 (før-tilstand noteret og rullet
 tilbage bagefter): enheds-chips med tæller, tælling bevaret pr. enhed ved skift, tælleenhed

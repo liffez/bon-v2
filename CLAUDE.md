@@ -2652,8 +2652,11 @@ pakke" eller "en del af det forventede lager". Grocy skelner ikke stykvare fra m
 tærsklen (`_IC_PACK_MIN_SHARE = 0,05`) er et skøn. Kålhovedet er grænsetilfældet: 0,8 kg,
 altså *mindre* end lagerenheden, men "et halvt kålhoved" giver god mening. Efterprøv i køkkenet.
 
-**Tests:** `tests/scripts/run_T_OPTAELLING.js` — **91 PASS · 0 FAIL · 0 SKIP** (pure runner,
-ingen server/Grocy). Browser-verificeret end-to-end mod grocytest med før-tilstand noteret og
+**Tests:** `tests/scripts/run_T_OPTAELLING.js` — **112 PASS · 0 FAIL · 0 SKIP** (pure runner,
+ingen server/Grocy). Commit-stien er splittet i `_icPlanCommit` / `_icExecuteCommit` /
+`_icCommitMessage`, så den kan køres med injicerede Grocy-attrapper (case 16) i stedet for
+kun at kunne nås gennem brugerfladen. Mutations-testet: tre bevidste fejl i kilden blev
+alle fanget. Browser-verificeret end-to-end mod grocytest med før-tilstand noteret og
 rullet tilbage: lager rettet, `LastCheckedUnit` flyttet, **best-before bevaret**, ikke-talt vare
 urørt. Spec: `tests/specs/T_OPTAELLING.md`.
 

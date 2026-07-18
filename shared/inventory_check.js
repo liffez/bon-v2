@@ -2005,51 +2005,45 @@ async function _icAddToShopping(productId) {
     }
 }
 
-async function _icSaveAllToGrocy() {
-    // Genbrug det friske lager fra summary-visningen (fanget for sekunder siden); fald
-    // tilbage til en frisk fetch hvis det mangler. Samme snapshot → summary og commit
-    // divergerer aldrig.
-    var freshStock = _ic._commitFresh || await _icFetchFreshStock();
+// ── Commit: plan → udfør → besked → UI ──────────────────────────
+// Delt op så den mest sikkerhedskritiske kode i modulet kan køres uden en
+// browser. Før lå skrivninger og DOM-opdateringer i samme funktion, og så
+// kunne commit-stien kun nås gennem brugerfladen — dvs. reelt kun testes i
+// hånden. T_OPTAELLING injicerer nu attrap-Grocy og asserterer hvilke kald
+// der faktisk fyrer.
 
-    // §6 — konflikt-gate: en vare hvor Grocy har flyttet sig siden brugeren talte, og som
-    // ikke er afklaret, må IKKE overskrives tavst. Kræv afklaring først.
+// Ren: hvad SKAL der skrives? Rører hverken Grocy eller DOM.
+function _icPlanCommit(freshStock) {
     var toWrite = [];
     var pendingConflicts = 0;
     var keepCount = 0;
 
     _ic.products.forEach(function(product) {
         var cls = _icClassifyCounted(product, freshStock);
-        if (!cls) return;                                   // ikke talt
-        if (cls.conflict) { pendingConflicts++; return; }   // uafklaret konflikt
-        if (cls.resolved === 'keep') { keepCount++; return; } // behold Grocys tal → glem count
+        if (!cls) return;                                     // ikke talt
+        // §6 — konflikt-gate: en vare hvor Grocy har flyttet sig siden brugeren
+        // talte, og som ikke er afklaret, må IKKE overskrives tavst.
+        if (cls.conflict) { pendingConflicts++; return; }
+        if (cls.resolved === 'keep') { keepCount++; return; } // behold lagerets tal
         toWrite.push({ id: product.id, cls: cls });
     });
 
-    if (pendingConflicts > 0) {
-        _icAlert(pendingConflicts + ' vare(r) har fået et nyt lagertal, mens du talte. Vælg øverst hvilket tal der er rigtigt, før du gemmer.', 'warning');
-        return;
-    }
+    return {
+        toWrite: toWrite,
+        pendingConflicts: pendingConflicts,
+        keepCount: keepCount,
+        decisionIds: Object.keys(_ic.decisions || {})
+    };
+}
 
-    var decisionIds = Object.keys(_ic.decisions || {});
+// Udfører planen mod Grocy. Ingen DOM — returnerer hvad der lykkedes.
+async function _icExecuteCommit(plan) {
+    var invWritten = 0, invFailed = 0;
 
-    if (toWrite.length === 0 && decisionIds.length === 0) {
-        _icAlert('Der er ikke noget at gemme', 'info');
-        _ic._commitFresh = null;
-        _icClearCounts();
-        _icCloseSummary();
-        _icResetUI();
-        return;
-    }
-
-    _icAlert('Gemmer...', 'info');
-
-    var invWritten = 0;
-    var invFailed  = 0;
-
-    for (var i = 0; i < toWrite.length; i++) {
-        var it = toWrite[i];
-        // Bug 2 — ingen best-before (Grocy bevarer eksisterende batches, daterer surplus
-        // via default_best_before_days).
+    for (var i = 0; i < plan.toWrite.length; i++) {
+        var it = plan.toWrite[i];
+        // Bug 2 — ingen best-before (Grocy bevarer eksisterende batches og
+        // daterer surplus via default_best_before_days).
         if (it.cls.needsWrite) {
             try {
                 await postGrocyInventory(it.id, it.cls.total);
@@ -2057,19 +2051,19 @@ async function _icSaveAllToGrocy() {
             } catch (err) {
                 console.error('Failed to update ' + it.id + ':', err);
                 invFailed++;
-                continue;   // spring userfield-stempling over hvis lager-skrivning fejlede
+                continue;   // spring stemplingen over hvis lager-skrivningen fejlede
             }
         }
-        // Bug 1 — LastCheckedAt/LastCheckedUnit skrives KUN her, kun for talte varer,
-        // med den enhed varen blev talt i. _icUpdateLastChecked sluger egne fejl.
+        // Bug 1 — LastCheckedAt/LastCheckedUnit skrives KUN her, kun for varer
+        // der faktisk blev talt. _icUpdateLastChecked sluger egne fejl.
         await _icUpdateLastChecked(it.id, it.cls.lastUnit);
     }
 
-    // Beslutninger fra kortets menu - først her, som alt andet (spec 3).
+    // Beslutninger fra kortets menu — først her, som alt andet (spec §3).
     var notrackDone = 0, discDone = 0, decFailed = 0;
-    for (var d = 0; d < decisionIds.length; d++) {
-        var dpid = parseInt(decisionIds[d]);
-        var kind = _ic.decisions[decisionIds[d]];
+    for (var d = 0; d < plan.decisionIds.length; d++) {
+        var dpid = parseInt(plan.decisionIds[d]);
+        var kind = _ic.decisions[plan.decisionIds[d]];
         try {
             if (kind === 'notrack') {
                 // Tom HverDag = passiv vare: stiger aldrig til tops i sorteringen.
@@ -2086,37 +2080,78 @@ async function _icSaveAllToGrocy() {
         }
     }
 
-    if (invFailed === 0 && decFailed === 0) {
-        var dele = [];
-        if (invWritten > 0)  dele.push(invWritten + ' vare' + (invWritten === 1 ? '' : 'r') + ' rettet på lageret');
-        if (toWrite.length)  dele.push(toWrite.length + ' sat som talt');
-        if (keepCount > 0)   dele.push(keepCount + ' beholdt lagerets tal');
-        if (notrackDone > 0) dele.push(notrackDone + ' tælles ikke fast mere');
-        if (discDone > 0)    dele.push(discDone + ' taget af listerne');
-        var msg = 'Gemt. ' + (dele.length ? dele.join(', ') : 'Ingen ændringer') + '.';
+    return {
+        invWritten: invWritten, invFailed: invFailed,
+        notrackDone: notrackDone, discDone: discDone, decFailed: decFailed
+    };
+}
 
-        _icAlert(msg, 'success');
-        // Kvitteringen bliver stående til den lukkes - en 3-sekunders toast er
-        // væk før man har nået at læse den (spec 7).
-        _icSaveReceipt(msg);
-        var rEl = _icContainer.querySelector('#icReceipt');
-        if (rEl) {
-            _icContainer.querySelector('#icReceiptText').textContent = msg;
-            rEl.classList.add('ic-visible');
-        }
+// Ren: kvitteringsteksten. Sproget følger §7 — sig hvad der skete for
+// brugeren, ikke hvad systemet gjorde.
+function _icCommitMessage(plan, res) {
+    var dele = [];
+    if (res.invWritten > 0)  dele.push(res.invWritten + ' vare' + (res.invWritten === 1 ? '' : 'r') + ' rettet på lageret');
+    if (plan.toWrite.length) dele.push(plan.toWrite.length + ' sat som talt');
+    if (plan.keepCount > 0)  dele.push(plan.keepCount + ' beholdt lagerets tal');
+    if (res.notrackDone > 0) dele.push(res.notrackDone + ' tælles ikke fast mere');
+    if (res.discDone > 0)    dele.push(res.discDone + ' taget af listerne');
+    return 'Gemt. ' + (dele.length ? dele.join(', ') : 'Ingen ændringer') + '.';
+}
 
+// Ren: fejlteksten. Skeln de to slags — en lager-skrivning der fejlede er
+// noget andet end en vare der ikke kunne tages af listerne.
+function _icCommitErrorMessage(res) {
+    var fejl = [];
+    if (res.invFailed > 0) fejl.push(res.invFailed + ' lager-rettelse' + (res.invFailed === 1 ? '' : 'r'));
+    if (res.decFailed > 0) fejl.push(res.decFailed + ' ændring til varerne');
+    return res.invWritten + ' gemt, men ' + fejl.join(' og ') + ' fejlede';
+}
+
+async function _icSaveAllToGrocy() {
+    // Genbrug det friske lager fra summary-visningen (fanget for sekunder siden);
+    // fald tilbage til en frisk fetch hvis det mangler. Samme snapshot → summary
+    // og commit divergerer aldrig.
+    var freshStock = _ic._commitFresh || await _icFetchFreshStock();
+    var plan = _icPlanCommit(freshStock);
+
+    if (plan.pendingConflicts > 0) {
+        _icAlert(plan.pendingConflicts + ' vare(r) har fået et nyt lagertal, mens du talte. Vælg øverst hvilket tal der er rigtigt, før du gemmer.', 'warning');
+        return;
+    }
+
+    if (plan.toWrite.length === 0 && plan.decisionIds.length === 0) {
+        _icAlert('Der er ikke noget at gemme', 'info');
         _ic._commitFresh = null;
         _icClearCounts();
         _icCloseSummary();
         _icResetUI();
-    } else {
-        // Skeln de to slags fejl: en lager-skrivning der fejlede er noget andet
-        // end en vare der ikke kunne tages af listerne.
-        var fejl = [];
-        if (invFailed > 0) fejl.push(invFailed + ' lager-rettelse' + (invFailed === 1 ? '' : 'r'));
-        if (decFailed > 0) fejl.push(decFailed + ' ændring til varerne');
-        _icAlert(invWritten + ' gemt, men ' + fejl.join(' og ') + ' fejlede', 'warning');
+        return;
     }
+
+    _icAlert('Gemmer...', 'info');
+    var res = await _icExecuteCommit(plan);
+
+    if (res.invFailed > 0 || res.decFailed > 0) {
+        _icAlert(_icCommitErrorMessage(res), 'warning');
+        return;
+    }
+
+    var msg = _icCommitMessage(plan, res);
+    _icAlert(msg, 'success');
+
+    // Kvitteringen bliver stående til den lukkes — en 3-sekunders toast er væk
+    // før man har nået at læse den (spec §7).
+    _icSaveReceipt(msg);
+    var rEl = _icContainer && _icContainer.querySelector('#icReceipt');
+    if (rEl) {
+        _icContainer.querySelector('#icReceiptText').textContent = msg;
+        rEl.classList.add('ic-visible');
+    }
+
+    _ic._commitFresh = null;
+    _icClearCounts();
+    _icCloseSummary();
+    _icResetUI();
 }
 
 async function _icAddAllToShopping() {
@@ -2349,6 +2384,11 @@ if (typeof module !== 'undefined' && module.exports) {
         _icSessionKey: _icSessionKey,
         _icSessionIsOld: _icSessionIsOld,
         _icSaveCount: _icSaveCount,
+        // Commit-stien, splittet så den kan køres uden browser
+        _icPlanCommit: _icPlanCommit,
+        _icExecuteCommit: _icExecuteCommit,
+        _icCommitMessage: _icCommitMessage,
+        _icCommitErrorMessage: _icCommitErrorMessage,
         // Delt state-reference så tests kan opsætte syntetiske scenarier (T_OPTAELLING).
         _ic: _ic
     };
