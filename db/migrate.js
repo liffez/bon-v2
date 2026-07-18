@@ -65,6 +65,23 @@ function runMigrations(dbPath = DB_PATH) {
 
 // Kør direkte hvis kaldt som script
 if (require.main === module) {
+    // Guard (#338): test:migrate SKAL ramme test-DB'en.
+    //
+    // Uden dette tjek kørte `npm run test:reset` skema-ændringer mod
+    // produktionsdatabasen, hvis .env.test manglede eller pegede forkert —
+    // safety_check sad først på test:fixture, altså ET TRIN FOR SENT. Det der
+    // ændrer skema var ubeskyttet; det der indsætter rækker var beskyttet.
+    //
+    // Flaget er opt-in, fordi scriptet også bruges legitimt i produktion
+    // (server-start + `npm run migrate` ved deploy). Kræves derfor kun når
+    // kalderen selv siger "det her skal være et testmiljø".
+    //
+    // skipDb: true — test.db er typisk lige slettet af test:reset og skal
+    // netop skabes af denne kørsel. De øvrige tjek (NODE_ENV, DB_PATH,
+    // GROCY_API_URL) er dem der fanger prod.
+    if (process.argv.includes('--require-test-env')) {
+        require('../tests/scripts/safety_check')({ skipDb: true });
+    }
     runMigrations();
 }
 

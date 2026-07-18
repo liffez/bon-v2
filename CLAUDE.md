@@ -399,6 +399,16 @@ uden om `api()` og rammer gaten (fanget i T_PLAN, hvor to tests fik 401 i stedet
 Runnere der taler direkte til DB eller adapteren (T_DB, T_ECON, T_ECONOMIC, T_GROCY,
 T_RECONCILE) rører aldrig `/api` og er upåvirkede.
 
+**`.env.test` hører ikke på serveren.** Den er gitignored og er et udviklingsartefakt.
+Ligger den i drift, peger `--env-file=.env.test` på noget der ser ud som en testkonfiguration
+men indeholder produktionsværdier — og så kan track-runnere pludselig ramme prod-DB'en.
+Tjek med `ls -la ~/bon-v2/.env.test` og slet den hvis den er der.
+
+`npm run test:migrate` er siden #338 garderet med `--require-test-env`, som kalder
+`safety_check` og afbryder (exit 2) hvis `NODE_ENV`/`DB_PATH`/`GROCY_API_URL` ikke peger på
+test. Guarden er **opt-in via flaget**, fordi `db/migrate.js` også bruges legitimt i
+produktion — `npm run migrate` og server-start er uændrede.
+
 **Datoer i tests: brug `todayISO()` fra `db/helpers.js`,** ikke `new Date().toISOString()`.
 UTC-datoen er gårsdagens mellem midnat og kl. 02 i dansk sommertid, så en test der sætter
 `delivery_date = TODAY` og spørger efter `/today` fejler kun om natten. Ramte T_KITCHEN_TODAY;
