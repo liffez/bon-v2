@@ -29,6 +29,7 @@ const fs           = require('node:fs');
 const path         = require('node:path');
 const { openDb }   = require('../../db/compat');
 const safetyCheck  = require('./safety_check');
+const { login, withSession } = require('./helpers/login');
 
 const SERVER_URL    = process.env.TEST_SERVER_URL || `http://localhost:${process.env.PORT || 4322}`;
 const GROCY_URL     = process.env.GROCY_API_URL;
@@ -60,17 +61,17 @@ function record(id, group, status, detail = '') {
     else if (VERBOSE)            console.log(`  ✓ ${id}`);
 }
 
+// Siden #316 (global auth-gate på /api) skal runneren have en session.
+// _session sættes af doLogin() og bærer cookien på hvert kald.
+let _session = null;
+
+async function doLogin() {
+    _session = withSession(SERVER_URL, await login(SERVER_URL));
+}
+
 async function api(method, pathPart, body = null) {
-    const opts = { method, headers: {} };
-    if (body) {
-        opts.headers['Content-Type'] = 'application/json';
-        opts.body = JSON.stringify(body);
-    }
-    const res  = await fetch(`${SERVER_URL}${pathPart}`, opts);
-    const text = await res.text();
-    let parsed = null;
-    try { parsed = JSON.parse(text); } catch {}
-    return { status: res.status, body: parsed, raw: text };
+    if (!_session) throw new Error('api() kaldt før doLogin() — se tests/scripts/helpers/login.js');
+    return _session(method, pathPart, body);
 }
 
 /**
@@ -807,6 +808,8 @@ async function main() {
     }
 
     db = openDb(process.env.DB_PATH);
+
+    await doLogin();
 
     console.log(`[run_T_RECIPES] Server: ${SERVER_URL}`);
     console.log(`[run_T_RECIPES] Grocy:  ${GROCY_URL}`);
