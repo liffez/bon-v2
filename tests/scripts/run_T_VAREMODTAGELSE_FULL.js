@@ -1716,6 +1716,142 @@ async function runAdhocBackdateCases() {
     }
 }
 
+// ════════════════════════════════════════════════════════════
+// OBS — #336: modtagelse stempler varen som observeret
+// ════════════════════════════════════════════════════════════
+// Optællingen bruger LastCheckedUnit til at afgøre hvilken fysisk enheds
+// liste en vare hører til, og LastCheckedAt til at sortere efter hvad der
+// trænger. En netop modtaget vare ER observeret — ellers står den som
+// "aldrig tjekket" dagen efter den kom ind ad døren.
+
+// goods_receipts.location_id har en fremmednøgle til locations — et syntetisk
+// id giver "FOREIGN KEY constraint failed". Test-lokationen (3) er den rigtige
+// at bruge, og den fysiske enhed hæftes på den for testens varighed.
+const OBS_LOCATION_ID = 3;
+const OBS_UNIT_NAME   = 'T_VAREMOD_F-OBS';
+let obsUnitId = null;
+let obsUserfieldsBefore = null;
+let obsBStampBefore = null;
+
+async function runObservedCases() {
+    console.log('\n── OBS: modtagelse stempler som observeret (#336) ──');
+
+    // Fysisk enhed på en syntetisk lokation — receipten peger selv på den,
+    // så vi behøver ikke ramme en rigtig Grocy-lokation.
+    try {
+        const ins = db.prepare(`
+            INSERT INTO physical_units (grocy_location_id, name, sort_order)
+            VALUES (?, ?, 0)
+        `).run(OBS_LOCATION_ID, OBS_UNIT_NAME);
+        obsUnitId = ins.lastInsertRowid;
+    } catch (err) {
+        record('T_VAREMOD_F_OBS_01', 'OBS', 'SKIP', `Kunne ikke oprette enhed: ${err.message}`);
+        return;
+    }
+
+    // Snapshot userfields så de kan rulles tilbage
+    try {
+        const prods = (await api('GET', '/api/grocy/products')).body || [];
+        const p = prods.find(x => parseInt(x.id) === REAL_PID_A);
+        obsUserfieldsBefore = {
+            LastCheckedAt:   p?.userfields?.LastCheckedAt   || '',
+            LastCheckedUnit: p?.userfields?.LastCheckedUnit || '',
+        };
+        // B's stempel skal sammenlignes eksakt før/efter. "Er det friskt?"
+        // duer ikke: FAIL-gruppen har allerede stemplet B lovligt tidligere i
+        // samme kørsel, så et frisk stempel siger intet om DENNE receipt.
+        const pB = prods.find(x => parseInt(x.id) === REAL_PID_B);
+        obsBStampBefore = pB?.userfields?.LastCheckedAt || null;
+    } catch (err) {
+        record('T_VAREMOD_F_OBS_01', 'OBS', 'SKIP', `Kunne ikke snapshotte userfields: ${err.message}`);
+        return;
+    }
+
+    const r = await createReceipt(basePayload({
+        location_id: OBS_LOCATION_ID,
+        items: [
+            { grocy_product_id: REAL_PID_A, product_name: 'OBS modtaget', received_quantity: FAIL_QTY, status: 'ok' },
+            { grocy_product_id: REAL_PID_B, product_name: 'OBS mangler',  received_quantity: 0,        status: 'missing' },
+        ]
+    }));
+
+    if (r.status !== 200) {
+        record('T_VAREMOD_F_OBS_01', 'OBS', 'FAIL', `POST status=${r.status}`);
+        record('T_VAREMOD_F_OBS_02', 'OBS', 'SKIP', 'forrige fejlede');
+        record('T_VAREMOD_F_OBS_03', 'OBS', 'SKIP', '');
+        return;
+    }
+    grocyMutations.push({ pid: REAL_PID_A, amount: FAIL_QTY });
+
+    await sleep(500);
+    const prodsAfter = (await api('GET', '/api/grocy/products')).body || [];
+    const a = prodsAfter.find(x => parseInt(x.id) === REAL_PID_A);
+    const b = prodsAfter.find(x => parseInt(x.id) === REAL_PID_B);
+
+    // OBS_01: enheden udledt af lokationen — ingen brugerhandling
+    if (a?.userfields?.LastCheckedUnit === OBS_UNIT_NAME) {
+        record('T_VAREMOD_F_OBS_01', 'OBS', 'PASS');
+    } else {
+        record('T_VAREMOD_F_OBS_01', 'OBS', 'FAIL',
+            `LastCheckedUnit=${a?.userfields?.LastCheckedUnit} (forventet ${OBS_UNIT_NAME})`);
+    }
+
+    // OBS_02: tidsstemplet er sat og friskt
+    {
+        const raw = a?.userfields?.LastCheckedAt;
+        const alder = raw ? (Date.now() - new Date(raw).getTime()) / 1000 : Infinity;
+        if (raw && alder < 120) {
+            record('T_VAREMOD_F_OBS_02', 'OBS', 'PASS', VERBOSE ? `${Math.round(alder)}s gammel` : '');
+        } else {
+            record('T_VAREMOD_F_OBS_02', 'OBS', 'FAIL', `LastCheckedAt=${raw}`);
+        }
+    }
+
+    // OBS_03: en vare der IKKE kom på lager må ikke stemples. Ellers ville en
+    // manglende vare se "tjekket" ud og synke i optællingens sortering — præcis
+    // Bug 1 fra #331, bare gennem en anden dør.
+    {
+        const bAt = b?.userfields?.LastCheckedAt || null;
+        if (bAt === obsBStampBefore) {
+            record('T_VAREMOD_F_OBS_03', 'OBS', 'PASS');
+        } else {
+            record('T_VAREMOD_F_OBS_03', 'OBS', 'FAIL',
+                `manglende vares stempel ændret: ${obsBStampBefore} → ${bAt}`);
+        }
+    }
+
+    // OBS_04: uden location_id findes ingen enhed — stemplingen må stadig ikke
+    // vælte modtagelsen, og LastCheckedUnit skal være urørt.
+    {
+        const before = a?.userfields?.LastCheckedUnit;
+        const r2 = await createReceipt(basePayload({
+            items: [{ grocy_product_id: REAL_PID_A, product_name: 'OBS uden lokation',
+                      received_quantity: FAIL_QTY, status: 'ok' }]
+        }));
+        if (r2.status === 200) grocyMutations.push({ pid: REAL_PID_A, amount: FAIL_QTY });
+        await sleep(500);
+        const again = ((await api('GET', '/api/grocy/products')).body || [])
+            .find(x => parseInt(x.id) === REAL_PID_A);
+        if (r2.status === 200 && again?.userfields?.LastCheckedUnit === before) {
+            record('T_VAREMOD_F_OBS_04', 'OBS', 'PASS');
+        } else {
+            record('T_VAREMOD_F_OBS_04', 'OBS', 'FAIL',
+                `status=${r2.status}, unit=${again?.userfields?.LastCheckedUnit} (forventet uændret ${before})`);
+        }
+    }
+}
+
+async function cleanupObserved() {
+    if (obsUnitId) {
+        try { db.prepare(`DELETE FROM physical_units WHERE id = ?`).run(obsUnitId); } catch (e) {}
+    }
+    if (obsUserfieldsBefore) {
+        try {
+            await api('PUT', `/api/grocy/products/${REAL_PID_A}/userfields`, obsUserfieldsBefore);
+        } catch (e) { /* best-effort */ }
+    }
+}
+
 async function cleanup() {
     if (SKIP_CLEANUP) {
         console.log('\n[cleanup] SKIPPED (--skip-cleanup)');
@@ -1894,11 +2030,13 @@ async function main() {
         await runDetailCases();
         await runUsersCases();
         await runAdhocBackdateCases();
+        await runObservedCases();
     } catch (err) {
         console.error('[run_T_VAREMODTAGELSE_FULL] FEJL under test:', err.message);
         if (err.stack) console.error(err.stack);
     }
 
+    await cleanupObserved();
     await cleanup();
 
     db.close();

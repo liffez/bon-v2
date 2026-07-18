@@ -279,6 +279,35 @@ router.post('/', requireAuth(), handle(async (req, res) => {
         }
     });
 
+    // 3b. Hvilken fysisk enhed står varerne i? (#336)
+    //
+    // Optællingen bruger LastCheckedUnit som "hvor er varen sidst observeret" og
+    // lader den styre hvilken enheds-liste varen dukker op i. En vare der lige er
+    // modtaget og stillet på plads ER observeret — uden dette stod den stadig som
+    // "aldrig tjekket" i optællingen.
+    //
+    // Varemodtagelsen kender kun en Grocy-lokation, ikke en enhed. Vi slår enheden
+    // op ud fra lokationen og vælger deterministisk den første (sort_order, så navn)
+    // når der er flere. Brugeren skal ikke gøre noget — flowet er touch-først og må
+    // ikke koste et tryk mere.
+    //
+    // Et forkert gæt er billigt og selvhelbredende: den bløde fallback i optællingen
+    // (beslutning E) viser varen under sin lokation uanset hvad, og første gang nogen
+    // tæller den det rigtige sted, ruller LastCheckedUnit derhen af sig selv.
+    let receivedIntoUnit = null;
+    if (location_id) {
+        try {
+            receivedIntoUnit = db.prepare(`
+                SELECT name FROM physical_units
+                WHERE grocy_location_id = ? AND archived_at IS NULL
+                ORDER BY sort_order, name
+                LIMIT 1
+            `).get(location_id)?.name || null;
+        } catch (err) {
+            console.warn('[goods-receipts] Kunne ikke slå fysisk enhed op:', err.message);
+        }
+    }
+
     // 4. Sekventiel Grocy addStock + shopping list cleanup.
     // UPDATE matcher på item.id (unik) — ikke grocy_product_id — fordi samme
     // product kan optræde flere gange i samme receipt (forskellige batches).
@@ -319,6 +348,22 @@ router.post('/', requireAuth(), handle(async (req, res) => {
                 grocy_added: true,
                 error: null
             });
+
+            // #336 — stemple varen som observeret her. Kun når lageret rent
+            // faktisk blev opdateret: fejler addStock, står varen ikke der.
+            // Fejl må ALDRIG vælte en varemodtagelse — samme partial-success-
+            // princip som shopping list-oprydningen nedenfor.
+            try {
+                await grocy.updateProductUserfields(item.grocy_product_id, {
+                    LastCheckedAt: new Date().toISOString(),
+                    ...(receivedIntoUnit ? { LastCheckedUnit: receivedIntoUnit } : {})
+                });
+            } catch (ufErr) {
+                console.warn(
+                    `[goods-receipts] Kunne ikke stemple produkt ${item.grocy_product_id} som observeret:`,
+                    ufErr.message
+                );
+            }
         } catch (err) {
             updateItem.run(0, err.message, itemId);
             grocyResults.push({

@@ -2668,6 +2668,13 @@ tælletidspunktet, ingen tavs last-writer-wins.
 "Mit tal er rigtigt" / "Lagerets tal er rigtigt", ikke "Overskriv"/"Behold". Mockup'en er ældre
 end det princip og blev bevidst fraveget tre steder.
 
+**Følgeopgave leveret (#336):** varemodtagelsen stempler nu `LastCheckedAt` +
+`LastCheckedUnit` når en vare kommer på lager, så en netop modtaget vare ikke står som
+"aldrig tjekket" i optællingen. Enheden udledes af receiptens Grocy-lokation (første efter
+`sort_order`) — ingen brugerhandling. Et forkert gæt retter sig selv via den bløde fallback.
+Kun ved vellykket `addStock`; en fejlet stempling vælter aldrig en modtagelse.
+Dækket af T_VAREMODTAGELSE_FULL's OBS-gruppe (76 PASS, op fra 67).
+
 **Åbent til drift, ikke til kode:** `_icIsPackUnit()` afgør om ¼ ½ ¾ betyder "en del af én
 pakke" eller "en del af det forventede lager". Grocy skelner ikke stykvare fra målenhed, så
 tærsklen (`_IC_PACK_MIN_SHARE = 0,05`) er et skøn. Kålhovedet er grænsetilfældet: 0,8 kg,

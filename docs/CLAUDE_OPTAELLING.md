@@ -339,9 +339,12 @@ i forskellige enheder alt efter hvor den står — bøtter i kølerummet, kasser
 Det er et forslag, ikke en låsning: togglen står altid synlig, og konverteringslinjen
 ("640 Gram er 0,64 Kilo") viser hele tiden hvad der faktisk skrives på lageret.
 
-**Følgeopgave (separat lille, efter PR 1):** varemodtagelse sætter `LastCheckedUnit` når en
-vare modtages i en fysisk enhed — så en netop modtaget vare tæller som "observeret der".
-Rør [shared/varemodtagelse.js](../shared/varemodtagelse.js) minimalt.
+**Følgeopgave: ✅ LEVERET (#336, 19. juli 2026).** Varemodtagelsen stempler nu
+`LastCheckedAt` + `LastCheckedUnit` når en vare rent faktisk kommer på lager, så en netop
+modtaget vare tæller som "observeret der". Implementeret i
+[routes/goods-receipts.js](../routes/goods-receipts.js) ved siden af `addStock` —
+`shared/varemodtagelse.js` er urørt, da enheden udledes server-side af lokationen.
+Dækket af T_VAREMODTAGELSE_FULL's OBS-gruppe (4 cases).
 
 ---
 
@@ -410,8 +413,14 @@ Ny track. Fanger primært **stille-datafejl** (det der ikke fejler synligt). Fø
   Server-side lås udskudt til #243, kun hvis driften viser reelle kollisioner.
 - **C — Passiv vare i sort:** skal `HverDag=""`-varer skjules helt fra listen eller bare
   ligge nederst (gruppe 4)? Default: nederst, ikke skjult (så de kan tælles ad hoc).
-- **D — Følgeopgave-timing:** varemodtagelse-`LastCheckedUnit` — separat PR efter PR 1
-  (default), eller vent til PR 2?
+- **D — Følgeopgave-timing: ✅ LUKKET (19. juli 2026).** Bygget som separat PR efter PR 2
+  (#336). Model: varemodtagelsen udleder den fysiske enhed af sin Grocy-lokation og vælger
+  deterministisk den første (`sort_order`, så navn) når der er flere — **ingen brugerhandling**,
+  fordi flowet er touch-først og ikke må koste et tryk mere. Et forkert gæt er billigt og
+  selvhelbredende: den bløde fallback (beslutning E) viser varen under sin lokation uanset
+  hvad, og første gang nogen tæller den det rigtige sted, ruller `LastCheckedUnit` derhen.
+  Stemplingen sker kun når `addStock` faktisk lykkedes, og en fejlet stempling vælter aldrig
+  en varemodtagelse.
 - **E — Cross-location-fallback: ✅ LUKKET (18. juli 2026).** Blød fallback valgt: en vare
   vises under sin Grocy-stamdata-lokation når `LastCheckedUnit` er **tom eller ikke matcher
   nogen enhed under den aktuelle lokation** — så intet forsvinder tavst. Ikke den rene
