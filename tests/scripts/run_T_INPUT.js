@@ -24,6 +24,7 @@ const fs           = require('node:fs');
 const path         = require('node:path');
 const { openDb }   = require('../../db/compat');
 const safetyCheck  = require('./safety_check');
+const { login, withSession } = require('./helpers/login');
 
 const SERVER_URL = process.env.TEST_SERVER_URL || `http://localhost:${process.env.PORT || 4322}`;
 const REPORT_DIR = path.resolve(__dirname, '..', 'reports');
@@ -52,14 +53,19 @@ function assertTrue(id, group, condition, label = '') {
     else           record(id, group, 'FAIL', label);
 }
 
+// Siden #316 (global auth-gate på /api) skal runneren have en session.
+// _session sættes af doLogin() og bærer cookien på hvert kald. Formen her
+// returnerer kun { status, body } — bevaret, så kaldstederne er urørte.
+let _session = null;
+
+async function doLogin() {
+    _session = withSession(SERVER_URL, await login(SERVER_URL));
+}
+
 async function api(method, pathPart, body = null) {
-    const opts = { method, headers: {} };
-    if (body) {
-        opts.headers['Content-Type'] = 'application/json';
-        opts.body = JSON.stringify(body);
-    }
-    const res = await fetch(`${SERVER_URL}${pathPart}`, opts);
-    return { status: res.status, body: await res.json().catch(() => null) };
+    if (!_session) throw new Error('api() kaldt før doLogin() — se tests/scripts/helpers/login.js');
+    const r = await _session(method, pathPart, body);
+    return { status: r.status, body: r.body };
 }
 
 // ════════════════════════════════════════════════════════════
@@ -323,6 +329,8 @@ async function main() {
 
     db = openDb(process.env.DB_PATH);
     db.exec('PRAGMA foreign_keys = ON');
+
+    await doLogin();
 
     try {
         const r = await api('GET', '/api/statuses');

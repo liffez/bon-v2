@@ -24,6 +24,7 @@ const fs           = require('node:fs');
 const path         = require('node:path');
 const { openDb }   = require('../../db/compat');
 const safetyCheck  = require('./safety_check');
+const { login, withSession } = require('./helpers/login');
 
 const SERVER_URL = process.env.TEST_SERVER_URL || `http://localhost:${process.env.PORT || 4322}`;
 const REPORT_DIR = path.resolve(__dirname, '..', 'reports');
@@ -31,7 +32,12 @@ const VERBOSE    = process.argv.includes('--verbose');
 
 const TEST_BON_ID       = 4006;
 const ORIGINAL_DATE     = '2026-05-14';
-const TODAY             = new Date().toISOString().slice(0, 10);
+// Serverens egen dato-sandhed. toISOString() giver UTC-datoen, og mellem
+// midnat og kl. 02 (dansk sommertid) er den GÅRSDAGENS — så testen satte
+// bonen til i går og spurgte derefter efter i dag. Fejlede kun om natten.
+// Se memory project_utc_today_bug + #133.
+const { todayISO }      = require('../../db/helpers');
+const TODAY             = todayISO();
 
 let db;
 const results = [];
@@ -56,14 +62,19 @@ function assertTrue(id, group, condition, label = '') {
     else           record(id, group, 'FAIL', label);
 }
 
+// Siden #316 (global auth-gate på /api) skal runneren have en session.
+// _session sættes af doLogin() og bærer cookien på hvert kald. Formen her
+// returnerer kun { status, body } — bevaret, så kaldstederne er urørte.
+let _session = null;
+
+async function doLogin() {
+    _session = withSession(SERVER_URL, await login(SERVER_URL));
+}
+
 async function api(method, pathPart, body = null) {
-    const opts = { method, headers: {} };
-    if (body) {
-        opts.headers['Content-Type'] = 'application/json';
-        opts.body = JSON.stringify(body);
-    }
-    const res = await fetch(`${SERVER_URL}${pathPart}`, opts);
-    return { status: res.status, body: await res.json().catch(() => null) };
+    if (!_session) throw new Error('api() kaldt før doLogin() — se tests/scripts/helpers/login.js');
+    const r = await _session(method, pathPart, body);
+    return { status: r.status, body: r.body };
 }
 
 function setBonDate(bonId, date) {
@@ -323,6 +334,8 @@ async function main() {
 
     db = openDb(process.env.DB_PATH);
     db.exec('PRAGMA foreign_keys = ON');
+
+    await doLogin();
 
     try {
         const r = await api('GET', '/api/statuses');

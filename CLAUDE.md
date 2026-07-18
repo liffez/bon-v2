@@ -376,6 +376,34 @@ hård browser-refresh (Cmd+Shift+R) efter deploy — JS/CSS kan være cachet.
 **forventet og korrekt**, ikke en fejl der skal rettes. UI-tests hører til på
 udviklingsmaskinen (eller i CI), ikke på Hetzner.
 
+**Track-runnere skal logge ind (siden #316).** Den globale auth-gate på `/api` betyder at
+enhver klient — også en test-runner — skal have en session, ellers svarer alt 401 og
+runneren dør ved første kald. Brug den delte helper, ikke en ny kopi:
+
+```js
+const { login, withSession } = require('./helpers/login');
+
+let _session = null;
+async function doLogin() {
+    _session = withSession(SERVER_URL, await login(SERVER_URL));
+}
+async function api(method, pathPart, body = null) {
+    if (!_session) throw new Error('api() kaldt før doLogin()');
+    return _session(method, pathPart, body);
+}
+```
+
+`await doLogin()` kaldes tidligt i `main()`. **Husk også de rå `fetch()`-kald** — de går
+uden om `api()` og rammer gaten (fanget i T_PLAN, hvor to tests fik 401 i stedet for 400).
+
+Runnere der taler direkte til DB eller adapteren (T_DB, T_ECON, T_ECONOMIC, T_GROCY,
+T_RECONCILE) rører aldrig `/api` og er upåvirkede.
+
+**Datoer i tests: brug `todayISO()` fra `db/helpers.js`,** ikke `new Date().toISOString()`.
+UTC-datoen er gårsdagens mellem midnat og kl. 02 i dansk sommertid, så en test der sætter
+`delivery_date = TODAY` og spørger efter `/today` fejler kun om natten. Ramte T_KITCHEN_TODAY;
+~20 andre steder i test-runnerne har stadig mønstret (se #133).
+
 Lokalt, første gang:
 ```bash
 npm i -D @playwright/test && npx playwright install chromium

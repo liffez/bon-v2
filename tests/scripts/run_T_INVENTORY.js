@@ -37,6 +37,7 @@ const safetyCheck  = require('./safety_check');
 
 // Importér resolveConsumeItems som er sandheds-grundlaget
 const { resolveConsumeItems } = require('../../services/ingredientResolver');
+const { login, withSession } = require('./helpers/login');
 
 const SERVER_URL  = process.env.TEST_SERVER_URL || `http://localhost:${process.env.PORT || 4322}`;
 const REPORT_DIR  = path.resolve(__dirname, '..', 'reports');
@@ -68,34 +69,16 @@ function record(id, group, status, detail = '') {
     else if (VERBOSE)             console.log(`  ✓ ${id}`);
 }
 
-let SESSION_COOKIE = null;
+// Siden #316 (global auth-gate på /api) skal runneren have en session.
+let _session = null;
 
-// Siden #316 (global auth-gate på /api) skal runneren logge ind som enhver
-// anden klient — uden session svarer alt 401. Samme mønster som de øvrige
-// tracks (fx run_T_OPSKRIFTER.js).
-async function login() {
-    const res = await fetch(`${SERVER_URL}/api/auth/pin`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ pin: '1234' }),
-    });
-    if (res.status !== 200) throw new Error(`Login fejlede: ${res.status}`);
-    SESSION_COOKIE = res.headers.get('set-cookie')?.split(';')[0];
-    if (!SESSION_COOKIE) throw new Error('Ingen set-cookie modtaget');
+async function doLogin() {
+    _session = withSession(SERVER_URL, await login(SERVER_URL));
 }
 
 async function api(method, pathPart, body = null) {
-    const opts = { method, headers: {} };
-    if (SESSION_COOKIE) opts.headers['Cookie'] = SESSION_COOKIE;
-    if (body) {
-        opts.headers['Content-Type'] = 'application/json';
-        opts.body = JSON.stringify(body);
-    }
-    const res  = await fetch(`${SERVER_URL}${pathPart}`, opts);
-    const text = await res.text();
-    let parsed = null;
-    try { parsed = JSON.parse(text); } catch {}
-    return { status: res.status, body: parsed, raw: text };
+    if (!_session) throw new Error('api() kaldt før doLogin() — se tests/scripts/helpers/login.js');
+    return _session(method, pathPart, body);
 }
 
 function sleep(ms) {
@@ -909,7 +892,7 @@ async function main() {
     console.log(`[run_T_INVENTORY] Grocy:  ${process.env.GROCY_API_URL}`);
     if (SKIP_CLEANUP) console.log(`[run_T_INVENTORY] WARNING: --skip-cleanup`);
 
-    await login();
+    await doLogin();
 
     // Verificer at server svarer
     try {
