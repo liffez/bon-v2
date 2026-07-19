@@ -54,24 +54,29 @@ function findConversionFactor(conversions, productId, fromQuId, toQuId) {
  *   0.5 l   → 500 ml
  *   1500 ml → 1.5 l
  *
+ * `factor` er den faktor der blev ganget på (1, 1000 eller 0,001). Den skal med ud,
+ * fordi en kalder der lader BRUGEREN redigere det formaterede tal er nødt til at
+ * kunne regne tilbage til udgangsenheden. Uden den gætter kalderen — og gætter man
+ * på 1, skriver man "150" for 150 gram ind i et felt der betyder kilo.
+ *
  * @param {number} amount   — Mængde
  * @param {string} unitName — Enhedsnavn (kg, g, l, ml, stk, …)
- * @returns {{ amount: number, unit: string }}
+ * @returns {{ amount: number, unit: string, factor: number }}
  */
 function autoFormatAmount(amount, unitName) {
     const u = (unitName || '').toLowerCase().trim();
     const round = (n) => Math.round(n * 100) / 100;
 
     if ((u === 'kg' || u === 'kilo') && amount > 0 && amount < 1)
-        return { amount: round(amount * 1000), unit: 'g' };
+        return { amount: round(amount * 1000), unit: 'g', factor: 1000 };
     if ((u === 'l' || u === 'liter') && amount > 0 && amount < 1)
-        return { amount: round(amount * 1000), unit: 'ml' };
+        return { amount: round(amount * 1000), unit: 'ml', factor: 1000 };
     if ((u === 'g' || u === 'gram') && amount >= 1000)
-        return { amount: round(amount / 1000), unit: 'kg' };
+        return { amount: round(amount / 1000), unit: 'kg', factor: 0.001 };
     if (u === 'ml' && amount >= 1000)
-        return { amount: round(amount / 1000), unit: 'l' };
+        return { amount: round(amount / 1000), unit: 'l', factor: 0.001 };
 
-    return { amount: round(amount), unit: unitName };
+    return { amount: round(amount), unit: unitName, factor: 1 };
 }
 
 /**
@@ -90,19 +95,25 @@ function autoFormatAmount(amount, unitName) {
 function convertAndFormat(stockAmount, { productId, fromQuId, toQuId, conversions, unitMap }) {
     const factor = findConversionFactor(conversions, productId, fromQuId, toQuId);
 
-    let displayAmount, displayUnitName;
+    let displayAmount, displayUnitName, convFactor;
     if (factor !== null) {
         displayAmount = stockAmount * factor;
+        convFactor = factor;
         const displayUnit = unitMap.get(toQuId);
         displayUnitName = displayUnit ? (displayUnit.name_short || displayUnit.name || '') : '';
     } else {
         // Ingen konvertering fundet — vis i stock-unit
         displayAmount = stockAmount;
+        convFactor = 1;
         const stockUnit = unitMap.get(fromQuId);
         displayUnitName = stockUnit ? (stockUnit.name_short || stockUnit.name || '') : '';
     }
 
-    return autoFormatAmount(displayAmount, displayUnitName);
+    const out = autoFormatAmount(displayAmount, displayUnitName);
+    // Samlet faktor lager → vist tal, altså begge trin ganget sammen. En kalder der
+    // lader brugeren redigere `amount` kan komme tilbage til lager-enheden med
+    // `redigeret / factor`. (Selve `amount` er afrundet til 2 decimaler; factor er ikke.)
+    return { ...out, factor: convFactor * out.factor };
 }
 
 module.exports = { findConversionFactor, autoFormatAmount, convertAndFormat };

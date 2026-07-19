@@ -2835,6 +2835,48 @@ råvaren manglede, for råvaren optræder ikke på det niveau.
   til `2` i stedet for `0.5`. Regression grøn: recipe-factor 8, prep-packing 12,
   topup 35, event-menu 42. Browser-verificeret mod live grocy-hq.
 
+### Pakkeliste: redigeret mængde gemmes nu i lager-enhed (#352, 19. juli 2026)
+
+Pakkelistens redigerbare felt viste produktets **visnings-enhed** ("140 g"), men den
+gemte værdi blev ved LEVERET brugt som om den var i **lager-enhed** (0,14 kg). Der
+konverteredes ingen steder. Rettede køkkenet "140" til "150" på rødløg, blev der
+trukket **150 kg** fra HQ i stedet for 0,15 kg — faktor 1000.
+
+Fejlen ramte i to varianter, og den anden er den lumske: dels når visnings-enhed ≠
+lager-enhed (Æg: Antal vs. Kilo), dels når `autoFormatAmount` skifter kg→g under 1 kg
+— så selv et produkt hvor `qu_id == qu_id_stock` blev ramt, hvis mængden var lille.
+
+- **`services/quConvert.js`** — `autoFormatAmount` og `convertAndFormat` returnerer nu
+  også `factor`: den samlede faktor lager → vist tal. En kalder der lader brugeren
+  **redigere** det formaterede tal er nødt til at kunne regne tilbage; gætter man på 1,
+  genskaber man fejlen.
+- **`services/ingredientResolver.js`** — hver ingrediens får `display_factor` +
+  `stock_unit_name`. Bemærk at `unit`/`stock_unit` er VISNINGS-enheder og kan være `g`
+  selvom produktet lagerføres i kg — derfor det separate felt.
+- **`shared/modal.js`** — `_pakkeOverrides` holder nu konsekvent **lager-enhed** (samme
+  som server, DB og consume). Feltet viser fortsat display; der konverteres ved ind- og
+  udlæsning. Sammenligningen "tæt på beregnet → fjern override" sker i vist enhed, fordi
+  det er det tal brugeren ser. `unit` gemmes nu som lager-enhedens navn, så rækken er til
+  at tyde bagefter. Fallback udleder faktoren af `amount_needed / needed_stock`, så en
+  cachet browser mod ny server (og omvendt) ikke falder tilbage til 1.
+- **"Ekstra varer"-stien var korrekt hele tiden** (henter enhedslabel fra `qu_id_stock`)
+  og er urørt.
+- **`scripts/fix-packing-override-units.js`** — engangs-oprydning af rækker gemt før
+  rettelsen. Konverterer kun rækker hvor gemt enhed afviger fra lager-enheden, hvilket
+  gør den idempotent. Dry-run default, `--apply` skriver. Verificeret mod kopi af
+  driftsdata: 8 rækker → 1 reel konvertering (Brød Rug 600 Antal → 72 Kilo), 3 nul-rækker
+  får kun enheden rettet, 4 rækker allerede i kg røres ikke. Anden kørsel: "intet at ændre".
+- **Tests**: `scripts/test-packing-units.js` (18 asserts — faktor pr. autoFormat-gren,
+  kombineret faktor, round-trip-invarianten `vist ÷ faktor = lager`, at resolveren
+  eksponerer felterne, og selve drifts-scenariet). Regression grøn: subrecipe-status 16,
+  recipe-factor 8, prep-packing 12, topup 35, event-menu 42, moms-audit 18.
+- **Browser-verificeret** ende-til-ende: 140 → 150 tastet i UI'et → DB gemmer `0.15 Kilo`
+  → `consume-preview` viser `final_amount 0,15 Kilo`. Testdata ryddet.
+
+**Ingen skade nået at ske:** de to bons med gemte overrides havde begge
+`inventory_deducted = 0`. Men auto-deduct blev tændt 17. juli (#305), så kør
+oprydnings-scriptet i drift **inden** de leveres.
+
 ## Næste opgave
 
 > ✏️ Tracker-oprydning 29. juni 2026 — koden er på migration 119; status-sektionen ovenfor

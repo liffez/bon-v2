@@ -708,8 +708,15 @@ let _pakkeData = null;       // { production, raw } fra fetchBonIngredients
 let _pakkeBon = null;        // bon-objekt (inkl. lines)
 let _pakkeBonId = null;
 let _pakkeLevel = 'pack';    // 'pack' = det vi pakker (produktions-niveau) | 'goal' = retter der skal laves
-let _pakkeOverrides = {};    // product_id → packed_amount (buffer-in-place på direkte varer)
-let _pakkeExtras = [];       // [{ product_id, product_name, amount, unit }] — ekstra varer oveni
+// product_id → packed_amount i LAGER-enhed. Samme enhed som serveren og databasen
+// bruger (jf. db/helpers.js). Feltet i UI'et viser derimod produktets VISNINGS-enhed
+// ("150 g", ikke "0,15"), så der konverteres ved ind- og udlæsning via
+// _pakkeFactors nedenfor. Blandes de to sammen, trækkes der 1000× for meget (#352).
+let _pakkeOverrides = {};
+let _pakkeExtras = [];       // [{ product_id, product_name, amount, unit }] — ekstra varer oveni (allerede i lager-enhed)
+// product_id → { factor, stockUnit } for de varer der vises i pakkelisten.
+// factor = lager → vist tal. Fyldes når listen bygges, læses ved gem.
+let _pakkeFactors = {};
 let _pakkeRecipeFactors = {};// recipe_id → factor (skalering af underopskrifter, fx Frisk Grønt)
 let _pakkeSaveTimer = null;  // debounce til auto-gem af overrides + extras + recipe-faktorer
 let _pakkeProducts = null;   // Grocy produkt-cache til "tag ekstra med"-vælger (lazy)
@@ -788,15 +795,34 @@ function _pakkeFindIngredient(pid) {
     return (_pakkeData?.raw?.ingredients || []).find(i => String(i.product_id) === String(pid));
 }
 
+/**
+ * Faktor fra lager-enhed til det tal der vises for en ingrediens.
+ *
+ * Serveren sender den som `display_factor`. Fallback udleder den af forholdet
+ * mellem vist og reelt behov — det dækker en cachet browser mod en ny server (og
+ * omvendt), hvor den ellers ville falde tilbage til 1 og genskabe #352.
+ */
+function _pakkeDisplayFactor(ing) {
+    const f = Number(ing?.display_factor);
+    if (Number.isFinite(f) && f > 0) return f;
+    const shown = Number(ing?.amount_needed), stock = Number(ing?.needed_stock);
+    if (Number.isFinite(shown) && Number.isFinite(stock) && shown > 0 && stock > 0) return shown / stock;
+    return 1;
+}
+
 async function _savePacking() {
     if (!_pakkeBonId) return;
     const overrides = Object.entries(_pakkeOverrides).map(([pid, amt]) => {
         const ing = _pakkeFindIngredient(pid);
         return {
             product_id: parseInt(pid),
+            // _pakkeOverrides er allerede i lager-enhed — send råt videre.
             packed_amount: Number(amt),
             product_name: ing?.product_name || null,
-            unit: ing?.unit || ing?.stock_unit || null,
+            // Gem den ENHED tallet faktisk er i, ikke den brugeren så. Ellers er
+            // rækken ikke til at tyde bagefter (og oprydningen efter #352 kan ikke
+            // afgøre om en gammel række allerede er konverteret).
+            unit: _pakkeFactors[pid]?.stockUnit || ing?.stock_unit_name || null,
         };
     });
     const extras = _pakkeExtras.map(x => ({
@@ -865,11 +891,15 @@ function _renderPakkeliste() {
             const computed = Number(inp.dataset.pakkeComputed);
             const val = inp.value === '' ? computed : Number(inp.value);
             if (Number.isNaN(val) || val < 0) { inp.value = String(computed); return; }
-            // Tæt på computed (float-tolerance) → fjern override
+            // Sammenligningen sker i VIST enhed — det er det tal brugeren ser og
+            // taster, og `computed` er afrundet dertil.
             if (Math.abs(val - computed) < 0.0001) {
                 delete _pakkeOverrides[pid];
             } else {
-                _pakkeOverrides[pid] = val;
+                // …men det GEMTE tal skal være i lager-enhed, som resten af kæden
+                // (server, DB, Grocy-consume) regner i. "150" i et g-felt er 0,15 kg.
+                const factor = _pakkeFactors[pid]?.factor || 1;
+                _pakkeOverrides[pid] = val / factor;
             }
             _schedulePakkeSave();
         };
@@ -986,12 +1016,15 @@ function _buildPakkelisteHtml(bon, data, level) {
             const pid = ing.product_id;
             const computed = Number(ing.amount_needed || ing.needed_stock || ing.needed_display || 0);
             const hasOverride = Object.prototype.hasOwnProperty.call(_pakkeOverrides, pid);
+            const factor = _pakkeDisplayFactor(ing);
+            _pakkeFactors[pid] = { factor, stockUnit: ing.stock_unit_name || null };
             return {
                 type: 'edit',
                 key: 'r' + pid,
                 productId: pid,
                 computed,
-                qty: hasOverride ? _pakkeOverrides[pid] : computed,
+                // Override ligger i lager-enhed — vis den i samme enhed som feltet ellers viser
+                qty: hasOverride ? Math.round(_pakkeOverrides[pid] * factor * 100) / 100 : computed,
                 overridden: hasOverride,
                 unit: ing.unit || ing.stock_unit || ing.purchase_unit || 'stk',
                 name: ing.product_name || ing.name || '',
