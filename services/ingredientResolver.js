@@ -402,6 +402,15 @@ function formatLevel(aggregated, effectiveStock, quConversions, unitMap, subReci
             purchase_unit:      purchaseUnitName,
             // Rå bygge-klodser til enheds-konvertering hos kalderen:
             needed_stock:       ing.needed_stock,
+            // display_factor = lager → det tal der står i `amount_needed`/`amount_stock`.
+            // Pakkelisten lader køkkenet REDIGERE det viste tal og skal kunne regne
+            // tilbage: stock = redigeret / display_factor. Uden den blev "150 g"
+            // gemt som 150 kg (#352).
+            display_factor:     fmtNeeded.factor,
+            // Navnet på den ægte lager-enhed. `unit`/`stock_unit` ovenfor er
+            // VISNINGS-enheder — de kan være g selvom produktet lagerføres i kg.
+            stock_unit_name:    (unitMap.get(ing.qu_id_stock)?.name_short
+                                 || unitMap.get(ing.qu_id_stock)?.name || ''),
             purchase_factor:    purchaseFactor,
             purchase_is_real_unit: purchaseIsRealUnit,
             grams_factor:       gramsFactor,   // null = kan ikke vejes
