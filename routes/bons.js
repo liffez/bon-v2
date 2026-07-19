@@ -121,6 +121,14 @@ router.get('/', handle((req, res) => {
         }
     }
 
+    // Fakturavagt (#319): kun bons markeret faktureret uden at der findes en faktura.
+    // Genbruger VAGTENS eget SQL-udtryk, så filter og mærke aldrig kan divergere.
+    // Er vagten inaktiv (ingen e-conomic-tokens) returnerer udtrykket '0' → tom liste,
+    // hvilket er det ærlige svar: vi kan ikke vide det uden e-conomic.
+    if (req.query.missing_invoice === '1') {
+        where.push(`(${invoiceGuard.missingInvoiceSQL(db, 'b', 'sd')}) = 1`);
+    }
+
     // Søgning — bonnumre er præcis 4 cifre:
     //   • ≤ 4 cifre  → match på bon_number (1, 33, 338, 3387). bon_number har et
     //                  præfiks ("B4037", "cafe-3485"), så vi matcher BÅDE prefix
