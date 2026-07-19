@@ -2757,6 +2757,42 @@ gennem 112 unit-tests og først blev set i drift — derfor findes UI-spec'en. B
 rullet tilbage: lager rettet, `LastCheckedUnit` flyttet, **best-before bevaret**, ikke-talt vare
 urørt. Spec: `tests/specs/T_OPTAELLING.md`.
 
+### Event-menu — eventets prisliste (#314, 19. juli 2026)
+> Spec: `docs/CLAUDE_EVENT.md §16`. Bygget forud for et event 30. juli.
+
+Menuen fandtes før kun implicit (unionen af prep-bonnens linjer + hvad prefill
+tilfældigvis hentede fra Grocy). Det gav tre driftsproblemer: prisen fandtes ikke før
+første salg (skiltet på vognen kunne ikke laves), en pris justeret på pladsen forsvandt
+lydløst næste dag, og en ret fundet på pladsen skulle tastes som fritekst hver dag.
+
+- **Migration 131**: `event_menu_items` (event_id CASCADE, nullable `grocy_recipe_id`,
+  `unit_price`, sort_order, note). Partielt unique-indeks på `(event_id, grocy_recipe_id)`
+  WHERE NOT NULL — flere fritekst-linjer pr. event er tilladt.
+  ⚠️ `unit_price` er **INCL moms** (matcher `bon_lines.unit_price`, §6b) mens
+  `item_prices` (068) er **EX moms**. De to må ikke "rettes" til at ligne hinanden.
+- **3 endpoints** i [routes/events.js](routes/events.js): `GET/PUT /:id/menu` (PUT =
+  reconcile, samme mønster som `/forecast`, valideret fuldt ud FØR skrivning) +
+  `POST /:id/menu/generate`.
+- **Generér = resync, ikke additiv**: genskaber slettede prep-afledte linjer, men
+  **rører aldrig prisen på linjer der findes** — ellers ville et tryk nulstille alle
+  on-site-justeringer. Manuelle linjer overlever. Kun prep-rollen, aldrig aflyste bons.
+- **`computeSalesPrefill`** henter nu antal fra prep-bons og **pris fra menuen**
+  (`price_source: 'menu'|'grocy'`); falder tilbage til Grocy når der ingen menu er
+  (bagudkompatibelt). Menupunkter uden prep kommer med som antal 0.
+- **Ingen prisversionering** — i stedet markeres en menurække diskret hvis en salgsbon
+  solgte til en anden pris (⚠ + de solgte priser i tooltip).
+- **UI**: sammenklappeligt **Plan**-felt med Forecast + Menu & priser, foldet sammen som
+  default ved status `active`/`done`, header-preview viser "N forventet · M menupunkter".
+  Auto-gem med kort SSE-suppressionsvindue (`_evMarkLocalAction`) så vores eget
+  `event_updated`-ekko ikke river kvitteringen væk.
+- **Drive-by-fix**: `GET /:id/overview`'s `preppedRows` var den ene prep-query der
+  manglede `EXCLUDE_CANCELLED_SQL` fra #303 — menuen genereres fra prep-bons og ville
+  have arvet fejlen.
+- **Tests**: `scripts/test-event-menu.js` (39 asserts, ægte endpoints over HTTP mod
+  isoleret temp-DB). Regression grøn: sales-prefill 10, topup 35, event-cancelled 26,
+  event-gate 15, event-polish 27, prep-packing 12, recipe-factor 8, moms-audit 18.
+  Browser-verificeret end-to-end; testdata ryddet.
+
 ## Næste opgave
 
 > ✏️ Tracker-oprydning 29. juni 2026 — koden er på migration 119; status-sektionen ovenfor

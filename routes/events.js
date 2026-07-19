@@ -650,12 +650,243 @@ router.get('/:id/overview', requireAuth(), handle(async (req, res) => {
         JOIN bon_lines bl ON bl.bon_id = b.id
         LEFT JOIN price_categories pc ON b.price_category_id = pc.id
         WHERE b.event_id = ? AND pc.code = 'produktion' AND bl.category IS NOT NULL
+          ${EXCLUDE_CANCELLED_SQL}
         GROUP BY b.delivery_date, bl.category
     `).all(event.id);
     const prepped = {};   // "date|category" → qty
     for (const r of preppedRows) prepped[`${r.date}|${r.category}`] = r.qty;
 
     res.json({ event, bons, pnl, forecast, days, categories, prepped });
+}));
+
+// ─── EVENT-MENU (prisliste) §16 ────────────────────────────────────────────
+// Menuen er eventets prisliste: hvad vi sælger, og til hvilken pris. Den
+// genereres fra prep-bonnerne + Grocys festivalpriser, redigeres frit, og
+// bliver derefter KILDEN til salgs-prefillens priser i stedet for Grocy.
+//
+// unit_price er INCL moms (§6b) — se migration 131 for hvorfor, og for
+// hvorfor den IKKE må rettes til at matche item_prices (som er ex moms).
+
+// Nøgle til at matche en menulinje mod en prep-linje. Opskrift-id når det
+// findes (stabilt over tid), ellers normaliseret navn (fritekst-linjer kan
+// kun matches på navn — accepteret begrænsning, jf. §16).
+const menuKey = (recipeId, name) =>
+    recipeId ? `r:${recipeId}` : `n:${String(name || '').trim().toLowerCase()}`;
+
+// Aggregér eventets prep-linjer pr. produkt. Delt af menu-generering og
+// salgs-prefill, så de to ALTID er enige om hvad "menuen" består af.
+// Kun prep-rollen tæller (ikke top-up) og aldrig aflyste bons.
+function getPrepAggregate(event) {
+    const bons = activeBons(getEventBons(event.id));
+    const seenProductionDates = new Set();
+    for (const b of bons) {
+        if (b.price_category_code === 'produktion') {
+            b._is_first_production_on_date = !seenProductionDates.has(b.delivery_date);
+            seenProductionDates.add(b.delivery_date);
+        }
+        b.role = classifyRole(b, event.start_date);
+    }
+    const prepIds = bons.filter(b => b.role === 'prep').map(b => b.id);
+    if (prepIds.length === 0) return [];
+
+    const ph = prepIds.map(() => '?').join(',');
+    return getDb().prepare(`
+        SELECT bl.grocy_recipe_id AS grocy_recipe_id,
+               bl.product_name    AS product_name,
+               bl.category        AS category,
+               bl.unit            AS unit,
+               COALESCE(SUM(bl.quantity), 0) AS qty
+        FROM bon_lines bl
+        WHERE bl.bon_id IN (${ph})
+        GROUP BY bl.grocy_recipe_id, bl.product_name, bl.category, bl.unit
+        ORDER BY bl.category, bl.product_name
+    `).all(...prepIds);
+}
+
+function getMenuItems(eventId) {
+    return getDb().prepare(`
+        SELECT id, grocy_recipe_id, product_name, category, unit, unit_price, sort_order, note
+        FROM event_menu_items WHERE event_id = ?
+        ORDER BY sort_order, category, product_name
+    `).all(eventId);
+}
+
+// Diskret sikkerhedsnet i stedet for prisversionering (§16): har en salgsbon
+// solgt et menupunkt til en anden pris end menuens, markeres rækken. Fanger de
+// sjældne midt-i-event-prisændringer uden at bygge et versioneringslag.
+function getMenuPriceDeviations(event) {
+    const rows = getDb().prepare(`
+        SELECT bl.grocy_recipe_id AS grocy_recipe_id,
+               bl.product_name    AS product_name,
+               bl.unit_price      AS unit_price
+        FROM bons b
+        JOIN bon_lines bl ON bl.bon_id = b.id
+        LEFT JOIN price_categories pc ON b.price_category_id = pc.id
+        WHERE b.event_id = ?
+          AND COALESCE(pc.code, '') != 'produktion'
+          AND COALESCE(b.total_price, 0) >= 0
+          ${EXCLUDE_CANCELLED_SQL}
+        GROUP BY bl.grocy_recipe_id, bl.product_name, bl.unit_price
+    `).all(event.id);
+
+    const byKey = new Map();
+    for (const r of rows) {
+        const k = menuKey(r.grocy_recipe_id, r.product_name);
+        if (!byKey.has(k)) byKey.set(k, new Set());
+        byKey.get(k).add(Math.round((r.unit_price ?? 0) * 100) / 100);
+    }
+    return byKey;
+}
+
+// Byg menu-svaret: rækker + afvigelses-markering pr. række.
+function buildMenuResponse(event) {
+    const items = getMenuItems(event.id);
+    const sold  = getMenuPriceDeviations(event);
+    for (const it of items) {
+        const prices = sold.get(menuKey(it.grocy_recipe_id, it.product_name));
+        const menuPrice = Math.round((it.unit_price ?? 0) * 100) / 100;
+        const differing = prices ? [...prices].filter(p => p !== menuPrice) : [];
+        it.sold_prices     = prices ? [...prices].sort((a, b) => a - b) : [];
+        it.price_deviation = differing.length > 0;
+    }
+    return { items };
+}
+
+router.get('/:id/menu', requireAuth(), handle((req, res) => {
+    const event = getEvent(req.params.id);
+    if (!event) return res.status(404).json({ error: 'Event ikke fundet' });
+    res.json(buildMenuResponse(event));
+}));
+
+// PUT erstatter hele menuen for eventet (idempotent reconcile — samme mønster
+// som /forecast). Klienten sender altid den fulde liste.
+router.put('/:id/menu', requireAuth(), handle((req, res) => {
+    const db = getDb();
+    const event = getEvent(req.params.id);
+    if (!event) return res.status(404).json({ error: 'Event ikke fundet' });
+    const items = Array.isArray(req.body?.items) ? req.body.items : null;
+    if (!items) return res.status(400).json({ error: 'items (array) er påkrævet' });
+
+    // Valider FØR vi rører databasen, så et halvt gyldigt payload ikke kan
+    // efterlade menuen delvist skrevet.
+    const clean = [];
+    const seen  = new Set();
+    for (const [i, it] of items.entries()) {
+        const name = String(it.product_name ?? '').trim();
+        if (!name) return res.status(400).json({ error: 'product_name er påkrævet på alle linjer' });
+        const price = Number(it.unit_price);
+        if (!Number.isFinite(price) || price < 0) {
+            return res.status(400).json({ error: `Ugyldig pris på "${name}"` });
+        }
+        const rid = it.grocy_recipe_id != null ? parseInt(it.grocy_recipe_id, 10) : null;
+        if (rid != null && !Number.isInteger(rid)) {
+            return res.status(400).json({ error: `Ugyldigt grocy_recipe_id på "${name}"` });
+        }
+        const k = menuKey(rid, name);
+        if (seen.has(k)) return res.status(400).json({ error: `"${name}" optræder to gange i menuen` });
+        seen.add(k);
+        clean.push({
+            grocy_recipe_id: rid,
+            product_name:    name,
+            category:        it.category ? String(it.category).trim() : null,
+            unit:            it.unit ? String(it.unit).trim() : 'stk',
+            unit_price:      Math.round(price * 100) / 100,
+            sort_order:      Number.isFinite(Number(it.sort_order)) ? Number(it.sort_order) : i,
+            note:            it.note ? String(it.note).trim() : null,
+        });
+    }
+
+    transaction(db, () => {
+        db.prepare(`DELETE FROM event_menu_items WHERE event_id = ?`).run(event.id);
+        const ins = db.prepare(`
+            INSERT INTO event_menu_items
+                (event_id, grocy_recipe_id, product_name, category, unit, unit_price, sort_order, note, updated_at)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP)
+        `);
+        for (const c of clean) {
+            ins.run(event.id, c.grocy_recipe_id, c.product_name, c.category,
+                    c.unit, c.unit_price, c.sort_order, c.note);
+        }
+    });
+    logChange({ entityType: 'event', entityId: event.id, action: 'update', fieldName: 'menu', userId: req.session?.userId });
+    broadcast('event_updated', { id: event.id });
+    res.json(buildMenuResponse(event));
+}));
+
+// Generér = RESYNC, ikke additiv (§16):
+//   • genskaber manglende prep-afledte linjer — også dem der er slettet
+//     (det er reset-knappen)
+//   • rører ALDRIG prisen på linjer der allerede findes. Ellers ville et tryk
+//     her — fordi nogen lige tilføjede en vare til prep-bonnen — nulstille alle
+//     on-site-justerede priser tilbage til Grocys festivalpris
+//   • manuelle linjer (dem prep ikke kender) overlever urørt
+router.post('/:id/menu/generate', requireAuth(), handle(async (req, res) => {
+    const db = getDb();
+    const event = getEvent(req.params.id);
+    if (!event) return res.status(404).json({ error: 'Event ikke fundet' });
+
+    const prepRows = getPrepAggregate(event);
+    const existing = getMenuItems(event.id);
+    const existingKeys = new Set(existing.map(it => menuKey(it.grocy_recipe_id, it.product_name)));
+
+    let recById = {};
+    let grocyFailed = false;
+    try {
+        for (const r of await grocy.getRecipes()) recById[r.id] = r;
+    } catch (err) {
+        console.warn('[events] menu/generate: kunne ikke hente Grocy-priser:', err.message);
+        grocyFailed = true;
+    }
+
+    // Nye linjer lægges efter de eksisterende, så en manuelt sat rækkefølge
+    // ikke rykker rundt hver gang der resyncs.
+    let nextSort = existing.reduce((m, it) => Math.max(m, it.sort_order ?? 0), -1) + 1;
+    const toAdd = [];
+    const seenNew = new Set();
+    for (const r of prepRows) {
+        const k = menuKey(r.grocy_recipe_id, r.product_name);
+        if (existingKeys.has(k) || seenNew.has(k)) continue;   // findes ⇒ prisen bevares
+        seenNew.add(k);
+        const rec = r.grocy_recipe_id ? recById[r.grocy_recipe_id] : null;
+        toAdd.push({
+            grocy_recipe_id: r.grocy_recipe_id ?? null,
+            product_name:    r.product_name,
+            category:        r.category ?? null,
+            unit:            r.unit ?? 'stk',
+            unit_price:      rec ? (rec.prices?.festival ?? 0) : 0,
+            sort_order:      nextSort++,
+        });
+    }
+
+    if (toAdd.length > 0) {
+        transaction(db, () => {
+            const ins = db.prepare(`
+                INSERT INTO event_menu_items
+                    (event_id, grocy_recipe_id, product_name, category, unit, unit_price, sort_order, updated_at)
+                VALUES (?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP)
+            `);
+            for (const a of toAdd) {
+                ins.run(event.id, a.grocy_recipe_id, a.product_name, a.category,
+                        a.unit, a.unit_price, a.sort_order);
+            }
+        });
+        logChange({ entityType: 'event', entityId: event.id, action: 'update', fieldName: 'menu', userId: req.session?.userId });
+        broadcast('event_updated', { id: event.id });
+    }
+
+    // Grocy-fejlen advares der kun om når den faktisk fik en konsekvens — dvs.
+    // når der blev oprettet linjer der så mangler deres pris. Var menuen i
+    // forvejen i sync, ændrede fejlen intet, og advarslen ville være støj.
+    const warnings = (grocyFailed && toAdd.length > 0)
+        ? ['Grocy-priser kunne ikke hentes — de nye linjer fik pris 0 og skal udfyldes i hånden.']
+        : [];
+
+    res.json({
+        ...buildMenuResponse(event),
+        added: toAdd.length,
+        kept:  existing.length,
+        warnings,
+    });
 }));
 
 // ─── SALGS-BON PRE-FILL (menu-punkter fra prep-bonnerne) ───────────────────
@@ -673,37 +904,17 @@ router.get('/:id/overview', requireAuth(), handle(async (req, res) => {
 // Aggregér salgs-bon pre-fill for et event. Testbar helper (jf.
 // computeEventPnL/Cost/CO2) — ruten kalder bare denne + res.json.
 async function computeSalesPrefill(event) {
-    // Find prep-bonnerne via samme rolle-klassifikation som overview viser.
-    // Aflyste bons frasorteres FØR klassifikationen: ellers ville en aflyst
-    // produktionsbon lægge beslag på 'prep'-rollen i fallback-heuristikken og
-    // skubbe den rigtige prep-bon ned som 'topup'.
-    const bons = activeBons(getEventBons(event.id));
-    const seenProductionDates = new Set();
-    for (const b of bons) {
-        if (b.price_category_code === 'produktion') {
-            b._is_first_production_on_date = !seenProductionDates.has(b.delivery_date);
-            seenProductionDates.add(b.delivery_date);
-        }
-        b.role = classifyRole(b, event.start_date);
+    // Antallet kommer fra prep-bonnerne (hvad vi fysisk tog med). Prisen
+    // kommer fra eventets menu når den findes — ellers falder vi tilbage til
+    // Grocys festivalpris som før (bagudkompatibelt for events oprettet inden
+    // menuen fandtes).
+    const rows = getPrepAggregate(event);
+    const menu = getMenuItems(event.id);
+    if (rows.length === 0 && menu.length === 0) {
+        return { lines: [], price_category_code: 'festival', price_source: 'grocy' };
     }
-    const prepIds = bons.filter(b => b.role === 'prep').map(b => b.id);
-    if (prepIds.length === 0) return { lines: [], price_category_code: 'festival' };
 
-    // Aggregér prep-linjer pr. produkt (grocy_recipe_id når sat, ellers navn).
-    const ph = prepIds.map(() => '?').join(',');
-    const rows = getDb().prepare(`
-        SELECT bl.grocy_recipe_id AS grocy_recipe_id,
-               bl.product_name    AS product_name,
-               bl.category        AS category,
-               bl.unit            AS unit,
-               COALESCE(SUM(bl.quantity), 0) AS qty
-        FROM bon_lines bl
-        WHERE bl.bon_id IN (${ph})
-        GROUP BY bl.grocy_recipe_id, bl.product_name, bl.category, bl.unit
-        ORDER BY bl.category, bl.product_name
-    `).all(...prepIds);
-
-    // Festival-salgspris (+ kostpris/CO₂-snapshot) fra Grocy pr. opskrift.
+    // Kostpris/CO₂ er stadig Grocy-snapshots — menuen holder kun salgsprisen.
     let recById = {};
     try {
         const recipes = await grocy.getRecipes();
@@ -712,20 +923,44 @@ async function computeSalesPrefill(event) {
         console.warn('[events] sales-prefill: kunne ikke hente Grocy-priser:', err.message);
     }
 
-    const lines = rows.map(r => {
+    const menuByKey = new Map(menu.map(m => [menuKey(m.grocy_recipe_id, m.product_name), m]));
+    const usingMenu = menu.length > 0;
+
+    const buildLine = (r, qty, menuItem) => {
         const rec = r.grocy_recipe_id ? recById[r.grocy_recipe_id] : null;
         return {
             grocy_recipe_id: r.grocy_recipe_id ?? null,
             product_name:    r.product_name,
             category:        r.category ?? null,
             unit:            r.unit ?? 'stk',
-            quantity:        r.qty,
-            unit_price:      rec ? (rec.prices?.festival ?? 0) : 0,
+            quantity:        qty,
+            // Menuprisen er INCL moms og matcher bon_lines.unit_price direkte
+            // (§6b) — ingen konvertering her.
+            unit_price:      menuItem ? menuItem.unit_price : (rec ? (rec.prices?.festival ?? 0) : 0),
             cost_price:      rec ? (rec.cost_price ?? null) : null,
             co2e:            rec ? (rec.co2e ?? null) : null,
         };
-    });
-    return { lines, price_category_code: 'festival' };
+    };
+
+    const lines = [];
+    const usedMenuKeys = new Set();
+    for (const r of rows) {
+        const k = menuKey(r.grocy_recipe_id, r.product_name);
+        const m = menuByKey.get(k);
+        if (m) usedMenuKeys.add(k);
+        lines.push(buildLine(r, r.qty, m));
+    }
+
+    // Menupunkter uden prep — typisk en ret fundet på pladsen. De skal med i
+    // prefillen med antal 0, ellers skal de tastes som fritekst hver eneste dag
+    // (præcis det problem menuen findes for at løse).
+    for (const m of menu) {
+        const k = menuKey(m.grocy_recipe_id, m.product_name);
+        if (usedMenuKeys.has(k)) continue;
+        lines.push(buildLine(m, 0, m));
+    }
+
+    return { lines, price_category_code: 'festival', price_source: usingMenu ? 'menu' : 'grocy' };
 }
 
 router.get('/:id/sales-prefill', requireAuth(), handle(async (req, res) => {
@@ -1000,3 +1235,7 @@ module.exports.computeEventCost = computeEventCost;
 module.exports.computeEventCO2 = computeEventCO2;
 module.exports.computeEventExpenses = computeEventExpenses;
 module.exports.computeReturnSuggestion = computeReturnSuggestion;
+module.exports.getPrepAggregate = getPrepAggregate;
+module.exports.getMenuItems = getMenuItems;
+module.exports.buildMenuResponse = buildMenuResponse;
+module.exports.menuKey = menuKey;
