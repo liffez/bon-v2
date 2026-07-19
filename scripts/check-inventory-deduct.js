@@ -56,14 +56,24 @@ function logLine(msg) { console.log(`[${new Date().toISOString()}] ${msg}`); }
 const getSetting = (db, k) => db.prepare('SELECT value FROM settings WHERE key = ?').get(k)?.value ?? '';
 
 // Eksporteret ren funktion så testen rammer den ægte SQL frem for at replikere den.
+//
+// To tilstande skal fanges (#359):
+//   inventory_deducted = 0   intet blev trukket — sikkert at prøve igen
+//   ..._status = 'partial'   nogle produkter fejlede; flaget er sat for at
+//                            undgå dobbelt-træk, så uden dette led ville
+//                            bonen se ud som fuldt trukket
+// Tidligere kiggede vagthunden kun på flaget, og fordi et fejlet træk SATTE
+// flaget, var den blind over for præcis den fejl den blev bygget til at fange.
 function findUndeducted(db, days) {
     return db.prepare(`
-        SELECT b.id, b.bon_number, b.delivery_date, sd.code AS status_code
+        SELECT b.id, b.bon_number, b.delivery_date, sd.code AS status_code,
+               COALESCE(b.inventory_deduct_status, '') AS deduct_status
         FROM bons b
         JOIN status_definitions sd ON b.status_id = sd.id
         WHERE sd.code IN ('LEVERET','FAKTURERET','BETALT','AFSLUTTET')
           AND COALESCE(b.is_offer, 0) = 0
-          AND COALESCE(b.inventory_deducted, 0) = 0
+          AND (COALESCE(b.inventory_deducted, 0) = 0
+               OR b.inventory_deduct_status = 'partial')
           AND b.delivery_date >= date('now', '-' || ? || ' days')
         ORDER BY b.delivery_date, b.id
     `).all(days);
@@ -86,8 +96,11 @@ async function main() {
     }
 
     // ── Drift fundet ────────────────────────────────────────────────────────
-    const list = rows.map(r => `#${r.bon_number} (${r.delivery_date}, ${r.status_code})`).join(', ');
-    logLine(`[deduct-check] ⚠ ${rows.length} leveret bon(s) de seneste ${DAYS} dage har IKKE trukket lager: ${list}`);
+    const label = (r) => r.deduct_status === 'partial' ? 'DELVIST trukket'
+                       : r.deduct_status === 'failed'  ? 'træk fejlede'
+                       : 'ikke trukket';
+    const list = rows.map(r => `#${r.bon_number} (${r.delivery_date}, ${r.status_code}, ${label(r)})`).join(', ');
+    logLine(`[deduct-check] ⚠ ${rows.length} leveret bon(s) de seneste ${DAYS} dage har IKKE trukket lager korrekt: ${list}`);
     logLine(`[deduct-check] Trækket er tændt, så det burde ikke ske. Mulige årsager: Grocy nede ved LEVERET, `
           + `en bon uden opskriftskobling, eller en consume-fejl. Tjek serverlog + scripts/dry-run-consume.js.`);
 

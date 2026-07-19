@@ -2943,6 +2943,36 @@ led selv har et niveau under sig — det er dér undertællingen sad. Mutations-
 uden `stack.delete` falder både råvare- og consume-tallet fra 2 til 1; uden cyklusværnet
 giver testen "Maximum call stack size exceeded".
 
+### Lagertræk: flaget afspejler nu udfaldet (#359, 19. juli 2026)
+
+`db/helpers.js` satte `inventory_deducted = 1` **ubetinget** — også når hvert eneste
+Grocy-kald fejlede. `consumeRecipes` afviser aldrig: fejl pr. produkt returneres som
+`success: false` i et **resolvet** array, så `.catch` ramte dem aldrig.
+
+Det værste var ikke fejlen, men at den var immun over for kontrollen:
+`scripts/check-inventory-deduct.js` (bygget efter #305) leder efter leverede bons
+**uden** flaget. Denne tilstand **satte** flaget, så vagthunden meldte alt vel. Dertil
+blokerede flaget permanent for et nyt forsøg, og event-oversigten viste `✓ lager trukket`
+ud fra samme flag — altså bekræftede løgnen aktivt for et menneske.
+
+Fire udfald i stedet for ét (migration 133, `bons.inventory_deduct_status`):
+
+| Udfald | Flag | Status | Hvorfor |
+|---|---|---|---|
+| Alt trukket | 1 | `ok` | |
+| Intet trukket | **0** | `failed` | Sikkert at gentage, og vagthunden fanger den |
+| Delvist | 1 | `partial` | Flaget SKAL sættes (ellers dobbelt-træk på de lykkedes) — derfor skal tilstanden i stedet være synlig |
+| Ingen opskriftslinjer | 1 | `nothing` | Der var intet at trække; ikke en fejl |
+
+`findUndeducted` i vagthunden matcher nu **både** `inventory_deducted = 0` og
+`status = 'partial'`, og skriver hvilken af de to tilstande hver bon er i.
+
+**Tests:** `scripts/test-consume-outcome.js` (11 asserts mod en rigtig temp-DB med alle
+migrations — fire udfald, at vagthunden ser begge fejl-tilstande og ikke alarmerer på de
+sunde, og at idempotensen stadig holder). Mutations-testet: sættes flaget ubetinget igen,
+falder både "flaget forbliver 0" og "vagthunden fanger den" — præcis de to halvdele af
+fejlen. `test-deduct-check` uændret 10/0.
+
 ## Næste opgave
 
 > ✏️ Tracker-oprydning 29. juni 2026 — koden er på migration 119; status-sektionen ovenfor

@@ -168,21 +168,54 @@ function autoConsumeBonInventory(bonId) {
     const recipeFactors = getPrepPackingRecipeFactors(bonId);
     const { consumeRecipes } = require('../services/grocyAdapter');
     consumeRecipes(lines, packingOverrides, packingExtras, recipeFactors).then(results => {
-        const failed  = results.filter(r => !r.success);
-        const partial = results.filter(r => r.partial);
-        if (failed.length) {
-            console.warn(`[grocy_consume] bon ${bonId}: ${failed.length} fejl:`, failed);
-        } else if (partial.length) {
-            console.log(`[grocy_consume] bon ${bonId}: ${results.length} produkter trukket — ${partial.length} partial (rest lagt på shopping-list)`);
+        const failed    = results.filter(r => !r.success);
+        const succeeded = results.filter(r => r.success);
+        const partial   = results.filter(r => r.partial);
+
+        // Flaget må KUN sættes hvis noget faktisk blev trukket (#359).
+        // consumeRecipes afviser aldrig — fejl pr. produkt kommer tilbage som
+        // success:false i et resolvet array — så et ubetinget UPDATE her
+        // påstod at lageret var trukket mens Grocy var urørt. Og fordi
+        // vagthunden fra #305 leder efter bons UDEN flaget, var netop den
+        // tilstand usynlig for kontrollen der skulle fange den.
+        let status;
+        if (results.length === 0) {
+            // Ingen linjer med opskriftskobling — der var intet at trække.
+            // Flaget sættes så bonen ikke ligner en fejl for vagthunden.
+            status = 'nothing';
+            console.log(`[grocy_consume] bon ${bonId}: ingen opskriftslinjer — intet at trække`);
+        } else if (succeeded.length === 0) {
+            // Intet lykkedes. Lad flaget stå på 0: så er en gentagelse sikker,
+            // og vagthunden fanger bonen.
+            status = 'failed';
+            console.error(`[grocy_consume] bon ${bonId}: INTET trukket — alle ${failed.length} produkter fejlede:`, failed);
+        } else if (failed.length) {
+            // Delvist. Flaget SKAL sættes (ellers ville en gentagelse trække de
+            // lykkedes produkter en gang til), men tilstanden skal kunne ses.
+            status = 'partial';
+            console.warn(`[grocy_consume] bon ${bonId}: DELVIST trukket — ${succeeded.length} ok, ${failed.length} fejlede:`, failed);
         } else {
-            console.log(`[grocy_consume] bon ${bonId}: ${results.length} produkter forbrugt fra lager`);
+            status = 'ok';
+            const suffix = partial.length ? ` — ${partial.length} partial (rest lagt på shopping-list)` : '';
+            console.log(`[grocy_consume] bon ${bonId}: ${results.length} produkter forbrugt fra lager${suffix}`);
         }
-        db.prepare(
-            `UPDATE bons SET inventory_deducted = 1, inventory_deducted_at = CURRENT_TIMESTAMP WHERE id = ?`
-        ).run(bonId);
+
+        if (status === 'failed') {
+            db.prepare(`UPDATE bons SET inventory_deduct_status = ? WHERE id = ?`).run(status, bonId);
+        } else {
+            db.prepare(
+                `UPDATE bons SET inventory_deducted = 1, inventory_deducted_at = CURRENT_TIMESTAMP,
+                                 inventory_deduct_status = ? WHERE id = ?`
+            ).run(status, bonId);
+        }
         logChange({ entityType: 'bon', entityId: bonId, action: 'grocy_consume', fieldName: 'stock', oldValue: null, newValue: JSON.stringify(results) });
     }).catch(err => {
+        // Uventet crash (ikke en Grocy-fejl pr. produkt). Flaget forbliver 0,
+        // så vagthunden fanger bonen og en gentagelse er sikker.
         console.error(`[grocy_consume] bon ${bonId}: fejl:`, err.message);
+        try {
+            db.prepare(`UPDATE bons SET inventory_deduct_status = 'failed' WHERE id = ?`).run(bonId);
+        } catch { /* DB-fejl her må ikke skygge for den oprindelige fejl */ }
     });
 }
 

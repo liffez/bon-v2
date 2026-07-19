@@ -1,0 +1,24 @@
+-- 133_inventory_deduct_status.sql
+-- ════════════════════════════════════════════════════════════
+-- Gør UDFALDET af lagertrækket synligt, ikke bare at det blev forsøgt.
+--
+-- Hvorfor (#359): `inventory_deducted` blev sat til 1 ubetinget — også når hvert
+-- eneste Grocy-kald fejlede. `consumeRecipes` afviser aldrig; fejl pr. produkt
+-- returneres som `success: false` i et resolvet array. Flaget påstod altså at
+-- lageret var trukket, mens Grocy var urørt.
+--
+-- Det værste var ikke fejlen, men at den var immun over for kontrollen:
+-- scripts/check-inventory-deduct.js (bygget efter #305) leder efter leverede
+-- bons UDEN flaget. Denne tilstand SATTE flaget, så vagthunden meldte alt vel.
+--
+-- Værdier:
+--   'ok'      alle produkter trukket
+--   'partial' nogle trukket, nogle fejlede — flaget er sat for at undgå
+--             dobbelt-træk ved en gentagelse, men tilstanden skal ses
+--   'failed'  intet blev trukket — flaget forbliver 0, så det er sikkert at
+--             prøve igen, og vagthunden fanger bonen
+--   'nothing' ingen linjer med opskriftskobling — der var intet at trække
+--   NULL      trukket før denne rettelse, eller aldrig forsøgt
+-- ════════════════════════════════════════════════════════════
+
+ALTER TABLE bons ADD COLUMN inventory_deduct_status TEXT;
