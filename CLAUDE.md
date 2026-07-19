@@ -3199,6 +3199,41 @@ er ikke bekræftet.
   (isoleret temp-DB, spawned server). Regression grøn: event-menu 42, event-bridge-prep 69,
   topup 35, event-cancelled 26, event-gate 15, event-polish 27, prep-packing 12.
   Browser-verificeret end-to-end; testdata ryddet.
+### Vægtberegning: kæd to hop via kilo (20. juli 2026)
+
+`findConversionFactorToGrams` slog kun ÉT hop op. Et produkt med en gyldig vej til kilo
+— fx Citronsaft med `1 Liter = 1 Kilo`, eller Æg med `1 Antal = 0,06 Kilo` — returnerede
+derfor `null`, og varen blev **tavst udeladt** af underopskriftens vægt (linjen
+`if (gFactor !== null)`).
+
+Målt med `scripts/audit-grocy-live.js`: **27 råvarer i grocy-hq var i den situation.**
+Dataen var på plads i Grocy; koden læste den bare ikke.
+
+**Der antages intet.** Første hop er produktets eget (eller en global regel), andet hop
+er den globale `Kilo → Gram = 1000`. Findes ingen af delene, udelades varen fortsat —
+vi opfinder ikke en vægt.
+
+**Effekt målt på rigtige opskrifter** (10 stk af hver, 69 underopskrift-vægte):
+8 ændrer sig, fra +0 % til +57 %. Den største hånd-regnet efter:
+
+```
+"Balsamico + løg" = 1 kg løg + 0,06 L balsamico + 0,5 L vand
+  før:   1000 g   ← kun løgene talte med
+  efter: 1566 g
+```
+
+Øvrige: Chili Mayo +11 %, Tahin dressing +5 %, Trøffel Mayo +1 %, Yoghurt dressing +0 %.
+
+**Konsekvens for gemte pakke-faktorer:** buffer-faktoren i pakkelisten udregnes som
+`ønsket vægt / vist vægt`. To af driftens fire gemte faktorer sidder på opskrifter hvis
+vægt ændrer sig (Tahin og Yoghurt dressing, begge på bon 9002), så de over-skalerer med
+op til ~5 %. Faktorens *betydning* er uændret — den ganges på råvarerne, ikke på vægten —
+og genindtastes den ønskede vægt efter deploy, beregnes faktoren korrekt.
+
+**Test:** `scripts/test-gram-chaining.js` (6 asserts — direkte vej, kædet Liter→Kilo→Gram,
+kædet Antal→Kilo→Gram, at en vare uden vej fortsat udelades, og at der intet kædes uden
+den globale Kilo→Gram). Mutations-testet: fjernes kædningen, falder vand og æg ud af
+vægten igen.
 
 ## Næste opgave
 

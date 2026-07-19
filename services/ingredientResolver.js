@@ -506,7 +506,34 @@ function findConversionFactorToGrams(conversions, productId, fromQuId, unitMap) 
         return null;
     }
 
-    return findConversionFactor(conversions, productId, fromQuId, gramQuId);
+    const direct = findConversionFactor(conversions, productId, fromQuId, gramQuId);
+    if (direct !== null) return direct;
+
+    // Kæd via KILO når der ikke findes en direkte vej til gram.
+    //
+    // findConversionFactor slår kun ÉT hop op. Det betød at et produkt med en
+    // gyldig vej til kilo — fx Citronsaft med "1 Liter = 1 Kilo", eller Æg med
+    // "1 Antal = 0,06 Kilo" — alligevel returnerede null, og så blev varen
+    // TAVST udeladt af vægtberegningen (linjen `if (gFactor !== null)` ovenfor).
+    // 27 råvarer i grocy-hq var i den situation: dataen var på plads, koden
+    // læste den bare ikke.
+    //
+    // Der antages intet her. Begge led kommer fra Grocy: første hop er
+    // produktets eget (eller en global regel), andet hop er den globale
+    // Kilo → Gram = 1000.
+    let kiloQuId = null;
+    for (const [id, u] of unitMap) {
+        const name = (u.name || '').toLowerCase();
+        const short = (u.name_short || '').toLowerCase();
+        if (name === 'kilo' || name === 'kg' || short === 'kg') { kiloQuId = id; break; }
+    }
+    if (kiloQuId && fromQuId !== kiloQuId) {
+        const toKilo = findConversionFactor(conversions, productId, fromQuId, kiloQuId);
+        const kiloToGram = findConversionFactor(conversions, productId, kiloQuId, gramQuId);
+        if (toKilo !== null && kiloToGram !== null) return toKilo * kiloToGram;
+    }
+
+    return null;
 }
 
 /**
