@@ -173,18 +173,26 @@ function verdict(n, label) {
     // ── 7 ──────────────────────────────────────────────────────
     section(7, 'Salgbare opskrifter uden pris',
         'bon-linjen får 0 kr og forsvinder ud af omsætningen');
-    const noPrice = recipes.filter(r => {
+    // Produktionsopskrifter ER salgbare (de skal kunne vælges til en
+    // produktionsbon), men 0 kr er dér bevidst — en produktionsbon er ikke
+    // omsætning. De ville drukne det reelle fund, så de tælles for sig.
+    const isProduction = (g) => /produktion/i.test(String(g || ''));
+    const priced = (uf) => ['SalespriceStore', 'SalespriceCatering', 'SalespriceFestival',
+                            'SalespriceProduktion', 'SalespriceWaiste'].some(k => Number(uf[k]) > 0);
+    const sellableNoPrice = recipes.filter(r => {
         const uf = r.userfields || {};
-        if (String(uf.sellable) !== '1') return false;
-        return !['SalespriceStore', 'SalespriceCatering', 'SalespriceFestival',
-                 'SalespriceProduktion', 'SalespriceWaiste']
-            .some(k => Number(uf[k]) > 0);
-    }).map(r => r.name);
-    verdict(noPrice.length, 'salgbare opskrifter uden nogen salgspris');
+        return String(uf.sellable) === '1' && !priced(uf);
+    });
+    const prodNoPrice = sellableNoPrice.filter(r => isProduction((r.userfields || {}).grupper));
+    const noPrice = sellableNoPrice
+        .filter(r => !isProduction((r.userfields || {}).grupper))
+        .map(r => `${r.name}  (${(r.userfields || {}).grupper || 'ingen gruppe'})`);
+    verdict(noPrice.length, 'salgs-opskrifter uden nogen salgspris');
     list(noPrice);
+    console.log(`   \x1b[2m(+ ${prodNoPrice.length} produktionsopskrifter uden pris — normalt bevidst)\x1b[0m`);
 
     console.log(`\n${B('─'.repeat(60))}`);
-    const total = missingBuy.length + noWeight.length + deadPos.length + cycles;
+    const total = missingBuy.length + noWeight.length + deadPos.length + cycles + noPrice.length;
     console.log(total === 0
         ? GRN('Ingen fund med kendt konsekvens.')
         : `${total} fund med kendt konsekvens i koden. Punkt 3 og 5 er til vurdering, ikke nødvendigvis fejl.`);
