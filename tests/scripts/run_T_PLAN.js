@@ -31,6 +31,7 @@ const fs           = require('node:fs');
 const path         = require('node:path');
 const { openDb }   = require('../../db/compat');
 const safetyCheck  = require('./safety_check');
+const { login, withSession } = require('./helpers/login');
 
 const SERVER_URL    = process.env.TEST_SERVER_URL || `http://localhost:${process.env.PORT || 4322}`;
 const REPORT_DIR    = path.resolve(__dirname, '..', 'reports');
@@ -46,9 +47,18 @@ const VERBOSE = args.includes('--verbose');
 
 let db;
 
+// Siden #316 (global auth-gate på /api) skal runneren have en session.
+// Signaturen her er GET-only — bevaret, så kaldstederne er urørte.
+let _session = null;
+
+async function doLogin() {
+    _session = withSession(SERVER_URL, await login(SERVER_URL));
+}
+
 async function api(pathPart) {
-    const res = await fetch(`${SERVER_URL}${pathPart}`);
-    return { status: res.status, body: await res.json().catch(() => null) };
+    if (!_session) throw new Error('api() kaldt før doLogin() — se tests/scripts/helpers/login.js');
+    const r = await _session('GET', pathPart);
+    return { status: r.status, body: r.body };
 }
 
 function sql(query, ...params) {
@@ -290,8 +300,9 @@ async function runIngredientTests() {
 
     // T_PLAN_ING_08: GET uden ids → 400
     {
-        const res = await fetch(`${SERVER_URL}/api/bons/planning/ingredients`);
-        assertEq('T_PLAN_ING_08', 'ING', 400, res.status, 'GET uden ids returnerer 400');
+        // Via sessionen — en rå fetch rammer auth-gaten og giver 401, ikke 400.
+        const r = await _session('GET', '/api/bons/planning/ingredients');
+        assertEq('T_PLAN_ING_08', 'ING', 400, r.status, 'GET uden ids returnerer 400');
     }
 
     // T_PLAN_ING_07: GET med ids
@@ -304,12 +315,9 @@ async function runIngredientTests() {
 
     // T_PLAN_ING_04: Tom anmodning via POST
     {
-        const res = await fetch(`${SERVER_URL}/api/bons/planning/ingredients`, {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ bon_ids: [], extra_lines: [] }),
-        });
-        const body = await res.json();
+        const r = await _session('POST', '/api/bons/planning/ingredients',
+                                 { bon_ids: [], extra_lines: [] });
+        const body = r.body || {};
         const isEmpty = body.ingredients?.length === 0 && body.groups?.length === 0;
         assertEq('T_PLAN_ING_04', 'ING', true, isEmpty, 'Tom anmodning → tomme arrays');
     }
@@ -437,6 +445,8 @@ async function main() {
     db = openDb(process.env.DB_PATH);
 
     console.log(`[run_T_PLAN] Server: ${SERVER_URL}`);
+
+    await doLogin();
     if (ONLY) console.log(`[run_T_PLAN] Filtrerer: --only=${ONLY}`);
 
     // Verificer at server svarer

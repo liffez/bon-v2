@@ -62,14 +62,12 @@ function initPlanning(containerEl, options) {
         _plFrom = optFrom;
         _plTo   = optTo;
     } else {
-        var now = new Date();
-        var dow = now.getDay() || 7;
-        var mon = new Date(now);
-        mon.setDate(mon.getDate() - dow + 1);
-        var sun = new Date(mon);
-        sun.setDate(sun.getDate() + 6);
-        _plFrom = mon.toISOString().slice(0, 10);
-        _plTo   = sun.toISOString().slice(0, 10);
+        // Ugen regnes ud fra den danske kalenderdato. Lokal setDate() +
+        // UTC-udtræk skubbede hele ugen en dag tilbage om natten, så
+        // søndagens bons faldt ud af planlægningen.
+        var dow = new Date(todayISO() + 'T12:00:00Z').getUTCDay() || 7;
+        _plFrom = offsetISO(-(dow - 1));
+        _plTo   = offsetISO(-(dow - 1) + 6);
     }
 
     // Status-filter fra localStorage eller defaults

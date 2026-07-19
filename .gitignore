@@ -1,6 +1,10 @@
 # Miljøvariabler — aldrig i git!
 .env
 .env.*
+# Skabeloner SKAL med i git — de indeholder ingen hemmeligheder, og uden dem
+# improviserer folk (fx `cp .env.example .env.test`, som giver produktionsværdier).
+!.env.example
+!.env.test.example
 
 # Node
 node_modules/
@@ -14,9 +18,20 @@ playwright-report/
 .last-run.json
 
 # DB-backups + fix-logs (lokal historik — ikke kode)
+# NB: både .backup- og .bak- forekommer i praksis på serveren.
 data/*.backup-*
+data/*.bak-*
 data/*.pre-*
 data/*-fix-log-*.json
+
+# Runtime-output fra scripts og server (genskabes ved kørsel — ikke kilde).
+# cvr-enrich-log.json skrives af scripts/enrich-cvr.js ved hver kørsel og
+# gjorde serverens arbejdstræ beskidt ved hver deploy.
+data/cvr-enrich-log.json
+data/schema.sql
+data/uploads/
+logs/
+sync.log
 
 # Review-CSV'er (ægte kundedata — aldrig i git)
 data/*.csv
@@ -34,8 +49,11 @@ tools/horkram-opret-helper.html
 .claude/worktrees/
 
 # Lokale Claude-indstillinger — kan indeholde hemmeligheder (fx API-nøgler i
-# tilladelsesregler). Repoet er OFFENTLIGT, så vi må ikke stole på at hver
-# maskine har en global gitignore der fanger den.
+# tilladelsesregler). Vi må ikke stole på at hver maskine har en global
+# gitignore der fanger den.
+# (Rettelse 18. juli 2026: her stod tidligere at repoet er OFFENTLIGT. Det er
+# det ikke — `gh repo view --json visibility` siger PRIVATE. Hemmeligheder skal
+# stadig holdes ude af git, men brug ikke den påstand som præmis.)
 .claude/settings.local.json
 
 # Database

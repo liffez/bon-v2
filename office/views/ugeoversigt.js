@@ -111,7 +111,7 @@ function _uoAddDays(dateStr, n) {
 }
 
 function _uoToday() {
-    return new Date().toISOString().slice(0, 10);
+    return todayISO();
 }
 
 function _uoFormatDateRange(from, to) {

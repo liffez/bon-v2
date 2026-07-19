@@ -1199,9 +1199,8 @@ function _tRemCx(i) { _tCxItems.splice(i, 1); _tRenderWizard(); }
 function _tBuildStep4() {
     const isEv = _tTpl === 'event', globalPax = parseInt(_tPax) || 1;
     const sL = _tPriceMode === 'line', sBT = _tPriceMode === 'block';
-    const today = new Date().toISOString().slice(0, 10);
-    const exp = new Date(); exp.setDate(exp.getDate() + _tValidDays);
-    const expStr = exp.toISOString().slice(0, 10);
+    const today = todayISO();
+    const expStr = offsetISO(_tValidDays);
     const cn = _tCust?.company_name || _tCust?.customer_name || 'Kunde';
     const dTypes = { byx: 'Byekspressen', taxa: 'El-taxa', rr: 'RR leverer', custom: 'Levering' };
 
@@ -1408,11 +1407,9 @@ async function _tSaveQuote() {
         notes: _tInternalNotes || null,
         offer_note: _tOfferNote || null,
         offer_block_metadata: Object.keys(_tBlockMeta).length ? _tBlockMeta : null,
-        valid_until: (() => {
-            const d = new Date();
-            d.setDate(d.getDate() + _tValidDays);
-            return d.toISOString().slice(0, 10);
-        })(),
+        // Gemmes i DB som offer_valid_until — en dags forskydning her
+        // fik tilbud til at udløbe for tidligt.
+        valid_until: offsetISO(_tValidDays),
         lines: _tCollectLines(),
     };
 

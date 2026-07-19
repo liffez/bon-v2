@@ -238,6 +238,22 @@ Nye filer placeres præcis der de hører hjemme — kopieres ikke.
 - **Transactions via `transaction(db, fn)`** — aldrig `db.transaction()` (eksisterer ikke i node:sqlite)
 - **`logChange({...})`** — objekt-API, aldrig positionelle argumenter
 - **Nye npm-pakker kræver godkendelse** — spørg først, og ingen native/compiled pakker
+- **Datoer: brug `todayISO()` / `offsetISO()` — aldrig `new Date().toISOString()`**
+  - `new Date().toISOString().slice(0,10)` giver **UTC**-datoen. Mellem midnat og kl. 02
+    dansk sommertid peger den på I GÅR. Fejlen viser sig kun om natten, så den opdages
+    næsten aldrig — den har ramt bon-listens "I DAG"-filter, køkkenets dato-overskrift,
+    tilbuds gyldighedsdato, fakturaers betalingsdato og optællingens session-nøgle.
+  - Backend: `const { todayISO, offsetISO } = require('../db/helpers');`
+  - Frontend: `todayISO()` · `offsetISO(n)` · `dateToISO(d)` fra `shared/utils.js`
+  - Begge er forankret i `Europe/Copenhagen`, så frontend og backend altid er enige —
+    og en tablet med forkert tidszone giver stadig den rigtige danske dato.
+  - **Dato-aritmetik skal gå gennem `offsetISO()`.** Mønsteret
+    `d = new Date(); d.setDate(d.getDate() + n); d.toISOString()` er lokal aritmetik
+    efterfulgt af UTC-udtræk og er forkert på samme måde.
+  - Pre-commit-hook (`scripts/check-utc-date.sh`) blokerer nye forekomster. Er UTC
+    bevidst korrekt (versionsstempel, filnavn), så skriv `// utc-ok: <hvorfor>` på linjen.
+  - Dækket af `tests/dato.test.js`, som **pinner tidspunktet** — ellers ville testen
+    bestå 22 timer i døgnet uanset om koden var rigtig.
 - **Moms-håndtering (autoritativ regel — sektion 6b+6c i `BON_V2_PRINCIPPER.md`)**
   - Grocy salgspriser ER incl. moms (alle `Salesprice*`-userfields på `recipes`)
   - Grocy råvarepriser + `costprice` (recipe fulfillment `costs`) er ex moms
@@ -363,6 +379,71 @@ hård browser-refresh (Cmd+Shift+R) efter deploy — JS/CSS kan være cachet.
 - Migrations kører automatisk ved server-start. Hvis commit'en indeholder en ny `db/migrations/`-fil → genstart kræves
 - Settings-ændringer der peger på Grocy/Smartplan/SMTP kræver ikke genstart (læses ved hver brug eller har egen cache-invalidation)
 - Hvis PR'en kun rører `docs/`, `*.md` eller `tests/` → ingen `git pull` på server nødvendig
+
+**Hvilke tests kan køres HVOR (vigtigt — spar dig selv turen):**
+
+| Type | Kommando | Server? | Hvorfor |
+|---|---|---|---|
+| Pure runnere | fx `npm run test:run-optaelling` | ✅ ja | Ingen server, ingen Grocy, ingen DB — kører hvor som helst |
+| Track-runnere | `test:run-*`, `test:inv` m.fl. | ⚠️ nej | Kræver `.env.test` + `test.db` + testserver på 4322 + grocytest |
+| UI-tests | `test:ui*` (Playwright) | ❌ **nej** | `@playwright/test` er en **devDependency** og er ikke installeret i drift. Den ville trække ~150 MB Chromium ned på produktionsmaskinen. Kør dem lokalt. |
+
+`npm run test:ui-optaelling` på serveren giver `sh: 1: playwright: not found` — det er
+**forventet og korrekt**, ikke en fejl der skal rettes. UI-tests hører til på
+udviklingsmaskinen (eller i CI), ikke på Hetzner.
+
+**Track-runnere skal logge ind (siden #316).** Den globale auth-gate på `/api` betyder at
+enhver klient — også en test-runner — skal have en session, ellers svarer alt 401 og
+runneren dør ved første kald. Brug den delte helper, ikke en ny kopi:
+
+```js
+const { login, withSession } = require('./helpers/login');
+
+let _session = null;
+async function doLogin() {
+    _session = withSession(SERVER_URL, await login(SERVER_URL));
+}
+async function api(method, pathPart, body = null) {
+    if (!_session) throw new Error('api() kaldt før doLogin()');
+    return _session(method, pathPart, body);
+}
+```
+
+`await doLogin()` kaldes tidligt i `main()`. **Husk også de rå `fetch()`-kald** — de går
+uden om `api()` og rammer gaten (fanget i T_PLAN, hvor to tests fik 401 i stedet for 400).
+
+Runnere der taler direkte til DB eller adapteren (T_DB, T_ECON, T_ECONOMIC, T_GROCY,
+T_RECONCILE) rører aldrig `/api` og er upåvirkede.
+
+**`.env.test` hører ikke på serveren.** Den er gitignored og er et udviklingsartefakt.
+Tjek med `ls -la ~/bon-v2/.env.test` og slet den hvis den er der.
+
+Fælden er konkret: `.env.example` er skabelonen for **produktion** og sætter
+`NODE_ENV=production` + `DB_PATH=./data/bon.db`. Gør man `cp .env.example .env.test` —
+den nærliggende bevægelse, når der ikke findes en test-skabelon — peger "testmiljøet"
+dermed på driftens database. Præcis dét var sket på Hetzner (#338).
+
+Brug derfor **`.env.test.example`** som udgangspunkt. Den sætter `DB_PATH=./data/test.db`,
+`NODE_ENV=test` og `GROCY_API_URL` mod grocytest — de tre `safety_check` kigger efter.
+
+`npm run test:migrate` er siden #338 garderet med `--require-test-env`, som kalder
+`safety_check` og afbryder (exit 2) hvis `NODE_ENV`/`DB_PATH`/`GROCY_API_URL` ikke peger på
+test. Guarden er **opt-in via flaget**, fordi `db/migrate.js` også bruges legitimt i
+produktion — `npm run migrate` og server-start er uændrede.
+
+**Datoer i tests: brug `todayISO()` fra `db/helpers.js`,** ikke `new Date().toISOString()`.
+UTC-datoen er gårsdagens mellem midnat og kl. 02 i dansk sommertid, så en test der sætter
+`delivery_date = TODAY` og spørger efter `/today` fejler kun om natten. Ramte T_KITCHEN_TODAY;
+~20 andre steder i test-runnerne har stadig mønstret (se #133).
+
+Lokalt, første gang:
+```bash
+npm i -D @playwright/test && npx playwright install chromium
+npm run test:ui-optaelling
+```
+
+Det du reelt skal teste **på serveren**, er selve UI'et i browseren. Playwright-spec'en er
+en sikkerhedssnor for fremtidige ændringer — ikke en erstatning for at kigge på det i drift.
 
 **Issue-lukning (commit ≠ luk):**
 - `Closes #N` i PR-bodyen → **kun** når issuet er fuldt løst af denne ændring (features, bugs, tech-debt). Lukker automatisk ved squash-merge til `main` — aldrig på en løs commit.
@@ -2608,6 +2689,73 @@ vedhæfte filer (kort, billeder, PDF) til eventet. Plus en throwaway prep-estima
   kalibrering før vi beslutter datamodel/granularitet for prep-tid-modellen.
 - **Bevidst udeladt:** prep-tid-modellen (§15) er stadig kun design-noter + prototype; dags-ratio-
   eksklusionen (§15.3 pkt. 4) holdt adskilt. Browser-verificeret end-to-end + godkendt i drift.
+
+### Lageroptælling — rullende session-model (#331, PR 1 #332 + PR 2, 18. juli 2026)
+> Spec: `docs/CLAUDE_OPTAELLING.md` (første spec for optællingen) · Mockup: `docs/optaelling_mockup_pr2.html`
+> Optællingen er backstoppet der re-baseliner Grocy-lageret. Efter #305 (auto-deduct tændt)
+> er den vigtigere end nogensinde — og den forgiftede sine egne data.
+
+**PR 1 — fire stille-datafejl** ([shared/inventory_check.js](shared/inventory_check.js)):
+`LastCheckedAt` blev skrevet ved HVER tælling (afbrudt session = "tjekket i dag" i Grocy uden
+at lageret blev rettet) · hardkodet `2999-12-31` stemplede optalt surplus som "udløber aldrig" ·
+sorteringen kunne løfte en nyligt tjekket vare over en ikke-tjekket · `default_consume_location_id`
+trak frostvarer ind i køle-listen. Plus concurrency-vagt (§6): baseline pr. vare på
+tælletidspunktet, ingen tavs last-writer-wins.
+
+**PR 2 — UX-redesign** (samme fil + `.css`):
+- **Enheds-chips** erstatter "Næste enhed" — alle fysiske enheder synlige med antal talte varer.
+  Tælling bevares pr. enhed (`counts[id].units`), så samme vare kan tælles flere steder.
+- **Tælleenheder**: tæl i "3 bøtter", skriv i kg. Live-konvertering under feltet viser hvad der
+  faktisk lander på lageret. Enheden huskes pr. **vare + fysisk enhed** (bøtter i køl, kasser på
+  tørlager) — et forslag, ikke en låsning; togglen står altid synlig.
+- **⋯-menu** (2 tryk, kun beslutninger): "Skal ikke tælles fast" (`HverDag=""`) · "Varen findes
+  ikke mere" (lager 0 + `active=0`, bekræftes). ✓ godkend og ⏭ spring over bliver på kortet
+  (1 tryk) — omkostning følger hyppighed, ikke konsekvens-frygt.
+- **Sprungne varer forsvinder ikke** — de dæmpes med "Sprunget over i \<enhed\> · Fortryd", og
+  progress viser "· N sprunget over" så tallet ikke lyver.
+- **Ny slutskærm** ("Gem og luk") med beslutnings-sektion + **blivende kvitteringsbanner**
+  (en 3-sek toast er væk før man har nået at læse den).
+
+**To ekstra datafejl fundet under PR 2** (begge rettet):
+- `_icSessionKey()` brugte UTC-dato → dansk kl. 22 er UTC "i morgen", så en aftenoptælling
+  skiftede nøgle og mistede alle counts. Samme fælde som memory `project_utc_today_bug`.
+- Den dags-scopede nøgle modsagde spec §6's egen fler-dags-præmis og efterlod døde
+  localStorage-nøgler. Nøglen er nu `ic_counts_<lokation>` med `startedAt` i payloadet;
+  en session fra i går møder et genoptag-banner i stedet for at blive kasseret bag ryggen
+  på brugeren. Skip flyttet fra `sessionStorage` ind i samme payload (samme levetid som counts).
+
+**Sprog** (spec §7): ingen systemord i UI — "Grocy" ude af brugerteksten, konflikt-valg hedder
+"Mit tal er rigtigt" / "Lagerets tal er rigtigt", ikke "Overskriv"/"Behold". Mockup'en er ældre
+end det princip og blev bevidst fraveget tre steder.
+
+**Følgeopgave leveret (#336):** varemodtagelsen stempler nu `LastCheckedAt` +
+`LastCheckedUnit` når en vare kommer på lager, så en netop modtaget vare ikke står som
+"aldrig tjekket" i optællingen. Enheden udledes af receiptens Grocy-lokation (første efter
+`sort_order`) — ingen brugerhandling. Et forkert gæt retter sig selv via den bløde fallback.
+Kun ved vellykket `addStock`; en fejlet stempling vælter aldrig en modtagelse.
+Dækket af T_VAREMODTAGELSE_FULL's OBS-gruppe (76 PASS, op fra 67).
+
+**Åbent til drift, ikke til kode:** `_icIsPackUnit()` afgør om ¼ ½ ¾ betyder "en del af én
+pakke" eller "en del af det forventede lager". Grocy skelner ikke stykvare fra målenhed, så
+tærsklen (`_IC_PACK_MIN_SHARE = 0,05`) er et skøn. Kålhovedet er grænsetilfældet: 0,8 kg,
+altså *mindre* end lagerenheden, men "et halvt kålhoved" giver god mening. Efterprøv i køkkenet.
+
+**Tests — to runnere, fordi den ene ikke kan se layout:**
+- `npm run test:run-optaelling` — **112 PASS · 0 FAIL · 0 SKIP** (pure, ingen server/Grocy).
+  Commit-stien er splittet i `_icPlanCommit` / `_icExecuteCommit` / `_icCommitMessage`, så
+  den kan køres med injicerede Grocy-attrapper (case 16) i stedet for kun at kunne nås
+  gennem brugerfladen.
+- `npm run test:ui-optaelling` — **8 PASS** (Playwright, mod test:server + grocytest).
+  Dækker det logik-tests ikke kan se: at ⋯-menuen ikke klippes af kortets `overflow:hidden`,
+  at en sprunget vare kan findes ved søgning, at enheds-chips bevarer tællingen, og at
+  tælleenheds-skift omregner frem for bare at skifte etiket. Spec'en skriver aldrig til
+  Grocy — "Gem og luk" trykkes aldrig.
+
+Begge er **mutations-testet**: fem bevidste fejl indført i kildekoden blev alle fanget.
+To af dem (klippet menu, søgning der skjulte en sprunget vare) var ægte fejl der slap
+gennem 112 unit-tests og først blev set i drift — derfor findes UI-spec'en. Browser-verificeret end-to-end mod grocytest med før-tilstand noteret og
+rullet tilbage: lager rettet, `LastCheckedUnit` flyttet, **best-before bevaret**, ikke-talt vare
+urørt. Spec: `tests/specs/T_OPTAELLING.md`.
 
 ## Næste opgave
 

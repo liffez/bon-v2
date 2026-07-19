@@ -14,7 +14,7 @@
     "setup": "node --experimental-sqlite db/migrate.js && node --experimental-sqlite db/seed.js",
     "dev-admin": "node --experimental-sqlite scripts/dev-admin.js",
     "test:check": "node --env-file=.env.test tests/scripts/safety_check.js --skip-db-check",
-    "test:migrate": "node --env-file=.env.test --experimental-sqlite db/migrate.js",
+    "test:migrate": "node --env-file=.env.test --experimental-sqlite db/migrate.js --require-test-env",
     "test:fixture": "node --env-file=.env.test --experimental-sqlite tests/scripts/apply_fixture.js tests/fixtures/seed_planning.sql",
     "test:reset": "rm -f data/test.db data/test.db-wal data/test.db-shm && npm run test:migrate && npm run test:fixture",
     "test:server": "node --env-file=.env.test --experimental-sqlite server.js",
@@ -50,8 +50,11 @@
     "test:run-tilbud": "node --env-file=.env.test --experimental-sqlite tests/scripts/run_T_TILBUD.js",
     "test:run-dashboard": "node --env-file=.env.test --experimental-sqlite tests/scripts/run_T_DASHBOARD.js",
     "test:run-opskrifter": "node --env-file=.env.test --experimental-sqlite tests/scripts/run_T_OPSKRIFTER.js",
+    "test:run-optaelling": "node tests/scripts/run_T_OPTAELLING.js",
     "test:ui": "playwright test",
     "test:ui-indkob": "playwright test T_INDKOB_UI",
+    "test:ui-optaelling": "playwright test T_OPTAELLING_UI",
+    "test:dato": "node --test --experimental-sqlite tests/dato.test.js",
     "test:inbox": "node --env-file=.env.test --experimental-sqlite tests/inbox_handling.test.js"
   },
   "dependencies": {
@@ -65,6 +68,6 @@
     "nodemailer": "^8.0.2"
   },
   "devDependencies": {
-    "@playwright/test": "1.60.0"
+    "@playwright/test": "^1.60.0"
   }
 }

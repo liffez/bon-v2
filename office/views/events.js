@@ -757,7 +757,7 @@ function _evOpenNewModal() { _evOpenEventModal(null); }
 
 function _evOpenEventModal(ev) {
     const isEdit = !!ev;
-    const today = new Date().toISOString().slice(0, 10);
+    const today = todayISO();
     const v = (s) => _evEsc(s == null ? '' : s);
     const statusOpt = (val, lbl) => `<option value="${val}" ${ev && ev.status === val ? 'selected' : ''}>${lbl}</option>`;
     // DAWA-state: pickedAddr = valgt forslag (struktureret + koordinater),

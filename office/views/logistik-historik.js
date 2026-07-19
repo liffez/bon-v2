@@ -32,11 +32,13 @@ function _lhEsc(s) {
         return { '&':'&amp;', '<':'&lt;', '>':'&gt;', '"':'&quot;' }[c];
     });
 }
-function _lhToday() { return new Date().toISOString().slice(0, 10); }
+function _lhToday() { return todayISO(); }
 function _lhMonthsAgo(n) {
-    var d = new Date();
-    d.setMonth(d.getMonth() - n);
-    return d.toISOString().slice(0, 10);
+    // Måneds-aritmetik på den danske kalenderdato, UTC-forankret så
+    // resultatet ikke afhænger af hvornår på døgnet det kaldes.
+    var p = todayISO().split('-').map(Number);
+    var d = new Date(Date.UTC(p[0], p[1] - 1 - n, p[2]));
+    return d.toISOString().slice(0, 10);   // utc-ok: UTC-forankret aritmetik
 }
 function _lhMethodColor(m) {
     return m === 'taxi' ? '#4a8a3a'

@@ -746,21 +746,21 @@ router.get('/stats', handle(async (req, res) => {
 
 router.get('/weekly', handle(async (req, res) => {
     const db = getDb();
-    const today = new Date();
     const weeks = [];
 
+    // Ugegrænser regnes på den danske kalenderdato — ellers forskydes alle
+    // otte buckets en dag om natten, og transaktioner tælles i forkert uge.
+    const dowToday = new Date(todayISO() + 'T12:00:00Z').getUTCDay() || 7;
+    const mondayOffset = -(dowToday - 1);
+
     for (let w = -2; w < 6; w++) {
-        const weekStart = new Date(today);
-        weekStart.setDate(today.getDate() - today.getDay() + 1 + w * 7);
-        const weekEnd = new Date(weekStart);
-        weekEnd.setDate(weekStart.getDate() + 6);
+        const from = offsetISO(mondayOffset + w * 7);
+        const to   = offsetISO(mondayOffset + w * 7 + 6);
 
-        const from = weekStart.toISOString().slice(0, 10);
-        const to   = weekEnd.toISOString().slice(0, 10);
-
-        // ISO week number
-        const jan1 = new Date(weekStart.getFullYear(), 0, 1);
-        const weekNum = Math.ceil(((weekStart - jan1) / 86400000 + jan1.getDay() + 1) / 7);
+        // ISO week number — noon-anker så ugenummeret ikke afhænger af tidszone
+        const weekStart = new Date(from + 'T12:00:00Z');
+        const jan1 = new Date(Date.UTC(weekStart.getUTCFullYear(), 0, 1, 12));
+        const weekNum = Math.ceil(((weekStart - jan1) / 86400000 + jan1.getUTCDay() + 1) / 7);
 
         // Received = matched transactions in this week
         const received = db.prepare(`

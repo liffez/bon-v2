@@ -40,6 +40,7 @@ const safetyCheck  = require('./safety_check');
 // Hvis disse imports fejler, mangler export-guarden — testen vil rapportere SETUP-fejl.
 const invCheck    = require('../../shared/inventory_check');
 const stockOvw    = require('../../shared/stock_overview');
+const { login, withSession } = require('./helpers/login');
 
 const SERVER_URL  = process.env.TEST_SERVER_URL || `http://localhost:${process.env.PORT || 4322}`;
 const REPORT_DIR  = path.resolve(__dirname, '..', 'reports');
@@ -74,17 +75,16 @@ function record(id, group, status, detail = '') {
     else if (VERBOSE)            console.log(`  ✓ ${id}`);
 }
 
+// Siden #316 (global auth-gate på /api) skal runneren have en session.
+let _session = null;
+
+async function doLogin() {
+    _session = withSession(SERVER_URL, await login(SERVER_URL));
+}
+
 async function api(method, pathPart, body = null) {
-    const opts = { method, headers: {} };
-    if (body) {
-        opts.headers['Content-Type'] = 'application/json';
-        opts.body = JSON.stringify(body);
-    }
-    const res  = await fetch(`${SERVER_URL}${pathPart}`, opts);
-    const text = await res.text();
-    let parsed = null;
-    try { parsed = JSON.parse(text); } catch {}
-    return { status: res.status, body: parsed, raw: text };
+    if (!_session) throw new Error('api() kaldt før doLogin() — se tests/scripts/helpers/login.js');
+    return _session(method, pathPart, body);
 }
 
 function approxEq(a, b, tol = FLOAT_TOL) {
@@ -822,6 +822,8 @@ async function main() {
     console.log(`[run_T_STOCK] Server: ${SERVER_URL}`);
     console.log(`[run_T_STOCK] Grocy:  ${process.env.GROCY_API_URL}`);
     if (SKIP_CLEANUP) console.log(`[run_T_STOCK] WARNING: --skip-cleanup`);
+
+    await doLogin();
 
     // Verificér at server svarer
     try {

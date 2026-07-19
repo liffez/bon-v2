@@ -436,9 +436,7 @@ function _blLoadData() {
             break;
         case 'all':
             // Seneste 90 dage
-            var d = new Date();
-            d.setDate(d.getDate() - 90);
-            params.date_from = d.toISOString().slice(0, 10);
+            params.date_from = offsetISO(-90);
             break;
         case 'search':
             params.q = _blSearch;
@@ -455,7 +453,7 @@ function _blLoadData() {
     var isSingleDay = (_blFilter === 'today' || _blFilter === 'date');
     var dateForStaff = null;
     if (isSingleDay) {
-        dateForStaff = (_blFilter === 'today') ? new Date().toISOString().slice(0, 10) : _blDateValue;
+        dateForStaff = (_blFilter === 'today') ? todayISO() : _blDateValue;
     }
 
     fetchBons(params).then(function(rows) {
@@ -599,7 +597,7 @@ function _blRenderTable() {
     thead.appendChild(hRow);
 
     // ── Body ──
-    var todayStr = new Date().toISOString().slice(0, 10);
+    var todayStr = todayISO();
 
     for (var r = 0; r < _blBons.length; r++) {
         var bon = _blBons[r];
