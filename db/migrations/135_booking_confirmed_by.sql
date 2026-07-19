@@ -1,0 +1,30 @@
+-- 135_booking_confirmed_by.sql
+-- ════════════════════════════════════════════════════════════
+-- Skeln mellem "sendt til leverandøren" og "bekræftet af leverandøren" (#365).
+--
+-- Hvorfor: POST /api/delivery/routes/:id/book tager `status` fra request body
+-- med default 'booked' og skriver booked_at + booked_by_user_id. Intet
+-- verificerer at bookingen fandt sted — office kalder endpointet EFTER at have
+-- sendt bestillingen via popout-vinduet. Blev vinduet lukket, formularen aldrig
+-- indsendt, eller afviste buddet opgaven, står ruten alligevel som booket, med
+-- tidsstempel og et navngivet menneske, hvilket får den til at se autoritativ ud.
+--
+-- Samme mønster som #319: et menneske-påstået flag i stedet for en verificeret
+-- ekstern handling.
+--
+-- Bevidst valgt løsning: en NY kolonne frem for en ny værdi i booking_status.
+-- booking_status har en CHECK-constraint, og SQLite kræver at hele tabellen
+-- genskabes for at ændre den — med FK'er fra delivery_route_stops. Risikoen
+-- ved en tabel-genskabelse står ikke mål med gevinsten, når en ekstra kolonne
+-- udtrykker præcis det samme.
+--
+-- Værdier:
+--   'manual'  et menneske har sendt bestillingen og bekræftet det selv
+--   'api'     leverandørens system har bekræftet (Lobo — jf. lobo_booking.js,
+--             som allerede gør det rigtigt på bon-niveau)
+--   NULL      booket før denne rettelse. Behandles som 'manual', for det er
+--             faktuelt hvad det var: det manuelle endpoint var indtil nu det
+--             ENESTE sted der satte booking_status='booked' på en rute.
+-- ════════════════════════════════════════════════════════════
+
+ALTER TABLE delivery_routes ADD COLUMN booking_confirmed_by TEXT;

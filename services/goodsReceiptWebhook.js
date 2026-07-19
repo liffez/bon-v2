@@ -34,7 +34,7 @@ async function send(receipt, userName) {
             supplier_name: receipt.supplier_name,
             captured_at: new Date().toISOString(),
         });
-        return;
+        return { status: 'test' };
     }
 
     const db = getDb();
@@ -43,7 +43,13 @@ async function send(receipt, userName) {
         `SELECT value FROM settings WHERE key = 'whiteboard_webhook_url'`
     ).get()?.value;
 
-    if (!webhookUrl) return; // bonv2_only mode
+    // Tidligere et TAVST return (#363): manglede settingen, skete der intet —
+    // ingen log, ingen webhook_log-række — mens routen svarede webhook_sent:true.
+    // Nu siger vi det højt og lader kalderen vide det.
+    if (!webhookUrl) {
+        console.warn(`[webhook] whiteboard_webhook_url er ikke sat — ${receipt.receipt_number} blev IKKE sendt til Whiteboard`);
+        return { status: 'not_configured' };
+    }
 
     // Map Bon v2's deviation_type til Whiteboard-skemaets select-options
     const deviationMap = {
@@ -126,6 +132,26 @@ async function send(receipt, userName) {
     } catch (logErr) {
         console.error('[webhook] Kunne ikke logge webhook:', logErr.message);
     }
+
+    return { status: error ? 'failed' : 'sent', statusCode, error };
+}
+
+/**
+ * Er webhooken overhovedet konfigureret?
+ *
+ * Routen svarer klienten FØR webhooken er afsendt (den er fire-and-forget, så
+ * en modtagelse ikke blokeres af et eksternt kald). Derfor kan svaret kun
+ * ærligt sige om vi FORSØGER — ikke om det lykkedes. Det her er det spørgsmål.
+ */
+function isConfigured() {
+    try {
+        if (process.env.NODE_ENV === 'test') return true;
+        return !!getDb().prepare(
+            `SELECT value FROM settings WHERE key = 'whiteboard_webhook_url'`
+        ).get()?.value;
+    } catch {
+        return false;
+    }
 }
 
 function _getSentWebhooks() {
@@ -136,4 +162,4 @@ function _clearSentWebhooks() {
     _sentWebhooks.length = 0;
 }
 
-module.exports = { send, _getSentWebhooks, _clearSentWebhooks };
+module.exports = { send, isConfigured, _getSentWebhooks, _clearSentWebhooks };

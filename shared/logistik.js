@@ -1097,10 +1097,19 @@ function _logRouteCard(r) {
             not_required: { label: '—',                cls: 'pending' }
         };
         var bs = bsMap[r.booking_status] || { label: r.booking_status || '—', cls: 'pending' };
+        // "Booket" via popout-vinduet betyder kun at et menneske har SENDT
+        // bestillingen — ingen har hørt fra leverandøren (#365). Det manuelle
+        // endpoint var indtil nu det eneste der satte 'booked' på en rute, så
+        // NULL i booking_confirmed_by er også en manuel påstand.
+        var bsTitle = '';
+        if (r.booking_status === 'booked' && r.booking_confirmed_by !== 'api') {
+            bs = { label: 'Sendt til bud', cls: 'sent' };
+            bsTitle = ' title="Bestillingen er sendt fra popout-vinduet. Leverandøren har ikke bekræftet — ring hvis det er vigtigt."';
+        }
         bookingHtml =
             '<div class="log-route-booking">' +
               '<div class="log-booking-line">' +
-                '<span class="log-booking-badge log-bs-' + bs.cls + '">' + bs.label + '</span>' +
+                '<span class="log-booking-badge log-bs-' + bs.cls + '"' + bsTitle + '>' + bs.label + '</span>' +
                 (r.external_reference
                     ? '<span class="log-booking-ref">ref ' + _logEsc(r.external_reference) + '</span>' : '') +
                 '<button class="log-btn log-btn-primary" data-action="open-booking" ' +
