@@ -94,7 +94,7 @@ function initBonsList(containerEl, options) {
         _blDateValue = date;
         var di = document.getElementById('blDateInput');
         if (di) di.value = date;
-    } else if (filter && ['today','ny','mail','open','all'].indexOf(filter) >= 0) {
+    } else if (filter && ['today','ny','mail','open','all','giveaway','nofaktura'].indexOf(filter) >= 0) {
         _blFilter = filter;
     }
 
@@ -176,6 +176,7 @@ function _renderBonsListShell() {
         { key: 'ny',       label: 'NY' },
         { key: 'mail',     label: 'UL\u00C6ST MAIL' },
         { key: 'giveaway', label: 'SPONSORAT/MODREGN.' },
+        { key: 'nofaktura', label: '⚠ MANGLER FAKTURA' },
     ];
     for (var i = 0; i < filters.length; i++) {
         var btn = document.createElement('button');
@@ -412,6 +413,11 @@ function _blLoadData() {
         _blSort = { col: 'delivery_date', dir: 'asc' };
         localStorage.setItem('office_listview_sort', JSON.stringify(_blSort));
     }
+    // Manglende faktura: ældste først — de gamle haster mest, og listen ryddes bagfra.
+    if (_blFilter === 'nofaktura' && _blLastFilter !== 'nofaktura') {
+        _blSort = { col: 'delivery_date', dir: 'asc' };
+        localStorage.setItem('office_listview_sort', JSON.stringify(_blSort));
+    }
     _blLastFilter = _blFilter;
 
     switch (_blFilter) {
@@ -430,6 +436,12 @@ function _blLoadData() {
         case 'giveaway':
             // Modregning + sponsorat — ikke omsætning, men findbare (alle datoer)
             params.payment_type = 'barter,sponsorship';
+            break;
+        case 'nofaktura':
+            // Fakturavagt (#319): markeret faktureret uden at der findes en faktura.
+            // Alle datoer — arbejdslisten skal kunne ryddes bagfra. Ældste først,
+            // for de gamle er dem der haster (og som forsvinder når de rettes).
+            params.missing_invoice = '1';
             break;
         case 'date':
             params.date = _blDateValue;
