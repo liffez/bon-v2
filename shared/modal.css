@@ -373,6 +373,43 @@
     font-weight: 600;
     color: var(--brand-primary, #8e631f);
 }
+.ing-sub-recipe.ing-status-mangler { box-shadow: inset 3px 0 0 #c0392b; }
+.ing-sub-recipe.ing-status-lav     { box-shadow: inset 3px 0 0 #d98b0a; }
+.ing-sub-clickable { cursor: pointer; }
+.ing-sub-clickable:hover { filter: brightness(0.97); }
+
+/* "3 råvarer · mangler" bag underopskriftens navn */
+.ing-sub-warn {
+    margin-left: 6px;
+    font-size: 11px;
+    font-weight: 600;
+    color: var(--color-text-dim, #888);
+    white-space: nowrap;
+}
+.ing-sub-caret {
+    font-size: 10px;
+    color: var(--color-text-dim, #888);
+    transition: transform 0.15s;
+    display: inline-block;
+}
+.ing-sub-recipe.expanded .ing-sub-caret { transform: rotate(180deg); }
+
+/* Udfoldet mangel-liste under en underopskrift */
+.ing-sub-detail {
+    display: none;
+    margin: -2px 0 4px 12px;
+    padding-left: 8px;
+    border-left: 2px solid var(--color-border, #d7d1ca);
+}
+.ing-sub-detail.open { display: block; }
+.ing-sub-detail-row {
+    display: grid;
+    grid-template-columns: 20px 1fr 50px 36px 50px 36px 32px;
+    gap: 2px;
+    align-items: center;
+    padding: 2px 0;
+    font-size: 12px;
+}
 
 /* Søgefelt */
 .ing-search-wrap {

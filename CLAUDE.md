@@ -2800,6 +2800,41 @@ lydløst næste dag, og en ret fundet på pladsen skulle tastes som fritekst hve
   event-gate 15, event-polish 27, prep-packing 12, recipe-factor 8, moms-audit 18.
   Browser-verificeret end-to-end; testdata ryddet.
 
+### Råvarer-modal: status på underopskrifter + rekursions-fix (#349, 19. juli 2026)
+
+Produktion-fanen viste underopskrifter med en **hardcodet grøn prik** — "Æggesalat 1,56 kg"
+stod grøn mens Råvarer-fanen samtidig sagde at der kun var 10 af de 18 nødvendige æg.
+Serveren beregnede slet ingen status for underopskrifter; `sub_recipes`-objektet havde
+aldrig et `status`-felt. En kok der kun kiggede på Produktion fik aldrig at vide at
+råvaren manglede, for råvaren optræder ikke på det niveau.
+
+- **`services/ingredientResolver.js`** — ny `attachSubRecipeStatus()` + `collectSubRecipeProductIds()`
+  sætter `status` + `shortfalls[]` på hver underopskrift.
+  - Statussen læses fra **råvare-niveauet**, altså det SAMLEDE behov på tværs af bonnen —
+    ikke underopskriftens isolerede behov. Bruger to opskrifter tilsammen flere æg end der
+    er på lager, kan æggesalaten heller ikke laves. Det er også det eneste der garanterer
+    at de to faner aldrig modsiger hinanden.
+  - **Emballage udelades** (samme afgrænsning som `calcSubRecipeWeightGrams`): en manglende
+    serviet siger intet om hvorvidt blandingen kan laves, og emballage har sin egen gruppe.
+- **`shared/modal.js` + `.css`** — rigtig prik, `N råvarer · mangler`-mærke bag navnet,
+  farvet venstrekant, og rækken foldes ud med mangellisten (behov vs. lager) uden fane-skift.
+  `_filterIngredients` patchet så mangellisten følger sin række; inline-style ryddes ved
+  match, så CSS'ens `.open` fortsat styrer om den er foldet ud.
+- **Latent rekursionsfejl rettet (#349)**: begge opløsere gav `subMultiplier * subBaseServings`
+  videre ét niveau ned, hvilket ophævede divisionen og pustede alt i **dybde 2+** op med
+  `base_servings`. Usynlig i dag (alt i grocy-hq har `base_servings = 1`), men den sad
+  **også i `resolveConsumeItems`** — stien der trækker rigtigt Grocy-lager ved LEVERET
+  (auto-deduct tændt, #305). Rekursér med `subMultiplier`; buffer-faktoren bæres stadig
+  videre da den allerede er ganget ind.
+- **Datanote (ikke en kodefejl):** `recipes_pos.amount` er i **stock-enhed**, ikke i den
+  viste `qu_id`. Æg står som `0.9` med `qu_id = Antal`, men `qu_id_stock = Kilo` → 0,9 **kg**
+  pr. batch. Grocy-UI'et er misvisende her; koden gør det rigtige.
+- **Tests**: `scripts/test-subrecipe-status.js` (16 asserts — `base_servings` 4 og 2 i to
+  niveauer, status-oprulning inkl. dybde-2-mangel, emballage-undtagelsen, og at Produktion
+  og Råvarer er enige). Mutations-testet: med den gamle rekursion bliver en råvare i dybde 2
+  til `2` i stedet for `0.5`. Regression grøn: recipe-factor 8, prep-packing 12,
+  topup 35, event-menu 42. Browser-verificeret mod live grocy-hq.
+
 ## Næste opgave
 
 > ✏️ Tracker-oprydning 29. juni 2026 — koden er på migration 119; status-sektionen ovenfor

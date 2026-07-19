@@ -1412,15 +1412,45 @@ function _buildRavarerHtml(data) {
         </div>`;
         html += '<div class="ing-table">';
         for (const sr of subRecipes) {
-            html += `<div class="ing-row ing-sub-recipe" data-ing-name="${_esc(sr.recipe_name.toLowerCase())}">
-                <span class="ing-dot">🟢</span>
-                <span class="ing-name">${_esc(sr.recipe_name)}</span>
+            // Status rulles op fra underopskriftens råvarer (serveren). Ældre
+            // svar uden status falder tilbage til grøn som før.
+            const st = _STATUS_DOT[sr.status] || _STATUS_DOT.ok;
+            const short = sr.shortfalls || [];
+            const key = _esc(sr.recipe_name.toLowerCase());
+
+            let warn = '';
+            if (short.length > 0) {
+                const label = sr.status === 'mangler' ? 'mangler' : 'lavt lager';
+                warn = `<span class="ing-sub-warn">${short.length} råvare${short.length === 1 ? '' : 'r'} · ${label}</span>`;
+            }
+
+            html += `<div class="ing-row ing-sub-recipe ${st.cls}${short.length ? ' ing-sub-clickable' : ''}"
+                data-ing-name="${key}"${short.length ? ' onclick="_toggleSubRecipe(this)"' : ''}>
+                <span class="ing-dot">${st.dot}</span>
+                <span class="ing-name">${_esc(sr.recipe_name)}${warn}</span>
                 <span class="ing-amount">${_esc(sr.amount)}</span>
                 <span class="ing-unit"></span>
                 <span class="ing-stock"></span>
                 <span class="ing-stock-unit"></span>
-                <span class="ing-action"></span>
+                <span class="ing-action">${short.length ? '<span class="ing-sub-caret">▾</span>' : ''}</span>
             </div>`;
+
+            if (short.length > 0) {
+                html += `<div class="ing-sub-detail" data-ing-name="${key}">`;
+                for (const s of short) {
+                    const sst = _STATUS_DOT[s.status] || _STATUS_DOT.ok;
+                    html += `<div class="ing-sub-detail-row ${sst.cls}">
+                        <span class="ing-dot">${sst.dot}</span>
+                        <span class="ing-name">${_esc(s.product_name)}</span>
+                        <span class="ing-amount">${_fmtNum(s.amount_needed)}</span>
+                        <span class="ing-unit">${_esc(s.unit)}</span>
+                        <span class="ing-stock">${_fmtNum(s.amount_stock)}</span>
+                        <span class="ing-stock-unit">${_esc(s.stock_unit || s.unit)}</span>
+                        <span class="ing-action"></span>
+                    </div>`;
+                }
+                html += '</div>';
+            }
         }
         html += '</div></div>';
     }
@@ -1452,9 +1482,27 @@ function _filterIngredients(term) {
             if (match) visibleCount++;
         }
 
+        // Underopskrifternes mangel-lister er ikke .ing-row — skjul dem sammen
+        // med deres række. Ved match ryddes inline-style, så CSS'en igen styrer
+        // om listen er foldet ud (.open) eller ej.
+        for (const detail of group.querySelectorAll('.ing-sub-detail')) {
+            const name = detail.getAttribute('data-ing-name') || '';
+            detail.style.display = (!q || name.includes(q)) ? '' : 'none';
+        }
+
         // Skjul hele gruppen hvis ingen synlige rækker
         group.style.display = visibleCount > 0 ? '' : 'none';
     }
+}
+
+/**
+ * Fold en underopskrifts mangel-liste ud/ind.
+ */
+function _toggleSubRecipe(rowEl) {
+    const detail = rowEl.nextElementSibling;
+    if (!detail || !detail.classList.contains('ing-sub-detail')) return;
+    detail.classList.toggle('open');
+    rowEl.classList.toggle('expanded');
 }
 
 /**
