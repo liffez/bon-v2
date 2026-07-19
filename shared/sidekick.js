@@ -78,7 +78,7 @@ function _skLoadAll() {
     _skFetch('/api/board/messages?limit=20').catch(function() { return { messages: [] }; })
   ]).then(function(results) {
     var allTasks = results[0] || [];
-    var todayStr = new Date().toISOString().slice(0, 10);
+    var todayStr = todayISO();
     _sk.tasks = allTasks.filter(function(t) {
       if (!t.due_date) return false;
       var d = t.due_date.slice(0, 10);
@@ -420,7 +420,7 @@ function _skQuickAdd() {
     title: title,
     status: 'todo',
     list_id: listId,
-    due_date: new Date().toISOString().slice(0, 10)
+    due_date: todayISO()
   };
   _sk.tasks.unshift(tempTask);
   input.value = '';
@@ -430,7 +430,7 @@ function _skQuickAdd() {
   _skPost('/api/tasks', {
     title: title,
     list_id: listId,
-    due_date: new Date().toISOString().slice(0, 10),
+    due_date: todayISO(),
     user: 'Køkken'
   }).then(function(created) {
     // Erstat temp med rigtig

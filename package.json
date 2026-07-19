@@ -54,6 +54,7 @@
     "test:ui": "playwright test",
     "test:ui-indkob": "playwright test T_INDKOB_UI",
     "test:ui-optaelling": "playwright test T_OPTAELLING_UI",
+    "test:dato": "node --test --experimental-sqlite tests/dato.test.js",
     "test:inbox": "node --env-file=.env.test --experimental-sqlite tests/inbox_handling.test.js"
   },
   "dependencies": {

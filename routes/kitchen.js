@@ -157,16 +157,13 @@ router.get('/later', handle((req, res) => {
 router.get('/planning', handle((req, res) => {
     const db = getDb();
 
-    // Default: indeværende uge (mandag–søndag)
-    const now   = new Date();
-    const dow   = now.getDay() || 7; // søndag = 7
-    const mon   = new Date(now);
-    mon.setDate(mon.getDate() - dow + 1);
-    const sun   = new Date(mon);
-    sun.setDate(sun.getDate() + 6);
+    // Default: indeværende uge (mandag–søndag), regnet på den danske
+    // kalenderdato. Lokal setDate() + UTC-udtræk skubbede hele ugen en dag
+    // tilbage om natten, så søndagens bons faldt ud af produktionsplanen.
+    const dow = new Date(todayISO() + 'T12:00:00Z').getUTCDay() || 7; // søndag = 7
 
-    const from = req.query.from || mon.toISOString().slice(0, 10);
-    const to   = req.query.to   || sun.toISOString().slice(0, 10);
+    const from = req.query.from || offsetISO(-(dow - 1));
+    const to   = req.query.to   || offsetISO(-(dow - 1) + 6);
 
     // Status-filter (kommasepareret, default: produktions-relevante)
     const statusCodes = req.query.status

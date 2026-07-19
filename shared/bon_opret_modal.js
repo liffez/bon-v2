@@ -151,10 +151,10 @@ class BonOpretModal {
     open() {
         this._reset();
         this.overlay.style.display = 'flex';
-        // Sæt default dato til i morgen
-        const tomorrow = new Date();
-        tomorrow.setDate(tomorrow.getDate() + 1);
-        this.overlay.querySelector('.bon-opret-dato').value = tomorrow.toISOString().slice(0, 10);
+        // Sæt default dato til i morgen. offsetISO regner på den danske
+        // kalenderdato — lokal setDate() + UTC-udtræk gav i nat en bon
+        // med i DAG som leveringsdato.
+        this.overlay.querySelector('.bon-opret-dato').value = offsetISO(1);
         // Sæt default tid 11:00
         this.overlay.querySelector('.bon-opret-tid').value = '11:00';
         // Focus dato

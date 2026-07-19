@@ -238,6 +238,22 @@ Nye filer placeres præcis der de hører hjemme — kopieres ikke.
 - **Transactions via `transaction(db, fn)`** — aldrig `db.transaction()` (eksisterer ikke i node:sqlite)
 - **`logChange({...})`** — objekt-API, aldrig positionelle argumenter
 - **Nye npm-pakker kræver godkendelse** — spørg først, og ingen native/compiled pakker
+- **Datoer: brug `todayISO()` / `offsetISO()` — aldrig `new Date().toISOString()`**
+  - `new Date().toISOString().slice(0,10)` giver **UTC**-datoen. Mellem midnat og kl. 02
+    dansk sommertid peger den på I GÅR. Fejlen viser sig kun om natten, så den opdages
+    næsten aldrig — den har ramt bon-listens "I DAG"-filter, køkkenets dato-overskrift,
+    tilbuds gyldighedsdato, fakturaers betalingsdato og optællingens session-nøgle.
+  - Backend: `const { todayISO, offsetISO } = require('../db/helpers');`
+  - Frontend: `todayISO()` · `offsetISO(n)` · `dateToISO(d)` fra `shared/utils.js`
+  - Begge er forankret i `Europe/Copenhagen`, så frontend og backend altid er enige —
+    og en tablet med forkert tidszone giver stadig den rigtige danske dato.
+  - **Dato-aritmetik skal gå gennem `offsetISO()`.** Mønsteret
+    `d = new Date(); d.setDate(d.getDate() + n); d.toISOString()` er lokal aritmetik
+    efterfulgt af UTC-udtræk og er forkert på samme måde.
+  - Pre-commit-hook (`scripts/check-utc-date.sh`) blokerer nye forekomster. Er UTC
+    bevidst korrekt (versionsstempel, filnavn), så skriv `// utc-ok: <hvorfor>` på linjen.
+  - Dækket af `tests/dato.test.js`, som **pinner tidspunktet** — ellers ville testen
+    bestå 22 timer i døgnet uanset om koden var rigtig.
 - **Moms-håndtering (autoritativ regel — sektion 6b+6c i `BON_V2_PRINCIPPER.md`)**
   - Grocy salgspriser ER incl. moms (alle `Salesprice*`-userfields på `recipes`)
   - Grocy råvarepriser + `costprice` (recipe fulfillment `costs`) er ex moms

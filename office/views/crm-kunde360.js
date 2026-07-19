@@ -1480,7 +1480,7 @@ function _k3RenderStatStrip() {
     const sentClass = lastSent === 'positive' ? 'green' : lastSent === 'negative' ? '' : 'gold';
 
     // Next event — find tidligste fremtidige bon ELLER planlagte meeting
-    const todayIso = new Date().toISOString().slice(0, 10);
+    const todayIso = todayISO();
     const futureOrders = (_k3Data.orders || [])
         .filter(o => o.delivery_date >= todayIso)
         .map(o => ({ when: o.delivery_date, kind: 'order', label: o.delivery_date }));

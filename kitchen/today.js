@@ -54,7 +54,7 @@ function renderBons(bons) {
 
 function updateTodayHeader() {
     const el = document.getElementById('todayTitle');
-    if (el) el.textContent = formatDanishDate(new Date().toISOString().slice(0, 10));
+    if (el) el.textContent = formatDanishDate(todayISO());
 }
 
 /* ══════════════════════════════════════════════════════════════

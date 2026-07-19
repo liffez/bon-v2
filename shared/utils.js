@@ -447,6 +447,42 @@ function scrollToBonHash() {
    ══════════════════════════════════════════════════════════════ */
 
 /* ══════════════════════════════════════════════════════════════
+   DATO (dansk kalenderdato)
+
+   `new Date().toISOString().slice(0,10)` giver UTC-datoen. Mellem midnat
+   og kl. 02 dansk sommertid peger den stadig på I GÅR — så "I dag"-filtre,
+   dato-overskrifter og default-datoer rammer den forkerte dag. Fejlen viser
+   sig kun om natten, så den opdages typisk kun ved et tilfælde.
+
+   Spejler db/helpers.js' todayISO()/offsetISO() så frontend og backend altid
+   er enige om hvad "i dag" er. Forankret i Europe/Copenhagen frem for
+   maskinens lokaltid: en tablet med forkert tidszone giver så stadig den
+   rigtige danske dato.
+   ══════════════════════════════════════════════════════════════ */
+
+function todayISO() {
+    return new Intl.DateTimeFormat('en-CA', { timeZone: 'Europe/Copenhagen' }).format(new Date());
+}
+
+/* Dansk kalenderdato N dage fra i dag (negativ = bagud). */
+function offsetISO(days) {
+    var parts = todayISO().split('-').map(Number);
+    var d = new Date(Date.UTC(parts[0], parts[1] - 1, parts[2]));
+    d.setUTCDate(d.getUTCDate() + days);
+    return d.toISOString().slice(0, 10);
+}
+
+/* YYYY-MM-DD for et vilkårligt Date-objekt, læst som dansk kalenderdato.
+   Brug denne frem for .toISOString().slice(0,10) på datoer der stammer fra
+   et klokkeslæt — ellers hopper sen-aftens-timestamps en dag tilbage. */
+function dateToISO(d) {
+    if (!d) return '';
+    var dt = (d instanceof Date) ? d : new Date(d);
+    if (isNaN(dt.getTime())) return '';
+    return new Intl.DateTimeFormat('en-CA', { timeZone: 'Europe/Copenhagen' }).format(dt);
+}
+
+/* ══════════════════════════════════════════════════════════════
    ICONS — Inline SVG-ikoner som strings.
    Bruges hvor unicode-symboler renderer for små eller inkonsistent.
    Arver currentColor så de farves som omgivende tekst.
