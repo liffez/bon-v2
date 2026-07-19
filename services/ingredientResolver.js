@@ -109,9 +109,14 @@ async function resolveIngredients(recipeLines) {
      * Beregn totalvægt i gram for en underopskrift (til produktion-visning).
      * Summerer alle ingredienser (ekskl. emballage) konverteret til gram.
      */
-    function calcSubRecipeWeightGrams(subRecipeId, scaledServings) {
+    function calcSubRecipeWeightGrams(subRecipeId, scaledServings, stack = new Set()) {
         const subRaw = rawRecipeMap.get(subRecipeId);
         if (!subRaw) return 0;
+        // Uden dette værn giver en cyklus i recipes_nestings stack overflow og
+        // vælter hele /api/bons/:id/ingredients. Cykler er ikke teoretiske —
+        // scripts/grocy-audit/02_struktur.js leder eksplicit efter dem.
+        if (stack.has(subRecipeId)) return 0;
+        stack.add(subRecipeId);
         const subBase = parseInt(subRaw.base_servings) || 1;
         const mult = scaledServings / subBase;
         const ings = posByRecipe[subRecipeId] || [];
@@ -136,9 +141,10 @@ async function resolveIngredients(recipeLines) {
         const subNestings = nestingsByRecipe[subRecipeId] || [];
         for (const sn of subNestings) {
             const snServings = (parseFloat(sn.servings) || 1) * mult;
-            totalG += calcSubRecipeWeightGrams(sn.includes_recipe_id, snServings);
+            totalG += calcSubRecipeWeightGrams(sn.includes_recipe_id, snServings, stack);
         }
 
+        stack.delete(subRecipeId);
         return totalG;
     }
 
@@ -165,9 +171,14 @@ async function resolveIngredients(recipeLines) {
         }
     }
 
-    function resolveSubRecipesRaw(recipeId, parentMultiplier, visited) {
-        if (visited.has(recipeId)) return;
-        visited.add(recipeId);
+    // `stack` er de opskrifter vi er MIDT i lige nu — ikke alle vi har set.
+    // Forskellen betyder noget: nås den samme underopskrift ad to forskellige
+    // grene (A→B→D og A→C→D), skal D's egne underopskrifter tælles begge gange.
+    // Med et almindeligt "set" blev anden gren stille sprunget over, og alt under
+    // D blev undertalt. Kun en ægte cyklus (en opskrift inde i sig selv) skal stoppes.
+    function resolveSubRecipesRaw(recipeId, parentMultiplier, stack) {
+        if (stack.has(recipeId)) return;
+        stack.add(recipeId);
 
         const subNestings = nestingsByRecipe[recipeId] || [];
         for (const nesting of subNestings) {
@@ -193,8 +204,10 @@ async function resolveIngredients(recipeLines) {
             // top-niveauet sender scaleFactor. Tidligere blev der ganget med
             // subBaseServings her, hvilket ophævede divisionen ovenfor og pustede
             // råvarer i underopskrifter-i-underopskrifter op med base_servings.
-            resolveSubRecipesRaw(subRecipeId, subMultiplier, visited);
+            resolveSubRecipesRaw(subRecipeId, subMultiplier, stack);
         }
+
+        stack.delete(recipeId);
     }
 
     // ── Behandl bon-linjer ──
@@ -213,10 +226,6 @@ async function resolveIngredients(recipeLines) {
             addProdIngredient(pid, scaledStock, ing);
             addRawIngredient(pid, scaledStock, ing);
         }
-
-        // Underopskrifter
-        const rawRecipe = rawRecipeMap.get(line.grocy_recipe_id);
-        const baseServings = rawRecipe ? (parseInt(rawRecipe.base_servings) || 1) : 1;
 
         // PRODUKTION: underopskrifter som kompakte rækker
         const lineNestings = nestingsByRecipe[line.grocy_recipe_id] || [];
@@ -254,9 +263,13 @@ async function resolveIngredients(recipeLines) {
             }
         }
 
-        // RÅVARER: fuld rekursiv opløsning
-        const parentMultiplier = scaleFactor * baseServings;
-        resolveSubRecipesRaw(line.grocy_recipe_id, parentMultiplier / baseServings, new Set());
+        // RÅVARER: fuld rekursiv opløsning. Argumentet er batch-multiplieren —
+        // altså det tal recipes_pos.amount ganges med — og for bon-linjens egen
+        // opskrift er det simpelthen scaleFactor. (Stod tidligere som
+        // `scaleFactor * baseServings / baseServings`, hvilket er det samme, men
+        // fik det til at ligne at base_servings havde en rolle. Multiplier-
+        // konventionen har allerede kostet én fejl her — #349.)
+        resolveSubRecipesRaw(line.grocy_recipe_id, scaleFactor, new Set());
     }
 
     // ── Format & klassificér ──
@@ -576,9 +589,12 @@ async function resolveConsumeItems(recipeLines, recipeFactors = null) {
         }
     }
 
-    function resolveNestings(recipeId, parentMultiplier, visited) {
-        if (visited.has(recipeId)) return;
-        visited.add(recipeId);
+    // Stak, ikke sæt — se resolveSubRecipesRaw for hvorfor. Her rammer forskellen
+    // det faktiske lagertræk: en delt underopskrift ville få sit eget indhold
+    // undertalt, så der blev consumet for lidt fra Grocy.
+    function resolveNestings(recipeId, parentMultiplier, stack) {
+        if (stack.has(recipeId)) return;
+        stack.add(recipeId);
 
         const subNestings = nestingsByRecipe[recipeId] || [];
         for (const nesting of subNestings) {
@@ -606,8 +622,10 @@ async function resolveConsumeItems(recipeLines, recipeFactors = null) {
             // Samme rettelse som i resolveSubRecipesRaw: argumentet er batch-
             // multiplieren, ikke servings. subMultiplier bærer også en evt.
             // buffer-faktor videre til dybere niveauer (som før).
-            resolveNestings(subRecipeId, subMultiplier, visited);
+            resolveNestings(subRecipeId, subMultiplier, stack);
         }
+
+        stack.delete(recipeId);
     }
 
     // Behandl bon-linjer
@@ -624,9 +642,9 @@ async function resolveConsumeItems(recipeLines, recipeFactors = null) {
         }
 
         // Underopskrifter rekursivt
-        const rawRecipe = rawRecipeMap.get(line.grocy_recipe_id);
-        const baseServings = rawRecipe ? (parseInt(rawRecipe.base_servings) || 1) : 1;
-        resolveNestings(line.grocy_recipe_id, scaleFactor * baseServings / baseServings, new Set());
+        // Batch-multiplier for bon-linjens egen opskrift = scaleFactor. Se noten
+        // i resolveIngredients ovenfor.
+        resolveNestings(line.grocy_recipe_id, scaleFactor, new Set());
     }
 
     return [...aggregated.values()];
