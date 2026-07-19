@@ -2911,6 +2911,38 @@ funktioner kaldes direkte — det er de samme funktioner browseren bruger, ikke 
 Mutations-testet: alle tre kerne-rettelser fanges når de rulles tilbage.
 Browser-verificeret mod live grocy-hq.
 
+### Resolver: stak i stedet for sæt + cyklusværn (#354, 19. juli 2026)
+
+Sidste del af oprydningen efter #349. Begge opløsere i `ingredientResolver.js` brugte
+ét `visited`-sæt for hele træet under en bon-linje — for groft til at beskrive formen
+på et opskriftstræ.
+
+- **Diamant-undertælling**: nås den samme underopskrift ad to veje (A→B→D og A→C→D),
+  blev D's egne råvarer korrekt talt to gange (de tilføjes i løkken FØR rekursionen),
+  men rekursionen ind i D blev sprunget over anden gang. Alt **under** D blev derfor
+  undertalt. Ramte også `resolveNestings`, altså rigtigt lagertræk — der blev consumet
+  for lidt fra Grocy.
+- **Rettelse**: stak (tilføj ved indgang, `delete` ved udgang) i stedet for sæt. En
+  opskrift der optræder i to forskellige *grene* tælles nu begge gange; kun en ægte
+  cyklus (en opskrift inde i sig selv) stoppes. Samme mønster som `services/co2Engine.js`
+  allerede brugte, og som `shared/recipe_viewer.js` fik i #353.
+- **Cyklusværn i `calcSubRecipeWeightGrams`**: havde slet intet. En cyklus i
+  `recipes_nestings` gav stack overflow og væltede hele `/api/bons/:id/ingredients`.
+- **Kosmetisk**: `scaleFactor * baseServings / baseServings` var et no-op der fik det
+  til at ligne at `base_servings` havde en rolle på top-niveau. Skrevet som `scaleFactor`
+  — multiplier-konventionen har allerede kostet én fejl her.
+
+**Ingen effekt på nuværende drift, med vilje efterprøvet:** grocy-hq har maks
+nesting-dybde 2, ingen diamanter og ingen cykler. Resolveren blev kørt mod ægte
+grocy-data før og efter — fingeraftrykket af råvarer, consume-mængder og
+underopskrift-vægte er byte-identisk. Ændringen er alene et værn mod den dag
+opskriftstræet får en anden form.
+
+**Test**: `scripts/test-resolver-graph.js` (8 asserts) med et diamant-træ hvor det delte
+led selv har et niveau under sig — det er dér undertællingen sad. Mutations-testet:
+uden `stack.delete` falder både råvare- og consume-tallet fra 2 til 1; uden cyklusværnet
+giver testen "Maximum call stack size exceeded".
+
 ## Næste opgave
 
 > ✏️ Tracker-oprydning 29. juni 2026 — koden er på migration 119; status-sektionen ovenfor
