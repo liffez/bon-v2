@@ -299,13 +299,37 @@ async function sendMail({ to, subject, text, context, bonId = null, customerId =
         db.prepare(`UPDATE mail_threads SET updated_at = datetime('now') WHERE id = ?`).run(threadId);
     }
 
-    // Insert outbound message
+    // Insert outbound message.
+    //
+    // sent_at er BEVIDST NULL her (#362). Rækken skrives før afsendelsen, fordi
+    // vedhæftninger og selve sendMail har brug for dens id — men et tidsstempel
+    // der siger "sendt" må ikke stå der, før noget faktisk er sendt. Tidligere
+    // blev det sat her, og en fejlet mail var derefter ikke til at skelne fra en
+    // gennemført: hverken i UI'et eller i databasen.
+    //
+    // Alle læsere sorterer i forvejen på COALESCE(sent_at, received_at,
+    // created_at), så en NULL her flytter ikke beskeden i tråden.
     const msgIns = db.prepare(
         `INSERT INTO mail_messages (thread_id, direction, from_email, from_name, to_email, subject, body_text, message_id, in_reply_to, is_read, sent_at, created_by_user_id, created_at)
-         VALUES (?, 'out', ?, ?, ?, ?, ?, NULL, ?, 1, datetime('now'), ?, datetime('now'))`
+         VALUES (?, 'out', ?, ?, ?, ?, ?, NULL, ?, 1, NULL, ?, datetime('now'))`
     ).run(threadId, from, null, to, finalSubject, text, inReplyTo, userId);
     const messageDbId = msgIns.lastInsertRowid;
 
+    /** Marker beskeden som mislykket og lad fejlen boble videre til kalderen. */
+    const markFailed = (err) => {
+        try {
+            db.prepare(`UPDATE mail_messages SET send_error = ? WHERE id = ?`)
+              .run(String(err && err.message || err).slice(0, 500), messageDbId);
+        } catch (dbErr) {
+            console.error('[mail] kunne ikke gemme send_error:', dbErr.message);
+        }
+    };
+
+    // Fra her og til afsendelsen er lykkedes: enhver fejl skal efterlade et
+    // SPOR på beskeden. En manglende vedhæftning kastede tidligere ud af
+    // funktionen og efterlod en række der så sendt ud.
+    let info;
+    try {
     // Resolve attachments (attachment_id → file on disk)
     let resolvedAttachments = [];
     if (attachments.length > 0) {
@@ -348,10 +372,16 @@ async function sendMail({ to, subject, text, context, bonId = null, customerId =
         mailOptions.attachments = resolvedAttachments;
     }
 
-    const info = await transport.sendMail(mailOptions);
+    info = await transport.sendMail(mailOptions);
 
-    // Update message with SMTP messageId
-    db.prepare(`UPDATE mail_messages SET message_id = ? WHERE id = ?`).run(info.messageId, messageDbId);
+    // FØRST her er mailen ude af huset. Nu — og kun nu — sættes sent_at.
+    db.prepare(`UPDATE mail_messages SET message_id = ?, sent_at = datetime('now'), send_error = NULL WHERE id = ?`)
+      .run(info.messageId, messageDbId);
+    } catch (err) {
+        markFailed(err);
+        console.error(`[mail] afsendelse til ${to} fejlede: ${err.message}`);
+        throw err;   // kalderen skal stadig se fejlen — vi tilføjer kun sporet
+    }
 
     // ── Indbakke-håndtering (CLAUDE_INDBAKKE.md) ──
     // Kun kunde/bon-tråde har en handling_status; PO/leverandør-tråde røres ikke.

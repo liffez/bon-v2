@@ -3199,6 +3199,37 @@ er ikke bekræftet.
   (isoleret temp-DB, spawned server). Regression grøn: event-menu 42, event-bridge-prep 69,
   topup 35, event-cancelled 26, event-gate 15, event-polish 27, prep-packing 12.
   Browser-verificeret end-to-end; testdata ryddet.
+### Mail: sent_at sættes først når mailen faktisk er sendt (#362, 20. juli 2026)
+
+`mail_messages` blev indsat med `sent_at = datetime('now')` cirka **45 linjer før**
+`transport.sendMail()` blev kaldt — uden try/catch og uden kompenserende sletning.
+Fejlede SMTP, eller bare en manglende vedhæftning, overlevede rækken med udfyldt
+`sent_at` og `message_id = NULL`.
+
+**Ingen steder opdagede det.** `message_id IS NULL` optræder ét sted i hele repoet, og
+dér filtreres der på *indgående* mail. En fejlet afsendelse var altså ikke til at skelne
+fra en gennemført — heller ikke for et menneske der læste tråden. Det ramte bl.a.
+booking- og web-ordrebekræftelser, som sendes fire-and-forget: kunden fik intet, tråden
+sagde "sendt".
+
+- **`services/mailService.js`** — `sent_at` indsættes som NULL. Vedhæftnings-opløsning
+  **og** afsendelse er pakket i én `try`; ved fejl skrives `send_error` på beskeden og
+  fejlen kastes videre (kalderen skal stadig se den — vi tilføjer kun sporet). Først
+  efter et vellykket `sendMail` sættes `message_id` + `sent_at`, og `send_error` ryddes.
+- **Migration 134** — `mail_messages.send_error`.
+- **Sorteringen tåler det:** alle læsere brugte i forvejen
+  `COALESCE(sent_at, received_at, created_at)`, så en fejlet besked bliver stående det
+  rigtige sted i tråden i stedet for at forsvinde.
+- **`shared/mail_thread.js`** — udgående besked uden `sent_at` markeres med rød ramme og
+  "⚠ Ikke sendt" + fejlbeskeden. Komponenten dømmer kun når endpointet faktisk har
+  leveret `sent_at`, så en visning der ikke henter feltet ikke markerer alt som fejlet.
+  `send_error` + `sent_at` tilføjet til de tre tråd-forespørgsler (bon/kunde, PO, leverandør).
+
+**Tests:** `scripts/test-mail-send-truth.js` (13 asserts — vellykket send, SMTP-fejl,
+manglende vedhæftning, at beskeden bliver i tråden, og at et nyt vellykket forsøg rydder
+fejlsporet). Mutations-testet: sættes `sent_at` ved oprettelsen igen, falder præcis de to
+asserts der beskriver fejlen. Testen fangede undervejs en fejl i selve rettelsen —
+`info` var deklareret inde i den nye try-blok men bruges i `return`.
 
 ## Næste opgave
 

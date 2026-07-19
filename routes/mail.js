@@ -373,7 +373,8 @@ router.get('/threads/:id', requireAuth(), handle((req, res) => {
     const messages = db.prepare(`
         SELECT id, direction, is_system, from_email, from_name, to_email, subject,
                body_text, body_html, has_attachments, mailbox,
-               COALESCE(received_at, sent_at, created_at) AS at, created_by_user_id
+               COALESCE(received_at, sent_at, created_at) AS at, created_by_user_id,
+               sent_at, send_error
         FROM mail_messages WHERE thread_id = ? ORDER BY COALESCE(received_at, sent_at, created_at), id
     `).all(id);
     const attStmt = db.prepare(

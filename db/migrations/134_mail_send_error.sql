@@ -1,0 +1,22 @@
+-- 134_mail_send_error.sql
+-- ════════════════════════════════════════════════════════════
+-- Gør en FEJLET mail synlig (#362).
+--
+-- Hvorfor: mail-rækken blev indsat med `sent_at = datetime('now')` cirka 45
+-- linjer FØR `transport.sendMail()` blev kaldt — og der var hverken try/catch
+-- eller en kompenserende sletning. Fejlede SMTP (eller bare en manglende
+-- vedhæftning), overlevede rækken med udfyldt sent_at og message_id = NULL.
+--
+-- Ingen steder opdagede det. En gennemsøgning af hele repoet for
+-- `message_id IS NULL` gav ét hit, og det filtrerede på INGÅENDE mail. Den
+-- fejlede afsendelse var altså ikke til at skelne fra en gennemført — heller
+-- ikke for et menneske der kiggede i tråden.
+--
+-- Det ramte bl.a. booking-bekræftelser og web-ordrebekræftelser til kunder,
+-- som begge sendes fire-and-forget: kunden fik intet, tråden sagde "sendt".
+--
+-- Efter rettelsen sættes `sent_at` først når afsendelsen er lykkedes, og
+-- fejlbeskeden lander her, så både UI og en fremtidig vagthund kan se den.
+-- ════════════════════════════════════════════════════════════
+
+ALTER TABLE mail_messages ADD COLUMN send_error TEXT;
