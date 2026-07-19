@@ -477,6 +477,10 @@ function _vmBuildItemsFromShoppingList(supplierKey) {
                 expected: 0,
                 received: 0,
                 unit: _vmQuNames[sl.qu_id] || _vmQuNames[_vmProductStockQu[pid]] || '',
+                // Enhedens ID, ikke kun dens navn. Mængden står i den enhed varen
+                // blev BESTILT i, og serveren skal kunne regne den om til lager-
+                // enhed før den skriver til Grocy (#358). Navnet alene duer ikke.
+                qu_id: (sl.qu_id != null ? sl.qu_id : _vmProductStockQu[pid]),
                 status: 'ok',
                 notes: '',
                 slIds: [],
@@ -1275,6 +1279,7 @@ async function _vmSubmit() {
                 expected_quantity: item.expected,
                 received_quantity: item.received,
                 unit: item.unit,
+                qu_id: item.qu_id != null ? item.qu_id : null,
                 status: item.status,
                 notes: item.notes || null,
                 shopping_list_id: item.slIds && item.slIds.length > 0 ? item.slIds[0] : null,

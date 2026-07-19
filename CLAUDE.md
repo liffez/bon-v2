@@ -2943,6 +2943,47 @@ led selv har et niveau under sig — det er dér undertællingen sad. Mutations-
 uden `stack.delete` falder både råvare- og consume-tallet fra 2 til 1; uden cyklusværnet
 giver testen "Maximum call stack size exceeded".
 
+### Varemodtagelse: modtaget mængde konverteres nu til lager-enhed (#358, 19. juli 2026)
+
+Varemodtagelsen arbejder i den enhed varen blev **bestilt** i — indkøbslisten gemmer i
+indkøbs-enhed, så Brød Rug står som "994 Kasse". Grocys `/stock/add` tolker derimod
+`amount` i produktets **lager-enhed** (Kilo) når der ikke sendes en enhed med. Uden
+konvertering blev 994 kasser til 994 kilo.
+
+**Det var allerede sket**, fundet i Grocys egen `stock_log` og matchet mod
+`goods_receipt_items` på minuttet:
+
+```
+Spidskål   +10       3. juni 2026    "10 Antal", 1 Antal = 0,5 kg → skulle være 5 kg
+Rødkål-Rå  +12,1875  18. maj 2026    "12,1875 Antal", 1 Antal = 1,3 kg → skulle være 15,84
+```
+
+Ingen opdagede det: den 29. juni retter en `inventory-correction -14` på Rødkål tallet.
+**Den fysiske optælling absorberer fejlen og skjuler dermed sin egen årsag** — det er
+forklaringen på at fejlen har kunnet leve.
+
+- **`services/receivingUnits.js`** — NY. `buildStockQuantityResolver(snapshot)` oversætter
+  modtaget mængde → lager-enhed. **Indkøbsliste-rækken er autoritativ** for hvilken enhed
+  tallet står i, ikke klienten; derfor virker rettelsen også for en browser med cachet JS.
+- **Der gættes aldrig.** Mangler konverteringen i Grocy, eller står varen på listen i to
+  forskellige enheder, returneres en fejl → linjen fejler synligt og modtagelsen bliver
+  `partially_approved`. En forkert lagerbeholdning er værre end en modtagelse der siger fra.
+- **Migration 132** — `goods_receipt_items.stock_quantity` + `stock_unit` gemmer hvad der
+  faktisk landede, så en modtagelse kan læses bagfra: "1 Antal → 0,8 Kilo".
+- **`shared/varemodtagelse.js`** sender nu `qu_id` (ikke kun enhedens navn) som reserve.
+- Shopping list-oprydningen regner fortsat i indkøbs-enhed — den er intern og korrekt.
+  Kun `addToStock` konverteres.
+
+**Deploy-konsekvens målt på produktionens indkøbsliste (52 rækker):** 30 uændrede,
+**18 der nu skrives korrekt** (blev skrevet forkert før), og **4 der vil fejle synligt**
+indtil nogen opretter konverteringen i Grocy: `cookie - færdige` (Kasse→Kilo),
+`Vand med Brus` (Antal→Kilo), `Brownie` (Kasse→Kilo), `Glutenfri Bolle` (Pose→Kilo).
+
+**Tests:** `scripts/test-receiving-units.js` (14 asserts — begge drifts-tilfælde med
+rigtige faktorer, manglende konvertering, blandede enheder, at indkøbslisten vinder over
+klienten). Browser-verificeret ende-til-ende mod grocytest: Hvidkål 1 Antal → **+0,8 kg**
+på lageret i stedet for +1,0, DB'en viser "1 Antal → 0,8 Kilo". Alt testdata rullet tilbage.
+
 ## Næste opgave
 
 > ✏️ Tracker-oprydning 29. juni 2026 — koden er på migration 119; status-sektionen ovenfor

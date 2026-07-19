@@ -25,6 +25,7 @@ const { transaction } = require('../db/compat');
 const { handle, getUserById } = require('../db/helpers');
 const { requireAuth, userCan } = require('../shared/auth');
 const grocy           = require('../services/grocyAdapter');
+const { buildStockQuantityResolver } = require('../services/receivingUnits');
 const webhook         = require('../services/goodsReceiptWebhook');
 
 const UPLOAD_DIR = path.join(__dirname, '..', 'data', 'uploads', 'receipts');
@@ -308,6 +309,31 @@ router.post('/', requireAuth(), handle(async (req, res) => {
         }
     }
 
+    // 3b. Enheds-grundlag til lagertilgangen (#358).
+    //
+    // Den modtagne mængde står i den enhed varen blev BESTILT i — indkøbslisten
+    // gemmer i indkøbs-enhed (Brød Rug: "994 Kasse"). Grocys /stock/add tolker
+    // derimod `amount` i produktets LAGER-enhed (Kilo). Uden konvertering blev
+    // 994 kasser til 994 kilo. To bekræftede tilfælde i drift.
+    //
+    // Indkøbsliste-rækken er autoritativ for hvilken enhed tallet står i —
+    // ikke klienten. Så virker rettelsen også for en browser med cachet JS.
+    let toStockQuantity;
+    try {
+        const [products, units, conversions, shoppingList] = await Promise.all([
+            grocy.getProducts(),
+            grocy.getQuantityUnits(),
+            grocy.getQuantityUnitConversions(),
+            grocy.getShoppingList(),
+        ]);
+        toStockQuantity = buildStockQuantityResolver({ products, units, conversions, shoppingList });
+    } catch (err) {
+        // Grocy er nede. Vi gætter ikke på enheder — hver linje fejler synligt,
+        // og modtagelsen bliver partially_approved.
+        console.warn('[goods-receipts] Kunne ikke hente enheds-grundlag fra Grocy:', err.message);
+        toStockQuantity = () => ({ error: 'Kunne ikke hente enheder fra Grocy — mængden er ikke lagt på lager' });
+    }
+
     // 4. Sekventiel Grocy addStock + shopping list cleanup.
     // UPDATE matcher på item.id (unik) — ikke grocy_product_id — fordi samme
     // product kan optræde flere gange i samme receipt (forskellige batches).
@@ -315,6 +341,9 @@ router.post('/', requireAuth(), handle(async (req, res) => {
     const updateItem = db.prepare(`
         UPDATE goods_receipt_items SET grocy_added = ?, grocy_error = ?
         WHERE id = ?
+    `);
+    const updateItemStock = db.prepare(`
+        UPDATE goods_receipt_items SET stock_quantity = ?, stock_unit = ? WHERE id = ?
     `);
 
     for (let i = 0; i < items.length; i++) {
@@ -335,18 +364,38 @@ router.post('/', requireAuth(), handle(async (req, res) => {
             continue;
         }
 
+        // Oversæt til lager-enhed FØR skrivning. Kan enheden ikke afgøres,
+        // fejler linjen synligt i stedet for at lægge et forkert tal på lageret
+        // (#358) — modtagelsen bliver partially_approved og beder om hjælp.
+        const stockQty = toStockQuantity(item);
+        if (stockQty.error) {
+            updateItem.run(0, stockQty.error, itemId);
+            grocyResults.push({
+                product_name: item.product_name,
+                grocy_added: false,
+                error: stockQty.error
+            });
+            continue;
+        }
+
         try {
             await grocy.addToStock(
                 item.grocy_product_id,
-                item.received_quantity,
+                stockQty.amount,
                 null, // best_before_date — Grocy bruger default_due_days
                 location_id || null
             );
             updateItem.run(1, null, itemId);
+            updateItemStock.run(stockQty.amount, stockQty.unit, itemId);
+            if (stockQty.factor) {
+                console.log(`[goods-receipts] ${item.product_name}: ${item.received_quantity} ${item.unit || ''} → ${stockQty.amount} ${stockQty.unit} (faktor ${stockQty.factor})`);
+            }
             grocyResults.push({
                 product_name: item.product_name,
                 grocy_added: true,
-                error: null
+                error: null,
+                stock_quantity: stockQty.amount,
+                stock_unit: stockQty.unit
             });
 
             // #336 — stemple varen som observeret her. Kun når lageret rent
