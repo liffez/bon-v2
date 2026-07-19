@@ -211,7 +211,12 @@ async function _rapLoadAll() {
       _rapFetchLego(),
       fetchReportsCumulative(),
       fetchReportsTopCategories(),
-      fetchReportsGiveaways(),
+      // Ikke-fatal: dette kort er additivt og må ALDRIG kunne vælte hele
+      // rapportsiden (Promise.all fejler samlet). Fejler det, vises kortet tomt.
+      fetchReportsGiveaways().catch(function(err) {
+        console.error('[rapporter] giveaways fejlede:', err);
+        return null;
+      }),
     ]);
     if (!_rapActive) return;
     _rapRenderAll(summary, monthly, topCust, categories, monthlyTable, lego, cumulative, topCats, giveaways);
@@ -247,6 +252,10 @@ function _rapRenderGiveaways(d) {
   const el = document.getElementById('rap-giveaways-content');
   if (!el) return;
   el.classList.remove('rap-loading');
+  if (!d) {
+    el.innerHTML = '<div style="padding:12px 4px;color:var(--color-text-dim,#7a6f5f)">Kunne ikke hente sponsorat/modregning lige nu.</div>';
+    return;
+  }
   const types = (d && d.types) || [];
   if (!types.length) {
     el.innerHTML = '<div style="padding:12px 4px;color:var(--color-text-dim,#7a6f5f)">Ingen sponsorat eller modregning registreret i år.</div>';

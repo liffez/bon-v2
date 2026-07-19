@@ -778,7 +778,7 @@ router.get('/giveaways', handle(async (req, res) => {
           AND sd.code IN (${_statusPlaceholders(REVENUE_CODES)})
           ${OFFER_INTERNAL_FILTER}
           AND b.delivery_date >= ? AND b.delivery_date < ?
-        GROUP BY b.payment_type, label
+        GROUP BY b.payment_type, pt.label
         ORDER BY total_incl DESC
     `).all(...codes, ...REVENUE_CODES, from, to);
 
