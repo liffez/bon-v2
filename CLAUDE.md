@@ -2877,6 +2877,40 @@ lager-enhed (Æg: Antal vs. Kilo), dels når `autoFormatAmount` skifter kg→g u
 `inventory_deducted = 0`. Men auto-deduct blev tændt 17. juli (#305), så kør
 oprydnings-scriptet i drift **inden** de leveres.
 
+### Opskrift-vieweren: status på underopskrifter + fire fejl mere (#353, 19. juli 2026)
+
+`shared/recipe_viewer.js` er en klient-side variant af logikken i `ingredientResolver.js`
+og var ikke fulgt med #349/#351. Fem fejl, alle i samme fil:
+
+1. **Hardcodet grøn prik** på underopskrifter — samme fejl som i råvare-modalen.
+   Rulles nu op via `_rvNestingStatus()`, med et `N råvarer · mangler`-mærke og
+   tooltip der viser behov mod lager pr. råvare.
+2. **Indkøbsknappen kunne aldrig vises**: betingelsen sammenlignede `statusClass` med
+   `'rv-status-missing'`, men variablen sættes kun til `'ok'/'low'/'missing'/'unknown'`.
+   Strengen `rv-status-` fandtes ét sted i hele repoet — netop den linje. Handleren var
+   wired hele tiden; knappen blev bare aldrig renderet.
+3. **"Alle ingredienser er paa lager!"** så kun på de direkte ingredienser. Behovet
+   samles nu pr. produkt på tværs af hele træet, hvilket samtidig fjerner dobbelt-rækker
+   når et produkt optræder både direkte og i en blanding.
+4. **Vægt af underopskrift gik ikke i dybden.** IKKE latent: grocy-hq har nesting i
+   dybde 2, så Æggesalat blev målt til 89 g hvor den rettelig vejer 110,25 g —
+   Remoulade indeni tælles nu med (24 % under-rapportering i drift). Samme fejl rettet
+   i `shared/recipe_designer.js`.
+5. **Samme `base_servings`-fejl som #349** i "Træk fra lager"-stien. Latent (alt i
+   grocy-hq har `base_servings = 1`), men det er rigtigt lagertræk.
+
+**Struktur:** de tre kopier af træ-gennemløbningen er erstattet af én `_rvWalkNested()`
+som lagertræk, indkøbsliste og statusprik deler. Duplikeringen var netop grunden til at
+#349 kunne overleve i klienten efter at være rettet på serveren. Cyklus-værnet er
+stak-baseret (`delete` ved udgang), så en opskrift der optræder i to forskellige grene
+stadig tælles begge gange — kun ægte cykler stoppes.
+
+**Test:** `scripts/test-recipe-viewer-nested.js` (12 asserts). Browser-kode kan ikke
+`require`s, så filen køres i en `vm`-sandkasse med stubbede globals og de rene
+funktioner kaldes direkte — det er de samme funktioner browseren bruger, ikke en kopi.
+Mutations-testet: alle tre kerne-rettelser fanges når de rulles tilbage.
+Browser-verificeret mod live grocy-hq.
+
 ## Næste opgave
 
 > ✏️ Tracker-oprydning 29. juni 2026 — koden er på migration 119; status-sektionen ovenfor

@@ -496,10 +496,24 @@ function _rvRenderIngredients() {
                 totalWeightGrams += _rvCalculateSubRecipeWeightGrams(nesting.includes_recipe_id, scaledServings);
             }
 
-            html += '<li class="rv-ingredient-item rv-nesting-item">' +
-                '<div class="rv-stock-dot ok"></div>' +
+            // Status rulles op fra underopskriftens egne r\u00e5varer \u2014 prikken var
+            // tidligere hardcodet gr\u00f8n og p\u00e5stod "nok p\u00e5 lager" uden at have tjekket.
+            var nstatus = _rvNestingStatus(nesting.includes_recipe_id, scaledServings);
+            var warnHtml = '', titleAttr = '';
+            if (nstatus.shortfalls.length > 0) {
+                warnHtml = '<span class="rv-nesting-warn">' + nstatus.shortfalls.length
+                    + ' r\u00e5vare' + (nstatus.shortfalls.length === 1 ? '' : 'r') + ' '
+                    + (nstatus.status === 'missing' ? 'mangler' : 'lavt lager') + '</span>';
+                titleAttr = ' title="' + esc(nstatus.shortfalls.map(function(s) {
+                    return s.name + ': skal bruge ' + s.needed + ', lager ' + s.stock;
+                }).join('\n')) + '"';
+            }
+
+            html += '<li class="rv-ingredient-item rv-nesting-item"' + titleAttr + '>' +
+                '<div class="rv-stock-dot ' + nstatus.status + '"></div>' +
                 '<div class="rv-ingredient-name">' +
                     '<span class="rv-ingredient-link" data-rv-sub-recipe="' + subRecipe.id + '">' + esc(subRecipe.name) + ' [\u2192]</span>' +
+                    warnHtml +
                 '</div>' +
                 '<div class="rv-ingredient-amount">' + esc(displayText) + '</div>' +
                 '<div class="rv-ingredient-stock"></div>' +
@@ -589,7 +603,9 @@ function _rvRenderIngredientItem(ing, multiplier) {
 
     var fmt = _rvFormatAmount(amount, unitName);
 
-    var cartBtn = (statusClass === 'rv-status-missing' || statusClass === 'rv-status-low')
+    // statusClass er 'ok'/'low'/'missing'/'unknown' — aldrig med rv-status--præfiks.
+    // Betingelsen var derfor altid falsk, så knappen blev aldrig vist (#353).
+    var cartBtn = (statusClass === 'missing' || statusClass === 'low')
         ? '<button class="rv-cart-btn" data-rv-stock-info="' + stockInfoJson + '" title="Tilfoej til indkoebsliste">🛒</button>'
         : '';
 
@@ -656,30 +672,42 @@ async function _rvAddToShoppingList(productId, amount, productName, unitName) {
 async function _rvAddAllMissingToShoppingList() {
     if (!_rvCurrentRecipe) return;
     var multiplier = _rvCurrentPortions / _rvBaseServings;
-    var items = [];
 
-    _rvIngredients.forEach(function(ing) {
-        var baseAmount = parseFloat(ing.amount) || 0;
-        var neededStock = baseAmount * multiplier;
-        var stockAmount = _rvEffectiveStock(ing.product_id);
+    // Saml behovet PR PRODUKT først. Dels fordi underopskrifternes råvarer skal med
+    // — de blev tidligere overset helt, så "Alle ingredienser er paa lager!" kunne
+    // lyde grønt mens en blanding manglede alt (#353). Dels fordi et produkt kan
+    // optræde både direkte og inde i en blanding, og så skal det tælles sammen i
+    // stedet for at blive to rækker på indkøbslisten.
+    var needs = {};
+    var add = function(ing, m) {
+        var amt = (parseFloat(ing.amount) || 0) * m;
+        if (amt > 0) needs[ing.product_id] = (needs[ing.product_id] || 0) + amt;
+    };
+    _rvIngredients.forEach(function(ing) { add(ing, multiplier); });
+    _rvWalkNested(_rvCurrentRecipe.id, multiplier, add);
+
+    var items = [];
+    Object.keys(needs).forEach(function(pid) {
+        var neededStock = needs[pid];
+        var stockAmount = _rvEffectiveStock(pid);
         if (stockAmount >= neededStock) return; // nok på lager (inkl. parent/child)
 
         var missing = _rvRound(Math.max(0, neededStock - stockAmount));
         if (missing <= 0) return;
 
-        var product = _rvProducts[ing.product_id] || {};
-        var purchase = _rvToPurchaseUnit(ing.product_id, missing);
+        var product = _rvProducts[pid] || {};
+        var purchase = _rvToPurchaseUnit(pid, missing);
         items.push({
-            product_id: ing.product_id,
+            product_id: parseInt(pid),
             amount: purchase.amount,
-            name: product.name || 'Produkt #' + ing.product_id,
+            name: product.name || 'Produkt #' + pid,
             unit: purchase.unit,
             note: 'Fra opskrift: ' + _rvCurrentRecipe.name
         });
     });
 
     if (items.length === 0) {
-        _rvShowAlert('Alle ingredienser er paa lager!', 'success');
+        _rvShowAlert('Alle ingredienser er paa lager — ogsaa i underopskrifterne!', 'success');
         return;
     }
 
@@ -763,9 +791,17 @@ async function _rvConsumeRecipe() {
 
     // Sub-recipe ingredients recursively
     if (_rvNestings && _rvNestings.length > 0) {
-        _rvCollectSubRecipeIngredients(
-            _rvCurrentRecipe.id, multiplier, itemsToConsume, {}
-        );
+        _rvWalkNested(_rvCurrentRecipe.id, multiplier, function(ing, subMultiplier, subRecipe) {
+            var amount = _rvRound((parseFloat(ing.amount) || 0) * subMultiplier);
+            if (amount <= 0) return;
+            var product = _rvProducts[ing.product_id] || {};
+            itemsToConsume.push({
+                product_id: ing.product_id,
+                amount: amount,
+                name: product.name || ('Produkt #' + ing.product_id),
+                source: subRecipe.name
+            });
+        });
     }
 
     if (itemsToConsume.length === 0) {
@@ -848,40 +884,99 @@ async function _rvConsumeRecipe() {
     }
 }
 
-function _rvCollectSubRecipeIngredients(recipeId, parentMultiplier, itemsToConsume, visited) {
-    if (visited[recipeId]) return;
-    visited[recipeId] = true;
+/**
+ * Gå gennem en opskrifts underopskrifter rekursivt og kald `visit` for hver
+ * ingrediens dybt nede i træet.
+ *
+ * ÉN gennemløbning som alle tre forbrugere deler (lagertræk, indkøbsliste,
+ * statusprik). Den var tidligere kopieret ud tre steder med hver sin fejl —
+ * det er præcis sådan #349 kunne overleve i klienten efter at være rettet på
+ * serveren.
+ *
+ * `multiplier` er "gang denne på recipes_pos.amount", altså batch-multiplieren.
+ * Underopskriftens egen multiplier er (nesting.servings × forældrens) delt med
+ * dens base_servings — og det er DEN der skal gives videre ned. Ganges der med
+ * base_servings igen, ophæves divisionen og alt i dybde 2+ pustes op (#349).
+ *
+ * Emballage springes over: det er ikke en del af blandingen.
+ *
+ * @param {Function} visit  (ing, subMultiplier, subRecipe) → void
+ */
+function _rvWalkNested(recipeId, multiplier, visit, seen) {
+    seen = seen || {};
+    if (seen[recipeId]) return;
+    seen[recipeId] = true;
 
-    var nestings = _rvAllNestings.filter(function(n) { return n.recipe_id == recipeId; });
-
-    nestings.forEach(function(nesting) {
+    _rvAllNestings.filter(function(n) { return n.recipe_id == recipeId; }).forEach(function(nesting) {
         var subRecipeId = nesting.includes_recipe_id;
         var subRecipe = _rvRecipeMap[subRecipeId];
         if (!subRecipe) return;
 
         var subBaseServings = parseInt(subRecipe.base_servings) || 1;
         var nestingServings = parseFloat(nesting.servings) || 1;
-        var subMultiplier = (nestingServings * parentMultiplier) / subBaseServings;
+        var subMultiplier = (nestingServings * multiplier) / subBaseServings;
 
-        var subIngredients = _rvAllRecipesPos[subRecipeId] || [];
-
-        subIngredients.forEach(function(ing) {
-            var group = (ing.ingredient_group || '').toLowerCase();
-            if (group === 'emballage') return;
-            var baseAmount = parseFloat(ing.amount) || 0;
-            var amount = _rvRound(baseAmount * subMultiplier);
-            if (amount <= 0) return;
-            var product = _rvProducts[ing.product_id] || {};
-            itemsToConsume.push({
-                product_id: ing.product_id,
-                amount: amount,
-                name: product.name || ('Produkt #' + ing.product_id),
-                source: subRecipe.name
-            });
+        (_rvAllRecipesPos[subRecipeId] || []).forEach(function(ing) {
+            if ((ing.ingredient_group || '').toLowerCase() === 'emballage') return;
+            visit(ing, subMultiplier, subRecipe);
         });
 
-        _rvCollectSubRecipeIngredients(subRecipeId, subMultiplier * subBaseServings, itemsToConsume, visited);
+        _rvWalkNested(subRecipeId, subMultiplier, visit, seen);
     });
+
+    // Stak, ikke sæt: en opskrift der optræder i to forskellige GRENE skal tælles
+    // begge gange. Kun en ægte cyklus (opskriften inde i sig selv) skal stoppes.
+    delete seen[recipeId];
+}
+
+/** Saml en underopskrifts samlede råvarebehov: dens egne + alt nedenunder. */
+function _rvRecipeNeeds(recipeId, scaledServings) {
+    var recipe = _rvRecipeMap[recipeId];
+    if (!recipe) return {};
+    var multiplier = scaledServings / (parseInt(recipe.base_servings) || 1);
+    var needs = {};
+    var add = function(ing, m) {
+        var amt = (parseFloat(ing.amount) || 0) * m;
+        if (amt > 0) needs[ing.product_id] = (needs[ing.product_id] || 0) + amt;
+    };
+    (_rvAllRecipesPos[recipeId] || []).forEach(function(ing) {
+        if ((ing.ingredient_group || '').toLowerCase() === 'emballage') return;
+        add(ing, multiplier);
+    });
+    _rvWalkNested(recipeId, multiplier, add);
+    return needs;
+}
+
+/**
+ * Rul lagerstatus op på en underopskrift: værste status blandt de råvarer den
+ * afhænger af, inkl. dens egne underopskrifter.
+ *
+ * Uden den stod underopskrifter med en hardcodet grøn prik og påstod "nok på
+ * lager" om noget der aldrig var tjekket (#353).
+ */
+function _rvNestingStatus(subRecipeId, scaledServings) {
+    var needs = _rvRecipeNeeds(subRecipeId, scaledServings);
+    var rank = { ok: 0, low: 1, missing: 2 };
+    var worst = 'ok', shortfalls = [];
+
+    Object.keys(needs).forEach(function(pid) {
+        var needed = needs[pid];
+        var stock = _rvEffectiveStock(pid);
+        var status = stock >= needed ? 'ok' : (stock > 0 ? 'low' : 'missing');
+        if (rank[status] > rank[worst]) worst = status;
+        if (status !== 'ok') {
+            var product = _rvProducts[pid] || {};
+            shortfalls.push({
+                name: product.name || ('Produkt #' + pid),
+                needed: _rvRound(needed),
+                stock: _rvRound(stock),
+                status: status,
+            });
+        }
+    });
+
+    shortfalls.sort(function(a, b) { return (rank[b.status] - rank[a.status]) || a.name.localeCompare(b.name, 'da'); });
+    return { status: worst, shortfalls: shortfalls };
 }
 
 function _rvGetUnitForProduct(productId) {
@@ -1039,21 +1134,29 @@ function _rvResolveWeightUnitIds() {
 
 function _rvCalculateSubRecipeWeightGrams(subRecipeId, scaledServings) {
     var subRecipe = _rvRecipeMap[subRecipeId];
-    var ingredients = _rvAllRecipesPos[subRecipeId];
-    if (!subRecipe || !ingredients || ingredients.length === 0) return 0;
+    // Bemærk: ingen early-return på tom ingrediensliste — en blanding kan bestå
+    // udelukkende af andre blandinger, og så ligger hele vægten nedenunder.
+    if (!subRecipe) return 0;
 
     var subBaseServings = parseFloat(subRecipe.base_servings) || 1;
     var subMultiplier = scaledServings / subBaseServings;
 
     var totalGrams = 0;
-    ingredients.forEach(function(ing) {
+    var weigh = function(ing, multiplier) {
         if ((ing.ingredient_group || '').toLowerCase() === 'emballage') return;
         var product = _rvProducts[ing.product_id] || {};
         var stockQuId = product.qu_id_stock || ing.qu_id;
         var stockUnitName = _rvQuantityUnits[stockQuId] || '';
-        var amount = (parseFloat(ing.amount) || 0) * subMultiplier;
+        var amount = (parseFloat(ing.amount) || 0) * multiplier;
         totalGrams += _rvCalculateWeightGrams(amount, stockUnitName, ing.product_id, stockQuId);
-    });
+    };
+
+    (_rvAllRecipesPos[subRecipeId] || []).forEach(function(ing) { weigh(ing, subMultiplier); });
+    // …og alt der ligger i underopskriftens EGNE underopskrifter. Manglede før, så
+    // en blanding med en blanding i vejede for lidt — og det er ikke latent: der
+    // findes nesting i dybde 2 i grocy-hq i dag (#353).
+    _rvWalkNested(subRecipeId, subMultiplier, weigh);
+
     return totalGrams;
 }
 
