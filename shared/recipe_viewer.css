@@ -301,6 +301,16 @@
     border-radius: 8px;
     border: 1px solid rgba(142, 99, 31, 0.2);
 }
+/* Underopskrift hvis råvarer ikke rækker — hele rækken markeres, ikke kun prikken */
+.rv-nesting-item:has(.rv-stock-dot.missing) { box-shadow: inset 3px 0 0 #c0392b; }
+.rv-nesting-item:has(.rv-stock-dot.low)     { box-shadow: inset 3px 0 0 #d98b0a; }
+.rv-nesting-warn {
+    margin-left: 8px;
+    font-size: 11px;
+    font-weight: 600;
+    color: var(--color-text-dim, #888);
+    white-space: nowrap;
+}
 
 .rv-stock-dot {
     width: 14px;

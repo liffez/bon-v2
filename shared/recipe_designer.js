@@ -1535,19 +1535,34 @@ function _rdCalcWeightGrams(amount, unit, productId, quId) {
     return 0;
 }
 
-function _rdCalcSubRecipeWeightGrams(subRecipeId, scaledServings) {
+function _rdCalcSubRecipeWeightGrams(subRecipeId, scaledServings, seen) {
     var subRecipe = _rdRecipeMap[subRecipeId];
-    var ingredients = _rdAllPositions.filter(function(p) { return p.recipe_id == subRecipeId; });
-    if (!subRecipe || !ingredients.length) return 0;
+    // Ingen early-return på tom ingrediensliste: en blanding kan bestå udelukkende
+    // af andre blandinger, og så ligger hele vægten nedenunder.
+    if (!subRecipe) return 0;
+
+    seen = seen || {};
+    if (seen[subRecipeId]) return 0;   // cyklus i recipes_nestings
+    seen[subRecipeId] = true;
+
     var subBaseServings = parseFloat(subRecipe.base_servings) || 1;
     var subMult = scaledServings / subBaseServings;
     var total = 0;
-    ingredients.forEach(function(ing) {
+
+    _rdAllPositions.filter(function(p) { return p.recipe_id == subRecipeId; }).forEach(function(ing) {
         if ((ing.ingredient_group || '').toLowerCase() === 'emballage') return;
         var product = _rdProductMap[ing.product_id] || {};
         var stockQuId = product.qu_id_stock || ing.qu_id;
         var stockUnitName = _rdQuantityUnits[stockQuId] || '';
         total += _rdCalcWeightGrams((parseFloat(ing.amount) || 0) * subMult, stockUnitName, ing.product_id, stockQuId);
     });
+
+    // …og underopskriftens EGNE underopskrifter. Manglede før, så en blanding med
+    // en blanding i vejede for lidt — og der findes nesting i dybde 2 i drift (#353).
+    _rdAllNestings.filter(function(n) { return n.recipe_id == subRecipeId; }).forEach(function(n) {
+        total += _rdCalcSubRecipeWeightGrams(n.includes_recipe_id, (parseFloat(n.servings) || 1) * subMult, seen);
+    });
+
+    delete seen[subRecipeId];
     return total;
 }
