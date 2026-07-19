@@ -381,3 +381,43 @@ tr:not(.ev-topup-need) .ev-topup-sug { color: #999; font-weight: 500; }
 }
 /* Diskret markering i stedet for prisversionering: solgt til en anden pris. */
 .ev-menu-dev { margin-left: 6px; color: #b8860b; cursor: help; }
+
+/* ── FLYT-KNAPPER I MENUEN ───────────────────────────────────────────── */
+.ev-menu-act { white-space: nowrap; }
+.ev-menu-move { padding: 2px 6px; line-height: 1; font-size: 11px; }
+
+/* ── PRINT: skiltet til vognen ───────────────────────────────────────── */
+/* Skjult på skærmen; @media print skjuler til gengæld ALT ANDET, så
+   office-shellen (sidebar, topbar, P&L) ikke følger med på papiret. */
+.ev-print-root { display: none; }
+
+@media print {
+    body.ev-printing > *:not(.ev-print-root) { display: none !important; }
+    body.ev-printing .ev-print-root {
+        display: block !important;
+        padding: 0; margin: 0; color: #000; background: #fff;
+        font-family: var(--font-body, system-ui, sans-serif);
+    }
+    @page { margin: 18mm 16mm; }
+
+    .evp-head  { font-size: 11pt; color: #555; margin-bottom: 2mm; }
+    .evp-title { font-family: var(--font-heading, Georgia, serif); font-size: 30pt; margin: 0 0 8mm; font-weight: 700; }
+    /* Undgå at en kategori-overskrift lander alene nederst på siden. */
+    .evp-group { margin-bottom: 7mm; break-inside: avoid; page-break-inside: avoid; }
+    .evp-cat {
+        font-size: 12pt; text-transform: uppercase; letter-spacing: 1.2px;
+        color: #555; margin: 0 0 3mm; padding-bottom: 1.5mm; border-bottom: 1px solid #999;
+        break-after: avoid; page-break-after: avoid;
+    }
+    /* Prikkelinje mellem navn og pris — flex-mellemrummet fyldes af en
+       gentaget prik-baggrund, så den strækker sig uanset navnets længde. */
+    .evp-row   { display: flex; align-items: baseline; gap: 3mm; font-size: 15pt; margin: 0 0 2.5mm; }
+    .evp-name  { flex: none; }
+    .evp-dots  {
+        flex: 1 1 auto; height: 1px; margin-bottom: 3px;
+        background-image: radial-gradient(circle, #bbb 1px, transparent 1px);
+        background-size: 5px 2px; background-repeat: repeat-x; background-position: bottom;
+    }
+    .evp-price { flex: none; font-weight: 700; font-variant-numeric: tabular-nums; }
+    .evp-foot  { margin-top: 10mm; font-size: 9pt; color: #777; }
+}

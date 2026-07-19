@@ -411,6 +411,8 @@ function _evMenuPanel() {
                     title="Genskaber manglende linjer fra prep-bonnerne. Rører aldrig priser du allerede har sat.">⟳ Generér fra prep</button>
                 <button class="ev-btn ev-btn-small" data-act="menu-add"
                     title="Ret fundet på pladsen — uden opskrift, så ingen kostpris/CO₂/lagereffekt">+ Tilføj linje</button>
+                <button class="ev-btn ev-btn-small" data-act="menu-print"
+                    title="Åbner en ren udskriftsvisning — skiltet til vognen">🖨 Print menu</button>
             </div>
         </div>
         <span class="ev-menu-status" id="ev-menu-status"></span>
@@ -454,6 +456,8 @@ function _evMenuRowsHtml(items) {
                     value="${_evEsc(it.note || '')}" placeholder="note (valgfri)">
             </td>
             <td class="ev-menu-act">
+                <button class="ev-btn ev-btn-small ev-menu-move" data-act="menu-up"   title="Flyt op">▲</button>
+                <button class="ev-btn ev-btn-small ev-menu-move" data-act="menu-down" title="Flyt ned">▼</button>
                 <button class="ev-btn ev-btn-small ev-btn-danger" data-act="menu-del" title="Fjern fra menuen">✕</button>
             </td>
         </tr>`;
@@ -575,6 +579,87 @@ async function _evGenerateMenu(ev) {
     }
 }
 
+// ── PRINT: skiltet til vognen ────────────────────────────────────────────
+// Ren udskriftsvisning i samme vindue frem for window.open — ingen popup-
+// blokering, og siden kan ikke komme ud af sync med det man ser på skærmen.
+// @media print skjuler resten af office-shellen (se .ev-print-root i CSS).
+//
+// Gruppérer efter kategori i menuens egen rækkefølge: den rækkefølge man har
+// sat med ▲▼ er præcis den man vil læse ovenfra og ned på et skilt.
+function _evBuildPrintSheet(ev, items) {
+    const grupper = [];
+    const idx = new Map();
+    for (const it of items) {
+        const kat = (it.category || '').trim() || 'Øvrigt';
+        if (!idx.has(kat)) { idx.set(kat, grupper.length); grupper.push({ kat, rows: [] }); }
+        grupper[idx.get(kat)].rows.push(it);
+    }
+    const grupperHtml = grupper.map(g => `
+        <section class="evp-group">
+            <h2 class="evp-cat">${_evEsc(g.kat)}</h2>
+            ${g.rows.map(r => `
+                <div class="evp-row">
+                    <span class="evp-name">${_evEsc(r.product_name)}</span>
+                    <span class="evp-dots"></span>
+                    <span class="evp-price">${Math.round(r.unit_price ?? 0)} kr</span>
+                </div>`).join('')}
+        </section>`).join('');
+
+    return `
+        <div class="evp-head">${_evEsc(ev.name)} · ${_evFmtDate(ev.start_date)}</div>
+        <h1 class="evp-title">Menu</h1>
+        ${grupperHtml}
+        <div class="evp-foot">Alle priser inkl. moms</div>`;
+}
+
+function _evPrintMenu(ev) {
+    const items = _evState.menu || [];
+    const status = document.getElementById('ev-menu-status');
+    if (!items.length) {
+        if (status) { status.textContent = 'Ingen menu at printe endnu'; status.className = 'ev-menu-status err'; }
+        return;
+    }
+    // Varer uden pris kommer med som "0 kr" på skiltet. Vi fjerner dem IKKE i
+    // stilhed — så ville skiltet lyve om sortimentet — men vi siger det højt.
+    const uprisede = items.filter(i => !(i.unit_price > 0)).map(i => i.product_name);
+    if (uprisede.length && status) {
+        status.textContent = `⚠ ${uprisede.length} vare${uprisede.length === 1 ? '' : 'r'} uden pris kommer med som 0 kr: ${uprisede.join(', ')}`;
+        status.className = 'ev-menu-status err';
+    }
+
+    let root = document.getElementById('ev-print-root');
+    if (!root) {
+        root = document.createElement('div');
+        root.id = 'ev-print-root';
+        root.className = 'ev-print-root';
+        document.body.appendChild(root);
+    }
+    root.innerHTML = _evBuildPrintSheet(ev, items);
+
+    document.body.classList.add('ev-printing');
+    const ryd = () => document.body.classList.remove('ev-printing');
+    window.addEventListener('afterprint', ryd, { once: true });
+    // Safari fyrer ikke altid afterprint — fallback så klassen ikke bliver hængende
+    // og skjuler hele office-shellen på skærmen bagefter.
+    setTimeout(ryd, 8000);
+    window.print();
+}
+
+// Flyt en række op/ned og gem. Rækkefølgen ER sort_order: _evCollectMenuItems
+// nummererer efter DOM-position, så et gem persisterer det man ser.
+function _evMoveMenuRow(ev, tr, retning) {
+    if (retning === 'up') {
+        const foer = tr.previousElementSibling;
+        if (!foer) return;
+        tr.parentNode.insertBefore(tr, foer);
+    } else {
+        const efter = tr.nextElementSibling;
+        if (!efter) return;
+        tr.parentNode.insertBefore(efter, tr);
+    }
+    _evSaveMenu(ev);
+}
+
 function _evBindMenuHandlers(ev) {
     const panel = document.getElementById('ev-menu-panel');
     if (!panel) return;
@@ -597,7 +682,15 @@ function _evBindMenuHandlers(ev) {
     panel.addEventListener('input', e => {
         if (e.target.matches('.ev-menu-input-price, .ev-menu-input-note, .ev-menu-input-name')) _evScheduleMenuSave(ev);
     });
+    panel.querySelector('[data-act="menu-print"]')?.addEventListener('click', () => _evPrintMenu(ev));
+
     panel.addEventListener('click', e => {
+        const flyt = e.target.closest('[data-act="menu-up"], [data-act="menu-down"]');
+        if (flyt) {
+            _evMoveMenuRow(ev, flyt.closest('[data-menu-row]'),
+                flyt.dataset.act === 'menu-up' ? 'up' : 'down');
+            return;
+        }
         const del = e.target.closest('[data-act="menu-del"]');
         if (!del) return;
         const tr = del.closest('[data-menu-row]');

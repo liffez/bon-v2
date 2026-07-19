@@ -199,6 +199,22 @@ async function main() {
         assert(!!byName(r.data.items, 'Pandekage m. syltetøj'), 'manuel linje overlever resync');
         assert(byName(r.data.items, 'Pandekage m. syltetøj').unit_price === 45, 'manuel pris urørt');
 
+        console.log('\n— Rækkefølge (sort_order) —');
+        // ▲▼ i UI'et flytter rækken i DOM'en og gemmer; sort_order nummereres
+        // efter DOM-position. Her efterlignes det ved at sende listen i ny orden.
+        r = await http('GET', MENU);
+        const omvendt = [...r.data.items].reverse().map((it, i) => ({ ...it, sort_order: i }));
+        const forventet = omvendt.map(it => it.product_name);
+        r = await http('PUT', MENU, { items: omvendt });
+        assert(JSON.stringify(r.data.items.map(i => i.product_name)) === JSON.stringify(forventet),
+            'ny rækkefølge returneres af PUT');
+        r = await http('GET', MENU);
+        assert(JSON.stringify(r.data.items.map(i => i.product_name)) === JSON.stringify(forventet),
+            'rækkefølgen persisterer (GET sorterer på sort_order)');
+        r = await http('POST', MENU + '/generate');
+        assert(JSON.stringify(r.data.items.map(i => i.product_name)) === JSON.stringify(forventet),
+            'resync bevarer den manuelt satte rækkefølge (nye linjer lægges bagerst)');
+
         console.log('\n— PUT-validering —');
         r = await http('PUT', MENU, { items: 'ikke-array' });
         assert(r.status === 400, 'ikke-array afvises (400)');

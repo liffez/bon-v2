@@ -2785,10 +2785,17 @@ lydløst næste dag, og en ret fundet på pladsen skulle tastes som fritekst hve
   default ved status `active`/`done`, header-preview viser "N forventet · M menupunkter".
   Auto-gem med kort SSE-suppressionsvindue (`_evMarkLocalAction`) så vores eget
   `event_updated`-ekko ikke river kvitteringen væk.
+- **Rækkefølge + print** (samme runde): ▲▼ pr. række (persisteres som `sort_order`) og
+  `🖨 Print menu` — skiltet til vognen. Print bygger `#ev-print-root` på `body` og bruger
+  `@media print` til at skjule office-shellen; ingen `window.open`, altså ingen
+  popup-blokering. Grupperet efter kategori i menuens egen rækkefølge, fritekst under
+  "Øvrigt", marginer fra `@page`. Varer uden pris kommer med som "0 kr" — ikke fjernet i
+  stilhed, men panelet advarer før print. `afterprint` + 8 s timeout-fallback rydder
+  `body.ev-printing` (Safari fyrer ikke altid eventet).
 - **Drive-by-fix**: `GET /:id/overview`'s `preppedRows` var den ene prep-query der
   manglede `EXCLUDE_CANCELLED_SQL` fra #303 — menuen genereres fra prep-bons og ville
   have arvet fejlen.
-- **Tests**: `scripts/test-event-menu.js` (39 asserts, ægte endpoints over HTTP mod
+- **Tests**: `scripts/test-event-menu.js` (42 asserts, ægte endpoints over HTTP mod
   isoleret temp-DB). Regression grøn: sales-prefill 10, topup 35, event-cancelled 26,
   event-gate 15, event-polish 27, prep-packing 12, recipe-factor 8, moms-audit 18.
   Browser-verificeret end-to-end; testdata ryddet.

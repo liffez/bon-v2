@@ -560,14 +560,40 @@ Menuen auto-gemmer (debounced). Fordi vores egne skrivninger broadcaster
 kort suppressions-vindue (`_evMarkLocalAction`, 1,5 s) — ellers rev SSE-ekkoet
 kvitteringen væk igen med det samme.
 
+**Rækkefølge:** ▲▼ pr. række flytter linjen i DOM'en og gemmer. `sort_order`
+nummereres efter DOM-position (`_evCollectMenuItems`), så det man ser er det der
+gemmes. Resync lægger nye linjer bagerst og rører ikke den satte orden.
+
+### 16.8b Print — skiltet til vognen
+
+`🖨 Print menu` bygger et rent udskriftsark i `#ev-print-root` (appended til `body`)
+og kalder `window.print()`. Ingen `window.open` — dermed ingen popup-blokering, og
+arket kan ikke komme ud af sync med det man ser på skærmen.
+
+`@media print` i `office/views/events.css` skjuler alt andet
+(`body.ev-printing > *:not(.ev-print-root)`), så office-shellen ikke følger med på
+papiret. `body.ev-printing` fjernes på `afterprint` — med en 8-sekunders
+timeout-fallback, fordi Safari ikke altid fyrer eventet og klassen ellers ville
+skjule hele shellen på skærmen bagefter.
+
+Arket grupperer efter kategori **i menuens egen rækkefølge**: den orden man har sat
+med ▲▼ er præcis den man vil læse ovenfra og ned på et skilt. Linjer uden kategori
+(fritekst) samles under "Øvrigt". Marginer kommer fra `@page { margin: 18mm 16mm }`.
+
+Varer uden pris kommer med som "0 kr" — de fjernes **ikke** i stilhed, for så ville
+skiltet lyve om sortimentet. I stedet siger panelet det højt før print:
+"⚠ N varer uden pris kommer med som 0 kr: …".
+
 ### 16.9 Tests
 
-`scripts/test-event-menu.js` — 39 asserts mod de ægte endpoints over HTTP (isoleret
+`scripts/test-event-menu.js` — 42 asserts mod de ægte endpoints over HTTP (isoleret
 temp-DB, spawned server). Dækker: generering fra prep, top-up og aflyste bons holdes
 ude, idempotens, **prisbevarelse ved resync**, genskabelse af slettet linje, manuelle
 linjers overlevelse, PUT-validering + at menuen er uændret efter afviste PUTs,
 prefill-priskilde, manuel linje med antal 0 i prefill, afvigelses-markering,
-Grocy-fallback og ON DELETE CASCADE.
+rækkefølge (sort_order rundtur + bevaret ved resync), Grocy-fallback og
+ON DELETE CASCADE. Print-arket er ren klient-side og dækkes af browser-verifikation,
+ikke af runneren.
 
 Assertions er bevidst uafhængige af Grocys faktiske festivalpriser — vi tester at
 menuen bliver *kilden* til prisen, ikke hvilket tal Grocy gav.
