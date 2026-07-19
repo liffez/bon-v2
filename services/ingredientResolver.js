@@ -188,7 +188,12 @@ async function resolveIngredients(recipeLines) {
                 addRawIngredient(pid, scaledStock, ing);
             }
 
-            resolveSubRecipesRaw(subRecipeId, subMultiplier * subBaseServings, visited);
+            // Rekursér med underopskriftens EGEN batch-multiplier. Argumentet er
+            // altid "gang denne på recipes_pos.amount" — se kaldet nedenfor, hvor
+            // top-niveauet sender scaleFactor. Tidligere blev der ganget med
+            // subBaseServings her, hvilket ophævede divisionen ovenfor og pustede
+            // råvarer i underopskrifter-i-underopskrifter op med base_servings.
+            resolveSubRecipesRaw(subRecipeId, subMultiplier, visited);
         }
     }
 
@@ -258,7 +263,77 @@ async function resolveIngredients(recipeLines) {
     const production = formatLevel(prodAgg, effectiveStock, quConversions, unitMap, subRecipeAgg);
     const raw        = formatLevel(rawAgg, effectiveStock, quConversions, unitMap, null);
 
+    // Rul råvare-status op på underopskrifterne, så Produktion-visningen ikke
+    // kan vise en grøn "Æggesalat" mens Råvarer-visningen siger at æggene mangler.
+    attachSubRecipeStatus(production.sub_recipes, raw.ingredients, posByRecipe, nestingsByRecipe);
+
     return { production, raw };
+}
+
+const STATUS_RANK = { ok: 0, lav: 1, mangler: 2 };
+
+/**
+ * Saml alle produkt-id'er en underopskrift afhænger af, rekursivt gennem dens
+ * egne underopskrifter. Emballage udelades — den optræder som egen gruppe i
+ * visningen, og en manglende serviet siger intet om hvorvidt blandingen kan laves.
+ */
+function collectSubRecipeProductIds(recipeId, posByRecipe, nestingsByRecipe, visited = new Set(), out = new Set()) {
+    if (visited.has(recipeId)) return out;
+    visited.add(recipeId);
+
+    for (const ing of (posByRecipe[recipeId] || [])) {
+        if ((ing.ingredient_group || '').toLowerCase() === 'emballage') continue;
+        out.add(ing.product_id);
+    }
+    for (const nesting of (nestingsByRecipe[recipeId] || [])) {
+        collectSubRecipeProductIds(nesting.includes_recipe_id, posByRecipe, nestingsByRecipe, visited, out);
+    }
+    return out;
+}
+
+/**
+ * Sæt status + mangelliste på hver underopskrift i produktion-visningen.
+ *
+ * Statussen læses fra RÅVARE-niveauet, altså det SAMLEDE behov på tværs af hele
+ * bonnen — ikke underopskriftens isolerede behov. Det er med vilje: hvis to
+ * opskrifter tilsammen bruger flere æg end der er på lager, kan æggesalaten
+ * heller ikke laves. Det er også det eneste der garanterer at de to faner
+ * aldrig modsiger hinanden.
+ */
+function attachSubRecipeStatus(subRecipes, rawIngredients, posByRecipe, nestingsByRecipe) {
+    if (!subRecipes || !subRecipes.length) return;
+    const byPid = new Map(rawIngredients.map(i => [i.product_id, i]));
+
+    for (const sr of subRecipes) {
+        const pids = collectSubRecipeProductIds(sr.recipe_id, posByRecipe, nestingsByRecipe);
+        let worst = 'ok';
+        const shortfalls = [];
+
+        for (const pid of pids) {
+            const ing = byPid.get(pid);
+            if (!ing) continue;   // mængde ≤ 0 eller ikke aggregeret
+            if (STATUS_RANK[ing.status] > STATUS_RANK[worst]) worst = ing.status;
+            if (ing.status !== 'ok') {
+                shortfalls.push({
+                    product_id:   ing.product_id,
+                    product_name: ing.product_name,
+                    amount_needed: ing.amount_needed,
+                    unit:          ing.unit,
+                    amount_stock:  ing.amount_stock,
+                    stock_unit:    ing.stock_unit,
+                    status:        ing.status,
+                });
+            }
+        }
+
+        shortfalls.sort((a, b) =>
+            (STATUS_RANK[b.status] - STATUS_RANK[a.status]) ||
+            a.product_name.localeCompare(b.product_name, 'da')
+        );
+
+        sr.status = worst;
+        sr.shortfalls = shortfalls;
+    }
 }
 
 /**
@@ -519,7 +594,10 @@ async function resolveConsumeItems(recipeLines, recipeFactors = null) {
                 addAmount(ing.product_id, baseAmount * subMultiplier);
             }
 
-            resolveNestings(subRecipeId, subMultiplier * subBaseServings, visited);
+            // Samme rettelse som i resolveSubRecipesRaw: argumentet er batch-
+            // multiplieren, ikke servings. subMultiplier bærer også en evt.
+            // buffer-faktor videre til dybere niveauer (som før).
+            resolveNestings(subRecipeId, subMultiplier, visited);
         }
     }
 
