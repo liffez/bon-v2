@@ -310,3 +310,114 @@ tr:not(.ev-topup-need) .ev-topup-sug { color: #999; font-weight: 500; }
 .ev-attach-dl:hover { color: var(--brand-primary, #8e631f); }
 .ev-attach-del { flex: none; border: none; background: none; cursor: pointer; color: #bca; font-size: 14px; padding: 0 4px; line-height: 1; }
 .ev-attach-del:hover { color: #b23; }
+
+/* ── PLAN-FELT: forecast + menu (§16) ────────────────────────────────── */
+/* Sammenklappeligt fordi begge paneler fylder meget når eventet er i gang.
+   Foldes sammen som default ved status active/done — se _evPlanBlock. */
+.ev-plan { margin: 20px 0; }
+.ev-plan-toggle {
+    display: flex; align-items: center; gap: 8px; width: 100%;
+    padding: 10px 14px; font: inherit; font-size: 13px; text-align: left; cursor: pointer;
+    background: #fbf9f4; border: 1px solid #ece4d5; border-radius: 8px; color: #6b5c42;
+}
+.ev-plan-toggle:hover { border-color: #ddd2bf; background: #fff; }
+.ev-plan-ico { flex: none; }
+.ev-plan-title { flex: none; font-weight: 600; }
+.ev-plan-preview {
+    flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+    font-weight: 400; color: #6d6152; font-size: 12px;
+}
+.ev-plan-caret { flex: none; color: #b0a48e; transition: transform .15s; }
+.ev-plan:not(.collapsed) .ev-plan-caret { transform: rotate(180deg); }
+/* Panelernes egne margener bærer afstanden — nulstil den første så der ikke
+   opstår dobbelt luft lige under toggle-knappen. */
+.ev-plan-body > .ev-forecast { margin-top: 12px; }
+
+/* ── MENU & PRISER ───────────────────────────────────────────────────── */
+.ev-menu { background: #fff; border: 1px solid var(--color-border, #d7d1ca); border-radius: 6px; margin: 16px 0 0; }
+.ev-menu-head {
+    padding: 12px 16px; border-bottom: 1px solid #f0f0f0;
+    display: flex; align-items: flex-start; justify-content: space-between; gap: 12px; flex-wrap: wrap;
+}
+.ev-menu-title { font-weight: 600; color: #2a2a2a; font-size: 14px; }
+.ev-menu-hint { color: #888; font-size: 12px; margin-top: 2px; max-width: 62ch; }
+.ev-menu-actions { display: flex; gap: 6px; flex: none; }
+.ev-menu-status { display: block; padding: 6px 16px 0; font-size: 12px; color: #888; min-height: 18px; }
+.ev-menu-status.ok  { color: #1e6b2c; }
+.ev-menu-status.err { color: #8a2222; }
+.ev-menu-loading, .ev-menu-empty {
+    padding: 18px; color: #999; font-size: 13px; text-align: center; line-height: 1.6;
+}
+.ev-menu-tablewrap { overflow-x: auto; }
+.ev-menu-table { width: 100%; border-collapse: collapse; font-size: 13px; }
+.ev-menu-table th, .ev-menu-table td { padding: 6px 10px; text-align: left; border-bottom: 1px solid #f5f5f5; }
+.ev-menu-table thead th {
+    background: #fafaf8; font-weight: 600; color: #555; font-size: 11px;
+    text-transform: uppercase; letter-spacing: 0.4px; white-space: nowrap;
+}
+.ev-menu-table tbody tr:hover { background: #fcfbf8; }
+/* Navn + badges på samme linje når der er plads — ellers ombrydes badgen
+   pænt nedenunder i stedet for at strække rækkehøjden vilkårligt. */
+.ev-menu-name { min-width: 200px; display: flex; align-items: center; gap: 4px; flex-wrap: wrap; }
+.ev-menu-cat  { color: #777; white-space: nowrap; }
+.ev-menu-price { white-space: nowrap; }
+.ev-menu-act { width: 1%; text-align: right; }
+.ev-menu-table input {
+    font: inherit; font-size: 13px; padding: 4px 6px;
+    border: 1px solid #e2ddd3; border-radius: 4px; background: #fff; color: inherit;
+}
+.ev-menu-table input:focus { outline: none; border-color: var(--brand-primary, #8e631f); }
+/* Krymper så "fritekst"-badgen og afvigelses-⚠ får plads ved siden af navnet
+   i stedet for at blive skubbet ned på en ekstra linje (ujævne rækkehøjder). */
+.ev-menu-input-name { flex: 1 1 110px; min-width: 0; max-width: 240px; }
+.ev-menu-input-name[readonly] { background: #fafaf8; color: #554c3e; border-color: #efeae0; cursor: default; }
+.ev-menu-input-price { width: 82px; text-align: right; }
+.ev-menu-input-note { width: 100%; max-width: 200px; }
+.ev-menu-cur { color: #999; font-size: 12px; margin-left: 4px; }
+/* Fritekst-linje: ingen opskrift ⇒ ingen kostpris/CO₂/lagereffekt. */
+.ev-menu-manual {
+    display: inline-block; margin-left: 6px; padding: 1px 6px; border-radius: 10px;
+    background: #f1ece0; color: #8a7a5c; font-size: 10px; text-transform: uppercase; letter-spacing: .4px;
+}
+/* Diskret markering i stedet for prisversionering: solgt til en anden pris. */
+.ev-menu-dev { margin-left: 6px; color: #b8860b; cursor: help; }
+
+/* ── FLYT-KNAPPER I MENUEN ───────────────────────────────────────────── */
+.ev-menu-act { white-space: nowrap; }
+.ev-menu-move { padding: 2px 6px; line-height: 1; font-size: 11px; }
+
+/* ── PRINT: skiltet til vognen ───────────────────────────────────────── */
+/* Skjult på skærmen; @media print skjuler til gengæld ALT ANDET, så
+   office-shellen (sidebar, topbar, P&L) ikke følger med på papiret. */
+.ev-print-root { display: none; }
+
+@media print {
+    body.ev-printing > *:not(.ev-print-root) { display: none !important; }
+    body.ev-printing .ev-print-root {
+        display: block !important;
+        padding: 0; margin: 0; color: #000; background: #fff;
+        font-family: var(--font-body, system-ui, sans-serif);
+    }
+    @page { margin: 18mm 16mm; }
+
+    .evp-head  { font-size: 11pt; color: #555; margin-bottom: 2mm; }
+    .evp-title { font-family: var(--font-heading, Georgia, serif); font-size: 30pt; margin: 0 0 8mm; font-weight: 700; }
+    /* Undgå at en kategori-overskrift lander alene nederst på siden. */
+    .evp-group { margin-bottom: 7mm; break-inside: avoid; page-break-inside: avoid; }
+    .evp-cat {
+        font-size: 12pt; text-transform: uppercase; letter-spacing: 1.2px;
+        color: #555; margin: 0 0 3mm; padding-bottom: 1.5mm; border-bottom: 1px solid #999;
+        break-after: avoid; page-break-after: avoid;
+    }
+    /* Prikkelinje mellem navn og pris — flex-mellemrummet fyldes af en
+       gentaget prik-baggrund, så den strækker sig uanset navnets længde. */
+    .evp-row   { display: flex; align-items: baseline; gap: 3mm; font-size: 15pt; margin: 0 0 2.5mm; }
+    .evp-name  { flex: none; }
+    .evp-dots  {
+        flex: 1 1 auto; height: 1px; margin-bottom: 3px;
+        background-image: radial-gradient(circle, #bbb 1px, transparent 1px);
+        background-size: 5px 2px; background-repeat: repeat-x; background-position: bottom;
+    }
+    .evp-price { flex: none; font-weight: 700; font-variant-numeric: tabular-nums; }
+    .evp-foot  { margin-top: 10mm; font-size: 9pt; color: #777; }
+}

@@ -437,3 +437,165 @@ En enkelt "prep-faktor" på enhederne holder ikke, fordi prep-arbejde deler sig 
 - Hjemsted for prep-tider pr. opskrift: Grocy-userfield vs. lokal tabel (bør være admin-redigerbart).
 
 *Grundlag: design-session m. Leif (juli 2026), efter Smartplan-lokations-split. Rå tal + retning nedskrevet; model ikke bygget.*
+
+---
+
+## 16. Event-menu — eventets prisliste (#314) ✅ implementeret (juli 2026)
+
+> Bygget forud for et event 30. juli 2026. Design låst i issue #314; denne sektion
+> beskriver hvad der rent faktisk står i koden.
+
+### 16.1 Problemet menuen løser
+
+Menuen fandtes før kun **implicit**: produkterne var unionen af prep-bonnens linjer,
+og prisen var hvad `computeSalesPrefill` tilfældigvis hentede fra Grocys
+`SalespriceFestival` den dag den første salgsbon blev oprettet. Tre driftsproblemer:
+
+1. **Prisen fandtes ikke før første salg.** Skiltet på vognen skal stå klar inden vi
+   kører — men indtil en salgsbon var oprettet, lå prisen ingen steder.
+2. **On-site-justeringen overlevede ikke dagen.** Rettede man prisen på pladsen, levede
+   rettelsen kun i den ene salgsbons linjer. Næste dags salgsbon faldt lydløst tilbage
+   til Grocys pris. Et flerdags-event krævede manuel rettelse hver dag.
+3. **En ret fundet på pladsen havde intet hjem** og skulle tastes som fritekst hver dag.
+
+### 16.2 Datamodel — `event_menu_items` (migration 131)
+
+```
+id, event_id → events(id) ON DELETE CASCADE
+grocy_recipe_id  NULL = fritekst-linje
+product_name, category, unit
+unit_price       INCL MOMS
+sort_order, note
+UNIQUE(event_id, grocy_recipe_id) WHERE grocy_recipe_id IS NOT NULL
+```
+
+⚠️ **`unit_price` er INCL moms.** Det er hvad gæsten betaler, og det matcher
+`bon_lines.unit_price` (§6b), så prefill ikke skal konvertere. Den eksisterende
+`item_prices`-tabel (migration 068) gemmer derimod **EX moms** — "retter" nogen
+denne kolonne til at matche den, går alle eventpriser 25 % galt. De to tabeller har
+bevidst hvert sit momsgrundlag.
+
+`grocy_recipe_id` bæres med hvor det kan: prissammenligning på tværs af events er en
+aktiv arbejdsgang, og navne driver over tid mens id'er ikke gør. Fritekst-linjer kan
+kun matches på navn — accepteret begrænsning. Matchnøglen er
+`recipeId ? 'r:<id>' : 'n:<navn i lowercase>'` (`menuKey` i `routes/events.js`).
+
+### 16.3 Generér = resync, ikke additiv
+
+`POST /:id/menu/generate`:
+
+- **genskaber manglende prep-afledte linjer — også dem der er slettet.** Det er
+  reset-knappen.
+- **rører ALDRIG prisen på linjer der findes.** Ellers ville et tryk på "generér"
+  (fordi nogen tilføjede en vare til prep-bonnen) nulstille alle on-site-justerede
+  priser tilbage til Grocys festivalpris. Dette er feature'ens vigtigste invariant og
+  er dækket af tests.
+- **manuelle linjer overlever** — de er ikke i prep-sættet og røres derfor ikke.
+- kilden er **prep-rollen alene** (ikke top-up) og **aldrig aflyste bons** (#303).
+
+Nye linjer lægges efter de eksisterende i `sort_order`, så en manuelt sat rækkefølge
+ikke rykker rundt ved hver resync. Er Grocy nede, oprettes linjerne med pris 0 og
+svaret bærer en `warnings`-linje — men kun når der faktisk blev oprettet noget
+(ellers havde Grocy-fejlen ingen konsekvens, og advarslen ville være støj).
+
+### 16.4 Ingen prisversionering
+
+Prisændringer midt i et event sker sjældent; normalt ligger prisen fast når vi først
+er i gang, og salgsbonnerne har allerede snapshottet prisen pr. dag. Menuen holder
+"prisen nu". Fordi den også bruges som historisk opslag, ét billigt sikkerhedsnet:
+**afviger en salgsbons linjepris fra menuprisen, markeres menurækken diskret** (⚠ med
+de faktisk solgte priser i tooltip). Fanger de sjældne tilfælde uden at bygge
+versionering.
+
+### 16.5 Retter fundet på pladsen
+
+Lægges ind som menulinje **uden `grocy_recipe_id`**. Ingen BOM ⇒ ingen kostpris, ingen
+CO₂, ingen påvirkning af rest-/retur-beregningen. Omsætningen tæller. Er der købt
+råvarer lokalt til den, går de ind som almindelig udgiftsbon.
+
+**Den må IKKE bagud-tilføjes til prep-bonnen.** Prep-bonnen betyder "hvad der fysisk
+forlod huset" (FVST-logbog, §3). Tilføjes en linje efter bonnen er trukket, tæller
+dens kostpris med i vareforbruget mens idempotens-vagten blokerer et matchende
+lagertræk → fantomlinje: omkostning uden bevægelse. Inden bonnen er trukket er det
+derimod bare planlægning og helt fint.
+
+### 16.6 Kobling til salgs-prefill
+
+`computeSalesPrefill` henter nu **antal fra prep-bonnerne** og **pris fra menuen**.
+Svaret bærer `price_source: 'menu' | 'grocy'`.
+
+- Findes ingen menu, falder den tilbage til Grocys festivalpris nøjagtig som før —
+  bagudkompatibelt for events oprettet inden menuen fandtes.
+- Menupunkter **uden** prep (typisk en ret fundet på pladsen) kommer med i prefillen
+  med antal 0, så de ikke skal tastes som fritekst hver dag.
+  **API'et siger 0, modalen viser 1** — gen-modalens `addLine` har `min="1"`. Det er
+  et bevidst valg (Leif, juli 2026): du satte retten på menuen fordi du regner med at
+  sælge den, og alle prefill-tal er i forvejen START-gæt der justeres inden bonnen
+  gemmes. 0 i API'et er den ærlige "der er ikke preppet noget til den".
+- Kostpris og CO₂ er stadig Grocy-snapshots; menuen holder kun salgsprisen.
+
+### 16.7 Endpoints
+
+```
+GET    /api/events/:id/menu            # items + afvigelses-markering
+PUT    /api/events/:id/menu            # reconcile (delete+insert), samme mønster som /forecast
+POST   /api/events/:id/menu/generate   # seed/resync fra prep-bons + Grocy-priser
+```
+
+PUT validerer **hele** payloadet før den rører databasen (tomt navn, negativ pris,
+dubletnøgle), så et halvt gyldigt payload ikke kan efterlade menuen delvist skrevet.
+
+### 16.8 UI
+
+Ét sammenklappeligt **Plan**-felt med to paneler: *Forecast* og *Menu & priser*.
+De kan ikke blive én tabel — forecast er pr. kategori pr. dag, menuen er pr. produkt
+uden dagsdimension, og man kan ikke sætte én pris på en kategori når produkterne i den
+har forskellige priser. Men de hører sammen som "planlægning inden vi kører ud", og de
+fylder begge for meget når eventet er i gang. Foldes derfor sammen som default når
+eventets status er `active` eller `done`; header-preview viser
+"N forventet · M menupunkter" så man ikke behøver folde ud for at se om planen er lagt.
+
+Menuen auto-gemmer (debounced). Fordi vores egne skrivninger broadcaster
+`event_updated`, som kommer retur og re-renderer detaljen, sætter menu-handlingerne et
+kort suppressions-vindue (`_evMarkLocalAction`, 1,5 s) — ellers rev SSE-ekkoet
+kvitteringen væk igen med det samme.
+
+**Rækkefølge:** ▲▼ pr. række flytter linjen i DOM'en og gemmer. `sort_order`
+nummereres efter DOM-position (`_evCollectMenuItems`), så det man ser er det der
+gemmes. Resync lægger nye linjer bagerst og rører ikke den satte orden.
+
+### 16.8b Print — skiltet til vognen
+
+`🖨 Print menu` bygger et rent udskriftsark i `#ev-print-root` (appended til `body`)
+og kalder `window.print()`. Ingen `window.open` — dermed ingen popup-blokering, og
+arket kan ikke komme ud af sync med det man ser på skærmen.
+
+`@media print` i `office/views/events.css` skjuler alt andet
+(`body.ev-printing > *:not(.ev-print-root)`), så office-shellen ikke følger med på
+papiret. `body.ev-printing` fjernes på `afterprint` — med en 8-sekunders
+timeout-fallback, fordi Safari ikke altid fyrer eventet og klassen ellers ville
+skjule hele shellen på skærmen bagefter.
+
+Arket grupperer efter kategori **i menuens egen rækkefølge**: den orden man har sat
+med ▲▼ er præcis den man vil læse ovenfra og ned på et skilt. Linjer uden kategori
+(fritekst) samles under "Øvrigt". Marginer kommer fra `@page { margin: 18mm 16mm }`.
+
+Varer uden pris kommer med som "0 kr" — de fjernes **ikke** i stilhed, for så ville
+skiltet lyve om sortimentet. I stedet siger panelet det højt før print:
+"⚠ N varer uden pris kommer med som 0 kr: …".
+
+### 16.9 Tests
+
+`scripts/test-event-menu.js` — 42 asserts mod de ægte endpoints over HTTP (isoleret
+temp-DB, spawned server). Dækker: generering fra prep, top-up og aflyste bons holdes
+ude, idempotens, **prisbevarelse ved resync**, genskabelse af slettet linje, manuelle
+linjers overlevelse, PUT-validering + at menuen er uændret efter afviste PUTs,
+prefill-priskilde, manuel linje med antal 0 i prefill, afvigelses-markering,
+rækkefølge (sort_order rundtur + bevaret ved resync), Grocy-fallback og
+ON DELETE CASCADE. Print-arket er ren klient-side og dækkes af browser-verifikation,
+ikke af runneren.
+
+Assertions er bevidst uafhængige af Grocys faktiske festivalpriser — vi tester at
+menuen bliver *kilden* til prisen, ikke hvilket tal Grocy gav.
+
+*Grundlag: issue #314 (design låst med Leif, juli 2026). Bygget + browser-verificeret juli 2026.*

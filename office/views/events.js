@@ -61,8 +61,17 @@ window.cleanupEvents = function cleanupEvents() {
 // midt i en inline-redigering (forecast/åbningstider) eller har en modal åben.
 // Debounced — status + updated-events lander ofte sammen.
 let _evSSETimer = null;
+// Vores EGNE menu-skrivninger broadcaster event_updated, som kommer retur her
+// og re-renderer detaljen — hvilket river kvitteringen ("✓ 3 linjer tilføjet")
+// væk igen med det samme. Menu-handlingerne opdaterer selv deres DOM, så
+// re-renderen er overflødig lige efter en lokal handling. Kort vindue, så en
+// ægte samtidig ændring fra en anden skærm højst forsinkes til næste event.
+let _evLocalActionUntil = 0;
+function _evMarkLocalAction() { _evLocalActionUntil = Date.now() + 1500; }
+
 window._evHandleSSE = function _evHandleSSE(eventName, data) {
     if (_evCurrentId == null || !_evContainer) return;
+    if (Date.now() < _evLocalActionUntil) return;
     const fa = document.activeElement;
     if (fa && _evContainer.contains(fa) && ['INPUT', 'SELECT', 'TEXTAREA'].includes(fa.tagName)) return;
     if (document.querySelector('.ev-modal-overlay')) return;
@@ -214,7 +223,7 @@ async function _evRenderDetail(id) {
                     </div>
                 </div>
 
-                ${_evForecastTable(ev, days, categories, forecast)}
+                ${_evPlanBlock(ev, days, categories, forecast)}
 
                 <div class="ev-actions">
                     <button class="ev-btn ev-btn-primary" data-act="gen" data-role="prep">+ Generér prep-bon</button>
@@ -263,6 +272,10 @@ async function _evRenderDetail(id) {
             });
         });
         _evBindForecastHandlers(ev);
+        _evBindPlanToggle();
+        _evBindMenuHandlers(ev);
+        _evUpdatePlanPreview();
+        _evLoadMenu(ev);
         _evContainer.querySelector('[data-act="return-calc"]')
             ?.addEventListener('click', () => _evLoadReturnSuggestion(ev));
         _evContainer.querySelector('[data-act="find-payment"]')
@@ -358,6 +371,348 @@ function _evForecastKey(date, cat) { return date + '|' + cat; }
 function _evParseOpenHours(ev) {
     try { return ev && ev.open_hours_json ? (JSON.parse(ev.open_hours_json) || {}) : {}; }
     catch { return {}; }
+}
+
+// ── PLAN-FELT: forecast + menu (§16) ─────────────────────────────────────
+// De to hører sammen som "planlægning inden vi kører ud", men kan ikke blive
+// én tabel: forecast er pr. kategori pr. dag, menuen er pr. produkt uden
+// dagsdimension — man kan ikke sætte ÉN pris på en kategori når produkterne i
+// den har forskellige priser. De fylder begge for meget når eventet er i gang,
+// så feltet foldes sammen som default når status er active/done.
+function _evPlanBlock(ev, days, categories, forecast) {
+    const collapsed = ev.status === 'active' || ev.status === 'done';
+    return `
+    <div class="ev-plan${collapsed ? ' collapsed' : ''}" id="ev-plan-block">
+        <button type="button" class="ev-plan-toggle" data-act="plan-toggle" aria-expanded="${!collapsed}">
+            <span class="ev-plan-ico">🗓</span>
+            <span class="ev-plan-title">Plan — forecast &amp; menu</span>
+            <span class="ev-plan-preview" id="ev-plan-preview"></span>
+            <span class="ev-plan-caret">▾</span>
+        </button>
+        <div class="ev-plan-body" id="ev-plan-body"${collapsed ? ' hidden' : ''}>
+            ${_evForecastTable(ev, days, categories, forecast)}
+            ${_evMenuPanel()}
+        </div>
+    </div>`;
+}
+
+// Menu-panelets skelet. Rækkerne hentes async (_evLoadMenu) fordi menuen har
+// sit eget endpoint — overview-kaldet bærer den ikke.
+function _evMenuPanel() {
+    return `
+    <div class="ev-menu" id="ev-menu-panel">
+        <div class="ev-menu-head">
+            <div>
+                <div class="ev-menu-title">🍽 Menu &amp; priser</div>
+                <div class="ev-menu-hint">Eventets prisliste — kilden til salgsbonnens priser. Priser er <strong>inkl. moms</strong> (hvad gæsten betaler). Auto-gemmer.</div>
+            </div>
+            <div class="ev-menu-actions">
+                <button class="ev-btn ev-btn-small" data-act="menu-generate"
+                    title="Genskaber manglende linjer fra prep-bonnerne. Rører aldrig priser du allerede har sat.">⟳ Generér fra prep</button>
+                <button class="ev-btn ev-btn-small" data-act="menu-add"
+                    title="Ret fundet på pladsen — uden opskrift, så ingen kostpris/CO₂/lagereffekt">+ Tilføj linje</button>
+                <button class="ev-btn ev-btn-small" data-act="menu-print"
+                    title="Åbner en ren udskriftsvisning — skiltet til vognen">🖨 Print menu</button>
+            </div>
+        </div>
+        <span class="ev-menu-status" id="ev-menu-status"></span>
+        <div class="ev-menu-tablewrap" id="ev-menu-rows"><div class="ev-menu-loading">Henter menu…</div></div>
+    </div>`;
+}
+
+function _evMenuRowsHtml(items) {
+    if (!items.length) {
+        return `<div class="ev-menu-empty">
+            Ingen menu endnu. Tryk <strong>⟳ Generér fra prep</strong> for at hente produkter og festivalpriser
+            fra eventets prep-bonner — eller <strong>+ Tilføj linje</strong> for at skrive en ind i hånden.
+        </div>`;
+    }
+    const rows = items.map(it => {
+        const dev = it.price_deviation
+            ? `<span class="ev-menu-dev" title="Solgt til en anden pris end menuens: ${it.sold_prices.map(p => _evFmtKr(p)).join(', ')}">⚠</span>`
+            : '';
+        const manual = it.grocy_recipe_id == null
+            ? `<span class="ev-menu-manual" title="Fritekst-linje uden opskrift — ingen kostpris, CO₂ eller lagereffekt">fritekst</span>`
+            : '';
+        // Bevidst INTET data-menu-id: PUT er delete+insert, så rækkens id ændrer
+        // sig ved hvert gem. Identiteten er (recipe-id | navn) — se menuKey.
+        return `<tr data-menu-row
+                    data-recipe-id="${it.grocy_recipe_id ?? ''}"
+                    data-category="${_evEsc(it.category || '')}"
+                    data-unit="${_evEsc(it.unit || 'stk')}">
+            <td class="ev-menu-name">
+                <input type="text" class="ev-menu-input-name" value="${_evEsc(it.product_name)}"
+                    ${it.grocy_recipe_id != null ? 'readonly title="Kommer fra en opskrift — navnet redigeres i Grocy"' : 'placeholder="Produktnavn"'}>
+                ${manual}${dev}
+            </td>
+            <td class="ev-menu-cat">${_evEsc(it.category || '—')}</td>
+            <td class="ev-menu-price">
+                <input type="number" min="0" step="0.5" class="ev-menu-input-price"
+                    value="${it.unit_price ?? 0}" title="Pris inkl. moms">
+                <span class="ev-menu-cur">kr</span>
+            </td>
+            <td class="ev-menu-note">
+                <input type="text" class="ev-menu-input-note" maxlength="80"
+                    value="${_evEsc(it.note || '')}" placeholder="note (valgfri)">
+            </td>
+            <td class="ev-menu-act">
+                <button class="ev-btn ev-btn-small ev-menu-move" data-act="menu-up"   title="Flyt op">▲</button>
+                <button class="ev-btn ev-btn-small ev-menu-move" data-act="menu-down" title="Flyt ned">▼</button>
+                <button class="ev-btn ev-btn-small ev-btn-danger" data-act="menu-del" title="Fjern fra menuen">✕</button>
+            </td>
+        </tr>`;
+    }).join('');
+
+    return `<table class="ev-menu-table">
+        <thead><tr>
+            <th>Produkt</th><th>Kategori</th><th>Pris (inkl. moms)</th><th>Note</th><th></th>
+        </tr></thead>
+        <tbody>${rows}</tbody>
+    </table>`;
+}
+
+async function _evLoadMenu(ev) {
+    const host = document.getElementById('ev-menu-rows');
+    if (!host) return;
+    try {
+        const data = await _evFetch(`/events/${ev.id}/menu`);
+        _evState.menu = data.items || [];
+        host.innerHTML = _evMenuRowsHtml(_evState.menu);
+        _evUpdatePlanPreview();
+    } catch (err) {
+        host.innerHTML = `<div class="ev-menu-empty">Kunne ikke hente menuen: ${_evEsc(err.message)}</div>`;
+    }
+}
+
+// Foldet sammen viser headeren nok til at man ikke behøver folde ud for at se
+// om planen overhovedet er lagt.
+function _evUpdatePlanPreview() {
+    const el = document.getElementById('ev-plan-preview');
+    if (!el) return;
+    const menuCount = (_evState.menu || []).length;
+    const fcTotal = (_evState.forecast || []).reduce((s, f) => s + (f.expected_qty || 0), 0);
+    const parts = [];
+    parts.push(fcTotal > 0 ? `${fcTotal.toLocaleString('da-DK')} forventet` : 'ingen forecast');
+    parts.push(menuCount > 0 ? `${menuCount} menupunkter` : 'ingen menu');
+    el.textContent = parts.join(' · ');
+}
+
+// Læs hele tabellen ud af DOM'en og PUT den. Serveren reconciler (delete+insert),
+// samme mønster som forecast — klienten er altid sandheden om den fulde liste.
+function _evCollectMenuItems() {
+    return [...document.querySelectorAll('[data-menu-row]')].map((tr, i) => {
+        const rid = tr.dataset.recipeId;
+        return {
+            grocy_recipe_id: rid === '' ? null : parseInt(rid, 10),
+            product_name: tr.querySelector('.ev-menu-input-name').value.trim(),
+            category:     tr.dataset.category || null,
+            unit:         tr.dataset.unit || 'stk',
+            unit_price:   parseFloat(tr.querySelector('.ev-menu-input-price').value) || 0,
+            note:         tr.querySelector('.ev-menu-input-note').value.trim() || null,
+            sort_order:   i,
+        };
+    });
+}
+
+let _evMenuSaveTimer = null;
+function _evScheduleMenuSave(ev) {
+    clearTimeout(_evMenuSaveTimer);
+    _evMenuSaveTimer = setTimeout(() => _evSaveMenu(ev), 700);
+}
+
+async function _evSaveMenu(ev, { silent = false } = {}) {
+    const status = document.getElementById('ev-menu-status');
+    const items = _evCollectMenuItems();
+    if (items.some(it => !it.product_name)) {
+        if (status) { status.textContent = 'Alle linjer skal have et navn'; status.className = 'ev-menu-status err'; }
+        return false;
+    }
+    if (status && !silent) { status.textContent = 'Gemmer…'; status.className = 'ev-menu-status'; }
+    try {
+        _evMarkLocalAction();
+        const data = await _evFetch(`/events/${ev.id}/menu`, {
+            method: 'PUT', body: JSON.stringify({ items }),
+        });
+        _evMarkLocalAction();   // igen: SSE'en lander sammen med svaret, ikke ved kaldet
+        _evState.menu = data.items || [];
+        // Afvigelses-markeringen (⚠) beregnes server-side og kan lige være blevet
+        // uaktuel — fx hvis man netop rettede prisen den advarede om. Tegn rækkerne
+        // om, men KUN når ingen står i et felt, så vi ikke river fokus væk midt i
+        // en indtastning (den debouncede gemning fyrer mens man skriver).
+        const host = document.getElementById('ev-menu-rows');
+        const fa = document.activeElement;
+        if (host && !(fa && host.contains(fa))) host.innerHTML = _evMenuRowsHtml(_evState.menu);
+        if (status) { status.textContent = '✓ Gemt'; status.className = 'ev-menu-status ok'; }
+        _evUpdatePlanPreview();
+        setTimeout(() => { if (status && status.textContent === '✓ Gemt') status.textContent = ''; }, 2500);
+        return true;
+    } catch (err) {
+        if (status) { status.textContent = 'Kunne ikke gemme: ' + err.message; status.className = 'ev-menu-status err'; }
+        return false;
+    }
+}
+
+async function _evGenerateMenu(ev) {
+    const status = document.getElementById('ev-menu-status');
+    // Gem eventuelle ugemte redigeringer først — ellers ville generate læse en
+    // menu uden dem og fejlagtigt tro at linjerne mangler.
+    clearTimeout(_evMenuSaveTimer);
+    if (document.querySelector('[data-menu-row]') && !await _evSaveMenu(ev, { silent: true })) return;
+
+    if (status) { status.textContent = 'Genererer…'; status.className = 'ev-menu-status'; }
+    try {
+        _evMarkLocalAction();
+        const data = await _evFetch(`/events/${ev.id}/menu/generate`, { method: 'POST' });
+        _evMarkLocalAction();   // igen: SSE'en lander sammen med svaret, ikke ved kaldet
+        _evState.menu = data.items || [];
+        document.getElementById('ev-menu-rows').innerHTML = _evMenuRowsHtml(_evState.menu);
+        _evUpdatePlanPreview();
+        if (status) {
+            const msg = data.added > 0
+                ? `✓ ${data.added} ${data.added === 1 ? 'linje' : 'linjer'} tilføjet${data.kept ? ` · ${data.kept} bevaret med deres pris` : ''}`
+                : (data.items.length ? '✓ Menuen er allerede i sync med prep-bonnerne' : 'Ingen prep-bonner at generere fra endnu');
+            status.textContent = (data.warnings || []).length ? msg + ' · ' + data.warnings.join(' ') : msg;
+            status.className = 'ev-menu-status ' + ((data.warnings || []).length ? 'err' : 'ok');
+        }
+    } catch (err) {
+        if (status) { status.textContent = 'Kunne ikke generere: ' + err.message; status.className = 'ev-menu-status err'; }
+    }
+}
+
+// ── PRINT: skiltet til vognen ────────────────────────────────────────────
+// Ren udskriftsvisning i samme vindue frem for window.open — ingen popup-
+// blokering, og siden kan ikke komme ud af sync med det man ser på skærmen.
+// @media print skjuler resten af office-shellen (se .ev-print-root i CSS).
+//
+// Gruppérer efter kategori i menuens egen rækkefølge: den rækkefølge man har
+// sat med ▲▼ er præcis den man vil læse ovenfra og ned på et skilt.
+function _evBuildPrintSheet(ev, items) {
+    const grupper = [];
+    const idx = new Map();
+    for (const it of items) {
+        const kat = (it.category || '').trim() || 'Øvrigt';
+        if (!idx.has(kat)) { idx.set(kat, grupper.length); grupper.push({ kat, rows: [] }); }
+        grupper[idx.get(kat)].rows.push(it);
+    }
+    const grupperHtml = grupper.map(g => `
+        <section class="evp-group">
+            <h2 class="evp-cat">${_evEsc(g.kat)}</h2>
+            ${g.rows.map(r => `
+                <div class="evp-row">
+                    <span class="evp-name">${_evEsc(r.product_name)}</span>
+                    <span class="evp-dots"></span>
+                    <span class="evp-price">${Math.round(r.unit_price ?? 0)} kr</span>
+                </div>`).join('')}
+        </section>`).join('');
+
+    return `
+        <div class="evp-head">${_evEsc(ev.name)} · ${_evFmtDate(ev.start_date)}</div>
+        <h1 class="evp-title">Menu</h1>
+        ${grupperHtml}
+        <div class="evp-foot">Alle priser inkl. moms</div>`;
+}
+
+function _evPrintMenu(ev) {
+    const items = _evState.menu || [];
+    const status = document.getElementById('ev-menu-status');
+    if (!items.length) {
+        if (status) { status.textContent = 'Ingen menu at printe endnu'; status.className = 'ev-menu-status err'; }
+        return;
+    }
+    // Varer uden pris kommer med som "0 kr" på skiltet. Vi fjerner dem IKKE i
+    // stilhed — så ville skiltet lyve om sortimentet — men vi siger det højt.
+    const uprisede = items.filter(i => !(i.unit_price > 0)).map(i => i.product_name);
+    if (uprisede.length && status) {
+        status.textContent = `⚠ ${uprisede.length} vare${uprisede.length === 1 ? '' : 'r'} uden pris kommer med som 0 kr: ${uprisede.join(', ')}`;
+        status.className = 'ev-menu-status err';
+    }
+
+    let root = document.getElementById('ev-print-root');
+    if (!root) {
+        root = document.createElement('div');
+        root.id = 'ev-print-root';
+        root.className = 'ev-print-root';
+        document.body.appendChild(root);
+    }
+    root.innerHTML = _evBuildPrintSheet(ev, items);
+
+    document.body.classList.add('ev-printing');
+    const ryd = () => document.body.classList.remove('ev-printing');
+    window.addEventListener('afterprint', ryd, { once: true });
+    // Safari fyrer ikke altid afterprint — fallback så klassen ikke bliver hængende
+    // og skjuler hele office-shellen på skærmen bagefter.
+    setTimeout(ryd, 8000);
+    window.print();
+}
+
+// Flyt en række op/ned og gem. Rækkefølgen ER sort_order: _evCollectMenuItems
+// nummererer efter DOM-position, så et gem persisterer det man ser.
+function _evMoveMenuRow(ev, tr, retning) {
+    if (retning === 'up') {
+        const foer = tr.previousElementSibling;
+        if (!foer) return;
+        tr.parentNode.insertBefore(tr, foer);
+    } else {
+        const efter = tr.nextElementSibling;
+        if (!efter) return;
+        tr.parentNode.insertBefore(efter, tr);
+    }
+    _evSaveMenu(ev);
+}
+
+function _evBindMenuHandlers(ev) {
+    const panel = document.getElementById('ev-menu-panel');
+    if (!panel) return;
+
+    panel.querySelector('[data-act="menu-generate"]')?.addEventListener('click', () => _evGenerateMenu(ev));
+    panel.querySelector('[data-act="menu-add"]')?.addEventListener('click', () => {
+        // Ret fundet på pladsen: menulinje uden opskrift-id. Ingen BOM ⇒ ingen
+        // kostpris, CO₂ eller lagereffekt — kun omsætning (§16).
+        const host = document.getElementById('ev-menu-rows');
+        if (!host.querySelector('.ev-menu-table')) {
+            host.innerHTML = _evMenuRowsHtml([{ id: 0, grocy_recipe_id: null, product_name: '', category: null, unit: 'stk', unit_price: 0, note: null, sold_prices: [], price_deviation: false }]);
+        } else {
+            const tbody = host.querySelector('tbody');
+            tbody.insertAdjacentHTML('beforeend', _evMenuRowsHtml([{ id: 0, grocy_recipe_id: null, product_name: '', category: null, unit: 'stk', unit_price: 0, note: null, sold_prices: [], price_deviation: false }]).match(/<tbody>([\s\S]*)<\/tbody>/)[1]);
+        }
+        host.querySelector('tbody tr:last-child .ev-menu-input-name')?.focus();
+    });
+
+    // Delegeret: rækkerne udskiftes ved generate/tilføj, så vi binder på panelet.
+    panel.addEventListener('input', e => {
+        if (e.target.matches('.ev-menu-input-price, .ev-menu-input-note, .ev-menu-input-name')) _evScheduleMenuSave(ev);
+    });
+    panel.querySelector('[data-act="menu-print"]')?.addEventListener('click', () => _evPrintMenu(ev));
+
+    panel.addEventListener('click', e => {
+        const flyt = e.target.closest('[data-act="menu-up"], [data-act="menu-down"]');
+        if (flyt) {
+            _evMoveMenuRow(ev, flyt.closest('[data-menu-row]'),
+                flyt.dataset.act === 'menu-up' ? 'up' : 'down');
+            return;
+        }
+        const del = e.target.closest('[data-act="menu-del"]');
+        if (!del) return;
+        const tr = del.closest('[data-menu-row]');
+        const name = tr.querySelector('.ev-menu-input-name').value.trim() || 'linjen';
+        if (!confirm(`Fjern "${name}" fra menuen?\n\nEn prep-afledt linje kommer tilbage næste gang du trykker "Generér fra prep".`)) return;
+        tr.remove();
+        if (!panel.querySelector('[data-menu-row]')) document.getElementById('ev-menu-rows').innerHTML = _evMenuRowsHtml([]);
+        _evSaveMenu(ev);
+    });
+}
+
+function _evBindPlanToggle() {
+    const block = document.getElementById('ev-plan-block');
+    const btn   = block?.querySelector('[data-act="plan-toggle"]');
+    const body  = document.getElementById('ev-plan-body');
+    if (!block || !btn || !body) return;
+    btn.addEventListener('click', () => {
+        const nowCollapsed = !block.classList.contains('collapsed');
+        block.classList.toggle('collapsed', nowCollapsed);
+        body.hidden = nowCollapsed;
+        btn.setAttribute('aria-expanded', String(!nowCollapsed));
+    });
 }
 
 function _evForecastTable(ev, days, categories, forecast) {
