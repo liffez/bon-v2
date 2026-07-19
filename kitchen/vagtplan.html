@@ -147,7 +147,7 @@
     // Byg 7 tomme dag-bokse i én sektions week-grid.
     function buildWeekBoxes(weekEl, monday) {
         weekEl.innerHTML = '';
-        const todayKey = new Date().toISOString().slice(0, 10);
+        const todayKey = todayISO();
 
         for (let i = 0; i < 7; i++) {
             const d = addDays(monday, i);

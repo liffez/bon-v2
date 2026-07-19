@@ -58,7 +58,7 @@ function _logEsc(s) {
         return { '&':'&amp;', '<':'&lt;', '>':'&gt;', '"':'&quot;' }[c];
     });
 }
-function _logToday() { return new Date().toISOString().slice(0, 10); }
+function _logToday() { return todayISO(); }
 function _logShiftDate(dateStr, n) {
     var d = new Date(dateStr + 'T12:00:00');
     d.setDate(d.getDate() + n);

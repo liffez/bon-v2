@@ -1703,7 +1703,7 @@ async function _cfShowInvForm(el, editId) {
         if (markBtn) {
             markBtn.onclick = async () => {
                 try {
-                    await patchCfInvoice(inv.id, { betalt: true, betalt_dato: new Date().toISOString().slice(0, 10) });
+                    await patchCfInvoice(inv.id, { betalt: true, betalt_dato: todayISO() });
                     area.innerHTML = '';
                     _cfRenderOverblik();
                 } catch (err) { alert('Fejl: ' + err.message); }

@@ -5,6 +5,7 @@
 // ==========================================
 
 const { getDb } = require('../db/database');
+const { todayISO } = require('../db/helpers');
 const { transaction } = require('../db/compat');
 
 /**
@@ -65,9 +66,11 @@ function computeRfmScores() {
 
     // 2. Hent config
     const cfg = getRfmConfig(db);
-    const lookbackDate = new Date();
-    lookbackDate.setMonth(lookbackDate.getMonth() - cfg.lookback_months);
-    const lookbackStr = lookbackDate.toISOString().slice(0, 10);
+    // Lookback regnes fra den danske kalenderdato — en dags forskydning
+    // flytter kunder ind og ud af vinduet og ændrer deres RFM-segment.
+    const _lp = todayISO().split('-').map(Number);
+    const lookbackStr = new Date(Date.UTC(_lp[0], _lp[1] - 1 - cfg.lookback_months, _lp[2]))
+        .toISOString().slice(0, 10);   // utc-ok: UTC-forankret aritmetik
 
     // 3. Hent rå ordredata per company
     //    Monetary: pax (gæster) eller revenue (kr) afhængigt af config
