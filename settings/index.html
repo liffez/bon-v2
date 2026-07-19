@@ -567,7 +567,7 @@
     <div class="st-section" id="sec-pay-types">
       <h2>Betalingstyper</h2>
       <table class="st-table">
-        <thead><tr><th>Kode</th><th>Label</th><th></th></tr></thead>
+        <thead><tr><th>Kode</th><th>Label</th><th>Tæller som omsætning</th><th></th></tr></thead>
         <tbody id="ptypes-body"></tbody>
       </table>
       <button class="st-btn st-btn-primary st-btn-add" onclick="showNewPayTypeForm()">+ Ny</button>
@@ -839,6 +839,24 @@
         Tæl lager op først, og tør-kør <code style="font-size:10px">scripts/dry-run-consume.js</code>
         for at se hvad en dags produktion ville trække. Er opskrifterne skæve, får du negativt lager
         i stedet for styr på det.
+      </p>
+
+      <h3 style="margin-top:24px;font-size:15px;font-weight:700">Fakturavagt</h3>
+      <div style="font-size:12px;color:var(--color-text-dim);margin-bottom:14px;line-height:1.6;max-width:600px;background:var(--color-background);padding:10px 14px;border-radius:6px;border:1px solid var(--color-border)">
+        Markeres en bon <strong style="color:var(--color-text)">FAKTURERET</strong> eller
+        <strong style="color:var(--color-text)">AFSLUTTET</strong> uden at der findes en e-conomic-kladde
+        eller en bogført faktura, spørger systemet én gang — og sætter et mærke på bonnen.<br>
+        Mærket forsvinder <strong style="color:var(--color-text)">af sig selv</strong> når fakturaen dukker op.<br>
+        <span style="margin-top:4px;display:inline-block">Modregning, sponsorat, kontant og POS springes over — de skal aldrig faktureres.</span>
+      </div>
+      <div style="display:flex;gap:12px;align-items:center;margin-bottom:6px">
+        <label style="width:280px;font-size:14px;font-weight:500">Vagten gælder fra</label>
+        <input class="st-input" id="invoice-guard-from" type="date" style="width:160px"
+               onchange="saveSetting('invoice_guard_from_date', this.value)">
+      </div>
+      <p style="font-size:11px;color:var(--color-text-dim);margin:0 0 24px;max-width:600px;line-height:1.6">
+        Bons leveret før denne dato vurderes ikke. Sæt den til dagen e-conomic-rutinen startede —
+        ellers ville vagten lyse på hver eneste historiske bon, og så holder man op med at se den.
       </p>
 
       <h3 style="margin-top:24px;font-size:15px;font-weight:700">Kapacitetsplanlægning</h3>
@@ -1898,9 +1916,11 @@ async function loadPaymentTypes() {
   tbody.innerHTML = '';
   types.forEach(function(t) {
     var tr = document.createElement('tr');
+    var isRev = (t.counts_as_revenue === undefined || t.counts_as_revenue === null) ? 1 : Number(t.counts_as_revenue);
     tr.innerHTML =
       '<td><input class="st-input locked" value="' + esc(t.code) + '" readonly></td>' +
       '<td><input class="st-input" id="ptype-label-' + t.id + '" value="' + esc(t.label) + '"></td>' +
+      '<td style="text-align:center"><input type="checkbox" id="ptype-rev-' + t.id + '"' + (isRev ? ' checked' : '') + ' title="Fravælg for gratis/byttet — bonnen tælles ikke med i omsætningen"></td>' +
       '<td><button class="st-btn st-btn-sm st-btn-primary" onclick="savePayType(' + t.id + ')">Gem</button></td>';
     tbody.appendChild(tr);
   });
@@ -1909,7 +1929,8 @@ async function loadPaymentTypes() {
 async function savePayType(id) {
   var label = document.getElementById('ptype-label-' + id).value.trim();
   if (!label) return toast('Label er påkrævet', 'error');
-  await patchPaymentType(id, { label: label });
+  var revEl = document.getElementById('ptype-rev-' + id);
+  await patchPaymentType(id, { label: label, counts_as_revenue: (revEl && revEl.checked) ? 1 : 0 });
   toast('Betalingstype opdateret');
 }
 
@@ -2511,6 +2532,10 @@ function loadCapacitySettings() {
   document.getElementById('cap-yellow').value = allSettings['capacity_threshold_yellow'] || '45';
   document.getElementById('cap-thresholds').style.display = enabled ? 'block' : 'none';
   document.getElementById('cap-prod-start').value = allSettings['production_start_time'] || '08:00';
+
+  // Fakturavagt (#319) — skæringsdato
+  var guardEl = document.getElementById('invoice-guard-from');
+  if (guardEl) guardEl.value = allSettings['invoice_guard_from_date'] || '';
 }
 
 async function toggleCapacity() {

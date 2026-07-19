@@ -8,7 +8,7 @@
 const express = require('express');
 const router = express.Router();
 const { getDb } = require('../db/database');
-const { handle, getUserId, logChange, transaction } = require('../db/helpers');
+const { handle, getUserId, logChange, transaction, revenueFactorSQL } = require('../db/helpers');
 const { requireAuth } = require('../shared/auth');
 const { broadcast } = require('../shared/sse');
 const {
@@ -862,8 +862,8 @@ router.get('/customers', handle((req, res) => {
             co.id AS company_id, co.name AS company_name,
             cm.stage, cm.tags, cm.owner_user_id, cm.last_contact_at,
             COUNT(DISTINCT b.id) AS total_orders,
-            COALESCE(SUM(b.total_price), 0) AS total_revenue,
-            ROUND(AVG(b.total_price), 0) AS avg_order_value,
+            COALESCE(SUM(b.total_price${revenueFactorSQL('b')}), 0) AS total_revenue,
+            ROUND(AVG(b.total_price${revenueFactorSQL('b')}), 0) AS avg_order_value,
             MIN(b.delivery_date) AS first_order_date,
             MAX(b.delivery_date) AS last_order_date,
             CAST(julianday('now') - julianday(MAX(b.delivery_date)) AS INTEGER) AS days_since_last
@@ -927,7 +927,7 @@ router.get('/companies', handle((req, res) => {
                    co.last_enriched_at,
                    COUNT(DISTINCT c.id) AS contact_count,
                    (SELECT COUNT(*)              FROM bons WHERE company_id = co.id AND is_internal = 0 AND (is_offer = 0 OR is_offer IS NULL)) AS total_orders,
-                   (SELECT COALESCE(SUM(total_price), 0) FROM bons WHERE company_id = co.id AND is_internal = 0 AND (is_offer = 0 OR is_offer IS NULL)) AS total_revenue,
+                   (SELECT COALESCE(SUM(total_price${revenueFactorSQL('bons')}), 0) FROM bons WHERE company_id = co.id AND is_internal = 0 AND (is_offer = 0 OR is_offer IS NULL)) AS total_revenue,
                    (SELECT MAX(delivery_date)    FROM bons WHERE company_id = co.id AND is_internal = 0 AND (is_offer = 0 OR is_offer IS NULL)) AS last_order_date,
                    (SELECT CAST(julianday('now') - julianday(MAX(delivery_date)) AS INTEGER)
                       FROM bons WHERE company_id = co.id AND is_internal = 0 AND (is_offer = 0 OR is_offer IS NULL)) AS days_since_last,
@@ -978,8 +978,8 @@ router.get('/customer/:id', handle((req, res) => {
     const stats = db.prepare(`
         SELECT
             COUNT(b.id) as total_orders,
-            COALESCE(SUM(b.total_price),0) as total_revenue,
-            ROUND(AVG(b.total_price),0) as avg_order,
+            COALESCE(SUM(b.total_price${revenueFactorSQL('b')}),0) as total_revenue,
+            ROUND(AVG(b.total_price${revenueFactorSQL('b')}),0) as avg_order,
             MAX(b.delivery_date) as last_order,
             MIN(b.delivery_date) as first_order
         FROM bons b WHERE b.customer_id = ? AND b.is_internal = 0 AND (b.is_offer = 0 OR b.is_offer IS NULL)
@@ -1136,8 +1136,8 @@ router.get('/company/:id', handle((req, res) => {
     const stats = db.prepare(`
         SELECT
             COUNT(b.id)                       AS total_orders,
-            COALESCE(SUM(b.total_price), 0)   AS total_revenue,
-            ROUND(AVG(b.total_price), 0)      AS avg_order_value,
+            COALESCE(SUM(b.total_price${revenueFactorSQL('b')}), 0)   AS total_revenue,
+            ROUND(AVG(b.total_price${revenueFactorSQL('b')}), 0)      AS avg_order_value,
             MIN(b.delivery_date)              AS first_order_date,
             MAX(b.delivery_date)              AS last_order_date
           FROM bons b

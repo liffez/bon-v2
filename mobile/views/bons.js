@@ -1290,16 +1290,27 @@ async function _mbLoadTransitions(bon) {
     }
 }
 
-async function _mbChangeStatus(bonId, toCode) {
+async function _mbChangeStatus(bonId, toCode, confirmNoInvoice) {
     try {
+        var payload = { status_code: toCode, user_id: _mbUser.id };
+        if (confirmNoInvoice) payload.confirm_no_invoice = true;
         await apiFetch('/bons/' + bonId + '/status', {
             method: 'PATCH',
-            body: JSON.stringify({ status_code: toCode, user_id: _mbUser.id })
+            body: JSON.stringify(payload)
         });
         if (navigator.vibrate) navigator.vibrate(50);
         await _mbShowDetail(bonId);
         if (window._mToast) window._mToast('Status opdateret');
     } catch (e) {
+        // Fakturavagt (#319): faktureret uden at der findes en faktura. Spørg én
+        // gang og send igen — uden dette ville skiftet fejle med en intetsigende fejl.
+        if (!confirmNoInvoice && e && e.code === 'NO_INVOICE_FOUND') {
+            if (confirm('Der findes hverken en e-conomic-kladde eller en bogført faktura på denne bon.\n\n'
+                        + 'Kunden har så aldrig fået en regning. Er det med vilje?')) {
+                return _mbChangeStatus(bonId, toCode, true);
+            }
+            return;
+        }
         if (window._mToast) window._mToast('Fejl ved statusskift');
     }
 }

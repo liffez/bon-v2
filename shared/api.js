@@ -56,9 +56,11 @@ function deleteBon(id) {
     return apiFetch('/bons/' + id, { method: 'DELETE' });
 }
 
-function patchBonStatus(id, statusCode, userId, force) {
+function patchBonStatus(id, statusCode, userId, force, confirmNoInvoice) {
     const payload = { status_code: statusCode, user_id: userId };
     if (force) payload.force = true;   // admin-override af ellers ugyldig status-vej
+    // Fakturavagt (#319): bekræft at bonnen bevidst markeres faktureret uden faktura
+    if (confirmNoInvoice) payload.confirm_no_invoice = true;
     return apiFetch('/bons/' + id + '/status', {
         method: 'PATCH',
         body: JSON.stringify(payload),
@@ -1473,6 +1475,14 @@ function fetchReportsCumulative(years) {
 
 function fetchReportsTopCategories() {
     return apiFetch('/reports/top-categories');
+}
+
+// Modregning/Sponsorat — ikke omsætning, men findbar (ægte beløb givet væk/byttet).
+function fetchReportsGiveaways(from, to) {
+    var qs = [];
+    if (from) qs.push('from=' + encodeURIComponent(from));
+    if (to)   qs.push('to='   + encodeURIComponent(to));
+    return apiFetch('/reports/giveaways' + (qs.length ? '?' + qs.join('&') : ''));
 }
 
 /* ── CASHFLOW ────────────────────────────────────────── */

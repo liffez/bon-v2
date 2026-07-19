@@ -821,7 +821,22 @@ async function _faktMarkFaktureret(bonId) {
 
     try {
         // 1. PATCH status → FAKTURERET
-        await patchBonStatus(bonId, 'FAKTURERET');
+        //    Fakturavagt (#319): findes der hverken kladde eller bogført faktura,
+        //    afviser serveren med 409 NO_INVOICE_FOUND. Vi spørger ÉN gang og
+        //    sender igen med bekræftelsen — vagten blokerer aldrig.
+        try {
+            await patchBonStatus(bonId, 'FAKTURERET');
+        } catch (statusErr) {
+            if (statusErr.code !== 'NO_INVOICE_FOUND') throw statusErr;
+            const goAhead = confirm(
+                'Der findes hverken en e-conomic-kladde eller en bogført faktura på bon #'
+                + bon.bon_number + '.\n\n'
+                + 'Markerer du den som faktureret nu, forlader den faktureringskøen '
+                + '— og kunden har aldrig fået en regning.\n\nEr det med vilje?'
+            );
+            if (!goAhead) return;
+            await patchBonStatus(bonId, 'FAKTURERET', undefined, undefined, true);
+        }
 
         // 2. Save invoice ref if provided
         if (result.trim()) {

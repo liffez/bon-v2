@@ -146,6 +146,10 @@ router.patch('/:key', requireAuth(), handle((req, res) => {
         invalidateUnitCountCache();
         require('../services/recipeUnits').refreshRecipeUnitCountsSafe(getDb(), 'settings');
     }
+    // Fakturavagtens skæringsdato caches i 60s — ryd den så ændringen slår igennem straks.
+    if (req.params.key === 'invoice_guard_from_date') {
+        require('../services/invoiceGuard').invalidateGuardCache();
+    }
     res.json({ key: req.params.key, value });
 }));
 

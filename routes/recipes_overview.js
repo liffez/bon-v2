@@ -25,7 +25,7 @@ const express = require('express');
 const router = express.Router();             // monteres på /api/recipes
 const itemPricesRouter = express.Router();   // monteres på /api/item-prices
 const { getDb } = require('../db/database');
-const { handle, logChange, inclToExcl, exclToIncl } = require('../db/helpers');
+const { handle, logChange, inclToExcl, exclToIncl, nonRevenueBonExcludeSQL } = require('../db/helpers');
 const { requireAuth } = require('../shared/auth');
 const grocyAdapter = require('../services/grocyAdapter');
 const itemPriceBackfill = require('../services/itemPriceBackfill');
@@ -163,7 +163,7 @@ router.get('/overview', handle(async (req, res) => {
         JOIN status_definitions s ON s.id = b.status_id
         WHERE b.delivery_date >= date('now', ?)
           AND s.code IN (${placeholders})
-          ${OFFER_INTERNAL_FILTER}
+          ${OFFER_INTERNAL_FILTER}${nonRevenueBonExcludeSQL('b')}
           AND bl.grocy_recipe_id IS NOT NULL
         GROUP BY bl.grocy_recipe_id
     `).all(`-${periodDays} days`, ...REVENUE_CODES);
@@ -188,7 +188,7 @@ router.get('/overview', handle(async (req, res) => {
         JOIN status_definitions s ON s.id = b.status_id
         WHERE b.delivery_date >= date('now', ?)
           AND s.code IN (${placeholders})
-          ${OFFER_INTERNAL_FILTER}
+          ${OFFER_INTERNAL_FILTER}${nonRevenueBonExcludeSQL('b')}
           AND bl.grocy_recipe_id IS NOT NULL
         GROUP BY bl.grocy_recipe_id, days_ago
     `).all(`-${periodDays} days`, ...REVENUE_CODES);

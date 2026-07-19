@@ -172,9 +172,10 @@ function _renderBonsListShell() {
     filterBar.id = 'blFilters';
 
     var filters = [
-        { key: 'today', label: 'I DAG' },
-        { key: 'ny',    label: 'NY' },
-        { key: 'mail',  label: 'UL\u00C6ST MAIL' },
+        { key: 'today',    label: 'I DAG' },
+        { key: 'ny',       label: 'NY' },
+        { key: 'mail',     label: 'UL\u00C6ST MAIL' },
+        { key: 'giveaway', label: 'SPONSORAT/MODREGN.' },
     ];
     for (var i = 0; i < filters.length; i++) {
         var btn = document.createElement('button');
@@ -426,6 +427,10 @@ function _blLoadData() {
         case 'mail':
             params.unread_mail = '1';
             break;
+        case 'giveaway':
+            // Modregning + sponsorat — ikke omsætning, men findbare (alle datoer)
+            params.payment_type = 'barter,sponsorship';
+            break;
         case 'date':
             params.date = _blDateValue;
             break;
@@ -647,6 +652,15 @@ function _blRenderTable() {
         var statusTime = _blFormatStatusTime(bon);
         if (statusTime) {
             statusInner += '<span class="bl-status-time">' + esc(statusTime) + '</span>';
+        }
+
+        // Fakturavagt (#319): markeret faktureret, men ingen faktura findes.
+        // Udledt af serveren — forsvinder af sig selv når kladden dukker op.
+        if (bon.missing_invoice) {
+            statusInner += '<span class="bl-missing-invoice"'
+                + ' title="Markeret faktureret, men der findes hverken e-conomic-kladde'
+                + ' eller bogført faktura — kunden har ikke fået en regning">'
+                + '⚠ ingen faktura</span>';
         }
 
         statusInner += '<button type="button" class="bl-history-btn"'

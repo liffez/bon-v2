@@ -192,7 +192,9 @@ async function runApiTests() {
         `SELECT COUNT(*) AS c FROM changelog WHERE entity_type='bon' AND entity_id=4002 AND action='status_change'`
     ).get().c;
     {
-        const r = await patchStatus(4002, { status_code: 'AFSLUTTET' });
+        // confirm_no_invoice: fakturavagten (#319) 409'er ellers når e-conomic er
+        // konfigureret i test-miljøet. Testen handler om changelog, ikke fakturaer.
+        const r = await patchStatus(4002, { status_code: 'AFSLUTTET', confirm_no_invoice: true });
         if (r.status !== 200) {
             record('T_BON_API_CL_01', 'CL', 'FAIL', `Setup: PATCH returnerede ${r.status}, ikke 200`);
         } else {
@@ -208,7 +210,8 @@ async function runApiTests() {
     // CL_02: user_id videregives
     setBonStatus(4002, 'LEVERET');
     {
-        const r = await patchStatus(4002, { status_code: 'FAKTURERET', user_id: 2 });
+        // confirm_no_invoice: se CL_01 — vagten må ikke stå i vejen for user_id-testen.
+        const r = await patchStatus(4002, { status_code: 'FAKTURERET', user_id: 2, confirm_no_invoice: true });
         if (r.status !== 200) {
             record('T_BON_API_CL_02', 'CL', 'FAIL', `Setup: PATCH returnerede ${r.status}`);
         } else {

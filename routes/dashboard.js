@@ -12,7 +12,7 @@
 const express       = require('express');
 const router        = express.Router();
 const { getDb }     = require('../db/database');
-const { handle, inclToExcl, momsOfIncl, todayISO, countsAsWorkload, workloadRoleSql, salesPriceCategorySql } = require('../db/helpers');
+const { handle, inclToExcl, momsOfIncl, todayISO, countsAsWorkload, workloadRoleSql, salesPriceCategorySql, revenueFactorSQL, getNonRevenuePaymentCodes } = require('../db/helpers');
 const { requireAuth } = require('../shared/auth');
 const { getShifts } = require('../services/smartplanAdapter');
 
@@ -82,7 +82,7 @@ router.get('/today', handle(async (req, res) => {
     // Totals (inkl. leveret — hele dagen). Produktionsbons (is_internal=1) tælles separat
     // så de ikke inflaterer omsætning/KPI'er, men stadig er synlige i køkkenets dagsoverblik.
     const allBons = db.prepare(`
-        SELECT b.pax, b.total_units, b.total_price, b.event_role
+        SELECT b.pax, b.total_units, b.total_price, b.event_role, b.payment_type
         FROM bons b
         JOIN status_definitions sd ON b.status_id = sd.id
         WHERE b.delivery_date = ?
@@ -93,12 +93,14 @@ router.get('/today', handle(async (req, res) => {
 
     // total_units = produktions-workload → festival-salg ekskluderes (allerede talt i
     // prep-bonnen), så "I dag"-tallet matcher kalenderen. total_price (omsætning) tæller
-    // ALT — dér er festival-salget pengene, og prep er produktion (≈0 kr).
+    // ALT — dér er festival-salget pengene, og prep er produktion (≈0 kr) — men
+    // modregning/sponsorat er ikke omsætning (migration 129), så deres kr tælles ikke med.
+    const nonRevCodes = new Set(getNonRevenuePaymentCodes());
     const totals = {
         bon_count:   allBons.length,
         total_units: allBons.reduce((s, b) => s + (countsAsWorkload(b) ? (b.total_units > 0 ? b.total_units : (b.pax || 0)) : 0), 0),
         total_pax:   allBons.reduce((s, b) => s + (countsAsWorkload(b) ? (b.pax || 0) : 0), 0),
-        total_price: allBons.reduce((s, b) => s + (b.total_price || 0), 0),
+        total_price: allBons.reduce((s, b) => s + (nonRevCodes.has(b.payment_type) ? 0 : (b.total_price || 0)), 0),
     };
 
     const productionBons = db.prepare(`
@@ -288,7 +290,7 @@ router.get('/today', handle(async (req, res) => {
     // Enheder = SOLGTE enheder → produktion (prep/top-up, 0 kr) tæller IKKE med.
     // Omsætning (total_price) tæller ALT (produktion er alligevel 0 kr).
     const mtdDelivered = db.prepare(`
-        SELECT COALESCE(SUM(b.total_price), 0) AS revenue,
+        SELECT COALESCE(SUM(b.total_price${revenueFactorSQL('b')}), 0) AS revenue,
                COALESCE(SUM(CASE WHEN ${salesPriceCategorySql('pc.code')}
                                  THEN (CASE WHEN b.total_units > 0 THEN b.total_units ELSE COALESCE(b.pax, 0) END)
                                  ELSE 0 END), 0) AS units
@@ -309,7 +311,7 @@ router.get('/today', handle(async (req, res) => {
     `).get(...OPEN_CODES);
 
     const mtdUnfactured = db.prepare(`
-        SELECT COALESCE(SUM(b.total_price), 0) AS amount
+        SELECT COALESCE(SUM(b.total_price${revenueFactorSQL('b')}), 0) AS amount
         FROM bons b
         JOIN status_definitions sd ON b.status_id = sd.id
         WHERE sd.code = 'LEVERET'
@@ -323,7 +325,7 @@ router.get('/today', handle(async (req, res) => {
     const lyToday      = `${lyYear}${today.slice(4)}`;
 
     const lyMtd = db.prepare(`
-        SELECT COALESCE(SUM(b.total_price), 0) AS revenue,
+        SELECT COALESCE(SUM(b.total_price${revenueFactorSQL('b')}), 0) AS revenue,
                COALESCE(SUM(CASE WHEN ${salesPriceCategorySql('pc.code')}
                                  THEN (CASE WHEN b.total_units > 0 THEN b.total_units ELSE COALESCE(b.pax, 0) END)
                                  ELSE 0 END), 0) AS units

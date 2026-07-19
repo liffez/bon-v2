@@ -120,6 +120,8 @@ class BonDrawer {
                 <!-- STATUS -->
                 <div class="drawer-section">
                     <div class="drawer-status-bar"></div>
+                    <!-- Fakturavagt (#319): udledt mærke — forsvinder af sig selv når kladden findes -->
+                    <div class="drawer-invoice-warning" style="display:none"></div>
                     <div class="drawer-status-hint">Status gemmes automatisk når du klikker en knap. Brug "Gem" nederst til de øvrige felter.</div>
                 </div>
 
@@ -592,6 +594,7 @@ class BonDrawer {
 
         // Status bar
         this._renderStatusBar();
+        this._renderInvoiceWarning();
 
         // Levering
         this._setFieldValue('delivery_date', d.delivery_date || '');
@@ -1558,7 +1561,23 @@ class BonDrawer {
         });
     }
 
-    async _setStatus(statusKey, force) {
+    // Fakturavagt (#319): bonnen er markeret faktureret, men der findes hverken
+    // kladde eller bogført faktura. Mærket er udledt af serveren — det forsvinder
+    // af sig selv så snart fakturaen dukker op. Ingen oprydning, ingen knap.
+    _renderInvoiceWarning() {
+        const el = this.el.querySelector('.drawer-invoice-warning');
+        if (!el) return;
+        if (!this.data || !this.data.missing_invoice) {
+            el.style.display = 'none';
+            el.innerHTML = '';
+            return;
+        }
+        el.style.display = '';
+        el.innerHTML = '⚠ Markeret faktureret, men der findes ingen faktura '
+            + '<span class="diw-sub">— kunden har ikke fået en regning</span>';
+    }
+
+    async _setStatus(statusKey, force, confirmNoInvoice) {
         if (!this.data) return;
         const curStatus = statusToFrontend(this.data.status_code || '');
         if (statusKey === curStatus) return;
@@ -1566,11 +1585,28 @@ class BonDrawer {
         const fromLabel = (BON_CONFIG.statuses[curStatus] || {}).label || curStatus;
         const toLabel = (BON_CONFIG.statuses[statusKey] || {}).label || statusKey;
         try {
-            await patchBonStatus(this.bonId, backendCode, undefined, force);
+            await patchBonStatus(this.bonId, backendCode, undefined, force, confirmNoInvoice);
             this.data.status_code = backendCode;
+            // Fakturamærket følger af udfaldet: kom vi igennem UDEN at bekræfte,
+            // fandtes der en faktura (eller vagten er inaktiv) → intet mærke.
+            // Bekræftede vi, er bonnen nu faktureret uden faktura → mærke.
+            this.data.missing_invoice = (confirmNoInvoice && ['FAKTURERET', 'AFSLUTTET'].includes(backendCode)) ? 1 : 0;
             this._renderStatusBar();
+            this._renderInvoiceWarning();
             this._showStatusFlash();
         } catch (err) {
+            // Fakturavagt (#319): bonnen markeres faktureret uden at der findes
+            // en kladde eller bogført faktura. Vi spørger ÉN gang — blokerer ikke.
+            if (!confirmNoInvoice && err.code === 'NO_INVOICE_FOUND') {
+                if (confirm(
+                    'Der findes hverken en e-conomic-kladde eller en bogført faktura på denne bon.\n\n'
+                    + 'Sætter du den til "' + toLabel + '" nu, forlader den faktureringskøen '
+                    + '— og kunden har aldrig fået en regning.\n\nEr det med vilje?'
+                )) {
+                    return this._setStatus(statusKey, force, true);
+                }
+                return;
+            }
             // Admin-override: en ellers ugyldig status-vej kan tvinges igennem.
             // Backenden afviser med code='TRANSITION_NOT_ALLOWED' + can_force=true
             // når den indloggede session er admin. Vi spørger om bekræftelse og

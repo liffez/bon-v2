@@ -6,6 +6,7 @@ const { broadcast } = require('../shared/sse');
 const { requireAuth } = require('../shared/auth');
 const grocy   = require('../services/grocyAdapter');
 const { syncCashflowInvoice } = require('../services/cashflowSync');
+const invoiceGuard = require('../services/invoiceGuard');
 const bonTransportCo2 = require('../services/bonTransportCo2');
 // quConvert bruges nu via services/ingredientResolver.js
 
@@ -74,7 +75,7 @@ const SORT_WHITELIST = {
 
 router.get('/', handle((req, res) => {
     const db = getDb();
-    const { status, date, date_from, date_to, q, location, unread_mail, sort, dir, limit, offset, company_id, customer_id } = req.query;
+    const { status, date, date_from, date_to, q, location, unread_mail, sort, dir, limit, offset, company_id, customer_id, payment_type } = req.query;
     const where = ['(b.is_offer = 0 OR b.is_offer IS NULL)'];
     const args  = [];
 
@@ -110,6 +111,15 @@ router.get('/', handle((req, res) => {
     if (date_to)   { where.push('b.delivery_date <= ?'); args.push(date_to); }
 
     if (location) { where.push('l.code = ?'); args.push(location); }
+
+    // Betalingstype — kommasepareret (bruges bl.a. til at finde modregning/sponsorat)
+    if (payment_type) {
+        const pts = payment_type.split(',').map(s => s.trim()).filter(Boolean);
+        if (pts.length) {
+            where.push('b.payment_type IN (' + pts.map(() => '?').join(',') + ')');
+            args.push(...pts);
+        }
+    }
 
     // Søgning — bonnumre er præcis 4 cifre:
     //   • ≤ 4 cifre  → match på bon_number (1, 33, 338, 3387). bon_number har et
@@ -158,6 +168,7 @@ router.get('/', handle((req, res) => {
             sd.code  AS status_code,
             sd.label AS status_label,
             sd.color AS status_color,
+            ${invoiceGuard.missingInvoiceSQL(db, 'b', 'sd')} AS missing_invoice,
             c.first_name || ' ' || COALESCE(c.last_name,'') AS contact_name_full,
             c.phone  AS customer_phone,
             c.email  AS customer_email,
@@ -521,6 +532,11 @@ router.get('/:id', handle((req, res) => {
     const bon = getBon(parseInt(req.params.id));
     if (!bon) return res.status(404).json({ error: 'Bon ikke fundet' });
 
+    // Fakturavagt (#319): udledt mærke — selv-helende, forsvinder når en kladde
+    // eller bogført faktura dukker op. Vises kun når bonnen ER faktureret.
+    bon.missing_invoice = invoiceGuard.GUARDED_STATUSES.includes(bon.status_code)
+        && invoiceGuard.bonMissingInvoice(getDb(), bon.id).missing ? 1 : 0;
+
     // Aktive flag på kunden og/eller firmaet (jf. docs/CLAUDE_KUNDE_FLAGS.md).
     // acked_on_this_bon afgør om "Set"/"Gjort"-knapper stadig skal vises i drawer.
     bon.flags = [];
@@ -874,6 +890,24 @@ router.patch('/:id/status', handle((req, res) => {
             can_force: isAdmin,
             hint: 'Admins kan overstyre med {force: true}'
         });
+    }
+
+    // ── Fakturavagt (#319) ────────────────────────────────────────────────
+    // Markeres bonnen faktureret uden at der findes en kladde eller bogført
+    // faktura, spørger vi ÉN gang — i det øjeblik beslutningen tages, hvor
+    // konteksten er der. Byttehandel/sponsorat → bevidst, klik videre.
+    // Forglemmelse → fanget. Blokerer aldrig: klienten sender igen med
+    // confirm_no_invoice. Se services/invoiceGuard.js for regel + filtre.
+    if (invoiceGuard.GUARDED_STATUSES.includes(status_code) && req.body.confirm_no_invoice !== true) {
+        const guard = invoiceGuard.bonMissingInvoice(db, id);
+        if (guard.missing) {
+            return res.status(409).json({
+                error: 'Der findes hverken en e-conomic-kladde eller en bogført faktura på denne bon',
+                code: 'NO_INVOICE_FOUND',
+                bon_number: guard.bon_number,
+                hint: 'Send igen med {confirm_no_invoice: true} hvis det er med vilje',
+            });
+        }
     }
 
     db.prepare(`UPDATE bons SET status_id = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?`).run(newStatus.id, id);
