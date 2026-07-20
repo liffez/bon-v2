@@ -3200,40 +3200,50 @@ er ikke bekræftet.
   topup 35, event-cancelled 26, event-gate 15, event-polish 27, prep-packing 12.
   Browser-verificeret end-to-end; testdata ryddet.
 ### Vægtberegning: kæd to hop via kilo (20. juli 2026)
+### Yield-modellen: en opskrift vejer ikke summen af sine input (20. juli 2026)
 
-`findConversionFactorToGrams` slog kun ÉT hop op. Et produkt med en gyldig vej til kilo
-— fx Citronsaft med `1 Liter = 1 Kilo`, eller Æg med `1 Antal = 0,06 Kilo` — returnerede
-derfor `null`, og varen blev **tavst udeladt** af underopskriftens vægt (linjen
-`if (gFactor !== null)`).
-
-Målt med `scripts/audit-grocy-live.js`: **27 råvarer i grocy-hq var i den situation.**
-Dataen var på plads i Grocy; koden læste den bare ikke.
-
-**Der antages intet.** Første hop er produktets eget (eller en global regel), andet hop
-er den globale `Kilo → Gram = 1000`. Findes ingen af delene, udelades varen fortsat —
-vi opfinder ikke en vægt.
-
-**Effekt målt på rigtige opskrifter** (10 stk af hver, 69 underopskrift-vægte):
-8 ændrer sig, fra +0 % til +57 %. Den største hånd-regnet efter:
+Køkkenet har standardiseret på at hver produktionsopskrift **yielder** en fast mængde af
+den vare der bruges senere — typisk 1 kg. Syltelagen hældes fra, kødet svinder:
 
 ```
 "Balsamico + løg" = 1 kg løg + 0,06 L balsamico + 0,5 L vand
-  før:   1000 g   ← kun løgene talte med
-  efter: 1566 g
+    sum af input: 470 g      yield: 300 g
+Syltet rødkål:  2,7 kg ind → 1 kg brugbar vare
+Svinekam:      1,12 kg ind → 1 kg pulled pork
 ```
 
-Øvrige: Chili Mayo +11 %, Tahin dressing +5 %, Trøffel Mayo +1 %, Yoghurt dressing +0 %.
+**Yieldet er allerede erklæret i Grocy** som `recipeunit` + `recipeunitnumber` (14 af 16
+underopskrifter). Koden *kendte* feltet — `recipe_viewer` brugte `recipeunit` til at
+afgøre OM der skulle vises en vægt — men beregnede så vægten som summen af input.
 
-**Konsekvens for gemte pakke-faktorer:** buffer-faktoren i pakkelisten udregnes som
-`ønsket vægt / vist vægt`. To af driftens fire gemte faktorer sidder på opskrifter hvis
-vægt ændrer sig (Tahin og Yoghurt dressing, begge på bon 9002), så de over-skalerer med
-op til ~5 %. Faktorens *betydning* er uændret — den ganges på råvarerne, ikke på vægten —
-og genindtastes den ønskede vægt efter deploy, beregnes faktoren korrekt.
+Målt på alle 16: yieldet er **aldrig højere** end summen (intet opstår af ingenting), og
+rammer præcist dér hvor intet går tabt (Frisk Grønt, Remoulade ±0 %). Størst afvigelse:
+Balsamico + løg −36 %, Æggesalat −23 %.
 
-**Test:** `scripts/test-gram-chaining.js` (6 asserts — direkte vej, kædet Liter→Kilo→Gram,
-kædet Antal→Kilo→Gram, at en vare uden vej fortsat udelades, og at der intet kædes uden
-den globale Kilo→Gram). Mutations-testet: fjernes kædningen, falder vand og æg ud af
-vægten igen.
+- **`services/ingredientResolver.js`** — `sub_recipes[]` får `yield_amount` + `yield_unit`,
+  og `weight_grams` er nu **yieldet** når det er en masse. Summen bevares som
+  `input_weight_grams`, og `unit_weight_grams` giver g/stk for antal-opskrifter.
+  Findes intet yield, falder vi tilbage på summen — **vi opfinder aldrig et yield**.
+- **To slags visning:** masse/volumen → yieldet ER mængden. Antal (sliders) → bonen
+  tæller stykker (`63 antal` frem for `3,78 kg`), men vægten skal stadig kunne findes.
+- **`shared/recipe_viewer.js`** viser begge dele: `1 antal` med `137 g/stk · i alt 136,86 g`
+  under. Afviger yield og sum på en masse-opskrift, vises `råvarer ind: …` som note.
+- **Lagertrækket er urørt.** Råvarerne forbruges nøjagtigt som før; yieldet ændrer kun
+  hvad der VISES. Låst fast af en test (S5).
+- **Kædning som fallback:** `findConversionFactorToGrams` kæder nu via kilo, så et produkt
+  med `1 Liter = 1 Kilo` kan vejes. 27 råvarer i grocy-hq var tavst udeladt af summen.
+  Betyder mest for de opskrifter der ikke har et erklæret yield.
+
+**Tests:** `scripts/test-yield-model.js` (14 — masse-yield, antal-yield med g/stk, fallback
+uden yield, skalering, og at lagertrækket er uændret) + `scripts/test-gram-chaining.js` (6).
+Browser-verificeret mod live grocy-hq.
+
+**Grocy-huller fundet undervejs:** `Løvstikke Mayo` og `Æggesalat` mangler
+`recipeunitnumber` (falder tilbage på summen indtil de udfyldes), og Æggesalat-opskriften
+producerer efter køkkenets egen vurdering for meget — rettes af Leif.
+
+**Retning:** yieldet er første skridt mod #272/#269, hvor underopskrifterne bliver rigtige
+produkter med eget lager, og `recipeunitnumber` bliver mængden på `Produces product`.
 
 ## Næste opgave
 

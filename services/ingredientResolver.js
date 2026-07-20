@@ -246,6 +246,27 @@ async function resolveIngredients(recipeLines) {
                 ? (subRecipeSellable.unit || 'stk')
                 : (subRaw.userfields?.recipeunit || 'stk');
 
+            // YIELD — hvad opskriften faktisk producerer.
+            //
+            // En produktionsopskrift vejer IKKE summen af sine input: syltelagen
+            // hældes fra, kødet svinder. Køkkenet har standardiseret på at hver
+            // opskrift yielder en fast mængde af den vare der bruges senere
+            // (typisk 1 kg), og det tal ER erklæret i Grocy som
+            // recipeunit + recipeunitnumber.
+            //
+            // Målt: "Balsamico + løg" = 1 kg løg + 0,06 L balsamico + 0,5 L vand.
+            // Summen er 470 g pr. batch, men yieldet er 300 g — lagen tælles ikke
+            // med. Omvendt rammer Frisk Grønt og Remoulade præcist, fordi intet
+            // går tabt der. Yieldet er aldrig HØJERE end summen.
+            //
+            // input_weight_grams beholdes ved siden af: for antal-opskrifter
+            // (sliders) er det den eneste kilde til "hvad vejer én af dem", som
+            // opskrift-visningen har brug for.
+            const yieldUnit = String(subRaw.userfields?.recipeunit || '').trim();
+            const yieldNumRaw = subRaw.userfields?.recipeunitnumber;
+            const yieldNum = parseFloat(yieldNumRaw);
+            const hasYield = !!yieldUnit && Number.isFinite(yieldNum) && yieldNum > 0;
+
             const key = `sub_${subRecipeId}`;
             if (subRecipeAgg.has(key)) {
                 const existing = subRecipeAgg.get(key);
@@ -259,6 +280,8 @@ async function resolveIngredients(recipeLines) {
                     servings:     scaledServings,
                     unit:         subUnit,
                     base_servings: parseInt(subRaw.base_servings) || 1,
+                    yield_unit:       hasYield ? yieldUnit : null,
+                    yield_per_serving: hasYield ? yieldNum : null,
                 });
             }
         }
@@ -442,9 +465,33 @@ function formatLevel(aggregated, effectiveStock, quConversions, unitMap, subReci
     let subRecipes = [];
     if (subRecipeAgg && subRecipeAgg.size > 0) {
         subRecipes = [...subRecipeAgg.values()].map(sr => {
-            const weightG = sr.weight_grams;
+            const inputWeightG = sr.weight_grams;
+
+            // Erklæret yield vinder over summen af input. Findes intet yield,
+            // falder vi tilbage på summen — den er stadig bedre end ingenting,
+            // men den overvurderer alt hvor der hældes fra eller svinder.
+            const yieldAmount = sr.yield_per_serving != null
+                ? sr.servings * sr.yield_per_serving : null;
+            const yu = String(sr.yield_unit || '').toLowerCase();
+            const isMassYield = /^(kg|kilo)$/.test(yu);
+            const isVolYield  = /^(l|liter)$/.test(yu);
+
+            // Vægten i gram, som pakkelisten og vejningen bruger. Er yieldet en
+            // masse, ER det vægten — ikke summen. Er yieldet et antal (sliders),
+            // er summen den eneste vægt-kilde vi har.
+            const weightG = (yieldAmount != null && isMassYield)
+                ? yieldAmount * 1000
+                : inputWeightG;
+
             let display;
-            if (weightG > 0) {
+            if (yieldAmount != null && !isMassYield && !isVolYield) {
+                // Antal-yield: sliders tælles, de vejes ikke.
+                display = `${Math.round(yieldAmount * 100) / 100} ${sr.yield_unit}`;
+            } else if (yieldAmount != null && isVolYield) {
+                display = yieldAmount >= 1
+                    ? `${Math.round(yieldAmount * 100) / 100} ${sr.yield_unit}`
+                    : `${Math.round(yieldAmount * 1000)} ml`;
+            } else if (weightG > 0) {
                 display = weightG >= 1000
                     ? (Math.round(weightG / 10) / 100).toLocaleString('da-DK') + ' kg'
                     : Math.round(weightG * 100) / 100 + ' g';
@@ -452,14 +499,24 @@ function formatLevel(aggregated, effectiveStock, quConversions, unitMap, subReci
                 const s = Math.round(sr.servings * 100) / 100;
                 display = `${s} ${sr.unit}`;
             }
+
             return {
                 recipe_id:    sr.recipe_id,
                 recipe_name:  sr.recipe_name,
                 amount:       display,
-                // Numerisk standard-vægt (ekskl. emballage) — bruges af pakkelisten
-                // til redigerbar buffer (factor = ønsket / weight_grams).
+                // Numerisk vægt (ekskl. emballage) — bruges af pakkelisten til
+                // redigerbar buffer (factor = ønsket / weight_grams).
                 weight_grams: weightG,
                 servings:     sr.servings,
+                // Yieldet som erklæret i Grocy. null = ikke erklæret → summen bruges.
+                yield_amount: yieldAmount,
+                yield_unit:   sr.yield_unit,
+                // Summen af input. Beholdes fordi den for ANTAL-opskrifter er den
+                // eneste kilde til "hvad vejer én slider" — som opskrift-visningen
+                // skal kunne vise, selvom bonen kun interesserer sig for antallet.
+                input_weight_grams: inputWeightG,
+                unit_weight_grams: (yieldAmount > 0 && !isMassYield && !isVolYield)
+                    ? inputWeightG / yieldAmount : null,
             };
         }).sort((a, b) => a.recipe_name.localeCompare(b.recipe_name, 'da'));
     }

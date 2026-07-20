@@ -86,6 +86,12 @@ async function _rvLoadData() {
             .map(function(r) {
                 r.group = (r.userfields && r.userfields.grupper) || 'Ingen kategori';
                 r.recipeUnit = (r.userfields && r.userfields.recipeunit) || 'stk';
+                // Yieldet: hvad opskriften faktisk producerer pr. serving.
+                // En produktionsopskrift vejer ikke summen af sine input —
+                // syltelage hældes fra og kød svinder. Er tallet ikke erklæret,
+                // opfinder vi det ikke (null → fald tilbage på summen).
+                var _yn = parseFloat(r.userfields && r.userfields.recipeunitnumber);
+                r.yieldPerServing = (isFinite(_yn) && _yn > 0) ? _yn : null;
                 return r;
             });
 
@@ -486,14 +492,38 @@ function _rvRenderIngredients() {
             var isWeightUnit = ['kg', 'kilo', 'g', 'gram', 'l', 'liter', 'ml'].indexOf(nestingUnit) !== -1;
             var displayText;
 
-            if (isWeightUnit) {
-                var subWeightG = _rvCalculateSubRecipeWeightGrams(nesting.includes_recipe_id, scaledServings);
-                totalWeightGrams += subWeightG;
-                displayText = subWeightG > 0 ? _rvFormatWeight(subWeightG) : '\u2013 g';
+            var inputWeightG = _rvCalculateSubRecipeWeightGrams(nesting.includes_recipe_id, scaledServings);
+            var yieldAmount = subRecipe.yieldPerServing != null
+                ? scaledServings * subRecipe.yieldPerServing : null;
+            var isMassYield = ['kg', 'kilo'].indexOf(nestingUnit) !== -1;
+            var extraText = '';
+
+            if (yieldAmount != null && isMassYield) {
+                // Yieldet ER vægten — summen af input overvurderer alt hvor der
+                // hældes fra. Vis yieldet, og lad summen stå som note hvis de afviger.
+                var yG = yieldAmount * 1000;
+                totalWeightGrams += yG;
+                displayText = _rvFormatWeight(yG);
+                if (inputWeightG > 0 && Math.abs(inputWeightG - yG) / yG > 0.02) {
+                    extraText = 'råvarer ind: ' + _rvFormatWeight(inputWeightG);
+                }
+            } else if (yieldAmount != null && !isWeightUnit) {
+                // Antal-yield (sliders): bonen tæller dem, men køkkenet skal
+                // stadig kunne se hvad ét stykke vejer.
+                totalWeightGrams += inputWeightG;
+                var f2 = _rvFormatAmount(yieldAmount, subRecipe.recipeUnit || 'stk');
+                displayText = f2.amount + ' ' + f2.unit;
+                if (yieldAmount > 0 && inputWeightG > 0) {
+                    extraText = Math.round(inputWeightG / yieldAmount) + ' g/stk'
+                              + ' · i alt ' + _rvFormatWeight(inputWeightG);
+                }
+            } else if (isWeightUnit) {
+                totalWeightGrams += inputWeightG;
+                displayText = inputWeightG > 0 ? _rvFormatWeight(inputWeightG) : '\u2013 g';
             } else {
                 var fmt = _rvFormatAmount(scaledServings, subRecipe.recipeUnit || 'stk');
                 displayText = fmt.amount + ' ' + fmt.unit;
-                totalWeightGrams += _rvCalculateSubRecipeWeightGrams(nesting.includes_recipe_id, scaledServings);
+                totalWeightGrams += inputWeightG;
             }
 
             // Status rulles op fra underopskriftens egne r\u00e5varer \u2014 prikken var
@@ -515,7 +545,9 @@ function _rvRenderIngredients() {
                     '<span class="rv-ingredient-link" data-rv-sub-recipe="' + subRecipe.id + '">' + esc(subRecipe.name) + ' [\u2192]</span>' +
                     warnHtml +
                 '</div>' +
-                '<div class="rv-ingredient-amount">' + esc(displayText) + '</div>' +
+                '<div class="rv-ingredient-amount">' + esc(displayText)
+                    + (extraText ? '<span class="rv-nesting-extra">' + esc(extraText) + '</span>' : '')
+                    + '</div>' +
                 '<div class="rv-ingredient-stock"></div>' +
             '</li>';
         });
