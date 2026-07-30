@@ -128,6 +128,32 @@ sudo systemctl restart bon-v2
 
 ---
 
+## 6 · #371 — Yield-modellen (underopskrifters vægt)
+
+En produktionsopskrift vejer ikke summen af sine input — syltelage hældes fra, kød svinder.
+Modellen bruger nu det yield der er erklæret i Grocy (`recipeunit` + `recipeunitnumber`),
+og falder tilbage på summen når intet er erklæret.
+
+```bash
+git checkout claude/gram-kaedning
+sudo systemctl restart bon-v2
+```
+
+Hård refresh (**Cmd+Shift+R**).
+
+- [ ] Åbn Opskrifter → en ret med underopskrifter (fx "Alm slider Boks")
+- [ ] Slider-underopskrifter vises nu som **antal** (fx "1 antal") med vægten under
+      ("137 g/stk · i alt 136,86 g") — antal til bonen, vægt til køkkenet
+- [ ] Dressinger viser deres **yield** (Balsamico + løg: 300 g, ikke 470 g)
+- [ ] Åbn en bons Råvarer-modal → underopskrifternes mængder følger samme model
+- [ ] `Æggesalat` og `Løvstikke Mayo` viser stadig summen (de mangler `recipeunitnumber`
+      i Grocy — udfyldes via #372, ikke en fejl her)
+
+> **Vigtigt at bekræfte:** Sæt en bon til LEVERET og tjek at lageret trækkes som hidtil.
+> Yieldet ændrer kun hvad der VISES — råvarerne skal forbruges uændret.
+
+---
+
 ## Til sidst
 
 ```bash
