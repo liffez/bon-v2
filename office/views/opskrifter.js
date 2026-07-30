@@ -10,7 +10,7 @@
 
 /* globals fetchRecipesOverview, fetchRecipeTargets, putRecipeTargets,
            patchRecipeTarget, putItemPrice, refreshRecipeCosts,
-           grocyRecipeLink */
+           grocyRecipeLink, fetchRecipeComposition */
 
 const _opsState = {
     container: null,
@@ -25,6 +25,8 @@ const _opsState = {
     sortDir: 'asc',
     activeFilters: new Set(['active']),
     sseHandler: null,
+    compStack: [],      // drill-down: recipe_id-historik i råvare-sektionen
+    compCache: {},      // recipe_id → composition-response (per session)
 };
 
 function initOpskrifter(container) {
@@ -46,6 +48,8 @@ function cleanupOpskrifter() {
     _opsState.data = null;
     _opsState.selected = null;
     _opsState.sseHandler = null;
+    _opsState.compStack = [];
+    _opsState.compCache = {};
     _opsClosePanel();
 }
 
@@ -547,6 +551,10 @@ function _opsOpenPanel(recipeId) {
     document.getElementById('ops-panel').classList.add('open');
 
     _opsBindPanelEvents(r);
+
+    // Start råvare-drill-down på den valgte opskrift
+    _opsState.compStack = [r.grocy_recipe_id];
+    _opsRenderComposition();
 }
 
 function _opsClosePanel() {
@@ -597,6 +605,19 @@ function _opsPanelBodyHtml(r) {
         </div>
     `;
 
+    // Råvarer + underopskrifter (drill-down) — fyldes async efter panel-åbning.
+    const compSection = `
+        <div class="ops-panel-section">
+            <div class="ops-comp-head">
+                <h4>Råvarer & underopskrifter</h4>
+                <div class="ops-comp-nav" id="ops-comp-nav"></div>
+            </div>
+            <div class="ops-comp-body" id="ops-comp-body">
+                <div class="ops-comp-loading">Indlæser råvarer…</div>
+            </div>
+        </div>
+    `;
+
     // Volumen-graf (period_buckets)
     const buckets = r.period_buckets || [];
     const maxBucket = Math.max(...buckets, 1);
@@ -633,7 +654,7 @@ function _opsPanelBodyHtml(r) {
         </div>
     `;
 
-    return banner + priceSection + volChart + metadata;
+    return banner + priceSection + compSection + volChart + metadata;
 }
 
 function _opsBindPanelEvents(r) {
@@ -678,6 +699,159 @@ function _opsBindPanelEvents(r) {
         } catch (err) {
             _opsToast('Fejl: ' + err.message, true);
         }
+    });
+}
+
+// ─── Råvare-drill-down (composition) ─────────────────────────
+//
+// Prisen/volumen/metadata øverst hører til den PRIMÆRT valgte opskrift.
+// Kun råvare-sektionen navigerer: klik på en underopskrift eller et produkt
+// med egen opskrift (Langtids Stegt Gris) åbner DENS råvarer i samme boks,
+// med en "‹ tilbage"-knap. Ét niveau hentes ad gangen fra serveren.
+
+async function _opsRenderComposition() {
+    const body = document.getElementById('ops-comp-body');
+    const nav = document.getElementById('ops-comp-nav');
+    if (!body) return;
+    const currentId = _opsState.compStack[_opsState.compStack.length - 1];
+    if (!currentId) return;
+
+    // Tilbage-knap (viser forrige opskrifts navn hvis vi er drillet ned)
+    if (nav) {
+        if (_opsState.compStack.length > 1) {
+            const prevId = _opsState.compStack[_opsState.compStack.length - 2];
+            const prevName = (_opsState.compCache[prevId] && _opsState.compCache[prevId].name) || 'tilbage';
+            nav.innerHTML = `<button class="ops-comp-back" data-act="comp-back">‹ ${_opsEsc(prevName)}</button>`;
+        } else {
+            nav.innerHTML = '';
+        }
+    }
+
+    let data = _opsState.compCache[currentId];
+    if (!data) {
+        body.innerHTML = '<div class="ops-comp-loading">Indlæser råvarer…</div>';
+        try {
+            data = await fetchRecipeComposition(currentId);
+            _opsState.compCache[currentId] = data;
+        } catch (err) {
+            body.innerHTML = `<div class="ops-comp-empty">Kunne ikke hente råvarer: ${_opsEsc(err.message)}</div>`;
+            return;
+        }
+    }
+    // Panelet kan være lukket eller navigeret videre mens vi hentede
+    if (_opsState.compStack[_opsState.compStack.length - 1] !== currentId) return;
+
+    body.innerHTML = _opsCompBodyHtml(data);
+    _opsBindCompEvents();
+}
+
+function _opsCompBodyHtml(data) {
+    const drilled = _opsState.compStack.length > 1;
+    const ings = data.ingredients || [];
+    const subs = data.sub_recipes || [];
+
+    const isEmb = (g) => (g || '').toLowerCase() === 'emballage';
+    const mainIngs = ings.filter(i => !isEmb(i.ingredient_group));
+    const embIngs  = ings.filter(i => isEmb(i.ingredient_group));
+
+    const ingRow = (i) => {
+        const nameHtml = i.producing_recipe_id
+            ? `<span class="ops-comp-link" data-comp-recipe="${i.producing_recipe_id}">${_opsEsc(i.name)} <span class="ops-comp-arrow">[→]</span></span>`
+            : _opsEsc(i.name);
+        return `<tr>
+            <td class="ops-comp-name">${_opsStockDot(i.in_stock)}${nameHtml}</td>
+            <td class="num">${_opsEsc(_opsCompAmount(i))}</td>
+            <td class="num">${_opsCompCost(i.cost)}</td>
+        </tr>`;
+    };
+    const subRow = (s) => `<tr class="ops-comp-sub" data-comp-recipe="${s.recipe_id}">
+        <td class="ops-comp-name">
+            <span class="ops-comp-link">↳ ${_opsEsc(s.name)} <span class="ops-comp-arrow">[→]</span></span>
+            <span class="ops-comp-tag">underopskrift</span>
+        </td>
+        <td class="num">${_opsEsc(_opsCompServings(s))}</td>
+        <td class="num">${_opsCompCost(s.cost)}</td>
+    </tr>`;
+
+    const rows = [
+        ...mainIngs.map(ingRow),
+        ...subs.map(subRow),
+        ...embIngs.map(ingRow),
+    ].join('');
+
+    const drilledTitle = drilled
+        ? `<div class="ops-comp-current">${_opsEsc(data.name)}${data.category ? ` <span class="ops-comp-cat">· ${_opsEsc(data.category)}</span>` : ''}</div>`
+        : '';
+
+    const anyMissingCost = ings.some(i => i.cost == null);
+    const totalRow = data.total_cost != null
+        ? `<tfoot><tr class="ops-comp-total">
+             <td>Kostpris i alt</td><td></td><td class="num">${_opsCompCost(data.total_cost)}</td>
+           </tr></tfoot>`
+        : '';
+    const costNote = anyMissingCost
+        ? '<div class="ops-comp-note">— = råvare uden pris i Grocy (indgår i totalen, men vises ikke pr. linje)</div>'
+        : '';
+
+    const table = rows
+        ? `<table class="ops-comp-table">
+             <thead><tr><th>Råvare</th><th class="num">Mængde</th><th class="num">Kostpris</th></tr></thead>
+             <tbody>${rows}</tbody>
+             ${totalRow}
+           </table>${costNote}`
+        : '<div class="ops-comp-empty">Ingen råvarer registreret på denne opskrift.</div>';
+
+    // Kun køkken-opskrift her — Grocy-linket ligger allerede i metadata-sektionen.
+    const links = `<div class="ops-comp-links">
+        <a href="/kitchen/recipes.html?recipe=${data.recipe_id}" target="_blank" class="ops-btn-link">🔍 Åbn i køkken-opskrift</a>
+    </div>`;
+
+    return drilledTitle + table + links;
+}
+
+function _opsCompAmount(i) {
+    if (i.amount == null) return '—';
+    const n = Number(i.amount).toLocaleString('da-DK', { maximumFractionDigits: 2 });
+    return `${n} ${i.unit || ''}`.trim();
+}
+
+function _opsCompServings(s) {
+    const n = Number(s.servings || 0).toLocaleString('da-DK', { maximumFractionDigits: 2 });
+    return `${n} ${s.unit || ''}`.trim();
+}
+
+function _opsCompCost(c) {
+    if (c == null) return '<span class="ops-comp-nocost" title="Mangler pris i Grocy">—</span>';
+    return Number(c).toLocaleString('da-DK', { minimumFractionDigits: 2, maximumFractionDigits: 2 }) + ' kr';
+}
+
+// Lille rød/grøn lager-lampe (uafhængig af pris — en udsolgt vare har stadig en pris).
+function _opsStockDot(inStock) {
+    if (inStock == null) return '';
+    return inStock
+        ? '<span class="ops-stock-dot ok" title="På lager"></span>'
+        : '<span class="ops-stock-dot out" title="Ikke på lager"></span>';
+}
+
+function _opsBindCompEvents() {
+    const body = document.getElementById('ops-comp-body');
+    const nav = document.getElementById('ops-comp-nav');
+
+    nav?.querySelector('[data-act="comp-back"]')?.addEventListener('click', () => {
+        if (_opsState.compStack.length > 1) {
+            _opsState.compStack.pop();
+            _opsRenderComposition();
+        }
+    });
+
+    body?.querySelectorAll('[data-comp-recipe]').forEach(el => {
+        el.addEventListener('click', (e) => {
+            e.stopPropagation();
+            const rid = parseInt(el.getAttribute('data-comp-recipe'), 10);
+            if (!rid || _opsState.compStack[_opsState.compStack.length - 1] === rid) return;
+            _opsState.compStack.push(rid);
+            _opsRenderComposition();
+        });
     });
 }
 

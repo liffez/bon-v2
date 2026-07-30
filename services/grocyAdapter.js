@@ -419,6 +419,16 @@ function getStock() {
     return cachedFetch('stock', '/stock');
 }
 
+/**
+ * Detaljer for ét produkt: last_price/avg_price (bevaret i Grocys prishistorik
+ * UANSET lager) + stock_amount. Bulk-/stock indeholder KUN varer på lager, så
+ * priser på udsolgte varer (fx Æbler) mangler der — derfor slås de op her ved
+ * kostpris-beregning i Opskrifter & priser.
+ */
+function getProductDetails(productId) {
+    return cachedFetch('product_details_' + productId, '/stock/products/' + productId);
+}
+
 /** Udløbende, overskredet og manglende varer (ikke cached — volatile data) */
 async function getStockVolatile(dueSoonDays) {
     var days = dueSoonDays || 5;
@@ -1113,6 +1123,7 @@ module.exports = {
     getRecipeNestings,
     getProducts,
     getStock,
+    getProductDetails,
     getStockVolatile,
     getLocations,
     getProductGroups,

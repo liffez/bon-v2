@@ -904,10 +904,14 @@ function _covPanelBar(pct) {
 
 function _covPanelIngRow(x) {
     const amt = `${_covNum(x.amount_per_serving, x.amount_per_serving < 1 ? 3 : 2)}${x.unit ? ' ' + _covEsc(x.unit) : ''}`;
+    // Produkt med egen opskrift (fx Langtids Stegt Gris) → klikbart, drill ned i dens råvarer.
+    const nameHtml = x.producing_recipe_id
+        ? `<span class="cov-panel-prodlink" data-prod-recipe="${x.producing_recipe_id}">${_covEsc(x.name)} <span class="cov-tag-arrow">[→]</span></span>`
+        : _covEsc(x.name);
     if (x.status === 'ok') {
         const src = x.source ? `<span class="cov-src" title="Kilde">${_covEsc(x.source)}</span>` : '';
         return `<tr>
-          <td class="cov-panel-ing">${_covEsc(x.name)}${x.is_packaging ? ' <span class="cov-tag">emb.</span>' : ''}</td>
+          <td class="cov-panel-ing">${nameHtml}${x.is_packaging ? ' <span class="cov-tag">emb.</span>' : ''}</td>
           <td class="cov-num">${amt}</td>
           <td class="cov-num">${_covNum(x.kg, 3)}</td>
           <td class="cov-num">${_covNum(x.factor)} ${src}</td>
@@ -919,7 +923,7 @@ function _covPanelIngRow(x) {
     // og er IKKE en mangel. Kan vises igen i Emballage-tildeleren ("Skjulte"-filter).
     if (x.status === 'na') {
         return `<tr class="cov-panel-na">
-          <td class="cov-panel-ing">${_covEsc(x.name)}${x.is_packaging ? ' <span class="cov-tag">emb.</span>' : ''}</td>
+          <td class="cov-panel-ing">${nameHtml}${x.is_packaging ? ' <span class="cov-tag">emb.</span>' : ''}</td>
           <td class="cov-num">${amt}</td>
           <td class="cov-num cov-dim">—</td>
           <td colspan="3"><span class="cov-badge cov-badge-grey">Ikke relevant</span>
@@ -937,7 +941,7 @@ function _covPanelIngRow(x) {
         ? `<button class="cov-fix-btn" data-act="manual" data-pid="${pid}" data-name="${_covEsc(x.name)}">Sæt faktor</button>`
         : act ? `<button class="cov-fix-btn" data-act="${act}">Ret →</button>` : '';
     return `<tr class="cov-panel-missing">
-      <td class="cov-panel-ing">${_covEsc(x.name)}${x.is_packaging ? ' <span class="cov-tag">emb.</span>' : ''}</td>
+      <td class="cov-panel-ing">${nameHtml}${x.is_packaging ? ' <span class="cov-tag">emb.</span>' : ''}</td>
       <td class="cov-num">${amt}</td>
       <td class="cov-num">${x.kg != null ? _covNum(x.kg, 3) : '<span class="cov-dim">—</span>'}</td>
       <td colspan="3">${msg} ${btn}</td>
@@ -964,6 +968,13 @@ function _covBindPanelRows() {
     // Drill ned i underopskrift
     body.querySelectorAll('.cov-panel-sub').forEach(row => {
         row.addEventListener('click', () => _covOpenPanel(parseInt(row.dataset.subId, 10)));
+    });
+    // Drill ned i et produkt med egen opskrift (fx Langtids Stegt Gris)
+    body.querySelectorAll('.cov-panel-prodlink[data-prod-recipe]').forEach(link => {
+        link.addEventListener('click', (e) => {
+            e.stopPropagation();
+            _covOpenPanel(parseInt(link.dataset.prodRecipe, 10));
+        });
     });
     // Ret-knapper
     body.querySelectorAll('.cov-fix-btn').forEach(btn => {
