@@ -18,7 +18,7 @@
 //
 // Brug:
 //   node scripts/prep-estimate.js --sandwich 500 --slider 300 --salat 120 \
-//        --sylt-slags 3 --dressing-kg 8 --frikadeller 400
+//        --sylt-slags 3 --dressing-kg 8 --frikadeller 400 --kartofler --purloeg
 //
 //   node --experimental-sqlite scripts/prep-estimate.js --db data/bon.db --event 12
 //        (summerer event_forecast pr. kategori + bruger events.start_date)
@@ -48,20 +48,22 @@ const PER_UNIT_MIN = {
 // indtil vi evt. binder dem til opskriftstræet.
 const COMPONENT_MIN = {
   frikadeller: 15 / 100,    // 100 stk / 15 min = 0.15 min/stk  (flag: --frikadeller N)
-  // kartofler: UKENDT (pr. kg)   — flag findes, men rate mangler → rapporteres som hul
-  // purloeg:   UKENDT            — flag findes, men rate mangler → rapporteres som hul
 };
 
-// UKENDTE rater — flag accepteres men bidrager 0 og listes som hul.
-const UNKNOWN_COMPONENTS = {
-  kartofler: { flag: 'kartofler-kg', label: 'Skære kartofler', note: 'rate UKENDT (pr. kg)' },
-  purloeg:   { flag: 'purloeg',      label: 'Snitte purløg',    note: 'rate UKENDT' },
-};
+// Ingen ukendte rater tilbage — kartofler + purløg fik tal (Leif, juli 2026)
+// og ligger nu som faste batch-opgaver i BATCH nedenfor (enhed uafklaret, se note).
+const UNKNOWN_COMPONENTS = {};
 
 // PER-BATCH: faste timer, ~uafhængige af mængde.
 const BATCH = {
   sylt_hours_per_slags: 2,   // ~2 t pr. slags sylt (flag: --sylt-slags N, typisk 3)
   dressing_min_per_kg:  5,   // 10 min / 2 kg = 5 min/kg (flag: --dressing-kg N)
+  // Kartofler + purløg: Leif gav "ca 15 min" / "ca 10 min" UDEN enhed. 15 min pr. kg
+  // ville være urealistisk stort → tolket som FASTE batch-opgaver (som sylt: én kort
+  // opgave uanset mængde). ⚠️ Enheden skal verificeres ved kalibrering — se
+  // docs/CLAUDE_EVENT.md §15.2. Slås til/fra med --kartofler / --purloeg (boolean-flag).
+  kartofler_fixed_min: 15,   // fast, hvis eventet skærer kartofler (flag: --kartofler)
+  purloeg_fixed_min:   10,   // fast, hvis eventet snitter purløg   (flag: --purloeg)
 };
 
 // ══════════════════════════════════════════════════════════════════════════
@@ -167,6 +169,16 @@ function main() {
     const min = kg * BATCH.dressing_min_per_kg;
     batchMin += min;
     batchLines.push({ label: 'Blande dressing/mayo', detail: `${kg} kg × ${BATCH.dressing_min_per_kg} min`, min });
+  }
+  // Kartofler + purløg: boolean-flag (laves eventet det, ja/nej) — faste tider,
+  // enhed uafklaret (se BATCH-kommentar + §15.2). ⚠ i detaljen minder om det.
+  if (args.kartofler) {
+    batchMin += BATCH.kartofler_fixed_min;
+    batchLines.push({ label: 'Skære kartofler', detail: `fast ${BATCH.kartofler_fixed_min} min ⚠`, min: BATCH.kartofler_fixed_min });
+  }
+  if (args.purloeg) {
+    batchMin += BATCH.purloeg_fixed_min;
+    batchLines.push({ label: 'Snitte purløg', detail: `fast ${BATCH.purloeg_fixed_min} min ⚠`, min: BATCH.purloeg_fixed_min });
   }
 
   const totalMin = perUnitMin + compMin + batchMin;
