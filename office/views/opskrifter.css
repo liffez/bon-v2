@@ -562,6 +562,17 @@
     color: #3a2f1c;
 }
 .ops-comp-nocost { color: #b8b0a4; }
+.ops-stock-dot {
+    display: inline-block;
+    width: 8px;
+    height: 8px;
+    border-radius: 50%;
+    margin-right: 7px;
+    vertical-align: middle;
+    flex: none;
+}
+.ops-stock-dot.ok { background: #4a9d5b; }
+.ops-stock-dot.out { background: #bc181b; }
 .ops-comp-note {
     font-size: 11px;
     color: #8a8378;

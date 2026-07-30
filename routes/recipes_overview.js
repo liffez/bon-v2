@@ -29,7 +29,18 @@ const { handle, logChange, inclToExcl, exclToIncl, nonRevenueBonExcludeSQL } = r
 const { requireAuth } = require('../shared/auth');
 const grocyAdapter = require('../services/grocyAdapter');
 const { convertAndFormat } = require('../services/quConvert');
-const { unitCostFromStockRow } = require('../services/production');
+
+// Kostpris pr. stock-enhed ex moms fra Grocy produkt-detaljer. last_price (seneste
+// købspris) er master; avg_price (gns.) som fallback. Bevares i prishistorikken
+// UANSET lager, så udsolgte varer også får en pris.
+function lastPriceOf(details) {
+    if (!details) return null;
+    const last = Number(details.last_price);
+    if (Number.isFinite(last) && last > 0) return last;
+    const avg = Number(details.avg_price);
+    if (Number.isFinite(avg) && avg > 0) return avg;
+    return null;
+}
 const itemPriceBackfill = require('../services/itemPriceBackfill');
 const { broadcast } = require('../shared/sse');
 
@@ -637,14 +648,13 @@ router.get('/:id/composition', handle(async (req, res) => {
     const id = parseInt(req.params.id, 10);
     if (!Number.isFinite(id)) return res.status(400).json({ error: 'Ugyldigt id' });
 
-    const [recipesMap, allPos, nestings, products, units, conversions, stock, fulfillment] = await Promise.all([
+    const [recipesMap, allPos, nestings, products, units, conversions, fulfillment] = await Promise.all([
         grocyAdapter.getRecipesRawMap(),
         grocyAdapter.getAllRecipesPos(),
         grocyAdapter.getRecipeNestings(),
         grocyAdapter.getProducts(),
         grocyAdapter.getQuantityUnits(),
         grocyAdapter.getQuantityUnitConversions(),
-        grocyAdapter.getStock().catch(() => []),
         grocyAdapter.getRecipeFulfillment().catch(() => []),
     ]);
 
@@ -653,10 +663,6 @@ router.get('/:id/composition', handle(async (req, res) => {
 
     const unitMap = new Map(units.map(u => [u.id, u]));
     const productMap = new Map(products.map(p => [String(p.id), p]));
-    // Hele stock-rækken pr. produkt — bruges til både lager-tal og kostpris
-    // (unitCostFromStockRow: last_price / value÷amount, ex moms — samme kilde som
-    // produktions-modulet og Grocys egen kostpris-beregning).
-    const stockRowMap = new Map(stock.map(s => [String(s.product_id), s]));
     // recipe_id → samlet kostpris ex moms (Grocy fulfillment) — til underopskrifter + total
     const costMap = new Map(fulfillment.map(f => [String(f.recipe_id), Number(f.costs) || 0]));
 
@@ -673,37 +679,51 @@ router.get('/:id/composition', handle(async (req, res) => {
         return u ? (u.name_short || u.name || '') : '';
     };
 
+    // Denne opskrifts direkte ingredienser
+    const posForRecipe = allPos.filter(p => String(p.recipe_id) === String(id));
+
+    // Produkt-detaljer (last_price + stock_amount) pr. ingrediens, parallelt.
+    // Nødvendigt fordi bulk-/stock KUN har varer på lager — priser på udsolgte
+    // varer (fx Æbler) skal med, og de ligger i Grocys prishistorik (last_price).
+    const ingProductIds = [...new Set(posForRecipe.map(p => String(p.product_id)))];
+    const detailsList = await Promise.all(
+        ingProductIds.map(pid => grocyAdapter.getProductDetails(pid).catch(() => null))
+    );
+    const detailsMap = new Map();
+    ingProductIds.forEach((pid, i) => detailsMap.set(pid, detailsList[i]));
+
     // Direkte ingredienser (recipes_pos)
-    const ingredients = allPos
-        .filter(p => String(p.recipe_id) === String(id))
-        .map(pos => {
-            const prod = productMap.get(String(pos.product_id)) || {};
-            const stockQuId = prod.qu_id_stock || pos.qu_id;
-            const fmt = convertAndFormat(parseFloat(pos.amount) || 0, {
-                productId: pos.product_id,
-                fromQuId: stockQuId,
-                toQuId: pos.qu_id,
-                conversions,
-                unitMap,
-            });
-            const producingId = producingByProduct.get(String(pos.product_id));
-            // Kostpris ex moms: pris/stock-enhed × mængde i stock-enhed (recipes_pos.amount).
-            const srow = stockRowMap.get(String(pos.product_id));
-            const unitCost = unitCostFromStockRow(srow);   // null hvis ikke på lager / ukendt pris
-            const amountStock = parseFloat(pos.amount) || 0;
-            return {
-                product_id: pos.product_id,
-                name: pos.product_name || prod.name || ('Produkt #' + pos.product_id),
-                amount: fmt.amount,
-                unit: fmt.unit,
-                ingredient_group: pos.ingredient_group || '',
-                stock: srow ? (parseFloat(srow.amount) || 0) : null,
-                stock_unit: unitName(stockQuId),
-                cost: unitCost != null ? r2(amountStock * unitCost) : null,
-                // Klikbar kun hvis produktet har sin EGEN opskrift (og ikke er den vi står på).
-                producing_recipe_id: (producingId && producingId !== id) ? producingId : null,
-            };
+    const ingredients = posForRecipe.map(pos => {
+        const prod = productMap.get(String(pos.product_id)) || {};
+        const stockQuId = prod.qu_id_stock || pos.qu_id;
+        const fmt = convertAndFormat(parseFloat(pos.amount) || 0, {
+            productId: pos.product_id,
+            fromQuId: stockQuId,
+            toQuId: pos.qu_id,
+            conversions,
+            unitMap,
         });
+        const producingId = producingByProduct.get(String(pos.product_id));
+        // Kostpris ex moms: pris/stock-enhed × mængde i stock-enhed (recipes_pos.amount).
+        // last_price/avg_price bevares uanset lager, så udsolgte varer også får en pris.
+        const d = detailsMap.get(String(pos.product_id));
+        const unitCost = lastPriceOf(d);
+        const amountStock = parseFloat(pos.amount) || 0;
+        const stockAmount = d ? (Number(d.stock_amount) || 0) : null;
+        return {
+            product_id: pos.product_id,
+            name: pos.product_name || prod.name || ('Produkt #' + pos.product_id),
+            amount: fmt.amount,
+            unit: fmt.unit,
+            ingredient_group: pos.ingredient_group || '',
+            stock: stockAmount,
+            stock_unit: unitName(stockQuId),
+            in_stock: stockAmount == null ? null : stockAmount > 0,
+            cost: unitCost != null ? r2(amountStock * unitCost) : null,
+            // Klikbar kun hvis produktet har sin EGEN opskrift (og ikke er den vi står på).
+            producing_recipe_id: (producingId && producingId !== id) ? producingId : null,
+        };
+    });
 
     // Underopskrifter (recipes_nestings)
     const sub_recipes = nestings

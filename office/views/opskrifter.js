@@ -759,7 +759,7 @@ function _opsCompBodyHtml(data) {
             ? `<span class="ops-comp-link" data-comp-recipe="${i.producing_recipe_id}">${_opsEsc(i.name)} <span class="ops-comp-arrow">[→]</span></span>`
             : _opsEsc(i.name);
         return `<tr>
-            <td class="ops-comp-name">${nameHtml}</td>
+            <td class="ops-comp-name">${_opsStockDot(i.in_stock)}${nameHtml}</td>
             <td class="num">${_opsEsc(_opsCompAmount(i))}</td>
             <td class="num">${_opsCompCost(i.cost)}</td>
         </tr>`;
@@ -823,6 +823,14 @@ function _opsCompServings(s) {
 function _opsCompCost(c) {
     if (c == null) return '<span class="ops-comp-nocost" title="Mangler pris i Grocy">—</span>';
     return Number(c).toLocaleString('da-DK', { minimumFractionDigits: 2, maximumFractionDigits: 2 }) + ' kr';
+}
+
+// Lille rød/grøn lager-lampe (uafhængig af pris — en udsolgt vare har stadig en pris).
+function _opsStockDot(inStock) {
+    if (inStock == null) return '';
+    return inStock
+        ? '<span class="ops-stock-dot ok" title="På lager"></span>'
+        : '<span class="ops-stock-dot out" title="Ikke på lager"></span>';
 }
 
 function _opsBindCompEvents() {
