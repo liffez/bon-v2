@@ -366,7 +366,7 @@ backend-roundtrip (overrides/extras/recipe_overrides). Live Grocy-skalering veri
 
 ---
 
-## 15. Prep-kapacitet — rå prep-tider + model-tanker (juli 2026, IKKE bygget)
+## 15. Prep-kapacitet — rå prep-tider + låst design (juli 2026, IKKE bygget)
 
 > Kom op i forlængelse af Smartplan-lokations-splittet (HQ vs Festival & Events).
 > Rå data fra Leif — **omtrentlige, admin-justerbare tal**, ikke facit. Skrevet ned så
@@ -389,8 +389,6 @@ En enkelt "prep-faktor" på enhederne holder ikke, fordi prep-arbejde deler sig 
 | Skære sandwich-brød | 1 kasse = 64 emner / 15 min | ~14 sek | ~256 |
 | Skære slider-brød | 1 kasse = **128 slidere** (halv størrelse, samme kasse brød) / 40 min | ~19 sek | ~192 |
 | Skære frikadeller / fiskefrikadeller | 100 stk / 15 min | ~9 sek | ~400 |
-| Skære kartofler (pr. kg) | **UKENDT** — Leif havde ikke tal | — | — |
-| Snitte purløg | **UKENDT** | — | — |
 
 **Per-batch (fast tid):**
 
@@ -398,6 +396,15 @@ En enkelt "prep-faktor" på enhederne holder ikke, fordi prep-arbejde deler sig 
 |--------|-----|------|
 | Sylt | ~2 t **pr. slags** · typisk 3 slags → ~6 t | ~uafhængig af festivalstørrelse |
 | Blande dressing / mayonnaise | 10 min pr. 2 kg | (semi-per-enhed på kg, men små tal) |
+| Skære kartofler | ~15 min (Leif, juli 2026) | ⚠️ **enhed uafklaret** — se note |
+| Snitte purløg | ~10 min (Leif, juli 2026) | ⚠️ **enhed uafklaret** — se note |
+
+> ⚠️ **Kartofler + purløg — enhed skal verificeres ved kalibrering.** Leif gav tallene
+> som bare "ca. 15 min" / "ca. 10 min" uden enhed. Prototypen antog oprindeligt kartofler
+> *pr. kg*, men 15 min pr. kg ville være urealistisk stort for et event → tolket her som
+> **faste batch-tider** (som sylt: én kort opgave uanset mængde). Behandles derfor som
+> per-batch indtil køkkenet bekræfter om det skalerer med mængden. Det er præcis den slags
+> "blødt tal uden enhed" der bliver en skjult fejl hvis den ikke flagges — derfor står den her.
 
 **Holdbarhed / kan laves i forvejen:**
 - Skåret brød: kan **fryses**.
@@ -431,12 +438,62 @@ En enkelt "prep-faktor" på enhederne holder ikke, fordi prep-arbejde deler sig 
    "misvisende rød" byttet til "misvisende tom". Derfor: gør det som time-budget (punkt 3),
    ikke som en simpel eksklusion.
 
-### 15.4 Åbne spørgsmål før byg
-- Kartoffel- og purløgs-rater mangler (Leif).
-- Prep-vindue: fast antal dage (setting) vs. felt pr. event? Preppes der også *under* eventet (rullende)?
-- Hjemsted for prep-tider pr. opskrift: Grocy-userfield vs. lokal tabel (bør være admin-redigerbart).
+### 15.4 Besluttet design — klar til byg (design-session Leif, 19. juli 2026)
 
-*Grundlag: design-session m. Leif (juli 2026), efter Smartplan-lokations-split. Rå tal + retning nedskrevet; model ikke bygget.*
+De tre huller fra 15.3 er nu lukket. Modellen er stadig **ikke bygget**, men designet er
+låst — nedenstående er hvad der skal implementeres, ikke længere åbne spørgsmål.
+
+**Kerne-beslutning: modellen kan ikke være rent kategori-baseret.** Prototype-kørsel
+(`scripts/prep-estimate.js`) på et mellemstort event (500 sandwich · 300 slider · 400
+frikadeller · 3 slags sylt) gav ~11 t, fordelt:
+
+| Del | Timer | Kilde |
+|-----|-------|-------|
+| Brød-skæring (per-enhed) | 3,5 t | forecast-kategorien direkte |
+| Frikadeller | 1,0 t | komponent, manuel |
+| Sylt + dressing (batch) | 6,7 t | batch, manuel |
+
+**Kun ~⅓ af prep-tiden kommer fra forecast-kategorierne.** Sylt/dressing/frikadeller mapper
+ikke til "01 Sandwich / 02 Salat" og skalerer ikke med forecasten. En ren "min/enhed pr.
+kategori"-model ville derfor være blind for ⅔ af arbejdet.
+
+**1. Datakilde: indtast batch pr. event (Vej 1), IKKE opskrift-BOM (Vej 2).** Vej 2
+(prep-tider pr. opskrift + BOM-eksplosion af forecasten) er mere præcis og selvvedligeholdende,
+men markant mere at bygge og kræver en prep-tid pr. opskrift. Valgt Vej 1 for at komme i drift
+— men Leif flaggede eksplicit: **manuel indtastning der starter tomt bliver ikke brugt.** Derfor:
+
+**2. Friktionen løses med forudfyldning (afgørende — ikke valgfrit pynt).** Feltet må aldrig
+starte tomt. Samme mønster som top-up, salgs-prefill og event-menuen (§16): systemet gætter
+kvalificeret, brugeren retter kun ved afvigelse. To lag:
+   - **Per-enhed (brød): auto-beregnet fra forecasten.** Nul indtastning. Retter man forecasten,
+     følger prep-tiden med.
+   - **Batch (sylt/dressing/frikadeller/kartofler/purløg): forudfyldt fra admin-settings**,
+     justerbart pr. event. Laver man ikke sylt denne gang → sæt til 0.
+
+   I den normale hverdag åbner man eventet, ser "≈ N timers prep" stå færdigt, og gør intet.
+
+**3. Rater bor i admin-settings — ikke hardkodet, ikke (endnu) Grocy-userfields.** Leif: "helst
+ikke noget hardkodet." Settings-tabellen (som `production_start_time` + kapacitets-tærsklerne).
+Køkkenet sætter deres typiske sylt/dressing-mønster + raterne én gang; hvert event arver dem.
+Grocy-userfield-vejen holdes åben hvis prep-tider senere skal bo pr. opskrift (Vej 2).
+
+**4. Prep-vindue: felt pr. event**, forudfyldt med en default (event `start_date` minus N dage
+fra en setting). Fleksibelt nok til at sylt kan laves en uge før mens salat kun dagen før —
+uden at låse én global regel. "Preppes der *under* eventet (rullende)?" er ikke afgjort, men
+blokerer ikke: et felt pr. event kan rumme det senere.
+
+**5. Ugeoversigt (uændret fra 15.3 pkt. 4):** kun event-prep-bons (`event_id` +
+`event_role='prep'`) ud af *dags*-ratioen — automatisk efter type, intet per-bon flag. Prep
+vises i stedet som time-budget på eventet (budget vs. bemandede event-prep-timer fra Smartplans
+Festival & Events-lokation). At trække prep ud *uden* budgettet ville bytte "misvisende rød"
+til "misvisende tom" — så de to dele skal bygges sammen.
+
+**Stadig ikke afklaret (blokerer ikke byg):**
+- Kartoffel- + purløgs-enhed (batch vs. pr. kg) — verificeres ved kalibrering, se note i 15.2.
+- Rullende prep *under* eventet — feltet pr. event kan rumme det når behovet opstår.
+
+*Grundlag: to design-sessioner m. Leif (juli 2026), efter Smartplan-lokations-split. Rå tal +
+låst design nedskrevet; model ikke bygget. Prototype: `scripts/prep-estimate.js`. Issue #276.*
 
 ---
 
