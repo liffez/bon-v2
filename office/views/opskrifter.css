@@ -503,6 +503,81 @@
     text-decoration: underline;
 }
 
+/* Råvarer & underopskrifter (drill-down) i panelet */
+.ops-comp-head {
+    display: flex;
+    align-items: baseline;
+    justify-content: space-between;
+    gap: 8px;
+}
+.ops-comp-nav { display: flex; }
+.ops-comp-back {
+    background: transparent;
+    border: none;
+    color: var(--brand-primary, #8e631f);
+    cursor: pointer;
+    font-size: 12px;
+    padding: 0;
+    font-weight: 600;
+}
+.ops-comp-back:hover { text-decoration: underline; }
+.ops-comp-current {
+    font-size: 13px;
+    font-weight: 700;
+    color: #3a2f1c;
+    margin: 2px 0 8px;
+}
+.ops-comp-cat { font-weight: 400; color: #6a6359; }
+.ops-comp-loading, .ops-comp-empty {
+    font-size: 12px;
+    color: #6a6359;
+    padding: 8px 2px;
+}
+.ops-comp-table {
+    width: 100%;
+    border-collapse: collapse;
+    font-size: 12.5px;
+}
+.ops-comp-table td {
+    padding: 6px 4px;
+    border-bottom: 1px solid #efeae2;
+    vertical-align: top;
+}
+.ops-comp-table td.num {
+    text-align: right;
+    white-space: nowrap;
+    color: #3a2f1c;
+    font-variant-numeric: tabular-nums;
+}
+.ops-comp-name { color: #3a2f1c; }
+.ops-comp-sub { cursor: pointer; }
+.ops-comp-sub:hover { background: #faf7f1; }
+.ops-comp-link {
+    color: var(--brand-primary, #8e631f);
+    cursor: pointer;
+    font-weight: 600;
+}
+.ops-comp-link:hover { text-decoration: underline; }
+.ops-comp-arrow { font-size: 11px; opacity: 0.75; }
+.ops-comp-tag {
+    display: inline-block;
+    font-size: 10px;
+    font-weight: 600;
+    text-transform: uppercase;
+    letter-spacing: 0.3px;
+    color: #8e631f;
+    background: #f6edd9;
+    border-radius: 4px;
+    padding: 1px 5px;
+    margin-left: 6px;
+    vertical-align: middle;
+}
+.ops-comp-links {
+    display: flex;
+    gap: 14px;
+    margin-top: 10px;
+}
+
 .ops-footer-stats {
     padding: 10px 16px;
     background: #fff;

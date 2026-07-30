@@ -165,6 +165,10 @@
 .cov-tag { display: inline-block; font-size: 10px; font-weight: 600; text-transform: uppercase;
     letter-spacing: .03em; color: #8a8073; background: #efece6; border-radius: 4px; padding: 1px 5px; margin-left: 4px; }
 .cov-tag-sub { color: #8e631f; background: #f6edd9; }
+/* Produkt med egen opskrift → klikbart, drill ned i dens råvarer */
+.cov-panel-prodlink { color: #8e631f; cursor: pointer; }
+.cov-panel-prodlink:hover { text-decoration: underline; }
+.cov-tag-arrow { font-size: 11px; opacity: .75; }
 .cov-src { font-size: 11px; color: #a49a8c; }
 
 .cov-bar-col { width: 120px; }

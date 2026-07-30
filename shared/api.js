@@ -2146,6 +2146,11 @@ function grocyRecipeLink(recipeId) {
     return '/api/recipes/grocy-recipe-link/' + recipeId;
 }
 
+// Råvarer + underopskrifter for én opskrift (drill-down i Opskrifter & priser).
+function fetchRecipeComposition(recipeId) {
+    return apiFetch('/recipes/' + recipeId + '/composition');
+}
+
 /* ── CO₂ — materiale-faktortabel + emballage-tildeler (F3) ─── */
 
 function fetchCo2Materials(includeInactive = false) {

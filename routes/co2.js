@@ -280,6 +280,18 @@ router.get('/recipe/:id', AUTH, handle(async (req, res) => {
     if (!recipe) return res.status(404).json({ error: 'Opskrift ikke fundet' });
     const recipes = [...recipesMap.values()].map(r => ({ id: r.id, name: r.name, base_servings: r.base_servings }));
     const bd = engine.breakdownRecipe(id, { recipes, pos, nestings, products, conversions, units, groups });
+
+    // Produkter med egen opskrift (fx Langtids Stegt Gris) gøres klikbare i panelet,
+    // så man kan drille ned i deres råvarer — som i køkkenets opskrift-viewer.
+    const producingByProduct = new Map();
+    for (const r of recipesMap.values()) {
+        if (r.product_id && String(r.product_id) !== '0') producingByProduct.set(String(r.product_id), r.id);
+    }
+    bd.ingredients = (bd.ingredients || []).map(ing => {
+        const pid = producingByProduct.get(String(ing.product_id));
+        return { ...ing, producing_recipe_id: (pid && pid !== id) ? pid : null };
+    });
+
     const uf = recipe.userfields || {};
     res.json({ ...bd, name: recipe.name, unit: uf.recipeunit || null, category: uf.grupper || null });
 }));
