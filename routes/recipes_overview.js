@@ -29,6 +29,7 @@ const { handle, logChange, inclToExcl, exclToIncl, nonRevenueBonExcludeSQL } = r
 const { requireAuth } = require('../shared/auth');
 const grocyAdapter = require('../services/grocyAdapter');
 const { convertAndFormat } = require('../services/quConvert');
+const { unitCostFromStockRow } = require('../services/production');
 const itemPriceBackfill = require('../services/itemPriceBackfill');
 const { broadcast } = require('../shared/sse');
 
@@ -636,7 +637,7 @@ router.get('/:id/composition', handle(async (req, res) => {
     const id = parseInt(req.params.id, 10);
     if (!Number.isFinite(id)) return res.status(400).json({ error: 'Ugyldigt id' });
 
-    const [recipesMap, allPos, nestings, products, units, conversions, stock] = await Promise.all([
+    const [recipesMap, allPos, nestings, products, units, conversions, stock, fulfillment] = await Promise.all([
         grocyAdapter.getRecipesRawMap(),
         grocyAdapter.getAllRecipesPos(),
         grocyAdapter.getRecipeNestings(),
@@ -644,6 +645,7 @@ router.get('/:id/composition', handle(async (req, res) => {
         grocyAdapter.getQuantityUnits(),
         grocyAdapter.getQuantityUnitConversions(),
         grocyAdapter.getStock().catch(() => []),
+        grocyAdapter.getRecipeFulfillment().catch(() => []),
     ]);
 
     const recipe = recipesMap.get(id);
@@ -651,7 +653,12 @@ router.get('/:id/composition', handle(async (req, res) => {
 
     const unitMap = new Map(units.map(u => [u.id, u]));
     const productMap = new Map(products.map(p => [String(p.id), p]));
-    const stockMap = new Map(stock.map(s => [String(s.product_id), parseFloat(s.amount) || 0]));
+    // Hele stock-rækken pr. produkt — bruges til både lager-tal og kostpris
+    // (unitCostFromStockRow: last_price / value÷amount, ex moms — samme kilde som
+    // produktions-modulet og Grocys egen kostpris-beregning).
+    const stockRowMap = new Map(stock.map(s => [String(s.product_id), s]));
+    // recipe_id → samlet kostpris ex moms (Grocy fulfillment) — til underopskrifter + total
+    const costMap = new Map(fulfillment.map(f => [String(f.recipe_id), Number(f.costs) || 0]));
 
     // Produkt → opskrift der producerer det (recipe.product_id peger på output-produktet).
     const producingByProduct = new Map();
@@ -680,14 +687,19 @@ router.get('/:id/composition', handle(async (req, res) => {
                 unitMap,
             });
             const producingId = producingByProduct.get(String(pos.product_id));
+            // Kostpris ex moms: pris/stock-enhed × mængde i stock-enhed (recipes_pos.amount).
+            const srow = stockRowMap.get(String(pos.product_id));
+            const unitCost = unitCostFromStockRow(srow);   // null hvis ikke på lager / ukendt pris
+            const amountStock = parseFloat(pos.amount) || 0;
             return {
                 product_id: pos.product_id,
                 name: pos.product_name || prod.name || ('Produkt #' + pos.product_id),
                 amount: fmt.amount,
                 unit: fmt.unit,
                 ingredient_group: pos.ingredient_group || '',
-                stock: stockMap.has(String(pos.product_id)) ? stockMap.get(String(pos.product_id)) : null,
+                stock: srow ? (parseFloat(srow.amount) || 0) : null,
                 stock_unit: unitName(stockQuId),
+                cost: unitCost != null ? r2(amountStock * unitCost) : null,
                 // Klikbar kun hvis produktet har sin EGEN opskrift (og ikke er den vi står på).
                 producing_recipe_id: (producingId && producingId !== id) ? producingId : null,
             };
@@ -700,12 +712,17 @@ router.get('/:id/composition', handle(async (req, res) => {
             const sub = recipesMap.get(n.includes_recipe_id);
             if (!sub) return null;
             const uf = sub.userfields || {};
+            const servings = parseFloat(n.servings) || 1;
+            // Bidrag til kostprisen: underopskriftens kostpris pr. portion × antal portioner.
+            const subBase = parseInt(sub.base_servings) || 1;
+            const subTotal = costMap.get(String(sub.id));
             return {
                 recipe_id: sub.id,
                 name: sub.name,
-                servings: parseFloat(n.servings) || 1,
+                servings,
                 unit: uf.recipeunit || 'stk',
                 category: uf.grupper || null,
+                cost: (subTotal != null) ? r2((subTotal / subBase) * servings) : null,
             };
         })
         .filter(Boolean);
@@ -717,6 +734,8 @@ router.get('/:id/composition', handle(async (req, res) => {
         category: uf.grupper || null,
         unit: uf.recipeunit || 'stk',
         base_servings: parseInt(recipe.base_servings) || 1,
+        // Autoritativ samlet kostpris (Grocy fulfillment) — linjerne summerer ~hertil.
+        total_cost: costMap.has(String(recipe.id)) ? r2(costMap.get(String(recipe.id))) : null,
         ingredients,
         sub_recipes,
     });

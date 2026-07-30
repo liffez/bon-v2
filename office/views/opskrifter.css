@@ -538,10 +538,34 @@
     border-collapse: collapse;
     font-size: 12.5px;
 }
+.ops-comp-table thead th {
+    font-size: 10px;
+    text-transform: uppercase;
+    letter-spacing: 0.4px;
+    color: #8a8378;
+    font-weight: 600;
+    text-align: left;
+    padding: 0 4px 4px;
+    border-bottom: 1px solid #d7d1ca;
+}
+.ops-comp-table thead th.num { text-align: right; }
 .ops-comp-table td {
     padding: 6px 4px;
     border-bottom: 1px solid #efeae2;
     vertical-align: top;
+}
+.ops-comp-total td {
+    border-top: 1px solid #d7d1ca;
+    border-bottom: none;
+    padding-top: 8px;
+    font-weight: 700;
+    color: #3a2f1c;
+}
+.ops-comp-nocost { color: #b8b0a4; }
+.ops-comp-note {
+    font-size: 11px;
+    color: #8a8378;
+    margin-top: 6px;
 }
 .ops-comp-table td.num {
     text-align: right;

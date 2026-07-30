@@ -761,6 +761,7 @@ function _opsCompBodyHtml(data) {
         return `<tr>
             <td class="ops-comp-name">${nameHtml}</td>
             <td class="num">${_opsEsc(_opsCompAmount(i))}</td>
+            <td class="num">${_opsCompCost(i.cost)}</td>
         </tr>`;
     };
     const subRow = (s) => `<tr class="ops-comp-sub" data-comp-recipe="${s.recipe_id}">
@@ -769,6 +770,7 @@ function _opsCompBodyHtml(data) {
             <span class="ops-comp-tag">underopskrift</span>
         </td>
         <td class="num">${_opsEsc(_opsCompServings(s))}</td>
+        <td class="num">${_opsCompCost(s.cost)}</td>
     </tr>`;
 
     const rows = [
@@ -781,8 +783,22 @@ function _opsCompBodyHtml(data) {
         ? `<div class="ops-comp-current">${_opsEsc(data.name)}${data.category ? ` <span class="ops-comp-cat">· ${_opsEsc(data.category)}</span>` : ''}</div>`
         : '';
 
+    const anyMissingCost = ings.some(i => i.cost == null);
+    const totalRow = data.total_cost != null
+        ? `<tfoot><tr class="ops-comp-total">
+             <td>Kostpris i alt</td><td></td><td class="num">${_opsCompCost(data.total_cost)}</td>
+           </tr></tfoot>`
+        : '';
+    const costNote = anyMissingCost
+        ? '<div class="ops-comp-note">— = råvare uden pris i Grocy (indgår i totalen, men vises ikke pr. linje)</div>'
+        : '';
+
     const table = rows
-        ? `<table class="ops-comp-table"><tbody>${rows}</tbody></table>`
+        ? `<table class="ops-comp-table">
+             <thead><tr><th>Råvare</th><th class="num">Mængde</th><th class="num">Kostpris</th></tr></thead>
+             <tbody>${rows}</tbody>
+             ${totalRow}
+           </table>${costNote}`
         : '<div class="ops-comp-empty">Ingen råvarer registreret på denne opskrift.</div>';
 
     // Kun køkken-opskrift her — Grocy-linket ligger allerede i metadata-sektionen.
@@ -802,6 +818,11 @@ function _opsCompAmount(i) {
 function _opsCompServings(s) {
     const n = Number(s.servings || 0).toLocaleString('da-DK', { maximumFractionDigits: 2 });
     return `${n} ${s.unit || ''}`.trim();
+}
+
+function _opsCompCost(c) {
+    if (c == null) return '<span class="ops-comp-nocost" title="Mangler pris i Grocy">—</span>';
+    return Number(c).toLocaleString('da-DK', { minimumFractionDigits: 2, maximumFractionDigits: 2 }) + ' kr';
 }
 
 function _opsBindCompEvents() {
