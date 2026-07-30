@@ -785,9 +785,9 @@ function _opsCompBodyHtml(data) {
         ? `<table class="ops-comp-table"><tbody>${rows}</tbody></table>`
         : '<div class="ops-comp-empty">Ingen råvarer registreret på denne opskrift.</div>';
 
+    // Kun køkken-opskrift her — Grocy-linket ligger allerede i metadata-sektionen.
     const links = `<div class="ops-comp-links">
         <a href="/kitchen/recipes.html?recipe=${data.recipe_id}" target="_blank" class="ops-btn-link">🔍 Åbn i køkken-opskrift</a>
-        <a href="${grocyRecipeLink(data.recipe_id)}" target="_blank" class="ops-btn-link">Åbn i Grocy ↗</a>
     </div>`;
 
     return drilledTitle + table + links;
