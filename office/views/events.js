@@ -1359,6 +1359,7 @@ async function _evOpenGenModal(event, role, opts) {
             <table class="ev-line-table">
                 <thead><tr><th>Vare</th><th>Antal</th><th>Enhed</th><th>${isProd ? 'Kostpris ex' : (isExpense ? 'Beløb' : 'Pris/stk incl')}</th>${isExpense ? '<th>Moms</th>' : ''}<th>Total</th><th></th></tr></thead>
                 <tbody id="evm-lines"></tbody>
+                <tfoot><tr class="ev-line-total-row"><td colspan="${isExpense ? 5 : 4}">${isProd ? 'Samlet kostpris' : (isExpense ? 'Samlet udgift' : 'Total')}</td><td class="ev-num" id="evm-grand-total">—</td><td></td></tr></tfoot>
             </table>
             <button type="button" class="ev-btn ev-btn-small" id="evm-add-line">+ Fritekst-linje</button>
         </div>
@@ -1445,11 +1446,25 @@ async function _evOpenGenModal(event, role, opts) {
             const p = Number(tr.querySelector('[data-f=price]').value) || 0;
             tr.querySelector('[data-f=total]').textContent = _evFmtKr(q * p);
             _evRecalcTargets();
+            _evUpdateGrandTotal();
         };
         tr.querySelector('[data-f=qty]').addEventListener('input', recalc);
         tr.querySelector('[data-f=price]').addEventListener('input', recalc);
-        tr.querySelector('[data-f=del]').addEventListener('click', () => { tr.remove(); _evRecalcTargets(); });
+        tr.querySelector('[data-f=del]').addEventListener('click', () => { tr.remove(); _evRecalcTargets(); _evUpdateGrandTotal(); });
         recalc();
+    }
+
+    function _evUpdateGrandTotal() {
+        const el = document.getElementById('evm-grand-total');
+        if (!el) return;
+        let sum = 0;
+        linesEl.querySelectorAll('tr[data-line]').forEach(row => {
+            const q = Number(row.querySelector('[data-f=qty]').value) || 0;
+            const p = Number(row.querySelector('[data-f=price]').value) || 0;
+            sum += q * p;
+        });
+        // Udgifter vises negativt i P&L; her viser vi bruttobeløbet som pr. linje.
+        el.textContent = _evFmtKr(sum);
     }
 
     function _evRecalcTargets() {
