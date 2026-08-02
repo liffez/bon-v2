@@ -1552,6 +1552,29 @@ Oprettes under Grocy → Manage master data → Userfields.
 - [x] `public/embed/test-harness.html` — lokal WordPress-mock til iframe-test
 - [x] End-to-end verificeret: form → webhook → bon med korrekt sandwichvalg + chips + valgte retter + form-meta + menu_items i raw_data
 
+### Web-bestilling: menu_items[] → bon-linjer (#382, august 2026)
+> As-is-fund (`docs/formbuilder/CLAUDE_PREORDER_ASIS.md` §6): kundens ret-valg blev sendt
+> struktureret (`menu_items:[{id,count}]`) men lå kun inert i `web_orders.raw_data` — office
+> tastede linjerne i hånden. Nu auto-genereres bon-linjer ved bestilling.
+
+- [x] `services/menuItemsToLines.js` — **ny**, ren/testbar `resolveMenuItemLines()`: id `r<recipe_id>`
+  → Grocy-opskrift → snapshot af pris/kostpris/CO₂. Pris = **bonens priskategori** (festival-events
+  rammer festival-pris; catering default). Uset/0-pris → prisløs linje (office prissætter, ikke 0 kr).
+  Slug-id uden Grocy-kobling → navn-only linje via menu-JSON. Aldrig magic-moms (pris tages råt fra Grocy)
+- [x] `routes/web-orders.js` — `generateLinesFromMenuItems()` kaldes efter `createBon`, **best-effort**
+  i try/catch: en Grocy-fejl vælter aldrig selve bestillingen (bonen er allerede oprettet). Læser bonens
+  priskategori, snapshotter linjer, `recalcBonTotalUnits` + `recalcBonTotal`, changelog + SSE `bon_updated`
+- [x] `recalcBonTotal` flyttet `routes/bons.js` → `db/helpers.js` (eksporteret) så webhooken bruger
+  **nøjagtig samme** server-autoritative total-beregning (rabat + levering). `bons.js` importerer den nu
+- [x] Eksponeret `_generateLinesFromMenuItems` til integrationstest
+- [x] Tests: `scripts/test-menu-items-lines.js` (24 unit — mapping, festival vs catering, prisløs fallback,
+  unmatched, defensivt) + `scripts/test-web-order-lines-e2e.js` (12 integration mod isoleret `.backup`-kopi:
+  linjer indsat, `total_price` + boks-aware `total_units` recalc, changelog). Verificeret mod ægte grocytest:
+  `r91` → festival-pris 115 snapshottet, slug-menu → graceful navn-only fallback
+- **Drifts-note:** værdien afhænger af menu-id-format. Produktionsmenuen er importeret fra Grocy (`r<id>`)
+  → prissatte linjer. En håndlavet slug-menu → navn-only. `menu_items` ligger allerede i `raw_data` for
+  ~25 historiske ordrer → backfill mulig hvis ønsket (ikke bygget)
+
 ### Mail-skabelon management (april 2026)
 - [x] `routes/mail.js` — 2 nye endpoints:
   - `POST /api/mail/templates` — opret ny skabelon (admin, key-validering, duplikat-check)
