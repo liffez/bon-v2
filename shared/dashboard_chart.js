@@ -661,12 +661,30 @@ function initMonthlyBarChart(canvasId, data, opts = {}) {
         return state.mode === 'kr' ? (entry.revenue_excl_moms ?? entry.revenue ?? 0) : (entry.units || 0);
     }
 
-    // Byg 12 kronologiske måned-slots (sidste 12 mdr.) og par hver med samme
-    // kalendermåned året før. Ruten leverer month som "YYYY-MM"-streng, så vi
-    // slår op på fuld nøgle — det parrer i år vs. sidste år korrekt side om side.
+    // Sammenlign år-mode: eksplicit kalenderår A vs B (Jan–Dec) via opts.year/compareYear.
+    // Uden opts.year: rullende 12 mdr. anker'et til nu (dashboard + normal rapport-visning).
+    const cmpYearA = opts.year ? parseInt(opts.year) : null;
+    const cmpYearB = opts.compareYear ? parseInt(opts.compareYear) : (cmpYearA ? cmpYearA - 1 : null);
+
+    // Byg 12 kronologiske måned-slots og par hver med samme kalendermåned i
+    // sammenlignings-året. Ruten leverer month som "YYYY-MM"-streng, så vi slår op
+    // på fuld nøgle — det parrer de to serier korrekt side om side.
     function buildSlots() {
-        const now = new Date();
         const slots = [];
+        if (cmpYearA) {
+            const nowY = new Date().getFullYear(), nowM = new Date().getMonth() + 1;
+            for (let m = 1; m <= 12; m++) {
+                const mm = String(m).padStart(2, '0');
+                slots.push({
+                    monthNum: m,
+                    thisKey: `${cmpYearA}-${mm}`,
+                    prevKey: `${cmpYearB}-${mm}`,
+                    isCurrent: (cmpYearA === nowY && m === nowM),
+                });
+            }
+            return slots;
+        }
+        const now = new Date();
         for (let i = 11; i >= 0; i--) {
             const d = new Date(now.getFullYear(), now.getMonth() - i, 1);
             const pd = new Date(d.getFullYear() - 1, d.getMonth(), 1);
@@ -676,6 +694,10 @@ function initMonthlyBarChart(canvasId, data, opts = {}) {
         }
         return slots;
     }
+
+    // Legend-/tooltip-etiketter: årstal i sammenlignings-mode, ellers "I år/Sidste år".
+    const LBL_THIS = cmpYearA ? String(cmpYearA) : 'I år';
+    const LBL_PREV = cmpYearA ? String(cmpYearB) : 'Sidste år';
 
     function fmtAxis(v) {
         return state.mode === 'kr' ? fmtKr(v) : (v >= 1000 ? Math.round(v / 1000) + 'k' : v + '');
@@ -810,10 +832,10 @@ function initMonthlyBarChart(canvasId, data, opts = {}) {
 
     function drawLegend(ctx, x0, y, xMax) {
         const items = [
-            { type: 'bar', color: COLOR_THIS, label: 'I år' },
-            { type: 'bar', color: COLOR_PREV, label: 'Sidste år' },
-            { type: 'line', color: COLOR_THIS_LINE, dashed: false, label: 'I år akk.' },
-            { type: 'line', color: COLOR_PREV_LINE, dashed: true, label: 'Sidste år akk.' },
+            { type: 'bar', color: COLOR_THIS, label: LBL_THIS },
+            { type: 'bar', color: COLOR_PREV, label: LBL_PREV },
+            { type: 'line', color: COLOR_THIS_LINE, dashed: false, label: LBL_THIS + ' akk.' },
+            { type: 'line', color: COLOR_PREV_LINE, dashed: true, label: LBL_PREV + ' akk.' },
         ];
         ctx.font = "10px 'Lato',sans-serif";
         ctx.textAlign = 'left'; ctx.textBaseline = 'middle';
@@ -847,7 +869,7 @@ function initMonthlyBarChart(canvasId, data, opts = {}) {
 
     function showTT(hit, px, py) {
         const label = MONTH_LABELS[hit.monthNum - 1] || '';
-        const yearLabel = hit.year === 'this' ? 'I år' : 'Sidste år';
+        const yearLabel = hit.year === 'this' ? LBL_THIS : LBL_PREV;
         const suffix = state.mode === 'kr' ? ' kr' : ' enh';
         const valStr = hit.val.toLocaleString('da-DK') + suffix;
         const cumStr = hit.cum.toLocaleString('da-DK') + suffix;

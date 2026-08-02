@@ -118,6 +118,16 @@ function parseReportFilters(req) {
     const prevFrom = shiftYear(from);
     const prevTo   = shiftYear(to);
 
+    // ── Eksplicit sammenlignings-periode (år-mod-år) ─────────
+    // ?cmp_from=&cmp_to= overstyrer den automatiske "ét år tilbage"-baseline,
+    // så man kan sammenligne to vilkårlige år (fx 2025 mod 2022). Bruges af
+    // "Sammenlign år"-tilstanden. Uden dem = normal skub-ét-år-tilbage.
+    const cmpFrom = ISO.test(q.cmp_from || '') ? q.cmp_from : null;
+    const cmpTo   = ISO.test(q.cmp_to   || '') ? q.cmp_to   : null;
+    const hasCmp  = !!(cmpFrom && cmpTo && cmpFrom < cmpTo);
+    const prevPeriodArgs = hasCmp ? [cmpFrom, cmpTo] : [prevFrom, prevTo];
+    const compareYear = hasCmp ? (parseInt(cmpFrom.slice(0, 4)) || null) : null;
+
     // ── Kategori-udeladelse ──────────────────────────────────
     let excl = [];
     if (typeof q.exclude_cats === 'string' && q.exclude_cats.trim()) {
@@ -132,7 +142,8 @@ function parseReportFilters(req) {
         from, to, prevFrom, prevTo,
         periodClause:   'AND b.delivery_date >= ? AND b.delivery_date < ?',
         periodArgs:     [from, to],
-        prevPeriodArgs: [prevFrom, prevTo],
+        prevPeriodArgs,
+        compareYear,          // eksplicit sammenlignings-år (eller null)
         catClause,
         catArgs:        excl,
     };
@@ -185,6 +196,23 @@ function revenueFields(inclMoms) {
         vat_collected:     vat,
     };
 }
+
+// ─── GET /years — distinkte leveringsår (til Sammenlign år-dropdowns) ─
+router.get('/years', handle(async (req, res) => {
+    const db = getDb();
+    const rows = db.prepare(`
+        SELECT DISTINCT CAST(strftime('%Y', b.delivery_date) AS INTEGER) AS yr
+        FROM bons b
+        WHERE b.delivery_date IS NOT NULL
+          ${OFFER_INTERNAL_FILTER}
+        ORDER BY yr DESC
+    `).all();
+    const years = rows.map(r => r.yr).filter(y => y > 2000 && y < 2100);
+    // Sørg for at indeværende år altid er med (også før første bon i år).
+    const cy = new Date().getFullYear();
+    if (!years.includes(cy)) years.unshift(cy);
+    res.json({ years });
+}));
 
 // ─── GET /summary — KPI strip YTD ───────────────────────────
 
@@ -272,20 +300,31 @@ router.get('/monthly', handle(async (req, res) => {
     const now = new Date();
     const thisYear = now.getFullYear();
 
-    // Last 12 months range
-    const endMonth = `${thisYear}-${String(now.getMonth() + 1).padStart(2, '0')}`;
-    const startDate = new Date(thisYear, now.getMonth() - 11, 1);
-    const startMonth = `${startDate.getFullYear()}-${String(startDate.getMonth() + 1).padStart(2, '0')}`;
+    // Sammenlign år-mode: ?year=A&compare_year=B → kalenderår Jan–Dec for hvert år,
+    // så månedssøjlerne stiller A op mod B (i stedet for den rullende 12-mdrs akse).
+    const yA = parseInt(req.query.year);
+    const yB = parseInt(req.query.compare_year);
+    const calendarMode = yA >= 2000 && yA <= 2100 && yB >= 2000 && yB <= 2100;
 
-    // Prev year range (offset by 12 months)
-    const prevStartDate = new Date(startDate.getFullYear() - 1, startDate.getMonth(), 1);
-    const prevEndDate = new Date(thisYear - 1, now.getMonth(), 1);
-    const prevStartMonth = `${prevStartDate.getFullYear()}-${String(prevStartDate.getMonth() + 1).padStart(2, '0')}`;
-    const prevEndMonth = `${prevEndDate.getFullYear()}-${String(prevEndDate.getMonth() + 1).padStart(2, '0')}`;
+    let startMonth, endMonth, prevStartMonth, prevEndMonth;
+    if (calendarMode) {
+        startMonth = `${yA}-01`;     endMonth = `${yA}-12`;
+        prevStartMonth = `${yB}-01`; prevEndMonth = `${yB}-12`;
+    } else {
+        // Last 12 months range
+        endMonth = `${thisYear}-${String(now.getMonth() + 1).padStart(2, '0')}`;
+        const startDate = new Date(thisYear, now.getMonth() - 11, 1);
+        startMonth = `${startDate.getFullYear()}-${String(startDate.getMonth() + 1).padStart(2, '0')}`;
+        // Prev year range (offset by 12 months)
+        const prevStartDate = new Date(startDate.getFullYear() - 1, startDate.getMonth(), 1);
+        const prevEndDate = new Date(thisYear - 1, now.getMonth(), 1);
+        prevStartMonth = `${prevStartDate.getFullYear()}-${String(prevStartDate.getMonth() + 1).padStart(2, '0')}`;
+        prevEndMonth = `${prevEndDate.getFullYear()}-${String(prevEndDate.getMonth() + 1).padStart(2, '0')}`;
+    }
 
     const unit = _salesUnitCaseExpr();   // salgs-enheder: ekskl. produktion
-    // Månedssøjlerne beholder deres rullende 12-mdrs akse (egen tidsakse per aftalen);
-    // kun kategori-filteret gælder her, så "fjern festival" også rammer trend-kortet.
+    // Uden for kalender-mode beholder søjlerne deres rullende 12-mdrs akse (egen
+    // tidsakse per aftalen); kun kategori-filteret gælder. Kategori-filteret gælder altid.
     const f = parseReportFilters(req);
 
     const thisYearRows = db.prepare(`
@@ -477,7 +516,9 @@ router.get('/monthly-table', handle(async (req, res) => {
     const isCurrentYear = thisYear === actualYear;
     // For et forgangent år er alle måneder realiseret — intet er "current"/"future".
     const currentMonth = isCurrentYear ? (now.getMonth() + 1) : 13;
-    const prevYear = thisYear - 1;
+    // "vs. forrige år"-kolonnen bruger sammenlignings-året hvis sat (Sammenlign år-mode),
+    // ellers året før det viste år.
+    const prevYear = f.compareYear || (thisYear - 1);
 
     // Fetch monthly data for a given year, filtered by a set of status codes.
     // Index'eres efter month_nr af kalderen.
