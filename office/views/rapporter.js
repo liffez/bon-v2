@@ -25,12 +25,16 @@ const RAP_LS_CATS = 'rap_exclude_cats';
 // Rækkefølge på kategori-chips (matcher price_categories i systemet).
 const RAP_CAT_ORDER = ['store', 'catering', 'festival', 'produktion', 'waiste'];
 
+// Farver holdt i sync med legomodellens palette (settings.lego_pax_categories),
+// så samme begreb har samme farve på tværs af siden. Festival = orange (som lego),
+// IKKE grøn — grøn betyder Events i legoen. Butik/Catering/Produktion matcher
+// legoens brun/guld/blå.
 const CAT_COLORS = {
-  store:      '#6d4c16',
-  catering:   '#c49a45',
-  festival:   '#7a9c54',
-  produktion: '#7594b3',
-  waiste:     '#c8c2bb'
+  store:      '#6d4c16',   // brun  (= lego "Store")
+  catering:   '#c49a45',   // guld  (= lego "Mellem")
+  festival:   '#d4652a',   // orange (= lego "Festival")
+  produktion: '#4a90d9',   // blå   (= lego "Små")
+  waiste:     '#c8c2bb'    // grå   (ingen lego-pendant)
 };
 
 const CAT_LABELS = {
