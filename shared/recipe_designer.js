@@ -969,7 +969,11 @@ function _rdBuildPricePanel(p) {
             '<div id="rdPPverdict">' + verdict + '</div>';
     }
 
+    var dirtyNote = (_rdDs.dirty && p.hasCost)
+        ? '<div class="rd-pp-dirty">Afspejler sidst gemte opskrift &mdash; kostprisen opdateres n&#229;r du gemmer.</div>'
+        : '';
     return '<div class="rd-pp-head">Pris &amp; avance <span class="rd-pp-exmoms">alle beregninger ex moms</span></div>' +
+        dirtyNote +
         '<div class="rd-pp-grid"><div>' + left + '</div><div>' + right + '</div></div>';
 }
 
@@ -1587,6 +1591,7 @@ async function _rdSaveRecipe() {
             .map(function(nn) { return _rdShallowCopy(nn); });
         _rdRenderIngredients();
         _rdRenderNestings();
+        _rdLoadComposition(_rdDs.originalRecipeId);   // frisk kostpris efter gem (fulfillment-cache ryddet af skrivningen)
 
         _rdShowAlert('Opskrift gemt!', 'success');
 
@@ -1687,6 +1692,8 @@ async function _rdSaveAsNew() {
             .map(function(nn) { return _rdShallowCopy(nn); });
         _rdRenderIngredients();
         _rdRenderNestings();
+        _rdComp = null;                    // ny opskrift → hent frisk kostpris
+        _rdLoadComposition(newId);
 
         _rdShowAlert('"' + name + '" oprettet som ny opskrift!', 'success');
 
