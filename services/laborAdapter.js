@@ -14,6 +14,7 @@
  */
 
 const { getDb } = require('../db/database');
+const { todayISO } = require('../db/helpers');
 const smartplan = require('./smartplanAdapter');
 
 /* ── Opslag ───────────────────────────────────────────────── */
@@ -169,9 +170,39 @@ async function syncRoleMap(fromDate, toDate) {
     return { added, total: seen.size };
 }
 
+/**
+ * "Standard-medarbejder"-timeløn: gennemsnit af de rater der er gyldige på en
+ * given dato, ét beløb pr. medarbejder (nyeste valid_from der dækker datoen).
+ * Bruges af opskrifts-kalkulationen, hvor vi ikke ved hvem der laver retten.
+ * Overhead lægges IKKE på her — kalderen ganger labor_overhead_pct på selv.
+ * @param {string} [dato] 'YYYY-MM-DD' (default: i dag, dansk)
+ * @returns {{ rate: number|null, count: number }} rate ex moms, eller null hvis ingen rater.
+ */
+function getStandardHourlyRate(dato) {
+    const db = getDb();
+    const d = dato || todayISO();
+    const row = db.prepare(`
+        SELECT AVG(rate) AS avg_rate, COUNT(*) AS n FROM (
+            SELECT w.smartplan_ref, w.hourly_rate AS rate
+              FROM wage_rates w
+             WHERE w.valid_from <= ?
+               AND (w.valid_to IS NULL OR ? < w.valid_to)
+               AND w.valid_from = (
+                   SELECT MAX(w2.valid_from) FROM wage_rates w2
+                    WHERE w2.smartplan_ref = w.smartplan_ref
+                      AND w2.valid_from <= ?
+                      AND (w2.valid_to IS NULL OR ? < w2.valid_to)
+               )
+        )
+    `).get(d, d, d, d);
+    if (!row || !row.n) return { rate: null, count: 0 };
+    return { rate: Number(row.avg_rate), count: row.n };
+}
+
 module.exports = {
     getLabor,
     getLaborMap,
     getLaborPeriod,
     syncRoleMap,
+    getStandardHourlyRate,
 };

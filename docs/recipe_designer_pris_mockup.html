@@ -1,0 +1,344 @@
+<!DOCTYPE html>
+<html lang="da">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Designer — Pris &amp; avance (mockup)</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Lato:wght@400;700;900&display=swap" rel="stylesheet">
+<style>
+/* Fallback-tokens — i produktion kommer disse fra /shared/tokens.css */
+:root{
+  --brand-primary:#8e631f; --brand-secondary:#f1e6b2;
+  --color-background:#faf8f4; --color-surface:#ffffff;
+  --color-border:#e5e0d8; --color-text:#2b2620; --color-text-dim:#7a7268;
+  --color-green:#a5bf75; --color-green-dark:#5f7f34; --color-red:#bc181b; --color-blue:#7594b3;
+  --new:#7594b3;
+}
+*{margin:0;padding:0;box-sizing:border-box}
+body{font-family:'Lato',sans-serif;background:var(--color-background);color:var(--color-text);padding-bottom:60px}
+
+/* ── Chrome (som i recipes.html) ── */
+.topbar{background:var(--brand-primary);color:#fff;padding:10px 24px;display:flex;align-items:center;gap:14px;font-size:14px}
+.topbar strong{font-weight:900;letter-spacing:.02em}
+.topbar span{opacity:.75;font-size:12.5px}
+.tab-bar{background:var(--color-surface);border-bottom:1px solid var(--color-border);padding:0 24px;display:flex}
+.tab-bar a{padding:12px 20px;font-size:14px;font-weight:700;color:var(--color-text-dim);text-decoration:none;border-bottom:3px solid transparent}
+.tab-bar a.active{color:var(--brand-primary);border-bottom-color:var(--brand-primary)}
+
+.wrap{max-width:900px;padding:18px 24px}
+
+/* ── Kort/blokke ── */
+.block{background:var(--color-surface);border:1px solid var(--color-border);border-radius:6px;margin-bottom:14px}
+.block-hd{padding:10px 14px;border-bottom:1px solid var(--color-border);display:flex;align-items:center;justify-content:space-between}
+.block-hd h2{font-size:13px;font-weight:900;text-transform:uppercase;letter-spacing:.06em;color:var(--color-text-dim)}
+.block-bd{padding:14px}
+
+/* ── Meta-felter ── */
+.meta{display:grid;grid-template-columns:2fr 1fr 1fr;gap:10px}
+.fg label{display:block;font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:.05em;color:var(--color-text-dim);margin-bottom:4px}
+.fg input,.fg select{width:100%;padding:8px 10px;border:1px solid var(--color-border);border-radius:4px;font-family:inherit;font-size:14px;background:#fff;color:var(--color-text)}
+
+/* ── Portions-stepper ── */
+.port{display:flex;align-items:center;gap:12px}
+.port button{width:40px;height:40px;border:1px solid var(--color-border);background:#fff;border-radius:4px;font-size:20px;font-weight:700;cursor:pointer;color:var(--brand-primary)}
+.port button:active{background:var(--brand-secondary)}
+.port .val{font-size:26px;font-weight:900;min-width:52px;text-align:center;font-variant-numeric:tabular-nums}
+.port .lbl{font-size:12px;color:var(--color-text-dim)}
+.port .base{margin-left:auto;font-size:12px;color:var(--color-text-dim)}
+
+/* ── Summary-bar + kort ── */
+.sumbar{display:grid;grid-template-columns:repeat(auto-fit,minmax(120px,1fr));gap:10px}
+.card{background:var(--color-surface);border:1px solid var(--color-border);border-radius:6px;padding:12px 14px;position:relative}
+.card.is-new{border-color:var(--new);box-shadow:inset 3px 0 0 var(--new)}
+.card .v{font-size:22px;font-weight:900;font-variant-numeric:tabular-nums;line-height:1.15}
+.card .l{font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:.05em;color:var(--color-text-dim);margin-top:3px}
+.card .s{font-size:11.5px;color:var(--color-text-dim);margin-top:5px;font-variant-numeric:tabular-nums}
+.card.ok .v{color:var(--color-green-dark)}
+.card.bad .v{color:var(--color-red)}
+
+/* ── Chips (kort til/fra) ── */
+.chips{display:flex;flex-wrap:wrap;gap:6px}
+.chip{padding:5px 11px;border:1px solid var(--color-border);border-radius:20px;background:#fff;font-size:12px;font-weight:700;color:var(--color-text-dim);cursor:pointer}
+.chip.on{background:var(--brand-secondary);border-color:var(--brand-primary);color:var(--brand-primary)}
+
+/* ── Tabel ── */
+table{width:100%;border-collapse:collapse;font-size:13.5px}
+th{text-align:left;font-size:10.5px;font-weight:900;text-transform:uppercase;letter-spacing:.05em;color:var(--color-text-dim);padding:0 8px 7px;border-bottom:1px solid var(--color-border)}
+th.n,td.n{text-align:right;font-variant-numeric:tabular-nums}
+td{padding:8px;border-bottom:1px solid #f2efe9;vertical-align:middle}
+tr.emb td{color:var(--color-text-dim)}
+tr.nest td:first-child{padding-left:20px}
+.pill{font-size:10px;font-weight:900;text-transform:uppercase;letter-spacing:.04em;padding:2px 6px;border-radius:3px;background:#f2efe9;color:var(--color-text-dim);margin-left:6px}
+.pill.nest{background:#e8eef4;color:var(--color-blue)}
+.bar{height:4px;background:#f2efe9;border-radius:2px;margin-top:4px;overflow:hidden}
+.bar i{display:block;height:100%;background:var(--brand-primary)}
+.low{color:var(--color-red);font-weight:700}
+tfoot td{padding:9px 8px;font-weight:900;border-top:2px solid var(--color-text);border-bottom:none}
+
+/* ── Pris & avance ── */
+.pricegrid{display:grid;grid-template-columns:1fr 1fr;gap:18px}
+.kv{display:flex;justify-content:space-between;padding:6px 0;font-size:13.5px;border-bottom:1px solid #f2efe9}
+.kv:last-child{border-bottom:none}
+.kv span:last-child{font-variant-numeric:tabular-nums;font-weight:700}
+.kv.tot{border-top:2px solid var(--color-text);margin-top:4px;padding-top:8px;font-weight:900;font-size:15px}
+.slider{margin:2px 0 14px}
+.slider .row{display:flex;align-items:baseline;justify-content:space-between;margin-bottom:6px}
+.slider .row b{font-size:24px;font-weight:900;font-variant-numeric:tabular-nums;color:var(--brand-primary)}
+input[type=range]{width:100%;accent-color:var(--brand-primary);height:24px}
+.suggest{background:var(--brand-secondary);border-radius:6px;padding:14px;text-align:center}
+.suggest .v{font-size:34px;font-weight:900;font-variant-numeric:tabular-nums;color:var(--brand-primary);line-height:1}
+.suggest .l{font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:.05em;color:var(--brand-primary);opacity:.8;margin-top:5px}
+.suggest .s{font-size:12px;color:var(--color-text-dim);margin-top:7px}
+.verdict{margin-top:12px;padding:10px 12px;border-radius:5px;font-size:13px;border-left:4px solid}
+.verdict.ok{background:#f2f7ea;border-color:var(--color-green-dark)}
+.verdict.warn{background:#fdf3f3;border-color:var(--color-red)}
+.lonrow{display:flex;align-items:center;gap:10px;font-size:13px;margin-top:12px;padding-top:12px;border-top:1px solid #f2efe9}
+.lonrow input[type=number]{width:64px;padding:5px 7px;border:1px solid var(--color-border);border-radius:4px;font-family:inherit;font-size:13px}
+.sw{position:relative;width:38px;height:22px;flex:0 0 auto}
+.sw input{opacity:0;width:100%;height:100%;margin:0;cursor:pointer}
+.sw i{position:absolute;inset:0;background:#d8d2c8;border-radius:11px;transition:.15s;pointer-events:none}
+.sw i::after{content:'';position:absolute;width:16px;height:16px;background:#fff;border-radius:50%;top:3px;left:3px;transition:.15s}
+.sw input:checked + i{background:var(--color-green-dark)}
+.sw input:checked + i::after{transform:translateX(16px)}
+
+.actions{display:flex;gap:10px;flex-wrap:wrap;align-items:center;margin-top:4px}
+.btn{padding:10px 18px;border-radius:5px;font-family:inherit;font-size:14px;font-weight:700;cursor:pointer;border:1px solid var(--color-border);background:#fff;color:var(--color-text)}
+.btn.p{background:var(--brand-primary);border-color:var(--brand-primary);color:#fff}
+.chk{display:flex;align-items:center;gap:7px;font-size:13px;color:var(--color-text-dim)}
+
+.note{font-size:12.5px;color:var(--color-text-dim);line-height:1.55}
+.legend{display:flex;align-items:center;gap:7px;font-size:12px;color:var(--color-text-dim);margin-bottom:10px}
+.legend i{width:12px;height:12px;border-radius:2px;background:var(--new);display:inline-block}
+@media(max-width:640px){.meta,.pricegrid{grid-template-columns:1fr}.wrap{padding:14px}}
+</style>
+</head>
+<body>
+
+<div class="topbar"><strong>RISTET RUG</strong><span>Køkken · Opskrifter</span></div>
+<div class="tab-bar">
+  <a href="#">Opskrifter</a>
+  <a href="#" class="active">Designer</a>
+</div>
+
+<div class="wrap">
+
+  <div class="legend"><i></i> Blå markering = nyt. Alt andet findes i <code>recipe_designer.js</code> i dag.</div>
+
+  <!-- META -->
+  <div class="block"><div class="block-bd">
+    <div class="meta">
+      <div class="fg"><label>Navn</label><input value="Kyllingen"></div>
+      <div class="fg"><label>Gruppe</label><select><option>01 Sandwich</option></select></div>
+      <div class="fg"><label>Enhed</label><select><option>stk</option></select></div>
+    </div>
+    <div class="port" style="margin-top:14px">
+      <button onclick="step(-1)">−</button>
+      <div><div class="val" id="pv">10</div><div class="lbl">portioner</div></div>
+      <button onclick="step(1)">+</button>
+      <div class="base">Basis: 10 portioner</div>
+    </div>
+  </div></div>
+
+  <!-- SUMMARY -->
+  <div class="block">
+    <div class="block-hd"><h2>Overblik</h2>
+      <div class="chips" id="chips"></div>
+    </div>
+    <div class="block-bd"><div class="sumbar" id="sumbar"></div></div>
+  </div>
+
+  <!-- PRIS & AVANCE -->
+  <div class="block" id="priceblock">
+    <div class="block-hd"><h2>Pris &amp; avance</h2><span class="note">alle beregninger ex moms</span></div>
+    <div class="block-bd">
+      <div class="pricegrid">
+        <div>
+          <div class="kv"><span>Råvarer</span><span id="k-rav"></span></div>
+          <div class="kv"><span>Underopskrifter</span><span id="k-nest"></span></div>
+          <div class="kv"><span>Emballage</span><span id="k-emb"></span></div>
+          <div class="kv"><span>Arbejdsløn</span><span id="k-lon"></span></div>
+          <div class="kv tot"><span>Kostpris pr. portion</span><span id="k-tot"></span></div>
+          <div class="lonrow">
+            <label class="sw"><input type="checkbox" id="lonOn" checked onchange="calc()"><i></i></label>
+            <span>Medregn løn</span>
+            <input type="number" id="lonMin" value="1,5" step="0.5" oninput="calc()" style="width:56px">
+            <span class="note">min/portion × 195 kr/t</span>
+          </div>
+        </div>
+        <div>
+          <div class="slider">
+            <div class="row"><span class="note" style="font-weight:700">Mål-dækningsbidrag</span><b id="dbv">70 %</b></div>
+            <input type="range" min="40" max="88" value="70" id="dbSlider" oninput="calc()">
+          </div>
+          <div class="suggest">
+            <div class="v" id="sug">94 kr</div>
+            <div class="l">foreslået menupris inkl. moms</div>
+            <div class="s" id="sugex"></div>
+          </div>
+          <div class="verdict ok" id="verdict"></div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- INGREDIENSER -->
+  <div class="block">
+    <div class="block-hd"><h2>Ingredienser</h2><span class="note" id="ingcount"></span></div>
+    <div class="block-bd" style="padding:14px 8px">
+      <table>
+        <thead><tr>
+          <th>Vare</th><th class="n">Mængde</th><th class="n">Lager</th>
+          <th class="n">Kostpris</th><th class="n">Andel</th>
+        </tr></thead>
+        <tbody id="tb"></tbody>
+        <tfoot><tr><td>I alt</td><td class="n" id="f-amt"></td><td></td><td class="n" id="f-kr"></td><td></td></tr></tfoot>
+      </table>
+    </div>
+  </div>
+
+  <!-- GEM -->
+  <div class="block"><div class="block-bd">
+    <div class="actions">
+      <button class="btn p">Gem som ny i Grocy</button>
+      <button class="btn">Gem kladde lokalt</button>
+      <label class="chk"><input type="checkbox" checked> Skriv salgspris til Grocy (Catering)</label>
+    </div>
+    <p class="note" style="margin-top:12px">Kladden gemmes i browseren indtil du publicerer. Prissnapshot: 30. juli 2026 — kostprisen fastholdes til det tidspunkt, så estimatet ikke ændrer sig bagefter.</p>
+  </div></div>
+
+</div>
+
+<script>
+var MOMS = 1.25, TIMESATS = 195, BASE = 10, portions = 10;
+
+/* pris = kr pr. enhed ex moms · co2 = g CO2e pr. enhed */
+var ING = [
+  {n:'Rugbrød, skiver',      g:'',          amt:1000, u:'g',   pris:0.032, co2:1.0,  lager:4200},
+  {n:'Kyllingebryst, stegt', g:'',          amt:800,  u:'g',   pris:0.098, co2:5.5,  lager:600},
+  {n:'Romainesalat',         g:'',          amt:300,  u:'g',   pris:0.028, co2:0.5,  lager:2500},
+  {n:'Syltede rødløg',       g:'',          amt:150,  u:'g',   pris:0.038, co2:0.7,  lager:900},
+  {n:'Karse',                g:'',          amt:40,   u:'g',   pris:0.220, co2:1.5,  lager:120},
+  {n:'RR Boks',              g:'emballage', amt:10,   u:'stk', pris:2.850, co2:12,   lager:240},
+  {n:'Etiket',               g:'emballage', amt:10,   u:'stk', pris:0.350, co2:1,    lager:1000}
+];
+var NEST = [{n:'Hjemmelavet mayo', serv:2.5, krPrServ:4.50, gPrServ:100, co2PrServ:300}];
+
+function kr(v,d){ return v.toLocaleString('da-DK',{minimumFractionDigits:d===undefined?2:d,maximumFractionDigits:d===undefined?2:d}); }
+function step(d){ portions = Math.max(1, portions + d); document.getElementById('pv').textContent = portions; calc(); }
+
+var CARDS = [
+  {id:'weight', label:'Samlet vægt',  isNew:false},
+  {id:'stock',  label:'Lager/mangler', isNew:false},
+  {id:'cost',   label:'Kostpris',      isNew:true},
+  {id:'price',  label:'Foreslået pris',isNew:true},
+  {id:'db',     label:'DB mod faktisk',isNew:true},
+  {id:'co2',    label:'CO₂e',          isNew:true}
+];
+var visible = new Set(['weight','stock','cost','price','db','co2']);
+
+function renderChips(){
+  document.getElementById('chips').innerHTML = CARDS.map(function(c){
+    return '<button class="chip'+(visible.has(c.id)?' on':'')+'" onclick="toggle(\''+c.id+'\')">'+c.label+'</button>';
+  }).join('');
+}
+function toggle(id){
+  visible.has(id) ? visible.delete(id) : visible.add(id);
+  renderChips(); calc();
+}
+
+function calc(){
+  var mult = portions / BASE;
+
+  var rav=0, emb=0, gram=0, co2=0, inStock=0, missing=0, rows='', totalAmt=0;
+
+  ING.forEach(function(i){
+    var amt = i.amt * mult, k = amt * i.pris;
+    if(i.g === 'emballage') emb += k; else { rav += k; gram += amt * (i.u==='g'?1:0); }
+    co2 += amt * i.co2;
+    var short = i.lager < amt;
+    short ? missing++ : inStock++;
+    totalAmt += amt;
+    rows += '<tr class="'+(i.g==='emballage'?'emb':'')+'" data-kr="'+k+'">'
+      + '<td>'+i.n+(i.g==='emballage'?'<span class="pill">emballage</span>':'')+'</td>'
+      + '<td class="n">'+kr(amt,0)+' '+i.u+'</td>'
+      + '<td class="n'+(short?' low':'')+'">'+kr(i.lager,0)+'</td>'
+      + '<td class="n">'+kr(k)+'</td>'
+      + '<td class="n"><span class="pct"></span><div class="bar"><i></i></div></td></tr>';
+  });
+
+  var nest = 0;
+  NEST.forEach(function(s){
+    var serv = s.serv * mult, k = serv * s.krPrServ;
+    nest += k; gram += serv * s.gPrServ; co2 += serv * s.co2PrServ;
+    rows += '<tr class="nest" data-kr="'+k+'"><td>'+s.n+'<span class="pill nest">underopskrift</span></td>'
+      + '<td class="n">'+kr(serv,1)+' port.</td><td class="n">—</td><td class="n">'+kr(k)+'</td>'
+      + '<td class="n"><span class="pct"></span><div class="bar"><i></i></div></td></tr>';
+  });
+
+  var lonOn = document.getElementById('lonOn').checked;
+  var lonMin = parseFloat(document.getElementById('lonMin').value.replace(',','.')) || 0;
+  var lon = lonOn ? (lonMin * portions / 60) * TIMESATS : 0;
+
+  var total = rav + nest + emb + lon;
+  var prPort = total / portions;
+
+  /* tabel */
+  document.getElementById('tb').innerHTML = rows;
+  document.querySelectorAll('#tb tr').forEach(function(tr){
+    var p = parseFloat(tr.dataset.kr) / total * 100;
+    tr.querySelector('.pct').textContent = kr(p,0)+' %';
+    tr.querySelector('.bar i').style.width = Math.min(100,p*2.2)+'%';
+  });
+  document.getElementById('f-amt').textContent = kr(gram,0)+' g';
+  document.getElementById('f-kr').textContent  = kr(total);
+  document.getElementById('ingcount').textContent = ING.length+' varer + '+NEST.length+' underopskrift';
+
+  /* pris */
+  var db = +document.getElementById('dbSlider').value;
+  var sugEx = prPort / (1 - db/100);
+  var sugInkl = Math.round(sugEx * MOMS);
+  var faktiskInkl = 94, faktiskEx = faktiskInkl / MOMS;
+  var faktiskDb = (faktiskEx - prPort) / faktiskEx * 100;
+
+  document.getElementById('dbv').textContent = db+' %';
+  document.getElementById('k-rav').textContent = kr(rav/portions)+' kr';
+  document.getElementById('k-nest').textContent = kr(nest/portions)+' kr';
+  document.getElementById('k-emb').textContent = kr(emb/portions)+' kr';
+  document.getElementById('k-lon').textContent = lonOn ? kr(lon/portions)+' kr' : '—';
+  document.getElementById('k-tot').textContent = kr(prPort)+' kr';
+  document.getElementById('sug').textContent = sugInkl+' kr';
+  document.getElementById('sugex').textContent = kr(sugEx)+' kr ex moms · kostpris '+kr(prPort)+' kr';
+
+  var v = document.getElementById('verdict');
+  if(faktiskDb >= db){
+    v.className = 'verdict ok';
+    v.innerHTML = 'Nuværende Catering-pris <b>94 kr</b> giver <b>'+kr(faktiskDb,1)+' % DB</b> — over målet.';
+  } else {
+    v.className = 'verdict warn';
+    v.innerHTML = 'Nuværende Catering-pris <b>94 kr</b> giver kun <b>'+kr(faktiskDb,1)+' % DB</b>. '
+      + 'Prisen skal op på <b>'+sugInkl+' kr</b> for at nå målet.';
+  }
+
+  /* kort */
+  var val = {
+    weight: [gram>=1000 ? kr(gram/1000,2)+' kg' : kr(gram,0)+' g', kr(gram/portions,0)+' g pr. portion', ''],
+    stock:  ['<span style="color:var(--color-green-dark)">'+inStock+'</span> / <span style="color:var(--color-red)">'+missing+'</span>', missing? 'Kyllingebryst mangler':'Alt på lager', ''],
+    cost:   [kr(prPort)+' kr', 'i alt '+kr(total,0)+' kr · ex moms', ''],
+    price:  [sugInkl+' kr', 'ved '+db+' % DB · inkl. moms', ''],
+    db:     [kr(faktiskDb,1)+' %', 'faktisk 94 kr · mål '+db+' %', faktiskDb>=db?'ok':'bad'],
+    co2:    [kr(co2/portions/1000,2)+' kg', 'CO₂e pr. portion', '']
+  };
+  document.getElementById('sumbar').innerHTML = CARDS.filter(function(c){return visible.has(c.id);}).map(function(c){
+    var d = val[c.id];
+    return '<div class="card'+(c.isNew?' is-new':'')+(d[2]?' '+d[2]:'')+'">'
+      + '<div class="v">'+d[0]+'</div><div class="l">'+c.label+'</div><div class="s">'+d[1]+'</div></div>';
+  }).join('');
+
+  document.getElementById('priceblock').style.display = visible.has('price')||visible.has('db')||visible.has('cost') ? 'block':'none';
+}
+
+renderChips(); calc();
+</script>
+</body>
+</html>
