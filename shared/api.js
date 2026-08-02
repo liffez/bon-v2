@@ -1426,25 +1426,43 @@ function updatePhysicalUnit(id, data) {
 
 /* ── REPORTS ──────────────────────────────────────────── */
 
-function fetchReportsSummary() {
-    return apiFetch('/reports/summary');
+// Fælles rapport-filtre → query-param-fragmenter. filters = { from, to, exclude_cats }.
+// Alle rapport-endpoints læser de samme parametre (routes/reports.js parseReportFilters);
+// periode-uafhængige kort (månedssøjler, akkumuleret, legoklods) ignorerer bare from/to.
+function _reportFilterQS(filters) {
+    var qs = [];
+    if (!filters) return qs;
+    if (filters.from) qs.push('from=' + encodeURIComponent(filters.from));
+    if (filters.to)   qs.push('to='   + encodeURIComponent(filters.to));
+    if (filters.exclude_cats) qs.push('exclude_cats=' + encodeURIComponent(filters.exclude_cats));
+    return qs;
 }
 
-function fetchReportsMonthly() {
-    return apiFetch('/reports/monthly');
+function _reportUrl(path, params) {
+    var qs = (params || []).filter(Boolean);
+    return path + (qs.length ? '?' + qs.join('&') : '');
 }
 
-function fetchReportsTopCustomers(by) {
-    var qs = by ? '?by=' + by : '';
-    return apiFetch('/reports/top-customers' + qs);
+function fetchReportsSummary(filters) {
+    return apiFetch(_reportUrl('/reports/summary', _reportFilterQS(filters)));
 }
 
-function fetchReportsCategories() {
-    return apiFetch('/reports/categories');
+function fetchReportsMonthly(filters) {
+    return apiFetch(_reportUrl('/reports/monthly', _reportFilterQS(filters)));
 }
 
-function fetchReportsMonthlyTable() {
-    return apiFetch('/reports/monthly-table');
+function fetchReportsTopCustomers(by, filters) {
+    var params = _reportFilterQS(filters);
+    if (by) params.unshift('by=' + by);
+    return apiFetch(_reportUrl('/reports/top-customers', params));
+}
+
+function fetchReportsCategories(filters) {
+    return apiFetch(_reportUrl('/reports/categories', _reportFilterQS(filters)));
+}
+
+function fetchReportsMonthlyTable(filters) {
+    return apiFetch(_reportUrl('/reports/monthly-table', _reportFilterQS(filters)));
 }
 
 /**
@@ -1452,7 +1470,7 @@ function fetchReportsMonthlyTable() {
  *   fetchReportsLego(months, year)         — backwards compat, vælg måneder i ét år
  *   fetchReportsLego({ periods: ['2026-05','2025-05'] })  — eksplicit periode-liste (år-mod-år)
  */
-function fetchReportsLego(monthsOrOpts, year) {
+function fetchReportsLego(monthsOrOpts, year, filters) {
     var params = [];
     if (monthsOrOpts && typeof monthsOrOpts === 'object' && !Array.isArray(monthsOrOpts)) {
         // Object form: { periods: ['YYYY-MM',...] }
@@ -1464,25 +1482,29 @@ function fetchReportsLego(monthsOrOpts, year) {
         if (months && months.length) params.push('months=' + months.join(','));
         if (year) params.push('year=' + year);
     }
-    var qs = params.length ? '?' + params.join('&') : '';
-    return apiFetch('/reports/lego' + qs);
+    // Legoklods bruger kun exclude_cats (periode styres af dens egne måneds-vælgere).
+    var ff = _reportFilterQS(filters);
+    for (var i = 0; i < ff.length; i++) if (ff[i].indexOf('exclude_cats=') === 0) params.push(ff[i]);
+    return apiFetch(_reportUrl('/reports/lego', params));
 }
 
-function fetchReportsCumulative(years) {
-    var qs = years && years.length ? '?years=' + years.join(',') : '';
-    return apiFetch('/reports/cumulative' + qs);
+function fetchReportsCumulative(years, filters) {
+    var params = [];
+    if (years && years.length) params.push('years=' + years.join(','));
+    // Akkumuleret bruger kun exclude_cats (periode = dens egne år-kurver).
+    var ff = _reportFilterQS(filters);
+    for (var i = 0; i < ff.length; i++) if (ff[i].indexOf('exclude_cats=') === 0) params.push(ff[i]);
+    return apiFetch(_reportUrl('/reports/cumulative', params));
 }
 
-function fetchReportsTopCategories() {
-    return apiFetch('/reports/top-categories');
+function fetchReportsTopCategories(filters) {
+    return apiFetch(_reportUrl('/reports/top-categories', _reportFilterQS(filters)));
 }
 
 // Modregning/Sponsorat — ikke omsætning, men findbar (ægte beløb givet væk/byttet).
-function fetchReportsGiveaways(from, to) {
-    var qs = [];
-    if (from) qs.push('from=' + encodeURIComponent(from));
-    if (to)   qs.push('to='   + encodeURIComponent(to));
-    return apiFetch('/reports/giveaways' + (qs.length ? '?' + qs.join('&') : ''));
+// Følger den globale periode + kategori-filter (filters = { from, to, exclude_cats }).
+function fetchReportsGiveaways(filters) {
+    return apiFetch(_reportUrl('/reports/giveaways', _reportFilterQS(filters)));
 }
 
 /* ── CASHFLOW ────────────────────────────────────────── */

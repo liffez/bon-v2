@@ -15,12 +15,26 @@ let _rapCustSortBy = 'revenue';
 let _rapLegoMode = 'revenue';
 let _rapMonthlyMode = 'kr';
 
+// ── Globale rapport-filtre ──────────────────────────────────────────
+// Periode: preset ('ytd'|'lastyear'|'last12'|'thismonth'|'custom') + custom fra/til.
+// Kategori: Set af price_category-koder der SKAL udelades. Huskes i localStorage.
+let _rapPeriod = { preset: 'ytd', from: null, to: null };
+let _rapExcludeCats = new Set();
+
+const RAP_LS_CATS = 'rap_exclude_cats';
+// Rækkefølge på kategori-chips (matcher price_categories i systemet).
+const RAP_CAT_ORDER = ['store', 'catering', 'festival', 'produktion', 'waiste'];
+
+// Farver holdt i sync med legomodellens palette (settings.lego_pax_categories),
+// så samme begreb har samme farve på tværs af siden. Festival = orange (som lego),
+// IKKE grøn — grøn betyder Events i legoen. Butik/Catering/Produktion matcher
+// legoens brun/guld/blå.
 const CAT_COLORS = {
-  store:      '#6d4c16',
-  catering:   '#c49a45',
-  festival:   '#7a9c54',
-  produktion: '#7594b3',
-  waiste:     '#c8c2bb'
+  store:      '#6d4c16',   // brun  (= lego "Store")
+  catering:   '#c49a45',   // guld  (= lego "Mellem")
+  festival:   '#d4652a',   // orange (= lego "Festival")
+  produktion: '#4a90d9',   // blå   (= lego "Små")
+  waiste:     '#c8c2bb'    // grå   (ingen lego-pendant)
 };
 
 const CAT_LABELS = {
@@ -83,6 +97,30 @@ function _rapShellHtml() {
   <div class="rap-grid-header" style="padding:8px 0 4px;font-size:13px;color:var(--color-text-dim,#7a6f5f)">
     <strong style="color:var(--color-text,#2c2416)">Rapporter</strong> — alle omsætnings-tal er <strong>ex moms</strong> (regnskabskonvention)
   </div>
+
+  <div class="rap-filterbar" id="rap-filterbar">
+    <div class="rap-filter-group">
+      <span class="rap-filter-label">Periode</span>
+      <div class="rap-toggle rap-period-presets" id="rap-period-presets">
+        <button data-preset="ytd" class="active">I år</button>
+        <button data-preset="lastyear">Sidste år</button>
+        <button data-preset="last12">Seneste 12 mdr.</button>
+        <button data-preset="thismonth">Denne måned</button>
+        <button data-preset="custom">Egen periode…</button>
+      </div>
+      <div class="rap-custom-range" id="rap-custom-range" style="display:none">
+        <input type="date" id="rap-from" aria-label="Fra dato">
+        <span>–</span>
+        <input type="date" id="rap-to" aria-label="Til dato">
+      </div>
+    </div>
+    <div class="rap-filter-group">
+      <span class="rap-filter-label">Kategorier</span>
+      <div class="rap-cat-filter" id="rap-cat-filter"></div>
+    </div>
+    <span class="rap-period-caption" id="rap-period-caption"></span>
+  </div>
+
   <div class="rap-kpi-strip" id="rap-kpis">
     <div class="rap-kpi rap-loading" style="min-height:90px"></div>
     <div class="rap-kpi rap-loading" style="min-height:90px"></div>
@@ -173,10 +211,102 @@ function initRapporter(container, opts) {
   _rapCustSortBy = 'revenue';
   _rapLegoMode = 'revenue';
   _rapMonthlyMode = 'kr';
+  _rapPeriod = { preset: 'ytd', from: null, to: null };
+  _rapExcludeCats = _rapLoadExcludeCats();
 
   container.innerHTML = _rapShellHtml();
   _rapWireToggles();
+  _rapWireFilters();
   _rapLoadAll();
+}
+
+// ─── filter state helpers ───────────────────────────────────────────
+
+function _rapLoadExcludeCats() {
+  try {
+    const raw = localStorage.getItem(RAP_LS_CATS);
+    if (!raw) return new Set();
+    const arr = JSON.parse(raw);
+    return new Set(Array.isArray(arr) ? arr.filter(c => RAP_CAT_ORDER.includes(c)) : []);
+  } catch (_) { return new Set(); }
+}
+
+function _rapSaveExcludeCats() {
+  try { localStorage.setItem(RAP_LS_CATS, JSON.stringify([..._rapExcludeCats])); } catch (_) {}
+}
+
+// Læg én dag til en ISO-dato (til at gøre inklusiv til-dato eksklusiv for serveren).
+function _rapAddDay(iso) {
+  const p = iso.split('-').map(Number);
+  return new Date(Date.UTC(p[0], p[1] - 1, p[2] + 1)).toISOString().slice(0, 10);
+}
+
+// Resolve preset → { from, to } med to EKSKLUSIV (server-konvention).
+// Returnerer null hvis 'custom' uden begge datoer (så vi ikke fetcher ugyldigt).
+// Bruger danske dato-helpers (todayISO/offsetISO) — ikke new Date().toISOString().
+function _rapResolvePeriod() {
+  const p = _rapPeriod;
+  const today = todayISO();                 // Europe/Copenhagen
+  const parts = today.split('-').map(Number);
+  const year = parts[0];
+
+  if (p.preset === 'custom') {
+    if (!p.from || !p.to || p.from > p.to) return null;
+    return { from: p.from, to: _rapAddDay(p.to) };
+  }
+  if (p.preset === 'lastyear') {
+    return { from: `${year - 1}-01-01`, to: `${year}-01-01` };
+  }
+  if (p.preset === 'last12') {
+    // Første dag i måneden 11 måneder tilbage (Date.UTC ruller år ved negativ måned).
+    const d = new Date(Date.UTC(parts[0], parts[1] - 1 - 11, 1)).toISOString().slice(0, 10);
+    return { from: d, to: offsetISO(1) };
+  }
+  if (p.preset === 'thismonth') {
+    return { from: today.slice(0, 7) + '-01', to: offsetISO(1) };
+  }
+  // ytd (default)
+  return { from: `${year}-01-01`, to: offsetISO(1) };
+}
+
+// Bygger filter-objektet der sendes til alle fetchers. null = ugyldig custom-periode.
+function _rapFilterParams() {
+  const period = _rapResolvePeriod();
+  if (!period) return null;
+  const params = { from: period.from, to: period.to };
+  if (_rapExcludeCats.size) params.exclude_cats = [..._rapExcludeCats].join(',');
+  return params;
+}
+
+// Menneskelæselig etiket for den valgte periode (til caption).
+function _rapPeriodLabel() {
+  const p = _rapPeriod;
+  if (p.preset === 'lastyear') return 'Sidste år';
+  if (p.preset === 'last12')   return 'Seneste 12 måneder';
+  if (p.preset === 'thismonth') return 'Denne måned';
+  if (p.preset === 'custom') {
+    if (!p.from || !p.to) return 'Vælg fra- og til-dato';
+    return _rapFmtDate(p.from) + ' – ' + _rapFmtDate(p.to);
+  }
+  return 'År til dato';
+}
+
+function _rapFmtDate(iso) {
+  if (!iso) return '';
+  const d = new Date(iso + 'T00:00:00');
+  if (isNaN(d.getTime())) return iso;
+  return d.toLocaleDateString('da-DK', { day: 'numeric', month: 'long', year: 'numeric' });
+}
+
+function _rapUpdateCaption() {
+  const el = document.getElementById('rap-period-caption');
+  if (!el) return;
+  let txt = 'Viser: ' + _rapPeriodLabel();
+  if (_rapExcludeCats.size) {
+    const names = [..._rapExcludeCats].map(c => CAT_LABELS[c] || c).join(', ');
+    txt += ' · uden ' + names;
+  }
+  el.textContent = txt;
 }
 
 function cleanupRapporter() {
@@ -201,19 +331,23 @@ function _rapportHandleSSE(event, data) {
 
 async function _rapLoadAll() {
   if (!_rapActive) return;
+  _rapUpdateCaption();
+  const filters = _rapFilterParams();
+  // Ugyldig custom-periode (mangler fra/til) → vent, ram ikke serveren med halve datoer.
+  if (!filters) return;
   try {
     const [summary, monthly, topCust, categories, monthlyTable, lego, cumulative, topCats, giveaways] = await Promise.all([
-      fetchReportsSummary(),
-      fetchReportsMonthly(),
-      fetchReportsTopCustomers(_rapCustSortBy),
-      fetchReportsCategories(),
-      fetchReportsMonthlyTable(),
-      _rapFetchLego(),
-      fetchReportsCumulative(),
-      fetchReportsTopCategories(),
+      fetchReportsSummary(filters),
+      fetchReportsMonthly(filters),
+      fetchReportsTopCustomers(_rapCustSortBy, filters),
+      fetchReportsCategories(filters),
+      fetchReportsMonthlyTable(filters),
+      _rapFetchLego(filters),
+      fetchReportsCumulative(null, filters),
+      fetchReportsTopCategories(filters),
       // Ikke-fatal: dette kort er additivt og må ALDRIG kunne vælte hele
       // rapportsiden (Promise.all fejler samlet). Fejler det, vises kortet tomt.
-      fetchReportsGiveaways().catch(function(err) {
+      fetchReportsGiveaways(filters).catch(function(err) {
         console.error('[rapporter] giveaways fejlede:', err);
         return null;
       }),
@@ -295,15 +429,15 @@ function _rapRenderKPIs(d) {
   const cards = [
     {
       value: _rapFmtKr(revenueYtd),
-      label: 'Omsætning YTD (ex moms)',
+      label: 'Omsætning (ex moms)',
       delta: _rapDeltaHtml(revenueYtd, revenueYtdPrev, 'pct'),
-      sub: ''
+      sub: 'vs. samme periode året før'
     },
     {
       value: _rapFmt(d.orders_ytd),
-      label: 'Ordrer YTD',
+      label: 'Ordrer',
       delta: _rapDeltaHtml(d.orders_ytd, d.orders_ytd_prev, 'abs'),
-      sub: ''
+      sub: 'vs. samme periode året før'
     },
     {
       value: _rapFmtKr(avgOrder),
@@ -473,10 +607,11 @@ const _RAP_COMPARE_OPTIONS = [
   { key: 'prev2', label: 'Sidste 3 år',     hint: 'Vælg 1 måned — sammenlignes på tværs af de sidste 3 år' },
 ];
 
-/** Returnerer fetch-promise for lego baseret på nuværende state. */
-function _rapFetchLego() {
+/** Returnerer fetch-promise for lego baseret på nuværende state. Kategori-filter følger med. */
+function _rapFetchLego(filters) {
+  const ff = filters || _rapFilterParams() || {};
   if (_rapLegoCompare === 'none') {
-    return fetchReportsLego(_rapLegoMonths, _rapLegoYear);
+    return fetchReportsLego(_rapLegoMonths, _rapLegoYear, ff);
   }
   // Sammenlignings-tilstand: brug 1. valgte måned (eller indeværende måned hvis ingen valgt).
   const month = _rapLegoMonths[0] || (new Date().getMonth() + 1);
@@ -484,7 +619,7 @@ function _rapFetchLego() {
   const yearOffsets = _rapLegoCompare === 'prev2' ? [2, 1, 0] : [1, 0];
   const mm = String(month).padStart(2, '0');
   const periods = yearOffsets.map(off => `${thisYear - off}-${mm}`);
-  return fetchReportsLego({ periods });
+  return fetchReportsLego({ periods }, null, ff);
 }
 
 function _rapRenderLegoModel(data) {
@@ -755,7 +890,7 @@ function _rapWireToggles() {
       btn.classList.add('active');
       _rapCustSortBy = btn.dataset.by;
       try {
-        const data = await fetchReportsTopCustomers(_rapCustSortBy);
+        const data = await fetchReportsTopCustomers(_rapCustSortBy, _rapFilterParams());
         if (!_rapActive) return;
         _rapRenderTopCustomers(data);
       } catch (err) { /* ignore */ }
@@ -763,4 +898,83 @@ function _rapWireToggles() {
   }
 
   // Lego toggle removed — stacked chart shows both kr + orders side by side
+}
+
+// ─── filter bar wiring ──────────────────────────────────────────────
+
+function _rapWireFilters() {
+  _rapRenderCatChips();
+  _rapUpdateCaption();
+
+  // Periode-presets
+  const presets = document.getElementById('rap-period-presets');
+  const customRange = document.getElementById('rap-custom-range');
+  const fromEl = document.getElementById('rap-from');
+  const toEl   = document.getElementById('rap-to');
+
+  if (presets) {
+    presets.onclick = (e) => {
+      const btn = e.target.closest('button[data-preset]');
+      if (!btn) return;
+      const preset = btn.dataset.preset;
+      presets.querySelectorAll('button').forEach(b => b.classList.remove('active'));
+      btn.classList.add('active');
+      _rapPeriod.preset = preset;
+
+      if (preset === 'custom') {
+        if (customRange) customRange.style.display = '';
+        // Prefyld med YTD som fornuftigt udgangspunkt hvis tomt → straks gyldigt.
+        if (fromEl && !fromEl.value) fromEl.value = todayISO().slice(0, 4) + '-01-01';
+        if (toEl && !toEl.value) toEl.value = todayISO();
+        _rapPeriod.from = fromEl ? fromEl.value : null;
+        _rapPeriod.to   = toEl ? toEl.value : null;
+      } else {
+        if (customRange) customRange.style.display = 'none';
+      }
+      _rapUpdateCaption();
+      _rapLoadAll();
+    };
+  }
+
+  const onCustomChange = () => {
+    _rapPeriod.preset = 'custom';
+    _rapPeriod.from = fromEl ? fromEl.value : null;
+    _rapPeriod.to   = toEl ? toEl.value : null;
+    _rapUpdateCaption();
+    _rapLoadAll();   // _rapLoadAll no-op'er hvis periode er ufuldstændig
+  };
+  if (fromEl) fromEl.onchange = onCustomChange;
+  if (toEl)   toEl.onchange = onCustomChange;
+
+  // Kategori-chips (delegeret)
+  const catEl = document.getElementById('rap-cat-filter');
+  if (catEl) {
+    catEl.onclick = (e) => {
+      const chip = e.target.closest('.rap-cat-chip[data-cat]');
+      if (!chip) return;
+      const code = chip.dataset.cat;
+      if (_rapExcludeCats.has(code)) _rapExcludeCats.delete(code);
+      else _rapExcludeCats.add(code);
+      _rapSaveExcludeCats();
+      const nowExcluded = _rapExcludeCats.has(code);
+      chip.classList.toggle('excluded', nowExcluded);
+      const label = CAT_LABELS[code] || code;
+      chip.title = 'Klik for at ' + (nowExcluded ? 'medregne' : 'fjerne') + ' ' + label;
+      _rapUpdateCaption();
+      _rapLoadAll();
+    };
+  }
+}
+
+function _rapRenderCatChips() {
+  const el = document.getElementById('rap-cat-filter');
+  if (!el) return;
+  el.innerHTML = RAP_CAT_ORDER.map(code => {
+    const label = CAT_LABELS[code] || code;
+    const color = CAT_COLORS[code] || '#999';
+    const excl = _rapExcludeCats.has(code) ? ' excluded' : '';
+    return `<button class="rap-cat-chip${excl}" data-cat="${code}" title="Klik for at ${excl ? 'medregne' : 'fjerne'} ${label}">
+      <span class="rap-cat-chip-dot" style="background:${color}"></span>${label}
+    </button>`;
+  }).join('');
 }
