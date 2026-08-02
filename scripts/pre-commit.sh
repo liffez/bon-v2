@@ -17,7 +17,11 @@
 
 set -e
 
-DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+# Find scripts/-mappen robust. Hooken kaldes via symlink fra .git/hooks, så
+# BASH_SOURCE peger på symlinkens placering (.git/hooks) — IKKE målet (scripts/).
+# Selv-lokalisering via BASH_SOURCE ledte derfor efter check-*.sh i .git/hooks
+# og fejlede. Git-rooten virker fra både hoved-repo og worktrees.
+DIR="$(git rev-parse --show-toplevel)/scripts"
 
 # Moms: ingen magic 1.25 / 0.25 uden for shared/moms.js (BON_V2_PRINCIPPER §6b)
 "$DIR/check-moms-magic.sh"
