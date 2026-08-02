@@ -304,6 +304,15 @@ async function handleWebOrder(data) {
     bonId
   );
 
+  // 9b. Auto-generér bon-linjer fra kundens menu-valg (#382).
+  //     Best-effort: en Grocy-fejl må ALDRIG vælte selve bestillingen — bonen er
+  //     allerede oprettet. Linjerne er et startpunkt office retter/prissætter.
+  try {
+    await generateLinesFromMenuItems(db, bonId, data);
+  } catch (lineErr) {
+    console.error(`[web-order] Kunne ikke auto-generere linjer for bon #${bonNumber}:`, lineErr.message);
+  }
+
   // 10. Send bekræftelsesmail til kunden + intern notifikation til ejer
   //     (fire-and-forget — blokerer ikke response)
   const dagnavne = ['søndag','mandag','tirsdag','onsdag','torsdag','fredag','lørdag'];
@@ -388,4 +397,77 @@ async function handleWebOrder(data) {
   return { bonId, bonNumber };
 }
 
+// ─── Auto-generér bon-linjer fra kundens menu-valg (#382) ────────────────────
+// Kaldes fra handleWebOrder inde i en try/catch — må aldrig kaste videre.
+async function generateLinesFromMenuItems(db, bonId, data) {
+  const items = Array.isArray(data.menu_items)
+    ? data.menu_items.filter(i => i && Number(i.count) > 0)
+    : [];
+  if (!items.length) return;
+
+  const grocyAdapter = require('../services/grocyAdapter');
+  const { resolveMenuItemLines } = require('../services/menuItemsToLines');
+  const { recalcBonTotalUnits, recalcBonTotal, logChange } = require('../db/helpers');
+  const { broadcast } = require('../shared/sse');
+
+  // Bonens priskategori — festival-events rammer festival-prisen, ellers catering.
+  const pcRow = db.prepare(`
+    SELECT pc.code FROM bons b JOIN price_categories pc ON b.price_category_id = pc.id WHERE b.id = ?
+  `).get(bonId);
+  const priceCategory = pcRow?.code || 'catering';
+
+  // Grocy-opskrifter til pris/kostpris/CO₂-snapshot (getRecipes har egen cache).
+  const recipes = await grocyAdapter.getRecipes();
+  const recipesById = new Map(recipes.map(r => [r.id, r]));
+
+  // Menu-navne som fallback for ikke-Grocy-koblede items (sjældent i drift, hvor
+  // menuen er importeret fra Grocy og id'erne er r<recipe_id>).
+  const menuItemsById = new Map();
+  try {
+    const menuId = (data._form_meta && data._form_meta.menu_id) || 'standard';
+    const row = db.prepare(`SELECT value FROM settings WHERE key = ?`).get(`bestilling.menu_${menuId}`);
+    if (row) {
+      const menu = JSON.parse(row.value);
+      for (const it of (menu.items || [])) {
+        menuItemsById.set(String(it.id), { name: it.name, category: it.category });
+      }
+    }
+  } catch (_) { /* fallback-navne er valgfrie */ }
+
+  const { lines, unmatched } = resolveMenuItemLines({ menuItems: items, recipesById, menuItemsById, priceCategory });
+  if (unmatched.length) {
+    console.warn(`[web-order] ${unmatched.length} menu-item(s) uden kobling på bon ${bonId}:`, unmatched);
+  }
+  if (!lines.length) return;
+
+  const insert = db.prepare(`
+    INSERT INTO bon_lines (bon_id, grocy_recipe_id, product_name, category, quantity, unit,
+        cost_price, unit_price, line_total, sort_order, is_accessory, special_request, co2e, notes)
+    VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?)
+  `);
+  let sort = db.prepare(`SELECT COALESCE(MAX(sort_order), 0) AS mx FROM bon_lines WHERE bon_id = ?`).get(bonId).mx;
+  for (const l of lines) {
+    const lineTotal = (l.unit_price != null && l.quantity) ? l.quantity * l.unit_price : null;
+    insert.run(
+      bonId, l.grocy_recipe_id, l.product_name, l.category, l.quantity, l.unit,
+      l.cost_price, l.unit_price, lineTotal, ++sort, 0, null, l.co2e, null
+    );
+  }
+
+  // Server-autoritativ recalc (samme helpers som POST /:id/lines)
+  recalcBonTotalUnits(db, bonId);
+  recalcBonTotal(db, bonId, { logIfChanged: false });
+
+  logChange({
+    entityType: 'bon', entityId: bonId, action: 'update', fieldName: 'bon_lines',
+    newValue: `${lines.length} linje(r) auto-genereret fra web-bestilling`,
+    notes: 'Kundens menu-valg',
+  });
+  broadcast('bon_updated', { id: bonId });
+
+  console.log(`[web-order] Auto-genererede ${lines.length} linje(r) på bon ${bonId} (priskategori=${priceCategory})`);
+}
+
 module.exports = router;
+// Eksponeret til integrationstest (#382) — ikke del af det offentlige API.
+module.exports._generateLinesFromMenuItems = generateLinesFromMenuItems;

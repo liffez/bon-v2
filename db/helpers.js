@@ -551,6 +551,40 @@ function recalcBonTotalCo2e(db, bonId) {
 }
 
 /**
+ * recalcBonTotal — server-autoritativ recalc af bons.total_price (INCL moms) fra
+ * bon_lines. Håndterer levering (undgår dobbelt-tælling hvis der findes en
+ * 'x-Levering'-linje) + stående/tilbuds-rabat (offer_discount_percent).
+ * Flyttet hertil fra routes/bons.js så både bon-routen OG web-order-webhooken
+ * bruger nøjagtig samme beregning (#382). Returnerer den nye total.
+ */
+function recalcBonTotal(db, bonId, opts = {}) {
+    const bon = db.prepare('SELECT total_price, total_with_delivery, delivery_price, offer_discount_percent FROM bons WHERE id = ?').get(bonId);
+    if (!bon) return null;
+    const lines = db.prepare('SELECT line_total, category FROM bon_lines WHERE bon_id = ?').all(bonId);
+    const hasLeveringLine = lines.some(l => l.category === 'x-Levering');
+    const linesSum = lines.reduce((s, l) => s + (l.line_total ?? 0), 0);
+    const deliveryAdd = hasLeveringLine ? 0 : (bon.delivery_price ?? 0);
+    const subtotal = linesSum + deliveryAdd;
+    const discount = bon.offer_discount_percent ? subtotal * (bon.offer_discount_percent / 100) : 0;
+    const total = Math.round((subtotal - discount) * 100) / 100;
+
+    db.prepare('UPDATE bons SET total_price = ?, total_with_delivery = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?')
+      .run(total, total, bonId);
+
+    // Log spor hvis totalen rykker mere end 1 kr — synligt for brugeren der åbner bonnen senere
+    if (opts.logIfChanged && bon.total_price != null && Math.abs((bon.total_price ?? 0) - total) > 1) {
+        logChange({
+            entityType: 'bon', entityId: bonId,
+            action: 'update', fieldName: 'total_price',
+            oldValue: bon.total_price, newValue: total,
+            notes: 'Auto-recalc',
+            userId: opts.userId ?? null,
+        });
+    }
+    return total;
+}
+
+/**
  * ── Event-roller og produktions-workload ───────────────────────────
  * Et festival-/event-salg er splittet i to slags bonner (event_role):
  *   - prep / topup  → det køkkenet PRODUCERER (priskategori 'produktion')
@@ -646,7 +680,7 @@ module.exports = {
     autoConsumeBonInventory,
     getUnitCountCategories, getUnitCountExtraRecipes, invalidateUnitCountCache,
     getNonRevenuePaymentCodes, revenueFactorSQL, nonRevenueBonExcludeSQL, invalidateNonRevenueCache,
-    bonUnitsExpr, recalcBonTotalUnits, recalcBonTotalCo2e,
+    bonUnitsExpr, recalcBonTotalUnits, recalcBonTotalCo2e, recalcBonTotal,
     WORKLOAD_EXCLUDED_EVENT_ROLES, countsAsWorkload, workloadRoleSql,
     countsAsSale, salesPriceCategorySql,
     hashPassword, verifyPassword, getUserByEmail, getUserById, getUserId,
