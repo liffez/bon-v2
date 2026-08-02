@@ -189,13 +189,19 @@ hvis feltet er tomt (overskriver ikke).
 
 `GET /embed/grocy-preview` tvinger Grocy-render (kræver login) — bruges af import-flowet i Settings.
 
-> ⚠️ **Kernefund — `menu_items[]` er struktureret men INERT.** Formen sender faktisk
-> `menu_items: [{id, count}]` (kundens klik i menu-pickeren), og hele payloaded — inkl.
-> `menu_items` — gemmes i `web_orders.raw_data`. **Men intet backend-kode parser dem.** De
-> bliver ikke til bon-linjer; kun `wishes`-fritekst ender i `customer_wishes`. Dvs. det
-> `CLAUDE_BESTILLING_FORM.md` kalder et bevidst fravalg ("`valgte_retter` sendes IKKE
-> struktureret") er forkert: dataet ER der ved grænsen, det bliver bare ikke brugt.
-> Det er den største uindfriede mulighed i flowet — se §9.
+> ✅ **`menu_items[]` kobles nu til bon-linjer (#382, august 2026).** Formen sender kundens
+> ret-valg som `menu_items: [{id, count}]` (og hele payloaden gemmes fortsat i
+> `web_orders.raw_data`). Ved bestilling oversætter `services/menuItemsToLines.js` dem til
+> bon-linjer: id `r<recipe_id>` → Grocy-opskrift → snapshot af pris (bonens priskategori —
+> festival-events rammer festival-pris), kostpris og CO₂. `routes/web-orders.js`
+> `generateLinesFromMenuItems()` kaldes efter `createBon`, best-effort (en Grocy-fejl vælter
+> aldrig bestillingen). Manglende/uset pris → prisløs linje (office prissætter).
+>
+> **Afhænger af menu-id-formatet:** produktionsmenuen er importeret fra Grocy, så items har
+> `r<recipe_id>`-id'er → linjer bliver prissat. En menu bygget med håndlavede slug-id'er
+> (fx `falaflen`) har ingen Grocy-kobling → linjer kommer ind navn-only via menu-JSON'ens
+> navn, og office prissætter. (Tidligere var dette en uindfriet mulighed — dataet lå kun
+> inert i `raw_data`.)
 
 > **Note:** `ALLOWED_MENUS = ['standard']` er hardcodet i `routes/embed.js`. Trods `?menu=<id>`-
 > arkitekturen virker kun `standard` i praksis; alt andet redirecter/404'er.
@@ -237,9 +243,10 @@ men acknowledge-handlingen bør verificeres i drift.
 
 ## 9. Åbne huller / hvad en restrukturering bør tage stilling til
 
-1. **`menu_items[]` er inert (§6).** Kunden vælger konkrete retter, men office skal taste dem
-   som bon-linjer i hånden. Koblingen til menu-agenten (spec findes) er den største gevinst
-   der ligger og venter — dataet er der allerede i `raw_data`.
+1. ~~**`menu_items[]` er inert.**~~ **Løst (#382, aug. 2026)** — kundens ret-valg oversættes nu
+   automatisk til prissatte bon-linjer ved bestilling (se §6). Rest-mulighed: en menu bygget med
+   slug-id'er giver navn-only linjer; menu-agenten (#78) kan stadig berige fritekst-`wishes` og
+   pris manuelt-tilføjede items.
 2. **Doc-drift mod de to ældre specs.** `CLAUDE_BESTILLING_FORM.md` peger på ikke-eksisterende
    filer/endpoints/feltnavne. Enten opdateres den, eller den markeres som "afløst af dette
    as-is-dokument" (anbefalet — den er en implementerings-guide til noget der allerede er bygget anderledes).
