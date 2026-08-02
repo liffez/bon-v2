@@ -1,4 +1,12 @@
 # CLAUDE_BESTILLING_FORM.md — Embed-bestillingsformular
+
+> ⚠️ **AFLØST SOM SANDHEDSKILDE — implementeringen er drevet fra denne spec.**
+> Se [`CLAUDE_PREORDER_ASIS.md`](CLAUDE_PREORDER_ASIS.md) for den faktiske tilstand
+> (august 2026). Feltnavne, webhook-endpoint (`/webhook/bestilling`, ikke
+> `/api/formbuilder/webhook`), menu-kilde (settings, ikke `public/menus/*.json`) og
+> datamål (`bons.customer_wishes`, ikke `notes`) er alle anderledes end beskrevet her.
+> Denne fil bevares som design-historik, ikke som opskrift.
+
 > Læs CLAUDE.md, BON_V2_PRINCIPPER.md og bon_v2_datamodel_v2.md først.
 > Mockup: `bestilling_inline_v5.html` (artefakt fra Claude.ai-session)
 > Opdateret: maj 2026
