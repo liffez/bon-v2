@@ -20,6 +20,10 @@ let _rapMonthlyMode = 'kr';
 // Kategori: Set af price_category-koder der SKAL udelades. Huskes i localStorage.
 let _rapPeriod = { preset: 'ytd', from: null, to: null };
 let _rapExcludeCats = new Set();
+// Sammenlign år-tilstand: to årstal stillet op mod hinanden (A = primær, B = baseline).
+let _rapCompare = { on: false, yearA: null, yearB: null };
+let _rapYears = [];   // tilgængelige år til dropdowns (fra /reports/years)
+let _rapLastFilters = null;   // seneste filter-objekt (til chart-render af compare-info)
 
 const RAP_LS_CATS = 'rap_exclude_cats';
 // Rækkefølge på kategori-chips (matcher price_categories i systemet).
@@ -107,11 +111,17 @@ function _rapShellHtml() {
         <button data-preset="last12">Seneste 12 mdr.</button>
         <button data-preset="thismonth">Denne måned</button>
         <button data-preset="custom">Egen periode…</button>
+        <button data-preset="compare">Sammenlign år…</button>
       </div>
       <div class="rap-custom-range" id="rap-custom-range" style="display:none">
         <input type="date" id="rap-from" aria-label="Fra dato">
         <span>–</span>
         <input type="date" id="rap-to" aria-label="Til dato">
+      </div>
+      <div class="rap-compare-years" id="rap-compare-years" style="display:none">
+        <select id="rap-year-a" aria-label="År"></select>
+        <span>mod</span>
+        <select id="rap-year-b" aria-label="Sammenlignings-år"></select>
       </div>
     </div>
     <div class="rap-filter-group">
@@ -213,11 +223,22 @@ function initRapporter(container, opts) {
   _rapMonthlyMode = 'kr';
   _rapPeriod = { preset: 'ytd', from: null, to: null };
   _rapExcludeCats = _rapLoadExcludeCats();
+  const _cy = parseInt(todayISO().slice(0, 4));
+  _rapCompare = { on: false, yearA: _cy, yearB: _cy - 1 };
+  _rapYears = [];
 
   container.innerHTML = _rapShellHtml();
   _rapWireToggles();
   _rapWireFilters();
   _rapLoadAll();
+
+  // Tilgængelige år til Sammenlign-dropdowns (non-blocking).
+  fetchReportsYears().then(d => {
+    if (!_rapActive) return;
+    _rapYears = (d && d.years) || [];
+    if (!_rapYears.includes(_rapCompare.yearA)) _rapYears.unshift(_rapCompare.yearA);
+    _rapPopulateYearSelects();
+  }).catch(() => {});
 }
 
 // ─── filter state helpers ───────────────────────────────────────────
@@ -241,6 +262,13 @@ function _rapAddDay(iso) {
   return new Date(Date.UTC(p[0], p[1] - 1, p[2] + 1)).toISOString().slice(0, 10);
 }
 
+// Kalender-span for et helt år, to EKSKLUSIV. Indeværende år klampes til YTD (i morgen).
+function _rapYearSpan(y) {
+  const cy = parseInt(todayISO().slice(0, 4));
+  if (y === cy) return { from: `${y}-01-01`, to: offsetISO(1) };
+  return { from: `${y}-01-01`, to: `${y + 1}-01-01` };
+}
+
 // Resolve preset → { from, to } med to EKSKLUSIV (server-konvention).
 // Returnerer null hvis 'custom' uden begge datoer (så vi ikke fetcher ugyldigt).
 // Bruger danske dato-helpers (todayISO/offsetISO) — ikke new Date().toISOString().
@@ -250,6 +278,10 @@ function _rapResolvePeriod() {
   const parts = today.split('-').map(Number);
   const year = parts[0];
 
+  if (p.preset === 'compare') {
+    // Primær periode = hele år A (baseline B håndteres i _rapFilterParams).
+    return _rapYearSpan(_rapCompare.yearA);
+  }
   if (p.preset === 'custom') {
     if (!p.from || !p.to || p.from > p.to) return null;
     return { from: p.from, to: _rapAddDay(p.to) };
@@ -275,12 +307,27 @@ function _rapFilterParams() {
   if (!period) return null;
   const params = { from: period.from, to: period.to };
   if (_rapExcludeCats.size) params.exclude_cats = [..._rapExcludeCats].join(',');
+
+  if (_rapPeriod.preset === 'compare') {
+    const A = _rapCompare.yearA, B = _rapCompare.yearB;
+    // Baseline-span = A's span skubbet til år B (spejler samme del af året).
+    // cmpToYear = periodens til-år minus (A − B), så både fuldt-år og YTD håndteres.
+    const delta = A - B;
+    const toAyear = parseInt(period.to.slice(0, 4));
+    params.cmp_from = `${B}-01-01`;
+    params.cmp_to   = `${toAyear - delta}${period.to.slice(4)}`;
+    // Månedssøjler: kalenderår A-vs-B. Akkumuleret: kurver for B + A (A fremhæves).
+    params.monthly_year    = A;
+    params.monthly_compare = B;
+    params.compare_years   = [B, A];
+  }
   return params;
 }
 
 // Menneskelæselig etiket for den valgte periode (til caption).
 function _rapPeriodLabel() {
   const p = _rapPeriod;
+  if (p.preset === 'compare') return _rapCompare.yearA + ' mod ' + _rapCompare.yearB;
   if (p.preset === 'lastyear') return 'Sidste år';
   if (p.preset === 'last12')   return 'Seneste 12 måneder';
   if (p.preset === 'thismonth') return 'Denne måned';
@@ -301,7 +348,7 @@ function _rapFmtDate(iso) {
 function _rapUpdateCaption() {
   const el = document.getElementById('rap-period-caption');
   if (!el) return;
-  let txt = 'Viser: ' + _rapPeriodLabel();
+  let txt = (_rapPeriod.preset === 'compare' ? 'Sammenligner: ' : 'Viser: ') + _rapPeriodLabel();
   if (_rapExcludeCats.size) {
     const names = [..._rapExcludeCats].map(c => CAT_LABELS[c] || c).join(', ');
     txt += ' · uden ' + names;
@@ -335,6 +382,7 @@ async function _rapLoadAll() {
   const filters = _rapFilterParams();
   // Ugyldig custom-periode (mangler fra/til) → vent, ram ikke serveren med halve datoer.
   if (!filters) return;
+  _rapLastFilters = filters;   // så chart-renderne kan læse compare-info
   try {
     const [summary, monthly, topCust, categories, monthlyTable, lego, cumulative, topCats, giveaways] = await Promise.all([
       fetchReportsSummary(filters),
@@ -343,7 +391,7 @@ async function _rapLoadAll() {
       fetchReportsCategories(filters),
       fetchReportsMonthlyTable(filters),
       _rapFetchLego(filters),
-      fetchReportsCumulative(null, filters),
+      fetchReportsCumulative(filters.compare_years || null, filters),
       fetchReportsTopCategories(filters),
       // Ikke-fatal: dette kort er additivt og må ALDRIG kunne vælte hele
       // rapportsiden (Promise.all fejler samlet). Fejler det, vises kortet tomt.
@@ -426,18 +474,21 @@ function _rapRenderKPIs(d) {
   const avgOrderPrev    = d.avg_order_prev_excl_moms   ?? d.avg_order_prev;
   const pendingInvoice  = d.pending_invoice_excl_moms  ?? d.pending_invoice;
 
+  const baselineSub = _rapPeriod.preset === 'compare'
+    ? 'vs. ' + _rapCompare.yearB
+    : 'vs. samme periode året før';
   const cards = [
     {
       value: _rapFmtKr(revenueYtd),
       label: 'Omsætning (ex moms)',
       delta: _rapDeltaHtml(revenueYtd, revenueYtdPrev, 'pct'),
-      sub: 'vs. samme periode året før'
+      sub: baselineSub
     },
     {
       value: _rapFmt(d.orders_ytd),
       label: 'Ordrer',
       delta: _rapDeltaHtml(d.orders_ytd, d.orders_ytd_prev, 'abs'),
-      sub: 'vs. samme periode året før'
+      sub: baselineSub
     },
     {
       value: _rapFmtKr(avgOrder),
@@ -479,7 +530,11 @@ function _rapRenderMonthlyChart(data) {
     if (wrap && wrap.parentElement) wrap.parentElement.innerHTML = '<div style="padding:40px;text-align:center;color:#a09890">Chart ikke tilgængelig</div>';
     return;
   }
-  const handle = initMonthlyBarChart('rap-monthly-canvas', data);
+  // Sammenlign år: forankr søjlerne til år A vs B (ellers rullende 12 mdr.).
+  const f = _rapLastFilters || {};
+  const opts = { mode: _rapMonthlyMode };
+  if (f.monthly_year) { opts.year = f.monthly_year; opts.compareYear = f.monthly_compare; }
+  const handle = initMonthlyBarChart('rap-monthly-canvas', data, opts);
   if (handle) {
     _rapCharts['rap-monthly-canvas'] = handle;
     if (typeof handle.setMode === 'function') handle.setMode(_rapMonthlyMode);
@@ -746,9 +801,10 @@ function _rapRenderCumulative(data) {
   if (_rapCharts['rap-cumul-canvas'] && typeof _rapCharts['rap-cumul-canvas'].destroy === 'function') {
     _rapCharts['rap-cumul-canvas'].destroy();
   }
-  const handle = initMultiYearAccumChart('rap-cumul-canvas', data, {
-    currentYear: new Date().getFullYear().toString()
-  });
+  // Sammenlign år: fremhæv år A som den primære kurve.
+  const f = _rapLastFilters || {};
+  const currentYear = f.monthly_year ? String(f.monthly_year) : new Date().getFullYear().toString();
+  const handle = initMultiYearAccumChart('rap-cumul-canvas', data, { currentYear });
   if (handle) {
     _rapCharts['rap-cumul-canvas'] = handle;
   }
@@ -909,6 +965,7 @@ function _rapWireFilters() {
   // Periode-presets
   const presets = document.getElementById('rap-period-presets');
   const customRange = document.getElementById('rap-custom-range');
+  const compareRange = document.getElementById('rap-compare-years');
   const fromEl = document.getElementById('rap-from');
   const toEl   = document.getElementById('rap-to');
 
@@ -920,21 +977,36 @@ function _rapWireFilters() {
       presets.querySelectorAll('button').forEach(b => b.classList.remove('active'));
       btn.classList.add('active');
       _rapPeriod.preset = preset;
+      _rapCompare.on = (preset === 'compare');
+
+      if (customRange) customRange.style.display = (preset === 'custom') ? '' : 'none';
+      if (compareRange) compareRange.style.display = (preset === 'compare') ? '' : 'none';
 
       if (preset === 'custom') {
-        if (customRange) customRange.style.display = '';
         // Prefyld med YTD som fornuftigt udgangspunkt hvis tomt → straks gyldigt.
         if (fromEl && !fromEl.value) fromEl.value = todayISO().slice(0, 4) + '-01-01';
         if (toEl && !toEl.value) toEl.value = todayISO();
         _rapPeriod.from = fromEl ? fromEl.value : null;
         _rapPeriod.to   = toEl ? toEl.value : null;
-      } else {
-        if (customRange) customRange.style.display = 'none';
+      } else if (preset === 'compare') {
+        _rapPopulateYearSelects();
       }
       _rapUpdateCaption();
       _rapLoadAll();
     };
   }
+
+  // Sammenlign-år dropdowns
+  const yearAEl = document.getElementById('rap-year-a');
+  const yearBEl = document.getElementById('rap-year-b');
+  const onYearChange = () => {
+    _rapCompare.yearA = parseInt(yearAEl.value);
+    _rapCompare.yearB = parseInt(yearBEl.value);
+    _rapUpdateCaption();
+    _rapLoadAll();
+  };
+  if (yearAEl) yearAEl.onchange = onYearChange;
+  if (yearBEl) yearBEl.onchange = onYearChange;
 
   const onCustomChange = () => {
     _rapPeriod.preset = 'custom';
@@ -964,6 +1036,23 @@ function _rapWireFilters() {
       _rapLoadAll();
     };
   }
+}
+
+function _rapPopulateYearSelects() {
+  const aEl = document.getElementById('rap-year-a');
+  const bEl = document.getElementById('rap-year-b');
+  if (!aEl || !bEl) return;
+  let years = _rapYears.slice();
+  if (!years.length) {
+    const cy = parseInt(todayISO().slice(0, 4));
+    for (let y = cy; y >= cy - 6; y--) years.push(y);
+  }
+  if (!years.includes(_rapCompare.yearA)) years.push(_rapCompare.yearA);
+  if (!years.includes(_rapCompare.yearB)) years.push(_rapCompare.yearB);
+  years = [...new Set(years)].sort((a, b) => b - a);
+  const opt = (y, sel) => `<option value="${y}"${y === sel ? ' selected' : ''}>${y}</option>`;
+  aEl.innerHTML = years.map(y => opt(y, _rapCompare.yearA)).join('');
+  bEl.innerHTML = years.map(y => opt(y, _rapCompare.yearB)).join('');
 }
 
 function _rapRenderCatChips() {

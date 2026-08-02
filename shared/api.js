@@ -1435,7 +1435,14 @@ function _reportFilterQS(filters) {
     if (filters.from) qs.push('from=' + encodeURIComponent(filters.from));
     if (filters.to)   qs.push('to='   + encodeURIComponent(filters.to));
     if (filters.exclude_cats) qs.push('exclude_cats=' + encodeURIComponent(filters.exclude_cats));
+    // Sammenlign år: eksplicit baseline-periode (år-mod-år)
+    if (filters.cmp_from) qs.push('cmp_from=' + encodeURIComponent(filters.cmp_from));
+    if (filters.cmp_to)   qs.push('cmp_to='   + encodeURIComponent(filters.cmp_to));
     return qs;
+}
+
+function fetchReportsYears() {
+    return apiFetch('/reports/years');
 }
 
 function _reportUrl(path, params) {
@@ -1448,7 +1455,13 @@ function fetchReportsSummary(filters) {
 }
 
 function fetchReportsMonthly(filters) {
-    return apiFetch(_reportUrl('/reports/monthly', _reportFilterQS(filters)));
+    var params = _reportFilterQS(filters);
+    // Sammenlign år: kalenderår A-vs-B mode
+    if (filters && filters.monthly_year) {
+        params.push('year=' + filters.monthly_year);
+        if (filters.monthly_compare) params.push('compare_year=' + filters.monthly_compare);
+    }
+    return apiFetch(_reportUrl('/reports/monthly', params));
 }
 
 function fetchReportsTopCustomers(by, filters) {

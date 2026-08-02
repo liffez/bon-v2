@@ -182,6 +182,25 @@
   color: #4a4038;
 }
 
+.rap-compare-years {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  color: var(--color-text-dim, #7a6f5f);
+}
+
+.rap-compare-years select {
+  font-family: var(--font-body, 'DM Sans', sans-serif);
+  font-size: 12px;
+  font-weight: 600;
+  padding: 4px 8px;
+  border: 1px solid var(--color-border, #d7d1ca);
+  border-radius: 8px;
+  background: #fff;
+  color: #4a4038;
+  cursor: pointer;
+}
+
 .rap-cat-filter {
   display: flex;
   gap: 6px;
