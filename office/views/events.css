@@ -115,6 +115,8 @@
 .ev-line-table th { font-size: 10px; text-transform: uppercase; color: #888; text-align: left; padding: 4px 6px; border-bottom: 1px solid #eee; font-weight: 500; }
 .ev-line-table td { padding: 4px 6px; border-bottom: 1px solid #f8f8f8; }
 .ev-line-table input { padding: 4px 6px; font-size: 12px; }
+.ev-line-table tfoot .ev-line-total-row td { border-top: 2px solid #e0e0e0; border-bottom: none; padding-top: 6px; font-weight: 600; font-size: 13px; }
+.ev-line-table tfoot .ev-line-total-row td:first-child { text-transform: uppercase; font-size: 11px; letter-spacing: .04em; color: #555; }
 /* Moms-vælger pr. udgiftslinje — "uden moms" fremhæves (amber) så man tager
    bevidst stilling; "med moms" tonet ned til neutral grøn. */
 .ev-moms-sel { padding: 3px 6px; font-size: 12px; border: 1px solid #d7d1ca; border-radius: 4px; }

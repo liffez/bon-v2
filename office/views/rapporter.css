@@ -133,6 +133,126 @@
   color: #fff;
 }
 
+/* --- Filter bar (periode + kategorier) --- */
+.rap-filterbar {
+  position: sticky;
+  top: 0;
+  z-index: 6;
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 12px 28px;
+  background: #fff;
+  border: 1px solid var(--color-border, #d7d1ca);
+  border-radius: 12px;
+  padding: 12px 16px;
+  box-shadow: 0 1px 4px rgba(0,0,0,.06);
+}
+
+.rap-filter-group {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+
+.rap-filter-label {
+  font-family: var(--font-body, 'DM Sans', sans-serif);
+  font-size: 11px;
+  text-transform: uppercase;
+  letter-spacing: .04em;
+  font-weight: 600;
+  color: var(--color-text-dim, #7a6f5f);
+}
+
+.rap-custom-range {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  color: var(--color-text-dim, #7a6f5f);
+}
+
+.rap-custom-range input[type="date"] {
+  font-family: var(--font-body, 'DM Sans', sans-serif);
+  font-size: 12px;
+  padding: 4px 8px;
+  border: 1px solid var(--color-border, #d7d1ca);
+  border-radius: 8px;
+  background: #fff;
+  color: #4a4038;
+}
+
+.rap-compare-years {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  color: var(--color-text-dim, #7a6f5f);
+}
+
+.rap-compare-years select {
+  font-family: var(--font-body, 'DM Sans', sans-serif);
+  font-size: 12px;
+  font-weight: 600;
+  padding: 4px 8px;
+  border: 1px solid var(--color-border, #d7d1ca);
+  border-radius: 8px;
+  background: #fff;
+  color: #4a4038;
+  cursor: pointer;
+}
+
+.rap-cat-filter {
+  display: flex;
+  gap: 6px;
+  flex-wrap: wrap;
+}
+
+.rap-cat-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-family: var(--font-body, 'DM Sans', sans-serif);
+  font-size: 12px;
+  padding: 4px 12px;
+  border-radius: 14px;
+  border: 1px solid var(--color-border, #d7d1ca);
+  background: #fff;
+  color: #4a4038;
+  cursor: pointer;
+  transition: background .15s, color .15s, border-color .15s, opacity .15s;
+  user-select: none;
+}
+
+.rap-cat-chip-dot {
+  width: 9px;
+  height: 9px;
+  border-radius: 50%;
+  flex-shrink: 0;
+}
+
+.rap-cat-chip:hover {
+  border-color: var(--brand-primary, #8e631f);
+}
+
+.rap-cat-chip.excluded {
+  background: #f3f0ec;
+  color: #a89e92;
+  text-decoration: line-through;
+  opacity: .6;
+}
+
+.rap-cat-chip.excluded .rap-cat-chip-dot {
+  opacity: .35;
+}
+
+.rap-period-caption {
+  margin-left: auto;
+  font-family: var(--font-body, 'DM Sans', sans-serif);
+  font-size: 12px;
+  color: var(--color-text-dim, #7a6f5f);
+  white-space: nowrap;
+}
+
 /* --- Two-column grid --- */
 .rap-two-col {
   display: grid;
@@ -443,6 +563,15 @@
   }
   .rap-bar-row {
     grid-template-columns: 24px minmax(80px, 200px) minmax(40px, 1fr) 84px;
+  }
+  /* Filter-caption falder ned på egen linje så den ikke maser presets/chips */
+  .rap-period-caption {
+    margin-left: 0;
+    flex-basis: 100%;
+    white-space: normal;
+  }
+  .rap-filterbar {
+    position: static;
   }
 }
 

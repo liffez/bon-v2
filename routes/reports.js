@@ -76,6 +76,79 @@ function _statusPlaceholders(codes) {
     return codes.map(() => '?').join(',');
 }
 
+/**
+ * Fælles rapport-filtre fra query-string.
+ *
+ *   ?from=YYYY-MM-DD   inklusiv nedre grænse for delivery_date
+ *   ?to=YYYY-MM-DD     EKSKLUSIV øvre grænse (delivery_date < to) — matcher YTD-konventionen
+ *   ?exclude_cats=a,b  price_category-koder der SKAL udelades (fx "festival,produktion")
+ *
+ * Periode-default = YTD (1. jan i år → i morgen), så en rapport UDEN filtre opfører
+ * sig præcis som før. prev* = samme periode skubbet ét år tilbage ("samme længde
+ * året før") — for YTD-defaulten giver det nøjagtig de gamle _ytdBounds()-værdier.
+ *
+ * Fragmenterne appendes SIDST i WHERE (efter status + OFFER_INTERNAL_FILTER), og
+ * args appendes i SAMME rækkefølge, så placeholder-rækkefølgen holder:
+ *   .all(...statusArgs, ...f.periodArgs, ...f.catArgs)
+ *   .all(...statusArgs, ...f.prevPeriodArgs, ...f.catArgs)   // YoY
+ *
+ * catClause er uafhængig af periode og bruges også af de kort der beholder deres
+ * egen tidsakse (månedssøjler, akkumuleret, legoklods) — så "fjern festival"
+ * rammer hvert eneste tal.
+ */
+function parseReportFilters(req) {
+    const ISO = /^\d{4}-\d{2}-\d{2}$/;
+    const q = req.query || {};
+
+    // ── Periode ──────────────────────────────────────────────
+    let from = ISO.test(q.from || '') ? q.from : null;
+    let to   = ISO.test(q.to   || '') ? q.to   : null;
+    const customPeriod = !!(from && to && from < to);
+    if (!customPeriod) {
+        const b = _ytdBounds();
+        from = b.thisStart;
+        to   = b.thisEnd;
+    }
+    // Skub begge datoer ét år tilbage (Date håndterer måneds-/skudårs-overflow
+    // som setFullYear, jf. _ytdBounds).
+    const shiftYear = (iso) => {
+        const [y, m, d] = iso.split('-').map(Number);
+        return new Date(Date.UTC(y - 1, m - 1, d)).toISOString().slice(0, 10);
+    };
+    const prevFrom = shiftYear(from);
+    const prevTo   = shiftYear(to);
+
+    // ── Eksplicit sammenlignings-periode (år-mod-år) ─────────
+    // ?cmp_from=&cmp_to= overstyrer den automatiske "ét år tilbage"-baseline,
+    // så man kan sammenligne to vilkårlige år (fx 2025 mod 2022). Bruges af
+    // "Sammenlign år"-tilstanden. Uden dem = normal skub-ét-år-tilbage.
+    const cmpFrom = ISO.test(q.cmp_from || '') ? q.cmp_from : null;
+    const cmpTo   = ISO.test(q.cmp_to   || '') ? q.cmp_to   : null;
+    const hasCmp  = !!(cmpFrom && cmpTo && cmpFrom < cmpTo);
+    const prevPeriodArgs = hasCmp ? [cmpFrom, cmpTo] : [prevFrom, prevTo];
+    const compareYear = hasCmp ? (parseInt(cmpFrom.slice(0, 4)) || null) : null;
+
+    // ── Kategori-udeladelse ──────────────────────────────────
+    let excl = [];
+    if (typeof q.exclude_cats === 'string' && q.exclude_cats.trim()) {
+        excl = q.exclude_cats.split(',').map(s => s.trim()).filter(Boolean);
+    }
+    const catClause = excl.length
+        ? `AND b.price_category NOT IN (${excl.map(() => '?').join(',')})`
+        : '';
+
+    return {
+        customPeriod,
+        from, to, prevFrom, prevTo,
+        periodClause:   'AND b.delivery_date >= ? AND b.delivery_date < ?',
+        periodArgs:     [from, to],
+        prevPeriodArgs,
+        compareYear,          // eksplicit sammenlignings-år (eller null)
+        catClause,
+        catArgs:        excl,
+    };
+}
+
 /** Round to 2 decimals */
 function r2(n) { return Math.round((n ?? 0) * 100) / 100; }
 
@@ -124,13 +197,30 @@ function revenueFields(inclMoms) {
     };
 }
 
+// ─── GET /years — distinkte leveringsår (til Sammenlign år-dropdowns) ─
+router.get('/years', handle(async (req, res) => {
+    const db = getDb();
+    const rows = db.prepare(`
+        SELECT DISTINCT CAST(strftime('%Y', b.delivery_date) AS INTEGER) AS yr
+        FROM bons b
+        WHERE b.delivery_date IS NOT NULL
+          ${OFFER_INTERNAL_FILTER}
+        ORDER BY yr DESC
+    `).all();
+    const years = rows.map(r => r.yr).filter(y => y > 2000 && y < 2100);
+    // Sørg for at indeværende år altid er med (også før første bon i år).
+    const cy = new Date().getFullYear();
+    if (!years.includes(cy)) years.unshift(cy);
+    res.json({ years });
+}));
+
 // ─── GET /summary — KPI strip YTD ───────────────────────────
 
 router.get('/summary', handle(async (req, res) => {
     const db = getDb();
-    const { thisStart, thisEnd, prevStart, prevEnd } = _ytdBounds();
+    const f = parseReportFilters(req);
 
-    // Revenue + orders YTD this year
+    // Revenue + orders for perioden
     const ytd = db.prepare(`
         SELECT
             COALESCE(SUM(bl.quantity * bl.unit_price${revenueFactorSQL('b')}), 0) AS revenue,
@@ -140,10 +230,11 @@ router.get('/summary', handle(async (req, res) => {
         JOIN bon_lines bl ON bl.bon_id = b.id
         WHERE sd.code IN (${_statusPlaceholders(REVENUE_CODES)})
           ${OFFER_INTERNAL_FILTER}
-          AND b.delivery_date >= ? AND b.delivery_date < ?
-    `).get(...REVENUE_CODES, thisStart, thisEnd);
+          ${f.periodClause}
+          ${f.catClause}
+    `).get(...REVENUE_CODES, ...f.periodArgs, ...f.catArgs);
 
-    // Revenue + orders samme periode sidste år (æbler-mod-æbler)
+    // Revenue + orders samme periode året før (æbler-mod-æbler)
     const ytdPrev = db.prepare(`
         SELECT
             COALESCE(SUM(bl.quantity * bl.unit_price${revenueFactorSQL('b')}), 0) AS revenue,
@@ -153,10 +244,11 @@ router.get('/summary', handle(async (req, res) => {
         JOIN bon_lines bl ON bl.bon_id = b.id
         WHERE sd.code IN (${_statusPlaceholders(REVENUE_CODES)})
           ${OFFER_INTERNAL_FILTER}
-          AND b.delivery_date >= ? AND b.delivery_date < ?
-    `).get(...REVENUE_CODES, prevStart, prevEnd);
+          ${f.periodClause}
+          ${f.catClause}
+    `).get(...REVENUE_CODES, ...f.prevPeriodArgs, ...f.catArgs);
 
-    // Pending invoice (LEVERET this year)
+    // Pending invoice (LEVERET i perioden)
     const pending = db.prepare(`
         SELECT
             COUNT(DISTINCT b.id) AS cnt,
@@ -165,8 +257,9 @@ router.get('/summary', handle(async (req, res) => {
         JOIN status_definitions sd ON b.status_id = sd.id
         WHERE sd.code = 'LEVERET'
           ${OFFER_INTERNAL_FILTER}
-          AND b.delivery_date >= ? AND b.delivery_date < ?
-    `).get(thisStart, thisEnd);
+          ${f.periodClause}
+          ${f.catClause}
+    `).get(...f.periodArgs, ...f.catArgs);
 
     const avgThis = ytd.orders > 0 ? Math.round(ytd.revenue / ytd.orders) : 0;
     const avgPrev = ytdPrev.orders > 0 ? Math.round(ytdPrev.revenue / ytdPrev.orders) : 0;
@@ -207,18 +300,32 @@ router.get('/monthly', handle(async (req, res) => {
     const now = new Date();
     const thisYear = now.getFullYear();
 
-    // Last 12 months range
-    const endMonth = `${thisYear}-${String(now.getMonth() + 1).padStart(2, '0')}`;
-    const startDate = new Date(thisYear, now.getMonth() - 11, 1);
-    const startMonth = `${startDate.getFullYear()}-${String(startDate.getMonth() + 1).padStart(2, '0')}`;
+    // Sammenlign år-mode: ?year=A&compare_year=B → kalenderår Jan–Dec for hvert år,
+    // så månedssøjlerne stiller A op mod B (i stedet for den rullende 12-mdrs akse).
+    const yA = parseInt(req.query.year);
+    const yB = parseInt(req.query.compare_year);
+    const calendarMode = yA >= 2000 && yA <= 2100 && yB >= 2000 && yB <= 2100;
 
-    // Prev year range (offset by 12 months)
-    const prevStartDate = new Date(startDate.getFullYear() - 1, startDate.getMonth(), 1);
-    const prevEndDate = new Date(thisYear - 1, now.getMonth(), 1);
-    const prevStartMonth = `${prevStartDate.getFullYear()}-${String(prevStartDate.getMonth() + 1).padStart(2, '0')}`;
-    const prevEndMonth = `${prevEndDate.getFullYear()}-${String(prevEndDate.getMonth() + 1).padStart(2, '0')}`;
+    let startMonth, endMonth, prevStartMonth, prevEndMonth;
+    if (calendarMode) {
+        startMonth = `${yA}-01`;     endMonth = `${yA}-12`;
+        prevStartMonth = `${yB}-01`; prevEndMonth = `${yB}-12`;
+    } else {
+        // Last 12 months range
+        endMonth = `${thisYear}-${String(now.getMonth() + 1).padStart(2, '0')}`;
+        const startDate = new Date(thisYear, now.getMonth() - 11, 1);
+        startMonth = `${startDate.getFullYear()}-${String(startDate.getMonth() + 1).padStart(2, '0')}`;
+        // Prev year range (offset by 12 months)
+        const prevStartDate = new Date(startDate.getFullYear() - 1, startDate.getMonth(), 1);
+        const prevEndDate = new Date(thisYear - 1, now.getMonth(), 1);
+        prevStartMonth = `${prevStartDate.getFullYear()}-${String(prevStartDate.getMonth() + 1).padStart(2, '0')}`;
+        prevEndMonth = `${prevEndDate.getFullYear()}-${String(prevEndDate.getMonth() + 1).padStart(2, '0')}`;
+    }
 
     const unit = _salesUnitCaseExpr();   // salgs-enheder: ekskl. produktion
+    // Uden for kalender-mode beholder søjlerne deres rullende 12-mdrs akse (egen
+    // tidsakse per aftalen); kun kategori-filteret gælder. Kategori-filteret gælder altid.
+    const f = parseReportFilters(req);
 
     const thisYearRows = db.prepare(`
         SELECT
@@ -232,11 +339,12 @@ router.get('/monthly', handle(async (req, res) => {
         LEFT JOIN price_categories pc ON pc.id = b.price_category_id
         WHERE sd.code IN (${_statusPlaceholders(REVENUE_CODES)})
           ${OFFER_INTERNAL_FILTER}
+          ${f.catClause}
           AND strftime('%Y-%m', b.delivery_date) >= ?
           AND strftime('%Y-%m', b.delivery_date) <= ?
         GROUP BY strftime('%Y-%m', b.delivery_date)
         ORDER BY month
-    `).all(...unit.args, ...REVENUE_CODES, startMonth, endMonth);
+    `).all(...unit.args, ...REVENUE_CODES, ...f.catArgs, startMonth, endMonth);
 
     const prevYearRows = db.prepare(`
         SELECT
@@ -250,11 +358,12 @@ router.get('/monthly', handle(async (req, res) => {
         LEFT JOIN price_categories pc ON pc.id = b.price_category_id
         WHERE sd.code IN (${_statusPlaceholders(REVENUE_CODES)})
           ${OFFER_INTERNAL_FILTER}
+          ${f.catClause}
           AND strftime('%Y-%m', b.delivery_date) >= ?
           AND strftime('%Y-%m', b.delivery_date) <= ?
         GROUP BY strftime('%Y-%m', b.delivery_date)
         ORDER BY month
-    `).all(...unit.args, ...REVENUE_CODES, prevStartMonth, prevEndMonth);
+    `).all(...unit.args, ...REVENUE_CODES, ...f.catArgs, prevStartMonth, prevEndMonth);
 
     // Tilføj 3-felt mønster pr måned (regnskabskonvention: revenue_excl_moms primær)
     const decorate = rows => rows.map(r => ({
@@ -275,7 +384,7 @@ router.get('/monthly', handle(async (req, res) => {
 router.get('/top-customers', handle(async (req, res) => {
     const db = getDb();
     const by = req.query.by === 'orders' ? 'orders' : 'revenue';
-    const thisYear = _thisYear();
+    const f = parseReportFilters(req);
 
     // Aggregér per firma når company_id findes, ellers per kunde.
     // Det undgår at samme firma ("Ristet Rug", "Cisco" osv.) optræder flere gange
@@ -302,12 +411,13 @@ router.get('/top-customers', handle(async (req, res) => {
         LEFT JOIN companies co ON b.company_id = co.id
         WHERE sd.code IN (${_statusPlaceholders(REVENUE_CODES)})
           ${OFFER_INTERNAL_FILTER}
-          AND strftime('%Y', b.delivery_date) = ?
+          ${f.periodClause}
+          ${f.catClause}
           AND (b.company_id IS NOT NULL OR b.customer_id IS NOT NULL)
         GROUP BY entity_key
         ORDER BY ${by === 'orders' ? 'orders' : 'revenue'} DESC
         LIMIT 10
-    `).all(...REVENUE_CODES, thisYear);
+    `).all(...REVENUE_CODES, ...f.periodArgs, ...f.catArgs);
 
     // Compute total for pct
     const total = db.prepare(`
@@ -318,8 +428,9 @@ router.get('/top-customers', handle(async (req, res) => {
         JOIN bon_lines bl ON bl.bon_id = b.id
         WHERE sd.code IN (${_statusPlaceholders(REVENUE_CODES)})
           ${OFFER_INTERNAL_FILTER}
-          AND strftime('%Y', b.delivery_date) = ?
-    `).get(...REVENUE_CODES, thisYear);
+          ${f.periodClause}
+          ${f.catClause}
+    `).get(...REVENUE_CODES, ...f.periodArgs, ...f.catArgs);
 
     const totalVal = by === 'orders' ? (total.total_orders || 1) : (total.total_revenue || 1);
 
@@ -347,9 +458,9 @@ router.get('/top-customers', handle(async (req, res) => {
 
 router.get('/categories', handle(async (req, res) => {
     const db = getDb();
-    const { thisStart, thisEnd, prevStart, prevEnd } = _ytdBounds();
+    const f = parseReportFilters(req);
 
-    function fetchCategories(start, end) {
+    function fetchCategories(periodArgs) {
         const unit = _unitCaseExpr();
         const rows = db.prepare(`
             SELECT
@@ -363,10 +474,11 @@ router.get('/categories', handle(async (req, res) => {
             LEFT JOIN price_categories pc ON pc.code = b.price_category
             WHERE sd.code IN (${_statusPlaceholders(REVENUE_CODES)})
               ${OFFER_INTERNAL_FILTER}
-              AND b.delivery_date >= ? AND b.delivery_date < ?
+              ${f.periodClause}
+              ${f.catClause}
             GROUP BY pc.code
             ORDER BY pc.sort_order, pc.code
-        `).all(...unit.args, ...REVENUE_CODES, start, end);
+        `).all(...unit.args, ...REVENUE_CODES, ...periodArgs, ...f.catArgs);
 
         const totalRevenue = rows.reduce((s, r) => s + r.revenue, 0) || 1;
         return rows.map(r => ({
@@ -386,8 +498,8 @@ router.get('/categories', handle(async (req, res) => {
     }
 
     res.json({
-        this_year: fetchCategories(thisStart, thisEnd),
-        prev_year: fetchCategories(prevStart, prevEnd),
+        this_year: fetchCategories(f.periodArgs),
+        prev_year: fetchCategories(f.prevPeriodArgs),
     });
 }));
 
@@ -395,10 +507,18 @@ router.get('/categories', handle(async (req, res) => {
 
 router.get('/monthly-table', handle(async (req, res) => {
     const db = getDb();
+    const f = parseReportFilters(req);
     const now = new Date();
-    const thisYear = now.getFullYear();
-    const currentMonth = now.getMonth() + 1; // 1-based
-    const prevYear = thisYear - 1;
+    const actualYear = now.getFullYear();
+    // Månedstabellen er en kalenderårs-tabel (12 rækker). Periode-filteret bestemmer
+    // HVILKET år der vises = året for periodens fra-dato. Kategori-filteret gælder.
+    const thisYear = parseInt(f.from.slice(0, 4)) || actualYear;
+    const isCurrentYear = thisYear === actualYear;
+    // For et forgangent år er alle måneder realiseret — intet er "current"/"future".
+    const currentMonth = isCurrentYear ? (now.getMonth() + 1) : 13;
+    // "vs. forrige år"-kolonnen bruger sammenlignings-året hvis sat (Sammenlign år-mode),
+    // ellers året før det viste år.
+    const prevYear = f.compareYear || (thisYear - 1);
 
     // Fetch monthly data for a given year, filtered by a set of status codes.
     // Index'eres efter month_nr af kalderen.
@@ -416,9 +536,10 @@ router.get('/monthly-table', handle(async (req, res) => {
             LEFT JOIN price_categories pc ON pc.id = b.price_category_id
             WHERE sd.code IN (${_statusPlaceholders(codes)})
               ${OFFER_INTERNAL_FILTER}
+              ${f.catClause}
               AND strftime('%Y', b.delivery_date) = ?
             GROUP BY CAST(strftime('%m', b.delivery_date) AS INTEGER)
-        `).all(...unit.args, ...codes, year.toString());
+        `).all(...unit.args, ...codes, ...f.catArgs, year.toString());
     }
 
     function indexByMonth(rows) {
@@ -444,14 +565,16 @@ router.get('/monthly-table', handle(async (req, res) => {
         ? `${thisYear}-12-31`
         : `${thisYear}-${String(currentMonth + 1).padStart(2, '0')}-01`;
 
-    const pendingRow = db.prepare(`
+    // Ufaktureret giver kun mening for den nuværende måned i indeværende år.
+    const pendingRow = isCurrentYear ? db.prepare(`
         SELECT COALESCE(SUM(b.total_price${revenueFactorSQL('b')}), 0) AS amount
         FROM bons b
         JOIN status_definitions sd ON b.status_id = sd.id
         WHERE sd.code = 'LEVERET'
           ${OFFER_INTERNAL_FILTER}
+          ${f.catClause}
           AND b.delivery_date >= ? AND b.delivery_date < ?
-    `).get(monthStart, monthEnd);
+    `).get(monthStart, monthEnd, ...f.catArgs) : { amount: 0 };
 
     // YoY æbler-mod-æbler: den nuværende måned er kun delvist gået, så den må
     // sammenlignes mod SAMME datospan sidste år — ikke hele måneden. Ellers ser
@@ -468,8 +591,9 @@ router.get('/monthly-table', handle(async (req, res) => {
         JOIN bon_lines bl ON bl.bon_id = b.id
         WHERE sd.code IN (${_statusPlaceholders(REVENUE_CODES)})
           ${OFFER_INTERNAL_FILTER}
+          ${f.catClause}
           AND b.delivery_date >= ? AND b.delivery_date < ?
-    `).get(...REVENUE_CODES, prevClampStart, prevClampEnd);
+    `).get(...REVENUE_CODES, ...f.catArgs, prevClampStart, prevClampEnd);
 
     const rows = [];
     for (let m = 1; m <= 12; m++) {
@@ -539,6 +663,8 @@ router.get('/lego', handle(async (req, res) => {
     const db = getDb();
     const now = new Date();
     const defaultYear = now.getFullYear();
+    // Legoklods beholder sine egne måneds-vælgere (egen tidsakse) — kun kategori-filteret gælder.
+    const f = parseReportFilters(req);
 
     // Parse perioder. Ny form (periods=) vinder over gammel (months+year).
     // Periode-format: "YYYY-MM" → { year, months: [m] }.
@@ -612,10 +738,11 @@ router.get('/lego', handle(async (req, res) => {
             LEFT JOIN bon_lines bl ON bl.bon_id = b.id
             WHERE sd.code IN (${_statusPlaceholders(REVENUE_CODES)})
               ${OFFER_INTERNAL_FILTER}
+              ${f.catClause}
               AND strftime('%Y', b.delivery_date) = ?
               AND CAST(strftime('%m', b.delivery_date) AS INTEGER) IN (${monthPlaceholders})
             GROUP BY b.id
-        `).all(...REVENUE_CODES, yr.toString(), ...filterMonths);
+        `).all(...REVENUE_CODES, ...f.catArgs, yr.toString(), ...filterMonths);
     }
 
     // Aggregate bons into stacks by pax category
@@ -656,6 +783,8 @@ router.get('/lego', handle(async (req, res) => {
 router.get('/cumulative', handle(async (req, res) => {
     const db = getDb();
     const thisYear = parseInt(_thisYear());
+    // Akkumuleret beholder sine år-kurver (egen tidsakse) — kun kategori-filteret gælder.
+    const f = parseReportFilters(req);
 
     // Parse years param or default to current + 2 previous
     let years;
@@ -682,11 +811,12 @@ router.get('/cumulative', handle(async (req, res) => {
                 JOIN bon_lines bl ON bl.bon_id = b.id
                 WHERE sd.code IN (${_statusPlaceholders(REVENUE_CODES)})
                   ${OFFER_INTERNAL_FILTER}
+                  ${f.catClause}
                   AND strftime('%Y', b.delivery_date) = ?
                 GROUP BY CAST(strftime('%W', b.delivery_date) AS INTEGER)
             )
             ORDER BY week_nr
-        `).all(...REVENUE_CODES, year.toString());
+        `).all(...REVENUE_CODES, ...f.catArgs, year.toString());
 
         // Tilføj 3-felt mønster pr uge (regnskabskonvention: ex moms primær)
         result[year.toString()] = rows.map(r => ({
@@ -704,7 +834,7 @@ router.get('/cumulative', handle(async (req, res) => {
 
 router.get('/top-categories', handle(async (req, res) => {
     const db = getDb();
-    const thisYear = _thisYear();
+    const f = parseReportFilters(req);
 
     const rows = db.prepare(`
         SELECT
@@ -717,12 +847,13 @@ router.get('/top-categories', handle(async (req, res) => {
         WHERE sd.code IN (${_statusPlaceholders(REVENUE_CODES)})
           ${OFFER_INTERNAL_FILTER}
           AND ${salesPriceCategorySql('pc.code')}
+          ${f.catClause}
           AND bl.is_accessory = 0
-          AND strftime('%Y', b.delivery_date) = ?
+          ${f.periodClause}
         GROUP BY COALESCE(bl.category, 'Uden kategori')
         ORDER BY units DESC
         LIMIT 10
-    `).all(...REVENUE_CODES, thisYear);
+    `).all(...REVENUE_CODES, ...f.catArgs, ...f.periodArgs);
 
     // Compute total units for pct
     const totalRow = db.prepare(`
@@ -734,9 +865,10 @@ router.get('/top-categories', handle(async (req, res) => {
         WHERE sd.code IN (${_statusPlaceholders(REVENUE_CODES)})
           ${OFFER_INTERNAL_FILTER}
           AND ${salesPriceCategorySql('pc.code')}
+          ${f.catClause}
           AND bl.is_accessory = 0
-          AND strftime('%Y', b.delivery_date) = ?
-    `).get(...REVENUE_CODES, thisYear);
+          ${f.periodClause}
+    `).get(...REVENUE_CODES, ...f.catArgs, ...f.periodArgs);
 
     const totalUnits = totalRow.total || 1;
 
@@ -760,10 +892,9 @@ router.get('/giveaways', handle(async (req, res) => {
         return res.json({ from: null, to: null, types: [], total_incl_moms: 0, total_excl_moms: 0, orders: 0 });
     }
 
-    const { thisStart, thisEnd } = _ytdBounds();
-    const from = /^\d{4}-\d{2}-\d{2}$/.test(req.query.from || '') ? req.query.from : thisStart;
-    // 'to' er eksklusiv øvre grænse; default = YTD-slut (i morgen).
-    const to   = /^\d{4}-\d{2}-\d{2}$/.test(req.query.to || '')   ? req.query.to   : thisEnd;
+    // Følger den globale periode + kategori-filter (samme parser som resten).
+    const f = parseReportFilters(req);
+    const from = f.from, to = f.to;
 
     const rows = db.prepare(`
         SELECT b.payment_type AS code,
@@ -777,10 +908,11 @@ router.get('/giveaways', handle(async (req, res) => {
         WHERE b.payment_type IN (${codes.map(() => '?').join(',')})
           AND sd.code IN (${_statusPlaceholders(REVENUE_CODES)})
           ${OFFER_INTERNAL_FILTER}
-          AND b.delivery_date >= ? AND b.delivery_date < ?
+          ${f.periodClause}
+          ${f.catClause}
         GROUP BY b.payment_type, pt.label
         ORDER BY total_incl DESC
-    `).all(...codes, ...REVENUE_CODES, from, to);
+    `).all(...codes, ...REVENUE_CODES, ...f.periodArgs, ...f.catArgs);
 
     let totalIncl = 0, orders = 0;
     const types = rows.map(r => {

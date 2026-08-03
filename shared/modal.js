@@ -24,8 +24,15 @@
 let _modalOverlay = null;
 
 function openModal({ title, bodyHtml }) {
-    // Luk evt. eksisterende modal
-    if (_modalOverlay) closeModal();
+    // Erstat evt. eksisterende modal SYNKRONT — closeModal()'s 200ms fade ville
+    // ellers efterlade den gamle overlay i DOM'en samtidig med den nye, og
+    // helpers der bruger document.querySelector('.modal-body') (fx pakkelisten)
+    // ville skrive ind i den døende modal. Instant-swap ved modal→modal.
+    if (_modalOverlay) {
+        document.removeEventListener('keydown', _modalEscHandler);
+        _modalOverlay.remove();
+        _modalOverlay = null;
+    }
 
     _modalOverlay = document.createElement('div');
     _modalOverlay.className = 'modal-overlay';
@@ -335,10 +342,17 @@ async function showBonInfo(cardIdOrBonId, options) {
                 var gotoDiv = document.createElement('div');
                 gotoDiv.className = 'info-goto-section';
 
-                if (opts.showGotoButton) {
-                    var now = new Date();
-                    var today = now.getFullYear() + '-' + String(now.getMonth() + 1).padStart(2, '0') + '-' + String(now.getDate()).padStart(2, '0');
-                    var targetPage = (bon.delivery_date <= today) ? '/kitchen/today.html' : '/kitchen/later.html';
+                var now = new Date();
+                var today = now.getFullYear() + '-' + String(now.getMonth() + 1).padStart(2, '0') + '-' + String(now.getDate()).padStart(2, '0');
+                // En bon med delivery_date < i dag kan ikke tegnes i et dato-filtreret
+                // køkken-view (/today = præcis i dag, /later = fremtid), så "Gå til bon"
+                // ville lande et sted uden bonen (issue #378). Draweren kan åbne enhver
+                // bon uanset dato — så på gamle bons skjuler vi "Gå til bon" og lader
+                // "Åbn bon" (draweren) være den eneste, ærlige vej ind.
+                var isPast = bon.delivery_date && bon.delivery_date < today;
+
+                if (opts.showGotoButton && !isPast) {
+                    var targetPage = (bon.delivery_date > today) ? '/kitchen/later.html' : '/kitchen/today.html';
                     var gotoBtn = document.createElement('button');
                     gotoBtn.className = 'info-goto-btn';
                     gotoBtn.textContent = 'Gå til bon \u2192';
@@ -352,15 +366,53 @@ async function showBonInfo(cardIdOrBonId, options) {
                 if (opts.showEditButton && typeof opts.onEdit === 'function') {
                     var editBtn = document.createElement('button');
                     editBtn.className = 'info-goto-btn info-edit-btn';
-                    editBtn.textContent = 'Rediger';
+                    // "Åbn bon" på fortidige bons — mindre skræmmende end "Rediger" for
+                    // køkkenet, der typisk bare vil se bonen (fx pakkelisten).
+                    editBtn.textContent = isPast ? 'Åbn bon \u2192' : 'Rediger';
                     editBtn.addEventListener('click', function() {
                         closeModal();
                         opts.onEdit(bonId);
                     });
                     gotoDiv.appendChild(editBtn);
+                } else if (opts.showGotoButton && isPast) {
+                    // Fortidig bon, "Gå til bon" var ønsket, men ingen edit-handler er
+                    // registreret i denne kontekst. Fald tilbage til en global drawer så
+                    // knappen ikke bare forsvinder og efterlader modalen uden vej videre.
+                    var opener = (typeof window._bonInfoEditHandler === 'function') ? window._bonInfoEditHandler
+                               : (typeof window.openDrawer === 'function') ? window.openDrawer : null;
+                    if (opener) {
+                        var openBtn = document.createElement('button');
+                        openBtn.className = 'info-goto-btn';
+                        openBtn.textContent = 'Åbn bon \u2192';
+                        openBtn.addEventListener('click', function() {
+                            closeModal();
+                            opener(bonId);
+                        });
+                        gotoDiv.appendChild(openBtn);
+                    }
                 }
 
                 body.appendChild(gotoDiv);
+            }
+
+            // Event-prep: pakkelisten er ellers kun tilgængelig fra et køkken-bon-kort,
+            // som er dato-filtreret (I DAG / SENERE). En prep-bon fra i går kan derfor
+            // ikke nås. Her gør vi pakkelisten tilgængelig fra kalenderen på enhver dato.
+            if (bon.event_id && bon.price_category_code === 'produktion' && typeof showPakkeliste === 'function') {
+                var pakkeDiv = document.createElement('div');
+                pakkeDiv.className = 'info-goto-section';
+                var pakkeBtn = document.createElement('button');
+                pakkeBtn.className = 'info-goto-btn';
+                pakkeBtn.textContent = '📦 Pakkeliste';
+                pakkeBtn.addEventListener('click', function() {
+                    // Ingen closeModal() her — showPakkeliste→openModal erstatter
+                    // info-modalen synkront. Et eksplicit closeModal() ville nulle
+                    // _modalOverlay, så swap'et ikke ser den gamle modal, og
+                    // renderen ville skrive ind i den døende overlay.
+                    showPakkeliste({ bonId: bonId, bonNr: bonNr });
+                });
+                pakkeDiv.appendChild(pakkeBtn);
+                body.appendChild(pakkeDiv);
             }
         }
     } catch (err) {
@@ -729,11 +781,19 @@ function _pakkeNormLevel(lvl) {
     return (lvl === 'pack' || lvl === 'goal') ? lvl : 'pack';
 }
 
-async function showPakkeliste(cardId) {
-    const card = document.getElementById(cardId);
-    if (!card) return;
-    const bonId = cardId.replace('bon', '');
-    const bonNr = card.querySelector('.bon-id')?.textContent?.trim() || '#' + bonId;
+async function showPakkeliste(cardIdOrObj) {
+    let bonId, bonNr;
+    if (cardIdOrObj && typeof cardIdOrObj === 'object') {
+        // Kaldt uden bon-kort (fx fra kalenderens info-modal): { bonId, bonNr }
+        bonId = String(cardIdOrObj.bonId);
+        bonNr = cardIdOrObj.bonNr || ('#' + bonId);
+    } else {
+        // Kaldt fra et køkken-bon-kort: cardId = 'bon123'
+        const card = document.getElementById(cardIdOrObj);
+        if (!card) return;
+        bonId = String(cardIdOrObj).replace('bon', '');
+        bonNr = card.querySelector('.bon-id')?.textContent?.trim() || '#' + bonId;
+    }
     _pakkeBonId = bonId;
     _pakkeLevel = _pakkeNormLevel(sessionStorage.getItem(`pakke_level_${bonId}`));
     openModal({
@@ -846,7 +906,8 @@ async function _savePacking() {
             const body = document.querySelector('.modal-body');
             if (res.status === 409 && body) {
                 // Bonen blev leveret imens — genindlæs read-only
-                showPakkeliste('bon' + _pakkeBonId);
+                // (objekt-form, så det også virker uden et bon-kort i DOM'en)
+                showPakkeliste({ bonId: _pakkeBonId });
             }
             return;
         }

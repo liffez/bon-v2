@@ -224,6 +224,10 @@ async function grocyDelete(path) {
  * uden at vente på nightly refresh.
  */
 function invalidateRecipeCost(recipeId) {
+    // Grocys fulfillment (in-memory, 10 min TTL) ER kostpris-kilden. En opskrift-
+    // redigering ændrer den, så den skal ryddes her — ellers viser composition/
+    // drill-down + designerens kostpris et forældet tal indtil TTL udløber.
+    _cache.delete('recipes_fulfillment');
     if (!recipeId) return;
     try {
         const db = getDb();
@@ -240,6 +244,7 @@ function invalidateRecipeCost(recipeId) {
  * uden recipe_id). Næste GET /api/recipes/overview triggers fuld refresh.
  */
 function invalidateAllRecipeCosts() {
+    _cache.delete('recipes_fulfillment');   // se note i invalidateRecipeCost
     try {
         const db = getDb();
         db.prepare('DELETE FROM recipe_cost_cache').run();
