@@ -1,226 +1,194 @@
-# CLAUDE_HURTIG_PRODUKTION.md — Mellemprodukter + lav-hvis-mangler
+# CLAUDE_HURTIG_PRODUKTION.md — Mellemprodukter, forecast + lav-hvis-mangler
 
-> Status: **SPEC (ikke bygget).** Source-of-truth for feature'en. Læs FØR kode.
+> Status: **SPEC (ikke bygget).** Source-of-truth. Læs FØR kode.
 > Branch: `claude/grocy-hurtig-produktion-*`
-> Beslægtet: `services/ingredientResolver.js`, `services/grocyAdapter.js` (`produceBatch`,
-> `consumeRecipes`), `db/helpers.js` (`autoConsumeBonInventory`), `routes/production.js`,
-> `docs/CLAUDE_PRODUKTION_MVP.md`.
+> Beslægtet: `services/ingredientResolver.js`, `services/grocyAdapter.js`
+> (`produceBatch`, `consumeRecipes`, `getRecipeFulfillment`), `db/helpers.js`
+> (`autoConsumeBonInventory`), `routes/production.js`, `docs/CLAUDE_PRODUKTION_MVP.md`,
+> prep-kapacitet #276 / `docs/CLAUDE_EVENT.md §15`.
 
 ---
 
 ## 1. Formål
 
-Underopskrifter som **remoulade** foldes i dag ud til deres råvarer (mayo + relish) og
-trækkes som råvarer fra HQ ved LEVERET. Remoulade findes ikke som en fysisk lagervare.
+Lige nu driller **lageret**: menuer peger på producerede mellemprodukter (syltede
+rødløg, langtidsstegt gris, remoulade blandet af mayo), og når det mellemprodukt står på
+**0**, ser menuen "umulig at lave" — selvom køkkenet sagtens kan lave den, fordi
+råvarerne er der. Køkkenets egen sætning er hele løsningen:
 
-Vi vil i stedet:
+> *"Grisen er stegt, og mayoen blander vi det der mangler — hvis råvarerne er der til at
+> lave menuen, har vi styr på resten."*
 
-1. Give udvalgte "RR produktion Hurtig"-opskrifter et **produceret produkt** (som de
-   eksisterende "RR Produktion"-opskrifter allerede har).
-2. Lade menuerne trække **produktet** i stedet for de underliggende råvarer.
-3. Lade Bon **selv producere** et produkt hvis det mangler ved LEVERET — rekursivt, og
-   kun hvis råvarerne er der.
-
-Gevinst: ægte lagertal på mellemprodukter (fx "vi har 3 kg remoulade"), ægte
-pre-produktion (lav en bøtte mandag, brug hele ugen), og kostpris/CO₂ der kan hænge på
-mellemproduktet.
+Målet er at lageret **afspejler den virkelighed**, med mindst mulig medarbejder-interaktion.
 
 ---
 
-## 2. Nuværende tilstand i grocy-hq (målt read-only 31. juli 2026)
+## 2. Kernemodel (låst med køkkenet)
 
-Der er **ingen** kategori kaldet "hurtig produktion". Der er to kategorier:
+**Ét princip:** hver underopskrift laver **ét produkt** med et udbytte (kg *eller* stk).
+Menuen trækker **produktet**. Der trækkes **ved levering som i dag** (timing uændret).
 
-| grupper-værdi | antal | betydning |
+Køkkenets **to kategorier styrer to roller** — ikke to systemer:
+
+| Kategori | Lead-time | Hvem laver det | Bons rolle |
+|---|---|---|---|
+| **RR produktion** | lang (gris 5 t, sylt dagen før) | **personalet**, ahead, på rolige dage | **Forecast**: "der skal nok laves gris snart". Bon laver det **aldrig** selv. |
+| **RR produktion Hurtig** | kort (mayo 5 min) | **Bon** ved levering | **Laver hele batches** — minimum antal nødvendigt (1 kg mayo ad gangen). Overskud står til næste bon. |
+
+Og den ene fælles rettelse der stopper lager-drillet:
+
+> **En menu tæller som "kan laves" når RÅVARERNE er der** — også når mellemproduktet står
+> på 0. Gælder begge kategorier. Så holder Råvarer-/planlægnings-visningen op med at råbe
+> ulven, når et sylt/gris-produkt lige er tomt.
+
+**Batch-reglen (bekræftet):** Hurtig laver hele batches, ikke præcis mængde — I gemmer
+ikke en halv pose ublandet mayo. Restbehov rundes op til hele batches; overskud står.
+
+**Udenfor scope (bevidst parkeret):** prep-tider, kapacitet, holdplanlægning, metode-valg
+(hurtig/langsom løvstikke), sekvens (kog→køl→skær). Køkkenet: *"resten har vi styr på."*
+
+---
+
+## 3. Data fra grocy-hq (målt read-only 31. juli 2026)
+
+Kategorierne findes allerede: **`RR Produktion` (15)** — laver et produkt, tælles op.
+**`RR produktion Hurtig` (17)** — intet output-produkt, nestes i menuer.
+
+**Beviset på det akutte drill — producerede RR-produkter der bruges i menuer, men står på 0:**
+
+| Mellemprodukt | Lager nu | Menuer der bruger det |
 |---|---|---|
-| `RR Produktion` | 15 | Producerer allerede et produkt (**skabelonen**) |
-| `RR produktion Hurtig` | 17 | Nestes i menuer, **intet output-produkt** (dem vi konverterer) |
+| Rødløg - Sylt | **0** | Kartoflen, Ægget, Tunen, Kyllingen … (11) |
+| Rødkål - Sylt | **0** | Frikadellen (+slider) |
+| Gulerødder - Sylt | **0** | Fisken (+slider) |
+| Spicy "Tuna" | **0** | Tunen (+slider) |
+| Æble chutney | **0** | Grisen på Rug (+slider) |
+| Langtids Stegt Gris | 1,18 | Grisen på Rug (+slider) |
+| Kylling - BBQ / Falaffel | 6 / 23 | Kyllingen / Falaflen … |
 
-**Skabelon-eksempler** (allerede korrekt opsat, kopiér mønstret):
-`Kylling stegt produktion → Kylling - BBQ`, `Falaffel- stegning → Falaffel`,
-`Rødløg - Syltet → Rødløg - Sylt`, `Gulerødder - Syltet → Gulerødder - Sylt`.
+→ Menuerne med et 0-produkt ser umulige ud, selvom råvarerne er der.
 
 **"RR produktion Hurtig" (17) opdeler sig i:**
-
-**A) 9 reelle producerbare produkter — i scope:**
-
-| Opskrift | Råvarer (base=1) | Output ≈ | Nestet i N menuer |
-|---|---|---|---|
-| Frisk Grønt | Spinat 0,1 + kål 0,5 + Rødkål 0,4 | 1,0 kg | **26** |
-| Skære Slider Brød | Brød Rug 0,06 | portionering | 12 *(se §7 — judgment)* |
-| Løvstikke Mayo | Mayo 1 + Løvstikke 0,03 spsk | ~1 kg | 8 |
-| Senneps Mayo | Mayo 1 + Sennep 0,03 spsk | ~1 kg | 6 |
-| Remoulade | Mayo 0,5 + Pickles/Relish 0,5 | 1,0 kg | 3 |
-| Chili Mayo | Mayo 1 + Chili Sauce 0,1 L | ~1,1 kg | 2 |
-| Trøffel Mayo | Mayo 1 + Trøffel olie 0,01 | ~1 kg | 2 |
-| Tahin dressing | Mayo-Vegansk 1 + tahini/citron/salt/hvidløg | ~1 kg | 2 |
-| Yoghurt dressing | Vegansk yoghurt 1 L + krydderi | ~1 L | 2 |
-
-`base_servings = 1` på alle undtagen konvention holder → **1 portion ≈ 1 kg** passer.
-
-**B) 8 rene arbejdstrin — UDEN FOR SCOPE** (0 råvarer, nestes ingen steder):
-Hakke purløg, Koge og skære kartofler, Samle sandwich/slider/sliderskinner-bokse,
-Skære fiske-deller, Skære frikadeller, Skære RR Brød. Røres ikke.
-
-**Rewiring-omfang:** 28 distinkte menuer, men koncentreret — Frisk Grønt (26) +
-Skære Slider Brød (12) dominerer; resten er små overlap.
+- **9 reelle blandinger** (skal konverteres til produkter): Frisk Grønt (26 menuer),
+  Løvstikke Mayo (8), Senneps Mayo (6), Remoulade (3), Chili/Trøffel Mayo · Tahin ·
+  Yoghurt dressing (2 hver), + Skære Slider Brød (12 — se §7).
+- **8 rene arbejdstrin** (0 råvarer, nestes ingen steder — røres **ikke**): Hakke purløg,
+  Koge kartofler, Samle bokse, Skære frikadeller osv.
 
 ---
 
-## 3. Målmodel
+## 4. Kode — Lag 1 (fikser drillet, på data der allerede findes)
 
+### 4.1 Tilgængelighed: "kan laves af råvarer"
+`getRecipeFulfillment` (Grocy) stopper ved et produkts lager — den ved ikke at produktet
+kan *laves*. Tilføj et Bon-lag: et mellemprodukt tæller som tilgængeligt hvis
+`lager ≥ behov` **ELLER** dets producerende opskrifts råvarer er tilgængelige (rekursivt
+ned til rå). Menu = "kan laves" når alt løser op til tilgængelige råvarer. Fikser
+sylt/gris-visningen straks — ingen Grocy-ændring nødvendig.
+
+### 4.2 Hurtig: Bon laver hele batches ved LEVERET
+I `autoConsumeBonInventory` (timing uændret): for hvert **Hurtig-produkt** hvor
+`lager < behov`:
 ```
-Menu (fx "Fisken")
-  └─ recipes_pos: Remoulade-PRODUKT  0,03 kg      ← produkt-ingrediens (ikke nesting)
-                     │
-                     ▼ ved LEVERET, hvis lager < behov
-        produceBatch: consume Mayo 0,5 + Relish 0,5  →  add "Remoulade" 1 kg
-                     │
-                     ▼
-              consume Remoulade-PRODUKT 0,03 kg fra HQ
+shortfall = behov − lager
+batches   = ceil(shortfall / batch_udbytte)      ← hele batches
+raw_ok    = min(batches, max hele batches råvarerne rækker til)
+if raw_ok > 0: produceBatch(consume råvarer × raw_ok  →  add produkt raw_ok × udbytte)
 ```
+Derefter trækkes menu-produktet som i dag. Genbruger `produceBatch` fra
+`routes/production.js`. Idempotent via `bons.inventory_deducted`.
 
-**Invariant:** ved LEVERET trækkes altid det færdige mellemprodukt, aldrig dets råvarer
-direkte (medmindre produktet ikke kunne laves — se §5).
+### 4.3 RR: kun forecast — aldrig auto-produktion
+Bon laver **aldrig** et RR-produkt. I stedet: forecast over de næste N dage (behov pr.
+RR-produkt fra kommende bons, samme beregning som planlægning) → en liste "lav snart:
+~X kg rødløg-sylt, Y portioner gris". Vises hvor køkkenet ser det (dashboard / Råvarer /
+en simpel prep-ahead-liste). Ingen `produceBatch`.
 
----
+### 4.4 Når produktion ikke kan fuldføres (Hurtig, råvarer utilstrækkelige)
+Lav de hele batches råvarerne rækker til (kan være 0), træk hvad der er, læg de manglende
+**RÅVARER** (mayo/relish) på indkøbslisten — **ikke** det uindkøbelige mellemprodukt.
+**Advarsel** (hændelse på den bon der leveres, ikke et flag på fremtiden): changelog +
+køkken-notifikation + synlig i bonens Råvarer-visning. Leveringen blokeres aldrig.
 
-## 4. Grocy master-data (den største, men manuelle del)
-
-Per af de 9 opskrifter (kopiér skabelon-mønstret fra en eksisterende `RR Produktion`):
-
-1. **Opret et lagerprodukt** (fx "Remoulade") — stock-enhed **Kilo**, egen lokation HQ.
-2. **Sæt opskriftens "produceret produkt"** til det, med **1 portion = 1 kg** output.
-3. **Rewire hver menu** der i dag nester opskriften: fjern nesting, tilføj i stedet en
-   `recipes_pos`-linje der peger på det nye produkt med den mængde menuen bruger
-   (fx Fisken: Remoulade-produkt 0,03 kg).
-4. Verificér QU-konvertering findes hvis menuen bruger en anden enhed end kg.
-
-> ⚠️ **Rækkefølge:** rewire menuerne FØR koden slås til i drift — ellers ser resolveren
-> stadig nestings og folder ud som før. Konverter gerne én opskrift ad gangen
-> (fx start med Remoulade — kun 3 menuer) og verificér før de store (Frisk Grønt = 26).
-
-Grocy laver **ikke** selv rekursiv produktion når man consumer en menu — det er derfor
-koden i §5 skal gøre det.
+### 4.5 Pris ved produktion
+`produceBatch` tager kostpris ex moms fra råvarerne (som `routes/production.js`), så
+Grocy-fulfillment og margin-analyse (Opskrifter & priser) er upåvirket.
 
 ---
 
-## 5. Kode
+## 5. Grocy master-data — Lag 2 (konvertér de 9 Hurtig-blandinger)
 
-### 5.1 Resolver: "stop-ved-produkt"-tilstand
+Per blanding (kopiér mønstret fra en eksisterende `RR Produktion`, fx Rødløg-Syltet →
+Rødløg-Sylt):
+1. Opret lagerprodukt med **udbytte-enhed** = kg *eller* stk (se §6).
+2. Sæt opskriftens "produceret produkt" + udbytte pr. batch.
+3. Rewire hver menu: nesting → `recipes_pos` der peger på det nye produkt.
 
-`resolveConsumeItems` folder i dag ALT ud til råvarer. Når mellemprodukterne bliver
-rigtige produkt-ingredienser, holder resolveren automatisk op med at folde dem ud (de er
-ikke længere nestings) — **så selve resolveren kræver formentlig ingen ændring** for
-consume-stien; produkt-ingredienser aggregeres allerede som direkte `recipes_pos`.
-
-Det vi skal tilføje er **produktions-laget** oven på consume.
-
-### 5.2 LEVERET: lav-hvis-mangler (rekursivt)
-
-Ny orkestrering i `autoConsumeBonInventory` → ny helper (fx
-`ensureProducedThenConsume(lines)`):
-
-```
-1. Resolve consume-items for bonen (produkt-niveau, som i dag).
-2. Byg "producer-map": produkt_id → producerende opskrift
-   (fra recipes hvor product_id er sat, kategori RR Produktion*).
-3. Topologisk: producér BLADE før forældre (et mellemprodukt kan bruge et andet).
-   For hvert produkt der er et produceret produkt OG lager < behov:
-     shortfall = behov − lager
-     batches   = ceil(shortfall / 1 kg)           ← hele 1-kg batches (§ bekræftet)
-     Sørg først (rekursivt) for at DETS inputs findes.
-     raw_ok_batches = min(batches, max hele batches råvarerne rækker til)
-     if raw_ok_batches > 0: produceBatch(consume råvarer × raw_ok_batches,
-                                         produce produkt raw_ok_batches kg)
-     if raw_ok_batches < batches: WARN (§5.3) + manglende RÅVARER → indkøbsliste
-4. Consume alle menu-items normalt (eksisterende consumeRecipes-hale:
-   consume + shortfall→indkøbsliste + resultat pr. linje).
-```
-
-**Vigtigt om indkøbslisten:** når produktion ikke kan fuldføres, skal de **manglende
-RÅVARER** (mayo/relish) på indkøbslisten — IKKE det uindkøbelige mellemprodukt
-(remoulade kan man ikke bestille).
-
-**Idempotens:** hele blokken er allerede vagtet af `bons.inventory_deducted` — LEVERET
-kan ikke dobbelt-producere.
-
-**Oprunding sker på restbehovet** (bekræftet): 0,3 kg på lager, behov 0,6 → shortfall
-0,3 → rund op → lav 1 kg → 0,7 kg står tilbage til næste bon.
-
-### 5.3 Advarslen (til diskussion — foreløbig beslutning)
-
-Advarslen er en **hændelse på den bon der leveres**, ikke et stående flag på fremtidige
-bonner (en fremtidig bon er ikke leveret endnu → intet mangel-faktum). Foreslået home:
-
-- **changelog** på bonen (audit — altid),
-- **SSE-notifikation** til køkkenet (samme kanal som flyver/notifikationer),
-- synlig i bonens **Råvarer-visning**.
-
-Ingen `entity_flags`. Look-ahead ("kan ikke nå at lave X til torsdag") dækkes af de
-eksisterende lager-status-farver i Råvarer-fane / planlægning / ugeoversigt.
-
-> ÅBENT: bekræft placering (changelog + notifikation + Råvarer-visning?).
-
-### 5.4 Pris/kostpris ved produktion
-
-`produceBatch` tager en `price` (kostpris pr. enhed, ex moms — R3). Sæt den fra
-råvarernes kostpris (samme mønster som `routes/production.js` / `services/production.js`).
-Så bevarer Grocy-fulfillment korrekt kostpris når menuen refererer produktet, og
-**Opskrifter & priser** (margin-analyse) er upåvirket.
+> ⚠️ **Rækkefølge:** Lag 1-koden skal være i drift FØR (eller samtidig med) konverteringen
+> — ellers bliver 0-lager-produkter til nye "umulig"-menuer, præcis som sylterne driller nu.
+> Start med **Remoulade** (3 menuer) som pilot; Frisk Grønt (26) til sidst.
 
 ---
 
-## 6. Rippeeffekt — resolver-forbrugere der SKAL auditeres
+## 6. Udbytte pr. opskrift — kg ELLER stk
 
-Når remoulade/Frisk Grønt bliver produkter (ikke nestings), ændrer det hvad ALLE disse
-viser. Hver skal besluttes bevidst:
-
-| Forbruger | Fil | Effekt |
-|---|---|---|
-| Råvarer/Produktion-modal | `shared/modal.js`, `resolveIngredients` | "Remoulade 0,6 kg" i stedet for mayo+relish. Ønsket — men de underliggende råvarer forsvinder fra Råvarer-fanen medmindre vi folder produkt→opskrift ét niveau. |
-| Pakkeliste | `shared/modal.js` (`showPakkeliste`), `resolveConsumeItems` | Mellemprodukt pakkes som ét item ("blandet hjemmefra"). Passer godt — men verificér mod §14b i CLAUDE_EVENT. |
-| Planlægnings-aggregering | `shared/planning.js`, `/planning/ingredients` | Aggregerer nu på produkt-niveau. |
-| Event top-up-forecast | `routes/events.js` (`computeTopupSuggestion`) | BOM-behov skifter niveau. **Frisk Grønt har allerede buffer-særbehandling** — dobbelttjek. |
-| CO₂ | `services/co2Engine.js` | CO₂ skal hænge på mellemproduktet (eller stadig rulles fra råvarer). Beslut. |
-| Margin / Opskrifter & priser | `routes/recipes_overview.js` | Kostpris via fulfillment — OK hvis produktets pris sættes ved produktion (§5.4). |
-
-Dette er den **egentlige pris** ved feature'en (bruger bekræftet: "større arbejde").
+"1 kg = 1 portion" gælder **ikke** universelt. Udbyttet sættes pr. opskrift:
+- **Blandinger** (mayo, remoulade, Frisk Grønt): kg. Fx Remoulade 1 kg = 0,5 mayo + 0,5 relish.
+- **Antalsvarer** (slider-brød): **lager-QU = Kilo, consume-QU = stk** — Grocy
+  QU-konvertering som resten af systemet (`recipes_pos.amount` i stock-units). 1 brød →
+  **2 slidere**. Lageret føres i kg, men tælles/forbruges i stk, så morgen-tallet er
+  `behov − lager` i stk: *"128 slidere skal bruges, 40 på lager → skær 44 brød."* Ingen
+  separat prep-liste — samme beregning som alt andet.
 
 ---
 
-## 7. Åbne beslutninger
+## 7. Besluttet med køkkenet
 
-1. **Skære Slider Brød** — portionering, ikke en blanding. "1 kg = 1 portion" passer
-   dårligt. Skal den overhovedet være et lagerprodukt, eller forblive en nesting?
-   (12 menuer på spil.) → **Anbefaling: lad den forblive nesting i første omgang.**
-2. **Advarsel-placering** (§5.3) — bekræft.
-3. **CO₂-niveau** (§6) — hæng på mellemprodukt eller rul fra råvarer?
-4. **Råvarer-fanens dybde** — skal den kunne folde et produkt op til dets råvarer, så
-   køkkenet stadig kan se "hvad går der i remoulade"?
-5. **Rækkefølge for udrulning** — start med Remoulade (3 menuer) som pilot?
+1. **Skære Slider Brød** → **bliver et produkt** (ikke nesting). Lager-QU = **Kilo**,
+   consume-QU = **stk** (2 slidere/brød, jf. §6). 12 menuer rewires.
+2. **RR-produkt tomt ved levering** → trækkes som i dag (må gå i minus/shortfall);
+   forecastet (§4.3) skal forhindre det. Bon laver **aldrig** gris bag om ryggen.
+3. **CO₂** → hænger **på mellemproduktet**. Fallback: rul fra råvarer hvis det er nemmere
+   at implementere (acceptabelt — samme resultat). (`services/co2Engine.js`)
+4. **Råvarer-fanens dybde** → **ja**, man skal kunne **folde et produkt op til dets
+   råvarer** ("hvad går der i remoulade"). Krav på Råvarer-modalen (`shared/modal.js`).
 
 ---
 
-## 8. Test-plan (skitse)
+## 8. Rippeeffekt — forbrugere der SKAL auditeres ved Lag 2
 
-- `resolveConsumeItems`: menu med produkt-ingrediens → trækker produktet, ikke råvarer.
-- Lav-hvis-mangler: lager 0 remoulade → LEVERET → produceBatch (mayo+relish trukket,
-  1 kg remoulade lagt på) → remoulade trukket. Verificér mod isoleret test-Grocy.
-- Oprunding: shortfall 0,3 → 1 batch; 1,2 → 2 batches.
-- Råvarer utilstrækkelige: producér max hele batches råvarerne rækker til, rest af RÅVARER
-  på indkøbsliste + advarsel; leveringen blokeres ikke.
-- Idempotens: to LEVERET-kald → kun ét produktions- + consume-sæt.
-- Rekursion: produkt der bruger et andet produkt → blade produceres først.
+Når blandinger bliver produkter, ændrer det hvad disse viser (Frisk Grønt = 26 menuer,
+har allerede buffer-særbehandling i event-prep):
+
+| Forbruger | Fil |
+|---|---|
+| Råvarer/Produktion-modal | `shared/modal.js`, `resolveIngredients` |
+| Pakkeliste | `shared/modal.js` (`showPakkeliste`) |
+| Planlægning | `shared/planning.js` |
+| Event top-up-forecast | `routes/events.js` (`computeTopupSuggestion`) |
+| CO₂ (hæng på mellemproduktet; fallback rul fra råvarer — §7.3) | `services/co2Engine.js` |
+| Råvarer-fold-out (produkt → råvarer — §7.4) | `shared/modal.js` |
+
+---
+
+## 9. Build-rækkefølge
+
+1. **Lag 1-kode** (§4): tilgængelighed-fra-råvarer + Hurtig auto-batch ved LEVERET +
+   RR-forecast + advarsel. Fixer sylt/gris straks, ingen Grocy-rewiring.
+2. Verificér i drift på de eksisterende RR-produkter.
+3. **Konvertér Remoulade** (pilot, 3 menuer) → verificér end-to-end.
+4. Konvertér resten (Frisk Grønt sidst), auditér rippeforbrugere (§8) undervejs.
+
+---
+
+## 10. Test (skitse)
+
+- Tilgængelighed: menu med 0-lager RR-produkt men råvarer til stede → "kan laves".
+- Hurtig auto-batch: lager 0, behov 0,03 → lav 1 batch (1 kg), træk 0,03, 0,97 står.
+- Oprunding: shortfall 1,2 batch → 2 batches.
+- Råvarer utilstrækkelige → max hele batches + rest af RÅVARER på indkøbsliste + advarsel.
+- RR: forecast beregner behov; **ingen** `produceBatch` kaldes for RR.
+- Idempotens: to LEVERET → ét produktions-/træk-sæt.
+- Slider: behov 128, lager 40 → "skær 44 brød".
 - Regression: `test-prep-packing`, `test-topup-suggestion`, `test-subrecipe-status`,
   `test-recipe-factor`, `moms_audit_e2e`.
-
----
-
-## 9. Udrulnings-rækkefølge
-
-1. Grocy: opret produkt + rewire menuer for **Remoulade** (pilot, 3 menuer).
-2. Kode: resolver-verifikation + lav-hvis-mangler + advarsel, testet mod test-Grocy.
-3. Verificér Remoulade end-to-end i drift.
-4. Konverter resten (Frisk Grønt til sidst — 26 menuer), én ad gangen.
-5. Audit hver rippeforbruger (§6) efterhånden.
