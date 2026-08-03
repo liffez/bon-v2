@@ -656,7 +656,12 @@ router.get('/:id/overview', requireAuth(), handle(async (req, res) => {
     const prepped = {};   // "date|category" → qty
     for (const r of preppedRows) prepped[`${r.date}|${r.category}`] = r.qty;
 
-    res.json({ event, bons, pnl, forecast, days, categories, prepped });
+    // Global link til event-order-3's admin (event-broen). Tom = knap skjules.
+    const eventOrderAdminUrl = getDb().prepare(
+        `SELECT value FROM settings WHERE key = 'event_order_admin_url'`
+    ).get()?.value || '';
+
+    res.json({ event, bons, pnl, forecast, days, categories, prepped, event_order_admin_url: eventOrderAdminUrl });
 }));
 
 // ─── EVENT-MENU (prisliste) §16 ────────────────────────────────────────────

@@ -144,6 +144,9 @@ async function _evRenderDetail(id) {
     try {
         const data = await _evFetch(`/events/${id}/overview`);
         const ev = data.event;
+        // Event-ordre-admin-link (event-broen). Kun http(s) — undgå javascript:-URL'er.
+        const _adminRaw = (data.event_order_admin_url || '').trim();
+        const adminUrl = /^https?:\/\//i.test(_adminRaw) ? _adminRaw : '';
         const bons = data.bons;
         const pnl = data.pnl;
         const forecast = data.forecast || [];
@@ -174,6 +177,7 @@ async function _evRenderDetail(id) {
                         <span class="ev-badge ev-status-${ev.status}">${_EV_STATUS_LABEL[ev.status] || ev.status}</span>
                     </div>
                     <div class="ev-detail-actions">
+                        ${adminUrl ? `<a class="ev-btn ev-btn-small" href="${_evEsc(adminUrl)}" target="_blank" rel="noopener" title="Åbn event-ordre-forudbestilling (admin)">🔗 Event-ordre-admin</a>` : ''}
                         <button class="ev-btn ev-btn-small" data-act="edit-event">✎ Redigér</button>
                         <button class="ev-btn ev-btn-small ev-btn-danger" data-act="delete-event">🗑 Slet</button>
                     </div>
