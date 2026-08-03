@@ -44,9 +44,11 @@ tælles aldrig to gange. Alt defaulter til **slukket** indtil deploy-config (§0
   starter menu-refresh (opstart + hver 10. min), og pusher aggregatet i `handleCompletedOrder`
   efter `saveOrder` (fire-and-forget, ved siden af den eksisterende Sheets-webhook).
 - `event-config.json` — `bonV2`-blok på `ristet-rug`-vendoren (default `enabled:false`).
-- `test-bonV2-bridge.js` (29, `node test-bonV2-bridge.js`).
+- `test-bonV2-bridge.js` (29 unit) · `test-grocy-live.js` (5 — live-smoke af Grocy-menu-
+  integrationen mod en kørende bon-v2: `BON_V2_DIR=… node --experimental-sqlite test-grocy-live.js`;
+  skipper rent uden `BON_V2_DIR`).
 
-**99 grønne asserts i alt** (bon-v2: 21 menu + 30 prep + 19 live · event-order-3: 29).
+**104 grønne asserts i alt** (bon-v2: 21 menu + 30 prep + 19 live · event-order-3: 29 unit + 5 Grocy-live).
 
 ### 0.2 Nøgle-mekanismer (holdt ved implementeringen)
 - **Multi-dag falder ud gratis** på bon-v2-siden: prep-bonnen nøgles på `delivery_date`,
@@ -72,10 +74,17 @@ tælles aldrig to gange. Alt defaulter til **slukket** indtil deploy-config (§0
    til event-datoen (enkelt dag).
 5. **CORS:** server-til-server-push sender ingen Origin, så `webhookCors` blokerer ikke —
    ingen ekstra origin-opsætning nødvendig.
+6. **Verificér før åbning:** kør Grocy live-smoken
+   (`BON_V2_DIR=/sti/til/bon-v2 node --experimental-sqlite test-grocy-live.js`) — bekræfter
+   at event-order-3 kan hente menuen fra bon-v2 (fetch + secret-gate + menu-overlay) mod ægte Grocy.
 
-### 0.4 Bevidst ikke bygget
-- **Point 2's "opret/link til event-admin fra bon-v2's event-UI"** — lille valgfri knap,
-  ikke en del af selve broen.
+### 0.4 Link til event-order-3-admin (point 2) — BYGGET
+Setting `event_order_admin_url` (migration 132) → "🔗 Event-ordre-admin"-knap i office
+event-detaljens header (`office/views/events.js`), vises kun når URL'en er sat (kun
+`http(s)`, åbner ny fane). Sæt URL'en i **Settings → System**. Bevidst kun et **link**,
+ikke auto-provisionering — event-order-3 er enkelt-config, så "opret event-ordre" = "åbn admin'en".
+
+### 0.5 Bevidst ikke bygget
 - **QR/pas/udlevering** (§5) — event-order-3's egen FEATURE-doc, uafhængigt af broen.
 - **Salgsbon fra broen** — bevidst fravalgt (§0 + point 3): salget kører via cashflow.
 
