@@ -342,10 +342,17 @@ async function showBonInfo(cardIdOrBonId, options) {
                 var gotoDiv = document.createElement('div');
                 gotoDiv.className = 'info-goto-section';
 
-                if (opts.showGotoButton) {
-                    var now = new Date();
-                    var today = now.getFullYear() + '-' + String(now.getMonth() + 1).padStart(2, '0') + '-' + String(now.getDate()).padStart(2, '0');
-                    var targetPage = (bon.delivery_date <= today) ? '/kitchen/today.html' : '/kitchen/later.html';
+                var now = new Date();
+                var today = now.getFullYear() + '-' + String(now.getMonth() + 1).padStart(2, '0') + '-' + String(now.getDate()).padStart(2, '0');
+                // En bon med delivery_date < i dag kan ikke tegnes i et dato-filtreret
+                // køkken-view (/today = præcis i dag, /later = fremtid), så "Gå til bon"
+                // ville lande et sted uden bonen (issue #378). Draweren kan åbne enhver
+                // bon uanset dato — så på gamle bons skjuler vi "Gå til bon" og lader
+                // "Åbn bon" (draweren) være den eneste, ærlige vej ind.
+                var isPast = bon.delivery_date && bon.delivery_date < today;
+
+                if (opts.showGotoButton && !isPast) {
+                    var targetPage = (bon.delivery_date > today) ? '/kitchen/later.html' : '/kitchen/today.html';
                     var gotoBtn = document.createElement('button');
                     gotoBtn.className = 'info-goto-btn';
                     gotoBtn.textContent = 'Gå til bon \u2192';
@@ -359,12 +366,30 @@ async function showBonInfo(cardIdOrBonId, options) {
                 if (opts.showEditButton && typeof opts.onEdit === 'function') {
                     var editBtn = document.createElement('button');
                     editBtn.className = 'info-goto-btn info-edit-btn';
-                    editBtn.textContent = 'Rediger';
+                    // "Åbn bon" på fortidige bons — mindre skræmmende end "Rediger" for
+                    // køkkenet, der typisk bare vil se bonen (fx pakkelisten).
+                    editBtn.textContent = isPast ? 'Åbn bon \u2192' : 'Rediger';
                     editBtn.addEventListener('click', function() {
                         closeModal();
                         opts.onEdit(bonId);
                     });
                     gotoDiv.appendChild(editBtn);
+                } else if (opts.showGotoButton && isPast) {
+                    // Fortidig bon, "Gå til bon" var ønsket, men ingen edit-handler er
+                    // registreret i denne kontekst. Fald tilbage til en global drawer så
+                    // knappen ikke bare forsvinder og efterlader modalen uden vej videre.
+                    var opener = (typeof window._bonInfoEditHandler === 'function') ? window._bonInfoEditHandler
+                               : (typeof window.openDrawer === 'function') ? window.openDrawer : null;
+                    if (opener) {
+                        var openBtn = document.createElement('button');
+                        openBtn.className = 'info-goto-btn';
+                        openBtn.textContent = 'Åbn bon \u2192';
+                        openBtn.addEventListener('click', function() {
+                            closeModal();
+                            opener(bonId);
+                        });
+                        gotoDiv.appendChild(openBtn);
+                    }
                 }
 
                 body.appendChild(gotoDiv);
