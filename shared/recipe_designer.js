@@ -890,9 +890,9 @@ function _rdUpdatePriceLive() {
     var set = function(id, html) { var el = document.getElementById(id); if (el) el.innerHTML = html; };
     set('rdPPdb', p.db + ' %');
     set('rdPPsug', p.suggestIncl != null ? p.suggestIncl + ' kr' : '&mdash;');
+    set('rdPPmat', _rdKr(p.materials) + ' kr');
     set('rdPPlabor', p.laborPer != null ? _rdKr(p.laborPer) + ' kr' : '&mdash;');
-    set('rdPPtot', _rdKr(p.basis) + ' kr');
-    set('rdPPtotlabel', (_rdPrice.basis === 'materials' ? 'Vareomkostning' : 'Fuldt belastet') + ' pr. portion');
+    set('rdPPfull', _rdKr(p.materials + (p.laborPer || 0)) + ' kr');
     set('rdPPverdict', _rdVerdictHtml(p));
 }
 
@@ -926,24 +926,35 @@ function _rdBuildPricePanel(p) {
         // eksplicit, så breakdown summerer til totalen i stedet for at se for billig ud.
         var lineSum = groups.materials + groups.packaging + groups.sub;
         var residual = Math.max(0, p.materials - lineSum);
+        var matActive = (_rdPrice.basis === 'materials');
+        var fullPer = p.materials + (p.laborPer || 0);
         left =
             '<div class="rd-pp-kv"><span>R&#229;varer</span><span>' + money(groups.materials) + '</span></div>' +
             (groups.sub > 0 ? '<div class="rd-pp-kv"><span>Underopskrifter</span><span>' + money(groups.sub) + '</span></div>' : '') +
             (groups.packaging > 0 ? '<div class="rd-pp-kv"><span>Emballage</span><span>' + money(groups.packaging) + '</span></div>' : '') +
             (residual > 0.005 ? '<div class="rd-pp-kv rd-dim"><span>Uprissat rest</span><span>' + money(residual) + '</span></div>' : '') +
-            '<div class="rd-pp-kv"><span>Arbejdsl&#248;n</span><span id="rdPPlabor">' + (p.laborPer != null ? money(p.laborPer) : '&mdash;') + '</span></div>' +
-            '<div class="rd-pp-kv rd-pp-tot"><span id="rdPPtotlabel">' + (_rdPrice.basis === 'materials' ? 'Vareomkostning' : 'Fuldt belastet') + ' pr. portion</span><span id="rdPPtot">' + money(p.basis) + '</span></div>' +
+            // Subtotal 1: vareomkostning (summerer linjerne ovenfor)
+            '<div class="rd-pp-kv rd-pp-sub' + (matActive ? ' rd-pp-active' : '') + '"><span>Vareomkostning pr. portion</span><span id="rdPPmat">' + money(p.materials) + '</span></div>' +
+            // Løn + subtotal 2: fuldt belastet (kun når løn medregnes)
+            (_rdPrice.showLabor
+                ? '<div class="rd-pp-kv"><span>+ Arbejdsl&#248;n</span><span id="rdPPlabor">' + (p.laborPer != null ? money(p.laborPer) : '&mdash;') + '</span></div>' +
+                  '<div class="rd-pp-kv rd-pp-sub' + (!matActive ? ' rd-pp-active' : '') + '"><span>Fuldt belastet pr. portion</span><span id="rdPPfull">' + money(fullPer) + '</span></div>'
+                : '') +
             // Løn-kontrol
             '<div class="rd-pp-lonrow">' +
                 '<label class="rd-pp-switch"><input type="checkbox" data-pp="lonToggle"' + (_rdPrice.showLabor ? ' checked' : '') + '><span></span></label>' +
-                '<span>Medregn l&#248;n</span>' +
-                '<input type="number" class="rd-pp-min" data-pp="workMin" value="' + (_rdDs.workMin != null ? _rdDs.workMin : '') + '" placeholder="min" step="0.5" min="0">' +
-                '<span class="rd-pp-hint">aktiv min/batch' + (lr.rate != null ? ' &middot; ' + _rdRound(lr.rate, 0) + ' kr/t + ' + _rdRound(lr.overhead_pct || 0, 0) + '%' : ' &middot; ingen sats') + '</span>' +
+                '<span>Medregn l&#248;n:</span>' +
+                '<input type="number" class="rd-pp-min" data-pp="workMin" value="' + (_rdDs.workMin != null ? _rdDs.workMin : '') + '" placeholder="0" step="0.5" min="0">' +
+                '<span class="rd-pp-minunit">min/batch</span>' +
+                '<span class="rd-pp-hint">' + (lr.rate != null ? 'sats ' + _rdRound(lr.rate, 0) + ' kr/t + ' + _rdRound(lr.overhead_pct || 0, 0) + '% overhead' : 'ingen sats') + '</span>' +
             '</div>' +
-            '<div class="rd-pp-basis">' +
-                '<span class="rd-pp-basis-btn' + (_rdPrice.basis === 'full' ? ' rd-active' : '') + '" data-pp="basis" data-val="full">DB inkl. l&#248;n</span>' +
-                '<span class="rd-pp-basis-btn' + (_rdPrice.basis === 'materials' ? ' rd-active' : '') + '" data-pp="basis" data-val="materials">DB p&#229; r&#229;varer</span>' +
-            '</div>';
+            (_rdPrice.showLabor
+                ? '<div class="rd-pp-basis">' +
+                    '<span class="rd-pp-hint" style="margin-right:auto">Beregn DB p&#229;:</span>' +
+                    '<span class="rd-pp-basis-btn' + (matActive ? ' rd-active' : '') + '" data-pp="basis" data-val="materials">R&#229;varer</span>' +
+                    '<span class="rd-pp-basis-btn' + (!matActive ? ' rd-active' : '') + '" data-pp="basis" data-val="full">Inkl. l&#248;n</span>' +
+                  '</div>'
+                : '');
     }
 
     var right = '';
