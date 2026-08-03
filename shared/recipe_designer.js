@@ -65,11 +65,19 @@ var _rdLaborRate   = { rate: null, overhead_pct: 0, count: 0 };
 var _rdTargets     = {};      // kategori -> DB%-mål (recipe_db_targets)
 var _rdCalcLoaded  = false;   // labor-rate + targets hentet
 var _rdPrice = {
-    showLabor: true,
+    showLabor: false,         // løn skjult som standard — opt-in (kan distrahere). Huskes i localStorage.
     dbTarget:  70,
-    basis:     'full',        // 'full' (inkl. løn) | 'materials' (kun vareomkostning)
+    basis:     'materials',   // 'full' (inkl. løn) | 'materials' (kun vareomkostning)
     priceCat:  'catering'
 };
+
+// Husk løn-visning pr. bruger (som kort-valgene).
+function _rdLoadLaborPref() {
+    try { var v = localStorage.getItem('rd_show_labor'); if (v !== null) _rdPrice.showLabor = (v === '1'); } catch (e) {}
+}
+function _rdSaveLaborPref() {
+    try { localStorage.setItem('rd_show_labor', _rdPrice.showLabor ? '1' : '0'); } catch (e) {}
+}
 
 var _rdAddPanelOpen       = false;
 var _rdAddNestingPanelOpen = false;
@@ -574,10 +582,20 @@ function _rdBindDesignerEvents() {
         });
         pricePanel.addEventListener('change', function(e) {
             var pp = e.target.getAttribute('data-pp');
-            if (pp === 'lonToggle') { _rdPrice.showLabor = e.target.checked; _rdRenderPrice(); }
-            else if (pp === 'priceCat') { _rdPrice.priceCat = e.target.value; _rdRenderPrice(); }
+            if (pp === 'lonToggle') {
+                _rdPrice.showLabor = e.target.checked;
+                if (!_rdPrice.showLabor) _rdPrice.basis = 'materials';   // ingen løn → DB på råvarer
+                _rdSaveLaborPref();
+                _rdRenderPrice();
+            } else if (pp === 'priceCat') { _rdPrice.priceCat = e.target.value; _rdRenderPrice(); }
         });
         pricePanel.addEventListener('click', function(e) {
+            if (e.target.closest('[data-pp="lonAdd"]')) {   // "+ Medregn løn"-link
+                _rdPrice.showLabor = true;
+                _rdSaveLaborPref();
+                _rdRenderPrice();
+                return;
+            }
             var btn = e.target.closest('[data-pp="basis"]');
             if (btn) { _rdPrice.basis = btn.getAttribute('data-val'); _rdRenderPrice(); }
         });
@@ -746,6 +764,7 @@ function _rdRecalcSummary() {
 async function _rdLoadCalcMeta() {
     if (_rdCalcLoaded) return;
     _rdCalcLoaded = true;
+    _rdLoadLaborPref();
     try {
         var lr = await fetchLaborRate();
         _rdLaborRate = {
@@ -940,21 +959,21 @@ function _rdBuildPricePanel(p) {
                 ? '<div class="rd-pp-kv"><span>+ Arbejdsl&#248;n</span><span id="rdPPlabor">' + (p.laborPer != null ? money(p.laborPer) : '&mdash;') + '</span></div>' +
                   '<div class="rd-pp-kv rd-pp-sub' + (!matActive ? ' rd-pp-active' : '') + '"><span>Fuldt belastet pr. portion</span><span id="rdPPfull">' + money(fullPer) + '</span></div>'
                 : '') +
-            // Løn-kontrol
-            '<div class="rd-pp-lonrow">' +
-                '<label class="rd-pp-switch"><input type="checkbox" data-pp="lonToggle"' + (_rdPrice.showLabor ? ' checked' : '') + '><span></span></label>' +
-                '<span>Medregn l&#248;n:</span>' +
-                '<input type="number" class="rd-pp-min" data-pp="workMin" value="' + (_rdDs.workMin != null ? _rdDs.workMin : '') + '" placeholder="0" step="0.5" min="0">' +
-                '<span class="rd-pp-minunit">min/batch</span>' +
-                '<span class="rd-pp-hint">' + (lr.rate != null ? 'sats ' + _rdRound(lr.rate, 0) + ' kr/t + ' + _rdRound(lr.overhead_pct || 0, 0) + '% overhead' : 'ingen sats') + '</span>' +
-            '</div>' +
-            (_rdPrice.showLabor
-                ? '<div class="rd-pp-basis">' +
+            // Løn-kontrol — skjult som standard, kun et diskret link når fra
+            (!_rdPrice.showLabor
+                ? '<button class="rd-pp-loan-add" data-pp="lonAdd">+ Medregn l&#248;n i beregningen</button>'
+                : '<div class="rd-pp-lonrow">' +
+                    '<label class="rd-pp-switch"><input type="checkbox" data-pp="lonToggle" checked><span></span></label>' +
+                    '<span>Medregn l&#248;n:</span>' +
+                    '<input type="number" class="rd-pp-min" data-pp="workMin" value="' + (_rdDs.workMin != null ? _rdDs.workMin : '') + '" placeholder="0" step="0.5" min="0">' +
+                    '<span class="rd-pp-minunit">min/batch</span>' +
+                    '<span class="rd-pp-hint">' + (lr.rate != null ? 'sats ' + _rdRound(lr.rate, 0) + ' kr/t + ' + _rdRound(lr.overhead_pct || 0, 0) + '% overhead' : 'ingen sats') + '</span>' +
+                  '</div>' +
+                  '<div class="rd-pp-basis">' +
                     '<span class="rd-pp-hint" style="margin-right:auto">Beregn DB p&#229;:</span>' +
                     '<span class="rd-pp-basis-btn' + (matActive ? ' rd-active' : '') + '" data-pp="basis" data-val="materials">R&#229;varer</span>' +
                     '<span class="rd-pp-basis-btn' + (!matActive ? ' rd-active' : '') + '" data-pp="basis" data-val="full">Inkl. l&#248;n</span>' +
-                  '</div>'
-                : '');
+                  '</div>');
     }
 
     var right = '';
