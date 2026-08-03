@@ -42,6 +42,7 @@ function lastPriceOf(details) {
     return null;
 }
 const itemPriceBackfill = require('../services/itemPriceBackfill');
+const laborAdapter = require('../services/laborAdapter');
 const { broadcast } = require('../shared/sse');
 
 // Alle endpoints kræver auth
@@ -411,6 +412,22 @@ router.post('/refresh-costs', handle(async (req, res) => {
     };
     broadcast('recipe_costs_refreshed', { refreshed, refreshed_at: result.refreshed_at });
     res.json(result);
+}));
+
+// ─── GET /api/recipes/labor-rate ──────────────────────────────
+// Standard-medarbejdersats + overhead til opskrifts-kalkulationens løn-linje.
+// Frontend'en ganger selv min/portion på. Rate=null hvis ingen wage_rates.
+
+router.get('/labor-rate', handle((req, res) => {
+    const db = getDb();
+    const { rate, count } = laborAdapter.getStandardHourlyRate();
+    const overheadRow = db.prepare(`SELECT value FROM settings WHERE key = 'labor_overhead_pct'`).get();
+    const overheadPct = parseFloat(overheadRow?.value ?? '0') || 0;
+    res.json({
+        standard_hourly_rate: rate,   // ex moms, eller null
+        employee_count: count,
+        labor_overhead_pct: overheadPct,
+    });
 }));
 
 // ─── POST /api/recipes/backfill (admin force re-run) ──────────

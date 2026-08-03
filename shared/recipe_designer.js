@@ -49,10 +49,36 @@ var _rdDs = {
     nestings: [],          // { id?, includes_recipe_id, servings }
     removedIngIds: [],     // IDs to DELETE on save
     removedNestIds: [],
-    dirty: false
+    dirty: false,
+    workMin: null          // aktiv arbejdstid (min) pr. batch — userfield arbejdstid_min
 };
 
 var _rdVisibleCards       = new Set(['weight', 'stock']);
+
+// ── Kalkulation (kostpris/avance) ──────────────────────────────
+// ÉN kostpris: composition.total_cost = Grocy fulfillment (samme tal som office
+// "Opskrifter & priser"). Per-ingrediens/underopskrift-kostpris + andel kommer fra
+// samme kald. Designeren regner ALDRIG kostpris selv. Se CLAUDE_OPSKRIFT_KALKULATION.md.
+var _rdComp        = null;    // { total_cost, ingredients:[{product_id,cost,ingredient_group}], sub_recipes:[{recipe_id,cost}] }
+var _rdCompLoading = false;
+var _rdLaborRate   = { rate: null, overhead_pct: 0, count: 0 };
+var _rdTargets     = {};      // kategori -> DB%-mål (recipe_db_targets)
+var _rdCalcLoaded  = false;   // labor-rate + targets hentet
+var _rdPrice = {
+    showLabor: false,         // løn skjult som standard — opt-in (kan distrahere). Huskes i localStorage.
+    dbTarget:  70,
+    basis:     'materials',   // 'full' (inkl. løn) | 'materials' (kun vareomkostning)
+    priceCat:  'catering'
+};
+
+// Husk løn-visning pr. bruger (som kort-valgene).
+function _rdLoadLaborPref() {
+    try { var v = localStorage.getItem('rd_show_labor'); if (v !== null) _rdPrice.showLabor = (v === '1'); } catch (e) {}
+}
+function _rdSaveLaborPref() {
+    try { localStorage.setItem('rd_show_labor', _rdPrice.showLabor ? '1' : '0'); } catch (e) {}
+}
+
 var _rdAddPanelOpen       = false;
 var _rdAddNestingPanelOpen = false;
 var _rdSelectedProduct    = null;
@@ -142,6 +168,7 @@ async function _rdLoadData(background) {
         _rdKiloQuId = null;
 
         _rdDataLoaded = true;
+        _rdLoadCalcMeta();   // labor-rate + DB-mål (non-blocking)
 
         if (!background) {
             _rdShowStart();
@@ -296,6 +323,9 @@ function _rdOpenForEdit(recipeId) {
     _rdDs.removedIngIds = [];
     _rdDs.removedNestIds = [];
     _rdDs.dirty = false;
+    // Aktiv arbejdstid pr. batch fra userfield (tom → null → løn-linje viser —)
+    var wm = recipe.userfields && recipe.userfields.arbejdstid_min;
+    _rdDs.workMin = (wm != null && wm !== '' && isFinite(parseFloat(wm))) ? parseFloat(wm) : null;
 
     // Load ingredients for this recipe
     _rdDs.ingredients = _rdAllPositions
@@ -307,7 +337,9 @@ function _rdOpenForEdit(recipeId) {
         .filter(function(n) { return n.recipe_id == recipeId; })
         .map(function(n) { return _rdShallowCopy(n); });
 
+    _rdComp = null;                    // ny opskrift åbnet → nulstil kostpris-cache
     _rdShowDesigner();
+    _rdLoadComposition(recipeId);      // hent kostpris/breakdown (async)
 }
 
 // ═════════════════════════���══════════════════════════════════
@@ -328,7 +360,9 @@ function _rdStartNew() {
     _rdDs.removedIngIds = [];
     _rdDs.removedNestIds = [];
     _rdDs.dirty = false;
+    _rdDs.workMin = null;
 
+    _rdComp = null;   // ny opskrift har ingen kostpris før den er gemt ("beregnes efter gem")
     _rdShowDesigner();
 }
 
@@ -382,13 +416,16 @@ function _rdShowDesigner() {
                 '</div>' +
             '</div>' +
 
-            // Summary toggle
+            // Summary toggle (chips genereres fra _rdCardDefs — ét sted)
             '<div class="rd-summary-toggle-row">' +
                 '<span class="rd-summary-toggle-label">Vis:</span>' +
-                '<span class="rd-summary-chip' + (_rdVisibleCards.has('weight') ? ' rd-active' : '') + '" data-card="weight">V&#230;gt</span>' +
-                '<span class="rd-summary-chip' + (_rdVisibleCards.has('stock') ? ' rd-active' : '') + '" data-card="stock">Lager</span>' +
+                _rdCardDefs.map(function(c) {
+                    return '<span class="rd-summary-chip' + (_rdVisibleCards.has(c.id) ? ' rd-active' : '') +
+                        '" data-card="' + c.id + '">' + esc(c.short || c.label) + '</span>';
+                }).join('') +
             '</div>' +
             '<div class="rd-summary-bar" id="rdSummaryBar"></div>' +
+            '<div class="rd-price-panel" id="rdPricePanel" style="display:none"></div>' +
 
             // Portions
             '<div class="rd-portions-row">' +
@@ -523,7 +560,44 @@ function _rdBindDesignerEvents() {
             if (_rdVisibleCards.has(id)) { _rdVisibleCards.delete(id); } else { _rdVisibleCards.add(id); }
             chip.classList.toggle('rd-active');
             _rdRenderSummaryCards();
+            if (id === 'cost') { _rdRenderIngredients(); _rdRenderNestings(); }  // andel-kolonne til/fra
             _rdRecalcSummary();
+        });
+    }
+
+    // Pris-panel kontroller (delegeret — panelet gen-renderes)
+    var pricePanel = document.getElementById('rdPricePanel');
+    if (pricePanel) {
+        pricePanel.addEventListener('input', function(e) {
+            var pp = e.target.getAttribute('data-pp');
+            if (pp === 'dbSlider') {
+                _rdPrice.dbTarget = parseInt(e.target.value, 10) || 0;
+                _rdUpdatePriceLive();
+            } else if (pp === 'workMin') {
+                var v = parseFloat(String(e.target.value).replace(',', '.'));
+                _rdDs.workMin = (e.target.value === '' || !isFinite(v)) ? null : v;
+                _rdMarkChanged();
+                _rdUpdatePriceLive();
+            }
+        });
+        pricePanel.addEventListener('change', function(e) {
+            var pp = e.target.getAttribute('data-pp');
+            if (pp === 'lonToggle') {
+                _rdPrice.showLabor = e.target.checked;
+                if (!_rdPrice.showLabor) _rdPrice.basis = 'materials';   // ingen løn → DB på råvarer
+                _rdSaveLaborPref();
+                _rdRenderPrice();
+            } else if (pp === 'priceCat') { _rdPrice.priceCat = e.target.value; _rdRenderPrice(); }
+        });
+        pricePanel.addEventListener('click', function(e) {
+            if (e.target.closest('[data-pp="lonAdd"]')) {   // "+ Medregn løn"-link
+                _rdPrice.showLabor = true;
+                _rdSaveLaborPref();
+                _rdRenderPrice();
+                return;
+            }
+            var btn = e.target.closest('[data-pp="basis"]');
+            if (btn) { _rdPrice.basis = btn.getAttribute('data-val'); _rdRenderPrice(); }
         });
     }
 
@@ -625,8 +699,12 @@ function _rdPopulateGroupDropdown() {
 // ═══���════════════════════��═══════════════════════════════════
 
 var _rdCardDefs = [
-    { id: 'weight', label: 'Samlet vaegt' },
-    { id: 'stock',  label: 'Lager / mangler' }
+    { id: 'weight', label: 'Samlet vaegt',    short: 'Vaegt' },
+    { id: 'stock',  label: 'Lager / mangler', short: 'Lager' },
+    { id: 'cost',   label: 'Kostpris',        short: 'Kostpris', calc: true },
+    { id: 'price',  label: 'Foreslaaet pris', short: 'Pris',     calc: true },
+    { id: 'db',     label: 'DB mod faktisk',  short: 'DB',       calc: true },
+    { id: 'co2',    label: 'CO2e',            short: 'CO2e',     calc: true }
 ];
 
 function _rdRenderSummaryCards() {
@@ -671,9 +749,300 @@ function _rdRecalcSummary() {
     var setVal = function(id, v) { var el = document.getElementById('rdSum_' + id); if (el) el.innerHTML = v; };
     setVal('weight', totalWeight >= 1000 ? _rdRound(totalWeight / 1000, 2) + ' kg' : _rdRound(totalWeight, 0) + ' g');
     setVal('stock', '<span style="color:var(--color-green-dark)">' + inStock + '</span> / <span style="color:var(--color-red)">' + missing + '</span>');
+
+    // Kalkulations-kort + pris-panel (Fase 1-2)
+    _rdRenderPrice();
 }
 
-// ════════════════════════════════════���═══════════════════════
+// ════════════════════════════════════════════════════════════
+// KALKULATION — kostpris / avance (Fase 1-3)
+// ÉN kostpris: composition.total_cost (Grocy fulfillment). Designeren regner
+// aldrig kostpris selv. Løn er en separat linje ovenpå. Se spec.
+// ════════════════════════════════════════════════════════════
+
+// Hent labor-rate + DB-mål én gang (non-blocking). Fejl er ikke-fatale.
+async function _rdLoadCalcMeta() {
+    if (_rdCalcLoaded) return;
+    _rdCalcLoaded = true;
+    _rdLoadLaborPref();
+    try {
+        var lr = await fetchLaborRate();
+        _rdLaborRate = {
+            rate: (lr && lr.standard_hourly_rate != null) ? Number(lr.standard_hourly_rate) : null,
+            overhead_pct: (lr && lr.labor_overhead_pct != null) ? Number(lr.labor_overhead_pct) : 0,
+            count: (lr && lr.employee_count) || 0
+        };
+    } catch (e) { /* løn-linje viser — */ }
+    try {
+        var t = await fetchRecipeTargets();
+        _rdTargets = {};
+        (t && t.targets || []).forEach(function(row) { _rdTargets[row.category] = Number(row.target_pct); });
+    } catch (e) { /* fallback 70 */ }
+    if (document.getElementById('rdPricePanel')) _rdRenderPrice();
+}
+
+// Hent kostpris/breakdown for én opskrift (composition = fulfillment-total + linjer).
+async function _rdLoadComposition(recipeId) {
+    _rdCompLoading = true;
+    if (document.getElementById('rdPricePanel')) _rdRenderPrice();   // vis "henter…"
+    try {
+        var comp = await fetchRecipeComposition(recipeId);
+        // Kun relevant hvis brugeren stadig er på samme opskrift
+        if (_rdDs.originalRecipeId !== recipeId) return;
+        _rdComp = comp;
+        // DB-slider starter på opskriftens kategori-mål (recipe_db_targets), fallback 70
+        var cat = comp && comp.category;
+        _rdPrice.dbTarget = (cat && _rdTargets[cat] != null) ? _rdTargets[cat] : 70;
+    } catch (e) {
+        _rdComp = null;   // Grocy nede → kostpris viser — (aldrig 0)
+    } finally {
+        _rdCompLoading = false;
+        _rdRenderIngredients();   // andel-kolonne på ingrediens-rækker
+        _rdRenderNestings();      // + underopskrift-rækker
+        _rdRecalcSummary();       // kort + pris-panel
+    }
+}
+
+// Salgspris inkl. moms fra opskriftens Grocy-userfield for valgt priskategori.
+function _rdActualPriceIncl() {
+    var r = _rdRecipeMap[_rdDs.originalRecipeId];
+    if (!r || !r.userfields) return null;
+    var key = 'Salesprice' + _rdPrice.priceCat.charAt(0).toUpperCase() + _rdPrice.priceCat.slice(1);
+    var v = parseFloat(r.userfields[key]);
+    return (isFinite(v) && v > 0) ? v : null;
+}
+
+function _rdCo2PerUnit() {
+    var r = _rdRecipeMap[_rdDs.originalRecipeId];
+    var v = r && r.userfields ? parseFloat(r.userfields.Co2e) : NaN;
+    return isFinite(v) ? v : null;
+}
+
+// Alle afledte pris-tal. Alt ex moms; kun visning konverteres til inkl. via window.Moms.
+function _rdComputePrice() {
+    var out = { hasCost: false, loading: _rdCompLoading, isNew: (_rdDs.mode === 'new') };
+    if (!_rdComp || _rdComp.total_cost == null) return out;
+
+    var base = _rdDs.baseServings || 1;
+    var materials = Number(_rdComp.total_cost) / base;        // ex moms pr. portion
+
+    // Løn pr. portion — standard-medarbejder × overhead × aktiv-min/portion
+    var lr = _rdLaborRate, laborPer = null;
+    if (_rdPrice.showLabor && lr.rate != null && _rdDs.workMin != null) {
+        var minPer = _rdDs.workMin / base;
+        laborPer = lr.rate * (1 + (lr.overhead_pct || 0) / 100) * minPer / 60;
+    }
+    var full = materials + (laborPer || 0);
+    var basis = (_rdPrice.basis === 'materials') ? materials : full;
+
+    out.hasCost = true;
+    out.materials = materials;
+    out.laborPer = laborPer;
+    out.full = full;
+    out.basis = basis;
+
+    var db = _rdPrice.dbTarget;
+    out.db = db;
+    out.suggestEx = (db < 100) ? basis / (1 - db / 100) : null;
+    out.suggestIncl = (out.suggestEx != null && window.Moms)
+        ? Math.round(window.Moms.exclToIncl(out.suggestEx)) : null;
+
+    var actualIncl = _rdActualPriceIncl();
+    out.actualIncl = actualIncl;
+    out.actualEx = (actualIncl != null && window.Moms) ? window.Moms.inclToExcl(actualIncl) : null;
+    out.dbActual = (out.actualEx != null && out.actualEx > 0)
+        ? (out.actualEx - basis) / out.actualEx * 100 : null;
+
+    out.co2 = _rdCo2PerUnit();
+    return out;
+}
+
+function _rdKr(v) { return _rdRound(v, 2); }
+
+function _rdSetCard(id, v, cls) {
+    var el = document.getElementById('rdSum_' + id);
+    if (!el) return;
+    el.innerHTML = v;
+    var card = el.closest('.rd-summary-card');
+    if (card) { card.classList.remove('rd-card-ok', 'rd-card-bad'); if (cls) card.classList.add(cls); }
+}
+
+// Skriv kalkulations-kortenes værdier (cost/price/db/co2).
+function _rdWriteCards(p) {
+    if (p.isNew && !p.hasCost) {
+        _rdSetCard('cost', '<span class="rd-dim">beregnes efter gem</span>');
+        _rdSetCard('price', '&mdash;'); _rdSetCard('db', '&mdash;');
+    } else if (!p.hasCost) {
+        _rdSetCard('cost', p.loading ? '<span class="rd-dim">henter&hellip;</span>' : '<span class="rd-dim">&mdash;</span>');
+        _rdSetCard('price', '&mdash;'); _rdSetCard('db', '&mdash;');
+    } else {
+        _rdSetCard('cost', _rdKr(_rdPrice.basis === 'materials' ? p.materials : p.full) + ' kr');
+        _rdSetCard('price', p.suggestIncl != null ? p.suggestIncl + ' kr' : '&mdash;');
+        if (p.dbActual != null) {
+            _rdSetCard('db', _rdRound(p.dbActual, 1) + ' %', p.dbActual >= p.db ? 'rd-card-ok' : 'rd-card-bad');
+        } else {
+            _rdSetCard('db', '&mdash;');
+        }
+    }
+    _rdSetCard('co2', p.co2 != null ? _rdRound(p.co2, 2) + ' kg' : '<span class="rd-dim">&mdash;</span>');
+}
+
+// Fuld render: kort + panel-struktur. Kaldes ved strukturelle ændringer.
+function _rdRenderPrice() {
+    var p = _rdComputePrice();
+    _rdWriteCards(p);
+
+    var panel = document.getElementById('rdPricePanel');
+    if (!panel) return;
+    var anyCalcVisible = _rdVisibleCards.has('cost') || _rdVisibleCards.has('price') || _rdVisibleCards.has('db');
+    if (!anyCalcVisible) { panel.style.display = 'none'; panel.innerHTML = ''; return; }
+    panel.style.display = '';
+    panel.innerHTML = _rdBuildPricePanel(p);
+}
+
+// Let opdatering: kun tal-spans + kort (bevarer slider/input-fokus). Kaldes ved
+// slider- og arbejdstid-input, hvor et fuldt rebuild ville afbryde brugeren.
+function _rdUpdatePriceLive() {
+    var p = _rdComputePrice();
+    _rdWriteCards(p);
+    if (!p.hasCost) return;
+    var set = function(id, html) { var el = document.getElementById(id); if (el) el.innerHTML = html; };
+    set('rdPPdb', p.db + ' %');
+    set('rdPPsug', p.suggestIncl != null ? p.suggestIncl + ' kr' : '&mdash;');
+    set('rdPPmat', _rdKr(p.materials) + ' kr');
+    set('rdPPlabor', p.laborPer != null ? _rdKr(p.laborPer) + ' kr' : '&mdash;');
+    set('rdPPfull', _rdKr(p.materials + (p.laborPer || 0)) + ' kr');
+    set('rdPPverdict', _rdVerdictHtml(p));
+}
+
+function _rdVerdictHtml(p) {
+    if (p.dbActual == null) {
+        return '<div class="rd-pp-verdict">Ingen salgspris sat for <b>' + esc(_rdPrice.priceCat) + '</b> &mdash; kan ikke sammenlignes.</div>';
+    }
+    if (p.dbActual >= p.db) {
+        return '<div class="rd-pp-verdict rd-ok">Nuv&#230;rende pris giver <b>' + _rdRound(p.dbActual, 1) + ' % DB</b> &mdash; over m&#229;let (' + p.db + ' %).</div>';
+    }
+    return '<div class="rd-pp-verdict rd-warn">Nuv&#230;rende pris giver kun <b>' + _rdRound(p.dbActual, 1) + ' % DB</b>. Pris skal op p&#229; <b>' + (p.suggestIncl != null ? p.suggestIncl + ' kr' : '&mdash;') + '</b> for m&#229;let (' + p.db + ' %).</div>';
+}
+
+function _rdBuildPricePanel(p) {
+    var money = function(v) { return (v == null) ? '&mdash;' : _rdKr(v) + ' kr'; };
+    var lr = _rdLaborRate;
+
+    // Breakdown (linjerne summerer ~til fulfillment-total; kilde: composition)
+    var groups = _rdCompGroupCosts();   // { materials, packaging, sub } pr. portion, ex moms
+    var base = _rdDs.baseServings || 1;
+
+    var left = '';
+    if (!p.hasCost) {
+        left = '<div class="rd-pp-note">' +
+            (p.isNew ? 'Kostprisen beregnes n&#229;r opskriften er gemt.' :
+             p.loading ? 'Henter kostpris fra Grocy&hellip;' :
+             'Kostpris ikke tilg&#230;ngelig (Grocy svarer ikke).') + '</div>';
+    } else {
+        // Rest = det autoritative total (fulfillment) minus de prissatte linjer.
+        // Positivt når nogle ingredienser mangler pris i Grocys prishistorik — vises
+        // eksplicit, så breakdown summerer til totalen i stedet for at se for billig ud.
+        var lineSum = groups.materials + groups.packaging + groups.sub;
+        var residual = Math.max(0, p.materials - lineSum);
+        var matActive = (_rdPrice.basis === 'materials');
+        var fullPer = p.materials + (p.laborPer || 0);
+        left =
+            '<div class="rd-pp-kv"><span>R&#229;varer</span><span>' + money(groups.materials) + '</span></div>' +
+            (groups.sub > 0 ? '<div class="rd-pp-kv"><span>Underopskrifter</span><span>' + money(groups.sub) + '</span></div>' : '') +
+            (groups.packaging > 0 ? '<div class="rd-pp-kv"><span>Emballage</span><span>' + money(groups.packaging) + '</span></div>' : '') +
+            (residual > 0.005 ? '<div class="rd-pp-kv rd-dim"><span>Uprissat rest</span><span>' + money(residual) + '</span></div>' : '') +
+            // Subtotal 1: vareomkostning (summerer linjerne ovenfor)
+            '<div class="rd-pp-kv rd-pp-sub' + (matActive ? ' rd-pp-active' : '') + '"><span>Vareomkostning pr. portion</span><span id="rdPPmat">' + money(p.materials) + '</span></div>' +
+            // Løn + subtotal 2: fuldt belastet (kun når løn medregnes)
+            (_rdPrice.showLabor
+                ? '<div class="rd-pp-kv"><span>+ Arbejdsl&#248;n</span><span id="rdPPlabor">' + (p.laborPer != null ? money(p.laborPer) : '&mdash;') + '</span></div>' +
+                  '<div class="rd-pp-kv rd-pp-sub' + (!matActive ? ' rd-pp-active' : '') + '"><span>Fuldt belastet pr. portion</span><span id="rdPPfull">' + money(fullPer) + '</span></div>'
+                : '') +
+            // Løn-kontrol — skjult som standard, kun et diskret link når fra
+            (!_rdPrice.showLabor
+                ? '<button class="rd-pp-loan-add" data-pp="lonAdd">+ Medregn l&#248;n i beregningen</button>'
+                : '<div class="rd-pp-lonrow">' +
+                    '<label class="rd-pp-switch"><input type="checkbox" data-pp="lonToggle" checked><span></span></label>' +
+                    '<span>Medregn l&#248;n:</span>' +
+                    '<input type="number" class="rd-pp-min" data-pp="workMin" value="' + (_rdDs.workMin != null ? _rdDs.workMin : '') + '" placeholder="0" step="0.5" min="0">' +
+                    '<span class="rd-pp-minunit">min/batch</span>' +
+                    '<span class="rd-pp-hint">' + (lr.rate != null ? 'sats ' + _rdRound(lr.rate, 0) + ' kr/t + ' + _rdRound(lr.overhead_pct || 0, 0) + '% overhead' : 'ingen sats') + '</span>' +
+                  '</div>' +
+                  '<div class="rd-pp-basis">' +
+                    '<span class="rd-pp-hint" style="margin-right:auto">Beregn DB p&#229;:</span>' +
+                    '<span class="rd-pp-basis-btn' + (matActive ? ' rd-active' : '') + '" data-pp="basis" data-val="materials">R&#229;varer</span>' +
+                    '<span class="rd-pp-basis-btn' + (!matActive ? ' rd-active' : '') + '" data-pp="basis" data-val="full">Inkl. l&#248;n</span>' +
+                  '</div>');
+    }
+
+    var right = '';
+    if (p.hasCost) {
+        var verdict = _rdVerdictHtml(p);
+        right =
+            '<div class="rd-pp-slider">' +
+                '<div class="rd-pp-slider-top"><span>M&#229;l-d&#230;kningsbidrag</span><b id="rdPPdb">' + p.db + ' %</b></div>' +
+                '<input type="range" min="40" max="88" value="' + p.db + '" data-pp="dbSlider">' +
+            '</div>' +
+            '<div class="rd-pp-cat">Faktisk pris: ' +
+                '<select data-pp="priceCat">' +
+                    ['store', 'catering', 'festival', 'produktion', 'waiste'].map(function(c) {
+                        return '<option value="' + c + '"' + (c === _rdPrice.priceCat ? ' selected' : '') + '>' + c + '</option>';
+                    }).join('') +
+                '</select>' +
+                '<span class="rd-pp-actual">' + (p.actualIncl != null ? p.actualIncl + ' kr inkl.' : 'ingen') + '</span>' +
+            '</div>' +
+            '<div class="rd-pp-suggest">' +
+                '<div class="rd-pp-suggest-v" id="rdPPsug">' + (p.suggestIncl != null ? p.suggestIncl + ' kr' : '&mdash;') + '</div>' +
+                '<div class="rd-pp-suggest-l">foresl&#229;et menupris inkl. moms</div>' +
+            '</div>' +
+            '<div id="rdPPverdict">' + verdict + '</div>';
+    }
+
+    var dirtyNote = (_rdDs.dirty && p.hasCost)
+        ? '<div class="rd-pp-dirty">Afspejler sidst gemte opskrift &mdash; kostprisen opdateres n&#229;r du gemmer.</div>'
+        : '';
+    return '<div class="rd-pp-head">Pris &amp; avance <span class="rd-pp-exmoms">alle beregninger ex moms</span></div>' +
+        dirtyNote +
+        '<div class="rd-pp-grid"><div>' + left + '</div><div>' + right + '</div></div>';
+}
+
+// Grupper composition-linjernes kostpris pr. portion (ex moms): råvarer / emballage / underopskrifter.
+// Linjerne summerer ~til total_cost (fulfillment) — det autoritative tal.
+function _rdCompGroupCosts() {
+    var out = { materials: 0, packaging: 0, sub: 0 };
+    if (!_rdComp) return out;
+    var base = _rdDs.baseServings || 1;
+    (_rdComp.ingredients || []).forEach(function(i) {
+        if (i.cost == null) return;
+        if ((i.ingredient_group || '').toLowerCase() === 'emballage') out.packaging += i.cost;
+        else out.materials += i.cost;
+    });
+    (_rdComp.sub_recipes || []).forEach(function(s) { if (s.cost != null) out.sub += s.cost; });
+    out.materials /= base; out.packaging /= base; out.sub /= base;
+    return out;
+}
+
+// Kostpris pr. portion for én ingrediens/underopskrift (til andel-kolonnen, Fase 3).
+function _rdIngCostPerPortion(productId) {
+    if (!_rdComp) return null;
+    var base = _rdDs.baseServings || 1;
+    var row = (_rdComp.ingredients || []).find(function(i) { return String(i.product_id) === String(productId); });
+    return (row && row.cost != null) ? row.cost / base : null;
+}
+function _rdSubCostPerPortion(recipeId) {
+    if (!_rdComp) return null;
+    var base = _rdDs.baseServings || 1;
+    var row = (_rdComp.sub_recipes || []).find(function(s) { return String(s.recipe_id) === String(recipeId); });
+    return (row && row.cost != null) ? row.cost / base : null;
+}
+// Nævner for andel = summen af alle linjers kostpris pr. portion (så andelene giver 100%).
+function _rdTotalLineCostPerPortion() {
+    var g = _rdCompGroupCosts();
+    return g.materials + g.packaging + g.sub;
+}
+
+// ════════════════════════════════════════════════════════════
 // INGREDIENTS RENDERING
 // ═══════════���═══════════════════���════════════════════════════
 
@@ -697,6 +1066,10 @@ function _rdRenderIngredients() {
         .filter(function(g) { return g.toLowerCase() !== 'emballage'; })
         .sort(function(a, b) { if (!a) return -1; if (!b) return 1; return a.localeCompare(b, 'da'); });
 
+    // Andel-kolonne (Fase 3): vis kun når kostpris-kortet er slået til og cachen er hentet.
+    var showCost = _rdVisibleCards.has('cost') && !!_rdComp;
+    var costDenom = showCost ? _rdTotalLineCostPerPortion() : 0;
+
     var html = '';
     var renderGroup = function(groupName) {
         if (groupName) html += '<div class="rd-ing-row rd-group-header"><span class="rd-group-name">' + esc(groupName) + '</span></div>';
@@ -717,9 +1090,20 @@ function _rdRenderIngredients() {
                 ? '<button class="rd-ing-cart" data-pid="' + ing.product_id + '" data-name="' + esc(name) + '" data-amount="' + _rdRound(Math.max(0, rawScaled - stockAmt), 2) + '" title="Tilfoej til indkoebsliste">🛒</button>'
                 : '';
 
+            // Kostpris + andel (Fase 3) — kilde: composition-linjer (summerer til total).
+            var costLine = '';
+            if (showCost) {
+                var perP = _rdIngCostPerPortion(ing.product_id);
+                if (perP != null) {
+                    var share = costDenom > 0 ? (perP / costDenom * 100) : 0;
+                    costLine = '<div class="rd-ing-cost">' + _rdKr(perP) + ' kr &middot; ' + _rdRound(share, 0) + ' %' +
+                        '<div class="rd-ing-share-bar"><i style="width:' + Math.min(100, share) + '%"></i></div></div>';
+                }
+            }
+
             html += '<div class="rd-ing-row">' +
                 '<div class="rd-stock-dot ' + stockClass + '" title="Lager: ' + _rdRound(stockAmt, 1) + '"></div>' +
-                '<div class="rd-ing-name">' + esc(name) + '</div>' +
+                '<div class="rd-ing-name">' + esc(name) + costLine + '</div>' +
                 '<div style="display:flex;align-items:center;gap:4px;">' +
                     '<div class="rd-ing-stepper">' +
                         '<button class="rd-ing-step-btn" data-idx="' + idx + '" data-dir="-1">&minus;</button>' +
@@ -937,6 +1321,9 @@ function _rdRenderNestings() {
         return;
     }
 
+    var showCost = _rdVisibleCards.has('cost') && !!_rdComp;
+    var costDenom = showCost ? _rdTotalLineCostPerPortion() : 0;
+
     container.innerHTML = _rdDs.nestings.map(function(n, i) {
         var sub = _rdRecipeMap[n.includes_recipe_id];
         var name = sub ? sub.name : '#' + n.includes_recipe_id;
@@ -944,9 +1331,18 @@ function _rdRenderNestings() {
         var scaledAmt = _rdRound((parseFloat(n.servings) || 0) * mult, 3);
         var fmt = _rdFormatAmount(scaledAmt, unit);
 
+        var costLine = '';
+        if (showCost) {
+            var perP = _rdSubCostPerPortion(n.includes_recipe_id);
+            if (perP != null) {
+                var share = costDenom > 0 ? (perP / costDenom * 100) : 0;
+                costLine = '<span class="rd-ing-cost" style="display:block">' + _rdKr(perP) + ' kr &middot; ' + _rdRound(share, 0) + ' %</span>';
+            }
+        }
+
         return '<div class="rd-nesting-card">' +
             '<span class="rd-nesting-icon">&#x1F4CB;</span>' +
-            '<span class="rd-nesting-name">' + esc(name) + '</span>' +
+            '<span class="rd-nesting-name">' + esc(name) + costLine + '</span>' +
             '<div class="rd-nesting-amt">' +
                 '<input type="number" class="rd-nesting-input" data-idx="' + i + '" data-display-unit="' + esc(fmt.unit) + '" data-orig-unit="' + esc(unit) + '" value="' + fmt.amount + '" step="0.01">' +
                 '<span class="rd-nesting-unit">' + esc(fmt.unit) + '</span>' +
@@ -1146,11 +1542,12 @@ async function _rdSaveRecipe() {
             base_servings: baseServings
         });
 
-        // 2. Update userfields
+        // 2. Update userfields (inkl. aktiv arbejdstid pr. batch)
         await putGrocyRecipeUserfields(_rdDs.originalRecipeId, {
             grupper: document.getElementById('rdDGroup').value,
             recipeunit: document.getElementById('rdDUnit').value,
-            recipeunitnumber: String(baseServings)
+            recipeunitnumber: String(baseServings),
+            arbejdstid_min: _rdDs.workMin != null ? String(_rdDs.workMin) : ''
         });
 
         // 3. Delete removed ingredients
@@ -1224,6 +1621,7 @@ async function _rdSaveRecipe() {
             .map(function(nn) { return _rdShallowCopy(nn); });
         _rdRenderIngredients();
         _rdRenderNestings();
+        _rdLoadComposition(_rdDs.originalRecipeId);   // frisk kostpris efter gem (fulfillment-cache ryddet af skrivningen)
 
         _rdShowAlert('Opskrift gemt!', 'success');
 
@@ -1258,11 +1656,12 @@ async function _rdSaveAsNew() {
 
         var newId = parseInt(resp.created_object_id);
 
-        // 2. Set userfields
+        // 2. Set userfields (inkl. aktiv arbejdstid pr. batch)
         await putGrocyRecipeUserfields(newId, {
             grupper: document.getElementById('rdDGroup').value,
             recipeunit: document.getElementById('rdDUnit').value,
-            recipeunitnumber: String(baseServings)
+            recipeunitnumber: String(baseServings),
+            arbejdstid_min: _rdDs.workMin != null ? String(_rdDs.workMin) : ''
         });
 
         // 3. Create all ingredients
@@ -1323,6 +1722,8 @@ async function _rdSaveAsNew() {
             .map(function(nn) { return _rdShallowCopy(nn); });
         _rdRenderIngredients();
         _rdRenderNestings();
+        _rdComp = null;                    // ny opskrift → hent frisk kostpris
+        _rdLoadComposition(newId);
 
         _rdShowAlert('"' + name + '" oprettet som ny opskrift!', 'success');
 

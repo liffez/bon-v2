@@ -2142,6 +2142,12 @@ function refreshRecipeCosts() {
     return apiFetch('/recipes/refresh-costs', { method: 'POST' });
 }
 
+// Standard-medarbejdersats + overhead til kalkulationens løn-linje.
+// { standard_hourly_rate: number|null, employee_count, labor_overhead_pct }
+function fetchLaborRate() {
+    return apiFetch('/recipes/labor-rate');
+}
+
 function forceRecipeBackfill(force = 1) {
     return apiFetch('/recipes/backfill?force=' + force, { method: 'POST' });
 }
