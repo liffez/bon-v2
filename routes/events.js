@@ -710,7 +710,8 @@ function getPrepAggregate(event) {
 
 function getMenuItems(eventId) {
     return getDb().prepare(`
-        SELECT id, grocy_recipe_id, product_name, category, unit, unit_price, sort_order, note
+        SELECT id, grocy_recipe_id, product_name, category, unit, unit_price, sort_order, note,
+               item_type, applies_to
         FROM event_menu_items WHERE event_id = ?
         ORDER BY sort_order, category, product_name
     `).all(eventId);
@@ -790,6 +791,14 @@ router.put('/:id/menu', requireAuth(), handle((req, res) => {
         const k = menuKey(rid, name);
         if (seen.has(k)) return res.status(400).json({ error: `"${name}" optræder to gange i menuen` });
         seen.add(k);
+        // Tilvalg (§ migration 135): item_type='option' + applies_to = menuKeys.
+        const itemType = it.item_type === 'option' ? 'option' : 'dish';
+        let appliesTo = null;
+        if (itemType === 'option') {
+            const raw = Array.isArray(it.applies_to) ? it.applies_to : [];
+            const keys = raw.map(s => String(s).trim()).filter(Boolean);
+            appliesTo = keys.length ? JSON.stringify(keys) : null;
+        }
         clean.push({
             grocy_recipe_id: rid,
             product_name:    name,
@@ -798,6 +807,8 @@ router.put('/:id/menu', requireAuth(), handle((req, res) => {
             unit_price:      Math.round(price * 100) / 100,
             sort_order:      Number.isFinite(Number(it.sort_order)) ? Number(it.sort_order) : i,
             note:            it.note ? String(it.note).trim() : null,
+            item_type:       itemType,
+            applies_to:      appliesTo,
         });
     }
 
@@ -805,12 +816,14 @@ router.put('/:id/menu', requireAuth(), handle((req, res) => {
         db.prepare(`DELETE FROM event_menu_items WHERE event_id = ?`).run(event.id);
         const ins = db.prepare(`
             INSERT INTO event_menu_items
-                (event_id, grocy_recipe_id, product_name, category, unit, unit_price, sort_order, note, updated_at)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP)
+                (event_id, grocy_recipe_id, product_name, category, unit, unit_price, sort_order, note,
+                 item_type, applies_to, updated_at)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP)
         `);
         for (const c of clean) {
             ins.run(event.id, c.grocy_recipe_id, c.product_name, c.category,
-                    c.unit, c.unit_price, c.sort_order, c.note);
+                    c.unit, c.unit_price, c.sort_order, c.note,
+                    c.item_type, c.applies_to);
         }
     });
     logChange({ entityType: 'event', entityId: event.id, action: 'update', fieldName: 'menu', userId: req.session?.userId });

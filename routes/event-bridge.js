@@ -116,23 +116,78 @@ async function buildBridgeMenu(menuId = 'standard', deps = grocyAdapter) {
 // Grocy-menuen. unit_price er INCL moms (§6b) → øre uden moms-omregning.
 function buildEventMenu(db, eventId, menuId = 'standard') {
     const rows = db.prepare(`
-        SELECT id, grocy_recipe_id, product_name, category, unit_price, sort_order
+        SELECT id, grocy_recipe_id, product_name, category, unit_price, sort_order, note, item_type, applies_to
         FROM event_menu_items WHERE event_id = ? ORDER BY sort_order, id
     `).all(eventId);
     if (!rows.length) return null;
 
+    // Stabil nøgle — SKAL matche menuKey() i routes/events.js (applies_to peger på den).
+    const keyOf = r => r.grocy_recipe_id
+        ? `r:${r.grocy_recipe_id}`
+        : `n:${String(r.product_name || '').trim().toLowerCase()}`;
+    // Id uden '_' — variant-id'et er `${base}__${optId}_${choiceId}`, så et
+    // underscore i optId ville gøre choiceId'et umuligt at læse tilbage.
+    const slug = s => String(s || '').toLowerCase().replace(/[^a-z0-9]+/g, '') || 'x';
+    const refOf = r => r.grocy_recipe_id ? ('r' + r.grocy_recipe_id) : ('n' + slug(r.product_name));
+
+    // Allergen-tag udledes af navnet (samme værdier som event-order-3's MY_TAGS).
+    // Grov, men gratis: den markerer bestillingen korrekt i køkken/udlevering.
+    const tagOf = name => {
+        const n = String(name || '').toLowerCase();
+        if (n.includes('gluten')) return 'gluten-free';
+        if (n.includes('vegan'))  return 'vegan';
+        if (n.includes('laktose') || n.includes('lactose')) return 'lactose-free';
+        return '';
+    };
+
+    const optionRows = rows.filter(r => r.item_type === 'option' && r.applies_to);
+    // Tilvalg uden applies_to vises som almindelig ret — så en halvt opsat
+    // linje ikke forsvinder i stilhed fra bestillingssiden.
+    const dishRows = rows.filter(r => !(r.item_type === 'option' && r.applies_to));
+
+    // menuKey → tilvalg der gælder for den ret
+    const optionsByDish = new Map();
+    for (const o of optionRows) {
+        let keys = [];
+        try { keys = JSON.parse(o.applies_to) || []; } catch { keys = []; }
+        for (const k of keys) {
+            if (!optionsByDish.has(k)) optionsByDish.set(k, []);
+            optionsByDish.get(k).push(o);
+        }
+    }
+
     const categoriesMap = new Map();
-    const items = rows.map(r => {
+    const items = dishRows.map(r => {
         const catName = r.category || 'Menu';
         if (!categoriesMap.has(catName)) categoriesMap.set(catName, buildCategoryId(catName));
+
+        // Hvert tilvalg bliver sin egen valggruppe med "Almindelig" som
+        // standardvalg — kunden kan altså bestille både "Tunen" og
+        // "Tunen – Glutenfri Bolle". Første valg er forvalgt i event-order-3.
+        const opts = (optionsByDish.get(keyOf(r)) || []).map(o => ({
+            id: 'o' + refOf(o),
+            label: o.note ? String(o.note).trim() : 'Tilvalg',
+            required: true,
+            choices: [
+                { id: 'std', name: 'Almindelig', price: 0 },
+                {
+                    id: refOf(o),                                        // fx 'r161' → prep kan finde Grocy-varen
+                    name: o.product_name,
+                    price: Math.round((Number(o.unit_price) || 0) * 100),
+                    tag: tagOf(o.product_name)
+                }
+            ]
+        }));
+
         return {
-            id: r.grocy_recipe_id ? ('r' + r.grocy_recipe_id) : ('emi' + r.id),
+            id: refOf(r),
             name: r.product_name,
             category: categoriesMap.get(catName),
             price: Math.round((Number(r.unit_price) || 0) * 100),  // øre, incl moms
             tags: [],
             allergens: '',
-            active: true
+            active: true,
+            options: opts
         };
     });
     const categories = Array.from(categoriesMap.entries()).map(([name, id]) => ({ id, name }));

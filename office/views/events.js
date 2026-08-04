@@ -433,7 +433,28 @@ function _evMenuRowsHtml(items) {
             fra eventets prep-bonner — eller <strong>+ Tilføj linje</strong> for at skrive en ind i hånden.
         </div>`;
     }
+    // Stabil nøgle pr. linje — SKAL matche menuKey() i routes/events.js.
+    const _key = it => it.grocy_recipe_id
+        ? `r:${it.grocy_recipe_id}`
+        : `n:${String(it.product_name || '').trim().toLowerCase()}`;
+    // Kun retter kan et tilvalg hænges på (et tilvalg på et tilvalg giver ikke mening).
+    const dishes = items.filter(x => x.item_type !== 'option');
+
     const rows = items.map(it => {
+        const isOpt = it.item_type === 'option';
+        let applies = [];
+        try { applies = Array.isArray(it.applies_to) ? it.applies_to : JSON.parse(it.applies_to || '[]'); } catch { applies = []; }
+        const optCell = isOpt
+            ? `<div class="ev-menu-applies">
+                 ${dishes.filter(d => _key(d) !== _key(it)).map(d => `
+                   <label title="${_evEsc(d.product_name)}">
+                     <input type="checkbox" class="ev-menu-applies-cb" value="${_evEsc(_key(d))}"
+                            ${applies.includes(_key(d)) ? 'checked' : ''}>
+                     ${_evEsc(d.product_name)}
+                   </label>`).join('')}
+                 ${dishes.length <= 1 ? '<span class="ev-menu-applies-none">ingen retter at vælge</span>' : ''}
+               </div>`
+            : '';
         const dev = it.price_deviation
             ? `<span class="ev-menu-dev" title="Solgt til en anden pris end menuens: ${it.sold_prices.map(p => _evFmtKr(p)).join(', ')}">⚠</span>`
             : '';
@@ -459,7 +480,13 @@ function _evMenuRowsHtml(items) {
             </td>
             <td class="ev-menu-note">
                 <input type="text" class="ev-menu-input-note" maxlength="80"
-                    value="${_evEsc(it.note || '')}" placeholder="note (valgfri)">
+                    value="${_evEsc(it.note || '')}" placeholder="${isOpt ? 'gruppe-label, fx Brødtype' : 'note (valgfri)'}">
+            </td>
+            <td class="ev-menu-type">
+                <label class="ev-menu-opt-toggle" title="Tilvalg vises ikke som selvstændig ret, men som et valg (Almindelig / dette) på de retter du hakker af">
+                    <input type="checkbox" class="ev-menu-input-opt" ${isOpt ? 'checked' : ''}> tilvalg
+                </label>
+                ${optCell}
             </td>
             <td class="ev-menu-act">
                 <button class="ev-btn ev-btn-small ev-menu-move" data-act="menu-up"   title="Flyt op">▲</button>
@@ -471,7 +498,7 @@ function _evMenuRowsHtml(items) {
 
     return `<table class="ev-menu-table">
         <thead><tr>
-            <th>Produkt</th><th>Kategori</th><th>Pris (inkl. moms)</th><th>Note</th><th></th>
+            <th>Produkt</th><th>Kategori</th><th>Pris (inkl. moms)</th><th>Note</th><th>Tilvalg</th><th></th>
         </tr></thead>
         <tbody>${rows}</tbody>
     </table>`;
@@ -516,6 +543,8 @@ function _evCollectMenuItems() {
             unit_price:   parseFloat(tr.querySelector('.ev-menu-input-price').value) || 0,
             note:         tr.querySelector('.ev-menu-input-note').value.trim() || null,
             sort_order:   i,
+            item_type:    tr.querySelector('.ev-menu-input-opt')?.checked ? 'option' : 'dish',
+            applies_to:   [...tr.querySelectorAll('.ev-menu-applies-cb:checked')].map(cb => cb.value),
         };
     });
 }
@@ -687,6 +716,12 @@ function _evBindMenuHandlers(ev) {
     // Delegeret: rækkerne udskiftes ved generate/tilføj, så vi binder på panelet.
     panel.addEventListener('input', e => {
         if (e.target.matches('.ev-menu-input-price, .ev-menu-input-note, .ev-menu-input-name')) _evScheduleMenuSave(ev);
+    });
+    // Tilvalg-toggle + hvilke retter det gælder. Gem straks (ingen debounce —
+    // et klik er en færdig handling), og re-render så tilvalgs-kolonnen matcher.
+    panel.addEventListener('change', async e => {
+        if (!e.target.matches('.ev-menu-input-opt, .ev-menu-applies-cb')) return;
+        if (await _evSaveMenu(ev, { silent: true })) await _evLoadMenu(ev);
     });
     panel.querySelector('[data-act="menu-print"]')?.addEventListener('click', () => _evPrintMenu(ev));
     panel.querySelector('[data-act="menu-push"]')?.addEventListener('click', async (e) => {

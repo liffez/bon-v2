@@ -128,8 +128,32 @@ async function main() {
     eq(em.items[0].id, 'r91', 'event-menu: grocy-vare → r91');
     eq(em.items[0].price, 14300, 'event-menu: pris i øre (143 kr incl moms)');
     eq(em.items[1].price, 9900, 'event-menu: custom event-pris (99 kr, ≠ festival)');
-    ok(/^emi\d+$/.test(em.items[2].id), 'event-menu: fri-tekst vare → emi<id>');
+    // Fritekst-id er navne-baseret (n<slug>), IKKE rækkens id: PUT er delete+insert,
+    // så id'er skifter ved hver gemning og ville knække kurve + prep-tælling.
+    eq(em.items[2].id, 'nfritekstret', 'event-menu: fri-tekst vare → stabilt n<slug>-id');
     ok(buildEventMenu(db, 999999) === null, 'event uden menu → null (fallback til Grocy)');
+
+    // ── Tilvalg (migration 135): glutenfri bolle på ÉN af retterne ──────────
+    db.prepare(`INSERT INTO event_menu_items (event_id, grocy_recipe_id, product_name, category, unit_price, sort_order, item_type, applies_to, note)
+                VALUES (?,?,?,?,?,?,'option',?,?)`)
+      .run(eventId, 161, 'Glutenfri Bolle', 'Tilbehør', 15, 4, JSON.stringify(['r:91']), 'Brødtype');
+    const em2 = buildEventMenu(db, eventId, 'standard');
+    eq(em2.items.length, 3, 'tilvalg vises IKKE som selvstændig ret (3 retter, ikke 4)');
+    const tunen = em2.items.find(i => i.id === 'r91');
+    const salat = em2.items.find(i => i.id === 'r92');
+    eq(tunen.options.length, 1, 'r91 har tilvalgs-gruppe');
+    eq(tunen.options[0].label, 'Brødtype', 'gruppe-label fra note');
+    eq(tunen.options[0].choices.length, 2, 'to valg: Almindelig + tilvalg');
+    eq(tunen.options[0].choices[0].price, 0, 'Almindelig koster 0 (forvalgt)');
+    eq(tunen.options[0].choices[1].id, 'r161', 'tilvalgets choice-id bærer Grocy-id (prep kan tælle det)');
+    eq(tunen.options[0].choices[1].price, 1500, 'tilvalg +15 kr i øre');
+    eq(tunen.options[0].choices[1].tag, 'gluten-free', 'allergen-tag udledt af navnet');
+    eq(salat.options.length, 0, 'r92 har INGEN tilvalg (kun der hvor det er hakket af)');
+    ok(!tunen.options[0].id.includes('_'), 'gruppe-id uden _ (ellers kan choiceId ikke læses tilbage)');
+
+    // Tilvalg uden applies_to → vises som almindelig ret (forsvinder ikke i stilhed)
+    db.prepare(`UPDATE event_menu_items SET applies_to = NULL WHERE event_id = ? AND grocy_recipe_id = 161`).run(eventId);
+    eq(buildEventMenu(db, eventId).items.length, 4, 'tilvalg uden retter → vises som ret (fallback)');
 
     console.log(`\nFase 3 (event-bro prep): ${pass} PASS · ${fail} FAIL`);
     process.exit(fail ? 1 : 0);
