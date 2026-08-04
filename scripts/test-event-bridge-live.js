@@ -87,6 +87,9 @@ async function main() {
         INSERT INTO events (name, location_id, model, start_date, end_date, status)
         VALUES ('Smoke-event', ?, 'light', '2026-09-01', '2026-09-02', 'planning')
     `).run(locId).lastInsertRowid);
+    // Kurateret event-menu: kun 2 varer med event-priser (≠ festival)
+    db.prepare(`INSERT INTO event_menu_items (event_id, grocy_recipe_id, product_name, category, unit_price, sort_order) VALUES (?,?,?,?,?,?)`).run(eventId, 91, 'Kurateret A', 'Menu', 111, 1);
+    db.prepare(`INSERT INTO event_menu_items (event_id, grocy_recipe_id, product_name, category, unit_price, sort_order) VALUES (?,?,?,?,?,?)`).run(eventId, 92, 'Kurateret B', 'Menu', 222, 2);
     db.close(); // undgå samtidige handles med serveren
 
     let proc = null;
@@ -119,6 +122,12 @@ async function main() {
         if (rItems.length) {
             assert(typeof rItems[0].price === 'number', 'vare har numerisk pris (øre)');
         }
+
+        // Event-menu: ?event=<id> giver KUN de kuraterede varer (ikke hele Grocy)
+        r = await http('GET', `/webhook/event-menu?event=${eventId}`, null, { 'x-webhook-secret': SECRET });
+        assert(r.status === 200 && r.data.source === 'event-menu', 'event-menu: ?event → source=event-menu');
+        assert(Array.isArray(r.data.items) && r.data.items.length === 2, 'event-menu: kun de 2 kuraterede varer (ikke 118)');
+        assert(r.data.items[0].id === 'r91' && r.data.items[0].price === 11100, 'event-menu: r-id + event-pris i øre (111 kr)');
 
         // Vælg op til 2 ægte opskrift-id'er til prep-push
         const realIds = rItems.slice(0, 2).map((it, i) => ({ grocy_recipe_id: Number(it.id.slice(1)), antal: (i + 1) * 4 }));

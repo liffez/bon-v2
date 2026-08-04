@@ -42,7 +42,7 @@ async function main() {
     const { getDb } = require('../db/database');
     const db = getDb();
 
-    const { resolvePrepLines, applyPrepPush, findPrepBon } = require('../routes/event-bridge');
+    const { resolvePrepLines, applyPrepPush, findPrepBon, buildEventMenu } = require('../routes/event-bridge');
 
     const locId = db.prepare(`SELECT id FROM locations LIMIT 1`).get().id;
     const eventId = Number(db.prepare(`
@@ -117,6 +117,19 @@ async function main() {
     ok(!findPrepBon(db, eventId, DAY2), 'AFLYST prep-bon findes ikke som aktiv');
     const c6 = applyPrepPush(db, { event, date: DAY2, resolved: r2 });
     eq(c6.action, 'created', 'AFLYST dag2 → ny prep-bon oprettes');
+
+    // ── buildEventMenu: kurateret event-menu (kun 3 varer, event-priser) ────
+    db.prepare(`INSERT INTO event_menu_items (event_id, grocy_recipe_id, product_name, category, unit_price, sort_order) VALUES (?,?,?,?,?,?)`).run(eventId, 91, 'Grisen på Rug', '01 Sandwich', 143, 1);
+    db.prepare(`INSERT INTO event_menu_items (event_id, grocy_recipe_id, product_name, category, unit_price, sort_order) VALUES (?,?,?,?,?,?)`).run(eventId, 92, 'Salaten', '02 Salat', 99, 2);
+    db.prepare(`INSERT INTO event_menu_items (event_id, grocy_recipe_id, product_name, category, unit_price, sort_order) VALUES (?,?,?,?,?,?)`).run(eventId, null, 'Fri-tekst ret', null, 50, 3);
+    const em = buildEventMenu(db, eventId, 'standard');
+    ok(em && em.source === 'event-menu', 'buildEventMenu: source=event-menu');
+    eq(em.items.length, 3, 'event-menu: kun de 3 kuraterede varer (ikke hele Grocy)');
+    eq(em.items[0].id, 'r91', 'event-menu: grocy-vare → r91');
+    eq(em.items[0].price, 14300, 'event-menu: pris i øre (143 kr incl moms)');
+    eq(em.items[1].price, 9900, 'event-menu: custom event-pris (99 kr, ≠ festival)');
+    ok(/^emi\d+$/.test(em.items[2].id), 'event-menu: fri-tekst vare → emi<id>');
+    ok(buildEventMenu(db, 999999) === null, 'event uden menu → null (fallback til Grocy)');
 
     console.log(`\nFase 3 (event-bro prep): ${pass} PASS · ${fail} FAIL`);
     process.exit(fail ? 1 : 0);

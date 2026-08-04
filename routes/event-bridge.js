@@ -110,11 +110,46 @@ async function buildBridgeMenu(menuId = 'standard', deps = grocyAdapter) {
     };
 }
 
+// Event-specifik menu: den KURATEREDE prisliste fra event_menu_items (office's
+// "Menu & priser"-panel på eventet — udvalgte retter, event-priser, rækkefølge).
+// Returnerer null hvis eventet ingen menu har → kalderen falder tilbage til hele
+// Grocy-menuen. unit_price er INCL moms (§6b) → øre uden moms-omregning.
+function buildEventMenu(db, eventId, menuId = 'standard') {
+    const rows = db.prepare(`
+        SELECT id, grocy_recipe_id, product_name, category, unit_price, sort_order
+        FROM event_menu_items WHERE event_id = ? ORDER BY sort_order, id
+    `).all(eventId);
+    if (!rows.length) return null;
+
+    const categoriesMap = new Map();
+    const items = rows.map(r => {
+        const catName = r.category || 'Menu';
+        if (!categoriesMap.has(catName)) categoriesMap.set(catName, buildCategoryId(catName));
+        return {
+            id: r.grocy_recipe_id ? ('r' + r.grocy_recipe_id) : ('emi' + r.id),
+            name: r.product_name,
+            category: categoriesMap.get(catName),
+            price: Math.round((Number(r.unit_price) || 0) * 100),  // øre, incl moms
+            tags: [],
+            allergens: '',
+            active: true
+        };
+    });
+    const categories = Array.from(categoriesMap.entries()).map(([name, id]) => ({ id, name }));
+    return { menu_id: menuId, name: 'Event-menu', version: todayISO(), source: 'event-menu', categories, items };
+}
+
 // ─── GET /webhook/event-menu ───────────────────────────────────────────────
 router.get('/event-menu', async (req, res) => {
     if (!checkBridgeSecret(req, res)) return;
     try {
         const menuId = req.query.menu || 'standard';
+        const eventId = req.query.event ? Number(req.query.event) : null;
+        // Eventets kuraterede menu vinder; ellers hele Grocy-menuen (fallback).
+        if (eventId) {
+            const em = buildEventMenu(getDb(), eventId, menuId);
+            if (em) return res.json(em);
+        }
         const menu = await buildBridgeMenu(menuId);
         res.json(menu);
     } catch (err) {
@@ -292,6 +327,7 @@ router.post('/event-prep', async (req, res) => {
 
 module.exports = router;
 module.exports.buildBridgeMenu = buildBridgeMenu;
+module.exports.buildEventMenu = buildEventMenu;
 module.exports.buildCategoryId = buildCategoryId;
 module.exports.checkBridgeSecret = checkBridgeSecret;
 module.exports.resolvePrepLines = resolvePrepLines;
