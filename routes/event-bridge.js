@@ -325,6 +325,31 @@ router.post('/event-prep', async (req, res) => {
     }
 });
 
+// ─── POST /webhook/event-refresh-menu ──────────────────────────────────────
+// Office trykker "Opdater menu i event-ordre" → vi beder event-order-3 hente
+// menuen NU (ellers venter den på sin 10-min-cache). Kræver login (kaldes fra
+// office-UI, ikke fra event-appen) — derfor auth via session, ikke bro-secret.
+router.post('/event-refresh-menu', async (req, res) => {
+    if (!req.session?.userId) return res.status(401).json({ error: 'Unauthorized' });
+    try {
+        const db = getDb();
+        const base = (db.prepare(`SELECT value FROM settings WHERE key = 'event_order_base_url'`).get()?.value || '').trim();
+        if (!/^https?:\/\//i.test(base)) return res.status(400).json({ error: 'event_order_base_url ikke sat' });
+        const secret = db.prepare(`SELECT value FROM settings WHERE key = 'event_bridge_secret'`).get()?.value || '';
+
+        const r = await fetch(base.replace(/\/+$/, '') + '/api/bonv2/refresh-menu', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json', ...(secret ? { 'x-webhook-secret': secret } : {}) },
+            signal: AbortSignal.timeout(10000)
+        });
+        if (!r.ok) return res.status(502).json({ error: 'event-ordre svarede ' + r.status });
+        res.json({ ok: true });
+    } catch (err) {
+        console.error('[event-bridge] refresh-menu fejl:', err.message);
+        res.status(502).json({ error: 'kunne ikke nå event-ordre' });
+    }
+});
+
 module.exports = router;
 module.exports.buildBridgeMenu = buildBridgeMenu;
 module.exports.buildEventMenu = buildEventMenu;

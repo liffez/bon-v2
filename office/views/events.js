@@ -417,6 +417,8 @@ function _evMenuPanel() {
                     title="Ret fundet på pladsen — uden opskrift, så ingen kostpris/CO₂/lagereffekt">+ Tilføj linje</button>
                 <button class="ev-btn ev-btn-small" data-act="menu-print"
                     title="Åbner en ren udskriftsvisning — skiltet til vognen">🖨 Print menu</button>
+                <button class="ev-btn ev-btn-small" data-act="menu-push"
+                    title="Beder event-ordre-siden hente menuen NU (ellers opdaterer den selv hvert 10. minut)">🔄 Opdater i event-ordre</button>
             </div>
         </div>
         <span class="ev-menu-status" id="ev-menu-status"></span>
@@ -687,6 +689,19 @@ function _evBindMenuHandlers(ev) {
         if (e.target.matches('.ev-menu-input-price, .ev-menu-input-note, .ev-menu-input-name')) _evScheduleMenuSave(ev);
     });
     panel.querySelector('[data-act="menu-print"]')?.addEventListener('click', () => _evPrintMenu(ev));
+    panel.querySelector('[data-act="menu-push"]')?.addEventListener('click', async (e) => {
+        const btn = e.currentTarget;
+        const orig = btn.textContent;
+        btn.disabled = true; btn.textContent = '⏳ Opdaterer…';
+        try {
+            const r = await fetch('/webhook/event-refresh-menu', { method: 'POST', credentials: 'same-origin' });
+            const d = await r.json().catch(() => ({}));
+            btn.textContent = r.ok ? '✓ Opdateret' : ('⚠ ' + (d.error || 'fejlede'));
+        } catch (err) {
+            btn.textContent = '⚠ Kunne ikke nå event-ordre';
+        }
+        setTimeout(() => { btn.disabled = false; btn.textContent = orig; }, 2500);
+    });
 
     panel.addEventListener('click', e => {
         const flyt = e.target.closest('[data-act="menu-up"], [data-act="menu-down"]');
