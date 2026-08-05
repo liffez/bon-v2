@@ -1203,44 +1203,43 @@ function escapeHtml(s) {
 }
 
 // ════════════════════════════════════════════════════════
-// SMART APPEND — kun struct-header ved fritekst
+// SMART APPEND — menu-valg samles altid i én blok; struct-headeren vises kun
+// når der også er fri tekst at adskille retterne fra
 // ════════════════════════════════════════════════════════
 const STRUCT_HEADER = '--- Valgte Menu ---';
-const RET_LINE = /^\s*\d+\s*[×x]\s+\S/;
 
 // Struktureret state for menu_items[] payload — id-baseret
 const selectedItems = new Map(); // id → count
 
 function addItem(item) {
   const ta = document.getElementById('wishes');
-  let text = ta.value;
   const name = item.name;
-  const escaped = name.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
-  // Anker til linjeslut: navnet skal fylde hele resten af linjen, ellers matcher
-  // et kort navn ("Falaflen") fejlagtigt en længere ret ("Falaflen – slider").
-  const re = new RegExp(`(^|\\n)(\\d+)\\s*[×x]\\s*${escaped}(?=\\s*(?:\\n|$))`, 'i');
-  const match = text.match(re);
 
-  if (match) {
-    const newCount = parseInt(match[2], 10) + 1;
-    text = text.replace(re, `${match[1]}${newCount}× ${name}`);
-  } else {
-    const lines = text.split('\n');
-    const hasFreeText = lines.some(l => {
-      const t = l.trim();
-      if (!t) return false;
-      if (t === STRUCT_HEADER) return false;
-      return !RET_LINE.test(t);
-    });
-    const hasStructHeader = text.includes(STRUCT_HEADER);
-    const isEmpty = text.trim() === '';
-
-    if (isEmpty)              text = `1× ${name}`;
-    else if (hasStructHeader) text = text.trimEnd() + `\n1× ${name}`;
-    else if (hasFreeText)     text = text.trimEnd() + `\n\n${STRUCT_HEADER}\n1× ${name}`;
-    else                      text = text.trimEnd() + `\n1× ${name}`;
+  // Partitionér eksisterende tekst i fri tekst vs. ret-linjer. Headeren droppes
+  // og genindsættes, så retter aldrig ender spredt over/under en note — de samles
+  // altid i én blok.
+  const freeLines = [];
+  const dishes = [];   // [{ count, name }] i oprindelig rækkefølge
+  for (const line of ta.value.split('\n')) {
+    const t = line.trim();
+    if (t === STRUCT_HEADER) continue;
+    const m = t.match(/^(\d+)\s*[×x]\s*(.+?)\s*$/);
+    if (m) dishes.push({ count: parseInt(m[1], 10), name: m[2] });
+    else   freeLines.push(line);
   }
-  ta.value = text;
+
+  // Tilføj eller optæl den valgte ret (navnematch, case-insensitivt)
+  const existing = dishes.find(d => d.name.toLowerCase() === name.toLowerCase());
+  if (existing) existing.count += 1;
+  else          dishes.push({ count: 1, name });
+
+  // Fjern ledende/afsluttende tomme fri-tekst-linjer, så afstanden bliver ren
+  while (freeLines.length && !freeLines[0].trim())                    freeLines.shift();
+  while (freeLines.length && !freeLines[freeLines.length - 1].trim()) freeLines.pop();
+
+  const dishBlock = dishes.map(d => `${d.count}× ${d.name}`).join('\n');
+  const freeText  = freeLines.join('\n');
+  ta.value = freeText ? `${freeText}\n\n${STRUCT_HEADER}\n${dishBlock}` : dishBlock;
 
   // Struktureret state
   if (item.id) selectedItems.set(item.id, (selectedItems.get(item.id) || 0) + 1);
