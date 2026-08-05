@@ -1142,7 +1142,9 @@ function _evRoleSection(role, bons) {
     }
     const rows = bons.map(b => `
         <tr data-bon-id="${b.id}">
-            <td class="ev-bon-num">${_evEsc(b.bon_number)}</td>
+            <td class="ev-bon-num">${_evEsc(b.bon_number)}${b.is_bridge
+                ? ` <span class="ev-bon-bridge" title="Lavet automatisk af forudbestillingerne fra event-ordre. En prep-bon herfra er ALLEREDE SOLGT og indgår typisk i forecast-prep-bonnen — ikke ekstra produktion.">🔗 forudbestilt</span>`
+                : ''}</td>
             <td><span class="ev-bon-status" style="background:${b.status_color || '#999'}">${_evEsc(b.status_label)}</span></td>
             <td>${_evFmtDate(b.delivery_date)}</td>
             <td class="ev-num">${b.total_units || 0}</td>

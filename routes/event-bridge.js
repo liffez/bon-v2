@@ -238,7 +238,7 @@ const BRIDGE_ROLES = {
     // indtil nogen manuelt fører dem videre (FAKTURERET/AFSLUTTET).
     prep:  { eventRole: 'prep',    pc: 'produktion', status: 'GODKENDT', sign:  1, internal: 0,
              reconcile: ['NY', 'GODKENDT'], stockGuard: true,
-             kitchenInfo: 'Forudbestilt via event-ordre — opdateres automatisk' },
+             kitchenInfo: 'FORUDBESTILT af kunder — allerede solgt. Er der også en prep-bon med dagens forecast, indgår disse i den (lav dem ikke oveni). Opdateres automatisk ved hver ny ordre.' },
     sales: { eventRole: 'sales',   pc: 'festival',   status: 'BETALT',   sign:  1, internal: 0,
              reconcile: ['NY', 'GODKENDT', 'BETALT'], stockGuard: false,
              kitchenInfo: null },

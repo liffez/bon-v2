@@ -53,7 +53,11 @@ function getEventBons(eventId) {
                sd.label AS status_label,
                sd.color AS status_color,
                pc.code  AS price_category_code,
-               pc.label AS price_category_label
+               pc.label AS price_category_label,
+               -- Lavet af event-broen (forudbestillinger) frem for i hånden.
+               -- Skal kunne ses: en prep-bon fra broen er ALLEREDE SOLGT og
+               -- indgår typisk i forecast-prep-bonnen — ikke ekstra produktion.
+               (SELECT 1 FROM event_bridge_bons ebb WHERE ebb.bon_id = b.id) AS is_bridge
         FROM bons b
         JOIN status_definitions sd ON b.status_id = sd.id
         LEFT JOIN price_categories pc ON b.price_category_id = pc.id
