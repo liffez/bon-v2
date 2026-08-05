@@ -1216,7 +1216,9 @@ function addItem(item) {
   let text = ta.value;
   const name = item.name;
   const escaped = name.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
-  const re = new RegExp(`(^|\\n)(\\d+)\\s*[×x]\\s*${escaped}(?=\\s|$|\\n)`, 'i');
+  // Anker til linjeslut: navnet skal fylde hele resten af linjen, ellers matcher
+  // et kort navn ("Falaflen") fejlagtigt en længere ret ("Falaflen – slider").
+  const re = new RegExp(`(^|\\n)(\\d+)\\s*[×x]\\s*${escaped}(?=\\s*(?:\\n|$))`, 'i');
   const match = text.match(re);
 
   if (match) {
@@ -1251,7 +1253,8 @@ function addItem(item) {
 function getCurrentCount(name) {
   const text = document.getElementById('wishes').value;
   const escaped = name.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
-  const re = new RegExp(`(^|\\n)(\\d+)\\s*[×x]\\s*${escaped}(?=\\s|$|\\n)`, 'i');
+  // Samme linjeslut-anker som addItem — se kommentar dér.
+  const re = new RegExp(`(^|\\n)(\\d+)\\s*[×x]\\s*${escaped}(?=\\s*(?:\\n|$))`, 'i');
   const m = text.match(re);
   return m ? parseInt(m[2], 10) : 0;
 }
