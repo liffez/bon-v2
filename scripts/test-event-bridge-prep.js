@@ -67,10 +67,26 @@ async function main() {
     eq(Number(l91.cost_price), 23.5, 'resolvePrepLines: kostpris snapshottet');
     ok(l91.unit_price === null || Number(l91.unit_price) === 0, 'resolvePrepLines: produktion-pris 0/null');
 
+    // ── Broen må ALDRIG røre en prep-bon office selv har lavet (migration 136) ──
+    // Regressionen fra drift: en forecast-bon på 133+133+133 blev reduceret til
+    // "1 × Tunen" af én forudbestilling.
+    const officeStatus = db.prepare(`SELECT id FROM status_definitions WHERE code='GODKENDT'`).get().id;
+    const officePc = db.prepare(`SELECT id, code FROM price_categories WHERE code='produktion'`).get();
+    const officeBonId = Number(db.prepare(`
+        INSERT INTO bons (bon_number, status_id, location_id, price_category_id, price_category,
+                          event_id, event_role, order_date, delivery_date, total_price, inventory_deducted)
+        VALUES ('T-OFFICE', ?, ?, ?, 'produktion', ?, 'prep', '2026-07-01', ?, 0, 0)
+    `).run(officeStatus, locId, officePc.id, eventId, DAY1).lastInsertRowid);
+    db.prepare(`INSERT INTO bon_lines (bon_id, grocy_recipe_id, product_name, category, quantity, unit, unit_price, line_total, sort_order)
+                VALUES (?, 91, 'Forecast-vare', '01 Sandwich', 133, 'stk', 0, 0, 0)`).run(officeBonId);
+
     // ── applyPrepPush: OPRET (dag 1) ────────────────────────────────────────
     const c1 = applyPrepPush(db, { event, date: DAY1, resolved: r1 });
     eq(c1.action, 'created', 'push dag1 → created');
     ok(c1.bonId > 0 && typeof c1.bonNumber === 'string', 'push dag1 → bonId + bonNumber');
+    ok(c1.bonId !== officeBonId, 'broen opretter SIN EGEN bon (ikke office\'s forecast-bon)');
+    eq(Number(db.prepare(`SELECT quantity FROM bon_lines WHERE bon_id=?`).get(officeBonId).quantity), 133,
+       'office\'s forecast-bon er URØRT (133 bevaret)');
 
     const bon1 = db.prepare(`SELECT b.*, sd.code AS status_code, pc.code AS pc_code FROM bons b JOIN status_definitions sd ON b.status_id=sd.id JOIN price_categories pc ON b.price_category_id=pc.id WHERE b.id=?`).get(c1.bonId);
     eq(bon1.event_id, eventId, 'bon dag1: event_id');
@@ -89,14 +105,14 @@ async function main() {
     eq(db.prepare(`SELECT COUNT(*) n FROM bon_lines WHERE bon_id=?`).get(c1.bonId).n, 1, 'reconcile: gamle linjer slettet, 1 tilbage');
     eq(Number(db.prepare(`SELECT quantity FROM bon_lines WHERE bon_id=?`).get(c1.bonId).quantity), 20, 'reconcile: ny mængde 20');
     eq(Number(db.prepare(`SELECT total_units FROM bons WHERE id=?`).get(c1.bonId).total_units), 20, 'reconcile: total_units genberegnet');
-    eq(db.prepare(`SELECT COUNT(*) n FROM bons WHERE event_id=? AND event_role='prep'`).get(eventId).n, 1, 'stadig kun 1 prep-bon efter reconcile');
+    eq(db.prepare(`SELECT COUNT(*) n FROM event_bridge_bons WHERE event_id=?`).get(eventId).n, 1, 'stadig kun 1 bro-bon efter reconcile');
 
     // ── applyPrepPush: DAG 2 → ny prep-bon under samme event ────────────────
     const { lines: r2 } = await resolvePrepLines([{ grocy_recipe_id: 92, antal: 8 }], mockGrocy);
     const c3 = applyPrepPush(db, { event, date: DAY2, resolved: r2 });
     eq(c3.action, 'created', 'push dag2 → created');
     ok(c3.bonId !== c1.bonId, 'push dag2 → ny bon (≠ dag1)');
-    eq(db.prepare(`SELECT COUNT(*) n FROM bons WHERE event_id=? AND event_role='prep'`).get(eventId).n, 2, '2 prep-bons (én pr. dag) under samme event');
+    eq(db.prepare(`SELECT COUNT(*) n FROM event_bridge_bons WHERE event_id=?`).get(eventId).n, 2, '2 bro-bons (én pr. dag) under samme event');
 
     // ── FRYS: status IGANG → mutér ikke ─────────────────────────────────────
     db.prepare(`UPDATE bons SET status_id=(SELECT id FROM status_definitions WHERE code='IGANG') WHERE id=?`).run(c1.bonId);

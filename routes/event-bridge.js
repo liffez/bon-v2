@@ -234,15 +234,16 @@ function getBridgeEvent(db, id) {
     ).get(id);
 }
 
+// Broens EGEN bon for (event, dag) — aldrig en office har lavet (migration 136).
+// En aflyst bon tæller ikke: så laver vi en frisk i stedet.
 function findPrepBon(db, eventId, date) {
     return db.prepare(`
         SELECT b.id, b.bon_number, b.inventory_deducted, sd.code AS status_code
-        FROM bons b
+        FROM event_bridge_bons ebb
+        JOIN bons b ON b.id = ebb.bon_id
         JOIN status_definitions sd ON b.status_id = sd.id
-        WHERE b.event_id = ? AND b.delivery_date = ? AND b.event_role = 'prep'
+        WHERE ebb.event_id = ? AND ebb.delivery_date = ?
           AND b.status_id != (SELECT id FROM status_definitions WHERE code = 'AFLYST')
-        ORDER BY b.created_at
-        LIMIT 1
     `).get(eventId, date);
 }
 
@@ -325,10 +326,18 @@ function applyPrepPush(db, { event, date, resolved, userId = null }) {
             bonNumber, statusId, event.location_id, pc.id, pc.code, event.id, 'prep',
             todayISO(), date, null, null,
             'event', event.event_address_id ?? null, 0, 0, 'cash',
-            null, null, null,
+            'Forudbestilt via event-ordre — opdateres automatisk', null,
+            'Oprettet af event-broen. Linjerne er summen af kundernes forudbestillinger for dagen og overskrives ved hver ny ordre.',
             userId, 0
         );
         const id = r.lastInsertRowid;
+        // Registrér ejerskab (migration 136), så broen aldrig rører andres bons.
+        db.prepare(`
+            INSERT INTO event_bridge_bons (event_id, delivery_date, bon_id)
+            VALUES (?, ?, ?)
+            ON CONFLICT(event_id, delivery_date)
+            DO UPDATE SET bon_id = excluded.bon_id, updated_at = CURRENT_TIMESTAMP
+        `).run(event.id, date, id);
         insertPrepLines(db, id, resolved);
         return id;
     });

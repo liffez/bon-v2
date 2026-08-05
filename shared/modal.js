@@ -664,7 +664,7 @@ function _buildInfoLine(line, _esc) {
     const accessoryCls = line.is_accessory ? ' accessory' : '';
 
     return `<div class="info-line${accessoryCls}">
-        <span class="info-line-qty">${line.quantity}</span>
+        <span class="info-line-qty">${line.quantity} ×</span>
         <span class="info-line-name">${_esc(line.product_name)}${special}</span>
         ${priceStr}
     </div>`;
