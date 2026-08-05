@@ -13,16 +13,17 @@ router.get('/', handle((req, res) => {
     const q = req.query.q || '';
     if (q.length < 2) return res.json([]);
     const rows = db.prepare(`
-        SELECT id, name, cvr, ean, phone, email,
-               default_payment_type, default_price_category_id,
-               discount_percent, invoice_method
-        FROM companies
-        WHERE is_active = 1
-          AND (name LIKE '%'||?||'%'
-            OR cvr LIKE '%'||?||'%'
-            OR COALESCE(legal_name,'') LIKE '%'||?||'%'
-            OR COALESCE(alternate_names,'') LIKE '%'||?||'%')
-        ORDER BY name LIMIT 20
+        SELECT c.id, c.name, c.cvr, c.ean, c.phone, c.email,
+               c.default_payment_type, c.default_price_category_id,
+               c.discount_percent, c.invoice_method, a.city
+        FROM companies c
+        LEFT JOIN addresses a ON c.address_id = a.id
+        WHERE c.is_active = 1
+          AND (c.name LIKE '%'||?||'%'
+            OR c.cvr LIKE '%'||?||'%'
+            OR COALESCE(c.legal_name,'') LIKE '%'||?||'%'
+            OR COALESCE(c.alternate_names,'') LIKE '%'||?||'%')
+        ORDER BY c.name LIMIT 20
     `).all(q, q, q, q);
     res.json(rows);
 }));

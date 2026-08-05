@@ -180,6 +180,10 @@
 .cf-cvr {
     font-feature-settings: "tnum";
 }
+.cf-id {
+    font-feature-settings: "tnum";
+    color: var(--color-text-dim, #7c8089);
+}
 .cf-cvr-empty {
     font-style: italic;
     color: #b89d6a;

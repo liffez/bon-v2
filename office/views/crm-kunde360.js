@@ -185,6 +185,17 @@ function _k3RenderSearch() {
             }
             .k3-cvr-selected-name { font-weight: 600; }
             .k3-cvr-selected-clear { cursor: pointer; font-size: 16px; color: var(--color-text-dim); }
+            .k3-locked-firma {
+                padding: 10px 12px; border-radius: 8px; background: var(--brand-primary-light);
+                display: flex; justify-content: space-between; align-items: center;
+                gap: 12px; margin-top: 8px; font-size: 13px; flex-wrap: wrap;
+            }
+            .k3-locked-firma .k3-muted { color: var(--color-text-dim); font-feature-settings: "tnum"; }
+            .k3-locked-firma-change {
+                background: none; border: 1px solid var(--color-border, #d7d1ca);
+                border-radius: 6px; padding: 5px 10px; font-size: 12px; cursor: pointer;
+                color: var(--brand-primary, #8e631f); white-space: nowrap;
+            }
 
             /* DAWA */
             .k3-dawa-wrap { position: relative; }
@@ -294,11 +305,18 @@ function _k3RenderSearch() {
 // ─── Create customer form ───────────────────────────────────
 
 let _k3CvrData = null; // selected company from CVR
+let _k3LockedCompany = null; // eksisterende firma at knytte personen til (fra firma-filter)
 
 function _k3RenderCreateForm() {
     const area = document.getElementById('k3CreateArea');
     if (!area) return;
     _k3CvrData = null;
+
+    // Er vi filtreret på et firma? Så knyttes den nye person til DET firma
+    // (genbrug id — opret ALDRIG en dublet). Filteret er én sandhed for konteksten.
+    _k3LockedCompany = (_k3CompanyFilter && _k3CompanyFilter.id)
+        ? { id: _k3CompanyFilter.id, name: _k3CompanyFilter.name || null }
+        : null;
 
     area.innerHTML = `
         <div class="k3-create">
@@ -309,6 +327,13 @@ function _k3RenderCreateForm() {
             </label>
 
             <div id="k3FirmaSection">
+                ${_k3LockedCompany ? `
+                <div class="k3-create-section">Firma</div>
+                <div class="k3-locked-firma" id="k3LockedFirma">
+                    <span>Tilføjes til firma: <strong id="k3LockedFirmaName">${escapeHtml(_k3LockedCompany.name || 'Firma #' + _k3LockedCompany.id)}</strong> <span class="k3-muted">#${_k3LockedCompany.id}</span></span>
+                    <button type="button" class="k3-locked-firma-change" id="k3UnlockFirma">Skift firma</button>
+                </div>` : ''}
+                <div id="k3FirmaFields" ${_k3LockedCompany ? 'style="display:none;"' : ''}>
                 <div class="k3-create-section">Firma</div>
                 <div class="k3-cvr-row">
                     <div class="k3-form-group">
@@ -340,6 +365,7 @@ function _k3RenderCreateForm() {
                         <label class="k3-form-label">EAN</label>
                         <input type="text" class="k3-form-input" id="k3FirmaEan" placeholder="13 cifre (valgfrit)">
                     </div>
+                </div>
                 </div>
             </div>
 
@@ -381,6 +407,27 @@ function _k3RenderCreateForm() {
     document.getElementById('k3Privat').addEventListener('change', (e) => {
         document.getElementById('k3FirmaSection').style.display = e.target.checked ? 'none' : '';
     });
+
+    // Låst firma (fra filter): "Skift firma" låser op → normal firma-søgning
+    if (_k3LockedCompany) {
+        document.getElementById('k3UnlockFirma')?.addEventListener('click', () => {
+            _k3LockedCompany = null;
+            const badge = document.getElementById('k3LockedFirma');
+            if (badge) badge.style.display = 'none';
+            const fields = document.getElementById('k3FirmaFields');
+            if (fields) fields.style.display = '';
+        });
+        // Hent firmanavn hvis det ikke kom med i filteret
+        if (!_k3CompanyFilter.name) {
+            apiFetch('/companies/' + _k3LockedCompany.id).then(co => {
+                if (co && co.name && _k3LockedCompany && _k3LockedCompany.id === co.id) {
+                    _k3LockedCompany.name = co.name;
+                    const nm = document.getElementById('k3LockedFirmaName');
+                    if (nm) nm.textContent = co.name;
+                }
+            }).catch(() => {});
+        }
+    }
 
     // CVR search
     _k3BindCvrSearch();
@@ -588,21 +635,26 @@ async function _k3SaveNewCustomer() {
     try {
         let companyId = null;
 
-        // Create company if not privat
         if (!isPrivat) {
-            const firmaName = document.getElementById('k3FirmaNavn').value.trim();
-            if (firmaName) {
-                const companyResult = await apiFetch('/companies', {
-                    method: 'POST',
-                    body: JSON.stringify({
-                        name: firmaName,
-                        cvr: document.getElementById('k3FirmaCvr').value.trim() || null,
-                        ean: document.getElementById('k3FirmaEan').value.trim() || null,
-                        email: document.getElementById('k3FirmaEmail').value.trim() || null,
-                        phone: document.getElementById('k3FirmaTlf').value.trim() || null,
-                    }),
-                });
-                companyId = companyResult.id;
+            if (_k3LockedCompany && _k3LockedCompany.id) {
+                // Filtreret på et eksisterende firma → genbrug id (opret ingen dublet)
+                companyId = _k3LockedCompany.id;
+            } else {
+                // Opret nyt firma fra felterne
+                const firmaName = document.getElementById('k3FirmaNavn').value.trim();
+                if (firmaName) {
+                    const companyResult = await apiFetch('/companies', {
+                        method: 'POST',
+                        body: JSON.stringify({
+                            name: firmaName,
+                            cvr: document.getElementById('k3FirmaCvr').value.trim() || null,
+                            ean: document.getElementById('k3FirmaEan').value.trim() || null,
+                            email: document.getElementById('k3FirmaEmail').value.trim() || null,
+                            phone: document.getElementById('k3FirmaTlf').value.trim() || null,
+                        }),
+                    });
+                    companyId = companyResult.id;
+                }
             }
         }
 

@@ -84,6 +84,81 @@
     font-style: italic;
     color: #b89d6a;
 }
+.f3-id-pill {
+    cursor: default;
+}
+
+/* ─── Kontakter: tilføj kontaktperson ─── */
+.f3-kontakter-bar {
+    display: flex;
+    justify-content: flex-end;
+    margin-bottom: 12px;
+}
+.f3-add-kontakt-btn {
+    background: var(--brand-primary, #8e631f);
+    color: #fff;
+    border: none;
+    border-radius: 6px;
+    padding: 8px 14px;
+    font-size: 13px;
+    font-weight: 600;
+    cursor: pointer;
+}
+.f3-add-kontakt-btn:hover { filter: brightness(1.08); }
+.f3-add-kontakt-btn:disabled { opacity: .5; cursor: not-allowed; }
+.f3-kontakt-form {
+    background: var(--color-background, #f5f4f2);
+    border: 1px solid var(--color-border, #d7d1ca);
+    border-radius: 8px;
+    padding: 14px;
+    margin-bottom: 16px;
+}
+.f3-kf-row {
+    display: flex;
+    gap: 10px;
+    margin-bottom: 10px;
+}
+.f3-kf-row input {
+    flex: 1;
+    padding: 8px 10px;
+    border: 1px solid var(--color-border, #d7d1ca);
+    border-radius: 6px;
+    font-size: 14px;
+    min-width: 0;
+}
+.f3-kf-actions {
+    display: flex;
+    gap: 10px;
+    align-items: center;
+}
+.f3-kf-save {
+    background: var(--brand-primary, #8e631f);
+    color: #fff;
+    border: none;
+    border-radius: 6px;
+    padding: 8px 14px;
+    font-size: 13px;
+    font-weight: 600;
+    cursor: pointer;
+}
+.f3-kf-save:hover { filter: brightness(1.08); }
+.f3-kf-save:disabled { opacity: .5; cursor: not-allowed; }
+.f3-kf-cancel {
+    background: none;
+    border: 1px solid var(--color-border, #d7d1ca);
+    border-radius: 6px;
+    padding: 8px 14px;
+    font-size: 13px;
+    cursor: pointer;
+    color: var(--color-text, #333);
+}
+.f3-kf-msg {
+    font-size: 12px;
+    color: var(--color-text-dim, #7c8089);
+}
+.f3-kf-msg-err {
+    color: #b34234;
+}
 
 .f3-h-stats {
     display: flex;

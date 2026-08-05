@@ -33,6 +33,7 @@ function _cvInjectStyles() {
     .merge-result-row { padding:8px 12px; cursor:pointer; border-bottom:1px solid var(--color-border); font-size:13px; }
     .merge-result-row:last-child { border-bottom:none; }
     .merge-result-row:hover { background:#fbfaf6; }
+    .merge-result-id { font-size:11px; color:var(--color-text-dim); font-feature-settings:"tnum"; }
     .merge-result-meta { font-size:11px; color:var(--color-text-dim); margin-top:2px; }
     .merge-pick { padding:10px 12px; background:#e3f0e6; border:1px solid #cfe2d4; border-radius:6px; margin-top:4px; display:flex; justify-content:space-between; align-items:center; }
     .merge-pick-info { font-size:13px; color:#2f6e3f; }
@@ -143,10 +144,11 @@ async function _mergeSearch(role, q) {
         } else {
             resultsEl.innerHTML = rows.map(r => `
                 <div class="merge-result-row" data-id="${r.id}" data-name="${escapeHtml(r.name)}">
-                    <strong>${escapeHtml(r.name)}</strong>
+                    <strong>${escapeHtml(r.name)}</strong> <span class="merge-result-id">#${r.id}</span>
                     <div class="merge-result-meta">
                         ${r.cvr ? 'CVR ' + r.cvr : '<em>uden CVR</em>'}
                         ${r.ean ? ' · EAN ' + r.ean : ''}
+                        ${r.city ? ' · ' + escapeHtml(r.city) : ''}
                     </div>
                 </div>
             `).join('');

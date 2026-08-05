@@ -133,6 +133,8 @@ function cfRender(rows) {
                     </div>
                     ${legalNote}
                     <div class="cf-meta">
+                        <span class="cf-id" title="Firma-id (brug til sammenlægning)">#${co.id}</span>
+                        <span class="cf-sep">·</span>
                         ${cvrCell}
                         <span class="cf-sep">·</span>
                         <span>${co.contact_count} kontakt${co.contact_count === 1 ? '' : 'er'}</span>
