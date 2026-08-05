@@ -23,13 +23,6 @@ const { broadcast } = require('../shared/sse');
 const { resolveMenuItemLines } = require('../services/menuItemsToLines');
 const grocyAdapter = require('../services/grocyAdapter');
 
-// Statusser hvor prep-bonnen stadig må reconciles (opdateres fra broen).
-// Så snart køkkenet starter (IGANG) eller lageret er trukket, fryser bonnen —
-// ellers ville en genindsættelse desynke HQ-lageret. Dette (ikke deadline) er
-// det der gør "bestillinger på dag 1 til dag 2" sikkert: hver dags prep-bon
-// fryser uafhængigt når netop DEN dags produktion går i gang.
-const RECONCILE_STATUSES = ['NY', 'GODKENDT'];
-
 // ─── Secret (optionel — som web-orders) ────────────────────────────────────
 // Returnerer true hvis kaldet må fortsætte; sender selv 401 og returnerer false ellers.
 function checkBridgeSecret(req, res) {
@@ -234,35 +227,69 @@ function getBridgeEvent(db, id) {
     ).get(id);
 }
 
-// Broens EGEN bon for (event, dag) — aldrig en office har lavet (migration 136).
+// De tre bons broen laver pr. event-dag (migration 137). Samme format som
+// event-modulets egne roller (§3), så P&L'en regner rigtigt:
+//   prep  → vareforbrug + lagertræk      sales → omsætning      fee → udgift
+const BRIDGE_ROLES = {
+    // reconcile: statusser hvor broen stadig må opdatere bonnen.
+    // Prep fryser når køkkenet går i gang (så en ny ordre ikke ændrer det de
+    // allerede laver). Salg/gebyr lever derimod i BETALT hele dagen — det er
+    // deres normale tilstand — og skal blive ved med at samle dagens ordrer,
+    // indtil nogen manuelt fører dem videre (FAKTURERET/AFSLUTTET).
+    prep:  { eventRole: 'prep',    pc: 'produktion', status: 'GODKENDT', sign:  1, internal: 0,
+             reconcile: ['NY', 'GODKENDT'], stockGuard: true,
+             kitchenInfo: 'Forudbestilt via event-ordre — opdateres automatisk' },
+    sales: { eventRole: 'sales',   pc: 'festival',   status: 'BETALT',   sign:  1, internal: 0,
+             reconcile: ['NY', 'GODKENDT', 'BETALT'], stockGuard: false,
+             kitchenInfo: null },
+    fee:   { eventRole: 'expense', pc: 'festival',   status: 'BETALT',   sign: -1, internal: 1,
+             reconcile: ['NY', 'GODKENDT', 'BETALT'], stockGuard: false,
+             kitchenInfo: null },
+};
+
+// Broens EGEN bon for (event, dag, rolle) — aldrig en office har lavet.
 // En aflyst bon tæller ikke: så laver vi en frisk i stedet.
-function findPrepBon(db, eventId, date) {
+function findPrepBon(db, eventId, date, role = 'prep') {
     return db.prepare(`
         SELECT b.id, b.bon_number, b.inventory_deducted, sd.code AS status_code
         FROM event_bridge_bons ebb
         JOIN bons b ON b.id = ebb.bon_id
         JOIN status_definitions sd ON b.status_id = sd.id
-        WHERE ebb.event_id = ? AND ebb.delivery_date = ?
+        WHERE ebb.event_id = ? AND ebb.delivery_date = ? AND ebb.role = ?
           AND b.status_id != (SELECT id FROM status_definitions WHERE code = 'AFLYST')
-    `).get(eventId, date);
+    `).get(eventId, date, role);
+}
+
+// Salgspriser: hvad kunden FAKTISK betalte = eventets menupris (incl moms).
+// Falder tilbage til Grocys festivalpris hvis en vare ikke står i menuen.
+function eventMenuPriceMap(db, eventId) {
+    const m = new Map();
+    for (const r of db.prepare(
+        `SELECT grocy_recipe_id, unit_price FROM event_menu_items WHERE event_id = ? AND grocy_recipe_id IS NOT NULL`
+    ).all(eventId)) m.set(r.grocy_recipe_id, Number(r.unit_price) || 0);
+    return m;
 }
 
 // Indsæt prep-linjer + opdatér totaler. Bruges af både opret og reconcile.
-function insertPrepLines(db, bonId, resolved) {
+function insertPrepLines(db, bonId, resolved, sign = 1) {
     let total = 0;
     resolved.forEach((line, i) => {
         const qty       = Number(line.quantity ?? 0);
-        const unitPrice = Number(line.unit_price ?? 0);   // produktion = 0
-        const lineTotal = qty * unitPrice;
+        const unitPrice = Number(line.unit_price ?? 0);   // produktion = 0, salg = menupris
+        const lineTotal = sign * qty * unitPrice;
         total += lineTotal;
+        // Udgiftslinjer (gebyr) ligger ex moms — jf. bon_lines.moms_included
+        // (migration 104). Alt andet holder doktrin-default'en incl moms.
+        const momsIncluded = sign < 0 ? 0 : 1;
         db.prepare(`
             INSERT INTO bon_lines (
                 bon_id, grocy_recipe_id, product_name, category, quantity, unit,
                 unit_price, line_total, cost_price, co2e, moms_included, sort_order
-            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 1, ?)
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
         `).run(
             bonId, line.grocy_recipe_id ?? null, line.product_name, line.category ?? null,
-            qty, line.unit ?? 'stk', unitPrice, lineTotal, line.cost_price ?? null, line.co2e ?? null, i
+            qty, line.unit ?? 'stk', sign * unitPrice, lineTotal,
+            line.cost_price ?? null, line.co2e ?? null, momsIncluded, i
         );
     });
     db.prepare(`UPDATE bons SET total_price = ?, total_with_delivery = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?`)
@@ -273,32 +300,36 @@ function insertPrepLines(db, bonId, resolved) {
 // Kernen: find-eller-opret prep-bon for (event, dato) og reconcile linjer.
 // Ren funktion (db injiceres) så den kan testes uden HTTP/server.
 // Returnerer { action: 'created'|'updated'|'frozen', bonId, bonNumber, status? }.
-function applyPrepPush(db, { event, date, resolved, userId = null }) {
-    const existing = findPrepBon(db, event.id, date);
+function applyPrepPush(db, { event, date, resolved, userId = null, role = 'prep' }) {
+    const cfg = BRIDGE_ROLES[role];
+    if (!cfg) throw new Error(`Ukendt bro-rolle: ${role}`);
+    const existing = findPrepBon(db, event.id, date, role);
 
-    // Frys: i gang / leveret må ikke muteres (lager kan være trukket).
-    if (existing && (existing.inventory_deducted === 1 || !RECONCILE_STATUSES.includes(existing.status_code))) {
+    // Frys: bonnen er nået videre i sit forløb og må ikke muteres.
+    // Lager-vagten gælder kun prep — det er den eneste rolle der trækker.
+    if (existing && ((cfg.stockGuard && existing.inventory_deducted === 1)
+                     || !cfg.reconcile.includes(existing.status_code))) {
         return { action: 'frozen', bonId: existing.id, bonNumber: existing.bon_number, status: existing.status_code };
     }
 
     if (existing) {
         transaction(db, () => {
             db.prepare(`DELETE FROM bon_lines WHERE bon_id = ?`).run(existing.id);
-            insertPrepLines(db, existing.id, resolved);
+            insertPrepLines(db, existing.id, resolved, cfg.sign);
         });
         logChange({
             entityType: 'bon', entityId: existing.id, action: 'update', fieldName: 'event_bridge',
-            newValue: `prep opdateret fra event-bro (${resolved.length} linjer)`, userId
+            newValue: `${role} opdateret fra event-bro (${resolved.length} linjer)`, userId
         });
         broadcast('bon_updated', { id: existing.id, event_id: event.id });
         broadcast('event_updated', { id: event.id });
         return { action: 'updated', bonId: existing.id, bonNumber: existing.bon_number };
     }
 
-    // Opret ny prep-bon — spejler generatoren (role=prep, produktion, GODKENDT).
-    const pc = db.prepare(`SELECT id, code FROM price_categories WHERE code = 'produktion' AND is_active = 1`).get();
-    if (!pc) throw new Error("Priskategori 'produktion' findes ikke");
-    const statusId = getStatusId('GODKENDT');
+    // Opret ny bon — spejler event-generatoren for den valgte rolle.
+    const pc = db.prepare(`SELECT id, code FROM price_categories WHERE code = ? AND is_active = 1`).get(cfg.pc);
+    if (!pc) throw new Error(`Priskategori '${cfg.pc}' findes ikke`);
+    const statusId = getStatusId(cfg.status);
     const bonNumber = nextBonNumber();
 
     const bonId = transaction(db, () => {
@@ -323,28 +354,28 @@ function applyPrepPush(db, { event, date, resolved, userId = null }) {
                 CURRENT_TIMESTAMP, CURRENT_TIMESTAMP
             )
         `).run(
-            bonNumber, statusId, event.location_id, pc.id, pc.code, event.id, 'prep',
+            bonNumber, statusId, event.location_id, pc.id, pc.code, event.id, cfg.eventRole,
             todayISO(), date, null, null,
             'event', event.event_address_id ?? null, 0, 0, 'cash',
-            'Forudbestilt via event-ordre — opdateres automatisk', null,
-            'Oprettet af event-broen. Linjerne er summen af kundernes forudbestillinger for dagen og overskrives ved hver ny ordre.',
-            userId, 0
+            cfg.kitchenInfo, null,
+            `Oprettet af event-broen (${role}). Bygget af kundernes forudbestillinger for dagen og opdateres ved hver ny ordre.`,
+            userId, cfg.internal
         );
         const id = r.lastInsertRowid;
-        // Registrér ejerskab (migration 136), så broen aldrig rører andres bons.
+        // Registrér ejerskab (migration 137), så broen aldrig rører andres bons.
         db.prepare(`
-            INSERT INTO event_bridge_bons (event_id, delivery_date, bon_id)
-            VALUES (?, ?, ?)
-            ON CONFLICT(event_id, delivery_date)
+            INSERT INTO event_bridge_bons (event_id, delivery_date, role, bon_id)
+            VALUES (?, ?, ?, ?)
+            ON CONFLICT(event_id, delivery_date, role)
             DO UPDATE SET bon_id = excluded.bon_id, updated_at = CURRENT_TIMESTAMP
-        `).run(event.id, date, id);
-        insertPrepLines(db, id, resolved);
+        `).run(event.id, date, role, id);
+        insertPrepLines(db, id, resolved, cfg.sign);
         return id;
     });
 
     logChange({
         entityType: 'bon', entityId: bonId, action: 'create', fieldName: 'event_bridge',
-        newValue: `${bonNumber} (event-bro prep, event:${event.name}, ${date})`, userId
+        newValue: `${bonNumber} (event-bro ${role}, event:${event.name}, ${date})`, userId
     });
     broadcast('bon_created', { id: bonId, bon_number: bonNumber, event_id: event.id });
     broadcast('event_updated', { id: event.id });
@@ -372,14 +403,45 @@ router.post('/event-prep', async (req, res) => {
             return res.status(422).json({ error: 'ingen linjer kunne mappes til Grocy-opskrifter', unmatched });
         }
 
-        const result = applyPrepPush(db, { event, date, resolved, userId: null });
-        const status = result.action === 'created' ? 201 : 200;
+        // 1) PREP — hvad køkkenet skal lave (produktion, 0 kr, trækker lager)
+        const prep = applyPrepPush(db, { event, date, resolved, userId: null, role: 'prep' });
+
+        // 2) SALG — hvad kunderne betalte. Priserne kommer fra eventets menu
+        //    (incl moms), så bankudbetalingen fra Stripe kan afstemmes mod bonnen.
+        const priceMap = eventMenuPriceMap(db, event.id);
+        const salesLines = resolved.map(l => ({
+            ...l,
+            unit_price: priceMap.has(l.grocy_recipe_id)
+                ? priceMap.get(l.grocy_recipe_id)
+                : (Number(l.unit_price) || 0),   // fallback: Grocy-pris fra resolveren
+        }));
+        const salesTotal = salesLines.reduce((s, l) => s + (Number(l.quantity) || 0) * (Number(l.unit_price) || 0), 0);
+        const sales = applyPrepPush(db, { event, date, resolved: salesLines, userId: null, role: 'sales' });
+
+        // 3) GEBYR — estimat af Stripes andel. Bogføres automatisk, fordi en
+        //    udgift man skal huske at taste, systematisk bliver glemt.
+        const feePct = Number(db.prepare(`SELECT value FROM settings WHERE key='event_bridge_fee_pct'`).get()?.value ?? 0);
+        let fee = null;
+        if (feePct > 0 && salesTotal > 0) {
+            const feeAmount = Math.round(salesTotal * feePct) / 100;
+            fee = applyPrepPush(db, {
+                event, date, userId: null, role: 'fee',
+                resolved: [{
+                    product_name: `Betalingsgebyr (estimat ${feePct} %)`,
+                    category: null, quantity: 1, unit: 'stk', unit_price: feeAmount,
+                }],
+            });
+        }
+
+        const status = prep.action === 'created' ? 201 : 200;
         return res.status(status).json({
             ok: true,
-            action: result.action,
-            bon_id: result.bonId,
-            bon_number: result.bonNumber,
-            ...(result.status ? { status: result.status } : {}),
+            action: prep.action,
+            bon_id: prep.bonId,
+            bon_number: prep.bonNumber,
+            ...(prep.status ? { status: prep.status } : {}),
+            sales: { action: sales.action, bon_id: sales.bonId, bon_number: sales.bonNumber, total: salesTotal },
+            ...(fee ? { fee: { action: fee.action, bon_id: fee.bonId, bon_number: fee.bonNumber, pct: feePct } } : {}),
             lines: resolved.length,
             unmatched
         });

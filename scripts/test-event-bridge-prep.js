@@ -171,6 +171,40 @@ async function main() {
     db.prepare(`UPDATE event_menu_items SET applies_to = NULL WHERE event_id = ? AND grocy_recipe_id = 161`).run(eventId);
     eq(buildEventMenu(db, eventId).items.length, 4, 'tilvalg uden retter → vises som ret (fallback)');
 
+    // ── Tre roller: prep (0 kr) · salg (rigtige priser) · gebyr (negativ) ───
+    const { lines: rSale } = await resolvePrepLines([{ grocy_recipe_id: 91, antal: 2 }], mockGrocy);
+    const priced = rSale.map(l => ({ ...l, unit_price: 91 }));      // eventets menupris
+    const DAY3 = '2026-08-01';
+    const sPrep = applyPrepPush(db, { event, date: DAY3, resolved: rSale,  role: 'prep'  });
+    const sSale = applyPrepPush(db, { event, date: DAY3, resolved: priced, role: 'sales' });
+    const sFee  = applyPrepPush(db, { event, date: DAY3, role: 'fee',
+        resolved: [{ product_name: 'Betalingsgebyr (estimat 3 %)', quantity: 1, unit: 'stk', unit_price: 5.46 }] });
+
+    ok(sPrep.bonId !== sSale.bonId && sSale.bonId !== sFee.bonId, 'tre SEPARATE bons pr. dag');
+    const bonOf = id => db.prepare(`SELECT b.*, sd.code AS status_code, pc.code AS pc_code
+        FROM bons b JOIN status_definitions sd ON b.status_id=sd.id
+        JOIN price_categories pc ON b.price_category_id=pc.id WHERE b.id=?`).get(id);
+    const bPrep = bonOf(sPrep.bonId), bSale = bonOf(sSale.bonId), bFee = bonOf(sFee.bonId);
+
+    eq(bPrep.pc_code, 'produktion', 'prep: priskategori produktion');
+    eq(Number(bPrep.total_price), 0, 'prep: 0 kr (vareforbrug, ikke omsætning)');
+    eq(bSale.pc_code, 'festival', 'salg: festival-priskategori');
+    eq(bSale.event_role, 'sales', 'salg: event_role=sales');
+    eq(bSale.status_code, 'BETALT', 'salg: BETALT (pengene er modtaget)');
+    eq(Number(bSale.total_price), 182, 'salg: 2 × 91 kr = 182 (afstemmes mod banken)');
+    eq(bFee.event_role, 'expense', 'gebyr: event_role=expense');
+    eq(Number(bFee.is_internal), 1, 'gebyr: is_internal=1 (netter ikke mod omsætning)');
+    ok(Number(bFee.total_price) < 0, 'gebyr: negativ total');
+    eq(Number(db.prepare(`SELECT moms_included FROM bon_lines WHERE bon_id=?`).get(sFee.bonId).moms_included), 0,
+       'gebyr-linje er ex moms (migration 104)');
+    eq(db.prepare(`SELECT COUNT(*) n FROM event_bridge_bons WHERE event_id=? AND delivery_date=?`).get(eventId, DAY3).n, 3,
+       'alle tre roller registreret som bro-ejede');
+
+    // Idempotens pr. rolle: samme dag igen → samme bons
+    const again = applyPrepPush(db, { event, date: DAY3, resolved: priced, role: 'sales' });
+    eq(again.action, 'updated', 'salg: andet push → updated');
+    eq(again.bonId, sSale.bonId, 'salg: samme bon (ingen dublet)');
+
     console.log(`\nFase 3 (event-bro prep): ${pass} PASS · ${fail} FAIL`);
     process.exit(fail ? 1 : 0);
 }
