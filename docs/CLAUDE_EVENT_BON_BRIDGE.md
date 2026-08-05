@@ -1,8 +1,10 @@
 # CLAUDE_EVENT_BON_BRIDGE.md — Bro mellem event-forudbestilling og Bon v2
 
-> **Status:** BYGGET (Fase 1–4 + live smoke, 3. aug 2026). Kode + tests landet på
-> begge sider; mangler kun deploy-config (§0.3) før den er live. Afsnit §1–§8 nedenfor
-> er det oprindelige design — det holdt ved implementeringen og bevares som reference.
+> **Status:** I DRIFT (verificeret ende-til-ende med rigtige ordrer 5. aug 2026).
+> Kunde bestiller → Stripe → webhook → ordre i pickup/vendor → prep- + salgs- +
+> gebyr-bon i Bon v2. Afsnit §1–§8 er det oprindelige design; det holdt, bortset
+> fra ét punkt: broen laver nu OGSÅ salgsbon (§0.6), fordi bankafstemningen
+> kræver noget at holde Stripe-udbetalingen op imod.
 >
 > **To repos i spil:**
 > - **`event-order-3`** (separat app): forudbestilling til mad-events. Kunder bestiller
@@ -83,6 +85,59 @@ Setting `event_order_admin_url` (migration 132) → "🔗 Event-ordre-admin"-kna
 event-detaljens header (`office/views/events.js`), vises kun når URL'en er sat (kun
 `http(s)`, åbner ny fane). Sæt URL'en i **Settings → System**. Bevidst kun et **link**,
 ikke auto-provisionering — event-order-3 er enkelt-config, så "opret event-ordre" = "åbn admin'en".
+
+### 0.6 Tre bons pr. event-dag (migration 137) — ÆNDRING af §2's oprindelige snit
+Broen laver ikke kun prep-bonnen. Den oprindelige beslutning ("salget kører via
+cashflow") holdt ikke i drift: Stripe udbetaler samlet pr. dag, og uden en bon
+med rigtige priser er der intet at afstemme udbetalingen mod.
+
+| Bon | event_role | Priskategori | Pris | Status | Rolle i P&L |
+|---|---|---|---|---|---|
+| Forudbestilt (prep) | `prep` | produktion | 0 kr | GODKENDT | vareforbrug + lagertræk |
+| Forudbestilt (salg) | `sales` | festival | **menupriser** | BETALT | omsætning |
+| Betalingsgebyr | `expense` | festival | negativ | BETALT | udgift (estimat) |
+
+- **Priserne må ALDRIG lægges på prep-bonnen.** En produktion-bon er vareforbrug i
+  P&L'en; samme linje ville tælle som både omkostning og omsætning.
+- Salgspriser tages fra `event_menu_items` (incl moms) — dét kunden faktisk betalte.
+- Gebyr-satsen er settingen `event_bridge_fee_pct` (default 3, `0` = slå fra).
+  Genereres automatisk med vilje: en udgift man skal huske at taste, bliver glemt.
+- **Reconcile-vinduet er pr. rolle.** Prep fryser når køkkenet går i gang (IGANG) eller
+  lageret er trukket. Salg/gebyr fødes BETALT og skal blive ved med at samle dagens
+  ordrer — en global frys-liste ville have låst salgsbonnen ved første ordre.
+
+**Broen ejer kun sine egne bons** (`event_bridge_bons`, migration 136+137). Før det
+fandt den bare første prep-bon på dagen og overskrev office's forecast-bon: 133+133+133
+blev til "1 × Tunen" af én forudbestilling. Plan og konkret bestilt er to forskellige
+tal. Bro-bons markeres med `🔗 forudbestilt` i event-oversigten, og prep-bonnens
+kitchen_info siger eksplicit at de forudbestilte **indgår i** forecasten — ellers
+risikerer køkkenet at lave 399 + 2.
+
+### 0.7 Tilvalg på menuen (migration 135)
+En menulinje kan markeres som **tilvalg** og hænges på udvalgte retter (fx "Glutenfri
+Bolle +15 kr" kun på Tunen). Broen sender den så som variant-valg (*Almindelig /
+Glutenfri Bolle*) i stedet for som selvstændig ret, så kunden kan bestille både
+"Tunen" og "Tunen – Glutenfri Bolle".
+- `applies_to` peger på **menuKey** (`r:<id>` / `n:<navn>`), ikke rækkens id — PUT er
+  delete+insert, så id'er skifter ved hver gemning.
+- Variant-id'et er `${base}__${optId}_${choiceId}`; choiceId bærer tilvalgets Grocy-id,
+  så det tælles med på prep-bonnen. Derfor må optId ikke indeholde `_`.
+- Tilvalg uden `applies_to` vises som almindelig ret (ingen tavs forsvinden).
+
+### 0.8 Flerdags-events
+Pickup-slots har et valgfrit `date`-felt (admin → Tidsslots). Ordren følger **slottets
+dato**, ikke bestillingstidspunktet — derfor virker "bestilt dag 1 til dag 2". Datoen
+vises på slot-kort, i opsummeringen, og i pickup/vendors slot-filtre og ordrekort.
+Uden dato falder alt tilbage til event-datoen (enkelt-dags, uændret).
+
+### 0.9 Fejl fundet i drift (så de ikke opstår igen)
+| Symptom | Årsag |
+|---|---|
+| Alle checkouts fejlede med 500 | Stripe afviser **tom** `product_data.description`; Grocy-retter har ingen beskrivelse. Feltet udelades nu når det er tomt. |
+| Ordrer nåede aldrig pickup/vendor/bon | `STRIPE_WEBHOOK_SECRET` var 70 tegn — `BON_V2_SECRET` var klistret bag på linjen i `.env`. |
+| Event 3. sep usynligt i køkkenet | `/api/bons/later` havde et 28-dages vindue. Ingen øvre grænse længere. |
+| Menuændring slog ikke igennem | 10-min cache. Knappen **🔄 Opdater i event-ordre** (kræver `event_order_base_url`) tvinger refresh. |
+| Push'et "gjorde ingenting" | Det loggede kun fejl. Logger nu også succes + hvilket config-felt der mangler. |
 
 ### 0.5 Bevidst ikke bygget
 - **QR/pas/udlevering** (§5) — event-order-3's egen FEATURE-doc, uafhængigt af broen.
