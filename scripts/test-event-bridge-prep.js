@@ -171,6 +171,24 @@ async function main() {
     db.prepare(`UPDATE event_menu_items SET applies_to = NULL WHERE event_id = ? AND grocy_recipe_id = 161`).run(eventId);
     eq(buildEventMenu(db, eventId).items.length, 4, 'tilvalg uden retter → vises som ret (fallback)');
 
+    // ── Allergener/tags/beskrivelse hentes fra bestillingsmenuen (samme kilde
+    //    som bon-formularen), nøglet på recipe-id ────────────────────────────
+    db.prepare(`INSERT INTO settings (key, value) VALUES ('bestilling.menu_standard', ?)
+                ON CONFLICT(key) DO UPDATE SET value=excluded.value`).run(JSON.stringify({
+        items: [
+            { id: 'r91', name: 'Grisen', tags: ['vegan'], allergens: 'Gluten, Soja', description: 'Langtidsstegt' },
+            { id: 'r92', name: 'Salaten' },   // uden ekstra-felter
+        ]
+    }));
+    const em3 = buildEventMenu(db, eventId, 'standard');
+    const i91 = em3.items.find(i => i.id === 'r91');
+    const i92 = em3.items.find(i => i.id === 'r92');
+    eq(i91.allergens, 'Gluten, Soja', 'allergener flettet ind fra bestillingsmenuen');
+    eq(JSON.stringify(i91.tags), JSON.stringify(['vegan']), 'tags flettet ind');
+    eq(i91.description, 'Langtidsstegt', 'beskrivelse flettet ind');
+    eq(i92.allergens, '', 'ret uden data → tom (ingen fejl)');
+    eq(JSON.stringify(i92.tags), JSON.stringify([]), 'ret uden data → tomme tags');
+
     // ── Tre roller: prep (0 kr) · salg (rigtige priser) · gebyr (negativ) ───
     const { lines: rSale } = await resolvePrepLines([{ grocy_recipe_id: 91, antal: 2 }], mockGrocy);
     const priced = rSale.map(l => ({ ...l, unit_price: 91 }));      // eventets menupris

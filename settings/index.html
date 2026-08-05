@@ -4929,7 +4929,7 @@ function bmRender() {
           <th style="padding:6px 4px;width:24px"></th>
           <th style="padding:6px 4px">Navn</th>
           <th style="padding:6px 4px;width:200px">Tags</th>
-          <th style="padding:6px 4px">Allergener</th>
+          <th style="padding:6px 4px">Allergener / beskrivelse</th>
           <th style="padding:6px 4px;width:60px;text-align:center">Aktiv</th>
           <th style="padding:6px 4px;width:30px"></th>
         </tr>
@@ -4957,6 +4957,7 @@ function bmRender() {
         <td style="padding:6px 4px;line-height:1.6">${tagsHtml}</td>
         <td style="padding:6px 4px">
           <input type="text" class="st-input" value="${bmEsc(it.allergens || '')}" data-act="item-allergens" data-i="${idx}" placeholder="Gluten, æg, mælk..." style="font-size:13px;padding:4px 6px">
+          <input type="text" class="st-input" value="${bmEsc(it.description || '')}" data-act="item-desc" data-i="${idx}" placeholder="Kort salgstekst (vises på bestillingssiden)" style="font-size:12px;padding:4px 6px;margin-top:4px;color:#555">
         </td>
         <td style="padding:6px 4px;text-align:center">
           <input type="checkbox" data-act="item-active" data-i="${idx}" ${it.active !== false ? 'checked' : ''}>
@@ -5010,6 +5011,7 @@ document.getElementById('bm-editor').addEventListener('input', e => {
   else if (act === 'cat-name')  _bmMenu.categories[i].name = t.value;
   else if (act === 'item-name') _bmMenu.items[i].name = t.value;
   else if (act === 'item-allergens') _bmMenu.items[i].allergens = t.value;
+  else if (act === 'item-desc') _bmMenu.items[i].description = t.value;
   bmMarkDirty();
 });
 

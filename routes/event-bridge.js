@@ -123,6 +123,24 @@ function buildEventMenu(db, eventId, menuId = 'standard') {
     const slug = s => String(s || '').toLowerCase().replace(/[^a-z0-9]+/g, '') || 'x';
     const refOf = r => r.grocy_recipe_id ? ('r' + r.grocy_recipe_id) : ('n' + slug(r.product_name));
 
+    // Allergener/tags/beskrivelse genbruges fra bestillingsformens menu, hvor de
+    // allerede vedligeholdes pr. ret (Settings → Bestilling — Menu). Nøglen er
+    // recipe-id'et, så de to menuer altid siger det samme.
+    // MIDLERTIDIGT: når Grocy får bestil_allergens/bestil_beskrivelse på alle
+    // opskrifter, skiftes kilden her — resten af koden er upåvirket.
+    const extraByRef = new Map();
+    try {
+        const raw = db.prepare(`SELECT value FROM settings WHERE key = 'bestilling.menu_standard'`).get()?.value;
+        for (const it of (JSON.parse(raw || '{}').items || [])) {
+            if (!it?.id) continue;
+            extraByRef.set(String(it.id), {
+                allergens: String(it.allergens || '').trim(),
+                tags: Array.isArray(it.tags) ? it.tags : [],
+                description: String(it.description || '').trim(),
+            });
+        }
+    } catch { /* ingen bestillingsmenu → event-menuen kører bare uden */ }
+
     // Allergen-tag udledes af navnet (samme værdier som event-order-3's MY_TAGS).
     // Grov, men gratis: den markerer bestillingen korrekt i køkken/udlevering.
     const tagOf = name => {
@@ -172,13 +190,15 @@ function buildEventMenu(db, eventId, menuId = 'standard') {
             ]
         }));
 
+        const extra = extraByRef.get(refOf(r)) || {};
         return {
             id: refOf(r),
             name: r.product_name,
             category: categoriesMap.get(catName),
             price: Math.round((Number(r.unit_price) || 0) * 100),  // øre, incl moms
-            tags: [],
-            allergens: '',
+            tags: extra.tags || [],
+            allergens: extra.allergens || '',
+            description: extra.description || '',
             active: true,
             options: opts
         };
