@@ -75,6 +75,7 @@ function _f3RenderShell() {
                     ${legalLine}
                     <div class="f3-h-meta">
                         <span class="f3-stage f3-stage-${stage}">${stageLabel}</span>
+                        <span class="f3-meta-pill f3-id-pill" title="Firma-id (brug til sammenlægning)">#${company.id}</span>
                         ${company.cvr ? `<span class="f3-meta-pill">CVR ${company.cvr}</span>` : '<span class="f3-meta-pill empty">— uden CVR —</span>'}
                         ${company.ean ? `<span class="f3-meta-pill">EAN ${company.ean}</span>` : ''}
                     </div>
@@ -439,12 +440,9 @@ function _f3RenderRfm(rfm) {
 
 function _f3RenderKontakter(el) {
     const { customers } = _f3State.data;
-    if (!customers || customers.length === 0) {
-        el.innerHTML = '<div class="f3-empty">Ingen kontaktpersoner under dette firma.</div>';
-        return;
-    }
-    el.innerHTML = `
-        <div class="f3-cust-list">
+    const listHtml = (!customers || customers.length === 0)
+        ? '<div class="f3-empty">Ingen kontaktpersoner under dette firma endnu.</div>'
+        : `<div class="f3-cust-list">
             ${customers.map(c => `
                 <div class="f3-cust-row" data-customer-id="${c.id}">
                     <div class="f3-cust-main">
@@ -461,14 +459,91 @@ function _f3RenderKontakter(el) {
                     </div>
                 </div>
             `).join('')}
+        </div>`;
+
+    el.innerHTML = `
+        <div class="f3-kontakter-bar">
+            <button class="f3-add-kontakt-btn" id="f3-add-kontakt">+ Tilføj kontaktperson</button>
         </div>
+        <div id="f3-kontakt-form"></div>
+        ${listHtml}
     `;
+
+    el.querySelector('#f3-add-kontakt')?.addEventListener('click', _f3OpenAddKontakt);
     el.querySelectorAll('.f3-cust-row').forEach(row => {
         row.addEventListener('click', () => {
             const cid = parseInt(row.dataset.customerId, 10);
             if (typeof window.openKunde360 === 'function') window.openKunde360(cid);
         });
     });
+}
+
+function _f3OpenAddKontakt() {
+    const holder = document.getElementById('f3-kontakt-form');
+    const btn = document.getElementById('f3-add-kontakt');
+    if (!holder) return;
+    if (holder.dataset.open === '1') { holder.dataset.open = '0'; holder.innerHTML = ''; if (btn) btn.disabled = false; return; }
+    holder.dataset.open = '1';
+    if (btn) btn.disabled = true;
+    holder.innerHTML = `
+        <div class="f3-kontakt-form">
+            <div class="f3-kf-row">
+                <input type="text" id="f3-kf-first" placeholder="Fornavn *" autocomplete="off">
+                <input type="text" id="f3-kf-last" placeholder="Efternavn" autocomplete="off">
+            </div>
+            <div class="f3-kf-row">
+                <input type="email" id="f3-kf-email" placeholder="Email" autocomplete="off">
+                <input type="tel" id="f3-kf-phone" placeholder="Telefon" autocomplete="off">
+            </div>
+            <div class="f3-kf-actions">
+                <button class="f3-kf-save" id="f3-kf-save">Gem kontaktperson</button>
+                <button class="f3-kf-cancel" id="f3-kf-cancel">Annullér</button>
+                <span class="f3-kf-msg" id="f3-kf-msg"></span>
+            </div>
+        </div>
+    `;
+    const first = document.getElementById('f3-kf-first');
+    first?.focus();
+    document.getElementById('f3-kf-cancel')?.addEventListener('click', _f3OpenAddKontakt);
+    document.getElementById('f3-kf-save')?.addEventListener('click', _f3SaveKontakt);
+    holder.querySelectorAll('input').forEach(inp => {
+        inp.addEventListener('keydown', (e) => {
+            if (e.key === 'Enter') { e.preventDefault(); _f3SaveKontakt(); }
+            else if (e.key === 'Escape') { e.preventDefault(); _f3OpenAddKontakt(); }
+        });
+    });
+}
+
+async function _f3SaveKontakt() {
+    const first = document.getElementById('f3-kf-first')?.value.trim();
+    const last = document.getElementById('f3-kf-last')?.value.trim();
+    const email = document.getElementById('f3-kf-email')?.value.trim();
+    const phone = document.getElementById('f3-kf-phone')?.value.trim();
+    const msg = document.getElementById('f3-kf-msg');
+    const saveBtn = document.getElementById('f3-kf-save');
+    if (!first) {
+        if (msg) { msg.textContent = 'Fornavn mangler'; msg.className = 'f3-kf-msg f3-kf-msg-err'; }
+        document.getElementById('f3-kf-first')?.focus();
+        return;
+    }
+    if (saveBtn) saveBtn.disabled = true;
+    if (msg) { msg.textContent = 'Gemmer…'; msg.className = 'f3-kf-msg'; }
+    try {
+        await apiFetch('/customers', {
+            method: 'POST',
+            body: JSON.stringify({
+                first_name: first,
+                last_name: last || null,
+                email: email || null,
+                phone: phone || null,
+                company_id: _f3State.companyId,
+            }),
+        });
+        await _f3Reload();
+    } catch (err) {
+        if (saveBtn) saveBtn.disabled = false;
+        if (msg) { msg.textContent = 'Fejl: ' + err.message; msg.className = 'f3-kf-msg f3-kf-msg-err'; }
+    }
 }
 
 // ─── BONS-FANEN ────────────────────────────────────────────────
