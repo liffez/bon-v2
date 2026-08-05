@@ -87,6 +87,9 @@ async function buildBridgeMenu(menuId = 'standard', deps = grocyAdapter) {
             price: Math.round(festival * 100),    // øre (incl moms)
             tags,
             allergens: String(uf.bestil_allergens || '').trim(),
+            // Kundevendt salgstekst — IKKE Grocys egen `description`, som er
+            // produktions-noter ("skæres med blad nr 2 på Robocut").
+            description: String(uf.bestil_beskrivelse || '').trim(),
             active: true
         });
     }

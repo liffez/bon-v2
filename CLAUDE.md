@@ -2966,6 +2966,40 @@ led selv har et niveau under sig — det er dér undertællingen sad. Mutations-
 uden `stack.delete` falder både råvare- og consume-tallet fra 2 til 1; uden cyklusværnet
 giver testen "Maximum call stack size exceeded".
 
+### Rettens beskrivelse vises bag ⓘ (6. august 2026)
+
+Kost-tags og allergener nåede frem til event-order-3's bestillingsside (broen, `#394`),
+men beskrivelsen gjorde ikke. Datavejen var der allerede — `buildEventMenu` har hele tiden
+læst `description` fra `bestilling.menu_standard` — men **ingen af retterne havde feltet
+udfyldt**, og bon-v2's egen bestillingsform viste det slet ikke, selvom Settings-feltet
+lover "vises på bestillingssiden".
+
+- `public/embed/bestilling.html` — ⓘ folder nu **beskrivelse + allergener** ud (før kun
+  allergener). Beskrivelsen står øverst, allergenerne dæmpet nedenunder. `max-height` på
+  `.allergen-row` hævet 100px → 260px så en to-linjers salgstekst ikke klippes.
+- `routes/embed.js` + `routes/event-bridge.js` — Grocy-mode/fallback læser nyt valgfrit
+  userfield **`bestil_beskrivelse`**. Grocys egen `description` på opskriften bruges
+  bevidst IKKE: den indeholder produktions-noter ("skæres med blad nr 2 på Robocut") og må
+  aldrig ud til kunden. 34 af 131 opskrifter i grocy-hq har sådan en note i dag.
+- `settings/index.html` — Grocy-mode-infoboksen dokumenterer feltet + advarslen.
+- Manuel mode er uændret: beskrivelsen skrives pr. ret i **Settings → Bestilling — Menu**
+  (feltet "Kort salgstekst" fandtes allerede) og følger med gennem broen uden kodeændring.
+- Info-rækken er skiftet fra mørkeblå (`#2c3e50`) til designmanualens **grå flade + brun
+  markering** (s. 5: grå `#d7d1ca`, brun `#8e631f`). Den sorte/mørke boks skar for hårdt i
+  en ellers lys menu. Samme greb i event-order-3's ⓘ-boks.
+- `scripts/import-menu-descriptions.js` — fylder de 32 retter med teksterne fra
+  ristetrug.dk/menu (hentet 6. august 2026). Matcher på menu-item-id med navne-fallback,
+  rører ikke retter der allerede har en tekst (`--force` overskriver), dry-run default,
+  tager backup af menuen ved `--apply`. Idempotent — anden kørsel siger "0 sættes".
+  Fire bevidste indgreb i teksterne er dokumenteret i scriptets hoved (fodnote-stjerner
+  fjernet, én tastefejl rettet, slidere arver standard-rettens tekst, bokse skrevet ud
+  pr. variant). Brownie + de tre drikkevarer har ingen tekst på hjemmesiden og springes over.
+
+**Drift:** feltet er tomt på alle retter i produktion. Kør scriptet på serveren
+(dry-run først) — eller skriv teksterne i Settings i hånden. Verificeret hele vejen:
+Settings → `/webhook/event-menu` → bro → event-order-siden, og mod en kopi af
+driftsdata: 32 af 36 retter matchede på id, 0 ikke fundet.
+
 ## Næste opgave
 
 > ✏️ Tracker-oprydning 29. juni 2026 — koden er på migration 119; status-sektionen ovenfor
