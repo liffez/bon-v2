@@ -1,15 +1,147 @@
 # CLAUDE_EVENT_BON_BRIDGE.md — Bro mellem event-forudbestilling og Bon v2
 
-> **Status:** Design-/handoff-dokument (ikke bygget). Skrevet ved afslutning af en
-> lang session hvor `event-order-3` blev væsentligt forbedret. Fanger visionen +
-> arkitekturen mens konteksten var frisk, så en NY session kan bygge broen uden at
-> genopdage det hele.
+> **Status:** I DRIFT (verificeret ende-til-ende med rigtige ordrer 5. aug 2026).
+> Kunde bestiller → Stripe → webhook → ordre i pickup/vendor → prep- + salgs- +
+> gebyr-bon i Bon v2. Afsnit §1–§8 er det oprindelige design; det holdt, bortset
+> fra ét punkt: broen laver nu OGSÅ salgsbon (§0.6), fordi bankafstemningen
+> kræver noget at holde Stripe-udbetalingen op imod.
 >
 > **To repos i spil:**
 > - **`event-order-3`** (separat app): forudbestilling til mad-events. Kunder bestiller
 >   + betaler via Stripe, multi-leverandør, realtids pickup/køkken. Node + Express +
 >   socket.io + **sql.js** (egen DB, IKKE Bon v2's). Ligger i `~/Documents/Projekter/event-order-3`.
 > - **`bon-v2`** (dette repo): produktion, køkken, Grocy, e-conomic, cashflow, event-modul.
+
+---
+
+## 0. Status: BYGGET — hvad, hvor, test, deploy
+
+Broen laver **kun prep-bon** (ren produktion). Salget kører via cashflow-flowet på den
+ægte daglige Stripe-bankudbetaling (§2.E i `CLAUDE_PENGESTROEM.md`) — så omsætningen
+tælles aldrig to gange. Alt defaulter til **slukket** indtil deploy-config (§0.3) er sat.
+
+### 0.1 Filer
+
+**bon-v2 (modtager-ende):**
+- `routes/event-bridge.js` — public router (monteret på `/webhook` i `server.js`, uden
+  for auth-gaten, med optionel delt secret `settings.event_bridge_secret`):
+  - `GET /webhook/event-menu?menu=standard` — Ristet Rugs Grocy-menu i event-order-3-format
+    (`id:'r<id>'`, navn, kategori, **festival-pris i øre** (incl moms), tags, allergener).
+    Genbruger samme kategori/skjul/tags-logik som `routes/embed.js`.
+  - `POST /webhook/event-prep` — body `{ event_id, date, lines:[{grocy_recipe_id, antal}] }`.
+    Find-eller-opret **prep-bon** for `(event_id, delivery_date, event_role='prep')`:
+    ingen → opret (produktion, GODKENDT, linjer via `resolveMenuItemLines`);
+    findes + status NY/GODKENDT → **reconcile** (slet linjer, genindsæt — fuld-erstat);
+    findes + status ≥ IGANG **eller** `inventory_deducted=1` → **frys** (`action:'frozen'`).
+    Idempotent. Kernen er eksporteret (`applyPrepPush`, `resolvePrepLines`) til test.
+- `scripts/test-event-bridge-menu.js` (21) · `scripts/test-event-bridge-prep.js` (30) ·
+  `scripts/test-event-bridge-live.js` (19, HTTP mod grocytest, isoleret temp-DB).
+
+**event-order-3 (afsender-ende):**
+- `bonV2Bridge.js` — al bro-logik samlet ét sted (deps injiceres → testbar isoleret):
+  `refreshGrocyMenus`/`vendorMenu` (Fase 2: overlejr Grocy-menuen på vendorens JSON-menu,
+  falder tilbage til JSON hvis Bon v2 er nede), `slotDateMap`/`buildPrepPayloads`/`pushPrep`
+  (Fase 4: aggreger ordrer pr. pickup-dato → push per-dag). Secret fra `process.env.BON_V2_SECRET`.
+- `server.js` — wirer `bonV2.vendorMenu` ind i `allMenuItems`/`vendorMenuItems`/`/api/event`,
+  starter menu-refresh (opstart + hver 10. min), og pusher aggregatet i `handleCompletedOrder`
+  efter `saveOrder` (fire-and-forget, ved siden af den eksisterende Sheets-webhook).
+- `event-config.json` — `bonV2`-blok på `ristet-rug`-vendoren (default `enabled:false`).
+- `test-bonV2-bridge.js` (29 unit) · `test-grocy-live.js` (5 — live-smoke af Grocy-menu-
+  integrationen mod en kørende bon-v2: `BON_V2_DIR=… node --experimental-sqlite test-grocy-live.js`;
+  skipper rent uden `BON_V2_DIR`).
+
+**104 grønne asserts i alt** (bon-v2: 21 menu + 30 prep + 19 live · event-order-3: 29 unit + 5 Grocy-live).
+
+### 0.2 Nøgle-mekanismer (holdt ved implementeringen)
+- **Multi-dag falder ud gratis** på bon-v2-siden: prep-bonnen nøgles på `delivery_date`,
+  så 2 dage → 2 prep-bons under ét event. På event-order-3-siden bestemmes dagen af
+  **pickup-slottets `date`** (valgfrit felt pr. slot; mangler det → event-datoen).
+  Derfor virker "bestillinger på dag 1 til dag 2" — ordren følger slottets dato, ikke
+  bestillingstidspunktet.
+- **Frys = pr. bon-status, ikke deadline.** Hver dags prep-bon opdaterer sig selv indtil
+  netop den dags produktion går i gang (IGANG) eller lageret er trukket — så én fælles
+  deadline er nok.
+- **Fuld-erstat reconcile** → event-order-3 pusher HELE dagens aggregat ved hver ordre
+  (ikke kun den nye linje), ellers ville bonnen blive nulstillet til én ordre.
+- **Ingen Grocy-id på JSON-menuen** ⇒ uden `menuFromGrocy` kan der ikke laves prep-bon
+  (varianter mangler Grocy-kobling); den vendor bruger event-appens egen produktionsfane.
+  Grocy-varianter (brødvalg/glutenfri) kollapser til basis-opskriften på prep-bonnen.
+
+### 0.3 Deploy-checkliste (før live)
+1. **bon-v2:** sæt `settings.event_bridge_secret` (valgfri, men anbefalet — håndhæves kun hvis sat).
+2. **event-order-3 `.env`:** `BON_V2_SECRET` = samme værdi.
+3. **Opret eventet i bon-v2 først** → kopiér dets `event_id` til `ristet-rug.bonV2.eventId`
+   i `event-config.json`, og sæt `enabled + menuFromGrocy: true`.
+4. **Multi-dag:** giv pickup-slots et `date`-felt (YYYY-MM-DD) pr. dag; ellers falder alt
+   til event-datoen (enkelt dag).
+5. **CORS:** server-til-server-push sender ingen Origin, så `webhookCors` blokerer ikke —
+   ingen ekstra origin-opsætning nødvendig.
+6. **Verificér før åbning:** kør Grocy live-smoken
+   (`BON_V2_DIR=/sti/til/bon-v2 node --experimental-sqlite test-grocy-live.js`) — bekræfter
+   at event-order-3 kan hente menuen fra bon-v2 (fetch + secret-gate + menu-overlay) mod ægte Grocy.
+
+### 0.4 Link til event-order-3-admin (point 2) — BYGGET
+Setting `event_order_admin_url` (migration 132) → "🔗 Event-ordre-admin"-knap i office
+event-detaljens header (`office/views/events.js`), vises kun når URL'en er sat (kun
+`http(s)`, åbner ny fane). Sæt URL'en i **Settings → System**. Bevidst kun et **link**,
+ikke auto-provisionering — event-order-3 er enkelt-config, så "opret event-ordre" = "åbn admin'en".
+
+### 0.6 Tre bons pr. event-dag (migration 137) — ÆNDRING af §2's oprindelige snit
+Broen laver ikke kun prep-bonnen. Den oprindelige beslutning ("salget kører via
+cashflow") holdt ikke i drift: Stripe udbetaler samlet pr. dag, og uden en bon
+med rigtige priser er der intet at afstemme udbetalingen mod.
+
+| Bon | event_role | Priskategori | Pris | Status | Rolle i P&L |
+|---|---|---|---|---|---|
+| Forudbestilt (prep) | `prep` | produktion | 0 kr | GODKENDT | vareforbrug + lagertræk |
+| Forudbestilt (salg) | `sales` | festival | **menupriser** | BETALT | omsætning |
+| Betalingsgebyr | `expense` | festival | negativ | BETALT | udgift (estimat) |
+
+- **Priserne må ALDRIG lægges på prep-bonnen.** En produktion-bon er vareforbrug i
+  P&L'en; samme linje ville tælle som både omkostning og omsætning.
+- Salgspriser tages fra `event_menu_items` (incl moms) — dét kunden faktisk betalte.
+- Gebyr-satsen er settingen `event_bridge_fee_pct` (default 3, `0` = slå fra).
+  Genereres automatisk med vilje: en udgift man skal huske at taste, bliver glemt.
+- **Reconcile-vinduet er pr. rolle.** Prep fryser når køkkenet går i gang (IGANG) eller
+  lageret er trukket. Salg/gebyr fødes BETALT og skal blive ved med at samle dagens
+  ordrer — en global frys-liste ville have låst salgsbonnen ved første ordre.
+
+**Broen ejer kun sine egne bons** (`event_bridge_bons`, migration 136+137). Før det
+fandt den bare første prep-bon på dagen og overskrev office's forecast-bon: 133+133+133
+blev til "1 × Tunen" af én forudbestilling. Plan og konkret bestilt er to forskellige
+tal. Bro-bons markeres med `🔗 forudbestilt` i event-oversigten, og prep-bonnens
+kitchen_info siger eksplicit at de forudbestilte **indgår i** forecasten — ellers
+risikerer køkkenet at lave 399 + 2.
+
+### 0.7 Tilvalg på menuen (migration 135)
+En menulinje kan markeres som **tilvalg** og hænges på udvalgte retter (fx "Glutenfri
+Bolle +15 kr" kun på Tunen). Broen sender den så som variant-valg (*Almindelig /
+Glutenfri Bolle*) i stedet for som selvstændig ret, så kunden kan bestille både
+"Tunen" og "Tunen – Glutenfri Bolle".
+- `applies_to` peger på **menuKey** (`r:<id>` / `n:<navn>`), ikke rækkens id — PUT er
+  delete+insert, så id'er skifter ved hver gemning.
+- Variant-id'et er `${base}__${optId}_${choiceId}`; choiceId bærer tilvalgets Grocy-id,
+  så det tælles med på prep-bonnen. Derfor må optId ikke indeholde `_`.
+- Tilvalg uden `applies_to` vises som almindelig ret (ingen tavs forsvinden).
+
+### 0.8 Flerdags-events
+Pickup-slots har et valgfrit `date`-felt (admin → Tidsslots). Ordren følger **slottets
+dato**, ikke bestillingstidspunktet — derfor virker "bestilt dag 1 til dag 2". Datoen
+vises på slot-kort, i opsummeringen, og i pickup/vendors slot-filtre og ordrekort.
+Uden dato falder alt tilbage til event-datoen (enkelt-dags, uændret).
+
+### 0.9 Fejl fundet i drift (så de ikke opstår igen)
+| Symptom | Årsag |
+|---|---|
+| Alle checkouts fejlede med 500 | Stripe afviser **tom** `product_data.description`; Grocy-retter har ingen beskrivelse. Feltet udelades nu når det er tomt. |
+| Ordrer nåede aldrig pickup/vendor/bon | `STRIPE_WEBHOOK_SECRET` var 70 tegn — `BON_V2_SECRET` var klistret bag på linjen i `.env`. |
+| Event 3. sep usynligt i køkkenet | `/api/bons/later` havde et 28-dages vindue. Ingen øvre grænse længere. |
+| Menuændring slog ikke igennem | 10-min cache. Knappen **🔄 Opdater i event-ordre** (kræver `event_order_base_url`) tvinger refresh. |
+| Push'et "gjorde ingenting" | Det loggede kun fejl. Logger nu også succes + hvilket config-felt der mangler. |
+
+### 0.5 Bevidst ikke bygget
+- **QR/pas/udlevering** (§5) — event-order-3's egen FEATURE-doc, uafhængigt af broen.
+- **Salgsbon fra broen** — bevidst fravalgt (§0 + point 3): salget kører via cashflow.
 
 ---
 

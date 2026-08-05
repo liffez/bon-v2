@@ -99,10 +99,12 @@ router.get('/today', handle((req, res) => {
 router.get('/later', handle((req, res) => {
     const db    = getDb();
     const today = todayISO();
-    const days  = parseInt(req.query.days) || 28;
-
-    // Beregn slutdato: today + days (lokal dato, ikke UTC)
-    const endDate = offsetISO(days);
+    // Ingen øvre grænse som standard. Et 28-dages vindue skjulte bons der lå
+    // længere ude (et event 3. sep forsvandt set fra 5. aug), og køkkenet skal
+    // kunne se ALT kommende arbejde. ?days=N begrænser stadig hvis en kalder
+    // vil have et vindue.
+    const days    = parseInt(req.query.days);
+    const endDate = Number.isFinite(days) && days > 0 ? offsetISO(days) : '9999-12-31';
 
     const bons = db.prepare(`
         SELECT

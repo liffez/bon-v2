@@ -112,6 +112,7 @@ const webhookCors = (req, res, next) => {
 };
 app.use('/webhook', webhookCors, webOrdersRouter);
 app.use('/webhook', webhookCors, bookingRouter);
+app.use('/webhook', webhookCors, require('./routes/event-bridge'));
 
 // ═══ GLOBAL AUTH-GATE PÅ /api ═══════════════════════════════════════════════
 //
@@ -255,10 +256,11 @@ refreshRecipeUnitCountsSafe(require('./db/database').getDb(), 'startup')
 app.listen(PORT, () => {
     const { clientCount } = require('./shared/sse');
     const { getDb } = require('./db/database');
+    const { todayISO } = require('./db/helpers');
     const db = getDb();
     const bonCount    = db.prepare(`SELECT COUNT(*) as n FROM bons`).get().n;
     const todayCount  = db.prepare(`SELECT COUNT(*) as n FROM bons b JOIN status_definitions sd ON b.status_id = sd.id WHERE b.delivery_date = ? AND sd.code NOT IN ('AFLYST','FAKTURERET','BETALT','AFSLUTTET')`)
-        .get(new Date().toISOString().slice(0, 10)).n;
+        .get(todayISO()).n;
 
     console.log(`
 ╔══════════════════════════════════════════════════════╗
