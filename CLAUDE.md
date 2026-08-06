@@ -3163,6 +3163,31 @@ Escape lukker først adresse-listen, derefter panelet.
 552 kr ex. Er appens tal **incl** moms (som forbrugerpriser typisk er), er den rigtige pris
 484 ex, og `per_km: 19` er ~14 % for høj (~15,8 ville ramme). Ikke rettet — moms-grundlaget
 er ikke bekræftet.
+### Kontaktperson på eventet (6. august 2026)
+> Spec: `docs/CLAUDE_EVENT.md §17`. Driftsfeedback: kontoret udfyldte kunden i hånden
+> på hver enkelt event-bon, og de øvrige stod som "Ukendt" på køkkenets kort.
+
+- **Migration 139**: `events.customer_id` + `company_id` + `day_contact_name`/`_phone`
+  (alle nullable → events uden kontakt opfører sig præcis som før).
+- **`eventContactFields(event)`** ([routes/events.js](routes/events.js)) er den ene regel:
+  kunden kopieres råt; dagskontakten falder tilbage til kundens navn/telefon når den ikke er
+  sat separat. **Både** event-generatoren (`POST /:id/bons`) og **event-broen**
+  ([routes/event-bridge.js](routes/event-bridge.js)) bruger den — broen importerer helperen
+  frem for at have sin egen kopi. Eksplicit `customer_id` i payloadet vinder (`??`, ikke `||`).
+- **Bons lavet før kontakten fandtes**: `GET /:id/overview` returnerer
+  `bons_missing_contact`, og `POST /:id/apply-contact` udfylder dem. Rører **kun tomme
+  felter** (`COALESCE`) — en bon hvor kontoret selv har sat noget står urørt. Eksplicit
+  handling med bekræftelse, ikke en bivirkning af at gemme eventet. Idempotent.
+- **UI** ([office/views/events.js](office/views/events.js)): kontaktpersonen vælges i
+  event-modalen med samme `KundeSoeg` som bon-draweren; kontaktlinje under event-headeren
+  med "Udfyld på N bons uden kunde" når der er noget at udfylde.
+- **Fælde (fundet ved browser-verifikation):** `KundeSoeg` må ikke stå i et `<label>` —
+  label-aktivering videresender klikket til labelens første formularkontrol, som efter
+  valget er ✕ ("skift kunde"), så valget blev ryddet i samme klik.
+- **Tests**: `scripts/test-event-contact.js` — 26 asserts mod de ægte endpoints over HTTP
+  (isoleret temp-DB, spawned server). Regression grøn: event-menu 42, event-bridge-prep 69,
+  topup 35, event-cancelled 26, event-gate 15, event-polish 27, prep-packing 12.
+  Browser-verificeret end-to-end; testdata ryddet.
 
 ## Næste opgave
 

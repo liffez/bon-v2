@@ -1,4 +1,4 @@
--- 139_delivery_price_tiers.sql
+-- 140_delivery_price_tiers.sql
 -- ============================================================
 -- By-expressens kundepris som TRAPPE i stedet for én bypris.
 --
@@ -27,6 +27,12 @@
 -- Vallensbæk/Taastrup. Justér i Settings → Leveringsmetoder.
 -- ============================================================
 
+-- Filen hed oprindeligt 139_, men main tog det nummer til 139_event_contact.sql.
+-- Migrations spores på fuldt filnavn, så den kører igen på databaser der allerede
+-- havde 139-udgaven. Derfor WHERE'en nedenfor: rører kun en formel der endnu IKKE
+-- har en trappe, så en pris office selv har justeret i Settings ikke bliver
+-- rullet tilbage af en gentaget kørsel.
+
 UPDATE delivery_vehicles
 SET cost_formula_json = json_object(
         'tiers', json_array(
@@ -37,4 +43,5 @@ SET cost_formula_json = json_object(
         'included_boxes', 2,
         'extra_box_cost', 50
     )
-WHERE code = 'byekspressen';
+WHERE code = 'byekspressen'
+  AND json_extract(cost_formula_json, '$.tiers') IS NULL;
