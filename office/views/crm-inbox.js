@@ -995,7 +995,9 @@ async function _inbLinkToBon() {
         await patchUnmatchedMail(_inbSelected.id, { status: 'linked', linked_bon_id: match.id });
         _inbSelected = null;
         _inbLoadData();
-        document.getElementById('inbPreview').innerHTML = '<div class="inb-empty">Mail linket til bon #' + match.bon_number + '</div>';
+        document.getElementById('inbPreview').innerHTML =
+            '<div class="inb-empty">Mail linket til bon #' + match.bon_number +
+            ' — ligger nu som tråd under <strong>Åbne</strong></div>';
     } catch (err) {
         alert('Fejl: ' + err.message);
     }
@@ -1007,7 +1009,10 @@ async function _inbLinkToCustomer(customerId) {
         await patchUnmatchedMail(_inbSelected.id, { status: 'linked', linked_customer_id: customerId });
         _inbSelected = null;
         _inbLoadData();
-        document.getElementById('inbPreview').innerHTML = '<div class="inb-empty">Mail linket til kunde</div>';
+        // Sig HVOR mailen tog hen — den forlader Ufordelt-listen, og uden et
+        // pejlemærke er den svær at finde igen (jf. drifts-sagen aug. 2026).
+        document.getElementById('inbPreview').innerHTML =
+            '<div class="inb-empty">Mail linket til kunde — ligger nu som tråd under <strong>Åbne</strong></div>';
     } catch (err) {
         alert('Fejl: ' + err.message);
     }

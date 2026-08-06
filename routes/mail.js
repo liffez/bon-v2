@@ -12,6 +12,49 @@ function broadcastUnmatchedCount(db) {
     broadcast('mail_unmatched', { count: row?.c || 0 });
 }
 
+// Bogfør en indgående besked på en kunde/bon-tråd — samme regel som
+// mailService.processInboundMail's auto-genåbning (CLAUDE_INDBAKKE.md §3).
+// SKAL kaldes når link-flowet flytter en ufordelt mail ind i en tråd: uden
+// handling_status er tråden usynlig i HELE indbakken (alle chips + søgning
+// filtrerer på `handling_status IS NOT NULL`) og /threads/:id/reply svarer 404.
+//
+//   markRead=false → mailen er stadig ulæst arbejde: 'aaben' + has_unread.
+//   markRead=true  → mailen håndteres i samme kald (svar/opret-lead): sæt kun
+//                    handling_status hvis den mangler, så et allerede sendt svar
+//                    ikke bliver trukket tilbage til 'aaben'.
+//
+// PO-/leverandør-tråde røres aldrig (de har bevidst handling_status = NULL).
+function markThreadInbound(db, threadId, receivedAt, { markRead = false } = {}) {
+    const t = db.prepare(
+        `SELECT bon_id, customer_id, purchase_order_id, supplier_id, handling_status
+           FROM mail_threads WHERE id = ?`
+    ).get(threadId);
+    if (!t) return;
+    if (t.purchase_order_id || t.supplier_id) return;
+
+    const at = receivedAt || new Date().toISOString();
+    if (markRead) {
+        db.prepare(`
+            UPDATE mail_threads
+               SET handling_status = COALESCE(handling_status, 'aaben'),
+                   last_inbound_at = ?, status = 'active'
+             WHERE id = ?`).run(at, threadId);
+    } else {
+        db.prepare(`
+            UPDATE mail_threads
+               SET handling_status = 'aaben', snooze_until = NULL, has_unread = 1,
+                   last_inbound_at = ?, status = 'active'
+             WHERE id = ?`).run(at, threadId);
+    }
+
+    const now = db.prepare(`SELECT handling_status, has_unread FROM mail_threads WHERE id = ?`).get(threadId);
+    broadcast('mail_thread_updated', {
+        thread_id: Number(threadId),
+        handling_status: now?.handling_status || null,
+        has_unread: now?.has_unread ? 1 : 0,
+    });
+}
+
 // Resolér entitet + label for en tråd — bruges af den samlede indbakke så
 // tråd-svar (kunde/bon/PO/leverandør) kan vises og linkes.
 function threadEntity(db, t) {
@@ -744,7 +787,8 @@ router.patch('/unmatched/:id', requireAuth('admin'), handle(async (req, res) => 
         if (!um) return res.status(404).json({ error: 'Ikke fundet' });
 
         const threadId = db.prepare(`
-            INSERT INTO mail_threads (subject, bon_id, customer_id) VALUES (?, ?, ?)
+            INSERT INTO mail_threads (subject, bon_id, customer_id, handling_status)
+            VALUES (?, ?, ?, 'aaben')
         `).run(um.subject || '', linked_bon_id || null, linked_customer_id || null).lastInsertRowid;
 
         const newMsgId = db.prepare(`
@@ -763,6 +807,9 @@ router.patch('/unmatched/:id', requireAuth('admin'), handle(async (req, res) => 
             UPDATE mail_unmatched SET status = 'linked', linked_customer_id = ?, linked_bon_id = ?, handled_by_user_id = ?, handled_at = CURRENT_TIMESTAMP
             WHERE id = ?
         `).run(linked_customer_id || null, linked_bon_id || null, userId, id);
+
+        // Beskeden er indsat ulæst → tråden er nyt, uhåndteret arbejde i indbakken.
+        markThreadInbound(db, Number(threadId), um.received_at);
 
         broadcastUnmatchedCount(db);
         res.json({ ok: true, thread_id: Number(threadId) });
@@ -859,8 +906,8 @@ function linkUnmatchedToCustomer(db, um, customerId, userId) {
 
     if (!threadId) {
         threadId = db.prepare(
-            `INSERT INTO mail_threads (customer_id, subject, status, created_at, updated_at)
-             VALUES (?, ?, 'active', datetime('now'), datetime('now'))`
+            `INSERT INTO mail_threads (customer_id, subject, status, handling_status, created_at, updated_at)
+             VALUES (?, ?, 'active', 'aaben', datetime('now'), datetime('now'))`
         ).run(customerId, um.subject || '').lastInsertRowid;
     } else {
         db.prepare(`UPDATE mail_threads SET updated_at = datetime('now') WHERE id = ?`).run(threadId);
@@ -876,6 +923,11 @@ function linkUnmatchedToCustomer(db, um, customerId, userId) {
                SET status = 'linked', linked_customer_id = ?, handled_by_user_id = ?, handled_at = CURRENT_TIMESTAMP
              WHERE id = ?
         `).run(customerId, userId, um.id);
+
+        // Beskeden indsættes læst (den håndteres her og nu), men tråden skal
+        // stadig have en handling_status for at være synlig i indbakken.
+        // markRead=true → et allerede sendt svar ('afventer_kunde') bevares.
+        markThreadInbound(db, Number(threadId), um.received_at, { markRead: true });
     }
 
     return Number(threadId);
