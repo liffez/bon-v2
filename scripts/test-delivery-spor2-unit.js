@@ -143,6 +143,30 @@ function findAlt(result, code) {
     assertEqual(estimateCost(taxaFormula, { boxes: 0 }, { distance_km: 99 }), 250,
                 'standard_inner_city ignorerer distance');
 
+    // ─── Bypris er et GULV, ikke et loft ──────────────────
+    // Taxaen som den står i drift: bytakst 250, men også 136 + 19/km.
+    // Kort tur → bytaksten. Lang tur → km-taksten, ellers ville vi
+    // prissætte en tur til Roskilde til bytakst.
+    const taxaReal = { code: 't', cost_formula_json: '{"base":136,"per_km":19,"standard_inner_city":250}' };
+    assertEqual(estimateCost(taxaReal, { boxes: 0 }, { distance_km: 5.1 }), 250,
+                'bypris vinder på kort tur (136 + 19×5,1 = 233 < 250)');
+    assertEqual(estimateCost(taxaReal, { boxes: 0 }, { distance_km: 35 }), 801,
+                'km-takst vinder på lang tur (136 + 19×35 = 801 > 250)');
+    assertEqual(estimateCost(taxaReal, { boxes: 0 }), 250,
+                'uden afstand står bypris alene (bagudkompatibelt)');
+
+    // By-expressen har INGEN km-takst — prisen forbliver flad uanset afstand.
+    // (max_distance_km = 8 er værnet mod at bruge den for langt ude.)
+    const byexReal = { code: 'b', cost_formula_json: '{"base":100,"included_boxes":2,"extra_box_cost":50,"standard_inner_city":154}' };
+    assertEqual(estimateCost(byexReal, { boxes: 2 }, { distance_km: 40 }), 154,
+                'vogn uden km-takst er flad uanset afstand');
+    assertEqual(estimateCost(byexReal, { boxes: 4 }, { distance_km: 5 }), 254,
+                'kasse-tillæg oveni bypris (154 + 2×50)');
+    // Kasse-tillægget skal følge med når km-taksten vinder — ikke falde bort.
+    const boxedKm = { code: 'x', cost_formula_json: '{"base":100,"per_km":19,"included_boxes":2,"extra_box_cost":50,"standard_inner_city":154}' };
+    assertEqual(estimateCost(boxedKm, { boxes: 4 }, { distance_km: 30 }), 770,
+                'kasse-tillæg oveni km-takst (100 + 19×30 + 2×50)');
+
     // ─── shiftTime ────────────────────────────────────────
     console.log('\n=== delivery_calc.shiftTime ===');
     assertEqual(shiftTime('12:30', -20), '12:10', 'shiftTime træk 20 min fra');

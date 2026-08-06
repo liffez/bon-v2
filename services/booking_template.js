@@ -321,6 +321,13 @@ function buildBookingPayload(bonId, vehicleId) {
 // givet bruges per_km-leddet; ellers falder per_km-formler tilbage til
 // base (bagudkompatibelt — Spor 1 kalder uden distance).
 //
+// standard_inner_city er en BYPRIS — et gulv, ikke et loft. Har vognen
+// også en km-takst, og kender vi afstanden, tager takstprisen over når
+// turen er lang nok. Ellers ville en taxa til Roskilde blive prissat til
+// bytaksten (250 kr) i stedet for de ~800 kr turen faktisk koster.
+// Vogne UDEN km-takst (By-expressen) er uændret flade — deres pris kan
+// formlen ikke udtrykke på lange ture, og dér er max_distance_km værnet.
+//
 // Rute-aggregater (multi-stop, Workflow A): kald med en syntetisk bon
 // { boxes: total_boxes } og { distance_km: total_km } — samme formler
 // gælder for hele turen.
@@ -340,13 +347,18 @@ function estimateCost(vehicle, bon, opts = {}) {
     const distanceKm = Number(opts.distance_km);
     const hasDistance = Number.isFinite(distanceKm);
 
-    // Standard inner city tager forrang — fast bypris uafhængig af afstand.
+    // Kasse-tillæg lægges oveni uanset hvilket prisled der vinder.
+    const boxSurcharge = (formula.included_boxes != null && formula.extra_box_cost != null)
+        ? Math.max(0, boxes - formula.included_boxes) * Number(formula.extra_box_cost)
+        : 0;
+
+    // Bypris: gulv frem for loft — km-taksten tager over på lange ture.
     if (formula.standard_inner_city != null) {
-        if (formula.included_boxes != null && formula.extra_box_cost != null) {
-            const extra = Math.max(0, boxes - formula.included_boxes) * formula.extra_box_cost;
-            return Math.round(formula.standard_inner_city + extra);
+        let cost = Number(formula.standard_inner_city) + boxSurcharge;
+        if (formula.base != null && formula.per_km != null && hasDistance) {
+            cost = Math.max(cost, Number(formula.base) + Number(formula.per_km) * distanceKm + boxSurcharge);
         }
-        return Math.round(formula.standard_inner_city);
+        return Math.round(cost);
     }
 
     // base (+ per_km × afstand) (+ ekstra kasser)
@@ -355,10 +367,7 @@ function estimateCost(vehicle, bon, opts = {}) {
         if (formula.per_km != null && hasDistance) {
             cost += Number(formula.per_km) * distanceKm;
         }
-        if (formula.included_boxes != null && formula.extra_box_cost != null) {
-            cost += Math.max(0, boxes - formula.included_boxes) * Number(formula.extra_box_cost);
-        }
-        return Math.round(cost);
+        return Math.round(cost + boxSurcharge);
     }
 
     return null;

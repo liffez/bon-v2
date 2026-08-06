@@ -354,9 +354,19 @@ router.get('/events', requireAuth(), handle((req, res) => {
 // Med bon_id geokodes adressen synkront hvis den mangler coords
 // (office venter på svaret). Returnerer altid 200 — { ok:false, reason }
 // ved manglende grundlag, så frontenden kan degradere pænt.
+//
+// Uden bon_id (løs adresse — fx en kunde der ringer og spørger hvad
+// levering koster) udledes kasse-antallet af pax efter samme regel som
+// for en bon, så prisberegneren og bon-forslaget aldrig er uenige.
 // ==========================================
 router.post('/calculate', requireAuth(), handle(async (req, res) => {
     const { bon_id, lat, lng, lon, delivery_time, boxes, pax } = req.body || {};
+
+    const ppbRow = getDb().prepare(`SELECT value FROM settings WHERE key = 'default_pax_per_box'`).get();
+    const paxPerBox = ppbRow && Number(ppbRow.value) > 0 ? Number(ppbRow.value) : 16;
+    // Arbejdsmængde → kasser. Samme udledning som defaultBoxesForBon.
+    const boxesFromWorkload = (workload) =>
+        Number(workload) > 0 ? Math.max(1, Math.ceil(Number(workload) / paxPerBox)) : 0;
 
     let input;
     if (bon_id) {
@@ -383,10 +393,8 @@ router.post('/calculate', requireAuth(), handle(async (req, res) => {
         // som defaultBoxesForBon: ceil(arbejdsmængde / pax_per_box).
         let estBoxes = Number(bon.boxes) > 0 ? Number(bon.boxes) : 0;
         if (!estBoxes) {
-            const ppbRow = getDb().prepare(`SELECT value FROM settings WHERE key = 'default_pax_per_box'`).get();
-            const ppb = ppbRow && Number(ppbRow.value) > 0 ? Number(ppbRow.value) : 16;
             const workload = Number(bon.total_units) > 0 ? Number(bon.total_units) : (Number(bon.pax) || 0);
-            estBoxes = workload > 0 ? Math.max(1, Math.ceil(workload / ppb)) : 0;
+            estBoxes = boxesFromWorkload(workload);
         }
 
         input = {
@@ -407,12 +415,15 @@ router.post('/calculate', requireAuth(), handle(async (req, res) => {
             lat,
             lon: rawLon,
             delivery_time: delivery_time || null,
-            boxes: boxes || 0,
+            boxes: Number(boxes) > 0 ? Number(boxes) : boxesFromWorkload(pax),
             pax: pax || 0
         };
     }
 
-    res.json(await calculateForBon(input));
+    // boxes + pax_per_box med tilbage: prisen afhænger af kasse-antallet, så
+    // beregneren skal kunne vise HVILKET antal prisen er regnet på.
+    const result = await calculateForBon(input);
+    res.json({ ...result, boxes: input.boxes, pax_per_box: paxPerBox });
 }));
 
 // ==========================================

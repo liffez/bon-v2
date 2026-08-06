@@ -3000,6 +3000,50 @@ lover "vises på bestillingssiden".
 Settings → `/webhook/event-menu` → bro → event-order-siden, og mod en kopi af
 driftsdata: 32 af 36 retter matchede på id, 0 ikke fundet.
 
+### Leveringspris: tal i pillen + beregner for løs adresse (6. august 2026)
+
+To ting fra driften: pillen i logistik-rækken sagde bare "By-ex pris" uden et tal, og
+der var ingen vej til at svare på "hvad koster levering til X?" når en kunde ringer,
+uden først at oprette en bon.
+
+- **Pris i pillen uden klik** ([shared/logistik.js](shared/logistik.js) `_logFillByExPill`):
+  rækken henter allerede `/api/delivery/calculate`, og svarets `alternatives[]` indeholder
+  By-expressens standard **kundepris**. Pillen viser den nu direkte (`💰 By-ex 154 kr`) —
+  **nul ekstra API-kald**. Klik henter stadig By-expressens egen pris (vores KOSTpris) +
+  margin som før. Ligger turen uden for standardprisens rækkevidde (`max_distance_km`),
+  vises **intet tal** — pillen bliver stiplet med begrundelsen i tooltip. Et forkert tal
+  er værre end ingen. `_logFillRow` samler forslag-linje + pille, så de altid følges ad.
+- **Prisberegner for en løs adresse**: knappen `🧮 Beregn pris` i logistik-toolbaren
+  åbner et panel med DAWA-autocomplete + kuverter/kasser. Bruger **samme** `/calculate`
+  som bon-forslagene, så prisen kunden får i røret er den samme office senere ser på bonen.
+  Ingen bon oprettes, og der ringes ikke ud til By-expressen. Viser **både ex og inkl. moms**
+  (via `Moms.exclToIncl`) — `cost_formula` er ex moms, mens `bons.delivery_price` er incl,
+  så en privatkunde skal høre det andet tal end et firma. Uegnede vogne vises stadig, men
+  dæmpet med begrundelse (constraint-princippet: aldrig spærring). Egne vogne er mærket
+  "egen vogn" med en note om at det er vores omkostning, ikke et tal at give kunden.
+  Virker i begge zoner (delt `shared/logistik.js`).
+
+**Prisformlen rettet — `standard_inner_city` er et GULV, ikke et loft**
+([services/booking_template.js](services/booking_template.js) `estimateCost`): bytaksten tog
+hidtil forrang og **ignorerede afstanden helt**, så taxaens `base 136 + per_km 19` var reelt
+uendelig død kode — en tur til Roskilde (40 km) blev prissat til 250 kr i stedet for ~895 kr.
+Nu vinder km-taksten når turen er lang nok. Vogne uden km-takst (By-expressen) er uændret
+flade; dér er `max_distance_km = 8` værnet. Kasse-tillægget lægges oveni uanset hvilket
+prisled der vinder. Uden afstand står bytaksten alene → bagudkompatibelt.
+Rammer også margin-visningen i draweren, hvor lange taxature før så kunstigt rentable ud.
+
+**`POST /api/delivery/calculate`** ([routes/delivery.js](routes/delivery.js)): uden `bon_id`
+udledes kasser nu af `pax` efter **samme** regel som for en bon (`default_pax_per_box`), så
+beregneren og bon-forslaget ikke kan blive uenige — reglen lever ét sted, på serveren.
+Svaret returnerer additivt `boxes` + `pax_per_box`, så beregneren kan vise *hvilket*
+kasse-antal prisen er regnet på.
+
+**Tests:** +7 asserts i `scripts/test-delivery-spor2-unit.js` (bypris vs. km-takst i begge
+retninger, flad vogn uden km-takst, kasse-tillæg på begge grene). 236 delivery-tests grønne
+(102+50 spor1, 31+24+29 spor2) + moms-audit 18/0. Browser-verificeret i begge zoner mod live
+ORS: 5 km → taxa 250 kr, 40 km → 895 kr; 60 kuverter → 4 kasser → By-ex 154 → 254 kr;
+pille med og uden tal. Testdata ryddet.
+
 ## Næste opgave
 
 > ✏️ Tracker-oprydning 29. juni 2026 — koden er på migration 119; status-sektionen ovenfor

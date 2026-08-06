@@ -215,14 +215,46 @@ function _logLoadForslag() {
         if (b.on_route_id) return;                 // på rute → ingen forslag
         if (b.delivery_vehicle_id) return;         // bud allerede bestilt → ingen forslag
         if (b.delivery_method) return;             // vogn tildelt (gammelt felt) → ingen forslag
-        if (_logCalc[b.id]) { _logFillForslag(b.id); return; }
+        if (_logCalc[b.id]) { _logFillRow(b.id); return; }
         calculateDelivery({ bon_id: b.id })
             .then(function(r) {
                 _logCalc[b.id] = r;
-                if (_logActive) _logFillForslag(b.id);
+                if (_logActive) _logFillRow(b.id);
             })
             .catch(function() {});
     });
+}
+
+// Én bons afledte felter: afstand/forslag-linjen + prisen i By-ex-pillen.
+function _logFillRow(bonId) {
+    _logFillForslag(bonId);
+    _logFillByExPill(bonId);
+}
+
+// By-ex-pillen viser standard-KUNDEPRISEN med det samme — tallet ligger
+// allerede i /calculate-svaret, så det koster ingen ekstra kald. Klik
+// henter stadig By-expressens egen pris (vores KOSTpris) + margin.
+// Ligger turen uden for standardprisens rækkevidde, viser vi intet tal:
+// et forkert tal er værre end ingen.
+function _logFillByExPill(bonId) {
+    var row = document.querySelector('.log-bon[data-bon-id="' + bonId + '"]');
+    var btn = row && row.querySelector('.log-byex-btn');
+    if (!btn) return;
+    var r = _logCalc[bonId];
+    if (!r || !r.ok) return;
+    var alt = (r.alternatives || []).find(function(a) { return a.code === 'byekspressen'; });
+    if (!alt) return;
+
+    if (alt.suitable && alt.cost_dkk != null) {
+        btn.innerHTML = '💰 By-ex ' + alt.cost_dkk + ' kr';
+        btn.title = 'Standard kundepris ex moms (' + (r.boxes != null ? r.boxes + ' kasser' : 'std')
+            + '). Klik for By-expressens egen pris + margin.';
+    } else {
+        btn.classList.add('log-byex-btn-nostd');
+        btn.title = alt.reason
+            ? 'Standardprisen gælder ikke her: ' + alt.reason + '. Klik for By-expressens egen pris.'
+            : 'Klik for By-expressens egen pris.';
+    }
 }
 
 function _logFillForslag(bonId) {
@@ -259,8 +291,12 @@ function _logRenderShell() {
               '<button class="log-nav-btn" data-nav="1">▶</button>' +
               '<button class="log-today-btn" data-nav="today">I dag</button>' +
             '</div>' +
+            '<button class="log-pc-open" id="logPcOpen" type="button"' +
+              ' title="Slå leveringsprisen op for en adresse — uden at oprette en bon">' +
+              '🧮 Beregn pris</button>' +
             '<div class="log-health" id="logHealth"></div>' +
           '</div>' +
+          _logPriceCalcHtml() +
           '<div class="log-statbar" id="logStatBar" hidden></div>' +
           '<div class="log-map" id="logMap"></div>' +
           '<div class="log-cols">' +
@@ -289,12 +325,224 @@ function _logRenderShell() {
         _logLoad();
     });
 
+    _logBindPriceCalc();
+
     document.getElementById('logBonList').addEventListener('click', _logOnBonClick);
     document.getElementById('logRouteList').addEventListener('click', _logOnRouteClick);
     document.getElementById('logRouteList').addEventListener('change', _logOnRouteChange);
     document.getElementById('logSelBar').addEventListener('click', _logOnSelBarClick);
 
     _logInitMap();
+}
+
+/* ── Prisberegner for en løs adresse ────────────────────
+   Til telefonopkaldet: "hvad koster det at få leveret til X?"
+   Bruger SAMME /calculate som bon-forslagene, så prisen kunden
+   får i røret er den samme office senere ser på bonen. Der
+   oprettes ingen bon, og der ringes ikke ud til By-expressen. */
+
+var _logPc = null;        // { lat, lon, text } — bekræftet adresse
+var _logPcHits = [];      // seneste DAWA-resultater
+var _logPcSeq = 0;        // race-vagt: kun det nyeste svar må rendres
+var _logPcDocBound = false;
+
+function _logPriceCalcHtml() {
+    return '<div class="log-pc" id="logPriceCalc" hidden>' +
+        '<div class="log-pc-head">' +
+          '<strong>Beregn leveringspris</strong>' +
+          '<span class="log-pc-sub">Slå prisen op uden at oprette en bon</span>' +
+          '<button type="button" class="log-pc-x" data-pc="close" title="Luk">✕</button>' +
+        '</div>' +
+        '<div class="log-pc-form">' +
+          '<label class="log-pc-field log-pc-field-addr">' +
+            '<span>Leveringsadresse</span>' +
+            '<input type="text" id="logPcAddr" placeholder="Søg adresse…" autocomplete="off">' +
+            '<div class="log-pc-dawa" id="logPcDawa" hidden></div>' +
+          '</label>' +
+          '<label class="log-pc-field log-pc-field-n">' +
+            '<span>Kuverter</span>' +
+            '<input type="number" id="logPcPax" min="0" step="1" placeholder="fx 30">' +
+          '</label>' +
+          '<label class="log-pc-field log-pc-field-n">' +
+            '<span>Kasser</span>' +
+            '<input type="number" id="logPcBoxes" min="0" step="1" placeholder="auto">' +
+          '</label>' +
+        '</div>' +
+        '<div class="log-pc-result" id="logPcResult"></div>' +
+      '</div>';
+}
+
+function _logBindPriceCalc() {
+    var openBtn = document.getElementById('logPcOpen');
+    var panel = document.getElementById('logPriceCalc');
+    if (!openBtn || !panel) return;
+
+    openBtn.addEventListener('click', function() {
+        panel.hidden = !panel.hidden;
+        openBtn.classList.toggle('log-pc-open-active', !panel.hidden);
+        if (!panel.hidden) document.getElementById('logPcAddr').focus();
+    });
+    panel.addEventListener('click', function(e) {
+        if (!e.target.closest('[data-pc="close"]')) return;
+        panel.hidden = true;
+        openBtn.classList.remove('log-pc-open-active');
+    });
+
+    var addr = document.getElementById('logPcAddr');
+    var dawa = document.getElementById('logPcDawa');
+    var searchTimer = null;
+
+    addr.addEventListener('input', function() {
+        _logPc = null;                       // adressen er ikke bekræftet længere
+        clearTimeout(searchTimer);
+        var q = addr.value.trim();
+        if (q.length < 3) { dawa.hidden = true; dawa.innerHTML = ''; return; }
+        searchTimer = setTimeout(function() { _logPcSearch(q); }, 300);
+    });
+    addr.addEventListener('keydown', function(e) {
+        if (e.key === 'Escape') { dawa.hidden = true; }
+    });
+    // mousedown (ikke click): fyrer FØR feltet mister fokus, så valget
+    // ikke går tabt hvis noget senere skulle skjule listen på blur.
+    dawa.addEventListener('mousedown', function(e) {
+        var item = e.target.closest('.log-pc-dawa-item');
+        if (!item) return;
+        e.preventDefault();
+        _logPcSelect(_logPcHits[parseInt(item.getAttribute('data-i'), 10)]);
+    });
+
+    // Kun ÉN gang for hele siden — shell'en gen-renderes ved view-skift.
+    if (!_logPcDocBound) {
+        _logPcDocBound = true;
+        document.addEventListener('click', function(e) {
+            var p = document.getElementById('logPriceCalc');
+            var d = document.getElementById('logPcDawa');
+            if (p && d && !p.contains(e.target)) d.hidden = true;
+        });
+    }
+
+    var recalcTimer = null;
+    var bump = function() { clearTimeout(recalcTimer); recalcTimer = setTimeout(_logPcCalc, 350); };
+    document.getElementById('logPcPax').addEventListener('input', bump);
+    document.getElementById('logPcBoxes').addEventListener('input', bump);
+}
+
+function _logPcSearch(q) {
+    var dawa = document.getElementById('logPcDawa');
+    if (!dawa) return;
+    fetch('https://api.dataforsyningen.dk/adresser/autocomplete?q=' + encodeURIComponent(q) + '&per_side=6')
+        .then(function(r) { return r.json(); })
+        .then(function(list) {
+            if (!document.getElementById('logPcDawa')) return;
+            if (!Array.isArray(list) || !list.length) { dawa.hidden = true; dawa.innerHTML = ''; return; }
+            _logPcHits = list;
+            dawa.innerHTML = list.map(function(it, i) {
+                return '<div class="log-pc-dawa-item" data-i="' + i + '">' + _logEsc(it.tekst || '') + '</div>';
+            }).join('');
+            dawa.hidden = false;
+        })
+        .catch(function() { dawa.hidden = true; });
+}
+
+function _logPcSelect(item) {
+    if (!item) return;
+    var a = item.adresse || {};
+    var lat = Number(a.y), lon = Number(a.x);      // DAWA: x = lon, y = lat (WGS84)
+    document.getElementById('logPcAddr').value = item.tekst || '';
+    document.getElementById('logPcDawa').hidden = true;
+    if (!isFinite(lat) || !isFinite(lon)) {
+        _logPc = null;
+        _logPcMsg('Adressen har ingen koordinater — prøv en anden skrivemåde.', 'err');
+        return;
+    }
+    _logPc = { lat: lat, lon: lon, text: item.tekst || '' };
+    _logPcCalc();
+}
+
+function _logPcMsg(text, cls) {
+    var out = document.getElementById('logPcResult');
+    if (!out) return;
+    out.className = 'log-pc-result log-pc-' + (cls || 'note');
+    out.textContent = text;
+}
+
+function _logPcCalc() {
+    if (!_logPc) return;
+    var pax = parseInt(document.getElementById('logPcPax').value, 10);
+    var boxes = parseInt(document.getElementById('logPcBoxes').value, 10);
+    var payload = { lat: _logPc.lat, lng: _logPc.lon };
+    if (boxes > 0) payload.boxes = boxes;
+    if (pax > 0) payload.pax = pax;
+
+    _logPcMsg('Beregner…', 'loading');
+    var token = ++_logPcSeq;
+    calculateDelivery(payload)
+        .then(function(r) { if (token === _logPcSeq) _logPcRender(r); })
+        .catch(function(e) {
+            if (token !== _logPcSeq) return;
+            _logPcMsg('Kunne ikke beregne: ' + ((e && e.message) || 'fejl'), 'err');
+        });
+}
+
+function _logPcRender(r) {
+    var out = document.getElementById('logPcResult');
+    if (!out) return;
+    if (!r || !r.ok) {
+        _logPcMsg(
+            r && r.reason === 'no_api_key'        ? 'Rute-opslag er ikke sat op (ORS-nøgle mangler).'
+          : r && r.reason === 'hq_not_configured' ? 'HQ-koordinater mangler i indstillingerne.'
+          : r && r.reason === 'no_route'          ? 'Der kunne ikke findes en rute til adressen.'
+          : 'Afstanden kunne ikke beregnes.', 'err');
+        return;
+    }
+
+    // Vis hvilket kasse-antal prisen er regnet på, uden at overskrive et tal
+    // brugeren selv har tastet.
+    var boxEl = document.getElementById('logPcBoxes');
+    if (boxEl && !boxEl.value) boxEl.placeholder = r.boxes > 0 ? r.boxes + ' (auto)' : 'auto';
+
+    var kr = function(n) {
+        return n == null ? '–' : Number(n).toLocaleString('da-DK', { maximumFractionDigits: 2 }) + ' kr';
+    };
+    var toIncl = function(ex) {
+        return (ex != null && window.Moms) ? window.Moms.exclToIncl(ex) : null;
+    };
+
+    var rows = (r.alternatives || []).slice().sort(function(a, b) {
+        if (a.suitable !== b.suitable) return a.suitable ? -1 : 1;
+        return (a.cost_dkk == null ? Infinity : a.cost_dkk) - (b.cost_dkk == null ? Infinity : b.cost_dkk);
+    }).map(function(a) {
+        var caveat = (!a.suitable && a.reason)
+            ? '<span class="log-pc-caveat">⚠ ' + _logEsc(a.reason) + ' — prisen holder ikke her</span>'
+            : '';
+        return '<div class="log-pc-row' + (a.suitable ? '' : ' log-pc-row-off') + '">' +
+            '<span class="log-pc-veh">' + _logVehicleIcon(a.type) + ' ' + _logEsc(a.label) +
+              (a.is_internal ? ' <span class="log-pc-tag">egen vogn</span>' : '') + '</span>' +
+            '<span class="log-pc-ex">' + kr(a.cost_dkk) + '</span>' +
+            '<span class="log-pc-incl">' + kr(toIncl(a.cost_dkk)) + '</span>' +
+            caveat +
+        '</div>';
+    }).join('');
+
+    out.className = 'log-pc-result log-pc-ok';
+    out.innerHTML =
+        '<div class="log-pc-sum">📍 ' + String(r.distance_km).replace('.', ',') + ' km · '
+          + r.duration_min + ' min fra HQ · '
+          + (r.boxes > 0
+              ? 'pris regnet på <strong>' + r.boxes + ' kasser</strong>'
+              : 'pris uden kasse-tillæg — skriv antal kuverter for et præcist tal')
+          + '</div>' +
+        '<div class="log-pc-rows">' +
+          '<div class="log-pc-row log-pc-row-head">' +
+            '<span class="log-pc-veh">Vogn</span>' +
+            '<span class="log-pc-ex">ex moms</span>' +
+            '<span class="log-pc-incl">inkl. moms</span>' +
+          '</div>' + rows +
+        '</div>' +
+        '<div class="log-pc-foot">Sig <strong>inkl. moms</strong> til en privatkunde og '
+          + '<strong>ex moms</strong> til et firma.<br>'
+          + '“Egen vogn” er vores egen omkostning ved selv at køre — ikke et tal at give kunden. '
+          + 'Standardpriser, ikke et bindende tilbud.</div>';
 }
 
 /* ── Live-mode statbar (vises kun når datoen er i dag) ─── */
