@@ -1288,9 +1288,10 @@
             <li><code>grupper</code> → kategori-navn på embed-formen</li>
             <li><code>bestil_tags</code> (valgfri, CSV: <code>"vegan,gf"</code>) → tags-badges på retten</li>
             <li><code>bestil_allergens</code> (valgfri, fri tekst) → allergener vist på ⓘ-toggle</li>
+            <li><code>bestil_beskrivelse</code> (valgfri, fri tekst) → kort salgstekst vist på ⓘ-toggle. Brug dette felt — <em>ikke</em> opskriftens egen beskrivelse i Grocy, som er produktions-noter til køkkenet.</li>
             <li><code>bestil_skjul</code> (valgfri, "1") → skjul fra embed-formen selv om sellable=1</li>
           </ul>
-          De tre <code>bestil_*</code>-userfields skal oprettes manuelt i Grocy → Manage master data → Userfields. De er valgfri — formen virker uden, blot uden tags/allergener.
+          <code>bestil_*</code>-userfields skal oprettes manuelt i Grocy → Manage master data → Userfields. De er valgfri — formen virker uden, blot uden tags/allergener/beskrivelse.
           <div style="margin-top:10px;padding-top:10px;border-top:1px dashed #b8d6e8">
             💡 <strong>Vil du kun vise et udvalg af retterne?</strong> Skift til <strong>Manuel</strong> og klik <strong>⬇ Importér fra Grocy</strong> — så plukker du de retter du vil have på formen, og kan tilpasse navne/tags/allergener efterfølgende.
           </div>
@@ -4400,6 +4401,20 @@ window.dvSaveVehicle = dvSaveVehicle;
 // ═══════════════════════════════════════════════════════════
 // BESTILLING — MENU EDITOR
 // ═══════════════════════════════════════════════════════════
+// Samme farvekoder som bestillingsformularen viser kunden: kød = rød,
+// vegetar = grøn, vegansk = gul, fisk = blå, glutenfri = blålilla.
+const BM_TAG_COLORS = {
+  vegan: ['#fef9c3', '#854d0e'],
+  veg:   ['#dcfce7', '#166534'],
+  gf:    ['#dbeafe', '#1e40af'],
+  fisk:  ['#cffafe', '#155e75'],
+  'kød': ['#fee2e2', '#991b1b'],
+};
+function bmTagStyle(tag) {
+  const [bg, fg] = BM_TAG_COLORS[String(tag).toLowerCase()] || ['#eee', '#555'];
+  return `background:${bg};color:${fg}`;
+}
+
 const BM_TAGS = [
   { id: 'vegan', label: 'Vegansk' },
   { id: 'veg',   label: 'Vegetar' },
@@ -4807,7 +4822,7 @@ async function bmReloadGrocy() {
     const html = menu.categories.map(cat => {
       const items = cats[cat.id] || [];
       const rows = items.map(it => {
-        const tagPills = (it.tags || []).map(t => `<span style="font-size:10px;padding:1px 6px;border-radius:8px;background:#dcfce7;color:#166534;text-transform:uppercase;letter-spacing:.04em">${bmEsc(t)}</span>`).join(' ');
+        const tagPills = (it.tags || []).map(t => `<span style="font-size:10px;padding:1px 6px;border-radius:8px;${bmTagStyle(t)};text-transform:uppercase;letter-spacing:.04em">${bmEsc(t)}</span>`).join(' ');
         const all = it.allergens ? `<span style="color:#888;font-size:11px">${bmEsc(it.allergens)}</span>` : '<span style="color:#ccc;font-size:11px">—</span>';
         return `<tr style="border-bottom:1px solid #f4f4f4">
           <td style="padding:6px 8px;font-family:monospace;color:#aaa;font-size:11px">${bmEsc(it.id)}</td>
@@ -5160,7 +5175,7 @@ function bmRenderImportList() {
     if (!items.length) return '';
     const rows = items.map(it => {
       const already = existing.has(it.id);
-      const tagPills = (it.tags || []).map(t => `<span style="font-size:10px;padding:1px 6px;border-radius:8px;background:#dcfce7;color:#166534;text-transform:uppercase;letter-spacing:.04em;margin-left:4px">${bmEsc(t)}</span>`).join('');
+      const tagPills = (it.tags || []).map(t => `<span style="font-size:10px;padding:1px 6px;border-radius:8px;${bmTagStyle(t)};text-transform:uppercase;letter-spacing:.04em;margin-left:4px">${bmEsc(t)}</span>`).join('');
       return `<label style="display:flex;align-items:center;gap:10px;padding:6px 8px;border-bottom:1px solid #f4f4f4;cursor:${already ? 'default' : 'pointer'};${already ? 'opacity:.45' : ''}">
         <input type="checkbox" data-act="bm-import-pick" data-id="${bmEsc(it.id)}" data-cat="${bmEsc(cat.id)}" data-cat-name="${bmEsc(cat.name)}" data-name="${bmEsc(it.name)}" data-tags="${bmEsc((it.tags||[]).join(','))}" data-allergens="${bmEsc(it.allergens||'')}" ${already ? 'disabled' : ''}>
         <span style="font-family:monospace;color:#aaa;font-size:11px;min-width:50px">${bmEsc(it.id)}</span>

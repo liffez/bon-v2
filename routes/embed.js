@@ -25,6 +25,9 @@ const ALLOWED_MENUS = ['standard']; // udvides når flere menuer kommer
  * Bruger nye optionelle userfields (graceful hvis de ikke findes):
  *   - bestil_tags     (CSV: "vegan,gf") → tags-array
  *   - bestil_allergens (fri tekst) → allergens-streng
+ *   - bestil_beskrivelse (fri tekst) → kort salgstekst vist bag ⓘ
+ *     (Grocys egen `description` på opskriften er PRODUKTIONS-noter — den må
+ *      aldrig vises for kunden, derfor et selvstændigt userfield.)
  *   - bestil_skjul     ("1" = skjul fra embed-formen, men sellable i øvrigt)
  */
 function buildCategoryId(name) {
@@ -67,6 +70,7 @@ async function buildMenuFromGrocy(menuId) {
             category: categoryId,
             tags,
             allergens: String(uf.bestil_allergens || '').trim(),
+            description: String(uf.bestil_beskrivelse || '').trim(),
             active: true
         });
     }
@@ -77,7 +81,7 @@ async function buildMenuFromGrocy(menuId) {
     return {
         menu_id: menuId,
         name: 'Standard menu (Grocy)',
-        version: new Date().toISOString().slice(0, 10),
+        version: todayISO(),
         source: 'grocy',
         categories,
         items

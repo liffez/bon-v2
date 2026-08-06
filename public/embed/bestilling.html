@@ -310,12 +310,14 @@
     .menu-item:hover { background: #faf7f1; }
     .mi-info { flex: 1; min-width: 0; }
     .mi-name { font-weight: 600; font-size: .9rem; display: flex; align-items: center; gap: .35rem; flex-wrap: wrap; }
+    /* Madpræference-koder: kød = rød, vegetar = grøn, vegansk = gul, fisk = blå.
+       Vegansk og vegetar lå omvendt indtil 6. august 2026. */
     .mi-tag {
       font-size: .62rem; padding: 1px 6px; border-radius: 8px;
       font-weight: 700; letter-spacing: .04em; text-transform: uppercase;
     }
-    .mi-tag.vegan { background: #dcfce7; color: #166534; }
-    .mi-tag.veg { background: #fef9c3; color: #854d0e; }
+    .mi-tag.vegan { background: #fef9c3; color: #854d0e; }  /* gul */
+    .mi-tag.veg { background: #dcfce7; color: #166534; }    /* grøn */
     .mi-tag.gf { background: #dbeafe; color: #1e40af; }
     .mi-tag.fisk { background: #cffafe; color: #155e75; }
     .mi-tag.kød  { background: #fee2e2; color: #991b1b; }
@@ -349,14 +351,21 @@
       50%  { transform: scale(1.25); background: var(--ok); }
       100% { transform: scale(1); background: var(--brand); }
     }
+    /* Info-række i brandfarver (designmanualen s. 5): grå flade, brun markering. */
     .allergen-row {
       grid-column: 1 / -1; max-height: 0; overflow: hidden;
       transition: max-height .25s ease;
-      background: #2c3e50; color: #fff; font-size: .78rem; line-height: 1.45;
+      background: #d7d1ca; color: #4a4036; font-size: .78rem; line-height: 1.45;
+      box-shadow: inset 3px 0 0 var(--brand);
     }
-    .allergen-row.show { max-height: 100px; }
+    .allergen-row.show { max-height: 260px; }
     .allergen-row-inner { padding: .65rem 1rem; display: flex; gap: .5rem; align-items: flex-start; }
-    .allergen-row-inner strong { color: #ffd998; flex-shrink: 0; }
+    .allergen-row-inner strong { color: var(--brand); flex-shrink: 0; }
+    .allergen-row-desc { padding: .65rem 1rem .1rem; }
+    .allergen-row-desc + .allergen-row-inner {
+      padding-top: .4rem; margin: 0 1rem; padding-left: 0; padding-right: 0;
+      border-top: 1px solid rgba(142, 99, 31, 0.25);
+    }
 
     /* Checkbox fields */
     .check-field { display: flex; align-items: flex-start; gap: .6rem; margin-bottom: .75rem; }
@@ -576,7 +585,7 @@
             <div class="menu-inline-head">
               <div>
                 <h3>Vores menu</h3>
-                <div class="subtitle">Klik <strong>+</strong> for at tilføje · <strong>ⓘ</strong> for allergener</div>
+                <div class="subtitle">Klik <strong>+</strong> for at tilføje · <strong>ⓘ</strong> for beskrivelse og allergener</div>
               </div>
               <button class="menu-inline-close" type="button" onclick="toggleMenu()" aria-label="Luk menu">✕</button>
             </div>
@@ -751,7 +760,8 @@ async function loadMenu() {
       catId: it.category,
       name: it.name,
       tags: it.tags || [],
-      allergens: it.allergens || ''
+      allergens: it.allergens || '',
+      description: it.description || ''
     }));
 }
 
@@ -1160,7 +1170,7 @@ function renderMenu() {
         <div class="mi-info">
           <div class="mi-name">${escapeHtml(item.name)} ${tags}</div>
         </div>
-        <button class="mi-info-btn" type="button" data-target="${safeId}" aria-label="Allergener">ⓘ</button>
+        <button class="mi-info-btn" type="button" data-target="${safeId}" aria-label="Beskrivelse og allergener">ⓘ</button>
         <div class="mi-add-wrap">
           <span class="mi-count" data-count="${escapeHtml(item.name)}"></span>
           <button class="mi-add" type="button" aria-label="Tilføj">+</button>
@@ -1170,7 +1180,11 @@ function renderMenu() {
       const allergenRow = document.createElement('div');
       allergenRow.className = 'allergen-row';
       allergenRow.id = safeId;
-      allergenRow.innerHTML = `<div class="allergen-row-inner"><strong>Allergener:</strong><span>${escapeHtml(item.allergens || 'Ingen')}</span></div>`;
+      // Beskrivelsen (salgsteksten) ligger sammen med allergenerne bag ⓘ — så
+      // menuen bliver ved med at være én linje pr. ret, også på mobil.
+      allergenRow.innerHTML =
+        (item.description ? `<div class="allergen-row-desc">${escapeHtml(item.description)}</div>` : '')
+        + `<div class="allergen-row-inner"><strong>Allergener:</strong><span>${escapeHtml(item.allergens || 'Ingen')}</span></div>`;
 
       row.querySelector('.mi-add').addEventListener('click', e => {
         addItem(item);
