@@ -1111,10 +1111,11 @@ class BonDrawer {
                     const marginTxt = q.margin == null ? '' :
                         `<span class="lq-margin ${marginCls}">margin ${q.margin >= 0 ? '+' : ''}${kr(q.margin)}</span>`;
                     const incl = q.included_boxes != null ? ` <span class="lq-dim">(${q.included_boxes} inkl.)</span>` : '';
-                    // Uden for byområdet findes der ingen bypris. Vis derfor hvad
-                    // turen bør koste i stedet for en kundepris der ikke gælder.
-                    const noStd = q.standard_price_applies === false;
-                    const custRow = noStd
+                    // Uden for Food-området gælder bytaksten ikke, og kostprisen er
+                    // et Food-tal for en tur Food ikke kan købes til (kladden afviser
+                    // ikke out-of-area — kun den rigtige booking gør). Derfor ingen
+                    // gætte-kundepris her; office henter den i booking-panelet.
+                    const custRow = q.supply_warning
                         ? `<div class="lq-row"><span>Kundepris (std)</span>` +
                           `<span class="lq-dim">gælder ikke så langt ude</span></div>`
                         : (q.customer_ex != null
@@ -1123,6 +1124,12 @@ class BonDrawer {
                     const suggestRow = (q.suggested_customer_ex != null)
                         ? `<div class="lq-row"><span>💡 Bør koste</span><strong>${kr(q.suggested_customer_ex)} ` +
                           `<span class="lq-dim">ex${q.suggested_margin != null ? ` · margin +${kr(q.suggested_margin)}` : ''}</span></strong></div>`
+                        : '';
+                    const supplyRow = q.supply_warning
+                        ? `<div class="lq-warn lq-warn-soft">⚠ Food dækker kun bynære leveringer` +
+                          `${q.max_distance_km ? ` (~${q.max_distance_km} km)` : ''} — prisen ovenfor er en Food-pris ` +
+                          `for en tur Food kan blive <strong>afvist</strong> på. By-expressen kører gerne herud, ` +
+                          `men på Medium/Large + zone-tillæg: hent den rigtige pris under <strong>By-ex booking</strong>.</div>`
                         : '';
                     quoteEl.className = 'drawer-lobo-quote ok';
                     quoteEl.innerHTML =
@@ -1136,6 +1143,7 @@ class BonDrawer {
                         custRow + suggestRow +
                         (marginTxt ? `<div class="lq-row">${marginTxt}${dist ? `<span class="lq-dim">${dist}</span>` : ''}</div>` :
                             (dist ? `<div class="lq-row lq-dim"><span>${dist}</span></div>` : '')) +
+                        supplyRow +
                         (q.margin != null && q.margin < 0 ? `<div class="lq-warn">⚠ Lobo-prisen overstiger kundeprisen — I taber på leveringen.</div>` : '');
                 } catch (err) {
                     quoteEl.className = 'drawer-lobo-quote err';

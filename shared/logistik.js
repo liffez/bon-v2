@@ -751,11 +751,12 @@ function _logFetchByExPrice(id, row, boxes) {
         if (q.margin != null) {
             marginHtml = ' · <span class="byex-margin ' + (q.margin < 0 ? 'neg' : 'pos') + '">margin '
                 + (q.margin >= 0 ? '+' : '') + kr(q.margin) + '</span>';
-        } else if (q.standard_price_applies === false && q.suggested_customer_ex != null) {
-            // Ingen bypris derude — vis hvad turen bør koste i stedet for et
-            // opdigtet tab målt mod en pris vi aldrig ville have tilbudt.
-            marginHtml = ' · <span class="byex-suggest">ingen bypris — tag <strong>'
-                + kr(q.suggested_customer_ex) + '</strong></span>';
+        } else if (q.supply_warning) {
+            // By-expressen kører gerne derud, men ikke på Food — og det er Food vi
+            // har spurgt om. Prisen ovenfor er derfor et Food-tal for noget vi ikke
+            // kan købe. Send office videre til booking-panelet frem for at gætte.
+            marginHtml = ' · <span class="byex-suggest">uden for Food-området — hent'
+                + ' rigtig pris under <strong>By-ex booking</strong></span>';
         }
         out.setAttribute('data-boxes', q.boxes);
         out.className = 'log-byex-result ok';

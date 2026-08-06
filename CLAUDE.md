@@ -3050,9 +3050,31 @@ for den vogn.
   `standard_price_applies`. Er den falsk: `margin = null` (ingen margin mod en pris der
   ikke gælder) og i stedet `suggested_customer_ex` + `suggested_margin` via den
   eksisterende `suggestCustomerPrice` — som hidtil KUN blev brugt i booking-previewet.
-- Logistik-rækken: `ingen bypris — tag 375 kr` (dæmpet gul) i stedet for rødt tab.
-  Draweren: `Kundepris (std) → gælder ikke så langt ude` + `💡 Bør koste 375 kr ex ·
-  margin +46,2 kr`, og advarselsbanneret udebliver.
+- **Vi foreslår IKKE selv en kundepris derude.** Driftsfeedback afdækkede hvorfor:
+  By-expressen *kører* gerne uden for zonen — bare på andre produkter
+  (Small/Medium/Large × Economy/Standard/VIP) plus et `outside zone`-tillæg på +30 %
+  af ordreværdien (dertil `volume surcharge` +50 % og `saturday delivery` +30 %; vi får
+  10 % rabat på basisprisen). **Food** — det produkt `cost_formula` beskriver, og det
+  vi altid spørger om i `bonToOrderInput` — er derimod kun tilgængeligt i
+  forsyningsområdet, og Lobos *kladde* afviser IKKE out-of-area (kun den rigtige
+  booking gør; det er præcis hvad `supply_warning` i `previewBooking` allerede advarer
+  om). Kostprisen for en fjern tur er altså **en Food-pris for noget vi ikke kan købe**,
+  og en markup ovenpå ville bygge en kundepris på et tal der ikke findes. Derfor
+  `suggested_customer_ex = null` ved out-of-area; office henter den rigtige pris i
+  By-ex booking-panelet, hvor produktet kan vælges og `previewBooking` regner forslaget
+  på rigtigt grundlag.
+- Logistik-rækken: `uden for Food-området — hent rigtig pris under By-ex booking`
+  (dæmpet gul) i stedet for rødt tab. Draweren: `Kundepris (std) → gælder ikke så langt
+  ude` + samme forklaring som booking-panelets `supply_warning`, i dæmpet gul
+  (`.lq-warn-soft`) — det er en anvisning, ikke et tab. Inden for området hvor
+  bytaksten ikke dækker (fx mange kasser) er kostprisen ægte, og dér beregnes forslaget
+  som før.
+- **Kendt upræcished:** grænsen testes som `routedistance > max_distance_km` (8 km),
+  men By-expressens rigtige grænse er **postnummer-zoner**, ikke en radius — primær zone
+  (1000–2450 Kbh, 1800–2000 Frb, 2150, 2500, 2900) + udvidet zone (2600 Glostrup …
+  2920 Charlottenlund). Fx 2750 Ballerup ligger ~14 km væk men *i* den udvidede zone.
+  Radius-testen er derfor konservativ i begge retninger. At kode zonelisterne ind kræver
+  bekræftelse på om Food dækker hele den udvidede zone — ikke afklaret.
 - Vogne uden `max_distance_km` → bytaksten gælder altid (bagudkompatibelt; test-fixturen
   har ikke feltet, så de eksisterende margin-asserts er urørte).
 - **De to afstande skilles ad**: rækken/draweren viste `21,9 km` (vores ORS fra HQ) og
@@ -3060,11 +3082,12 @@ for den vogn.
   `(By-ex)`.
 
 **Tests:** +7 asserts i `scripts/test-delivery-spor2-unit.js` (bypris vs. km-takst i begge
-retninger, flad vogn uden km-takst, kasse-tillæg på begge grene) og +4 tests i
-`tests/lobo_booking.test.js` (drifts-tilfældet 18,9 km/8 km → margin null + forslag 375,
-bynær tur → margin bevaret + intet forslag, vogn uden `max_distance_km` → uændret).
-Mutationstestet: neutraliseres `standardApplies`, fejler drifts-testen.
-240 delivery-tests grønne (102+50 spor1, 31+24+29 spor2, 20 lobo) + moms-audit 18/0.
+retninger, flad vogn uden km-takst, kasse-tillæg på begge grene) og +5 tests i
+`tests/lobo_booking.test.js` (drifts-tilfældet 18,9 km/8 km → margin null + `supply_warning`
++ **intet** forslag, bynær tur hvor bytaksten dækker → margin bevaret og intet forslag,
+bynær tur hvor den ikke dækker → forslag beregnet, vogn uden `max_distance_km` → uændret).
+Mutationstestet: neutraliseres `outOfArea`, fejler drifts-testen.
+241 delivery-tests grønne (102+50 spor1, 31+24+29 spor2, 21 lobo) + moms-audit 18/0.
 Browser-verificeret i begge zoner mod live ORS: 5 km → taxa 250 kr, 21,9 km → 552 kr,
 40 km → 895 kr; 60 kuverter → 4 kasser → By-ex 154 → 254 kr; pille med og uden tal;
 Lobo-svaret stubbet med driftens egne tal for at se renderingen. Testdata ryddet.

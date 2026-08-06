@@ -144,10 +144,17 @@ test('quoteForBon: negativ margin rapporteres (men intet blokeres)', async () =>
     assert.strictEqual(q.standard_price_applies, true);
 });
 
-test('quoteForBon: uden for leveringsområdet er der ingen bypris — margin er null, forslag i stedet', async () => {
-    // Drifts-tilfældet: Høje Taastrup, 18,9 km målt af Lobo, vogn dækker 8 km.
+test('quoteForBon: uden for Food-området → margin null, INTET prisforslag, supply_warning', async () => {
+    // Drifts-tilfældet: Høje Taastrup, 18,9 km målt af Lobo, Food dækker 8 km.
     // Før viste vi "margin −174,8 kr" målt mod bytaksten på 154 kr — et opdigtet
     // tab, for vi ville aldrig have tilbudt bytaksten så langt ude.
+    //
+    // Vi foreslår heller ikke selv en kundepris her: vi spørger altid om Food, og
+    // Lobos kladde afviser IKKE out-of-area (kun den rigtige booking gør). Prisen
+    // er altså et Food-tal for en tur Food ikke kan købes til, og en markup ovenpå
+    // ville bygge en kundepris på et tal der ikke findes. By-expressen kører gerne
+    // derud — men på Small/Medium/Large + zone-tillæg, som office vælger i
+    // booking-panelet, hvor previewBooking regner forslaget på rigtigt grundlag.
     const adapter = fakeAdapter({
         priceQuote: async () => ({ uuid: 'd', cost_ex: 328.8, routedistance: 18900 }),
         deleteOrderDraft: async () => true,
@@ -156,10 +163,12 @@ test('quoteForBon: uden for leveringsområdet er der ingen bypris — margin er 
     const q = await quoteForBon({ bon: { ...BON, boxes: 2 }, vehicle, adapter, pricing: { markup_pct: 10, round_to: 25 } });
 
     assert.strictEqual(q.standard_price_applies, false);
+    assert.strictEqual(q.supply_warning, true);
+    assert.strictEqual(q.max_distance_km, 8);
     assert.strictEqual(q.margin, null, 'ingen margin mod en pris der ikke gælder');
     assert.strictEqual(q.customer_ex, 154, 'bytaksten oplyses stadig — men gælder ikke');
-    assert.strictEqual(q.suggested_customer_ex, 375, '328,80 + 10 % = 361,68 → rundet op til 375');
-    assert.strictEqual(q.suggested_margin, 46.2);
+    assert.strictEqual(q.suggested_customer_ex, null, 'gæt ikke en kundepris ud fra en Food-pris vi ikke kan købe');
+    assert.strictEqual(q.suggested_margin, null);
 });
 
 test('quoteForBon: inden for området med positiv margin → intet forslag (bytaksten dækker)', async () => {
@@ -171,8 +180,25 @@ test('quoteForBon: inden for området med positiv margin → intet forslag (byta
     const q = await quoteForBon({ bon: { ...BON, boxes: 2 }, vehicle, adapter, pricing: { markup_pct: 10, round_to: 25 } });
 
     assert.strictEqual(q.standard_price_applies, true);
+    assert.strictEqual(q.supply_warning, false);
     assert.strictEqual(q.margin, 54);                      // 154 − 100
     assert.strictEqual(q.suggested_customer_ex, null, 'bytaksten dækker allerede — intet at foreslå');
+});
+
+test('quoteForBon: bynær tur hvor bytaksten IKKE dækker → forslag beregnes', async () => {
+    // Inden for området, men dyr (fx mange kasser): her ER kostprisen ægte, så
+    // et forslag giver mening — i modsætning til out-of-area.
+    const adapter = fakeAdapter({
+        priceQuote: async () => ({ uuid: 'd', cost_ex: 200, routedistance: 5100 }),
+        deleteOrderDraft: async () => true,
+    });
+    const vehicle = { ...VEHICLE, max_distance_km: 8 };
+    const q = await quoteForBon({ bon: { ...BON, boxes: 2 }, vehicle, adapter, pricing: { markup_pct: 10, round_to: 25 } });
+
+    assert.strictEqual(q.supply_warning, false);
+    assert.strictEqual(q.margin, -46);                     // 154 − 200: ægte tab, vis det
+    assert.strictEqual(q.suggested_customer_ex, 225);      // 200 + 10 % = 220 → op til 225
+    assert.strictEqual(q.suggested_margin, 25);
 });
 
 test('quoteForBon: vogn uden max_distance_km → bytaksten gælder altid (bagudkompatibelt)', async () => {

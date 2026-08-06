@@ -113,23 +113,32 @@ async function quoteForBon({ bon, vehicle, adapter, boxes = null, paxPerBox = 16
     const costIncl = costEx != null ? exclToIncl(costEx) : null;
     const customerEx = vehicle ? (estimateCost(vehicle, bonForCalc) ?? null) : null;
 
-    // Standardprisen er en BYPRIS. Ligger turen uden for vognens leveringsområde,
-    // findes der ingen standard kundepris for den — og så er en "margin" målt mod
-    // bytaksten et opdigtet tab: vi ville aldrig have tilbudt bytaksten derude.
+    // Bytaksten (cost_formula) gælder kun Food, som kun dækker forsyningsområdet.
+    // Ligger turen udenfor, er der ingen bypris at måle mod — og en "margin" mod
+    // den er et opdigtet tab: vi ville aldrig have tilbudt bytaksten derude.
     // Vi bruger Lobos EGEN målte afstand, da det er dens pris vi bedømmer.
     // (Samme regel som supply_warning i previewBooking.)
     const maxKm = vehicle && vehicle.max_distance_km != null ? Number(vehicle.max_distance_km) : null;
     const distKm = quote.routedistance != null ? quote.routedistance / 1000 : null;
-    const standardApplies = !(maxKm && distKm && distKm > maxKm);
+    const outOfArea = !!(maxKm && distKm && distKm > maxKm);
 
-    const margin = (standardApplies && customerEx != null && costEx != null)
+    const margin = (!outOfArea && customerEx != null && costEx != null)
         ? Math.round((customerEx - costEx) * 100) / 100
         : null;
 
-    // Hvad turen så BØR koste kunden: kostpris + markup, rundet op. Uden for
-    // byområdet er der ingen bypris at holde den op mod, så vi sender null ind.
-    const suggestedEx = suggestCustomerPrice(
-        costEx, standardApplies ? customerEx : null, pricing.markup_pct, pricing.round_to);
+    // Hvad turen BØR koste kunden: kostpris + markup, rundet op.
+    //
+    // Uden for forsyningsområdet foreslår vi INTET. Ikke fordi By-expressen ikke
+    // kører derud — det gør de, med egne produkter (Small/Medium/Large) og et
+    // zone-tillæg — men fordi vi altid spørger om FOOD, og Lobos kladde afviser
+    // ikke out-of-area (kun den rigtige booking gør). Kostprisen her er altså en
+    // Food-pris for en tur Food ikke kan købes til. At gange den med en markup
+    // ville give en kundepris bygget på et tal der ikke findes. Office henter den
+    // rigtige pris i By-ex booking-panelet, hvor produktet kan vælges — dér
+    // beregner previewBooking forslaget på det rigtige grundlag.
+    const suggestedEx = outOfArea
+        ? null
+        : suggestCustomerPrice(costEx, customerEx, pricing.markup_pct, pricing.round_to);
     const suggestedMargin = (suggestedEx != null && costEx != null)
         ? Math.round((suggestedEx - costEx) * 100) / 100
         : null;
@@ -138,7 +147,10 @@ async function quoteForBon({ bon, vehicle, adapter, boxes = null, paxPerBox = 16
         cost_ex: costEx,                 // Lobo grundpris + 50/kasse over inkluderede
         cost_incl: costIncl,
         customer_ex: customerEx,
-        standard_price_applies: standardApplies,
+        standard_price_applies: !outOfArea,
+        supply_warning: outOfArea,       // Food dækker ikke turen — kostprisen er
+                                         // en Food-pris for noget vi ikke kan købe
+        max_distance_km: maxKm,
         margin,                          // advarsel-grundlag (negativ = vi taber) — blokerer ALDRIG.
                                          // null når der ingen bypris er at måle mod.
         suggested_customer_ex: suggestedEx,
