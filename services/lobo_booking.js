@@ -92,7 +92,7 @@ function composeCostEx(loboBaseEx, boxes, cfg, vehicle, applyBoxSurcharge = true
 // Returnerer kostpris (ex/incl), kundepris (fra vognens cost_formula) + margin.
 // `boxes` (valgfri) overstyrer bonens kasse-antal — ekstra kasser koster mere
 // (surcharge hos Lobo + extra_box_cost i kundeprisen).
-async function quoteForBon({ bon, vehicle, adapter, boxes = null, paxPerBox = 16 }) {
+async function quoteForBon({ bon, vehicle, adapter, boxes = null, paxPerBox = 16, pricing = {} }) {
     const cfg = { ...(adapter.config || {}) };
     if (cfg.included_boxes == null) cfg.included_boxes = resolveIncludedBoxes(cfg, vehicle);
 
@@ -111,16 +111,55 @@ async function quoteForBon({ bon, vehicle, adapter, boxes = null, paxPerBox = 16
 
     const costEx = composeCostEx(quote.cost_ex, effectiveBoxes, cfg, vehicle);
     const costIncl = costEx != null ? exclToIncl(costEx) : null;
-    const customerEx = vehicle ? (estimateCost(vehicle, bonForCalc) ?? null) : null;
-    const margin = (customerEx != null && costEx != null)
+    const maxKm = vehicle && vehicle.max_distance_km != null ? Number(vehicle.max_distance_km) : null;
+    const distKm = quote.routedistance != null ? quote.routedistance / 1000 : null;
+
+    // Kundeprisen regnes med Lobos EGEN målte afstand, så trappe-taksten rammer
+    // det rigtige trin. Uden afstand falder estimateCost tilbage til trin 1.
+    const customerEx = vehicle
+        ? (estimateCost(vehicle, bonForCalc, distKm != null ? { distance_km: distKm } : {}) ?? null)
+        : null;
+
+    // Food dækker kun forsyningsområdet. Ligger turen udenfor, er KOSTprisen
+    // upålidelig — vi spørger altid om Food, og Lobos kladde afviser ikke
+    // out-of-area (kun den rigtige booking gør). Kundeprisen er derimod fin:
+    // trappen har et trin for lange ture. Så: ingen margin (den ene halvdel af
+    // regnestykket er fiktion), men prisen kan vi stadig oplyse.
+    const outOfArea = !!(maxKm && distKm && distKm > maxKm);
+
+    const margin = (!outOfArea && customerEx != null && costEx != null)
         ? Math.round((customerEx - costEx) * 100) / 100
+        : null;
+
+    // Hvad turen BØR koste kunden: kostpris + markup, rundet op.
+    //
+    // Uden for forsyningsområdet foreslår vi INTET. Ikke fordi By-expressen ikke
+    // kører derud — det gør de, med egne produkter (Small/Medium/Large) og et
+    // zone-tillæg — men fordi vi altid spørger om FOOD, og Lobos kladde afviser
+    // ikke out-of-area (kun den rigtige booking gør). Kostprisen her er altså en
+    // Food-pris for en tur Food ikke kan købes til. At gange den med en markup
+    // ville give en kundepris bygget på et tal der ikke findes. Office henter den
+    // rigtige pris i By-ex booking-panelet, hvor produktet kan vælges — dér
+    // beregner previewBooking forslaget på det rigtige grundlag.
+    const suggestedEx = outOfArea
+        ? null
+        : suggestCustomerPrice(costEx, customerEx, pricing.markup_pct, pricing.round_to);
+    const suggestedMargin = (suggestedEx != null && costEx != null)
+        ? Math.round((suggestedEx - costEx) * 100) / 100
         : null;
 
     return {
         cost_ex: costEx,                 // Lobo grundpris + 50/kasse over inkluderede
         cost_incl: costIncl,
         customer_ex: customerEx,
-        margin,                          // advarsel-grundlag (negativ = vi taber) — blokerer ALDRIG
+        standard_price_applies: !outOfArea,
+        supply_warning: outOfArea,       // Food dækker ikke turen — kostprisen er
+                                         // en Food-pris for noget vi ikke kan købe
+        max_distance_km: maxKm,
+        margin,                          // advarsel-grundlag (negativ = vi taber) — blokerer ALDRIG.
+                                         // null når der ingen bypris er at måle mod.
+        suggested_customer_ex: suggestedEx,
+        suggested_margin: suggestedMargin,
         routedistance: quote.routedistance,
         co2saving: quote.co2saving,
         boxes: effectiveBoxes,
@@ -314,7 +353,11 @@ async function previewBooking({ bon, vehicle, adapter, overrides = {}, paxPerBox
     const win = extractWindow(quote.order);
     const costEx = composeCostEx(quote.cost_ex, boxes, cfg, vehicle, isFood);
     const costIncl = costEx != null ? exclToIncl(costEx) : null;
-    const customerEx = vehicle ? (estimateCost(vehicle, { ...bon, boxes }) ?? null) : null;
+    // Kundepris med Lobos målte afstand, så trappe-taksten rammer rigtigt trin.
+    const previewDistKm = quote.routedistance != null ? quote.routedistance / 1000 : null;
+    const customerEx = vehicle
+        ? (estimateCost(vehicle, { ...bon, boxes }, previewDistKm != null ? { distance_km: previewDistKm } : {}) ?? null)
+        : null;
     const margin = (customerEx != null && costEx != null) ? Math.round((customerEx - costEx) * 100) / 100 : null;
 
     // Foreslået kundepris med lille positiv margin (lange ture). Regel fra settings.

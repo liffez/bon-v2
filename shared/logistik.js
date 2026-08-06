@@ -39,6 +39,7 @@ var _logRouteLayer  = null;
 var _logLegendCtl   = null;    // Leaflet-legende-kontrol
 var _logMarkers     = {};      // bon_id → markør (kort↔liste-link)
 var _logDrag        = null;    // bon_id der trækkes (drag → rute)
+var _logPcLayer     = null;    // prisberegnerens adresse (eget lag)
 
 var _LOG_MONTHS = ['januar','februar','marts','april','maj','juni','juli',
                    'august','september','oktober','november','december'];
@@ -151,6 +152,8 @@ function cleanupLogistik() {
     if (_logMap) { try { _logMap.remove(); } catch (e) {} _logMap = null; }
     _logMarkerLayer = null;
     _logRouteLayer = null;
+    _logPcLayer = null;
+    _logPc = null;
 }
 
 function _logHandleSSE(eventType, data) {
@@ -215,14 +218,50 @@ function _logLoadForslag() {
         if (b.on_route_id) return;                 // på rute → ingen forslag
         if (b.delivery_vehicle_id) return;         // bud allerede bestilt → ingen forslag
         if (b.delivery_method) return;             // vogn tildelt (gammelt felt) → ingen forslag
-        if (_logCalc[b.id]) { _logFillForslag(b.id); return; }
+        if (_logCalc[b.id]) { _logFillRow(b.id); return; }
         calculateDelivery({ bon_id: b.id })
             .then(function(r) {
                 _logCalc[b.id] = r;
-                if (_logActive) _logFillForslag(b.id);
+                if (_logActive) _logFillRow(b.id);
             })
             .catch(function() {});
     });
+}
+
+// Én bons afledte felter: afstand/forslag-linjen + prisen i By-ex-pillen.
+function _logFillRow(bonId) {
+    _logFillForslag(bonId);
+    _logFillByExPill(bonId);
+}
+
+// By-ex-pillen viser standard-KUNDEPRISEN med det samme — tallet ligger
+// allerede i /calculate-svaret, så det koster ingen ekstra kald. Klik
+// henter stadig By-expressens egen pris (vores KOSTpris) + margin.
+// Ligger turen uden for standardprisens rækkevidde, viser vi intet tal:
+// et forkert tal er værre end ingen.
+function _logFillByExPill(bonId) {
+    var row = document.querySelector('.log-bon[data-bon-id="' + bonId + '"]');
+    var btn = row && row.querySelector('.log-byex-btn');
+    if (!btn) return;
+    var r = _logCalc[bonId];
+    if (!r || !r.ok) return;
+    var alt = (r.alternatives || []).find(function(a) { return a.code === 'byekspressen'; });
+    if (!alt) return;
+
+    if (alt.cost_dkk == null) return;
+
+    btn.innerHTML = '💰 By-ex ' + alt.cost_dkk + ' kr';
+    var kasser = r.boxes != null ? r.boxes + ' kasser' : 'std';
+    if (alt.suitable) {
+        btn.title = 'Kundepris ex moms (' + kasser + '). Klik for By-expressens egen pris + margin.';
+    } else {
+        // Trappen har et trin for lange ture, så PRISEN gælder. Det der ikke
+        // gælder er Food-produktet — derfor stiplet + forklaring.
+        btn.classList.add('log-byex-btn-nostd');
+        btn.title = 'Kundepris ex moms efter langt-væk-takst (' + kasser + ').'
+            + (alt.reason ? ' NB: ' + alt.reason + ' — Food dækker ikke turen,' +
+               ' så kostprisen skal hentes under By-ex booking.' : '');
+    }
 }
 
 function _logFillForslag(bonId) {
@@ -259,8 +298,12 @@ function _logRenderShell() {
               '<button class="log-nav-btn" data-nav="1">▶</button>' +
               '<button class="log-today-btn" data-nav="today">I dag</button>' +
             '</div>' +
+            '<button class="log-pc-open" id="logPcOpen" type="button"' +
+              ' title="Slå leveringsprisen op for en adresse — uden at oprette en bon">' +
+              '🧮 Beregn pris</button>' +
             '<div class="log-health" id="logHealth"></div>' +
           '</div>' +
+          _logPriceCalcHtml() +
           '<div class="log-statbar" id="logStatBar" hidden></div>' +
           '<div class="log-map" id="logMap"></div>' +
           '<div class="log-cols">' +
@@ -289,12 +332,329 @@ function _logRenderShell() {
         _logLoad();
     });
 
+    _logBindPriceCalc();
+
     document.getElementById('logBonList').addEventListener('click', _logOnBonClick);
     document.getElementById('logRouteList').addEventListener('click', _logOnRouteClick);
     document.getElementById('logRouteList').addEventListener('change', _logOnRouteChange);
     document.getElementById('logSelBar').addEventListener('click', _logOnSelBarClick);
 
     _logInitMap();
+}
+
+/* ── Prisberegner for en løs adresse ────────────────────
+   Til telefonopkaldet: "hvad koster det at få leveret til X?"
+   Bruger SAMME /calculate som bon-forslagene, så prisen kunden
+   får i røret er den samme office senere ser på bonen. Der
+   oprettes ingen bon, og der ringes ikke ud til By-expressen. */
+
+var _logPc = null;        // { lat, lon, text } — bekræftet adresse
+var _logPcHits = [];      // seneste DAWA-resultater
+var _logPcSeq = 0;        // race-vagt: kun det nyeste svar må rendres
+var _logPcDocBound = false;
+
+function _logPriceCalcHtml() {
+    return '<div class="log-pc" id="logPriceCalc" hidden>' +
+        '<div class="log-pc-head">' +
+          '<strong>Beregn leveringspris</strong>' +
+          '<span class="log-pc-sub">Slå prisen op uden at oprette en bon</span>' +
+          '<button type="button" class="log-pc-x" data-pc="close" title="Luk">✕</button>' +
+        '</div>' +
+        '<div class="log-pc-form">' +
+          '<label class="log-pc-field log-pc-field-addr">' +
+            '<span>Leveringsadresse</span>' +
+            '<input type="text" id="logPcAddr" placeholder="Søg adresse…" autocomplete="off">' +
+            '<div class="log-pc-dawa" id="logPcDawa" hidden></div>' +
+          '</label>' +
+          '<label class="log-pc-field log-pc-field-n">' +
+            '<span>Kuverter</span>' +
+            '<input type="number" id="logPcPax" min="0" step="1" placeholder="fx 30">' +
+          '</label>' +
+          '<label class="log-pc-field log-pc-field-n">' +
+            '<span>Kasser</span>' +
+            '<input type="number" id="logPcBoxes" min="0" step="1" placeholder="auto">' +
+          '</label>' +
+        '</div>' +
+        '<div class="log-pc-result" id="logPcResult"></div>' +
+        '<div class="log-pc-hist" id="logPcHist" hidden></div>' +
+      '</div>';
+}
+
+// Panelet kan lukkes flere steder (✕, toolbar-knappen, Escape). ÉN funktion
+// ejer åbn/luk, så oprydningen af kort-markøren ikke kan glemmes i en af dem
+// — præcis dét skete første gang, hvor kun ✕-vejen ryddede op.
+function _logPcSetOpen(open) {
+    var panel = document.getElementById('logPriceCalc');
+    var openBtn = document.getElementById('logPcOpen');
+    if (!panel || !openBtn) return;
+    panel.hidden = !open;
+    openBtn.classList.toggle('log-pc-open-active', open);
+    if (open) {
+        var addr = document.getElementById('logPcAddr');
+        if (addr) addr.focus();
+        return;
+    }
+    var dawa = document.getElementById('logPcDawa');
+    if (dawa) dawa.hidden = true;
+    _logPcClearMap();              // opslaget er ovre — markøren skal ikke blive stående
+}
+
+function _logBindPriceCalc() {
+    var openBtn = document.getElementById('logPcOpen');
+    var panel = document.getElementById('logPriceCalc');
+    if (!openBtn || !panel) return;
+
+    openBtn.addEventListener('click', function() {
+        _logPcSetOpen(panel.hidden);
+    });
+    panel.addEventListener('click', function(e) {
+        if (e.target.closest('[data-pc="close"]')) _logPcSetOpen(false);
+    });
+
+    var addr = document.getElementById('logPcAddr');
+    var dawa = document.getElementById('logPcDawa');
+    var searchTimer = null;
+
+    addr.addEventListener('input', function() {
+        _logPc = null;                       // adressen er ikke bekræftet længere
+        _logPcClearMap();                    // markøren passer ikke til det der tastes
+        clearTimeout(searchTimer);
+        var q = addr.value.trim();
+        if (q.length < 3) { dawa.hidden = true; dawa.innerHTML = ''; return; }
+        searchTimer = setTimeout(function() { _logPcSearch(q); }, 300);
+    });
+    // Escape: luk først adresse-listen, ellers hele panelet.
+    addr.addEventListener('keydown', function(e) {
+        if (e.key !== 'Escape') return;
+        if (!dawa.hidden) { dawa.hidden = true; return; }
+        _logPcSetOpen(false);
+    });
+    // mousedown (ikke click): fyrer FØR feltet mister fokus, så valget
+    // ikke går tabt hvis noget senere skulle skjule listen på blur.
+    dawa.addEventListener('mousedown', function(e) {
+        var item = e.target.closest('.log-pc-dawa-item');
+        if (!item) return;
+        e.preventDefault();
+        _logPcSelect(_logPcHits[parseInt(item.getAttribute('data-i'), 10)]);
+    });
+
+    // Kun ÉN gang for hele siden — shell'en gen-renderes ved view-skift.
+    if (!_logPcDocBound) {
+        _logPcDocBound = true;
+        document.addEventListener('click', function(e) {
+            var p = document.getElementById('logPriceCalc');
+            var d = document.getElementById('logPcDawa');
+            if (p && d && !p.contains(e.target)) d.hidden = true;
+        });
+    }
+
+    var recalcTimer = null;
+    var bump = function() { clearTimeout(recalcTimer); recalcTimer = setTimeout(_logPcCalc, 350); };
+    document.getElementById('logPcPax').addEventListener('input', bump);
+    document.getElementById('logPcBoxes').addEventListener('input', bump);
+}
+
+function _logPcSearch(q) {
+    var dawa = document.getElementById('logPcDawa');
+    if (!dawa) return;
+    fetch('https://api.dataforsyningen.dk/adresser/autocomplete?q=' + encodeURIComponent(q) + '&per_side=6')
+        .then(function(r) { return r.json(); })
+        .then(function(list) {
+            if (!document.getElementById('logPcDawa')) return;
+            if (!Array.isArray(list) || !list.length) { dawa.hidden = true; dawa.innerHTML = ''; return; }
+            _logPcHits = list;
+            dawa.innerHTML = list.map(function(it, i) {
+                return '<div class="log-pc-dawa-item" data-i="' + i + '">' + _logEsc(it.tekst || '') + '</div>';
+            }).join('');
+            dawa.hidden = false;
+        })
+        .catch(function() { dawa.hidden = true; });
+}
+
+function _logPcSelect(item) {
+    if (!item) return;
+    var a = item.adresse || {};
+    var lat = Number(a.y), lon = Number(a.x);      // DAWA: x = lon, y = lat (WGS84)
+    document.getElementById('logPcAddr').value = item.tekst || '';
+    document.getElementById('logPcDawa').hidden = true;
+    if (!isFinite(lat) || !isFinite(lon)) {
+        _logPc = null;
+        _logPcMsg('Adressen har ingen koordinater — prøv en anden skrivemåde.', 'err');
+        return;
+    }
+    _logPc = { lat: lat, lon: lon, text: item.tekst || '', postnr: a.postnr || '' };
+    _logPcCalc();
+    _logPcLoadHistory(a.postnr);
+}
+
+// "Hvad plejer vi at tage hertil?" — uafhængigt af formlen, hentet fra
+// hvad kunderne faktisk er blevet opkrævet. Non-blocking: fejler den,
+// mangler linjen bare.
+function _logPcLoadHistory(postnr) {
+    var el = document.getElementById('logPcHist');
+    if (!el) return;
+    if (!postnr) { el.hidden = true; el.innerHTML = ''; return; }
+    el.hidden = false;
+    el.className = 'log-pc-hist loading';
+    el.textContent = 'Slår tidligere priser op…';
+    fetchDeliveryPriceHistory(postnr, 8).then(function(h) {
+        if (!_logPc || _logPc.postnr !== postnr) return;   // adressen er skiftet
+        el.className = 'log-pc-hist';
+        if (!h || !h.count) {
+            el.innerHTML = '<span class="log-pc-hist-none">Ingen tidligere leveringer til '
+                + _logEsc(postnr) + '</span>';
+            return;
+        }
+        var kr = function(n) { return Number(n).toLocaleString('da-DK', { maximumFractionDigits: 2 }) + ' kr'; };
+        var top = (h.common || [])[0];
+        el.innerHTML = '<strong>Sidst taget til ' + _logEsc(h.postal_code) + ':</strong> '
+            + kr(h.last.price_incl) + ' <span class="log-pc-dim">inkl. ('
+            + kr(h.last.price_ex) + ' ex) · ' + _logEsc(h.last.label || '')
+            + (h.last.delivery_date ? ' · ' + _logEsc(h.last.delivery_date) : '') + '</span>'
+            + (top && top.n > 1
+                ? '<br><span class="log-pc-dim">Oftest ' + kr(top.price_incl) + ' inkl. ('
+                  + top.n + ' af ' + h.count + ' seneste)</span>'
+                : '');
+    }).catch(function() {
+        el.hidden = true;
+    });
+}
+
+// Sæt den beregnede adresse på kortet: markør + stiplet linje fra HQ, så
+// afstanden kan ses og ikke bare læses. Markøren er bevidst anderledes end
+// bon-pins (hul, brun ring) — det er et opslag, ikke en levering der findes.
+function _logPcShowOnMap(r) {
+    if (!_logMap || !_logPcLayer || !_logPc) return;
+    _logPcLayer.clearLayers();
+
+    var hq = _logData.hq;
+    var pt = [_logPc.lat, _logPc.lon];
+
+    if (hq && hq.lat != null && hq.lon != null) {
+        L.polyline([[hq.lat, hq.lon], pt], {
+            color: '#8e631f', weight: 2, opacity: 0.75, dashArray: '6 6'
+        }).addTo(_logPcLayer);
+    }
+
+    // Billigste vogn vi reelt kan sælge (egne vogne er vores omkostning).
+    var ext = (r.alternatives || [])
+        .filter(function(a) { return !a.is_internal && a.cost_dkk != null; })
+        .sort(function(a, b) { return a.cost_dkk - b.cost_dkk; })[0];
+    var pris = ext
+        ? _logEsc(ext.label) + ' ' + ext.cost_dkk + ' kr ex'
+        : 'ingen ekstern pris';
+
+    L.marker(pt, {
+        icon: L.divIcon({
+            className: 'log-mk',
+            html: '<div class="log-mk-calc">🧮</div>',
+            iconSize: [26, 26], iconAnchor: [13, 13]
+        })
+    })
+    .bindTooltip('<strong>' + _logEsc(_logPc.text) + '</strong><br>'
+        + String(r.distance_km).replace('.', ',') + ' km · ' + pris,
+        { direction: 'top', offset: [0, -10] })
+    .addTo(_logPcLayer);
+
+    if (hq && hq.lat != null && hq.lon != null) {
+        _logMap.fitBounds([[hq.lat, hq.lon], pt], { padding: [48, 48], maxZoom: 14 });
+    } else {
+        _logMap.setView(pt, 13);
+    }
+}
+
+function _logPcClearMap() {
+    if (_logPcLayer) _logPcLayer.clearLayers();
+}
+
+function _logPcMsg(text, cls) {
+    var out = document.getElementById('logPcResult');
+    if (!out) return;
+    out.className = 'log-pc-result log-pc-' + (cls || 'note');
+    out.textContent = text;
+}
+
+function _logPcCalc() {
+    if (!_logPc) return;
+    var pax = parseInt(document.getElementById('logPcPax').value, 10);
+    var boxes = parseInt(document.getElementById('logPcBoxes').value, 10);
+    var payload = { lat: _logPc.lat, lng: _logPc.lon };
+    if (boxes > 0) payload.boxes = boxes;
+    if (pax > 0) payload.pax = pax;
+
+    _logPcMsg('Beregner…', 'loading');
+    var token = ++_logPcSeq;
+    calculateDelivery(payload)
+        .then(function(r) { if (token === _logPcSeq) _logPcRender(r); })
+        .catch(function(e) {
+            if (token !== _logPcSeq) return;
+            _logPcMsg('Kunne ikke beregne: ' + ((e && e.message) || 'fejl'), 'err');
+        });
+}
+
+function _logPcRender(r) {
+    var out = document.getElementById('logPcResult');
+    if (!out) return;
+    if (!r || !r.ok) {
+        _logPcMsg(
+            r && r.reason === 'no_api_key'        ? 'Rute-opslag er ikke sat op (ORS-nøgle mangler).'
+          : r && r.reason === 'hq_not_configured' ? 'HQ-koordinater mangler i indstillingerne.'
+          : r && r.reason === 'no_route'          ? 'Der kunne ikke findes en rute til adressen.'
+          : 'Afstanden kunne ikke beregnes.', 'err');
+        return;
+    }
+
+    // Vis hvilket kasse-antal prisen er regnet på, uden at overskrive et tal
+    // brugeren selv har tastet.
+    var boxEl = document.getElementById('logPcBoxes');
+    if (boxEl && !boxEl.value) boxEl.placeholder = r.boxes > 0 ? r.boxes + ' (auto)' : 'auto';
+
+    _logPcShowOnMap(r);
+
+    var kr = function(n) {
+        return n == null ? '–' : Number(n).toLocaleString('da-DK', { maximumFractionDigits: 2 }) + ' kr';
+    };
+    var toIncl = function(ex) {
+        return (ex != null && window.Moms) ? window.Moms.exclToIncl(ex) : null;
+    };
+
+    var rows = (r.alternatives || []).slice().sort(function(a, b) {
+        if (a.suitable !== b.suitable) return a.suitable ? -1 : 1;
+        return (a.cost_dkk == null ? Infinity : a.cost_dkk) - (b.cost_dkk == null ? Infinity : b.cost_dkk);
+    }).map(function(a) {
+        // Constraint-brud er en anbefaling, ikke en spærring — og siden By-expressen
+        // fik en afstandstrappe, GÆLDER prisen også herude. Så sig ikke andet.
+        var caveat = (!a.suitable && a.reason)
+            ? '<span class="log-pc-caveat">⚠ ' + _logEsc(a.reason) + ' — kan vælges alligevel</span>'
+            : '';
+        return '<div class="log-pc-row' + (a.suitable ? '' : ' log-pc-row-off') + '">' +
+            '<span class="log-pc-veh">' + _logVehicleIcon(a.type) + ' ' + _logEsc(a.label) +
+              (a.is_internal ? ' <span class="log-pc-tag">egen vogn</span>' : '') + '</span>' +
+            '<span class="log-pc-ex">' + kr(a.cost_dkk) + '</span>' +
+            '<span class="log-pc-incl">' + kr(toIncl(a.cost_dkk)) + '</span>' +
+            caveat +
+        '</div>';
+    }).join('');
+
+    out.className = 'log-pc-result log-pc-ok';
+    out.innerHTML =
+        '<div class="log-pc-sum">📍 ' + String(r.distance_km).replace('.', ',') + ' km · '
+          + r.duration_min + ' min fra HQ · '
+          + (r.boxes > 0
+              ? 'pris regnet på <strong>' + r.boxes + ' kasser</strong>'
+              : 'pris uden kasse-tillæg — skriv antal kuverter for et præcist tal')
+          + '</div>' +
+        '<div class="log-pc-rows">' +
+          '<div class="log-pc-row log-pc-row-head">' +
+            '<span class="log-pc-veh">Vogn</span>' +
+            '<span class="log-pc-ex">ex moms</span>' +
+            '<span class="log-pc-incl">inkl. moms</span>' +
+          '</div>' + rows +
+        '</div>' +
+        '<div class="log-pc-foot">Sig <strong>inkl. moms</strong> til en privatkunde og '
+          + '<strong>ex moms</strong> til et firma.<br>'
+          + '“Egen vogn” er vores egen omkostning ved selv at køre — ikke et tal at give kunden. '
+          + 'Standardpriser, ikke et bindende tilbud.</div>';
 }
 
 /* ── Live-mode statbar (vises kun når datoen er i dag) ─── */
@@ -493,11 +853,22 @@ function _logFetchByExPrice(id, row, boxes) {
     }
     fetchLoboQuote(id, boxes).then(function(q) {
         var kr = function(n) { return n == null ? '–' : Number(n).toLocaleString('da-DK', { maximumFractionDigits: 2 }) + ' kr'; };
-        var dist = q.routedistance != null ? ' · ' + (q.routedistance / 1000).toLocaleString('da-DK', { maximumFractionDigits: 1 }) + ' km' : '';
+        // By-expressens EGEN målte afstand — mærkes, så den ikke forveksles med
+        // vores ORS-afstand fra HQ på linjen ovenover (de måler ikke det samme).
+        var dist = q.routedistance != null
+            ? ' · ' + (q.routedistance / 1000).toLocaleString('da-DK', { maximumFractionDigits: 1 })
+              + ' km <span class="byex-dim">(By-ex)</span>'
+            : '';
         var marginHtml = '';
         if (q.margin != null) {
             marginHtml = ' · <span class="byex-margin ' + (q.margin < 0 ? 'neg' : 'pos') + '">margin '
                 + (q.margin >= 0 ? '+' : '') + kr(q.margin) + '</span>';
+        } else if (q.supply_warning) {
+            // By-expressen kører gerne derud, men ikke på Food — og det er Food vi
+            // har spurgt om. Prisen ovenfor er derfor et Food-tal for noget vi ikke
+            // kan købe. Send office videre til booking-panelet frem for at gætte.
+            marginHtml = ' · <span class="byex-suggest">uden for Food-området — hent'
+                + ' rigtig pris under <strong>By-ex booking</strong></span>';
         }
         out.setAttribute('data-boxes', q.boxes);
         out.className = 'log-byex-result ok';
@@ -940,6 +1311,9 @@ function _logInitMap() {
     }).addTo(_logMap);
     _logMarkerLayer = L.layerGroup().addTo(_logMap);
     _logRouteLayer = L.layerGroup().addTo(_logMap);
+    // Eget lag til prisberegnerens adresse, så den overlever _logRenderMap's
+    // clearLayers() når dagens data genindlæses (fx via SSE).
+    _logPcLayer = L.layerGroup().addTo(_logMap);
     // Kortet rendres i et nyligt indsat element — invalidér størrelsen.
     setTimeout(function() { if (_logMap) _logMap.invalidateSize(); }, 150);
 }
@@ -1038,6 +1412,12 @@ function _logRenderMap() {
             style: { color: r.vehicle_color || _logRouteColor(r.vehicle_type), weight: 4, opacity: 0.7 }
         }).addTo(_logRouteLayer);
     });
+
+    // Står der en beregnet adresse på kortet, skal den blive i billedet —
+    // ellers panorerer en SSE-drevet genindlæsning den ud af syne.
+    if (_logPc && _logPcLayer && _logPcLayer.getLayers().length) {
+        bounds.push([_logPc.lat, _logPc.lon]);
+    }
 
     if (bounds.length) {
         _logMap.fitBounds(bounds, { padding: [32, 32], maxZoom: 14 });

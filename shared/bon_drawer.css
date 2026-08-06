@@ -815,6 +815,8 @@
 .drawer-lobo-quote .lq-margin.pos { color: #2e7d32; }
 .drawer-lobo-quote .lq-margin.neg { color: #bc181b; }
 .drawer-lobo-quote .lq-warn { margin-top: 6px; color: #bc181b; font-weight: 600; }
+/* Uden for Food-området: en anvisning, ikke et tab. Derfor dæmpet gul, ikke rød. */
+.drawer-lobo-quote .lq-warn-soft { color: #9a6a1a; font-weight: 500; line-height: 1.4; }
 .drawer-lobo-quote .lq-stepper { display: inline-flex; align-items: center; gap: 8px; }
 .drawer-lobo-quote .lq-box-n { min-width: 16px; text-align: center; }
 .drawer-lobo-quote .lq-box-btn {
@@ -994,6 +996,14 @@
     color: #9a6a1a;
     padding-left: 22px;
 }
+
+/* "Sidst taget" — hvad kunderne faktisk er blevet opkrævet, ved siden af estimatet. */
+.drawer-sug-hist {
+    margin-top: 6px; padding: 6px 8px; font-size: 11.5px; line-height: 1.5;
+    background: #f3efe7; border-radius: 5px;
+}
+.drawer-sug-hist .dsh-label { font-weight: 600; }
+.drawer-sug-hist .dsh-dim { color: var(--color-text-dim, #8a8580); }
 
 /* ── Luk-bekræftelse (ugemte ændringer) ──
    Matcher shared/modal.css' tone: cream-kantet panel, brun titel, blød skygge. */

@@ -1989,6 +1989,14 @@ function calculateDelivery(data) {
     });
 }
 
+// Hvad har vi historisk taget for at levere til et postnummer?
+// Kilde: leveringslinjer på bons (INCL moms) — svaret bærer begge dele.
+function fetchDeliveryPriceHistory(postalCode, limit) {
+    var q = '/delivery/price-history?postal_code=' + encodeURIComponent(postalCode);
+    if (limit) q += '&limit=' + limit;
+    return apiFetch(q);
+}
+
 function deliveryHealth() {
     return apiFetch('/delivery/health');
 }

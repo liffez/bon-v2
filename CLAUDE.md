@@ -3000,6 +3000,169 @@ lover "vises på bestillingssiden".
 Settings → `/webhook/event-menu` → bro → event-order-siden, og mod en kopi af
 driftsdata: 32 af 36 retter matchede på id, 0 ikke fundet.
 
+### Leveringspris: tal i pillen + beregner for løs adresse (6. august 2026)
+
+To ting fra driften: pillen i logistik-rækken sagde bare "By-ex pris" uden et tal, og
+der var ingen vej til at svare på "hvad koster levering til X?" når en kunde ringer,
+uden først at oprette en bon.
+
+- **Pris i pillen uden klik** ([shared/logistik.js](shared/logistik.js) `_logFillByExPill`):
+  rækken henter allerede `/api/delivery/calculate`, og svarets `alternatives[]` indeholder
+  By-expressens standard **kundepris**. Pillen viser den nu direkte (`💰 By-ex 154 kr`) —
+  **nul ekstra API-kald**. Klik henter stadig By-expressens egen pris (vores KOSTpris) +
+  margin som før. Ligger turen uden for standardprisens rækkevidde (`max_distance_km`),
+  vises **intet tal** — pillen bliver stiplet med begrundelsen i tooltip. Et forkert tal
+  er værre end ingen. `_logFillRow` samler forslag-linje + pille, så de altid følges ad.
+- **Prisberegner for en løs adresse**: knappen `🧮 Beregn pris` i logistik-toolbaren
+  åbner et panel med DAWA-autocomplete + kuverter/kasser. Bruger **samme** `/calculate`
+  som bon-forslagene, så prisen kunden får i røret er den samme office senere ser på bonen.
+  Ingen bon oprettes, og der ringes ikke ud til By-expressen. Viser **både ex og inkl. moms**
+  (via `Moms.exclToIncl`) — `cost_formula` er ex moms, mens `bons.delivery_price` er incl,
+  så en privatkunde skal høre det andet tal end et firma. Uegnede vogne vises stadig, men
+  dæmpet med begrundelse (constraint-princippet: aldrig spærring). Egne vogne er mærket
+  "egen vogn" med en note om at det er vores omkostning, ikke et tal at give kunden.
+  Virker i begge zoner (delt `shared/logistik.js`).
+
+**Prisformlen rettet — `standard_inner_city` er et GULV, ikke et loft**
+([services/booking_template.js](services/booking_template.js) `estimateCost`): bytaksten tog
+hidtil forrang og **ignorerede afstanden helt**, så taxaens `base 136 + per_km 19` var reelt
+uendelig død kode — en tur til Roskilde (40 km) blev prissat til 250 kr i stedet for ~895 kr.
+Nu vinder km-taksten når turen er lang nok. Vogne uden km-takst (By-expressen) er uændret
+flade; dér er `max_distance_km = 8` værnet. Kasse-tillægget lægges oveni uanset hvilket
+prisled der vinder. Uden afstand står bytaksten alene → bagudkompatibelt.
+Rammer også margin-visningen i draweren, hvor lange taxature før så kunstigt rentable ud.
+
+**`POST /api/delivery/calculate`** ([routes/delivery.js](routes/delivery.js)): uden `bon_id`
+udledes kasser nu af `pax` efter **samme** regel som for en bon (`default_pax_per_box`), så
+beregneren og bon-forslaget ikke kan blive uenige — reglen lever ét sted, på serveren.
+Svaret returnerer additivt `boxes` + `pax_per_box`, så beregneren kan vise *hvilket*
+kasse-antal prisen er regnet på.
+
+**Falsk tabs-alarm på lange ture fjernet** (driftsfund): `GET /lobo/quote` regnede margin
+mod `estimateCost(vehicle, bon)` **uden afstand**, altså mod By-expressens **bypris** på
+154 kr — også når turen lå langt uden for de 8 km bytaksten gælder for. En levering til
+Høje Taastrup (21,9 km, kost 328,80) viste derfor rødt `margin −174,8 kr` + "I taber på
+leveringen", målt mod en pris vi aldrig ville have tilbudt derude. By-expressen har ingen
+`per_km`, så gulv-rettelsen ovenfor hjælper ikke her — formlen *kan* ikke udtrykke afstand
+for den vogn.
+- `quoteForBon` sammenligner nu Lobos **egen** målte `routedistance` mod vognens
+  `max_distance_km` (samme regel som `supply_warning` i `previewBooking`) → nyt felt
+  `standard_price_applies`. Er den falsk: `margin = null` (ingen margin mod en pris der
+  ikke gælder) og i stedet `suggested_customer_ex` + `suggested_margin` via den
+  eksisterende `suggestCustomerPrice` — som hidtil KUN blev brugt i booking-previewet.
+- **Vi foreslår IKKE selv en kundepris derude.** Driftsfeedback afdækkede hvorfor:
+  By-expressen *kører* gerne uden for zonen — bare på andre produkter
+  (Small/Medium/Large × Economy/Standard/VIP) plus et `outside zone`-tillæg på +30 %
+  af ordreværdien (dertil `volume surcharge` +50 % og `saturday delivery` +30 %; vi får
+  10 % rabat på basisprisen). **Food** — det produkt `cost_formula` beskriver, og det
+  vi altid spørger om i `bonToOrderInput` — er derimod kun tilgængeligt i
+  forsyningsområdet, og Lobos *kladde* afviser IKKE out-of-area (kun den rigtige
+  booking gør; det er præcis hvad `supply_warning` i `previewBooking` allerede advarer
+  om). Kostprisen for en fjern tur er altså **en Food-pris for noget vi ikke kan købe**,
+  og en markup ovenpå ville bygge en kundepris på et tal der ikke findes. Derfor
+  `suggested_customer_ex = null` ved out-of-area; office henter den rigtige pris i
+  By-ex booking-panelet, hvor produktet kan vælges og `previewBooking` regner forslaget
+  på rigtigt grundlag.
+- Logistik-rækken: `uden for Food-området — hent rigtig pris under By-ex booking`
+  (dæmpet gul) i stedet for rødt tab. Draweren: `Kundepris (std) → gælder ikke så langt
+  ude` + samme forklaring som booking-panelets `supply_warning`, i dæmpet gul
+  (`.lq-warn-soft`) — det er en anvisning, ikke et tab. Inden for området hvor
+  bytaksten ikke dækker (fx mange kasser) er kostprisen ægte, og dér beregnes forslaget
+  som før.
+- **Kendt upræcished:** grænsen testes som `routedistance > max_distance_km` (8 km),
+  men By-expressens rigtige grænse er **postnummer-zoner**, ikke en radius — primær zone
+  (1000–2450 Kbh, 1800–2000 Frb, 2150, 2500, 2900) + udvidet zone (2600 Glostrup …
+  2920 Charlottenlund). Fx 2750 Ballerup ligger ~14 km væk men *i* den udvidede zone.
+  Radius-testen er derfor konservativ i begge retninger. At kode zonelisterne ind kræver
+  bekræftelse på om Food dækker hele den udvidede zone — ikke afklaret.
+- Vogne uden `max_distance_km` → bytaksten gælder altid (bagudkompatibelt; test-fixturen
+  har ikke feltet, så de eksisterende margin-asserts er urørte).
+- **De to afstande skilles ad**: rækken/draweren viste `21,9 km` (vores ORS fra HQ) og
+  `18,9 km` (Lobos egen rute) lige over hinanden uden forklaring. Lobos er nu mærket
+  `(By-ex)`.
+
+**Tests:** +7 asserts i `scripts/test-delivery-spor2-unit.js` (bypris vs. km-takst i begge
+retninger, flad vogn uden km-takst, kasse-tillæg på begge grene) og +5 tests i
+`tests/lobo_booking.test.js` (drifts-tilfældet 18,9 km/8 km → margin null + `supply_warning`
++ **intet** forslag, bynær tur hvor bytaksten dækker → margin bevaret og intet forslag,
+bynær tur hvor den ikke dækker → forslag beregnet, vogn uden `max_distance_km` → uændret).
+Mutationstestet: neutraliseres `outOfArea`, fejler drifts-testen.
+241 delivery-tests grønne (102+50 spor1, 31+24+29 spor2, 21 lobo) + moms-audit 18/0.
+Browser-verificeret i begge zoner mod live ORS: 5 km → taxa 250 kr, 21,9 km → 552 kr,
+40 km → 895 kr; 60 kuverter → 4 kasser → By-ex 154 → 254 kr; pille med og uden tal;
+Lobo-svaret stubbet med driftens egne tal for at se renderingen. Testdata ryddet.
+
+### Leveringspris: afstandstrappe + "sidst taget" (6. august 2026)
+> Fortsættelse af sektionen ovenfor. Driften leverede tre oplysninger der ændrede designet:
+> Food dækker kun byområdet · til Høje Taastrup har vi taget 400 kr · en taxa koster 605 kr i dag.
+
+**Trappe-takst i `estimateCost`** (migration 139): ny formel-type
+`{tiers:[{max_km,price,label},…]}` — fast pris pr. afstandsinterval. Sidste trin uden
+`max_km` = "og derover". Vinder over `standard_inner_city`/`base`/`per_km` når afstanden
+kendes; uden afstand bruges trin 1, så kaldere uden distance er upåvirkede.
+
+**Trappen er ikke opfundet** — den lå i driftsdataene hele tiden
+(`bon_lines.category = 'x-Levering'`, 2.269 linjer):
+
+| Leveringslinje | Pris incl | Antal | Sidst brugt |
+|---|---|---|---|
+| By-ekspressen leverer | 180 kr | 1.067 | maj 2026 |
+| By-ekspressen – Langt væk | 300 kr | 47 | **apr. 2024** |
+| By-ekspressen – Meget Langt væk | 500 kr | 9 | **apr. 2024** |
+
+De to sidste holdt op med at blive brugt i april 2024 — dét var hullet. Bekræftet mod en
+faktura fra 11. juni 2025 til 2630 Taastrup: `Transport Taastrup 400,00` = 500 incl = **400 ex**,
+altså meget-langt-taksten. `bon_lines.unit_price` er incl moms, `cost_formula` er ex (§6b),
+så trappen er **144 / 240 / 400**. Km-grænserne (8 / 15) er derimod et **skøn** — de historiske
+takster blev valgt i hånden og er ikke konsistente (2800 Lyngby fik både 300 og 500;
+300-taksten blev også brugt på inderby-adresser). Justeres i Settings → Leveringsmetoder.
+
+**`quoteForBon` + `previewBooking` sender nu Lobos målte afstand ind i `estimateCost`,**
+så `customer_ex` rammer det rigtige trin. Dermed er kundeprisen pålidelig hele vejen ud —
+men `margin` er stadig `null` uden for Food-området, fordi **kostprisen** dér er en Food-pris
+for noget vi ikke kan købe (uændret fra sidste runde).
+
+**`GET /api/delivery/price-history?postal_code=&limit=`** — hvad har vi FAKTISK taget?
+Læser leveringslinjer (`category = 'x-Levering'`), ikke `bons.delivery_price` (udfyldt på
+4 af 3.125 bons) og ikke `bons.delivery_cost` (blandet v1/v2-semantik, #194). Returnerer
+`last` + `common` + `rows` med både incl og ex. Postnumrene i v1-data er rodede
+(`2630`, `DK-2620`, `1000 København K`) → delstrengs-match på de fire cifre.
+Vises i **prisberegneren** og i **bon-drawerens forslags-blok** ("Sidst taget til 2630:
+180 kr inkl. (144 kr ex) · Levering med El-Taxa · 2026-01-28 · oftest 180 kr (2/3)").
+
+**Tre kilder, bevidst adskilt i UI'et:** trappen = *hvad bør det koste*, historikken =
+*hvad plejer vi at tage*, live By-ex-opslag = *hvad koster det os*. Live-opslaget er
+uændret on-demand (klik) — det opretter og sletter en kladde hos Lobo pr. opslag, så det
+må ikke køre automatisk pr. række. Det er mest pålideligt netop inden for byområdet, hvor
+Food gælder.
+
+**Pillen viser nu trappens pris hele vejen ud** (400 kr på 21,9 km) — stiplet med forklaring
+når Food ikke dækker, i stedet for at skjule tallet. Beregnerens caveat blev rettet fra
+"prisen holder ikke her" til "kan vælges alligevel": efter trappen *gælder* prisen derude.
+
+**Tests:** +14 asserts i `scripts/test-delivery-spor1-unit.js` og `-spor2-unit.js`
+(trin-grænser inkl. ≤-kant, kasse-tillæg oveni trappen, tiers-forrang, tom/ugyldig trappe
+falder igennem), +14 i `scripts/test-delivery-spor1.js` (price-history: kun x-Levering,
+`DK-`-præfiks matcher, incl→ex, hyppigste pris, ukendt postnr → 200 tom, ugyldigt → 400).
+285 delivery-tests grønne (105+65 spor1, 42+24+29 spor2, 21 lobo) + moms-audit 18/0.
+Browser-verificeret i office: pille 144/400 kr, beregner 400 ex / 500 incl (= fakturaens tal),
+historik i både beregner og drawer. Testdata ryddet.
+
+**Beregnet adresse vises på kortet** (driftsønske): markør (🧮 i stiplet brun ring — bevidst
+anderledes end bon-pins, for det er et opslag og ikke en levering der findes) + stiplet linje
+fra HQ, så afstanden kan *ses* og ikke bare læses. Tooltip: adresse · km · billigste eksterne
+vogn. Ligger i sit **eget Leaflet-lag** (`_logPcLayer`), så `_logRenderMap`'s `clearLayers()`
+ikke fjerner den ved en SSE-drevet genindlæsning; punktet lægges desuden ind i `fitBounds`
+så kortet ikke panorerer det ud af syne. Ryddes når panelet lukkes, og så snart der tastes i
+adressefeltet igen (så markøren aldrig viser noget andet end det feltet siger).
+**Åbn/luk ejes af én funktion** (`_logPcSetOpen`) — første udgave lagde oprydningen i ✕-vejen
+men ikke i toolbar-knappen, så markøren blev hængende når man lukkede dér (fundet i drift).
+Escape lukker først adresse-listen, derefter panelet.
+
+**Åbent:** taxaens takst. Appen viser 605 kr for HQ → 2630 Taastrup; vores formel siger
+552 kr ex. Er appens tal **incl** moms (som forbrugerpriser typisk er), er den rigtige pris
+484 ex, og `per_km: 19` er ~14 % for høj (~15,8 ville ramme). Ikke rettet — moms-grundlaget
+er ikke bekræftet.
 ### Kontaktperson på eventet (6. august 2026)
 > Spec: `docs/CLAUDE_EVENT.md §17`. Driftsfeedback: kontoret udfyldte kunden i hånden
 > på hver enkelt event-bon, og de øvrige stod som "Ukendt" på køkkenets kort.

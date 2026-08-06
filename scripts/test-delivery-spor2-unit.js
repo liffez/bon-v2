@@ -143,6 +143,59 @@ function findAlt(result, code) {
     assertEqual(estimateCost(taxaFormula, { boxes: 0 }, { distance_km: 99 }), 250,
                 'standard_inner_city ignorerer distance');
 
+    // ─── Bypris er et GULV, ikke et loft ──────────────────
+    // Taxaen som den står i drift: bytakst 250, men også 136 + 19/km.
+    // Kort tur → bytaksten. Lang tur → km-taksten, ellers ville vi
+    // prissætte en tur til Roskilde til bytakst.
+    const taxaReal = { code: 't', cost_formula_json: '{"base":136,"per_km":19,"standard_inner_city":250}' };
+    assertEqual(estimateCost(taxaReal, { boxes: 0 }, { distance_km: 5.1 }), 250,
+                'bypris vinder på kort tur (136 + 19×5,1 = 233 < 250)');
+    assertEqual(estimateCost(taxaReal, { boxes: 0 }, { distance_km: 35 }), 801,
+                'km-takst vinder på lang tur (136 + 19×35 = 801 > 250)');
+    assertEqual(estimateCost(taxaReal, { boxes: 0 }), 250,
+                'uden afstand står bypris alene (bagudkompatibelt)');
+
+    // By-expressen har INGEN km-takst — prisen forbliver flad uanset afstand.
+    // (max_distance_km = 8 er værnet mod at bruge den for langt ude.)
+    const byexReal = { code: 'b', cost_formula_json: '{"base":100,"included_boxes":2,"extra_box_cost":50,"standard_inner_city":154}' };
+    assertEqual(estimateCost(byexReal, { boxes: 2 }, { distance_km: 40 }), 154,
+                'vogn uden km-takst er flad uanset afstand');
+    assertEqual(estimateCost(byexReal, { boxes: 4 }, { distance_km: 5 }), 254,
+                'kasse-tillæg oveni bypris (154 + 2×50)');
+    // Kasse-tillægget skal følge med når km-taksten vinder — ikke falde bort.
+    const boxedKm = { code: 'x', cost_formula_json: '{"base":100,"per_km":19,"included_boxes":2,"extra_box_cost":50,"standard_inner_city":154}' };
+    assertEqual(estimateCost(boxedKm, { boxes: 4 }, { distance_km: 30 }), 770,
+                'kasse-tillæg oveni km-takst (100 + 19×30 + 2×50)');
+
+    // ─── Afstandstrappe (By-expressens faktiske praksis) ──
+    // 144/240/400 ex moms = 180/300/500 inkl., fra deres egne leveringslinjer.
+    console.log('\n=== estimateCost (trappe) ===');
+    const trappe = { code: 'b', cost_formula_json: JSON.stringify({
+        tiers: [{ max_km: 8, price: 144 }, { max_km: 15, price: 240 }, { price: 400 }],
+        included_boxes: 2, extra_box_cost: 50,
+    }) };
+    assertEqual(estimateCost(trappe, { boxes: 2 }, { distance_km: 5 }), 144, 'trin 1: bytakst under 8 km');
+    assertEqual(estimateCost(trappe, { boxes: 2 }, { distance_km: 8 }), 144, 'grænsen hører til trinnet under (≤)');
+    assertEqual(estimateCost(trappe, { boxes: 2 }, { distance_km: 8.1 }), 240, 'lige over grænsen → trin 2');
+    assertEqual(estimateCost(trappe, { boxes: 2 }, { distance_km: 15 }), 240, 'trin 2 til og med 15 km');
+    assertEqual(estimateCost(trappe, { boxes: 2 }, { distance_km: 21.9 }), 400,
+                'Høje Taastrup → meget-langt-takst (= fakturaens 400 kr ex)');
+    assertEqual(estimateCost(trappe, { boxes: 2 }, { distance_km: 99 }), 400, 'sidste trin er "og derover"');
+    assertEqual(estimateCost(trappe, { boxes: 2 }), 144, 'uden afstand → trin 1 (bagudkompatibelt)');
+    assertEqual(estimateCost(trappe, { boxes: 4 }, { distance_km: 21.9 }), 500,
+                'kasse-tillæg oveni trappen (400 + 2×50)');
+    // Trappen vinder over de gamle felter, så en delvis migreret formel ikke bliver tvetydig.
+    const begge = { code: 'b', cost_formula_json: JSON.stringify({
+        tiers: [{ price: 400 }], standard_inner_city: 154, base: 100, per_km: 19,
+    }) };
+    assertEqual(estimateCost(begge, { boxes: 0 }, { distance_km: 30 }), 400,
+                'tiers har forrang over standard_inner_city/base/per_km');
+    // Defensivt: tom eller ugyldig trappe må ikke sluge de øvrige led.
+    const tom = { code: 'b', cost_formula_json: '{"tiers":[],"standard_inner_city":250}' };
+    assertEqual(estimateCost(tom, { boxes: 0 }, { distance_km: 30 }), 250, 'tom tiers → falder igennem');
+    const uden = { code: 'b', cost_formula_json: '{"tiers":[{"max_km":8}],"standard_inner_city":250}' };
+    assertEqual(estimateCost(uden, { boxes: 0 }, { distance_km: 5 }), 250, 'trin uden price → falder igennem');
+
     // ─── shiftTime ────────────────────────────────────────
     console.log('\n=== delivery_calc.shiftTime ===');
     assertEqual(shiftTime('12:30', -20), '12:10', 'shiftTime træk 20 min fra');

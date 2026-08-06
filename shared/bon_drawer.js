@@ -1102,11 +1102,35 @@ class BonDrawer {
                 try {
                     const q = await fetchLoboQuote(this.bonId, quoteBoxes);
                     quoteBoxes = q.boxes;  // synk til det serveren regnede med
-                    const dist = q.routedistance != null ? (q.routedistance / 1000).toLocaleString('da-DK', { maximumFractionDigits: 1 }) + ' km' : '';
+                    // By-expressens egen målte afstand — mærkes, så den ikke forveksles
+                    // med vores ORS-afstand fra HQ i forslags-blokken ovenover.
+                    const dist = q.routedistance != null
+                        ? (q.routedistance / 1000).toLocaleString('da-DK', { maximumFractionDigits: 1 }) + ' km (By-ex)'
+                        : '';
                     const marginCls = q.margin == null ? '' : (q.margin < 0 ? 'neg' : 'pos');
                     const marginTxt = q.margin == null ? '' :
                         `<span class="lq-margin ${marginCls}">margin ${q.margin >= 0 ? '+' : ''}${kr(q.margin)}</span>`;
                     const incl = q.included_boxes != null ? ` <span class="lq-dim">(${q.included_boxes} inkl.)</span>` : '';
+                    // Uden for Food-området gælder bytaksten ikke, og kostprisen er
+                    // et Food-tal for en tur Food ikke kan købes til (kladden afviser
+                    // ikke out-of-area — kun den rigtige booking gør). Derfor ingen
+                    // gætte-kundepris her; office henter den i booking-panelet.
+                    const custRow = q.supply_warning
+                        ? `<div class="lq-row"><span>Kundepris (std)</span>` +
+                          `<span class="lq-dim">gælder ikke så langt ude</span></div>`
+                        : (q.customer_ex != null
+                            ? `<div class="lq-row"><span>Kundepris (std)</span><span>${kr(q.customer_ex)} ex</span></div>`
+                            : '');
+                    const suggestRow = (q.suggested_customer_ex != null)
+                        ? `<div class="lq-row"><span>💡 Bør koste</span><strong>${kr(q.suggested_customer_ex)} ` +
+                          `<span class="lq-dim">ex${q.suggested_margin != null ? ` · margin +${kr(q.suggested_margin)}` : ''}</span></strong></div>`
+                        : '';
+                    const supplyRow = q.supply_warning
+                        ? `<div class="lq-warn lq-warn-soft">⚠ Food dækker kun bynære leveringer` +
+                          `${q.max_distance_km ? ` (~${q.max_distance_km} km)` : ''} — prisen ovenfor er en Food-pris ` +
+                          `for en tur Food kan blive <strong>afvist</strong> på. By-expressen kører gerne herud, ` +
+                          `men på Medium/Large + zone-tillæg: hent den rigtige pris under <strong>By-ex booking</strong>.</div>`
+                        : '';
                     quoteEl.className = 'drawer-lobo-quote ok';
                     quoteEl.innerHTML =
                         `<div class="lq-head">🚴 By-ex pris</div>` +
@@ -1116,9 +1140,10 @@ class BonDrawer {
                           `<button type="button" class="lq-box-btn" data-box="1">+</button></span></div>` +
                         `<div class="lq-row"><span>Kostpris</span><strong>${kr(q.cost_ex)} <span class="lq-dim">ex moms</span></strong></div>` +
                         (q.cost_incl != null ? `<div class="lq-row lq-dim"><span></span><span>${kr(q.cost_incl)} incl</span></div>` : '') +
-                        (q.customer_ex != null ? `<div class="lq-row"><span>Kundepris (std)</span><span>${kr(q.customer_ex)} ex</span></div>` : '') +
+                        custRow + suggestRow +
                         (marginTxt ? `<div class="lq-row">${marginTxt}${dist ? `<span class="lq-dim">${dist}</span>` : ''}</div>` :
                             (dist ? `<div class="lq-row lq-dim"><span>${dist}</span></div>` : '')) +
+                        supplyRow +
                         (q.margin != null && q.margin < 0 ? `<div class="lq-warn">⚠ Lobo-prisen overstiger kundeprisen — I taber på leveringen.</div>` : '');
                 } catch (err) {
                     quoteEl.className = 'drawer-lobo-quote err';
@@ -1306,7 +1331,39 @@ class BonDrawer {
             }).join('');
 
         el.innerHTML = '<div class="drawer-sug-head">' + head + '</div>'
-            + '<div class="drawer-sug-list">' + alts + '</div>';
+            + '<div class="drawer-sug-list">' + alts + '</div>'
+            + '<div class="drawer-sug-hist" hidden></div>';
+
+        this._renderDeliveryPriceHistory();
+    }
+
+    // Hvad har vi tidligere taget for at levere til det postnummer? Formlen
+    // ovenfor siger hvad turen bør koste; det her siger hvad kunderne faktisk
+    // er blevet opkrævet — og fanger aftaler ingen formel kender.
+    // Non-blocking: fejler opslaget, vises linjen bare ikke.
+    async _renderDeliveryPriceHistory() {
+        const el = this.el.querySelector('.drawer-sug-hist');
+        if (!el) return;
+        const bonId = this.bonId;
+        const postnr = this.data && this.data.delivery_address
+            && this.data.delivery_address.postal_code;
+        if (!postnr) return;
+
+        let h;
+        try { h = await fetchDeliveryPriceHistory(postnr, 8); } catch { return; }
+        if (this.bonId !== bonId || !h || !h.count) return;
+
+        const kr = (n) => Number(n).toLocaleString('da-DK', { maximumFractionDigits: 2 }) + ' kr';
+        const top = (h.common || [])[0];
+        el.hidden = false;
+        el.innerHTML = '<span class="dsh-label">Sidst taget til ' + esc(h.postal_code) + ':</span> '
+            + '<strong>' + kr(h.last.price_incl) + '</strong> <span class="dsh-dim">inkl. ('
+            + kr(h.last.price_ex) + ' ex)' + (h.last.label ? ' · ' + esc(h.last.label) : '')
+            + (h.last.delivery_date ? ' · ' + esc(h.last.delivery_date) : '') + '</span>'
+            + (top && top.n > 1
+                ? ' <span class="dsh-dim">· oftest ' + kr(top.price_incl) + ' ('
+                  + top.n + '/' + h.count + ')</span>'
+                : '');
     }
 
     async _renderDeliveryEvents() {

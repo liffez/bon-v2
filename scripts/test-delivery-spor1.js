@@ -116,6 +116,37 @@ async function main() {
         VALUES ('TEST-1', ?, ?, ?, '2026-05-03', '2026-05-15', '12:30', '12:00',
                 'delivery', ?, 'Ring på dørtelefon', 'Lene', '+4522113344', 15, 4)
     `).run(statusId, locId, customerId, addrId).lastInsertRowid);
+
+    // Historiske leveringslinjer til /price-history. Postnummeret skrives med
+    // 'DK-'-præfiks på den ene adresse, fordi v1-data er rodet på præcis den
+    // måde — endpointet skal matche på cifrene, ikke på lighed.
+    const histAddrA = Number(db.prepare(`
+        INSERT INTO addresses (street_name, street_nr, postal_code, city)
+        VALUES ('Taastrupgårdsvej', '75', '2630', 'Taastrup')
+    `).run().lastInsertRowid);
+    const histAddrB = Number(db.prepare(`
+        INSERT INTO addresses (street_name, street_nr, postal_code, city)
+        VALUES ('Banestrøget', '5', 'DK-2630', 'Taastrup')
+    `).run().lastInsertRowid);
+    const mkHistBon = (num, date, aid) => Number(db.prepare(`
+        INSERT INTO bons (bon_number, status_id, location_id, order_date, delivery_date,
+                          delivery_type, delivery_address_id, pax)
+        VALUES (?, ?, ?, ?, ?, 'delivery', ?, 10)
+    `).run(num, statusId, locId, date, date, aid).lastInsertRowid);
+    const mkHistLine = (bid, name, price) => db.prepare(`
+        INSERT INTO bon_lines (bon_id, product_name, category, quantity, unit_price, line_total)
+        VALUES (?, ?, 'x-Levering', 1, ?, ?)
+    `).run(bid, name, price, price);
+
+    mkHistLine(mkHistBon('TEST-H1', '2026-01-28', histAddrA), 'Levering med El-Taxa', 180);
+    mkHistLine(mkHistBon('TEST-H2', '2025-06-13', histAddrB), 'By-ekspressen leverer', 180);
+    mkHistLine(mkHistBon('TEST-H3', '2025-05-26', histAddrA), 'RR leverer', 450);
+    // Ikke-leveringslinje på samme postnummer — må IKKE tælle med.
+    const noiseBon = mkHistBon('TEST-H4', '2026-02-01', histAddrA);
+    db.prepare(`
+        INSERT INTO bon_lines (bon_id, product_name, category, quantity, unit_price, line_total)
+        VALUES (?, 'Kartoflen', '01 Sandwich', 1, 94, 94)
+    `).run(noiseBon);
     db.close();
 
     let serverProc = null;
@@ -299,6 +330,33 @@ async function main() {
             label: 'Hacked'
         });
         assertEqual(pAuth.status, 403, 'Office kan IKKE PATCH /vehicles (admin-only)');
+
+        // ─── Test 7b: /price-history ──────────────────────
+        console.log('\n=== GET /api/delivery/price-history ===');
+        const ph = await http('GET', '/api/delivery/price-history?postal_code=2630');
+        assertEqual(ph.status, 200, 'price-history svarer 200');
+        assertEqual(ph.data.postal_code, '2630', 'postnummer ekkoes tilbage');
+        assertEqual(ph.data.count, 3, 'kun leveringslinjer tælles (sandwich-linjen ignoreres)');
+        assertEqual(ph.data.last.price_incl, 180, 'seneste = 28. jan 2026 (180 kr)');
+        assertEqual(ph.data.last.delivery_date, '2026-01-28', 'seneste dato');
+        assertEqual(ph.data.last.price_ex, 144, '180 incl → 144 ex moms');
+        assertEqual(ph.data.common[0].price_incl, 180, 'hyppigste pris er 180');
+        assertEqual(ph.data.common[0].n, 2, '180 optræder 2 gange');
+        assert(ph.data.rows.some(r => r.price_incl === 450), 'RR leverer (450) er med i rows');
+        // 'DK-2630' skal matche på cifrene — v1-data er rodet.
+        assert(ph.data.rows.some(r => r.label === 'By-ekspressen leverer'),
+               'adresse med DK-præfiks matcher også');
+
+        const phFull = await http('GET', '/api/delivery/price-history?postal_code=2630%20Taastrup');
+        assertEqual(phFull.data.count, 3, 'postnummer med bynavn parses til cifrene');
+
+        const phNone = await http('GET', '/api/delivery/price-history?postal_code=9999');
+        assertEqual(phNone.status, 200, 'ukendt postnummer → 200 (ikke fejl)');
+        assertEqual(phNone.data.count, 0, 'ukendt postnummer → tom historik');
+        assertEqual(phNone.data.last, null, 'ingen "sidst taget"');
+
+        const phBad = await http('GET', '/api/delivery/price-history?postal_code=abc');
+        assertEqual(phBad.status, 400, 'ugyldigt postnummer → 400');
 
         // ─── Test 8: Ikke-logget kan slet ikke ────────────
         console.log('\n=== Auth: Ikke-logget afvises ===');
