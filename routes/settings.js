@@ -1,7 +1,7 @@
 const express    = require('express');
 const router     = express.Router();
 const { getDb }  = require('../db/database');
-const { handle, getUserId, invalidateUnitCountCache } = require('../db/helpers');
+const { handle, getUserId, invalidateUnitCountCache, todayISO } = require('../db/helpers');
 const { requireAuth, invalidatePermCache } = require('../shared/auth');
 
 // ─── ADGANG ────────────────────────────────────────────────────────────────
@@ -139,6 +139,18 @@ router.patch('/:key', requireAuth(), handle((req, res) => {
         return res.status(403).json({ error: 'Kun admin kan ændre denne indstilling' });
     }
     const { value } = req.body;
+
+    // Fakturavagtens skæringsdato må ikke kunne tømmes ved et uheld: uden dato
+    // lyser vagten på hele v1-historikken og bliver ubrugelig. Ryd hellere med
+    // et bevidst valg af dato end med et tomt felt.
+    if (req.params.key === 'invoice_guard_from_date'
+        && !require('../services/invoiceGuard').isValidGuardDate(value)) {
+        return res.status(400).json({
+            error: 'Skæringsdatoen skal være en gyldig dato (YYYY-MM-DD). '
+                 + 'Vagten kan ikke køre uden — sæt den til dagen e-conomic-rutinen startede.'
+        });
+    }
+
     getDb().prepare(`INSERT INTO settings (key, value) VALUES (?,?) ON CONFLICT(key) DO UPDATE SET value = ?, updated_at = CURRENT_TIMESTAMP`).run(req.params.key, value, value);
     // Invalidér cache for helpers der læser settings ved hver bon-recalc + genopbyg
     // recipe_unit_counts (enheds-kategorier/extra-recipes påvirker boks-tællingen).
@@ -307,7 +319,10 @@ router.put('/bestilling/menu/:id', requireAuth('admin'), handle((req, res) => {
 
     // Auto-bump version + sæt menu_id
     menu.menu_id = id;
-    menu.version = new Date().toISOString().slice(0, 10);
+    // Dansk kalenderdato, ikke UTC (#133): en menu gemt efter midnat dansk tid
+    // fik ellers gårsdagens versionsstempel. routes/embed.js:84 stempler samme
+    // felt med todayISO() — de to skal være enige.
+    menu.version = todayISO();
 
     const json = JSON.stringify(menu);
     getDb().prepare(

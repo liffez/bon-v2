@@ -852,7 +852,7 @@
       <div style="display:flex;gap:12px;align-items:center;margin-bottom:6px">
         <label style="width:280px;font-size:14px;font-weight:500">Vagten gælder fra</label>
         <input class="st-input" id="invoice-guard-from" type="date" style="width:160px"
-               onchange="saveSetting('invoice_guard_from_date', this.value)">
+               onchange="saveSetting('invoice_guard_from_date', this.value, this)">
       </div>
       <p style="font-size:11px;color:var(--color-text-dim);margin:0 0 24px;max-width:600px;line-height:1.6">
         Bons leveret før denne dato vurderes ikke. Sæt den til dagen e-conomic-rutinen startede —
@@ -1611,8 +1611,21 @@ async function loadSettings() {
   rows.forEach(function(r) { allSettings[r.key] = r.value; });
 }
 
-async function saveSetting(key, value) {
-  await patchSetting(key, value);
+// el (valgfri) er inputtet der udløste gemningen: afviser serveren værdien,
+// rulles feltet tilbage til det der faktisk står gemt, så skærmen ikke viser
+// en værdi ingen har.
+//
+// Fejlen kastes VIDERE med vilje. En stribe kaldere gør `await saveSetting(...)`
+// og skriver "Gemt" i linjen bagefter — slugte vi fejlen her, ville de lyve om
+// noget der aldrig blev gemt. Her tilføjer vi kun synligheden.
+async function saveSetting(key, value, el) {
+  try {
+    await patchSetting(key, value);
+  } catch (e) {
+    toast(e.message || 'Kunne ikke gemme', 'error');
+    if (el) el.value = allSettings[key] || '';
+    throw e;
+  }
   allSettings[key] = value;
   toast('Gemt');
 }
