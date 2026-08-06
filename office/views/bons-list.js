@@ -176,7 +176,7 @@ function _renderBonsListShell() {
         { key: 'ny',       label: 'NY' },
         { key: 'mail',     label: 'UL\u00C6ST MAIL' },
         { key: 'giveaway', label: 'SPONSORAT/MODREGN.' },
-        { key: 'nofaktura', label: '⚠ MANGLER FAKTURA' },
+        { key: 'nofaktura', label: '⚠ MANGLER I E-CONOMIC' },
     ];
     for (var i = 0; i < filters.length; i++) {
         var btn = document.createElement('button');
@@ -668,11 +668,17 @@ function _blRenderTable() {
 
         // Fakturavagt (#319): markeret faktureret, men ingen faktura findes.
         // Udledt af serveren — forsvinder af sig selv når kladden dukker op.
+        //
+        // Teksten siger bevidst HVOR fakturaen mangler. "ingen faktura" lige ved
+        // siden af statusbadgen FAKTURERET læses som en selvmodsigelse ved første
+        // øjekast — og så bruger man et halvt minut på at regne ud hvad der menes,
+        // hver gang. Statussen er hvad nogen har trykket; mærket er hvad der rent
+        // faktisk ligger i regnskabet.
         if (bon.missing_invoice) {
             statusInner += '<span class="bl-missing-invoice"'
                 + ' title="Markeret faktureret, men der findes hverken e-conomic-kladde'
                 + ' eller bogført faktura — kunden har ikke fået en regning">'
-                + '⚠ ingen faktura</span>';
+                + '⚠ mangler i e-conomic</span>';
         }
 
         statusInner += '<button type="button" class="bl-history-btn"'

@@ -1630,7 +1630,7 @@ class BonDrawer {
             return;
         }
         el.style.display = '';
-        el.innerHTML = '⚠ Markeret faktureret, men der findes ingen faktura '
+        el.innerHTML = '⚠ Markeret faktureret, men der findes ingen faktura i e-conomic '
             + '<span class="diw-sub">— kunden har ikke fået en regning</span>';
     }
 
