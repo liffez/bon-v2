@@ -24,10 +24,15 @@
  *     e-conomic-rutinen vurderes ikke — ellers ville vagten lyse på alt.
  *     Mangler den, er tom eller ugyldig, bruges GUARD_DEFAULT_FROM_DATE.
  *     Sættes den for tidligt, drukner vagten i v1-historik: målt på driftsdata
- *     giver 2026-06-27 én bon, 2026-01-01 et par hundrede, og ingen grænse 2.762
- *     helt tilbage til 2022. De gamle er betalt for længst — de har bare aldrig
- *     haft et e-conomic-nummer i Bon v2.
+ *     (17. juli 2026) giver 2026-06-27 to bons, 2026-01-01 fyrre, og ingen
+ *     grænse 1.099 helt tilbage til 2022. De gamle er betalt for længst — de
+ *     har bare aldrig haft et e-conomic-nummer i Bon v2.
  *   • e-conomic konfigureret: uden tokens findes der ingen kladder at finde.
+ *
+ * SAMME SPØRGSMÅL FRA FAKTURA-SIDEN: notInvoicedSQL() nedenfor. Vagten kigger
+ * på en BON ("nogen trykkede FAKTURERET — findes fakturaen?"); Pengestrøm
+ * kigger på en cf_invoices-RÆKKE ("den her står som forfalden — findes
+ * fakturaen?"). Kernen er den samme, så de bor her sammen og kan ikke divergere.
  * ════════════════════════════════════════════════════════════
  */
 
@@ -129,12 +134,46 @@ function missingInvoiceSQL(db, bonAlias = 'b', statusAlias = 'sd') {
              THEN 1 ELSE 0 END`;
 }
 
+/**
+ * SQL-betingelse: står denne cf_invoices-række som ubetalt UDEN at der
+ * nogensinde blev lavet en faktura? (#319 forslag 1+2)
+ *
+ * Bruges til at skille to ting der har ligget i samme bunke under "Forfaldne":
+ *   • ægte forfalden  — regningen ER sendt, kunden har bare ikke betalt → ryk
+ *   • ikke faktureret — kunden har aldrig fået en regning → send den
+ * Den anden slags ligner en dårlig betaler. Man rykker for penge man aldrig
+ * har bedt om — eller lader være, fordi tallet drukner blandt de ægte.
+ *
+ * INGEN SKÆRINGSDATO HER, i modsætning til vagten ovenfor. Den er unødvendig:
+ * `betalt = 0` rydder selv historikken væk. Målt på driftsdata (17. juli 2026)
+ * er hver eneste ubetalte-uden-e-conomic-nummer fra 2026 — alle 12 af dem —
+ * mens de 1.012 ældre uden nummer er markeret betalt for længst. En dato ville
+ * kun være endnu en knap der kan stilles forkert.
+ *
+ * Uden bon (manuelt oprettet faktura) kan vi ikke tjekke for en kladde og tager
+ * rækken med: der er intet bevis for at fakturaen findes, og en synlig række
+ * office kan afvise er bedre end en tavs udeladelse.
+ *
+ * Kladde-tjekket er en korreleret subquery frem for et join på en alias, så det
+ * SAMME udtryk kan bruges både i list-queryen (som joiner bons) og i
+ * aggregat-queries (som ikke gør). To formuleringer af én regel er præcis den
+ * divergens det her modul findes for at undgå.
+ */
+function notInvoicedSQL(invAlias = 'i') {
+    return `(${invAlias}.betalt = 0
+             AND ${invAlias}.economic_number IS NULL
+             AND NOT EXISTS (SELECT 1 FROM bons nb
+                              WHERE nb.id = ${invAlias}.bon_id
+                                AND nb.economic_draft_number IS NOT NULL))`;
+}
+
 module.exports = {
     GUARDED_STATUSES,
     GUARD_DEFAULT_FROM_DATE,
     isValidGuardDate,
     bonMissingInvoice,
     missingInvoiceSQL,
+    notInvoicedSQL,
     getGuardFromDate,
     invalidateGuardCache,
 };
