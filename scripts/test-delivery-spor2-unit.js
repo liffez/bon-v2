@@ -167,6 +167,35 @@ function findAlt(result, code) {
     assertEqual(estimateCost(boxedKm, { boxes: 4 }, { distance_km: 30 }), 770,
                 'kasse-tillæg oveni km-takst (100 + 19×30 + 2×50)');
 
+    // ─── Afstandstrappe (By-expressens faktiske praksis) ──
+    // 144/240/400 ex moms = 180/300/500 inkl., fra deres egne leveringslinjer.
+    console.log('\n=== estimateCost (trappe) ===');
+    const trappe = { code: 'b', cost_formula_json: JSON.stringify({
+        tiers: [{ max_km: 8, price: 144 }, { max_km: 15, price: 240 }, { price: 400 }],
+        included_boxes: 2, extra_box_cost: 50,
+    }) };
+    assertEqual(estimateCost(trappe, { boxes: 2 }, { distance_km: 5 }), 144, 'trin 1: bytakst under 8 km');
+    assertEqual(estimateCost(trappe, { boxes: 2 }, { distance_km: 8 }), 144, 'grænsen hører til trinnet under (≤)');
+    assertEqual(estimateCost(trappe, { boxes: 2 }, { distance_km: 8.1 }), 240, 'lige over grænsen → trin 2');
+    assertEqual(estimateCost(trappe, { boxes: 2 }, { distance_km: 15 }), 240, 'trin 2 til og med 15 km');
+    assertEqual(estimateCost(trappe, { boxes: 2 }, { distance_km: 21.9 }), 400,
+                'Høje Taastrup → meget-langt-takst (= fakturaens 400 kr ex)');
+    assertEqual(estimateCost(trappe, { boxes: 2 }, { distance_km: 99 }), 400, 'sidste trin er "og derover"');
+    assertEqual(estimateCost(trappe, { boxes: 2 }), 144, 'uden afstand → trin 1 (bagudkompatibelt)');
+    assertEqual(estimateCost(trappe, { boxes: 4 }, { distance_km: 21.9 }), 500,
+                'kasse-tillæg oveni trappen (400 + 2×50)');
+    // Trappen vinder over de gamle felter, så en delvis migreret formel ikke bliver tvetydig.
+    const begge = { code: 'b', cost_formula_json: JSON.stringify({
+        tiers: [{ price: 400 }], standard_inner_city: 154, base: 100, per_km: 19,
+    }) };
+    assertEqual(estimateCost(begge, { boxes: 0 }, { distance_km: 30 }), 400,
+                'tiers har forrang over standard_inner_city/base/per_km');
+    // Defensivt: tom eller ugyldig trappe må ikke sluge de øvrige led.
+    const tom = { code: 'b', cost_formula_json: '{"tiers":[],"standard_inner_city":250}' };
+    assertEqual(estimateCost(tom, { boxes: 0 }, { distance_km: 30 }), 250, 'tom tiers → falder igennem');
+    const uden = { code: 'b', cost_formula_json: '{"tiers":[{"max_km":8}],"standard_inner_city":250}' };
+    assertEqual(estimateCost(uden, { boxes: 0 }, { distance_km: 5 }), 250, 'trin uden price → falder igennem');
+
     // ─── shiftTime ────────────────────────────────────────
     console.log('\n=== delivery_calc.shiftTime ===');
     assertEqual(shiftTime('12:30', -20), '12:10', 'shiftTime træk 20 min fra');

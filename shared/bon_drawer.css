@@ -997,6 +997,14 @@
     padding-left: 22px;
 }
 
+/* "Sidst taget" — hvad kunderne faktisk er blevet opkrævet, ved siden af estimatet. */
+.drawer-sug-hist {
+    margin-top: 6px; padding: 6px 8px; font-size: 11.5px; line-height: 1.5;
+    background: #f3efe7; border-radius: 5px;
+}
+.drawer-sug-hist .dsh-label { font-weight: 600; }
+.drawer-sug-hist .dsh-dim { color: var(--color-text-dim, #8a8580); }
+
 /* ── Luk-bekræftelse (ugemte ændringer) ──
    Matcher shared/modal.css' tone: cream-kantet panel, brun titel, blød skygge. */
 .drawer-confirm-overlay {

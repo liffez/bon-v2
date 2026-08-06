@@ -245,15 +245,19 @@ function _logFillByExPill(bonId) {
     var alt = (r.alternatives || []).find(function(a) { return a.code === 'byekspressen'; });
     if (!alt) return;
 
-    if (alt.suitable && alt.cost_dkk != null) {
-        btn.innerHTML = '💰 By-ex ' + alt.cost_dkk + ' kr';
-        btn.title = 'Standard kundepris ex moms (' + (r.boxes != null ? r.boxes + ' kasser' : 'std')
-            + '). Klik for By-expressens egen pris + margin.';
+    if (alt.cost_dkk == null) return;
+
+    btn.innerHTML = '💰 By-ex ' + alt.cost_dkk + ' kr';
+    var kasser = r.boxes != null ? r.boxes + ' kasser' : 'std';
+    if (alt.suitable) {
+        btn.title = 'Kundepris ex moms (' + kasser + '). Klik for By-expressens egen pris + margin.';
     } else {
+        // Trappen har et trin for lange ture, så PRISEN gælder. Det der ikke
+        // gælder er Food-produktet — derfor stiplet + forklaring.
         btn.classList.add('log-byex-btn-nostd');
-        btn.title = alt.reason
-            ? 'Standardprisen gælder ikke her: ' + alt.reason + '. Klik for By-expressens egen pris.'
-            : 'Klik for By-expressens egen pris.';
+        btn.title = 'Kundepris ex moms efter langt-væk-takst (' + kasser + ').'
+            + (alt.reason ? ' NB: ' + alt.reason + ' — Food dækker ikke turen,' +
+               ' så kostprisen skal hentes under By-ex booking.' : '');
     }
 }
 
@@ -369,6 +373,7 @@ function _logPriceCalcHtml() {
           '</label>' +
         '</div>' +
         '<div class="log-pc-result" id="logPcResult"></div>' +
+        '<div class="log-pc-hist" id="logPcHist" hidden></div>' +
       '</div>';
 }
 
@@ -455,8 +460,42 @@ function _logPcSelect(item) {
         _logPcMsg('Adressen har ingen koordinater — prøv en anden skrivemåde.', 'err');
         return;
     }
-    _logPc = { lat: lat, lon: lon, text: item.tekst || '' };
+    _logPc = { lat: lat, lon: lon, text: item.tekst || '', postnr: a.postnr || '' };
     _logPcCalc();
+    _logPcLoadHistory(a.postnr);
+}
+
+// "Hvad plejer vi at tage hertil?" — uafhængigt af formlen, hentet fra
+// hvad kunderne faktisk er blevet opkrævet. Non-blocking: fejler den,
+// mangler linjen bare.
+function _logPcLoadHistory(postnr) {
+    var el = document.getElementById('logPcHist');
+    if (!el) return;
+    if (!postnr) { el.hidden = true; el.innerHTML = ''; return; }
+    el.hidden = false;
+    el.className = 'log-pc-hist loading';
+    el.textContent = 'Slår tidligere priser op…';
+    fetchDeliveryPriceHistory(postnr, 8).then(function(h) {
+        if (!_logPc || _logPc.postnr !== postnr) return;   // adressen er skiftet
+        el.className = 'log-pc-hist';
+        if (!h || !h.count) {
+            el.innerHTML = '<span class="log-pc-hist-none">Ingen tidligere leveringer til '
+                + _logEsc(postnr) + '</span>';
+            return;
+        }
+        var kr = function(n) { return Number(n).toLocaleString('da-DK', { maximumFractionDigits: 2 }) + ' kr'; };
+        var top = (h.common || [])[0];
+        el.innerHTML = '<strong>Sidst taget til ' + _logEsc(h.postal_code) + ':</strong> '
+            + kr(h.last.price_incl) + ' <span class="log-pc-dim">inkl. ('
+            + kr(h.last.price_ex) + ' ex) · ' + _logEsc(h.last.label || '')
+            + (h.last.delivery_date ? ' · ' + _logEsc(h.last.delivery_date) : '') + '</span>'
+            + (top && top.n > 1
+                ? '<br><span class="log-pc-dim">Oftest ' + kr(top.price_incl) + ' inkl. ('
+                  + top.n + ' af ' + h.count + ' seneste)</span>'
+                : '');
+    }).catch(function() {
+        el.hidden = true;
+    });
 }
 
 function _logPcMsg(text, cls) {
@@ -512,8 +551,10 @@ function _logPcRender(r) {
         if (a.suitable !== b.suitable) return a.suitable ? -1 : 1;
         return (a.cost_dkk == null ? Infinity : a.cost_dkk) - (b.cost_dkk == null ? Infinity : b.cost_dkk);
     }).map(function(a) {
+        // Constraint-brud er en anbefaling, ikke en spærring — og siden By-expressen
+        // fik en afstandstrappe, GÆLDER prisen også herude. Så sig ikke andet.
         var caveat = (!a.suitable && a.reason)
-            ? '<span class="log-pc-caveat">⚠ ' + _logEsc(a.reason) + ' — prisen holder ikke her</span>'
+            ? '<span class="log-pc-caveat">⚠ ' + _logEsc(a.reason) + ' — kan vælges alligevel</span>'
             : '';
         return '<div class="log-pc-row' + (a.suitable ? '' : ' log-pc-row-off') + '">' +
             '<span class="log-pc-veh">' + _logVehicleIcon(a.type) + ' ' + _logEsc(a.label) +

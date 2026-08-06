@@ -188,9 +188,15 @@ const byekspressen = db.prepare(`SELECT * FROM delivery_vehicles WHERE code = 'b
 const cykel = db.prepare(`SELECT * FROM delivery_vehicles WHERE code = 'cykel-egen'`).get();
 
 assertEqual(estimateCost(taxa, { boxes: 4 }), 250, 'Taxa standard inner_city = 250');
-// By-expressen: standard 154 + (boxes 4 - included 2) × 50 = 154 + 100 = 254
-assertEqual(estimateCost(byekspressen, { boxes: 4 }), 254, 'By-expressen 4 kasser: 154 + 2×50 = 254');
-assertEqual(estimateCost(byekspressen, { boxes: 2 }), 154, 'By-expressen 2 kasser (inkluderet) = 154');
+// By-expressen bruger siden migration 139 en afstandstrappe (ex moms):
+// ≤8 km 144 · ≤15 km 240 · derover 400 — office' egne takster omregnet fra
+// 180/300/500 kr incl. Uden afstand falder den tilbage til trin 1.
+assertEqual(estimateCost(byekspressen, { boxes: 2 }), 144, 'By-expressen uden afstand → bytakst 144');
+assertEqual(estimateCost(byekspressen, { boxes: 4 }), 244, 'By-expressen 4 kasser: 144 + 2×50 = 244');
+assertEqual(estimateCost(byekspressen, { boxes: 2 }, { distance_km: 5 }), 144, 'bynær → 144');
+assertEqual(estimateCost(byekspressen, { boxes: 2 }, { distance_km: 12 }), 240, 'langt væk → 240');
+assertEqual(estimateCost(byekspressen, { boxes: 2 }, { distance_km: 21.9 }), 400,
+            'Høje Taastrup → 400 (= fakturaens tal, ex moms)');
 assertEqual(estimateCost(cykel, { boxes: 4 }), 0, 'Egen cykel = 0');
 assertEqual(estimateCost(null, { boxes: 4 }), null, 'Null vehicle → null');
 assertEqual(estimateCost({ cost_formula_json: 'ugyldig json' }, {}), null, 'Ugyldig JSON → null');

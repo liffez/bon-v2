@@ -111,15 +111,20 @@ async function quoteForBon({ bon, vehicle, adapter, boxes = null, paxPerBox = 16
 
     const costEx = composeCostEx(quote.cost_ex, effectiveBoxes, cfg, vehicle);
     const costIncl = costEx != null ? exclToIncl(costEx) : null;
-    const customerEx = vehicle ? (estimateCost(vehicle, bonForCalc) ?? null) : null;
-
-    // Bytaksten (cost_formula) gælder kun Food, som kun dækker forsyningsområdet.
-    // Ligger turen udenfor, er der ingen bypris at måle mod — og en "margin" mod
-    // den er et opdigtet tab: vi ville aldrig have tilbudt bytaksten derude.
-    // Vi bruger Lobos EGEN målte afstand, da det er dens pris vi bedømmer.
-    // (Samme regel som supply_warning i previewBooking.)
     const maxKm = vehicle && vehicle.max_distance_km != null ? Number(vehicle.max_distance_km) : null;
     const distKm = quote.routedistance != null ? quote.routedistance / 1000 : null;
+
+    // Kundeprisen regnes med Lobos EGEN målte afstand, så trappe-taksten rammer
+    // det rigtige trin. Uden afstand falder estimateCost tilbage til trin 1.
+    const customerEx = vehicle
+        ? (estimateCost(vehicle, bonForCalc, distKm != null ? { distance_km: distKm } : {}) ?? null)
+        : null;
+
+    // Food dækker kun forsyningsområdet. Ligger turen udenfor, er KOSTprisen
+    // upålidelig — vi spørger altid om Food, og Lobos kladde afviser ikke
+    // out-of-area (kun den rigtige booking gør). Kundeprisen er derimod fin:
+    // trappen har et trin for lange ture. Så: ingen margin (den ene halvdel af
+    // regnestykket er fiktion), men prisen kan vi stadig oplyse.
     const outOfArea = !!(maxKm && distKm && distKm > maxKm);
 
     const margin = (!outOfArea && customerEx != null && costEx != null)
@@ -348,7 +353,11 @@ async function previewBooking({ bon, vehicle, adapter, overrides = {}, paxPerBox
     const win = extractWindow(quote.order);
     const costEx = composeCostEx(quote.cost_ex, boxes, cfg, vehicle, isFood);
     const costIncl = costEx != null ? exclToIncl(costEx) : null;
-    const customerEx = vehicle ? (estimateCost(vehicle, { ...bon, boxes }) ?? null) : null;
+    // Kundepris med Lobos målte afstand, så trappe-taksten rammer rigtigt trin.
+    const previewDistKm = quote.routedistance != null ? quote.routedistance / 1000 : null;
+    const customerEx = vehicle
+        ? (estimateCost(vehicle, { ...bon, boxes }, previewDistKm != null ? { distance_km: previewDistKm } : {}) ?? null)
+        : null;
     const margin = (customerEx != null && costEx != null) ? Math.round((customerEx - costEx) * 100) / 100 : null;
 
     // Foreslået kundepris med lille positiv margin (lange ture). Regel fra settings.

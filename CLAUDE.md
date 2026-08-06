@@ -3092,6 +3092,67 @@ Browser-verificeret i begge zoner mod live ORS: 5 km → taxa 250 kr, 21,9 km �
 40 km → 895 kr; 60 kuverter → 4 kasser → By-ex 154 → 254 kr; pille med og uden tal;
 Lobo-svaret stubbet med driftens egne tal for at se renderingen. Testdata ryddet.
 
+### Leveringspris: afstandstrappe + "sidst taget" (6. august 2026)
+> Fortsættelse af sektionen ovenfor. Driften leverede tre oplysninger der ændrede designet:
+> Food dækker kun byområdet · til Høje Taastrup har vi taget 400 kr · en taxa koster 605 kr i dag.
+
+**Trappe-takst i `estimateCost`** (migration 139): ny formel-type
+`{tiers:[{max_km,price,label},…]}` — fast pris pr. afstandsinterval. Sidste trin uden
+`max_km` = "og derover". Vinder over `standard_inner_city`/`base`/`per_km` når afstanden
+kendes; uden afstand bruges trin 1, så kaldere uden distance er upåvirkede.
+
+**Trappen er ikke opfundet** — den lå i driftsdataene hele tiden
+(`bon_lines.category = 'x-Levering'`, 2.269 linjer):
+
+| Leveringslinje | Pris incl | Antal | Sidst brugt |
+|---|---|---|---|
+| By-ekspressen leverer | 180 kr | 1.067 | maj 2026 |
+| By-ekspressen – Langt væk | 300 kr | 47 | **apr. 2024** |
+| By-ekspressen – Meget Langt væk | 500 kr | 9 | **apr. 2024** |
+
+De to sidste holdt op med at blive brugt i april 2024 — dét var hullet. Bekræftet mod en
+faktura fra 11. juni 2025 til 2630 Taastrup: `Transport Taastrup 400,00` = 500 incl = **400 ex**,
+altså meget-langt-taksten. `bon_lines.unit_price` er incl moms, `cost_formula` er ex (§6b),
+så trappen er **144 / 240 / 400**. Km-grænserne (8 / 15) er derimod et **skøn** — de historiske
+takster blev valgt i hånden og er ikke konsistente (2800 Lyngby fik både 300 og 500;
+300-taksten blev også brugt på inderby-adresser). Justeres i Settings → Leveringsmetoder.
+
+**`quoteForBon` + `previewBooking` sender nu Lobos målte afstand ind i `estimateCost`,**
+så `customer_ex` rammer det rigtige trin. Dermed er kundeprisen pålidelig hele vejen ud —
+men `margin` er stadig `null` uden for Food-området, fordi **kostprisen** dér er en Food-pris
+for noget vi ikke kan købe (uændret fra sidste runde).
+
+**`GET /api/delivery/price-history?postal_code=&limit=`** — hvad har vi FAKTISK taget?
+Læser leveringslinjer (`category = 'x-Levering'`), ikke `bons.delivery_price` (udfyldt på
+4 af 3.125 bons) og ikke `bons.delivery_cost` (blandet v1/v2-semantik, #194). Returnerer
+`last` + `common` + `rows` med både incl og ex. Postnumrene i v1-data er rodede
+(`2630`, `DK-2620`, `1000 København K`) → delstrengs-match på de fire cifre.
+Vises i **prisberegneren** og i **bon-drawerens forslags-blok** ("Sidst taget til 2630:
+180 kr inkl. (144 kr ex) · Levering med El-Taxa · 2026-01-28 · oftest 180 kr (2/3)").
+
+**Tre kilder, bevidst adskilt i UI'et:** trappen = *hvad bør det koste*, historikken =
+*hvad plejer vi at tage*, live By-ex-opslag = *hvad koster det os*. Live-opslaget er
+uændret on-demand (klik) — det opretter og sletter en kladde hos Lobo pr. opslag, så det
+må ikke køre automatisk pr. række. Det er mest pålideligt netop inden for byområdet, hvor
+Food gælder.
+
+**Pillen viser nu trappens pris hele vejen ud** (400 kr på 21,9 km) — stiplet med forklaring
+når Food ikke dækker, i stedet for at skjule tallet. Beregnerens caveat blev rettet fra
+"prisen holder ikke her" til "kan vælges alligevel": efter trappen *gælder* prisen derude.
+
+**Tests:** +14 asserts i `scripts/test-delivery-spor1-unit.js` og `-spor2-unit.js`
+(trin-grænser inkl. ≤-kant, kasse-tillæg oveni trappen, tiers-forrang, tom/ugyldig trappe
+falder igennem), +14 i `scripts/test-delivery-spor1.js` (price-history: kun x-Levering,
+`DK-`-præfiks matcher, incl→ex, hyppigste pris, ukendt postnr → 200 tom, ugyldigt → 400).
+285 delivery-tests grønne (105+65 spor1, 42+24+29 spor2, 21 lobo) + moms-audit 18/0.
+Browser-verificeret i office: pille 144/400 kr, beregner 400 ex / 500 incl (= fakturaens tal),
+historik i både beregner og drawer. Testdata ryddet.
+
+**Åbent:** taxaens takst. Appen viser 605 kr for HQ → 2630 Taastrup; vores formel siger
+552 kr ex. Er appens tal **incl** moms (som forbrugerpriser typisk er), er den rigtige pris
+484 ex, og `per_km: 19` er ~14 % for høj (~15,8 ville ramme). Ikke rettet — moms-grundlaget
+er ikke bekræftet.
+
 ## Næste opgave
 
 > ✏️ Tracker-oprydning 29. juni 2026 — koden er på migration 119; status-sektionen ovenfor

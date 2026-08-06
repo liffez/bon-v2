@@ -34,7 +34,7 @@ const { geocodeAddress } = require('../services/geocode');
 const { computeRoute, applyRouteProposal, PICKUP_LOCKED_STATUSES } = require('../services/route_planner');
 const { getByExpressenAdapter, ByExpressenError } = require('../services/byExpressenAdapter');
 const { quoteForBon, bookForBon, previewBooking, normalizeLoboOrder, suggestCustomerPrice } = require('../services/lobo_booking');
-const { exclToIncl: _exclToIncl } = require('../shared/moms');
+const { exclToIncl: _exclToIncl, inclToExcl: _inclToExcl } = require('../shared/moms');
 
 // Parse et CO₂-faktorfelt (accepterer dansk decimalkomma). Tom/ugyldig → null.
 function co2Num(raw) {
@@ -430,6 +430,64 @@ router.post('/calculate', requireAuth(), handle(async (req, res) => {
 // GET /api/delivery/health
 // ORS up/down — bruges af logistik-view til at vise routing-status.
 // ==========================================
+// ==========================================
+// GET /api/delivery/price-history?postal_code=2630&limit=5
+//
+// Hvad HAR vi taget for at levere til det postnummer? Formlen siger hvad
+// turen bør koste; det her siger hvad kunderne faktisk er blevet opkrævet
+// — og fanger de aftaler ingen formel kender.
+//
+// Kilden er leveringslinjer på bons (`bon_lines.category = 'x-Levering'`),
+// ikke `bons.delivery_price` (udfyldt på 4 ud af 3125 bons) og ikke
+// `bons.delivery_cost` (blandet semantik mellem v1 og v2 — se issue #194).
+// Linjen er det kunden fik på regningen, og den er INCL moms (§6b).
+//
+// Postnumrene i v1-data er rodede ("2630", "DK-2620", "1000 København K"),
+// derfor delstrengs-match på de fire cifre frem for lighed.
+// ==========================================
+router.get('/price-history', requireAuth(), handle((req, res) => {
+    const raw = String(req.query.postal_code || '').trim();
+    const m = raw.match(/\d{4}/);
+    if (!m) return res.status(400).json({ error: 'postal_code (4 cifre) er påkrævet' });
+    const postnr = m[0];
+    const limit = Math.min(Math.max(parseInt(req.query.limit, 10) || 5, 1), 25);
+
+    const rows = getDb().prepare(`
+        SELECT bl.product_name AS label,
+               bl.unit_price   AS price_incl,
+               b.delivery_date AS delivery_date,
+               b.bon_number    AS bon_number
+        FROM bon_lines bl
+        JOIN bons b      ON b.id = bl.bon_id
+        JOIN addresses a ON a.id = b.delivery_address_id
+        WHERE bl.category = 'x-Levering'
+          AND bl.unit_price > 0
+          AND a.postal_code LIKE '%' || ? || '%'
+        ORDER BY b.delivery_date DESC
+        LIMIT ?
+    `).all(postnr, limit);
+
+    // Hyppigste pris blandt de hentede — "det plejer vi at tage".
+    const counts = new Map();
+    for (const r of rows) {
+        const k = Number(r.price_incl);
+        const c = counts.get(k) || { price_incl: k, n: 0, label: r.label };
+        c.n += 1;
+        counts.set(k, c);
+    }
+    const common = [...counts.values()].sort((a, b) => b.n - a.n);
+
+    const withEx = (r) => r == null ? null : { ...r, price_ex: Math.round(_inclToExcl(r.price_incl) * 100) / 100 };
+
+    res.json({
+        postal_code: postnr,
+        count: rows.length,
+        last: withEx(rows[0] || null),
+        common: common.map(withEx),
+        rows: rows.map(withEx),
+    });
+}));
+
 router.get('/health', requireAuth(), handle(async (req, res) => {
     res.json(await healthCheck());
 }));

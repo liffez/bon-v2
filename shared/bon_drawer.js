@@ -1331,7 +1331,39 @@ class BonDrawer {
             }).join('');
 
         el.innerHTML = '<div class="drawer-sug-head">' + head + '</div>'
-            + '<div class="drawer-sug-list">' + alts + '</div>';
+            + '<div class="drawer-sug-list">' + alts + '</div>'
+            + '<div class="drawer-sug-hist" hidden></div>';
+
+        this._renderDeliveryPriceHistory();
+    }
+
+    // Hvad har vi tidligere taget for at levere til det postnummer? Formlen
+    // ovenfor siger hvad turen bør koste; det her siger hvad kunderne faktisk
+    // er blevet opkrævet — og fanger aftaler ingen formel kender.
+    // Non-blocking: fejler opslaget, vises linjen bare ikke.
+    async _renderDeliveryPriceHistory() {
+        const el = this.el.querySelector('.drawer-sug-hist');
+        if (!el) return;
+        const bonId = this.bonId;
+        const postnr = this.data && this.data.delivery_address
+            && this.data.delivery_address.postal_code;
+        if (!postnr) return;
+
+        let h;
+        try { h = await fetchDeliveryPriceHistory(postnr, 8); } catch { return; }
+        if (this.bonId !== bonId || !h || !h.count) return;
+
+        const kr = (n) => Number(n).toLocaleString('da-DK', { maximumFractionDigits: 2 }) + ' kr';
+        const top = (h.common || [])[0];
+        el.hidden = false;
+        el.innerHTML = '<span class="dsh-label">Sidst taget til ' + esc(h.postal_code) + ':</span> '
+            + '<strong>' + kr(h.last.price_incl) + '</strong> <span class="dsh-dim">inkl. ('
+            + kr(h.last.price_ex) + ' ex)' + (h.last.label ? ' · ' + esc(h.last.label) : '')
+            + (h.last.delivery_date ? ' · ' + esc(h.last.delivery_date) : '') + '</span>'
+            + (top && top.n > 1
+                ? ' <span class="dsh-dim">· oftest ' + kr(top.price_incl) + ' ('
+                  + top.n + '/' + h.count + ')</span>'
+                : '');
     }
 
     async _renderDeliveryEvents() {

@@ -1100,8 +1100,25 @@
                  placeholder='{"base":100,"included_boxes":2,"extra_box_cost":50,"standard_inner_city":154}'
                  style="font-family:ui-monospace,Menlo,monospace;font-size:12.5px">
           <div style="margin-top:6px;font-size:12px;color:#888">
-            Felter: <code>base</code>, <code>per_km</code>, <code>included_boxes</code>, <code>extra_box_cost</code>,
-            <code>standard_inner_city</code>. Bruges til estimat ved booking.
+            Felter: <code>tiers</code>, <code>base</code>, <code>per_km</code>, <code>included_boxes</code>,
+            <code>extra_box_cost</code>, <code>standard_inner_city</code>.
+            <strong>Alle beløb er ex moms.</strong>
+            <div style="margin-top:6px">
+              <code>tiers</code> er en <strong>afstandstrappe</strong> og vinder over de øvrige felter når
+              afstanden kendes. Sidste trin uden <code>max_km</code> betyder “og derover”:
+              <div style="margin-top:4px;font-family:ui-monospace,Menlo,monospace;font-size:11.5px;background:#f5f4f2;padding:6px 8px;border-radius:4px">
+                {"tiers":[{"max_km":8,"price":144,"label":"Bytakst"},{"max_km":15,"price":240,"label":"Langt væk"},{"price":400,"label":"Meget langt væk"}],"included_boxes":2,"extra_box_cost":50}
+              </div>
+              <div style="margin-top:4px">
+                By-expressens trin stammer fra jeres egne historiske leveringslinjer
+                (180 / 300 / 500 kr inkl. moms = 144 / 240 / 400 ex). Km-grænserne er derimod et
+                skøn — justér dem her når driften viser hvad der passer.
+              </div>
+            </div>
+            <div style="margin-top:6px">
+              <code>standard_inner_city</code> er et <strong>gulv</strong>, ikke et loft: har vognen
+              også <code>per_km</code>, tager km-taksten over på lange ture.
+            </div>
           </div>
         </div>
         <div style="margin-top:14px">
