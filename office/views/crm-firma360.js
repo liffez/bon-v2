@@ -189,22 +189,27 @@ function _f3RenderOversigt(el) {
                 </div>
             </div>
 
-            <!-- HØJRE: kontaktpunkter -->
-            <div class="f3-card">
-                <div class="f3-card-h">
-                    <span class="f3-card-title">Kontaktpunkter (${contact_points.length})</span>
-                    <div class="f3-card-h-meta">
-                        <span class="f3-pill f3-pill-pub">PUB</span> offentlig
-                        <span class="f3-pill f3-pill-priv">PRIV</span> personlig
+            <!-- HØJRE: kontaktpersoner + firma-adresser -->
+            <div class="f3-col-stack">
+                ${_f3RenderKontaktpersonerCard()}
+
+                <div class="f3-card">
+                    <div class="f3-card-h">
+                        <span class="f3-card-title">Firma-adresser (${contact_points.length})</span>
+                        <div class="f3-card-h-meta">
+                            <span class="f3-pill f3-pill-pub">PUB</span> offentlig
+                            <span class="f3-pill f3-pill-priv">PRIV</span> personlig
+                        </div>
                     </div>
-                </div>
-                <div class="f3-cp-list">
-                    ${contact_points.length === 0 ? '<div class="f3-empty">Ingen kontaktpunkter endnu.</div>' : ''}
-                    ${contact_points.map(cp => _f3RenderCp(cp)).join('')}
-                </div>
-                <div class="f3-cp-add">
-                    <button class="f3-btn-sm" data-add-kind="email">+ Tilføj email</button>
-                    <button class="f3-btn-sm" data-add-kind="phone">+ Tilføj telefon</button>
+                    <div class="f3-card-sub">Firmaets egne email- og telefonnumre (typisk fra CVR) — ikke personer.</div>
+                    <div class="f3-cp-list">
+                        ${contact_points.length === 0 ? '<div class="f3-empty">Ingen firma-adresser endnu.</div>' : ''}
+                        ${contact_points.map(cp => _f3RenderCp(cp)).join('')}
+                    </div>
+                    <div class="f3-cp-add">
+                        <button class="f3-btn-sm" data-add-kind="email">+ Tilføj email</button>
+                        <button class="f3-btn-sm" data-add-kind="phone">+ Tilføj telefon</button>
+                    </div>
                 </div>
             </div>
         </div>
@@ -226,10 +231,55 @@ function _f3RenderOversigt(el) {
     el.querySelectorAll('.f3-btn-sm[data-add-kind]').forEach(btn =>
         btn.addEventListener('click', () => _f3HandleAddCp(btn.dataset.addKind)));
 
+    // Kontaktpersoner: række → Kunde 360°, "Se alle" → Kontakter-fanen
+    el.querySelectorAll('.f3-kp-row').forEach(row =>
+        row.addEventListener('click', () => {
+            const cid = parseInt(row.dataset.customerId, 10);
+            if (cid && typeof window.openKunde360 === 'function') window.openKunde360(cid);
+        }));
+    el.querySelector('#f3-kp-goto')?.addEventListener('click', () => _f3SwitchTab('kontakter'));
+
     // Flag-handlers
     el.querySelectorAll('.f3-flag-remove').forEach(btn =>
         btn.addEventListener('click', () => _f3RemoveFlag(parseInt(btn.dataset.flagId, 10))));
     el.querySelector('#f3-flag-add-btn')?.addEventListener('click', _f3AddFlag);
+}
+
+// Kontaktpersoner på Oversigt. "Kontakter" (personer) og "Kontaktpunkter"
+// (email/telefon) betyder det samme i almindeligt dansk, så et firma hvis
+// eneste synlige kort hed "Kontaktpunkter" så ud til at mangle sine
+// kontaktpersoner — også når de lå der på deres egen fane. Personerne står
+// derfor nu øverst på Oversigt, og adresse-kortet hedder "Firma-adresser".
+function _f3RenderKontaktpersonerCard() {
+    const list = _f3State.data?.customers || [];
+    const MAX = 5;   // hold kortet kompakt; resten ligger på fanen
+    const shown = list.slice(0, MAX);
+    const rest = list.length - shown.length;
+
+    const rows = shown.map(c => `
+        <div class="f3-kp-row" data-customer-id="${c.id}" title="Åbn ${escapeHtml(c.name.trim() || 'kunde')}">
+            <div class="f3-kp-main">
+                <div class="f3-kp-name">${escapeHtml(c.name.trim() || '(uden navn)')}</div>
+                <div class="f3-kp-meta">
+                    ${c.email ? escapeHtml(c.email) : '<span class="f3-muted">— ingen email —</span>'}
+                    ${c.phone ? ' · ' + escapeHtml(c.phone) : ''}
+                </div>
+            </div>
+            <span class="f3-kp-orders">${c.order_count || 0} bons</span>
+        </div>`).join('');
+
+    return `
+        <div class="f3-card">
+            <div class="f3-card-h">
+                <span class="f3-card-title">Kontaktpersoner (${list.length})</span>
+                <button class="f3-btn-sm" id="f3-kp-goto">Se alle →</button>
+            </div>
+            <div class="f3-card-sub">Personerne hos firmaet. Klik for at åbne Kunde 360°.</div>
+            <div class="f3-kp-list">
+                ${list.length === 0 ? '<div class="f3-empty">Ingen kontaktpersoner endnu — tilføj dem under fanen Kontakter.</div>' : rows}
+                ${rest > 0 ? `<div class="f3-kp-more">+ ${rest} mere under fanen Kontakter</div>` : ''}
+            </div>
+        </div>`;
 }
 
 // ─── Redigerbare stamdata-felter (CVR / EAN / juridisk navn) ─
