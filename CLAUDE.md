@@ -322,11 +322,22 @@ Standard-arbejdsgang ved slutningen af en Claude Code-session der har lavet ænd
 > kopier-klar med det rigtige branch-navn indsat, så brugeren ikke selv skal regne
 > git-flowet ud.
 
+> **⛔ HÅRD REGEL — hver PR-body SKAL have en `Closes #N` / `Refs #N`-linje.**
+> `gh pr create` uden en af dem er ufuldstændig — skriv den ikke, og kør ikke kommandoen
+> før linjen står i bodyen. Regnestykket der tvang reglen frem: **0 af 80 merged PR'er** brugte
+> `Closes #N`, så boardet driver konstant bagud og issues må lukkes manuelt bagefter i
+> oprydningsrunder. Vælg bevidst:
+> - **`Closes #N`** — issuet er FULDT løst af denne PR (lukker automatisk ved squash-merge).
+> - **`Refs #N`** — PR'en rører kun en del af issuet (delopgave/epic) og afslutter det ikke.
+> - **Intet issue?** Skriv `Ingen issue — <hvorfor>` i bodyen, så fraværet er et bevidst valg og
+>   ikke en forglemmelse. (Deploy-/ops-/sikkerheds-issues lukkes ALTID manuelt efter den fysiske
+>   handling — se nedenfor — så dér er `Refs #N` det rigtige, aldrig `Closes`.)
+
 **Claude gør — KUN efter brugerens go:**
 ```bash
 git commit -m "..."                                    # commit-besked beskriver hvad + hvorfor
 git push -u origin <branch>                            # branch er typisk claude/<navn>
-gh pr create --base main --title "..." --body "..."    # PR-body fungerer som changelog
+gh pr create --base main --title "..." --body "..."    # PR-body = changelog + OBLIGATORISK Closes/Refs #N (se hård regel ovenfor)
 # ── STOP: vent på at brugeren har testet fra branchen og godkendt i drift ──
 gh pr merge --squash                                   # SIDSTE skridt — UDEN --delete-branch (sessionen overlever)
 ```
