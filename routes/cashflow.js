@@ -31,6 +31,12 @@ const { handle, inclToExcl, exclToIncl, momsOfIncl, logChange, todayISO, offsetI
 const { requireAuth } = require('../shared/auth');
 const { broadcast } = require('../shared/sse');
 const { transaction } = require('../db/compat');
+const { notInvoicedSQL } = require('../services/invoiceGuard');
+
+// "Kunden har aldrig fået en regning" — ét udtryk, så tab-filter, tællere og
+// forfaldne-eksklusionen ikke kan komme til at måle hver sin ting (#319).
+// Virker både i list-queryen (joiner bons) og i aggregaterne (gør ikke).
+const NOT_INVOICED = notInvoicedSQL('i');
 
 /** Round to 2 decimals */
 function r2(n) { return Math.round((n ?? 0) * 100) / 100; }
@@ -481,7 +487,12 @@ router.get('/invoices', handle(async (req, res) => {
             where = 'i.betalt = 0 AND i.forfald >= ?';
             break;
         case 'forfaldne':
-            where = 'i.betalt = 0 AND i.forfald < ?';
+            // Ekskluderer dem der aldrig blev faktureret (#319): de er ikke
+            // dårlige betalere, de mangler en regning. De har deres egen fane.
+            where = `i.betalt = 0 AND i.forfald < ? AND NOT ${NOT_INVOICED}`;
+            break;
+        case 'ikke_faktureret':
+            where = NOT_INVOICED;
             break;
         case 'sandsynlig':
             // Alle ubetalte fakturaer med et bank-match (any confidence).
@@ -502,10 +513,11 @@ router.get('/invoices', handle(async (req, res) => {
     const params = [];
     if (tab === 'udestaaende' || tab === 'forfaldne') params.push(today);
 
-    // Udestående/forfaldne sorteres ÆLDSTE først (mest presserende øverst). Alle
-    // andre tabs (alle/betalt/sandsynlig) sorteres NYESTE først, så listen viser
-    // de relevante, seneste fakturaer i stedet for de 200 ældste fra arkivet.
-    const orderDir = (tab === 'udestaaende' || tab === 'forfaldne') ? 'ASC' : 'DESC';
+    // Udestående/forfaldne/ikke-faktureret sorteres ÆLDSTE først (mest presserende
+    // øverst — og på ikke-faktureret er den ældste den der har ventet længst på
+    // sin regning). Alle andre tabs (alle/betalt/sandsynlig) sorteres NYESTE først,
+    // så listen viser de relevante, seneste fakturaer i stedet for de 200 ældste.
+    const orderDir = ['udestaaende', 'forfaldne', 'ikke_faktureret'].includes(tab) ? 'ASC' : 'DESC';
 
     const rows = db.prepare(`
         SELECT
@@ -513,7 +525,11 @@ router.get('/invoices', handle(async (req, res) => {
             b.bon_number       AS bon_number,
             b.delivery_date    AS bon_delivery_date,
             sd.code            AS bon_status_code,
-            sd.label           AS bon_status_label
+            sd.label           AS bon_status_label,
+            -- Udledt, ikke gemt: rækken kan mærkes i ALLE faner, ikke kun sin egen.
+            -- Uden det ville en aldrig-sendt regning stå som "Forfalden" under
+            -- "Alle" — samme forvirring vi lige har fjernet ét sted (#319).
+            CASE WHEN ${NOT_INVOICED} THEN 1 ELSE 0 END AS ikke_faktureret
         FROM cf_invoices i
         LEFT JOIN bons b              ON i.bon_id = b.id
         LEFT JOIN status_definitions sd ON b.status_id = sd.id
@@ -553,17 +569,21 @@ router.get('/invoices', handle(async (req, res) => {
 
     // Tab-summaries i ét kald, så frontenden kan vise count + sum
     // på hver tab-knap og som footer på den aktive liste.
+    // Forfaldne-tælleren ekskluderer de ikke-fakturerede, præcis som fanen gør —
+    // ellers ville badge og liste vise hver sit tal (#319 forslag 2).
     const summary = db.prepare(`
         SELECT
             COUNT(*) AS alle_count,
             COALESCE(SUM(beloeb), 0) AS alle_total,
             SUM(CASE WHEN betalt = 0 AND forfald >= ? THEN 1 ELSE 0 END) AS udestaaende_count,
             COALESCE(SUM(CASE WHEN betalt = 0 AND forfald >= ? THEN beloeb ELSE 0 END), 0) AS udestaaende_total,
-            SUM(CASE WHEN betalt = 0 AND forfald < ? THEN 1 ELSE 0 END) AS forfaldne_count,
-            COALESCE(SUM(CASE WHEN betalt = 0 AND forfald < ? THEN beloeb ELSE 0 END), 0) AS forfaldne_total,
+            SUM(CASE WHEN betalt = 0 AND forfald < ? AND NOT ${NOT_INVOICED} THEN 1 ELSE 0 END) AS forfaldne_count,
+            COALESCE(SUM(CASE WHEN betalt = 0 AND forfald < ? AND NOT ${NOT_INVOICED} THEN beloeb ELSE 0 END), 0) AS forfaldne_total,
+            SUM(CASE WHEN ${NOT_INVOICED} THEN 1 ELSE 0 END) AS ikke_fakt_count,
+            COALESCE(SUM(CASE WHEN ${NOT_INVOICED} THEN beloeb ELSE 0 END), 0) AS ikke_fakt_total,
             SUM(CASE WHEN betalt = 1 THEN 1 ELSE 0 END) AS betalt_count,
             COALESCE(SUM(CASE WHEN betalt = 1 THEN beloeb ELSE 0 END), 0) AS betalt_total
-        FROM cf_invoices
+        FROM cf_invoices i
     `).get(today, today, today, today);
 
     const sandsynlig = db.prepare(`
@@ -579,11 +599,12 @@ router.get('/invoices', handle(async (req, res) => {
     res.json({
         rows,
         summary: {
-            alle:        { count: summary.alle_count,        total: summary.alle_total },
-            udestaaende: { count: summary.udestaaende_count, total: summary.udestaaende_total },
-            forfaldne:   { count: summary.forfaldne_count,   total: summary.forfaldne_total },
-            sandsynlig:  { count: sandsynlig.cnt,            total: sandsynlig.total },
-            betalt:      { count: summary.betalt_count,      total: summary.betalt_total },
+            alle:            { count: summary.alle_count,        total: summary.alle_total },
+            udestaaende:     { count: summary.udestaaende_count, total: summary.udestaaende_total },
+            forfaldne:       { count: summary.forfaldne_count,   total: summary.forfaldne_total },
+            ikke_faktureret: { count: summary.ikke_fakt_count,   total: summary.ikke_fakt_total },
+            sandsynlig:      { count: sandsynlig.cnt,            total: sandsynlig.total },
+            betalt:          { count: summary.betalt_count,      total: summary.betalt_total },
         }
     });
 }));
@@ -683,11 +704,19 @@ router.get('/stats', handle(async (req, res) => {
         FROM cf_invoices WHERE betalt = 0
     `).get();
 
-    // Overdue
+    // Overdue — KUN fakturaer der faktisk er sendt (#319 forslag 2).
+    // Før blandede tallet to ting: kunder der ikke har betalt, og kunder der
+    // aldrig fik en regning. Man rykker ikke for det sidste, man sender det.
     const overdue = db.prepare(`
         SELECT COALESCE(SUM(beloeb), 0) AS total, COUNT(*) AS count
-        FROM cf_invoices WHERE betalt = 0 AND forfald < ?
+        FROM cf_invoices i WHERE i.betalt = 0 AND i.forfald < ? AND NOT ${NOT_INVOICED}
     `).get(today);
+
+    // Aldrig faktureret — arbejde, ikke gæld. Egen tæller så den ikke gemmer sig.
+    const notInvoiced = db.prepare(`
+        SELECT COALESCE(SUM(beloeb), 0) AS total, COUNT(*) AS count
+        FROM cf_invoices i WHERE ${NOT_INVOICED}
+    `).get();
 
     // Expected in 30 days
     const expected30 = db.prepare(`
@@ -730,6 +759,11 @@ router.get('/stats', handle(async (req, res) => {
         overdue_total_incl_moms: overdue.total,
         overdue_total_excl_moms: r2(inclToExcl(overdue.total)),
         overdue_count: overdue.count,
+        // Aldrig faktureret (#319) — holdt UDE af overdue_* ovenfor
+        not_invoiced_total: notInvoiced.total,
+        not_invoiced_total_incl_moms: notInvoiced.total,
+        not_invoiced_total_excl_moms: r2(inclToExcl(notInvoiced.total)),
+        not_invoiced_count: notInvoiced.count,
         expected_30d_total: expected30.total,
         expected_30d_total_incl_moms: expected30.total,
         expected_30d_total_excl_moms: r2(inclToExcl(expected30.total)),
@@ -776,11 +810,15 @@ router.get('/weekly', handle(async (req, res) => {
             WHERE forfald BETWEEN ? AND ? AND betalt = 0
         `).get(from, to);
 
-        // Overdue = invoices that were due before this week's start and still unpaid
+        // Overdue = invoices that were due before this week's start and still unpaid.
+        // Ikke-fakturerede holdes ude, samme som KPIen ovenover chartet (#319):
+        // ellers viser samme skærm to forskellige "forfaldne"-tal. Chartet er et
+        // estimat over bankbevægelser, og penge man aldrig har bedt om er ikke
+        // på vej ind — de har deres eget bånd.
         const overdue = w <= 0 ? db.prepare(`
             SELECT COALESCE(SUM(beloeb), 0) AS total
-            FROM cf_invoices
-            WHERE forfald < ? AND betalt = 0
+            FROM cf_invoices i
+            WHERE i.forfald < ? AND i.betalt = 0 AND NOT ${NOT_INVOICED}
         `).get(from) : { total: 0 };
 
         weeks.push({
@@ -1619,14 +1657,21 @@ router.post('/invoices/bulk-confirm-paid', handle(async (req, res) => {
     // Dansk kalenderdato N dage tilbage (UTC-slice ramte forkert dag nær midnat).
     const cutoffDate = offsetISO(-olderThanDays);
 
-    // Find forfaldne fakturaer ældre end cutoff (forfald < cutoff_date)
+    // Find forfaldne fakturaer ældre end cutoff (forfald < cutoff_date).
+    //
+    // Ikke-fakturerede holdes UDE (#319): denne knap siger "de her er nok betalt,
+    // vi har bare ikke set indbetalingen". Det kan aldrig gælde en regning kunden
+    // aldrig har fået. Uden filteret ville det værste udfald være at man med ét
+    // klik stemplede "betalt" på penge man stadig har til gode — og dermed
+    // begravede problemet i stedet for at løse det. Fanen skjuler dem allerede,
+    // men endpointet finder selv sine kandidater ud fra older_than_days.
     const candidates = db.prepare(`
         SELECT i.id, i.kunde, i.beloeb, i.forfald, i.bon_id,
                b.bon_number, sd.code AS bon_status_code
         FROM cf_invoices i
         LEFT JOIN bons b ON i.bon_id = b.id
         LEFT JOIN status_definitions sd ON b.status_id = sd.id
-        WHERE i.betalt = 0 AND i.forfald < ?
+        WHERE i.betalt = 0 AND i.forfald < ? AND NOT ${NOT_INVOICED}
         ORDER BY i.forfald ASC
     `).all(cutoffDate);
 
