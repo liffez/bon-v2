@@ -116,4 +116,58 @@ function convertAndFormat(stockAmount, { productId, fromQuId, toQuId, conversion
     return { ...out, factor: convFactor * out.factor };
 }
 
-module.exports = { findConversionFactor, autoFormatAmount, convertAndFormat };
+/**
+ * Omregn en mængde EN BRUGER HAR TASTET til produktets lager-enhed (#358).
+ *
+ * Varemodtagelsen henter det forventede antal fra indkøbslisten, hvor det står i
+ * INDKØBS-enhed ("994 Kasse"), og skrev det derefter til Grocy uden enhed — hvor
+ * det blev læst som lager-enhed (kilo). 69 af 215 produkter i grocy-hq har
+ * forskellig købs- og lager-enhed, så det ramte hver fjerde vare.
+ *
+ * Funktionen NÆGTER at gætte. Kan mængden ikke omregnes entydigt, returneres en
+ * fejl som kalderen skal gøre synlig — en forkert lagerbeholdning er værre end en
+ * modtagelse der beder om hjælp, fordi den forkerte beholdning ser rigtig ud.
+ *
+ * Bemærk `quId == null`: en klient der ikke sender enheden (fx en cachet browser
+ * efter deploy) accepteres KUN når produktet ikke er tvetydigt — altså når køb og
+ * lager er samme enhed. Ellers er der intet at afgøre det på.
+ *
+ * @param {object}  opts
+ * @param {object}  opts.product      Grocy-produkt (qu_id_stock, qu_id_purchase, id)
+ * @param {number}  opts.amount       Mængden som brugeren tastede den
+ * @param {number?} opts.quId         Enheden mængden står i (null = ikke oplyst)
+ * @param {Array}   opts.conversions  Grocy quantity_unit_conversions
+ * @returns {{ amount: number|null, factor: number|null, error: string|null }}
+ */
+function resolveToStockAmount({ product, amount, quId, conversions }) {
+    const err = (msg) => ({ amount: null, factor: null, error: msg });
+
+    if (!product) return err('Produktet findes ikke i Grocy — kan ikke afgøre lager-enhed');
+
+    const stockQu = product.qu_id_stock != null ? parseInt(product.qu_id_stock) : null;
+    if (!stockQu) return err('Produktet har ingen lager-enhed i Grocy');
+
+    const purchaseQu = product.qu_id_purchase != null ? parseInt(product.qu_id_purchase) : null;
+    const from = quId != null && quId !== '' ? parseInt(quId) : null;
+
+    if (from === null) {
+        // Ingen enhed oplyst. Kun forsvarligt når produktet ikke KAN være tvetydigt.
+        if (purchaseQu && purchaseQu !== stockQu) {
+            return err('Enheden på det modtagne antal er ikke oplyst, og produktet '
+                     + 'har forskellig købs- og lager-enhed — genindlæs siden og prøv igen');
+        }
+        return { amount, factor: 1, error: null };
+    }
+
+    if (from === stockQu) return { amount, factor: 1, error: null };
+
+    const factor = findConversionFactor(conversions || [], parseInt(product.id), from, stockQu);
+    if (factor === null) {
+        return err(`Ingen enhedsomregning i Grocy fra enhed ${from} til lager-enhed ${stockQu} `
+                 + `— opret konverteringen på produktet og modtag varen igen`);
+    }
+
+    return { amount: amount * factor, factor, error: null };
+}
+
+module.exports = { findConversionFactor, autoFormatAmount, convertAndFormat, resolveToStockAmount };

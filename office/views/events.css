@@ -73,6 +73,10 @@
 .ev-bon-num { font-family: 'SF Mono', monospace; font-weight: 600; color: var(--brand-primary, #8e631f); }
 .ev-bon-status { padding: 2px 8px; border-radius: 8px; color: #fff; font-size: 11px; font-weight: 600; }
 .ev-bon-flag { color: #1e6b2c; font-size: 11px; }
+/* #359 — et delvist eller fejlet lagertræk må ikke se ud som et vellykket. */
+.ev-deduct-warn  { color: #a8620d; font-weight: 600; }
+.ev-deduct-bad   { color: #b3261e; font-weight: 600; }
+.ev-deduct-muted { color: var(--color-text-dim, #8a8279); font-weight: 400; }
 .ev-num { text-align: right; font-variant-numeric: tabular-nums; }
 
 /* Modal */

@@ -73,38 +73,123 @@ router.get('/recipes-pos/all', handle(async (req, res) => {
 }));
 
 /* ── Lager-forbrug (consume) ─────────────────────────────── */
+//
+// #361: begge endpoints trak lager uden nogen form for idempotens. To klik, en
+// dobbelt-submit eller et netværks-retry gav dobbelt træk — og trækket var
+// usynligt bagefter, så det først blev opdaget ved næste fysiske optælling, og da
+// som en uforklarlig difference. De to andre træk-stier var beskyttet
+// (autoConsumeBonInventory via inventory_deducted, produktionsbatch via
+// batch_nonce); det var kun denne der stod åben.
+//
+// Mønstret er produktionsbatchens: klienten genererer én nonce pr. HANDLING (ikke
+// pr. forsøg). Rækken indsættes FØR trækket og virker dermed også som lock —
+// UNIQUE-constrainten afgør hvem der vinder ved to samtidige klik, og taberen får
+// vinderens svar frem for at trække igen.
+
+// Reservér en nonce. Returnerer { claimed:true, logId } hvis vi ejer trækket,
+// ellers { claimed:false, existing } med den rækkefølge et gentaget kald skal se.
+function claimConsumeNonce(nonce, endpoint, userId, request) {
+    const db = getDb();
+    try {
+        const r = db.prepare(`
+            INSERT INTO grocy_consume_log (nonce, endpoint, user_id, state, request_json)
+            VALUES (?, ?, ?, 'in_progress', ?)
+        `).run(nonce, endpoint, userId || null, JSON.stringify(request));
+        return { claimed: true, logId: r.lastInsertRowid };
+    } catch (err) {
+        // UNIQUE-brud = nonce kendt. Alt andet er en ægte DB-fejl og skal boble op:
+        // vi må ALDRIG falde igennem til et træk fordi journalen svigtede.
+        if (!/UNIQUE|constraint/i.test(err.message)) throw err;
+        return { claimed: false, existing: db.prepare(`SELECT * FROM grocy_consume_log WHERE nonce = ?`).get(nonce) };
+    }
+}
+
+function finishConsumeNonce(logId, state, response) {
+    getDb().prepare(`
+        UPDATE grocy_consume_log SET state = ?, response_json = ?, completed_at = datetime('now')
+        WHERE id = ?
+    `).run(state, JSON.stringify(response), logId);
+}
+
+// Fælles svar når nonce'en allerede er kendt.
+function respondIdempotent(res, existing) {
+    if (existing && existing.response_json) {
+        return res.json({ ...JSON.parse(existing.response_json), idempotent: true });
+    }
+    // Trækket kører lige nu i en anden request. At svare 200 med et gæt ville
+    // være at opfinde et resultat; 409 fortæller sandheden.
+    return res.status(409).json({
+        error: 'Trækket er allerede i gang for denne handling — vent på svaret.',
+        code: 'CONSUME_IN_PROGRESS',
+        idempotent: true,
+    });
+}
+
+const NONCE_HINT = 'consume_nonce er påkrævet (idempotens mod dobbelt lagertræk). '
+                 + 'Ser du denne fejl i browseren, så genindlæs siden med Cmd+Shift+R.';
 
 // Consume via recipe lines (resolver-based: bruges af auto-consume ved LEVERET)
 router.post('/consume', handle(async (req, res) => {
-    const { lines } = req.body;
+    const { lines, consume_nonce } = req.body;
     if (!Array.isArray(lines) || lines.length === 0) {
         return res.status(400).json({ error: 'lines[] er påkrævet (grocy_recipe_id + quantity)' });
     }
-    const results = await grocy.consumeRecipes(lines);
-    const success = results.filter(r => r.success).length;
-    const failed  = results.filter(r => !r.success).length;
-    res.json({ ok: failed === 0, consumed: success, failed, results });
+    if (!consume_nonce) return res.status(400).json({ error: NONCE_HINT, code: 'NONCE_REQUIRED' });
+
+    const claim = claimConsumeNonce(consume_nonce, 'consume', req.session?.userId, { lines });
+    if (!claim.claimed) return respondIdempotent(res, claim.existing);
+
+    let payload;
+    try {
+        const results = await grocy.consumeRecipes(lines);
+        const success = results.filter(r => r.success).length;
+        const failed  = results.filter(r => !r.success).length;
+        payload = { ok: failed === 0, consumed: success, failed, results };
+    } catch (err) {
+        // Journalen skal afspejle at trækket IKKE lykkedes, ellers ville en
+        // gentagelse med samme nonce få et falsk "allerede gjort".
+        finishConsumeNonce(claim.logId, 'failed', { error: err.message });
+        throw err;
+    }
+    finishConsumeNonce(claim.logId, 'done', payload);
+    res.json(payload);
 }));
 
-// Consume via per-produkt mængder (bruges af recipe-viewer frontend)
+// Consume via per-produkt mængder (bruges af recipe-viewer frontend).
+// `amount` er i LAGER-enhed: recipes_pos.amount er allerede stock-units, og
+// frontenden skalerer kun med portions-multiplieren. Der er derfor intet at
+// omregne her — modsat varemodtagelsen (#358), hvor tallet kom fra indkøbslisten.
 router.post('/consume-products', handle(async (req, res) => {
-    const { items } = req.body;
+    const { items, consume_nonce } = req.body;
     if (!Array.isArray(items) || items.length === 0) {
         return res.status(400).json({ error: 'items[] er påkrævet (product_id + amount)' });
     }
-    const results = [];
-    for (const item of items) {
-        try {
-            await grocy.consumeProduct(item.product_id, item.amount);
-            results.push({ product_id: item.product_id, success: true });
-        } catch (err) {
-            results.push({ product_id: item.product_id, success: false, error: err.message });
+    if (!consume_nonce) return res.status(400).json({ error: NONCE_HINT, code: 'NONCE_REQUIRED' });
+
+    const claim = claimConsumeNonce(consume_nonce, 'consume-products', req.session?.userId, { items });
+    if (!claim.claimed) return respondIdempotent(res, claim.existing);
+
+    let payload;
+    try {
+        const results = [];
+        for (const item of items) {
+            try {
+                await grocy.consumeProduct(item.product_id, item.amount);
+                results.push({ product_id: item.product_id, success: true });
+            } catch (err) {
+                results.push({ product_id: item.product_id, success: false, error: err.message });
+            }
         }
+        grocy.clearCache(); // Ryd stock-cache
+        const success = results.filter(r => r.success).length;
+        const failed  = results.filter(r => !r.success).length;
+        payload = { ok: failed === 0, consumed: success, failed, results };
+    } catch (err) {
+        finishConsumeNonce(claim.logId, 'failed', { error: err.message });
+        throw err;
     }
-    grocy.clearCache(); // Ryd stock-cache
-    const success = results.filter(r => r.success).length;
-    const failed  = results.filter(r => !r.success).length;
-    res.json({ ok: failed === 0, consumed: success, failed, results });
+    finishConsumeNonce(claim.logId, 'done', payload);
+    res.json(payload);
 }));
 
 /* ── Recipe CRUD (write) ─────────────────────────────────── */

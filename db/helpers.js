@@ -137,7 +137,8 @@ function autoConsumeBonInventory(bonId) {
     // Festival-events gates ikke (de skal trække fra deres egen lokation).
     if (bon.event_id != null && bon.event_model === 'light' && bon.price_category_code !== 'produktion') {
         db.prepare(
-            `UPDATE bons SET inventory_deducted = 1, inventory_deducted_at = CURRENT_TIMESTAMP WHERE id = ?`
+            `UPDATE bons SET inventory_deducted = 1, inventory_deducted_at = CURRENT_TIMESTAMP,
+                             inventory_deduct_status = 'event_prep_owns_stock' WHERE id = ?`
         ).run(bonId);
         logChange({ entityType: 'bon', entityId: bonId, action: 'grocy_consume', fieldName: 'stock', oldValue: null, newValue: 'event_prep_owns_stock' });
         console.log(`[grocy_consume] bon ${bonId}: event-salgsbon — træk sprunget over (prep ejer HQ-lageret)`);
@@ -170,19 +171,73 @@ function autoConsumeBonInventory(bonId) {
     consumeRecipes(lines, packingOverrides, packingExtras, recipeFactors).then(results => {
         const failed  = results.filter(r => !r.success);
         const partial = results.filter(r => r.partial);
-        if (failed.length) {
-            console.warn(`[grocy_consume] bon ${bonId}: ${failed.length} fejl:`, failed);
+
+        // ── #359: flaget må kun påstå noget der faktisk skete ────────────────
+        //
+        // consumeRecipes afviser ALDRIG — fejl pr. produkt fanges internt og
+        // returneres som success:false, og selv en total resolver-fejl kommer
+        // tilbage som et resolvet array. Sattes flaget ubetinget (som før), stod
+        // en bon hvor hvert eneste Grocy-kald fik 500 som "lager trukket" — med
+        // tidsstempel og changelog-post.
+        //
+        // Værre endnu: vagthunden (scripts/check-inventory-deduct.js) leder efter
+        // leverede bons UDEN flaget. Fejlen SATTE flaget og gjorde dermed
+        // kontrollen blind for præcis den tilstand den blev bygget til at fange.
+        //
+        // Reglen: flaget er en idempotens-vagt, ikke en kvittering. Det sættes når
+        // en gentagelse ville gøre skade — altså når noget rent faktisk blev
+        // trukket — og kun da.
+        let state;
+        if (results.length === 0) {
+            // Intet at trække (ingen opskriftskoblede linjer). Legitim slutstilstand:
+            // flaget sættes, ellers ville vagthunden råbe hver dag om en bon der
+            // aldrig kan trække noget.
+            state = 'empty';
+        } else if (failed.length === results.length) {
+            // Intet blev trukket. Flaget bliver stående på 0: sikkert at gentage,
+            // og vagthunden fanger bonen i morgen tidlig.
+            state = 'failed';
+        } else if (failed.length) {
+            // Nogle trukket, nogle fejlet. Flaget SKAL sættes — ellers dobbelt-trækker
+            // en gentagelse dem der lykkedes. Til gengæld skal tilstanden være synlig,
+            // så den kommer med i vagthundens rapport (samme princip som
+            // goods_receipts' 'partially_approved').
+            state = 'partial';
+        } else {
+            state = 'ok';
+        }
+
+        if (state === 'failed') {
+            console.error(`[grocy_consume] bon ${bonId}: INTET trukket — alle ${failed.length} produkter fejlede. `
+                        + `Flaget forbliver 0 så trækket kan gentages.`, failed);
+        } else if (state === 'partial') {
+            console.warn(`[grocy_consume] bon ${bonId}: DELVIST trukket — ${failed.length} af ${results.length} produkter fejlede:`, failed);
+        } else if (state === 'empty') {
+            console.log(`[grocy_consume] bon ${bonId}: intet at trække (ingen opskriftskoblede linjer)`);
         } else if (partial.length) {
             console.log(`[grocy_consume] bon ${bonId}: ${results.length} produkter trukket — ${partial.length} partial (rest lagt på shopping-list)`);
         } else {
             console.log(`[grocy_consume] bon ${bonId}: ${results.length} produkter forbrugt fra lager`);
         }
-        db.prepare(
-            `UPDATE bons SET inventory_deducted = 1, inventory_deducted_at = CURRENT_TIMESTAMP WHERE id = ?`
-        ).run(bonId);
-        logChange({ entityType: 'bon', entityId: bonId, action: 'grocy_consume', fieldName: 'stock', oldValue: null, newValue: JSON.stringify(results) });
+
+        if (state === 'failed') {
+            // Status gemmes ALLIGEVEL — uden den ville en fejlet bon se ud præcis
+            // som en bon der endnu ikke var forsøgt.
+            db.prepare(`UPDATE bons SET inventory_deduct_status = 'failed' WHERE id = ?`).run(bonId);
+        } else {
+            db.prepare(
+                `UPDATE bons SET inventory_deducted = 1, inventory_deducted_at = CURRENT_TIMESTAMP,
+                                 inventory_deduct_status = ? WHERE id = ?`
+            ).run(state, bonId);
+        }
+        logChange({ entityType: 'bon', entityId: bonId, action: 'grocy_consume', fieldName: 'stock', oldValue: null, newValue: JSON.stringify({ state, results }) });
     }).catch(err => {
+        // Crash i selve .then() (ikke i Grocy-kaldene). Flaget røres ikke, så
+        // trækket kan gentages — og status gør fejlen synlig.
         console.error(`[grocy_consume] bon ${bonId}: fejl:`, err.message);
+        try {
+            db.prepare(`UPDATE bons SET inventory_deduct_status = 'failed' WHERE id = ?`).run(bonId);
+        } catch (_) { /* DB nede — loggen er alt vi har */ }
     });
 }
 

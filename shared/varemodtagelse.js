@@ -476,7 +476,12 @@ function _vmBuildItemsFromShoppingList(supplierKey) {
                 product_name: _vmProductNames[pid] || sl.product_name || 'Produkt #' + pid,
                 expected: 0,
                 received: 0,
+                // Enhedens NAVN til visning — og dens ID til serverens omregning (#358).
+                // Tallet fra indkøbslisten står i INDKØBS-enhed; uden qu_id kan
+                // serveren ikke vide det, og Grocy læser tallet som lager-enhed.
+                // Det gjorde "10 Antal spidskål" til 10 kg i drift.
                 unit: _vmQuNames[sl.qu_id] || _vmQuNames[_vmProductStockQu[pid]] || '',
+                qu_id: sl.qu_id != null ? sl.qu_id : (_vmProductStockQu[pid] || null),
                 status: 'ok',
                 notes: '',
                 slIds: [],
@@ -1275,6 +1280,7 @@ async function _vmSubmit() {
                 expected_quantity: item.expected,
                 received_quantity: item.received,
                 unit: item.unit,
+                qu_id: item.qu_id != null ? item.qu_id : null,   // #358 — enheden tallet står i
                 status: item.status,
                 notes: item.notes || null,
                 shopping_list_id: item.slIds && item.slIds.length > 0 ? item.slIds[0] : null,

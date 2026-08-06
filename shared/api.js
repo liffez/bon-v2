@@ -458,14 +458,27 @@ function postGrocyQuConversion(body) {
     return apiFetch('/grocy/quantity-unit-conversions', { method: 'POST', body: JSON.stringify(body) });
 }
 
+// Idempotens-nonce til lagertræk (#361). Skal genereres én gang pr. HANDLING og
+// genbruges ved retry — genererer man en ny for hvert forsøg, er beskyttelsen væk.
+function grocyConsumeNonce() {
+    try { if (window.crypto && crypto.randomUUID) return crypto.randomUUID(); } catch (e) {}
+    return 'gc-' + Date.now() + '-' + Math.random().toString(36).slice(2);
+}
+
 // Consume — via recipe lines (auto-consume ved LEVERET)
-function postGrocyConsume(lines) {
-    return apiFetch('/grocy/consume', { method: 'POST', body: JSON.stringify({ lines }) });
+function postGrocyConsume(lines, consumeNonce) {
+    return apiFetch('/grocy/consume', {
+        method: 'POST',
+        body: JSON.stringify({ lines, consume_nonce: consumeNonce || grocyConsumeNonce() }),
+    });
 }
 
 // Consume — via per-produkt mængder (recipe viewer)
-function postGrocyConsumeProducts(items) {
-    return apiFetch('/grocy/consume-products', { method: 'POST', body: JSON.stringify({ items }) });
+function postGrocyConsumeProducts(items, consumeNonce) {
+    return apiFetch('/grocy/consume-products', {
+        method: 'POST',
+        body: JSON.stringify({ items, consume_nonce: consumeNonce || grocyConsumeNonce() }),
+    });
 }
 
 /* ── PRODUKTION (batch record) ───────────────────────────── */

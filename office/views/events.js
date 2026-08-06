@@ -25,6 +25,25 @@ function _evEsc(s) { if (s == null) return ''; return String(s).replace(/[&<>"']
 function _evFmtDate(d) { if (!d) return '—'; const dt = new Date(d + 'T12:00:00'); return dt.toLocaleDateString('da-DK', { day:'2-digit', month:'short', year:'numeric' }); }
 function _evFmtKr(n) { if (n == null) return '—'; return Math.round(n).toLocaleString('da-DK') + ' kr'; }
 
+// #359: flaget alene kunne kun sige "trukket/ikke trukket" og bekræftede dermed
+// aktivt en løgn over for et menneske, når trækket i virkeligheden var delvist
+// eller fejlet. Statussen fortæller forskellen.
+function _evDeductLabel(b) {
+    if (!b.inventory_deducted && b.inventory_deduct_status === 'failed')
+        return '<span class="ev-deduct-bad" title="Ingen produkter blev trukket fra Grocy. Trækket kan gentages.">⚠ lagertræk fejlede</span>';
+    if (!b.inventory_deducted) return '';
+    switch (b.inventory_deduct_status) {
+        case 'partial':
+            return '<span class="ev-deduct-warn" title="Mindst ét produkt fejlede. Lageret er for højt for dem — ret dem manuelt i Grocy. Se bonens historik.">⚠ lager delvist trukket</span>';
+        case 'empty':
+            return '<span class="ev-deduct-muted" title="Ingen opskriftskoblede linjer — der var intet at trække.">— intet at trække</span>';
+        case 'event_prep_owns_stock':
+            return '<span class="ev-deduct-muted" title="Let event: prep-bonnen ejer HQ-lageret, så salgsbonen trækker bevidst ikke.">— prep ejer lageret</span>';
+        default:
+            return '✓ lager trukket';
+    }
+}
+
 const _EV_MODEL_LABEL = { light: 'Let event (alt fra HQ)', festival: 'Festival (lokal sporing)' };
 const _EV_STATUS_LABEL = { planning: 'Planlægning', active: 'Aktiv', done: 'Afsluttet', cancelled: 'Aflyst' };
 const _EV_ROLE_LABEL  = { prep: 'Prep / pakkeliste', topup: 'Top-up', sales: 'Dagssalg', expense: 'Udgift' };
@@ -1141,7 +1160,7 @@ function _evRoleSection(role, bons) {
             </div>`;
     }
     const rows = bons.map(b => `
-        <tr data-bon-id="${b.id}">
+        <tr data-bon-id="${b.id}" data-deduct="${b.inventory_deduct_status || ''}">
             <td class="ev-bon-num">${_evEsc(b.bon_number)}${b.is_bridge
                 ? ` <span class="ev-bon-bridge" title="Lavet automatisk af forudbestillingerne fra event-ordre. En prep-bon herfra er ALLEREDE SOLGT og indgår typisk i forecast-prep-bonnen — ikke ekstra produktion.">🔗 forudbestilt</span>`
                 : ''}</td>
@@ -1149,7 +1168,7 @@ function _evRoleSection(role, bons) {
             <td>${_evFmtDate(b.delivery_date)}</td>
             <td class="ev-num">${b.total_units || 0}</td>
             <td class="ev-num">${_evFmtKr(b.total_price)}</td>
-            <td class="ev-bon-flag">${b.inventory_deducted ? '✓ lager trukket' : ''}</td>
+            <td class="ev-bon-flag">${_evDeductLabel(b)}</td>
         </tr>`).join('');
     return `
         <div class="ev-role-section">

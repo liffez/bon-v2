@@ -51,6 +51,8 @@
     "test:run-dashboard": "node --env-file=.env.test --experimental-sqlite tests/scripts/run_T_DASHBOARD.js",
     "test:run-opskrifter": "node --env-file=.env.test --experimental-sqlite tests/scripts/run_T_OPSKRIFTER.js",
     "test:run-optaelling": "node tests/scripts/run_T_OPTAELLING.js",
+    "test:consume-hardening": "node --experimental-sqlite scripts/test-consume-hardening.js && node scripts/test-varemodtagelse-client-units.js",
+    "check:receipt-units": "node --experimental-sqlite scripts/check-receipt-unit-conversions.js",
     "test:ui": "playwright test",
     "test:ui-indkob": "playwright test T_INDKOB_UI",
     "test:ui-optaelling": "playwright test T_OPTAELLING_UI",
