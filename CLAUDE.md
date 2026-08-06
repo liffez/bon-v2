@@ -3148,6 +3148,14 @@ falder igennem), +14 i `scripts/test-delivery-spor1.js` (price-history: kun x-Le
 Browser-verificeret i office: pille 144/400 kr, beregner 400 ex / 500 incl (= fakturaens tal),
 historik i både beregner og drawer. Testdata ryddet.
 
+**Beregnet adresse vises på kortet** (driftsønske): markør (🧮 i stiplet brun ring — bevidst
+anderledes end bon-pins, for det er et opslag og ikke en levering der findes) + stiplet linje
+fra HQ, så afstanden kan *ses* og ikke bare læses. Tooltip: adresse · km · billigste eksterne
+vogn. Ligger i sit **eget Leaflet-lag** (`_logPcLayer`), så `_logRenderMap`'s `clearLayers()`
+ikke fjerner den ved en SSE-drevet genindlæsning; punktet lægges desuden ind i `fitBounds`
+så kortet ikke panorerer det ud af syne. Ryddes når panelet lukkes, og så snart der tastes i
+adressefeltet igen (så markøren aldrig viser noget andet end det feltet siger).
+
 **Åbent:** taxaens takst. Appen viser 605 kr for HQ → 2630 Taastrup; vores formel siger
 552 kr ex. Er appens tal **incl** moms (som forbrugerpriser typisk er), er den rigtige pris
 484 ex, og `per_km: 19` er ~14 % for høj (~15,8 ville ramme). Ikke rettet — moms-grundlaget

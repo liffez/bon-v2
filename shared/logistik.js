@@ -39,6 +39,7 @@ var _logRouteLayer  = null;
 var _logLegendCtl   = null;    // Leaflet-legende-kontrol
 var _logMarkers     = {};      // bon_id → markør (kort↔liste-link)
 var _logDrag        = null;    // bon_id der trækkes (drag → rute)
+var _logPcLayer     = null;    // prisberegnerens adresse (eget lag)
 
 var _LOG_MONTHS = ['januar','februar','marts','april','maj','juni','juli',
                    'august','september','oktober','november','december'];
@@ -151,6 +152,8 @@ function cleanupLogistik() {
     if (_logMap) { try { _logMap.remove(); } catch (e) {} _logMap = null; }
     _logMarkerLayer = null;
     _logRouteLayer = null;
+    _logPcLayer = null;
+    _logPc = null;
 }
 
 function _logHandleSSE(eventType, data) {
@@ -391,6 +394,7 @@ function _logBindPriceCalc() {
         if (!e.target.closest('[data-pc="close"]')) return;
         panel.hidden = true;
         openBtn.classList.remove('log-pc-open-active');
+        _logPcClearMap();          // opslaget er ovre — lad ikke markøren blive stående
     });
 
     var addr = document.getElementById('logPcAddr');
@@ -399,6 +403,7 @@ function _logBindPriceCalc() {
 
     addr.addEventListener('input', function() {
         _logPc = null;                       // adressen er ikke bekræftet længere
+        _logPcClearMap();                    // markøren passer ikke til det der tastes
         clearTimeout(searchTimer);
         var q = addr.value.trim();
         if (q.length < 3) { dawa.hidden = true; dawa.innerHTML = ''; return; }
@@ -498,6 +503,53 @@ function _logPcLoadHistory(postnr) {
     });
 }
 
+// Sæt den beregnede adresse på kortet: markør + stiplet linje fra HQ, så
+// afstanden kan ses og ikke bare læses. Markøren er bevidst anderledes end
+// bon-pins (hul, brun ring) — det er et opslag, ikke en levering der findes.
+function _logPcShowOnMap(r) {
+    if (!_logMap || !_logPcLayer || !_logPc) return;
+    _logPcLayer.clearLayers();
+
+    var hq = _logData.hq;
+    var pt = [_logPc.lat, _logPc.lon];
+
+    if (hq && hq.lat != null && hq.lon != null) {
+        L.polyline([[hq.lat, hq.lon], pt], {
+            color: '#8e631f', weight: 2, opacity: 0.75, dashArray: '6 6'
+        }).addTo(_logPcLayer);
+    }
+
+    // Billigste vogn vi reelt kan sælge (egne vogne er vores omkostning).
+    var ext = (r.alternatives || [])
+        .filter(function(a) { return !a.is_internal && a.cost_dkk != null; })
+        .sort(function(a, b) { return a.cost_dkk - b.cost_dkk; })[0];
+    var pris = ext
+        ? _logEsc(ext.label) + ' ' + ext.cost_dkk + ' kr ex'
+        : 'ingen ekstern pris';
+
+    L.marker(pt, {
+        icon: L.divIcon({
+            className: 'log-mk',
+            html: '<div class="log-mk-calc">🧮</div>',
+            iconSize: [26, 26], iconAnchor: [13, 13]
+        })
+    })
+    .bindTooltip('<strong>' + _logEsc(_logPc.text) + '</strong><br>'
+        + String(r.distance_km).replace('.', ',') + ' km · ' + pris,
+        { direction: 'top', offset: [0, -10] })
+    .addTo(_logPcLayer);
+
+    if (hq && hq.lat != null && hq.lon != null) {
+        _logMap.fitBounds([[hq.lat, hq.lon], pt], { padding: [48, 48], maxZoom: 14 });
+    } else {
+        _logMap.setView(pt, 13);
+    }
+}
+
+function _logPcClearMap() {
+    if (_logPcLayer) _logPcLayer.clearLayers();
+}
+
 function _logPcMsg(text, cls) {
     var out = document.getElementById('logPcResult');
     if (!out) return;
@@ -539,6 +591,8 @@ function _logPcRender(r) {
     // brugeren selv har tastet.
     var boxEl = document.getElementById('logPcBoxes');
     if (boxEl && !boxEl.value) boxEl.placeholder = r.boxes > 0 ? r.boxes + ' (auto)' : 'auto';
+
+    _logPcShowOnMap(r);
 
     var kr = function(n) {
         return n == null ? '–' : Number(n).toLocaleString('da-DK', { maximumFractionDigits: 2 }) + ' kr';
@@ -1240,6 +1294,9 @@ function _logInitMap() {
     }).addTo(_logMap);
     _logMarkerLayer = L.layerGroup().addTo(_logMap);
     _logRouteLayer = L.layerGroup().addTo(_logMap);
+    // Eget lag til prisberegnerens adresse, så den overlever _logRenderMap's
+    // clearLayers() når dagens data genindlæses (fx via SSE).
+    _logPcLayer = L.layerGroup().addTo(_logMap);
     // Kortet rendres i et nyligt indsat element — invalidér størrelsen.
     setTimeout(function() { if (_logMap) _logMap.invalidateSize(); }, 150);
 }
@@ -1338,6 +1395,12 @@ function _logRenderMap() {
             style: { color: r.vehicle_color || _logRouteColor(r.vehicle_type), weight: 4, opacity: 0.7 }
         }).addTo(_logRouteLayer);
     });
+
+    // Står der en beregnet adresse på kortet, skal den blive i billedet —
+    // ellers panorerer en SSE-drevet genindlæsning den ud af syne.
+    if (_logPc && _logPcLayer && _logPcLayer.getLayers().length) {
+        bounds.push([_logPc.lat, _logPc.lon]);
+    }
 
     if (bounds.length) {
         _logMap.fitBounds(bounds, { padding: [32, 32], maxZoom: 14 });
