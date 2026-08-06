@@ -1102,11 +1102,28 @@ class BonDrawer {
                 try {
                     const q = await fetchLoboQuote(this.bonId, quoteBoxes);
                     quoteBoxes = q.boxes;  // synk til det serveren regnede med
-                    const dist = q.routedistance != null ? (q.routedistance / 1000).toLocaleString('da-DK', { maximumFractionDigits: 1 }) + ' km' : '';
+                    // By-expressens egen målte afstand — mærkes, så den ikke forveksles
+                    // med vores ORS-afstand fra HQ i forslags-blokken ovenover.
+                    const dist = q.routedistance != null
+                        ? (q.routedistance / 1000).toLocaleString('da-DK', { maximumFractionDigits: 1 }) + ' km (By-ex)'
+                        : '';
                     const marginCls = q.margin == null ? '' : (q.margin < 0 ? 'neg' : 'pos');
                     const marginTxt = q.margin == null ? '' :
                         `<span class="lq-margin ${marginCls}">margin ${q.margin >= 0 ? '+' : ''}${kr(q.margin)}</span>`;
                     const incl = q.included_boxes != null ? ` <span class="lq-dim">(${q.included_boxes} inkl.)</span>` : '';
+                    // Uden for byområdet findes der ingen bypris. Vis derfor hvad
+                    // turen bør koste i stedet for en kundepris der ikke gælder.
+                    const noStd = q.standard_price_applies === false;
+                    const custRow = noStd
+                        ? `<div class="lq-row"><span>Kundepris (std)</span>` +
+                          `<span class="lq-dim">gælder ikke så langt ude</span></div>`
+                        : (q.customer_ex != null
+                            ? `<div class="lq-row"><span>Kundepris (std)</span><span>${kr(q.customer_ex)} ex</span></div>`
+                            : '');
+                    const suggestRow = (q.suggested_customer_ex != null)
+                        ? `<div class="lq-row"><span>💡 Bør koste</span><strong>${kr(q.suggested_customer_ex)} ` +
+                          `<span class="lq-dim">ex${q.suggested_margin != null ? ` · margin +${kr(q.suggested_margin)}` : ''}</span></strong></div>`
+                        : '';
                     quoteEl.className = 'drawer-lobo-quote ok';
                     quoteEl.innerHTML =
                         `<div class="lq-head">🚴 By-ex pris</div>` +
@@ -1116,7 +1133,7 @@ class BonDrawer {
                           `<button type="button" class="lq-box-btn" data-box="1">+</button></span></div>` +
                         `<div class="lq-row"><span>Kostpris</span><strong>${kr(q.cost_ex)} <span class="lq-dim">ex moms</span></strong></div>` +
                         (q.cost_incl != null ? `<div class="lq-row lq-dim"><span></span><span>${kr(q.cost_incl)} incl</span></div>` : '') +
-                        (q.customer_ex != null ? `<div class="lq-row"><span>Kundepris (std)</span><span>${kr(q.customer_ex)} ex</span></div>` : '') +
+                        custRow + suggestRow +
                         (marginTxt ? `<div class="lq-row">${marginTxt}${dist ? `<span class="lq-dim">${dist}</span>` : ''}</div>` :
                             (dist ? `<div class="lq-row lq-dim"><span>${dist}</span></div>` : '')) +
                         (q.margin != null && q.margin < 0 ? `<div class="lq-warn">⚠ Lobo-prisen overstiger kundeprisen — I taber på leveringen.</div>` : '');

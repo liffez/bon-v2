@@ -92,7 +92,7 @@ function composeCostEx(loboBaseEx, boxes, cfg, vehicle, applyBoxSurcharge = true
 // Returnerer kostpris (ex/incl), kundepris (fra vognens cost_formula) + margin.
 // `boxes` (valgfri) overstyrer bonens kasse-antal — ekstra kasser koster mere
 // (surcharge hos Lobo + extra_box_cost i kundeprisen).
-async function quoteForBon({ bon, vehicle, adapter, boxes = null, paxPerBox = 16 }) {
+async function quoteForBon({ bon, vehicle, adapter, boxes = null, paxPerBox = 16, pricing = {} }) {
     const cfg = { ...(adapter.config || {}) };
     if (cfg.included_boxes == null) cfg.included_boxes = resolveIncludedBoxes(cfg, vehicle);
 
@@ -112,15 +112,37 @@ async function quoteForBon({ bon, vehicle, adapter, boxes = null, paxPerBox = 16
     const costEx = composeCostEx(quote.cost_ex, effectiveBoxes, cfg, vehicle);
     const costIncl = costEx != null ? exclToIncl(costEx) : null;
     const customerEx = vehicle ? (estimateCost(vehicle, bonForCalc) ?? null) : null;
-    const margin = (customerEx != null && costEx != null)
+
+    // Standardprisen er en BYPRIS. Ligger turen uden for vognens leveringsområde,
+    // findes der ingen standard kundepris for den — og så er en "margin" målt mod
+    // bytaksten et opdigtet tab: vi ville aldrig have tilbudt bytaksten derude.
+    // Vi bruger Lobos EGEN målte afstand, da det er dens pris vi bedømmer.
+    // (Samme regel som supply_warning i previewBooking.)
+    const maxKm = vehicle && vehicle.max_distance_km != null ? Number(vehicle.max_distance_km) : null;
+    const distKm = quote.routedistance != null ? quote.routedistance / 1000 : null;
+    const standardApplies = !(maxKm && distKm && distKm > maxKm);
+
+    const margin = (standardApplies && customerEx != null && costEx != null)
         ? Math.round((customerEx - costEx) * 100) / 100
+        : null;
+
+    // Hvad turen så BØR koste kunden: kostpris + markup, rundet op. Uden for
+    // byområdet er der ingen bypris at holde den op mod, så vi sender null ind.
+    const suggestedEx = suggestCustomerPrice(
+        costEx, standardApplies ? customerEx : null, pricing.markup_pct, pricing.round_to);
+    const suggestedMargin = (suggestedEx != null && costEx != null)
+        ? Math.round((suggestedEx - costEx) * 100) / 100
         : null;
 
     return {
         cost_ex: costEx,                 // Lobo grundpris + 50/kasse over inkluderede
         cost_incl: costIncl,
         customer_ex: customerEx,
-        margin,                          // advarsel-grundlag (negativ = vi taber) — blokerer ALDRIG
+        standard_price_applies: standardApplies,
+        margin,                          // advarsel-grundlag (negativ = vi taber) — blokerer ALDRIG.
+                                         // null når der ingen bypris er at måle mod.
+        suggested_customer_ex: suggestedEx,
+        suggested_margin: suggestedMargin,
         routedistance: quote.routedistance,
         co2saving: quote.co2saving,
         boxes: effectiveBoxes,

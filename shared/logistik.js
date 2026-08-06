@@ -741,11 +741,21 @@ function _logFetchByExPrice(id, row, boxes) {
     }
     fetchLoboQuote(id, boxes).then(function(q) {
         var kr = function(n) { return n == null ? '–' : Number(n).toLocaleString('da-DK', { maximumFractionDigits: 2 }) + ' kr'; };
-        var dist = q.routedistance != null ? ' · ' + (q.routedistance / 1000).toLocaleString('da-DK', { maximumFractionDigits: 1 }) + ' km' : '';
+        // By-expressens EGEN målte afstand — mærkes, så den ikke forveksles med
+        // vores ORS-afstand fra HQ på linjen ovenover (de måler ikke det samme).
+        var dist = q.routedistance != null
+            ? ' · ' + (q.routedistance / 1000).toLocaleString('da-DK', { maximumFractionDigits: 1 })
+              + ' km <span class="byex-dim">(By-ex)</span>'
+            : '';
         var marginHtml = '';
         if (q.margin != null) {
             marginHtml = ' · <span class="byex-margin ' + (q.margin < 0 ? 'neg' : 'pos') + '">margin '
                 + (q.margin >= 0 ? '+' : '') + kr(q.margin) + '</span>';
+        } else if (q.standard_price_applies === false && q.suggested_customer_ex != null) {
+            // Ingen bypris derude — vis hvad turen bør koste i stedet for et
+            // opdigtet tab målt mod en pris vi aldrig ville have tilbudt.
+            marginHtml = ' · <span class="byex-suggest">ingen bypris — tag <strong>'
+                + kr(q.suggested_customer_ex) + '</strong></span>';
         }
         out.setAttribute('data-boxes', q.boxes);
         out.className = 'log-byex-result ok';

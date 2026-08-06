@@ -140,6 +140,49 @@ test('quoteForBon: negativ margin rapporteres (men intet blokeres)', async () =>
     const q = await quoteForBon({ bon: BON, vehicle: VEHICLE, adapter });
     assert.strictEqual(q.cost_ex, 350);
     assert.strictEqual(q.margin, -146);
+    // Bynær tur: bytaksten gælder, så margin ER det rigtige mål.
+    assert.strictEqual(q.standard_price_applies, true);
+});
+
+test('quoteForBon: uden for leveringsområdet er der ingen bypris — margin er null, forslag i stedet', async () => {
+    // Drifts-tilfældet: Høje Taastrup, 18,9 km målt af Lobo, vogn dækker 8 km.
+    // Før viste vi "margin −174,8 kr" målt mod bytaksten på 154 kr — et opdigtet
+    // tab, for vi ville aldrig have tilbudt bytaksten så langt ude.
+    const adapter = fakeAdapter({
+        priceQuote: async () => ({ uuid: 'd', cost_ex: 328.8, routedistance: 18900 }),
+        deleteOrderDraft: async () => true,
+    });
+    const vehicle = { ...VEHICLE, max_distance_km: 8 };
+    const q = await quoteForBon({ bon: { ...BON, boxes: 2 }, vehicle, adapter, pricing: { markup_pct: 10, round_to: 25 } });
+
+    assert.strictEqual(q.standard_price_applies, false);
+    assert.strictEqual(q.margin, null, 'ingen margin mod en pris der ikke gælder');
+    assert.strictEqual(q.customer_ex, 154, 'bytaksten oplyses stadig — men gælder ikke');
+    assert.strictEqual(q.suggested_customer_ex, 375, '328,80 + 10 % = 361,68 → rundet op til 375');
+    assert.strictEqual(q.suggested_margin, 46.2);
+});
+
+test('quoteForBon: inden for området med positiv margin → intet forslag (bytaksten dækker)', async () => {
+    const adapter = fakeAdapter({
+        priceQuote: async () => ({ uuid: 'd', cost_ex: 100, routedistance: 5100 }),
+        deleteOrderDraft: async () => true,
+    });
+    const vehicle = { ...VEHICLE, max_distance_km: 8 };
+    const q = await quoteForBon({ bon: { ...BON, boxes: 2 }, vehicle, adapter, pricing: { markup_pct: 10, round_to: 25 } });
+
+    assert.strictEqual(q.standard_price_applies, true);
+    assert.strictEqual(q.margin, 54);                      // 154 − 100
+    assert.strictEqual(q.suggested_customer_ex, null, 'bytaksten dækker allerede — intet at foreslå');
+});
+
+test('quoteForBon: vogn uden max_distance_km → bytaksten gælder altid (bagudkompatibelt)', async () => {
+    const adapter = fakeAdapter({
+        priceQuote: async () => ({ uuid: 'd', cost_ex: 100, routedistance: 99000 }),
+        deleteOrderDraft: async () => true,
+    });
+    const q = await quoteForBon({ bon: { ...BON, boxes: 2 }, vehicle: VEHICLE, adapter });
+    assert.strictEqual(q.standard_price_applies, true);
+    assert.strictEqual(q.margin, 54);
 });
 
 /* ── bookForBon ───────────────────────────────────────────── */

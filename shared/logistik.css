@@ -193,6 +193,8 @@
 .log-byex-result .byex-dim { color: var(--color-text-dim, #8a8580); }
 .log-byex-result .byex-margin.pos { color: #2e7d32; font-weight: 600; }
 .log-byex-result .byex-margin.neg { color: #bc181b; font-weight: 600; }
+/* Ingen bypris så langt ude — et forslag, ikke en advarsel. Derfor ikke rød. */
+.log-byex-result .byex-suggest { color: #9a6a1a; }
 .log-box-stepper { white-space: nowrap; }
 .log-box-stepper .log-box-n { display: inline-block; min-width: 12px; text-align: center; font-weight: 700; margin: 0 2px; }
 .log-box-btn {

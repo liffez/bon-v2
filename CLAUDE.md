@@ -3038,11 +3038,36 @@ beregneren og bon-forslaget ikke kan blive uenige — reglen lever ét sted, på
 Svaret returnerer additivt `boxes` + `pax_per_box`, så beregneren kan vise *hvilket*
 kasse-antal prisen er regnet på.
 
+**Falsk tabs-alarm på lange ture fjernet** (driftsfund): `GET /lobo/quote` regnede margin
+mod `estimateCost(vehicle, bon)` **uden afstand**, altså mod By-expressens **bypris** på
+154 kr — også når turen lå langt uden for de 8 km bytaksten gælder for. En levering til
+Høje Taastrup (21,9 km, kost 328,80) viste derfor rødt `margin −174,8 kr` + "I taber på
+leveringen", målt mod en pris vi aldrig ville have tilbudt derude. By-expressen har ingen
+`per_km`, så gulv-rettelsen ovenfor hjælper ikke her — formlen *kan* ikke udtrykke afstand
+for den vogn.
+- `quoteForBon` sammenligner nu Lobos **egen** målte `routedistance` mod vognens
+  `max_distance_km` (samme regel som `supply_warning` i `previewBooking`) → nyt felt
+  `standard_price_applies`. Er den falsk: `margin = null` (ingen margin mod en pris der
+  ikke gælder) og i stedet `suggested_customer_ex` + `suggested_margin` via den
+  eksisterende `suggestCustomerPrice` — som hidtil KUN blev brugt i booking-previewet.
+- Logistik-rækken: `ingen bypris — tag 375 kr` (dæmpet gul) i stedet for rødt tab.
+  Draweren: `Kundepris (std) → gælder ikke så langt ude` + `💡 Bør koste 375 kr ex ·
+  margin +46,2 kr`, og advarselsbanneret udebliver.
+- Vogne uden `max_distance_km` → bytaksten gælder altid (bagudkompatibelt; test-fixturen
+  har ikke feltet, så de eksisterende margin-asserts er urørte).
+- **De to afstande skilles ad**: rækken/draweren viste `21,9 km` (vores ORS fra HQ) og
+  `18,9 km` (Lobos egen rute) lige over hinanden uden forklaring. Lobos er nu mærket
+  `(By-ex)`.
+
 **Tests:** +7 asserts i `scripts/test-delivery-spor2-unit.js` (bypris vs. km-takst i begge
-retninger, flad vogn uden km-takst, kasse-tillæg på begge grene). 236 delivery-tests grønne
-(102+50 spor1, 31+24+29 spor2) + moms-audit 18/0. Browser-verificeret i begge zoner mod live
-ORS: 5 km → taxa 250 kr, 40 km → 895 kr; 60 kuverter → 4 kasser → By-ex 154 → 254 kr;
-pille med og uden tal. Testdata ryddet.
+retninger, flad vogn uden km-takst, kasse-tillæg på begge grene) og +4 tests i
+`tests/lobo_booking.test.js` (drifts-tilfældet 18,9 km/8 km → margin null + forslag 375,
+bynær tur → margin bevaret + intet forslag, vogn uden `max_distance_km` → uændret).
+Mutationstestet: neutraliseres `standardApplies`, fejler drifts-testen.
+240 delivery-tests grønne (102+50 spor1, 31+24+29 spor2, 20 lobo) + moms-audit 18/0.
+Browser-verificeret i begge zoner mod live ORS: 5 km → taxa 250 kr, 21,9 km → 552 kr,
+40 km → 895 kr; 60 kuverter → 4 kasser → By-ex 154 → 254 kr; pille med og uden tal;
+Lobo-svaret stubbet med driftens egne tal for at se renderingen. Testdata ryddet.
 
 ## Næste opgave
 
