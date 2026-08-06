@@ -183,6 +183,20 @@ function connectSSE(url, handlers, opts) {
         });
     }
 
+    // ── Window-bro ────────────────────────────────────────────────────────
+    // Komponenter der ikke ejer SSE-forbindelsen (fx bon-draweren, der lever i
+    // alle zoner) lytter på 'sse:<event>' på window. Broen registreres HER —
+    // uafhængigt af `handlers` — så den virker uanset hvilke events den enkelte
+    // shell selv har tilmeldt. Uden den var drawerens SSE-lytter død overalt
+    // undtagen fra levering-popoutet, som dispatchede eventet selv.
+    for (const eventName of ['bon_updated', 'bon_status', 'bon_created']) {
+        es.addEventListener(eventName, (e) => {
+            try {
+                window.dispatchEvent(new CustomEvent('sse:' + eventName, { detail: JSON.parse(e.data) }));
+            } catch (err) { /* stille — handler-løkken ovenfor logger parse-fejl */ }
+        });
+    }
+
     // Office bruger sin egen samlede "Nyt"-toast + topbar-indikator, så den
     // undertrykker de generiske mail-toasts her (undgår dobbelt-toast).
     // Kitchen-zonen sender ikke flaget og beholder de generiske toasts.
