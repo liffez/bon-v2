@@ -380,21 +380,35 @@ function _logPriceCalcHtml() {
       '</div>';
 }
 
+// Panelet kan lukkes flere steder (✕, toolbar-knappen, Escape). ÉN funktion
+// ejer åbn/luk, så oprydningen af kort-markøren ikke kan glemmes i en af dem
+// — præcis dét skete første gang, hvor kun ✕-vejen ryddede op.
+function _logPcSetOpen(open) {
+    var panel = document.getElementById('logPriceCalc');
+    var openBtn = document.getElementById('logPcOpen');
+    if (!panel || !openBtn) return;
+    panel.hidden = !open;
+    openBtn.classList.toggle('log-pc-open-active', open);
+    if (open) {
+        var addr = document.getElementById('logPcAddr');
+        if (addr) addr.focus();
+        return;
+    }
+    var dawa = document.getElementById('logPcDawa');
+    if (dawa) dawa.hidden = true;
+    _logPcClearMap();              // opslaget er ovre — markøren skal ikke blive stående
+}
+
 function _logBindPriceCalc() {
     var openBtn = document.getElementById('logPcOpen');
     var panel = document.getElementById('logPriceCalc');
     if (!openBtn || !panel) return;
 
     openBtn.addEventListener('click', function() {
-        panel.hidden = !panel.hidden;
-        openBtn.classList.toggle('log-pc-open-active', !panel.hidden);
-        if (!panel.hidden) document.getElementById('logPcAddr').focus();
+        _logPcSetOpen(panel.hidden);
     });
     panel.addEventListener('click', function(e) {
-        if (!e.target.closest('[data-pc="close"]')) return;
-        panel.hidden = true;
-        openBtn.classList.remove('log-pc-open-active');
-        _logPcClearMap();          // opslaget er ovre — lad ikke markøren blive stående
+        if (e.target.closest('[data-pc="close"]')) _logPcSetOpen(false);
     });
 
     var addr = document.getElementById('logPcAddr');
@@ -409,8 +423,11 @@ function _logBindPriceCalc() {
         if (q.length < 3) { dawa.hidden = true; dawa.innerHTML = ''; return; }
         searchTimer = setTimeout(function() { _logPcSearch(q); }, 300);
     });
+    // Escape: luk først adresse-listen, ellers hele panelet.
     addr.addEventListener('keydown', function(e) {
-        if (e.key === 'Escape') { dawa.hidden = true; }
+        if (e.key !== 'Escape') return;
+        if (!dawa.hidden) { dawa.hidden = true; return; }
+        _logPcSetOpen(false);
     });
     // mousedown (ikke click): fyrer FØR feltet mister fokus, så valget
     // ikke går tabt hvis noget senere skulle skjule listen på blur.

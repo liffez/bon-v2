@@ -3155,6 +3155,9 @@ vogn. Ligger i sit **eget Leaflet-lag** (`_logPcLayer`), så `_logRenderMap`'s `
 ikke fjerner den ved en SSE-drevet genindlæsning; punktet lægges desuden ind i `fitBounds`
 så kortet ikke panorerer det ud af syne. Ryddes når panelet lukkes, og så snart der tastes i
 adressefeltet igen (så markøren aldrig viser noget andet end det feltet siger).
+**Åbn/luk ejes af én funktion** (`_logPcSetOpen`) — første udgave lagde oprydningen i ✕-vejen
+men ikke i toolbar-knappen, så markøren blev hængende når man lukkede dér (fundet i drift).
+Escape lukker først adresse-listen, derefter panelet.
 
 **Åbent:** taxaens takst. Appen viser 605 kr for HQ → 2630 Taastrup; vores formel siger
 552 kr ex. Er appens tal **incl** moms (som forbrugerpriser typisk er), er den rigtige pris
