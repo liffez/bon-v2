@@ -1132,6 +1132,19 @@ function _evRecalcForecastTotals() {
     if (g) g.textContent = grand || '';
 }
 
+// Status-pille for en bon. Farve + label kommer fra BON_CONFIG (samme palet som
+// bon-kort, kalender, ugeoversigt) — IKKE fra status_definitions.color i DB, som
+// er en blegere, afvigende palet. Fallback til DB-værdien hvis BonConfig mangler.
+function _evBonStatusPill(b) {
+    const feStatus = (typeof statusToFrontend === 'function') ? statusToFrontend(b.status_code || '') : '';
+    const cfg = (typeof BON_CONFIG !== 'undefined' && BON_CONFIG.statuses) ? BON_CONFIG.statuses[feStatus] : null;
+    const style = cfg
+        ? `background:${cfg.color};color:${cfg.text || '#fff'}`
+        : `background:${b.status_color || '#999'};color:#fff`;
+    const label = cfg ? cfg.label : (b.status_label || b.status_code || '');
+    return `<span class="ev-bon-status" style="${style}">${_evEsc(label)}</span>`;
+}
+
 function _evRoleSection(role, bons) {
     if (!bons || bons.length === 0) {
         return `
@@ -1145,7 +1158,7 @@ function _evRoleSection(role, bons) {
             <td class="ev-bon-num">${_evEsc(b.bon_number)}${b.is_bridge
                 ? ` <span class="ev-bon-bridge" title="Lavet automatisk af forudbestillingerne fra event-ordre. En prep-bon herfra er ALLEREDE SOLGT og indgår typisk i forecast-prep-bonnen — ikke ekstra produktion.">🔗 forudbestilt</span>`
                 : ''}</td>
-            <td><span class="ev-bon-status" style="background:${b.status_color || '#999'}">${_evEsc(b.status_label)}</span></td>
+            <td>${_evBonStatusPill(b)}</td>
             <td>${_evFmtDate(b.delivery_date)}</td>
             <td class="ev-num">${b.total_units || 0}</td>
             <td class="ev-num">${_evFmtKr(b.total_price)}</td>

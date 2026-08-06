@@ -71,7 +71,9 @@
 .ev-bon-table tr[data-bon-id] { cursor: pointer; }
 .ev-bon-table tr[data-bon-id]:hover { background: #fafaf8; }
 .ev-bon-num { font-family: 'SF Mono', monospace; font-weight: 600; color: var(--brand-primary, #8e631f); }
-.ev-bon-status { padding: 2px 8px; border-radius: 8px; color: #fff; font-size: 11px; font-weight: 600; }
+/* Farve + tekstfarve sættes inline fra BON_CONFIG (se _evBonStatusPill).
+   Kanten gør de lyse statusser (LEV = hvid) synlige på hvid tabelbaggrund. */
+.ev-bon-status { display: inline-block; padding: 2px 8px; border-radius: 8px; border: 1px solid rgba(0,0,0,0.12); font-size: 11px; font-weight: 600; }
 .ev-bon-flag { color: #1e6b2c; font-size: 11px; }
 .ev-num { text-align: right; font-variant-numeric: tabular-nums; }
 
