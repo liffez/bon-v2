@@ -1789,6 +1789,9 @@ class BonDrawer {
                 } else if (priceEl && Number.isFinite(unitPrice)) {
                     priceEl.textContent = (newQty * unitPrice) + ' kr';
                 }
+                // Linje-prisen alene er ikke nok: total, CO₂ og enheder er alle
+                // afledt af linjerne og genberegnes server-side. Hent dem frem.
+                self._reloadLines();
             })
             .catch(function(err) {
                 console.error('Kunne ikke gemme antal:', err);
@@ -1864,23 +1867,47 @@ class BonDrawer {
             });
     }
 
-    /** Reload only lines list without re-rendering entire drawer (preserves picker state) */
+    /**
+     * Genindlæs linjerne uden at re-rendere hele draweren (bevarer picker- og
+     * felt-tilstand). Opdaterer alt der er AFLEDT af linjerne og genberegnes
+     * server-side: linjelisten + totalen, CO₂-strippen og Enheder-feltet.
+     */
     async _reloadLines() {
         if (!this.bonId) return;
+        // Kort vindue hvor vores eget bon_updated-ekko ikke udløser en fuld load()
+        this._localChangeUntil = Date.now() + 2000;
+        var prev = this.data || {};
         try {
             var bon = await fetchBon(this.bonId);
             this.data = bon;
             this._renderLines(bon.lines || []);
+            this._renderCo2(bon);
+            this._loadCo2Accuracy(this.bonId);   // strippen blev gen-renderet — hent "% dækket" igen
+            this._syncDerivedUnits(prev, bon);
         } catch (err) {
             console.error('Kunne ikke genindlæse linjer:', err);
         }
+    }
+
+    /**
+     * Enheder (total_units) er både server-beregnet OG bruger-redigerbart.
+     * Opdatér kun feltet hvis brugeren ikke selv har rørt det — ellers ville en
+     * linje-ændring smide en ugemt manuel rettelse væk.
+     */
+    _syncDerivedUnits(prev, next) {
+        var el = this.el.querySelector('[data-field="total_units"]');
+        if (!el || el === document.activeElement) return;
+        var prevVal = String(prev.total_units || '');
+        if (el.value !== prevVal) return;          // brugeren har ændret feltet
+        el.value = next.total_units || '';
     }
 
     async _deleteLine(lineId) {
         if (!confirm('Fjern denne vare?')) return;
         try {
             await deleteBonLine(this.bonId, lineId);
-            await this.load(this.bonId);
+            // _reloadLines frem for load(): bevarer ugemte felt-ændringer
+            await this._reloadLines();
         } catch (err) {
             alert(err.message || 'Kunne ikke fjerne vare');
         }
@@ -2154,9 +2181,13 @@ class BonDrawer {
         // Patch F: bon_updated + bon_status bruger nu konsistent {id} på payload
         window.addEventListener('sse:bon_updated', (e) => {
             const data = e.detail || {};
-            if (data.id == this.bonId && !this.dirty && !this._editingLineId) {
-                this.load(this.bonId);
-            }
+            if (data.id != this.bonId || this.dirty || this._editingLineId) return;
+            // Vores eget ekko: _reloadLines har allerede hentet friske tal, og en
+            // fuld load() ville lukke vare-pickeren midt i arbejdet.
+            if (this._localChangeUntil && Date.now() < this._localChangeUntil) return;
+            // Picker åben → let genindlæsning så tilstanden bevares
+            if (this.varePicker && this.varePicker._visible) { this._reloadLines(); return; }
+            this.load(this.bonId);
         });
         window.addEventListener('sse:bon_status', (e) => {
             const data = e.detail || {};
