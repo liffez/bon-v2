@@ -3216,7 +3216,7 @@ sagde "sendt".
   **og** afsendelse er pakket i én `try`; ved fejl skrives `send_error` på beskeden og
   fejlen kastes videre (kalderen skal stadig se den — vi tilføjer kun sporet). Først
   efter et vellykket `sendMail` sættes `message_id` + `sent_at`, og `send_error` ryddes.
-- **Migration 134** — `mail_messages.send_error`.
+- **Migration 142** — `mail_messages.send_error`.
 - **Sorteringen tåler det:** alle læsere brugte i forvejen
   `COALESCE(sent_at, received_at, created_at)`, så en fejlet besked bliver stående det
   rigtige sted i tråden i stedet for at forsvinde.
