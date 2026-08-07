@@ -83,6 +83,10 @@
         return !!(m && m.body_html && String(m.body_html).trim());
     }
 
+    // Skal matche INLINE_VIEWABLE i routes/attachments.js (SVG udeladt her —
+    // den vises kun sandboxed inde i mail-kroppen, ikke som klik-og-åbn).
+    var VIEWABLE_MIME = /^(image\/(png|jpe?g|gif|webp|bmp|avif)|application\/pdf|text\/plain)$/i;
+
     function attachmentsHtml(atts, hideInline, extraClass) {
         var ok = (atts || []).filter(function (a) {
             if (!a || !a.id) return false;
@@ -93,9 +97,20 @@
         if (!ok.length) return '';
         return '<div class="mt-msg-atts' + (extraClass ? ' ' + extraClass : '') + '">' + ok.map(function (a) {
             var kb = Math.round((a.size_bytes || 0) / 1024);
-            var url = (typeof mailAttachmentUrl === 'function') ? mailAttachmentUrl(a.id) : '#';
-            return '<a class="mt-msg-att" target="_blank" rel="noopener" href="' + esc(url) + '">'
-                + '📎 ' + esc(a.filename || 'fil') + (kb ? ' (' + kb + ' KB)' : '') + '</a>';
+            var dl = (typeof mailAttachmentUrl === 'function') ? mailAttachmentUrl(a.id) : '#';
+            // PDF'er og billeder åbnes i browserens egen fremviser i stedet for at
+            // lande i Overførsler. Resten kan kun hentes. Serveren håndhæver det
+            // samme — linket her er bekvemmelighed, ikke sikkerhedsgrænsen.
+            var canView = VIEWABLE_MIME.test(a.mime_type || '') && typeof mailInlineUrl === 'function';
+            var href = canView ? mailInlineUrl(a.id) : dl;
+            var label = '📎 ' + esc(a.filename || 'fil') + (kb ? ' (' + kb + ' KB)' : '');
+            var main = '<a class="mt-msg-att" target="_blank" rel="noopener" href="' + esc(href) + '"'
+                + (canView ? ' title="Åbn i fremviser"' : ' title="Hent fil"') + '>' + label + '</a>';
+            // Hentning skal stadig være ét klik væk når filen kan vises.
+            return canView
+                ? '<span class="mt-att-pair">' + main
+                    + '<a class="mt-msg-att mt-att-dl" href="' + esc(dl) + '" title="Hent">⬇</a></span>'
+                : main;
         }).join('') + '</div>';
     }
 
