@@ -38,6 +38,7 @@ var _soSelectedIds    = {};   // product_id -> true  (plain object, no Set for c
 var _soCurrentExpand  = null; // product_id of expanded card
 var _soSearchTimer    = null; // debounce timer
 var _soAddSearchTimer = null; // debounce timer (tilføj vare-modal)
+var _soSaving         = {};   // product_id -> true mens en lager-skrivning er undervejs
 var _soContainer      = null; // root DOM element
 
 // ════════════════════════════════════════════════════════════
@@ -470,9 +471,39 @@ function _soUpdateStatusBar() {
 // RENDER GRID
 // ════════════════════════════════════════════════════════════
 
+/**
+ * Hele gridet bygges med innerHTML, så et udfoldet kort bliver skiftet ud med et
+ * NYT element hver gang der søges eller filtreres. Uden det her mister brugeren
+ * det tal han lige har tastet — og et klik der rammer midt i udskiftningen bliver
+ * aldrig til et click-event, fordi knappen forsvandt mellem tryk og slip.
+ * Samme mønster som fokus-redningen i shared/indkob.js.
+ */
+function _soCaptureEdit(container) {
+    if (_soCurrentExpand === null) return null;
+    var el = container.querySelector('.so-card[data-id="' + _soCurrentExpand + '"] .so-adj-input');
+    if (!el) return null;
+    var sel = null;
+    // selectionStart findes ikke på type="number" i alle browsere.
+    try { sel = [el.selectionStart, el.selectionEnd]; } catch (e) { sel = null; }
+    return { id: _soCurrentExpand, value: el.value, focused: document.activeElement === el, sel: sel };
+}
+
+function _soRestoreEdit(container, keep) {
+    if (!keep) return;
+    var el = container.querySelector('.so-card[data-id="' + keep.id + '"] .so-adj-input');
+    if (!el) return;                       // kortet blev filtreret væk — det kan brugeren se
+    el.value = keep.value;
+    if (keep.focused) {
+        el.focus();
+        if (keep.sel) { try { el.setSelectionRange(keep.sel[0], keep.sel[1]); } catch (e) { /* number-input */ } }
+    }
+}
+
 function _soRenderGrid() {
     var container = document.getElementById('soContent');
     if (!container) return;
+
+    var keep = _soCaptureEdit(container);
 
     if (_soFilteredData.length === 0) {
         container.innerHTML = '<div class="so-empty"><p>Ingen varer fundet</p></div>';
@@ -504,6 +535,7 @@ function _soRenderGrid() {
     });
 
     container.innerHTML = html;
+    _soRestoreEdit(container, keep);
 }
 
 function _soRenderCard(item) {
@@ -687,6 +719,17 @@ function _soUpdateSelectionBar() {
 // ACTIONS
 // ════════════════════════════════════════════════════════════
 
+/** Nuværende beholdning i Grocy for ét produkt. null hvis den ikke kunne hentes. */
+async function _soFreshAmount(productId) {
+    try {
+        var stock = await fetchGrocyStock();
+        var row = stock.find(function(s) { return String(s.product_id) === String(productId); });
+        return row ? (parseFloat(row.amount) || 0) : 0;
+    } catch (e) {
+        return null;
+    }
+}
+
 async function _soAdjustInventory(productId) {
     var input = document.getElementById('soAdj-' + productId);
     if (!input) return;
@@ -700,13 +743,42 @@ async function _soAdjustInventory(productId) {
     var item = _soStockData.find(function(i) { return i.product_id === productId; });
     if (!item) return;
 
-    if (Math.abs(newAmount - item.amount) < 0.01) {
-        _soCloseExpand(productId);
-        _soShowToast('Ingen ændring', 'info');
-        return;
-    }
+    // Dobbeltklik må ikke sende to skrivninger afsted mod hinanden.
+    if (_soSaving[productId]) return;
+    _soSaving[productId] = true;
 
     try {
+        // Kortet kan have stået åbent i timevis. Lageret flytter sig af sig selv —
+        // en bon der sættes til LEVERET trækker råvarerne automatisk. Vi sender et
+        // ABSOLUT tal, så uden det her tjek ville et Gem tavst skrive oven i det
+        // der er sket imens. Samme vagt som optællingen har (§6).
+        var fresh = await _soFreshAmount(productId);
+        if (fresh !== null && Math.abs(fresh - item.amount) > 0.01) {
+            var behold = !confirm(
+                'Lageret har ændret sig, mens kortet stod åbent.\n\n' +
+                'Nu på lageret: ' + _soRound(fresh) + ' ' + item.qu_name + '\n' +
+                'Dit tal: ' + _soRound(newAmount) + ' ' + item.qu_name + '\n\n' +
+                'OK — mit tal er rigtigt, skriv det.\n' +
+                'Annuller — lagerets tal er rigtigt, lad det stå.'
+            );
+            if (behold) {
+                item.amount = fresh;
+                item.isNew  = false;
+                _soRecalcStatus(item);
+                _soCloseExpand(productId);
+                _soApplyFilters();
+                _soShowToast(esc(item.name) + ': beholdt lagerets tal (' + _soRound(fresh) + ' ' + esc(item.qu_name) + ')', 'info');
+                return;
+            }
+            item.amount = fresh;   // så "diff" i kvitteringen nedenfor er sand
+        }
+
+        if (Math.abs(newAmount - item.amount) < 0.01) {
+            _soCloseExpand(productId);
+            _soShowToast('Ingen ændring', 'info');
+            return;
+        }
+
         await postGrocyInventory(productId, newAmount, item.best_before_date || null);
 
         var diff = _soRound(newAmount - item.amount);
@@ -722,6 +794,8 @@ async function _soAdjustInventory(productId) {
 
     } catch (err) {
         _soShowToast('Fejl: ' + esc(err.message), 'error');
+    } finally {
+        delete _soSaving[productId];
     }
 }
 
