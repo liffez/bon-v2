@@ -37,6 +37,7 @@ var _soSelectMode     = false;
 var _soSelectedIds    = {};   // product_id -> true  (plain object, no Set for compat)
 var _soCurrentExpand  = null; // product_id of expanded card
 var _soSearchTimer    = null; // debounce timer
+var _soAddSearchTimer = null; // debounce timer (tilføj vare-modal)
 var _soContainer      = null; // root DOM element
 
 // ════════════════════════════════════════════════════════════
@@ -166,15 +167,16 @@ function _soBuildShell() {
     _soContainer.innerHTML = [
         '<div class="so-status-bar" id="soStatusBar"></div>',
         '<div class="so-filter-bar" id="soFilterBar">',
-        '  <input type="text" class="so-search" id="soSearch" placeholder="Soeg produkt...">',
+        '  <input type="text" class="so-search" id="soSearch" placeholder="Søg produkt...">',
+        '  <button class="so-filter-btn so-add-btn" id="soAddBtn" title="Tilføj en vare der ikke står på listen">+ Tilføj vare</button>',
         '  <select class="so-select" id="soLocationFilter"><option value="">Alle lokationer</option></select>',
         '  <select class="so-select" id="soGroupFilter"><option value="">Alle grupper</option></select>',
-        '  <button class="so-filter-btn" id="soSelectModeBtn" title="Vaelg flere">&#x2610;</button>',
+        '  <button class="so-filter-btn" id="soSelectModeBtn" title="Vælg flere">&#x2610;</button>',
         '</div>',
         '<div class="so-selection-bar" id="soSelectionBar">',
         '  <span class="so-sel-count" id="soSelCount">0 valgt</span>',
         '  <button class="so-sel-btn so-sel-edit" data-action="bulk-edit">&#x270E; Rediger valgte</button>',
-        '  <button class="so-sel-btn so-sel-shopping" data-action="bulk-shopping">+ Indkoebsliste</button>',
+        '  <button class="so-sel-btn so-sel-shopping" data-action="bulk-shopping">+ Indkøbsliste</button>',
         '  <button class="so-sel-btn" data-action="bulk-clear">Annuller</button>',
         '</div>',
         '<div class="so-toast-area" id="soToastArea"></div>',
@@ -192,6 +194,28 @@ function _soBuildShell() {
         '      <button class="so-save-btn so-edit-save">Gem</button>',
         '    </div>',
         '  </div>',
+        '</div>',
+        // Tilføj vare: varer uden lagerpost i Grocy findes slet ikke i /stock,
+        // og er derfor usynlige i oversigten indtil de får en beholdning.
+        '<div class="so-edit-overlay" id="soAddOverlay">',
+        '  <div class="so-edit-modal" role="dialog" aria-modal="true">',
+        '    <div class="so-edit-header">',
+        '      <h3>Tilføj vare</h3>',
+        '      <button class="so-edit-x so-add-close" title="Luk">&times;</button>',
+        '    </div>',
+        '    <div class="so-edit-body">',
+        '      <p class="so-add-hint">Varer der endnu ikke har en beholdning. Vælg en for at give den et tal.</p>',
+        '      <div class="so-add-filters">',
+        '        <input type="text" class="so-search" id="soAddSearch" placeholder="Søg vare...">',
+        '        <select class="so-select" id="soAddLocFilter"><option value="">Alle lokationer</option></select>',
+        '      </div>',
+        '      <div class="so-add-list" id="soAddList"></div>',
+        '    </div>',
+        '    <div class="so-edit-footer">',
+        '      <span class="so-edit-status" id="soAddCount"></span>',
+        '      <button class="so-sel-btn so-add-close">Luk</button>',
+        '    </div>',
+        '  </div>',
         '</div>'
     ].join('\n');
 
@@ -203,6 +227,8 @@ function _soBuildShell() {
     // Escape to close edit modal (first), then expand
     document.addEventListener('keydown', function(e) {
         if (e.key !== 'Escape') return;
+        var addOv = document.getElementById('soAddOverlay');
+        if (addOv && addOv.classList.contains('so-visible')) { _soCloseAdd(); return; }
         var ov = document.getElementById('soEditOverlay');
         if (ov && ov.classList.contains('so-visible')) { _soCloseEdit(); return; }
         if (_soCurrentExpand !== null) _soCloseExpand(_soCurrentExpand);
@@ -225,6 +251,14 @@ function _soPopulateFilters() {
                 return '<option value="' + g.id + '">' + esc(g.name) + '</option>';
             }).join('');
     }
+
+    var addLocSel = document.getElementById('soAddLocFilter');
+    if (addLocSel) {
+        addLocSel.innerHTML = '<option value="">Alle lokationer</option>' +
+            _soLocationsArr.map(function(l) {
+                return '<option value="' + l.id + '">' + esc(l.name) + '</option>';
+            }).join('');
+    }
 }
 
 // ════════════════════════════════════════════════════════════
@@ -233,6 +267,22 @@ function _soPopulateFilters() {
 
 function _soHandleClick(e) {
     var target = e.target;
+
+    // Tilføj vare: åbn, luk, vælg. Først — modalen ligger inde i containeren,
+    // så dens klik skal fanges inden kort-/handlings-tjekkene nedenfor.
+    if (target.closest('#soAddBtn')) {
+        _soOpenAdd();
+        return;
+    }
+    if (target.closest('.so-add-close') || target.id === 'soAddOverlay') {
+        _soCloseAdd();
+        return;
+    }
+    var addItem = target.closest('.so-add-item');
+    if (addItem) {
+        _soAddProductToList(parseInt(addItem.getAttribute('data-id')));
+        return;
+    }
 
     // Edit pencil on a card
     var editBtn = target.closest('.so-edit-btn');
@@ -330,11 +380,18 @@ function _soHandleInput(e) {
         clearTimeout(_soSearchTimer);
         _soSearchTimer = setTimeout(_soApplyFilters, 200);
     }
+    if (e.target.id === 'soAddSearch') {
+        clearTimeout(_soAddSearchTimer);
+        _soAddSearchTimer = setTimeout(_soRenderAddList, 150);
+    }
 }
 
 function _soHandleChange(e) {
     if (e.target.id === 'soLocationFilter' || e.target.id === 'soGroupFilter') {
         _soApplyFilters();
+    }
+    if (e.target.id === 'soAddLocFilter') {
+        _soRenderAddList();
     }
 }
 
@@ -393,12 +450,12 @@ function _soUpdateStatusBar() {
     if (expired > 0) {
         html += '<span class="so-status-pill so-pill-expired' +
             (_soActiveStatusFilter === 'expired' ? ' active' : '') +
-            '" data-filter="expired">' + expired + ' udloebet</span>';
+            '" data-filter="expired">' + expired + ' udløbet</span>';
     }
     if (duesoon > 0) {
         html += '<span class="so-status-pill so-pill-duesoon' +
             (_soActiveStatusFilter === 'duesoon' ? ' active' : '') +
-            '" data-filter="duesoon">' + duesoon + ' snart udloeb</span>';
+            '" data-filter="duesoon">' + duesoon + ' snart udløb</span>';
     }
     if (low > 0) {
         html += '<span class="so-status-pill so-pill-low' +
@@ -482,7 +539,7 @@ function _soRenderCard(item) {
     // Amount
     var amountText = _soRound(item.amount) + ' ' + esc(item.qu_name);
     if (item.amount_opened > 0) {
-        amountText += ' (' + _soRound(item.amount_opened) + ' aabnet)';
+        amountText += ' (' + _soRound(item.amount_opened) + ' åbnet)';
     }
 
     // Sekundær enhed(er) — fx "≈ 6 kasser" (salgs-/forbrugsenhed, kun hvor konvertering findes)
@@ -498,6 +555,9 @@ function _soRenderCard(item) {
     if (item.min_stock_amount > 0 && item.amount < item.min_stock_amount) {
         minHtml = '<span class="so-min-warn">min ' + _soRound(item.min_stock_amount) + '</span>';
     }
+
+    // Netop hentet frem: har endnu ingen lagerpost i Grocy
+    var newHtml = item.isNew ? '<span class="so-new-badge">ingen beholdning endnu</span>' : '';
 
     // Select box
     var selectBoxHtml = '<div class="so-select-box' + (isSelected ? ' so-selected' : '') + '">' +
@@ -515,7 +575,7 @@ function _soRenderCard(item) {
         '</div>' +
         '<div class="so-expand-actions">' +
         '  <button class="so-save-btn">Gem</button>' +
-        '  <button class="so-shop-btn" title="Tilfoej til indkoebsliste">+ Indkoebsliste</button>' +
+        '  <button class="so-shop-btn" title="Tilføj til indkøbsliste">+ Indkøbsliste</button>' +
         '</div>' +
         '</div>';
 
@@ -526,7 +586,7 @@ function _soRenderCard(item) {
         '  <div class="so-card-name">' + esc(item.name) + '</div>' +
         '  <div class="so-card-meta">' +
         '    <span class="so-card-amount">' + amountText + '</span>' +
-        altHtml + expiryHtml + minHtml +
+        altHtml + expiryHtml + minHtml + newHtml +
         '  </div>' +
         '</div>' +
         '<button class="so-edit-btn" title="Rediger vare">&#x270E;</button>' +
@@ -633,7 +693,7 @@ async function _soAdjustInventory(productId) {
     var newAmount = parseFloat(input.value);
 
     if (isNaN(newAmount) || newAmount < 0) {
-        _soShowToast('Ugyldig maengde', 'warn');
+        _soShowToast('Ugyldig mængde', 'warn');
         return;
     }
 
@@ -642,7 +702,7 @@ async function _soAdjustInventory(productId) {
 
     if (Math.abs(newAmount - item.amount) < 0.01) {
         _soCloseExpand(productId);
-        _soShowToast('Ingen aendring', 'info');
+        _soShowToast('Ingen ændring', 'info');
         return;
     }
 
@@ -656,6 +716,7 @@ async function _soAdjustInventory(productId) {
 
         // Update local data + re-render
         item.amount = newAmount;
+        item.isNew  = false;   // varen har en lagerpost nu
         _soRecalcStatus(item);
         _soApplyFilters();
 
@@ -680,7 +741,7 @@ async function _soAddToShoppingList(productId) {
             amount: 1,
             note: ''
         }]);
-        _soShowToast((item ? esc(item.name) : 'Produkt') + ' tilfojet til indkoebsliste', 'success');
+        _soShowToast((item ? esc(item.name) : 'Produkt') + ' tilføjet til indkøbslisten', 'success');
     } catch (err) {
         _soShowToast('Fejl: ' + esc(err.message), 'error');
     }
@@ -696,11 +757,169 @@ async function _soBulkAddToShopping() {
 
     try {
         await postGrocyShoppingList(items);
-        _soShowToast(ids.length + ' varer tilfojet til indkoebsliste', 'success');
+        _soShowToast(ids.length + ' varer tilføjet til indkøbslisten', 'success');
         _soClearSelection();
     } catch (err) {
         _soShowToast('Fejl: ' + esc(err.message), 'error');
     }
+}
+
+// ════════════════════════════════════════════════════════════
+// TILFØJ VARE (uden lagerpost)
+// ════════════════════════════════════════════════════════════
+
+// Grocys /stock returnerer kun varer der HAR en lagerpost. En vare der aldrig
+// har haft lager findes derfor slet ikke i oversigten — hverken med 0 eller med
+// en soegning. Modalen her henter den frem, saa den kan faa et tal.
+
+function _soOpenAdd() {
+    var searchEl = document.getElementById('soAddSearch');
+    if (searchEl) searchEl.value = '';
+    var locEl = document.getElementById('soAddLocFilter');
+    if (locEl) locEl.value = '';
+
+    _soRenderAddList();
+    var ov = document.getElementById('soAddOverlay');
+    if (ov) ov.classList.add('so-visible');
+    if (searchEl) searchEl.focus();
+}
+
+function _soCloseAdd() {
+    var ov = document.getElementById('soAddOverlay');
+    if (ov) ov.classList.remove('so-visible');
+}
+
+/** Aktive varer der ikke allerede står i oversigten. */
+function _soProductsWithoutStock() {
+    var onList = {};
+    _soStockData.forEach(function(i) { onList[i.product_id] = true; });
+
+    return _soAllProducts.filter(function(p) {
+        return !onList[p.id];
+    }).sort(function(a, b) {
+        return String(a.name).localeCompare(String(b.name), 'da');
+    });
+}
+
+function _soRenderAddList() {
+    var listEl = document.getElementById('soAddList');
+    if (!listEl) return;
+
+    var searchEl = document.getElementById('soAddSearch');
+    var locEl    = document.getElementById('soAddLocFilter');
+    var search   = searchEl ? searchEl.value.toLowerCase().trim() : '';
+    var locId    = locEl ? locEl.value : '';
+
+    var all = _soProductsWithoutStock();
+    var shown = all.filter(function(p) {
+        if (search && String(p.name).toLowerCase().indexOf(search) === -1) return false;
+        if (locId && String(p.location_id) !== locId) return false;
+        return true;
+    });
+
+    var countEl = document.getElementById('soAddCount');
+    if (countEl) {
+        countEl.textContent = all.length === 0 ? '' :
+            (shown.length === all.length
+                ? shown.length + ' varer'
+                : 'Viser ' + shown.length + ' af ' + all.length);
+    }
+
+    if (all.length === 0) {
+        listEl.innerHTML = '<p class="so-add-empty">Alle varer står allerede på listen.</p>';
+        return;
+    }
+    if (shown.length === 0) {
+        listEl.innerHTML = '<p class="so-add-empty">Ingen varer matcher.</p>';
+        return;
+    }
+
+    listEl.innerHTML = shown.map(function(p) {
+        var loc = _soLocationsMap[p.location_id] || '-';
+        var grp = _soGroupsMap[p.product_group_id] || '';
+        return '<button type="button" class="so-add-item" data-id="' + p.id + '">' +
+            '<span class="so-add-item-name">' + esc(p.name) + '</span>' +
+            '<span class="so-add-item-meta">' + esc(loc) +
+            (grp ? ' &middot; ' + esc(grp) : '') + '</span>' +
+            '</button>';
+    }).join('');
+}
+
+/**
+ * Ryd kun de filtre der ville skjule den netop tilføjede vare.
+ * Alternativet — at rydde alt — ville smide brugerens opsætning væk
+ * uden grund. Returnerer true hvis noget blev ryddet.
+ */
+function _soClearFiltersHiding(item) {
+    var cleared  = false;
+    var searchEl = document.getElementById('soSearch');
+    var locEl    = document.getElementById('soLocationFilter');
+    var grpEl    = document.getElementById('soGroupFilter');
+
+    if (searchEl && searchEl.value.trim() &&
+        item.name.toLowerCase().indexOf(searchEl.value.toLowerCase().trim()) === -1) {
+        searchEl.value = '';
+        cleared = true;
+    }
+    if (locEl && locEl.value && String(item.location_id) !== locEl.value) {
+        locEl.value = '';
+        cleared = true;
+    }
+    if (grpEl && grpEl.value && String(item.product_group_id) !== grpEl.value) {
+        grpEl.value = '';
+        cleared = true;
+    }
+    if (_soActiveStatusFilter && item.status !== _soActiveStatusFilter) {
+        _soActiveStatusFilter = '';
+        cleared = true;
+    }
+    return cleared;
+}
+
+function _soAddProductToList(productId) {
+    var p = _soProductsMap[productId];
+    if (!p) return;
+
+    if (_soStockData.some(function(i) { return i.product_id === productId; })) {
+        _soCloseAdd();
+        _soShowToast(esc(p.name) + ' står allerede på listen', 'info');
+        return;
+    }
+
+    var item = {
+        product_id:         parseInt(p.id),
+        name:               p.name || 'Ukendt',
+        amount:             0,
+        amount_opened:      0,
+        qu_id:              p.qu_id_stock,
+        qu_name:            _soQUnitsMap[p.qu_id_stock] || '',
+        best_before_date:   null,
+        daysUntilExpiry:    Infinity,
+        status:             'low',            // 0 på lager
+        location_id:        p.location_id,
+        location_name:      _soLocationsMap[p.location_id] || '',
+        product_group_id:   p.product_group_id,
+        product_group_name: _soGroupsMap[p.product_group_id] || '',
+        min_stock_amount:   parseFloat(p.min_stock_amount) || 0,
+        alt_conv:           _soAltConv(p),
+        isNew:              true             // ingen lagerpost i Grocy endnu
+    };
+
+    _soStockData.push(item);
+    _soStockData.sort(function(a, b) { return a.name.localeCompare(b.name, 'da'); });
+
+    var cleared = _soClearFiltersHiding(item);
+    _soCloseAdd();
+    _soApplyFilters();
+
+    // Fold kortet ud med det samme — det er hele grunden til at hente varen frem.
+    _soCurrentExpand = null;
+    _soToggleExpand(productId);
+    var card = _soContainer.querySelector('.so-card[data-id="' + productId + '"]');
+    if (card && card.scrollIntoView) card.scrollIntoView({ block: 'center' });
+
+    _soShowToast(esc(item.name) + ': indtast beholdning og tryk Gem' +
+        (cleared ? ' (filtre ryddet)' : ''), 'success');
 }
 
 // ════════════════════════════════════════════════════════════
@@ -829,7 +1048,7 @@ function _soOpenEdit(ids) {
     var statusEl = document.getElementById('soEditStatus');
     if (statusEl) {
         statusEl.textContent = bulk
-            ? 'Kun felter du aendrer skrives til alle valgte varer.'
+            ? 'Kun felter du ændrer skrives til alle valgte varer.'
             : '';
     }
 
@@ -896,9 +1115,9 @@ function _soBuildEditForm(ids) {
     rows += _soFieldRow('Aktiv', activeCtrl);
     rows += selectField('soEdit_location_id', 'Standardplacering', _soLocationsArr, p.location_id, false);
     rows += selectField('soEdit_shopping_location_id', 'Standard-butik', _soShopLocsArr, p.shopping_location_id, true, '(ingen)');
-    rows += numField('soEdit_dbb', 'Bedst foer (dage)', p.default_best_before_days, '-1 = udloeber aldrig');
+    rows += numField('soEdit_dbb', 'Bedst før (dage)', p.default_best_before_days, '-1 = udløber aldrig');
     rows += selectField('soEdit_group', 'Varegruppe', _soGroupsArr, p.product_group_id, true, '(ingen)');
-    rows += numField('soEdit_hverdag', 'Tjek-interval (dage)', uf.HverDag, 'Hvor ofte varen skal taelles i optaelling. Tom = uaendret.');
+    rows += numField('soEdit_hverdag', 'Tjek-interval (dage)', uf.HverDag, 'Hvor ofte varen skal tælles i optælling. Tom = uændret.');
 
     return rows;
 }
@@ -958,7 +1177,7 @@ async function _soSaveEdit() {
     var mKeys = Object.keys(master);
     var uKeys = Object.keys(user);
     if (mKeys.length === 0 && uKeys.length === 0) {
-        _soShowToast('Ingen aendringer', 'info');
+        _soShowToast('Ingen ændringer', 'info');
         return;
     }
 

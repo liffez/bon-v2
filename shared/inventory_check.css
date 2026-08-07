@@ -902,6 +902,42 @@
     border-color: var(--brand-primary);
 }
 
+.ic-add-search { margin-bottom: 10px; }
+
+.ic-add-filter {
+    width: 100%;
+    padding: 10px 14px;
+    border: 2px solid var(--color-border);
+    border-radius: 8px;
+    font: inherit;
+    font-size: 15px;
+    margin-bottom: 12px;
+    background: var(--color-surface);
+    color: var(--color-text);
+    cursor: pointer;
+}
+
+.ic-add-filter:focus { outline: none; border-color: var(--brand-primary); }
+
+.ic-add-list {
+    max-height: 46vh;
+    overflow-y: auto;
+    -webkit-overflow-scrolling: touch;
+}
+
+.ic-add-count {
+    flex: 1;
+    font-size: 12px;
+    color: var(--color-text-dim);
+}
+
+.ic-add-empty {
+    color: var(--color-text-dim);
+    text-align: center;
+    padding: 20px;
+    margin: 0;
+}
+
 .ic-add-product-item {
     display: flex;
     align-items: center;
