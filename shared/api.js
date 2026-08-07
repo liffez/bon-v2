@@ -1377,6 +1377,18 @@ function fetchGoodsReceiptUsers() {
     return apiFetch('/goods-receipts/users');
 }
 
+function fetchGoodsReceipt(id) {
+    return apiFetch('/goods-receipts/' + id);
+}
+
+function fetchGoodsReceiptWebhookLog(limit) {
+    return apiFetch('/goods-receipts/webhook-log' + (limit ? '?limit=' + limit : ''));
+}
+
+function resendGoodsReceiptWebhook(id) {
+    return apiFetch('/goods-receipts/' + id + '/resend-webhook', { method: 'POST' });
+}
+
 /* ── STAFF (/api/staff) ─────────────────────────────── */
 
 function fetchStaff(includeInactive) {

@@ -39,6 +39,38 @@ router.get('/users', requireAuth(), handle((req, res) => {
     res.json(rows);
 }));
 
+/* ── GET /webhook-log — er koblingen til Whiteboard i live? ─
+ *
+ * Diagnose-endpoint til Settings. Uden det var den eneste måde at se om
+ * varemodtagelserne nåede frem, at logge ind på serveren og læse sqlite.
+ * Skal stå FØR '/:id', ellers fanger den generiske rute den. */
+
+router.get('/webhook-log', requireAuth('admin'), handle((req, res) => {
+    const db = getDb();
+    const limit = Math.min(parseInt(req.query.limit) || 20, 100);
+
+    const rows = db.prepare(`
+        SELECT id, url, status_code, error, sent_at
+        FROM webhook_log
+        ORDER BY id DESC
+        LIMIT ?
+    `).all(limit);
+
+    const counts = db.prepare(`
+        SELECT COUNT(*) AS total,
+               SUM(CASE WHEN whiteboard_synced_at IS NULL THEN 1 ELSE 0 END) AS unsynced
+        FROM goods_receipts
+    `).get();
+
+    res.json({
+        configured:      webhook.isConfigured(),
+        url:             webhook.getWebhookUrl(),
+        receipts_total:  counts?.total || 0,
+        receipts_unsynced: counts?.unsynced || 0,
+        attempts:        rows,
+    });
+}));
+
 /* ── POST /photo — upload følgeseddel-foto ───────────────── */
 
 router.post('/photo', requireAuth(), (req, res) => {
@@ -467,7 +499,14 @@ router.post('/', requireAuth(), handle(async (req, res) => {
         grocy_results: grocyResults,
         grocy_failure_count: grocyFailures.length,
         webhook_sent: true,         // @deprecated — bevares for klient-kompatibilitet
-        webhook_dispatched: true    // korrekt navn — fire-and-forget, ikke bekræftet leveret
+        webhook_dispatched: true,   // @deprecated — sagde 'true' også når intet blev sendt
+        // Sandheden om Whiteboard-koblingen. De to flag ovenfor har altid stået
+        // på true — også i bonv2_only-mode hvor der aldrig blev sendt noget.
+        // configured=false betyder: registreringen findes KUN i Bon v2.
+        whiteboard: {
+            configured: webhook.isConfigured(),
+            dispatched: webhook.isConfigured()   // fire-and-forget: afsendt, ikke bekræftet
+        }
     });
 }));
 
@@ -477,29 +516,82 @@ router.get('/', requireAuth(), handle((req, res) => {
     const db = getDb();
     const { from, to, supplier, location } = req.query;
 
-    let sql = `SELECT * FROM goods_receipts WHERE 1=1`;
+    // item_count som korreleret subquery — listen viser "N varer" uden N+1-kald.
+    let sql = `
+        SELECT gr.*,
+               (SELECT COUNT(*) FROM goods_receipt_items gi WHERE gi.receipt_id = gr.id) AS item_count
+        FROM goods_receipts gr
+        WHERE 1=1`;
     const params = [];
 
     if (from) {
-        sql += ` AND received_at >= ?`;
+        sql += ` AND gr.received_at >= ?`;
         params.push(from);
     }
     if (to) {
-        sql += ` AND received_at <= ?`;
+        sql += ` AND gr.received_at <= ?`;
         params.push(to + ' 23:59:59');
     }
     if (supplier) {
-        sql += ` AND supplier_name LIKE ?`;
+        sql += ` AND gr.supplier_name LIKE ?`;
         params.push('%' + supplier + '%');
     }
     if (location) {
-        sql += ` AND location_id = ?`;
+        sql += ` AND gr.location_id = ?`;
         params.push(parseInt(location));
     }
 
-    sql += ` ORDER BY received_at DESC`;
+    sql += ` ORDER BY gr.received_at DESC LIMIT ?`;
+    params.push(Math.min(parseInt(req.query.limit) || 200, 1000));
 
     res.json(db.prepare(sql).all(...params));
+}));
+
+/* ── POST /:id/resend-webhook — send igen til Whiteboard ───
+ *
+ * requireAuth() og ikke admin: den der står ved leverancen skal kunne rette op
+ * på en fejlet synkronisering med det samme (jf. rolle-baseret login).
+ *
+ * Nægter når receipten allerede ER synkroniseret — Whiteboard afviser ikke
+ * dubletter, så et ekstra kald ville lægge samme leverance i FVST-loggen to
+ * gange. Det er værre end at mangle den. */
+
+router.post('/:id/resend-webhook', requireAuth(), handle(async (req, res) => {
+    const db = getDb();
+    const id = parseInt(req.params.id);
+
+    const receipt = db.prepare(`SELECT * FROM goods_receipts WHERE id = ?`).get(id);
+    if (!receipt) return res.status(404).json({ error: 'Ikke fundet' });
+
+    if (receipt.whiteboard_synced_at) {
+        return res.status(409).json({
+            error: 'Allerede sendt til Whiteboard ' + receipt.whiteboard_synced_at
+                 + ' — en gensendelse ville give en dublet i FVST-loggen.'
+        });
+    }
+
+    if (!webhook.isConfigured()) {
+        return res.status(400).json({
+            error: 'Whiteboard-koblingen er ikke sat op. Udfyld webhook-URL under Indstillinger → Whiteboard.'
+        });
+    }
+
+    const userName = receipt.received_by_name
+        || getUserById(receipt.received_by)?.name
+        || 'Ukendt';
+
+    const result = await webhook.send(receipt, userName);
+
+    if (!result?.ok) {
+        return res.status(502).json({
+            error: result?.error || 'Whiteboard svarede ikke som forventet',
+            status_code: result?.statusCode || null
+        });
+    }
+
+    res.json({ ok: true, synced_at: db.prepare(
+        `SELECT whiteboard_synced_at FROM goods_receipts WHERE id = ?`
+    ).get(id)?.whiteboard_synced_at });
 }));
 
 /* ── GET /:id — detalje inkl. items ──────────────────────── */
