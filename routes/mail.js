@@ -2,7 +2,7 @@ const express = require('express');
 const router = express.Router();
 const { getDb } = require('../db/database');
 const { handle, getUserId, transaction } = require('../db/helpers');
-const { requireAuth } = require('../shared/auth');
+const { requireAuth, requireModule } = require('../shared/auth');
 const { sendFromTemplate, sendMail, refetchUnmatchedMail } = require('../services/mailService');
 const { broadcast } = require('../shared/sse');
 const { createPrivateLead } = require('../services/leadCreate');
@@ -622,7 +622,7 @@ function lookupCustomerByEmail(db, email) {
     return c || null;
 }
 
-router.get('/unmatched', requireAuth('admin'), handle(async (req, res) => {
+router.get('/unmatched', requireModule('crm'), handle(async (req, res) => {
     const status = req.query.status || 'open';
     const db = getDb();
     const where = ['status = ?'];
@@ -676,7 +676,7 @@ router.get('/unmatched', requireAuth('admin'), handle(async (req, res) => {
 // indgående mail kan "forsvinde" ind i en entitets-visning uden også at være
 // synligt ét centralt sted. Hvert item har `kind` ('unmatched'|'thread') og en
 // unik `key` (kollision mellem mail_unmatched.id og mail_messages.id undgås).
-router.get('/inbox', requireAuth('admin'), handle((req, res) => {
+router.get('/inbox', requireModule('crm'), handle((req, res) => {
     const db = getDb();
     const mailbox = req.query.mailbox;      // 'bon' | 'kontakt' | undefined
     const fromDate = req.query.from_date;
@@ -775,7 +775,7 @@ router.patch('/message/:id/read', requireAuth(), handle((req, res) => {
     res.json({ ok: true });
 }));
 
-router.patch('/unmatched/:id', requireAuth('admin'), handle(async (req, res) => {
+router.patch('/unmatched/:id', requireModule('crm'), handle(async (req, res) => {
     const id = parseInt(req.params.id);
     const { status, linked_customer_id, linked_bon_id } = req.body;
     const db = getDb();
@@ -845,7 +845,7 @@ router.post('/unmatched/:id/dismiss', requireAuth(), handle((req, res) => {
 
 // POST /api/mail/unmatched/:id/refetch — hent mailen igen fra serveren for at
 // få body_html + inline-billeder (mails gemt før migration 099 mangler dem).
-router.post('/unmatched/:id/refetch', requireAuth('admin'), handle(async (req, res) => {
+router.post('/unmatched/:id/refetch', requireModule('crm'), handle(async (req, res) => {
     const id = parseInt(req.params.id);
     if (!id) return res.status(400).json({ error: 'Ugyldigt id' });
     try {
@@ -857,7 +857,7 @@ router.post('/unmatched/:id/refetch', requireAuth('admin'), handle(async (req, r
 }));
 
 // POST /api/mail/unmatched/bulk — bulk-ignorering af flere mails ad gangen
-router.post('/unmatched/bulk', requireAuth('admin'), handle(async (req, res) => {
+router.post('/unmatched/bulk', requireModule('crm'), handle(async (req, res) => {
     const { ids, action } = req.body || {};
     if (!Array.isArray(ids) || !ids.length) {
         return res.status(400).json({ error: 'ids skal være et ikke-tomt array' });
@@ -935,7 +935,7 @@ function linkUnmatchedToCustomer(db, um, customerId, userId) {
 
 // POST /api/mail/unmatched/:id/create-lead
 // Opret afsenderen som privat lead (kunde uden firma) og knyt mailen til den nye kunde.
-router.post('/unmatched/:id/create-lead', requireAuth('admin'), handle((req, res) => {
+router.post('/unmatched/:id/create-lead', requireModule('crm'), handle((req, res) => {
     const id = parseInt(req.params.id);
     const db = getDb();
     const userId = getUserId(req);
@@ -965,7 +965,7 @@ router.post('/unmatched/:id/create-lead', requireAuth('admin'), handle((req, res
 // POST /api/mail/unmatched/:id/reply  { subject?, text }
 // Send et svar til afsenderen. Knytter mailen til en kunde først (opretter lead
 // hvis den ikke allerede er linket) så svaret bliver tråd-historik.
-router.post('/unmatched/:id/reply', requireAuth('admin'), handle(async (req, res) => {
+router.post('/unmatched/:id/reply', requireModule('crm'), handle(async (req, res) => {
     const id = parseInt(req.params.id);
     const { subject, text } = req.body || {};
     if (!text || !String(text).trim()) return res.status(400).json({ error: 'text er påkrævet' });
