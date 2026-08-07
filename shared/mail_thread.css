@@ -198,3 +198,16 @@
     border-radius: 8px;
 }
 .mt-msg-att:hover { text-decoration: underline; }
+
+/* Enkelt-mail-visning (fx CRM-indbakken): vedhæftninger står under selve
+   mailen som primært indhold, ikke som fodnote på en historik-boble. */
+.mt-atts-standalone {
+    margin-top: 10px;
+    gap: 6px;
+}
+.mt-atts-standalone .mt-msg-att {
+    font-size: 12px;
+    padding: 5px 12px;
+    border: 1px solid var(--color-border, #d7d1ca);
+    background: #fff;
+}

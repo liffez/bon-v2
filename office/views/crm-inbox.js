@@ -94,6 +94,7 @@ function _inbRenderShell() {
             .inb-mail-subject { font-size: 13px; color: var(--color-text, #333); margin-top: 3px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
             .inb-mail-meta { font-size: 11px; color: var(--color-text-dim, #aaa); margin-top: 4px; display: flex; justify-content: space-between; }
             .inb-mail-parsed { font-size: 11px; color: var(--brand-primary); margin-top: 2px; font-weight: 600; }
+            .inb-mail-att { color: var(--brand-primary, #8e631f); font-weight: 600; margin-left: 6px; }
 
             /* ── Tråd-svar (allerede routet, vist for synlighed) ──── */
             .inb-mail-row.is-thread { border-left: 3px solid #5a8a5a; }
@@ -678,6 +679,15 @@ function _inbRenderList() {
             ? '<div class="inb-entity-chip">' + (ENTITY_ICON[m.entity_type] || '✉') + ' ' +
               (ENTITY_WORD[m.entity_type] || 'Tråd') + ' · ' + _inbEscape(m.entity_label || '') + '</div>'
             : '';
+        // 📎 i listen: tæl KUN rigtige vedhæftninger. Inline CID-billeder
+        // (signatur-logoer o.l.) er der på næsten hver anden mail og ville
+        // gøre badgen meningsløs.
+        const attCount = (m.attachments || []).filter(a => a && !a.is_inline).length;
+        const attBadge = attCount
+            ? '<span class="inb-mail-att" title="' + attCount +
+              (attCount === 1 ? ' vedhæftning' : ' vedhæftninger') + '">📎' +
+              (attCount > 1 ? ' ' + attCount : '') + '</span>'
+            : '';
         const canBulk = _inbBulkMode && !isThread;
         const isChecked = !isThread && _inbBulkSelected.has(m.id);
         const checkboxHtml = canBulk
@@ -697,7 +707,7 @@ function _inbRenderList() {
                 '<div class="inb-mail-subject">' + (m.subject || '(intet emne)') + '</div>' +
                 '<div class="inb-mail-meta">' +
                     '<span>' + (m.from_email || '') + '</span>' +
-                    '<span>' + _inbFmtReceivedAt(m.received_at) + '</span>' +
+                    '<span>' + _inbFmtReceivedAt(m.received_at) + attBadge + '</span>' +
                 '</div>' +
                 bounceSubtitle +
                 (m.parsed_company ? '<div class="inb-mail-parsed">→ ' + _inbEscape(m.parsed_company) + '</div>' : '') +
