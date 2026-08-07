@@ -2967,7 +2967,7 @@ uden `stack.delete` falder både råvare- og consume-tallet fra 2 til 1; uden cy
 giver testen "Maximum call stack size exceeded".
 
 ### Hærdning af consume-/varemodtagelses-stien (#358 + #359 + #361, 6. august 2026)
-> Migration 139. Tre fejl der delte rod — enheds-forveksling og manglende idempotens —
+> Migration 141. Tre fejl der delte rod — enheds-forveksling og manglende idempotens —
 > og som først blev til aktiv skade da auto-deduct blev tændt i drift 17. juli (#305).
 
 **#358 — varemodtagelsen skrev indkøbs-enhed som lager-enhed.** Tallet kommer fra

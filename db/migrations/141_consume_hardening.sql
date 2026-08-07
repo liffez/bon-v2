@@ -1,4 +1,4 @@
--- 139_consume_hardening.sql
+-- 141_consume_hardening.sql
 --
 -- Hærder de tre lager-mutationsstier efter at auto-deduct blev tændt i drift
 -- (#305, 17. juli 2026). Fra det øjeblik er hver af disse fejl aktiv skade på
