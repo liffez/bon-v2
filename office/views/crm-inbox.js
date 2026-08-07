@@ -389,6 +389,8 @@ const _INB_HEAD = {
 
 async function _inbLoadThreads() {
     if (!_inbActive) return;
+    const head0 = document.getElementById('inbListHead');
+    if (head0) head0.textContent = _INB_HEAD[_inbView] || 'Tråde';
     try {
         const params = { status: _inbView };
         if (_inbMailbox) params.mailbox = _inbMailbox;
@@ -406,7 +408,7 @@ async function _inbLoadThreads() {
             if (prev) prev.innerHTML = '<div class="inb-empty">Vælg en tråd fra listen</div>';
         }
     } catch (err) {
-        console.error('[inbox] threads load:', err);
+        _inbShowLoadError(err, 'mailtråde');
     }
 }
 
@@ -606,6 +608,10 @@ window._inbThreadOpenEntity = _inbThreadOpenEntity;
 
 async function _inbLoadData() {
     if (!_inbActive) return;
+    // Overskriften siger hvilken visning man står i — sæt den FØR hentningen,
+    // så en fejl ikke efterlader forrige visnings overskrift over beskeden.
+    const head0 = document.getElementById('inbListHead');
+    if (head0) head0.textContent = 'Ufordelt — bounces + ukendt afsender';
     try {
         const params = new URLSearchParams();
         if (_inbFromDate) params.set('from_date', _inbFromDate);
@@ -615,8 +621,6 @@ async function _inbLoadData() {
         const all = await apiFetch('/mail/inbox' + (params.toString() ? '?' + params.toString() : ''));
         _inbMails = all.filter(m => m.kind === 'unmatched');
         _inbRenderList();
-        const head = document.getElementById('inbListHead');
-        if (head) head.textContent = 'Ufordelt — bounces + ukendt afsender';
         document.getElementById('inbCount').textContent = _inbMails.length;
         if (_inbComposing) {
             // Svar-komposer er åben — behold preview, opdatér kun liste/tæller
@@ -626,8 +630,25 @@ async function _inbLoadData() {
             else { _inbSelected = null; document.getElementById('inbPreview').innerHTML = '<div class="inb-empty">Vælg en mail fra listen</div>'; }
         }
     } catch (err) {
-        console.error('[inbox] Load error:', err);
+        _inbShowLoadError(err, 'ufordelt post');
     }
+}
+
+/**
+ * Vis hvorfor listen er tom. Tidligere endte enhver load-fejl som et
+ * console.error, så et 403 lignede "der er ingenting" — en office-bruger så
+ * tælleren sige 3 og listen sige intet, uden at noget forklarede forskellen.
+ */
+function _inbShowLoadError(err, what) {
+    console.error('[inbox] load ' + what + ':', err);
+    const el = document.getElementById('inbList');
+    if (!el) return;
+    const msg = err && err.status === 403
+        ? 'Din bruger har ikke adgang til ' + what + '.<br><span style="font-size:12px">Bed en administrator slå CRM til for din rolle under Indstillinger → Roller.</span>'
+        : 'Kunne ikke hente ' + what + '.<br><span style="font-size:12px">' + _inbEscape((err && err.message) || 'Ukendt fejl') + '</span>';
+    el.innerHTML = '<div class="inb-empty">' + msg + '</div>';
+    const cnt = document.getElementById('inbCount');
+    if (cnt) cnt.textContent = '—';
 }
 
 function _inbRenderList() {
