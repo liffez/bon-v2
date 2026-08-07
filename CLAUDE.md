@@ -3221,7 +3221,7 @@ fødevarekontrol-registreringen var nået frem til Whiteboard.
 det *efter* popout-vinduet. Gennemgang bekræftede at dette endpoint er det **eneste** sted
 der sætter `booking_status='booked'` på en rute — så etiketten var løgnen, ikke dataen.
 
-- **Migration 135** — `delivery_routes.booking_confirmed_by` (`'manual'` | `'api'` | NULL).
+- **Migration 143** — `delivery_routes.booking_confirmed_by` (`'manual'` | `'api'` | NULL).
   Bevidst en **ny kolonne** frem for en ny værdi i `booking_status`: den har en
   CHECK-constraint, og SQLite kræver hele tabellen genskabt for at ændre den — med FK'er
   fra `delivery_route_stops`. Risikoen står ikke mål med gevinsten.
