@@ -94,6 +94,7 @@ function _inbRenderShell() {
             .inb-mail-subject { font-size: 13px; color: var(--color-text, #333); margin-top: 3px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
             .inb-mail-meta { font-size: 11px; color: var(--color-text-dim, #aaa); margin-top: 4px; display: flex; justify-content: space-between; }
             .inb-mail-parsed { font-size: 11px; color: var(--brand-primary); margin-top: 2px; font-weight: 600; }
+            .inb-mail-att { color: var(--brand-primary, #8e631f); font-weight: 600; margin-left: 6px; }
 
             /* ── Tråd-svar (allerede routet, vist for synlighed) ──── */
             .inb-mail-row.is-thread { border-left: 3px solid #5a8a5a; }
@@ -389,6 +390,8 @@ const _INB_HEAD = {
 
 async function _inbLoadThreads() {
     if (!_inbActive) return;
+    const head0 = document.getElementById('inbListHead');
+    if (head0) head0.textContent = _INB_HEAD[_inbView] || 'Tråde';
     try {
         const params = { status: _inbView };
         if (_inbMailbox) params.mailbox = _inbMailbox;
@@ -406,7 +409,7 @@ async function _inbLoadThreads() {
             if (prev) prev.innerHTML = '<div class="inb-empty">Vælg en tråd fra listen</div>';
         }
     } catch (err) {
-        console.error('[inbox] threads load:', err);
+        _inbShowLoadError(err, 'mailtråde');
     }
 }
 
@@ -606,6 +609,10 @@ window._inbThreadOpenEntity = _inbThreadOpenEntity;
 
 async function _inbLoadData() {
     if (!_inbActive) return;
+    // Overskriften siger hvilken visning man står i — sæt den FØR hentningen,
+    // så en fejl ikke efterlader forrige visnings overskrift over beskeden.
+    const head0 = document.getElementById('inbListHead');
+    if (head0) head0.textContent = 'Ufordelt — bounces + ukendt afsender';
     try {
         const params = new URLSearchParams();
         if (_inbFromDate) params.set('from_date', _inbFromDate);
@@ -615,8 +622,6 @@ async function _inbLoadData() {
         const all = await apiFetch('/mail/inbox' + (params.toString() ? '?' + params.toString() : ''));
         _inbMails = all.filter(m => m.kind === 'unmatched');
         _inbRenderList();
-        const head = document.getElementById('inbListHead');
-        if (head) head.textContent = 'Ufordelt — bounces + ukendt afsender';
         document.getElementById('inbCount').textContent = _inbMails.length;
         if (_inbComposing) {
             // Svar-komposer er åben — behold preview, opdatér kun liste/tæller
@@ -626,8 +631,25 @@ async function _inbLoadData() {
             else { _inbSelected = null; document.getElementById('inbPreview').innerHTML = '<div class="inb-empty">Vælg en mail fra listen</div>'; }
         }
     } catch (err) {
-        console.error('[inbox] Load error:', err);
+        _inbShowLoadError(err, 'ufordelt post');
     }
+}
+
+/**
+ * Vis hvorfor listen er tom. Tidligere endte enhver load-fejl som et
+ * console.error, så et 403 lignede "der er ingenting" — en office-bruger så
+ * tælleren sige 3 og listen sige intet, uden at noget forklarede forskellen.
+ */
+function _inbShowLoadError(err, what) {
+    console.error('[inbox] load ' + what + ':', err);
+    const el = document.getElementById('inbList');
+    if (!el) return;
+    const msg = err && err.status === 403
+        ? 'Din bruger har ikke adgang til ' + what + '.<br><span style="font-size:12px">Bed en administrator slå CRM til for din rolle under Indstillinger → Roller.</span>'
+        : 'Kunne ikke hente ' + what + '.<br><span style="font-size:12px">' + _inbEscape((err && err.message) || 'Ukendt fejl') + '</span>';
+    el.innerHTML = '<div class="inb-empty">' + msg + '</div>';
+    const cnt = document.getElementById('inbCount');
+    if (cnt) cnt.textContent = '—';
 }
 
 function _inbRenderList() {
@@ -657,6 +679,15 @@ function _inbRenderList() {
             ? '<div class="inb-entity-chip">' + (ENTITY_ICON[m.entity_type] || '✉') + ' ' +
               (ENTITY_WORD[m.entity_type] || 'Tråd') + ' · ' + _inbEscape(m.entity_label || '') + '</div>'
             : '';
+        // 📎 i listen: tæl KUN rigtige vedhæftninger. Inline CID-billeder
+        // (signatur-logoer o.l.) er der på næsten hver anden mail og ville
+        // gøre badgen meningsløs.
+        const attCount = (m.attachments || []).filter(a => a && !a.is_inline).length;
+        const attBadge = attCount
+            ? '<span class="inb-mail-att" title="' + attCount +
+              (attCount === 1 ? ' vedhæftning' : ' vedhæftninger') + '">📎' +
+              (attCount > 1 ? ' ' + attCount : '') + '</span>'
+            : '';
         const canBulk = _inbBulkMode && !isThread;
         const isChecked = !isThread && _inbBulkSelected.has(m.id);
         const checkboxHtml = canBulk
@@ -676,7 +707,7 @@ function _inbRenderList() {
                 '<div class="inb-mail-subject">' + (m.subject || '(intet emne)') + '</div>' +
                 '<div class="inb-mail-meta">' +
                     '<span>' + (m.from_email || '') + '</span>' +
-                    '<span>' + _inbFmtReceivedAt(m.received_at) + '</span>' +
+                    '<span>' + _inbFmtReceivedAt(m.received_at) + attBadge + '</span>' +
                 '</div>' +
                 bounceSubtitle +
                 (m.parsed_company ? '<div class="inb-mail-parsed">→ ' + _inbEscape(m.parsed_company) + '</div>' : '') +

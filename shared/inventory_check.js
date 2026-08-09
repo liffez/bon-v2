@@ -41,6 +41,7 @@ var _ic = {
     countUnitPref: {},          // "<pid>|<enhed>" -> qu_id — sidst brugte tælleenhed i den kontekst
     startedAt:     null,        // ISO — hvornår sessionen begyndte (drives genoptag-banneret)
     priorities:    {},          // productId -> "high"|"low"
+    manualAdded:   {},          // productId -> enhed hvor varen blev hentet frem manuelt
     physicalUnits: {},          // locationId -> [{ id, name, sort_order, archived_at }] fra server
     searchQuery:   '',          // fritekst-filter på varenavn i optællings-listen
 
@@ -522,13 +523,15 @@ function _icRenderSetup() {
             '<div class="ic-modal" style="max-width:500px;">' +
                 '<div class="ic-modal-header">' +
                     '<h2>Tilføj vare</h2>' +
-                    '<p>Fandt en vare der ikke var paa listen?</p>' +
+                    '<p>Fandt en vare der ikke var på listen?</p>' +
                 '</div>' +
                 '<div class="ic-modal-body">' +
-                    '<input type="text" class="ic-add-search" id="icAddSearch" placeholder="Skriv for at soege...">' +
-                    '<div id="icAddList" style="max-height:300px;overflow-y:auto;"></div>' +
+                    '<input type="text" class="ic-add-search" id="icAddSearch" placeholder="Skriv for at søge...">' +
+                    '<select class="ic-add-filter" id="icAddLocFilter"><option value="">Alle lokationer</option></select>' +
+                    '<div id="icAddList" class="ic-add-list"></div>' +
                 '</div>' +
                 '<div class="ic-modal-footer">' +
+                    '<span class="ic-add-count" id="icAddCount"></span>' +
                     '<button class="ic-btn-close" id="icAddClose">Annuller</button>' +
                 '</div>' +
             '</div>' +
@@ -569,6 +572,12 @@ function _icRenderSetup() {
     _icContainer.querySelector('#icSummaryShop').addEventListener('click', _icAddAllToShopping);
     _icContainer.querySelector('#icAddClose').addEventListener('click', _icCloseAddProduct);
     _icContainer.querySelector('#icAddSearch').addEventListener('input', _icFilterAddProducts);
+    _icContainer.querySelector('#icAddLocFilter').addEventListener('change', _icFilterAddProducts);
+    // Delegeret: listen kan være lang, så vi binder ikke pr. række.
+    _icContainer.querySelector('#icAddList').addEventListener('click', function(e) {
+        var row = e.target.closest('.ic-add-product-item');
+        if (row) _icAddUnexpectedProduct(row.getAttribute('data-pid'));
+    });
 }
 
 // ════════════════════════════════════════════════════════════
@@ -711,6 +720,9 @@ async function _icStartCheck() {
 
     _ic.isChecking = true;
     _ic.searchQuery = '';
+    // _ic.products bygges forfra nedenfor, så manuelt fremhentede varer falder ud
+    // alligevel — markeringen skal følge med, ellers peger den på en tom liste.
+    _ic.manualAdded = {};
 
     var emptyEl = _icContainer.querySelector('#icEmptyState');
     if (emptyEl) emptyEl.style.display = 'none';
@@ -879,6 +891,11 @@ function _icComputeCheckStatus(intervalDays, lastChecked, now) {
 //   location_id == lok.                          → vis  (fallback: hører til her)
 //   ellers                                       → skjul
 function _icVisibleInUnit(product, locUnits) {
+    // Hentet frem i hånden ("Tilføj vare"): brugeren står med varen i hånden i
+    // DENNE enhed. Det slår altid Grocys formodning om hvor den hører hjemme —
+    // ellers ville varen blive filtreret væk igen i samme sekund den blev valgt.
+    if (_ic.manualAdded[product.id] === _ic.physicalUnit) return true;
+
     var uf = product.userfields || {};
     var lcu = uf.LastCheckedUnit || null;
     if (lcu === _ic.physicalUnit) return true;
@@ -1025,7 +1042,7 @@ function _icRenderProgress() {
                 '<button class="ic-btn-finish" id="icBtnFinish">Afslut optælling</button>' +
             '</div>' +
             '<div class="ic-search-row">' +
-                '<input type="text" class="ic-search" id="icSearch" placeholder="Soeg vare i listen...">' +
+                '<input type="text" class="ic-search" id="icSearch" placeholder="Søg vare i listen...">' +
                 '<button class="ic-search-clear" id="icSearchClear" title="Ryd" style="display:none;">&times;</button>' +
             '</div>' +
         '</div>';
@@ -2198,6 +2215,16 @@ async function _icAddAllToShopping() {
 
 function _icShowAddProduct() {
     _icContainer.querySelector('#icAddSearch').value = '';
+
+    // Lokations-filter fyldes fra Grocys lokationer (varen kan ligge hvor som helst
+    // — det er netop derfor den ikke stod på listen).
+    var locSel = _icContainer.querySelector('#icAddLocFilter');
+    locSel.innerHTML = '<option value="">Alle lokationer</option>' +
+        (_ic.locations || []).map(function(l) {
+            return '<option value="' + l.id + '">' + esc(l.name) + '</option>';
+        }).join('');
+    locSel.value = '';
+
     _icFilterAddProducts();
     _icContainer.querySelector('#icAddOverlay').classList.add('ic-visible');
     _icContainer.querySelector('#icAddSearch').focus();
@@ -2208,52 +2235,78 @@ function _icCloseAddProduct() {
 }
 
 function _icFilterAddProducts() {
-    var search = (_icContainer.querySelector('#icAddSearch').value || '').toLowerCase().trim();
-    var listEl = _icContainer.querySelector('#icAddList');
+    var search  = (_icContainer.querySelector('#icAddSearch').value || '').toLowerCase().trim();
+    var locId   = _icContainer.querySelector('#icAddLocFilter').value;
+    var listEl  = _icContainer.querySelector('#icAddList');
+    var countEl = _icContainer.querySelector('#icAddCount');
 
-    var existingIds = {};
-    _ic.products.forEach(function(p) { existingIds[p.id] = true; });
+    // Skjul kun det brugeren allerede KAN se i denne enhed. En vare der hører til
+    // lokationen, men som listen tror står i en anden fysisk enhed, skal kunne
+    // hentes frem — det er netop tilfældet "jeg fandt den her".
+    var locUnits  = _icGetUnitsForLocation(_ic.locationId);
+    var onScreen  = {};
+    _ic.products.forEach(function(p) {
+        var c = _ic.counts[p.id];
+        var countedHere = c && c.units && c.units[_ic.physicalUnit] !== undefined;
+        if (countedHere || _icVisibleInUnit(p, locUnits)) onScreen[p.id] = true;
+    });
 
-    var available = _ic.allProducts.filter(function(p) { return !existingIds[p.id]; });
+    // Alfabetisk — ellers kommer varerne i Grocys egen rækkefølge, og så er
+    // det tilfældigt hvad man ser først.
+    var all = _ic.allProducts.filter(function(p) {
+        return !onScreen[p.id];
+    }).sort(function(a, b) {
+        return String(a.name).localeCompare(String(b.name), 'da');
+    });
 
-    if (search) {
-        available = available.filter(function(p) {
-            return p.name.toLowerCase().indexOf(search) !== -1;
-        });
+    // Ingen afkortning: hele listen er tilgængelig, ellers kan en vare uden for
+    // de første par stykker kun findes hvis man gætter navnet.
+    var available = all.filter(function(p) {
+        if (search && p.name.toLowerCase().indexOf(search) === -1) return false;
+        if (locId && String(p.location_id) !== locId) return false;
+        return true;
+    });
+
+    if (countEl) {
+        countEl.textContent = all.length === 0 ? '' :
+            (available.length === all.length
+                ? all.length + ' varer'
+                : 'Viser ' + available.length + ' af ' + all.length);
     }
 
-    available = available.slice(0, 20);
-
     if (available.length === 0) {
-        listEl.innerHTML = '<p style="color:var(--color-text-dim);text-align:center;padding:20px;">Ingen produkter fundet</p>';
+        listEl.innerHTML = '<p class="ic-add-empty">' +
+            (all.length === 0 ? 'Alle varer er allerede på listen' : 'Ingen varer matcher') +
+            '</p>';
         return;
     }
 
-    listEl.innerHTML = '';
-    available.forEach(function(p) {
-        var loc = _ic.locations.find(function(l) { return l.id == p.location_id; });
-        var locName = loc ? loc.name : '-';
-
-        var item = document.createElement('div');
-        item.className = 'ic-add-product-item';
-        item.innerHTML = '<span class="ic-add-product-name">' + esc(p.name) + '</span>' +
-                          '<span class="ic-add-product-loc">' + esc(locName) + '</span>';
-
-        item.addEventListener('click', function() {
-            _icAddUnexpectedProduct(p.id);
-        });
-        listEl.appendChild(item);
-    });
+    listEl.innerHTML = available.map(function(p) {
+        var loc = (_ic.locations || []).find(function(l) { return l.id == p.location_id; });
+        return '<div class="ic-add-product-item" data-pid="' + p.id + '">' +
+            '<span class="ic-add-product-name">' + esc(p.name) + '</span>' +
+            '<span class="ic-add-product-loc">' + esc(loc ? loc.name : '-') + '</span>' +
+            '</div>';
+    }).join('');
 }
 
 function _icAddUnexpectedProduct(productId) {
-    var product = _ic.allProducts.find(function(p) { return p.id === productId; });
+    // Løst ==: id kommer som streng fra data-attributten, men kan være tal i _ic.
+    var product = _ic.allProducts.find(function(p) { return String(p.id) === String(productId); });
     if (!product) return;
 
-    _ic.products.push(product);
+    // Varen kan allerede være i _ic.products (hører til lokationen, men ligger
+    // efter listens mening i en anden fysisk enhed) — så må den ikke dubleres.
+    var known = _ic.products.some(function(p) { return String(p.id) === String(product.id); });
+    if (!known) _ic.products.push(product);
+
+    // Gør den synlig i netop denne enhed (se _icVisibleInUnit).
+    _ic.manualAdded[product.id] = _ic.physicalUnit;
+
     _icCloseAddProduct();
     _icRenderProducts();
-    _icAlert(product.name + ' tilføjet til optælling', 'success');
+    _icUpdateProgress();
+    _icAlert(product.name + ' tilføjet til ' + _ic.physicalUnit, 'success');
 }
 
 // ════════════════════════════════════════════════════════════

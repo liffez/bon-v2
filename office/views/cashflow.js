@@ -216,7 +216,11 @@ function _cfBuildOverblik(el, stats, weekly, invoices, upcoming, unmatched, even
             <div class="cf-metric alert">
                 <div class="cf-metric-label">Forfaldne (incl moms, ikke betalt)</div>
                 <div class="cf-metric-value ${stats.overdue_count > 0 ? 'red' : ''}">${_cfFmt(stats.overdue_total)}</div>
-                <div class="cf-metric-sub">${stats.overdue_count} fakturaer overdue</div>
+                <div class="cf-metric-sub">${stats.overdue_count} fakturaer sendt, ikke betalt${
+                    stats.not_invoiced_count > 0
+                        ? ` · ${stats.not_invoiced_count} aldrig faktureret holdt ude`
+                        : ''
+                }</div>
             </div>
             <div class="cf-metric neutral">
                 <div class="cf-metric-label">Forventet ind — 30 dage (incl moms)</div>
@@ -224,6 +228,30 @@ function _cfBuildOverblik(el, stats, weekly, invoices, upcoming, unmatched, even
                 <div class="cf-metric-sub">Heraf moms til SKAT: ${_cfFmt(stats.expected_30d_vat_liability || 0)} · Disponibelt for drift: ${_cfFmt(stats.expected_30d_total_excl_moms || 0)}</div>
             </div>
         </div>
+
+        <!-- Aldrig faktureret (#319) — arbejde, ikke gæld.
+             Eget bånd frem for et femte metric-kort: de fire kort er løbende
+             KPI'er man aflæser hver uge. Det her er en anomali der skal væk,
+             og som forsvinder helt når den er håndteret. -->
+        ${stats.not_invoiced_count > 0 ? `
+        <div class="cf-notinv-banner" id="cfNotInvBanner" role="button" tabindex="0"
+             title="Åbn fanen 'Ikke faktureret'">
+            <div class="cf-notinv-main">
+                <span class="cf-notinv-icon">⚠</span>
+                <div>
+                    <div class="cf-notinv-title">
+                        ${stats.not_invoiced_count} ${stats.not_invoiced_count === 1 ? 'faktura er' : 'fakturaer er'}
+                        aldrig sendt — ${_cfFmt(stats.not_invoiced_total)} incl moms
+                    </div>
+                    <div class="cf-notinv-sub">
+                        Bonnen står som faktureret, men der findes hverken kladde eller bogført
+                        faktura. Pengene kan stadig hentes — de er bare ikke bedt om endnu.
+                        Tallet er holdt ude af «Forfaldne».
+                    </div>
+                </div>
+            </div>
+            <span class="cf-notinv-cta">Se listen →</span>
+        </div>` : ''}
 
         <!-- Main grid -->
         <div class="cf-main-grid">
@@ -248,6 +276,7 @@ function _cfBuildOverblik(el, stats, weekly, invoices, upcoming, unmatched, even
                         ${_cfRenderTabBtn('alle', 'Alle', invoices.summary)}
                         ${_cfRenderTabBtn('udestaaende', 'Udestående', invoices.summary)}
                         ${_cfRenderTabBtn('forfaldne', 'Forfaldne', invoices.summary)}
+                        ${_cfRenderTabBtn('ikke_faktureret', 'Ikke faktureret', invoices.summary)}
                         ${_cfRenderTabBtn('sandsynlig', 'Sandsynlig betalt', invoices.summary)}
                         ${_cfRenderTabBtn('betalt', 'Betalt', invoices.summary)}
                     </div>
@@ -383,8 +412,39 @@ function _cfBuildOverblik(el, stats, weekly, invoices, upcoming, unmatched, even
         bulkBtn.onclick = () => _cfShowBulkModal();
     }
 
+    // "Aldrig faktureret"-båndet → åbn fanen med listen (#319)
+    const notInvBanner = el.querySelector('#cfNotInvBanner');
+    if (notInvBanner) {
+        const open = () => _cfSwitchInvTab('ikke_faktureret', true);
+        notInvBanner.onclick = open;
+        notInvBanner.onkeydown = (ev) => {
+            if (ev.key === 'Enter' || ev.key === ' ') { ev.preventDefault(); open(); }
+        };
+    }
+
     // Umatchede posteringer — klik på række åbner handlings-panel
     _cfWireUnmatched(el);
+}
+
+/* ── Skift faktura-fane programmatisk ──
+ * Samme sti som et klik på fanen, så tællere, rækker, footer og bulk-knappens
+ * synlighed opdateres ét sted.
+ *
+ * scroll=true bruges fra båndet: det står øverst, listen længere nede, og et
+ * fane-skift man ikke kan se ligner at intet skete. Ved et klik på selve fanen
+ * er man der allerede, og en scroll ville bare rykke rundt under fingeren.
+ */
+async function _cfSwitchInvTab(tab, scroll = false) {
+    _cfInvTab = tab;
+    try {
+        const inv = await fetchCfInvoices(tab);
+        _cfRefreshTabs(inv.summary);
+        _cfBuildInvoiceRows(inv.rows, tab);
+        _cfBuildInvoiceFooter(inv.summary, tab);
+        const bulkBtn = document.getElementById('cfBulkBtn');
+        if (bulkBtn) bulkBtn.style.display = tab === 'forfaldne' ? '' : 'none';
+        if (scroll) document.getElementById('cfInvFilters')?.scrollIntoView({ behavior: 'smooth', block: 'center' });
+    } catch { /* listen bliver stående på forrige fane */ }
 }
 
 /* ── Umatchede posteringer: match / ignorér / note ── */
@@ -1108,6 +1168,16 @@ function _cfFmtShort(n) {
     return Math.round(n) + ' kr';
 }
 
+// Fanenavne i footeren. Kædet ternary blev uoverskuelig ved fane nummer seks.
+const CF_TAB_LABELS = {
+    alle:            'Alle',
+    udestaaende:     'Udestående (ikke forfaldne)',
+    forfaldne:       'Forfaldne',
+    ikke_faktureret: 'Ikke faktureret',
+    sandsynlig:      'Sandsynlig betalt',
+    betalt:          'Betalt',
+};
+
 function _cfRenderTabBtn(tab, label, summary) {
     const s = summary?.[tab];
     const active = _cfInvTab === tab ? 'active' : '';
@@ -1125,7 +1195,7 @@ function _cfBuildInvoiceFooter(summary, tab) {
     if (!s) { el.innerHTML = ''; return; }
     el.innerHTML = `
         <div class="cf-inv-footer-row">
-            <span>I alt for <strong>${tab === 'alle' ? 'Alle' : tab === 'udestaaende' ? 'Udestående (ikke forfaldne)' : tab === 'forfaldne' ? 'Forfaldne' : tab === 'sandsynlig' ? 'Sandsynlig betalt' : 'Betalt'}</strong>:</span>
+            <span>I alt for <strong>${CF_TAB_LABELS[tab] || 'Betalt'}</strong>:</span>
             <span class="cf-inv-footer-sum">${s.count} stk · ${_cfFmt(s.total)}</span>
         </div>
     `;
@@ -1139,23 +1209,14 @@ function _cfRefreshTabs(summary) {
         ${_cfRenderTabBtn('alle', 'Alle', summary)}
         ${_cfRenderTabBtn('udestaaende', 'Udestående', summary)}
         ${_cfRenderTabBtn('forfaldne', 'Forfaldne', summary)}
+        ${_cfRenderTabBtn('ikke_faktureret', 'Ikke faktureret', summary)}
         ${_cfRenderTabBtn('sandsynlig', 'Sandsynlig betalt', summary)}
         ${_cfRenderTabBtn('betalt', 'Betalt', summary)}
     `;
-    // Re-wire click-handlers
+    // Re-wire click-handlers — samme sti som båndets genvej, så et fane-skift
+    // altid gør præcis det samme uanset hvor det kommer fra.
     container.querySelectorAll('.cf-inv-tab').forEach(btn => {
-        btn.onclick = async () => {
-            _cfInvTab = btn.dataset.tab;
-            try {
-                const inv = await fetchCfInvoices(_cfInvTab);
-                _cfRefreshTabs(inv.summary);
-                _cfBuildInvoiceRows(inv.rows, _cfInvTab);
-                _cfBuildInvoiceFooter(inv.summary, _cfInvTab);
-                // Vis/skjul bulk-knap baseret på aktiv tab.
-                const bulkBtn = document.getElementById('cfBulkBtn');
-                if (bulkBtn) bulkBtn.style.display = _cfInvTab === 'forfaldne' ? '' : 'none';
-            } catch (err) { /* ignore */ }
-        };
+        btn.onclick = () => _cfSwitchInvTab(btn.dataset.tab);
     });
 }
 
@@ -1165,7 +1226,11 @@ function _cfBuildInvoiceRows(rows, tab) {
     if (!container) return;
 
     if (rows.length === 0) {
-        container.innerHTML = '<div style="padding:20px;text-align:center;color:#8a8580;font-size:13px">Ingen fakturaer i denne kategori</div>';
+        // Tom "Ikke faktureret" er en god nyhed, ikke et manglende resultat.
+        const msg = tab === 'ikke_faktureret'
+            ? 'Ingen ubetalte uden faktura — alt der er markeret faktureret har også en regning bag sig.'
+            : 'Ingen fakturaer i denne kategori';
+        container.innerHTML = `<div style="padding:20px;text-align:center;color:#8a8580;font-size:13px">${msg}</div>`;
         return;
     }
 
@@ -1176,12 +1241,20 @@ function _cfBuildInvoiceRows(rows, tab) {
     // hurtigt kan rydde fakturaer der reelt er betalt i e-conomic men hænger
     // som forfaldne i Bon v2 (manglende sync).
     const quickActions = tab === 'forfaldne';
+    // "Ikke faktureret" har sin egen handling: gå til bonnen og send regningen.
+    // Bevidst INGEN "✓ Betalt"-knap her — det ville stemple penge man stadig har
+    // til gode som afsluttede.
+    const notInvActions = tab === 'ikke_faktureret';
 
     container.innerHTML = rows.map(inv => {
         const days = _cfDaysUntil(inv.forfald);
         let pillClass, pillText;
         if (inv.betalt) {
             pillClass = 'cf-pill-betalt'; pillText = 'Betalt';
+        } else if (inv.ikke_faktureret) {
+            // Går FORAN forfalden-tjekket: "Forfalden" antyder en kunde der ikke
+            // har betalt. Her er der ingen regning at betale.
+            pillClass = 'cf-pill-ikkefakt'; pillText = 'Ingen faktura';
         } else if (days < 0) {
             pillClass = 'cf-pill-forfalden'; pillText = 'Forfalden';
         } else if (days <= 7) {
@@ -1195,15 +1268,21 @@ function _cfBuildInvoiceRows(rows, tab) {
         const classList = [
             'cf-inv-row',
             expanded ? 'cf-inv-row-expanded' : '',
-            quickActions ? 'cf-inv-row-quick' : ''
+            (quickActions || notInvActions) ? 'cf-inv-row-quick' : ''
         ].filter(Boolean).join(' ');
 
-        const quickHtml = quickActions
-            ? `<div class="cf-quick-actions">
+        let quickHtml = '';
+        if (quickActions) {
+            quickHtml = `<div class="cf-quick-actions">
                  <button class="cf-quick-btn cf-quick-confirm" data-inv-id="${inv.id}" title="Bekræft som betalt">✓ Betalt</button>
                  ${inv.bon_id ? `<button class="cf-quick-btn cf-quick-open" data-bon-id="${inv.bon_id}" title="Åbn bon">→</button>` : ''}
-               </div>`
-            : '';
+               </div>`;
+        } else if (notInvActions && inv.bon_id) {
+            quickHtml = `<div class="cf-quick-actions">
+                 <button class="cf-quick-btn cf-quick-open" data-bon-id="${inv.bon_id}"
+                         title="Åbn bonnen — herfra sender du regningen">Åbn bon →</button>
+               </div>`;
+        }
 
         return `
         <div class="${classList}" data-inv-id="${inv.id}">
@@ -1233,6 +1312,9 @@ function _cfBuildInvoiceRows(rows, tab) {
 
     // Wire knap-handlers i ekspanderede rækker.
     if (expanded) _cfWireMatchActions(container);
+    // "Åbn bon"-knappen deler handler med forfaldne-fanens; kun ✓ Betalt-knappen
+    // er udeladt i ikke-faktureret-fanen, og handleren tåler at den mangler.
+    if (notInvActions) _cfWireQuickActions(container);
     // Wire quick-action-knapper i forfaldne-rækker.
     if (quickActions) {
         _cfWireQuickActions(container);

@@ -35,11 +35,30 @@ function getPriceCategoryByCode(code) {
 
 function getEvent(id) {
     return getDb().prepare(`
-        SELECT e.*, l.name AS location_name, l.code AS location_code
+        SELECT e.*, l.name AS location_name, l.code AS location_code,
+               NULLIF(TRIM(COALESCE(c.first_name,'') || ' ' || COALESCE(c.last_name,'')), '') AS contact_name,
+               c.phone AS contact_phone, c.email AS contact_email,
+               co.name AS contact_company_name
         FROM events e
         JOIN locations l ON e.location_id = l.id
+        LEFT JOIN customers c ON e.customer_id = c.id
+        LEFT JOIN companies co ON e.company_id = co.id
         WHERE e.id = ?
     `).get(id);
+}
+
+// Kontaktfelterne der arves ned på event-genererede bons. Kunden kopieres
+// direkte (customer_id/company_id spejler bons' egne felter). Kontakt på
+// dagen falder tilbage til kundens navn/telefon når den ikke er sat separat
+// — det er langt det almindelige tilfælde, og en tom dagskontakt på en
+// event-bon hjælper ingen i køkkenet.
+function eventContactFields(event) {
+    return {
+        customer_id: event.customer_id ?? null,
+        company_id:  event.company_id ?? null,
+        day_contact_name:  event.day_contact_name  ?? event.contact_name  ?? null,
+        day_contact_phone: event.day_contact_phone ?? event.contact_phone ?? null,
+    };
 }
 
 // Hent alle bons for et event, joinet med priskategori + status, sorteret efter rolle.
@@ -481,9 +500,14 @@ router.get('/', requireAuth(), handle((req, res) => {
         SELECT e.id, e.name, e.model, e.start_date, e.end_date, e.status,
                e.location_id, l.name AS location_name, l.code AS location_code,
                e.notes, e.event_address, e.created_at,
+               e.customer_id, e.company_id,
+               NULLIF(TRIM(COALESCE(c.first_name,'') || ' ' || COALESCE(c.last_name,'')), '') AS contact_name,
+               co.name AS contact_company_name,
                (SELECT COUNT(*) FROM bons WHERE event_id = e.id) AS bon_count
         FROM events e
         JOIN locations l ON e.location_id = l.id
+        LEFT JOIN customers c ON e.customer_id = c.id
+        LEFT JOIN companies co ON e.company_id = co.id
         WHERE ${where}
         ORDER BY
           CASE e.status WHEN 'active' THEN 0 WHEN 'planning' THEN 1 WHEN 'done' THEN 2 ELSE 3 END,
@@ -509,13 +533,16 @@ router.post('/', requireAuth(), handle((req, res) => {
     }
     const locationId = b.location_id ?? getDefaultLocationId();
     const result = db.prepare(`
-        INSERT INTO events (name, location_id, model, start_date, end_date, status, notes, event_address, event_address_id, created_by_user_id)
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        INSERT INTO events (name, location_id, model, start_date, end_date, status, notes, event_address, event_address_id,
+                            customer_id, company_id, day_contact_name, day_contact_phone, created_by_user_id)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     `).run(
         b.name, locationId, model, b.start_date,
         b.end_date ?? null, b.status ?? 'planning',
         b.notes ?? null, b.event_address ?? null,
         b.event_address_id ?? null,
+        b.customer_id ?? null, b.company_id ?? null,
+        b.day_contact_name ?? null, b.day_contact_phone ?? null,
         req.session?.userId ?? null
     );
     const ev = getEvent(result.lastInsertRowid);
@@ -529,7 +556,8 @@ router.patch('/:id', requireAuth(), handle((req, res) => {
     const id = req.params.id;
     const ev = getEvent(id);
     if (!ev) return res.status(404).json({ error: 'Event ikke fundet' });
-    const ALLOWED = ['name','start_date','end_date','status','notes','model','location_id','event_address','event_address_id','open_hours_json'];
+    const ALLOWED = ['name','start_date','end_date','status','notes','model','location_id','event_address','event_address_id','open_hours_json',
+                     'customer_id','company_id','day_contact_name','day_contact_phone'];
     const updates = [], params = [];
     for (const key of ALLOWED) {
         if (key in req.body) { updates.push(`${key} = ?`); params.push(req.body[key]); }
@@ -665,7 +693,55 @@ router.get('/:id/overview', requireAuth(), handle(async (req, res) => {
         `SELECT value FROM settings WHERE key = 'event_order_admin_url'`
     ).get()?.value || '';
 
-    res.json({ event, bons, pnl, forecast, days, categories, prepped, event_order_admin_url: eventOrderAdminUrl });
+    // Bons oprettet FØR eventet fik en kontaktperson står stadig uden kunde.
+    // Tælleren driver "udfyld"-knappen i UI'et (POST /:id/apply-contact) —
+    // uden den ville kontakten kun virke fremadrettet, og netop de bons man
+    // allerede har genereret er dem man kigger på.
+    const missingContact = event.customer_id
+        ? getDb().prepare(`SELECT COUNT(*) AS n FROM bons WHERE event_id = ? AND customer_id IS NULL`).get(event.id).n
+        : 0;
+
+    res.json({ event, bons, pnl, forecast, days, categories, prepped,
+               bons_missing_contact: missingContact,
+               event_order_admin_url: eventOrderAdminUrl });
+}));
+
+// Udfyld eventets kontaktperson på de bons der mangler den. Rører KUN tomme
+// felter — en bon hvor kontoret selv har sat en anden kunde eller en anden
+// kontakt på dagen står urørt. Eksplicit handling frem for en bivirkning af
+// at gemme eventet: at skrive på tværs af eksisterende bons skal være noget
+// man beder om.
+router.post('/:id/apply-contact', requireAuth(), handle((req, res) => {
+    const db = getDb();
+    const event = getEvent(req.params.id);
+    if (!event) return res.status(404).json({ error: 'Event ikke fundet' });
+    if (!event.customer_id) return res.status(400).json({ error: 'Eventet har ingen kontaktperson' });
+    const c = eventContactFields(event);
+
+    const targets = db.prepare(`SELECT id FROM bons WHERE event_id = ? AND customer_id IS NULL`).all(event.id);
+    transaction(db, () => {
+        const upd = db.prepare(`
+            UPDATE bons
+               SET customer_id       = ?,
+                   company_id        = COALESCE(company_id, ?),
+                   day_contact_name  = COALESCE(day_contact_name, ?),
+                   day_contact_phone = COALESCE(day_contact_phone, ?),
+                   updated_at        = CURRENT_TIMESTAMP
+             WHERE id = ?
+        `);
+        for (const t of targets) {
+            upd.run(c.customer_id, c.company_id, c.day_contact_name, c.day_contact_phone, t.id);
+        }
+    });
+    for (const t of targets) {
+        logChange({
+            entityType: 'bon', entityId: t.id, action: 'update', fieldName: 'customer_id',
+            newValue: `Kontaktperson arvet fra event "${event.name}"`, userId: req.session?.userId
+        });
+        broadcast('bon_updated', { id: t.id, event_id: event.id });
+    }
+    if (targets.length) broadcast('event_updated', { id: event.id });
+    res.json({ updated: targets.length });
 }));
 
 // ─── EVENT-MENU (prisliste) §16 ────────────────────────────────────────────
@@ -1090,12 +1166,18 @@ router.post('/:id/bons', requireAuth(), handle((req, res) => {
     const orderDate    = b.order_date ?? todayISO();
     const addressId    = resolveEventAddressId(event);
 
+    // Kontaktperson arves fra eventet (migration 139) med mindre kaldet
+    // sætter noget selv. Uden den stod event-bons uden kunde — køkkenets
+    // kort viste "Ukendt", og kontoret tastede samme person ind på hver bon.
+    const contact = eventContactFields(event);
+
     const result = transaction(db, () => {
         const r = db.prepare(`
             INSERT INTO bons (
                 bon_number, status_id, location_id, price_category_id, price_category, event_id, event_role,
                 order_date, delivery_date, pickup_time, delivery_time,
                 delivery_type, delivery_address_id, pax, total_units, payment_type,
+                customer_id, company_id, day_contact_name, day_contact_phone,
                 kitchen_info, customer_wishes, internal_notes,
                 created_by_user_id, is_internal,
                 total_price, total_with_delivery,
@@ -1105,6 +1187,7 @@ router.post('/:id/bons', requireAuth(), handle((req, res) => {
                 ?, ?, ?, ?, ?, ?, ?,
                 ?, ?, ?, ?,
                 ?, ?, ?, ?, ?,
+                ?, ?, ?, ?,
                 ?, ?, ?,
                 ?, ?,
                 0, 0,
@@ -1115,6 +1198,8 @@ router.post('/:id/bons', requireAuth(), handle((req, res) => {
             bonNumber, statusId, event.location_id, pc.id, pc.code, event.id, role,
             orderDate, deliveryDate, b.pickup_time ?? null, b.delivery_time ?? null,
             b.delivery_type ?? 'event', addressId, b.pax ?? 0, 0, b.payment_type ?? (isProduction ? 'cash' : 'cash'),
+            b.customer_id ?? contact.customer_id, b.company_id ?? contact.company_id,
+            b.day_contact_name ?? contact.day_contact_name, b.day_contact_phone ?? contact.day_contact_phone,
             b.kitchen_info ?? null, b.customer_wishes ?? null, b.internal_notes ?? null,
             req.session?.userId ?? null, role === 'expense' ? 1 : 0
         );
@@ -1261,3 +1346,4 @@ module.exports.getPrepAggregate = getPrepAggregate;
 module.exports.getMenuItems = getMenuItems;
 module.exports.buildMenuResponse = buildMenuResponse;
 module.exports.menuKey = menuKey;
+module.exports.eventContactFields = eventContactFields;

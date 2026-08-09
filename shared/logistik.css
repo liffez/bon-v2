@@ -23,6 +23,86 @@
 .log-health-ok   { color: #4a8a3a; font-size: 12px; font-weight: 600; }
 .log-health-down { color: #b04030; font-size: 12px; font-weight: 600; }
 
+/* ── Prisberegner (løs adresse) ──────────────────────── */
+.log-pc-open {
+    border: 1px solid var(--color-border, #d7d1ca);
+    background: #fff; border-radius: 6px; cursor: pointer;
+    padding: 5px 11px; font-size: 12.5px; font-weight: 600;
+    color: var(--brand-primary, #8e631f);
+}
+.log-pc-open:hover { background: #faf4e8; }
+.log-pc-open-active { background: var(--brand-primary, #8e631f); color: #fff; border-color: var(--brand-primary, #8e631f); }
+
+.log-pc {
+    border: 1px solid var(--color-border, #d7d1ca);
+    background: #fffdf8; border-radius: 8px;
+    padding: 12px 14px; margin: 0 0 14px;
+}
+.log-pc-head { display: flex; align-items: baseline; gap: 10px; margin-bottom: 10px; }
+.log-pc-head strong { font-family: var(--font-heading, Georgia, serif); font-size: 15px; }
+.log-pc-sub { font-size: 12px; color: var(--color-text-dim, #8a8580); }
+.log-pc-x {
+    margin-left: auto; border: 0; background: none; cursor: pointer;
+    font-size: 15px; color: var(--color-text-dim, #8a8580); line-height: 1; padding: 2px 4px;
+}
+.log-pc-x:hover { color: #333; }
+
+.log-pc-form { display: flex; gap: 12px; align-items: flex-end; flex-wrap: wrap; }
+.log-pc-field { display: flex; flex-direction: column; gap: 3px; position: relative; }
+.log-pc-field > span { font-size: 11px; font-weight: 600; color: var(--color-text-dim, #8a8580); }
+.log-pc-field input {
+    border: 1px solid var(--color-border, #d7d1ca); border-radius: 6px;
+    padding: 6px 9px; font-size: 14px; font-family: inherit; background: #fff;
+}
+.log-pc-field input:focus { outline: 2px solid var(--brand-primary, #8e631f); outline-offset: -1px; }
+.log-pc-field-addr { flex: 1 1 280px; min-width: 220px; }
+.log-pc-field-n { width: 92px; flex: 0 0 auto; }
+
+.log-pc-dawa {
+    position: absolute; top: 100%; left: 0; right: 0; z-index: 900;
+    background: #fff; border: 1px solid var(--color-border, #d7d1ca);
+    border-radius: 6px; margin-top: 3px; box-shadow: 0 4px 14px rgba(0,0,0,.13);
+    max-height: 220px; overflow-y: auto;
+}
+.log-pc-dawa-item { padding: 7px 10px; font-size: 13px; cursor: pointer; }
+.log-pc-dawa-item:hover { background: #faf4e8; }
+
+.log-pc-result { margin-top: 11px; font-size: 13px; }
+.log-pc-result:empty { display: none; }
+.log-pc-loading { color: var(--color-text-dim, #8a8580); font-style: italic; }
+.log-pc-err { color: #9a2a2a; }
+.log-pc-sum { margin-bottom: 7px; color: var(--color-text-dim, #6b665f); }
+.log-pc-rows { border-top: 1px solid var(--color-border, #d7d1ca); }
+.log-pc-row {
+    display: grid; grid-template-columns: 1fr 92px 100px;
+    gap: 8px; align-items: baseline;
+    padding: 5px 0; border-bottom: 1px solid #ece7e0;
+}
+.log-pc-row-head {
+    font-size: 11px; font-weight: 700; text-transform: uppercase;
+    letter-spacing: .04em; color: var(--color-text-dim, #8a8580);
+}
+.log-pc-row-off { opacity: .62; }
+.log-pc-ex, .log-pc-incl { text-align: right; font-variant-numeric: tabular-nums; }
+.log-pc-incl { font-weight: 700; }
+.log-pc-tag {
+    font-size: 10px; font-weight: 700; text-transform: uppercase;
+    background: #efe9df; color: #6b665f; border-radius: 3px; padding: 1px 4px;
+}
+.log-pc-caveat {
+    grid-column: 1 / -1; font-size: 11.5px; color: #9a6a1a;
+}
+.log-pc-foot { margin-top: 8px; font-size: 11.5px; color: var(--color-text-dim, #8a8580); }
+
+/* "Sidst taget" — empirisk anker ved siden af formlens estimat. */
+.log-pc-hist {
+    margin-top: 10px; padding: 8px 10px; font-size: 12.5px;
+    background: #f3efe7; border-radius: 6px; line-height: 1.5;
+}
+.log-pc-hist.loading { color: var(--color-text-dim, #8a8580); font-style: italic; }
+.log-pc-hist .log-pc-dim { color: var(--color-text-dim, #8a8580); }
+.log-pc-hist-none { color: var(--color-text-dim, #8a8580); }
+
 /* ── Live-mode statbar (kun "i dag") ─────────────────── */
 .log-statbar {
     display: flex; flex-wrap: wrap; gap: 8px;
@@ -112,6 +192,9 @@
 }
 .log-byex-btn:hover { background: #faf4e8; }
 .log-byex-btn:disabled { opacity: .6; cursor: default; }
+/* Standardprisen rækker ikke til turen — pillen viser derfor intet tal.
+   Skal stå EFTER .log-byex-btn, hvis border-shorthand ellers vinder. */
+.log-byex-btn-nostd { border-style: dashed; }
 .log-byex-result { margin-top: 4px; font-size: 12px; }
 .log-byex-result.loading { color: var(--color-text-dim, #8a8580); font-style: italic; }
 .log-byex-result.busy { opacity: .55; transition: opacity .12s; }
@@ -119,6 +202,8 @@
 .log-byex-result .byex-dim { color: var(--color-text-dim, #8a8580); }
 .log-byex-result .byex-margin.pos { color: #2e7d32; font-weight: 600; }
 .log-byex-result .byex-margin.neg { color: #bc181b; font-weight: 600; }
+/* Ingen bypris så langt ude — et forslag, ikke en advarsel. Derfor ikke rød. */
+.log-byex-result .byex-suggest { color: #9a6a1a; }
 .log-box-stepper { white-space: nowrap; }
 .log-box-stepper .log-box-n { display: inline-block; min-width: 12px; text-align: center; font-weight: 700; margin: 0 2px; }
 .log-box-btn {
@@ -264,6 +349,15 @@
     display: flex; align-items: center; justify-content: center;
     font-size: 14px; box-shadow: 0 1px 4px rgba(0, 0, 0, 0.35);
 }
+/* Prisberegnerens adresse — stiplet ring, fordi det er et opslag og ikke
+   en levering der findes. Skal ikke kunne forveksles med en bon-pin. */
+.log-mk-calc {
+    width: 26px; height: 26px; border-radius: 50%;
+    background: #fff; border: 2px dashed var(--brand-primary, #8e631f);
+    display: flex; align-items: center; justify-content: center;
+    font-size: 13px; box-shadow: 0 1px 5px rgba(0, 0, 0, 0.35);
+}
+
 /* Kort↔liste-link: fremhævet markør */
 .log-mk-hi { z-index: 10000 !important; }
 .log-mk-hi .log-mk-pin {

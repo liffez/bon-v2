@@ -656,3 +656,69 @@ Assertions er bevidst uafhængige af Grocys faktiske festivalpriser — vi teste
 menuen bliver *kilden* til prisen, ikke hvilket tal Grocy gav.
 
 *Grundlag: issue #314 (design låst med Leif, juli 2026). Bygget + browser-verificeret juli 2026.*
+
+---
+
+## 17. Kontaktperson på eventet ✅ implementeret (august 2026)
+
+### 17.1 Problemet
+
+Event-genererede bons stod uden kunde. Køkkenets kort viste "Ukendt", og kontoret
+tastede den samme person ind i hånden på hver enkelt bon — også selvom kontakten er
+den *samme for hele eventet*. Kontakten hører til eventet, ikke til den enkelte bon.
+
+### 17.2 Datamodel — migration 139
+
+Fire nullable kolonner på `events`:
+
+| Kolonne | Rolle |
+|---|---|
+| `customer_id`, `company_id` | Bestilleren. Spejler bons' egne to felter (og det `KundeSoeg` leverer), så generatoren kopierer direkte uden opslag. |
+| `day_contact_name`, `day_contact_phone` | Kontakten **på pladsen**. Ofte samme person, men behøver ikke være det. |
+
+Alt nullable → et event uden kontaktperson opfører sig præcis som før.
+
+### 17.3 Arv ned på bons
+
+`eventContactFields(event)` i [routes/events.js](../routes/events.js) er den ene
+regel: kunden kopieres råt, og dagskontakten falder tilbage til kundens navn/telefon
+når den ikke er sat separat. Både event-generatoren (`POST /:id/bons`) og
+**event-broen** ([routes/event-bridge.js](../routes/event-bridge.js)) bruger den —
+broen importerer helperen frem for at have sin egen kopi, så de to ikke kan drive
+fra hinanden.
+
+Et eksplicit `customer_id` i payloadet vinder over eventets (`??`, ikke `||` — så
+`0`/tom streng ikke tolkes som "ikke angivet").
+
+### 17.4 Bons der blev lavet før kontakten fandtes
+
+Netop de bons man kigger på, er dem der allerede er genereret. `GET /:id/overview`
+returnerer derfor `bons_missing_contact`, og `POST /:id/apply-contact` udfylder dem.
+
+Den rører **kun tomme felter** (`COALESCE`), så en bon hvor kontoret selv har sat en
+anden kunde eller en anden dagskontakt står urørt. Den er en **eksplicit handling**
+med bekræftelse — ikke en bivirkning af at gemme eventet; at skrive på tværs af
+eksisterende bons skal være noget man beder om. Idempotent: anden kørsel rører intet.
+
+### 17.5 UI
+
+Kontaktpersonen vælges i event-modalen med samme `KundeSoeg` som bon-draweren — én
+komponent, samme data, og "+ Ny kunde" virker derfra. Under event-headeren står en
+kontaktlinje: hvem, kontakt på dagen, og "Udfyld på N bons uden kunde" når der er
+noget at udfylde. Uden kontaktperson står der i stedet en opfordring med "Tilføj".
+
+> **Fælde:** `KundeSoeg` må **ikke** stå inde i et `<label>`. Label-aktivering
+> videresender klikket til labelens første formularkontrol — som efter valget er
+> ✕ ("skift kunde") — så valget blev ryddet i præcis samme klik. Fundet ved
+> browser-verifikation; unit-tests kan ikke se det.
+
+### 17.6 Tests
+
+`scripts/test-event-contact.js` — 26 asserts mod de ægte endpoints over HTTP
+(isoleret temp-DB, spawned server). Dækker: arv til alle roller, fallback fra kunde
+til dagskontakt, separat dagskontakt vinder, payload-override, tælleren for bons
+uden kunde, apply-contact (inkl. at håndrettede felter overlever + idempotens),
+afvisning når eventet ingen kontakt har, og at kontakten kan ryddes igen.
+
+*Grundlag: driftsfeedback (Leif, august 2026) efter at have udfyldt kunden i hånden
+på et 2-dages event.*

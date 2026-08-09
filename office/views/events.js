@@ -156,6 +156,25 @@ function _evCardHtml(ev) {
         </div>`;
 }
 
+// Kontaktlinjen under event-headeren. Uden kontaktperson er den en opfordring
+// (bons ender ellers som "Ukendt" i køkkenet); med kontaktperson viser den
+// hvem, og tilbyder at udfylde de bons der blev lavet før kontakten fandtes.
+function _evContactLine(ev, missing) {
+    if (!ev.customer_id) {
+        return `<span class="ev-contact-none">👤 Ingen kontaktperson — bons oprettes uden kunde.
+                <button type="button" class="ev-link" data-act="edit-event">Tilføj</button></span>`;
+    }
+    const who = [ev.contact_name, ev.contact_company_name].filter(Boolean).map(_evEsc).join(' · ');
+    const day = ev.day_contact_name || ev.contact_name;
+    const phone = ev.day_contact_phone || ev.contact_phone;
+    const dayTxt = [day, phone].filter(Boolean).map(_evEsc).join(' · ');
+    return `<span class="ev-contact-who">👤 ${who || '(uden navn)'}</span>
+        ${dayTxt ? `<span class="ev-contact-day">📞 På dagen: ${dayTxt}</span>` : ''}
+        ${missing > 0 ? `<button type="button" class="ev-btn ev-btn-small" data-act="apply-contact"
+            title="Udfylder kun bons uden kunde — dem du selv har rettet står urørt">
+            Udfyld på ${missing} bon${missing === 1 ? '' : 'ner'} uden kunde</button>` : ''}`;
+}
+
 // ── RENDER DETALJE ───────────────────────────────────────────────────────
 
 async function _evRenderDetail(id) {
@@ -202,6 +221,7 @@ async function _evRenderDetail(id) {
                     </div>
                 </div>
                 <div class="ev-detail-meta">${period} · ${_evEsc(ev.location_name)}${ev.event_address ? ' · 📍 ' + _evEsc(ev.event_address) : ''}</div>
+                <div class="ev-detail-contact">${_evContactLine(ev, data.bons_missing_contact || 0)}</div>
 
                 <div class="ev-pnl-strip">
                     <div class="ev-pnl-cell"><div class="ev-pnl-val">${_evFmtKr(pnl.revenue_incl)}</div><div class="ev-pnl-lbl">Omsætning (inkl moms)</div></div>
@@ -281,8 +301,12 @@ async function _evRenderDetail(id) {
 
         _evContainer.querySelector('[data-act="back"]')
             .addEventListener('click', () => { _evCurrentId = null; _evRender(); });
-        _evContainer.querySelector('[data-act="edit-event"]')
-            ?.addEventListener('click', () => _evOpenEventModal(ev));
+        // querySelectorAll: "Redigér" findes både i headeren og som "Tilføj"
+        // i kontaktlinjen — begge skal åbne modalen.
+        _evContainer.querySelectorAll('[data-act="edit-event"]').forEach(btn =>
+            btn.addEventListener('click', () => _evOpenEventModal(ev)));
+        _evContainer.querySelector('[data-act="apply-contact"]')
+            ?.addEventListener('click', (e) => _evApplyContact(ev, e.currentTarget));
         _evContainer.querySelector('[data-act="delete-event"]')
             ?.addEventListener('click', () => _evDeleteEvent(ev));
         _evContainer.querySelectorAll('[data-act="gen"]').forEach(btn => {
@@ -1151,6 +1175,19 @@ function _evRecalcForecastTotals() {
     if (g) g.textContent = grand || '';
 }
 
+// Status-pille for en bon. Farve + label kommer fra BON_CONFIG (samme palet som
+// bon-kort, kalender, ugeoversigt) — IKKE fra status_definitions.color i DB, som
+// er en blegere, afvigende palet. Fallback til DB-værdien hvis BonConfig mangler.
+function _evBonStatusPill(b) {
+    const feStatus = (typeof statusToFrontend === 'function') ? statusToFrontend(b.status_code || '') : '';
+    const cfg = (typeof BON_CONFIG !== 'undefined' && BON_CONFIG.statuses) ? BON_CONFIG.statuses[feStatus] : null;
+    const style = cfg
+        ? `background:${cfg.color};color:${cfg.text || '#fff'}`
+        : `background:${b.status_color || '#999'};color:#fff`;
+    const label = cfg ? cfg.label : (b.status_label || b.status_code || '');
+    return `<span class="ev-bon-status" style="${style}">${_evEsc(label)}</span>`;
+}
+
 function _evRoleSection(role, bons) {
     if (!bons || bons.length === 0) {
         return `
@@ -1164,7 +1201,7 @@ function _evRoleSection(role, bons) {
             <td class="ev-bon-num">${_evEsc(b.bon_number)}${b.is_bridge
                 ? ` <span class="ev-bon-bridge" title="Lavet automatisk af forudbestillingerne fra event-ordre. En prep-bon herfra er ALLEREDE SOLGT og indgår typisk i forecast-prep-bonnen — ikke ekstra produktion.">🔗 forudbestilt</span>`
                 : ''}</td>
-            <td><span class="ev-bon-status" style="background:${b.status_color || '#999'}">${_evEsc(b.status_label)}</span></td>
+            <td>${_evBonStatusPill(b)}</td>
             <td>${_evFmtDate(b.delivery_date)}</td>
             <td class="ev-num">${b.total_units || 0}</td>
             <td class="ev-num">${_evFmtKr(b.total_price)}</td>
@@ -1193,6 +1230,10 @@ function _evOpenEventModal(ev) {
     // DAWA-state: pickedAddr = valgt forslag (struktureret + koordinater),
     // addrDirty = brugeren har rørt feltet siden modal-åbning.
     let pickedAddr = null, addrDirty = false;
+    // Kontaktperson: KundeSoeg monteres efter modalen er bygget (nedenfor).
+    let pickedCustomer = (ev && ev.customer_id)
+        ? { customer_id: ev.customer_id, company_id: ev.company_id ?? null }
+        : null;
     _evModal(`
         <h3>${isEdit ? 'Redigér event' : 'Nyt event'}</h3>
         <label>Navn<input type="text" id="evm-name" placeholder="Roskilde 2026" value="${v(ev && ev.name)}" required></label>
@@ -1219,7 +1260,23 @@ function _evOpenEventModal(ev) {
             </span>
             <span class="ev-dawa-hint" id="evm-address-hint">${ev && ev.event_address_id ? '✓ DAWA-valideret adresse med koordinater' : ''}</span>
         </label>
-        <label>Noter<textarea id="evm-notes" rows="3" placeholder="Kontaktperson, særlige aftaler, parkering…">${v(ev && ev.notes)}</textarea></label>
+        <!-- Bevidst IKKE et <label>: KundeSoeg har egne knapper, og en label
+             videresender klik til sin første formularkontrol — det ryddede
+             valget igen i samme klik. -->
+        <div class="ev-modal-field">
+            <span class="ev-modal-label">Kontaktperson (valgfri)</span>
+            <span class="ev-kunde-slot" id="evm-kunde"></span>
+            <span class="ev-field-hint">Arves ned på eventets bons som kunde — så køkkenets kort ikke siger "Ukendt".</span>
+        </div>
+        <div class="ev-field-row">
+            <label>Kontakt på dagen — navn
+                <input type="text" id="evm-dc-name" placeholder="Samme som kontaktperson" value="${v(ev && ev.day_contact_name)}">
+            </label>
+            <label>Kontakt på dagen — telefon
+                <input type="text" id="evm-dc-phone" placeholder="Samme som kontaktperson" value="${v(ev && ev.day_contact_phone)}">
+            </label>
+        </div>
+        <label>Noter<textarea id="evm-notes" rows="3" placeholder="Særlige aftaler, parkering, check-in…">${v(ev && ev.notes)}</textarea></label>
     `, async () => {
         const addrText = document.getElementById('evm-address').value.trim();
         const body = {
@@ -1228,6 +1285,12 @@ function _evOpenEventModal(ev) {
             end_date: document.getElementById('evm-end').value || null,
             event_address: addrText || null,
             notes: document.getElementById('evm-notes').value.trim() || null,
+            // null rydder bevidst — fjerner man kunden i søgefeltet, skal den
+            // også væk fra eventet (fremtidige bons må ikke arve en gammel).
+            customer_id: pickedCustomer ? pickedCustomer.customer_id : null,
+            company_id:  pickedCustomer ? (pickedCustomer.company_id ?? null) : null,
+            day_contact_name:  document.getElementById('evm-dc-name').value.trim() || null,
+            day_contact_phone: document.getElementById('evm-dc-phone').value.trim() || null,
         };
         if (!body.name) throw new Error('Navn er påkrævet');
         if (!body.start_date) throw new Error('Startdato er påkrævet');
@@ -1256,6 +1319,30 @@ function _evOpenEventModal(ev) {
         }
         _evRender();
     });
+
+    // Kontaktperson — samme søgekomponent som bon-draweren, så kunden vælges
+    // (eller oprettes) ét sted og med samme data som en almindelig bon.
+    const kundeSlot = document.getElementById('evm-kunde');
+    if (kundeSlot && typeof KundeSoeg === 'function') {
+        const soeg = new KundeSoeg({
+            container: kundeSlot,
+            onSelect: (data) => {
+                pickedCustomer = data ? { customer_id: data.customer_id, company_id: data.company_id ?? null } : null;
+            },
+        });
+        if (ev && ev.customer_id) {
+            // Vist tilstand kun — select() ville fyre onSelect og dermed
+            // overskrive den kobling vi lige har læst fra eventet.
+            soeg.setSelected({
+                customer_id: ev.customer_id,
+                company_id: ev.company_id ?? null,
+                customer_name: ev.contact_name || '(uden navn)',
+                company_name: ev.contact_company_name || null,
+                phone: ev.contact_phone || '',
+                email: ev.contact_email || '',
+            });
+        }
+    }
 
     // DAWA-autocomplete på adressefeltet — valideret adresse + koordinater
     // allerede ved event-oprettelsen (i stedet for først senere på bonnen).
@@ -1308,6 +1395,25 @@ function _evOpenEventModal(ev) {
     addrInput.addEventListener('blur', () => {
         setTimeout(() => { if (addrResults) addrResults.style.display = 'none'; }, 150);
     });
+}
+
+// Udfyld eventets kontaktperson på de bons der mangler den. Serveren rører
+// kun tomme felter, men vi bekræfter alligevel — det skriver på tværs af bons.
+async function _evApplyContact(ev, btn) {
+    const who = ev.contact_name || 'kontaktpersonen';
+    if (!confirm(`Udfyld ${who} som kunde på eventets bons uden kunde?\n\nBons hvor du selv har sat en kunde eller en kontakt på dagen røres ikke.`)) return;
+    const original = btn.textContent;
+    btn.disabled = true;
+    btn.textContent = 'Udfylder…';
+    try {
+        const res = await _evFetch(`/events/${ev.id}/apply-contact`, { method: 'POST' });
+        _evRender();
+        console.log(`[events] kontaktperson udfyldt på ${res.updated} bons`);
+    } catch (err) {
+        btn.disabled = false;
+        btn.textContent = original;
+        alert('Kunne ikke udfylde kontaktpersonen: ' + (err.message || err));
+    }
 }
 
 // Slet event (med bekræftelse). Afkobler bons og sletter eventet.

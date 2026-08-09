@@ -21,6 +21,7 @@ const {
 } = require('../db/helpers');
 const { broadcast } = require('../shared/sse');
 const { resolveMenuItemLines } = require('../services/menuItemsToLines');
+const { eventContactFields } = require('./events');
 const grocyAdapter = require('../services/grocyAdapter');
 
 // ─── Secret (optionel — som web-orders) ────────────────────────────────────
@@ -244,10 +245,20 @@ async function resolvePrepLines(lines, deps = grocyAdapter) {
     return resolveMenuItemLines({ menuItems, recipesById, priceCategory: 'produktion' });
 }
 
+// Kontaktfelterne joines med, så broens bons arver eventets kontaktperson
+// på præcis samme måde som event-modulets egen generator (migration 139).
+// eventContactFields() ejes af routes/events.js — én regel for fallbacken
+// fra kunde til dagskontakt, ikke to der kan drive fra hinanden.
 function getBridgeEvent(db, id) {
-    return db.prepare(
-        `SELECT id, name, location_id, start_date, end_date, event_address_id FROM events WHERE id = ?`
-    ).get(id);
+    return db.prepare(`
+        SELECT e.id, e.name, e.location_id, e.start_date, e.end_date, e.event_address_id,
+               e.customer_id, e.company_id, e.day_contact_name, e.day_contact_phone,
+               NULLIF(TRIM(COALESCE(c.first_name,'') || ' ' || COALESCE(c.last_name,'')), '') AS contact_name,
+               c.phone AS contact_phone
+        FROM events e
+        LEFT JOIN customers c ON e.customer_id = c.id
+        WHERE e.id = ?
+    `).get(id);
 }
 
 // De tre bons broen laver pr. event-dag (migration 137). Samme format som
@@ -355,12 +366,15 @@ function applyPrepPush(db, { event, date, resolved, userId = null, role = 'prep'
     const statusId = getStatusId(cfg.status);
     const bonNumber = nextBonNumber();
 
+    const contact = eventContactFields(event);
+
     const bonId = transaction(db, () => {
         const r = db.prepare(`
             INSERT INTO bons (
                 bon_number, status_id, location_id, price_category_id, price_category, event_id, event_role,
                 order_date, delivery_date, pickup_time, delivery_time,
                 delivery_type, delivery_address_id, pax, total_units, payment_type,
+                customer_id, company_id, day_contact_name, day_contact_phone,
                 kitchen_info, customer_wishes, internal_notes,
                 created_by_user_id, is_internal,
                 total_price, total_with_delivery,
@@ -370,6 +384,7 @@ function applyPrepPush(db, { event, date, resolved, userId = null, role = 'prep'
                 ?, ?, ?, ?, ?, ?, ?,
                 ?, ?, ?, ?,
                 ?, ?, ?, ?, ?,
+                ?, ?, ?, ?,
                 ?, ?, ?,
                 ?, ?,
                 0, 0,
@@ -380,6 +395,7 @@ function applyPrepPush(db, { event, date, resolved, userId = null, role = 'prep'
             bonNumber, statusId, event.location_id, pc.id, pc.code, event.id, cfg.eventRole,
             todayISO(), date, null, null,
             'event', event.event_address_id ?? null, 0, 0, 'cash',
+            contact.customer_id, contact.company_id, contact.day_contact_name, contact.day_contact_phone,
             cfg.kitchenInfo, null,
             `Oprettet af event-broen (${role}). Bygget af kundernes forudbestillinger for dagen og opdateres ved hver ny ordre.`,
             userId, cfg.internal

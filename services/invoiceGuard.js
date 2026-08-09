@@ -22,13 +22,44 @@
  *   • Tilbud/interne bons: aldrig.
  *   • Skæringsdato (settings.invoice_guard_from_date): historiske bons fra før
  *     e-conomic-rutinen vurderes ikke — ellers ville vagten lyse på alt.
+ *     Mangler den, er tom eller ugyldig, bruges GUARD_DEFAULT_FROM_DATE.
+ *     Sættes den for tidligt, drukner vagten i v1-historik: målt på driftsdata
+ *     (17. juli 2026) giver 2026-06-27 to bons, 2026-01-01 fyrre, og ingen
+ *     grænse 1.099 helt tilbage til 2022. De gamle er betalt for længst — de
+ *     har bare aldrig haft et e-conomic-nummer i Bon v2.
  *   • e-conomic konfigureret: uden tokens findes der ingen kladder at finde.
+ *
+ * SAMME SPØRGSMÅL FRA FAKTURA-SIDEN: notInvoicedSQL() nedenfor. Vagten kigger
+ * på en BON ("nogen trykkede FAKTURERET — findes fakturaen?"); Pengestrøm
+ * kigger på en cf_invoices-RÆKKE ("den her står som forfalden — findes
+ * fakturaen?"). Kernen er den samme, så de bor her sammen og kan ikke divergere.
  * ════════════════════════════════════════════════════════════
  */
 
 const eco = require('./economicAdapter');
 
 const GUARDED_STATUSES = ['FAKTURERET', 'AFSLUTTET'];
+
+// Samme dato som migration 130 seeder: dagen den første e-conomic-kladde blev
+// oprettet fra Bon v2. Bruges som FALDSKÆRM når settingen mangler, er tom eller
+// har et format vi ikke kan tolke.
+//
+// Hvorfor en faldskærm og ikke "ingen grænse": en tom skæringsdato betyder ikke
+// "vurdér alt" — det betyder "ingen har taget stilling". Uden grænse lyser vagten
+// på hele v1-historikken (målt på driftsdata: 1 bon → 2.762, helt tilbage til
+// 2022), og så holder man op med at se den. Det er præcis den død migration 130
+// beskriver. Fravær af konfiguration skal give det sikre svar, ikke det larmende.
+const GUARD_DEFAULT_FROM_DATE = '2026-06-27';
+
+const ISO_DATE_RE = /^\d{4}-\d{2}-\d{2}$/;
+
+/** Er strengen en brugbar ISO-dato (YYYY-MM-DD)? Bruges også af PATCH-valideringen. */
+function isValidGuardDate(val) {
+    if (typeof val !== 'string' || !ISO_DATE_RE.test(val)) return false;
+    const d = new Date(`${val}T00:00:00Z`);
+    // Fanger 2026-02-31 og lignende: Date normaliserer dem til en anden dag.
+    return !Number.isNaN(d.getTime()) && d.toISOString().slice(0, 10) === val; // utc-ok: ren format-validering af en ISO-streng, ikke "i dag"
+}
 
 let _fromDateCache = null;
 let _fromDateCacheUntil = 0;
@@ -41,6 +72,7 @@ function getGuardFromDate(db) {
         const row = db.prepare(`SELECT value FROM settings WHERE key = 'invoice_guard_from_date'`).get();
         val = row?.value || null;
     } catch { val = null; }
+    if (!isValidGuardDate(val)) val = GUARD_DEFAULT_FROM_DATE;
     _fromDateCache = val;
     _fromDateCacheUntil = now + 60_000;
     return val;
@@ -69,7 +101,7 @@ function bonMissingInvoice(db, bonId) {
     if (!eco.isConfigured()) return { missing: false, reason: 'economic_not_configured' };
 
     const from = getGuardFromDate(db);
-    if (from && (!b.delivery_date || b.delivery_date < from)) {
+    if (!b.delivery_date || b.delivery_date < from) {
         return { missing: false, reason: 'before_guard_date' };
     }
 
@@ -88,10 +120,10 @@ function bonMissingInvoice(db, bonId) {
  */
 function missingInvoiceSQL(db, bonAlias = 'b', statusAlias = 'sd') {
     if (!eco.isConfigured()) return '0';
-    const from = getGuardFromDate(db);
-    const dateClause = from
-        ? ` AND ${bonAlias}.delivery_date >= '${String(from).replace(/'/g, "''")}'`
-        : '';
+    // getGuardFromDate() garanterer en gyldig YYYY-MM-DD (falder tilbage på
+    // GUARD_DEFAULT_FROM_DATE) — derfor er der altid et dato-led, og strengen
+    // kan ikke bære citationstegn ind i SQL'en.
+    const dateClause = ` AND ${bonAlias}.delivery_date >= '${getGuardFromDate(db)}'`;
     return `CASE WHEN ${statusAlias}.code IN (${GUARDED_STATUSES.map(s => `'${s}'`).join(', ')})
                   AND ${bonAlias}.payment_type = 'invoice'
                   AND COALESCE(${bonAlias}.is_offer, 0) = 0
@@ -102,10 +134,46 @@ function missingInvoiceSQL(db, bonAlias = 'b', statusAlias = 'sd') {
              THEN 1 ELSE 0 END`;
 }
 
+/**
+ * SQL-betingelse: står denne cf_invoices-række som ubetalt UDEN at der
+ * nogensinde blev lavet en faktura? (#319 forslag 1+2)
+ *
+ * Bruges til at skille to ting der har ligget i samme bunke under "Forfaldne":
+ *   • ægte forfalden  — regningen ER sendt, kunden har bare ikke betalt → ryk
+ *   • ikke faktureret — kunden har aldrig fået en regning → send den
+ * Den anden slags ligner en dårlig betaler. Man rykker for penge man aldrig
+ * har bedt om — eller lader være, fordi tallet drukner blandt de ægte.
+ *
+ * INGEN SKÆRINGSDATO HER, i modsætning til vagten ovenfor. Den er unødvendig:
+ * `betalt = 0` rydder selv historikken væk. Målt på driftsdata (17. juli 2026)
+ * er hver eneste ubetalte-uden-e-conomic-nummer fra 2026 — alle 12 af dem —
+ * mens de 1.012 ældre uden nummer er markeret betalt for længst. En dato ville
+ * kun være endnu en knap der kan stilles forkert.
+ *
+ * Uden bon (manuelt oprettet faktura) kan vi ikke tjekke for en kladde og tager
+ * rækken med: der er intet bevis for at fakturaen findes, og en synlig række
+ * office kan afvise er bedre end en tavs udeladelse.
+ *
+ * Kladde-tjekket er en korreleret subquery frem for et join på en alias, så det
+ * SAMME udtryk kan bruges både i list-queryen (som joiner bons) og i
+ * aggregat-queries (som ikke gør). To formuleringer af én regel er præcis den
+ * divergens det her modul findes for at undgå.
+ */
+function notInvoicedSQL(invAlias = 'i') {
+    return `(${invAlias}.betalt = 0
+             AND ${invAlias}.economic_number IS NULL
+             AND NOT EXISTS (SELECT 1 FROM bons nb
+                              WHERE nb.id = ${invAlias}.bon_id
+                                AND nb.economic_draft_number IS NOT NULL))`;
+}
+
 module.exports = {
     GUARDED_STATUSES,
+    GUARD_DEFAULT_FROM_DATE,
+    isValidGuardDate,
     bonMissingInvoice,
     missingInvoiceSQL,
+    notInvoicedSQL,
     getGuardFromDate,
     invalidateGuardCache,
 };
