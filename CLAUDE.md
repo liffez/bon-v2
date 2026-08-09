@@ -2995,6 +2995,25 @@ Grocys `stock_log` — en fysisk optælling havde imens rettet tallet og dermed 
   køb og lager er samme enhed — der er intet at forveksle. Ellers fejl.
 - `received_qu_id` + `received_quantity_stock` gemmes på linjen, så en fremtidig afvigelse
   kan afgøres uden at gætte. Samme fix i legacy [routes/receiving.js](routes/receiving.js).
+- **Sagt FØR der tastes, ikke efter.** Serverens nægtelse kom først når man havde trykket
+  Godkend — stående med varerne, hvor løsningen lå i et andet system. Klienten tjekker nu
+  omregningen mens varelisten bygges (`_vmUnitIssue`), og siger det to steder: en gul
+  advarsel **uden for** varelisten (den er foldet sammen som default, så "Godkend alt" er
+  den normale vej igennem — en advarsel inde i listen ville ikke blive set) og på selve
+  varekortet.
+- **Og kan rettes på stedet.** Lager-enheden er i praksis altid kilo eller stk (grocy-hq:
+  136 Kilo, 59 Antal, 15 Liter, 1 Flaske ud af 211 aktive), så det manglende svar er ét tal:
+  *"Hvor meget er én Kasse i Kilo?"*. Feltet skriver omregningen til Grocy via det
+  eksisterende `POST /api/grocy/quantity-unit-conversions` — svaret kender den der står med
+  kassen, ikke kontoret. `pack_size_warning` fra routen vises, den betyder at tallet strider
+  mod pakkestørrelsen på stregkoden.
+- Kun **5 produkter** i grocy-hq mangler en omregning i dag (`npm run check:receipt-units`),
+  så advarslen er sjælden — men den rammer netop dem der ellers ville blive skrevet forkert.
+- `_vmFindFactor` **spejler** `findConversionFactor` i quConvert.js. Divergerede de to, ville
+  skærmen sige god for noget serveren bagefter nægter. Enigheden er testet direkte.
+- Kunne omregningerne ikke hentes, advares der **ikke** (`_vmConversionsLoaded`). Tom liste
+  ville ellers markere hver vare med afvigende enhed — 22 falske alarmer ved et Grocy-hik.
+  Serverens nægtelse står stadig som sikkerhedsnet mod en cachet browser.
 
 **#359 — `inventory_deducted` blev sat selvom hvert Grocy-træk fejlede.** `consumeRecipes`
 afviser aldrig (fejl pr. produkt returneres som `success:false`), så `UPDATE ... = 1` kørte

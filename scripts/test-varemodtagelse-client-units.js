@@ -112,5 +112,80 @@ check(/qu_id:\s*item\.qu_id/.test(src),
 check(/grocy_product_id:\s*null/.test(src),
     'manuel vare sendes fortsat uden Grocy-produkt');
 
+// ── Forhåndstjekket (#358): siges det FØR der tastes? ──────────────────────
+//
+// Serverens nægtelse kom først efter Godkend, hvor man står med varerne og
+// løsningen ligger i et andet system. Tjekket her kører mens varelisten bygges.
+
+console.log('\n\x1b[1m#358 — forhåndstjek af enheden\x1b[0m');
+
+const QU = { 4: 'Kilo', 5: 'Gram', 13: 'Kasse', 3: 'Antal' };
+function setupPreflight(conversions, loaded) {
+    Object.assign(sandbox, {
+        _vmQuNames: QU,
+        _vmProductStockQu: { 1: 4, 8: 4, 9: 3, 10: 4, 11: null },
+        _vmConversions: conversions,
+        _vmConversionsLoaded: loaded !== false,
+    });
+}
+const item = (pid, quId) => ({ grocy_product_id: pid, product_name: 'P' + pid, qu_id: quId });
+
+setupPreflight([]);
+const miss = sandbox._vmUnitIssue(item(1, 13));
+check(miss !== null, 'manglende omregning fanges (Kasse → Kilo)');
+check(miss && miss.fromName === 'Kasse' && miss.toName === 'Kilo',
+    `enhederne navngives i spørgsmålet — fik ${miss && miss.fromName} → ${miss && miss.toName}`);
+check(sandbox._vmUnitIssue(item(1, 4)) === null, 'samme enhed som lageret giver ingen advarsel');
+check(sandbox._vmUnitIssue(item(1, null)) === null,
+    'uoplyst enhed er serverens afgørelse, ikke klientens');
+check(sandbox._vmUnitIssue({ grocy_product_id: null, qu_id: 13 }) === null,
+    'manuel vare uden Grocy-produkt advares ikke — den rører aldrig lageret');
+check(sandbox._vmUnitIssue(item(11, 13)) === null,
+    'produkt uden lager-enhed overlades til serveren');
+
+setupPreflight([{ product_id: 1, from_qu_id: 13, to_qu_id: 4, factor: 7.78 }]);
+check(sandbox._vmUnitIssue(item(1, 13)) === null, 'produkt-specifik omregning → ingen advarsel');
+check(sandbox._vmUnitIssue(item(10, 13)) !== null,
+    'omregningen gælder kun sit eget produkt — et andet produkt advares stadig');
+
+setupPreflight([{ product_id: null, from_qu_id: 13, to_qu_id: 4, factor: 6 }]);
+check(sandbox._vmUnitIssue(item(1, 13)) === null, 'global omregning tæller også');
+
+setupPreflight([{ product_id: 1, from_qu_id: 4, to_qu_id: 13, factor: 0.128 }]);
+check(sandbox._vmUnitIssue(item(1, 13)) === null,
+    'omvendt omregning tæller (serveren regner 1/faktor)');
+
+// Falsk alarm er værre end ingen alarm: et Grocy-hik ville ellers markere hver
+// vare med afvigende enhed som ødelagt.
+setupPreflight([], false);
+check(sandbox._vmUnitIssue(item(1, 13)) === null,
+    'kunne omregningerne ikke hentes, advares der ikke');
+
+// ── Klient og server SKAL være enige ───────────────────────────────────────
+//
+// Sagde skærmen god for noget serveren bagefter nægter, var vi tilbage ved den
+// fejl vi retter. De to implementeringer sammenlignes derfor direkte.
+
+console.log('\n\x1b[1mKlientens tjek er enigt med serverens\x1b[0m');
+
+const { findConversionFactor } = require('../services/quConvert');
+const matrix = [
+    { label: 'produkt-specifik forward', conv: [{ product_id: 1, from_qu_id: 13, to_qu_id: 4, factor: 7.78 }] },
+    { label: 'produkt-specifik reverse', conv: [{ product_id: 1, from_qu_id: 4, to_qu_id: 13, factor: 0.128 }] },
+    { label: 'global forward',           conv: [{ product_id: null, from_qu_id: 13, to_qu_id: 4, factor: 6 }] },
+    { label: 'global reverse',           conv: [{ product_id: null, from_qu_id: 4, to_qu_id: 13, factor: 0.16 }] },
+    { label: 'andet produkts omregning', conv: [{ product_id: 99, from_qu_id: 13, to_qu_id: 4, factor: 7.78 }] },
+    { label: 'ingen omregninger',        conv: [] },
+];
+for (const m of matrix) {
+    sandbox._vmConversions = m.conv;
+    sandbox._vmConversionsLoaded = true;
+    const mine   = sandbox._vmFindFactor(1, 13, 4);
+    const theirs = findConversionFactor(m.conv, 1, 13, 4);
+    const same = (mine === null && theirs === null) ||
+                 (mine !== null && theirs !== null && Math.abs(mine - theirs) < 1e-9);
+    check(same, `${m.label}: klient ${mine} = server ${theirs}`);
+}
+
 console.log(`\n${'─'.repeat(50)}\n${pass} PASS · ${fail} FAIL`);
 process.exit(fail === 0 ? 0 : 1);
