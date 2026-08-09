@@ -449,25 +449,12 @@ router.post('/', requireAuth(), handle(async (req, res) => {
         }
     }
 
-    // 6. Fire-and-forget webhook (receiverName er allerede resolveret ovenfor).
-    //
-    // Bevidst IKKE await'et: en modtagelse må ikke blokeres af et eksternt
-    // kald. Men netop derfor kan svaret nedenfor kun ærligt sige om vi
-    // FORSØGER — ikke om det lykkedes. Tidligere stod der `webhook_sent: true`
-    // som en hardkodet literal, også når settingen manglede og der aldrig blev
-    // sendt noget (#363).
+    // 6. Fire-and-forget webhook (receiverName er allerede resolveret ovenfor)
     const userName = receiverName || 'Ukendt';
     const receiptRow = db.prepare(`SELECT * FROM goods_receipts WHERE id = ?`).get(receiptId);
-    const webhookConfigured = webhook.isConfigured();
-    webhook.send(receiptRow, userName)
-        .then(r => {
-            if (r && r.status === 'failed') {
-                console.warn(`[goods-receipts] Whiteboard-webhook fejlede for ${receiptNumber}: ${r.error}`);
-            }
-        })
-        .catch(err => {
-            console.warn('[goods-receipts] Webhook fejl (non-blocking):', err.message);
-        });
+    webhook.send(receiptRow, userName).catch(err => {
+        console.warn('[goods-receipts] Webhook fejl (non-blocking):', err.message);
+    });
 
     // 7. Response. Patch E: re-fetch status så vi returnerer 'partially_approved'
     // når det er sat, ikke hardcoded 'approved'. grocy_failure_count eksponerer
@@ -479,11 +466,8 @@ router.post('/', requireAuth(), handle(async (req, res) => {
         status: finalStatus,
         grocy_results: grocyResults,
         grocy_failure_count: grocyFailures.length,
-        // Begge felter siger nu det samme SANDE: om vi forsøgte at sende.
-        // Om Whiteboard rent faktisk modtog den, afgøres senere og aflæses på
-        // goods_receipts.whiteboard_synced_at (eksponeret i GET-endpointsne).
-        webhook_sent: webhookConfigured,       // @deprecated — bevares for klient-kompatibilitet
-        webhook_dispatched: webhookConfigured  // korrekt navn — forsøgt, ikke bekræftet leveret
+        webhook_sent: true,         // @deprecated — bevares for klient-kompatibilitet
+        webhook_dispatched: true    // korrekt navn — fire-and-forget, ikke bekræftet leveret
     });
 }));
 

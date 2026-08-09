@@ -3199,24 +3199,13 @@ er ikke bekræftet.
   (isoleret temp-DB, spawned server). Regression grøn: event-menu 42, event-bridge-prep 69,
   topup 35, event-cancelled 26, event-gate 15, event-polish 27, prep-packing 12.
   Browser-verificeret end-to-end; testdata ryddet.
-### Tavse bivirkninger: webhook og booking siger nu hvad de ved (#363, #365, 20. juli 2026)
 
-Anden og tredje del af mønstret fra #362: *feltet der registrerer en bivirkning skrives
-på en kodesti der ikke afhænger af om bivirkningen lykkedes.*
+### "✓ Booket" betød kun at et menneske trykkede (#365, 20. juli 2026)
 
-**#363 — `webhook_sent: true` var en hardkodet literal.** Ingen af værdierne var udledt
-af noget. Værst når settingen manglede: `goodsReceiptWebhook.send()` lavede et **tavst
-early return** — ingen log, ingen `webhook_log`-række — mens routen svarede at
-fødevarekontrol-registreringen var nået frem til Whiteboard.
+Tredje del af mønstret fra #362: *feltet der registrerer en bivirkning skrives på en
+kodesti der ikke afhænger af om bivirkningen lykkedes.*
 
-- `send()` returnerer nu `{ status: 'sent' | 'failed' | 'not_configured' | 'test' }`, og
-  det manglende-setting-tilfælde **logger** i stedet for at tie.
-- Ny `isConfigured()`. Kaldet er bevidst stadig fire-and-forget (en modtagelse må ikke
-  blokeres af et eksternt kald), og **derfor** kan svaret kun ærligt sige om vi *forsøgte*.
-  `webhook_sent`/`webhook_dispatched` er nu begge = "forsøgt". Om Whiteboard modtog den,
-  aflæses på `goods_receipts.whiteboard_synced_at` (allerede eksponeret via `SELECT *`).
-
-**#365 — "✓ Booket" betød "et menneske trykkede".** `POST /routes/:id/book` skriver
+`POST /routes/:id/book` skriver
 `booked_at` + `booked_by_user_id` uden at noget har talt med leverandøren; office kalder
 det *efter* popout-vinduet. Gennemgang bekræftede at dette endpoint er det **eneste** sted
 der sætter `booking_status='booked'` på en rute — så etiketten var løgnen, ikke dataen.
@@ -3230,16 +3219,16 @@ der sætter `booking_status='booked'` på en rute — så etiketten var løgnen,
 - `shared/logistik.js` viser "Sendt til bud" i gul frem for "✓ Booket" i grøn, med
   tooltip: *"Leverandøren har ikke bekræftet — ring hvis det er vigtigt."*
 
-**Tests:** `scripts/test-webhook-truth.js` (13 — alle fire udfald + at routens svar følger
-`isConfigured`), `scripts/test-booking-confirmed-by.js` (10 — mod en rigtig server med
-isoleret DB; asserterer mod **databasen**, ikke kun svaret). Begge mutations-testet.
-Route-koblingen for webhooken desuden verificeret ende-til-ende mod dev-serveren:
-`webhook_dispatched: false` når settingen mangler. Regression: delivery spor1-unit 102,
-spor2-unit 25, spor2-routes 24.
+**Tests:** `scripts/test-booking-confirmed-by.js` (10 — mod en rigtig server med isoleret
+DB; asserterer mod **databasen**, ikke kun svaret). Mutations-testet. Regression: delivery
+spor1-unit 102, spor2-unit 25, spor2-routes 24.
 
-**Bevidst ikke løst:** `webhook_log` har stadig ingen læser. Feltet er tilgængeligt via
-`GET /api/goods-receipts`, men der findes ingen visning der viser en modtagelse som
-"ikke nået frem til Whiteboard". Derfor `Refs #363`, ikke `Closes`.
+**Webhook-delen (#363) er flyttet til #414.** Begge ændrede samme funktion i
+`services/goodsReceiptWebhook.js` — hver med sin returværdi, så de udelukkede hinanden.
+#414 er den fyldigere: den løser #363 sammen med #412 og bygger samtidig den
+modtagelseslog og den synlige Whiteboard-status i Settings, som mangler her. Netop
+fraværet af en læser på `webhook_log` var grunden til at denne PR kun kunne skrive
+`Refs #363`, ikke `Closes`.
 
 ## Næste opgave
 
