@@ -39,6 +39,13 @@ var _rvNestings       = [];       // current recipe's nestings
 var _rvContainer      = null;     // root DOM element
 
 // Cached weight unit IDs
+// #361: idempotens-nonce for lagertrækket. Sættes når brugeren bekræfter og
+// NULSTILLES først når trækket er kvitteret. Et mislykket forsøg genbruger
+// dermed samme nonce, så et gentaget klik efter en netværksfejl bliver en
+// opslagning i stedet for et nyt træk — trækket kan nemlig godt være gået
+// igennem hos Grocy selvom svaret aldrig nåede tilbage.
+var _rvConsumeNonce = null;
+
 var _rvGramQuId  = null;
 var _rvKiloQuId  = null;
 var _rvWeightUnitsCached = false;
@@ -822,6 +829,9 @@ async function _rvConsumeRecipe() {
     );
     if (!ok) return;
 
+    // Én nonce pr. handling — genbruges hvis forrige forsøg fejlede (#361).
+    if (!_rvConsumeNonce) _rvConsumeNonce = grocyConsumeNonce();
+
     // Execute via postGrocyConsume
     var btn = document.getElementById('rvConsumeBtn');
     btn.disabled = true;
@@ -842,12 +852,17 @@ async function _rvConsumeRecipe() {
         });
 
         // Use the bon-v2 per-produkt consume endpoint
-        var result = await postGrocyConsumeProducts(consumeLines);
+        var result = await postGrocyConsumeProducts(consumeLines, _rvConsumeNonce);
+
+        // Trækket er kvitteret — næste klik er en NY handling og skal have ny nonce.
+        _rvConsumeNonce = null;
 
         btn.disabled = false;
         btn.textContent = 'Traek fra lager';
 
-        if (result.ok) {
+        if (result.idempotent) {
+            _rvShowConsumeResult('Dette træk var allerede gennemført — lageret er ikke trukket igen.', 'success');
+        } else if (result.ok) {
             _rvShowConsumeResult('Alle ' + result.consumed + ' varer trukket fra lager!', 'success');
         } else {
             // Byg pæn fejlbesked med produktnavne

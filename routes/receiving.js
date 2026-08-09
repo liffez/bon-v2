@@ -20,6 +20,7 @@ const { getDb }  = require('../db/database');
 const { handle, getUserId, logChange } = require('../db/helpers');
 const { broadcast } = require('../shared/sse');
 const grocy = require('../services/grocyAdapter');
+const { resolveToStockAmount } = require('../services/quConvert');
 
 /* ── POST /api/receiving/complete ────────────────────────── */
 
@@ -48,6 +49,26 @@ router.post('/complete', handle(async (req, res) => {
     const tempOk = temperature != null ? temperature <= 5 : true;
 
     // ── 1. GROCY LAGER ──────────────────────────────────────
+    //
+    // #358: samme enheds-forveksling som i goods-receipts.js. Endpointet er legacy
+    // (den nuværende varemodtagelse bruger /api/goods-receipts), men det er stadig
+    // monteret, og et forkert lagertal koster det samme uanset hvilken dør det kom
+    // ind ad. Kan mængden ikke omregnes entydigt, springes lager-opdateringen over.
+    let productMap = new Map();
+    let conversions = [];
+    let quMetaError = null;
+    try {
+        const [grocyProducts, grocyConversions] = await Promise.all([
+            grocy.getProducts(),
+            grocy.getQuantityUnitConversions(),
+        ]);
+        productMap  = new Map(grocyProducts.map(p => [parseInt(p.id), p]));
+        conversions = grocyConversions;
+    } catch (err) {
+        quMetaError = err.message;
+        console.warn('[receiving] Kunne ikke hente Grocy enheds-data:', err.message);
+    }
+
     const grocyResults = [];
     for (const item of items) {
         if (item.status === 'missing') {
@@ -59,14 +80,28 @@ router.post('/complete', handle(async (req, res) => {
             grocyResults.push({ product_id: item.product_id, status: item.status, success: true, skipped: true });
             continue;
         }
+        const conv = quMetaError
+            ? { amount: null, error: `Kunne ikke hente enheds-data fra Grocy (${quMetaError})` }
+            : resolveToStockAmount({
+                  product: productMap.get(parseInt(item.product_id)),
+                  amount: qty,
+                  quId: item.qu_id,
+                  conversions,
+              });
+        if (conv.error) {
+            grocyResults.push({ product_id: item.product_id, amount: qty, status: item.status, success: false, error: conv.error });
+            console.warn(`[receiving] produkt ${item.product_id}: ${conv.error}`);
+            continue;
+        }
+
         try {
             await grocy.addToStock(
                 item.product_id,
-                qty,
+                conv.amount,   // #358: lager-enhed
                 item.best_before_date || null,
                 null // location_id
             );
-            grocyResults.push({ product_id: item.product_id, amount: qty, status: item.status, success: true });
+            grocyResults.push({ product_id: item.product_id, amount: conv.amount, status: item.status, success: true });
         } catch (err) {
             grocyResults.push({ product_id: item.product_id, amount: qty, status: item.status, success: false, error: err.message });
         }

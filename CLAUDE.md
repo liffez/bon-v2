@@ -2977,6 +2977,81 @@ led selv har et niveau under sig — det er dér undertællingen sad. Mutations-
 uden `stack.delete` falder både råvare- og consume-tallet fra 2 til 1; uden cyklusværnet
 giver testen "Maximum call stack size exceeded".
 
+### Hærdning af consume-/varemodtagelses-stien (#358 + #359 + #361, 6. august 2026)
+> Migration 141. Tre fejl der delte rod — enheds-forveksling og manglende idempotens —
+> og som først blev til aktiv skade da auto-deduct blev tændt i drift 17. juli (#305).
+
+**#358 — varemodtagelsen skrev indkøbs-enhed som lager-enhed.** Tallet kommer fra
+indkøbslisten i INDKØBS-enhed ("994 Kasse"), men `addToStock` sendte det uden enhed, og
+Grocy læser altid lager-enhed. **69 af 215 produkter** i grocy-hq har forskellig købs- og
+lager-enhed. Sket to gange i drift (spidskål fordoblet, rødkål for lavt) og først fundet i
+Grocys `stock_log` — en fysisk optælling havde imens rettet tallet og dermed skjult årsagen.
+- Klienten sender nu `qu_id` (den kendte den allerede fra indkøbsliste-rækken);
+  serveren omregner via ny **`resolveToStockAmount()`** i [services/quConvert.js](services/quConvert.js).
+- **Nægter at gætte:** manglende omregning → `grocy_error` på linjen + receipt
+  `partially_approved`. Lageret røres ikke. Fødevarekontrollen (temperaturer, FVST, foto)
+  gemmes uanset — den er lovpligtig og må ikke afhænge af Grocys tilstand.
+- Sender klienten slet ingen `qu_id` (cachet browser), accepteres det KUN på produkter hvor
+  køb og lager er samme enhed — der er intet at forveksle. Ellers fejl.
+- `received_qu_id` + `received_quantity_stock` gemmes på linjen, så en fremtidig afvigelse
+  kan afgøres uden at gætte. Samme fix i legacy [routes/receiving.js](routes/receiving.js).
+- **Sagt FØR der tastes, ikke efter.** Serverens nægtelse kom først når man havde trykket
+  Godkend — stående med varerne, hvor løsningen lå i et andet system. Klienten tjekker nu
+  omregningen mens varelisten bygges (`_vmUnitIssue`), og siger det to steder: en gul
+  advarsel **uden for** varelisten (den er foldet sammen som default, så "Godkend alt" er
+  den normale vej igennem — en advarsel inde i listen ville ikke blive set) og på selve
+  varekortet.
+- **Og kan rettes på stedet.** Lager-enheden er i praksis altid kilo eller stk (grocy-hq:
+  136 Kilo, 59 Antal, 15 Liter, 1 Flaske ud af 211 aktive), så det manglende svar er ét tal:
+  *"Hvor meget er én Kasse i Kilo?"*. Feltet skriver omregningen til Grocy via det
+  eksisterende `POST /api/grocy/quantity-unit-conversions` — svaret kender den der står med
+  kassen, ikke kontoret. `pack_size_warning` fra routen vises, den betyder at tallet strider
+  mod pakkestørrelsen på stregkoden.
+- Kun **5 produkter** i grocy-hq mangler en omregning i dag (`npm run check:receipt-units`),
+  så advarslen er sjælden — men den rammer netop dem der ellers ville blive skrevet forkert.
+- `_vmFindFactor` **spejler** `findConversionFactor` i quConvert.js. Divergerede de to, ville
+  skærmen sige god for noget serveren bagefter nægter. Enigheden er testet direkte.
+- Kunne omregningerne ikke hentes, advares der **ikke** (`_vmConversionsLoaded`). Tom liste
+  ville ellers markere hver vare med afvigende enhed — 22 falske alarmer ved et Grocy-hik.
+  Serverens nægtelse står stadig som sikkerhedsnet mod en cachet browser.
+
+**#359 — `inventory_deducted` blev sat selvom hvert Grocy-træk fejlede.** `consumeRecipes`
+afviser aldrig (fejl pr. produkt returneres som `success:false`), så `UPDATE ... = 1` kørte
+ubetinget. En bon hvor alt fik 500 stod som "lager trukket" — og **vagthunden fra #305 leder
+efter bons UDEN flaget**, så den var blind for præcis den tilstand den blev bygget til at fange.
+- Flaget er en **idempotens-vagt, ikke en kvittering**: det sættes kun når en gentagelse ville
+  gøre skade. Ny `bons.inventory_deduct_status`: `ok` / `partial` (flag sat — ellers dobbelt-
+  trækkes dem der lykkedes) / `failed` (flag bliver 0, sikkert at gentage) / `empty` /
+  `event_prep_owns_stock`.
+- [scripts/check-inventory-deduct.js](scripts/check-inventory-deduct.js) fik `findPartial()` —
+  delvise træk har flaget sat og var helt usynlige. Både log og alarm-mail dækker nu begge.
+- [office/views/events.js](office/views/events.js) viste `✓ lager trukket` ud fra flaget alene
+  og bekræftede dermed løgnen for et menneske. Nu egne labels for delvis/fejlet.
+
+**#361 — consume-endpoints havde ingen idempotens.** To klik, dobbelt-submit eller
+netværks-retry = dobbelt træk, og trækket var usynligt bagefter, så det først dukkede op ved
+næste optælling som en uforklarlig difference.
+- Ny `grocy_consume_log` (nonce UNIQUE) — samme mønster som produktionsbatchens `batch_nonce`.
+  Rækken indsættes **før** trækket og virker dermed også som lock: to samtidige klik kappes om
+  constrainten, taberen får vinderens svar. Igangværende træk → 409, ikke et opdigtet resultat.
+- `consume_nonce` er **påkrævet** på begge endpoints. En cachet klient får en fejlbesked der
+  beder om genindlæsning — det er bedre end et tavst dobbelttræk.
+- [shared/recipe_viewer.js](shared/recipe_viewer.js) holder nonce'en indtil trækket er
+  kvitteret, så et gentaget klik efter en netværksfejl bliver en opslagning. Trækket kan
+  nemlig godt være gået igennem hos Grocy selvom svaret aldrig nåede tilbage.
+
+**Deploy-forudsætning:** `npm run check:receipt-units` (read-only) lister produkter med
+forskellig købs- og lager-enhed UDEN omregning i Grocy — dem nægter varemodtagelsen nu.
+På grocytest: 5 af 64 (2 på indkøbslisten). Ordn dem i Grocy før første modtagelse.
+
+**Tests:** `npm run test:consume-hardening` (40 + 9 asserts — stubbet Grocy, så "hvert kald
+fejler" og "kun ét fejler" kan fremprovokeres; vm-sandkasse for klientens payload).
+T_VAREMODTAGELSE_FULL udvidet med UNIT-gruppen der modtager i købs-enhed mod ægte grocytest
+og måler at lageret flyttede sig med qty × faktor (**79 PASS**, op fra 76). Alle fire
+kerne-rettelser er **mutations-testet**. Regression grøn: VAREMOD_PATCH 26, T_STOCK 31,
+T_GROCY 14/2skip, T_RECIPES 20, deduct-check 10, prep-packing 12, packing-units 18,
+subrecipe-status 16, resolver-graph 8, recipe-viewer-nested 12, moms-audit 18.
+
 ### Rettens beskrivelse vises bag ⓘ (6. august 2026)
 
 Kost-tags og allergener nåede frem til event-order-3's bestillingsside (broen, `#394`),
