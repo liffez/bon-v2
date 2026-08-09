@@ -1655,9 +1655,15 @@ function _vmShowSuccess(result) {
     // Whiteboard-koblingen: sig det ligeud n\u00e5r registreringen kun findes her.
     // Tidligere svarede API'et altid "webhook_sent: true" \u2014 ogs\u00e5 n\u00e5r intet
     // blev sendt \u2014 og s\u00e5 var der ingen der opdagede at FVST-loggen stod tom.
+    //
+    // Ordlyden siger AFSENDT, ikke modtaget: kaldet er fire-and-forget (en
+    // modtagelse m\u00e5 ikke blokeres af et eksternt kald), s\u00e5 p\u00e5 det her tidspunkt
+    // ved vi kun at vi fors\u00f8gte. Om Whiteboard tog imod, st\u00e5r i Modtagelseslogen
+    // bagefter \u2014 den l\u00e6ser whiteboard_synced_at, som kun s\u00e6ttes ved 2xx.
+    // At skrive "Sendt" her ville v\u00e6re samme slags p\u00e5stand som #363 selv.
     var wb = result.whiteboard || {};
     if (wb.configured) {
-        details.push('\ud83d\udd17 Sendt til Whiteboards FVST-log');
+        details.push('\ud83d\udd17 Sendt afsted til Whiteboards FVST-log \u2014 se status i \ud83d\uddc2 Modtagelseslog');
     } else {
         details.push('\u2139\ufe0f Gemt i Bon v2 \u2014 se den under \ud83d\uddc2 Modtagelseslog');
     }
