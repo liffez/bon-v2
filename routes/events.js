@@ -67,7 +67,7 @@ function getEventBons(eventId) {
         SELECT b.id, b.bon_number, b.delivery_date, b.pickup_time, b.delivery_time,
                b.pax, b.total_units, b.total_price, b.payment_type,
                b.created_at, b.kitchen_info, b.customer_wishes, b.internal_notes,
-               b.inventory_deducted, b.event_role,
+               b.inventory_deducted, b.inventory_deduct_status, b.event_role,
                sd.code  AS status_code,
                sd.label AS status_label,
                sd.color AS status_color,

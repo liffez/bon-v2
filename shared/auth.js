@@ -1,8 +1,16 @@
 // Bruges som: router.get('/beskyttet', requireAuth(), handler)
 // Eller:      router.get('/admin', requireAuth('admin'), handler)
 // Eller:      router.get('/mixed', requireAuth('office', 'kitchen'), handler)
+// Eller:      router.get('/crm-ting', requireModule('crm'), handler)
+//
+// Rolle-gate vs. modul-gate: requireAuth('admin') låser en flade til rollen
+// admin for altid. requireModule('crm') spørger i stedet rettighedsmatricen
+// (Settings → Roller), så adgangen kan ændres uden en udrulning. Brug modul-
+// gaten til alt der har et modul i matricen — rolle-gaten er til ægte system-
+// flader (mail-skabeloner, IMAP-status, poll) der ikke har et.
 
 const { getDb } = require('../db/database');
+const { getUserById } = require('../db/helpers');
 
 // Cache: { data: {...}, fetchedAt: timestamp }
 let _permCache = null;
@@ -58,9 +66,31 @@ function requireAuth(...roles) {
   };
 }
 
+/**
+ * Gate på et modul i rettighedsmatricen i stedet for på en rolle.
+ * admin slipper altid igennem (samme regel som requireAuth).
+ * Per-bruger-overrides i users.modules_json vinder over rolle-defaulten —
+ * derfor slås brugeren op pr. request; rolle-defaults er cachet 60s i userCan.
+ */
+function requireModule(module) {
+  return (req, res, next) => {
+    if (!req.session?.userId) {
+      return res.status(401).json({ error: 'Ikke logget ind' });
+    }
+    if (req.session.userRole === 'admin') return next();
+    const user = getUserById(req.session.userId);
+    // Deaktiveret eller slettet bruger med levende session → behandl som udlogget.
+    if (!user) return res.status(401).json({ error: 'Ikke logget ind' });
+    if (!userCan(user, module)) {
+      return res.status(403).json({ error: 'Ingen adgang', module });
+    }
+    next();
+  };
+}
+
 // Ryd cache manuelt — kaldes fra settings-route efter opdatering
 function invalidatePermCache() {
     _permCache = null;
 }
 
-module.exports = { requireAuth, userCan, invalidatePermCache };
+module.exports = { requireAuth, requireModule, userCan, invalidatePermCache };

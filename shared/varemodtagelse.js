@@ -52,6 +52,8 @@ var _vmShoppingList = [];    // raw Grocy shopping list
 var _vmProductNames = {};    // grocy product_id → name
 var _vmProductStockQu = {};  // grocy product_id → qu_id_stock
 var _vmQuNames = {};         // grocy qu_id → name
+var _vmConversions = [];     // grocy quantity_unit_conversions — til forhåndstjek (#358)
+var _vmConversionsLoaded = false;  // nåede de frem? Uden dem advarer vi ikke — se _vmUnitIssue
 var _vmDom = {};             // cached DOM refs
 
 /* ── Entry point ─────────────────────────────────────────── */
@@ -90,6 +92,10 @@ async function initVaremodtagelse(el) {
             fetchGrocyProducts(),
             fetchGrocyQuantityUnits(),
             fetch('/api/smartplan/employees').then(function(r) { return r.ok ? r.json() : []; }).catch(function() { return []; }),
+            // Enhedsomregninger til forhåndstjekket (#358). Fejler kaldet, mister vi
+            // kun ADVARSLEN — serveren nægter stadig at gætte. Derfor .catch og ikke
+            // en fejl der forhindrer en modtagelse i at blive registreret.
+            fetchGrocyQuantityUnitConversions().catch(function() { return null; }),
         ]);
 
         var localStaff = results[0] || [];
@@ -99,6 +105,11 @@ async function initVaremodtagelse(el) {
         var qus = results[4] || [];
         var spRaw = results[5];
         var spEmployees = Array.isArray(spRaw) ? spRaw : (spRaw && spRaw.employees ? spRaw.employees : []);
+        // null = kaldet fejlede. Tom liste ville ellers se ud som "ingen
+        // omregninger findes" og udløse en advarsel på HVER vare med afvigende
+        // enhed — 22 falske alarmer ved et Grocy-hik.
+        _vmConversionsLoaded = Array.isArray(results[6]);
+        _vmConversions = _vmConversionsLoaded ? results[6] : [];
 
         // Merge: lokale staff + Smartplan (filtrér duplikater på navn)
         var localNames = {};
@@ -485,6 +496,79 @@ function _vmOnSupplierChange(key) {
     _vmUpdateBtn();
 }
 
+/* ── Enheds-forhåndstjek (#358) ──────────────────────────────
+ *
+ * Tallet på skærmen står i INDKØBS-enhed ("4 Kasse"); Grocy fører lageret i
+ * lager-enhed (kilo eller stk). Findes omregningen ikke, nægter serveren at
+ * gætte — men det opdagede man først EFTER at have trykket Godkend, stående
+ * med varerne i hånden, og løsningen lå et andet sted i et andet system.
+ *
+ * Derfor tjekkes det her, mens varelisten bygges: før der er tastet noget,
+ * og hvor den der kender svaret står. Serverens nægtelse bliver stående som
+ * sikkerhedsnet — en cachet browser eller et direkte API-kald går uden om det
+ * her tjek. */
+
+/**
+ * Spejler findConversionFactor i services/quConvert.js — samme rækkefølge,
+ * samme sammenligning. Divergerer de to, ville skærmen sige god for noget
+ * serveren bagefter nægter, og vi var tilbage ved fejlen vi retter.
+ */
+function _vmFindFactor(productId, fromQuId, toQuId) {
+    if (fromQuId === toQuId) return 1;
+    var c = _vmConversions;
+
+    for (var i = 0; i < c.length; i++) {
+        if (c[i].product_id === productId && c[i].from_qu_id === fromQuId && c[i].to_qu_id === toQuId) {
+            return parseFloat(c[i].factor) || 1;
+        }
+    }
+    for (var j = 0; j < c.length; j++) {
+        if (c[j].product_id === productId && c[j].from_qu_id === toQuId && c[j].to_qu_id === fromQuId) {
+            return 1 / (parseFloat(c[j].factor) || 1);
+        }
+    }
+    for (var k = 0; k < c.length; k++) {
+        if (!c[k].product_id && c[k].from_qu_id === fromQuId && c[k].to_qu_id === toQuId) {
+            return parseFloat(c[k].factor) || 1;
+        }
+    }
+    for (var m = 0; m < c.length; m++) {
+        if (!c[m].product_id && c[m].from_qu_id === toQuId && c[m].to_qu_id === fromQuId) {
+            return 1 / (parseFloat(c[m].factor) || 1);
+        }
+    }
+    return null;
+}
+
+/**
+ * Mangler varen en omregning til sin lager-enhed?
+ * @returns {null|{from:number, to:number, fromName:string, toName:string}}
+ */
+function _vmUnitIssue(item) {
+    if (!_vmConversionsLoaded) return null;             // kunne ikke tjekke — så påstår vi intet
+    if (!item || !item.grocy_product_id) return null;   // manuel vare — rører aldrig lageret
+    var pid  = parseInt(item.grocy_product_id);
+    var from = item.qu_id != null && item.qu_id !== '' ? parseInt(item.qu_id) : null;
+    var to   = _vmProductStockQu[item.grocy_product_id] != null
+        ? parseInt(_vmProductStockQu[item.grocy_product_id]) : null;
+
+    if (!to) return null;            // ingen lager-enhed i Grocy — serveren melder den
+    if (from === null) return null;  // ingen enhed oplyst — serveren afgør (og accepterer kun når den ikke KAN være tvetydig)
+    if (from === to) return null;    // samme enhed, intet at omregne
+    if (_vmFindFactor(pid, from, to) !== null) return null;
+
+    return {
+        from: from,
+        to: to,
+        fromName: _vmQuNames[from] || ('enhed ' + from),
+        toName: _vmQuNames[to] || ('enhed ' + to),
+    };
+}
+
+function _vmUnitIssueItems() {
+    return _vmState.items.filter(function(it) { return _vmUnitIssue(it) !== null; });
+}
+
 function _vmBuildItemsFromShoppingList(supplierKey) {
     // Filter shopping list for this supplier
     var matching = _vmShoppingList.filter(function(sl) {
@@ -503,7 +587,12 @@ function _vmBuildItemsFromShoppingList(supplierKey) {
                 product_name: _vmProductNames[pid] || sl.product_name || 'Produkt #' + pid,
                 expected: 0,
                 received: 0,
+                // Enhedens NAVN til visning — og dens ID til serverens omregning (#358).
+                // Tallet fra indkøbslisten står i INDKØBS-enhed; uden qu_id kan
+                // serveren ikke vide det, og Grocy læser tallet som lager-enhed.
+                // Det gjorde "10 Antal spidskål" til 10 kg i drift.
                 unit: _vmQuNames[sl.qu_id] || _vmQuNames[_vmProductStockQu[pid]] || '',
+                qu_id: sl.qu_id != null ? sl.qu_id : (_vmProductStockQu[pid] || null),
                 status: 'ok',
                 notes: '',
                 slIds: [],
@@ -957,6 +1046,13 @@ function _vmRenderLagerContent() {
 
     el.appendChild(banner);
 
+    // Enheds-advarsel (#358). Ligger UDEN FOR varelisten med vilje: listen er
+    // foldet sammen som default, og "Godkend alt" er den normale vej igennem.
+    // En advarsel inde i listen ville derfor ikke blive set af dem der bruger
+    // skærmen som den er tænkt.
+    var issues = _vmUnitIssueItems();
+    if (issues.length > 0) el.appendChild(_vmBuildUnitWarnBanner(issues));
+
     // Item list (collapsed)
     var list = document.createElement('div');
     list.className = 'vm-item-list';
@@ -991,6 +1087,140 @@ function _vmRenderLagerContent() {
     el.appendChild(list);
 }
 
+/* ── Enheds-advarsel + ret-på-stedet (#358) ──────────────── */
+
+function _vmBuildUnitWarnBanner(issues) {
+    var box = document.createElement('div');
+    box.className = 'vm-unit-warn-banner';
+
+    var names = issues.map(function(it) {
+        var u = _vmUnitIssue(it);
+        return _vmEsc(it.product_name) + ' (' + _vmEsc(u.fromName) + ' → ' + _vmEsc(u.toName) + ')';
+    }).join(', ');
+
+    box.innerHTML =
+        '<div class="vm-unit-warn-title">⚠ ' + issues.length +
+        (issues.length === 1 ? ' vare kan ikke lægges på lager' : ' varer kan ikke lægges på lager') + '</div>' +
+        '<div class="vm-unit-warn-body">Grocy ved ikke hvor meget der er i én af enhederne: ' + names +
+        '. Fødevarekontrollen gemmes uanset — men lageret bliver ikke opdateret for dem.</div>';
+
+    var btn = document.createElement('button');
+    btn.className = 'vm-unit-warn-btn';
+    btn.type = 'button';
+    btn.textContent = 'Ret nu';
+    btn.addEventListener('click', function() {
+        if (!_vmState.itemListOpen) _vmToggleItemList();
+        var first = _vmDom.itemList && _vmDom.itemList.querySelector('.vm-unit-fix');
+        if (first && first.scrollIntoView) first.scrollIntoView({ behavior: 'smooth', block: 'center' });
+        var inp = first && first.querySelector('.vm-unit-fix-input');
+        if (inp) inp.focus();
+    });
+    box.appendChild(btn);
+
+    return box;
+}
+
+/**
+ * Feltet der lukker hullet: ét tal, stillet som spørgsmålet det er.
+ * Svaret kender den der står med kassen — ikke kontoret, og ikke serveren.
+ */
+function _vmBuildUnitFix(index, issue) {
+    var item = _vmState.items[index];
+
+    var box = document.createElement('div');
+    box.className = 'vm-unit-fix';
+    box.innerHTML =
+        '<div class="vm-unit-fix-title">⚠ Lægges ikke på lager</div>' +
+        '<div class="vm-unit-fix-body">Hvor meget er én ' + _vmEsc(issue.fromName) +
+        ' i ' + _vmEsc(issue.toName) + '?</div>';
+
+    var row = document.createElement('div');
+    row.className = 'vm-unit-fix-row';
+
+    var lead = document.createElement('span');
+    lead.className = 'vm-unit-fix-lead';
+    lead.textContent = '1 ' + issue.fromName + ' =';
+
+    var input = document.createElement('input');
+    input.className = 'vm-unit-fix-input';
+    input.type = 'number';
+    input.min = '0';
+    input.step = 'any';
+    input.placeholder = '0';
+
+    var tail = document.createElement('span');
+    tail.className = 'vm-unit-fix-tail';
+    tail.textContent = issue.toName;
+
+    var saveBtn = document.createElement('button');
+    saveBtn.className = 'vm-unit-fix-save';
+    saveBtn.type = 'button';
+    saveBtn.textContent = 'Gem';
+
+    var msg = document.createElement('div');
+    msg.className = 'vm-unit-fix-msg';
+
+    saveBtn.addEventListener('click', function() {
+        var factor = parseFloat(input.value);
+        if (!(factor > 0)) {
+            msg.className = 'vm-unit-fix-msg vm-err';
+            msg.textContent = 'Skriv et tal større end 0.';
+            return;
+        }
+
+        saveBtn.disabled = true;
+        saveBtn.textContent = 'Gemmer…';
+        msg.className = 'vm-unit-fix-msg';
+        msg.textContent = '';
+
+        postGrocyQuConversion({
+            product_id: parseInt(item.grocy_product_id),
+            from_qu_id: issue.from,
+            to_qu_id: issue.to,
+            factor: factor,
+        }).then(function(res) {
+            // Læg den lokalt ind i samme form som Grocy leverer, så
+            // forhåndstjekket er enigt med sig selv uden en ny rundtur.
+            _vmConversions.push({
+                product_id: parseInt(item.grocy_product_id),
+                from_qu_id: issue.from,
+                to_qu_id: issue.to,
+                factor: factor,
+            });
+
+            // packSizeGuard kan advare uden at blokere writet (routes/grocy.js).
+            // Den advarsel skal ses — den betyder at tallet strider mod
+            // pakkestørrelsen på produktets stregkode.
+            if (res && res.pack_size_warning) {
+                var w = res.pack_size_warning;
+                alert('Gemt — men bemærk: ' + (w.message || JSON.stringify(w)));
+            }
+
+            _vmRenderLagerContent();
+            if (_vmState.itemListOpen && _vmDom.itemList) _vmDom.itemList.classList.add('vm-open');
+            _vmUpdateSummary();
+        }).catch(function(err) {
+            saveBtn.disabled = false;
+            saveBtn.textContent = 'Gem';
+            msg.className = 'vm-unit-fix-msg vm-err';
+            msg.textContent = 'Kunne ikke gemme: ' + (err && err.message ? err.message : 'ukendt fejl');
+        });
+    });
+
+    input.addEventListener('keydown', function(e) {
+        if (e.key === 'Enter') { e.preventDefault(); saveBtn.click(); }
+    });
+
+    row.appendChild(lead);
+    row.appendChild(input);
+    row.appendChild(tail);
+    row.appendChild(saveBtn);
+    box.appendChild(row);
+    box.appendChild(msg);
+
+    return box;
+}
+
 function _vmBuildItemCard(index) {
     var item = _vmState.items[index];
     var card = document.createElement('div');
@@ -999,6 +1229,14 @@ function _vmBuildItemCard(index) {
 
     card.innerHTML = '<div class="vm-item-name">' + _vmEsc(item.product_name) + '</div>' +
         '<div class="vm-item-expected">Forventet: ' + item.expected + ' ' + _vmEsc(item.unit) + '</div>';
+
+    // #358: mangler omregningen til lager-enhed, så siges det HER — øverst på
+    // kortet, før mængden tastes — med feltet der lukker hullet.
+    var unitIssue = _vmUnitIssue(item);
+    if (unitIssue) {
+        card.classList.add('vm-unit-issue');
+        card.appendChild(_vmBuildUnitFix(index, unitIssue));
+    }
 
     // Qty row
     var qtyRow = document.createElement('div');
@@ -1096,7 +1334,10 @@ function _vmBuildItemCard(index) {
         btn.addEventListener('click', (function(idx, key, cardEl, btnsEl) {
             return function() {
                 _vmState.items[idx].status = key;
-                cardEl.className = 'vm-item-card vm-s-' + key;
+                // Bevar enheds-markeringen: den handler om produktets opsætning
+                // i Grocy, ikke om hvordan leverancen så ud (#358).
+                cardEl.className = 'vm-item-card vm-s-' + key +
+                    (cardEl.querySelector('.vm-unit-fix') ? ' vm-unit-issue' : '');
                 btnsEl.querySelectorAll('.vm-status-btn').forEach(function(b) {
                     b.className = 'vm-status-btn';
                 });
@@ -1160,6 +1401,16 @@ function _vmUpdateSummary() {
     if (counts.missing) html += '<div class="vm-summary-line vm-warn-line">\u26a0 ' + counts.missing + ' mangler</div>';
     if (counts.wrong) html += '<div class="vm-summary-line vm-warn-line">\u2194 ' + counts.wrong + ' forkert</div>';
     if (counts.damaged) html += '<div class="vm-summary-line vm-err-line">\u2715 ' + counts.damaged + ' skadet</div>';
+
+    // #358: "N varer OK \u2192 lager" ville ellers t\u00e6lle varer med der aldrig n\u00e5r frem
+    // til lageret, fordi omregningen mangler. Opsummeringen skal ikke love mere
+    // end der sker.
+    var unitIssues = _vmUnitIssueItems().length;
+    if (unitIssues) {
+        html += '<div class="vm-summary-line vm-warn-line">\u26a0 ' + unitIssues +
+            (unitIssues === 1 ? ' vare mangler enhed' : ' varer mangler enhed') +
+            ' \u2014 lager ikke opdateret</div>';
+    }
 
     lines.innerHTML = html;
 }
@@ -1302,6 +1553,7 @@ async function _vmSubmit() {
                 expected_quantity: item.expected,
                 received_quantity: item.received,
                 unit: item.unit,
+                qu_id: item.qu_id != null ? item.qu_id : null,   // #358 — enheden tallet står i
                 status: item.status,
                 notes: item.notes || null,
                 shopping_list_id: item.slIds && item.slIds.length > 0 ? item.slIds[0] : null,

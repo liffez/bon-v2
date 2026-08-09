@@ -2,7 +2,7 @@ const express = require('express');
 const router = express.Router();
 const { getDb } = require('../db/database');
 const { handle, getUserId, transaction } = require('../db/helpers');
-const { requireAuth } = require('../shared/auth');
+const { requireAuth, requireModule } = require('../shared/auth');
 const { sendFromTemplate, sendMail, refetchUnmatchedMail } = require('../services/mailService');
 const { broadcast } = require('../shared/sse');
 const { createPrivateLead } = require('../services/leadCreate');
@@ -622,7 +622,7 @@ function lookupCustomerByEmail(db, email) {
     return c || null;
 }
 
-router.get('/unmatched', requireAuth('admin'), handle(async (req, res) => {
+router.get('/unmatched', requireModule('crm'), handle(async (req, res) => {
     const status = req.query.status || 'open';
     const db = getDb();
     const where = ['status = ?'];
@@ -676,7 +676,7 @@ router.get('/unmatched', requireAuth('admin'), handle(async (req, res) => {
 // indgående mail kan "forsvinde" ind i en entitets-visning uden også at være
 // synligt ét centralt sted. Hvert item har `kind` ('unmatched'|'thread') og en
 // unik `key` (kollision mellem mail_unmatched.id og mail_messages.id undgås).
-router.get('/inbox', requireAuth('admin'), handle((req, res) => {
+router.get('/inbox', requireModule('crm'), handle((req, res) => {
     const db = getDb();
     const mailbox = req.query.mailbox;      // 'bon' | 'kontakt' | undefined
     const fromDate = req.query.from_date;
@@ -775,7 +775,7 @@ router.patch('/message/:id/read', requireAuth(), handle((req, res) => {
     res.json({ ok: true });
 }));
 
-router.patch('/unmatched/:id', requireAuth('admin'), handle(async (req, res) => {
+router.patch('/unmatched/:id', requireModule('crm'), handle(async (req, res) => {
     const id = parseInt(req.params.id);
     const { status, linked_customer_id, linked_bon_id } = req.body;
     const db = getDb();
@@ -791,17 +791,8 @@ router.patch('/unmatched/:id', requireAuth('admin'), handle(async (req, res) => 
             VALUES (?, ?, ?, 'aaben')
         `).run(um.subject || '', linked_bon_id || null, linked_customer_id || null).lastInsertRowid;
 
-        const newMsgId = db.prepare(`
-            INSERT INTO mail_messages (thread_id, message_id, direction, from_email, from_name, to_email, subject, body_text, body_html, is_read, imap_uid, mailbox, received_at)
-            VALUES (?, ?, 'in', ?, ?, ?, ?, ?, ?, 0, ?, ?, ?)
-        `).run(threadId, um.message_id, um.from_email, um.from_name, um.to_email || um.mailbox, um.subject, um.body_text, um.body_html, um.imap_uid, um.mailbox, um.received_at).lastInsertRowid;
-
-        // Flyt evt. vedhæftninger (inkl. inline CID-billeder) med over til beskeden
-        // så de fortsat vises i tråd-visningen.
-        const moved = db.prepare(`UPDATE mail_attachments SET message_id = ?, unmatched_id = NULL WHERE unmatched_id = ?`).run(Number(newMsgId), id);
-        if (moved.changes > 0) {
-            db.prepare(`UPDATE mail_messages SET has_attachments = 1 WHERE id = ?`).run(Number(newMsgId));
-        }
+        // Indsættes ulæst → tråden er nyt, uhåndteret arbejde i indbakken.
+        insertMessageFromUnmatched(db, um, Number(threadId), { isRead: 0 });
 
         db.prepare(`
             UPDATE mail_unmatched SET status = 'linked', linked_customer_id = ?, linked_bon_id = ?, handled_by_user_id = ?, handled_at = CURRENT_TIMESTAMP
@@ -845,7 +836,7 @@ router.post('/unmatched/:id/dismiss', requireAuth(), handle((req, res) => {
 
 // POST /api/mail/unmatched/:id/refetch — hent mailen igen fra serveren for at
 // få body_html + inline-billeder (mails gemt før migration 099 mangler dem).
-router.post('/unmatched/:id/refetch', requireAuth('admin'), handle(async (req, res) => {
+router.post('/unmatched/:id/refetch', requireModule('crm'), handle(async (req, res) => {
     const id = parseInt(req.params.id);
     if (!id) return res.status(400).json({ error: 'Ugyldigt id' });
     try {
@@ -857,7 +848,7 @@ router.post('/unmatched/:id/refetch', requireAuth('admin'), handle(async (req, r
 }));
 
 // POST /api/mail/unmatched/bulk — bulk-ignorering af flere mails ad gangen
-router.post('/unmatched/bulk', requireAuth('admin'), handle(async (req, res) => {
+router.post('/unmatched/bulk', requireModule('crm'), handle(async (req, res) => {
     const { ids, action } = req.body || {};
     if (!Array.isArray(ids) || !ids.length) {
         return res.status(400).json({ error: 'ids skal være et ikke-tomt array' });
@@ -898,6 +889,33 @@ function splitName(fromName) {
 // findes (samme find-or-create-logik som mailService.sendMail bruger på customer_id),
 // indsætter den oprindelige mail som indgående besked og markerer den linket.
 // Idempotent: en allerede-linket mail genindsættes ikke.
+// Flyt en ufordelt mail ind i en tråd som rigtig besked.
+//
+// ÉN vej for alle link-flows (Link til Kunde/Bon, Opret lead, Svar). Var
+// tidligere duplikeret, og kopierne drev fra hinanden: create-lead/reply-vejen
+// tabte både body_html og vedhæftningerne, så en ansøgning med PDF endte som
+// ren tekst uden fil på kunden. Ændr her — ikke i kaldstederne.
+function insertMessageFromUnmatched(db, um, threadId, { isRead = 0 } = {}) {
+    const newMsgId = db.prepare(`
+        INSERT INTO mail_messages (thread_id, message_id, direction, from_email, from_name, to_email, subject, body_text, body_html, is_read, imap_uid, mailbox, received_at)
+        VALUES (?, ?, 'in', ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+    `).run(threadId, um.message_id, um.from_email, um.from_name, um.to_email || um.mailbox,
+           um.subject, um.body_text, um.body_html, isRead ? 1 : 0,
+           um.imap_uid, um.mailbox, um.received_at).lastInsertRowid;
+
+    // Vedhæftninger (inkl. inline CID-billeder) følger med over på beskeden,
+    // så de fortsat kan ses — og så body_html'ens cid:-referencer stadig peger
+    // på en fil vi kan servere.
+    const moved = db.prepare(
+        `UPDATE mail_attachments SET message_id = ?, unmatched_id = NULL WHERE unmatched_id = ?`
+    ).run(Number(newMsgId), um.id);
+    if (moved.changes > 0) {
+        db.prepare(`UPDATE mail_messages SET has_attachments = 1 WHERE id = ?`).run(Number(newMsgId));
+    }
+
+    return Number(newMsgId);
+}
+
 function linkUnmatchedToCustomer(db, um, customerId, userId) {
     let thread = db.prepare(
         `SELECT id FROM mail_threads WHERE customer_id = ? AND status = 'active' ORDER BY updated_at DESC LIMIT 1`
@@ -914,10 +932,8 @@ function linkUnmatchedToCustomer(db, um, customerId, userId) {
     }
 
     if (um.status !== 'linked') {
-        db.prepare(`
-            INSERT INTO mail_messages (thread_id, message_id, direction, from_email, from_name, to_email, subject, body_text, is_read, imap_uid, mailbox, received_at)
-            VALUES (?, ?, 'in', ?, ?, ?, ?, ?, 1, ?, ?, ?)
-        `).run(threadId, um.message_id, um.from_email, um.from_name, um.to_email || um.mailbox, um.subject, um.body_text, um.imap_uid, um.mailbox, um.received_at);
+        // Indsættes læst: mailen håndteres her og nu.
+        insertMessageFromUnmatched(db, um, Number(threadId), { isRead: 1 });
         db.prepare(`
             UPDATE mail_unmatched
                SET status = 'linked', linked_customer_id = ?, handled_by_user_id = ?, handled_at = CURRENT_TIMESTAMP
@@ -935,7 +951,7 @@ function linkUnmatchedToCustomer(db, um, customerId, userId) {
 
 // POST /api/mail/unmatched/:id/create-lead
 // Opret afsenderen som privat lead (kunde uden firma) og knyt mailen til den nye kunde.
-router.post('/unmatched/:id/create-lead', requireAuth('admin'), handle((req, res) => {
+router.post('/unmatched/:id/create-lead', requireModule('crm'), handle((req, res) => {
     const id = parseInt(req.params.id);
     const db = getDb();
     const userId = getUserId(req);
@@ -965,7 +981,7 @@ router.post('/unmatched/:id/create-lead', requireAuth('admin'), handle((req, res
 // POST /api/mail/unmatched/:id/reply  { subject?, text }
 // Send et svar til afsenderen. Knytter mailen til en kunde først (opretter lead
 // hvis den ikke allerede er linket) så svaret bliver tråd-historik.
-router.post('/unmatched/:id/reply', requireAuth('admin'), handle(async (req, res) => {
+router.post('/unmatched/:id/reply', requireModule('crm'), handle(async (req, res) => {
     const id = parseInt(req.params.id);
     const { subject, text } = req.body || {};
     if (!text || !String(text).trim()) return res.status(400).json({ error: 'text er påkrævet' });

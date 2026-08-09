@@ -1008,3 +1008,115 @@
 
 .vm-detail-sync.ok   { background: #eaf6ec; color: #2c6b39; }
 .vm-detail-sync.warn { background: #fdf3e2; color: #8a6412; }
+/* ── Enheds-advarsel + ret-på-stedet (#358) ─────────────────
+   Varen kan ikke lægges på lager, fordi Grocy ikke kender omregningen fra
+   indkøbs-enhed til lager-enhed. Advarslen ligger både uden for varelisten
+   (den er foldet sammen som default) og på selve varekortet. */
+
+.vm-unit-warn-banner {
+    background: #fff6e0;
+    border: 1px solid #f0d48a;
+    border-radius: 10px;
+    padding: 12px 14px;
+    margin-bottom: 12px;
+}
+
+.vm-unit-warn-title {
+    font-weight: 600;
+    color: #8a5a00;
+    margin-bottom: 4px;
+}
+
+.vm-unit-warn-body {
+    font-size: 0.9rem;
+    color: #8a5a00;
+    line-height: 1.45;
+}
+
+.vm-unit-warn-btn {
+    margin-top: 10px;
+    min-height: 44px;
+    padding: 0 18px;
+    border: 1px solid #d9a520;
+    border-radius: 8px;
+    background: #f7c948;
+    color: #4a3200;
+    font-weight: 600;
+    font-size: 0.95rem;
+    cursor: pointer;
+}
+
+.vm-unit-warn-btn:active { background: #e0b53f; }
+
+.vm-item-card.vm-unit-issue {
+    border-color: #f0d48a;
+    box-shadow: inset 3px 0 0 #f7c948;
+}
+
+.vm-unit-fix {
+    background: #fff6e0;
+    border: 1px solid #f0d48a;
+    border-radius: 8px;
+    padding: 10px 12px;
+    margin: 8px 0 4px;
+}
+
+.vm-unit-fix-title {
+    font-weight: 600;
+    color: #8a5a00;
+    font-size: 0.9rem;
+}
+
+.vm-unit-fix-body {
+    font-size: 0.88rem;
+    color: #8a5a00;
+    margin: 2px 0 8px;
+    line-height: 1.4;
+}
+
+.vm-unit-fix-row {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    flex-wrap: wrap;
+}
+
+.vm-unit-fix-lead,
+.vm-unit-fix-tail {
+    font-size: 0.95rem;
+    color: #4a3200;
+    white-space: nowrap;
+}
+
+.vm-unit-fix-input {
+    width: 96px;
+    min-height: 44px;
+    padding: 0 10px;
+    border: 1px solid #d9a520;
+    border-radius: 8px;
+    font-size: 1.05rem;
+    text-align: center;
+    background: #fff;
+}
+
+.vm-unit-fix-save {
+    min-height: 44px;
+    padding: 0 16px;
+    border: 1px solid #d9a520;
+    border-radius: 8px;
+    background: #f7c948;
+    color: #4a3200;
+    font-weight: 600;
+    cursor: pointer;
+}
+
+.vm-unit-fix-save:disabled { opacity: 0.6; cursor: default; }
+
+.vm-unit-fix-msg {
+    font-size: 0.85rem;
+    margin-top: 6px;
+    min-height: 1em;
+    color: #8a5a00;
+}
+
+.vm-unit-fix-msg.vm-err { color: #c0392b; }

@@ -26,6 +26,7 @@ const { handle, getUserById } = require('../db/helpers');
 const { requireAuth, userCan } = require('../shared/auth');
 const grocy           = require('../services/grocyAdapter');
 const webhook         = require('../services/goodsReceiptWebhook');
+const { resolveToStockAmount } = require('../services/quConvert');
 
 const UPLOAD_DIR = path.join(__dirname, '..', 'data', 'uploads', 'receipts');
 const MAX_PHOTO_SIZE = 10 * 1024 * 1024; // 10 MB
@@ -220,6 +221,54 @@ router.post('/', requireAuth(), handle(async (req, res) => {
         receivedAtValue = `${dateStr} 12:00:00`;
     }
 
+    // ── #358: omregn modtaget mængde til produktets LAGER-enhed ─────────────
+    //
+    // Tallet kommer fra indkøbslisten og står i INDKØBS-enhed ("994 Kasse"), men
+    // Grocys /stock/add læser altid lager-enhed. Uden omregning blev "10 Antal
+    // spidskål" til 10 kg. Det skete to gange i drift (maj + juni) og blev først
+    // fundet i Grocys stock_log — en fysisk optælling havde imens rettet tallet
+    // og dermed skjult årsagen.
+    //
+    // Metadata hentes FØR transactionen, men en Grocy-fejl må ikke forhindre at
+    // receiptet oprettes: fødevarekontrollen (temperaturer, FVST-tjek, foto) er
+    // lovpligtig dokumentation og skal gemmes uanset lagerets tilstand. Kan vi
+    // ikke omregne, springer vi lager-opdateringen over og gør det synligt.
+    let productMap = new Map();
+    let conversions = [];
+    let quMetaError = null;
+    try {
+        const [grocyProducts, grocyConversions] = await Promise.all([
+            grocy.getProducts(),
+            grocy.getQuantityUnitConversions(),
+        ]);
+        productMap  = new Map(grocyProducts.map(p => [parseInt(p.id), p]));
+        conversions = grocyConversions;
+    } catch (err) {
+        quMetaError = err.message;
+        console.warn('[goods-receipts] Kunne ikke hente Grocy enheds-data:', err.message);
+    }
+
+    // Parallelt array til items — samme indeks hele vejen igennem.
+    const converted = items.map(item => {
+        const pid   = item.grocy_product_id ? parseInt(item.grocy_product_id) : null;
+        const qty   = Number(item.received_quantity) || 0;
+        const quId  = item.qu_id != null && item.qu_id !== '' ? parseInt(item.qu_id) : null;
+
+        // Manuelt tilføjede varer (uden Grocy-produkt) og nul-mængder rører aldrig
+        // lageret — der er intet at omregne, og ingen fejl at melde.
+        if (!pid || qty <= 0) return { stockAmount: null, quId, error: null };
+
+        if (quMetaError) {
+            return {
+                stockAmount: null, quId,
+                error: `Kunne ikke hente enheds-data fra Grocy (${quMetaError}) — lager ikke opdateret`,
+            };
+        }
+
+        const r = resolveToStockAmount({ product: productMap.get(pid), amount: qty, quId, conversions });
+        return { stockAmount: r.amount, quId, error: r.error };
+    });
+
     // Resolve receiver-navn FØR transaction: foretrukket eksplicit name,
     // ellers slå op fra users-tabel via id. Bruges både i INSERT og webhook.
     let receiverName = received_by_name || null;
@@ -293,10 +342,12 @@ router.post('/', requireAuth(), handle(async (req, res) => {
             INSERT INTO goods_receipt_items (
                 receipt_id, grocy_product_id, product_name,
                 expected_quantity, unit, received_quantity,
+                received_qu_id, received_quantity_stock,
                 status, notes
-            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
         `);
-        for (const item of items) {
+        for (let i = 0; i < items.length; i++) {
+            const item = items[i];
             const result = insertItem.run(
                 receiptId,
                 item.grocy_product_id || null,
@@ -304,6 +355,11 @@ router.post('/', requireAuth(), handle(async (req, res) => {
                 item.expected_quantity || null,
                 item.unit || null,
                 item.received_quantity || null,
+                // #358: begge tal gemmes — det brugeren tastede (i sin egen enhed)
+                // OG det der gik til Grocy. Uden begge kan en fremtidig afvigelse
+                // ikke afgøres uden at gætte, hvilket var hele problemet.
+                converted[i].quId,
+                converted[i].stockAmount,
                 item.status || 'ok',
                 item.notes || null
             );
@@ -367,10 +423,24 @@ router.post('/', requireAuth(), handle(async (req, res) => {
             continue;
         }
 
+        // #358: kunne mængden ikke omregnes til lager-enhed, rører vi IKKE lageret.
+        // Fejlen skrives på linjen og løfter receiptet til 'partially_approved', så
+        // den bliver bedt om hjælp i stedet for at lægge et forkert tal ind i stilhed.
+        if (converted[i].error) {
+            updateItem.run(0, converted[i].error, itemId);
+            grocyResults.push({
+                product_name: item.product_name,
+                grocy_added: false,
+                error: converted[i].error
+            });
+            console.warn(`[goods-receipts] ${item.product_name}: ${converted[i].error}`);
+            continue;
+        }
+
         try {
             await grocy.addToStock(
                 item.grocy_product_id,
-                item.received_quantity,
+                converted[i].stockAmount,   // #358: lager-enhed, ikke indkøbs-enhed
                 null, // best_before_date — Grocy bruger default_due_days
                 location_id || null
             );
