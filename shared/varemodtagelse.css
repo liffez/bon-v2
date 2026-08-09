@@ -786,6 +786,228 @@
 
 .vm-empty-icon { font-size: 2rem; margin-bottom: 8px; }
 
+/* ════════════════════════════════════════════════════════════
+   MODTAGELSESLOG — Bon v2's egen FVST-dokumentation
+   ════════════════════════════════════════════════════════════ */
+
+.vm-topbar {
+    display: flex;
+    justify-content: flex-end;
+    margin-bottom: 2px;
+}
+
+.vm-log-btn {
+    background: none;
+    border: 1px solid var(--color-border, #ddd5c8);
+    border-radius: 8px;
+    padding: 7px 12px;
+    font-family: inherit;
+    font-size: .8rem;
+    font-weight: 600;
+    color: var(--color-text-dim, #8a7a68);
+    cursor: pointer;
+}
+
+.vm-log-btn:active { background: var(--color-background, #f5f4f2); }
+
+/* ── Historik-header ─────────────────────────────────────── */
+
+.vm-hist-head {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    margin-bottom: 4px;
+}
+
+.vm-back-btn {
+    background: none;
+    border: none;
+    padding: 8px 0;
+    font-family: inherit;
+    font-size: .88rem;
+    font-weight: 700;
+    color: var(--brand-primary, #c47a2b);
+    cursor: pointer;
+}
+
+.vm-hist-title {
+    font-size: 1.05rem;
+    font-weight: 700;
+}
+
+/* ── Periode-chips ───────────────────────────────────────── */
+
+.vm-hist-filters {
+    display: flex;
+    gap: 6px;
+    flex-wrap: wrap;
+    margin-bottom: 6px;
+}
+
+.vm-chip {
+    border: 1px solid var(--color-border, #ddd5c8);
+    background: var(--color-surface, #fff);
+    border-radius: 999px;
+    padding: 6px 14px;
+    font-family: inherit;
+    font-size: .78rem;
+    font-weight: 600;
+    color: var(--color-text-dim, #8a7a68);
+    cursor: pointer;
+}
+
+.vm-chip-active {
+    background: var(--brand-primary, #c47a2b);
+    border-color: var(--brand-primary, #c47a2b);
+    color: #fff;
+}
+
+/* ── Liste ───────────────────────────────────────────────── */
+
+.vm-hist-list {
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+}
+
+.vm-hist-card {
+    display: block;
+    width: 100%;
+    text-align: left;
+    background: var(--color-surface, #fff);
+    border: 1px solid var(--color-border, #ddd5c8);
+    border-radius: 12px;
+    padding: 12px 14px;
+    font-family: inherit;
+    font-size: .87rem;
+    cursor: pointer;
+    box-shadow: 0 1px 4px rgba(0,0,0,.07);
+}
+
+.vm-hist-card:active { background: var(--color-background, #f5f4f2); }
+
+.vm-hist-row1 {
+    display: flex;
+    justify-content: space-between;
+    align-items: baseline;
+    gap: 10px;
+    font-size: .76rem;
+    color: var(--color-text-dim, #8a7a68);
+    margin-bottom: 3px;
+}
+
+.vm-hist-nr { font-weight: 700; white-space: nowrap; }
+.vm-hist-row2 { font-size: .95rem; }
+.vm-hist-by { color: var(--color-text-dim, #8a7a68); font-weight: 400; }
+
+.vm-hist-badges {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 5px;
+    margin-top: 7px;
+}
+
+.vm-hist-badge {
+    font-size: .72rem;
+    font-weight: 600;
+    background: var(--color-background, #f5f4f2);
+    border: 1px solid var(--color-border, #ddd5c8);
+    border-radius: 6px;
+    padding: 2px 7px;
+    white-space: nowrap;
+}
+
+.vm-hist-badge-bad  { background: #fdecea; border-color: #f0b7b0; color: #a33227; }
+.vm-hist-badge-warn { background: #fdf3e2; border-color: #e8cd9a; color: #8a6412; }
+
+.vm-hist-sync {
+    margin-top: 7px;
+    font-size: .74rem;
+    color: #8a6412;
+}
+
+.vm-hist-empty {
+    text-align: center;
+    padding: 34px 20px;
+    color: var(--color-text-dim, #8a7a68);
+    font-size: .88rem;
+}
+
+/* ── Detalje ─────────────────────────────────────────────── */
+
+.vm-detail-title {
+    font-size: 1.15rem;
+    font-weight: 700;
+    margin-bottom: 10px;
+}
+
+.vm-detail-sub {
+    font-size: .7rem;
+    font-weight: 700;
+    text-transform: uppercase;
+    letter-spacing: .8px;
+    color: var(--color-text-dim, #8a7a68);
+    margin: 18px 0 7px;
+}
+
+.vm-detail-table {
+    width: 100%;
+    border-collapse: collapse;
+    background: var(--color-surface, #fff);
+    border: 1px solid var(--color-border, #ddd5c8);
+    border-radius: 12px;
+    overflow: hidden;
+    font-size: .86rem;
+}
+
+.vm-detail-table th,
+.vm-detail-table td {
+    text-align: left;
+    padding: 9px 13px;
+    border-bottom: 1px solid var(--color-border, #ddd5c8);
+    vertical-align: top;
+}
+
+.vm-detail-table tr:last-child th,
+.vm-detail-table tr:last-child td { border-bottom: none; }
+
+.vm-detail-table th {
+    font-weight: 600;
+    color: var(--color-text-dim, #8a7a68);
+    width: 45%;
+}
+
+.vm-detail-items td { text-align: right; white-space: nowrap; }
+
+.vm-detail-photo {
+    display: block;
+    margin-top: 14px;
+    text-align: center;
+    font-size: .8rem;
+    color: var(--brand-primary, #c47a2b);
+    text-decoration: none;
+    font-weight: 600;
+}
+
+.vm-detail-photo img {
+    display: block;
+    width: 100%;
+    max-height: 260px;
+    object-fit: cover;
+    border-radius: 12px;
+    border: 1px solid var(--color-border, #ddd5c8);
+    margin-bottom: 6px;
+}
+
+.vm-detail-sync {
+    font-size: .85rem;
+    padding: 10px 13px;
+    border-radius: 10px;
+    margin-bottom: 10px;
+}
+
+.vm-detail-sync.ok   { background: #eaf6ec; color: #2c6b39; }
+.vm-detail-sync.warn { background: #fdf3e2; color: #8a6412; }
 /* ── Enheds-advarsel + ret-på-stedet (#358) ─────────────────
    Varen kan ikke lægges på lager, fordi Grocy ikke kender omregningen fra
    indkøbs-enhed til lager-enhed. Advarslen ligger både uden for varelisten

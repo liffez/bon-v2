@@ -3275,6 +3275,52 @@ er ikke bekræftet.
   topup 35, event-cancelled 26, event-gate 15, event-polish 27, prep-packing 12.
   Browser-verificeret end-to-end; testdata ryddet.
 
+### Varemodtagelsen blev usynlig — modtagelseslog + Whiteboard-kobling (7. august 2026)
+> Driftsfund: varemodtagelserne dukkede ikke op i loggen, og køkkenet var gået tilbage til
+> Whiteboards egen formular (den uden lagerdelen). Koden fejlede aldrig — den var **aldrig
+> koblet til**.
+
+**Diagnosen** (bekræftet mod drift): `settings.whiteboard_webhook_url` har stået **tom siden
+den blev seedet** (migration 035, 11. april 2026). `send()` springer stille over ved tom URL
+(`bonv2_only`-mode, spec §"Tre driftsmodes"), så `webhook_log` var tom og
+`whiteboard_synced_at` NULL på **alle** registreringer. Samtidig havde `fetchGoodsReceipts()`
+**nul forbrugere** — listevisningen var aldrig bygget. En registrering var derfor usynlig fra
+det øjeblik succes-skærmen forsvandt. Fem registreringer (18. maj – 5. august) nåede aldrig
+frem. Feltet kunne kun sættes med SQL.
+
+Fejlklassen er den samme som #305/#319 (jf. memory `project_silent_sideeffect_failures`):
+**handlingen påstod at være sket, bivirkningen fyrede aldrig, og intet sted mødtes de to.**
+
+- **🗂 Modtagelseslog** i `shared/varemodtagelse.js` — liste (periode-chips 30 dage/3 mdr/1 år/alt)
+  + detalje med alle FVST-felter, varer, foto og synk-status. Ligger i **samme container** som
+  selve modtagelsen, så den følger med i køkkenfanen *og* mobilen uden separat montering.
+- **Loggen overlever at Grocy er nede**: `initVaremodtagelse`'s catch-gren renderer nu topbaren
+  i stedet for kun en fejltekst. Ny registrering kræver Grocy (varer, enheder, leverandører) —
+  FVST-dokumentationen gør ikke, og måtte ikke ryge med i faldet.
+- **Settings → Integrationer → Whiteboard**: URL-felt (validerer at den peger på `/api/events`),
+  koblet/ikke-koblet-mærke, antal usendte + "send de manglende", og de seneste 20 forsøg med
+  statuskode og fejl. `GET /api/goods-receipts/webhook-log` (admin).
+- **`whiteboard: { configured, dispatched }`** i POST-svaret. `webhook_sent`/`webhook_dispatched`
+  stod altid på `true` — også når intet blev sendt; de er bevaret som deprecated fordi
+  T_VAREMOD_HAPPY_03 pinner dem (F31).
+- **`POST /:id/resend-webhook`** (`requireAuth()`, ikke admin — den der står ved leverancen skal
+  kunne rette op). **Nægter når `whiteboard_synced_at` er sat**: Whiteboard afviser ikke dubletter,
+  så en gensendelse ville lægge samme leverance i FVST-loggen to gange.
+- **`scripts/resend-goods-receipt-webhooks.js`** — backfill af efterslæbet. Dry-run default,
+  `--apply`/`--id`/`--from`/`--to`. Sender kun hvor `whiteboard_synced_at IS NULL` ⇒ idempotent.
+- `send()` returnerer nu `{ok, skipped, reason, statusCode, error}` (additivt — POST-stien
+  er stadig fire-and-forget) + `isConfigured()`/`getWebhookUrl()`.
+- **Tests**: `scripts/test-goods-receipt-webhook.js` — 27 asserts mod isoleret temp-DB + stub-modtager:
+  at en sluttet kobling *rapporterer* sig selv, at payloaden matcher Whiteboards skema-felter
+  (FVST Skema 1, migration 020), og at `whiteboard_synced_at` kun sættes ved 2xx. Mutations-testet.
+- Verificeret end-to-end mod stub-modtager der validerer mod Whiteboards feltnavne: payload rent
+  igennem (ingen ukendte nøgler, gyldig `deviation`-værdi, frys udeladt når toggle er slået fra),
+  503 + netværksfejl logges uden at blokere brugeren, gensend + backfill + dublet-værn.
+  Browser-verificeret i køkken, mobil og Settings; testdata ryddet, dev-DB tilbage i udgangspunktet.
+
+**Deploy:** URL'en er sat i drift (7. august). Kør bagefter backfill'en mod prod —
+dry-run først, så `--apply` — for de fem registreringer der aldrig nåede frem.
+
 ## Næste opgave
 
 > ✏️ Tracker-oprydning 29. juni 2026 — koden er på migration 119; status-sektionen ovenfor
@@ -3800,6 +3846,8 @@ POST   /api/goods-receipts/photo                           routes/goods-receipts
 POST   /api/goods-receipts                                 routes/goods-receipts.js
 GET    /api/goods-receipts                                 routes/goods-receipts.js
 GET    /api/goods-receipts/:id                             routes/goods-receipts.js
+GET    /api/goods-receipts/webhook-log?limit=              routes/goods-receipts.js (admin — er Whiteboard-koblingen i live?)
+POST   /api/goods-receipts/:id/resend-webhook              routes/goods-receipts.js (nægter hvis allerede synket)
 GET    /api/staff                                          routes/staff.js
 POST   /api/staff                                          routes/staff.js (admin)
 PATCH  /api/staff/:id                                      routes/staff.js (admin)

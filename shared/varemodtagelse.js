@@ -161,7 +161,31 @@ async function initVaremodtagelse(el) {
         _vmBuildPage();
     } catch (err) {
         console.error('[varemodtagelse] Init fejl:', err);
-        _vmContainer.innerHTML = '<div class="vm-app"><div class="vm-loading" style="color:#c0392b;">Fejl: ' + _vmEsc(err.message) + '</div></div>';
+
+        // Loggen skal kunne åbnes selvom NY modtagelse ikke kan startes.
+        // Registreringen kræver Grocy (varer, enheder, leverandører) — men
+        // fødevarekontrol-dokumentationen ligger i Bon v2's egen database og
+        // er uafhængig af Grocy. Er Grocy nede, må FVST-loggen ikke ryge med.
+        var app = document.createElement('div');
+        app.className = 'vm-app';
+        var content = document.createElement('div');
+        content.className = 'vm-content';
+        content.appendChild(_vmBuildTopBar());
+
+        var msg = document.createElement('div');
+        msg.className = 'vm-loading';
+        msg.style.color = '#c0392b';
+        msg.textContent = 'Kan ikke starte ny varemodtagelse: ' + err.message;
+        content.appendChild(msg);
+
+        var hint = document.createElement('div');
+        hint.className = 'vm-hist-empty';
+        hint.textContent = 'Tidligere modtagelser kan stadig ses under 🗂 Modtagelseslog.';
+        content.appendChild(hint);
+
+        app.appendChild(content);
+        _vmContainer.innerHTML = '';
+        _vmContainer.appendChild(app);
     }
 }
 
@@ -224,6 +248,9 @@ function _vmBuildPage() {
 
     var content = document.createElement('div');
     content.className = 'vm-content';
+
+    // ── Topbar: adgang til modtagelsesloggen
+    content.appendChild(_vmBuildTopBar());
 
     // ── FØDEVAREKONTROL divider
     content.appendChild(_vmDivider('F\u00f8devarekontrol'));
@@ -1625,10 +1652,300 @@ function _vmShowSuccess(result) {
     if (_vmState.photoPath) details.push('\ud83d\udcf8 Foto af f\u00f8lgeseddel gemt');
     if (_vmState.hasDeviation) details.push('\u26a0 Afvigelse logget');
 
+    // Whiteboard-koblingen: sig det ligeud n\u00e5r registreringen kun findes her.
+    // Tidligere svarede API'et altid "webhook_sent: true" \u2014 ogs\u00e5 n\u00e5r intet
+    // blev sendt \u2014 og s\u00e5 var der ingen der opdagede at FVST-loggen stod tom.
+    //
+    // Ordlyden siger AFSENDT, ikke modtaget: kaldet er fire-and-forget (en
+    // modtagelse m\u00e5 ikke blokeres af et eksternt kald), s\u00e5 p\u00e5 det her tidspunkt
+    // ved vi kun at vi fors\u00f8gte. Om Whiteboard tog imod, st\u00e5r i Modtagelseslogen
+    // bagefter \u2014 den l\u00e6ser whiteboard_synced_at, som kun s\u00e6ttes ved 2xx.
+    // At skrive "Sendt" her ville v\u00e6re samme slags p\u00e5stand som #363 selv.
+    var wb = result.whiteboard || {};
+    if (wb.configured) {
+        details.push('\ud83d\udd17 Sendt afsted til Whiteboards FVST-log \u2014 se status i \ud83d\uddc2 Modtagelseslog');
+    } else {
+        details.push('\u2139\ufe0f Gemt i Bon v2 \u2014 se den under \ud83d\uddc2 Modtagelseslog');
+    }
+
     var detailsEl = overlay.querySelector('.vm-success-details');
     detailsEl.innerHTML = details.join('<br>');
 
     overlay.classList.add('vm-show');
+}
+
+/* ════════════════════════════════════════════════════════════
+   MODTAGELSESLOG
+   ════════════════════════════════════════════════════════════
+   Bon v2's egen liste over varemodtagelser — dokumentationen til
+   Fødevarestyrelsen.
+
+   Hvorfor den findes: registreringerne blev gemt korrekt i databasen,
+   men INTET sted i Bon v2 viste dem. Whiteboard-koblingen var det
+   eneste vindue ind til dem, og da den var slukket, var en registrering
+   i praksis usynlig fra det øjeblik succes-skærmen forsvandt.
+
+   Kører i samme container som selve modtagelsen — så den følger med i
+   både køkkenets fane og mobilen uden separat montering.
+   ════════════════════════════════════════════════════════════ */
+
+var _vmHistDays = 30;
+var _vmHistRows = [];
+
+function _vmBuildTopBar() {
+    var bar = document.createElement('div');
+    bar.className = 'vm-topbar';
+
+    var btn = document.createElement('button');
+    btn.type = 'button';
+    btn.className = 'vm-log-btn';
+    btn.innerHTML = '🗂 Modtagelseslog';
+    btn.addEventListener('click', function() { _vmShowHistory(); });
+    bar.appendChild(btn);
+
+    return bar;
+}
+
+async function _vmShowHistory() {
+    var app = document.createElement('div');
+    app.className = 'vm-app';
+
+    var content = document.createElement('div');
+    content.className = 'vm-content';
+    content.innerHTML =
+        '<div class="vm-hist-head">' +
+          '<button type="button" class="vm-back-btn">← Ny modtagelse</button>' +
+          '<div class="vm-hist-title">Modtagelseslog</div>' +
+        '</div>' +
+        '<div class="vm-hist-filters"></div>' +
+        '<div class="vm-hist-list"><div class="vm-loading">Henter...</div></div>';
+
+    app.appendChild(content);
+    _vmContainer.innerHTML = '';
+    _vmContainer.appendChild(app);
+
+    content.querySelector('.vm-back-btn').addEventListener('click', function() {
+        initVaremodtagelse(_vmContainer);
+    });
+
+    // Periode-chips. 30 dage dækker den daglige brug; "Alt" bruges når
+    // Fødevarestyrelsen beder om en længere periode.
+    var filters = content.querySelector('.vm-hist-filters');
+    [[30, '30 dage'], [90, '3 måneder'], [365, '1 år'], [0, 'Alt']].forEach(function(opt) {
+        var chip = document.createElement('button');
+        chip.type = 'button';
+        chip.className = 'vm-chip' + (_vmHistDays === opt[0] ? ' vm-chip-active' : '');
+        chip.textContent = opt[1];
+        chip.addEventListener('click', function() {
+            _vmHistDays = opt[0];
+            _vmShowHistory();
+        });
+        filters.appendChild(chip);
+    });
+
+    var listEl = content.querySelector('.vm-hist-list');
+
+    try {
+        var params = {};
+        if (_vmHistDays > 0) {
+            var d = new Date();
+            d.setDate(d.getDate() - _vmHistDays);
+            params.from = _vmIsoDate(d);
+        }
+        _vmHistRows = await fetchGoodsReceipts(params) || [];
+        _vmRenderHistoryList(listEl);
+    } catch (err) {
+        listEl.innerHTML = '<div class="vm-loading" style="color:#c0392b">Kunne ikke hente loggen: ' +
+            _vmEsc(err.message) + '</div>';
+    }
+}
+
+function _vmRenderHistoryList(listEl) {
+    if (!_vmHistRows.length) {
+        listEl.innerHTML = '<div class="vm-hist-empty">Ingen varemodtagelser i perioden.</div>';
+        return;
+    }
+
+    listEl.innerHTML = '';
+
+    _vmHistRows.forEach(function(r) {
+        var card = document.createElement('button');
+        card.type = 'button';
+        card.className = 'vm-hist-card';
+
+        var badges = [];
+        if (r.temperature_cool_enabled && r.temperature_cool_value != null) {
+            badges.push('<span class="vm-hist-badge' + (r.temperature_cool_ok === 0 ? ' vm-hist-badge-bad' : '') +
+                '">🧊 ' + _vmNum(r.temperature_cool_value) + '°</span>');
+        }
+        if (r.temperature_frozen_enabled && r.temperature_frozen_value != null) {
+            badges.push('<span class="vm-hist-badge' + (r.temperature_frozen_ok === 0 ? ' vm-hist-badge-bad' : '') +
+                '">❄️ ' + _vmNum(r.temperature_frozen_value) + '°</span>');
+        }
+        if (r.has_deviation) badges.push('<span class="vm-hist-badge vm-hist-badge-bad">⚠ Afvigelse</span>');
+        if (r.photo_path)    badges.push('<span class="vm-hist-badge">📸</span>');
+        if (r.item_count)    badges.push('<span class="vm-hist-badge">' + r.item_count + ' varer</span>');
+        if (r.status === 'partially_approved') {
+            badges.push('<span class="vm-hist-badge vm-hist-badge-warn">Delvist godkendt</span>');
+        }
+
+        card.innerHTML =
+            '<div class="vm-hist-row1">' +
+              '<span class="vm-hist-date">' + _vmEsc(_vmFmtDateTime(r.received_at)) + '</span>' +
+              '<span class="vm-hist-nr">' + _vmEsc(r.receipt_number) + '</span>' +
+            '</div>' +
+            '<div class="vm-hist-row2">' +
+              '<strong>' + _vmEsc(r.supplier_name) + '</strong>' +
+              (r.received_by_name ? ' <span class="vm-hist-by">· ' + _vmEsc(r.received_by_name) + '</span>' : '') +
+            '</div>' +
+            (badges.length ? '<div class="vm-hist-badges">' + badges.join('') + '</div>' : '') +
+            _vmSyncLine(r);
+
+        card.addEventListener('click', function() { _vmShowReceiptDetail(r.id); });
+        listEl.appendChild(card);
+    });
+}
+
+/* Synkroniserings-linje: er registreringen nået frem til Whiteboards
+   FVST-log? Vises kun når den IKKE er — en grøn markering på hver eneste
+   række ville bare være støj. */
+function _vmSyncLine(r) {
+    if (r.whiteboard_synced_at) return '';
+    return '<div class="vm-hist-sync">⚠ Ikke i Whiteboards FVST-log</div>';
+}
+
+async function _vmShowReceiptDetail(id) {
+    var app = document.createElement('div');
+    app.className = 'vm-app';
+    var content = document.createElement('div');
+    content.className = 'vm-content';
+    content.innerHTML =
+        '<div class="vm-hist-head">' +
+          '<button type="button" class="vm-back-btn">← Loggen</button>' +
+        '</div>' +
+        '<div class="vm-detail"><div class="vm-loading">Henter...</div></div>';
+    app.appendChild(content);
+    _vmContainer.innerHTML = '';
+    _vmContainer.appendChild(app);
+
+    content.querySelector('.vm-back-btn').addEventListener('click', function() { _vmShowHistory(); });
+
+    var box = content.querySelector('.vm-detail');
+
+    var r;
+    try {
+        r = await fetchGoodsReceipt(id);
+    } catch (err) {
+        box.innerHTML = '<div class="vm-loading" style="color:#c0392b">Kunne ikke hente: ' + _vmEsc(err.message) + '</div>';
+        return;
+    }
+
+    var rows = [];
+    rows.push(['Modtaget',    _vmFmtDateTime(r.received_at)]);
+    rows.push(['Leverandør',  r.supplier_name]);
+    rows.push(['Modtaget af', r.received_by_name || '—']);
+    rows.push(['Køl',  r.temperature_cool_enabled
+        ? _vmNum(r.temperature_cool_value) + ' °C' + (r.temperature_cool_ok === 0 ? '  ⚠ over grænsen' : '')
+        : 'Ikke relevant']);
+    rows.push(['Frys', r.temperature_frozen_enabled
+        ? _vmNum(r.temperature_frozen_value) + ' °C' + (r.temperature_frozen_ok === 0 ? '  ⚠ over grænsen' : '')
+        : 'Ikke relevant']);
+    rows.push(['Dato/holdbarhed', r.date_check_ok ? 'Kontrolleret' : '⚠ Ikke i orden']);
+    rows.push(['Mærkning',        r.labeling_check_ok ? 'Kontrolleret' : '⚠ Ikke i orden']);
+    rows.push(['Emballage',       r.packaging_check_ok ? 'Kontrolleret' : '⚠ Ikke i orden']);
+    if (r.has_deviation) {
+        rows.push(['Afvigelse', _vmDeviationLabel(r.deviation_type)]);
+        if (r.deviation_note) rows.push(['Bemærkning', r.deviation_note]);
+    }
+    if (r.notes) rows.push(['Note', r.notes]);
+
+    var html = '<div class="vm-detail-title">' + _vmEsc(r.receipt_number) + '</div>' +
+        '<table class="vm-detail-table">' +
+        rows.map(function(row) {
+            return '<tr><th>' + _vmEsc(row[0]) + '</th><td>' + _vmEsc(String(row[1])) + '</td></tr>';
+        }).join('') +
+        '</table>';
+
+    if (r.photo_path) {
+        html += '<a class="vm-detail-photo" href="' + _vmEsc(r.photo_path) + '" target="_blank" rel="noopener">' +
+            '<img src="' + _vmEsc(r.photo_path) + '" alt="Følgeseddel">' +
+            '<span>Åbn foto af følgeseddel</span></a>';
+    }
+
+    var items = r.items || [];
+    if (items.length) {
+        html += '<div class="vm-detail-sub">Varer lagt på lager</div>' +
+            '<table class="vm-detail-table vm-detail-items">' +
+            items.map(function(it) {
+                var qty = (it.received_quantity != null ? _vmNum(it.received_quantity) : '—') +
+                    (it.unit ? ' ' + _vmEsc(it.unit) : '');
+                var flag = it.status === 'missing' ? ' <span class="vm-hist-badge vm-hist-badge-warn">manglede</span>'
+                         : it.grocy_error ? ' <span class="vm-hist-badge vm-hist-badge-bad">Grocy-fejl</span>' : '';
+                return '<tr><th>' + _vmEsc(it.product_name) + flag + '</th><td>' + qty + '</td></tr>';
+            }).join('') + '</table>';
+    } else {
+        html += '<div class="vm-detail-sub">Ingen varer lagt på lager ved denne modtagelse</div>';
+    }
+
+    // Whiteboard-status + gensend
+    html += '<div class="vm-detail-sub">Whiteboard (FVST-log)</div>';
+    if (r.whiteboard_synced_at) {
+        html += '<div class="vm-detail-sync ok">✓ Sendt ' + _vmEsc(_vmFmtDateTime(r.whiteboard_synced_at)) + '</div>';
+    } else {
+        html += '<div class="vm-detail-sync warn">⚠ Ikke sendt — registreringen findes kun i Bon v2.</div>' +
+            '<button type="button" class="vm-btn vm-btn-secondary vm-resend-btn">Send til Whiteboard</button>';
+    }
+
+    box.innerHTML = html;
+
+    var resendBtn = box.querySelector('.vm-resend-btn');
+    if (resendBtn) {
+        resendBtn.addEventListener('click', async function() {
+            resendBtn.disabled = true;
+            resendBtn.textContent = 'Sender...';
+            try {
+                await resendGoodsReceiptWebhook(r.id);
+                _vmShowReceiptDetail(r.id);
+            } catch (err) {
+                alert('Kunne ikke sende: ' + err.message);
+                resendBtn.disabled = false;
+                resendBtn.textContent = 'Send til Whiteboard';
+            }
+        });
+    }
+}
+
+function _vmDeviationLabel(type) {
+    var map = {
+        returned:           'Varen er returneret',
+        no_risk:            'Vurderet — ingen risiko, anvendes straks',
+        discarded:          'Varen er kasseret',
+        supplier_contacted: 'Leverandøren er kontaktet',
+        other:              'Andet',
+    };
+    return map[type] || type || 'Registreret';
+}
+
+/* Serveren gemmer UTC (datetime('now')). parseServerDate normaliserer, så
+   tiden vises dansk — ellers ser en aftenmodtagelse ud til at være sket
+   to timer tidligere. */
+function _vmFmtDateTime(s) {
+    if (!s) return '—';
+    var d = (typeof parseServerDate === 'function') ? parseServerDate(s) : new Date(s);
+    if (!d || isNaN(d.getTime())) return String(s);
+    return d.toLocaleDateString('da-DK', { day: '2-digit', month: '2-digit', year: 'numeric' }) +
+        ' kl. ' + d.toLocaleTimeString('da-DK', { hour: '2-digit', minute: '2-digit' });
+}
+
+function _vmIsoDate(d) {
+    return d.getFullYear() + '-' +
+        String(d.getMonth() + 1).padStart(2, '0') + '-' +
+        String(d.getDate()).padStart(2, '0');
+}
+
+function _vmNum(v) {
+    if (v == null) return '—';
+    return String(Math.round(parseFloat(v) * 100) / 100).replace('.', ',');
 }
 
 /* ── Utilities ───────────────────────────────────────────── */
