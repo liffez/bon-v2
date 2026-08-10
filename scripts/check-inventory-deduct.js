@@ -59,6 +59,23 @@ function logLine(msg) { console.log(`[${new Date().toISOString()}] ${msg}`); }
 const getSetting = (db, k) => db.prepare('SELECT value FROM settings WHERE key = ?').get(k)?.value ?? '';
 
 // Eksporteret ren funktion så testen rammer den ægte SQL frem for at replikere den.
+//
+// To afgrænsninger, begge tilføjet fordi kontrollen ellers råber ulv — og en alarm
+// der melder det samme hver dag om noget der ikke er galt, bliver holdt op med at
+// blive læst. Det er samme svigt som #305 selv, bare i den anden retning.
+//
+//   ØVRE DATOGRÆNSE. Uden den fanger vinduet alt fra N dage siden og FREM, mens
+//   beskeden siger "de seneste N dage". En bon med leveringsdato i 2027, sat til
+//   BETALT i forvejen, blev rapporteret hver eneste dag indtil datoen indtraf.
+//   En fremtidig levering kan ikke have misset sit træk — den er ikke sket endnu.
+//   Undtagelse: status 'failed' betyder at trækket ER forsøgt og mislykkedes, og
+//   det skal frem uanset dato.
+//
+//   INTET AT TRÆKKE. En bon uden opskriftskoblede linjer kan aldrig trække noget.
+//   Nye bons får 'empty' + flaget sat (db/helpers.js), men historiske rækker fra
+//   før #359 står med flaget på 0 for evigt. Migration 141 valgte bevidst ikke at
+//   bagudfylde — at gætte 'ok' bagud ville opfinde historik — så afgrænsningen
+//   hører hjemme her i forespørgslen i stedet.
 function findUndeducted(db, days) {
     return db.prepare(`
         SELECT b.id, b.bon_number, b.delivery_date, sd.code AS status_code,
@@ -69,6 +86,33 @@ function findUndeducted(db, days) {
           AND COALESCE(b.is_offer, 0) = 0
           AND COALESCE(b.inventory_deducted, 0) = 0
           AND b.delivery_date >= date('now', '-' || ? || ' days')
+          AND (b.delivery_date <= date('now') OR b.inventory_deduct_status = 'failed')
+          AND EXISTS (
+              SELECT 1 FROM bon_lines l
+              WHERE l.bon_id = b.id AND l.grocy_recipe_id IS NOT NULL
+          )
+        ORDER BY b.delivery_date, b.id
+    `).all(days);
+}
+
+// Bons der ser ud som en manglende trækning, men ikke er det: intet på bonen kan
+// trækkes. Tælles og nævnes med ét tal frem for at blive skjult helt — forsvinder
+// de sporløst, kan man ikke se forskel på "ingen problemer" og "kontrollen kigger
+// det forkerte sted".
+function findNothingToDeduct(db, days) {
+    return db.prepare(`
+        SELECT b.id, b.bon_number, b.delivery_date, sd.code AS status_code
+        FROM bons b
+        JOIN status_definitions sd ON b.status_id = sd.id
+        WHERE sd.code IN ('LEVERET','FAKTURERET','BETALT','AFSLUTTET')
+          AND COALESCE(b.is_offer, 0) = 0
+          AND COALESCE(b.inventory_deducted, 0) = 0
+          AND b.delivery_date >= date('now', '-' || ? || ' days')
+          AND b.delivery_date <= date('now')
+          AND NOT EXISTS (
+              SELECT 1 FROM bon_lines l
+              WHERE l.bon_id = b.id AND l.grocy_recipe_id IS NOT NULL
+          )
         ORDER BY b.delivery_date, b.id
     `).all(days);
 }
@@ -105,6 +149,15 @@ async function main() {
 
     const rows    = findUndeducted(db, DAYS);
     const partial = findPartial(db, DAYS);
+    const nothing = findNothingToDeduct(db, DAYS);
+
+    // Nævnes altid, også når alt er i orden — ellers kan man ikke se forskel på
+    // "ingen problemer" og "kontrollen kigger det forkerte sted".
+    if (nothing.length) {
+        logLine(`[deduct-check] ${nothing.length} leveret bon(s) har intet at trække `
+              + `(ingen opskriftskoblede linjer) — ikke en fejl, ikke medregnet.`);
+    }
+
     if (rows.length === 0 && partial.length === 0) {
         logLine(`[deduct-check] OK — alle leverede bons (seneste ${DAYS} dage) har trukket lager.`);
         return 0;
@@ -117,8 +170,9 @@ async function main() {
     if (rows.length) {
         logLine(`[deduct-check] ⚠ ${rows.length} leveret bon(s) de seneste ${DAYS} dage har IKKE trukket lager: `
               + rows.map(fmt).join(', '));
-        logLine(`[deduct-check] Trækket er tændt, så det burde ikke ske. Mulige årsager: Grocy nede ved LEVERET, `
-              + `en bon uden opskriftskobling, eller en consume-fejl. Tjek serverlog + scripts/dry-run-consume.js.`);
+        logLine(`[deduct-check] Trækket er tændt, så det burde ikke ske. Mulige årsager: Grocy nede ved LEVERET `
+              + `eller en consume-fejl. Tjek serverlog + scripts/dry-run-consume.js. `
+              + `(Bons uden opskriftskobling er sorteret fra — de kan aldrig trække noget.)`);
     }
     if (partial.length) {
         logLine(`[deduct-check] ⚠ ${partial.length} leveret bon(s) har trukket lager DELVIST — mindst ét produkt `
@@ -172,7 +226,7 @@ async function main() {
 }
 
 // Eksportér helpers til test uden at køre main().
-module.exports = { findUndeducted, findPartial };
+module.exports = { findUndeducted, findPartial, findNothingToDeduct };
 
 if (require.main === module) {
     main()

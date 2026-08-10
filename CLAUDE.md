@@ -3025,6 +3025,20 @@ efter bons UDEN flaget**, så den var blind for præcis den tilstand den blev by
   `event_prep_owns_stock`.
 - [scripts/check-inventory-deduct.js](scripts/check-inventory-deduct.js) fik `findPartial()` —
   delvise træk har flaget sat og var helt usynlige. Både log og alarm-mail dækker nu begge.
+- **Vagthundens afgrænsning rettet (9. august 2026).** Første kørsel i drift meldte tre
+  "manglende træk" der ingen af dem var fejl. Vinduet havde **ingen øvre datogrænse** —
+  beskeden sagde "de seneste N dage", men forespørgslen fangede alt fra N dage siden og
+  *frem*, så en bon med leveringsdato i 2027 blev rapporteret hver eneste dag indtil datoen
+  indtraf. Og bons **uden opskriftskoblede linjer** blev talt med, selvom de aldrig kan
+  trække noget; nye bons får `empty` + flaget sat, men historiske rækker fra før #359 står
+  med flaget på 0 for evigt (migration 141 bagudfyldte bevidst ikke). Begge afgrænsninger
+  ligger nu i SQL'en. `failed` slipper igennem datogrænsen — et forsøgt og mislykket træk
+  skal frem uanset dato. Bons uden noget at trække **tælles og nævnes** frem for at
+  forsvinde, så man kan se forskel på "ingen problemer" og "kontrollen kigger forkert".
+  En alarm der melder det samme hver dag om noget der ikke er galt, bliver ikke læst —
+  samme svigt som #305 selv. `npm run test:deduct-watchdog` (15 asserts mod den ægte SQL
+  og et rigtigt skema, mutationstestet). Målt på en kopi af driftsdata over 400 dage:
+  787 → 773 rapporterede, heraf 13 flyttet til "intet at trække" og 1 fremtidsdateret.
 - [office/views/events.js](office/views/events.js) viste `✓ lager trukket` ud fra flaget alene
   og bekræftede dermed løgnen for et menneske. Nu egne labels for delvis/fejlet.
 
