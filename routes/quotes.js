@@ -33,6 +33,44 @@ function getOfferDays(bonId) {
 }
 
 /**
+ * Dag-tilknytning på linjer — validering af `offer_day_id` i et linje-payload.
+ *
+ * `NULL` betyder **"alle dage"**, ikke "ingen dag", så en tom værdi er altid
+ * lovlig og er den normale tilstand for et ét-dags-tilbud. Et id skal derimod
+ * pege på en dag der hører til DETTE tilbud — ellers kan en linje enten blive
+ * usynlig (den hænger på en dag der aldrig konverteres) eller havne på et andet
+ * tilbuds dag.
+ *
+ * Hele listen valideres før der skrives noget, af samme grund som i `PUT /days`:
+ * linjerne indsættes replace-all, så et halvt gyldigt payload ville efterlade
+ * tilbuddet med færre varer end kunden ser i sit bilag.
+ *
+ * Returnerer `{ ids: [...] }` (parallelt med `lines`) eller `{ error }`.
+ */
+function resolveLineDayIds(bonId, lines) {
+    const valid = new Set(getOfferDays(bonId).map(d => d.id));
+    const ids = [];
+
+    for (const [i, l] of lines.entries()) {
+        const raw = l.offer_day_id;
+        if (raw === '' || raw == null) { ids.push(null); continue; }
+
+        const dayId = parseInt(raw);
+        if (!Number.isInteger(dayId) || !valid.has(dayId)) {
+            return {
+                error: valid.size === 0
+                    // Den typiske rækkefølgefejl: linjerne gemmes før dagene
+                    // findes. Sig hvad der mangler frem for bare "ugyldig".
+                    ? `Linje ${i + 1} peger på dag ${raw}, men tilbuddet har ingen dage endnu — gem dagene (PUT /days) først`
+                    : `Linje ${i + 1}: dag ${raw} hører ikke til dette tilbud`,
+            };
+        }
+        ids.push(dayId);
+    }
+    return { ids };
+}
+
+/**
  * PUT /:id/days — reconcile af tilbuddets dage.
  *
  * Klienten sender altid den fulde liste (samme mønster som `/forecast` og
@@ -198,21 +236,31 @@ function convertMultiDay(req, res, q, days) {
                 user_id: userId,
                 changelog_field: 'create',
                 changelog_message: `Oprettet fra tilbud ${q.bon_number} (${day.delivery_date})`,
-                broadcast_extra: { source: 'quote_convert', source_quote_id: q.id },
+                // Annonceres efter commit — se broadcast-løkken nedenfor.
+                broadcast: false,
             });
 
+            // `moms_included` skal med: uden den falder linjen tilbage på
+            // skemaets default, og en linje der bevidst lå EX moms (migration
+            // 104) ville blive læst som INCL i dagsbonnen. Ét-dags-stien flipper
+            // bare et flag og beholder alt, så de to veje skal ligne hinanden.
+            //
+            // `menu_group_id` kopieres derimod bevidst IKKE: grupperne ligger i
+            // `bon_menu_groups` med `bon_id` på TILBUDDET, så et kopieret id
+            // ville pege på en gruppe der hører til en anden bon.
             const ins = db.prepare(`
                 INSERT INTO bon_lines
                     (bon_id, block_type, grocy_recipe_id, product_name, category, quantity, unit,
-                     unit_price, cost_price, line_total, sort_order, notes, special_request, is_accessory)
-                VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?)
+                     unit_price, cost_price, line_total, sort_order, notes, special_request,
+                     is_accessory, moms_included)
+                VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
             `);
             lines.forEach((l, i) => {
                 ins.run(bonId, l.block_type ?? null, l.grocy_recipe_id ?? null, l.product_name,
                         l.category ?? null, l.quantity, l.unit ?? 'stk',
                         l.unit_price ?? null, l.cost_price ?? null, l.line_total ?? null,
                         l.sort_order ?? i, l.notes ?? null, l.special_request ?? null,
-                        l.is_accessory ?? 0);
+                        l.is_accessory ?? 0, l.moms_included ?? 1);
             });
 
             recalcBonTotalUnits(db, bonId);
@@ -231,6 +279,16 @@ function convertMultiDay(req, res, q, days) {
         notes: `Konverteret til ${created.length} bons: ${created.map(c => c.bon_number).join(', ')}`,
         userId,
     });
+
+    // Først her — efter commit — findes bonnerne. Havde `createBon` annonceret
+    // dem undervejs, ville en fejl på sidste dag efterlade huset med besked om
+    // bons der blev rullet tilbage.
+    for (const c of created) {
+        broadcast('bon_created', {
+            id: c.bon_id, bon_number: c.bon_number,
+            source: 'quote_convert', source_quote_id: q.id,
+        });
+    }
 
     // Tilbuddet skifter status (tilbudslisten), og der er kommet nye bons.
     broadcast('bon_updated', { id: q.id, bon_number: q.bon_number, is_offer: true });
@@ -262,7 +320,13 @@ function formatOffer(row) {
         company_name: row.company_name,
         customer_id: row.customer_id,
         company_id: row.company_id,
-        converted_to_bon: row.is_offer === 0 && row.offer_status === 'won',
+        day_count: row.day_count ?? 0,
+        // Ét-dags-tilbud konverteres ved at flippe `is_offer`; fler-dags beholder
+        // det (bilaget skal kunne slås op) og kendes i stedet på at det er vundet
+        // og har dage. Uden det andet led ville listen kalde et konverteret
+        // fler-dags-tilbud for uafklaret.
+        converted_to_bon: row.offer_status === 'won'
+            && (row.is_offer === 0 || (row.day_count ?? 0) > 1),
     };
 }
 
@@ -348,7 +412,10 @@ router.get('/', handle((req, res) => {
                b.offer_price_mode, b.offer_discount_percent,
                b.customer_id, b.company_id,
                c.first_name || ' ' || COALESCE(c.last_name,'') AS customer_name,
-               co.name AS company_name
+               co.name AS company_name,
+               -- Så listen kan sige "3 dage" uden et opslag pr. række. 0 = et
+               -- almindeligt ét-dags-tilbud, som langt de fleste er.
+               (SELECT COUNT(*) FROM offer_days od WHERE od.bon_id = b.id) AS day_count
         FROM bons b
         LEFT JOIN customers c  ON b.customer_id = c.id
         LEFT JOIN companies co ON b.company_id  = co.id
@@ -445,6 +512,15 @@ router.post('/', handle((req, res) => {
     const db = getDb();
     const b  = req.body;
 
+    // Dag-tilknytning kan ikke findes på et tilbud der ikke er oprettet endnu.
+    // Afvis FØR nummerserien trækkes og rækken skrives — ellers efterlader en
+    // afvist oprettelse et tomt tilbud og et brugt T-nummer.
+    if (Array.isArray(b.lines) && b.lines.some(l => l.offer_day_id != null && l.offer_day_id !== '')) {
+        return res.status(400).json({
+            error: 'offer_day_id kan først sættes når tilbuddet har dage — opret tilbuddet, gem dagene (PUT /days), og tildel derefter linjerne',
+        });
+    }
+
     const bonNumber = nextQuoteNumber();  // T-prefix, separat nummerserie
     const statusId  = getStatusId('TILBUD') || getStatusId('NY');
     const locationId = getDefaultLocationId();
@@ -491,11 +567,16 @@ router.post('/', handle((req, res) => {
 
     const bonId = result.lastInsertRowid;
 
-    // Indsæt linjer
+    // Indsæt linjer. Et nyt tilbud har endnu ingen dage, så `offer_day_id` kan
+    // kun være NULL her — men det valideres frem for at blive ignoreret, så en
+    // klient der sender en dag får det at vide i stedet for tavst at miste den.
     if (Array.isArray(b.lines)) {
+        const days = resolveLineDayIds(bonId, b.lines);
+        if (days.error) return res.status(400).json({ error: days.error });
+
         const insertLine = db.prepare(`
-            INSERT INTO bon_lines (bon_id, block_type, grocy_recipe_id, product_name, category, quantity, unit, unit_price, cost_price, line_total, sort_order, notes, is_accessory)
-            VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)
+            INSERT INTO bon_lines (bon_id, block_type, grocy_recipe_id, product_name, category, quantity, unit, unit_price, cost_price, line_total, sort_order, notes, is_accessory, offer_day_id)
+            VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?)
         `);
         b.lines.forEach((l, i) => {
             const qty = l.quantity ?? 1;
@@ -508,7 +589,8 @@ router.post('/', handle((req, res) => {
                 l.unit_price ?? null, l.cost_price ?? null,
                 lineTotal, l.sort_order ?? i,
                 l.notes ?? null,
-                l.is_accessory ? 1 : 0
+                l.is_accessory ? 1 : 0,
+                days.ids[i]
             );
         });
     }
@@ -594,12 +676,21 @@ router.patch('/:id', handle((req, res) => {
         }
     }
 
-    // Replace-all linjer
+    // Replace-all linjer.
+    //
+    // Fordi linjerne slettes og indsættes forfra, ejer payloadet dag-tilknytningen:
+    // en linje uden `offer_day_id` bliver en fælles-linje ("alle dage"). Det er
+    // korrekt for ét-dags-tilbud — de har ingen dage — men det betyder at en
+    // klient der HAR dage skal sende feltet med hver gang, ellers falder alle
+    // varer tilbage til at gælde alle dage. Dagene selv (`PUT /days`) er upåvirket.
     if (Array.isArray(b.lines)) {
+        const days = resolveLineDayIds(id, b.lines);
+        if (days.error) return res.status(400).json({ error: days.error });
+
         db.prepare('DELETE FROM bon_lines WHERE bon_id = ?').run(id);
         const insertLine = db.prepare(`
-            INSERT INTO bon_lines (bon_id, block_type, grocy_recipe_id, product_name, category, quantity, unit, unit_price, cost_price, line_total, sort_order, notes, is_accessory)
-            VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)
+            INSERT INTO bon_lines (bon_id, block_type, grocy_recipe_id, product_name, category, quantity, unit, unit_price, cost_price, line_total, sort_order, notes, is_accessory, offer_day_id)
+            VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?)
         `);
         b.lines.forEach((l, i) => {
             const qty = l.quantity ?? 1;
@@ -612,7 +703,8 @@ router.patch('/:id', handle((req, res) => {
                 l.unit_price ?? null, l.cost_price ?? null,
                 lineTotal, l.sort_order ?? i,
                 l.notes ?? null,
-                l.is_accessory ? 1 : 0
+                l.is_accessory ? 1 : 0,
+                days.ids[i]
             );
         });
 

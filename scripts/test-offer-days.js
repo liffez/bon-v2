@@ -155,17 +155,47 @@ async function main() {
         // ── 4. Linjer: dagsspecifikke + fælles ─────────────────────────────
         console.log('\n— Linjer: dagsspecifikke og fælles —');
         const dayIds = days.map(d => d.id);
+        const line = (name, qty, price, dayId) => ({
+            product_name: name, category: '01 Sandwich', quantity: qty, unit: 'stk',
+            unit_price: price, offer_day_id: dayId ?? null,
+        });
+
+        // Tilknytningen sættes gennem PATCH — den vej wizarden bruger. Skrives
+        // den i stedet med rå SQL, beviser resten af testen kun at konverteringen
+        // fordeler rigtigt, ikke at nogen kan komme til at fordele.
+        r = await http('PATCH', `/api/quotes/${multi.id}`, { lines: [
+            line('Kaffe', 42, 25, null),             // fælles — alle dage
+            line('Sandwich dag 1', 40, 100, dayIds[0]),
+            line('Salat dag 2', 60, 90, dayIds[1]),
+            line('Kage dag 3', 42, 35, dayIds[2]),
+        ]});
+        assert(r.status === 200, 'linjer gemt med dag-tilknytning gennem PATCH');
+
+        r = await http('GET', `/api/quotes/${multi.id}`);
+        const byName = Object.fromEntries((r.data.lines || []).map(l => [l.product_name, l]));
+        assert(byName['Kaffe']?.offer_day_id === null, 'fælles linje kommer retur uden dag');
+        assert(byName['Sandwich dag 1']?.offer_day_id === dayIds[0], 'dagslinje kommer retur med sin dag');
+
+        console.log('\n— Dag-tilknytning: ugyldigt payload skriver ikke —');
+        r = await http('PATCH', `/api/quotes/${multi.id}`, { lines: [line('Umulig', 1, 10, 999999)] });
+        assert(r.status === 400 && /hører ikke til/.test(r.data.error || ''), 'fremmed dag afvises');
+        r = await http('GET', `/api/quotes/${multi.id}`);
+        assert(r.data.lines.length === 4,
+            `de fire linjer står stadig efter afvist payload (fandt ${r.data.lines.length})`);
+
         dbx = openDb(TEST_DB);
-        const addLine = (name, qty, price, dayId) => dbx.prepare(`
-            INSERT INTO bon_lines (bon_id, product_name, category, quantity, unit, unit_price,
-                                   line_total, sort_order, offer_day_id)
-            VALUES (?,?,?,?,'stk',?,?,0,?)
-        `).run(multi.id, name, '01 Sandwich', qty, price, qty * price, dayId ?? null);
-        addLine('Kaffe', 42, 25, null);              // fælles — alle dage
-        addLine('Sandwich dag 1', 40, 100, dayIds[0]);
-        addLine('Salat dag 2', 60, 90, dayIds[1]);
-        addLine('Kage dag 3', 42, 35, dayIds[2]);
+        const quotesBefore = dbx.prepare('SELECT COUNT(*) c FROM bons WHERE is_offer=1').get().c;
         dbx.close();
+        r = await http('POST', '/api/quotes', {
+            template: 'event', delivery_date: '2026-10-01',
+            lines: [line('For tidlig', 1, 10, dayIds[0])],
+        });
+        assert(r.status === 400 && /gem dagene/.test(r.data.error || ''),
+            'dag på oprettelse afvises — tilbuddet har ingen dage endnu');
+        dbx = openDb(TEST_DB);
+        const quotesAfter = dbx.prepare('SELECT COUNT(*) c FROM bons WHERE is_offer=1').get().c;
+        dbx.close();
+        assert(quotesAfter === quotesBefore, 'den afviste oprettelse efterlod ikke et tomt tilbud');
 
         // ── 5. Konvertering: én bon pr. dag ────────────────────────────────
         console.log('\n— Konvertering: én bon pr. dag —');
@@ -223,6 +253,56 @@ async function main() {
         console.log('\n— Dobbelt-konvertering afvises —');
         r = await http('POST', `/api/quotes/${multi.id}/convert`);
         assert(r.status === 400, 'allerede konverteret → 400');
+
+        console.log('\n— Listen kan se at det er fler-dags —');
+        r = await http('GET', '/api/quotes');
+        const listed = (r.data || []).find(q => q.id === multi.id);
+        assert(listed?.day_count === 3, `day_count = 3 på listen (fik ${listed?.day_count})`);
+        assert(listed?.converted_to_bon === true,
+            'et vundet fler-dags-tilbud regnes som konverteret, selvom is_offer stadig er 1');
+        assert(!(r.data || []).some(q => q.id === single.id),
+            'det konverterede ét-dags-tilbud er væk fra listen — dét flipper is_offer');
+        // Et almindeligt tilbud uden dage skal stå med 0, ikke NULL: UI\'et
+        // afgør på tallet om der overhovedet skal vises en dags-sektion.
+        r = await http('POST', '/api/quotes', { template: 'single', delivery_date: '2026-12-01', lines: [] });
+        const plain = r.data;
+        r = await http('GET', '/api/quotes');
+        assert((r.data || []).find(q => q.id === plain.id)?.day_count === 0,
+            'tilbud uden dage har day_count 0');
+
+        console.log('\n— Køkkenet ser dagsbonnerne, ikke bilaget —');
+        r = await http('GET', '/api/bons/later?days=120');
+        const laterIds = (r.data || []).map(b => b.id);
+        assert(!laterIds.includes(multi.id),
+            'det vundne fler-dags-tilbud er væk fra Senere — ellers fire kort for tre dages arbejde');
+        assert(bons.every(b => laterIds.includes(b.id)), 'alle tre dagsbons er der');
+
+        console.log('\n— EX-moms-linjer bliver ikke til INCL ved kopiering —');
+        r = await http('POST', '/api/quotes', {
+            template: 'event', delivery_date: '2026-11-02', pax: 10,
+            lines: [line('Stadeleje', 1, 4000, null)],
+        });
+        const exq = r.data;
+        r = await http('PUT', `/api/quotes/${exq.id}/days`, { days: [
+            { delivery_date: '2026-11-02' }, { delivery_date: '2026-11-03' },
+        ]});
+        assert(r.status === 200, 'to dage på EX-moms-tilbuddet');
+        // Ingen endpoint sætter moms_included — flaget stammer fra event-udgifter
+        // (migration 104). Her simuleres en sådan linje; det testede er KOPIEN.
+        dbx = openDb(TEST_DB);
+        dbx.prepare(`UPDATE bon_lines SET moms_included = 0 WHERE bon_id = ?`).run(exq.id);
+        dbx.close();
+        r = await http('POST', `/api/quotes/${exq.id}/convert`);
+        assert(r.status === 200 && r.data.bons.length === 2, 'konverteret til to dage');
+        dbx = openDb(TEST_DB);
+        const exLines = dbx.prepare(`
+            SELECT bl.moms_included FROM bon_lines bl
+              JOIN bons b ON bl.bon_id = b.id
+             WHERE b.source_quote_id = ?
+        `).all(exq.id);
+        dbx.close();
+        assert(exLines.length === 2 && exLines.every(l => l.moms_included === 0),
+            'begge dage arvede moms_included = 0 — linjen ligger stadig ex moms');
 
         console.log('\n— Sletning af dag efterlader linjerne som fælles —');
         r = await http('PUT', `/api/quotes/${multi.id}/days`, { days: [

@@ -137,7 +137,12 @@ router.get('/later', handle((req, res) => {
         LEFT JOIN events e             ON b.event_id = e.id
         WHERE b.delivery_date >= ?
           AND b.delivery_date <= ?
-          AND (sd.code IN ('VENTER', 'GODKENDT', 'IGANG', 'KLAR') OR b.is_offer = 1)
+          AND (sd.code IN ('VENTER', 'GODKENDT', 'IGANG', 'KLAR')
+               -- Tilbud vises uanset bon-status, men KUN så længe de stadig er
+               -- tilbud. Et fler-dags-tilbud beholder is_offer = 1 efter accept
+               -- (bilaget skal kunne slås op), så uden filteret ville køkkenet se
+               -- fire kort for tre dages arbejde: de tre rigtige bons plus bilaget.
+               OR (b.is_offer = 1 AND COALESCE(b.offer_status, 'draft') != 'won'))
         ORDER BY b.is_offer ASC, b.delivery_date ASC, COALESCE(b.pickup_time, b.delivery_time) ASC, b.id ASC
     `).all(today, endDate);
 
@@ -193,7 +198,12 @@ router.get('/planning', handle((req, res) => {
         LEFT JOIN price_categories pc ON b.price_category_id = pc.id
         WHERE b.delivery_date >= ?
           AND b.delivery_date <= ?
-          AND (sd.code IN (${placeholders}) OR b.is_offer = 1)
+          -- Samme forbehold som i /later: et accepteret fler-dags-tilbud er
+          -- stadig is_offer = 1, og dets linjer ligger der endnu. Talte det
+          -- med her, ville produktionsplanen lægge hele arrangementet oveni
+          -- de dagsbons det netop blev til.
+          AND (sd.code IN (${placeholders})
+               OR (b.is_offer = 1 AND COALESCE(b.offer_status, 'draft') != 'won'))
         ORDER BY b.delivery_date ASC, COALESCE(b.pickup_time, b.delivery_time) ASC, b.id ASC
     `).all(from, to, ...statusCodes);
 

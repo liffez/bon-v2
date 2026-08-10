@@ -3,6 +3,8 @@
 > Ét bilag til kunden, én bon pr. dag ved accept.
 > Læs `CLAUDE_TILBUD.md` først (tilbudsmodulets grundmodel).
 > **Status: backend færdig og testet ([PR #436](https://github.com/liffez/bon-v2/pull/436), draft). UI mangler.**
+> Skrive-vejen til `offer_day_id`, køkken-synligheden, SSE-rækkefølgen og `moms_included`
+> blev lukket i en anden runde — se **API → rækkefølgen** og **Fælder**.
 > Skrevet 10. august 2026.
 
 ---
@@ -96,8 +98,10 @@ at opdage et tab efter at tilbuddet er sendt.
 
 | Endpoint | Bemærkning |
 |---|---|
-| `GET /api/quotes/:id` | returnerer nu `days: [...]` og `offer_day_id` på hver linje |
+| `GET /api/quotes` | hver række har `day_count` (0 = almindeligt ét-dags-tilbud) |
+| `GET /api/quotes/:id` | returnerer `days: [...]` og `offer_day_id` på hver linje |
 | `PUT /api/quotes/:id/days` | reconcile — send **altid den fulde liste** |
+| `PATCH /api/quotes/:id` | `lines[].offer_day_id` — her tildeles dagene |
 | `POST /api/quotes/:id/convert` | ≥2 dage ⇒ én bon pr. dag; ellers uændret |
 
 `PUT /days` **bevarer id'erne**. En slet-alt-og-indsæt-forfra ville rive linjernes
@@ -106,6 +110,28 @@ fælles-varer og dukkede op på hver eneste dag.
 
 Valideres fuldt ud **før** der skrives: dato-format, dublet-datoer, negativ pax.
 Et halvt gyldigt payload må ikke efterlade dagene delvist opdaterede.
+
+### Rækkefølgen er ikke valgfri: dage FØR linjer
+
+Der findes ingen `/lines`-underendpoints på tilbud. Linjerne kommer som et helt
+array på `POST /` og `PATCH /:id`, og **PATCH er replace-all** — den sletter alle
+linjer og indsætter dem forfra.
+
+Det giver ét kontraktkrav til klienten:
+
+1. `PUT /:id/days` → svaret indeholder dagenes **id'er**
+2. `PATCH /:id` med `lines[].offer_day_id` sat til de id'er
+
+Og én fælde: fordi linjerne indsættes forfra, **ejer payloadet dag-tilknytningen**.
+En klient der har dage men glemmer feltet, gør i samme åndedrag alle varer til
+fælles-varer — de dukker så op på hver eneste dag. Wizarden skal sende `offer_day_id`
+med hver gang, også når den er `null`.
+
+`offer_day_id` valideres mod tilbuddets **egne** dage; hele listen tjekkes før der
+skrives noget, så et afvist payload ikke efterlader tilbuddet med færre varer end
+kunden ser i sit bilag. På `POST /` afvises et sat `offer_day_id` — tilbuddet har
+per definition ingen dage endnu — og afvisningen sker før nummerserien trækkes, så
+et fejlslagent kald ikke efterlader et tomt tilbud og et brugt T-nummer.
 
 ---
 
@@ -130,6 +156,35 @@ bons kunne altså ikke oprettes atomisk.**
 Tilbuddets 800 kr lagt på hver af tre dage bliver 2.400 kr, **uden at nogen har aftalt
 det**. Den følger kun første dag; office kan flytte den hvis turen reelt er delt.
 
+### Et vundet fler-dags-tilbud blev hængende i køkkenet
+
+Beslutning 4 har en konsekvens der ikke er til at se fra tilbudsmodulet: `/later`
+og `/planning` viste **enhver** `is_offer = 1` uanset `offer_status`. Et ét-dags-tilbud
+forsvinder ved konvertering (flaget flippes), men et fler-dags gør ikke — så køkkenet
+ville se fire kort for tre dages arbejde, og produktionsplanen ville lægge hele
+arrangementet oveni de dagsbons det netop var blevet til. Begge steder ekskluderer nu
+`offer_status = 'won'`.
+
+Kalenderen er urørt: den viser tilbud efter status-filteret, og et vundet bilag med
+TILBUD-status hører stadig hjemme dér.
+
+### SSE kan ikke rulles tilbage
+
+`createBon()` broadcastede `bon_created` selv, og `convertMultiDay` kalder den inde i
+transaktionen. Fejlede dag 3, var dag 1 og 2 allerede annonceret ud i huset — for bons
+der aldrig kom til at findes. `createBon()` tager nu `broadcast: false`, og
+konverteringen annoncerer selv **efter** commit.
+
+### `moms_included` fulgte ikke med linjen
+
+Kopierings-INSERT'en listede 14 felter uden `moms_included`, så en linje der bevidst lå
+EX moms (migration 104) ville blive læst som INCL i dagsbonnen. Ét-dags-stien flipper
+bare et flag og beholder alt — de to veje skal ligne hinanden.
+
+> Rettelsen var først virkningsløs: **`getBonLines()` valgte slet ikke kolonnen**, så
+> `l.moms_included` var altid `undefined`. Feltet er nu med i helperen — hvilket
+> betyder at enhver anden kalder der kopierer linjer videre, havde samme blinde vinkel.
+
 ### `createBon()` og NOT NULL-defaults
 
 `delivery_type` og `price_category` er NOT NULL med defaults i skemaet, men et
@@ -149,9 +204,18 @@ Begge har nu deres skema-default gentaget i koden.
    **Arvede felter skal vise tilbuddets værdi som `placeholder`, ikke som udfyldt
    værdi.** Ellers kan man ikke se forskel på "denne dag arver" og "denne dag har
    tilfældigvis samme værdi" — og gemmer man, låses arven fast.
+   **Fjernes en dag der har egne linjer, skal der advares først.** `ON DELETE SET NULL`
+   er skånsom over for dataene, men resultatet er at netop de varer nu gælder *alle*
+   dage. Klienten kan se det på forhånd: linjerne har `offer_day_id`.
 2. **Trin 2** — dag-vælger pr. linje med **"Alle dage" som eksplicit førstevalg**
    (= `offer_day_id: null`). Kun synlig når `days.length > 1`.
+   Husk kontrakten ovenfor: dagene skal være gemt før linjerne, og feltet skal med
+   i hver PATCH.
 3. **Preview + PDF** — dag-overskrifter når `days.length > 1`. Totalen samlet nederst.
+   **Hvor totalen står (pr. dag / samlet / begge) er stadig ubesvaret — se punkt 6
+   nedenfor.** Det valg kan ikke udskydes forbi PDF-implementeringen.
+4. **Tilbudslisten** — `day_count > 1` bør kunne ses på rækken ("3 dage"), ellers
+   ligner et fler-dags-tilbud et almindeligt ét-dags med en tilfældig dato.
 
 **Ét-dags-tilbud skal se ud og opføre sig præcis som i dag.** Det er den regression
 der betyder mest, og den er første test i suiten.
@@ -160,12 +224,17 @@ der betyder mest, og den er første test i suiten.
 
 ## Test
 
-`scripts/test-offer-days.js` — **43 asserts** mod de ægte endpoints over HTTP, isoleret
+`scripts/test-offer-days.js` — **59 asserts** mod de ægte endpoints over HTTP, isoleret
 DB i `/tmp`, prod røres ikke.
 
 ```bash
 node --experimental-sqlite scripts/test-offer-days.js
 ```
+
+Dag-tilknytningen sættes gennem `PATCH /:id`, ikke med rå SQL. Den første udgave af
+testen skrev `offer_day_id` direkte i databasen — det beviste at konverteringen
+fordelte rigtigt, men ikke at nogen kunne komme til at fordele. Der fandtes i
+virkeligheden slet ingen skrive-vej.
 
 Mutations-testet (alle fanget):
 
@@ -174,6 +243,13 @@ Mutations-testet (alle fanget):
 | fælles linjer kopieres ikke til hver dag | 4 |
 | leveringsprisen lægges på hver dag | 2 |
 | dagens egen pax ignoreres | 1 |
+| `offer_day_id` skrives ikke ved PATCH | 5 |
+| køkkenet filtrerer ikke vundne tilbud fra | 1 |
+| `moms_included` kopieres ikke | 1 |
+
+Regression efter ændringerne i `db/helpers.js` (delt af hele huset): moms-suiten 37,
+event-menu 42, topup 35, prep-packing 12, recipe-factor 8, subrecipe-status 16,
+packing-units 18 — alle grønne.
 
 ---
 
@@ -182,6 +258,9 @@ Mutations-testet (alle fanget):
 - **(5) Pris pr. dag** — `offer_price_mode` er i dag total/blok/linje. Skal der være
   en pris pr. dag?
 - **(6) PDF** — hvor står totalen: pr. dag, samlet, eller begge?
-- **(7) Delvis accept** — kunden vil have dag 1 og 3, ikke dag 2.
+- **(7) Delvis accept** — kunden vil have dag 1 og 3, ikke dag 2. Backenden kan det
+  allerede: slet dag 2 før konvertering. Fælden er at dag 2's linjer så bliver
+  *fælles* og dukker op på både dag 1 og 3 — derfor advarslen i punkt 1 ovenfor.
+  Uden den er "skånsom" i praksis "tavs".
 
 Kerneproblemet — ét bilag, N bons ved accept — er løst uden dem.

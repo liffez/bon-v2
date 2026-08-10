@@ -106,6 +106,10 @@ function getBonLines(bonId) {
                -- offer_day_id: hvilken dag på et fler-dags-tilbud linjen hører
                -- til. NULL = alle dage (#425, migration 145).
                offer_day_id,
+               -- moms_included: 0 = linjen ligger EX moms (migration 104,
+               -- event-udgifter). Manglede her, så enhver kalder der kopierede
+               -- linjer videre tavst gjorde dem til INCL-moms-linjer.
+               moms_included,
                menu_group_id
         FROM bon_lines
         WHERE bon_id = ?
@@ -441,10 +445,16 @@ function createBon(input = {}) {
         userId: input.user_id ?? null,
     });
 
-    // Lazy-require for at undgå cirkulær afhængighed (samme mønster som
-    // autoConsumeBonInventory's grocyAdapter-require ovenfor).
-    const { broadcast } = require('../shared/sse');
-    broadcast('bon_created', { id: bonId, bon_number: bonNumber, ...(input.broadcast_extra || {}) });
+    // `broadcast: false` for kaldere der opretter FLERE bons i én transaktion
+    // (fler-dags-tilbud, #425). SSE kan ikke rulles tilbage: fejler bon nr. 3,
+    // er nr. 1 og 2 allerede annonceret ud i huset selvom de aldrig kom til at
+    // findes. De kaldere annoncerer selv, efter commit.
+    if (input.broadcast !== false) {
+        // Lazy-require for at undgå cirkulær afhængighed (samme mønster som
+        // autoConsumeBonInventory's grocyAdapter-require ovenfor).
+        const { broadcast } = require('../shared/sse');
+        broadcast('bon_created', { id: bonId, bon_number: bonNumber, ...(input.broadcast_extra || {}) });
+    }
 
     return { bonId, bonNumber };
 }
