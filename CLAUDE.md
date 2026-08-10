@@ -2304,20 +2304,19 @@ event-menu 42, topup 35.
 
 **Kategorier starter foldet sammen.** En blok viste elleve kategori-overskrifter med
 alle varer under sig — en skærmfuld scroll før man var i gang.
-`_tSeedCollapsedCategories()` folder dem sammen som udgangspunkt, **men holder
-kategorier med valgte varer åbne**: ellers ville en blok med indhold se tom ud, og man
-skulle klikke sig frem for at se sin egen menu. Antals-badgen viser hvor der er noget i
-de lukkede.
+`_tSeedCollapsedCategories()` folder **alle** sammen, også dem med valgte varer:
+antals-badgen på overskriften viser allerede hvor der er indhold, så linjerne behøver
+ikke være fremme for at man ved det. (Første udgave holdt de valgte åbne — unødigt,
+netop fordi badgen findes.)
 
 Foldningen er brugerens så snart hun rører den (`_tColCatSeeded`) — et almindeligt
 re-render (antalsændring, prisskift) må ikke folde om bag ryggen på hende. Flaget
 nulstilles kun ved wizard-reset og **efter en import/kopiering**, så det man netop har
-hentet bliver synligt med det samme.
+hentet kan ses.
 
-Verificeret: nyt tilbud → alle seks kategorier lukkede, nul varelinjer at scrolle forbi.
-Tilbud med varer i to kategorier → netop de to åbne (3 varelinjer i stedet for 7). Klik
-på en kategori overlever et efterfølgende re-render. Import af varer i to lukkede
-kategorier → de foldes frem, de tomme forbliver lukkede.
+Verificeret: en blok med varer i to kategorier fylder nu fem linjer i stedet for en
+skærmfuld, med badges på de to. Klik på en kategori overlever et efterfølgende
+re-render. Import folder om, så det hentede kan findes.
 
 **Stadig åbent i #427:** man kan ikke vælge *hvilken* dag der hentes fra i et
 fler-dags-tilbud — det afventer #425.

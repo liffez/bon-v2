@@ -1134,37 +1134,26 @@ async function _tCopyBon(bonId) {
 /* ── Step 2: Sammensæt ───────────────────────────────── */
 
 /**
- * Fold kategorierne sammen som udgangspunkt, så en blok ikke fylder elleve
+ * Fold alle kategorier sammen som udgangspunkt, så en blok ikke fylder elleve
  * kategori-overskrifter og en skærmfuld scroll før man er i gang.
  *
- * Kategorier der HAR valgte varer holdes åbne — ellers ville en blok med
- * indhold se tom ud, og man skulle klikke sig frem for at se sin egen menu.
- * Antals-badgen viser hvor der er noget i de lukkede.
+ * Også dem med valgte varer: antals-badgen på overskriften viser allerede hvor
+ * der er indhold, så man behøver ikke se linjerne for at vide det.
  *
  * Kører kun når foldetilstanden ikke er sat af brugeren endnu (`_tColCatSeeded`).
  * Efter en import eller kopiering nulstilles flaget, så det man netop har hentet
- * bliver synligt — men et klik man selv har lavet overlever et re-render.
+ * kan ses — men et klik man selv har lavet overlever et re-render.
  */
 function _tSeedCollapsedCategories() {
     if (_tColCatSeeded || !_tMenu) return;
     _tColCatSeeded = true;
     _tColCat = new Set();
 
-    const hasPick = (items, chosen) => items.some(it => chosen.some(x => x.id === it.id));
-
+    const cats = _tSortedCats().filter(c => (_tMenu[c] || []).length);
     if (_tTpl === 'event') {
-        for (const b of _tBLOCKS) {
-            const chosen = _tEvBlk[b.id] || [];
-            for (const cat of _tSortedCats()) {
-                const items = _tMenu[cat] || [];
-                if (items.length && !hasPick(items, chosen)) _tColCat.add(`${b.id}::${cat}`);
-            }
-        }
+        for (const b of _tBLOCKS) for (const cat of cats) _tColCat.add(`${b.id}::${cat}`);
     } else {
-        for (const cat of _tSortedCats()) {
-            const items = _tMenu[cat] || [];
-            if (items.length && !hasPick(items, _tSiItems)) _tColCat.add(cat);
-        }
+        for (const cat of cats) _tColCat.add(cat);
     }
 }
 
