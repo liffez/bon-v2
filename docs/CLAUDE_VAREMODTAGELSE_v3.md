@@ -790,11 +790,37 @@ sqlite3 /var/www/html/whiteboard/db/whiteboard.sqlite "
 
 ---
 
+## Modtagelseslog (august 2026)
+
+Registreringerne blev gemt korrekt, men **ingen visning i Bon v2 læste dem** —
+`fetchGoodsReceipts()` havde nul forbrugere. Webhooken til Whiteboard var derfor
+i praksis det eneste vindue ind til dem, og den var slukket (`whiteboard_webhook_url`
+tom siden migration 035 blev seedet 11. april 2026). Resultat: fem registreringer
+mellem maj og august var usynlige fra det øjeblik succes-skærmen forsvandt, og
+køkkenet gik tilbage til Whiteboards egen formular — den uden lagerdelen.
+
+Tilføjet:
+
+| Hvad | Hvor |
+|------|------|
+| 🗂 Modtagelseslog — liste + detalje med FVST-data, varer og foto | `shared/varemodtagelse.js` (samme container, virker i køkken + mobil) |
+| Loggen kan åbnes selvom Grocy er nede | `initVaremodtagelse` catch-gren — dokumentationen er uafhængig af Grocy |
+| Webhook-URL kan sættes uden SQL + status og forsøgslog | Settings → Integrationer → Whiteboard |
+| `whiteboard: { configured, dispatched }` i POST-svaret | `routes/goods-receipts.js` — `webhook_sent`/`webhook_dispatched` stod altid på `true`, også når intet blev sendt (bevaret som deprecated) |
+| `GET /webhook-log`, `POST /:id/resend-webhook` | do. — gensend nægter når `whiteboard_synced_at` er sat (Whiteboard afviser ikke dubletter) |
+| Backfill af efterslæb | `scripts/resend-goods-receipt-webhooks.js` (dry-run default) |
+| Regressionstest | `scripts/test-goods-receipt-webhook.js` — 27 asserts, mutations-testet |
+
+**Driftsnote:** feltet skal pege på `/api/events`, ikke på Whiteboards forside.
+En URL uden stien giver et 404 der ligner "noget blev sendt".
+
+---
+
 ## Udskydes
 
 | Feature | Hvornår |
 |---------|---------|
 | PDF-eksport til Fødevarestyrelsen | Fase 7 |
-| Webhook retry-job (automatisk genforsøg) | Fase 7 |
+| Webhook retry-job (automatisk genforsøg) | Fase 7 — indtil da: gensend-knappen i loggen + backfill-scriptet |
 | Kobling til `purchase_orders`-tabel | Indkøb bruger Grocy userfields endnu — `purchase_order_id` nullable og ubrugt i v1 |
 | Temperatur-log over tid (kølekæde-rapport) | Fremtid |

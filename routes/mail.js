@@ -792,17 +792,8 @@ router.patch('/unmatched/:id', requireModule('crm'), handle(async (req, res) => 
             VALUES (?, ?, ?, 'aaben')
         `).run(um.subject || '', linked_bon_id || null, linked_customer_id || null).lastInsertRowid;
 
-        const newMsgId = db.prepare(`
-            INSERT INTO mail_messages (thread_id, message_id, direction, from_email, from_name, to_email, subject, body_text, body_html, is_read, imap_uid, mailbox, received_at)
-            VALUES (?, ?, 'in', ?, ?, ?, ?, ?, ?, 0, ?, ?, ?)
-        `).run(threadId, um.message_id, um.from_email, um.from_name, um.to_email || um.mailbox, um.subject, um.body_text, um.body_html, um.imap_uid, um.mailbox, um.received_at).lastInsertRowid;
-
-        // Flyt evt. vedhæftninger (inkl. inline CID-billeder) med over til beskeden
-        // så de fortsat vises i tråd-visningen.
-        const moved = db.prepare(`UPDATE mail_attachments SET message_id = ?, unmatched_id = NULL WHERE unmatched_id = ?`).run(Number(newMsgId), id);
-        if (moved.changes > 0) {
-            db.prepare(`UPDATE mail_messages SET has_attachments = 1 WHERE id = ?`).run(Number(newMsgId));
-        }
+        // Indsættes ulæst → tråden er nyt, uhåndteret arbejde i indbakken.
+        insertMessageFromUnmatched(db, um, Number(threadId), { isRead: 0 });
 
         db.prepare(`
             UPDATE mail_unmatched SET status = 'linked', linked_customer_id = ?, linked_bon_id = ?, handled_by_user_id = ?, handled_at = CURRENT_TIMESTAMP
@@ -899,6 +890,33 @@ function splitName(fromName) {
 // findes (samme find-or-create-logik som mailService.sendMail bruger på customer_id),
 // indsætter den oprindelige mail som indgående besked og markerer den linket.
 // Idempotent: en allerede-linket mail genindsættes ikke.
+// Flyt en ufordelt mail ind i en tråd som rigtig besked.
+//
+// ÉN vej for alle link-flows (Link til Kunde/Bon, Opret lead, Svar). Var
+// tidligere duplikeret, og kopierne drev fra hinanden: create-lead/reply-vejen
+// tabte både body_html og vedhæftningerne, så en ansøgning med PDF endte som
+// ren tekst uden fil på kunden. Ændr her — ikke i kaldstederne.
+function insertMessageFromUnmatched(db, um, threadId, { isRead = 0 } = {}) {
+    const newMsgId = db.prepare(`
+        INSERT INTO mail_messages (thread_id, message_id, direction, from_email, from_name, to_email, subject, body_text, body_html, is_read, imap_uid, mailbox, received_at)
+        VALUES (?, ?, 'in', ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+    `).run(threadId, um.message_id, um.from_email, um.from_name, um.to_email || um.mailbox,
+           um.subject, um.body_text, um.body_html, isRead ? 1 : 0,
+           um.imap_uid, um.mailbox, um.received_at).lastInsertRowid;
+
+    // Vedhæftninger (inkl. inline CID-billeder) følger med over på beskeden,
+    // så de fortsat kan ses — og så body_html'ens cid:-referencer stadig peger
+    // på en fil vi kan servere.
+    const moved = db.prepare(
+        `UPDATE mail_attachments SET message_id = ?, unmatched_id = NULL WHERE unmatched_id = ?`
+    ).run(Number(newMsgId), um.id);
+    if (moved.changes > 0) {
+        db.prepare(`UPDATE mail_messages SET has_attachments = 1 WHERE id = ?`).run(Number(newMsgId));
+    }
+
+    return Number(newMsgId);
+}
+
 function linkUnmatchedToCustomer(db, um, customerId, userId) {
     let thread = db.prepare(
         `SELECT id FROM mail_threads WHERE customer_id = ? AND status = 'active' ORDER BY updated_at DESC LIMIT 1`
@@ -915,10 +933,8 @@ function linkUnmatchedToCustomer(db, um, customerId, userId) {
     }
 
     if (um.status !== 'linked') {
-        db.prepare(`
-            INSERT INTO mail_messages (thread_id, message_id, direction, from_email, from_name, to_email, subject, body_text, is_read, imap_uid, mailbox, received_at)
-            VALUES (?, ?, 'in', ?, ?, ?, ?, ?, 1, ?, ?, ?)
-        `).run(threadId, um.message_id, um.from_email, um.from_name, um.to_email || um.mailbox, um.subject, um.body_text, um.imap_uid, um.mailbox, um.received_at);
+        // Indsættes læst: mailen håndteres her og nu.
+        insertMessageFromUnmatched(db, um, Number(threadId), { isRead: 1 });
         db.prepare(`
             UPDATE mail_unmatched
                SET status = 'linked', linked_customer_id = ?, handled_by_user_id = ?, handled_at = CURRENT_TIMESTAMP

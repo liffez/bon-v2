@@ -52,6 +52,8 @@ var _vmShoppingList = [];    // raw Grocy shopping list
 var _vmProductNames = {};    // grocy product_id → name
 var _vmProductStockQu = {};  // grocy product_id → qu_id_stock
 var _vmQuNames = {};         // grocy qu_id → name
+var _vmConversions = [];     // grocy quantity_unit_conversions — til forhåndstjek (#358)
+var _vmConversionsLoaded = false;  // nåede de frem? Uden dem advarer vi ikke — se _vmUnitIssue
 var _vmDom = {};             // cached DOM refs
 
 /* ── Entry point ─────────────────────────────────────────── */
@@ -90,6 +92,10 @@ async function initVaremodtagelse(el) {
             fetchGrocyProducts(),
             fetchGrocyQuantityUnits(),
             fetch('/api/smartplan/employees').then(function(r) { return r.ok ? r.json() : []; }).catch(function() { return []; }),
+            // Enhedsomregninger til forhåndstjekket (#358). Fejler kaldet, mister vi
+            // kun ADVARSLEN — serveren nægter stadig at gætte. Derfor .catch og ikke
+            // en fejl der forhindrer en modtagelse i at blive registreret.
+            fetchGrocyQuantityUnitConversions().catch(function() { return null; }),
         ]);
 
         var localStaff = results[0] || [];
@@ -99,6 +105,11 @@ async function initVaremodtagelse(el) {
         var qus = results[4] || [];
         var spRaw = results[5];
         var spEmployees = Array.isArray(spRaw) ? spRaw : (spRaw && spRaw.employees ? spRaw.employees : []);
+        // null = kaldet fejlede. Tom liste ville ellers se ud som "ingen
+        // omregninger findes" og udløse en advarsel på HVER vare med afvigende
+        // enhed — 22 falske alarmer ved et Grocy-hik.
+        _vmConversionsLoaded = Array.isArray(results[6]);
+        _vmConversions = _vmConversionsLoaded ? results[6] : [];
 
         // Merge: lokale staff + Smartplan (filtrér duplikater på navn)
         var localNames = {};
@@ -150,7 +161,31 @@ async function initVaremodtagelse(el) {
         _vmBuildPage();
     } catch (err) {
         console.error('[varemodtagelse] Init fejl:', err);
-        _vmContainer.innerHTML = '<div class="vm-app"><div class="vm-loading" style="color:#c0392b;">Fejl: ' + _vmEsc(err.message) + '</div></div>';
+
+        // Loggen skal kunne åbnes selvom NY modtagelse ikke kan startes.
+        // Registreringen kræver Grocy (varer, enheder, leverandører) — men
+        // fødevarekontrol-dokumentationen ligger i Bon v2's egen database og
+        // er uafhængig af Grocy. Er Grocy nede, må FVST-loggen ikke ryge med.
+        var app = document.createElement('div');
+        app.className = 'vm-app';
+        var content = document.createElement('div');
+        content.className = 'vm-content';
+        content.appendChild(_vmBuildTopBar());
+
+        var msg = document.createElement('div');
+        msg.className = 'vm-loading';
+        msg.style.color = '#c0392b';
+        msg.textContent = 'Kan ikke starte ny varemodtagelse: ' + err.message;
+        content.appendChild(msg);
+
+        var hint = document.createElement('div');
+        hint.className = 'vm-hist-empty';
+        hint.textContent = 'Tidligere modtagelser kan stadig ses under 🗂 Modtagelseslog.';
+        content.appendChild(hint);
+
+        app.appendChild(content);
+        _vmContainer.innerHTML = '';
+        _vmContainer.appendChild(app);
     }
 }
 
@@ -213,6 +248,9 @@ function _vmBuildPage() {
 
     var content = document.createElement('div');
     content.className = 'vm-content';
+
+    // ── Topbar: adgang til modtagelsesloggen
+    content.appendChild(_vmBuildTopBar());
 
     // ── FØDEVAREKONTROL divider
     content.appendChild(_vmDivider('F\u00f8devarekontrol'));
@@ -458,6 +496,79 @@ function _vmOnSupplierChange(key) {
     _vmUpdateBtn();
 }
 
+/* ── Enheds-forhåndstjek (#358) ──────────────────────────────
+ *
+ * Tallet på skærmen står i INDKØBS-enhed ("4 Kasse"); Grocy fører lageret i
+ * lager-enhed (kilo eller stk). Findes omregningen ikke, nægter serveren at
+ * gætte — men det opdagede man først EFTER at have trykket Godkend, stående
+ * med varerne i hånden, og løsningen lå et andet sted i et andet system.
+ *
+ * Derfor tjekkes det her, mens varelisten bygges: før der er tastet noget,
+ * og hvor den der kender svaret står. Serverens nægtelse bliver stående som
+ * sikkerhedsnet — en cachet browser eller et direkte API-kald går uden om det
+ * her tjek. */
+
+/**
+ * Spejler findConversionFactor i services/quConvert.js — samme rækkefølge,
+ * samme sammenligning. Divergerer de to, ville skærmen sige god for noget
+ * serveren bagefter nægter, og vi var tilbage ved fejlen vi retter.
+ */
+function _vmFindFactor(productId, fromQuId, toQuId) {
+    if (fromQuId === toQuId) return 1;
+    var c = _vmConversions;
+
+    for (var i = 0; i < c.length; i++) {
+        if (c[i].product_id === productId && c[i].from_qu_id === fromQuId && c[i].to_qu_id === toQuId) {
+            return parseFloat(c[i].factor) || 1;
+        }
+    }
+    for (var j = 0; j < c.length; j++) {
+        if (c[j].product_id === productId && c[j].from_qu_id === toQuId && c[j].to_qu_id === fromQuId) {
+            return 1 / (parseFloat(c[j].factor) || 1);
+        }
+    }
+    for (var k = 0; k < c.length; k++) {
+        if (!c[k].product_id && c[k].from_qu_id === fromQuId && c[k].to_qu_id === toQuId) {
+            return parseFloat(c[k].factor) || 1;
+        }
+    }
+    for (var m = 0; m < c.length; m++) {
+        if (!c[m].product_id && c[m].from_qu_id === toQuId && c[m].to_qu_id === fromQuId) {
+            return 1 / (parseFloat(c[m].factor) || 1);
+        }
+    }
+    return null;
+}
+
+/**
+ * Mangler varen en omregning til sin lager-enhed?
+ * @returns {null|{from:number, to:number, fromName:string, toName:string}}
+ */
+function _vmUnitIssue(item) {
+    if (!_vmConversionsLoaded) return null;             // kunne ikke tjekke — så påstår vi intet
+    if (!item || !item.grocy_product_id) return null;   // manuel vare — rører aldrig lageret
+    var pid  = parseInt(item.grocy_product_id);
+    var from = item.qu_id != null && item.qu_id !== '' ? parseInt(item.qu_id) : null;
+    var to   = _vmProductStockQu[item.grocy_product_id] != null
+        ? parseInt(_vmProductStockQu[item.grocy_product_id]) : null;
+
+    if (!to) return null;            // ingen lager-enhed i Grocy — serveren melder den
+    if (from === null) return null;  // ingen enhed oplyst — serveren afgør (og accepterer kun når den ikke KAN være tvetydig)
+    if (from === to) return null;    // samme enhed, intet at omregne
+    if (_vmFindFactor(pid, from, to) !== null) return null;
+
+    return {
+        from: from,
+        to: to,
+        fromName: _vmQuNames[from] || ('enhed ' + from),
+        toName: _vmQuNames[to] || ('enhed ' + to),
+    };
+}
+
+function _vmUnitIssueItems() {
+    return _vmState.items.filter(function(it) { return _vmUnitIssue(it) !== null; });
+}
+
 function _vmBuildItemsFromShoppingList(supplierKey) {
     // Filter shopping list for this supplier
     var matching = _vmShoppingList.filter(function(sl) {
@@ -476,7 +587,12 @@ function _vmBuildItemsFromShoppingList(supplierKey) {
                 product_name: _vmProductNames[pid] || sl.product_name || 'Produkt #' + pid,
                 expected: 0,
                 received: 0,
+                // Enhedens NAVN til visning — og dens ID til serverens omregning (#358).
+                // Tallet fra indkøbslisten står i INDKØBS-enhed; uden qu_id kan
+                // serveren ikke vide det, og Grocy læser tallet som lager-enhed.
+                // Det gjorde "10 Antal spidskål" til 10 kg i drift.
                 unit: _vmQuNames[sl.qu_id] || _vmQuNames[_vmProductStockQu[pid]] || '',
+                qu_id: sl.qu_id != null ? sl.qu_id : (_vmProductStockQu[pid] || null),
                 status: 'ok',
                 notes: '',
                 slIds: [],
@@ -930,6 +1046,13 @@ function _vmRenderLagerContent() {
 
     el.appendChild(banner);
 
+    // Enheds-advarsel (#358). Ligger UDEN FOR varelisten med vilje: listen er
+    // foldet sammen som default, og "Godkend alt" er den normale vej igennem.
+    // En advarsel inde i listen ville derfor ikke blive set af dem der bruger
+    // skærmen som den er tænkt.
+    var issues = _vmUnitIssueItems();
+    if (issues.length > 0) el.appendChild(_vmBuildUnitWarnBanner(issues));
+
     // Item list (collapsed)
     var list = document.createElement('div');
     list.className = 'vm-item-list';
@@ -964,6 +1087,140 @@ function _vmRenderLagerContent() {
     el.appendChild(list);
 }
 
+/* ── Enheds-advarsel + ret-på-stedet (#358) ──────────────── */
+
+function _vmBuildUnitWarnBanner(issues) {
+    var box = document.createElement('div');
+    box.className = 'vm-unit-warn-banner';
+
+    var names = issues.map(function(it) {
+        var u = _vmUnitIssue(it);
+        return _vmEsc(it.product_name) + ' (' + _vmEsc(u.fromName) + ' → ' + _vmEsc(u.toName) + ')';
+    }).join(', ');
+
+    box.innerHTML =
+        '<div class="vm-unit-warn-title">⚠ ' + issues.length +
+        (issues.length === 1 ? ' vare kan ikke lægges på lager' : ' varer kan ikke lægges på lager') + '</div>' +
+        '<div class="vm-unit-warn-body">Grocy ved ikke hvor meget der er i én af enhederne: ' + names +
+        '. Fødevarekontrollen gemmes uanset — men lageret bliver ikke opdateret for dem.</div>';
+
+    var btn = document.createElement('button');
+    btn.className = 'vm-unit-warn-btn';
+    btn.type = 'button';
+    btn.textContent = 'Ret nu';
+    btn.addEventListener('click', function() {
+        if (!_vmState.itemListOpen) _vmToggleItemList();
+        var first = _vmDom.itemList && _vmDom.itemList.querySelector('.vm-unit-fix');
+        if (first && first.scrollIntoView) first.scrollIntoView({ behavior: 'smooth', block: 'center' });
+        var inp = first && first.querySelector('.vm-unit-fix-input');
+        if (inp) inp.focus();
+    });
+    box.appendChild(btn);
+
+    return box;
+}
+
+/**
+ * Feltet der lukker hullet: ét tal, stillet som spørgsmålet det er.
+ * Svaret kender den der står med kassen — ikke kontoret, og ikke serveren.
+ */
+function _vmBuildUnitFix(index, issue) {
+    var item = _vmState.items[index];
+
+    var box = document.createElement('div');
+    box.className = 'vm-unit-fix';
+    box.innerHTML =
+        '<div class="vm-unit-fix-title">⚠ Lægges ikke på lager</div>' +
+        '<div class="vm-unit-fix-body">Hvor meget er én ' + _vmEsc(issue.fromName) +
+        ' i ' + _vmEsc(issue.toName) + '?</div>';
+
+    var row = document.createElement('div');
+    row.className = 'vm-unit-fix-row';
+
+    var lead = document.createElement('span');
+    lead.className = 'vm-unit-fix-lead';
+    lead.textContent = '1 ' + issue.fromName + ' =';
+
+    var input = document.createElement('input');
+    input.className = 'vm-unit-fix-input';
+    input.type = 'number';
+    input.min = '0';
+    input.step = 'any';
+    input.placeholder = '0';
+
+    var tail = document.createElement('span');
+    tail.className = 'vm-unit-fix-tail';
+    tail.textContent = issue.toName;
+
+    var saveBtn = document.createElement('button');
+    saveBtn.className = 'vm-unit-fix-save';
+    saveBtn.type = 'button';
+    saveBtn.textContent = 'Gem';
+
+    var msg = document.createElement('div');
+    msg.className = 'vm-unit-fix-msg';
+
+    saveBtn.addEventListener('click', function() {
+        var factor = parseFloat(input.value);
+        if (!(factor > 0)) {
+            msg.className = 'vm-unit-fix-msg vm-err';
+            msg.textContent = 'Skriv et tal større end 0.';
+            return;
+        }
+
+        saveBtn.disabled = true;
+        saveBtn.textContent = 'Gemmer…';
+        msg.className = 'vm-unit-fix-msg';
+        msg.textContent = '';
+
+        postGrocyQuConversion({
+            product_id: parseInt(item.grocy_product_id),
+            from_qu_id: issue.from,
+            to_qu_id: issue.to,
+            factor: factor,
+        }).then(function(res) {
+            // Læg den lokalt ind i samme form som Grocy leverer, så
+            // forhåndstjekket er enigt med sig selv uden en ny rundtur.
+            _vmConversions.push({
+                product_id: parseInt(item.grocy_product_id),
+                from_qu_id: issue.from,
+                to_qu_id: issue.to,
+                factor: factor,
+            });
+
+            // packSizeGuard kan advare uden at blokere writet (routes/grocy.js).
+            // Den advarsel skal ses — den betyder at tallet strider mod
+            // pakkestørrelsen på produktets stregkode.
+            if (res && res.pack_size_warning) {
+                var w = res.pack_size_warning;
+                alert('Gemt — men bemærk: ' + (w.message || JSON.stringify(w)));
+            }
+
+            _vmRenderLagerContent();
+            if (_vmState.itemListOpen && _vmDom.itemList) _vmDom.itemList.classList.add('vm-open');
+            _vmUpdateSummary();
+        }).catch(function(err) {
+            saveBtn.disabled = false;
+            saveBtn.textContent = 'Gem';
+            msg.className = 'vm-unit-fix-msg vm-err';
+            msg.textContent = 'Kunne ikke gemme: ' + (err && err.message ? err.message : 'ukendt fejl');
+        });
+    });
+
+    input.addEventListener('keydown', function(e) {
+        if (e.key === 'Enter') { e.preventDefault(); saveBtn.click(); }
+    });
+
+    row.appendChild(lead);
+    row.appendChild(input);
+    row.appendChild(tail);
+    row.appendChild(saveBtn);
+    box.appendChild(row);
+    box.appendChild(msg);
+
+    return box;
+}
+
 function _vmBuildItemCard(index) {
     var item = _vmState.items[index];
     var card = document.createElement('div');
@@ -972,6 +1229,14 @@ function _vmBuildItemCard(index) {
 
     card.innerHTML = '<div class="vm-item-name">' + _vmEsc(item.product_name) + '</div>' +
         '<div class="vm-item-expected">Forventet: ' + item.expected + ' ' + _vmEsc(item.unit) + '</div>';
+
+    // #358: mangler omregningen til lager-enhed, så siges det HER — øverst på
+    // kortet, før mængden tastes — med feltet der lukker hullet.
+    var unitIssue = _vmUnitIssue(item);
+    if (unitIssue) {
+        card.classList.add('vm-unit-issue');
+        card.appendChild(_vmBuildUnitFix(index, unitIssue));
+    }
 
     // Qty row
     var qtyRow = document.createElement('div');
@@ -1069,7 +1334,10 @@ function _vmBuildItemCard(index) {
         btn.addEventListener('click', (function(idx, key, cardEl, btnsEl) {
             return function() {
                 _vmState.items[idx].status = key;
-                cardEl.className = 'vm-item-card vm-s-' + key;
+                // Bevar enheds-markeringen: den handler om produktets opsætning
+                // i Grocy, ikke om hvordan leverancen så ud (#358).
+                cardEl.className = 'vm-item-card vm-s-' + key +
+                    (cardEl.querySelector('.vm-unit-fix') ? ' vm-unit-issue' : '');
                 btnsEl.querySelectorAll('.vm-status-btn').forEach(function(b) {
                     b.className = 'vm-status-btn';
                 });
@@ -1133,6 +1401,16 @@ function _vmUpdateSummary() {
     if (counts.missing) html += '<div class="vm-summary-line vm-warn-line">\u26a0 ' + counts.missing + ' mangler</div>';
     if (counts.wrong) html += '<div class="vm-summary-line vm-warn-line">\u2194 ' + counts.wrong + ' forkert</div>';
     if (counts.damaged) html += '<div class="vm-summary-line vm-err-line">\u2715 ' + counts.damaged + ' skadet</div>';
+
+    // #358: "N varer OK \u2192 lager" ville ellers t\u00e6lle varer med der aldrig n\u00e5r frem
+    // til lageret, fordi omregningen mangler. Opsummeringen skal ikke love mere
+    // end der sker.
+    var unitIssues = _vmUnitIssueItems().length;
+    if (unitIssues) {
+        html += '<div class="vm-summary-line vm-warn-line">\u26a0 ' + unitIssues +
+            (unitIssues === 1 ? ' vare mangler enhed' : ' varer mangler enhed') +
+            ' \u2014 lager ikke opdateret</div>';
+    }
 
     lines.innerHTML = html;
 }
@@ -1275,6 +1553,7 @@ async function _vmSubmit() {
                 expected_quantity: item.expected,
                 received_quantity: item.received,
                 unit: item.unit,
+                qu_id: item.qu_id != null ? item.qu_id : null,   // #358 — enheden tallet står i
                 status: item.status,
                 notes: item.notes || null,
                 shopping_list_id: item.slIds && item.slIds.length > 0 ? item.slIds[0] : null,
@@ -1373,10 +1652,300 @@ function _vmShowSuccess(result) {
     if (_vmState.photoPath) details.push('\ud83d\udcf8 Foto af f\u00f8lgeseddel gemt');
     if (_vmState.hasDeviation) details.push('\u26a0 Afvigelse logget');
 
+    // Whiteboard-koblingen: sig det ligeud n\u00e5r registreringen kun findes her.
+    // Tidligere svarede API'et altid "webhook_sent: true" \u2014 ogs\u00e5 n\u00e5r intet
+    // blev sendt \u2014 og s\u00e5 var der ingen der opdagede at FVST-loggen stod tom.
+    //
+    // Ordlyden siger AFSENDT, ikke modtaget: kaldet er fire-and-forget (en
+    // modtagelse m\u00e5 ikke blokeres af et eksternt kald), s\u00e5 p\u00e5 det her tidspunkt
+    // ved vi kun at vi fors\u00f8gte. Om Whiteboard tog imod, st\u00e5r i Modtagelseslogen
+    // bagefter \u2014 den l\u00e6ser whiteboard_synced_at, som kun s\u00e6ttes ved 2xx.
+    // At skrive "Sendt" her ville v\u00e6re samme slags p\u00e5stand som #363 selv.
+    var wb = result.whiteboard || {};
+    if (wb.configured) {
+        details.push('\ud83d\udd17 Sendt afsted til Whiteboards FVST-log \u2014 se status i \ud83d\uddc2 Modtagelseslog');
+    } else {
+        details.push('\u2139\ufe0f Gemt i Bon v2 \u2014 se den under \ud83d\uddc2 Modtagelseslog');
+    }
+
     var detailsEl = overlay.querySelector('.vm-success-details');
     detailsEl.innerHTML = details.join('<br>');
 
     overlay.classList.add('vm-show');
+}
+
+/* ════════════════════════════════════════════════════════════
+   MODTAGELSESLOG
+   ════════════════════════════════════════════════════════════
+   Bon v2's egen liste over varemodtagelser — dokumentationen til
+   Fødevarestyrelsen.
+
+   Hvorfor den findes: registreringerne blev gemt korrekt i databasen,
+   men INTET sted i Bon v2 viste dem. Whiteboard-koblingen var det
+   eneste vindue ind til dem, og da den var slukket, var en registrering
+   i praksis usynlig fra det øjeblik succes-skærmen forsvandt.
+
+   Kører i samme container som selve modtagelsen — så den følger med i
+   både køkkenets fane og mobilen uden separat montering.
+   ════════════════════════════════════════════════════════════ */
+
+var _vmHistDays = 30;
+var _vmHistRows = [];
+
+function _vmBuildTopBar() {
+    var bar = document.createElement('div');
+    bar.className = 'vm-topbar';
+
+    var btn = document.createElement('button');
+    btn.type = 'button';
+    btn.className = 'vm-log-btn';
+    btn.innerHTML = '🗂 Modtagelseslog';
+    btn.addEventListener('click', function() { _vmShowHistory(); });
+    bar.appendChild(btn);
+
+    return bar;
+}
+
+async function _vmShowHistory() {
+    var app = document.createElement('div');
+    app.className = 'vm-app';
+
+    var content = document.createElement('div');
+    content.className = 'vm-content';
+    content.innerHTML =
+        '<div class="vm-hist-head">' +
+          '<button type="button" class="vm-back-btn">← Ny modtagelse</button>' +
+          '<div class="vm-hist-title">Modtagelseslog</div>' +
+        '</div>' +
+        '<div class="vm-hist-filters"></div>' +
+        '<div class="vm-hist-list"><div class="vm-loading">Henter...</div></div>';
+
+    app.appendChild(content);
+    _vmContainer.innerHTML = '';
+    _vmContainer.appendChild(app);
+
+    content.querySelector('.vm-back-btn').addEventListener('click', function() {
+        initVaremodtagelse(_vmContainer);
+    });
+
+    // Periode-chips. 30 dage dækker den daglige brug; "Alt" bruges når
+    // Fødevarestyrelsen beder om en længere periode.
+    var filters = content.querySelector('.vm-hist-filters');
+    [[30, '30 dage'], [90, '3 måneder'], [365, '1 år'], [0, 'Alt']].forEach(function(opt) {
+        var chip = document.createElement('button');
+        chip.type = 'button';
+        chip.className = 'vm-chip' + (_vmHistDays === opt[0] ? ' vm-chip-active' : '');
+        chip.textContent = opt[1];
+        chip.addEventListener('click', function() {
+            _vmHistDays = opt[0];
+            _vmShowHistory();
+        });
+        filters.appendChild(chip);
+    });
+
+    var listEl = content.querySelector('.vm-hist-list');
+
+    try {
+        var params = {};
+        if (_vmHistDays > 0) {
+            var d = new Date();
+            d.setDate(d.getDate() - _vmHistDays);
+            params.from = _vmIsoDate(d);
+        }
+        _vmHistRows = await fetchGoodsReceipts(params) || [];
+        _vmRenderHistoryList(listEl);
+    } catch (err) {
+        listEl.innerHTML = '<div class="vm-loading" style="color:#c0392b">Kunne ikke hente loggen: ' +
+            _vmEsc(err.message) + '</div>';
+    }
+}
+
+function _vmRenderHistoryList(listEl) {
+    if (!_vmHistRows.length) {
+        listEl.innerHTML = '<div class="vm-hist-empty">Ingen varemodtagelser i perioden.</div>';
+        return;
+    }
+
+    listEl.innerHTML = '';
+
+    _vmHistRows.forEach(function(r) {
+        var card = document.createElement('button');
+        card.type = 'button';
+        card.className = 'vm-hist-card';
+
+        var badges = [];
+        if (r.temperature_cool_enabled && r.temperature_cool_value != null) {
+            badges.push('<span class="vm-hist-badge' + (r.temperature_cool_ok === 0 ? ' vm-hist-badge-bad' : '') +
+                '">🧊 ' + _vmNum(r.temperature_cool_value) + '°</span>');
+        }
+        if (r.temperature_frozen_enabled && r.temperature_frozen_value != null) {
+            badges.push('<span class="vm-hist-badge' + (r.temperature_frozen_ok === 0 ? ' vm-hist-badge-bad' : '') +
+                '">❄️ ' + _vmNum(r.temperature_frozen_value) + '°</span>');
+        }
+        if (r.has_deviation) badges.push('<span class="vm-hist-badge vm-hist-badge-bad">⚠ Afvigelse</span>');
+        if (r.photo_path)    badges.push('<span class="vm-hist-badge">📸</span>');
+        if (r.item_count)    badges.push('<span class="vm-hist-badge">' + r.item_count + ' varer</span>');
+        if (r.status === 'partially_approved') {
+            badges.push('<span class="vm-hist-badge vm-hist-badge-warn">Delvist godkendt</span>');
+        }
+
+        card.innerHTML =
+            '<div class="vm-hist-row1">' +
+              '<span class="vm-hist-date">' + _vmEsc(_vmFmtDateTime(r.received_at)) + '</span>' +
+              '<span class="vm-hist-nr">' + _vmEsc(r.receipt_number) + '</span>' +
+            '</div>' +
+            '<div class="vm-hist-row2">' +
+              '<strong>' + _vmEsc(r.supplier_name) + '</strong>' +
+              (r.received_by_name ? ' <span class="vm-hist-by">· ' + _vmEsc(r.received_by_name) + '</span>' : '') +
+            '</div>' +
+            (badges.length ? '<div class="vm-hist-badges">' + badges.join('') + '</div>' : '') +
+            _vmSyncLine(r);
+
+        card.addEventListener('click', function() { _vmShowReceiptDetail(r.id); });
+        listEl.appendChild(card);
+    });
+}
+
+/* Synkroniserings-linje: er registreringen nået frem til Whiteboards
+   FVST-log? Vises kun når den IKKE er — en grøn markering på hver eneste
+   række ville bare være støj. */
+function _vmSyncLine(r) {
+    if (r.whiteboard_synced_at) return '';
+    return '<div class="vm-hist-sync">⚠ Ikke i Whiteboards FVST-log</div>';
+}
+
+async function _vmShowReceiptDetail(id) {
+    var app = document.createElement('div');
+    app.className = 'vm-app';
+    var content = document.createElement('div');
+    content.className = 'vm-content';
+    content.innerHTML =
+        '<div class="vm-hist-head">' +
+          '<button type="button" class="vm-back-btn">← Loggen</button>' +
+        '</div>' +
+        '<div class="vm-detail"><div class="vm-loading">Henter...</div></div>';
+    app.appendChild(content);
+    _vmContainer.innerHTML = '';
+    _vmContainer.appendChild(app);
+
+    content.querySelector('.vm-back-btn').addEventListener('click', function() { _vmShowHistory(); });
+
+    var box = content.querySelector('.vm-detail');
+
+    var r;
+    try {
+        r = await fetchGoodsReceipt(id);
+    } catch (err) {
+        box.innerHTML = '<div class="vm-loading" style="color:#c0392b">Kunne ikke hente: ' + _vmEsc(err.message) + '</div>';
+        return;
+    }
+
+    var rows = [];
+    rows.push(['Modtaget',    _vmFmtDateTime(r.received_at)]);
+    rows.push(['Leverandør',  r.supplier_name]);
+    rows.push(['Modtaget af', r.received_by_name || '—']);
+    rows.push(['Køl',  r.temperature_cool_enabled
+        ? _vmNum(r.temperature_cool_value) + ' °C' + (r.temperature_cool_ok === 0 ? '  ⚠ over grænsen' : '')
+        : 'Ikke relevant']);
+    rows.push(['Frys', r.temperature_frozen_enabled
+        ? _vmNum(r.temperature_frozen_value) + ' °C' + (r.temperature_frozen_ok === 0 ? '  ⚠ over grænsen' : '')
+        : 'Ikke relevant']);
+    rows.push(['Dato/holdbarhed', r.date_check_ok ? 'Kontrolleret' : '⚠ Ikke i orden']);
+    rows.push(['Mærkning',        r.labeling_check_ok ? 'Kontrolleret' : '⚠ Ikke i orden']);
+    rows.push(['Emballage',       r.packaging_check_ok ? 'Kontrolleret' : '⚠ Ikke i orden']);
+    if (r.has_deviation) {
+        rows.push(['Afvigelse', _vmDeviationLabel(r.deviation_type)]);
+        if (r.deviation_note) rows.push(['Bemærkning', r.deviation_note]);
+    }
+    if (r.notes) rows.push(['Note', r.notes]);
+
+    var html = '<div class="vm-detail-title">' + _vmEsc(r.receipt_number) + '</div>' +
+        '<table class="vm-detail-table">' +
+        rows.map(function(row) {
+            return '<tr><th>' + _vmEsc(row[0]) + '</th><td>' + _vmEsc(String(row[1])) + '</td></tr>';
+        }).join('') +
+        '</table>';
+
+    if (r.photo_path) {
+        html += '<a class="vm-detail-photo" href="' + _vmEsc(r.photo_path) + '" target="_blank" rel="noopener">' +
+            '<img src="' + _vmEsc(r.photo_path) + '" alt="Følgeseddel">' +
+            '<span>Åbn foto af følgeseddel</span></a>';
+    }
+
+    var items = r.items || [];
+    if (items.length) {
+        html += '<div class="vm-detail-sub">Varer lagt på lager</div>' +
+            '<table class="vm-detail-table vm-detail-items">' +
+            items.map(function(it) {
+                var qty = (it.received_quantity != null ? _vmNum(it.received_quantity) : '—') +
+                    (it.unit ? ' ' + _vmEsc(it.unit) : '');
+                var flag = it.status === 'missing' ? ' <span class="vm-hist-badge vm-hist-badge-warn">manglede</span>'
+                         : it.grocy_error ? ' <span class="vm-hist-badge vm-hist-badge-bad">Grocy-fejl</span>' : '';
+                return '<tr><th>' + _vmEsc(it.product_name) + flag + '</th><td>' + qty + '</td></tr>';
+            }).join('') + '</table>';
+    } else {
+        html += '<div class="vm-detail-sub">Ingen varer lagt på lager ved denne modtagelse</div>';
+    }
+
+    // Whiteboard-status + gensend
+    html += '<div class="vm-detail-sub">Whiteboard (FVST-log)</div>';
+    if (r.whiteboard_synced_at) {
+        html += '<div class="vm-detail-sync ok">✓ Sendt ' + _vmEsc(_vmFmtDateTime(r.whiteboard_synced_at)) + '</div>';
+    } else {
+        html += '<div class="vm-detail-sync warn">⚠ Ikke sendt — registreringen findes kun i Bon v2.</div>' +
+            '<button type="button" class="vm-btn vm-btn-secondary vm-resend-btn">Send til Whiteboard</button>';
+    }
+
+    box.innerHTML = html;
+
+    var resendBtn = box.querySelector('.vm-resend-btn');
+    if (resendBtn) {
+        resendBtn.addEventListener('click', async function() {
+            resendBtn.disabled = true;
+            resendBtn.textContent = 'Sender...';
+            try {
+                await resendGoodsReceiptWebhook(r.id);
+                _vmShowReceiptDetail(r.id);
+            } catch (err) {
+                alert('Kunne ikke sende: ' + err.message);
+                resendBtn.disabled = false;
+                resendBtn.textContent = 'Send til Whiteboard';
+            }
+        });
+    }
+}
+
+function _vmDeviationLabel(type) {
+    var map = {
+        returned:           'Varen er returneret',
+        no_risk:            'Vurderet — ingen risiko, anvendes straks',
+        discarded:          'Varen er kasseret',
+        supplier_contacted: 'Leverandøren er kontaktet',
+        other:              'Andet',
+    };
+    return map[type] || type || 'Registreret';
+}
+
+/* Serveren gemmer UTC (datetime('now')). parseServerDate normaliserer, så
+   tiden vises dansk — ellers ser en aftenmodtagelse ud til at være sket
+   to timer tidligere. */
+function _vmFmtDateTime(s) {
+    if (!s) return '—';
+    var d = (typeof parseServerDate === 'function') ? parseServerDate(s) : new Date(s);
+    if (!d || isNaN(d.getTime())) return String(s);
+    return d.toLocaleDateString('da-DK', { day: '2-digit', month: '2-digit', year: 'numeric' }) +
+        ' kl. ' + d.toLocaleTimeString('da-DK', { hour: '2-digit', minute: '2-digit' });
+}
+
+function _vmIsoDate(d) {
+    return d.getFullYear() + '-' +
+        String(d.getMonth() + 1).padStart(2, '0') + '-' +
+        String(d.getDate()).padStart(2, '0');
+}
+
+function _vmNum(v) {
+    if (v == null) return '—';
+    return String(Math.round(parseFloat(v) * 100) / 100).replace('.', ',');
 }
 
 /* ── Utilities ───────────────────────────────────────────── */

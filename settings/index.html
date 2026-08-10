@@ -345,6 +345,7 @@
     <div class="st-nav-label st-group">Integrationer</div>
     <button class="st-nav-item st-admin-only" data-section="grocy">Grocy</button>
     <button class="st-nav-item st-admin-only" data-section="mail">Mail</button>
+    <button class="st-nav-item st-admin-only" data-section="whiteboard">Whiteboard</button>
 
     <div class="st-nav-label st-group">System &amp; vedligehold</div>
     <button class="st-nav-item st-admin-only" data-section="system">System</button>
@@ -584,6 +585,38 @@
     <div class="st-section st-admin-only" id="sec-mail">
       <h2>Mail</h2>
       <div id="mail-content"></div>
+    </div>
+
+    <!-- ════ WHITEBOARD ════ -->
+    <div class="st-section st-admin-only" id="sec-whiteboard">
+      <h2>Whiteboard</h2>
+
+      <div style="font-size:12px;color:var(--color-text-dim);margin-bottom:14px;line-height:1.6;max-width:640px;background:var(--color-background);padding:10px 14px;border-radius:6px;border:1px solid var(--color-border)">
+        Hver varemodtagelse i Bon v2 kan sendes videre til Whiteboards
+        <strong style="color:var(--color-text)">FVST-log</strong>, så fødevarekontrollen står ét sted.<br>
+        Er feltet tomt, gemmes registreringen <em>kun</em> i Bon v2 — den kan stadig ses under
+        Varemodtagelse → 🗂 Modtagelseslog, men den dukker aldrig op i Whiteboard.
+        <strong style="color:var(--color-text)">Det var præcis den tilstand der gjorde varemodtagelsen usynlig.</strong>
+      </div>
+
+      <div id="wb-status" style="margin-bottom:14px"></div>
+
+      <div style="display:flex;gap:12px;align-items:center;margin-bottom:6px;flex-wrap:wrap">
+        <label style="width:280px;font-size:14px;font-weight:500">Webhook-URL til Whiteboard</label>
+        <input class="st-input" id="wb-webhook-url" type="url" style="min-width:360px;flex:1"
+               placeholder="https://whiteboard.ristetrug.dk/api/events">
+        <button class="st-btn st-btn-primary" onclick="saveWhiteboardUrl()">Gem</button>
+      </div>
+      <p style="font-size:11px;color:var(--color-text-dim);margin:0 0 24px;max-width:640px;line-height:1.6">
+        Skal pege på <code style="font-size:10px">/api/events</code> — ikke bare på forsiden.
+        Tøm feltet for at slå koblingen fra igen.
+      </p>
+
+      <h3 style="margin-top:24px;font-size:15px;font-weight:700">Seneste forsøg</h3>
+      <p style="font-size:11px;color:var(--color-text-dim);margin:0 0 10px;max-width:640px">
+        Hvert forsøg logges — også de mislykkede. Er listen tom, er der aldrig sendt noget.
+      </p>
+      <div id="wb-log"></div>
     </div>
 
     <!-- ════ FORMBUILDER ════ -->
@@ -1518,6 +1551,8 @@ async function init() {
       if (sec === 'hastebestilling') coLoad();
       // Lazy load jobtype-kategorisering + løn
       if (sec === 'jobtype') { loadRoleMap(); loadWageRates(); }
+      // Whiteboard-kobling (varemodtagelse → FVST-log)
+      if (sec === 'whiteboard') loadWhiteboardSection();
     });
   });
 
@@ -2079,6 +2114,114 @@ async function setActiveGrocyLocation(locId) {
   } catch (e) {
     alert('Kunne ikke skifte aktiv lokation: ' + e.message);
   }
+}
+
+// ═══════════════════════════════════════════════════════════
+// WHITEBOARD — varemodtagelse → FVST-log
+// ═══════════════════════════════════════════════════════════
+//
+// Koblingen kunne før kun tændes med SQL på serveren. Den stod derfor tom
+// fra den dag den blev seedet, og hver varemodtagelse i Bon v2 forsvandt
+// ud af FVST-loggen uden at nogen fik besked. Feltet hører til her.
+
+async function loadWhiteboardSection() {
+  var statusEl = document.getElementById('wb-status');
+  var logEl    = document.getElementById('wb-log');
+  statusEl.innerHTML = '<span style="font-size:12px;color:var(--color-text-dim)">Henter status…</span>';
+  logEl.innerHTML = '';
+
+  var info;
+  try {
+    info = await fetchGoodsReceiptWebhookLog(20);
+  } catch (e) {
+    statusEl.innerHTML = '<div style="font-size:13px;color:#a33227">Kunne ikke hente status: ' +
+      escapeHtml(e.message) + '</div>';
+    return;
+  }
+
+  document.getElementById('wb-webhook-url').value = info.url || '';
+
+  var unsynced = info.receipts_unsynced || 0;
+  var pill = info.configured
+    ? '<span style="background:#eaf6ec;color:#2c6b39;border-radius:999px;padding:4px 12px;font-size:12px;font-weight:700">✓ Koblet til Whiteboard</span>'
+    : '<span style="background:#fdf3e2;color:#8a6412;border-radius:999px;padding:4px 12px;font-size:12px;font-weight:700">⚠ Ikke koblet — registreringer bliver i Bon v2</span>';
+
+  statusEl.innerHTML =
+    '<div style="display:flex;gap:12px;align-items:center;flex-wrap:wrap">' + pill +
+    '<span style="font-size:12px;color:var(--color-text-dim)">' +
+      info.receipts_total + ' varemodtagelser i alt · ' +
+      (unsynced > 0
+        ? '<strong style="color:#8a6412">' + unsynced + ' ikke sendt til Whiteboard</strong>'
+        : 'alle sendt') +
+    '</span></div>' +
+    (unsynced > 0 && info.configured
+      ? '<button class="st-btn st-btn-secondary" style="margin-top:10px" onclick="resendAllWhiteboard()">' +
+        'Send de ' + unsynced + ' manglende</button>'
+      : '');
+
+  if (!info.attempts.length) {
+    logEl.innerHTML = '<div style="font-size:12px;color:var(--color-text-dim);padding:10px 0">' +
+      'Ingen forsøg registreret endnu.</div>';
+    return;
+  }
+
+  logEl.innerHTML =
+    '<table class="st-table"><thead><tr><th>Tidspunkt</th><th>Svar</th><th>Fejl</th></tr></thead><tbody>' +
+    info.attempts.map(function(a) {
+      var okish = a.status_code >= 200 && a.status_code < 300 && !a.error;
+      return '<tr><td style="white-space:nowrap">' + escapeHtml(fmtWbTime(a.sent_at)) + '</td>' +
+        '<td style="color:' + (okish ? '#2c6b39' : '#a33227') + ';font-weight:600">' +
+          (a.status_code || '—') + '</td>' +
+        '<td style="font-size:11px;color:var(--color-text-dim)">' + escapeHtml(a.error || '') + '</td></tr>';
+    }).join('') + '</tbody></table>';
+}
+
+function fmtWbTime(s) {
+  var d = (typeof parseServerDate === 'function') ? parseServerDate(s) : new Date(s);
+  if (!d || isNaN(d.getTime())) return String(s || '');
+  return d.toLocaleDateString('da-DK') + ' ' + d.toLocaleTimeString('da-DK', { hour: '2-digit', minute: '2-digit' });
+}
+
+async function saveWhiteboardUrl() {
+  var url = document.getElementById('wb-webhook-url').value.trim();
+
+  // Whiteboard tager kun imod på /api/events — en URL uden stien giver et
+  // 404 der ser ud som om noget blev sendt. Bedre at spørge først.
+  if (url && !/\/api\/events\/?$/.test(url)) {
+    if (!confirm('URL\'en peger ikke på /api/events.\n\nWhiteboard modtager kun ' +
+                 'varemodtagelser dér. Gem alligevel?')) return;
+  }
+
+  await saveSetting('whiteboard_webhook_url', url);
+  loadWhiteboardSection();
+}
+
+async function resendAllWhiteboard() {
+  if (!confirm('Send alle varemodtagelser der mangler i Whiteboard?\n\n' +
+               'Kun dem der aldrig er nået frem sendes — der kan ikke opstå dubletter.')) return;
+
+  var rows;
+  try {
+    rows = await fetchGoodsReceipts({ limit: 1000 });
+  } catch (e) {
+    return alert('Kunne ikke hente listen: ' + e.message);
+  }
+
+  var pending = rows.filter(function(r) { return !r.whiteboard_synced_at; });
+  var ok = 0, failed = [];
+
+  for (var i = 0; i < pending.length; i++) {
+    try {
+      await resendGoodsReceiptWebhook(pending[i].id);
+      ok++;
+    } catch (e) {
+      failed.push(pending[i].receipt_number + ': ' + e.message);
+    }
+  }
+
+  toast(ok + ' sendt' + (failed.length ? ', ' + failed.length + ' fejlede' : ''), failed.length ? 'error' : 'success');
+  if (failed.length) alert('Fejlede:\n' + failed.join('\n'));
+  loadWhiteboardSection();
 }
 
 // ═══════════════════════════════════════════════════════════

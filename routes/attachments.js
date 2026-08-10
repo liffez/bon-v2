@@ -235,6 +235,15 @@ router.get('/mail/:id/download', requireAuth(), handle(async (req, res) => {
 // (CID-refererede) billeder i HTML-mails. Vises i en sandboxed iframe der deler
 // origin, så session-cookien følger med og requireAuth kan beskytte den.
 
+// Filtyper browseren selv kan vise forsvarligt. Alt andet sendes som download
+// — en vedhæftning er fremmed input, og fx en .html-fil vist inline ville køre
+// afsenderens script på VORES origin, med brugerens session.
+const INLINE_VIEWABLE = /^(image\/(png|jpe?g|gif|webp|bmp|avif)|application\/pdf|text\/plain)$/i;
+// SVG er et billede, men også et dokument der kan indeholde script. Den vises
+// stadig (så signatur-logoer i mails virker), men med sandbox-CSP så et
+// direkte opslag i en fane ikke kan køre noget.
+const INLINE_SANDBOXED = /^image\/svg\+xml$/i;
+
 router.get('/mail/:id/inline', requireAuth(), handle(async (req, res) => {
     const db = getDb();
     const row = db.prepare('SELECT filename, file_path, mime_type FROM mail_attachments WHERE id = ?')
@@ -243,11 +252,22 @@ router.get('/mail/:id/inline', requireAuth(), handle(async (req, res) => {
     if (!row) return res.status(404).end();
     if (!fs.existsSync(row.file_path)) return res.status(404).end();
 
-    res.setHeader('Content-Type', row.mime_type || 'application/octet-stream');
-    res.setHeader('Content-Disposition', 'inline');
+    const mime = row.mime_type || 'application/octet-stream';
+    const viewable = INLINE_VIEWABLE.test(mime);
+    const sandboxed = INLINE_SANDBOXED.test(mime);
+
+    res.setHeader('Content-Type', mime);
     res.setHeader('X-Content-Type-Options', 'nosniff');
     res.setHeader('Cache-Control', 'private, max-age=86400');
-    fs.createReadStream(row.file_path).pipe(res);
+    if (sandboxed) res.setHeader('Content-Security-Policy', "default-src 'none'; style-src 'unsafe-inline'; sandbox");
+
+    if (viewable || sandboxed) {
+        // filename gør at browserens "Gem som" foreslår det rigtige navn.
+        res.setHeader('Content-Disposition', 'inline; filename="' + encodeURIComponent(row.filename || 'fil') + '"');
+        return fs.createReadStream(row.file_path).pipe(res);
+    }
+
+    return res.download(row.file_path, row.filename);
 }));
 
 module.exports = router;
