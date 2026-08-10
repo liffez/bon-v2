@@ -270,6 +270,25 @@ function _clearSentMails() {
 }
 
 /**
+ * Validér vedhæftninger fra en request-body inden de gives til sendMail().
+ * Returnerer { error } ved ugyldigt input, ellers { list: [{ attachment_id }] }.
+ * Deles af alle mail-endpoints så en compose-formular ikke kan tabe filer
+ * fordi ét endpoint har glemt at læse feltet.
+ */
+function validateAttachments(attachments) {
+    if (!attachments) return { list: [] };
+    if (!Array.isArray(attachments)) return { error: 'attachments skal være et array' };
+    if (attachments.length > 5) return { error: 'Max 5 vedhæftninger per mail' };
+    const list = [];
+    for (const att of attachments) {
+        const id = parseInt(att.attachment_id);
+        if (!id || id <= 0) return { error: 'Ugyldigt attachment_id' };
+        list.push({ attachment_id: id });
+    }
+    return { list };
+}
+
+/**
  * Send en mail via SMTP. Gemmer i mail_threads + mail_messages.
  */
 async function sendMail({ to, subject, text, context, bonId = null, customerId = null, purchaseOrderId = null, supplierId = null, inReplyTo = null, references = null, smtpPrefix = 'smtp', userId = null, attachments = [], isSystem = false, threadId = null, appendSignature = true }) {
@@ -1031,6 +1050,7 @@ async function triggerPoll() {
 module.exports = {
     sendMail,
     sendFromTemplate,
+    validateAttachments,
     startPolling,
     triggerPoll,
     refetchUnmatchedMail,
