@@ -187,6 +187,16 @@ fs.unlinkSync(TMP);
 });
 
 
+console.log('\n— Interne overførsler (#445) —');
+// "Mellemregning LZ" er flytning mellem egne konti, ikke en indbetaling. Beløbet
+// er stort (12-15 kkr), så uden reglen ville en indgående lande i "store ukoblede".
+const catI = (tekst, dato, beloeb) => cfCategorize({ tekst, dato, beloeb }, 2025, 10000, new Set(['4112']));
+assert(catI('Mellemregning LZ', '2026-03-18', 15000) === 'minor', 'Mellemregning → foldes uanset beløb');
+assert(catI('MELLEMREGNING', '2026-03-18', 90000) === 'minor', 'stor mellemregning foldes også');
+assert(catI('Overførsel egen konto', '2026-03-18', 40000) === 'minor', 'egen konto → foldes');
+assert(catI('FAKTURA 4112 mellemregning', '2026-03-18', 40000) === 'invoice_paid', 'fakturanr slår intern-ordet');
+assert(catI('Mellemhandel Grossist', '2026-03-18', 40000) === 'large_check', 'ligner men er det ikke — urørt');
+
 console.log('\n— Festival-afregning (#445) —');
 // Festivalafregning kommer som en almindelig overførsel: ingen Zettle, ingen
 // MobilePay, intet fakturanr. Uden ordlisten landede 110.854 kr fra Vig i

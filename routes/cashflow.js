@@ -335,6 +335,11 @@ const FAKTURA_RE = /faktur|fakt|fak[\s.\-]|fa\.?nr|faknr|invoice/i;
 // er det en faktura-indbetaling — også selvom den nævner et festivalnavn.
 const CF_FESTIVAL_RE = /afregn|festival|stade/i;
 
+// Intern flytning mellem egne konti ("Mellemregning LZ") er ikke omsætning og
+// skal aldrig stå på triagelisten. Beløbet er stort (12–15 kkr), så uden denne
+// regel ville en indgående mellemregning lande i "store ukoblede".
+const CF_INTERNAL_RE = /mellemregn|egen konto|eget udlæg/i;
+
 // Vindue omkring et event hvor en indbetaling kan stamme derfra. Bagud er kort
 // (forudbetaling er sjælden), fremad rummeligt: arrangøren afregner bagefter —
 // Vig 2026 betalte 4 dage efter sidste dag.
@@ -359,6 +364,10 @@ function cfCategorize(tx, closedYear, largeThreshold, bookedSet) {
     const year = parseInt(String(tx.dato).slice(0, 4), 10) || 9999;
     const hasFaktura = FAKTURA_RE.test(t) || /^\s*\d{3,6}\s*$/.test(t);   // "FAKTURA 3957" / "Fa.nr. 3865" / bare "3898"
     if (!hasFaktura && CF_FESTIVAL_RE.test(t)) return 'event_cash';
+    // Intern flytning mellem egne konti er ikke en indbetaling — den skal aldrig
+    // koste kontoret et blik, uanset beløb. Foldes derfor som støj (findbar via
+    // søgning/Foldede) i stedet for at fylde i "store ukoblede".
+    if (!hasFaktura && CF_INTERNAL_RE.test(t)) return 'minor';
     if (hasFaktura) {
         // Findes nummeret som et RIGTIGT bogført e-conomic-fakturanr? → afregnet faktura → fold.
         // (Indbetalingen = fakturaens beløb, der kan dække flere bons — derfor genkender vi
