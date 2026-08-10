@@ -2213,6 +2213,40 @@ Verificeret ved at genskabe situationen: Morgenmad omdøbt til "Eftermiddagssnac
 → begge felter markeres, gem afvises med besked. Tomt navn og dublet-nøgle
 afvises hver for sig; gyldig opsætning gemmes. Driftsdata urørt.
 
+### Tilbud: kopiér-ordre henter friske priser (#428, 10. august 2026)
+
+`_tCopyBon` ("📋 Kopiér" i wizardens trin 1) tog priserne fra den kopierede bons
+linjer. `bon_lines.unit_price` er et **snapshot** fra da den bon blev oprettet —
+rigtigt for den gamle bon, forkert som udgangspunkt for et nyt tilbud.
+
+To fejl, og den anden var værst:
+
+1. **Gamle priser.** En ordre fra sidste år sendte sidste års priser til kunden.
+2. **Forkert prisliste.** Funktionen så slet ikke på `_tPriceCat`. En butiks-bon
+   kopieret ind i et catering-tilbud gav butikspriser — også når ordren var helt frisk.
+
+Priser, kostpriser og kategori hentes nu fra `_tMenu`, som er bygget for tilbuddets
+gældende priskategori og genindlæses når kategorien skiftes. **Kun mængderne** kommer
+fra den gamle ordre.
+
+- **`_tMenuIndex()`** — `Map<grocy_recipe_id, menuvare>`, ét opslag delt af
+  kategori-berigelsen (`_tApplyMenuCategories`) og kopieringen. Samme princip som
+  Grocy-kategorihentningen i Settings: én kilde, ikke en kopi pr. kaldested.
+- **Det der ikke kan slås op** — fritekst uden opskrift, og opskrifter der er udgået
+  i Grocy — beholder den gamle pris og markeres `stalePrice`. Toasten navngiver dem
+  (*"3 varer kopieret fra bon cafe-3472 — priser fra catering · 1 uden aktuel pris
+  (RR Boks)"*), og pristabellen på trin 3 sætter ⚠ på linjen. **Kundens preview og
+  PDF er urørt** — dér skal der ikke stå forbehold om vores egne priser.
+
+Verificeret mod driftsdata: bon `cafe-3472` (priskategori **store**, Kyllingen 104 kr)
+kopieret ind i et **catering**-tilbud → Kyllingen 130 kr, Transportkasse 12,50 → 20 kr,
+mængderne (11 og 1) bevaret. En vare der ikke findes i menuen beholdt sin gamle pris og
+fik ⚠ i pristabellen, ikke i kundevisningen.
+
+**Ikke rørt (hører til #427):** blok-strukturen går stadig tabt ved kopiering — alt
+lander i `lunch`. Det kan ikke rettes her, fordi `getBonLines` ([db/helpers.js:97](db/helpers.js:97))
+ikke returnerer `block_type`; det er en forudsætning for #427.
+
 ### Mail-oprydning: spam/auto-ignored + bounces (14.-15. maj 2026)
 > Spec: `docs/CLAUDE_MAIL_FIX_SPAM_OPHOBNING.md`
 

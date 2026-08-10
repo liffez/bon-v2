@@ -97,12 +97,13 @@ function _tSortedCats() {
     });
 }
 
-function _tToast(msg) {
+// ms: en besked der remser varenavne op skal have tid til at blive læst.
+function _tToast(msg, ms) {
     const el = document.createElement('div');
     el.className = 'tilbud-toast';
     el.textContent = msg;
     document.body.appendChild(el);
-    setTimeout(() => el.remove(), 3000);
+    setTimeout(() => el.remove(), ms || 3000);
 }
 
 /* ── Init / Cleanup ──────────────────────────────────── */
@@ -236,15 +237,41 @@ function _tilbudHandleSSE(event, data) {
  *
  * Gemmes tilbuddet igen, skrives den rigtige kategori nu med til `bon_lines`.
  */
+/**
+ * Menuen slået op på opskrift-id. Ét sted, fordi flere ting har brug for at
+ * spørge Grocy "hvad hedder og koster den her vare NU?" — kategori-opslaget
+ * ved indlæsning og pris-opslaget ved kopiering af en tidligere ordre.
+ *
+ * `_tMenu` er bygget for den gældende priskategori (`_tPriceCat`) og hentes
+ * forfra når kategorien skiftes, så priserne herfra er altid de rigtige.
+ */
+/**
+ * Mærke på en linje hvis prisen IKKE kunne hentes frisk fra Grocy — fritekst
+ * uden opskrift, eller en opskrift der er udgået. Vises kun i pristabellen på
+ * trin 3, som er den interne visning. Kundens preview og PDF er urørt: dér skal
+ * der ikke stå forbehold om vores egne priser.
+ */
+function _tStaleMark(it) {
+    if (!it?.stalePrice) return '';
+    return ' <span title="Prisen kunne ikke hentes fra Grocy — det er den gamle ordres pris"'
+         + ' style="color:#b8860b;font-size:.8rem;cursor:help">⚠</span>';
+}
+
+function _tMenuIndex() {
+    const byId = new Map();
+    if (!_tMenu) return byId;
+    Object.values(_tMenu).flat().forEach(p => { if (p.grocy_recipe_id) byId.set(p.grocy_recipe_id, p); });
+    return byId;
+}
+
 function _tApplyMenuCategories() {
     if (!_tMenu) return;
-    const catById = new Map();
-    Object.values(_tMenu).flat().forEach(p => { if (p.grocy_recipe_id) catById.set(p.grocy_recipe_id, p.category); });
+    const menu = _tMenuIndex();
 
     const fix = arr => (arr || []).forEach(it => {
         if (!it.grocy_recipe_id) return;
-        const cat = catById.get(it.grocy_recipe_id);
-        if (cat) it.category = cat;
+        const m = menu.get(it.grocy_recipe_id);
+        if (m?.category) it.category = m.category;
     });
 
     Object.values(_tEvBlk).forEach(fix);
@@ -831,24 +858,55 @@ function _tBuildOrderHistory() {
     </div>`;
 }
 
+/**
+ * Kopiér en tidligere ordre ind i tilbuddet — MÆNGDERNE, ikke priserne. (#428)
+ *
+ * `bon_lines.unit_price` er et snapshot fra dengang den bon blev oprettet. Det
+ * er rigtigt for den gamle bon, men forkert som udgangspunkt for et nyt tilbud:
+ * en ordre fra sidste år sendte sidste års priser til kunden, uden varsel. Værre
+ * endnu så funktionen slet ikke på `_tPriceCat` — en butiks-bon kopieret ind i
+ * et catering-tilbud gav butikspriser, også når ordren var helt frisk.
+ *
+ * Priser, kostpriser og kategori hentes nu fra `_tMenu`, som er bygget for
+ * tilbuddets gældende priskategori. Linjen bærer `grocy_recipe_id`, så opslaget
+ * er direkte.
+ *
+ * Det der IKKE kan slås op — fritekst uden opskrift, og opskrifter der er
+ * udgået i Grocy — beholder den gamle pris og markeres `stalePrice`, så det
+ * er synligt hvilke tal der ikke er friske. De må ikke lande i stilhed.
+ */
 async function _tCopyBon(bonId) {
     try {
         const bon = await apiFetch(`/bons/${bonId}`);
+        const menu = _tMenuIndex();
+        const stale = [];
+
         _tSiItems = [];
         _tEvBlk = {};
         _tActBlk = new Set();
+
         if (bon.lines) {
             for (const l of bon.lines) {
+                const m = l.grocy_recipe_id ? menu.get(l.grocy_recipe_id) : null;
+                if (!m) stale.push(l.product_name);
+
                 const item = {
-                    id: l.grocy_recipe_id || Date.now() + Math.random(),
-                    grocy_recipe_id: l.grocy_recipe_id,
+                    id: m ? m.id : (Date.now() + Math.random()),
+                    grocy_recipe_id: l.grocy_recipe_id || null,
                     name: l.product_name,
-                    unit: l.unit || 'stk',
-                    unitPrice: l.unit_price ?? 0,
-                    costPrice: l.cost_price ?? 0,
+                    unit: m?.unit || l.unit || 'stk',
+                    // Grocy er kilden til både pris og kategori — jf. den samlede
+                    // kategori-hentning. Kun mængden kommer fra den gamle ordre.
+                    unitPrice: m ? m.unitPrice : (l.unit_price ?? 0),
+                    costPrice: m ? m.costPrice : (l.cost_price ?? 0),
+                    category: m ? m.category : (l.category || (l.grocy_recipe_id ? 'Ukendt' : 'Fritekst')),
                     qty: l.quantity || 1,
-                    category: l.category || 'Ukendt',
+                    stalePrice: !m,
                 };
+
+                // `getBonLines` returnerer ikke `block_type`, så en kopieret ordre
+                // kan ikke lægges tilbage i sine oprindelige tidsblokke. Alt havner
+                // i én blok som hidtil — se #427, som udvider kopieringen.
                 if (_tTpl === 'event') {
                     const block = 'lunch';
                     if (!_tEvBlk[block]) _tEvBlk[block] = [];
@@ -859,8 +917,17 @@ async function _tCopyBon(bonId) {
                 }
             }
         }
+
         if (bon.pax) _tPax = String(bon.pax);
-        _tToast(`${bon.lines?.length || 0} varer kopieret fra bon ${bon.bon_number}`);
+
+        const n = bon.lines?.length || 0;
+        const priceCatLabel = _tPriceCat || 'catering';
+        let msg = `${n} vare${n === 1 ? '' : 'r'} kopieret fra bon ${bon.bon_number} — priser fra ${priceCatLabel}`;
+        if (stale.length) {
+            msg += ` · ${stale.length} uden aktuel pris (${stale.slice(0, 3).join(', ')}${stale.length > 3 ? '…' : ''})`;
+        }
+        _tToast(msg, stale.length ? 9000 : 4000);
+
         _tStep = 2;
         _tRenderWizard();
     } catch (e) {
@@ -1369,7 +1436,7 @@ function _tBuildPriceTable() {
                 sub += lt; costT += lc; blockTotal += lt;
                 const ltU = window.Moms.inclToExcl(lt);
                 const dbP = ltU > 0 ? ((ltU - lc) / ltU * 100) : 0;
-                h += `<tr><td><strong>${_tEsc(it.name)}</strong></td>`;
+                h += `<tr><td><strong>${_tEsc(it.name)}</strong>${_tStaleMark(it)}</td>`;
                 h += `<td class="r">${it.qty}</td><td class="r" style="font-family:'JetBrains Mono',monospace">${_tFk(lt)}</td>`;
                 h += `<td class="r" style="font-size:.73rem;color:var(--color-text-dim);font-family:'JetBrains Mono',monospace">${_tFk(lc)} (${dbP.toFixed(0)}%)</td>`;
                 h += `<td><button class="tilbud-btn-icon danger" onclick="_tRemP(${it.id},'${b.id}')">\u2715</button></td></tr>`;
@@ -1388,7 +1455,7 @@ function _tBuildPriceTable() {
             sub += lt; costT += lc;
             const ltU = window.Moms.inclToExcl(lt);
             const dbP = ltU > 0 ? ((ltU - lc) / ltU * 100) : 0;
-            h += `<tr><td><strong>${_tEsc(it.name)}</strong></td>`;
+            h += `<tr><td><strong>${_tEsc(it.name)}</strong>${_tStaleMark(it)}</td>`;
             h += `<td class="r">${it.qty}</td><td class="r" style="font-family:'JetBrains Mono',monospace">${_tFk(lt)}</td>`;
             h += `<td class="r" style="font-size:.73rem;color:var(--color-text-dim);font-family:'JetBrains Mono',monospace">${_tFk(lc)} (${dbP.toFixed(0)}%)</td>`;
             h += `<td><button class="tilbud-btn-icon danger" onclick="_tRemP(${it.id},'')">\u2715</button></td></tr>`;
