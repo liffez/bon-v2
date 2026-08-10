@@ -770,7 +770,9 @@ async function openBonMail(cardId) {
 }
 
 function _buildMailVars(bon) {
-    const lines = bon.lines || [];
+    // Slå ens linjer sammen før mailen bygges — se shared/bon_lines.js.
+    // Uden det får kunden "1× Kartoflen slider" tre gange i stedet for "3×".
+    const lines = BonLines.mergeLines(bon.lines || []);
     const groups = bon.menu_groups || [];
     const _esc = typeof esc === 'function' ? esc : (s) => String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
 

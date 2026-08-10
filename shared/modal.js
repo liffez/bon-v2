@@ -89,10 +89,12 @@ function _modalEscHandler(e) {
 
 /** Danske labels for changelog action-typer */
 const _ACTION_LABELS = {
-    'create':        'Oprettet',
-    'update':        'Opdateret',
-    'status_change': 'Statusskift',
-    'delete':        'Slettet',
+    'create':                 'Oprettet',
+    'update':                 'Opdateret',
+    'status_change':          'Statusskift',
+    'delete':                 'Slettet',
+    'grocy_consume':          'Lagertræk',
+    'economic_draft_created': 'Fakturaudkast',
 };
 
 /** Danske labels for changelog feltnavne */
@@ -114,14 +116,22 @@ const _FIELD_LABELS = {
     'kitchen_selects':         'Køkken vælger',
     'customer_collects':       'Kunde henter',
     'is_offer':                'Tilbud',
+    'economic_draft_number':   'Udkast-nr.',
+    'bon_lines':               'Varelinjer',
+    'delivery_vehicle_id':     'Køretøj',
+    'delivery_booking':        'Booking',
+    'total_price':             'Total',
+    'stock':                   'Lager',
 };
 
 /** Ikon-tegn per action-type */
 const _ACTION_ICONS = {
-    'create':        '+',
-    'update':        '✎',
-    'status_change': '⇄',
-    'delete':        '×',
+    'create':                 '+',
+    'update':                 '✎',
+    'status_change':          '⇄',
+    'delete':                 '×',
+    'grocy_consume':          '⊖',
+    'economic_draft_created': '¤',
 };
 
 /**
@@ -156,6 +166,92 @@ function _statusLabel(val) {
 }
 
 /**
+ * Læs payloaden fra en `grocy_consume`-entry.
+ *
+ * `new_value` er maskin-data, ikke tekst — den har historisk haft tre former:
+ *   'event_prep_owns_stock'          sentinel: træk bevidst sprunget over
+ *   '[{product_name,amount,…}, …]'   rå results-array
+ *   '{"state":…,"results":[…]}'      samme array pakket ind
+ * Returnerer { kind: 'skipped'|'results'|'raw', results, raw }.
+ */
+function _parseConsumePayload(raw) {
+    const txt = String(raw == null ? '' : raw).trim();
+    if (!txt) return { kind: 'raw', raw: '' };
+    if (txt === 'event_prep_owns_stock') return { kind: 'skipped', raw: txt };
+
+    let parsed;
+    try { parsed = JSON.parse(txt); } catch { return { kind: 'raw', raw: txt }; }
+
+    const results = Array.isArray(parsed) ? parsed
+                  : (parsed && Array.isArray(parsed.results)) ? parsed.results
+                  : null;
+    if (!results) return { kind: 'raw', raw: txt };
+    return { kind: 'results', results, raw: txt };
+}
+
+/** Afkort en changelog-værdi så en maskin-payload ikke sluger hele modalen. */
+function _clipChangelogValue(v, max) {
+    const s = String(v == null ? '' : v);
+    const lim = max || 300;
+    return s.length > lim ? s.slice(0, lim) + '…' : s;
+}
+
+/** Kort tal-format: 0.0134 → "0,013", 18 → "18" (ingen efterhængte nuller) */
+function _fmtConsumeAmount(v) {
+    const n = Number(v);
+    if (!isFinite(n)) return '';
+    return n.toLocaleString('da-DK', { maximumFractionDigits: 3 });
+}
+
+/**
+ * Detalje-HTML for en `grocy_consume`-entry.
+ *
+ * Uden det her dumper den generiske gren hele results-JSON'en (typisk 30+
+ * produkter, flere tusind tegn) direkte i historikken, så alt andet drukner.
+ * Vi viser en tællende opsummering og lægger produktlisten i en <details>.
+ */
+function _buildConsumeDetail(entry) {
+    const p = _parseConsumePayload(entry.new_value);
+
+    if (p.kind === 'skipped') {
+        return '<div class="changelog-detail">Lager ikke trukket — event-prep ejer HQ-lageret</div>';
+    }
+    if (p.kind === 'raw') {
+        // Ukendt format: vis det, men afkortet så det ikke sluger modalen.
+        const short = p.raw.length > 200 ? p.raw.slice(0, 200) + '…' : p.raw;
+        return short ? `<div class="changelog-detail">${esc(short)}</div>` : '';
+    }
+
+    const results = p.results;
+    const failed  = results.filter(r => r && r.success === false);
+    const partial = results.filter(r => r && r.partial);
+    const okCount = results.length - failed.length;
+
+    const bits = [`<span class="new-value">${okCount} ${okCount === 1 ? 'vare' : 'varer'} trukket fra lager</span>`];
+    if (partial.length) bits.push(`${partial.length} delvist (rest på indkøbsliste)`);
+    if (failed.length)  bits.push(`<span class="changelog-warn">${failed.length} fejlede</span>`);
+
+    let html = `<div class="changelog-detail">${bits.join(' · ')}</div>`;
+
+    if (results.length) {
+        const rows = results.map(r => {
+            const name = esc(r.product_name || ('#' + (r.product_id ?? '?')));
+            const amt  = _fmtConsumeAmount(r.amount);
+            const flag = r.success === false ? ' <span class="changelog-warn">fejl</span>'
+                       : r.partial          ? ' <span class="changelog-warn">delvist</span>'
+                       : '';
+            return `<li><span>${name}</span><span>${amt}${flag}</span></li>`;
+        }).join('');
+        html += `<details class="changelog-payload">
+            <summary>Vis varer (${results.length})</summary>
+            <ul>${rows}</ul>
+        </details>`;
+    }
+
+    return html;
+}
+
+/**
  * Byg HTML for én changelog-entry
  */
 function _buildChangelogEntry(entry) {
@@ -182,7 +278,10 @@ function _buildChangelogEntry(entry) {
             + '</div>';
     }
 
-    if (entry.action === 'create') {
+    if (entry.action === 'grocy_consume') {
+        // Maskin-payload — må aldrig dumpes rå (se _buildConsumeDetail).
+        detailHtml = _buildConsumeDetail(entry);
+    } else if (entry.action === 'create') {
         detailHtml = '<span class="changelog-detail">Bon oprettet</span>';
     } else if (entry.action === 'status_change') {
         const oldLabel = _statusLabel(entry.old_value);
@@ -195,18 +294,30 @@ function _buildChangelogEntry(entry) {
     } else if (entry.field_name) {
         const fieldLabel = _FIELD_LABELS[entry.field_name] || entry.field_name;
         const parts = [`<strong>${esc(fieldLabel)}</strong>`];
+        // Værdierne afkortes: changelog bruges også til maskin-payloads, og en
+        // enkelt JSON-klump på flere tusind tegn skubber al anden historik ud.
+        const oldVal = _clipChangelogValue(entry.old_value);
+        const newVal = _clipChangelogValue(entry.new_value);
 
         if (entry.old_value && entry.new_value) {
-            parts.push(`: <span class="old-value">${esc(entry.old_value)}</span>`);
+            parts.push(`: <span class="old-value">${esc(oldVal)}</span>`);
             parts.push(`<span class="arrow">→</span>`);
-            parts.push(`<span class="new-value">${esc(entry.new_value)}</span>`);
+            parts.push(`<span class="new-value">${esc(newVal)}</span>`);
         } else if (entry.new_value) {
-            parts.push(`: <span class="new-value">${esc(entry.new_value)}</span>`);
+            parts.push(`: <span class="new-value">${esc(newVal)}</span>`);
         } else if (entry.old_value) {
-            parts.push(`: <span class="old-value">${esc(entry.old_value)}</span> (fjernet)`);
+            parts.push(`: <span class="old-value">${esc(oldVal)}</span> (fjernet)`);
         }
         detailHtml = `<div class="changelog-detail">${parts.join('')}</div>`;
     }
+
+    // Booking, auto-satte tider og leverings-hændelser lægger forklaringen i
+    // `notes` og kun rå id'er i new_value ("delivery_vehicle_id: 7"). Uden
+    // noten er de entries reelt ulæselige.
+    const noteStr  = String(entry.notes || '').trim();
+    const noteHtml = (noteStr && noteStr !== String(entry.new_value || '').trim())
+        ? `<div class="changelog-note">${esc(noteStr)}</div>`
+        : '';
 
     const timeStr = _formatChangelogDate(entry.created_at);
     const userStr = entry.user_name ? esc(entry.user_name) : '';
@@ -216,6 +327,7 @@ function _buildChangelogEntry(entry) {
         <div class="changelog-content">
             <div class="changelog-action-label">${esc(actionLabel)}</div>
             ${detailHtml}
+            ${noteHtml}
             <div class="changelog-meta">
                 <span class="changelog-time">${timeStr}</span>
                 ${userStr ? `<span class="changelog-user">— ${userStr}</span>` : ''}
@@ -342,17 +454,10 @@ async function showBonInfo(cardIdOrBonId, options) {
                 var gotoDiv = document.createElement('div');
                 gotoDiv.className = 'info-goto-section';
 
-                var now = new Date();
-                var today = now.getFullYear() + '-' + String(now.getMonth() + 1).padStart(2, '0') + '-' + String(now.getDate()).padStart(2, '0');
-                // En bon med delivery_date < i dag kan ikke tegnes i et dato-filtreret
-                // køkken-view (/today = præcis i dag, /later = fremtid), så "Gå til bon"
-                // ville lande et sted uden bonen (issue #378). Draweren kan åbne enhver
-                // bon uanset dato — så på gamle bons skjuler vi "Gå til bon" og lader
-                // "Åbn bon" (draweren) være den eneste, ærlige vej ind.
-                var isPast = bon.delivery_date && bon.delivery_date < today;
-
-                if (opts.showGotoButton && !isPast) {
-                    var targetPage = (bon.delivery_date > today) ? '/kitchen/later.html' : '/kitchen/today.html';
+                if (opts.showGotoButton) {
+                    var now = new Date();
+                    var today = now.getFullYear() + '-' + String(now.getMonth() + 1).padStart(2, '0') + '-' + String(now.getDate()).padStart(2, '0');
+                    var targetPage = (bon.delivery_date <= today) ? '/kitchen/today.html' : '/kitchen/later.html';
                     var gotoBtn = document.createElement('button');
                     gotoBtn.className = 'info-goto-btn';
                     gotoBtn.textContent = 'Gå til bon \u2192';
@@ -366,30 +471,12 @@ async function showBonInfo(cardIdOrBonId, options) {
                 if (opts.showEditButton && typeof opts.onEdit === 'function') {
                     var editBtn = document.createElement('button');
                     editBtn.className = 'info-goto-btn info-edit-btn';
-                    // "Åbn bon" på fortidige bons — mindre skræmmende end "Rediger" for
-                    // køkkenet, der typisk bare vil se bonen (fx pakkelisten).
-                    editBtn.textContent = isPast ? 'Åbn bon \u2192' : 'Rediger';
+                    editBtn.textContent = 'Rediger';
                     editBtn.addEventListener('click', function() {
                         closeModal();
                         opts.onEdit(bonId);
                     });
                     gotoDiv.appendChild(editBtn);
-                } else if (opts.showGotoButton && isPast) {
-                    // Fortidig bon, "Gå til bon" var ønsket, men ingen edit-handler er
-                    // registreret i denne kontekst. Fald tilbage til en global drawer så
-                    // knappen ikke bare forsvinder og efterlader modalen uden vej videre.
-                    var opener = (typeof window._bonInfoEditHandler === 'function') ? window._bonInfoEditHandler
-                               : (typeof window.openDrawer === 'function') ? window.openDrawer : null;
-                    if (opener) {
-                        var openBtn = document.createElement('button');
-                        openBtn.className = 'info-goto-btn';
-                        openBtn.textContent = 'Åbn bon \u2192';
-                        openBtn.addEventListener('click', function() {
-                            closeModal();
-                            opener(bonId);
-                        });
-                        gotoDiv.appendChild(openBtn);
-                    }
                 }
 
                 body.appendChild(gotoDiv);
@@ -602,7 +689,10 @@ function _buildBonInfoHtml(bon) {
     }
 
     // ── Menulinjer ────────────────────────────────────────────
-    const lines = bon.lines || [];
+    // Slå ens linjer sammen — se shared/bon_lines.js. Gamle bons kan have
+    // samme vare spredt over flere rækker; kortet merger allerede, og
+    // info-modalen skal vise det samme.
+    const lines = BonLines.mergeLines(bon.lines || []);
     if (lines.length > 0) {
         const mainLines = lines.filter(l => !l.is_accessory);
         const accLines  = lines.filter(l => l.is_accessory);
@@ -689,7 +779,7 @@ function _buildInfoLine(line, _esc) {
     const accessoryCls = line.is_accessory ? ' accessory' : '';
 
     return `<div class="info-line${accessoryCls}">
-        <span class="info-line-qty">${line.quantity} ×</span>
+        <span class="info-line-qty">${line.quantity}</span>
         <span class="info-line-name">${_esc(line.product_name)}${special}</span>
         ${priceStr}
     </div>`;
@@ -1041,7 +1131,9 @@ function _renderPakkeliste() {
 }
 
 function _buildPakkelisteHtml(bon, data, level) {
-    const lines = bon.lines || [];
+    // Ens linjer slås sammen — se shared/bon_lines.js. En pakkeliste skal sige
+    // "3× Kartoflen slider", ikke tre gange "1×".
+    const lines = BonLines.mergeLines(bon.lines || []);
     if (lines.length === 0) {
         return '<div class="changelog-empty">Ingen linjer på denne bon endnu — tilføj varer først.</div>';
     }

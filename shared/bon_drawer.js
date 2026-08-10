@@ -1102,35 +1102,11 @@ class BonDrawer {
                 try {
                     const q = await fetchLoboQuote(this.bonId, quoteBoxes);
                     quoteBoxes = q.boxes;  // synk til det serveren regnede med
-                    // By-expressens egen målte afstand — mærkes, så den ikke forveksles
-                    // med vores ORS-afstand fra HQ i forslags-blokken ovenover.
-                    const dist = q.routedistance != null
-                        ? (q.routedistance / 1000).toLocaleString('da-DK', { maximumFractionDigits: 1 }) + ' km (By-ex)'
-                        : '';
+                    const dist = q.routedistance != null ? (q.routedistance / 1000).toLocaleString('da-DK', { maximumFractionDigits: 1 }) + ' km' : '';
                     const marginCls = q.margin == null ? '' : (q.margin < 0 ? 'neg' : 'pos');
                     const marginTxt = q.margin == null ? '' :
                         `<span class="lq-margin ${marginCls}">margin ${q.margin >= 0 ? '+' : ''}${kr(q.margin)}</span>`;
                     const incl = q.included_boxes != null ? ` <span class="lq-dim">(${q.included_boxes} inkl.)</span>` : '';
-                    // Uden for Food-området gælder bytaksten ikke, og kostprisen er
-                    // et Food-tal for en tur Food ikke kan købes til (kladden afviser
-                    // ikke out-of-area — kun den rigtige booking gør). Derfor ingen
-                    // gætte-kundepris her; office henter den i booking-panelet.
-                    const custRow = q.supply_warning
-                        ? `<div class="lq-row"><span>Kundepris (std)</span>` +
-                          `<span class="lq-dim">gælder ikke så langt ude</span></div>`
-                        : (q.customer_ex != null
-                            ? `<div class="lq-row"><span>Kundepris (std)</span><span>${kr(q.customer_ex)} ex</span></div>`
-                            : '');
-                    const suggestRow = (q.suggested_customer_ex != null)
-                        ? `<div class="lq-row"><span>💡 Bør koste</span><strong>${kr(q.suggested_customer_ex)} ` +
-                          `<span class="lq-dim">ex${q.suggested_margin != null ? ` · margin +${kr(q.suggested_margin)}` : ''}</span></strong></div>`
-                        : '';
-                    const supplyRow = q.supply_warning
-                        ? `<div class="lq-warn lq-warn-soft">⚠ Food dækker kun bynære leveringer` +
-                          `${q.max_distance_km ? ` (~${q.max_distance_km} km)` : ''} — prisen ovenfor er en Food-pris ` +
-                          `for en tur Food kan blive <strong>afvist</strong> på. By-expressen kører gerne herud, ` +
-                          `men på Medium/Large + zone-tillæg: hent den rigtige pris under <strong>By-ex booking</strong>.</div>`
-                        : '';
                     quoteEl.className = 'drawer-lobo-quote ok';
                     quoteEl.innerHTML =
                         `<div class="lq-head">🚴 By-ex pris</div>` +
@@ -1140,10 +1116,9 @@ class BonDrawer {
                           `<button type="button" class="lq-box-btn" data-box="1">+</button></span></div>` +
                         `<div class="lq-row"><span>Kostpris</span><strong>${kr(q.cost_ex)} <span class="lq-dim">ex moms</span></strong></div>` +
                         (q.cost_incl != null ? `<div class="lq-row lq-dim"><span></span><span>${kr(q.cost_incl)} incl</span></div>` : '') +
-                        custRow + suggestRow +
+                        (q.customer_ex != null ? `<div class="lq-row"><span>Kundepris (std)</span><span>${kr(q.customer_ex)} ex</span></div>` : '') +
                         (marginTxt ? `<div class="lq-row">${marginTxt}${dist ? `<span class="lq-dim">${dist}</span>` : ''}</div>` :
                             (dist ? `<div class="lq-row lq-dim"><span>${dist}</span></div>` : '')) +
-                        supplyRow +
                         (q.margin != null && q.margin < 0 ? `<div class="lq-warn">⚠ Lobo-prisen overstiger kundeprisen — I taber på leveringen.</div>` : '');
                 } catch (err) {
                     quoteEl.className = 'drawer-lobo-quote err';
@@ -1331,39 +1306,7 @@ class BonDrawer {
             }).join('');
 
         el.innerHTML = '<div class="drawer-sug-head">' + head + '</div>'
-            + '<div class="drawer-sug-list">' + alts + '</div>'
-            + '<div class="drawer-sug-hist" hidden></div>';
-
-        this._renderDeliveryPriceHistory();
-    }
-
-    // Hvad har vi tidligere taget for at levere til det postnummer? Formlen
-    // ovenfor siger hvad turen bør koste; det her siger hvad kunderne faktisk
-    // er blevet opkrævet — og fanger aftaler ingen formel kender.
-    // Non-blocking: fejler opslaget, vises linjen bare ikke.
-    async _renderDeliveryPriceHistory() {
-        const el = this.el.querySelector('.drawer-sug-hist');
-        if (!el) return;
-        const bonId = this.bonId;
-        const postnr = this.data && this.data.delivery_address
-            && this.data.delivery_address.postal_code;
-        if (!postnr) return;
-
-        let h;
-        try { h = await fetchDeliveryPriceHistory(postnr, 8); } catch { return; }
-        if (this.bonId !== bonId || !h || !h.count) return;
-
-        const kr = (n) => Number(n).toLocaleString('da-DK', { maximumFractionDigits: 2 }) + ' kr';
-        const top = (h.common || [])[0];
-        el.hidden = false;
-        el.innerHTML = '<span class="dsh-label">Sidst taget til ' + esc(h.postal_code) + ':</span> '
-            + '<strong>' + kr(h.last.price_incl) + '</strong> <span class="dsh-dim">inkl. ('
-            + kr(h.last.price_ex) + ' ex)' + (h.last.label ? ' · ' + esc(h.last.label) : '')
-            + (h.last.delivery_date ? ' · ' + esc(h.last.delivery_date) : '') + '</span>'
-            + (top && top.n > 1
-                ? ' <span class="dsh-dim">· oftest ' + kr(top.price_incl) + ' ('
-                  + top.n + '/' + h.count + ')</span>'
-                : '');
+            + '<div class="drawer-sug-list">' + alts + '</div>';
     }
 
     async _renderDeliveryEvents() {
@@ -1630,7 +1573,7 @@ class BonDrawer {
             return;
         }
         el.style.display = '';
-        el.innerHTML = '⚠ Markeret faktureret, men der findes ingen faktura i e-conomic '
+        el.innerHTML = '⚠ Markeret faktureret, men der findes ingen faktura '
             + '<span class="diw-sub">— kunden har ikke fået en regning</span>';
     }
 
@@ -1846,9 +1789,6 @@ class BonDrawer {
                 } else if (priceEl && Number.isFinite(unitPrice)) {
                     priceEl.textContent = (newQty * unitPrice) + ' kr';
                 }
-                // Linje-prisen alene er ikke nok: total, CO₂ og enheder er alle
-                // afledt af linjerne og genberegnes server-side. Hent dem frem.
-                self._reloadLines();
             })
             .catch(function(err) {
                 console.error('Kunne ikke gemme antal:', err);
@@ -1924,47 +1864,23 @@ class BonDrawer {
             });
     }
 
-    /**
-     * Genindlæs linjerne uden at re-rendere hele draweren (bevarer picker- og
-     * felt-tilstand). Opdaterer alt der er AFLEDT af linjerne og genberegnes
-     * server-side: linjelisten + totalen, CO₂-strippen og Enheder-feltet.
-     */
+    /** Reload only lines list without re-rendering entire drawer (preserves picker state) */
     async _reloadLines() {
         if (!this.bonId) return;
-        // Kort vindue hvor vores eget bon_updated-ekko ikke udløser en fuld load()
-        this._localChangeUntil = Date.now() + 2000;
-        var prev = this.data || {};
         try {
             var bon = await fetchBon(this.bonId);
             this.data = bon;
             this._renderLines(bon.lines || []);
-            this._renderCo2(bon);
-            this._loadCo2Accuracy(this.bonId);   // strippen blev gen-renderet — hent "% dækket" igen
-            this._syncDerivedUnits(prev, bon);
         } catch (err) {
             console.error('Kunne ikke genindlæse linjer:', err);
         }
-    }
-
-    /**
-     * Enheder (total_units) er både server-beregnet OG bruger-redigerbart.
-     * Opdatér kun feltet hvis brugeren ikke selv har rørt det — ellers ville en
-     * linje-ændring smide en ugemt manuel rettelse væk.
-     */
-    _syncDerivedUnits(prev, next) {
-        var el = this.el.querySelector('[data-field="total_units"]');
-        if (!el || el === document.activeElement) return;
-        var prevVal = String(prev.total_units || '');
-        if (el.value !== prevVal) return;          // brugeren har ændret feltet
-        el.value = next.total_units || '';
     }
 
     async _deleteLine(lineId) {
         if (!confirm('Fjern denne vare?')) return;
         try {
             await deleteBonLine(this.bonId, lineId);
-            // _reloadLines frem for load(): bevarer ugemte felt-ændringer
-            await this._reloadLines();
+            await this.load(this.bonId);
         } catch (err) {
             alert(err.message || 'Kunne ikke fjerne vare');
         }
@@ -2238,13 +2154,9 @@ class BonDrawer {
         // Patch F: bon_updated + bon_status bruger nu konsistent {id} på payload
         window.addEventListener('sse:bon_updated', (e) => {
             const data = e.detail || {};
-            if (data.id != this.bonId || this.dirty || this._editingLineId) return;
-            // Vores eget ekko: _reloadLines har allerede hentet friske tal, og en
-            // fuld load() ville lukke vare-pickeren midt i arbejdet.
-            if (this._localChangeUntil && Date.now() < this._localChangeUntil) return;
-            // Picker åben → let genindlæsning så tilstanden bevares
-            if (this.varePicker && this.varePicker._visible) { this._reloadLines(); return; }
-            this.load(this.bonId);
+            if (data.id == this.bonId && !this.dirty && !this._editingLineId) {
+                this.load(this.bonId);
+            }
         });
         window.addEventListener('sse:bon_status', (e) => {
             const data = e.detail || {};
@@ -2409,7 +2321,8 @@ if (typeof _fmtMailDate === 'undefined') {
 }
 if (typeof _buildMailVars === 'undefined') {
     var _buildMailVars = function(bon) {
-        var lines = bon.lines || [];
+        // Ens linjer slås sammen — se shared/bon_lines.js.
+        var lines = BonLines.mergeLines(bon.lines || []);
         var groups = bon.menu_groups || [];
         var menuLines = lines.filter(function(l) { var c = (l.category||'').toLowerCase(); return c !== 'emballage' && c !== 'levering'; });
 
