@@ -143,7 +143,7 @@ async function ecoFetch(base, path, { method = 'GET', body, idempotencyKey } = {
     }
     if (res.status === 403) {
         const text = await res.text().catch(() => '');
-        throw new EconomicError(`e-conomic 403 — tjek app-rolle (SuperUser/Sales): ${text}`, { status: 403, body: text });
+        throw new EconomicError(`e-conomic 403 — app-rollen rækker ikke (i dag kun Sales; ledger kræver udvidet rolle + ny grant, se CLAUDE_ECONOMIC_AUTH.md §1): ${text}`, { status: 403, body: text });
     }
     if (res.status === 429) {
         throw new EconomicRateError('e-conomic rate limit ramt (429)', { status: 429 });

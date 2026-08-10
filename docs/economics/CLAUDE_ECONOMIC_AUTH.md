@@ -25,9 +25,44 @@ HTTP-headers på hvert kald. Query-string-auth understøttes IKKE (kun til demo)
 agreement (apps) og det almindelige Ristet Rug-regnskab (grant). Det er den
 hyppigste kilde til forvirring.
 
-**Rolle:** Sæt app'ens rolle til **SuperUser** i e-conomic (Indstillinger →
-Udvidelser → Apps → app → Rolle) for fuld læseadgang til fakturaer og
-bogførte poster.
+### Rolle — hvad vi faktisk har adgang til (verificeret 10. august 2026)
+
+Rollen er en egenskab ved **app-registreringen i developer agreementet** — ikke
+en indstilling i Ristet Rugs regnskab. `GET /self` fortæller den:
+
+```json
+"application": {
+  "appNumber": 25423,
+  "name": "bon-faktura",
+  "appPublicToken": "XdO22BUn4kjTFvMlP6grSkl2VMBcfjKQNyaZTtUvRjg",
+  "requiredRoles": [{ "roleNumber": 1, "name": "Sales" }]
+}
+```
+
+App'en beder kun om **Sales**. Derfor:
+
+| Endpoint | Status |
+|---|---|
+| `/customers`, `/invoices/*` (drafts, booked, paid, unpaid, overdue, notDue, sent) | ✅ 200 |
+| `/accounts`, `/accounting-years` (posteringer), `/journals`, `/suppliers` | ⛔ **403** |
+
+**403 er altså ikke en fejl at fejlsøge — det er rollen.** Vil vi have
+finansposteringer (e-conomics egen bank-afstemning, leverandørfakturaer,
+betalingsdatoer, kreditnotaer), kræver det to skridt:
+
+1. **Udvid app'ens `requiredRoles`** i developer agreementet (app 25423
+   "bon-faktura"), ikke i RR-regnskabet.
+2. **Ny grant.** Det eksisterende `ECONOMIC_AGREEMENT_GRANT` er udstedt mod de
+   GAMLE roller. Installations-URL'en køres igen mens man er logget ind på
+   Ristet Rugs regnskab → nyt token → opdatér `.env` på Hetzner.
+   `appPublicToken` ovenfor er den offentlige del af den URL.
+
+> `/roles` svarer **501 "Endpoint not implemented"**, så rollelisten kan ikke
+> hentes via API — den vælges i developer-portalen.
+>
+> **Probe før du bygger.** Kør et GET mod `/accounts` og
+> `/accounting-years/{år}/entries` FØR der skrives kode på posteringer; vi ved
+> ikke hvad en bredere rolle rent faktisk åbner, kun hvad den nuværende lukker.
 
 ---
 
@@ -126,7 +161,7 @@ ikke GET.
 | HTTP | Betydning | Adapterens reaktion |
 |------|-----------|---------------------|
 | `401` | Grant token tilbagekaldt / ugyldig | Stop, vis "e-conomic skal genforbindes" i office. Tokens er ikke selvfornyende — kræver manuel ny grant |
-| `403` | Authentificeret, men rolle mangler adgang | Log + besked: tjek app-rolle (SuperUser) |
+| `403` | Authentificeret, men app-rollen rækker ikke | Forventet på ledger-endpoints med `Sales`-rollen (§1). Log + besked: rollen skal udvides i developer agreementet + ny grant |
 | `429` | Over rate limit | Backoff + retry. Fair use = 50.000 kald/24t pr. agreement |
 | `500` | e-conomic-fejl | Log `X-...`-id + agreement-nr (kræves ved support til api@e-conomic.com) |
 
@@ -167,7 +202,7 @@ ikke her — dette dokument leverer kun `openapi()`-forbindelsen de skal bruge.
 
 1. **Leif:** Skaf de to tokens (developer agreement → AppSecretToken;
    Installation URL fra RR-regnskab → AgreementGrantToken). Sæt app-rolle =
-   SuperUser. Verificér med `/self`-kaldet i §6.
+   den ønskede rolle (i dag kun `Sales` — se §1). Verificér med `/self`-kaldet i §6.
 2. **Simon:** Tilføj `.env`-variabler (§3) + `services/economicAdapter.js`
    auth-wrapper (§4) med fejlklasser (§5).
 3. Bekræft `/self` returnerer "Ristet Rug" fra serveren — *gate inden
