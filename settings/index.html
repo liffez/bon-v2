@@ -3922,17 +3922,22 @@ window.beReviewApply = beReviewApply;
 
 function _beAttachSse() {
     if (_beSse) return;
-    _beSse = new EventSource('/api/sse');
-    _beSse.addEventListener('batch_enrich_progress', (e) => {
-        const d = JSON.parse(e.data);
-        document.getElementById('be-prog-ratio').textContent = `${d.current} / ${d.total}`;
-        const pct = Math.round((d.current / d.total) * 100);
-        document.getElementById('be-prog-bar').style.width = pct + '%';
-    });
-    _beSse.addEventListener('batch_enrich_done', (e) => {
-        const d = JSON.parse(e.data);
-        _beShowDone(d);
-        if (_beSse) { _beSse.close(); _beSse = null; }
+    // manageSSE lukker også ved navigation — ellers hang streamen hvis man
+    // forlod siden midt i en batch-berigelse.
+    _beSse = manageSSE(() => {
+        const es = new EventSource('/api/sse');
+        es.addEventListener('batch_enrich_progress', (e) => {
+            const d = JSON.parse(e.data);
+            document.getElementById('be-prog-ratio').textContent = `${d.current} / ${d.total}`;
+            const pct = Math.round((d.current / d.total) * 100);
+            document.getElementById('be-prog-bar').style.width = pct + '%';
+        });
+        es.addEventListener('batch_enrich_done', (e) => {
+            const d = JSON.parse(e.data);
+            _beShowDone(d);
+            if (_beSse) { _beSse.close(); _beSse = null; }
+        });
+        return es;
     });
     // Polling-fallback for de aggregerede tal (matched/no_match/fields/cps)
     // — eventet rummer dem ikke per-firma. Vi henter status hvert 2. sek.

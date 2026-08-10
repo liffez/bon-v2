@@ -100,24 +100,37 @@ async function initIndkob(el) {
             } catch (e) { /* ignore */ }
         });
 
-        // SSE for PO mail + supplier mail events
-        _ibSSE = new EventSource('/api/sse');
-        _ibSSE.addEventListener('po_mail_received', function(e) {
-            var data = JSON.parse(e.data);
-            _ibHandlePoMail(data);
-        });
-        _ibSSE.addEventListener('po_mail_sent', function(e) {
-            var data = JSON.parse(e.data);
-            _ibHandlePoMail(data);
-        });
-        _ibSSE.addEventListener('supplier_mail_received', function(e) {
-            var data = JSON.parse(e.data);
-            _ibHandleSupplierMailEvent(data);
-        });
-        _ibSSE.addEventListener('supplier_mail_sent', function(e) {
-            var data = JSON.parse(e.data);
-            _ibHandleSupplierMailEvent(data);
-        });
+        // SSE for PO mail + supplier mail events.
+        //
+        // Guarden er ikke pyntet: initIndkob() kaldes forfra HVER gang office
+        // skifter til Indkøb-visningen (office/index.html), og hver gang
+        // purchasing.html mounter fanen. Uden guarden stablede hvert skift en
+        // ny stream ovenpå den forrige, som aldrig blev lukket. Lytterne herunder
+        // læser kun modul-globals (_ibContainer m.fl.), som initIndkob opdaterer
+        // — så den eksisterende forbindelse kan trygt genbruges mod en ny
+        // container. manageSSE() lukker den ved navigation.
+        if (!_ibSSE) {
+            _ibSSE = manageSSE(function() {
+                var es = new EventSource('/api/sse');
+                es.addEventListener('po_mail_received', function(e) {
+                    var data = JSON.parse(e.data);
+                    _ibHandlePoMail(data);
+                });
+                es.addEventListener('po_mail_sent', function(e) {
+                    var data = JSON.parse(e.data);
+                    _ibHandlePoMail(data);
+                });
+                es.addEventListener('supplier_mail_received', function(e) {
+                    var data = JSON.parse(e.data);
+                    _ibHandleSupplierMailEvent(data);
+                });
+                es.addEventListener('supplier_mail_sent', function(e) {
+                    var data = JSON.parse(e.data);
+                    _ibHandleSupplierMailEvent(data);
+                });
+                return es;
+            });
+        }
     } catch (err) {
         console.error('[indkob] init fejl:', err);
         _ibContainer.innerHTML = '<div class="ib-empty"><div class="ib-empty-icon">⚠️</div>'

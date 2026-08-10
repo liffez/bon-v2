@@ -156,11 +156,64 @@ function getClientId() {
    ══════════════════════════════════════════════════════════════ */
 
 /**
+ * Livscyklus-styring for én SSE-forbindelse. ALT der åbner en EventSource skal
+ * gå gennem denne — ellers bliver streamen hængende når man forlader siden.
+ *
+ * Hvorfor det betyder noget: serveren opdager først et forsvundet klient-socket
+ * ved næste heartbeat (25 s), så en side man har navigeret væk fra kan holde sin
+ * stream åben i op mod et minut bagefter. Hele domænet kører HTTP/2, så alle
+ * sider deler ÉN TCP-forbindelse til serveren — de efterladte streams holder
+ * netop den forbindelse i live, også når den er blevet ubrugelig (dvale,
+ * Wi-Fi-skift). Næste navigation genbruger så en død forbindelse og fejler med
+ * "Der er ingen internetforbindelse", indtil man reloader.
+ *
+ * @param {Function} factory  () => EventSource med lyttere allerede påsat.
+ *                            Kaldes igen ved bfcache-gendannelse, så ALLE
+ *                            lyttere skal sættes på herinde — ikke bagefter.
+ * @returns {{es: EventSource|null, close: Function}}
+ */
+function manageSSE(factory) {
+    var es = factory();
+    var closed = false;
+
+    function shutdown() {
+        try { if (es) es.close(); } catch (e) { /* stille */ }
+        es = null;
+    }
+
+    // 'pagehide' dækker både rigtig navigation og "siden lægges i bfcache".
+    // Brug IKKE 'unload'/'beforeunload' — de forhindrer bfcache i Safari.
+    function onPageHide() { if (!closed) shutdown(); }
+
+    // Kun ved bfcache-gendannelse (persisted): siden køres ikke forfra, så
+    // JS'en genopretter ikke sig selv — vi skal koble på igen manuelt.
+    function onPageShow(e) {
+        if (closed || !e.persisted || es) return;
+        try { es = factory(); } catch (err) { /* stille — siden virker uden live-opdatering */ }
+    }
+
+    window.addEventListener('pagehide', onPageHide);
+    window.addEventListener('pageshow', onPageShow);
+
+    return {
+        get es() { return es; },
+        close: function () {
+            closed = true;
+            shutdown();
+            window.removeEventListener('pagehide', onPageHide);
+            window.removeEventListener('pageshow', onPageShow);
+        }
+    };
+}
+
+/**
  * Opret SSE-forbindelse med named event handlers.
  *
  * @param {string} url       SSE endpoint (default: '/api/sse')
  * @param {Object} handlers  { eventName: fn(parsedData) }
- * @returns {EventSource}
+ * @returns {{es: EventSource|null, close: Function}}  handle fra manageSSE().
+ *          Bemærk: returværdien er IKKE længere selve EventSource'n — den
+ *          udskiftes ved bfcache-gendannelse, så den skal tilgås via `.es`.
  *
  * Eksempel:
  *   connectSSE('/api/sse', {
@@ -170,8 +223,12 @@ function getClientId() {
  *   });
  */
 function connectSSE(url, handlers, opts) {
-    const es = new EventSource(url || '/api/sse');
     opts = opts || {};
+    return manageSSE(function () { return _buildSSE(url, handlers, opts); });
+}
+
+function _buildSSE(url, handlers, opts) {
+    const es = new EventSource(url || '/api/sse');
 
     for (const [eventName, handler] of Object.entries(handlers)) {
         es.addEventListener(eventName, (e) => {
