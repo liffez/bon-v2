@@ -399,6 +399,11 @@ async function _tOpenQuote(id) {
             }
         }
 
+        // Efter linjerne: slukkede blokke får deres gemte indhold tilbage.
+        // Rækkefølgen betyder noget — _tActBlk skal være fyldt af linjerne først,
+        // så en blok der ER tændt ikke får overskrevet sit rigtige indhold.
+        _tRestoreBlockStash();
+
         _tMode = 'wizard';
         _tStep = 0;
         _tMaxStep = 4; // eksisterende tilbud: alle steps klikbare
@@ -511,12 +516,18 @@ function _tSaveStepFields() {
         const ii = v('t-invoice-info');if (ii !== undefined) _tInvoiceInfo = ii;
         const ki = v('t-kitchen-info');if (ki !== undefined) _tKitchenInfo = ki;
         const in_ = v('t-internal-notes'); if (in_ !== undefined) _tInternalNotes = in_;
-        // Pax per blok
+        // Pax per blok. Nøglerne opdateres i stedet for at blive bygget forfra —
+        // _tBlockMeta bærer også `stash` (indholdet af slukkede blokke), og en
+        // nulstilling her ville smide det væk hver gang man forlod trin 1.
         if (_tTpl === 'event') {
-            _tBlockMeta = {};
             _tBLOCKS.forEach(b => {
                 const bpax = v('t-bpax-' + b.id);
-                if (bpax && parseInt(bpax) > 0) _tBlockMeta[b.id] = { pax: parseInt(bpax) };
+                if (bpax === undefined) return;          // feltet var ikke i DOM'en
+                const meta = _tBlockMeta[b.id] || {};
+                const n = parseInt(bpax);
+                if (n > 0) meta.pax = n; else delete meta.pax;
+                if (Object.keys(meta).length) _tBlockMeta[b.id] = meta;
+                else delete _tBlockMeta[b.id];
             });
         }
     }
@@ -872,6 +883,55 @@ function _tBuildStats() {
     h += `<div style="margin-left:auto"><button class="tilbud-btn tilbud-btn-secondary tilbud-btn-sm" onclick="_tShowDB=!_tShowDB;_tRenderWizard()" style="font-size:.7rem">${_tShowDB ? 'Skjul DB' : 'Vis DB'}</button></div>`;
     h += '</div>';
     return h;
+}
+
+/**
+ * Indholdet af SLUKKEDE blokke lægges i `offer_block_metadata[blok].stash`.
+ *
+ * En slukket blok er ikke en del af tilbuddet, så dens varer må ikke ligge i
+ * `bon_lines` — der ville de tælle med i priser, enheder og pakkeliste, og de
+ * ville følge med over i en rigtig bon ved konvertering. Men de skal heller ikke
+ * være væk: office slukker en blok for at se tilbuddet uden den, ikke for at
+ * kassere en times arbejde.
+ *
+ * `offer_block_metadata` er allerede en fri JSON-kolonne til blok-metadata
+ * (migration 024, bruges til pax pr. blok), så det kræver ingen skemaændring —
+ * og alt nedstrøms for tilbuddet er uberørt, fordi bon_lines ser ud præcis som
+ * før.
+ */
+function _tSyncBlockStash() {
+    if (_tTpl !== 'event') return;
+    _tBLOCKS.forEach(b => {
+        const meta = _tBlockMeta[b.id] || {};
+        const items = _tEvBlk[b.id] || [];
+
+        if (!_tActBlk.has(b.id) && items.length) {
+            meta.stash = items.map(it => ({
+                id: it.id,
+                grocy_recipe_id: it.grocy_recipe_id ?? null,
+                name: it.name,
+                unit: it.unit || 'stk',
+                category: it.category ?? null,
+                unitPrice: it.unitPrice,
+                costPrice: it.costPrice,
+                qty: it.qty,
+            }));
+        } else {
+            delete meta.stash;   // tændt igen — varerne ligger i bon_lines nu
+        }
+
+        if (Object.keys(meta).length) _tBlockMeta[b.id] = meta;
+        else delete _tBlockMeta[b.id];
+    });
+}
+
+/** Læg gemte varer tilbage i deres blok ved indlæsning. Blokken forbliver slukket. */
+function _tRestoreBlockStash() {
+    for (const [bid, meta] of Object.entries(_tBlockMeta || {})) {
+        if (!Array.isArray(meta?.stash) || !meta.stash.length) continue;
+        if (_tActBlk.has(bid)) continue;    // blokken er tændt — bon_lines ejer indholdet
+        _tEvBlk[bid] = meta.stash.map(s => ({ ...s, qty: s.qty || 1 }));
+    }
 }
 
 function _tEffectivePax(blockKey) {
@@ -1468,6 +1528,7 @@ function _tSaveBtn() {
 
 async function _tSaveQuote() {
     _tSaveStepFields();
+    _tSyncBlockStash();
 
     // `bons.delivery_date` er NOT NULL i skemaet, så et tilbud kan ikke gemmes
     // uden dato — uanset hvor tidligt i forløbet man er. Uden dette tjek kommer

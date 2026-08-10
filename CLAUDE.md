@@ -2083,9 +2083,29 @@ stiplet kant + antal-badge når der ligger noget bag den, så det er synligt at 
 noget at hente tilbage. `_tBuildStats` filtrerede som det eneste sted IKKE på
 `_tActBlk` — den talte den slukkede bloks varer med og modsagde dermed pristabellen
 (rettet samtidig: 7 varer/700 kr → 1 vare/100 kr når Frokost slukkes).
-Bemærk: gemmer man mens blokken er slukket, følger indholdet ikke med i DB — det er
-den rigtige semantik ("blokken er ikke en del af tilbuddet"), men fortrydelsen gælder
-altså kun indtil man gemmer.
+**Og indholdet overlever et gem.** En slukket bloks varer lægges i
+`offer_block_metadata[blok].stash` — den frie JSON-kolonne fra migration 024, der
+allerede bærer pax pr. blok. **Ingen skemaændring.**
+
+Hvorfor ikke bare lade linjerne ligge i `bon_lines` med et inaktiv-flag: så ville de
+tælle med i priser, enheder og pakkeliste, og de ville følge med over i en rigtig bon
+ved konvertering — medmindre hver eneste forbruger af `bon_lines` lærte at filtrere.
+Med stash ser `bon_lines` ud præcis som før, så alt nedstrøms er uberørt, og
+"en slukket blok er ikke en del af tilbuddet" forbliver sandt i databasen.
+
+- `_tSyncBlockStash()` (kaldes i `_tSaveQuote`): slukket blok med indhold → `stash`;
+  tændt blok → `stash` slettes, for så ejer `bon_lines` indholdet. Ingen dobbelt-registrering.
+- `_tRestoreBlockStash()` (kaldes i `_tOpenQuote` EFTER linjerne er indlæst, så en
+  tændt bloks rigtige indhold ikke overskrives).
+- Fælde undervejs: `_tSaveStepFields` gjorde `_tBlockMeta = {}` og byggede den forfra
+  fra pax-felterne. Det ville have smidt stash væk hver gang man forlod trin 1.
+  Nøglerne opdateres nu i stedet for at blive nulstillet.
+
+Verificeret: fyld Frokost (6 + 2 varer) → sluk → gem → `bon_lines` har KUN morgenmad,
+`offer_block_metadata.lunch.stash` har de to varer → genindlæs → Frokost stadig slukket
+med "8" på chippen og indholdet intakt → tænd → gem → varerne er tilbage i `bon_lines`
+med rigtig blok, antal og kategori, og metadata er `null`. Pax pr. blok (40/80) og stash
+lever side om side gennem hele turen. Testdata ryddet.
 
 ### Mail-oprydning: spam/auto-ignored + bounces (14.-15. maj 2026)
 > Spec: `docs/CLAUDE_MAIL_FIX_SPAM_OPHOBNING.md`
