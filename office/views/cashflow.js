@@ -316,6 +316,13 @@ function _cfBuildOverblik(el, stats, weekly, invoices, upcoming, unmatched, even
                     <div class="cf-last-upload">${stats.last_upload ? 'Sidst uploadet: ' + new Date(stats.last_upload).toLocaleString('da-DK') : 'Ingen upload endnu'}</div>
                 </div>
 
+                <!-- Event-indtægten står FØR den ukoblede liste: den er et kort,
+                     færdigt facit, mens listen nedenfor er et arbejdsbord der kan
+                     være hundredvis af rækker langt. Lå kortet efter, skulle man
+                     scrolle forbi hele arbejdsbordet for at se om festivalpengene
+                     var kommet ind — og så tror man de mangler. -->
+                ${_cfEventIncomeCard(eventIncome)}
+
                 <div class="cf-unmatched-card" id="cfUnmatchedCard">
                     <input class="cf-um-list-search" id="cfUmSearch" type="text" autocomplete="off"
                         placeholder="🔎 Søg postering (event, beløb, tekst) — også afregnede…">
@@ -329,8 +336,6 @@ function _cfBuildOverblik(el, stats, weekly, invoices, upcoming, unmatched, even
                     </div>
                     <div id="cfUnmatchedArea">${_cfUnmatchedAreaHtml(unmatched.rows, unmatched.total, false)}</div>
                 </div>
-
-                ${_cfEventIncomeCard(eventIncome)}
 
                 ${upcoming.rows.length > 0 ? `
                 <div class="cf-upcoming-card">
