@@ -2902,18 +2902,35 @@ function _ucParse(raw) {
   catch { return []; }
 }
 
+// Grocys kategoriliste — ÉT sted.
+//
+// Grocy er eneste kilde til hvilke kategorier der findes (historiske stavemåder
+// som "Salat" vs. "02 Salat" normaliseres væk af
+// scripts/normalize-bon-line-categories.js og hører ikke hjemme som valgmulighed).
+// Flere Settings-sektioner har brug for listen, og de udledte den hver for sig.
+var _grocyRecipesCache = null;
+async function getGrocyRecipesCached() {
+  if (!_grocyRecipesCache) _grocyRecipesCache = await fetchGrocyRecipes();
+  return _grocyRecipesCache;
+}
+
+async function getGrocyCategories() {
+  var recipes = await getGrocyRecipesCached();
+  var seen = {}, out = [];
+  (recipes || []).forEach(function(r) {
+    var c = (r.category || '').trim();
+    if (c && !seen[c]) { seen[c] = 1; out.push(c); }
+  });
+  out.sort(function(a, b) { return a.localeCompare(b, 'da'); });
+  return out;
+}
+
 async function loadUnitCategoriesSettings() {
   _ucSelected = _ucParse(allSettings['unit_count_categories']);
   var recipes = [];
   try {
-    recipes = await fetchGrocyRecipes();
-    var seen = new Set();
-    _ucAllCats = [];
-    (recipes || []).forEach(function(r) {
-      var c = (r.category || '').trim();
-      if (c && !seen.has(c)) { seen.add(c); _ucAllCats.push(c); }
-    });
-    _ucAllCats.sort(function(a, b) { return a.localeCompare(b, 'da'); });
+    recipes = await getGrocyRecipesCached();
+    _ucAllCats = await getGrocyCategories();
   } catch (e) {
     console.warn('Kunne ikke hente Grocy-kategorier:', e);
     _ucAllCats = _ucSelected.slice();
@@ -3142,15 +3159,12 @@ async function loadOfferCatDisplay() {
   catch (_) { _ocdRules = {}; }
   if (typeof _ocdRules !== 'object' || Array.isArray(_ocdRules)) _ocdRules = {};
 
+  // Samme Grocy-liste som resten af Settings bruger. Kategorier der allerede
+  // har en gemt regel tages med selvom de er ude af Grocy — ellers ville en
+  // gammel regel være usynlig og umulig at fjerne igen.
   var cats = [];
-  try {
-    var recipes = await fetchGrocyRecipes();
-    var seen = {};
-    (recipes || []).forEach(function(r) {
-      var c = (r.category || '').trim();
-      if (c && !seen[c]) { seen[c] = 1; cats.push(c); }
-    });
-  } catch (_) { /* Grocy nede — vis i det mindste de gemte regler */ }
+  try { cats = await getGrocyCategories(); }
+  catch (_) { /* Grocy nede — vis i det mindste de gemte regler */ }
 
   Object.keys(_ocdRules).forEach(function(c) { if (cats.indexOf(c) === -1) cats.push(c); });
   cats.sort(function(a, b) { return a.localeCompare(b, 'da'); });

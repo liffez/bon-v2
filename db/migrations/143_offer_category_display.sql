@@ -18,11 +18,24 @@
 --
 -- Default flytter kun emballagen nederst. At skjule noget kunden betaler for
 -- skal være et bevidst valg, så det gøres i Settings → Tilbud — opbygning.
--- Begge stavemåder tages med: "06 Emballage" (4.415 linjer) er den kanoniske
--- fra Grocy, "Emballage" (210) er en historisk variant.
+--
+-- Kun det kanoniske Grocy-navn. Den historiske variant "Emballage" (uden
+-- nummer) er ikke en kategori man skal kunne konfigurere — den mappes til
+-- "06 Emballage" af scripts/normalize-bon-line-categories.js, som er den
+-- rigtige måde at rydde den slags op på. Grocy er eneste kilde til kategorier.
 
 INSERT INTO settings (key, value, description)
 SELECT 'offer_category_display',
-       '{"06 Emballage":"last","Emballage":"last"}',
+       '{"06 Emballage":"last"}',
        'Visning af varekategorier på tilbud: show | last | hidden (kun visning — priser er upåvirkede)'
 WHERE NOT EXISTS (SELECT 1 FROM settings WHERE key = 'offer_category_display');
+
+-- Første udgave af denne migration seedede også den historiske stavemåde
+-- "Emballage". Den er ikke en Grocy-kategori og hører ikke til i listen.
+-- Ryd den KUN hvis værdien stadig er præcis den oprindelige default — så en
+-- der allerede har testet branchen ikke sidder med en død række, og uden at
+-- røre en indstilling nogen selv har ændret.
+UPDATE settings
+   SET value = '{"06 Emballage":"last"}'
+ WHERE key = 'offer_category_display'
+   AND value = '{"06 Emballage":"last","Emballage":"last"}';

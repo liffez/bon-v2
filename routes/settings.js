@@ -45,35 +45,6 @@ router.get('/delivery-icons', requireAuth(), handle((req, res) => {
     }
 }));
 
-// GET /api/settings/locations
-router.get('/locations', requireAuth(), handle((req, res) => {
-    const rows = getDb().prepare('SELECT id, name, code, grocy_api_url, address, is_active FROM locations ORDER BY id').all();
-    res.json(rows);
-}));
-
-// GET /api/settings/inventory-status — er lagertrækket i live?
-//
-// Baggrund (#305): inventory_auto_deduct har stået på '0' siden v1→v2-cutoveret,
-// så LEVERET har ikke trukket lager. Koden fejlede ikke — flaget gjorde præcis
-// hvad der stod. Fejlen var at INGEN KUNNE SE at det var holdt op med at virke:
-// bon-siden sagde "varer brugt", Grocy sagde "intet forlod huset", og de to tal
-// mødtes aldrig noget sted.
-//
-// Endpointet er svaret på det. Det bruger bevidst KUN Bons egne tal — ingen
-// Grocy-afhængighed, så visningen også virker når Grocy er nede (og en Grocy der
-// er nede er netop et tidspunkt hvor man vil vide om trækket kører).
-//
-//   last_deducted_at  NULL = der er aldrig trukket. Se det, og du ved besked.
-//
-// To vinduer, fordi spørgsmålet skifter med flagets tilstand:
-//
-//   FRA  → "hvor meget skylder lageret?" Det er den ophobede skade, og den er
-//          historisk: 90 dage.
-//   TIL  → "virker det NU?" Historikken er irrelevant — de gamle bons trækker
-//          ikke med tilbagevirkende kraft, og et 90-dages-tal ville stå og lyse
-//          i tre måneder efter problemet var løst. Det er præcis den slags larm
-//          folk lærer at ignorere. Derfor et kort vindue: har en bon leveret i
-//          går ikke trukket, er DET en levende fejl.
 // GET /api/settings/internal-senders
 // Hvem tæller lige nu som "os selv" i mail-routingen? Reglen er usynlig i sig
 // selv — den viser sig først som en mail der ikke havnede hvor man ventede.
@@ -106,6 +77,35 @@ router.get('/internal-senders', requireAuth('admin'), handle((req, res) => {
     res.json({ entries, matched });
 }));
 
+// GET /api/settings/locations
+router.get('/locations', requireAuth(), handle((req, res) => {
+    const rows = getDb().prepare('SELECT id, name, code, grocy_api_url, address, is_active FROM locations ORDER BY id').all();
+    res.json(rows);
+}));
+
+// GET /api/settings/inventory-status — er lagertrækket i live?
+//
+// Baggrund (#305): inventory_auto_deduct har stået på '0' siden v1→v2-cutoveret,
+// så LEVERET har ikke trukket lager. Koden fejlede ikke — flaget gjorde præcis
+// hvad der stod. Fejlen var at INGEN KUNNE SE at det var holdt op med at virke:
+// bon-siden sagde "varer brugt", Grocy sagde "intet forlod huset", og de to tal
+// mødtes aldrig noget sted.
+//
+// Endpointet er svaret på det. Det bruger bevidst KUN Bons egne tal — ingen
+// Grocy-afhængighed, så visningen også virker når Grocy er nede (og en Grocy der
+// er nede er netop et tidspunkt hvor man vil vide om trækket kører).
+//
+//   last_deducted_at  NULL = der er aldrig trukket. Se det, og du ved besked.
+//
+// To vinduer, fordi spørgsmålet skifter med flagets tilstand:
+//
+//   FRA  → "hvor meget skylder lageret?" Det er den ophobede skade, og den er
+//          historisk: 90 dage.
+//   TIL  → "virker det NU?" Historikken er irrelevant — de gamle bons trækker
+//          ikke med tilbagevirkende kraft, og et 90-dages-tal ville stå og lyse
+//          i tre måneder efter problemet var løst. Det er præcis den slags larm
+//          folk lærer at ignorere. Derfor et kort vindue: har en bon leveret i
+//          går ikke trukket, er DET en levende fejl.
 router.get('/inventory-status', requireAuth(), handle((req, res) => {
     const db = getDb();
     const DELIVERED = `('LEVERET','FAKTURERET','BETALT','AFSLUTTET')`;

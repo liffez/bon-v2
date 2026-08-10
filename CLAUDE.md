@@ -2115,19 +2115,27 @@ emballagen allerede dæmpet nederst; tilbuddet manglede den samme adskillelse.
 
 - **Migration 143**: `settings.offer_category_display`, JSON fra kategorinavn til
   `show` | `last` | `hidden`. Default flytter kun emballage nederst
-  (`{"06 Emballage":"last","Emballage":"last"}`) — begge stavemåder, da driftsdata
-  har 4.415 linjer med den kanoniske og 210 med den historiske. At **skjule** noget
-  kunden betaler for skal være et bevidst valg.
+  (`{"06 Emballage":"last"}`). At **skjule** noget kunden betaler for skal være et
+  bevidst valg. Kun det kanoniske Grocy-navn — den historiske variant "Emballage"
+  hører ikke til som valgmulighed; den mappes væk af
+  `scripts/normalize-bon-line-categories.js`. (Migrationen retter sig selv hvis den
+  første udgave nåede at seede begge, men kun hvis værdien er urørt.)
 - **Reglen er ren visning.** `_tOfferItems()` / `_tOfferCategories()` bruges de fire
   steder der renderer for kunden (preview + PDF × event + enkeltbestilling).
   Beløbene summeres fortsat over ALLE varer — i single-mode blev `sub` tidligere
   akkumuleret inde i render-loopet, så det er hejst ud, ellers ville en skjult
   kategori have ændret totalen. `_tCollectLines` er urørt: linjerne gemmes uændret
   på bonen, så køkkenet ser emballagen.
-- **Settings → Tilbud — opbygning → "Varekategorier på tilbuddet"**: kategorierne
-  hentes fra Grocy, med Vis/Nederst/Skjul pr. kategori. Kategorier der allerede har
-  en regel tages med selvom de ikke længere findes i Grocy — ellers ville en gammel
-  regel være usynlig og umulig at fjerne. Grocy nede ⇒ de gemte regler vises stadig.
+- **Settings → Tilbud — opbygning → "Varekategorier på tilbuddet"**: Vis/Nederst/Skjul
+  pr. kategori. Kategorier der allerede har en regel tages med selvom de ikke længere
+  findes i Grocy — ellers ville en gammel regel være usynlig og umulig at fjerne.
+  Grocy nede ⇒ de gemte regler vises stadig.
+- **Grocys kategoriliste ét sted**: `getGrocyRecipesCached()` + `getGrocyCategories()`
+  i `settings/index.html`. Fire sektioner udledte listen hver for sig; den nye blev
+  først en femte kopi. Nu deles den, og opskrifterne hentes én gang pr. sideindlæsning.
+  **Grocy er eneste kilde** — historiske stavemåder (`Salat`, `Emballage`) er ikke
+  valgmuligheder, de normaliseres væk. `Tilbehør & Bokse`, `Frugt`, `x-Levering`,
+  `RR Produktion` m.fl. ER derimod rigtige Grocy-kategorier og skal med.
 - Sidegevinst: preview og PDF grupperede event-blokke forskelligt (preview efter
   kategori, PDF fladt). Begge er nu flade med samme sortering.
 
