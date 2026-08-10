@@ -220,7 +220,16 @@ function _cfBuildOverblik(el, stats, weekly, invoices, upcoming, unmatched, even
                     stats.not_invoiced_count > 0
                         ? ` · ${stats.not_invoiced_count} aldrig faktureret holdt ude`
                         : ''
-                }</div>
+                }</div>${
+                    // Hovedtallet er den juridiske kendsgerning. Denne linje siger hvor
+                    // mange der er værd at reagere på — resten betaler bare som de plejer.
+                    stats.overdue_within_rhythm_count > 0
+                        ? `<div class="cf-metric-sub cf-rhythm-sub" title="Beregnet ud fra hvad hver kunde plejer at gøre — intet at vedligeholde">
+                             <strong>${stats.overdue_late_count}</strong> er sene ift. hvad kunden plejer (${_cfFmt(stats.overdue_late_total)}) ·
+                             ${stats.overdue_within_rhythm_count} betaler som normalt
+                           </div>`
+                        : ''
+                }
             </div>
             <div class="cf-metric neutral">
                 <div class="cf-metric-label">Forventet ind — 30 dage (incl moms)</div>
@@ -1289,6 +1298,11 @@ function _cfBuildInvoiceRows(rows, tab) {
             // Går FORAN forfalden-tjekket: "Forfalden" antyder en kunde der ikke
             // har betalt. Her er der ingen regning at betale.
             pillClass = 'cf-pill-ikkefakt'; pillText = 'Ingen faktura';
+        } else if (days < 0 && inv.rhythm_days > 0 && !inv.late_for_customer) {
+            // Forfalden på papiret, men kunden er ikke længere ude end den plejer.
+            // Stadig synlig og stadig i tallet — bare uden alarmfarven, så den der
+            // FAKTISK er sen ikke drukner i kommuner der altid betaler lidt sent.
+            pillClass = 'cf-pill-rytme'; pillText = `Som normalt (+${inv.rhythm_days}d)`;
         } else if (days < 0) {
             pillClass = 'cf-pill-forfalden'; pillText = 'Forfalden';
         } else if (days <= 7) {
@@ -1297,7 +1311,10 @@ function _cfBuildInvoiceRows(rows, tab) {
             pillClass = 'cf-pill-udestaaende'; pillText = 'Udestående';
         }
 
-        const dueClass = days < 0 && !inv.betalt ? 'overdue' : days <= 7 && !inv.betalt ? 'soon' : '';
+        // Rød dato kun når den er sen efter kundens EGEN rytme — ellers "soon".
+        const dueClass = !inv.betalt && days < 0
+            ? (inv.rhythm_days > 0 && !inv.late_for_customer ? 'soon' : 'overdue')
+            : (days <= 7 && !inv.betalt ? 'soon' : '');
 
         const classList = [
             'cf-inv-row',

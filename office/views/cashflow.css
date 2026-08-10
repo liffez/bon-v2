@@ -762,6 +762,10 @@
 .cf-pill-betalt     { background: #edf5e1; color: #7a9c54; }
 .cf-pill-udestaaende { background: #fff3d6; color: #a06800; }
 .cf-pill-forfalden  { background: #fdeaea; color: #bc3a3a; }
+/* Forfalden på papiret, men inden for kundens egen rytme — dæmpet, ikke alarm */
+.cf-pill-rytme      { background: #f0ece4; color: #7a6a4a; font-weight: 600; }
+.cf-rhythm-sub      { margin-top: 2px; color: #7a6a4a; }
+.cf-rhythm-sub strong { color: #bc3a3a; }
 .cf-pill-sandsynlig { background: #e8f0f6; color: #3a6a9a; }
 /* Ikke faktureret (#319): egen kulør, tydeligt adskilt fra den røde "forfalden".
    Det er ikke en dårlig betaler — det er en regning der mangler at blive sendt. */

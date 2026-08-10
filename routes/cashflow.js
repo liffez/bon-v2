@@ -32,6 +32,7 @@ const { requireAuth } = require('../shared/auth');
 const { broadcast } = require('../shared/sse');
 const { transaction } = require('../db/compat');
 const { notInvoicedSQL } = require('../services/invoiceGuard');
+const paymentRhythm = require('../services/paymentRhythm');
 
 // "Kunden har aldrig fået en regning" — ét udtryk, så tab-filter, tællere og
 // forfaldne-eksklusionen ikke kan komme til at måle hver sin ting (#319).
@@ -609,6 +610,11 @@ router.get('/invoices', handle(async (req, res) => {
         }
     }
 
+    // Forventet betalingsdag oven på forfaldsdatoen — lært af kundens egen historik.
+    // `forfald` er urørt: den er fakturaens juridiske frist. Dette er kun til triage,
+    // så en langsom betaler ikke råber på dag 15 og drukner den der faktisk er sen.
+    paymentRhythm.annotate(db, rows, today);
+
     // Tab-summaries i ét kald, så frontenden kan vise count + sum
     // på hver tab-knap og som footer på den aktive liste.
     // Forfaldne-tælleren ekskluderer de ikke-fakturerede, præcis som fanen gør —
@@ -754,6 +760,17 @@ router.get('/stats', handle(async (req, res) => {
         FROM cf_invoices i WHERE i.betalt = 0 AND i.forfald < ? AND NOT ${NOT_INVOICED}
     `).get(today);
 
+    // Deltal: hvor mange af de forfaldne er sene selv efter KUNDENS egen rytme.
+    // Hovedtallet bliver stående som det er — "forfalden" er en juridisk kendsgerning,
+    // ikke en fornemmelse. Deltallet siger hvor mange der er værd at reagere på.
+    const overdueRows = db.prepare(`
+        SELECT id, kunde, beloeb, forfald, betalt
+        FROM cf_invoices i WHERE i.betalt = 0 AND i.forfald < ? AND NOT ${NOT_INVOICED}
+    `).all(today);
+    paymentRhythm.annotate(db, overdueRows, today);
+    const reallyLate = overdueRows.filter(r => r.late_for_customer);
+    const rhythmAdjusted = overdueRows.filter(r => r.rhythm_days > 0 && !r.late_for_customer);
+
     // Aldrig faktureret — arbejde, ikke gæld. Egen tæller så den ikke gemmer sig.
     const notInvoiced = db.prepare(`
         SELECT COALESCE(SUM(beloeb), 0) AS total, COUNT(*) AS count
@@ -801,6 +818,11 @@ router.get('/stats', handle(async (req, res) => {
         overdue_total_incl_moms: overdue.total,
         overdue_total_excl_moms: r2(inclToExcl(overdue.total)),
         overdue_count: overdue.count,
+        // Heraf sene efter kundens EGEN rytme (lært, ikke indtastet — se
+        // services/paymentRhythm.js). `overdue_*` ovenfor er uændret.
+        overdue_late_count: reallyLate.length,
+        overdue_late_total: r2(reallyLate.reduce((s, r) => s + r.beloeb, 0)),
+        overdue_within_rhythm_count: rhythmAdjusted.length,
         // Aldrig faktureret (#319) — holdt UDE af overdue_* ovenfor
         not_invoiced_total: notInvoiced.total,
         not_invoiced_total_incl_moms: notInvoiced.total,
