@@ -304,6 +304,7 @@ class BonDrawer {
                                 <div class="bm-field">
                                     <label>Besked</label>
                                     <textarea id="drawerMailBody" class="drawer-field drawer-textarea" rows="6" placeholder="Skriv besked…"></textarea>
+                                    <div id="drawerMailSigHint"></div>
                                 </div>
                                 <input type="file" id="drawerMailFile" accept=".pdf,.jpg,.jpeg,.png,.gif,.xlsx,.docx" style="display:none" onchange="_drawerOnFileSelected(this)">
                                 <div id="drawerMailAttachments" class="bm-attachments"></div>
@@ -1392,6 +1393,8 @@ class BonDrawer {
                 emptyText: 'Ingen mails endnu',
                 onMarkRead: (id) => markBonMailRead(this.bonId, id),
             });
+
+            MailThread.renderSignatureHint(this.el.querySelector('#drawerMailSigHint'));
         } catch (err) {
             histEl.innerHTML = '<div style="color:var(--color-red);font-size:12px;padding:4px">Fejl: ' + esc(err.message) + '</div>';
         }

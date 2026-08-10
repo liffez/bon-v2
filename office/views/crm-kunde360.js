@@ -2323,6 +2323,7 @@ async function _k3RenderMail(el) {
         '<div class="k3-mail-field">' +
             '<label>Besked</label>' +
             '<textarea class="k3-mail-body" id="k3MailBody" placeholder="Skriv din besked..."></textarea>' +
+            '<div id="k3MailSigHint"></div>' +
         '</div>' +
         '<input type="file" id="k3MailFile" accept=".pdf,.jpg,.jpeg,.png,.gif,.xlsx,.docx" style="display:none" onchange="_k3OnFileSelected(this)">' +
         '<div id="k3MailAttachments" class="bm-attachments"></div>' +
@@ -2395,10 +2396,13 @@ async function _k3RenderMail(el) {
     el.innerHTML = html;
 
     // Mail-historik via fælles MailThread-komponent (klik-for-at-folde-ud).
-    if (allMessages.length && typeof MailThread !== 'undefined') {
-        MailThread.renderHistory(document.getElementById('k3MailHost'), {
-            messages: allMessages.slice(0, 20),
-        });
+    if (typeof MailThread !== 'undefined') {
+        if (allMessages.length) {
+            MailThread.renderHistory(document.getElementById('k3MailHost'), {
+                messages: allMessages.slice(0, 20),
+            });
+        }
+        MailThread.renderSignatureHint(document.getElementById('k3MailSigHint'));
     }
 }
 

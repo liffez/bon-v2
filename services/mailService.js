@@ -66,14 +66,18 @@ function getSetting(key) {
 }
 
 /**
- * Erstat {{variabel}} placeholders + append signatur.
+ * Erstat {{variabel}} placeholders. Ren tekst-udfolder — sætter IKKE signatur på.
+ *
+ * Signaturen hører til i sendMail() (se applySignature), så den rammer hver eneste
+ * udgående mail én gang. Lå den her, ville kun skabelon-mails få den — og præcis
+ * dét var fejlen: alt et menneske skrev selv gik ud uden.
  *
  * ctx er en valgfri kontekst der bruges til universelle variabler som {{booking_link}}:
  *   - customerId (eller vars.customer_id) — påkrævet for at booking_link rendres
  *   - userId — sælger der får tildelt token
  *   - bookingFlow — 'smagning' eller 'kontakt' (default: 'smagning')
  *   - bookingIntent — meeting_type-key der forvælges (kun smagning)
- *   - appendSignature — sæt false for at springe signatur over (fx subject)
+ *   - appendSignature — udgået; accepteres stadig, men ignoreres
  */
 function renderTemplate(body, vars = {}, ctx = {}) {
     let result = body;
@@ -113,14 +117,36 @@ function renderTemplate(body, vars = {}, ctx = {}) {
         }
     }
 
-    // 3. Signatur (kun body — ikke subject)
-    if (ctx.appendSignature !== false) {
-        const sig = getSetting('mail_signature');
-        if (sig) {
-            result += '\n\n--\n' + sig;
-        }
-    }
     return result;
+}
+
+const SIGNATURE_DELIMITER = '\n\n--\n';
+
+/**
+ * Sæt signaturen på en mail-body — én gang.
+ *
+ * Tre regler:
+ *  - {{signatur}} i teksten = eksplicit placering. Så indsættes den DÉR og ikke
+ *    nederst, og resten af reglerne er ligegyldige.
+ *  - Er signaturen allerede i teksten (svar-på-svar, videresendt udkast, en
+ *    skabelon der bærer sin egen), tilføjes den ikke igen.
+ *  - Tom signatur i settings = mailen sendes uændret.
+ */
+function applySignature(text, enabled = true) {
+    const body = text || '';
+    const sig = (getSetting('mail_signature') || '').trim();
+
+    if (body.includes('{{signatur}}')) {
+        return body.replace(/\{\{signatur\}\}/g, sig);
+    }
+    if (!enabled || !sig) return body;
+
+    // Sammenlign på normaliserede linjeskift — en body der har været gennem en
+    // textarea kan bære \r\n hvor settings har \n.
+    const norm = (s) => s.replace(/\r\n/g, '\n').trim();
+    if (norm(body).includes(norm(sig))) return body;
+
+    return body.replace(/\s+$/, '') + SIGNATURE_DELIMITER + sig;
 }
 
 /**
@@ -246,7 +272,12 @@ function _clearSentMails() {
 /**
  * Send en mail via SMTP. Gemmer i mail_threads + mail_messages.
  */
-async function sendMail({ to, subject, text, context, bonId = null, customerId = null, purchaseOrderId = null, supplierId = null, inReplyTo = null, references = null, smtpPrefix = 'smtp', userId = null, attachments = [], isSystem = false, threadId = null }) {
+async function sendMail({ to, subject, text, context, bonId = null, customerId = null, purchaseOrderId = null, supplierId = null, inReplyTo = null, references = null, smtpPrefix = 'smtp', userId = null, attachments = [], isSystem = false, threadId = null, appendSignature = true }) {
+    // Signaturen sættes på HER — ikke i kaldstederne. Det er det eneste sted alle
+    // veje ud af huset mødes, og teksten skal signeres før den gemmes, så
+    // mail-historikken viser det kunden faktisk fik.
+    text = applySignature(text, appendSignature);
+
     const enabledKey = smtpPrefix === 'smtp_kontakt' ? 'smtp_kontakt_enabled' : 'smtp_enabled';
     if (getSetting(enabledKey) !== '1') {
         throw new Error(`SMTP (${smtpPrefix}) er ikke aktiveret`);
@@ -390,7 +421,7 @@ async function sendMail({ to, subject, text, context, bonId = null, customerId =
  * kan generere et token bundet til kunde + sælger + flow + intent.
  */
 async function sendFromTemplate({ templateKey, to, vars, bonId = null, customerId = null, purchaseOrderId = null, supplierId = null, context = null, userId = null, attachments = [], smtpPrefix = 'smtp', bookingFlow = 'smagning', bookingIntent = null, isSystem = false }) {
-    const tmpl = getDb().prepare('SELECT subject, body_text FROM mail_templates WHERE key = ?').get(templateKey);
+    const tmpl = getDb().prepare('SELECT subject, body_text, append_signature FROM mail_templates WHERE key = ?').get(templateKey);
     if (!tmpl) throw new Error(`Skabelon '${templateKey}' ikke fundet`);
 
     // Gør {{tag}} tilgængelig i skabeloner — genereres fra context via settings-prefix
@@ -401,11 +432,14 @@ async function sendFromTemplate({ templateKey, to, vars, bonId = null, customerI
 
     const renderCtx = { customerId, userId, bookingFlow, bookingIntent };
 
-    // Subject må aldrig have signatur appended
-    const subject = renderTemplate(tmpl.subject, enrichedVars, { ...renderCtx, appendSignature: false });
+    const subject = renderTemplate(tmpl.subject, enrichedVars, renderCtx);
     const text    = renderTemplate(tmpl.body_text, enrichedVars, renderCtx);
 
-    return sendMail({ to, subject, text, context, bonId, customerId, purchaseOrderId, supplierId, userId, attachments, smtpPrefix, isSystem });
+    // Interne notifikationer (til os selv) skal ikke slutte med firmaets adresse
+    // og telefonnummer — styres pr. skabelon i Settings.
+    const appendSignature = tmpl.append_signature !== 0;
+
+    return sendMail({ to, subject, text, context, bonId, customerId, purchaseOrderId, supplierId, userId, attachments, smtpPrefix, isSystem, appendSignature });
 }
 
 // ─── IMAP ───────────────────────────────────────────────
@@ -1001,6 +1035,7 @@ module.exports = {
     triggerPoll,
     refetchUnmatchedMail,
     renderTemplate,
+    applySignature,
     generateBookingToken,
     getPollState,
     processInboundMail,

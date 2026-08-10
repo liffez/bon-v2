@@ -116,7 +116,7 @@ function threadEntity(db, t) {
 
 // GET /api/mail/templates — tilgængelig for alle auth'd brugere
 router.get('/templates', requireAuth(), handle((req, res) => {
-    const rows = getDb().prepare('SELECT id, key, label, subject, body_text, updated_at FROM mail_templates ORDER BY id').all();
+    const rows = getDb().prepare('SELECT id, key, label, subject, body_text, append_signature, updated_at FROM mail_templates ORDER BY id').all();
     res.json(rows);
 }));
 
@@ -167,7 +167,7 @@ router.delete('/templates/:key', requireAuth('admin'), handle((req, res) => {
 
 // PATCH /api/mail/templates/:key (admin)
 router.patch('/templates/:key', requireAuth('admin'), handle((req, res) => {
-    const { label, subject, body_text } = req.body;
+    const { label, subject, body_text, append_signature } = req.body;
     const db = getDb();
     const tmpl = db.prepare('SELECT id FROM mail_templates WHERE key = ?').get(req.params.key);
     if (!tmpl) return res.status(404).json({ error: 'Skabelon ikke fundet' });
@@ -177,6 +177,10 @@ router.patch('/templates/:key', requireAuth('admin'), handle((req, res) => {
     if (label !== undefined)     { updates.push('label = ?');     params.push(label); }
     if (subject !== undefined)   { updates.push('subject = ?');   params.push(subject); }
     if (body_text !== undefined) { updates.push('body_text = ?'); params.push(body_text); }
+    if (append_signature !== undefined) {
+        updates.push('append_signature = ?');
+        params.push(append_signature ? 1 : 0);
+    }
 
     if (updates.length === 0) return res.json({ ok: true });
 

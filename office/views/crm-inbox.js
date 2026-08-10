@@ -532,11 +532,15 @@ function _inbRenderThreadReader(data) {
         <div id="inbThreadHost"></div>
         <div class="inb-composer">
             <textarea id="inbThreadReply" placeholder="Skriv svar…  (sendes via systemet → Afventer kunde)"></textarea>
+            <div id="inbThreadSigHint"></div>
             <div class="crow">
                 <button class="inb-action-btn primary" id="inbThreadSendBtn" onclick="_inbThreadSend(${t.id})">✉ Send svar</button>
                 <label class="inb-toggle"><input type="checkbox" id="inbThreadRemind" checked> Rykk mig om 3 dage hvis intet svar</label>
             </div>
         </div>`;
+    if (window.MailThread && MailThread.renderSignatureHint) {
+        MailThread.renderSignatureHint(document.getElementById('inbThreadSigHint'));
+    }
     const host = document.getElementById('inbThreadHost');
     if (host && window.MailThread && MailThread.renderHistory) {
         MailThread.renderHistory(host, {
@@ -1169,11 +1173,15 @@ function _inbShowReply(noteHtml, useParsed) {
             '<div style="font-size:11px;color:var(--color-text-dim);margin-top:4px">Til: ' + _inbEscape(toEmail) + ' · sendes fra ' + mailboxLabel + '</div>' +
             '<input type="text" class="inb-link-input" id="inbReplySubject" value="' + _inbEscapeAttr(reSubject) + '">' +
             '<textarea class="inb-link-input" id="inbReplyText" rows="8" placeholder="Skriv dit svar…" style="resize:vertical;min-height:150px;line-height:1.6"></textarea>' +
+            '<div id="inbReplySigHint"></div>' +
             '<div style="display:flex;gap:8px;margin-top:8px">' +
                 '<button class="inb-action-btn primary" id="inbReplySendBtn" onclick="_inbSendReply()">Send svar</button>' +
                 '<button class="inb-action-btn" onclick="_inbCancelReply()">Annuller</button>' +
             '</div>' +
         '</div>';
+    if (window.MailThread && MailThread.renderSignatureHint) {
+        MailThread.renderSignatureHint(document.getElementById('inbReplySigHint'));
+    }
     const ta = document.getElementById('inbReplyText');
     if (ta) ta.focus();
 }
