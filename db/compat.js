@@ -40,15 +40,43 @@ function openDb(dbPath) {
 /**
  * Transaction-wrapper (erstatter better-sqlite3's db.transaction()).
  * Brug: transaction(db, () => { ... })
+ *
+ * INDLEJRBAR. SQLite kan ikke have en transaktion inde i en anden, så et
+ * indre `BEGIN` fejlede med "cannot start a transaction within a transaction".
+ * Det ramte hver gang noget wrappede en helper der selv bruger transaction() —
+ * fx `createBon()`, som kalder `nextBonNumber()`, der låser nummerserien i sin
+ * egen transaktion. Man kunne altså ikke oprette flere bons atomisk, hvilket
+ * er præcis hvad et fler-dags-tilbud skal (#425).
+ *
+ * Ydre niveau bruger BEGIN/COMMIT; indre niveauer bruger SAVEPOINT, så en indre
+ * fejl ruller sit eget arbejde tilbage uden at rive den ydre transaktion med —
+ * og en ydre rollback tager stadig det hele.
+ *
+ * Dybden holdes pr. database-handle (WeakMap), ikke globalt: to handles må
+ * kunne have hver sin transaktion uden at tælle i samme regnskab.
  */
+const _txDepth = new WeakMap();
+
 function transaction(db, fn) {
-    db.exec('BEGIN');
+    const depth = _txDepth.get(db) || 0;
+    const name = `sp_${depth}`;
+
+    if (depth === 0) db.exec('BEGIN');
+    else db.exec(`SAVEPOINT ${name}`);
+    _txDepth.set(db, depth + 1);
+
     try {
         const result = fn();
-        db.exec('COMMIT');
+        if (depth === 0) db.exec('COMMIT');
+        else db.exec(`RELEASE ${name}`);
+        _txDepth.set(db, depth);
         return result;
     } catch (e) {
-        db.exec('ROLLBACK');
+        // Sæt dybden tilbage FØR rollback: fejler rollback også, må tælleren
+        // ikke blive hængende og gøre næste transaktion på handlen forkert.
+        _txDepth.set(db, depth);
+        if (depth === 0) db.exec('ROLLBACK');
+        else db.exec(`ROLLBACK TO ${name}`);
         throw e;
     }
 }
