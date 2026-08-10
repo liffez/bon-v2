@@ -2998,25 +2998,70 @@ er incl moms.
 - Desuden: event-oversigtens status-badges havde to næsten ens gråtoner (planlægning
   `#f0f0f0` / afsluttet `#e8e8e8`). Fire adskilte kulører nu — blå/grøn/lilla/rød.
 
-**Fund fra samme gennemgang (ikke løst — egne issues):**
-- **#319** — faktureringskøen er *status*-drevet (`GET /api/invoices/queue` viser kun LEVERET).
+**Fund fra samme gennemgang (egne issues — status pr. 10. august 2026):**
+- **#319 — ÅBEN.** Faktureringskøen er *status*-drevet (`GET /api/invoices/queue` viser kun LEVERET).
   Sættes en bon til FAKTURERET/AFSLUTTET i hånden uden at der findes en kladde eller bogført
   faktura, forlader den køen, men `cf_invoices`-rækken bliver liggende med en forfaldsdato
   beregnet ud fra bonnen → den dukker op under "Forfaldne" og ligner en dårlig betaler.
   Intet sted mødes de to sandheder. **Bemærk:** manglende `economic_number` er kun et signal
   for v2-bons — v1-æra (`cafe-*`) er betalt uden i over tusind tilfælde.
-- **#320** — `cashflowReconcile` filtrerer på `date$gte:<vandmærke>`, altså *fakturadatoen*.
-  En faktura ses derfor én gang, omkring udstedelsen hvor den per definition er ubetalt, og
-  aldrig igen — men betaling sker bagefter. E-conomic-aksen kan reelt ikke længere flippe
-  `betalt`; kun bank-matchet (conf ≥ 70) fanger betalinger. Gør ingen skade i dag, men
-  bliver farligere efterhånden som e-conomic-integrationen tages i brug.
-- **Byttehandel har intet felt.** En bon der leveres men afregnes i en modydelse (ikke penge)
-  kan kun udtrykkes ved at lyve om `payment_type` eller nulstille priserne. Begge dele er
-  forkerte: prisen er ægte, kun afregningsformen er en anden. Rette sted er en ny række i
-  `payment_types` (fx `barter`/"Modregning") — CRUD findes i Settings, ingen migration, og al
-  logik hænger allerede på `payment_type = 'invoice'`. En ny *priskategori* ville derimod
-  kræve et nyt `Salesprice*`-userfield i Grocy på alle opskrifter + kodeændring i
-  `grocyAdapter`, og 0-priser ville slette omsætningen ud af rapporter og margin-analyse.
+- **#320 — LØST** (PR #445, se "Pengestrøm — betalt-status som fuld tilstand" nedenfor).
+  Advarslen "gør ingen skade i dag" holdt ikke: da tallet blev målt 10. august, stod
+  107.669 kr som forfaldne uden at være det.
+- **Byttehandel — LØST** (#324 + migration 129). `payment_types` har nu `barter`/"Modregning"
+  og `sponsorship`/"Sponsorat", begge med `counts_as_revenue = 0`. En ny "gratis"-type koster
+  én række i Settings + et flueben — ingen kodeændring.
+  De to greb der gør det til at leve med:
+  **(a)** betalingstype ≠ `invoice` ⇒ bonnen kommer aldrig i `cf_invoices`, så den kan hverken
+  stå som forfalden eller udløse vagten på "aldrig sendt" (`invoiceGuard.js`);
+  **(b)** `counts_as_revenue = 0` ⇒ krone-summer bidrager 0 i rapporter, dashboard,
+  driftsregnskab, CRM-omsætning og margin — mens **enheder og pax er urørte**, for maden blev
+  jo lavet og skal tælle i produktion og kapacitet. Bonnens ægte pris bliver stående, så man
+  kan se hvad sponsoratet var værd.
+  > At lægge det på `payment_types` frem for en ny *priskategori* var det afgørende valg:
+  > en priskategori ville kræve et nyt `Salesprice*`-userfield i Grocy på alle opskrifter +
+  > kodeændring i `grocyAdapter`, og 0-priser ville slette omsætningen ud af rapporter og
+  > margin-analyse i stedet for at markere den som ikke-omsætning.
+
+### Pengestrøm — betalt-status som fuld tilstand (#320, 10. august 2026)
+
+"Forfaldne" viste 21 fakturaer / 122.420 kr. E-conomic sagde samtidig 14 ubetalte i alt /
+33.859 kr. Kørt op mod deres debitorbog: **18 af de 21 var for længst betalt — 107.669 kr
+stod forkert som forfalden.**
+
+Ikke et data-problem. `cashflowReconcile` udledte betalt-status af `/invoices/booked` filtreret
+på `date$gte:<vandmærke>`, hvor `date` er fakturaens **egen** dato. Vandmærket rykkes til seneste
+sete fakturadato, så en faktura hentes præcis én gang — omkring udstedelsen, hvor den per
+definition er ubetalt — og aldrig igen. Men `remainder` ændrer sig bagudrettet, når betalingen
+falder. Efter første fulde kørsel kunne `betalt` reelt ikke flippe mere, og en ny synk hjalp
+ikke: den kiggede bare længere fremme.
+
+- **Betalt-status kommer nu fra REST `/invoices/unpaid` — fuld tilstand, intet vandmærke.**
+  Listen ER e-conomics debitorbog: alt bogført der ikke står på den, er afregnet. Ét kald,
+  14 rækker mod 4.133 bogførte — **billigere end det delta den erstattede**, og der er intet
+  vindue at falde uden for. Vandmærket bruges fortsat til at opdage NYE fakturaer og koble
+  fakturanummeret på; der er det rigtigt.
+  > REST har hele familien (`GET /invoices` lister dem): `drafts`, `booked`, `paid`, `unpaid`,
+  > `overdue`, `notDue`, `sent`. Ingen OpenAPI nødvendig. **Spørg efter tilstand, ikke delta,
+  > når API'et tilbyder det** — det var hele fejlen.
+- **Værn:** vi konkluderer kun "betalt" når nummeret faktisk kendes hos e-conomic (spejl eller
+  scan), så et ciffer-rod ikke kan afskrive en fordring · kun ÉN vej automatisk (ubetalt →
+  betalt; det modsatte ville genoplive fakturaer kontoret bevidst har afskrevet — rapporteres
+  som `conflicts`) · melder e-conomic rækker men leverer nul (brudt paginering), afbrydes
+  synken frem for at markere hele debitorbogen betalt.
+- **Spejlet holdt op med at lyve.** `cf_economic_invoices.remainder` var også et fastfrosset
+  øjebliksbillede fra den ene gang fakturaen blev scannet — samme fælde. Det følger nu den
+  fulde tilstand.
+- **Synligt for kontoret:** badgen viser e-conomics eget antal ubetalte + tidspunkt for sidste
+  synk (`cf_meta.economic_synced_at` / `_open_count` / `_open_total` — ingen migration).
+  Vandmærket er ikke længere en "ajour til"-dato; betalt-status har ingen, den er altid nu.
+  Kvitteringen lister uenigheder og `unlinkedOpen` — åbne fakturaer hos e-conomic uden
+  modsvarende `cf_invoice` — så forskellen mellem de to tal er synlig i stedet for skjult.
+- **Tests:** `scripts/test-cashflow-reconcile.js` (35 asserts, attrap-adapter + isoleret DB;
+  regressionen er en faktura udstedt FØR vandmærket og betalt siden, med tomt booked-scan).
+  Mutations-testet: gammel adfærd → 6 falder. `npm run test:cashflow` kører den + sync-suiten.
+- **Tilbage bagefter:** 12 ubetalte UDEN e-conomic-nummer (41.235 kr) — 6 Brightside Pictures,
+  3 Silvan. De har ingen faktura i e-conomic overhovedet. Det er #319, ikke dette.
 
 ### CRM-triks — Ringeliste + fælles worklist-komponent (#229 + #230 + #228, 6. juli 2026)
 > Epic #232. Spec: `docs/CLAUDE_CRM_TRIKS.md`. Lav-friktions "top-of-mind"-ringekøer oven på
