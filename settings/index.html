@@ -4657,12 +4657,19 @@ async function coToggle() {
   if (activating && !confirm('Åbn for hastebestilling resten af i dag?\n\nKunder kan bestille selv om fristen er passeret — også på normalt lukkede dage. Det nulstilles automatisk i morgen.')) return;
   btn.disabled = true;
   try {
-    await fetch('/api/settings/bestilling.cutoff_override_date', {
+    // Svaret SKAL tjekkes: en afvist PATCH (fx manglende rettighed) gav før en
+    // grøn kvittering på en ændring der aldrig blev gemt.
+    const r = await fetch('/api/settings/bestilling.cutoff_override_date', {
       method: 'PATCH',
       headers: { 'Content-Type': 'application/json' },
       credentials: 'include',
       body: JSON.stringify({ value: activating ? _coTodayISO() : '' })
     });
+    if (!r.ok) {
+      let msg = 'HTTP ' + r.status;
+      try { msg = (await r.json()).error || msg; } catch (e) {}
+      throw new Error(msg);
+    }
     coRenderState(activating);
     toast(activating ? 'Hastebestilling åbnet for i dag' : 'Hastebestilling lukket', 'success');
   } catch (e) {
