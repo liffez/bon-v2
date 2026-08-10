@@ -312,6 +312,7 @@ function _siRenderPreview(t, messages) {
     html += '<textarea class="si-reply-input" id="siReplyInput" placeholder="Skriv svar til ' + _siEsc(t.supplier_name || 'leverandør') + '..."></textarea>';
     html += '<button class="si-reply-btn" id="siReplyBtn" onclick="_siSendReply()">Send</button>';
     html += '</div>';
+    html += '<div id="siReplySigHint" style="padding:0 14px 10px"></div>';
 
     previewEl.innerHTML = html;
 
@@ -319,6 +320,7 @@ function _siRenderPreview(t, messages) {
         messages: messages,
         emptyText: 'Ingen beskeder i tråden',
     });
+    MailThread.renderSignatureHint(previewEl.querySelector('#siReplySigHint'));
 }
 
 async function _siSendReply() {
@@ -474,6 +476,7 @@ function _siRenderNewMailModal() {
             '<div class="si-modal-row">' +
                 '<label>Besked</label>' +
                 '<textarea id="siNewMailBody" placeholder="Skriv besked..."></textarea>' +
+                '<div id="siNewMailSigHint"></div>' +
             '</div>' +
 
             '<div class="si-modal-actions">' +
@@ -484,6 +487,7 @@ function _siRenderNewMailModal() {
     '</div>';
 
     document.body.insertAdjacentHTML('beforeend', html);
+    MailThread.renderSignatureHint(document.getElementById('siNewMailSigHint'));
     setTimeout(function() {
         var subEl = document.getElementById('siNewMailSubject');
         if (subEl && selSup) subEl.focus();

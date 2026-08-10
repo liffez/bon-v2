@@ -158,18 +158,17 @@ router.post('/:id/mail', handle(async (req, res) => {
     // Validér booking-flow whitelist
     const flow = (booking_flow === 'kontakt') ? 'kontakt' : 'smagning';
 
-    // Process body for {{booking_link}} (og evt. fremtidige universelle vars)
+    // Process body for {{booking_link}} (og evt. fremtidige universelle vars).
+    // Signaturen sættes på i sendMail — ikke her.
     const renderedText = renderTemplate(text, {}, {
         customerId,
         userId,
         bookingFlow:   flow,
-        bookingIntent: booking_intent_meeting_type || null,
-        appendSignature: false
+        bookingIntent: booking_intent_meeting_type || null
     });
     const renderedSubject = renderTemplate(subject || '', {}, {
         customerId, userId, bookingFlow: flow,
-        bookingIntent: booking_intent_meeting_type || null,
-        appendSignature: false
+        bookingIntent: booking_intent_meeting_type || null
     });
 
     const result = await sendMail({

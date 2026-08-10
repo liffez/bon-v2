@@ -2321,6 +2321,7 @@ async function loadMailSection() {
 
   // Signatur
   html += '<div class="st-mail-group"><h3>Signatur</h3>' +
+    '<p style="font-size:.82rem;color:var(--color-text-dim);margin-bottom:8px">Sættes automatisk nederst i <strong>alle</strong> udgående mails — også dem I selv skriver fra bon, CRM, indbakke og leverandørpost. Vil du styre placeringen i en skabelon, så skriv <code>{{signatur}}</code> hvor den skal stå. Enkelte skabeloner kan fravælge den nedenfor.</p>' +
     '<textarea class="st-textarea" id="mail-sig" rows="4">' + esc(allSettings.mail_signature || '') + '</textarea>' +
     '<div style="margin-top:var(--space-s)"><button class="st-btn st-btn-primary st-btn-sm" onclick="saveSignature()">Gem signatur</button></div></div>';
 
@@ -2480,6 +2481,11 @@ function switchTemplate() {
     '<input class="st-input" id="tmpl-subject" value="' + esc(tmpl.subject || '') + '"></div>';
   h += '<label style="font-size:13px;font-weight:500">Brødtekst</label>' +
     '<textarea class="st-textarea" id="tmpl-body" rows="10">' + esc(tmpl.body_text || '') + '</textarea>';
+  h += '<label style="display:flex;align-items:center;gap:8px;margin-top:10px;font-size:13px;cursor:pointer">' +
+    '<input type="checkbox" id="tmpl-sig" ' + (tmpl.append_signature === 0 ? '' : 'checked') + '>' +
+    '<span>Tilføj signaturen nederst</span>' +
+    '<span style="font-size:11px;color:var(--color-text-dim)">— slå fra på interne notifikationer</span>' +
+    '</label>';
   h += '<div class="st-vars"><span style="font-size:12px;margin-right:4px;color:var(--color-text-dim)">Variabler:</span>';
   vars.forEach(function(v) {
     h += '<span class="st-var-tag" onclick="insertVar(\'' + v + '\')">{{' + v + '}}</span>';
@@ -2493,10 +2499,12 @@ async function saveCurrentTemplate() {
   var label = document.getElementById('tmpl-label').value;
   var subject = document.getElementById('tmpl-subject').value;
   var body = document.getElementById('tmpl-body').value;
-  await patchMailTemplate(key, { label: label, subject: subject, body_text: body });
+  var sigEl = document.getElementById('tmpl-sig');
+  var appendSig = sigEl ? (sigEl.checked ? 1 : 0) : 1;
+  await patchMailTemplate(key, { label: label, subject: subject, body_text: body, append_signature: appendSig });
   // Opdater cache + dropdown-label
   var tmpl = _mailTemplatesCache.find(function(t) { return t.key === key; });
-  if (tmpl) { tmpl.label = label; tmpl.subject = subject; tmpl.body_text = body; }
+  if (tmpl) { tmpl.label = label; tmpl.subject = subject; tmpl.body_text = body; tmpl.append_signature = appendSig; }
   var opt = document.querySelector('#tmpl-selector option[value="' + key + '"]');
   if (opt) opt.textContent = label + ' (' + key + ')';
   toast('Skabelon gemt');
