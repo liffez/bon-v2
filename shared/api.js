@@ -1177,6 +1177,17 @@ function deleteQuote(id) {
     return apiFetch('/quotes/' + id, { method: 'DELETE' });
 }
 
+// Fler-dags-tilbud (#425). Reconcile: send ALTID den fulde liste — rækker med
+// `id` opdateres, nye oprettes, og dem der ikke er med, slettes. Svaret bærer
+// dagenes id'er, som linjernes `offer_day_id` skal pege på; derfor skal dette
+// kald ligge FØR den PATCH der gemmer linjerne.
+function putQuoteDays(id, days) {
+    return apiFetch('/quotes/' + id + '/days', {
+        method: 'PUT',
+        body: JSON.stringify({ days }),
+    });
+}
+
 function patchQuoteStatus(id, status) {
     return apiFetch('/quotes/' + id + '/status', {
         method: 'PATCH',

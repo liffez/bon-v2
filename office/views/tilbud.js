@@ -54,6 +54,22 @@ let _tOfferNote = '';
 let _tBlockMeta = {};    // { blockKey: { pax: N } }
 let _tValidDays = 30;
 
+/* ── Fler-dags (#425) ─────────────────────────────────────
+ *
+ * Et tilbud kan dække flere dage — tre dages konference med levering hver dag.
+ * Tomt `_tDays` = et helt almindeligt ét-dags-tilbud, og så skal ALT herunder
+ * være virkningsløst. Det er den regression der betyder mest.
+ *
+ * Dagene har et lokalt `key` ved siden af serverens `id`, fordi linjerne skal
+ * kunne peges på en dag der endnu ikke er gemt. Ved gem sendes dagene først
+ * (`PUT /days`), og nøglerne oversættes til de id'er svaret bærer.
+ *
+ * NULL-felter på en dag betyder "arv fra tilbuddet" — ikke "tom".
+ */
+let _tDays = [];          // [{ key, id|null, delivery_date, delivery_time, pax, label, note }]
+let _tDayKeySeq = 1;      // lokale nøgler; kun unikke inden for én wizard-session
+let _tActiveDay = null;   // hvilken dag trin 2 sammensætter. null = "Alle dage" (fælles)
+
 // Block types + company info — loaded from settings, cached in module scope
 let _tBLOCKS = [];
 let _tCompany = { name: 'Ristet Rug', cvr: '', address: '', phone: '', email: 'info@ristetrug.dk' };
@@ -381,7 +397,11 @@ async function _tRenderList() {
                 <td class="mono"><strong>${_tEsc(q.quote_number)}</strong></td>
                 <td>${_tEsc(q.company_name || q.customer_name || '\u2014')}</td>
                 <td>${q.quote_date ? _tFd(q.quote_date) : '\u2014'}</td>
-                <td>${q.delivery_date ? _tFd(q.delivery_date) : '\u2014'}</td>
+                <td>${q.delivery_date ? _tFd(q.delivery_date) : '\u2014'}${
+                    // Uden dette ligner et fler-dags-tilbud et \u00e9t-dags med en
+                    // tilf\u00e6ldig dato \u2014 datoen er jo bare den f\u00f8rste dag.
+                    q.day_count > 1 ? `<span class="tilbud-days-badge">${q.day_count} dage</span>` : ''
+                }</td>
                 <td class="r">${q.pax || '\u2014'}</td>
                 <td class="r mono">${q.total_price != null ? _tFk(q.total_price) : '\u2014'}</td>
                 <td><span class="tilbud-status" style="background:${s.color}20;color:${s.color}">${s.label}</span></td>
@@ -460,10 +480,25 @@ async function _tOpenQuote(id) {
             };
         }
 
+        // Dagene FØR linjerne: hver linje bærer et `offer_day_id`, og det skal
+        // kunne oversættes til en lokal nøgle mens linjerne læses ind.
+        _tDays = (q.days || []).map(d => ({
+            key: _tDayKeySeq++,
+            id: d.id,
+            delivery_date: d.delivery_date || '',
+            delivery_time: d.delivery_time || '',
+            pax: d.pax ?? null,
+            label: d.label || '',
+            note: d.note || '',
+        }));
+        const dayKeyById = new Map(_tDays.map(d => [d.id, d.key]));
+
         // Load lines into blocks/items
         if (q.lines) {
             for (const l of q.lines) {
                 const item = {
+                    // NULL = fælles linje ("alle dage"), ikke "ingen dag".
+                    dayKey: l.offer_day_id != null ? (dayKeyById.get(l.offer_day_id) ?? null) : null,
                     id: l.grocy_recipe_id || Date.now() + Math.random(),
                     grocy_recipe_id: l.grocy_recipe_id,
                     name: l.product_name,
@@ -541,6 +576,8 @@ function _tResetWizard() {
     _tOfferNote = '';
     _tBlockMeta = {};
     _tValidDays = 30;
+    _tDays = [];
+    _tActiveDay = null;
 }
 
 /* ── Wizard shell ────────────────────────────────────── */
@@ -706,6 +743,8 @@ function _tBuildStep1() {
             </div>
         </div>
 
+        ${_tBuildDaysSection()}
+
         <!-- PRISKATEGORI & BETALING -->
         <div class="tilbud-options"><div class="tilbud-options-title">Pris & betaling</div>
             <div class="tilbud-form-grid">
@@ -746,6 +785,156 @@ function _tBuildStep1() {
                 <button class="tilbud-btn tilbud-btn-primary" onclick="_tNext()">N\u00e6ste \u2192</button>
             </div>
         </div>`;
+}
+
+/* ── Trin 1: dagene ──────────────────────────────────── */
+
+/**
+ * Dags-listen. Tom som udgangspunkt — de fleste tilbud er ét-dags, og et tomt
+ * `_tDays` er præcis dét.
+ *
+ * Arvede felter vises som **placeholder**, ikke som udfyldt værdi. Ellers kan
+ * man ikke se forskel på "denne dag arver tilbuddets tid" og "denne dag har
+ * tilfældigvis samme tid" — og gemmer man, låses arven fast som en kopi der
+ * ikke længere følger med når tilbuddet ændres.
+ */
+function _tBuildDaysSection() {
+    if (!_tHasDays()) {
+        return `<div class="tilbud-options"><div class="tilbud-options-title">Flere dage</div>
+            <p class="tilbud-days-intro">Dækker tilbuddet flere dage — fx en konference med levering
+            hver dag — kan de stå på ét bilag her. Ved accept bliver hver dag sin egen bon.</p>
+            <button class="tilbud-btn tilbud-btn-secondary tilbud-btn-sm" onclick="_tAddDay()">+ Gør til fler-dags-tilbud</button>
+        </div>`;
+    }
+
+    const paxPh = _tPax || '—';
+    const timePh = _tDeliveryTime || '—';
+
+    let h = `<div class="tilbud-options"><div class="tilbud-options-title">Dage <span class="tilbud-days-count">${_tDays.length}</span></div>
+        <p class="tilbud-days-intro">Tomme felter arver tilbuddets værdi — skriv kun det der afviger.</p>
+        <div class="tilbud-days">`;
+
+    _tDays.forEach((d, i) => {
+        const n = _tDayLineCount(d.key);
+        h += `<div class="tilbud-day-row">
+            <div class="tilbud-day-ord">
+                <button class="tilbud-btn-icon" onclick="_tMoveDay(${d.key},-1)" ${i === 0 ? 'disabled' : ''} title="Flyt op">▲</button>
+                <button class="tilbud-btn-icon" onclick="_tMoveDay(${d.key},1)" ${i === _tDays.length - 1 ? 'disabled' : ''} title="Flyt ned">▼</button>
+            </div>
+            <div class="tilbud-day-num">${i + 1}</div>
+            <div class="tilbud-day-fields">
+                <div class="tilbud-form-group"><label>Dato</label>
+                    <input type="date" value="${d.delivery_date || ''}" onchange="_tSetDay(${d.key},'delivery_date',this.value)"></div>
+                <div class="tilbud-form-group"><label>Tid</label>
+                    <input type="time" value="${d.delivery_time || ''}" placeholder="${timePh}"
+                           title="Tom = som tilbuddet (${timePh})" onchange="_tSetDay(${d.key},'delivery_time',this.value)"></div>
+                <div class="tilbud-form-group"><label>Pax</label>
+                    <input type="number" min="0" value="${d.pax ?? ''}" placeholder="${paxPh}"
+                           title="Tom = som tilbuddet (${paxPh})" onchange="_tSetDay(${d.key},'pax',this.value)"></div>
+                <div class="tilbud-form-group"><label>Navn</label>
+                    <input type="text" value="${_tEsc(d.label || '')}" placeholder="Fx 'Ankomstdag'"
+                           onchange="_tSetDay(${d.key},'label',this.value)"></div>
+            </div>
+            <div class="tilbud-day-meta">${n ? `${n} vare${n !== 1 ? 'r' : ''}` : '—'}</div>
+            <button class="tilbud-btn-icon danger" onclick="_tRemoveDay(${d.key})" title="Fjern dagen">✕</button>
+        </div>`;
+    });
+
+    h += `</div>
+        <div class="tilbud-days-actions">
+            <button class="tilbud-btn tilbud-btn-secondary tilbud-btn-sm" onclick="_tAddDay()">+ Tilføj dag</button>`;
+
+    // Én dag opfører sig som intet: backenden konverterer først pr. dag ved to
+    // eller flere. Sig det, i stedet for at lade tilbuddet se fler-dags ud og
+    // opføre sig som ét-dags.
+    if (_tDays.length === 1) {
+        h += `<span class="tilbud-days-warn">⚠ Én dag gør ingen forskel — tilføj en mere, eller fjern dagen for at gå tilbage til et almindeligt tilbud.</span>`;
+    }
+    h += '</div></div>';
+    return h;
+}
+
+/** Hvor mange varer hænger på dagen? Bruges før sletning, så tabet er synligt. */
+function _tDayLineCount(key) {
+    const all = _tTpl === 'event' ? Object.values(_tEvBlk).flat() : _tSiItems;
+    return all.filter(it => (it.dayKey ?? null) === key).length;
+}
+
+function _tAddDay() {
+    _tSaveStepFields();
+    if (!_tHasDays()) {
+        // Fra nul går vi til TO dage, ikke én. Én dag ville se ud som et
+        // fler-dags-tilbud og konvertere som et ét-dags — den mellemting er
+        // der ingen grund til at føre nogen ud i.
+        const d1 = _tDeliveryDate || todayISO();
+        _tDays.push({ key: _tDayKeySeq++, id: null, delivery_date: d1, delivery_time: '', pax: null, label: '', note: '' });
+        _tDays.push({ key: _tDayKeySeq++, id: null, delivery_date: _tNextDate(d1), delivery_time: '', pax: null, label: '', note: '' });
+    } else {
+        const last = _tDays[_tDays.length - 1];
+        _tDays.push({ key: _tDayKeySeq++, id: null, delivery_date: _tNextDate(last.delivery_date), delivery_time: '', pax: null, label: '', note: '' });
+    }
+    _tRenderWizard();
+}
+
+/** Dagen efter — dage ligger næsten altid i træk, så det er det rigtige gæt. */
+function _tNextDate(iso) {
+    if (!iso) return todayISO();
+    const d = new Date(iso + 'T12:00:00');
+    d.setDate(d.getDate() + 1);
+    return d.getFullYear() + '-' + String(d.getMonth() + 1).padStart(2, '0') + '-' + String(d.getDate()).padStart(2, '0');
+}
+
+function _tSetDay(key, field, value) {
+    const d = _tDayByKey(key);
+    if (!d) return;
+    if (field === 'pax') {
+        const n = parseInt(value);
+        d.pax = (value === '' || isNaN(n)) ? null : n;
+    } else {
+        d[field] = value;
+    }
+    // Datoen står i fanerne på trin 2 og i dags-tælleren — gen-render så
+    // etiketterne følger med. Feltet mister ikke fokus: onchange fyrer først
+    // når man forlader det.
+    if (field === 'delivery_date' || field === 'label') _tRenderWizard();
+}
+
+function _tMoveDay(key, dir) {
+    const i = _tDays.findIndex(d => d.key === key);
+    const j = i + dir;
+    if (i < 0 || j < 0 || j >= _tDays.length) return;
+    [_tDays[i], _tDays[j]] = [_tDays[j], _tDays[i]];
+    _tRenderWizard();
+}
+
+/**
+ * Fjern en dag.
+ *
+ * Serveren er skånsom: `ON DELETE SET NULL` gør dagens linjer til fælles-linjer
+ * i stedet for at slette dem. Men "skånsom" er kun godt hvis det er synligt —
+ * ellers opdager man først bagefter at dagens varer nu står på hver eneste dag.
+ */
+function _tRemoveDay(key) {
+    const d = _tDayByKey(key);
+    if (!d) return;
+    const n = _tDayLineCount(key);
+    if (n > 0) {
+        const idx = _tDays.indexOf(d);
+        const ok = confirm(
+            `${_tDayLabel(d, idx).replace(/<[^>]*>/g, '')} har ${n} vare${n !== 1 ? 'r' : ''}.\n\n` +
+            `Fjerner du dagen, bliver de til fælles varer og kommer med på ALLE dage.\n` +
+            `Vil du fjerne dagen?`
+        );
+        if (!ok) return;
+    }
+    // Linjerne følger serverens regel: de bliver fælles, ikke slettet.
+    const orphan = it => { if ((it.dayKey ?? null) === key) it.dayKey = null; };
+    Object.values(_tEvBlk).forEach(arr => arr.forEach(orphan));
+    _tSiItems.forEach(orphan);
+
+    _tDays = _tDays.filter(x => x.key !== key);
+    if (_tActiveDay === key) _tActiveDay = null;
+    _tRenderWizard();
 }
 
 function _tBuildTimeOptions() {
@@ -939,13 +1128,20 @@ function _tAddSourceLines(lines) {
             arr = _tSiItems;
         }
 
+        // Det hentede lander på den dag der er valgt — man henter typisk "det
+        // samme som sidst" ind på én bestemt dag ad gangen.
+        item.dayKey = _tActiveDay;
+
         // Findes varen allerede dér, lægges mængderne sammen i stedet for at
         // give to rækker med samme navn. Samme regel som `POST /api/bons/:id/lines`
         // bruger server-side (shared/bon_lines.js) — ens varer hører sammen.
         // Fritekst har intet opskrift-id og slås aldrig sammen: to fritekst-linjer
         // kan sagtens være to forskellige ting.
+        //
+        // Sammenlægningen holder sig inden for dagen: 40 sandwich dag 1 og 30
+        // dag 3 er to forskellige tal, ikke 70 ét sted.
         const same = item.grocy_recipe_id
-            ? arr.find(x => x.grocy_recipe_id === item.grocy_recipe_id)
+            ? arr.find(x => x.grocy_recipe_id === item.grocy_recipe_id && _tOnActiveDay(x))
             : null;
 
         if (same) {
@@ -1167,6 +1363,9 @@ function _tBuildStep2() {
         h += `<div class="tilbud-wishes"><strong>Kunde \u00f8nsker:</strong> ${_tEsc(_tCustomerWishes)}</div>`;
     }
 
+    // Dags-faner — kun når tilbuddet faktisk dækker flere dage.
+    h += _tBuildDayTabs();
+
     // Stats bar
     h += _tBuildStats();
 
@@ -1192,6 +1391,44 @@ function _tBuildStep2() {
         </div>
     </div>`;
     return h;
+}
+
+/**
+ * Dags-faner på Sammensæt.
+ *
+ * Fanen bestemmer hvilken dag man lægger varer på — man vælger altså ikke dag
+ * pr. linje, man vælger dag og fylder på. Det gør at samme ret kan ligge på to
+ * dage med hver sin mængde (dag 1: 40 sandwich, dag 3: 30), hvilket en
+ * rullemenu pr. række ikke kan udtrykke.
+ *
+ * **"Alle dage" er førstevalget** og svarer til `offer_day_id = null` i
+ * databasen: kaffe og emballage tastes én gang og kommer med hver dag.
+ */
+function _tBuildDayTabs() {
+    if (!_tHasDays()) return '';
+
+    const all = _tTpl === 'event' ? Object.values(_tEvBlk).flat() : _tSiItems;
+    const count = key => all.filter(it => (it.dayKey ?? null) === key).length;
+
+    let h = `<div class="tilbud-day-tabs">
+        <div class="tilbud-day-tab ${_tActiveDay === null ? 'active' : ''} shared" onclick="_tSetActiveDay(null)">
+            Alle dage${count(null) ? `<span class="tilbud-day-tab-n">${count(null)}</span>` : ''}
+        </div>`;
+    _tDays.forEach((d, i) => {
+        const n = count(d.key);
+        h += `<div class="tilbud-day-tab ${_tActiveDay === d.key ? 'active' : ''}" onclick="_tSetActiveDay(${d.key})">
+            ${_tDayLabel(d, i)}${n ? `<span class="tilbud-day-tab-n">${n}</span>` : ''}
+        </div>`;
+    });
+    h += `</div><p class="tilbud-day-hint">${_tActiveDay === null
+        ? 'Varer du vælger nu kommer med <strong>hver dag</strong>.'
+        : 'Varer du vælger nu hører til <strong>denne dag</strong> alene.'}</p>`;
+    return h;
+}
+
+function _tSetActiveDay(key) {
+    _tActiveDay = key;
+    _tRenderWizard();
 }
 
 function _tSetupStep2() {
@@ -1230,16 +1467,21 @@ function _tSetupStep2() {
 function _tBuildStats() {
     const isEv = _tTpl === 'event';
     let cnt = 0, sale = 0, cost = 0;
+    // En fælles vare leveres hver dag og skal tælles hver dag — ellers modsiger
+    // striben pristabellen, og tallet ville være lavere end det kunden betaler.
+    const days = _tHasDays() ? _tDays.length : 1;
+    const mult = it => (it.dayKey ?? null) === null ? days : 1;
+    const add = it => { const m = mult(it); cnt += it.qty * m; sale += it.unitPrice * it.qty * m; cost += it.costPrice * it.qty * m; };
     if (isEv) {
         // Kun tændte blokke. En slukket blok beholder sit indhold (så den kan
         // tændes igen), men indgår hverken i tilbuddet eller i tallene her —
         // ellers ville stribestatistikken modsige pristabellen.
         for (const [bid, items] of Object.entries(_tEvBlk)) {
             if (!_tActBlk.has(bid)) continue;
-            items.forEach(it => { cnt += it.qty; sale += it.unitPrice * it.qty; cost += it.costPrice * it.qty; });
+            items.forEach(add);
         }
     } else {
-        _tSiItems.forEach(it => { cnt += it.qty; sale += it.unitPrice * it.qty; cost += it.costPrice * it.qty; });
+        _tSiItems.forEach(add);
     }
 
     let h = '<div class="tilbud-stats">';
@@ -1330,6 +1572,86 @@ function _tOfferCategories(cats) {
         .sort((a, b) => ((_tCatDisplay[a] || '') === 'last' ? 1 : 0) - ((_tCatDisplay[b] || '') === 'last' ? 1 : 0));
 }
 
+/* ── Dags-helpers ────────────────────────────────────── */
+
+function _tHasDays() { return _tDays.length > 0; }
+
+/** Dagens etiket i UI: "Dag 1 · 1. okt" — eller brugerens egen hvis den er sat. */
+function _tDayLabel(d, idx) {
+    const date = d.delivery_date ? _tFd(d.delivery_date) : 'uden dato';
+    return d.label ? `${_tEsc(d.label)} · ${date}` : `Dag ${idx + 1} · ${date}`;
+}
+
+function _tDayByKey(key) { return _tDays.find(d => d.key === key) || null; }
+
+/**
+ * Hører varen til den dag vi ser på nu?
+ *
+ * `dayKey` er `null`/`undefined` for fælles varer — dem der gælder alle dage.
+ * Uden dage er `_tActiveDay` altid null, og så er svaret altid ja: præcis den
+ * adfærd et ét-dags-tilbud har haft hele tiden.
+ */
+function _tOnActiveDay(it) { return (it.dayKey ?? null) === _tActiveDay; }
+
+/** Varens plads i den aktive dag — brugt hvor "samme vare" skal genfindes. */
+function _tFindSel(arr, itemId) {
+    return (arr || []).find(x => x.id === itemId && _tOnActiveDay(x));
+}
+
+/** Varer på en bestemt dag (key), til visning i pristabel, preview og PDF. */
+function _tItemsForDay(items, key) {
+    return (items || []).filter(it => (it.dayKey ?? null) === key);
+}
+
+/**
+ * Datospændet, fx "1.–3. okt. 2026". Uden dage: tilbuddets egen dato.
+ *
+ * Både leveringsboksen og undertitlen skrev ellers KUN første dag, fordi
+ * `bons.delivery_date` holdes på dag 1. Kunden fik dermed et tre-dages tilbud
+ * der øverst så ud som et endagsarrangement.
+ */
+function _tDateSpan(sep = '\u2013') {
+    if (!_tHasDays()) return _tDeliveryDate ? _tFd(_tDeliveryDate) : '';
+    const ds = _tDays.map(d => d.delivery_date).filter(Boolean).sort();
+    if (!ds.length) return '';
+    if (ds.length === 1) return _tFd(ds[0]);
+    // PDF'en beder om en almindelig bindestreg: jsPDF's standardfont tabte
+    // tankestregen lydløst, så der stod "1. okt. 2026  2. okt. 2026".
+    return `${_tFd(ds[0])} ${sep} ${_tFd(ds[ds.length - 1])}`;
+}
+
+/** Uden HTML — PDF'en skriver tekst, ikke markup. */
+function _tDayLabelPlain(d, idx) {
+    const date = d.delivery_date ? _tFd(d.delivery_date) : 'uden dato';
+    return d.label ? `${d.label} · ${date}` : `Dag ${idx + 1} · ${date}`;
+}
+
+/**
+ * Grupperne i den rækkefølge de skal læses: dagene først, fælles-varerne til
+ * sidst som et tillæg — det er dem der går igen, ikke dem der bærer tilbuddet.
+ *
+ * Uden dage er der én gruppe uden overskrift, altså præcis den flade liste der
+ * altid har stået der. `title` er HTML (preview/pristabel), `plain` er tekst (PDF).
+ */
+function _tDayGroups() {
+    if (!_tHasDays()) return [{ key: null, title: null, plain: null, mult: 1 }];
+    const n = _tDays.length;
+    return [
+        ..._tDays.map((d, i) => ({ key: d.key, title: _tDayLabel(d, i), plain: _tDayLabelPlain(d, i), sumLabel: 'I alt for dagen', mult: 1 })),
+        {
+            key: null,
+            title: `Alle dage <span class="tilbud-day-sub">leveres hver dag · × ${n}</span>`,
+            plain: `Alle dage (leveres hver dag, × ${n})`,
+            // Ikke "for dagen" — de her varer hører til dem alle.
+            sumLabel: `I alt for fælles varer × ${n} dage`,
+            // En fælles vare kopieres til HVER dagsbon ved konvertering. Talte
+            // tilbuddet den kun én gang, ville vi levere N gange og fakturere
+            // for én — de oprettede bons summerede mere end tilbuddet lovede.
+            mult: n,
+        },
+    ];
+}
+
 function _tEffectivePax(blockKey) {
     const meta = _tBlockMeta[blockKey];
     return (meta?.pax > 0) ? meta.pax : (parseInt(_tPax) || 1);
@@ -1364,9 +1686,13 @@ function _tBuildEventUI() {
     _tBLOCKS.forEach(b => {
         if (!_tActBlk.has(b.id)) return;
         const its = _tEvBlk[b.id] || [];
-        const cnt = its.reduce((s, i) => s + i.qty, 0);
+        // Tallene i headeren skal passe med de rækker der står under den — og
+        // med dags-faner viser vi kun den valgte dags varer. Hele blokkens sum
+        // på tværs af dage står i pristabellen på næste trin.
+        const shown = _tHasDays() ? its.filter(_tOnActiveDay) : its;
+        const cnt = shown.reduce((s, i) => s + i.qty, 0);
         const bPax = _tEffectivePax(b.id);
-        const bp = its.reduce((s, i) => s + i.unitPrice * i.qty, 0);
+        const bp = shown.reduce((s, i) => s + i.unitPrice * i.qty, 0);
         const col = _tColBlk.has(b.id);
         const paxPill = `<span style="font-size:.7rem;background:rgba(142,99,31,.1);padding:2px 7px;border-radius:10px;margin-left:6px">${bPax} pax</span>`;
 
@@ -1382,14 +1708,14 @@ function _tBuildEventUI() {
             if (!catItems.length) return;
             const catKey = `${b.id}::${cat}`;
             const catCol = _tColCat.has(catKey);
-            const selCnt = catItems.reduce((s, it) => s + (its.find(x => x.id === it.id) ? 1 : 0), 0);
+            const selCnt = catItems.reduce((s, it) => s + (_tFindSel(its, it.id) ? 1 : 0), 0);
             const selBadge = selCnt ? `<span class="tilbud-cat-badge">${selCnt}</span>` : '';
             h += `<div class="tilbud-cat-title clickable" onclick="_tTogColCat('${catKey.replace(/'/g, "\\'")}')">
                 <span class="tilbud-chevron ${catCol ? 'collapsed' : ''}">▼</span>${_tEsc(cat)}${selBadge}
             </div>`;
             if (!catCol) {
                 catItems.forEach(it => {
-                    const sel = its.find(x => x.id === it.id);
+                    const sel = _tFindSel(its, it.id);
                     h += _tBuildMI(it, !!sel, sel?.qty || 1, b.id);
                 });
             }
@@ -1419,14 +1745,14 @@ function _tBuildSingleUI() {
         if (!items.length) return;
         const catKey = cat;
         const catCol = _tColCat.has(catKey);
-        const selCnt = items.reduce((s, it) => s + (_tSiItems.find(x => x.id === it.id) ? 1 : 0), 0);
+        const selCnt = items.reduce((s, it) => s + (_tFindSel(_tSiItems, it.id) ? 1 : 0), 0);
         const selBadge = selCnt ? `<span class="tilbud-cat-badge">${selCnt}</span>` : '';
         h += `<div class="tilbud-cat-title clickable" data-cat="${_tEsc(cat)}" onclick="_tTogColCat('${catKey.replace(/'/g, "\\'")}')">
             <span class="tilbud-chevron ${catCol ? 'collapsed' : ''}">▼</span>${_tEsc(cat)}${selBadge}
         </div>`;
         if (!catCol) {
             items.forEach(it => {
-                const sel = _tSiItems.find(x => x.id === it.id);
+                const sel = _tFindSel(_tSiItems, it.id);
                 h += _tBuildMI(it, !!sel, sel?.qty || 1, null);
             });
         }
@@ -1456,7 +1782,7 @@ function _tBuildSingleUI() {
  */
 function _tBuildExtraItems(items, bid) {
     const inMenu = new Set(Object.values(_tMenu || {}).flat().map(p => p.id));
-    const extras = (items || []).filter(it => !inMenu.has(it.id));
+    const extras = (items || []).filter(it => !inMenu.has(it.id) && _tOnActiveDay(it));
     if (!extras.length) return '';
 
     // Ikke bare "Fritekst": her ender også en gemt vare hvis opskriften siden er
@@ -1509,9 +1835,12 @@ function _tTogColCat(key) {
     _tRenderWizard();
 }
 
+// Til/fra, antal og sletning rammer kun den dag der er valgt. Uden dage er
+// `_tActiveDay` altid null, og så matcher `_tOnActiveDay` alt — samme adfærd
+// som før fler-dags.
 function _tTogMI(id, bid) {
     const arr = bid ? (_tEvBlk[bid] || (_tEvBlk[bid] = [])) : _tSiItems;
-    const idx = arr.findIndex(s => s.id === id);
+    const idx = arr.findIndex(s => s.id === id && _tOnActiveDay(s));
 
     // Fravalg først: en fritekst-vare findes ikke i menuen, og opslaget nedenfor
     // ville ellers afvise at fjerne den igen.
@@ -1520,7 +1849,7 @@ function _tTogMI(id, bid) {
     } else {
         const item = Object.values(_tMenu).flat().find(p => p.id === id);
         if (!item) return;
-        arr.push({ ...item, qty: 1, category: item.category || null });
+        arr.push({ ...item, qty: 1, category: item.category || null, dayKey: _tActiveDay });
     }
 
     if (bid) _tEvBlk[bid] = arr;
@@ -1528,15 +1857,13 @@ function _tTogMI(id, bid) {
 }
 
 function _tChgQ(id, d, bid) {
-    const arr = bid ? _tEvBlk[bid] : _tSiItems;
-    const it = arr?.find(s => s.id === id);
+    const it = _tFindSel(bid ? _tEvBlk[bid] : _tSiItems, id);
     if (it) it.qty = Math.max(1, it.qty + d);
     _tRenderWizard();
 }
 
 function _tSetQ(id, v, bid) {
-    const arr = bid ? _tEvBlk[bid] : _tSiItems;
-    const it = arr?.find(s => s.id === id);
+    const it = _tFindSel(bid ? _tEvBlk[bid] : _tSiItems, id);
     if (it) it.qty = Math.max(1, parseInt(v) || 1);
     _tRenderWizard();
 }
@@ -1553,6 +1880,7 @@ function _tFreeItem(name, qty, price) {
         unitPrice: price,
         costPrice: 0,
         qty: Math.max(1, parseInt(qty) || 1),
+        dayKey: _tActiveDay,
     };
 }
 
@@ -1665,46 +1993,61 @@ function _tBuildPriceTable() {
     let h = `<table class="tilbud-price-tbl"><thead><tr><th>Post</th><th class="r">Antal</th><th class="r">Pris</th><th class="r">Intern</th><th style="width:36px"></th></tr></thead><tbody>`;
     let sub = 0, costT = 0;
 
-    if (isEv) {
-        _tBLOCKS.forEach(b => {
-            if (!_tActBlk.has(b.id)) return;
-            const its = _tEvBlk[b.id] || [];
-            if (!its.length) return;
-            const bPax = _tEffectivePax(b.id);
-            let blockTotal = 0;
+    let groupSum = 0, groupCost = 0;
+    const itemRow = (it, bid) => {
+        const lt = it.unitPrice * it.qty;
+        const lc = it.costPrice * it.qty;
+        groupSum += lt; groupCost += lc;
+        const ltU = window.Moms.inclToExcl(lt);
+        const dbP = ltU > 0 ? ((ltU - lc) / ltU * 100) : 0;
+        const dk = it.dayKey ?? 'null';
+        return `<tr><td><strong>${_tEsc(it.name)}</strong>${_tStaleMark(it)}</td>`
+             + `<td class="r">${it.qty}</td><td class="r" style="font-family:'JetBrains Mono',monospace">${_tFk(lt)}</td>`
+             + `<td class="r" style="font-size:.73rem;color:var(--color-text-dim);font-family:'JetBrains Mono',monospace">${_tFk(lc)} (${dbP.toFixed(0)}%)</td>`
+             + `<td><button class="tilbud-btn-icon danger" onclick="_tRemP(${it.id},'${bid || ''}',${dk})">\u2715</button></td></tr>`;
+    };
 
-            h += `<tr class="chapter"><td colspan="5">${b.icon} ${b.label} <span style="font-size:.72rem;font-weight:400;color:var(--color-text-dim)">${bPax} pax</span></td></tr>`;
+    // Pristabellen viser HELE tilbuddet, ikke kun den dag der sammens\u00e6ttes \u2014
+    // det er her man ser hvad kunden samlet skal betale.
+    for (const g of _tDayGroups()) {
+        groupSum = 0; groupCost = 0;
+        let body = '';
 
-            its.forEach(it => {
-                const lt = it.unitPrice * it.qty;
-                const lc = it.costPrice * it.qty;
-                sub += lt; costT += lc; blockTotal += lt;
-                const ltU = window.Moms.inclToExcl(lt);
-                const dbP = ltU > 0 ? ((ltU - lc) / ltU * 100) : 0;
-                h += `<tr><td><strong>${_tEsc(it.name)}</strong>${_tStaleMark(it)}</td>`;
-                h += `<td class="r">${it.qty}</td><td class="r" style="font-family:'JetBrains Mono',monospace">${_tFk(lt)}</td>`;
-                h += `<td class="r" style="font-size:.73rem;color:var(--color-text-dim);font-family:'JetBrains Mono',monospace">${_tFk(lc)} (${dbP.toFixed(0)}%)</td>`;
-                h += `<td><button class="tilbud-btn-icon danger" onclick="_tRemP(${it.id},'${b.id}')">\u2715</button></td></tr>`;
+        if (isEv) {
+            _tBLOCKS.forEach(b => {
+                if (!_tActBlk.has(b.id)) return;
+                const its = _tItemsForDay(_tEvBlk[b.id], g.key);
+                if (!its.length) return;
+                const bPax = _tEffectivePax(b.id);
+                let blockTotal = 0;
+
+                body += `<tr class="chapter"><td colspan="5">${b.icon} ${b.label} <span style="font-size:.72rem;font-weight:400;color:var(--color-text-dim)">${bPax} pax</span></td></tr>`;
+
+                its.forEach(it => {
+                    blockTotal += it.unitPrice * it.qty;
+                    body += itemRow(it, b.id);
+                });
+
+                // Blokpris (altid vist — nyttigt i alle modes)
+                if (bPax > 0) {
+                    const perPax = Math.round(blockTotal / bPax);
+                    body += `<tr class="subtotal"><td colspan="2"></td><td class="r" style="font-family:'JetBrains Mono',monospace;font-size:.73rem">${_tFk(blockTotal)} <span style="color:var(--color-text-dim)">(${perPax} kr/pax)</span></td><td></td><td></td></tr>`;
+                }
             });
+        } else {
+            _tItemsForDay(_tSiItems, g.key).forEach(it => { body += itemRow(it, ''); });
+    }
 
-            // Blokpris (altid vist — nyttigt i alle modes)
-            if (bPax > 0) {
-                const perPax = Math.round(blockTotal / bPax);
-                h += `<tr class="subtotal"><td colspan="2"></td><td class="r" style="font-family:'JetBrains Mono',monospace;font-size:.73rem">${_tFk(blockTotal)} <span style="color:var(--color-text-dim)">(${perPax} kr/pax)</span></td><td></td><td></td></tr>`;
-            }
-        });
-    } else {
-        _tSiItems.forEach(it => {
-            const lt = it.unitPrice * it.qty;
-            const lc = it.costPrice * it.qty;
-            sub += lt; costT += lc;
-            const ltU = window.Moms.inclToExcl(lt);
-            const dbP = ltU > 0 ? ((ltU - lc) / ltU * 100) : 0;
-            h += `<tr><td><strong>${_tEsc(it.name)}</strong>${_tStaleMark(it)}</td>`;
-            h += `<td class="r">${it.qty}</td><td class="r" style="font-family:'JetBrains Mono',monospace">${_tFk(lt)}</td>`;
-            h += `<td class="r" style="font-size:.73rem;color:var(--color-text-dim);font-family:'JetBrains Mono',monospace">${_tFk(lc)} (${dbP.toFixed(0)}%)</td>`;
-            h += `<td><button class="tilbud-btn-icon danger" onclick="_tRemP(${it.id},'')">\u2715</button></td></tr>`;
-        });
+        sub += groupSum * g.mult;
+        costT += groupCost * g.mult;
+
+        // En tom gruppe får ingen overskrift. En dag uden varer er allerede
+        // synlig på trin 1 og skal ikke fylde en linje her også.
+        if (body) {
+            if (g.title) h += `<tr class="day-chapter"><td colspan="5">${g.title}</td></tr>`;
+            h += body;
+            if (g.title) h += `<tr class="subtotal"><td colspan="2">${g.sumLabel}</td><td class="r" style="font-family:'JetBrains Mono',monospace">${_tFk(groupSum * g.mult)}</td><td></td><td></td></tr>`;
+        }
     }
 
     // Delivery
@@ -1730,9 +2073,12 @@ function _tBuildPriceTable() {
     return h;
 }
 
-function _tRemP(id, bid) {
-    if (bid) _tEvBlk[bid] = (_tEvBlk[bid] || []).filter(s => s.id !== id);
-    else _tSiItems = _tSiItems.filter(s => s.id !== id);
+// Sletning fra pristabellen. Dagen skal med: samme ret kan ligge på flere dage,
+// og uden den ville et klik fjerne den fra dem alle.
+function _tRemP(id, bid, dayKey) {
+    const keep = s => !(s.id === id && (s.dayKey ?? null) === (dayKey ?? null));
+    if (bid) _tEvBlk[bid] = (_tEvBlk[bid] || []).filter(keep);
+    else _tSiItems = _tSiItems.filter(keep);
     _tRenderWizard();
 }
 
@@ -1777,7 +2123,15 @@ function _tBuildStep4() {
     if (_tDeliveryDate || _tDeliveryAddress) {
         const isPickup = _tDeliveryType === 'pickup';
         h += `<div class="tilbud-pv-notes" style="margin-top:12px;margin-bottom:16px"><strong>${isPickup ? 'Afhentning' : 'Levering'}</strong><br>`;
-        if (_tDeliveryDate) {
+        if (_tHasDays()) {
+            // Hver dag med sin egen tid — dét er hele forskellen på et fler-dags
+            // tilbud, og den må ikke først vise sig langt nede i varelisten.
+            h += `<strong>${_tDays.length} dage:</strong> ${_tDateSpan()}<br>`;
+            _tDays.forEach((d, i) => {
+                const t = d.delivery_time || _tDeliveryTime;
+                h += `${_tEsc(_tDayLabelPlain(d, i))}${t ? ' kl. ' + t : ''}<br>`;
+            });
+        } else if (_tDeliveryDate) {
             const dayNames = ['S\u00f8ndag','Mandag','Tirsdag','Onsdag','Torsdag','Fredag','L\u00f8rdag'];
             const d = new Date(_tDeliveryDate + 'T00:00:00');
             h += dayNames[d.getDay()] + ' ' + _tFd(_tDeliveryDate);
@@ -1800,40 +2154,60 @@ function _tBuildStep4() {
     }
 
     h += `<div class="tilbud-pv-title">${isEv ? 'Tilbud p\u00e5 catering' : 'Tilbud'}</div>
-        <div class="tilbud-pv-subtitle">${isEv && _tDeliveryDate ? _tFd(_tDeliveryDate) : ''}${isEv && _tDeliveryAddress ? ' \u00b7 ' + _tEsc(_tDeliveryAddress) : ''}</div>`;
+        <div class="tilbud-pv-subtitle">${isEv ? _tDateSpan() : ''}${isEv && _tDeliveryAddress ? ' \u00b7 ' + _tEsc(_tDeliveryAddress) : ''}</div>`;
 
     let sub = 0;
 
-    if (isEv) {
-        _tBLOCKS.forEach(b => {
-            if (!_tActBlk.has(b.id)) return;
-            const its = _tEvBlk[b.id] || [];
-            if (!its.length) return;
-            const bPax = _tEffectivePax(b.id);
-            const bt = its.reduce((s, i) => s + i.unitPrice * i.qty, 0);
-            sub += bt;
-            let blockHdr = `${b.icon} ${b.label}`;
-            if (sBT || sL) {
-                const perPax = bPax > 0 ? Math.round(bt / bPax) : 0;
-                blockHdr += `<span class="bt">${_tFk(bt)}${perPax ? ` (${perPax} kr/pax)` : ''}</span>`;
-            }
-            h += `<div class="tilbud-pv-block-hdr">${blockHdr}</div>`;
-            // `bt` er allerede summeret over ALLE varer ovenfor \u2014 her filtreres
-            // kun visningen, s\u00e5 en skjult kategori t\u00e6ller stadig med i prisen.
-            _tOfferItems(its).forEach(i => {
-                h += `<div class="tilbud-pv-row"><span class="rn">${i.qty > 1 ? i.qty + '\u00d7 ' : ''}${_tEsc(i.name)}</span>${sL ? `<span class="rp">${_tFk(i.unitPrice * i.qty)}</span>` : ''}</div>`;
+    // Dag-overskrifter når tilbuddet dækker flere dage. Kunden skal kunne se
+    // hvad der kommer hvornår — og at kaffen under "Alle dage" kommer hver dag.
+    //
+    // Beløb pr. dag følger samme regel som blokke og levering: de vises kun når
+    // tilbuddet i øvrigt viser beløb. I "kun samlet pris" står ét tal nederst,
+    // og det er hele pointen med den prismode.
+    for (const g of _tDayGroups()) {
+        let groupSum = 0;
+        let body = '';
+
+        if (isEv) {
+            _tBLOCKS.forEach(b => {
+                if (!_tActBlk.has(b.id)) return;
+                const its = _tItemsForDay(_tEvBlk[b.id], g.key);
+                if (!its.length) return;
+                const bPax = _tEffectivePax(b.id);
+                const bt = its.reduce((s, i) => s + i.unitPrice * i.qty, 0);
+                groupSum += bt;
+                let blockHdr = `${b.icon} ${b.label}`;
+                if (sBT || sL) {
+                    const perPax = bPax > 0 ? Math.round(bt / bPax) : 0;
+                    blockHdr += `<span class="bt">${_tFk(bt)}${perPax ? ` (${perPax} kr/pax)` : ''}</span>`;
+                }
+                body += `<div class="tilbud-pv-block-hdr">${blockHdr}</div>`;
+                // `bt` er allerede summeret over ALLE varer ovenfor — her filtreres
+                // kun visningen, så en skjult kategori tæller stadig med i prisen.
+                _tOfferItems(its).forEach(i => {
+                    body += `<div class="tilbud-pv-row"><span class="rn">${i.qty > 1 ? i.qty + '\u00d7 ' : ''}${_tEsc(i.name)}</span>${sL ? `<span class="rp">${_tFk(i.unitPrice * i.qty)}</span>` : ''}</div>`;
+                });
             });
-        });
-    } else {
-        // Bel\u00f8bet summeres over alle varer, uafh\u00e6ngigt af hvad der vises.
-        _tSiItems.forEach(i => { sub += i.unitPrice * i.qty; });
-        const cats = {};
-        _tSiItems.forEach(i => { const c = i.category || 'Ukendt'; if (!cats[c]) cats[c] = []; cats[c].push(i); });
-        _tOfferCategories(cats).forEach(cat => {
-            cats[cat].forEach(i => {
-                h += `<div class="tilbud-pv-row"><span class="rn">${i.qty > 1 ? i.qty + '\u00d7 ' : ''}${_tEsc(i.name)}</span>${sL ? `<span class="rp">${_tFk(i.unitPrice * i.qty)}</span>` : ''}</div>`;
+        } else {
+            const dayItems = _tItemsForDay(_tSiItems, g.key);
+            // Beløbet summeres over alle varer, uafhængigt af hvad der vises.
+            dayItems.forEach(i => { groupSum += i.unitPrice * i.qty; });
+            const cats = {};
+            dayItems.forEach(i => { const c = i.category || 'Ukendt'; if (!cats[c]) cats[c] = []; cats[c].push(i); });
+            _tOfferCategories(cats).forEach(cat => {
+                cats[cat].forEach(i => {
+                    body += `<div class="tilbud-pv-row"><span class="rn">${i.qty > 1 ? i.qty + '\u00d7 ' : ''}${_tEsc(i.name)}</span>${sL ? `<span class="rp">${_tFk(i.unitPrice * i.qty)}</span>` : ''}</div>`;
+                });
             });
-        });
+        }
+
+        sub += groupSum * g.mult;
+        if (!body) continue;
+        if (g.title) h += `<div class="tilbud-pv-day-hdr">${g.title}</div>`;
+        h += body;
+        if (g.title && (sL || sBT)) {
+            h += `<div class="tilbud-pv-day-sum">${g.sumLabel} <strong>${_tFk(groupSum * g.mult)}</strong></div>`;
+        }
     }
 
     // Delivery
@@ -1901,6 +2275,9 @@ function _tCollectLines() {
                     unit_price: it.unitPrice,
                     cost_price: it.costPrice,
                     sort_order: order++,
+                    // Lokal nøgle — oversættes til serverens `offer_day_id` i
+                    // _tSaveQuote, når dagene har fået id'er.
+                    _dayKey: it.dayKey ?? null,
                 });
             });
         });
@@ -1936,9 +2313,56 @@ function _tSaveBtn() {
                     title="Gemmer som kladde — du kan altid vende tilbage og gøre tilbuddet færdigt">${label}</button>`;
 }
 
+/**
+ * Gem dagene og få serverens id'er tilbage.
+ *
+ * `PUT /days` er reconcile: den fulde liste sendes hver gang, id'er bevares.
+ * Svaret kommer i vores egen rækkefølge (sort_order = index), så nyoprettede
+ * dage kan mappes tilbage på deres lokale nøgle position for position.
+ */
+async function _tSyncDays() {
+    const payload = _tDays.map((d, i) => ({
+        id: d.id ?? undefined,
+        sort_order: i,
+        delivery_date: d.delivery_date,
+        delivery_time: d.delivery_time || null,
+        pax: d.pax ?? null,
+        label: d.label || null,
+        note: d.note || null,
+    }));
+    const res = await putQuoteDays(_tQuoteId, payload);
+    (res.days || []).forEach((srv, i) => { if (_tDays[i]) _tDays[i].id = srv.id; });
+}
+
+/** Oversæt linjernes lokale dags-nøgler til serverens id'er. */
+function _tResolveLineDays(lines) {
+    const idByKey = new Map(_tDays.map(d => [d.key, d.id]));
+    return lines.map(l => {
+        const { _dayKey, ...rest } = l;
+        return { ...rest, offer_day_id: _dayKey != null ? (idByKey.get(_dayKey) ?? null) : null };
+    });
+}
+
+/** Uden dage sendes feltet slet ikke — payloadet ser ud præcis som før. */
+function _tStripLineDays(lines) {
+    return lines.map(({ _dayKey, ...rest }) => rest);
+}
+
 async function _tSaveQuote() {
     _tSaveStepFields();
     _tSyncBlockStash();
+
+    // En dag uden dato kan ikke gemmes (`offer_days.delivery_date` er NOT NULL),
+    // og serveren ville svare med en teknisk besked om format. Sig det her.
+    const badDay = _tDays.findIndex(d => !d.delivery_date);
+    if (badDay >= 0) {
+        _tToast(`Dag ${badDay + 1} mangler en dato`);
+        if (_tStep !== 1) { _tStep = 1; _tRenderWizard(); }
+        return;
+    }
+    const dates = _tDays.map(d => d.delivery_date);
+    const dup = dates.find((d, i) => dates.indexOf(d) !== i);
+    if (dup) { _tToast(`To dage har samme dato (${_tFd(dup)})`); if (_tStep !== 1) { _tStep = 1; _tRenderWizard(); } return; }
 
     // `bons.delivery_date` er NOT NULL i skemaet, så et tilbud kan ikke gemmes
     // uden dato — uanset hvor tidligt i forløbet man er. Uden dette tjek kommer
@@ -1983,20 +2407,34 @@ async function _tSaveQuote() {
         // Gemmes i DB som offer_valid_until — en dags forskydning her
         // fik tilbud til at udløbe for tidligt.
         valid_until: offsetISO(_tValidDays),
-        lines: _tCollectLines(),
     };
+
+    const rawLines = _tCollectLines();
 
     try {
         if (_tQuoteId) {
+            // Dagene først: linjernes `offer_day_id` skal pege på id'er der
+            // findes, og serveren afviser payloadet hvis de ikke gør.
+            if (_tHasDays()) await _tSyncDays();
+            payload.lines = _tHasDays() ? _tResolveLineDays(rawLines) : _tStripLineDays(rawLines);
+
             const saved = await updateQuote(_tQuoteId, payload);
             _tQuoteNumber = saved.quote_number;
             if (saved.status) _tQuoteStatus = saved.status;
             _tToast(`Tilbud ${saved.quote_number} opdateret`);
         } else {
+            // Et nyt tilbud har ingen dage endnu, så oprettelsen kan ikke bære
+            // dag-tilknytningen — den lægges på i en anden omgang lige efter.
+            payload.lines = _tStripLineDays(rawLines);
             const saved = await createQuote(payload);
             _tQuoteId = saved.id;
             _tQuoteNumber = saved.quote_number;
             _tQuoteStatus = 'draft';
+
+            if (_tHasDays()) {
+                await _tSyncDays();
+                await updateQuote(_tQuoteId, { lines: _tResolveLineDays(rawLines) });
+            }
             _tToast(`Tilbud ${saved.quote_number} oprettet`);
         }
         _tRenderWizard(); // Re-render to show updated number + convert button
@@ -2007,10 +2445,24 @@ async function _tSaveQuote() {
 
 async function _tConvertToBon() {
     if (!_tQuoteId) { _tToast('Gem tilbuddet f\u00f8rst'); return; }
+
+    // Fler-dags bliver til N bons p\u00e5 \u00e9n gang. Det er ikke til at fortryde med et
+    // klik, s\u00e5 sig hvad der sker inden \u2014 ikke bagefter.
+    if (_tDays.length > 1) {
+        const list = _tDays.map((d, i) => '  \u2022 ' + _tDayLabelPlain(d, i)).join('\n');
+        if (!confirm(`Opret ${_tDays.length} bons \u2014 \u00e9n pr. dag?\n\n${list}\n\nTilbuddet bliver liggende som bilag.`)) return;
+    }
+
     try {
         await _tSaveQuote();
         const result = await convertQuoteToBon(_tQuoteId);
-        _tToast(`Tilbud konverteret til bon ${result.bon_number}`);
+        if (result.multi_day) {
+            // Tilbuddet BLIVER et tilbud (markeret vundet) \u2014 kun bonnerne er nye.
+            _tQuoteStatus = 'won';
+            _tToast(`${result.bons.length} bons oprettet: ${result.bons.map(b => b.bon_number).join(', ')}`);
+        } else {
+            _tToast(`Tilbud konverteret til bon ${result.bon_number}`);
+        }
         // Navigate to bons list
         if (typeof switchView === 'function') switchView('bons');
     } catch (e) {
@@ -2087,7 +2539,18 @@ function _tGenPDF() {
         doc.setFontSize(9); doc.setFont('helvetica', 'bold'); doc.setTextColor(...tx);
         doc.text(isPickup ? 'Afhentning' : 'Levering', ml, y); y += 5;
         doc.setFontSize(8.5); doc.setFont('helvetica', 'normal'); doc.setTextColor(...dm);
-        if (_tDeliveryDate) {
+        if (_tHasDays()) {
+            // Alle dagene med hver sin tid — samme grund som i forhåndsvisningen:
+            // står der kun dag 1, ligner et tre-dages tilbud et endagsarrangement.
+            doc.setFont('helvetica', 'bold');
+            doc.text(`${_tDays.length} dage: ${_tDateSpan('-')}`, ml, y); y += 4.5;
+            doc.setFont('helvetica', 'normal');
+            _tDays.forEach((d, i) => {
+                chk(6);
+                const t = d.delivery_time || _tDeliveryTime;
+                doc.text(_tDayLabelPlain(d, i) + (t ? ' kl. ' + t : ''), ml, y); y += 4.5;
+            });
+        } else if (_tDeliveryDate) {
             const dd = new Date(_tDeliveryDate + 'T00:00:00');
             let dStr = dayNames[dd.getDay()].charAt(0).toUpperCase() + dayNames[dd.getDay()].slice(1) + ' ' + fD(dd);
             if (_tDeliveryTime) dStr += ' kl. ' + _tDeliveryTime;
@@ -2116,44 +2579,69 @@ function _tGenPDF() {
 
     let sub = 0;
 
-    // Items
-    if (isEv) {
-        _tBLOCKS.forEach(b => {
-            if (!_tActBlk.has(b.id)) return;
-            const its = _tEvBlk[b.id] || []; if (!its.length) return;
-            const bPax = _tEffectivePax(b.id);
-            const bt = its.reduce((s, i) => s + i.unitPrice * i.qty, 0); sub += bt;
-            chk(14); doc.setFontSize(10); doc.setFont('helvetica', 'bold'); doc.setTextColor(...(bc[b.id] || br));
-            doc.text(b.label, ml, y);
-            if (sBT || sL) {
-                const perPax = bPax > 0 ? Math.round(bt / bPax) : 0;
-                doc.setFontSize(9); doc.text(fK(bt) + (perPax ? `  (${perPax} kr/pax)` : ''), pw - mr, y, { align: 'right' });
-            }
-            y += 1.5; doc.setDrawColor(...(bc[b.id] || br)); doc.setLineWidth(0.4); doc.line(ml, y, pw - mr, y); y += 5;
-            // `bt` er allerede summeret over alle varer \u2014 her filtreres kun visningen.
-            _tOfferItems(its).forEach(it => {
-                chk(7); doc.setFontSize(8.5); doc.setFont('helvetica', 'normal'); doc.setTextColor(...tx);
-                doc.text(`${it.qty > 1 ? it.qty + '\u00d7 ' : ''}${it.name}`, ml, y);
-                if (sL) doc.text(fK(it.unitPrice * it.qty), pw - mr, y, { align: 'right' });
-                y += 5.5;
+    // Items — grupperet pr. dag når tilbuddet dækker flere. Dagene først,
+    // "Alle dage" til sidst som et tillæg: det er de varer der går igen.
+    for (const g of _tDayGroups()) {
+        let groupSum = 0;
+        const rows = [];   // udskydes, så en tom dag ikke får en overskrift
+
+        if (isEv) {
+            _tBLOCKS.forEach(b => {
+                if (!_tActBlk.has(b.id)) return;
+                const its = _tItemsForDay(_tEvBlk[b.id], g.key); if (!its.length) return;
+                const bPax = _tEffectivePax(b.id);
+                const bt = its.reduce((s, i) => s + i.unitPrice * i.qty, 0); groupSum += bt;
+                rows.push(() => {
+                    chk(14); doc.setFontSize(10); doc.setFont('helvetica', 'bold'); doc.setTextColor(...(bc[b.id] || br));
+                    doc.text(b.label, ml, y);
+                    if (sBT || sL) {
+                        const perPax = bPax > 0 ? Math.round(bt / bPax) : 0;
+                        doc.setFontSize(9); doc.text(fK(bt) + (perPax ? `  (${perPax} kr/pax)` : ''), pw - mr, y, { align: 'right' });
+                    }
+                    y += 1.5; doc.setDrawColor(...(bc[b.id] || br)); doc.setLineWidth(0.4); doc.line(ml, y, pw - mr, y); y += 5;
+                    // `bt` er allerede summeret over alle varer — her filtreres kun visningen.
+                    _tOfferItems(its).forEach(it => {
+                        chk(7); doc.setFontSize(8.5); doc.setFont('helvetica', 'normal'); doc.setTextColor(...tx);
+                        doc.text(`${it.qty > 1 ? it.qty + '\u00d7 ' : ''}${it.name}`, ml, y);
+                        if (sL) doc.text(fK(it.unitPrice * it.qty), pw - mr, y, { align: 'right' });
+                        y += 5.5;
+                    });
+                    y += 3;
+                });
             });
-            y += 3;
-        });
-    } else {
-        _tSiItems.forEach(i => { sub += i.unitPrice * i.qty; });   // bel\u00f8b: alle varer
-        const cats = {};
-        _tSiItems.forEach(i => { const c = i.category || 'Ukendt'; if (!cats[c]) cats[c] = []; cats[c].push(i); });
-        _tOfferCategories(cats).forEach(cat => {
-            chk(10); doc.setFontSize(8); doc.setFont('helvetica', 'bold'); doc.setTextColor(...br);
-            doc.text(cat.toUpperCase(), ml, y); y += 4;
-            cats[cat].forEach(i => {
-                chk(6);
-                doc.setFontSize(8.5); doc.setFont('helvetica', 'normal'); doc.setTextColor(...tx);
-                doc.text(`${i.qty > 1 ? i.qty + '\u00d7 ' : ''}${i.name}`, ml, y);
-                if (sL) doc.text(fK(i.unitPrice * i.qty), pw - mr, y, { align: 'right' });
-                y += 5.5;
-            }); y += 2;
-        });
+        } else {
+            const dayItems = _tItemsForDay(_tSiItems, g.key);
+            dayItems.forEach(i => { groupSum += i.unitPrice * i.qty; });   // beløb: alle varer
+            const cats = {};
+            dayItems.forEach(i => { const c = i.category || 'Ukendt'; if (!cats[c]) cats[c] = []; cats[c].push(i); });
+            _tOfferCategories(cats).forEach(cat => {
+                rows.push(() => {
+                    chk(10); doc.setFontSize(8); doc.setFont('helvetica', 'bold'); doc.setTextColor(...br);
+                    doc.text(cat.toUpperCase(), ml, y); y += 4;
+                    cats[cat].forEach(i => {
+                        chk(6);
+                        doc.setFontSize(8.5); doc.setFont('helvetica', 'normal'); doc.setTextColor(...tx);
+                        doc.text(`${i.qty > 1 ? i.qty + '\u00d7 ' : ''}${i.name}`, ml, y);
+                        if (sL) doc.text(fK(i.unitPrice * i.qty), pw - mr, y, { align: 'right' });
+                        y += 5.5;
+                    }); y += 2;
+                });
+            });
+        }
+
+        sub += groupSum * g.mult;
+        if (!rows.length) continue;
+        if (g.plain) {
+            chk(12); doc.setFontSize(11); doc.setFont('helvetica', 'bold'); doc.setTextColor(...br);
+            doc.text(g.plain, ml, y); y += 6;
+        }
+        rows.forEach(fn => fn());
+        // Dagssubtotal følger prismoden — i "kun samlet pris" står ét tal nederst.
+        if (g.plain && (sL || sBT)) {
+            chk(8); doc.setFontSize(8.5); doc.setFont('helvetica', 'bold'); doc.setTextColor(...dm);
+            doc.text(g.sumLabel, ml, y);
+            doc.text(fK(groupSum * g.mult), pw - mr, y, { align: 'right' }); y += 7;
+        }
     }
 
     // Delivery \u2014 samme regel som i forh\u00e5ndsvisningen: linjen altid, bel\u00f8bet

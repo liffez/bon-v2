@@ -2,9 +2,10 @@
 
 > Ét bilag til kunden, én bon pr. dag ved accept.
 > Læs `CLAUDE_TILBUD.md` først (tilbudsmodulets grundmodel).
-> **Status: backend færdig og testet ([PR #436](https://github.com/liffez/bon-v2/pull/436), draft). UI mangler.**
-> Skrive-vejen til `offer_day_id`, køkken-synligheden, SSE-rækkefølgen og `moms_included`
-> blev lukket i en anden runde — se **API → rækkefølgen** og **Fælder**.
+> **Status: backend + UI færdigt ([PR #436](https://github.com/liffez/bon-v2/pull/436)).**
+> Backenden kom først; skrive-vejen til `offer_day_id`, køkken-synligheden,
+> SSE-rækkefølgen og `moms_included` blev lukket i en anden runde (se **API →
+> rækkefølgen** og **Fælder**), UI'et i en tredje (se **UI**).
 > Skrevet 10. august 2026.
 
 ---
@@ -198,27 +199,71 @@ Begge har nu deres skema-default gentaget i koden.
 
 ---
 
-## Hvad der mangler
+## UI (`office/views/tilbud.js`)
 
-1. **Trin 1** — dags-liste (tilføj/fjern/omarrangér).
-   **Arvede felter skal vise tilbuddets værdi som `placeholder`, ikke som udfyldt
-   værdi.** Ellers kan man ikke se forskel på "denne dag arver" og "denne dag har
-   tilfældigvis samme værdi" — og gemmer man, låses arven fast.
-   **Fjernes en dag der har egne linjer, skal der advares først.** `ON DELETE SET NULL`
-   er skånsom over for dataene, men resultatet er at netop de varer nu gælder *alle*
-   dage. Klienten kan se det på forhånd: linjerne har `offer_day_id`.
-2. **Trin 2** — dag-vælger pr. linje med **"Alle dage" som eksplicit førstevalg**
-   (= `offer_day_id: null`). Kun synlig når `days.length > 1`.
-   Husk kontrakten ovenfor: dagene skal være gemt før linjerne, og feltet skal med
-   i hver PATCH.
-3. **Preview + PDF** — dag-overskrifter når `days.length > 1`. Totalen samlet nederst.
-   **Hvor totalen står (pr. dag / samlet / begge) er stadig ubesvaret — se punkt 6
-   nedenfor.** Det valg kan ikke udskydes forbi PDF-implementeringen.
-4. **Tilbudslisten** — `day_count > 1` bør kunne ses på rækken ("3 dage"), ellers
-   ligner et fler-dags-tilbud et almindeligt ét-dags med en tilfældig dato.
+**Tomt `_tDays` = et helt almindeligt ét-dags-tilbud, og så er alt herunder
+virkningsløst.** Det er den regression der betyder mest.
 
-**Ét-dags-tilbud skal se ud og opføre sig præcis som i dag.** Det er den regression
-der betyder mest, og den er første test i suiten.
+### Trin 1 — dagene
+
+Sektionen "Flere dage" ligger under Levering og er tom som udgangspunkt. Første
+klik går fra **nul til TO dage**, ikke én: én dag ville se ud som et fler-dags-tilbud
+og konvertere som et ét-dags (backenden deler først op ved ≥ 2), og den mellemting
+er der ingen grund til at føre nogen ud i. Bliver der alligevel kun én tilbage, står
+det som en advarsel i stedet for at være tavst.
+
+Arvede felter vises som **placeholder** — man kan se forskel på "arver tilbuddets
+42 pax" og "har tilfældigvis også 42".
+
+**Fjernes en dag med egne varer, spørges der først**, og beskeden siger hvad der
+sker: varerne bliver fælles og kommer med på alle dage. `ON DELETE SET NULL` er
+skånsom over for dataene, men "skånsom" er kun godt hvis det er synligt.
+
+### Trin 2 — faner, ikke rullemenuer
+
+Man vælger **dag** og fylder på, frem for at vælge dag pr. linje. Det er ikke bare
+en pænere flade: en rullemenu pr. række kan kun give varen én dag, og så kan
+"40 sandwich dag 1, 30 dag 3" ikke udtrykkes. Med faner er varens identitet
+`(id, dagsnøgle)`, og samme ret kan ligge på flere dage med hver sin mængde.
+
+**"Alle dage" er førstevalget** og svarer til `offer_day_id = null`.
+
+Blok-headerens tal følger den valgte dag, så de passer med rækkerne under dem.
+Hele blokkens sum på tværs af dage står i pristabellen.
+
+### Fælles varer tælles én gang pr. dag
+
+En fælles vare kopieres til **hver** dagsbon ved konvertering. Talte tilbuddet den
+kun én gang, ville vi levere N gange og fakturere for én: 42 kaffe × 2 dage stod
+som 1.050 kr på tilbuddet, mens de to bons tilsammen bar 2.100 kr.
+
+Grupperne har derfor en multiplikator (`_tDayGroups().mult`), og fælles-sektionen
+hedder "Alle dage · leveres hver dag · × N". Det gælder pristabel, forhåndsvisning,
+PDF **og** statistik-striben på trin 2 — alle fire steder ville ellers vise et
+lavere tal end kunden betaler.
+
+### Preview og PDF
+
+Dag-overskrifter, dagssubtotal, og **én samlet total nederst**. Dagssubtotalen
+følger prismoden på samme måde som blokke og levering: i "kun samlet pris" står
+der ét tal, og det er hele pointen med den mode. Dagsopdelingen består —
+kunden skal kunne se hvad der kommer hvornår, også uden beløb.
+
+Leveringsboksen og undertitlen viser **hele datospændet** og hver dags tid.
+`bons.delivery_date` holdes på dag 1, så begge steder skrev før kun den første dag
+— et tre-dages tilbud så øverst ud som et endagsarrangement.
+
+### Gem-rækkefølgen
+
+Dagene har en **lokal nøgle** ved siden af serverens id, så en linje kan pege på en
+dag der endnu ikke er gemt. Ved gem: `PUT /days` først, nøglerne oversættes til de
+id'er svaret bærer, og først derefter går linjerne af sted. Et nyt tilbud gemmes
+i to trin (oprettelse kan ikke bære dage), et eksisterende i ét.
+
+### Konvertering
+
+`_tConvertToBon` spørger før den laver N bons og nævner dagene ved navn — det er
+ikke til at fortryde med et klik. Kvitteringen lister bon-numrene.
 
 ---
 
@@ -256,8 +301,11 @@ packing-units 18 — alle grønne.
 ## Stadig ubesvaret i #425
 
 - **(5) Pris pr. dag** — `offer_price_mode` er i dag total/blok/linje. Skal der være
-  en pris pr. dag?
-- **(6) PDF** — hvor står totalen: pr. dag, samlet, eller begge?
+  en pris pr. dag? Dagssubtotalen findes nu, men som *visning* der følger den
+  valgte mode — ikke som en fjerde mode man kan vælge.
+- ~~**(6) PDF** — hvor står totalen?~~ **Besvaret:** dagssubtotal pr. dag når
+  tilbuddet i øvrigt viser beløb, og altid én samlet total nederst. Det er den
+  sum kunden siger ja til.
 - **(7) Delvis accept** — kunden vil have dag 1 og 3, ikke dag 2. Backenden kan det
   allerede: slet dag 2 før konvertering. Fælden er at dag 2's linjer så bliver
   *fælles* og dukker op på både dag 1 og 3 — derfor advarslen i punkt 1 ovenfor.
