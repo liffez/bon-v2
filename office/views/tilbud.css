@@ -290,6 +290,15 @@
   user-select: none;
 }
 .tilbud-chip:hover { border-color: var(--brand-primary-light, #a67d1a); }
+/* Slukket blok med gemt indhold — stiplet kant siger "der ligger noget her". */
+.tilbud-chip.has-stash { border-style: dashed; }
+.tilbud-chip-stash {
+  display: inline-flex; align-items: center; justify-content: center;
+  min-width: 18px; height: 16px; padding: 0 5px; margin-left: 6px;
+  background: var(--color-border, #d7d1ca); color: var(--color-text-dim, #7a6f5f);
+  border-radius: 8px; font-family: 'JetBrains Mono', monospace;
+  font-size: .65rem; font-weight: 600;
+}
 .tilbud-chip.a-morning { background: #FFF8E7; border-color: #D4A017; color: #D4A017; }
 .tilbud-chip.a-amsnack { background: #FFF3E8; border-color: #C2722E; color: #C2722E; }
 .tilbud-chip.a-lunch   { background: #EFF6F1; border-color: #4A7C59; color: #4A7C59; }

@@ -850,7 +850,11 @@ function _tBuildStats() {
     const isEv = _tTpl === 'event';
     let cnt = 0, sale = 0, cost = 0;
     if (isEv) {
-        for (const items of Object.values(_tEvBlk)) {
+        // Kun tændte blokke. En slukket blok beholder sit indhold (så den kan
+        // tændes igen), men indgår hverken i tilbuddet eller i tallene her —
+        // ellers ville stribestatistikken modsige pristabellen.
+        for (const [bid, items] of Object.entries(_tEvBlk)) {
+            if (!_tActBlk.has(bid)) continue;
             items.forEach(it => { cnt += it.qty; sale += it.unitPrice * it.qty; cost += it.costPrice * it.qty; });
         }
     } else {
@@ -883,7 +887,14 @@ function _tBlockLabel(blockKey) {
 function _tBuildEventUI() {
     let h = '<div class="tilbud-block-chips">';
     _tBLOCKS.forEach(b => {
-        h += `<div class="tilbud-chip ${_tActBlk.has(b.id) ? 'a-' + b.color : ''}" onclick="_tTogBlk('${b.id}')">${b.icon} ${b.label}</div>`;
+        const on = _tActBlk.has(b.id);
+        // En slukket blok kan stadig indeholde varer. Vis hvor mange, så det er
+        // synligt at der ligger noget gemt bag chippen — ellers ser den tom ud.
+        const stashed = !on ? (_tEvBlk[b.id] || []).reduce((s, i) => s + (i.qty || 0), 0) : 0;
+        const badge = stashed
+            ? `<span class="tilbud-chip-stash" title="${stashed} vare${stashed !== 1 ? 'r' : ''} gemt — tænd blokken for at få dem tilbage">${stashed}</span>`
+            : '';
+        h += `<div class="tilbud-chip ${on ? 'a-' + b.color : ''}${stashed ? ' has-stash' : ''}" onclick="_tTogBlk('${b.id}')">${b.icon} ${b.label}${badge}</div>`;
     });
     h += '</div>';
 
@@ -1014,8 +1025,20 @@ function _tBuildMI(it, sel, qty, bid) {
 }
 
 function _tTogBlk(id) {
-    if (_tActBlk.has(id)) { _tActBlk.delete(id); delete _tEvBlk[id]; _tColBlk.delete(id); }
-    else { _tActBlk.add(id); if (!_tEvBlk[id]) _tEvBlk[id] = []; }
+    if (_tActBlk.has(id)) {
+        // Slukket blok beholder sit indhold. Før smed `delete _tEvBlk[id]` hele
+        // blokken væk ved et enkelt klik, uden varsel og uden fortrydelse — et
+        // fejlklik på "Frokost" kostede alt arbejdet i den.
+        //
+        // Det er sikkert at lade det ligge: alt der læser blokke (pristabel,
+        // preview, gem, PDF) springer inaktive blokke over, så en slukket blok
+        // tæller stadig ikke med i tilbuddet. Den kan bare tændes igen.
+        _tActBlk.delete(id);
+        _tColBlk.delete(id);
+    } else {
+        _tActBlk.add(id);
+        if (!_tEvBlk[id]) _tEvBlk[id] = [];
+    }
     _tRenderWizard();
 }
 

@@ -2074,6 +2074,19 @@ Verificeret ende-til-ende i browser på begge skabeloner: antal tastet ved opret
 linjen igen med antal. Preview viser `5× Service på stedet`, PDF genereres uden fejl.
 Testdata ryddet.
 
+**Slukket tidsblok beholder sit indhold (samme dag).** `_tTogBlk` kørte
+`delete _tEvBlk[id]`, så ét klik på "Frokost" smed hele blokken væk — uden varsel og
+uden fortrydelse. Det er sikkert at lade indholdet ligge: alt der læser blokke
+(stat-stribe, pristabel, preview, `_tCollectLines`, PDF) springer allerede inaktive
+blokke over, så en slukket blok tæller stadig ikke med i tilbuddet. Chippen får en
+stiplet kant + antal-badge når der ligger noget bag den, så det er synligt at der er
+noget at hente tilbage. `_tBuildStats` filtrerede som det eneste sted IKKE på
+`_tActBlk` — den talte den slukkede bloks varer med og modsagde dermed pristabellen
+(rettet samtidig: 7 varer/700 kr → 1 vare/100 kr når Frokost slukkes).
+Bemærk: gemmer man mens blokken er slukket, følger indholdet ikke med i DB — det er
+den rigtige semantik ("blokken er ikke en del af tilbuddet"), men fortrydelsen gælder
+altså kun indtil man gemmer.
+
 ### Mail-oprydning: spam/auto-ignored + bounces (14.-15. maj 2026)
 > Spec: `docs/CLAUDE_MAIL_FIX_SPAM_OPHOBNING.md`
 
