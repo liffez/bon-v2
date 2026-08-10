@@ -509,7 +509,11 @@ function tableExists(db, name) {
     return !!db.prepare(`SELECT 1 n FROM sqlite_master WHERE type='table' AND name = ?`).get(name);
 }
 
-function mergeEntity(db, kind, loser, winner) {
+/**
+ * Læg `loser` ind i `winner`. `anledning` sætter teksten i changelog — den er
+ * "dublet fra importen" som standard, men et andet script kan sige hvorfor.
+ */
+function mergeEntity(db, kind, loser, winner, anledning = null) {
     const isCustomer = kind === 'customer';
     const moves = isCustomer ? CUSTOMER_MOVES : COMPANY_MOVES;
     const snapshot = { kind, loser_id: loser.id, winner_id: winner.id, moves: {}, contact_points: [] };
@@ -577,7 +581,7 @@ function mergeEntity(db, kind, loser, winner) {
         `INSERT INTO changelog (entity_type, entity_id, action, field_name, old_value, new_value, notes, payload)
          VALUES (?, ?, 'merge_import_dup', 'id', ?, ?, ?, ?)`
     ).run(kind, winner.id, String(loser.id), String(winner.id),
-          `Dublet #${loser.id} fra importen sammenlagt ind i #${winner.id}`,
+          anledning || `Dublet #${loser.id} fra importen sammenlagt ind i #${winner.id}`,
           JSON.stringify(snapshot));
 
     return snapshot;
@@ -743,9 +747,16 @@ function main() {
     }
 }
 
-try {
-    main();
-} catch (err) {
-    console.error('\n✗ ' + err.message);
-    process.exitCode = 1;
+// Sammenlægningen eksporteres, så andre oprydningsscripts kan bruge PRÆCIS
+// samme flytning i stedet for at skrive en ny. Der findes kun ét sted hvor det
+// afgøres hvad der skal følge med en kunde eller et firma over.
+module.exports = { mergeEntity, norm, isDirty, weight, namesCompatible };
+
+if (require.main === module) {
+    try {
+        main();
+    } catch (err) {
+        console.error('\n✗ ' + err.message);
+        process.exitCode = 1;
+    }
 }
