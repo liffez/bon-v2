@@ -19,9 +19,41 @@ const _IS_TEST = process.env.NODE_ENV === 'test';
 const _sentWebhooks = [];
 
 /**
- * Send webhook til Whiteboard (fire-and-forget).
+ * Er koblingen til Whiteboard tændt?
+ *
+ * Tom URL = `bonv2_only`-mode (spec §"Tre driftsmodes"). Det er et lovligt
+ * valg — men det er også den tilstand der i praksis gjorde varemodtagelsen
+ * usynlig: send() sprang stille over, og intet sted kunne man se hvorfor.
+ * Derfor eksponeres tilstanden nu, så både API-svar og Settings kan vise den.
+ *
+ * @returns {string|null} URL'en, eller null når koblingen er slukket
+ */
+function getWebhookUrl() {
+    try {
+        const row = getDb().prepare(
+            `SELECT value FROM settings WHERE key = 'whiteboard_webhook_url'`
+        ).get();
+        const url = (row?.value || '').trim();
+        return url || null;
+    } catch {
+        return null;
+    }
+}
+
+function isConfigured() {
+    return getWebhookUrl() !== null;
+}
+
+/**
+ * Send webhook til Whiteboard (fire-and-forget fra POST-stien).
+ *
+ * Returnerer et resultat-objekt så kaldere der VENTER på den (gensend fra
+ * listen og backfill-scriptet) kan fortælle hvad der skete. POST-stien
+ * ignorerer returværdien og forbliver ikke-blokerende.
+ *
  * @param {Object} receipt  - goods_receipts row fra DB
  * @param {string} userName - navn på modtager
+ * @returns {Promise<{ok:boolean, skipped?:boolean, reason?:string, statusCode?:number, error?:string}>}
  */
 async function send(receipt, userName) {
     // Test-mode: fang kald i in-memory buffer og returner tidligt.
@@ -34,16 +66,15 @@ async function send(receipt, userName) {
             supplier_name: receipt.supplier_name,
             captured_at: new Date().toISOString(),
         });
-        return;
+        return { ok: true, mode: 'test' };
     }
 
     const db = getDb();
 
-    const webhookUrl = db.prepare(
-        `SELECT value FROM settings WHERE key = 'whiteboard_webhook_url'`
-    ).get()?.value;
+    const webhookUrl = getWebhookUrl();
 
-    if (!webhookUrl) return; // bonv2_only mode
+    // bonv2_only mode — registreringen ligger kun i Bon v2.
+    if (!webhookUrl) return { ok: false, skipped: true, reason: 'not_configured' };
 
     // Map Bon v2's deviation_type til Whiteboard-skemaets select-options
     const deviationMap = {
@@ -126,6 +157,8 @@ async function send(receipt, userName) {
     } catch (logErr) {
         console.error('[webhook] Kunne ikke logge webhook:', logErr.message);
     }
+
+    return { ok: !error, statusCode, error };
 }
 
 function _getSentWebhooks() {
@@ -136,4 +169,4 @@ function _clearSentWebhooks() {
     _sentWebhooks.length = 0;
 }
 
-module.exports = { send, _getSentWebhooks, _clearSentWebhooks };
+module.exports = { send, isConfigured, getWebhookUrl, _getSentWebhooks, _clearSentWebhooks };
