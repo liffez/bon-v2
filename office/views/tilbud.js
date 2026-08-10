@@ -15,7 +15,6 @@ let _tTpl = null;        // 'event' | 'single'
 let _tCust = null;       // { customer_id, company_id, customer_name, ... }
 let _tEvBlk = {};        // { blockId: [items] }
 let _tSiItems = [];      // items for single template
-let _tCxItems = [];      // custom free-text items
 let _tActBlk = new Set();
 let _tColBlk = new Set();
 let _tColCat = new Set();   // foldbare kategorier i Sammensæt: 'cat' (single) eller 'bid::cat' (event)
@@ -210,6 +209,10 @@ async function _tLoadMenuAndRender() {
                 id: r.id,
                 grocy_recipe_id: r.id,
                 name: r.name,
+                // Kategorien var kun n\u00f8glen i _tMenu, ikke en egenskab p\u00e5 varen.
+                // Derfor kom den aldrig med i bon_lines.category ved gem \u2014 og
+                // d\u00e9t felt er hvad enheds-t\u00e6llingen matcher mod.
+                category: cat,
                 unit: r.unit || 'stk',
                 unitPrice: r.prices?.[_tPriceCat] ?? r.prices?.catering ?? 0,
                 costPrice: r.cost_price ?? 0,
@@ -381,7 +384,10 @@ async function _tOpenQuote(id) {
                     unitPrice: l.unit_price ?? 0,
                     costPrice: l.cost_price ?? 0,
                     qty: l.quantity || 1,
-                    category: l.block_type || 'Ukendt',
+                    // Varens egen kategori — ikke tidsblokken. `block_type` er
+                    // null på enkeltbestillinger, så hver eneste vare endte som
+                    // "Ukendt" i preview og PDF efter en genindlæsning.
+                    category: l.category || l.block_type || 'Ukendt',
                 };
                 if (_tTpl === 'event' && l.block_type) {
                     if (!_tEvBlk[l.block_type]) _tEvBlk[l.block_type] = [];
@@ -413,7 +419,6 @@ function _tResetWizard() {
     _tCust = null;
     _tEvBlk = {};
     _tSiItems = [];
-    _tCxItems = [];
     _tActBlk = new Set();
     _tColBlk = new Set();
     _tColCat = new Set();
@@ -923,9 +928,14 @@ function _tBuildEventUI() {
             }
         });
 
+        // Fritekst-varer h\u00f8rer til blokken p\u00e5 lige fod med menuvarerne, men
+        // findes ikke i _tMenu og fanges derfor ikke af kategori-loopet ovenfor.
+        h += _tBuildExtraItems(its, b.id);
+
         // Custom item input
         h += `<div class="tilbud-custom-row">
             <div class="tilbud-form-group grow"><label>Fritekst</label><input type="text" id="t-bcn-${b.id}" placeholder="Fx 'S\u00e6rlig ret'"></div>
+            <div class="tilbud-form-group short"><label>Antal</label><input type="number" id="t-bcq-${b.id}" min="1" value="1"></div>
             <div class="tilbud-form-group short"><label>Pris</label><input type="number" id="t-bcp-${b.id}" placeholder="0"></div>
             <button class="tilbud-btn tilbud-btn-secondary tilbud-btn-sm" onclick="_tAddBCx('${b.id}')" style="align-self:flex-end">+</button>
         </div></div></div>`;
@@ -955,13 +965,37 @@ function _tBuildSingleUI() {
         }
     });
 
+    h += _tBuildExtraItems(_tSiItems, null);
+
     // Custom item
     h += `<div class="tilbud-custom-row">
         <div class="tilbud-form-group grow"><label>Fritekst</label><input type="text" id="t-cx-n" placeholder="Fx 'Service'"></div>
+        <div class="tilbud-form-group short"><label>Antal</label><input type="number" id="t-cx-q" min="1" value="1"></div>
         <div class="tilbud-form-group short"><label>Pris</label><input type="number" id="t-cx-p" placeholder="0"></div>
         <button class="tilbud-btn tilbud-btn-secondary tilbud-btn-sm" onclick="_tAddCx()" style="align-self:flex-end">+</button>
     </div>`;
 
+    return h;
+}
+
+/**
+ * Valgte varer der IKKE findes i Grocy-menuen — fritekst, og linjer fra et gemt
+ * tilbud hvis opskriften siden er fjernet i Grocy.
+ *
+ * Sammensæt-trinnet renderer ellers kun ved at løbe menuens kategorier igennem
+ * og slå op i det valgte. Alt uden for menuen faldt derfor helt ud af billedet:
+ * en fritekst-linje blev talt med i blok-headeren og i pristabellen, men rækken
+ * kunne hverken ses, tælles op eller slettes dér hvor man sammensætter.
+ */
+function _tBuildExtraItems(items, bid) {
+    const inMenu = new Set(Object.values(_tMenu || {}).flat().map(p => p.id));
+    const extras = (items || []).filter(it => !inMenu.has(it.id));
+    if (!extras.length) return '';
+
+    // Ikke bare "Fritekst": her ender også en gemt vare hvis opskriften siden er
+    // fjernet fra Grocy. Den skal stadig kunne ses og rettes, ikke forsvinde.
+    let h = `<div class="tilbud-cat-title">Fritekst og øvrige</div>`;
+    for (const it of extras) h += _tBuildMI(it, true, it.qty || 1, bid);
     return h;
 }
 
@@ -996,13 +1030,19 @@ function _tTogColCat(key) {
 }
 
 function _tTogMI(id, bid) {
-    const allP = Object.values(_tMenu).flat();
-    const item = allP.find(p => p.id === id);
-    if (!item) return;
     const arr = bid ? (_tEvBlk[bid] || (_tEvBlk[bid] = [])) : _tSiItems;
     const idx = arr.findIndex(s => s.id === id);
-    if (idx >= 0) arr.splice(idx, 1);
-    else arr.push({ ...item, qty: 1, category: item.category || '' });
+
+    // Fravalg først: en fritekst-vare findes ikke i menuen, og opslaget nedenfor
+    // ville ellers afvise at fjerne den igen.
+    if (idx >= 0) {
+        arr.splice(idx, 1);
+    } else {
+        const item = Object.values(_tMenu).flat().find(p => p.id === id);
+        if (!item) return;
+        arr.push({ ...item, qty: 1, category: item.category || null });
+    }
+
     if (bid) _tEvBlk[bid] = arr;
     _tRenderWizard();
 }
@@ -1021,20 +1061,41 @@ function _tSetQ(id, v, bid) {
     _tRenderWizard();
 }
 
+// Fritekst-vare i samme form som en menuvare, så den arver antals-kontrol,
+// sletning og gem/genindlæsning uden særbehandling.
+function _tFreeItem(name, qty, price) {
+    return {
+        id: Date.now() + Math.random(),
+        grocy_recipe_id: null,
+        name,
+        unit: 'stk',
+        category: 'Fritekst',
+        unitPrice: price,
+        costPrice: 0,
+        qty: Math.max(1, parseInt(qty) || 1),
+    };
+}
+
 function _tAddBCx(bid) {
     const n = document.getElementById(`t-bcn-${bid}`)?.value.trim();
+    const q = document.getElementById(`t-bcq-${bid}`)?.value;
     const p = parseFloat(document.getElementById(`t-bcp-${bid}`)?.value) || 0;
     if (!n) return;
     if (!_tEvBlk[bid]) _tEvBlk[bid] = [];
-    _tEvBlk[bid].push({ id: Date.now(), name: n, category: 'Fritekst', unitPrice: p, costPrice: 0, qty: 1 });
+    _tEvBlk[bid].push(_tFreeItem(n, q, p));
     _tRenderWizard();
 }
 
 function _tAddCx() {
     const n = document.getElementById('t-cx-n')?.value.trim();
+    const q = document.getElementById('t-cx-q')?.value;
     const p = parseFloat(document.getElementById('t-cx-p')?.value) || 0;
     if (!n) return;
-    _tCxItems.push({ name: n, price: p });
+    // Læg den i _tSiItems, ikke i en sideliste. Ved genindlæsning af et gemt
+    // tilbud havner fritekst-linjer alligevel dér (de har intet block_type),
+    // så den gamle parallelle _tCxItems gjorde bare at samme linje blev vist
+    // og talt forskelligt før og efter gem.
+    _tSiItems.push(_tFreeItem(n, q, p));
     _tRenderWizard();
 }
 
@@ -1166,12 +1227,6 @@ function _tBuildPriceTable() {
         });
     }
 
-    // Custom items
-    _tCxItems.forEach((ci, i) => {
-        sub += ci.price;
-        h += `<tr><td><strong>${_tEsc(ci.name)}</strong></td><td class="r">1</td><td class="r" style="font-family:'JetBrains Mono',monospace">${_tFk(ci.price)}</td><td class="r" style="font-size:.73rem;color:var(--color-text-dim)">\u2014</td><td><button class="tilbud-btn-icon danger" onclick="_tRemCx(${i})">\u2715</button></td></tr>`;
-    });
-
     // Delivery
     if (_tDel.type) {
         const dp = _tDel.free ? 0 : _tDel.price;
@@ -1201,7 +1256,6 @@ function _tRemP(id, bid) {
     _tRenderWizard();
 }
 
-function _tRemCx(i) { _tCxItems.splice(i, 1); _tRenderWizard(); }
 
 /* ── Step 4: Preview ─────────────────────────────────── */
 
@@ -1300,9 +1354,6 @@ function _tBuildStep4() {
         });
     }
 
-    // Custom items
-    _tCxItems.forEach(ci => { sub += ci.price; h += `<div class="tilbud-pv-row"><span class="rn">${_tEsc(ci.name)}</span><span class="rp">${_tFk(ci.price)}</span></div>`; });
-
     // Delivery
     if (_tDel.type) {
         const dp = _tDel.free ? 0 : _tDel.price;
@@ -1339,6 +1390,10 @@ function _tCollectLines() {
     const isEv = _tTpl === 'event';
     let order = 0;
 
+    // `category` skal med. Uden den faldt backenden tilbage på `block_type`
+    // (tidsblokken, fx "morning") eller NULL — og `bon_lines.category` er dét
+    // enheds-tællingen matcher mod `unit_count_categories`. Et konverteret
+    // tilbud ville derfor tælle nul enheder på dashboard og ugeoversigt.
     if (isEv) {
         _tBLOCKS.forEach(b => {
             if (!_tActBlk.has(b.id)) return;
@@ -1347,6 +1402,7 @@ function _tCollectLines() {
                     block_type: b.id,
                     grocy_recipe_id: it.grocy_recipe_id || null,
                     product_name: it.name,
+                    category: it.category || null,
                     quantity: it.qty,
                     unit: it.unit || 'stk',
                     unit_price: it.unitPrice,
@@ -1361,6 +1417,7 @@ function _tCollectLines() {
                 block_type: null,
                 grocy_recipe_id: it.grocy_recipe_id || null,
                 product_name: it.name,
+                category: it.category || null,
                 quantity: it.qty,
                 unit: it.unit || 'stk',
                 unit_price: it.unitPrice,
@@ -1369,20 +1426,6 @@ function _tCollectLines() {
             });
         });
     }
-
-    // Custom items as lines too
-    _tCxItems.forEach(ci => {
-        lines.push({
-            block_type: null,
-            grocy_recipe_id: null,
-            product_name: ci.name,
-            quantity: 1,
-            unit: 'stk',
-            unit_price: ci.price,
-            cost_price: 0,
-            sort_order: order++,
-        });
-    });
 
     return lines;
 }
@@ -1614,12 +1657,6 @@ function _tGenPDF() {
                 y += 5.5;
             }); y += 2;
         });
-    }
-
-    // Custom items
-    if (_tCxItems.length) {
-        chk(10); doc.setFontSize(8); doc.setFont('helvetica', 'bold'); doc.setTextColor(...br); doc.text('\u00d8VRIGE', ml, y); y += 4;
-        _tCxItems.forEach(ci => { chk(6); sub += ci.price; doc.setFontSize(8.5); doc.setFont('helvetica', 'normal'); doc.setTextColor(...tx); doc.text(ci.name, ml, y); doc.text(fK(ci.price), pw - mr, y, { align: 'right' }); y += 5.5; }); y += 2;
     }
 
     // Delivery

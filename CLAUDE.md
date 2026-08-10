@@ -2034,6 +2034,46 @@ Verificeret i browser mod kopi af driftsdata: CAP Partner fundet på navnet alen
 (CVR 34599963, samme adresse som i mailsignaturen), felterne udfyldt ved klik, og en
 kladde gemt fra trin 1 helt uden kunde og varer (T-14, findbar i listen). Testdata ryddet.
 
+### Tilbud: fritekst-linjer fik antal — og fire fejl der lå bagved (10. august 2026)
+
+Driften bad om et **antal-felt ved fritekst** i tilbuds-wizardens sammensæt-trin
+(`qty` var hardkodet til 1). Undervejs viste det sig at fritekst var halvbygget i
+fire lag:
+
+1. **Fritekst-linjer var usynlige på trin 2.** Rendering-loopet går gennem
+   `_tMenu`-kategorierne og slår op i det valgte, så alt uden for Grocy-menuen faldt
+   ud af billedet. En fritekst-vare blev talt med i blok-headeren og dukkede op i
+   pristabellen på trin 3, men kunne hverken ses, tælles op eller slettes dér hvor man
+   sammensætter. Ny `_tBuildExtraItems()` renderer dem som **"Fritekst og øvrige"** med
+   samme antals-kontrol som menuvarer. Sektionen fanger også en gemt vare hvis
+   opskriften siden er fjernet i Grocy — den forsvandt lydløst før.
+   `_tTogMI()` prøver nu fravalg FØR menu-opslaget; ellers kunne en fritekst-vare ikke
+   fjernes igen (opslaget returnerede tidligt).
+2. **To parallelle fritekst-modeller.** Enkeltbestilling brugte `_tCxItems`
+   (`{name, price}`, ingen `qty`) med egen kode i pristabel, preview, PDF og
+   `_tCollectLines`. Men ved genindlæsning havner linjer uden `block_type` i
+   `_tSiItems` — så *samme linje* blev vist og talt forskelligt før og efter gem.
+   `_tCxItems` er fjernet; `_tAddCx()` lægger nu i `_tSiItems` via `_tFreeItem()`,
+   som giver fritekst samme form som en menuvare. Fire specialgrene væk.
+3. **`category` blev aldrig sendt med ved gem.** Backenden faldt tilbage på
+   `block_type` (tidsblokken, fx `morning`) eller NULL — og `bon_lines.category` er
+   præcis hvad enheds-tællingen matcher mod `unit_count_categories`. Et konverteret
+   tilbud ville have talt **nul enheder** på dashboard, ugeoversigt og kapacitet.
+   Latent i dag: 0 konverterede tilbud i drift (kontrolleret).
+4. **Menuvarerne bar ikke deres egen kategori.** `_tLoadMenu` brugte kategorien som
+   nøgle i `_tMenu`, men kopierede den ikke ind i varen — så `item.category` var
+   `undefined`, og rettelsen i punkt 3 ville have gemt tom streng. Nu sættes
+   `category: cat` ved indlæsning af menuen.
+   Samme sted: indlæsning af et gemt tilbud brugte `l.block_type` som kategori, så
+   hver vare i en enkeltbestilling blev til "Ukendt" i preview og PDF. Bruger nu
+   `l.category` (API'et har altid returneret feltet).
+
+Verificeret ende-til-ende i browser på begge skabeloner: antal tastet ved oprettelse,
+−/+ justerer, header og pristabel regner med det (4 × 250 = 1.000 kr), gem → DB
+(`quantity: 4`, `category: '01 Sandwich'` / `'Fritekst'`) → genindlæsning viser
+linjen igen med antal. Preview viser `5× Service på stedet`, PDF genereres uden fejl.
+Testdata ryddet.
+
 ### Mail-oprydning: spam/auto-ignored + bounces (14.-15. maj 2026)
 > Spec: `docs/CLAUDE_MAIL_FIX_SPAM_OPHOBNING.md`
 
