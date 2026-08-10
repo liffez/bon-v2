@@ -2163,6 +2163,18 @@ væk fra Tilbud-viewet og tilbage (ingen reload, intet gem) → begge emballagel
 står nederst, total 2.285 kr uændret. Samme mekanisme får en ændret blok-rækkefølge
 til at slå igennem.
 
+**Leveringen fulgte ikke prismoden.** I `total`-mode ("kun samlet pris") stod
+leveringen som **eneste** linje på hele tilbuddet med et beløb ud for sig, mens alle
+varerne var uden. Prisen optrådte to steder — i varelisten og i leverings-info-boksen
+— og ingen af dem så på `_tPriceMode`. Preview og PDF var oven i købet uenige:
+preview skrev beløbet i varelisten men PDF'en gjorde aldrig, så i `line`-mode fik
+kunden alle varepriser undtagen leveringens.
+
+Nu gælder samme regel begge steder og i begge visninger: **linjen** vises altid (den
+bærer hvor og hvordan der leveres), **beløbet** kun når tilbuddet i øvrigt viser beløb
+(`line` eller `block`). Totalen er uændret — leveringen tælles med uanset hvad der vises
+(verificeret: 3.000 kr i alle tre modes).
+
 **Blok-typer kan ikke længere få samme navn.** På et tilbud fra drift stod
 "Eftermiddagssnack" som blok-overskrift **to gange** med hver sit indhold — og
 "Morgenmad" var væk. Forklaringen var ikke en kodefejl i tilbuddet: en blok var

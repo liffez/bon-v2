@@ -1442,7 +1442,11 @@ function _tBuildStep4() {
         }
         if (_tDeliveryAddress) h += _tEsc(_tDeliveryAddress) + '<br>';
         if (_tDeliveryNotes) h += _tEsc(_tDeliveryNotes) + '<br>';
-        if (_tDel.type && _tDel.price > 0 && !_tDel.free) h += (dTypes[_tDel.type] || 'Levering') + ' ' + _tFk(_tDel.price);
+        // Samme regel som varelinjerne: i "kun total" står der ingen delpriser
+        // på tilbuddet — heller ikke her i leveringsboksen.
+        if (_tDel.type && _tDel.price > 0 && !_tDel.free) {
+            h += (dTypes[_tDel.type] || 'Levering') + ((sL || sBT) ? ' ' + _tFk(_tDel.price) : '');
+        }
         h += '</div>';
     }
 
@@ -1489,10 +1493,21 @@ function _tBuildStep4() {
     }
 
     // Delivery
+    //
+    // Leveringen fulgte ikke prismoden: i "kun total" stod den som eneste linje
+    // p\u00e5 hele tilbuddet med et bel\u00f8b ud for sig, mens alle varerne var uden.
+    // Den er en linje som de andre og skal opf\u00f8re sig som dem \u2014 bel\u00f8bet vises
+    // kun n\u00e5r tilbuddet i \u00f8vrigt viser bel\u00f8b (linje- eller blokpris).
+    //
+    // Selve linjen vises altid: den b\u00e6rer hvor og hvordan der leveres, og PDF'en
+    // har hele tiden skrevet den uanset pris. De to var uenige.
     if (_tDel.type) {
         const dp = _tDel.free ? 0 : _tDel.price;
         sub += dp;
-        if (dp > 0) h += `<div class="tilbud-pv-row"><span class="rn">\u{1F69A} Levering: ${dTypes[_tDel.type] || ''}${_tDel.note ? ' \u00b7 ' + _tEsc(_tDel.note) : ''}</span><span class="rp">${_tFk(dp)}</span></div>`;
+        const showPrice = (sL || sBT) && dp > 0;
+        h += `<div class="tilbud-pv-row"><span class="rn">\u{1F69A} Levering: ${dTypes[_tDel.type] || ''}${_tDel.note ? ' \u00b7 ' + _tEsc(_tDel.note) : ''}</span>`
+           + (showPrice ? `<span class="rp">${_tFk(dp)}</span>` : '')
+           + `</div>`;
     }
 
     const dA = sub * (_tDiscountPct / 100), tot = sub - dA, subUMoms = window.Moms.inclToExcl(tot), moms = tot - subUMoms;
@@ -1737,7 +1752,8 @@ function _tGenPDF() {
         if (_tDeliveryAddress) { doc.text(_tDeliveryAddress, ml, y); y += 4.5; }
         if (_tDeliveryNotes) { doc.text(_tDeliveryNotes, ml, y); y += 4.5; }
         if (_tDel.type && _tDel.price > 0 && !_tDel.free) {
-            doc.text((dTy[_tDel.type] || 'Levering') + '  ' + fK(_tDel.price), ml, y); y += 4.5;
+            // Delpriser vises kun når tilbuddet i øvrigt gør det (jf. preview).
+            doc.text((dTy[_tDel.type] || 'Levering') + ((sL || sBT) ? '  ' + fK(_tDel.price) : ''), ml, y); y += 4.5;
         }
         y += 3;
     }
@@ -1796,11 +1812,15 @@ function _tGenPDF() {
         });
     }
 
-    // Delivery
+    // Delivery \u2014 samme regel som i forh\u00e5ndsvisningen: linjen altid, bel\u00f8bet
+    // kun n\u00e5r tilbuddet i \u00f8vrigt viser bel\u00f8b. PDF'en skrev den hidtil aldrig,
+    // s\u00e5 i linjeprismode s\u00e5 kunden alle varepriser undtagen leveringens.
     if (_tDel.type) {
         chk(6); const dp = _tDel.free ? 0 : _tDel.price; sub += dp;
         doc.setFontSize(8.5); doc.setFont('helvetica', 'normal'); doc.setTextColor(...tx);
-        doc.text(`Levering: ${dTy[_tDel.type] || ''}${_tDel.note ? ' \u00b7 ' + _tDel.note : ''}`, ml, y); y += 6;
+        doc.text(`Levering: ${dTy[_tDel.type] || ''}${_tDel.note ? ' \u00b7 ' + _tDel.note : ''}`, ml, y);
+        if ((sL || sBT) && dp > 0) doc.text(fK(dp), pw - mr, y, { align: 'right' });
+        y += 6;
     }
 
     // Totals
