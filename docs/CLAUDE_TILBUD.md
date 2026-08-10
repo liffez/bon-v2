@@ -3,6 +3,11 @@
 > Spec + status for tilbudsmodul i Bon v2 Office-zonen.
 > Læs `BON_V2_PRINCIPPER.md`, `bon_v2_datamodel_v2.md` og `CLAUDE.md` inden du starter.
 > Opdateret: 7. april 2026
+>
+> **Delspecs:**
+> - `CLAUDE_TILBUD_PRIS.md` — pris og moms
+> - `CLAUDE_TILBUD_FLERDAGS.md` — fler-dags-tilbud (#425): ét bilag, én bon pr. dag.
+>   Backend færdig, UI mangler. **Læs den før du rører `convert` eller `offer_days`.**
 
 ---
 
