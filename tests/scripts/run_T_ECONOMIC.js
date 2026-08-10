@@ -34,6 +34,11 @@ const grocyAdapter = require('../../services/grocyAdapter');
 let PRODUCT_MAP = new Map([[100, '65'], [101, '77']]);     // recipe_id → varenr
 grocyAdapter.getEconomicProductMap = async () => PRODUCT_MAP;
 
+// Bundter (slider-bokse): recipe uden eget varenr → indholdets varenumre.
+// Tom som standard; sættes af de tests der har brug for den.
+let BUNDLE_MAP = new Map();
+grocyAdapter.getEconomicBundleMap = async () => BUNDLE_MAP;
+
 let draftSeq = 5000, lastPostBody = null;
 eco.isConfigured = () => true;
 eco.rest = async (p, opts = {}) => {
@@ -73,7 +78,11 @@ function seed() {
     const missing = insBon.get('T_ECO_MISSING', LEVERET, locId, coId, cuId, adId, pcId).id;
     insLine.run(missing, 'Ukoblet vare', 1, 5000, 5000, 200, '01 Sandwich', 0);  // recipe 200 → ingen
 
-    return { ready, missing };
+    // Slider-boks: recipe 300 har intet eget varenr, men et bundt (se BUNDLE_MAP).
+    const bundle = insBon.get('T_ECO_BUNDLE', LEVERET, locId, coId, cuId, adId, pcId).id;
+    insLine.run(bundle, 'Vegetar slider Boks', 5, 160, 800, 300, '04 Slider', 0);   // 160 kr incl pr. boks
+
+    return { ready, missing, bundle };
 }
 
 // ── http helper ─────────────────────────────────────────────
@@ -115,6 +124,27 @@ function req(server, method, url, { auth = true, body } = {}) {
         ok('preview missing → readiness.ok false', res.body?.readiness?.ok === false);
         ok('preview missing → payload null', res.body?.payload === null);
         ok('preview missing → 1 manglende vare', res.body?.readiness?.missingProducts?.length === 1);
+
+        console.log('\n── Bundt-udfoldning (slider-boks) ──');
+        // Uden bundt-kobling blokerer boksen som enhver anden ukoblet vare.
+        res = await req(server, 'GET', `/api/invoices/${ids.bundle}/economic-preview`);
+        ok('boks uden bundt → blokerer', res.body?.readiness?.ok === false);
+
+        BUNDLE_MAP = new Map([[300, [
+            { recipe_id: 57, product_number: '77', servings: 1, name: 'Kartoflen slider' },
+            { recipe_id: 62, product_number: '83', servings: 1, name: 'Ægget slider' },
+            { recipe_id: 54, product_number: '79', servings: 1, name: 'Italieneren slider' },
+        ]]]);
+        res = await req(server, 'GET', `/api/invoices/${ids.bundle}/economic-preview`);
+        ok('boks m. bundt → readiness.ok', res.body?.readiness?.ok === true);
+        const bl = res.body?.payload?.lines || [];
+        ok('boks m. bundt → 3 fakturalinjer', bl.length === 3);
+        ok('boks m. bundt → varenumre 77/83/79', bl.map(l => l.product.productNumber).join(',') === '77,83,79');
+        ok('boks m. bundt → 5 stk pr. linje', bl.every(l => l.quantity === 5));
+        // 160 incl = 128 ex pr. boks × 5 bokse = 640, uanset hvordan det deles.
+        ok('boks m. bundt → sum 640 ex moms',
+           Math.abs(bl.reduce((s, l) => s + l.unitNetPrice * l.quantity, 0) - 640) < 0.0001);
+        BUNDLE_MAP = new Map();
 
         console.log('\n── Readiness (pre-flight) ──');
         res = await req(server, 'GET', '/api/invoices/economic-readiness');

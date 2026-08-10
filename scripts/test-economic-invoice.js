@@ -16,6 +16,7 @@ const inv = require('../services/economicInvoice');
 const { todayISO } = require('../db/helpers');
 
 let pass = 0, fail = 0;
+const pending = [];   // asynkrone testblokke — afventes før opsummeringen
 function ok(name, cond) {
     if (cond) { pass++; console.log(`  ✓ ${name}`); }
     else { fail++; console.error(`  ✗ ${name}`); }
@@ -103,6 +104,72 @@ console.log('\n── Payload-builder (ren logik) ──');
     ok('#6 attention.customerContactNumber=77', p.recipient.attention?.customerContactNumber === 77);
 }
 
+console.log('\n── Bundt-udfoldning (slider-bokse) ──');
+{
+    // Boks 78 som i drift: 160 kr incl → 128 ex, tre sliders à 1 stk.
+    const BUNDLE = [
+        { recipe_id: 57, product_number: '77', servings: 1, name: 'Kartoflen slider' },
+        { recipe_id: 62, product_number: '83', servings: 1, name: 'Ægget slider' },
+        { recipe_id: 54, product_number: '79', servings: 1, name: 'Italieneren slider' },
+    ];
+    const mkBon = (over = {}, lineOver = {}) => ({
+        id: 20, bon_number: 'T_ECON_BOKS', company: { economic_customer_id: 1 }, offer_discount_percent: 0,
+        lines: [{ id: 1, product_name: 'Vegetar slider Boks', quantity: 5, unit_price: 160,
+                  grocy_recipe_id: 78, economic_bundle: BUNDLE, ...lineOver }],
+        ...over,
+    });
+
+    const p = inv.buildDraftInvoice(mkBon(), SETTINGS);
+    ok('#B1 én boks → tre fakturalinjer', p.lines.length === 3);
+    ok('#B1 varenumre 77/83/79', p.lines.map(l => l.product.productNumber).join(',') === '77,83,79');
+    ok('#B1 antal = 5 pr. linje', p.lines.every(l => l.quantity === 5));
+    ok('#B1 beskrivelse = varens eget navn', p.lines[0].description === 'Kartoflen slider');
+    ok('#B1 lineNumber løber 1,2,3', p.lines.map(l => l.lineNumber).join(',') === '1,2,3');
+
+    // Summen må ikke flytte sig en øre af udfoldningen.
+    const sum = p.lines.reduce((s, l) => s + l.unitNetPrice * l.quantity, 0);
+    ok('#B2 sum = 5 × 128 ex moms', Math.abs(sum - 640) < 0.0001);
+    ok('#B2 unitNetPrice max 2 decimaler', p.lines.every(l => Number.isInteger(Math.round(l.unitNetPrice * 100))));
+
+    // 128,00 / 3 går ikke op: 42,67 + 42,67 + 42,66. Ingen øre må forsvinde.
+    const perBox = p.lines.reduce((s, l) => s + l.unitNetPrice, 0);
+    ok('#B3 øre-rest fordelt (sum pr. boks = 128,00)', Math.abs(perBox - 128) < 0.0001);
+    ok('#B3 restøren ligger på første linje', p.lines[0].unitNetPrice === 42.67 && p.lines[2].unitNetPrice === 42.66);
+
+    // Eget varenr vinder altid over udfoldning.
+    const own = inv.buildDraftInvoice(mkBon({}, { economic_product_number: '99' }), SETTINGS);
+    ok('#B4 eget varenr vinder over bundt', own.lines.length === 1 && own.lines[0].product.productNumber === '99');
+
+    // Rabat og særønske skal virke pr. udfoldet linje.
+    const disc = inv.buildDraftInvoice(mkBon({ offer_discount_percent: 10 }, { special_request: 'uden dressing' }), SETTINGS);
+    ok('#B5 rabat på alle bundt-linjer', disc.lines.every(l => l.discountPercentage === 10));
+    ok('#B5 særønske i description', disc.lines[0].description === 'Kartoflen slider (uden dressing)');
+
+    // servings > 1: mængden ganges op, prisen deles ned.
+    const s2 = inv.buildDraftInvoice(mkBon({}, {
+        quantity: 2, unit_price: 100,
+        economic_bundle: [{ recipe_id: 57, product_number: '77', servings: 2, name: 'Kartoflen slider' },
+                          { recipe_id: 62, product_number: '83', servings: 1, name: 'Ægget slider' }],
+    }), SETTINGS);
+    ok('#B6 servings ganger antallet op', s2.lines[0].quantity === 4 && s2.lines[1].quantity === 2);
+    ok('#B6 sum uændret (2 × 80 ex)', Math.abs(s2.lines.reduce((s, l) => s + l.unitNetPrice * l.quantity, 0) - 160) < 0.0001);
+
+    // Readiness: bundtet dækker linjen, så den blokerer ikke.
+    ok('#B7 bundt-linje blokerer ikke', inv.checkReadiness(mkBon()).ok === true);
+    const halv = mkBon({}, { economic_bundle: null });
+    ok('#B7 uden bundt blokerer den stadig', inv.checkReadiness(halv).ok === false);
+
+    // splitOre-invarianten direkte — summen er altid input.
+    let splitOk = true;
+    for (const total of [12800, 10000, 1, 0, 7, -12800, 99999]) {
+        for (const w of [[1, 1, 1], [2, 1], [1], [3, 1, 1, 1]]) {
+            if (inv.splitOre(total, w).reduce((a, b) => a + b, 0) !== total) splitOk = false;
+        }
+    }
+    ok('#B8 splitOre bevarer summen (også negativ)', splitOk);
+    ok('#B8 splitOre uden vægt → nuller', inv.splitOre(500, [0, 0]).join(',') === '0,0');
+}
+
 console.log('\n── Forhåndstjek (blokering) ──');
 {
     const good = { id: 7, bon_number: 'x', company: { economic_customer_id: 1 }, lines: [{ id: 1, product_name: 'A', economic_product_number: '30' }] };
@@ -136,8 +203,46 @@ console.log('\n── Engangsvare-fallback ──');
 console.log('\n── Rabat-trigger (frisk temp-DB) ──');
 runTriggerTests();
 
-console.log(`\n${fail === 0 ? '✅' : '❌'} ${pass} passed, ${fail} failed\n`);
-process.exit(fail === 0 ? 0 : 1);
+console.log('\n── Bundt-reglen (hvilke opskrifter folder ud) ──');
+{
+    const grocy = require('../services/grocyAdapter');
+    const uf = (n) => ({ userfields: n ? { economic_product_number: n } : {} });
+    const RECIPES = [
+        { id: 77,  name: 'Alm slider Boks',   ...uf(null) },   // boks — intet eget nr
+        { id: 53,  name: 'Frikadellen Slider', ...uf('93') },
+        { id: 52,  name: 'Fisken Slider',      ...uf('84') },
+        { id: 23,  name: 'Kartoflen',          ...uf('65') },  // ret MED eget nr...
+        { id: 200, name: 'Kartoffelmos prod',  ...uf(null) },  // ...og dens produktions-underopskrift
+        { id: 24,  name: 'Fisken',             ...uf('72') },  // ret hvis underopskrift OGSÅ har nr
+        { id: 99,  name: 'Halv boks',          ...uf(null) },  // ét barn uden nr
+        { id: 98,  name: 'Ukoblet slider',     ...uf(null) },
+    ];
+    const NESTINGS = [
+        { recipe_id: 77, includes_recipe_id: 53, servings: 1 },
+        { recipe_id: 77, includes_recipe_id: 52, servings: 1 },
+        { recipe_id: 23, includes_recipe_id: 200, servings: 1 },   // ret → underopskrift uden nr
+        { recipe_id: 24, includes_recipe_id: 53,  servings: 1 },   // ret → underopskrift MED nr
+        { recipe_id: 99, includes_recipe_id: 53, servings: 1 },
+        { recipe_id: 99, includes_recipe_id: 98, servings: 1 },
+    ];
+
+    pending.push((async () => {
+        const map = await grocy.getEconomicBundleMap(RECIPES, NESTINGS);
+        ok('#R1 boksen bliver et bundt', map.has(77) && map.get(77).length === 2);
+        ok('#R1 bundtet bærer børnenes varenumre', map.get(77).map(p => p.product_number).join(',') === '93,84');
+        ok('#R2 ret med eget varenr foldes ALDRIG ud', !map.has(23));
+        // Vagten er det ENESTE der holder denne ude — børnene har varenr, så uden
+        // den ville en helt almindelig ret blive faktureret som sine underopskrifter.
+        ok('#R2 heller ikke når underopskriften har varenr', !map.has(24));
+        ok('#R3 ét barn uden varenr → intet bundt', !map.has(99));
+        ok('#R4 kun bundter i mappen', [...map.keys()].join(',') === '77');
+    })().catch(e => { fail++; console.error('  ✗ bundt-regel crash:', e.message); }));
+}
+
+Promise.all(pending).then(() => {
+    console.log(`\n${fail === 0 ? '✅' : '❌'} ${pass} passed, ${fail} failed\n`);
+    process.exit(fail === 0 ? 0 : 1);
+});
 
 function runTriggerTests() {
     const { openDb } = require('../db/compat');

@@ -282,10 +282,17 @@ async function enrichBonForEconomic(db, bonId) {
     `).all(bonId);
 
     // Berig linjer med economic_product_number fra Grocy (recipe_id → varenr).
-    const productMap = await grocyAdapter.getEconomicProductMap();
+    // Linjer uden eget varenr kan være et "bundt" (slider-boks) — så bærer de i
+    // stedet indholdet, som buildDraftInvoice folder ud til én linje pr. vare.
+    const [productMap, bundleMap] = await Promise.all([
+        grocyAdapter.getEconomicProductMap(),
+        grocyAdapter.getEconomicBundleMap(),
+    ]);
     for (const l of lines) {
-        l.economic_product_number = l.grocy_recipe_id != null
-            ? (productMap.get(l.grocy_recipe_id) ?? null)
+        const rid = l.grocy_recipe_id != null ? Number(l.grocy_recipe_id) : null;
+        l.economic_product_number = rid != null ? (productMap.get(rid) ?? null) : null;
+        l.economic_bundle = (l.economic_product_number == null && rid != null)
+            ? (bundleMap.get(rid) ?? null)
             : null;
     }
 

@@ -2213,6 +2213,57 @@ Verificeret ved at genskabe situationen: Morgenmad omdøbt til "Eftermiddagssnac
 → begge felter markeres, gem afvises med besked. Tomt navn og dublet-nøgle
 afvises hver for sig; gyldig opsætning gemmes. Driftsdata urørt.
 
+### E-conomic: slider-bokse foldes ud til de tre sliders de består af (#438, 10. august 2026)
+
+`economicInvoice` kunne kun lave én fakturalinje pr. bonlinje. Slider-bokserne er
+ét styk i `bon_lines`, men indeholder tre forskellige sliders med hver sit varenummer
+i e-conomic. Boksene har derfor intet eget nummer og blokerede faktureringen.
+
+- **Ingen ny stamdata.** Sammensætningen står allerede i Grocys `recipes_nestings`,
+  og alle seks børn har varenummer. Samme kilde som `recipe_unit_counts` (migration
+  113) bruger til at tælle en boks som 3 enheder. En ændret boks slår igennem af sig selv.
+- **`grocyAdapter.getEconomicBundleMap()`** → `Map(recipe_id → [{recipe_id,
+  product_number, servings, name}])`. Tre betingelser, alle nødvendige: opskriften
+  har **intet** eget varenr, den har mindst én nesting, og **alle** børn har et varenr.
+  Ét barn uden ⇒ intet bundt, og linjen blokerer som før — hellere en synlig
+  blokering end en faktura hvor en tredjedel mangler. Rammer mod grocy-hq præcis
+  77 + 78. Tager valgfrit `(recipes, nestings)` som testsøm; produktionen kalder uden.
+- **`enrichBonForEconomic`** hænger `economic_bundle` på linjer uden eget varenr;
+  `buildDraftInvoice` folder dem ud; `checkReadiness` regner dem som dækket.
+- **Prisen fordeles fra BONENS linjepris**, ikke fra børnenes listepriser — boks 78
+  koster 160 kr mens delene står til 176. `splitOre()` fordeler i ører med største
+  rest, så fakturasummen er præcis den samme som uden udfoldning (128 ex moms delt
+  på tre = 42,67 + 42,67 + 42,66). Med `servings > 1` kan afrundingen pr. enhed
+  flytte totalen et par ører; de lægges tilbage på den linje hvor det går præcist op.
+- **Beskrivelsen er kun varens eget navn** — boksnavnet ("Alm slider Boks - fisken,
+  Frikadellen, kartoflen") ville støje på hver eneste linje.
+
+> ⚠️ **"Eget varenr vinder" er en sikkerhedsvagt, ikke en optimering.** 24 opskrifter
+> med eget varenummer HAR nestings. Ingen rammes i dag (deres underopskrifter er
+> produktionsopskrifter uden numre), men får én af dem et nummer, er vagten det eneste
+> der forhindrer at fx `Fisken` faktureres som sine ingredienser. Det er en **forkert
+> faktura**, ikke en blokering. Første udgave af testen bestod af den forkerte grund —
+> fixturen har nu en ret hvis underopskrift OGSÅ har varenr, så vagten reelt testes.
+
+**Tests**: `scripts/test-economic-invoice.js` 57/1 (den ene fejl, `#12 kaster uden
+nummer (strict)`, er **pre-eksisterende** — bekræftet mod `HEAD`; koden springer
+linjen stille over i stedet for at kaste) + `tests/scripts/run_T_ECONOMIC.js` 30/0
+(bundtet hele vejen gennem routeren). Mutations-testet: alle fire kerneregler fanges.
+
+**Baggrund — hvorfor koblingerne manglede.** `data/economic-match-review.csv` (25. juni)
+har 28 rækker markeret `OK`/`ok` i **status**-kolonnen mens `godkendt_nr` står tom.
+`scripts/economic-product-match.js --apply` skriver kun rækker med et tal i
+`godkendt_nr`, så alle 28 godkendelser blev sprunget over uden en lyd. 7 opskrifter
+er koblet i hånden 10. august (61→78, 35→30, 39+42→105, 99+101+102→104). Resten er
+issues: [#439](https://github.com/liffez/bon-v2/issues/439) (rabat/engangsbeløb),
+[#440](https://github.com/liffez/bon-v2/issues/440) (koblings-side der afløser CSV'en),
+[#441](https://github.com/liffez/bon-v2/issues/441) (5 slettede opskrifter der blokerer
+gamle bons permanent).
+
+> **Kan ikke ses lokalt.** Den lokale dev-DB peger på **grocytest**, hvor userfeltet
+> `economic_product_number` ikke findes — koblingslisten er tom dér. Verificér mod
+> grocy-hq-data, ikke i browseren.
+
 ### Mail-oprydning: spam/auto-ignored + bounces (14.-15. maj 2026)
 > Spec: `docs/CLAUDE_MAIL_FIX_SPAM_OPHOBNING.md`
 
