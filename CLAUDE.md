@@ -291,6 +291,11 @@ Nye filer placeres præcis der de hører hjemme — kopieres ikke.
   - **Særønsker slås ALDRIG sammen** — også to identiske. Et særønske er en
     selvstændig besked til køkkenet.
   - Dækket af `tests/bon_lines.test.js` (`node --test tests/bon_lines.test.js`)
+  - **Oprydning af gamle dublet-rækker**: `scripts/merge-duplicate-bon-lines.js`
+    (dry-run som standard, `--apply` skriver). Tager backup via `VACUUM INTO`,
+    kører i én transaktion og ruller alt tilbage hvis antal stk eller linjesum
+    flytter sig på blot én bon. Fakturerede bons fredes medmindre
+    `--include-invoiced` — deres linjer skal matche den sendte faktura.
 - **Historikken må aldrig dumpe maskin-payloads** (`_buildChangelogEntry` i `shared/modal.js`)
   - `changelog` bærer både menneske-ændringer og revisionsspor for maskiner.
     `grocy_consume` skriver hele results-arrayet (30+ produkter) i `new_value`, og den
