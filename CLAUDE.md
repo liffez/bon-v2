@@ -2998,13 +2998,16 @@ er incl moms.
 - Desuden: event-oversigtens status-badges havde to næsten ens gråtoner (planlægning
   `#f0f0f0` / afsluttet `#e8e8e8`). Fire adskilte kulører nu — blå/grøn/lilla/rød.
 
-**Fund fra samme gennemgang (egne issues — status pr. 10. august 2026):**
-- **#319 — ÅBEN.** Faktureringskøen er *status*-drevet (`GET /api/invoices/queue` viser kun LEVERET).
-  Sættes en bon til FAKTURERET/AFSLUTTET i hånden uden at der findes en kladde eller bogført
-  faktura, forlader den køen, men `cf_invoices`-rækken bliver liggende med en forfaldsdato
-  beregnet ud fra bonnen → den dukker op under "Forfaldne" og ligner en dårlig betaler.
-  Intet sted mødes de to sandheder. **Bemærk:** manglende `economic_number` er kun et signal
-  for v2-bons — v1-æra (`cafe-*`) er betalt uden i over tusind tilfælde.
+**Fund fra samme gennemgang (egne issues — status pr. 10. august 2026): alle tre er løst.**
+- **#319 — LØST** (lukket 6. august, migration 130 + `services/invoiceGuard.js`).
+  Faktureringskøen er *status*-drevet, så en bon sat til FAKTURERET/AFSLUTTET i hånden forlod
+  køen selv om der hverken fandtes kladde eller bogført faktura — mens `cf_invoices`-rækken blev
+  liggende og lignede en dårlig betaler. Vagten samler nu de to sandheder og viser dem som
+  "N fakturaer er aldrig sendt" (holdt UDE af "Forfaldne"). Fire filtre mod falske alarmer:
+  kun `payment_type = 'invoice'`, aldrig tilbud/interne, skæringsdato
+  (`settings.invoice_guard_from_date`), og en eksisterende kladde/bogført faktura frikender.
+  **Bemærk:** manglende `economic_number` er kun et signal for v2-bons — v1-æra (`cafe-*`) er
+  betalt uden i over tusind tilfælde.
 - **#320 — LØST** (PR #445, se "Pengestrøm — betalt-status som fuld tilstand" nedenfor).
   Advarslen "gør ingen skade i dag" holdt ikke: da tallet blev målt 10. august, stod
   107.669 kr som forfaldne uden at være det.
@@ -3061,7 +3064,14 @@ ikke: den kiggede bare længere fremme.
   regressionen er en faktura udstedt FØR vandmærket og betalt siden, med tomt booked-scan).
   Mutations-testet: gammel adfærd → 6 falder. `npm run test:cashflow` kører den + sync-suiten.
 - **Tilbage bagefter:** 12 ubetalte UDEN e-conomic-nummer (41.235 kr) — 6 Brightside Pictures,
-  3 Silvan. De har ingen faktura i e-conomic overhovedet. Det er #319, ikke dette.
+  3 Silvan. De har ingen faktura i e-conomic overhovedet. Det er #319's område, ikke dette:
+  vagten fanger dem der opfylder dens fire filtre (4 stk. / 18.781 kr i drift) og holder dem
+  ude af "Forfaldne"; resten falder for skæringsdatoen eller betalingstypen.
+- **Ledger-endpoints er spærret af app-rollen.** `/accounts`, `/accounting-years`, `/journals`
+  og `/suppliers` svarer **403** med vores nuværende grant (kun `/customers` + `/invoices/*`
+  virker). Vil vi bruge e-conomics egen bank-afstemning til de ukoblede indbetalinger, er det
+  en rolle-ændring hos e-conomic — ikke kode. Verificér med et nyt probe-kald FØR der bygges
+  noget på posteringer.
 
 ### CRM-triks — Ringeliste + fælles worklist-komponent (#229 + #230 + #228, 6. juli 2026)
 > Epic #232. Spec: `docs/CLAUDE_CRM_TRIKS.md`. Lav-friktions "top-of-mind"-ringekøer oven på
