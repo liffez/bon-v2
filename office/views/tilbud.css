@@ -304,6 +304,57 @@
 .tilbud-chip.a-lunch   { background: #EFF6F1; border-color: #4A7C59; color: #4A7C59; }
 .tilbud-chip.a-pmsnack  { background: #FFF3E8; border-color: #C2722E; color: #C2722E; }
 
+/* ── Hent menu fra… (#427) ───────────────────────────── */
+
+.tilbud-import-bar {
+  display: flex; align-items: center; gap: 10px; flex-wrap: wrap;
+  margin: 4px 0 12px;
+}
+.tilbud-import-hint { font-size: .76rem; color: var(--color-text-dim, #7a6f5f); }
+
+.tilbud-import-panel {
+  margin-bottom: 14px; padding: 12px 14px;
+  background: var(--color-background, #f5f4f2);
+  border: 1px solid var(--color-border, #d7d1ca); border-radius: 10px;
+}
+.tilbud-import-tabs { display: flex; gap: 6px; margin-bottom: 10px; }
+.tilbud-import-tab {
+  padding: 5px 14px; border: 1.5px solid var(--color-border, #d7d1ca);
+  border-radius: 16px; background: var(--color-surface, #fff);
+  font-size: .8rem; font-weight: 600; cursor: pointer; font-family: inherit;
+  color: var(--color-text-dim, #7a6f5f);
+}
+.tilbud-import-tab:hover { border-color: var(--brand-primary, #8e631f); }
+.tilbud-import-tab.active {
+  background: var(--brand-primary, #8e631f); color: #fff; border-color: transparent;
+}
+
+.tilbud-import-search { display: flex; gap: 8px; }
+.tilbud-import-search input {
+  flex: 1; padding: 7px 12px; border: 1px solid var(--color-border, #d7d1ca);
+  border-radius: 6px; font-size: .85rem; font-family: inherit;
+}
+.tilbud-import-search input:focus { outline: none; border-color: var(--brand-primary, #8e631f); }
+
+.tilbud-import-results {
+  margin-top: 10px; max-height: 260px; overflow-y: auto;
+  border: 1px solid var(--color-border, #d7d1ca); border-radius: 8px;
+  background: var(--color-surface, #fff);
+}
+.tilbud-import-row {
+  display: flex; justify-content: space-between; align-items: baseline; gap: 12px;
+  width: 100%; text-align: left; padding: 8px 12px;
+  background: none; border: none; border-bottom: 1px solid var(--color-border, #eee);
+  cursor: pointer; font-family: inherit;
+}
+.tilbud-import-row:last-child { border-bottom: none; }
+.tilbud-import-row:hover { background: var(--brand-primary-light, #f1e6b2); }
+.tilbud-import-row .ir-name { font-size: .85rem; font-weight: 600; }
+.tilbud-import-row .ir-meta { font-size: .75rem; color: var(--color-text-dim, #7a6f5f); white-space: nowrap; }
+.tilbud-import-empty {
+  margin-top: 10px; font-size: .8rem; color: var(--color-text-dim, #7a6f5f);
+}
+
 /* ── Blocks ──────────────────────────────────────────── */
 
 .tilbud-block {

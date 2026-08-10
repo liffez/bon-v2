@@ -2259,9 +2259,51 @@ De har modsat semantik: at **åbne** et tilbud skal bruge de gemte priser (det e
 tilbuddets egne, aftalte tal), at **kopiere** skal hente friske. En naiv sammenlægning
 ville genskabe præcis #428.
 
-**Ikke rørt (hører til #427):** blok-strukturen går stadig tabt ved kopiering — alt
-lander i `lunch`. Det kan ikke rettes her, fordi `getBonLines` ([db/helpers.js:97](db/helpers.js:97))
-ikke returnerer `block_type`; det er en forudsætning for #427.
+### Tilbud: hent menu fra ordre, tilbud eller event (#427, 10. august 2026)
+
+"Vi laver det samme som til Novo i marts" er nu to klik. Knappen **"⤵ Hent menu fra…"**
+ligger på trin 2 (Sammensæt), hvor menuen faktisk bygges — ikke ovre ved
+ordrehistorikken på trin 1, hvor man ikke kan se resultatet.
+
+Tre kilder i én dialog med faner og søgning **på tværs af kunder**:
+
+| Kilde | Endpoint | Bemærkning |
+|---|---|---|
+| Tilbud | `GET /api/quotes?q=` | søger bon_number, kunde- og firmanavn |
+| Ordre | `GET /api/bons?q=` | do. |
+| Event | `GET /api/events` + `/:id/menu` | menuen er en **prisliste uden mængder** → 1 stk. pr. vare |
+
+**Tilføjer altid** — den gamle `_tCopyBon` ryddede alt først, så et fejlklik kostede
+det man havde bygget. Ikke-destruktivt: man kan slette det man ikke vil have.
+
+- **Én kerne, tre indgange.** `_tItemFromSource()` + `_tAddSourceLines()` bruges af både
+  "Kopiér ordre" og den nye import. De gør nemlig det samme: tager **mængderne** med og
+  henter **prisen** på ny (jf. #428). Var de to skrevet hver for sig, ville de drive fra
+  hinanden — det var præcis sådan #428 opstod.
+- **Blokke bevares.** `_tTargetBlock()` bruger kildens `block_type` når vi kender blokken,
+  så en menu hentet fra et andet event-tilbud beholder morgenmad/frokost/snack hver for
+  sig i stedet for at smelte sammen. Ellers første tændte blok.
+  Forudsatte at **`getBonLines` fik `block_type` med** ([db/helpers.js:97](db/helpers.js:97))
+  — kolonnen manglede, og det var derfor `_tCopyBon` hardkodede `'lunch'`.
+- **Ens varer slås sammen.** Findes varen allerede i målblokken, lægges mængderne sammen
+  i stedet for at give to rækker med samme navn — samme regel som
+  `POST /api/bons/:id/lines` bruger server-side. Fritekst slås aldrig sammen: to
+  fritekst-linjer kan sagtens være to forskellige ting.
+- **Søgefeltet beholder fokus.** Hver søgning re-renderer hele trinnet, så markøren
+  sættes tilbage — ellers skulle man klikke i feltet igen for hvert bogstav. (Samme
+  fælde som indkøbslistens søgefelt havde.)
+
+Verificeret mod driftsdata, alle tre kilder i samme tilbud: **tilbud T-5** → de fire
+varer landede i `lunch` (deres egen blok, ikke hardkodet) med friske catering-priser,
+mens Morgenmad blev bevaret; **event-menu** → priser 85/90 erstattet af Grocys 99/130,
+fritekst 75 kr med uden markering, alle 1 stk.; **ordre cafe-3472** → fundet på tværs af
+kunder (Stromma Danmark A/S), Kyllingen slået sammen til 6 + 11 = **17**, to varer uden
+for menuen fik ⚠ og blev navngivet. Syntetisk event oprettet via de rigtige endpoints og
+ryddet igen; databasen urørt. Regression grøn: moms 18, indbakke 29, bon_lines 10,
+event-menu 42, topup 35.
+
+**Stadig åbent i #427:** man kan ikke vælge *hvilken* dag der hentes fra i et
+fler-dags-tilbud — det afventer #425.
 
 ### Mail-oprydning: spam/auto-ignored + bounces (14.-15. maj 2026)
 > Spec: `docs/CLAUDE_MAIL_FIX_SPAM_OPHOBNING.md`

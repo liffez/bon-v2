@@ -859,83 +859,268 @@ function _tBuildOrderHistory() {
 }
 
 /**
- * Kopiér en tidligere ordre ind i tilbuddet — MÆNGDERNE, ikke priserne. (#428)
+ * ══ Hent varer fra en anden ordre, et andet tilbud eller et event (#427/#428) ══
  *
- * `bon_lines.unit_price` er et snapshot fra dengang den bon blev oprettet. Det
- * er rigtigt for den gamle bon, men forkert som udgangspunkt for et nyt tilbud:
- * en ordre fra sidste år sendte sidste års priser til kunden, uden varsel. Værre
- * endnu så funktionen slet ikke på `_tPriceCat` — en butiks-bon kopieret ind i
- * et catering-tilbud gav butikspriser, også når ordren var helt frisk.
+ * Tre kilder, én kerne. "Kopiér ordre" og "hent menu fra…" gør nemlig det
+ * samme: de tager MÆNGDERNE med og henter PRISEN på ny.
  *
- * Priser, kostpriser og kategori hentes nu fra `_tMenu`, som er bygget for
- * tilbuddets gældende priskategori. Linjen bærer `grocy_recipe_id`, så opslaget
- * er direkte.
- *
- * Det der IKKE kan slås op — fritekst uden opskrift, og opskrifter der er
- * udgået i Grocy — beholder den gamle pris og markeres `stalePrice`, så det
- * er synligt hvilke tal der ikke er friske. De må ikke lande i stilhed.
+ * `bon_lines.unit_price` er et snapshot fra da den bon blev oprettet. Rigtigt
+ * for den gamle bon, forkert som udgangspunkt for et nyt tilbud — og den gamle
+ * kode så oven i købet slet ikke på `_tPriceCat`, så en butiks-bon kopieret ind
+ * i et catering-tilbud gav butikspriser (#428).
  */
+
+/**
+ * Normalisér én kilde-linje til et wizard-item.
+ *
+ * Fritekst og udgåede opskrifter er ikke det samme:
+ *   - Fritekst har aldrig haft en Grocy-pris. Den er skrevet i hånden og
+ *     kopieres som den er — INGEN markering. Der er intet at hente, og et
+ *     forbehold ville være støj der lærer folk at overse markeringen.
+ *   - En opskrift der er udgået i Grocy bar sin pris derfra, så det tal vi
+ *     nu slæber med er et gammelt snapshot. Dét er værd at sige.
+ */
+function _tItemFromSource(l, menu) {
+    const isFreeText = !l.grocy_recipe_id;
+    const m = isFreeText ? null : menu.get(l.grocy_recipe_id);
+    return {
+        id: m ? m.id : (Date.now() + Math.random()),
+        grocy_recipe_id: l.grocy_recipe_id || null,
+        name: l.product_name,
+        unit: m?.unit || l.unit || 'stk',
+        // Grocy er kilden til pris og kategori. Kun mængden kommer fra kilden.
+        unitPrice: m ? m.unitPrice : (l.unit_price ?? 0),
+        costPrice: m ? m.costPrice : (l.cost_price ?? 0),
+        category: m ? m.category : (isFreeText ? 'Fritekst' : (l.category || 'Ukendt')),
+        // Event-menuen er en PRISLISTE uden mængder (`event_menu_items` har
+        // ingen quantity), så dér er 1 det eneste fornuftige udgangspunkt.
+        qty: l.quantity || 1,
+        stalePrice: !isFreeText && !m,
+    };
+}
+
+/**
+ * Hvor skal varen lande? Kun relevant for event-skabelonen.
+ *
+ * Kildens egen tidsblok bruges hvis vi kender den — så en menu hentet fra et
+ * andet event-tilbud beholder morgenmad/frokost/snack hver for sig i stedet
+ * for at smelte sammen. Kender vi den ikke (en almindelig bon har ingen blok,
+ * eller blokken er slettet i Settings), bruges den første tændte blok, ellers
+ * den første der findes.
+ */
+function _tTargetBlock(sourceBlock) {
+    if (sourceBlock && _tBLOCKS.some(b => b.id === sourceBlock)) return sourceBlock;
+    const active = _tBLOCKS.find(b => _tActBlk.has(b.id));
+    return active ? active.id : (_tBLOCKS[0]?.id || 'lunch');
+}
+
+/**
+ * Læg linjer ind i tilbuddet. TILFØJER altid — den gamle kopiering ryddede
+ * alt først, og så kostede et fejlklik det man havde bygget.
+ * Returnerer { added, stale: [navne] }.
+ */
+function _tAddSourceLines(lines) {
+    const menu = _tMenuIndex();
+    const stale = [];
+    let added = 0;
+
+    for (const l of (lines || [])) {
+        const item = _tItemFromSource(l, menu);
+
+        let arr;
+        if (_tTpl === 'event') {
+            const block = _tTargetBlock(l.block_type);
+            if (!_tEvBlk[block]) _tEvBlk[block] = [];
+            _tActBlk.add(block);
+            arr = _tEvBlk[block];
+        } else {
+            arr = _tSiItems;
+        }
+
+        // Findes varen allerede dér, lægges mængderne sammen i stedet for at
+        // give to rækker med samme navn. Samme regel som `POST /api/bons/:id/lines`
+        // bruger server-side (shared/bon_lines.js) — ens varer hører sammen.
+        // Fritekst har intet opskrift-id og slås aldrig sammen: to fritekst-linjer
+        // kan sagtens være to forskellige ting.
+        const same = item.grocy_recipe_id
+            ? arr.find(x => x.grocy_recipe_id === item.grocy_recipe_id)
+            : null;
+
+        if (same) {
+            same.qty += item.qty;
+            if (item.stalePrice) same.stalePrice = true;
+        } else {
+            arr.push(item);
+            if (item.stalePrice) stale.push(item.name);
+        }
+        added++;
+    }
+
+    return { added, stale };
+}
+
+/** Fælles kvittering, så de to indgange siger det samme. */
+function _tSourceToast(what, res) {
+    let msg = `${res.added} vare${res.added === 1 ? '' : 'r'} hentet fra ${what} — priser fra ${_tPriceCat || 'catering'}`;
+    if (res.stale.length) {
+        msg += ` · ${res.stale.length} findes ikke i Grocy længere (${res.stale.slice(0, 3).join(', ')}${res.stale.length > 3 ? '…' : ''})`;
+    }
+    _tToast(msg, res.stale.length ? 9000 : 4000);
+}
+
+/* ── Hent menu fra… (#427) ───────────────────────────── */
+
+let _tImportOpen = false;
+let _tImportSrc = 'quote';     // 'quote' | 'bon' | 'event'
+let _tImportQ = '';
+let _tImportRows = null;       // null = ikke søgt endnu
+let _tImportBusy = false;
+let _tImportFocus = false;   // sæt fokus tilbage i søgefeltet efter re-render
+
+const _T_IMPORT_SOURCES = [
+    { key: 'quote', label: 'Tilbud',  placeholder: 'Søg tilbudsnr., kunde eller firma…' },
+    { key: 'bon',   label: 'Ordre',   placeholder: 'Søg bonnr., kunde eller firma…' },
+    { key: 'event', label: 'Event',   placeholder: 'Søg eventnavn…' },
+];
+
+function _tToggleImport() {
+    _tImportOpen = !_tImportOpen;
+    _tImportFocus = _tImportOpen;
+    if (!_tImportOpen) { _tImportRows = null; _tImportQ = ''; }
+    _tRenderWizard();
+}
+
+function _tSetImportSrc(src) {
+    _tImportSrc = src;
+    _tImportRows = null;
+    _tRenderWizard();
+}
+
+function _tBuildImportPanel() {
+    const src = _T_IMPORT_SOURCES.find(s => s.key === _tImportSrc) || _T_IMPORT_SOURCES[0];
+    let h = '<div class="tilbud-import-tabs">';
+    for (const s of _T_IMPORT_SOURCES) {
+        h += `<button class="tilbud-import-tab${s.key === _tImportSrc ? ' active' : ''}" onclick="_tSetImportSrc('${s.key}')">${s.label}</button>`;
+    }
+    h += '</div>';
+
+    h += `<div class="tilbud-import-search">
+        <input type="text" id="t-import-q" placeholder="${src.placeholder}" value="${_tEsc(_tImportQ)}">
+        <button class="tilbud-btn tilbud-btn-sm tilbud-btn-secondary" onclick="_tImportSearch()">${_tImportBusy ? '…' : 'Søg'}</button>
+    </div>`;
+
+    if (Array.isArray(_tImportRows)) {
+        if (!_tImportRows.length) {
+            h += '<div class="tilbud-import-empty">Ingen match.</div>';
+        } else {
+            h += '<div class="tilbud-import-results">';
+            for (const r of _tImportRows) {
+                h += `<button class="tilbud-import-row" onclick="_tImportFrom(${r.id})">
+                    <span class="ir-name">${_tEsc(r.label)}</span>
+                    <span class="ir-meta">${_tEsc(r.meta || '')}</span>
+                </button>`;
+            }
+            h += '</div>';
+        }
+    }
+    return h;
+}
+
+async function _tImportSearch() {
+    const el = document.getElementById('t-import-q');
+    _tImportQ = el ? el.value.trim() : '';
+    _tImportBusy = true;
+    _tRenderWizard();
+
+    try {
+        if (_tImportSrc === 'quote') {
+            // Søger på tværs af kunder — bon_number, kundenavn og firmanavn.
+            const rows = await fetchQuotes(_tImportQ ? { q: _tImportQ } : {});
+            _tImportRows = rows.slice(0, 15).map(r => ({
+                id: r.id,
+                label: `${r.quote_number || r.bon_number} · ${r.customer_name || r.company_name || 'Uden kunde'}`,
+                meta: [r.delivery_date ? _tFd(r.delivery_date) : null, r.pax ? r.pax + ' pax' : null].filter(Boolean).join(' · '),
+            }));
+        } else if (_tImportSrc === 'bon') {
+            const res = await apiFetch('/bons?limit=15' + (_tImportQ ? '&q=' + encodeURIComponent(_tImportQ) : ''));
+            const rows = Array.isArray(res) ? res : (res.rows || []);
+            _tImportRows = rows.slice(0, 15).map(r => ({
+                id: r.id,
+                label: `${r.bon_number} · ${r.customer_name || r.company_name || 'Uden kunde'}`,
+                meta: [r.delivery_date ? _tFd(r.delivery_date) : null, r.pax ? r.pax + ' pax' : null].filter(Boolean).join(' · '),
+            }));
+        } else {
+            const res = await fetchEventsList();
+            const rows = Array.isArray(res) ? res : (res.events || []);   // /api/events svarer { events: [...] }
+            const q = _tImportQ.toLowerCase();
+            _tImportRows = rows
+                .filter(e => !q || (e.name || '').toLowerCase().includes(q))
+                .slice(0, 15)
+                .map(e => ({
+                    id: e.id,
+                    label: e.name,
+                    meta: [e.start_date ? _tFd(e.start_date) : null, e.location_name].filter(Boolean).join(' · '),
+                }));
+        }
+    } catch (e) {
+        _tImportRows = [];
+        _tToast('Kunne ikke søge: ' + e.message);
+    }
+
+    _tImportBusy = false;
+    _tImportFocus = true;
+    _tRenderWizard();
+}
+
+/** Hent varerne fra den valgte kilde og læg dem oveni tilbuddet. */
+async function _tImportFrom(id) {
+    try {
+        let lines = [];
+        let what = '';
+
+        if (_tImportSrc === 'quote') {
+            const q = await fetchQuote(id);
+            lines = q.lines || [];
+            what = `tilbud ${q.quote_number || id}`;
+        } else if (_tImportSrc === 'bon') {
+            const b = await apiFetch(`/bons/${id}`);
+            lines = b.lines || [];
+            what = `bon ${b.bon_number}`;
+        } else {
+            const res = await apiFetch(`/events/${id}/menu`);
+            // Eventets menu er en PRISLISTE — den har ingen mængder. Varerne
+            // kommer ind med 1 stk., så man selv sætter antal.
+            lines = (res.items || []).map(it => ({
+                grocy_recipe_id: it.grocy_recipe_id,
+                product_name: it.product_name,
+                category: it.category,
+                unit: it.unit,
+                unit_price: it.unit_price,
+                cost_price: null,
+                quantity: 1,
+                block_type: null,
+            }));
+            what = 'event-menuen';
+        }
+
+        if (!lines.length) { _tToast('Ingen varer at hente dér'); return; }
+
+        const res = _tAddSourceLines(lines);
+        _tSourceToast(what, res);
+        _tImportOpen = false;
+        _tImportRows = null;
+        _tRenderWizard();
+    } catch (e) {
+        _tToast('Fejl: ' + e.message);
+    }
+}
+
 async function _tCopyBon(bonId) {
     try {
         const bon = await apiFetch(`/bons/${bonId}`);
-        const menu = _tMenuIndex();
-        const stale = [];
-
-        _tSiItems = [];
-        _tEvBlk = {};
-        _tActBlk = new Set();
-
-        if (bon.lines) {
-            for (const l of bon.lines) {
-                // Fritekst har aldrig haft en Grocy-pris — den er skrevet i hånden
-                // og skal kopieres som den er. Den er IKKE "uden aktuel pris":
-                // der er intet at hente, og et forbehold ville være ren støj.
-                //
-                // En vare der HAR en opskrift men ikke findes i menuen, er noget
-                // andet: dens pris plejede at komme fra Grocy, og det tal vi nu
-                // bærer med er et gammelt snapshot. Dét er værd at sige.
-                const isFreeText = !l.grocy_recipe_id;
-                const m = isFreeText ? null : menu.get(l.grocy_recipe_id);
-                if (!isFreeText && !m) stale.push(l.product_name);
-
-                const item = {
-                    id: m ? m.id : (Date.now() + Math.random()),
-                    grocy_recipe_id: l.grocy_recipe_id || null,
-                    name: l.product_name,
-                    unit: m?.unit || l.unit || 'stk',
-                    // Grocy er kilden til både pris og kategori — jf. den samlede
-                    // kategori-hentning. Kun mængden kommer fra den gamle ordre.
-                    unitPrice: m ? m.unitPrice : (l.unit_price ?? 0),
-                    costPrice: m ? m.costPrice : (l.cost_price ?? 0),
-                    category: m ? m.category : (isFreeText ? 'Fritekst' : (l.category || 'Ukendt')),
-                    qty: l.quantity || 1,
-                    stalePrice: !isFreeText && !m,
-                };
-
-                // `getBonLines` returnerer ikke `block_type`, så en kopieret ordre
-                // kan ikke lægges tilbage i sine oprindelige tidsblokke. Alt havner
-                // i én blok som hidtil — se #427, som udvider kopieringen.
-                if (_tTpl === 'event') {
-                    const block = 'lunch';
-                    if (!_tEvBlk[block]) _tEvBlk[block] = [];
-                    _tActBlk.add(block);
-                    _tEvBlk[block].push(item);
-                } else {
-                    _tSiItems.push(item);
-                }
-            }
-        }
-
-        if (bon.pax) _tPax = String(bon.pax);
-
-        const n = bon.lines?.length || 0;
-        const priceCatLabel = _tPriceCat || 'catering';
-        let msg = `${n} vare${n === 1 ? '' : 'r'} kopieret fra bon ${bon.bon_number} — priser fra ${priceCatLabel}`;
-        if (stale.length) {
-            msg += ` · ${stale.length} findes ikke i Grocy længere (${stale.slice(0, 3).join(', ')}${stale.length > 3 ? '…' : ''})`;
-        }
-        _tToast(msg, stale.length ? 9000 : 4000);
-
+        const res = _tAddSourceLines(bon.lines);
+        if (bon.pax && !parseInt(_tPax)) _tPax = String(bon.pax);
+        _tSourceToast(`bon ${bon.bon_number}`, res);
         _tStep = 2;
         _tRenderWizard();
     } catch (e) {
@@ -957,6 +1142,14 @@ function _tBuildStep2() {
     // Stats bar
     h += _tBuildStats();
 
+    // Hent-menu-fra ligger her, hvor menuen faktisk bygges — ikke ovre ved
+    // ordrehistorikken på trin 1, hvor man ikke kan se resultatet.
+    h += `<div class="tilbud-import-bar">
+        <button class="tilbud-btn tilbud-btn-secondary tilbud-btn-sm" onclick="_tToggleImport()">⤵ Hent menu fra…</button>
+        <span class="tilbud-import-hint">Ordre, tilbud eller event — varerne lægges oveni, priserne hentes friske</span>
+    </div>
+    <div id="t-import" class="tilbud-import-panel" style="display:${_tImportOpen ? 'block' : 'none'}">${_tImportOpen ? _tBuildImportPanel() : ''}</div>`;
+
     if (isEv) {
         h += _tBuildEventUI();
     } else {
@@ -974,6 +1167,21 @@ function _tBuildStep2() {
 }
 
 function _tSetupStep2() {
+    // Import-søgefeltet: hver søgning re-renderer hele trinnet, så fokus og
+    // markør skal sættes tilbage — ellers skal man klikke i feltet igen for
+    // hvert bogstav. (Samme fælde som indkøbslistens søgefelt havde.)
+    const iq = document.getElementById('t-import-q');
+    if (iq && _tImportOpen) {
+        iq.addEventListener('keydown', e => {
+            if (e.key === 'Enter') { e.preventDefault(); _tImportSearch(); }
+        });
+        if (_tImportFocus) {
+            iq.focus();
+            iq.setSelectionRange(iq.value.length, iq.value.length);
+            _tImportFocus = false;
+        }
+    }
+
     // Search field listener for single template
     const si = document.getElementById('t-si-search');
     if (si) {
