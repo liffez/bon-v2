@@ -486,11 +486,17 @@ const _CF_CAT_TAG = {
 function _cfUnmatchedRowHtml(tx) {
     const cat = _CF_CAT_TAG[tx.category];
     const tag = cat ? `<span class="cf-cat-tag ${cat.cls}" title="${cat.tip}">${cat.txt}</span>` : '';
+    // Vink, ikke kategori: posteringen faldt i et events periode. Bankteksten kan
+    // sagtens være uskyldig (en kommune-faktura lå også inde i Vig-vinduet), så
+    // vinket peger — det påstår ikke.
+    const ev = tx.event_hint
+        ? `<span class="cf-ev-hint" title="Faldt i ${_cfEsc(tx.event_hint.name)}s periode — kan være indtægt derfra">🎪 ${_cfEsc(tx.event_hint.name)}</span>`
+        : '';
     return `<div class="cf-unmatched-item${cat ? ' ' + cat.cls + '-row' : ''}" data-tx-id="${tx.id}">
         <div class="cf-unmatched-row" data-tx-row="${tx.id}">
             <div>
                 <div style="font-weight:700">${_cfEsc(tx.tekst).substring(0, 40)}${tag}</div>
-                <span style="font-size:11px;color:#8a8580">${_cfFmtDate(tx.dato)}${tx.note ? ' · 📝' : ''}</span>
+                <span style="font-size:11px;color:#8a8580">${_cfFmtDate(tx.dato)}${tx.note ? ' · 📝' : ''}</span>${ev}
             </div>
             <div style="font-weight:700;color:${tx.beloeb < 0 ? '#bc3a3a' : '#e8a832'}">${_cfFmt(tx.beloeb)}</div>
         </div>

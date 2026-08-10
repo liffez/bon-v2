@@ -326,6 +326,27 @@ const EVENT_CASH_SQL = `(LOWER(t.tekst) LIKE '%zettle%' OR LOWER(t.tekst) LIKE '
 //   minor        — lille beløb, ingen reference → støj (typisk leverings-±)            → FOLD
 // Lukket år + stor-grænse er settings (cf_accounts_closed_year, cf_check_large_threshold).
 const FAKTURA_RE = /faktur|fakt|fak[\s.\-]|fa\.?nr|faknr|invoice/i;
+
+// Festival-/stadeafregning kommer som en ALMINDELIG bankoverførsel — ingen Zettle,
+// ingen MobilePay, intet fakturanr ("AFREGN. VIG FESTIVAL", "SLUTAFREGNING RF25").
+// Uden disse ord landede 110.854 kr fra Vig i bunken af 32 "store ukoblede", og
+// 🎪-chippen stod på 0 selv om pengene var der.
+// Bevidst SNÆVER, og først EFTER fakturanr-tjekket: bærer teksten et fakturanummer,
+// er det en faktura-indbetaling — også selvom den nævner et festivalnavn.
+const CF_FESTIVAL_RE = /afregn|festival|stade/i;
+
+// Vindue omkring et event hvor en indbetaling kan stamme derfra. Bagud er kort
+// (forudbetaling er sjælden), fremad rummeligt: arrangøren afregner bagefter —
+// Vig 2026 betalte 4 dage efter sidste dag.
+const CF_EVENT_WINDOW_BEFORE = 2;
+const CF_EVENT_WINDOW_AFTER  = 21;
+
+/** Dato-forskydning i ISO (rent kalender-regnestykke, ingen tidszone involveret). */
+function offsetDays(iso, days) {
+    const [y, m, d] = String(iso).split('-').map(Number);
+    const dt = new Date(Date.UTC(y, m - 1, d + days));      // utc-ok: ren kalender-aritmetik
+    return dt.toISOString().slice(0, 10);                   // utc-ok: samme
+}
 /** Set af e-conomics bogførte fakturanumre (cf_economic_invoices) til genkendelse. */
 function cfBookedSet(db) {
     try {
@@ -337,6 +358,7 @@ function cfCategorize(tx, closedYear, largeThreshold, bookedSet) {
     if (/zettle|mobilepay|vipps|kontant/i.test(t)) return 'event_cash';   // 🎪 alle år (historik-bon)
     const year = parseInt(String(tx.dato).slice(0, 4), 10) || 9999;
     const hasFaktura = FAKTURA_RE.test(t) || /^\s*\d{3,6}\s*$/.test(t);   // "FAKTURA 3957" / "Fa.nr. 3865" / bare "3898"
+    if (!hasFaktura && CF_FESTIVAL_RE.test(t)) return 'event_cash';
     if (hasFaktura) {
         // Findes nummeret som et RIGTIGT bogført e-conomic-fakturanr? → afregnet faktura → fold.
         // (Indbetalingen = fakturaens beløb, der kan dække flere bons — derfor genkender vi
@@ -349,10 +371,10 @@ function cfCategorize(tx, closedYear, largeThreshold, bookedSet) {
         // (nummer der ikke matcher nogen bogført faktura — fejl, kreditnota, fremtidig).
         return year <= closedYear ? 'invoice_paid' : 'invoice_check';
     }
-    // INGEN fakturanr — inkl. "Overførsel"/kundenavn/"Leverandør". En sådan postering kan
-    // godt VÆRE en faktura (overførsel uden nr), men også et event uden bon. Store beløb
-    // løftes derfor til tjek UANSET år — også lukket 2025 ("SLUTAFREGNING RF25" = festival
-    // der mangler en historik-bon). Småt foldes som støj (typisk leverings-±).
+    // INGEN fakturanr og intet festivalord — inkl. "Overførsel"/kundenavn/"Leverandør".
+    // En sådan postering kan godt VÆRE en faktura (overførsel uden nr), men også et event
+    // uden bon. Store beløb løftes derfor til tjek UANSET år — også lukket 2025. Småt
+    // foldes som støj (typisk leverings-±).
     if (Math.abs(tx.beloeb) >= largeThreshold) return 'large_check';
     return 'minor';
 }
@@ -398,9 +420,20 @@ router.get('/transactions', handle(async (req, res) => {
             LEFT JOIN cf_invoices i ON t.matched_invoice_id = i.id
             WHERE ${UNMATCHED_WHERE}
         `).all();
+        // Falder posteringen inden for et events periode, hænger et 🎪-vink på den.
+        // Bevidst et VINK og ikke en kategori: datooverlap alene over-fortolker — en
+        // kommune-faktura og en samlefaktura lå også inde i Vig Festivals vindue.
+        // Ordlisten afgør kategorien; datoen hjælper kun øjet med at finde resten.
+        const evWindows = db.prepare(`SELECT id, name, start_date, COALESCE(end_date, start_date) AS end_date
+                                      FROM events WHERE status != 'cancelled'`).all();
+        const eventHint = (dato) => evWindows.find(e =>
+            dato >= offsetDays(e.start_date, -CF_EVENT_WINDOW_BEFORE) &&
+            dato <= offsetDays(e.end_date, CF_EVENT_WINDOW_AFTER)) || null;
         for (const tx of cands) {
             tx.category = cfCategorize(tx, closedYear, largeThreshold, bookedSet);
             tx.is_event_cash = tx.category === 'event_cash' ? 1 : 0;
+            const ev = eventHint(String(tx.dato));
+            tx.event_hint = ev ? { id: ev.id, name: ev.name } : null;
         }
         // Tællere over ALLE kandidater — så chip-tallene er faste uafhængigt af aktivt filter.
         const cntCat = (c) => cands.filter(t => t.category === c).length;

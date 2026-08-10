@@ -161,7 +161,10 @@ assert(cat('Fa.nr. 3865', '2026-03-18', 3437) === 'invoice_check', 'Fa.nr. (bred
 assert(cat('3898', '2026-04-13', 59994) === 'invoice_check', 'bart nummer 2026 → invoice_check');
 assert(cat('GLADSAXE KOMMUNE', '2026-01-29', 12459) === 'large_check', 'stort uden ref 2026 → large_check');
 assert(cat('GLADSAXE KOMMUNE', '2026-01-29', 800) === 'minor', 'lille uden ref → minor');
-assert(cat('SLUTAFREGNING RF25', '2025-10-08', 23545) === 'large_check', 'stort uden ref LUKKET år (2025-event) → large_check');
+// Var large_check indtil #445. Nu fanger ordlisten den som event_cash — stadig en
+// surface-kategori (intet forsvinder), men med den rigtige handling: "kræver salgsbon".
+assert(cat('SLUTAFREGNING RF25', '2025-10-08', 23545) === 'event_cash', 'festivalafregning LUKKET år → event_cash (var large_check før #445)');
+assert(cat('AFREGNING FRA HAVNEN', '2025-10-08', 500) === 'event_cash', 'lille festivalafregning surfacer også — beløbet afgør ikke');
 assert(cat('Overførsel', '2026-05-01', 30000) === 'large_check', 'stor overførsel uden nr → large_check (kan være faktura ELLER event)');
 assert(cat('Overførsel', '2025-05-01', 30000) === 'large_check', 'stor overførsel 2025 → large_check (se på store 2025-beløb)');
 assert(cat('Overførsel', '2025-05-01', 800) === 'minor', 'lille overførsel → minor (støj)');
@@ -182,6 +185,23 @@ fs.unlinkSync(TMP);
     const p = TMP + s;
     if (fs.existsSync(p)) fs.unlinkSync(p);
 });
+
+
+console.log('\n— Festival-afregning (#445) —');
+// Festivalafregning kommer som en almindelig overførsel: ingen Zettle, ingen
+// MobilePay, intet fakturanr. Uden ordlisten landede 110.854 kr fra Vig i
+// "store ukoblede" og 🎪-chippen stod på 0.
+const catF = (tekst, dato, beloeb) => cfCategorize({ tekst, dato, beloeb }, 2025, 10000, new Set(['4112']));
+assert(catF('AFREGN. VIG FESTIVAL', '2026-07-16', 110854) === 'event_cash', 'AFREGN. VIG FESTIVAL → event_cash');
+assert(catF('SLUTAFREGNING RF25', '2025-10-08', 23545) === 'event_cash', 'SLUTAFREGNING RF25 → event_cash (også lukket år)');
+assert(catF('Stadeleje retur', '2026-07-20', 4000) === 'event_cash', 'stade → event_cash');
+// Fakturanr vinder over festivalordet — ellers ville en samlefaktura for et
+// festivalsalg blive taget for kontantsalg.
+assert(catF('FAK 4112, AFREGNING FESTIVAL', '2026-06-26', 137092) === 'invoice_paid', 'fakturanr slår festivalordet');
+assert(catF('FAKTURA 9999 afregning', '2026-06-26', 50000) === 'invoice_check', 'ukendt fakturanr → invoice_check, ikke event');
+// Ordlisten må ikke sluge almindelige indbetalinger
+assert(catF('ALBERTSLUND KOMMUNE', '2026-07-06', 5774) === 'minor', 'kommune uden nøgleord → uændret');
+assert(catF('Overførsel', '2026-07-09', 22518) === 'large_check', 'Overførsel → stadig large_check');
 
 console.log(`\n══════════════\n${pass} PASS · ${fail} FAIL`);
 process.exit(fail > 0 ? 1 : 0);
