@@ -188,12 +188,16 @@ function _icInitSSE() {
     // Kun én forbindelse pr. side — _ic er modul-global, så den overlever re-mount
     if (_ic._sse || typeof EventSource === 'undefined') return;
     try {
-        var es = new EventSource('/api/sse');
-        es.addEventListener('physical_unit_changed', function(e) {
-            try { _icOnPhysicalUnitChanged(JSON.parse(e.data)); }
-            catch (err) { /* stille */ }
+        // manageSSE lukker forbindelsen ved navigation — ellers blev den
+        // hængende og holdt sidens HTTP/2-forbindelse i live efter man var gået.
+        _ic._sse = manageSSE(function() {
+            var es = new EventSource('/api/sse');
+            es.addEventListener('physical_unit_changed', function(e) {
+                try { _icOnPhysicalUnitChanged(JSON.parse(e.data)); }
+                catch (err) { /* stille */ }
+            });
+            return es;
         });
-        _ic._sse = es;
     } catch (e) {
         // SSE ikke tilgængelig — degradér stille (listen virker stadig ved genvalg/reload)
     }

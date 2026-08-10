@@ -189,21 +189,26 @@
             }
         }
 
-        // SSE for post badge (runs regardless of active tab)
-        var postSSE = new EventSource('/api/sse');
-        postSSE.addEventListener('po_mail_received', function(e) {
-            updatePostBadge();
-            if (typeof _siHandleSSE === 'function') _siHandleSSE('po_mail_received', JSON.parse(e.data));
-        });
-        postSSE.addEventListener('po_mail_sent', function(e) {
-            if (typeof _siHandleSSE === 'function') _siHandleSSE('po_mail_sent', JSON.parse(e.data));
-        });
-        postSSE.addEventListener('supplier_mail_received', function(e) {
-            updatePostBadge();
-            if (typeof _siHandleSSE === 'function') _siHandleSSE('supplier_mail_received', JSON.parse(e.data));
-        });
-        postSSE.addEventListener('supplier_mail_sent', function(e) {
-            if (typeof _siHandleSSE === 'function') _siHandleSSE('supplier_mail_sent', JSON.parse(e.data));
+        // SSE for post badge (runs regardless of active tab).
+        // manageSSE lukker ved navigation — denne side har to streams (denne +
+        // indkob.js'), så en efterladt stream tæller dobbelt her.
+        var postSSE = manageSSE(function() {
+            var es = new EventSource('/api/sse');
+            es.addEventListener('po_mail_received', function(e) {
+                updatePostBadge();
+                if (typeof _siHandleSSE === 'function') _siHandleSSE('po_mail_received', JSON.parse(e.data));
+            });
+            es.addEventListener('po_mail_sent', function(e) {
+                if (typeof _siHandleSSE === 'function') _siHandleSSE('po_mail_sent', JSON.parse(e.data));
+            });
+            es.addEventListener('supplier_mail_received', function(e) {
+                updatePostBadge();
+                if (typeof _siHandleSSE === 'function') _siHandleSSE('supplier_mail_received', JSON.parse(e.data));
+            });
+            es.addEventListener('supplier_mail_sent', function(e) {
+                if (typeof _siHandleSSE === 'function') _siHandleSSE('supplier_mail_sent', JSON.parse(e.data));
+            });
+            return es;
         });
 
         // Initial badge load
