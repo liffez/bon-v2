@@ -1537,22 +1537,15 @@ router.post('/:id/mail', handle(async (req, res) => {
     }
 
     // Validate attachments
-    const validatedAttachments = [];
-    if (attachments) {
-        if (!Array.isArray(attachments)) return res.status(400).json({ error: 'attachments skal være et array' });
-        if (attachments.length > 5) return res.status(400).json({ error: 'Max 5 vedhæftninger per mail' });
-        for (const att of attachments) {
-            const id = parseInt(att.attachment_id);
-            if (!id || id <= 0) return res.status(400).json({ error: 'Ugyldigt attachment_id' });
-            validatedAttachments.push({ attachment_id: id });
-        }
-    }
+    const { sendMail, sendFromTemplate, validateAttachments } = require('../services/mailService');
+    const att = validateAttachments(attachments);
+    if (att.error) return res.status(400).json({ error: att.error });
+    const validatedAttachments = att.list;
 
     const db = getDb();
     const bon = db.prepare('SELECT bon_number FROM bons WHERE id = ?').get(bonId);
     if (!bon) return res.status(404).json({ error: 'Bon ikke fundet' });
 
-    const { sendMail, sendFromTemplate } = require('../services/mailService');
     const context = { type: 'bon', number: parseInt(bon.bon_number.replace(/\D/g, '')) };
     const userId = req.session?.userId || null;
 

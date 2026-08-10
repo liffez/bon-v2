@@ -148,10 +148,14 @@ router.get('/:id/mail', handle(async (req, res) => {
 // Signatur appendes IKKE — fritekst-mailen er fuldt brugerstyret.
 router.post('/:id/mail', handle(async (req, res) => {
     const customerId = parseInt(req.params.id);
-    const { to, subject, text, booking_flow, booking_intent_meeting_type } = req.body;
+    const { to, subject, text, booking_flow, booking_intent_meeting_type, attachments } = req.body;
     if (!to || !text) return res.status(400).json({ error: 'to og text er påkrævet' });
 
-    const { sendMail, renderTemplate } = require('../services/mailService');
+    const { sendMail, renderTemplate, validateAttachments } = require('../services/mailService');
+
+    const att = validateAttachments(attachments);
+    if (att.error) return res.status(400).json({ error: att.error });
+
     const context = { type: 'customer', number: customerId };
     const userId = getUserId(req);
 
@@ -174,7 +178,8 @@ router.post('/:id/mail', handle(async (req, res) => {
 
     const result = await sendMail({
         to, subject: renderedSubject, text: renderedText,
-        customerId, context, smtpPrefix: 'smtp_kontakt', userId
+        customerId, context, smtpPrefix: 'smtp_kontakt', userId,
+        attachments: att.list
     });
     res.json({ ok: true, messageId: result.messageId, threadId: result.threadId });
 }));

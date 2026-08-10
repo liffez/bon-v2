@@ -1794,7 +1794,16 @@ async function _tDeleteQuote() {
     }
 }
 
-function _tGenPDF() {
+/**
+ * Bygger tilbuds-PDF'en og returnerer { doc, filename } UDEN at gemme den.
+ *
+ * Download-knappen (_tGenPDF) gemmer dokumentet; mail-flowet (_tDoSendMail)
+ * beder om det og laver en blob i stedet. Tidligere delte de kode ved at
+ * monkey-patche `jsPDF.prototype.save` — men jsPDF lægger `save` på selve
+ * INSTANSEN, ikke på prototypen, så patchet blev aldrig ramt: PDF'en
+ * downloadede sig selv og mailen fejlede altid med "PDF generering fejlede".
+ */
+function _tBuildPDF() {
     _tSaveStepFields();
     const { jsPDF } = window.jspdf;
     const doc = new jsPDF({ unit: 'mm', format: 'a4' });
@@ -1960,7 +1969,13 @@ function _tGenPDF() {
     doc.text(footParts.join(' \u00b7 '), ml, fy + 9);
     doc.text(`Gyldigt i ${_tValidDays} dage. Priser i DKK.`, pw - mr, fy + 5, { align: 'right' });
 
-    doc.save(`Tilbud_${qi}_${cn.replace(/\s+/g, '_')}.pdf`);
+    return { doc, filename: `Tilbud_${qi}_${cn.replace(/\s+/g, '_')}.pdf` };
+}
+
+/** Download-knappen: byg PDF'en og gem den lokalt. */
+function _tGenPDF() {
+    const { doc, filename } = _tBuildPDF();
+    doc.save(filename);
 }
 
 /** Send tilbud som mail med PDF vedhæftet */
@@ -2032,24 +2047,17 @@ async function _tDoSendMail() {
     btn.textContent = 'Genererer PDF…';
 
     try {
-        // 1. Generate PDF blob — call _tGenPDF logic but get blob instead of saving
-        _tSaveStepFields();
-        const { jsPDF } = window.jspdf;
-        // We need to re-run the PDF generation but output as blob
-        // Easiest: temporarily override doc.save, call _tGenPDF, restore
-        let pdfDoc = null;
-        const origSave = jsPDF.prototype.save;
-        jsPDF.prototype.save = function() { pdfDoc = this; };
-        _tGenPDF();
-        jsPDF.prototype.save = origSave;
-        if (!pdfDoc) throw new Error('PDF generering fejlede');
+        // 1. Byg PDF'en og hent den som blob (samme dokument som download-knappen)
+        const { doc: pdfDoc, filename } = _tBuildPDF();
         const blob = pdfDoc.output('blob');
+        if (!blob || !blob.size) throw new Error('PDF generering fejlede — tom fil');
 
         // 2. Upload PDF
         btn.textContent = 'Uploader PDF…';
-        const cn = _tCust?.company_name || _tCust?.customer_name || 'Kunde';
-        const filename = `Tilbud_${_tQuoteNumber || 'ny'}_${cn.replace(/\s+/g, '_')}.pdf`;
         const uploadResult = await uploadAttachment(blob, 'bon', _tQuoteId, filename);
+        if (!uploadResult || !uploadResult.attachment_id) {
+            throw new Error('PDF blev ikke gemt — mailen er ikke sendt');
+        }
 
         // 3. Send mail with attachment
         btn.textContent = 'Sender mail…';
