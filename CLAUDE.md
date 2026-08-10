@@ -2107,6 +2107,40 @@ med "8" på chippen og indholdet intakt → tænd → gem → varerne er tilbage
 med rigtig blok, antal og kategori, og metadata er `null`. Pax pr. blok (40/80) og stash
 lever side om side gennem hele turen. Testdata ryddet.
 
+### Tilbud: varekategorier kan skjules eller flyttes nederst (10. august 2026)
+
+Emballagelinjer — "2× Transportkasse m låg", "15× Receptions Skinner" — stod midt
+imellem maden på kundens tilbud og virkede umotiverede. På bon-kortet ligger
+emballagen allerede dæmpet nederst; tilbuddet manglede den samme adskillelse.
+
+- **Migration 143**: `settings.offer_category_display`, JSON fra kategorinavn til
+  `show` | `last` | `hidden`. Default flytter kun emballage nederst
+  (`{"06 Emballage":"last","Emballage":"last"}`) — begge stavemåder, da driftsdata
+  har 4.415 linjer med den kanoniske og 210 med den historiske. At **skjule** noget
+  kunden betaler for skal være et bevidst valg.
+- **Reglen er ren visning.** `_tOfferItems()` / `_tOfferCategories()` bruges de fire
+  steder der renderer for kunden (preview + PDF × event + enkeltbestilling).
+  Beløbene summeres fortsat over ALLE varer — i single-mode blev `sub` tidligere
+  akkumuleret inde i render-loopet, så det er hejst ud, ellers ville en skjult
+  kategori have ændret totalen. `_tCollectLines` er urørt: linjerne gemmes uændret
+  på bonen, så køkkenet ser emballagen.
+- **Settings → Tilbud — opbygning → "Varekategorier på tilbuddet"**: kategorierne
+  hentes fra Grocy, med Vis/Nederst/Skjul pr. kategori. Kategorier der allerede har
+  en regel tages med selvom de ikke længere findes i Grocy — ellers ville en gammel
+  regel være usynlig og umulig at fjerne. Grocy nede ⇒ de gemte regler vises stadig.
+- Sidegevinst: preview og PDF grupperede event-blokke forskelligt (preview efter
+  kategori, PDF fladt). Begge er nu flade med samme sortering.
+
+Verificeret: emballage tilføjet FØRST i en blok → vises alligevel sidst i preview og
+PDF; total 2.060 kr uændret. Sat til `hidden` → linjen forsvinder for kunden, totalen
+er stadig 2.060 kr, og `_tCollectLines` returnerer den fortsat. Settings gemmer og
+listen viser alle Grocy-kategorier. Testdata rullet tilbage.
+
+**Observation (ikke rørt):** på et tilbud fra drift stod "Eftermiddagssnack" som
+blok-overskrift **to gange** i træk med hver sit indhold. Ligner to blok-typer med
+samme `label` i `offer_block_types` — værd at kigge på i Settings → Tilbud —
+opbygning, men det er konfiguration, ikke en kodefejl.
+
 ### Mail-oprydning: spam/auto-ignored + bounces (14.-15. maj 2026)
 > Spec: `docs/CLAUDE_MAIL_FIX_SPAM_OPHOBNING.md`
 

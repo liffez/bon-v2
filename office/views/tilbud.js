@@ -57,6 +57,9 @@ let _tValidDays = 30;
 let _tBLOCKS = [];
 let _tBlocksLoaded = false;
 let _tCompany = { name: 'Ristet Rug', cvr: '', address: '', phone: '', email: 'info@ristetrug.dk' };
+// { kategorinavn: 'last' | 'hidden' } — se migration 143. Kun visning på tilbuddet;
+// priser og de gemte linjer er upåvirkede.
+let _tCatDisplay = {};
 
 // Default block icons (matched by key prefix)
 const _tBLOCK_ICONS = { morning: '\u{1F305}', amsnack: '\u2615', lunch: '\u{1F37D}\uFE0F', pmsnack: '\u{1F36A}' };
@@ -158,6 +161,15 @@ async function _tLoadBlockTypes() {
                 color: _tBLOCK_COLORS[b.key] || _tDEFAULT_COLOR,
             }));
         }
+        // Visningsregler pr. varekategori på kundens tilbud (migration 143)
+        const cd = settings.find(s => s.key === 'offer_category_display');
+        if (cd?.value) {
+            try {
+                const parsed = JSON.parse(cd.value);
+                if (parsed && typeof parsed === 'object' && !Array.isArray(parsed)) _tCatDisplay = parsed;
+            } catch (_) { /* ugyldig JSON → alt vises som hidtil */ }
+        }
+
         // Company info
         const sv = (key, fallback) => { const s = settings.find(x => x.key === key); return s ? s.value : fallback; };
         _tCompany = {
@@ -934,6 +946,32 @@ function _tRestoreBlockStash() {
     }
 }
 
+/**
+ * Kundens syn på varelisten: skjulte kategorier væk, "nederst"-kategorier bagest.
+ *
+ * Emballage stod midt imellem maden på tilbuddet og virkede umotiveret — på
+ * bon-kortet ligger den allerede dæmpet nederst. Reglerne konfigureres i
+ * Settings → Tilbud — opbygning (migration 143).
+ *
+ * VIGTIGT: dette er kun visning. Kaldere skal beregne beløb på den RÅ liste —
+ * en skjult emballagelinje koster stadig det den koster.
+ */
+function _tOfferItems(items) {
+    const rule = it => _tCatDisplay[it.category || ''] || 'show';
+    return (items || [])
+        .filter(it => rule(it) !== 'hidden')
+        .map((it, idx) => ({ it, idx, last: rule(it) === 'last' ? 1 : 0 }))
+        .sort((a, b) => a.last - b.last || a.idx - b.idx)   // stabil: bevarer rækkefølgen indbyrdes
+        .map(x => x.it);
+}
+
+/** Samme regel for kategori-grupperede visninger: skjulte ud, "nederst" bagest. */
+function _tOfferCategories(cats) {
+    return Object.keys(cats)
+        .filter(c => (_tCatDisplay[c] || 'show') !== 'hidden')
+        .sort((a, b) => ((_tCatDisplay[a] || '') === 'last' ? 1 : 0) - ((_tCatDisplay[b] || '') === 'last' ? 1 : 0));
+}
+
 function _tEffectivePax(blockKey) {
     const meta = _tBlockMeta[blockKey];
     return (meta?.pax > 0) ? meta.pax : (parseInt(_tPax) || 1);
@@ -1417,22 +1455,20 @@ function _tBuildStep4() {
                 blockHdr += `<span class="bt">${_tFk(bt)}${perPax ? ` (${perPax} kr/pax)` : ''}</span>`;
             }
             h += `<div class="tilbud-pv-block-hdr">${blockHdr}</div>`;
-            const cats = {};
-            its.forEach(i => { const c = i.category || 'Ukendt'; if (!cats[c]) cats[c] = []; cats[c].push(i); });
-            Object.keys(cats).forEach(cat => {
-                cats[cat].forEach(i => {
-                    h += `<div class="tilbud-pv-row"><span class="rn">${i.qty > 1 ? i.qty + '\u00d7 ' : ''}${_tEsc(i.name)}</span>${sL ? `<span class="rp">${_tFk(i.unitPrice * i.qty)}</span>` : ''}</div>`;
-                });
+            // `bt` er allerede summeret over ALLE varer ovenfor \u2014 her filtreres
+            // kun visningen, s\u00e5 en skjult kategori t\u00e6ller stadig med i prisen.
+            _tOfferItems(its).forEach(i => {
+                h += `<div class="tilbud-pv-row"><span class="rn">${i.qty > 1 ? i.qty + '\u00d7 ' : ''}${_tEsc(i.name)}</span>${sL ? `<span class="rp">${_tFk(i.unitPrice * i.qty)}</span>` : ''}</div>`;
             });
         });
     } else {
+        // Bel\u00f8bet summeres over alle varer, uafh\u00e6ngigt af hvad der vises.
+        _tSiItems.forEach(i => { sub += i.unitPrice * i.qty; });
         const cats = {};
         _tSiItems.forEach(i => { const c = i.category || 'Ukendt'; if (!cats[c]) cats[c] = []; cats[c].push(i); });
-        Object.keys(cats).forEach(cat => {
+        _tOfferCategories(cats).forEach(cat => {
             cats[cat].forEach(i => {
-                const lt = i.unitPrice * i.qty;
-                sub += lt;
-                h += `<div class="tilbud-pv-row"><span class="rn">${i.qty > 1 ? i.qty + '\u00d7 ' : ''}${_tEsc(i.name)}</span>${sL ? `<span class="rp">${_tFk(lt)}</span>` : ''}</div>`;
+                h += `<div class="tilbud-pv-row"><span class="rn">${i.qty > 1 ? i.qty + '\u00d7 ' : ''}${_tEsc(i.name)}</span>${sL ? `<span class="rp">${_tFk(i.unitPrice * i.qty)}</span>` : ''}</div>`;
             });
         });
     }
@@ -1719,7 +1755,8 @@ function _tGenPDF() {
                 doc.setFontSize(9); doc.text(fK(bt) + (perPax ? `  (${perPax} kr/pax)` : ''), pw - mr, y, { align: 'right' });
             }
             y += 1.5; doc.setDrawColor(...(bc[b.id] || br)); doc.setLineWidth(0.4); doc.line(ml, y, pw - mr, y); y += 5;
-            its.forEach(it => {
+            // `bt` er allerede summeret over alle varer \u2014 her filtreres kun visningen.
+            _tOfferItems(its).forEach(it => {
                 chk(7); doc.setFontSize(8.5); doc.setFont('helvetica', 'normal'); doc.setTextColor(...tx);
                 doc.text(`${it.qty > 1 ? it.qty + '\u00d7 ' : ''}${it.name}`, ml, y);
                 if (sL) doc.text(fK(it.unitPrice * it.qty), pw - mr, y, { align: 'right' });
@@ -1728,16 +1765,17 @@ function _tGenPDF() {
             y += 3;
         });
     } else {
+        _tSiItems.forEach(i => { sub += i.unitPrice * i.qty; });   // bel\u00f8b: alle varer
         const cats = {};
         _tSiItems.forEach(i => { const c = i.category || 'Ukendt'; if (!cats[c]) cats[c] = []; cats[c].push(i); });
-        Object.keys(cats).forEach(cat => {
+        _tOfferCategories(cats).forEach(cat => {
             chk(10); doc.setFontSize(8); doc.setFont('helvetica', 'bold'); doc.setTextColor(...br);
             doc.text(cat.toUpperCase(), ml, y); y += 4;
             cats[cat].forEach(i => {
-                chk(6); const lt = i.unitPrice * i.qty; sub += lt;
+                chk(6);
                 doc.setFontSize(8.5); doc.setFont('helvetica', 'normal'); doc.setTextColor(...tx);
                 doc.text(`${i.qty > 1 ? i.qty + '\u00d7 ' : ''}${i.name}`, ml, y);
-                if (sL) doc.text(fK(lt), pw - mr, y, { align: 'right' });
+                if (sL) doc.text(fK(i.unitPrice * i.qty), pw - mr, y, { align: 'right' });
                 y += 5.5;
             }); y += 2;
         });
