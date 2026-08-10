@@ -564,12 +564,18 @@ function matchBonByTagNumber(db, num, opts = {}) {
 function findCustomerByEmail(db, email) {
     if (!email) return null;
     const e = email.toLowerCase();
+    // Kun AKTIVE kunder og AKTIVE kontaktpunkter. En sammenlagt dublet er
+    // lukket, ikke slettet — uden filteret ville `LIMIT 1` uden ORDER BY kunne
+    // rute en indgående mail ind på den døde række.
     const cp = db.prepare(
         `SELECT cp.entity_id AS id FROM contact_points cp
-         WHERE cp.entity_type = 'customer' AND cp.kind = 'email' AND LOWER(cp.value) = ? LIMIT 1`
+           JOIN customers c ON c.id = cp.entity_id
+          WHERE cp.entity_type = 'customer' AND cp.kind = 'email'
+            AND LOWER(cp.value) = ? AND cp.is_active = 1 AND c.is_active = 1
+          LIMIT 1`
     ).get(e);
     if (cp) return { id: cp.id };
-    const c = db.prepare(`SELECT id FROM customers WHERE LOWER(email) = ? LIMIT 1`).get(e);
+    const c = db.prepare(`SELECT id FROM customers WHERE LOWER(email) = ? AND is_active = 1 LIMIT 1`).get(e);
     return c ? { id: c.id } : null;
 }
 
