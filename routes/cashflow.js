@@ -1995,20 +1995,35 @@ router.post('/reconcile', handle(async (req, res) => {
         if (e instanceof economicAdapter.EconomicRateError) return res.status(503).json({ error: 'e-conomic rate limit ramt — prøv igen senere' });
         return res.status(502).json({ error: 'e-conomic-afstemning fejlede', detail: e.message });
     }
-    if (!dryRun && (result.flipped > 0 || result.linked > 0)) {
+    if (!dryRun && (result.flipped > 0 || result.linked > 0 || result.mirrorCleared > 0)) {
         logChange({ entityType: 'cashflow', entityId: 0, action: 'economic_reconcile',
             fieldName: 'betalt', oldValue: null, newValue: String(result.flipped),
-            userId: req.session?.userId ?? null, notes: `vandmærke → ${result.newWatermark} · ${result.numbered} nr · ${result.linked} koblet` });
-        broadcast('cashflow_reconciled', { flipped: result.flipped, linked: result.linked, watermark: result.newWatermark });
+            userId: req.session?.userId ?? null,
+            notes: `${result.openInEconomic} åbne hos e-conomic · vandmærke → ${result.newWatermark} · `
+                 + `${result.numbered} nr · ${result.linked} koblet · ${result.conflicts} uenige` });
+        broadcast('cashflow_reconciled', {
+            flipped: result.flipped, linked: result.linked,
+            conflicts: result.conflicts, open: result.openInEconomic, watermark: result.newWatermark,
+        });
     }
     res.json(result);
 }));
 
-// GET /api/cashflow/reconcile/status — vandmærke + om e-conomic er konfigureret
+// GET /api/cashflow/reconcile/status — sidste synk + åbne fakturaer hos e-conomic
+// Vandmærket dækker KUN nummer-koblingen (delta). Betalt-status er fuld tilstand,
+// så den har ingen "ajour til"-dato — kun et tidspunkt for sidste opslag.
 router.get('/reconcile/status', handle((req, res) => {
     const db = getDb();
-    const watermark = db.prepare(`SELECT value FROM cf_meta WHERE key = 'economic_booked_until'`).get()?.value || null;
-    res.json({ economic_booked_until: watermark || null, configured: economicAdapter.isConfigured() });
+    const meta = (k) => db.prepare(`SELECT value FROM cf_meta WHERE key = ?`).get(k)?.value || null;
+    res.json({
+        economic_booked_until: meta('economic_booked_until'),
+        economic_synced_at: meta('economic_synced_at'),
+        // e-conomics egen optælling fra sidste synk — ikke udledt af spejlet, som
+        // kun kender de fakturaer vi har nået at scanne.
+        open_in_economic: Number(meta('economic_open_count') ?? 0),
+        open_in_economic_total: Number(meta('economic_open_total') ?? 0),
+        configured: economicAdapter.isConfigured(),
+    });
 }));
 
 // Eksportér kategoriserings-helperen til test (regressionssikring af triage-reglerne)

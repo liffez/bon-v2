@@ -382,16 +382,44 @@ function _cfBuildOverblik(el, stats, weekly, invoices, upcoming, unmatched, even
     // e-conomic-afstemning: badge (vandmærke) + "Synk e-conomic"-knap
     const econBadge = el.querySelector('#cfEconBadge');
     const reconBtn = el.querySelector('#cfReconcileBtn');
+    const _cfEconBadgeText = (s) => {
+        if (!s.economic_synced_at) return s.economic_booked_until ? 'Ikke synket siden opdateringen' : 'Ikke afstemt endnu';
+        const d = new Date(s.economic_synced_at);
+        const naar = d.toLocaleString('da-DK', { day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit' });
+        // Åbne = e-conomics egen debitorbog, ikke vores gæt. Det er tallet der skal
+        // stemme med "Forfaldne" nedenfor; gør de ikke, mangler der en synk.
+        return `e-conomic: ${s.open_in_economic} ubetalte · synket ${naar}`;
+    };
     fetchReconcileStatus().then(s => {
         if (!econBadge) return;
         if (!s.configured) { econBadge.textContent = 'e-conomic ikke konfigureret'; reconBtn.disabled = true; }
-        else econBadge.textContent = s.economic_booked_until ? `Fakturastatus ajour til ${s.economic_booked_until}` : 'Ikke afstemt endnu';
+        else econBadge.textContent = _cfEconBadgeText(s);
     }).catch(() => {});
     if (reconBtn) reconBtn.onclick = async () => {
         try {
             reconBtn.textContent = 'Synker...'; reconBtn.disabled = true;
             const r = await reconcileCashflow({});
-            alert(`Afstemning færdig!\n\n${r.scanned} fakturaer scannet\n${r.matched} koblet til bons\n${r.flipped} markeret betalt\n${r.numbered ?? 0} fakturanr gemt\n${r.linked ?? 0} bank-indbetalinger koblet via fakturanr`);
+            const kr = (n) => Math.round(n || 0).toLocaleString('da-DK') + ' kr';
+            const linjer = [
+                `${r.openInEconomic} fakturaer er ubetalte hos e-conomic (${kr(r.openInEconomicTotal)})`,
+                `${r.flipped} rettet fra forfalden til betalt`,
+                `${r.scanned} ${r.scanned === 1 ? 'ny faktura' : 'nye fakturaer'} scannet · ${r.numbered ?? 0} fakturanr gemt`,
+                `${r.linked ?? 0} bank-indbetalinger koblet via fakturanr`,
+            ];
+            // Uenighed = vi siger betalt, e-conomic siger stadig åben. Vi flipper
+            // ikke tilbage af os selv (det ville genoplive fakturaer kontoret har
+            // afskrevet med vilje) — men det skal siges højt.
+            if (r.conflicts) linjer.push(`\n⚠ ${r.conflicts} står som betalt hos os, men er stadig åbne hos e-conomic:\n   ` +
+                r.conflictRows.slice(0, 8).map(c => `${c.cf_id} (faktura ${c.booked_no})`).join(', '));
+            if (r.unknownNumbers) linjer.push(`${r.unknownNumbers} fakturanr kendes ikke hos e-conomic — urørt`);
+            // Forklarer forskellen mellem e-conomics tal og "Forfaldne" nedenfor:
+            // åbne fakturaer der ikke har en modsvarende række i Bon (fx overskrift
+            // uden bon-nr, eller en faktura der aldrig er udsprunget af en bon).
+            if (r.unlinkedOpen?.length) linjer.push(`\n${r.unlinkedOpen.length} åbne fakturaer hos e-conomic har ingen kobling i Bon:\n   `
+                + r.unlinkedOpen.slice(0, 8).map(u => `${u.booked_no} ${Math.round(u.remainder)} kr${u.heading ? ` "${u.heading}"` : ' (ingen overskrift)'}`).join('\n   ')
+                + (r.unlinkedOpen.length > 8 ? `\n   … og ${r.unlinkedOpen.length - 8} mere` : ''));
+            alert('Afstemning færdig!\n\n' + linjer.join('\n'));
+            fetchReconcileStatus().then(s => { if (econBadge) econBadge.textContent = _cfEconBadgeText(s); }).catch(() => {});
             _cfRenderOverblik();
         } catch (err) {
             alert('Afstemning fejlede: ' + err.message);
