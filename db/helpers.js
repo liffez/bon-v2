@@ -99,6 +99,10 @@ function getBonLines(bonId) {
         SELECT id, bon_id, grocy_recipe_id, product_name, category, quantity, unit,
                cost_price, unit_price, line_total, sort_order,
                is_accessory, special_request, co2e, pos_product_id, notes,
+               -- block_type: tidsblokken på event-tilbud. Manglede her, så
+               -- "kopiér ordre" ikke kunne lægge varerne tilbage i deres
+               -- oprindelige blokke og smed alt i én (#427).
+               block_type,
                menu_group_id
         FROM bon_lines
         WHERE bon_id = ?
