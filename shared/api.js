@@ -254,6 +254,11 @@ function fetchSettings() {
     return apiFetch('/settings');
 }
 
+// Interne afsendere (mail-routing): listen + de kunder den faktisk rammer.
+function fetchInternalSenders() {
+    return apiFetch('/settings/internal-senders');
+}
+
 function patchSetting(key, value) {
     return apiFetch('/settings/' + encodeURIComponent(key), {
         method: 'PATCH',
@@ -1081,8 +1086,13 @@ function bulkIgnoreUnmatchedMails(ids) {
 }
 
 // Opret afsenderen som privat lead + knyt mailen til den nye kunde
-function createLeadFromUnmatchedMail(id) {
-    return apiFetch('/mail/unmatched/' + id + '/create-lead', { method: 'POST' });
+// useParsed=true opretter den VIDERESENDTE afsender som lead i stedet for
+// kollegaen der trykkede videresend (mail_unmatched.parsed_*).
+function createLeadFromUnmatchedMail(id, useParsed) {
+    return apiFetch('/mail/unmatched/' + id + '/create-lead', {
+        method: 'POST',
+        body: JSON.stringify({ use_parsed: !!useParsed }),
+    });
 }
 
 // Hent en ufordelt mail igen fra serveren (body_html + inline-billeder)

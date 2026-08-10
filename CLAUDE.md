@@ -1944,6 +1944,96 @@ Fase 3 — Office:
 - SSE-test-helper `tests/scripts/helpers/sse_listener.js` genbruges på alle office-tracks
 - Findings dokumenteres som F-numre i specens §11; observations som #NNN i `docs/TEST_OBSERVATIONS.md`
 
+### Videresendt mail: intern afsender + reel afsender (10. august 2026)
+
+Anne videresendte en kundemail til kontakt@ for at få kunden oprettet. Mailen
+landede som en tråd på **os selv** (`#k-3005 Ristet Rug`), og kunden inde i
+beskeden blev aldrig set.
+
+Årsag: `info@ristetrug.dk` står i `customers` som kunde 3005 under firmaet Ristet
+Rug — huset er sin egen kunde. `processInboundMail` trin 3a matchede derfor
+afsenderen mod os, og forward-parseren (`parseForwardedSender`, som har eksisteret
+siden migration 018) kører kun på den ufordelte gren mailen aldrig nåede. Kolonnerne
+`mail_unmatched.parsed_email/_name/_company` blev skrevet, men **læst ingen steder**.
+
+- **Migration 142**: `settings.internal_mail_domains` (CSV, seedet fra `mail_domain`).
+  Entries er enten et helt domæne (`ristetrug.dk`) eller én adresse
+  (`bogholder@partner.dk`).
+- **`services/internalIdentity.js`** — `isInternalEmail(db, email)`. To uafhængige
+  signaler: settingens liste **og** `companies.is_internal = 1` (kunder under et
+  internt firma). 60s cache, ryddes af `PATCH /api/settings/:key`.
+- **`mailService.resolveEffectiveSender`** — er afsenderen intern, slås kunden op på
+  den **videresendte** afsender i stedet. Kendt kunde ⇒ kundens tråd (genåbnes som
+  ved en direkte mail). Ukendt eller ingen forward-blok ⇒ ufordelt indbakke med
+  `parsed_*` udfyldt. Vi gætter aldrig på os selv.
+- **`/api/mail/threads/:id/reply` fik et filter**: modtageren er seneste indgående
+  **ikke-interne** afsender. Uden det ville et svar på en videresendt kundemail gå
+  til kollegaen — bogført afsender er jo den der videresendte.
+- **`create-lead` + `reply` tager `use_parsed`** → opretter/svarer den reelle
+  afsender. Domæne-gættet på firmanavnet lægges som note på leadet (det er et spor,
+  ikke en sandhed). Serveren afviser `use_parsed` mod en intern adresse.
+- **Indbakke-UI**: gult panel "↪ Videresendt af X — reel afsender Y ⟨mail⟩ · Firma"
+  med *Opret som lead* / *Svar til Y* / *Findes allerede — søg kunde* (forudfylder
+  søgningen med navnet). De gamle knapper hedder nu "…af afsender", så de to ikke
+  forveksles. Listevisningen viser `↪ fra <navn> · <firma>`.
+- **`parsed_is_internal`** sættes server-side på ufordelte rækker: peger forward-blokken
+  tilbage på os selv (fx en videresendt ordrebekræftelse fra bon@), vises panelet ikke.
+  Fundet ved at kigge på ægte data — frontenden kender ikke domænelisten.
+- **Settings → Mail → "Interne afsendere"**: feltet + en liste over de kunderækker
+  reglen faktisk rammer, med begrundelse. Reglen er usynlig i sig selv; den viser sig
+  først som en mail der ikke havnede hvor man ventede.
+- `_guessCompany` splitter nu på bindestreg: `cap-partner.eu` → "Cap Partner".
+
+**Tests**: `tests/inbox_handling.test.js` udvidet 19 → **29 asserts** (intern uden
+forward → ufordelt · intern forward af ukendt → `parsed_*` · intern forward af kendt
+kunde → kundens tråd · modtager-valg springer den interne over). Mutations-testet:
+rulles `resolveEffectiveSender` tilbage til den gamle adfærd, falder 10 asserts.
+
+**Ikke løst her**: en tråd der ALLEREDE er fejlkoblet kan stadig ikke flyttes —
+`PATCH /api/mail/threads/:id` tager ikke `customer_id`, og tråd-visningen har ingen
+"Flyt til kunde"-knap. Det er den generelle retteventil (gælder enhver fejlrouting,
+ikke kun videresendelser) og bør bygges som sin egen opgave.
+
+### Kunde-oprettelse: find firma uden CVR-nummer + gem tilbudskladde (10. august 2026)
+
+To driftsfriktioner fundet mens Lærke skulle oprettes:
+
+**1. Firma kunne kun slås op på CVR-nummer.** `KundeSoeg`s opret-firma-formular havde
+ét felt: 8 cifre + "Slå op" (`cvrLookup` returnerer uden videre ved `length !== 8`).
+CAP Partner havde ikke skrevet deres CVR nogen steder — hverken i mailen eller på
+hjemmesiden — så man stod af. `GET /api/cvr/search?q=` (navn) og `/api/cvr/virk-search`
+har eksisteret hele tiden; de var bare ikke wiret ind her, kun på CRM-Kunder-siden.
+
+- `cvrSearchByName()` i [shared/kunde_soeg.js](shared/kunde_soeg.js): søger på navn,
+  **cvrapi først** (præcis på korte entydige navne), **Virk ES som fallback** (fuzzy,
+  bedre til fulde firmanavne). Resultater vises som klikbare rækker
+  (navn · CVR · postnr/by · status); klik udfylder felterne via `applyCvrResult()`.
+- **Link til `datacvr.virk.dk`** forudfyldt med søgeteksten, altid synligt under
+  resultaterne. cvrapi kan returnere et plausibelt men forkert match på et ukendt navn
+  (verificeret: nonsens-navn gav "IKR A/S"), så udvejen skal stå der.
+- Hjælpelinje: *"CVR er ikke påkrævet — firmaet kan oprettes med navnet alene"*.
+  Det var allerede sandt (kun `name` er påkrævet), men ikke synligt.
+- `_guessCompany` deler nu på bindestreg: `cap-partner.eu` → "Cap Partner".
+- **Ikke løst**: adressen fra CVR-opslaget gemmes stadig ikke. `companies.address_id`
+  er FK til `addresses`, så det kræver at der først oprettes en adresse-række.
+  Gælder også det eksisterende nummer-opslag — ikke en regression.
+
+**2. Et halvfærdigt tilbud kunne ikke gemmes.** "Gem tilbud" fandtes kun på trin 3 og 4
+i wizarden, så et tilbud man blev afbrudt i på trin 1 var tabt. `_tSaveBtn()` lægger nu
+en **"Gem kladde"** (→ "Gem" når tilbuddet har et nummer) på trin 1, 2 og 3. Trin 0 er
+kun skabelonvalg og har intet at gemme.
+
+> ⚠️ **`bons.delivery_date` er `NOT NULL`.** Derfor kan et tilbud ikke gemmes helt uden
+> dato. Det ramte også "Gem tilbud" på sidste trin i dag — med en rå
+> `NOT NULL constraint failed: bons.delivery_date` i en toast. `_tSaveQuote()` fanger
+> det nu, siger det på dansk og hopper til datofeltet. **Det er en workaround.** Den
+> rigtige løsning er at lempe kolonnen (kræver 12-trins table-rebuild af `bons` med
+> 3 triggers + 11 views hængende på sig — egen opgave, ikke en sidebemærkning).
+
+Verificeret i browser mod kopi af driftsdata: CAP Partner fundet på navnet alene
+(CVR 34599963, samme adresse som i mailsignaturen), felterne udfyldt ved klik, og en
+kladde gemt fra trin 1 helt uden kunde og varer (T-14, findbar i listen). Testdata ryddet.
+
 ### Mail-oprydning: spam/auto-ignored + bounces (14.-15. maj 2026)
 > Spec: `docs/CLAUDE_MAIL_FIX_SPAM_OPHOBNING.md`
 
@@ -3427,6 +3517,7 @@ GET    /api/mail/templates                               routes/mail.js (admin)
 PATCH  /api/mail/templates/:key                          routes/mail.js (admin)
 POST   /api/mail/test                                    routes/mail.js (admin)
 GET    /api/settings/locations                           routes/settings.js
+GET    /api/settings/internal-senders                    routes/settings.js (admin — interne mail-afsendere + ramte kunder)
 GET    /api/dashboard/today                              routes/dashboard.js
 GET    /api/dashboard/stats?days_back=&days_forward=     routes/dashboard.js
 GET    /api/dashboard/top-products?from=&to=             routes/dashboard.js

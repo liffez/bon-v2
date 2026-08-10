@@ -637,7 +637,10 @@ function _tBuildStep1() {
         ${_tCust ? _tBuildOrderHistory() : ''}
         <div class="tilbud-btn-row">
             <button class="tilbud-btn tilbud-btn-secondary" onclick="_tPrev()">\u2190 Tilbage</button>
-            <button class="tilbud-btn tilbud-btn-primary" onclick="_tNext()">N\u00e6ste \u2192</button>
+            <div style="display:flex;gap:8px">
+                ${_tSaveBtn()}
+                <button class="tilbud-btn tilbud-btn-primary" onclick="_tNext()">N\u00e6ste \u2192</button>
+            </div>
         </div>`;
 }
 
@@ -812,7 +815,10 @@ function _tBuildStep2() {
 
     h += `<div class="tilbud-btn-row">
         <button class="tilbud-btn tilbud-btn-secondary" onclick="_tPrev()">\u2190 Tilbage</button>
-        <button class="tilbud-btn tilbud-btn-primary" onclick="_tNext()">N\u00e6ste \u2192</button>
+        <div style="display:flex;gap:8px">
+            ${_tSaveBtn()}
+            <button class="tilbud-btn tilbud-btn-primary" onclick="_tNext()">N\u00e6ste \u2192</button>
+        </div>
     </div>`;
     return h;
 }
@@ -1094,7 +1100,10 @@ function _tBuildStep3() {
 
     h += `<div class="tilbud-btn-row">
         <button class="tilbud-btn tilbud-btn-secondary" onclick="_tPrev()">\u2190 Tilbage</button>
-        <button class="tilbud-btn tilbud-btn-primary" onclick="_tNext()">N\u00e6ste \u2192</button>
+        <div style="display:flex;gap:8px">
+            ${_tSaveBtn()}
+            <button class="tilbud-btn tilbud-btn-primary" onclick="_tNext()">N\u00e6ste \u2192</button>
+        </div>
     </div>`;
     return h;
 }
@@ -1378,8 +1387,35 @@ function _tCollectLines() {
     return lines;
 }
 
+// Gem-knappen hører til på HVERT trin, ikke kun de sidste to.
+//
+// Wizarden havde kun "Gem tilbud" på trin 3 og 4, så et tilbud man blev
+// afbrudt i — telefonen ringer på trin 1 — var tabt. Hverken frontend eller
+// `POST /api/quotes` kræver andet end at der trykkes: alle felter er nullable,
+// og tilbuddet får sit T-nummer med det samme. Der var altså intet der
+// forhindrede det; knappen manglede bare.
+function _tSaveBtn() {
+    const label = _tQuoteId ? 'Gem' : 'Gem kladde';
+    return `<button class="tilbud-btn tilbud-btn-secondary" onclick="_tSaveQuote()"
+                    title="Gemmer som kladde — du kan altid vende tilbage og gøre tilbuddet færdigt">${label}</button>`;
+}
+
 async function _tSaveQuote() {
     _tSaveStepFields();
+
+    // `bons.delivery_date` er NOT NULL i skemaet, så et tilbud kan ikke gemmes
+    // uden dato — uanset hvor tidligt i forløbet man er. Uden dette tjek kommer
+    // afvisningen som en rå SQL-besked i en toast ("NOT NULL constraint failed").
+    // Sig det på dansk og sæt markøren i feltet i stedet.
+    if (!_tDeliveryDate) {
+        _tToast('Sæt en leveringsdato — den kan altid ændres bagefter');
+        if (_tStep !== 1) { _tStep = 1; _tRenderWizard(); }
+        requestAnimationFrame(() => {
+            const el = document.getElementById('t-ev-date');
+            if (el) { el.focus(); el.scrollIntoView({ block: 'center' }); }
+        });
+        return;
+    }
 
     const payload = {
         customer_id: _tCust?.customer_id ?? null,

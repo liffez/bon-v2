@@ -33,6 +33,9 @@ class KundeSoeg {
         this.selectedFirma = null;    // { id, name, cvr, ... } når mode === 'existing'
         this.newFirma = {};            // når mode === 'new'
         this.cvrLoading = false;
+        this.cvrNameQuery = '';        // CVR-søgning på firmanavn (når nummeret ikke er kendt)
+        this.cvrNameResults = null;    // null = ikke søgt endnu, [] = søgt uden resultat
+        this.cvrNameSearching = false;
         this.searchQuery = '';
         this.render();
     }
@@ -204,6 +207,56 @@ class KundeSoeg {
             console.warn('CVR-opslag fejlede:', err.message);
         }
         this.cvrLoading = false;
+        this.render();
+    }
+
+    /**
+     * Find firmaet i CVR-registret ud fra NAVNET.
+     *
+     * Opret-formularen kunne kun slå op på et 8-cifret CVR-nummer, og det er
+     * ikke altid til at få fat i: CAP Partner skrev det hverken i mailen eller
+     * på deres hjemmeside. Så stod man i praksis af.
+     *
+     * To kilder, i den rækkefølge: cvrapi.dk rammer præcist på korte, entydige
+     * navne, mens Virks ElasticSearch er fuzzy og bedre til fulde firmanavne.
+     * Fejler den ene (rate limit, manglende credentials), prøves den anden.
+     */
+    async cvrSearchByName(q) {
+        const query = (q || '').trim();
+        if (query.length < 2) return;
+
+        this.cvrNameQuery = query;
+        this.cvrNameSearching = true;
+        this.cvrNameResults = null;
+        this.render();
+
+        const tryEndpoint = async (url) => {
+            try {
+                const res = await fetch(url);
+                if (!res.ok) return null;
+                const data = await res.json();
+                return Array.isArray(data) && data.length ? data : null;
+            } catch (_) { return null; }
+        };
+
+        const hits = await tryEndpoint(`/api/cvr/search?q=${encodeURIComponent(query)}`)
+                  || await tryEndpoint(`/api/cvr/virk-search?q=${encodeURIComponent(query)}`)
+                  || [];
+
+        this.cvrNameResults = hits;
+        this.cvrNameSearching = false;
+        this.render();
+    }
+
+    /** Udfyld firma-felterne fra et CVR-resultat (samme felter som cvrLookup sætter). */
+    applyCvrResult(r) {
+        this.newFirma.name = r.name || this.newFirma.name || '';
+        this.newFirma.cvr = r.cvr || '';
+        this.newFirma.phone = r.phone || this.newFirma.phone || '';
+        this.newFirma.address = r.address || '';
+        this.newFirma.zipcode = r.zipcode || '';
+        this.newFirma.city = r.city || '';
+        this.cvrNameResults = null;
         this.render();
     }
 
@@ -721,6 +774,8 @@ class KundeSoeg {
         header.appendChild(cancelLink);
         wrap.appendChild(header);
 
+        wrap.appendChild(this.renderCvrNameSearch());
+
         // CVR-række med opslag
         const cvrRow = document.createElement('div');
         cvrRow.className = 'ks-form-field ks-cvr-row';
@@ -761,6 +816,97 @@ class KundeSoeg {
         }
 
         return wrap;
+    }
+
+    /** Søgefelt + resultater til "find firmaet ud fra navnet". */
+    renderCvrNameSearch() {
+        const box = document.createElement('div');
+        box.className = 'ks-cvr-search';
+
+        const label = document.createElement('label');
+        label.textContent = 'Slå firma op i CVR';
+        box.appendChild(label);
+
+        const inner = document.createElement('div');
+        inner.className = 'ks-cvr-inner';
+
+        const input = document.createElement('input');
+        input.type = 'text';
+        input.placeholder = 'Firmanavn, fx CAP Partner';
+        input.value = this.cvrNameQuery || '';
+        input.addEventListener('input', (e) => { this.cvrNameQuery = e.target.value; });
+        input.addEventListener('keydown', (e) => {
+            if (e.key === 'Enter') { e.preventDefault(); this.cvrSearchByName(input.value); }
+        });
+        inner.appendChild(input);
+
+        const btn = document.createElement('button');
+        btn.type = 'button';
+        btn.className = 'ks-cvr-btn';
+        btn.textContent = this.cvrNameSearching ? '...' : 'Søg';
+        btn.disabled = this.cvrNameSearching;
+        btn.addEventListener('click', () => this.cvrSearchByName(input.value));
+        inner.appendChild(btn);
+
+        box.appendChild(inner);
+
+        if (Array.isArray(this.cvrNameResults)) {
+            const list = document.createElement('div');
+            list.className = 'ks-cvr-results';
+
+            if (!this.cvrNameResults.length) {
+                const empty = document.createElement('div');
+                empty.className = 'ks-cvr-empty';
+                empty.textContent = 'Ingen match i CVR.';
+                list.appendChild(empty);
+            } else {
+                for (const r of this.cvrNameResults) {
+                    const row = document.createElement('button');
+                    row.type = 'button';
+                    row.className = 'ks-cvr-result';
+
+                    const nm = document.createElement('div');
+                    nm.className = 'ks-cvr-result-name';
+                    nm.textContent = r.name || '(uden navn)';
+                    row.appendChild(nm);
+
+                    const meta = [r.cvr ? 'CVR ' + r.cvr : null, [r.zipcode, r.city].filter(Boolean).join(' '), r.status]
+                        .filter(Boolean).join('  ·  ');
+                    if (meta) {
+                        const sub = document.createElement('div');
+                        sub.className = 'ks-cvr-result-sub';
+                        sub.textContent = meta;
+                        row.appendChild(sub);
+                    }
+
+                    row.addEventListener('click', () => this.applyCvrResult(r));
+                    list.appendChild(row);
+                }
+            }
+
+            // Registret er ikke altid til at søge i — et datterselskab kan hedde
+            // noget helt andet end det navn kunden skriver under. Så skal man
+            // kunne gå direkte til Virk og finde nummeret selv.
+            const help = document.createElement('div');
+            help.className = 'ks-cvr-help';
+            const link = document.createElement('a');
+            link.href = 'https://datacvr.virk.dk/soegeresultater?fritekst='
+                + encodeURIComponent(this.cvrNameQuery || '');
+            link.target = '_blank';
+            link.rel = 'noopener';
+            link.textContent = 'Søg videre på datacvr.virk.dk ↗';
+            help.appendChild(link);
+            list.appendChild(help);
+
+            box.appendChild(list);
+        }
+
+        const hint = document.createElement('div');
+        hint.className = 'ks-cvr-hint';
+        hint.textContent = 'CVR er ikke påkrævet — firmaet kan oprettes med navnet alene og berigelse senere.';
+        box.appendChild(hint);
+
+        return box;
     }
 
     /* ══════════════════════════════════════════════════════

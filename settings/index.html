@@ -2280,6 +2280,27 @@ async function loadMailSection() {
   html += mailToggle('imap_kontakt_enabled', 'Aktiv');
   html += '</div><div style="margin-top:var(--space-s)"><button class="st-btn st-btn-primary st-btn-sm" onclick="saveMailSettings(\'imap_kontakt\')">Gem kontakt@</button></div></div>';
 
+  // Interne afsendere — styrer hvor indgående mail lander
+  html += '<div class="st-mail-group"><h3>Interne afsendere</h3>' +
+    '<p style="font-size:.82rem;color:var(--color-text-dim);margin-bottom:10px;max-width:680px;line-height:1.6">' +
+      'Adresser her regnes <strong>aldrig</strong> som kunder når indgående mail fordeles. ' +
+      'Videresender en kollega en kundemail til bon@ eller kontakt@, slås kunden i stedet op p&aring; ' +
+      'afsenderen <em>inde i</em> den videresendte besked — og findes hun ikke, lander mailen i ' +
+      'CRM Indbakken med den rigtige afsender vist, i stedet for at blive filet under os selv.' +
+    '</p>' +
+    '<p style="font-size:.78rem;color:var(--color-text-dim);margin-bottom:10px">' +
+      'Kommasepareret. Et helt dom&aelig;ne (<code>ristetrug.dk</code>) eller &eacute;n adresse ' +
+      '(<code>bogholder@partner.dk</code>). Firmaer markeret som interne i CRM t&aelig;ller med automatisk.' +
+    '</p>' +
+    '<input class="st-input" id="mail-internal_mail_domains" style="width:100%;max-width:520px" ' +
+      'value="' + esc(allSettings.internal_mail_domains || '') + '" placeholder="ristetrug.dk">' +
+    '<div style="margin-top:var(--space-s);display:flex;gap:8px;align-items:center">' +
+      '<button class="st-btn st-btn-primary st-btn-sm" onclick="saveInternalSenders()">Gem</button>' +
+      '<span id="internal-senders-status" style="font-size:12px"></span>' +
+    '</div>' +
+    '<div id="internal-senders-list" style="margin-top:12px"></div>' +
+  '</div>';
+
   // Signatur
   html += '<div class="st-mail-group"><h3>Signatur</h3>' +
     '<textarea class="st-textarea" id="mail-sig" rows="4">' + esc(allSettings.mail_signature || '') + '</textarea>' +
@@ -2318,6 +2339,54 @@ async function loadMailSection() {
   container.innerHTML = html;
   // Vis første skabelon
   if (templates.length > 0) switchTemplate();
+  loadInternalSenders();
+}
+
+// Reglen om interne afsendere er usynlig i sig selv — den viser sig først som en
+// mail der ikke havnede hvor man ventede. Derfor vises hvilke kunderækker den
+// faktisk rammer, direkte under feltet.
+async function loadInternalSenders() {
+  var el = document.getElementById('internal-senders-list');
+  if (!el) return;
+  try {
+    var data = await fetchInternalSenders();
+    var rows = data.matched || [];
+    if (!rows.length) {
+      el.innerHTML = '<div style="font-size:12px;color:var(--color-text-dim)">Ingen kunder i basen matcher listen lige nu.</div>';
+      return;
+    }
+    var h = '<div style="font-size:12px;color:var(--color-text-dim);margin-bottom:6px">' +
+      'Disse ' + rows.length + ' kunde' + (rows.length === 1 ? '' : 'r') +
+      ' behandles som interne og bliver aldrig modtager af videresendt post:</div>';
+    h += '<div style="border:1px solid var(--color-border);border-radius:6px;overflow:hidden;max-width:680px">';
+    rows.forEach(function(r, i) {
+      h += '<div style="display:flex;gap:10px;align-items:baseline;padding:6px 10px;font-size:12px;' +
+        (i ? 'border-top:1px solid var(--color-border);' : '') + '">' +
+        '<strong style="min-width:150px">' + esc(r.name) + '</strong>' +
+        '<code style="font-size:11px">' + esc(r.email) + '</code>' +
+        (r.company_name ? '<span style="color:var(--color-text-dim)">' + esc(r.company_name) + '</span>' : '') +
+        '<span style="margin-left:auto;color:var(--color-text-dim);font-size:11px">' + esc(r.reason) + '</span>' +
+      '</div>';
+    });
+    h += '</div>';
+    el.innerHTML = h;
+  } catch (e) {
+    el.innerHTML = '<div style="font-size:12px;color:#c0392b">Kunne ikke hente listen: ' + esc(e.message || 'fejl') + '</div>';
+  }
+}
+
+async function saveInternalSenders() {
+  var el = document.getElementById('mail-internal_mail_domains');
+  var status = document.getElementById('internal-senders-status');
+  if (!el) return;
+  await patchSetting('internal_mail_domains', el.value);
+  allSettings.internal_mail_domains = el.value;
+  if (status) {
+    status.textContent = '✓ Gemt';
+    status.style.color = '#2e7d32';
+    setTimeout(function() { status.textContent = ''; }, 2500);
+  }
+  loadInternalSenders();
 }
 
 function mailField(key, label, type) {

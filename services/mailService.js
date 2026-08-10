@@ -9,6 +9,7 @@ const crypto = require('crypto');
 const { getDb } = require('../db/database');
 const { broadcast } = require('../shared/sse');
 const { parseSubject, parseForwardedSender, isBonV1, getPrefixes, buildTag } = require('../utils/mail-parser');
+const { isInternalEmail } = require('./internalIdentity');
 
 // ─── POLLING STATE ──────────────────────────────────────
 
@@ -538,6 +539,32 @@ function findCustomerByEmail(db, email) {
     return c ? { id: c.id } : null;
 }
 
+/**
+ * Hvem er mailen reelt FRA — set med routingens øjne?
+ *
+ * Normalt er svaret bare afsenderen. Undtagelsen er den interne videresendelse:
+ * en kollega sender en kundemail videre til bon@/kontakt@. Uden dette led slog
+ * routingen op på kollegaens adresse, og fordi huset selv står som kunde
+ * (info@ristetrug.dk = kunde 3005) landede kundens korrespondance i en tråd på
+ * Ristet Rug. Se services/internalIdentity.js.
+ *
+ *   { email, viaInternal }
+ *     email        — adressen der skal slås op som kunde (null = slå ikke op)
+ *     viaInternal  — mailen kom ind gennem en intern videresendelse
+ *
+ * Er afsenderen intern og der IKKE er en videresendt afsender at falde tilbage
+ * på, returneres email=null: mailen skal i den ufordelte indbakke og håndteres
+ * i hånden. Det er bedre end at gætte på os selv.
+ */
+function resolveEffectiveSender(db, fromAddr, forwardInfo) {
+    if (!isInternalEmail(db, fromAddr)) return { email: fromAddr, viaInternal: false };
+
+    const fwd = forwardInfo?.email;
+    if (fwd && !isInternalEmail(db, fwd)) return { email: fwd, viaInternal: true };
+
+    return { email: null, viaInternal: true };
+}
+
 async function processInboundMail(parsed, uid, mailbox) {
     const db = getDb();
 
@@ -655,10 +682,20 @@ async function processInboundMail(parsed, uid, mailbox) {
         }
     }
 
+    // Videresendt afsender parses ÉN gang og bruges to steder: her i routingen
+    // (intern videresendelse → slå kunden op på den reelle afsender) og længere
+    // nede når mailen lander i den ufordelte indbakke.
+    const forwardInfo = parseForwardedSender(bodyText);
+
     // 3a. Kendt kunde uden tag → tråd (CLAUDE_INDBAKKE.md §4 pkt. 3). Spam/auto-ignore
     //     og bounces (ukendt afsender) falder igennem til mail_unmatched nedenfor.
     if (!threadId && !shouldAutoIgnore(fromAddr, subject)) {
-        const cust = findCustomerByEmail(db, fromAddr);
+        const sender = resolveEffectiveSender(db, fromAddr, forwardInfo);
+        if (sender.viaInternal) {
+            console.log(`[mail] intern afsender ${fromAddr}`
+                + (sender.email ? ` → slår op på videresendt afsender ${sender.email}` : ' uden videresendt afsender → ufordelt'));
+        }
+        const cust = findCustomerByEmail(db, sender.email);
         if (cust) {
             customerId = cust.id;
             const existing = db.prepare(
@@ -678,7 +715,6 @@ async function processInboundMail(parsed, uid, mailbox) {
 
     // 3b. Unmatched — no thread, no tag, ukendt afsender
     if (!threadId) {
-        const forwardInfo = parseForwardedSender(bodyText);
         const autoIgnore = shouldAutoIgnore(fromAddr, subject);
 
         // Indsæt direkte med status='ignored' for kendte spam/auto-afsendere,

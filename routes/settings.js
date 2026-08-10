@@ -74,6 +74,38 @@ router.get('/locations', requireAuth(), handle((req, res) => {
 //          i tre måneder efter problemet var løst. Det er præcis den slags larm
 //          folk lærer at ignorere. Derfor et kort vindue: har en bon leveret i
 //          går ikke trukket, er DET en levende fejl.
+// GET /api/settings/internal-senders
+// Hvem tæller lige nu som "os selv" i mail-routingen? Reglen er usynlig i sig
+// selv — den viser sig først som en mail der ikke havnede hvor man ventede.
+// Derfor listes de kunderækker den rent faktisk rammer, med begrundelse.
+router.get('/internal-senders', requireAuth('admin'), handle((req, res) => {
+    const db = getDb();
+    const { getInternalEntries, isInternalEmail } = require('../services/internalIdentity');
+    const entries = getInternalEntries(db);
+
+    // Kun kunder MED en email kan rammes af reglen — resten er irrelevante her.
+    const rows = db.prepare(`
+        SELECT c.id, c.first_name, c.last_name, c.email, co.name AS company_name,
+               COALESCE(co.is_internal, 0) AS company_internal
+          FROM customers c
+          LEFT JOIN companies co ON co.id = c.company_id
+         WHERE c.email IS NOT NULL AND TRIM(c.email) <> ''
+    `).all();
+
+    const matched = rows
+        .filter(r => isInternalEmail(db, r.email))
+        .map(r => ({
+            id: r.id,
+            name: [r.first_name, r.last_name].filter(Boolean).join(' ').trim() || r.email,
+            email: r.email,
+            company_name: r.company_name || null,
+            reason: r.company_internal ? 'firma markeret internt' : 'domæne/adresse på listen',
+        }))
+        .sort((a, b) => a.email.localeCompare(b.email));
+
+    res.json({ entries, matched });
+}));
+
 router.get('/inventory-status', requireAuth(), handle((req, res) => {
     const db = getDb();
     const DELIVERED = `('LEVERET','FAKTURERET','BETALT','AFSLUTTET')`;
@@ -161,6 +193,11 @@ router.patch('/:key', requireAuth(), handle((req, res) => {
     // Fakturavagtens skæringsdato caches i 60s — ryd den så ændringen slår igennem straks.
     if (req.params.key === 'invoice_guard_from_date') {
         require('../services/invoiceGuard').invalidateGuardCache();
+    }
+    // Interne afsendere afgør hvor indgående mail lander — en ændring skal virke
+    // ved næste polling, ikke først når 60s-cachen udløber.
+    if (req.params.key === 'internal_mail_domains' || req.params.key === 'mail_domain') {
+        require('../services/internalIdentity').invalidateInternalCache();
     }
     res.json({ key: req.params.key, value });
 }));

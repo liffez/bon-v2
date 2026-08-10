@@ -6,6 +6,18 @@ const { requireAuth, requireModule } = require('../shared/auth');
 const { sendFromTemplate, sendMail, refetchUnmatchedMail } = require('../services/mailService');
 const { broadcast } = require('../shared/sse');
 const { createPrivateLead } = require('../services/leadCreate');
+const { isInternalEmail } = require('../services/internalIdentity');
+
+// Er den videresendte afsender vores egen adresse?
+//
+// Sker oftere end man tror: en ordrebekræftelse fra bon@ bliver videresendt
+// videre, og forward-blokken peger dermed tilbage på os selv. Så er der intet
+// at vælge imellem, og indbakken skal ikke tilbyde "opret som lead" på vores
+// egen postkasse. Frontenden kender ikke listen over interne domæner — derfor
+// afgøres det her.
+function markParsedInternal(db, row) {
+    return row.parsed_email && isInternalEmail(db, row.parsed_email) ? 1 : 0;
+}
 
 function broadcastUnmatchedCount(db) {
     const row = db.prepare(`SELECT COUNT(*) AS c FROM mail_unmatched WHERE status = 'open'`).get();
@@ -419,12 +431,19 @@ router.post('/threads/:id/reply', requireAuth(), handle(async (req, res) => {
     const t = db.prepare('SELECT * FROM mail_threads WHERE id = ?').get(id);
     if (!t || t.handling_status == null) return res.status(404).json({ error: 'Tråd ikke fundet' });
 
-    // Modtager: seneste indgående afsender, ellers entitetens email
+    // Modtager: seneste indgående afsender, ellers entitetens email.
+    //
+    // Interne afsendere springes over. En videresendt kundemail bogføres på
+    // kunden med kollegaens adresse som afsender (mailService.resolveEffectiveSender)
+    // — uden dette filter ville et svar gå til os selv i stedet for til kunden.
     const ent = threadEntity(db, t);
-    const latestIn = db.prepare(
-        `SELECT from_email, mailbox FROM mail_messages WHERE thread_id = ? AND direction = 'in' AND from_email IS NOT NULL ORDER BY id DESC LIMIT 1`
-    ).get(id);
-    const to = (latestIn && latestIn.from_email) || ent.email;
+    const inbound = db.prepare(
+        `SELECT from_email, mailbox FROM mail_messages
+          WHERE thread_id = ? AND direction = 'in' AND from_email IS NOT NULL
+          ORDER BY id DESC LIMIT 20`
+    ).all(id);
+    const latestExternal = inbound.find(m => !isInternalEmail(db, m.from_email));
+    const to = (latestExternal && latestExternal.from_email) || ent.email;
     if (!to) return res.status(400).json({ error: 'Kan ikke finde en modtager-adresse for tråden' });
 
     const lastMailbox = db.prepare(`SELECT mailbox FROM mail_messages WHERE thread_id = ? AND mailbox IS NOT NULL ORDER BY id DESC LIMIT 1`).get(id);
@@ -651,6 +670,7 @@ router.get('/unmatched', requireModule('crm'), handle(async (req, res) => {
     for (const item of items) {
         item.attachments = attStmt.all(item.id);
         item.has_attachments = item.attachments.length > 0 ? 1 : 0;
+        item.parsed_is_internal = markParsedInternal(db, item);
         if (isBounceMail(item.from_email)) {
             item.is_bounce = true;
             const recipient = parseBouncedRecipient(item.body_text);
@@ -697,6 +717,7 @@ router.get('/inbox', requireModule('crm'), handle((req, res) => {
     for (const m of unmatched) {
         m.attachments = attUm.all(m.id);
         m.has_attachments = m.attachments.length ? 1 : 0;
+        m.parsed_is_internal = markParsedInternal(db, m);
         if (isBounceMail(m.from_email)) {
             m.is_bounce = true;
             const recipient = parseBouncedRecipient(m.body_text);
@@ -949,7 +970,33 @@ function linkUnmatchedToCustomer(db, um, customerId, userId) {
     return Number(threadId);
 }
 
-// POST /api/mail/unmatched/:id/create-lead
+// Hvilken afsender skal en ufordelt mail behandles som?
+//
+// `use_parsed` vælger den VIDERESENDTE afsender (mail_unmatched.parsed_*) i
+// stedet for den der ramte postkassen. Det er kollegaen der har trykket
+// videresend, men kunden der står inde i beskeden — og det er kunden vi vil
+// oprette og svare. Kolonnerne har været udfyldt siden migration 018 uden at
+// blive læst noget sted.
+function unmatchedSender(db, um, useParsed) {
+    if (useParsed) {
+        if (!um.parsed_email) return { error: 'Mailen har ingen videresendt afsender at bruge' };
+        // En cachet klient kan nå at bede om det efter listen er ændret — vi
+        // opretter aldrig vores egen postkasse som kunde.
+        if (isInternalEmail(db, um.parsed_email)) {
+            return { error: 'Den videresendte afsender er en af vores egne adresser' };
+        }
+        return {
+            email: um.parsed_email,
+            name: um.parsed_name || null,
+            company: um.parsed_company || null,
+            forwardedBy: um.from_email || null,
+        };
+    }
+    if (!um.from_email) return { error: 'Mailen har ingen afsender-email' };
+    return { email: um.from_email, name: um.from_name || null, company: null, forwardedBy: null };
+}
+
+// POST /api/mail/unmatched/:id/create-lead   { use_parsed? }
 // Opret afsenderen som privat lead (kunde uden firma) og knyt mailen til den nye kunde.
 router.post('/unmatched/:id/create-lead', requireModule('crm'), handle((req, res) => {
     const id = parseInt(req.params.id);
@@ -958,15 +1005,23 @@ router.post('/unmatched/:id/create-lead', requireModule('crm'), handle((req, res
 
     const um = db.prepare('SELECT * FROM mail_unmatched WHERE id = ?').get(id);
     if (!um) return res.status(404).json({ error: 'Mail ikke fundet' });
-    if (!um.from_email) return res.status(400).json({ error: 'Mailen har ingen afsender-email' });
 
-    const { firstName, lastName } = splitName(um.from_name);
+    const sender = unmatchedSender(db, um, !!req.body?.use_parsed);
+    if (sender.error) return res.status(400).json({ error: sender.error });
+
+    const { firstName, lastName } = splitName(sender.name);
+    // Firma-gættet er domænebaseret og derfor kun et spor — det gemmes som note
+    // på leadet så den der samler op kan slå det rigtige firma op og koble til.
+    const notes = [
+        sender.company ? `Firma (gættet ud fra maildomæne): ${sender.company}` : null,
+        sender.forwardedBy ? `Videresendt af ${sender.forwardedBy}` : null,
+    ].filter(Boolean).join('\n') || null;
 
     let customerId, threadId, created;
     transaction(db, () => {
         const lead = createPrivateLead(db, {
-            firstName, lastName, email: um.from_email,
-            userId, sourceLabel: 'opret-lead-fra-mail',
+            firstName, lastName, email: sender.email, notes,
+            userId, sourceLabel: sender.forwardedBy ? 'opret-lead-fra-videresendt-mail' : 'opret-lead-fra-mail',
         });
         customerId = lead.customerId;
         created = lead.created;
@@ -978,9 +1033,13 @@ router.post('/unmatched/:id/create-lead', requireModule('crm'), handle((req, res
     res.json({ ok: true, customer_id: customerId, thread_id: threadId, created });
 }));
 
-// POST /api/mail/unmatched/:id/reply  { subject?, text }
+// POST /api/mail/unmatched/:id/reply  { subject?, text, use_parsed? }
 // Send et svar til afsenderen. Knytter mailen til en kunde først (opretter lead
 // hvis den ikke allerede er linket) så svaret bliver tråd-historik.
+//
+// `use_parsed` svarer den VIDERESENDTE afsender i stedet for kollegaen der
+// trykkede videresend. Modtageren vælges altså aldrig frit — kun mellem de to
+// adresser mailen selv indeholder.
 router.post('/unmatched/:id/reply', requireModule('crm'), handle(async (req, res) => {
     const id = parseInt(req.params.id);
     const { subject, text } = req.body || {};
@@ -991,7 +1050,9 @@ router.post('/unmatched/:id/reply', requireModule('crm'), handle(async (req, res
 
     const um = db.prepare('SELECT * FROM mail_unmatched WHERE id = ?').get(id);
     if (!um) return res.status(404).json({ error: 'Mail ikke fundet' });
-    if (!um.from_email) return res.status(400).json({ error: 'Mailen har ingen afsender-email' });
+
+    const sender = unmatchedSender(db, um, !!req.body?.use_parsed);
+    if (sender.error) return res.status(400).json({ error: sender.error });
 
     // 1) Sørg for at afsenderen findes som kunde (opret lead hvis nødvendig).
     //    Vi linker IKKE mailen endnu — så hvis afsendelsen fejler, bliver den
@@ -999,9 +1060,9 @@ router.post('/unmatched/:id/reply', requireModule('crm'), handle(async (req, res
     let customerId = um.linked_customer_id || null;
     if (!customerId) {
         transaction(db, () => {
-            const { firstName, lastName } = splitName(um.from_name);
+            const { firstName, lastName } = splitName(sender.name);
             const lead = createPrivateLead(db, {
-                firstName, lastName, email: um.from_email,
+                firstName, lastName, email: sender.email,
                 userId, sourceLabel: 'svar-fra-indbakke',
             });
             customerId = lead.customerId;
@@ -1013,7 +1074,7 @@ router.post('/unmatched/:id/reply', requireModule('crm'), handle(async (req, res
     const smtpPrefix = (um.mailbox && um.mailbox.toLowerCase().includes('kontakt')) ? 'smtp_kontakt' : 'smtp';
     const replySubject = (subject && String(subject).trim()) || ('Re: ' + (um.subject || ''));
     const result = await sendMail({
-        to: um.from_email,
+        to: sender.email,
         subject: replySubject,
         text,
         customerId,
