@@ -26,6 +26,7 @@ const { handle, getUserById } = require('../db/helpers');
 const { requireAuth, userCan } = require('../shared/auth');
 const grocy           = require('../services/grocyAdapter');
 const webhook         = require('../services/goodsReceiptWebhook');
+const { resolveToStockAmount } = require('../services/quConvert');
 
 const UPLOAD_DIR = path.join(__dirname, '..', 'data', 'uploads', 'receipts');
 const MAX_PHOTO_SIZE = 10 * 1024 * 1024; // 10 MB
@@ -37,6 +38,38 @@ router.get('/users', requireAuth(), handle((req, res) => {
         `SELECT id, name FROM users WHERE is_active = 1 ORDER BY name`
     ).all();
     res.json(rows);
+}));
+
+/* ── GET /webhook-log — er koblingen til Whiteboard i live? ─
+ *
+ * Diagnose-endpoint til Settings. Uden det var den eneste måde at se om
+ * varemodtagelserne nåede frem, at logge ind på serveren og læse sqlite.
+ * Skal stå FØR '/:id', ellers fanger den generiske rute den. */
+
+router.get('/webhook-log', requireAuth('admin'), handle((req, res) => {
+    const db = getDb();
+    const limit = Math.min(parseInt(req.query.limit) || 20, 100);
+
+    const rows = db.prepare(`
+        SELECT id, url, status_code, error, sent_at
+        FROM webhook_log
+        ORDER BY id DESC
+        LIMIT ?
+    `).all(limit);
+
+    const counts = db.prepare(`
+        SELECT COUNT(*) AS total,
+               SUM(CASE WHEN whiteboard_synced_at IS NULL THEN 1 ELSE 0 END) AS unsynced
+        FROM goods_receipts
+    `).get();
+
+    res.json({
+        configured:      webhook.isConfigured(),
+        url:             webhook.getWebhookUrl(),
+        receipts_total:  counts?.total || 0,
+        receipts_unsynced: counts?.unsynced || 0,
+        attempts:        rows,
+    });
 }));
 
 /* ── POST /photo — upload følgeseddel-foto ───────────────── */
@@ -188,6 +221,54 @@ router.post('/', requireAuth(), handle(async (req, res) => {
         receivedAtValue = `${dateStr} 12:00:00`;
     }
 
+    // ── #358: omregn modtaget mængde til produktets LAGER-enhed ─────────────
+    //
+    // Tallet kommer fra indkøbslisten og står i INDKØBS-enhed ("994 Kasse"), men
+    // Grocys /stock/add læser altid lager-enhed. Uden omregning blev "10 Antal
+    // spidskål" til 10 kg. Det skete to gange i drift (maj + juni) og blev først
+    // fundet i Grocys stock_log — en fysisk optælling havde imens rettet tallet
+    // og dermed skjult årsagen.
+    //
+    // Metadata hentes FØR transactionen, men en Grocy-fejl må ikke forhindre at
+    // receiptet oprettes: fødevarekontrollen (temperaturer, FVST-tjek, foto) er
+    // lovpligtig dokumentation og skal gemmes uanset lagerets tilstand. Kan vi
+    // ikke omregne, springer vi lager-opdateringen over og gør det synligt.
+    let productMap = new Map();
+    let conversions = [];
+    let quMetaError = null;
+    try {
+        const [grocyProducts, grocyConversions] = await Promise.all([
+            grocy.getProducts(),
+            grocy.getQuantityUnitConversions(),
+        ]);
+        productMap  = new Map(grocyProducts.map(p => [parseInt(p.id), p]));
+        conversions = grocyConversions;
+    } catch (err) {
+        quMetaError = err.message;
+        console.warn('[goods-receipts] Kunne ikke hente Grocy enheds-data:', err.message);
+    }
+
+    // Parallelt array til items — samme indeks hele vejen igennem.
+    const converted = items.map(item => {
+        const pid   = item.grocy_product_id ? parseInt(item.grocy_product_id) : null;
+        const qty   = Number(item.received_quantity) || 0;
+        const quId  = item.qu_id != null && item.qu_id !== '' ? parseInt(item.qu_id) : null;
+
+        // Manuelt tilføjede varer (uden Grocy-produkt) og nul-mængder rører aldrig
+        // lageret — der er intet at omregne, og ingen fejl at melde.
+        if (!pid || qty <= 0) return { stockAmount: null, quId, error: null };
+
+        if (quMetaError) {
+            return {
+                stockAmount: null, quId,
+                error: `Kunne ikke hente enheds-data fra Grocy (${quMetaError}) — lager ikke opdateret`,
+            };
+        }
+
+        const r = resolveToStockAmount({ product: productMap.get(pid), amount: qty, quId, conversions });
+        return { stockAmount: r.amount, quId, error: r.error };
+    });
+
     // Resolve receiver-navn FØR transaction: foretrukket eksplicit name,
     // ellers slå op fra users-tabel via id. Bruges både i INSERT og webhook.
     let receiverName = received_by_name || null;
@@ -261,10 +342,12 @@ router.post('/', requireAuth(), handle(async (req, res) => {
             INSERT INTO goods_receipt_items (
                 receipt_id, grocy_product_id, product_name,
                 expected_quantity, unit, received_quantity,
+                received_qu_id, received_quantity_stock,
                 status, notes
-            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
         `);
-        for (const item of items) {
+        for (let i = 0; i < items.length; i++) {
+            const item = items[i];
             const result = insertItem.run(
                 receiptId,
                 item.grocy_product_id || null,
@@ -272,6 +355,11 @@ router.post('/', requireAuth(), handle(async (req, res) => {
                 item.expected_quantity || null,
                 item.unit || null,
                 item.received_quantity || null,
+                // #358: begge tal gemmes — det brugeren tastede (i sin egen enhed)
+                // OG det der gik til Grocy. Uden begge kan en fremtidig afvigelse
+                // ikke afgøres uden at gætte, hvilket var hele problemet.
+                converted[i].quId,
+                converted[i].stockAmount,
                 item.status || 'ok',
                 item.notes || null
             );
@@ -335,10 +423,24 @@ router.post('/', requireAuth(), handle(async (req, res) => {
             continue;
         }
 
+        // #358: kunne mængden ikke omregnes til lager-enhed, rører vi IKKE lageret.
+        // Fejlen skrives på linjen og løfter receiptet til 'partially_approved', så
+        // den bliver bedt om hjælp i stedet for at lægge et forkert tal ind i stilhed.
+        if (converted[i].error) {
+            updateItem.run(0, converted[i].error, itemId);
+            grocyResults.push({
+                product_name: item.product_name,
+                grocy_added: false,
+                error: converted[i].error
+            });
+            console.warn(`[goods-receipts] ${item.product_name}: ${converted[i].error}`);
+            continue;
+        }
+
         try {
             await grocy.addToStock(
                 item.grocy_product_id,
-                item.received_quantity,
+                converted[i].stockAmount,   // #358: lager-enhed, ikke indkøbs-enhed
                 null, // best_before_date — Grocy bruger default_due_days
                 location_id || null
             );
@@ -467,7 +569,14 @@ router.post('/', requireAuth(), handle(async (req, res) => {
         grocy_results: grocyResults,
         grocy_failure_count: grocyFailures.length,
         webhook_sent: true,         // @deprecated — bevares for klient-kompatibilitet
-        webhook_dispatched: true    // korrekt navn — fire-and-forget, ikke bekræftet leveret
+        webhook_dispatched: true,   // @deprecated — sagde 'true' også når intet blev sendt
+        // Sandheden om Whiteboard-koblingen. De to flag ovenfor har altid stået
+        // på true — også i bonv2_only-mode hvor der aldrig blev sendt noget.
+        // configured=false betyder: registreringen findes KUN i Bon v2.
+        whiteboard: {
+            configured: webhook.isConfigured(),
+            dispatched: webhook.isConfigured()   // fire-and-forget: afsendt, ikke bekræftet
+        }
     });
 }));
 
@@ -477,29 +586,82 @@ router.get('/', requireAuth(), handle((req, res) => {
     const db = getDb();
     const { from, to, supplier, location } = req.query;
 
-    let sql = `SELECT * FROM goods_receipts WHERE 1=1`;
+    // item_count som korreleret subquery — listen viser "N varer" uden N+1-kald.
+    let sql = `
+        SELECT gr.*,
+               (SELECT COUNT(*) FROM goods_receipt_items gi WHERE gi.receipt_id = gr.id) AS item_count
+        FROM goods_receipts gr
+        WHERE 1=1`;
     const params = [];
 
     if (from) {
-        sql += ` AND received_at >= ?`;
+        sql += ` AND gr.received_at >= ?`;
         params.push(from);
     }
     if (to) {
-        sql += ` AND received_at <= ?`;
+        sql += ` AND gr.received_at <= ?`;
         params.push(to + ' 23:59:59');
     }
     if (supplier) {
-        sql += ` AND supplier_name LIKE ?`;
+        sql += ` AND gr.supplier_name LIKE ?`;
         params.push('%' + supplier + '%');
     }
     if (location) {
-        sql += ` AND location_id = ?`;
+        sql += ` AND gr.location_id = ?`;
         params.push(parseInt(location));
     }
 
-    sql += ` ORDER BY received_at DESC`;
+    sql += ` ORDER BY gr.received_at DESC LIMIT ?`;
+    params.push(Math.min(parseInt(req.query.limit) || 200, 1000));
 
     res.json(db.prepare(sql).all(...params));
+}));
+
+/* ── POST /:id/resend-webhook — send igen til Whiteboard ───
+ *
+ * requireAuth() og ikke admin: den der står ved leverancen skal kunne rette op
+ * på en fejlet synkronisering med det samme (jf. rolle-baseret login).
+ *
+ * Nægter når receipten allerede ER synkroniseret — Whiteboard afviser ikke
+ * dubletter, så et ekstra kald ville lægge samme leverance i FVST-loggen to
+ * gange. Det er værre end at mangle den. */
+
+router.post('/:id/resend-webhook', requireAuth(), handle(async (req, res) => {
+    const db = getDb();
+    const id = parseInt(req.params.id);
+
+    const receipt = db.prepare(`SELECT * FROM goods_receipts WHERE id = ?`).get(id);
+    if (!receipt) return res.status(404).json({ error: 'Ikke fundet' });
+
+    if (receipt.whiteboard_synced_at) {
+        return res.status(409).json({
+            error: 'Allerede sendt til Whiteboard ' + receipt.whiteboard_synced_at
+                 + ' — en gensendelse ville give en dublet i FVST-loggen.'
+        });
+    }
+
+    if (!webhook.isConfigured()) {
+        return res.status(400).json({
+            error: 'Whiteboard-koblingen er ikke sat op. Udfyld webhook-URL under Indstillinger → Whiteboard.'
+        });
+    }
+
+    const userName = receipt.received_by_name
+        || getUserById(receipt.received_by)?.name
+        || 'Ukendt';
+
+    const result = await webhook.send(receipt, userName);
+
+    if (!result?.ok) {
+        return res.status(502).json({
+            error: result?.error || 'Whiteboard svarede ikke som forventet',
+            status_code: result?.statusCode || null
+        });
+    }
+
+    res.json({ ok: true, synced_at: db.prepare(
+        `SELECT whiteboard_synced_at FROM goods_receipts WHERE id = ?`
+    ).get(id)?.whiteboard_synced_at });
 }));
 
 /* ── GET /:id — detalje inkl. items ──────────────────────── */

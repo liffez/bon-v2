@@ -72,6 +72,13 @@ const REAL_PID_A = 1;  // Brød Rug
 const REAL_PID_B = 2;  // Glutenfri Bolle
 const FAIL_QTY   = 1;  // Lille mængde — minimal stock-drift hvis cleanup fejler
 
+// #358: klienten oplyser nu hvilken enhed det modtagne tal står i. Brød Rug og
+// Glutenfri Bolle KØBES i kasser men LAGERFØRES i kilo — netop den forveksling
+// der fordoblede lageret i drift. Tallene her er i lager-enhed (faktor 1), så
+// mængde-assertionerne nedenfor er uændrede; selve omregningen dækkes af
+// UNIT-gruppen til sidst.
+const STOCK_QU   = 4;  // Kilo — qu_id_stock for både REAL_PID_A og _B
+
 // ════════════════════════════════════════════════════════════
 // State
 // ════════════════════════════════════════════════════════════
@@ -949,9 +956,9 @@ async function runFailCases() {
     // FAIL_01-05 alle bygger på SAMME receipt med 3 items: real, bogus, real
     const failPayload = basePayload({
         items: [
-            { grocy_product_id: REAL_PID_A, product_name: 'Real A',  received_quantity: FAIL_QTY, status: 'ok' },
+            { grocy_product_id: REAL_PID_A, qu_id: STOCK_QU, product_name: 'Real A',  received_quantity: FAIL_QTY, status: 'ok' },
             { grocy_product_id: BOGUS_PID, product_name: 'Bogus',    received_quantity: 1,        status: 'ok' },
-            { grocy_product_id: REAL_PID_B, product_name: 'Real B',  received_quantity: FAIL_QTY, status: 'ok' },
+            { grocy_product_id: REAL_PID_B, qu_id: STOCK_QU, product_name: 'Real B',  received_quantity: FAIL_QTY, status: 'ok' },
         ]
     });
 
@@ -1072,9 +1079,9 @@ async function runPatchECases() {
     {
         const r = await createReceipt(basePayload({
             items: [
-                { grocy_product_id: REAL_PID_A, product_name: 'PE_A',  received_quantity: FAIL_QTY, status: 'ok' },
-                { grocy_product_id: REAL_PID_B, product_name: 'PE_B',  received_quantity: FAIL_QTY, status: 'ok' },
-                { grocy_product_id: REAL_PID_A, product_name: 'PE_A2', received_quantity: FAIL_QTY, status: 'ok' },
+                { grocy_product_id: REAL_PID_A, qu_id: STOCK_QU, product_name: 'PE_A',  received_quantity: FAIL_QTY, status: 'ok' },
+                { grocy_product_id: REAL_PID_B, qu_id: STOCK_QU, product_name: 'PE_B',  received_quantity: FAIL_QTY, status: 'ok' },
+                { grocy_product_id: REAL_PID_A, qu_id: STOCK_QU, product_name: 'PE_A2', received_quantity: FAIL_QTY, status: 'ok' },
             ]
         }));
         if (r.status !== 200) {
@@ -1097,9 +1104,9 @@ async function runPatchECases() {
     {
         const r = await createReceipt(basePayload({
             items: [
-                { grocy_product_id: REAL_PID_A, product_name: 'PE2_A', received_quantity: FAIL_QTY, status: 'ok' },
+                { grocy_product_id: REAL_PID_A, qu_id: STOCK_QU, product_name: 'PE2_A', received_quantity: FAIL_QTY, status: 'ok' },
                 { grocy_product_id: BOGUS_PID, product_name: 'PE2_Bogus', received_quantity: 1, status: 'ok' },
-                { grocy_product_id: REAL_PID_B, product_name: 'PE2_B', received_quantity: FAIL_QTY, status: 'ok' },
+                { grocy_product_id: REAL_PID_B, qu_id: STOCK_QU, product_name: 'PE2_B', received_quantity: FAIL_QTY, status: 'ok' },
             ]
         }));
         e02Receipt = r;
@@ -1149,9 +1156,9 @@ async function runPatchECases() {
     {
         const r = await createReceipt(basePayload({
             items: [
-                { grocy_product_id: REAL_PID_A, product_name: 'PE4_A', received_quantity: FAIL_QTY, status: 'ok' },
+                { grocy_product_id: REAL_PID_A, qu_id: STOCK_QU, product_name: 'PE4_A', received_quantity: FAIL_QTY, status: 'ok' },
                 { grocy_product_id: null, product_name: 'PE4_NoPid', received_quantity: 1, status: 'ok' },
-                { grocy_product_id: REAL_PID_B, product_name: 'PE4_B', received_quantity: FAIL_QTY, status: 'ok' },
+                { grocy_product_id: REAL_PID_B, qu_id: STOCK_QU, product_name: 'PE4_B', received_quantity: FAIL_QTY, status: 'ok' },
             ]
         }));
         if (r.status !== 200) {
@@ -1235,8 +1242,8 @@ async function runPatchECases() {
     {
         const r = await createReceipt(basePayload({
             items: [
-                { grocy_product_id: REAL_PID_A, product_name: 'PE8_ok',      received_quantity: FAIL_QTY, status: 'ok' },
-                { grocy_product_id: REAL_PID_B, product_name: 'PE8_missing', received_quantity: 2,        status: 'missing' },
+                { grocy_product_id: REAL_PID_A, qu_id: STOCK_QU, product_name: 'PE8_ok',      received_quantity: FAIL_QTY, status: 'ok' },
+                { grocy_product_id: REAL_PID_B, qu_id: STOCK_QU, product_name: 'PE8_missing', received_quantity: 2,        status: 'missing' },
             ]
         }));
         if (r.status !== 200) {
@@ -1733,6 +1740,89 @@ let obsUnitId = null;
 let obsUserfieldsBefore = null;
 let obsBStampBefore = null;
 
+// ════════════════════════════════════════════════════════════
+// UNIT — indkøbs-enhed omregnes til lager-enhed (#358)
+// ════════════════════════════════════════════════════════════
+//
+// Kernen i #358: tallet på indkøbslisten står i INDKØBS-enhed, men Grocys
+// /stock/add læser LAGER-enhed. Uden omregning blev "10 Antal spidskål" til
+// 10 kg. Her modtages i købs-enhed mod ÆGTE grocytest, og vi måler at lageret
+// flyttede sig med qty × faktor — ikke med qty.
+async function runUnitConversionCases() {
+    console.log('\n── UNIT: købs-enhed → lager-enhed (#358) ──');
+
+    // Hent produktets rigtige enheder + faktor fra Grocy, så testen ikke
+    // hardkoder tal der kan drive fra hinanden.
+    let purchaseQu, stockQu, factor;
+    try {
+        const [pRes, cRes] = await Promise.all([
+            api('GET', '/api/grocy/products'),
+            api('GET', '/api/grocy/quantity-unit-conversions'),
+        ]);
+        const prod = (pRes.body || []).find(p => parseInt(p.id) === REAL_PID_A);
+        purchaseQu = parseInt(prod.qu_id_purchase);
+        stockQu    = parseInt(prod.qu_id_stock);
+        const conv = (cRes.body || []).find(c =>
+            parseInt(c.product_id) === REAL_PID_A &&
+            parseInt(c.from_qu_id) === purchaseQu && parseInt(c.to_qu_id) === stockQu);
+        factor = parseFloat(conv.factor);
+        if (!(purchaseQu !== stockQu && factor > 0)) throw new Error('utilstrækkelig fixture');
+    } catch (err) {
+        record('T_VAREMOD_F_UNIT_01', 'UNIT', 'SKIP', `Kunne ikke hente enheds-fixture: ${err.message}`);
+        record('T_VAREMOD_F_UNIT_02', 'UNIT', 'SKIP', '');
+        record('T_VAREMOD_F_UNIT_03', 'UNIT', 'SKIP', '');
+        return;
+    }
+
+    const stockOf = async (pid) => {
+        const r = await api('GET', '/api/grocy/stock');
+        return parseFloat((r.body || []).find(s => parseInt(s.product_id) === pid)?.amount || 0);
+    };
+
+    const before = await stockOf(REAL_PID_A);
+    const r = await createReceipt(basePayload({
+        items: [{ grocy_product_id: REAL_PID_A, qu_id: purchaseQu,
+                  product_name: 'UNIT købs-enhed', received_quantity: FAIL_QTY, status: 'ok' }],
+    }));
+    if (r.status === 200) createdReceiptIds.push(r.body.id);
+
+    const after    = await stockOf(REAL_PID_A);
+    const expected = FAIL_QTY * factor;
+    const delta    = after - before;
+    if (r.status === 200) grocyMutations.push({ pid: REAL_PID_A, amount: expected });
+
+    // Uden fixet ville delta være FAIL_QTY (tallet råt) i stedet for qty × faktor.
+    record('T_VAREMOD_F_UNIT_01', 'UNIT',
+        Math.abs(delta - expected) < 0.01 ? 'PASS' : 'FAIL',
+        `delta=${delta.toFixed(3)} forventet=${expected.toFixed(3)} (rå tal ville give ${FAIL_QTY})`);
+
+    // Begge tal skal være gemt, ellers kan en fremtidig afvigelse ikke afgøres.
+    const row = r.status === 200 ? db.prepare(
+        `SELECT received_quantity, received_qu_id, received_quantity_stock
+         FROM goods_receipt_items WHERE receipt_id = ?`).get(r.body.id) : null;
+    record('T_VAREMOD_F_UNIT_02', 'UNIT',
+        row && row.received_qu_id === purchaseQu
+            && Math.abs(row.received_quantity_stock - expected) < 0.01
+            && row.received_quantity === FAIL_QTY ? 'PASS' : 'FAIL',
+        `gemt: qty=${row?.received_quantity} qu=${row?.received_qu_id} stock=${row?.received_quantity_stock}`);
+
+    // Ukendt enhed uden konvertering → lageret røres IKKE, og receiptet beder om hjælp.
+    const beforeBad = await stockOf(REAL_PID_A);
+    const rBad = await createReceipt(basePayload({
+        items: [{ grocy_product_id: REAL_PID_A, qu_id: 99999,
+                  product_name: 'UNIT ukendt enhed', received_quantity: FAIL_QTY, status: 'ok' }],
+    }));
+    if (rBad.status === 200) createdReceiptIds.push(rBad.body.id);
+    const afterBad = await stockOf(REAL_PID_A);
+    const itemBad  = rBad.status === 200 ? db.prepare(
+        `SELECT grocy_added, grocy_error FROM goods_receipt_items WHERE receipt_id = ?`).get(rBad.body.id) : null;
+    record('T_VAREMOD_F_UNIT_03', 'UNIT',
+        Math.abs(afterBad - beforeBad) < 0.001
+            && rBad.body?.status === 'partially_approved'
+            && itemBad?.grocy_added === 0 && !!itemBad?.grocy_error ? 'PASS' : 'FAIL',
+        `delta=${(afterBad - beforeBad).toFixed(3)} status=${rBad.body?.status} err=${itemBad?.grocy_error ? 'ja' : 'nej'}`);
+}
+
 async function runObservedCases() {
     console.log('\n── OBS: modtagelse stempler som observeret (#336) ──');
 
@@ -1770,8 +1860,8 @@ async function runObservedCases() {
     const r = await createReceipt(basePayload({
         location_id: OBS_LOCATION_ID,
         items: [
-            { grocy_product_id: REAL_PID_A, product_name: 'OBS modtaget', received_quantity: FAIL_QTY, status: 'ok' },
-            { grocy_product_id: REAL_PID_B, product_name: 'OBS mangler',  received_quantity: 0,        status: 'missing' },
+            { grocy_product_id: REAL_PID_A, qu_id: STOCK_QU, product_name: 'OBS modtaget', received_quantity: FAIL_QTY, status: 'ok' },
+            { grocy_product_id: REAL_PID_B, qu_id: STOCK_QU, product_name: 'OBS mangler',  received_quantity: 0,        status: 'missing' },
         ]
     }));
 
@@ -1825,7 +1915,7 @@ async function runObservedCases() {
     {
         const before = a?.userfields?.LastCheckedUnit;
         const r2 = await createReceipt(basePayload({
-            items: [{ grocy_product_id: REAL_PID_A, product_name: 'OBS uden lokation',
+            items: [{ grocy_product_id: REAL_PID_A, qu_id: STOCK_QU, product_name: 'OBS uden lokation',
                       received_quantity: FAIL_QTY, status: 'ok' }]
         }));
         if (r2.status === 200) grocyMutations.push({ pid: REAL_PID_A, amount: FAIL_QTY });
@@ -1900,7 +1990,13 @@ async function cleanup() {
     if (grocyMutations.length > 0) {
         const items = grocyMutations.map(m => ({ product_id: m.pid, amount: m.amount }));
         try {
-            const r = await api('POST', '/api/grocy/consume-products', { items });
+            const r = await api('POST', '/api/grocy/consume-products', {
+                items,
+                // #361: lagertræk kræver nu en idempotens-nonce. Cleanup er en
+                // engangshandling pr. kørsel, så et tidsstempel er nok til at
+                // gøre den unik.
+                consume_nonce: `t-varemod-cleanup-${Date.now()}`,
+            });
             const allOk = r.body?.results?.every(x => x.success);
             if (allOk) {
                 record('T_VAREMOD_F_CLEANUP_03', 'CLEANUP', 'PASS',
@@ -2031,6 +2127,7 @@ async function main() {
         await runUsersCases();
         await runAdhocBackdateCases();
         await runObservedCases();
+        await runUnitConversionCases();
     } catch (err) {
         console.error('[run_T_VAREMODTAGELSE_FULL] FEJL under test:', err.message);
         if (err.stack) console.error(err.stack);
