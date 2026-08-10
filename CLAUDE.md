@@ -2232,16 +2232,32 @@ fra den gamle ordre.
 - **`_tMenuIndex()`** — `Map<grocy_recipe_id, menuvare>`, ét opslag delt af
   kategori-berigelsen (`_tApplyMenuCategories`) og kopieringen. Samme princip som
   Grocy-kategorihentningen i Settings: én kilde, ikke en kopi pr. kaldested.
-- **Det der ikke kan slås op** — fritekst uden opskrift, og opskrifter der er udgået
-  i Grocy — beholder den gamle pris og markeres `stalePrice`. Toasten navngiver dem
-  (*"3 varer kopieret fra bon cafe-3472 — priser fra catering · 1 uden aktuel pris
-  (RR Boks)"*), og pristabellen på trin 3 sætter ⚠ på linjen. **Kundens preview og
-  PDF er urørt** — dér skal der ikke stå forbehold om vores egne priser.
+- **Fritekst og udgåede opskrifter er ikke det samme.** Begge beholder den gamle pris,
+  men kun den ene er et problem:
+  - **Fritekst** (ingen `grocy_recipe_id`) har aldrig haft en Grocy-pris. Den er
+    skrevet i hånden og kopieres som den er — **ingen markering**. Der er intet at
+    hente, så et forbehold ville være ren støj.
+  - **Opskrift der er udgået i Grocy** bar sin pris derfra, og det tal vi nu slæber
+    med er et gammelt snapshot. Den markeres `stalePrice`: toasten navngiver den
+    (*"4 varer kopieret fra bon cafe-3472 — priser fra catering · 1 findes ikke i
+    Grocy længere (RR Boks)"*) og pristabellen på trin 3 sætter ⚠ på linjen.
+
+  **Kundens preview og PDF er urørt** — dér skal der ikke stå forbehold om vores
+  egne priser.
 
 Verificeret mod driftsdata: bon `cafe-3472` (priskategori **store**, Kyllingen 104 kr)
-kopieret ind i et **catering**-tilbud → Kyllingen 130 kr, Transportkasse 12,50 → 20 kr,
-mængderne (11 og 1) bevaret. En vare der ikke findes i menuen beholdt sin gamle pris og
-fik ⚠ i pristabellen, ikke i kundevisningen.
+kopieret ind i et **catering**-tilbud → Kyllingen **130 kr**, Transportkasse 12,50 →
+**20 kr**, mængderne (11 og 1) bevaret. Testen kørte med en fritekst-linje og en udgået
+opskrift i samme ordre: fritekst kom med til 350 kr **uden** markering, den udgåede fik
+⚠ og blev navngivet i toasten. Fritekstens egen livscyklus efterprøvet separat —
+oprettes, vises på trin 2 og 3, står i kundens preview, gemmes som `category: 'Fritekst'`
+og overlever genindlæsning uden markering. Databasen ryddet.
+
+**Om genbruget:** `_tOpenQuote` og `_tCopyBon` bygger næsten samme item-objekt fra en
+bon-linje, og det er fristende at samle dem. Lad være — eller gør det med åbne øjne.
+De har modsat semantik: at **åbne** et tilbud skal bruge de gemte priser (det er
+tilbuddets egne, aftalte tal), at **kopiere** skal hente friske. En naiv sammenlægning
+ville genskabe præcis #428.
 
 **Ikke rørt (hører til #427):** blok-strukturen går stadig tabt ved kopiering — alt
 lander i `lunch`. Det kan ikke rettes her, fordi `getBonLines` ([db/helpers.js:97](db/helpers.js:97))

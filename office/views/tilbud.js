@@ -253,7 +253,7 @@ function _tilbudHandleSSE(event, data) {
  */
 function _tStaleMark(it) {
     if (!it?.stalePrice) return '';
-    return ' <span title="Prisen kunne ikke hentes fra Grocy — det er den gamle ordres pris"'
+    return ' <span title="Opskriften findes ikke i Grocy længere — prisen er den gamle ordres. Fritekst-linjer markeres ikke; deres pris er skrevet i hånden."'
          + ' style="color:#b8860b;font-size:.8rem;cursor:help">⚠</span>';
 }
 
@@ -887,8 +887,16 @@ async function _tCopyBon(bonId) {
 
         if (bon.lines) {
             for (const l of bon.lines) {
-                const m = l.grocy_recipe_id ? menu.get(l.grocy_recipe_id) : null;
-                if (!m) stale.push(l.product_name);
+                // Fritekst har aldrig haft en Grocy-pris — den er skrevet i hånden
+                // og skal kopieres som den er. Den er IKKE "uden aktuel pris":
+                // der er intet at hente, og et forbehold ville være ren støj.
+                //
+                // En vare der HAR en opskrift men ikke findes i menuen, er noget
+                // andet: dens pris plejede at komme fra Grocy, og det tal vi nu
+                // bærer med er et gammelt snapshot. Dét er værd at sige.
+                const isFreeText = !l.grocy_recipe_id;
+                const m = isFreeText ? null : menu.get(l.grocy_recipe_id);
+                if (!isFreeText && !m) stale.push(l.product_name);
 
                 const item = {
                     id: m ? m.id : (Date.now() + Math.random()),
@@ -899,9 +907,9 @@ async function _tCopyBon(bonId) {
                     // kategori-hentning. Kun mængden kommer fra den gamle ordre.
                     unitPrice: m ? m.unitPrice : (l.unit_price ?? 0),
                     costPrice: m ? m.costPrice : (l.cost_price ?? 0),
-                    category: m ? m.category : (l.category || (l.grocy_recipe_id ? 'Ukendt' : 'Fritekst')),
+                    category: m ? m.category : (isFreeText ? 'Fritekst' : (l.category || 'Ukendt')),
                     qty: l.quantity || 1,
-                    stalePrice: !m,
+                    stalePrice: !isFreeText && !m,
                 };
 
                 // `getBonLines` returnerer ikke `block_type`, så en kopieret ordre
@@ -924,7 +932,7 @@ async function _tCopyBon(bonId) {
         const priceCatLabel = _tPriceCat || 'catering';
         let msg = `${n} vare${n === 1 ? '' : 'r'} kopieret fra bon ${bon.bon_number} — priser fra ${priceCatLabel}`;
         if (stale.length) {
-            msg += ` · ${stale.length} uden aktuel pris (${stale.slice(0, 3).join(', ')}${stale.length > 3 ? '…' : ''})`;
+            msg += ` · ${stale.length} findes ikke i Grocy længere (${stale.slice(0, 3).join(', ')}${stale.length > 3 ? '…' : ''})`;
         }
         _tToast(msg, stale.length ? 9000 : 4000);
 
