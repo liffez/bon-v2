@@ -83,7 +83,11 @@
         return !!(m && m.body_html && String(m.body_html).trim());
     }
 
-    function attachmentsHtml(atts, hideInline) {
+    // Skal matche INLINE_VIEWABLE i routes/attachments.js (SVG udeladt her —
+    // den vises kun sandboxed inde i mail-kroppen, ikke som klik-og-åbn).
+    var VIEWABLE_MIME = /^(image\/(png|jpe?g|gif|webp|bmp|avif)|application\/pdf|text\/plain)$/i;
+
+    function attachmentsHtml(atts, hideInline, extraClass) {
         var ok = (atts || []).filter(function (a) {
             if (!a || !a.id) return false;
             // Inline billeder vises inde i HTML-kroppen — ikke som 📎-link.
@@ -91,11 +95,22 @@
             return true;
         });
         if (!ok.length) return '';
-        return '<div class="mt-msg-atts">' + ok.map(function (a) {
+        return '<div class="mt-msg-atts' + (extraClass ? ' ' + extraClass : '') + '">' + ok.map(function (a) {
             var kb = Math.round((a.size_bytes || 0) / 1024);
-            var url = (typeof mailAttachmentUrl === 'function') ? mailAttachmentUrl(a.id) : '#';
-            return '<a class="mt-msg-att" target="_blank" rel="noopener" href="' + esc(url) + '">'
-                + '📎 ' + esc(a.filename || 'fil') + (kb ? ' (' + kb + ' KB)' : '') + '</a>';
+            var dl = (typeof mailAttachmentUrl === 'function') ? mailAttachmentUrl(a.id) : '#';
+            // PDF'er og billeder åbnes i browserens egen fremviser i stedet for at
+            // lande i Overførsler. Resten kan kun hentes. Serveren håndhæver det
+            // samme — linket her er bekvemmelighed, ikke sikkerhedsgrænsen.
+            var canView = VIEWABLE_MIME.test(a.mime_type || '') && typeof mailInlineUrl === 'function';
+            var href = canView ? mailInlineUrl(a.id) : dl;
+            var label = '📎 ' + esc(a.filename || 'fil') + (kb ? ' (' + kb + ' KB)' : '');
+            var main = '<a class="mt-msg-att" target="_blank" rel="noopener" href="' + esc(href) + '"'
+                + (canView ? ' title="Åbn i fremviser"' : ' title="Hent fil"') + '>' + label + '</a>';
+            // Hentning skal stadig være ét klik væk når filen kan vises.
+            return canView
+                ? '<span class="mt-att-pair">' + main
+                    + '<a class="mt-msg-att mt-att-dl" href="' + esc(dl) + '" title="Hent">⬇</a></span>'
+                : main;
         }).join('') + '</div>';
     }
 
@@ -251,16 +266,23 @@
     function renderBody(container, m) {
         if (!container) return;
         m = m || {};
-        if (hasHtmlBody(m)) {
+        var isHtml = hasHtmlBody(m);
+        // Vedhæftninger vises også i enkelt-mail-visningen (fx CRM-indbakken) —
+        // ikke kun i tråd-historikken. Inline CID-billeder skjules kun når vi
+        // rent faktisk har en HTML-krop at vise dem inde i.
+        var atts = attachmentsHtml(m.attachments, isHtml, 'mt-atts-standalone');
+        if (isHtml) {
             container.innerHTML = '<div class="mt-msg mt-html mt-standalone">'
                 + '<div class="mt-msg-html" data-mt-html="0">'
-                + '<div class="mt-html-loading">Indlæser mail…</div></div></div>';
+                + '<div class="mt-html-loading">Indlæser mail…</div></div></div>'
+                + atts;
             mountHtmlFrames(container, [m]);
         } else {
             var body = (m.body_text || '').replace(/\r\n/g, '\n').trim();
             container.innerHTML = '<div class="mt-msg-body mt-standalone-body">'
                 + (body ? esc(body) : '<span class="mt-msg-nobody">(ingen tekst)</span>')
-                + '</div>';
+                + '</div>'
+                + atts;
         }
     }
 

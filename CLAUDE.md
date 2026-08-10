@@ -2977,6 +2977,95 @@ led selv har et niveau under sig — det er dér undertællingen sad. Mutations-
 uden `stack.delete` falder både råvare- og consume-tallet fra 2 til 1; uden cyklusværnet
 giver testen "Maximum call stack size exceeded".
 
+### Hærdning af consume-/varemodtagelses-stien (#358 + #359 + #361, 6. august 2026)
+> Migration 141. Tre fejl der delte rod — enheds-forveksling og manglende idempotens —
+> og som først blev til aktiv skade da auto-deduct blev tændt i drift 17. juli (#305).
+
+**#358 — varemodtagelsen skrev indkøbs-enhed som lager-enhed.** Tallet kommer fra
+indkøbslisten i INDKØBS-enhed ("994 Kasse"), men `addToStock` sendte det uden enhed, og
+Grocy læser altid lager-enhed. **69 af 215 produkter** i grocy-hq har forskellig købs- og
+lager-enhed. Sket to gange i drift (spidskål fordoblet, rødkål for lavt) og først fundet i
+Grocys `stock_log` — en fysisk optælling havde imens rettet tallet og dermed skjult årsagen.
+- Klienten sender nu `qu_id` (den kendte den allerede fra indkøbsliste-rækken);
+  serveren omregner via ny **`resolveToStockAmount()`** i [services/quConvert.js](services/quConvert.js).
+- **Nægter at gætte:** manglende omregning → `grocy_error` på linjen + receipt
+  `partially_approved`. Lageret røres ikke. Fødevarekontrollen (temperaturer, FVST, foto)
+  gemmes uanset — den er lovpligtig og må ikke afhænge af Grocys tilstand.
+- Sender klienten slet ingen `qu_id` (cachet browser), accepteres det KUN på produkter hvor
+  køb og lager er samme enhed — der er intet at forveksle. Ellers fejl.
+- `received_qu_id` + `received_quantity_stock` gemmes på linjen, så en fremtidig afvigelse
+  kan afgøres uden at gætte. Samme fix i legacy [routes/receiving.js](routes/receiving.js).
+- **Sagt FØR der tastes, ikke efter.** Serverens nægtelse kom først når man havde trykket
+  Godkend — stående med varerne, hvor løsningen lå i et andet system. Klienten tjekker nu
+  omregningen mens varelisten bygges (`_vmUnitIssue`), og siger det to steder: en gul
+  advarsel **uden for** varelisten (den er foldet sammen som default, så "Godkend alt" er
+  den normale vej igennem — en advarsel inde i listen ville ikke blive set) og på selve
+  varekortet.
+- **Og kan rettes på stedet.** Lager-enheden er i praksis altid kilo eller stk (grocy-hq:
+  136 Kilo, 59 Antal, 15 Liter, 1 Flaske ud af 211 aktive), så det manglende svar er ét tal:
+  *"Hvor meget er én Kasse i Kilo?"*. Feltet skriver omregningen til Grocy via det
+  eksisterende `POST /api/grocy/quantity-unit-conversions` — svaret kender den der står med
+  kassen, ikke kontoret. `pack_size_warning` fra routen vises, den betyder at tallet strider
+  mod pakkestørrelsen på stregkoden.
+- Kun **5 produkter** i grocy-hq mangler en omregning i dag (`npm run check:receipt-units`),
+  så advarslen er sjælden — men den rammer netop dem der ellers ville blive skrevet forkert.
+- `_vmFindFactor` **spejler** `findConversionFactor` i quConvert.js. Divergerede de to, ville
+  skærmen sige god for noget serveren bagefter nægter. Enigheden er testet direkte.
+- Kunne omregningerne ikke hentes, advares der **ikke** (`_vmConversionsLoaded`). Tom liste
+  ville ellers markere hver vare med afvigende enhed — 22 falske alarmer ved et Grocy-hik.
+  Serverens nægtelse står stadig som sikkerhedsnet mod en cachet browser.
+
+**#359 — `inventory_deducted` blev sat selvom hvert Grocy-træk fejlede.** `consumeRecipes`
+afviser aldrig (fejl pr. produkt returneres som `success:false`), så `UPDATE ... = 1` kørte
+ubetinget. En bon hvor alt fik 500 stod som "lager trukket" — og **vagthunden fra #305 leder
+efter bons UDEN flaget**, så den var blind for præcis den tilstand den blev bygget til at fange.
+- Flaget er en **idempotens-vagt, ikke en kvittering**: det sættes kun når en gentagelse ville
+  gøre skade. Ny `bons.inventory_deduct_status`: `ok` / `partial` (flag sat — ellers dobbelt-
+  trækkes dem der lykkedes) / `failed` (flag bliver 0, sikkert at gentage) / `empty` /
+  `event_prep_owns_stock`.
+- [scripts/check-inventory-deduct.js](scripts/check-inventory-deduct.js) fik `findPartial()` —
+  delvise træk har flaget sat og var helt usynlige. Både log og alarm-mail dækker nu begge.
+- **Vagthundens afgrænsning rettet (9. august 2026).** Første kørsel i drift meldte tre
+  "manglende træk" der ingen af dem var fejl. Vinduet havde **ingen øvre datogrænse** —
+  beskeden sagde "de seneste N dage", men forespørgslen fangede alt fra N dage siden og
+  *frem*, så en bon med leveringsdato i 2027 blev rapporteret hver eneste dag indtil datoen
+  indtraf. Og bons **uden opskriftskoblede linjer** blev talt med, selvom de aldrig kan
+  trække noget; nye bons får `empty` + flaget sat, men historiske rækker fra før #359 står
+  med flaget på 0 for evigt (migration 141 bagudfyldte bevidst ikke). Begge afgrænsninger
+  ligger nu i SQL'en. `failed` slipper igennem datogrænsen — et forsøgt og mislykket træk
+  skal frem uanset dato. Bons uden noget at trække **tælles og nævnes** frem for at
+  forsvinde, så man kan se forskel på "ingen problemer" og "kontrollen kigger forkert".
+  En alarm der melder det samme hver dag om noget der ikke er galt, bliver ikke læst —
+  samme svigt som #305 selv. `npm run test:deduct-watchdog` (15 asserts mod den ægte SQL
+  og et rigtigt skema, mutationstestet). Målt på en kopi af driftsdata over 400 dage:
+  787 → 773 rapporterede, heraf 13 flyttet til "intet at trække" og 1 fremtidsdateret.
+- [office/views/events.js](office/views/events.js) viste `✓ lager trukket` ud fra flaget alene
+  og bekræftede dermed løgnen for et menneske. Nu egne labels for delvis/fejlet.
+
+**#361 — consume-endpoints havde ingen idempotens.** To klik, dobbelt-submit eller
+netværks-retry = dobbelt træk, og trækket var usynligt bagefter, så det først dukkede op ved
+næste optælling som en uforklarlig difference.
+- Ny `grocy_consume_log` (nonce UNIQUE) — samme mønster som produktionsbatchens `batch_nonce`.
+  Rækken indsættes **før** trækket og virker dermed også som lock: to samtidige klik kappes om
+  constrainten, taberen får vinderens svar. Igangværende træk → 409, ikke et opdigtet resultat.
+- `consume_nonce` er **påkrævet** på begge endpoints. En cachet klient får en fejlbesked der
+  beder om genindlæsning — det er bedre end et tavst dobbelttræk.
+- [shared/recipe_viewer.js](shared/recipe_viewer.js) holder nonce'en indtil trækket er
+  kvitteret, så et gentaget klik efter en netværksfejl bliver en opslagning. Trækket kan
+  nemlig godt være gået igennem hos Grocy selvom svaret aldrig nåede tilbage.
+
+**Deploy-forudsætning:** `npm run check:receipt-units` (read-only) lister produkter med
+forskellig købs- og lager-enhed UDEN omregning i Grocy — dem nægter varemodtagelsen nu.
+På grocytest: 5 af 64 (2 på indkøbslisten). Ordn dem i Grocy før første modtagelse.
+
+**Tests:** `npm run test:consume-hardening` (40 + 9 asserts — stubbet Grocy, så "hvert kald
+fejler" og "kun ét fejler" kan fremprovokeres; vm-sandkasse for klientens payload).
+T_VAREMODTAGELSE_FULL udvidet med UNIT-gruppen der modtager i købs-enhed mod ægte grocytest
+og måler at lageret flyttede sig med qty × faktor (**79 PASS**, op fra 76). Alle fire
+kerne-rettelser er **mutations-testet**. Regression grøn: VAREMOD_PATCH 26, T_STOCK 31,
+T_GROCY 14/2skip, T_RECIPES 20, deduct-check 10, prep-packing 12, packing-units 18,
+subrecipe-status 16, resolver-graph 8, recipe-viewer-nested 12, moms-audit 18.
+
 ### Rettens beskrivelse vises bag ⓘ (6. august 2026)
 
 Kost-tags og allergener nåede frem til event-order-3's bestillingsside (broen, `#394`),
@@ -3244,6 +3333,52 @@ producerer efter køkkenets egen vurdering for meget — rettes af Leif.
 
 **Retning:** yieldet er første skridt mod #272/#269, hvor underopskrifterne bliver rigtige
 produkter med eget lager, og `recipeunitnumber` bliver mængden på `Produces product`.
+
+### Varemodtagelsen blev usynlig — modtagelseslog + Whiteboard-kobling (7. august 2026)
+> Driftsfund: varemodtagelserne dukkede ikke op i loggen, og køkkenet var gået tilbage til
+> Whiteboards egen formular (den uden lagerdelen). Koden fejlede aldrig — den var **aldrig
+> koblet til**.
+
+**Diagnosen** (bekræftet mod drift): `settings.whiteboard_webhook_url` har stået **tom siden
+den blev seedet** (migration 035, 11. april 2026). `send()` springer stille over ved tom URL
+(`bonv2_only`-mode, spec §"Tre driftsmodes"), så `webhook_log` var tom og
+`whiteboard_synced_at` NULL på **alle** registreringer. Samtidig havde `fetchGoodsReceipts()`
+**nul forbrugere** — listevisningen var aldrig bygget. En registrering var derfor usynlig fra
+det øjeblik succes-skærmen forsvandt. Fem registreringer (18. maj – 5. august) nåede aldrig
+frem. Feltet kunne kun sættes med SQL.
+
+Fejlklassen er den samme som #305/#319 (jf. memory `project_silent_sideeffect_failures`):
+**handlingen påstod at være sket, bivirkningen fyrede aldrig, og intet sted mødtes de to.**
+
+- **🗂 Modtagelseslog** i `shared/varemodtagelse.js` — liste (periode-chips 30 dage/3 mdr/1 år/alt)
+  + detalje med alle FVST-felter, varer, foto og synk-status. Ligger i **samme container** som
+  selve modtagelsen, så den følger med i køkkenfanen *og* mobilen uden separat montering.
+- **Loggen overlever at Grocy er nede**: `initVaremodtagelse`'s catch-gren renderer nu topbaren
+  i stedet for kun en fejltekst. Ny registrering kræver Grocy (varer, enheder, leverandører) —
+  FVST-dokumentationen gør ikke, og måtte ikke ryge med i faldet.
+- **Settings → Integrationer → Whiteboard**: URL-felt (validerer at den peger på `/api/events`),
+  koblet/ikke-koblet-mærke, antal usendte + "send de manglende", og de seneste 20 forsøg med
+  statuskode og fejl. `GET /api/goods-receipts/webhook-log` (admin).
+- **`whiteboard: { configured, dispatched }`** i POST-svaret. `webhook_sent`/`webhook_dispatched`
+  stod altid på `true` — også når intet blev sendt; de er bevaret som deprecated fordi
+  T_VAREMOD_HAPPY_03 pinner dem (F31).
+- **`POST /:id/resend-webhook`** (`requireAuth()`, ikke admin — den der står ved leverancen skal
+  kunne rette op). **Nægter når `whiteboard_synced_at` er sat**: Whiteboard afviser ikke dubletter,
+  så en gensendelse ville lægge samme leverance i FVST-loggen to gange.
+- **`scripts/resend-goods-receipt-webhooks.js`** — backfill af efterslæbet. Dry-run default,
+  `--apply`/`--id`/`--from`/`--to`. Sender kun hvor `whiteboard_synced_at IS NULL` ⇒ idempotent.
+- `send()` returnerer nu `{ok, skipped, reason, statusCode, error}` (additivt — POST-stien
+  er stadig fire-and-forget) + `isConfigured()`/`getWebhookUrl()`.
+- **Tests**: `scripts/test-goods-receipt-webhook.js` — 27 asserts mod isoleret temp-DB + stub-modtager:
+  at en sluttet kobling *rapporterer* sig selv, at payloaden matcher Whiteboards skema-felter
+  (FVST Skema 1, migration 020), og at `whiteboard_synced_at` kun sættes ved 2xx. Mutations-testet.
+- Verificeret end-to-end mod stub-modtager der validerer mod Whiteboards feltnavne: payload rent
+  igennem (ingen ukendte nøgler, gyldig `deviation`-værdi, frys udeladt når toggle er slået fra),
+  503 + netværksfejl logges uden at blokere brugeren, gensend + backfill + dublet-værn.
+  Browser-verificeret i køkken, mobil og Settings; testdata ryddet, dev-DB tilbage i udgangspunktet.
+
+**Deploy:** URL'en er sat i drift (7. august). Kør bagefter backfill'en mod prod —
+dry-run først, så `--apply` — for de fem registreringer der aldrig nåede frem.
 
 ## Næste opgave
 
@@ -3770,6 +3905,8 @@ POST   /api/goods-receipts/photo                           routes/goods-receipts
 POST   /api/goods-receipts                                 routes/goods-receipts.js
 GET    /api/goods-receipts                                 routes/goods-receipts.js
 GET    /api/goods-receipts/:id                             routes/goods-receipts.js
+GET    /api/goods-receipts/webhook-log?limit=              routes/goods-receipts.js (admin — er Whiteboard-koblingen i live?)
+POST   /api/goods-receipts/:id/resend-webhook              routes/goods-receipts.js (nægter hvis allerede synket)
 GET    /api/staff                                          routes/staff.js
 POST   /api/staff                                          routes/staff.js (admin)
 PATCH  /api/staff/:id                                      routes/staff.js (admin)
