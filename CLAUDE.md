@@ -2163,6 +2163,24 @@ væk fra Tilbud-viewet og tilbage (ingen reload, intet gem) → begge emballagel
 står nederst, total 2.285 kr uændret. Samme mekanisme får en ændret blok-rækkefølge
 til at slå igennem.
 
+**Gamle tilbud havde ingen kategori at sortere efter.** Reglen virkede på nye tilbud,
+men emballagen fløj stadig rundt på de eksisterende. Årsagen var ikke reglen, men
+dataene: `bon_lines.category` blev aldrig gemt fra tilbudsmodulet (se punkt 3 ovenfor),
+så alle gamle linjer har NULL eller tidsblokken (`lunch`) i feltet — aldrig
+`06 Emballage`. Kontrolleret i driftskopien: T-4 har 7 af 7 linjer uden kategori.
+
+Linjen kender sin opskrift, og Grocy kender opskriftens kategori, så den kan **udledes**
+i stedet for at kræve en backfill i databasen: `_tApplyMenuCategories()` kobler
+`grocy_recipe_id` → `_tMenu`-kategorien, hver gang menuen er hentet. Grocy er kilden,
+så feltet overskrives også når det HAR en værdi (den er i praksis blok-navnet).
+Fritekst har ingen opskrift og røres ikke. Gemmes tilbuddet igen, skrives den rigtige
+kategori nu med til `bon_lines`, og så retter dataene sig selv efterhånden.
+
+Verificeret på de to tilbud i driftskopien: T-4 (enkeltbestilling, 7/7 linjer uden
+kategori) → begge "(emballage)"-varer flytter nederst; T-5 (event, kategori =
+`lunch`) → kategorierne bliver til `01 Sandwich`/`x- Service`/`06 Emballage`, og en
+emballagevare tvunget **først** i blokken vises **sidst**. Databasen er urørt af testen.
+
 **Leveringen fulgte ikke prismoden.** I `total`-mode ("kun samlet pris") stod
 leveringen som **eneste** linje på hele tilbuddet med et beløb ud for sig, mens alle
 varerne var uden. Prisen optrådte to steder — i varelisten og i leverings-info-boksen

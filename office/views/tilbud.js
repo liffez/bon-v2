@@ -220,8 +220,39 @@ function _tilbudHandleSSE(event, data) {
 
 /* ── Menu loading ────────────────────────────────────── */
 
+/**
+ * Giv de indlæste varer deres rigtige kategori fra Grocy.
+ *
+ * `bon_lines.category` blev aldrig gemt fra tilbudsmodulet før nu, så alle
+ * eksisterende tilbud har NULL eller tidsblokken ("lunch") stående i feltet.
+ * Emballage-reglen matcher på kategorien og kunne derfor ikke virke på dem:
+ * "Salat boks (emballage)" lå spredt mellem maden på et gammelt tilbud, uanset
+ * hvad der stod i Settings.
+ *
+ * Linjen kender sin opskrift, og Grocy kender opskriftens kategori — så den
+ * kan udledes i stedet for at skulle backfilles i databasen. Grocy er kilden;
+ * derfor overskrives feltet også når det HAR en værdi (den er i praksis
+ * blok-navnet på gamle tilbud). Fritekst har ingen opskrift og røres ikke.
+ *
+ * Gemmes tilbuddet igen, skrives den rigtige kategori nu med til `bon_lines`.
+ */
+function _tApplyMenuCategories() {
+    if (!_tMenu) return;
+    const catById = new Map();
+    Object.values(_tMenu).flat().forEach(p => { if (p.grocy_recipe_id) catById.set(p.grocy_recipe_id, p.category); });
+
+    const fix = arr => (arr || []).forEach(it => {
+        if (!it.grocy_recipe_id) return;
+        const cat = catById.get(it.grocy_recipe_id);
+        if (cat) it.category = cat;
+    });
+
+    Object.values(_tEvBlk).forEach(fix);
+    fix(_tSiItems);
+}
+
 async function _tLoadMenuAndRender() {
-    if (_tMenu) { _tRenderWizard(); return; }
+    if (_tMenu) { _tApplyMenuCategories(); _tRenderWizard(); return; }
     try {
         const recipes = await apiFetch('/grocy/recipes');
         _tMenu = {};
@@ -249,6 +280,7 @@ async function _tLoadMenuAndRender() {
         _tC.innerHTML = '<div class="tilbud-empty"><div class="icon">!</div><p>Kunne ikke hente menuen fra Grocy.</p></div>';
         return;
     }
+    _tApplyMenuCategories();
     _tRenderWizard();
 }
 
