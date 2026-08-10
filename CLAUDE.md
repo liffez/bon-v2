@@ -2302,6 +2302,23 @@ for menuen fik ⚠ og blev navngivet. Syntetisk event oprettet via de rigtige en
 ryddet igen; databasen urørt. Regression grøn: moms 18, indbakke 29, bon_lines 10,
 event-menu 42, topup 35.
 
+**Kategorier starter foldet sammen.** En blok viste elleve kategori-overskrifter med
+alle varer under sig — en skærmfuld scroll før man var i gang.
+`_tSeedCollapsedCategories()` folder dem sammen som udgangspunkt, **men holder
+kategorier med valgte varer åbne**: ellers ville en blok med indhold se tom ud, og man
+skulle klikke sig frem for at se sin egen menu. Antals-badgen viser hvor der er noget i
+de lukkede.
+
+Foldningen er brugerens så snart hun rører den (`_tColCatSeeded`) — et almindeligt
+re-render (antalsændring, prisskift) må ikke folde om bag ryggen på hende. Flaget
+nulstilles kun ved wizard-reset og **efter en import/kopiering**, så det man netop har
+hentet bliver synligt med det samme.
+
+Verificeret: nyt tilbud → alle seks kategorier lukkede, nul varelinjer at scrolle forbi.
+Tilbud med varer i to kategorier → netop de to åbne (3 varelinjer i stedet for 7). Klik
+på en kategori overlever et efterfølgende re-render. Import af varer i to lukkede
+kategorier → de foldes frem, de tomme forbliver lukkede.
+
 **Stadig åbent i #427:** man kan ikke vælge *hvilken* dag der hentes fra i et
 fler-dags-tilbud — det afventer #425.
 

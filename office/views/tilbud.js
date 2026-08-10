@@ -18,6 +18,7 @@ let _tSiItems = [];      // items for single template
 let _tActBlk = new Set();
 let _tColBlk = new Set();
 let _tColCat = new Set();   // foldbare kategorier i Sammensæt: 'cat' (single) eller 'bid::cat' (event)
+let _tColCatSeeded = false; // er default-foldningen sat? (brugerens egne klik må ikke overskrives)
 let _tDel = { type: null, price: 0, note: '', free: false };
 let _tMaxStep = 0;       // højeste besøgte step (alle klikbare op til denne)
 let _tPriceMode = 'total';
@@ -513,6 +514,7 @@ function _tResetWizard() {
     _tActBlk = new Set();
     _tColBlk = new Set();
     _tColCat = new Set();
+    _tColCatSeeded = false;
     _tDel = { type: null, price: 0, note: '', free: false };
     _tPriceMode = 'total';
     _tDiscountPct = 0;
@@ -956,6 +958,7 @@ function _tAddSourceLines(lines) {
         added++;
     }
 
+    _tColCatSeeded = false;   // fold om, så det hentede er synligt med det samme
     return { added, stale };
 }
 
@@ -1130,7 +1133,43 @@ async function _tCopyBon(bonId) {
 
 /* ── Step 2: Sammensæt ───────────────────────────────── */
 
+/**
+ * Fold kategorierne sammen som udgangspunkt, så en blok ikke fylder elleve
+ * kategori-overskrifter og en skærmfuld scroll før man er i gang.
+ *
+ * Kategorier der HAR valgte varer holdes åbne — ellers ville en blok med
+ * indhold se tom ud, og man skulle klikke sig frem for at se sin egen menu.
+ * Antals-badgen viser hvor der er noget i de lukkede.
+ *
+ * Kører kun når foldetilstanden ikke er sat af brugeren endnu (`_tColCatSeeded`).
+ * Efter en import eller kopiering nulstilles flaget, så det man netop har hentet
+ * bliver synligt — men et klik man selv har lavet overlever et re-render.
+ */
+function _tSeedCollapsedCategories() {
+    if (_tColCatSeeded || !_tMenu) return;
+    _tColCatSeeded = true;
+    _tColCat = new Set();
+
+    const hasPick = (items, chosen) => items.some(it => chosen.some(x => x.id === it.id));
+
+    if (_tTpl === 'event') {
+        for (const b of _tBLOCKS) {
+            const chosen = _tEvBlk[b.id] || [];
+            for (const cat of _tSortedCats()) {
+                const items = _tMenu[cat] || [];
+                if (items.length && !hasPick(items, chosen)) _tColCat.add(`${b.id}::${cat}`);
+            }
+        }
+    } else {
+        for (const cat of _tSortedCats()) {
+            const items = _tMenu[cat] || [];
+            if (items.length && !hasPick(items, _tSiItems)) _tColCat.add(cat);
+        }
+    }
+}
+
 function _tBuildStep2() {
+    _tSeedCollapsedCategories();
     const isEv = _tTpl === 'event';
     let h = `<h2>Sammens\u00e6t menu</h2><p class="tilbud-step-desc">${isEv ? 'T\u00e6nd tidsblokke og fyld med retter.' : 'V\u00e6lg retter fra menuen.'}</p>`;
 
@@ -1476,6 +1515,7 @@ function _tTogCol(id) {
 }
 
 function _tTogColCat(key) {
+    _tColCatSeeded = true;   // fra nu af er foldningen brugerens
     if (_tColCat.has(key)) _tColCat.delete(key); else _tColCat.add(key);
     _tRenderWizard();
 }
