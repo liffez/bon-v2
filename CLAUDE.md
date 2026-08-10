@@ -2144,10 +2144,25 @@ PDF; total 2.060 kr uændret. Sat til `hidden` → linjen forsvinder for kunden,
 er stadig 2.060 kr, og `_tCollectLines` returnerer den fortsat. Settings gemmer og
 listen viser alle Grocy-kategorier. Testdata rullet tilbage.
 
-**Observation (ikke rørt):** på et tilbud fra drift stod "Eftermiddagssnack" som
-blok-overskrift **to gange** i træk med hver sit indhold. Ligner to blok-typer med
-samme `label` i `offer_block_types` — værd at kigge på i Settings → Tilbud —
-opbygning, men det er konfiguration, ikke en kodefejl.
+**Blok-typer kan ikke længere få samme navn.** På et tilbud fra drift stod
+"Eftermiddagssnack" som blok-overskrift **to gange** med hver sit indhold — og
+"Morgenmad" var væk. Forklaringen var ikke en kodefejl i tilbuddet: en blok var
+blevet omdøbt i Settings til et navn en anden allerede havde. `saveOfferBlocks`
+gemte det uden at sige noget.
+
+- **Gem afviser nu** dublet-label (med begge nøgler nævnt: *"To blokke hedder
+  'Eftermiddagssnack' (morning og pmsnack)"*), dublet-nøgle og tomt navn.
+- Feltet markeres rødt **mens man skriver**, ikke først ved gem.
+- `_tLoadBlockTypes` filtrerer defensivt dublet-nøgler fra: nøglen er blokkens
+  identitet (`bon_lines.block_type`), så to ens ville dele `_tEvBlk[id]` og
+  rendere samme indhold to gange. Data der allerede ligger sådan må ikke vælte
+  et tilbud.
+- `addOfferBlock` tager første ledige `customN` i stedet for højeste + 1. Den
+  gamle var også unik, men efterlod huller efter en sletning.
+
+Verificeret ved at genskabe situationen: Morgenmad omdøbt til "Eftermiddagssnack"
+→ begge felter markeres, gem afvises med besked. Tomt navn og dublet-nøgle
+afvises hver for sig; gyldig opsætning gemmes. Driftsdata urørt.
 
 ### Mail-oprydning: spam/auto-ignored + bounces (14.-15. maj 2026)
 > Spec: `docs/CLAUDE_MAIL_FIX_SPAM_OPHOBNING.md`

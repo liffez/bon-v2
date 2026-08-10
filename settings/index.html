@@ -3099,10 +3099,24 @@ function renderOfferBlocks() {
     container.innerHTML = '<p style="font-size:.82rem;color:var(--color-text-dim)">Ingen blokke defineret.</p>';
     return;
   }
+  // To blokke med samme navn giver to identiske overskrifter på kundens tilbud
+  // — og fordi den ene så ikke længere hedder det den plejede, ser det ud som om
+  // en blok er "forsvundet". Præcis det skete i drift: en blok blev omdøbt til
+  // et navn en anden allerede havde. Markér det, i stedet for at gemme i stilhed.
+  var labelCount = {};
+  offerBlocks.forEach(function(b) {
+    var k = (b.label || '').trim().toLowerCase();
+    labelCount[k] = (labelCount[k] || 0) + 1;
+  });
+
   container.innerHTML = offerBlocks.map(function(b, i) {
+    var dupLabel = labelCount[(b.label || '').trim().toLowerCase()] > 1;
     return '<div style="display:flex;gap:8px;align-items:center;margin-bottom:6px">' +
       '<span style="font-size:.72rem;color:var(--color-text-dim);width:60px;font-family:monospace">' + esc(b.key) + '</span>' +
-      '<input class="st-input" value="' + esc(b.label) + '" style="flex:1" onchange="offerBlocks[' + i + '].label=this.value">' +
+      '<input class="st-input" value="' + esc(b.label) + '" style="flex:1' +
+        (dupLabel ? ';border-color:#c0392b;background:#fdf0ef' : '') +
+        '" onchange="offerBlocks[' + i + '].label=this.value; renderOfferBlocks()"' +
+        (dupLabel ? ' title="To blokke har dette navn — kunden ser to ens overskrifter"' : '') + '>' +
       '<button class="st-btn st-btn-sm" onclick="moveOfferBlock(' + i + ',-1)" ' + (i === 0 ? 'disabled' : '') + '>\u25B2</button>' +
       '<button class="st-btn st-btn-sm" onclick="moveOfferBlock(' + i + ',1)" ' + (i === offerBlocks.length - 1 ? 'disabled' : '') + '>\u25BC</button>' +
       '<button class="st-btn st-btn-sm" onclick="removeOfferBlock(' + i + ')" style="color:#bc181b">\u2715</button>' +
@@ -3111,12 +3125,14 @@ function renderOfferBlocks() {
 }
 
 function addOfferBlock() {
-  var maxN = 0;
-  offerBlocks.forEach(function(b) {
-    var m = b.key.match(/^custom(\d+)$/);
-    if (m) maxN = Math.max(maxN, parseInt(m[1]));
-  });
-  offerBlocks.push({ key: 'custom' + (maxN + 1), label: 'Ny blok', sort_order: offerBlocks.length + 1 });
+  // Nøglen er blokkens identitet: linjerne gemmes med den i bon_lines.block_type,
+  // og to blokke med samme nøgle ville dele indhold. Den gamle "højeste + 1" var
+  // også unik — men efterlod huller efter en sletning. Tag den første ledige.
+  var taken = {};
+  offerBlocks.forEach(function(b) { taken[b.key] = 1; });
+  var n = 1;
+  while (taken['custom' + n]) n++;
+  offerBlocks.push({ key: 'custom' + n, label: 'Ny blok', sort_order: offerBlocks.length + 1 });
   renderOfferBlocks();
 }
 
@@ -3138,10 +3154,34 @@ function moveOfferBlock(idx, dir) {
 }
 
 async function saveOfferBlocks() {
-  offerBlocks.forEach(function(b, i) { b.sort_order = i + 1; });
+  var msg = document.getElementById('tilbud-blocks-msg');
+  var fail = function(t) {
+    if (msg) { msg.style.color = '#c0392b'; msg.textContent = t; }
+    return false;
+  };
+
+  // Gemmes der en dublet, ser kunden to ens overskrifter p\u00e5 tilbuddet, og den
+  // blok der blev omd\u00f8bt ser ud til at v\u00e6re forsvundet. Det skete i drift.
+  var seenKey = {}, seenLabel = {};
+  for (var i = 0; i < offerBlocks.length; i++) {
+    var b = offerBlocks[i];
+    var label = (b.label || '').trim();
+    if (!label) return fail('Blokken "' + b.key + '" mangler et navn.');
+
+    var lk = label.toLowerCase();
+    if (seenLabel[lk]) return fail('To blokke hedder "' + label + '" (' + seenLabel[lk] + ' og ' + b.key + '). Giv dem hvert sit navn.');
+    seenLabel[lk] = b.key;
+
+    if (seenKey[b.key]) return fail('N\u00f8glen "' + b.key + '" bruges to gange \u2014 blokkene ville dele indhold.');
+    seenKey[b.key] = 1;
+
+    b.label = label;
+    b.sort_order = i + 1;
+  }
+
   await saveSetting('offer_block_types', JSON.stringify(offerBlocks));
-  document.getElementById('tilbud-blocks-msg').textContent = '\u2713 Gemt';
-  setTimeout(function() { document.getElementById('tilbud-blocks-msg').textContent = ''; }, 2000);
+  if (msg) { msg.style.color = '#2e7d32'; msg.textContent = '\u2713 Gemt'; }
+  setTimeout(function() { if (msg) msg.textContent = ''; }, 3000);
 }
 
 // ═══════════════════════════════════════════════════════════

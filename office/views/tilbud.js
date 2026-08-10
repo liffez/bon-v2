@@ -154,12 +154,20 @@ async function _tLoadBlockTypes() {
         const raw = settings.find(s => s.key === 'offer_block_types');
         if (raw) {
             const arr = JSON.parse(raw.value);
-            _tBLOCKS = arr.sort((a, b) => (a.sort_order || 0) - (b.sort_order || 0)).map(b => ({
-                id: b.key,
-                label: b.label,
-                icon: _tBLOCK_ICONS[b.key] || _tDEFAULT_ICON,
-                color: _tBLOCK_COLORS[b.key] || _tDEFAULT_COLOR,
-            }));
+            // Dublet-nøgler filtreres fra. Nøglen er blokkens identitet — to
+            // ens ville dele `_tEvBlk[id]` og rendere det samme indhold to
+            // gange. Settings blokerer det ved gem, men data der allerede
+            // ligger sådan skal ikke kunne vælte et tilbud.
+            const seen = new Set();
+            _tBLOCKS = arr
+                .sort((a, b) => (a.sort_order || 0) - (b.sort_order || 0))
+                .filter(b => { if (!b?.key || seen.has(b.key)) return false; seen.add(b.key); return true; })
+                .map(b => ({
+                    id: b.key,
+                    label: b.label,
+                    icon: _tBLOCK_ICONS[b.key] || _tDEFAULT_ICON,
+                    color: _tBLOCK_COLORS[b.key] || _tDEFAULT_COLOR,
+                }));
         }
         // Visningsregler pr. varekategori på kundens tilbud (migration 143)
         const cd = settings.find(s => s.key === 'offer_category_display');
