@@ -643,6 +643,23 @@
         </div>
         <div id="tilbud-blocks-msg" style="font-size:.82rem;margin-top:8px"></div>
       </div>
+
+      <div class="st-card">
+        <h3>Varekategorier p&aring; tilbuddet</h3>
+        <p style="font-size:.82rem;color:var(--color-text-dim,#7a6f5f);margin-bottom:4px;max-width:680px;line-height:1.6">
+          Styrer hvordan hver kategori vises for <strong>kunden</strong> &mdash; i forh&aring;ndsvisningen og p&aring; PDF&rsquo;en.
+          Emballage st&aring;r ellers midt imellem maden og virker umotiveret; p&aring; bon-kortet ligger den allerede nederst.
+        </p>
+        <p style="font-size:.78rem;color:var(--color-text-dim,#7a6f5f);margin-bottom:12px;max-width:680px;line-height:1.6">
+          <strong>Kun visning.</strong> Priser, moms og totalen er upåvirkede &mdash; en skjult kategori t&aelig;ller stadig fuldt med i bel&oslash;bet,
+          og linjerne gemmes u&aelig;ndret p&aring; bonen, s&aring; k&oslash;kkenet ser dem.
+        </p>
+        <div id="offer-cat-list"></div>
+        <div style="display:flex;gap:8px;align-items:center;margin-top:10px">
+          <button class="st-btn st-btn-sm st-btn-primary" onclick="saveOfferCatDisplay()">Gem</button>
+          <span id="offer-cat-msg" style="font-size:.82rem"></span>
+        </div>
+      </div>
     </div>
 
     <!-- ════ LEGOKLODS ════ -->
@@ -1567,6 +1584,7 @@ async function init() {
     loadMailSection();
     loadFormbuilder();
     loadOfferBlocks();
+    loadOfferCatDisplay();
     loadLegoCats();
     loadSystemSection();
     loadDeductStatus();          // egen fetch — må ikke blokere resten hvis den fejler
@@ -2280,6 +2298,27 @@ async function loadMailSection() {
   html += mailToggle('imap_kontakt_enabled', 'Aktiv');
   html += '</div><div style="margin-top:var(--space-s)"><button class="st-btn st-btn-primary st-btn-sm" onclick="saveMailSettings(\'imap_kontakt\')">Gem kontakt@</button></div></div>';
 
+  // Interne afsendere — styrer hvor indgående mail lander
+  html += '<div class="st-mail-group"><h3>Interne afsendere</h3>' +
+    '<p style="font-size:.82rem;color:var(--color-text-dim);margin-bottom:10px;max-width:680px;line-height:1.6">' +
+      'Adresser her regnes <strong>aldrig</strong> som kunder når indgående mail fordeles. ' +
+      'Videresender en kollega en kundemail til bon@ eller kontakt@, slås kunden i stedet op p&aring; ' +
+      'afsenderen <em>inde i</em> den videresendte besked — og findes hun ikke, lander mailen i ' +
+      'CRM Indbakken med den rigtige afsender vist, i stedet for at blive filet under os selv.' +
+    '</p>' +
+    '<p style="font-size:.78rem;color:var(--color-text-dim);margin-bottom:10px">' +
+      'Kommasepareret. Et helt dom&aelig;ne (<code>ristetrug.dk</code>) eller &eacute;n adresse ' +
+      '(<code>bogholder@partner.dk</code>). Firmaer markeret som interne i CRM t&aelig;ller med automatisk.' +
+    '</p>' +
+    '<input class="st-input" id="mail-internal_mail_domains" style="width:100%;max-width:520px" ' +
+      'value="' + esc(allSettings.internal_mail_domains || '') + '" placeholder="ristetrug.dk">' +
+    '<div style="margin-top:var(--space-s);display:flex;gap:8px;align-items:center">' +
+      '<button class="st-btn st-btn-primary st-btn-sm" onclick="saveInternalSenders()">Gem</button>' +
+      '<span id="internal-senders-status" style="font-size:12px"></span>' +
+    '</div>' +
+    '<div id="internal-senders-list" style="margin-top:12px"></div>' +
+  '</div>';
+
   // Signatur
   html += '<div class="st-mail-group"><h3>Signatur</h3>' +
     '<textarea class="st-textarea" id="mail-sig" rows="4">' + esc(allSettings.mail_signature || '') + '</textarea>' +
@@ -2318,6 +2357,54 @@ async function loadMailSection() {
   container.innerHTML = html;
   // Vis første skabelon
   if (templates.length > 0) switchTemplate();
+  loadInternalSenders();
+}
+
+// Reglen om interne afsendere er usynlig i sig selv — den viser sig først som en
+// mail der ikke havnede hvor man ventede. Derfor vises hvilke kunderækker den
+// faktisk rammer, direkte under feltet.
+async function loadInternalSenders() {
+  var el = document.getElementById('internal-senders-list');
+  if (!el) return;
+  try {
+    var data = await fetchInternalSenders();
+    var rows = data.matched || [];
+    if (!rows.length) {
+      el.innerHTML = '<div style="font-size:12px;color:var(--color-text-dim)">Ingen kunder i basen matcher listen lige nu.</div>';
+      return;
+    }
+    var h = '<div style="font-size:12px;color:var(--color-text-dim);margin-bottom:6px">' +
+      'Disse ' + rows.length + ' kunde' + (rows.length === 1 ? '' : 'r') +
+      ' behandles som interne og bliver aldrig modtager af videresendt post:</div>';
+    h += '<div style="border:1px solid var(--color-border);border-radius:6px;overflow:hidden;max-width:680px">';
+    rows.forEach(function(r, i) {
+      h += '<div style="display:flex;gap:10px;align-items:baseline;padding:6px 10px;font-size:12px;' +
+        (i ? 'border-top:1px solid var(--color-border);' : '') + '">' +
+        '<strong style="min-width:150px">' + esc(r.name) + '</strong>' +
+        '<code style="font-size:11px">' + esc(r.email) + '</code>' +
+        (r.company_name ? '<span style="color:var(--color-text-dim)">' + esc(r.company_name) + '</span>' : '') +
+        '<span style="margin-left:auto;color:var(--color-text-dim);font-size:11px">' + esc(r.reason) + '</span>' +
+      '</div>';
+    });
+    h += '</div>';
+    el.innerHTML = h;
+  } catch (e) {
+    el.innerHTML = '<div style="font-size:12px;color:#c0392b">Kunne ikke hente listen: ' + esc(e.message || 'fejl') + '</div>';
+  }
+}
+
+async function saveInternalSenders() {
+  var el = document.getElementById('mail-internal_mail_domains');
+  var status = document.getElementById('internal-senders-status');
+  if (!el) return;
+  await patchSetting('internal_mail_domains', el.value);
+  allSettings.internal_mail_domains = el.value;
+  if (status) {
+    status.textContent = '✓ Gemt';
+    status.style.color = '#2e7d32';
+    setTimeout(function() { status.textContent = ''; }, 2500);
+  }
+  loadInternalSenders();
 }
 
 function mailField(key, label, type) {
@@ -2815,18 +2902,35 @@ function _ucParse(raw) {
   catch { return []; }
 }
 
+// Grocys kategoriliste — ÉT sted.
+//
+// Grocy er eneste kilde til hvilke kategorier der findes (historiske stavemåder
+// som "Salat" vs. "02 Salat" normaliseres væk af
+// scripts/normalize-bon-line-categories.js og hører ikke hjemme som valgmulighed).
+// Flere Settings-sektioner har brug for listen, og de udledte den hver for sig.
+var _grocyRecipesCache = null;
+async function getGrocyRecipesCached() {
+  if (!_grocyRecipesCache) _grocyRecipesCache = await fetchGrocyRecipes();
+  return _grocyRecipesCache;
+}
+
+async function getGrocyCategories() {
+  var recipes = await getGrocyRecipesCached();
+  var seen = {}, out = [];
+  (recipes || []).forEach(function(r) {
+    var c = (r.category || '').trim();
+    if (c && !seen[c]) { seen[c] = 1; out.push(c); }
+  });
+  out.sort(function(a, b) { return a.localeCompare(b, 'da'); });
+  return out;
+}
+
 async function loadUnitCategoriesSettings() {
   _ucSelected = _ucParse(allSettings['unit_count_categories']);
   var recipes = [];
   try {
-    recipes = await fetchGrocyRecipes();
-    var seen = new Set();
-    _ucAllCats = [];
-    (recipes || []).forEach(function(r) {
-      var c = (r.category || '').trim();
-      if (c && !seen.has(c)) { seen.add(c); _ucAllCats.push(c); }
-    });
-    _ucAllCats.sort(function(a, b) { return a.localeCompare(b, 'da'); });
+    recipes = await getGrocyRecipesCached();
+    _ucAllCats = await getGrocyCategories();
   } catch (e) {
     console.warn('Kunne ikke hente Grocy-kategorier:', e);
     _ucAllCats = _ucSelected.slice();
@@ -2995,10 +3099,24 @@ function renderOfferBlocks() {
     container.innerHTML = '<p style="font-size:.82rem;color:var(--color-text-dim)">Ingen blokke defineret.</p>';
     return;
   }
+  // To blokke med samme navn giver to identiske overskrifter på kundens tilbud
+  // — og fordi den ene så ikke længere hedder det den plejede, ser det ud som om
+  // en blok er "forsvundet". Præcis det skete i drift: en blok blev omdøbt til
+  // et navn en anden allerede havde. Markér det, i stedet for at gemme i stilhed.
+  var labelCount = {};
+  offerBlocks.forEach(function(b) {
+    var k = (b.label || '').trim().toLowerCase();
+    labelCount[k] = (labelCount[k] || 0) + 1;
+  });
+
   container.innerHTML = offerBlocks.map(function(b, i) {
+    var dupLabel = labelCount[(b.label || '').trim().toLowerCase()] > 1;
     return '<div style="display:flex;gap:8px;align-items:center;margin-bottom:6px">' +
       '<span style="font-size:.72rem;color:var(--color-text-dim);width:60px;font-family:monospace">' + esc(b.key) + '</span>' +
-      '<input class="st-input" value="' + esc(b.label) + '" style="flex:1" onchange="offerBlocks[' + i + '].label=this.value">' +
+      '<input class="st-input" value="' + esc(b.label) + '" style="flex:1' +
+        (dupLabel ? ';border-color:#c0392b;background:#fdf0ef' : '') +
+        '" onchange="offerBlocks[' + i + '].label=this.value; renderOfferBlocks()"' +
+        (dupLabel ? ' title="To blokke har dette navn — kunden ser to ens overskrifter"' : '') + '>' +
       '<button class="st-btn st-btn-sm" onclick="moveOfferBlock(' + i + ',-1)" ' + (i === 0 ? 'disabled' : '') + '>\u25B2</button>' +
       '<button class="st-btn st-btn-sm" onclick="moveOfferBlock(' + i + ',1)" ' + (i === offerBlocks.length - 1 ? 'disabled' : '') + '>\u25BC</button>' +
       '<button class="st-btn st-btn-sm" onclick="removeOfferBlock(' + i + ')" style="color:#bc181b">\u2715</button>' +
@@ -3007,12 +3125,14 @@ function renderOfferBlocks() {
 }
 
 function addOfferBlock() {
-  var maxN = 0;
-  offerBlocks.forEach(function(b) {
-    var m = b.key.match(/^custom(\d+)$/);
-    if (m) maxN = Math.max(maxN, parseInt(m[1]));
-  });
-  offerBlocks.push({ key: 'custom' + (maxN + 1), label: 'Ny blok', sort_order: offerBlocks.length + 1 });
+  // Nøglen er blokkens identitet: linjerne gemmes med den i bon_lines.block_type,
+  // og to blokke med samme nøgle ville dele indhold. Den gamle "højeste + 1" var
+  // også unik — men efterlod huller efter en sletning. Tag den første ledige.
+  var taken = {};
+  offerBlocks.forEach(function(b) { taken[b.key] = 1; });
+  var n = 1;
+  while (taken['custom' + n]) n++;
+  offerBlocks.push({ key: 'custom' + n, label: 'Ny blok', sort_order: offerBlocks.length + 1 });
   renderOfferBlocks();
 }
 
@@ -3034,10 +3154,107 @@ function moveOfferBlock(idx, dir) {
 }
 
 async function saveOfferBlocks() {
-  offerBlocks.forEach(function(b, i) { b.sort_order = i + 1; });
+  var msg = document.getElementById('tilbud-blocks-msg');
+  var fail = function(t) {
+    if (msg) { msg.style.color = '#c0392b'; msg.textContent = t; }
+    return false;
+  };
+
+  // Gemmes der en dublet, ser kunden to ens overskrifter p\u00e5 tilbuddet, og den
+  // blok der blev omd\u00f8bt ser ud til at v\u00e6re forsvundet. Det skete i drift.
+  var seenKey = {}, seenLabel = {};
+  for (var i = 0; i < offerBlocks.length; i++) {
+    var b = offerBlocks[i];
+    var label = (b.label || '').trim();
+    if (!label) return fail('Blokken "' + b.key + '" mangler et navn.');
+
+    var lk = label.toLowerCase();
+    if (seenLabel[lk]) return fail('To blokke hedder "' + label + '" (' + seenLabel[lk] + ' og ' + b.key + '). Giv dem hvert sit navn.');
+    seenLabel[lk] = b.key;
+
+    if (seenKey[b.key]) return fail('N\u00f8glen "' + b.key + '" bruges to gange \u2014 blokkene ville dele indhold.');
+    seenKey[b.key] = 1;
+
+    b.label = label;
+    b.sort_order = i + 1;
+  }
+
   await saveSetting('offer_block_types', JSON.stringify(offerBlocks));
-  document.getElementById('tilbud-blocks-msg').textContent = '\u2713 Gemt';
-  setTimeout(function() { document.getElementById('tilbud-blocks-msg').textContent = ''; }, 2000);
+  if (msg) { msg.style.color = '#2e7d32'; msg.textContent = '\u2713 Gemt'; }
+  setTimeout(function() { if (msg) msg.textContent = ''; }, 3000);
+}
+
+// ═══════════════════════════════════════════════════════════
+// TILBUD — visning af varekategorier (migration 143)
+//
+// Kategorierne hentes fra Grocy, så listen følger virkeligheden. Kategorier der
+// allerede har en regel tages med selvom de ikke længere findes i Grocy — ellers
+// ville en gammel regel blive usynlig og umulig at fjerne.
+// ═══════════════════════════════════════════════════════════
+
+var _ocdRules = {};
+
+async function loadOfferCatDisplay() {
+  try { _ocdRules = JSON.parse(allSettings['offer_category_display'] || '{}') || {}; }
+  catch (_) { _ocdRules = {}; }
+  if (typeof _ocdRules !== 'object' || Array.isArray(_ocdRules)) _ocdRules = {};
+
+  // Samme Grocy-liste som resten af Settings bruger. Kategorier der allerede
+  // har en gemt regel tages med selvom de er ude af Grocy — ellers ville en
+  // gammel regel være usynlig og umulig at fjerne igen.
+  var cats = [];
+  try { cats = await getGrocyCategories(); }
+  catch (_) { /* Grocy nede — vis i det mindste de gemte regler */ }
+
+  Object.keys(_ocdRules).forEach(function(c) { if (cats.indexOf(c) === -1) cats.push(c); });
+  cats.sort(function(a, b) { return a.localeCompare(b, 'da'); });
+  renderOfferCatDisplay(cats);
+}
+
+function renderOfferCatDisplay(cats) {
+  var el = document.getElementById('offer-cat-list');
+  if (!el) return;
+  if (!cats.length) {
+    el.innerHTML = '<div style="font-size:12px;color:var(--color-text-dim)">Ingen kategorier fundet.</div>';
+    return;
+  }
+  var OPTS = [
+    { v: 'show',   t: 'Vis' },
+    { v: 'last',   t: 'Nederst' },
+    { v: 'hidden', t: 'Skjul' }
+  ];
+  var h = '<div style="border:1px solid var(--color-border);border-radius:6px;overflow:hidden;max-width:560px">';
+  cats.forEach(function(c, i) {
+    var cur = _ocdRules[c] || 'show';
+    h += '<div style="display:flex;align-items:center;gap:12px;padding:7px 12px;' +
+         (i ? 'border-top:1px solid var(--color-border);' : '') + '">' +
+         '<span style="flex:1;font-size:13px">' + esc(c) + '</span>' +
+         '<select class="st-input" style="width:120px;padding:4px 8px;font-size:12px" ' +
+           'onchange="_ocdSet(' + JSON.stringify(c).replace(/"/g, '&quot;') + ', this.value)">';
+    OPTS.forEach(function(o) {
+      h += '<option value="' + o.v + '"' + (cur === o.v ? ' selected' : '') + '>' + o.t + '</option>';
+    });
+    h += '</select></div>';
+  });
+  h += '</div>';
+  el.innerHTML = h;
+}
+
+function _ocdSet(cat, val) {
+  if (val === 'show') delete _ocdRules[cat];
+  else _ocdRules[cat] = val;
+}
+
+async function saveOfferCatDisplay() {
+  var msg = document.getElementById('offer-cat-msg');
+  try {
+    await saveSetting('offer_category_display', JSON.stringify(_ocdRules));
+    allSettings['offer_category_display'] = JSON.stringify(_ocdRules);
+    if (msg) { msg.style.color = '#2e7d32'; msg.textContent = '✓ Gemt — slår igennem næste gang et tilbud åbnes'; }
+  } catch (e) {
+    if (msg) { msg.style.color = '#c0392b'; msg.textContent = 'Fejl: ' + (e.message || e); }
+  }
+  if (msg) setTimeout(function() { msg.textContent = ''; }, 4000);
 }
 
 // ═══════════════════════════════════════════════════════════

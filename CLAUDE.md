@@ -1944,6 +1944,275 @@ Fase 3 — Office:
 - SSE-test-helper `tests/scripts/helpers/sse_listener.js` genbruges på alle office-tracks
 - Findings dokumenteres som F-numre i specens §11; observations som #NNN i `docs/TEST_OBSERVATIONS.md`
 
+### Videresendt mail: intern afsender + reel afsender (10. august 2026)
+
+Anne videresendte en kundemail til kontakt@ for at få kunden oprettet. Mailen
+landede som en tråd på **os selv** (`#k-3005 Ristet Rug`), og kunden inde i
+beskeden blev aldrig set.
+
+Årsag: `info@ristetrug.dk` står i `customers` som kunde 3005 under firmaet Ristet
+Rug — huset er sin egen kunde. `processInboundMail` trin 3a matchede derfor
+afsenderen mod os, og forward-parseren (`parseForwardedSender`, som har eksisteret
+siden migration 018) kører kun på den ufordelte gren mailen aldrig nåede. Kolonnerne
+`mail_unmatched.parsed_email/_name/_company` blev skrevet, men **læst ingen steder**.
+
+- **Migration 142**: `settings.internal_mail_domains` (CSV, seedet fra `mail_domain`).
+  Entries er enten et helt domæne (`ristetrug.dk`) eller én adresse
+  (`bogholder@partner.dk`).
+- **`services/internalIdentity.js`** — `isInternalEmail(db, email)`. To uafhængige
+  signaler: settingens liste **og** `companies.is_internal = 1` (kunder under et
+  internt firma). 60s cache, ryddes af `PATCH /api/settings/:key`.
+- **`mailService.resolveEffectiveSender`** — er afsenderen intern, slås kunden op på
+  den **videresendte** afsender i stedet. Kendt kunde ⇒ kundens tråd (genåbnes som
+  ved en direkte mail). Ukendt eller ingen forward-blok ⇒ ufordelt indbakke med
+  `parsed_*` udfyldt. Vi gætter aldrig på os selv.
+- **`/api/mail/threads/:id/reply` fik et filter**: modtageren er seneste indgående
+  **ikke-interne** afsender. Uden det ville et svar på en videresendt kundemail gå
+  til kollegaen — bogført afsender er jo den der videresendte.
+- **`create-lead` + `reply` tager `use_parsed`** → opretter/svarer den reelle
+  afsender. Domæne-gættet på firmanavnet lægges som note på leadet (det er et spor,
+  ikke en sandhed). Serveren afviser `use_parsed` mod en intern adresse.
+- **Indbakke-UI**: gult panel "↪ Videresendt af X — reel afsender Y ⟨mail⟩ · Firma"
+  med *Opret som lead* / *Svar til Y* / *Findes allerede — søg kunde* (forudfylder
+  søgningen med navnet). De gamle knapper hedder nu "…af afsender", så de to ikke
+  forveksles. Listevisningen viser `↪ fra <navn> · <firma>`.
+- **`parsed_is_internal`** sættes server-side på ufordelte rækker: peger forward-blokken
+  tilbage på os selv (fx en videresendt ordrebekræftelse fra bon@), vises panelet ikke.
+  Fundet ved at kigge på ægte data — frontenden kender ikke domænelisten.
+- **Settings → Mail → "Interne afsendere"**: feltet + en liste over de kunderækker
+  reglen faktisk rammer, med begrundelse. Reglen er usynlig i sig selv; den viser sig
+  først som en mail der ikke havnede hvor man ventede.
+- `_guessCompany` splitter nu på bindestreg: `cap-partner.eu` → "Cap Partner".
+
+**Tests**: `tests/inbox_handling.test.js` udvidet 19 → **29 asserts** (intern uden
+forward → ufordelt · intern forward af ukendt → `parsed_*` · intern forward af kendt
+kunde → kundens tråd · modtager-valg springer den interne over). Mutations-testet:
+rulles `resolveEffectiveSender` tilbage til den gamle adfærd, falder 10 asserts.
+
+**Ikke løst her**: en tråd der ALLEREDE er fejlkoblet kan stadig ikke flyttes —
+`PATCH /api/mail/threads/:id` tager ikke `customer_id`, og tråd-visningen har ingen
+"Flyt til kunde"-knap. Det er den generelle retteventil (gælder enhver fejlrouting,
+ikke kun videresendelser) og bør bygges som sin egen opgave.
+
+### Kunde-oprettelse: find firma uden CVR-nummer + gem tilbudskladde (10. august 2026)
+
+To driftsfriktioner fundet mens Lærke skulle oprettes:
+
+**1. Firma kunne kun slås op på CVR-nummer.** `KundeSoeg`s opret-firma-formular havde
+ét felt: 8 cifre + "Slå op" (`cvrLookup` returnerer uden videre ved `length !== 8`).
+CAP Partner havde ikke skrevet deres CVR nogen steder — hverken i mailen eller på
+hjemmesiden — så man stod af. `GET /api/cvr/search?q=` (navn) og `/api/cvr/virk-search`
+har eksisteret hele tiden; de var bare ikke wiret ind her, kun på CRM-Kunder-siden.
+
+- `cvrSearchByName()` i [shared/kunde_soeg.js](shared/kunde_soeg.js): søger på navn,
+  **cvrapi først** (præcis på korte entydige navne), **Virk ES som fallback** (fuzzy,
+  bedre til fulde firmanavne). Resultater vises som klikbare rækker
+  (navn · CVR · postnr/by · status); klik udfylder felterne via `applyCvrResult()`.
+- **Link til `datacvr.virk.dk`** forudfyldt med søgeteksten, altid synligt under
+  resultaterne. cvrapi kan returnere et plausibelt men forkert match på et ukendt navn
+  (verificeret: nonsens-navn gav "IKR A/S"), så udvejen skal stå der.
+- Hjælpelinje: *"CVR er ikke påkrævet — firmaet kan oprettes med navnet alene"*.
+  Det var allerede sandt (kun `name` er påkrævet), men ikke synligt.
+- `_guessCompany` deler nu på bindestreg: `cap-partner.eu` → "Cap Partner".
+- **Ikke løst**: adressen fra CVR-opslaget gemmes stadig ikke. `companies.address_id`
+  er FK til `addresses`, så det kræver at der først oprettes en adresse-række.
+  Gælder også det eksisterende nummer-opslag — ikke en regression.
+
+**2. Et halvfærdigt tilbud kunne ikke gemmes.** "Gem tilbud" fandtes kun på trin 3 og 4
+i wizarden, så et tilbud man blev afbrudt i på trin 1 var tabt. `_tSaveBtn()` lægger nu
+en **"Gem kladde"** (→ "Gem" når tilbuddet har et nummer) på trin 1, 2 og 3. Trin 0 er
+kun skabelonvalg og har intet at gemme.
+
+> ⚠️ **`bons.delivery_date` er `NOT NULL`.** Derfor kan et tilbud ikke gemmes helt uden
+> dato. Det ramte også "Gem tilbud" på sidste trin i dag — med en rå
+> `NOT NULL constraint failed: bons.delivery_date` i en toast. `_tSaveQuote()` fanger
+> det nu, siger det på dansk og hopper til datofeltet. **Det er en workaround.** Den
+> rigtige løsning er at lempe kolonnen (kræver 12-trins table-rebuild af `bons` med
+> 3 triggers + 11 views hængende på sig — egen opgave, ikke en sidebemærkning).
+
+Verificeret i browser mod kopi af driftsdata: CAP Partner fundet på navnet alene
+(CVR 34599963, samme adresse som i mailsignaturen), felterne udfyldt ved klik, og en
+kladde gemt fra trin 1 helt uden kunde og varer (T-14, findbar i listen). Testdata ryddet.
+
+### Tilbud: fritekst-linjer fik antal — og fire fejl der lå bagved (10. august 2026)
+
+Driften bad om et **antal-felt ved fritekst** i tilbuds-wizardens sammensæt-trin
+(`qty` var hardkodet til 1). Undervejs viste det sig at fritekst var halvbygget i
+fire lag:
+
+1. **Fritekst-linjer var usynlige på trin 2.** Rendering-loopet går gennem
+   `_tMenu`-kategorierne og slår op i det valgte, så alt uden for Grocy-menuen faldt
+   ud af billedet. En fritekst-vare blev talt med i blok-headeren og dukkede op i
+   pristabellen på trin 3, men kunne hverken ses, tælles op eller slettes dér hvor man
+   sammensætter. Ny `_tBuildExtraItems()` renderer dem som **"Fritekst og øvrige"** med
+   samme antals-kontrol som menuvarer. Sektionen fanger også en gemt vare hvis
+   opskriften siden er fjernet i Grocy — den forsvandt lydløst før.
+   `_tTogMI()` prøver nu fravalg FØR menu-opslaget; ellers kunne en fritekst-vare ikke
+   fjernes igen (opslaget returnerede tidligt).
+2. **To parallelle fritekst-modeller.** Enkeltbestilling brugte `_tCxItems`
+   (`{name, price}`, ingen `qty`) med egen kode i pristabel, preview, PDF og
+   `_tCollectLines`. Men ved genindlæsning havner linjer uden `block_type` i
+   `_tSiItems` — så *samme linje* blev vist og talt forskelligt før og efter gem.
+   `_tCxItems` er fjernet; `_tAddCx()` lægger nu i `_tSiItems` via `_tFreeItem()`,
+   som giver fritekst samme form som en menuvare. Fire specialgrene væk.
+3. **`category` blev aldrig sendt med ved gem.** Backenden faldt tilbage på
+   `block_type` (tidsblokken, fx `morning`) eller NULL — og `bon_lines.category` er
+   præcis hvad enheds-tællingen matcher mod `unit_count_categories`. Et konverteret
+   tilbud ville have talt **nul enheder** på dashboard, ugeoversigt og kapacitet.
+   Latent i dag: 0 konverterede tilbud i drift (kontrolleret).
+4. **Menuvarerne bar ikke deres egen kategori.** `_tLoadMenu` brugte kategorien som
+   nøgle i `_tMenu`, men kopierede den ikke ind i varen — så `item.category` var
+   `undefined`, og rettelsen i punkt 3 ville have gemt tom streng. Nu sættes
+   `category: cat` ved indlæsning af menuen.
+   Samme sted: indlæsning af et gemt tilbud brugte `l.block_type` som kategori, så
+   hver vare i en enkeltbestilling blev til "Ukendt" i preview og PDF. Bruger nu
+   `l.category` (API'et har altid returneret feltet).
+
+Verificeret ende-til-ende i browser på begge skabeloner: antal tastet ved oprettelse,
+−/+ justerer, header og pristabel regner med det (4 × 250 = 1.000 kr), gem → DB
+(`quantity: 4`, `category: '01 Sandwich'` / `'Fritekst'`) → genindlæsning viser
+linjen igen med antal. Preview viser `5× Service på stedet`, PDF genereres uden fejl.
+Testdata ryddet.
+
+**Slukket tidsblok beholder sit indhold (samme dag).** `_tTogBlk` kørte
+`delete _tEvBlk[id]`, så ét klik på "Frokost" smed hele blokken væk — uden varsel og
+uden fortrydelse. Det er sikkert at lade indholdet ligge: alt der læser blokke
+(stat-stribe, pristabel, preview, `_tCollectLines`, PDF) springer allerede inaktive
+blokke over, så en slukket blok tæller stadig ikke med i tilbuddet. Chippen får en
+stiplet kant + antal-badge når der ligger noget bag den, så det er synligt at der er
+noget at hente tilbage. `_tBuildStats` filtrerede som det eneste sted IKKE på
+`_tActBlk` — den talte den slukkede bloks varer med og modsagde dermed pristabellen
+(rettet samtidig: 7 varer/700 kr → 1 vare/100 kr når Frokost slukkes).
+**Og indholdet overlever et gem.** En slukket bloks varer lægges i
+`offer_block_metadata[blok].stash` — den frie JSON-kolonne fra migration 024, der
+allerede bærer pax pr. blok. **Ingen skemaændring.**
+
+Hvorfor ikke bare lade linjerne ligge i `bon_lines` med et inaktiv-flag: så ville de
+tælle med i priser, enheder og pakkeliste, og de ville følge med over i en rigtig bon
+ved konvertering — medmindre hver eneste forbruger af `bon_lines` lærte at filtrere.
+Med stash ser `bon_lines` ud præcis som før, så alt nedstrøms er uberørt, og
+"en slukket blok er ikke en del af tilbuddet" forbliver sandt i databasen.
+
+- `_tSyncBlockStash()` (kaldes i `_tSaveQuote`): slukket blok med indhold → `stash`;
+  tændt blok → `stash` slettes, for så ejer `bon_lines` indholdet. Ingen dobbelt-registrering.
+- `_tRestoreBlockStash()` (kaldes i `_tOpenQuote` EFTER linjerne er indlæst, så en
+  tændt bloks rigtige indhold ikke overskrives).
+- Fælde undervejs: `_tSaveStepFields` gjorde `_tBlockMeta = {}` og byggede den forfra
+  fra pax-felterne. Det ville have smidt stash væk hver gang man forlod trin 1.
+  Nøglerne opdateres nu i stedet for at blive nulstillet.
+
+Verificeret: fyld Frokost (6 + 2 varer) → sluk → gem → `bon_lines` har KUN morgenmad,
+`offer_block_metadata.lunch.stash` har de to varer → genindlæs → Frokost stadig slukket
+med "8" på chippen og indholdet intakt → tænd → gem → varerne er tilbage i `bon_lines`
+med rigtig blok, antal og kategori, og metadata er `null`. Pax pr. blok (40/80) og stash
+lever side om side gennem hele turen. Testdata ryddet.
+
+### Tilbud: varekategorier kan skjules eller flyttes nederst (10. august 2026)
+
+Emballagelinjer — "2× Transportkasse m låg", "15× Receptions Skinner" — stod midt
+imellem maden på kundens tilbud og virkede umotiverede. På bon-kortet ligger
+emballagen allerede dæmpet nederst; tilbuddet manglede den samme adskillelse.
+
+- **Migration 143**: `settings.offer_category_display`, JSON fra kategorinavn til
+  `show` | `last` | `hidden`. Default flytter kun emballage nederst
+  (`{"06 Emballage":"last"}`). At **skjule** noget kunden betaler for skal være et
+  bevidst valg. Kun det kanoniske Grocy-navn — den historiske variant "Emballage"
+  hører ikke til som valgmulighed; den mappes væk af
+  `scripts/normalize-bon-line-categories.js`. (Migrationen retter sig selv hvis den
+  første udgave nåede at seede begge, men kun hvis værdien er urørt.)
+- **Reglen er ren visning.** `_tOfferItems()` / `_tOfferCategories()` bruges de fire
+  steder der renderer for kunden (preview + PDF × event + enkeltbestilling).
+  Beløbene summeres fortsat over ALLE varer — i single-mode blev `sub` tidligere
+  akkumuleret inde i render-loopet, så det er hejst ud, ellers ville en skjult
+  kategori have ændret totalen. `_tCollectLines` er urørt: linjerne gemmes uændret
+  på bonen, så køkkenet ser emballagen.
+- **Settings → Tilbud — opbygning → "Varekategorier på tilbuddet"**: Vis/Nederst/Skjul
+  pr. kategori. Kategorier der allerede har en regel tages med selvom de ikke længere
+  findes i Grocy — ellers ville en gammel regel være usynlig og umulig at fjerne.
+  Grocy nede ⇒ de gemte regler vises stadig.
+- **Grocys kategoriliste ét sted**: `getGrocyRecipesCached()` + `getGrocyCategories()`
+  i `settings/index.html`. Fire sektioner udledte listen hver for sig; den nye blev
+  først en femte kopi. Nu deles den, og opskrifterne hentes én gang pr. sideindlæsning.
+  **Grocy er eneste kilde** — historiske stavemåder (`Salat`, `Emballage`) er ikke
+  valgmuligheder, de normaliseres væk. `Tilbehør & Bokse`, `Frugt`, `x-Levering`,
+  `RR Produktion` m.fl. ER derimod rigtige Grocy-kategorier og skal med.
+- Sidegevinst: preview og PDF grupperede event-blokke forskelligt (preview efter
+  kategori, PDF fladt). Begge er nu flade med samme sortering.
+
+Verificeret: emballage tilføjet FØRST i en blok → vises alligevel sidst i preview og
+PDF; total 2.060 kr uændret. Sat til `hidden` → linjen forsvinder for kunden, totalen
+er stadig 2.060 kr, og `_tCollectLines` returnerer den fortsat. Settings gemmer og
+listen viser alle Grocy-kategorier. Testdata rullet tilbage.
+
+**Reglerne gælder også eksisterende tilbud — uden at gemme dem.** De anvendes ved
+visning, ikke ved gem. Men `_tLoadBlockTypes()` (som henter både blok-typer og
+kategori-reglerne) lå bag et `_tBlocksLoaded`-flag og blev kaldt **fire-and-forget**.
+To fejl i én:
+
+1. En ændring i Settings slog først igennem efter en **hård genindlæsning af hele
+   office** — så det lignede at indstillingen ikke virkede.
+2. Et deep-link til et tilbud (`?quote=ID`) kunne nå at rendere med default-blokkene
+   før svaret var hjemme.
+
+`initTilbud` er nu `async` og **awaiter** hentningen, og flaget er væk: indstillingerne
+hentes hver gang viewet åbnes. Ét lille `/api/settings`-kald pr. view-skift — samme
+kald der allerede hentede firmaoplysningerne til PDF'en.
+
+Verificeret på et gemt tilbud med emballage spredt mellem maden: regel sat i Settings →
+væk fra Tilbud-viewet og tilbage (ingen reload, intet gem) → begge emballagelinjer
+står nederst, total 2.285 kr uændret. Samme mekanisme får en ændret blok-rækkefølge
+til at slå igennem.
+
+**Gamle tilbud havde ingen kategori at sortere efter.** Reglen virkede på nye tilbud,
+men emballagen fløj stadig rundt på de eksisterende. Årsagen var ikke reglen, men
+dataene: `bon_lines.category` blev aldrig gemt fra tilbudsmodulet (se punkt 3 ovenfor),
+så alle gamle linjer har NULL eller tidsblokken (`lunch`) i feltet — aldrig
+`06 Emballage`. Kontrolleret i driftskopien: T-4 har 7 af 7 linjer uden kategori.
+
+Linjen kender sin opskrift, og Grocy kender opskriftens kategori, så den kan **udledes**
+i stedet for at kræve en backfill i databasen: `_tApplyMenuCategories()` kobler
+`grocy_recipe_id` → `_tMenu`-kategorien, hver gang menuen er hentet. Grocy er kilden,
+så feltet overskrives også når det HAR en værdi (den er i praksis blok-navnet).
+Fritekst har ingen opskrift og røres ikke. Gemmes tilbuddet igen, skrives den rigtige
+kategori nu med til `bon_lines`, og så retter dataene sig selv efterhånden.
+
+Verificeret på de to tilbud i driftskopien: T-4 (enkeltbestilling, 7/7 linjer uden
+kategori) → begge "(emballage)"-varer flytter nederst; T-5 (event, kategori =
+`lunch`) → kategorierne bliver til `01 Sandwich`/`x- Service`/`06 Emballage`, og en
+emballagevare tvunget **først** i blokken vises **sidst**. Databasen er urørt af testen.
+
+**Leveringen fulgte ikke prismoden.** I `total`-mode ("kun samlet pris") stod
+leveringen som **eneste** linje på hele tilbuddet med et beløb ud for sig, mens alle
+varerne var uden. Prisen optrådte to steder — i varelisten og i leverings-info-boksen
+— og ingen af dem så på `_tPriceMode`. Preview og PDF var oven i købet uenige:
+preview skrev beløbet i varelisten men PDF'en gjorde aldrig, så i `line`-mode fik
+kunden alle varepriser undtagen leveringens.
+
+Nu gælder samme regel begge steder og i begge visninger: **linjen** vises altid (den
+bærer hvor og hvordan der leveres), **beløbet** kun når tilbuddet i øvrigt viser beløb
+(`line` eller `block`). Totalen er uændret — leveringen tælles med uanset hvad der vises
+(verificeret: 3.000 kr i alle tre modes).
+
+**Blok-typer kan ikke længere få samme navn.** På et tilbud fra drift stod
+"Eftermiddagssnack" som blok-overskrift **to gange** med hver sit indhold — og
+"Morgenmad" var væk. Forklaringen var ikke en kodefejl i tilbuddet: en blok var
+blevet omdøbt i Settings til et navn en anden allerede havde. `saveOfferBlocks`
+gemte det uden at sige noget.
+
+- **Gem afviser nu** dublet-label (med begge nøgler nævnt: *"To blokke hedder
+  'Eftermiddagssnack' (morning og pmsnack)"*), dublet-nøgle og tomt navn.
+- Feltet markeres rødt **mens man skriver**, ikke først ved gem.
+- `_tLoadBlockTypes` filtrerer defensivt dublet-nøgler fra: nøglen er blokkens
+  identitet (`bon_lines.block_type`), så to ens ville dele `_tEvBlk[id]` og
+  rendere samme indhold to gange. Data der allerede ligger sådan må ikke vælte
+  et tilbud.
+- `addOfferBlock` tager første ledige `customN` i stedet for højeste + 1. Den
+  gamle var også unik, men efterlod huller efter en sletning.
+
+Verificeret ved at genskabe situationen: Morgenmad omdøbt til "Eftermiddagssnack"
+→ begge felter markeres, gem afvises med besked. Tomt navn og dublet-nøgle
+afvises hver for sig; gyldig opsætning gemmes. Driftsdata urørt.
+
 ### Mail-oprydning: spam/auto-ignored + bounces (14.-15. maj 2026)
 > Spec: `docs/CLAUDE_MAIL_FIX_SPAM_OPHOBNING.md`
 
@@ -3427,6 +3696,7 @@ GET    /api/mail/templates                               routes/mail.js (admin)
 PATCH  /api/mail/templates/:key                          routes/mail.js (admin)
 POST   /api/mail/test                                    routes/mail.js (admin)
 GET    /api/settings/locations                           routes/settings.js
+GET    /api/settings/internal-senders                    routes/settings.js (admin — interne mail-afsendere + ramte kunder)
 GET    /api/dashboard/today                              routes/dashboard.js
 GET    /api/dashboard/stats?days_back=&days_forward=     routes/dashboard.js
 GET    /api/dashboard/top-products?from=&to=             routes/dashboard.js

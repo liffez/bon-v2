@@ -15,7 +15,6 @@ let _tTpl = null;        // 'event' | 'single'
 let _tCust = null;       // { customer_id, company_id, customer_name, ... }
 let _tEvBlk = {};        // { blockId: [items] }
 let _tSiItems = [];      // items for single template
-let _tCxItems = [];      // custom free-text items
 let _tActBlk = new Set();
 let _tColBlk = new Set();
 let _tColCat = new Set();   // foldbare kategorier i Sammensæt: 'cat' (single) eller 'bid::cat' (event)
@@ -56,8 +55,10 @@ let _tValidDays = 30;
 
 // Block types + company info — loaded from settings, cached in module scope
 let _tBLOCKS = [];
-let _tBlocksLoaded = false;
 let _tCompany = { name: 'Ristet Rug', cvr: '', address: '', phone: '', email: 'info@ristetrug.dk' };
+// { kategorinavn: 'last' | 'hidden' } — se migration 143. Kun visning på tilbuddet;
+// priser og de gemte linjer er upåvirkede.
+let _tCatDisplay = {};
 
 // Default block icons (matched by key prefix)
 const _tBLOCK_ICONS = { morning: '\u{1F305}', amsnack: '\u2615', lunch: '\u{1F37D}\uFE0F', pmsnack: '\u{1F36A}' };
@@ -106,19 +107,28 @@ function _tToast(msg) {
 
 /* ── Init / Cleanup ──────────────────────────────────── */
 
-function initTilbud(container, opts) {
+async function initTilbud(container, opts) {
     _tC = container;
     _tOpts = opts || {};
     _tMode = 'list';
     _tListFilter = 'all';
 
-    // Load logo + block types (fire-and-forget, cached)
     if (!_tLogoB64) {
         fetch('/assets/logo-b64.txt').then(r => r.text()).then(t => { _tLogoB64 = t.trim(); }).catch(() => {});
     }
-    if (!_tBlocksLoaded) {
-        _tLoadBlockTypes();
-    }
+
+    // Blok-typer og kategori-visning hentes HVER gang viewet åbnes, og der
+    // ventes på dem før noget renderes.
+    //
+    // Før lå de bag et `_tBlocksLoaded`-flag og blev kaldt fire-and-forget. Det
+    // gav to fejl på én gang: en ændring i Settings (blok-rækkefølge, "emballage
+    // nederst") slog først igennem efter en hård genindlæsning af hele office —
+    // så det lignede at indstillingen ikke virkede — og et deep-link til et
+    // tilbud kunne nå at rendere med default-blokkene før svaret var hjemme.
+    //
+    // Reglerne bruges ved VISNING, så de gælder også eksisterende tilbud; der
+    // skal intet gemmes for at få dem til at slå igennem.
+    await _tLoadBlockTypes();
 
     // Deep link: ?customer=ID → new wizard with customer pre-loaded
     if (_tOpts.customer_id) {
@@ -152,13 +162,30 @@ async function _tLoadBlockTypes() {
         const raw = settings.find(s => s.key === 'offer_block_types');
         if (raw) {
             const arr = JSON.parse(raw.value);
-            _tBLOCKS = arr.sort((a, b) => (a.sort_order || 0) - (b.sort_order || 0)).map(b => ({
-                id: b.key,
-                label: b.label,
-                icon: _tBLOCK_ICONS[b.key] || _tDEFAULT_ICON,
-                color: _tBLOCK_COLORS[b.key] || _tDEFAULT_COLOR,
-            }));
+            // Dublet-nøgler filtreres fra. Nøglen er blokkens identitet — to
+            // ens ville dele `_tEvBlk[id]` og rendere det samme indhold to
+            // gange. Settings blokerer det ved gem, men data der allerede
+            // ligger sådan skal ikke kunne vælte et tilbud.
+            const seen = new Set();
+            _tBLOCKS = arr
+                .sort((a, b) => (a.sort_order || 0) - (b.sort_order || 0))
+                .filter(b => { if (!b?.key || seen.has(b.key)) return false; seen.add(b.key); return true; })
+                .map(b => ({
+                    id: b.key,
+                    label: b.label,
+                    icon: _tBLOCK_ICONS[b.key] || _tDEFAULT_ICON,
+                    color: _tBLOCK_COLORS[b.key] || _tDEFAULT_COLOR,
+                }));
         }
+        // Visningsregler pr. varekategori på kundens tilbud (migration 143)
+        const cd = settings.find(s => s.key === 'offer_category_display');
+        if (cd?.value) {
+            try {
+                const parsed = JSON.parse(cd.value);
+                if (parsed && typeof parsed === 'object' && !Array.isArray(parsed)) _tCatDisplay = parsed;
+            } catch (_) { /* ugyldig JSON → alt vises som hidtil */ }
+        }
+
         // Company info
         const sv = (key, fallback) => { const s = settings.find(x => x.key === key); return s ? s.value : fallback; };
         _tCompany = {
@@ -177,7 +204,6 @@ async function _tLoadBlockTypes() {
             { id: 'pmsnack', label: 'Eftermiddagssnack', icon: '\u{1F36A}', color: 'pmsnack' },
         ];
     }
-    _tBlocksLoaded = true;
 }
 
 function _tilbudHandleSSE(event, data) {
@@ -194,8 +220,39 @@ function _tilbudHandleSSE(event, data) {
 
 /* ── Menu loading ────────────────────────────────────── */
 
+/**
+ * Giv de indlæste varer deres rigtige kategori fra Grocy.
+ *
+ * `bon_lines.category` blev aldrig gemt fra tilbudsmodulet før nu, så alle
+ * eksisterende tilbud har NULL eller tidsblokken ("lunch") stående i feltet.
+ * Emballage-reglen matcher på kategorien og kunne derfor ikke virke på dem:
+ * "Salat boks (emballage)" lå spredt mellem maden på et gammelt tilbud, uanset
+ * hvad der stod i Settings.
+ *
+ * Linjen kender sin opskrift, og Grocy kender opskriftens kategori — så den
+ * kan udledes i stedet for at skulle backfilles i databasen. Grocy er kilden;
+ * derfor overskrives feltet også når det HAR en værdi (den er i praksis
+ * blok-navnet på gamle tilbud). Fritekst har ingen opskrift og røres ikke.
+ *
+ * Gemmes tilbuddet igen, skrives den rigtige kategori nu med til `bon_lines`.
+ */
+function _tApplyMenuCategories() {
+    if (!_tMenu) return;
+    const catById = new Map();
+    Object.values(_tMenu).flat().forEach(p => { if (p.grocy_recipe_id) catById.set(p.grocy_recipe_id, p.category); });
+
+    const fix = arr => (arr || []).forEach(it => {
+        if (!it.grocy_recipe_id) return;
+        const cat = catById.get(it.grocy_recipe_id);
+        if (cat) it.category = cat;
+    });
+
+    Object.values(_tEvBlk).forEach(fix);
+    fix(_tSiItems);
+}
+
 async function _tLoadMenuAndRender() {
-    if (_tMenu) { _tRenderWizard(); return; }
+    if (_tMenu) { _tApplyMenuCategories(); _tRenderWizard(); return; }
     try {
         const recipes = await apiFetch('/grocy/recipes');
         _tMenu = {};
@@ -210,6 +267,10 @@ async function _tLoadMenuAndRender() {
                 id: r.id,
                 grocy_recipe_id: r.id,
                 name: r.name,
+                // Kategorien var kun n\u00f8glen i _tMenu, ikke en egenskab p\u00e5 varen.
+                // Derfor kom den aldrig med i bon_lines.category ved gem \u2014 og
+                // d\u00e9t felt er hvad enheds-t\u00e6llingen matcher mod.
+                category: cat,
                 unit: r.unit || 'stk',
                 unitPrice: r.prices?.[_tPriceCat] ?? r.prices?.catering ?? 0,
                 costPrice: r.cost_price ?? 0,
@@ -219,6 +280,7 @@ async function _tLoadMenuAndRender() {
         _tC.innerHTML = '<div class="tilbud-empty"><div class="icon">!</div><p>Kunne ikke hente menuen fra Grocy.</p></div>';
         return;
     }
+    _tApplyMenuCategories();
     _tRenderWizard();
 }
 
@@ -381,7 +443,10 @@ async function _tOpenQuote(id) {
                     unitPrice: l.unit_price ?? 0,
                     costPrice: l.cost_price ?? 0,
                     qty: l.quantity || 1,
-                    category: l.block_type || 'Ukendt',
+                    // Varens egen kategori — ikke tidsblokken. `block_type` er
+                    // null på enkeltbestillinger, så hver eneste vare endte som
+                    // "Ukendt" i preview og PDF efter en genindlæsning.
+                    category: l.category || l.block_type || 'Ukendt',
                 };
                 if (_tTpl === 'event' && l.block_type) {
                     if (!_tEvBlk[l.block_type]) _tEvBlk[l.block_type] = [];
@@ -392,6 +457,11 @@ async function _tOpenQuote(id) {
                 }
             }
         }
+
+        // Efter linjerne: slukkede blokke får deres gemte indhold tilbage.
+        // Rækkefølgen betyder noget — _tActBlk skal være fyldt af linjerne først,
+        // så en blok der ER tændt ikke får overskrevet sit rigtige indhold.
+        _tRestoreBlockStash();
 
         _tMode = 'wizard';
         _tStep = 0;
@@ -413,7 +483,6 @@ function _tResetWizard() {
     _tCust = null;
     _tEvBlk = {};
     _tSiItems = [];
-    _tCxItems = [];
     _tActBlk = new Set();
     _tColBlk = new Set();
     _tColCat = new Set();
@@ -506,12 +575,18 @@ function _tSaveStepFields() {
         const ii = v('t-invoice-info');if (ii !== undefined) _tInvoiceInfo = ii;
         const ki = v('t-kitchen-info');if (ki !== undefined) _tKitchenInfo = ki;
         const in_ = v('t-internal-notes'); if (in_ !== undefined) _tInternalNotes = in_;
-        // Pax per blok
+        // Pax per blok. Nøglerne opdateres i stedet for at blive bygget forfra —
+        // _tBlockMeta bærer også `stash` (indholdet af slukkede blokke), og en
+        // nulstilling her ville smide det væk hver gang man forlod trin 1.
         if (_tTpl === 'event') {
-            _tBlockMeta = {};
             _tBLOCKS.forEach(b => {
                 const bpax = v('t-bpax-' + b.id);
-                if (bpax && parseInt(bpax) > 0) _tBlockMeta[b.id] = { pax: parseInt(bpax) };
+                if (bpax === undefined) return;          // feltet var ikke i DOM'en
+                const meta = _tBlockMeta[b.id] || {};
+                const n = parseInt(bpax);
+                if (n > 0) meta.pax = n; else delete meta.pax;
+                if (Object.keys(meta).length) _tBlockMeta[b.id] = meta;
+                else delete _tBlockMeta[b.id];
             });
         }
     }
@@ -637,7 +712,10 @@ function _tBuildStep1() {
         ${_tCust ? _tBuildOrderHistory() : ''}
         <div class="tilbud-btn-row">
             <button class="tilbud-btn tilbud-btn-secondary" onclick="_tPrev()">\u2190 Tilbage</button>
-            <button class="tilbud-btn tilbud-btn-primary" onclick="_tNext()">N\u00e6ste \u2192</button>
+            <div style="display:flex;gap:8px">
+                ${_tSaveBtn()}
+                <button class="tilbud-btn tilbud-btn-primary" onclick="_tNext()">N\u00e6ste \u2192</button>
+            </div>
         </div>`;
 }
 
@@ -812,7 +890,10 @@ function _tBuildStep2() {
 
     h += `<div class="tilbud-btn-row">
         <button class="tilbud-btn tilbud-btn-secondary" onclick="_tPrev()">\u2190 Tilbage</button>
-        <button class="tilbud-btn tilbud-btn-primary" onclick="_tNext()">N\u00e6ste \u2192</button>
+        <div style="display:flex;gap:8px">
+            ${_tSaveBtn()}
+            <button class="tilbud-btn tilbud-btn-primary" onclick="_tNext()">N\u00e6ste \u2192</button>
+        </div>
     </div>`;
     return h;
 }
@@ -839,7 +920,11 @@ function _tBuildStats() {
     const isEv = _tTpl === 'event';
     let cnt = 0, sale = 0, cost = 0;
     if (isEv) {
-        for (const items of Object.values(_tEvBlk)) {
+        // Kun tændte blokke. En slukket blok beholder sit indhold (så den kan
+        // tændes igen), men indgår hverken i tilbuddet eller i tallene her —
+        // ellers ville stribestatistikken modsige pristabellen.
+        for (const [bid, items] of Object.entries(_tEvBlk)) {
+            if (!_tActBlk.has(bid)) continue;
             items.forEach(it => { cnt += it.qty; sale += it.unitPrice * it.qty; cost += it.costPrice * it.qty; });
         }
     } else {
@@ -859,6 +944,81 @@ function _tBuildStats() {
     return h;
 }
 
+/**
+ * Indholdet af SLUKKEDE blokke lægges i `offer_block_metadata[blok].stash`.
+ *
+ * En slukket blok er ikke en del af tilbuddet, så dens varer må ikke ligge i
+ * `bon_lines` — der ville de tælle med i priser, enheder og pakkeliste, og de
+ * ville følge med over i en rigtig bon ved konvertering. Men de skal heller ikke
+ * være væk: office slukker en blok for at se tilbuddet uden den, ikke for at
+ * kassere en times arbejde.
+ *
+ * `offer_block_metadata` er allerede en fri JSON-kolonne til blok-metadata
+ * (migration 024, bruges til pax pr. blok), så det kræver ingen skemaændring —
+ * og alt nedstrøms for tilbuddet er uberørt, fordi bon_lines ser ud præcis som
+ * før.
+ */
+function _tSyncBlockStash() {
+    if (_tTpl !== 'event') return;
+    _tBLOCKS.forEach(b => {
+        const meta = _tBlockMeta[b.id] || {};
+        const items = _tEvBlk[b.id] || [];
+
+        if (!_tActBlk.has(b.id) && items.length) {
+            meta.stash = items.map(it => ({
+                id: it.id,
+                grocy_recipe_id: it.grocy_recipe_id ?? null,
+                name: it.name,
+                unit: it.unit || 'stk',
+                category: it.category ?? null,
+                unitPrice: it.unitPrice,
+                costPrice: it.costPrice,
+                qty: it.qty,
+            }));
+        } else {
+            delete meta.stash;   // tændt igen — varerne ligger i bon_lines nu
+        }
+
+        if (Object.keys(meta).length) _tBlockMeta[b.id] = meta;
+        else delete _tBlockMeta[b.id];
+    });
+}
+
+/** Læg gemte varer tilbage i deres blok ved indlæsning. Blokken forbliver slukket. */
+function _tRestoreBlockStash() {
+    for (const [bid, meta] of Object.entries(_tBlockMeta || {})) {
+        if (!Array.isArray(meta?.stash) || !meta.stash.length) continue;
+        if (_tActBlk.has(bid)) continue;    // blokken er tændt — bon_lines ejer indholdet
+        _tEvBlk[bid] = meta.stash.map(s => ({ ...s, qty: s.qty || 1 }));
+    }
+}
+
+/**
+ * Kundens syn på varelisten: skjulte kategorier væk, "nederst"-kategorier bagest.
+ *
+ * Emballage stod midt imellem maden på tilbuddet og virkede umotiveret — på
+ * bon-kortet ligger den allerede dæmpet nederst. Reglerne konfigureres i
+ * Settings → Tilbud — opbygning (migration 143).
+ *
+ * VIGTIGT: dette er kun visning. Kaldere skal beregne beløb på den RÅ liste —
+ * en skjult emballagelinje koster stadig det den koster.
+ */
+function _tOfferItems(items) {
+    const rule = it => _tCatDisplay[it.category || ''] || 'show';
+    return (items || [])
+        .filter(it => rule(it) !== 'hidden')
+        .map((it, idx) => ({ it, idx, last: rule(it) === 'last' ? 1 : 0 }))
+        .sort((a, b) => a.last - b.last || a.idx - b.idx)   // stabil: bevarer rækkefølgen indbyrdes
+        .map(x => x.it);
+}
+
+/** Samme regel for kategori-grupperede visninger: skjulte ud, "nederst" bagest. */
+function _tOfferCategories(cats) {
+    return Object.keys(cats)
+        .filter(c => (_tCatDisplay[c] || 'show') !== 'hidden')
+        .sort((a, b) => ((_tCatDisplay[a] || '') === 'last' ? 1 : 0) - ((_tCatDisplay[b] || '') === 'last' ? 1 : 0));
+}
+
 function _tEffectivePax(blockKey) {
     const meta = _tBlockMeta[blockKey];
     return (meta?.pax > 0) ? meta.pax : (parseInt(_tPax) || 1);
@@ -872,7 +1032,14 @@ function _tBlockLabel(blockKey) {
 function _tBuildEventUI() {
     let h = '<div class="tilbud-block-chips">';
     _tBLOCKS.forEach(b => {
-        h += `<div class="tilbud-chip ${_tActBlk.has(b.id) ? 'a-' + b.color : ''}" onclick="_tTogBlk('${b.id}')">${b.icon} ${b.label}</div>`;
+        const on = _tActBlk.has(b.id);
+        // En slukket blok kan stadig indeholde varer. Vis hvor mange, så det er
+        // synligt at der ligger noget gemt bag chippen — ellers ser den tom ud.
+        const stashed = !on ? (_tEvBlk[b.id] || []).reduce((s, i) => s + (i.qty || 0), 0) : 0;
+        const badge = stashed
+            ? `<span class="tilbud-chip-stash" title="${stashed} vare${stashed !== 1 ? 'r' : ''} gemt — tænd blokken for at få dem tilbage">${stashed}</span>`
+            : '';
+        h += `<div class="tilbud-chip ${on ? 'a-' + b.color : ''}${stashed ? ' has-stash' : ''}" onclick="_tTogBlk('${b.id}')">${b.icon} ${b.label}${badge}</div>`;
     });
     h += '</div>';
 
@@ -917,9 +1084,14 @@ function _tBuildEventUI() {
             }
         });
 
+        // Fritekst-varer h\u00f8rer til blokken p\u00e5 lige fod med menuvarerne, men
+        // findes ikke i _tMenu og fanges derfor ikke af kategori-loopet ovenfor.
+        h += _tBuildExtraItems(its, b.id);
+
         // Custom item input
         h += `<div class="tilbud-custom-row">
             <div class="tilbud-form-group grow"><label>Fritekst</label><input type="text" id="t-bcn-${b.id}" placeholder="Fx 'S\u00e6rlig ret'"></div>
+            <div class="tilbud-form-group short"><label>Antal</label><input type="number" id="t-bcq-${b.id}" min="1" value="1"></div>
             <div class="tilbud-form-group short"><label>Pris</label><input type="number" id="t-bcp-${b.id}" placeholder="0"></div>
             <button class="tilbud-btn tilbud-btn-secondary tilbud-btn-sm" onclick="_tAddBCx('${b.id}')" style="align-self:flex-end">+</button>
         </div></div></div>`;
@@ -949,13 +1121,37 @@ function _tBuildSingleUI() {
         }
     });
 
+    h += _tBuildExtraItems(_tSiItems, null);
+
     // Custom item
     h += `<div class="tilbud-custom-row">
         <div class="tilbud-form-group grow"><label>Fritekst</label><input type="text" id="t-cx-n" placeholder="Fx 'Service'"></div>
+        <div class="tilbud-form-group short"><label>Antal</label><input type="number" id="t-cx-q" min="1" value="1"></div>
         <div class="tilbud-form-group short"><label>Pris</label><input type="number" id="t-cx-p" placeholder="0"></div>
         <button class="tilbud-btn tilbud-btn-secondary tilbud-btn-sm" onclick="_tAddCx()" style="align-self:flex-end">+</button>
     </div>`;
 
+    return h;
+}
+
+/**
+ * Valgte varer der IKKE findes i Grocy-menuen — fritekst, og linjer fra et gemt
+ * tilbud hvis opskriften siden er fjernet i Grocy.
+ *
+ * Sammensæt-trinnet renderer ellers kun ved at løbe menuens kategorier igennem
+ * og slå op i det valgte. Alt uden for menuen faldt derfor helt ud af billedet:
+ * en fritekst-linje blev talt med i blok-headeren og i pristabellen, men rækken
+ * kunne hverken ses, tælles op eller slettes dér hvor man sammensætter.
+ */
+function _tBuildExtraItems(items, bid) {
+    const inMenu = new Set(Object.values(_tMenu || {}).flat().map(p => p.id));
+    const extras = (items || []).filter(it => !inMenu.has(it.id));
+    if (!extras.length) return '';
+
+    // Ikke bare "Fritekst": her ender også en gemt vare hvis opskriften siden er
+    // fjernet fra Grocy. Den skal stadig kunne ses og rettes, ikke forsvinde.
+    let h = `<div class="tilbud-cat-title">Fritekst og øvrige</div>`;
+    for (const it of extras) h += _tBuildMI(it, true, it.qty || 1, bid);
     return h;
 }
 
@@ -974,8 +1170,20 @@ function _tBuildMI(it, sel, qty, bid) {
 }
 
 function _tTogBlk(id) {
-    if (_tActBlk.has(id)) { _tActBlk.delete(id); delete _tEvBlk[id]; _tColBlk.delete(id); }
-    else { _tActBlk.add(id); if (!_tEvBlk[id]) _tEvBlk[id] = []; }
+    if (_tActBlk.has(id)) {
+        // Slukket blok beholder sit indhold. Før smed `delete _tEvBlk[id]` hele
+        // blokken væk ved et enkelt klik, uden varsel og uden fortrydelse — et
+        // fejlklik på "Frokost" kostede alt arbejdet i den.
+        //
+        // Det er sikkert at lade det ligge: alt der læser blokke (pristabel,
+        // preview, gem, PDF) springer inaktive blokke over, så en slukket blok
+        // tæller stadig ikke med i tilbuddet. Den kan bare tændes igen.
+        _tActBlk.delete(id);
+        _tColBlk.delete(id);
+    } else {
+        _tActBlk.add(id);
+        if (!_tEvBlk[id]) _tEvBlk[id] = [];
+    }
     _tRenderWizard();
 }
 
@@ -990,13 +1198,19 @@ function _tTogColCat(key) {
 }
 
 function _tTogMI(id, bid) {
-    const allP = Object.values(_tMenu).flat();
-    const item = allP.find(p => p.id === id);
-    if (!item) return;
     const arr = bid ? (_tEvBlk[bid] || (_tEvBlk[bid] = [])) : _tSiItems;
     const idx = arr.findIndex(s => s.id === id);
-    if (idx >= 0) arr.splice(idx, 1);
-    else arr.push({ ...item, qty: 1, category: item.category || '' });
+
+    // Fravalg først: en fritekst-vare findes ikke i menuen, og opslaget nedenfor
+    // ville ellers afvise at fjerne den igen.
+    if (idx >= 0) {
+        arr.splice(idx, 1);
+    } else {
+        const item = Object.values(_tMenu).flat().find(p => p.id === id);
+        if (!item) return;
+        arr.push({ ...item, qty: 1, category: item.category || null });
+    }
+
     if (bid) _tEvBlk[bid] = arr;
     _tRenderWizard();
 }
@@ -1015,20 +1229,41 @@ function _tSetQ(id, v, bid) {
     _tRenderWizard();
 }
 
+// Fritekst-vare i samme form som en menuvare, så den arver antals-kontrol,
+// sletning og gem/genindlæsning uden særbehandling.
+function _tFreeItem(name, qty, price) {
+    return {
+        id: Date.now() + Math.random(),
+        grocy_recipe_id: null,
+        name,
+        unit: 'stk',
+        category: 'Fritekst',
+        unitPrice: price,
+        costPrice: 0,
+        qty: Math.max(1, parseInt(qty) || 1),
+    };
+}
+
 function _tAddBCx(bid) {
     const n = document.getElementById(`t-bcn-${bid}`)?.value.trim();
+    const q = document.getElementById(`t-bcq-${bid}`)?.value;
     const p = parseFloat(document.getElementById(`t-bcp-${bid}`)?.value) || 0;
     if (!n) return;
     if (!_tEvBlk[bid]) _tEvBlk[bid] = [];
-    _tEvBlk[bid].push({ id: Date.now(), name: n, category: 'Fritekst', unitPrice: p, costPrice: 0, qty: 1 });
+    _tEvBlk[bid].push(_tFreeItem(n, q, p));
     _tRenderWizard();
 }
 
 function _tAddCx() {
     const n = document.getElementById('t-cx-n')?.value.trim();
+    const q = document.getElementById('t-cx-q')?.value;
     const p = parseFloat(document.getElementById('t-cx-p')?.value) || 0;
     if (!n) return;
-    _tCxItems.push({ name: n, price: p });
+    // Læg den i _tSiItems, ikke i en sideliste. Ved genindlæsning af et gemt
+    // tilbud havner fritekst-linjer alligevel dér (de har intet block_type),
+    // så den gamle parallelle _tCxItems gjorde bare at samme linje blev vist
+    // og talt forskelligt før og efter gem.
+    _tSiItems.push(_tFreeItem(n, q, p));
     _tRenderWizard();
 }
 
@@ -1094,7 +1329,10 @@ function _tBuildStep3() {
 
     h += `<div class="tilbud-btn-row">
         <button class="tilbud-btn tilbud-btn-secondary" onclick="_tPrev()">\u2190 Tilbage</button>
-        <button class="tilbud-btn tilbud-btn-primary" onclick="_tNext()">N\u00e6ste \u2192</button>
+        <div style="display:flex;gap:8px">
+            ${_tSaveBtn()}
+            <button class="tilbud-btn tilbud-btn-primary" onclick="_tNext()">N\u00e6ste \u2192</button>
+        </div>
     </div>`;
     return h;
 }
@@ -1157,12 +1395,6 @@ function _tBuildPriceTable() {
         });
     }
 
-    // Custom items
-    _tCxItems.forEach((ci, i) => {
-        sub += ci.price;
-        h += `<tr><td><strong>${_tEsc(ci.name)}</strong></td><td class="r">1</td><td class="r" style="font-family:'JetBrains Mono',monospace">${_tFk(ci.price)}</td><td class="r" style="font-size:.73rem;color:var(--color-text-dim)">\u2014</td><td><button class="tilbud-btn-icon danger" onclick="_tRemCx(${i})">\u2715</button></td></tr>`;
-    });
-
     // Delivery
     if (_tDel.type) {
         const dp = _tDel.free ? 0 : _tDel.price;
@@ -1192,7 +1424,6 @@ function _tRemP(id, bid) {
     _tRenderWizard();
 }
 
-function _tRemCx(i) { _tCxItems.splice(i, 1); _tRenderWizard(); }
 
 /* ── Step 4: Preview ─────────────────────────────────── */
 
@@ -1243,7 +1474,11 @@ function _tBuildStep4() {
         }
         if (_tDeliveryAddress) h += _tEsc(_tDeliveryAddress) + '<br>';
         if (_tDeliveryNotes) h += _tEsc(_tDeliveryNotes) + '<br>';
-        if (_tDel.type && _tDel.price > 0 && !_tDel.free) h += (dTypes[_tDel.type] || 'Levering') + ' ' + _tFk(_tDel.price);
+        // Samme regel som varelinjerne: i "kun total" står der ingen delpriser
+        // på tilbuddet — heller ikke her i leveringsboksen.
+        if (_tDel.type && _tDel.price > 0 && !_tDel.free) {
+            h += (dTypes[_tDel.type] || 'Levering') + ((sL || sBT) ? ' ' + _tFk(_tDel.price) : '');
+        }
         h += '</div>';
     }
 
@@ -1271,34 +1506,40 @@ function _tBuildStep4() {
                 blockHdr += `<span class="bt">${_tFk(bt)}${perPax ? ` (${perPax} kr/pax)` : ''}</span>`;
             }
             h += `<div class="tilbud-pv-block-hdr">${blockHdr}</div>`;
-            const cats = {};
-            its.forEach(i => { const c = i.category || 'Ukendt'; if (!cats[c]) cats[c] = []; cats[c].push(i); });
-            Object.keys(cats).forEach(cat => {
-                cats[cat].forEach(i => {
-                    h += `<div class="tilbud-pv-row"><span class="rn">${i.qty > 1 ? i.qty + '\u00d7 ' : ''}${_tEsc(i.name)}</span>${sL ? `<span class="rp">${_tFk(i.unitPrice * i.qty)}</span>` : ''}</div>`;
-                });
+            // `bt` er allerede summeret over ALLE varer ovenfor \u2014 her filtreres
+            // kun visningen, s\u00e5 en skjult kategori t\u00e6ller stadig med i prisen.
+            _tOfferItems(its).forEach(i => {
+                h += `<div class="tilbud-pv-row"><span class="rn">${i.qty > 1 ? i.qty + '\u00d7 ' : ''}${_tEsc(i.name)}</span>${sL ? `<span class="rp">${_tFk(i.unitPrice * i.qty)}</span>` : ''}</div>`;
             });
         });
     } else {
+        // Bel\u00f8bet summeres over alle varer, uafh\u00e6ngigt af hvad der vises.
+        _tSiItems.forEach(i => { sub += i.unitPrice * i.qty; });
         const cats = {};
         _tSiItems.forEach(i => { const c = i.category || 'Ukendt'; if (!cats[c]) cats[c] = []; cats[c].push(i); });
-        Object.keys(cats).forEach(cat => {
+        _tOfferCategories(cats).forEach(cat => {
             cats[cat].forEach(i => {
-                const lt = i.unitPrice * i.qty;
-                sub += lt;
-                h += `<div class="tilbud-pv-row"><span class="rn">${i.qty > 1 ? i.qty + '\u00d7 ' : ''}${_tEsc(i.name)}</span>${sL ? `<span class="rp">${_tFk(lt)}</span>` : ''}</div>`;
+                h += `<div class="tilbud-pv-row"><span class="rn">${i.qty > 1 ? i.qty + '\u00d7 ' : ''}${_tEsc(i.name)}</span>${sL ? `<span class="rp">${_tFk(i.unitPrice * i.qty)}</span>` : ''}</div>`;
             });
         });
     }
 
-    // Custom items
-    _tCxItems.forEach(ci => { sub += ci.price; h += `<div class="tilbud-pv-row"><span class="rn">${_tEsc(ci.name)}</span><span class="rp">${_tFk(ci.price)}</span></div>`; });
-
     // Delivery
+    //
+    // Leveringen fulgte ikke prismoden: i "kun total" stod den som eneste linje
+    // p\u00e5 hele tilbuddet med et bel\u00f8b ud for sig, mens alle varerne var uden.
+    // Den er en linje som de andre og skal opf\u00f8re sig som dem \u2014 bel\u00f8bet vises
+    // kun n\u00e5r tilbuddet i \u00f8vrigt viser bel\u00f8b (linje- eller blokpris).
+    //
+    // Selve linjen vises altid: den b\u00e6rer hvor og hvordan der leveres, og PDF'en
+    // har hele tiden skrevet den uanset pris. De to var uenige.
     if (_tDel.type) {
         const dp = _tDel.free ? 0 : _tDel.price;
         sub += dp;
-        if (dp > 0) h += `<div class="tilbud-pv-row"><span class="rn">\u{1F69A} Levering: ${dTypes[_tDel.type] || ''}${_tDel.note ? ' \u00b7 ' + _tEsc(_tDel.note) : ''}</span><span class="rp">${_tFk(dp)}</span></div>`;
+        const showPrice = (sL || sBT) && dp > 0;
+        h += `<div class="tilbud-pv-row"><span class="rn">\u{1F69A} Levering: ${dTypes[_tDel.type] || ''}${_tDel.note ? ' \u00b7 ' + _tEsc(_tDel.note) : ''}</span>`
+           + (showPrice ? `<span class="rp">${_tFk(dp)}</span>` : '')
+           + `</div>`;
     }
 
     const dA = sub * (_tDiscountPct / 100), tot = sub - dA, subUMoms = window.Moms.inclToExcl(tot), moms = tot - subUMoms;
@@ -1330,6 +1571,10 @@ function _tCollectLines() {
     const isEv = _tTpl === 'event';
     let order = 0;
 
+    // `category` skal med. Uden den faldt backenden tilbage på `block_type`
+    // (tidsblokken, fx "morning") eller NULL — og `bon_lines.category` er dét
+    // enheds-tællingen matcher mod `unit_count_categories`. Et konverteret
+    // tilbud ville derfor tælle nul enheder på dashboard og ugeoversigt.
     if (isEv) {
         _tBLOCKS.forEach(b => {
             if (!_tActBlk.has(b.id)) return;
@@ -1338,6 +1583,7 @@ function _tCollectLines() {
                     block_type: b.id,
                     grocy_recipe_id: it.grocy_recipe_id || null,
                     product_name: it.name,
+                    category: it.category || null,
                     quantity: it.qty,
                     unit: it.unit || 'stk',
                     unit_price: it.unitPrice,
@@ -1352,6 +1598,7 @@ function _tCollectLines() {
                 block_type: null,
                 grocy_recipe_id: it.grocy_recipe_id || null,
                 product_name: it.name,
+                category: it.category || null,
                 quantity: it.qty,
                 unit: it.unit || 'stk',
                 unit_price: it.unitPrice,
@@ -1361,25 +1608,39 @@ function _tCollectLines() {
         });
     }
 
-    // Custom items as lines too
-    _tCxItems.forEach(ci => {
-        lines.push({
-            block_type: null,
-            grocy_recipe_id: null,
-            product_name: ci.name,
-            quantity: 1,
-            unit: 'stk',
-            unit_price: ci.price,
-            cost_price: 0,
-            sort_order: order++,
-        });
-    });
-
     return lines;
+}
+
+// Gem-knappen hører til på HVERT trin, ikke kun de sidste to.
+//
+// Wizarden havde kun "Gem tilbud" på trin 3 og 4, så et tilbud man blev
+// afbrudt i — telefonen ringer på trin 1 — var tabt. Hverken frontend eller
+// `POST /api/quotes` kræver andet end at der trykkes: alle felter er nullable,
+// og tilbuddet får sit T-nummer med det samme. Der var altså intet der
+// forhindrede det; knappen manglede bare.
+function _tSaveBtn() {
+    const label = _tQuoteId ? 'Gem' : 'Gem kladde';
+    return `<button class="tilbud-btn tilbud-btn-secondary" onclick="_tSaveQuote()"
+                    title="Gemmer som kladde — du kan altid vende tilbage og gøre tilbuddet færdigt">${label}</button>`;
 }
 
 async function _tSaveQuote() {
     _tSaveStepFields();
+    _tSyncBlockStash();
+
+    // `bons.delivery_date` er NOT NULL i skemaet, så et tilbud kan ikke gemmes
+    // uden dato — uanset hvor tidligt i forløbet man er. Uden dette tjek kommer
+    // afvisningen som en rå SQL-besked i en toast ("NOT NULL constraint failed").
+    // Sig det på dansk og sæt markøren i feltet i stedet.
+    if (!_tDeliveryDate) {
+        _tToast('Sæt en leveringsdato — den kan altid ændres bagefter');
+        if (_tStep !== 1) { _tStep = 1; _tRenderWizard(); }
+        requestAnimationFrame(() => {
+            const el = document.getElementById('t-ev-date');
+            if (el) { el.focus(); el.scrollIntoView({ block: 'center' }); }
+        });
+        return;
+    }
 
     const payload = {
         customer_id: _tCust?.customer_id ?? null,
@@ -1523,7 +1784,8 @@ function _tGenPDF() {
         if (_tDeliveryAddress) { doc.text(_tDeliveryAddress, ml, y); y += 4.5; }
         if (_tDeliveryNotes) { doc.text(_tDeliveryNotes, ml, y); y += 4.5; }
         if (_tDel.type && _tDel.price > 0 && !_tDel.free) {
-            doc.text((dTy[_tDel.type] || 'Levering') + '  ' + fK(_tDel.price), ml, y); y += 4.5;
+            // Delpriser vises kun når tilbuddet i øvrigt gør det (jf. preview).
+            doc.text((dTy[_tDel.type] || 'Levering') + ((sL || sBT) ? '  ' + fK(_tDel.price) : ''), ml, y); y += 4.5;
         }
         y += 3;
     }
@@ -1556,7 +1818,8 @@ function _tGenPDF() {
                 doc.setFontSize(9); doc.text(fK(bt) + (perPax ? `  (${perPax} kr/pax)` : ''), pw - mr, y, { align: 'right' });
             }
             y += 1.5; doc.setDrawColor(...(bc[b.id] || br)); doc.setLineWidth(0.4); doc.line(ml, y, pw - mr, y); y += 5;
-            its.forEach(it => {
+            // `bt` er allerede summeret over alle varer \u2014 her filtreres kun visningen.
+            _tOfferItems(its).forEach(it => {
                 chk(7); doc.setFontSize(8.5); doc.setFont('helvetica', 'normal'); doc.setTextColor(...tx);
                 doc.text(`${it.qty > 1 ? it.qty + '\u00d7 ' : ''}${it.name}`, ml, y);
                 if (sL) doc.text(fK(it.unitPrice * it.qty), pw - mr, y, { align: 'right' });
@@ -1565,32 +1828,31 @@ function _tGenPDF() {
             y += 3;
         });
     } else {
+        _tSiItems.forEach(i => { sub += i.unitPrice * i.qty; });   // bel\u00f8b: alle varer
         const cats = {};
         _tSiItems.forEach(i => { const c = i.category || 'Ukendt'; if (!cats[c]) cats[c] = []; cats[c].push(i); });
-        Object.keys(cats).forEach(cat => {
+        _tOfferCategories(cats).forEach(cat => {
             chk(10); doc.setFontSize(8); doc.setFont('helvetica', 'bold'); doc.setTextColor(...br);
             doc.text(cat.toUpperCase(), ml, y); y += 4;
             cats[cat].forEach(i => {
-                chk(6); const lt = i.unitPrice * i.qty; sub += lt;
+                chk(6);
                 doc.setFontSize(8.5); doc.setFont('helvetica', 'normal'); doc.setTextColor(...tx);
                 doc.text(`${i.qty > 1 ? i.qty + '\u00d7 ' : ''}${i.name}`, ml, y);
-                if (sL) doc.text(fK(lt), pw - mr, y, { align: 'right' });
+                if (sL) doc.text(fK(i.unitPrice * i.qty), pw - mr, y, { align: 'right' });
                 y += 5.5;
             }); y += 2;
         });
     }
 
-    // Custom items
-    if (_tCxItems.length) {
-        chk(10); doc.setFontSize(8); doc.setFont('helvetica', 'bold'); doc.setTextColor(...br); doc.text('\u00d8VRIGE', ml, y); y += 4;
-        _tCxItems.forEach(ci => { chk(6); sub += ci.price; doc.setFontSize(8.5); doc.setFont('helvetica', 'normal'); doc.setTextColor(...tx); doc.text(ci.name, ml, y); doc.text(fK(ci.price), pw - mr, y, { align: 'right' }); y += 5.5; }); y += 2;
-    }
-
-    // Delivery
+    // Delivery \u2014 samme regel som i forh\u00e5ndsvisningen: linjen altid, bel\u00f8bet
+    // kun n\u00e5r tilbuddet i \u00f8vrigt viser bel\u00f8b. PDF'en skrev den hidtil aldrig,
+    // s\u00e5 i linjeprismode s\u00e5 kunden alle varepriser undtagen leveringens.
     if (_tDel.type) {
         chk(6); const dp = _tDel.free ? 0 : _tDel.price; sub += dp;
         doc.setFontSize(8.5); doc.setFont('helvetica', 'normal'); doc.setTextColor(...tx);
-        doc.text(`Levering: ${dTy[_tDel.type] || ''}${_tDel.note ? ' \u00b7 ' + _tDel.note : ''}`, ml, y); y += 6;
+        doc.text(`Levering: ${dTy[_tDel.type] || ''}${_tDel.note ? ' \u00b7 ' + _tDel.note : ''}`, ml, y);
+        if ((sL || sBT) && dp > 0) doc.text(fK(dp), pw - mr, y, { align: 'right' });
+        y += 6;
     }
 
     // Totals
