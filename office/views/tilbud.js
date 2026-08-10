@@ -55,7 +55,6 @@ let _tValidDays = 30;
 
 // Block types + company info — loaded from settings, cached in module scope
 let _tBLOCKS = [];
-let _tBlocksLoaded = false;
 let _tCompany = { name: 'Ristet Rug', cvr: '', address: '', phone: '', email: 'info@ristetrug.dk' };
 // { kategorinavn: 'last' | 'hidden' } — se migration 143. Kun visning på tilbuddet;
 // priser og de gemte linjer er upåvirkede.
@@ -108,19 +107,28 @@ function _tToast(msg) {
 
 /* ── Init / Cleanup ──────────────────────────────────── */
 
-function initTilbud(container, opts) {
+async function initTilbud(container, opts) {
     _tC = container;
     _tOpts = opts || {};
     _tMode = 'list';
     _tListFilter = 'all';
 
-    // Load logo + block types (fire-and-forget, cached)
     if (!_tLogoB64) {
         fetch('/assets/logo-b64.txt').then(r => r.text()).then(t => { _tLogoB64 = t.trim(); }).catch(() => {});
     }
-    if (!_tBlocksLoaded) {
-        _tLoadBlockTypes();
-    }
+
+    // Blok-typer og kategori-visning hentes HVER gang viewet åbnes, og der
+    // ventes på dem før noget renderes.
+    //
+    // Før lå de bag et `_tBlocksLoaded`-flag og blev kaldt fire-and-forget. Det
+    // gav to fejl på én gang: en ændring i Settings (blok-rækkefølge, "emballage
+    // nederst") slog først igennem efter en hård genindlæsning af hele office —
+    // så det lignede at indstillingen ikke virkede — og et deep-link til et
+    // tilbud kunne nå at rendere med default-blokkene før svaret var hjemme.
+    //
+    // Reglerne bruges ved VISNING, så de gælder også eksisterende tilbud; der
+    // skal intet gemmes for at få dem til at slå igennem.
+    await _tLoadBlockTypes();
 
     // Deep link: ?customer=ID → new wizard with customer pre-loaded
     if (_tOpts.customer_id) {
@@ -196,7 +204,6 @@ async function _tLoadBlockTypes() {
             { id: 'pmsnack', label: 'Eftermiddagssnack', icon: '\u{1F36A}', color: 'pmsnack' },
         ];
     }
-    _tBlocksLoaded = true;
 }
 
 function _tilbudHandleSSE(event, data) {

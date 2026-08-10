@@ -2144,6 +2144,25 @@ PDF; total 2.060 kr uændret. Sat til `hidden` → linjen forsvinder for kunden,
 er stadig 2.060 kr, og `_tCollectLines` returnerer den fortsat. Settings gemmer og
 listen viser alle Grocy-kategorier. Testdata rullet tilbage.
 
+**Reglerne gælder også eksisterende tilbud — uden at gemme dem.** De anvendes ved
+visning, ikke ved gem. Men `_tLoadBlockTypes()` (som henter både blok-typer og
+kategori-reglerne) lå bag et `_tBlocksLoaded`-flag og blev kaldt **fire-and-forget**.
+To fejl i én:
+
+1. En ændring i Settings slog først igennem efter en **hård genindlæsning af hele
+   office** — så det lignede at indstillingen ikke virkede.
+2. Et deep-link til et tilbud (`?quote=ID`) kunne nå at rendere med default-blokkene
+   før svaret var hjemme.
+
+`initTilbud` er nu `async` og **awaiter** hentningen, og flaget er væk: indstillingerne
+hentes hver gang viewet åbnes. Ét lille `/api/settings`-kald pr. view-skift — samme
+kald der allerede hentede firmaoplysningerne til PDF'en.
+
+Verificeret på et gemt tilbud med emballage spredt mellem maden: regel sat i Settings →
+væk fra Tilbud-viewet og tilbage (ingen reload, intet gem) → begge emballagelinjer
+står nederst, total 2.285 kr uændret. Samme mekanisme får en ændret blok-rækkefølge
+til at slå igennem.
+
 **Blok-typer kan ikke længere få samme navn.** På et tilbud fra drift stod
 "Eftermiddagssnack" som blok-overskrift **to gange** med hver sit indhold — og
 "Morgenmad" var væk. Forklaringen var ikke en kodefejl i tilbuddet: en blok var
