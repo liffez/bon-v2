@@ -15,6 +15,7 @@
 
 const crypto = require('node:crypto');
 const { inclToExcl } = require('../shared/moms');
+const { mergeLines } = require('../shared/bon_lines');
 const { getDb } = require('../db/database');
 const eco = require('./economicAdapter');
 
@@ -125,7 +126,9 @@ function buildDraftInvoice(bon, settings, opts = {}) {
 
     const lines = [];
     let ln = 0;
-    for (const line of (bon.lines || [])) {
+    // Ens bon-linjer slås sammen, så kunden ser "3 × Kartoflen slider" og ikke
+    // tre fakturalinjer à 1 stk — se shared/bon_lines.js.
+    for (const line of mergeLines(bon.lines || [])) {
         // productNumber SKAL være String pr. e-conomics skema (varenr kan være alfanumerisk).
         let productNumber = hasProductNumber(line) ? String(line.economic_product_number) : null;
         if (productNumber == null) {

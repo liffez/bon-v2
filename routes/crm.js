@@ -10,6 +10,7 @@ const router = express.Router();
 const { getDb } = require('../db/database');
 const { handle, getUserId, logChange, transaction, revenueFactorSQL } = require('../db/helpers');
 const { requireAuth } = require('../shared/auth');
+const { mergeLines } = require('../shared/bon_lines');
 const { broadcast } = require('../shared/sse');
 const {
     findCustomerByEmail: _liFindCustomerByEmail,
@@ -1316,7 +1317,9 @@ router.get('/customer-orders/:id', handle((req, res) => {
               AND COALESCE(category,'') NOT IN ('06 Emballage','x-Levering','Emballage','x- Service')
             ORDER BY sort_order
         `).all(o.id);
-        return { ...o, lines };
+        // Ens linjer slås sammen — kundekortet (office + mobil) skal vise
+        // "3× Kartoflen slider", ikke tre gange "1×" (se shared/bon_lines.js).
+        return { ...o, lines: mergeLines(lines) };
     });
 
     res.json(result);

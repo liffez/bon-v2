@@ -23,6 +23,9 @@ data/*.backup-*
 data/*.bak-*
 data/*.pre-*
 data/*-fix-log-*.json
+# scripts/merge-duplicate-bon-lines.js --apply lægger sin VACUUM INTO-backup her.
+# Utracket + uignoreret = git clean kan slette den. Det må ikke kunne ske.
+data/backups/
 
 # Runtime-output fra scripts og server (genskabes ved kørsel — ikke kilde).
 # cvr-enrich-log.json skrives af scripts/enrich-cvr.js ved hver kørsel og

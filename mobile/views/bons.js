@@ -992,7 +992,8 @@ async function _mbShowDetail(bonId, opts) {
         html += '<div class="m-detail-section">';
         html += '<div class="m-detail-label">Varer</div>';
         html += '<ul class="m-detail-lines">';
-        bon.lines.forEach(function(line) {
+        // Ens linjer slås sammen — se shared/bon_lines.js.
+        BonLines.mergeLines(bon.lines).forEach(function(line) {
             html += '<li class="m-detail-line">' +
                 '<span class="m-detail-line-name">' + _mbEsc(line.product_name || line.name || '?') + '</span>' +
                 '<span class="m-detail-line-qty">' + (line.quantity || '') + ' ' + (line.unit || '') + '</span>' +

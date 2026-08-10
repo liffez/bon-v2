@@ -395,7 +395,8 @@ function _faktSelectBon(bon) {
                     <table class="fakt-varer">
                         <thead><tr><th style="width:30px">Ant</th><th>Produkt</th><th style="text-align:right">Pris</th></tr></thead>
                         <tbody>
-                            ${bon.lines.map(l => `
+                            ${/* Ens linjer slås sammen — samme visning som fakturaudkastet (shared/bon_lines.js) */ ''}
+                            ${BonLines.mergeLines(bon.lines).map(l => `
                             <tr>
                                 <td class="fakt-varer-qty">${l.quantity}</td>
                                 <td>
