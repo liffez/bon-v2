@@ -114,13 +114,27 @@ function _tSortedCats() {
     });
 }
 
-// ms: en besked der remser varenavne op skal have tid til at blive læst.
-function _tToast(msg, ms) {
+/**
+ * Kvittering nederst til højre.
+ *
+ * Andet argument er enten en varighed i ms (en besked der remser varenavne op
+ * skal have tid til at blive læst) eller en art: 'success' / 'warning'.
+ *
+ * Blandingen var ikke uskyldig. Tre kaldesteder sendte arten videre til
+ * setTimeout, som gør en streng til NaN og dermed til 0 — så netop de vigtigste
+ * kvitteringer forsvandt i samme øjeblik de blev vist. "Tilbud sendt til …" var
+ * en af dem: kontoret så intet ske og sendte tilbuddet igen.
+ */
+function _tToast(msg, opt) {
+    const kind = typeof opt === 'string' ? opt : '';
+    const ms = (typeof opt === 'number' && isFinite(opt) && opt > 0)
+        ? opt
+        : (kind === 'success' ? 4500 : 3000);
     const el = document.createElement('div');
-    el.className = 'tilbud-toast';
+    el.className = 'tilbud-toast' + (kind ? ' tilbud-toast-' + kind : '');
     el.textContent = msg;
     document.body.appendChild(el);
-    setTimeout(() => el.remove(), ms || 3000);
+    setTimeout(() => el.remove(), ms);
 }
 
 /* ── Init / Cleanup ──────────────────────────────────── */
@@ -2083,6 +2097,58 @@ function _tRemP(id, bid, dayKey) {
 }
 
 
+/* ── Step 4: Status ──────────────────────────────────── */
+
+/**
+ * Hvor står tilbuddet — og en vej til at rette det.
+ *
+ * Statussen bliver sat af sig selv når tilbuddet sendes på mail, men den skal
+ * kunne rettes: et tilbud kan være givet i telefonen, og et tabt tilbud skal
+ * kunne lukkes uden at gå omvejen om CRM-tavlens pipeline (som indtil nu var
+ * det eneste sted i hele systemet der kunne flytte et tilbud ud af Kladde).
+ *
+ * "Vundet" står IKKE her — den sættes af "Opret som bon", som samtidig gør
+ * tilbuddet til en rigtig bon. Serveren afviser 'won' på status-endpointet af
+ * præcis den grund, så en knap her ville kun kunne fejle.
+ */
+function _tBuildStatusStrip() {
+    if (!_tQuoteId) return '';
+
+    const cur = _tQuoteStatus || 'draft';
+    const s = _tSTATUS[cur] || _tSTATUS.draft;
+
+    if (cur === 'won') {
+        return `<div class="tilbud-status-strip">
+            <span class="tilbud-status-label">Status</span>
+            <span class="tilbud-status-badge" style="background:${s.color}">${s.label}</span>
+            <span class="tilbud-status-hint">Tilbuddet er accepteret og lavet om til en bon.</span>
+        </div>`;
+    }
+
+    const choices = ['draft', 'sent', 'lost'];
+    return `<div class="tilbud-status-strip">
+        <span class="tilbud-status-label">Status</span>
+        ${choices.includes(cur) ? '' : `<span class="tilbud-status-badge" style="background:${s.color}">${s.label}</span>`}
+        ${choices.map(k => `<button class="tilbud-status-btn ${k === cur ? 'active' : ''}"
+            style="${k === cur ? `background:${_tSTATUS[k].color};border-color:${_tSTATUS[k].color}` : ''}"
+            onclick="_tSetQuoteStatus('${k}')">${_tSTATUS[k].label}</button>`).join('')}
+        <span class="tilbud-status-hint">Sættes automatisk til Sendt når du sender tilbuddet på mail.</span>
+    </div>`;
+}
+
+async function _tSetQuoteStatus(status) {
+    if (!_tQuoteId) { _tToast('Gem tilbuddet først', 'warning'); return; }
+    if ((_tQuoteStatus || 'draft') === status) return;
+    try {
+        await patchQuoteStatus(_tQuoteId, status);
+        _tQuoteStatus = status;
+        _tToast('Status: ' + (_tSTATUS[status]?.label || status), 'success');
+        _tRenderWizard();
+    } catch (e) {
+        _tToast('Kunne ikke skifte status: ' + (e.message || 'ukendt fejl'), 6000);
+    }
+}
+
 /* ── Step 4: Preview ─────────────────────────────────── */
 
 function _tBuildStep4() {
@@ -2101,6 +2167,8 @@ function _tBuildStep4() {
         ${_tQuoteId ? `<button class="tilbud-btn tilbud-btn-secondary" onclick="_tConvertToBon()">Opret som bon</button>` : ''}
         ${canDelete ? `<button class="tilbud-btn tilbud-btn-danger" onclick="_tDeleteQuote()" style="margin-left:auto">Slet tilbud</button>` : ''}
     </div>`;
+
+    h += _tBuildStatusStrip();
 
     if (!_tCust) {
         h += `<div style="background:#fff4e0;border:1px solid #f0c674;border-radius:8px;padding:10px 14px;margin-bottom:16px;font-size:.86rem;color:#7a5a1f">
@@ -2706,8 +2774,12 @@ function _tGenPDF() {
 /** Send tilbud som mail med PDF vedhæftet */
 async function _tSendQuoteMail() {
     if (!_tQuoteId) { _tToast('Gem tilbuddet først', 'warning'); return; }
-    const email = _tCust?.email;
-    if (!email) { _tToast('Kunden har ingen email', 'warning'); return; }
+
+    // Manglende mailadresse er ikke en blokering. Panelet åbner med et tomt
+    // Til-felt og en synlig note, så adressen kan skrives ind her og nu. Før
+    // afviste knappen sig selv med en kortvarig toast, og så lignede det at
+    // knappen ikke gjorde noget overhovedet.
+    const email = _tCust?.email || '';
 
     // Show send form if not visible
     let container = document.getElementById('tilbudMailSend');
@@ -2730,9 +2802,12 @@ async function _tSendQuoteMail() {
     container.innerHTML = `
         <div style="background:var(--color-background, #f5f4f2);border:1px solid var(--color-border, #d7d1ca);border-radius:8px;padding:12px;margin-bottom:16px;">
             <div style="font-weight:600;margin-bottom:8px;">${mailIcon(14)} Send tilbud til kunde</div>
+            ${email ? '' : `<div style="background:#fff4e0;border:1px solid #f0c674;border-radius:6px;padding:8px 10px;margin-bottom:8px;font-size:.8rem;color:#7a5a1f">
+                ⚠ ${_tEsc(cn)} har ingen mailadresse gemt — skriv den ind nedenfor.
+            </div>`}
             <div style="margin-bottom:6px;">
                 <label style="font-size:11px;display:block;">Til</label>
-                <input type="email" id="tMailTo" value="${_tEsc(email)}" style="width:100%;padding:6px 8px;border:1px solid var(--color-border);border-radius:4px;font-size:13px;">
+                <input type="email" id="tMailTo" value="${_tEsc(email)}" placeholder="modtager@firma.dk" style="width:100%;padding:6px 8px;border:1px solid var(--color-border);border-radius:4px;font-size:13px;">
             </div>
             <div style="margin-bottom:6px;">
                 <label style="font-size:11px;display:block;">Emne</label>
@@ -2795,9 +2870,32 @@ async function _tDoSendMail() {
         // 4. Success
         btn.innerHTML = mailIcon(13) + ' Sendt!';
         _tToast('Tilbud sendt til ' + to, 'success');
+
+        // 5. Mailen er ude — så er tilbuddet sendt.
+        //
+        // Uden dette blev det liggende som kladde, og eneste vej videre var at
+        // trække kortet i CRM-tavlens pipeline. Det så ud som om afsendelsen
+        // fejlede, så samme tilbud blev sendt til kunden flere gange.
+        //
+        // Statusskiftet må ALDRIG vælte afsendelsen: mailen er afsted, og det er
+        // den uigenkaldelige del. Slår skiftet fejl, siges det højt i stedet.
+        let statusNote = '';
+        if (_tQuoteStatus === 'draft') {
+            try {
+                await patchQuoteStatus(_tQuoteId, 'sent');
+                _tQuoteStatus = 'sent';
+            } catch (e) {
+                console.warn('[tilbud] status kunne ikke sættes til sendt:', e);
+                statusNote = 'Mailen er sendt, men status står stadig som kladde — sæt den i hånden.';
+            }
+        }
+
         setTimeout(() => {
             const container = document.getElementById('tilbudMailSend');
             if (container) container.style.display = 'none';
+            // Gen-render så status-striben og listen viser "Sendt".
+            _tRenderWizard();
+            if (statusNote) _tToast(statusNote, 8000);
         }, 2000);
 
     } catch (err) {
