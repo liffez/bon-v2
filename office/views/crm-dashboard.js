@@ -210,12 +210,31 @@ function _crmRenderShell() {
                 font-size: 10px; font-weight: 700;
             }
             .crm-pipe-card {
+                position: relative;
                 background: var(--color-background, #f5f4f2); border: 1px solid var(--color-border);
                 border-radius: 8px; padding: 10px 12px; margin-bottom: 8px;
                 cursor: pointer; transition: all .15s;
                 font-size: 12px;
             }
             .crm-pipe-card:hover { border-color: var(--brand-primary); background: var(--brand-primary-light, #f1e6b2); }
+
+            /* Luk tilbuddet — først synlig ved hover, så tavlen ikke bliver en
+               række af krydser man kan komme til at ramme. */
+            .crm-pipe-lost {
+                position: absolute; top: 4px; right: 4px;
+                width: 20px; height: 20px; padding: 0; line-height: 1;
+                display: flex; align-items: center; justify-content: center;
+                border: none; border-radius: 50%;
+                background: transparent; color: var(--color-text-dim);
+                font-size: 12px; font-family: inherit; cursor: pointer;
+                opacity: 0; transition: opacity .15s, background .15s, color .15s;
+            }
+            .crm-pipe-card:hover .crm-pipe-lost { opacity: 1; }
+            .crm-pipe-lost:hover, .crm-pipe-lost:focus-visible {
+                opacity: 1; background: #bc181b; color: #fff;
+            }
+            /* Tastaturbrugere skal kunne nå den uden at kunne se hover. */
+            .crm-pipe-lost:focus-visible { outline: 2px solid var(--brand-primary); outline-offset: 1px; }
             .crm-pipe-name { font-weight: 600; font-size: 13px; margin-bottom: 2px; }
             .crm-pipe-name-link { cursor: pointer; }
             .crm-pipe-name-link:hover { text-decoration: underline; color: var(--brand-primary, #8e631f); }
@@ -1280,7 +1299,16 @@ function _crmRenderPipeline(columns) {
                 const nameAttrs = cid
                     ? ' class="crm-pipe-name crm-pipe-name-link" data-customer-id="' + cid + '" title="Åbn kundeprofil"'
                     : ' class="crm-pipe-name"';
+                // Et tilbud kan lukkes fra kortet. Tavlen har med vilje ingen
+                // "Tabt"-kolonne — et lukket tilbud skal FORLADE tavlen, ikke
+                // få sin egen bunke at samle sig i. Knappen er kun på tilbud:
+                // en rigtig bon aflyses via sin egen status, ikke herfra.
+                const lostBtn = item.is_offer
+                    ? '<button class="crm-pipe-lost" data-bon-id="' + item.id +
+                      '" title="Markér tilbuddet som tabt og fjern det fra tavlen" aria-label="Markér som tabt">✕</button>'
+                    : '';
                 return '<div class="crm-pipe-card" draggable="true" data-bon-id="' + item.id + '">' +
+                    lostBtn +
                     '<div' + nameAttrs + '>' + (item.company_name || item.customer_name || 'Ukendt') + '</div>' +
                     '<div class="crm-pipe-meta">' +
                         '#' + (item.bon_number || '') + ' · ' + (item.delivery_date || '') +
@@ -1314,6 +1342,12 @@ function _crmRenderPipeline(columns) {
         // Click → navnefelt åbner kundeprofil, resten åbner bon-drawer
         card.addEventListener('click', (e) => {
             if (_crmDragBonId) return;
+            const lost = e.target.closest('.crm-pipe-lost');
+            if (lost && card.contains(lost)) {
+                e.stopPropagation();
+                _crmMarkOfferLost(parseInt(lost.dataset.bonId), card);
+                return;
+            }
             const nameLink = e.target.closest('.crm-pipe-name-link');
             if (nameLink && card.contains(nameLink)) {
                 const cid = parseInt(nameLink.dataset.customerId);
@@ -1354,6 +1388,30 @@ function _crmRenderPipeline(columns) {
             }
         });
     });
+}
+
+/**
+ * Luk et tilbud fra pipeline-kortet.
+ *
+ * Genbruger tilbuds-modulets status-endpoint frem for pipeline-flytningen:
+ * "tabt" er en tilstand på tilbuddet, ikke en kolonne på tavlen. Serveren
+ * filtrerer lukkede tilbud fra pipelinen, så kortet forsvinder af sig selv
+ * ved næste hentning.
+ */
+async function _crmMarkOfferLost(bonId, cardEl) {
+    if (!bonId) return;
+    const who = cardEl?.querySelector('.crm-pipe-name')?.textContent?.trim() || 'tilbuddet';
+    const nr = cardEl?.querySelector('.crm-pipe-meta')?.textContent?.split('·')[0]?.trim() || '';
+    if (!confirm(`Markér ${nr ? nr + ' (' + who + ')' : who} som tabt?\n\nTilbuddet forsvinder fra tavlen og tæller ikke længere som åbent. Du kan finde det igen under Tilbud → Tabt.`)) return;
+
+    try {
+        await patchQuoteStatus(bonId, 'lost');
+        const activeFilter = document.querySelector('.crm-pipe-filter.active');
+        _crmLoadPipeline(activeFilter ? activeFilter.dataset.cat || '' : '');
+    } catch (err) {
+        console.error('[crm] Kunne ikke markere tilbud som tabt:', err);
+        alert('Kunne ikke markere som tabt: ' + (err.message || 'Ukendt fejl'));
+    }
 }
 
 // ─── Navigation helpers ─────────────────────────────────────

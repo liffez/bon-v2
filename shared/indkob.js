@@ -646,6 +646,9 @@ function _ibHydrateMail() {
         el.removeAttribute('data-mt-messages');
         MailThread.renderHistory(el, { messages: msgs, emptyText: 'Ingen beskeder endnu' });
     });
+    _ibContainer.querySelectorAll('.ib-sig-hint').forEach(function(el) {
+        MailThread.renderSignatureHint(el);
+    });
 }
 
 /* ── Efter kategori (combined view) ────────────────────────────
@@ -2392,6 +2395,7 @@ function _ibRenderPoMailSection(po) {
             h += '<textarea class="ib-po-mail-input" data-po-id="' + po.id + '" placeholder="Skriv svar..."></textarea>';
             h += '<button class="ib-btn ib-btn-sm" data-ib="po-mail-send" data-po-id="' + po.id + '">Send</button>';
             h += '</div>';
+            h += '<div class="ib-sig-hint"></div>';
         }
         h += '</div>';
     }
@@ -2454,6 +2458,7 @@ function _ibRenderSupMailSection(g, key) {
 
     h += '<input class="ib-sup-mail-subject" placeholder="Emne (fx \'Forespørgsel om aftalepris\')" value="' + _ibEsc(draft.subject || '') + '" data-ib="sup-mail-subject" data-group="' + key + '">';
     h += '<textarea class="ib-sup-mail-input" placeholder="Skriv besked..." data-ib="sup-mail-text" data-group="' + key + '"></textarea>';
+    h += '<div class="ib-sig-hint"></div>';
     h += '<div class="ib-sup-mail-actions">';
     h += '<button class="ib-btn ib-btn-sm" data-ib="sup-mail-send" data-group="' + key + '">Send</button>';
     h += '</div>';

@@ -1270,6 +1270,9 @@ function _k3RenderShell() {
             .k3-mail-input:focus { border-color: var(--brand-primary); outline: none; }
             .k3-mail-body { width: 100%; padding: 8px 10px; border-radius: 6px; border: 1px solid var(--color-border); font-size: 13px; resize: vertical; min-height: 100px; font-family: inherit; }
             .k3-mail-body:focus { border-color: var(--brand-primary); outline: none; }
+            .k3-tmpl-warn { margin-top: 6px; padding: 7px 10px; border-radius: 6px; font-size: 12px; line-height: 1.5;
+                background: #fdf6e3; border-left: 3px solid #d9a441; color: #6b5320; }
+            .k3-tmpl-warn code { background: rgba(0,0,0,.06); border-radius: 3px; padding: 1px 4px; font-size: 11px; }
             .k3-mail-send { padding: 8px 20px; border-radius: 6px; border: none; background: var(--brand-primary); color: white; font-size: 13px; font-weight: 600; cursor: pointer; }
         </style>
 
@@ -2317,12 +2320,20 @@ async function _k3RenderMail(el) {
             '<input type="email" class="k3-mail-input" id="k3MailTo" value="' + email + '">' +
         '</div>' +
         '<div class="k3-mail-field">' +
+            '<label>Skabelon</label>' +
+            '<select class="k3-mail-input" id="k3MailTemplate" onchange="_k3ApplyTemplate()">' +
+                '<option value="">— Ingen skabelon —</option>' +
+            '</select>' +
+            '<div id="k3TmplWarn"></div>' +
+        '</div>' +
+        '<div class="k3-mail-field">' +
             '<label>Emne</label>' +
             '<input type="text" class="k3-mail-input" id="k3MailSubject" placeholder="Emne...">' +
         '</div>' +
         '<div class="k3-mail-field">' +
             '<label>Besked</label>' +
             '<textarea class="k3-mail-body" id="k3MailBody" placeholder="Skriv din besked..."></textarea>' +
+            '<div id="k3MailSigHint"></div>' +
         '</div>' +
         '<input type="file" id="k3MailFile" accept=".pdf,.jpg,.jpeg,.png,.gif,.xlsx,.docx" style="display:none" onchange="_k3OnFileSelected(this)">' +
         '<div id="k3MailAttachments" class="bm-attachments"></div>' +
@@ -2395,11 +2406,103 @@ async function _k3RenderMail(el) {
     el.innerHTML = html;
 
     // Mail-historik via fælles MailThread-komponent (klik-for-at-folde-ud).
-    if (allMessages.length && typeof MailThread !== 'undefined') {
-        MailThread.renderHistory(document.getElementById('k3MailHost'), {
-            messages: allMessages.slice(0, 20),
-        });
+    if (typeof MailThread !== 'undefined') {
+        if (allMessages.length) {
+            MailThread.renderHistory(document.getElementById('k3MailHost'), {
+                messages: allMessages.slice(0, 20),
+            });
+        }
+        MailThread.renderSignatureHint(document.getElementById('k3MailSigHint'));
     }
+
+    _k3LoadMailTemplates();
+}
+
+/* ── Skabeloner i CRM-mail ───────────────────────────────────
+   Skabelonerne er skrevet til en BON ({{bonNummer}}, {{leveringsDato}},
+   menuen …). Herinde findes der ingen bon — kun en kunde. Vi udfylder
+   derfor det vi rent faktisk kan, og siger tydeligt hvad der mangler,
+   frem for at lade som om skabelonen passer. */
+
+let _k3MailTemplates = null;
+
+async function _k3LoadMailTemplates() {
+    const sel = document.getElementById('k3MailTemplate');
+    if (!sel) return;
+    try {
+        if (!_k3MailTemplates) _k3MailTemplates = await fetchMailTemplates();
+        sel.innerHTML = '<option value="">— Ingen skabelon —</option>' +
+            (_k3MailTemplates || []).map(t =>
+                '<option value="' + escapeHtml(t.key) + '">' + escapeHtml(t.label || t.key) + '</option>'
+            ).join('');
+    } catch (err) {
+        console.error('[k3] Kunne ikke hente mail-skabeloner:', err);
+        sel.innerHTML = '<option value="">— skabeloner kunne ikke hentes —</option>';
+    }
+}
+
+// Variabler vi kan besvare uden en bon. {{tag}} fjernes, fordi serveren selv
+// sætter #k-NNN på emnet — står den i teksten, ender den som synlig larm.
+function _k3TemplateVars() {
+    const c = (_k3Data && _k3Data.customer) || {};
+    // Navnefelterne i driften bærer stedvis linjeskift (fx last_name = "\n zeeberg").
+    // Et navn må aldrig brække en hilsen midt over — så mellemrum normaliseres.
+    const clean = (s) => String(s || '').replace(/\s+/g, ' ').trim();
+    const navn = clean((c.first_name || '') + ' ' + (c.last_name || ''));
+    return {
+        kundeNavn: navn || clean(c.company_name) || '',
+        fornavn: clean(c.first_name),
+        firmanavn: clean(c.company_name),
+        telefon: clean(c.phone),
+        tag: '',
+    };
+}
+
+function _k3ApplyTemplate() {
+    const sel = document.getElementById('k3MailTemplate');
+    const warnEl = document.getElementById('k3TmplWarn');
+    const subjEl = document.getElementById('k3MailSubject');
+    const bodyEl = document.getElementById('k3MailBody');
+    if (!sel || !subjEl || !bodyEl) return;
+
+    if (!sel.value) { warnEl.innerHTML = ''; return; }
+
+    const tmpl = (_k3MailTemplates || []).find(t => t.key === sel.value);
+    if (!tmpl) return;
+
+    // Overskriv ikke noget brugeren allerede har skrevet uden at spørge.
+    if ((subjEl.value.trim() || bodyEl.value.trim()) &&
+        !confirm('Erstat det du har skrevet med skabelonen "' + (tmpl.label || tmpl.key) + '"?')) {
+        sel.value = '';
+        return;
+    }
+
+    const vars = _k3TemplateVars();
+    const subst = (str) => {
+        let r = str || '';
+        for (const [k, v] of Object.entries(vars)) {
+            r = r.replace(new RegExp('\\{\\{' + k + '\\}\\}', 'g'), v);
+        }
+        return r;
+    };
+
+    subjEl.value = subst(tmpl.subject).trim();
+    bodyEl.value = subst(tmpl.body_text);
+
+    // Hvad kunne vi ikke udfylde? {{booking_link}} tæller ikke — den løser
+    // serveren ved afsendelse.
+    const rest = _k3UnresolvedVars(subjEl.value + '\n' + bodyEl.value);
+    warnEl.innerHTML = rest.length
+        ? '<div class="k3-tmpl-warn">⚠ ' + rest.length + ' pladsholder' + (rest.length === 1 ? '' : 'e') +
+          ' kunne ikke udfyldes — skabelonen er skrevet til en bon: ' +
+          '<code>' + rest.map(escapeHtml).join('</code> <code>') + '</code>' +
+          '<br>Ret dem i teksten før du sender.</div>'
+        : '';
+}
+
+function _k3UnresolvedVars(text) {
+    const found = (text || '').match(/\{\{[a-zA-Z0-9_]+\}\}/g) || [];
+    return [...new Set(found)].filter(v => v !== '{{booking_link}}');
 }
 
 let _k3Attachments = [];
@@ -2531,6 +2634,14 @@ async function _k3SendMail() {
     if (!to || !subject || !text) { alert('Udfyld alle felter'); return; }
 
     if (!_k3CustomerId) { alert('Ingen kunde valgt'); return; }
+
+    // Sidste stop før kunden ser {{leveringsDato}} i sin indbakke.
+    const unresolved = _k3UnresolvedVars(subject + '\n' + text);
+    if (unresolved.length && !confirm(
+        'Mailen indeholder ' + unresolved.length + ' uudfyldt' + (unresolved.length === 1 ? '' : 'e') +
+        ' pladsholder' + (unresolved.length === 1 ? '' : 'e') + ':\n\n' + unresolved.join('  ') +
+        '\n\nKunden vil se dem som de står. Send alligevel?'
+    )) return;
 
     try {
         const data = { to, subject, text };

@@ -184,9 +184,11 @@ function createCard(bonData, viewName) {
         ? _buildCustomer(bonData.customer, num, null, contextClass)
         : '';
 
-    // Delivery-line i bunden — kun delivery_notes (etage, port, kode)
+    // Leveringsinfo (etage, port, kode) — står i headeren lige under
+    // leveringsindikatoren, så al leveringsinfo er samlet ét sted. Uden
+    // etiketten lignede den løs tekst nederst på kortet.
     const deliveryNotesHtml = (mods.deliveryBlock && bonData.delivery_notes)
-        ? `<div class="delivery-line">${(typeof esc === 'function' ? esc : (s) => s)(bonData.delivery_notes)}</div>`
+        ? `<div class="delivery-line"><span class="delivery-line-label">Leveringsinfo</span>${(typeof esc === 'function' ? esc : (s) => s)(bonData.delivery_notes)}</div>`
         : '';
 
     const prodBadge  = bonData.price_category === 'produktion' ? ' <span class="bon-prod-badge" title="Produktionsbon">🔧</span>' : '';
@@ -227,6 +229,7 @@ function createCard(bonData, viewName) {
                     ${deliveryFlagHtml}
                 </span>
             </div>
+            ${deliveryNotesHtml}
         </div>
 
         <!-- Status-bar (bygges dynamisk) -->
@@ -253,7 +256,6 @@ function createCard(bonData, viewName) {
         </div>
 
         ${mods.co2 && bonData.co2 ? _buildCo2(bonData.co2) : ''}
-        ${deliveryNotesHtml}
 
         <!-- Actions — sæt per view -->
         <div class="bon-actions">

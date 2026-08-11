@@ -23,6 +23,7 @@
      MailThread.fmtDate(iso)        // ét fælles datoformat
      MailThread.normalize(opts)     // tråde/beskeder → sorteret flad liste
      MailThread.buildVars(bon)      // skabelon-variabler fra en bon ({{kundeNavn}}…)
+     MailThread.renderSignatureHint(container)  // "signaturen tilføjes automatisk"
    ══════════════════════════════════════════════════════════════ */
 (function () {
     'use strict';
@@ -417,8 +418,53 @@
         return vars;
     }
 
+    /* ── Signatur-varsel under skrivefelter ──────────────────────
+       Serveren sætter signaturen på i sendMail(), så den er der uanset
+       hvad. Uden at vise det, skriver folk deres egen hilsen i feltet og
+       mailen får to. Hentes én gang pr. sideindlæsning og caches. */
+
+    var _sigPromise = null;
+
+    function getSignature() {
+        if (!_sigPromise) {
+            // /api/settings svarer med et ARRAY af {key, value, description} —
+            // ikke et key→value-objekt. (Settings-siden mapper det selv.)
+            _sigPromise = fetch('/api/settings', { credentials: 'same-origin' })
+                .then(function (r) { return r.ok ? r.json() : []; })
+                .then(function (rows) {
+                    if (Array.isArray(rows)) {
+                        var hit = rows.find(function (r) { return r.key === 'mail_signature'; });
+                        return (hit && hit.value) || '';
+                    }
+                    return (rows && rows.mail_signature) || '';
+                })
+                .catch(function () { return ''; });
+        }
+        return _sigPromise;
+    }
+
+    function renderSignatureHint(container) {
+        if (!container) return;
+        getSignature().then(function (sig) {
+            if (!sig) return;   // ingen signatur sat — intet at love
+            container.innerHTML =
+                '<div class="mt-sig-hint">' +
+                    '<button type="button" class="mt-sig-toggle">' +
+                        'Signaturen tilføjes automatisk <span class="mt-sig-caret">▾</span>' +
+                    '</button>' +
+                    '<pre class="mt-sig-body">' + esc(sig) + '</pre>' +
+                '</div>';
+            var box = container.querySelector('.mt-sig-hint');
+            container.querySelector('.mt-sig-toggle').addEventListener('click', function () {
+                box.classList.toggle('open');
+            });
+        });
+    }
+
     window.MailThread = {
         renderHistory: renderHistory,
+        renderSignatureHint: renderSignatureHint,
+        getSignature: getSignature,
         renderBody: renderBody,
         fmtDate: fmtDate,
         normalize: normalize,

@@ -872,10 +872,18 @@ router.get('/top-categories', handle(async (req, res) => {
 
     const totalUnits = totalRow.total || 1;
 
+    // Listen er en kategori-nedbrydning, så emballage/drikke hører legitimt
+    // hjemme her — men de tæller ikke som solgte enheder, og uden markering
+    // læses "06 Emballage" på tredjepladsen som et salgstal. Frontenden dæmper
+    // dem. Kun kategori-reglen kan bruges her; `unit_count_extra_recipes` er
+    // pr. opskrift og kan ikke afgøres på kategori-niveau.
+    const unitCats = new Set(getUnitCountCategories());
+
     const categories = rows.map(r => ({
-        category: r.category,
-        units:    r.units,
-        pct:      Math.round((r.units / totalUnits) * 1000) / 10,
+        category:       r.category,
+        units:          r.units,
+        pct:            Math.round((r.units / totalUnits) * 1000) / 10,
+        counts_as_unit: unitCats.has(r.category),
     }));
 
     res.json({ categories });

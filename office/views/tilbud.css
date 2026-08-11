@@ -304,6 +304,57 @@
 .tilbud-chip.a-lunch   { background: #EFF6F1; border-color: #4A7C59; color: #4A7C59; }
 .tilbud-chip.a-pmsnack  { background: #FFF3E8; border-color: #C2722E; color: #C2722E; }
 
+/* ── Hent menu fra… (#427) ───────────────────────────── */
+
+.tilbud-import-bar {
+  display: flex; align-items: center; gap: 10px; flex-wrap: wrap;
+  margin: 4px 0 12px;
+}
+.tilbud-import-hint { font-size: .76rem; color: var(--color-text-dim, #7a6f5f); }
+
+.tilbud-import-panel {
+  margin-bottom: 14px; padding: 12px 14px;
+  background: var(--color-background, #f5f4f2);
+  border: 1px solid var(--color-border, #d7d1ca); border-radius: 10px;
+}
+.tilbud-import-tabs { display: flex; gap: 6px; margin-bottom: 10px; }
+.tilbud-import-tab {
+  padding: 5px 14px; border: 1.5px solid var(--color-border, #d7d1ca);
+  border-radius: 16px; background: var(--color-surface, #fff);
+  font-size: .8rem; font-weight: 600; cursor: pointer; font-family: inherit;
+  color: var(--color-text-dim, #7a6f5f);
+}
+.tilbud-import-tab:hover { border-color: var(--brand-primary, #8e631f); }
+.tilbud-import-tab.active {
+  background: var(--brand-primary, #8e631f); color: #fff; border-color: transparent;
+}
+
+.tilbud-import-search { display: flex; gap: 8px; }
+.tilbud-import-search input {
+  flex: 1; padding: 7px 12px; border: 1px solid var(--color-border, #d7d1ca);
+  border-radius: 6px; font-size: .85rem; font-family: inherit;
+}
+.tilbud-import-search input:focus { outline: none; border-color: var(--brand-primary, #8e631f); }
+
+.tilbud-import-results {
+  margin-top: 10px; max-height: 260px; overflow-y: auto;
+  border: 1px solid var(--color-border, #d7d1ca); border-radius: 8px;
+  background: var(--color-surface, #fff);
+}
+.tilbud-import-row {
+  display: flex; justify-content: space-between; align-items: baseline; gap: 12px;
+  width: 100%; text-align: left; padding: 8px 12px;
+  background: none; border: none; border-bottom: 1px solid var(--color-border, #eee);
+  cursor: pointer; font-family: inherit;
+}
+.tilbud-import-row:last-child { border-bottom: none; }
+.tilbud-import-row:hover { background: var(--brand-primary-light, #f1e6b2); }
+.tilbud-import-row .ir-name { font-size: .85rem; font-weight: 600; }
+.tilbud-import-row .ir-meta { font-size: .75rem; color: var(--color-text-dim, #7a6f5f); white-space: nowrap; }
+.tilbud-import-empty {
+  margin-top: 10px; font-size: .8rem; color: var(--color-text-dim, #7a6f5f);
+}
+
 /* ── Blocks ──────────────────────────────────────────── */
 
 .tilbud-block {
@@ -689,6 +740,161 @@
   z-index: 2000; animation: tilbud-fi .3s ease;
 }
 
+/* Arten skal kunne ses på afstand — en grøn kvittering er hele beviset på at
+   mailen gik ud. */
+.tilbud-toast-success { background: #3f7d3a; }
+.tilbud-toast-warning { background: #a8641a; }
+
+/* ── Status-stribe (trin 5) ──────────────────────────── */
+
+.tilbud-status-strip {
+  display: flex; align-items: center; gap: 8px; flex-wrap: wrap;
+  margin-bottom: 16px;
+}
+
+.tilbud-status-label {
+  font-size: .72rem; font-weight: 700; letter-spacing: .04em;
+  text-transform: uppercase; color: var(--color-text-dim);
+}
+
+.tilbud-status-btn {
+  padding: 4px 12px; border-radius: 999px; cursor: pointer;
+  border: 1px solid var(--color-border, #d7d1ca);
+  background: transparent; color: var(--color-text);
+  font-size: .78rem; font-weight: 600; font-family: inherit;
+}
+.tilbud-status-btn:hover { border-color: var(--brand-primary, #8e631f); }
+.tilbud-status-btn.active { color: #fff; }
+
+.tilbud-status-badge {
+  padding: 4px 12px; border-radius: 999px;
+  color: #fff; font-size: .78rem; font-weight: 600;
+}
+
+.tilbud-status-hint {
+  font-size: .75rem; color: var(--color-text-dim);
+}
+
+/* ── Fler-dags (#425) ────────────────────────────────── */
+
+.tilbud-days-intro {
+  font-size: .8rem; color: var(--color-text-dim);
+  margin: 0 0 10px; line-height: 1.5; max-width: 62ch;
+}
+
+.tilbud-days-count {
+  font-size: .72rem; font-weight: 600;
+  background: rgba(142,99,31,.12); color: var(--brand-primary, #8e631f);
+  padding: 1px 7px; border-radius: 9px; margin-left: 6px;
+}
+
+.tilbud-days { display: flex; flex-direction: column; gap: 8px; }
+
+.tilbud-day-row {
+  display: flex; align-items: flex-start; gap: 10px;
+  padding: 10px; border: 1px solid var(--color-border, #d7d1ca);
+  border-radius: 8px; background: #fff;
+}
+
+.tilbud-day-ord { display: flex; flex-direction: column; gap: 2px; padding-top: 16px; }
+.tilbud-day-ord .tilbud-btn-icon { font-size: .6rem; line-height: 1; padding: 2px 4px; }
+.tilbud-day-ord .tilbud-btn-icon[disabled] { opacity: .25; cursor: default; }
+
+.tilbud-day-num {
+  flex: 0 0 24px; height: 24px; margin-top: 14px;
+  display: flex; align-items: center; justify-content: center;
+  background: var(--brand-primary, #8e631f); color: #fff;
+  border-radius: 50%; font-size: .75rem; font-weight: 600;
+}
+
+.tilbud-day-fields {
+  flex: 1; display: grid; gap: 8px;
+  grid-template-columns: 150px 110px 90px 1fr;
+}
+
+.tilbud-day-meta {
+  flex: 0 0 auto; align-self: center;
+  font-size: .74rem; color: var(--color-text-dim); white-space: nowrap;
+}
+
+.tilbud-day-row > .tilbud-btn-icon.danger { align-self: center; }
+
+.tilbud-days-actions {
+  display: flex; align-items: center; gap: 12px;
+  margin-top: 10px; flex-wrap: wrap;
+}
+
+.tilbud-days-warn { font-size: .78rem; color: #9a6a12; }
+
+/* Dags-faner på Sammensæt */
+.tilbud-day-tabs {
+  display: flex; gap: 6px; flex-wrap: wrap;
+  margin: 4px 0 6px; padding-bottom: 8px;
+  border-bottom: 1px solid var(--color-border, #d7d1ca);
+}
+
+.tilbud-day-tab {
+  padding: 6px 12px; border-radius: 16px; cursor: pointer;
+  font-size: .82rem; border: 1px solid var(--color-border, #d7d1ca);
+  background: #fff; color: var(--color-text-dim);
+  display: inline-flex; align-items: center; gap: 6px;
+  transition: background .12s, color .12s, border-color .12s;
+}
+
+.tilbud-day-tab:hover { border-color: var(--brand-primary, #8e631f); }
+
+.tilbud-day-tab.active {
+  background: var(--brand-primary, #8e631f);
+  border-color: var(--brand-primary, #8e631f);
+  color: #fff; font-weight: 600;
+}
+
+/* "Alle dage" er ikke en dag — den stiplede kant siger at den gælder på tværs. */
+.tilbud-day-tab.shared { border-style: dashed; }
+
+.tilbud-day-tab-n {
+  font-size: .7rem; padding: 0 6px; border-radius: 8px;
+  background: rgba(0,0,0,.08);
+}
+.tilbud-day-tab.active .tilbud-day-tab-n { background: rgba(255,255,255,.25); }
+
+.tilbud-day-hint { font-size: .78rem; color: var(--color-text-dim); margin: 0 0 12px; }
+
+/* Dags-overskrift i pristabellen */
+.tilbud-price-tbl tr.day-chapter td {
+  background: rgba(142,99,31,.1);
+  font-weight: 700; font-size: .82rem;
+  color: var(--brand-primary, #8e631f);
+  padding-top: 10px; padding-bottom: 8px;
+  border-top: 2px solid var(--brand-primary, #8e631f);
+}
+
+.tilbud-day-sub {
+  font-weight: 400; font-size: .72rem;
+  color: var(--color-text-dim); margin-left: 8px;
+}
+
+/* Dags-overskrift i forhåndsvisningen */
+.tilbud-pv-day-hdr {
+  margin: 20px 0 8px; padding-bottom: 5px;
+  border-bottom: 2px solid var(--brand-primary, #8e631f);
+  font-family: var(--font-heading, inherit);
+  font-size: 1.02rem; font-weight: 700;
+  color: var(--brand-primary, #8e631f);
+}
+
+.tilbud-pv-day-sum {
+  text-align: right; font-size: .82rem;
+  color: var(--color-text-dim); margin: 4px 0 2px;
+}
+
+/* Fler-dags-mærke på tilbudslisten */
+.tilbud-days-badge {
+  margin-left: 8px; font-size: .7rem; font-weight: 600;
+  background: rgba(142,99,31,.12); color: var(--brand-primary, #8e631f);
+  padding: 1px 7px; border-radius: 9px; white-space: nowrap;
+}
+
 /* ── Responsive ──────────────────────────────────────── */
 
 @media (max-width: 640px) {
@@ -697,4 +903,5 @@
   .tilbud-event-fields.show { grid-template-columns: 1fr; }
   .tilbud-step-content { padding: 16px 12px; }
   .tilbud-preview { padding: 22px 16px; }
+  .tilbud-day-fields { grid-template-columns: 1fr 1fr; }
 }

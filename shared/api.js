@@ -677,10 +677,13 @@ function fetchDashboardStats(daysBack, daysForward) {
     return apiFetch('/dashboard/stats' + qs);
 }
 
-function fetchDashboardTopProducts(from, to) {
+// bucket: 'food' (default — kun varer der tæller som solgte enheder)
+//         'other' (emballage, drikke, kager, tilbehør)
+function fetchDashboardTopProducts(from, to, bucket) {
     var params = [];
     if (from) params.push('from=' + from);
     if (to) params.push('to=' + to);
+    if (bucket) params.push('bucket=' + encodeURIComponent(bucket));
     var qs = params.length ? '?' + params.join('&') : '';
     return apiFetch('/dashboard/top-products' + qs);
 }
@@ -706,6 +709,11 @@ function refreezeDriftDay(date) {
 }
 function fetchDriftPeriod(from, to, mode) {
     return apiFetch('/drift/period?from=' + encodeURIComponent(from) + '&to=' + encodeURIComponent(to) + '&mode=' + encodeURIComponent(mode || 'realiseret'));
+}
+// Produktions-sammentælling. Dagsvisningen kalder med from = to = dagen.
+function fetchDriftItems(from, to, mode) {
+    return apiFetch('/drift/items?from=' + encodeURIComponent(from) + '&to=' + encodeURIComponent(to || from) +
+                    '&mode=' + encodeURIComponent(mode || 'realiseret'));
 }
 
 /* ── CRM ──────────────────────────────────────────────────── */
@@ -1175,6 +1183,17 @@ function updateQuote(id, data) {
 
 function deleteQuote(id) {
     return apiFetch('/quotes/' + id, { method: 'DELETE' });
+}
+
+// Fler-dags-tilbud (#425). Reconcile: send ALTID den fulde liste — rækker med
+// `id` opdateres, nye oprettes, og dem der ikke er med, slettes. Svaret bærer
+// dagenes id'er, som linjernes `offer_day_id` skal pege på; derfor skal dette
+// kald ligge FØR den PATCH der gemmer linjerne.
+function putQuoteDays(id, days) {
+    return apiFetch('/quotes/' + id + '/days', {
+        method: 'PUT',
+        body: JSON.stringify({ days }),
+    });
 }
 
 function patchQuoteStatus(id, status) {

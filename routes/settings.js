@@ -25,6 +25,18 @@ const USER_WRITABLE_SETTINGS = new Set([
     'prospect_branch_blacklist',    // do.
 ]);
 
+// Nøgler kontoret må skrive (admin + office). Adskilt fra listen ovenfor, fordi
+// det ikke er indstillinger enhver inde-logget bruger skal kunne røre — men
+// heller ikke noget der skal vente på en admin.
+//
+// Hastebestilling er dagligt kontorarbejde: en kunde ringer efter fristen, og
+// den der tager telefonen skal kunne åbne for dagen. Settings-siden har altid
+// vist punktet for office (`st-office-only`), men PATCH'en krævede admin — så
+// Anne trykkede, fik en grøn kvittering, og intet skete.
+const OFFICE_WRITABLE_SETTINGS = new Set([
+    'bestilling.cutoff_override_date', // settings/index.html — Hastebestilling
+]);
+
 // GET /api/settings
 // requireAuth() (ikke admin): alle inde-loggede zoner læser herfra ved init.
 router.get('/', requireAuth(), handle((req, res) => {
@@ -167,10 +179,22 @@ router.post('/locations/:id/test-grocy', requireAuth('admin'), handle(async (req
 // requireAuth() fanger uautentificerede kald; rolle-tjekket sker pr. nøgle
 // nedenfor, fordi requireAuth('admin') ville lukke køkkenets pris-toggle ude.
 router.patch('/:key', requireAuth(), handle((req, res) => {
-    if (!USER_WRITABLE_SETTINGS.has(req.params.key) && req.session?.userRole !== 'admin') {
+    const role = req.session?.userRole;
+    const mayWrite = role === 'admin'
+        || USER_WRITABLE_SETTINGS.has(req.params.key)
+        || (role === 'office' && OFFICE_WRITABLE_SETTINGS.has(req.params.key));
+    if (!mayWrite) {
         return res.status(403).json({ error: 'Kun admin kan ændre denne indstilling' });
     }
-    const { value } = req.body;
+    let { value } = req.body;
+
+    // Hastebestillingen gælder "resten af i dag" og intet andet. Datoen sættes
+    // derfor af serveren i dansk tid, ikke af klientens ur — en tablet med skæv
+    // tidszone ville ellers gemme i morgens dato (åbent for længe) eller
+    // gårsdagens (aldrig aktivt). Tom værdi = luk igen.
+    if (req.params.key === 'bestilling.cutoff_override_date') {
+        value = String(value || '').trim() ? todayISO() : '';
+    }
 
     // Fakturavagtens skæringsdato må ikke kunne tømmes ved et uheld: uden dato
     // lyser vagten på hele v1-historikken og bliver ubrugelig. Ryd hellere med
