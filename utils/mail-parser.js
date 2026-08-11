@@ -181,7 +181,14 @@ function _guessCompany(email) {
     if (!domain) return null;
     const base = domain.split('.')[0];
     if (FREE_DOMAINS.includes(base)) return null;
-    return base.charAt(0).toUpperCase() + base.slice(1);
+    // Bindestreger i domænet er som regel ordmellemrum: cap-partner.eu → "Cap Partner".
+    // Gættet er kun et spor til den der skal finde det rigtige firma — vi rammer
+    // sjældent den juridiske stavemåde, og det er heller ikke meningen.
+    return base
+        .split('-')
+        .filter(Boolean)
+        .map(w => w.charAt(0).toUpperCase() + w.slice(1))
+        .join(' ');
 }
 
 module.exports = { parseSubject, parseForwardedSender, isBonV1, getPrefixes, buildTag };

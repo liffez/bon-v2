@@ -36,6 +36,21 @@ const V2_DB_PATH = process.env.DB_PATH || path.join(__dirname, '..', 'data', 'bo
 
 // ── Åbn databaser ────────────────────────────────────────────
 let v1, db;
+
+/**
+ * Rens en tekstværdi ved indgangen: slå whitespace sammen, trim, tom → null.
+ *
+ * v1 gemte navne, e-mail og telefon med afsluttende linjeskift ("leif\n",
+ * "lh69@kk.dk\n") — og nogle firmanavne med et INDRE ("Stefan\n Bilfeldt").
+ * De kom uændret herover, brød dublet-tjekket og det eksakte e-mail-opslag,
+ * og kostede en oprydning på 344 rækker
+ * (scripts/merge-april-import-duplicates.js). Bemærk at `.trim()` alene ikke
+ * havde reddet firmanavnene — den rører ikke det indre linjeskift.
+ */
+function ren(s) {
+    const v = String(s == null ? '' : s).replace(/\s+/g, ' ').trim();
+    return v === '' ? null : v;
+}
 try {
   v1 = new DatabaseSync(V1_DB_PATH, { readOnly: true });
 } catch (e) {
@@ -256,7 +271,7 @@ function syncCompanies() {
   `);
 
   for (const r of v1Rows) {
-    const companyName = (r.name || '').trim();
+    const companyName = ren(r.name) || '';
     if (!companyName) {
       stats.companies.total++;
       stats.companies.updated++;
@@ -330,10 +345,10 @@ function syncCustomers() {
       v2CompanyId = resolveV2CompanyId(r.company_id);
     }
 
-    const firstName = r.forename || 'Ukendt';
-    const lastName = r.surname || null;
-    const email = r.email || null;
-    const phone = r.phone_nr || null;
+    const firstName = ren(r.forename) || 'Ukendt';
+    const lastName = ren(r.surname);
+    const email = ren(r.email);
+    const phone = ren(r.phone_nr);
 
     const { wasInsert } = upsertByV1Id('customers', r.id,
       () => insertStmt.run(r.id, v2CompanyId, firstName, lastName, email, phone).lastInsertRowid,

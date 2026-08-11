@@ -9,6 +9,7 @@ const crypto = require('crypto');
 const { getDb } = require('../db/database');
 const { broadcast } = require('../shared/sse');
 const { parseSubject, parseForwardedSender, isBonV1, getPrefixes, buildTag } = require('../utils/mail-parser');
+const { isInternalEmail } = require('./internalIdentity');
 
 // ─── POLLING STATE ──────────────────────────────────────
 
@@ -65,14 +66,18 @@ function getSetting(key) {
 }
 
 /**
- * Erstat {{variabel}} placeholders + append signatur.
+ * Erstat {{variabel}} placeholders. Ren tekst-udfolder — sætter IKKE signatur på.
+ *
+ * Signaturen hører til i sendMail() (se applySignature), så den rammer hver eneste
+ * udgående mail én gang. Lå den her, ville kun skabelon-mails få den — og præcis
+ * dét var fejlen: alt et menneske skrev selv gik ud uden.
  *
  * ctx er en valgfri kontekst der bruges til universelle variabler som {{booking_link}}:
  *   - customerId (eller vars.customer_id) — påkrævet for at booking_link rendres
  *   - userId — sælger der får tildelt token
  *   - bookingFlow — 'smagning' eller 'kontakt' (default: 'smagning')
  *   - bookingIntent — meeting_type-key der forvælges (kun smagning)
- *   - appendSignature — sæt false for at springe signatur over (fx subject)
+ *   - appendSignature — udgået; accepteres stadig, men ignoreres
  */
 function renderTemplate(body, vars = {}, ctx = {}) {
     let result = body;
@@ -112,14 +117,36 @@ function renderTemplate(body, vars = {}, ctx = {}) {
         }
     }
 
-    // 3. Signatur (kun body — ikke subject)
-    if (ctx.appendSignature !== false) {
-        const sig = getSetting('mail_signature');
-        if (sig) {
-            result += '\n\n--\n' + sig;
-        }
-    }
     return result;
+}
+
+const SIGNATURE_DELIMITER = '\n\n--\n';
+
+/**
+ * Sæt signaturen på en mail-body — én gang.
+ *
+ * Tre regler:
+ *  - {{signatur}} i teksten = eksplicit placering. Så indsættes den DÉR og ikke
+ *    nederst, og resten af reglerne er ligegyldige.
+ *  - Er signaturen allerede i teksten (svar-på-svar, videresendt udkast, en
+ *    skabelon der bærer sin egen), tilføjes den ikke igen.
+ *  - Tom signatur i settings = mailen sendes uændret.
+ */
+function applySignature(text, enabled = true) {
+    const body = text || '';
+    const sig = (getSetting('mail_signature') || '').trim();
+
+    if (body.includes('{{signatur}}')) {
+        return body.replace(/\{\{signatur\}\}/g, sig);
+    }
+    if (!enabled || !sig) return body;
+
+    // Sammenlign på normaliserede linjeskift — en body der har været gennem en
+    // textarea kan bære \r\n hvor settings har \n.
+    const norm = (s) => s.replace(/\r\n/g, '\n').trim();
+    if (norm(body).includes(norm(sig))) return body;
+
+    return body.replace(/\s+$/, '') + SIGNATURE_DELIMITER + sig;
 }
 
 /**
@@ -243,9 +270,33 @@ function _clearSentMails() {
 }
 
 /**
+ * Validér vedhæftninger fra en request-body inden de gives til sendMail().
+ * Returnerer { error } ved ugyldigt input, ellers { list: [{ attachment_id }] }.
+ * Deles af alle mail-endpoints så en compose-formular ikke kan tabe filer
+ * fordi ét endpoint har glemt at læse feltet.
+ */
+function validateAttachments(attachments) {
+    if (!attachments) return { list: [] };
+    if (!Array.isArray(attachments)) return { error: 'attachments skal være et array' };
+    if (attachments.length > 5) return { error: 'Max 5 vedhæftninger per mail' };
+    const list = [];
+    for (const att of attachments) {
+        const id = parseInt(att.attachment_id);
+        if (!id || id <= 0) return { error: 'Ugyldigt attachment_id' };
+        list.push({ attachment_id: id });
+    }
+    return { list };
+}
+
+/**
  * Send en mail via SMTP. Gemmer i mail_threads + mail_messages.
  */
-async function sendMail({ to, subject, text, context, bonId = null, customerId = null, purchaseOrderId = null, supplierId = null, inReplyTo = null, references = null, smtpPrefix = 'smtp', userId = null, attachments = [], isSystem = false, threadId = null }) {
+async function sendMail({ to, subject, text, context, bonId = null, customerId = null, purchaseOrderId = null, supplierId = null, inReplyTo = null, references = null, smtpPrefix = 'smtp', userId = null, attachments = [], isSystem = false, threadId = null, appendSignature = true }) {
+    // Signaturen sættes på HER — ikke i kaldstederne. Det er det eneste sted alle
+    // veje ud af huset mødes, og teksten skal signeres før den gemmes, så
+    // mail-historikken viser det kunden faktisk fik.
+    text = applySignature(text, appendSignature);
+
     const enabledKey = smtpPrefix === 'smtp_kontakt' ? 'smtp_kontakt_enabled' : 'smtp_enabled';
     if (getSetting(enabledKey) !== '1') {
         throw new Error(`SMTP (${smtpPrefix}) er ikke aktiveret`);
@@ -389,7 +440,7 @@ async function sendMail({ to, subject, text, context, bonId = null, customerId =
  * kan generere et token bundet til kunde + sælger + flow + intent.
  */
 async function sendFromTemplate({ templateKey, to, vars, bonId = null, customerId = null, purchaseOrderId = null, supplierId = null, context = null, userId = null, attachments = [], smtpPrefix = 'smtp', bookingFlow = 'smagning', bookingIntent = null, isSystem = false }) {
-    const tmpl = getDb().prepare('SELECT subject, body_text FROM mail_templates WHERE key = ?').get(templateKey);
+    const tmpl = getDb().prepare('SELECT subject, body_text, append_signature FROM mail_templates WHERE key = ?').get(templateKey);
     if (!tmpl) throw new Error(`Skabelon '${templateKey}' ikke fundet`);
 
     // Gør {{tag}} tilgængelig i skabeloner — genereres fra context via settings-prefix
@@ -400,11 +451,14 @@ async function sendFromTemplate({ templateKey, to, vars, bonId = null, customerI
 
     const renderCtx = { customerId, userId, bookingFlow, bookingIntent };
 
-    // Subject må aldrig have signatur appended
-    const subject = renderTemplate(tmpl.subject, enrichedVars, { ...renderCtx, appendSignature: false });
+    const subject = renderTemplate(tmpl.subject, enrichedVars, renderCtx);
     const text    = renderTemplate(tmpl.body_text, enrichedVars, renderCtx);
 
-    return sendMail({ to, subject, text, context, bonId, customerId, purchaseOrderId, supplierId, userId, attachments, smtpPrefix, isSystem });
+    // Interne notifikationer (til os selv) skal ikke slutte med firmaets adresse
+    // og telefonnummer — styres pr. skabelon i Settings.
+    const appendSignature = tmpl.append_signature !== 0;
+
+    return sendMail({ to, subject, text, context, bonId, customerId, purchaseOrderId, supplierId, userId, attachments, smtpPrefix, isSystem, appendSignature });
 }
 
 // ─── IMAP ───────────────────────────────────────────────
@@ -529,13 +583,45 @@ function matchBonByTagNumber(db, num, opts = {}) {
 function findCustomerByEmail(db, email) {
     if (!email) return null;
     const e = email.toLowerCase();
+    // Kun AKTIVE kunder og AKTIVE kontaktpunkter. En sammenlagt dublet er
+    // lukket, ikke slettet — uden filteret ville `LIMIT 1` uden ORDER BY kunne
+    // rute en indgående mail ind på den døde række.
     const cp = db.prepare(
         `SELECT cp.entity_id AS id FROM contact_points cp
-         WHERE cp.entity_type = 'customer' AND cp.kind = 'email' AND LOWER(cp.value) = ? LIMIT 1`
+           JOIN customers c ON c.id = cp.entity_id
+          WHERE cp.entity_type = 'customer' AND cp.kind = 'email'
+            AND LOWER(cp.value) = ? AND cp.is_active = 1 AND c.is_active = 1
+          LIMIT 1`
     ).get(e);
     if (cp) return { id: cp.id };
-    const c = db.prepare(`SELECT id FROM customers WHERE LOWER(email) = ? LIMIT 1`).get(e);
+    const c = db.prepare(`SELECT id FROM customers WHERE LOWER(email) = ? AND is_active = 1 LIMIT 1`).get(e);
     return c ? { id: c.id } : null;
+}
+
+/**
+ * Hvem er mailen reelt FRA — set med routingens øjne?
+ *
+ * Normalt er svaret bare afsenderen. Undtagelsen er den interne videresendelse:
+ * en kollega sender en kundemail videre til bon@/kontakt@. Uden dette led slog
+ * routingen op på kollegaens adresse, og fordi huset selv står som kunde
+ * (info@ristetrug.dk = kunde 3005) landede kundens korrespondance i en tråd på
+ * Ristet Rug. Se services/internalIdentity.js.
+ *
+ *   { email, viaInternal }
+ *     email        — adressen der skal slås op som kunde (null = slå ikke op)
+ *     viaInternal  — mailen kom ind gennem en intern videresendelse
+ *
+ * Er afsenderen intern og der IKKE er en videresendt afsender at falde tilbage
+ * på, returneres email=null: mailen skal i den ufordelte indbakke og håndteres
+ * i hånden. Det er bedre end at gætte på os selv.
+ */
+function resolveEffectiveSender(db, fromAddr, forwardInfo) {
+    if (!isInternalEmail(db, fromAddr)) return { email: fromAddr, viaInternal: false };
+
+    const fwd = forwardInfo?.email;
+    if (fwd && !isInternalEmail(db, fwd)) return { email: fwd, viaInternal: true };
+
+    return { email: null, viaInternal: true };
 }
 
 async function processInboundMail(parsed, uid, mailbox) {
@@ -655,10 +741,20 @@ async function processInboundMail(parsed, uid, mailbox) {
         }
     }
 
+    // Videresendt afsender parses ÉN gang og bruges to steder: her i routingen
+    // (intern videresendelse → slå kunden op på den reelle afsender) og længere
+    // nede når mailen lander i den ufordelte indbakke.
+    const forwardInfo = parseForwardedSender(bodyText);
+
     // 3a. Kendt kunde uden tag → tråd (CLAUDE_INDBAKKE.md §4 pkt. 3). Spam/auto-ignore
     //     og bounces (ukendt afsender) falder igennem til mail_unmatched nedenfor.
     if (!threadId && !shouldAutoIgnore(fromAddr, subject)) {
-        const cust = findCustomerByEmail(db, fromAddr);
+        const sender = resolveEffectiveSender(db, fromAddr, forwardInfo);
+        if (sender.viaInternal) {
+            console.log(`[mail] intern afsender ${fromAddr}`
+                + (sender.email ? ` → slår op på videresendt afsender ${sender.email}` : ' uden videresendt afsender → ufordelt'));
+        }
+        const cust = findCustomerByEmail(db, sender.email);
         if (cust) {
             customerId = cust.id;
             const existing = db.prepare(
@@ -678,7 +774,6 @@ async function processInboundMail(parsed, uid, mailbox) {
 
     // 3b. Unmatched — no thread, no tag, ukendt afsender
     if (!threadId) {
-        const forwardInfo = parseForwardedSender(bodyText);
         const autoIgnore = shouldAutoIgnore(fromAddr, subject);
 
         // Indsæt direkte med status='ignored' for kendte spam/auto-afsendere,
@@ -961,10 +1056,12 @@ async function triggerPoll() {
 module.exports = {
     sendMail,
     sendFromTemplate,
+    validateAttachments,
     startPolling,
     triggerPoll,
     refetchUnmatchedMail,
     renderTemplate,
+    applySignature,
     generateBookingToken,
     getPollState,
     processInboundMail,

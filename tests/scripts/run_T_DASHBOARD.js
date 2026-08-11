@@ -202,7 +202,11 @@ async function runSetup() {
             INSERT INTO bon_lines (bon_id, product_name, quantity, unit, unit_price, line_total, sort_order, is_accessory, category)
             VALUES (?,?,?,?,?,?,?,?,?)
         `);
-        stmt.run(created.bons.TODAY_LEV, `${TEST_PREFIX}_Frikadeller`,  30, 'stk', 25, 30 * 25, 1, 0, 'Hovedret');
+        // Frikadeller ligger i en TÆLLENDE kategori, så den havner i default-
+        // bucket'en ('food') og TPR_06/TPR_08 kan blive ved med at asserte i
+        // stedet for at falde til SKIP. Brød er bevidst en ikke-tællende
+        // kategori — den skal dukke op i ?bucket=other (TPR_09/TPR_10).
+        stmt.run(created.bons.TODAY_LEV, `${TEST_PREFIX}_Frikadeller`,  30, 'stk', 25, 30 * 25, 1, 0, '01 Sandwich');
         stmt.run(created.bons.TODAY_LEV, `${TEST_PREFIX}_Brød`,          20, 'stk', 15, 20 * 15, 2, 0, 'Brød');
         stmt.run(created.bons.TODAY_LEV, `${TEST_PREFIX}_Engangsservice`, 10, 'stk',  5, 10 *  5, 3, 1, 'Service');
     } catch (e) { /* swallow */ }
@@ -860,7 +864,7 @@ async function runStats() {
 }
 
 // ════════════════════════════════════════════════════════════
-// 4.9 GET /top-products (8)
+// 4.9 GET /top-products (10)
 // ════════════════════════════════════════════════════════════
 
 async function runTopProducts() {
@@ -955,6 +959,35 @@ async function runTopProducts() {
             record('T_DASH_TPR_08', 'TOP_PRODUCTS', 'SKIP', 'Frikadeller ikke i top');
         }
     } catch (e) { record('T_DASH_TPR_08', 'TOP_PRODUCTS', 'FAIL', e.message); }
+
+    // TP_09: default-bucket ('food') indeholder KUN varer der tæller som
+    // solgte enheder — emballage/brød/drikke må ikke konkurrere om pladserne.
+    try {
+        const r = await api('GET', '/api/dashboard/top-products');
+        const broed = r.body.find(p => p.product_name === `${TEST_PREFIX}_Brød`);
+        const frik  = r.body.find(p => p.product_name === `${TEST_PREFIX}_Frikadeller`);
+        if (!broed && frik) {
+            record('T_DASH_TPR_09', 'TOP_PRODUCTS', 'PASS', 'ikke-tællende kategori ude af top-listen');
+        } else {
+            record('T_DASH_TPR_09', 'TOP_PRODUCTS', 'FAIL',
+                `broed=${!!broed} (forventet false), frikadeller=${!!frik} (forventet true)`);
+        }
+    } catch (e) { record('T_DASH_TPR_09', 'TOP_PRODUCTS', 'FAIL', e.message); }
+
+    // TP_10: ?bucket=other er komplementet — Brød dukker op dér, Frikadeller ikke.
+    // Uden dette kunne "food"-filteret være for aggressivt uden at nogen så det.
+    try {
+        const r = await api('GET', '/api/dashboard/top-products?bucket=other');
+        const broed = r.body.find(p => p.product_name === `${TEST_PREFIX}_Brød`);
+        const frik  = r.body.find(p => p.product_name === `${TEST_PREFIX}_Frikadeller`);
+        const svc   = r.body.find(p => p.product_name === `${TEST_PREFIX}_Engangsservice`);
+        if (r.status === 200 && broed && !frik && !svc) {
+            record('T_DASH_TPR_10', 'TOP_PRODUCTS', 'PASS', `Brød i other (${broed.total_enh} stk), accessory stadig ude`);
+        } else {
+            record('T_DASH_TPR_10', 'TOP_PRODUCTS', 'FAIL',
+                `status=${r.status}, broed=${!!broed}, frik=${!!frik}, accessory=${!!svc}`);
+        }
+    } catch (e) { record('T_DASH_TPR_10', 'TOP_PRODUCTS', 'FAIL', e.message); }
 }
 
 // ════════════════════════════════════════════════════════════

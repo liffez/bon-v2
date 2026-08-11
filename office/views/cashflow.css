@@ -762,6 +762,10 @@
 .cf-pill-betalt     { background: #edf5e1; color: #7a9c54; }
 .cf-pill-udestaaende { background: #fff3d6; color: #a06800; }
 .cf-pill-forfalden  { background: #fdeaea; color: #bc3a3a; }
+/* Forfalden på papiret, men inden for kundens egen rytme — dæmpet, ikke alarm */
+.cf-pill-rytme      { background: #f0ece4; color: #7a6a4a; font-weight: 600; }
+.cf-rhythm-sub      { margin-top: 2px; color: #7a6a4a; }
+.cf-rhythm-sub strong { color: #bc3a3a; }
 .cf-pill-sandsynlig { background: #e8f0f6; color: #3a6a9a; }
 /* Ikke faktureret (#319): egen kulør, tydeligt adskilt fra den røde "forfalden".
    Det er ikke en dårlig betaler — det er en regning der mangler at blive sendt. */
@@ -911,6 +915,20 @@
 .cf-cat-event   { background: #f3d9a8; color: #8a5a16; }   /* 🎪 event-kontant */
 .cf-cat-invoice { background: #cfe0f0; color: #2a5a8a; }   /* 📄 faktura-tjek */
 .cf-cat-large   { background: #e6d4ec; color: #6a3a8a; }   /* 🔍 muligt event */
+/* Postering-vink: e-conomic forklarer overførslen. Blå — det er en kendsgerning
+   fra bogholderiet, ikke et gæt ud fra datoer som det gule event-vink. */
+.cf-led-hint {
+  display: inline-block; margin-left: 7px; padding: 0 6px; border-radius: 9px;
+  font-size: 10px; font-weight: 600; vertical-align: middle; white-space: nowrap;
+  background: #eaf1f8; color: #2a5a8a; border: 1px solid #cfe0f0;
+}
+
+/* Event-vink (datooverlap) — bevidst svagere end kategori-tags: det peger, det påstår ikke */
+.cf-ev-hint {
+  display: inline-block; margin-left: 7px; padding: 0 6px; border-radius: 9px;
+  font-size: 10px; font-weight: 600; vertical-align: middle; white-space: nowrap;
+  background: transparent; color: #8a5a16; border: 1px dashed #d8b98a;
+}
 .cf-cat-event-row   { background: #fff6ea; border-radius: 7px; }
 .cf-cat-invoice-row { background: #f0f5fa; border-radius: 7px; }
 .cf-cat-large-row   { background: #f7f1fa; border-radius: 7px; }

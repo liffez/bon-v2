@@ -16,6 +16,11 @@ let _dashContainer = null;
 let _dashOpts = {};
 let _dashActive = false;
 let _dashTopProducts = [];
+// "Øvrigt": emballage, drikke, kager. Hentes først når brugeren folder ud —
+// null = ikke hentet, [] = hentet og tomt.
+let _dashOtherProducts = null;
+let _dashOtherOpen = false;
+let _dashOtherLoading = false;
 let _dashChartHandle = null;
 let _dashAccumHandle = null;
 let _dashStatsData = null;
@@ -93,6 +98,9 @@ function _dashWireDelegatedClicks() {
 
 function cleanupOfficeDashboard() {
     _dashActive = false;
+    _dashOtherProducts = null;
+    _dashOtherOpen = false;
+    _dashOtherLoading = false;
     if (_dashChartHandle) { _dashChartHandle.destroy(); _dashChartHandle = null; }
     if (_dashAccumHandle) { _dashAccumHandle.destroy(); _dashAccumHandle = null; }
     const topRight = document.getElementById('office-topbar-right');
@@ -418,6 +426,25 @@ function _dashRenderShell() {
             .od-topbar-div { width: 1px; height: 16px; background: var(--color-border, #d7d1ca); }
 
             .od-loading { text-align: center; padding: 30px; color: var(--color-text-dim, #888); font-size: 12px; }
+
+            /* ══ TOP PRODUKTER — "Øvrigt" ═══════════════════════════ */
+            .od-prod-other { margin-top: 6px; border-top: 1px solid var(--gray-mid, #ece9e4); }
+            .od-prod-other-toggle {
+                display: block;
+                width: 100%;
+                text-align: left;
+                background: none;
+                border: none;
+                padding: 7px 6px;
+                cursor: pointer;
+                font-family: inherit;
+                font-size: 11px;
+                color: var(--color-text-dim, #8a8078);
+            }
+            .od-prod-other-toggle:hover { color: var(--brown, #8e631f); }
+            .od-prod-other-table { opacity: .7; }
+            .od-prod-other-table td { padding: 4px 6px; font-size: 11px; }
+            .od-prod-other-table td.num { color: var(--color-text-dim, #8a8078); }
         </style>
         <div class="od-grid">
             <!-- KPI Strip -->
@@ -524,6 +551,14 @@ async function _dashLoadData() {
 
         _dashTopProducts = topProducts;
         _dashStatsData = statsData;
+        // Øvrigt-listen er hentet separat og ville ellers vise forældede tal
+        // efter en genindlæsning. Hentes igen kun hvis den står åben.
+        _dashOtherProducts = null;
+        if (_dashOtherOpen) {
+            fetchDashboardTopProducts(null, null, 'other')
+                .then(rows => { _dashOtherProducts = rows; if (_dashActive) _dashRenderTopProducts(); })
+                .catch(err => console.error('[dashboard] Kunne ikke hente øvrige produkter:', err));
+        }
 
         _dashRenderKPIs(todayData);
         _dashRenderToday(todayData);
@@ -884,7 +919,60 @@ function _dashRenderTopProducts() {
                 </td>
             </tr>`;
         }).join('')}</tbody>
-    </table>`;
+    </table>` + _dashOtherHtml(fmt, valOf);
+
+    const toggle = body.querySelector('#od-prod-other-toggle');
+    if (toggle) toggle.addEventListener('click', _dashToggleOther);
+}
+
+// ─── "Øvrigt" — emballage, drikke, kager ─────────────────────
+// Ude af top-listen fordi de følger med næsten hver bon og derfor vinder på
+// antal uden at være det man sælger. Stadig tællelige, bare et klik væk.
+
+function _dashOtherHtml(fmt, valOf) {
+    const caret = _dashOtherOpen ? '▾' : '▸';
+    const count = _dashOtherProducts ? ` (${_dashOtherProducts.length} varer)` : '';
+    let inner = '';
+
+    if (_dashOtherOpen) {
+        if (_dashOtherLoading) {
+            inner = '<div class="od-loading" style="padding:8px 0;">Henter…</div>';
+        } else if (!_dashOtherProducts || _dashOtherProducts.length === 0) {
+            inner = '<div class="od-loading" style="padding:8px 0;">Ingen</div>';
+        } else {
+            const sorted = [..._dashOtherProducts].sort((a, b) => valOf(b) - valOf(a));
+            inner = `<table class="prod-table od-prod-other-table"><tbody>${sorted.map(p => `<tr>
+                <td>${p.product_name}</td>
+                <td class="num">${fmt(valOf(p))}</td>
+            </tr>`).join('')}</tbody></table>`;
+        }
+    }
+
+    return `<div class="od-prod-other">
+        <button type="button" id="od-prod-other-toggle" class="od-prod-other-toggle"
+                aria-expanded="${_dashOtherOpen}">
+            <span>${caret} Øvrigt · emballage, drikke, kager${count}</span>
+        </button>
+        ${inner}
+    </div>`;
+}
+
+async function _dashToggleOther() {
+    _dashOtherOpen = !_dashOtherOpen;
+
+    if (_dashOtherOpen && _dashOtherProducts === null && !_dashOtherLoading) {
+        _dashOtherLoading = true;
+        _dashRenderTopProducts();
+        try {
+            _dashOtherProducts = await fetchDashboardTopProducts(null, null, 'other');
+        } catch (err) {
+            console.error('[dashboard] Kunne ikke hente øvrige produkter:', err);
+            _dashOtherProducts = [];
+        }
+        _dashOtherLoading = false;
+    }
+
+    if (_dashActive) _dashRenderTopProducts();
 }
 
 // ─── Resize handler ─────────────────────────────────────────

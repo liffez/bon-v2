@@ -15,6 +15,7 @@ let _inbFromDate = '';
 let _inbBulkMode = false;
 let _inbBulkSelected = new Set();
 let _inbComposing = false;    // true mens svar-komposeren er åben (beskytter mod reload-clobber)
+let _inbReplyUseParsed = false; // svar går til den videresendte afsender, ikke kollegaen
 
 // ── Samlet indbakke (mail_threads) ──
 // _inbView = aktivt filter-chip. Livscyklus: aabne|udsat|kunde|luk|alle.
@@ -128,6 +129,21 @@ function _inbRenderShell() {
             }
             /* HTML-mails sizer/kollapser selv (MailThread) — drop tekst-cap + pre-wrap */
             .inb-preview-body:has(.mt-html) { white-space: normal; max-height: none; overflow: visible; }
+            /* ── Videresendt mail: den reelle afsender ───────────── */
+            .inb-fwd-panel {
+                margin: 12px 0 16px; padding: 14px 16px;
+                background: var(--brand-primary-light, #f1e6b2);
+                border-left: 4px solid var(--brand-primary, #8e631f);
+                border-radius: 6px;
+            }
+            .inb-fwd-title {
+                font-size: 12px; font-weight: 700; color: #6b4c1f;
+                letter-spacing: .2px; margin-bottom: 6px;
+            }
+            .inb-fwd-sender { font-size: 14px; color: var(--color-text, #333); }
+            .inb-fwd-guess { font-size: 11px; color: #8a7a55; font-style: italic; }
+            .inb-fwd-actions { display: flex; gap: 8px; margin-top: 12px; flex-wrap: wrap; }
+
             .inb-refetch-bar {
                 display: flex; align-items: center; gap: 10px; flex-wrap: wrap;
                 margin: 12px 0; padding: 10px 12px; font-size: 13px;
@@ -516,11 +532,15 @@ function _inbRenderThreadReader(data) {
         <div id="inbThreadHost"></div>
         <div class="inb-composer">
             <textarea id="inbThreadReply" placeholder="Skriv svar…  (sendes via systemet → Afventer kunde)"></textarea>
+            <div id="inbThreadSigHint"></div>
             <div class="crow">
                 <button class="inb-action-btn primary" id="inbThreadSendBtn" onclick="_inbThreadSend(${t.id})">✉ Send svar</button>
                 <label class="inb-toggle"><input type="checkbox" id="inbThreadRemind" checked> Rykk mig om 3 dage hvis intet svar</label>
             </div>
         </div>`;
+    if (window.MailThread && MailThread.renderSignatureHint) {
+        MailThread.renderSignatureHint(document.getElementById('inbThreadSigHint'));
+    }
     const host = document.getElementById('inbThreadHost');
     if (host && window.MailThread && MailThread.renderHistory) {
         MailThread.renderHistory(host, {
@@ -710,7 +730,7 @@ function _inbRenderList() {
                     '<span>' + _inbFmtReceivedAt(m.received_at) + attBadge + '</span>' +
                 '</div>' +
                 bounceSubtitle +
-                (m.parsed_company ? '<div class="inb-mail-parsed">→ ' + _inbEscape(m.parsed_company) + '</div>' : '') +
+                _inbForwardLine(m) +
             '</div>' +
         '</div>';
     }).join('');
@@ -850,6 +870,28 @@ function _inbRenderPreview(mail) {
           '<button class="inb-action-btn" id="inbRefetchBtn" onclick="_inbRefetch()">Hent billeder fra serveren</button></div>'
         : '';
 
+    // Videresendt mail: afsenderen er kollegaen der trykkede videresend, mens
+    // kunden står inde i beskeden. Uden dette panel er det den forkerte af de to
+    // man kommer til at oprette og svare.
+    const fwd = _inbForwardedSender(mail);
+    let forwardPanel = '';
+    if (fwd) {
+        forwardPanel =
+            '<div class="inb-fwd-panel">' +
+                '<div class="inb-fwd-title">↪ Videresendt af ' + _inbEscape(mail.from_name || mail.from_email || 'kollega') + '</div>' +
+                '<div class="inb-fwd-sender">' +
+                    '<strong>' + _inbEscape(fwd.name || fwd.email) + '</strong>' +
+                    ' &lt;' + _inbEscape(fwd.email) + '&gt;' +
+                    (fwd.company ? ' · ' + _inbEscape(fwd.company) + ' <span class="inb-fwd-guess">(gæt ud fra maildomæne)</span>' : '') +
+                '</div>' +
+                '<div class="inb-fwd-actions">' +
+                    '<button class="inb-action-btn primary" onclick="_inbCreateLead(true)">+ Opret som lead</button>' +
+                    '<button class="inb-action-btn" onclick="_inbShowReply(null, true)">↩ Svar til ' + _inbEscape(fwd.firstName) + '</button>' +
+                    '<button class="inb-action-btn" onclick="_inbShowLinkKunde(true)">Findes allerede — søg kunde</button>' +
+                '</div>' +
+            '</div>';
+    }
+
     el.innerHTML =
         '<div class="inb-preview-header">' +
             '<div class="inb-preview-from">' + (mail.from_name || 'Ukendt') + ' &lt;' + (mail.from_email || '') + '&gt;</div>' +
@@ -857,11 +899,12 @@ function _inbRenderPreview(mail) {
             '<div class="inb-preview-date">' + _inbFmtReceivedAt(mail.received_at) + ' · ' + (mail.mailbox || '') + '</div>' +
         '</div>' +
         bouncePanel +
+        forwardPanel +
         refetchBar +
         '<div class="inb-preview-body" id="inbBodyHost"></div>' +
         '<div class="inb-actions">' +
-            '<button class="inb-action-btn primary" onclick="_inbShowReply()">↩ Svar</button>' +
-            '<button class="inb-action-btn" onclick="_inbCreateLead()">+ Opret lead</button>' +
+            '<button class="inb-action-btn' + (fwd ? '' : ' primary') + '" onclick="_inbShowReply()">↩ Svar' + (fwd ? ' til afsender' : '') + '</button>' +
+            '<button class="inb-action-btn" onclick="_inbCreateLead()">+ Opret lead' + (fwd ? ' af afsender' : '') + '</button>' +
             '<button class="inb-action-btn" onclick="_inbShowLinkBon()">Link til Bon</button>' +
             '<button class="inb-action-btn" onclick="_inbShowLinkKunde()">Link til Kunde</button>' +
             '<button class="inb-action-btn danger" onclick="_inbIgnore()">Ignorer</button>' +
@@ -878,6 +921,36 @@ function _inbRenderPreview(mail) {
             bodyHost.textContent = mail.body_text || '';
         }
     }
+}
+
+// Én linje i listen: hvem mailen reelt er fra, når den er videresendt. Uden den
+// står kollegaens navn som afsender på en mail der handler om en kunde.
+function _inbForwardLine(m) {
+    const fwd = _inbForwardedSender(m);
+    if (!fwd) return '';
+    const label = [fwd.name || fwd.email, fwd.company].filter(Boolean).join(' · ');
+    return '<div class="inb-mail-parsed">↪ fra ' + _inbEscape(label) + '</div>';
+}
+
+// Den reelle afsender bag en videresendelse — eller null hvis mailen ikke er
+// videresendt. Serveren har parset feltet ved modtagelsen (mail_unmatched.parsed_*);
+// vi viser det kun når det peger et ANDET sted hen end afsenderfeltet, ellers
+// er der intet at vælge imellem.
+function _inbForwardedSender(mail) {
+    if (!mail || !mail.parsed_email) return null;
+    // Peger forward-blokken tilbage på en af vores egne adresser (fx en
+    // videresendt ordrebekræftelse fra bon@), er der ingen kunde at vælge.
+    if (mail.parsed_is_internal) return null;
+    const from = String(mail.from_email || '').trim().toLowerCase();
+    const parsed = String(mail.parsed_email).trim().toLowerCase();
+    if (!parsed || parsed === from) return null;
+    const name = (mail.parsed_name || '').trim();
+    return {
+        email: mail.parsed_email,
+        name: name || null,
+        firstName: (name.split(/\s+/)[0]) || mail.parsed_email,
+        company: mail.parsed_company || null,
+    };
 }
 
 async function _inbRefetch() {
@@ -974,37 +1047,47 @@ function _inbShowLinkBon() {
     document.getElementById('inbBonSearch').focus();
 }
 
-function _inbShowLinkKunde() {
+// useParsed=true forudfylder søgningen med den videresendte afsenders navn/firma —
+// dét er den kunde man leder efter, ikke kollegaen der videresendte.
+function _inbShowLinkKunde(useParsed) {
     const el = document.getElementById('inbLinkForm');
     if (!el) return;
+    const fwd = useParsed ? _inbForwardedSender(_inbSelected) : null;
+    const prefill = fwd ? (fwd.name || fwd.company || fwd.email) : '';
     el.innerHTML =
         '<div class="inb-link-form">' +
             '<strong>Link til kunde</strong>' +
-            '<input type="text" class="inb-link-input" id="inbKundeSearch" placeholder="Søg kunde...">' +
+            (fwd ? '<div style="font-size:11px;color:var(--color-text-dim);margin-top:4px">Søger efter den videresendte afsender</div>' : '') +
+            '<input type="text" class="inb-link-input" id="inbKundeSearch" placeholder="Søg kunde..." value="' + _inbEscapeAttr(prefill) + '">' +
             '<div id="inbKundeResults" style="margin-top:8px;"></div>' +
         '</div>';
 
     const input = document.getElementById('inbKundeSearch');
     input.focus();
+    input.select();
+    const search = async () => {
+        if (!input.value.trim()) return;
+        try {
+            const rows = await fetchCrmCustomers({ q: input.value, limit: 5 });
+            const resultsEl = document.getElementById('inbKundeResults');
+            if (!resultsEl) return;
+            resultsEl.innerHTML = rows.length
+                ? rows.map(r =>
+                    '<div style="padding:6px 8px;cursor:pointer;border-bottom:1px solid #eee;" onclick="_inbLinkToCustomer(' + r.id + ')">' +
+                        '<strong>' + r.name + '</strong>' +
+                        (r.company_name ? ' · ' + r.company_name : '') +
+                    '</div>'
+                ).join('')
+                : '<div style="padding:6px 8px;font-size:12px;color:var(--color-text-dim)">Ingen match' +
+                  (fwd ? ' — brug "+ Opret som lead" ovenfor' : '') + '</div>';
+        } catch (err) { console.error(err); }
+    };
     let debounce = null;
     input.addEventListener('input', () => {
         clearTimeout(debounce);
-        debounce = setTimeout(async () => {
-            if (!input.value.trim()) return;
-            try {
-                const rows = await fetchCrmCustomers({ q: input.value, limit: 5 });
-                const resultsEl = document.getElementById('inbKundeResults');
-                if (resultsEl) {
-                    resultsEl.innerHTML = rows.map(r =>
-                        '<div style="padding:6px 8px;cursor:pointer;border-bottom:1px solid #eee;" onclick="_inbLinkToCustomer(' + r.id + ')">' +
-                            '<strong>' + r.name + '</strong>' +
-                            (r.company_name ? ' · ' + r.company_name : '') +
-                        '</div>'
-                    ).join('');
-                }
-            } catch (err) { console.error(err); }
-        }, 300);
+        debounce = setTimeout(search, 300);
     });
+    if (prefill) search();   // vis kandidaterne med det samme når vi har et navn
 }
 
 async function _inbLinkToBon() {
@@ -1069,27 +1152,36 @@ function _inbEscapeAttr(str) {
 }
 
 // Åbn svar-komposeren i preview-panelet. noteHtml = valgfri grøn status-linje øverst.
-function _inbShowReply(noteHtml) {
+// useParsed=true svarer den videresendte afsender (kunden) i stedet for kollegaen.
+function _inbShowReply(noteHtml, useParsed) {
     if (!_inbSelected) return;
     const el = document.getElementById('inbLinkForm');
     if (!el) return;
     _inbComposing = true;
+    _inbReplyUseParsed = !!useParsed;
     const m = _inbSelected;
+    const fwd = useParsed ? _inbForwardedSender(m) : null;
+    const toEmail = fwd ? fwd.email : (m.from_email || '');
+    const toName = fwd ? (fwd.name || fwd.email) : (m.from_name || m.from_email || '');
     const reSubject = (m.subject && /^re:/i.test(m.subject.trim())) ? m.subject : ('Re: ' + (m.subject || ''));
     const fromKontakt = m.mailbox && m.mailbox.toLowerCase().indexOf('kontakt') !== -1;
     const mailboxLabel = fromKontakt ? 'kontakt@ristetrug.dk' : 'bon@ristetrug.dk';
     el.innerHTML =
         '<div class="inb-link-form">' +
             (noteHtml ? '<div style="color:#2e7d32;font-weight:700;font-size:12px;margin-bottom:8px">' + noteHtml + '</div>' : '') +
-            '<strong>Svar til ' + _inbEscape(m.from_name || m.from_email || '') + '</strong>' +
-            '<div style="font-size:11px;color:var(--color-text-dim);margin-top:4px">Til: ' + _inbEscape(m.from_email || '') + ' · sendes fra ' + mailboxLabel + '</div>' +
+            '<strong>Svar til ' + _inbEscape(toName) + '</strong>' +
+            '<div style="font-size:11px;color:var(--color-text-dim);margin-top:4px">Til: ' + _inbEscape(toEmail) + ' · sendes fra ' + mailboxLabel + '</div>' +
             '<input type="text" class="inb-link-input" id="inbReplySubject" value="' + _inbEscapeAttr(reSubject) + '">' +
             '<textarea class="inb-link-input" id="inbReplyText" rows="8" placeholder="Skriv dit svar…" style="resize:vertical;min-height:150px;line-height:1.6"></textarea>' +
+            '<div id="inbReplySigHint"></div>' +
             '<div style="display:flex;gap:8px;margin-top:8px">' +
                 '<button class="inb-action-btn primary" id="inbReplySendBtn" onclick="_inbSendReply()">Send svar</button>' +
                 '<button class="inb-action-btn" onclick="_inbCancelReply()">Annuller</button>' +
             '</div>' +
         '</div>';
+    if (window.MailThread && MailThread.renderSignatureHint) {
+        MailThread.renderSignatureHint(document.getElementById('inbReplySigHint'));
+    }
     const ta = document.getElementById('inbReplyText');
     if (ta) ta.focus();
 }
@@ -1097,6 +1189,7 @@ window._inbShowReply = _inbShowReply;
 
 function _inbCancelReply() {
     _inbComposing = false;
+    _inbReplyUseParsed = false;
     if (_inbSelected) _inbRenderPreview(_inbSelected);
 }
 window._inbCancelReply = _inbCancelReply;
@@ -1110,8 +1203,13 @@ async function _inbSendReply() {
     if (!text) { alert('Skriv et svar først'); return; }
     if (btn) { btn.disabled = true; btn.textContent = 'Sender…'; }
     try {
-        await replyToUnmatchedMail(_inbSelected.id, { subject: subjEl ? subjEl.value : '', text: text });
+        await replyToUnmatchedMail(_inbSelected.id, {
+            subject: subjEl ? subjEl.value : '',
+            text: text,
+            use_parsed: _inbReplyUseParsed,
+        });
         _inbComposing = false;
+        _inbReplyUseParsed = false;
         _inbSelected = null;
         await _inbLoadData();
         document.getElementById('inbPreview').innerHTML = '<div class="inb-empty">✓ Svar sendt — afsenderen ligger nu som lead i CRM</div>';
@@ -1122,16 +1220,18 @@ async function _inbSendReply() {
 }
 window._inbSendReply = _inbSendReply;
 
-async function _inbCreateLead() {
+// useParsed=true opretter den videresendte afsender (kunden) i stedet for
+// kollegaen der videresendte.
+async function _inbCreateLead(useParsed) {
     if (!_inbSelected) return;
     try {
-        const res = await createLeadFromUnmatchedMail(_inbSelected.id);
+        const res = await createLeadFromUnmatchedMail(_inbSelected.id, useParsed);
         // Mailen er nu linket (forsvinder fra open-listen ved reload), men vi bliver
         // i preview og åbner svar-feltet med det samme.
         _inbSelected.status = 'linked';
         _inbSelected.linked_customer_id = res.customer_id;
         const word = res.created ? 'Lead oprettet' : 'Knyttet til eksisterende kunde';
-        _inbShowReply('✓ ' + word + ' — du kan svare nu (eller åbne kunden i CRM)');
+        _inbShowReply('✓ ' + word + ' — du kan svare nu (eller åbne kunden i CRM)', useParsed);
         _inbLoadData();   // opdatér liste + badge i baggrunden; preview bevares via _inbComposing
     } catch (err) {
         alert('Kunne ikke oprette lead: ' + err.message);

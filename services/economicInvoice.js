@@ -15,6 +15,7 @@
 
 const crypto = require('node:crypto');
 const { inclToExcl } = require('../shared/moms');
+const { mergeLines } = require('../shared/bon_lines');
 const { getDb } = require('../db/database');
 const eco = require('./economicAdapter');
 
@@ -32,7 +33,19 @@ function getEconomicSettings(db = getDb()) {
         layoutNumber:                num(get('economic_layout_number')),
         deliveryFallbackProductNumber: num(get('economic_delivery_fallback_product_number')),
         oneoffProductNumber:         num(get('economic_oneoff_product_number')),
+        amountLineRecipes:           parseIdList(get('economic_amount_line_recipes')),
     };
+}
+
+/** JSON-array af recipe-id → Set. Ugyldig/tom værdi må ikke vælte en fakturering. */
+function parseIdList(raw) {
+    try {
+        const arr = JSON.parse(raw || '[]');
+        // Kun positive heltal — ellers bliver null til recipe-id 0 (Number(null) === 0).
+        return new Set((Array.isArray(arr) ? arr : []).map(Number).filter(n => Number.isInteger(n) && n > 0));
+    } catch {
+        return new Set();
+    }
 }
 
 /* ══════════════════════════════════════════════════════════════
@@ -82,8 +95,9 @@ function isNoninvoice(line) { return NONINVOICE_CATEGORIES.has(line.category); }
 function checkReadiness(bon) {
     const lines = bon.lines || [];
     // Kun fakturérbare linjer uden varenr blokerer. Bokse/prep uden varenr udelades stille.
+    // En bundt-linje (slider-boks) er dækket af sit indhold og blokerer ikke.
     const missingProducts = lines
-        .filter(l => !hasProductNumber(l) && !isNoninvoice(l))
+        .filter(l => !hasProductNumber(l) && !hasBundle(l) && !isNoninvoice(l))
         .map(l => ({ line_id: l.id, product_name: l.product_name, grocy_recipe_id: l.grocy_recipe_id }));
 
     const missingCustomer = resolveEconomicCustomer(bon) == null;
@@ -107,6 +121,40 @@ function hasProductNumber(line) {
         && String(line.economic_product_number).trim() !== '';
 }
 
+/**
+ * Beløbslinje: kronerne står i quantity, prisen er ±1 (Rabat, Engangsbeløb).
+ * Hvilke opskrifter det gælder står i settings — vi gætter ikke ud fra pris eller
+ * kategori, for en ægte vare til 1 kr ville også ramme sådan et gæt.
+ */
+function isAmountLine(line, amountRecipes) {
+    return line.grocy_recipe_id != null && amountRecipes.has(Number(line.grocy_recipe_id));
+}
+
+/** Bundt-linje: én bonlinje (slider-boks) der skal blive til flere fakturalinjer. */
+function hasBundle(line) {
+    return Array.isArray(line.economic_bundle) && line.economic_bundle.length > 0;
+}
+
+/**
+ * Fordel et ørebeløb på flere dele efter vægt. Største rest får de overskydende
+ * ører, så summen er PRÆCIS det man startede med — en faktura må ikke ændre sig
+ * en øre af at en boks blev foldet ud. Negative beløb fordeles med samme regel.
+ */
+function splitOre(totalOre, weights) {
+    const sum = weights.reduce((a, b) => a + b, 0);
+    if (!(sum > 0)) return weights.map(() => 0);
+    const sign = totalOre < 0 ? -1 : 1;
+    const abs = Math.abs(Math.round(totalOre));
+    const exact = weights.map(w => (abs * w) / sum);
+    const parts = exact.map(Math.floor);
+    let rest = abs - parts.reduce((a, b) => a + b, 0);
+    const order = exact
+        .map((v, i) => ({ i, frac: v - Math.floor(v) }))
+        .sort((a, b) => b.frac - a.frac || a.i - b.i);
+    for (let k = 0; rest > 0; k++, rest--) parts[order[k % order.length].i] += 1;
+    return parts.map(v => v * sign);
+}
+
 /* ══════════════════════════════════════════════════════════════
    PAYLOAD-BUILDER (ren funktion — unit-testbar uden DB/e-conomic)
    ══════════════════════════════════════════════════════════════ */
@@ -122,10 +170,51 @@ function buildDraftInvoice(bon, settings, opts = {}) {
     const invoiceDate = opts.invoiceDate || todayISO();
     const lineDiscount = Number(bon.offer_discount_percent) || 0;
     const oneoff = settings.oneoffProductNumber;
+    const amountRecipes = settings.amountLineRecipes || new Set();
 
     const lines = [];
     let ln = 0;
-    for (const line of (bon.lines || [])) {
+    // Ens bon-linjer slås sammen, så kunden ser "3 × Kartoflen slider" og ikke
+    // tre fakturalinjer à 1 stk — se shared/bon_lines.js.
+    for (const line of mergeLines(bon.lines || [])) {
+        // Bundt (slider-boks) → én fakturalinje pr. vare i boksen.
+        // Prisen fordeles fra BONENS linjepris, ikke fra delenes listepriser: boksen
+        // er solgt til en aftalt pris (boks 78 koster 160 kr, delene står til 176),
+        // og fakturasummen skal være præcis den samme som uden udfoldning.
+        if (!hasProductNumber(line) && hasBundle(line)) {
+            const parts   = line.economic_bundle;
+            const boxOre  = Math.round(round2(inclToExcl(line.unit_price)) * 100);
+            const shares  = splitOre(boxOre, parts.map(p => p.servings));
+            // e-conomic vil have prisen PR. ENHED, så andelen deles med servings og
+            // rundes til øre. Med servings > 1 kan den runding flytte totalen et par
+            // ører — de lægges tilbage på den linje hvor det går præcist op (færrest
+            // enheder pr. boks). I dag har alle bokse servings = 1, så det er en vagt.
+            const unitOre = parts.map((p, i) => Math.round(shares[i] / p.servings));
+            const drift   = boxOre - unitOre.reduce((s, v, i) => s + v * parts[i].servings, 0);
+            if (drift !== 0) {
+                let fix = -1;
+                for (let i = 0; i < parts.length; i++) {
+                    if (drift % parts[i].servings !== 0) continue;
+                    if (fix < 0 || parts[i].servings < parts[fix].servings) fix = i;
+                }
+                if (fix >= 0) unitOre[fix] += drift / parts[fix].servings;
+            }
+            parts.forEach((p, i) => {
+                const partObj = {
+                    lineNumber:   ++ln,
+                    product:      { productNumber: String(p.product_number) },
+                    // Kun varens eget navn — boksens navn ("Alm slider Boks - fisken,
+                    // Frikadellen, kartoflen") ville støje på hver eneste linje.
+                    description:  line.special_request ? `${p.name} (${line.special_request})` : p.name,
+                    quantity:     line.quantity * p.servings,
+                    unitNetPrice: unitOre[i] / 100,
+                };
+                if (lineDiscount) partObj.discountPercentage = lineDiscount;
+                lines.push(partObj);
+            });
+            continue;
+        }
+
         // productNumber SKAL være String pr. e-conomics skema (varenr kan være alfanumerisk).
         let productNumber = hasProductNumber(line) ? String(line.economic_product_number) : null;
         if (productNumber == null) {
@@ -137,6 +226,26 @@ function buildDraftInvoice(bon, settings, opts = {}) {
                 continue;
             }
         }
+        // Beløbslinje (Rabat / Engangsbeløb): kronerne står i quantity og prisen er
+        // ±1, så "11.600 stk à -0,80" ville stå på kundens faktura. Foldes sammen
+        // til antal 1 med linjesummen som pris — samme beløb, læsbar linje.
+        // Ingen discountPercentage: en rabat skal ikke rabatteres igen.
+        if (isAmountLine(line, amountRecipes)) {
+            const totalIncl = line.line_total != null
+                ? Number(line.line_total)
+                : Number(line.quantity || 0) * Number(line.unit_price || 0);
+            lines.push({
+                lineNumber:   ++ln,
+                product:      { productNumber },
+                // special_request bærer forklaringen ("bil", "løn", "Prisjustering")
+                // og er mere sigende end opskriftsnavnet.
+                description:  String(line.special_request || '').trim() || line.product_name,
+                quantity:     1,
+                unitNetPrice: round2(inclToExcl(totalIncl)),
+            });
+            continue;
+        }
+
         const lineObj = {
             lineNumber:   ++ln,
             product:      { productNumber },
@@ -246,6 +355,10 @@ module.exports = {
     resolveEconomicCustomer,
     buildReference,
     checkReadiness,
+    hasBundle,
+    isAmountLine,
+    parseIdList,
+    splitOre,
     buildDraftInvoice,
     createDraftInvoice,
     deleteDraftInvoice,

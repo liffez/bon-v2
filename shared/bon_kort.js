@@ -764,13 +764,17 @@ async function openBonMail(cardId) {
             maxHeight: 340,
             onMarkRead: (id) => markBonMailRead(bonId, id),
         });
+
+        MailThread.renderSignatureHint(document.getElementById('bmSigHint'));
     } catch (err) {
         openModal({ title: mailIcon(17) + ' Mail', bodyHtml: '<div class="bm-error">Fejl: ' + esc(err.message) + '</div>' });
     }
 }
 
 function _buildMailVars(bon) {
-    const lines = bon.lines || [];
+    // Slå ens linjer sammen før mailen bygges — se shared/bon_lines.js.
+    // Uden det får kunden "1× Kartoflen slider" tre gange i stedet for "3×".
+    const lines = BonLines.mergeLines(bon.lines || []);
     const groups = bon.menu_groups || [];
     const _esc = typeof esc === 'function' ? esc : (s) => String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
 
@@ -895,6 +899,7 @@ function _renderMailModal(bonId, email, templates, vars) {
             <div class="bm-field">
                 <label>Besked</label>
                 <textarea id="bmBody" rows="8" placeholder="Skriv besked…"></textarea>
+                <div id="bmSigHint"></div>
             </div>
             <input type="file" id="bmFile" accept=".pdf,.jpg,.jpeg,.png,.gif,.xlsx,.docx" style="display:none" onchange="_bmOnFileSelected(this)">
             <div id="bmAttachments" class="bm-attachments"></div>

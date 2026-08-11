@@ -13,6 +13,7 @@ const Busboy = require('busboy');
 const { getDb } = require('../db/database');
 const { handle, logChange, getBon, getBonLines, getStatusId, autoConsumeBonInventory, todayISO } = require('../db/helpers');
 const { transaction } = require('../db/compat');
+const { mergeLines } = require('../shared/bon_lines');
 const { broadcast } = require('../shared/sse');
 const { requireAuth } = require('../shared/auth');
 const {
@@ -1158,7 +1159,9 @@ router.get('/courier/today', requireAuth(), handle((req, res) => {
     for (const r of routes) {
         r.stops = stopStmt.all(r.id);
         for (const s of r.stops) {
-            s.items = getBonLines(s.bon_id)
+            // Ens linjer slås sammen — chaufføren skal se "3× Kartoflen slider",
+            // ikke tre gange "1×" (se shared/bon_lines.js).
+            s.items = mergeLines(getBonLines(s.bon_id))
                 .filter(l => !l.is_accessory)
                 .map(l => ({ quantity: l.quantity, product_name: l.product_name }));
             s.incidents = incStmt.all(s.stop_id);

@@ -714,8 +714,10 @@ async function _mcShowCustomer(customerId) {
             html += '<div class="m-detail-label">Seneste ordrer</div>';
             ordersWithLines.forEach(function(o) {
                 var price = o.total_price ? Math.round(o.total_price).toLocaleString('da-DK') + ' kr' : '';
-                var lines = (o.lines || []).slice(0, 4);
-                var moreCount = (o.lines || []).length - lines.length;
+                // Ens linjer slås sammen — se shared/bon_lines.js.
+                var merged = BonLines.mergeLines(o.lines || []);
+                var lines = merged.slice(0, 4);
+                var moreCount = merged.length - lines.length;
 
                 html += '<div class="m-svc-order" data-id="' + o.id + '" style="cursor:pointer">' +
                     '<div class="m-svc-order-head">' +
