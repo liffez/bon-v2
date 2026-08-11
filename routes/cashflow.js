@@ -439,11 +439,20 @@ router.get('/transactions', handle(async (req, res) => {
         const eventHint = (dato) => evWindows.find(e =>
             dato >= offsetDays(e.start_date, -CF_EVENT_WINDOW_BEFORE) &&
             dato <= offsetDays(e.end_date, CF_EVENT_WINDOW_AFTER)) || null;
+        // e-conomics posteringer forklarer nogle af dem uden at kunne koble dem:
+        // enten er fakturaen ikke vores (afregnet — skal ikke kræve en hånd),
+        // eller også er overførslen én kundes samlede regninger på én gang.
+        const ledgerHints = economicLedger.ledgerHints(db);
         for (const tx of cands) {
             tx.category = cfCategorize(tx, closedYear, largeThreshold, bookedSet);
             tx.is_event_cash = tx.category === 'event_cash' ? 1 : 0;
             const ev = eventHint(String(tx.dato));
             tx.event_hint = ev ? { id: ev.id, name: ev.name } : null;
+            tx.ledger_hint = ledgerHints.get(tx.id) || null;
+            // En postering der siger "denne faktura ER afregnet" er et hårdere
+            // svar end enhver tekst-heuristik. Så folder vi den — også når den er
+            // stor. Det var netop store, tekstløse overførsler der fyldte listen.
+            if (tx.ledger_hint?.kind === 'settled') tx.category = 'invoice_paid';
         }
         // Tællere over ALLE kandidater — så chip-tallene er faste uafhængigt af aktivt filter.
         const cntCat = (c) => cands.filter(t => t.category === c).length;
@@ -2061,6 +2070,13 @@ router.post('/reconcile', handle(async (req, res) => {
         const led = await economicLedger.syncPayments(db, { dryRun, full: req.body?.full === true });
         result.ledger = led;
         if (led.written) paymentRhythm.invalidate();   // rytmen har nyt at lære af
+        // Og med posteringerne i hus: kobl de bankindbetalinger hvis tekst intet
+        // fakturanummer bar. Posteringen ved allerede hvilken faktura det er.
+        if (led.available) {
+            const lm = economicLedger.matchByLedgerPayment(db, { dryRun });
+            result.ledgerLinked = lm.linked;
+            result.settledNotOurs = lm.settledNotOurs;
+        }
     } catch (e) {
         if (e instanceof economicAdapter.EconomicAuthError) return res.status(502).json({ error: 'e-conomic-adgang skal genetableres', detail: e.message });
         if (e instanceof economicAdapter.EconomicRateError) return res.status(503).json({ error: 'e-conomic rate limit ramt — prøv igen senere' });
